@@ -17,7 +17,6 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { Link } from '@tanstack/react-router'
-import { flexRender, type Cell, type Table } from '@tanstack/react-table'
 import { Database } from 'lucide-react'
 import type { ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -40,6 +39,7 @@ import {
 import { Skeleton } from '@/components/ui/skeleton'
 import { getUserAvatarFallback, getUserAvatarStyle } from '@/lib/avatar'
 import { formatTimestampToDate } from '@/lib/format'
+import { type RowData, flexRender, type Cell, type Table } from '@/lib/table'
 import { cn } from '@/lib/utils'
 
 import { LOG_TYPE_ENUM } from '../constants'
@@ -61,7 +61,7 @@ const logTypeRowTint: Record<number, string> = {
   [LOG_TYPE_ENUM.REFUND]: 'console-log-refund-row',
 }
 
-interface UsageLogsMobileListProps<TData> {
+interface UsageLogsMobileListProps<TData extends RowData> {
   table: Table<TData>
   isLoading?: boolean
   emptyTitle?: string
@@ -96,7 +96,7 @@ function UsageLogsMobileSkeleton() {
   )
 }
 
-function CompactCell<TData>({
+function CompactCell<TData extends RowData>({
   cell,
   fallback = '-',
   className,
@@ -125,7 +125,7 @@ function CompactCell<TData>({
   )
 }
 
-function SummaryField<TData>({
+function SummaryField<TData extends RowData>({
   label,
   cell,
   className,
@@ -308,7 +308,7 @@ function MobileStreamTimingField({ log }: { log: UsageLog }) {
   )
 }
 
-function CommonLogsCard<TData>({
+function CommonLogsCard<TData extends RowData>({
   cells,
 }: {
   cells: Map<string, Cell<TData, unknown>>
@@ -370,7 +370,7 @@ function CommonLogsCard<TData>({
   )
 }
 
-function TaskLogsCard<TData>({
+function TaskLogsCard<TData extends RowData>({
   cells,
 }: {
   cells: Map<string, Cell<TData, unknown>>
@@ -412,7 +412,7 @@ function TaskLogsCard<TData>({
   )
 }
 
-function DrawingLogsCard<TData>({
+function DrawingLogsCard<TData extends RowData>({
   cells,
 }: {
   cells: Map<string, Cell<TData, unknown>>
@@ -460,7 +460,7 @@ function DrawingLogsCard<TData>({
   )
 }
 
-export function UsageLogsMobileList<TData>({
+export function UsageLogsMobileList<TData extends RowData>({
   table,
   isLoading = false,
   emptyTitle,

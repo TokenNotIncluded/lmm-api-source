@@ -16,7 +16,6 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import type { Row } from '@tanstack/react-table'
 import {
   Trash2,
   Edit,
@@ -53,6 +52,7 @@ import { sendToFluent } from '@/features/chat/lib/send-to-fluent'
 import { encodeChannelConnectionInfo } from '@/lib/channel-connection-info'
 import { copyToClipboard } from '@/lib/copy-to-clipboard'
 import { openResolvedExternalUrl } from '@/lib/external-navigation'
+import type { RowData, Row } from '@/lib/table'
 import { getTrustedTemplatedUrl } from '@/lib/validated-external-url'
 
 import { updateApiKeyStatus } from '../api'
@@ -83,11 +83,11 @@ const ALLOWED_CHAT_PROTOCOLS = [
   'opencat:',
 ] as const
 
-type DataTableRowActionsProps<TData> = {
+type DataTableRowActionsProps<TData extends RowData> = {
   row: Row<TData>
 }
 
-export function DataTableRowActions<TData>({
+export function DataTableRowActions<TData extends RowData>({
   row,
 }: DataTableRowActionsProps<TData>) {
   const { t } = useTranslation()

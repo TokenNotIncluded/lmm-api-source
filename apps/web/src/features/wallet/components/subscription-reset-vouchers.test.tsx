@@ -349,3 +349,63 @@ describe('subscription reset browser accessibility', () => {
     })
   }
 })
+
+test('an open voucher confirmation expires without a query, and a click before the wakeup still cannot redeem', async () => {
+  const realNow = Date.now
+  let now = 1_900_000_000_000
+  Date.now = () => now
+  const expiresAt = now / 1000 + 5
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false, staleTime: Infinity } },
+  })
+  queryClient.setQueryData(['subscription-reset-vouchers'], {
+    success: true,
+    data: [{ ...voucher, expires_at: expiresAt }],
+  })
+  let reads = 0
+  let writes = 0
+  api.get = (async () => {
+    reads++
+    throw new Error('unexpected expiry refetch')
+  }) as typeof api.get
+  api.post = (async () => {
+    writes++
+    throw new Error('expired voucher must not be sent')
+  }) as typeof api.post
+  const rendered = await renderWithQuery(
+    <SubscriptionResetVouchers />,
+    queryClient
+  )
+  try {
+    await act(async () =>
+      buttonNamed(rendered.container, 'Redeem reset')?.click()
+    )
+    const dialog = document.querySelector<HTMLElement>('[role="alertdialog"]')
+    assert.ok(dialog)
+    const confirm = buttonNamed(dialog, 'Redeem reset')
+    assert.ok(confirm)
+    now = expiresAt * 1000 - 1
+    await act(async () => window.dispatchEvent(new Event('focus')))
+    assert.equal(confirm.disabled, false)
+    now = expiresAt * 1000
+    // The deadline event has not fired yet: the handler must check fresh time.
+    await act(async () => confirm.click())
+    assert.equal(writes, 0)
+    await act(async () => document.dispatchEvent(new Event('visibilitychange')))
+    assert.equal(confirm.disabled, true)
+    assert.equal(
+      rendered.container.querySelector(
+        '[data-slot="available-reset-vouchers"] [data-voucher-id="11"]'
+      ),
+      null
+    )
+    assert.equal(
+      reads,
+      0,
+      'deadline notifications do not change query keys or refetch data'
+    )
+  } finally {
+    await unmount(rendered)
+    Date.now = realNow
+  }
+})

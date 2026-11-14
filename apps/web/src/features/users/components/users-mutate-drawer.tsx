@@ -20,7 +20,7 @@ import { zodResolver } from '@hookform/resolvers/zod'
 import { useQuery } from '@tanstack/react-query'
 import { Pencil } from 'lucide-react'
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
-import { useForm } from 'react-hook-form'
+import { useForm, useWatch } from 'react-hook-form'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 
@@ -187,14 +187,16 @@ function UsersMutateDrawerForm({
     resolver: zodResolver(userFormSchema),
     defaultValues: USER_FORM_DEFAULT_VALUES,
   })
+  const watchedQuotaCredits = useWatch({
+    control: form.control,
+    name: 'quota_credits',
+  })
+  const selectedRole = useWatch({ control: form.control, name: 'role' })
 
   // Only the current actor's successful read of this exact target can unlock writes.
   useEffect(() => {
     const controller = new AbortController()
     let active = true
-    form.reset(USER_FORM_DEFAULT_VALUES)
-    setLoadedTarget(undefined)
-    setTargetError(false)
     if (open && targetId !== undefined && actorId !== undefined) {
       void (async () => {
         try {
@@ -240,8 +242,7 @@ function UsersMutateDrawerForm({
 
   const { label: currencyLabel } = useCreditInputDisplay()
 
-  const currentQuotaRaw = form.watch('quota_credits') || 0
-  const selectedRole = form.watch('role')
+  const currentQuotaRaw = watchedQuotaCredits || 0
   const canEditAdminPermissions = currentUser?.role === ROLE.SUPER_ADMIN
   const targetIsAdmin = (selectedRole ?? currentRow?.role ?? 0) >= ROLE.ADMIN
   const targetPermissionsUnavailable =
@@ -338,9 +339,16 @@ function UsersMutateDrawerForm({
     }
   }
 
+  const reloadTarget = () => {
+    form.reset(USER_FORM_DEFAULT_VALUES)
+    setLoadedTarget(undefined)
+    setTargetError(false)
+    setTargetReload((value) => value + 1)
+  }
+
   const refreshUserData = () => {
     if (!currentRow) return
-    setTargetReload((value) => value + 1)
+    reloadTarget()
     triggerRefresh()
   }
 
@@ -384,7 +392,7 @@ function UsersMutateDrawerForm({
           <Form {...form}>
             <form
               id='user-form'
-              onSubmit={form.handleSubmit(onSubmit)}
+              onSubmit={(event) => form.handleSubmit(onSubmit)(event)}
               className={sideDrawerFormClassName(
                 'max-sm:[&_input]:min-h-11 max-sm:[&_[data-slot=select-trigger]]:min-h-11 max-sm:[&_[data-slot=select-trigger]]:w-full max-sm:[&_button:not([role=checkbox]):not([role=switch])]:min-h-11 max-sm:[&_label[for=assistant-profile-enabled]]:min-h-11 max-sm:[&_label[for=assistant-profile-enabled]]:min-w-11'
               )}
@@ -395,7 +403,7 @@ function UsersMutateDrawerForm({
                   <Button
                     type='button'
                     variant='outline'
-                    onClick={() => setTargetReload((value) => value + 1)}
+                    onClick={reloadTarget}
                   >
                     {t('Retry')}
                   </Button>

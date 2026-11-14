@@ -67,7 +67,7 @@ export function ServiceEditor({
 }) {
   // Draft-query refreshes during a partial save must not replace the credential
   // source version or reset the owner's in-progress editor session.
-  const initial = useRef(initialDetail).current
+  const [initial] = useState(initialDetail)
   const { t } = useTranslation()
   const {
     formatQuota: formatRawQuota,

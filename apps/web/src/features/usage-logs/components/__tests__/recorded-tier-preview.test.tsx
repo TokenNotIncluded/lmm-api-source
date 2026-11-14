@@ -2,15 +2,11 @@
 import assert from 'node:assert/strict'
 import { after, afterEach, test } from 'node:test'
 
-import {
-  flexRender,
-  getCoreRowModel,
-  useReactTable,
-} from '@tanstack/react-table'
 import { Window } from 'happy-dom'
 
 import en from '@/i18n/locales/en.json'
 import zh from '@/i18n/locales/zh-CN.json'
+import { flexRender, dataTableFeatures, useTable } from '@/lib/table'
 
 import { usageLogSchema, type UsageLog } from '../../data/schema'
 
@@ -96,10 +92,10 @@ function PreviewHarness({ log }: { log: UsageLog }) {
       'accessorKey' in column &&
       ['content', 'quota'].includes(String(column.accessorKey))
   )
-  const table = useReactTable({
+  const table = useTable({
     data: [log],
     columns,
-    getCoreRowModel: getCoreRowModel(),
+    features: dataTableFeatures,
   })
   return table
     .getRowModel()

@@ -46,7 +46,7 @@ import type {
 
 export type OAuthGrantSummary = {
   id: string
-  client_id: 'lmm' | 'lmm-pi'
+  client_id: 'lmm' | 'lmm-pi' | 'lmm-cc-switch'
   purpose: 'read_only' | 'normal_model' | 'honeypot_only' | string
   scopes: string[]
   budget_credits: number | null
@@ -95,7 +95,7 @@ export async function revokeAllOAuthGrants(): Promise<
 export async function getUserProfile(
   config: Pick<
     ApiRequestConfig,
-    'timeout' | 'skipBusinessError' | 'skipErrorHandler'
+    'timeout' | 'skipBusinessError' | 'skipErrorHandler' | 'signal'
   > = {}
 ): Promise<ApiResponse<UserProfile>> {
   const { user, session } = useAuthStore.getState().auth

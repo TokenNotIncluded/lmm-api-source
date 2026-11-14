@@ -327,7 +327,7 @@ test('PCR dispatch binds provider route/string IDs, immutable price/merchant and
     api.defaults.adapter = previous
   }
 })
-for (const confirmedBeforeLoss of [false, true])
+for (const confirmedBeforeLoss of [false, true]) {
   test(`cash-only UI recovery with prior confirmed=${confirmedBeforeLoss}; mount RO, wallet buy/renew hidden`, async () => {
     login()
     dom.sessionStorage.clear()
@@ -343,16 +343,18 @@ for (const confirmedBeforeLoss of [false, true])
     let hosted: typeof checkout | null = null
     api.defaults.adapter = async (config) => {
       const url = config.url ?? ''
-      if (url.endsWith('/pancake-prices'))
+      if (url.endsWith('/pancake-prices')) {
         return response(config, { prices: [price] })
+      }
       if (url.endsWith('/epay-prices')) return response(config, { prices: [] })
-      if (url.endsWith('/plans'))
+      if (url.endsWith('/plans')) {
         return response(config, {
           contract: 'core.subscriptions.v1',
           plans: [plan],
           payment_methods: [],
         })
-      if (url.endsWith('/purchases'))
+      }
+      if (url.endsWith('/purchases')) {
         return response(config, {
           contract: 'core.subscriptions.v1',
           purchases: [
@@ -371,6 +373,7 @@ for (const confirmedBeforeLoss of [false, true])
             },
           ],
         })
+      }
       assert.ok(
         url.startsWith('/api/user/payments/subscriptions/pancake/orders')
       )
@@ -393,11 +396,12 @@ for (const confirmedBeforeLoss of [false, true])
         assert.ok(url.endsWith(`/${id}/confirm`))
         assert.equal(recovery.confirm_attempted, true)
         confirms++
-        if (confirms !== 1 || confirmedBeforeLoss)
+        if (confirms !== 1 || confirmedBeforeLoss) {
           raw = {
             ...raw,
             order: { ...raw.order, confirmed_at_unix: '1700000000' },
           }
+        }
         if (confirms === 1) throw new Error('checkout creation ACK lost')
         hosted = checkout
         return response(config, { order: raw, checkout: hosted })
@@ -497,3 +501,4 @@ for (const confirmedBeforeLoss of [false, true])
       api.defaults.adapter = previous
     }
   })
+}

@@ -183,7 +183,7 @@ async function renderPage() {
         },
       }
     }
-    if (url === '/api/open-source-bounties/projects/41') {
+    if (url === '/api/bounties/projects/41') {
       return { data: { success: true, data: detail } }
     }
     return { data: { success: true, data: [] } }

@@ -16,11 +16,11 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import type { Table as TanstackTable } from '@tanstack/react-table'
+import type { RowData, Table as TanstackTable } from '@/lib/table'
 
 import { isContentSizedColumn } from './content-sized-columns'
 
-export function DataTableColgroup<TData>({
+export function DataTableColgroup<TData extends RowData>({
   table,
 }: {
   table: TanstackTable<TData>
@@ -47,7 +47,7 @@ export function DataTableColgroup<TData>({
   )
 }
 
-function getColumnWidth<TData>(
+function getColumnWidth<TData extends RowData>(
   table: TanstackTable<TData>,
   columnId: string,
   columnSize: number,

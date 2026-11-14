@@ -9,6 +9,7 @@ mod channel_observations;
 mod channel_projection;
 mod checkins;
 mod federated_auth;
+mod managed_applications;
 mod operations;
 mod product_features;
 mod telegram;
@@ -30,6 +31,7 @@ pub struct RequiredCapabilities {
     pub tool_market: bool,
     pub web_identity: bool,
     pub oauth2: bool,
+    pub managed_applications: bool,
     pub market_oauth: bool,
     pub wallet: bool,
     pub bounties: bool,
@@ -316,6 +318,7 @@ pub(crate) async fn check_connection(
     channel_projection::check(connection, required.models).await?;
     channel_observations::check(connection, required.models).await?;
     assistant_agent::check(connection, required.assistant_agent).await?;
+    managed_applications::check(connection, required.managed_applications).await?;
 
     // Identity is always mounted when the runtime has a database. Normal identity
     // operations must work; unsupported optional modules need no extra grants.

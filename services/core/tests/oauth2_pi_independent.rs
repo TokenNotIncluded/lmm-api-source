@@ -10,6 +10,10 @@ use std::{sync::atomic::Ordering, time::Duration};
 #[path = "common/model_fixture.rs"]
 mod model_fixture;
 #[path = "common/pi_oauth_fixture.rs"]
+#[expect(
+    dead_code,
+    reason = "This Pi test binary uses a subset of the shared managed OAuth fixture."
+)]
 mod pi;
 #[allow(dead_code)]
 #[path = "common/runtime.rs"]

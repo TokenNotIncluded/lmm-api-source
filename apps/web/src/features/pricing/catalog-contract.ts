@@ -124,8 +124,9 @@ export const nativeImageVariantSchema = z
       credits === null ||
       variant.rounding !== 'ceil_total_credits' ||
       variant.reservation_scope === 'per_operation'
-    )
+    ) {
       return false
+    }
     return (
       BigInt(micros.numerator) * 500_000n * BigInt(credits.denominator) ===
       BigInt(credits.numerator) * 1_000_000n * BigInt(micros.denominator)

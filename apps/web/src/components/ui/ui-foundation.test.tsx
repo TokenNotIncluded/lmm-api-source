@@ -254,7 +254,7 @@ test('migration removes legacy runtimes and keeps the preview out of production'
   const pkg = JSON.parse(
     readFileSync(new URL('../../../package.json', import.meta.url), 'utf8')
   )
-  assert.equal(pkg.dependencies['@base-ui/react'], '1.8.0')
+  assert.equal(pkg.dependencies['@base-ui/react'], '1.9.0')
   assert.equal(pkg.dependencies.vaul, undefined)
   assert.equal(pkg.dependencies['input-otp'], undefined)
   const main = readFileSync(new URL('../../main.tsx', import.meta.url), 'utf8')

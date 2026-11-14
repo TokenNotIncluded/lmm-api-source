@@ -29,7 +29,7 @@ import {
   RefreshCw,
   TriangleAlert,
 } from 'lucide-react'
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
@@ -65,6 +65,11 @@ import { useStatusDetection } from './hooks/use-status-detection'
 import { sortStatusGroups } from './lib/aggregate'
 import type { StatusGroup, StatusSort } from './types'
 
+type TFunction = {
+  (key: string): string
+  (key: string, options: Record<string, unknown>): string
+}
+
 const route = getRouteApi('/status/')
 const STATUS_HOUR_OPTIONS = [24, 72, 168, 720] as const
 
@@ -72,7 +77,7 @@ function formatStatusTimestamp(
   timestamp: number | null,
   hours: number,
   locale: string,
-  t: (key: string, options?: Record<string, unknown>) => string
+  t: TFunction
 ) {
   if (timestamp === null) {
     return t('Performance window: last {{hours}} hours', { hours })
@@ -103,19 +108,13 @@ function statusLabel(t: (key: string) => string, level: SuccessRateLevel) {
   }
 }
 
-function statusIcon(level: SuccessRateLevel) {
-  switch (level) {
-    case 'excellent':
-    case 'good':
-      return CircleCheck
-    case 'warning':
-      return TriangleAlert
-    case 'critical':
-      return CircleX
-    default:
-      return CircleHelp
-  }
-}
+const STATUS_ICONS = {
+  excellent: CircleCheck,
+  good: CircleCheck,
+  warning: TriangleAlert,
+  critical: CircleX,
+  unknown: CircleHelp,
+} satisfies Record<SuccessRateLevel, typeof CircleCheck>
 
 function SummaryMetric(props: {
   label: string
@@ -232,7 +231,7 @@ function GroupStatusCard(props: {
   const level = props.partial
     ? 'unknown'
     : getSuccessRateLevel(props.group.successRate)
-  const Icon = statusIcon(level)
+  const Icon = STATUS_ICONS[level]
 
   return (
     <Card
@@ -451,9 +450,13 @@ export function StatusDetection() {
       : status.latestTimestamp < 1_000_000_000_000
         ? status.latestTimestamp * 1_000
         : status.latestTimestamp
+  const [now, setNow] = useState(Date.now)
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), 60_000)
+    return () => clearInterval(timer)
+  }, [])
   const dataMayBeDelayed =
-    latestTimestampMs !== null &&
-    Date.now() - latestTimestampMs > 6 * 60 * 60 * 1_000
+    latestTimestampMs !== null && now - latestTimestampMs > 6 * 60 * 60 * 1_000
 
   return (
     <ForgePublicShell>

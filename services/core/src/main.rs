@@ -455,6 +455,7 @@ async fn run_core() -> Result<(), Box<dyn Error>> {
                 console: console_enabled,
                 web_identity: legacy_config.is_some(),
                 oauth2: config::oauth2_configured(),
+                managed_applications: config::managed_applications_configured(),
                 market_oauth: config::market_oauth_configured(),
                 wallet: config::wallet_configured(),
                 bounties: config::bounties_configured(),
@@ -555,9 +556,7 @@ async fn run_core() -> Result<(), Box<dyn Error>> {
             }
         });
         if let Some(issuer) = &oauth2 {
-            if issuer.profile().pi_budget_limit().is_some() && model_gateway.is_none() {
-                return Err("Pi delegation requires actual model gateway".into());
-            }
+            require_oauth_model_gateway(issuer.profile(), model_gateway.is_some())?;
             if let Some(gateway) = &mut model_gateway {
                 *gateway = gateway.clone().with_oauth2_issuer(issuer.clone());
             }
@@ -1047,9 +1046,47 @@ async fn run_core() -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
+fn require_oauth_model_gateway(
+    profile: &lmm_core::identity::grants::LmmProfile,
+    available: bool,
+) -> Result<(), &'static str> {
+    if !available {
+        if profile.pi_budget_limit().is_some() {
+            return Err("Pi delegation requires actual model gateway");
+        }
+        if profile.model_budget_limit("lmm-cc-switch").is_some() {
+            return Err("managed applications require actual model gateway");
+        }
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod check_db_parser_tests {
     use super::*;
+    #[test]
+    fn oauth_model_clients_fail_closed_without_an_actual_gateway() {
+        let profile = || {
+            lmm_core::identity::grants::LmmProfile::new(
+                "https://startup.example.test",
+                vec!["allowed".into()],
+            )
+            .unwrap()
+        };
+        assert!(require_oauth_model_gateway(&profile(), false).is_ok());
+        for profile in [
+            profile().with_pi_budget_limit(100).unwrap(),
+            profile().with_managed_budget_limit(100).unwrap(),
+            profile()
+                .with_pi_budget_limit(100)
+                .unwrap()
+                .with_managed_budget_limit(100)
+                .unwrap(),
+        ] {
+            assert!(require_oauth_model_gateway(&profile, false).is_err());
+            assert!(require_oauth_model_gateway(&profile, true).is_ok());
+        }
+    }
     fn args(values: &[&str]) -> Vec<OsString> {
         values.iter().map(OsString::from).collect()
     }

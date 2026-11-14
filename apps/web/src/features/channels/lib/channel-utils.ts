@@ -34,6 +34,11 @@ import {
   type ChannelOtherSettings,
 } from '../types'
 
+type TFunction = {
+  (key: string): string
+  (key: string, options: Record<string, unknown>): string
+}
+
 // ============================================================================
 // Channel Type Utilities
 // ============================================================================
@@ -371,7 +376,6 @@ export function getBalanceVariant(
 // ============================================================================
 
 /** Optional i18n: (key, options) => string, e.g. useTranslation().t */
-type TFunction = (key: string, options?: { value?: number | string }) => string
 
 /**
  * Format response time in milliseconds to human-readable.

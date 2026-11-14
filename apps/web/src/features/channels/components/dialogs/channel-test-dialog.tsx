@@ -17,11 +17,6 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { useQueryClient } from '@tanstack/react-query'
-import type {
-  ColumnDef,
-  RowSelectionState,
-  Table as TanStackTable,
-} from '@tanstack/react-table'
 import {
   Check,
   CheckCircle2,
@@ -87,6 +82,11 @@ import {
 import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard'
 import { useIsMobile } from '@/hooks/use-mobile'
 import { openExternalUrl } from '@/lib/external-navigation'
+import type {
+  ColumnDef,
+  RowSelectionState,
+  Table as TanStackTable,
+} from '@/lib/table'
 import { validatedExternalUrl } from '@/lib/validated-external-url'
 
 import { updateChannel } from '../../api'

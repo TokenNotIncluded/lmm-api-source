@@ -32,7 +32,7 @@ import {
 import { HugeiconsIcon } from '@hugeicons/react'
 import { useQueryClient } from '@tanstack/react-query'
 import { type FormEvent, useState } from 'react'
-import { Controller, useForm } from 'react-hook-form'
+import { Controller, useForm, useWatch } from 'react-hook-form'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 
@@ -79,7 +79,7 @@ import { supportTicketSchema, type SupportTicketForm } from './validation'
 const CATEGORY_META = [
   {
     value: 'bounty_dispute',
-    labelKey: 'Open-source bounty dispute',
+    labelKey: 'Bounty dispute',
     descriptionKey:
       'Request third-party review of a bounty payment or acceptance disagreement.',
     icon: UserShield01Icon,
@@ -173,7 +173,6 @@ export function SupportTicket({
     register,
     handleSubmit,
     getValues,
-    watch,
     trigger,
     formState: { errors },
   } = useForm<SupportTicketForm>({
@@ -187,7 +186,7 @@ export function SupportTicket({
       details: '',
     },
   })
-  const selectedCategory = watch('category')
+  const selectedCategory = useWatch({ control, name: 'category' })
 
   const labels: SupportTicketLabels = {
     ticketType: t('Ticket type'),

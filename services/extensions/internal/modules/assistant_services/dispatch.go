@@ -135,7 +135,7 @@ func (s *Service) navigate(ctx context.Context, in assistant.AgentInvocation, p 
 		}
 		return result(in.Call.OperationID, assistant.AgentToolSucceeded, value, "service:"+in.Call.OperationID)
 	}
-	paths := map[string]string{"home": "/", "pricing": "/pricing", "wallet": "/wallet", "keys": "/keys", "models": "/models", "profile": "/profile", "support": "/support", "open-source-bounties": "/open-source-bounties", "store": "/store", "tool-market": "/tool-market", "users": "/users"}
+	paths := map[string]string{"home": "/", "pricing": "/pricing", "wallet": "/wallet", "keys": "/keys", "models": "/models", "profile": "/profile", "support": "/support", "bounties": "/bounties", "open-source-bounties": "/bounties", "store": "/store", "tool-market": "/tool-market", "users": "/users"}
 	path, ok := paths[input.Page]
 	query := map[string]any{}
 	if input.Page == "models" && p.Level < 5 {

@@ -252,7 +252,7 @@ test('bounty draft submit keeps its literal raw reward after USD to CNY display 
       button('Save draft').click()
       await flush()
     })
-    assert.equal(rendered.requests[0]?.url, '/api/open-source-bounties')
+    assert.equal(rendered.requests[0]?.url, '/api/bounties')
     assert.equal(rendered.requests[0]?.data.reward_quota, 625000)
     assert.equal(rendered.requests[0]?.data.reward_slots, 1)
   } finally {

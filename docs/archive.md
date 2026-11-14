@@ -186,3 +186,7 @@
 | [oauth-grant-management.md](https://github.com/TokenNotIncluded/lmm-api-source/blob/8e92080aa3e9cb180103e73cb42e78b87621a31e/docs/oauth-grant-management.md) | [core-identity.md#浏览器授权管理](core-identity.md#浏览器授权管理) |
 | [oidc-settings-save.md](https://github.com/TokenNotIncluded/lmm-api-source/blob/8e92080aa3e9cb180103e73cb42e78b87621a31e/docs/oidc-settings-save.md) | [core-identity.md#oidc-设置保存](core-identity.md#oidc-设置保存) |
 | [account-appeals.md](https://github.com/TokenNotIncluded/lmm-api-source/blob/8e92080aa3e9cb180103e73cb42e78b87621a31e/docs/account-appeals.md) | [core-identity.md#账号停用与申诉](core-identity.md#账号停用与申诉) |
+
+## 过期状态快照（2026-11-13）
+
+- [Core cutover preflight 的 49 组件 WIP 合同与 2026-10-24 ArchDmit 记录](https://github.com/TokenNotIncluded/lmm-api-source/blob/5696aafe8bba500265e3fd1f3617dfffc25bbe44/docs/core-cutover-preflight.md#local-wip-fresh-install-contract-2026-11-04)：只证明对应日期的组件合同和主机观察，不描述当前 66 组件演练，也不构成切流批准。当前状态与阻塞只看[新架构进度](progress.md)，稳定预检规则见[当前预检文档](core-cutover-preflight.md)。

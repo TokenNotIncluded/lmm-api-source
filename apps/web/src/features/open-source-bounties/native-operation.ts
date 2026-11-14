@@ -1,4 +1,7 @@
-// Copyright (C) 2026 LIghtJUNction. AGPL-3.0-or-later.
+/*
+Copyright (C) 2026 LIghtJUNction
+SPDX-License-Identifier: AGPL-3.0-or-later
+*/
 import { z } from 'zod'
 
 const operationId = z.string().regex(/^[A-Za-z0-9_.:-]{1,128}$/)

@@ -2,6 +2,14 @@
 import { z } from 'zod'
 
 import { validateExternalBrowserAuthorizationUrl } from '@/features/auth/lib/external-oauth'
+import {
+  federatedIdSchema,
+  federatedProviders,
+  federatedStateSchema,
+  consumeFederatedCeremonyForProvider,
+  saveFederatedCeremony,
+  validateFederatedStart,
+} from '@/features/auth/lib/federated-oauth'
 import { validateGoogleBrowserAuthorizationUrl } from '@/features/auth/lib/google-oauth'
 import type { SystemStatus } from '@/features/auth/types'
 import { api } from '@/lib/api'
@@ -22,42 +30,86 @@ const revision = z
   .regex(/^(0|[1-9][0-9]{0,18})$/)
   .pipe(z.string().refine((value) => BigInt(value) <= 9223372036854775807n))
 const provider = z.enum(['google', 'github', 'linuxdo', 'discord'])
-export type AccountProvider = z.infer<typeof provider>
-export const ACCOUNT_PROVIDER_ISSUERS: Record<AccountProvider, string> = {
+export type FixedAccountProvider = z.infer<typeof provider>
+export type AccountProvider = FixedAccountProvider | `federated:${string}`
+export const ACCOUNT_PROVIDER_ISSUERS: Record<FixedAccountProvider, string> = {
   google: 'https://accounts.google.com',
   github: 'https://github.com',
   linuxdo: 'https://connect.linux.do',
   discord: 'https://discord.com',
 }
-const linkSchema = z
+const linkFields = {
+  issuer: z.string().min(1).max(512),
+  subject: z.string().min(1).max(65536),
+  revision,
+  active: z.boolean(),
+}
+const linkSchema = z.union([
+  z
+    .object({ ...linkFields, subject: z.string().min(1).max(512) })
+    .strict()
+    .refine((row) => !row.issuer.startsWith('urn:lmm:federated:')),
+  z
+    .object({
+      ...linkFields,
+      provider_id: federatedIdSchema,
+      slug: z.string().regex(/^[a-z0-9][a-z0-9-]{0,63}$/),
+      name: z.string().min(1),
+      kind: z.enum(['wechat', 'oidc', 'custom_oauth']),
+      available: z.boolean(),
+    })
+    .strict()
+    .refine((row) => row.issuer === `urn:lmm:federated:${row.provider_id}`),
+])
+const fixedDescriptor = z
+  .object({ provider, issuer: z.string(), can_bind: z.boolean() })
+  .strict()
+  .refine((row) => row.issuer === ACCOUNT_PROVIDER_ISSUERS[row.provider])
+const federatedDescriptor = z
   .object({
-    issuer: z.string().min(1).max(512),
-    subject: z.string().min(1).max(512),
-    revision,
-    active: z.boolean(),
+    provider: z.string().regex(/^federated:[1-9][0-9]{0,18}$/),
+    provider_id: federatedIdSchema,
+    issuer: z.string(),
+    can_bind: z.boolean(),
+    slug: z.string().regex(/^[a-z0-9][a-z0-9-]{0,63}$/),
+    name: z.string().min(1),
+    kind: z.enum(['wechat', 'oidc', 'custom_oauth']),
+    icon: z.string(),
+    qr_code_url: z.string(),
+    native_federated: z.literal(true),
   })
   .strict()
+  .refine(
+    (row) =>
+      row.provider === `federated:${row.provider_id}` &&
+      row.issuer === `urn:lmm:federated:${row.provider_id}`
+  )
 export const accountLinksSchema = z
   .object({
     contract: z.literal('core.account-links.v1'),
     expected_auth_version: version,
-    links: z.array(linkSchema).max(101),
+    links: z.array(linkSchema).max(1101),
     providers: z
-      .array(
-        z
-          .object({ provider, issuer: z.string(), can_bind: z.boolean() })
-          .strict()
-      )
-      .length(4)
+      .array(z.union([fixedDescriptor, federatedDescriptor]))
+      .min(4)
+      .max(1004)
       .refine(
         (rows) =>
-          new Set(rows.map((row) => row.provider)).size === 4 &&
-          rows.every(
-            (row) => row.issuer === ACCOUNT_PROVIDER_ISSUERS[row.provider]
-          )
+          new Set(rows.map((row) => row.provider)).size === rows.length &&
+          Object.keys(ACCOUNT_PROVIDER_ISSUERS).every((fixed) =>
+            rows.some((row) => row.provider === fixed)
+          ) &&
+          new Set(
+            rows
+              .filter((row) => 'native_federated' in row)
+              .map((row) => row.slug)
+          ).size === rows.filter((row) => 'native_federated' in row).length
       ),
   })
   .strict()
+export type AccountProviderDescriptor = z.infer<
+  typeof accountLinksSchema
+>['providers'][number]
 const bindStartSchema = z
   .object({
     authorization_url: z.string().min(1),
@@ -80,10 +132,23 @@ export function assertAccountLinkScope(scope: AccountLinkScope) {
     throw new Error('Session expired!')
   }
 }
+function bindingFailure(value: unknown) {
+  const envelope = z
+    .object({
+      code: z.string().optional(),
+      error: z.object({ code: z.string().optional() }).optional(),
+    })
+    .safeParse(value)
+  return Object.assign(new Error('Account binding failed'), {
+    code: envelope.success
+      ? (envelope.data.code ?? envelope.data.error?.code)
+      : undefined,
+  })
+}
 function commitRotation(response: unknown, scope: AccountLinkScope) {
   assertAccountLinkScope(scope)
   const result = response as { success?: unknown; data?: unknown }
-  if (result.success !== true) throw new Error('Account binding failed')
+  if (result.success !== true) throw bindingFailure(response)
   if (
     !isAuthBundle(result.data) ||
     result.data.user.id !== scope.userId ||
@@ -102,6 +167,7 @@ export async function readAccountLinks(
     authScope: scope,
     skipAuthRefresh: true,
     skipErrorHandler: true,
+    skipBusinessError: true,
     timeout: 10000,
   })
   assertAccountLinkScope(scope)
@@ -118,22 +184,42 @@ export async function beginAccountBinding(
   origin: string
 ) {
   assertAccountLinkScope(scope)
-  provider.parse(selected)
+  const native = selected.startsWith('federated:')
+  if (!native) provider.parse(selected)
   version.parse(expected)
+  const configured = native
+    ? federatedProviders(status).find(
+        (row) => `federated:${row.id}` === selected
+      )
+    : undefined
+  if (native && !configured) throw new Error('Account binding failed')
   return withAuthenticatedCookieWrite(async (config) => {
     assertAccountLinkScope(scope)
     const response = await api.post(
       `/api/user/account-links/${selected}/begin`,
       { expected_auth_version: expected },
-      { ...config, skipErrorHandler: true }
+      { ...config, skipErrorHandler: true, skipBusinessError: true }
     )
     assertAccountLinkScope(scope)
     if (response.data?.success !== true) {
+      throw bindingFailure(response.data)
+    }
+    if (configured) {
+      const result = validateFederatedStart(
+        configured,
+        response.data.data,
+        origin
+      )
+      saveFederatedCeremony(window.sessionStorage, configured, result, 'bind')
+      return result
+    }
+    const fixed = provider.parse(selected)
+    const result = bindStartSchema.parse(response.data.data)
+    if (result.expires_at * 1000 <= Date.now()) {
       throw new Error('Account binding failed')
     }
-    const result = bindStartSchema.parse(response.data.data)
     const authorizationUrl =
-      selected === 'google'
+      fixed === 'google'
         ? validateGoogleBrowserAuthorizationUrl(
             result.authorization_url,
             status.google_client_id,
@@ -142,7 +228,7 @@ export async function beginAccountBinding(
             status.google_browser_callback
           )
         : validateExternalBrowserAuthorizationUrl({
-            provider: selected,
+            provider: fixed,
             value: result.authorization_url,
             clientId: status[`${selected}_client_id`],
             origin,
@@ -159,16 +245,28 @@ export async function finishAccountBinding(
   input: { state: string; code: string; iss?: string }
 ) {
   assertAccountLinkScope(scope)
-  provider.parse(selected)
+  const native = selected.startsWith('federated:')
+  const fixed = native ? undefined : provider.parse(selected)
   if (
-    !/^lmmo_[a-f0-9]{64}$/.test(input.state) ||
+    !(native
+      ? federatedStateSchema.safeParse(input.state).success
+      : /^lmmo_[a-f0-9]{64}$/.test(input.state)) ||
     !input.code ||
     input.code.length > 4096 ||
-    (input.iss !== undefined &&
-      input.iss !== ACCOUNT_PROVIDER_ISSUERS[selected]) ||
+    (fixed !== undefined &&
+      input.iss !== undefined &&
+      input.iss !== ACCOUNT_PROVIDER_ISSUERS[fixed]) ||
     (selected === 'discord' && input.iss !== ACCOUNT_PROVIDER_ISSUERS[selected])
   ) {
     throw new Error('Account binding failed')
+  }
+  if (native) {
+    consumeFederatedCeremonyForProvider(
+      window.sessionStorage,
+      input.state,
+      selected.slice('federated:'.length),
+      'bind'
+    )
   }
   return withAuthenticatedCookieWrite(async (config) => {
     assertAccountLinkScope(scope)
@@ -178,6 +276,7 @@ export async function finishAccountBinding(
       {
         ...config,
         skipErrorHandler: true,
+        skipBusinessError: true,
       }
     )
     commitRotation(response.data, scope)
@@ -202,7 +301,7 @@ export async function unlinkAccount(
         expected_revision: link.revision,
         expected_auth_version: expected,
       },
-      { ...config, skipErrorHandler: true }
+      { ...config, skipErrorHandler: true, skipBusinessError: true }
     )
     commitRotation(response.data, scope)
   })

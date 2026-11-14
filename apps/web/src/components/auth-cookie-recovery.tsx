@@ -6,6 +6,7 @@ import { useTranslation } from 'react-i18next'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import {
+  authCookieCoordinationMessage,
   authCookieRecoveryMessage,
   authCookieStorageMessage,
   getAuthCookieBlockedState,
@@ -59,7 +60,9 @@ export function AuthCookieRecovery({
           {t(
             state === 'uncertain'
               ? authCookieRecoveryMessage
-              : authCookieStorageMessage
+              : state === 'coordination_unavailable'
+                ? authCookieCoordinationMessage
+                : authCookieStorageMessage
           )}
         </p>
         {ended ? (

@@ -432,23 +432,21 @@ export const accountTools: WebMcpToolFactory = ({ router }) => [
       }
     },
   },
-  ...NAVIGATION.map(
-    ([name, title, path, permission]): ModelContextTool => ({
-      name: `lmm_account_open_${name}`,
-      title,
-      description: `Open ${path}. ${permission === 'root' ? 'Requires a root administrator.' : permission === 'admin' ? 'Requires an administrator.' : 'Requires a signed-in account.'} Navigation only; no account, payment or subscription changes.`,
-      inputSchema: EMPTY_INPUT_SCHEMA,
-      annotations: { readOnlyHint: true },
-      execute: async (_, { signal }) => {
-        const user =
-          permission === 'signed-in' ? requireSignedIn() : requireAdmin()
-        if (permission === 'root' && user.role < ROLE.SUPER_ADMIN) {
-          throw new Error('This page requires a root administrator account')
-        }
-        ensureNotAborted(signal)
-        await router.navigate({ to: path })
-        return { path }
-      },
-    })
-  ),
+  ...NAVIGATION.map(([name, title, path, permission]): ModelContextTool => ({
+    name: `lmm_account_open_${name}`,
+    title,
+    description: `Open ${path}. ${permission === 'root' ? 'Requires a root administrator.' : permission === 'admin' ? 'Requires an administrator.' : 'Requires a signed-in account.'} Navigation only; no account, payment or subscription changes.`,
+    inputSchema: EMPTY_INPUT_SCHEMA,
+    annotations: { readOnlyHint: true },
+    execute: async (_, { signal }) => {
+      const user =
+        permission === 'signed-in' ? requireSignedIn() : requireAdmin()
+      if (permission === 'root' && user.role < ROLE.SUPER_ADMIN) {
+        throw new Error('This page requires a root administrator account')
+      }
+      ensureNotAborted(signal)
+      await router.navigate({ to: path })
+      return { path }
+    },
+  })),
 ]

@@ -187,7 +187,7 @@ export function PublicScriptsPanel({
   const { rootUrl, loading } = useApiBaseUrl()
   const [copied, setCopied] = useState<string | null>(null)
   const [picked, setPicked] = useState<Platform | null>(null)
-  const detected = useMemo(detectPlatform, [])
+  const [detected] = useState(detectPlatform)
   const platform: Platform = picked ?? detected
   const menus = [
     platform === 'windows' ? 'menu.ps1' : 'menu.sh',

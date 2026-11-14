@@ -38,10 +38,14 @@ import {
   setDevelopmentAuthRefreshAdapter,
 } from '@/lib/auth-session'
 import { useAuthStore, type AuthBundle } from '@/stores/auth-store'
+import { installSupportedAuthBrowser } from '@/test-support/supported-auth-browser'
 
 import { api } from './http-client'
 import { createQueryRetry } from './query-retry'
 import { isRateLimitedError } from './request-rate-limit'
+
+// Normal supported browser; install after this fixture replaces its globals.
+installSupportedAuthBrowser()
 
 const originalAPIAdapter = api.defaults.adapter
 

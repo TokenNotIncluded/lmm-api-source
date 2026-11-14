@@ -16,7 +16,6 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import type { Row, Table } from '@tanstack/react-table'
 import { Database } from 'lucide-react'
 /*
 Copyright (C) 2023-2026 QuantumNous
@@ -47,12 +46,13 @@ import {
   EmptyTitle,
 } from '@/components/ui/empty'
 import { Skeleton } from '@/components/ui/skeleton'
+import type { RowData, Row, Table } from '@/lib/table'
 import { cn } from '@/lib/utils'
 
 import { tableHasCompactMeta } from './card-cell-utils'
 import { CardRowContent } from './card-row-content'
 
-interface MobileCardListProps<TData> {
+interface MobileCardListProps<TData extends RowData> {
   table: Table<TData>
   isLoading?: boolean
   emptyTitle?: string
@@ -113,7 +113,9 @@ function FallbackListSkeleton() {
  * {@link CardRowContent}; see `card-row-content.tsx` for the column-meta
  * extensions (`mobileTitle`, `mobileBadge`, `mobileHidden`).
  */
-export function MobileCardList<TData>(props: MobileCardListProps<TData>) {
+export function MobileCardList<TData extends RowData>(
+  props: MobileCardListProps<TData>
+) {
   const {
     table,
     isLoading = false,

@@ -18,8 +18,14 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useQuery } from '@tanstack/react-query'
-import { type FormEvent, useEffect, useState } from 'react'
-import { useForm } from 'react-hook-form'
+import {
+  type Dispatch,
+  type FormEvent,
+  type SetStateAction,
+  useEffect,
+  useState,
+} from 'react'
+import { useForm, useWatch } from 'react-hook-form'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 
@@ -76,19 +82,36 @@ type RedemptionsMutateDrawerProps = {
   currentRow?: Redemption
 }
 
-export function RedemptionsMutateDrawer({
+export function RedemptionsMutateDrawer(props: RedemptionsMutateDrawerProps) {
+  const { i18n } = useTranslation()
+  const [isSubmitting, setIsSubmitting] = useState(false)
+  return (
+    <RedemptionsMutateDrawerForm
+      key={`${props.open}:${props.currentRow?.id ?? 'create'}:${i18n.language}`}
+      {...props}
+      isSubmitting={isSubmitting}
+      setIsSubmitting={setIsSubmitting}
+    />
+  )
+}
+
+function RedemptionsMutateDrawerForm({
   open,
   onOpenChange,
   currentRow,
-}: RedemptionsMutateDrawerProps) {
+  isSubmitting,
+  setIsSubmitting,
+}: RedemptionsMutateDrawerProps & {
+  isSubmitting: boolean
+  setIsSubmitting: Dispatch<SetStateAction<boolean>>
+}) {
   const { t } = useTranslation()
   const isUpdate = !!currentRow
   const redemptionId = currentRow?.id
   const { triggerRefresh } = useRedemptions()
-  const [isSubmitting, setIsSubmitting] = useState(false)
   const [redemptionLoadState, setRedemptionLoadState] = useState<
     'idle' | 'loading' | 'ready' | 'error'
-  >('idle')
+  >(!open ? 'idle' : isUpdate ? 'loading' : 'ready')
   const [loadedRedemption, setLoadedRedemption] = useState<Redemption | null>(
     null
   )
@@ -97,7 +120,7 @@ export function RedemptionsMutateDrawer({
     resolver: zodResolver(getRedemptionFormSchema(t)),
     defaultValues: REDEMPTION_FORM_DEFAULT_VALUES,
   })
-  const rewardType = form.watch('reward_type')
+  const rewardType = useWatch({ control: form.control, name: 'reward_type' })
   const plansQuery = useQuery({
     queryKey: ['subscription-plans', 'admin', 'redemption-reward'],
     queryFn: () => getAdminPlans(true),
@@ -106,24 +129,9 @@ export function RedemptionsMutateDrawer({
   const plans = plansQuery.data?.data ?? []
 
   useEffect(() => {
-    if (!open) {
-      setRedemptionLoadState('idle')
-      setLoadedRedemption(null)
-      return
-    }
-
-    if (!isUpdate || redemptionId === undefined) {
-      form.reset(REDEMPTION_FORM_DEFAULT_VALUES)
-      setRedemptionLoadState('ready')
-      setLoadedRedemption(null)
-      return
-    }
+    if (!open || !isUpdate || redemptionId === undefined) return
 
     let ignoreResult = false
-    form.reset(REDEMPTION_FORM_DEFAULT_VALUES)
-    setRedemptionLoadState('loading')
-    setLoadedRedemption(null)
-
     void getRedemption(redemptionId)
       .then((result) => {
         if (ignoreResult) return

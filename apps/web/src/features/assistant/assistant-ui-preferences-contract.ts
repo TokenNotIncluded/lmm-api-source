@@ -18,7 +18,9 @@ export const UI_PREFERENCE_OPTIONS = {
 } as const
 
 export type UIPreferences = {
-  [K in keyof typeof UI_PREFERENCE_OPTIONS]: (typeof UI_PREFERENCE_OPTIONS)[K][number]
+  [
+    K in keyof typeof UI_PREFERENCE_OPTIONS
+  ]: (typeof UI_PREFERENCE_OPTIONS)[K][number]
 }
 export type UIPreferencePatch = Partial<UIPreferences>
 export type AssistantUIPreferenceAction = {

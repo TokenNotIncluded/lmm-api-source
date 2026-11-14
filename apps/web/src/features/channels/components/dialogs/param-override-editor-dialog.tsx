@@ -29,7 +29,6 @@ import {
   type DragEvent,
   type KeyboardEvent,
   useCallback,
-  useEffect,
   useMemo,
   useState,
 } from 'react'
@@ -59,6 +58,11 @@ import { Switch } from '@/components/ui/switch'
 import { Textarea } from '@/components/ui/textarea'
 import { createCliHeaderTemplate } from '@/lib/cli-header-templates'
 import { cn } from '@/lib/utils'
+
+type TFunction = {
+  (key: string): string
+  (key: string, options: Record<string, unknown>): string
+}
 
 // ---------------------------------------------------------------------------
 // Types
@@ -872,7 +876,7 @@ const buildConditionPayload = (
 
 const validateOperations = (
   operations: ParamOverrideOperation[],
-  t: (key: string, options?: Record<string, unknown>) => string
+  t: TFunction
 ): string => {
   for (let i = 0; i < operations.length; i++) {
     const op = operations[i]
@@ -1027,7 +1031,7 @@ const parseInitialState = (rawValue: string): EditorState => {
 const buildOperationsJson = (
   sourceOperations: ParamOverrideOperation[],
   options: { validate: boolean },
-  t: (key: string, options?: Record<string, unknown>) => string
+  t: TFunction
 ): string => {
   const filteredOps = sourceOperations.filter((o) => !isOperationBlank(o))
   if (filteredOps.length === 0) return ''
@@ -1090,7 +1094,7 @@ export function ParamOverrideEditorDialog(
   const [jsonText, setJsonText] = useState('')
   const [jsonError, setJsonError] = useState('')
   const [operationSearch, setOperationSearch] = useState('')
-  const [selectedOperationId, setSelectedOperationId] = useState('')
+  const [requestedOperationId, setSelectedOperationId] = useState('')
   const [expandedConditions, setExpandedConditions] = useState<
     Record<string, boolean>
   >({})
@@ -1102,39 +1106,39 @@ export function ParamOverrideEditorDialog(
   const [templatePresetKey, setTemplatePresetKey] =
     useState('operations_default')
 
-  // Initialize state when dialog opens
-  useEffect(() => {
-    if (!props.open) return
-    const state = parseInitialState(props.value)
-    setEditMode(state.editMode)
-    setVisualMode(state.visualMode)
-    setLegacyValue(state.legacyValue)
-    setOperations(state.operations)
-    setJsonText(state.jsonText)
-    setJsonError(state.jsonError)
-    setOperationSearch('')
-    setSelectedOperationId(state.operations[0]?.id || '')
-    setExpandedConditions({})
-    setDraggedOperationId('')
-    setDragOverOperationId('')
-    setDragOverPosition('before')
-    if (state.visualMode === 'legacy') {
-      setTemplatePresetKey('legacy_default')
-    } else {
-      setTemplatePresetKey('operations_default')
+  const [initializationInputs, setInitializationInputs] = useState<{
+    open: boolean
+    value: string
+  } | null>(null)
+  if (
+    initializationInputs?.open !== props.open ||
+    initializationInputs?.value !== props.value
+  ) {
+    setInitializationInputs({ open: props.open, value: props.value })
+    if (props.open) {
+      const state = parseInitialState(props.value)
+      setEditMode(state.editMode)
+      setVisualMode(state.visualMode)
+      setLegacyValue(state.legacyValue)
+      setOperations(state.operations)
+      setJsonText(state.jsonText)
+      setJsonError(state.jsonError)
+      setOperationSearch('')
+      setSelectedOperationId(state.operations[0]?.id || '')
+      setExpandedConditions({})
+      setDraggedOperationId('')
+      setDragOverOperationId('')
+      setDragOverPosition('before')
+      setTemplatePresetKey(
+        state.visualMode === 'legacy' ? 'legacy_default' : 'operations_default'
+      )
     }
-  }, [props.open, props.value])
-
-  // Keep selectedOperationId valid
-  useEffect(() => {
-    if (operations.length === 0) {
-      setSelectedOperationId('')
-      return
-    }
-    if (!operations.some((o) => o.id === selectedOperationId)) {
-      setSelectedOperationId(operations[0].id)
-    }
-  }, [operations, selectedOperationId])
+  }
+  const selectedOperationId = operations.some(
+    (operation) => operation.id === requestedOperationId
+  )
+    ? requestedOperationId
+    : operations[0]?.id || ''
 
   // Template preset options filtered by group
   const templatePresetOptions = useMemo(

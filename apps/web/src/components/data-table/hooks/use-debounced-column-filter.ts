@@ -16,10 +16,10 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import type { ColumnFiltersState, OnChangeFn } from '@tanstack/react-table'
 import * as React from 'react'
 
 import { useDebounce } from '@/hooks/use-debounce'
+import type { ColumnFiltersState, OnChangeFn } from '@/lib/table'
 
 type UseDebouncedColumnFilterOptions = {
   columnFilters: ColumnFiltersState
@@ -42,8 +42,7 @@ export function useDebouncedColumnFilter({
   const [pendingValue, setPendingValue] = React.useState(value)
   const isComposingRef = React.useRef(false)
   const debouncedValue = useDebounce(pendingValue, delay)
-  const onColumnFiltersChangeRef = React.useRef(onColumnFiltersChange)
-  onColumnFiltersChangeRef.current = onColumnFiltersChange
+  const updateColumnFilters = React.useEffectEvent(onColumnFiltersChange)
 
   React.useEffect(() => {
     // Keep the input aligned when URL state changes outside the local field.
@@ -58,7 +57,7 @@ export function useDebouncedColumnFilter({
   React.useEffect(() => {
     if (debouncedValue === value) return
 
-    onColumnFiltersChangeRef.current((previous) => {
+    updateColumnFilters((previous) => {
       const filters = previous.filter((filter) => filter.id !== columnId)
       return debouncedValue
         ? [...filters, { id: columnId, value: debouncedValue }]

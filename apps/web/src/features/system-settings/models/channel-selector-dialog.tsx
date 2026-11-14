@@ -16,9 +16,8 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import type { ColumnDef, RowSelectionState } from '@tanstack/react-table'
 import { Search } from 'lucide-react'
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import {
@@ -39,6 +38,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
+import type { ColumnDef, RowSelectionState } from '@/lib/table'
 
 import type { UpstreamChannel } from '../types'
 import {
@@ -80,25 +80,32 @@ export function ChannelSelectorDialog({
 }: ChannelSelectorDialogProps) {
   const { t } = useTranslation()
   const [search, setSearch] = useState('')
-  const [rowSelection, setRowSelection] = useState<RowSelectionState>({})
+  const [rowSelection, setRowSelection] = useState<RowSelectionState>(() =>
+    Object.fromEntries(
+      selectedChannelIds
+        .filter((id) => channels.some((channel) => channel.id === id))
+        .map((id) => [String(id), true])
+    )
+  )
 
-  useEffect(() => {
-    if (!selectedChannelIds.length) {
-      setRowSelection({})
-      return
-    }
-
+  const [selectionInputs, setSelectionInputs] = useState({
+    selectedChannelIds,
+    channels,
+  })
+  if (
+    selectionInputs.selectedChannelIds !== selectedChannelIds ||
+    selectionInputs.channels !== channels
+  ) {
+    setSelectionInputs({ selectedChannelIds, channels })
     const availableChannelIds = new Set(channels.map((channel) => channel.id))
-    const newSelection: RowSelectionState = {}
-
-    selectedChannelIds.forEach((id) => {
-      if (availableChannelIds.has(id)) {
-        newSelection[id.toString()] = true
-      }
-    })
-
-    setRowSelection(newSelection)
-  }, [selectedChannelIds, channels])
+    setRowSelection(
+      Object.fromEntries(
+        selectedChannelIds
+          .filter((id) => availableChannelIds.has(id))
+          .map((id) => [String(id), true])
+      )
+    )
+  }
 
   const updateEndpoint = useCallback(
     (channelId: number, endpoint: string) => {

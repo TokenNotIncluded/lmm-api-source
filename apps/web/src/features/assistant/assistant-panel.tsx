@@ -47,6 +47,7 @@ import { nanoid } from 'nanoid'
 import {
   useCallback,
   useEffect,
+  useImperativeHandle,
   useLayoutEffect,
   useRef,
   useState,
@@ -314,12 +315,9 @@ function AssistantTokenCloud(props: {
   const { t } = useTranslation()
   const localCloudRef = useRef<HTMLDivElement>(null)
 
-  const setCloudRef = useCallback(
-    (node: HTMLDivElement | null) => {
-      localCloudRef.current = node
-      if (props.cloudRef) props.cloudRef.current = node
-    },
-    [props.cloudRef]
+  useImperativeHandle<HTMLDivElement | null, HTMLDivElement | null>(
+    props.cloudRef,
+    () => localCloudRef.current
   )
 
   useEffect(() => {
@@ -335,7 +333,7 @@ function AssistantTokenCloud(props: {
       data-cloud-contrast='strong'
       data-compact={props.compact ? 'true' : undefined}
       data-active={props.active ? 'true' : undefined}
-      ref={setCloudRef}
+      ref={localCloudRef}
     >
       <svg
         className='assistant-token-cloud-fallback'
@@ -413,9 +411,15 @@ function AssistantFlowResponse(props: {
   flow: { current: L0TextFlow | null }
 }) {
   const answerRef = useRef<HTMLDivElement>(null)
-  const [formatted, setFormatted] = useState(
-    !props.entry.streaming && !props.entry.pending
-  )
+  const pending = Boolean(props.entry.streaming || props.entry.pending)
+  const [formatState, setFormatState] = useState({
+    pending,
+    formatted: !pending,
+  })
+  if (formatState.pending !== pending) {
+    setFormatState({ pending, formatted: false })
+  }
+  const formatted = !pending && formatState.formatted
   const tail = visualTokenTail(props.entry.content)
   const prefix = props.entry.content.slice(0, tail[0]?.index ?? 0)
 
@@ -425,17 +429,13 @@ function AssistantFlowResponse(props: {
   }, [formatted, props.entry.content, props.entry.streaming, props.flow])
 
   useEffect(() => {
-    if (props.entry.streaming || props.entry.pending) {
-      setFormatted(false)
-      return
-    }
-    if (formatted) return
+    if (pending || formatted) return
     const timer = window.setTimeout(() => {
       props.flow.current?.clearResponses()
-      setFormatted(true)
+      setFormatState({ pending: false, formatted: true })
     }, L0_ARRIVAL_DURATION + 40)
     return () => window.clearTimeout(timer)
-  }, [formatted, props.entry.streaming, props.entry.pending, props.flow])
+  }, [formatted, pending, props.flow])
 
   if (formatted) {
     return (

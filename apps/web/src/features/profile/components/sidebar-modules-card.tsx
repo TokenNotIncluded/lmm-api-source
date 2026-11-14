@@ -84,10 +84,10 @@ function buildSectionDefs(t: (key: string) => string): SectionDef[] {
       description: t('Explore available features'),
       modules: [
         {
-          id: '/open-source-bounties',
+          id: '/bounties',
           key: 'open-source-bounties',
-          title: t('Open-source bounties'),
-          description: t('Browse open-source work'),
+          title: t('Bounties'),
+          description: t('Browse bounties'),
         },
         {
           id: '/public-relay',
@@ -105,15 +105,15 @@ function buildSectionDefs(t: (key: string) => string): SectionDef[] {
     },
     {
       id: 'forge',
-      title: t('Open-source bounties'),
+      title: t('Bounties'),
       description: t('Challenges and community work'),
       requiresConsole: true,
       modules: [
         {
-          id: '/open-source-bounties',
+          id: '/bounties',
           key: 'open-source-bounties',
-          title: t('Open-source bounties'),
-          description: t('Browse open-source work'),
+          title: t('Bounties'),
+          description: t('Browse bounties'),
         },
         {
           id: '/public-relay',
@@ -396,8 +396,8 @@ const DEFAULT_ROUTES: DefaultRouteDef[] = [
   { route: '/todos', title: 'To-dos', requiresConsole: true },
   { route: '/profile', title: 'Profile', requiresConsole: true },
   {
-    route: '/open-source-bounties',
-    title: 'Open-source bounties',
+    route: '/bounties',
+    title: 'Bounties',
     requiresConsole: true,
   },
   {

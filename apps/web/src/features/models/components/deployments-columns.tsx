@@ -16,7 +16,6 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import type { ColumnDef } from '@tanstack/react-table'
 import { Eye, Info, Pencil, Settings2, Timer, Trash2 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 
@@ -31,6 +30,7 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { formatTimestampToDate } from '@/lib/format'
 import { ROLE } from '@/lib/roles'
+import type { ColumnDef } from '@/lib/table'
 import { useAuthStore } from '@/stores/auth-store'
 
 import { getDeploymentStatusConfig } from '../constants'
@@ -69,8 +69,8 @@ export function useDeploymentsColumns(opts: {
         row.container_name || row.deployment_name || row.name || '',
       header: t('Name'),
       meta: { mobileTitle: true },
-      cell: ({ getValue }) => {
-        const name = String(getValue() || '-') || '-'
+      cell: ({ cell }) => {
+        const name = String(cell.getValue() || '-') || '-'
         return (
           <StatusBadge
             label={name}

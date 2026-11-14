@@ -18,7 +18,7 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useEffect } from 'react'
-import { useForm } from 'react-hook-form'
+import { useForm, useWatch } from 'react-hook-form'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 import * as z from 'zod'
@@ -150,12 +150,14 @@ export function GlobalSettingsCard({ defaultValues }: GlobalSettingsCardProps) {
     resolver: zodResolver(schema),
     defaultValues: defaultValues as GlobalModelSettingsFormInput,
   })
+  const pingEnabled = useWatch({
+    control: form.control,
+    name: 'general_setting.ping_interval_enabled',
+  })
 
   useEffect(() => {
     form.reset(defaultValues as GlobalModelSettingsFormInput)
   }, [defaultValues, form])
-
-  const pingEnabled = form.watch('general_setting.ping_interval_enabled')
 
   const onSubmit = async (values: GlobalModelSettingsFormValues) => {
     const flattenedDefaults = flattenGlobalValues(defaultValues)

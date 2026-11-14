@@ -16,7 +16,6 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import type { Table } from '@tanstack/react-table'
 import { ChevronDown, Loader2, X } from 'lucide-react'
 import { useId, useState, type ComponentProps, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -36,9 +35,10 @@ import {
 } from '@/components/ui/drawer'
 import { Input } from '@/components/ui/input'
 import { useMediaQuery } from '@/hooks'
+import type { RowData, Table } from '@/lib/table'
 import { cn } from '@/lib/utils'
 
-interface LogsFilterToolbarProps<TData> {
+interface LogsFilterToolbarProps<TData extends RowData> {
   table: Table<TData>
   primaryFilters: ReactNode
   advancedFilters?: ReactNode
@@ -89,7 +89,9 @@ export function LogsFilterInput(props: ComponentProps<typeof Input>) {
   )
 }
 
-export function LogsFilterToolbar<TData>(props: LogsFilterToolbarProps<TData>) {
+export function LogsFilterToolbar<TData extends RowData>(
+  props: LogsFilterToolbarProps<TData>
+) {
   const { t } = useTranslation()
   const [advancedOpen, setAdvancedOpen] = useState(false)
   const [mobileFiltersOpen, setMobileFiltersOpen] = useState(false)

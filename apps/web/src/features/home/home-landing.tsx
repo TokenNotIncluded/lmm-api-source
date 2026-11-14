@@ -31,6 +31,11 @@ import { HtmlCanvasMesh } from './html-canvas-mesh'
 
 import './homepage-canvas.css'
 
+type TFunction = {
+  (key: string): string
+  (key: string, options: Record<string, unknown>): string
+}
+
 const homeClaudeUrl = new URL('./assets/claude-mark.svg', import.meta.url).href
 
 type HomeLandingProps = {
@@ -40,7 +45,7 @@ type HomeLandingProps = {
   apiBaseUrl: string | null
   pricingHref: string | null
   navigation: Pick<HeaderNavModules, 'guide' | 'directory' | 'about'>
-  t: (key: string, options?: { brand: string }) => string
+  t: TFunction
   language: string
   toolMarketAction: ReactNode
   primaryAction: ReactNode

@@ -16,12 +16,12 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import type { Table } from '@tanstack/react-table'
 import { X } from 'lucide-react'
 import type { ComponentType, ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { Button } from '@/components/ui/button'
+import type { RowData, Table } from '@/lib/table'
 
 import { getFilterValues, removeFilterValue } from './filter-values'
 
@@ -38,7 +38,7 @@ export type FilterDef = {
   singleSelect?: boolean
 }
 
-export function DataTableFilterSummary<TData>({
+export function DataTableFilterSummary<TData extends RowData>({
   table,
   filters,
   onRemove,

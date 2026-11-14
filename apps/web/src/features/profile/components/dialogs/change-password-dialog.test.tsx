@@ -21,6 +21,8 @@ import { after, afterEach, describe, test } from 'node:test'
 
 import { Window } from 'happy-dom'
 
+import { installSupportedAuthBrowser } from '@/test-support/supported-auth-browser'
+
 const domWindow = new Window({
   url: 'https://console.example.test/profile',
 })
@@ -61,6 +63,9 @@ Object.defineProperties(globalThis, {
     value: domWindow.getComputedStyle.bind(domWindow),
   },
 })
+
+// Normal supported browser; install after this fixture replaces its globals.
+installSupportedAuthBrowser()
 
 const { act } = await import('react')
 const { createRoot } = await import('react-dom/client')

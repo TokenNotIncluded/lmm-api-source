@@ -18,7 +18,7 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { zodResolver } from '@hookform/resolvers/zod'
 import { Plus, Trash2, Save } from 'lucide-react'
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { useForm } from 'react-hook-form'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
@@ -88,11 +88,25 @@ type UptimeKumaFormValues = z.infer<ReturnType<typeof createUptimeKumaSchema>>
 
 const UPTIME_KUMA_FORM_ID = 'uptime-kuma-form'
 
+function parseUptimeKumaGroupData(data: string): UptimeKumaGroup[] | null {
+  try {
+    const parsed = JSON.parse(data || '[]')
+    if (!Array.isArray(parsed)) return null
+    return parsed.map((item, idx) => ({ ...item, id: item.id || idx + 1 }))
+  } catch {
+    return []
+  }
+}
+
 export function UptimeKumaSection({ enabled, data }: UptimeKumaSectionProps) {
   const { t } = useTranslation()
   const updateOption = useUpdateOption()
   const uptimeKumaSchema = createUptimeKumaSchema(t)
-  const [groups, setGroups] = useState<UptimeKumaGroup[]>([])
+  const [groups, setGroups] = useState<UptimeKumaGroup[]>(
+    () => parseUptimeKumaGroupData(data) ?? []
+  )
+  const [previousData, setPreviousData] = useState(data)
+  const [previousEnabled, setPreviousEnabled] = useState(enabled)
   const [isEnabled, setIsEnabled] = useState(enabled)
   const [hasChanges, setHasChanges] = useState(false)
   const [selectedIds, setSelectedIds] = useState<number[]>([])
@@ -110,25 +124,17 @@ export function UptimeKumaSection({ enabled, data }: UptimeKumaSectionProps) {
     },
   })
 
-  useEffect(() => {
-    try {
-      const parsed = JSON.parse(data || '[]')
-      if (Array.isArray(parsed)) {
-        setGroups(
-          parsed.map((item, idx) => ({
-            ...item,
-            id: item.id || idx + 1,
-          }))
-        )
-      }
-    } catch {
-      setGroups([])
-    }
-  }, [data])
-
-  useEffect(() => {
+  // Track each prop independently so an enabled update preserves list edits.
+  if (data !== previousData) {
+    setPreviousData(data)
+    const parsed = parseUptimeKumaGroupData(data)
+    // A valid non-array JSON value historically leaves the current list intact.
+    if (parsed !== null) setGroups(parsed)
+  }
+  if (enabled !== previousEnabled) {
+    setPreviousEnabled(enabled)
     setIsEnabled(enabled)
-  }, [enabled])
+  }
 
   const handleToggleEnabled = async (checked: boolean) => {
     try {

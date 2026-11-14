@@ -211,3 +211,172 @@ test('wallet purchase requires preview and confirmation, preserves unknown commi
     useAuthStore.setState({ auth })
   }
 })
+
+test('renew uses the current balance-enabled catalogue plan, preserves record restrictions and still requires a persisted preview then confirmation', async () => {
+  const adapter = api.defaults.adapter
+  const auth = useAuthStore.getState().auth
+  dom.sessionStorage.clear()
+  login()
+  const plan: import('./native-api').NativePlan = {
+    id: 4,
+    revision: 2,
+    archived: false,
+    terms: {
+      title: 'Current Renewal Plan',
+      price_units: '220000',
+      duration_seconds: 0,
+      duration_months: 1,
+      reset_period: 'grant',
+      reset_seconds: 0,
+      limit_units: '1000',
+      models: ['*'],
+      groups: ['*'],
+      max_purchases_per_user: 0,
+      enabled: true,
+      allow_balance_pay: true,
+    },
+  }
+  const historical = {
+    ...plan,
+    revision: 1,
+    terms: { ...plan.terms, title: 'Historical Plan', price_units: '100000' },
+  }
+  const purchase = {
+    id: 8,
+    subscription_id: 9,
+    plan: historical,
+    starts_at: 1700000000,
+    ends_at: 1700003600,
+    used_units: '0',
+    reserved_units: '0',
+    entitlement_active: true,
+    renewal_canceled: false,
+    canceled_at: null,
+    refund_journal_id: null,
+  }
+  const purchases = [
+    purchase,
+    { ...purchase, id: 10, renewal_canceled: true, canceled_at: 1700000010 },
+    { ...purchase, id: 11, entitlement_active: false, refund_journal_id: 12 },
+  ]
+  let catalogue = [plan]
+  const writes: { path: string; body: Record<string, unknown> }[] = []
+  const quote = {
+    id: 'e'.repeat(64),
+    plan,
+    starts_at: 1700003600,
+    ends_at: 1700007200,
+    expires_at: 2000000000,
+    renew_from: purchase.id,
+  }
+  const key = 'lmm-commerce:52:synthetic-wallet-session:subscription'
+  api.defaults.adapter = async (config) => {
+    assert.deepEqual(config.authScope, {
+      userId: 52,
+      sessionId: 'synthetic-wallet-session',
+    })
+    let data: unknown
+    if (config.method === 'get') {
+      if (config.url === '/core/v1/subscriptions/plans') {
+        data = { contract: 'core.subscriptions.v1', plans: catalogue }
+      } else if (config.url === '/core/v1/subscriptions/purchases') {
+        data = { contract: 'core.subscriptions.v1', purchases }
+      } else {
+        assert.ok(
+          config.url?.endsWith('/epay-prices') ||
+            config.url?.endsWith('/pancake-prices')
+        )
+        data = { prices: [] }
+      }
+    } else {
+      const raw = dom.sessionStorage.getItem(key)
+      assert.ok(raw, 'persist before every financial dispatch')
+      const saved = JSON.parse(raw)
+      const body =
+        typeof config.data === 'string'
+          ? JSON.parse(config.data)
+          : (config.data ?? {})
+      assert.ok(config.url)
+      writes.push({ path: config.url, body })
+      if (config.url.endsWith('/quotes')) {
+        assert.equal(saved.confirmed, false)
+        assert.deepEqual(body, saved.request)
+        assert.equal(body.plan_id, plan.id)
+        assert.equal(body.renew_from, purchase.id)
+        data = quote
+      } else {
+        assert.equal(
+          config.url,
+          `/core/v1/subscriptions/quotes/${quote.id}/confirm`
+        )
+        assert.equal(saved.confirmed, true)
+        assert.equal(saved.quote.id, quote.id)
+        data = {
+          quote_id: quote.id,
+          status: 'posted',
+          purchase_id: 13,
+          subscription_id: 14,
+          journal_id: 15,
+          amount_units: plan.terms.price_units,
+          rejection: null,
+        }
+      }
+    }
+    return { config, data, headers: {}, status: 200, statusText: 'OK' }
+  }
+  const container = document.body.appendChild(document.createElement('div'))
+  const root = createRoot(container)
+  const renewButtons = () =>
+    [...container.querySelectorAll('button')].filter(
+      (button) => button.textContent?.trim() === 'Renew'
+    )
+  try {
+    await act(async () => {
+      root.render(
+        <I18nextProvider i18n={i18n}>
+          <NativeWalletSubscriptions />
+        </I18nextProvider>
+      )
+      await flush()
+      await flush()
+    })
+    assert.deepEqual(
+      renewButtons().map((button) => button.disabled),
+      [false, true, true]
+    )
+    catalogue = [
+      { ...plan, terms: { ...plan.terms, allow_balance_pay: false } },
+    ]
+    await click('Refresh')
+    assert.equal(renewButtons().length, 0)
+    catalogue = []
+    await click('Refresh')
+    assert.equal(renewButtons().length, 0)
+    catalogue = [plan]
+    await click('Refresh')
+    assert.deepEqual(
+      renewButtons().map((button) => button.disabled),
+      [false, true, true]
+    )
+    assert.equal(writes.length, 0)
+    await click('Renew')
+    assert.equal(writes.length, 1)
+    assert.ok(container.textContent?.includes('Current Renewal Plan'))
+    assert.ok(container.textContent?.includes('220,000 Core credits'))
+    assert.equal(
+      JSON.parse(dom.sessionStorage.getItem(key) || '{}').confirmed,
+      false
+    )
+    await click('Confirm')
+    assert.equal(writes.length, 2)
+    assert.ok(
+      container.textContent?.includes('Subscription purchased successfully')
+    )
+    assert.equal(dom.sessionStorage.getItem(key), null)
+  } finally {
+    await act(async () => root.unmount())
+    container.remove()
+    api.defaults.adapter = adapter
+    useAuthStore.setState({ auth })
+  }
+})

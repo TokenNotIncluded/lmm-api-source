@@ -189,8 +189,9 @@ export async function listPancakePrices(scope: CommerceScope, planId: number) {
     `/core/v1/subscriptions/plans/${planId}/pancake-prices`,
     z.object({ prices: z.array(pancakePriceSchema) })
   )
-  if (response.prices.some((p) => p.plan_id !== planId))
+  if (response.prices.some((p) => p.plan_id !== planId)) {
     throw new CommerceFailure('PRICE_MISMATCH')
+  }
   return response.prices
 }
 export async function preparePancakeOrder(

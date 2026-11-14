@@ -18,7 +18,7 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useEffect } from 'react'
-import { useForm } from 'react-hook-form'
+import { useForm, useWatch } from 'react-hook-form'
 import { useTranslation } from 'react-i18next'
 import * as z from 'zod'
 
@@ -447,26 +447,49 @@ export function PaymentMethodDialog({
       unit_price: '',
     },
   })
+  const iconValue = useWatch({ control: form.control, name: 'icon' })
+  const selectedType = useWatch({ control: form.control, name: 'type' })
+  const watchedSettlementCurrency = useWatch({
+    control: form.control,
+    name: 'settlement_currency',
+  })
+  const watchedSettlementUnitsPerUsd = useWatch({
+    control: form.control,
+    name: 'settlement_units_per_usd',
+  })
+  const watchedSettlementUnit = useWatch({
+    control: form.control,
+    name: 'settlement_unit',
+  })
+  const watchedName = useWatch({ control: form.control, name: 'name' })
+  const watchedSettlementUnitsPerPlatformUnit = useWatch({
+    control: form.control,
+    name: 'settlement_units_per_platform_unit',
+  })
+  const watchedUnitPrice = useWatch({
+    control: form.control,
+    name: 'unit_price',
+  })
+  const audienceMode = useWatch({
+    control: form.control,
+    name: 'audience_mode',
+  })
 
-  const iconValue = form.watch('icon')
-  const selectedType = form.watch('type')
-  const settlementCurrencyValue = form.watch('settlement_currency')?.trim()
-  const settlementRateValue = form.watch('settlement_units_per_usd')?.trim()
-  const configuredLegacySettlementUnit = form.watch('settlement_unit')?.trim()
+  const settlementCurrencyValue = watchedSettlementCurrency?.trim()
+  const settlementRateValue = watchedSettlementUnitsPerUsd?.trim()
+  const configuredLegacySettlementUnit = watchedSettlementUnit?.trim()
   const legacySettlementUnit = getLegacyGatewaySettlementUnit(
     selectedType,
-    form.watch('name'),
+    watchedName,
     configuredLegacySettlementUnit
   )
   const legacyDirectRate =
-    form.watch('settlement_units_per_platform_unit')?.trim() ||
-    form.watch('unit_price')?.trim()
+    watchedSettlementUnitsPerPlatformUnit?.trim() || watchedUnitPrice?.trim()
   const legacyRatePerUsd = legacySettlementRatePerUsd(
     legacyDirectRate || '',
     config
   )
   const usesDedicatedPricing = usesDedicatedPaymentPricing(selectedType)
-  const audienceMode = form.watch('audience_mode')
 
   useEffect(() => {
     if (editData) {

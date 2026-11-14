@@ -61,8 +61,9 @@ export async function readIoNetSettings(
     '/api/deployments/settings',
     { signal, disableDuplicate: true }
   )
-  if (ownerStorageKey() !== owner || !response.data.success)
+  if (ownerStorageKey() !== owner || !response.data.success) {
     throw new Error('Failed to load settings')
+  }
   return ioNetSettingsSchema.parse(response.data.data)
 }
 export async function saveIoNetSettings(settings: {
@@ -77,8 +78,9 @@ export async function saveIoNetSettings(settings: {
       '/api/deployments/settings',
       settings
     )
-    if (ownerStorageKey() !== owner || !response.data.success)
+    if (ownerStorageKey() !== owner || !response.data.success) {
       throw new Error('Failed to save')
+    }
     return ioNetSettingsSchema.parse(response.data.data)
   } catch {
     throw new Error('Failed to save')
@@ -93,10 +95,11 @@ export async function ioNetMutation(
   body?: unknown
 ) {
   const pending = pendingIoNetOperations()
-  if (pending.some((p) => p.path === path && p.method === method))
+  if (pending.some((p) => p.path === path && p.method === method)) {
     throw new Error(
       'The result is unknown. Resume checks the original operation without sending it again.'
     )
+  }
   const owner = ownerStorageKey()
   const key = crypto.randomUUID().replaceAll('-', '')
   const row: PendingIoNetOperation = { key, method, path }
@@ -167,8 +170,9 @@ export async function readPendingIoNetOperations(
     '/api/deployments/operations',
     { signal, disableDuplicate: true }
   )
-  if (ownerStorageKey() !== owner || !response.data.success)
+  if (ownerStorageKey() !== owner || !response.data.success) {
     throw new Error('Request failed')
+  }
   const receipts = z.array(receiptSchema).parse(response.data.data)
   const rows: PendingIoNetOperation[] = []
   for (const op of receipts) {

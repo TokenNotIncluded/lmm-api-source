@@ -18,7 +18,6 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { useQuery } from '@tanstack/react-query'
 import { getRouteApi, Link } from '@tanstack/react-router'
-import type { ColumnDef } from '@tanstack/react-table'
 import { useState } from 'react'
 
 import {
@@ -30,6 +29,7 @@ import { ErrorState } from '@/components/error-state'
 import { Button } from '@/components/ui/button'
 import { useMediaQuery } from '@/hooks'
 import { useTableUrlState } from '@/hooks/use-table-url-state'
+import type { ColumnDef } from '@/lib/table'
 import { cn } from '@/lib/utils'
 import { useAuthStore } from '@/stores/auth-store'
 

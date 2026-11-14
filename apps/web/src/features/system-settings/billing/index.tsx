@@ -22,12 +22,12 @@ import { useTranslation } from 'react-i18next'
 import { SettingsPage, SettingsPageFrame } from '../components/settings-page'
 import type { BillingSettings } from '../types'
 import { RouterPricingSection } from './router-pricing-section'
-import { TrustLevelBenefitsSection } from './trust-level-benefits-section'
 import {
   BILLING_DEFAULT_SECTION,
   getBillingSectionContent,
   getBillingSectionMeta,
 } from './section-registry.tsx'
+import { TrustLevelBenefitsSection } from './trust-level-benefits-section'
 
 const defaultBillingSettings: BillingSettings = {
   TrustLevelBenefits: '',

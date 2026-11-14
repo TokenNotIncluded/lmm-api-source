@@ -442,7 +442,7 @@ export type AssistantNavigationPath =
   | '/models'
   | '/profile'
   | '/support'
-  | '/open-source-bounties'
+  | '/bounties'
   | '/users'
   | '/store'
   | `/store/products/${string}`
@@ -844,7 +844,7 @@ const ASSISTANT_NAVIGATION_PATHS = new Set<AssistantNavigationPath>([
   '/models',
   '/profile',
   '/support',
-  '/open-source-bounties',
+  '/bounties',
   '/users',
   '/store',
   '/tool-market',
@@ -864,7 +864,7 @@ const ASSISTANT_NAVIGATION_QUERY_KEYS: Partial<
   '/models': [],
   '/profile': [],
   '/support': [],
-  '/open-source-bounties': [],
+  '/bounties': [],
   '/users': ['filter', 'l0Only'],
   '/store': [],
   '/tool-market': ['service_id'],

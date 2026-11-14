@@ -40,7 +40,7 @@ impl OAuthSource {
         issuer::scope_groups(&self.scopes)
     }
     pub(crate) fn validate_stored(&self) -> Result<()> {
-        if self.client_id != "lmm-pi"
+        if !protocol::is_model_client(&self.client_id)
             || self.user_id <= 0
             || self.personal_account_id <= 0
             || self.user_version <= 0
@@ -130,10 +130,6 @@ impl LmmIssuer {
         model: Option<&str>,
         group: Option<&str>,
     ) -> Result<OAuthSource> {
-        let maximum = self
-            .profile
-            .pi_budget_limit()
-            .ok_or(IdentityError::Forbidden)?;
         // All new metered model writes take the same family UPDATE lock as
         // refresh/revoke. No read-before-revoke result is carried across txs.
         let f = family(c, grant, true).await?;
@@ -146,16 +142,21 @@ impl LmmIssuer {
         // A live read-only client is authenticated but has no model authority.
         // Verify its ordinary family/user binding and token expiry before
         // returning a permission denial; never construct a spending proof.
-        if f.try_get::<String, _>("client_id")? == "lmm" {
+        let client: String = f.try_get("client_id")?;
+        if client == "lmm" {
             self.live(c, &f, t.try_get("consent_version")?).await?;
             if !t.try_get::<bool, _>("live")? {
                 return Err(IdentityError::Unauthorized);
             }
             return Err(IdentityError::Forbidden);
         }
-        let cap: Option<i64> = f.try_get("budget_credits")?;
-        if f.try_get::<String, _>("client_id")? != "lmm-pi"
-            || f.try_get::<String, _>("issuance_kind")? != "browser"
+        if !protocol::is_model_client(&client) {
+            return Err(IdentityError::Unauthorized);
+        }
+        let cap = self
+            .profile
+            .validate_model_budget(&client, f.try_get("budget_credits")?)?;
+        if f.try_get::<String, _>("issuance_kind")? != "browser"
             || f.try_get::<String, _>("purpose")? != "normal_model"
             || f.try_get::<String, _>("issuer")? != self.profile.issuer()
             || f.try_get::<String, _>("resource")? != self.profile.resource()
@@ -166,9 +167,11 @@ impl LmmIssuer {
             .fetch_one(&mut *c)
             .await?
             || t.try_get::<i64, _>("consent_version")? != f.try_get::<i64, _>("consent_version")?
-            || cap.is_none_or(|v| v <= 0 || v > maximum)
         {
             return Err(IdentityError::Unauthorized);
+        }
+        if client == "lmm-cc-switch" {
+            self.validate_managed_family_binding(c, &f).await?;
         }
         let token_scopes: Vec<String> = t.try_get("scopes")?;
         let family_scopes: Vec<String> = f.try_get("scopes")?;
@@ -181,7 +184,7 @@ impl LmmIssuer {
         let account = f.try_get("owner_account_id")?;
         let version = f.try_get("user_version")?;
         // This locks live user/account and requires REAL developer approval and
-        // current group policy. A configured Pi client cannot self-promote L0.
+        // current group policy. A configured client cannot self-promote L0.
         let current = self.current_model_groups(c, user, account, version).await?;
         let mut effective: Vec<String> = token_scopes
             .into_iter()
@@ -225,7 +228,7 @@ impl LmmIssuer {
         let source = OAuthSource {
             grant_id: grant.into(),
             access_id: access.into(),
-            client_id: "lmm-pi".into(),
+            client_id: client,
             issuer: self.profile.issuer().into(),
             resource: self.profile.resource().into(),
             user_id: user,
@@ -234,7 +237,7 @@ impl LmmIssuer {
             consent_version: f.try_get("consent_version")?,
             scopes: effective,
             expires_at: t.try_get("expiry")?,
-            budget_credits: cap.ok_or(IdentityError::Storage)?,
+            budget_credits: cap,
         };
         source.validate_stored()?;
         Ok(source)

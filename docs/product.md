@@ -16,7 +16,7 @@ web
 
 ## Product Purpose
 
-LMM API（Language Model Mesh，语言模型网络）提供多供应商模型网关、版本化 MCP 工具市场与开源赏金协作。三个程序的职责及资金、权限归属见[架构指南](core-migration.md)。
+LMM API（Language Model Mesh，语言模型网络）提供多供应商模型网关、版本化 MCP 工具市场与悬赏协作。三个程序的职责及资金、权限归属见[架构指南](core-migration.md)。
 
 ## Capabilities and Constraints
 
@@ -39,7 +39,7 @@ LMM API（Language Model Mesh，语言模型网络）提供多供应商模型网
 | 概念 | 英文主名称 | 中文主名称 |
 | --- | --- | --- |
 | 模型目录、可用性与价格 | Models and pricing | 模型与价格 |
-| 开源贡献奖励 | Open-source bounties | 开源赏金 |
+| 悬赏任务 | Bounties | 悬赏 |
 | 控制台帮助助手 | AI assistant | AI 助手 |
 | 申请和审核 API 使用资格 | API access | API 访问权限 |
 
@@ -51,7 +51,7 @@ LMM API（Language Model Mesh，语言模型网络）提供多供应商模型网
 
 ## Evidence on Hand
 
-产品依据包括 [README](../README.md)、[金额合同](payment-money-contract.md)、[赏金规则](open-source-bounties.md)、[发布架构](release-architecture.md)与应用配置。旧 LMM Forge 品牌记录保留在[固定历史版本](https://github.com/TokenNotIncluded/lmm-api-source/blob/8e92080aa3e9cb180103e73cb42e78b87621a31e/docs/product.md)。
+产品依据包括 [README](../README.md)、[金额合同](payment-money-contract.md)、[悬赏规则](bounties.md)、[发布架构](release-architecture.md)与应用配置。旧 LMM Forge 品牌记录保留在[固定历史版本](https://github.com/TokenNotIncluded/lmm-api-source/blob/8e92080aa3e9cb180103e73cb42e78b87621a31e/docs/product.md)。
 
 ## Product Principles
 

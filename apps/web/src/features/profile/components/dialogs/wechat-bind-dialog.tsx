@@ -16,7 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 
@@ -25,6 +25,11 @@ import { Button } from '@/components/ui/button'
 import { Field, FieldGroup, FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
 import { Spinner } from '@/components/ui/spinner'
+import {
+  reportAuthError,
+  reportOwnedAuthError,
+} from '@/features/auth/lib/auth-completion'
+import { useAuthStore } from '@/stores/auth-store'
 
 import { bindWeChat } from '../../api'
 
@@ -32,13 +37,30 @@ interface WeChatBindDialogProps {
   open: boolean
   qrCodeUrl: string
   onOpenChange: (open: boolean) => void
-  onSuccess: () => void
+  onSuccess?: () => void
+  onSubmitCode?: (code: string) => Promise<void>
 }
 
 export function WeChatBindDialog(props: WeChatBindDialogProps) {
   const { t } = useTranslation()
   const [verificationCode, setVerificationCode] = useState('')
   const [submitting, setSubmitting] = useState(false)
+  const userId = useAuthStore((state) => state.auth.user?.id)
+  const sessionId = useAuthStore((state) => state.auth.session?.sid)
+  const source = JSON.stringify([props.open, userId, sessionId])
+  const [draftSource, setDraftSource] = useState(source)
+  if (draftSource !== source) {
+    setDraftSource(source)
+    setVerificationCode('')
+    setSubmitting(false)
+  }
+  const lifecycle = useRef({ generation: 0 })
+  useEffect(() => {
+    const resource = lifecycle.current
+    return () => {
+      resource.generation++
+    }
+  }, [props.open, userId, sessionId])
 
   const handleOpenChange = (open: boolean) => {
     if (submitting) return
@@ -51,22 +73,50 @@ export function WeChatBindDialog(props: WeChatBindDialogProps) {
     const code = verificationCode.trim()
     if (!code || submitting) return
 
+    const generation = lifecycle.current.generation
+    const auth = useAuthStore.getState().auth
+    const owner = JSON.stringify([
+      auth.user?.id ?? null,
+      auth.session?.sid ?? null,
+    ])
+    // Native callbacks fence their own generation and can settle the dialog
+    // before returning its one notification to this caller.
+    const isCurrent = () => {
+      const current = useAuthStore.getState().auth
+      return (
+        JSON.stringify([
+          current.user?.id ?? null,
+          current.session?.sid ?? null,
+        ]) === owner &&
+        (props.onSubmitCode !== undefined ||
+          lifecycle.current.generation === generation)
+      )
+    }
     setSubmitting(true)
     try {
-      const response = await bindWeChat(code)
-      if (!response.success) {
-        toast.error(t('Request failed'))
-        return
+      if (props.onSubmitCode) {
+        await props.onSubmitCode(code)
+      } else {
+        const response = await bindWeChat(code)
+        if (!response.success) {
+          if (isCurrent() && !reportOwnedAuthError(response, t)) {
+            reportAuthError(response, t, t('Request failed'))
+          }
+          return
+        }
       }
 
+      if (!isCurrent()) return
       toast.success(t('Binding successful!'))
       setVerificationCode('')
       props.onOpenChange(false)
-      props.onSuccess()
-    } catch {
-      toast.error(t('Request failed'))
+      props.onSuccess?.()
+    } catch (error) {
+      if (isCurrent() && !reportOwnedAuthError(error, t)) {
+        reportAuthError(error, t, t('Request failed'))
+      }
     } finally {
-      setSubmitting(false)
+      if (isCurrent()) setSubmitting(false)
     }
   }
 

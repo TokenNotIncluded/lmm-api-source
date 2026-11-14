@@ -40,6 +40,7 @@ test('missing, malformed, excessive and incomplete quantities stay unknown', () 
       cache_creation_tokens: Number.MAX_SAFE_INTEGER + 1,
       cache_creation_tokens_12h: 1,
     },
-  ])
+  ]) {
     assert.equal(cacheWrite12hQuantity(other), null)
+  }
 })

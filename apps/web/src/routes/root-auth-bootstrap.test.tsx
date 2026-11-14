@@ -7,6 +7,8 @@ import { after, afterEach, test } from 'node:test'
 import { isRedirect } from '@tanstack/react-router'
 import { Window } from 'happy-dom'
 
+import { installSupportedAuthBrowser } from '@/test-support/supported-auth-browser'
+
 const dom = new Window({ url: 'https://console.example.test/profile' })
 for (const key of [
   'window',
@@ -29,6 +31,9 @@ for (const key of [
 }
 Object.assign(globalThis, { __LMM_PERSONA_DEBUG__: false })
 window.localStorage.setItem('setup_status_checked', 'true')
+// Normal supported browser; install after this fixture replaces its globals.
+installSupportedAuthBrowser()
+
 const { setDevelopmentAuthRefreshAdapter, clearAuthentication } =
   await import('@/lib/auth-session')
 const { useAuthStore } = await import('@/stores/auth-store')

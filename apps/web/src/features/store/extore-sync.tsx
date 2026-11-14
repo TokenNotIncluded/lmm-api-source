@@ -1,6 +1,6 @@
 /* Copyright (C) 2026 LIghtJUNction; SPDX-License-Identifier: AGPL-3.0-or-later */
-import { useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { Button } from '@/components/ui/button'
@@ -95,7 +95,9 @@ function Sync({
 export function StoreExtoreProductSync({ productId }: { productId: string }) {
   const { t } = useTranslation()
   const query = useConnections()
-  const source = query.data?.sources.find((item) => item.product_id === productId)
+  const source = query.data?.sources.find(
+    (item) => item.product_id === productId
+  )
   if (!source) return null
   return (
     <div className='space-y-1'>
@@ -154,7 +156,8 @@ function Connection({
             >
               <div>
                 <p>
-                  {extoreText(product.product.name, i18n.language) || product.id}
+                  {extoreText(product.product.name, i18n.language) ||
+                    product.id}
                 </p>
                 <p className='text-muted-foreground text-xs'>
                   {product.variants.length} {t('Variants')}

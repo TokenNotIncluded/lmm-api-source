@@ -1,5 +1,12 @@
-import type { SystemOptionsCapabilities, WritableSystemOptionKey } from '../types'
-import { WRITABLE_SYSTEM_OPTION_KEYS } from '../types'
+/*
+Copyright (C) 2026 LIghtJUNction
+SPDX-License-Identifier: AGPL-3.0-or-later
+*/
+import {
+  WRITABLE_SYSTEM_OPTION_KEYS,
+  type SystemOptionsCapabilities,
+  type WritableSystemOptionKey,
+} from '../types'
 
 const announcementKeys = [
   'console_setting.announcements',
@@ -27,9 +34,7 @@ export function writableOptionKey(
     )
   )
   if (!writable.has(requestedKey as WritableSystemOptionKey)) {
-    if (
-      (announcementKeys as readonly string[]).includes(requestedKey)
-    ) {
+    if ((announcementKeys as readonly string[]).includes(requestedKey)) {
       return announcementKeys.find((key) => writable.has(key))
     }
     return undefined

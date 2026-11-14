@@ -175,7 +175,11 @@ function RefreshProbe() {
   return <output data-testid='refresh-trigger'>{refreshTrigger}</output>
 }
 
-async function renderQuickSwitch(apiKey: ApiKey): Promise<void> {
+async function renderQuickSwitch(
+  apiKey: ApiKey,
+  includeAuto = false,
+  autoOnly = false
+): Promise<void> {
   const host = document.createElement('div')
   document.body.append(host)
   const root = createRoot(host)
@@ -188,7 +192,19 @@ async function renderQuickSwitch(apiKey: ApiKey): Promise<void> {
           <ApiKeysProvider>
             <ApiKeyGroupQuickSwitch
               apiKey={apiKey}
-              options={groupOptions}
+              options={
+                includeAuto
+                  ? [
+                      ...(autoOnly ? [] : groupOptions),
+                      {
+                        value: 'auto',
+                        label: 'auto',
+                        desc: 'Automatic routing',
+                        ratio: autoOnly ? 'model-specific' : 'auto',
+                      },
+                    ]
+                  : groupOptions
+              }
               optionsLoading={false}
               ratio={1}
               shouldReduceMotion={false}
@@ -430,4 +446,53 @@ describe('API key group quick switch', () => {
     assert.equal(calls[0]?.data.group, 'restricted')
     assert.equal(calls[0]?.data.group_warning_confirmations, 2)
   })
+})
+
+for (const { account, retry, autoOnly } of [
+  { account: 'ordinary', retry: false, autoOnly: false },
+  { account: 'marked Auto-only', retry: false, autoOnly: true },
+  { account: 'ordinary', retry: true, autoOnly: false },
+]) {
+  test(`${account} quick switch to Auto preserves retry=${retry}`, async () => {
+    const calls: PutCall[] = []
+    apiClient.put = async (url, data) => {
+      calls.push({ url, data: data as Record<string, unknown> })
+      return { data: { success: true } }
+    }
+    await renderQuickSwitch(
+      { ...baseApiKey, cross_group_retry: retry },
+      true,
+      autoOnly
+    )
+    await openAndSelect('Automatic routing')
+    await act(async () =>
+      waitForCondition(() => calls.length === 1, 'Auto switch not submitted')
+    )
+    assert.equal(calls[0]?.data.group, 'auto')
+    assert.equal(calls[0]?.data.cross_group_retry, retry)
+  })
+}
+
+test('quick switch away from Auto disables an existing cross-group retry', async () => {
+  const calls: PutCall[] = []
+  apiClient.put = async (url, data) => {
+    calls.push({ url, data: data as Record<string, unknown> })
+    return { data: { success: true } }
+  }
+  await renderQuickSwitch(
+    {
+      ...baseApiKey,
+      group: 'auto',
+      auto_groups: ['vip', 'default'],
+      cross_group_retry: true,
+    },
+    true
+  )
+  await openAndSelect('Priority access')
+  await act(async () =>
+    waitForCondition(() => calls.length === 1, 'group switch not submitted')
+  )
+  assert.equal(calls[0]?.data.group, 'vip')
+  assert.deepEqual(calls[0]?.data.auto_groups, [])
+  assert.equal(calls[0]?.data.cross_group_retry, false)
 })

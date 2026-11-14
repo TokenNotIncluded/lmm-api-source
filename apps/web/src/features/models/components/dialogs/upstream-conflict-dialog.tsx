@@ -17,7 +17,6 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { useQueryClient } from '@tanstack/react-query'
-import type { ColumnDef, RowSelectionState } from '@tanstack/react-table'
 import {
   Search,
   Info,
@@ -25,7 +24,7 @@ import {
   ChevronLeft,
   ChevronRight,
 } from 'lucide-react'
-import { useEffect, useMemo, useState, useCallback } from 'react'
+import { useMemo, useState, useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 
@@ -49,11 +48,14 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { useIsMobile } from '@/hooks/use-mobile'
+import type { ColumnDef, RowSelectionState } from '@/lib/table'
 
 import { applyUpstreamOverwrite } from '../../api'
 import { modelsQueryKeys, vendorsQueryKeys } from '../../lib'
-import type { SyncOverwritePayload } from '../../types'
+import type { SyncDiffData, SyncOverwritePayload } from '../../types'
 import { useModels } from '../models-provider'
+
+const EMPTY_CONFLICTS: NonNullable<SyncDiffData['conflicts']> = []
 
 const FIELD_LABELS: Record<string, string> = {
   description: 'Description',
@@ -111,7 +113,7 @@ export function UpstreamConflictDialog({
   const { t } = useTranslation()
   const queryClient = useQueryClient()
   const {
-    upstreamConflicts = [],
+    upstreamConflicts = EMPTY_CONFLICTS,
     setUpstreamConflicts,
     syncWizardOptions,
   } = useModels()
@@ -120,15 +122,20 @@ export function UpstreamConflictDialog({
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [rowSelection, setRowSelection] = useState<RowSelectionState>({})
   const [pageSize, setPageSize] = useState(10)
-  const [pageIndex, setPageIndex] = useState(0)
+  const [requestedPageIndex, setPageIndex] = useState(0)
 
-  useEffect(() => {
+  const [resetInputs, setResetInputs] = useState({ open, upstreamConflicts })
+  if (
+    resetInputs.open !== open ||
+    resetInputs.upstreamConflicts !== upstreamConflicts
+  ) {
+    setResetInputs({ open, upstreamConflicts })
     if (open) {
       setRowSelection({})
       setSearch('')
       setPageIndex(0)
     }
-  }, [open, upstreamConflicts])
+  }
 
   const conflictRows = useMemo<ConflictFieldRow[]>(() => {
     return upstreamConflicts.flatMap((conflict) => {
@@ -356,9 +363,8 @@ export function UpstreamConflictDialog({
   const totalPages =
     totalFilteredFields === 0 ? 1 : Math.ceil(totalFilteredFields / pageSize)
 
-  useEffect(() => {
-    setPageIndex((prev) => Math.min(prev, Math.max(0, totalPages - 1)))
-  }, [totalPages])
+  const pageIndex = Math.min(requestedPageIndex, Math.max(0, totalPages - 1))
+  if (requestedPageIndex !== pageIndex) setPageIndex(pageIndex)
 
   const pageStart = pageIndex * pageSize
   const paginatedRows = filteredRows.slice(pageStart, pageStart + pageSize)

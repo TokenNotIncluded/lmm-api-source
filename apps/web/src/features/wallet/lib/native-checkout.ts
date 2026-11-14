@@ -36,7 +36,9 @@ export const nativeChannelSchema = z
   )
 const discountCodeSchema = z.string().regex(/^[A-Z0-9][A-Z0-9_-]{2,63}$/)
 export function nativeDiscountCode(value: string): string | null {
-  const code = value.trim().replaceAll(/[a-z]/g, (letter) => letter.toUpperCase())
+  const code = value
+    .trim()
+    .replaceAll(/[a-z]/g, (letter) => letter.toUpperCase())
   return code === '' || discountCodeSchema.safeParse(code).success ? code : null
 }
 const requestSchema = z.object({

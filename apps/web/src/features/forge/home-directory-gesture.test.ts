@@ -145,6 +145,34 @@ test('reversing scroll cancels progress without blocking ordinary scrolling', ()
   }
 })
 
+test('interactive controls, zoom and horizontal wheels reset pending progress', async () => {
+  const f = fixture()
+  try {
+    const textarea = f.doc.createElement('textarea')
+    f.doc.body.append(textarea)
+    const interruptions = [
+      () => f.wheel(-80, {}, textarea as unknown as typeof f.doc.body),
+      () => f.wheel(-80, { ctrlKey: true }),
+      () => f.wheel(-20, { deltaX: 100 }),
+    ]
+    for (const interrupt of interruptions) {
+      f.wheel(-80)
+      f.wheel(-80)
+      assert.equal(f.progress(), 2 / 3)
+      assert.equal(interrupt().defaultPrevented, false)
+      assert.equal(f.progress(), 0)
+      f.wheel(-80)
+      assert.equal(f.progress(), 1 / 3)
+      f.wheel(80)
+      assert.equal(f.progress(), 0)
+    }
+    await f.paint()
+    assert.equal(f.navigations(), 0)
+  } finally {
+    f.dispose()
+  }
+})
+
 test('modals and scrolled pages retain their own scrolling', () => {
   const f = fixture()
   try {

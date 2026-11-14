@@ -17,7 +17,6 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { useQueryClient } from '@tanstack/react-query'
-import type { Table } from '@tanstack/react-table'
 import {
   CircleAlert,
   CircleCheck,
@@ -44,6 +43,7 @@ import {
   ADMIN_PERMISSION_RESOURCES,
   hasPermission,
 } from '@/lib/admin-permissions'
+import type { RowData, Table } from '@/lib/table'
 import { cn } from '@/lib/utils'
 import { useAuthStore } from '@/stores/auth-store'
 
@@ -55,14 +55,14 @@ import {
 } from '../lib'
 import type { Channel } from '../types'
 
-interface DataTableBulkActionsProps<TData> {
+interface DataTableBulkActionsProps<TData extends RowData> {
   table: Table<TData>
 }
 
 /** Which bulk action is awaiting its second confirmation. */
 type PendingBulkAction = 'enable' | 'disable' | null
 
-export function DataTableBulkActions<TData>({
+export function DataTableBulkActions<TData extends RowData>({
   table,
 }: DataTableBulkActionsProps<TData>) {
   const { t } = useTranslation()

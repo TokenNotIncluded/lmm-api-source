@@ -6,7 +6,6 @@ it under the terms of the GNU Affero General Public License as
 published by the Free Software Foundation, either version 3 of the
 License, or (at your option) any later version.
 */
-import type { Table } from '@tanstack/react-table'
 import { Mail, UserRound, X } from 'lucide-react'
 import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -22,6 +21,7 @@ import { HoneypotBulkActionButton } from '@/features/honeypot/bulk-mark-dialog'
 import { legacyUserIDsToStrings } from '@/features/honeypot/legacy-user-ids'
 import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard'
 import { ROLE } from '@/lib/roles'
+import type { Table } from '@/lib/table'
 import { cn } from '@/lib/utils'
 import { useAuthStore } from '@/stores/auth-store'
 

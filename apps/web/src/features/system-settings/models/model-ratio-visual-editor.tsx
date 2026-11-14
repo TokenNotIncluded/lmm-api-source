@@ -16,17 +16,6 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-/*
-Copyright (C) 2026 LIghtJUNction
-*/
-import type {
-  ColumnFiltersState,
-  OnChangeFn,
-  PaginationState,
-  RowSelectionState,
-  VisibilityState,
-  SortingState,
-} from '@tanstack/react-table'
 import { Copy, Plus } from 'lucide-react'
 import {
   useState,
@@ -53,6 +42,17 @@ import { ErrorState } from '@/components/error-state'
 import { Button } from '@/components/ui/button'
 import { combineBillingExpr } from '@/features/pricing/lib/billing-expr'
 import { useMediaQuery } from '@/hooks'
+/*
+Copyright (C) 2026 LIghtJUNction
+*/
+import type {
+  ColumnFiltersState,
+  OnChangeFn,
+  PaginationState,
+  RowSelectionState,
+  ColumnVisibilityState,
+  SortingState,
+} from '@/lib/table'
 
 import { safeJsonParse } from '../utils/json-parser'
 import type { PricingMode } from './model-pricing-core'
@@ -165,12 +165,12 @@ const ModelRatioVisualEditorComponent = forwardRef<
     pageIndex: 0,
     pageSize: 20,
   })
-  const [columnVisibility, setColumnVisibility] = useState<VisibilityState>(
-    () => {
+  const [columnVisibility, setColumnVisibility] =
+    useState<ColumnVisibilityState>(() => {
       const saved = localStorage.getItem(STORAGE_KEY)
       if (saved) {
         try {
-          return safeJsonParse<VisibilityState>(saved, {
+          return safeJsonParse<ColumnVisibilityState>(saved, {
             fallback: {
               cacheRatio: false,
               createCacheRatio: false,
@@ -197,8 +197,7 @@ const ModelRatioVisualEditorComponent = forwardRef<
         audioRatio: false,
         audioCompletionRatio: false,
       }
-    }
-  )
+    })
 
   useEffect(() => {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(columnVisibility))
@@ -884,7 +883,7 @@ const ModelRatioVisualEditorComponent = forwardRef<
   const hasRows = table.getRowModel().rows.length > 0
 
   let emptyStateText = t('No models configured. Use Add model to get started.')
-  if (table.getState().globalFilter) {
+  if (table.state.globalFilter) {
     emptyStateText = t('No models match your search')
   } else if (filterMode === 'unset') {
     emptyStateText = candidateModelsLoading

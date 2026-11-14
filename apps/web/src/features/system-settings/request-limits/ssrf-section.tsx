@@ -18,7 +18,7 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useEffect, useMemo, useRef } from 'react'
-import { useForm } from 'react-hook-form'
+import { useForm, useWatch } from 'react-hook-form'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 import * as z from 'zod'
@@ -173,6 +173,14 @@ export function SSRFSection({ defaultValues }: SSRFSectionProps) {
     resolver: zodResolver(ssrfSchema),
     defaultValues: formDefaults,
   })
+  const domainFilterMode = useWatch({
+    control: form.control,
+    name: 'fetch_setting.domain_filter_mode',
+  })
+  const ipFilterMode = useWatch({
+    control: form.control,
+    name: 'fetch_setting.ip_filter_mode',
+  })
 
   useEffect(() => {
     baselineRef.current = normalizeDefaults(defaultValues)
@@ -201,15 +209,12 @@ export function SSRFSection({ defaultValues }: SSRFSectionProps) {
     baselineRef.current = normalized
   }
 
-  const domainFilterMode = form.watch('fetch_setting.domain_filter_mode')
-  const ipFilterMode = form.watch('fetch_setting.ip_filter_mode')
-
   return (
     <SettingsSection title={t('SSRF Protection')}>
       <Form {...form}>
-        <SettingsForm onSubmit={form.handleSubmit(onSubmit)}>
+        <SettingsForm onSubmit={(event) => form.handleSubmit(onSubmit)(event)}>
           <SettingsPageFormActions
-            onSave={form.handleSubmit(onSubmit)}
+            onSave={() => form.handleSubmit(onSubmit)()}
             isSaving={updateOption.isPending}
             saveLabel='Save SSRF settings'
           />

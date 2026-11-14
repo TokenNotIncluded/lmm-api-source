@@ -9,8 +9,9 @@ import { I18nextProvider } from 'react-i18next'
 import en from '@/i18n/locales/en.json'
 import zh from '@/i18n/locales/zh-CN.json'
 
+import { formatCacheWriteRate } from '../lib/cache-write-rate'
 import type { PricingModel } from '../types'
-import { CacheWritePrices, formatCacheWriteRate } from './cache-write-prices'
+import { CacheWritePrices } from './cache-write-prices'
 
 const rate = (numerator: string, denominator = '1') => ({
   numerator,

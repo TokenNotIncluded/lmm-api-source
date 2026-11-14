@@ -22,7 +22,7 @@ for (const key of [
   })
 }
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true })
-const { act } = await import('react')
+const { act, useEffect } = await import('react')
 const { createRoot } = await import('react-dom/client')
 const { api } = await import('@/lib/api')
 const { useTwoFA } = await import('./use-two-fa')
@@ -32,7 +32,10 @@ function requireHook() {
   return current
 }
 function Probe() {
-  current = useTwoFA()
+  const value = useTwoFA()
+  useEffect(() => {
+    current = value
+  })
   return null
 }
 const originalAdapter = api.defaults.adapter

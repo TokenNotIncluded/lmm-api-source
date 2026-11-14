@@ -63,7 +63,7 @@ await i18n.init({
 })
 after(() => domWindow.happyDOM.abort())
 
-const { getCoreRowModel, useReactTable } = await import('@tanstack/react-table')
+const { dataTableFeatures, useTable } = await import('@/lib/table')
 const { DataTableToolbar } = await import('./toolbar')
 const data = [{ name: 'Example', status: 'enabled' }]
 const columns = [{ accessorKey: 'name' }, { accessorKey: 'status' }]
@@ -75,10 +75,10 @@ function Harness({
   active?: boolean
   onReset?: () => void
 }) {
-  const table = useReactTable({
+  const table = useTable({
     data,
     columns,
-    getCoreRowModel: getCoreRowModel(),
+    features: dataTableFeatures,
   })
   return (
     <DataTableToolbar

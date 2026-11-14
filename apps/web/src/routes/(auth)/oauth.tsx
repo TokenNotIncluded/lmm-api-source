@@ -20,54 +20,56 @@ import { createFileRoute, useNavigate, useSearch } from '@tanstack/react-router'
 import i18next from 'i18next'
 import { useEffect } from 'react'
 import { toast } from 'sonner'
+import { z } from 'zod'
 
-import { wechatLoginByCode } from '@/features/auth/api'
 import { sanitizeAuthRedirect } from '@/features/auth/lib/auth-redirect'
-import { applyAuthBundle, isAuthBundle } from '@/lib/api'
-import { getAuthenticatedLandingRoute } from '@/lib/console-activation'
-import { getServerErrorMessageKey } from '@/lib/server-error-message'
+import { oauthCallbackSearchSchema } from '@/features/auth/lib/external-oauth'
+import { readFederatedCeremony } from '@/features/auth/lib/federated-oauth'
 
 function OAuthComponent() {
   const navigate = useNavigate()
-  const search = useSearch({ from: '/(auth)/oauth' }) as {
-    redirect?: string
-    provider?: 'github' | 'discord' | 'oidc' | 'linuxdo' | 'telegram' | 'wechat'
-    code?: string
-    state?: string
-  }
+  const search = useSearch({ from: '/(auth)/oauth' })
 
   useEffect(() => {
-    ;(async () => {
+    if (search.provider === 'wechat' && search.code && search.state) {
       try {
-        if (search?.provider === 'wechat' && search.code) {
-          const res = await wechatLoginByCode(search.code, search.state ?? '')
-          if (res?.success && isAuthBundle(res.data)) {
-            applyAuthBundle(res.data)
-            const target =
-              sanitizeAuthRedirect(search?.redirect, window.location.origin) ??
-              getAuthenticatedLandingRoute(res.data.user)
-            navigate({ href: target, replace: true })
-            return
-          }
-          if (getServerErrorMessageKey(res)) {
-            navigate({ to: '/sign-in', replace: true })
-            return
-          }
-        }
-      } catch (error: unknown) {
-        if (getServerErrorMessageKey(error)) {
-          navigate({ to: '/sign-in', replace: true })
-          return
-        }
+        const ceremony = readFederatedCeremony(
+          window.sessionStorage,
+          search.state,
+          'wechat',
+          'login'
+        )
+        const query = new URLSearchParams({
+          code: search.code,
+          state: search.state,
+        })
+        const redirect = sanitizeAuthRedirect(
+          search.redirect,
+          window.location.origin
+        )
+        if (redirect) query.set('redirect', redirect)
+        void navigate({
+          href: `/oauth/${ceremony.slug}?${query}`,
+          replace: true,
+        })
+        return
+      } catch {
+        /* Unknown or expired legacy entry points cannot start a login. */
       }
-      toast.error(i18next.t('OAuth failed'))
-      navigate({ to: '/sign-in', replace: true })
-    })()
+    }
+    toast.error(i18next.t('OAuth failed'))
+    void navigate({ to: '/sign-in', replace: true })
   }, [navigate, search])
 
   return null
 }
 
 export const Route = createFileRoute('/(auth)/oauth')({
+  validateSearch: oauthCallbackSearchSchema.extend({
+    provider: z
+      .enum(['github', 'discord', 'oidc', 'linuxdo', 'telegram', 'wechat'])
+      .optional()
+      .catch(undefined),
+  }),
   component: OAuthComponent,
 })

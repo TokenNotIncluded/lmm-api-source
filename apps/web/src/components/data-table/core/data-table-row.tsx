@@ -16,38 +16,40 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+import * as React from 'react'
+
+import { TableCell, TableRow } from '@/components/ui/table'
 import {
+  type RowData,
   flexRender,
   type Cell,
   type Row,
   type Table as TanstackTable,
-} from '@tanstack/react-table'
-import * as React from 'react'
-
-import { TableCell, TableRow } from '@/components/ui/table'
+} from '@/lib/table'
 import { cn } from '@/lib/utils'
 
 import { TruncatedCell } from './truncated-cell'
 import type { DataTableColumnClassName } from './types'
 
-type DataTableRowProps<TData> = {
+type DataTableRowProps<TData extends RowData> = {
   row: Row<TData>
   className?: string
   getColumnClassName?: DataTableColumnClassName
   cellRenderColumns?: TanstackTable<TData>['options']['columns']
 } & Omit<React.ComponentProps<typeof TableRow>, 'children'>
 
-type DataTableRowInnerProps<TData> = DataTableRowProps<TData> & {
-  isSelected: boolean
-  /**
-   * Stable signature of currently visible leaf columns for this row.
-   * Captured outside the memo comparator so visibility toggles re-render
-   * even when the TanStack row object reference stays the same.
-   */
-  visibleColumnIds: string
-}
+type DataTableRowInnerProps<TData extends RowData> =
+  DataTableRowProps<TData> & {
+    isSelected: boolean
+    /**
+     * Stable signature of currently visible leaf columns for this row.
+     * Captured outside the memo comparator so visibility toggles re-render
+     * even when the TanStack row object reference stays the same.
+     */
+    visibleColumnIds: string
+  }
 
-function DataTableRowInner<TData>({
+function DataTableRowInner<TData extends RowData>({
   row,
   isSelected,
   className,
@@ -57,7 +59,7 @@ function DataTableRowInner<TData>({
   ...rowProps
 }: DataTableRowInnerProps<TData>) {
   // Destructured only to keep them out of `rowProps` (not valid DOM attrs)
-  // and to feed the memo comparator below; intentionally unused here.
+  // and to keep their captured values in the memoized props.
   void cellRenderColumns
   void visibleColumnIds
 
@@ -88,27 +90,15 @@ function DataTableRowInner<TData>({
   )
 }
 
-const MemoizedDataTableRow = React.memo(DataTableRowInner, (prev, next) => {
-  // Do not read row.getIsSelected() / row.getVisibleCells() inside the
-  // comparator: TanStack row objects keep a stable reference while selection
-  // and columnVisibility mutate on the table instance. Reading them here would
-  // compare identical live values and miss those updates. Both are lifted to
-  // explicit props, captured per render in DataTableRow.
-  //
-  // Column cell renderers (and getColumnClassName) can close over external
-  // state while the row stays stable, so column definitions and the class
-  // resolver are part of the render identity and must be compared too.
-  return (
-    prev.row === next.row &&
-    prev.className === next.className &&
-    prev.isSelected === next.isSelected &&
-    prev.visibleColumnIds === next.visibleColumnIds &&
-    prev.getColumnClassName === next.getColumnClassName &&
-    prev.cellRenderColumns === next.cellRenderColumns
-  )
-}) as typeof DataTableRowInner
+// Selection/visibility are captured outside the stable TanStack row object.
+// Default shallow comparison also includes every forwarded DOM prop.
+const MemoizedDataTableRow = React.memo(
+  DataTableRowInner
+) as typeof DataTableRowInner
 
-export function DataTableRow<TData>(props: DataTableRowProps<TData>) {
+export function DataTableRow<TData extends RowData>(
+  props: DataTableRowProps<TData>
+) {
   const visibleColumnIds = props.row
     .getVisibleCells()
     .map((cell) => cell.column.id)
@@ -123,7 +113,7 @@ export function DataTableRow<TData>(props: DataTableRowProps<TData>) {
   )
 }
 
-function renderCellContent<TData>(cell: Cell<TData, unknown>) {
+function renderCellContent<TData extends RowData>(cell: Cell<TData, unknown>) {
   const content = flexRender(cell.column.columnDef.cell, cell.getContext())
   const textContent = getPrimitiveTextContent(content)
 

@@ -38,9 +38,10 @@ for (const key of [
   })
 }
 
-const { act } = await import('react')
+const { act, useEffect, useLayoutEffect } = await import('react')
 const { createRoot } = await import('react-dom/client')
 const { api } = await import('@/lib/api')
+const { useAuthStore } = await import('@/stores/auth-store')
 const deploymentSettingsModule = await import('./use-model-deployment-settings')
 const { clearConnectionCache, useModelDeploymentSettings } =
   deploymentSettingsModule
@@ -75,19 +76,27 @@ function deferred<T>() {
   return { promise, resolve }
 }
 
-function Harness() {
-  currentHook = useModelDeploymentSettings()
+type OnCommit = (owner: number | undefined, value: HookValue) => void
+function Harness({ onCommit }: { onCommit?: OnCommit }) {
+  const owner = useAuthStore((state) => state.auth.user?.id)
+  const value = useModelDeploymentSettings()
+  useLayoutEffect(() => {
+    onCommit?.(owner, value)
+  }, [owner, value, onCommit])
+  useEffect(() => {
+    currentHook = value
+  })
   return null
 }
 
-async function mountHarness(): Promise<{
+async function mountHarness(onCommit?: OnCommit): Promise<{
   root: Root
   container: HTMLDivElement
 }> {
   const container = document.createElement('div')
   const root = createRoot(container)
   await act(async () => {
-    root.render(<Harness />)
+    root.render(<Harness onCommit={onCommit} />)
   })
   return { root, container }
 }
@@ -103,6 +112,7 @@ afterEach(() => {
   api.defaults.adapter = originalAPIAdapter
   clearConnectionCache()
   currentHook = null
+  useAuthStore.getState().auth.reset()
 })
 
 after(() => domWindow.close())
@@ -155,6 +165,140 @@ describe('useModelDeploymentSettings', () => {
       assert.equal(currentHook?.loading, false)
       assert.equal(currentHook?.loadingPhase, 'done')
       assert.equal(connectionRequests, 0)
+    } finally {
+      await act(async () => root.unmount())
+    }
+  })
+  test('every committed account transition starts isolated, including A to B to A', async () => {
+    const second = deferred<unknown>()
+    const third = deferred<unknown>()
+    let requests = 0
+    let connections = 0
+    const commits: {
+      owner: number | undefined
+      enabled: boolean
+      ok: boolean | null
+      loading: boolean
+    }[] = []
+    useAuthStore
+      .getState()
+      .auth.setUser({ id: 101, username: 'fixture-a', role: 10 })
+    api.defaults.adapter = async (config) => {
+      if (config.url === '/api/deployments/settings') {
+        requests++
+        const data =
+          requests === 1
+            ? { success: true, data: { enabled: true, revision: 'a' } }
+            : await (requests === 2 ? second : third).promise
+        return response(config, data)
+      }
+      assert.equal(config.url, '/api/deployments/settings/test-connection')
+      connections++
+      return response(config, { success: true })
+    }
+    const { root } = await mountHarness((owner, value) => {
+      commits.push({
+        owner,
+        enabled: value.isIoNetEnabled,
+        ok: value.connectionOk,
+        loading: value.loading,
+      })
+    })
+    try {
+      await flushEffects()
+      assert.equal(currentHook?.isIoNetEnabled, true)
+      assert.equal(currentHook?.connectionOk, true)
+      await act(async () => {
+        useAuthStore
+          .getState()
+          .auth.setUser({ id: 202, username: 'fixture-b', role: 10 })
+      })
+      const b = commits.filter((value) => value.owner === 202)
+      assert.ok(b.length > 0)
+      assert.ok(
+        b.every((value) => !value.enabled && value.ok === null && value.loading)
+      )
+      second.resolve({ success: true, data: { enabled: false, revision: 'b' } })
+      await flushEffects()
+      assert.equal(currentHook?.loading, false)
+      const beforeReturn = commits.length
+      await act(async () => {
+        useAuthStore
+          .getState()
+          .auth.setUser({ id: 101, username: 'fixture-a', role: 10 })
+      })
+      const returned = commits.slice(beforeReturn)
+      assert.ok(returned.length > 0)
+      assert.ok(
+        returned.every(
+          (value) =>
+            value.owner === 101 &&
+            !value.enabled &&
+            value.ok === null &&
+            value.loading
+        )
+      )
+      third.resolve({ success: true, data: { enabled: false, revision: 'a' } })
+      await flushEffects()
+      assert.equal(currentHook?.loading, false)
+      assert.equal(currentHook?.isIoNetEnabled, false)
+      assert.equal(requests, 3)
+      assert.equal(connections, 1)
+    } finally {
+      await act(async () => root.unmount())
+    }
+  })
+
+  test('focus reuses the revision cache but manual connection testing bypasses it', async () => {
+    const focusSettings = deferred<unknown>()
+    const manualConnection = deferred<unknown>()
+    let requests = 0
+    let connections = 0
+    api.defaults.adapter = async (config) => {
+      if (config.url === '/api/deployments/settings') {
+        requests++
+        return response(
+          config,
+          requests === 2
+            ? await focusSettings.promise
+            : { success: true, data: { enabled: true, revision: 'stable' } }
+        )
+      }
+      assert.equal(config.url, '/api/deployments/settings/test-connection')
+      connections++
+      return response(
+        config,
+        connections === 1 ? { success: true } : await manualConnection.promise
+      )
+    }
+    const { root } = await mountHarness()
+    try {
+      await flushEffects()
+      assert.equal(currentHook?.connectionOk, true)
+      await act(async () => {
+        window.dispatchEvent(new Event('focus'))
+      })
+      assert.equal(currentHook?.loading, true)
+      assert.equal(currentHook?.loadingPhase, 'settings')
+      focusSettings.resolve({
+        success: true,
+        data: { enabled: true, revision: 'stable' },
+      })
+      await flushEffects()
+      assert.equal(currentHook?.loading, false)
+      assert.equal(connections, 1)
+      await act(async () => {
+        void currentHook?.testConnection()
+      })
+      assert.equal(currentHook?.connectionLoading, true)
+      assert.equal(currentHook?.loadingPhase, 'connection')
+      manualConnection.resolve({ success: false, message: 'Connection failed' })
+      await flushEffects()
+      assert.equal(currentHook?.connectionOk, false)
+      assert.equal(currentHook?.connectionError, 'Connection failed')
+      assert.equal(currentHook?.loading, false)
+      assert.equal(requests, 3)
+      assert.equal(connections, 2)
     } finally {
       await act(async () => root.unmount())
     }

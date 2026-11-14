@@ -31,7 +31,7 @@ for (const key of [
   })
 }
 
-const { act } = await import('react')
+const { act, useEffect } = await import('react')
 const { createRoot } = await import('react-dom/client')
 const { api } = await import('@/lib/api')
 const { useBillingHistory } = await import('./use-billing-history')
@@ -88,7 +88,10 @@ function billingResponse(id: number) {
 }
 
 function Harness() {
-  currentHook = useBillingHistory({ enabled: true })
+  const value = useBillingHistory({ enabled: true })
+  useEffect(() => {
+    currentHook = value
+  })
   return null
 }
 

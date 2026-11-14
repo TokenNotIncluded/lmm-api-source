@@ -32,6 +32,7 @@ import {
 import { Input } from '@/components/ui/input'
 import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select'
 import { Separator } from '@/components/ui/separator'
+import { useDeadlineClock } from '@/hooks/use-deadline-clock'
 import { useAuthStore } from '@/stores/auth-store'
 
 import { storePromotionApi } from './promotion-api'
@@ -94,12 +95,13 @@ export function StorePromotionCodes({
   const maxUses = maximum === '' ? null : Number(maximum)
   const expiresAt =
     expires === '' ? null : Math.floor(new Date(expires).getTime() / 1000)
+  const now = useDeadlineClock(expiresAt === null ? [] : [expiresAt * 1000])
   const validDraft =
     discountBps !== undefined &&
     (maxUses === null ||
       (/^[1-9]\d*$/.test(maximum) && Number.isSafeInteger(maxUses))) &&
     (expiresAt === null ||
-      (Number.isSafeInteger(expiresAt) && expiresAt > Date.now() / 1000)) &&
+      (Number.isSafeInteger(expiresAt) && expiresAt * 1000 > now)) &&
     (scope === 'all' || variantIds.length > 0)
 
   function reset() {
@@ -149,7 +151,13 @@ export function StorePromotionCodes({
     })
   }
   function save() {
-    if (!validDraft || discountBps === undefined) return
+    if (
+      !validDraft ||
+      discountBps === undefined ||
+      (expiresAt !== null && expiresAt <= Date.now() / 1000)
+    ) {
+      return
+    }
     const input: StorePromotionCodeInput = {
       discount_bps: discountBps,
       expires_at: expiresAt,

@@ -23,6 +23,54 @@ import {
   setDevelopmentAuthRefreshAdapter,
 } from './auth-session'
 
+const originalWindow = Object.getOwnPropertyDescriptor(globalThis, 'window')
+const originalNavigator = Object.getOwnPropertyDescriptor(
+  globalThis,
+  'navigator'
+)
+const originalSecureContext = Object.getOwnPropertyDescriptor(
+  globalThis,
+  'isSecureContext'
+)
+const storage = new Map<string, string>()
+Object.defineProperty(globalThis, 'isSecureContext', {
+  configurable: true,
+  value: true,
+})
+Object.defineProperty(globalThis, 'navigator', {
+  configurable: true,
+  value: {
+    locks: {
+      async request<T>(
+        _name: string,
+        _options: unknown,
+        operation: () => Promise<T>
+      ) {
+        return operation()
+      },
+    },
+  },
+})
+const originalFetch = globalThis.fetch
+Object.defineProperty(globalThis, 'window', {
+  configurable: true,
+  value: {
+    localStorage: {
+      getItem: (key: string) => storage.get(key) ?? null,
+      setItem: (key: string, value: string) => storage.set(key, value),
+      removeItem: (key: string) => storage.delete(key),
+    },
+    location: {
+      href: 'https://deadline.example.test/',
+      origin: 'https://deadline.example.test',
+    },
+  },
+})
+globalThis.fetch = (async () =>
+  Response.json({
+    success: true,
+    data: { revoked_sid: 'synthetic', current: true },
+  })) as typeof fetch
 const original = api.defaults.adapter
 const bundle: AuthBundle = {
   access_token: 'synthetic',
@@ -41,6 +89,17 @@ const bundle: AuthBundle = {
   },
 }
 after(() => {
+  globalThis.fetch = originalFetch
+  if (originalWindow) {
+    Object.defineProperty(globalThis, 'window', originalWindow)
+  } else Reflect.deleteProperty(globalThis, 'window')
+  for (const [key, descriptor] of [
+    ['navigator', originalNavigator],
+    ['isSecureContext', originalSecureContext],
+  ] as const) {
+    if (descriptor) Object.defineProperty(globalThis, key, descriptor)
+    else Reflect.deleteProperty(globalThis, key)
+  }
   api.defaults.adapter = original
   setDevelopmentAuthRefreshAdapter(original as AxiosAdapter)
   clearAuthentication(false, 'idle')

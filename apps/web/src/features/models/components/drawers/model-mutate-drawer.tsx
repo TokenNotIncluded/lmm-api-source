@@ -20,7 +20,7 @@ import { zodResolver } from '@hookform/resolvers/zod'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { ChevronDown, Loader2, Lock } from 'lucide-react'
 import { useEffect, useState, useCallback, useMemo, useRef } from 'react'
-import { useForm } from 'react-hook-form'
+import { useForm, useWatch } from 'react-hook-form'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 import * as z from 'zod'
@@ -411,12 +411,16 @@ export function ModelMutateDrawer({
       audioCompletionRatio: '',
     },
   })
+  const watchedModelName = useWatch({
+    control: form.control,
+    name: 'model_name',
+  })
 
   const priceLocks = useMemo(
     () => parseModelPriceLocks(modelSettings?.ModelPriceLock || '{}'),
     [modelSettings?.ModelPriceLock]
   )
-  const isPricingLocked = priceLocks[form.watch('model_name')] === true
+  const isPricingLocked = priceLocks[watchedModelName] === true
 
   const validateNumber = (value: string) => {
     if (value === '') return true
@@ -453,11 +457,48 @@ export function ModelMutateDrawer({
     }
   }
 
+  // Reset editor state for an opening, record refresh or first pricing load.
+  // Later pricing refetches must leave the current draft intact.
+  const [loadedSource, setLoadedSource] = useState<{
+    open: boolean
+    isEditing: boolean
+    modelData: typeof modelData
+    currentRow: typeof currentRow
+    hasModelSettings: boolean
+  } | null>(null)
+  if (
+    !loadedSource ||
+    loadedSource.open !== open ||
+    loadedSource.isEditing !== isEditing ||
+    loadedSource.modelData !== modelData ||
+    loadedSource.currentRow !== currentRow ||
+    loadedSource.hasModelSettings !== hasModelSettings
+  ) {
+    setLoadedSource({
+      open,
+      isEditing,
+      modelData,
+      currentRow,
+      hasModelSettings,
+    })
+    if (open && (!isEditing || modelData?.data)) {
+      const modelName =
+        (isEditing ? modelData?.data?.model_name : currentRow?.model_name) || ''
+      const pricing = readPricingConfig(modelSettings, modelName, creditsPerUsd)
+      setOldModelName(isEditing ? modelName : '')
+      setLoadedPricingName(modelName)
+      if (!isEditing) setPricingSubMode('ratio')
+      setPricingMode(pricing.mode)
+      setPromptPrice(pricing.promptPrice)
+      setCompletionPrice(pricing.completionPrice)
+      setAdvancedOpen(pricing.advancedOpen)
+    }
+  }
+
   // Load model data for editing and ratio configuration
   useEffect(() => {
     if (open && isEditing && modelData?.data) {
       const model = modelData.data
-      setOldModelName(model.model_name)
 
       const pricing = readPricingConfig(
         modelSettingsRef.current,
@@ -465,11 +506,6 @@ export function ModelMutateDrawer({
         pricingConfigRef.current?.credits_per_usd ?? Number.NaN
       )
       loadedPricingConfigRef.current = pricingConfigRef.current
-      setLoadedPricingName(model.model_name)
-      setPricingMode(pricing.mode)
-      setPromptPrice(pricing.promptPrice)
-      setCompletionPrice(pricing.completionPrice)
-      setAdvancedOpen(pricing.advancedOpen)
       form.reset({
         id: model.id,
         model_name: model.model_name,
@@ -497,13 +533,6 @@ export function ModelMutateDrawer({
         pricingConfigRef.current?.credits_per_usd ?? Number.NaN
       )
       loadedPricingConfigRef.current = pricingConfigRef.current
-      setOldModelName('')
-      setLoadedPricingName(modelName)
-      setPricingSubMode('ratio')
-      setPricingMode(pricing.mode)
-      setPromptPrice(pricing.promptPrice)
-      setCompletionPrice(pricing.completionPrice)
-      setAdvancedOpen(pricing.advancedOpen)
       form.reset({
         model_name: modelName,
         description: '',
@@ -850,9 +879,7 @@ export function ModelMutateDrawer({
         <Form {...form}>
           <form
             id='model-form'
-            onSubmit={form.handleSubmit(
-              onSubmit as Parameters<typeof form.handleSubmit>[0]
-            )}
+            onSubmit={(event) => form.handleSubmit(onSubmit)(event)}
             className={sideDrawerFormClassName()}
           >
             {/* Basic Information */}

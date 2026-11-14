@@ -72,8 +72,8 @@ describe('open-source bounty lists', () => {
     await listOwnedBounties(true)
 
     assert.deepEqual(gets, [
-      '/api/open-source-bounties/mine?archived=false',
-      '/api/open-source-bounties/mine?archived=true',
+      '/api/bounties/mine?archived=false',
+      '/api/bounties/mine?archived=true',
     ])
   })
 
@@ -111,8 +111,8 @@ describe('open-source bounty archive actions', () => {
     await unarchiveBounty(42)
 
     assert.deepEqual(posts, [
-      '/api/open-source-bounties/projects/42/archive',
-      '/api/open-source-bounties/projects/42/unarchive',
+      '/api/bounties/projects/42/archive',
+      '/api/bounties/projects/42/unarchive',
     ])
   })
 })
@@ -152,12 +152,12 @@ describe('open-source bounty tips', () => {
 
     assert.deepEqual(requests, [
       {
-        url: '/api/open-source-bounties/challenges/42/tip',
+        url: '/api/bounties/challenges/42/tip',
         data: input,
         idempotencyKey,
       },
       {
-        url: '/api/open-source-bounties/challenges/42/tip',
+        url: '/api/bounties/challenges/42/tip',
         data: input,
         idempotencyKey,
       },
@@ -180,10 +180,10 @@ describe('open-source bounty tips', () => {
     await markReceivedBountyTipsRead()
     await thankBountyTip(17)
 
-    assert.deepEqual(gets, ['/api/open-source-bounties/tips/received'])
+    assert.deepEqual(gets, ['/api/bounties/tips/received'])
     assert.deepEqual(posts, [
-      '/api/open-source-bounties/tips/received/read',
-      '/api/open-source-bounties/tips/17/thank',
+      '/api/bounties/tips/received/read',
+      '/api/bounties/tips/17/thank',
     ])
   })
 })
@@ -204,8 +204,8 @@ describe('open-source bounty notifications', () => {
     await listBountyNotifications()
     await markBountyNotificationsRead()
 
-    assert.deepEqual(gets, ['/api/open-source-bounties/notifications'])
-    assert.deepEqual(posts, ['/api/open-source-bounties/notifications/read'])
+    assert.deepEqual(gets, ['/api/bounties/notifications'])
+    assert.deepEqual(posts, ['/api/bounties/notifications/read'])
   })
 
   test('uses legacy tip endpoints when unified notifications are not advertised', async () => {
@@ -242,8 +242,8 @@ describe('open-source bounty notifications', () => {
     const notifications = await listCompatibleBountyNotifications(false)
     await markCompatibleBountyNotificationsRead(false)
 
-    assert.deepEqual(gets, ['/api/open-source-bounties/tips/received'])
-    assert.deepEqual(posts, ['/api/open-source-bounties/tips/received/read'])
+    assert.deepEqual(gets, ['/api/bounties/tips/received'])
+    assert.deepEqual(posts, ['/api/bounties/tips/received/read'])
     assert.equal(notifications[0]?.kind, 'tip_transfer')
   })
 
@@ -262,8 +262,8 @@ describe('open-source bounty notifications', () => {
     await listCompatibleBountyNotifications(true)
     await markCompatibleBountyNotificationsRead(true)
 
-    assert.deepEqual(gets, ['/api/open-source-bounties/notifications'])
-    assert.deepEqual(posts, ['/api/open-source-bounties/notifications/read'])
+    assert.deepEqual(gets, ['/api/bounties/notifications'])
+    assert.deepEqual(posts, ['/api/bounties/notifications/read'])
   })
 })
 
@@ -282,7 +282,7 @@ describe('open-source bounty challenge cancellation', () => {
 
     const challenge = await cancelChallenge(42)
 
-    assert.equal(requestUrl, '/api/open-source-bounties/challenges/42/cancel')
+    assert.equal(requestUrl, '/api/bounties/challenges/42/cancel')
     assert.equal(challenge.status, 'cancelled')
   })
 })
@@ -309,7 +309,7 @@ describe('open-source bounty disputes', () => {
 
     assert.deepEqual(requests, [
       {
-        url: '/api/open-source-bounties/challenges/42/disputes',
+        url: '/api/bounties/challenges/42/disputes',
         data: input,
       },
     ])

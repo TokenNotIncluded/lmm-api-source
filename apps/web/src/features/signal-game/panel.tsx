@@ -24,10 +24,11 @@ import {
   Volume2,
   VolumeX,
 } from 'lucide-react'
-import { useEffect, useId, useMemo, useRef, useState } from 'react'
+import { useEffect, useId, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { Button } from '@/components/ui/button'
+import { useAuthStore } from '@/stores/auth-store'
 
 import { HUMAN } from './api'
 import { SignalBoard } from './board'
@@ -74,26 +75,36 @@ export function GameClock({
   )
 }
 export function SignalGamePanel() {
+  const state = useSignalGame()
+  const userId = useAuthStore((store) => store.auth.user?.id)
+  const sessionId = useAuthStore((store) => store.auth.session?.sid)
+  return (
+    <SignalGameWorkspace
+      key={JSON.stringify([userId, sessionId, state.circuit.size])}
+      state={state}
+    />
+  )
+}
+
+function SignalGameWorkspace({
+  state,
+}: {
+  state: ReturnType<typeof useSignalGame.getState>
+}) {
   const { t } = useTranslation(),
     titleId = useId(),
-    state = useSignalGame(),
     [size, setSize] = useState(state.circuit.size),
     [advanced, setAdvanced] = useState(state.circuit.size > 12),
     [error, setError] = useState(false),
     [sound, setSound] = useState(soundEnabled),
-    [usedHint, setUsedHint] = useState(false)
-  useEffect(() => {
-    setSize(state.circuit.size)
-    setAdvanced(state.circuit.size > 12)
-  }, [state.circuit.size])
-  const trace = useMemo(
-      () => traceCircuit(state.tiles, state.circuit.size),
-      [state.tiles, state.circuit.size]
-    ),
-    powered = useMemo(() => new Set(trace.path), [trace.path]),
+    [hintRound, setHintRound] = useState<string | null>(null)
+  const usedHint = hintRound === state.roundId
+  const trace = traceCircuit(state.tiles, state.circuit.size),
+    powered = new Set(trace.path),
     poweredCount = trace.path.length,
     previousPower = useRef(poweredCount),
-    previousWon = useRef(false)
+    previousWon = useRef(false),
+    startOperation = useRef(0)
   useEffect(() => {
     if (poweredCount > previousPower.current && !trace.won) playCue('power')
     previousPower.current = poweredCount
@@ -103,11 +114,10 @@ export function SignalGamePanel() {
     previousWon.current = trace.won
   }, [trace.won])
   useEffect(() => {
-    setUsedHint(false)
     previousPower.current = 0
   }, [state.roundId])
   const turn = (index: number) => {
-    if (index === -1) setUsedHint(true)
+    if (index === -1) setHintRound(state.roundId)
     try {
       rotateSignalTile(index)
       setError(false)
@@ -118,12 +128,22 @@ export function SignalGamePanel() {
   }
   const start = (mode: 'practice' | 'challenge', repeat = false) => {
     setError(false)
+    const operation = ++startOperation.current
+    const roundId = state.roundId
     void startSignalGame(
       mode,
       repeat ? state.circuit.size : size,
       HUMAN,
       repeat ? state.circuit.seed : undefined
-    ).catch(() => setError(true))
+    ).catch(() => {
+      if (
+        startOperation.current === operation &&
+        useSignalGame.getState().roundId === roundId &&
+        useSignalGame.getState().phase !== 'loading'
+      ) {
+        setError(true)
+      }
+    })
   }
   const blocked = state.phase !== 'playing'
   return (

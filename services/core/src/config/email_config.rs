@@ -115,6 +115,16 @@ struct EmailKeys {
     mail: MailKeys,
 }
 
+/// Enumerate only the explicitly configured email cryptographic files. This
+/// reuses the actual loader format without opening SMTP credentials or starting
+/// delivery merely to check managed-key separation.
+pub(super) fn cryptographic_key_files(path: &std::path::Path) -> io::Result<Vec<PathBuf>> {
+    let file: EmailFile = parse_document(&configuration_file(path, 16 * 1024 * 1024)?)?;
+    let mut paths = vec![file.proof_key_file, file.rate_key_file];
+    paths.extend(file.key_files.into_values());
+    Ok(paths)
+}
+
 fn read_key(path: &std::path::Path) -> io::Result<Zeroizing<[u8; 32]>> {
     let bytes = Zeroizing::new(private_file(path, 32)?);
     if bytes.len() != 32 || bytes.iter().all(|b| *b == 0) {

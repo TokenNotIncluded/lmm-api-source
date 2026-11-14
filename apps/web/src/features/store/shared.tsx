@@ -17,6 +17,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from '@/components/ui/tooltip'
+import { useDeadlineClock } from '@/hooks/use-deadline-clock'
 import { useWalletCurrency } from '@/hooks/use-wallet-currency'
 import { bootstrapAuthentication } from '@/lib/auth-session'
 import { cn } from '@/lib/utils'
@@ -154,6 +155,7 @@ export function StoreError({
 }
 export function StoreBadges({ product }: { product: StoreProduct }) {
   const { t } = useTranslation()
+  const now = useDeadlineClock([product.promotion_expires_at * 1000])
   return (
     <div className='flex flex-wrap items-center gap-2 text-xs empty:hidden'>
       {product.unlimited_supply && (
@@ -176,7 +178,7 @@ export function StoreBadges({ product }: { product: StoreProduct }) {
         !product.trading_paused &&
         ((product.unlimited_supply && product.sale_limit == null) ||
           (product.sale_available ?? 0) > 0) &&
-        product.promotion_expires_at > Date.now() / 1000 && (
+        product.promotion_expires_at * 1000 > now && (
           <Tooltip>
             <TooltipTrigger
               render={

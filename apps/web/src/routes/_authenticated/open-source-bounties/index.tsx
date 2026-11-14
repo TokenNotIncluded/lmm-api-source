@@ -16,11 +16,8 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { createFileRoute } from '@tanstack/react-router'
-import { useCallback, useMemo } from 'react'
+import { createFileRoute, redirect } from '@tanstack/react-router'
 import { z } from 'zod'
-
-import { OpenSourceBounties } from '@/features/open-source-bounties'
 
 const bountyId = z.union([
   z.number().int().positive(),
@@ -34,27 +31,7 @@ const bountySearchSchema = z.object({
 
 export const Route = createFileRoute('/_authenticated/open-source-bounties/')({
   validateSearch: bountySearchSchema,
-  component: RouteComponent,
+  beforeLoad: ({ search }) => {
+    throw redirect({ to: '/bounties', search, replace: true })
+  },
 })
-
-function RouteComponent() {
-  const search = Route.useSearch()
-  const navigate = Route.useNavigate()
-  const detailTarget = useMemo(
-    () =>
-      search.projectId && search.challengeId
-        ? { projectId: search.projectId, challengeId: search.challengeId }
-        : undefined,
-    [search.challengeId, search.projectId]
-  )
-  const clearDetailTarget = useCallback(() => {
-    void navigate({ search: {}, replace: true })
-  }, [navigate])
-
-  return (
-    <OpenSourceBounties
-      detailTarget={detailTarget}
-      onDetailTargetConsumed={clearDetailTarget}
-    />
-  )
-}

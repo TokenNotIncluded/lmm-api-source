@@ -92,9 +92,16 @@ impl ImageInput {
         };
         let mut image = Self::url(url)?;
         image.detail = detail
-            .map(|detail| match detail.as_str() {
-                Some(detail @ ("auto" | "low" | "high" | "original")) => Ok(detail.into()),
-                _ => Err(RelayError::Invalid("invalid image detail")),
+            .map(|detail| {
+                let detail = detail
+                    .as_str()
+                    .ok_or(RelayError::Invalid("invalid image detail"))?
+                    .trim()
+                    .to_ascii_lowercase();
+                match detail.as_str() {
+                    "auto" | "low" | "high" | "original" => Ok(detail),
+                    _ => Err(RelayError::Invalid("invalid image detail")),
+                }
             })
             .transpose()?;
         Ok(image)
@@ -133,13 +140,11 @@ impl ImageInput {
     }
 
     pub(super) fn wire(&self, protocol: UpstreamProtocol) -> Result<Value, RelayError> {
+        let detail = self.detail.as_deref().unwrap_or("auto");
         if !matches!(
             protocol,
             UpstreamProtocol::Chat | UpstreamProtocol::Responses
-        ) && self
-            .detail
-            .as_deref()
-            .is_some_and(|detail| detail != "auto")
+        ) && detail != "auto"
         {
             return Err(RelayError::Unsupported(
                 "image detail requires an OpenAI protocol route",
@@ -153,18 +158,11 @@ impl ImageInput {
                         format!("data:{media_type};base64,{data}")
                     }
                 };
-                let mut image = if protocol == UpstreamProtocol::Chat {
-                    json!({"type":"image_url", "image_url":{"url":url}})
+                let image = if protocol == UpstreamProtocol::Chat {
+                    json!({"type":"image_url", "image_url":{"url":url, "detail":detail}})
                 } else {
-                    json!({"type":"input_image", "image_url":url})
+                    json!({"type":"input_image", "image_url":url, "detail":detail})
                 };
-                if let Some(detail) = &self.detail {
-                    if protocol == UpstreamProtocol::Chat {
-                        image["image_url"]["detail"] = json!(detail);
-                    } else {
-                        image["detail"] = json!(detail);
-                    }
-                }
                 Ok(image)
             }
             UpstreamProtocol::Anthropic => Ok(json!({"type":"image", "source":match &self.source {

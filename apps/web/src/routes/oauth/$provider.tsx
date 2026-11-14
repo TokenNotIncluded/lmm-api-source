@@ -32,13 +32,26 @@ import {
   OAUTH_BIND_CALLBACK_MESSAGE,
   OAUTH_BIND_RESULT_MESSAGE,
 } from '@/features/auth/constants'
+import { finishFederatedLogin } from '@/features/auth/federated-api'
 import { useAuthRedirect } from '@/features/auth/hooks/use-auth-redirect'
-import { hasVerifiedAccountAppeal } from '@/features/auth/lib/account-appeal'
+import {
+  completeAuthResponse,
+  reportAuthError,
+  reportPasskeyCancellation,
+  shouldSuppressAuthError,
+  showVerifiedAuthAppeal,
+  verifyAuthPasskey,
+  type LoginPasskeyChallenge,
+} from '@/features/auth/lib/auth-completion'
 import { sanitizeAuthRedirect } from '@/features/auth/lib/auth-redirect'
 import {
   isExternalMFAContinuation,
   oauthCallbackSearchSchema,
 } from '@/features/auth/lib/external-oauth'
+import {
+  readFederatedCeremony,
+  forgetFederatedCeremony,
+} from '@/features/auth/lib/federated-oauth'
 import {
   parseTelegramBindCallback,
   postTelegramBindResult,
@@ -48,18 +61,10 @@ import {
   getOAuthSessionStorage,
   resolveOAuthCallbackMode,
 } from '@/features/auth/lib/oauth-callback-mode'
-import { finishPasskeyLogin } from '@/features/auth/passkey'
 import type { ApiResponse } from '@/features/auth/types'
-import { api, applyAuthBundle, isAuthBundle } from '@/lib/api'
-import {
-  applyPending2FAFlow,
-  capturePasswordLoginGuard,
-} from '@/lib/auth-session'
+import { api, applyAuthBundle } from '@/lib/api'
+import { capturePasswordLoginGuard } from '@/lib/auth-session'
 import { getAuthenticatedLandingRoute } from '@/lib/console-activation'
-import {
-  prepareCredentialRequestOptions,
-  requestPasskeyAuthentication,
-} from '@/lib/passkey'
 import { getServerErrorMessageKey } from '@/lib/server-error-message'
 import type { AuthBundle } from '@/stores/auth-store'
 
@@ -75,17 +80,11 @@ interface OAuthBindingResult {
   message?: string
 }
 
-interface OAuthPasskeyChallenge {
-  options: unknown
-  flowToken: string
-  expiresAt?: number
-}
-
 function OAuthCallback() {
   const navigate = useNavigate()
   const { redirectTo2FA } = useAuthRedirect()
   const [passkeyChallenge, setPasskeyChallenge] =
-    useState<OAuthPasskeyChallenge | null>(null)
+    useState<LoginPasskeyChallenge | null>(null)
   const [isPasskeyPending, setIsPasskeyPending] = useState(false)
   const passkeyPending = useRef(false)
   const passkeyAttempt = useRef(0)
@@ -130,7 +129,13 @@ function OAuthCallback() {
   }
 
   const handlePasskeyVerification = async () => {
-    if (!passkeyChallenge || passkeyPending.current) return
+    if (
+      !passkeyChallenge ||
+      passkeyPending.current ||
+      shouldSuppressAuthError()
+    ) {
+      return
+    }
     if (!navigator.credentials?.get) {
       toast.error(i18next.t('Passkey is not available in this browser'))
       return
@@ -155,66 +160,45 @@ function OAuthCallback() {
           throw new CanceledError('OAuth challenge superseded')
         }
       }
-      const assertion = await requestPasskeyAuthentication(
-        passkeyChallenge.options
-      )
+      const response = await verifyAuthPasskey(passkeyChallenge, assertCurrent)
       if (attempt !== passkeyAttempt.current) return
-      if (!assertion) {
-        toast.info(i18next.t('Passkey login was cancelled'))
+      if (!response) {
+        reportPasskeyCancellation(null, i18next.t)
         return
       }
-      const response = await finishPasskeyLogin(
-        passkeyChallenge.flowToken,
-        assertion,
-        assertCurrent
-      )
-      if (attempt !== passkeyAttempt.current) return
-      if (
-        response.success &&
-        response.data &&
-        typeof response.data === 'object' &&
-        'require_2fa' in response.data &&
-        response.data.require_2fa === true
-      ) {
-        redirectTo2FA(search.redirect)
-        return
-      }
-      if (!response.success || !isAuthBundle(response.data)) {
-        if (hasVerifiedAccountAppeal(response)) {
-          handlePasskeyCancel()
-          toast.error(
-            i18next.t(
-              'Submit an appeal using your verified identity. No local password is needed.'
-            )
+      const handled = await completeAuthResponse(response, {
+        alreadyApplied: true,
+        onBundle: (bundle) => completeLogin(bundle, true),
+        onMFA: () => redirectTo2FA(search.redirect),
+      })
+      if (!handled) {
+        if (
+          showVerifiedAuthAppeal(response, i18next.t, () =>
+            handlePasskeyCancel()
           )
+        ) {
           return
         }
-        const messageKey = getServerErrorMessageKey(response)
-        toast.error(
-          messageKey
-            ? i18next.t(messageKey)
-            : response.message || i18next.t('Failed to complete Passkey login')
+        reportAuthError(
+          response,
+          i18next.t,
+          response.message || i18next.t('Failed to complete Passkey login')
         )
+      }
+    } catch (error: unknown) {
+      if (
+        attempt !== passkeyAttempt.current ||
+        reportPasskeyCancellation(error, i18next.t)
+      ) {
         return
       }
-      completeLogin(response.data, true)
-    } catch (error: unknown) {
-      if (attempt !== passkeyAttempt.current) return
-      if (hasVerifiedAccountAppeal(error)) {
-        handlePasskeyCancel()
-        toast.error(
-          i18next.t(
-            'Submit an appeal using your verified identity. No local password is needed.'
-          )
-        )
+      if (
+        showVerifiedAuthAppeal(error, i18next.t, () => handlePasskeyCancel())
+      ) {
         return
       }
       if (getServerErrorMessageKey(error)) return
-      if (error instanceof DOMException && error.name === 'NotAllowedError') {
-        toast.info(i18next.t('Passkey login was cancelled or timed out'))
-      } else {
-        toast.error(i18next.t('Passkey login failed'))
-      }
+      reportAuthError(error, i18next.t, i18next.t('Passkey login failed'))
     } finally {
       if (attempt === passkeyAttempt.current) {
         passkeyPending.current = false
@@ -236,7 +220,7 @@ function OAuthCallback() {
   }
 
   useEffect(() => {
-    if (typeof window === 'undefined') return
+    if (typeof window === 'undefined' || shouldSuppressAuthError()) return
 
     const code = search.code ?? ''
     const state = callbackState
@@ -271,6 +255,16 @@ function OAuthCallback() {
       toast.error(i18next.t('OAuth binding window is no longer available'))
       safeNavigate('/sign-in', '/sign-in')
       return
+    }
+
+    if (state.startsWith('lmmfe_') && !callbackRequest.current) {
+      try {
+        readFederatedCeremony(window.sessionStorage, state, provider, mode)
+      } catch {
+        toast.error(i18next.t('Login flow expired. Please sign in again.'))
+        safeNavigate('/sign-in', '/sign-in')
+        return
+      }
     }
 
     if (mode === 'bind') {
@@ -369,83 +363,70 @@ function OAuthCallback() {
           passkeyPending.current = false
           setIsPasskeyPending(false)
           setPasskeyChallenge(null)
-          callbackRequest.current = {
-            key,
-            promise: api
+          let promise: Promise<ApiResponse>
+          if (state.startsWith('lmmfe_')) {
+            if (search.error) {
+              forgetFederatedCeremony(window.sessionStorage, state)
+              promise = Promise.reject(new Error('OAuth failed'))
+            } else {
+              promise = finishFederatedLogin(provider, {
+                state,
+                code,
+                ...(search.iss === undefined ? {} : { iss: search.iss }),
+              })
+            }
+          } else {
+            promise = api
               .get<ApiResponse>(`/api/oauth/${provider}`, config)
-              .then((response) => response.data),
+              .then((response) => response.data)
           }
+          callbackRequest.current = { key, promise }
         }
         const response = await callbackRequest.current.promise
         if (!active) return
-        if (response?.success) {
-          const data = response.data as Record<string, unknown> | undefined
-          if (data?.require_2fa === true || data?.require_passkey === true) {
-            if (typeof data.flow_token !== 'string' || !data.flow_token) {
-              throw new Error(
-                i18next.t('Login flow expired. Please sign in again.')
-              )
-            }
-            if (data.require_2fa === true) {
-              applyPending2FAFlow(
-                data.flow_token,
-                typeof data.expires_at === 'number'
-                  ? data.expires_at
-                  : undefined
-              )
-              redirectTo2FA(search.redirect)
-              return
-            }
-            prepareCredentialRequestOptions(data.options)
-            setPasskeyChallenge({
-              options: data.options,
-              flowToken: data.flow_token,
-              expiresAt:
-                typeof data.expires_at === 'number'
-                  ? data.expires_at
-                  : undefined,
-            })
-            return
-          }
-          if (isAuthBundle(response.data)) {
-            completeLogin(response.data)
-            return
-          }
-        }
-        if (hasVerifiedAccountAppeal(response)) {
-          toast.error(
-            i18next.t(
-              'Submit an appeal using your verified identity. No local password is needed.'
-            )
-          )
-          safeNavigate('/sign-in', '/sign-in')
+        if (
+          await completeAuthResponse(response, {
+            alreadyApplied: state.startsWith('lmmfe_'),
+            onBundle: completeLogin,
+            onMFA: () => redirectTo2FA(search.redirect),
+            onPasskey: setPasskeyChallenge,
+          })
+        ) {
           return
         }
-        const messageKey = getServerErrorMessageKey(response)
-        toast.error(
-          messageKey
-            ? i18next.t(messageKey)
-            : response?.message || i18next.t('OAuth failed')
+        if (
+          showVerifiedAuthAppeal(response, i18next.t, () =>
+            safeNavigate('/sign-in', '/sign-in')
+          )
+        ) {
+          return
+        }
+        reportAuthError(
+          response,
+          i18next.t,
+          response?.message || i18next.t('OAuth failed')
         )
       } catch (error: unknown) {
-        if (!active) return
-        if (hasVerifiedAccountAppeal(error)) {
-          toast.error(
-            i18next.t(
-              'Submit an appeal using your verified identity. No local password is needed.'
-            )
+        if (!active || shouldSuppressAuthError(error)) return
+        if (
+          showVerifiedAuthAppeal(error, i18next.t, () =>
+            safeNavigate('/sign-in', '/sign-in')
           )
-          safeNavigate('/sign-in', '/sign-in')
+        ) {
           return
         }
         const messageKey = getServerErrorMessageKey(error)
         const responseMessage = (
           error as { response?: { data?: { message?: string } } }
         ).response?.data?.message
-        toast.error(
+        reportAuthError(
+          error,
+          i18next.t,
           messageKey
             ? i18next.t(messageKey)
-            : responseMessage ||
+            : state.startsWith('lmmfe_')
+              ? i18next.t('OAuth failed')
+              : responseMessage ||
                 (error instanceof Error
                   ? error.message
                   : i18next.t('OAuth failed'))

@@ -42,6 +42,7 @@ for (const key of [
   'Node',
   'Element',
   'Event',
+  'KeyboardEvent',
   'MouseEvent',
   'PointerEvent',
   'FocusEvent',
@@ -77,7 +78,14 @@ const { createInstance } = await import('i18next')
 const { I18nextProvider, initReactI18next } = await import('react-i18next')
 const { api } = await import('@/lib/api')
 const { useAuthStore } = await import('@/stores/auth-store')
-const { requestAssistantOpen } = await import('./assistant-events')
+const {
+  requestAssistantOpen,
+  requestAssistantSend,
+  consumeQueuedAssistantRequest,
+  peekQueuedAssistantRequest,
+} = await import('./assistant-events')
+const { setAssistantRailOpen, isAssistantRailOpen } =
+  await import('./assistant-rail')
 const { AssistantLauncher } = await import('./assistant-launcher')
 const { AssistantPanel } = await import('./assistant-panel')
 
@@ -4607,6 +4615,180 @@ describe('AssistantPanel in-site human support', () => {
         /Waiting for an administrator to join/
       )
     } finally {
+      await act(async () => rendered.root.unmount())
+      rendered.queryClient.clear()
+    }
+  })
+})
+
+describe('AssistantLauncher lifecycle', () => {
+  const launcherOwner: AuthUser = {
+    id: 401,
+    username: 'launcher-owner',
+    role: 100,
+    developer_access_granted: true,
+  }
+
+  test('mount replays a queued draft once, preserves user edits on profile refresh and resets external fullscreen closure', async () => {
+    api.get = (async (url: string) => {
+      if (url === '/api/status') {
+        return {
+          data: { success: true, data: { assistant: { enabled: true } } },
+        }
+      }
+      if (url === '/api/user/self/onboarding/todo') {
+        return {
+          data: {
+            success: true,
+            data: {
+              eligibility: {
+                eligible: false,
+                developer_access_granted: true,
+                trust_level: 6,
+              },
+              status: 'unavailable',
+              current_step: null,
+              steps: [],
+            },
+          },
+        }
+      }
+      assert.equal(url, '/api/assistant/status')
+      return { data: { success: true, data: assistantStatus } }
+    }) as typeof api.get
+    consumeQueuedAssistantRequest()
+    requestAssistantOpen(undefined, 'Queued before launcher mounts')
+    const rendered = await renderLauncher(launcherOwner)
+    try {
+      await act(async () =>
+        waitForCondition(
+          () =>
+            document.querySelector<HTMLTextAreaElement>('textarea')?.value ===
+            'Queued before launcher mounts',
+          'queued draft missing'
+        )
+      )
+      const panel = requireValue(
+        document.querySelector<HTMLElement>('#ai-assistant-panel')
+      )
+      const textarea = requireValue(panel.querySelector('textarea'))
+      await setTextareaValue(textarea, 'User edited draft')
+      await act(async () =>
+        requireValue(
+          panel.querySelector<HTMLButtonElement>(
+            '[data-testid="assistant-fullscreen"]'
+          )
+        ).click()
+      )
+      assert.equal(panel.getAttribute('role'), 'dialog')
+      await act(async () => setAssistantRailOpen(false))
+      assert.equal(document.querySelector('#ai-assistant-panel'), panel)
+      assert.equal(panel.getAttribute('role'), null)
+      await act(async () => setAssistantRailOpen(true))
+      assert.equal(panel.getAttribute('role'), null)
+      assert.equal(textarea.value, 'User edited draft')
+      await act(async () =>
+        useAuthStore
+          .getState()
+          .auth.setUser({ ...launcherOwner, display_name: 'Updated' })
+      )
+      assert.equal(panel.querySelector('textarea'), textarea)
+      assert.equal(textarea.value, 'User edited draft')
+      assert.equal(peekQueuedAssistantRequest(), undefined)
+      await act(async () => rendered.root.unmount())
+      setAssistantRailOpen(false)
+      const shortcut = new KeyboardEvent('keydown', {
+        key: 'a',
+        ctrlKey: true,
+        shiftKey: true,
+        cancelable: true,
+      })
+      window.dispatchEvent(shortcut)
+      assert.equal(shortcut.defaultPrevented, false)
+      requestAssistantOpen(undefined, 'Queued after unmount')
+      assert.equal(isAssistantRailOpen(), false)
+      assert.equal(document.querySelector('#ai-assistant-panel'), null)
+    } finally {
+      consumeQueuedAssistantRequest()
+      await act(async () => rendered.root.unmount())
+      rendered.queryClient.clear()
+    }
+  })
+
+  test('account switch discards an unconfirmed auto-send instead of replaying it as the next account', async () => {
+    let finishStatus: ((value: unknown) => void) | undefined
+    const oldStatus = new Promise<unknown>((resolve) => {
+      finishStatus = resolve
+    })
+    const statusOwners: number[] = []
+    let sends = 0
+    api.get = (async (url: string) => {
+      if (url === '/api/status') {
+        return {
+          data: { success: true, data: { assistant: { enabled: true } } },
+        }
+      }
+      const id = useAuthStore.getState().auth.user?.id ?? 0
+      if (url === '/api/assistant/status') {
+        statusOwners.push(id)
+        return id === launcherOwner.id
+          ? oldStatus
+          : { data: { success: true, data: assistantStatus } }
+      }
+      assert.equal(url, '/api/user/self/onboarding/todo')
+      return {
+        data: {
+          success: true,
+          data: {
+            eligibility: {
+              eligible: false,
+              developer_access_granted: true,
+              trust_level: 6,
+            },
+            status: 'unavailable',
+            current_step: null,
+            steps: [],
+          },
+        },
+      }
+    }) as typeof api.get
+    api.post = (async () => {
+      sends++
+      assert.fail('old account message must not be sent')
+    }) as typeof api.post
+    consumeQueuedAssistantRequest()
+    const rendered = await renderLauncher(launcherOwner)
+    try {
+      await act(async () => {
+        requestAssistantSend(undefined, 'Private old-account queued message')
+        await flushEffects()
+      })
+      assert.ok(peekQueuedAssistantRequest()?.autoSend)
+      await act(async () => {
+        useAuthStore.getState().auth.setUser({ ...launcherOwner, id: 402 })
+        await flushEffects()
+      })
+      assert.equal(peekQueuedAssistantRequest(), undefined)
+      assert.ok(finishStatus)
+      await act(async () => {
+        finishStatus?.({ data: { success: true, data: assistantStatus } })
+        await flushEffects()
+      })
+      assert.equal(sends, 0)
+      assert.ok(document.querySelector('#ai-assistant-panel'))
+      assert.ok(document.querySelector('textarea'))
+      assert.doesNotMatch(
+        document.body.textContent ?? '',
+        /Private old-account queued message/
+      )
+      assert.notEqual(
+        document.querySelector('textarea')?.value,
+        'Private old-account queued message'
+      )
+      assert.ok(statusOwners.includes(401))
+      assert.ok(statusOwners.includes(402))
+    } finally {
+      consumeQueuedAssistantRequest()
       await act(async () => rendered.root.unmount())
       rendered.queryClient.clear()
     }

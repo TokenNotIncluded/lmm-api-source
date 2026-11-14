@@ -115,7 +115,7 @@ test('bounty board distinguishes failed requests, retry, cached data and success
     const url = config.url ?? ''
     requests.push(url)
     let data: unknown = []
-    if (url.startsWith('/api/open-source-bounties?')) {
+    if (url.startsWith('/api/bounties?')) {
       if (hold) {
         await new Promise<void>((resolve) => {
           release = resolve
@@ -143,7 +143,7 @@ test('bounty board distinguishes failed requests, retry, cached data and success
       }
     } else if (url === '/api/status') {
       data = { backend_capabilities: {} }
-    } else if (url === '/api/open-source-bounties/config') {
+    } else if (url === '/api/bounties/config') {
       data = { rate_basis_points: 100, rate_percent: 1 }
     }
     return {
@@ -197,7 +197,7 @@ test('bounty board distinguishes failed requests, retry, cached data and success
     )
     assert.ok(retryButton())
     const otherRequests = requests.filter(
-      (url) => !url.startsWith('/api/open-source-bounties?')
+      (url) => !url.startsWith('/api/bounties?')
     ).length
     response = 'items'
     hold = true
@@ -218,7 +218,7 @@ test('bounty board distinguishes failed requests, retry, cached data and success
     assert.ok(text().includes(project.title), 'retry restores the project')
     assert.ok(!retryButton(), 'successful retry removes error')
     assert.equal(
-      requests.filter((url) => !url.startsWith('/api/open-source-bounties?'))
+      requests.filter((url) => !url.startsWith('/api/bounties?'))
         .length,
       otherRequests,
       'retry only refetches this list'

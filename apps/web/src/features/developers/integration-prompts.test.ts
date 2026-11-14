@@ -33,6 +33,10 @@ test('OAuth instructions limit clients, require an explicit loopback port and di
     /read-only lmm client and optionally enabled lmm-pi/
   )
   assert.match(OAUTH_PROMPT, /127\.0\.0\.1:<nonzero-port>/)
+  assert.match(OAUTH_PROMPT, /enumerated in lmm_managed_clients/)
+  assert.match(OAUTH_PROMPT, /exact advertised client_id\/application pair/)
+  assert.match(OAUTH_PROMPT, /600-second window/)
+  assert.match(OAUTH_PROMPT, /same persisted rotation within its original deadline/)
   assert.match(OAUTH_PROMPT, /Claude\/Gemini native examples use API keys/)
   assert.doesNotMatch(OAUTH_PROMPT, /lmm-dsh|blob\/main\/apps\/lmm-extensions/)
 })

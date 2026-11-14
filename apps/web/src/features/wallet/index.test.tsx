@@ -957,12 +957,14 @@ for (const method of ['stripe', 'waffo', 'creem'] as const) {
         const regular = usePayment()
         const waffo = useWaffoPayment()
         const creem = useCreemPayment()
-        start = () =>
-          method === 'stripe'
-            ? regular.processPayment(500000, 'stripe')
-            : method === 'waffo'
-              ? waffo.processWaffoPayment(500000, 0)
-              : creem.processCreemPayment('synthetic-product')
+        useEffect(() => {
+          start = () =>
+            method === 'stripe'
+              ? regular.processPayment(500000, 'stripe')
+              : method === 'waffo'
+                ? waffo.processWaffoPayment(500000, 0)
+                : creem.processCreemPayment('synthetic-product')
+        })
         return null
       }
       try {
@@ -1038,7 +1040,10 @@ test('a current Creem checkout preserves its request and valid redirect', async 
   }) as typeof api.post
   let pay!: ReturnType<typeof useCreemPayment>
   function Probe() {
-    pay = useCreemPayment()
+    const value = useCreemPayment()
+    useEffect(() => {
+      pay = value
+    })
     return null
   }
   try {

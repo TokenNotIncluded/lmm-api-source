@@ -20,7 +20,7 @@ import { zodResolver } from '@hookform/resolvers/zod'
 import axios from 'axios'
 import { Loader2 } from 'lucide-react'
 import { useState, useRef, useEffect } from 'react'
-import { useForm } from 'react-hook-form'
+import { useForm, useWatch } from 'react-hook-form'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 import type { z } from 'zod'
@@ -49,6 +49,10 @@ import {
   BACKUP_CODE_LENGTH,
 } from '@/features/auth/constants'
 import { useAuthRedirect } from '@/features/auth/hooks/use-auth-redirect'
+import {
+  reportOwnedAuthError,
+  shouldSuppressAuthError,
+} from '@/features/auth/lib/auth-completion'
 import {
   isValidOTP,
   isValidBackupCode,
@@ -83,10 +87,10 @@ export function OtpForm({ className, redirectTo, ...props }: OtpFormProps) {
     resolver: zodResolver(otpFormSchema),
     defaultValues: { otp: '' },
   })
-
-  const otp = form.watch('otp')
+  const otp = useWatch({ control: form.control, name: 'otp' })
 
   async function onSubmit(data: z.infer<typeof otpFormSchema>) {
+    if (shouldSuppressAuthError()) return
     // Validate based on mode
     if (useBackupCode) {
       if (!isValidBackupCode(data.otp)) {
@@ -134,7 +138,7 @@ export function OtpForm({ className, redirectTo, ...props }: OtpFormProps) {
         },
         controller.signal
       )
-      if (controller.signal.aborted) return
+      if (controller.signal.aborted || shouldSuppressAuthError()) return
       if (res.success && res.data) {
         if (
           useAuthStore.getState().auth.accessToken !== res.data.access_token
@@ -142,7 +146,7 @@ export function OtpForm({ className, redirectTo, ...props }: OtpFormProps) {
           return
         }
         await handleLoginSuccess(res.data, redirectTo, true, controller.signal)
-        if (controller.signal.aborted) return
+        if (controller.signal.aborted || shouldSuppressAuthError()) return
         toast.success(t('Signed in'))
         return
       }
@@ -165,7 +169,13 @@ export function OtpForm({ className, redirectTo, ...props }: OtpFormProps) {
         throw new Error(t('Login failed'))
       }
     } catch (error) {
-      if (axios.isCancel(error) || !stillCurrent()) return
+      if (
+        axios.isCancel(error) ||
+        !stillCurrent() ||
+        reportOwnedAuthError(error, t)
+      ) {
+        return
+      }
       const messageKey = getServerErrorMessageKey(error)
       if (
         messageKey ===
@@ -203,7 +213,7 @@ export function OtpForm({ className, redirectTo, ...props }: OtpFormProps) {
   return (
     <Form {...form}>
       <form
-        onSubmit={form.handleSubmit(onSubmit)}
+        onSubmit={(event) => form.handleSubmit(onSubmit)(event)}
         className={cn('grid gap-4', className)}
         {...props}
       >

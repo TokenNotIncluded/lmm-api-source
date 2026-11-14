@@ -21,6 +21,8 @@ import { after, describe, test } from 'node:test'
 
 import { Window } from 'happy-dom'
 
+import { installSupportedAuthBrowser } from '@/test-support/supported-auth-browser'
+
 const platformFetch = globalThis.fetch
 const domWindow = new Window({ url: 'http://127.0.0.1:4174/' })
 for (const key of [
@@ -38,6 +40,9 @@ for (const key of [
     value: domWindow[key],
   })
 }
+
+// Normal supported browser; install after this fixture replaces its globals.
+installSupportedAuthBrowser()
 
 const { api } = await import('@/lib/http-client')
 const { refreshAuthentication } = await import('@/lib/auth-session')

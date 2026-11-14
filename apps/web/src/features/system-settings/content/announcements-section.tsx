@@ -18,7 +18,7 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { zodResolver } from '@hookform/resolvers/zod'
 import { Plus, Trash2, Save } from 'lucide-react'
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { useForm, useWatch } from 'react-hook-form'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
@@ -60,11 +60,13 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { Textarea } from '@/components/ui/textarea'
+import { useCurrentMinute } from '@/hooks/use-deadline-clock'
 import dayjs from '@/lib/dayjs'
 
 import { SettingsSwitchField } from '../components/settings-form-layout'
 import { SettingsSection } from '../components/settings-section'
 import { useUpdateOption } from '../hooks/use-update-option'
+import { announcementRelativeTime } from './announcements-relative-time'
 
 type Announcement = {
   id: number
@@ -147,14 +149,28 @@ const typeOptions = [
   },
 ]
 
+function parseAnnouncementData(data: string): Announcement[] | null {
+  try {
+    const parsed = JSON.parse(data || '[]')
+    if (!Array.isArray(parsed)) return null
+    return parsed.map((item, idx) => ({ ...item, id: item.id || idx + 1 }))
+  } catch {
+    return []
+  }
+}
+
 export function AnnouncementsSection({
   enabled,
   data,
   enabledWritable = true,
 }: AnnouncementsSectionProps) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const updateOption = useUpdateOption()
-  const [announcements, setAnnouncements] = useState<Announcement[]>([])
+  const [announcements, setAnnouncements] = useState<Announcement[]>(
+    () => parseAnnouncementData(data) ?? []
+  )
+  const [previousData, setPreviousData] = useState(data)
+  const [previousEnabled, setPreviousEnabled] = useState(enabled)
   const [isEnabled, setIsEnabled] = useState(enabled === true)
   const [hasChanges, setHasChanges] = useState(false)
   const [selectedIds, setSelectedIds] = useState<number[]>([])
@@ -168,7 +184,7 @@ export function AnnouncementsSection({
     resolver: zodResolver(announcementSchema),
     defaultValues: {
       content: '',
-      publishDate: new Date().toISOString(),
+      publishDate: '',
       type: 'default',
       extra: '',
       mandatory: false,
@@ -177,25 +193,17 @@ export function AnnouncementsSection({
   })
   const mandatory = useWatch({ control: form.control, name: 'mandatory' })
 
-  useEffect(() => {
-    try {
-      const parsed = JSON.parse(data || '[]')
-      if (Array.isArray(parsed)) {
-        setAnnouncements(
-          parsed.map((item, idx) => ({
-            ...item,
-            id: item.id || idx + 1,
-          }))
-        )
-      }
-    } catch {
-      setAnnouncements([])
-    }
-  }, [data])
-
-  useEffect(() => {
+  // Track each prop independently so an enabled update preserves list edits.
+  if (data !== previousData) {
+    setPreviousData(data)
+    const parsed = parseAnnouncementData(data)
+    // A valid non-array JSON value historically leaves the current list intact.
+    if (parsed !== null) setAnnouncements(parsed)
+  }
+  if (enabled !== previousEnabled) {
+    setPreviousEnabled(enabled)
     setIsEnabled(enabled === true)
-  }, [enabled])
+  }
 
   const handleToggleEnabled = async (checked: boolean) => {
     if (!enabledWritable) return
@@ -339,18 +347,9 @@ export function AnnouncementsSection({
     })
   }, [announcements])
 
-  const getRelativeTime = (date: string) => {
-    const now = new Date()
-    const past = new Date(date)
-    const diffMs = now.getTime() - past.getTime()
-    const diffMins = Math.floor(diffMs / 60000)
-    const diffHours = Math.floor(diffMins / 60)
-    const diffDays = Math.floor(diffHours / 24)
-
-    if (diffMins < 60) return `${diffMins}m ago`
-    if (diffHours < 24) return `${diffHours}h ago`
-    return `${diffDays}d ago`
-  }
+  const currentMinute = useCurrentMinute()
+  const getRelativeTime = (date: string) =>
+    announcementRelativeTime(date, currentMinute, i18n.language)
 
   return (
     <SettingsSection title={t('Announcements')}>
@@ -519,7 +518,7 @@ export function AnnouncementsSection({
         <Form {...form}>
           <form
             id={ANNOUNCEMENT_FORM_ID}
-            onSubmit={form.handleSubmit(handleSubmitForm)}
+            onSubmit={(event) => form.handleSubmit(handleSubmitForm)(event)}
             className='space-y-4'
           >
             <FormField

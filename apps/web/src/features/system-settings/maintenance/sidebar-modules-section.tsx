@@ -17,7 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { useEffect, useMemo } from 'react'
-import { useForm } from 'react-hook-form'
+import { useForm, useWatch } from 'react-hook-form'
 import { useTranslation } from 'react-i18next'
 
 import {
@@ -158,6 +158,8 @@ export function SidebarModulesSection({
     defaultValues: formDefaults,
   })
 
+  const watchedValues = useWatch({ control: form.control })
+
   useEffect(() => {
     form.reset(formDefaults)
   }, [formDefaults, form])
@@ -248,10 +250,7 @@ export function SidebarModulesSection({
                               <Switch
                                 checked={Boolean(field.value)}
                                 onCheckedChange={field.onChange}
-                                disabled={
-                                  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                                  !form.watch(`${sectionKey}.enabled` as any)
-                                }
+                                disabled={!watchedValues[sectionKey]?.enabled}
                               />
                             </FormControl>
                           </SettingsSwitchItem>

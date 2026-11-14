@@ -96,7 +96,7 @@ const INTENT_LABELS: Record<string, string> = {
   cost: 'Cost calculation',
   math: 'Math calculation',
   recommendation: 'Onboarding and L1',
-  bounty: 'Open-source bounties',
+  bounty: 'Bounties',
   usage: 'Usage',
   models: 'Models',
   invitation: 'Invitation rewards',

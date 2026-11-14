@@ -85,11 +85,11 @@ after(() => {
   dom.close()
 })
 
-test('blocked real logout offers a separate local action with zero HTTP, no success toast and no automatic navigation', async () => {
+test('expired bearer and uncertain Cookie offer a local action with zero HTTP, no success toast and no automatic navigation', async () => {
   useAuthStore.getState().auth.setBundle({
     access_token: 'synthetic-local-only',
     token_type: 'Bearer',
-    access_expires_at: 2_000_000_000,
+    access_expires_at: 1,
     user: { id: 42, username: 'synthetic', role: 1 },
     session: {
       sid: 'synthetic-sid',
@@ -113,6 +113,11 @@ test('blocked real logout offers a separate local action with zero HTTP, no succ
   const host = document.createElement('div')
   document.body.append(host)
   const root = createRoot(host)
+  const originalFetch = globalThis.fetch
+  globalThis.fetch = async () => {
+    dispatches++
+    throw new Error('must not dispatch independent Bearer revocation')
+  }
   try {
     await act(async () =>
       root.render(
@@ -153,6 +158,7 @@ test('blocked real logout offers a separate local action with zero HTTP, no succ
       marker
     )
   } finally {
+    globalThis.fetch = originalFetch
     await act(async () => root.unmount())
   }
 })

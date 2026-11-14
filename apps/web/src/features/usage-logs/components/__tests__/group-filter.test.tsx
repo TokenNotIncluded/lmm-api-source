@@ -55,7 +55,7 @@ const {
   createRouter,
   RouterProvider,
 } = await import('@tanstack/react-router')
-const { getCoreRowModel, useReactTable } = await import('@tanstack/react-table')
+const { dataTableFeatures, useTable } = await import('@/lib/table')
 const { createInstance } = await import('i18next')
 const { initReactI18next, I18nextProvider } = await import('react-i18next')
 const { CommonLogsFilterBar } = await import('../common-logs-filter-bar')
@@ -98,10 +98,10 @@ function Controls() {
 }
 
 function Fixture() {
-  const table = useReactTable({
+  const table = useTable({
     data: [],
     columns: [],
-    getCoreRowModel: getCoreRowModel(),
+    features: dataTableFeatures,
   })
   return (
     <UsageLogsProvider>

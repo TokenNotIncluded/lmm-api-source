@@ -74,6 +74,7 @@ Object.defineProperty(globalThis, 'window', {
   value: {
     location: {
       origin: 'https://telegram-fixture.example.test',
+      href: 'https://telegram-fixture.example.test/sign-in',
       pathname: '/sign-in',
     },
     localStorage: {
@@ -84,6 +85,7 @@ Object.defineProperty(globalThis, 'window', {
   },
 })
 
+const originalFetch = globalThis.fetch
 const originalAdapter = api.defaults.adapter
 const originalToast = toast.error
 const originalRefreshAdapter = axios.getAdapter(originalAdapter)
@@ -151,6 +153,9 @@ function assertCookieRequest(config: Parameters<AxiosAdapter>[0]) {
 }
 
 beforeEach(() => {
+  globalThis.fetch = (() => {
+    throw new Error('Unexpected unit fetch')
+  }) as typeof fetch
   clearAuthentication(false, 'idle')
   notifications.length = 0
   refreshes = 0
@@ -167,6 +172,7 @@ beforeEach(() => {
   })
 })
 afterEach(async () => {
+  globalThis.fetch = originalFetch
   await tail
   assert.equal(held, 0)
   assert.ok(lockNames.length > 0)
@@ -384,6 +390,22 @@ test('Telegram cancellation sends nothing while queued and retains the lock thro
 })
 
 test('a late Telegram callback cannot replace a newer account epoch', async () => {
+  const cleanup: string[] = []
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const request = new Request(input, init)
+    assert.equal(
+      request.headers.get('Authorization'),
+      'Bearer synthetic-stale-A-access'
+    )
+    assert.equal(request.headers.get('X-Auth-Session'), bundle().session.sid)
+    cleanup.push(request.method)
+    return request.method === 'DELETE'
+      ? Response.json({
+          success: true,
+          data: { revoked_sid: bundle().session.sid, current: true },
+        })
+      : Response.json({ code: 'AUTH_SESSION_MISMATCH' }, { status: 409 })
+  }) as typeof fetch
   const entered = deferred(),
     release = deferred()
   const newer = bundle('synthetic-B-access', 43, 'synthetic-B-session')
@@ -404,6 +426,7 @@ test('a late Telegram callback cannot replace a newer account epoch', async () =
   applyAuthBundle(newer, false)
   release.resolve()
   await cancelled
+  assert.deepEqual(cleanup, ['DELETE', 'POST'])
   const auth = useAuthStore.getState().auth
   assert.equal(auth.user?.id, newer.user.id)
   assert.equal(auth.accessToken, newer.access_token)

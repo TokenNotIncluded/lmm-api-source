@@ -1,10 +1,13 @@
 /* Copyright (C) 2026 LIghtJUNction. SPDX-License-Identifier: AGPL-3.0-or-later */
 import assert from 'node:assert/strict'
-import { afterEach, test } from 'node:test'
+import { after, afterEach, beforeEach, test } from 'node:test'
+
+import { Window } from 'happy-dom'
 
 import { api } from '@/lib/api'
 import { capturePasswordLoginGuard } from '@/lib/auth-session'
 import { useAuthStore, type AuthBundle } from '@/stores/auth-store'
+import { installSupportedAuthBrowser } from '@/test-support/supported-auth-browser'
 
 import {
   beginPasskeyLogin,
@@ -15,6 +18,25 @@ import {
 } from './api'
 
 const previousAuth = useAuthStore.getState().auth
+const dom = new Window({ url: 'https://passkey.example.test/' })
+const previousWindow = Object.getOwnPropertyDescriptor(globalThis, 'window')
+const previousFetch = globalThis.fetch
+Object.defineProperty(globalThis, 'window', { configurable: true, value: dom })
+// Normal supported browser; install after this fixture replaces its globals.
+installSupportedAuthBrowser()
+
+beforeEach(() => {
+  dom.localStorage.clear()
+  globalThis.fetch = (() => {
+    throw new Error('Unexpected unit fetch')
+  }) as typeof fetch
+})
+after(() => {
+  dom.close()
+  if (previousWindow) {
+    Object.defineProperty(globalThis, 'window', previousWindow)
+  } else Reflect.deleteProperty(globalThis, 'window')
+})
 const adapter = api.defaults.adapter
 const flow = `lmmp_${'a'.repeat(64)}`
 function bundle(
@@ -39,6 +61,7 @@ function bundle(
   }
 }
 afterEach(() => {
+  globalThis.fetch = previousFetch
   api.defaults.adapter = adapter
   useAuthStore.setState({ auth: previousAuth })
 })
@@ -119,6 +142,26 @@ test('Passkey login carries the optional username and continues the existing MFA
 })
 
 test('Passkey responses cannot overwrite a superseding login or coerce imprecise credential IDs', async () => {
+  const cleanup: string[] = []
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const request = new Request(input, init)
+    cleanup.push(request.method)
+    assert.equal(
+      request.headers.get('Authorization'),
+      'Bearer synthetic-passkey-access'
+    )
+    assert.equal(request.headers.get('X-Auth-Session'), 'old-family')
+    if (request.method === 'DELETE') {
+      return Response.json({
+        success: true,
+        data: { revoked_sid: 'old-family', current: true },
+      })
+    }
+    return Response.json(
+      { success: false, code: 'AUTH_SESSION_MISMATCH' },
+      { status: 409 }
+    )
+  }) as typeof fetch
   useAuthStore.getState().auth.reset()
   const assertCurrent = capturePasswordLoginGuard()
   let calls = 0
@@ -139,6 +182,7 @@ test('Passkey responses cannot overwrite a superseding login or coerce imprecise
   )
   assert.equal(useAuthStore.getState().auth.session?.sid, 'replacement-family')
   assert.equal(calls, 1)
+  assert.deepEqual(cleanup, ['DELETE', 'POST'])
   api.defaults.adapter = async (config) => ({
     config,
     headers: {},

@@ -16,7 +16,6 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import type { Table } from '@tanstack/react-table'
 import { SlidersHorizontal, Loader2, X as Cross2Icon } from 'lucide-react'
 import * as React from 'react'
 import { useState, type ReactNode } from 'react'
@@ -25,6 +24,7 @@ import { useTranslation } from 'react-i18next'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { useDebounce } from '@/hooks'
+import type { RowData, Table } from '@/lib/table'
 import { cn } from '@/lib/utils'
 
 import { DataTableFacetedFilter } from './faceted-filter'
@@ -36,7 +36,7 @@ type SearchDraft = {
   value: string
 }
 
-export type DataTableToolbarProps<TData> = {
+export type DataTableToolbarProps<TData extends RowData> = {
   table: Table<TData>
   /**
    * Placeholder for the default search input. Defaults to `t('Filter...')`.
@@ -123,7 +123,9 @@ export type DataTableToolbarProps<TData> = {
 }
 
 /** Search and primary actions stay visible; secondary filters share one panel. */
-export function DataTableToolbar<TData>(props: DataTableToolbarProps<TData>) {
+export function DataTableToolbar<TData extends RowData>(
+  props: DataTableToolbarProps<TData>
+) {
   const { t } = useTranslation()
   const [expanded, setExpanded] = useState(false)
   const [isSearchComposing, setIsSearchComposing] = useState(false)
@@ -138,8 +140,8 @@ export function DataTableToolbar<TData>(props: DataTableToolbarProps<TData>) {
   const hasSearch = props.onSearch != null
 
   const isFiltered =
-    props.table.getState().columnFilters.length > 0 ||
-    !!props.table.getState().globalFilter ||
+    props.table.state.columnFilters.length > 0 ||
+    !!props.table.state.globalFilter ||
     !!props.hasAdditionalFilters ||
     !!props.hasExpandedActiveFilters
 
@@ -147,7 +149,7 @@ export function DataTableToolbar<TData>(props: DataTableToolbarProps<TData>) {
   const currentSearchValue = props.searchKey
     ? ((props.table.getColumn(props.searchKey)?.getFilterValue() as string) ??
       '')
-    : ((props.table.getState().globalFilter as string | undefined) ?? '')
+    : ((props.table.state.globalFilter as string | undefined) ?? '')
 
   const [searchDraft, setSearchDraft] = useState<SearchDraft | null>(null)
   const activeSearchDraft =
@@ -303,9 +305,9 @@ export function DataTableToolbar<TData>(props: DataTableToolbarProps<TData>) {
   const viewToggleNode = props.viewToggle ?? null
 
   const activeFilterCount =
-    props.table
-      .getState()
-      .columnFilters.filter((filter) => filter.id !== props.searchKey).length +
+    props.table.state.columnFilters.filter(
+      (filter) => filter.id !== props.searchKey
+    ).length +
     (props.additionalFilterCount ??
       (props.hasAdditionalFilters || props.hasExpandedActiveFilters ? 1 : 0))
   const expandToggle = hasExpandable ? (

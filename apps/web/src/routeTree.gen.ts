@@ -61,6 +61,7 @@ import { Route as StoreSupportRouteImport } from './routes/store/support'
 import { Route as WebmcpIndexRouteImport } from './routes/webmcp/index'
 import { Route as authUserResetRouteImport } from './routes/(auth)/user/reset'
 import { Route as AuthenticatedAiDirectoryIndexRouteImport } from './routes/_authenticated/ai-directory/index'
+import { Route as AuthenticatedBountiesIndexRouteImport } from './routes/_authenticated/bounties/index'
 import { Route as AuthenticatedChannelsIndexRouteImport } from './routes/_authenticated/channels/index'
 import { Route as AuthenticatedChatManagementIndexRouteImport } from './routes/_authenticated/chat-management/index'
 import { Route as AuthenticatedChatChatIdRouteImport } from './routes/_authenticated/chat/$chatId'
@@ -378,6 +379,12 @@ const AuthenticatedAiDirectoryIndexRoute =
   AuthenticatedAiDirectoryIndexRouteImport.update({
     id: '/ai-directory/',
     path: '/ai-directory/',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
+const AuthenticatedBountiesIndexRoute =
+  AuthenticatedBountiesIndexRouteImport.update({
+    id: '/bounties/',
+    path: '/bounties/',
     getParentRoute: () => AuthenticatedRouteRoute,
   } as any)
 const AuthenticatedChannelsIndexRoute =
@@ -782,6 +789,7 @@ export interface FileRoutesByFullPath {
   '/store/preview/$productId': typeof StorePreviewProductIdRoute
   '/store/products/$productId': typeof StoreProductsProductIdRoute
   '/ai-directory/': typeof AuthenticatedAiDirectoryIndexRoute
+  '/bounties/': typeof AuthenticatedBountiesIndexRoute
   '/channels/': typeof AuthenticatedChannelsIndexRoute
   '/chat-management/': typeof AuthenticatedChatManagementIndexRoute
   '/company/': typeof AuthenticatedCompanyIndexRoute
@@ -890,6 +898,7 @@ export interface FileRoutesByTo {
   '/store/preview/$productId': typeof StorePreviewProductIdRoute
   '/store/products/$productId': typeof StoreProductsProductIdRoute
   '/ai-directory': typeof AuthenticatedAiDirectoryIndexRoute
+  '/bounties': typeof AuthenticatedBountiesIndexRoute
   '/channels': typeof AuthenticatedChannelsIndexRoute
   '/chat-management': typeof AuthenticatedChatManagementIndexRoute
   '/company': typeof AuthenticatedCompanyIndexRoute
@@ -1003,6 +1012,7 @@ export interface FileRoutesById {
   '/store/preview/$productId': typeof StorePreviewProductIdRoute
   '/store/products/$productId': typeof StoreProductsProductIdRoute
   '/_authenticated/ai-directory/': typeof AuthenticatedAiDirectoryIndexRoute
+  '/_authenticated/bounties/': typeof AuthenticatedBountiesIndexRoute
   '/_authenticated/channels/': typeof AuthenticatedChannelsIndexRoute
   '/_authenticated/chat-management/': typeof AuthenticatedChatManagementIndexRoute
   '/_authenticated/company/': typeof AuthenticatedCompanyIndexRoute
@@ -1115,6 +1125,7 @@ export interface FileRouteTypes {
     | '/store/preview/$productId'
     | '/store/products/$productId'
     | '/ai-directory/'
+    | '/bounties/'
     | '/channels/'
     | '/chat-management/'
     | '/company/'
@@ -1223,6 +1234,7 @@ export interface FileRouteTypes {
     | '/store/preview/$productId'
     | '/store/products/$productId'
     | '/ai-directory'
+    | '/bounties'
     | '/channels'
     | '/chat-management'
     | '/company'
@@ -1335,6 +1347,7 @@ export interface FileRouteTypes {
     | '/store/preview/$productId'
     | '/store/products/$productId'
     | '/_authenticated/ai-directory/'
+    | '/_authenticated/bounties/'
     | '/_authenticated/channels/'
     | '/_authenticated/chat-management/'
     | '/_authenticated/company/'
@@ -1432,7 +1445,7 @@ declare module '@tanstack/react-router' {
     '/(auth)': {
       id: '/(auth)'
       path: ''
-      fullPath: ''
+      fullPath: '/'
       preLoaderRoute: typeof authRouteRouteImport
       parentRoute: typeof rootRouteImport
     }
@@ -1784,6 +1797,13 @@ declare module '@tanstack/react-router' {
       path: '/ai-directory'
       fullPath: '/ai-directory/'
       preLoaderRoute: typeof AuthenticatedAiDirectoryIndexRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/bounties/': {
+      id: '/_authenticated/bounties/'
+      path: '/bounties'
+      fullPath: '/bounties/'
+      preLoaderRoute: typeof AuthenticatedBountiesIndexRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
     '/_authenticated/channels/': {
@@ -2293,6 +2313,7 @@ interface AuthenticatedRouteRouteChildren {
   AuthenticatedSubscriptionsResetRoute: typeof AuthenticatedSubscriptionsResetRoute
   AuthenticatedUsageLogsSectionRoute: typeof AuthenticatedUsageLogsSectionRoute
   AuthenticatedAiDirectoryIndexRoute: typeof AuthenticatedAiDirectoryIndexRoute
+  AuthenticatedBountiesIndexRoute: typeof AuthenticatedBountiesIndexRoute
   AuthenticatedChannelsIndexRoute: typeof AuthenticatedChannelsIndexRoute
   AuthenticatedChatManagementIndexRoute: typeof AuthenticatedChatManagementIndexRoute
   AuthenticatedCompanyIndexRoute: typeof AuthenticatedCompanyIndexRoute
@@ -2338,6 +2359,7 @@ const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedSubscriptionsResetRoute: AuthenticatedSubscriptionsResetRoute,
   AuthenticatedUsageLogsSectionRoute: AuthenticatedUsageLogsSectionRoute,
   AuthenticatedAiDirectoryIndexRoute: AuthenticatedAiDirectoryIndexRoute,
+  AuthenticatedBountiesIndexRoute: AuthenticatedBountiesIndexRoute,
   AuthenticatedChannelsIndexRoute: AuthenticatedChannelsIndexRoute,
   AuthenticatedChatManagementIndexRoute: AuthenticatedChatManagementIndexRoute,
   AuthenticatedCompanyIndexRoute: AuthenticatedCompanyIndexRoute,

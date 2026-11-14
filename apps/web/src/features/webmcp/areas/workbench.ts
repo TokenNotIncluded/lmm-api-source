@@ -638,7 +638,7 @@ export const workbenchTools: WebMcpToolFactory = ({ router }) => [
         project?: Record<string, unknown> | null
         challenges?: Array<Record<string, unknown>> | null
         ledger?: unknown[] | null
-      }>(`/api/open-source-bounties/projects/${projectId}`, signal)
+      }>(`/api/bounties/projects/${projectId}`, signal)
       const project = detail?.project ?? {}
       const challenges = Array.isArray(detail?.challenges)
         ? detail.challenges
@@ -673,7 +673,7 @@ export const workbenchTools: WebMcpToolFactory = ({ router }) => [
         ledger_entries: Array.isArray(detail?.ledger)
           ? detail.ledger.length
           : 0,
-        path: `/open-source-bounties?projectId=${projectId}`,
+        path: `/bounties?projectId=${projectId}`,
       }
     },
   },
@@ -698,7 +698,7 @@ export const workbenchTools: WebMcpToolFactory = ({ router }) => [
           items?: Array<Record<string, unknown>> | null
           total?: number
         }>
-      >('/api/open-source-bounties?page=1&page_size=50', {
+      >('/api/bounties?page=1&page_size=50', {
         signal,
         skipBusinessError: true,
         skipErrorHandler: true,
@@ -738,7 +738,7 @@ export const workbenchTools: WebMcpToolFactory = ({ router }) => [
     name: 'lmm_workbench_open_bounty',
     title: 'Open one bounty',
     description:
-      'Open /open-source-bounties focused on a project, optionally on one challenge. Both ids come from lmm_workbench_list_bounties or its detail pages.',
+      'Open /bounties focused on a project, optionally on one challenge. Both ids come from lmm_workbench_list_bounties or its detail pages.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -757,8 +757,8 @@ export const workbenchTools: WebMcpToolFactory = ({ router }) => [
       const search: Record<string, number> = { projectId }
       if (challengeId !== undefined) search.challengeId = challengeId
       ensureNotAborted(signal)
-      await router.navigate({ to: '/open-source-bounties', search })
-      return { path: '/open-source-bounties', search }
+      await router.navigate({ to: '/bounties', search })
+      return { path: '/bounties', search }
     },
   },
   {
@@ -814,7 +814,7 @@ export const workbenchTools: WebMcpToolFactory = ({ router }) => [
     name: 'lmm_workbench_open_workspace',
     title: 'Open the contributor workspace',
     description:
-      'Open /workspace, the contributor home for accepted challenges and payout progress. This tool only navigates; lmm_navigate covers other static pages. Accounts with the console activated are redirected to /open-source-bounties.',
+      'Open /workspace, the contributor home for accepted challenges and payout progress. This tool only navigates; lmm_navigate covers other static pages. Accounts with the console activated are redirected to /bounties.',
     inputSchema: EMPTY,
     execute: async (_rawInput, { signal }) => {
       requireSignedIn()

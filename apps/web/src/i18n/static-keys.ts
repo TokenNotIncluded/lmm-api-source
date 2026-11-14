@@ -19,6 +19,9 @@ For commercial licensing, please contact support@quantumnous.com
 // Static translation keys that don't get picked up by the t('...') regex.
 // These cover dynamic labels (e.g. constants, configs) that are passed into t at runtime.
 export const STATIC_I18N_KEYS = [
+  'Sign-in could not be completed safely. Close all tabs for this site, clear this site’s cookies and site data in your browser settings, then open this site and sign in again.',
+  'Sign-in needs browser storage. Allow this site to save site data in your browser settings, then reload and try again.',
+  'Sign-in needs HTTPS and a browser with Web Locks support. Open this site in a supported browser over HTTPS, then reload and try again.',
   // Assistant starters use stable server IDs to select these keys.
   'How do I apply for L1 access?',
   'Where should I start?',
@@ -331,7 +334,7 @@ export const STATIC_I18N_KEYS = [
   'Submit a focused fix',
   'Open a pull request that links the Issue and includes appropriate verification or tests.',
   'Settle directly with the publisher',
-  'Submit the Issue or pull request in Open-source bounties. The publisher verifies the work, rates the contributor, and releases the escrowed reward directly.',
+  'Submit the Issue or pull request in Bounties. The publisher verifies the work, rates the contributor, and releases the escrowed reward directly.',
   'Escalate only disputed trades',
   'If either party disputes rejection or payment, open a platform ticket. A third-party administrator may review the preserved evidence and arbitrate the escrow.',
 

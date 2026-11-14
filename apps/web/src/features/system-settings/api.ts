@@ -79,10 +79,16 @@ export async function getSystemOptions(
   const navigation = await getSiteNavigation(settingsRequestConfig(options))
   return {
     ...res.data,
-    data: [...res.data.data, { key: 'HeaderNavModules', value: navigation.value }],
+    data: [
+      ...res.data.data,
+      { key: 'HeaderNavModules', value: navigation.value },
+    ],
     capabilities: {
       ...res.data.capabilities,
-      writable_keys: [...(res.data.capabilities?.writable_keys ?? []), 'HeaderNavModules'],
+      writable_keys: [
+        ...(res.data.capabilities?.writable_keys ?? []),
+        'HeaderNavModules',
+      ],
     },
   }
 }
@@ -149,10 +155,16 @@ export async function getUsdExchangeRate(currency: string) {
 }
 
 export async function validateSystemOptions(values: Record<string, string>) {
-  if (Object.keys(values).length === 1 && typeof values.HeaderNavModules === 'string') {
-    const response = await api.post<UpdateOptionResponse>('/api/site/navigation/validate', {
-      value: values.HeaderNavModules,
-    })
+  if (
+    Object.keys(values).length === 1 &&
+    typeof values.HeaderNavModules === 'string'
+  ) {
+    const response = await api.post<UpdateOptionResponse>(
+      '/api/site/navigation/validate',
+      {
+        value: values.HeaderNavModules,
+      }
+    )
     return response.data
   }
   const res = await api.post<UpdateOptionResponse>('/api/option/validate', {
@@ -165,7 +177,10 @@ export async function updateSystemOptions(
   values: Record<string, string>,
   options?: SettingsRequestOptions
 ) {
-  if (Object.keys(values).length === 1 && typeof values.HeaderNavModules === 'string') {
+  if (
+    Object.keys(values).length === 1 &&
+    typeof values.HeaderNavModules === 'string'
+  ) {
     const saved = await saveSiteNavigation(
       values.HeaderNavModules,
       settingsRequestConfig(options)

@@ -1,8 +1,8 @@
 /* Copyright (C) 2026 LIghtJUNction. SPDX-License-Identifier: AGPL-3.0-or-later */
 import { useTranslation } from 'react-i18next'
 
-import { formatCredits } from '@/features/commerce/native-client'
 import { nativeAmountDisplay } from '@/features/wallet/lib/native-checkout'
+import { toIntlLocale } from '@/i18n/languages'
 
 import type { NativePlan } from './native-api'
 
@@ -21,6 +21,7 @@ export function NativeExternalQuote({
   expiresAt: string
 }) {
   const { t, i18n } = useTranslation()
+  const locale = toIntlLocale(i18n.language)
   return (
     <>
       <p>
@@ -33,11 +34,11 @@ export function NativeExternalQuote({
         {t('Amount')}: {currency} {nativeAmountDisplay(amountMinor)}
       </p>
       <p>
-        {t('Quota')}: {formatCredits(plan.terms.limit_units, i18n.language)}{' '}
+        {t('Quota')}: {BigInt(plan.terms.limit_units).toLocaleString(locale)}{' '}
         {t('Core credits')} ·{' '}
         {(plan.terms.duration_months ?? 0) > 0
-          ? `${plan.terms.duration_months} ${t('months')}`
-          : `${t('Duration (seconds)')}: ${plan.terms.duration_seconds}`}
+          ? `${plan.terms.duration_months?.toLocaleString(locale)} ${t('months')}`
+          : `${t('Duration (seconds)')}: ${plan.terms.duration_seconds.toLocaleString(locale)}`}
       </p>
       <p>
         {t('Quota reset period')}:{' '}
@@ -52,7 +53,7 @@ export function NativeExternalQuote({
           }[plan.terms.reset_period]
         )}
         {plan.terms.reset_period === 'custom'
-          ? ` (${plan.terms.reset_seconds} s)`
+          ? ` (${plan.terms.reset_seconds.toLocaleString(locale)} s)`
           : ''}
       </p>
       <p className='break-words'>
@@ -60,7 +61,8 @@ export function NativeExternalQuote({
         {plan.terms.groups.join(', ')}
       </p>
       <p>
-        {t('Expires')}: {new Date(Number(expiresAt) * 1000).toLocaleString()}
+        {t('Expires')}:{' '}
+        {new Date(Number(expiresAt) * 1000).toLocaleString(locale)}
       </p>
     </>
   )

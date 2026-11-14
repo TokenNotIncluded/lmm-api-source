@@ -18,7 +18,7 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useEffect, useMemo, useRef } from 'react'
-import { useForm } from 'react-hook-form'
+import { useForm, useWatch } from 'react-hook-form'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 import * as z from 'zod'
@@ -98,6 +98,10 @@ export function GrokSettingsCard(props: Props) {
     resolver: zodResolver(grokSchema),
     defaultValues: formDefaults,
   })
+  const enabled = useWatch({
+    control: form.control,
+    name: 'grok.violation_deduction_enabled',
+  })
 
   const baselineRef = useRef<FlatGrokDefaults>(props.defaultValues)
   const baselineSerializedRef = useRef<string>(
@@ -135,14 +139,12 @@ export function GrokSettingsCard(props: Props) {
     form.reset(buildFormDefaults(normalized))
   }
 
-  const enabled = form.watch('grok.violation_deduction_enabled')
-
   return (
     <SettingsSection title={t('Grok Settings')}>
       <Form {...form}>
-        <SettingsForm onSubmit={form.handleSubmit(onSubmit)}>
+        <SettingsForm onSubmit={(event) => form.handleSubmit(onSubmit)(event)}>
           <SettingsPageFormActions
-            onSave={form.handleSubmit(onSubmit)}
+            onSave={() => form.handleSubmit(onSubmit)()}
             isSaving={updateOption.isPending}
           />
           <FormField

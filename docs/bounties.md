@@ -1,8 +1,8 @@
-# Open-Source Bounty Playbook
+# Bounty Playbook
 
 ## 1. What This Is
 
-The Open-Source Bounty program is a real-defect bounty mechanism for public GitHub projects.
+The Bounty program is a real-defect bounty mechanism for public GitHub projects.
 
 A project sponsor can escrow repair rewards using API balance, pay a low, platform-visible bounty fee, and invite contributors to accept challenges. Contributors can submit reproducible Issues, corresponding fix PRs, or both.
 
@@ -25,7 +25,7 @@ This playbook is independent of any Challenge II restoration process. The platfo
 
 ### 3.1 Create a Draft
 
-In **Profile -> Submit Ticket -> Open-Source Bounty**, select **Create Bounty** and provide:
+In **Profile -> Submit Ticket -> Bounties**, select **Create Bounty** and provide:
 
 - GitHub repository URL
 - Bounty title
@@ -128,7 +128,7 @@ A PR cannot be used to claim reward more than once.
 
 ### 4.4 Submit in System
 
-Go to **Open-Source Bounty -> Accepted Challenges** and submit:
+Go to **Bounties -> Accepted Challenges** and submit:
 
 - GitHub Issue URL or GitHub PR URL (at least one; both optional)
 - optional completion note
@@ -163,7 +163,7 @@ Tips are direct off-chain transfers outside bounty reward:
 
 ## 6. Dispute Tickets and Third-Party Arbitration
 
-When payment or acceptance is disputed, either party can open a ticket from challenge card by selecting **Open-Source Bounty Dispute**, and fill challenge ID, reason, title, and fact summary.
+When payment or acceptance is disputed, either party can open a ticket from challenge card by selecting **Bounty Dispute**, and fill challenge ID, reason, title, and fact summary.
 
 Regular refund, technical, or billing tickets are still handled through email; bounty disputes are persisted in-system and reviewed by a third-party administrator.
 
@@ -280,4 +280,4 @@ Initial acceptance is sponsor responsibility. If dispute arises, third-party adm
 
 Find a real bug, document reproducible steps, and submit both Issue and fix PR. After sponsor review, escrowed reward is transferred directly to your API balance.
 
-Anyone can publish open-source bounties with their own balance, including maintainers. No default projects are pre-pinned by the platform: full reward is escrowed at publish time, and a low, admin-visible fee is charged. Daily check-in rewards can directly offset this fee. Partial-tip support, public two-sided reputation, and third-party dispute tickets are available. If a merged fix is rejected without basis, administrators can verify evidence and force escrow transfer.
+Anyone can publish bounties with their own balance, including maintainers. No default projects are pre-pinned by the platform: full reward is escrowed at publish time, and a low, admin-visible fee is charged. Daily check-in rewards can directly offset this fee. Partial-tip support, public two-sided reputation, and third-party dispute tickets are available. If a merged fix is rejected without basis, administrators can verify evidence and force escrow transfer.

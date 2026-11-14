@@ -25,6 +25,7 @@ import { BrandLogo } from '@/components/brand-logo'
 import { HtmlContent } from '@/components/html-content'
 import { LMM_BRAND_NAME } from '@/components/lmm-brand-mark'
 import { LmmBrandWordmark } from '@/components/lmm-brand-wordmark'
+import { useLocalDay } from '@/hooks/use-deadline-clock'
 import { useSystemConfig } from '@/hooks/use-system-config'
 import { DEFAULT_LOGO, DEFAULT_SYSTEM_NAME } from '@/lib/constants'
 import { openResolvedExternalUrl } from '@/lib/external-navigation'
@@ -163,7 +164,7 @@ function ProjectAttribution(props: {
   const content = (
     <span className='text-muted-foreground/45'>
       &copy; {props.currentYear} {props.name}.{' '}
-      {t('Open-source bounty collaboration')}
+      {t('Bounty collaboration')}
     </span>
   )
   if (props.inline) {
@@ -217,7 +218,8 @@ export function Footer(props: FooterProps) {
       ? LMM_BRAND_NAME
       : configuredName
   const isDemoSiteMode = Boolean(demoSiteEnabled)
-  const currentYear = new Date().getFullYear()
+  const localDay = useLocalDay()
+  const currentYear = new Date(localDay).getFullYear()
 
   const fallbackColumns = useMemo<FooterColumnProps[]>(
     () => [
@@ -477,7 +479,7 @@ export function Footer(props: FooterProps) {
               )}
             </Link>
             <p className='text-muted-foreground mt-3 max-w-[15rem] text-xs leading-relaxed'>
-              {t('Open-source bounty collaboration')}
+              {t('Bounty collaboration')}
             </p>
           </div>
 

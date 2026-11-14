@@ -15,7 +15,7 @@ import {
   MonitorCog,
   RefreshCw,
 } from 'lucide-react'
-import { type FormEvent, useEffect, useState } from 'react'
+import { type FormEvent, useCallback, useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { SectionPageLayout } from '@/components/layout'
@@ -221,15 +221,18 @@ function SessionDetail({
     sessionKey,
     messages
   )
-  async function send(input: Parameters<typeof deliver>[0]) {
-    if (
-      !isRemoteStateFresh(state?.created_at, Date.now()) ||
-      messagesQuery.isError
-    ) {
-      throw new Error('Waiting for Pi connection')
-    }
-    return deliver(input)
-  }
+  const send = useCallback(
+    async (input: Parameters<typeof deliver>[0]) => {
+      if (
+        !isRemoteStateFresh(state?.created_at, Date.now()) ||
+        messagesQuery.isError
+      ) {
+        throw new Error('Waiting for Pi connection')
+      }
+      return deliver(input)
+    },
+    [state?.created_at, messagesQuery.isError, deliver]
+  )
   const now = useRemoteClock()
   const stale =
     !isRemoteStateFresh(state?.created_at, now) || messagesQuery.isError

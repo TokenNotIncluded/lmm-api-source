@@ -16,7 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { api } from '@/lib/api'
+import { api, type ApiRequestConfig } from '@/lib/api'
 import type { WaffoPancakeCheckoutLanguage } from '@/lib/waffo-pancake-checkout'
 
 import type {
@@ -56,17 +56,19 @@ export async function getAdminPlans(
 }
 
 export async function createPlan(
-  data: PlanPayload
+  data: PlanPayload,
+  config?: Pick<ApiRequestConfig, 'authScope'>
 ): Promise<ApiResponse<PlanRecord>> {
-  const res = await api.post('/api/subscription/admin/plans', data)
+  const res = await api.post('/api/subscription/admin/plans', data, config)
   return res.data
 }
 
 export async function updatePlan(
   id: number,
-  data: PlanPayload
+  data: PlanPayload,
+  config?: Pick<ApiRequestConfig, 'authScope'>
 ): Promise<ApiResponse<PlanRecord>> {
-  const res = await api.put(`/api/subscription/admin/plans/${id}`, data)
+  const res = await api.put(`/api/subscription/admin/plans/${id}`, data, config)
   return res.data
 }
 
@@ -236,14 +238,17 @@ export async function paySubscriptionBalance(
 
 // Mints the selected Pancake plan product. amount and currency are the plan's
 // real ISO-fiat list price; the server converts it to Pancake USD.
-export async function createWaffoPancakePlanProduct(data: {
-  name: string
-  amount: string
-  currency: string
-  duration_unit: string
-  duration_value: number
-  product_type: WaffoPancakeProductType
-}): Promise<
+export async function createWaffoPancakePlanProduct(
+  data: {
+    name: string
+    amount: string
+    currency: string
+    duration_unit: string
+    duration_value: number
+    product_type: WaffoPancakeProductType
+  },
+  config?: Pick<ApiRequestConfig, 'authScope'>
+): Promise<
   ApiResponse<{
     product_id: string
     product_name: string
@@ -255,7 +260,8 @@ export async function createWaffoPancakePlanProduct(data: {
 > {
   const res = await api.post(
     '/api/option/waffo-pancake/subscription-product',
-    data
+    data,
+    config
   )
   return res.data
 }

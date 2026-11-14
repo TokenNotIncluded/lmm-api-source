@@ -16,7 +16,6 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import type { ColumnDef } from '@tanstack/react-table'
 import { GitBranch, Sparkles, KeyRound } from 'lucide-react'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -39,6 +38,7 @@ import { useBillingUSD } from '@/hooks/use-billing-usd'
 import { useHistoricalQuotaMoney } from '@/hooks/use-historical-quota-money'
 import { getUserAvatarFallback, getUserAvatarStyle } from '@/lib/avatar'
 import { formatTimestampToDate } from '@/lib/format'
+import type { ColumnDef } from '@/lib/table'
 import { cn } from '@/lib/utils'
 
 import { LOG_TYPE_ALL_VALUE } from '../../constants'
@@ -70,6 +70,11 @@ import { LogUsageDisplay } from '../log-usage-display'
 import { ModelBadge } from '../model-badge'
 import { TimingMetricsCell, StreamTpsCell } from '../timing-metrics-cell'
 import { useUsageLogsContext } from '../usage-logs-provider'
+
+type TFunction = {
+  (key: string): string
+  (key: string, options: Record<string, unknown>): string
+}
 
 interface DetailSegment {
   text: string
@@ -113,7 +118,7 @@ function getLegacyPricingAdjustment(other: LogOtherData | null): number | null {
 function buildDetailSegments(
   log: UsageLog,
   other: LogOtherData | null,
-  t: (key: string, opts?: Record<string, unknown>) => string,
+  t: TFunction,
   isAdmin: boolean,
   currency: LogCurrencyFormatter,
   formatQuota: (quota: number | null) => string
@@ -132,7 +137,7 @@ function buildDetailSegments(
 function buildTypeDetailSegments(
   log: UsageLog,
   other: LogOtherData | null,
-  t: (key: string, opts?: Record<string, unknown>) => string,
+  t: TFunction,
   currency: LogCurrencyFormatter,
   formatQuota: (quota: number | null) => string
 ): DetailSegment[] {

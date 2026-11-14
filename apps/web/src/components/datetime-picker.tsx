@@ -18,7 +18,7 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { ChevronDownIcon } from 'lucide-react'
 import * as React from 'react'
-import { enUS, fr, ja, ru, vi, zhCN } from 'react-day-picker/locale'
+import { enUS, fr, ja, ru, vi, zhCN, zhTW } from 'react-day-picker/locale'
 import { useTranslation } from 'react-i18next'
 
 import { Button } from '@/components/ui/button'
@@ -29,12 +29,14 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from '@/components/ui/popover'
+import { normalizeInterfaceLanguage } from '@/i18n/languages'
 import dayjs from '@/lib/dayjs'
 import { cn } from '@/lib/utils'
 
 const calendarLocales = {
   en: enUS,
-  zh: zhCN,
+  'zh-CN': zhCN,
+  'zh-TW': zhTW,
   fr,
   ru,
   ja,
@@ -57,14 +59,22 @@ export function DateTimePicker({
   const { t, i18n } = useTranslation()
   const placeholderText = placeholder ?? t('Select date')
   const calendarLocale =
-    calendarLocales[i18n.language as keyof typeof calendarLocales] ?? enUS
-  const currentYear = new Date().getFullYear()
+    calendarLocales[normalizeInterfaceLanguage(i18n.language)]
+  const [currentYear] = React.useState(() => new Date().getFullYear())
   const [open, setOpen] = React.useState(false)
+  const valueTimestamp = value?.getTime()
+  const [previousTimestamp, setPreviousTimestamp] =
+    React.useState(valueTimestamp)
   const [date, setDate] = React.useState<Date | undefined>(value)
   const [month, setMonth] = React.useState<Date | undefined>(value)
-  const [time, setTime] = React.useState<string>('00:00')
+  const [time, setTime] = React.useState(() =>
+    value
+      ? `${value.getHours().toString().padStart(2, '0')}:${value.getMinutes().toString().padStart(2, '0')}`
+      : '00:00'
+  )
 
-  React.useEffect(() => {
+  if (!Object.is(valueTimestamp, previousTimestamp)) {
+    setPreviousTimestamp(valueTimestamp)
     setDate(value)
     setMonth(value)
     if (value) {
@@ -72,7 +82,7 @@ export function DateTimePicker({
       const minutes = value.getMinutes().toString().padStart(2, '0')
       setTime(`${hours}:${minutes}`)
     }
-  }, [value])
+  }
 
   const handleDateSelect = (selectedDate: Date | undefined) => {
     if (selectedDate) {
@@ -143,6 +153,7 @@ export function DateTimePicker({
       </Popover>
       <Input
         type='time'
+        aria-label={t('Time')}
         value={time}
         onChange={handleTimeChange}
         className='w-32 appearance-none [&::-webkit-calendar-picker-indicator]:hidden [&::-webkit-calendar-picker-indicator]:appearance-none'

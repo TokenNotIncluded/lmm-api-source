@@ -81,9 +81,8 @@ export function applyRuntimeNavigation(
   }
   return groups.map((group) => ({
     ...group,
-    items: group.items.map(
-      (item): NavItem =>
-        item.items ? { ...item, items: item.items.map(narrow) } : narrow(item)
+    items: group.items.map((item): NavItem =>
+      item.items ? { ...item, items: item.items.map(narrow) } : narrow(item)
     ),
   }))
 }

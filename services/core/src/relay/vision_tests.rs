@@ -28,7 +28,7 @@ fn vision_inline_images_convert_to_all_four_protocols_in_order() {
         chat["messages"][0]["content"],
         json!([
             {"type":"text","text":"before"},
-            {"type":"image_url","image_url":{"url":data_url}},
+            {"type":"image_url","image_url":{"url":data_url,"detail":"auto"}},
             {"type":"text","text":"after"}
         ])
     );
@@ -39,7 +39,7 @@ fn vision_inline_images_convert_to_all_four_protocols_in_order() {
         responses["input"][0]["content"],
         json!([
             {"type":"input_text","text":"before"},
-            {"type":"input_image","image_url":data_url},
+            {"type":"input_image","image_url":data_url,"detail":"auto"},
             {"type":"input_text","text":"after"}
         ])
     );
@@ -89,6 +89,62 @@ fn vision_responses_detail_survives_openai_conversion_and_rejects_loss() {
                 request.upstream_to(protocol, "chosen").is_ok(),
                 detail == "auto"
             );
+        }
+    }
+}
+
+#[test]
+fn vision_chat_detail_normalizes_and_defaults_to_auto_for_responses() {
+    for (detail, expected) in [
+        (Some("auto"), "auto"),
+        (Some("low"), "low"),
+        (Some("high"), "high"),
+        (Some("original"), "original"),
+        (Some(" LOW "), "low"),
+        (None, "auto"),
+    ] {
+        let mut image = json!({"url":format!("data:image/png;base64,{PNG}")});
+        if let Some(detail) = detail {
+            image["detail"] = json!(detail);
+        }
+        let request = chat(json!({"type":"image_url", "image_url":image})).unwrap();
+        assert_eq!(
+            request
+                .upstream_to(UpstreamProtocol::Responses, "chosen")
+                .unwrap()["input"][0]["content"][1]["detail"],
+            expected,
+            "input detail {detail:?}"
+        );
+    }
+}
+
+#[test]
+fn vision_unknown_detail_is_rejected_for_both_openai_clients() {
+    for detail in ["maximum", "unknown", "", "   ", "high-extra"] {
+        for client in [ClientProtocol::Chat, ClientProtocol::Responses] {
+            let image = match client {
+                ClientProtocol::Chat => json!({
+                    "model": "vision",
+                    "messages": [{"role": "user", "content": [{
+                        "type": "image_url",
+                        "image_url": {"url": "https://example.org/image", "detail": detail}
+                    }]}]
+                }),
+                _ => json!({
+                    "model": "vision",
+                    "input": [{"role": "user", "content": [{
+                        "type": "input_image", "image_url": "https://example.org/image", "detail": detail
+                    }]}]
+                }),
+            };
+            assert!(matches!(
+                Request::parse(
+                    client,
+                    &serde_json::to_vec(&image).unwrap(),
+                    &Limits::default()
+                ),
+                Err(super::RelayError::Invalid("invalid image detail"))
+            ));
         }
     }
 }
@@ -184,7 +240,7 @@ fn vision_rejects_invalid_sources_detail_roles_and_unsupported_file_references()
     ] {
         assert!(chat(json!({"type":"image_url", "image_url":{"url":url}})).is_err());
     }
-    for detail in [json!(null), json!(1), json!("maximum")] {
+    for detail in [json!("maximum"), json!(null), json!(1)] {
         assert!(chat(json!({"type":"image_url","image_url":{"url":"https://example.org/image", "detail":detail}})).is_err());
     }
     for role in ["assistant", "system", "developer", "tool"] {

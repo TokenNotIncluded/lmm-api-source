@@ -138,6 +138,11 @@ struct SignedMessage<'a> {
     result_digest: &'a str,
 }
 impl ReceiptVerifier {
+    pub(crate) fn uses_signing_key_material(&self, material: &[u8]) -> bool {
+        self.adapters
+            .values()
+            .any(|adapter| crate::crypto_key_material::hmac_sha256_uses(&adapter.key, material))
+    }
     /// Reserve must reject unsupported paid metering before creating a hold.
     /// This is configuration availability, not a replacement for verification.
     pub fn supports(

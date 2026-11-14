@@ -493,7 +493,10 @@ function configureCurrencyOverview() {
       language: 'en',
     },
   })
-  api.get = (async (url: string, config?: Parameters<typeof api.get>[1]) => {
+  api.get = (async (
+    url: string,
+    config?: { params?: { start_timestamp?: number } }
+  ) => {
     if (url === '/api/finance/site-statistics') {
       return {
         data: {

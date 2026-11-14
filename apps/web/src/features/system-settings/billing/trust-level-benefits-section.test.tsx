@@ -225,17 +225,20 @@ test('saves the complete versioned config in one option write and preserves inde
   const original = api.put
   const originalGet = api.get
   api.get = (async (url: string) => ({
-    data: url === '/api/site/navigation'
-      ? { success: true, message: '', data: { value: '{}', revision: 1 } }
-      : {
-      success: true,
-      message: '',
-      data: [{ key: 'TrustLevelBenefits', value: JSON.stringify(config) }],
-      capabilities: {
-        trust_level_benefits: true,
-        writable_keys: ['TrustLevelBenefits'],
-      },
-    },
+    data:
+      url === '/api/site/navigation'
+        ? { success: true, message: '', data: { value: '{}', revision: 1 } }
+        : {
+            success: true,
+            message: '',
+            data: [
+              { key: 'TrustLevelBenefits', value: JSON.stringify(config) },
+            ],
+            capabilities: {
+              trust_level_benefits: true,
+              writable_keys: ['TrustLevelBenefits'],
+            },
+          },
   })) as typeof api.get
   const updates: UpdateOptionRequest[] = []
   api.put = (async (url: string, request: UpdateOptionRequest) => {
@@ -286,17 +289,20 @@ test('invalid cumulative thresholds never write, and a rejected save retains the
   const original = api.put
   const originalGet = api.get
   api.get = (async (url: string) => ({
-    data: url === '/api/site/navigation'
-      ? { success: true, message: '', data: { value: '{}', revision: 1 } }
-      : {
-      success: true,
-      message: '',
-      data: [{ key: 'TrustLevelBenefits', value: JSON.stringify(config) }],
-      capabilities: {
-        trust_level_benefits: true,
-        writable_keys: ['TrustLevelBenefits'],
-      },
-    },
+    data:
+      url === '/api/site/navigation'
+        ? { success: true, message: '', data: { value: '{}', revision: 1 } }
+        : {
+            success: true,
+            message: '',
+            data: [
+              { key: 'TrustLevelBenefits', value: JSON.stringify(config) },
+            ],
+            capabilities: {
+              trust_level_benefits: true,
+              writable_keys: ['TrustLevelBenefits'],
+            },
+          },
   })) as typeof api.get
   const updates: UpdateOptionRequest[] = []
   api.put = (async (_url: string, request: UpdateOptionRequest) => {
@@ -372,9 +378,10 @@ test('an older server is not editable and a rolled-back capability is checked ag
   const originalPut = api.put
   let writes = 0
   api.get = (async (url: string) => ({
-    data: url === '/api/site/navigation'
-      ? { success: true, message: '', data: { value: '{}', revision: 1 } }
-      : { success: true, message: '', data: [], capabilities: {} },
+    data:
+      url === '/api/site/navigation'
+        ? { success: true, message: '', data: { value: '{}', revision: 1 } }
+        : { success: true, message: '', data: [], capabilities: {} },
   })) as typeof api.get
   api.put = (async () => {
     writes++

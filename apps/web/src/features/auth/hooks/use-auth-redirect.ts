@@ -89,6 +89,16 @@ export function useAuthRedirect() {
         window.location.origin
       ) ??
       '/'
+    const pathname = new URL(targetPath, window.location.origin).pathname
+    if (
+      pathname === '/api' ||
+      pathname.startsWith('/api/') ||
+      pathname === '/core' ||
+      pathname.startsWith('/core/')
+    ) {
+      window.location.replace(targetPath)
+      return
+    }
     // Preserve the complete checked href and wait for navigation to finish.
     await navigate({ href: targetPath, replace: true })
   }

@@ -31,6 +31,11 @@ import {
   type ResponseModelObservation,
 } from './response-model'
 
+type TFunction = {
+  (key: string): string
+  (key: string, options: Record<string, unknown>): string
+}
+
 export { normalizeTierLabel }
 
 const PARAM_OVERRIDE_ACTION_MAP: Record<string, string> = {
@@ -472,7 +477,7 @@ const AUDIT_TEMPLATES: Record<string, string> = {
  */
 export function renderAuditContent(
   other: LogOtherData | null | undefined,
-  t: (key: string, opts?: Record<string, unknown>) => string,
+  t: TFunction,
   formatQuotaUSD?: (quota: number) => string
 ): string | null {
   const op = other?.op

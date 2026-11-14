@@ -16,18 +16,13 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import '@tanstack/react-table'
-
-declare module '@tanstack/react-table' {
-  interface ColumnMeta<_TData, _TValue> {
-    label?: string
-    description?: string
-    className?: string
-    pinned?: 'left' | 'right'
-    // Mobile card list layout hints (used by MobileCardList)
-    mobileTitle?: boolean // card title area (left, larger text)
-    mobileBadge?: boolean // status badge alongside title (right)
-    mobileHidden?: boolean // hide this column on mobile entirely
-    mobileOrder?: number // lower values appear first in card field area
-  }
+export interface DataTableColumnMeta {
+  label?: string
+  description?: string
+  className?: string
+  pinned?: 'left' | 'right'
+  mobileTitle?: boolean
+  mobileBadge?: boolean
+  mobileHidden?: boolean
+  mobileOrder?: number
 }

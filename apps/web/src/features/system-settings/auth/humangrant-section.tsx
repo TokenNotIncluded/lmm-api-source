@@ -16,7 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useReducer, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { Button } from '@/components/ui/button'
@@ -26,12 +26,22 @@ import {
   writeHumanGrantSettings,
   type HumanGrantSettings,
 } from '@/features/auth/lib/humangrant'
-import { createHumanGrantSessionScope } from '@/features/auth/lib/humangrant-session'
+import {
+  createHumanGrantSessionScope,
+  type HumanGrantIdentity,
+} from '@/features/auth/lib/humangrant-session'
 import { useAuthStore } from '@/stores/auth-store'
 
 function currentIdentity() {
   const { user, session } = useAuthStore.getState().auth
   return { userId: user?.id, sessionId: session?.sid }
+}
+
+function renewHumanGrantScope(
+  _previous: ReturnType<typeof createHumanGrantSessionScope>,
+  identity: HumanGrantIdentity
+) {
+  return createHumanGrantSessionScope(identity, currentIdentity)
 }
 
 export function HumanGrantSection() {
@@ -47,77 +57,89 @@ export function HumanGrantSection() {
   )
 }
 
-function HumanGrantSettingsForm({ userId, sessionId }: {
+function HumanGrantSettingsForm({
+  userId,
+  sessionId,
+}: {
   userId: number | undefined
   sessionId: string | undefined
 }) {
   const { t } = useTranslation()
   const [settings, setSettings] = useState<HumanGrantSettings | null>(null)
-  const [busy, setBusy] = useState(false)
+  const [busy, setBusy] = useState(true)
   const [message, setMessage] = useState('')
   const request = useRef<AbortController | null>(null)
   // Ref guards against a second submission before React renders disabled.
   const saving = useRef<AbortController | null>(null)
-  const [scopeRevision, setScopeRevision] = useState(0)
-  const scope = useMemo(
-    () => createHumanGrantSessionScope({ userId, sessionId }, currentIdentity),
-    [userId, sessionId, scopeRevision]
+  const [scope, renewScope] = useReducer(
+    renewHumanGrantScope,
+    { userId, sessionId },
+    (identity) => createHumanGrantSessionScope(identity, currentIdentity)
   )
 
-  const reload = useCallback(async () => {
+  const loadSettings = useCallback(() => {
     if (saving.current) return
     request.current?.abort()
     const active = new AbortController()
     request.current = active
     const timer = setTimeout(() => active.abort(), 10_000)
+    return readHumanGrantSettings(active.signal, scope.fetch)
+      .then((current) => {
+        scope.check()
+        active.signal.throwIfAborted()
+        if (request.current === active && !active.signal.aborted) {
+          setSettings(current)
+        }
+      })
+      .catch((error: unknown) => {
+        if (request.current === active) {
+          setMessage(humanGrantReadErrorKey(error))
+        }
+      })
+      .finally(() => {
+        clearTimeout(timer)
+        if (request.current === active) {
+          request.current = null
+          setBusy(false)
+        }
+      })
+  }, [scope])
+
+  const reload = () => {
+    if (saving.current) return
     setBusy(true)
     setSettings(null)
     setMessage('')
+    return loadSettings()
+  }
+
+  const onIdentityChange = useCallback(() => {
     try {
-      const current = await readHumanGrantSettings(active.signal, scope.fetch)
       scope.check()
-      active.signal.throwIfAborted()
-      if (request.current === active && !active.signal.aborted) {
-        setSettings(current)
-      }
-    } catch (error: unknown) {
-      if (request.current === active) {
-        setMessage(humanGrantReadErrorKey(error))
-      }
-    } finally {
-      clearTimeout(timer)
-      if (request.current === active) {
-        request.current = null
-        setBusy(false)
-      }
+    } catch {
+      request.current?.abort()
+      request.current = null
+      saving.current = null
+      setSettings(null)
+      setMessage('')
+      setBusy(true)
+      // Batched A -> B -> A changes still need a fresh proof and scope.
+      renewScope({ userId, sessionId })
     }
-  }, [scope])
+  }, [scope, userId, sessionId])
 
   useEffect(() => {
     // Subscription observes A -> B -> A transitions even before React renders.
     // An invalidated request must never become valid when an account returns.
-    const unsubscribe = useAuthStore.subscribe(() => {
-      try {
-        scope.check()
-      } catch {
-        request.current?.abort()
-        request.current = null
-        saving.current = null
-        setSettings(null)
-        setMessage('')
-        setBusy(false)
-        // Batched A -> B -> A changes still need a fresh proof and scope.
-        setScopeRevision((value) => value + 1)
-      }
-    })
-    void reload()
+    const unsubscribe = useAuthStore.subscribe(onIdentityChange)
+    void loadSettings()
     return () => {
       unsubscribe()
       request.current?.abort()
       request.current = null
       saving.current = null
     }
-  }, [reload, scope])
+  }, [loadSettings, onIdentityChange])
 
   async function save() {
     if (saving.current || busy || settings === null) return
@@ -129,7 +151,11 @@ function HumanGrantSettingsForm({ userId, sessionId }: {
     setBusy(true)
     setMessage('')
     try {
-      const current = await writeHumanGrantSettings(settings, active.signal, scope.fetch)
+      const current = await writeHumanGrantSettings(
+        settings,
+        active.signal,
+        scope.fetch
+      )
       scope.check()
       active.signal.throwIfAborted()
       if (request.current === active && !active.signal.aborted) {
@@ -184,7 +210,11 @@ function HumanGrantSettingsForm({ userId, sessionId }: {
         )}
       </p>
       <div className='flex flex-wrap gap-3'>
-        <Button type='button' onClick={save} disabled={busy || settings === null}>
+        <Button
+          type='button'
+          onClick={save}
+          disabled={busy || settings === null}
+        >
           {t('Save')}
         </Button>
         <Button

@@ -16,12 +16,13 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+import { useEffect, useMemo, useState } from 'react'
+
 import type {
   ColumnFiltersState,
   OnChangeFn,
   PaginationState,
-} from '@tanstack/react-table'
-import { useEffect, useMemo, useState } from 'react'
+} from '@/lib/table'
 
 type SearchRecord = Record<string, unknown>
 

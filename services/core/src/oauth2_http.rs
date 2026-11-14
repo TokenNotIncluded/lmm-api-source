@@ -1,7 +1,7 @@
 //! Native public-client OAuth transport; browser consent is separately scoped.
 use crate::identity::{
     IdentityError,
-    grants::{LmmIssuer, ReadError, RevokeForm, TokenForm},
+    grants::{LmmIssuer, ManagedTokenForm, ReadError, RevokeForm, TokenForm},
 };
 use axum::{
     Form, Json, Router,
@@ -15,6 +15,13 @@ use axum::{
 };
 use serde_json::{Value, json};
 
+#[derive(serde::Deserialize)]
+#[serde(untagged)]
+enum TokenInput {
+    Legacy(TokenForm),
+    Managed(ManagedTokenForm),
+}
+
 pub fn router(issuer: LmmIssuer) -> Router {
     Router::new()
         .route("/.well-known/oauth-authorization-server", get(metadata))
@@ -25,6 +32,7 @@ pub fn router(issuer: LmmIssuer) -> Router {
         .route("/api/oauth2/token", post(token))
         .route("/api/oauth2/revoke", post(revoke))
         .route("/api/oauth2/catalog", get(catalog))
+        .route("/api/oauth2/application", get(application))
         .route("/api/oauth2/inventory", get(inventory))
         .route("/api/oauth2/balance", get(balance))
         .route("/api/oauth2/usage", get(usage))
@@ -69,7 +77,11 @@ async fn security(State(issuer): State<LmmIssuer>, request: Request, next: Next)
     }
     response
 }
-async fn metadata(State(issuer): State<LmmIssuer>) -> Json<Value> {
+async fn metadata(State(issuer): State<LmmIssuer>) -> Response {
+    let managed = match issuer.managed_discovery_ready().await {
+        Ok(ready) => ready,
+        Err(error) => return protocol_error(error),
+    };
     let p = issuer.profile();
     let resource = p.resource();
     let mut document = json!({"issuer":p.issuer(),"authorization_endpoint":format!("{resource}/authorize"),"token_endpoint":format!("{resource}/token"),"revocation_endpoint":format!("{resource}/revoke"),"response_types_supported":["code"],"grant_types_supported":["authorization_code","refresh_token"],"code_challenge_methods_supported":["S256"],"token_endpoint_auth_methods_supported":["none"],"authorization_response_iss_parameter_supported":true,"scopes_supported":["catalog:read","balance:read"],"lmm_client_ids_supported":["lmm"]});
@@ -77,6 +89,8 @@ async fn metadata(State(issuer): State<LmmIssuer>) -> Json<Value> {
     document["lmm_isolated_loopback_test"] = json!(p.is_isolated_loopback_test());
     if p.pi_budget_limit().is_some() {
         document["lmm_client_ids_supported"] = json!(["lmm", "lmm-pi"]);
+    }
+    if p.pi_budget_limit().is_some() || managed {
         document["scopes_supported"] = json!([
             "catalog:read",
             "balance:read",
@@ -84,7 +98,19 @@ async fn metadata(State(issuer): State<LmmIssuer>) -> Json<Value> {
             "models:invoke"
         ]);
     }
-    Json(document)
+    if managed {
+        document["lmm_client_ids_supported"] = if p.pi_budget_limit().is_some() {
+            json!(["lmm", "lmm-pi", "lmm-cc-switch"])
+        } else {
+            json!(["lmm", "lmm-cc-switch"])
+        };
+        document["lmm_managed_clients"] = json!([{
+            "client_id":"lmm-cc-switch", "application":"cc-switch",
+            "status_endpoint":format!("{resource}/application"),
+            "refresh_recovery":{"contract":"lmm.refresh-recovery.v1","window_seconds":600}
+        }]);
+    }
+    Json(document).into_response()
 }
 async fn resource_metadata(State(issuer): State<LmmIssuer>) -> Json<Value> {
     Json(
@@ -115,7 +141,7 @@ async fn token(
     State(issuer): State<LmmIssuer>,
     headers: HeaderMap,
     uri: axum::http::Uri,
-    input: Result<Form<TokenForm>, FormRejection>,
+    input: Result<Form<TokenInput>, FormRejection>,
 ) -> Response {
     if uri.query().is_some() || !no_native_credentials(&headers) {
         return protocol_error(IdentityError::Invalid);
@@ -123,13 +149,27 @@ async fn token(
     let Ok(Form(form)) = input else {
         return protocol_error(IdentityError::Invalid);
     };
-    let request = match form.validate(issuer.profile()) {
-        Ok(v) => v,
-        Err(e) => return protocol_error(e),
-    };
-    match issuer.token(request).await {
-        Ok(token) => Json(token).into_response(),
-        Err(e) => protocol_error(e),
+    match form {
+        TokenInput::Legacy(form) => {
+            let request = match form.validate(issuer.profile()) {
+                Ok(v) => v,
+                Err(e) => return protocol_error(e),
+            };
+            match issuer.token(request).await {
+                Ok(token) => Json(token).into_response(),
+                Err(e) => protocol_error(e),
+            }
+        }
+        TokenInput::Managed(form) => {
+            let request = match form.validate(issuer.profile()) {
+                Ok(v) => v,
+                Err(e) => return protocol_error(e),
+            };
+            match issuer.token_managed(request).await {
+                Ok(token) => Json(token).into_response(),
+                Err(e) => protocol_error(e),
+            }
+        }
     }
 }
 async fn revoke(
@@ -270,5 +310,23 @@ async fn usage(
     match issuer.usage(access).await {
         Ok(value) => Json(value).into_response(),
         Err(e) => read_error(e),
+    }
+}
+
+async fn application(
+    State(issuer): State<LmmIssuer>,
+    headers: HeaderMap,
+    uri: axum::http::Uri,
+) -> Response {
+    if uri.query().is_some() {
+        return read_error(ReadError::Identity(IdentityError::Unauthorized));
+    }
+    let access = match bearer(&headers) {
+        Ok(v) => v,
+        Err(e) => return read_error(ReadError::Identity(e)),
+    };
+    match issuer.managed_application_status(access).await {
+        Ok(value) => Json(value).into_response(),
+        Err(error) => read_error(ReadError::Identity(error)),
     }
 }

@@ -18,6 +18,8 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import type { AuthBundle } from '@/stores/auth-store'
 
+import type { FederatedProvider } from './lib/federated-oauth'
+
 // ============================================================================
 // API Payloads
 // ============================================================================
@@ -104,66 +106,7 @@ export interface AssistantStatus {
   funding_mode?: 'super_administrator'
 }
 
-export interface SystemStatus {
-  success?: boolean
-  message?: string
-  data?: {
-    version?: string
-    system_name?: string
-    logo?: string
-    google_oauth?: boolean
-    google_client_id?: string
-    google_browser_callback?: string
-    external_oauth_browser?: boolean
-    github_oauth?: boolean
-    github_client_id?: string
-    discord_oauth?: boolean
-    discord_client_id?: string
-    oidc_enabled?: boolean
-    oidc_authorization_endpoint?: string
-    oidc_client_id?: string
-    oidc_display_name?: string
-    linuxdo_oauth?: boolean
-    linuxdo_client_id?: string
-    telegram_oauth?: boolean
-    telegram_bot_name?: string
-    passkey_login?: boolean
-    wechat_login?: boolean
-    wechat_qrcode?: string
-    wechat_qr_code?: string
-    wechat_qrcode_image_url?: string
-    wechat_qr_code_image_url?: string
-    wechat_account_qrcode_image_url?: string
-    WeChatAccountQRCodeImageURL?: string
-    turnstile_check?: boolean
-    turnstile_site_key?: string
-    email_verification?: boolean
-    self_use_mode_enabled?: boolean
-    display_in_currency?: boolean
-    display_token_stat_enabled?: boolean
-    quota_per_unit?: number
-    quota_display_type?: string
-    usd_exchange_rate?: number
-    custom_currency_symbol?: string
-    custom_currency_code?: string
-    custom_currency_exchange_rate?: number
-    demo_site_enabled?: boolean
-    user_agreement_enabled?: boolean
-    privacy_policy_enabled?: boolean
-    oauth_register_enabled?: boolean
-    oauth_registration_disabled_methods?: string[]
-    register_enabled?: boolean
-    password_login_enabled?: boolean
-    password_register_enabled?: boolean
-    custom_oauth_providers?: CustomOAuthProviderInfo[]
-    backend_capabilities?: Partial<BackendCapabilities>
-    assistant?: AssistantStatus
-    [key: string]: unknown
-  }
-  // Allow direct access to common properties
-  configured_components?: {
-    humangrant?: boolean
-  }
+interface SystemStatusData {
   version?: string
   system_name?: string
   logo?: string
@@ -175,6 +118,10 @@ export interface SystemStatus {
   github_client_id?: string
   discord_oauth?: boolean
   discord_client_id?: string
+  native_federated_auth?: boolean
+  native_account_bindings?: boolean
+  two_factor_enabled?: boolean
+  federated_oauth_providers?: FederatedProvider[]
   oidc_enabled?: boolean
   oidc_authorization_endpoint?: string
   oidc_client_id?: string
@@ -215,6 +162,15 @@ export interface SystemStatus {
   backend_capabilities?: Partial<BackendCapabilities>
   assistant?: AssistantStatus
   [key: string]: unknown
+}
+
+export interface SystemStatus extends SystemStatusData {
+  success?: boolean
+  message?: string
+  data?: SystemStatusData
+  configured_components?: {
+    humangrant?: boolean
+  }
 }
 
 // ============================================================================

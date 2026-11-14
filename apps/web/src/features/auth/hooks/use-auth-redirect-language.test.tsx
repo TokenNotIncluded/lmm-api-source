@@ -42,7 +42,7 @@ mock.module('@tanstack/react-router', () => ({
     navigations.push(options)
   },
 }))
-const { act } = await import('react')
+const { act, useEffect } = await import('react')
 const { createRoot } = await import('react-dom/client')
 const i18n = (await import('i18next')).default
 const { applyAuthBundle, clearAuthentication } =
@@ -85,7 +85,10 @@ await i18n.use(backend).init({
 })
 let redirect!: ReturnType<typeof useAuthRedirect>
 function Probe() {
-  redirect = useAuthRedirect()
+  const value = useAuthRedirect()
+  useEffect(() => {
+    redirect = value
+  })
   return null
 }
 function bundle(token: string, id: number, language: string): AuthBundle {
@@ -145,6 +148,27 @@ test('cancelled account A language load must not replace account B language', as
       readsBeforeCommit,
       'all namespaces and fallback resources must be ready before global language commit'
     )
+    const replacements: string[] = []
+    const originalReplace = dom.location.replace
+    const navigationCount = navigations.length
+    dom.location.replace = (href: string) => replacements.push(href)
+    try {
+      const backendTargets = [
+        '/api/oauth2/authorize?client_id=lmm#consent',
+        '/core/v1/bounties/confirm/synthetic?view=preview#confirm',
+      ]
+      for (const target of backendTargets) {
+        await redirect.handleLoginSuccess(current, target, true)
+      }
+      assert.deepEqual(replacements, backendTargets)
+      assert.equal(
+        navigations.length,
+        navigationCount,
+        'backend endpoints must bypass the frontend router'
+      )
+    } finally {
+      dom.location.replace = originalReplace
+    }
   } finally {
     releaseFrench()
     await old

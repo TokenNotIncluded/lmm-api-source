@@ -5,7 +5,7 @@ Use this document before opening a request in this repository.
 ## 1) First, check documentation
 
 - Project overview and operations: [`README.md`](../README.md)
-- Bounty flow details: [`docs/open-source-bounties.md`](open-source-bounties.md)
+- Bounty flow details: [`docs/bounties.md`](bounties.md)
 - Authentication and session behavior: [`docs/core-identity.md`](core-identity.md)
 - Legal / policy: [`docs/legal`](legal)
 - Security incidents: [`SECURITY.md`](../.github/SECURITY.md)

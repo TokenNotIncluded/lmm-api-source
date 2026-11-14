@@ -101,7 +101,7 @@ async function setup(responses: Record<string, ChannelTestResponse>) {
     }) as typeof toast.info
   }
   toast.dismiss = (() => 1) as typeof toast.dismiss
-  api.get = (async (url, config) => {
+  api.get = (async (url: string, config?: { params?: { model?: string } }) => {
     assert.equal(url, '/api/channel/test/7')
     const model = String(config?.params?.model)
     tested.push(model)

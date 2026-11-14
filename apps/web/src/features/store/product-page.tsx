@@ -1,6 +1,6 @@
 /* Copyright (C) 2026 LIghtJUNction; SPDX-License-Identifier: AGPL-3.0-or-later */
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { useEffect, useState, type SetStateAction } from 'react'
+import { useCallback, useEffect, useState, type SetStateAction } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { Button } from '@/components/ui/button'
@@ -31,7 +31,10 @@ import { StoreAPIError, storeApi } from './api'
 import { catalogueApi } from './catalogue-api'
 import { StoreCatalogueTags } from './catalogue-tags'
 import type { StoreCatalogueProduct } from './catalogue-types'
-import { storeCheckoutReturnUrl } from './checkout-intent'
+import {
+  storeCheckoutReturnUrl,
+  type StoreCheckoutActor,
+} from './checkout-intent'
 import { useStoreCheckoutRecovery } from './checkout-recovery'
 import { StoreCollectionActions } from './collection-actions'
 import { STORE_FIXED_CONTENT_COPY as fixedCopy } from './delivery-template'
@@ -258,6 +261,7 @@ type StoreCheckoutProps = {
 
 export function StoreCheckout(props: StoreCheckoutProps) {
   const user = useAuthStore((state) => state.auth.user)
+  const sessionId = useAuthStore((state) => state.auth.session?.sid)
   const bootstrapState = useAuthStore((state) => state.auth.bootstrapState)
   if (props.product.record_kind === 'native') {
     return <StoreNativeProduct product={props.product} />
@@ -265,7 +269,12 @@ export function StoreCheckout(props: StoreCheckoutProps) {
   if (!user && bootstrapState !== 'complete') {
     return <StoreAuthenticationLoading />
   }
-  return <ResolvedStoreCheckout key={user?.id ?? 'anonymous'} {...props} />
+  return (
+    <ResolvedStoreCheckout
+      key={`${props.product.id}:${props.product.seller_id}:${user?.id ?? 'anonymous'}:${sessionId}:${props.ownerPreview === true}`}
+      {...props}
+    />
+  )
 }
 
 function ResolvedStoreCheckout({
@@ -299,9 +308,25 @@ function ResolvedStoreCheckout({
   } | null>(null)
   const [guestDetailError, setGuestDetailError] = useState<unknown>(null)
   const [guestDetailRevision, setGuestDetailRevision] = useState(0)
-  useEffect(() => {
+  const [guestSource, setGuestSource] = useState({
+    session: guest.session,
+    product: initialProduct,
+    revision: guestDetailRevision,
+  })
+  if (
+    guestSource.session !== guest.session ||
+    guestSource.product !== initialProduct ||
+    guestSource.revision !== guestDetailRevision
+  ) {
+    setGuestSource({
+      session: guest.session,
+      product: initialProduct,
+      revision: guestDetailRevision,
+    })
     setGuestDetail(null)
     setGuestDetailError(null)
+  }
+  useEffect(() => {
     if (!guest.session) return
     const captured = guest.session
     const controller = new AbortController()
@@ -321,12 +346,25 @@ function ResolvedStoreCheckout({
     guest.session && guestDetail?.actor === guest.session.guest_id
       ? guestDetail.product
       : initialProduct
+  const [error, setError] = useState<unknown>(null)
+  const onOrderAccepted = useCallback(
+    (orderId: string, actor: StoreCheckoutActor) => {
+      if (actor.kind !== 'guest') return
+      try {
+        rememberStoreGuestOrder(actor.guestId, orderId)
+      } catch {
+        setError(new Error(accessCopy.orderReceiptFailed))
+      }
+    },
+    []
+  )
   const recovery = useStoreCheckoutRecovery({
     productId: product.id,
     supported: accessSupported,
     termsSupported,
     userId: user?.id,
     guest: guest.session,
+    onOrderAccepted,
   })
   const guestDisclaimer = useStoreGuestDisclaimer(guest.session?.token)
   const memberDisclaimer = useQuery({
@@ -369,7 +407,6 @@ function ResolvedStoreCheckout({
   const [acknowledged, setAcknowledged] = useState(false)
   const [read, setRead] = useState(false)
   const [busy, setBusy] = useState(false)
-  const [error, setError] = useState<unknown>(null)
   const [payment, setPayment] = useState<StorePaymentSession | null>(null)
   const actorScope = user ? `account:${user.id}` : guest.actorScope
   const [resultActor, setResultActor] = useState('')
@@ -381,25 +418,26 @@ function ResolvedStoreCheckout({
     setResultActor(actorScope)
     setSavedResult(value)
   }
-  useEffect(() => {
+  const [draftActor, setDraftActor] = useState(actorScope)
+  if (draftActor !== actorScope) {
+    setDraftActor(actorScope)
     setSavedResult(null)
     setPayment(null)
     setCode('')
     setEmail('')
     setError(null)
-  }, [actorScope])
-  useEffect(() => {
+  }
+  const [recoveredSource, setRecoveredSource] = useState(recovery.order)
+  if (recoveredSource !== recovery.order) {
+    setRecoveredSource(recovery.order)
     if (recovery.order) {
       setResultActor(actorScope)
       setSavedResult({ order: recovery.order, created: false })
       setGuestDetailRevision((current) => current + 1)
-      if (guest.session) {
-        try {
-          rememberStoreGuestOrder(guest.session.guest_id, recovery.order.id)
-        } catch {
-          setError(new Error(accessCopy.orderReceiptFailed))
-        }
-      }
+    }
+  }
+  useEffect(() => {
+    if (recovery.order) {
       if (
         recovery.order.status === 'paid' &&
         user?.id === recovery.order.buyer_id &&
@@ -415,10 +453,14 @@ function ResolvedStoreCheckout({
   const recoveryBusy = busy || recovery.loading
   const settled =
     recovery.record?.state === 'known' && !!recovery.record.orderId
-  useEffect(() => {
+  const [disclaimerVersion, setDisclaimerVersion] = useState(
+    disclaimer.data?.version
+  )
+  if (disclaimerVersion !== disclaimer.data?.version) {
+    setDisclaimerVersion(disclaimer.data?.version)
     setRead(false)
     setAcknowledged(false)
-  }, [disclaimer.data?.version])
+  }
   const count = storeQuantity(quantity)
   const promotion = useStoreProductPromotion({
     product,
@@ -444,16 +486,14 @@ function ResolvedStoreCheckout({
     : paymentMethods.includes(method as StorePaymentMethod)
       ? method
       : paymentMethods[0] || ''
-  useEffect(() => {
-    const scoped = promotion.resolved?.variant_ids
-    if (
-      !variantId &&
-      scoped?.length === 1 &&
-      selectedStoreVariant(product, scoped[0])
-    ) {
-      setVariantId(scoped[0])
-    }
-  }, [variantId, promotion.resolved, product])
+  const promotionVariants = promotion.resolved?.variant_ids
+  if (
+    !variantId &&
+    promotionVariants?.length === 1 &&
+    selectedStoreVariant(product, promotionVariants[0])
+  ) {
+    setVariantId(promotionVariants[0])
+  }
   // Product availability uses the original seller fee. Promotion quotes check
   // the discounted fee, stock, sales and buyer limit together on the server.
   const capacity = promotion.supplied
@@ -474,10 +514,19 @@ function ResolvedStoreCheckout({
       )
   // Promotion quotes are tied to the chosen quantity. Keep that selection
   // while quoting; the trusted maximum disables an invalid purchase.
-  useEffect(() => {
-    if (promotion.supplied) return
-    setQuantity((current) => storeClampQuantity(current, capacity))
-  }, [capacity, promotion.supplied, promotion.quote])
+  const [quantitySource, setQuantitySource] = useState<{
+    capacity: number
+    promotion: string
+  } | null>(null)
+  if (
+    quantitySource?.capacity !== capacity ||
+    quantitySource?.promotion !== promotion.supplied
+  ) {
+    setQuantitySource({ capacity, promotion: promotion.supplied })
+    if (!promotion.supplied) {
+      setQuantity((current) => storeClampQuantity(current, capacity))
+    }
+  }
   let total: number | undefined
   try {
     if (count !== undefined && unitPrice !== undefined) {

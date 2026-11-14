@@ -57,22 +57,23 @@ export function IoNetRecoveryPanel() {
     setBusy(key)
     try {
       const receipt = await resumeIoNetOperation(key, cancel)
-      if (receipt.state === 'unknown')
+      if (receipt.state === 'unknown') {
         toast.info(
           t(
             'The result is unknown. Resume checks the original operation without sending it again.'
           )
         )
-      else {
+      } else {
         await Promise.all([
           client.invalidateQueries({ queryKey: deploymentsQueryKeys.lists() }),
           client.invalidateQueries({ queryKey: ['ionet-operations'] }),
         ])
         if (receipt.state === 'rejected') toast.error(t('Request failed'))
-        else
+        else {
           toast.success(
             t(receipt.state === 'succeeded' ? 'Success' : 'Cancelled')
           )
+        }
       }
     } catch {
       toast.error(t('Request failed'))

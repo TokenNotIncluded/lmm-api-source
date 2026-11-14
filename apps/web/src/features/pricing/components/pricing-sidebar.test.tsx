@@ -296,16 +296,14 @@ const categories = [
   [QUOTA_TYPES.UPSTREAM_COST, 'Upstream cost'],
 ] as const
 
-const models = cases.map(
-  ({ name, pricing }, index): PricingModel => ({
-    id: index,
-    model_name: name,
-    quota_type: 0,
-    enable_groups: ['default'],
-    billing_mode: 'tiered_expr',
-    ...pricing,
-  })
-)
+const models = cases.map(({ name, pricing }, index): PricingModel => ({
+  id: index,
+  model_name: name,
+  quota_type: 0,
+  enable_groups: ['default'],
+  billing_mode: 'tiered_expr',
+  ...pricing,
+}))
 
 for (const [index, fixture] of cases.entries()) {
   test(`quota filter and sidebar agree: ${fixture.name}`, () => {

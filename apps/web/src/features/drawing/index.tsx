@@ -15,6 +15,7 @@ import { Link } from '@tanstack/react-router'
 import {
   useCallback,
   useEffect,
+  useEffectEvent,
   useMemo,
   useRef,
   useState,
@@ -162,11 +163,15 @@ function DrawingQueryErrorAlert(props: {
 
 export function Drawing() {
   const userId = useAuthStore((state) => state.auth.user?.id)
+  const sessionId = useAuthStore((state) => state.auth.session?.sid)
   // Remount every account-owned state, including prompt/reference files.
   // Never render one account's previews for another.
   return userId ? (
     <DrawingErrorBoundary>
-      <DrawingWorkbench key={userId} userId={userId} />
+      <DrawingWorkbench
+        key={JSON.stringify([userId, sessionId])}
+        userId={userId}
+      />
     </DrawingErrorBoundary>
   ) : null
 }
@@ -216,9 +221,13 @@ function DrawingWorkbench({ userId }: { userId: number }) {
   const [errorStatus, setErrorStatus] = useState<number | null>(null)
   const [stoppedMessage, setStoppedMessage] = useState<string | null>(null)
   const [generating, setGenerating] = useState(false)
-  const [elapsedSeconds, setElapsedSeconds] = useState(0)
+  const [progressNow, setProgressNow] = useState(Date.now)
+  const [generationStartedAt, setGenerationStartedAt] = useState(Date.now)
   const [minigameEnabled, setMinigameEnabled] = useState(getDrawingMinigamePref)
-  const [minigameExpanded, setMinigameExpanded] = useState(false)
+  const [minigameChoice, setMinigameChoice] = useState<{
+    source: string | number
+    expanded: boolean
+  } | null>(null)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [activeTask, setActiveTask] = useState<ActiveDrawingTask | null>(() =>
     getActiveDrawingTask(userId)
@@ -269,35 +278,23 @@ function DrawingWorkbench({ userId }: { userId: number }) {
     return subscribeActiveDrawingTask(userId, syncTask)
   }, [userId, isCurrentUser, t])
 
-  // Live elapsed timer
+  // Clock ticks are the only asynchronous progress updates. Presentation belongs
+  // to the current task (or this request's start), not the previous generation.
+  const backgroundTask = activeTask?.status === 'generating' ? activeTask : null
+  const progressSource = backgroundTask?.id ?? generationStartedAt
+  const progressStartedAt = backgroundTask?.startedAt ?? generationStartedAt
+  const elapsedSeconds = generating
+    ? Math.max(1, Math.floor((progressNow - progressStartedAt) / 1000))
+    : 0
+  const minigameExpanded =
+    minigameChoice?.source === progressSource
+      ? minigameChoice.expanded
+      : minigameEnabled
   useEffect(() => {
-    if (!generating) {
-      setElapsedSeconds(0)
-      return
-    }
-    const started = activeTask?.startedAt || Date.now()
-    const updateTime = () => {
-      const sec = Math.max(1, Math.floor((Date.now() - started) / 1000))
-      setElapsedSeconds(sec)
-    }
-    updateTime()
-    const timer = setInterval(updateTime, 1000)
+    if (!generating) return
+    const timer = setInterval(() => setProgressNow(Date.now()), 1000)
     return () => clearInterval(timer)
-  }, [generating, activeTask?.startedAt])
-
-  // Offer once per generation; closing a game must not immediately reopen it.
-  const gameOfferedRef = useRef(false)
-  useEffect(() => {
-    if (!generating) {
-      gameOfferedRef.current = false
-      setMinigameExpanded(false)
-      return
-    }
-    if (elapsedSeconds >= 3 && minigameEnabled && !gameOfferedRef.current) {
-      gameOfferedRef.current = true
-      setMinigameExpanded(true)
-    }
-  }, [generating, elapsedSeconds, minigameEnabled])
+  }, [generating])
 
   const pricingQuery = useQuery({
     queryKey: pricingQueryKey(userId, sessionId),
@@ -693,6 +690,8 @@ function DrawingWorkbench({ userId }: { userId: number }) {
       return
     }
     requestPendingRef.current = true
+    setGenerationStartedAt(Date.now())
+    setMinigameChoice(null)
     setGenerating(true)
     setError(null)
     setErrorStatus(null)
@@ -766,12 +765,10 @@ function DrawingWorkbench({ userId }: { userId: number }) {
     }
   }
 
-  // Keyboard: ⌘/Ctrl+Enter submits. The listener is registered once and reads
-  // the live handler through a ref, so it never needs to be torn down between
-  // renders. generate() re-checks every precondition, so a stale call is safe.
-  // ⌘/Ctrl+I belongs to PromptIdeaButton, which owns the roll it triggers.
-  const generateRef = useRef(generate)
-  generateRef.current = generate
+  // The window listener uses the latest committed prompt and owner. The handler
+  // still rechecks pending work and the captured session.
+  // Ctrl/Cmd+I remains owned by PromptIdeaButton.
+  const generateFromKeyboard = useEffectEvent(generate)
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if (!(event.metaKey || event.ctrlKey) || event.repeat) return
@@ -782,7 +779,7 @@ function DrawingWorkbench({ userId }: { userId: number }) {
         return
       }
       event.preventDefault()
-      void generateRef.current()
+      void generateFromKeyboard()
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
@@ -1055,7 +1052,12 @@ function DrawingWorkbench({ userId }: { userId: number }) {
                           variant='ghost'
                           size='xs'
                           className='mt-1 text-white/60 hover:text-white'
-                          onClick={() => setMinigameExpanded(false)}
+                          onClick={() =>
+                            setMinigameChoice({
+                              source: progressSource,
+                              expanded: false,
+                            })
+                          }
                         >
                           {t('Collapse minigame')}
                         </Button>
@@ -1067,7 +1069,10 @@ function DrawingWorkbench({ userId }: { userId: number }) {
                         size='xs'
                         className='border-white/15 bg-white/5 text-white hover:bg-white/10'
                         onClick={() => {
-                          setMinigameExpanded(true)
+                          setMinigameChoice({
+                            source: progressSource,
+                            expanded: true,
+                          })
                           setMinigameEnabled(true)
                           setDrawingMinigamePref(true)
                         }}

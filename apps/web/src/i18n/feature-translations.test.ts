@@ -21,7 +21,15 @@ import {
   temporaryActivationTranslations,
 } from '@/features/email-activations/temporary-i18n.js'
 
-const discountLocales = ['en', 'zh-CN', 'zh-TW', 'fr', 'ja', 'ru', 'vi'] as const
+const discountLocales = [
+  'en',
+  'zh-CN',
+  'zh-TW',
+  'fr',
+  'ja',
+  'ru',
+  'vi',
+] as const
 const heroSmsLocales = ['en', 'zh-CN', 'zh-TW', 'fr', 'ja', 'ru', 'vi'] as const
 
 function placeholders(value: string) {
@@ -60,8 +68,14 @@ describe('lazy feature translations', () => {
       temporaryActivationTranslations,
       heroSmsLocales
     )
-    assert.equal(heroSmsTranslations['zh-CN']['Purchase activation'], '购买接码')
-    assert.equal(heroSmsTranslations['zh-TW']['Purchase activation'], '購買接碼')
+    assert.equal(
+      heroSmsTranslations['zh-CN']['Purchase activation'],
+      '购买接码'
+    )
+    assert.equal(
+      heroSmsTranslations['zh-TW']['Purchase activation'],
+      '購買接碼'
+    )
     assert.equal(
       temporaryActivationTranslations['zh-CN']['Temporary activations'],
       '临时接码'

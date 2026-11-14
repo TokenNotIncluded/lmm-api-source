@@ -183,11 +183,11 @@ describe('open-source bounty layout', () => {
             bounty_challenge_cancel: true,
           },
         }
-      } else if (url === '/api/open-source-bounties?page=1&page_size=50') {
+      } else if (url === '/api/bounties?page=1&page_size=50') {
         data = { items: [project], total: 1, page: 1, page_size: 50 }
       } else if (url.startsWith('/api/todos?')) {
         data = { total: 0 }
-      } else if (url === '/api/open-source-bounties/config') {
+      } else if (url === '/api/bounties/config') {
         data = { rate_percent: 10, rate_basis_points: 1_000 }
       }
       return { data: { success: true, data } }

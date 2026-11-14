@@ -422,3 +422,184 @@ function required<T>(value: T | null | undefined): T {
   assert.ok(value !== null && value !== undefined)
   return value
 }
+
+function deferredReply() {
+  let resolve!: (reply: ReturnType<typeof envelope>) => void
+  const promise = new Promise<ReturnType<typeof envelope>>((accept) => {
+    resolve = accept
+  })
+  return { promise, resolve }
+}
+
+test('failed policy read retries with a fresh scoped request and clears the old error while loading', async () => {
+  const pending = deferredReply()
+  const scopes: unknown[] = []
+  let reads = 0
+  api.get = (async (path: string, config: { authScope: unknown }) => {
+    assert.equal(path, '/core/v1/admin/trust-policy')
+    scopes.push(config.authScope)
+    if (++reads === 1) throw new Error('synthetic policy read failure')
+    return pending.promise
+  }) as typeof api.get
+  const rendered = await renderNative()
+  try {
+    assert.match(
+      rendered.container.textContent ?? '',
+      /Unable to load the current trust policy/
+    )
+    assert.equal(rendered.container.querySelector('form'), null)
+    await click(button(rendered.container, 'Retry'))
+    assert.match(rendered.container.textContent ?? '', /Loading trust policy/)
+    assert.doesNotMatch(rendered.container.textContent ?? '', /Unable to load/)
+    assert.equal(rendered.container.querySelector('form'), null)
+    assert.equal(reads, 2)
+    await act(async () => pending.resolve(envelope(read)))
+    assert.ok(rendered.container.querySelector('form'))
+    assert.deepEqual(scopes, [
+      { userId: 7, sessionId: 'fixture-session' },
+      { userId: 7, sessionId: 'fixture-session' },
+    ])
+    assert.equal(writes.length, 0)
+    assert.equal(credentialCount, 0)
+  } finally {
+    await rendered.cleanup()
+  }
+})
+
+test('late policy read is disposed on actor switch and cannot replace the new actor policy', async () => {
+  const pending = deferredReply()
+  const scopes: unknown[] = []
+  const signals: AbortSignal[] = []
+  const nextRead = policyRead()
+  nextRead.revision = 27
+  nextRead.policy.tiers[4].min_paid_credits = 800
+  api.get = (async (
+    path: string,
+    config: { authScope: unknown; signal: AbortSignal }
+  ) => {
+    assert.equal(path, '/core/v1/admin/trust-policy')
+    scopes.push(config.authScope)
+    signals.push(config.signal)
+    return scopes.length === 1 ? pending.promise : envelope(nextRead)
+  }) as typeof api.get
+  const rendered = await renderNative()
+  try {
+    assert.equal(scopes.length, 1)
+    await act(async () => signIn(8, 'other-account'))
+    assert.equal(required(signals[0]).aborted, true)
+    assert.deepEqual(scopes, [
+      { userId: 7, sessionId: 'fixture-session' },
+      { userId: 8, sessionId: 'other-account' },
+    ])
+    assert.match(rendered.container.textContent ?? '', /Policy revision 27/)
+    await act(async () => pending.resolve(envelope(read)))
+    assert.match(rendered.container.textContent ?? '', /Policy revision 27/)
+    assert.equal(
+      required(
+        rendered.container.querySelector<HTMLInputElement>(
+          'input[name="tiers.4.min_paid_credits"]'
+        )
+      ).value,
+      '800'
+    )
+    assert.equal(writes.length, 0)
+    assert.equal(credentialCount, 0)
+  } finally {
+    await rendered.cleanup()
+  }
+})
+
+test('event-bound RHF submission and confirmation each admit one operation and preserve explicit review order', async () => {
+  const pending = deferredReply()
+  const standard = api.post
+  api.post = (async (path: string, body: Record<string, unknown>) => {
+    if (path.endsWith('/preview')) {
+      writes.push({ path, body })
+      return pending.promise
+    }
+    return standard(path, body)
+  }) as typeof api.post
+  const rendered = await renderNative()
+  try {
+    await editThreshold(rendered.container, '500')
+    const form = required(rendered.container.querySelector('form'))
+    await act(async () => {
+      form.dispatchEvent(
+        new Event('submit', { bubbles: true, cancelable: true })
+      )
+      form.dispatchEvent(
+        new Event('submit', { bubbles: true, cancelable: true })
+      )
+    })
+    assert.equal(writes.length, 1)
+    assert.equal(credentialCount, 0)
+    assert.equal(
+      button(rendered.container, 'Preview trust policy changes').disabled,
+      true
+    )
+    const draft = JSON.parse(String(required(writes[0]).body.value))
+    assert.equal(draft.tiers[4].min_paid_credits, 500)
+    await act(async () => pending.resolve(envelope(previewReply(draft))))
+    const confirm = button(
+      rendered.container,
+      'Confirm changes with security key'
+    )
+    assert.equal(confirm.disabled, true)
+    assert.equal(writes.length, 1)
+    await click(
+      required(
+        rendered.container.querySelector<HTMLElement>('#trust-policy-reviewed')
+      )
+    )
+    await act(async () => {
+      confirm.click()
+      confirm.click()
+    })
+    assert.equal(credentialCount, 1)
+    assert.deepEqual(
+      writes.map(({ path }) => path.split('/').at(-1)),
+      ['preview', 'challenge', 'confirm']
+    )
+    assert.equal(required(writes[1]).body.token, token)
+    assert.equal(required(writes[2]).body.token, token)
+    assert.match(
+      rendered.container.textContent ?? '',
+      /Trust policy confirmed at revision 13/
+    )
+  } finally {
+    await rendered.cleanup()
+  }
+})
+
+test('invalid scope retry and permission-denied actor never read or write a policy', async () => {
+  let reads = 0
+  api.get = (async () => {
+    reads++
+    return envelope(read)
+  }) as typeof api.get
+  signIn(0)
+  const rendered = await renderNative()
+  try {
+    assert.match(
+      rendered.container.textContent ?? '',
+      /Unable to load the current trust policy/
+    )
+    await click(button(rendered.container, 'Retry'))
+    assert.match(
+      rendered.container.textContent ?? '',
+      /Unable to load the current trust policy/
+    )
+    assert.equal(rendered.container.querySelector('form'), null)
+    await act(async () => signIn(7, 'restricted-session', 10))
+    assert.match(
+      rendered.container.textContent ?? '',
+      /editing is unavailable for this session/
+    )
+    assert.equal(rendered.container.querySelector('form'), null)
+    assert.equal(reads, 0)
+    assert.equal(writes.length, 0)
+    assert.equal(credentialCount, 0)
+  } finally {
+    await rendered.cleanup()
+  }
+})

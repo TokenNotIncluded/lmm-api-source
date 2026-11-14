@@ -850,6 +850,17 @@ fn replay_after_send_needs_both_permissions_and_rejections_can_retry() {
             .unwrap();
         plan.start().unwrap();
         assert_eq!(
+            plan.allows_failure(Failure {
+                kind: FailureKind::Timeout,
+                delivery: DeliveryState::PossiblyAccepted,
+            }),
+            allowed
+        );
+        assert!(!plan.allows_failure(Failure {
+            kind: FailureKind::Timeout,
+            delivery: DeliveryState::ResponseStarted,
+        }));
+        assert_eq!(
             plan.retry(Failure {
                 kind: FailureKind::Timeout,
                 delivery: DeliveryState::PossiblyAccepted

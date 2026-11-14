@@ -111,3 +111,68 @@ test('switching accounts hides the previous model report while the next account 
     useAuthStore.setState({ auth: previousAuth })
   }
 })
+
+test('report windows advance on explicit refresh without clock-driven requests or resetting the query on rerender', async () => {
+  const previousAuth = useAuthStore.getState().auth
+  const previousGet = api.get
+  const realNow = Date.now
+  let now = 1_900_000_000_000
+  Date.now = () => now
+  useAuthStore.setState({
+    auth: { ...previousAuth, user: { id: 77, role: 1 } } as never,
+  })
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false, staleTime: Infinity } },
+  })
+  const host = document.createElement('div')
+  const root = createRoot(host)
+  const ends: number[] = []
+  api.get = (async (
+    _url: string,
+    config: { params: { end_timestamp: number } }
+  ) => {
+    ends.push(config.params.end_timestamp)
+    return { data: { success: true, data: [] } }
+  }) as typeof api.get
+  function Report() {
+    const query = useModelUsage('7d')
+    return (
+      <button type='button' onClick={() => void query.refetch()}>
+        {query.range.end_timestamp}
+      </button>
+    )
+  }
+  const render = async () => {
+    await act(async () =>
+      root.render(
+        <QueryClientProvider client={client}>
+          <Report />
+        </QueryClientProvider>
+      )
+    )
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 20))
+    })
+  }
+  try {
+    await render()
+    assert.deepEqual(ends, [now / 1000])
+    now += 65_000
+    await render()
+    await act(async () => window.dispatchEvent(new Event('focus')))
+    assert.equal(ends.length, 1)
+    assert.equal(host.textContent, String(ends[0]))
+    await act(async () => host.querySelector('button')?.click())
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 20))
+    })
+    assert.deepEqual(ends, [1_900_000_000, now / 1000])
+    assert.equal(host.textContent, String(now / 1000))
+  } finally {
+    await act(async () => root.unmount())
+    client.clear()
+    api.get = previousGet
+    useAuthStore.setState({ auth: previousAuth })
+    Date.now = realNow
+  }
+})

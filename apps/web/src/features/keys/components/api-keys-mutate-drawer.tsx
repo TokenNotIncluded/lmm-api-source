@@ -19,8 +19,14 @@ For commercial licensing, please contact support@quantumnous.com
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { ChevronDown, KeyRound, Settings2, WalletCards } from 'lucide-react'
-import { useEffect, useMemo, useState } from 'react'
-import { useForm, type SubmitErrorHandler } from 'react-hook-form'
+import {
+  useEffect,
+  useMemo,
+  useState,
+  type Dispatch,
+  type SetStateAction,
+} from 'react'
+import { useForm, useWatch, type SubmitErrorHandler } from 'react-hook-form'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 
@@ -109,11 +115,50 @@ type ApiKeyMutateDrawerProps = {
   currentRow?: ApiKey
 }
 
-export function ApiKeysMutateDrawer({
+export function ApiKeysMutateDrawer(props: ApiKeyMutateDrawerProps) {
+  const [createdSecret, setCreatedSecret] =
+    useState<CreatedApiKeySecret | null>(null)
+  const [creationUncertain, setCreationUncertain] = useState(false)
+  const [isSubmitting, setIsSubmitting] = useState(false)
+  const [advancedOpen, setAdvancedOpen] = useState(false)
+  return (
+    <ApiKeysMutateDrawerForm
+      key={`${props.open}:${props.currentRow?.id ?? 'create'}`}
+      {...props}
+      createdSecret={createdSecret}
+      setCreatedSecret={setCreatedSecret}
+      creationUncertain={creationUncertain}
+      setCreationUncertain={setCreationUncertain}
+      isSubmitting={isSubmitting}
+      setIsSubmitting={setIsSubmitting}
+      advancedOpen={advancedOpen}
+      setAdvancedOpen={setAdvancedOpen}
+    />
+  )
+}
+
+function ApiKeysMutateDrawerForm({
   open,
   onOpenChange,
   currentRow,
-}: ApiKeyMutateDrawerProps) {
+  createdSecret,
+  setCreatedSecret,
+  creationUncertain,
+  setCreationUncertain,
+  isSubmitting,
+  setIsSubmitting,
+  advancedOpen,
+  setAdvancedOpen,
+}: ApiKeyMutateDrawerProps & {
+  createdSecret: CreatedApiKeySecret | null
+  setCreatedSecret: Dispatch<SetStateAction<CreatedApiKeySecret | null>>
+  creationUncertain: boolean
+  setCreationUncertain: Dispatch<SetStateAction<boolean>>
+  isSubmitting: boolean
+  setIsSubmitting: Dispatch<SetStateAction<boolean>>
+  advancedOpen: boolean
+  setAdvancedOpen: Dispatch<SetStateAction<boolean>>
+}) {
   const { t } = useTranslation()
   const isUpdate = !!currentRow
   const currentRowId = currentRow?.id
@@ -123,14 +168,9 @@ export function ApiKeysMutateDrawer({
   const cachedStatus = queryClient.getQueryData<{
     default_use_auto_group?: boolean
   }>(['status'])
-  const [createdSecret, setCreatedSecret] =
-    useState<CreatedApiKeySecret | null>(null)
-  const [creationUncertain, setCreationUncertain] = useState(false)
-  const [isSubmitting, setIsSubmitting] = useState(false)
-  const [advancedOpen, setAdvancedOpen] = useState(false)
-  const [initializedTarget, setInitializedTarget] = useState<string | null>(
-    null
-  )
+  const [initializedValues, setInitializedValues] = useState<ApiKeyFormValues>()
+  const [setupPreferences] = useState(() => readSetupPreferences())
+  const [creationDate] = useState(() => new Date().toLocaleDateString())
   const defaultUseAutoGroup =
     status?.default_use_auto_group === true ||
     cachedStatus?.default_use_auto_group === true
@@ -223,36 +263,44 @@ export function ApiKeysMutateDrawer({
   const form = useForm<ApiKeyFormValues>({
     resolver: zodResolver(schema),
     defaultValues: getApiKeyFormDefaultValues(defaultUseAutoGroup),
+    values: initializedValues,
+  })
+  const watchedGroup = useWatch({ control: form.control, name: 'group' })
+  const autoGroupsMode = useWatch({
+    control: form.control,
+    name: 'auto_groups_mode',
+  })
+  const unlimitedQuota = useWatch({
+    control: form.control,
+    name: 'unlimited_quota',
   })
 
-  // Load existing data when updating
-  useEffect(() => {
-    if (!open) {
-      setInitializedTarget(null)
-      return
-    }
-    if (
-      !groupsFetched ||
-      groupsFetching ||
-      !autoGroupsFetched ||
-      autoGroupsFetching
-    ) {
-      return
-    }
-    if (isUpdate && (!apiKeyFetched || apiKeyFetching)) return
-    if (!isUpdate && !statusReady) return
-
-    const target = isUpdate && currentRow ? `update:${currentRow.id}` : 'create'
-    if (initializedTarget === target) return
+  // Snapshot API defaults once per opening/record; background refetches preserve edits.
+  const isFormInitialized = initializedValues !== undefined
+  const defaultsReady =
+    open &&
+    groupsFetched &&
+    !groupsFetching &&
+    autoGroupsFetched &&
+    !autoGroupsFetching &&
+    (isUpdate ? apiKeyFetched && !apiKeyFetching : statusReady)
+  if (!isFormInitialized && defaultsReady) {
     if (isUpdate && currentRow) {
       if (apiKeyData?.success && apiKeyData.data) {
-        form.reset({
+        setInitializedValues({
           ...transformApiKeyToFormDefaults(
             apiKeyData.data,
             availableAutoGroupNames,
             maxAutoGroups
           ),
-          ...(onlyAutoGroupAvailable ? { cross_group_retry: false } : {}),
+          ...(apiKeyData.data.group === 'auto'
+            ? {
+                auto_groups: [...(apiKeyData.data.auto_groups ?? [])],
+                auto_groups_mode: apiKeyData.data.auto_groups?.length
+                  ? ('custom' as const)
+                  : ('inherit' as const),
+              }
+            : {}),
           ...(onlyAutoGroupAvailable &&
           apiKeyData.data.group === 'auto' &&
           apiKeyData.data.auto_groups?.length === 1 &&
@@ -260,45 +308,18 @@ export function ApiKeysMutateDrawer({
             ? { auto_groups_mode: 'inherit' as const, auto_groups: [] }
             : {}),
         })
-        setInitializedTarget(target)
       }
     } else {
-      const preferences = readSetupPreferences()
-      form.reset({
+      setInitializedValues({
         ...getApiKeyFormDefaultValues(defaultUseAutoGroup && backendHasAuto),
-        name: preferences
-          ? `${preferences.platform} - ${preferences.client}`
-          : `${t('API Key')} ${new Date().toLocaleDateString()}`,
+        name: setupPreferences
+          ? `${setupPreferences.platform} - ${setupPreferences.client}`
+          : `${t('API Key')} ${creationDate}`,
       })
-      setInitializedTarget(target)
     }
-  }, [
-    open,
-    isUpdate,
-    currentRow,
-    form,
-    defaultUseAutoGroup,
-    statusLoading,
-    statusReady,
-    backendHasAuto,
-    onlyAutoGroupAvailable,
-    groupsFetched,
-    groupsFetching,
-    autoGroupsFetched,
-    autoGroupsFetching,
-    apiKeyData,
-    apiKeyFetched,
-    apiKeyFetching,
-    availableAutoGroupNames,
-    maxAutoGroups,
-    initializedTarget,
-    t,
-  ])
+  }
 
-  const formTarget =
-    isUpdate && currentRow ? `update:${currentRow.id}` : 'create'
-  const isFormInitialized = initializedTarget === formTarget
-  const selectedGroup = form.watch('group')?.trim() || ''
+  const selectedGroup = watchedGroup?.trim() || ''
   const selectedGroupWarning = groups.find(
     (item) =>
       item.value.toLowerCase() === (selectedGroup || '').trim().toLowerCase()
@@ -310,16 +331,12 @@ export function ApiKeysMutateDrawer({
   const [warningConfirmations, setWarningConfirmations] = useState(0)
   const [warningOpen, setWarningOpen] = useState(false)
 
-  // Correct group after groups load: if the form value is not in available groups, fall back
+  // A changing catalogue must not rewrite an existing key configuration.
   useEffect(() => {
-    if (groups.length === 0) return
+    if (isUpdate || groups.length === 0) return
     const currentGroup = selectedGroup
     if (currentGroup && !groups.some((g) => g.value === currentGroup)) {
-      const fallback = isUpdate
-        ? (groups.find((g) => g.value === 'default')?.value ??
-          groups[0]?.value ??
-          '')
-        : ''
+      const fallback = ''
       form.setValue('group', fallback, { shouldValidate: true })
       if (currentGroup === 'auto') {
         form.setValue('auto_groups', [])
@@ -329,10 +346,12 @@ export function ApiKeysMutateDrawer({
     }
   }, [groups, form, isUpdate, selectedGroup])
 
-  useEffect(() => {
+  const [warningGroup, setWarningGroup] = useState(selectedGroup)
+  if (warningGroup !== selectedGroup) {
+    setWarningGroup(selectedGroup)
     setWarningConfirmations(0)
     setWarningOpen(false)
-  }, [selectedGroup])
+  }
 
   const saveApiKey = async (
     data: ApiKeyFormValues,
@@ -347,12 +366,7 @@ export function ApiKeysMutateDrawer({
     }
     setIsSubmitting(true)
     try {
-      const basePayload = transformFormDataToPayload({
-        ...data,
-        cross_group_retry: onlyAutoGroupAvailable
-          ? false
-          : data.cross_group_retry,
-      })
+      const basePayload = transformFormDataToPayload(data)
 
       if (isUpdate && currentRow) {
         const result = await updateApiKey({
@@ -472,8 +486,6 @@ export function ApiKeysMutateDrawer({
   const quotaPlaceholder = t('Enter quota in {{currency}}', {
     currency: currencyLabel,
   })
-  const autoGroupsMode = form.watch('auto_groups_mode')
-  const unlimitedQuota = form.watch('unlimited_quota')
 
   if (createdSecret && open) {
     return (
@@ -530,7 +542,7 @@ export function ApiKeysMutateDrawer({
         <Form {...form}>
           <form
             id='api-key-form'
-            onSubmit={form.handleSubmit(onSubmit, onInvalid)}
+            onSubmit={(event) => form.handleSubmit(onSubmit, onInvalid)(event)}
             aria-busy={!isFormInitialized}
             inert={!isFormInitialized || isSubmitting ? true : undefined}
             className={sideDrawerFormClassName('gap-5')}
@@ -712,7 +724,7 @@ export function ApiKeysMutateDrawer({
                           </div>
                           <FormControl>
                             <Switch
-                              checked={!onlyAutoGroupAvailable && !!field.value}
+                              checked={!!field.value}
                               disabled={onlyAutoGroupAvailable}
                               onCheckedChange={field.onChange}
                             />

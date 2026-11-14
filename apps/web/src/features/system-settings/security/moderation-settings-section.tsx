@@ -31,6 +31,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { Switch } from '@/components/ui/switch'
+import { useAuthStore } from '@/stores/auth-store'
 
 import { getSystemGroups } from '../api'
 import {
@@ -65,7 +66,19 @@ function rebaseModerationDraft(
   ) as ModerationSettingsFormValues
 }
 
-export function ModerationSettingsSection({
+export function ModerationSettingsSection(props: {
+  defaultValues: ModerationSettingsFormValues
+}) {
+  const auth = useAuthStore((state) => state.auth)
+  return (
+    <ScopedModerationSettings
+      key={`${auth.user?.id}:${auth.user?.role}:${auth.session?.sid}`}
+      {...props}
+    />
+  )
+}
+
+function ScopedModerationSettings({
   defaultValues,
 }: {
   defaultValues: ModerationSettingsFormValues
@@ -73,6 +86,13 @@ export function ModerationSettingsSection({
   const { t } = useTranslation()
   const updateOptions = useUpdateOptions()
   const baseline = useRef(defaultValues)
+  const mounted = useRef(false)
+  useEffect(() => {
+    mounted.current = true
+    return () => {
+      mounted.current = false
+    }
+  }, [])
   const [pricesValid, setPricesValid] = useState(true)
   const form = useForm<ModerationSettingsFormValues>({
     resolver: zodResolver(moderationSettingsSchema),
@@ -114,7 +134,7 @@ export function ModerationSettingsSection({
     try {
       const before = baseline.current
       const response = await updateOptions.mutateAsync(updates)
-      if (response.success) {
+      if (mounted.current && response.success) {
         const saved = baseline.current !== before ? baseline.current : values
         const draft = rebaseModerationDraft(values, form.getValues(), saved)
         baseline.current = saved
@@ -128,9 +148,9 @@ export function ModerationSettingsSection({
   return (
     <SettingsSection title={t('Content safety review')}>
       <Form {...form}>
-        <SettingsForm onSubmit={form.handleSubmit(onSubmit)}>
+        <SettingsForm onSubmit={(event) => form.handleSubmit(onSubmit)(event)}>
           <SettingsPageFormActions
-            onSave={form.handleSubmit(onSubmit)}
+            onSave={() => form.handleSubmit(onSubmit)()}
             onReset={() => form.reset(baseline.current)}
             isSaveDisabled={!form.formState.isDirty || !pricesValid}
             isResetDisabled={!form.formState.isDirty}

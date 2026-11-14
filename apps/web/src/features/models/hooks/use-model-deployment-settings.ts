@@ -54,144 +54,143 @@ export function clearConnectionCache() {
 }
 
 type LoadingPhase = 'idle' | 'settings' | 'connection' | 'done'
+type DeploymentState = {
+  owner: string
+  loading: boolean
+  loadingPhase: LoadingPhase
+  settings: Record<string, unknown>
+  connectionState: ConnectionState
+}
+function initialState(owner: string): DeploymentState {
+  return {
+    owner,
+    loading: true,
+    loadingPhase: 'settings',
+    settings: { 'model_deployment.ionet.enabled': false },
+    connectionState: { loading: false, ok: null, error: null },
+  }
+}
 
 export function useModelDeploymentSettings() {
   const owner = useAuthStore(
     (s) => `${s.auth.user?.id}:${s.auth.user?.role}:${s.auth.session?.sid}`
   )
-  const [loading, setLoading] = useState(true)
-  const [loadingPhase, setLoadingPhase] = useState<LoadingPhase>('settings')
-  const [settings, setSettings] = useState<Record<string, unknown>>({
-    'model_deployment.ionet.enabled': false,
-  })
-  const [connectionState, setConnectionState] = useState<ConnectionState>({
-    loading: false,
-    ok: null,
-    error: null,
-  })
-  const fetchGenerationRef = useRef(0)
+  const [snapshot, setSnapshot] = useState(() => initialState(owner))
+  // An account transition must not commit the previous account's settings,
+  // even before the new account's passive loading effect runs.
+  if (snapshot.owner !== owner) setSnapshot(initialState(owner))
+  const state = snapshot.owner === owner ? snapshot : initialState(owner)
+  const fetchGenerationRef = useRef({ value: 0 })
 
-  // Parallel fetch: settings + connection test (when enabled)
   const fetchAll = useCallback(
     async (useCache = true) => {
-      const generation = ++fetchGenerationRef.current
+      const generation = ++fetchGenerationRef.current.value
       const isCurrent = () =>
-        fetchGenerationRef.current === generation &&
+        fetchGenerationRef.current.value === generation &&
         owner ===
           `${useAuthStore.getState().auth.user?.id}:${useAuthStore.getState().auth.user?.role}:${useAuthStore.getState().auth.session?.sid}`
-
-      setLoading(true)
-      setLoadingPhase('settings')
-
+      const update = (patch: Partial<Omit<DeploymentState, 'owner'>>) => {
+        setSnapshot((previous) =>
+          previous.owner === owner ? { ...previous, ...patch } : previous
+        )
+      }
       try {
-        // Step 1: Fetch settings first (usually fast)
         const response = await getDeploymentSettings()
         if (!isCurrent()) return
-
         const isEnabled = response?.success && response?.data?.enabled === true
-
-        setSettings({
-          'model_deployment.ionet.enabled': isEnabled,
-        })
-
+        update({ settings: { 'model_deployment.ionet.enabled': isEnabled } })
         if (!isEnabled) {
-          // Not enabled, done
-          setConnectionState({ loading: false, ok: null, error: null })
+          update({ connectionState: { loading: false, ok: null, error: null } })
           return
         }
-
         const scope = `${owner}:${response.data?.revision}`
-        // Step 2: Check connection (check cache first)
         if (useCache) {
           const cached = getCachedConnection(scope)
           if (cached !== null) {
-            setConnectionState({ loading: false, ok: cached, error: null })
+            update({
+              connectionState: { loading: false, ok: cached, error: null },
+            })
             return
           }
         }
-
-        // Test connection
-        setLoadingPhase('connection')
-        setConnectionState({ loading: true, ok: null, error: null })
-
+        update({
+          loadingPhase: 'connection',
+          connectionState: { loading: true, ok: null, error: null },
+        })
         try {
-          const connResponse = await testDeploymentConnection()
+          const connection = await testDeploymentConnection()
           if (!isCurrent()) return
-
-          if (connResponse?.success) {
-            setCachedConnection(true, scope)
-            setConnectionState({ loading: false, ok: true, error: null })
-          } else {
-            const message = connResponse?.message || 'Connection failed'
-            setCachedConnection(false, scope)
-            setConnectionState({ loading: false, ok: false, error: message })
-          }
+          const ok = connection?.success === true
+          setCachedConnection(ok, scope)
+          update({
+            connectionState: {
+              loading: false,
+              ok,
+              error: ok ? null : connection?.message || 'Connection failed',
+            },
+          })
         } catch (error: unknown) {
           if (!isCurrent()) return
-
-          const errMsg =
-            error instanceof Error ? error.message : 'Connection failed'
           setCachedConnection(false, scope)
-          setConnectionState({ loading: false, ok: false, error: errMsg })
+          update({
+            connectionState: {
+              loading: false,
+              ok: false,
+              error:
+                error instanceof Error ? error.message : 'Connection failed',
+            },
+          })
         }
       } catch {
         if (!isCurrent()) return
-
-        // Settings fetch failed, use defaults
-        setConnectionState({ loading: false, ok: null, error: null })
+        update({ connectionState: { loading: false, ok: null, error: null } })
       } finally {
-        if (isCurrent()) {
-          setLoadingPhase('done')
-          setLoading(false)
-        }
+        if (isCurrent()) update({ loadingPhase: 'done', loading: false })
       }
     },
     [owner]
   )
-
-  // Initial load
   useEffect(() => {
+    const pending = fetchGenerationRef.current
     clearConnectionCache()
-    setSettings({ 'model_deployment.ionet.enabled': false })
     void fetchAll(true)
     return () => {
-      ++fetchGenerationRef.current
+      ++pending.value
     }
   }, [fetchAll])
 
-  const isIoNetEnabled = Boolean(settings['model_deployment.ionet.enabled'])
-
-  // Manual retry (skip cache)
-  const testConnection = useCallback(() => {
+  const reload = useCallback(
+    (useCache: boolean) => {
+      setSnapshot((previous) =>
+        previous.owner === owner
+          ? { ...previous, loading: true, loadingPhase: 'settings' }
+          : initialState(owner)
+      )
+      return fetchAll(useCache)
+    },
+    [fetchAll, owner]
+  )
+  const reloadWithoutCache = useCallback(() => {
     clearConnectionCache()
-    return fetchAll(false)
-  }, [fetchAll])
-
-  // Refresh all (skip cache)
-  const refresh = useCallback(() => {
-    clearConnectionCache()
-    return fetchAll(false)
-  }, [fetchAll])
-
-  // Refresh on window focus (useful after saving settings in another page)
+    return reload(false)
+  }, [reload])
   useEffect(() => {
     const handler = () => {
-      // Use cache on focus to avoid unnecessary requests
-      fetchAll(true)
+      void reload(true)
     }
     window.addEventListener('focus', handler)
     return () => window.removeEventListener('focus', handler)
-  }, [fetchAll])
+  }, [reload])
 
   return {
-    loading,
-    loadingPhase,
-    settings,
-    isIoNetEnabled,
-    refresh,
-    connectionLoading: connectionState.loading,
-    connectionOk: connectionState.ok,
-    connectionError: connectionState.error,
-    testConnection,
+    loading: state.loading,
+    loadingPhase: state.loadingPhase,
+    settings: state.settings,
+    isIoNetEnabled: Boolean(state.settings['model_deployment.ionet.enabled']),
+    refresh: reloadWithoutCache,
+    connectionLoading: state.connectionState.loading,
+    connectionOk: state.connectionState.ok,
+    connectionError: state.connectionState.error,
+    testConnection: reloadWithoutCache,
   }
 }

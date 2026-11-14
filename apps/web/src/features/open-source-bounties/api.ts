@@ -76,7 +76,7 @@ async function unwrap<T>(
     await waitForBountyOperation(id)
     return unwrap<T>(
       api.get(
-        `/api/open-source-bounties/operations/${encodeURIComponent(id)}/result`
+        `/api/bounties/operations/${encodeURIComponent(id)}/result`
       )
     )
   }
@@ -95,7 +95,7 @@ async function nativeMutation<T>(
     await waitForBountyOperation(id)
     return unwrap<T>(
       api.get(
-        `/api/open-source-bounties/operations/${encodeURIComponent(id)}/result`
+        `/api/bounties/operations/${encodeURIComponent(id)}/result`
       )
     )
   }
@@ -137,7 +137,7 @@ async function nativeMutation<T>(
     await waitForBountyOperation(id)
     const result = await unwrap<T>(
       api.get(
-        `/api/open-source-bounties/operations/${encodeURIComponent(id)}/result`
+        `/api/bounties/operations/${encodeURIComponent(id)}/result`
       )
     )
     completeBountyOperation(id)
@@ -152,7 +152,7 @@ export async function listBounties() {
     page: number
     page_size: number
   }>(
-    api.get('/api/open-source-bounties?page=1&page_size=50', {
+    api.get('/api/bounties?page=1&page_size=50', {
       // Public challenges are optional on deployments that have not mounted
       // the bounty candidate yet.  ChallengeList owns the inline fallback;
       // never surface a probe 401/404 as a global toast.
@@ -164,13 +164,13 @@ export async function listBounties() {
 }
 
 export function getBountyConfig() {
-  return unwrap<BountyFeeConfig>(api.get('/api/open-source-bounties/config'))
+  return unwrap<BountyFeeConfig>(api.get('/api/bounties/config'))
 }
 
 export function listOwnedBounties(archived = false) {
   return unwrap<BountyProject[]>(
     api.get(
-      `/api/open-source-bounties/mine?archived=${archived ? 'true' : 'false'}`
+      `/api/bounties/mine?archived=${archived ? 'true' : 'false'}`
     )
   )
 }
@@ -189,26 +189,26 @@ export async function getPendingBountyReviewCount() {
 
 export function listAcceptedBounties() {
   return unwrap<BountyChallenge[]>(
-    api.get('/api/open-source-bounties/accepted')
+    api.get('/api/bounties/accepted')
   )
 }
 
 export function getBountyDetail(projectId: BountyId) {
   return unwrap<BountyProjectDetail>(
     api.get(
-      `/api/open-source-bounties/projects/${encodeURIComponent(projectId)}`
+      `/api/bounties/projects/${encodeURIComponent(projectId)}`
     )
   )
 }
 
 export function createBounty(input: BountyDraftInput) {
-  return unwrap<BountyProject>(api.post('/api/open-source-bounties', input))
+  return unwrap<BountyProject>(api.post('/api/bounties', input))
 }
 
 export function updateBounty(projectId: BountyId, input: BountyDraftInput) {
   return unwrap<BountyProject>(
     api.put(
-      `/api/open-source-bounties/projects/${encodeURIComponent(projectId)}`,
+      `/api/bounties/projects/${encodeURIComponent(projectId)}`,
       input
     )
   )
@@ -217,38 +217,38 @@ export function updateBounty(projectId: BountyId, input: BountyDraftInput) {
 export function deleteBounty(projectId: BountyId) {
   return nativeMutation<null>(
     'delete',
-    `/api/open-source-bounties/projects/${encodeURIComponent(projectId)}`
+    `/api/bounties/projects/${encodeURIComponent(projectId)}`
   )
 }
 
 export function publishBounty(projectId: BountyId) {
   return nativeMutation<{ project: BountyProject; charged_quota: number }>(
     'post',
-    `/api/open-source-bounties/projects/${encodeURIComponent(projectId)}/publish`
+    `/api/bounties/projects/${encodeURIComponent(projectId)}/publish`
   )
 }
 export function pauseBounty(projectId: BountyId) {
   return nativeMutation<BountyProject>(
     'post',
-    `/api/open-source-bounties/projects/${encodeURIComponent(projectId)}/pause`
+    `/api/bounties/projects/${encodeURIComponent(projectId)}/pause`
   )
 }
 export function resumeBounty(projectId: BountyId) {
   return nativeMutation<BountyProject>(
     'post',
-    `/api/open-source-bounties/projects/${encodeURIComponent(projectId)}/resume`
+    `/api/bounties/projects/${encodeURIComponent(projectId)}/resume`
   )
 }
 export function closeBounty(projectId: BountyId) {
   return nativeMutation<{ project: BountyProject; refunded_quota: number }>(
     'post',
-    `/api/open-source-bounties/projects/${encodeURIComponent(projectId)}/close`
+    `/api/bounties/projects/${encodeURIComponent(projectId)}/close`
   )
 }
 export function archiveBounty(projectId: BountyId) {
   return unwrap<BountyProject>(
     api.post(
-      `/api/open-source-bounties/projects/${encodeURIComponent(projectId)}/archive`
+      `/api/bounties/projects/${encodeURIComponent(projectId)}/archive`
     )
   )
 }
@@ -256,7 +256,7 @@ export function archiveBounty(projectId: BountyId) {
 export function unarchiveBounty(projectId: BountyId) {
   return unwrap<BountyProject>(
     api.post(
-      `/api/open-source-bounties/projects/${encodeURIComponent(projectId)}/unarchive`
+      `/api/bounties/projects/${encodeURIComponent(projectId)}/unarchive`
     )
   )
 }
@@ -264,7 +264,7 @@ export function unarchiveBounty(projectId: BountyId) {
 export function acceptBounty(projectId: BountyId, githubHandle: string) {
   return nativeMutation<BountyChallenge>(
     'post',
-    `/api/open-source-bounties/projects/${encodeURIComponent(projectId)}/accept`,
+    `/api/bounties/projects/${encodeURIComponent(projectId)}/accept`,
     {
       github_handle: githubHandle,
     }
@@ -280,20 +280,20 @@ export function submitChallenge(
 ) {
   return nativeMutation<BountyChallenge>(
     'post',
-    `/api/open-source-bounties/projects/${encodeURIComponent(projectId)}/submit`,
+    `/api/bounties/projects/${encodeURIComponent(projectId)}/submit`,
     input
   )
 }
 export function withdrawChallenge(challengeId: BountyId) {
   return nativeMutation<BountyChallenge>(
     'post',
-    `/api/open-source-bounties/challenges/${encodeURIComponent(challengeId)}/withdraw`
+    `/api/bounties/challenges/${encodeURIComponent(challengeId)}/withdraw`
   )
 }
 export function cancelChallenge(challengeId: BountyId) {
   return nativeMutation<BountyChallenge>(
     'post',
-    `/api/open-source-bounties/challenges/${encodeURIComponent(challengeId)}/cancel`
+    `/api/bounties/challenges/${encodeURIComponent(challengeId)}/cancel`
   )
 }
 export function reviewChallenge(
@@ -310,7 +310,7 @@ export function reviewChallenge(
     transferred_quota: number
   }>(
     'post',
-    `/api/open-source-bounties/challenges/${encodeURIComponent(challengeId)}/${action}`,
+    `/api/bounties/challenges/${encodeURIComponent(challengeId)}/${action}`,
     input
   )
 }
@@ -325,14 +325,14 @@ export function tipChallenge(
     remaining_quota: number
   }>(
     'post',
-    `/api/open-source-bounties/challenges/${encodeURIComponent(challengeId)}/tip`,
+    `/api/bounties/challenges/${encodeURIComponent(challengeId)}/tip`,
     input,
     idempotencyKey
   )
 }
 export function listBountyNotifications() {
   return unwrap<BountyNotification[]>(
-    api.get('/api/open-source-bounties/notifications', {
+    api.get('/api/bounties/notifications', {
       // Older production candidates may advertise the capability before the
       // unified route is mounted. A missing optional notification feed must
       // not become a global "Not Found" toast or block the bounty page.
@@ -344,7 +344,7 @@ export function listBountyNotifications() {
 
 export function markBountyNotificationsRead() {
   return unwrap<null>(
-    api.post('/api/open-source-bounties/notifications/read', undefined, {
+    api.post('/api/bounties/notifications/read', undefined, {
       skipBusinessError: true,
       skipErrorHandler: true,
     })
@@ -353,12 +353,12 @@ export function markBountyNotificationsRead() {
 
 export function listReceivedBountyTips() {
   return unwrap<BountyTipNotification[]>(
-    api.get('/api/open-source-bounties/tips/received')
+    api.get('/api/bounties/tips/received')
   )
 }
 
 export function markReceivedBountyTipsRead() {
-  return unwrap<null>(api.post('/api/open-source-bounties/tips/received/read'))
+  return unwrap<null>(api.post('/api/bounties/tips/received/read'))
 }
 
 export async function listCompatibleBountyNotifications(
@@ -381,7 +381,7 @@ export function markCompatibleBountyNotificationsRead(
 export function thankBountyTip(tipId: BountyId) {
   return unwrap<BountyTipNotification>(
     api.post(
-      `/api/open-source-bounties/tips/${encodeURIComponent(tipId)}/thank`
+      `/api/bounties/tips/${encodeURIComponent(tipId)}/thank`
     )
   )
 }
@@ -392,7 +392,7 @@ export function rateBountyOwner(
 ) {
   return nativeMutation<BountyChallenge>(
     'post',
-    `/api/open-source-bounties/challenges/${encodeURIComponent(challengeId)}/rate-owner`,
+    `/api/bounties/challenges/${encodeURIComponent(challengeId)}/rate-owner`,
     input
   )
 }
@@ -402,19 +402,19 @@ export function openBountyDispute(
 ) {
   return nativeMutation<BountyDispute>(
     'post',
-    `/api/open-source-bounties/challenges/${encodeURIComponent(challengeId)}/disputes`,
+    `/api/bounties/challenges/${encodeURIComponent(challengeId)}/disputes`,
     input
   )
 }
 export function listMyBountyDisputes() {
   return unwrap<BountyDispute[]>(
-    api.get('/api/open-source-bounties/disputes/mine')
+    api.get('/api/bounties/disputes/mine')
   )
 }
 
 export function listAdminBountyDisputes() {
   return unwrap<BountyDispute[]>(
-    api.get('/api/open-source-bounties/disputes/admin')
+    api.get('/api/bounties/disputes/admin')
   )
 }
 
@@ -424,7 +424,7 @@ export function resolveBountyDispute(
 ) {
   return nativeMutation<{ dispute: BountyDispute; transferred_quota: number }>(
     'post',
-    `/api/open-source-bounties/disputes/${encodeURIComponent(disputeId)}/resolve`,
+    `/api/bounties/disputes/${encodeURIComponent(disputeId)}/resolve`,
     input
   )
 }

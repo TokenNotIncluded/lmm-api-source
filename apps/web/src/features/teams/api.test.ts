@@ -10,6 +10,7 @@ import {
   setDevelopmentAuthRefreshAdapter,
 } from '@/lib/auth-session'
 import { useAuthStore } from '@/stores/auth-store'
+import { installSupportedAuthBrowser } from '@/test-support/supported-auth-browser'
 
 import {
   createTeam,
@@ -22,6 +23,9 @@ import {
   type Invitation,
   type TeamScope,
 } from './api'
+
+// Normal supported browser; install after this fixture replaces its globals.
+installSupportedAuthBrowser()
 
 const adapter = api.defaults.adapter
 const refreshAdapter = getAdapter(adapter)

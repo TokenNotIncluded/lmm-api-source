@@ -11,6 +11,10 @@ use std::sync::atomic::Ordering;
 #[path = "common/model_fixture.rs"]
 mod model_fixture;
 #[path = "common/pi_oauth_fixture.rs"]
+#[expect(
+    dead_code,
+    reason = "This Pi test binary uses a subset of the shared managed OAuth fixture."
+)]
 mod pi;
 // This shared fixture also serves protocol/process tests with additional fields.
 #[allow(dead_code)]

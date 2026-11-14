@@ -25,7 +25,7 @@ export function BountyPageHeader({
     <header className='space-y-4 sm:space-y-5'>
       <div className='flex flex-wrap items-center justify-between gap-3'>
         <h1 className='text-xl font-bold tracking-tight sm:text-2xl'>
-          {t('Open-source bounties')}
+          {t('Bounties')}
         </h1>
         <Button onClick={onCreate} className='min-h-11'>
           <Plus aria-hidden='true' data-icon='inline-start' />

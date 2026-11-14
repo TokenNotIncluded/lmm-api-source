@@ -18,7 +18,6 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { useQuery } from '@tanstack/react-query'
 import { getRouteApi } from '@tanstack/react-router'
-import { useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { Skeleton } from '@/components/ui/skeleton'
@@ -222,21 +221,6 @@ export function CommonLogsStats() {
     retry: false,
   })
 
-  const trendBuckets = useMemo(() => {
-    const fallback = getDefaultTimeRange()
-    const start = Number(searchParams.startTime) || fallback.start.getTime()
-    const end = Number(searchParams.endTime) || Date.now()
-    const safeEnd = end > start ? end : start + 60 * 60 * 1000
-    const bucketCount = 12
-    const size = (safeEnd - start) / bucketCount
-    return Array.from({ length: bucketCount }, (_, index) => ({
-      start: Math.round(start + index * size),
-      end: Math.round(
-        index === bucketCount - 1 ? safeEnd : start + (index + 1) * size
-      ),
-    }))
-  }, [searchParams.endTime, searchParams.startTime])
-
   const trendQuery = useQuery({
     queryKey: [
       'usage-logs-trend',
@@ -249,6 +233,19 @@ export function CommonLogsStats() {
       if (!scope) {
         throw new Error('Usage statistics session unavailable')
       }
+      const fallback = getDefaultTimeRange()
+      const start = Number(searchParams.startTime) || fallback.start.getTime()
+      const end = Number(searchParams.endTime) || Date.now()
+      const safeEnd = end > start ? end : start + 60 * 60 * 1000
+      const bucketCount = 12
+      const size = (safeEnd - start) / bucketCount
+      const trendBuckets = Array.from({ length: bucketCount }, (_, index) => ({
+        start: Math.round(start + index * size),
+        end: Math.round(
+          index === bucketCount - 1 ? safeEnd : start + (index + 1) * size
+        ),
+      }))
+
       return Promise.all(
         trendBuckets.map(async (bucket) => {
           const params = buildApiParams({

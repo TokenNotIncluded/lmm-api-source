@@ -44,6 +44,7 @@ import { listDiscountCodes } from '@/features/discount-codes/api'
 import type { DiscountCode } from '@/features/discount-codes/types'
 import { getRedemptions } from '@/features/redemption-codes/api'
 import type { Redemption } from '@/features/redemption-codes/types'
+import { useDeadlineClock } from '@/hooks/use-deadline-clock'
 import { api } from '@/lib/api'
 import { formatQuota } from '@/lib/format'
 
@@ -234,8 +235,17 @@ export function RedPackets() {
     enabled: open,
   })
 
+  const deadlineNow = useDeadlineClock([
+    ...(redemptionsQuery.data ?? [])
+      .filter((row) => row.expired_time > 0)
+      .map((row) => (row.expired_time + 1) * 1000),
+    ...(discountsQuery.data ?? []).flatMap((row) => [
+      row.starts_time * 1000,
+      ...(row.expired_time > 0 ? [(row.expired_time + 1) * 1000] : []),
+    ]),
+  ])
   const candidates = useMemo(() => {
-    const now = Math.floor(Date.now() / 1000)
+    const now = deadlineNow / 1000
     const redemptions = (redemptionsQuery.data ?? [])
       .filter(
         (row) =>
@@ -252,7 +262,7 @@ export function RedPackets() {
       )
       .map((row) => candidateFromDiscount(row, t))
     return [...redemptions, ...discounts]
-  }, [redemptionsQuery.data, discountsQuery.data, t])
+  }, [redemptionsQuery.data, discountsQuery.data, t, deadlineNow])
 
   const createMutation = useMutation({
     mutationFn: createRedPacket,
@@ -313,8 +323,29 @@ export function RedPackets() {
   const canSubmit = form.title.trim().length > 0 && selectedCount > 0
 
   const submit = () => {
+    const eventNow = Math.floor(Date.now() / 1000)
     const items: RedPacketItemInput[] = candidates
-      .filter((candidate) => selected[candidate.key] !== undefined)
+      .filter((candidate) => {
+        if (selected[candidate.key] === undefined) return false
+        if (candidate.itemType === 'redemption') {
+          const row = redemptionsQuery.data?.find(
+            (row) => row.id === candidate.sourceId
+          )
+          return (
+            row?.status === 1 &&
+            (!row.expired_time || row.expired_time >= eventNow)
+          )
+        }
+        const row = discountsQuery.data?.find(
+          (row) => row.id === candidate.sourceId
+        )
+        return (
+          row?.status === 1 &&
+          (!row.starts_time || row.starts_time <= eventNow) &&
+          (!row.expired_time || row.expired_time >= eventNow) &&
+          (!row.max_uses || row.used_count < row.max_uses)
+        )
+      })
       .map((candidate) => ({
         item_type: candidate.itemType,
         source_id: candidate.sourceId,

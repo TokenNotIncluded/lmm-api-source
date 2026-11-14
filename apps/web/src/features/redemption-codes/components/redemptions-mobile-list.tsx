@@ -16,7 +16,6 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import type { Table as TanstackTable } from '@tanstack/react-table'
 import { CalendarClock, Database, Plus } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 
@@ -34,6 +33,7 @@ import {
 } from '@/components/ui/empty'
 import { Skeleton } from '@/components/ui/skeleton'
 import { formatQuota, formatTimestampToDate } from '@/lib/format'
+import type { Table as TanstackTable } from '@/lib/table'
 import { cn } from '@/lib/utils'
 
 import {

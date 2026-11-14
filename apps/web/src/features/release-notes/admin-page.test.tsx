@@ -9,6 +9,8 @@ import {
 } from 'axios'
 import { Window } from 'happy-dom'
 
+import { installSupportedAuthBrowser } from '@/test-support/supported-auth-browser'
+
 import type { ReleaseNote } from './types'
 
 const dom = new Window({
@@ -82,6 +84,9 @@ installGlobal('requestAnimationFrame', (callback: FrameRequestCallback) =>
 )
 installGlobal('cancelAnimationFrame', (handle: number) => clearTimeout(handle))
 installGlobal('IS_REACT_ACT_ENVIRONMENT', true)
+
+// Normal supported browser; install after this fixture replaces its globals.
+installSupportedAuthBrowser()
 
 const { act } = await import('react')
 const { createRoot } = await import('react-dom/client')

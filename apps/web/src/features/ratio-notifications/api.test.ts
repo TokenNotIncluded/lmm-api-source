@@ -4,15 +4,22 @@ Copyright (C) 2026 LIghtJUNction
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 
-import type { TFunction } from 'i18next'
+import { createInstance } from 'i18next'
 
 import { api } from '@/lib/api'
 
 import { listRatioNotifications, ratioAnnouncement } from './api'
 
-test('ratio events preserve zero, represent null as default, and use account-specific read IDs', () => {
-  const t = ((key: string, options?: { time?: string }) =>
-    key.replace('{{time}}', options?.time ?? '')) as TFunction
+test('ratio events preserve zero, represent null as default, and use account-specific read IDs', async () => {
+  const localI18n = createInstance()
+  await localI18n.init({
+    lng: 'en',
+    fallbackLng: 'en',
+    keySeparator: false,
+    nsSeparator: false,
+    resources: { en: { translation: {} } },
+  })
+  const t = localI18n.t.bind(localI18n)
   const event = {
     event_id: 'batch',
     effective_at: 1789171200,

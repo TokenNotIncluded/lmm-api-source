@@ -219,7 +219,7 @@
       },
       {
         "id": "bounties",
-        "label": "Open-source bounties",
+        "label": "Bounties",
         "tools": [
           {
             "name": "get_bounty_guide",

@@ -17,7 +17,7 @@ struct Target {
     catalog_sha256: Option<String>,
 }
 fn target() -> Result<Target, IdentityError> {
-    let target: Target = serde_json::from_str(include_str!("upgrade/fresh_target.json"))
+    let target: Target = serde_json::from_str(include_str!("upgrade/fresh70_target.json"))
         .map_err(|_| IdentityError::Storage)?;
     let mut bytes = serde_json::to_vec(&schema_manifest()).map_err(|_| IdentityError::Storage)?;
     bytes.push(b'\n');

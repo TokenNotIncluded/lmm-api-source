@@ -16,15 +16,14 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-/*
-Copyright (C) 2026 LIghtJUNction
-*/
-import type { ColumnDef } from '@tanstack/react-table'
-
 import { DataTableColumnHeader } from '@/components/data-table/core/column-header'
 import { StaticRowActions } from '@/components/data-table/static/static-row-actions'
 import { StatusBadge } from '@/components/status-badge'
 import { Checkbox } from '@/components/ui/checkbox'
+/*
+Copyright (C) 2026 LIghtJUNction
+*/
+import type { ColumnDef } from '@/lib/table'
 
 import { ModelPriceLockButton } from './model-price-lock'
 import {
@@ -155,7 +154,7 @@ export function buildModelRatioColumns({
           </span>
         </div>
       ),
-      sortingFn: (rowA, rowB) =>
+      sortFn: (rowA, rowB) =>
         getPriceSummary(rowA.original, t).localeCompare(
           getPriceSummary(rowB.original, t)
         ),

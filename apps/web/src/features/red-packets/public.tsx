@@ -30,6 +30,7 @@ import { toast } from 'sonner'
 import { CopyButton } from '@/components/copy-button'
 import { Button } from '@/components/ui/button'
 import { ForgePublicShell } from '@/features/forge/forge-public-shell'
+import { useDeadlineClock } from '@/hooks/use-deadline-clock'
 import { formatQuota } from '@/lib/format'
 import { useAuthStore } from '@/stores/auth-store'
 
@@ -311,6 +312,9 @@ export function RedPacketPublicPage({ slug }: { slug: string }) {
   })
 
   const packet = packetQuery.data?.data
+  const deadlineNow = useDeadlineClock(
+    packet ? [packet.start_at * 1000, packet.end_at * 1000] : []
+  )
   const claims = claimsQuery.data?.data ?? []
   const remainingDraws = packet
     ? Math.max(0, packet.per_user_limit - claims.length)
@@ -356,7 +360,7 @@ export function RedPacketPublicPage({ slug }: { slug: string }) {
     )
   }
 
-  const now = Math.floor(Date.now() / 1000)
+  const now = deadlineNow / 1000
   const inactive =
     !packet.enabled ||
     (packet.start_at > 0 && now < packet.start_at) ||
@@ -451,7 +455,17 @@ export function RedPacketPublicPage({ slug }: { slug: string }) {
                         claimsQuery.isPending ||
                         claimsQuery.isError
                       }
-                      onOpen={() => claimMutation.mutate()}
+                      onOpen={() => {
+                        const eventNow = Date.now() / 1000
+                        if (
+                          packet.enabled &&
+                          (!packet.start_at || eventNow >= packet.start_at) &&
+                          (!packet.end_at || eventNow < packet.end_at) &&
+                          packet.remaining_items > 0
+                        ) {
+                          claimMutation.mutate()
+                        }
+                      }}
                     />
                     {claimsQuery.isError ? (
                       <div

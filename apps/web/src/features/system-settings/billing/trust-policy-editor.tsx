@@ -47,25 +47,20 @@ export function TrustPolicyEditor({ enabled }: { enabled: boolean }) {
 
 function NativeEditor() {
   const { t } = useTranslation()
-  const [generation, setGeneration] = useState(0)
+  const [request, setRequest] = useState(() => ({ scope: trustPolicyScope() }))
   const [loaded, setLoaded] = useState<{
     client: TrustPolicyEditorClient
     read: TrustPolicyRead
   } | null>(null)
-  const [error, setError] = useState(false)
+  const [error, setError] = useState(!request.scope)
   const [confirmedRevision, setConfirmedRevision] = useState<number | null>(
     null
   )
   useEffect(() => {
-    const scope = trustPolicyScope()
-    if (!scope) {
-      setError(true)
-      return
-    }
+    const { scope } = request
+    if (!scope) return
     const client = new TrustPolicyEditorClient(scope)
     let live = true
-    setLoaded(null)
-    setError(false)
     void client
       .read()
       .then((read) => {
@@ -78,10 +73,12 @@ function NativeEditor() {
       live = false
       client.dispose()
     }
-  }, [generation])
+  }, [request])
   const reload = () => {
+    const scope = trustPolicyScope()
     setLoaded(null)
-    setGeneration((n) => n + 1)
+    setError(!scope)
+    setRequest({ scope })
   }
   return (
     <div className='space-y-4'>
@@ -245,14 +242,6 @@ function EditorForm({
       onConfirmed(result.revision)
     }
   }
-  const preview = form.handleSubmit((data) =>
-    run(async () => {
-      setReview(await client.preview(data))
-      setAccepted(false)
-      setResolution(null)
-      setAttempted(false)
-    })
-  )
   const restart = () => {
     client.discard()
     setReview(null)
@@ -296,7 +285,14 @@ function EditorForm({
           <SettingsForm
             onSubmit={(event) => {
               event.preventDefault()
-              void preview()
+              void form.handleSubmit((data) =>
+                run(async () => {
+                  setReview(await client.preview(data))
+                  setAccepted(false)
+                  setResolution(null)
+                  setAttempted(false)
+                })
+              )()
             }}
           >
             <TrustLevelBenefitsFields

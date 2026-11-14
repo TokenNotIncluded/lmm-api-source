@@ -14,6 +14,7 @@ import {
   authCookieRecoveryMessage,
   authCookieStorageMessage,
 } from '@/lib/auth-cookie'
+import { useAuthStore } from '@/stores/auth-store'
 
 const unexpectedRequests: string[] = []
 function rejectNetwork({ request }: { request: { url: string } }): never {
@@ -87,10 +88,26 @@ const wechatStartCalls: unknown[] = []
 const oauthClicks: string[] = []
 const successBundles: unknown[] = []
 const pending2FATokens: string[] = []
+const otpRedirects: unknown[] = []
 let activeStatus: Record<string, unknown> | null = null
 let loginImpl: (payload: unknown) => Promise<unknown> = async () => ({
   success: true,
-  data: { token: 'test-token', user: { id: 1, username: 'alice' } },
+  data: {
+    access_token: 'test-token',
+    token_type: 'Bearer',
+    access_expires_at: 2000000000,
+    user: { id: 1, username: 'alice', role: 1 },
+    session: {
+      sid: 'synthetic-password-sid',
+      current: true,
+      login_method: 'password',
+      ip: '',
+      user_agent: '',
+      created_at: 1,
+      last_active_at: 1,
+      expires_at: 2000000000,
+    },
+  },
 })
 
 mock.module('sonner', () => ({
@@ -132,16 +149,24 @@ mock.module('@tanstack/react-router', () => ({
   ),
 }))
 
+mock.module('@/features/auth/federated-api', () => ({
+  beginFederatedLogin: async (_provider: unknown, acceptedLegal: boolean) => {
+    wechatStartCalls.push(acceptedLegal)
+    return {
+      state: `lmmfe_${'a'.repeat(64)}`,
+      expires_at: 2000000000,
+      authorization_url: '',
+    }
+  },
+  finishFederatedLogin: async () => ({ success: true, data: {} }),
+  parseFederatedChallenge: () => null,
+}))
+
 mock.module('@/features/auth/api', () => ({
   login: async (payload: unknown) => {
     loginCalls.push(payload)
-    return loginImpl(payload)
+    return commitMockResponse(await loginImpl(payload))
   },
-  startWechatLogin: async (acceptedLegal: boolean) => {
-    wechatStartCalls.push(acceptedLegal)
-    return 'wechat-flow-token'
-  },
-  wechatLoginByCode: async () => ({ success: true, data: {} }),
 }))
 
 mock.module('@/features/auth/hooks/use-auth-redirect', () => ({
@@ -149,7 +174,9 @@ mock.module('@/features/auth/hooks/use-auth-redirect', () => ({
     handleLoginSuccess: async (bundle: unknown) => {
       successBundles.push(bundle)
     },
-    redirectTo2FA: () => {},
+    redirectTo2FA: (redirect: unknown) => {
+      otpRedirects.push(redirect)
+    },
   }),
 }))
 
@@ -175,33 +202,49 @@ let finishPasskeyImpl: () => Promise<unknown> = async () => ({
   success: false,
   message: 'unused',
 })
+let requestPasskeyImpl: () => Promise<Record<
+  string,
+  unknown
+> | null> = async () => ({})
+async function commitMockResponse(value: unknown) {
+  const response = value as { success: boolean; data?: unknown }
+  const { isAuthBundle } = await import('@/lib/auth-session')
+  if (response.success && isAuthBundle(response.data)) {
+    useAuthStore.getState().auth.setBundle(response.data)
+  }
+  const data = response.data as
+    | { require_2fa?: boolean; flow_token?: string; expires_at?: number }
+    | undefined
+  if (response.success && data?.require_2fa && data.flow_token) {
+    pending2FATokens.push(data.flow_token)
+    useAuthStore
+      .getState()
+      .auth.setPending2FAFlowToken(data.flow_token, data.expires_at)
+  }
+  return response
+}
 mock.module('@/features/auth/passkey', () => ({
-  beginPasskeyLogin: () => beginPasskeyImpl(),
-  finishPasskeyLogin: () => finishPasskeyImpl(),
+  beginPasskeyLogin: async (_username: string, assertCurrent: () => void) => {
+    const response = await beginPasskeyImpl()
+    assertCurrent()
+    return response
+  },
+  finishPasskeyLogin: async (
+    _flow: string,
+    _credential: unknown,
+    assertCurrent: () => void
+  ) => {
+    const response = await finishPasskeyImpl()
+    assertCurrent()
+    return commitMockResponse(response)
+  },
 }))
 
 mock.module('@/lib/passkey', () => ({
   buildAssertionResult: () => ({}),
   prepareCredentialRequestOptions: (options: unknown) => options,
   isPasskeySupported: async () => true,
-}))
-
-mock.module('@/lib/api', () => ({
-  isAuthBundle: () => true,
-}))
-
-const mockedAuthState = {
-  auth: {
-    accountWriteEpoch: 0,
-    setPending2FAFlowToken: (token: string) => pending2FATokens.push(token),
-  },
-}
-mock.module('@/stores/auth-store', () => ({
-  useAuthStore: Object.assign(
-    (selector: (state: unknown) => (token: string) => void) =>
-      selector(mockedAuthState),
-    { getState: () => mockedAuthState }
-  ),
+  requestPasskeyAuthentication: () => requestPasskeyImpl(),
 }))
 
 mock.module('@/features/auth/hooks/use-oauth-login', () => ({
@@ -342,12 +385,30 @@ async function submitPassword(host: HTMLElement) {
 }
 
 beforeEach(() => {
+  requestPasskeyImpl = async () => ({})
+  otpRedirects.length = 0
+  useAuthStore.getState().auth.reset('complete')
   beginPasskeyImpl = async () => ({ success: false, message: 'unused' })
   finishPasskeyImpl = async () => ({ success: false, message: 'unused' })
   activeStatus = null
   loginImpl = async () => ({
     success: true,
-    data: { token: 'test-token', user: { id: 1, username: 'alice' } },
+    data: {
+      access_token: 'test-token',
+      token_type: 'Bearer',
+      access_expires_at: 2000000000,
+      user: { id: 1, username: 'alice', role: 1 },
+      session: {
+        sid: 'synthetic-password-sid',
+        current: true,
+        login_method: 'password',
+        ip: '',
+        user_agent: '',
+        created_at: 1,
+        last_active_at: 1,
+        expires_at: 2000000000,
+      },
+    },
   })
 })
 
@@ -466,7 +527,22 @@ test('password submit is disabled while login is loading', async () => {
   await act(async () => {
     resolveLogin({
       success: true,
-      data: { token: 'test-token', user: { id: 1, username: 'alice' } },
+      data: {
+        access_token: 'test-token',
+        token_type: 'Bearer',
+        access_expires_at: 2000000000,
+        user: { id: 1, username: 'alice', role: 1 },
+        session: {
+          sid: 'synthetic-password-sid',
+          current: true,
+          login_method: 'password',
+          ip: '',
+          user_agent: '',
+          created_at: 1,
+          last_active_at: 1,
+          expires_at: 2000000000,
+        },
+      },
     })
     await flush()
   })
@@ -482,6 +558,22 @@ test('legal-consent policies for Passkey OAuth and WeChat remain disabled before
     privacy_policy_enabled: true,
     passkey_login: true,
     wechat_login: true,
+    native_federated_auth: true,
+    federated_oauth_providers: [
+      {
+        id: '41',
+        kind: 'wechat',
+        slug: 'wechat-fixture',
+        name: 'WeChat',
+        icon: '',
+        revision: '1',
+        client_id: '',
+        authorization_endpoint: '',
+        scopes: '',
+        qr_code_url: '',
+        native_federated: true,
+      },
+    ],
     custom_oauth_providers: [
       {
         name: 'Google',
@@ -815,7 +907,22 @@ for (const [name, error, expectedErrors] of [
 
     loginImpl = async () => ({
       success: true,
-      data: { token: 'test-token', user: { id: 1, username: 'alice' } },
+      data: {
+        access_token: 'test-token',
+        token_type: 'Bearer',
+        access_expires_at: 2000000000,
+        user: { id: 1, username: 'alice', role: 1 },
+        session: {
+          sid: 'synthetic-password-sid',
+          current: true,
+          login_method: 'password',
+          ip: '',
+          user_agent: '',
+          created_at: 1,
+          last_active_at: 1,
+          expires_at: 2000000000,
+        },
+      },
     })
     await click(consent as HTMLElement)
     await submitPassword(host)
@@ -949,3 +1056,290 @@ for (const stage of ['begin', 'finish'] as const) {
     ])
   })
 }
+
+test('password native TOTP uses the shared completion without accepting a session bundle', async () => {
+  const token = `lmmf_${'a'.repeat(64)}`
+  loginImpl = async () => ({
+    success: true,
+    data: { require_2fa: true, flow_token: token, expires_at: 2000000000 },
+  })
+  const host = await render({})
+  await fillCredentials(host)
+  await submitPassword(host)
+  assert.equal(useAuthStore.getState().auth.pending2FAFlowToken, token)
+  assert.deepEqual(otpRedirects, [undefined])
+  assert.deepEqual(successBundles, [])
+  assert.deepEqual(toastSuccesses, [])
+})
+for (const outcome of ['session', 'mfa', 'cancel'] as const) {
+  test(`direct Passkey shared completion preserves ${outcome} without duplicate finishing`, async () => {
+    const token = `lmmf_${'b'.repeat(64)}`
+    let finishes = 0
+    beginPasskeyImpl = async () => ({
+      success: true,
+      data: {
+        flow_token: `lmmp_${'c'.repeat(64)}`,
+        options: { challenge: 'AQID' },
+        expires_at: 2000000000,
+      },
+    })
+    const nativeBundle = {
+      access_token: 'direct-passkey-token',
+      token_type: 'Bearer',
+      access_expires_at: 2000000000,
+      user: { id: 1, username: 'alice', role: 1 },
+      session: {
+        sid: 'direct-passkey-sid',
+        current: true,
+        login_method: 'passkey',
+        ip: '',
+        user_agent: '',
+        created_at: 1,
+        last_active_at: 1,
+        expires_at: 2000000000,
+      },
+    }
+    finishPasskeyImpl = async () => {
+      finishes++
+      return {
+        success: true,
+        data:
+          outcome === 'mfa'
+            ? { require_2fa: true, flow_token: token, expires_at: 2000000000 }
+            : nativeBundle,
+      }
+    }
+    if (outcome === 'cancel') requestPasskeyImpl = async () => null
+    Object.defineProperty(navigator, 'credentials', {
+      configurable: true,
+      value: { get: async () => ({ id: 'synthetic-credential' }) },
+    })
+    const host = await render({ passkey_login: true })
+    await waitFor(
+      () => !buttonByName(host, 'Sign in with Passkey').disabled,
+      'Passkey unavailable'
+    )
+    await click(buttonByName(host, 'Sign in with Passkey'))
+    assert.equal(finishes, outcome === 'cancel' ? 0 : 1)
+    assert.equal(successBundles.length, outcome === 'session' ? 1 : 0)
+    assert.deepEqual(otpRedirects, outcome === 'mfa' ? [undefined] : [])
+    assert.deepEqual(
+      toastSuccesses,
+      outcome === 'session' ? ['Signed in with Passkey'] : []
+    )
+    if (outcome === 'mfa') {
+      assert.equal(useAuthStore.getState().auth.pending2FAFlowToken, token)
+    }
+    if (outcome === 'cancel') {
+      assert.deepEqual(toastErrors, ['Passkey login was cancelled'])
+    }
+  })
+}
+
+for (const stage of [
+  'begin',
+  'credential',
+  'finish',
+  'credential-error',
+] as const) {
+  test(`unmount during direct Passkey ${stage} discards late results without login or presentation effects`, async () => {
+    let release: (() => void) | undefined
+    const pending = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    let credentials = 0,
+      finishes = 0
+    beginPasskeyImpl = async () => {
+      if (stage === 'begin') await pending
+      return {
+        success: true,
+        data: {
+          flow_token: `lmmp_${'a'.repeat(64)}`,
+          options: { challenge: 'AQID' },
+          expires_at: 2000000000,
+        },
+      }
+    }
+    requestPasskeyImpl = async () => {
+      credentials++
+      if (stage === 'credential' || stage === 'credential-error') await pending
+      if (stage === 'credential-error') {
+        throw new DOMException('Synthetic browser timeout', 'NotAllowedError')
+      }
+      return {}
+    }
+    finishPasskeyImpl = async () => {
+      finishes++
+      await pending
+      return {
+        success: true,
+        data: {
+          access_token: 'late-passkey-access',
+          token_type: 'Bearer',
+          access_expires_at: 2000000000,
+          user: { id: 951, username: 'synthetic', role: 1 },
+          session: {
+            sid: 'late-passkey-session',
+            current: true,
+            login_method: 'passkey',
+            ip: '',
+            user_agent: '',
+            created_at: 1,
+            last_active_at: 1,
+            expires_at: 2000000000,
+          },
+        },
+      }
+    }
+    Object.defineProperty(navigator, 'credentials', {
+      configurable: true,
+      value: { get: async () => ({}) },
+    })
+    const host = await render({ passkey_login: true })
+    await waitFor(
+      () => !buttonByName(host, 'Sign in with Passkey').disabled,
+      'Passkey unavailable'
+    )
+    await click(buttonByName(host, 'Sign in with Passkey'))
+    assert.equal(credentials, stage === 'begin' ? 0 : 1)
+    assert.equal(finishes, stage === 'finish' ? 1 : 0)
+    assert.ok(root)
+    await act(() => root?.unmount())
+    root = undefined
+    await act(async () => {
+      release?.()
+      await flush()
+    })
+    assert.equal(finishes, stage === 'finish' ? 1 : 0)
+    assert.equal(useAuthStore.getState().auth.user, null)
+    assert.deepEqual(successBundles, [])
+    assert.deepEqual(otpRedirects, [])
+    assert.deepEqual(toastSuccesses, [])
+    assert.deepEqual(toastErrors, [])
+  })
+}
+
+test('pending direct Passkey owns the login slot against duplicate and password submissions', async () => {
+  let begins = 0,
+    requests = 0,
+    finishes = 0
+  let release: (() => void) | undefined
+  const pending = new Promise<void>((resolve) => {
+    release = resolve
+  })
+  beginPasskeyImpl = async () => {
+    begins++
+    return {
+      success: true,
+      data: {
+        flow_token: `lmmp_${'b'.repeat(64)}`,
+        options: { challenge: 'AQID' },
+      },
+    }
+  }
+  requestPasskeyImpl = async () => {
+    requests++
+    await pending
+    return null
+  }
+  finishPasskeyImpl = async () => {
+    finishes++
+    return { success: false }
+  }
+  Object.defineProperty(navigator, 'credentials', {
+    configurable: true,
+    value: { get: async () => ({}) },
+  })
+  const host = await render({ passkey_login: true })
+  await fillCredentials(host)
+  await waitFor(
+    () => !buttonByName(host, 'Sign in with Passkey').disabled,
+    'Passkey unavailable'
+  )
+  const button = buttonByName(host, 'Sign in with Passkey')
+  await act(async () => {
+    button.click()
+    button.click()
+    await flush()
+  })
+  await submitPassword(host)
+  assert.equal(begins, 1)
+  assert.equal(requests, 1)
+  assert.equal(finishes, 0)
+  assert.deepEqual(loginCalls, [])
+  await act(async () => {
+    release?.()
+    await flush()
+  })
+  assert.equal(finishes, 0)
+  assert.deepEqual(successBundles, [])
+  assert.deepEqual(toastErrors, ['Passkey login was cancelled'])
+  assert.equal(buttonByName(host, 'Sign in with Passkey').disabled, false)
+})
+
+test('a late Passkey finish from the unmounted form cannot replace the new form password session', async () => {
+  let release: (() => void) | undefined
+  const pending = new Promise<void>((resolve) => {
+    release = resolve
+  })
+  let finishes = 0
+  beginPasskeyImpl = async () => ({
+    success: true,
+    data: {
+      flow_token: `lmmp_${'e'.repeat(64)}`,
+      options: { challenge: 'AQID' },
+    },
+  })
+  finishPasskeyImpl = async () => {
+    finishes++
+    await pending
+    return {
+      success: true,
+      data: {
+        access_token: 'superseded-passkey-access',
+        token_type: 'Bearer',
+        access_expires_at: 2000000000,
+        user: { id: 952, username: 'superseded', role: 1 },
+        session: {
+          sid: 'superseded-passkey-sid',
+          current: true,
+          login_method: 'passkey',
+          ip: '',
+          user_agent: '',
+          created_at: 1,
+          last_active_at: 1,
+          expires_at: 2000000000,
+        },
+      },
+    }
+  }
+  Object.defineProperty(navigator, 'credentials', {
+    configurable: true,
+    value: { get: async () => ({}) },
+  })
+  const oldHost = await render({ passkey_login: true })
+  await waitFor(
+    () => !buttonByName(oldHost, 'Sign in with Passkey').disabled,
+    'Passkey unavailable'
+  )
+  await click(buttonByName(oldHost, 'Sign in with Passkey'))
+  assert.equal(finishes, 1)
+  await act(() => root?.unmount())
+  root = undefined
+  const host = await render({})
+  await fillCredentials(host)
+  await submitPassword(host)
+  const current = useAuthStore.getState().auth
+  assert.equal(successBundles.length, 1)
+  assert.notEqual(current.user?.id, 952)
+  await act(async () => {
+    release?.()
+    await flush()
+  })
+  assert.equal(useAuthStore.getState().auth.session?.sid, current.session?.sid)
+  assert.equal(useAuthStore.getState().auth.accessToken, current.accessToken)
+  assert.equal(successBundles.length, 1)
+  assert.deepEqual(otpRedirects, [])
+  assert.deepEqual(toastErrors, [])
+  assert.deepEqual(toastSuccesses, ['Welcome back!'])
+})

@@ -65,6 +65,8 @@ import {
 } from '@/components/ui/sheet'
 import { Switch } from '@/components/ui/switch'
 import { useCreditInputDisplay } from '@/hooks/use-credit-input-display'
+import type { ApiRequestConfig } from '@/lib/api'
+import { useAuthStore } from '@/stores/auth-store'
 
 import {
   createPlan,
@@ -121,11 +123,25 @@ interface Props {
   currentRow?: PlanRecord
 }
 
-export function SubscriptionsMutateDrawer({
+export function SubscriptionsMutateDrawer(props: Props) {
+  const userId = useAuthStore((state) => state.auth.user?.id)
+  const sessionId = useAuthStore((state) => state.auth.session?.sid)
+  if (!props.open) return null
+  return (
+    <SubscriptionPlanEditingSession
+      key={`${props.currentRow?.plan?.id ?? 'new'}:${userId}:${sessionId}`}
+      {...props}
+      authScope={{ userId, sessionId }}
+    />
+  )
+}
+
+function SubscriptionPlanEditingSession({
   open,
   onOpenChange,
   currentRow,
-}: Props) {
+  authScope,
+}: Props & { authScope: NonNullable<ApiRequestConfig['authScope']> }) {
   const { t } = useTranslation()
   const isEdit = !!currentRow?.plan?.id
   const { triggerRefresh } = useSubscriptions()
@@ -133,8 +149,22 @@ export function SubscriptionsMutateDrawer({
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [groupOptions, setGroupOptions] = useState<string[]>([])
   const submitInFlight = useRef(false)
+  const mounted = useRef(true)
+  const current = () => {
+    const auth = useAuthStore.getState().auth
+    return (
+      mounted.current &&
+      auth.user?.id === authScope.userId &&
+      auth.session?.sid === authScope.sessionId
+    )
+  }
+  const assertWriteCurrent = () => {
+    if (!current() || authScope.userId === undefined || !authScope.sessionId) {
+      throw new Error('Subscription editing session changed')
+    }
+  }
   const [pancakeDraft, setPancakeDraft] = useState(() =>
-    pancakeProductsForPlan()
+    pancakeProductsForPlan(currentRow?.plan)
   )
   const [pancakeBlockedTypes, setPancakeBlockedTypes] = useState<
     Set<WaffoPancakeProductType>
@@ -148,26 +178,24 @@ export function SubscriptionsMutateDrawer({
     // SAFETY: getPlanFormSchema is the sole runtime schema for PlanFormValues;
     // the bridge is needed because the installed resolver types erase coerced inputs.
     resolver: zodResolver(schema) as unknown as Resolver<PlanFormValues>,
-    defaultValues: PLAN_FORM_DEFAULTS,
+    defaultValues: currentRow?.plan
+      ? planToFormValues(currentRow.plan)
+      : PLAN_FORM_DEFAULTS,
   })
 
   useEffect(() => {
+    mounted.current = true
+    let current = true
     if (open) {
-      setPancakeDraft(pancakeProductsForPlan(currentRow?.plan))
-      setPancakeBlockedTypes(new Set())
-      if (currentRow?.plan) {
-        form.reset(planToFormValues(currentRow.plan))
-      } else {
-        form.reset(PLAN_FORM_DEFAULTS)
-      }
       getGroups()
         .then((res) => {
-          if (res.success) setGroupOptions(res.data || [])
+          if (current && res.success) setGroupOptions(res.data || [])
         })
         .catch(() => {})
       // Best-effort — empty list still lets the operator use "+ Create".
       listWaffoPancakePlanProductOptions()
         .then((res) => {
+          if (!current) return
           const products = res.data?.products
           if (res.message === 'success' && Array.isArray(products)) {
             setPancakeProducts(normalizePancakeProductOptions(products))
@@ -175,9 +203,15 @@ export function SubscriptionsMutateDrawer({
             setPancakeProducts([])
           }
         })
-        .catch(() => setPancakeProducts([]))
+        .catch(() => {
+          if (current) setPancakeProducts([])
+        })
     }
-  }, [open, currentRow, form])
+    return () => {
+      current = false
+      mounted.current = false
+    }
+  }, [open])
 
   const durationUnit = useWatch({
     control: form.control,
@@ -241,31 +275,39 @@ export function SubscriptionsMutateDrawer({
     submitInFlight.current = true
     setIsSubmitting(true)
     try {
+      assertWriteCurrent()
       const products = await ensurePancakePlanProducts(
         pancakeDraft,
         values,
-        createWaffoPancakePlanProduct,
-        setPancakeDraft,
+        (input) => {
+          assertWriteCurrent()
+          return createWaffoPancakePlanProduct(input, { authScope })
+        },
+        (draft) => {
+          if (current()) setPancakeDraft(draft)
+        },
         pancakeBlockedTypes
       )
+      assertWriteCurrent()
       const payload = formValuesToPlanPayload(values)
       payload.plan.waffo_pancake_products = pancakeProductsPayload(products)
       if (isEdit && currentRow?.plan?.id) {
-        const res = await updatePlan(currentRow.plan.id, payload)
-        if (res.success) {
+        const res = await updatePlan(currentRow.plan.id, payload, { authScope })
+        if (current() && res.success) {
           toast.success(t('Update succeeded'))
           onOpenChange(false)
           triggerRefresh()
         }
       } else {
-        const res = await createPlan(payload)
-        if (res.success) {
+        const res = await createPlan(payload, { authScope })
+        if (current() && res.success) {
           toast.success(t('Create succeeded'))
           onOpenChange(false)
           triggerRefresh()
         }
       }
     } catch (error) {
+      if (!current()) return
       if (error instanceof PancakeProductCreationUncertain) {
         setPancakeBlockedTypes(
           (previous) => new Set([...previous, error.productType])
@@ -280,20 +322,22 @@ export function SubscriptionsMutateDrawer({
       }
     } finally {
       submitInFlight.current = false
-      setIsSubmitting(false)
+      if (current()) setIsSubmitting(false)
     }
   }
 
   const refreshPancakeProducts = async () => {
     try {
+      if (!current()) return
       const res = await listWaffoPancakePlanProductOptions()
+      if (!current()) return
       if (res.message !== 'success' || !Array.isArray(res.data?.products)) {
         toast.error(t('Request failed'))
         return
       }
       setPancakeProducts(normalizePancakeProductOptions(res.data.products))
     } catch {
-      toast.error(t('Request failed'))
+      if (current()) toast.error(t('Request failed'))
     }
   }
 
@@ -327,7 +371,7 @@ export function SubscriptionsMutateDrawer({
         <Form {...form}>
           <form
             id='subscription-form'
-            onSubmit={form.handleSubmit(onSubmit)}
+            onSubmit={(event) => void form.handleSubmit(onSubmit)(event)}
             className={sideDrawerFormClassName()}
           >
             {/* Basic Info */}

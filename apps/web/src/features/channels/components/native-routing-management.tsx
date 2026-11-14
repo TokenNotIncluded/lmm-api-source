@@ -163,7 +163,11 @@ function NativeRoutingWorkspace({
   const snapshotAnchor = useRef<{ selection: string; digest: string } | null>(
     null
   )
-  const [balanceUnits, setBalanceUnits] = useState<string[]>([])
+  // The ref supplies continuation requests; state owns what may be rendered.
+  const [channelListing, setChannelListing] = useState<{
+    anchor: { selection: string; digest: string } | null
+    balanceUnits: string[]
+  }>({ anchor: null, balanceUnits: [] })
   const [editor, setEditor] = useState<Editor | null>(null)
   const [secret, setSecret] = useState('')
   const [error, setError] = useState<string | null>(null)
@@ -253,7 +257,9 @@ function NativeRoutingWorkspace({
         signal
       )
       if (!signal.aborted) {
-        snapshotAnchor.current = { selection, digest: result.snapshot_digest }
+        const anchor = { selection, digest: result.snapshot_digest }
+        snapshotAnchor.current = anchor
+        setChannelListing({ anchor, balanceUnits: result.balance_units })
       }
       return result
     },
@@ -263,15 +269,10 @@ function NativeRoutingWorkspace({
     sortedChannels.isSuccess &&
     sortedChannels.isFetchedAfterMount &&
     !sortedChannels.isFetching &&
-    snapshotAnchor.current?.selection === selection &&
-    snapshotAnchor.current.digest === sortedChannels.data.snapshot_digest
+    channelListing.anchor?.selection === selection &&
+    channelListing.anchor.digest === sortedChannels.data.snapshot_digest
       ? sortedChannels.data
       : undefined
-  useEffect(() => {
-    if (verifiedChannelPage) {
-      setBalanceUnits(verifiedChannelPage.balance_units)
-    }
-  }, [verifiedChannelPage])
   const serverChannels = accounting.observations && section === 'channels'
 
   function report(cause: unknown) {
@@ -290,6 +291,7 @@ function NativeRoutingWorkspace({
   }
   async function refresh() {
     snapshotAnchor.current = null
+    setChannelListing((listing) => ({ ...listing, anchor: null }))
     setPage(1)
     setListingRevision((revision) => revision + 1)
     await Promise.all([
@@ -719,7 +721,7 @@ function NativeRoutingWorkspace({
             <>
               <NativeChannelSortFields
                 disabled={sortedChannels.isFetching}
-                units={balanceUnits}
+                units={channelListing.balanceUnits}
                 value={{ ...channelSort, page, search }}
                 onChange={(value) => {
                   setChannelSort({

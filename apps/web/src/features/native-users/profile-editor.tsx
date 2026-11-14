@@ -45,14 +45,9 @@ type Props = {
 }
 type Notice = 'none' | 'unavailable' | 'conflict' | 'unknown' | 'invalid'
 
-export function NativeDisplayNameEditor({
-  scope,
-  userId,
-  onUpdated,
-  onAccessDenied,
-}: Props) {
-  const { t } = useTranslation()
+export function NativeDisplayNameEditor(props: Props) {
   const auth = useAuthStore((state) => state.auth)
+  const { scope } = props
   const stableScope = useMemo(
     () => ({
       userId: scope.userId,
@@ -61,6 +56,24 @@ export function NativeDisplayNameEditor({
     }),
     [scope.userId, scope.sessionId, scope.role]
   )
+  if (!isCurrentNativeUsersScope(stableScope)) return null
+  return (
+    <ScopedDisplayNameEditor
+      key={`${auth.user?.id}:${auth.user?.role}:${auth.session?.sid}:${props.userId}`}
+      {...props}
+      scope={stableScope}
+    />
+  )
+}
+
+function ScopedDisplayNameEditor({
+  scope,
+  userId,
+  onUpdated,
+  onAccessDenied,
+}: Props) {
+  const { t } = useTranslation()
+  const stableScope = scope
   const [open, setOpen] = useState(false)
   const [profile, setProfile] = useState<NativeProfile>()
   const [draft, setDraft] = useState('')
@@ -78,8 +91,9 @@ export function NativeDisplayNameEditor({
     controller: undefined as AbortController | undefined,
   })
   const callbacks = useRef({ onUpdated, onAccessDenied })
-  callbacks.current = { onUpdated, onAccessDenied }
-  const current = isCurrentNativeUsersScope(stableScope)
+  useEffect(() => {
+    callbacks.current = { onUpdated, onAccessDenied }
+  }, [onUpdated, onAccessDenied])
 
   const clear = useCallback(() => {
     holder.current.generation++
@@ -90,10 +104,6 @@ export function NativeDisplayNameEditor({
     setNotice('none')
     setUnresolvedWrite(false)
   }, [])
-
-  useEffect(() => {
-    if (!isCurrentNativeUsersScope(stableScope)) clear()
-  }, [auth.user?.id, auth.session?.sid, auth.user?.role, stableScope, clear])
 
   useEffect(() => {
     if (!open || !isCurrentNativeUsersScope(stableScope)) return
@@ -108,13 +118,6 @@ export function NativeDisplayNameEditor({
       lifecycle.generation === generation &&
       isCurrentNativeUsersScope(stableScope) &&
       !controller.signal.aborted
-    setPhase('loading')
-    setProfile(undefined)
-    if (!keepDraft) {
-      setDraft('')
-      setNotice('none')
-      setUnresolvedWrite(false)
-    }
     void (async () => {
       try {
         await readNativeProfileCapabilities(stableScope, controller.signal)
@@ -213,7 +216,6 @@ export function NativeDisplayNameEditor({
     }
   }
 
-  if (!current) return null
   const invalid = !validNativeDisplayName(draft)
   const disabled =
     phase !== 'ready' ||
@@ -230,6 +232,11 @@ export function NativeDisplayNameEditor({
         aria-label={`${t('Edit')}: ${t('Display name')} #${userId}`}
         onClick={() => {
           preserveDraft.current = false
+          setPhase('loading')
+          setProfile(undefined)
+          setDraft('')
+          setNotice('none')
+          setUnresolvedWrite(false)
           setOpen(true)
         }}
       >
@@ -307,6 +314,8 @@ export function NativeDisplayNameEditor({
                 disabled={phase === 'saving' || phase === 'loading'}
                 onClick={() => {
                   preserveDraft.current = true
+                  setPhase('loading')
+                  setProfile(undefined)
                   setRevision((value) => value + 1)
                 }}
               >

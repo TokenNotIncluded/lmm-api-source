@@ -20,13 +20,20 @@ import axios from 'axios'
 import { z } from 'zod'
 
 import { api } from '@/lib/api'
-import { AUTH_COOKIE_TIMEOUT_MS, withAuthCookieLock } from '@/lib/auth-cookie'
+import {
+  AUTH_COOKIE_TIMEOUT_MS,
+  withAuthCookieActivity,
+  withAuthCookieLock,
+} from '@/lib/auth-cookie'
 import {
   applyAuthBundle,
   applyPending2FAFlow,
+  assertLoginResultCurrent,
   capturePasswordLoginGuard,
   clearAuthentication,
   isAuthBundle,
+  invalidatePendingLogins,
+  revokeLogoutSession,
 } from '@/lib/auth-session'
 import { useAuthStore } from '@/stores/auth-store'
 
@@ -65,6 +72,9 @@ import type {
 // User login with username and password
 export async function login(payload: LoginPayload, signal?: AbortSignal) {
   const turnstile = payload.turnstile ?? ''
+  // Choosing an account supersedes earlier OAuth in every same-origin tab,
+  // including a callback that will construct its guard in a fresh document.
+  invalidatePendingLogins()
   const assertCurrent = capturePasswordLoginGuard()
   return withAuthCookieLock(async (transaction) => {
     assertCurrent()
@@ -83,7 +93,14 @@ export async function login(payload: LoginPayload, signal?: AbortSignal) {
         }
       )
     )
-    assertCurrent()
+    const cancellation = assertLoginResultCurrent(
+      transaction,
+      assertCurrent,
+      res.data
+    )
+    if (cancellation) {
+      await cancellation
+    }
     if (res.data.success) {
       const data = res.data.data
       if (data && 'require_2fa' in data && data.require_2fa) {
@@ -154,8 +171,10 @@ export async function submitAccountAppeal(
 
 // Two-factor authentication login
 export async function login2fa(payload: TwoFAPayload, signal?: AbortSignal) {
+  const assertLoginCurrent = capturePasswordLoginGuard()
   const epoch = useAuthStore.getState().auth.accountWriteEpoch
   const assertCurrent = (completed = false) => {
+    assertLoginCurrent()
     const auth = useAuthStore.getState().auth
     const cancelledFlow = completed && auth.pending2FAFlowToken === null
     if (
@@ -184,7 +203,14 @@ export async function login2fa(payload: TwoFAPayload, signal?: AbortSignal) {
         timeout: AUTH_COOKIE_TIMEOUT_MS,
       })
     )
-    assertCurrent(true)
+    const cancellation = assertLoginResultCurrent(
+      transaction,
+      () => assertCurrent(true),
+      res.data
+    )
+    if (cancellation) {
+      await cancellation
+    }
     const cancelled =
       signal?.aborted ||
       useAuthStore.getState().auth.pending2FAFlowToken === null
@@ -228,44 +254,55 @@ export async function executeLogout(
 
 // User logout
 export async function logout(): Promise<ApiResponse> {
+  invalidatePendingLogins()
   const initial = useAuthStore.getState().auth
-  return withAuthCookieLock(async (transaction) => {
-    const auth = useAuthStore.getState().auth
-    if (
-      auth.user?.id !== initial.user?.id ||
-      auth.session?.sid !== initial.session?.sid ||
-      auth.accessToken !== initial.accessToken
-    ) {
-      throw new axios.CanceledError('Logout superseded')
+  return withAuthCookieActivity(async () => {
+    // Revocation uses only the captured Bearer and exact SID, so it must run
+    // before queued Cookie work can clear or replace the original identity.
+    if (initial.user && initial.session) {
+      await revokeLogoutSession({
+        userId: initial.user.id,
+        sid: initial.session.sid,
+        accessToken: initial.accessToken,
+        accessExpiresAt: initial.accessExpiresAt,
+      })
     }
-    const result = await executeLogout({
-      getExpectedSID: () => initial.session?.sid,
-      request: async (sid) => {
-        const res = await transaction.request(() =>
-          api.post('/api/user/auth/logout', undefined, {
-            headers: sid ? { 'X-Auth-Session': sid } : undefined,
-            skipAuthRefresh: true,
-            timeout: AUTH_COOKIE_TIMEOUT_MS,
-            skipErrorHandler: true,
-            authScope: {
-              userId: initial.user?.id,
-              sessionId: initial.session?.sid,
-            },
-          })
-        )
-        return res.data
-      },
+    return withAuthCookieLock(async (transaction) => {
+      const auth = useAuthStore.getState().auth
+      if (
+        auth.user?.id !== initial.user?.id ||
+        auth.session?.sid !== initial.session?.sid
+      ) {
+        throw new axios.CanceledError('Logout superseded')
+      }
+      const result = await executeLogout({
+        getExpectedSID: () => initial.session?.sid,
+        request: async (sid) => {
+          const res = await transaction.request(() =>
+            api.post('/api/user/auth/logout', undefined, {
+              headers: sid ? { 'X-Auth-Session': sid } : undefined,
+              skipAuthRefresh: true,
+              timeout: AUTH_COOKIE_TIMEOUT_MS,
+              skipErrorHandler: true,
+              authScope: {
+                userId: initial.user?.id,
+                sessionId: initial.session?.sid,
+              },
+            })
+          )
+          return res.data
+        },
+      })
+      const current = useAuthStore.getState().auth
+      if (
+        current.user?.id !== initial.user?.id ||
+        current.session?.sid !== initial.session?.sid
+      ) {
+        throw new axios.CanceledError('Logout superseded')
+      }
+      if (result.success) clearAuthentication()
+      return result
     })
-    const current = useAuthStore.getState().auth
-    if (
-      current.user?.id !== initial.user?.id ||
-      current.session?.sid !== initial.session?.sid ||
-      current.accessToken !== initial.accessToken
-    ) {
-      throw new axios.CanceledError('Logout superseded')
-    }
-    if (result.success) clearAuthentication()
-    return result
   })
 }
 
@@ -316,12 +353,6 @@ export async function resetPassword(payload: {
 // OAuth
 // ----------------------------------------------------------------------------
 
-// Start GitHub OAuth flow
-export async function githubOAuthStart(clientId: string, state: string) {
-  const url = `https://github.com/login/oauth/authorize?client_id=${clientId}&state=${state}&scope=user:email`
-  window.open(url)
-}
-
 // Get OAuth state for CSRF protection
 export async function createOAuthFlow(
   provider: string,
@@ -346,29 +377,6 @@ export async function createOAuthFlow(
     }
   }
   throw new Error(res.data?.message || 'Failed to initialize OAuth')
-}
-
-// Start a browser-bound WeChat login flow before submitting the provider code.
-export async function startWechatLogin(acceptedLegal = false): Promise<string> {
-  const aff = getAffiliateCode()
-  const res = await api.post(
-    '/api/oauth/wechat/start',
-    { accepted_legal: acceptedLegal, aff: aff || undefined },
-    { skipAuthRefresh: true }
-  )
-  if (res.data?.success && typeof res.data.data?.flow_token === 'string') {
-    return res.data.data.flow_token
-  }
-  throw new Error(res.data?.message || 'Failed to initialize WeChat login')
-}
-
-// WeChat login by authorization code and browser-bound state.
-export async function wechatLoginByCode(
-  code: string,
-  state: string
-): Promise<ApiResponse> {
-  const res = await api.get('/api/oauth/wechat', { params: { code, state } })
-  return res.data
 }
 
 export async function startTelegramLogin(
@@ -417,7 +425,14 @@ export async function telegramLogin(
         timeout: AUTH_COOKIE_TIMEOUT_MS,
       })
     )
-    assertCurrent()
+    const cancellation = assertLoginResultCurrent(
+      transaction,
+      assertCurrent,
+      res.data
+    )
+    if (cancellation) {
+      await cancellation
+    }
     const response = telegramResponseSchema.parse(res.data)
     if (!response.success) return response
     if (parseTelegramMFARequirement(response.data)) {

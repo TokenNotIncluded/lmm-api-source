@@ -1,7 +1,16 @@
 //! Explicit native-client browser ceremony inside the existing refresh path.
 use super::*;
 use crate::html::escape;
-use crate::identity::grants::{AuthorizationRequest, ConsentForm, ConsentPage, ContinueForm};
+use crate::identity::grants::{
+    AuthorizationRequest, ConsentForm, ConsentPage, ContinueForm, ManagedAuthorizationRequest,
+};
+
+#[derive(serde::Deserialize)]
+#[serde(untagged)]
+enum AuthorizationInput {
+    Legacy(AuthorizationRequest),
+    Managed(ManagedAuthorizationRequest),
+}
 use axum::extract::Path;
 use axum::extract::{Form, rejection::FormRejection};
 use axum::routing::delete;
@@ -85,17 +94,32 @@ fn flow_cookie(
 }
 fn page(page: ConsentPage, config: &LegacyAuthConfig) -> Response {
     let pi = page.client_id == "lmm-pi";
+    let managed = page.client_id == "lmm-cc-switch";
+    let model = pi || managed;
     let mut body = format!(
         "<!doctype html><meta charset=utf-8><title>LMM authorization</title><h1>{}</h1>",
-        if pi { "LMM Pi" } else { "LMM CLI" }
+        if pi {
+            "LMM Pi"
+        } else if managed {
+            "LMM CC Switch"
+        } else {
+            "LMM CLI"
+        }
     );
+    if managed && let (Some(id), Some(label)) = (&page.installation_id, &page.display_label) {
+        body.push_str(&format!(
+            "<p>Application: CC Switch</p><p>Installation: {}</p><p>Device: {}</p>",
+            escape(id),
+            escape(label)
+        ));
+    }
     let action = if let Some(account) = &page.account {
         body.push_str(&format!("<p>Account: {}</p><p>Read the model catalog and your personal wallet balance.</p><p>Approved groups:</p><ul>",escape(account)));
         for group in &page.groups {
             body.push_str(&format!("<li>{}</li>", escape(group)));
         }
         body.push_str("</ul>");
-        if pi {
+        if model {
             body.push_str("<p>Allow model calls and usage for this personal account. Optional MCP/remote scopes are unavailable and will not be granted.</p>");
         }
         "/api/user/auth/oauth2/consent"
@@ -140,7 +164,7 @@ fn page(page: ConsentPage, config: &LegacyAuthConfig) -> Response {
 }
 async fn authorize(
     State(state): State<AuthState>,
-    input: Result<Query<AuthorizationRequest>, QueryRejection>,
+    input: Result<Query<AuthorizationInput>, QueryRejection>,
 ) -> Response {
     let Some(issuer) = &state.config.oauth2 else {
         return StatusCode::NOT_FOUND.into_response();
@@ -148,7 +172,11 @@ async fn authorize(
     let Ok(Query(input)) = input else {
         return auth_failure(IdentityError::Invalid.into());
     };
-    match issuer.begin(input).await {
+    let result = match input {
+        AuthorizationInput::Legacy(input) => issuer.begin(input).await,
+        AuthorizationInput::Managed(input) => issuer.begin_managed(input).await,
+    };
+    match result {
         Ok(v) => page(v, &state.config),
         Err(e) => auth_failure(e.into()),
     }
@@ -298,6 +326,8 @@ mod tests {
                             client_id: request.client_id.clone(),
                             redirect_uri: request.redirect_uri.clone(),
                             maximum_budget_credits: (client == "lmm-pi").then_some(100),
+                            installation_id: None,
+                            display_label: None,
                             groups: vec!["default".into()],
                         },
                         &config,

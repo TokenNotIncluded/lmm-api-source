@@ -16,7 +16,6 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import type { Table } from '@tanstack/react-table'
 import {
   ChevronLeft as ChevronLeftIcon,
   ChevronRight as ChevronRightIcon,
@@ -35,6 +34,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
+import type { RowData, Table } from '@/lib/table'
 import { cn, getPageNumbers } from '@/lib/utils'
 
 import {
@@ -43,7 +43,7 @@ import {
   resetInlinePaginationScroll,
 } from './pagination-state'
 
-type DataTablePaginationProps<TData> = {
+type DataTablePaginationProps<TData extends RowData> = {
   table: Table<TData>
 }
 
@@ -52,11 +52,11 @@ const PAGE_SIZE_SELECT_ITEMS = PAGE_SIZE_OPTIONS.map((pageSize) => ({
   label: pageSize,
 }))
 
-export function DataTablePagination<TData>({
+export function DataTablePagination<TData extends RowData>({
   table,
 }: DataTablePaginationProps<TData>) {
   const { t } = useTranslation()
-  const pagination = table.getState().pagination
+  const pagination = table.state.pagination
   const containerRef = useRef<HTMLDivElement>(null)
   const previousPageRef = useRef({ ...pagination })
 

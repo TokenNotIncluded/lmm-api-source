@@ -1,13 +1,15 @@
 /* Copyright (C) 2026 LIghtJUNction; SPDX-License-Identifier: AGPL-3.0-or-later */
 import assert from 'node:assert/strict'
-import { after, afterEach, test } from 'node:test'
+import { after, afterEach, beforeEach, test } from 'node:test'
 
 import axios, { type AxiosAdapter } from 'axios'
 
-import { login } from '@/features/auth/api'
+import { login, logout } from '@/features/auth/api'
 import { api } from '@/lib/api'
+import { withAuthCookieLock } from '@/lib/auth-cookie'
 import {
   applyAuthBundle,
+  applyAuthRotation,
   applyPending2FAFlow,
   bootstrapAuthentication,
   clearAuthentication,
@@ -85,6 +87,25 @@ Object.defineProperty(globalThis, 'window', {
   },
 })
 const original = api.defaults.adapter
+const originalFetch = globalThis.fetch
+beforeEach(() => {
+  globalThis.fetch = (() => {
+    throw new Error('Unexpected fetch in unit fixture')
+  }) as typeof fetch
+})
+function allowFamilyRevocation(sid: string, token: string) {
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const request = new Request(input, init)
+    assert.equal(request.method, 'POST')
+    assert.equal(new URL(request.url).pathname, '/api/user/auth/logout')
+    assert.equal(request.headers.get('X-Auth-Session'), sid)
+    assert.equal(request.headers.get('Authorization'), `Bearer ${token}`)
+    return Response.json({
+      success: true,
+      data: { revoked_sid: sid, current: true },
+    })
+  }) as typeof fetch
+}
 function deferred() {
   let resolve!: () => void
   const promise = new Promise<void>((done) => {
@@ -124,6 +145,9 @@ afterEach(async () => {
   setDevelopmentAuthRefreshAdapter(original as AxiosAdapter)
   clearAuthentication(false, 'idle')
   redirects = []
+  globalThis.fetch = originalFetch
+  // Explicit account selection now intentionally persists a shared generation.
+  storage.delete('new-api:auth-login-intent')
   assert.equal(storage.size, 0)
 })
 after(() => {
@@ -216,7 +240,21 @@ test('a transient passive refresh does not supersede a queued login', async () =
   assert.equal(useAuthStore.getState().auth.user?.id, 43)
 })
 
+test('an anonymous bootstrap 401 does not cancel the explicit queued login', async () => {
+  const scene = await queuedBackground(401)
+  scene.release.resolve()
+  await scene.background
+  const result = await scene.observed
+  assert.ok(
+    !('error' in result),
+    'confirming anonymous state must not supersede a login'
+  )
+  assert.equal(scene.posts(), 1)
+  assert.equal(useAuthStore.getState().auth.user?.id, 43)
+})
+
 test('a passive unauthorized clear remains a superseding identity change', async () => {
+  applyAuthBundle({ ...bundle('expired-A'), access_expires_at: 1 }, false)
   const scene = await queuedBackground(401)
   scene.release.resolve()
   await scene.background
@@ -224,6 +262,16 @@ test('a passive unauthorized clear remains a superseding identity change', async
   assert.ok('error' in result && axios.isCancel(result.error))
   assert.equal(scene.posts(), 0)
   assert.equal(useAuthStore.getState().auth.user, null)
+})
+
+test('explicit sign-out while already anonymous still supersedes a queued login', async () => {
+  const scene = await queuedBackground(401)
+  clearAuthentication(false)
+  scene.release.resolve()
+  await scene.background
+  const result = await scene.observed
+  assert.ok('error' in result && axios.isCancel(result.error))
+  assert.equal(scene.posts(), 0)
 })
 
 test('a profile write before the passive commit still supersedes the old login', async () => {
@@ -420,4 +468,221 @@ test('a factor flow created after the accepted refresh invalidates the captured 
   assert.equal(posts, 0)
   assert.equal(useAuthStore.getState().auth.pending2FAFlowToken, 'newest-flow')
   assert.equal(useAuthStore.getState().auth.pending2FAFlowExpiresAt, expires)
+})
+
+test('logout of the same family survives an access-token rotation while waiting for the cookie lock', async () => {
+  allowFamilyRevocation('family-A', 'before-rotation')
+  applyAuthBundle(bundle('before-rotation'))
+  const entered = deferred(),
+    release = deferred()
+  const holder = withAuthCookieLock(async () => {
+    entered.resolve()
+    await release.promise
+  })
+  await entered.promise
+  let posts = 0
+  api.defaults.adapter = async (config) => {
+    posts++
+    return response(config, 200, { success: true })
+  }
+  const observed = logout().then(
+    (value) => ({ value }),
+    (error) => ({ error })
+  )
+  const rotated = bundle('after-rotation')
+  applyAuthRotation({
+    access_token: rotated.access_token,
+    token_type: rotated.token_type,
+    access_expires_at: rotated.access_expires_at,
+    session: rotated.session,
+  })
+  release.resolve()
+  await holder
+  try {
+    const result = await observed
+    assert.ok(
+      !('error' in result),
+      'rotation within one family must not cancel logout'
+    )
+    assert.equal(posts, 1)
+    assert.equal(useAuthStore.getState().auth.user, null)
+  } finally {
+    storage.delete('new-api:auth-login-intent')
+  }
+})
+
+test('logout intent cancels an older queued login before either writer reaches the server', async () => {
+  allowFamilyRevocation('family-A', 'original')
+  applyAuthBundle(bundle('original'))
+  const entered = deferred(),
+    release = deferred()
+  const holder = withAuthCookieLock(async () => {
+    entered.resolve()
+    await release.promise
+  })
+  await entered.promise
+  const requests: string[] = []
+  api.defaults.adapter = async (config) => {
+    requests.push(config.url ?? '')
+    return response(config, 200, {
+      success: true,
+      data: bundle('stale-login', 'family-B', 43),
+    })
+  }
+  const stale = login({ username: 'stale', password: 'synthetic' }).then(
+    (value) => ({ value }),
+    (error) => ({ error })
+  )
+  const exiting = logout()
+  release.resolve()
+  await holder
+  try {
+    assert.ok('error' in (await stale))
+    assert.equal((await exiting).success, true)
+    assert.deepEqual(requests, ['/api/user/auth/logout'])
+    assert.equal(useAuthStore.getState().auth.user, null)
+  } finally {
+    storage.delete('new-api:auth-login-intent')
+  }
+})
+
+test('an older queued logout still cannot revoke a later explicit different session', async () => {
+  applyAuthBundle(bundle('original'))
+  const entered = deferred(),
+    release = deferred()
+  const holder = withAuthCookieLock(async () => {
+    entered.resolve()
+    await release.promise
+  })
+  await entered.promise
+  let posts = 0
+  api.defaults.adapter = async (config) => {
+    posts++
+    return response(config, 200, { success: true })
+  }
+  const exiting = logout().then(
+    (value) => ({ value }),
+    (error) => ({ error })
+  )
+  applyAuthBundle(bundle('later-login', 'family-B', 43))
+  release.resolve()
+  await holder
+  try {
+    assert.ok('error' in (await exiting))
+    assert.equal(posts, 0)
+    assert.equal(useAuthStore.getState().auth.session?.sid, 'family-B')
+  } finally {
+    storage.delete('new-api:auth-login-intent')
+  }
+})
+
+test('inflight 2FA is superseded by queued logout before flow state is cleared', async () => {
+  const { login2fa } = await import('@/features/auth/api')
+  useAuthStore.getState().auth.setPending2FAFlowToken('synthetic-flow')
+  const entered = deferred(),
+    release = deferred()
+  const minted = bundle('otp-minted', 'family-OTP', 73)
+  const cleaned: string[] = []
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const request = new Request(input, init)
+    assert.equal(
+      request.headers.get('Authorization'),
+      `Bearer ${minted.access_token}`
+    )
+    assert.equal(request.headers.get('X-Auth-Session'), minted.session.sid)
+    cleaned.push(request.method)
+    return Response.json(
+      request.method === 'DELETE'
+        ? {
+            success: true,
+            data: { revoked_sid: minted.session.sid, current: true },
+          }
+        : { success: true }
+    )
+  }) as typeof fetch
+  api.defaults.adapter = async (config) => {
+    if (config.url === '/api/user/login/2fa') {
+      entered.resolve()
+      await release.promise
+      return response(config, 200, { success: true, data: minted })
+    }
+    assert.equal(config.url, '/api/user/auth/logout')
+    return response(config, 200, { success: true })
+  }
+  const finishing = login2fa({
+    code: '123456',
+    flow_token: 'synthetic-flow',
+  }).then(
+    (value) => ({ value }),
+    (error) => ({ error })
+  )
+  await entered.promise
+  const exiting = logout().then(
+    (value) => ({ value }),
+    (error) => ({ error })
+  )
+  assert.equal(
+    useAuthStore.getState().auth.pending2FAFlowToken,
+    'synthetic-flow'
+  )
+  release.resolve()
+  assert.ok(
+    'error' in (await finishing),
+    'nonce changes must reject even before queued logout clears pending flow'
+  )
+  const result = await exiting
+  assert.ok('value' in result)
+  assert.equal(result.value.success, true)
+  assert.deepEqual(cleaned, ['DELETE', 'POST'])
+  assert.equal(useAuthStore.getState().auth.user, null)
+})
+
+test('inflight Passkey login independently binds shared cancellation and cleans its minted response', async () => {
+  const { finishPasskeyLogin } = await import('@/features/auth/passkey/api')
+  const entered = deferred(),
+    release = deferred()
+  const minted = bundle('passkey-minted', 'family-Passkey', 74)
+  const cleanup: string[] = []
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const request = new Request(input, init)
+    assert.equal(
+      request.headers.get('Authorization'),
+      `Bearer ${minted.access_token}`
+    )
+    assert.equal(request.headers.get('X-Auth-Session'), minted.session.sid)
+    cleanup.push(request.method)
+    return Response.json(
+      request.method === 'DELETE'
+        ? {
+            success: true,
+            data: { revoked_sid: minted.session.sid, current: true },
+          }
+        : { success: true }
+    )
+  }) as typeof fetch
+  api.defaults.adapter = async (config) => {
+    if (config.url === '/api/user/passkey/login/finish') {
+      entered.resolve()
+      await release.promise
+      return response(config, 200, { success: true, data: minted })
+    }
+    assert.equal(config.url, '/api/user/auth/logout')
+    return response(config, 200, { success: true })
+  }
+  const finishing = finishPasskeyLogin('synthetic-flow', {}, () => {}).then(
+    (value) => ({ value }),
+    (error) => ({ error })
+  )
+  await entered.promise
+  const exiting = logout().then(
+    (value) => ({ value }),
+    (error) => ({ error })
+  )
+  release.resolve()
+  assert.ok('error' in (await finishing))
+  const result = await exiting
+  assert.ok('value' in result)
+  assert.equal(result.value.success, true)
+  assert.deepEqual(cleanup, ['DELETE', 'POST'])
+  assert.equal(useAuthStore.getState().auth.user, null)
 })

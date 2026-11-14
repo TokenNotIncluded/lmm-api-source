@@ -18,8 +18,8 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { zodResolver } from '@hookform/resolvers/zod'
 import { Loader2 } from 'lucide-react'
-import { useEffect, useId, useMemo, useState, type ReactNode } from 'react'
-import { useForm } from 'react-hook-form'
+import { useEffect, useId, useState, type ReactNode } from 'react'
+import { useForm, useWatch } from 'react-hook-form'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 import type { z } from 'zod'
@@ -39,17 +39,15 @@ import {
 } from '@/components/ui/form'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import {
-  register,
-  startWechatLogin,
-  wechatLoginByCode,
-} from '@/features/auth/api'
+import { register } from '@/features/auth/api'
 import { LegalConsent } from '@/features/auth/components/legal-consent'
 import { OAuthProviders } from '@/features/auth/components/oauth-providers'
 import { registerFormSchema } from '@/features/auth/constants'
 import { useAuthRedirect } from '@/features/auth/hooks/use-auth-redirect'
 import { useEmailVerification } from '@/features/auth/hooks/use-email-verification'
+import { useFederatedWechat } from '@/features/auth/hooks/use-federated-wechat'
 import { useTurnstile } from '@/features/auth/hooks/use-turnstile'
+import { federatedProviders } from '@/features/auth/lib/federated-oauth'
 import {
   hasOAuthRegistrationProvider,
   isPasswordRegistrationEnabled,
@@ -61,9 +59,7 @@ import {
 } from '@/features/auth/lib/storage'
 import type { AuthFormProps } from '@/features/auth/types'
 import { useStatus } from '@/hooks/use-status'
-import { isAuthBundle } from '@/lib/api'
 import { isLocalPreview } from '@/lib/local-preview'
-import { getServerErrorMessageKey } from '@/lib/server-error-message'
 import { cn } from '@/lib/utils'
 
 export function SignUpForm({ className, redirectTo, ...props }: AuthFormProps) {
@@ -73,11 +69,6 @@ export function SignUpForm({ className, redirectTo, ...props }: AuthFormProps) {
   const [verificationCode, setVerificationCode] = useState('')
   const [verificationEmail, setVerificationEmail] = useState('')
   const verificationCodeId = useId()
-  const [agreedToLegal, setAgreedToLegal] = useState(false)
-  const [wechatCode, setWeChatCode] = useState('')
-  const [wechatFlowToken, setWeChatFlowToken] = useState('')
-  const [isWeChatDialogOpen, setIsWeChatDialogOpen] = useState(false)
-  const [isWeChatSubmitting, setIsWeChatSubmitting] = useState(false)
   const [turnstileWidgetKey, setTurnstileWidgetKey] = useState(0)
   const legalConsentErrorMessage = t('Please agree to the legal terms first')
 
@@ -89,7 +80,7 @@ export function SignUpForm({ className, redirectTo, ...props }: AuthFormProps) {
     setTurnstileToken,
     validateTurnstile,
   } = useTurnstile()
-  const { redirectToLogin, handleLoginSuccess } = useAuthRedirect()
+  const { redirectToLogin } = useAuthRedirect()
   const {
     isSending: isSendingCode,
     secondsLeft,
@@ -110,40 +101,44 @@ export function SignUpForm({ className, redirectTo, ...props }: AuthFormProps) {
     },
   })
 
-  const emailValue = form.watch('email')
+  const emailValue = useWatch({ control: form.control, name: 'email' })
   const emailVerificationRequired =
     !localPreview && !!status?.email_verification
   const hasUserAgreement = Boolean(status?.user_agreement_enabled)
   const hasPrivacyPolicy = Boolean(status?.privacy_policy_enabled)
   const requiresLegalConsent = hasUserAgreement || hasPrivacyPolicy
+  const [agreedToLegal, setAgreedToLegal] = useState(!requiresLegalConsent)
   const passwordRegistrationEnabled =
     localPreview || isPasswordRegistrationEnabled(status)
   const oauthRegisterEnabled = isOAuthRegistrationEnabled(status)
   const hasOAuthRegistration = hasOAuthRegistrationProvider(status)
-  const hasWeChatLogin = !localPreview && Boolean(status?.wechat_login)
+  const hasWeChatLogin =
+    !localPreview &&
+    federatedProviders(status).some((provider) => provider.kind === 'wechat')
   const turnstileReady = !isTurnstileEnabled || Boolean(turnstileToken)
 
-  const wechatQrCodeUrl = useMemo(() => {
-    return (
-      status?.wechat_qrcode ||
-      status?.wechat_qr_code ||
-      status?.wechat_qrcode_image_url ||
-      status?.wechat_qr_code_image_url ||
-      status?.wechat_account_qrcode_image_url ||
-      status?.WeChatAccountQRCodeImageURL ||
-      status?.data?.wechat_qrcode ||
-      status?.data?.WeChatAccountQRCodeImageURL ||
-      ''
-    )
-  }, [status])
+  const {
+    wechatCode,
+    setWeChatCode,
+    isWeChatDialogOpen,
+    isWeChatSubmitting,
+    wechatQrCodeUrl,
+    handleOpenWeChatDialog,
+    handleWeChatDialogChange,
+    handleWeChatLogin,
+  } = useFederatedWechat(
+    status,
+    agreedToLegal,
+    requiresLegalConsent,
+    redirectTo
+  )
 
-  useEffect(() => {
-    if (requiresLegalConsent) {
-      setAgreedToLegal(false)
-    } else {
-      setAgreedToLegal(true)
-    }
-  }, [requiresLegalConsent])
+  const [previousLegalConsent, setPreviousLegalConsent] =
+    useState(requiresLegalConsent)
+  if (previousLegalConsent !== requiresLegalConsent) {
+    setPreviousLegalConsent(requiresLegalConsent)
+    setAgreedToLegal(!requiresLegalConsent)
+  }
 
   useEffect(() => {
     const aff = new URLSearchParams(window.location.search).get('aff')?.trim()
@@ -217,76 +212,6 @@ export function SignUpForm({ className, redirectTo, ...props }: AuthFormProps) {
       setVerificationEmail(requestedEmail)
       setTurnstileToken('')
       setTurnstileWidgetKey((current) => current + 1)
-    }
-  }
-
-  const handleOpenWeChatDialog = async () => {
-    if (localPreview) {
-      toast.info(
-        t(
-          'Local preview: password registration is available; email verification and social sign-in are disabled.'
-        )
-      )
-      return
-    }
-
-    if (requiresLegalConsent && !agreedToLegal) {
-      toast.error(legalConsentErrorMessage)
-      return
-    }
-
-    setIsWeChatSubmitting(true)
-    try {
-      const flowToken = await startWechatLogin(agreedToLegal)
-      setWeChatFlowToken(flowToken)
-      setIsWeChatDialogOpen(true)
-    } catch {
-      toast.error(t('Login failed'))
-    } finally {
-      setIsWeChatSubmitting(false)
-    }
-  }
-
-  const handleWeChatDialogChange = (open: boolean) => {
-    setIsWeChatDialogOpen(open)
-    if (!open) {
-      setWeChatCode('')
-      setWeChatFlowToken('')
-      setIsWeChatSubmitting(false)
-    }
-  }
-
-  async function handleWeChatLogin() {
-    if (localPreview) {
-      toast.info(
-        t(
-          'Local preview: password registration is available; email verification and social sign-in are disabled.'
-        )
-      )
-      return
-    }
-
-    if (!wechatCode.trim() || !wechatFlowToken) {
-      toast.error(t('Please enter the verification code'))
-      return
-    }
-
-    setIsWeChatSubmitting(true)
-    try {
-      const res = await wechatLoginByCode(wechatCode, wechatFlowToken)
-      if (res?.success && isAuthBundle(res.data)) {
-        await handleLoginSuccess(res.data, redirectTo)
-        toast.success(t('Signed in via WeChat'))
-        handleWeChatDialogChange(false)
-      } else {
-        if (getServerErrorMessageKey(res)) return
-        toast.error(res?.message || t('Login failed'))
-      }
-    } catch (error: unknown) {
-      if (getServerErrorMessageKey(error)) return
-      toast.error(t('Login failed'))
-    } finally {
-      setIsWeChatSubmitting(false)
     }
   }
 

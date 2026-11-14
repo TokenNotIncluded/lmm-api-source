@@ -37,12 +37,19 @@ export function FloatingSettingsNavigation() {
   const { open, setOpen, openMobile, setOpenMobile, isMobile } = useSidebar()
   const { pathname, searchStr } = useLocation()
   const navigate = useNavigate()
-  const [directoryReady, setDirectoryReady] = useState(false)
+  const [waitingForSidebarReset, setWaitingForSidebarReset] = useState(
+    open || openMobile
+  )
+  if (waitingForSidebarReset && !open && !openMobile) {
+    setWaitingForSidebarReset(false)
+  }
   const [query, setQuery] = useState('')
   const [preview, setPreview] = useState<number | null>(null)
   const handle = useRef<HTMLButtonElement>(null)
   const sidebar = useRef({ open, setOpen, setOpenMobile })
-  sidebar.current = { open, setOpen, setOpenMobile }
+  useEffect(() => {
+    sidebar.current = { open, setOpen, setOpenMobile }
+  }, [open, setOpen, setOpenMobile])
   const role = useAuthStore((state) => state.auth.user?.role ?? ROLE.GUEST)
   const index = useMemo(
     () => buildSettingsSearchIndex(t, undefined, role),
@@ -66,7 +73,7 @@ export function FloatingSettingsNavigation() {
     })
   )
   const current = entries[currentIndex]
-  const shown = directoryReady && (isMobile ? openMobile : open)
+  const shown = !waitingForSidebarReset && (isMobile ? openMobile : open)
   const setShown = useCallback(
     (value: boolean) => {
       if (isMobile) setOpenMobile(value)
@@ -109,7 +116,6 @@ export function FloatingSettingsNavigation() {
     const previous = sidebar.current.open
     sidebar.current.setOpen(false)
     sidebar.current.setOpenMobile(false)
-    setDirectoryReady(true)
     return () => {
       sidebar.current.setOpen(previous)
       sidebar.current.setOpenMobile(false)

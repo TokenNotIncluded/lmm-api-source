@@ -491,6 +491,7 @@ async fn restricted_role_checks_without_disabled_module_grants(pool: PgPool) {
             federated_auth: false,
             checkins: false,
             oauth2: false,
+            managed_applications: false,
             market_oauth: false,
             wallet: false,
             bounties: false,

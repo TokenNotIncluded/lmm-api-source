@@ -144,7 +144,10 @@ test('animation cancellation keeps its rejected receipt and stays local to this 
 })
 
 test('read-only channels show snapshot fields and paginate without mutation controls or fake metrics', async () => {
-  api.get = (async (_url: string, config?: Parameters<typeof api.get>[1]) => {
+  api.get = (async (
+    _url: string,
+    config?: { params?: { p: number; keyword?: string } }
+  ) => {
     const page = Number(config?.params?.p)
     return {
       data: {
@@ -198,11 +201,14 @@ test('read-only channels show snapshot fields and paginate without mutation cont
 
 test('read-only channel search submits a trimmed keyword to the read endpoint', async () => {
   const requests: { url: string; keyword?: string; page: number }[] = []
-  api.get = (async (url: string, config?: Parameters<typeof api.get>[1]) => {
+  api.get = (async (
+    url: string,
+    config?: { params?: { p: number; keyword?: string } }
+  ) => {
     requests.push({
       url,
       keyword: config?.params?.keyword,
-      page: config?.params?.p,
+      page: Number(config?.params?.p),
     })
     return {
       data: {

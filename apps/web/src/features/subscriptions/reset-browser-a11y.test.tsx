@@ -224,9 +224,11 @@ const voucher = {
 }
 
 describe('subscription reset browser accessibility', () => {
-  test('requires an explicit future voucher expiry in soft mode', async () => {
+  test('requires an explicit future voucher expiry in soft mode and expires it without another query', async () => {
+    let previewCalls = 0
     let sentPreview: { voucher_expires_at?: number; mode?: string } | undefined
     api.post = (async (_url, body) => {
+      previewCalls++
       sentPreview = body as typeof sentPreview
       return { data: { success: false, message: 'Preview test response' } }
     }) as typeof api.post
@@ -309,7 +311,25 @@ describe('subscription reset browser accessibility', () => {
       sentPreview?.voucher_expires_at,
       new Date('2099-01-01T12:00').getTime() / 1000
     )
-    await unmount(rendered)
+    const realNow = Date.now
+    let now = new Date('2099-01-01T12:00').getTime() - 1
+    Date.now = () => now
+    try {
+      await act(async () => window.dispatchEvent(new Event('focus')))
+      assert.equal(prepare.disabled, false)
+      now += 1
+      // Check the event guard before the timer/focus notification can update UI.
+      await act(async () => prepare.click())
+      assert.equal(previewCalls, 1)
+      await act(async () =>
+        document.dispatchEvent(new Event('visibilitychange'))
+      )
+      assert.equal(prepare.disabled, true)
+      assert.equal(expiry.getAttribute('aria-invalid'), 'true')
+    } finally {
+      Date.now = realNow
+      await unmount(rendered)
+    }
   })
 
   test('retains rows while refetching, announces progress, and locks destructive selection', async () => {

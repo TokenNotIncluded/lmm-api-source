@@ -109,11 +109,15 @@ func dataMap(t *testing.T, w *httptest.ResponseRecorder) map[string]any {
 }
 func TestHTTPAnonymousBoardDetailConfigAndBodyIdentityRejected(t *testing.T) {
 	_, a, h := webSetup(t)
-	w := webRequest(h, "GET", "/api/open-source-bounties", "", "", "")
+	w := webRequest(h, "GET", "/api/bounties", "", "", "")
 	if w.Code != 200 || dataMap(t, w)["total"] != float64(0) {
 		t.Fatal(w.Code, w.Body.String())
 	}
-	w = webRequest(h, "GET", "/api/open-source-bounties/config", "", "", "")
+	w = webRequest(h, "GET", "/api/open-source-bounties", "", "", "")
+	if w.Code != 200 || dataMap(t, w)["total"] != float64(0) {
+		t.Fatal(w.Code, w.Body.String())
+	}
+	w = webRequest(h, "GET", "/api/bounties/config", "", "", "")
 	if w.Code != 200 || dataMap(t, w)["rate_basis_points"] != float64(100) {
 		t.Fatal(w.Code, w.Body.String())
 	}

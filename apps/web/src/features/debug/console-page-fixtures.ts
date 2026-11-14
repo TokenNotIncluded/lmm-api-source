@@ -139,11 +139,11 @@ const reads: Record<string, unknown> = {
   '/api/task/self': page,
   '/api/task/': page,
   '/api/remote-control/v1/pi/sessions': { sessions: [] },
-  '/api/open-source-bounties/config': {
+  '/api/bounties/config': {
     rate_percent: 1,
     rate_basis_points: 100,
   },
-  '/api/open-source-bounties': {
+  '/api/bounties': {
     ...page,
     total: 6,
     items: Array.from({ length: 6 }, (_, index) => ({
@@ -183,11 +183,11 @@ const reads: Record<string, unknown> = {
       owner_thank_heart_count: 4,
     })),
   },
-  '/api/open-source-bounties/mine': [],
-  '/api/open-source-bounties/accepted': [],
-  '/api/open-source-bounties/disputes/mine': [],
-  '/api/open-source-bounties/tips/received': [],
-  '/api/open-source-bounties/mcp-token': {
+  '/api/bounties/mine': [],
+  '/api/bounties/accepted': [],
+  '/api/bounties/disputes/mine': [],
+  '/api/bounties/tips/received': [],
+  '/api/bounties/mcp-token': {
     configured: false,
     endpoint: '/mcp',
     token: null,

@@ -112,27 +112,27 @@ async function setup(initial = options()) {
             data: { value: '{}', revision: 1 },
           }
         : url === '/api/option/pricing'
-        ? {
-            success: true,
-            data: {
-              schema_version: 2,
-              currency: 'USD',
-              storage_basis: 'legacy_pricing_unit',
-              revision: 'a'.repeat(64),
-              credits_per_usd: 500_000,
-              legacy_pricing_units_per_usd: 7.2,
-              model_ratio_usd_per_million: 2,
-              values: {
-                ...Object.fromEntries(
-                  USD_PRICING_KEYS.map((key) => [key, '{}'])
-                ),
-                ...Object.fromEntries(
-                  server.data.map(({ key, value }) => [key, value])
-                ),
+          ? {
+              success: true,
+              data: {
+                schema_version: 2,
+                currency: 'USD',
+                storage_basis: 'legacy_pricing_unit',
+                revision: 'a'.repeat(64),
+                credits_per_usd: 500_000,
+                legacy_pricing_units_per_usd: 7.2,
+                model_ratio_usd_per_million: 2,
+                values: {
+                  ...Object.fromEntries(
+                    USD_PRICING_KEYS.map((key) => [key, '{}'])
+                  ),
+                  ...Object.fromEntries(
+                    server.data.map(({ key, value }) => [key, value])
+                  ),
+                },
               },
-            },
-          }
-        : server,
+            }
+          : server,
   })) as typeof api.get
   api.put = (async (_url: string, request: UpdateOptionRequest) => {
     puts.push(request)

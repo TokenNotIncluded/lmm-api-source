@@ -19,8 +19,9 @@ For commercial licensing, please contact support@quantumnous.com
 import assert from 'node:assert/strict'
 import { after, test } from 'node:test'
 
-import type { Table } from '@tanstack/react-table'
 import { Window } from 'happy-dom'
+
+import type { Table } from '@/lib/table'
 
 const dom = new Window({ url: 'http://localhost/' })
 for (const key of [
@@ -55,7 +56,7 @@ const { act } = await import('react')
 const { createRoot } = await import('react-dom/client')
 const { createInstance } = await import('i18next')
 const { I18nextProvider } = await import('react-i18next')
-const { getCoreRowModel, useReactTable } = await import('@tanstack/react-table')
+const { dataTableFeatures, useTable } = await import('@/lib/table')
 const { DataTableToolbar } = await import('./toolbar')
 const { getFilterValues, removeFilterValue } = await import('./filter-values')
 const { Tabs, TabsList, TabsTrigger, TabsContent } =
@@ -90,7 +91,7 @@ async function mount(mode: 'table' | 'logs' | 'tabs' = 'table') {
   document.body.append(host)
   const root = createRoot(host)
   function Harness() {
-    table = useReactTable({ data, columns, getCoreRowModel: getCoreRowModel() })
+    table = useTable({ data, columns, features: dataTableFeatures })
     if (mode === 'logs') {
       return (
         <LogsFilterToolbar

@@ -141,31 +141,33 @@ function UsageLogsContent() {
           <SectionPageLayout.Actions>
             {activeCategory === 'common' &&
               (!canManageScope || viewScope === 'all') && (
-              <Tabs
-                value={usageSource}
-                onValueChange={(value) => {
-                  if (value !== 'native' && value !== 'historical') return
-                  setUsageSource(value)
-                  void navigate({
-                    to: '/usage-logs/$section',
-                    params: { section: 'common' },
-                    search: (previous) => ({
-                      ...previous,
-                      page: 1,
-                      channel: undefined,
-                      upstreamRequestId: undefined,
-                    }),
-                  })
-                }}
-              >
-                <TabsList>
-                  <TabsTrigger value='native'>{t('Native usage')}</TabsTrigger>
-                  <TabsTrigger value='historical'>
-                    {t('Historical Usage')}
-                  </TabsTrigger>
-                </TabsList>
-              </Tabs>
-            )}
+                <Tabs
+                  value={usageSource}
+                  onValueChange={(value) => {
+                    if (value !== 'native' && value !== 'historical') return
+                    setUsageSource(value)
+                    void navigate({
+                      to: '/usage-logs/$section',
+                      params: { section: 'common' },
+                      search: (previous) => ({
+                        ...previous,
+                        page: 1,
+                        channel: undefined,
+                        upstreamRequestId: undefined,
+                      }),
+                    })
+                  }}
+                >
+                  <TabsList>
+                    <TabsTrigger value='native'>
+                      {t('Native usage')}
+                    </TabsTrigger>
+                    <TabsTrigger value='historical'>
+                      {t('Historical Usage')}
+                    </TabsTrigger>
+                  </TabsList>
+                </Tabs>
+              )}
             {canManageScope && (
               <Tabs value={viewScope} onValueChange={handleViewScopeChange}>
                 <TabsList>

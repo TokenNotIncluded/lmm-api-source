@@ -16,8 +16,9 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { flexRender, type Cell, type Table } from '@tanstack/react-table'
 import type { ReactNode } from 'react'
+
+import { type RowData, flexRender, type Cell, type Table } from '@/lib/table'
 
 /**
  * Shared cell helpers for the column-meta-driven card content used by both the
@@ -25,7 +26,9 @@ import type { ReactNode } from 'react'
  * component so the module exports only non-component utilities.
  */
 
-export function getCellLabel<TData>(cell: Cell<TData, unknown>): string | null {
+export function getCellLabel<TData extends RowData>(
+  cell: Cell<TData, unknown>
+): string | null {
   const { header, meta } = cell.column.columnDef
   if (typeof header === 'string') {
     return header
@@ -36,7 +39,7 @@ export function getCellLabel<TData>(cell: Cell<TData, unknown>): string | null {
   return null
 }
 
-export function renderCellContent<TData>(
+export function renderCellContent<TData extends RowData>(
   cell: Cell<TData, unknown>
 ): ReactNode {
   const cellRenderer = cell.column.columnDef.cell
@@ -51,7 +54,9 @@ export function renderCellContent<TData>(
  * true the compact two-tier layout is used; otherwise the condensed
  * label:value fallback layout is used.
  */
-export function tableHasCompactMeta<TData>(table: Table<TData>): boolean {
+export function tableHasCompactMeta<TData extends RowData>(
+  table: Table<TData>
+): boolean {
   return table.getVisibleLeafColumns().some((col) => {
     const meta = col.columnDef.meta
     return Boolean(meta?.mobileTitle || meta?.mobileBadge)

@@ -668,11 +668,19 @@ export function classifyBillingExpression(
     const allowedVariables = new Set(BILLING_VARS.map((item) => item.key))
 
     const hasTier = (node: ExprNode): boolean => {
-      if (node.kind === 'call') return node.name === 'tier' || node.args.some(hasTier)
-      if (node.kind === 'binary') return hasTier(node.left) || hasTier(node.right)
+      if (node.kind === 'call') {
+        return node.name === 'tier' || node.args.some(hasTier)
+      }
+      if (node.kind === 'binary') {
+        return hasTier(node.left) || hasTier(node.right)
+      }
       if (node.kind === 'unary') return hasTier(node.value)
       if (node.kind === 'conditional') {
-        return hasTier(node.test) || hasTier(node.consequent) || hasTier(node.alternate)
+        return (
+          hasTier(node.test) ||
+          hasTier(node.consequent) ||
+          hasTier(node.alternate)
+        )
       }
       return false
     }
@@ -680,51 +688,112 @@ export function classifyBillingExpression(
     const isConditionValue = (node: ExprNode): boolean => {
       if (node.kind === 'literal') return true
       if (node.kind === 'identifier' && node.name === 'nil') return true
-      if (node.kind === 'call' && (TIME_FUNCS.includes(node.name as TimeFunc) || ['param', 'header'].includes(node.name))) {
-        return node.args.length === 1 && node.args[0].kind === 'literal' && typeof node.args[0].value === 'string'
+      if (
+        node.kind === 'call' &&
+        (TIME_FUNCS.includes(node.name as TimeFunc) ||
+          ['param', 'header'].includes(node.name))
+      ) {
+        return (
+          node.args.length === 1 &&
+          node.args[0].kind === 'literal' &&
+          typeof node.args[0].value === 'string'
+        )
       }
       return isNumeric(node)
     }
 
     const isCondition = (node: ExprNode): boolean => {
       if (node.kind === 'binary') {
-        if (['&&', '||'].includes(node.op)) return isCondition(node.left) && isCondition(node.right)
+        if (['&&', '||'].includes(node.op)) {
+          return isCondition(node.left) && isCondition(node.right)
+        }
         if (!['==', '!=', '<', '<=', '>', '>='].includes(node.op)) return false
         return isConditionValue(node.left) && isConditionValue(node.right)
       }
-      if (node.kind === 'unary' && node.op === '!') return isCondition(node.value)
+      if (node.kind === 'unary' && node.op === '!') {
+        return isCondition(node.value)
+      }
       if (node.kind === 'literal') return typeof node.value === 'boolean'
       if (node.kind === 'call' && node.name === 'has') {
-        return node.args.length === 2 && isConditionValue(node.args[0]) && isConditionValue(node.args[1])
+        return (
+          node.args.length === 2 &&
+          isConditionValue(node.args[0]) &&
+          isConditionValue(node.args[1])
+        )
       }
       if (node.kind === 'call' && TIME_FUNCS.includes(node.name as TimeFunc)) {
-        return node.args.length === 1 && node.args[0].kind === 'literal' && typeof node.args[0].value === 'string'
+        return (
+          node.args.length === 1 &&
+          node.args[0].kind === 'literal' &&
+          typeof node.args[0].value === 'string'
+        )
       }
       return isNumeric(node)
     }
 
     const isNumeric = (node: ExprNode): boolean => {
-      if (node.kind === 'literal') return typeof node.value === 'number' && Number.isFinite(node.value)
+      if (node.kind === 'literal') {
+        return typeof node.value === 'number' && Number.isFinite(node.value)
+      }
       if (node.kind === 'identifier') return allowedVariables.has(node.name)
       if (node.kind === 'unary') return node.op !== '!' && isNumeric(node.value)
       if (node.kind === 'binary') {
-        return !['&&', '||', '==', '!=', '<', '<=', '>', '>='].includes(node.op) && isNumeric(node.left) && isNumeric(node.right)
+        return (
+          !['&&', '||', '==', '!=', '<', '<=', '>', '>='].includes(node.op) &&
+          isNumeric(node.left) &&
+          isNumeric(node.right)
+        )
       }
-      if (node.kind === 'conditional') return isCondition(node.test) && isNumeric(node.consequent) && isNumeric(node.alternate)
+      if (node.kind === 'conditional') {
+        return (
+          isCondition(node.test) &&
+          isNumeric(node.consequent) &&
+          isNumeric(node.alternate)
+        )
+      }
       if (node.kind !== 'call') return false
-      if (node.name === 'fixed') return node.args.length === 1 && numericLiteral(node.args[0]) !== null
-      if (node.name === 'tier') {
-        return node.args.length === 2 && node.args[0].kind === 'literal' && typeof node.args[0].value === 'string' && isNumeric(node.args[1])
+      if (node.name === 'fixed') {
+        return node.args.length === 1 && numericLiteral(node.args[0]) !== null
       }
-      if (node.name === 'min' || node.name === 'max') return node.args.length > 0 && node.args.every(isNumeric)
-      return ['abs', 'ceil', 'floor'].includes(node.name) && node.args.length === 1 && isNumeric(node.args[0])
+      if (node.name === 'tier') {
+        return (
+          node.args.length === 2 &&
+          node.args[0].kind === 'literal' &&
+          typeof node.args[0].value === 'string' &&
+          isNumeric(node.args[1])
+        )
+      }
+      if (node.name === 'min' || node.name === 'max') {
+        return node.args.length > 0 && node.args.every(isNumeric)
+      }
+      return (
+        ['abs', 'ceil', 'floor'].includes(node.name) &&
+        node.args.length === 1 &&
+        isNumeric(node.args[0])
+      )
     }
 
     const isMultiplier = (node: ExprNode): boolean => {
-      if (node.kind === 'literal') return typeof node.value === 'number' && Number.isFinite(node.value)
-      if (node.kind === 'unary') return node.op !== '!' && isMultiplier(node.value)
-      if (node.kind === 'binary') return ['+', '-', '*', '/', '%'].includes(node.op) && isMultiplier(node.left) && isMultiplier(node.right)
-      if (node.kind === 'conditional') return isCondition(node.test) && isMultiplier(node.consequent) && isMultiplier(node.alternate)
+      if (node.kind === 'literal') {
+        return typeof node.value === 'number' && Number.isFinite(node.value)
+      }
+      if (node.kind === 'unary') {
+        return node.op !== '!' && isMultiplier(node.value)
+      }
+      if (node.kind === 'binary') {
+        return (
+          ['+', '-', '*', '/', '%'].includes(node.op) &&
+          isMultiplier(node.left) &&
+          isMultiplier(node.right)
+        )
+      }
+      if (node.kind === 'conditional') {
+        return (
+          isCondition(node.test) &&
+          isMultiplier(node.consequent) &&
+          isMultiplier(node.alternate)
+        )
+      }
       return false
     }
 
@@ -737,23 +806,34 @@ export function classifyBillingExpression(
         return yes === 'token' || no === 'token' ? 'token' : 'request'
       }
       if (node.kind === 'call' && node.name === 'tier') {
-        if (node.args.length !== 2 || node.args[0].kind !== 'literal' || typeof node.args[0].value !== 'string') return null
+        if (
+          node.args.length !== 2 ||
+          node.args[0].kind !== 'literal' ||
+          typeof node.args[0].value !== 'string'
+        ) {
+          return null
+        }
         const amount = node.args[1]
         if (!isNumeric(amount)) return null
-        return amount.kind === 'call' && amount.name === 'fixed' ? 'request' : 'token'
+        return amount.kind === 'call' && amount.name === 'fixed'
+          ? 'request'
+          : 'token'
       }
       if (node.kind === 'binary' && (node.op === '*' || node.op === '/')) {
         if (isMultiplier(node.right)) return isPricingOutput(node.left)
-        if (node.op === '*' && isMultiplier(node.left)) return isPricingOutput(node.right)
+        if (node.op === '*' && isMultiplier(node.left)) {
+          return isPricingOutput(node.right)
+        }
       }
       if (!isNumeric(node)) return null
       if (node.kind === 'call' && node.name === 'fixed') return 'request'
       if (node.kind === 'unary') return isPricingOutput(node.value)
-      const operands = node.kind === 'binary'
-        ? [node.left, node.right]
-        : node.kind === 'call'
-          ? node.args
-          : null
+      const operands =
+        node.kind === 'binary'
+          ? [node.left, node.right]
+          : node.kind === 'call'
+            ? node.args
+            : null
       if (operands) {
         const categories = operands.map(isPricingOutput)
         if (categories.some((category) => category === null)) return null
@@ -1641,10 +1721,34 @@ function buildTimeConditionExpr(cond: TimeCondition): string {
   if (mode === MATCH_RANGE) {
     const s = normalized.rangeStart.trim()
     const e = normalized.rangeEnd.trim()
-    if (!NUMERIC_LITERAL_REGEX.test(s) || !NUMERIC_LITERAL_REGEX.test(e)) {
-      return ''
+    const start = Number(s)
+    const end = Number(e)
+    const [min, max] = {
+      hour: [0, 23],
+      minute: [0, 59],
+      weekday: [0, 6],
+      month: [1, 12],
+      day: [1, 31],
+    }[timeFunc]
+    if (
+      !NUMERIC_LITERAL_REGEX.test(s) ||
+      !NUMERIC_LITERAL_REGEX.test(e) ||
+      !Number.isInteger(start) ||
+      !Number.isInteger(end) ||
+      start < min ||
+      start > max ||
+      end < min ||
+      end > max
+    ) {
+      throw new Error(
+        `invalid ${timeFunc} range: expected integer endpoints from ${min} to ${max}`
+      )
     }
-    return `${fn} >= ${s} || ${fn} < ${e}`
+    if (start === end) {
+      throw new Error(`invalid ${timeFunc} range: start and end must differ`)
+    }
+    const operator = start < end ? '&&' : '||'
+    return `${fn} >= ${start} ${operator} ${fn} < ${end}`
   }
   const v = normalized.value.trim()
   if (!NUMERIC_LITERAL_REGEX.test(v)) return ''

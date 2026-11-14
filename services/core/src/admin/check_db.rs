@@ -175,6 +175,7 @@ fn required() -> Result<RequiredCapabilities, Rejection> {
         federated_auth: config::federated_auth_configured()
             .map_err(|_| Rejection::new("CHECK_DB_CONFIG_INVALID", 2))?,
         oauth2: config::oauth2_configured(),
+        managed_applications: config::managed_applications_configured(),
         market_oauth: config::market_oauth_configured(),
         wallet: config::wallet_configured(),
         bounties: config::bounties_configured(),

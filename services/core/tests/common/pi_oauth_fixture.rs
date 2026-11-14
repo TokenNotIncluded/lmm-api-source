@@ -11,7 +11,10 @@ use lmm_core::{
     },
     identity::{
         BrowserAuth, BrowserRegistration, BrowserSessionMetadata, IdentityError, IdentityStore,
-        grants::{AuthorizationRequest, LmmIssuer, LmmProfile, TokenForm, TokenWire},
+        grants::{
+            AuthorizationRequest, LmmIssuer, LmmProfile, ManagedAuthorizationRequest,
+            ManagedRecoveryKeys, ManagedTokenForm, ManagedTokenWire, TokenForm, TokenWire,
+        },
     },
     legacy_auth::{self, LegacyAuthConfig},
     model_http::{ChargePolicy, ModelGateway, UpstreamCredential},
@@ -149,8 +152,45 @@ pub(super) struct Fixture {
     stop: Option<oneshot::Sender<()>>,
     server: JoinHandle<()>,
 }
+
+#[derive(Clone, Copy)]
+enum FixtureApplications {
+    PiOnly,
+    PiAndManaged,
+}
+
+pub(super) enum ManagedKeyring {
+    Configured,
+    Missing,
+}
+
 impl Fixture {
-    async fn new(owner: &PgPool, developer: bool) -> Self {
+    pub async fn issuer_for_profile(
+        &self,
+        profile: LmmProfile,
+        managed_keys: ManagedKeyring,
+    ) -> LmmIssuer {
+        let router = routes(&self.provider.endpoint, 0, 0, PayloadPolicy::Adapt);
+        let store =
+            IdentityStore::from_pool(self.role.pool.clone()).with_dashboard_routing(router.clone());
+        let native = store.authorize(&self.native_key).await.unwrap();
+        let gateway = gateway_with_routes(&self.role.pool, router, native.credential_id);
+        let mut issuer = LmmIssuer::open(store, profile, 900, 86400)
+            .await
+            .unwrap()
+            .with_catalog_surface(gateway.oauth_catalog_surface());
+        if matches!(managed_keys, ManagedKeyring::Configured) {
+            let keys = ManagedRecoveryKeys::new(
+                "fixture-managed-v1",
+                vec![("fixture-managed-v1".into(), vec![83; 32])],
+            )
+            .unwrap();
+            issuer = issuer.with_managed_recovery_keys(keys).await.unwrap();
+        }
+        issuer
+    }
+
+    async fn new(owner: &PgPool, developer: bool, applications: FixtureApplications) -> Self {
         let (native, ledger, _native_session, native_key, native_id, _native_account) =
             model_fixture::fixture(owner, 1000).await;
         let provider = Provider::start(true).await;
@@ -217,11 +257,20 @@ impl Fixture {
             role.optional(scope).await;
         }
         sqlx::raw_sql(sqlx::AssertSqlSafe(format!("GRANT USAGE ON SCHEMA core_oauth TO {0}; GRANT SELECT ON core_oauth.contract TO {0}; GRANT SELECT,INSERT ON core_oauth.families,core_oauth.authorization_requests,core_oauth.authorization_codes,core_oauth.access_tokens,core_oauth.refresh_tokens TO {0}; GRANT UPDATE(scopes,revoked_at) ON core_oauth.families TO {0}; GRANT UPDATE(consumed_at) ON core_oauth.authorization_requests,core_oauth.authorization_codes,core_oauth.refresh_tokens TO {0}; GRANT EXECUTE ON FUNCTION core_oauth.readonly_scope_set(text[]),core_oauth.client_scope_set(text,text[],boolean) TO {0};",role.name))).execute(owner).await.unwrap();
+        if matches!(applications, FixtureApplications::PiAndManaged) {
+            let grants = include_str!("../../schema/managed_applications_grants.sql")
+                .replace(":\"runtime_role\"", &format!("\"{}\"", role.name));
+            sqlx::raw_sql(sqlx::AssertSqlSafe(grants))
+                .execute(owner)
+                .await
+                .unwrap();
+        }
         runtime_database::check(
             &role.pool,
             RequiredCapabilities {
                 models: true,
                 oauth2: true,
+                managed_applications: matches!(applications, FixtureApplications::PiAndManaged),
                 web_identity: true,
                 ..Default::default()
             },
@@ -231,14 +280,25 @@ impl Fixture {
         let gateway =
             gateway_with_routes(&role.pool, router.clone(), native_id).with_local_streaming();
         let store = IdentityStore::from_pool(role.pool.clone()).with_dashboard_routing(router);
-        let profile = LmmProfile::new(ISSUER, vec!["allowed".into()])
+        let mut profile = LmmProfile::new(ISSUER, vec!["allowed".into()])
             .unwrap()
             .with_pi_budget_limit(1000)
             .unwrap();
-        let issuer = LmmIssuer::open(store.clone(), profile, 900, 86400)
+        if matches!(applications, FixtureApplications::PiAndManaged) {
+            profile = profile.with_managed_budget_limit(1000).unwrap();
+        }
+        let mut issuer = LmmIssuer::open(store.clone(), profile, 900, 86400)
             .await
             .unwrap()
             .with_catalog_surface(gateway.oauth_catalog_surface());
+        if matches!(applications, FixtureApplications::PiAndManaged) {
+            let keys = ManagedRecoveryKeys::new(
+                "fixture-managed-v1",
+                vec![("fixture-managed-v1".into(), vec![83; 32])],
+            )
+            .unwrap();
+            issuer = issuer.with_managed_recovery_keys(keys).await.unwrap();
+        }
         let gateway = gateway.with_oauth2_issuer(issuer.clone());
         let config = LegacyAuthConfig::new(ISSUER, &[43; 32])
             .unwrap()
@@ -286,6 +346,103 @@ impl Fixture {
     }
     pub fn request(&self) -> AuthorizationRequest {
         AuthorizationRequest{response_type:"code".into(),client_id:"lmm-pi".into(),redirect_uri:REDIRECT.into(),scope:"catalog:read balance:read usage:read models:invoke mcp:bounties mcp:drawing remote:control".into(),resource:format!("{ISSUER}/api/oauth2"),code_challenge:URL_SAFE_NO_PAD.encode(Sha256::digest(VERIFIER)),code_challenge_method:"S256".into(),state:"synthetic-pi-state".into()}
+    }
+    pub fn managed_request(&self, installation: &str) -> ManagedAuthorizationRequest {
+        ManagedAuthorizationRequest {
+            response_type: "code".into(),
+            client_id: "lmm-cc-switch".into(),
+            redirect_uri: REDIRECT.into(),
+            scope: "catalog:read balance:read usage:read models:invoke".into(),
+            resource: format!("{ISSUER}/api/oauth2"),
+            code_challenge: URL_SAFE_NO_PAD.encode(Sha256::digest(VERIFIER)),
+            code_challenge_method: "S256".into(),
+            state: "synthetic-managed-state".into(),
+            installation_id: installation.into(),
+            application: "cc-switch".into(),
+            display_label: "Independent managed QA installation".into(),
+        }
+    }
+    /// Real Core/PG consent for financial tests, not browser/TLS acceptance.
+    pub async fn managed_token(&self, cap: i64, installation: &str) -> ManagedTokenWire {
+        let pending = self
+            .issuer
+            .begin_managed(self.managed_request(installation))
+            .await
+            .unwrap();
+        let consent = self
+            .issuer
+            .continue_authorization(&pending.binding, &pending.csrf, Some(&self.refresh))
+            .await
+            .unwrap();
+        assert_eq!(consent.client_id, "lmm-cc-switch");
+        let redirect = self
+            .issuer
+            .consent_with_budget(
+                &consent.binding,
+                &consent.csrf,
+                Some(&self.refresh),
+                true,
+                Some(cap),
+            )
+            .await
+            .unwrap();
+        let callback = reqwest::Url::parse(&redirect.uri).unwrap();
+        assert_eq!(
+            callback.origin().ascii_serialization(),
+            "http://127.0.0.1:38423"
+        );
+        assert_eq!(
+            callback
+                .query_pairs()
+                .find(|(key, _)| key == "state")
+                .unwrap()
+                .1,
+            "synthetic-managed-state"
+        );
+        let code = callback
+            .query_pairs()
+            .find(|(key, _)| key == "code")
+            .unwrap()
+            .1
+            .into_owned();
+        let request = ManagedTokenForm {
+            grant_type: "authorization_code".into(),
+            client_id: "lmm-cc-switch".into(),
+            resource: format!("{ISSUER}/api/oauth2"),
+            installation_id: installation.into(),
+            code: Some(code),
+            redirect_uri: Some(REDIRECT.into()),
+            code_verifier: Some(VERIFIER.into()),
+            refresh_token: None,
+            scope: None,
+            rotation_id: None,
+        };
+        self.issuer
+            .token_managed(request.validate(self.issuer.profile()).unwrap())
+            .await
+            .unwrap()
+    }
+    pub async fn managed_refresh(
+        &self,
+        token: &str,
+        installation: &str,
+        rotation: &str,
+    ) -> Result<ManagedTokenWire, IdentityError> {
+        let request = ManagedTokenForm {
+            grant_type: "refresh_token".into(),
+            client_id: "lmm-cc-switch".into(),
+            resource: format!("{ISSUER}/api/oauth2"),
+            installation_id: installation.into(),
+            code: None,
+            redirect_uri: None,
+            code_verifier: None,
+            refresh_token: Some(token.into()),
+            scope: None,
+            rotation_id: Some(rotation.into()),
+        };
+        self.issuer
+            .token_managed(request.validate(self.issuer.profile())?)
+            .await
     }
     pub async fn token(&self, cap: i64) -> TokenWire {
         let request = self.request();
@@ -459,7 +616,27 @@ where
     F: FnOnce(Arc<Fixture>) -> Fut + Send + 'static,
     Fut: Future<Output = ()> + Send + 'static,
 {
-    let fixture = Arc::new(Fixture::new(&pool, developer).await);
+    with_fixture_applications(pool, developer, FixtureApplications::PiOnly, case).await;
+}
+
+pub(super) async fn with_managed_fixture<F, Fut>(pool: PgPool, developer: bool, case: F)
+where
+    F: FnOnce(Arc<Fixture>) -> Fut + Send + 'static,
+    Fut: Future<Output = ()> + Send + 'static,
+{
+    with_fixture_applications(pool, developer, FixtureApplications::PiAndManaged, case).await;
+}
+
+async fn with_fixture_applications<F, Fut>(
+    pool: PgPool,
+    developer: bool,
+    applications: FixtureApplications,
+    case: F,
+) where
+    F: FnOnce(Arc<Fixture>) -> Fut + Send + 'static,
+    Fut: Future<Output = ()> + Send + 'static,
+{
+    let fixture = Arc::new(Fixture::new(&pool, developer, applications).await);
     let copy = fixture.clone();
     let result = tokio::spawn(async move { case(copy).await }).await;
     let fixture = match Arc::try_unwrap(fixture) {

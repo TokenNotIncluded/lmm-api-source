@@ -1,11 +1,12 @@
-import { ImagePlus, SendHorizontal, Square, X } from 'lucide-react'
 /* Copyright (C) 2026 LIghtJUNction. AGPL-3.0-or-later. */
+import { ImagePlus, SendHorizontal, Square, X } from 'lucide-react'
 import { useRef, useState, type FormEvent } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
+import { useDeadlineClock } from '@/hooks/use-deadline-clock'
 
 import type { RemoteCommandInput, RemoteKey } from './commands'
 import { prepareRemoteImage, type RemoteImage } from './images'
@@ -26,11 +27,20 @@ export function RemoteQuestionCard({
   const [answer, setAnswer] = useState('')
   const [error, setError] = useState('')
   const [sending, setSending] = useState(false)
+  const boundary = useDeadlineClock(
+    question.expires_at === undefined ? [] : [question.expires_at],
+    -Infinity
+  )
   const expired =
-    question.expires_at !== undefined && question.expires_at <= Date.now()
+    question.expires_at !== undefined && boundary >= question.expires_at
   const blocked = disabled || sending || expired
   async function submit(command: RemoteCommandInput) {
-    if (blocked) return
+    if (
+      blocked ||
+      (question.expires_at !== undefined && question.expires_at <= Date.now())
+    ) {
+      return
+    }
     setError('')
     setSending(true)
     try {

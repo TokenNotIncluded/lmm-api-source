@@ -18,7 +18,6 @@ For commercial licensing, please contact support@quantumnous.com
 */
 /* eslint-disable react-refresh/only-export-components */
 import { useQueryClient } from '@tanstack/react-query'
-import type { ColumnDef } from '@tanstack/react-table'
 import {
   AlertTriangle,
   ChevronDown,
@@ -55,6 +54,7 @@ import {
 } from '@/lib/currency'
 import { openExternalUrl } from '@/lib/external-navigation'
 import { formatTimestampToDate } from '@/lib/format'
+import type { ColumnDef } from '@/lib/table'
 import { truncateText } from '@/lib/utils'
 import { validatedExternalUrl } from '@/lib/validated-external-url'
 

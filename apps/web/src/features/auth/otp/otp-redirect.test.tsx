@@ -6,8 +6,10 @@ import { after, afterEach, test } from 'node:test'
 
 import { Window } from 'happy-dom'
 import type { ReactNode } from 'react'
+import { toast } from 'sonner'
 
 import type { AuthBundle } from '@/stores/auth-store'
+import { installSupportedAuthBrowser } from '@/test-support/supported-auth-browser'
 
 const origin = 'https://console.example.test'
 const dom = new Window({ url: `${origin}/sign-in` })
@@ -62,6 +64,9 @@ mock.module('@/hooks/use-status', () => ({
   }),
 }))
 
+// Normal supported browser; install after this fixture replaces its globals.
+installSupportedAuthBrowser()
+
 const { act } = await import('react')
 const { createRoot } = await import('react-dom/client')
 const {
@@ -84,6 +89,7 @@ const { Route: signUpFileRoute } = await import('@/routes/(auth)/sign-up')
 const { SignIn } = await import('../sign-in')
 const { SignUp } = await import('../sign-up')
 const { Otp } = await import('./index')
+const { AuthCookieRecovery } = await import('@/components/auth-cookie-recovery')
 
 const i18n = createInstance()
 await i18n.use(initReactI18next).init({ lng: 'en', resources: {} })
@@ -144,7 +150,14 @@ async function mount(entry: string) {
     }
     throw new Error(`Unexpected authentication request: ${url}`)
   }) as typeof api.post
-  const rootRoute = createRootRoute({ component: Outlet })
+  const rootRoute = createRootRoute({
+    component: () => (
+      <>
+        <AuthCookieRecovery />
+        <Outlet />
+      </>
+    ),
+  })
   const authRoute = createRoute({
     getParentRoute: () => rootRoute,
     id: '(auth)',
@@ -561,4 +574,52 @@ test('disabled registration stays disabled while its sign-in link preserves a sa
   assert.equal(router.state.location.pathname, '/sign-in')
   assert.equal(router.state.location.search.redirect, target)
   assert.equal(calls.length, 0)
+})
+
+test('late OTP rejection after real Cookie block leaves root Recovery alone and no login', async () => {
+  const { withAuthCookieLock, getAuthCookieBlockedState } =
+    await import('@/lib/auth-cookie')
+  useAuthStore
+    .getState()
+    .auth.setPending2FAFlowToken('synthetic-blocked-otp-flow')
+  const { host, router } = await mount('/otp')
+  let reject!: (error: Error) => void
+  const pending = new Promise<never>((_, fail) => {
+    reject = fail
+  })
+  let requests = 0
+  api.post = (async () => {
+    requests++
+    return pending
+  }) as typeof api.post
+  const errors: unknown[] = []
+  const original = toast.error
+  toast.error = (message) => {
+    errors.push(message)
+    return 'synthetic-toast'
+  }
+  try {
+    await otpLogin(host)
+    assert.equal(requests, 1)
+    await act(async () => {
+      Object.defineProperty(navigator, 'locks', {
+        configurable: true,
+        value: undefined,
+      })
+      await assert.rejects(
+        withAuthCookieLock(async () => {
+          throw new Error('must not dispatch')
+        })
+      )
+      assert.ok(getAuthCookieBlockedState())
+      reject(new Error('late transport failure'))
+    })
+    assert.equal(host.querySelectorAll('[role="alert"]').length, 1)
+    assert.match(host.textContent || '', /End this tab's local session/)
+    assert.deepEqual(errors, [])
+    assert.equal(router.state.location.pathname, '/otp')
+    assert.equal(useAuthStore.getState().auth.user, null)
+  } finally {
+    toast.error = original
+  }
 })

@@ -23,7 +23,6 @@ import {
   useInfiniteQuery,
 } from '@tanstack/react-query'
 import { useNavigate, getRouteApi } from '@tanstack/react-router'
-import type { Table } from '@tanstack/react-table'
 import { Download, Eye, EyeOff } from 'lucide-react'
 import { useState, useCallback, useMemo, useRef, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -49,6 +48,7 @@ import {
 } from '@/features/native-users/access'
 import { readNativeUserGroups } from '@/features/native-users/api'
 import { getUserGroups } from '@/lib/api'
+import type { RowData, Table } from '@/lib/table'
 import { useAuthStore } from '@/stores/auth-store'
 
 import { exportHistoricalUsage, exportNativeUsage } from '../api'
@@ -120,11 +120,11 @@ function buildSearchSourceKey(values: {
     .join('\u001f')
 }
 
-interface CommonLogsFilterBarProps<TData> {
+interface CommonLogsFilterBarProps<TData extends RowData> {
   table: Table<TData>
 }
 
-export function CommonLogsFilterBar<TData>(
+export function CommonLogsFilterBar<TData extends RowData>(
   props: CommonLogsFilterBarProps<TData>
 ) {
   const { t } = useTranslation()
@@ -163,7 +163,7 @@ export function CommonLogsFilterBar<TData>(
         page: 1,
         pageSize: 1,
         searchParams,
-        columnFilters: props.table.getState().columnFilters,
+        columnFilters: props.table.state.columnFilters,
         isAdmin,
       })
       const options = { params, scope, signal: controller.signal }

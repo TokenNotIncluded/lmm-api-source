@@ -25,7 +25,7 @@ import { useAuthStore } from '@/stores/auth-store'
 export const Route = createFileRoute('/_authenticated/workspace/')({
   beforeLoad: () => {
     if (isConsoleActivated(useAuthStore.getState().auth.user)) {
-      throw redirect({ to: '/open-source-bounties' })
+      throw redirect({ to: '/bounties' })
     }
   },
   component: ContributorWorkspace,

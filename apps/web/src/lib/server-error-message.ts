@@ -20,6 +20,8 @@ import { getRequestErrorToastId } from './request-error-toast'
 import { isRateLimitedError } from './request-rate-limit'
 
 const serverErrorMessageKeys = {
+  OAUTH_ACCESS_DENIED: 'OAuth failed',
+  AUTH_LEGAL_ACCEPTANCE_REQUIRED: 'Please agree to the legal terms first',
   MFA_CODE_INVALID: 'Invalid code',
   MFA_FLOW_EXPIRED:
     'This login flow has expired or has already been used. Sign in again.',
@@ -88,6 +90,38 @@ export function getServerErrorMessage(value: unknown): string | null {
   }
   return null
   // @context-fold end server-error-description
+}
+
+/** Only an explicit OAuth denial may supply its own short, plain-text copy. */
+export function getSafeOAuthAccessDeniedMessage(value: unknown): string | null {
+  const payload = serverErrorPayload(value)
+  if (!payload) return null
+  // A bare exception's message is not a server response envelope.
+  if (
+    payload === value &&
+    (value instanceof Error ||
+      (payload.success !== false && !isRecord(payload.error)))
+  ) {
+    return null
+  }
+  const nested = isRecord(payload.error) ? payload.error : null
+  const code = typeof payload.code === 'string' ? payload.code : nested?.code
+  if (code !== 'OAUTH_ACCESS_DENIED') return null
+  const message = nested?.message ?? payload.message
+  if (typeof message !== 'string') return null
+  const text = message.trim()
+  if (
+    !text ||
+    text.length > 500 ||
+    /[<>]/u.test(text) ||
+    Array.from(message).some((char) => {
+      const code = char.charCodeAt(0)
+      return code < 32 || (code >= 127 && code <= 159)
+    })
+  ) {
+    return null
+  }
+  return text
 }
 
 export function getServerErrorMessageKey(value: unknown): string | null {

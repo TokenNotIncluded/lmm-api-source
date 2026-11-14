@@ -27,6 +27,7 @@ import {
 } from '@/features/subscriptions/api'
 import { formatTimestamp } from '@/features/subscriptions/lib'
 import type { SubscriptionResetVoucher } from '@/features/subscriptions/types'
+import { useDeadlineClock } from '@/hooks/use-deadline-clock'
 import { useWalletCurrency } from '@/hooks/use-wallet-currency'
 
 export function SubscriptionResetVouchers(props: { onRedeemed?: () => void }) {
@@ -47,12 +48,15 @@ export function SubscriptionResetVouchers(props: { onRedeemed?: () => void }) {
     staleTime: 15_000,
   })
   const vouchers = vouchersQuery.data?.data ?? []
+  const now = useDeadlineClock(
+    vouchers.map((voucher) => voucher.expires_at * 1000)
+  )
   const hasVoucherData = vouchersQuery.data != null
   const voucherStatus = (voucher: SubscriptionResetVoucher) =>
     redeemedVoucherIds.has(voucher.id)
       ? 'redeemed'
       : voucher.status === 'available' &&
-          (voucher.expired === true || voucher.expires_at <= Date.now() / 1000)
+          (voucher.expired === true || voucher.expires_at * 1000 <= now)
         ? 'expired'
         : voucher.status
   const availableVouchers = vouchers.filter(
@@ -117,7 +121,16 @@ export function SubscriptionResetVouchers(props: { onRedeemed?: () => void }) {
   }
 
   const redeem = async () => {
-    if (!selected) return
+    if (
+      !selected ||
+      redeeming ||
+      selected.status !== 'available' ||
+      selected.expired === true ||
+      selected.expires_at <= Date.now() / 1000 ||
+      redeemedVoucherIds.has(selected.id)
+    ) {
+      return
+    }
     setRedeeming(true)
     try {
       const response = await redeemSubscriptionResetVoucher(selected.id)
@@ -329,6 +342,7 @@ export function SubscriptionResetVouchers(props: { onRedeemed?: () => void }) {
           )}
           confirmText={t('Redeem reset')}
           isLoading={redeeming}
+          disabled={voucherStatus(selected) !== 'available'}
           handleConfirm={() => void redeem()}
         />
       )}

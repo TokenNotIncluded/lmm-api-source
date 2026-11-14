@@ -25,7 +25,10 @@ import {
   normalizeBackendCapabilities,
 } from '@/lib/backend-capabilities'
 import { createQueryRetry } from '@/lib/query-retry'
-import { getSiteNavigation, siteNavigationQueryKey } from '@/lib/site-navigation'
+import {
+  getSiteNavigation,
+  siteNavigationQueryKey,
+} from '@/lib/site-navigation'
 import { useAuthStore } from '@/stores/auth-store'
 import { useSystemConfigStore } from '@/stores/system-config-store'
 
@@ -51,7 +54,8 @@ export function useStatus() {
   // response never changes the independently verified Core capabilities.
   const navigation = useQuery({
     queryKey: siteNavigationQueryKey,
-    queryFn: () => getSiteNavigation({ skipBusinessError: true, skipErrorHandler: true }),
+    queryFn: () =>
+      getSiteNavigation({ skipBusinessError: true, skipErrorHandler: true }),
     staleTime: 30_000,
     refetchOnWindowFocus: false,
     retry: createQueryRetry(true, 1),

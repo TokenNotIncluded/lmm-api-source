@@ -42,6 +42,7 @@ import {
   TooltipTrigger,
   TooltipProvider,
 } from '@/components/ui/tooltip'
+import { useLocalDay } from '@/hooks/use-deadline-clock'
 import { useWalletCurrency } from '@/hooks/use-wallet-currency'
 import { toIntlLocale } from '@/i18n/languages'
 import { cn } from '@/lib/utils'
@@ -142,7 +143,8 @@ function CheckinCalendar({
 
   // Native days and the default month come from the server. The original Go
   // response has no calendar fields, so its existing browser fallback remains.
-  const browserToday = new Date()
+  const browserDay = useLocalDay()
+  const browserToday = new Date(browserDay)
   const legacyToday = `${browserToday.getFullYear()}-${String(
     browserToday.getMonth() + 1
   ).padStart(2, '0')}-${String(browserToday.getDate()).padStart(2, '0')}`

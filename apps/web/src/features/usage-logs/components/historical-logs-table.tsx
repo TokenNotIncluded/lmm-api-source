@@ -1,16 +1,16 @@
 /* Copyright (C) 2026 LIghtJUNction. SPDX-License-Identifier: AGPL-3.0-or-later */
-import type {
-  ColumnDef,
-  ColumnFiltersState,
-  OnChangeFn,
-  PaginationState,
-} from '@tanstack/react-table'
 import { useTranslation } from 'react-i18next'
 
 import { DataTablePage, useDataTable } from '@/components/data-table'
 import { useMediaQuery } from '@/hooks'
 import { useHistoricalQuotaMoney } from '@/hooks/use-historical-quota-money'
 import { formatTimestampToDate } from '@/lib/format'
+import type {
+  ColumnDef,
+  ColumnFiltersState,
+  OnChangeFn,
+  PaginationState,
+} from '@/lib/table'
 
 import type { HistoricalLog } from '../lib/history-response'
 import { CommonLogsFilterBar } from './common-logs-filter-bar'

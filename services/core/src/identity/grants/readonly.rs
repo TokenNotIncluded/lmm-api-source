@@ -86,7 +86,7 @@ impl LmmIssuer {
             .execute(&mut *tx)
             .await?;
         let actor = self.authorize_read(&mut tx, access, "usage:read").await?;
-        if actor.client_id != "lmm-pi" {
+        if !protocol::is_model_client(&actor.client_id) {
             return Err(IdentityError::Forbidden.into());
         }
         let result =

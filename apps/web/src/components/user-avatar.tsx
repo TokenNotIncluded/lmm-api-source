@@ -65,8 +65,6 @@ function UserAvatarContent({
   useEffect(() => {
     let active = true
     let objectUrl: string | undefined
-    setGravatarUrl(null)
-    setImageLoaded(false)
 
     void getGravatarImage(email, gravatarSize)
       .then((image) => {

@@ -133,6 +133,7 @@ export function attachDirectoryGesture(
       Math.abs(event.deltaX) > Math.abs(event.deltaY) ||
       ignoresTarget(event.target)
     ) {
+      reset()
       return
     }
     if (!available() || event.deltaY >= 0) {

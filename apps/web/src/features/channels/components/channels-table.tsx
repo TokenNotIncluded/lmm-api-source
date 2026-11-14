@@ -18,12 +18,6 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { useQuery } from '@tanstack/react-query'
 import { getRouteApi } from '@tanstack/react-router'
-import type {
-  ColumnFiltersState,
-  OnChangeFn,
-  SortingState,
-  Row,
-} from '@tanstack/react-table'
 import { Eye, EyeOff } from 'lucide-react'
 import { useState, useMemo, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -47,6 +41,12 @@ import { useMediaQuery } from '@/hooks'
 import { useTableUrlState } from '@/hooks/use-table-url-state'
 import { getLobeIcon } from '@/lib/lobe-icon'
 import { getServerErrorMessage } from '@/lib/server-error-message'
+import type {
+  ColumnFiltersState,
+  OnChangeFn,
+  SortingState,
+  Row,
+} from '@/lib/table'
 
 import { getChannels, searchChannels, getGroups } from '../api'
 import {

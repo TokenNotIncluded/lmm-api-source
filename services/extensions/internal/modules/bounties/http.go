@@ -112,12 +112,16 @@ func body(w http.ResponseWriter, r *http.Request) (webInput, error) {
 	return in, nil
 }
 func (h *HTTP) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	base := "/api/open-source-bounties"
-	if r.URL.Path != base && !strings.HasPrefix(r.URL.Path, base+"/") {
+	path := ""
+	switch {
+	case r.URL.Path == "/api/bounties" || strings.HasPrefix(r.URL.Path, "/api/bounties/"):
+		path = strings.Trim(strings.TrimPrefix(r.URL.Path, "/api/bounties"), "/")
+	case r.URL.Path == "/api/open-source-bounties" || strings.HasPrefix(r.URL.Path, "/api/open-source-bounties/"):
+		path = strings.Trim(strings.TrimPrefix(r.URL.Path, "/api/open-source-bounties"), "/")
+	default:
 		http.NotFound(w, r)
 		return
 	}
-	path := strings.Trim(strings.TrimPrefix(r.URL.Path, base), "/")
 	parts := strings.Split(path, "/")
 	ctx := r.Context()
 	if r.Method == http.MethodGet && path == "" {

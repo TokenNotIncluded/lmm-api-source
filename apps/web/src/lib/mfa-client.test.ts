@@ -10,6 +10,7 @@ import {
 } from 'axios'
 
 import { useAuthStore, type AuthBundle } from '@/stores/auth-store'
+import { installSupportedAuthBrowser } from '@/test-support/supported-auth-browser'
 
 import {
   api,
@@ -26,6 +27,9 @@ import {
   createRefreshRunner,
   isAuthBundle,
 } from './auth-session'
+
+// Normal supported browser; install after this fixture replaces its globals.
+installSupportedAuthBrowser()
 
 const originalAdapter = api.defaults.adapter
 function bundle(token = 'initial', sid = 'mfa-session', id = 42): AuthBundle {

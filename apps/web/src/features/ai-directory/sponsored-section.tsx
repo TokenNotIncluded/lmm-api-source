@@ -24,6 +24,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { refreshCurrentAccount } from '@/features/onboarding/use-auth-user-refresh'
+import { useDeadlineClock } from '@/hooks/use-deadline-clock'
 import { useWalletCurrency } from '@/hooks/use-wallet-currency'
 import { isConsoleActivated } from '@/lib/console-activation'
 import { formatFiatCurrencyAmount } from '@/lib/currency'
@@ -153,6 +154,9 @@ function AdvertisementDialog({
     staleTime: 30_000,
     retry: false,
   })
+  const now = useDeadlineClock(
+    (mine.data?.items ?? []).map((ad) => ad.expires_at * 1000)
+  )
   const mutation = useMutation({
     mutationFn: createDirectoryAd,
     onSuccess: ({ ad }) => {
@@ -352,8 +356,7 @@ function AdvertisementDialog({
                     >
                       <span className='truncate'>{ad.name}</span>
                       <span>
-                        {ad.expires_at > Date.now() / 1000 &&
-                        ad.status === 'active'
+                        {ad.expires_at * 1000 > now && ad.status === 'active'
                           ? t('Active')
                           : t('Ended')}
                         {' · '}

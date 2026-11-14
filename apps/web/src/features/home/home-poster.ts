@@ -148,11 +148,12 @@ export function createHomePoster(
       }
       for (let i = 0; i < points.length; i++) {
         const pixel = palette.ink(points[i].color)
-        for (let tone = 0; tone < TONES - 1; tone++)
-          {paint.tones[i * TONES + tone] = palette.coverage(
+        for (let tone = 0; tone < TONES - 1; tone++) {
+          paint.tones[i * TONES + tone] = palette.coverage(
             pixel,
             depthAlpha(tone)
-          )}
+          )
+        }
         // The nearest points catch a little light, like a print highlight.
         const lift = palette.light ? 0 : 0.22
         paint.tones[i * TONES + TONES - 1] = pack(
@@ -363,8 +364,9 @@ export function createHomePoster(
             col++
           ) {
             // Rounded dots: drop the four corners of larger brushes.
-            if (round && edgeRow && (col === dx || col === dx + size - 1))
-              {continue}
+            if (round && edgeRow && (col === dx || col === dx + size - 1)) {
+              continue
+            }
             const slot = row * stride + col
             if (z < depths[slot]) continue
             depths[slot] = z

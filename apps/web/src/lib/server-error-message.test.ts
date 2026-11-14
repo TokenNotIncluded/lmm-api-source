@@ -21,6 +21,7 @@ import { describe, test } from 'node:test'
 
 import {
   getServerErrorMessage,
+  getSafeOAuthAccessDeniedMessage,
   getServerErrorMessageKey,
   getServerErrorToastId,
 } from './server-error-message'
@@ -159,4 +160,51 @@ describe('server error message mapping', () => {
       )
     }
   })
+})
+
+test('OAuth denial and legal-acceptance codes use existing localized keys', () => {
+  assert.equal(
+    getServerErrorMessageKey({ code: 'OAUTH_ACCESS_DENIED' }),
+    'OAuth failed'
+  )
+  assert.equal(
+    getServerErrorMessageKey({
+      error: { code: 'AUTH_LEGAL_ACCEPTANCE_REQUIRED' },
+    }),
+    'Please agree to the legal terms first'
+  )
+})
+test('only an explicit server OAuth denial exposes short plain text, never generic exceptions or HTML', () => {
+  const denial = {
+    success: false,
+    code: 'OAUTH_ACCESS_DENIED',
+    message: 'Ask your workspace owner to enable this sign-in.',
+  }
+  assert.equal(getSafeOAuthAccessDeniedMessage(denial), denial.message)
+  assert.equal(
+    getSafeOAuthAccessDeniedMessage({
+      response: {
+        data: { error: { code: denial.code, message: denial.message } },
+      },
+    }),
+    denial.message
+  )
+  for (const message of [
+    '<script>secret()</script>',
+    'unsafe\nstack',
+    'x'.repeat(501),
+    '',
+  ]) {
+    assert.equal(getSafeOAuthAccessDeniedMessage({ ...denial, message }), null)
+  }
+  assert.equal(
+    getSafeOAuthAccessDeniedMessage(
+      Object.assign(new Error('internal file secret'), { code: denial.code })
+    ),
+    null
+  )
+  assert.equal(
+    getSafeOAuthAccessDeniedMessage({ ...denial, code: 'SOME_INTERNAL_ERROR' }),
+    null
+  )
 })

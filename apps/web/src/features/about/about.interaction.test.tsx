@@ -108,7 +108,7 @@ mock.module('@/components/rich-content', () => ({
   ),
 }))
 
-const { act } = await import('react')
+const { act, useEffect } = await import('react')
 const { createRoot } = await import('react-dom/client')
 const { QueryClient, QueryClientProvider } =
   await import('@tanstack/react-query')
@@ -135,8 +135,12 @@ let singleSave: ReturnType<typeof useUpdateOption> | undefined
 let batchSave: ReturnType<typeof useUpdateOptions> | undefined
 
 function SaveHarness() {
-  singleSave = useUpdateOption()
-  batchSave = useUpdateOptions()
+  const single = useUpdateOption()
+  const batch = useUpdateOptions()
+  useEffect(() => {
+    singleSave = single
+    batchSave = batch
+  })
   return null
 }
 const flush = () => new Promise((resolve) => setTimeout(resolve, 30))
@@ -353,11 +357,12 @@ test('single and batch About saves refresh an already mounted page', async () =>
   }) as typeof api.post
   assert.match(host.textContent ?? '', /Before save/)
   // Legacy options responses lack the newer capabilities field.
-  const seedLegacyOptions = () => client?.setQueryData(['system-options'], {
-    success: true,
-    message: '',
-    data: [],
-  })
+  const seedLegacyOptions = () =>
+    client?.setQueryData(['system-options'], {
+      success: true,
+      message: '',
+      data: [],
+    })
   seedLegacyOptions()
   const activeSingle = singleSave
   assert.ok(activeSingle)

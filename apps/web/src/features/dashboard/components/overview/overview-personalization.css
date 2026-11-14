@@ -6,7 +6,8 @@
   min-width: 0;
   overflow: hidden;
   padding: clamp(1.4rem, 3cqi, 2.5rem);
-  border: 1px solid color-mix(in oklch, var(--forge-paper-light) 8%, transparent);
+  border: 1px solid
+    color-mix(in oklch, var(--forge-paper-light) 8%, transparent);
   border-radius: var(--radius-xl);
   background:
     radial-gradient(
@@ -16,7 +17,8 @@
     ),
     var(--forge-night);
   color: var(--forge-paper-light);
-  box-shadow: 0 1.5rem 4rem -3rem color-mix(in oklch, var(--forge-night) 60%, transparent);
+  box-shadow: 0 1.5rem 4rem -3rem
+    color-mix(in oklch, var(--forge-night) 60%, transparent);
 }
 .overview-greeting-meta,
 .overview-greeting-footer {

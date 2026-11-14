@@ -4,6 +4,7 @@ import { after, afterEach, beforeEach, test } from 'node:test'
 
 import { api } from '@/lib/api'
 import { useAuthStore } from '@/stores/auth-store'
+import { installSupportedAuthBrowser } from '@/test-support/supported-auth-browser'
 
 import {
   AccountClosureFailure,
@@ -34,6 +35,9 @@ Object.defineProperty(globalThis, 'window', {
     },
   },
 })
+// Normal supported browser; install after this fixture replaces its globals.
+installSupportedAuthBrowser()
+
 beforeEach(() => {
   storage.clear()
   refuseStorage = false

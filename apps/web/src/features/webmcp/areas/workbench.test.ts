@@ -378,7 +378,7 @@ test('relay routing and bounty detail are GET-only and drop contributor emails',
     assert.equal(detail.ledger_entries, 2)
     assert.deepEqual(requested, [
       '/api/public-relays/routing',
-      '/api/open-source-bounties/projects/4',
+      '/api/bounties/projects/4',
     ])
   } finally {
     api.get = original
@@ -396,7 +396,7 @@ test('bounty navigation passes numeric search params the route schema accepts', 
   await tool.execute({ project_id: 12, challenge_id: 7 }, { signal: signal() })
   const call = calls.at(-1)
   assert.ok(call)
-  assert.equal(call.to, '/open-source-bounties')
+  assert.equal(call.to, '/bounties')
   assert.deepEqual(call.search, { projectId: 12, challengeId: 7 })
   // The route schema is z.number(), so these must not be strings.
   assert.equal(typeof call.search?.projectId, 'number')

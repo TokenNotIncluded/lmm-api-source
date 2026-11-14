@@ -6,6 +6,8 @@ import { after, test } from 'node:test'
 
 import { Window } from 'happy-dom'
 
+import { installSupportedAuthBrowser } from '@/test-support/supported-auth-browser'
+
 const dom = new Window({ url: 'https://console.example.test/profile' })
 for (const key of [
   'window',
@@ -24,6 +26,9 @@ for (const key of [
   })
 }
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true })
+// Normal supported browser; install after this fixture replaces its globals.
+installSupportedAuthBrowser()
+
 const realRouter = await import('@tanstack/react-router')
 mock.module('@tanstack/react-router', () => ({
   ...realRouter,

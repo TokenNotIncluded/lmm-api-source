@@ -19,6 +19,7 @@ pub mod community_read;
 pub mod config;
 pub mod console_compat;
 pub mod core_schema;
+mod crypto_key_material;
 pub mod directory_ads;
 pub mod edge_access;
 pub mod events;

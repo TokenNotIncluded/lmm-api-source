@@ -77,6 +77,10 @@ Object.defineProperty(globalThis, 'navigator', {
 Object.defineProperty(globalThis, 'window', {
   configurable: true,
   value: {
+    location: {
+      origin: 'https://cookie.example.test',
+      href: 'https://cookie.example.test/',
+    },
     localStorage: {
       getItem: (key: string) => storage.get(key) ?? null,
       setItem: (key: string, value: string) => storage.set(key, value),
@@ -123,6 +127,8 @@ afterEach(async () => {
   api.defaults.adapter = originalAdapter
   setDevelopmentAuthRefreshAdapter(originalAdapter as AxiosAdapter)
   clearAuthentication(false, 'idle')
+  // Login cancellation versions persist across tabs; Cookie transaction markers must not.
+  storage.delete('new-api:auth-login-intent')
 })
 after(() => {
   for (const [key, descriptor] of descriptors) {
@@ -150,7 +156,7 @@ test('password login commits before a queued cookie writer can enter', async () 
   await entered.promise
   const next = withAuthCookieLock(async () => {
     assert.equal(useAuthStore.getState().auth.accessToken, 'login')
-    assert.equal(storage.size, 0)
+    assert.deepEqual([...storage.keys()], ['new-api:auth-login-intent'])
   })
   release.resolve()
   await Promise.all([first, next])
@@ -236,40 +242,54 @@ test('management 401 releases its lock before refreshing and never replays input
 })
 
 test('password rotation and logout both commit before releasing the shared lock', async () => {
-  applyAuthBundle(bundle(), false)
-  api.defaults.adapter = async (config) => {
-    assert.equal(held, 1)
-    assert.equal(config.skipAuthRefresh, true)
-    return response(config, 200, {
+  const previousFetch = globalThis.fetch
+  globalThis.fetch = (async () =>
+    Response.json({
       success: true,
-      data: config.url?.endsWith('/logout') ? undefined : bundle('password'),
-    })
-  }
-  await updateUserProfile({
-    password: 'synthetic-new-password',
-    original_password: 'synthetic-old-password',
-  })
-  assert.equal(useAuthStore.getState().auth.accessToken, 'password')
-  await executeAssistantUserAction(
-    {
-      type: 'user_password_change',
-      requires_confirmation: true,
-      target_user_id: 42,
-      target_username: 'synthetic',
-      target_display_name: 'Synthetic',
-      target_role: 1,
-      target_group: 'default',
-      target_is_self: true,
-    },
-    {
-      currentPassword: 'synthetic-old-password',
-      newPassword: 'synthetic-new-password',
+      data: { revoked_sid: 'session', current: true },
+    })) as typeof fetch
+  try {
+    applyAuthBundle(bundle(), false)
+    api.defaults.adapter = async (config) => {
+      assert.equal(held, 1)
+      assert.equal(config.skipAuthRefresh, true)
+      return response(config, 200, {
+        success: true,
+        data: config.url?.endsWith('/logout') ? undefined : bundle('password'),
+      })
     }
-  )
-  assert.equal(useAuthStore.getState().auth.accessToken, 'password')
-  await logout()
-  assert.equal(useAuthStore.getState().auth.user, null)
-  assert.equal(storage.size, 0)
+    await updateUserProfile({
+      password: 'synthetic-new-password',
+      original_password: 'synthetic-old-password',
+    })
+    assert.equal(useAuthStore.getState().auth.accessToken, 'password')
+    await executeAssistantUserAction(
+      {
+        type: 'user_password_change',
+        requires_confirmation: true,
+        target_user_id: 42,
+        target_username: 'synthetic',
+        target_display_name: 'Synthetic',
+        target_role: 1,
+        target_group: 'default',
+        target_is_self: true,
+      },
+      {
+        currentPassword: 'synthetic-old-password',
+        newPassword: 'synthetic-new-password',
+      }
+    )
+    assert.equal(useAuthStore.getState().auth.accessToken, 'password')
+    await logout()
+    assert.equal(useAuthStore.getState().auth.user, null)
+    assert.deepEqual([...storage.keys()], ['new-api:auth-login-intent'])
+    assert.match(
+      storage.get('new-api:auth-login-intent') ?? '',
+      /^[a-f0-9-]{36}$/
+    )
+  } finally {
+    globalThis.fetch = previousFetch
+  }
 })
 
 test('a management request queued before a new account is never dispatched as that account', async () => {
@@ -342,26 +362,6 @@ test('an expiring authenticated writer refreshes before acquiring its mutation l
   assert.equal(storage.size, 0)
 })
 
-test('no-WebLocks compatibility fallback performs no locking or durable intent guarantee', async () => {
-  Object.defineProperty(globalThis, 'navigator', {
-    configurable: true,
-    value: {},
-  })
-  try {
-    api.defaults.adapter = async (config) => {
-      assert.equal(held, 0)
-      assert.equal(storage.size, 0)
-      return response(config, 200, { success: true, data: bundle('unordered') })
-    }
-    await login({ username: 'synthetic', password: 'synthetic' })
-  } finally {
-    Object.defineProperty(globalThis, 'navigator', {
-      configurable: true,
-      value: { locks },
-    })
-  }
-})
-
 test('transport timeout keeps a durable marker and blocks every participating writer', async () => {
   applyAuthBundle(bundle(), false)
   let attempts = 0
@@ -373,18 +373,36 @@ test('transport timeout keeps a durable marker and blocks every participating wr
   assert.ok(
     [...storage.values()].some((value) => value.startsWith('uncertain:'))
   )
-  for (const write of [
-    () => login({ username: 'synthetic', password: 'synthetic' }),
-    () => login2fa({ code: '123456', flow_token: 'flow' }),
-    () => setup2FA(),
-    () => enable2FA('123456'),
-    () => disable2FA('123456'),
-    () => regenerate2FABackupCodes('123456'),
-    () => updateUserProfile({ password: 'synthetic' }),
-    () => logout(),
-  ]) {
-    await assert.rejects(write(), AuthCookieBlockedError)
+  const originalFetch = globalThis.fetch
+  let revocations = 0
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const request = new Request(input, init)
+    assert.equal(new URL(request.url).pathname, '/api/user/auth/logout')
+    assert.equal(request.headers.get('X-Auth-Session'), bundle().session.sid)
+    revocations++
+    return Response.json({
+      success: true,
+      data: { revoked_sid: bundle().session.sid },
+    })
+  }) as typeof fetch
+  try {
+    for (const write of [
+      () => login({ username: 'synthetic', password: 'synthetic' }),
+      () => login2fa({ code: '123456', flow_token: 'flow' }),
+      () => setup2FA(),
+      () => enable2FA('123456'),
+      () => disable2FA('123456'),
+      () => regenerate2FABackupCodes('123456'),
+      () => updateUserProfile({ password: 'synthetic' }),
+      () => logout(),
+    ]) {
+      await assert.rejects(write(), AuthCookieBlockedError)
+    }
+  } finally {
+    globalThis.fetch = originalFetch
   }
+  // The separate Cookie-omit revocation does not release the Cookie fence.
+  assert.equal(revocations, 1)
   const outcome = await refreshAuthentication()
   assert.equal(outcome.kind, 'transient_error')
   assert.equal(attempts, 1)

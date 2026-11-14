@@ -75,6 +75,8 @@ func RegisterBuiltinHTTP(mux RouteRegistrar, handlers BuiltinHTTP) {
 		mux.Handle("/api/wallet/topup-link", handlers.Wallet)
 	}
 	if !store.Missing(handlers.Bounties) {
+		mux.Handle("/api/bounties", handlers.Bounties)
+		mux.Handle("/api/bounties/", handlers.Bounties)
 		mux.Handle("/api/open-source-bounties", handlers.Bounties)
 		mux.Handle("/api/open-source-bounties/", handlers.Bounties)
 	}

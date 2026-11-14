@@ -3,28 +3,8 @@ import { useTranslation } from 'react-i18next'
 
 import { GroupBadge } from '@/components/group-badge'
 
-import type { NativeCacheWrite12hTier } from '../catalog-contract'
+import { formatCacheWriteRate } from '../lib/cache-write-rate'
 import type { PricingModel } from '../types'
-
-/** Display the exact rate; never round a small positive price to zero. */
-export function formatCacheWriteRate(
-  rate: NativeCacheWrite12hTier['input']
-): string {
-  const numerator = BigInt(rate.numerator)
-  const denominator = BigInt(rate.denominator)
-  let remainder = numerator % denominator
-  let decimals = ''
-  for (let index = 0; remainder !== 0n && index < 18; index++) {
-    remainder *= 10n
-    decimals += (remainder / denominator).toString()
-    remainder %= denominator
-  }
-  const value =
-    remainder === 0n
-      ? `${numerator / denominator}${decimals ? `.${decimals}` : ''}`
-      : `${numerator}/${denominator}`
-  return `${value} USD`
-}
 
 const dimensions = [
   ['input', 'Input'],

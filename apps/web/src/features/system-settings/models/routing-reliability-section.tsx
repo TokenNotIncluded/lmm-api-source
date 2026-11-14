@@ -18,7 +18,7 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useMemo, useRef } from 'react'
-import { useForm } from 'react-hook-form'
+import { useForm, useWatch } from 'react-hook-form'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 import * as z from 'zod'
@@ -244,12 +244,21 @@ export function RoutingReliabilitySection({
     resolver: zodResolver(routingReliabilitySchema),
     defaultValues: formDefaults,
   })
+  const autoDisableStatusCodes = useWatch({
+    control: form.control,
+    name: 'AutomaticDisableStatusCodes',
+  })
+  const autoRetryStatusCodes = useWatch({
+    control: form.control,
+    name: 'AutomaticRetryStatusCodes',
+  })
+  const channelTestMode = useWatch({
+    control: form.control,
+    name: 'monitor_setting.channel_test_mode',
+  })
 
   useResetForm(form, formDefaults)
 
-  const autoDisableStatusCodes = form.watch('AutomaticDisableStatusCodes')
-  const autoRetryStatusCodes = form.watch('AutomaticRetryStatusCodes')
-  const channelTestMode = form.watch('monitor_setting.channel_test_mode')
   const autoDisableParsed = useMemo(
     () => parseHttpStatusCodeRules(autoDisableStatusCodes),
     [autoDisableStatusCodes]
@@ -284,9 +293,9 @@ export function RoutingReliabilitySection({
   return (
     <SettingsSection title={t('Routing Reliability')}>
       <Form {...form}>
-        <SettingsForm onSubmit={form.handleSubmit(onSubmit)}>
+        <SettingsForm onSubmit={(event) => form.handleSubmit(onSubmit)(event)}>
           <SettingsPageFormActions
-            onSave={form.handleSubmit(onSubmit)}
+            onSave={() => form.handleSubmit(onSubmit)()}
             isSaving={updateOption.isPending}
           />
 

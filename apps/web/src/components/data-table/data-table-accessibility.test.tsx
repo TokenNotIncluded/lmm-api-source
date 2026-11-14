@@ -17,8 +17,9 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 import assert from 'node:assert/strict'
 import { after, afterEach, describe, test } from 'node:test'
 
-import type { Column, Table } from '@tanstack/react-table'
 import { Window } from 'happy-dom'
+
+import type { RowData, Column, Header, Table } from '@/lib/table'
 
 const domWindow = new Window({ url: 'https://console.example.test/' })
 for (const key of [
@@ -56,6 +57,7 @@ const { I18nextProvider, initReactI18next } = await import('react-i18next')
 const { DataTablePagination } = await import('./core/pagination')
 const { DataTableBulkActions } = await import('./toolbar/bulk-actions')
 const { DataTableFacetedFilter } = await import('./toolbar/faceted-filter')
+const { DataTableHeader } = await import('./core/data-table-header')
 
 const reactTestGlobals = globalThis as typeof globalThis & {
   IS_REACT_ACT_ENVIRONMENT?: boolean
@@ -94,11 +96,13 @@ afterEach(() => {
 
 after(() => domWindow.close())
 
-function createPaginationTable(): Table<unknown> {
+function createPaginationTable(): Table<RowData> {
   let pageSize = 20
 
   return {
-    getState: () => ({ pagination: { pageIndex: 2, pageSize } }),
+    get state() {
+      return { pagination: { pageIndex: 2, pageSize } }
+    },
     getPageCount: () => 10,
     getRowCount: () => 100,
     getCanPreviousPage: () => true,
@@ -109,7 +113,7 @@ function createPaginationTable(): Table<unknown> {
     },
     previousPage: () => undefined,
     nextPage: () => undefined,
-  } as unknown as Table<unknown>
+  } as unknown as Table<RowData>
 }
 
 async function renderWithI18n(node: React.ReactNode) {
@@ -123,6 +127,72 @@ async function renderWithI18n(node: React.ReactNode) {
 
   return { container, root }
 }
+
+test('column separators expose live keyboard size and configured bounds', async () => {
+  function HeaderHarness() {
+    const [size, setSize] = useState(100)
+    const header = {
+      id: 'name',
+      colSpan: 1,
+      isPlaceholder: false,
+      getSize: () => size,
+      getResizeHandler: () => () => undefined,
+      getContext: () => ({}),
+      column: {
+        id: 'name',
+        columnDef: { minSize: 80, maxSize: 120 },
+        getCanSort: () => false,
+        getCanResize: () => true,
+        getIsResizing: () => false,
+        getSize: () => size,
+      },
+    } as unknown as Header<RowData, unknown>
+    const table = {
+      options: { enableColumnResizing: true },
+      getHeaderGroups: () => [{ id: 'group', headers: [header] }],
+      setColumnSizing: (
+        update: (previous: Record<string, number>) => Record<string, number>
+      ) => {
+        setSize(update({ name: size }).name ?? size)
+      },
+    } as unknown as Table<RowData>
+    return (
+      <table>
+        <DataTableHeader table={table} />
+      </table>
+    )
+  }
+  const rendered = await renderWithI18n(<HeaderHarness />)
+  try {
+    const separator = rendered.container.querySelector('[role="separator"]')
+    assert.ok(separator)
+    assert.equal(separator.getAttribute('aria-valuenow'), '100')
+    assert.equal(separator.getAttribute('aria-valuemin'), '80')
+    assert.equal(separator.getAttribute('aria-valuemax'), '120')
+    await act(async () => {
+      separator.dispatchEvent(
+        new KeyboardEvent('keydown', {
+          key: 'ArrowRight',
+          shiftKey: true,
+          bubbles: true,
+        })
+      )
+    })
+    assert.equal(separator.getAttribute('aria-valuenow'), '120')
+    await act(async () => {
+      separator.dispatchEvent(
+        new KeyboardEvent('keydown', {
+          key: 'ArrowLeft',
+          shiftKey: true,
+          bubbles: true,
+        })
+      )
+    })
+    assert.equal(separator.getAttribute('aria-valuenow'), '80')
+  } finally {
+    await act(async () => rendered.root.unmount())
+  }
+})
 
 describe('data-table pagination accessibility', () => {
   test('exposes navigation, current page, omitted pages, and page-size labels', async () => {
@@ -200,7 +270,7 @@ describe('data-table pagination accessibility', () => {
       const [pageIndex, setPageIndex] = useState(0)
       const table = {
         ...createPaginationTable(),
-        getState: () => ({ pagination: { pageIndex, pageSize: 20 } }),
+        state: { pagination: { pageIndex, pageSize: 20 } },
         getPageCount: () => 3,
         getRowCount: () => 60,
         getCanPreviousPage: () => pageIndex > 0,
@@ -217,7 +287,7 @@ describe('data-table pagination accessibility', () => {
           calls.push('nextPage')
           setPageIndex(pageIndex + 1)
         },
-      } as unknown as Table<unknown>
+      } as unknown as Table<RowData>
 
       return <DataTablePagination table={table} />
     }
@@ -303,7 +373,7 @@ describe('data-table faceted filter accessibility', () => {
         ]),
       getFilterValue: () => undefined,
       setFilterValue: () => undefined,
-    } as unknown as Column<unknown, string>
+    } as unknown as Column<RowData, string>
 
     function FilterIcon({ className }: { className?: string }) {
       return <span data-filter-icon className={className} />
@@ -357,7 +427,7 @@ describe('data-table bulk action keyboard behavior', () => {
     const table = {
       getFilteredSelectedRowModel: () => ({ rows: [{}] }),
       resetRowSelection: () => undefined,
-    } as unknown as Table<unknown>
+    } as unknown as Table<RowData>
 
     const rendered = await renderWithI18n(
       <DataTableBulkActions table={table} entityName='item'>

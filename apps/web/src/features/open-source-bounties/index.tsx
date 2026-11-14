@@ -878,7 +878,7 @@ export function OpenSourceBounties({
               className='console-page-tabs min-w-0'
             >
               <TabsList
-                aria-label={t('Open-source bounties')}
+                aria-label={t('Bounties')}
                 variant='navigation'
               >
                 <TabsTrigger value='browse'>{t('Bounty board')}</TabsTrigger>
@@ -3367,7 +3367,7 @@ function RulesPanel() {
     [
       '3',
       'Settle directly with the publisher',
-      'Submit the Issue or pull request in Open-source bounties. The publisher verifies the work, rates the contributor, and releases the escrowed reward directly.',
+      'Submit the Issue or pull request in Bounties. The publisher verifies the work, rates the contributor, and releases the escrowed reward directly.',
     ],
     [
       '4',

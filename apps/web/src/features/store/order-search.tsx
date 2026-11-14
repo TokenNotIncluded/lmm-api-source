@@ -21,7 +21,7 @@ export function StoreOrderSearch({
   const { t, i18n } = useTranslation()
   const alive = useRef(true)
   const inFlight = useRef(false)
-  const [busy, setBusy] = useState(false)
+  const [busy, setBusy] = useState(mode === 'order')
   const [error, setError] = useState<unknown>(null)
   const [code, setCode] = useState('')
   const [challenge, setChallenge] = useState('')
@@ -35,7 +35,7 @@ export function StoreOrderSearch({
   const [orders, setOrders] = useState<StorePage<StoreOrderSummary> | null>(
     null
   )
-  const [now, setNow] = useState(Date.now())
+  const [now, setNow] = useState(Date.now)
   const [expired, setExpired] = useState(false)
   useEffect(() => {
     alive.current = true
@@ -46,7 +46,6 @@ export function StoreOrderSearch({
   useEffect(() => {
     if (mode !== 'order') return
     let active = true
-    setBusy(true)
     void storeApi
       .searchOrder(value)
       .then((order) => {
@@ -66,22 +65,23 @@ export function StoreOrderSearch({
   }, [mode, value])
   useEffect(() => {
     if (!challenge && !proof && !resendAt) return
-    const timer = window.setInterval(() => setNow(Date.now()), 1000)
+    const timer = window.setInterval(() => {
+      const time = Date.now()
+      setNow(time)
+      if (proof && time >= proof.expires) {
+        setProof(null)
+        setOrders(null)
+        setChallenge('')
+        setCode('')
+        setExpired(true)
+      } else if (challenge && !proof && time >= challengeExpires) {
+        setChallenge('')
+        setCode('')
+        setExpired(true)
+      }
+    }, 1000)
     return () => window.clearInterval(timer)
-  }, [challenge, proof, resendAt])
-  useEffect(() => {
-    if (proof && now >= proof.expires) {
-      setProof(null)
-      setOrders(null)
-      setChallenge('')
-      setCode('')
-      setExpired(true)
-    } else if (challenge && !proof && now >= challengeExpires) {
-      setChallenge('')
-      setCode('')
-      setExpired(true)
-    }
-  }, [now, proof, challenge, challengeExpires])
+  }, [challenge, proof, resendAt, challengeExpires])
   async function send() {
     if (inFlight.current || Date.now() < resendAt || !isStoreEmail(value)) {
       return

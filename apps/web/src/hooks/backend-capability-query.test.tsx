@@ -40,7 +40,7 @@ for (const key of [
   })
 }
 
-const { act } = await import('react')
+const { act, useEffect } = await import('react')
 const { createRoot } = await import('react-dom/client')
 const { QueryClient, QueryClientProvider } =
   await import('@tanstack/react-query')
@@ -91,7 +91,10 @@ function cachedNewBackendStatus() {
 let latestNotifications: ReturnType<typeof useNotifications> | null = null
 
 function NotificationsProbe() {
-  latestNotifications = useNotifications()
+  const notifications = useNotifications()
+  useEffect(() => {
+    latestNotifications = notifications
+  }, [notifications])
   return null
 }
 
@@ -123,7 +126,7 @@ describe('backend capability query safety', () => {
       if (url === '/api/notice') {
         return { data: { success: true, data: '' } }
       }
-      if (url === '/api/open-source-bounties/tips/received') {
+      if (url === '/api/bounties/tips/received') {
         return {
           data: {
             success: true,
@@ -184,7 +187,7 @@ describe('backend capability query safety', () => {
     })
 
     assert.equal(
-      gets.includes('/api/open-source-bounties/notifications'),
+      gets.includes('/api/bounties/notifications'),
       false
     )
 
@@ -196,11 +199,11 @@ describe('backend capability query safety', () => {
     })
 
     assert.equal(
-      gets.includes('/api/open-source-bounties/tips/received'),
+      gets.includes('/api/bounties/tips/received'),
       false
     )
     assert.equal(
-      gets.includes('/api/open-source-bounties/notifications'),
+      gets.includes('/api/bounties/notifications'),
       false
     )
 
@@ -210,11 +213,11 @@ describe('backend capability query safety', () => {
       await flushQueries()
     })
     assert.equal(
-      posts.includes('/api/open-source-bounties/tips/received/read'),
+      posts.includes('/api/bounties/tips/received/read'),
       false
     )
     assert.equal(
-      posts.includes('/api/open-source-bounties/notifications/read'),
+      posts.includes('/api/bounties/notifications/read'),
       false
     )
     assert.equal(
@@ -266,7 +269,7 @@ describe('backend capability query safety', () => {
     })
 
     assert.equal(
-      gets.includes('/api/open-source-bounties/notifications'),
+      gets.includes('/api/bounties/notifications'),
       false
     )
 
@@ -317,7 +320,7 @@ describe('backend capability query safety', () => {
     await act(flushQueries)
 
     assert.equal(
-      gets.some((url) => url.startsWith('/api/open-source-bounties?')),
+      gets.some((url) => url.startsWith('/api/bounties?')),
       false
     )
 

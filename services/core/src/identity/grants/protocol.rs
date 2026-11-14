@@ -9,7 +9,13 @@ use std::collections::BTreeSet;
 use zeroize::Zeroizing;
 
 pub(super) const CLIENT: &str = "lmm";
+pub(super) const MANAGED_CLIENT: &str = "lmm-cc-switch";
 const MAX_GROUPS: usize = 64;
+
+/// Historical model-source identity, independent of current issuance settings.
+pub(super) fn is_model_client(client: &str) -> bool {
+    matches!(client, "lmm-pi" | MANAGED_CLIENT)
+}
 
 /// Configured at startup; never inferred from a request or forwarding header.
 #[derive(Clone)]
@@ -18,6 +24,7 @@ pub struct LmmProfile {
     resource: String,
     groups: BTreeSet<String>,
     pi_max_credits: Option<i64>,
+    managed_max_credits: Option<i64>,
     isolated_loopback_test: bool,
 }
 impl LmmProfile {
@@ -66,6 +73,7 @@ impl LmmProfile {
             resource: format!("{issuer}/api/oauth2"),
             groups: allowed,
             pi_max_credits: None,
+            managed_max_credits: None,
             isolated_loopback_test,
         })
     }
@@ -91,8 +99,34 @@ impl LmmProfile {
     pub fn pi_budget_limit(&self) -> Option<i64> {
         self.pi_max_credits
     }
+    pub fn with_managed_budget_limit(mut self, maximum: i64) -> Result<Self> {
+        if !(1..=9_007_199_254_740_991).contains(&maximum) {
+            return Err(IdentityError::Invalid);
+        }
+        self.managed_max_credits = Some(maximum);
+        Ok(self)
+    }
+    /// Configured ceiling only; this is not application-backend readiness.
+    pub fn model_budget_limit(&self, client: &str) -> Option<i64> {
+        match client {
+            "lmm-pi" => self.pi_max_credits,
+            MANAGED_CLIENT => self.managed_max_credits,
+            _ => None,
+        }
+    }
+    pub(super) fn validate_model_budget(&self, client: &str, budget: Option<i64>) -> Result<i64> {
+        let maximum = self
+            .model_budget_limit(client)
+            .ok_or(IdentityError::Forbidden)?;
+        match budget {
+            Some(value) if (1..=maximum).contains(&value) => Ok(value),
+            _ => Err(IdentityError::Unauthorized),
+        }
+    }
     pub(super) fn binding(&self, client: &str, resource: &str) -> Result<()> {
-        if (client != CLIENT && !(client == "lmm-pi" && self.pi_max_credits.is_some()))
+        if (client != CLIENT
+            && client != MANAGED_CLIENT
+            && !(client == "lmm-pi" && self.pi_max_credits.is_some()))
             || resource != self.resource
         {
             return Err(IdentityError::Unauthorized);
@@ -112,6 +146,22 @@ impl LmmProfile {
         &self,
         input: AuthorizationRequest,
     ) -> Result<AuthorizationRequest> {
+        // Managed authorization must also validate its mandatory installation fields.
+        if input.client_id == MANAGED_CLIENT {
+            return Err(IdentityError::Invalid);
+        }
+        self.validate_request(input)
+    }
+    pub(super) fn validate_managed_authorization(
+        &self,
+        input: AuthorizationRequest,
+    ) -> Result<AuthorizationRequest> {
+        if input.client_id != MANAGED_CLIENT || self.managed_max_credits.is_none() {
+            return Err(IdentityError::Forbidden);
+        }
+        self.validate_request(input)
+    }
+    fn validate_request(&self, input: AuthorizationRequest) -> Result<AuthorizationRequest> {
         self.binding(&input.client_id, &input.resource)?;
         if input.response_type != "code"
             || input.code_challenge_method != "S256"
@@ -127,6 +177,14 @@ impl LmmProfile {
         let unique: BTreeSet<_> = scopes.iter().copied().collect();
         let valid = if input.client_id == CLIENT {
             scopes == ["balance:read", "catalog:read"]
+        } else if input.client_id == MANAGED_CLIENT {
+            scopes
+                == [
+                    "balance:read",
+                    "catalog:read",
+                    "models:invoke",
+                    "usage:read",
+                ]
         } else {
             scopes.len() <= 7
                 && scopes.len() == unique.len()
@@ -195,6 +253,9 @@ pub enum TokenRequest {
 }
 impl TokenForm {
     pub fn validate(self, profile: &LmmProfile) -> Result<TokenRequest> {
+        if self.client_id == MANAGED_CLIENT {
+            return Err(IdentityError::Invalid);
+        }
         profile.binding(&self.client_id, &self.resource)?;
         match self.grant_type.as_str() {
             "authorization_code" if self.refresh_token.is_none() && self.scope.is_none() => {
@@ -248,7 +309,7 @@ pub struct RevokeForm {
 }
 impl RevokeForm {
     pub fn validate(&self) -> Result<()> {
-        if !matches!(self.client_id.as_str(), CLIENT | "lmm-pi")
+        if !matches!(self.client_id.as_str(), CLIENT | "lmm-pi" | MANAGED_CLIENT)
             || self
                 .token_type_hint
                 .as_ref()
@@ -347,6 +408,29 @@ pub(super) fn decode_group(value: &str) -> Result<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn model_identity_is_stable_while_issuance_ceilings_are_explicit() {
+        for client in ["lmm-pi", MANAGED_CLIENT] {
+            assert!(is_model_client(client));
+        }
+        for client in [CLIENT, "lmm-cc-switch ", "LMM-CC-SWITCH", "unknown"] {
+            assert!(!is_model_client(client));
+        }
+        let profile =
+            LmmProfile::new("https://issuer.example.test", vec!["allowed".into()]).unwrap();
+        assert!(profile.binding(MANAGED_CLIENT, profile.resource()).is_ok());
+        assert!(profile.model_budget_limit(MANAGED_CLIENT).is_none());
+        let profile = profile
+            .with_pi_budget_limit(7)
+            .unwrap()
+            .with_managed_budget_limit(11)
+            .unwrap();
+        assert_eq!(profile.pi_budget_limit(), Some(7));
+        assert_eq!(profile.model_budget_limit("lmm-pi"), Some(7));
+        assert_eq!(profile.model_budget_limit(MANAGED_CLIENT), Some(11));
+        assert_eq!(profile.model_budget_limit(CLIENT), None);
+        assert!(profile.clone().with_managed_budget_limit(0).is_err());
+    }
     #[test]
     fn canonical_cli_tokens_and_group_scopes_reject_aliases() {
         let token = secret("lmm_at_").unwrap();

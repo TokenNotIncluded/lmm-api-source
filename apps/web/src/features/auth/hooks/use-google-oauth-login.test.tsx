@@ -10,6 +10,8 @@ import { after, afterEach, describe, test } from 'node:test'
 
 import { Window } from 'happy-dom'
 
+import { installSupportedAuthBrowser } from '@/test-support/supported-auth-browser'
+
 import { GOOGLE_BUILT_IN_PRESET } from '../lib/google-oauth'
 import type { SystemStatus } from '../types'
 
@@ -74,7 +76,10 @@ mock.module('./use-auth-redirect', () => ({
     },
   }),
 }))
-const { act } = await import('react')
+// Normal supported browser; install after this fixture replaces its globals.
+installSupportedAuthBrowser()
+
+const { act, useLayoutEffect } = await import('react')
 const { createRoot } = await import('react-dom/client')
 const { useOAuthLogin } = await import('./use-oauth-login')
 let root: ReturnType<typeof createRoot> | undefined
@@ -86,7 +91,10 @@ function Harness({
   status: SystemStatus
   acceptedLegal: boolean
 }) {
-  login = useOAuthLogin(status, '/console', acceptedLegal).handleGoogleLogin
+  const { handleGoogleLogin } = useOAuthLogin(status, '/console', acceptedLegal)
+  useLayoutEffect(() => {
+    login = handleGoogleLogin
+  }, [handleGoogleLogin])
   return null
 }
 const supported = { google_oauth: true, google_client_id: 'test-client' }
@@ -218,4 +226,54 @@ describe('built-in Google hook contract', () => {
     assert.equal(errors.length, 3)
     assert.equal(forbiddenCalls, 0)
   })
+})
+
+test('native OIDC posts catalog ID and actual legal consent, then navigates the exact Core URL without legacy state/logout', async () => {
+  const selected = {
+    id: '79',
+    kind: 'oidc' as const,
+    slug: 'controlled-sso',
+    name: 'Synthetic SSO',
+    icon: '',
+    revision: '1',
+    client_id: 'synthetic-client',
+    authorization_endpoint: 'https://idp.example.test/authorize',
+    scopes: 'openid profile',
+    qr_code_url: '',
+    native_federated: true as const,
+  }
+  const state = `lmmfe_${'7'.repeat(64)}`
+  const url = `https://idp.example.test/authorize?tenant=synthetic&scope=openid+profile&client_id=synthetic-client&redirect_uri=${encodeURIComponent(`https://site.example.test/oauth/${selected.slug}`)}&response_type=code&state=${state}&nonce=synthetic&code_challenge=${'a'.repeat(43)}&code_challenge_method=S256`
+  response = {
+    success: true,
+    data: { authorization_url: url, state, expires_at: 2000000000 },
+  }
+  function NativeHarness() {
+    const { handleFederatedLogin } = useOAuthLogin(
+      { native_federated_auth: true, federated_oauth_providers: [selected] },
+      '/console',
+      true
+    )
+    useLayoutEffect(() => {
+      login = () => handleFederatedLogin(selected)
+    }, [handleFederatedLogin])
+    return null
+  }
+  const host = document.createElement('div')
+  document.body.append(host)
+  root = createRoot(host)
+  await act(async () => root!.render(<NativeHarness />))
+  await act(async () => login())
+  assert.equal(calls.length, 1)
+  assert.equal(calls[0].path, '/api/oauth/federated/79/begin')
+  assert.deepEqual(calls[0].payload, { accepted_legal: true, affiliate: '' })
+  assert.deepEqual(navigations, [url])
+  assert.equal(forbiddenCalls, 0)
+  assert.deepEqual(errors, [])
+  const { readFederatedCeremony } = await import('../lib/federated-oauth')
+  assert.equal(
+    readFederatedCeremony(dom.sessionStorage, state, selected.slug, 'login')
+      .providerId,
+    '79'
+  )
 })

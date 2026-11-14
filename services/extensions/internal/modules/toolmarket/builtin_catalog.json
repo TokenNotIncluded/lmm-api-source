@@ -100,8 +100,8 @@
   },
   {
     "key": "open_source_bounties",
-    "name": "Open-source bounties",
-    "description": "Open-source bounties tools with current account authority and separate underlying financial confirmation.",
+    "name": "Bounties",
+    "description": "Bounty tools with current account authority and separate underlying financial confirmation.",
     "service_id": "43c5d0e9-08f8-54d8-91e4-36423c343be4",
     "version_id": "d2f44a2b-f4cf-5731-853a-1cffd2984fc8",
     "schema_version": "core-authority-v1",

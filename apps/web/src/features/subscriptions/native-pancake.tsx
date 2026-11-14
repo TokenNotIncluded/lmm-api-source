@@ -66,8 +66,9 @@ export function NativePancakeSubscriptions({
   function accept(value: PancakeView) {
     if (!current()) return
     setView(value)
-    if (value.order.latest_grant_id || value.order.order.subscription_id)
+    if (value.order.latest_grant_id || value.order.order.subscription_id) {
       onUpdated?.()
+    }
   }
   async function run(action: () => Promise<void>) {
     if (running.current || !current() || storageBlocked) return
@@ -77,10 +78,11 @@ export function NativePancakeSubscriptions({
     try {
       await action()
     } catch {
-      if (current())
+      if (current()) {
         setNotice(
           t('Result unknown. Retry the saved request before starting another.')
         )
+      }
     } finally {
       running.current = false
       if (current()) setBusy(false)
@@ -94,8 +96,9 @@ export function NativePancakeSubscriptions({
         order_id: order.order.order_id,
         frozen: freezePancakeOrder(order),
       })
-    )
+    ) {
       accept({ order, checkout: null })
+    }
   }
   useEffect(() => {
     mounted.current = true
@@ -107,8 +110,9 @@ export function NativePancakeSubscriptions({
       )
       setPending(saved)
       // Mount recovery only reads; retrying a lost prepare requires the saved key and an explicit action.
-      if (saved?.order_id)
+      if (saved?.order_id) {
         void run(async () => accept(await readPancakeOrder(scope, saved)))
+      }
     } catch {
       setStorageBlocked(true)
     }
@@ -174,8 +178,9 @@ export function NativePancakeSubscriptions({
       granted ||
       canceled ||
       expired
-    )
+    ) {
       return
+    }
     void run(async () => {
       const next = { ...pending, confirm_attempted: true }
       // Confirmation creates a hosted checkout. Persist its one-shot intent before dispatch.
@@ -196,8 +201,9 @@ export function NativePancakeSubscriptions({
         fresh.order.order.proof_id ||
         (!fresh.order.order.confirmed_at_unix &&
           Number(fresh.order.order.expires_at_unix) <= Date.now() / 1000)
-      )
+      ) {
         return
+      }
       // Go reuses the frozen order/provider reference and enforces its replay window.
       accept(await confirmPancakeOrder(scope, pending))
     })

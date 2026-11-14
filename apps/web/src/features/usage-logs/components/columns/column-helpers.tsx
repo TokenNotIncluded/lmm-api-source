@@ -16,7 +16,6 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import type { ColumnDef } from '@tanstack/react-table'
 import { Zap } from 'lucide-react'
 /* eslint-disable react-refresh/only-export-components */
 import { useState } from 'react'
@@ -30,6 +29,7 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip'
 import { formatTimestampToDate, formatTokens } from '@/lib/format'
+import type { RowData, ColumnDef } from '@/lib/table'
 import { cn } from '@/lib/utils'
 
 import { formatDuration } from '../../lib/format'
@@ -72,7 +72,7 @@ export function CacheTooltip({
 /**
  * Create a timestamp column - compact mono style matching common logs
  */
-export function createTimestampColumn<T>(config: {
+export function createTimestampColumn<T extends RowData>(config: {
   accessorKey: string
   title: string
   unit?: 'seconds' | 'milliseconds'
@@ -102,7 +102,7 @@ export function createTimestampColumn<T>(config: {
 /**
  * Create a duration column - pill style matching common logs timing
  */
-export function createDurationColumn<T>(config: {
+export function createDurationColumn<T extends RowData>(config: {
   submitTimeKey: string
   finishTimeKey: string
   unit?: 'seconds' | 'milliseconds'
@@ -160,7 +160,7 @@ export function createDurationColumn<T>(config: {
 /**
  * Create a channel column (admin only) - #id badge matching common logs
  */
-export function createChannelColumn<T>(config: {
+export function createChannelColumn<T extends RowData>(config: {
   accessorKey?: string
   headerLabel: string
 }): ColumnDef<T> {
@@ -194,7 +194,7 @@ export function createChannelColumn<T>(config: {
 /**
  * Create a fail reason column - text-xs truncate, hover underline, dialog
  */
-export function createFailReasonColumn<T>(config: {
+export function createFailReasonColumn<T extends RowData>(config: {
   accessorKey?: string
   headerLabel: string
   cellTitle: string
@@ -241,7 +241,7 @@ export function createFailReasonColumn<T>(config: {
 /**
  * Create a progress column - compact mono pill
  */
-export function createProgressColumn<T>(config: {
+export function createProgressColumn<T extends RowData>(config: {
   accessorKey?: string
   headerLabel: string
 }): ColumnDef<T> {

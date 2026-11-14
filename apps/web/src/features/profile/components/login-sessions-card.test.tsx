@@ -6,6 +6,7 @@ import { AxiosError, type InternalAxiosRequestConfig } from 'axios'
 import { Window } from 'happy-dom'
 
 import type { LoginSession } from '@/stores/auth-store'
+import { installSupportedAuthBrowser } from '@/test-support/supported-auth-browser'
 
 const dom = new Window({ url: 'https://console.example.test/profile' })
 const descriptors = new Map<string, PropertyDescriptor | undefined>()
@@ -48,6 +49,9 @@ Object.defineProperty(globalThis, 'IS_REACT_ACT_ENVIRONMENT', {
   configurable: true,
   value: true,
 })
+
+// Normal supported browser; install after this fixture replaces its globals.
+installSupportedAuthBrowser()
 
 const { act } = await import('react')
 const { createRoot } = await import('react-dom/client')

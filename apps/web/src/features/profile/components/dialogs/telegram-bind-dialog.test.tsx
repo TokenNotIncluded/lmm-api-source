@@ -5,6 +5,8 @@ import { after, afterEach, beforeEach, test } from 'node:test'
 import { AxiosError, type InternalAxiosRequestConfig } from 'axios'
 import { Window } from 'happy-dom'
 
+import { installSupportedAuthBrowser } from '@/test-support/supported-auth-browser'
+
 const domWindow = new Window({
   url: 'https://console.example.test/profile',
   settings: {
@@ -44,13 +46,13 @@ for (const key of [
     value: domWindow[key],
   })
 }
-for (const [key, value] of [
-  ['IS_REACT_ACT_ENVIRONMENT', true],
-  ['isSecureContext', false],
-] as const) {
+for (const [key, value] of [['IS_REACT_ACT_ENVIRONMENT', true]] as const) {
   descriptors.set(key, Object.getOwnPropertyDescriptor(globalThis, key))
   Object.defineProperty(globalThis, key, { configurable: true, value })
 }
+
+// Normal supported browser; install after this fixture replaces its globals.
+installSupportedAuthBrowser()
 
 const { act, useState } = await import('react')
 const { createRoot } = await import('react-dom/client')
@@ -626,11 +628,13 @@ test('closing invalidates a delayed start and reopening uses a new flow', async 
   await waitFor(() => starts === 1, 'start missing')
   await rendered.setOpen(false)
   await rendered.setOpen(true)
+  assert.equal(starts, 1, 'the old Cookie writer still owns the lock')
+  assert.equal(widget(), null)
+  await act(async () => late.resolve({ success: true, data: flow('a') }))
   await waitFor(
     () => widget()?.getAttribute('data-auth-url') === flow('b').callback_url,
     'reopened flow missing'
   )
-  await act(async () => late.resolve({ success: true, data: flow('a') }))
   await flush()
   assert.equal(widget()?.getAttribute('data-auth-url'), flow('b').callback_url)
   await result(success())
@@ -656,11 +660,13 @@ for (const [name, nextId, nextSid] of [
     const rendered = await renderDialog()
     await waitFor(() => starts === 1, 'first start missing')
     await act(async () => owner(nextId, nextSid))
+    assert.equal(starts, 1, 'the old Cookie writer still owns the lock')
+    assert.equal(widget(), null)
+    await act(async () => late.resolve({ success: true, data: flow('a') }))
     await waitFor(
       () => widget()?.getAttribute('data-auth-url') === flow('b').callback_url,
       'new identity flow missing'
     )
-    await act(async () => late.resolve({ success: true, data: flow('a') }))
     await result(success())
     assert.equal(
       widget()?.getAttribute('data-auth-url'),
@@ -718,3 +724,139 @@ test('expired flow results cannot trigger a profile read or success', async () =
   assert.deepEqual(successToasts, [])
   assert.deepEqual(rendered.changes, [])
 })
+
+for (const phase of ['start', 'actual-self', 'onSuccess'] as const) {
+  test(`unmount during ${phase} invalidates completion and cleans refresh resources`, async () => {
+    const late = deferred<unknown>()
+    const callback = deferred<void>()
+    let starts = 0
+    let reads = 0
+    let completions = 0
+    let refreshSignal: InternalAxiosRequestConfig['signal']
+    api.defaults.adapter = async (config) => {
+      if (config.url === '/api/user/self') {
+        reads++
+        refreshSignal = config.signal
+        return response(
+          config,
+          phase === 'actual-self'
+            ? await late.promise
+            : { success: true, data: { id: 7, telegram_id: '123456' } }
+        )
+      }
+      assert.equal(config.url, '/api/oauth/telegram/bind/start')
+      starts++
+      return response(
+        config,
+        phase === 'start' ? await late.promise : { success: true, data: flow() }
+      )
+    }
+    const rendered = await renderDialog(async () => {
+      completions++
+      if (phase === 'onSuccess') await callback.promise
+    })
+    if (phase === 'start') await waitFor(() => starts === 1, 'start missing')
+    else {
+      await waitFor(() => Boolean(widget()), 'Widget missing')
+      await result(success())
+      await waitFor(
+        () => (phase === 'onSuccess' ? completions === 1 : reads === 1),
+        'completion seam missing'
+      )
+    }
+    const mountedDialog = mounted.pop()
+    assert.ok(mountedDialog)
+    await act(async () => mountedDialog.root.unmount())
+    mountedDialog.container.remove()
+    if (phase === 'actual-self') assert.equal(refreshSignal?.aborted, true)
+    await act(async () => {
+      late.resolve(
+        phase === 'start'
+          ? { success: true, data: flow() }
+          : { success: true, data: { id: 7, telegram_id: '123456' } }
+      )
+      callback.resolve()
+    })
+    await result(success())
+    await flush()
+    assert.equal(starts, 1)
+    assert.equal(reads, phase === 'start' ? 0 : 1)
+    assert.equal(completions, phase === 'onSuccess' ? 1 : 0)
+    assert.equal(widget(), null)
+    assert.deepEqual(successToasts, [])
+    assert.deepEqual(errorToasts, [])
+    assert.deepEqual(rendered.changes, [])
+  })
+}
+
+test('equivalent profile refresh keeps the same binding flow and widget', async () => {
+  let starts = 0
+  api.defaults.adapter = async (config) => {
+    assert.equal(config.url, '/api/oauth/telegram/bind/start')
+    starts++
+    return response(config, { success: true, data: flow() })
+  }
+  await renderDialog()
+  await waitFor(() => Boolean(widget()), 'Widget missing')
+  const originalWidget = widget()
+  await act(async () => {
+    const auth = useAuthStore.getState().auth
+    assert.ok(auth.user)
+    auth.setUser({ ...auth.user, display_name: 'Refreshed profile' })
+  })
+  assert.equal(starts, 1)
+  assert.equal(widget(), originalWidget)
+})
+
+for (const [name, nextId] of [
+  ['account', 8],
+  ['session', 7],
+] as const) {
+  test(`${name} change aborts the old profile read without completing the new flow`, async () => {
+    const late = deferred<unknown>()
+    let starts = 0
+    let reads = 0
+    let completions = 0
+    let oldSignal: InternalAxiosRequestConfig['signal']
+    api.defaults.adapter = async (config) => {
+      if (config.url === '/api/user/self') {
+        reads++
+        oldSignal = config.signal
+        return response(config, await late.promise)
+      }
+      assert.equal(config.url, '/api/oauth/telegram/bind/start')
+      starts++
+      return response(config, {
+        success: true,
+        data: flow(starts === 1 ? 'a' : 'b'),
+      })
+    }
+    const rendered = await renderDialog(() => {
+      completions++
+    })
+    await waitFor(() => Boolean(widget()), 'Widget missing')
+    await result(success())
+    await waitFor(() => reads === 1, 'old profile read missing')
+    await act(async () => owner(nextId, 'session-b'))
+    assert.equal(oldSignal?.aborted, true)
+    await waitFor(
+      () => widget()?.getAttribute('data-auth-url') === flow('b').callback_url,
+      'new flow missing'
+    )
+    await act(async () =>
+      late.resolve({ success: true, data: { id: 7, telegram_id: '123456' } })
+    )
+    await result(success(flow('a').flow_token))
+    await flush()
+    assert.equal(starts, 2)
+    assert.equal(reads, 1)
+    assert.equal(completions, 0)
+    assert.equal(
+      widget()?.getAttribute('data-auth-url'),
+      flow('b').callback_url
+    )
+    assert.deepEqual(rendered.changes, [])
+    assert.deepEqual(successToasts, [])
+    assert.deepEqual(errorToasts, [])
+  })
+}

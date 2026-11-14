@@ -8,10 +8,8 @@ use aes_gcm::{
     Aes256Gcm, KeyInit, Nonce,
     aead::{Aead, Payload},
 };
-use hkdf::Hkdf;
 use rand::TryRng as _;
 use rand::rngs::SysRng;
-use sha2::Sha256;
 use std::collections::HashMap;
 use totp_rs::{Algorithm, Builder, Secret};
 use zeroize::Zeroizing;
@@ -26,7 +24,6 @@ const MAX_PLAINTEXT_BYTES: usize = 1024;
 const ENVELOPE_VERSION: u8 = 1;
 const NONCE_BYTES: usize = 12;
 const TAG_BYTES: usize = 16;
-const HKDF_DOMAIN: &[u8] = b"api.lmm.best/core/mfa/v1";
 const AAD_DOMAIN: &[u8] = b"api.lmm.best/core/mfa/secret";
 
 /// No Debug implementation: key material must never enter diagnostics.
@@ -80,9 +77,8 @@ impl MfaKeyring {
             if !valid_label(&id) || key.len() != KEY_BYTES || derived_keys.contains_key(&id) {
                 return Err(IdentityError::Invalid);
             }
-            let mut derived = Zeroizing::new([0_u8; KEY_BYTES]);
-            Hkdf::<Sha256>::new(Some(HKDF_DOMAIN), key.as_slice())
-                .expand(b"aes-256-gcm", &mut *derived)
+            let derived = crate::crypto_key_material::KeyPurpose::MfaVault
+                .derive(key.as_slice())
                 .map_err(|_| IdentityError::Storage)?;
             derived_keys.insert(id, derived);
         }

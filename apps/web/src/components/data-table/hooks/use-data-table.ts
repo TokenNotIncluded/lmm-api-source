@@ -16,7 +16,12 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+import * as React from 'react'
+
 import {
+  type RowData,
+  dataTableFeatures,
+  type DataTableFeatures,
   type ColumnDef,
   type ColumnFiltersState,
   type ColumnSizingState,
@@ -27,19 +32,17 @@ import {
   type SortingState,
   type TableOptions,
   type Updater,
-  type VisibilityState,
-  getCoreRowModel,
-  getExpandedRowModel,
-  getFacetedRowModel,
-  getFacetedUniqueValues,
-  getFilteredRowModel,
-  getPaginationRowModel,
-  getSortedRowModel,
-  useReactTable,
-} from '@tanstack/react-table'
-import * as React from 'react'
+  type ColumnVisibilityState,
+  createExpandedRowModel,
+  createFacetedRowModel,
+  createFacetedUniqueValues,
+  createFilteredRowModel,
+  createPaginatedRowModel,
+  createSortedRowModel,
+  useTable,
+} from '@/lib/table'
 
-type DataTableFeatureOptions<TData> = Pick<
+type DataTableFeatureOptions<TData extends RowData> = Pick<
   TableOptions<TData>,
   | 'enableRowSelection'
   | 'getRowId'
@@ -57,10 +60,10 @@ type DataTableStateOptions = {
   initialSorting?: SortingState
   sorting?: SortingState
   onSortingChange?: OnChangeFn<SortingState>
-  initialColumnVisibility?: VisibilityState
+  initialColumnVisibility?: ColumnVisibilityState
   columnVisibilityStorageKey?: string | false
-  columnVisibility?: VisibilityState
-  onColumnVisibilityChange?: OnChangeFn<VisibilityState>
+  columnVisibility?: ColumnVisibilityState
+  onColumnVisibilityChange?: OnChangeFn<ColumnVisibilityState>
   initialColumnSizing?: ColumnSizingState
   columnSizingStorageKey?: string | false
   columnSizing?: ColumnSizingState
@@ -88,15 +91,16 @@ type DataTableRowModelOptions = {
   withExpandedRowModel?: boolean
 }
 
-type UseDataTableOptions<TData> = DataTableFeatureOptions<TData> &
-  DataTableStateOptions &
-  DataTableRowModelOptions & {
-    data: TData[]
-    columns: ColumnDef<TData, unknown>[]
-    totalCount?: number
-    pageCount?: number
-    ensurePageInRange?: (pageCount: number) => void
-  }
+type UseDataTableOptions<TData extends RowData> =
+  DataTableFeatureOptions<TData> &
+    DataTableStateOptions &
+    DataTableRowModelOptions & {
+      data: TData[]
+      columns: ColumnDef<TData, unknown>[]
+      totalCount?: number
+      pageCount?: number
+      ensurePageInRange?: (pageCount: number) => void
+    }
 
 type ColumnSizingBounds = Record<
   string,
@@ -106,7 +110,7 @@ type ColumnSizingBounds = Record<
   }
 >
 
-type ColumnWithSizing<TData> = ColumnDef<TData, unknown> & {
+type ColumnWithSizing<TData extends RowData> = ColumnDef<TData, unknown> & {
   accessorKey?: string | number
   columns?: ColumnDef<TData, unknown>[]
 }
@@ -145,7 +149,9 @@ function useControllableTableState<TValue>(
   return [value, setValue]
 }
 
-function readColumnVisibility(storageKey: string | undefined): VisibilityState {
+function readColumnVisibility(
+  storageKey: string | undefined
+): ColumnVisibilityState {
   if (!storageKey || typeof window === 'undefined') return {}
 
   try {
@@ -157,7 +163,7 @@ function readColumnVisibility(storageKey: string | undefined): VisibilityState {
       return {}
     }
 
-    return Object.entries(parsed).reduce<VisibilityState>(
+    return Object.entries(parsed).reduce<ColumnVisibilityState>(
       (visibility, [key, value]) => {
         if (typeof value === 'boolean') {
           visibility[key] = value
@@ -171,7 +177,7 @@ function readColumnVisibility(storageKey: string | undefined): VisibilityState {
   }
 }
 
-function getColumnId<TData>(column: ColumnDef<TData, unknown>) {
+function getColumnId<TData extends RowData>(column: ColumnDef<TData, unknown>) {
   const columnWithSizing = column as ColumnWithSizing<TData>
 
   if (typeof columnWithSizing.id === 'string') {
@@ -189,7 +195,7 @@ function getColumnId<TData>(column: ColumnDef<TData, unknown>) {
   return undefined
 }
 
-function buildColumnSizingBounds<TData>(
+function buildColumnSizingBounds<TData extends RowData>(
   columns: ColumnDef<TData, unknown>[]
 ): ColumnSizingBounds {
   return columns.reduce<ColumnSizingBounds>((bounds, column) => {
@@ -275,7 +281,9 @@ function readColumnSizing(
   }
 }
 
-export function useDataTable<TData>(options: UseDataTableOptions<TData>) {
+export function useDataTable<TData extends RowData>(
+  options: UseDataTableOptions<TData>
+) {
   const {
     data,
     columns,
@@ -377,7 +385,36 @@ export function useDataTable<TData>(options: UseDataTableOptions<TData>) {
       Boolean(options.sorting) ||
       Boolean(options.onSortingChange))
 
-  const table = useReactTable({
+  const features = React.useMemo(
+    () => ({
+      ...dataTableFeatures,
+      filteredRowModel: withFilteredRowModel
+        ? createFilteredRowModel()
+        : undefined,
+      paginatedRowModel: withPaginationRowModel
+        ? createPaginatedRowModel()
+        : undefined,
+      sortedRowModel: withSortedRowModel ? createSortedRowModel() : undefined,
+      facetedRowModel: withFacetedRowModel
+        ? createFacetedRowModel()
+        : undefined,
+      facetedUniqueValues: withFacetedRowModel
+        ? createFacetedUniqueValues()
+        : undefined,
+      expandedRowModel: withExpandedRowModel
+        ? createExpandedRowModel()
+        : undefined,
+    }),
+    [
+      withFilteredRowModel,
+      withPaginationRowModel,
+      withSortedRowModel,
+      withFacetedRowModel,
+      withExpandedRowModel,
+    ]
+  )
+  const table = useTable<DataTableFeatures, TData>({
+    features,
     data,
     columns,
     rowCount: totalCount,
@@ -411,21 +448,6 @@ export function useDataTable<TData>(options: UseDataTableOptions<TData>) {
     onColumnFiltersChange: options.onColumnFiltersChange,
     onGlobalFilterChange: options.onGlobalFilterChange,
     onPaginationChange,
-    getCoreRowModel: getCoreRowModel(),
-    getFilteredRowModel: withFilteredRowModel
-      ? getFilteredRowModel()
-      : undefined,
-    getPaginationRowModel: withPaginationRowModel
-      ? getPaginationRowModel()
-      : undefined,
-    getSortedRowModel: withSortedRowModel ? getSortedRowModel() : undefined,
-    getFacetedRowModel: withFacetedRowModel ? getFacetedRowModel() : undefined,
-    getFacetedUniqueValues: withFacetedRowModel
-      ? getFacetedUniqueValues()
-      : undefined,
-    getExpandedRowModel: withExpandedRowModel
-      ? getExpandedRowModel()
-      : undefined,
   })
 
   const actualPageCount = table.getPageCount()

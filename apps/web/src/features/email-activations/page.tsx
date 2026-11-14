@@ -30,7 +30,6 @@ import {
 import { HugeiconsIcon } from '@hugeicons/react'
 import { useQueryClient } from '@tanstack/react-query'
 import { getRouteApi } from '@tanstack/react-router'
-import type { ColumnDef } from '@tanstack/react-table'
 import { useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
@@ -84,6 +83,7 @@ import { useDebounce, useMediaQuery } from '@/hooks'
 import { useTableUrlState } from '@/hooks/use-table-url-state'
 import dayjs from '@/lib/dayjs'
 import { formatNumber } from '@/lib/format'
+import type { ColumnDef } from '@/lib/table'
 
 import {
   createHeroSmsIdempotencyKey,

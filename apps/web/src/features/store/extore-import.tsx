@@ -50,10 +50,7 @@ export function StoreExtoreImport({
         .then((value) => {
           if (!active) return
           const imported = value as ExtoreImportResult
-          if (
-            !Array.isArray(imported.results) ||
-            !imported.connection?.id
-          ) {
+          if (!Array.isArray(imported.results) || !imported.connection?.id) {
             throw new Error('Invalid Extore synchronization response')
           }
           setResult(imported)
@@ -114,7 +111,9 @@ export function StoreExtoreImport({
       <DialogContent className='max-h-[90svh] overflow-y-auto sm:max-w-xl'>
         <DialogTitle>{t('Import from Extore')}</DialogTitle>
         <DialogDescription>
-          {t('Approve products in Extore. All variants are imported automatically.')}
+          {t(
+            'Approve products in Extore. All variants are imported automatically.'
+          )}
         </DialogDescription>
         <StoreError error={error} />
         {busy ? (

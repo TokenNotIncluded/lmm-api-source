@@ -35,6 +35,7 @@ for (const key of [
   'Element',
   'Event',
   'MouseEvent',
+  'KeyboardEvent',
   'PointerEvent',
   'FocusEvent',
   'CustomEvent',
@@ -84,7 +85,14 @@ const { marketAPI } = await import('../tool-market/api')
 const { readDrawingOperation } = await import('./native-operation')
 const { useAuthStore } = await import('@/stores/auth-store')
 const { createDrawingHistoryStore } = await import('./history-storage')
-const { resetDrawingTaskState } = await import('./drawing-task-state')
+const {
+  resetDrawingTaskState,
+  getActiveDrawingTask,
+  getDrawingDraft,
+  registerActiveDrawingTask,
+  updateActiveDrawingTask,
+  setDrawingMinigamePref,
+} = await import('./drawing-task-state')
 const { useSystemConfigStore } = await import('@/stores/system-config-store')
 const originalCurrency = useSystemConfigStore.getState().config.currency
 const originalFetch = globalThis.fetch
@@ -347,7 +355,7 @@ function setupNative() {
     pricing: 'free',
     validated: true,
   })
-  spyOn(marketAPI, 'grant').mockResolvedValue({
+  const grant = spyOn(marketAPI, 'grant').mockResolvedValue({
     id: grantID,
     client_id: 'web-market',
     tool_id: toolID,
@@ -367,7 +375,7 @@ function setupNative() {
   const query = spyOn(marketAPI, 'result').mockResolvedValue(pendingReceipt())
   const lookup = spyOn(marketAPI, 'lookupRequest', async () => pendingReceipt())
   const resume = spyOn(marketAPI, 'resume').mockResolvedValue(settledReceipt())
-  return { invoke, query, lookup, resume }
+  return { grant, invoke, query, lookup, resume }
 }
 
 function button(container: HTMLElement, label: string): HTMLButtonElement {
@@ -690,6 +698,222 @@ test('an expired settled result is reported without automatically generating aga
       ),
       false
     )
+  } finally {
+    await dispose(rendered)
+  }
+})
+
+function drawingSession(sid: string) {
+  useAuthStore.getState().auth.setBundle({
+    user: { id: 1, username: 'drawing-user', role: 10 },
+    access_token: 'synthetic-drawing-token',
+    token_type: 'Bearer',
+    access_expires_at: 2_000_000_000,
+    session: {
+      sid,
+      current: true,
+      login_method: 'password',
+      ip: '127.0.0.1',
+      user_agent: 'synthetic',
+      created_at: 1,
+      last_active_at: 1,
+      expires_at: 2_000_000_000,
+    },
+  })
+}
+
+test('session replacement discards private references and a late authorization cannot dispatch old drawing bytes', async () => {
+  const calls = setupNative()
+  drawingSession('drawing-session-a')
+  let releaseGrant: (() => void) | undefined
+  calls.grant.mockImplementation(async () => {
+    await new Promise<void>((resolve) => {
+      releaseGrant = resolve
+    })
+    return {
+      id: grantID,
+      client_id: 'web-market',
+      tool_id: toolID,
+      version_id: versionID,
+      max_price_quota: 0,
+      max_total_quota: 0,
+      max_calls: 1,
+      reserved_quota: 0,
+      spent_quota: 0,
+      successful_calls: 0,
+      reserved_calls: 0,
+      expires_at: 2000000000,
+      revoked_at: 0,
+    }
+  })
+  const multipart = spyOn(api, 'post').mockRejectedValue(
+    new Error('Unexpected private drawing upload')
+  )
+  const revoked = spyOn(URL, 'revokeObjectURL')
+  const rendered = await renderDrawing()
+  try {
+    await ready(rendered)
+    const input = rendered.container.querySelector('#drawing-reference-images')
+    assert.ok(input)
+    Object.defineProperty(input, 'files', {
+      configurable: true,
+      value: [new File(['private'], 'private.png', { type: 'image/png' })],
+    })
+    await act(async () =>
+      input.dispatchEvent(new Event('change', { bubbles: true }))
+    )
+    const image = rendered.container.querySelector('figure img')
+    assert.ok(image)
+    const preview = image.getAttribute('src')
+    const textarea = rendered.container.querySelector('textarea')
+    assert.ok(textarea)
+    await setTextareaValue(textarea, 'Owner prompt remains an account draft')
+    await act(async () => button(rendered.container, 'Edit image').click())
+    await waitForDrawingState(
+      () => !!releaseGrant,
+      'authorization did not start'
+    )
+    await act(async () => drawingSession('drawing-session-b'))
+    await ready(rendered)
+    assert.equal(rendered.container.querySelector('figure img'), null)
+    assert.ok(revoked.mock.calls.some((args: unknown[]) => args[0] === preview))
+    assert.equal(
+      rendered.container.querySelector('textarea')?.value,
+      'Owner prompt remains an account draft'
+    )
+    assert.equal(
+      getDrawingDraft(1).prompt,
+      'Owner prompt remains an account draft'
+    )
+    assert.equal(button(rendered.container, 'Generate image').disabled, false)
+    await act(async () => {
+      releaseGrant?.()
+      await flushEffects()
+    })
+    assert.equal(calls.invoke.mock.calls.length, 0)
+    assert.equal(multipart.mock.calls.length, 0)
+    assert.equal(readDrawingOperation(1), null)
+    assert.equal((await createDrawingHistoryStore().load(1)).images.length, 0)
+  } finally {
+    await dispose(rendered)
+  }
+})
+
+test('the committed keyboard prompt dispatches once and a stopped old-session reply cannot replace the recoverable request', async () => {
+  const calls = setupNative()
+  drawingSession('drawing-keyboard-a')
+  let finish: ((value: ReturnType<typeof pendingReceipt>) => void) | undefined
+  calls.invoke.mockImplementation(
+    () =>
+      new Promise((resolve) => {
+        finish = resolve
+      })
+  )
+  const rendered = await renderDrawing()
+  try {
+    await ready(rendered)
+    const textarea = rendered.container.querySelector('textarea')
+    assert.ok(textarea)
+    await setTextareaValue(textarea, 'Earlier prompt')
+    await setTextareaValue(textarea, 'Latest committed prompt')
+    const shortcut = () =>
+      textarea.dispatchEvent(
+        new KeyboardEvent('keydown', {
+          key: 'Enter',
+          ctrlKey: true,
+          bubbles: true,
+        })
+      )
+    await act(async () => {
+      shortcut()
+      shortcut()
+    })
+    await waitForDrawingState(
+      () => !!finish,
+      'keyboard request was not dispatched'
+    )
+    const original = readDrawingOperation(1)
+    assert.ok(original)
+    assert.equal(original.prompt, 'Latest committed prompt')
+    assert.equal(calls.grant.mock.calls.length, 1)
+    assert.equal(calls.invoke.mock.calls.length, 1)
+    await act(async () => button(rendered.container, 'Stop waiting').click())
+    assert.equal(button(rendered.container, 'Generate image').disabled, true)
+    assert.equal(readDrawingOperation(1)?.requestId, original.requestId)
+    await act(async () => drawingSession('drawing-keyboard-b'))
+    await ready(rendered)
+    await act(async () => {
+      finish?.(pendingReceipt())
+      await flushEffects()
+    })
+    assert.equal(readDrawingOperation(1)?.requestId, original.requestId)
+    assert.equal(readDrawingOperation(1)?.callId, undefined)
+    assert.doesNotMatch(
+      rendered.container.textContent ?? '',
+      /Open image confirmation/
+    )
+    assert.ok(button(rendered.container, 'Check the original request'))
+    assert.equal((await createDrawingHistoryStore().load(1)).images.length, 0)
+    assert.equal(calls.invoke.mock.calls.length, 1)
+  } finally {
+    await dispose(rendered)
+  }
+})
+
+test('progress follows the active drawing source and stopping waiting preserves its background task', async () => {
+  const calls = setupNative()
+  setDrawingMinigamePref(false)
+  const now = Date.now()
+  registerActiveDrawingTask({
+    id: 'drawing-progress-a',
+    userId: 1,
+    prompt: 'Background drawing',
+    model: 'image-2',
+    group: 'mobile-image-group',
+    count: '1',
+    referenceCount: 0,
+    startedAt: now - 5000,
+    status: 'generating',
+  })
+  const rendered = await renderDrawing()
+  try {
+    await ready(rendered)
+    const elapsed = rendered.container.textContent?.match(/Waiting (\d+)s/)
+    assert.ok(elapsed)
+    assert.ok(Number(elapsed[1]) >= 5)
+    assert.ok(button(rendered.container, 'Play dot-matrix snake while waiting'))
+    await act(async () => updateActiveDrawingTask(1, { status: 'completed' }))
+    assert.doesNotMatch(
+      rendered.container.textContent ?? '',
+      /Request submitted/
+    )
+    await act(async () =>
+      registerActiveDrawingTask({
+        id: 'drawing-progress-b',
+        userId: 1,
+        prompt: 'Next background drawing',
+        model: 'image-2',
+        group: 'mobile-image-group',
+        count: '1',
+        referenceCount: 0,
+        startedAt: Date.now(),
+        status: 'generating',
+      })
+    )
+    assert.match(rendered.container.textContent ?? '', /Waiting 1s/)
+    assert.doesNotMatch(
+      rendered.container.textContent ?? '',
+      /Play dot-matrix snake/
+    )
+    await act(async () => button(rendered.container, 'Stop waiting').click())
+    assert.match(
+      rendered.container.textContent ?? '',
+      /Generation continues in this tab/
+    )
+    assert.equal(calls.invoke.mock.calls.length, 0)
+    assert.equal(getActiveDrawingTask(1)?.id, 'drawing-progress-b')
+    assert.equal(getActiveDrawingTask(1)?.status, 'generating')
+    assert.equal(getActiveDrawingTask(1)?.waitingStopped, true)
   } finally {
     await dispose(rendered)
   }

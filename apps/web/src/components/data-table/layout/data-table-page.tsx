@@ -16,34 +16,17 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import type {
-  ColumnDef,
-  Row,
-  Table as TanstackTable,
-} from '@tanstack/react-table'
-/*
-Copyright (C) 2023-2026 QuantumNous
-
-This program is free software: you can redistribute it and/or modify
-it under the terms of the GNU Affero General Public License as
-published by the Free Software Foundation, either version 3 of the
-License, or (at your option) any later version.
-
-This program is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
-GNU Affero General Public License for more details.
-
-You should have received a copy of the GNU Affero General Public License
-along with this program. If not, see <https://www.gnu.org/licenses/>.
-
-For commercial licensing, please contact support@quantumnous.com
-*/
 import * as React from 'react'
 
 import { PageFooterPortal } from '@/components/layout/components/page-footer'
 import { WaitCompanion } from '@/components/wait-companion'
 import { useMediaQuery } from '@/hooks'
+import type {
+  RowData,
+  ColumnDef,
+  Row,
+  Table as TanstackTable,
+} from '@/lib/table'
 import { cn } from '@/lib/utils'
 
 import {
@@ -67,14 +50,14 @@ import { MobileCardList } from './mobile-card-list'
  * Pass-through configuration for the default {@link DataTableToolbar}.
  * Pass `toolbar` (ReactNode) instead to fully replace the default toolbar.
  */
-export type DataTablePageToolbarProps<TData> = Omit<
+export type DataTablePageToolbarProps<TData extends RowData> = Omit<
   React.ComponentProps<typeof DataTableToolbar<TData>>,
   'table'
 >
 
-export type DataTablePageProps<TData> = {
+export type DataTablePageProps<TData extends RowData> = {
   /**
-   * TanStack Table instance returned from `useReactTable`.
+   * TanStack Table instance returned from `useTable`.
    */
   table: TanstackTable<TData>
 
@@ -308,7 +291,9 @@ export type DataTablePageProps<TData> = {
  * For complex layouts (custom mobile, expanded rows, custom toolbar), use the
  * `toolbar` / `mobile` / `renderRow` slots instead of the `*Props` variants.
  */
-export function DataTablePage<TData>(props: DataTablePageProps<TData>) {
+export function DataTablePage<TData extends RowData>(
+  props: DataTablePageProps<TData>
+) {
   const tableRegionRef = React.useRef<HTMLDivElement>(null)
   const isMobile = useMediaQuery('(max-width: 640px)')
   const showMobile = isMobile && !props.hideMobile
@@ -369,7 +354,7 @@ export function DataTablePage<TData>(props: DataTablePageProps<TData>) {
   )
 }
 
-function renderToolbar<TData>(
+function renderToolbar<TData extends RowData>(
   props: DataTablePageProps<TData>,
   viewToggle: React.ReactNode
 ): React.ReactNode {
@@ -392,7 +377,7 @@ function renderToolbar<TData>(
   return null
 }
 
-function renderPagination<TData>(
+function renderPagination<TData extends RowData>(
   props: DataTablePageProps<TData>
 ): React.ReactNode {
   if (props.showPagination === false) {
@@ -408,7 +393,7 @@ function renderPagination<TData>(
   )
 }
 
-function renderMobile<TData>(
+function renderMobile<TData extends RowData>(
   props: DataTablePageProps<TData>,
   showMobile: boolean,
   cardViewActive: boolean,
@@ -498,7 +483,7 @@ function renderMobile<TData>(
   )
 }
 
-function renderDesktop<TData>(
+function renderDesktop<TData extends RowData>(
   props: DataTablePageProps<TData>,
   showMobile: boolean,
   cardViewActive: boolean,

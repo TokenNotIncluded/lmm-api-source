@@ -49,33 +49,80 @@ const AssistantPanel = lazy(() =>
 // Tailwind setup does not generate rules for.
 const RAIL_WIDTH = 'w-96 max-w-[26vw]'
 
+type LauncherRequestState = {
+  ownerKey: string
+  initialPreset?: AssistantPresetId
+  initialMessage?: string
+  initialMessageRevision: number
+  autoSendRequestId?: string
+}
+
 export function AssistantLauncher(props: {
   page?: boolean
   hideMobileLauncher?: boolean
 }) {
   const { t } = useTranslation()
   const { status } = useStatus()
-  const user = useAuthStore((state) => state.auth.user)
+  const { user, session } = useAuthStore((state) => state.auth)
+  const hasUser = Boolean(user)
+  const ownerKey = JSON.stringify([user?.id ?? null, session?.sid ?? null])
+  const [mountedRequest] = useState(() => ({
+    ownerKey,
+    request: peekQueuedAssistantRequest(),
+  }))
   const isOverlayViewport = useAssistantOverlay()
-  const [mobileOpen, setMobileOpen] = useState(false)
-  const [desktopFullscreen, setDesktopFullscreen] = useState(false)
+  const [mobileOpen, setMobileOpen] = useState(Boolean(mountedRequest.request))
   const railOpen = useAssistantRailOpen()
-  const [initialPreset, setInitialPreset] = useState<
-    AssistantPresetId | undefined
-  >(() =>
-    props.page
-      ? isConsoleActivated(user)
-        ? 'client-setup'
-        : 'onboarding'
-      : undefined
-  )
-  const [initialMessage, setInitialMessage] = useState<string>()
-  const [initialMessageRevision, setInitialMessageRevision] = useState(0)
-  const [autoSendRequestId, setAutoSendRequestId] = useState<string>()
-
-  useEffect(() => {
-    if (!railOpen || isOverlayViewport) setDesktopFullscreen(false)
-  }, [isOverlayViewport, railOpen])
+  const defaultPreset: AssistantPresetId | undefined = props.page
+    ? isConsoleActivated(user)
+      ? 'client-setup'
+      : 'onboarding'
+    : undefined
+  const [requestState, setRequestState] = useState<LauncherRequestState>(() => {
+    const queued = mountedRequest.request
+    return {
+      ownerKey,
+      initialPreset: queued
+        ? (queued.preset ??
+          (queued.autoSend
+            ? isConsoleActivated(user)
+              ? 'service'
+              : 'onboarding'
+            : undefined))
+        : defaultPreset,
+      initialMessage: queued?.message,
+      initialMessageRevision: queued?.message?.trim() ? 1 : 0,
+      autoSendRequestId: queued?.autoSend ? queued.id : undefined,
+    }
+  })
+  if (requestState.ownerKey !== ownerKey) {
+    setRequestState({
+      ownerKey,
+      initialPreset: defaultPreset,
+      initialMessage: undefined,
+      initialMessageRevision: requestState.initialMessageRevision + 1,
+      autoSendRequestId: undefined,
+    })
+    setMobileOpen(false)
+  }
+  const {
+    initialPreset,
+    initialMessage,
+    initialMessageRevision,
+    autoSendRequestId,
+  } = requestState
+  const desktopScope = JSON.stringify([
+    ownerKey,
+    railOpen && !isOverlayViewport,
+  ])
+  const [desktop, setDesktop] = useState({
+    scope: desktopScope,
+    fullscreen: false,
+  })
+  if (desktop.scope !== desktopScope) {
+    setDesktop({ scope: desktopScope, fullscreen: false })
+  }
+  const desktopFullscreen = desktop.scope === desktopScope && desktop.fullscreen
 
   const showAssistant = useCallback(
     (request: {
@@ -84,47 +131,97 @@ export function AssistantLauncher(props: {
       message?: string
       autoSend: boolean
     }) => {
+      const current = useAuthStore.getState().auth
+      if (
+        JSON.stringify([
+          current.user?.id ?? null,
+          current.session?.sid ?? null,
+        ]) !== ownerKey
+      ) {
+        return
+      }
       let preset = request.preset
       if (!preset && request.autoSend) {
         preset = isConsoleActivated(user) ? 'service' : 'onboarding'
       }
-      setInitialPreset(preset)
-      setInitialMessage(request.message)
-      if (request.message?.trim()) {
-        setInitialMessageRevision((revision) => revision + 1)
-        setAutoSendRequestId(request.autoSend ? request.id : undefined)
-      }
+      setRequestState((current) => ({
+        ownerKey,
+        initialPreset: preset,
+        initialMessage: request.message,
+        initialMessageRevision:
+          current.initialMessageRevision + (request.message?.trim() ? 1 : 0),
+        autoSendRequestId:
+          request.message?.trim() && request.autoSend ? request.id : undefined,
+      }))
       if (!request.autoSend) consumeQueuedAssistantRequest(request.id)
       // Desktop: the in-flow rail opens (the panel itself keeps its
       // conversation state because it never unmounts). Mobile: overlay.
       setAssistantRailOpen(true)
       setMobileOpen(true)
     },
-    [user]
+    [ownerKey, user]
   )
 
   // The overlay sheet and the desktop rail are exclusive by viewport; only
   // the active one mounts so a queued auto-send can never fire twice.
 
   const handleConversationReset = useCallback(() => {
-    setInitialPreset(undefined)
-    setInitialMessage(undefined)
-    setInitialMessageRevision((revision) => revision + 1)
-    setAutoSendRequestId(undefined)
-  }, [])
+    setRequestState((current) =>
+      current.ownerKey === ownerKey
+        ? {
+            ownerKey,
+            initialPreset: undefined,
+            initialMessage: undefined,
+            initialMessageRevision: current.initialMessageRevision + 1,
+            autoSendRequestId: undefined,
+          }
+        : current
+    )
+  }, [ownerKey])
 
   useEffect(() => {
-    const queued = peekQueuedAssistantRequest()
-    if (queued) showAssistant(queued)
-    return subscribeToAssistantOpen(showAssistant)
-  }, [showAssistant])
+    const queued = mountedRequest.request
+    const current = useAuthStore.getState().auth
+    if (
+      !queued ||
+      JSON.stringify([
+        current.user?.id ?? null,
+        current.session?.sid ?? null,
+      ]) !== mountedRequest.ownerKey
+    ) {
+      return
+    }
+    setAssistantRailOpen(true)
+    if (!queued.autoSend) consumeQueuedAssistantRequest(queued.id)
+  }, [mountedRequest])
 
-  const handleAutoSendConsumed = useCallback((requestId: string) => {
-    consumeQueuedAssistantRequest(requestId)
-    setAutoSendRequestId((current) =>
-      current === requestId ? undefined : current
-    )
-  }, [])
+  useEffect(() => subscribeToAssistantOpen(showAssistant), [showAssistant])
+
+  useEffect(
+    () => () => {
+      const current = useAuthStore.getState().auth
+      const currentKey = JSON.stringify([
+        current.user?.id ?? null,
+        current.session?.sid ?? null,
+      ])
+      if (hasUser && currentKey !== ownerKey && autoSendRequestId) {
+        consumeQueuedAssistantRequest(autoSendRequestId)
+      }
+    },
+    [autoSendRequestId, ownerKey, hasUser]
+  )
+
+  const handleAutoSendConsumed = useCallback(
+    (requestId: string) => {
+      consumeQueuedAssistantRequest(requestId)
+      setRequestState((current) =>
+        current.ownerKey === ownerKey && current.autoSendRequestId === requestId
+          ? { ...current, autoSendRequestId: undefined }
+          : current
+      )
+    },
+    [ownerKey]
+  )
 
   const showManualAssistant = useCallback(() => {
     showAssistant({ id: 'manual', autoSend: false })
@@ -257,7 +354,10 @@ export function AssistantLauncher(props: {
                 onOpenChange={setAssistantRailOpen}
                 onConversationReset={handleConversationReset}
                 onToggleFullscreen={() =>
-                  setDesktopFullscreen((value) => !value)
+                  setDesktop((value) => ({
+                    ...value,
+                    fullscreen: !value.fullscreen,
+                  }))
                 }
               />
             </Suspense>

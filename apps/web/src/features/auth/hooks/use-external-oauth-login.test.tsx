@@ -10,6 +10,8 @@ import { after, afterEach, describe, test } from 'node:test'
 
 import { Window } from 'happy-dom'
 
+import { installSupportedAuthBrowser } from '@/test-support/supported-auth-browser'
+
 import {
   EXTERNAL_BROWSER_PRESETS,
   type ExternalBrowserProvider,
@@ -72,11 +74,15 @@ mock.module('../api', () => ({
 mock.module('./use-auth-redirect', () => ({
   useAuthRedirect: () => ({ handleLoginSuccess: async () => {} }),
 }))
-const { act } = await import('react')
+// Normal supported browser; install after this fixture replaces its globals.
+installSupportedAuthBrowser()
+
+const { act, useLayoutEffect } = await import('react')
 const { createRoot } = await import('react-dom/client')
 const { useOAuthLogin } = await import('./use-oauth-login')
 let root: ReturnType<typeof createRoot> | undefined
 let login: () => Promise<void>
+let controls: ReturnType<typeof useOAuthLogin>
 function Harness({
   status,
   provider,
@@ -87,17 +93,20 @@ function Harness({
   legal: boolean
 }) {
   const flow = useOAuthLogin(status, '/console', legal)
-  switch (provider) {
-    case 'github':
-      login = flow.handleGitHubLogin
-      break
-    case 'discord':
-      login = flow.handleDiscordLogin
-      break
-    case 'linuxdo':
-      login = flow.handleLinuxDOLogin
-      break
-  }
+  useLayoutEffect(() => {
+    controls = flow
+    switch (provider) {
+      case 'github':
+        login = flow.handleGitHubLogin
+        break
+      case 'discord':
+        login = flow.handleDiscordLogin
+        break
+      case 'linuxdo':
+        login = flow.handleLinuxDOLogin
+        break
+    }
+  }, [flow, provider])
   return null
 }
 const providers: ExternalBrowserProvider[] = ['github', 'discord', 'linuxdo']
@@ -256,5 +265,115 @@ describe('built-in external browser hook contract', () => {
       assert.equal(calls.length, 1)
       assert.equal(navigations.length, 1)
     })
+  }
+})
+
+test('all browser strategies share pending ownership and unmount cancels a late redirect', async () => {
+  let release!: (value: unknown) => void
+  pendingResponse = new Promise((resolve) => {
+    release = resolve
+  })
+  await mount('github')
+  let first!: Promise<void>
+  await act(async () => {
+    first = controls.handleGitHubLogin()
+    await controls.handleLinuxDOLogin()
+  })
+  assert.equal(calls.length, 1)
+  const activeRoot = root
+  assert.ok(activeRoot)
+  await act(async () => activeRoot.unmount())
+  root = undefined
+  await act(async () => {
+    release(validResponse('github'))
+    await first
+  })
+  assert.deepEqual(navigations, [])
+  assert.deepEqual(errors, [])
+})
+
+test('a browser authorization response cannot redirect after a newer account replaces its captured session', async () => {
+  const { useAuthStore } = await import('@/stores/auth-store')
+  const original = useAuthStore.getState().auth
+  let release!: (value: unknown) => void
+  pendingResponse = new Promise((resolve) => {
+    release = resolve
+  })
+  await mount('linuxdo')
+  let first!: Promise<void>
+  await act(async () => {
+    first = login()
+  })
+  try {
+    useAuthStore.getState().auth.setBundle({
+      access_token: 'synthetic-later-token',
+      token_type: 'Bearer',
+      access_expires_at: 2000000000,
+      user: { id: 901, username: 'synthetic-later', role: 1 },
+      session: {
+        sid: 'synthetic-later-sid',
+        current: true,
+        login_method: 'password',
+        ip: '',
+        user_agent: '',
+        created_at: 1,
+        last_active_at: 1,
+        expires_at: 2000000000,
+      },
+    })
+    await act(async () => {
+      release(validResponse('linuxdo'))
+      await first
+    })
+    assert.equal(calls.length, 1)
+    assert.deepEqual(navigations, [])
+    assert.deepEqual(errors, [])
+  } finally {
+    useAuthStore.setState({ auth: original })
+  }
+})
+
+test('GitHub strategy retains its 20-second timeout policy and rejects a late authorization redirect', async () => {
+  const original = globalThis.setTimeout
+  const timers: Array<ReturnType<typeof setTimeout>> = []
+  let fire: (() => void) | undefined
+  globalThis.setTimeout = ((
+    callback: (...args: unknown[]) => void,
+    delay?: number,
+    ...args: unknown[]
+  ) => {
+    if (delay === 20000) fire = () => callback(...args)
+    const timer = original(callback, delay, ...args)
+    if (delay === 20000) timers.push(timer)
+    return timer
+  }) as typeof setTimeout
+  let release!: (value: unknown) => void
+  pendingResponse = new Promise((resolve) => {
+    release = resolve
+  })
+  try {
+    await mount('github')
+    let first!: Promise<void>
+    await act(async () => {
+      first = login()
+    })
+    assert.ok(fire)
+    await act(async () => fire!())
+    assert.equal(
+      controls.githubButtonText,
+      'Request timed out, please refresh and restart GitHub login'
+    )
+    assert.equal(controls.githubButtonDisabled, true)
+    assert.equal(controls.isLoading, false)
+    await act(async () => {
+      release(validResponse('github'))
+      await first
+      await login()
+    })
+    assert.equal(calls.length, 1)
+    assert.deepEqual(navigations, [])
+  } finally {
+    globalThis.setTimeout = original
+    for (const timer of timers) clearTimeout(timer)
   }
 })

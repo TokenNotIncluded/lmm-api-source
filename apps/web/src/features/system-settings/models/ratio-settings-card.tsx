@@ -19,6 +19,7 @@ For commercial licensing, please contact support@quantumnous.com
 /*
 Copyright (C) 2026 LIghtJUNction
 */
+
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
@@ -64,7 +65,12 @@ import {
   validateJsonString,
 } from './utils'
 
-type Translate = (key: string, options?: Record<string, unknown>) => string
+type TFunction = {
+  (key: string): string
+  (key: string, options: Record<string, unknown>): string
+}
+
+type Translate = TFunction
 
 function formatJsonValidationError(
   t: Translate,
@@ -190,9 +196,14 @@ export function RatioSettingsCard({
   const [exposeRatioEnabled, setExposeRatioEnabled] = useState(
     legacyModelDefaults.ExposeRatioEnabled
   )
-  useEffect(() => {
+  const [previousExposure, setPreviousExposure] = useState(
+    legacyModelDefaults.ExposeRatioEnabled
+  )
+  if (previousExposure !== legacyModelDefaults.ExposeRatioEnabled) {
+    setPreviousExposure(legacyModelDefaults.ExposeRatioEnabled)
     setExposeRatioEnabled(legacyModelDefaults.ExposeRatioEnabled)
-  }, [legacyModelDefaults.ExposeRatioEnabled])
+  }
+
   const needsUsdPricing = visibleTabs.some((tab) => tab !== 'groups')
   const pricingQuery = useModelPricingConfig(needsUsdPricing)
   const modelPricingBaseline = useRef(pricingQuery.data)
@@ -246,7 +257,7 @@ export function RatioSettingsCard({
     },
   })
 
-  const modelNormalizedDefaults = useRef({
+  const [savedModelValues, setSavedModelValues] = useState(() => ({
     ModelPrice: normalizeJsonString(modelDefaults.ModelPrice),
     ModelRatio: normalizeJsonString(modelDefaults.ModelRatio),
     CacheRatio: normalizeJsonString(modelDefaults.CacheRatio),
@@ -260,10 +271,8 @@ export function RatioSettingsCard({
     ExposeRatioEnabled: modelDefaults.ExposeRatioEnabled,
     BillingMode: normalizeJsonString(modelDefaults.BillingMode),
     BillingExpr: normalizeJsonString(modelDefaults.BillingExpr),
-  })
-  const [savedModelValues, setSavedModelValues] = useState(
-    modelNormalizedDefaults.current
-  )
+  }))
+  const modelNormalizedDefaults = useRef(savedModelValues)
 
   const modelSchema = useMemo(() => createModelSchema(t), [t])
   const groupSchema = useMemo(() => createGroupSchema(t), [t])

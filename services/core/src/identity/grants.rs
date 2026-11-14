@@ -2,11 +2,16 @@
 //! PKCE uses oxide-auth (MIT OR Apache-2.0), pinned in Cargo.toml.
 mod delegated;
 mod issuer;
+mod managed;
 mod protocol;
 mod readonly;
 use super::*;
 pub use delegated::OAuthSource;
 pub use issuer::{AuthorizationRedirect, ConsentPage, LmmIssuer};
+pub use managed::{
+    ManagedAuthorizationRequest, ManagedRecoveryKeys, ManagedTokenForm, ManagedTokenRequest,
+    ManagedTokenWire,
+};
 use oxide_auth::code_grant::extensions::Pkce;
 pub use protocol::{
     AuthorizationRequest, ConsentForm, ContinueForm, LmmProfile, RevokeForm, TokenForm,
@@ -194,7 +199,7 @@ WITH catalog_path AS MATERIALIZED (
  SELECT json_build_array('internal-trigger',c.relname,k.conname,pn.nspname,p.proname,t.tgtype,t.tgenabled,t.tgdeferrable,t.tginitdeferred,t.tgattr::text,encode(t.tgargs,'hex'),pg_get_expr(t.tgqual,t.tgrelid))::text FROM pg_trigger t JOIN pg_class c ON c.oid=t.tgrelid JOIN pg_namespace n ON n.oid=c.relnamespace JOIN pg_proc p ON p.oid=t.tgfoid JOIN pg_namespace pn ON pn.oid=p.pronamespace LEFT JOIN pg_constraint k ON k.oid=t.tgconstraint WHERE n.oid IN (SELECT oid FROM oauth_namespace) AND t.tgisinternal
 ) SELECT d FROM definitions ORDER BY d COLLATE "C"
 "#;
-async fn catalog(c: &mut PgConnection) -> Result<Vec<u8>> {
+pub(crate) async fn catalog(c: &mut PgConnection) -> Result<Vec<u8>> {
     let definitions: Vec<String> = sqlx::query_scalar(CATALOG).fetch_all(c).await?;
     let mut hash = Sha256::new();
     for definition in definitions {

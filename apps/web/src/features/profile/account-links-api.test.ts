@@ -4,6 +4,7 @@ import { afterEach, test } from 'node:test'
 
 import { api } from '@/lib/api'
 import { useAuthStore, type AuthBundle } from '@/stores/auth-store'
+import { installSupportedAuthBrowser } from '@/test-support/supported-auth-browser'
 
 import {
   ACCOUNT_PROVIDER_ISSUERS,
@@ -18,6 +19,8 @@ const originalAuth = useAuthStore.getState().auth
 const adapter = api.defaults.adapter
 const flow = `lmmo_${'a'.repeat(64)}`
 const origin = 'https://bindings.example.test'
+// Normal supported browser, including the API-only cases above the DOM case.
+installSupportedAuthBrowser({ url: origin })
 function bundle(
   sid = 'synthetic-account-links',
   token = 'synthetic-access'
@@ -198,4 +201,178 @@ test('a delayed callback cannot replace a newer login and Discord callbacks requ
     })
   )
   assert.equal(writes, 1)
+})
+
+test('dynamic federated descriptors coexist with fixed OAuth and reject mismatched identity metadata', async () => {
+  const { accountLinksSchema } = await import('./account-links-api')
+  const descriptor = {
+    provider: 'federated:73',
+    provider_id: '73',
+    issuer: 'urn:lmm:federated:73',
+    can_bind: true,
+    slug: 'synthetic-wechat',
+    name: 'WeChat',
+    kind: 'wechat',
+    icon: '',
+    qr_code_url: '',
+    native_federated: true,
+  }
+  const combined = { ...listing, providers: [...listing.providers, descriptor] }
+  assert.equal(accountLinksSchema.parse(combined).providers.length, 5)
+  const identity = {
+    issuer: 'urn:lmm:federated:73',
+    provider_id: '73',
+    subject: 'synthetic-subject',
+    revision: '1',
+    active: true,
+    available: false,
+    slug: descriptor.slug,
+    name: descriptor.name,
+    kind: descriptor.kind,
+  }
+  assert.equal(
+    accountLinksSchema.parse({ ...combined, links: [identity] }).links.length,
+    1
+  )
+  assert.throws(() =>
+    accountLinksSchema.parse({
+      ...combined,
+      links: [{ ...identity, provider_id: '74' }],
+    })
+  )
+  const { provider_id: _id, ...missingId } = identity
+  assert.throws(() =>
+    accountLinksSchema.parse({ ...combined, links: [missingId] })
+  )
+  void _id
+
+  for (const changed of [
+    { provider_id: '74' },
+    { issuer: 'https://github.com' },
+    { native_federated: false },
+    { kind: 'github' },
+    { provider: 'github' },
+  ]) {
+    assert.throws(() =>
+      accountLinksSchema.parse({
+        ...combined,
+        providers: [...listing.providers, { ...descriptor, ...changed }],
+      })
+    )
+  }
+})
+test('native binding uses lmmfe only and rotates the same SID before CAS unlink', async () => {
+  const { Window } = await import('happy-dom')
+  const previous = Object.getOwnPropertyDescriptor(globalThis, 'window')
+  const dom = new Window({ url: origin })
+  Object.defineProperty(globalThis, 'window', {
+    configurable: true,
+    value: dom,
+  })
+  const native = {
+    id: '73',
+    kind: 'wechat' as const,
+    slug: 'synthetic-wechat',
+    name: 'WeChat',
+    icon: '',
+    revision: '1',
+    client_id: '',
+    authorization_endpoint: '',
+    scopes: '',
+    qr_code_url: '',
+    native_federated: true as const,
+  }
+  const started = {
+    state: `lmmfe_${'e'.repeat(64)}`,
+    expires_at: 2000000000,
+    authorization_url: '',
+  }
+  useAuthStore.getState().auth.setBundle(bundle())
+  const scope = accountLinkScope()
+  const calls: string[] = []
+  api.defaults.adapter = async (config) => {
+    calls.push(config.url!)
+    assert.deepEqual(config.authScope, scope)
+    if (config.url!.endsWith('/begin')) {
+      assert.deepEqual(JSON.parse(config.data), { expected_auth_version: '3' })
+    }
+    if (config.url!.endsWith('/finish')) {
+      assert.deepEqual(JSON.parse(config.data), {
+        state: started.state,
+        code: 'synthetic-code',
+      })
+    }
+    return {
+      config,
+      status: 200,
+      statusText: 'OK',
+      headers: {},
+      data: {
+        success: true,
+        data: config.url!.endsWith('/begin')
+          ? started
+          : bundle(scope.sessionId, 'rotated-native-access'),
+      },
+    }
+  }
+  try {
+    await beginAccountBinding(
+      scope,
+      'federated:73',
+      '3',
+      { native_federated_auth: true, federated_oauth_providers: [native] },
+      origin
+    )
+    await assert.rejects(
+      finishAccountBinding(scope, 'github', {
+        state: started.state,
+        code: 'synthetic-code',
+      })
+    )
+    await assert.rejects(
+      finishAccountBinding(scope, 'federated:73', {
+        state: flow,
+        code: 'synthetic-code',
+      })
+    )
+    await finishAccountBinding(scope, 'federated:73', {
+      state: started.state,
+      code: 'synthetic-code',
+    })
+    assert.equal(useAuthStore.getState().auth.session?.sid, scope.sessionId)
+    assert.equal(
+      useAuthStore.getState().auth.accessToken,
+      'rotated-native-access'
+    )
+    await assert.rejects(
+      finishAccountBinding(scope, 'federated:73', {
+        state: started.state,
+        code: 'synthetic-code',
+      })
+    )
+    await unlinkAccount(
+      scope,
+      {
+        issuer: 'urn:lmm:federated:73',
+        provider_id: '73',
+        slug: native.slug,
+        name: native.name,
+        kind: native.kind,
+        available: true,
+        subject: 'synthetic-subject',
+        revision: '0',
+        active: true,
+      },
+      '3'
+    )
+    assert.deepEqual(calls, [
+      '/api/user/account-links/federated:73/begin',
+      '/api/user/account-links/federated:73/finish',
+      '/api/user/account-links/unlink',
+    ])
+  } finally {
+    dom.close()
+    if (previous) Object.defineProperty(globalThis, 'window', previous)
+    else Reflect.deleteProperty(globalThis, 'window')
+  }
 })

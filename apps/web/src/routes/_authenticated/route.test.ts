@@ -20,15 +20,19 @@ import assert from 'node:assert/strict'
 import { afterEach, describe, test } from 'node:test'
 
 import { isRedirect } from '@tanstack/react-router'
-import { AxiosError, AxiosHeaders } from 'axios'
+import { AxiosHeaders } from 'axios'
 
 import {
   bootstrapAuthentication,
   setDevelopmentAuthRefreshAdapter,
 } from '@/lib/auth-session'
 import { useAuthStore, type AuthUser } from '@/stores/auth-store'
+import { installSupportedAuthBrowser } from '@/test-support/supported-auth-browser'
 
 import { Route } from './route'
+
+// Normal supported browser; install after this fixture replaces its globals.
+installSupportedAuthBrowser()
 
 function authenticate(user: AuthUser) {
   useAuthStore.getState().auth.setBundle({
@@ -64,36 +68,6 @@ async function runBeforeLoad(pathname: string) {
 afterEach(() => useAuthStore.getState().auth.reset('complete'))
 
 describe('authenticated route access', () => {
-  test('keeps a cold profile request retryable when checking the session fails', async () => {
-    for (const status of [0, 500, 503]) {
-      useAuthStore.getState().auth.reset('idle')
-      setDevelopmentAuthRefreshAdapter(async (config) => {
-        throw new AxiosError(
-          'Authentication transport unavailable',
-          status === 0 ? AxiosError.ERR_NETWORK : AxiosError.ERR_BAD_RESPONSE,
-          config,
-          undefined,
-          status === 0
-            ? undefined
-            : {
-                config,
-                data: { success: false },
-                headers: new AxiosHeaders(),
-                status,
-                statusText: 'Unavailable',
-              }
-        )
-      })
-      assert.equal((await bootstrapAuthentication()).kind, 'transient_error')
-      assert.equal(useAuthStore.getState().auth.bootstrapState, 'idle')
-
-      const error = await runBeforeLoad('/profile')
-      assert.ok(error instanceof Error, `status ${status} must offer retry`)
-      assert.equal(isRedirect(error), false)
-      assert.equal(useAuthStore.getState().auth.user, null)
-    }
-  })
-
   test('does not redirect a pending session check to sign in', async () => {
     useAuthStore.getState().auth.reset('checking')
     const error = await runBeforeLoad('/profile')

@@ -38,3 +38,52 @@ test('locale files keep every UI key inside the translation namespace', async ()
     }
   }
 })
+
+test('dynamic auth-cookie recovery and storage messages remain extractable and translated', async () => {
+  const source = await fs.readFile(
+    new URL('../lib/auth-cookie.ts', import.meta.url),
+    'utf8'
+  )
+  const { STATIC_I18N_KEYS } = await import('./static-keys')
+  const staticKeys = new Set<string>(STATIC_I18N_KEYS)
+  for (const name of [
+    'authCookieRecoveryMessage',
+    'authCookieStorageMessage',
+  ]) {
+    const match = source.match(
+      new RegExp(`export const ${name} =\\n  '([^']+)'`)
+    )
+    assert.ok(match)
+    const key = match[1]
+    assert.ok(staticKeys.has(key))
+    for (const locale of locales) {
+      const document = JSON.parse(
+        await fs.readFile(
+          new URL(`./locales/${locale}.json`, import.meta.url),
+          'utf8'
+        )
+      )
+      assert.ok(document.translation[key], `${locale}: ${name}`)
+      if (locale !== 'en') {
+        assert.notEqual(document.translation[key], key, `${locale}: ${name}`)
+      }
+    }
+  }
+})
+
+test('OAuth grant client categories have real translations in all interface languages', async () => {
+  for (const locale of locales) {
+    const document = JSON.parse(
+      await fs.readFile(
+        new URL(`./locales/${locale}.json`, import.meta.url),
+        'utf8'
+      )
+    )
+    for (const key of ['Model client', 'Read-only client']) {
+      assert.ok(document.translation[key], `${locale}: ${key}`)
+      if (locale !== 'en') {
+        assert.notEqual(document.translation[key], key, `${locale}: ${key}`)
+      }
+    }
+  }
+})

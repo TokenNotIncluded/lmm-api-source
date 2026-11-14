@@ -16,7 +16,6 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import type { Table } from '@tanstack/react-table'
 import { Mail, UserRound } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 
@@ -27,6 +26,7 @@ import { Separator } from '@/components/ui/separator'
 import { HoneypotBulkActionButton } from '@/features/honeypot/bulk-mark-dialog'
 import { legacyUserIDsToStrings } from '@/features/honeypot/legacy-user-ids'
 import { ROLE } from '@/lib/roles'
+import type { Table } from '@/lib/table'
 import { useAuthStore } from '@/stores/auth-store'
 
 import {

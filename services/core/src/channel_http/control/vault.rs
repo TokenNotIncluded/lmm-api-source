@@ -6,19 +6,15 @@ use aes_gcm::{
     Aes256Gcm, KeyInit, Nonce,
     aead::{Aead, Payload},
 };
-use hkdf::Hkdf;
 use rand::TryRng as _;
 use rand::rngs::SysRng;
-use sha2::Sha256;
-use zeroize::Zeroizing;
 
 fn cipher(key: &[u8]) -> Result<Aes256Gcm, ManagementError> {
     if key.len() != 32 {
         return Err(ManagementError::Invalid);
     }
-    let mut derived = Zeroizing::new([0_u8; 32]);
-    Hkdf::<Sha256>::new(Some(b"lmm-channel-secret-v1"), key)
-        .expand(b"aes-256-gcm", derived.as_mut())
+    let derived = crate::crypto_key_material::KeyPurpose::ChannelVault
+        .derive(key)
         .map_err(|_| ManagementError::Storage)?;
     Aes256Gcm::new_from_slice(derived.as_ref()).map_err(|_| ManagementError::Storage)
 }

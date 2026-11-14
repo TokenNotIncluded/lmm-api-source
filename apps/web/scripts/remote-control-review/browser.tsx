@@ -1,3 +1,7 @@
+/*
+Copyright (C) 2026 LIghtJUNction
+SPDX-License-Identifier: AGPL-3.0-or-later
+*/
 import i18next from 'i18next'
 // A loopback test page using the production controls, command hook and encryption.
 import React, { useEffect, useState } from 'react'

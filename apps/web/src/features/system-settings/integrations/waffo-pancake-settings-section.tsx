@@ -80,7 +80,20 @@ export function WaffoPancakeSettingsSection({
 }: Props) {
   const { t } = useTranslation()
 
-  const [phase, setPhase] = React.useState<'idle' | 'verifying'>('idle')
+  const catalogScope = JSON.stringify([
+    values.WaffoPancakeMerchantID,
+    values.WaffoPancakePrivateKey,
+    defaultValues.WaffoPancakeMerchantID,
+    defaultValues.WaffoPancakePrivateKey,
+  ])
+  const [verification, setVerification] = React.useState<{
+    scope: string
+    request: number | null
+  }>({ scope: catalogScope, request: null })
+  // A canceled scope must not revive its pending phase on A -> empty -> A.
+  if (verification.scope !== catalogScope) {
+    setVerification({ scope: catalogScope, request: null })
+  }
   const [catalog, setCatalog] = React.useState<CatalogStore[]>([])
   const [creatingPair, setCreatingPair] = React.useState(false)
   const chosenStoreID = selectedBinding.storeID
@@ -99,6 +112,23 @@ export function WaffoPancakeSettingsSection({
   // skips when nothing changed.
   const lastVerifiedSignature = React.useRef('')
   const fetchSerialRef = React.useRef(0)
+  const savedBindingRef = React.useRef(savedBinding)
+  React.useLayoutEffect(() => {
+    savedBindingRef.current = savedBinding
+  }, [savedBinding])
+  React.useLayoutEffect(() => {
+    // Invalidate old merchant/key requests at commit, before a new debounced
+    // verification starts. Unmount invalidates pending responses as well.
+    fetchSerialRef.current += 1
+    return () => {
+      fetchSerialRef.current += 1
+    }
+  }, [
+    values.WaffoPancakeMerchantID,
+    values.WaffoPancakePrivateKey,
+    defaultValues.WaffoPancakeMerchantID,
+    defaultValues.WaffoPancakePrivateKey,
+  ])
 
   // Mount-only — never re-sync from props after the first render. The
   // backend strips PrivateKey from GET /api/option/, so a re-sync would
@@ -153,6 +183,7 @@ export function WaffoPancakeSettingsSection({
       preselect?: { storeID?: string; productID?: string }
     ) => {
       const serial = ++fetchSerialRef.current
+      setVerification({ scope: catalogScope, request: serial })
       let stores: CatalogStore[]
       try {
         const body = await listWaffoPancakeCatalog(merchantID, privateKey)
@@ -172,7 +203,6 @@ export function WaffoPancakeSettingsSection({
                   'Credentials verification failed — double-check Merchant ID and API private key.'
                 )
           )
-          setPhase('idle')
           return
         }
       } catch (err) {
@@ -182,11 +212,19 @@ export function WaffoPancakeSettingsSection({
             err instanceof Error ? err.message : String(err)
           }`
         )
-        setPhase('idle')
         return
+      } finally {
+        if (serial === fetchSerialRef.current) {
+          setVerification((current) =>
+            current.scope === catalogScope && current.request === serial
+              ? { scope: catalogScope, request: null }
+              : current
+          )
+        }
       }
       if (serial !== fetchSerialRef.current) return
 
+      const savedProductID = savedBindingRef.current.productID
       setCatalog(stores)
       if (preselect) {
         onSelectedBindingChange({
@@ -194,33 +232,40 @@ export function WaffoPancakeSettingsSection({
           productID: preselect.productID ?? '',
         })
       } else {
-        // Default anchor: bound product if found, else first product of
-        // the first store with any — saves a click for new operators.
-        const boundStore = stores.find((s) =>
-          s.onetimeProducts.some((p) => p.id === productID)
-        )
-        if (boundStore && productID) {
-          onSelectedBindingChange({
-            storeID: boundStore.id,
-            productID,
-          })
-        } else {
+        onSelectedBindingChange((previous) => {
+          const selectedStore = stores.find(
+            (store) => store.id === previous.storeID
+          )
+          if (
+            selectedStore?.onetimeProducts.some(
+              (product) => product.id === previous.productID
+            )
+          ) {
+            return previous
+          }
+          // Otherwise anchor on the saved product, or the first available product.
+          const boundStore = stores.find((store) =>
+            store.onetimeProducts.some(
+              (product) => product.id === savedProductID
+            )
+          )
+          if (boundStore && savedProductID) {
+            return { storeID: boundStore.id, productID: savedProductID }
+          }
           const storeWithProducts = stores.find(
-            (s) => s.onetimeProducts.length > 0
+            (store) => store.onetimeProducts.length > 0
           )
           if (storeWithProducts) {
-            onSelectedBindingChange({
+            return {
               storeID: storeWithProducts.id,
               productID: storeWithProducts.onetimeProducts[0].id,
-            })
-          } else {
-            onSelectedBindingChange({ storeID: '', productID: '' })
+            }
           }
-        }
+          return { storeID: '', productID: '' }
+        })
       }
-      setPhase('idle')
     },
-    [onSelectedBindingChange, productID, t]
+    [catalogScope, onSelectedBindingChange, t]
   )
 
   const watchedMerchantID = values.WaffoPancakeMerchantID || ''
@@ -233,7 +278,6 @@ export function WaffoPancakeSettingsSection({
     if (signature === lastVerifiedSignature.current) return
     const timer = setTimeout(() => {
       lastVerifiedSignature.current = signature
-      setPhase('verifying')
       void verifyAndFetchCatalog(m, k)
     }, 800)
     return () => clearTimeout(timer)
@@ -248,7 +292,6 @@ export function WaffoPancakeSettingsSection({
     if (!defaultValues.WaffoPancakeMerchantID.trim()) return
     initialLoadRef.current = true
     const timer = window.setTimeout(() => {
-      setPhase('verifying')
       void verifyAndFetchCatalog('', '')
     }, 0)
     return () => window.clearTimeout(timer)
@@ -304,7 +347,6 @@ export function WaffoPancakeSettingsSection({
         const created = body.data as PairResult
         // Refetch from GraphQL rather than trusting the response body so the
         // dropdowns reflect authoritative state, then anchor on minted IDs.
-        setPhase('verifying')
         await verifyAndFetchCatalog(merchantID, privateKey, {
           storeID: created.store_id,
           productID: created.product_id,
@@ -319,7 +361,6 @@ export function WaffoPancakeSettingsSection({
           ? (body.data as PairOrphanError)
           : null
       if (errData?.orphan_store && errData.store_id) {
-        setPhase('verifying')
         await verifyAndFetchCatalog(merchantID, privateKey, {
           storeID: errData.store_id,
           productID: '',
@@ -340,7 +381,8 @@ export function WaffoPancakeSettingsSection({
     }
   }
 
-  const verifying = phase === 'verifying'
+  const verifying =
+    verification.scope === catalogScope && verification.request !== null
 
   // "Not edited" = MerchantID unchanged AND PrivateKey field blank, in
   // which case the backend falls back to persisted creds. Otherwise we
@@ -568,6 +610,10 @@ export function WaffoPancakeSettingsSection({
                 <div className='grid gap-1.5'>
                   <Label>{t('Product')}</Label>
                   <Select
+                    key={JSON.stringify([
+                      chosenStoreID,
+                      productSelectItems.map((item) => item.value),
+                    ])}
                     items={productSelectItems}
                     value={chosenProductID}
                     onValueChange={(value) =>

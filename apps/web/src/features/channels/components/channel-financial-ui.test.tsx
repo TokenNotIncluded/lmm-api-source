@@ -50,8 +50,7 @@ const { act, useEffect } = await import('react')
 const { createRoot } = await import('react-dom/client')
 const { QueryClient, QueryClientProvider } =
   await import('@tanstack/react-query')
-const { flexRender, getCoreRowModel, useReactTable } =
-  await import('@tanstack/react-table')
+const { flexRender, dataTableFeatures, useTable } = await import('@/lib/table')
 const { createInstance } = await import('i18next')
 const { initReactI18next, I18nextProvider } = await import('react-i18next')
 const { toast } = await import('sonner')
@@ -119,10 +118,10 @@ async function mount(row: Channel, dialog = false) {
     selected = currentRow
     useEffect(() => setCurrentRow(row), [setCurrentRow])
     const columns = useChannelsColumns()
-    const table = useReactTable({
+    const table = useTable({
       data: [row],
       columns,
-      getCoreRowModel: getCoreRowModel(),
+      features: dataTableFeatures,
     })
     if (dialog) return <BalanceQueryDialog open onOpenChange={() => {}} />
     const cell = required(

@@ -16,14 +16,14 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import type { Cell, Row } from '@tanstack/react-table'
 import * as React from 'react'
 
 import { StatusBadgeTypeContext } from '@/components/status-badge'
+import type { RowData, Cell, Row } from '@/lib/table'
 
 import { getCellLabel, renderCellContent } from './card-cell-utils'
 
-function orderCardCells<TData>(
+function orderCardCells<TData extends RowData>(
   cells: Cell<TData, unknown>[]
 ): Cell<TData, unknown>[] {
   return [...cells].sort((a, b) => {
@@ -61,7 +61,7 @@ function orderCardCells<TData>(
  *   [Field1 value] [Field2 value]
  *                          [Actions ⋯]
  */
-function CompactContent<TData>({ row }: { row: Row<TData> }) {
+function CompactContent<TData extends RowData>({ row }: { row: Row<TData> }) {
   const allCells = row
     .getVisibleCells()
     .filter((cell) => cell.column.id !== 'select')
@@ -139,7 +139,7 @@ function CompactContent<TData>({ row }: { row: Row<TData> }) {
  * Fallback content — condensed label:value pairs for tables without
  * mobileTitle/mobileBadge. Still respects mobileHidden.
  */
-function FallbackContent<TData>({ row }: { row: Row<TData> }) {
+function FallbackContent<TData extends RowData>({ row }: { row: Row<TData> }) {
   const allCells = row
     .getVisibleCells()
     .filter((cell) => cell.column.id !== 'select')
@@ -205,7 +205,7 @@ function FallbackContent<TData>({ row }: { row: Row<TData> }) {
  * layout. Callers compute `compact` once per table (via `tableHasCompactMeta`)
  * and pass it down to avoid recomputation per row.
  */
-export function CardRowContent<TData>(props: {
+export function CardRowContent<TData extends RowData>(props: {
   row: Row<TData>
   compact: boolean
 }) {

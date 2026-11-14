@@ -1,3 +1,7 @@
+/*
+Copyright (C) 2026 LIghtJUNction
+SPDX-License-Identifier: AGPL-3.0-or-later
+*/
 // Only used by the loopback browser test build. No production credentials.
 export const api = {
   async post<T>(

@@ -37,7 +37,7 @@ const voucherSource = readFileSync(
 describe('subscription reset workspace safety contract', () => {
   test('requires a future operator-selected expiry and invalidates its preview on edits', () => {
     assert.match(source, /mode === 'hard' \|\| voucherExpiryValid/)
-    assert.match(source, /voucherExpiresAt > Date\.now\(\) \/ 1000/)
+    // Future-time validity is exercised on the mounted workspace in reset-browser-a11y.test.tsx.
     assert.match(
       source,
       /mode === 'soft' \? { voucher_expires_at: voucherExpiresAt } : {}/

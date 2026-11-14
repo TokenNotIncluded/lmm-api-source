@@ -24,6 +24,11 @@ import type {
   PerformanceStatistics,
 } from '../types'
 
+type TFunction = {
+  (key: string): string
+  (key: string, options: Record<string, unknown>): string
+}
+
 export function formatThroughput(tps: number | null | undefined): string {
   if (tps == null || !Number.isFinite(tps) || tps < 0) return '—'
   if (tps >= 1_000) return `${(tps / 1_000).toFixed(1)}K t/s`
@@ -202,7 +207,7 @@ export function isPerformancePartial(
 
 export function performanceCoverageNotice(
   data: PerformanceAvailability | undefined,
-  t: (key: string, options?: Record<string, unknown>) => string
+  t: TFunction
 ): string | null {
   if (!isPerformancePartial(data)) return null
   if (!data?.coverage) return t('Partial performance coverage')

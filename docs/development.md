@@ -58,8 +58,16 @@ Core 独立于 Go，身份和账户功能依赖 PostgreSQL。安装与升级合�
 [架构说明](core-migration.md#安装权限与结构升级)和 [schema](../services/core/schema/README.md)。
 普通启动只检查结构、catalog 指纹和运行权限，不创建角色、授权、执行 DDL 或升级库。
 
-当前二进制仅支持 66 组件新装。旧站升级、历史签到导入及其策略发布使用与旧站匹配的保留二进制；当前二进制明确拒绝这些历史目标，不以当前组件前缀重建或更新冻结历史指纹。旧站离线迁移另行设计和验收。
+当前源码的新装合同为 **70 个组件**，以 `lmm-core schema-manifest` 和
+`services/core/src/core_schema/upgrade/fresh70_target.json` 为准。
+`fresh_target.json` 保留冻结的历史 69 组件目标，不随当前新装目标改写。已声明的精确后缀升级为
+66→67（付款折扣）、67→68（折扣管理）、68→69（Responses 连续性）和 69→70（托管应用，`core-managed-applications-v1`）；每一步仍须满足
+其独立的前置版本、冻结指纹、owner 授权和升级回执，不能用组件数代替验证。
+旧站升级、历史签到导入及其策略发布仍使用与旧站匹配的保留执行器；不得以当前组件
+前缀重建或更新冻结历史指纹。新装合同不等于旧站离线迁移已经验收，后者见
+[当前迁移状态](progress.md)。
 已有库不得通过清空、重复初始化或修改契约记录绕过检查。
+连续性映射的保留期限与恢复性能验收见[存储与恢复合同](responses-continuity.md)。
 
 初始化 owner 与受限 runtime 使用分开的凭据，按[离线角色说明](../deployment/postgres/README.md)
 准备授权；owner URL 不挂载给运行服务。配置采用 TOML 和受控的绝对路径文件，

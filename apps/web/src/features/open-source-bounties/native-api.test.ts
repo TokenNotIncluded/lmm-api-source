@@ -1,4 +1,7 @@
-// Copyright (C) 2026 LIghtJUNction. AGPL-3.0-or-later.
+/*
+Copyright (C) 2026 LIghtJUNction
+SPDX-License-Identifier: AGPL-3.0-or-later
+*/
 import assert from 'node:assert/strict'
 import { afterEach, test } from 'node:test'
 
@@ -78,7 +81,7 @@ test('202 waits for original confirmation and restored business result, never po
   await tick()
   assert.equal(resolved, false)
   assert.deepEqual(posts, [
-    '/api/open-source-bounties/challenges/claim_hash/cancel',
+    '/api/bounties/challenges/claim_hash/cancel',
   ])
   assert.deepEqual(gets, [])
   assert.equal(bountyOperationsSnapshot()[0]?.id, operationID)
@@ -86,7 +89,7 @@ test('202 waits for original confirmation and restored business result, never po
   const result = await action
   assert.equal(result.id, 'claim_hash')
   assert.deepEqual(gets, [
-    `/api/open-source-bounties/operations/${operationID}/result`,
+    `/api/bounties/operations/${operationID}/result`,
   ])
   assert.equal(posts.length, 1)
   assert.equal(bountyOperationsSnapshot().length, 0)
@@ -106,7 +109,7 @@ test('lost HTTP response retains exact operation key and waits for recovery inst
   replace('get', async (url: string) => {
     assert.equal(
       url,
-      `/api/open-source-bounties/operations/${originalID}/result`
+      `/api/bounties/operations/${originalID}/result`
     )
     return {
       status: 200,

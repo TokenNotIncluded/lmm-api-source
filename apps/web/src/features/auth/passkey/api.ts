@@ -23,6 +23,8 @@ import { AUTH_COOKIE_TIMEOUT_MS, withAuthCookieLock } from '@/lib/auth-cookie'
 import {
   applyAuthBundle,
   applyPending2FAFlow,
+  assertLoginResultCurrent,
+  capturePasswordLoginGuard,
   clearAuthentication,
   isAuthBundle,
   withAuthenticatedCookieWrite,
@@ -202,8 +204,13 @@ export async function finishPasskeyLogin(
   payload: Record<string, unknown>,
   assertCurrent: () => void
 ): Promise<ApiResponse> {
-  return withAuthCookieLock(async (transaction) => {
+  const assertLoginCurrent = capturePasswordLoginGuard()
+  const assertRequestCurrent = () => {
+    assertLoginCurrent()
     assertCurrent()
+  }
+  return withAuthCookieLock(async (transaction) => {
+    assertRequestCurrent()
     const res = await transaction.request(() =>
       api.post<ApiResponse>(
         '/api/user/passkey/login/finish',
@@ -215,7 +222,14 @@ export async function finishPasskeyLogin(
         }
       )
     )
-    assertCurrent()
+    const cancellation = assertLoginResultCurrent(
+      transaction,
+      assertRequestCurrent,
+      res.data
+    )
+    if (cancellation) {
+      await cancellation
+    }
     if (res.data.success) {
       const mfa = mfaSchema.safeParse(res.data.data)
       if (mfa.success) {

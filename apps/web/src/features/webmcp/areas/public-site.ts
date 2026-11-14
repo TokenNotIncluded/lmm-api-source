@@ -356,7 +356,7 @@ export const publicSiteTools: WebMcpToolFactory = ({ router }) => [
         oauth: {
           flow: 'Authorization Code with PKCE (S256)',
           clients:
-            'Use only clients advertised by discovery: lmm and optionally enabled lmm-pi.',
+            'Use only clients advertised by discovery: lmm, optionally enabled lmm-pi, and matching client/application entries in lmm_managed_clients. Missing capability means unavailable.',
           openid_connect: false,
           limitation:
             'No userinfo endpoint, ID token or public client registration.',

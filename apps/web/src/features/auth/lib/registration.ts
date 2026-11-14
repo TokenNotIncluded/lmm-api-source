@@ -17,6 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import type { SystemStatus } from '../types'
+import { federatedProviders } from './federated-oauth'
 import { isBuiltInGoogleConfigured } from './google-oauth'
 
 type RegistrationSetting =
@@ -77,6 +78,7 @@ export function hasOAuthLoginProvider(
   status: SystemStatus | null | undefined
 ): boolean {
   return (
+    federatedProviders(status).length > 0 ||
     [
       'wechat',
       'google',
@@ -154,6 +156,16 @@ export function hasOAuthRegistrationProvider(
 
   const disabled = getDisabledOAuthRegistrationMethods(status)
   const isAllowed = (method: string) => !disabled.has(method)
+  if (
+    federatedProviders(status).some(
+      (provider) =>
+        isAllowed(provider.kind) &&
+        isAllowed(`custom:${provider.slug}`) &&
+        isAllowed(`federated:${provider.id}`)
+    )
+  ) {
+    return true
+  }
 
   if (isOAuthProviderConfigured(status, 'wechat') && isAllowed('wechat')) {
     return true

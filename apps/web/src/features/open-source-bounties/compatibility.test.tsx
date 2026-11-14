@@ -138,7 +138,7 @@ async function renderAction(queryClient: InstanceType<typeof QueryClient>) {
             pending=''
             onCancel={(challenge) => {
               void api.post(
-                `/api/open-source-bounties/challenges/${challenge.id}/cancel`
+                `/api/bounties/challenges/${challenge.id}/cancel`
               )
             }}
           />
@@ -230,7 +230,7 @@ describe('legacy Go challenge action compatibility', () => {
     assert.ok(button)
     await act(async () => button.click())
     await flushQueries()
-    assert.deepEqual(posts, ['/api/open-source-bounties/challenges/71/cancel'])
+    assert.deepEqual(posts, ['/api/bounties/challenges/71/cancel'])
 
     await act(async () => root.unmount())
     queryClient.clear()

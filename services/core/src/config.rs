@@ -1,4 +1,5 @@
 mod email_config;
+mod managed_recovery_config;
 pub use email_config::{EmailRuntime, email_runtime};
 mod market_oauth_config;
 pub use market_oauth_config::{market_oauth_configured, market_oauth_issuer, market_oauth_profile};
@@ -194,6 +195,8 @@ struct OAuth2File {
     isolated_loopback_proxy: Option<bool>,
     isolated_secret_directory: Option<PathBuf>,
     pi_max_credits: Option<i64>,
+    cc_switch_max_credits: Option<i64>,
+    managed_refresh_keyring_file: Option<PathBuf>,
     groups: Vec<String>,
     access_ttl_seconds: u32,
     family_ttl_seconds: u32,
@@ -243,6 +246,11 @@ struct FederatedKeyringFile {
 struct MfaKeyFile {
     id: String,
     key_file: PathBuf,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ReceiptAdaptersConfig {
+    adapters: Vec<crate::tool_market::receipt_verifier::AdapterConfig>,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -683,6 +691,20 @@ fn parse_core_file(document: &[u8]) -> io::Result<BTreeMap<&'static str, OsStrin
                 ));
             }
             put("LMM_CORE_OAUTH2_PI_MAX_CREDITS", maximum.to_string());
+        }
+        if let Some(maximum) = oauth2.cc_switch_max_credits {
+            if file.model.is_none()
+                || oauth2.managed_refresh_keyring_file.is_none()
+                || !(1..=9_007_199_254_740_991).contains(&maximum)
+            {
+                return Err(invalid_config(
+                    "managed applications require model service, dedicated keyring and finite ceiling",
+                ));
+            }
+            put("LMM_CORE_OAUTH2_CC_SWITCH_MAX_CREDITS", maximum.to_string());
+        }
+        if let Some(path) = oauth2.managed_refresh_keyring_file {
+            paths.push(("LMM_CORE_OAUTH2_MANAGED_REFRESH_KEYRING_FILE", path));
         }
         put("LMM_CORE_OAUTH2_ISSUER", oauth2.issuer);
         put(
@@ -1713,13 +1735,8 @@ pub async fn tool_market_server(
             credit = credit.with_market_oauth_profile(Arc::new(profile));
         }
         if let Some(path) = setting_os("LMM_CORE_TOOL_MARKET_RECEIPT_ADAPTERS_CONFIG_FILE") {
-            #[derive(Deserialize)]
-            #[serde(deny_unknown_fields)]
-            struct Adapters {
-                adapters: Vec<crate::tool_market::receipt_verifier::AdapterConfig>,
-            }
             let document = configuration_file(Path::new(&path), 256 * 1024)?;
-            let config: Adapters = parse_document(&document)?;
+            let config: ReceiptAdaptersConfig = parse_document(&document)?;
             let verifier = crate::tool_market::receipt_verifier::ReceiptVerifier::from_adapters(
                 config.adapters,
             )
@@ -2568,10 +2585,17 @@ fn read_file_with_metadata(
     Ok((bytes, opened))
 }
 
+pub fn managed_applications_configured() -> bool {
+    setting_os("LMM_CORE_OAUTH2_CC_SWITCH_MAX_CREDITS").is_some()
+        || setting_os("LMM_CORE_OAUTH2_MANAGED_REFRESH_KEYRING_FILE").is_some()
+}
+
 pub fn oauth2_configured() -> bool {
     [
         "LMM_CORE_OAUTH2_ISSUER",
         "LMM_CORE_OAUTH2_PI_MAX_CREDITS",
+        "LMM_CORE_OAUTH2_CC_SWITCH_MAX_CREDITS",
+        "LMM_CORE_OAUTH2_MANAGED_REFRESH_KEYRING_FILE",
         "LMM_CORE_OAUTH2_GROUPS",
         "LMM_CORE_OAUTH2_ACCESS_TTL_SECONDS",
         "LMM_CORE_OAUTH2_FAMILY_TTL_SECONDS",
@@ -2630,6 +2654,22 @@ fn isolated_secret(directory: &Path, path: &Path, maximum: usize) -> io::Result<
     }
     Ok(bytes)
 }
+fn validate_isolated_secret_directory(directory: &Path) -> io::Result<()> {
+    let metadata = fs::symlink_metadata(directory)?;
+    if !metadata.is_dir() || fs::canonicalize(directory)? != directory {
+        return Err(invalid_config(
+            "isolated OAuth2 requires an independent private directory",
+        ));
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        if metadata.permissions().mode() & 0o777 != 0o700 {
+            return Err(invalid_config("isolated secret directory must be private"));
+        }
+    }
+    Ok(())
+}
 fn validate_isolated_oauth_configuration(issuer: &str) -> io::Result<()> {
     if !bool_setting("LMM_CORE_MODEL_LOCAL_HTTP")? {
         return Err(invalid_config(
@@ -2644,19 +2684,7 @@ fn validate_isolated_oauth_configuration(issuer: &str) -> io::Result<()> {
     let directory = setting_os("LMM_CORE_OAUTH2_ISOLATED_SECRET_DIRECTORY")
         .map(PathBuf::from)
         .ok_or_else(|| invalid_config("isolated OAuth2 secret directory is missing"))?;
-    let metadata = fs::symlink_metadata(&directory)?;
-    if !metadata.is_dir() || fs::canonicalize(&directory)? != directory {
-        return Err(invalid_config(
-            "isolated OAuth2 requires an independent private directory",
-        ));
-    }
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        if metadata.permissions().mode() & 0o777 != 0o700 {
-            return Err(invalid_config("isolated secret directory must be private"));
-        }
-    }
+    validate_isolated_secret_directory(&directory)?;
     let path = |name| {
         setting_os(name)
             .map(PathBuf::from)
@@ -2776,6 +2804,22 @@ pub async fn oauth2_issuer(
             .with_pi_budget_limit(maximum)
             .map_err(|_| invalid_config("invalid Pi budget ceiling"))?;
     }
+    if let Some(value) = setting_os("LMM_CORE_OAUTH2_CC_SWITCH_MAX_CREDITS") {
+        if setting_os("LMM_CORE_MODEL_CONFIG_FILE").is_none()
+            || setting_os("LMM_CORE_OAUTH2_MANAGED_REFRESH_KEYRING_FILE").is_none()
+        {
+            return Err(invalid_config(
+                "managed applications require model service and dedicated recovery keyring",
+            ));
+        }
+        let maximum = value
+            .to_str()
+            .and_then(|v| v.parse::<i64>().ok())
+            .ok_or_else(|| invalid_config("invalid managed application ceiling"))?;
+        profile = profile
+            .with_managed_budget_limit(maximum)
+            .map_err(|_| invalid_config("invalid managed application ceiling"))?;
+    }
     let lifetime = |name, maximum| -> io::Result<i64> {
         required(name)?
             .parse::<i64>()
@@ -2785,10 +2829,25 @@ pub async fn oauth2_issuer(
     };
     let access = lifetime("LMM_CORE_OAUTH2_ACCESS_TTL_SECONDS", 86_400)?;
     let family = lifetime("LMM_CORE_OAUTH2_FAMILY_TTL_SECONDS", 31_536_000)?;
-    crate::identity::grants::LmmIssuer::open(store, profile, access, family)
+    let isolated_directory = if isolated {
+        Some(PathBuf::from(
+            setting_os("LMM_CORE_OAUTH2_ISOLATED_SECRET_DIRECTORY")
+                .ok_or_else(|| invalid_config("isolated OAuth2 secret directory is missing"))?,
+        ))
+    } else {
+        None
+    };
+    let managed_keys = managed_recovery_config::load(setting_os, isolated_directory.as_deref())?;
+    let mut issuer = crate::identity::grants::LmmIssuer::open(store, profile, access, family)
         .await
-        .map(Some)
-        .map_err(|_| invalid_config("OAuth2 installed schema or profile is unavailable"))
+        .map_err(|_| invalid_config("OAuth2 installed schema or profile is unavailable"))?;
+    if let Some(keys) = managed_keys {
+        issuer = issuer
+            .with_managed_recovery_keys(keys)
+            .await
+            .map_err(|_| invalid_config("managed application schema is unavailable"))?;
+    }
+    Ok(Some(issuer))
 }
 
 pub struct WebAuthConfig {

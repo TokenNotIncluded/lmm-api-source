@@ -28,6 +28,16 @@ import {
   withAuthCookieLock,
   type AuthCookieTransaction,
 } from '@/lib/auth-cookie'
+import {
+  ensureLoginInitialization,
+  formatLoginIntentVersion,
+  isLoginIntentVersionCurrent,
+  parseLoginIntentVersion,
+  readLoginInitialization,
+  type IntentStorage,
+  invalidateLoginIntent,
+  readLoginIntent,
+} from '@/lib/auth-login-intent'
 import { publishAuthSessionEvent } from '@/lib/auth-session-sync'
 import {
   isRateLimitedError,
@@ -47,7 +57,7 @@ export type RefreshOutcome =
   | { kind: 'transient_error'; error: unknown }
   | { kind: 'out_of_sync'; code?: string }
 
-export interface AuthRefreshHTTPResponse {
+interface AuthRefreshHTTPResponse {
   status: number
   data?: unknown
   error?: unknown
@@ -64,14 +74,14 @@ export interface AuthRefreshRuntime {
   isCurrent?: () => boolean
 }
 
-export interface AuthTokenRotation {
+interface AuthTokenRotation {
   access_token: string
   token_type: string
   access_expires_at: number
   session: LoginSession
 }
 
-export class AuthRotationError extends Error {
+class AuthRotationError extends Error {
   constructor(message: string) {
     super(message)
     this.name = 'AuthRotationError'
@@ -128,11 +138,113 @@ function sameGeneration(
   )
 }
 
+function currentLoginIntentVersion(): string {
+  try {
+    return readLoginIntent(
+      typeof window === 'undefined' ? undefined : window.localStorage
+    )
+  } catch {
+    throw new AuthCookieBlockedError(
+      getAuthCookieBlockedState() ?? 'storage_unavailable'
+    )
+  }
+}
+
+export interface PreparedLoginIntent {
+  readonly version: string
+  readonly assertCurrent: () => void
+}
+
+function loginIntentStorage<T>(operation: (storage?: IntentStorage) => T): T {
+  try {
+    return operation(
+      typeof window === 'undefined' ? undefined : window.localStorage
+    )
+  } catch {
+    throw new AuthCookieBlockedError(
+      getAuthCookieBlockedState() ?? 'storage_unavailable'
+    )
+  }
+}
+
+export async function prepareLoginIntentVersion(
+  signal?: AbortSignal
+): Promise<PreparedLoginIntent> {
+  // Capture BOTH cancellation and identity before the first init/lock await.
+  const cancellation = currentLoginIntentVersion()
+  const assertClick = capturePasswordLoginGuard(cancellation)
+  const ready = (initialization: string): PreparedLoginIntent => {
+    const version = loginIntentStorage(() =>
+      formatLoginIntentVersion(initialization, cancellation)
+    )
+    const assertCurrent = () => {
+      assertClick()
+      if (
+        !loginIntentStorage((storage) =>
+          isLoginIntentVersionCurrent(version, storage)
+        )
+      ) {
+        throw new axios.CanceledError('Login superseded')
+      }
+    }
+    assertCurrent()
+    return { version, assertCurrent }
+  }
+  if (signal?.aborted) throw new axios.CanceledError('Login cancelled')
+  assertClick()
+  const existing = loginIntentStorage(readLoginInitialization)
+  if (existing !== null) return ready(existing)
+  return withAuthCookieLock(async () => {
+    assertClick()
+    // Recheck under the same Cookie lock; no HTTP or nested acquisition here.
+    const initialization = loginIntentStorage(ensureLoginInitialization)
+    assertClick()
+    return ready(initialization)
+  }, signal)
+}
+
+/** Redirects require the original I+C, never a missing-field/current-value fallback. */
+export function captureLoginIntentGuard(
+  version: string | undefined
+): () => void {
+  const receipt = parseLoginIntentVersion(version)
+  if (!receipt) throw new axios.CanceledError('Login superseded')
+  const assertIdentity = capturePasswordLoginGuard(receipt.cancellation)
+  return () => {
+    assertIdentity()
+    if (
+      !loginIntentStorage((storage) =>
+        isLoginIntentVersionCurrent(version, storage)
+      )
+    ) {
+      throw new axios.CanceledError('Login superseded')
+    }
+  }
+}
+
+/** Cancel pending logins before waiting behind any queued Cookie writer. */
+export function invalidatePendingLogins(): void {
+  try {
+    invalidateLoginIntent(
+      typeof window === 'undefined' ? undefined : window.localStorage
+    )
+  } catch {
+    throw new AuthCookieBlockedError(
+      getAuthCookieBlockedState() ?? 'storage_unavailable'
+    )
+  }
+}
+
 /** Only an already-running passive refresh may precede this explicit login. */
-export function capturePasswordLoginGuard(): () => void {
+export function capturePasswordLoginGuard(
+  loginIntentVersion = currentLoginIntentVersion()
+): () => void {
   const initial = authenticationGeneration()
   const passive = refreshPromise ? refreshAccountWrite : null
   return () => {
+    if (currentLoginIntentVersion() !== loginIntentVersion) {
+      throw new axios.CanceledError('Login superseded')
+    }
     const current = authenticationGeneration()
     if (
       sameGeneration(current, initial) ||
@@ -142,6 +254,168 @@ export function capturePasswordLoginGuard(): () => void {
       return
     }
     throw new axios.CanceledError('Login superseded')
+  }
+}
+
+function browserAuthURL(path: string): string {
+  // Browser auth is same-origin (the Rsbuild SERVER_URL configures its dev
+  // proxy, not a browser API base). Preserve the client's configured path;
+  // never silently send session credentials to a different configured origin.
+  const url = new URL(authClient.getUri({ url: path }), window.location.href)
+  if (url.origin !== window.location.origin) {
+    throw new Error(t('Request failed'))
+  }
+  return url.href
+}
+
+/** Revoke exactly the credential's family, without sending or changing Cookies. */
+async function revokeBrowserSession(
+  transaction: AuthCookieTransaction,
+  sid: string,
+  accessToken: string
+): Promise<void> {
+  const response = await transaction.request(() =>
+    authClient.delete(
+      browserAuthURL(`/api/user/sessions/${encodeURIComponent(sid)}`),
+      {
+        // XHR withCredentials=false still sends same-origin Cookies. The Fetch
+        // adapter maps false to credentials:'omit', including Set-Cookie handling.
+        adapter: 'fetch',
+        withCredentials: false,
+        timeout: AUTH_COOKIE_TIMEOUT_MS,
+        fetchOptions: { redirect: 'error', cache: 'no-store' },
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          'X-Auth-Session': sid,
+        },
+      }
+    )
+  )
+  if (
+    response.data?.success !== true ||
+    response.data.data?.revoked_sid !== sid ||
+    response.data.data?.current !== true
+  ) {
+    throw new Error(t('Request failed'))
+  }
+}
+
+/** An expired A bearer is not proof that A's refresh family was revoked. */
+export async function revokeLogoutSession(auth: {
+  userId: number
+  sid: string
+  accessToken: string | null
+  accessExpiresAt: number | null
+}): Promise<void> {
+  let accessToken = auth.accessToken
+  if (
+    !accessToken ||
+    !auth.accessExpiresAt ||
+    auth.accessExpiresAt <= Date.now() / 1000
+  ) {
+    // This can recover A only if its refresh Cookie still exists. A Cookie
+    // already replaced by B cannot be recovered from an expired bearer.
+    const response = await withAuthCookieLock((transaction) =>
+      requestRefresh(auth.sid, transaction)
+    )
+    const data = isRecord(response.data) ? response.data : undefined
+    if (
+      data?.success !== true ||
+      !isAuthBundle(data.data) ||
+      data.data.session.sid !== auth.sid ||
+      data.data.user.id !== auth.userId
+    ) {
+      throw response.error ?? new Error(t('Session expired!'))
+    }
+    accessToken = data.data.access_token
+  }
+  // A may already be a rotated historical bearer. Only the purpose-specific
+  // logout path accepts that proof during its original lifetime. Omit Cookies
+  // so a newer B/C cannot select a different family or be cleared by Set-Cookie.
+  // This request cannot read or write Cookies. Cookie uncertainty or queued
+  // writers must not prevent revoking the family selected at the logout click.
+  const response = await authClient.post(
+    browserAuthURL('/api/user/auth/logout'),
+    undefined,
+    {
+      adapter: 'fetch',
+      withCredentials: false,
+      timeout: AUTH_COOKIE_TIMEOUT_MS,
+      fetchOptions: { redirect: 'error', cache: 'no-store' },
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        'X-Auth-Session': auth.sid,
+      },
+    }
+  )
+  // Idempotent success without proof deliberately has no revocation receipt.
+  if (
+    response.data?.success !== true ||
+    response.data.data?.revoked_sid !== auth.sid
+  ) {
+    throw new Error(t('Request failed'))
+  }
+}
+
+/** A cancelled response may already have minted a real server-side family. */
+// Keep successful validation synchronous with its caller’s bundle commit.
+// Only rejected results require asynchronous server-side compensation.
+export function assertLoginResultCurrent(
+  transaction: AuthCookieTransaction,
+  assertCurrent: () => void,
+  result: unknown
+): Promise<never> | undefined {
+  try {
+    assertCurrent()
+    return undefined
+  } catch (error) {
+    return (async () => {
+      if (
+        isRecord(result) &&
+        result.success === true &&
+        isAuthBundle(result.data)
+      ) {
+        const bundle = result.data
+        await revokeBrowserSession(
+          transaction,
+          bundle.session.sid,
+          bundle.access_token
+        )
+        try {
+          const response = await transaction.request(() =>
+            authClient.post(
+              browserAuthURL('/api/user/auth/logout'),
+              undefined,
+              {
+                adapter: 'fetch',
+                withCredentials: true,
+                timeout: AUTH_COOKIE_TIMEOUT_MS,
+                fetchOptions: { redirect: 'error', cache: 'no-store' },
+                headers: {
+                  Authorization: `Bearer ${bundle.access_token}`,
+                  'X-Auth-Session': bundle.session.sid,
+                },
+              }
+            )
+          )
+          if (response.data?.success !== true) {
+            throw new Error(t('Request failed'))
+          }
+        } catch (cleanupError) {
+          // B is confirmed revoked. A newer Cookie C must remain untouched.
+          if (
+            !(
+              axios.isAxiosError(cleanupError) &&
+              cleanupError.response?.status === 409 &&
+              cleanupError.response.data?.code === 'AUTH_SESSION_MISMATCH'
+            )
+          ) {
+            throw cleanupError
+          }
+        }
+      }
+      throw error
+    })()
   }
 }
 
@@ -488,6 +762,24 @@ function runRefresh(
     clear: (synchronizeTabs, bootstrapState) => {
       if (!synchronizeTabs && bootstrapState === 'idle') {
         useAuthStore.getState().auth.reset('idle')
+        return
+      }
+      const auth = useAuthStore.getState().auth
+      if (
+        synchronizeTabs &&
+        !auth.user &&
+        !auth.session &&
+        !auth.accessToken &&
+        auth.accessExpiresAt === null &&
+        !auth.pending2FAFlowToken &&
+        auth.pending2FAFlowExpiresAt === null
+      ) {
+        // An anonymous refresh rejection confirms the existing identity. It must
+        // not invalidate an explicit login queued behind this Cookie operation.
+        // Explicit logout and rejection of an existing identity still reset it.
+        if (authCache) clearSessionCache(authCache)
+        refreshCooldown = null
+        auth.setBootstrapState(bootstrapState ?? 'complete')
         return
       }
       clearAuthentication(synchronizeTabs, bootstrapState)

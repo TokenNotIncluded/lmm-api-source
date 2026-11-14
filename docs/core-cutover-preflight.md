@@ -32,50 +32,10 @@ never returned by the public status endpoint. The preflight binds those values
 from the candidate manifest, package readback and runtime evidence instead;
 the hashes alone are not proof of a provider, database or public edge check.
 
-## Local WIP fresh-install contract, 2026-11-04
-
-The terminal legacy transfer history table belongs to the fresh-only
-`legacy-history-compat` component. The previously frozen `wallet` component
-retains its original SQL bytes, so historical upgrade manifests are unchanged.
-The 49-component fresh manifest changes with this assignment; its measured
-catalog pin remains unchanged because the table and trigger definitions did
-not change. An isolated PostgreSQL 18.6 payment gateway fixture verified fresh
-construction against that catalog pin and exercised native proof admission,
-credit, replay and personal-payer checks.
-
-Existing local rehearsal receipts from before this correction are retained,
-not silently relabelled as the new installation contract. Ordinary startup
-does not update their component hashes. The full financial import and joint
-Core/Go/Web acceptance must run against a new database with the current
-contract; the gateway fixture is not that rehearsal or a cutover approval.
-
-## Current ArchDmit evidence
-
-The latest read-only rehearsal record (2026-10-24) is still blocked:
-
-- Core and Extensions are loopback-ready, but the public edge remains on the old
-  `lmm-api` service. No public route or payment callback was switched.
-- Core's configured capabilities are identity, Web identity and events. `models`,
-  `models_streaming`, `payments`, `commerce`, `assistant`, `assistant_tools` and
-  `tool_market` are all `false`; `/health/ready` therefore describes configured
-  components only.
-- Authenticated Extensions module discovery returned only `identity` and
-  `remote-control`; no assistant or tool-market module was selected.
-- The source snapshot retains 45 pending subscription liabilities and 37 pending
-  top-ups (82 unknown, non-spendable rows). There is no final writer fence or
-  financial reconciliation receipt.
-- Identity remains a separate gate: the legacy snapshot has 723 sessions, 815
-  API keys, 8 passkeys, 235 OAuth bindings, 1,214 OAuth server tokens, 2 MFA
-  factors and 8 backup codes. These rows require reauthentication, key
-  recreation or re-enrollment; they are not native Core credentials.
-
-These facts are recorded in
-`.local-tests/deploy-next-20261024/DEPLOY-STAGING-STATUS.md` (the RPC/Web
-follow-up at lines 43-55) and the redacted runtime contract at
-`.local-tests/deploy-next-20261024/core-check-db-rpc-web.private.json`. The
-`CANARY-CUTOVER-REVIEW.md` file contains an earlier pre-install observation; do
-not combine it with the later installed-runtime record. Re-run the host checks
-and bind all evidence to one source revision before a future cutover.
+Current rehearsal state and remaining cutover blockers are maintained in the
+[architecture progress](progress.md). Dated WIP contracts and host snapshots
+are retained only as fixed-version evidence in the [history index](archive.md);
+they are not current readiness claims or cutover approval.
 
 ## Missing contracts and credentials
 

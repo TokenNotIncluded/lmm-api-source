@@ -29,6 +29,7 @@ pub(super) enum TargetSource {
 pub(super) enum DataProjection {
     Exact,
     SubscriptionEpay,
+    ManagedApplications,
 }
 #[derive(Clone, Copy)]
 pub(super) struct SuffixPolicy {
@@ -238,6 +239,7 @@ registrations! {
         PAYMENT_DISCOUNTS => payment_discounts, "PAYMENT_DISCOUNTS_", |c,r| Box::pin(payment_discounts::grant_runtime(c, &r.roles.runtime)), owner_receipt, SuffixPolicy::DEFAULT;
         PAYMENT_DISCOUNT_MANAGEMENT => payment_discount_management, "PAYMENT_DISCOUNT_MANAGEMENT_", |c,r| Box::pin(payment_discount_management::grant_runtime(c, &r.roles.runtime)), owner_receipt, SuffixPolicy::DEFAULT;
         RESPONSES_CONTINUITY => responses_continuity, "RESPONSES_CONTINUITY_", |c,r| Box::pin(responses_continuity::grant_runtime(c, &r.roles.runtime)), owner_receipt, SuffixPolicy { #[cfg(test)] after_ddl: continuity_after_ddl, ..SuffixPolicy::DEFAULT };
+        MANAGED_APPLICATIONS => managed_applications, "MANAGED_APPLICATIONS_", |c,r| Box::pin(managed_applications::grant_runtime(c, &r.roles.runtime)), owner_receipt, SuffixPolicy { target: TargetSource::Captured(managed_applications::captured_target), projection: DataProjection::ManagedApplications, #[cfg(test)] after_ddl: SuffixPolicy::DEFAULT.after_ddl };
     }
 }
 fn lookup(procedure: &str) -> &'static Registration {
@@ -276,6 +278,7 @@ mod tests {
             "core-payment-discounts-v1",
             "core-payment-discount-management-v1",
             "core-responses-continuity-v1",
+            "core-managed-applications-v1",
         ]
         .into_iter()
         .collect();
@@ -359,6 +362,7 @@ mod tests {
                 "PAYMENT_DISCOUNT_MANAGEMENT_",
             ),
             ("core-responses-continuity-v1", "RESPONSES_CONTINUITY_"),
+            ("core-managed-applications-v1", "MANAGED_APPLICATIONS_"),
         ];
         let errors = [
             (
@@ -419,7 +423,7 @@ mod tests {
                 .iter()
                 .filter(|r| matches!(r.engine, Engine::Suffix(_)))
                 .count(),
-            14
+            15
         );
         for (name, prefix) in expected {
             let entry = lookup(name);
@@ -431,17 +435,22 @@ mod tests {
                 hooks.policy.projection,
                 if name == "core-subscription-epay-v1" {
                     DataProjection::SubscriptionEpay
+                } else if name == "core-managed-applications-v1" {
+                    DataProjection::ManagedApplications
                 } else {
                     DataProjection::Exact
                 }
             );
             match hooks.policy.target {
                 TargetSource::Captured(parse) => {
-                    assert_eq!(name, "core-59-to-62-v1");
+                    let expected = match name {
+                        "core-59-to-62-v1" => core59_to62::captured_target,
+                        "core-managed-applications-v1" => managed_applications::captured_target,
+                        _ => panic!("unexpected captured target {name}"),
+                    };
                     assert!(std::ptr::fn_addr_eq(
                         parse,
-                        core59_to62::captured_target
-                            as fn() -> Result<(String, String), UpgradeError>
+                        expected as fn() -> Result<(String, String), UpgradeError>
                     ));
                 }
                 TargetSource::FrozenJson => assert_ne!(name, "core-59-to-62-v1"),
@@ -479,6 +488,8 @@ mod tests {
                             as fn() -> Result<(), UpgradeError>,
                     "core-responses-continuity-v1" =>
                         responses_continuity::authorize_target as fn() -> Result<(), UpgradeError>,
+                    "core-managed-applications-v1" =>
+                        managed_applications::authorize_target as fn() -> Result<(), UpgradeError>,
                     _ => unreachable!(),
                 }
             ));
@@ -514,6 +525,7 @@ mod tests {
             "core-payment-discounts-v1",
             "core-payment-discount-management-v1",
             "core-responses-continuity-v1",
+            "core-managed-applications-v1",
         ];
         for entry in ENTRIES
             .iter()

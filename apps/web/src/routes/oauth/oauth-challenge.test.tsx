@@ -4,13 +4,14 @@ import { mock } from 'bun:test'
 import assert from 'node:assert/strict'
 import { after, afterEach, test } from 'node:test'
 
-import { AxiosError } from 'axios'
+import { AxiosError, CanceledError } from 'axios'
 import { Window } from 'happy-dom'
 import i18next from 'i18next'
 import type { ComponentType, ReactNode } from 'react'
 import { toast } from 'sonner'
 
 import type { AuthBundle } from '@/stores/auth-store'
+import { installSupportedAuthBrowser } from '@/test-support/supported-auth-browser'
 
 const dom = new Window({ url: 'https://console.example.test/oauth/github' })
 for (const key of [
@@ -36,6 +37,9 @@ for (const key of [
   })
 }
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true })
+// Normal supported browser; install after this fixture replaces its globals.
+installSupportedAuthBrowser()
+
 const { act, StrictMode } = await import('react')
 const { createRoot } = await import('react-dom/client')
 const { createInstance } = await import('i18next')
@@ -77,7 +81,54 @@ await i18n.use(initReactI18next).init({
 const originalGet = api.get
 const originalPost = api.post
 const originalAdapter = api.defaults.adapter
+const originalFetch = Object.getOwnPropertyDescriptor(globalThis, 'fetch')
 const roots: ReturnType<typeof createRoot>[] = []
+
+function expectSupersededPasskeyCleanup() {
+  const requests: Array<{ path: string; method: string }> = []
+  let finish!: () => void
+  const completed = new Promise<void>((resolve) => {
+    finish = resolve
+  })
+  Object.defineProperty(globalThis, 'fetch', {
+    configurable: true,
+    value: async (input: RequestInfo | URL, init?: RequestInit) => {
+      const request = new Request(input, init)
+      const url = new URL(request.url)
+      assert.equal(url.origin, dom.location.origin)
+      assert.equal(
+        request.headers.get('Authorization'),
+        `Bearer ${bundle.access_token}`
+      )
+      assert.equal(request.headers.get('X-Auth-Session'), bundle.session.sid)
+      const expected =
+        requests.length === 0
+          ? {
+              path: `/api/user/sessions/${bundle.session.sid}`,
+              method: 'DELETE',
+            }
+          : { path: '/api/user/auth/logout', method: 'POST' }
+      // Bun's Request reports include even for credentials: 'omit'. This
+      // fixture verifies scoped revocation; browser Cookie transport is separate.
+      const actual = { path: url.pathname, method: request.method }
+      assert.ok(requests.length < 2, 'cleanup must not replay')
+      assert.deepEqual(actual, expected)
+      requests.push(actual)
+      if (requests.length === 2) finish()
+      return new Response(
+        JSON.stringify({
+          success: true,
+          data: { revoked_sid: bundle.session.sid, current: true },
+        }),
+        {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        }
+      )
+    },
+  })
+  return { requests, completed }
+}
 
 function callbackTree() {
   return (
@@ -142,6 +193,8 @@ afterEach(async () => {
   api.get = originalGet
   api.post = originalPost
   api.defaults.adapter = originalAdapter
+  if (originalFetch) Object.defineProperty(globalThis, 'fetch', originalFetch)
+  else Reflect.deleteProperty(globalThis, 'fetch')
   provider = 'github'
   useAuthStore.getState().auth.reset('complete')
   navigations.length = 0
@@ -507,6 +560,7 @@ test('an incomplete Passkey finish response cannot establish a session', async (
 })
 
 test('a late Passkey finish cannot replace a newer callback challenge', async () => {
+  const cleanup = expectSupersededPasskeyCleanup()
   respondWithChallenge({
     require_passkey: true,
     flow_token: 'old-passkey-flow',
@@ -542,7 +596,9 @@ test('a late Passkey finish cannot replace a newer callback challenge', async ()
   await act(async () => roots.at(-1)?.render(callbackTree()))
   await act(async () => {
     resolveFinish({ data: { success: true, data: bundle } })
+    await cleanup.completed
   })
+  assert.equal(cleanup.requests.length, 2)
   assert.equal(useAuthStore.getState().auth.accessToken, null)
   assert.equal(navigations.length, 0)
   const newVerify = host.querySelector<HTMLButtonElement>('button')
@@ -554,6 +610,7 @@ test('a late Passkey finish cannot replace a newer callback challenge', async ()
 })
 
 test('returning to login invalidates an already pending Passkey finish', async () => {
+  const cleanup = expectSupersededPasskeyCleanup()
   respondWithChallenge({
     require_passkey: true,
     flow_token: 'bound-passkey-flow',
@@ -585,7 +642,9 @@ test('returning to login invalidates an already pending Passkey finish', async (
   assert.equal(navigations.at(-1)?.href, '/sign-in')
   await act(async () => {
     resolveFinish({ data: { success: true, data: bundle } })
+    await cleanup.completed
   })
+  assert.equal(cleanup.requests.length, 2)
   assert.equal(useAuthStore.getState().auth.accessToken, null)
   assert.equal(navigations.length, 1)
   assert.equal(navigations[0].href, '/sign-in')
@@ -733,5 +792,302 @@ test('disabled OAuth Passkey continuation offers the verified Cookie appeal and 
     )
   } finally {
     toast.error = originalError
+  }
+})
+
+test('native federated StrictMode callback finishes by saved catalog ID once, preserving issuer and redirect', async () => {
+  const { prepareLoginIntentVersion } = await import('@/lib/auth-session')
+  const prepared = await prepareLoginIntentVersion()
+  const { saveFederatedCeremony } =
+    await import('@/features/auth/lib/federated-oauth')
+  const selected = {
+    id: '87',
+    kind: 'oidc' as const,
+    slug: 'synthetic-sso',
+    name: 'Synthetic SSO',
+    icon: '',
+    revision: '1',
+    client_id: 'synthetic-client',
+    authorization_endpoint: 'https://idp.example.test/authorize',
+    scopes: 'openid',
+    qr_code_url: '',
+    native_federated: true as const,
+  }
+  const state = `lmmfe_${'9'.repeat(64)}`
+  saveFederatedCeremony(
+    dom.sessionStorage,
+    selected,
+    { state, expires_at: 2000000000, authorization_url: '' },
+    'login',
+    prepared.version
+  )
+  provider = selected.slug
+  search = {
+    code: 'synthetic-code',
+    state,
+    iss: 'https://idp.example.test',
+    redirect: '/wallet',
+  }
+  let posts = 0
+  let gets = 0
+  api.get = (async () => {
+    gets++
+    throw new Error('No legacy GET for native flow')
+  }) as typeof api.get
+  api.defaults.adapter = async (config) => {
+    posts++
+    assert.equal(config.url, '/api/oauth/federated/87/finish')
+    assert.equal(config.method, 'post')
+    assert.deepEqual(JSON.parse(config.data), {
+      state,
+      code: 'synthetic-code',
+      iss: 'https://idp.example.test',
+    })
+    return {
+      config,
+      status: 200,
+      statusText: 'OK',
+      headers: {},
+      data: { success: true, data: bundle },
+    }
+  }
+  const initial = useAuthStore.getState().auth.accountWriteEpoch
+  await mount()
+  assert.equal(posts, 1)
+  assert.equal(gets, 0)
+  assert.equal(useAuthStore.getState().auth.accountWriteEpoch, initial + 1)
+  assert.equal(useAuthStore.getState().auth.session?.sid, bundle.session.sid)
+  assert.equal(navigations.at(-1)?.href, '/wallet')
+})
+test('native callback rejects wrong slug, missing/expired state and bind-without-opener without legacy fallback', async () => {
+  const { saveFederatedCeremony } =
+    await import('@/features/auth/lib/federated-oauth')
+  let requests = 0
+  api.get = (async () => {
+    requests++
+    throw new Error('No legacy GET')
+  }) as typeof api.get
+  api.post = (async () => {
+    requests++
+    throw new Error('No finish')
+  }) as typeof api.post
+  for (const scenario of [
+    'wrong-slug',
+    'missing',
+    'expired',
+    'bind',
+  ] as const) {
+    const state = `lmmfe_${(scenario === 'missing' ? '1' : '2').repeat(64)}`
+    const selected = {
+      id: '87',
+      kind: 'oidc' as const,
+      slug: 'synthetic-sso',
+      name: 'Synthetic SSO',
+      icon: '',
+      revision: '1',
+      client_id: 'synthetic-client',
+      authorization_endpoint: 'https://idp.example.test/authorize',
+      scopes: 'openid',
+      qr_code_url: '',
+      native_federated: true as const,
+    }
+    if (scenario !== 'missing') {
+      saveFederatedCeremony(
+        dom.sessionStorage,
+        selected,
+        {
+          state,
+          expires_at: scenario === 'expired' ? 1 : 2000000000,
+          authorization_url: '',
+        },
+        scenario === 'bind' ? 'bind' : 'login'
+      )
+    }
+    provider = scenario === 'wrong-slug' ? 'other-sso' : selected.slug
+    search = { state, code: 'synthetic-code' }
+    await mount()
+  }
+  assert.equal(requests, 0)
+  assert.equal(useAuthStore.getState().auth.session, null)
+})
+test('native provider denial consumes the ceremony and never submits an empty-code finish', async () => {
+  const { saveFederatedCeremony, readFederatedCeremony } =
+    await import('@/features/auth/lib/federated-oauth')
+  const selected = {
+    id: '87',
+    kind: 'oidc' as const,
+    slug: 'synthetic-sso',
+    name: 'Synthetic SSO',
+    icon: '',
+    revision: '1',
+    client_id: 'synthetic-client',
+    authorization_endpoint: 'https://idp.example.test/authorize',
+    scopes: 'openid',
+    qr_code_url: '',
+    native_federated: true as const,
+  }
+  const state = `lmmfe_${'3'.repeat(64)}`
+  saveFederatedCeremony(
+    dom.sessionStorage,
+    selected,
+    { state, expires_at: 2000000000, authorization_url: '' },
+    'login'
+  )
+  provider = selected.slug
+  search = { state, error: 'access_denied' }
+  let requests = 0
+  api.get = (async () => {
+    requests++
+    throw new Error('No GET')
+  }) as typeof api.get
+  api.post = (async () => {
+    requests++
+    throw new Error('No finish')
+  }) as typeof api.post
+  await mount()
+  assert.equal(requests, 0)
+  assert.throws(() =>
+    readFederatedCeremony(dom.sessionStorage, state, selected.slug, 'login')
+  )
+})
+
+test('a superseded callback catch is silent and cannot navigate or log in', async () => {
+  search = { code: 'old-code', state: 'old-state' }
+  api.get = (async () => {
+    throw new CanceledError('superseded')
+  }) as typeof api.get
+  const errors: unknown[] = []
+  const original = toast.error
+  toast.error = (message) => {
+    errors.push(message)
+    return 'synthetic-toast'
+  }
+  try {
+    await mount()
+    assert.deepEqual(errors, [])
+    assert.deepEqual(navigations, [])
+    assert.equal(useAuthStore.getState().auth.user, null)
+  } finally {
+    toast.error = original
+  }
+})
+for (const result of ['null', 'NotAllowed'] as const) {
+  test(`OAuth Passkey ${result} emits one info cancellation`, async () => {
+    respondWithChallenge({
+      require_passkey: true,
+      flow_token: 'synthetic-bound-flow',
+      options: { challenge: 'AQI' },
+    })
+    Object.defineProperty(navigator, 'credentials', {
+      configurable: true,
+      value: {
+        get: async () => {
+          if (result === 'NotAllowed') {
+            throw new DOMException('cancelled', 'NotAllowedError')
+          }
+          return null
+        },
+      },
+    })
+    const infos: unknown[] = [],
+      errors: unknown[] = []
+    const originalInfo = toast.info,
+      originalError = toast.error
+    toast.info = (message) => {
+      infos.push(message)
+      return 'synthetic-toast'
+    }
+    toast.error = (message) => {
+      errors.push(message)
+      return 'synthetic-toast'
+    }
+    try {
+      const host = await mount()
+      const verify = host.querySelector<HTMLButtonElement>('button')
+      assert.ok(verify)
+      await act(async () => verify.click())
+      assert.deepEqual(infos, ['Passkey login was cancelled'])
+      assert.deepEqual(errors, [])
+      assert.deepEqual(navigations, [])
+      assert.equal(useAuthStore.getState().auth.user, null)
+    } finally {
+      toast.info = originalInfo
+      toast.error = originalError
+    }
+  })
+}
+for (const transport of ['throw', 'response'] as const) {
+  test(`OAuth callback ${transport} preserves only the safe custom denial`, async () => {
+    search = { code: 'synthetic-code', state: 'synthetic-state' }
+    const message = 'Ask the workspace owner to enable your OAuth account.'
+    const denied = { success: false, code: 'OAUTH_ACCESS_DENIED', message }
+    api.get = (async () => {
+      if (transport === 'throw') {
+        throw Object.assign(new Error('private exception must not be shown'), {
+          response: { data: denied },
+        })
+      }
+      return { data: denied }
+    }) as typeof api.get
+    const errors: unknown[] = []
+    const original = toast.error
+    toast.error = (value) => {
+      errors.push(value)
+      return 'synthetic-toast'
+    }
+    try {
+      await mount()
+      assert.deepEqual(errors, [message])
+      assert.equal(useAuthStore.getState().auth.user, null)
+      assert.equal(navigations.length, 1)
+    } finally {
+      toast.error = original
+    }
+  })
+}
+
+test('real Cookie guard callback rejection leaves root Recovery alone and no navigation', async () => {
+  const { withAuthCookieLock } = await import('@/lib/auth-cookie')
+  const { AuthCookieRecovery } =
+    await import('@/components/auth-cookie-recovery')
+  search = { code: 'synthetic-code', state: 'synthetic-state' }
+  let writes = 0
+  api.get = (async () =>
+    withAuthCookieLock(async () => {
+      writes++
+      throw new Error('must not dispatch')
+    })) as typeof api.get
+  const errors: unknown[] = []
+  const original = toast.error
+  toast.error = (message) => {
+    errors.push(message)
+    return 'synthetic-toast'
+  }
+  Object.defineProperty(navigator, 'locks', {
+    configurable: true,
+    value: undefined,
+  })
+  try {
+    const host = document.body.appendChild(document.createElement('div'))
+    const root = createRoot(host)
+    roots.push(root)
+    await act(async () =>
+      root.render(
+        <I18nextProvider i18n={i18n}>
+          <AuthCookieRecovery />
+          <Callback />
+        </I18nextProvider>
+      )
+    )
+    assert.equal(writes, 0)
+    assert.equal(document.querySelectorAll('[role="alert"]').length, 1)
+    assert.match(
+      document.body.textContent || '',
+      /End this tab's local session/
+    )
+    assert.deepEqual(errors, [])
+    assert.deepEqual(navigations, [])
+  } finally {
+    toast.error = original
   }
 })

@@ -48,6 +48,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
+import { useDeadlineClock } from '@/hooks/use-deadline-clock'
 import { useDebounce } from '@/hooks/use-debounce'
 import { formatQuota } from '@/lib/format'
 
@@ -192,9 +193,9 @@ export function SubscriptionResetWorkspace() {
     !eligibleQuery.isFetching &&
     !eligibleQuery.isError
   const voucherExpiresAt = Math.floor(new Date(voucherExpiry).getTime() / 1000)
+  const now = useDeadlineClock([voucherExpiresAt * 1000])
   const voucherExpiryValid =
-    Number.isSafeInteger(voucherExpiresAt) &&
-    voucherExpiresAt > Date.now() / 1000
+    Number.isSafeInteger(voucherExpiresAt) && voucherExpiresAt * 1000 > now
   const canPreview =
     filtersSettled &&
     (mode === 'hard' || voucherExpiryValid) &&

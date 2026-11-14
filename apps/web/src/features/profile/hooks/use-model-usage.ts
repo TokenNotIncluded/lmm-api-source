@@ -7,7 +7,7 @@ published by the Free Software Foundation, either version 3 of the
 License, or (at your option) any later version.
 */
 import { useQuery } from '@tanstack/react-query'
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 
 import { createQueryRetry } from '@/lib/query-retry'
 import { useAuthStore } from '@/stores/auth-store'
@@ -37,11 +37,11 @@ export function useModelUsage(
 ) {
   const userId = useAuthStore((state) => state.auth.user?.id)
   const sessionId = useAuthStore((state) => state.auth.session?.sid)
-  const range = useMemo(
-    () => getModelUsageRange(rangeKey, new Date(), accountCreatedTime),
-    [rangeKey, accountCreatedTime]
+  const [initialDate] = useState(() => new Date(Date.now()))
+  const fallbackRange = useMemo(
+    () => getModelUsageRange(rangeKey, initialDate, accountCreatedTime),
+    [rangeKey, initialDate, accountCreatedTime]
   )
-  const queryRanges = useMemo(() => buildModelUsageQueryRanges(range), [range])
 
   const query = useQuery({
     queryKey: [
@@ -50,14 +50,19 @@ export function useModelUsage(
       userId,
       sessionId,
       rangeKey,
-      range.start_timestamp,
-      range.end_timestamp,
+      accountCreatedTime,
     ],
     queryFn: async () => {
+      const range = getModelUsageRange(
+        rangeKey,
+        new Date(Date.now()),
+        accountCreatedTime
+      )
+      const queryRanges = buildModelUsageQueryRanges(range)
       const windows = await Promise.all(
         queryRanges.map((window) => getProfileUsageWindow(window))
       )
-      return windows.flat()
+      return { range, rows: windows.flat() }
     },
     enabled: enabled && userId !== undefined,
     staleTime: 5 * 60 * 1000,
@@ -65,9 +70,15 @@ export function useModelUsage(
   })
 
   const report: ModelUsageReport = useMemo(
-    () => buildModelUsageReport(query.data ?? []),
+    () => buildModelUsageReport(query.data?.rows ?? []),
     [query.data]
   )
 
-  return { ...query, range, rows: query.data ?? [], report }
+  return {
+    ...query,
+    data: query.data?.rows,
+    range: query.data?.range ?? fallbackRange,
+    rows: query.data?.rows ?? [],
+    report,
+  }
 }

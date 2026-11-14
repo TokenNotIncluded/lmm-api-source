@@ -200,7 +200,18 @@ const COMPONENTS: &[(&str, &str)] = &[
         "responses-continuity",
         include_str!("../schema/responses_continuity.sql"),
     ),
+    (
+        "managed-applications",
+        include_str!("../schema/managed_applications.sql"),
+    ),
 ];
+
+/// Verify the installed managed contract without installing or repairing it.
+pub async fn managed_applications_ready(pool: &PgPool) -> Result<(), IdentityError> {
+    check(pool).await?;
+    let mut connection = pool.acquire().await?;
+    upgrade::managed_applications::check_oauth_contract(&mut connection).await
+}
 
 /// The compiled fresh-install contract, including explicitly disabled modules.
 /// Operators cannot change its size with runtime configuration.

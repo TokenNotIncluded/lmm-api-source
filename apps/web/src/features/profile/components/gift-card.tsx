@@ -26,6 +26,7 @@ import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { IconBadge } from '@/components/ui/icon-badge'
 import { Skeleton } from '@/components/ui/skeleton'
+import { useDeadlineClock } from '@/hooks/use-deadline-clock'
 import { useWalletCurrency } from '@/hooks/use-wallet-currency'
 import dayjs from '@/lib/dayjs'
 
@@ -126,7 +127,8 @@ function GiftRow({
 }) {
   const { t } = useTranslation()
   const currency = useWalletCurrency()
-  const expired = gift.end_at * 1000 <= Date.now()
+  const now = useDeadlineClock([gift.end_at * 1000])
+  const expired = gift.end_at * 1000 <= now
 
   return (
     <div className='border-border bg-card/50 flex flex-col gap-3 rounded-lg border p-3 sm:flex-row sm:items-center sm:justify-between'>
@@ -180,7 +182,9 @@ function GiftRow({
           <Button
             size='sm'
             disabled={claiming || !gift.eligible || expired}
-            onClick={onClaim}
+            onClick={() => {
+              if (gift.end_at * 1000 > Date.now()) onClaim()
+            }}
           >
             {claiming ? t('Claiming...') : t('Claim')}
           </Button>

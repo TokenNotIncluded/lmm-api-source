@@ -8,8 +8,9 @@ use std::collections::BTreeSet;
 pub struct LmmIssuer {
     pub(super) identity: IdentityStore,
     pub(super) profile: LmmProfile,
-    access_ttl: i64,
-    family_ttl: i64,
+    pub(super) access_ttl: i64,
+    pub(super) family_ttl: i64,
+    pub(super) managed_keys: Option<std::sync::Arc<super::managed::ManagedRecoveryKeys>>,
     pub(super) catalog_surface: Option<std::sync::Arc<crate::model_http::CatalogSurface>>,
 }
 /// Server-rendered ceremony material only. Never Debug or a login credential.
@@ -23,6 +24,8 @@ pub struct ConsentPage {
     pub redirect_uri: String,
     pub maximum_budget_credits: Option<i64>,
     pub groups: Vec<String>,
+    pub installation_id: Option<String>,
+    pub display_label: Option<String>,
 }
 pub struct AuthorizationRedirect {
     pub uri: String,
@@ -79,6 +82,7 @@ impl LmmIssuer {
             access_ttl,
             family_ttl,
             catalog_surface: None,
+            managed_keys: None,
         })
     }
     /// Only server startup can obtain the opaque validated gateway surface.
@@ -192,7 +196,7 @@ impl LmmIssuer {
         tx.commit().await?;
         Ok(page)
     }
-    async fn pending(
+    pub(super) async fn pending(
         &self,
         c: &mut PgConnection,
         request: &AuthorizationRequest,
@@ -205,7 +209,7 @@ impl LmmIssuer {
         let mut granted = Vec::new();
         if identity.is_some() {
             granted = vec!["catalog:read".into(), "balance:read".into()];
-            if request.client_id == "lmm-pi" {
+            if protocol::is_model_client(&request.client_id) {
                 granted.extend(["usage:read".into(), "models:invoke".into()]);
             }
             for group in groups {
@@ -238,15 +242,22 @@ impl LmmIssuer {
             account,
             client_id: request.client_id.clone(),
             redirect_uri: request.redirect_uri.clone(),
-            maximum_budget_credits: if request.client_id == "lmm-pi" {
-                self.profile.pi_budget_limit()
+            maximum_budget_credits: if protocol::is_model_client(&request.client_id) {
+                self.profile.model_budget_limit(&request.client_id)
             } else {
                 None
             },
             groups: groups.to_vec(),
+            installation_id: None,
+            display_label: None,
         })
     }
-    async fn consume(&self, c: &mut PgConnection, binding: &str, csrf: &str) -> Result<PgRow> {
+    pub(super) async fn consume(
+        &self,
+        c: &mut PgConnection,
+        binding: &str,
+        csrf: &str,
+    ) -> Result<PgRow> {
         protocol::canonical(binding, "")?;
         protocol::canonical(csrf, "")?;
         let row=sqlx::query("UPDATE core_oauth.authorization_requests SET consumed_at=clock_timestamp() WHERE binding_digest=$1 AND csrf_digest=$2 AND consumed_at IS NULL AND expires_at>clock_timestamp() RETURNING *")
@@ -284,7 +295,13 @@ impl LmmIssuer {
             tx.commit().await?;
             return Err(IdentityError::Unauthorized);
         }
-        let request = self.profile.validate_authorization(Self::request(&row)?)?;
+        let original = Self::request(&row)?;
+        let request = if original.client_id == protocol::MANAGED_CLIENT {
+            self.require_managed_issuance()?;
+            self.profile.validate_managed_authorization(original)?
+        } else {
+            self.profile.validate_authorization(original)?
+        };
         let identity = match cookie {
             Some(cookie) => match BrowserAuth::oauth_identity_in_transaction(&mut tx, cookie).await
             {
@@ -295,7 +312,7 @@ impl LmmIssuer {
             None => None,
         };
         let groups = if let Some(identity) = &identity {
-            let result = if request.client_id == "lmm-pi" {
+            let result = if protocol::is_model_client(&request.client_id) {
                 self.current_model_groups(
                     &mut tx,
                     identity.user,
@@ -321,7 +338,7 @@ impl LmmIssuer {
         // The original flow may expire while the browser family is locked.
         // The final INSERT, rather than a prior bool, decides whether renewal
         // is still allowed. Consume remains durable on this functional refusal.
-        let page = match self
+        let mut page = match self
             .pending(&mut tx, &request, identity.as_ref(), &groups, Some(binding))
             .await
         {
@@ -332,6 +349,10 @@ impl LmmIssuer {
             }
             Err(error) => return Err(error),
         };
+        if request.client_id == protocol::MANAGED_CLIENT {
+            self.copy_managed_authorization(&mut tx, binding, &mut page)
+                .await?;
+        }
         tx.commit().await?;
         Ok(page)
     }
@@ -376,7 +397,10 @@ impl LmmIssuer {
             return Err(IdentityError::Unauthorized);
         }
         let client: String = row.try_get("client_id")?;
-        let authority = if client == "lmm-pi" {
+        if client == protocol::MANAGED_CLIENT {
+            self.require_managed_issuance()?;
+        }
+        let authority = if protocol::is_model_client(&client) {
             self.current_model_groups(&mut tx, identity.user, identity.account, identity.version)
                 .await
         } else {
@@ -392,10 +416,10 @@ impl LmmIssuer {
             Err(error) => return Err(error),
         };
         let scopes: Vec<String> = row.try_get("granted_scopes")?;
-        let (purpose, budget) = if client == "lmm-pi" {
+        let (purpose, budget) = if protocol::is_model_client(&client) {
             let maximum = self
                 .profile
-                .pi_budget_limit()
+                .model_budget_limit(&client)
                 .ok_or(IdentityError::Forbidden)?;
             if allow && budget_credits.is_none_or(|v| v <= 0 || v > maximum) {
                 tx.commit().await?;
@@ -431,6 +455,9 @@ impl LmmIssuer {
             if inserted.is_none() {
                 tx.commit().await?;
                 return Err(IdentityError::Unauthorized);
+            }
+            if client == protocol::MANAGED_CLIENT {
+                self.bind_managed_family(&mut tx, &family, binding).await?;
             }
             let code = protocol::secret("lmm_oc_")?;
             sqlx::query("INSERT INTO core_oauth.authorization_codes(digest,family_id,user_id,owner_account_id,user_version,consent_version,issuer,resource,client_id,redirect_uri,state,pkce_challenge,scopes,expires_at) SELECT $1,id,user_id,owner_account_id,user_version,consent_version,issuer,resource,client_id,$2,$3,$4,$5,LEAST(expires_at,statement_timestamp()+interval '120 seconds') FROM core_oauth.families WHERE id=$6")
@@ -551,7 +578,13 @@ impl LmmIssuer {
         {
             return Err(IdentityError::Unauthorized);
         }
-        let current = if f.try_get::<String, _>("client_id")? == "lmm-pi" {
+        let client: String = f.try_get("client_id")?;
+        if client == protocol::MANAGED_CLIENT {
+            self.validate_managed_family_binding(c, f).await?;
+            self.profile
+                .validate_model_budget(&client, f.try_get("budget_credits")?)?;
+        }
+        let current = if protocol::is_model_client(&client) {
             self.current_model_groups(
                 c,
                 f.try_get("user_id")?,
@@ -583,7 +616,12 @@ impl LmmIssuer {
         }
         Ok(groups)
     }
-    async fn issue(&self, c: &mut PgConnection, f: &PgRow, scopes: &[String]) -> Result<TokenWire> {
+    pub(super) async fn issue(
+        &self,
+        c: &mut PgConnection,
+        f: &PgRow,
+        scopes: &[String],
+    ) -> Result<TokenWire> {
         scope_groups(scopes)?;
         let access = protocol::secret("lmm_at_")?;
         let refresh = protocol::secret("lmm_rt_")?;
@@ -662,9 +700,7 @@ impl LmmIssuer {
             .await?;
         let scopes: Vec<String> = code.try_get("scopes")?;
         let family_scopes: Vec<String> = f.try_get("scopes")?;
-        if scopes.iter().any(|s| !family_scopes.contains(s))
-            || scope_groups(&scopes)?.iter().any(|g| !current.contains(g))
-        {
+        if !scope_subset_is_current(&scopes, &family_scopes, &current)? {
             return Err(IdentityError::Forbidden);
         }
         sqlx::query("UPDATE core_oauth.authorization_codes SET consumed_at=clock_timestamp() WHERE digest=$1 AND consumed_at IS NULL AND expires_at>clock_timestamp() RETURNING digest")
@@ -737,7 +773,10 @@ impl LmmIssuer {
     pub async fn revoke_for_client(&self, client: &str, token: &str) -> Result<()> {
         // Revocation stays available if the operator disables new Pi issuance.
         // Exact configured issuer/resource/client binding is checked below.
-        if !matches!(client, protocol::CLIENT | "lmm-pi") {
+        if !matches!(
+            client,
+            protocol::CLIENT | "lmm-pi" | protocol::MANAGED_CLIENT
+        ) {
             return Err(IdentityError::Invalid);
         }
         let table = if token.starts_with("lmm_at_") {
@@ -770,6 +809,19 @@ impl LmmIssuer {
         Ok(())
     }
 }
+/// Shared subset predicate only. Selection/shrinking and replay policy remain
+/// with each caller; ordinary refresh deliberately keeps its existing policy.
+pub(super) fn scope_subset_is_current(
+    scopes: &[String],
+    allowed: &[String],
+    current_groups: &[String],
+) -> Result<bool> {
+    Ok(!scopes.iter().any(|scope| !allowed.contains(scope))
+        && !scope_groups(scopes)?
+            .iter()
+            .any(|group| !current_groups.contains(group)))
+}
+
 pub(super) fn scope_groups(scopes: &[String]) -> Result<Vec<String>> {
     if scopes.is_empty() || scopes.len() > 68 {
         return Err(IdentityError::Invalid);

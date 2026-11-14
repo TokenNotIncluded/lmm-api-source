@@ -83,7 +83,7 @@ With `web_compat=true`, the Extensions Web handler owns these exact families:
   superadministrator for writes. Preserve the browser's Bearer credential and
   remove trusted-edge proof headers before proxying to Extensions.
 - Builtin wallet/bounty compatibility paths: `/api/wallet*`,
-  `/api/wallet-transfer*`, and `/api/open-source-bounties*`.
+  `/api/wallet-transfer*`, `/api/bounties*`, and `/api/open-source-bounties*`.
 - Legal pages are only the exact GET/HEAD paths
   `/api/user-agreement`, `/api/privacy-policy`, and `/api/refund-policy`.
 - Tool-market's operator callback is the exact
@@ -117,11 +117,77 @@ add a total response timeout that cuts a valid stream during normal operation.
 
 Core assembles `GET /v1/responses` for WebSocket Upgrade when the model gateway
 configuration explicitly sets `responses_websocket = true`. The HTTP POST route
-remains available. At the edge, preserve the Upgrade headers, Bearer credential,
-and trusted peer forwarding on this exact Core location. Keep proxy buffering
-off for the same path's streaming POST responses. The localhost edge harness
-checks the `101` response and a frame round trip separately from POST routing.
-The status capability and production edge still need verification for cutover.
+remains available. Merge these fragments into the existing complete configuration;
+they do not replace its routes, prices, credentials or provider contracts:
+
+```toml
+# /etc/lmm.conf.d/core.toml
+[model]
+config_file = "/etc/lmm.conf.d/core-model.toml"
+```
+
+```toml
+# Top level of /etc/lmm.conf.d/core-model.toml
+responses_websocket = true
+responses_websocket_origins = ["https://app.example.invalid"]
+```
+
+Native clients can send `Authorization: Bearer <API_KEY>`. Browser WebSocket
+clients can offer `responses` or `realtime` together with the credential
+subprotocol `openai-insecure-api-key.<API_KEY>`. Core extracts the first such
+credential into the request's Bearer authorization and removes credential
+subprotocols before negotiation; they must not be echoed in the response or
+logged. This credential bridge applies only to the exact GET Upgrade route,
+not POST or other APIs. The edge must not substitute a service credential.
+
+Explicit trusted origins are additional exact origins, including scheme and
+effective port. The existing `[identity.web].origin`, when configured in the main
+TOML, is also trusted. `LMM_CORE_WEB_ORIGIN` is the internal name for that TOML
+mapping; it is not an implicit environment override in TOML mode. An empty
+`responses_websocket_origins` list does not disable default same-origin checks.
+
+Without an explicit trusted match, Core compares `Origin` with the request's
+`Host` and the trusted ingress's single `X-Forwarded-Proto` value (`http` or
+`https`). Missing forwarded scheme means native HTTP, not inferred HTTPS.
+Scheme, normalized host and effective port must match. The existing local
+development exception permits two loopback origins with different ports.
+Requests without `Origin` still require normal authentication. Invalid or
+duplicate origin/forwarded-scheme values are rejected; do not combine them into
+a comma-separated forwarding chain.
+
+The TLS-terminating edge must preserve `Host` including an explicit port,
+`Origin`, `Authorization`, `Sec-WebSocket-Protocol`, `Upgrade` and `Connection`,
+use HTTP/1.1 upstream, and overwrite `X-Forwarded-Proto` from the trusted public
+transport. Do not pass a client-supplied forwarded scheme through unchanged.
+For an Nginx edge that terminates public TLS itself, the relevant fragments are:
+
+```nginx
+# http scope; reuse the reviewed installation's existing map if present.
+map $http_upgrade $lmm_connection_upgrade {
+    default upgrade;
+    '' close;
+}
+```
+
+```nginx
+# Inside the existing exact /v1/responses Core location.
+proxy_http_version 1.1;
+proxy_set_header Host $http_host;
+proxy_set_header Origin $http_origin;
+proxy_set_header Authorization $http_authorization;
+proxy_set_header Sec-WebSocket-Protocol $http_sec_websocket_protocol;
+proxy_set_header Upgrade $http_upgrade;
+proxy_set_header Connection $lmm_connection_upgrade;
+proxy_set_header X-Forwarded-Proto $scheme;
+proxy_buffering off;
+```
+
+An additional TLS proxy requires its own reviewed forwarding trust boundary;
+do not copy this scheme rule onto an untrusted plaintext ingress. Preserve Core's
+non-secret negotiated response subprotocol, keep trusted peer forwarding, and
+retain the existing bounded timeouts. The localhost edge harness checks the
+`101` response and a frame round trip separately from POST routing. Actual TLS
+proxy behavior and production cutover still need independent verification.
 
 The remote-control relay is still a source/WIP contract and has no independent
 public OAuth plus edge acceptance in this revision. Keep that route out of a

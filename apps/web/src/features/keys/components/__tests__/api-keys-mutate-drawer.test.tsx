@@ -175,7 +175,8 @@ async function waitForCondition(
 
 async function renderCreateDrawer(
   currentRow?: ApiKey,
-  neutralAuto = false
+  neutralAuto = false,
+  initialGroups?: Record<string, { desc: string; ratio: number | string }>
 ): Promise<void> {
   const host = document.createElement('div')
   document.body.append(host)
@@ -198,7 +199,7 @@ async function renderCreateDrawer(
     ['user-groups'],
     {
       success: true,
-      data: {
+      data: initialGroups ?? {
         auto: { desc: 'Automatic routing', ratio: 'auto' },
         default: { desc: 'Standard access', ratio: 1 },
         vip: { desc: 'Priority access', ratio: 2 },
@@ -715,3 +716,54 @@ test('editing a neutral Auto token preserves normal metadata and submits an inhe
   assert.deepEqual(payloads[0]?.auto_groups, [])
   assert.equal(payloads[0]?.cross_group_retry, false)
 })
+
+for (const retry of [false, true]) {
+  test(`editing an existing Auto key preserves routing and retry=${retry} while the group catalogue omits Auto`, async () => {
+    const payloads: Array<Record<string, unknown>> = []
+    installApiFixtures([])
+    const fixtureGet = apiClient.get
+    const token: ApiKey = {
+      id: 42,
+      name: 'Existing Auto',
+      key: 'sk-masked',
+      status: 1,
+      remain_quota: 0,
+      used_quota: 0,
+      unlimited_quota: true,
+      expired_time: -1,
+      created_time: 1,
+      accessed_time: 1,
+      group: 'auto',
+      auto_groups: ['vip', 'default'],
+      cross_group_retry: retry,
+      model_limits_enabled: false,
+      model_limits: '',
+      allow_ips: '',
+    }
+    const missingAuto = { default: { desc: 'Standard access', ratio: 1 } }
+    apiClient.get = async (url) =>
+      url === '/api/user/self/groups'
+        ? { data: { success: true, data: missingAuto } }
+        : url === '/api/token/42'
+          ? { data: { success: true, data: token } }
+          : fixtureGet(url)
+    apiClient.put = async (url, data) => {
+      assert.equal(url, '/api/token/')
+      payloads.push(data as Record<string, unknown>)
+      return { data: { success: true } }
+    }
+    await renderCreateDrawer(token, false, missingAuto)
+    await changeInput(
+      getControlByLabel<HTMLInputElement>('Name'),
+      'Only renamed'
+    )
+    await act(async () => findButton('Save changes', true).click())
+    await act(async () =>
+      waitForCondition(() => payloads.length === 1, 'rename was not submitted')
+    )
+    assert.equal(payloads[0]?.group, 'auto')
+    assert.deepEqual(payloads[0]?.auto_groups, ['vip', 'default'])
+    assert.equal(payloads[0]?.cross_group_retry, retry)
+    assert.equal(payloads[0]?.name, 'Only renamed')
+  })
+}

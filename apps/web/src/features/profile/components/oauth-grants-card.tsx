@@ -59,7 +59,7 @@ function formatDate(value: number): string {
 }
 
 function clientLabel(grant: OAuthGrantSummary, t: (value: string) => string) {
-  return grant.client_id === 'lmm-pi'
+  return grant.purpose === 'normal_model'
     ? t('Model client')
     : t('Read-only client')
 }

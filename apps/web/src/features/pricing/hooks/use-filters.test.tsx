@@ -122,7 +122,7 @@ moduleMock.module('@tanstack/react-router', () => ({
   },
 }))
 
-const { act } = await import('react')
+const { act, useEffect } = await import('react')
 const { createRoot } = await import('react-dom/client')
 const { useFilters } = await import('./use-filters')
 
@@ -131,7 +131,10 @@ let container: HTMLDivElement | undefined
 let filterResult: ReturnType<typeof useFilters> | undefined
 
 function Harness() {
-  filterResult = useFilters([])
+  const value = useFilters([])
+  useEffect(() => {
+    filterResult = value
+  })
   return null
 }
 

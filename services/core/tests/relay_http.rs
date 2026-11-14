@@ -677,12 +677,19 @@ async fn vision_inputs_reach_four_upstreams_and_preserve_json_sse_usage() {
                 assert_eq!(requests.len(), 1);
                 let payload = &requests[0].1;
                 match protocol {
-                    UpstreamProtocol::Chat => assert_eq!(
-                        payload["messages"][0]["content"][1]["image_url"]["url"],
-                        url
-                    ),
+                    UpstreamProtocol::Chat => {
+                        assert_eq!(
+                            payload["messages"][0]["content"][1]["image_url"]["url"],
+                            url
+                        );
+                        assert_eq!(
+                            payload["messages"][0]["content"][1]["image_url"]["detail"],
+                            "auto"
+                        );
+                    }
                     UpstreamProtocol::Responses => {
-                        assert_eq!(payload["input"][0]["content"][1]["image_url"], url)
+                        assert_eq!(payload["input"][0]["content"][1]["image_url"], url);
+                        assert_eq!(payload["input"][0]["content"][1]["detail"], "auto");
                     }
                     UpstreamProtocol::Anthropic => {
                         assert_eq!(payload["messages"][0]["content"][1]["source"]["data"], png)

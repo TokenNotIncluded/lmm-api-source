@@ -6,9 +6,15 @@ it under the terms of the GNU Affero General Public License as published by
 the Free Software Foundation, either version 3 of the License, or
 (at your option) any later version.
 */
+
 import { formatHeroSmsPlatformAmount, parseHeroSmsError } from './api.js'
 
-type Translate = (key: string, options?: { amount: string }) => string
+type TFunction = {
+  (key: string): string
+  (key: string, options: Record<string, unknown>): string
+}
+
+type Translate = TFunction
 
 export function describeSmsAccessError(
   error: unknown,

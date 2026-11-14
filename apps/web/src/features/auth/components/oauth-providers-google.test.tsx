@@ -49,6 +49,8 @@ mock.module('../hooks/use-oauth-login', () => ({
       handleGitHubLogin: () => clicks.push('github'),
       handleDiscordLogin: () => {},
       handleOIDCLogin: () => {},
+      handleFederatedLogin: (provider: { id: string; slug: string }) =>
+        clicks.push(`federated:${provider.id}:${provider.slug}`),
       handleLinuxDOLogin: () => {},
       handleTelegramLogin: () => {},
       handleCustomOAuthLogin: (provider: { id: number }) =>
@@ -201,4 +203,36 @@ describe('Google provider buttons', () => {
     const host = await render({ google_client_id: 'native-only-client' })
     assert.equal(host.querySelector('button'), null)
   })
+})
+
+test('native catalog buttons retain configured IDs and slugs without duplicate legacy OIDC/custom cards', async () => {
+  const selected = {
+    id: '81',
+    kind: 'oidc' as const,
+    slug: 'controlled-sso',
+    name: 'Synthetic SSO',
+    icon: '',
+    revision: '1',
+    client_id: 'synthetic-client',
+    authorization_endpoint: 'https://idp.example.test/authorize',
+    scopes: 'openid',
+    qr_code_url: '',
+    native_federated: true as const,
+  }
+  const host = await render({
+    native_federated_auth: true,
+    federated_oauth_providers: [selected],
+    oidc_enabled: true,
+    oidc_client_id: 'synthetic-client',
+    oidc_authorization_endpoint: selected.authorization_endpoint,
+    custom_oauth_providers: [{ ...legacy, slug: selected.slug }],
+  })
+  const buttons = host.querySelectorAll<HTMLButtonElement>('button')
+  assert.equal(buttons.length, 1)
+  assert.equal(
+    buttons[0].getAttribute('aria-label'),
+    'Continue with Synthetic SSO'
+  )
+  await act(async () => buttons[0].click())
+  assert.deepEqual(clicks, ['federated:81:controlled-sso'])
 })

@@ -1,5 +1,8 @@
+/*
+Copyright (C) 2026 LIghtJUNction
+SPDX-License-Identifier: AGPL-3.0-or-later
+*/
 import { useQueryClient } from '@tanstack/react-query'
-// Copyright (C) 2026 LIghtJUNction. AGPL-3.0-or-later.
 import { useEffect, useState, useSyncExternalStore } from 'react'
 import { useTranslation } from 'react-i18next'
 import { z } from 'zod'
@@ -49,7 +52,7 @@ export function BountyOperationDialog() {
     }
   }, [operationId])
   if (!operation) return null
-  const base = `/api/open-source-bounties/operations/${encodeURIComponent(operation.id)}`
+  const base = `/api/bounties/operations/${encodeURIComponent(operation.id)}`
   const finished = async () => {
     const hadWaiter = settleBountyOperation(operation.id)
     if (!hadWaiter) {

@@ -189,7 +189,9 @@ export function buildGroupChangePayload(
       isSwitchingToAuto && wasAlreadyAuto && storedAutoGroups.length > 0
         ? storedAutoGroups
         : [],
-    cross_group_retry: isSwitchingToAuto,
+    cross_group_retry: isSwitchingToAuto
+      ? (apiKey.cross_group_retry ?? false)
+      : false,
   }
 }
 

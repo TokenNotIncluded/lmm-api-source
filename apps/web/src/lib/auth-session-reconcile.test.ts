@@ -105,13 +105,25 @@ function deferred() {
   })
   return { promise, resolve }
 }
+function assertOnlyLoginIntentRemains() {
+  const key = 'new-api:auth-login-intent'
+  // Exact keys: any pending/uncertain Cookie marker (or other key) must fail.
+  assert.deepEqual([...storage.keys()], storage.has(key) ? [key] : [])
+  if (storage.has(key)) {
+    assert.match(
+      storage.get(key) ?? '',
+      /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/
+    )
+  }
+}
+
 afterEach(async () => {
   await tail
   assert.equal(isAuthCookieIdle(), true)
   api.defaults.adapter = original
   setDevelopmentAuthRefreshAdapter(original as AxiosAdapter)
   clearAuthentication(false, 'idle')
-  assert.equal(storage.size, 0)
+  assertOnlyLoginIntentRemains()
 })
 after(() => {
   for (const [key, descriptor] of descriptors) {
@@ -166,7 +178,7 @@ test('real BroadcastChannel foreign login cannot reload a queued local login and
     assert.equal(requests, 1)
     assert.equal(reloads, 0)
     assert.equal(useAuthStore.getState().auth.session?.sid, 'session-B')
-    assert.equal(storage.size, 0)
+    assertOnlyLoginIntentRemains()
   } finally {
     foreignGate.resolve()
     await foreignWriter
@@ -355,7 +367,7 @@ test('real password login B retains its pending MFA flow when BroadcastChannel s
     assert.equal(auth.pending2FAFlowExpiresAt, expiresAt)
     assert.equal(signedOut, 0)
     assert.deepEqual(transitions, ['pending-B'])
-    assert.equal(storage.size, 0)
+    assertOnlyLoginIntentRemains()
   } finally {
     stop()
     stopStore()
@@ -387,7 +399,7 @@ test('an idle tab with expired flow retains foreign-family reload behavior and s
   const reconciler = createAuthSessionReconciler({
     reload: () => {
       reloads++
-      assert.equal(storage.size, 0)
+      assertOnlyLoginIntentRemains()
     },
     signedOut: () => {},
   })
@@ -405,5 +417,5 @@ test('an idle tab with expired flow retains foreign-family reload behavior and s
     })
   )
   assert.equal(dispatched, false)
-  assert.equal(storage.size, 0)
+  assertOnlyLoginIntentRemains()
 })

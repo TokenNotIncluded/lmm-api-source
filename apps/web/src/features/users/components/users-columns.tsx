@@ -1,5 +1,6 @@
 /*
 Copyright (C) 2023-2026 QuantumNous
+Copyright (C) 2026 LIghtJUNction
 
 This program is free software: you can redistribute it and/or modify
 it under the terms of the GNU Affero General Public License as
@@ -16,10 +17,6 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-/*
-Copyright (C) 2026 LIghtJUNction
-*/
-import type { ColumnDef } from '@tanstack/react-table'
 import { useTranslation } from 'react-i18next'
 
 import { BadgeCell } from '@/components/data-table'
@@ -54,6 +51,7 @@ For commercial licensing, please contact support@quantumnous.com
 import { formatRawCreditCount } from '@/lib/cumulative-user-usage'
 import { getCurrencyFormattingLocale } from '@/lib/currency'
 import { formatQuota, formatTimestamp } from '@/lib/format'
+import type { ColumnDef } from '@/lib/table'
 
 import {
   USER_STATUS,

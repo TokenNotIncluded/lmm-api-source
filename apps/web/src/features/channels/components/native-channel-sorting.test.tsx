@@ -65,12 +65,12 @@ afterEach(async () => {
   document.body.replaceChildren()
 })
 after(() => dom.close())
-function login(sid = 'synthetic-routing-editor', role = 10) {
+function login(sid = 'synthetic-routing-editor', role = 10, userId = 501) {
   useAuthStore.getState().auth.setBundle({
     access_token: 'synthetic-channel-session-token',
     token_type: 'Bearer',
     access_expires_at: 2_000_000_000,
-    user: { id: 501, role, username: 'synthetic-admin' },
+    user: { id: userId, role, username: 'synthetic-admin' },
     session: {
       sid,
       current: true,
@@ -502,4 +502,184 @@ test('production 10s cache: cached continuation stays hidden until server digest
     () => !!container.textContent?.includes('channelSorting.snapshotChanged')
   )
   assert.equal(container.textContent?.includes('Provider 26'), false)
+})
+
+test('an owner switch cancels the old listing and its late response cannot seed the new owner continuation or units', async () => {
+  let releaseOld: (() => void) | undefined
+  let oldSignal: AbortSignal | undefined
+  const requests: URL[] = []
+  api.request = (async (options: {
+    url: string
+    method: string
+    signal?: AbortSignal
+    authScope: { userId: number }
+  }) => {
+    assert.equal(options.method, 'GET')
+    const oldOwner = options.authScope.userId === 501
+    if (options.url.endsWith('/configuration')) {
+      const config = paginatedConfiguration()
+      if (!oldOwner) config.bindings.names[1] = 'Replacement provider'
+      return { data: { success: true, data: config } }
+    }
+    const url = new URL(options.url, 'http://localhost')
+    assert.equal(url.pathname, '/api/channel')
+    requests.push(url)
+    if (oldOwner) {
+      oldSignal = options.signal
+      // Deliberately ignore transport cancellation: the response is still late.
+      await new Promise<void>((resolve) => {
+        releaseOld = resolve
+      })
+    }
+    const page = Number(url.searchParams.get('p'))
+    return {
+      data: {
+        success: true,
+        data: {
+          ...sortedPage(page),
+          snapshot_digest: (oldOwner ? 'a' : 'b').repeat(64),
+          balance_units: [oldOwner ? 'JPY' : 'EUR'],
+          pagination_consistency: url.searchParams.has('snapshot_digest')
+            ? 'digest_checked'
+            : 'single_request',
+        },
+      },
+    }
+  }) as typeof api.request
+  const container = await mount('channels')
+  await until(() => releaseOld !== undefined)
+  await act(async () => button(container, 'Create Channel').click())
+  assert.ok(container.querySelector('textarea'))
+  await act(async () => login('replacement-statistics-owner', 10, 502))
+  await until(() => !!container.textContent?.includes('Replacement provider'))
+  assert.equal(oldSignal?.aborted, true)
+  assert.equal(container.querySelector('textarea'), null)
+  assert.equal(container.querySelector('input[type=password]'), null)
+  await act(async () => releaseOld?.())
+  assert.equal(container.textContent?.includes('Private provider'), false)
+  await act(async () => button(container, 'Next').click())
+  await until(() => !!container.textContent?.includes('Provider 26'))
+  assert.equal(
+    requests.at(-1)?.searchParams.get('snapshot_digest'),
+    'b'.repeat(64)
+  )
+  const sort = container.querySelector('select')
+  assert.ok(sort)
+  assert.equal(sort.disabled, false)
+  await act(async () => {
+    sort.value = 'balance'
+    sort.dispatchEvent(new Event('change', { bubbles: true }))
+  })
+  await until(() => container.querySelectorAll('select').length === 3)
+  assert.deepEqual(
+    [...container.querySelectorAll('select')[2].options].map((x) => x.value),
+    ['', 'EUR']
+  )
+})
+
+test('a cancelled search response cannot replace current units or digest and listing updates preserve the editor draft', async () => {
+  let releaseOld: (() => void) | undefined
+  let oldSignal: AbortSignal | undefined
+  const requests: URL[] = []
+  api.request = (async (options: {
+    url: string
+    method: string
+    signal?: AbortSignal
+  }) => {
+    assert.equal(options.method, 'GET')
+    if (options.url.endsWith('/configuration')) {
+      return { data: { success: true, data: paginatedConfiguration() } }
+    }
+    const url = new URL(options.url, 'http://localhost')
+    assert.equal(url.pathname, '/api/channel')
+    requests.push(url)
+    const oldSearch = url.searchParams.get('keyword') === 'older'
+    if (oldSearch) {
+      oldSignal = options.signal
+      await new Promise<void>((resolve) => {
+        releaseOld = resolve
+      })
+    }
+    const page = Number(url.searchParams.get('p'))
+    return {
+      data: {
+        success: true,
+        data: {
+          ...sortedPage(page),
+          snapshot_digest: (oldSearch ? 'a' : 'c').repeat(64),
+          balance_units: [oldSearch ? 'JPY' : 'EUR'],
+          pagination_consistency: url.searchParams.has('snapshot_digest')
+            ? 'digest_checked'
+            : 'single_request',
+        },
+      },
+    }
+  }) as typeof api.request
+  const container = await mount('channels')
+  await until(() => !!container.textContent?.includes('Private provider'))
+  await act(async () => button(container, 'Create Channel').click())
+  const textarea = container.querySelector('textarea')
+  assert.ok(textarea)
+  const setter = Object.getOwnPropertyDescriptor(
+    dom.HTMLTextAreaElement.prototype,
+    'value'
+  )?.set
+  assert.ok(setter)
+  const draft = JSON.stringify({
+    ...JSON.parse(textarea.value),
+    name: 'Unsaved owner draft',
+  })
+  await act(async () => {
+    setter.call(textarea, draft)
+    textarea.dispatchEvent(new Event('input', { bubbles: true }))
+  })
+  const search = container.querySelector('input')
+  assert.ok(search)
+  const inputSetter = Object.getOwnPropertyDescriptor(
+    dom.HTMLInputElement.prototype,
+    'value'
+  )?.set
+  assert.ok(inputSetter)
+  async function searchFor(value: string) {
+    await act(async () => {
+      assert.ok(inputSetter)
+      assert.ok(search)
+      inputSetter.call(search, value)
+      search.dispatchEvent(new Event('input', { bubbles: true }))
+    })
+  }
+  await searchFor('older')
+  await until(() => releaseOld !== undefined)
+  await searchFor('newer')
+  await until(
+    () =>
+      !!container.textContent?.includes('Private provider') &&
+      !button(container, 'Next').disabled
+  )
+  assert.equal(oldSignal?.aborted, true)
+  await act(async () => releaseOld?.())
+  assert.equal(textarea.value, draft)
+  assert.deepEqual(JSON.parse(textarea.value).expected_version, {
+    routing: 1,
+    pricing: 1,
+  })
+  await act(async () => button(container, 'Next').click())
+  await until(() => !!container.textContent?.includes('Provider 26'))
+  assert.equal(
+    requests.at(-1)?.searchParams.get('snapshot_digest'),
+    'c'.repeat(64)
+  )
+  const sort = container.querySelector('select')
+  assert.ok(sort)
+  assert.equal(sort.disabled, false)
+  await act(async () => {
+    sort.value = 'balance'
+    sort.dispatchEvent(new Event('change', { bubbles: true }))
+  })
+  await until(() => container.querySelectorAll('select').length === 3)
+  assert.deepEqual(
+    [...container.querySelectorAll('select')[2].options].map((x) => x.value),
+    ['', 'EUR']
+  )
+  assert.equal(textarea.value, draft)
 })

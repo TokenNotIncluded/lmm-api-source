@@ -20,7 +20,7 @@ import { zodResolver } from '@hookform/resolvers/zod'
 import { useQueryClient } from '@tanstack/react-query'
 import { Loader2 } from 'lucide-react'
 import { useEffect, useState } from 'react'
-import { useForm } from 'react-hook-form'
+import { useForm, useWatch } from 'react-hook-form'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 
@@ -101,8 +101,7 @@ export function PrefillGroupFormDrawer({
     resolver: zodResolver(prefillGroupFormSchema),
     defaultValues: DEFAULT_FORM_VALUES,
   })
-
-  const selectedType = form.watch('type')
+  const selectedType = useWatch({ control: form.control, name: 'type' })
 
   useEffect(() => {
     if (open) {

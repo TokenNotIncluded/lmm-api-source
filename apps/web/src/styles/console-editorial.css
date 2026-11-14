@@ -1261,7 +1261,9 @@ For commercial licensing, please contact support@quantumnous.com
 
 /* The assistant header is intentionally translucent. Keep its blur bounded
  * and lower on narrow screens so the fixed surface remains inexpensive. */
-@supports ((-webkit-backdrop-filter: blur(1px)) or (backdrop-filter: blur(1px))) {
+@supports (
+  (-webkit-backdrop-filter: blur(1px)) or (backdrop-filter: blur(1px))
+) {
   .console-editorial .assistant-glass-surface {
     -webkit-backdrop-filter: blur(8px);
     backdrop-filter: blur(8px);
@@ -1663,14 +1665,24 @@ For commercial licensing, please contact support@quantumnous.com
   --sidebar-foreground: var(--forge-paper-light);
   --sidebar-primary: var(--forge-clay-dark);
   --sidebar-primary-foreground: var(--forge-night);
-  --sidebar-accent: color-mix(in oklch, var(--forge-paper-light) 8%, var(--forge-night));
+  --sidebar-accent: color-mix(
+    in oklch,
+    var(--forge-paper-light) 8%,
+    var(--forge-night)
+  );
   --sidebar-accent-foreground: var(--forge-paper-light);
-  --sidebar-border: color-mix(in oklch, var(--forge-paper-light) 10%, transparent);
+  --sidebar-border: color-mix(
+    in oklch,
+    var(--forge-paper-light) 10%,
+    transparent
+  );
 }
 
 .console-editorial [data-slot='sidebar-inner'] {
-  border: 1px solid color-mix(in oklch, var(--forge-paper-light) 7%, transparent);
-  box-shadow: 0 1rem 3rem -2.5rem color-mix(in oklch, var(--forge-night) 65%, transparent);
+  border: 1px solid
+    color-mix(in oklch, var(--forge-paper-light) 7%, transparent);
+  box-shadow: 0 1rem 3rem -2.5rem
+    color-mix(in oklch, var(--forge-night) 65%, transparent);
 }
 
 .console-editorial [data-slot='sidebar-menu-button'] {
@@ -1697,7 +1709,8 @@ For commercial licensing, please contact support@quantumnous.com
 .console-editorial :where([data-slot='card']) {
   border-color: color-mix(in oklch, var(--foreground) 8%, transparent);
   border-radius: var(--radius-xl);
-  box-shadow: 0 0.75rem 2.5rem -2.5rem color-mix(in oklch, var(--foreground) 25%, transparent);
+  box-shadow: 0 0.75rem 2.5rem -2.5rem
+    color-mix(in oklch, var(--foreground) 25%, transparent);
 }
 
 .console-editorial :where([data-slot='card']):hover {
@@ -1705,7 +1718,11 @@ For commercial licensing, please contact support@quantumnous.com
 }
 
 .console-editorial .console-section-header {
-  background: linear-gradient(180deg, color-mix(in oklch, var(--card) 28%, var(--background)), transparent);
+  background: linear-gradient(
+    180deg,
+    color-mix(in oklch, var(--card) 28%, var(--background)),
+    transparent
+  );
 }
 
 .console-editorial :where([data-slot='button'])[data-slot='button'] {

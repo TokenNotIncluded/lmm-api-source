@@ -32,6 +32,10 @@ import { cn } from '@/lib/utils'
 
 import { useOAuthLogin } from '../hooks/use-oauth-login'
 import {
+  federatedProviders,
+  type FederatedProvider,
+} from '../lib/federated-oauth'
+import {
   isBuiltInGoogleConfigured,
   isCustomGoogleProvider,
   shouldShowCustomGoogleProvider,
@@ -48,7 +52,7 @@ type OAuthProvidersProps = {
   status: SystemStatus | null
   disabled?: boolean
   className?: string
-  onWeChatLogin?: () => void
+  onWeChatLogin?: (provider?: FederatedProvider) => void
   isWeChatLoading?: boolean
   redirectTo?: string
   acceptedLegal?: boolean
@@ -87,6 +91,7 @@ export function OAuthProviders({
     handleGitHubLogin,
     handleDiscordLogin,
     handleOIDCLogin,
+    handleFederatedLogin,
     handleLinuxDOLogin,
     handleTelegramLogin,
     handleCustomOAuthLogin,
@@ -116,6 +121,7 @@ export function OAuthProviders({
   }
 
   if (
+    status?.native_federated_auth !== true &&
     isOAuthProviderConfigured(status, 'wechat') &&
     onWeChatLogin &&
     registrationAllowed('wechat')
@@ -124,7 +130,7 @@ export function OAuthProviders({
       key: 'wechat',
       label: t('Continue with WeChat'),
       shortLabel: 'WeChat',
-      onClick: onWeChatLogin,
+      onClick: () => onWeChatLogin(),
       icon: <IconWeChat className='h-4 w-4' />,
       disabled: isWeChatLoading,
     })
@@ -158,6 +164,7 @@ export function OAuthProviders({
   }
 
   if (
+    status?.native_federated_auth !== true &&
     isOAuthProviderConfigured(status, 'oidc') &&
     registrationAllowed('oidc')
   ) {
@@ -198,11 +205,38 @@ export function OAuthProviders({
     })
   }
 
+  const nativeProviders = federatedProviders(status)
+  for (const provider of nativeProviders) {
+    if (
+      !registrationAllowed(`federated:${provider.id}`) ||
+      !registrationAllowed(`custom:${provider.slug}`) ||
+      !registrationAllowed(provider.kind)
+    ) {
+      continue
+    }
+    if (provider.kind === 'wechat' && !onWeChatLogin) continue
+    providerButtons.push({
+      key: `federated-${provider.id}`,
+      label: t('Continue with {{name}}', { name: provider.name }),
+      shortLabel: provider.name,
+      onClick:
+        provider.kind === 'wechat'
+          ? () => onWeChatLogin?.(provider)
+          : () => handleFederatedLogin(provider),
+      icon:
+        provider.kind === 'wechat' ? (
+          <IconWeChat className='h-4 w-4' />
+        ) : undefined,
+      disabled: provider.kind === 'wechat' && isWeChatLoading,
+    })
+  }
+
   // Custom OAuth providers
   const customProviders = status?.custom_oauth_providers
   if (customProviders && customProviders.length > 0) {
     for (const provider of customProviders) {
       if (
+        nativeProviders.some((native) => native.slug === provider.slug) ||
         !isOAuthProviderConfigured(status, `custom:${provider.slug}`) ||
         !registrationAllowed(`custom:${provider.slug}`) ||
         !shouldShowCustomGoogleProvider(status, provider, builtInGoogleAllowed)

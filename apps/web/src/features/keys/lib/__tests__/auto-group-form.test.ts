@@ -19,7 +19,7 @@ For commercial licensing, please contact support@quantumnous.com
 import assert from 'node:assert/strict'
 import { describe, test } from 'node:test'
 
-import type { TFunction } from 'i18next'
+import { createInstance } from 'i18next'
 
 import { apiKeySchema, type ApiKey } from '../../types'
 import {
@@ -29,12 +29,15 @@ import {
   transformFormDataToPayload,
 } from '../api-key-form'
 
-const t = ((key: string, options?: Record<string, unknown>) => {
-  if (options?.max !== undefined) {
-    return key.replace('{{max}}', String(options.max))
-  }
-  return key
-}) as TFunction
+const localI18n = createInstance()
+await localI18n.init({
+  lng: 'en',
+  fallbackLng: 'en',
+  keySeparator: false,
+  nsSeparator: false,
+  resources: { en: { translation: {} } },
+})
+const t = localI18n.t.bind(localI18n)
 
 const baseApiKey: ApiKey = {
   id: 1,

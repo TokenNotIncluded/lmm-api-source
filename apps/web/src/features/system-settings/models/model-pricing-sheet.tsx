@@ -180,6 +180,7 @@ export const ModelPricingEditorPanel = forwardRef<
   })
   const [billingExpr, setBillingExpr] = useState('')
   const [requestRuleExpr, setRequestRuleExpr] = useState('')
+  const [requestRulesValid, setRequestRulesValid] = useState(true)
   const [editorReloadToken, setEditorReloadToken] = useState(0)
   const isEditMode = !!editData
 
@@ -497,6 +498,7 @@ export const ModelPricingEditorPanel = forwardRef<
         if (!Number.isFinite(creditsPerUsd) || creditsPerUsd <= 0) return null
         if (lockPending) return null
         if (locked && editData) return editData
+        if (pricingMode === 'tiered_expr' && !requestRulesValid) return null
         const isValid = await form.trigger()
         if (!isValid || !validatePricingValues()) return null
         return buildSubmitData(form.getValues())
@@ -510,6 +512,8 @@ export const ModelPricingEditorPanel = forwardRef<
       lockPending,
       editData,
       creditsPerUsd,
+      pricingMode,
+      requestRulesValid,
     ]
   )
 
@@ -705,6 +709,7 @@ export const ModelPricingEditorPanel = forwardRef<
                           requestRuleExpr={requestRuleExpr}
                           onBillingExprChange={setBillingExpr}
                           onRequestRuleExprChange={setRequestRuleExpr}
+                          onRequestRulesValidChange={setRequestRulesValid}
                         />
                       </FieldGroup>
                     </TabsContent>
@@ -745,7 +750,10 @@ export const ModelPricingEditorPanel = forwardRef<
                   <Button
                     type='button'
                     onClick={onSave}
-                    disabled={isSaving}
+                    disabled={
+                      isSaving ||
+                      (pricingMode === 'tiered_expr' && !requestRulesValid)
+                    }
                     className='w-full sm:w-auto'
                   >
                     <Save data-icon='inline-start' />

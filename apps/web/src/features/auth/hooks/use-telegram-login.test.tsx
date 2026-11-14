@@ -10,6 +10,7 @@ import i18next from 'i18next'
 import type { ReactNode } from 'react'
 
 import type { AuthBundle } from '@/stores/auth-store'
+import { installSupportedAuthBrowser } from '@/test-support/supported-auth-browser'
 
 const unexpectedRequests: string[] = []
 const dom = new Window({
@@ -98,7 +99,10 @@ mock.module('./use-auth-redirect', () => ({
 }))
 
 await i18next.init({ lng: 'en', resources: { en: { translation: {} } } })
-const { act } = await import('react')
+// Normal supported browser; install after this fixture replaces its globals.
+installSupportedAuthBrowser()
+
+const { act, useEffect } = await import('react')
 const { createRoot } = await import('react-dom/client')
 const { TelegramLoginDialog } =
   await import('../components/telegram-login-dialog')
@@ -163,7 +167,9 @@ function Harness() {
       appealRefreshes++
     }
   )
-  controls = flow
+  useEffect(() => {
+    controls = flow
+  })
   return (
     <TelegramLoginDialog
       open={flow.isTelegramDialogOpen}

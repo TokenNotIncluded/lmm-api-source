@@ -41,13 +41,22 @@ export function useStoreCheckoutRecovery({
   termsSupported = supported,
   userId,
   guest,
+  onOrderAccepted,
 }: {
   productId: string
   supported: boolean
   termsSupported?: boolean
   userId?: number
   guest: StoreGuestSession | null
+  onOrderAccepted?: (orderId: string, actor: StoreCheckoutActor) => void
 }) {
+  const mounted = useRef(false)
+  useEffect(() => {
+    mounted.current = true
+    return () => {
+      mounted.current = false
+    }
+  }, [])
   const [journal] = useState(() =>
     createStoreCheckoutIntentJournal({
       isActorCurrent: isStoreCheckoutActorCurrent,
@@ -63,7 +72,7 @@ export function useStoreCheckoutRecovery({
       ? `guest:${guest.guest_id.toLowerCase()}`
       : ''
   const order = orderActor === expectedActor ? storedOrder : null
-  const [loading, setLoading] = useState(true)
+  const [loading, setLoading] = useState(Boolean(userId || guest))
   const [error, setError] = useState<unknown>(null)
   const capture = useCallback(() => {
     const auth = useAuthStore.getState().auth
@@ -123,6 +132,14 @@ export function useStoreCheckoutRecovery({
     recordRef.current = value
     setRecord(value)
   }
+  const publishOrder = useCallback(
+    (value: StoreOrder, actor: StoreCheckoutActor) => {
+      setOrderActor(storeCheckoutActorScope(actor))
+      setOrder(value)
+      if (mounted.current) onOrderAccepted?.(value.id, actor)
+    },
+    [onOrderAccepted]
+  )
   const recover = useCallback(
     async (saved?: StoreCheckoutIntentRecord): Promise<StoreOrder | null> => {
       const credentials = capture()
@@ -146,28 +163,41 @@ export function useStoreCheckoutRecovery({
       credentials.assertCurrent()
       if (response.kind === 'found' && full) {
         remember(response.record)
-        setOrderActor(storeCheckoutActorScope(credentials.actor))
-        setOrder(full)
+        publishOrder(full, credentials.actor)
         setError(null)
         return full
       }
       setError(new Error(copy.orderAbsent))
       return null
     },
-    [capture, journal, supported]
+    [capture, journal, supported, publishOrder]
   )
+
+  const [initialization, setInitialization] = useState({
+    productId,
+    userId,
+    guest,
+    supported,
+    onOrderAccepted,
+  })
+  if (
+    initialization.productId !== productId ||
+    initialization.userId !== userId ||
+    initialization.guest !== guest ||
+    initialization.supported !== supported ||
+    initialization.onOrderAccepted !== onOrderAccepted
+  ) {
+    setInitialization({ productId, userId, guest, supported, onOrderAccepted })
+    setRecord(null)
+    setOrder(null)
+    setError(null)
+    setLoading(Boolean(userId || guest))
+  }
 
   useEffect(() => {
     let active = true
     recordRef.current = null
-    setRecord(null)
-    setOrder(null)
-    setError(null)
-    if (!userId && !guest) {
-      setLoading(false)
-      return
-    }
-    setLoading(true)
+    if (!userId && !guest) return
     void (async () => {
       try {
         const credentials = capture()
@@ -220,8 +250,7 @@ export function useStoreCheckoutRecovery({
         credentials.assertCurrent()
         if (response.kind === 'found' && found) {
           remember(response.record)
-          setOrderActor(storeCheckoutActorScope(credentials.actor))
-          setOrder(found)
+          publishOrder(found, credentials.actor)
           return { order: found, created: false }
         }
         if (response.kind !== 'absent') return null
@@ -297,8 +326,7 @@ export function useStoreCheckoutRecovery({
       }
     }
     credentials.assertCurrent()
-    setOrderActor(storeCheckoutActorScope(credentials.actor))
-    setOrder(created.order)
+    publishOrder(created.order, credentials.actor)
     return created
   }
   async function refreshOrder(id: string) {
@@ -316,8 +344,7 @@ export function useStoreCheckoutRecovery({
       remember(saved)
     }
     credentials.assertCurrent()
-    setOrderActor(storeCheckoutActorScope(credentials.actor))
-    setOrder(full)
+    publishOrder(full, credentials.actor)
     return full
   }
   async function pay(id: string, currency?: string) {
@@ -346,6 +373,9 @@ export function useStoreCheckoutRecovery({
     setOrder((previous) =>
       previous ? { ...previous, status: 'cancelled' } : null
     )
+    if (mounted.current && saved.orderId) {
+      onOrderAccepted?.(saved.orderId, credentials.actor)
+    }
   }
   async function clear(buyAgain: boolean) {
     const credentials = capture()

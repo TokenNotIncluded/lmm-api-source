@@ -26,7 +26,7 @@ export type AssistantNavigationPath =
   | '/keys'
   | '/drawing'
   | '/models'
-  | '/open-source-bounties'
+  | '/bounties'
   | '/support'
 
 const INTENT_PRESET: Partial<Record<AssistantIntent, AssistantPresetId>> = {
@@ -72,7 +72,7 @@ export function getExplicitAssistantNavigation(
     case 'models':
       return '/models'
     case 'bounty':
-      return '/open-source-bounties'
+      return '/bounties'
     case 'invitation':
       return '/wallet'
     case 'human_support':

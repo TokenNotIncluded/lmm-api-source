@@ -40,7 +40,7 @@ for (const key of [
   })
 }
 
-const { act } = await import('react')
+const { act, useEffect } = await import('react')
 const { createRoot } = await import('react-dom/client')
 const i18next = (await import('i18next')).default
 const { api } = await import('@/lib/api')
@@ -106,7 +106,10 @@ function authBundle(): AuthBundle {
 }
 
 function Harness(props: { onError?: (error: unknown) => void }) {
-  currentHook = useSecureVerification({ onError: props.onError })
+  const value = useSecureVerification({ onError: props.onError })
+  useEffect(() => {
+    currentHook = value
+  })
   return null
 }
 

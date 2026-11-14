@@ -796,6 +796,7 @@ test('usage-priced image variants preserve null prices and operation reservation
     { ...variant, credits_per_image: { numerator: '0', denominator: '1' } },
     { ...variant, rounding: 'ceil_total_credits' },
     { ...variant, count_basis: 'requested' },
-  ])
+  ]) {
     assert.equal(nativeImageVariantSchema.safeParse(wrong).success, false)
+  }
 })

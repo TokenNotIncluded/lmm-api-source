@@ -48,6 +48,7 @@ import {
 import { requestAssistantOpen } from '@/features/assistant/assistant-events'
 import { SystemJsonCodeEditor } from '@/features/system-settings/components/system-json-code-editor'
 import type { SystemJsonConfigurationKey } from '@/features/system-settings/components/system-json-configurations'
+import { useAuthStore } from '@/stores/auth-store'
 
 import { updateSystemOptions, validateSystemOptions } from '../api'
 import { FormNavigationGuard } from '../components/form-navigation-guard'
@@ -114,14 +115,17 @@ export const RAW_JSON_DESCRIPTORS = [
 
 type RawJsonConfigurationKey = (typeof RAW_JSON_DESCRIPTORS)[number]['key']
 
-const descriptorMap = new Map(
+const descriptorMap: ReadonlyMap<
+  string,
+  (typeof RAW_JSON_DESCRIPTORS)[number]
+> = new Map(
   RAW_JSON_DESCRIPTORS.map((descriptor) => [descriptor.key, descriptor])
 )
 
 function isRawJsonConfigurationKey(
   value: string
 ): value is RawJsonConfigurationKey {
-  return RAW_JSON_DESCRIPTORS.some((descriptor) => descriptor.key === value)
+  return descriptorMap.has(value)
 }
 
 function formatJson(value: string) {
@@ -134,11 +138,7 @@ function formatJson(value: string) {
 }
 
 function parseImport(value: string): string {
-  try {
-    return JSON.stringify(JSON.parse(value), null, 2)
-  } catch (error) {
-    throw error instanceof Error ? error : new Error('Invalid JSON')
-  }
+  return JSON.stringify(JSON.parse(value), null, 2)
 }
 
 function downloadJson(filename: string, value: string) {
@@ -152,28 +152,49 @@ function downloadJson(filename: string, value: string) {
 }
 
 export function RawJsonConfigurationSection() {
+  const auth = useAuthStore((state) => state.auth)
+  return (
+    <RawJsonConfigurationEditor
+      key={`${auth.user?.id}:${auth.user?.role}:${auth.session?.sid}`}
+    />
+  )
+}
+
+function RawJsonConfigurationEditor() {
   const { t } = useTranslation()
   const optionsQuery = useSystemOptions()
   const fileInputRef = useRef<HTMLInputElement>(null)
-  const loadedKeyRef = useRef<RawJsonConfigurationKey | null>(null)
   const [selectedKey, setSelectedKey] = useState<RawJsonConfigurationKey>(
     'group_ratio_setting.group_warnings'
   )
-  const [editorValue, setEditorValue] = useState('')
-  const [baselineValue, setBaselineValue] = useState('')
-  const [validationFeedback, setValidationFeedback] = useState<{
-    kind: 'success' | 'error'
-    message: string
-  } | null>(null)
-  const [pendingReplacement, setPendingReplacement] = useState<
-    | { kind: 'configuration'; key: RawJsonConfigurationKey }
-    | { kind: 'import'; value: string }
-    | null
-  >(null)
+  const [editor, setEditor] = useState<{
+    key: RawJsonConfigurationKey | null
+    sourceValue: string
+    editorValue: string
+    baselineValue: string
+    validationFeedback: { kind: 'success' | 'error'; message: string } | null
+    pendingReplacement:
+      | { kind: 'configuration'; key: RawJsonConfigurationKey }
+      | { kind: 'import'; value: string }
+      | null
+  }>({
+    key: null,
+    sourceValue: '',
+    editorValue: '',
+    baselineValue: '',
+    validationFeedback: null,
+    pendingReplacement: null,
+  })
+  const { editorValue, baselineValue, validationFeedback, pendingReplacement } =
+    editor
+  const setBaselineValue = (value: string) =>
+    setEditor((current) => ({ ...current, baselineValue: value }))
+  const setValidationFeedback = (value: typeof validationFeedback) =>
+    setEditor((current) => ({ ...current, validationFeedback: value }))
+  const setPendingReplacement = (value: typeof pendingReplacement) =>
+    setEditor((current) => ({ ...current, pendingReplacement: value }))
   const [isValidating, setIsValidating] = useState(false)
   const [isSaving, setIsSaving] = useState(false)
-  const editorValueRef = useRef(editorValue)
-  const baselineValueRef = useRef(baselineValue)
   const descriptor = descriptorMap.get(selectedKey)
   const dirty = hasUnsavedJsonDraft(editorValue, baselineValue)
   const isBusy = isValidating || isSaving
@@ -195,43 +216,56 @@ export function RawJsonConfigurationSection() {
     [availableDescriptors, t]
   )
 
-  editorValueRef.current = editorValue
-  baselineValueRef.current = baselineValue
+  // A new key starts its own draft; a server refresh replaces only a clean
+  // draft. Keep the accepted source separate from an acknowledged local save.
+  if (
+    !dirty &&
+    availableDescriptors.length > 0 &&
+    !availableDescriptors.some((item) => item.key === selectedKey)
+  ) {
+    setSelectedKey(availableDescriptors[0].key)
+  }
+  const sourceValue = formatJson(
+    optionsQuery.data?.data?.find((option) => option.key === selectedKey)
+      ?.value ?? ''
+  )
+  if (
+    (editor.key !== selectedKey || editor.sourceValue !== sourceValue) &&
+    shouldApplyRawJsonServerValue({
+      loadedKey: editor.key,
+      selectedKey,
+      editorValue,
+      baselineValue,
+    })
+  ) {
+    setEditor({
+      key: selectedKey,
+      sourceValue,
+      editorValue: sourceValue,
+      baselineValue: sourceValue,
+      validationFeedback: null,
+      pendingReplacement: null,
+    })
+  }
 
-  useEffect(() => {
-    if (
-      !dirty &&
-      availableDescriptors.length > 0 &&
-      !availableDescriptors.some((item) => item.key === selectedKey)
-    ) {
-      setSelectedKey(availableDescriptors[0].key)
-    }
-  }, [availableDescriptors, dirty, selectedKey])
-
-  useEffect(() => {
-    const raw =
-      optionsQuery.data?.data?.find((option) => option.key === selectedKey)
-        ?.value ?? ''
-    const formatted = formatJson(raw)
-
-    if (
-      shouldApplyRawJsonServerValue({
-        loadedKey: loadedKeyRef.current,
-        selectedKey,
-        editorValue: editorValueRef.current,
-        baselineValue: baselineValueRef.current,
-      })
-    ) {
-      setEditorValue(formatted)
-      setBaselineValue(formatted)
-      setValidationFeedback(null)
-    }
-    loadedKeyRef.current = selectedKey
-  }, [optionsQuery.data?.data, selectedKey])
+  const requestScope = useMemo(
+    () => ({ key: selectedKey, pending: new Set<AbortController>() }),
+    [selectedKey]
+  )
+  useEffect(
+    () => () => {
+      for (const request of requestScope.pending) request.abort()
+      requestScope.pending.clear()
+    },
+    [requestScope]
+  )
 
   const replaceEditorValue = (value: string) => {
-    setEditorValue(value)
-    setValidationFeedback(null)
+    setEditor((current) => ({
+      ...current,
+      editorValue: value,
+      validationFeedback: null,
+    }))
   }
 
   const requestConfigurationChange = (value: string | null) => {
@@ -256,8 +290,10 @@ export function RawJsonConfigurationSection() {
     setPendingReplacement(null)
   }
 
-  const validate = async () => {
-    if (!selectedKey || !editorValue.trim()) {
+  const validate = async (operation?: AbortController) => {
+    const request = operation ?? new AbortController()
+    if (request.signal.aborted) return false
+    if (!editorValue.trim()) {
       setValidationFeedback({
         kind: 'error',
         message: t('A JSON value is required.'),
@@ -273,11 +309,13 @@ export function RawJsonConfigurationSection() {
       })
       return false
     }
+    requestScope.pending.add(request)
     setIsValidating(true)
     try {
       const response = await validateSystemOptions({
-        [selectedKey]: editorValue,
+        [requestScope.key]: editorValue,
       })
+      if (request.signal.aborted) return false
       if (!response.success) {
         setValidationFeedback({
           kind: 'error',
@@ -291,6 +329,7 @@ export function RawJsonConfigurationSection() {
       })
       return true
     } catch (error) {
+      if (request.signal.aborted) return false
       setValidationFeedback({
         kind: 'error',
         message:
@@ -300,17 +339,20 @@ export function RawJsonConfigurationSection() {
       })
       return false
     } finally {
-      setIsValidating(false)
+      if (!request.signal.aborted) setIsValidating(false)
+      if (!operation) requestScope.pending.delete(request)
     }
   }
 
   const save = async () => {
-    if (!(await validate())) return
-    setIsSaving(true)
+    const request = new AbortController()
     try {
+      if (!(await validate(request)) || request.signal.aborted) return
+      setIsSaving(true)
       const response = await updateSystemOptions({
-        [selectedKey]: editorValue,
+        [requestScope.key]: editorValue,
       })
+      if (request.signal.aborted) return
       if (!response.success) {
         throw new Error(response.message || t('Failed to update setting'))
       }
@@ -318,11 +360,13 @@ export function RawJsonConfigurationSection() {
       toast.success(t('Setting updated successfully'))
       await optionsQuery.refetch()
     } catch (error) {
+      if (request.signal.aborted) return
       toast.error(
         error instanceof Error ? error.message : t('Failed to update setting')
       )
     } finally {
-      setIsSaving(false)
+      if (!request.signal.aborted) setIsSaving(false)
+      requestScope.pending.delete(request)
     }
   }
 
@@ -330,23 +374,29 @@ export function RawJsonConfigurationSection() {
     const file = event.target.files?.[0]
     event.target.value = ''
     if (!file) return
+    const request = new AbortController()
+    requestScope.pending.add(request)
 
     void file
       .text()
       .then((text) => {
         try {
           const importedValue = parseImport(text)
-          if (
-            hasUnsavedJsonDraft(
-              editorValueRef.current,
-              baselineValueRef.current
-            )
-          ) {
-            setPendingReplacement({ kind: 'import', value: importedValue })
-            return
-          }
-          replaceEditorValue(importedValue)
+          if (request.signal.aborted) return
+          setEditor((current) =>
+            hasUnsavedJsonDraft(current.editorValue, current.baselineValue)
+              ? {
+                  ...current,
+                  pendingReplacement: { kind: 'import', value: importedValue },
+                }
+              : {
+                  ...current,
+                  editorValue: importedValue,
+                  validationFeedback: null,
+                }
+          )
         } catch {
+          if (request.signal.aborted) return
           setValidationFeedback({
             kind: 'error',
             message: t('The imported file is not valid JSON.'),
@@ -354,6 +404,7 @@ export function RawJsonConfigurationSection() {
         }
       })
       .catch((error: unknown) => {
+        if (request.signal.aborted) return
         setValidationFeedback({
           kind: 'error',
           message:
@@ -362,6 +413,7 @@ export function RawJsonConfigurationSection() {
               : t('Configuration check failed.'),
         })
       })
+      .finally(() => requestScope.pending.delete(request))
   }
 
   const askAssistant = () => {

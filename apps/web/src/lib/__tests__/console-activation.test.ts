@@ -255,7 +255,7 @@ describe('console activation boundary', () => {
     assert.equal(isContributorRoute('/wallet/'), true)
     assert.equal(isContributorRoute('/wallet/admin'), false)
     assert.equal(isContributorRoute('/tool-market'), true)
-    assert.equal(isContributorRoute('/open-source-bounties'), false)
+    assert.equal(isContributorRoute('/bounties'), false)
     assert.equal(isContributorRoute('/profile/security'), false)
     assert.equal(isContributorRoute('/support'), true)
     assert.equal(isContributorRoute('/support/'), true)

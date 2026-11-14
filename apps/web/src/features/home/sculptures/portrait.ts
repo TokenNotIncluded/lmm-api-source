@@ -105,7 +105,7 @@ export function smilingPortrait(): Sculpture {
   // Decode material indices directly into sampled 3D geometry. Index zero is air.
   let cell = 0
   const { width, height } = PORTRAIT_GRID
-  for (let i = 0; i < PORTRAIT_MATERIALS.length; ) {
+  for (let i = 0; i < PORTRAIT_MATERIALS.length;) {
     const symbol = PORTRAIT_MATERIALS[i++]
     const count =
       symbol === '~' ? ALPHABET.indexOf(PORTRAIT_MATERIALS[i++]) + 1 : 1

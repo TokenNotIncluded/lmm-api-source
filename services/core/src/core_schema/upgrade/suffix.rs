@@ -223,6 +223,7 @@ SELECT NOT EXISTS(SELECT FROM pg_class c CROSS JOIN LATERAL aclexplode(coalesce(
         let subscription =
             self.hooks.suffix().policy.projection == registry::DataProjection::SubscriptionEpay;
         let old_data = data_projected(&mut tx, &tables, &sequences, subscription).await?;
+        let mut expected_data = old_data.clone();
         for (name, ddl) in &COMPONENTS[self.predecessor_count..self.target_count] {
             sqlx::raw_sql(*ddl).execute(&mut *tx).await?;
             sqlx::query("INSERT INTO core_meta.component_contract(name,fingerprint) VALUES($1,$2)")
@@ -237,6 +238,9 @@ SELECT NOT EXISTS(SELECT FROM pg_class c CROSS JOIN LATERAL aclexplode(coalesce(
             return Err(error);
         }
         (self.hooks.hooks.grant_runtime)(&mut tx, r).await?;
+        if self.hooks.suffix().policy.projection == registry::DataProjection::ManagedApplications {
+            managed_applications::advance_oauth_contract(&mut tx, &mut expected_data).await?;
+        }
         // One explicit owner-only backfill, inside the existing migration fence
         // and transaction. Failure rolls back the new DDL as well as projection.
         if self.predecessor_count < 44 {
@@ -246,7 +250,7 @@ SELECT NOT EXISTS(SELECT FROM pg_class c CROSS JOIN LATERAL aclexplode(coalesce(
         if hex(&catalog) != target.catalog_sha256
             || preserved_permissions(&mut tx, &rels, &types, &keys, subscription).await?
                 != old_permissions
-            || data_projected(&mut tx, &tables, &sequences, subscription).await? != old_data
+            || data_projected(&mut tx, &tables, &sequences, subscription).await? != expected_data
         {
             return Err(self.error(registry::SuffixError::PreservationOrTargetMismatch));
         }

@@ -107,7 +107,7 @@ moduleMock.module('sonner', () => ({
   },
 }))
 
-const { act } = await import('react')
+const { act, useEffect } = await import('react')
 const { createRoot } = await import('react-dom/client')
 const { QueryClient, QueryClientProvider, notifyManager } =
   await import('@tanstack/react-query')
@@ -122,12 +122,16 @@ let form: UseFormReturn<GroupRatioOptionValues>
 let state: ReturnType<typeof useGroupRatioSettings>
 
 function Harness({ defaults }: { defaults: GroupRatioOptionValues }) {
-  form = useForm<GroupRatioOptionValues>({
+  const activeForm = useForm<GroupRatioOptionValues>({
     defaultValues: formatGroupRatioValues(defaults),
   })
   // Subscribe to dirty-field changes so assertions cover reset/setValue behavior.
-  const { dirtyFields } = form.formState
-  state = useGroupRatioSettings(form, defaults)
+  const { dirtyFields } = activeForm.formState
+  const activeState = useGroupRatioSettings(activeForm, defaults)
+  useEffect(() => {
+    form = activeForm
+    state = activeState
+  })
   return <output>{Object.keys(dirtyFields).length}</output>
 }
 

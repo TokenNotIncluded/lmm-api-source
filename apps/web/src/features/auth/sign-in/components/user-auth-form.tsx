@@ -20,7 +20,7 @@ import { zodResolver } from '@hookform/resolvers/zod'
 import { Link } from '@tanstack/react-router'
 import axios from 'axios'
 import { Loader2, LogIn, KeyRound } from 'lucide-react'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useForm } from 'react-hook-form'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
@@ -40,46 +40,30 @@ import {
 } from '@/components/ui/form'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { login, startWechatLogin, wechatLoginByCode } from '@/features/auth/api'
+import { login } from '@/features/auth/api'
 import { HumanGrantButton } from '@/features/auth/components/humangrant-button'
 import { LegalConsent } from '@/features/auth/components/legal-consent'
 import { OAuthProviders } from '@/features/auth/components/oauth-providers'
 import { loginFormSchema } from '@/features/auth/constants'
 import { useAuthRedirect } from '@/features/auth/hooks/use-auth-redirect'
+import { useFederatedWechat } from '@/features/auth/hooks/use-federated-wechat'
 import { useTurnstile } from '@/features/auth/hooks/use-turnstile'
-import { hasVerifiedAccountAppeal } from '@/features/auth/lib/account-appeal'
+import {
+  completeAuthResponse,
+  verifyAuthPasskey,
+  reportAuthError,
+} from '@/features/auth/lib/auth-completion'
+import { federatedProviders } from '@/features/auth/lib/federated-oauth'
 import { hasOAuthLoginProvider } from '@/features/auth/lib/registration'
-import { beginPasskeyLogin, finishPasskeyLogin } from '@/features/auth/passkey'
+import { beginPasskeyLogin } from '@/features/auth/passkey'
 import type { AuthFormProps } from '@/features/auth/types'
 import { AccountClosureRecovery } from '@/features/profile/components/account-closure-recovery'
 import { useStatus } from '@/hooks/use-status'
-import { isAuthBundle } from '@/lib/api'
-import { AuthCookieBlockedError } from '@/lib/auth-cookie'
 import { capturePasswordLoginGuard } from '@/lib/auth-session'
-import {
-  buildAssertionResult,
-  prepareCredentialRequestOptions,
-  isPasskeySupported as detectPasskeySupport,
-} from '@/lib/passkey'
-import {
-  isRateLimitedError,
-  rateLimitWaitSeconds,
-} from '@/lib/request-rate-limit'
-import { getServerErrorMessageKey } from '@/lib/server-error-message'
+import { isPasskeySupported as detectPasskeySupport } from '@/lib/passkey'
 import { cn } from '@/lib/utils'
 
 import { AccountAppealForm } from './account-appeal-form'
-
-function passwordLoginErrorMessageKey(error: unknown): string | null {
-  const messageKey = getServerErrorMessageKey(error)
-  if (
-    messageKey ===
-    'This account is disabled. Use the appeal form below to ask an administrator to restore access.'
-  ) {
-    return 'This user account is disabled.'
-  }
-  return messageKey === 'Session expired!' ? null : messageKey
-}
 
 export function UserAuthForm({
   className,
@@ -89,13 +73,8 @@ export function UserAuthForm({
   const { t } = useTranslation()
   const [isLoading, setIsLoading] = useState(false)
   const [appealRefreshKey, setAppealRefreshKey] = useState(0)
-  const [wechatCode, setWeChatCode] = useState('')
-  const [wechatFlowToken, setWeChatFlowToken] = useState('')
-  const [agreedToLegal, setAgreedToLegal] = useState(false)
   const [passkeySupported, setPasskeySupported] = useState(false)
   const [isPasskeyLoading, setIsPasskeyLoading] = useState(false)
-  const [isWeChatDialogOpen, setIsWeChatDialogOpen] = useState(false)
-  const [isWeChatSubmitting, setIsWeChatSubmitting] = useState(false)
   const legalConsentErrorMessage = t('Please agree to the legal terms first')
   const loginFailedMessage = t('Login failed')
 
@@ -121,22 +100,24 @@ export function UserAuthForm({
   const hasUserAgreement = Boolean(status?.user_agreement_enabled)
   const hasPrivacyPolicy = Boolean(status?.privacy_policy_enabled)
   const requiresLegalConsent = hasUserAgreement || hasPrivacyPolicy
+  const [agreedToLegal, setAgreedToLegal] = useState(!requiresLegalConsent)
   const passkeyButtonDisabled =
     isPasskeyLoading ||
     !passkeySupported ||
     (requiresLegalConsent && !agreedToLegal)
-  const hasWeChatLogin = Boolean(status?.wechat_login)
+  const hasWeChatLogin = federatedProviders(status).some(
+    (provider) => provider.kind === 'wechat'
+  )
   const hasOAuthLogin = hasOAuthLoginProvider(status)
   const hasAlternativeLogin =
     passkeyLoginEnabled || hasWeChatLogin || hasOAuthLogin
 
-  useEffect(() => {
-    if (requiresLegalConsent) {
-      setAgreedToLegal(false)
-    } else {
-      setAgreedToLegal(true)
-    }
-  }, [requiresLegalConsent])
+  const [previousLegalConsent, setPreviousLegalConsent] =
+    useState(requiresLegalConsent)
+  if (previousLegalConsent !== requiresLegalConsent) {
+    setPreviousLegalConsent(requiresLegalConsent)
+    setAgreedToLegal(!requiresLegalConsent)
+  }
 
   useEffect(() => {
     detectPasskeySupport()
@@ -152,19 +133,22 @@ export function UserAuthForm({
     },
   })
 
-  const wechatQrCodeUrl = useMemo(() => {
-    return (
-      status?.wechat_qrcode ||
-      status?.wechat_qr_code ||
-      status?.wechat_qrcode_image_url ||
-      status?.wechat_qr_code_image_url ||
-      status?.wechat_account_qrcode_image_url ||
-      status?.WeChatAccountQRCodeImageURL ||
-      status?.data?.wechat_qrcode ||
-      status?.data?.WeChatAccountQRCodeImageURL ||
-      ''
-    )
-  }, [status])
+  const {
+    wechatCode,
+    setWeChatCode,
+    isWeChatDialogOpen,
+    isWeChatSubmitting,
+    wechatQrCodeUrl,
+    handleOpenWeChatDialog,
+    handleWeChatDialogChange,
+    handleWeChatLogin,
+  } = useFederatedWechat(
+    status,
+    agreedToLegal,
+    requiresLegalConsent,
+    redirectTo,
+    refreshVerifiedAccountAppeal
+  )
 
   async function onSubmit(data: z.infer<typeof loginFormSchema>) {
     if (requiresLegalConsent && !agreedToLegal) {
@@ -189,74 +173,36 @@ export function UserAuthForm({
       )
       if (controller.signal.aborted) return
 
-      if (!res.success) {
-        if (hasVerifiedAccountAppeal(res)) {
-          setAppealRefreshKey((value) => value + 1)
-        }
-        const messageKey = passwordLoginErrorMessageKey(res)
-        toast.error(messageKey ? t(messageKey) : loginFailedMessage)
-        return
-      }
-
-      if (res.success) {
-        if (res.data && 'require_2fa' in res.data && res.data.require_2fa) {
-          if (!res.data.flow_token) {
-            toast.error(t('Login flow expired. Please sign in again.'))
-            return
-          }
-          redirectTo2FA(redirectTo)
-          return
-        }
-
-        if (!isAuthBundle(res.data)) {
-          toast.error(loginFailedMessage)
-          return
-        }
-        await handleLoginSuccess(res.data, redirectTo, true, controller.signal)
-        if (controller.signal.aborted) return
-        toast.success(t('Welcome back!'))
-      }
-    } catch (error: unknown) {
-      if (controller.signal.aborted || axios.isCancel(error)) return
-      if (hasVerifiedAccountAppeal(error)) {
-        setAppealRefreshKey((value) => value + 1)
-        toast.error(
-          t(
-            'Submit an appeal using your verified identity. No local password is needed.'
-          )
+      const handled = await completeAuthResponse(res, {
+        alreadyApplied: true,
+        signal: controller.signal,
+        onMFA: () => redirectTo2FA(redirectTo),
+        onBundle: async (bundle) => {
+          await handleLoginSuccess(bundle, redirectTo, true, controller.signal)
+          if (!controller.signal.aborted) toast.success(t('Welcome back!'))
+        },
+      })
+      if (!handled) {
+        reportAuthError(
+          res,
+          t,
+          loginFailedMessage,
+          () => {
+            setAppealRefreshKey((current) => current + 1)
+            toast.error(t('This user account is disabled.'))
+            return true
+          },
+          'password'
         )
-        return
       }
-      const status = axios.isAxiosError(error)
-        ? error.response?.status
-        : undefined
-      const messageKey = passwordLoginErrorMessageKey(error)
-      const rateLimited = isRateLimitedError(error)
-      let message = loginFailedMessage
-      if (error instanceof AuthCookieBlockedError) {
-        message = error.message
-      } else if (rateLimited) {
-        const seconds = rateLimitWaitSeconds(error)
-        message =
-          seconds !== null && seconds > 0
-            ? t('Too many requests. Please try again in {{seconds}} seconds.', {
-                seconds,
-              })
-            : t('Too many requests. Please wait before trying again.')
-      } else if (status !== 401) {
-        if (messageKey) {
-          message = t(messageKey)
-        } else if (status === 403) {
-          message = t('Request failed')
-        } else if (status === 503) {
-          message = t(
-            'The service is temporarily unavailable. Please try again later.'
-          )
-        }
-      }
-      toast.error(
-        message,
-        rateLimited ? { id: 'request-rate-limited' } : undefined
+    } catch (error) {
+      if (controller.signal.aborted || axios.isCancel(error)) return
+      reportAuthError(
+        error,
+        t,
+        loginFailedMessage,
+        refreshVerifiedAccountAppeal,
+        'password'
       )
     } finally {
       if (pendingLogin.current === controller) pendingLogin.current = null
@@ -264,70 +210,12 @@ export function UserAuthForm({
     }
   }
 
-  const handleOpenWeChatDialog = async () => {
-    if (requiresLegalConsent && !agreedToLegal) {
-      toast.error(legalConsentErrorMessage)
-      return
-    }
-
-    setIsWeChatSubmitting(true)
-    try {
-      const flowToken = await startWechatLogin(agreedToLegal)
-      setWeChatFlowToken(flowToken)
-      setIsWeChatDialogOpen(true)
-    } catch {
-      toast.error(loginFailedMessage)
-    } finally {
-      setIsWeChatSubmitting(false)
-    }
-  }
-
-  const handleWeChatDialogChange = (open: boolean) => {
-    setIsWeChatDialogOpen(open)
-    if (!open) {
-      setWeChatCode('')
-      setWeChatFlowToken('')
-      setIsWeChatSubmitting(false)
-    }
-  }
-
-  async function handleWeChatLogin() {
-    if (!wechatCode.trim() || !wechatFlowToken) {
-      toast.error(t('Please enter the verification code'))
-      return
-    }
-
-    setIsWeChatSubmitting(true)
-    try {
-      const res = await wechatLoginByCode(wechatCode, wechatFlowToken)
-      if (res?.success && isAuthBundle(res.data)) {
-        await handleLoginSuccess(res.data, redirectTo)
-        toast.success(t('Signed in via WeChat'))
-        handleWeChatDialogChange(false)
-      } else {
-        if (getServerErrorMessageKey(res)) return
-        toast.error(res?.message || loginFailedMessage)
-      }
-    } catch (error: unknown) {
-      if (getServerErrorMessageKey(error)) return
-      toast.error(loginFailedMessage)
-    } finally {
-      setIsWeChatSubmitting(false)
-    }
-  }
-
-  function showVerifiedAccountAppeal(value: unknown): boolean {
-    if (!hasVerifiedAccountAppeal(value)) return false
+  function refreshVerifiedAccountAppeal() {
     setAppealRefreshKey((current) => current + 1)
-    toast.error(
-      t(
-        'Submit an appeal using your verified identity. No local password is needed.'
-      )
-    )
-    return true
   }
 
   async function handlePasskeyLogin() {
+    if (pendingLogin.current) return
     if (requiresLegalConsent && !agreedToLegal) {
       toast.error(legalConsentErrorMessage)
       return
@@ -343,80 +231,98 @@ export function UserAuthForm({
       return
     }
 
+    const controller = new AbortController()
+    pendingLogin.current = controller
+    const assertOperationCurrent = () => {
+      if (controller.signal.aborted || pendingLogin.current !== controller) {
+        throw new axios.CanceledError('Passkey login cancelled')
+      }
+    }
+    const assertLoginCurrent = capturePasswordLoginGuard()
+    const assertCurrent = () => {
+      assertOperationCurrent()
+      assertLoginCurrent()
+    }
     setIsPasskeyLoading(true)
     try {
-      const assertCurrent = capturePasswordLoginGuard()
       const begin = await beginPasskeyLogin(
         form.getValues('username'),
         assertCurrent
       )
+      assertCurrent()
       if (!begin.success) {
-        if (showVerifiedAccountAppeal(begin)) return
-        if (getServerErrorMessageKey(begin)) return
-        throw new Error(begin.message || t('Failed to start Passkey login'))
+        reportAuthError(
+          begin,
+          t,
+          t('Failed to start Passkey login'),
+          refreshVerifiedAccountAppeal
+        )
+        return
       }
 
-      const publicKey = prepareCredentialRequestOptions(
-        begin.data?.options ?? begin.data
-      )
       const flowToken = begin.data?.flow_token
       if (!flowToken) {
         throw new Error(t('Login flow expired. Please sign in again.'))
       }
-
-      const credential = (await navigator.credentials.get({
-        publicKey,
-      })) as PublicKeyCredential | null
-
-      if (!credential) {
+      const finish = await verifyAuthPasskey(
+        {
+          flowToken,
+          options: begin.data?.options ?? begin.data,
+          expiresAt: begin.data?.expires_at,
+        },
+        assertCurrent
+      )
+      assertOperationCurrent()
+      if (!finish) {
         toast.info(t('Passkey login was cancelled'))
         return
       }
-
-      const assertion = buildAssertionResult(credential)
-      if (!assertion) {
-        throw new Error(t('Invalid Passkey response'))
+      const handled = await completeAuthResponse(finish, {
+        alreadyApplied: true,
+        signal: controller.signal,
+        onMFA: () => {
+          assertOperationCurrent()
+          redirectTo2FA(redirectTo)
+        },
+        onBundle: async (bundle) => {
+          assertOperationCurrent()
+          await handleLoginSuccess(bundle, redirectTo, true, controller.signal)
+          assertOperationCurrent()
+          toast.success(t('Signed in with Passkey'))
+        },
+      })
+      assertOperationCurrent()
+      if (!handled) {
+        reportAuthError(
+          finish,
+          t,
+          t('Failed to complete Passkey login'),
+          refreshVerifiedAccountAppeal
+        )
       }
-
-      const finish = await finishPasskeyLogin(
-        flowToken,
-        assertion,
-        assertCurrent
-      )
-      if (!finish.success) {
-        if (showVerifiedAccountAppeal(finish)) return
-        if (getServerErrorMessageKey(finish)) return
-        throw new Error(finish.message || t('Failed to complete Passkey login'))
-      }
-
+    } catch (error) {
       if (
-        finish.data &&
-        typeof finish.data === 'object' &&
-        'require_2fa' in finish.data &&
-        finish.data.require_2fa === true
+        controller.signal.aborted ||
+        pendingLogin.current !== controller ||
+        axios.isCancel(error)
       ) {
-        redirectTo2FA(redirectTo)
         return
       }
-      if (!isAuthBundle(finish.data)) {
-        throw new Error(t('Missing user data from Passkey login response'))
-      }
-
-      await handleLoginSuccess(finish.data, redirectTo, true)
-      toast.success(t('Signed in with Passkey'))
-    } catch (error: unknown) {
-      if (axios.isCancel(error)) return
-      if (showVerifiedAccountAppeal(error)) return
-      if (getServerErrorMessageKey(error)) return
       if (error instanceof DOMException && error.name === 'NotAllowedError') {
         toast.info(t('Passkey login was cancelled or timed out'))
-      } else if (error instanceof Error) {
-        toast.error(error.message)
       } else {
-        toast.error(t('Passkey login failed'))
+        reportAuthError(
+          error,
+          t,
+          t('Passkey login failed'),
+          refreshVerifiedAccountAppeal
+        )
       }
     } finally {
-      setIsPasskeyLoading(false)
+      if (pendingLogin.current === controller) {
+        pendingLogin.current = null
+        if (!controller.signal.aborted) setIsPasskeyLoading(false)
+      }
     }
   }
 
@@ -474,7 +380,9 @@ export function UserAuthForm({
     <Form {...form}>
       <AccountClosureRecovery />
       <form
-        onSubmit={form.handleSubmit(onSubmit)}
+        onSubmit={(event) => {
+          void form.handleSubmit(onSubmit)(event)
+        }}
         className={cn('grid gap-5', className)}
         {...props}
       >

@@ -16,7 +16,6 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import type { Row, Table } from '@tanstack/react-table'
 import { Database } from 'lucide-react'
 /*
 Copyright (C) 2023-2026 QuantumNous
@@ -47,6 +46,7 @@ import {
   EmptyTitle,
 } from '@/components/ui/empty'
 import { Skeleton } from '@/components/ui/skeleton'
+import type { RowData, Row, Table } from '@/lib/table'
 import { cn } from '@/lib/utils'
 
 import { tableHasCompactMeta } from './card-cell-utils'
@@ -65,7 +65,7 @@ export type DataTableCardHelpers = {
   isSelected: boolean
 }
 
-export interface DataTableCardGridProps<TData> {
+export interface DataTableCardGridProps<TData extends RowData> {
   table: Table<TData>
   isLoading?: boolean
   emptyTitle?: string
@@ -133,7 +133,9 @@ function CardGridSkeleton(props: {
  * The default generic card omits the `select` column. Custom `renderCard`
  * implementations can use `helpers.isSelected` to keep selection UI in sync.
  */
-export function DataTableCardGrid<TData>(props: DataTableCardGridProps<TData>) {
+export function DataTableCardGrid<TData extends RowData>(
+  props: DataTableCardGridProps<TData>
+) {
   const { t } = useTranslation()
 
   const resolvedEmptyTitle = props.emptyTitle ?? t('No Data')

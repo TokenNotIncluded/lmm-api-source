@@ -28,7 +28,7 @@ const journeyLabels: Record<AssistantJourneyStepId, string> = {
   configure_client: 'Configure the API key',
   first_api_call: 'Complete a real API call',
   earn_ai_gift: 'Chat with AI to earn a new-user gift',
-  accept_bounty: 'Accept an open-source bounty',
+  accept_bounty: 'Accept a bounty',
 }
 
 export function AssistantJourneyProgress(props: {

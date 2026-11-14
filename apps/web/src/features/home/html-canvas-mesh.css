@@ -9,7 +9,8 @@
   border: 1px solid color-mix(in oklch, var(--foreground) 8%, transparent);
   border-radius: 1.25rem;
   background: var(--card);
-  box-shadow: 0 2rem 5rem -3.5rem color-mix(in oklch, var(--foreground) 28%, transparent);
+  box-shadow: 0 2rem 5rem -3.5rem
+    color-mix(in oklch, var(--foreground) 28%, transparent);
 }
 
 .lmm-mesh-figure .lmm-mesh-stage {

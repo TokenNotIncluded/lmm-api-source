@@ -42,7 +42,7 @@ mock.module('@tanstack/react-router', () => ({
     navigations.push(options)
   },
 }))
-const { act } = await import('react')
+const { act, useEffect } = await import('react')
 const { createRoot } = await import('react-dom/client')
 const i18n = (await import('i18next')).default
 const { applyAuthBundle, clearAuthentication } =
@@ -80,7 +80,10 @@ await i18n.use(backend).init({
 })
 let redirect!: ReturnType<typeof useAuthRedirect>
 function Probe() {
-  redirect = useAuthRedirect()
+  const value = useAuthRedirect()
+  useEffect(() => {
+    redirect = value
+  })
   return null
 }
 function bundle(token: string, id: number, language: string): AuthBundle {

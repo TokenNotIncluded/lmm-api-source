@@ -18,7 +18,6 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { useIsFetching, useQueryClient } from '@tanstack/react-query'
 import { getRouteApi, useNavigate } from '@tanstack/react-router'
-import type { Table } from '@tanstack/react-table'
 import { useId, useState, type KeyboardEvent, type ReactNode } from 'react'
 import { toast } from 'sonner'
 
@@ -29,6 +28,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
+import type { RowData, Table } from '@/lib/table'
 
 import {
   MJ_STATUS_MAPPINGS,
@@ -52,7 +52,7 @@ const route = getRouteApi('/_authenticated/usage-logs/$section')
 type TaskLikeLogCategory = Extract<LogCategory, 'drawing' | 'task'>
 type TaskLogsFilters = DrawingLogFilters | TaskLogFilters
 
-interface TaskLogsFilterBarProps<TData> {
+interface TaskLogsFilterBarProps<TData extends RowData> {
   table: Table<TData>
   logCategory: TaskLikeLogCategory
   stats?: ReactNode
@@ -64,7 +64,7 @@ function date(value: unknown): Date | undefined {
     : undefined
 }
 
-export function TaskLogsFilterBar<TData>({
+export function TaskLogsFilterBar<TData extends RowData>({
   table,
   logCategory,
   stats,

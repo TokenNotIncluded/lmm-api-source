@@ -27,6 +27,7 @@ import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { TELEGRAM_BIND_RESULT_MESSAGE } from '@/features/auth/constants'
+import { shouldSuppressAuthError } from '@/features/auth/lib/auth-completion'
 import { AuthCookieBlockedError } from '@/lib/auth-cookie'
 import { getServerErrorMessageKey } from '@/lib/server-error-message'
 import { useAuthStore } from '@/stores/auth-store'
@@ -91,7 +92,8 @@ function currentOwnerKey() {
 function bindErrorState(
   value: unknown,
   fallback: string
-): Extract<BindState, { kind: 'error' | 'blocked' }> {
+): Extract<BindState, { kind: 'idle' | 'error' | 'blocked' }> {
+  if (shouldSuppressAuthError(value)) return { kind: 'idle' }
   if (value instanceof AuthCookieBlockedError) {
     return { kind: 'blocked', message: value.message }
   }
@@ -105,40 +107,65 @@ function bindErrorState(
   return { kind: 'error', messageKey: messageKey || fallback }
 }
 
-export function TelegramBindDialog({
-  open,
-  onOpenChange,
-  botName,
-  onSuccess,
-}: TelegramBindDialogProps) {
+export function TelegramBindDialog(props: TelegramBindDialogProps) {
   const { t } = useTranslation()
   const { user, session } = useAuthStore((store) => store.auth)
   const ownerKey = JSON.stringify([user?.id ?? null, session?.sid ?? null])
+  return (
+    <Dialog
+      open={props.open}
+      onOpenChange={props.onOpenChange}
+      title={t('Bind Telegram Account')}
+      description={t('Click the button below to bind your Telegram account')}
+      contentClassName='sm:max-w-md'
+      contentHeight='auto'
+      bodyClassName='space-y-4'
+    >
+      {props.open && (
+        <TelegramBindContent
+          key={ownerKey}
+          {...props}
+          hasOwner={Boolean(user && session)}
+        />
+      )}
+    </Dialog>
+  )
+}
+
+function TelegramBindContent({
+  onOpenChange,
+  botName,
+  onSuccess,
+  hasOwner,
+}: TelegramBindDialogProps & { hasOwner: boolean }) {
+  const { t } = useTranslation()
   const widgetRef = useRef<HTMLDivElement>(null)
   const generation = useRef(0)
   const activeFlow = useRef<ActiveBindFlow | null>(null)
-  const isOpen = useRef(open)
-  isOpen.current = open
-  const [state, setState] = useState<BindState>({ kind: 'idle' })
+  const refreshAbort = useRef<AbortController | null>(null)
+  const [state, setState] = useState<BindState>(() =>
+    hasOwner
+      ? { kind: 'starting' }
+      : { kind: 'error', messageKey: 'Failed to start Telegram binding' }
+  )
 
   const isCurrent = useCallback(
     (attempt: number, expectedOwner: string) =>
-      isOpen.current &&
-      generation.current === attempt &&
-      currentOwnerKey() === expectedOwner,
+      generation.current === attempt && currentOwnerKey() === expectedOwner,
     []
   )
 
   const invalidateFlow = useCallback(() => {
     generation.current++
     activeFlow.current = null
+    refreshAbort.current?.abort()
+    refreshAbort.current = null
   }, [])
 
   const handleOpenChange = useCallback(
     (nextOpen: boolean) => {
       if (!nextOpen) {
         invalidateFlow()
-        isOpen.current = false
         setState({ kind: 'idle' })
       }
       onOpenChange(nextOpen)
@@ -146,52 +173,49 @@ export function TelegramBindDialog({
     [invalidateFlow, onOpenChange]
   )
 
-  const createBindFlow = useCallback(async () => {
-    const attempt = ++generation.current
+  const requestBindFlow = useCallback(() => {
+    invalidateFlow()
+    const attempt = generation.current
     const expectedOwner = currentOwnerKey()
     const { user: initiatingUser, session: initiatingSession } =
       useAuthStore.getState().auth
-    activeFlow.current = null
-    setState({ kind: 'starting' })
-    if (!initiatingUser || !initiatingSession) {
-      setState({
-        kind: 'error',
-        messageKey: 'Failed to start Telegram binding',
+    if (!initiatingUser || !initiatingSession) return
+    return startTelegramBind()
+      .then((response) => {
+        if (!isCurrent(attempt, expectedOwner)) return
+        if (!response.success) {
+          setState(bindErrorState(response, 'Failed to start Telegram binding'))
+          return
+        }
+        activeFlow.current = {
+          flow: response.data,
+          generation: attempt,
+          ownerKey: expectedOwner,
+          userId: initiatingUser.id,
+        }
+        setState({ kind: 'ready', flow: response.data })
       })
-      return
-    }
-    try {
-      const response = await startTelegramBind()
-      if (!isCurrent(attempt, expectedOwner)) return
-      if (!response.success) {
-        setState(bindErrorState(response, 'Failed to start Telegram binding'))
-        return
-      }
-      activeFlow.current = {
-        flow: response.data,
-        generation: attempt,
-        ownerKey: expectedOwner,
-        userId: initiatingUser.id,
-      }
-      setState({ kind: 'ready', flow: response.data })
-    } catch (bindError: unknown) {
-      if (!isCurrent(attempt, expectedOwner)) return
-      setState(bindErrorState(bindError, 'Failed to start Telegram binding'))
-    }
-  }, [isCurrent])
+      .catch((bindError: unknown) => {
+        if (!isCurrent(attempt, expectedOwner)) return
+        setState(bindErrorState(bindError, 'Failed to start Telegram binding'))
+      })
+  }, [invalidateFlow, isCurrent])
+
+  const createBindFlow = useCallback(() => {
+    setState(
+      hasOwner
+        ? { kind: 'starting' }
+        : { kind: 'error', messageKey: 'Failed to start Telegram binding' }
+    )
+    if (hasOwner) void requestBindFlow()
+  }, [hasOwner, requestBindFlow])
 
   useEffect(() => {
-    if (!open) {
-      setState({ kind: 'idle' })
-      return
-    }
-    void createBindFlow()
+    if (hasOwner) void requestBindFlow()
     return invalidateFlow
-  }, [createBindFlow, invalidateFlow, open, ownerKey])
+  }, [hasOwner, invalidateFlow, requestBindFlow])
 
   useEffect(() => {
-    if (!open) return
-
     const handleBindResult = (event: MessageEvent<unknown>) => {
       if (event.origin !== window.location.origin) return
       const pending = activeFlow.current
@@ -223,9 +247,12 @@ export function TelegramBindDialog({
         return
       }
       setState({ kind: 'refreshing' })
+      const controller = new AbortController()
+      refreshAbort.current = controller
       void (async () => {
         try {
           const response = await getUserProfile({
+            signal: controller.signal,
             timeout: 10_000,
             skipBusinessError: true,
             skipErrorHandler: true,
@@ -244,16 +271,18 @@ export function TelegramBindDialog({
           if (isCurrent(pending.generation, pending.ownerKey)) {
             setState(bindErrorState(refreshError, 'Failed to load profile'))
           }
+        } finally {
+          if (refreshAbort.current === controller) refreshAbort.current = null
         }
       })()
     }
 
     window.addEventListener('message', handleBindResult)
     return () => window.removeEventListener('message', handleBindResult)
-  }, [handleOpenChange, isCurrent, onSuccess, open, t])
+  }, [handleOpenChange, isCurrent, onSuccess, t])
 
   useEffect(() => {
-    if (!open || state.kind !== 'ready') return
+    if (state.kind !== 'ready') return
     const pending = activeFlow.current
     if (!pending) return
     const timer = window.setTimeout(
@@ -269,11 +298,11 @@ export function TelegramBindDialog({
       Math.max(0, pending.flow.expires_at * 1000 - Date.now())
     )
     return () => window.clearTimeout(timer)
-  }, [isCurrent, open, state])
+  }, [isCurrent, state])
 
   useEffect(() => {
     const container = widgetRef.current
-    if (!container || !open || state.kind !== 'ready') return
+    if (!container || state.kind !== 'ready') return
 
     container.replaceChildren()
     const script = document.createElement('script')
@@ -286,18 +315,10 @@ export function TelegramBindDialog({
     container.appendChild(script)
 
     return () => container.replaceChildren()
-  }, [botName, open, state])
+  }, [botName, state])
 
   return (
-    <Dialog
-      open={open}
-      onOpenChange={handleOpenChange}
-      title={t('Bind Telegram Account')}
-      description={t('Click the button below to bind your Telegram account')}
-      contentClassName='sm:max-w-md'
-      contentHeight='auto'
-      bodyClassName='space-y-4'
-    >
+    <>
       <div className='space-y-4 py-4'>
         <Alert>
           <Send className='h-4 w-4' />
@@ -348,6 +369,6 @@ export function TelegramBindDialog({
           {t('The binding will complete automatically after authorization')}
         </p>
       </div>
-    </Dialog>
+    </>
   )
 }

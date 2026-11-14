@@ -32,11 +32,13 @@ const keys = [
   'navigator',
   'isSecureContext',
   'BroadcastChannel',
+  'fetch',
 ] as const
 const descriptors = new Map(
   keys.map((key) => [key, Object.getOwnPropertyDescriptor(globalThis, key)])
 )
 const storage = new Map<string, string>()
+const browserEvents = new EventTarget()
 const published: unknown[] = []
 const writes: string[] = []
 let tail: Promise<unknown> = Promise.resolve()
@@ -70,6 +72,14 @@ Object.defineProperty(globalThis, 'navigator', {
 Object.defineProperty(globalThis, 'window', {
   configurable: true,
   value: {
+    setTimeout: globalThis.setTimeout.bind(globalThis),
+    clearTimeout: globalThis.clearTimeout.bind(globalThis),
+    addEventListener: browserEvents.addEventListener.bind(browserEvents),
+    removeEventListener: browserEvents.removeEventListener.bind(browserEvents),
+    location: {
+      href: 'https://recovery.example.test/',
+      origin: 'https://recovery.example.test',
+    },
     localStorage: {
       getItem: (key: string) => storage.get(key) ?? null,
       setItem: (key: string, value: string) => {
@@ -143,7 +153,7 @@ test('healthy local recovery refuses to bypass normal server logout', () => {
   )
 })
 
-test('blocked logout dispatches zero requests; explicit local recovery clears state, MFA and private cache without broadcasts or Cookie changes', async () => {
+test('blocked Cookie writers allow exact original-family revocation; local recovery never claims full server logout', async () => {
   const cache = new QueryClient()
   cache.setQueryData(['private'], 'synthetic-private')
   const unbind = bindAuthCache(cache)
@@ -153,7 +163,23 @@ test('blocked logout dispatches zero requests; explicit local recovery clears st
     throw new Error('must not dispatch')
   }
   storage.set(markerKey, 'pending:synthetic-crashed-writer')
+  let revocations = 0
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const request = new Request(input, init)
+    assert.equal(new URL(request.url).pathname, '/api/user/auth/logout')
+    assert.equal(request.headers.get('X-Auth-Session'), bundle().session.sid)
+    assert.equal(
+      request.headers.get('Authorization'),
+      `Bearer ${bundle().access_token}`
+    )
+    revocations++
+    return Response.json({
+      success: true,
+      data: { revoked_sid: bundle().session.sid },
+    })
+  }) as typeof fetch
   await assert.rejects(logout(), AuthCookieBlockedError)
+  assert.equal(revocations, 1)
   assert.equal(dispatches, 0)
   assert.equal(endLocalAuthSessionForRecovery(preMfaScope).kind, 'superseded')
   assert.equal(

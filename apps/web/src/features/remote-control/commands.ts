@@ -1,5 +1,5 @@
-import { validRemoteImages, type RemoteImage } from './images'
 /* Copyright (C) 2026 LIghtJUNction. AGPL-3.0-or-later. */
+import { validRemoteImages, type RemoteImage } from './images'
 import type { RemoteControlMessage } from './types'
 
 export const remoteKeys = [

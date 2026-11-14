@@ -131,7 +131,8 @@ for (const [language, locale] of [
         />
       </I18nextProvider>
     )
-    const currency = language === 'zh-CN' || language === 'zh-TW' ? 'CNY' : 'USD'
+    const currency =
+      language === 'zh-CN' || language === 'zh-TW' ? 'CNY' : 'USD'
     const balance = new Intl.NumberFormat(locale, {
       minimumFractionDigits: 0,
       maximumFractionDigits: 8,

@@ -141,7 +141,6 @@ This section consolidates the useful browser constraints from sixteen former gui
 - [observed] Intro → store → tool market → Pi/dsh/directory ecosystem → future makes four native-scroll transitions. Pointer strokes advect nearby points with vertical scatter; time-based critical damping restores their grid after release. Image samples morph into shop, socket and planet sculptures.
 - [observed] The renderer budgets 60fps desktop/30fps mobile and uses cached typed buffers. Mobile, short viewports and reduced motion retain five readable chapters; static imagery, passive pointer/scroll listeners, offscreen/hidden pausing and owned cleanup support fallback behavior. Lotus provenance and the font's SIL OFL remain beside their assets.
 
-
 ### HTML-in-Canvas and the quiet interface
 
 The interface uses spacing, typography and a small amount of warm metal color to make the next action clear. Default light surfaces remain warm white; default dark surfaces are deep charcoal. Named themes, user-selected radius, density and typography continue to override defaults. Operational state still uses the existing success, warning and destructive roles.

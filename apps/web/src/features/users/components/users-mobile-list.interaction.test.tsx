@@ -54,9 +54,8 @@ Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true })
 
 const { act, useState } = await import('react')
 const { createRoot } = await import('react-dom/client')
-const { flexRender, getCoreRowModel, useReactTable } =
-  await import('@tanstack/react-table')
-type RowSelectionState = import('@tanstack/react-table').RowSelectionState
+const { flexRender, dataTableFeatures, useTable } = await import('@/lib/table')
+type RowSelectionState = import('@/lib/table').RowSelectionState
 const { createInstance } = await import('i18next')
 const { I18nextProvider, initReactI18next } = await import('react-i18next')
 const { api } = await import('@/lib/api')
@@ -190,11 +189,11 @@ async function renderList(
     const financialColumns = useUsersColumns().filter(
       (column) => column.id === 'topup_quota' || column.id === 'topup_money'
     )
-    const table = useReactTable<User>({
+    const table = useTable({
+      features: dataTableFeatures,
       data: users,
       columns: presentation === 'desktop' ? financialColumns : [],
       getRowId: (user) => String(user.id),
-      getCoreRowModel: getCoreRowModel(),
       enableRowSelection: true,
       onRowSelectionChange: setRowSelection,
       state: { rowSelection },

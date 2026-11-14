@@ -835,13 +835,27 @@ impl RoutePlan {
     }
 
     pub(crate) fn allows_failure(&self, failure: Failure) -> bool {
-        matches!(
-            failure.delivery,
-            DeliveryState::NotSent | DeliveryState::Rejected
-        ) && failure
+        self.validate_retry(failure).is_ok()
+    }
+
+    fn validate_retry(&self, failure: Failure) -> Result<(), RoutingError> {
+        if failure.delivery == DeliveryState::ResponseStarted {
+            return Err(RoutingError::ResponseAlreadyStarted);
+        }
+        let permitted = failure
             .kind
             .retry_cause()
-            .is_some_and(|cause| self.route.config.failover.retry_on.contains(&cause))
+            .is_some_and(|cause| self.route.config.failover.retry_on.contains(&cause));
+        if !permitted {
+            return Err(RoutingError::RetryDisallowed);
+        }
+        if failure.delivery == DeliveryState::PossiblyAccepted
+            && !(self.route.config.failover.allow_replay_after_send
+                && self.replay == ReplayPermission::ExplicitlyAllowed)
+        {
+            return Err(RoutingError::UnsafeReplay);
+        }
+        Ok(())
     }
     pub fn version(&self) -> ReleaseVersion {
         self.snapshot.version
@@ -880,22 +894,7 @@ impl RoutePlan {
         }
         // Make every rejection terminal. A second call cannot bypass a denied retry.
         self.stopped = true;
-        if failure.delivery == DeliveryState::ResponseStarted {
-            return Err(RoutingError::ResponseAlreadyStarted);
-        }
-        let permitted = failure
-            .kind
-            .retry_cause()
-            .is_some_and(|cause| self.route.config.failover.retry_on.contains(&cause));
-        if !permitted {
-            return Err(RoutingError::RetryDisallowed);
-        }
-        if failure.delivery == DeliveryState::PossiblyAccepted
-            && !(self.route.config.failover.allow_replay_after_send
-                && self.replay == ReplayPermission::ExplicitlyAllowed)
-        {
-            return Err(RoutingError::UnsafeReplay);
-        }
+        self.validate_retry(failure)?;
         self.stopped = false;
         self.dispatch_next()
     }

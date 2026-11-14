@@ -28,7 +28,7 @@ import {
 import { HugeiconsIcon } from '@hugeicons/react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useMemo, useState } from 'react'
-import { useForm } from 'react-hook-form'
+import { useForm, useWatch } from 'react-hook-form'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 import * as z from 'zod'
@@ -169,15 +169,17 @@ export function HeroSmsSettingsSection() {
       priceMultiplier: 10,
     },
   })
+  const priceMultiplier = useWatch({
+    control: form.control,
+    name: 'priceMultiplier',
+  })
+  const serviceEnabled = useWatch({ control: form.control, name: 'enabled' })
 
   useResetForm(form, formDefaults)
 
-  const priceMultiplier = form.watch('priceMultiplier')
-  const serviceEnabled = form.watch('enabled')
-
   const configured = settingsQuery.data?.api_key_configured ?? false
   const pendingWork = settingsQuery.data?.pending_work ?? false
-  const enabled = form.watch('enabled')
+  const enabled = serviceEnabled
   let clearKeyTitle: string | undefined
   if (enabled) {
     clearKeyTitle = t('Disable HeroSMS before clearing the saved key')

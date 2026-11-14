@@ -373,12 +373,6 @@ function DraftNumberInput({
   const [draft, setDraft] = useState(() => formatNumberDraft(value))
   const [focused, setFocused] = useState(false)
 
-  useEffect(() => {
-    if (!focused) {
-      setDraft(formatNumberDraft(value))
-    }
-  }, [focused, value])
-
   const handleChange = (event: ChangeEvent<HTMLInputElement>) => {
     const nextDraft = event.target.value
     setDraft(nextDraft)
@@ -386,6 +380,7 @@ function DraftNumberInput({
   }
 
   const handleFocus = (event: FocusEvent<HTMLInputElement>) => {
+    setDraft(formatNumberDraft(value))
     setFocused(true)
     onFocus?.(event)
     if (selectZeroOnFocus && isZeroDraft(event.currentTarget.value)) {
@@ -413,7 +408,7 @@ function DraftNumberInput({
     <Input
       {...props}
       type='number'
-      value={draft}
+      value={focused ? draft : formatNumberDraft(value)}
       onChange={handleChange}
       onFocus={handleFocus}
       onMouseUp={handleMouseUp}
@@ -607,9 +602,12 @@ function VisualTierCard({
   })
   const [mediaOpen, setMediaOpen] = useState(hasMediaPricing)
 
-  useEffect(() => {
+  const [previousHasMediaPricing, setPreviousHasMediaPricing] =
+    useState(hasMediaPricing)
+  if (hasMediaPricing !== previousHasMediaPricing) {
+    setPreviousHasMediaPricing(hasMediaPricing)
     if (hasMediaPricing) setMediaOpen(true)
-  }, [hasMediaPricing])
+  }
 
   const renderPriceVariable = (
     variable: (typeof BILLING_EXTRA_VARS)[number]
@@ -1082,19 +1080,21 @@ function RuleConditionRow({
       </Select>
       {timeCond.mode === MATCH_RANGE ? (
         <>
-          <DraftNumberInput
+          <Input
+            inputMode='numeric'
             value={timeCond.rangeStart}
-            onValueChange={(value) =>
-              onChange({ ...timeCond, rangeStart: String(value) })
+            onChange={(event) =>
+              onChange({ ...timeCond, rangeStart: event.target.value })
             }
             placeholder={t('Start')}
             className='w-20'
           />
           <span className='text-muted-foreground text-xs'>~</span>
-          <DraftNumberInput
+          <Input
+            inputMode='numeric'
             value={timeCond.rangeEnd}
-            onValueChange={(value) =>
-              onChange({ ...timeCond, rangeEnd: String(value) })
+            onChange={(event) =>
+              onChange({ ...timeCond, rangeEnd: event.target.value })
             }
             placeholder={t('End')}
             className='w-20'
@@ -1663,6 +1663,7 @@ export type TieredPricingEditorProps = {
   requestRuleExpr: string
   onBillingExprChange: (next: string) => void
   onRequestRuleExprChange: (next: string) => void
+  onRequestRulesValidChange?: (valid: boolean) => void
 }
 
 type EditorMode = 'visual' | 'raw'
@@ -1673,10 +1674,13 @@ export const TieredPricingEditor = memo(function TieredPricingEditor({
   requestRuleExpr: currentRequestRuleExpr,
   onBillingExprChange,
   onRequestRuleExprChange,
+  onRequestRulesValidChange,
 }: TieredPricingEditorProps) {
   const { t } = useTranslation()
   const [editorMode, setEditorMode] = useState<EditorMode>('visual')
   const [visualDraftChanged, setVisualDraftChanged] = useState(false)
+  const [requestRulesDraftChanged, setRequestRulesDraftChanged] =
+    useState(false)
   const [visualConfig, setVisualConfig] = useState<VisualConfig | null>(() =>
     tryParseVisualConfig(currentExpr)
   )
@@ -1692,6 +1696,7 @@ export const TieredPricingEditor = memo(function TieredPricingEditor({
     if (initRef.current) return
     initRef.current = true
     setVisualDraftChanged(false)
+    setRequestRulesDraftChanged(false)
     const parsedConfig = tryParseVisualConfig(currentExpr)
     if (parsedConfig) {
       // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -1733,15 +1738,34 @@ export const TieredPricingEditor = memo(function TieredPricingEditor({
     }
   }, [effectiveExpr, currentExpr, onBillingExprChange])
 
+  const generatedRules = useMemo(() => {
+    if (!requestRulesDraftChanged) {
+      return { expression: currentRequestRuleExpr, invalid: false }
+    }
+    try {
+      return {
+        expression: buildRequestRuleExpr(requestRuleGroups),
+        invalid: false,
+      }
+    } catch {
+      return { expression: currentRequestRuleExpr, invalid: true }
+    }
+  }, [requestRuleGroups, currentRequestRuleExpr, requestRulesDraftChanged])
+  const invalidRules = editorMode === 'visual' && generatedRules.invalid
+
   useEffect(() => {
-    if (editorMode !== 'visual') return
-    const ruleExpr = buildRequestRuleExpr(requestRuleGroups)
+    onRequestRulesValidChange?.(!invalidRules)
+  }, [invalidRules, onRequestRulesValidChange])
+
+  useEffect(() => {
+    if (editorMode !== 'visual' || generatedRules.invalid) return
+    const ruleExpr = generatedRules.expression
     if (ruleExpr !== currentRequestRuleExpr) {
       onRequestRuleExprChange(ruleExpr)
     }
   }, [
     editorMode,
-    requestRuleGroups,
+    generatedRules,
     currentRequestRuleExpr,
     onRequestRuleExprChange,
   ])
@@ -1775,22 +1799,30 @@ export const TieredPricingEditor = memo(function TieredPricingEditor({
           setVisualConfig(createDefaultVisualConfig())
         }
         const parsedGroups = tryParseRequestRuleExpr(ruleStr)
+        setRequestRulesDraftChanged(false)
         setRequestRuleGroups(parsedGroups || [])
         onRequestRuleExprChange(ruleStr)
       } else {
         const expr = effectiveExpr
-        const ruleExpr = buildRequestRuleExpr(requestRuleGroups)
+        if (generatedRules.invalid) return
+        const ruleExpr = generatedRules.expression
         setRawExpr(combineBillingExpr(expr, ruleExpr) || expr)
       }
       setEditorMode(next)
     },
-    [rawExpr, effectiveExpr, requestRuleGroups, onRequestRuleExprChange]
+    [rawExpr, effectiveExpr, generatedRules, onRequestRuleExprChange]
   )
 
   const applyPreset = useCallback(
     (preset: Preset) => {
       const presetGroups = preset.requestRules || []
-      const ruleExpr = buildRequestRuleExpr(presetGroups)
+      let ruleExpr: string
+      try {
+        ruleExpr = buildRequestRuleExpr(presetGroups)
+      } catch {
+        toast.error(t('Invalid input'))
+        return
+      }
       const combined = combineBillingExpr(preset.expr, ruleExpr) || preset.expr
       setRawExpr(combined)
       const parsed = tryParseVisualConfig(preset.expr)
@@ -1802,13 +1834,15 @@ export const TieredPricingEditor = memo(function TieredPricingEditor({
         setEditorMode('raw')
         setVisualConfig(null)
       }
+      setRequestRulesDraftChanged(false)
       setRequestRuleGroups(presetGroups)
       onRequestRuleExprChange(ruleExpr)
     },
-    [onRequestRuleExprChange]
+    [onRequestRuleExprChange, t]
   )
 
   const handleRuleGroupsChange = useCallback((next: RequestRuleGroup[]) => {
+    setRequestRulesDraftChanged(true)
     setRequestRuleGroups(next)
   }, [])
 
@@ -1868,6 +1902,14 @@ export const TieredPricingEditor = memo(function TieredPricingEditor({
               </p>
             </div>
 
+            {invalidRules && (
+              <Alert variant='destructive' role='alert'>
+                <AlertDescription>
+                  {t('Expression error')}: {t('Time range')} —{' '}
+                  {t('Invalid input')}
+                </AlertDescription>
+              </Alert>
+            )}
             {currentRequestRuleExpr && !canUseVisualRules ? (
               <Alert>
                 <AlertDescription className='text-xs'>

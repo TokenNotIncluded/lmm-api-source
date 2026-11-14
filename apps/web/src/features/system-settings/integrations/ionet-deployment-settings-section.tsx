@@ -19,7 +19,7 @@ For commercial licensing, please contact support@quantumnous.com
 import { zodResolver } from '@hookform/resolvers/zod'
 import { CheckCircle2, Loader2, XCircle } from 'lucide-react'
 import { useEffect, useState } from 'react'
-import { useForm } from 'react-hook-form'
+import { useForm, useWatch } from 'react-hook-form'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 import { z } from 'zod'
@@ -67,6 +67,16 @@ type Values = z.input<typeof schema>
 export function IoNetDeploymentSettingsSection(_props: {
   defaultValues: { enabled: boolean; apiKey: string }
 }) {
+  const auth = useAuthStore((state) => state.auth)
+  const { i18n } = useTranslation()
+  return (
+    <IoNetDeploymentSettingsForm
+      key={`${auth.user?.id}:${auth.user?.role}:${auth.session?.sid}:${i18n.language}`}
+    />
+  )
+}
+
+function IoNetDeploymentSettingsForm() {
   const { t } = useTranslation()
   const auth = useAuthStore((state) => state.auth)
   const canManage = auth.user?.role === ROLE.SUPER_ADMIN
@@ -81,9 +91,9 @@ export function IoNetDeploymentSettingsSection(_props: {
       apiKey: '',
     },
   })
+  const enabled = useWatch({ control: form.control, name: 'enabled' })
 
   const { isDirty, isSubmitting } = form.formState
-  const enabled = form.watch('enabled')
 
   const [testState, setTestState] = useState<{
     loading: boolean
@@ -93,10 +103,6 @@ export function IoNetDeploymentSettingsSection(_props: {
 
   useEffect(() => {
     const controller = new AbortController()
-    setRevision(null)
-    setClearKey(false)
-    setConfigured(false)
-    form.reset({ enabled: false, apiKey: '' })
     void readIoNetSettings(controller.signal)
       .then((settings) => {
         if (controller.signal.aborted) return
@@ -105,8 +111,9 @@ export function IoNetDeploymentSettingsSection(_props: {
         form.reset({ enabled: settings.enabled, apiKey: '' })
       })
       .catch(() => {
-        if (!controller.signal.aborted)
+        if (!controller.signal.aborted) {
           toast.error(t('Failed to load settings'))
+        }
       })
     return () => controller.abort()
   }, [auth.user?.id, auth.user?.role, auth.session?.sid, form, t])

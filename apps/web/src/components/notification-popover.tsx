@@ -370,7 +370,7 @@ function BountyNotificationsContent({
                     className='h-auto w-fit justify-start p-0 text-xs'
                     render={
                       <Link
-                        to='/open-source-bounties'
+                        to='/bounties'
                         search={bountyNotificationSearch(item)}
                       />
                     }

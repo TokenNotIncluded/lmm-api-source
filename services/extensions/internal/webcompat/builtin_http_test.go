@@ -96,7 +96,7 @@ func TestBuiltinHTTPPathsParticipateInHostAdmission(t *testing.T) {
 		Plugins:  manager,
 		Builtins: BuiltinHTTP{Wallet: endpoint, Bounties: endpoint},
 	})
-	paths := []string{"/api/wallet-transfer", "/api/wallet-transfer/42/cancel", "/api/wallet/balance", "/api/wallet/topup-link", "/api/open-source-bounties", "/api/open-source-bounties/projects/id"}
+	paths := []string{"/api/wallet-transfer", "/api/wallet-transfer/42/cancel", "/api/wallet/balance", "/api/wallet/topup-link", "/api/bounties", "/api/bounties/projects/id", "/api/open-source-bounties", "/api/open-source-bounties/projects/id"}
 	for _, route := range paths {
 		if response := mountTransportCall(handler, http.MethodGet, route, nil); response.Code != http.StatusServiceUnavailable || response.Header().Get("Retry-After") != "1" {
 			t.Fatalf("preparing %s: status=%d headers=%v", route, response.Code, response.Header())
@@ -113,7 +113,7 @@ func TestBuiltinHTTPPathsParticipateInHostAdmission(t *testing.T) {
 			t.Fatalf("ready %s: status=%d", route, response.Code)
 		}
 	}
-	for _, route := range []string{"/api/wallet-transfer-other", "/api/wallet/balance-other", "/api/open-source-bounties-other"} {
+	for _, route := range []string{"/api/wallet-transfer-other", "/api/wallet/balance-other", "/api/bounties-other", "/api/open-source-bounties-other"} {
 		if response := mountTransportCall(handler, http.MethodGet, route, nil); response.Code != http.StatusNotFound {
 			t.Fatalf("adjacent route %s: status=%d", route, response.Code)
 		}

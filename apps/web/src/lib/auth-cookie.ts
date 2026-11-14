@@ -13,7 +13,14 @@ export const authCookieRecoveryMessage =
 export const authCookieStorageMessage =
   'Sign-in needs browser storage. Allow this site to save site data in your browser settings, then reload and try again.'
 
-type BlockedState = 'uncertain' | 'storage_unavailable' | null
+export const authCookieCoordinationMessage =
+  'Sign-in needs HTTPS and a browser with Web Locks support. Open this site in a supported browser over HTTPS, then reload and try again.'
+
+type BlockedState =
+  | 'uncertain'
+  | 'storage_unavailable'
+  | 'coordination_unavailable'
+  | null
 let blocked: BlockedState = null
 const listeners = new Set<() => void>()
 let localOperations = 0
@@ -105,7 +112,9 @@ export class AuthCookieBlockedError extends Error {
       t(
         state === 'uncertain'
           ? authCookieRecoveryMessage
-          : authCookieStorageMessage
+          : state === 'coordination_unavailable'
+            ? authCookieCoordinationMessage
+            : authCookieStorageMessage
       )
     )
     this.name = 'AuthCookieBlockedError'
@@ -153,6 +162,82 @@ export interface AuthCookieTransaction {
   request: <T>(dispatch: () => Promise<T>) => Promise<T>
 }
 
+/** A peer can release its WebLock before this realm observes its storage IPC. */
+async function waitForPeerCookieMarker(signal?: AbortSignal): Promise<void> {
+  const state = getAuthCookieBlockedState()
+  if (state) throw new AuthCookieBlockedError(state)
+  if (signal?.aborted) throw new axios.CanceledError('Authentication cancelled')
+  try {
+    if (!window.localStorage.getItem(BLOCKED_KEY)?.startsWith('pending:')) {
+      return
+    }
+  } catch {
+    blocked = 'storage_unavailable'
+    notify()
+    throw new AuthCookieBlockedError(blocked)
+  }
+  await new Promise<void>((resolve, reject) => {
+    let settled = false
+    const finish = (error?: Error) => {
+      if (settled) return
+      settled = true
+      window.removeEventListener('storage', onStorage)
+      signal?.removeEventListener('abort', onAbort)
+      window.clearTimeout(timer)
+      if (error) reject(error)
+      else resolve()
+    }
+    const failUncertain = () => {
+      if (settled) return
+      blocked = 'uncertain'
+      notify()
+      finish(new AuthCookieBlockedError(blocked))
+    }
+    const recheck = () => {
+      if (settled) return
+      try {
+        const state = getAuthCookieBlockedState()
+        if (state) {
+          finish(new AuthCookieBlockedError(state))
+        } else {
+          const marker = window.localStorage.getItem(BLOCKED_KEY)
+          if (marker === null) finish()
+          else if (!marker.startsWith('pending:')) failUncertain()
+        }
+      } catch {
+        if (blocked !== 'uncertain') blocked = 'storage_unavailable'
+        notify()
+        finish(new AuthCookieBlockedError(blocked))
+      }
+    }
+    const onStorage = (event: StorageEvent) => {
+      if (
+        event.key === BLOCKED_KEY &&
+        event.newValue?.startsWith('uncertain:')
+      ) {
+        failUncertain()
+      } else if (
+        event.key === null ||
+        (event.key === BLOCKED_KEY && event.newValue === null)
+      ) {
+        recheck()
+      }
+    }
+    const onAbort = () =>
+      finish(new axios.CanceledError('Authentication cancelled'))
+    const timer: number = window.setTimeout(
+      failUncertain,
+      AUTH_COOKIE_TIMEOUT_MS
+    )
+    window.addEventListener('storage', onStorage)
+    signal?.addEventListener('abort', onAbort, { once: true })
+    // Registration precedes the read: deletion can arrive between the first
+    // pending read and listening. The timeout never establishes completion.
+    if (signal?.aborted) onAbort()
+    else recheck()
+  })
+}
+
 /** The callback includes response validation and the client state commit. */
 export function withAuthCookieLock<T>(
   operation: (transaction: AuthCookieTransaction) => Promise<T>,
@@ -167,6 +252,12 @@ async function acquireAuthCookieLock<T>(
 ): Promise<T> {
   const ordered = coordinated()
   const run = async () => {
+    if (ordered) {
+      await waitForPeerCookieMarker(signal)
+      if (signal?.aborted) {
+        throw new axios.CanceledError('Authentication cancelled')
+      }
+    }
     assertAvailable(ordered)
     let intent: string | undefined
     let uncertain = false
@@ -222,13 +313,15 @@ async function acquireAuthCookieLock<T>(
       }
     }
   }
-  // Compatibility fallback remains unordered. An existing recovery marker
-  // still blocks participating clients; old clients/provider callbacks do not.
+  // Cookie responses mutate a shared browser jar before client validation.
+  // Without cross-tab exclusion, a stale response can destroy another session.
   if (!ordered) {
     if (signal?.aborted) {
       throw new axios.CanceledError('Authentication cancelled')
     }
-    return run()
+    blocked = getAuthCookieBlockedState() ?? 'coordination_unavailable'
+    notify()
+    throw new AuthCookieBlockedError(blocked)
   }
   return navigator.locks.request(
     AUTH_COOKIE_LOCK,

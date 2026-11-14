@@ -66,10 +66,17 @@ export class HumanGrantHttpError extends Error {
 
 // Main returns JSON with status 200 for config, settings and the PUT receipt.
 // A proxy's HTML login page or an accepted-but-pending response is not a receipt.
-async function responseJSON(response: Response, signal: AbortSignal): Promise<unknown> {
+async function responseJSON(
+  response: Response,
+  signal: AbortSignal
+): Promise<unknown> {
   signal.throwIfAborted()
   if (response.status !== 200) throw new HumanGrantHttpError(response.status)
-  const type = response.headers.get('content-type')?.split(';', 1)[0].trim().toLowerCase()
+  const type = response.headers
+    .get('content-type')
+    ?.split(';', 1)[0]
+    .trim()
+    .toLowerCase()
   if (response.redirected || type !== 'application/json') {
     throw new Error('Invalid HumanGrant response')
   }

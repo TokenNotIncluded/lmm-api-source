@@ -2,13 +2,10 @@
 import assert from 'node:assert/strict'
 import { after, test } from 'node:test'
 
-import {
-  flexRender,
-  getCoreRowModel,
-  useReactTable,
-} from '@tanstack/react-table'
 import { Window } from 'happy-dom'
 import type { ReactNode } from 'react'
+
+import { flexRender, dataTableFeatures, useTable } from '@/lib/table'
 
 import { usageLogSchema, type UsageLog } from '../../data/schema'
 import { formatModelName } from '../../lib/format'
@@ -73,10 +70,10 @@ function ListHarness({ log }: { log: UsageLog }) {
   const columns = useCommonLogsColumns(false).filter(
     (column) => 'accessorKey' in column && column.accessorKey === 'model_name'
   )
-  const table = useReactTable({
+  const table = useTable({
     data: [log],
     columns,
-    getCoreRowModel: getCoreRowModel(),
+    features: dataTableFeatures,
   })
   const modelCell = table.getRowModel().rows[0].getVisibleCells()[0]
   return (

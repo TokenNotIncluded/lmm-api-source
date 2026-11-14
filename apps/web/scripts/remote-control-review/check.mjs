@@ -1,3 +1,7 @@
+/*
+Copyright (C) 2026 LIghtJUNction
+SPDX-License-Identifier: AGPL-3.0-or-later
+*/
 /* Real browser + official Pi SDK + published ask_user, on loopback fixture data only. */
 import assert from 'node:assert/strict'
 import { readFile, writeFile } from 'node:fs/promises'

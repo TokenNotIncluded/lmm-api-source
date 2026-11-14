@@ -17,7 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { zodResolver } from '@hookform/resolvers/zod'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useForm } from 'react-hook-form'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
@@ -35,6 +35,7 @@ import {
 } from '@/components/ui/form'
 import { Switch } from '@/components/ui/switch'
 import { Textarea } from '@/components/ui/textarea'
+import { useAuthStore } from '@/stores/auth-store'
 
 import {
   SettingsForm,
@@ -122,12 +123,45 @@ function formatCIDRs(values: string[]) {
   return values.join('\n')
 }
 
-export function AntiRelaySection({ defaultValues }: AntiRelaySectionProps) {
+export function AntiRelaySection(props: AntiRelaySectionProps) {
+  const auth = useAuthStore((state) => state.auth)
+  return (
+    <AntiRelayForm
+      key={`${auth.user?.id}:${auth.user?.role}:${auth.session?.sid}`}
+      {...props}
+    />
+  )
+}
+
+function AntiRelayForm({ defaultValues }: AntiRelaySectionProps) {
   const { t } = useTranslation()
   const updateOption = useUpdateOption()
-  const [saveState, setSaveState] = useState<'idle' | 'saved' | 'error'>('idle')
-  const baselineRef = useRef<NormalizedAntiRelayValues>(
-    normalizeDefaults(defaultValues)
+  const source = JSON.stringify(normalizeDefaults(defaultValues))
+  const [saveResult, setSaveResult] = useState<{
+    source: string
+    state: 'idle' | 'saved' | 'error'
+  }>({ source, state: 'idle' })
+  const saveState = saveResult.source === source ? saveResult.state : 'idle'
+  const setSaveState = (state: typeof saveResult.state) =>
+    setSaveResult({ source, state })
+  const [acknowledged, setAcknowledged] = useState<{
+    source: string
+    values: NormalizedAntiRelayValues
+  } | null>(null)
+  const baseline =
+    acknowledged?.source === source
+      ? acknowledged.values
+      : normalizeDefaults(defaultValues)
+  const requestScope = useMemo(
+    () => ({ source, pending: new Set<AbortController>() }),
+    [source]
+  )
+  useEffect(
+    () => () => {
+      for (const request of requestScope.pending) request.abort()
+      requestScope.pending.clear()
+    },
+    [requestScope]
   )
   const formDefaults = useMemo(
     () => buildFormDefaults(defaultValues),
@@ -137,22 +171,23 @@ export function AntiRelaySection({ defaultValues }: AntiRelaySectionProps) {
     resolver: zodResolver(antiRelaySchema),
     mode: 'onChange',
     defaultValues: formDefaults,
+    values: formDefaults,
+    resetOptions: { keepDirtyValues: true },
   })
 
-  useEffect(() => {
-    baselineRef.current = normalizeDefaults(defaultValues)
-    form.reset(buildFormDefaults(defaultValues))
-    setSaveState('idle')
-  }, [defaultValues, form])
+  // RHF must subscribe to dirty fields to retain edits across source refreshes.
+  const { isDirty, dirtyFields } = form.formState
 
   const onSubmit = async (values: AntiRelayFormValues) => {
+    const request = new AbortController()
+    requestScope.pending.add(request)
     const normalized = normalizeFormValues(values)
-    const baseline = baselineRef.current
     const changedKeys = (
       Object.keys(normalized) as Array<keyof NormalizedAntiRelayValues>
     ).filter((key) => !valuesEqual(normalized[key], baseline[key]))
 
     if (changedKeys.length === 0) {
+      requestScope.pending.delete(request)
       toast.info(t('No changes to save'))
       return
     }
@@ -181,11 +216,13 @@ export function AntiRelaySection({ defaultValues }: AntiRelaySectionProps) {
     try {
       let saveFailed = false
       for (const key of orderedKeys) {
+        if (request.signal.aborted) return
         const value = normalized[key]
         const response = await updateOption.mutateAsync({
           key,
           value: Array.isArray(value) ? JSON.stringify(value) : value,
         })
+        if (request.signal.aborted) return
         if (!response.success) {
           saveFailed = true
           break
@@ -196,26 +233,42 @@ export function AntiRelaySection({ defaultValues }: AntiRelaySectionProps) {
         return
       }
 
-      baselineRef.current = normalized
-      form.reset({
-        ...values,
-        AntiRelayBlockedCIDRs: formatCIDRs(normalized.AntiRelayBlockedCIDRs),
-        AntiRelayTrustedProxyCIDRs: formatCIDRs(
-          normalized.AntiRelayTrustedProxyCIDRs
-        ),
-      })
+      const current = form.getValues()
+      setAcknowledged({ source: requestScope.source, values: normalized })
+      form.reset(
+        {
+          ...values,
+          AntiRelayBlockedCIDRs: formatCIDRs(normalized.AntiRelayBlockedCIDRs),
+          AntiRelayTrustedProxyCIDRs: formatCIDRs(
+            normalized.AntiRelayTrustedProxyCIDRs
+          ),
+        },
+        { keepDirtyValues: false, keepDirty: false }
+      )
+      for (const key of Object.keys(values) as Array<
+        keyof AntiRelayFormValues
+      >) {
+        if (current[key] !== values[key]) {
+          form.setValue(key, current[key], {
+            shouldDirty: true,
+            shouldValidate: true,
+          })
+        }
+      }
       setSaveState('saved')
     } catch {
-      setSaveState('error')
+      if (!request.signal.aborted) setSaveState('error')
+    } finally {
+      requestScope.pending.delete(request)
     }
   }
 
   return (
     <SettingsSection title={t('Reverse Proxy Access Control')}>
       <Form {...form}>
-        <SettingsForm onSubmit={form.handleSubmit(onSubmit)}>
+        <SettingsForm onSubmit={(event) => form.handleSubmit(onSubmit)(event)}>
           <SettingsPageFormActions
-            onSave={form.handleSubmit(onSubmit)}
+            onSave={() => form.handleSubmit(onSubmit)()}
             isSaving={updateOption.isPending}
             saveLabel='Save anti-relay settings'
           />
@@ -229,7 +282,9 @@ export function AntiRelaySection({ defaultValues }: AntiRelaySectionProps) {
             </AlertDescription>
           </Alert>
 
-          {saveState === 'saved' && !form.formState.isDirty ? (
+          {saveState === 'saved' &&
+          !isDirty &&
+          Object.keys(dirtyFields).length === 0 ? (
             <p className='text-success text-sm' role='status'>
               {t('Anti-relay settings saved')}
             </p>

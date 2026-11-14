@@ -18,7 +18,7 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { nanoid } from 'nanoid'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 
 import { useAuthStore } from '@/stores/auth-store'
 
@@ -52,16 +52,26 @@ export function useAssistantSupport(
   )
   const enabled = Boolean(userId) && visible && documentVisible
   const scope = `${userId}:${sessionId}:${conversationId}:${viewRevision}`
+  if (mutationState.scope !== scope) {
+    setMutationState({ scope, busy: false })
+  }
   const pendingMessage = useRef<{
     scope: string
     requestId: number
     content: string
     turnId: string
   } | null>(null)
-  const currentScope = useRef(scope)
+  const currentScope = useRef<string | null>(null)
   const busyRef = useRef<symbol | null>(null)
-  if (currentScope.current !== scope) busyRef.current = null
-  currentScope.current = scope
+  useLayoutEffect(() => {
+    currentScope.current = scope
+    busyRef.current = null
+    pendingMessage.current = null
+    return () => {
+      currentScope.current = null
+      busyRef.current = null
+    }
+  }, [scope])
   const busy = mutationState.scope === scope && mutationState.busy
   const mounted = useRef(true)
   useEffect(() => {

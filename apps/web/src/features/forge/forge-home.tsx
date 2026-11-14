@@ -99,7 +99,7 @@ const EXPLORE_DESTINATIONS = [
   {
     id: 'challenges',
     href: '/challenges',
-    label: 'Open-source bounties',
+    label: 'Bounties',
     description: 'Find focused work with funded reward slots.',
   },
   {

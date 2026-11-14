@@ -4,7 +4,6 @@ use aes_gcm::{
     Aes256Gcm, KeyInit, Nonce,
     aead::{Aead, Payload},
 };
-use hkdf::Hkdf;
 use hmac::{Hmac, Mac};
 use rand::TryRng as _;
 use rand::rngs::SysRng;
@@ -36,9 +35,8 @@ impl FederatedKeys {
         if replay_key.len() != 32 {
             return Err(IdentityError::Invalid);
         }
-        let mut claim_key = Zeroizing::new([0_u8; 32]);
-        Hkdf::<Sha256>::new(Some(DOMAIN), &replay_key)
-            .expand(b"wechat-code-claims", &mut *claim_key)
+        let claim_key = crate::crypto_key_material::KeyPurpose::FederatedReplay
+            .derive(&replay_key)
             .map_err(|_| IdentityError::Storage)?;
         let mut keys = BTreeMap::new();
         if inputs.is_empty() || inputs.len() > 8 {
@@ -55,9 +53,8 @@ impl FederatedKeys {
             {
                 return Err(IdentityError::Invalid);
             }
-            let mut key = Zeroizing::new([0_u8; 32]);
-            Hkdf::<Sha256>::new(Some(DOMAIN), &bytes)
-                .expand(b"provider-secrets", &mut *key)
+            let key = crate::crypto_key_material::KeyPurpose::FederatedVault
+                .derive(&bytes)
                 .map_err(|_| IdentityError::Storage)?;
             keys.insert(id, key);
         }

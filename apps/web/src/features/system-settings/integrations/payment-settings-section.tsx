@@ -20,7 +20,7 @@ import { zodResolver } from '@hookform/resolvers/zod'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { Code2, Eye, ShieldAlert } from 'lucide-react'
 import * as React from 'react'
-import { useForm, type Resolver } from 'react-hook-form'
+import { useForm, useWatch, type Resolver } from 'react-hook-form'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 import * as z from 'zod'
@@ -260,18 +260,30 @@ export function PaymentSettingsSection({
       productID: waffoPancakeProvisionedProductID ?? '',
     })
 
-  React.useEffect(() => {
+  // Apply refreshed defaults before committing controls with a stale draft.
+  const [payMethodsSource, setPayMethodsSource] = React.useState(
+    waffoDefaultValues.WaffoPayMethods
+  )
+  if (payMethodsSource !== waffoDefaultValues.WaffoPayMethods) {
+    setPayMethodsSource(waffoDefaultValues.WaffoPayMethods)
     setWaffoPayMethods(parseWaffoPayMethods(waffoDefaultValues.WaffoPayMethods))
-  }, [waffoDefaultValues.WaffoPayMethods])
+  }
 
-  React.useEffect(() => {
-    const nextBinding = {
-      storeID: waffoPancakeProvisionedStoreID ?? '',
-      productID: waffoPancakeProvisionedProductID ?? '',
-    }
+  const bindingStoreID = waffoPancakeProvisionedStoreID ?? ''
+  const bindingProductID = waffoPancakeProvisionedProductID ?? ''
+  const [bindingSource, setBindingSource] = React.useState({
+    storeID: bindingStoreID,
+    productID: bindingProductID,
+  })
+  if (
+    bindingSource.storeID !== bindingStoreID ||
+    bindingSource.productID !== bindingProductID
+  ) {
+    const nextBinding = { storeID: bindingStoreID, productID: bindingProductID }
+    setBindingSource(nextBinding)
     setWaffoPancakeSelection(nextBinding)
     setWaffoPancakeSavedBinding(nextBinding)
-  }, [waffoPancakeProvisionedProductID, waffoPancakeProvisionedStoreID])
+  }
 
   const complianceStatements = React.useMemo(
     () => [
@@ -796,28 +808,67 @@ export function PaymentSettingsSection({
     }
   }
 
-  const currentFormValues = form.watch()
+  const [
+    WaffoEnabled,
+    WaffoApiKey,
+    WaffoPrivateKey,
+    WaffoPublicCert,
+    WaffoSandboxPublicCert,
+    WaffoSandboxApiKey,
+    WaffoSandboxPrivateKey,
+    WaffoSandbox,
+    WaffoMerchantId,
+    WaffoCurrency,
+    WaffoUnitPrice,
+    WaffoMinTopUp,
+    WaffoNotifyUrl,
+    WaffoReturnUrl,
+    WaffoPancakeMerchantID,
+    WaffoPancakePrivateKey,
+    WaffoPancakeReturnURL,
+  ] = useWatch({
+    control: form.control,
+    name: [
+      'WaffoEnabled',
+      'WaffoApiKey',
+      'WaffoPrivateKey',
+      'WaffoPublicCert',
+      'WaffoSandboxPublicCert',
+      'WaffoSandboxApiKey',
+      'WaffoSandboxPrivateKey',
+      'WaffoSandbox',
+      'WaffoMerchantId',
+      'WaffoCurrency',
+      'WaffoUnitPrice',
+      'WaffoMinTopUp',
+      'WaffoNotifyUrl',
+      'WaffoReturnUrl',
+      'WaffoPancakeMerchantID',
+      'WaffoPancakePrivateKey',
+      'WaffoPancakeReturnURL',
+    ],
+  })
   const waffoValues: WaffoSettingsValues = {
-    WaffoEnabled: currentFormValues.WaffoEnabled,
-    WaffoApiKey: currentFormValues.WaffoApiKey,
-    WaffoPrivateKey: currentFormValues.WaffoPrivateKey,
-    WaffoPublicCert: currentFormValues.WaffoPublicCert,
-    WaffoSandboxPublicCert: currentFormValues.WaffoSandboxPublicCert,
-    WaffoSandboxApiKey: currentFormValues.WaffoSandboxApiKey,
-    WaffoSandboxPrivateKey: currentFormValues.WaffoSandboxPrivateKey,
-    WaffoSandbox: currentFormValues.WaffoSandbox,
-    WaffoMerchantId: currentFormValues.WaffoMerchantId,
-    WaffoCurrency: currentFormValues.WaffoCurrency,
-    WaffoUnitPrice: currentFormValues.WaffoUnitPrice,
-    WaffoMinTopUp: currentFormValues.WaffoMinTopUp,
-    WaffoNotifyUrl: currentFormValues.WaffoNotifyUrl,
-    WaffoReturnUrl: currentFormValues.WaffoReturnUrl,
+    WaffoEnabled,
+    WaffoApiKey,
+    WaffoPrivateKey,
+    WaffoPublicCert,
+    WaffoSandboxPublicCert,
+    WaffoSandboxApiKey,
+    WaffoSandboxPrivateKey,
+    WaffoSandbox,
+    WaffoMerchantId,
+    WaffoCurrency,
+    WaffoUnitPrice,
+    WaffoMinTopUp,
+    WaffoNotifyUrl,
+    WaffoReturnUrl,
     WaffoPayMethods: JSON.stringify(waffoPayMethods),
   }
   const waffoPancakeValues: WaffoPancakeSettingsValues = {
-    WaffoPancakeMerchantID: currentFormValues.WaffoPancakeMerchantID,
-    WaffoPancakePrivateKey: currentFormValues.WaffoPancakePrivateKey,
-    WaffoPancakeReturnURL: currentFormValues.WaffoPancakeReturnURL,
+    WaffoPancakeMerchantID,
+    WaffoPancakePrivateKey,
+    WaffoPancakeReturnURL,
   }
 
   return (
@@ -887,7 +938,7 @@ export function PaymentSettingsSection({
 
       <Form {...form}>
         <SettingsForm
-          onSubmit={form.handleSubmit(onSubmit)}
+          onSubmit={(event) => form.handleSubmit(onSubmit)(event)}
           className={cn(
             'gap-y-8',
             !complianceConfirmed && 'pointer-events-none opacity-40'
@@ -895,7 +946,7 @@ export function PaymentSettingsSection({
           data-no-autosubmit='true'
         >
           <SettingsPageFormActions
-            onSave={form.handleSubmit(onSubmit)}
+            onSave={() => form.handleSubmit(onSubmit)()}
             isSaving={updateOption.isPending || isSubmitting}
             saveLabel='Save all settings'
           />

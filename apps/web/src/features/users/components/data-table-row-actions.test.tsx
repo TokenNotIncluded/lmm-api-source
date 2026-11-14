@@ -22,8 +22,9 @@ Copyright (C) 2026 LIghtJUNction
 import assert from 'node:assert/strict'
 import { after, afterEach, describe, test } from 'node:test'
 
-import type { Row } from '@tanstack/react-table'
 import { Window } from 'happy-dom'
+
+import type { Row } from '@/lib/table'
 
 import type { User } from '../types'
 

@@ -29,8 +29,13 @@ import {
   setDevelopmentAuthRefreshAdapter,
 } from '@/lib/auth-session'
 import { useAuthStore, type AuthBundle } from '@/stores/auth-store'
+import { installSupportedAuthBrowser } from '@/test-support/supported-auth-browser'
 
-import { createOAuthFlow, executeLogout, login, startWechatLogin } from './api'
+import { createOAuthFlow, executeLogout, login } from './api'
+import { beginFederatedLogin } from './federated-api'
+
+// Normal supported browser; install after this fixture replaces its globals.
+installSupportedAuthBrowser()
 
 describe('password login request errors', () => {
   test('keeps Cookie and session semantics while leaving HTTP and business notifications to the form', async () => {
@@ -236,51 +241,70 @@ describe('logout coordination', () => {
 })
 
 describe('OAuth flow initialization', () => {
-  test('carries the stored invitation into the browser-bound WeChat flow', async () => {
+  test('carries the stored invitation into the native browser-bound WeChat ceremony', async () => {
     const originalPost = api.post
     const originalWindow = Object.getOwnPropertyDescriptor(globalThis, 'window')
-    const requests: Array<{ body: unknown; config: unknown }> = []
-    let affiliateCode: string | null = 'inviter-code'
+    const data = new Map<string, string>([['aff', 'inviter-code']])
+    const storage = {
+      getItem: (key: string) => data.get(key) ?? null,
+      setItem: (key: string, value: string) => {
+        data.set(key, value)
+      },
+      removeItem: (key: string) => {
+        data.delete(key)
+      },
+    }
+    const provider = {
+      id: '43',
+      kind: 'wechat' as const,
+      slug: 'configured-wechat',
+      name: 'WeChat',
+      icon: '',
+      revision: '1',
+      client_id: '',
+      authorization_endpoint: '',
+      scopes: '',
+      qr_code_url: '',
+      native_federated: true as const,
+    }
+    const flow = {
+      state: `lmmfe_${'a'.repeat(64)}`,
+      expires_at: 2000000000,
+      authorization_url: '',
+    }
+    const requests: unknown[] = []
     Object.defineProperty(globalThis, 'window', {
       configurable: true,
       value: {
-        localStorage: {
-          getItem: (key: string) => {
-            assert.equal(key, 'aff')
-            return affiliateCode
-          },
-        },
+        localStorage: storage,
+        sessionStorage: storage,
+        location: { origin: 'https://web.example.test' },
       },
     })
-    api.post = (async (url: string, body: unknown, config: unknown) => {
-      assert.equal(url, '/api/oauth/wechat/start')
-      requests.push({ body, config })
-      return {
-        data: { success: true, data: { flow_token: 'wechat-flow-token' } },
-      }
+    api.post = (async (
+      url: string,
+      body: unknown,
+      config: { authMode?: string; skipAuthRefresh?: boolean }
+    ) => {
+      assert.equal(url, '/api/oauth/federated/43/begin')
+      assert.equal(config.authMode, 'anonymous')
+      assert.equal(config.skipAuthRefresh, true)
+      requests.push(body)
+      return { data: { success: true, data: flow } }
     }) as typeof api.post
-
     try {
-      assert.equal(await startWechatLogin(true), 'wechat-flow-token')
-      affiliateCode = null
-      await startWechatLogin()
+      assert.deepEqual(await beginFederatedLogin(provider, true), flow)
+      data.delete('aff')
+      await beginFederatedLogin(provider, false)
       assert.deepEqual(requests, [
-        {
-          body: { accepted_legal: true, aff: 'inviter-code' },
-          config: { skipAuthRefresh: true },
-        },
-        {
-          body: { accepted_legal: false, aff: undefined },
-          config: { skipAuthRefresh: true },
-        },
+        { accepted_legal: true, affiliate: 'inviter-code' },
+        { accepted_legal: false, affiliate: '' },
       ])
     } finally {
       api.post = originalPost
       if (originalWindow) {
         Object.defineProperty(globalThis, 'window', originalWindow)
-      } else {
-        Reflect.deleteProperty(globalThis, 'window')
-      }
+      } else Reflect.deleteProperty(globalThis, 'window')
     }
   })
 

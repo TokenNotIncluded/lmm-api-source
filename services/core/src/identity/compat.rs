@@ -5,7 +5,6 @@ use aes_gcm::{
     Aes256Gcm, KeyInit, Nonce,
     aead::{Aead, Payload},
 };
-use hkdf::Hkdf;
 use rand::TryRng;
 use serde::Deserialize;
 use std::{collections::HashSet, net::IpAddr};
@@ -146,11 +145,10 @@ fn networks(input: &str) -> Result<Vec<String>> {
     Ok(values)
 }
 fn cipher(key: &[u8]) -> Result<Aes256Gcm> {
-    let mut derived = [0_u8; 32];
-    Hkdf::<Sha256>::new(Some(b"lmm-api-key-secret-v1"), key)
-        .expand(b"aes-256-gcm", &mut derived)
+    let derived = crate::crypto_key_material::KeyPurpose::ApiVault
+        .derive(key)
         .map_err(|_| IdentityError::Storage)?;
-    Aes256Gcm::new_from_slice(&derived).map_err(|_| IdentityError::Storage)
+    Aes256Gcm::new_from_slice(derived.as_ref()).map_err(|_| IdentityError::Storage)
 }
 fn aad(id: i64, user: i64) -> [u8; 24] {
     let mut data = [0; 24];
