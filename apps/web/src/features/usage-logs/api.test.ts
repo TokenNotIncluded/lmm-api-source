@@ -18,6 +18,7 @@ import {
   getUserMidjourneyLogs,
   getUserTaskLogs,
   readLogsPage,
+  readNativeUsageRequest,
 } from './api'
 import { UsageHistoryUnavailableError } from './lib/history-response'
 import { readUsageStatisticsScope } from './lib/statistics'
@@ -75,6 +76,122 @@ afterEach(() => {
   api.defaults.adapter = originalAdapter
   toast.error = originalToastError
   useAuthStore.setState({ auth: previousAuth })
+})
+
+function requestRow(requestId = 'request + & /', userId = 7) {
+  return {
+    id: 19,
+    user_id: userId,
+    created_at: 100,
+    type: 2,
+    content: 'Completed',
+    request_id: requestId,
+  }
+}
+
+test('native request detail uses canonical identity with a scoped and cancellable read', async () => {
+  for (const isAdmin of [false, true]) {
+    login({ role: isAdmin ? 10 : 1 })
+    const controller = new AbortController()
+    const row = requestRow(undefined, isAdmin ? 8 : 7)
+    api.defaults.adapter = async (config) => {
+      const url = new URL(config.url ?? '', 'https://synthetic.example.invalid')
+      assert.equal(
+        url.pathname,
+        `/core/v1/usage/${isAdmin ? 'admin' : 'self'}/request`
+      )
+      assert.deepEqual(Object.fromEntries(url.searchParams), {
+        request_id: row.request_id,
+      })
+      assert.deepEqual(config.authScope, {
+        userId: 7,
+        sessionId: 'synthetic-history-session',
+      })
+      assert.equal(config.signal, controller.signal)
+      assert.equal(config.skipAuthRefresh, true)
+      assert.equal(config.skipBusinessError, true)
+      assert.equal(config.timeout, 10_000)
+      return response(config, { success: true, data: row })
+    }
+    const detail = await readNativeUsageRequest({
+      requestId: row.request_id,
+      isAdmin,
+      signal: controller.signal,
+    })
+    assert.equal(detail.request_id, row.request_id)
+    assert.equal(detail.user_id, row.user_id)
+  }
+})
+
+test('native request detail rejects failed, malformed and mismatched records', async () => {
+  login()
+  for (const payload of [
+    { success: false, data: requestRow() },
+    { success: true, data: {} },
+    { success: true, data: requestRow('different-request') },
+    { success: true, data: requestRow(undefined, 8) },
+  ]) {
+    api.defaults.adapter = async (config) => response(config, payload)
+    await assert.rejects(
+      readNativeUsageRequest({
+        requestId: requestRow().request_id,
+        isAdmin: false,
+      }),
+      /request response unavailable/
+    )
+  }
+})
+
+test('native request detail rejects an old session response and restricted administrator reads', async () => {
+  login()
+  let reads = 0
+  api.defaults.adapter = async (config) => {
+    reads += 1
+    login({ sid: 'replacement-detail-session' })
+    return response(config, { success: true, data: requestRow() })
+  }
+  await assert.rejects(
+    readNativeUsageRequest({
+      requestId: requestRow().request_id,
+      isAdmin: true,
+    }),
+    /administrator session/
+  )
+  assert.equal(reads, 0)
+  await assert.rejects(
+    readNativeUsageRequest({
+      requestId: requestRow().request_id,
+      isAdmin: false,
+    }),
+    /history session changed/
+  )
+  assert.equal(reads, 1)
+})
+
+test('native request detail does not dispatch cancelled or invalid lookups', async () => {
+  login()
+  let reads = 0
+  api.defaults.adapter = async (config) => {
+    reads += 1
+    return response(config, { success: true, data: requestRow() })
+  }
+  const controller = new AbortController()
+  controller.abort()
+  await assert.rejects(
+    readNativeUsageRequest({
+      requestId: requestRow().request_id,
+      isAdmin: false,
+      signal: controller.signal,
+    }),
+    /history session changed/
+  )
+  for (const requestId of ['', 'x'.repeat(129), 'request\ninvalid']) {
+    await assert.rejects(
+      readNativeUsageRequest({ requestId, isAdmin: false }),
+      /Invalid usage request ID/
+    )
+  }
+  assert.equal(reads, 0)
 })
 
 test('history uses the exact category and self/admin endpoints with scoped, bounded reads', async () => {

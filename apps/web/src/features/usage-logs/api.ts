@@ -17,10 +17,12 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { isAxiosError } from 'axios'
+import { z } from 'zod'
 
 import { api } from '@/lib/api'
 import { ROLE } from '@/lib/roles'
 
+import { usageLogSchema, type UsageLog } from './data/schema'
 import {
   parseHistoryUnavailable,
   parseLogsPage,
@@ -119,6 +121,71 @@ export async function readLogsPage({
   const unavailable = parseHistoryUnavailable(payload, category)
   if (unavailable) throw unavailable
   return parseLogsPage(payload, category)
+}
+
+const requestResponseSchema = z.object({
+  success: z.literal(true),
+  data: usageLogSchema,
+})
+
+/** Resolve a canonical request independently of the list's time window. */
+export async function readNativeUsageRequest({
+  requestId,
+  isAdmin,
+  signal,
+  scope: expectedScope,
+}: {
+  requestId: string
+  isAdmin: boolean
+  signal?: AbortSignal
+  scope?: UsageStatisticsScope
+}): Promise<UsageLog> {
+  const scope = expectedScope ?? readUsageStatisticsScope()
+  if (!scope) throw new Error('Usage history session unavailable')
+  assertLogScope(scope, signal)
+  if (isAdmin && scope.role < ROLE.ADMIN) {
+    throw new Error('Usage request requires an administrator session')
+  }
+  if (
+    !requestId ||
+    requestId.length > 128 ||
+    Array.from(requestId).some((character) => {
+      const code = character.charCodeAt(0)
+      return code < 32 || code === 127
+    })
+  ) {
+    throw new Error('Invalid usage request ID')
+  }
+  const query = buildQueryParams({ request_id: requestId })
+  let payload: unknown
+  try {
+    const response = await api.get<unknown>(
+      `/core/v1/usage/${isAdmin ? 'admin' : 'self'}/request?${query}`,
+      {
+        signal,
+        authScope: { userId: scope.userId, sessionId: scope.sessionId },
+        disableDuplicate: true,
+        skipBusinessError: true,
+        skipErrorHandler: true,
+        skipAuthRefresh: true,
+        timeout: 10_000,
+      }
+    )
+    payload = response.data
+  } catch (error) {
+    assertLogScope(scope, signal)
+    throw error
+  }
+  assertLogScope(scope, signal)
+  const result = requestResponseSchema.safeParse(payload)
+  if (
+    !result.success ||
+    result.data.data.request_id !== requestId ||
+    (!isAdmin && result.data.data.user_id !== scope.userId)
+  ) {
+    throw new Error('Usage request response unavailable')
+  }
+  return result.data.data
 }
 
 async function fetchLogs<

@@ -64,7 +64,7 @@ export function DataTableView<TData extends RowData>(
     <div
       data-slot='data-table-viewport'
       className={cn(
-        '@container/table overflow-hidden rounded-lg border',
+        '@container/table min-w-0 overflow-hidden rounded-lg border',
         props.containerClassName
       )}
       {...props.containerProps}
@@ -102,7 +102,7 @@ function UnifiedTableView<TData extends RowData>({
   const tableSizing = getTableSizing(props)
 
   return (
-    <div className={props.tableContainerClassName}>
+    <div className={cn('min-w-0', props.tableContainerClassName)}>
       <Table className={props.tableClassName} style={tableSizing.style}>
         {tableSizing.colgroup}
         <DataTableHeader
@@ -134,13 +134,13 @@ function SplitHeaderTableView<TData extends RowData>({
   return (
     <div
       className={cn(
-        'flex h-full min-h-0 flex-col',
+        'flex h-full min-h-0 min-w-0 flex-col',
         props.tableContainerClassName
       )}
     >
       <div
         className={cn(
-          'min-h-0 flex-1 overflow-auto',
+          'min-h-0 min-w-0 flex-1 overflow-auto',
           '**:data-[slot=table-header]:[--table-header-bg:var(--table-header)]',
           '**:data-[slot=table-header]:bg-(--table-header-bg)',
           props.splitHeaderScrollClassName,

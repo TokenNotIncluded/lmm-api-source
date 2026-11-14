@@ -34,12 +34,12 @@ export function Header({
   return (
     <header
       className={cn(
-        'sticky top-0 z-40 min-h-[var(--app-header-height,3rem)] w-full shrink-0 bg-transparent md:h-[var(--app-header-height,3rem)]',
+        'sticky top-0 z-40 min-h-[var(--app-header-height,3rem)] w-full shrink-0 bg-transparent',
         className
       )}
       {...props}
     >
-      <div className='flex min-h-[var(--app-header-height,3rem)] min-w-0 items-center gap-1.5 px-2 md:h-full md:gap-2 md:px-3'>
+      <div className='flex min-h-[var(--app-header-height,3rem)] min-w-0 flex-wrap items-center gap-1.5 px-2 py-1 md:gap-2 md:px-3'>
         {showSidebarTrigger ? (
           <SidebarTrigger variant='ghost' className='size-11 md:size-8' />
         ) : null}

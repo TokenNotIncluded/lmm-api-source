@@ -36,7 +36,6 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from '@/components/ui/popover'
-import { Separator } from '@/components/ui/separator'
 import type { RowData, Column } from '@/lib/table'
 import { cn } from '@/lib/utils'
 
@@ -87,27 +86,26 @@ function DataTableFacetedFilterInner<TData extends RowData, TValue>({
           <Button
             variant='outline'
             size='sm'
-            className='h-8 border-dashed'
+            className='h-auto min-h-9 max-w-full min-w-0 flex-wrap justify-start gap-2 py-1.5 text-start whitespace-normal'
             aria-label={title ?? t('Filter')}
           />
         }
       >
         <PlusCircledIcon className='size-4' />
-        {title}
+        <span className='min-w-0 [overflow-wrap:anywhere]'>{title}</span>
         {selectedValues?.size > 0 && (
           <>
-            <Separator orientation='vertical' className='mx-2 h-4' />
             <Badge
               variant='secondary'
-              className='rounded-sm px-1 font-normal lg:hidden'
+              className='rounded-md px-1.5 font-normal lg:hidden'
             >
               {selectedValues.size}
             </Badge>
-            <div className='hidden space-x-1 lg:flex'>
+            <div className='hidden max-w-full min-w-0 flex-wrap gap-1 lg:flex'>
               {selectedValues.size > 2 ? (
                 <Badge
                   variant='secondary'
-                  className='rounded-sm px-1 font-normal'
+                  className='h-auto max-w-full rounded-md px-1.5 font-normal [overflow-wrap:anywhere] whitespace-normal'
                 >
                   {selectedValues.size} {t('selected')}
                 </Badge>
@@ -118,7 +116,7 @@ function DataTableFacetedFilterInner<TData extends RowData, TValue>({
                     <Badge
                       variant='secondary'
                       key={option.value}
-                      className='rounded-sm px-1 font-normal'
+                      className='h-auto max-w-full rounded-md px-1.5 font-normal [overflow-wrap:anywhere] whitespace-normal'
                     >
                       {t(option.label)}
                     </Badge>
@@ -128,7 +126,7 @@ function DataTableFacetedFilterInner<TData extends RowData, TValue>({
           </>
         )}
       </PopoverTrigger>
-      <PopoverContent className='max-w-[360px] min-w-[200px] p-0' align='start'>
+      <PopoverContent className='w-80 p-0' align='start'>
         <Command>
           <CommandInput aria-label={title ?? t('Filter')} placeholder={title} />
           <CommandList>
@@ -142,8 +140,8 @@ function DataTableFacetedFilterInner<TData extends RowData, TValue>({
                 const optionCount = hasExplicitCount ? option.count : facetCount
                 const shouldShowCount = hasExplicitCount || Boolean(facetCount)
                 const countClassName = hasExplicitCount
-                  ? 'text-muted-foreground ms-auto flex h-4 min-w-4 items-center justify-center font-mono text-xs'
-                  : 'ms-auto flex h-4 w-4 items-center justify-center font-mono text-xs'
+                  ? 'text-muted-foreground ms-auto flex min-w-4 shrink-0 items-center justify-center font-mono text-xs'
+                  : 'ms-auto flex min-w-4 shrink-0 items-center justify-center font-mono text-xs'
 
                 return (
                   <CommandItem
@@ -152,7 +150,7 @@ function DataTableFacetedFilterInner<TData extends RowData, TValue>({
                   >
                     <div
                       className={cn(
-                        'border-primary flex size-4 items-center justify-center rounded-sm border',
+                        'border-primary flex size-4 shrink-0 items-center justify-center rounded-sm border',
                         isSelected
                           ? 'bg-primary text-primary-foreground'
                           : 'opacity-50 [&_svg]:invisible'
@@ -162,7 +160,7 @@ function DataTableFacetedFilterInner<TData extends RowData, TValue>({
                     </div>
                     {icon}
                     <span
-                      className='min-w-0 flex-1 truncate'
+                      className='min-w-0 flex-1 [overflow-wrap:anywhere] whitespace-normal'
                       title={t(option.label)}
                     >
                       {t(option.label)}
@@ -203,7 +201,7 @@ function renderOptionIcon(option: {
 }) {
   if (option.iconNode) {
     return (
-      <span className='text-muted-foreground flex size-4 items-center justify-center'>
+      <span className='text-muted-foreground flex size-4 shrink-0 items-center justify-center'>
         {option.iconNode}
       </span>
     )
@@ -211,7 +209,7 @@ function renderOptionIcon(option: {
 
   if (option.icon) {
     const Icon = option.icon
-    return <Icon className='text-muted-foreground size-4' />
+    return <Icon className='text-muted-foreground size-4 shrink-0' />
   }
 
   return null

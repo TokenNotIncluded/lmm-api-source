@@ -76,7 +76,7 @@ export function DataTableFilterSummary<TData extends RowData>({
           type='button'
           variant='secondary'
           size='sm'
-          className='h-auto min-h-8 max-w-full gap-1.5 rounded-full px-3 py-1.5'
+          className='h-auto min-h-9 max-w-full items-start gap-2 rounded-lg px-3 py-1.5 text-start whitespace-normal'
           aria-label={`${t('Clear filters')}: ${t(filter.title)}: ${t(label)}`}
           title={`${t(filter.title)}: ${t(label)}`}
           onClick={() => {
@@ -86,11 +86,11 @@ export function DataTableFilterSummary<TData extends RowData>({
             onRemove?.()
           }}
         >
-          <span className='min-w-0 truncate'>
+          <span className='min-w-0 [overflow-wrap:anywhere]'>
             <span className='text-muted-foreground'>{t(filter.title)}: </span>
             {t(label)}
           </span>
-          <X className='size-3.5 shrink-0' aria-hidden='true' />
+          <X className='mt-0.5 size-3.5 shrink-0' aria-hidden='true' />
         </Button>
       ))}
     </div>
