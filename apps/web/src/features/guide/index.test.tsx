@@ -346,8 +346,10 @@ describe('Guide when the AI assistant is disabled', () => {
     })
     const support = container.querySelector<HTMLElement>('#guide-support')
     assert.ok(support)
-    assert.ok(support.querySelector('a[href="mailto:support@lmm.best"]'))
-    assert.equal(support.querySelector('a[href="/support"]'), null)
+    assert.equal(support.querySelector('a[href^="mailto:"]'), null)
+    const supportLink =
+      support.querySelector<HTMLAnchorElement>('a[href="/support"]')
+    assert.ok(supportLink)
 
     await click(findButton(container, 'Continue to account setup'))
     assert.equal(router.state.location.pathname, '/guide')
@@ -366,6 +368,12 @@ describe('Guide when the AI assistant is disabled', () => {
     assert.equal(router.state.location.pathname, '/guide')
     assert.equal(document.activeElement, support)
     assert.equal(consumeQueuedAssistantRequest(), undefined)
+
+    await act(async () => {
+      supportLink.click()
+      await flushEffects()
+    })
+    assert.equal(router.state.location.pathname, '/support')
   })
 })
 

@@ -67,6 +67,21 @@ function mockStatus(data: Record<string, unknown>) {
   api.get = (async () => ({ data: { success: true, data } })) as typeof api.get
 }
 
+const federatedProvider = {
+  id: '73',
+  kind: 'custom_oauth',
+  slug: 'acme',
+  name: 'Acme SSO',
+  icon: '',
+  revision: '1',
+  client_id: 'acme-public-but-withheld',
+  authorization_endpoint: 'https://acme.example.test/authorize',
+  scopes: 'profile',
+  qr_code_url: '',
+  native_federated: true,
+  registration_enabled: true,
+}
+
 const TOOL_NAMES = [
   'lmm_auth_methods',
   'lmm_auth_open',
@@ -94,6 +109,7 @@ test('every auth-onboarding tool is uniquely named and read-only', () => {
 
 test('sign-in methods never leak a client ID, secret, or credential', async () => {
   mockStatus({
+    external_oauth_browser: true,
     github_oauth: true,
     github_client_id: 'Iv1.public-but-still-withheld',
     github_client_secret: 'super-secret',
@@ -103,10 +119,13 @@ test('sign-in methods never leak a client ID, secret, or credential', async () =
     password_register_enabled: false,
     oauth_register_enabled: true,
     oauth_registration_disabled_methods: ['github'],
+    native_federated_auth: true,
+    federated_oauth_providers: [federatedProvider],
+    // Retired monolith descriptors must not create an advertised entry point.
     custom_oauth_providers: [
       {
-        slug: 'acme',
-        client_id: 'acme-public',
+        slug: 'legacy',
+        client_id: 'legacy-public',
         authorization_endpoint: 'https://a',
       },
     ],
@@ -119,6 +138,7 @@ test('sign-in methods never leak a client ID, secret, or credential', async () =
   const serialized = JSON.stringify(result)
   assert.doesNotMatch(serialized, /super-secret/)
   assert.doesNotMatch(serialized, /Iv1\.public-but-still-withheld/)
+  assert.doesNotMatch(serialized, /acme-public-but-withheld|authorize|legacy/)
   assert.equal(result.registration_open, true)
   assert.equal(result.password_registration, false)
   assert.deepEqual(
@@ -128,8 +148,69 @@ test('sign-in methods never leak a client ID, secret, or credential', async () =
       { method: 'github', label: 'GitHub', sign_in: true, register: false },
       // A flag without a client ID is not a real entry point.
       { method: 'discord', label: 'Discord', sign_in: false, register: false },
-      { method: 'custom:acme', label: 'acme', sign_in: true, register: true },
+      {
+        method: 'federated:73',
+        label: 'Acme SSO',
+        sign_in: true,
+        register: true,
+      },
     ].filter((row) => row.sign_in || row.register)
+  )
+})
+
+test('advertised providers use the same native capabilities and registration policy as the sign-in UI', async () => {
+  const status = {
+    google_oauth: true,
+    google_client_id: 'google-client',
+    telegram_oauth: true,
+    telegram_bot_name: 'synthetic-bot',
+    native_federated_auth: true,
+    federated_oauth_providers: [
+      { ...federatedProvider, registration_enabled: false },
+      {
+        ...federatedProvider,
+        id: '74',
+        slug: 'wechat',
+        name: 'WeChat',
+        kind: 'wechat',
+        registration_enabled: true,
+      },
+    ],
+  }
+  const { tools } = buildTools()
+  const read = async (overrides: Record<string, unknown> = {}) => {
+    mockStatus({ ...status, ...overrides })
+    const result = (await byName(tools, 'lmm_auth_methods').execute(
+      {},
+      { signal: signal() }
+    )) as { providers: unknown[] }
+    return result.providers
+  }
+  const expected = [
+    { method: 'google', label: 'Google', sign_in: true, register: true },
+    { method: 'telegram', label: 'Telegram', sign_in: true, register: false },
+    {
+      method: 'federated:73',
+      label: 'Acme SSO',
+      sign_in: true,
+      register: false,
+    },
+    { method: 'federated:74', label: 'WeChat', sign_in: true, register: true },
+  ]
+  assert.deepEqual(await read(), expected)
+  for (const overrides of [
+    { register_enabled: false },
+    { oauth_register_enabled: false },
+    { oauth_registration_disabled_methods: ['google', 'federated:74'] },
+  ]) {
+    assert.deepEqual(
+      await read(overrides),
+      expected.map((row) => ({ ...row, register: false }))
+    )
+  }
+  assert.deepEqual(
+    await read({ native_federated_auth: false }),
+    expected.slice(0, 2)
   )
 })
 

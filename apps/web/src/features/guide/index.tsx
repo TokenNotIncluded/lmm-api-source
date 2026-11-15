@@ -617,12 +617,10 @@ export function Guide() {
                     <MessageCircle aria-hidden='true' />
                     <h3>{copy.supportTitle}</h3>
                     <p>{copy.supportBody}</p>
-                    {developerAccessGranted && (
-                      <Link to='/support'>
-                        {copy.supportTicket}
-                        <ArrowUpRight aria-hidden='true' />
-                      </Link>
-                    )}
+                    <Link to='/support'>
+                      {copy.supportTicket}
+                      <ArrowUpRight aria-hidden='true' />
+                    </Link>
                   </div>
                 </div>
                 {!oauth && (

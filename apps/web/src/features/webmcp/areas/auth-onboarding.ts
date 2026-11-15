@@ -7,11 +7,11 @@ published by the Free Software Foundation, either version 3 of the
 License, or (at your option) any later version.
 */
 import { requestAssistantOpen } from '@/features/assistant/assistant-events'
+import { federatedProviders } from '@/features/auth/lib/federated-oauth'
 import {
-  getDisabledOAuthRegistrationMethods,
-  hasOAuthRegistrationProvider,
   hasRegistrationMethod,
   isOAuthProviderConfigured,
+  isOAuthRegistrationAllowed,
   isPasswordRegistrationEnabled,
   isRegistrationEnabled,
 } from '@/features/auth/lib/registration'
@@ -47,12 +47,11 @@ type AuthPage = (typeof AUTH_PAGES)[number]
 const ASSISTANT_PRESETS = ['onboarding', 'human', 'plan'] as const
 
 const OAUTH_METHODS = [
+  'google',
   'github',
   'discord',
-  'oidc',
   'linuxdo',
   'telegram',
-  'wechat',
 ] as const
 
 function readStatus(status: SystemStatus | null): {
@@ -61,38 +60,26 @@ function readStatus(status: SystemStatus | null): {
   sign_in: boolean
   register: boolean
 }[] {
-  const disabled = getDisabledOAuthRegistrationMethods(status)
-  const registrationOpen = hasOAuthRegistrationProvider(status)
   const rows = OAUTH_METHODS.map((method) => ({
     method,
     label:
       method === 'github'
         ? 'GitHub'
-        : method === 'oidc'
-          ? (status?.oidc_display_name ?? 'OIDC')
-          : method === 'linuxdo'
-            ? 'LinuxDO'
-            : method[0].toUpperCase() + method.slice(1),
+        : method === 'linuxdo'
+          ? 'LinuxDO'
+          : method[0].toUpperCase() + method.slice(1),
     sign_in: isOAuthProviderConfigured(status, method),
     register:
-      registrationOpen &&
       isOAuthProviderConfigured(status, method) &&
-      !disabled.has(method),
+      isOAuthRegistrationAllowed(status, method),
   }))
-  const custom = (status?.custom_oauth_providers ?? [])
-    .map((provider) => provider.slug.trim())
-    .filter(Boolean)
-    .slice(0, 50)
-    .map((slug) => ({
-      method: `custom:${slug}`,
-      label: slug,
-      sign_in: isOAuthProviderConfigured(status, `custom:${slug}`),
-      register:
-        registrationOpen &&
-        isOAuthProviderConfigured(status, `custom:${slug}`) &&
-        !disabled.has(`custom:${slug}`.toLowerCase()),
-    }))
-  return [...rows, ...custom].filter((row) => row.sign_in || row.register)
+  const federated = federatedProviders(status).map((provider) => ({
+    method: `federated:${provider.id}`,
+    label: provider.name,
+    sign_in: true,
+    register: isOAuthRegistrationAllowed(status, provider),
+  }))
+  return [...rows, ...federated].filter((row) => row.sign_in || row.register)
 }
 
 /** Live capabilities only: a cached snapshot must not advertise a disabled path. */
