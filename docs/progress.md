@@ -4,6 +4,8 @@
 
 ## 当前状态
 
+- **个人每日签到验证已接入源码**：Web/Go/Core 增加 120 秒随机挑战，默认每次新领取完成 Turnstile 和 Passkey 用户确认；Core 在同一事务中消费授权、记账并保存包含零奖励的每日回执。重试保留原操作、日期和金额，已到账优先恢复。新增第 75 组件及精确 74→75 离线升级，历史组件指纹保持不变。验证结果、启用配置与部署顺序见[签到防自动化](checkin-anti-automation.md)。本轮仅交付代码，不改变当前生产架构或替代生产验收。
+
 - **当前生产为旧 Go 0.2.118 与匹配旧 Web**：产线 owner 已在 Arch 回读 OldFormal PID 196448、服务 `active/enabled`，`api` 主站全路径切回旧架构；Terra 原有会话自然恢复，未新建登录、未清理 SiteData 或用户数据。dashboard、`api`、`status`、`data/self`、`log/self`、`stat` 与首页 7 项 JS/CSS 均返回 HTTP 200。这是当前承载状态，不代表新原生版本已上线；本轮 Git 收口不执行部署。
 
 - **旧 Key 与余额核对**：产线 owner 回读 495 条普通旧 Key 已软删除，`public_remaining=0`；13 条 OAuth 与 1 条 internal runtime 凭据保留；实际回执为 `fresh69-forward-preparation-26752cdaae25/legacy-formal-recovery-20261115/old-key-retirement.actual.json`。核对快照中的两库 1249 位用户逐笔余额一致，总差额 `delta=0`；后续旧正式站真实消费按单独账单记录，不把该历史快照当作实时零差额。此结果只覆盖已核对的凭据范围与余额，不抵扣其他历史订单、订阅及持续权益验收。

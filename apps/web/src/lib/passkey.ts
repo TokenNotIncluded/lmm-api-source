@@ -342,18 +342,24 @@ export async function createCredential(
  * Execute an async Passkey credential request flow.
  */
 export async function getCredential(
-  options: PublicKeyCredentialRequestOptions
+  options: PublicKeyCredentialRequestOptions,
+  signal?: AbortSignal
 ) {
-  return navigator.credentials.get({ publicKey: options })
+  return navigator.credentials.get({
+    publicKey: options,
+    ...(signal ? { signal } : {}),
+  })
 }
 
-/** Request and serialize an assertion for an existing login challenge. */
+/** Request and serialize an assertion for an existing server challenge. */
 export async function requestPasskeyAuthentication(
-  payload: unknown
+  payload: unknown,
+  signal?: AbortSignal
 ): Promise<Record<string, unknown> | null> {
   const publicKey = prepareCredentialRequestOptions(payload)
   const credential = (await getCredential(
-    publicKey
+    publicKey,
+    signal
   )) as PublicKeyCredential | null
   return buildAssertionResult(credential)
 }

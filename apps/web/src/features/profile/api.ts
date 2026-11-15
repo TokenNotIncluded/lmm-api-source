@@ -27,9 +27,12 @@ import type { WalletDisplayCurrencyPreference } from '@/stores/wallet-currency-p
 
 import {
   checkinCapabilitiesResponseSchema,
+  checkinChallengeResponseSchema,
   checkinClaimResponseSchema,
+  checkinFailureSchema,
   checkinMonthSchema,
   checkinStatusResponseSchema,
+  type CheckinClaimInput,
 } from './checkin-schema'
 import type { ProfileUsageQueryRange, ProfileUsageRow } from './lib/activity'
 import type {
@@ -546,38 +549,56 @@ export async function getCheckinStatus(month?: string) {
     authScope: { userId: user?.id, sessionId: session?.sid },
   })
   const parsed = checkinStatusResponseSchema.parse(res.data)
-  if (
-    parsed.success &&
-    month !== undefined &&
-    parsed.data.month !== month
-  ) {
+  if (parsed.success && month !== undefined && parsed.data.month !== month) {
     throw new Error('Invalid check-in status month')
   }
   return parsed
 }
 
-/**
- * Perform daily checkin
- */
-export async function performCheckin(
-  turnstileToken?: string,
-  operationKey?: string
-) {
-  const url = turnstileToken
-    ? `/api/user/checkin?turnstile=${encodeURIComponent(turnstileToken)}`
-    : '/api/user/checkin'
+type CheckinRequestConfig = Pick<ApiRequestConfig, 'signal' | 'authScope'>
+
+function checkinRequestConfig(config: CheckinRequestConfig): ApiRequestConfig {
   const { user, session } = useAuthStore.getState().auth
+  return {
+    authScope: { userId: user?.id, sessionId: session?.sid },
+    ...config,
+    // Verification failures are displayed by the check-in flow itself.
+    skipBusinessError: true,
+    skipErrorHandler: true,
+    timeout: 20_000,
+  }
+}
+
+export async function getCheckinChallenge(
+  operationKey: string,
+  config: CheckinRequestConfig = {}
+) {
   const res = await api.post<unknown>(
-    url,
-    operationKey ? { operation_key: operationKey } : undefined,
-    {
-      authScope: { userId: user?.id, sessionId: session?.sid },
-      // The check-in card presents verification failures itself so that the
-      // challenge flow does not produce a duplicate global toast.
-      skipBusinessError: true,
-    }
+    '/api/user/checkin/challenges',
+    { operation_key: operationKey },
+    checkinRequestConfig(config)
+  )
+  return checkinChallengeResponseSchema.parse(res.data)
+}
+
+/** Submit proof or recover an existing daily result with the same operation. */
+export async function performCheckin(
+  input: CheckinClaimInput,
+  config: CheckinRequestConfig = {}
+) {
+  const res = await api.post<unknown>(
+    '/api/user/checkin',
+    input,
+    checkinRequestConfig(config)
   )
   return checkinClaimResponseSchema.parse(res.data)
+}
+
+export function checkinFailureCode(error: unknown): string | undefined {
+  const parsed = checkinFailureSchema.safeParse(
+    axios.isAxiosError(error) ? error.response?.data : error
+  )
+  return parsed.success ? parsed.data.error?.code : undefined
 }
 
 // ============================================================================

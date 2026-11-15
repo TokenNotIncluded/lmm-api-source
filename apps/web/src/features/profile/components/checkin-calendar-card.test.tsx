@@ -17,7 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import assert from 'node:assert/strict'
-import { after, afterEach, describe, test } from 'node:test'
+import { after, afterEach, beforeEach, describe, test } from 'node:test'
 
 import { Window } from 'happy-dom'
 
@@ -65,6 +65,30 @@ const { useWalletCurrencyPreferenceStore } =
 const { CheckinCalendarCard } = await import('./checkin-calendar-card')
 
 const originalGet = api.get
+const originalPost = api.post
+type WidgetOptions = {
+  sitekey: string
+  action: string
+  cData: string
+  callback: (token: string) => void
+  'expired-callback': () => void
+}
+let widgets: WidgetOptions[] = []
+function widget(index: number) {
+  const options = widgets[index]
+  assert.ok(options, `Missing Turnstile widget ${index}`)
+  return options
+}
+beforeEach(() => {
+  widgets = []
+  window.turnstile = {
+    render: (_element, options) => {
+      widgets.push(options as WidgetOptions)
+      return widgets.length
+    },
+    remove: () => {},
+  }
+})
 const reactTestGlobals = globalThis as typeof globalThis & {
   IS_REACT_ACT_ENVIRONMENT?: boolean
 }
@@ -99,6 +123,8 @@ async function waitForCondition(
 
 afterEach(() => {
   api.get = originalGet
+  api.post = originalPost
+  delete window.turnstile
   document.body.replaceChildren()
 })
 
@@ -149,11 +175,7 @@ describe('check-in calendar accessibility', () => {
       root.render(
         <QueryClientProvider client={queryClient}>
           <I18nextProvider i18n={i18n}>
-            <CheckinCalendarCard
-              checkinEnabled
-              turnstileEnabled={false}
-              turnstileSiteKey=''
-            />
+            <CheckinCalendarCard checkinEnabled />
           </I18nextProvider>
         </QueryClientProvider>
       )
@@ -237,22 +259,25 @@ test('check-in success uses the newly selected currency without remounting', asy
       data: nativeStatus(false),
     },
   })) as typeof api.get
-  api.post = (async () => ({
-    data: {
-      success: true,
-      data: {
-        already_claimed: false,
-        record: {
-          ...nativeZeroRecord,
-          quota_awarded: '3500000',
-          origin: 'native',
-          journal_id: 1,
-          policy_revision: 1,
-          trust_level: 1,
-        },
-      },
-    },
-  })) as typeof api.post
+  api.post = (async (url, body) =>
+    url === '/api/user/checkin/challenges'
+      ? challengeResponse(body)
+      : {
+          data: {
+            success: true,
+            data: {
+              already_claimed: false,
+              record: {
+                ...nativeZeroRecord,
+                quota_awarded: '3500000',
+                origin: 'native',
+                journal_id: 1,
+                policy_revision: 1,
+                trust_level: 1,
+              },
+            },
+          },
+        }) as typeof api.post
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   })
@@ -264,11 +289,7 @@ test('check-in success uses the newly selected currency without remounting', asy
       root.render(
         <QueryClientProvider client={client}>
           <I18nextProvider i18n={i18n}>
-            <CheckinCalendarCard
-              checkinEnabled
-              turnstileEnabled={false}
-              turnstileSiteKey=''
-            />
+            <CheckinCalendarCard checkinEnabled />
           </I18nextProvider>
         </QueryClientProvider>
       )
@@ -288,6 +309,10 @@ test('check-in success uses the newly selected currency without remounting', asy
     assert.ok(button, 'check-in button not found')
     await act(async () => {
       button.click()
+    })
+    assert.equal(widgets.length, 1)
+    await act(async () => {
+      widget(0).callback('verified-token')
       await waitForCondition(
         () => Boolean(successMessage),
         'check-in success not shown'
@@ -340,6 +365,51 @@ function nativeStatus(checked: boolean, month = '2030-01') {
     total_quota_awarded: '0',
   }
 }
+function challengeResponse(
+  body: unknown,
+  overrides: Record<string, unknown> = {}
+) {
+  return {
+    data: {
+      success: true,
+      data: {
+        challenge_id: 'server-challenge',
+        operation_key: (body as { operation_key: string }).operation_key,
+        day: '2030-01-01',
+        expires_at: Math.floor(Date.now() / 1000) + 120,
+        turnstile_site_key: 'server-site-key',
+        turnstile_action: 'daily_checkin',
+        turnstile_cdata: 'server-binding',
+        passkey_required: false,
+        passkey_options: null,
+        ...overrides,
+      },
+    },
+  }
+}
+function claimResponse(alreadyClaimed = false) {
+  return {
+    data: {
+      success: true,
+      data: {
+        already_claimed: alreadyClaimed,
+        record: {
+          ...nativeZeroRecord,
+          origin: 'native',
+          policy_revision: 1,
+          trust_level: 0,
+        },
+      },
+    },
+  }
+}
+function findButton(label: string, host: ParentNode = document) {
+  const button = [...host.querySelectorAll<HTMLButtonElement>('button')].find(
+    (element) => element.textContent?.trim() === label
+  )
+  assert.ok(button, `Missing button: ${label}`)
+  return button
+}
 async function mountNativeCalendar() {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false } },
@@ -351,11 +421,7 @@ async function mountNativeCalendar() {
     root.render(
       <QueryClientProvider client={client}>
         <I18nextProvider i18n={i18n}>
-          <CheckinCalendarCard
-            checkinEnabled
-            turnstileEnabled={false}
-            turnstileSiteKey=''
-          />
+          <CheckinCalendarCard checkinEnabled />
         </I18nextProvider>
       </QueryClientProvider>
     )
@@ -417,75 +483,391 @@ test('Native history zero blocks today and uses server month instead of browser 
   }
 })
 
-test('Native lost ACK retry keeps operation key, prevents double click and reads original zero result', async () => {
-  const originalPost = api.post
-  const originalError = toast.error
-  const originalSuccess = toast.success
-  let errors = 0
-  let success = ''
-  const bodies: unknown[] = []
-  toast.error = (() => {
-    errors += 1
-    return 1
-  }) as typeof toast.error
-  toast.success = ((message: unknown) => {
-    success = String(message)
-    return 1
-  }) as typeof toast.success
-  api.get = (async () => ({
-    data: { success: true, data: nativeStatus(false) },
-  })) as typeof api.get
-  api.post = (async (_url, body) => {
-    bodies.push(body)
-    if (bodies.length === 1) throw new Error('ACK lost')
-    return {
+for (const crossesMidnight of [false, true]) {
+  test(`Native lost ACK recovery keeps the original operation${crossesMidnight ? ' across midnight' : ''}`, async () => {
+    let serverToday = '2030-01-01'
+    const originalSuccess = toast.success
+    let success = ''
+    const requests: { url: string; body: unknown }[] = []
+    toast.success = ((message: unknown) => {
+      success = String(message)
+      return 1
+    }) as typeof toast.success
+    api.get = (async () => ({
       data: {
         success: true,
-        data: {
-          already_claimed: false,
-          record: {
-            ...nativeZeroRecord,
-            origin: 'native',
-            policy_revision: 1,
-            trust_level: 0,
-          },
-        },
+        data: { ...nativeStatus(false), today: serverToday },
       },
+    })) as typeof api.get
+    api.post = (async (url, body) => {
+      requests.push({ url: String(url), body })
+      if (url === '/api/user/checkin/challenges') {
+        return challengeResponse(body, {
+          operation_key: 'original-server-operation',
+        })
+      }
+      if (requests.length === 2) {
+        if (crossesMidnight) serverToday = '2030-01-02'
+        throw new Error('ACK lost')
+      }
+      return claimResponse()
+    }) as typeof api.post
+    const calendar = await mountNativeCalendar()
+    try {
+      const button = [
+        ...calendar.host.querySelectorAll<HTMLButtonElement>('button'),
+      ].find((element) => element.textContent?.trim() === 'Check in now')
+      assert.ok(button)
+      await act(async () => {
+        button.click()
+        button.click()
+      })
+      assert.equal(requests.length, 1)
+      assert.equal(widgets.length, 1)
+      await act(async () => {
+        widget(0).callback('verified-token')
+        widget(0).callback('verified-token')
+      })
+      assert.equal(requests.length, 2)
+      assert.match(
+        document.querySelector('[role="alert"]')?.textContent ?? '',
+        /result is not confirmed/
+      )
+      await act(async () => {
+        findButton('Refresh verification').click()
+        await waitForCondition(() => success !== '', 'retry result not shown')
+      })
+      assert.match(success, /Check-in successful! Received/)
+      assert.equal(requests.length, 3)
+      assert.deepEqual(requests[1], {
+        url: '/api/user/checkin',
+        body: {
+          operation_key: 'original-server-operation',
+          challenge_id: 'server-challenge',
+          turnstile_token: 'verified-token',
+        },
+      })
+      assert.deepEqual(requests[2], {
+        url: '/api/user/checkin',
+        body: { operation_key: 'original-server-operation' },
+      })
+      assert.equal(button.disabled, !crossesMidnight)
+      assert.match(
+        calendar.host
+          .querySelector('[aria-current="date"]')
+          ?.getAttribute('aria-label') ?? '',
+        crossesMidnight ? /2030/ : /已签到/
+      )
+    } finally {
+      await calendar.close()
+      toast.success = originalSuccess
     }
+  })
+}
+
+function installPasskey(
+  get: (options: CredentialRequestOptions) => Promise<unknown>
+) {
+  const descriptors = [
+    [window, 'isSecureContext'],
+    [window, 'PublicKeyCredential'],
+    [navigator, 'credentials'],
+  ] as const
+  const originals = descriptors.map(([target, key]) =>
+    Object.getOwnPropertyDescriptor(target, key)
+  )
+  Object.defineProperty(window, 'isSecureContext', {
+    configurable: true,
+    value: true,
+  })
+  Object.defineProperty(window, 'PublicKeyCredential', {
+    configurable: true,
+    value: class {},
+  })
+  Object.defineProperty(navigator, 'credentials', {
+    configurable: true,
+    value: { get, create: async () => null },
+  })
+  return () =>
+    descriptors.forEach(([target, key], index) => {
+      const descriptor = originals[index]
+      if (descriptor) Object.defineProperty(target, key, descriptor)
+      else Reflect.deleteProperty(target, key)
+    })
+}
+
+test('an uncredited operation from yesterday is recovered before requesting today with a new key', async () => {
+  let serverToday = '2030-01-01'
+  const requests: { url: string; body: Record<string, unknown> }[] = []
+  api.get = (async () => ({
+    data: {
+      success: true,
+      data: { ...nativeStatus(false), today: serverToday },
+    },
+  })) as typeof api.get
+  api.post = (async (url, body) => {
+    requests.push({ url: String(url), body: body as Record<string, unknown> })
+    if (requests.length === 1) {
+      return challengeResponse(body, {
+        operation_key: 'yesterday-operation-key',
+      })
+    }
+    if (requests.length === 2) {
+      serverToday = '2030-01-02'
+      throw new Error('ACK lost')
+    }
+    if (requests.length === 3) {
+      return {
+        data: {
+          success: false,
+          error: { code: 'CHECKIN_VERIFICATION_REQUIRED' },
+        },
+      }
+    }
+    return challengeResponse(body, {
+      day: serverToday,
+      challenge_id: 'today-challenge',
+    })
   }) as typeof api.post
   const calendar = await mountNativeCalendar()
   try {
-    const button = [
-      ...calendar.host.querySelectorAll<HTMLButtonElement>('button'),
-    ].find((element) => element.textContent?.trim() === 'Check in now')
-    assert.ok(button)
-    await act(async () => {
-      button.click()
-      button.click()
-      await waitForCondition(() => errors === 1, 'lost ACK error not shown')
+    await act(async () => findButton('Check in now', calendar.host).click())
+    await act(async () => widget(0).callback('yesterday-token'))
+    await act(async () => findButton('Refresh verification').click())
+    assert.deepEqual(requests[2], {
+      url: '/api/user/checkin',
+      body: { operation_key: 'yesterday-operation-key' },
     })
-    assert.equal(bodies.length, 1)
-    await act(async () => {
-      button.click()
-      await waitForCondition(() => success !== '', 'retry result not shown')
-    })
-    assert.match(success, /Check-in successful! Received/)
-    assert.equal(bodies.length, 2)
-    assert.deepEqual(bodies[0], bodies[1])
-    assert.ok(
-      bodies[0] && typeof bodies[0] === 'object' && 'operation_key' in bodies[0]
+    assert.equal(requests[3]?.url, '/api/user/checkin/challenges')
+    assert.notEqual(requests[3]?.body.operation_key, 'yesterday-operation-key')
+    assert.equal(widgets.length, 2)
+  } finally {
+    await calendar.close()
+  }
+})
+
+const testCredential = {
+  id: 'credential-id',
+  rawId: new Uint8Array([1]).buffer,
+  type: 'public-key',
+  response: {
+    authenticatorData: new Uint8Array([2]).buffer,
+    clientDataJSON: new Uint8Array([3]).buffer,
+    signature: new Uint8Array([4]).buffer,
+    userHandle: null,
+  },
+}
+const strictChallenge = {
+  passkey_required: true,
+  passkey_options: {
+    publicKey: { challenge: 'BQ', userVerification: 'required' },
+  },
+}
+
+test('server challenge binds Turnstile and requires an explicit Passkey confirmation, with cancellation retry', async () => {
+  const requests: { url: string; body: unknown }[] = []
+  let passkeyCalls = 0
+  const restorePasskey = installPasskey(async (options) => {
+    passkeyCalls += 1
+    assert.equal(options.publicKey?.userVerification, 'required')
+    assert.ok(options.signal)
+    if (passkeyCalls === 1) {
+      const error = new Error('cancelled')
+      error.name = 'NotAllowedError'
+      throw error
+    }
+    return testCredential
+  })
+  api.get = (async () => ({
+    data: { success: true, data: nativeStatus(false) },
+  })) as typeof api.get
+  api.post = (async (url, body) => {
+    requests.push({ url: String(url), body })
+    return url === '/api/user/checkin/challenges'
+      ? challengeResponse(body, strictChallenge)
+      : claimResponse()
+  }) as typeof api.post
+  const calendar = await mountNativeCalendar()
+  try {
+    assert.equal(
+      requests.length,
+      0,
+      'opening the calendar must not request a challenge'
     )
-    assert.equal(button.disabled, true)
+    await act(async () => findButton('Check in now', calendar.host).click())
+    assert.equal(widgets[0]?.sitekey, 'server-site-key')
+    assert.equal(widgets[0]?.action, 'daily_checkin')
+    assert.equal(widgets[0]?.cData, 'server-binding')
+    const confirm = findButton('Confirm check-in with Passkey')
+    assert.equal(confirm.disabled, true)
+    await act(async () => widget(0).callback('verified-token'))
+    assert.equal(passkeyCalls, 0)
+    assert.equal(requests.length, 1)
+    assert.equal(confirm.disabled, false)
+    assert.equal(widgets.length, 1, 'state updates must not reset Turnstile')
+    await act(async () => confirm.click())
     assert.match(
-      calendar.host
-        .querySelector('[aria-current="date"]')
-        ?.getAttribute('aria-label') ?? '',
-      /已签到/
+      document.querySelector('[role="alert"]')?.textContent ?? '',
+      /cancelled/
+    )
+    assert.equal(requests.length, 1)
+    await act(async () => confirm.click())
+    assert.equal(passkeyCalls, 2)
+    assert.equal(requests.length, 2)
+    const body = requests[1]?.body as Record<string, unknown>
+    assert.equal(body.challenge_id, 'server-challenge')
+    assert.equal(body.turnstile_token, 'verified-token')
+    assert.deepEqual(
+      (body.passkey_assertion as Record<string, unknown>).response,
+      {
+        authenticatorData: 'Ag',
+        clientDataJSON: 'Aw',
+        signature: 'BA',
+        userHandle: null,
+      }
     )
   } finally {
     await calendar.close()
-    api.post = originalPost
-    toast.error = originalError
-    toast.success = originalSuccess
+    restorePasskey()
   }
 })
+
+test('expired verification refresh keeps the server operation and rejects the old widget callback', async () => {
+  const bodies: unknown[] = []
+  api.get = (async () => ({
+    data: { success: true, data: nativeStatus(false) },
+  })) as typeof api.get
+  api.post = (async (url, body) => {
+    assert.equal(url, '/api/user/checkin/challenges')
+    bodies.push(body)
+    return challengeResponse(body, {
+      operation_key: 'restored-operation-key',
+      challenge_id: `challenge-${bodies.length}`,
+    })
+  }) as typeof api.post
+  const calendar = await mountNativeCalendar()
+  try {
+    await act(async () => findButton('Check in now', calendar.host).click())
+    await act(async () => widget(0)['expired-callback']())
+    await act(async () => widget(0).callback('stale-token'))
+    assert.equal(bodies.length, 1)
+    await act(async () => findButton('Refresh verification').click())
+    assert.deepEqual(bodies[1], { operation_key: 'restored-operation-key' })
+    assert.equal(widgets.length, 2)
+    await act(async () => widget(0).callback('stale-token'))
+    assert.equal(bodies.length, 2)
+  } finally {
+    await calendar.close()
+  }
+})
+
+test('pending status recovers a credited operation after a browser reload without a new challenge', async () => {
+  const urls: string[] = []
+  api.get = (async () => ({
+    data: { success: true, data: { ...nativeStatus(false), pending: true } },
+  })) as typeof api.get
+  api.post = (async (url, body) => {
+    urls.push(String(url))
+    assert.deepEqual(Object.keys(body as object), ['operation_key'])
+    return claimResponse(true)
+  }) as typeof api.post
+  const calendar = await mountNativeCalendar()
+  try {
+    await act(async () => findButton('Check in now', calendar.host).click())
+    assert.deepEqual(urls, ['/api/user/checkin'])
+    assert.equal(widgets.length, 0)
+    assert.ok(findButton('已签到', calendar.host).disabled)
+  } finally {
+    await calendar.close()
+  }
+})
+
+test('an uncredited pending operation requires a fresh challenge and adopts its original server key', async () => {
+  const requests: { url: string; body: unknown }[] = []
+  api.get = (async () => ({
+    data: { success: true, data: { ...nativeStatus(false), pending: true } },
+  })) as typeof api.get
+  api.post = (async (url, body) => {
+    requests.push({ url: String(url), body })
+    if (requests.length === 1) {
+      return {
+        data: {
+          success: false,
+          error: { code: 'CHECKIN_VERIFICATION_REQUIRED' },
+        },
+      }
+    }
+    if (url === '/api/user/checkin/challenges') {
+      return challengeResponse(body, {
+        operation_key: 'original-pending-operation',
+      })
+    }
+    return claimResponse()
+  }) as typeof api.post
+  const calendar = await mountNativeCalendar()
+  try {
+    await act(async () => findButton('Check in now', calendar.host).click())
+    assert.deepEqual(
+      requests.map(({ url }) => url),
+      ['/api/user/checkin', '/api/user/checkin/challenges']
+    )
+    await act(async () => widget(0).callback('fresh-token'))
+    assert.deepEqual(requests[2], {
+      url: '/api/user/checkin',
+      body: {
+        operation_key: 'original-pending-operation',
+        challenge_id: 'server-challenge',
+        turnstile_token: 'fresh-token',
+      },
+    })
+  } finally {
+    await calendar.close()
+  }
+})
+
+for (const action of ['unmount', 'account switch'] as const) {
+  test(`${action} aborts pending device confirmation and ignores its late assertion`, async () => {
+    const previousAuth = useAuthStore.getState().auth
+    let closed = false
+    let resolveCredential: ((result: unknown) => void) | undefined
+    let signal: AbortSignal | undefined
+    const restorePasskey = installPasskey((options) => {
+      signal = options.signal
+      return new Promise((resolve) => {
+        resolveCredential = resolve
+      })
+    })
+    let posts = 0
+    api.get = (async () => ({
+      data: { success: true, data: nativeStatus(false) },
+    })) as typeof api.get
+    api.post = (async (_url, body) => {
+      posts += 1
+      return challengeResponse(body, strictChallenge)
+    }) as typeof api.post
+    const calendar = await mountNativeCalendar()
+    try {
+      await act(async () => findButton('Check in now', calendar.host).click())
+      await act(async () => widget(0).callback('verified-token'))
+      await act(async () => findButton('Confirm check-in with Passkey').click())
+      assert.equal(signal?.aborted, false)
+      if (action === 'unmount') {
+        await calendar.close()
+        closed = true
+      } else {
+        await act(async () =>
+          useAuthStore
+            .getState()
+            .auth.setUser({ id: 42, username: 'other', role: 1 })
+        )
+      }
+      assert.equal(signal?.aborted, true)
+      await act(async () => resolveCredential?.(testCredential))
+      assert.equal(posts, 1)
+    } finally {
+      if (!closed) await calendar.close()
+      restorePasskey()
+      useAuthStore.setState({ auth: previousAuth })
+    }
+  })
+}

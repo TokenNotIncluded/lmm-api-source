@@ -41,6 +41,7 @@ const nativeStatusSchema = z
     calendar_offset_seconds: z.number().int().min(-86400).max(86400),
     policy_revision: integer.positive().nullable(),
     checked_in_today: z.boolean(),
+    pending: z.boolean().default(false),
     reward_range: rewardRangeSchema.nullable(),
     today_record: recordSchema.nullable(),
     records: z.array(recordSchema).max(31),
@@ -64,6 +65,7 @@ const nativeStatusSchema = z
     calendar_offset_seconds: data.calendar_offset_seconds,
     reward_range: data.reward_range,
     today_record: data.today_record,
+    pending: data.pending,
     stats: {
       checked_in_today: data.checked_in_today,
       total_checkins: data.total_checkins,
@@ -73,19 +75,20 @@ const nativeStatusSchema = z
     },
   }))
 
-const failureSchema = z.object({
+export const checkinFailureSchema = z.object({
   success: z.literal(false),
   message: z.string().optional(),
+  error: z.object({ code: z.string() }).optional(),
 })
 export const checkinStatusResponseSchema = z.discriminatedUnion('success', [
-  failureSchema,
+  checkinFailureSchema,
   z.object({
     success: z.literal(true),
     data: nativeStatusSchema,
   }),
 ])
 export const checkinClaimResponseSchema = z.discriminatedUnion('success', [
-  failureSchema,
+  checkinFailureSchema,
   z.object({
     success: z.literal(true),
     data: z
@@ -93,6 +96,41 @@ export const checkinClaimResponseSchema = z.discriminatedUnion('success', [
       .transform((data) => ({ kind: 'native' as const, ...data })),
   }),
 ])
+
+export const checkinChallengeResponseSchema = z.discriminatedUnion('success', [
+  checkinFailureSchema,
+  z.object({
+    success: z.literal(true),
+    data: z
+      .object({
+        challenge_id: z.string().min(1),
+        operation_key: z.string().min(16).max(80),
+        day: z.iso.date(),
+        expires_at: integer.positive(),
+        turnstile_site_key: z.string().min(1),
+        turnstile_action: z.literal('daily_checkin'),
+        turnstile_cdata: z.string().min(1),
+        passkey_required: z.boolean(),
+        passkey_options: z.record(z.string(), z.unknown()).nullable(),
+      })
+      .refine(
+        (challenge) =>
+          !challenge.passkey_required || challenge.passkey_options !== null
+      ),
+  }),
+])
+
+export type CheckinChallenge = Extract<
+  z.infer<typeof checkinChallengeResponseSchema>,
+  { success: true }
+>['data']
+
+export interface CheckinClaimInput {
+  operation_key: string
+  challenge_id?: string
+  turnstile_token?: string
+  passkey_assertion?: Record<string, unknown>
+}
 
 export type CheckinStatusResponse = Extract<
   z.infer<typeof checkinStatusResponseSchema>,

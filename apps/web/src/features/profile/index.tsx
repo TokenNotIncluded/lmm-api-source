@@ -69,9 +69,6 @@ export function Profile() {
     retry: false,
   })
   const checkinEnabled = checkinCapabilities?.enabled === true
-  const turnstileEnabled = Boolean(
-    status?.turnstile_check && status?.turnstile_site_key
-  )
   const canConfigureSidebar = permissions?.sidebar_settings !== false
 
   return (
@@ -146,11 +143,7 @@ export function Profile() {
             <ReferralOverviewCard />
             <CheckinHistoryCard />
             {checkinEnabled && (
-              <CheckinCalendarCard
-                checkinEnabled={checkinEnabled}
-                turnstileEnabled={turnstileEnabled}
-                turnstileSiteKey={status?.turnstile_site_key || ''}
-              />
+              <CheckinCalendarCard checkinEnabled={checkinEnabled} />
             )}
           </TabsContent>
         </Tabs>

@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict'
 import { afterEach, test } from 'node:test'
 
-import { isPasskeySupported } from './passkey.ts'
+import { isPasskeySupported, requestPasskeyAuthentication } from './passkey.ts'
 
 const originalWindow = Object.getOwnPropertyDescriptor(globalThis, 'window')
 const originalNavigator = Object.getOwnPropertyDescriptor(
@@ -67,4 +67,44 @@ test('missing WebAuthn methods fail closed', async () => {
 test('server rendering does not advertise browser support', async () => {
   Reflect.deleteProperty(globalThis, 'window')
   assert.equal(await isPasskeySupported(), false)
+})
+
+test('Passkey confirmation forwards cancellation and serializes the challenge response', async () => {
+  let received: CredentialRequestOptions | undefined
+  installBrowser(true, {
+    create: async () => null,
+    get: async (options: CredentialRequestOptions) => {
+      received = options
+      return {
+        id: 'credential',
+        rawId: new Uint8Array([1]).buffer,
+        type: 'public-key',
+        response: {
+          authenticatorData: new Uint8Array([2]).buffer,
+          clientDataJSON: new Uint8Array([3]).buffer,
+          signature: new Uint8Array([4]).buffer,
+          userHandle: null,
+        },
+      }
+    },
+  })
+  const controller = new AbortController()
+  const assertion = await requestPasskeyAuthentication(
+    {
+      publicKey: { challenge: 'BQ', userVerification: 'required' },
+    },
+    controller.signal
+  )
+  assert.equal(received?.signal, controller.signal)
+  assert.equal(received?.publicKey?.userVerification, 'required')
+  assert.deepEqual(
+    new Uint8Array(received?.publicKey?.challenge as ArrayBuffer),
+    new Uint8Array([5])
+  )
+  assert.deepEqual(assertion?.response, {
+    authenticatorData: 'Ag',
+    clientDataJSON: 'Aw',
+    signature: 'BA',
+    userHandle: null,
+  })
 })

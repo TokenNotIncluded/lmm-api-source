@@ -5,6 +5,7 @@ import { test } from 'node:test'
 import {
   checkinCapabilitiesResponseSchema,
   checkinClaimResponseSchema,
+  checkinChallengeResponseSchema,
   checkinStatusResponseSchema,
 } from './checkin-schema'
 
@@ -120,4 +121,43 @@ test('check-in visibility requires an explicit extension capability', () => {
       false
     )
   }
+})
+
+test('challenge boundary requires server verification settings and preserves pending recovery', () => {
+  const challenge = {
+    challenge_id: 'random-challenge',
+    operation_key: 'original-pending-operation',
+    day: '2030-01-01',
+    expires_at: 1893427320,
+    turnstile_site_key: 'server-site-key',
+    turnstile_action: 'daily_checkin',
+    turnstile_cdata: 'server-binding',
+    passkey_required: true,
+    passkey_options: {
+      publicKey: { challenge: 'dGVzdA', userVerification: 'required' },
+    },
+  }
+  assert.equal(
+    checkinChallengeResponseSchema.safeParse({ success: true, data: challenge })
+      .success,
+    true
+  )
+  for (const invalid of [
+    { ...challenge, passkey_options: null },
+    { ...challenge, passkey_required: undefined },
+    { ...challenge, turnstile_site_key: '' },
+    { ...challenge, turnstile_action: 'login' },
+    { ...challenge, turnstile_cdata: '' },
+  ]) {
+    assert.equal(
+      checkinChallengeResponseSchema.safeParse({ success: true, data: invalid })
+        .success,
+      false
+    )
+  }
+  const pending = checkinStatusResponseSchema.parse({
+    success: true,
+    data: { ...status, pending: true },
+  })
+  assert.ok(pending.success && pending.data.pending)
 })

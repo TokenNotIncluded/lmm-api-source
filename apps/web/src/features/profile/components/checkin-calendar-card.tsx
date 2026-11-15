@@ -25,7 +25,7 @@ import {
   ChevronUp,
   Sparkles,
 } from 'lucide-react'
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 
@@ -47,13 +47,12 @@ import { toIntlLocale } from '@/i18n/languages'
 import { cn } from '@/lib/utils'
 import { useAuthStore } from '@/stores/auth-store'
 
-import { getCheckinStatus, performCheckin } from '../api'
+import { getCheckinStatus } from '../api'
 import type { CheckinResponse } from '../checkin-schema'
+import { useCheckinVerification } from '../hooks/use-checkin-verification'
 
 interface CheckinCalendarCardProps {
   checkinEnabled: boolean
-  turnstileEnabled: boolean
-  turnstileSiteKey: string
 }
 
 export function CheckinCalendarCard(props: CheckinCalendarCardProps) {
@@ -64,22 +63,13 @@ export function CheckinCalendarCard(props: CheckinCalendarCardProps) {
   )
 }
 
-function CheckinCalendar({
-  checkinEnabled,
-  turnstileEnabled,
-  turnstileSiteKey,
-}: CheckinCalendarCardProps) {
+function CheckinCalendar({ checkinEnabled }: CheckinCalendarCardProps) {
   const { t, i18n } = useTranslation()
   const { formatExactQuota: formatQuota } = useWalletCurrency()
   const userId = useAuthStore((state) => state.auth.user?.id)
   const sessionId = useAuthStore((state) => state.auth.session?.sid)
   const [selectedMonth, setSelectedMonth] = useState<string>()
   const [claim, setClaim] = useState<CheckinResponse | null>(null)
-  const pendingOperation = useRef<{ day: string; key: string } | null>(null)
-  const inFlight = useRef(false)
-  const [checkinLoading, setCheckinLoading] = useState(false)
-  const [turnstileModalVisible, setTurnstileModalVisible] = useState(false)
-  const [turnstileWidgetKey, setTurnstileWidgetKey] = useState(0)
   const [initialLoaded, setInitialLoaded] = useState(false)
   const [collapsed, setCollapsed] = useState<boolean>(false)
 
@@ -181,100 +171,36 @@ function CheckinCalendar({
     ? claimAmount
     : checkinData?.today_record?.quota_awarded
 
-  useEffect(() => {
-    if (initialLoaded) return
-    if (isLoading) return
-    if (!checkinData) return
+  if (!initialLoaded && !isLoading && checkinData) {
     setCollapsed(checkedToday)
     setInitialLoaded(true)
-  }, [checkinData, checkedToday, initialLoaded, isLoading])
+  }
 
-  const shouldTriggerTurnstile = useCallback(
-    (message?: string) => {
-      if (!turnstileEnabled) return false
-      if (typeof message !== 'string') return true
-      return message.includes('Turnstile')
+  const refreshStatus = useCallback(async () => {
+    const result = await refetch()
+    return result.isSuccess ? result.data : undefined
+  }, [refetch])
+  const completeCheckin = useCallback(
+    (result: CheckinResponse) => {
+      setClaim(result)
+      toast.success(
+        result.already_claimed
+          ? t('Checked in')
+          : `${t('Check-in successful! Received')} ${formatQuota(result.record.quota_awarded)}`
+      )
+      void refetch()
     },
-    [turnstileEnabled]
+    [formatQuota, refetch, t]
   )
-
-  const doCheckin = useCallback(
-    async (token?: string) => {
-      if (!token && turnstileEnabled) {
-        if (!turnstileSiteKey) {
-          toast.error(t('Turnstile is enabled but site key is empty.'))
-          return
-        }
-        setTurnstileModalVisible(true)
-        return
-      }
-
-      if (inFlight.current) return
-      inFlight.current = true
-      setCheckinLoading(true)
-      try {
-        if (pendingOperation.current?.day !== todayString) {
-          pendingOperation.current = {
-            day: todayString,
-            key: crypto.randomUUID(),
-          }
-        }
-        const res = await performCheckin(token, pendingOperation.current.key)
-        if (res.success) {
-          setClaim(res.data)
-          pendingOperation.current = null
-          const amount = res.data.record.quota_awarded
-          toast.success(
-            res.data.already_claimed
-              ? t('Checked in')
-              : `${t('Check-in successful! Received')} ${formatQuota(amount)}`
-          )
-          void refetch()
-          setTurnstileModalVisible(false)
-        } else {
-          if (!token && shouldTriggerTurnstile(res.message)) {
-            if (!turnstileSiteKey) {
-              toast.error(t('Turnstile is enabled but site key is empty.'))
-              return
-            }
-            setTurnstileModalVisible(true)
-            return
-          }
-          if (token && shouldTriggerTurnstile(res.message)) {
-            setTurnstileWidgetKey((v) => v + 1)
-          }
-          toast.error(res.message || t('Check-in failed'))
-        }
-      } catch {
-        void refetch()
-        toast.error(t('Check-in failed'))
-      } finally {
-        inFlight.current = false
-        setCheckinLoading(false)
-      }
-    },
-    [
-      refetch,
-      shouldTriggerTurnstile,
-      t,
-      turnstileEnabled,
-      turnstileSiteKey,
-      formatQuota,
-      todayString,
-    ]
-  )
-
-  const handleCheckinClick = useCallback(() => {
-    if (turnstileEnabled) {
-      if (!turnstileSiteKey) {
-        toast.error(t('Turnstile is enabled but site key is empty.'))
-        return
-      }
-      setTurnstileModalVisible(true)
-      return
-    }
-    void doCheckin()
-  }, [doCheckin, t, turnstileEnabled, turnstileSiteKey])
+  const verification = useCheckinVerification({
+    today: todayString,
+    pending: checkinData?.pending === true,
+    userId,
+    sessionId,
+    onComplete: completeCheckin,
+    onRefresh: refreshStatus,
+  })
+  const checkinLoading = verification.loading
 
   const handlePrevMonth = () => {
     const previous = new Date(currentMonth)
@@ -361,34 +287,63 @@ function CheckinCalendar({
   return (
     <TooltipProvider delay={100}>
       <Dialog
-        open={turnstileModalVisible}
+        open={verification.challenge !== null}
         onOpenChange={(open) => {
-          setTurnstileModalVisible(open)
-          if (!open) {
-            setTurnstileWidgetKey((v) => v + 1)
-          }
+          if (!open) verification.close()
         }}
         title={t('Security Check')}
         contentClassName='sm:max-w-md'
         contentHeight='auto'
         bodyClassName='space-y-4'
       >
-        <div className='text-muted-foreground text-sm'>
+        <p className='text-muted-foreground text-sm'>
           {t('Please complete the security check to continue.')}
-        </div>
-        <div className='flex justify-center py-4'>
-          <Turnstile
-            key={turnstileWidgetKey}
-            siteKey={turnstileSiteKey}
-            onVerify={(token) => {
-              const normalizedToken = token.trim()
-              if (normalizedToken) void doCheckin(normalizedToken)
-            }}
-            onExpire={() => {
-              setTurnstileWidgetKey((v) => v + 1)
-            }}
-          />
-        </div>
+        </p>
+        {verification.message ? (
+          <p role='alert' className='text-sm'>
+            {verification.message}
+          </p>
+        ) : null}
+        {verification.challenge && !verification.expired ? (
+          <div className='flex justify-center py-4'>
+            <Turnstile
+              key={verification.challenge.challenge_id}
+              siteKey={verification.challenge.turnstile_site_key}
+              action={verification.challenge.turnstile_action}
+              cData={verification.challenge.turnstile_cdata}
+              size='compact'
+              onVerify={verification.verify}
+              onExpire={verification.expire}
+            />
+          </div>
+        ) : null}
+        {verification.expired ? (
+          <Button
+            onClick={() => void verification.start()}
+            disabled={checkinLoading}
+            className='h-auto min-h-11 w-full whitespace-normal'
+          >
+            {checkinLoading ? <Spinner data-icon='inline-start' /> : null}
+            {t('Refresh verification')}
+          </Button>
+        ) : verification.challenge?.passkey_required ? (
+          <Button
+            onClick={() => void verification.confirmPasskey()}
+            disabled={!verification.tokenReady || checkinLoading}
+            className='h-auto min-h-11 w-full whitespace-normal'
+          >
+            {checkinLoading ? <Spinner data-icon='inline-start' /> : null}
+            {t('Confirm check-in with Passkey')}
+          </Button>
+        ) : checkinLoading ? (
+          <p
+            role='status'
+            className='flex items-center justify-center gap-2 text-sm'
+          >
+            <Spinner />
+            {t('Loading...')}
+          </p>
+        ) : null}
       </Dialog>
 
       <Card data-card-hover='false' className='gap-0 overflow-hidden py-0'>
@@ -443,7 +398,7 @@ function CheckinCalendar({
               </div>
             </button>
             <Button
-              onClick={handleCheckinClick}
+              onClick={() => void verification.start()}
               disabled={
                 checkinLoading ||
                 checkedToday ||

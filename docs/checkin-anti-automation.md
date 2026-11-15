@@ -1,16 +1,17 @@
-# 签到防自动化设计
+# 签到防自动化设计与实现
 
 [文档目录](README.md) · [滥用防护](abuse-controls.md) · [核心身份](core-identity.md)
 
-日期：2026-11-15（UTC+8）。状态：设计建议，尚未实施或进行防护效果测试。
-源码核查基线：`1eba304af1f3f9d5c1a834e599e853e4e7bcc4de`。
+日期：2026-11-15（UTC+8）。状态：代码已接入；开发验证结果见本文末尾。
+实现基线：`01553406cf27a12991df2b80dda8b398a67265ac`。本次不执行生产部署或生产数据库升级。
 
 ## 设计结论与范围
 
-建议保留稳定接口，将随机性放在每次领取的短期挑战上，并由 Core 验证挑战、
-限制领取次数和原子记账。日常模式要求每次领取完成 Turnstile；严格模式再要求
-当次 Passkey 确认。严格模式更接近“每天都需要用户确认”的交互目标，普通
-Passkey 的来源可信度仍决定它的实际防自动化强度。
+实现保留稳定接口，将随机性放在每次领取的短期挑战上，由 Core 验证挑战、
+限制领取次数并原子记账。默认严格模式要求每次新领取完成 Turnstile 和 Passkey
+确认；管理员显式设置 `require_passkey=false` 时只要求当次 Turnstile。严格模式
+更接近“每天都需要用户确认”的交互目标，普通 Passkey 的来源可信度仍决定
+实际防自动化强度。已到账操作的回执恢复不再要求新的验证。
 
 开放网页的客户端由用户控制。浏览器能读取新 URL、参数和 JavaScript，自动化
 浏览器也能读取相同信息。每天随机更换接口仅影响写死地址的脚本；一次性挑战
@@ -19,7 +20,7 @@ Passkey 的来源可信度仍决定它的实际防自动化强度。
 具体拦截率需要实施后测量。[1]
 
 本文依次定义现有落点、交互协议、验证边界、资金一致性、用户体验和验收方法。
-以下参数是初始建议，产品上线前按真实完成率及误伤情况调整。
+下文区分当前实现与后续产品策略；上线后再按真实完成率及误伤情况调整参数。
 
 | 方案 | 对普通用户的影响 | 适用边界 |
 | --- | --- | --- |
@@ -30,9 +31,9 @@ Passkey 的来源可信度仍决定它的实际防自动化强度。
 
 ## 现有实现与接入点
 
-以下是冻结源码的事实，生产路由与运行配置需要在实施时核对。
+以下为当前源码接线；生产代理分流与运行配置仍需由部署环节核对。
 
-| 模块 | 已有能力 | 本次设计的接入点 |
+| 模块 | 原有能力 | 已实现的接入点 |
 | --- | --- | --- |
 | [Web 签到 API](../apps/web/src/features/profile/api.ts) | 以 `operation_key` 提交日签；有 Turnstile 参数传递 | 增加挑战请求；验证材料放 JSON 正文；保留操作恢复 |
 | [Go HTTP](../services/extensions/internal/modules/checkins/http.go) | 日签状态、能力与提交接口；非空 Turnstile 参数当前返回不可用 | 接入验证协议和明确的验证错误；统一入口约束 |
@@ -81,20 +82,21 @@ sequenceDiagram
     G-->>W: 已签到、待恢复或需重新验证
 ```
 
-图中接口和 RPC 是拟议合同；授权检查应在首次发奖处成立。实现时可在 Go 入口
-先恢复已完成操作，跳过不必要的验证调用。验证材料仅用于本次操作，Core 不接受
+接口和 RPC 已接入；授权检查位于首次发奖处。Go 先恢复已完成操作，
+避免不必要的验证调用。验证材料仅用于本次操作，Core 不接受
 客户端或 Go 提交一个裸的 `verified=true` 作为证明。
 
 ### 稳定 API 与随机挑战
 
-| 接口 | 拟议职责 |
+| 接口 | 职责 |
 | --- | --- |
 | `GET /api/user/checkin` | 保留状态和历史查询；返回服务端业务日 |
 | `POST /api/user/checkin/challenges` | 为当前会话及 `operation_key` 创建短期挑战 |
 | `POST /api/user/checkin` | 提交挑战和验证材料，领取或恢复原操作 |
 
 挑战入口只接受个人交互会话，保持现有 API Key 拒绝语义。挑战使用安全随机数
-发生器生成至少 128 位熵，建议 32 字节。初始有效期为 120 秒，过期可重新获取。
+发生器生成 32 字节随机值，以 64 个十六进制字符返回；数据库保存其 SHA-256
+摘要。有效期为 120 秒，过期可重新获取。
 客户端提交的用户 ID、日期、风险级别和奖励金额均不作为权威输入。
 
 Core 保存以下关联：
@@ -103,33 +105,37 @@ Core 保存以下关联：
 | --- | --- |
 | `challenge_id` | 随机挑战标识；服务端可保存其摘要 |
 | `user_id`、`account_id` | 由认证结果确定领取主体 |
-| `session_binding`、`auth_version` | 绑定当前会话及撤销状态，不向验证服务发送原始会话凭证 |
-| `purpose`、`reward_scope` | 固定本次签到用途及奖励范围 |
-| `business_day` | Core 按现有 UTC+8 合同计算 |
+| `sid`、`user_version` | 绑定稳定的浏览器会话家族及撤销代次；同家族 access token 轮换可继续使用 |
+| 固定用途 | RPC 仅服务日签；Turnstile action 固定为 `daily_checkin` |
+| `day` | Core 按现有 UTC+8 合同计算 |
 | `operation_key` | 绑定客户端原始重试操作；不承担每日去重职责 |
-| `policy_version`、`required_verification` | 固定服务端选择的防护策略，客户端无权降低 |
-| `issued_at`、`expires_at`、`state` | 限制有效期并记录授权消费 |
+| `passkey_required`、`passkey_state` | 固定所需确认模式及服务端 WebAuthn 验证状态，客户端无权降低 |
+| `created_at`、`expires_at`、`attempts`、`verified_at`、`consumed_at` | 限制有效期、验证次数及一次性消费 |
 
-挑战返回示意：
+挑战响应的 `data` 对象包含如下字段（以下 ID、站点 key 和时间为示意值）：
 
 ```json
 {
-  "challenge_id": "example-opaque-challenge-id",
-  "business_day": "2026-11-15",
-  "expires_in": 120,
-  "required_verification": ["turnstile", "passkey"],
+  "challenge_id": "64-character-random-hex-string",
+  "operation_key": "the-original-operation-key",
+  "day": "2026-11-15",
+  "expires_at": 1794700920,
+  "turnstile_site_key": "public-site-key",
   "turnstile_action": "daily_checkin",
-  "turnstile_cdata": "example-opaque-binding"
+  "turnstile_cdata": "64-character-random-hex-string",
+  "passkey_required": true,
+  "passkey_options": {"publicKey": {"challenge": "example-base64url", "userVerification": "required"}}
 }
 ```
 
-实际严格模式响应还要包含现有 WebAuthn 库产生的认证选项；示意值不可用于生产。
-申请挑战时绑定 `operation_key`，提交时必须相同。刷新挑战不得创建新的每日奖励
-或重新抽奖。跨日未完成的挑战失效，用户按新的服务端业务日重新发起签到。
+真实 `passkey_options` 由现有 WebAuthn 库完整生成。领取正文为
+`{operation_key, challenge_id, turnstile_token, passkey_assertion}`；
+`passkey_assertion` 是浏览器产生的 JSON 对象。验证材料不得放在 URL；旧的
+`turnstile` 查询参数不再作为验证凭证接受。
 
-如果产品明确要随机 URL，可以返回 `/api/user/checkin/claim/{challenge_id}`。
-其内部仍使用同一个路由处理器和完整授权检查，安全收益来自挑战合同。随机路径
-会进入访问日志，应避免在路径携带可单独授权领奖的秘密；优先选择 JSON 正文。
+申请挑战时绑定 `operation_key`，提交时必须相同。Go 查询到当天已有 pending
+时返回原操作键，Web 采用服务端返回值。刷新挑战保留原日期、金额和操作，
+不重新抽奖。跨日未完成的挑战失效，已入账的旧操作仍可用原键恢复。
 
 ### Turnstile 验证
 
@@ -143,8 +149,9 @@ Turnstile 令牌有效期为 300 秒，业务挑战仍按本方案更短的有�
 仍需独立完成一次性消费和账本幂等。[2]
 
 复用现有验证客户端时，应单独定义“签到验证必需”的调用语义。当前配置缺省时
-放行的可选验证语义不适用于强制签到模式。配置缺失、供应商超时或不可达时返回
-签到暂不可用，不能自动移除验证要求。已入账回执查询仍应正常恢复。
+放行的可选验证语义不适用于强制签到模式。缺少必要配置时拒绝启动。已启动服务
+遇到供应商超时或不可达时，新的验证返回签到暂不可用，不自动移除验证要求；
+原回执恢复仍可执行。
 
 ### 每次 Passkey 确认
 
@@ -206,15 +213,17 @@ Go 与 Core 使用不同数据库。继续采用当前的“持久化意图 → 
 
 “pending”本身不是验证凭证。上线前遗留的 pending，只有已存在 Core 发奖回执
 或符合新授权规则的记录可恢复；缺少验证的历史 pending 不应被自动批准。刷新
-授权时保留已抽取金额，不能通过重试挑选更高奖励。现有意图表不可变触发器需要
-在实施时纳入设计，可在独立关联记录中保存新验证引用，避免改写原始资金意图。
+授权时保留已抽取金额，不能通过重试挑选更高奖励。本次保留现有意图表及其不可变触发器，
+验证状态放在 Core，Go 无需新增表或改写原始资金意图。Core 的 `receipts` 表
+对 `(account_id, day)` 和 `(user_id, day)` 分别设唯一约束，零奖励也保存持久回执。
 
 ## 风控、预算与正常体验
 
-基础限流采用用户和网络的独立计数。初始可设置每用户每分钟最多申请 5 次挑战，
-每次挑战最多 3 次失败提交；它们是待观测的建议值。网络计数作为共享出口感知的
-辅助措施，超限优先冷却或升级验证。一天只请求一次的脚本不会被合理的频率限制
-单独拦住，所以限流主要保护资源和限制批量尝试。[1]
+当前按用户限制每分钟最多签发 5 个挑战，每个挑战最多进行 3 次验证尝试，
+超限返回 HTTP 429 和 `Retry-After: 60`。验证码服务不可达的尝试也计数，
+已验证授权的幂等恢复不增加次数。网络维度限流与关联账号分析未在本次引入。
+一天只请求一次的脚本不会被合理的频率限制单独拦住，限流主要保护资源和
+限制批量尝试。[1]
 
 判断批量滥用时优先使用服务端已有记录：短时间集中注册、多个账号的关联行为、
 领取与正常产品使用的比例、已确认的滥用历史和异常重试。固定签到时间、同一个
@@ -234,35 +243,59 @@ Cookie 自动附带的入口应按现有身份架构落实 CSRF 保护；Bearer 
 的认证绑定及跨域策略。Origin、Referer、CORS 或前端点击事件只是各自边界内的
 防护，独立脚本可以构造请求，不能用这些信号作为人工签到证明。
 
-## 实施顺序
+## 配置与数据库升级
 
-1. **补齐实际验证链。** 基于现有 Core Siteverify 客户端接入签到，验证材料移到
-   JSON 正文，增加用途和上下文核验；保留当前状态查询和幂等行为。
-2. **加入挑战及 Core 授权消费。** 扩展日签 RPC 合同、Go 意图关联及 Web 请求；
-   先保证缺少有效授权时没有新的资金效果。
-3. **落实严格模式。** 增加签到专用 Passkey 确认，覆盖凭据注册、设备恢复和
-   缺少能力时的交互。按产品选择对所有新领取执行，或仅对风险账号执行。
-4. **覆盖实际发奖入口。** 核对生产代理分流、兼容入口及相关 promotions 活动，
-   确保同一奖励走同一授权和去重约束。旧入口不得继续独立发放同一奖励。
-5. **灰度观察并收敛参数。** 先看正常完成率及验证耗时，再调整挑战期限和限流；
-   回滚时保留账本约束，验证依赖故障时暂缓签到发奖。
+Core 的 `[checkin_rewards]` 继续使用独立 funding token 和配置文件；示例见
+[Core 配置](../config/core.example.toml) 与
+[奖励配置](../config/checkin-rewards.example.json)。`require_passkey` 缺省为
+`true`，示例奖励上限均为零，管理员需要设置实际额度。Turnstile 使用
+`[identity.turnstile]` 的 site key / secret 文件，Passkey 复用
+`[identity.web]` 的可信 origin 和可选 RP ID。
 
-以上是实施建议，不包含生产配置变更或发布动作。随机 URL 仅在产品确有需求时
-作为薄层加入，不作为防护验收依据。
+启用奖励但缺少 Turnstile 配置时启动失败；严格模式缺少可用 Passkey origin
+时同样失败。运行期验证服务超时返回暂不可用，不自动降低验证要求。
+Siteverify 保持 10 秒 HTTP 界限；只有 `CoreCheckinLedger/Authorize` 的 Core
+与 Go RPC 界限放宽到 12 秒，其余 RPC 保留原有预算（Core 仍为 2 秒）。
+
+新增第 **75** 个组件 `checkin-challenges`，包含短期挑战和不可变日签回执。
+新装仍通过显式 owner 初始化；既有 74 组件数据库使用独立、离线、精确前驱
+绑定的 `core-checkin-challenges-v1` 升级程序。程序保留已有数据和 ACL，
+并记录 owner-only 升级回执；历史组件和历史目标指纹不改写。
+当前目标见 [fresh70_target.json](../services/core/src/core_schema/upgrade/fresh70_target.json)
+（保留既有文件名），本次升级目标见
+[checkin_challenges_target.json](../services/core/src/core_schema/upgrade/checkin_challenges_target.json)。
+
+运行账号增加 [签到挑战权限](../deployment/postgres/grant-checkin-challenges-runtime.sql)，
+并保留原生 Web 身份与账号安全所需权限。新权限只允许挑战的必要列更新和过期
+清理，以及日签回执的读取、插入；禁止修改回执、挑战绑定或升级记录。正常服务
+启动只核查权限和 schema，不自动执行 DDL。本次代码交付不代表生产已经升级。部署顺序为：准备验证码与 Web 配置、
+owner 升级到 75 并补齐权限、部署新版 Core、再部署 Go 与 Web。旧版 Core
+不检查新增授权字段，因此不能先切新 Go 而保留旧 Core。新版 Core 会拒绝
+旧 Go 的首次无验证发奖，已有回执仍可恢复。
+
+错误码供 Web 区分下一步操作：
+
+| HTTP | 错误码 | 客户端行为 |
+| --- | --- | --- |
+| 403 | `CHECKIN_VERIFICATION_REQUIRED` | 原操作未取得可用授权，申请新挑战并重新验证 |
+| 403 | `CHECKIN_VERIFICATION_FAILED` | 丢弃本次证明并重新验证 |
+| 409 | `CHECKIN_PASSKEY_REQUIRED` | 引导用户先在账号安全页绑定 Passkey |
+| 429 | `CHECKIN_RATE_LIMITED` | 提示稍后重试；服务端用 `Retry-After` 建议等待 60 秒 |
+| 503 | `CHECKIN_UNAVAILABLE` | 保留原操作键，稍后优先恢复回执 |
 
 ## 验收方法与待测指标
 
 实施时使用合成账号、隔离数据库和供应商测试配置。真实供应商拦截效果另做受控
 测试，不用固定通过的 mock 推导真实反自动化效果。
 
-| 用例 | 验收结果 |
+| 用例 | 预期结果 |
 | --- | --- |
 | 重放昨天请求、已消费挑战、跨用户或跨会话挑战 | 无新奖励；同一已完成操作可返回其原回执 |
 | 不获取挑战而调用现有领取入口 | 无新奖励，返回需要验证 |
 | 获取新挑战但不完成服务端验证 | 无新奖励 |
 | action、hostname、cdata 不匹配 | 拒绝首次授权 |
 | 同账号 100 个并发领取，包括多个有效挑战 | 同一业务日最多一笔奖励 |
-| 验证服务不可用或配置缺失 | 暂缓新领取；已入账查询与无关功能可用 |
+| 运行时验证服务不可用 | 暂缓新领取；已入账查询与无关功能可用 |
 | 记账后断开网络、Core 回应丢失、Go 落库前崩溃 | 原操作可恢复，金额不重抽，奖励不增加 |
 | 多入口、多个实例、日切边界 | 统一业务身份和时区下满足相同唯一性 |
 | 严格模式省略或重放 Passkey 断言 | 拒绝新的领取；不以旧登录状态替代 |
@@ -270,7 +303,52 @@ Cookie 自动附带的入口应按现有身份架构落实 CSRF 保护；Bearer 
 
 上线观察指标包括正常用户完成率、P50/P95 耗时、验证升级率、技术错误率、重复
 奖励数、已确认误伤及奖励支出。反自动化成功率需要明确测试样本和观察时段，
-不要由“接口发生变化”推导拦截效果。当前未运行这些业务测试。
+不要由“接口发生变化”推导拦截效果。供应商真实拦截率、真实硬件兼容性与生产完成率尚未测量。
+
+## 本次开发验证记录
+
+以下是 2026-11-15 工作区的实际结果，不等同于生产发布或独立业务验收。
+
+| 检查 | 实际结果与范围 |
+| --- | --- |
+| Go HTTP、奖励计算和错误映射 | 通过；验证正文边界与专用错误码 |
+| Go gRPC 接线 | 通过；使用 `bufconn` 执行真实 protobuf、metadata、deadline 检查 |
+| Go PostgreSQL 业务与角色权限 | 通过；真实 PostgreSQL 18.6，Core Ledger 为测试替身；覆盖无 proof 零写入、并发、零奖励、跨日恢复、旧键拒绝、pending 期间策略从 100 改成 7 仍保持原 100 |
+| Web 定向测试 | 29 项通过，4 个测试文件；包括验证取消、过期、账号切换及跨日恢复 |
+| Web 类型、lint、翻译 | 变更入口及传递依赖的类型检查、局部 lint、7 语言同步通过；全量类型检查被环境 SIGKILL（137）终止 |
+| Web 最终生产构建 | 通过；首屏 gzip 586,175 bytes，低于 786,432 bytes 限额 |
+| Core 库类型检查 | 最终源码的 `cargo check --locked --lib` 通过；单任务、关闭增量编译与调试信息 |
+| Core schema SQL | 实际执行源码中的精确 SQL；74 组件 catalog 与冻结值相同，75 组件新增 140 条定义，原 11,946 条全部保留 |
+| Core 新权限检查 SQL | 实际 PostgreSQL 下 14 个检查点通过；验证缺权、完整授权、必要列撤权和危险权限增加；不是 Rust 集成测试 |
+| Core 完整构建、测试类型检查与运行测试 | 均未完成；完整构建和测试代码生成被环境 SIGKILL 终止，最终测试类型检查也被 SIGKILL 终止；单任务、关闭调试信息及增大代码生成单元未解决，隔离定向测试副本也未执行成功 |
+| 原有 Unix socket 组合测试 | `socket: operation not permitted`；此测试未改动，不能把内存通道测试当作 Unix socket 部署验证 |
+
+Core 的 4 个真实数据库/签名用例、74→75 升级执行与重放用例，以及运行权限、
+配置和 RPC 期限用例均已随代码保留，但本轮没有运行通过。完整 Core 制品、
+真实 Core/Go/Web 组合、Cloudflare 拦截效果、硬件 Passkey 和浏览器视觉验收
+仍需在具备相应资源的环境中执行。未通过修改测试断言、取消验证或降低数据库
+权限要求来取得测试通过。
+
+新结构的源码清单与实际 PostgreSQL 18.6 测量值为：
+
+```text
+manifest75 = 12f21130aefc0e5039e4674a673190fb71b236549872f5f2b1c9bd4ae495e7f8
+catalog75  = 034166f1f07cd08a4a46d4022d8c56766da843bc3d544f64a20aa6d6b1879a7c
+```
+
+清单计算先与历史 74 组件的冻结 manifest 逐项及整体核对。catalog 从实际安装
+SQL 与原 catalog 查询测量，属于源码 SQL 的测量；本轮未产出完整 Core
+二进制，未声称完成二进制安装器捕获或旧库升级执行验收。
+
+在资源充足的独立测试库环境中，仍须运行以下 Core 验收命令；这些命令列出
+后续验证入口，不表示本轮已经通过。测试库与角色配置沿用仓库开发文档。
+
+```bash
+cd services/core
+cargo test --locked --lib checkin_challenge::tests -- --test-threads=1
+cargo test --locked --lib core_schema::upgrade::checkin_challenges::tests -- --test-threads=1
+cargo test --locked --lib runtime_database::checkin_challenges::tests -- --test-threads=1
+```
 
 ## 设计自检与证据
 
@@ -278,7 +356,7 @@ Cookie 自动附带的入口应按现有身份架构落实 CSRF 保护；Bearer 
 | --- | --- |
 | 目标是否可验证 | 拦截简单调用、提高自动化成本、每业务日最多一次；没有绝对真人承诺 |
 | 描述是否可实现 | 明确挑战字段、现有接入点、Core 授权与 Go 恢复职责 |
-| 效果是否有实测 | 当前没有；期限和限流均标记为建议，拦截率待测 |
+| 效果是否有实测 | Go 模拟 Core 的资金意图测试、协议测试和数据库 SQL 检查已通过；真实 Core 资金闭环及自动化拦截率仍待测 |
 | 评估是否覆盖关键失败 | 包含供应商故障、重放、并发、多入口、日切和提交后断连 |
 | 方法是否引入不合理代价 | 基础模式保持低交互；严格设备策略单独说明兼容和恢复成本 |
 
@@ -287,8 +365,8 @@ Cookie 自动附带的入口应按现有身份架构落实 CSRF 保护；Bearer 
 | URL 随机化无法阻止动态发现脚本 | 客户端可见信息与信任边界推理；[1] 的分层业务防护原则 | 设计推理 |
 | Turnstile 需要服务端验证，重放检测有一致性窗口 | 官方 Siteverify 文档 [2] | 已核对 |
 | 普通 Passkey 允许软件认证器，来源证明影响信任 | WebAuthn 规范 §4、§6.5、§11 [3] | 已核对 |
-| 已有日签链路与唯一约束可复用 | 本文冻结提交下的源码链接 | 已只读核对 |
-| 具体自动化拦截率及正常用户耗时 | 需要受控测试与灰度数据 | 待实施验证 |
+| 日签链路与唯一约束已复用 | 本文源码链接及开发测试 | 已接入 |
+| 具体自动化拦截率及正常用户耗时 | 需要受控测试与灰度数据 | 待观测 |
 
 ## 参考资料
 
@@ -300,4 +378,5 @@ Cookie 自动附带的入口应按现有身份架构落实 CSRF 保护；Bearer 
    attestation 与虚拟认证器章节。
 4. [PostgreSQL 唯一约束](https://www.postgresql.org/docs/current/ddl-constraints.html#DDL-CONSTRAINTS-UNIQUE-CONSTRAINTS)。
 
-源码事实绑定上述基线提交，本文描述的新增接口、严格模式和授权状态均属于方案。
+源码以本文链接为准。测试替身只证明验证结果被正确处理，不证明真实供应商能够
+拦住所有自动化；普通软件认证器的存在也决定了严格模式不构成绝对真人证明。

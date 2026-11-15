@@ -88,6 +88,15 @@ ACLs. Re-run `grant-tool-market-credit.sql` with the same explicit
 `-v runtime_role=lmm_core_runtime` after the reset when that separate
 installer-only complement is required.
 
+Check-in rewards on component 75 additionally use
+[grant-checkin-challenges-runtime.sql](grant-checkin-challenges-runtime.sql), with
+an explicit `-v runtime_role=lmm_core_runtime`, after installing or upgrading the
+schema and applying native Web identity/account-security grants. The separate
+script grants only challenge reads/inserts/expired deletes, the three state
+columns, and append-only reward receipts. It does not enable the removed legacy
+Core check-in HTTP route. Its ACLs are not reset by the historical
+`revoke-core-runtime.sql`; revoke them explicitly when disabling this capability.
+
 Startup independently checks exact authority and enabled capabilities before
 binding a listener. Roles/GRANTs are excluded from the catalog fingerprint and do
 not change schema definitions. Actual container acceptance remains separate from

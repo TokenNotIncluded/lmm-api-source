@@ -58,11 +58,13 @@ Core 独立于 Go，身份和账户功能依赖 PostgreSQL。安装与升级合�
 [架构说明](core-migration.md#安装权限与结构升级)和 [schema](../services/core/schema/README.md)。
 普通启动只检查结构、catalog 指纹和运行权限，不创建角色、授权、执行 DDL 或升级库。
 
-当前源码的新装合同为 **70 个组件**，以 `lmm-core schema-manifest` 和
+当前源码的新装合同为 **75 个组件**，以 `lmm-core schema-manifest` 和
 `services/core/src/core_schema/upgrade/fresh70_target.json` 为准。
 `fresh_target.json` 保留冻结的历史 69 组件目标，不随当前新装目标改写。已声明的精确后缀升级为
 66→67（付款折扣）、67→68（折扣管理）、68→69（Responses 连续性）和 69→70（托管应用，`core-managed-applications-v1`）；每一步仍须满足
 其独立的前置版本、冻结指纹、owner 授权和升级回执，不能用组件数代替验证。
+日签验证另有精确的 74→75 升级 `core-checkin-challenges-v1`，不替代先前版本的
+升级链；配置、权限和验证边界见[签到防自动化](checkin-anti-automation.md)。
 旧站升级、历史签到导入及其策略发布仍使用与旧站匹配的保留执行器；不得以当前组件
 前缀重建或更新冻结历史指纹。新装合同不等于旧站离线迁移已经验收，后者见
 [当前迁移状态](progress.md)。

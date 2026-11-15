@@ -32,6 +32,9 @@ declare global {
 
 interface TurnstileProps {
   siteKey: string
+  action?: string
+  cData?: string
+  size?: 'normal' | 'compact' | 'flexible'
   onVerify: (token: string) => void
   onExpire?: () => void
   className?: string
@@ -39,11 +42,19 @@ interface TurnstileProps {
 
 export function Turnstile({
   siteKey,
+  action,
+  cData,
+  size,
   onVerify,
   onExpire,
   className,
 }: TurnstileProps) {
   const ref = useRef<HTMLDivElement | null>(null)
+  const callbacks = useRef({ onVerify, onExpire })
+
+  useEffect(() => {
+    callbacks.current = { onVerify, onExpire }
+  }, [onVerify, onExpire])
 
   useEffect(() => {
     let disposed = false
@@ -69,9 +80,18 @@ export function Turnstile({
       try {
         widgetId = window.turnstile.render(ref.current, {
           sitekey: siteKey,
-          callback: (token: string) => onVerify(token),
-          'error-callback': () => onExpire?.(),
-          'expired-callback': () => onExpire?.(),
+          ...(action ? { action } : {}),
+          ...(cData ? { cData } : {}),
+          ...(size ? { size } : {}),
+          callback: (token: string) => {
+            if (!disposed) callbacks.current.onVerify(token)
+          },
+          'error-callback': () => {
+            if (!disposed) callbacks.current.onExpire?.()
+          },
+          'expired-callback': () => {
+            if (!disposed) callbacks.current.onExpire?.()
+          },
         })
         rendered = true
         stopTimers()
@@ -130,7 +150,7 @@ export function Turnstile({
     document.head.appendChild(s)
 
     return cleanup
-  }, [siteKey, onVerify, onExpire])
+  }, [siteKey, action, cData, size])
 
   return <div ref={ref} className={className} />
 }

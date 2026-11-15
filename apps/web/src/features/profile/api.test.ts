@@ -24,6 +24,8 @@ import { api } from '@/lib/api'
 import {
   getProfileUsageWindow,
   performCheckin,
+  getCheckinChallenge,
+  checkinFailureCode,
   getCheckinStatus,
   enableProfileShare,
   getProfileShareState,
@@ -155,26 +157,79 @@ describe('profile check-in API', () => {
     assert.equal(urls[1], '/api/user/checkin?month=2029-12')
   })
 
-  test('suppresses the global business toast for an explicit Turnstile result', async () => {
+  test('sends verification only in JSON and binds the request to its original account', async () => {
     let request: {
       url: string
-      config: { skipBusinessError?: boolean } | undefined
+      body: unknown
+      config: unknown
     } | null = null
 
-    api.post = (async (url, _data, config) => {
-      request = { url, config }
-      return { data: { success: false, message: 'Turnstile 校验失败' } }
+    api.post = (async (url, body, config) => {
+      request = { url, body, config }
+      return {
+        data: {
+          success: false,
+          error: { code: 'CHECKIN_VERIFICATION_FAILED' },
+        },
+      }
     }) as typeof api.post
 
-    await performCheckin('turnstile-token')
+    const controller = new AbortController()
+    const authScope = { userId: 12, sessionId: 'original-session' }
+    const body = {
+      operation_key: 'a-valid-operation-key',
+      challenge_id: 'server-challenge',
+      turnstile_token: 'turnstile-token',
+      passkey_assertion: { id: 'credential-id' },
+    }
+    const result = await performCheckin(body, {
+      signal: controller.signal,
+      authScope,
+    })
+    assert.equal(checkinFailureCode(result), 'CHECKIN_VERIFICATION_FAILED')
 
     assert.deepEqual(request, {
-      url: '/api/user/checkin?turnstile=turnstile-token',
+      url: '/api/user/checkin',
+      body,
       config: {
         skipBusinessError: true,
-        authScope: { userId: undefined, sessionId: undefined },
+        skipErrorHandler: true,
+        authScope,
+        signal: controller.signal,
+        timeout: 20_000,
       },
     })
+  })
+
+  test('requests a challenge with only the operation key and preserves structured HTTP errors', async () => {
+    let request: unknown
+    api.post = (async (url, body) => {
+      request = { url, body }
+      return {
+        data: { success: false, error: { code: 'CHECKIN_PASSKEY_REQUIRED' } },
+      }
+    }) as typeof api.post
+    await getCheckinChallenge('a-valid-operation-key')
+    assert.deepEqual(request, {
+      url: '/api/user/checkin/challenges',
+      body: { operation_key: 'a-valid-operation-key' },
+    })
+    assert.equal(
+      checkinFailureCode({
+        isAxiosError: true,
+        response: {
+          data: {
+            success: false,
+            error: { code: 'CHECKIN_VERIFICATION_REQUIRED' },
+          },
+        },
+      }),
+      'CHECKIN_VERIFICATION_REQUIRED'
+    )
+    assert.equal(
+      checkinFailureCode(new Error('private server detail')),
+      undefined
+    )
   })
 })
 
