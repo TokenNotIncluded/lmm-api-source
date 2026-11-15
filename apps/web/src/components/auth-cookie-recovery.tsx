@@ -21,9 +21,11 @@ import {
 import {
   hasAuthCookieReconciliationHandoff,
   AuthCookieSessionNeedsRenewalError,
+  AuthCookieSessionReauthenticationError,
   prepareAuthCookieReconciliation,
   reconcileAuthCookieSession,
   renewAuthCookieSession,
+  restartAuthCookieAuthentication,
 } from '@/lib/auth-cookie-reconciliation'
 import {
   captureLocalAuthRecoveryScope,
@@ -49,6 +51,9 @@ export function AuthCookieRecovery({
   )
   const [recoveryFailed, setRecoveryFailed] = useState(false)
   const [renewalRequired, setRenewalRequired] = useState(false)
+  const [reauthenticationRequired, setReauthenticationRequired] =
+    useState(false)
+  const [startingSignIn, setStartingSignIn] = useState(false)
   const recoveryRequest = useRef<AbortController | null>(null)
   const state = useSyncExternalStore(
     subscribeAuthCookieState,
@@ -62,6 +67,14 @@ export function AuthCookieRecovery({
     !auth.user &&
     !auth.pending2FAFlowToken &&
     auth.bootstrapState === 'complete'
+  const handleRecoveryError = useCallback((error: unknown) => {
+    const needsRenewal = error instanceof AuthCookieSessionNeedsRenewalError
+    const needsReauthentication =
+      error instanceof AuthCookieSessionReauthenticationError
+    setRenewalRequired(needsRenewal)
+    setReauthenticationRequired(needsReauthentication)
+    setRecoveryFailed(!needsRenewal && !needsReauthentication)
+  }, [])
   const recover = useCallback(
     async (renew = false) => {
       if (recoveryRequest.current) return
@@ -69,6 +82,8 @@ export function AuthCookieRecovery({
       recoveryRequest.current = controller
       setRecovering(true)
       setRecoveryFailed(false)
+      setRenewalRequired(false)
+      setReauthenticationRequired(false)
       try {
         if (hasAuthCookieReconciliationHandoff()) {
           const bundle = await (
@@ -84,14 +99,7 @@ export function AuthCookieRecovery({
           await prepareAuthCookieReconciliation(controller.signal)
         }
       } catch (error) {
-        if (!controller.signal.aborted) {
-          setRenewalRequired(
-            error instanceof AuthCookieSessionNeedsRenewalError
-          )
-          setRecoveryFailed(
-            !(error instanceof AuthCookieSessionNeedsRenewalError)
-          )
-        }
+        if (!controller.signal.aborted) handleRecoveryError(error)
       } finally {
         if (recoveryRequest.current === controller) {
           recoveryRequest.current = null
@@ -99,7 +107,7 @@ export function AuthCookieRecovery({
         if (!controller.signal.aborted) setRecovering(false)
       }
     },
-    [navigate]
+    [handleRecoveryError, navigate]
   )
   useEffect(() => {
     const controller = new AbortController()
@@ -118,14 +126,7 @@ export function AuthCookieRecovery({
           }
         })
         .catch((error) => {
-          if (!controller.signal.aborted) {
-            setRenewalRequired(
-              error instanceof AuthCookieSessionNeedsRenewalError
-            )
-            setRecoveryFailed(
-              !(error instanceof AuthCookieSessionNeedsRenewalError)
-            )
-          }
+          if (!controller.signal.aborted) handleRecoveryError(error)
         })
         .finally(() => {
           if (recoveryRequest.current === controller) {
@@ -139,7 +140,7 @@ export function AuthCookieRecovery({
       recoveryRequest.current = null
       controller.abort()
     }
-  }, [navigate])
+  }, [handleRecoveryError, navigate])
   if (!state) return null
   const handleLocalEnd = () => {
     const outcome = endLocalAuthSessionForRecovery(scope)
@@ -150,6 +151,20 @@ export function AuthCookieRecovery({
     setResult('ended')
     onLocalEnd?.()
     void navigate({ to: '/', replace: true })
+  }
+  const handleReauthentication = async () => {
+    if (startingSignIn) return
+    setStartingSignIn(true)
+    setRecoveryFailed(false)
+    try {
+      await restartAuthCookieAuthentication(scope)
+      setResult('ended')
+      onLocalEnd?.()
+      window.location.replace('/sign-in')
+    } catch {
+      setStartingSignIn(false)
+      setRecoveryFailed(true)
+    }
   }
   return (
     <Alert variant='destructive' className='relative z-50 rounded-none'>
@@ -165,6 +180,13 @@ export function AuthCookieRecovery({
         </p>
         {state === 'uncertain' ? (
           <div className='space-y-2'>
+            {reauthenticationRequired ? (
+              <p role='status'>
+                {t(
+                  'This browser session is no longer available. Sign in again to continue.'
+                )}
+              </p>
+            ) : null}
             {renewalRequired ? (
               <p role='status'>
                 {t(
@@ -179,19 +201,31 @@ export function AuthCookieRecovery({
                 )}
               </p>
             ) : null}
-            <Button
-              type='button'
-              variant='outline'
-              disabled={recovering}
-              className='h-auto min-h-11 whitespace-normal'
-              onClick={() => void recover(renewalRequired)}
-            >
-              {recovering
-                ? t('Checking browser session...')
-                : renewalRequired
-                  ? t('Renew browser session')
-                  : t('Recover browser session')}
-            </Button>
+            {reauthenticationRequired ? (
+              <Button
+                type='button'
+                disabled={startingSignIn}
+                aria-busy={startingSignIn}
+                className='h-auto min-h-11 whitespace-normal'
+                onClick={() => void handleReauthentication()}
+              >
+                {t('Sign in again')}
+              </Button>
+            ) : (
+              <Button
+                type='button'
+                variant='outline'
+                disabled={recovering}
+                className='h-auto min-h-11 whitespace-normal'
+                onClick={() => void recover(renewalRequired)}
+              >
+                {recovering
+                  ? t('Checking browser session...')
+                  : renewalRequired
+                    ? t('Renew browser session')
+                    : t('Recover browser session')}
+              </Button>
+            )}
           </div>
         ) : null}
         {ended ? (
@@ -220,7 +254,9 @@ export function AuthCookieRecovery({
               className='h-auto min-h-11 whitespace-normal'
               onClick={handleLocalEnd}
             >
-              {t("End this tab's local session")}
+              {reauthenticationRequired
+                ? t('Back to Home')
+                : t("End this tab's local session")}
             </Button>
           </>
         )}

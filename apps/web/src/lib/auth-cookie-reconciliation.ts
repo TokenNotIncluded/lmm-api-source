@@ -15,9 +15,12 @@ import {
 import { readLoginIntent } from './auth-login-intent'
 import {
   applyAuthBundle,
+  captureLocalAuthRecoveryScope,
   capturePasswordLoginGuard,
+  clearAuthentication,
   invalidatePendingLogins,
   isAuthBundle,
+  type LocalAuthRecoveryScope,
 } from './auth-session'
 
 const HANDOFF_KEY = 'lmm:auth-cookie-reconciliation:v1'
@@ -50,7 +53,17 @@ const reconciliationSchema = z
       z
         .object({
           protocol: z.literal('core.browser-session-reconciliation.v1'),
-          status: z.literal('current_access_expired'),
+          status: z.enum([
+            'previous',
+            'expired_previous',
+            'unknown_sid',
+            'unknown_cookie',
+            'no_cookie',
+            'sid_mismatch',
+            'family_inactive',
+            'current_access_expired',
+            'authority_unavailable',
+          ]),
         })
         .strict(),
     ]),
@@ -58,6 +71,7 @@ const reconciliationSchema = z
   .strict()
 
 export class AuthCookieSessionNeedsRenewalError extends Error {}
+export class AuthCookieSessionReauthenticationError extends Error {}
 
 const renewalClient = axios.create({
   adapter: 'xhr',
@@ -134,6 +148,40 @@ export function renewAuthCookieSession(signal?: AbortSignal) {
   return reconcileSession(true, signal)
 }
 
+export async function restartAuthCookieAuthentication(
+  scope: LocalAuthRecoveryScope
+): Promise<void> {
+  const handoff = handoffSchema.parse(
+    JSON.parse(window.sessionStorage.getItem(HANDOFF_KEY) ?? 'null')
+  )
+  if (
+    handoff.documentId === recoveryDocumentId() ||
+    readLoginIntent(window.localStorage) !== handoff.intent
+  ) {
+    throw new AuthCookieBlockedError('uncertain')
+  }
+  await waitForAuthCookieIdle()
+  return withAuthCookieReconciliationLock(handoff.marker, async (confirm) => {
+    const assertScope = () => {
+      const current = captureLocalAuthRecoveryScope()
+      if (
+        current.userId !== scope.userId ||
+        current.sessionId !== scope.sessionId ||
+        current.authEpoch !== scope.authEpoch ||
+        current.accountWriteEpoch !== scope.accountWriteEpoch
+      ) {
+        throw new AuthCookieBlockedError('uncertain')
+      }
+    }
+    assertScope()
+    confirm(() => {
+      assertScope()
+      clearAuthentication(false, 'complete')
+      window.sessionStorage.removeItem(HANDOFF_KEY)
+    })
+  })
+}
+
 async function reconcileSession(renew: boolean, signal?: AbortSignal) {
   const handoff = handoffSchema.parse(
     JSON.parse(window.sessionStorage.getItem(HANDOFF_KEY) ?? 'null')
@@ -188,6 +236,12 @@ async function reconcileSession(renew: boolean, signal?: AbortSignal) {
         return value
       }
       let proof = await readProof()
+      if (
+        proof.status !== 'current' &&
+        proof.status !== 'current_access_expired'
+      ) {
+        throw new AuthCookieSessionReauthenticationError()
+      }
       let renewedBundle: AuthBundle | undefined
       if (proof.status === 'current_access_expired') {
         if (!renew) throw new AuthCookieSessionNeedsRenewalError()
@@ -210,6 +264,9 @@ async function reconcileSession(renew: boolean, signal?: AbortSignal) {
         proof = await readProof()
       }
       if (proof.status !== 'current') {
+        if (proof.status !== 'current_access_expired') {
+          throw new AuthCookieSessionReauthenticationError()
+        }
         throw new AuthCookieBlockedError('uncertain')
       }
       const bundle = validateBundle(proof.bundle)

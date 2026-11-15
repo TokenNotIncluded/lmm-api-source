@@ -332,14 +332,18 @@ try {
   ]) {
     state = bad
     assert.equal(
-      await owner.evaluate(async () => {
+      await owner.evaluate(async (classification) => {
         try {
           await window.recovery.reconcileAuthCookieSession()
           return false
-        } catch {
-          return true
+        } catch (error) {
+          return classification === 'current_access_expired'
+            ? error instanceof
+                window.recovery.AuthCookieSessionNeedsRenewalError
+            : error instanceof
+                window.recovery.AuthCookieSessionReauthenticationError
         }
-      }),
+      }, bad),
       true
     )
     assert.equal(
@@ -352,8 +356,11 @@ try {
           try {
             await window.recovery.renewAuthCookieSession()
             return false
-          } catch {
-            return true
+          } catch (error) {
+            return (
+              error instanceof
+              window.recovery.AuthCookieSessionReauthenticationError
+            )
           }
         }),
         true
@@ -535,7 +542,7 @@ try {
   holdProbe = false
   state = 'previous'
   protocol = 'core.browser-session-reconciliation.v1'
-  status = 200
+  status = 503
   const uiContext = await browser.newContext()
   await uiContext.addCookies([
     {
@@ -569,6 +576,7 @@ try {
     .waitFor()
   const uiMarker = await ui.evaluate((k) => localStorage.getItem(k), key)
   state = 'current'
+  status = 200
   holdProbe = true
   unlockProbe = undefined
   await ui
@@ -612,6 +620,85 @@ try {
       .every((request) => request.expected === undefined)
   )
   await uiContext.close()
+
+  state = 'expired_previous'
+  const terminalContext = await browser.newContext()
+  await terminalContext.addCookies([
+    {
+      name: 'test_refresh',
+      value: 'original-current',
+      httpOnly: true,
+      url: origin,
+    },
+  ])
+  const terminal = await terminalContext.newPage()
+  await load(terminal)
+  await terminal.evaluate(() =>
+    window.cookie
+      .withAuthCookieLock((t) =>
+        t.request(() =>
+          window.axios.post('/late', {}, { timeout: 150, adapter: 'xhr' })
+        )
+      )
+      .catch(() => {})
+  )
+  await terminal.evaluate(() => window.mountRecoveryUI())
+  await terminal
+    .getByRole('button', { name: 'Recover browser session', exact: true })
+    .click()
+  await terminal
+    .getByText(
+      'This browser session is no longer available. Sign in again to continue.',
+      { exact: true }
+    )
+    .waitFor()
+  const terminalMarker = await terminal.evaluate(
+    (k) => localStorage.getItem(k),
+    key
+  )
+  await terminal
+    .getByRole('button', { name: 'Back to Home', exact: true })
+    .click()
+  await terminal.waitForURL((url) => url.pathname === '/')
+  assert.equal(
+    await terminal.evaluate((k) => localStorage.getItem(k), key),
+    terminalMarker
+  )
+  assert.equal(
+    await terminal.evaluate(
+      () => window.useCredentialStore.getState().auth.accessToken
+    ),
+    null
+  )
+  await terminal.reload()
+  await terminal.waitForFunction(() => Boolean(window.recovery))
+  await terminal.evaluate(() => window.mountRecoveryUI())
+  await terminal
+    .getByRole('button', { name: 'Sign in again', exact: true })
+    .click()
+  await terminal.waitForURL((url) => url.pathname === '/sign-in')
+  await terminal.waitForFunction(
+    (k) => localStorage.getItem(k) === null && Boolean(window.recovery),
+    key
+  )
+  assert.equal(
+    await terminal.evaluate(() =>
+      sessionStorage.getItem('lmm:auth-cookie-reconciliation:v1')
+    ),
+    null
+  )
+  assert.equal(refreshCount, 0)
+  assert.equal(
+    await terminal
+      .getByRole('button', { name: 'Sign in again', exact: true })
+      .count(),
+    0
+  )
+  evidence.cases.push(
+    'expired previous session offers a public-home exit and explicit full-document reauthentication without replaying refresh or repeating the recovery dead end'
+  )
+  await terminalContext.close()
+
   // A genuine browser Cookie mutation is separate evidence from read-only proof.
   holdRefresh = false
   postRefreshState = 'current'
@@ -664,7 +751,7 @@ try {
     .click()
   await badFinal.page
     .getByText(
-      'The server could not confirm a current browser session. Recovery has not completed.',
+      'This browser session is no longer available. Sign in again to continue.',
       { exact: true }
     )
     .waitFor()
