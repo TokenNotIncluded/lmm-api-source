@@ -156,8 +156,9 @@ prerelease。先更新 `VERSION`、Core 的精确 zconv 依赖和真实 crates.i
 
 `microservice-distribution.yml`、`linux-packages.yml`、`lmm.yml` 保留预览产物，
 不是正式 Release 或生产部署。不要为普通文档修改触发它们。正式发布另需来源、
-签名、目标平台与实际业务验收。旧单体发布、AUR、operator 与旧站点操作链路不再
-作为当前入口；历史证据保留在[归档索引](archive.md)。
+签名、目标平台与实际业务验收。影子站高频更新节奏与切域门槛见
+[native-shadow-hf-update](native-shadow-hf-update.md)。旧单体发布、AUR、operator
+与旧站点操作链路不再作为当前入口；历史证据保留在[归档索引](archive.md)。
 
 交付区分源码修改、程序构建、归档校验、安装、发布和部署。只报告实际完成的部分，
 不将较短指南或更少命令说成已测得的部署提速。
