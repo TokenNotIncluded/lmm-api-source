@@ -69,6 +69,23 @@ Choose the console page, interaction or navigation script for the changed behavi
 - [design rule] Give shrinking grid and flex children `min-width: 0`; wrap long labels and values at the owning component. Keep tables or code that require horizontal comparison inside a local scroll region. Their width must not force the surrounding page to scroll sideways.
 - [design rule] Separate sections with space and, where needed, a quiet surface or one divider. Reserve visible boundaries for controls and meaningful groups; do not stack decorative frames.
 
+### Settings workspace
+
+Settings use a quiet 15.5rem directory beside a form area with a 60rem maximum
+width. Below 1024px, a single directory button opens the existing sheet; the
+breadcrumb reserves space for it. Headings, fields and save actions share the
+page inset. Inputs have a 44px minimum height, while descriptions use readable
+13px text. Forms and returned read-only values become one column when their
+content container narrows.
+
+Site identity is always visible, with the name, address and logo fields beside
+a live name/address preview. Page content and legal documents use disclosures.
+Assistant settings use underline tabs. A quiet reset action and primary save
+action remain in the existing footer; drafts, validation, navigation guards and
+server-controlled writability retain their current behavior. These layout rules
+describe the implementation; they do not establish browser or production
+acceptance.
+
 ### Developer and wallet workspaces
 
 The developer page uses a sticky reference navigation column beside its integration workspace. At `62rem` or less in the `developers` container, navigation becomes a wrapping row above the workspace. A copyable API base URL precedes the request builder; protocol tabs span the builder. Model/prompt fields sit beside the code preview when the inner `developer-content` container reaches `44rem`, and stack below that width. Endpoint rows stack at `32rem` or less in the same inner container. These breakpoints follow usable workspace width rather than the browser viewport. Language selection and copying sit in the preview header. Fine rules separate workspace groups and endpoint rows, while the pricing and OAuth references retain their source links and expandable integration prompts.

@@ -263,12 +263,9 @@ function LimitedSettings({
         <LimitedOAuthRegistrationPolicy />
       ) : null}
       {visibleOptions.length > 0 ? (
-        <dl className='divide-y border'>
+        <dl className='settings-readonly-values'>
           {visibleOptions.map((option) => (
-            <div
-              key={option.key}
-              className='grid min-w-0 gap-2 p-4 sm:grid-cols-[minmax(0,1fr)_minmax(0,2fr)]'
-            >
+            <div key={option.key} className='settings-readonly-row'>
               <dt className='text-sm font-medium break-words'>
                 {option.key}
                 <span className='text-muted-foreground ml-2 text-xs'>

@@ -238,6 +238,21 @@
   line-height: 1.65;
 }
 
+.settings-readonly-values {
+  min-width: 0;
+}
+.settings-readonly-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 2fr);
+  gap: 0.75rem 2rem;
+  min-width: 0;
+  padding-block: 1.5rem;
+  border-bottom: 1px solid color-mix(in oklch, var(--border) 65%, transparent);
+}
+.settings-readonly-row:last-child {
+  border-bottom: 0;
+}
+
 .settings-disclosure {
   min-width: 0;
   border-top: 1px solid color-mix(in oklch, var(--border) 65%, transparent);
@@ -307,6 +322,9 @@
   .settings-identity-layout {
     grid-template-columns: minmax(0, 1fr);
     gap: 1.75rem;
+  }
+  .settings-readonly-row {
+    grid-template-columns: minmax(0, 1fr);
   }
   .settings-brand-caption {
     margin-bottom: 1.25rem;
