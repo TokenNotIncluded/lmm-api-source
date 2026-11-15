@@ -121,6 +121,7 @@ const server = createServer(async (req, res) => {
     res.end(
       JSON.stringify({
         success: true,
+        message: '',
         data: {
           protocol,
           status:

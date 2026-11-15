@@ -42,6 +42,7 @@ const handoffSchema = z
 const reconciliationSchema = z
   .object({
     success: z.literal(true),
+    message: z.string().optional(),
     data: z.discriminatedUnion('status', [
       z
         .object({
