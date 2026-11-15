@@ -224,7 +224,7 @@ async fn callback(
             || query
                 .iss
                 .as_deref()
-                .is_some_and(|iss| iss != provider.issuer())
+                .is_some_and(|iss| iss != provider.authorization_issuer())
             || (provider == ExternalProvider::Discord
                 && query.iss.as_deref() != Some(provider.issuer()))
         {

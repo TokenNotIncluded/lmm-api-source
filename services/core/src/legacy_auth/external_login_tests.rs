@@ -181,3 +181,92 @@ async fn rejected_callbacks_preserve_newer_flow_cookies() {
         );
     }
 }
+
+#[tokio::test]
+async fn github_callback_uses_as_issuer_without_changing_other_provider_contracts() {
+    let pool = sqlx::postgres::PgPoolOptions::new()
+        .acquire_timeout(Duration::from_millis(50))
+        .connect_lazy("postgres://unused@127.0.0.1:1/unused")
+        .unwrap();
+    for (provider, issuer, expected) in [
+        (
+            ExternalProvider::Github,
+            Some("https://github.com/login/oauth"),
+            StatusCode::SERVICE_UNAVAILABLE,
+        ),
+        (
+            ExternalProvider::Github,
+            Some("https://github.com"),
+            StatusCode::UNAUTHORIZED,
+        ),
+        (
+            ExternalProvider::Github,
+            Some("https://github.com/login/oauth/"),
+            StatusCode::UNAUTHORIZED,
+        ),
+        (
+            ExternalProvider::Github,
+            None,
+            StatusCode::SERVICE_UNAVAILABLE,
+        ),
+        (
+            ExternalProvider::LinuxDo,
+            Some("https://connect.linux.do"),
+            StatusCode::SERVICE_UNAVAILABLE,
+        ),
+        (ExternalProvider::Discord, None, StatusCode::UNAUTHORIZED),
+        (
+            ExternalProvider::Discord,
+            Some("https://discord.com"),
+            StatusCode::SERVICE_UNAVAILABLE,
+        ),
+    ] {
+        let store = IdentityStore::from_pool(pool.clone())
+            .with_account_links(false)
+            .with_external_oauth(
+                crate::identity::ExternalOAuth::new(
+                    provider,
+                    "test-client",
+                    "test-secret",
+                    &format!("https://app.example/oauth/{}", provider.slug()),
+                )
+                .unwrap(),
+            )
+            .unwrap();
+        let config = LegacyAuthConfig::new("https://app.example", &[41; 32]).unwrap();
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            header::COOKIE,
+            HeaderValue::from_str(&format!(
+                "{}={}",
+                cookie_name(provider, &config),
+                "b".repeat(64)
+            ))
+            .unwrap(),
+        );
+        let state = AuthState {
+            email: None,
+            browser: BrowserAuth::new(store.clone(), &[41; 32]).unwrap(),
+            store,
+            config,
+        };
+        let response = callback(
+            state,
+            headers,
+            Ok(ConnectInfo("127.0.0.1:18000".parse().unwrap())),
+            Ok(Query(Callback {
+                code: Some("synthetic-code".into()),
+                state: Some(format!("lmmo_{}", "a".repeat(64))),
+                error: None,
+                error_description: None,
+                iss: issuer.map(str::to_owned),
+                external_mfa: None,
+            })),
+            provider,
+        )
+        .await;
+        // A permitted issuer reaches only the closed loopback database, not GitHub.
+        assert_eq!(response.status(), expected);
+        assert!(!response.headers().contains_key(header::SET_COOKIE));
+    }
+}

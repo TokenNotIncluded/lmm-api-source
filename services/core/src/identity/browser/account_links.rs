@@ -31,6 +31,12 @@ impl AccountLinkProvider {
             Self::External(p) => p.issuer(),
         }
     }
+    pub fn authorization_issuer(self) -> &'static str {
+        match self {
+            Self::Google => GOOGLE,
+            Self::External(provider) => provider.authorization_issuer(),
+        }
+    }
 }
 #[derive(Serialize)]
 pub struct AccountBindStart {
@@ -216,7 +222,7 @@ impl BrowserAuth {
         if input
             .iss
             .as_deref()
-            .is_some_and(|issuer| issuer != provider.issuer())
+            .is_some_and(|issuer| issuer != provider.authorization_issuer())
             || matches!(
                 provider,
                 AccountLinkProvider::External(ExternalProvider::Discord)
@@ -411,5 +417,73 @@ impl BrowserAuth {
             .bind(subject)
             .fetch_one(c)
             .await?)
+    }
+}
+
+#[cfg(test)]
+mod issuer_tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn authorization_issuer_preserves_namespaces_and_binding_gate() {
+        let github = AccountLinkProvider::External(ExternalProvider::Github);
+        assert_eq!(ExternalProvider::Github.issuer(), "https://github.com");
+        assert_eq!(github.issuer(), "https://github.com");
+        assert_eq!(
+            github.authorization_issuer(),
+            "https://github.com/login/oauth"
+        );
+        for provider in [
+            AccountLinkProvider::Google,
+            AccountLinkProvider::External(ExternalProvider::LinuxDo),
+            AccountLinkProvider::External(ExternalProvider::Discord),
+        ] {
+            assert_eq!(provider.authorization_issuer(), provider.issuer());
+        }
+        let pool = sqlx::postgres::PgPoolOptions::new()
+            .acquire_timeout(std::time::Duration::from_millis(50))
+            .connect_lazy("postgres://unused@127.0.0.1:1/unused")
+            .unwrap();
+        let browser = BrowserAuth::new(
+            IdentityStore::from_pool(pool).with_account_links(true),
+            &[41; 32],
+        )
+        .unwrap();
+        for (provider, issuer, reaches_database) in [
+            (github, Some("https://github.com/login/oauth"), true),
+            (github, Some("https://github.com"), false),
+            (github, Some("https://github.com/login/oauth/"), false),
+            (github, None, true),
+            (
+                AccountLinkProvider::External(ExternalProvider::Discord),
+                None,
+                false,
+            ),
+        ] {
+            let result = browser
+                .finish_account_bind(
+                    "synthetic-access",
+                    provider,
+                    &"b".repeat(64),
+                    &AccountBindFinish {
+                        state: format!("lmmo_{}", "a".repeat(64)),
+                        code: "synthetic-code".into(),
+                        iss: issuer.map(str::to_owned),
+                    },
+                )
+                .await;
+            // The closed loopback database cannot succeed; no provider I/O occurs.
+            if reaches_database {
+                assert!(matches!(
+                    result,
+                    Err(BrowserAuthError::Identity(IdentityError::Storage))
+                ));
+            } else {
+                assert!(matches!(
+                    result,
+                    Err(BrowserAuthError::Identity(IdentityError::Unauthorized))
+                ));
+            }
+        }
     }
 }

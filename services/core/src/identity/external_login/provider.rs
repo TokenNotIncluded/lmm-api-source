@@ -42,6 +42,14 @@ impl ExternalProvider {
         }
     }
 
+    /// Authorization-response issuer; persistent identity namespaces stay unchanged.
+    pub fn authorization_issuer(self) -> &'static str {
+        match self {
+            Self::Github => "https://github.com/login/oauth",
+            _ => self.issuer(),
+        }
+    }
+
     /// GitHub documents S256, and Discord publishes it in its official metadata.
     /// Linux DO's documented confidential-client flow does not promise PKCE.
     pub fn uses_pkce(self) -> bool {
