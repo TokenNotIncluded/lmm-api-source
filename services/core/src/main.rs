@@ -35,6 +35,8 @@ Commands:\n\
                   core-account-appeals-v1 upgrades the fixed 41-component PostgreSQL 18 predecessor to 44 components.\n\
                   core-channel-accounting-v1 upgrades the fixed 42-component PostgreSQL 18 predecessor to 44 components.\n\
                   Earlier schema revisions require their matching preserved installer and reviewed procedure.\n\
+                  Additive 25->26 requires the preserved 26-component installer.\n\
+                  Legacy 24->25 trust-pricing requires the preserved 25-component installer.\n\
                   core-channel-projection-v1 upgrades the fixed 43-component PostgreSQL 18 predecessor to 44 components.\n\
                   core-trust-policy-edit-v1 upgrades the fixed 44-component PostgreSQL 18 predecessor to 45 components.\n\
                   core-channel-observations-v1 upgrades the fixed 45-component PostgreSQL 18 predecessor to 46 components.\n\
