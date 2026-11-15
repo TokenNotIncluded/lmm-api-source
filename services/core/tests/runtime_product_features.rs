@@ -20,9 +20,19 @@ async fn product_features_require_exact_grants_and_reject_excess_even_when_disab
         Err(RuntimeDatabaseError::MissingPrivileges)
     );
     role.optional("core_console").await;
-    product_features::check(&mut connection, true)
+    // Component 74 grants these exact rights even when Creem channels are off.
+    // Exercise the production upgrade fragment, not a hand-written fixture ACL.
+    let creem_grants = include_str!("../schema/subscription_creem_grants.sql")
+        .replace(":\"runtime_role\"", &role.name);
+    sqlx::raw_sql(sqlx::AssertSqlSafe(creem_grants))
+        .execute(&pool)
         .await
         .unwrap();
+    for required in [false, true] {
+        product_features::check(&mut connection, required)
+            .await
+            .unwrap();
+    }
     // Charging also supports model writers. Their legitimate larger authority
     // must not be rejected by the three product schemas' stricter checks.
     role.optional("core_charging").await;
@@ -31,6 +41,22 @@ async fn product_features_require_exact_grants_and_reject_excess_even_when_disab
         .unwrap();
 
     let alterations = [
+        (
+            "GRANT UPDATE(order_id) ON core_subscriptions.creem_state TO",
+            "REVOKE UPDATE(order_id) ON core_subscriptions.creem_state FROM",
+        ),
+        (
+            "GRANT UPDATE(result) ON core_subscriptions.creem_events TO",
+            "REVOKE UPDATE(result) ON core_subscriptions.creem_events FROM",
+        ),
+        (
+            "GRANT DELETE,TRUNCATE,MAINTAIN ON core_subscriptions.creem_cycles TO",
+            "REVOKE DELETE,TRUNCATE,MAINTAIN ON core_subscriptions.creem_cycles FROM",
+        ),
+        (
+            "GRANT EXECUTE ON FUNCTION core_subscriptions.check_creem_cycle() TO",
+            "REVOKE EXECUTE ON FUNCTION core_subscriptions.check_creem_cycle() FROM",
+        ),
         (
             "GRANT UPDATE(terms) ON core_subscriptions.plan_revisions TO",
             "REVOKE UPDATE(terms) ON core_subscriptions.plan_revisions FROM",
