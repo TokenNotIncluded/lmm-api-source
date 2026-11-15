@@ -62,9 +62,19 @@ async fn magpie_http_budget_tracks_family_pending_settled_refund_cancel_and_unkn
         amounts(&budget(&f,&next.access_token).await,40,0,40);
         f.charging.refund(&charge.id,"magpie-refund",10,"synthetic verified refund").await.unwrap();
         amounts(&budget(&f,&next.access_token).await,30,0,50);
-        // Family accounting must include settled charges older than rolling usage windows.
+        // Owner-only historical fixture for the lifetime projection; this is
+        // not elapsed-time acceptance. Restore the immutable guard atomically.
+        let mut historical=f.owner.begin().await.unwrap();
+        sqlx::query("ALTER TABLE core_charging.requests DISABLE TRIGGER request_identity")
+            .execute(&mut *historical).await.unwrap();
         sqlx::query("UPDATE core_charging.requests SET authorized_at=authorized_at-40*86400 WHERE id=$1")
-            .bind(&charge.id).execute(&f.owner).await.unwrap();
+            .bind(&charge.id).execute(&mut *historical).await.unwrap();
+        sqlx::query("ALTER TABLE core_charging.requests ENABLE TRIGGER request_identity")
+            .execute(&mut *historical).await.unwrap();
+        historical.commit().await.unwrap();
+        let enabled:String=sqlx::query_scalar("SELECT tgenabled::text FROM pg_trigger WHERE tgrelid='core_charging.requests'::regclass AND tgname='request_identity'")
+            .fetch_one(&f.owner).await.unwrap();
+        assert_eq!(enabled,"O");
         amounts(&budget(&f,&next.access_token).await,30,0,50);
         let canceled=f.reserve(&next.access_token,&f.spec("magpie-cancel",50),&[3;32]).await.unwrap();
         amounts(&budget(&f,&next.access_token).await,30,50,0);
@@ -203,6 +213,25 @@ async fn magpie_budget_rejects_wrong_authority_and_keeps_applications_installati
                 .await
                 .is_ok()
         );
+        let current = f
+            .application_token("lmm-magpie", "magpie", 30, &"d".repeat(64))
+            .await;
+        sqlx::query("UPDATE core_identity.developer_access SET granted=false WHERE user_id=$1")
+            .bind(f.user)
+            .execute(&f.owner)
+            .await
+            .unwrap();
+        assert!(
+            f.issuer
+                .managed_application_budget(&current.access_token)
+                .await
+                .is_err()
+        );
+        sqlx::query("UPDATE core_identity.developer_access SET granted=true WHERE user_id=$1")
+            .bind(f.user)
+            .execute(&f.owner)
+            .await
+            .unwrap();
         sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
             "REVOKE SELECT ON core_charging.requests FROM \"{}\"",
             f.role.name
@@ -351,5 +380,24 @@ async fn magpie_tcp_browser_consent_exchanges_strict_wire_and_live_budget(pool: 
         let response=f.client.post(format!("{}/api/oauth2/token",f.base)).header("content-type","application/x-www-form-urlencoded")
             .body("grant_type=refresh_token&client_id=lmm-magpie&installation_id=bad&rotation_id=bad&scope=models%3Ainvoke").send().await.unwrap();
         assert_eq!(response.status(),400);
+    }).await;
+}
+
+#[sqlx::test(migrations = false)]
+async fn magpie_http_model_dispatch_is_metered_by_its_own_family(pool: PgPool) {
+    pi::with_magpie_fixture(pool, true, |f| async move {
+        let token = f.application_token("lmm-magpie", "magpie", 900, &"e".repeat(64)).await;
+        let response = f.client.post(format!("{}/v1/chat/completions", f.base))
+            .bearer_auth(&token.access_token).header("x-lmm-group", "YWxsb3dlZA")
+            .json(&json!({"model":"provider-model","messages":[{"role":"user","content":"hello"}],"max_tokens":20}))
+            .send().await.unwrap();
+        assert_eq!(response.status(),200);
+        let body:Value=response.json().await.unwrap();
+        assert_eq!(body["choices"][0]["message"]["content"],"local synthetic answer");
+        assert_eq!(f.provider.hits.load(Ordering::SeqCst),1);
+        let matched:i64=sqlx::query_scalar("SELECT count(*) FROM core_charging.requests WHERE oauth_source->>'client_id'='lmm-magpie' AND oauth_family_id=$1 AND actor_user_id=$2 AND payer_account_id=$3 AND key_id IS NULL")
+            .bind(&token.grant_id).bind(f.user).bind(f.account).fetch_one(&f.owner).await.unwrap();
+        assert_eq!(matched,1);
+        amounts(&budget(&f,&token.access_token).await,49,0,851);
     }).await;
 }
