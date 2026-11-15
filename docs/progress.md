@@ -4,7 +4,7 @@
 
 ## 当前状态
 
-- **CI/CD 已重新启用并启动影子高频更新**：源码仓 GitHub Actions 曾为 `enabled=false`（手动 dispatch 长期 queued）；已用仓库权限 API 恢复为 `enabled=true` / `allowed_actions=all`。功能提交 `7812a9e6` 与 CI 疏通 `5cd295a7`（musl vendored OpenSSL、i18n `zh-CN`、Web format）已推送，父仓 gitlink 同步；push 已自动拉起 microkernel / MK-01 等路径门禁。本机构建并校验 extensions 包后安装到 ArchDmit 影子 `/usr/bin/lmm-extensions`（SHA `1b60cdcf…`），`lmm-extensions`/`lmm-core` active，旧 Go PID 196448 / `api.lmm.best` 200 未切。节奏与切域门槛见[影子高频更新](native-shadow-hf-update.md)。正式切域与支付通道开启仍需单独授权；CI 结论以 Actions 回读为准。
+- **CI/CD 已重新启用并启动影子高频更新**：源码仓 GitHub Actions 曾为 `enabled=false`（手动 dispatch 长期 queued）；已用仓库权限 API 恢复为 `enabled=true` / `allowed_actions=all`。功能提交 `7812a9e6`、CI 疏通 `5cd295a7`/`f5ea6ecf`/`31c08f1c`（musl vendored OpenSSL、i18n `zh-CN`、Web format、ubuntu-24.04、边界封印）已推送，父仓 gitlink 同步；push 已自动拉起路径门禁。本机构建并校验 extensions 包后安装到 **影子** 主机的 `lmm-extensions`（SHA `1b60cdcf…`），Extensions/Core active，正式生产入口未切。节奏与切域门槛见[影子高频更新](native-shadow-hf-update.md)（文档不绑定具体域名）。正式切域与支付通道开启仍需单独授权；CI 结论以 Actions 回读为准。站点特例细节只记本机私有证据，不写入开源合同。
 
 - **个人每日签到验证已接入源码**：Web/Go/Core 增加 120 秒随机挑战，默认每次新领取完成 Turnstile 和 Passkey 用户确认；Core 在同一事务中消费授权、记账并保存包含零奖励的每日回执。重试保留原操作、日期和金额，已到账优先恢复。新增第 75 组件及精确 74→75 离线升级，历史组件指纹保持不变。验证结果、启用配置与部署顺序见[签到防自动化](checkin-anti-automation.md)。本轮仅交付代码，不改变当前生产架构或替代生产验收。
 
