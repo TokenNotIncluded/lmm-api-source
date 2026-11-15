@@ -1,0 +1,184 @@
+---
+- name: Update configured application components
+  hosts: all
+  gather_facts: false
+  serial: 1
+  any_errors_fatal: true
+  vars:
+    deploy_states: []
+    deployment_ok: false
+    activation_started: false
+    rollback_ok: false
+  tasks:
+    - name: Require a provisioned deployment root
+      ansible.builtin.slurp:
+        src: '{{ deploy_root }}/.managed'
+      register: managed_root
+    - name: Check deployment ownership marker
+      ansible.builtin.assert:
+        that: (managed_root.content | b64decode | trim) == 'lmm-deployment-v1'
+    - name: Find transport scratch left by interrupted runs
+      ansible.builtin.find:
+        paths: '{{ deploy_root }}/.ansible-tmp'
+        patterns: 'ansible-tmp-*'
+        file_type: directory
+        age: 1h
+      register: stale_transport
+    - name: Remove expired transport scratch
+      ansible.builtin.file:
+        path: '{{ item.path }}'
+        state: absent
+      loop: '{{ stale_transport.files }}'
+      loop_control:
+        label: '{{ item.path | basename }}'
+
+    - name: Inspect existing component links
+      ansible.builtin.stat:
+        path: '{{ deploy_root }}/{{ item.name }}'
+        follow: false
+      loop: '{{ deploy_components }}'
+      loop_control:
+        label: '{{ item.name }}'
+      register: component_links
+    - name: Require managed active slots
+      ansible.builtin.assert:
+        that:
+          - item.stat.islnk | default(false)
+          - item.stat.lnk_source in [deploy_root + '/slots/' + item.item.name + '-a', deploy_root + '/slots/' + item.item.name + '-b']
+      loop: '{{ component_links.results }}'
+      loop_control:
+        label: '{{ item.item.name }}'
+    - name: Select the inactive slots
+      ansible.builtin.set_fact:
+        deploy_states: '{{ deploy_states + [item.item | combine({"previous": item.stat.lnk_source, "candidate": deploy_root + "/slots/" + item.item.name + ("-b" if item.stat.lnk_source.endswith("-a") else "-a")})] }}'
+      loop: '{{ component_links.results }}'
+      loop_control:
+        label: '{{ item.item.name }}'
+
+    - name: Deploy one host with bounded temporary storage
+      block:
+        - name: Remove interrupted inactive candidates
+          ansible.builtin.file:
+            path: '{{ item.candidate }}'
+            state: absent
+          loop: '{{ deploy_states }}'
+          loop_control:
+            label: '{{ item.name }}'
+        - name: Read free bytes on the actual deployment filesystem
+          ansible.builtin.command:
+            argv: [df, --output=avail, -B1, '{{ deploy_root }}']
+          changed_when: false
+          register: deployment_disk
+        - name: Reserve space for unpacking and transport
+          ansible.builtin.assert:
+            that: (deployment_disk.stdout_lines[-1] | int) > ((deploy_components | map(attribute='expanded_bytes') | sum) + (2 * (deploy_components | map(attribute='compressed_bytes') | sum)) + deploy_min_free_bytes)
+            fail_msg: Insufficient space on the deployment filesystem; active components are unchanged.
+        - name: Prepare the existing archive verifier
+          ansible.builtin.file:
+            path: '{{ deploy_root }}/.tools/{{ item }}'
+            state: directory
+            mode: '0755'
+          loop: [scripts, packaging]
+        - name: Copy the source-pinned verifier and archive specification
+          ansible.builtin.copy:
+            src: '{{ playbook_dir }}/../../{{ item }}'
+            dest: '{{ deploy_root }}/.tools/{{ item }}'
+            mode: '0644'
+          loop: [scripts/build-distribution.py, packaging/distribution.json]
+        - name: Stage each selected component
+          ansible.builtin.include_tasks: stage.yml
+          loop: '{{ deploy_states }}'
+          loop_control:
+            loop_var: component
+            label: '{{ component.name }}'
+        - name: Mark the activation boundary
+          ansible.builtin.set_fact:
+            activation_started: true
+        - name: Atomically select the verified component slots
+          ansible.builtin.file:
+            path: '{{ deploy_root }}/{{ item.name }}'
+            src: '{{ item.candidate }}'
+            state: link
+            force: true
+            follow: false
+          loop: '{{ deploy_states }}'
+          loop_control:
+            label: '{{ item.name }}'
+        - name: Restart only selected backend services
+          ansible.builtin.systemd_service:
+            name: '{{ item.service }}'
+            state: restarted
+          when: item.name != 'web'
+          loop: '{{ deploy_states }}'
+          loop_control:
+            label: '{{ item.name }}'
+        - name: Verify the selected runtime and entrypoints
+          ansible.builtin.include_tasks: verify.yml
+          loop: '{{ deploy_states }}'
+          loop_control:
+            loop_var: component
+            label: '{{ component.name }}'
+        - name: Replace the current deployment receipt
+          ansible.builtin.copy:
+            dest: '{{ deploy_root }}/last-deployment.json'
+            content: '{{ {"revision": deploy_revision, "components": deploy_states | map(attribute="name") | list, "status": "deployed"} | to_nice_json }}'
+            mode: '0644'
+        - name: Mark this host healthy
+          ansible.builtin.set_fact:
+            deployment_ok: true
+      rescue:
+        - name: Restore the preceding component links
+          ansible.builtin.file:
+            path: '{{ deploy_root }}/{{ item.name }}'
+            src: '{{ item.previous }}'
+            state: link
+            force: true
+            follow: false
+          when: activation_started
+          loop: '{{ deploy_states }}'
+          loop_control:
+            label: '{{ item.name }}'
+        - name: Restart the preceding backend programs
+          ansible.builtin.systemd_service:
+            name: '{{ item.service }}'
+            state: restarted
+          when: activation_started and item.name != 'web'
+          loop: '{{ deploy_states }}'
+          loop_control:
+            label: '{{ item.name }}'
+        - name: Confirm the preceding services recovered
+          ansible.builtin.uri:
+            url: '{{ item.health_url }}'
+            headers: '{{ item.health_headers | default({}) }}'
+            status_code: 200
+            timeout: 5
+          register: rollback_health
+          until: rollback_health.status | default(0) == 200
+          retries: 10
+          delay: 2
+          when: activation_started
+          loop: '{{ deploy_states }}'
+          loop_control:
+            label: '{{ item.name }}'
+        - name: Mark the rollback complete
+          ansible.builtin.set_fact:
+            rollback_ok: true
+        - name: Report the failed deployment
+          ansible.builtin.fail:
+            msg: Candidate rejected; the preceding component links have been restored. Later hosts were not deployed.
+      always:
+        - name: Delete uploaded component archives
+          ansible.builtin.file:
+            path: '{{ deploy_root }}/.incoming-{{ item.name }}.tar.gz'
+            state: absent
+          loop: '{{ deploy_states }}'
+          loop_control:
+            label: '{{ item.name }}'
+        - name: Remove the superseded or rejected slots
+          ansible.builtin.file:
+            path: '{{ item.previous if deployment_ok else item.candidate }}'
+            state: absent
+          when: deployment_ok or rollback_ok or not activation_started
+          loop: '{{ deploy_states }}'
+          loop_control:
+            label: '{{ item.name }}'

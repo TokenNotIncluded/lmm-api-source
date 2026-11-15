@@ -1,0 +1,41 @@
+---
+- name: Wait for the selected component health check
+  ansible.builtin.uri:
+    url: '{{ component.health_url }}'
+    headers: '{{ component.health_headers | default({}) }}'
+    status_code: 200
+    timeout: 5
+  register: component_health
+  until: component_health.status | default(0) == 200
+  retries: 10
+  delay: 2
+- name: Read the running backend process identity
+  ansible.builtin.command:
+    argv: [systemctl, show, '{{ component.service }}', --property=MainPID, --value]
+  when: component.name != 'web'
+  changed_when: false
+  register: backend_pid
+- name: Hash the running backend executable
+  ansible.builtin.stat:
+    path: '/proc/{{ backend_pid.stdout | trim }}/exe'
+    follow: true
+    checksum_algorithm: sha256
+  when: component.name != 'web'
+  register: backend_executable
+- name: Require the actual running binary to match the selected source artifact
+  ansible.builtin.assert:
+    that: backend_executable.stat.checksum == component.files['bin/lmm-' + component.name].sha256
+  when: component.name != 'web'
+- name: Read the served Web entrypoint
+  ansible.builtin.uri:
+    url: '{{ component.health_url }}'
+    headers: '{{ component.health_headers | default({}) }}'
+    return_content: true
+    status_code: 200
+    timeout: 5
+  when: component.name == 'web'
+  register: web_entrypoint
+- name: Require the served HTML to match the selected Web artifact
+  ansible.builtin.assert:
+    that: (web_entrypoint.content | hash('sha256')) == component.files['dist/index.html'].sha256
+  when: component.name == 'web'

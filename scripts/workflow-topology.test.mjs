@@ -125,6 +125,17 @@ test('automatic checks and explicit source-release requests have bounded trigger
       assert.deepEqual(events, ['workflow_dispatch', 'push']);
       assert.match(block[1], /push:\n    branches: \[main\]\n    paths: \[\.github\/source-release-request\.json\]/);
       assert.doesNotMatch(source, /pull_request_target|id-token: write|environment: production/);
+    } else if (file === 'deploy.yml') {
+      // Deployment is explicitly authorized for configured environments, with no branch-push or PR trigger.
+      assert.deepEqual(events, ['workflow_dispatch', 'push']);
+      assert.match(block[1], /tags: \['v\*', 'shadow-v\*'\]/);
+      assert.doesNotMatch(block[1], /branches:|pull_request|schedule:/);
+      assert.match(source, /DEPLOY_TARGETS: \$\{\{ vars\.DEPLOY_TARGETS \}\}/);
+      assert.match(source, /git merge-base --is-ancestor HEAD origin\/main/);
+      assert.match(source, /needs: \[plan, build\]/);
+      assert.match(source, /cancel-in-progress: false/);
+      assert.match(source, /ANSIBLE_HOST_KEY_CHECKING: 'True'/);
+      assert.doesNotMatch(source, /ArchDmit|DmitUbuntu|native\.api\.lmm\.best|contents: write|id-token: write/);
     } else if (file === 'layout-reflow-review.yml') {
       // The existing UI fixture workflow is automatic and read-only.
       assert.deepEqual(events, ['workflow_dispatch', 'push', 'pull_request']);

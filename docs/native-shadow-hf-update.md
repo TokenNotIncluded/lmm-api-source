@@ -7,11 +7,23 @@
 ## 合同边界
 
 - 自动允许：路径命中的 microkernel / MK 门禁（push/PR）。
+- 影子自动部署：[`deploy.yml`](../.github/workflows/deploy.yml) 接受手动触发及 `v*` / `shadow-v*` tag；服务器、组件、目录和探针由环境变量描述，见[通用部署配置](../deployment/automation/README.md)。普通 main push 不部署，不执行生产切流。
 - 必须手动：`ci.yml`、`linux-packages.yml`、`microservice-distribution.yml`、`microservice-images.yml`、`server-release-qualification.yml`（仅 `workflow_dispatch` / `workflow_call`）。
 - 禁止：CI 直推生产、工作流硬编码域名、无授权资金动作。
 - 拓扑断言：`node --test scripts/workflow-topology.test.mjs`。
 
-## 推荐节奏
+## 自动更新
+
+配置 `DEPLOY_TARGETS`、`DEPLOY_ENVIRONMENT`、`DEPLOY_KNOWN_HOSTS` 和环境 Secret
+`DEPLOY_SSH_PRIVATE_KEY` 后，手动运行 `deploy.yml`，或推送来源属于 main 的
+版本 tag。工作流构建固定源码的所选组件，验证归档，按目标顺序部署并检查实际运行
+进程/静态页面。Core 更新前只执行 `check-db`；不自动升级 schema。
+
+运行主机只在事务期间保留当前和候选两个固定槽位；成功立即删除旧槽位和上传包，
+失败回滚通过后删除候选。中断后下一次更新清理非活动候选。回滚失败时保留必要的
+两份恢复材料并报失败，不继续后续服务器，也不积累按版本命名的历史目录。
+
+## 手工组件更新
 
 1. 本地定向自测 → 提交并推送 `main`。
 2. 确认 GitHub Actions 已启用；路径命中的门禁应自动跑。

@@ -1,0 +1,48 @@
+---
+- name: Upload the component archive
+  ansible.builtin.copy:
+    src: '{{ component.archive }}'
+    dest: '{{ deploy_root }}/.incoming-{{ component.name }}.tar.gz'
+    mode: '0644'
+- name: Calculate the received archive digest
+  ansible.builtin.stat:
+    path: '{{ deploy_root }}/.incoming-{{ component.name }}.tar.gz'
+    checksum_algorithm: sha256
+  register: received_archive
+- name: Require the exact CI artifact
+  ansible.builtin.assert:
+    that: received_archive.stat.checksum == component.sha256
+- name: Verify the archive against its source revision before extraction
+  ansible.builtin.command:
+    argv:
+      - '{{ ansible_python_interpreter }}'
+      - '{{ deploy_root }}/.tools/scripts/build-distribution.py'
+      - verify
+      - '{{ deploy_root }}/.incoming-{{ component.name }}.tar.gz'
+      - --revision
+      - '{{ deploy_revision }}'
+  changed_when: false
+- name: Create the inactive slot
+  ansible.builtin.file:
+    path: '{{ component.candidate }}'
+    state: directory
+    mode: '0755'
+- name: Unpack the verified archive
+  ansible.builtin.unarchive:
+    src: '{{ deploy_root }}/.incoming-{{ component.name }}.tar.gz'
+    dest: '{{ component.candidate }}'
+    remote_src: true
+- name: Require Core database compatibility without initializing or migrating
+  ansible.builtin.command:
+    argv:
+      - runuser
+      - -u
+      - '{{ component.user }}'
+      - --
+      - '{{ component.candidate }}/bin/lmm-core'
+      - --config
+      - '{{ component.config }}'
+      - check-db
+  when: component.name == 'core'
+  changed_when: false
+  no_log: true

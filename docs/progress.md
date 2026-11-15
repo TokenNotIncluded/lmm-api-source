@@ -4,6 +4,8 @@
 
 ## 当前状态
 
+- **通用影子部署工作流**：新增 `deploy.yml`，由环境变量描述服务器与组件，支持手动选择及 `v*` / `shadow-v*` tag 自动更新，普通 main push 不部署。复用固定来源归档校验，Core 先检查现有数据库合同；逐台更新、检查实际运行二进制/HTML，失败恢复原组件。服务器只保留活动槽位，候选仅在事务期间存在，成功或回滚通过后删除旧/失败槽位与上传包；不自动初始化、升级数据库或切换生产入口。目标规划、工作流边界/语法及真实临时 HTTP 更新、503 回滚和清理自测通过；GitHub 环境已配置，真实服务器调度尚未完成。配置见[部署说明](../deployment/automation/README.md)。会话恢复源码 `a521eefc` 的 15 项浏览器路径和 11 项定向测试自测通过，仍待实际影子页面回读。
+
 - **设置页界面重排（源码已提交，未部署）**：[`35aebd9`](https://github.com/TokenNotIncluded/lmm-api-source/commit/35aebd98a4f5a878a5af21dacb75429413ad0506) 统一设置目录、标题/表单/保存区对齐，品牌与地址直接编辑，页面内容和协议按需展开，助手改用下划线标签；[`58ad5b8`](https://github.com/TokenNotIncluded/lmm-api-source/commit/58ad5b8fdd1ce7ef0b288f67f7251547e409a9c7) 同步只读值排版与设计规范。导航 5 项、权限/草稿/保存刷新 13 项开发自测通过；只读排版补充后相关 13 项再次通过，不重复计数。范围格式和差异检查通过，lint 无错误、1 条 refs 警告，i18n 同步无语言文件变化。固定 `58ad5b8` 的生产构建与包体检查通过，首屏 gzip 586,190 字节（上限 786,432）；构建记录随交付保存。两次全站类型检查被环境 SIGKILL 终止（137）；系统 Chromium 启动受限，官方 headless-shell 下载失败，云端浏览器无法访问本地预览，真实截图与视觉自检尚未完成。已做开发自测，独立验收未运行。
 
 - **CI/CD 已重新启用并启动影子高频更新**：源码仓 GitHub Actions 曾为 `enabled=false`；已恢复为 `enabled=true`。功能与 CI 疏通至 `7ffa461a`（含 Rocky `diffutils`/cmp、assistant 合同 v3、walletupgrade 无 initdb 跳过、Web curly/重复 import）。父仓 gitlink 同步。本机构建并校验 extensions 后装到影子主机（SHA `c62c6c13…`），Extensions/Core active，旧生产进程未动。节奏见[影子高频更新](native-shadow-hf-update.md)（不绑定具体域名）。正式切域与支付仍需单独授权；CI 以 Actions 回读为准。站点特例只记本机私有证据。
