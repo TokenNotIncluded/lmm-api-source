@@ -76,7 +76,11 @@ impl Encoder {
         let usage = &self.usage;
         usage.validate()?;
         if self.client == ClientProtocol::Anthropic {
-            let input = if usage.cache_creation_mode
+            // Inclusive Core counters cannot recover an uncached count when a
+            // cache subset is Missing. Use the validated original native counter.
+            let input = if let Some(input) = self.anthropic_input_tokens {
+                input
+            } else if usage.cache_creation_mode
                 == Some(crate::routing::CacheCreationMode::GenericRemainderV1)
             {
                 usage

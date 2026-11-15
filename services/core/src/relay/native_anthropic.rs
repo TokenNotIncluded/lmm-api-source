@@ -666,6 +666,8 @@ impl NativeEncoder {
                     out.push(self.packet("content_block_stop", json!({"index":i}))?);
                 }
             }
+            // This legacy test-only writer does not own native projection evidence.
+            Event::AnthropicInputTokens(_) => {}
             Event::Usage(u) => {
                 self.usage.merge(u.clone())?;
                 if self

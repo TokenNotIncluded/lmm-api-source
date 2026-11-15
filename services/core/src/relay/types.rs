@@ -1207,6 +1207,8 @@ pub(crate) enum Event {
     },
     EndBlock(usize),
     Usage(Usage),
+    /// Raw Anthropic input for native wire projection only, never billing usage.
+    AnthropicInputTokens(u64),
     /// OpenRouter Chat image payloads; never text or token-usage evidence.
     Images(Vec<Value>),
     GroundingMetadata(Value),

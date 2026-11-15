@@ -362,7 +362,7 @@ fn full(p: UpstreamProtocol) -> Value {
             {"id":"msg_1","type":"message","role":"assistant","content":[{"type":"output_text","text":"鲸鱼","annotations":[]}]},
             {"id":"fc_1","type":"function_call","call_id":"call_1","name":"weather","arguments":args.to_string()}],"usage":openai_usage(false)}),
         UpstreamProtocol::Anthropic => {
-            json!({"id":"up_1","type":"message","content":[{"type":"thinking","thinking":"think","signature":"signed_thinking"},
+            json!({"id":"up_1","type":"message","role":"assistant","model":"upstream-real","content":[{"type":"thinking","thinking":"think","signature":"signed_thinking"},
             {"type":"text","text":"鲸鱼"},{"type":"tool_use","id":"call_1","name":"weather","input":args}],"stop_reason":"tool_use",
             "usage":{"input_tokens":7,"cache_read_input_tokens":3,"output_tokens":5}})
         }
@@ -408,39 +408,49 @@ fn streaming(p: UpstreamProtocol) -> Vec<u8> {
                 json!({"type":"response.output_item.added","output_index":0,"item":{"type":"reasoning","id":"rs_1","summary":[]}}),
             ),
             event(
-                json!({"type":"response.reasoning_summary_part.added","output_index":0,"summary_index":0,"part":{"type":"summary_text","text":""}}),
+                json!({"type":"response.reasoning_summary_part.added","item_id":"rs_1","output_index":0,"summary_index":0,"part":{"type":"summary_text","text":""}}),
             ),
             event(
-                json!({"type":"response.reasoning_summary_text.delta","output_index":0,"summary_index":0,"delta":"think"}),
+                json!({"type":"response.reasoning_summary_text.delta","item_id":"rs_1","output_index":0,"summary_index":0,"delta":"think"}),
             ),
             event(
-                json!({"type":"response.reasoning_summary_part.done","output_index":0,"summary_index":0}),
+                json!({"type":"response.reasoning_summary_part.done","item_id":"rs_1","output_index":0,"summary_index":0,"part":{"type":"summary_text","text":"think"}}),
+            ),
+            event(
+                json!({"type":"response.output_item.done","output_index":0,"item":{"type":"reasoning","id":"rs_1","status":"completed","summary":[{"type":"summary_text","text":"think"}]}}),
             ),
             event(
                 json!({"type":"response.output_item.added","output_index":1,"item":{"type":"message","id":"msg_1","role":"assistant","content":[]}}),
             ),
             event(
-                json!({"type":"response.content_part.added","output_index":1,"content_index":0,"part":{"type":"output_text","text":"","annotations":[]}}),
+                json!({"type":"response.content_part.added","item_id":"msg_1","output_index":1,"content_index":0,"part":{"type":"output_text","text":"","annotations":[]}}),
             ),
             event(
-                json!({"type":"response.output_text.delta","output_index":1,"content_index":0,"delta":"鲸鱼"}),
+                json!({"type":"response.output_text.delta","item_id":"msg_1","output_index":1,"content_index":0,"delta":"鲸鱼"}),
             ),
-            event(json!({"type":"response.content_part.done","output_index":1,"content_index":0})),
+            event(
+                json!({"type":"response.content_part.done","item_id":"msg_1","output_index":1,"content_index":0,"part":{"type":"output_text","text":"鲸鱼","annotations":[]}}),
+            ),
+            event(
+                json!({"type":"response.output_item.done","output_index":1,"item":{"type":"message","id":"msg_1","status":"completed","role":"assistant","content":[{"type":"output_text","text":"鲸鱼","annotations":[]}]}}),
+            ),
             event(
                 json!({"type":"response.output_item.added","output_index":2,"item":{"type":"function_call","id":"fc_1","call_id":"call_1","name":"weather","arguments":""}}),
             ),
             event(
-                json!({"type":"response.function_call_arguments.delta","output_index":2,"delta":"{\"city\":\""}),
+                json!({"type":"response.function_call_arguments.delta","item_id":"fc_1","output_index":2,"delta":"{\"city\":\""}),
             ),
             event(
-                json!({"type":"response.function_call_arguments.delta","output_index":2,"delta":"上海\"}"}),
+                json!({"type":"response.function_call_arguments.delta","item_id":"fc_1","output_index":2,"delta":"上海\"}"}),
             ),
             event(
-                json!({"type":"response.function_call_arguments.done","output_index":2,"arguments":"{\"city\":\"上海\"}"}),
+                json!({"type":"response.function_call_arguments.done","item_id":"fc_1","output_index":2,"arguments":"{\"city\":\"上海\"}"}),
             ),
-            event(json!({"type":"response.output_item.done","output_index":2})),
             event(
-                json!({"type":"response.completed","response":{"id":"up_1","status":"completed","usage":openai_usage(false)}}),
+                json!({"type":"response.output_item.done","output_index":2,"item":{"type":"function_call","id":"fc_1","call_id":"call_1","name":"weather","arguments":"{\"city\":\"上海\"}","status":"completed"}}),
+            ),
+            event(
+                json!({"type":"response.completed","response":full(UpstreamProtocol::Responses)}),
             ),
         ]),
         UpstreamProtocol::Anthropic => cat(vec![
@@ -552,6 +562,13 @@ fn assert_output(client: ClientProtocol, stream: bool, body: &str) {
                 .unwrap();
             assert_eq!(terminal["delta"]["stop_reason"], "tool_use");
             assert_eq!(terminal["usage"]["output_tokens"], 5);
+            assert_eq!(terminal["usage"]["input_tokens"], 7);
+            assert_eq!(terminal["usage"]["cache_read_input_tokens"], 3);
+            assert!(
+                terminal["usage"]
+                    .get("cache_creation_input_tokens")
+                    .is_none()
+            );
             events
                 .iter()
                 .find(|e| e["type"] == "message_start")
@@ -568,6 +585,13 @@ fn assert_output(client: ClientProtocol, stream: bool, body: &str) {
             assert_eq!(tool["name"], "weather");
             assert_eq!(tool["input"], json!({"city":"上海"}));
             assert_eq!(response["usage"]["output_tokens"], 5);
+            assert_eq!(response["usage"]["input_tokens"], 7);
+            assert_eq!(response["usage"]["cache_read_input_tokens"], 3);
+            assert!(
+                response["usage"]
+                    .get("cache_creation_input_tokens")
+                    .is_none()
+            );
             response
         };
         assert_eq!(response["model"], "public-model");
@@ -1111,6 +1135,8 @@ async fn concurrent_protocol_json_sse_load() {
                 "each request must finalize exactly once"
             );
             assert_eq!(money.finals.lock().unwrap().len(), count);
+            let drained = relay.drain(Duration::from_secs(1)).await;
+            assert_eq!((drained.cancelled, drained.remaining), (0, 0));
             assert_eq!(relay.active_requests(), 0);
             latency.sort_unstable();
             println!(
@@ -1981,7 +2007,7 @@ fn unsupported_or_ambiguous_input_and_invalid_routes_fail_closed() {
     for v in [
         json!({"model":"x","messages":[],"n":2}),
         json!({"model":"x","messages":[],"unknown":true}),
-        json!({"model":"x","messages":[{"role":"user","content":[{"type":"image_url","image_url":{"url":"https://example.com/x"}}]}]}),
+        json!({"model":"x","messages":[{"role":"user","content":[{"type":"image_url","image_url":{"url":"file:///tmp/unbound-image"}}]}]}),
         json!({"model":"x","messages":[{"role":"tool","tool_call_id":"orphan","content":"result"}]}),
         json!({"model":"x","messages":[],"max_tokens":1,"max_completion_tokens":2}),
         json!({"model":"x","messages":[],"store":true}),

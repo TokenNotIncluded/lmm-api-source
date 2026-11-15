@@ -98,7 +98,9 @@ impl Decoder {
                     u64::from(key.part)
                 },
             ),
-            UpstreamProtocol::Gemini => (u64::from(block == Kind::Reasoning), 0),
+            // zconv 0.3 signatures retain the text/thought key, but their
+            // block field defaults to Text. Match the key used by the delta.
+            UpstreamProtocol::Gemini => (u64::from(key.index == u32::MAX - 2), 0),
         }
     }
     fn images(&mut self, value: Value, out: &mut Vec<Event>) -> Result<(), RelayError> {
@@ -193,6 +195,11 @@ impl Decoder {
             let mut usage = self.usage(receipt)?;
             if self.protocol == UpstreamProtocol::Gemini {
                 usage.google_search_grounded_requests = self.gemini_grounded_requests;
+            }
+            if self.protocol == UpstreamProtocol::Anthropic
+                && let Some(input) = super::counter(receipt, "input_tokens")?
+            {
+                out.push(Event::AnthropicInputTokens(input));
             }
             out.push(Event::Usage(usage));
         } else if self.protocol == UpstreamProtocol::Gemini

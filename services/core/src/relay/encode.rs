@@ -33,6 +33,7 @@ pub(crate) struct Encoder {
     continuation: Option<String>,
     stop_sequence: Option<String>,
     usage: Usage,
+    anthropic_input_tokens: Option<u64>,
     finish: Option<FinishReason>,
     bytes: usize,
     limits: Limits,
@@ -91,6 +92,7 @@ impl Encoder {
             continuation: None,
             stop_sequence: None,
             usage: Usage::default(),
+            anthropic_input_tokens: None,
             finish: None,
             bytes: 0,
             limits: limits.clone(),
@@ -159,7 +161,11 @@ impl Encoder {
                 {
                     return Err(RelayError::Protocol("invalid output block index"));
                 }
-                if self.client == ClientProtocol::Anthropic && self.blocks.iter().any(|b| !b.ended)
+                // Complete JSON responses buffer every block until terminal
+                // validation. Only the native stream requires serial blocks.
+                if self.stream
+                    && self.client == ClientProtocol::Anthropic
+                    && self.blocks.iter().any(|b| !b.ended)
                 {
                     return Err(RelayError::Protocol("invalid block order"));
                 }
@@ -279,6 +285,12 @@ impl Encoder {
                     return Err(RelayError::Unsupported("unsigned native thinking"));
                 }
                 b.ended = true;
+            }
+            Event::AnthropicInputTokens(input) => {
+                if self.anthropic_input_tokens.is_some_and(|old| *input < old) {
+                    return Err(RelayError::Protocol("decreasing native input usage"));
+                }
+                self.anthropic_input_tokens = Some(*input);
             }
             Event::Usage(usage) => {
                 self.usage.merge(usage.clone())?;

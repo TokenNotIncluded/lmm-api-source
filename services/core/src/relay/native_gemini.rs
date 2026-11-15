@@ -608,6 +608,8 @@ impl NativeEncoder {
                     output_part = Some(Self::part(b)?);
                 }
             }
+            // This legacy test-only writer does not own native projection evidence.
+            Event::AnthropicInputTokens(_) => {}
             Event::Usage(u) => {
                 if !self.started {
                     return Err(RelayError::Protocol("usage before Gemini start"));

@@ -256,6 +256,7 @@ impl Writer {
             // zconv to validate a partial JSON object as a successful tool.
             Event::EndBlock(_)
             | Event::Usage(_)
+            | Event::AnthropicInputTokens(_)
             | Event::Finish(_)
             | Event::Done
             | Event::GroundingMetadata(_)
@@ -372,6 +373,7 @@ impl Encoder {
         }
         if self.client == ClientProtocol::Anthropic {
             self.native_usage()?;
+            wire.uncached_input = self.anthropic_input_tokens.or(wire.uncached_input);
             // Native Anthropic has no separate reasoning counter.
             wire.reasoning = None;
         }
