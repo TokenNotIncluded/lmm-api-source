@@ -340,6 +340,7 @@ impl Eligibility {
 mod policy;
 use policy::{Action, Policy};
 
+#[cfg(test)]
 pub(crate) fn validate_policy(source: &str) -> Result<(), SetupError> {
     Policy::parse(source).map(|_| ())
 }
