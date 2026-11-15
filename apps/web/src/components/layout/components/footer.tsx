@@ -142,7 +142,10 @@ function ComplianceLinks() {
             {item.label}
           </Link>
         ))}
-        <Link to='/support' className='hover:text-foreground font-medium transition-colors duration-200'>
+        <Link
+          to='/support'
+          className='hover:text-foreground font-medium transition-colors duration-200'
+        >
           {t('Customer Support')}
         </Link>
       </div>
@@ -184,8 +187,9 @@ export function Footer(props: FooterProps) {
     footerHtml,
     demoSiteEnabled,
   } = useSystemConfig()
+  const isHomeSurface = pathname === '/'
   const isForgeSurface =
-    pathname === '/' ||
+    isHomeSurface ||
     pathname.startsWith('/challenges') ||
     pathname.startsWith('/pricing') ||
     pathname.startsWith('/rankings') ||
@@ -299,9 +303,17 @@ export function Footer(props: FooterProps) {
               <Link
                 to='/'
                 aria-label={displayName}
-                className='focus-visible:ring-ring inline-flex min-h-11 max-w-full items-center gap-2.5 focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:outline-none'
+                className={cn(
+                  'focus-visible:ring-ring inline-flex min-h-11 max-w-full items-center gap-2.5 focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:outline-none',
+                  isHomeSurface && 'lmm-brand-hover min-w-11'
+                )}
               >
-                {showsDefaultWordmark ? (
+                {isHomeSurface ? (
+                  <BrandLogo
+                    src={displayLogo}
+                    className='lmm-brand-icon size-11 shrink-0 object-contain'
+                  />
+                ) : showsDefaultWordmark ? (
                   <LmmBrandWordmark
                     className='h-7 w-auto max-w-full'
                     aria-hidden='true'
@@ -386,7 +398,10 @@ export function Footer(props: FooterProps) {
                   >
                     {t('Privacy Policy')}
                   </Link>
-                  <Link to='/support' className='text-muted-foreground hover:text-primary block transition-colors duration-150'>
+                  <Link
+                    to='/support'
+                    className='text-muted-foreground hover:text-primary block transition-colors duration-150'
+                  >
                     {t('Customer Support')}
                   </Link>
                 </div>

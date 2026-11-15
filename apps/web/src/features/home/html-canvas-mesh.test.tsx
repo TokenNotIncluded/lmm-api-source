@@ -165,11 +165,12 @@ test('unsupported browsers keep one complete DOM scene and real links', async ()
   assert.equal(host.querySelectorAll('a[href="/pricing"]').length, 5)
   assert.equal(host.querySelectorAll('a[href="/guide"]').length, 2)
   assert.equal(
-    host.querySelector('.lmm-mesh-core-name')?.textContent,
+    host.querySelector('.lmm-mesh-core')?.getAttribute('aria-label'),
     'Tenant Studio'
   )
+  assert.equal(host.textContent?.includes('Tenant Studio'), false)
   assert.equal(
-    host.querySelector('.lmm-mesh-brand')?.getAttribute('src'),
+    host.querySelector('.lmm-mesh-brand img')?.getAttribute('src'),
     'https://assets.example.test/logo.svg'
   )
   const stage = host.querySelector<HTMLElement>('.lmm-mesh-stage')
@@ -231,9 +232,10 @@ test('a native snapshot failure restores the usable DOM scene', async () => {
   assert.equal(host.querySelectorAll('.lmm-mesh-scene').length, 1)
   assert.equal(host.querySelectorAll('a').length, 7)
   assert.equal(
-    host.querySelector('.lmm-mesh-core-name')?.textContent,
+    host.querySelector('.lmm-mesh-core')?.getAttribute('aria-label'),
     'Tenant Studio'
   )
+  assert.equal(host.textContent?.includes('Tenant Studio'), false)
   await cleanup()
   failSnapshot = false
   assert.equal(observers, 0)

@@ -41,6 +41,24 @@ For commercial licensing, please contact support@quantumnous.com
     padding-top: env(safe-area-inset-top);
   }
 
+  @media (prefers-reduced-motion: no-preference) {
+    .lmm-brand-icon {
+      transition: transform 280ms cubic-bezier(0.2, 0.8, 0.2, 1);
+    }
+
+    .lmm-brand-hover:focus-visible .lmm-brand-icon,
+    .lmm-mesh-stage:has(.lmm-mesh-core:focus-visible) .lmm-brand-icon {
+      transform: translateY(-2px) rotate(-6deg) scale(1.08);
+    }
+
+    @media (hover: hover) and (pointer: fine) {
+      .lmm-brand-hover:hover .lmm-brand-icon,
+      .lmm-mesh-stage:has(.lmm-mesh-core:hover) .lmm-brand-icon {
+        transform: translateY(-2px) rotate(-6deg) scale(1.08);
+      }
+    }
+  }
+
   .public-mobile-navigation {
     padding-top: calc(5rem + env(safe-area-inset-top));
     padding-bottom: max(2.5rem, env(safe-area-inset-bottom));

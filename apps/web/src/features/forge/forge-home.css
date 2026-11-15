@@ -867,31 +867,14 @@
 }
 .lmm-footer-brand {
   display: block;
+  width: fit-content;
   padding-block: clamp(1.25rem, 4vw, 3rem);
   color: var(--foreground);
 }
-.lmm-footer-wordmark {
+.lmm-footer-logo {
   display: block;
-  width: 100%;
-  height: auto;
-}
-.lmm-footer-custom-brand {
-  display: flex;
-  align-items: center;
-  gap: clamp(1rem, 3vw, 2rem);
-  font-size: clamp(2rem, 7vw, 6rem);
-  font-weight: 650;
-  line-height: 1.1;
-  letter-spacing: -0.03em;
-}
-.lmm-footer-custom-brand > span {
-  min-width: 0;
-  overflow-wrap: anywhere;
-}
-.lmm-footer-custom-logo {
-  flex: 0 0 auto;
-  width: clamp(2.75rem, 8vw, 7rem);
-  height: clamp(2.75rem, 8vw, 7rem);
+  width: clamp(3.5rem, 7vw, 6rem);
+  height: clamp(3.5rem, 7vw, 6rem);
   object-fit: contain;
 }
 .lmm-copy-button {

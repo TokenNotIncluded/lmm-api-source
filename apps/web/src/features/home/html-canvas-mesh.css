@@ -115,15 +115,6 @@
   border-color: var(--mesh-metal);
 }
 
-.lmm-mesh-core-name {
-  max-width: 100%;
-  font-size: 0.95rem;
-  font-weight: 550;
-  letter-spacing: -0.02em;
-  text-align: center;
-  overflow-wrap: anywhere;
-}
-
 .lmm-mesh-core-caption {
   color: var(--muted-foreground);
   font-size: 0.7rem;
@@ -133,14 +124,20 @@
 
 .lmm-mesh-brand {
   position: absolute;
-  top: calc(50% - 3.25rem);
+  top: calc(50% - 2.5rem);
   left: 50%;
   width: 3rem;
   height: 3rem;
   transform: translateX(-50%);
-  object-fit: contain;
   color: var(--foreground);
   pointer-events: none;
+}
+
+.lmm-mesh-brand > .lmm-brand-icon {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
 }
 
 .lmm-mesh-caption {
@@ -195,10 +192,6 @@
     height: 7.25rem;
     padding: 0.8rem 0.4rem;
     gap: 0.3rem;
-  }
-
-  .lmm-mesh-core-name {
-    font-size: 0.8rem;
   }
 
   .lmm-mesh-core-caption {

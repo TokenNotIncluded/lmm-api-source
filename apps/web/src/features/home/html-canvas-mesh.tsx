@@ -241,8 +241,11 @@ export function HtmlCanvasMesh({
           </Node>
         )
       })}
-      <CoreNode className='lmm-mesh-core' href={guideHref ?? undefined}>
-        <span className='lmm-mesh-core-name'>{brandName}</span>
+      <CoreNode
+        className='lmm-mesh-core'
+        href={guideHref ?? undefined}
+        aria-label={brandName}
+      >
         <span className='lmm-mesh-core-caption'>{t('One endpoint')}</span>
       </CoreNode>
     </div>
@@ -263,7 +266,9 @@ export function HtmlCanvasMesh({
           scene
         )}
         {/* Custom tenant logos remain ordinary images, including cross-origin ones. */}
-        <BrandLogo src={brandLogo} className='lmm-mesh-brand' alt='' />
+        <span className='lmm-mesh-brand' aria-hidden='true'>
+          <BrandLogo src={brandLogo} className='lmm-brand-icon' />
+        </span>
       </div>
       <figcaption className='lmm-mesh-caption'>
         <span>{t('API Endpoints')}</span>

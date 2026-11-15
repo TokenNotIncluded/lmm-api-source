@@ -19,12 +19,9 @@ For commercial licensing, please contact support@quantumnous.com
 import type { ReactNode, Ref } from 'react'
 
 import { BrandLogo } from '@/components/brand-logo'
-import { LMM_BRAND_NAME } from '@/components/lmm-brand-mark'
-import { LmmBrandWordmark } from '@/components/lmm-brand-wordmark'
 import { Button } from '@/components/ui/button'
 import type { ConnectionMethod } from '@/features/onboarding/next-step'
 import { RepositoryLink } from '@/features/repositories/repository-link'
-import { DEFAULT_LOGO, DEFAULT_SYSTEM_NAME } from '@/lib/constants'
 import type { HeaderNavModules } from '@/lib/header-nav-config'
 
 import { HtmlCanvasMesh } from './html-canvas-mesh'
@@ -134,8 +131,6 @@ export function HomeLanding({
   onConnectionMethodChange,
 }: HomeLandingProps) {
   const headline = t('AI tools. One community hub.')
-  const usesDefaultBrand =
-    brandLogo === DEFAULT_LOGO && brandName === DEFAULT_SYSTEM_NAME
   const steps = connectionMethod === 'oauth' ? OAUTH_STEPS : STEPS
   return (
     <main
@@ -159,8 +154,11 @@ export function HomeLanding({
             />
             <canvas data-film />
           </div>
-          <div className='lmm-poster-brand' aria-hidden='true'>
-            {brandName}
+          <div className='lmm-poster-brand lmm-brand-hover' aria-hidden='true'>
+            <BrandLogo
+              src={brandLogo}
+              className='lmm-poster-logo lmm-brand-icon'
+            />
           </div>
           <button
             className='lmm-motion-toggle'
@@ -517,22 +515,12 @@ export function HomeLanding({
             </a>
           )}
         </div>
-        <span className='lmm-footer-brand'>
-          {usesDefaultBrand ? (
-            <LmmBrandWordmark
-              className='lmm-footer-wordmark'
-              title={LMM_BRAND_NAME}
-            />
-          ) : (
-            <span className='lmm-footer-custom-brand'>
-              <BrandLogo
-                src={brandLogo}
-                className='lmm-footer-custom-logo'
-                alt=''
-              />
-              <span>{brandName}</span>
-            </span>
-          )}
+        <span className='lmm-footer-brand lmm-brand-hover'>
+          <BrandLogo
+            src={brandLogo}
+            className='lmm-footer-logo lmm-brand-icon'
+            alt={brandName}
+          />
         </span>
       </footer>
     </main>
