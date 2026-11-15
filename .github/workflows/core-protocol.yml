@@ -55,7 +55,7 @@ concurrency:
   cancel-in-progress: true
 jobs:
   protocol:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     # The formal Core image build is a bounded acceptance step. On a cold
     # runner it can spend more than 30 minutes compiling lmm-core after all
     # source checks have passed; keep the job finite while allowing that

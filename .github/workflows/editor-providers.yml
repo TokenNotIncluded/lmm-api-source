@@ -10,7 +10,7 @@ permissions:
 # implementation was removed; this does not qualify its future replacement.
 jobs:
   zed:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     defaults:
       run:
@@ -54,7 +54,7 @@ jobs:
           retention-days: 14
 
   vscode:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     defaults:
       run:

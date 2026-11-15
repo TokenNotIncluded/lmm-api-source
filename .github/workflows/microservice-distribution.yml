@@ -23,7 +23,7 @@ defaults:
     shell: bash
 jobs:
   contracts:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     outputs:
       source_revision: ${{ steps.source.outputs.revision }}
@@ -62,7 +62,7 @@ jobs:
       fail-fast: false
       matrix:
         component: [core, extensions, cli, web]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     env:
       COMPONENT: ${{ matrix.component }}

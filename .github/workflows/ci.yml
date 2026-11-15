@@ -21,7 +21,7 @@ jobs:
     uses: ./.github/workflows/core-protocol.yml
   web:
     name: Web checks and production build
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
       - name: Checkout
@@ -71,7 +71,7 @@ jobs:
 
   translations:
     name: Translation regression check
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
       - name: Checkout source and comparison history
@@ -101,7 +101,7 @@ jobs:
     name: Implemented component checks
     if: ${{ always() }}
     needs: [microkernel, web, translations]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
       - name: Require every implemented component
