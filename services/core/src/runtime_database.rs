@@ -7,6 +7,7 @@ mod assistant_agent;
 mod channel_accounting;
 mod channel_observations;
 mod channel_projection;
+mod checkin_challenges;
 mod checkins;
 mod federated_auth;
 mod managed_applications;
@@ -40,6 +41,7 @@ pub struct RequiredCapabilities {
     pub trust_policy_editor: bool,
     pub federated_auth: bool,
     pub checkins: bool,
+    pub checkin_rewards: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -295,6 +297,7 @@ pub(crate) async fn check_connection(
         || required.assistant
         || required.assistant_agent
         || required.checkins
+        || required.checkin_rewards
     {
         let trust_visible:bool=sqlx::query_scalar("SELECT COALESCE((SELECT has_schema_privilege(n.oid,'USAGE') FROM pg_namespace n WHERE n.nspname='core_trust_pricing'),false)")
             .fetch_one(&mut *connection).await?;
@@ -313,6 +316,7 @@ pub(crate) async fn check_connection(
     telegram::check(connection, required.web_identity).await?;
     federated_auth::check(connection, required.federated_auth).await?;
     checkins::check(connection, required.checkins).await?;
+    checkin_challenges::check(connection, required.checkin_rewards).await?;
     product_features::check(connection, required.console).await?;
     account_security::check(connection, required.web_identity).await?;
     personal_tokens::check(connection, required.web_identity).await?;

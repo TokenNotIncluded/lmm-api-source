@@ -19,8 +19,10 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	CoreCheckinLedger_Inspect_FullMethodName = "/lmm.core.v1.CoreCheckinLedger/Inspect"
-	CoreCheckinLedger_Post_FullMethodName    = "/lmm.core.v1.CoreCheckinLedger/Post"
+	CoreCheckinLedger_Inspect_FullMethodName   = "/lmm.core.v1.CoreCheckinLedger/Inspect"
+	CoreCheckinLedger_Challenge_FullMethodName = "/lmm.core.v1.CoreCheckinLedger/Challenge"
+	CoreCheckinLedger_Authorize_FullMethodName = "/lmm.core.v1.CoreCheckinLedger/Authorize"
+	CoreCheckinLedger_Post_FullMethodName      = "/lmm.core.v1.CoreCheckinLedger/Post"
 )
 
 // CoreCheckinLedgerClient is the client API for CoreCheckinLedger service.
@@ -31,6 +33,8 @@ const (
 // arbitrary SQL, balance replacement or business-policy publication RPC.
 type CoreCheckinLedgerClient interface {
 	Inspect(ctx context.Context, in *CheckinLedgerInspect, opts ...grpc.CallOption) (*CheckinLedgerContext, error)
+	Challenge(ctx context.Context, in *CheckinChallengeRequest, opts ...grpc.CallOption) (*CheckinChallenge, error)
+	Authorize(ctx context.Context, in *CheckinChallengeAuthorize, opts ...grpc.CallOption) (*CheckinAuthorization, error)
 	Post(ctx context.Context, in *CheckinLedgerPost, opts ...grpc.CallOption) (*CheckinLedgerReceipt, error)
 }
 
@@ -46,6 +50,26 @@ func (c *coreCheckinLedgerClient) Inspect(ctx context.Context, in *CheckinLedger
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(CheckinLedgerContext)
 	err := c.cc.Invoke(ctx, CoreCheckinLedger_Inspect_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *coreCheckinLedgerClient) Challenge(ctx context.Context, in *CheckinChallengeRequest, opts ...grpc.CallOption) (*CheckinChallenge, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(CheckinChallenge)
+	err := c.cc.Invoke(ctx, CoreCheckinLedger_Challenge_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *coreCheckinLedgerClient) Authorize(ctx context.Context, in *CheckinChallengeAuthorize, opts ...grpc.CallOption) (*CheckinAuthorization, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(CheckinAuthorization)
+	err := c.cc.Invoke(ctx, CoreCheckinLedger_Authorize_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -70,6 +94,8 @@ func (c *coreCheckinLedgerClient) Post(ctx context.Context, in *CheckinLedgerPos
 // arbitrary SQL, balance replacement or business-policy publication RPC.
 type CoreCheckinLedgerServer interface {
 	Inspect(context.Context, *CheckinLedgerInspect) (*CheckinLedgerContext, error)
+	Challenge(context.Context, *CheckinChallengeRequest) (*CheckinChallenge, error)
+	Authorize(context.Context, *CheckinChallengeAuthorize) (*CheckinAuthorization, error)
 	Post(context.Context, *CheckinLedgerPost) (*CheckinLedgerReceipt, error)
 	mustEmbedUnimplementedCoreCheckinLedgerServer()
 }
@@ -83,6 +109,12 @@ type UnimplementedCoreCheckinLedgerServer struct{}
 
 func (UnimplementedCoreCheckinLedgerServer) Inspect(context.Context, *CheckinLedgerInspect) (*CheckinLedgerContext, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method Inspect not implemented")
+}
+func (UnimplementedCoreCheckinLedgerServer) Challenge(context.Context, *CheckinChallengeRequest) (*CheckinChallenge, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method Challenge not implemented")
+}
+func (UnimplementedCoreCheckinLedgerServer) Authorize(context.Context, *CheckinChallengeAuthorize) (*CheckinAuthorization, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method Authorize not implemented")
 }
 func (UnimplementedCoreCheckinLedgerServer) Post(context.Context, *CheckinLedgerPost) (*CheckinLedgerReceipt, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method Post not implemented")
@@ -126,6 +158,42 @@ func _CoreCheckinLedger_Inspect_Handler(srv interface{}, ctx context.Context, de
 	return interceptor(ctx, in, info, handler)
 }
 
+func _CoreCheckinLedger_Challenge_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(CheckinChallengeRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(CoreCheckinLedgerServer).Challenge(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: CoreCheckinLedger_Challenge_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(CoreCheckinLedgerServer).Challenge(ctx, req.(*CheckinChallengeRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _CoreCheckinLedger_Authorize_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(CheckinChallengeAuthorize)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(CoreCheckinLedgerServer).Authorize(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: CoreCheckinLedger_Authorize_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(CoreCheckinLedgerServer).Authorize(ctx, req.(*CheckinChallengeAuthorize))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _CoreCheckinLedger_Post_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(CheckinLedgerPost)
 	if err := dec(in); err != nil {
@@ -154,6 +222,14 @@ var CoreCheckinLedger_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "Inspect",
 			Handler:    _CoreCheckinLedger_Inspect_Handler,
+		},
+		{
+			MethodName: "Challenge",
+			Handler:    _CoreCheckinLedger_Challenge_Handler,
+		},
+		{
+			MethodName: "Authorize",
+			Handler:    _CoreCheckinLedger_Authorize_Handler,
 		},
 		{
 			MethodName: "Post",

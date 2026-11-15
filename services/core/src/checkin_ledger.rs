@@ -6,6 +6,7 @@ use crate::{
         Credits,
         ledger::{Action, Outcome, Request as Posting},
     },
+    checkin_challenge::{self, ChallengeConfig},
     identity::{self, CredentialKind, Principal},
     internal_rpc::pb,
 };
@@ -19,6 +20,7 @@ pub struct CheckinLedger {
     pool: PgPool,
     digest: [u8; 32],
     caps: [i64; 5],
+    challenges: Option<ChallengeConfig>,
 }
 fn unavailable(_: impl std::fmt::Display) -> Status {
     Status::unavailable("funding outcome unconfirmed; retry original daily intention")
@@ -47,7 +49,12 @@ impl CheckinLedger {
             pool,
             digest: Sha256::digest(token).into(),
             caps,
+            challenges: None,
         })
+    }
+    pub fn with_challenges(mut self, config: ChallengeConfig) -> Self {
+        self.challenges = Some(config);
+        self
     }
     fn credential<'a>(&self, m: &'a MetadataMap) -> Result<&'a str, Status> {
         let token = single(m, "authorization")?
@@ -165,6 +172,78 @@ impl pb::core_checkin_ledger_server::CoreCheckinLedger for CheckinLedger {
         tx.commit().await.map_err(unavailable)?;
         Ok(Response::new(result))
     }
+    async fn challenge(
+        &self,
+        r: Request<pb::CheckinChallengeRequest>,
+    ) -> Result<Response<pb::CheckinChallenge>, Status> {
+        let user = self.credential(r.metadata())?;
+        let config = self
+            .challenges
+            .as_ref()
+            .ok_or_else(|| Status::unavailable("CHECKIN_VERIFICATION_UNAVAILABLE"))?;
+        let mut tx = self.pool.begin().await.map_err(unavailable)?;
+        sqlx::query("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE")
+            .execute(&mut *tx)
+            .await
+            .map_err(unavailable)?;
+        let actor = Self::actor(&mut tx, user).await?;
+        let authority = self.context(&mut tx, &actor).await?;
+        if authority.blocked {
+            return Err(Status::permission_denied("funding authority denied"));
+        }
+        let result = config
+            .begin(&mut tx, &actor, &authority.day, &r.get_ref().operation_key)
+            .await?;
+        tx.commit().await.map_err(unavailable)?;
+        Ok(Response::new(result))
+    }
+    async fn authorize(
+        &self,
+        r: Request<pb::CheckinChallengeAuthorize>,
+    ) -> Result<Response<pb::CheckinAuthorization>, Status> {
+        let user = self.credential(r.metadata())?;
+        let input = r.get_ref();
+        if input.passkey_assertion_json.len() > 16_384 {
+            return Err(Status::invalid_argument("invalid checkin assertion"));
+        }
+        let config = self
+            .challenges
+            .as_ref()
+            .ok_or_else(|| Status::unavailable("CHECKIN_VERIFICATION_UNAVAILABLE"))?;
+        let mut tx = self.pool.begin().await.map_err(unavailable)?;
+        sqlx::query("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE")
+            .execute(&mut *tx)
+            .await
+            .map_err(unavailable)?;
+        let actor = Self::actor(&mut tx, user).await?;
+        let authority = self.context(&mut tx, &actor).await?;
+        if authority.blocked {
+            return Err(Status::permission_denied("funding authority denied"));
+        }
+        let prior = config
+            .prepare(&mut tx, &actor, &authority.day, input)
+            .await?;
+        tx.commit().await.map_err(unavailable)?;
+        if let Some(prior) = prior {
+            return Ok(Response::new(prior));
+        }
+        config.verify_turnstile(input).await?;
+        let mut tx = self.pool.begin().await.map_err(unavailable)?;
+        sqlx::query("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE")
+            .execute(&mut *tx)
+            .await
+            .map_err(unavailable)?;
+        let actor = Self::actor(&mut tx, user).await?;
+        let authority = self.context(&mut tx, &actor).await?;
+        if authority.blocked {
+            return Err(Status::permission_denied("funding authority denied"));
+        }
+        let result = config
+            .finish(&mut tx, &actor, &authority.day, input)
+            .await?;
+        tx.commit().await.map_err(unavailable)?;
+        Ok(Response::new(result))
+    }
     async fn post(
         &self,
         r: Request<pb::CheckinLedgerPost>,
@@ -195,6 +274,10 @@ impl pb::core_checkin_ledger_server::CoreCheckinLedger for CheckinLedger {
             .await
             .map_err(unavailable)?;
         let key = format!("daily:{}:{}", a.owner_account_id, input.day);
+        if let Some(receipt) = checkin_challenge::prior_receipt(&mut tx, &a, input).await? {
+            tx.commit().await.map_err(unavailable)?;
+            return Ok(Response::new(receipt));
+        }
         let request = Posting {
             scope: "core-checkins".into(),
             operation_key: key.clone(),
@@ -215,11 +298,14 @@ impl pb::core_checkin_ledger_server::CoreCheckinLedger for CheckinLedger {
         {
             return Err(Status::permission_denied("funding authority denied"));
         };
-        if input.day != authority.day && input.amount_units != 0 {
-            return Err(Status::failed_precondition(
-                "funding daily authorization expired",
-            ));
+        if input.day != authority.day {
+            return Err(checkin_challenge::required());
         }
+        let config = self
+            .challenges
+            .as_ref()
+            .ok_or_else(checkin_challenge::required)?;
+        let authorization = config.consume(&mut tx, &a, input).await?;
         let journal = if input.amount_units == 0 {
             None
         } else {
@@ -248,6 +334,7 @@ impl pb::core_checkin_ledger_server::CoreCheckinLedger for CheckinLedger {
         if journal.is_none() {
             receipt.timestamp = authority.timestamp
         };
+        checkin_challenge::record_receipt(&mut tx, input, &authorization, &receipt).await?;
         tx.commit().await.map_err(unavailable)?;
         Ok(Response::new(receipt))
     }

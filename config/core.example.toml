@@ -84,3 +84,12 @@ enabled = false
 # [abuse]
 # credential_config_file = "/etc/lmm.conf.d/core-abuse-credentials.toml"
 # local_http = false # explicit opt-in permits only numeric loopback URLs
+
+# Optional check-in funding; requires native Web authentication and Turnstile.
+# Choose explicit reward limits in the referenced JSON (example defaults to zero).
+# [identity.turnstile]
+# site_key = "your-turnstile-site-key"
+# secret_key_file = "/etc/lmm.conf.d/secrets/core/turnstile-secret-key"
+# [checkin_rewards]
+# config_file = "/etc/lmm.conf.d/checkin-rewards.json"
+# token_file = "/etc/lmm.conf.d/secrets/core/checkin-rewards-token"

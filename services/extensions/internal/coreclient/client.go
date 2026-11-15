@@ -137,6 +137,11 @@ func (c *Client) boundCall(ctx context.Context, method string, req, reply any, c
 		// proof. Leave room for its three-second bounded verification call.
 		timeout = 4 * time.Second
 	}
+	if method == pb.CoreCheckinLedger_Authorize_FullMethodName {
+		// Siteverify has a ten-second server-side deadline; leave time for Core
+		// to persist the result without changing unrelated RPC limits.
+		timeout = 12 * time.Second
+	}
 	bounded, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	return invoke(bounded, method, req, reply, cc, opts...)

@@ -1076,7 +1076,7 @@ async fn tcp_client_revocation_is_session_bound_and_revokes_all_generations(pool
 
 #[path = "common/model_fixture.rs"]
 #[allow(dead_code)]
-mod model;
+mod model_fixture;
 #[path = "common/pi_oauth_fixture.rs"]
 #[allow(dead_code)]
 mod pi;

@@ -27,6 +27,7 @@ use tokio_stream::{StreamExt, wrappers::UnixListenerStream};
 use tonic::transport::server::{Connected, UdsConnectInfo};
 use tonic::{Request, Response, Status, metadata::MetadataMap, transport::Server};
 
+mod deadline;
 mod event_service;
 
 pub mod pb {
@@ -533,7 +534,7 @@ impl RpcServer {
             Err(error) => Some(Err(error)),
         });
         Server::builder()
-            .timeout(DEADLINE)
+            .layer(tower::layer::layer_fn(deadline::Deadline))
             .max_concurrent_streams(8)
             .concurrency_limit_per_connection(8)
             .http2_max_header_list_size(8192)

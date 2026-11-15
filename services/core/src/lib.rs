@@ -86,6 +86,7 @@ pub mod email_http;
 
 pub mod affiliate;
 
+pub mod checkin_challenge;
 #[cfg(unix)]
 pub mod checkin_ledger;
 

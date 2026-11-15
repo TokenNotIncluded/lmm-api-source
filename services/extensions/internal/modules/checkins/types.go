@@ -6,6 +6,7 @@ package checkins
 import (
 	"context"
 	"crypto/rand"
+	"encoding/json"
 	"errors"
 	"math"
 	"math/big"
@@ -14,11 +15,15 @@ import (
 )
 
 var (
-	ErrInvalid      = errors.New("invalid checkin request")
-	ErrUnauthorized = errors.New("checkin authentication required")
-	ErrForbidden    = errors.New("checkin forbidden")
-	ErrConflict     = errors.New("checkin operation conflict")
-	ErrUnavailable  = errors.New("checkin settlement unconfirmed")
+	ErrInvalid              = errors.New("invalid checkin request")
+	ErrUnauthorized         = errors.New("checkin authentication required")
+	ErrForbidden            = errors.New("checkin forbidden")
+	ErrConflict             = errors.New("checkin operation conflict")
+	ErrUnavailable          = errors.New("checkin settlement unconfirmed")
+	ErrVerificationRequired = errors.New("checkin verification required")
+	ErrVerificationFailed   = errors.New("checkin verification failed")
+	ErrPasskeyRequired      = errors.New("checkin passkey required")
+	ErrRateLimited          = errors.New("checkin verification rate limited")
 )
 
 const Offset = 28800
@@ -53,7 +58,33 @@ type DailyRecord struct {
 	TrustLevel     *uint32 `json:"trust_level"`
 }
 type ClaimRequest struct {
-	OperationKey string `json:"operation_key"`
+	OperationKey     string          `json:"operation_key"`
+	ChallengeID      string          `json:"challenge_id,omitempty"`
+	TurnstileToken   string          `json:"turnstile_token,omitempty"`
+	PasskeyAssertion json.RawMessage `json:"passkey_assertion,omitempty"`
+}
+type Challenge struct {
+	ChallengeID      string          `json:"challenge_id"`
+	OperationKey     string          `json:"operation_key"`
+	Day              string          `json:"day"`
+	ExpiresAt        int64           `json:"expires_at"`
+	TurnstileSiteKey string          `json:"turnstile_site_key"`
+	TurnstileAction  string          `json:"turnstile_action"`
+	TurnstileCData   string          `json:"turnstile_cdata"`
+	PasskeyRequired  bool            `json:"passkey_required"`
+	PasskeyOptions   json.RawMessage `json:"passkey_options"`
+}
+type Authorization struct {
+	ID        string
+	Day       string
+	ExpiresAt int64
+}
+type Posting struct {
+	Day             string
+	Amount          int64
+	Level           uint32
+	AuthorizationID string
+	OperationKey    string
 }
 type ClaimResult struct {
 	AlreadyClaimed bool        `json:"already_claimed"`
@@ -89,7 +120,9 @@ type Receipt struct {
 }
 type Ledger interface {
 	Inspect(context.Context, string) (Authority, error)
-	Post(context.Context, string, string, int64, uint32) (Receipt, error)
+	Challenge(context.Context, string, string) (Challenge, error)
+	Authorize(context.Context, string, ClaimRequest) (Authorization, error)
+	Post(context.Context, string, Posting) (Receipt, error)
 }
 
 func validKey(key string) bool {

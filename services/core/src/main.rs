@@ -438,6 +438,7 @@ async fn run_core() -> Result<(), Box<dyn Error>> {
                 trust_policy_editor: config::trust_policy_editor_enabled()?,
                 federated_auth,
                 checkins: false,
+                checkin_rewards: config::checkin_rewards_configured(),
             },
         )
         .await?;

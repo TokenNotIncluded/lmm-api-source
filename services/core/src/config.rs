@@ -1,3 +1,5 @@
+#[cfg(test)]
+mod checkin_rewards_tests;
 mod email_config;
 mod managed_recovery_config;
 mod oidc_config;
@@ -2423,12 +2425,6 @@ pub async fn financial_rpcs(url: &str, control_token: &[u8]) -> io::Result<Finan
     } else {
         None
     };
-    #[derive(Deserialize)]
-    #[serde(deny_unknown_fields)]
-    struct RewardFundingConfig {
-        version: u32,
-        max_daily_units_by_trust: [i64; 5],
-    }
     let checkin_ledger = if let Some((document, token)) = rpc_configuration(
         "LMM_CORE_CHECKIN_REWARDS_CONFIG_FILE",
         "LMM_CORE_CHECKIN_REWARDS_TOKEN_FILE",
@@ -2460,13 +2456,27 @@ pub async fn financial_rpcs(url: &str, control_token: &[u8]) -> io::Result<Finan
         if config.version != 1 {
             return Err(invalid_config("unsupported reward funding configuration"));
         }
+        let turnstile = turnstile_config::load()?.ok_or_else(|| {
+            invalid_config("check-in rewards require Turnstile site and secret keys")
+        })?;
+        let origin = setting("LMM_CORE_WEB_ORIGIN")
+            .map_err(|_| invalid_config("check-in rewards require a Web origin"))?;
+        let rp_id = setting("LMM_CORE_WEB_PASSKEY_RP_ID").ok();
+        let passkeys = web_passkeys(&origin, rp_id.as_deref())?;
+        let challenges = crate::checkin_challenge::ChallengeConfig::new(
+            turnstile,
+            passkeys,
+            config.require_passkey,
+        )
+        .map_err(|_| invalid_config("strict check-in rewards require a Passkey Web origin"))?;
         Some(
             crate::checkin_ledger::CheckinLedger::new(
                 bounded_database_pool(url, 2).await?,
                 &token,
                 config.max_daily_units_by_trust,
             )
-            .map_err(|_| invalid_config("invalid reward funding authority"))?,
+            .map_err(|_| invalid_config("invalid reward funding authority"))?
+            .with_challenges(challenges),
         )
     } else {
         None
@@ -2917,6 +2927,44 @@ pub struct WebAuthConfig {
     pub privacy_policy_enabled: bool,
 }
 
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RewardFundingConfig {
+    version: u32,
+    max_daily_units_by_trust: [i64; 5],
+    #[serde(default = "require_checkin_passkey")]
+    require_passkey: bool,
+}
+
+fn require_checkin_passkey() -> bool {
+    true
+}
+
+fn web_passkeys(
+    origin: &str,
+    rp_id: Option<&str>,
+) -> io::Result<Option<crate::identity::PasskeyConfig>> {
+    let origin = reqwest::Url::parse(origin).map_err(|_| invalid_config("invalid Web origin"))?;
+    if (origin.scheme() == "https" && origin.domain().is_some())
+        || (origin.scheme() == "http" && origin.host_str() == Some("localhost"))
+    {
+        let passkeys = crate::identity::PasskeyConfig::new(
+            rp_id.unwrap_or(
+                origin
+                    .host_str()
+                    .ok_or_else(|| invalid_config("invalid Passkey origin"))?,
+            ),
+            &origin.origin().ascii_serialization(),
+        )
+        .map_err(|_| invalid_config("invalid Passkey configuration"))?;
+        Ok(Some(passkeys))
+    } else if rp_id.is_some() {
+        Err(invalid_config("Passkey RP ID requires a DNS Web origin"))
+    } else {
+        Ok(None)
+    }
+}
+
 fn explicit_legal_policy(
     agreement: Option<&str>,
     privacy: Option<&str>,
@@ -2963,25 +3011,10 @@ pub fn legacy_auth() -> io::Result<Option<WebAuthConfig>> {
             } else {
                 config
             };
-            let rp_origin =
-                reqwest::Url::parse(&origin).map_err(|_| invalid_config("invalid Web origin"))?;
-            if (rp_origin.scheme() == "https" && rp_origin.domain().is_some())
-                || (rp_origin.scheme() == "http" && rp_origin.host_str() == Some("localhost"))
-            {
-                let passkeys = crate::identity::PasskeyConfig::new(
-                    passkey_rp_id.as_deref().unwrap_or(
-                        rp_origin
-                            .host_str()
-                            .ok_or_else(|| invalid_config("invalid Passkey origin"))?,
-                    ),
-                    &rp_origin.origin().ascii_serialization(),
-                )
-                .map_err(|_| invalid_config("invalid Passkey configuration"))?;
+            if let Some(passkeys) = web_passkeys(&origin, passkey_rp_id.as_deref())? {
                 config = config
                     .with_passkeys(passkeys)
                     .map_err(|_| invalid_config("Passkey origin must match Web origin"))?;
-            } else if passkey_rp_id.is_some() {
-                return Err(invalid_config("Passkey RP ID requires a DNS Web origin"));
             }
             Ok(Some(WebAuthConfig {
                 auth: config.with_legal_acceptance_required(
@@ -4374,10 +4407,17 @@ email_domain_whitelist = ["gmail.com", "outlook.com"]
     #[test]
     fn payment_configuration_v2_uses_explicit_channel_provider_and_integer_quote() {
         for currency in ["USD", "CNY", "EUR"] {
-            let document = format!("version=2\n[[channels]]\nid=18\nprovider='creem'\nmerchant='creem_sub_only'\nenvironment='test'\ncurrency='{currency}'\ncredits_per_minor=5000\nmax_amount_minor=10000\nwebhook_secret_file='/synthetic/secret'\n[permissions]\nprepare=true\n");
+            let document = format!(
+                "version=2\n[[channels]]\nid=18\nprovider='creem'\nmerchant='creem_sub_only'\nenvironment='test'\ncurrency='{currency}'\ncredits_per_minor=5000\nmax_amount_minor=10000\nwebhook_secret_file='/synthetic/secret'\n[permissions]\nprepare=true\n"
+            );
             let config: PaymentConfig = parse_document(document.as_bytes()).unwrap();
-            assert!(config.validate().is_ok(), "subscription-only Creem {currency}");
-            if let PaymentConfig::Gateways(c) = config { assert!(c.channels[0].product_id.is_empty()); }
+            assert!(
+                config.validate().is_ok(),
+                "subscription-only Creem {currency}"
+            );
+            if let PaymentConfig::Gateways(c) = config {
+                assert!(c.channels[0].product_id.is_empty());
+            }
         }
 
         let document = "version=2\n[[channels]]\nid=7\nprovider='creem'\nmerchant='merchant_fixture'\nenvironment='test'\ncurrency='USD'\ncredits_per_minor=5000\nmax_amount_minor=10000\nproduct_id='prod_fixture'\nwebhook_secret_file='/synthetic/secret'\n[permissions]\nprepare=true\n";

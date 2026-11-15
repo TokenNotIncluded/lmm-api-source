@@ -26,6 +26,7 @@ func (s *Service) Handler() http.Handler {
 func (s *Service) Register(mux modules.RouteRegistrar) {
 	mux.HandleFunc("GET /api/checkin/capabilities", s.capabilitiesHTTP)
 	mux.HandleFunc("GET /api/user/checkin", s.statusHTTP)
+	mux.HandleFunc("POST /api/user/checkin/challenges", s.challengeHTTP)
 	mux.HandleFunc("POST /api/user/checkin", s.claimHTTP)
 }
 func credential(r *http.Request) (string, error) {
@@ -59,6 +60,19 @@ func write(w http.ResponseWriter, data any, e error) {
 	case ErrConflict:
 		status = 409
 		code = "CHECKIN_CONFLICT"
+	case ErrVerificationRequired:
+		status = 403
+		code = "CHECKIN_VERIFICATION_REQUIRED"
+	case ErrVerificationFailed:
+		status = 403
+		code = "CHECKIN_VERIFICATION_FAILED"
+	case ErrPasskeyRequired:
+		status = 409
+		code = "CHECKIN_PASSKEY_REQUIRED"
+	case ErrRateLimited:
+		status = 429
+		code = "CHECKIN_RATE_LIMITED"
+		w.Header().Set("Retry-After", "60")
 	default:
 		status = 503
 		code = "CHECKIN_UNAVAILABLE"
@@ -99,45 +113,72 @@ func (s *Service) claimHTTP(w http.ResponseWriter, r *http.Request) {
 		write(w, nil, e)
 		return
 	}
-	q, e := url.ParseQuery(r.URL.RawQuery)
+	input, e := readClaimRequest(w, r, false)
 	if e != nil {
-		write(w, nil, ErrInvalid)
-		return
-	}
-	for key, v := range q {
-		if key != "turnstile" || len(v) != 1 {
-			write(w, nil, ErrInvalid)
-			return
-		}
-		if v[0] != "" {
-			write(w, nil, ErrUnavailable)
-			return
-		}
-	}
-	d := json.NewDecoder(http.MaxBytesReader(w, r.Body, 16384))
-	start, e := d.Token()
-	if e != nil || start != json.Delim('{') {
-		write(w, nil, ErrInvalid)
-		return
-	}
-	var input ClaimRequest
-	seen := false
-	for d.More() {
-		key, e := d.Token()
-		if e != nil || key != "operation_key" || seen || d.Decode(&input.OperationKey) != nil {
-			write(w, nil, ErrInvalid)
-			return
-		}
-		seen = true
-	}
-	end, e := d.Token()
-	var extra any
-	if e != nil || end != json.Delim('}') || d.Decode(&extra) != io.EOF || !seen {
-		write(w, nil, ErrInvalid)
+		write(w, nil, e)
 		return
 	}
 	result, e := s.Claim(r.Context(), user, input)
 	write(w, result, e)
+}
+func (s *Service) challengeHTTP(w http.ResponseWriter, r *http.Request) {
+	user, e := credential(r)
+	if e != nil {
+		write(w, nil, e)
+		return
+	}
+	input, e := readClaimRequest(w, r, true)
+	if e != nil {
+		write(w, nil, e)
+		return
+	}
+	result, e := s.Challenge(r.Context(), user, input.OperationKey)
+	write(w, result, e)
+}
+
+func readClaimRequest(w http.ResponseWriter, r *http.Request, challengeOnly bool) (ClaimRequest, error) {
+	if r.URL.RawQuery != "" {
+		return ClaimRequest{}, ErrInvalid
+	}
+	d := json.NewDecoder(http.MaxBytesReader(w, r.Body, 16384))
+	start, e := d.Token()
+	if e != nil || start != json.Delim('{') {
+		return ClaimRequest{}, ErrInvalid
+	}
+	var input ClaimRequest
+	seen := map[string]bool{}
+	for d.More() {
+		key, e := d.Token()
+		name, ok := key.(string)
+		if e != nil || !ok || seen[name] || (challengeOnly && name != "operation_key") {
+			return ClaimRequest{}, ErrInvalid
+		}
+		seen[name] = true
+		switch name {
+		case "operation_key":
+			e = d.Decode(&input.OperationKey)
+		case "challenge_id":
+			e = d.Decode(&input.ChallengeID)
+		case "turnstile_token":
+			e = d.Decode(&input.TurnstileToken)
+		case "passkey_assertion":
+			e = d.Decode(&input.PasskeyAssertion)
+			if len(input.PasskeyAssertion) == 0 || input.PasskeyAssertion[0] != '{' {
+				return ClaimRequest{}, ErrInvalid
+			}
+		default:
+			return ClaimRequest{}, ErrInvalid
+		}
+		if e != nil {
+			return ClaimRequest{}, ErrInvalid
+		}
+	}
+	end, e := d.Token()
+	var extra any
+	if e != nil || end != json.Delim('}') || d.Decode(&extra) != io.EOF || !seen["operation_key"] || !validKey(input.OperationKey) {
+		return ClaimRequest{}, ErrInvalid
+	}
+	return input, nil
 }
 
 // Public capability discovery reads only this module's published business policy.

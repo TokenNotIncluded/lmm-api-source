@@ -149,18 +149,304 @@ func (x *CheckinLedgerContext) GetBlocked() bool {
 	return false
 }
 
-type CheckinLedgerPost struct {
+// A challenge is bound to the authenticated personal browser session and day.
+// Only public browser options leave Core; verifier state remains server-side.
+type CheckinChallengeRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	Day           string                 `protobuf:"bytes,1,opt,name=day,proto3" json:"day,omitempty"`
-	AmountUnits   int64                  `protobuf:"varint,2,opt,name=amount_units,json=amountUnits,proto3" json:"amount_units,omitempty"`
-	TrustLevel    uint32                 `protobuf:"varint,3,opt,name=trust_level,json=trustLevel,proto3" json:"trust_level,omitempty"`
+	OperationKey  string                 `protobuf:"bytes,1,opt,name=operation_key,json=operationKey,proto3" json:"operation_key,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
+func (x *CheckinChallengeRequest) Reset() {
+	*x = CheckinChallengeRequest{}
+	mi := &file_lmm_core_v1_checkin_ledger_proto_msgTypes[2]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CheckinChallengeRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CheckinChallengeRequest) ProtoMessage() {}
+
+func (x *CheckinChallengeRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_lmm_core_v1_checkin_ledger_proto_msgTypes[2]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CheckinChallengeRequest.ProtoReflect.Descriptor instead.
+func (*CheckinChallengeRequest) Descriptor() ([]byte, []int) {
+	return file_lmm_core_v1_checkin_ledger_proto_rawDescGZIP(), []int{2}
+}
+
+func (x *CheckinChallengeRequest) GetOperationKey() string {
+	if x != nil {
+		return x.OperationKey
+	}
+	return ""
+}
+
+type CheckinChallenge struct {
+	state              protoimpl.MessageState `protogen:"open.v1"`
+	ChallengeId        string                 `protobuf:"bytes,1,opt,name=challenge_id,json=challengeId,proto3" json:"challenge_id,omitempty"`
+	OperationKey       string                 `protobuf:"bytes,2,opt,name=operation_key,json=operationKey,proto3" json:"operation_key,omitempty"`
+	Day                string                 `protobuf:"bytes,3,opt,name=day,proto3" json:"day,omitempty"`
+	ExpiresAt          int64                  `protobuf:"varint,4,opt,name=expires_at,json=expiresAt,proto3" json:"expires_at,omitempty"`
+	TurnstileSiteKey   string                 `protobuf:"bytes,5,opt,name=turnstile_site_key,json=turnstileSiteKey,proto3" json:"turnstile_site_key,omitempty"`
+	TurnstileAction    string                 `protobuf:"bytes,6,opt,name=turnstile_action,json=turnstileAction,proto3" json:"turnstile_action,omitempty"`
+	TurnstileCdata     string                 `protobuf:"bytes,7,opt,name=turnstile_cdata,json=turnstileCdata,proto3" json:"turnstile_cdata,omitempty"`
+	PasskeyRequired    bool                   `protobuf:"varint,8,opt,name=passkey_required,json=passkeyRequired,proto3" json:"passkey_required,omitempty"`
+	PasskeyOptionsJson string                 `protobuf:"bytes,9,opt,name=passkey_options_json,json=passkeyOptionsJson,proto3" json:"passkey_options_json,omitempty"`
+	unknownFields      protoimpl.UnknownFields
+	sizeCache          protoimpl.SizeCache
+}
+
+func (x *CheckinChallenge) Reset() {
+	*x = CheckinChallenge{}
+	mi := &file_lmm_core_v1_checkin_ledger_proto_msgTypes[3]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CheckinChallenge) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CheckinChallenge) ProtoMessage() {}
+
+func (x *CheckinChallenge) ProtoReflect() protoreflect.Message {
+	mi := &file_lmm_core_v1_checkin_ledger_proto_msgTypes[3]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CheckinChallenge.ProtoReflect.Descriptor instead.
+func (*CheckinChallenge) Descriptor() ([]byte, []int) {
+	return file_lmm_core_v1_checkin_ledger_proto_rawDescGZIP(), []int{3}
+}
+
+func (x *CheckinChallenge) GetChallengeId() string {
+	if x != nil {
+		return x.ChallengeId
+	}
+	return ""
+}
+
+func (x *CheckinChallenge) GetOperationKey() string {
+	if x != nil {
+		return x.OperationKey
+	}
+	return ""
+}
+
+func (x *CheckinChallenge) GetDay() string {
+	if x != nil {
+		return x.Day
+	}
+	return ""
+}
+
+func (x *CheckinChallenge) GetExpiresAt() int64 {
+	if x != nil {
+		return x.ExpiresAt
+	}
+	return 0
+}
+
+func (x *CheckinChallenge) GetTurnstileSiteKey() string {
+	if x != nil {
+		return x.TurnstileSiteKey
+	}
+	return ""
+}
+
+func (x *CheckinChallenge) GetTurnstileAction() string {
+	if x != nil {
+		return x.TurnstileAction
+	}
+	return ""
+}
+
+func (x *CheckinChallenge) GetTurnstileCdata() string {
+	if x != nil {
+		return x.TurnstileCdata
+	}
+	return ""
+}
+
+func (x *CheckinChallenge) GetPasskeyRequired() bool {
+	if x != nil {
+		return x.PasskeyRequired
+	}
+	return false
+}
+
+func (x *CheckinChallenge) GetPasskeyOptionsJson() string {
+	if x != nil {
+		return x.PasskeyOptionsJson
+	}
+	return ""
+}
+
+type CheckinChallengeAuthorize struct {
+	state                protoimpl.MessageState `protogen:"open.v1"`
+	ChallengeId          string                 `protobuf:"bytes,1,opt,name=challenge_id,json=challengeId,proto3" json:"challenge_id,omitempty"`
+	OperationKey         string                 `protobuf:"bytes,2,opt,name=operation_key,json=operationKey,proto3" json:"operation_key,omitempty"`
+	TurnstileToken       string                 `protobuf:"bytes,3,opt,name=turnstile_token,json=turnstileToken,proto3" json:"turnstile_token,omitempty"`
+	PasskeyAssertionJson string                 `protobuf:"bytes,4,opt,name=passkey_assertion_json,json=passkeyAssertionJson,proto3" json:"passkey_assertion_json,omitempty"`
+	unknownFields        protoimpl.UnknownFields
+	sizeCache            protoimpl.SizeCache
+}
+
+func (x *CheckinChallengeAuthorize) Reset() {
+	*x = CheckinChallengeAuthorize{}
+	mi := &file_lmm_core_v1_checkin_ledger_proto_msgTypes[4]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CheckinChallengeAuthorize) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CheckinChallengeAuthorize) ProtoMessage() {}
+
+func (x *CheckinChallengeAuthorize) ProtoReflect() protoreflect.Message {
+	mi := &file_lmm_core_v1_checkin_ledger_proto_msgTypes[4]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CheckinChallengeAuthorize.ProtoReflect.Descriptor instead.
+func (*CheckinChallengeAuthorize) Descriptor() ([]byte, []int) {
+	return file_lmm_core_v1_checkin_ledger_proto_rawDescGZIP(), []int{4}
+}
+
+func (x *CheckinChallengeAuthorize) GetChallengeId() string {
+	if x != nil {
+		return x.ChallengeId
+	}
+	return ""
+}
+
+func (x *CheckinChallengeAuthorize) GetOperationKey() string {
+	if x != nil {
+		return x.OperationKey
+	}
+	return ""
+}
+
+func (x *CheckinChallengeAuthorize) GetTurnstileToken() string {
+	if x != nil {
+		return x.TurnstileToken
+	}
+	return ""
+}
+
+func (x *CheckinChallengeAuthorize) GetPasskeyAssertionJson() string {
+	if x != nil {
+		return x.PasskeyAssertionJson
+	}
+	return ""
+}
+
+type CheckinAuthorization struct {
+	state           protoimpl.MessageState `protogen:"open.v1"`
+	AuthorizationId string                 `protobuf:"bytes,1,opt,name=authorization_id,json=authorizationId,proto3" json:"authorization_id,omitempty"`
+	Day             string                 `protobuf:"bytes,2,opt,name=day,proto3" json:"day,omitempty"`
+	ExpiresAt       int64                  `protobuf:"varint,3,opt,name=expires_at,json=expiresAt,proto3" json:"expires_at,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
+}
+
+func (x *CheckinAuthorization) Reset() {
+	*x = CheckinAuthorization{}
+	mi := &file_lmm_core_v1_checkin_ledger_proto_msgTypes[5]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CheckinAuthorization) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CheckinAuthorization) ProtoMessage() {}
+
+func (x *CheckinAuthorization) ProtoReflect() protoreflect.Message {
+	mi := &file_lmm_core_v1_checkin_ledger_proto_msgTypes[5]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CheckinAuthorization.ProtoReflect.Descriptor instead.
+func (*CheckinAuthorization) Descriptor() ([]byte, []int) {
+	return file_lmm_core_v1_checkin_ledger_proto_rawDescGZIP(), []int{5}
+}
+
+func (x *CheckinAuthorization) GetAuthorizationId() string {
+	if x != nil {
+		return x.AuthorizationId
+	}
+	return ""
+}
+
+func (x *CheckinAuthorization) GetDay() string {
+	if x != nil {
+		return x.Day
+	}
+	return ""
+}
+
+func (x *CheckinAuthorization) GetExpiresAt() int64 {
+	if x != nil {
+		return x.ExpiresAt
+	}
+	return 0
+}
+
+// An existing immutable receipt may be replayed without a fresh authorization.
+// Every first posting, including a zero reward, requires a current authorization.
+type CheckinLedgerPost struct {
+	state           protoimpl.MessageState `protogen:"open.v1"`
+	Day             string                 `protobuf:"bytes,1,opt,name=day,proto3" json:"day,omitempty"`
+	AmountUnits     int64                  `protobuf:"varint,2,opt,name=amount_units,json=amountUnits,proto3" json:"amount_units,omitempty"`
+	TrustLevel      uint32                 `protobuf:"varint,3,opt,name=trust_level,json=trustLevel,proto3" json:"trust_level,omitempty"`
+	AuthorizationId string                 `protobuf:"bytes,4,opt,name=authorization_id,json=authorizationId,proto3" json:"authorization_id,omitempty"`
+	OperationKey    string                 `protobuf:"bytes,5,opt,name=operation_key,json=operationKey,proto3" json:"operation_key,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
+}
+
 func (x *CheckinLedgerPost) Reset() {
 	*x = CheckinLedgerPost{}
-	mi := &file_lmm_core_v1_checkin_ledger_proto_msgTypes[2]
+	mi := &file_lmm_core_v1_checkin_ledger_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -172,7 +458,7 @@ func (x *CheckinLedgerPost) String() string {
 func (*CheckinLedgerPost) ProtoMessage() {}
 
 func (x *CheckinLedgerPost) ProtoReflect() protoreflect.Message {
-	mi := &file_lmm_core_v1_checkin_ledger_proto_msgTypes[2]
+	mi := &file_lmm_core_v1_checkin_ledger_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -185,7 +471,7 @@ func (x *CheckinLedgerPost) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CheckinLedgerPost.ProtoReflect.Descriptor instead.
 func (*CheckinLedgerPost) Descriptor() ([]byte, []int) {
-	return file_lmm_core_v1_checkin_ledger_proto_rawDescGZIP(), []int{2}
+	return file_lmm_core_v1_checkin_ledger_proto_rawDescGZIP(), []int{6}
 }
 
 func (x *CheckinLedgerPost) GetDay() string {
@@ -209,6 +495,20 @@ func (x *CheckinLedgerPost) GetTrustLevel() uint32 {
 	return 0
 }
 
+func (x *CheckinLedgerPost) GetAuthorizationId() string {
+	if x != nil {
+		return x.AuthorizationId
+	}
+	return ""
+}
+
+func (x *CheckinLedgerPost) GetOperationKey() string {
+	if x != nil {
+		return x.OperationKey
+	}
+	return ""
+}
+
 type CheckinLedgerReceipt struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	UserId        int64                  `protobuf:"varint,1,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
@@ -224,7 +524,7 @@ type CheckinLedgerReceipt struct {
 
 func (x *CheckinLedgerReceipt) Reset() {
 	*x = CheckinLedgerReceipt{}
-	mi := &file_lmm_core_v1_checkin_ledger_proto_msgTypes[3]
+	mi := &file_lmm_core_v1_checkin_ledger_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -236,7 +536,7 @@ func (x *CheckinLedgerReceipt) String() string {
 func (*CheckinLedgerReceipt) ProtoMessage() {}
 
 func (x *CheckinLedgerReceipt) ProtoReflect() protoreflect.Message {
-	mi := &file_lmm_core_v1_checkin_ledger_proto_msgTypes[3]
+	mi := &file_lmm_core_v1_checkin_ledger_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -249,7 +549,7 @@ func (x *CheckinLedgerReceipt) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CheckinLedgerReceipt.ProtoReflect.Descriptor instead.
 func (*CheckinLedgerReceipt) Descriptor() ([]byte, []int) {
-	return file_lmm_core_v1_checkin_ledger_proto_rawDescGZIP(), []int{3}
+	return file_lmm_core_v1_checkin_ledger_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *CheckinLedgerReceipt) GetUserId() int64 {
@@ -316,12 +616,37 @@ const file_lmm_core_v1_checkin_ledger_proto_rawDesc = "" +
 	"\vtrust_level\x18\x05 \x01(\rR\n" +
 	"trustLevel\x12&\n" +
 	"\x0fmax_daily_units\x18\x06 \x01(\x03R\rmaxDailyUnits\x12\x18\n" +
-	"\ablocked\x18\a \x01(\bR\ablocked\"i\n" +
+	"\ablocked\x18\a \x01(\bR\ablocked\">\n" +
+	"\x17CheckinChallengeRequest\x12#\n" +
+	"\roperation_key\x18\x01 \x01(\tR\foperationKey\"\xea\x02\n" +
+	"\x10CheckinChallenge\x12!\n" +
+	"\fchallenge_id\x18\x01 \x01(\tR\vchallengeId\x12#\n" +
+	"\roperation_key\x18\x02 \x01(\tR\foperationKey\x12\x10\n" +
+	"\x03day\x18\x03 \x01(\tR\x03day\x12\x1d\n" +
+	"\n" +
+	"expires_at\x18\x04 \x01(\x03R\texpiresAt\x12,\n" +
+	"\x12turnstile_site_key\x18\x05 \x01(\tR\x10turnstileSiteKey\x12)\n" +
+	"\x10turnstile_action\x18\x06 \x01(\tR\x0fturnstileAction\x12'\n" +
+	"\x0fturnstile_cdata\x18\a \x01(\tR\x0eturnstileCdata\x12)\n" +
+	"\x10passkey_required\x18\b \x01(\bR\x0fpasskeyRequired\x120\n" +
+	"\x14passkey_options_json\x18\t \x01(\tR\x12passkeyOptionsJson\"\xc2\x01\n" +
+	"\x19CheckinChallengeAuthorize\x12!\n" +
+	"\fchallenge_id\x18\x01 \x01(\tR\vchallengeId\x12#\n" +
+	"\roperation_key\x18\x02 \x01(\tR\foperationKey\x12'\n" +
+	"\x0fturnstile_token\x18\x03 \x01(\tR\x0eturnstileToken\x124\n" +
+	"\x16passkey_assertion_json\x18\x04 \x01(\tR\x14passkeyAssertionJson\"r\n" +
+	"\x14CheckinAuthorization\x12)\n" +
+	"\x10authorization_id\x18\x01 \x01(\tR\x0fauthorizationId\x12\x10\n" +
+	"\x03day\x18\x02 \x01(\tR\x03day\x12\x1d\n" +
+	"\n" +
+	"expires_at\x18\x03 \x01(\x03R\texpiresAt\"\xb9\x01\n" +
 	"\x11CheckinLedgerPost\x12\x10\n" +
 	"\x03day\x18\x01 \x01(\tR\x03day\x12!\n" +
 	"\famount_units\x18\x02 \x01(\x03R\vamountUnits\x12\x1f\n" +
 	"\vtrust_level\x18\x03 \x01(\rR\n" +
-	"trustLevel\"\xf0\x01\n" +
+	"trustLevel\x12)\n" +
+	"\x10authorization_id\x18\x04 \x01(\tR\x0fauthorizationId\x12#\n" +
+	"\roperation_key\x18\x05 \x01(\tR\foperationKey\"\xf0\x01\n" +
 	"\x14CheckinLedgerReceipt\x12\x17\n" +
 	"\auser_id\x18\x01 \x01(\x03R\x06userId\x12\x1d\n" +
 	"\n" +
@@ -332,9 +657,11 @@ const file_lmm_core_v1_checkin_ledger_proto_rawDesc = "" +
 	"journal_id\x18\x05 \x01(\x03H\x00R\tjournalId\x88\x01\x01\x12\x1c\n" +
 	"\ttimestamp\x18\x06 \x01(\x03R\ttimestamp\x12\x1a\n" +
 	"\breplayed\x18\a \x01(\bR\breplayedB\r\n" +
-	"\v_journal_id2\xaf\x01\n" +
+	"\v_journal_id2\xd9\x02\n" +
 	"\x11CoreCheckinLedger\x12O\n" +
-	"\aInspect\x12!.lmm.core.v1.CheckinLedgerInspect\x1a!.lmm.core.v1.CheckinLedgerContext\x12I\n" +
+	"\aInspect\x12!.lmm.core.v1.CheckinLedgerInspect\x1a!.lmm.core.v1.CheckinLedgerContext\x12P\n" +
+	"\tChallenge\x12$.lmm.core.v1.CheckinChallengeRequest\x1a\x1d.lmm.core.v1.CheckinChallenge\x12V\n" +
+	"\tAuthorize\x12&.lmm.core.v1.CheckinChallengeAuthorize\x1a!.lmm.core.v1.CheckinAuthorization\x12I\n" +
 	"\x04Post\x12\x1e.lmm.core.v1.CheckinLedgerPost\x1a!.lmm.core.v1.CheckinLedgerReceiptBGZEgithub.com/TokenNotIncluded/lmm-api/extensions/internal/corepb;corepbb\x06proto3"
 
 var (
@@ -349,20 +676,28 @@ func file_lmm_core_v1_checkin_ledger_proto_rawDescGZIP() []byte {
 	return file_lmm_core_v1_checkin_ledger_proto_rawDescData
 }
 
-var file_lmm_core_v1_checkin_ledger_proto_msgTypes = make([]protoimpl.MessageInfo, 4)
+var file_lmm_core_v1_checkin_ledger_proto_msgTypes = make([]protoimpl.MessageInfo, 8)
 var file_lmm_core_v1_checkin_ledger_proto_goTypes = []any{
-	(*CheckinLedgerInspect)(nil), // 0: lmm.core.v1.CheckinLedgerInspect
-	(*CheckinLedgerContext)(nil), // 1: lmm.core.v1.CheckinLedgerContext
-	(*CheckinLedgerPost)(nil),    // 2: lmm.core.v1.CheckinLedgerPost
-	(*CheckinLedgerReceipt)(nil), // 3: lmm.core.v1.CheckinLedgerReceipt
+	(*CheckinLedgerInspect)(nil),      // 0: lmm.core.v1.CheckinLedgerInspect
+	(*CheckinLedgerContext)(nil),      // 1: lmm.core.v1.CheckinLedgerContext
+	(*CheckinChallengeRequest)(nil),   // 2: lmm.core.v1.CheckinChallengeRequest
+	(*CheckinChallenge)(nil),          // 3: lmm.core.v1.CheckinChallenge
+	(*CheckinChallengeAuthorize)(nil), // 4: lmm.core.v1.CheckinChallengeAuthorize
+	(*CheckinAuthorization)(nil),      // 5: lmm.core.v1.CheckinAuthorization
+	(*CheckinLedgerPost)(nil),         // 6: lmm.core.v1.CheckinLedgerPost
+	(*CheckinLedgerReceipt)(nil),      // 7: lmm.core.v1.CheckinLedgerReceipt
 }
 var file_lmm_core_v1_checkin_ledger_proto_depIdxs = []int32{
 	0, // 0: lmm.core.v1.CoreCheckinLedger.Inspect:input_type -> lmm.core.v1.CheckinLedgerInspect
-	2, // 1: lmm.core.v1.CoreCheckinLedger.Post:input_type -> lmm.core.v1.CheckinLedgerPost
-	1, // 2: lmm.core.v1.CoreCheckinLedger.Inspect:output_type -> lmm.core.v1.CheckinLedgerContext
-	3, // 3: lmm.core.v1.CoreCheckinLedger.Post:output_type -> lmm.core.v1.CheckinLedgerReceipt
-	2, // [2:4] is the sub-list for method output_type
-	0, // [0:2] is the sub-list for method input_type
+	2, // 1: lmm.core.v1.CoreCheckinLedger.Challenge:input_type -> lmm.core.v1.CheckinChallengeRequest
+	4, // 2: lmm.core.v1.CoreCheckinLedger.Authorize:input_type -> lmm.core.v1.CheckinChallengeAuthorize
+	6, // 3: lmm.core.v1.CoreCheckinLedger.Post:input_type -> lmm.core.v1.CheckinLedgerPost
+	1, // 4: lmm.core.v1.CoreCheckinLedger.Inspect:output_type -> lmm.core.v1.CheckinLedgerContext
+	3, // 5: lmm.core.v1.CoreCheckinLedger.Challenge:output_type -> lmm.core.v1.CheckinChallenge
+	5, // 6: lmm.core.v1.CoreCheckinLedger.Authorize:output_type -> lmm.core.v1.CheckinAuthorization
+	7, // 7: lmm.core.v1.CoreCheckinLedger.Post:output_type -> lmm.core.v1.CheckinLedgerReceipt
+	4, // [4:8] is the sub-list for method output_type
+	0, // [0:4] is the sub-list for method input_type
 	0, // [0:0] is the sub-list for extension type_name
 	0, // [0:0] is the sub-list for extension extendee
 	0, // [0:0] is the sub-list for field type_name
@@ -373,14 +708,14 @@ func file_lmm_core_v1_checkin_ledger_proto_init() {
 	if File_lmm_core_v1_checkin_ledger_proto != nil {
 		return
 	}
-	file_lmm_core_v1_checkin_ledger_proto_msgTypes[3].OneofWrappers = []any{}
+	file_lmm_core_v1_checkin_ledger_proto_msgTypes[7].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_lmm_core_v1_checkin_ledger_proto_rawDesc), len(file_lmm_core_v1_checkin_ledger_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   4,
+			NumMessages:   8,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
 	_ "github.com/lib/pq"
 	"os"
 	"strings"
@@ -44,12 +45,17 @@ func testDB(t *testing.T, label string) *sql.DB {
 }
 
 type fakeLedger struct {
-	mu       sync.Mutex
-	a        Authority
-	receipts map[string]Receipt
-	lost     bool
-	posts    int
-	inspects int
+	mu               sync.Mutex
+	a                Authority
+	receipts         map[string]Receipt
+	challenges       map[string]string
+	authorizations   map[string]string
+	challengeCount   int
+	authorizes       int
+	expireBeforePost bool
+	lost             bool
+	posts            int
+	inspects         int
 }
 
 func (l *fakeLedger) Inspect(_ context.Context, user string) (Authority, error) {
@@ -61,7 +67,40 @@ func (l *fakeLedger) Inspect(_ context.Context, user string) (Authority, error) 
 	}
 	return l.a, nil
 }
-func (l *fakeLedger) Post(_ context.Context, user, date string, amount int64, level uint32) (Receipt, error) {
+func (l *fakeLedger) Challenge(_ context.Context, user, key string) (Challenge, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if user != "fresh-personal-session" {
+		return Challenge{}, ErrUnauthorized
+	}
+	l.challengeCount++
+	id := fmt.Sprintf("synthetic-challenge-%016d", l.challengeCount)
+	l.challenges[id] = key
+	return Challenge{ChallengeID: id, OperationKey: key, Day: l.a.Day, ExpiresAt: l.a.Timestamp + 120, TurnstileSiteKey: "synthetic-site", TurnstileAction: "daily_checkin", TurnstileCData: id}, nil
+}
+func (l *fakeLedger) Authorize(_ context.Context, user string, input ClaimRequest) (Authorization, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.authorizes++
+	if user != "fresh-personal-session" {
+		return Authorization{}, ErrUnauthorized
+	}
+	if l.challenges[input.ChallengeID] != input.OperationKey || input.TurnstileToken != "synthetic-verified-token" {
+		return Authorization{}, ErrVerificationFailed
+	}
+	l.authorizations[input.ChallengeID] = input.OperationKey
+	return Authorization{ID: input.ChallengeID, Day: l.a.Day, ExpiresAt: l.a.Timestamp + 120}, nil
+}
+func proof(t *testing.T, s *Service, key string) ClaimRequest {
+	t.Helper()
+	challenge, e := s.Challenge(context.Background(), "fresh-personal-session", key)
+	if e != nil {
+		t.Fatal(e)
+	}
+	return ClaimRequest{OperationKey: challenge.OperationKey, ChallengeID: challenge.ChallengeID, TurnstileToken: "synthetic-verified-token"}
+}
+func (l *fakeLedger) Post(_ context.Context, user string, input Posting) (Receipt, error) {
+	date, amount, level := input.Day, input.Amount, input.Level
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	if user != "fresh-personal-session" {
@@ -71,9 +110,20 @@ func (l *fakeLedger) Post(_ context.Context, user, date string, amount int64, le
 		r.Replayed = true
 		return r, nil
 	}
-	if l.a.Blocked || amount > l.a.MaxDailyUnits || level != l.a.TrustLevel || date != l.a.Day {
+	if l.a.Blocked || amount > l.a.MaxDailyUnits || level != l.a.TrustLevel {
 		return Receipt{}, ErrForbidden
 	}
+	if date != l.a.Day {
+		return Receipt{}, ErrVerificationRequired
+	}
+	if l.expireBeforePost {
+		delete(l.authorizations, input.AuthorizationID)
+		l.expireBeforePost = false
+	}
+	if input.AuthorizationID == "" || l.authorizations[input.AuthorizationID] != input.OperationKey {
+		return Receipt{}, ErrVerificationRequired
+	}
+	delete(l.authorizations, input.AuthorizationID)
 	l.posts++
 	r := Receipt{UserID: l.a.UserID, AccountID: l.a.AccountID, Day: date, AmountUnits: amount, Timestamp: l.a.Timestamp}
 	if amount > 0 {
@@ -93,7 +143,7 @@ var accountCounter atomic.Int64
 func newLedger() *fakeLedger {
 	id := time.Now().UnixNano() + accountCounter.Add(1)
 	at := time.Now().Unix()
-	return &fakeLedger{a: Authority{UserID: id, AccountID: id + 1, Timestamp: at, Day: day(at), TrustLevel: 4, MaxDailyUnits: 100}, receipts: map[string]Receipt{}}
+	return &fakeLedger{a: Authority{UserID: id, AccountID: id + 1, Timestamp: at, Day: day(at), TrustLevel: 4, MaxDailyUnits: 100}, receipts: map[string]Receipt{}, challenges: map[string]string{}, authorizations: map[string]string{}}
 }
 func TestRealPostgresDailyIntentionAndRecovery(t *testing.T) {
 	ctx := context.Background()
@@ -125,7 +175,20 @@ func TestRealPostgresDailyIntentionAndRecovery(t *testing.T) {
 		t.Fatal(e)
 	}
 	key := "daily-first-operation-0001"
-	first, e := s.Claim(ctx, "fresh-personal-session", ClaimRequest{key})
+	// A request without proof must not freeze a reward or invoke funding.
+	if _, e := s.Claim(ctx, "fresh-personal-session", ClaimRequest{OperationKey: key}); e != ErrVerificationRequired {
+		t.Fatalf("missing proof: %v", e)
+	}
+	badProof := proof(t, s, key)
+	badProof.TurnstileToken = "forged-token"
+	if _, e := s.Claim(ctx, "fresh-personal-session", badProof); e != ErrVerificationFailed {
+		t.Fatalf("forged proof: %v", e)
+	}
+	var deniedCount int
+	if e := runtime.QueryRow("SELECT count(*) FROM lmm_checkins.intentions WHERE account_id=$1", l.a.AccountID).Scan(&deniedCount); e != nil || deniedCount != 0 || l.posts != 0 {
+		t.Fatalf("unverified claim created intention or funds: %d %d %v", deniedCount, l.posts, e)
+	}
+	first, e := s.Claim(ctx, "fresh-personal-session", proof(t, s, key))
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -134,7 +197,8 @@ func TestRealPostgresDailyIntentionAndRecovery(t *testing.T) {
 	}
 	p.Enabled = false
 	publish(p)
-	same, e := s.Claim(ctx, "fresh-personal-session", ClaimRequest{key})
+	verifiedBeforeReplay := l.authorizes
+	same, e := s.Claim(ctx, "fresh-personal-session", ClaimRequest{OperationKey: key})
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -143,12 +207,12 @@ func TestRealPostgresDailyIntentionAndRecovery(t *testing.T) {
 	if string(a) != string(b) {
 		t.Fatal("same operation changed after policy publication")
 	}
-	other, e := s.Claim(ctx, "fresh-personal-session", ClaimRequest{"daily-second-operation-0002"})
+	other, e := s.Claim(ctx, "fresh-personal-session", ClaimRequest{OperationKey: "daily-second-operation-0002"})
 	if e != nil || !other.AlreadyClaimed || other.Record.QuotaAwarded != "100" {
 		t.Fatalf("daily replay: %+v %v", other, e)
 	}
-	if l.posts != 1 {
-		t.Fatalf("posted %d times", l.posts)
+	if l.posts != 1 || l.authorizes != verifiedBeforeReplay {
+		t.Fatalf("replay posted %d times or reverified: %d", l.posts, l.authorizes)
 	}
 	status, e := s.Status(ctx, "fresh-personal-session", "")
 	if e != nil || status.Enabled || status.TotalCheckins != 1 || status.TotalQuotaAwarded != "100" || len(status.Records) != 1 || !status.CheckedInToday {
@@ -168,7 +232,7 @@ func TestRealPostgresDailyIntentionAndRecovery(t *testing.T) {
 	unknown := newLedger()
 	unknown.lost = true
 	recovering, _ := New(ctx, runtime, unknown)
-	if _, e = recovering.Claim(ctx, "fresh-personal-session", ClaimRequest{"unknown-result-operation-001"}); !errors.Is(e, ErrUnavailable) {
+	if _, e = recovering.Claim(ctx, "fresh-personal-session", proof(t, recovering, "unknown-result-operation-001")); !errors.Is(e, ErrUnavailable) {
 		t.Fatalf("unknown result reported as %v", e)
 	}
 	pending, e := recovering.Status(ctx, "fresh-personal-session", "")
@@ -183,8 +247,8 @@ func TestRealPostgresDailyIntentionAndRecovery(t *testing.T) {
 	unknown.a.Blocked = true
 	p.Enabled = false
 	publish(p)
-	recovered, e := recovering.Claim(ctx, "fresh-personal-session", ClaimRequest{"unknown-result-operation-001"})
-	if e != nil || recovered.Record.CheckinDate != oldDate || recovered.Record.QuotaAwarded != "100" || unknown.posts != 1 {
+	recovered, e := recovering.Claim(ctx, "fresh-personal-session", ClaimRequest{OperationKey: "unknown-result-operation-001"})
+	if e != nil || recovered.Record.CheckinDate != oldDate || recovered.Record.QuotaAwarded != "100" || unknown.posts != 1 || unknown.authorizes != 1 {
 		t.Fatalf("lost receipt retry %+v %v", recovered, e)
 	}
 	p.Enabled = true
@@ -193,13 +257,17 @@ func TestRealPostgresDailyIntentionAndRecovery(t *testing.T) {
 	concurrent, _ := New(ctx, runtime, parallel)
 	var wg sync.WaitGroup
 	errs := make(chan error, 8)
+	proofs := make([]ClaimRequest, 8)
+	for n := range proofs {
+		proofs[n] = proof(t, concurrent, "parallel-operation-0001")
+	}
 	for n := 0; n < 8; n++ {
 		wg.Add(1)
 		go func(n int) {
 			defer wg.Done()
 			var e error
 			for tries := 0; tries < 20; tries++ {
-				_, e = concurrent.Claim(ctx, "fresh-personal-session", ClaimRequest{"parallel-operation-000" + string(rune('a'+n))})
+				_, e = concurrent.Claim(ctx, "fresh-personal-session", proofs[n])
 				if e == nil {
 					break
 				}
@@ -224,13 +292,63 @@ func TestRealPostgresDailyIntentionAndRecovery(t *testing.T) {
 	if e = runtime.QueryRow("SELECT count(*) FROM lmm_checkins.intentions WHERE account_id=$1", parallel.a.AccountID).Scan(&count); e != nil || count != 1 {
 		t.Fatalf("daily intention count %d %v", count, e)
 	}
+	expired := newLedger()
+	expired.expireBeforePost = true
+	expiredService, _ := New(ctx, runtime, expired)
+	original := proof(t, expiredService, "expired-original-operation-001")
+	if _, e := expiredService.Claim(ctx, "fresh-personal-session", original); e != ErrVerificationRequired {
+		t.Fatalf("expired before funding: %v", e)
+	}
+	before, e := expiredService.Status(ctx, "fresh-personal-session", "")
+	if e != nil || !before.Pending || expired.posts != 0 {
+		t.Fatalf("expired pending %+v %v", before, e)
+	}
+	if _, e := expiredService.Claim(ctx, "fresh-personal-session", ClaimRequest{OperationKey: original.OperationKey}); e != ErrVerificationRequired || expired.posts != 0 {
+		t.Fatalf("pending bypassed proof: %v posts=%d", e, expired.posts)
+	}
+	p.MinQuota = "7"
+	p.MaxQuota = "7"
+	publish(p)
+	refreshed := proof(t, expiredService, "browser-reload-operation-002")
+	if refreshed.OperationKey != original.OperationKey {
+		t.Fatal("challenge refresh replaced original funding key")
+	}
+	finished, e := expiredService.Claim(ctx, "fresh-personal-session", refreshed)
+	if e != nil || finished.Record.QuotaAwarded != "100" || expired.posts != 1 {
+		t.Fatalf("renewed proof changed frozen reward %+v %v", finished, e)
+	}
+	previousDay := newLedger()
+	previousDay.expireBeforePost = true
+	previousDayService, _ := New(ctx, runtime, previousDay)
+	previousInput := proof(t, previousDayService, "previous-day-operation-001")
+	if _, e := previousDayService.Claim(ctx, "fresh-personal-session", previousInput); e != ErrVerificationRequired {
+		t.Fatalf("previous-day pending setup: %v", e)
+	}
+	previousDate := previousDay.a.Day
+	previousDay.a.Timestamp += 86400
+	previousDay.a.Day = day(previousDay.a.Timestamp)
+	if _, e := previousDayService.Challenge(ctx, "fresh-personal-session", previousInput.OperationKey); e != ErrConflict || previousDay.challengeCount != 1 {
+		t.Fatalf("old command received a new-day proof: %v", e)
+	}
+	if _, e := previousDayService.Claim(ctx, "fresh-personal-session", ClaimRequest{OperationKey: previousInput.OperationKey}); e != ErrVerificationRequired || previousDay.posts != 0 {
+		t.Fatalf("old unposted intention crossed day: %v", e)
+	}
+	currentInput := proof(t, previousDayService, "current-day-operation-002")
+	current, e := previousDayService.Claim(ctx, "fresh-personal-session", currentInput)
+	if e != nil || current.Record.CheckinDate != previousDay.a.Day || current.Record.QuotaAwarded != "7" || previousDay.posts != 1 {
+		t.Fatalf("new-day operation %+v %v", current, e)
+	}
+	var preservedDate string
+	if e := runtime.QueryRow("SELECT day::text FROM lmm_checkins.claim_commands WHERE user_id=$1 AND operation_key=$2", previousDay.a.UserID, previousInput.OperationKey).Scan(&preservedDate); e != nil || preservedDate != previousDate {
+		t.Fatalf("new challenge rewrote previous-day command: %s %v", preservedDate, e)
+	}
 	p.MinQuota = "0"
 	p.MaxQuota = "0"
 	publish(p)
 	zero := newLedger()
 	zero.a.MaxDailyUnits = 0
 	zeroService, _ := New(ctx, runtime, zero)
-	z, e := zeroService.Claim(ctx, "fresh-personal-session", ClaimRequest{"zero-reward-operation-001"})
+	z, e := zeroService.Claim(ctx, "fresh-personal-session", proof(t, zeroService, "zero-reward-operation-001"))
 	if e != nil || z.Record.JournalID != nil || z.Record.QuotaAwarded != "0" {
 		t.Fatalf("zero reward %+v %v", z, e)
 	}

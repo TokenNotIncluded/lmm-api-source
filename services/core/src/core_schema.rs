@@ -211,6 +211,7 @@ const COMPONENTS: &[(&str, &str)] = &[
     ("oauth2-oidc", include_str!("../schema/oauth2_oidc.sql")),
     ("personal-tokens", crate::identity::personal_token::SCHEMA),
     ("subscription-creem", crate::subscriptions::CREEM_SCHEMA),
+    ("checkin-challenges", crate::checkin_challenge::SCHEMA),
 ];
 
 /// Verify the installed managed contract without installing or repairing it.

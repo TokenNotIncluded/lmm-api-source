@@ -366,6 +366,15 @@ GRANT USAGE ON SEQUENCE core_abuse.audit_id_seq TO {name};
         if matches!(schema, "core_subscriptions" | "core_promotions") {
             return;
         }
+        if schema == "core_checkin_challenges" {
+            let grants = include_str!("../../schema/checkin_challenges_grants.sql")
+                .replace(":\"runtime_role\"", &self.name);
+            sqlx::raw_sql(sqlx::AssertSqlSafe::<&str>(&grants))
+                .execute(&self.owner)
+                .await
+                .unwrap();
+            return;
+        }
         if schema == "core_checkins" {
             let script = include_str!("../../../../deployment/postgres/grant-core-runtime.sql");
             let grants = script

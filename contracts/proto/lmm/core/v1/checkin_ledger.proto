@@ -5,6 +5,8 @@ option go_package = "github.com/TokenNotIncluded/lmm-api/extensions/internal/cor
 // arbitrary SQL, balance replacement or business-policy publication RPC.
 service CoreCheckinLedger {
  rpc Inspect(CheckinLedgerInspect) returns (CheckinLedgerContext);
+ rpc Challenge(CheckinChallengeRequest) returns (CheckinChallenge);
+ rpc Authorize(CheckinChallengeAuthorize) returns (CheckinAuthorization);
  rpc Post(CheckinLedgerPost) returns (CheckinLedgerReceipt);
 }
 message CheckinLedgerInspect {}
@@ -12,7 +14,27 @@ message CheckinLedgerContext {
  int64 user_id=1; int64 account_id=2; string day=3; int64 timestamp=4;
  uint32 trust_level=5; int64 max_daily_units=6; bool blocked=7;
 }
-message CheckinLedgerPost { string day=1; int64 amount_units=2; uint32 trust_level=3; }
+// A challenge is bound to the authenticated personal browser session and day.
+// Only public browser options leave Core; verifier state remains server-side.
+message CheckinChallengeRequest { string operation_key=1; }
+message CheckinChallenge {
+ string challenge_id=1; string operation_key=2; string day=3; int64 expires_at=4;
+ string turnstile_site_key=5; string turnstile_action=6; string turnstile_cdata=7;
+ bool passkey_required=8; string passkey_options_json=9;
+}
+message CheckinChallengeAuthorize {
+ string challenge_id=1; string operation_key=2; string turnstile_token=3;
+ string passkey_assertion_json=4;
+}
+message CheckinAuthorization {
+ string authorization_id=1; string day=2; int64 expires_at=3;
+}
+// An existing immutable receipt may be replayed without a fresh authorization.
+// Every first posting, including a zero reward, requires a current authorization.
+message CheckinLedgerPost {
+ string day=1; int64 amount_units=2; uint32 trust_level=3;
+ string authorization_id=4; string operation_key=5;
+}
 message CheckinLedgerReceipt {
  int64 user_id=1; int64 account_id=2; string day=3; int64 amount_units=4;
  optional int64 journal_id=5; int64 timestamp=6; bool replayed=7;
