@@ -25,7 +25,7 @@
 | 支付、金额与历史 | [支付网关](payment-gateways.md)、[金额合同](payment-money-contract.md)、[钱包历史导入](wallet-history.md)、[财务期初导入](legacy-financial-opening.md) |
 | 商店与 Extore | [商店模块](../services/extensions/internal/modules/store/README.md)、[Extore 集成](extore.md) |
 | 扩展、助手与工具 | [扩展宿主](../services/extensions/README.md)、[助手模块](../services/extensions/internal/modules/assistant/README.md) |
-| 滥用防护与管理 | [Abuse controls](abuse-controls.md)、[管理客户端](admin-cli.md)、[Core 运维](core-operations.md) |
+| 滥用防护与管理 | [Abuse controls](abuse-controls.md)、[签到防自动化设计](checkin-anti-automation.md)、[管理客户端](admin-cli.md)、[Core 运维](core-operations.md) |
 | 特定旧合同的离线升级 | [请求运维组件升级](request-operations-upgrade.md)、[商店自购与展示汇率升级](commerce-display-rate-upgrade.md)；执行前核对适用前置版本 |
 
 ## 界面、协议与协作
