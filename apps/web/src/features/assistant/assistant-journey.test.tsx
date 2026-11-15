@@ -129,7 +129,7 @@ describe('assistant game-style progress', () => {
       assert.doesNotMatch(text, /Get a recommendation/)
       assert.match(text, /Side quest 0\/2/)
       assert.match(text, /Chat with AI to earn a 0 USD–10 USD new-user gift/)
-      assert.match(text, /Accept an open-source bounty/)
+      assert.match(text, /Accept a bounty/)
     } finally {
       await unmount(rendered)
     }

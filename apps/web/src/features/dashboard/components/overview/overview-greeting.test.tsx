@@ -291,7 +291,7 @@ for (const quota of [
 }
 
 for (const quota of [0, 5_000_000]) {
-  test(`financial projection false substitutes unavailable for a ${quota} greeting balance`, async () => {
+  test(`financial projection false substitutes unknown for a ${quota} greeting balance`, async () => {
     api.defaults.adapter = async (config) =>
       respond(config, 200, {
         success: true,
@@ -307,13 +307,13 @@ for (const quota of [0, 5_000_000]) {
     await until(
       () =>
         container.querySelector('.overview-greeting-message')?.textContent ===
-        'Balance: Unavailable'
+        'Balance: Unknown'
     )
   })
 }
 
 for (const projection of [undefined, true]) {
-  test(`financial projection ${projection === undefined ? 'legacy undefined' : 'true'} keeps the genuine greeting balance when usage is unavailable`, async () => {
+  test(`financial projection ${projection === undefined ? 'legacy undefined' : 'true'} does not infer legacy money without a native wallet unit`, async () => {
     api.defaults.adapter = async (config) =>
       respond(config, 200, {
         success: true,
@@ -330,7 +330,7 @@ for (const projection of [undefined, true]) {
     await until(
       () =>
         container.querySelector('.overview-greeting-message')?.textContent ===
-        'Balance: 10 USD'
+        'Balance: Unknown'
     )
   })
 }

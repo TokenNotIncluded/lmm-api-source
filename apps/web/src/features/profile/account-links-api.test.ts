@@ -61,7 +61,7 @@ function authorization(state = flow) {
   for (const [key, value] of Object.entries({
     client_id: 'synthetic-client',
     response_type: 'code',
-    scope: 'read:user',
+    scope: 'user:email',
     state,
     redirect_uri: `${origin}/api/oauth/github`,
     code_challenge: 'b'.repeat(43),

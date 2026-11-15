@@ -37,7 +37,7 @@ type GroupAccumulator = {
   buckets: Map<number, PerformanceSeriesPoint[]>
 }
 
-/** Native rows use counters; legacy rows retain their unweighted means. */
+/** Aggregate native counters; rows without counters remain unavailable. */
 export function aggregateStatusGroups(
   entries: ModelPerformanceSnapshot[]
 ): StatusGroup[] {

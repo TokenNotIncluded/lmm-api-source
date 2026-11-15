@@ -58,7 +58,6 @@ const { createInstance } = await import('i18next')
 const { I18nextProvider, initReactI18next } = await import('react-i18next')
 const { SidebarProvider } = await import('@/components/ui/sidebar')
 const { api } = await import('@/lib/api')
-const { formatQuota } = await import('@/lib/format')
 const { useAuthStore } = await import('@/stores/auth-store')
 const { consumeQueuedAssistantRequest, subscribeToAssistantOpen } =
   await import('@/features/assistant/assistant-events')
@@ -189,10 +188,7 @@ test('the mobile header opens the same assistant request and keeps the wallet en
     )
     assert.ok(wallet)
     assert.equal(wallet.getAttribute('href'), '/wallet')
-    assert.equal(
-      wallet.getAttribute('aria-label'),
-      `Balance: ${formatQuota(125000000)} · Top up`
-    )
+    assert.equal(wallet.getAttribute('aria-label'), 'Balance: Unknown · Wallet')
   } finally {
     unsubscribe()
     await rendered.cleanup()

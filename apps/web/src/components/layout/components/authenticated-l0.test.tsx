@@ -175,7 +175,7 @@ test('L0 retains the wallet header and normal assistant shell', async () => {
     const walletLinks =
       wallet?.querySelectorAll<HTMLAnchorElement>('a[href="/wallet"]')
     assert.ok(walletLinks && walletLinks.length > 0)
-    assert.match(wallet?.textContent ?? '', /Top up/)
+    assert.match(wallet?.textContent ?? '', /Wallet/)
     assert.ok(container.querySelector('[data-sidebar="trigger"]'))
     await act(async () => {
       window.dispatchEvent(

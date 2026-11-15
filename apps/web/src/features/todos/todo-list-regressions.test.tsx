@@ -11,6 +11,9 @@ import { after, afterEach, beforeEach, describe, test } from 'node:test'
 
 import { Window } from 'happy-dom'
 
+import { DEFAULT_NATIVE_USERS_QUERY } from '@/features/native-users/contract'
+import { nativeUsersSearchSchema } from '@/features/native-users/search'
+
 import type { TodoItem, TodoPage } from './api'
 
 const domWindow = new Window({ url: 'https://console.example.test/' })
@@ -132,6 +135,7 @@ async function renderList() {
   const usersRoute = createRoute({
     getParentRoute: () => rootRoute,
     path: 'users',
+    validateSearch: nativeUsersSearchSchema,
     component: () => null,
   })
   const walletRoute = createRoute({
@@ -250,8 +254,10 @@ describe('todo feed regressions', () => {
       await click(rendered.container, 'Review the affected user')
       assert.equal(rendered.router.state.location.pathname, '/users')
       const search = rendered.router.state.location.search
-      assert.ok('filter' in search)
-      assert.equal(search.filter, 'customer')
+      assert.deepEqual(search, {
+        ...DEFAULT_NATIVE_USERS_QUERY,
+        keyword: 'customer',
+      })
       await act(async () => {
         read.reject(new Error('Read receipt failed'))
         await flush()

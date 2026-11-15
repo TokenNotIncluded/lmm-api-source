@@ -120,8 +120,16 @@ async function mount(log: UsageLog, language = 'en') {
       </I18nextProvider>
     )
   )
-  const preview = container.querySelector('[data-column=content] button')
-  assert.ok(preview, 'Expected the real details-column preview button')
+  const button = container.querySelector('[data-column=content] button')
+  assert.ok(button, 'Expected the real details-column preview button')
+  assert.equal(
+    button.getAttribute('aria-label'),
+    i18n.t('View request details')
+  )
+  assert.equal(button.children.length, 2)
+  assert.equal(button.firstElementChild?.textContent, i18n.t('Details'))
+  const preview = button.lastElementChild
+  assert.ok(preview, 'Expected the billing preview beside the details label')
   return { preview, container }
 }
 

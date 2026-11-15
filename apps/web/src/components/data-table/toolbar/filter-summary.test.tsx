@@ -252,12 +252,12 @@ test('log advanced fields remain mounted when closed and reopened', async () => 
       '[aria-label="Log draft"]'
     )
     assert.ok(input)
-    await act(async () => button(view.host, 'Expand').click())
+    await act(async () => button(view.host, 'More filters').click())
     input.value = 'keep this unsubmitted value'
-    await act(async () => button(view.host, 'Collapse').click())
+    await act(async () => button(view.host, 'Fewer filters').click())
     assert.equal(view.host.querySelector('[aria-label="Log draft"]'), input)
     assert.equal(input.parentElement?.hidden, true)
-    await act(async () => button(view.host, 'Expand').click())
+    await act(async () => button(view.host, 'More filters').click())
     assert.equal(input.value, 'keep this unsubmitted value')
   } finally {
     await view.cleanup()

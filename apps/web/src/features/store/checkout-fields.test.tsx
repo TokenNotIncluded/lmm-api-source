@@ -96,6 +96,25 @@ const product: StoreProduct = {
   created_at: 1,
   updated_at: 1,
   review_note: '',
+  default_variant_id: 'fixture-default',
+  variants: [
+    {
+      id: 'fixture-default',
+      product_id: 'product-fixture',
+      name: 'Default',
+      price_quota: 500000,
+      template: 'card-key',
+      enabled: true,
+      is_default: true,
+      created_at: 1,
+      updated_at: 1,
+      inventory_total: 5,
+      inventory_available: 5,
+      reserved_stock: 0,
+      sale_available: 5,
+      trading_paused: false,
+    },
+  ],
 }
 const result = (data: unknown) => ({ data: { success: true, data } })
 async function flush() {
@@ -301,6 +320,7 @@ for (const codeRequired of [false, true]) {
       await click(button('Place order'))
       assert.equal(writes.length, 1)
       assert.equal(writes[0].url, '/api/store/orders')
+      assert.equal(writes[0].body.variant_id, 'fixture-default')
       assert.equal(writes[0].body.pickup_code, '12345678')
       assert.equal(writes[0].body.pickup_email, 'buyer@example.test')
     })

@@ -166,9 +166,9 @@ function transport(kind: Kind) {
       assert.ok(slot)
       data = await slot.purchases.promise
     } else {
-      assert.ok(
-        config.url?.endsWith('/epay-prices') ||
-          config.url?.endsWith('/pancake-prices'),
+      assert.match(
+        config.url ?? '',
+        /^\/core\/v1\/subscriptions\/plans\/4\/(epay|pancake|stripe|creem)-prices$/,
         `unexpected read ${config.url}`
       )
       data = { prices: [] }

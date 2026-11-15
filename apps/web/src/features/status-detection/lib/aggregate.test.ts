@@ -37,6 +37,14 @@ describe('aggregateStatusGroups', () => {
         modelName: 'example',
         groups: metrics.map((metric) => ({
           ...metric,
+          request_count: Number.isFinite(metric.success_rate) ? 1 : 0,
+          success_count: metric.success_rate === 100 ? 1 : 0,
+          latency_sum_us: '0',
+          ttft_count: metric.avg_ttft_ms > 0 ? 1 : 0,
+          ttft_sum_us: String(metric.avg_ttft_ms * 1000),
+          output_tokens: '0',
+          throughput_time_us: '0',
+          throughput_count: 0,
           avg_latency_ms: 0,
           avg_tps: 0,
           series: [],
@@ -87,12 +95,23 @@ describe('aggregateStatusGroups', () => {
     )
     assert.equal(groups[0].group, 'z-unknown')
   })
-  test('averages model group metrics and aligns trend buckets', () => {
+  test('aggregates native model group counters and aligns trend buckets', () => {
+    const counters = {
+      request_count: 10,
+      success_count: 10,
+      latency_sum_us: '2000000',
+      ttft_count: 10,
+      ttft_sum_us: '1000000',
+      output_tokens: '10',
+      throughput_time_us: '1000000',
+      throughput_count: 10,
+    }
     const groups = aggregateStatusGroups([
       {
         modelName: 'alpha',
         groups: [
           {
+            ...counters,
             group: 'paid',
             avg_ttft_ms: 100,
             avg_latency_ms: 200,
@@ -100,6 +119,9 @@ describe('aggregateStatusGroups', () => {
             success_rate: 100,
             series: [
               {
+                ...counters,
+                success_count: 8,
+                ttft_sum_us: '3000000',
                 ts: 2,
                 avg_ttft_ms: 300,
                 avg_latency_ms: 0,
@@ -107,6 +129,7 @@ describe('aggregateStatusGroups', () => {
                 success_rate: 80,
               },
               {
+                ...counters,
                 ts: 1,
                 avg_ttft_ms: 100,
                 avg_latency_ms: 0,
@@ -121,6 +144,10 @@ describe('aggregateStatusGroups', () => {
         modelName: 'beta',
         groups: [
           {
+            ...counters,
+            success_count: 8,
+            latency_sum_us: '4000000',
+            output_tokens: '20',
             group: 'paid',
             avg_ttft_ms: 100,
             avg_latency_ms: 400,
@@ -128,6 +155,9 @@ describe('aggregateStatusGroups', () => {
             success_rate: 80,
             series: [
               {
+                ...counters,
+                success_count: 6,
+                ttft_sum_us: '5000000',
                 ts: 2,
                 avg_ttft_ms: 500,
                 avg_latency_ms: 0,
@@ -151,6 +181,33 @@ describe('aggregateStatusGroups', () => {
       ttftTrend: [100, 400],
       modelCount: 2,
     })
+  })
+
+  test('legacy averages without native counters remain unavailable', () => {
+    const legacy = {
+      avg_ttft_ms: 100,
+      avg_latency_ms: 200,
+      avg_tps: 10,
+      success_rate: 100,
+    }
+    const groups = aggregateStatusGroups([
+      {
+        modelName: 'legacy',
+        groups: [{ group: 'paid', ...legacy, series: [{ ts: 1, ...legacy }] }],
+      },
+    ])
+    assert.deepEqual(groups, [
+      {
+        group: 'paid',
+        avgTtftMs: Number.NaN,
+        avgLatencyMs: Number.NaN,
+        avgTps: Number.NaN,
+        successRate: Number.NaN,
+        successTrend: [],
+        ttftTrend: [],
+        modelCount: 1,
+      },
+    ])
   })
 
   test('ignores empty group names and invalid metric values', () => {

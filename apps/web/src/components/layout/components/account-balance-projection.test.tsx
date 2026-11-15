@@ -50,7 +50,6 @@ const { SidebarProvider } = await import('@/components/ui/sidebar')
 const { useAuthStore } = await import('@/stores/auth-store')
 const { DEFAULT_CURRENCY_CONFIG, useSystemConfigStore } =
   await import('@/stores/system-config-store')
-const { formatQuota } = await import('@/lib/format')
 const { AccountBalanceBadge } = await import('./account-balance-badge')
 const { ConsoleBalanceEntry } = await import('./console-navigation')
 const originalUser = useAuthStore.getState().auth.user
@@ -141,17 +140,17 @@ for (const quota of [0, 5_000_000]) {
       container
         .querySelector('[data-testid="mobile-account-balance"]')
         ?.getAttribute('aria-label'),
-      'Balance: Unavailable · Top up'
+      'Balance: Unknown · Wallet'
     )
     assert.match(
       container.querySelector('[data-testid="account-balance-badge"]')
         ?.textContent ?? '',
-      /Unavailable/
+      /Unknown/
     )
     assert.match(
       container.querySelector('[data-testid="console-balance"]')?.textContent ??
         '',
-      /Unavailable/
+      /Unknown/
     )
     const links = [...container.querySelectorAll('a')]
     assert.equal(links.length, 4)
@@ -191,24 +190,24 @@ for (const [quota, expected] of [
 }
 
 for (const projection of [undefined, true]) {
-  test(`financial projection ${projection === undefined ? 'legacy undefined' : 'true'} keeps real header and sidebar balances when only usage is unavailable`, async () => {
+  test(`financial projection ${projection === undefined ? 'legacy undefined' : 'true'} does not infer a legacy balance without a native wallet unit`, async () => {
     const container = await mount(projection, 5_000_000)
     assert.equal(
       container
         .querySelector('[data-testid="mobile-account-balance"]')
         ?.getAttribute('aria-label'),
-      'Balance: 10 USD · Top up'
+      'Balance: Unknown · Wallet'
     )
     assert.match(
       container.querySelector('[data-testid="account-balance-badge"]')
         ?.textContent ?? '',
-      /10 USD/
+      /Unknown/
     )
     assert.ok(
       container
         .querySelector('[data-testid="console-balance"]')
-        ?.textContent?.includes(formatQuota(5_000_000))
+        ?.textContent?.includes('Unknown')
     )
-    assert.doesNotMatch(container.textContent ?? '', /Unavailable/)
+    assert.doesNotMatch(container.textContent ?? '', /USD|Top up/)
   })
 }

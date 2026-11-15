@@ -88,6 +88,7 @@ const provider = {
   scopes: '',
   qr_code_url: '',
   native_federated: true as const,
+  registration_enabled: true,
 }
 const status = {
   native_federated_auth: true,
