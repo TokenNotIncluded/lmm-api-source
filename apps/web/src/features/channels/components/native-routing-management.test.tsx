@@ -1878,3 +1878,115 @@ test('the channel page exposes editing immediately without a configuration toggl
   assert.ok(container.querySelector('form[aria-label="Edit Channel"]'))
   assert.equal(container.querySelector('input[type=password]'), null)
 })
+
+test('channel drafts survive current-section clicks and require confirmation before switching or replacing the editor', async () => {
+  api.request = (async (options: { method: string }) => {
+    assert.equal(options.method, 'GET', 'Discarding a draft must not write')
+    return { data: { success: true, data: fixture() } }
+  }) as typeof api.request
+  const container = await mount('channels')
+  await until(() => !!container.textContent?.includes('Private provider'))
+  await act(async () => button(container, 'Edit').click())
+  const name = required(
+    container.querySelector('form input')
+  ) as HTMLInputElement
+  const setter = required(
+    Object.getOwnPropertyDescriptor(dom.HTMLInputElement.prototype, 'value')
+      ?.set
+  )
+  await act(async () => {
+    setter.call(name, 'Unpublished provider')
+    name.dispatchEvent(new Event('input', { bubbles: true }))
+  })
+  await act(async () => button(container, 'Channels').click())
+  assert.equal(name.value, 'Unpublished provider')
+  assert.equal(document.querySelector('[role=dialog]'), null)
+  assert.equal(
+    button(container, 'Channels').getAttribute('aria-current'),
+    'page'
+  )
+
+  await act(async () => button(container, 'Models').click())
+  let dialog = required(document.querySelector('[role=dialog]'))
+  assert.match(dialog.textContent ?? '', /unsaved changes/)
+  await act(async () => button(dialog, 'Stay').click())
+  assert.equal(name.value, 'Unpublished provider')
+  assert.equal(
+    button(container, 'Channels').getAttribute('aria-current'),
+    'page'
+  )
+
+  await act(async () => button(container, 'Create Channel').click())
+  dialog = required(document.querySelector('[role=dialog]'))
+  await act(async () => button(dialog, 'Leave').click())
+  assert.ok(container.querySelector('form[aria-label="Create Channel"]'))
+  assert.equal(
+    (container.querySelector('form input') as HTMLInputElement).value,
+    ''
+  )
+  // An untouched replacement may close without another confirmation.
+  await act(async () =>
+    button(required(container.querySelector('form')), 'Cancel').click()
+  )
+  assert.equal(container.querySelector('form'), null)
+  assert.equal(document.querySelector('[role=dialog]'), null)
+})
+
+test('invalid advanced drafts and unsaved API keys are protected, and confirmed section changes clear secrets', async () => {
+  api.request = (async (options: { method: string }) => {
+    assert.equal(options.method, 'GET')
+    return { data: { success: true, data: fixture() } }
+  }) as typeof api.request
+  const container = await mount('channels')
+  await until(() => !!container.textContent?.includes('Private provider'))
+  await act(async () => button(container, 'Edit').click())
+  const textarea = required(container.querySelector('textarea'))
+  const setText = required(
+    Object.getOwnPropertyDescriptor(dom.HTMLTextAreaElement.prototype, 'value')
+      ?.set
+  )
+  await act(async () => {
+    setText.call(textarea, '{unfinished')
+    textarea.dispatchEvent(new Event('input', { bubbles: true }))
+  })
+  await act(async () =>
+    button(required(container.querySelector('form')), 'Cancel').click()
+  )
+  let dialog = required(document.querySelector('[role=dialog]'))
+  await act(async () => button(dialog, 'Stay').click())
+  assert.equal(textarea.value, '{unfinished')
+  await act(async () =>
+    button(required(container.querySelector('form')), 'Cancel').click()
+  )
+  dialog = required(document.querySelector('[role=dialog]'))
+  await act(async () => button(dialog, 'Leave').click())
+  assert.equal(container.querySelector('form'), null)
+
+  await act(async () => button(container, 'Create Channel').click())
+  const secret = required(
+    container.querySelector('input[type=password]')
+  ) as HTMLInputElement
+  const setInput = required(
+    Object.getOwnPropertyDescriptor(dom.HTMLInputElement.prototype, 'value')
+      ?.set
+  )
+  await act(async () => {
+    setInput.call(secret, 'synthetic-unsaved-secret')
+    secret.dispatchEvent(new Event('input', { bubbles: true }))
+  })
+  await act(async () => button(container, 'Models').click())
+  dialog = required(document.querySelector('[role=dialog]'))
+  await act(async () => button(dialog, 'Stay').click())
+  assert.equal(secret.value, 'synthetic-unsaved-secret')
+  await act(async () => button(container, 'Models').click())
+  dialog = required(document.querySelector('[role=dialog]'))
+  await act(async () => button(dialog, 'Leave').click())
+  assert.equal(container.querySelector('input[type=password]'), null)
+  assert.equal(button(container, 'Models').getAttribute('aria-current'), 'page')
+  await act(async () => button(container, 'Channels').click())
+  await act(async () => button(container, 'Create Channel').click())
+  assert.equal(
+    (container.querySelector('input[type=password]') as HTMLInputElement).value,
+    ''
+  )
+})

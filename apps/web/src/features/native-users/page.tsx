@@ -398,7 +398,7 @@ function UsersWorkspace({
   }
   if (!isCurrentNativeUsersScope(scope)) return null
   return (
-    <div className='mx-auto w-full max-w-7xl space-y-7'>
+    <div className='@container/users mx-auto w-full max-w-7xl min-w-0 space-y-7'>
       <div className='flex flex-wrap items-center justify-between gap-3'>
         <p className='text-muted-foreground max-w-xl text-sm'>
           {t('Find accounts, update access and review balances.')}
@@ -443,8 +443,8 @@ function UsersWorkspace({
         className='space-y-5'
         aria-label={t('User filters')}
       >
-        <div className='grid grid-cols-2 items-end gap-3 xl:grid-cols-[minmax(0,1fr)_11rem_11rem_auto]'>
-          <div className='col-span-2 space-y-2 xl:col-span-1'>
+        <div className='grid grid-cols-1 items-end gap-3 @min-[28rem]/users:grid-cols-2 @min-[64rem]/users:grid-cols-[minmax(0,1fr)_11rem_11rem_auto]'>
+          <div className='col-span-full min-w-0 space-y-2 @min-[64rem]/users:col-span-1'>
             <Label htmlFor='native-user-keyword'>
               {t('Search username, display name, email or user ID')}
             </Label>
@@ -487,7 +487,10 @@ function UsersWorkspace({
               { value: 'superadmin', label: t('Super administrator') },
             ]}
           />
-          <Button type='submit' className='col-span-2 min-h-11 xl:col-span-1'>
+          <Button
+            type='submit'
+            className='col-span-full min-h-11 @min-[64rem]/users:col-span-1'
+          >
             {t('Apply filters')}
           </Button>
         </div>
@@ -500,7 +503,7 @@ function UsersWorkspace({
             {t('Advanced filters')}
           </summary>
           <div className='bg-muted/25 mt-2 space-y-5 rounded-xl p-5'>
-            <div className='grid gap-5 sm:grid-cols-2 xl:grid-cols-3'>
+            <div className='grid gap-5 @min-[28rem]/users:grid-cols-2 @min-[64rem]/users:grid-cols-3'>
               <div className='space-y-2'>
                 <Label htmlFor='native-user-group'>
                   {t('Exact group membership')}
@@ -568,6 +571,9 @@ function UsersWorkspace({
               />
             </div>
             <div className='flex flex-wrap gap-2'>
+              <Button type='submit' className='min-h-11'>
+                {t('Apply filters')}
+              </Button>
               <Button
                 type='button'
                 variant='outline'

@@ -65,6 +65,10 @@ type Editor = {
   readOnly?: boolean
   channel?: boolean
 }
+type EditorDestination =
+  | { editor: Editor }
+  | { section: Section }
+  | { close: true }
 const sections: Array<[Section, string]> = [
   ['channels', 'Channels'],
   ['models', 'Models'],
@@ -185,6 +189,9 @@ function NativeRoutingWorkspace({
     balanceUnits: string[]
   }>({ anchor: null, balanceUnits: [] })
   const [editor, setEditor] = useState<Editor | null>(null)
+  const editorBaseline = useRef('')
+  const [editorDestination, setEditorDestination] =
+    useState<EditorDestination | null>(null)
   const editorRef = useRef<HTMLFormElement>(null)
   useEffect(() => {
     editorRef.current?.scrollIntoView?.({ block: 'start' })
@@ -321,13 +328,30 @@ function NativeRoutingWorkspace({
         (cause instanceof Error ? cause.message : t('Failed to save'))
     )
   }
-  function openEditor(value: Editor) {
-    setEditor(value)
+  function changeEditor(destination: EditorDestination) {
+    const next = 'editor' in destination ? destination.editor : null
+    setEditor(next)
+    editorBaseline.current = next?.document ?? ''
+    if ('section' in destination) {
+      setSection(destination.section)
+      setPage(1)
+    }
+    setEditorDestination(null)
     setPreview(null)
     setSecret('')
     setError(null)
     setConfirmation(null)
     setResult(null)
+  }
+  function requestEditorChange(destination: EditorDestination) {
+    if (editor && (editor.document !== editorBaseline.current || secret)) {
+      setEditorDestination(destination)
+    } else {
+      changeEditor(destination)
+    }
+  }
+  function openEditor(value: Editor) {
+    requestEditorChange({ editor: value })
   }
   async function refresh() {
     snapshotAnchor.current = null
@@ -751,7 +775,10 @@ function NativeRoutingWorkspace({
     )
   }
   return (
-    <section className='min-w-0 space-y-4' aria-label={t('Configuration')}>
+    <section
+      className='@container/routing min-w-0 space-y-4'
+      aria-label={t('Configuration')}
+    >
       <nav className='flex flex-wrap gap-2' aria-label={t('Configuration')}>
         {sections.map(([value, label]) => (
           <Button
@@ -760,11 +787,9 @@ function NativeRoutingWorkspace({
             variant={section === value ? 'default' : 'outline'}
             className='min-h-11'
             disabled={busy}
+            aria-current={section === value ? 'page' : undefined}
             onClick={() => {
-              setSection(value)
-              setPage(1)
-              setEditor(null)
-              setPreview(null)
+              if (section !== value) requestEditorChange({ section: value })
             }}
           >
             {t(label)}
@@ -782,7 +807,7 @@ function NativeRoutingWorkspace({
       </nav>
       {editor && (
         <form
-          className='bg-card space-y-4 rounded-lg border p-4'
+          className='bg-card min-w-0 space-y-4 rounded-lg p-4 sm:p-6'
           aria-label={editor.title}
           ref={editorRef}
           onSubmit={(event) => {
@@ -855,17 +880,47 @@ function NativeRoutingWorkspace({
               variant='outline'
               className='min-h-11'
               disabled={busy}
-              onClick={() => {
-                setEditor(null)
-                setPreview(null)
-                setSecret('')
-              }}
+              onClick={() => requestEditorChange({ close: true })}
             >
               {t('Cancel')}
             </Button>
           </div>
         </form>
       )}
+      <Dialog
+        open={editorDestination !== null}
+        onOpenChange={(open) => {
+          if (!open) setEditorDestination(null)
+        }}
+        title={t('You have unsaved changes')}
+        description={t(
+          'You have unsaved changes. Are you sure you want to leave?'
+        )}
+        footer={
+          <>
+            <Button
+              type='button'
+              variant='outline'
+              className='min-h-11'
+              onClick={() => setEditorDestination(null)}
+            >
+              {t('Stay')}
+            </Button>
+            <Button
+              type='button'
+              variant='destructive'
+              className='min-h-11'
+              onClick={() => {
+                if (editorDestination) changeEditor(editorDestination)
+              }}
+            >
+              {t('Leave')}
+            </Button>
+          </>
+        }
+      >
+        {null}
+      </Dialog>
       <label className='block space-y-2'>
         <span className='text-sm'>{t('Search')}</span>
         <Input
@@ -1005,7 +1060,7 @@ function NativeRoutingWorkspace({
                 if (batchTagValue.trim()) void saveSelectedTag(batchTagValue)
               }}
             >
-              <label className='min-w-56 flex-1 space-y-2 text-sm'>
+              <label className='min-w-0 flex-1 basis-56 space-y-2 text-sm'>
                 <span>{t('Set tag for selected channels')}</span>
                 <Input
                   className='min-h-11'
@@ -1067,7 +1122,7 @@ function NativeRoutingWorkspace({
                       )
                     }
                   />
-                  <h3 className='font-medium [overflow-wrap:anywhere]'>
+                  <h3 className='min-w-0 font-medium [overflow-wrap:anywhere]'>
                     {configuration.bindings.names[channel.id] ??
                       `Channel ${channel.id}`}
                   </h3>
@@ -1077,7 +1132,7 @@ function NativeRoutingWorkspace({
                   {channel.enabled ? t('Enabled') : t('Disabled')}
                 </p>
                 {configuration.bindings.tags?.[channel.id] && (
-                  <p className='text-muted-foreground text-xs'>
+                  <p className='text-muted-foreground text-xs [overflow-wrap:anywhere]'>
                     {configuration.bindings.tags[channel.id]}
                   </p>
                 )}

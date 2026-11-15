@@ -446,7 +446,10 @@ test('groups page independently, selecting a choice keeps exact membership and e
     container.querySelector<HTMLInputElement>('#native-user-group')?.value
   ).toBe(' exact ')
   await act(async () => {
-    button(container, 'Apply filters').click()
+    const advanced = container.querySelector<HTMLDetailsElement>('form details')
+    expect(advanced?.open).toBe(true)
+    if (!advanced) throw new Error('Missing advanced user filters')
+    button(advanced, 'Apply filters').click()
     await pause()
   })
   expect(seen.at(-1)?.params.group).toBe(' exact ')

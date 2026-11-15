@@ -35,6 +35,61 @@ const { useAuthStore } = await import('@/stores/auth-store')
 const config = (url: string, method = 'get') =>
   ({ url, method, headers: new AxiosHeaders() }) as InternalAxiosRequestConfig
 
+test('native admin review data validates, filters users and never handles writes or ordinary-user reads', async () => {
+  const { adminReviewFixture } = await import('./admin-review-fixtures')
+  const { nativeUsersResponseSchema, DEFAULT_NATIVE_USERS_QUERY } =
+    await import('@/features/native-users/contract')
+  const previous = useAuthStore.getState().auth.user
+  try {
+    useAuthStore
+      .getState()
+      .auth.setUser({ id: 9001, username: 'review', role: 10 })
+    const request = {
+      ...config('/core/v1/admin/users'),
+      params: { ...DEFAULT_NATIVE_USERS_QUERY },
+    }
+    // The real client omits the absent optional service level.
+    delete (request.params as Partial<typeof DEFAULT_NATIVE_USERS_QUERY>)
+      .service_level
+    const users = nativeUsersResponseSchema.parse(adminReviewFixture(request))
+    assert.equal(users.items.length, 2)
+    request.params.status = 'disabled'
+    const filtered = nativeUsersResponseSchema.parse(
+      adminReviewFixture(request)
+    )
+    assert.equal(filtered.total, 1)
+    assert.equal(filtered.items[0].active, false)
+    request.params.keyword = 'no-synthetic-match'
+    assert.equal(
+      nativeUsersResponseSchema.parse(adminReviewFixture(request)).total,
+      0
+    )
+    for (const path of [
+      '/api/extensions/plugins',
+      '/api/channel/ops',
+      '/core/v1/admin/routing/configuration',
+      '/core/v1/admin/users',
+    ]) {
+      assert.ok(adminReviewFixture(config(path)))
+      assert.equal(adminReviewFixture(config(path, 'post')), undefined)
+      assert.equal(
+        adminReviewFixture(config(`https://example.invalid${path}`)),
+        undefined
+      )
+    }
+    useAuthStore
+      .getState()
+      .auth.setUser({ id: 9001, username: 'review', role: 1 })
+    assert.equal(
+      adminReviewFixture(config('/api/extensions/plugins')),
+      undefined
+    )
+    assert.equal(adminReviewFixture(config('/core/v1/admin/users')), undefined)
+  } finally {
+    useAuthStore.getState().auth.setUser(previous)
+  }
+})
+
 test('review fixtures never handle writes, unknown paths, or remote requests', async () => {
   assert.equal(consolePageFixture(config('/api/token/', 'post')), undefined)
   assert.equal(

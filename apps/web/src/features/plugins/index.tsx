@@ -55,7 +55,7 @@ function PluginInventory({ scope }: { scope: NativeUsersScope }) {
 
   const enabled = query.data.filter((plugin) => plugin.enabled)
   return (
-    <div className='min-w-0 space-y-5'>
+    <div className='@container/plugins min-w-0 space-y-5'>
       {phase !== 'fresh' && (
         <Alert role='status'>
           <AlertDescription>
@@ -104,8 +104,7 @@ function PluginInventory({ scope }: { scope: NativeUsersScope }) {
           </p>
         )}
       </section>
-      <section className='space-y-3'>
-        <h2 className='text-lg font-semibold'>{t('Plugin management')}</h2>
+      <section className='space-y-3' aria-label={t('Plugin management')}>
         {query.data.length === 0 && (
           <p className='text-muted-foreground text-sm'>
             {t('No data available')}
@@ -115,7 +114,7 @@ function PluginInventory({ scope }: { scope: NativeUsersScope }) {
           {query.data.map((plugin) => (
             <article
               key={plugin.name}
-              className='grid min-w-0 gap-3 py-4 lg:grid-cols-[minmax(12rem,1fr)_minmax(0,2fr)] lg:items-center lg:gap-6'
+              className='grid min-w-0 gap-3 py-4 @min-[44rem]/plugins:grid-cols-[minmax(12rem,1fr)_minmax(0,2fr)] @min-[44rem]/plugins:items-center @min-[44rem]/plugins:gap-6'
             >
               <div className='min-w-0'>
                 <h3 className='font-semibold [overflow-wrap:anywhere]'>
@@ -134,7 +133,7 @@ function PluginInventory({ scope }: { scope: NativeUsersScope }) {
                   </code>
                 </details>
               </div>
-              <dl className='grid min-w-0 grid-cols-2 gap-3 text-sm sm:grid-cols-3'>
+              <dl className='grid min-w-0 gap-2 text-sm @min-[44rem]/plugins:grid-cols-3 @min-[44rem]/plugins:gap-3 [&_dd]:shrink-0 [&>div]:flex [&>div]:min-w-0 [&>div]:items-baseline [&>div]:justify-between [&>div]:gap-4 @min-[44rem]/plugins:[&>div]:block'>
                 <div>
                   <dt className='text-muted-foreground'>
                     {t('Registered in this instance')}

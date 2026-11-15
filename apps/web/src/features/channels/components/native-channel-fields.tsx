@@ -51,9 +51,9 @@ export function NativeChannelFields({
     },
   ]
   return (
-    <div className='grid gap-4 lg:grid-cols-2'>
+    <div className='grid min-w-0 gap-4 @min-[40rem]/routing:grid-cols-2'>
       {fields.map((field) => (
-        <label key={field.key} className='block space-y-2'>
+        <label key={field.key} className='block min-w-0 space-y-2'>
           <span className='text-sm font-medium'>{field.label}</span>
           <Input
             value={
@@ -85,7 +85,7 @@ export function NativeChannelFields({
           <option key={protocol} value={protocol} />
         ))}
       </datalist>
-      <label className='flex min-h-11 items-center gap-3 text-sm lg:col-span-2'>
+      <label className='flex min-h-11 items-center gap-3 text-sm @min-[40rem]/routing:col-span-2'>
         <Checkbox
           checked={draft.enabled === true}
           disabled={disabled}
