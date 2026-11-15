@@ -115,10 +115,15 @@ test('automatic checks and explicit source-release requests have bounded trigger
     const block = source.match(/^on:\n((?:[ \t].*\n|\n)*)/m);
     assert.ok(block, `${file}: event block is required`);
     const events = [...block[1].matchAll(/^  ([\w-]+):/gm)].map((match) => match[1]);
-    if (file === 'core-protocol.yml') {
-      assert.deepEqual(events, ['workflow_dispatch', 'workflow_call', 'pull_request', 'push']);
+    if (file === 'ci.yml') {
+      assert.deepEqual(events, ['workflow_dispatch', 'push', 'pull_request']);
       assert.match(block[1], /pull_request:\n    branches: \[main\]/);
       assert.match(block[1], /push:\n    branches: \[main\]/);
+      assert.doesNotMatch(block[1], /paths(?:-ignore)?:|tags:/);
+      assert.match(source, /permissions:\n  contents: read/);
+      assert.doesNotMatch(source, /secrets\.|contents: write|pull_request_target|environment: production/);
+    } else if (file === 'core-protocol.yml') {
+      assert.deepEqual(events, ['workflow_dispatch', 'workflow_call']);
       assert.match(source, /permissions:\n  contents: read/);
       assert.doesNotMatch(source, /secrets\.|contents: write|pull_request_target|environment: production/);
     } else if (file === 'source-release.yml') {
@@ -201,7 +206,7 @@ test('distribution builds use the checked source and shipped TOML resources', ()
   }
 });
 
-test('manual checks reuse the exact core and extension verification pipeline', () => {
+test('CI and manual qualification reuse the exact core and extension verification pipeline', () => {
   for (const name of ['ci', 'server-release-qualification']) {
     const source = workflow(name);
     assert.match(source, /uses: \.\/\.github\/workflows\/core-protocol\.yml/);
@@ -224,7 +229,7 @@ test('manual checks reuse the exact core and extension verification pipeline', (
   assert.doesNotMatch(source, /continue-on-error:|apps\/extensions-go/);
 });
 
-test('the full manual gate cannot pass when an implemented component fails or is skipped', () => {
+test('the CI gate cannot pass when an implemented component fails or is skipped', () => {
   const source = workflow('ci');
   assert.match(source, /needs: \[microkernel, web, translations\]/);
   assert.match(source, /if: \$\{\{ always\(\) \}\}/);
@@ -234,6 +239,26 @@ test('the full manual gate cannot pass when an implemented component fails or is
   assert.match(source, /name: Translation regression check/);
   assert.match(source, /bun install --frozen-lockfile/);
   assert.doesNotMatch(source, /continue-on-error:/);
+});
+
+test('continuous CI bounds duplicate work and preserves only checked web assets', () => {
+  const source = workflow('ci');
+  assert.match(source, /group: ci-\$\{\{ github\.event_name \}\}-\$\{\{ github\.ref \}\}\n  cancel-in-progress: true/);
+  const web = source.split('  web:\n')[1].split('  translations:\n')[0];
+  assert.match(web, /timeout-minutes: 20/);
+  for (const command of ['format:check', 'copyright:check', 'lint', 'typecheck', 'test', 'build', 'bundle:check']) {
+    assert.ok(web.includes(`bun run --filter @lmm/web ${command}\n`), command);
+  }
+  assert.equal((web.match(/bun run --filter @lmm\/web test\n/g) ?? []).length, 1);
+  assert.doesNotMatch(web, /bun test |continue-on-error:|if:.*(?:always|failure)/);
+  const build = web.indexOf('bun run --filter @lmm/web build\n');
+  const check = web.indexOf('bun run --filter @lmm/web bundle:check\n');
+  const upload = web.indexOf('uses: actions/upload-artifact@');
+  assert.ok(build >= 0 && check > build && upload > check);
+  assert.match(web, /path: apps\/web\/dist\/\n          if-no-files-found: error\n          retention-days: 3/);
+  assert.match(source, /github\.event\.pull_request\.base\.sha/);
+  assert.match(source, /github\.event\.before/);
+  assert.match(source, /node scripts\/check-i18n\.mjs --base "\$BASE_REF" --merge-base/);
 });
 
 test('obsolete database upgrade tooling is not an alternate installation path', () => {
@@ -326,7 +351,8 @@ test('independent check failures do not skip the Go host required by Rust tests'
   assert.match(source, /name: Build actual Go host for Rust stream isolation\n        if: \$\{\{ !cancelled\(\) \}\}/);
   assert.match(source, /scripts\/test_core_rpc_fixture\.py -v/);
   assert.doesNotMatch(source, /LMM_CORE_DATABASE_URL_SECRET_FILE|LMM_CORE_WORKER_THREADS/);
-  assert.match(source, /pull_request:[\s\S]*?paths:[\s\S]*?\.github\/workflows\/\*\.yml/);
+  // All main pushes and PRs reach this suite through CI, including workflow-only edits.
+  assert.match(workflow('ci'), /uses: \.\/\.github\/workflows\/core-protocol\.yml/);
 });
 
 

@@ -6,14 +6,18 @@ on:
         description: Git ref for the translation regression comparison
         default: HEAD^
         type: string
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
 permissions:
   contents: read
 defaults:
   run:
     shell: bash
 concurrency:
-  group: ci-${{ github.ref }}-${{ github.run_id }}
-  cancel-in-progress: false
+  group: ci-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: true
 env:
   CI: "true"
 jobs:
@@ -51,23 +55,20 @@ jobs:
       - name: Test web workspace
         run: bun run --filter @lmm/web test
 
-      - name: Human-support confirmation regressions
-        working-directory: apps/web
-        run: |
-          for test in \
-            assistant-handoff-confirmation.test.ts \
-            assistant-handoff-tool.test.tsx \
-            assistant-handoff-review.test.tsx
-          do
-            bun test --preload ./scripts/test-preload.mjs --timeout 15000 "./src/features/assistant/$test"
-          done
-
       - name: Build production web assets
         env:
           VITE_REACT_APP_VERSION: ${{ github.sha }}
         run: |
           bun run --filter @lmm/web build
           bun run --filter @lmm/web bundle:check
+
+      - name: Preserve checked web assets
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: web-${{ github.sha }}-${{ github.run_id }}
+          path: apps/web/dist/
+          if-no-files-found: error
+          retention-days: 3
 
   translations:
     name: Translation regression check

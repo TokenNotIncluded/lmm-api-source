@@ -2,49 +2,7 @@ name: Microkernel implementation checks
 on:
   workflow_dispatch:
   workflow_call:
-  pull_request:
-    branches: [main]
-    paths:
-      - .github/workflows/*.yml
-      - services/core/**
-      - deployment/docker/**
-      - scripts/test-core-*.py
-      - scripts/test_core_rpc_fixture.py
-      - scripts/ci-payment-live.py
-      - tests/payments/**
-      - scripts/workflow-topology.test.mjs
-      - .dockerignore
-  push:
-    branches: [main]
-    paths:
-      - .github/workflows/core-protocol.yml
-      - .github/workflows/ci.yml
-      - .github/workflows/server-release-qualification.yml
-      - scripts/ci-payment-live.py
-      - tests/payments/**
-      - scripts/workflow-topology.test.mjs
-      - scripts/local-release-tests.py
-      - scripts/test-local-release-tests.py
-      - config/*.toml
-      - services/core/**
-      - services/extensions/**
-      - contracts/**
-      - deployment/docker/**
-      - scripts/generate-core-protocol.sh
-      - scripts/test-core-*.py
-      - scripts/test_core_rpc_fixture.py
-      - scripts/build-distribution.py
-      - scripts/test-distribution.py
-      - scripts/test-legal-process.py
-      - scripts/check-docs-brand.py
-      - scripts/test_docs_brand.py
-      - scripts/test-docs-microservices.py
-      - .github/workflows/microservice-distribution.yml
-      - config/legal/**
-      - packaging/distribution.json
-      - docs/**
-      - README.md
-      - README_EN.md
+# ci.yml owns automatic push/PR runs so this expensive suite runs only once.
 permissions:
   contents: read
 defaults:
