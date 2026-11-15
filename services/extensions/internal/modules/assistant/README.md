@@ -4,7 +4,7 @@ This is an independent backend module for the fresh-install microkernel. The can
 
 ## Legacy history implementation
 
-The fresh-only schema contract is now version **2**. `NewHistory(repository,
+The fresh-only schema contract is now version **3**. `NewHistory(repository,
 authority, cursorKey)` adds a separate typed transcript service to the existing
 bounded tools module. `Postgres` implements both repository ports using the same
 dedicated assistant database pool. Neither constructor installs or upgrades SQL.

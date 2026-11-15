@@ -98,7 +98,7 @@ func NewAgentPostgresJournal(ctx context.Context, db *sql.DB, expectedDatabase s
 	for _, contract := range []struct {
 		query    string
 		expected int
-	}{{`SELECT version FROM lmm_assistant.contract WHERE singleton`, 2}, {`SELECT version FROM lmm_assistant.delegation_contract WHERE singleton`, 1}, {`SELECT version FROM lmm_assistant.agent_contract WHERE singleton`, 1}} {
+	}{{`SELECT version FROM lmm_assistant.contract WHERE singleton`, 3}, {`SELECT version FROM lmm_assistant.delegation_contract WHERE singleton`, 1}, {`SELECT version FROM lmm_assistant.agent_contract WHERE singleton`, 1}} {
 		var value int
 		if db.QueryRowContext(ctx, contract.query).Scan(&value) != nil || value != contract.expected {
 			return nil, ErrDelegationUnavailable

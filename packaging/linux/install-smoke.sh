@@ -16,10 +16,11 @@ case "$format" in
     remove_packages() { dpkg -r lmm-core lmm-extensions lmm; }
     ;;
   rpm)
+    # diffutils provides cmp used by assert_operator_files; Rocky/RHEL minimal images omit it.
     if command -v dnf >/dev/null; then
-      dnf install -y ca-certificates systemd curl-minimal util-linux
+      dnf install -y ca-certificates systemd curl-minimal util-linux diffutils
     else
-      zypper --non-interactive install ca-certificates systemd curl util-linux
+      zypper --non-interactive install ca-certificates systemd curl util-linux diffutils
     fi
     install_packages() { rpm -Uvh /packages/*-"$1"-"$arch".rpm; }
     remove_packages() { rpm -e lmm-core lmm-extensions lmm; }

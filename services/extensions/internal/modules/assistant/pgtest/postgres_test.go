@@ -208,28 +208,29 @@ func TestPostgresIsolationRollbackConcurrentClaimsAndRestart(t *testing.T) {
 	_, e = a1.Exec(`CREATE ROLE mk09_assistant_role NOLOGIN; GRANT USAGE ON SCHEMA lmm_assistant TO mk09_assistant_role; GRANT SELECT ON lmm_assistant.contract TO mk09_assistant_role; GRANT SELECT,INSERT,UPDATE ON lmm_assistant.records TO mk09_assistant_role`)
 	must(t, e)
 	t.Cleanup(func() {
-		if _, err := a1.Exec(`DROP OWNED BY mk09_assistant_role`); err != nil {
+		if _, err := a1.Exec(`DROP OWNED BY mk09_assistant_role CASCADE`); err != nil {
 			t.Error(err)
 		}
-		if _, err := admin.Exec(`DROP ROLE mk09_assistant_role`); err != nil {
+		if _, err := admin.Exec(`DROP ROLE IF EXISTS mk09_assistant_role`); err != nil {
 			t.Error(err)
 		}
 	})
 	conn, e := a1.Conn(ctx)
 	must(t, e)
-	defer conn.Close()
+	defer func() {
+		_, _ = conn.ExecContext(ctx, `RESET ROLE`)
+		_ = conn.Close()
+	}()
 	_, e = conn.ExecContext(ctx, `SET ROLE mk09_assistant_role`)
 	must(t, e)
 	var version int
 	must(t, conn.QueryRowContext(ctx, `SELECT version FROM lmm_assistant.contract`).Scan(&version))
-	if version != 2 {
+	if version != 3 {
 		t.Fatal(version)
 	}
 	if _, e = conn.ExecContext(ctx, `CREATE TABLE public.not_allowed(x int)`); e == nil {
 		t.Fatal("module role created unrelated table")
 	}
-	_, e = conn.ExecContext(ctx, `RESET ROLE`)
-	must(t, e)
 	// No chat or user credential is retained in either module database.
 	rows, e := a1.Query(`SELECT body::text FROM lmm_assistant.records`)
 	must(t, e)

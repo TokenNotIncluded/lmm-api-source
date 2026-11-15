@@ -1026,10 +1026,11 @@ export async function bootstrapAuthentication(): Promise<RefreshOutcome> {
 }
 
 export function getCommonHeaders(): Record<string, string> {
-  if (useAuthStore.getState().preview)
+  if (useAuthStore.getState().preview) {
     throw new Error(
       t('Read-only preview. Your account and permissions stay unchanged.')
     )
+  }
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
   }

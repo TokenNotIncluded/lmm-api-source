@@ -99,8 +99,9 @@ function MemoryGame() {
   useEffect(() => {
     if (open.length !== 2) return
     const timer = window.setTimeout(() => {
-      if (cards[open[0]] === cards[open[1]])
+      if (cards[open[0]] === cards[open[1]]) {
         setMatched((previous) => [...previous, ...open])
+      }
       setOpen([])
     }, 650)
     return () => window.clearTimeout(timer)
