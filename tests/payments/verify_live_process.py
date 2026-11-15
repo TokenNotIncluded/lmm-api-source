@@ -73,7 +73,7 @@ def main():
         fixture = v.Fixture(output)
         env = {k: val for k, val in v.clean_environment().items() if not k.startswith(("LMM_", "SQLX_", "PAYMENT_"))}
         env.update(TMPDIR=str(root), LMM_LIVE_PROCESS_ROOT=str(root))
-        listed = subprocess.run([binaries["test"]["path"], "--list"], env=env, capture_output=True, text=True, timeout=10, check=True)
+        listed = subprocess.run([binaries["test"]["path"], "--list", "--exact", CASE], env=env, capture_output=True, text=True, timeout=10, check=True)
         if listed.stdout.strip() != CASE + ": test\n\n1 test, 0 benchmarks":
             raise RuntimeError("unexpected Rust test discovery")
         listed = subprocess.run([binaries["bootstrap"]["path"], "-test.list", "^" + BOOT + "$"], env=env, capture_output=True, text=True, timeout=10, check=True)
