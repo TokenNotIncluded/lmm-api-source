@@ -14,7 +14,7 @@ export const EXTERNAL_BROWSER_PRESETS = Object.freeze({
     authorization_endpoint: 'https://github.com/login/oauth/authorize',
     browser_start: '/api/oauth/github/start',
     callbacks: ['/oauth/github', '/api/oauth/github'],
-    scope: 'read:user',
+    scope: 'user:email',
     pkce: true,
   },
   discord: {

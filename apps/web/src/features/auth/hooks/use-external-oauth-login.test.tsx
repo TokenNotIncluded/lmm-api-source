@@ -118,7 +118,7 @@ function validResponse(provider: ExternalBrowserProvider) {
   for (const [key, value] of Object.entries({
     client_id: 'synthetic-client',
     response_type: 'code',
-    scope: preset.scope,
+    scope: provider === 'github' ? 'user:email' : preset.scope,
     state: 'server-generated-state',
     redirect_uri: `https://site.example.test${preset.callbacks[0]}`,
     provider_option: 'preserved-value',

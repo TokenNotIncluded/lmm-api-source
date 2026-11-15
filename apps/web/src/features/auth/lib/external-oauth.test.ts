@@ -25,7 +25,7 @@ function authorizationUrl(provider: ExternalBrowserProvider) {
   for (const [key, value] of Object.entries({
     client_id: 'synthetic-client',
     response_type: 'code',
-    scope: preset.scope,
+    scope: provider === 'github' ? 'user:email' : preset.scope,
     state: 'server-owned-state',
     redirect_uri: `${origin}${preset.callbacks[0]}`,
   })) {
