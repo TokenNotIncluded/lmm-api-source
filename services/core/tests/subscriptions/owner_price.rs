@@ -15,13 +15,15 @@ async fn owner_price_cli_uses_real_set_role_and_exact_existing_plan(pool: PgPool
     let owner = format!("price_owner_{suffix}");
     let installer = format!("price_installer_{suffix}");
     let runtime = format!("price_runtime_{suffix}");
+    let installer_password = format!("synthetic-{:032x}", rand::random::<u128>());
+    let runtime_password = format!("synthetic-{:032x}", rand::random::<u128>());
     let database = pool.connect_options().get_database().unwrap().to_owned();
     assert!(
         database
             .bytes()
             .all(|c| c.is_ascii_alphanumeric() || c == b'_')
     );
-    sqlx::raw_sql(sqlx::AssertSqlSafe(format!("CREATE ROLE {owner} NOLOGIN; CREATE ROLE {installer} LOGIN NOINHERIT; CREATE ROLE {runtime} LOGIN NOINHERIT; GRANT {owner} TO {installer}; ALTER DATABASE \"{database}\" OWNER TO {owner};")))
+    sqlx::raw_sql(sqlx::AssertSqlSafe(format!("CREATE ROLE {owner} NOLOGIN; CREATE ROLE {installer} LOGIN NOINHERIT PASSWORD '{installer_password}'; CREATE ROLE {runtime} LOGIN NOINHERIT PASSWORD '{runtime_password}'; GRANT {owner} TO {installer}; ALTER DATABASE \"{database}\" OWNER TO {owner};")))
         .execute(&pool).await.unwrap();
     let set_role = format!("SET ROLE {owner}");
     let owner_pool = PgPoolOptions::new()
@@ -35,7 +37,13 @@ async fn owner_price_cli_uses_real_set_role_and_exact_existing_plan(pool: PgPool
                 Ok(())
             })
         })
-        .connect_with(pool.connect_options().as_ref().clone().username(&installer))
+        .connect_with(
+            pool.connect_options()
+                .as_ref()
+                .clone()
+                .username(&installer)
+                .password(&installer_password),
+        )
         .await
         .unwrap();
     let f = fixture(&owner_pool, true).await;
@@ -148,7 +156,13 @@ async fn owner_price_cli_uses_real_set_role_and_exact_existing_plan(pool: PgPool
         .execute(&pool).await.unwrap();
     let runtime_pool = PgPoolOptions::new()
         .max_connections(1)
-        .connect_with(pool.connect_options().as_ref().clone().username(&runtime))
+        .connect_with(
+            pool.connect_options()
+                .as_ref()
+                .clone()
+                .username(&runtime)
+                .password(&runtime_password),
+        )
         .await
         .unwrap();
     assert_eq!(
@@ -176,6 +190,7 @@ async fn owner_price_cli_uses_real_set_role_and_exact_existing_plan(pool: PgPool
     };
     let mut url = reqwest::Url::parse(&std::env::var("DATABASE_URL").unwrap()).unwrap();
     url.set_username(&installer).unwrap();
+    url.set_password(Some(&installer_password)).unwrap();
     url.set_path(&format!("/{database}"));
     url.query_pairs_mut()
         .append_pair("options", &format!("-c role={owner}"));
