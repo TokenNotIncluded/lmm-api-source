@@ -19,6 +19,11 @@ import { getServerErrorMessage } from '@/lib/server-error-message'
 import { useAuthStore } from '@/stores/auth-store'
 
 import {
+  setNativeChannelEnabled,
+  setNativeChannelsEnabled,
+  setNativeChannelsTag,
+} from '../api'
+import {
   copyNativeChannel,
   getNativeConfiguration,
   nativeRequest as scopedNativeRequest,
@@ -43,6 +48,7 @@ import { NativeChannelUsageDialog } from './dialogs/native-channel-usage-dialog'
 import { NativeKeyManageDialog } from './dialogs/native-key-manage-dialog'
 import { NativeChannelFields } from './native-channel-fields'
 import {
+  NativeChannelOperationsSummary,
   NativeChannelSortFields,
   NativeChannelStatisticsRow,
 } from './native-channel-statistics'
@@ -158,6 +164,14 @@ function NativeRoutingWorkspace({
   const [section, setSection] = useState<Section>(initialSection)
   const [page, setPage] = useState(1)
   const [search, setSearch] = useState('')
+  const [channelSelection, setChannelSelection] = useState<{
+    snapshot: string
+    ids: number[]
+  }>({ snapshot: '', ids: [] })
+  const [batchTagEditor, setBatchTagEditor] = useState<{
+    snapshot: string
+    value: string
+  } | null>(null)
   const [channelSort, setChannelSort] = useState<
     Pick<NativeChannelSortInput, 'sort' | 'order' | 'unit'>
   >({ sort: 'id', order: 'asc', unit: '' })
@@ -181,6 +195,7 @@ function NativeRoutingWorkspace({
   const [secret, setSecret] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+  const operationPending = useRef(false)
   const [preview, setPreview] = useState<{
     confirmation_digest: string
     [key: string]: unknown
@@ -222,6 +237,22 @@ function NativeRoutingWorkspace({
     [client, scope.userId, scope.sessionId, scope.role]
   )
   const configuration = query.data
+  const channelSelectionSnapshot = JSON.stringify([
+    channelSort,
+    configuration?.version,
+    page,
+    scope.sessionId,
+    scope.userId,
+    search,
+    section,
+  ])
+  const selectedChannelIds =
+    channelSelection.snapshot === channelSelectionSnapshot
+      ? channelSelection.ids
+      : []
+  function updateChannelSelection(ids: number[]) {
+    setChannelSelection({ snapshot: channelSelectionSnapshot, ids })
+  }
   const selection = JSON.stringify([
     scope,
     query.data?.version,
@@ -317,8 +348,12 @@ function NativeRoutingWorkspace({
       client.invalidateQueries({ queryKey: ['pricing'] }),
     ])
   }
-  async function run(operation: () => Promise<unknown>, close = false) {
-    if (busy) return
+  async function run(
+    operation: () => Promise<unknown>,
+    close = false
+  ): Promise<boolean> {
+    if (busy || operationPending.current) return false
+    operationPending.current = true
     setBusy(true)
     setError(null)
     setResult(null)
@@ -332,11 +367,14 @@ function NativeRoutingWorkspace({
         setSecret('')
       }
       await refresh()
+      return true
     } catch (cause) {
       report(cause)
       setPreview(null)
       await refresh()
+      return false
     } finally {
+      operationPending.current = false
       setBusy(false)
     }
   }
@@ -652,7 +690,53 @@ function NativeRoutingWorkspace({
         : section === 'vendors'
           ? vendors.length
           : prices.length
-  const start = (page - 1) * 25
+  const lastPage = Math.max(1, Math.ceil(total / 25))
+  // Local lists can shrink while open; server channel pages are validated by digest.
+  const shownPage =
+    section === 'channels' && serverChannels ? page : Math.min(page, lastPage)
+  const start = (shownPage - 1) * 25
+  const visibleChannels = serverChannels
+    ? upstreams
+    : upstreams.slice(start, start + 25)
+  const visibleChannelIds = visibleChannels.map((channel) => channel.id)
+  const selectedVisibleIds = visibleChannelIds.filter((id) =>
+    selectedChannelIds.includes(id)
+  )
+  const allVisibleSelected =
+    visibleChannelIds.length > 0 &&
+    selectedVisibleIds.length === visibleChannelIds.length
+  const batchTagValue =
+    selectedVisibleIds.length > 0 &&
+    batchTagEditor?.snapshot === channelSelectionSnapshot
+      ? batchTagEditor.value
+      : null
+  async function changeSelectedStatus(enabled: boolean) {
+    if (!configuration || selectedVisibleIds.length === 0) return
+    const saved = await run(() =>
+      setNativeChannelsEnabled(
+        selectedVisibleIds,
+        enabled,
+        configuration.version,
+        scope
+      )
+    )
+    if (saved) updateChannelSelection([])
+  }
+  async function saveSelectedTag(tag: string | null) {
+    if (!configuration || selectedVisibleIds.length === 0) return
+    const saved = await run(() =>
+      setNativeChannelsTag(
+        selectedVisibleIds,
+        tag,
+        configuration.version,
+        scope
+      )
+    )
+    if (saved) {
+      updateChannelSelection([])
+      setBatchTagEditor(null)
+    }
+  }
   function deleteButton(path: string) {
     return (
       <Button
@@ -785,6 +869,7 @@ function NativeRoutingWorkspace({
       <label className='block space-y-2'>
         <span className='text-sm'>{t('Search')}</span>
         <Input
+          aria-label={t('Search')}
           className='min-h-11'
           value={search}
           onChange={(event) => {
@@ -846,16 +931,151 @@ function NativeRoutingWorkspace({
               )}
             </>
           )}
+          {verifiedChannelPage?.summary && (
+            <NativeChannelOperationsSummary
+              value={verifiedChannelPage.summary}
+            />
+          )}
+          <div className='flex flex-wrap items-center gap-3'>
+            <div className='text-muted-foreground flex min-h-11 items-center gap-2 text-sm'>
+              <Checkbox
+                aria-label={t('Select current page')}
+                checked={allVisibleSelected}
+                indeterminate={
+                  selectedVisibleIds.length > 0 && !allVisibleSelected
+                }
+                disabled={busy || visibleChannels.length === 0}
+                onCheckedChange={(checked) =>
+                  updateChannelSelection(checked ? visibleChannelIds : [])
+                }
+              />
+              <span>{t('Select current page')}</span>
+            </div>
+            {selectedVisibleIds.length > 0 && (
+              <div
+                className='flex flex-wrap items-center gap-2'
+                data-slot='channel-batch-actions'
+              >
+                <span className='text-sm font-medium'>
+                  {t('{{count}} selected', {
+                    count: selectedVisibleIds.length,
+                  })}
+                </span>
+                <Button
+                  type='button'
+                  variant='outline'
+                  className='min-h-11'
+                  disabled={busy}
+                  onClick={() => void changeSelectedStatus(true)}
+                >
+                  {t('Enable')}
+                </Button>
+                <Button
+                  type='button'
+                  variant='outline'
+                  className='min-h-11'
+                  disabled={busy}
+                  onClick={() => void changeSelectedStatus(false)}
+                >
+                  {t('Disable')}
+                </Button>
+                <Button
+                  type='button'
+                  variant='outline'
+                  className='min-h-11'
+                  disabled={busy}
+                  onClick={() =>
+                    setBatchTagEditor({
+                      snapshot: channelSelectionSnapshot,
+                      value: batchTagValue ?? '',
+                    })
+                  }
+                >
+                  {t('Tag')}
+                </Button>
+              </div>
+            )}
+          </div>
+          {batchTagValue !== null && (
+            <form
+              className='bg-card flex flex-wrap items-end gap-3 rounded-lg p-4'
+              aria-label={t('Set tag for selected channels')}
+              onSubmit={(event) => {
+                event.preventDefault()
+                if (batchTagValue.trim()) void saveSelectedTag(batchTagValue)
+              }}
+            >
+              <label className='min-w-56 flex-1 space-y-2 text-sm'>
+                <span>{t('Set tag for selected channels')}</span>
+                <Input
+                  className='min-h-11'
+                  value={batchTagValue}
+                  maxLength={128}
+                  required
+                  disabled={busy}
+                  onChange={(event) =>
+                    setBatchTagEditor({
+                      snapshot: channelSelectionSnapshot,
+                      value: event.target.value,
+                    })
+                  }
+                />
+              </label>
+              <Button
+                type='submit'
+                className='min-h-11'
+                disabled={busy || !batchTagValue.trim()}
+              >
+                {t('Apply')}
+              </Button>
+              <Button
+                type='button'
+                variant='outline'
+                className='min-h-11'
+                disabled={busy}
+                onClick={() => void saveSelectedTag(null)}
+              >
+                {t('Clear')}
+              </Button>
+              <Button
+                type='button'
+                variant='ghost'
+                className='min-h-11'
+                disabled={busy}
+                onClick={() => setBatchTagEditor(null)}
+              >
+                {t('Cancel')}
+              </Button>
+            </form>
+          )}
           <div className='space-y-3'>
-            {(serverChannels
-              ? upstreams
-              : upstreams.slice(start, start + 25)
-            ).map((channel) => (
+            {visibleChannels.map((channel) => (
               <div key={channel.id} className='min-w-0 space-y-2 border p-3'>
-                <h3 className='font-medium [overflow-wrap:anywhere]'>
-                  {configuration.bindings.names[channel.id] ??
-                    `Channel ${channel.id}`}
-                </h3>
+                <div className='flex items-center gap-2'>
+                  <Checkbox
+                    aria-label={
+                      configuration.bindings.names[channel.id] ??
+                      `Channel ${channel.id}`
+                    }
+                    checked={selectedVisibleIds.includes(channel.id)}
+                    disabled={busy}
+                    onCheckedChange={(checked) =>
+                      updateChannelSelection(
+                        checked
+                          ? [...selectedChannelIds, channel.id]
+                          : selectedChannelIds.filter((id) => id !== channel.id)
+                      )
+                    }
+                  />
+                  <h3 className='font-medium [overflow-wrap:anywhere]'>
+                    {configuration.bindings.names[channel.id] ??
+                      `Channel ${channel.id}`}
+                  </h3>
+                </div>
+                <p className='text-muted-foreground text-sm'>
+                  #{channel.id} ·{' '}
+                  {channel.enabled ? t('Enabled') : t('Disabled')}
+                </p>
                 {configuration.bindings.tags?.[channel.id] && (
                   <p className='text-muted-foreground text-xs'>
                     {configuration.bindings.tags[channel.id]}
@@ -925,6 +1145,24 @@ function NativeRoutingWorkspace({
                       {t('channelBalance.configure')}
                     </Button>
                   )}
+                  <Button
+                    type='button'
+                    variant='outline'
+                    className='min-h-11'
+                    disabled={busy}
+                    onClick={() =>
+                      void run(() =>
+                        setNativeChannelEnabled(
+                          channel.id,
+                          !channel.enabled,
+                          configuration.version,
+                          scope
+                        )
+                      )
+                    }
+                  >
+                    {channel.enabled ? t('Disable') : t('Enable')}
+                  </Button>
                   <Button
                     type='button'
                     variant='outline'
@@ -1180,26 +1418,28 @@ function NativeRoutingWorkspace({
           variant='outline'
           className='min-h-11'
           disabled={
-            page === 1 || busy || (serverChannels && sortedChannels.isFetching)
+            shownPage === 1 ||
+            busy ||
+            (serverChannels && sortedChannels.isFetching)
           }
-          onClick={() => setPage((value) => value - 1)}
+          onClick={() => setPage(shownPage - 1)}
         >
           {t('Previous')}
         </Button>
         <span className='text-sm'>
-          {t('Page')} {page} / {Math.max(1, Math.ceil(total / 25))}
+          {t('Page')} {shownPage} / {lastPage}
         </span>
         <Button
           type='button'
           variant='outline'
           className='min-h-11'
           disabled={
-            page * 25 >= total ||
+            shownPage * 25 >= total ||
             busy ||
             (serverChannels &&
               (sortedChannels.isFetching || sortedChannels.isError))
           }
-          onClick={() => setPage((value) => value + 1)}
+          onClick={() => setPage(shownPage + 1)}
         >
           {t('Next')}
         </Button>

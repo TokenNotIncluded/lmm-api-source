@@ -261,6 +261,42 @@ function sortedPage(page = 1) {
     sort_unit: null,
   }
 }
+test('native operations summary shows full-snapshot counts instead of the visible page only', async () => {
+  api.request = (async (options: { url: string }) => ({
+    data: {
+      success: true,
+      data: options.url.endsWith('/configuration')
+        ? fixture()
+        : {
+            ...sortedPage(),
+            summary: {
+              scope: 'filtered_channels_before_pagination',
+              total: 30,
+              enabled: 25,
+              successful: 15,
+              failed: 2,
+              untested: 13,
+              slow_over_5000ms: 1,
+              zero_balance: 2,
+              unknown_balance: 8,
+              response_samples: 15,
+              average_response_time_ms: 2400,
+            },
+          },
+    },
+  })) as typeof api.request
+  const container = await mount('channels')
+  await until(() => !!container.textContent?.includes('Average duration'))
+  const summary = container.querySelector('section[aria-label=Summary]')
+  assert.ok(summary)
+  assert.ok(summary.textContent?.includes('Total30'))
+  assert.ok(summary.textContent?.includes('Untested13'))
+  assert.ok(summary.textContent?.includes('Slow (> 5s)1'))
+  assert.ok(summary.textContent?.includes('Zero balances2'))
+  assert.ok(summary.textContent?.includes('Unknown balances8'))
+  assert.ok(summary.textContent?.includes('Average duration2400 ms'))
+})
+
 test('native pagination carries a digest and a 409 requires a visible return to page one', async () => {
   const config = fixture()
   for (let id = 2; id <= 30; id++) {
@@ -633,7 +669,7 @@ test('a cancelled search response cannot replace current units or digest and lis
     setter.call(textarea, draft)
     textarea.dispatchEvent(new Event('input', { bubbles: true }))
   })
-  const search = container.querySelector('input')
+  const search = container.querySelector('input[aria-label=Search]')
   assert.ok(search)
   const inputSetter = Object.getOwnPropertyDescriptor(
     dom.HTMLInputElement.prototype,

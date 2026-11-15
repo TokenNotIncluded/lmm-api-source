@@ -146,6 +146,10 @@ fn routes(state: ChannelState) -> Router {
             axum::routing::put(control::configuration::update).delete(control::remove),
         )
         .route(
+            "/core/v1/admin/routing/channels/batch/tag",
+            axum::routing::post(control::tags::native_batch),
+        )
+        .route(
             "/core/v1/admin/routing/channels/{id}/copy",
             axum::routing::post(control::copy::native),
         )
@@ -385,6 +389,57 @@ fn page_with_statistics(
             .filter(|value| *value != 0)
             .is_none_or(|kind| channel.channel_type == kind)
     });
+    let summary = extended.then(|| {
+        let mut enabled = 0_usize;
+        let mut successful = 0_usize;
+        let mut failed = 0_usize;
+        let mut untested = 0_usize;
+        let mut slow_over_5000ms = 0_usize;
+        let mut zero_balance = 0_usize;
+        let mut unknown_balance = 0_usize;
+        let mut response_samples = 0_usize;
+        let mut response_sum = 0_i128;
+        for channel in &items {
+            enabled += usize::from(channel.status == 1);
+            let statistics = channel.statistics.as_ref();
+            match statistics
+                .and_then(|value| value.catalog_observation.as_ref())
+                .map(|probe| probe.result.as_str())
+            {
+                Some("success") => successful += 1,
+                Some("failed") => failed += 1,
+                _ => untested += 1,
+            }
+            if let Some(duration) = statistics.and_then(|value| value.response_time) {
+                response_samples += 1;
+                response_sum += i128::from(duration);
+                slow_over_5000ms += usize::from(duration > 5000);
+            }
+            match statistics
+                .and_then(|value| value.observation.as_ref())
+                .and_then(|balance| balance.number)
+            {
+                Some(0.0) => zero_balance += 1,
+                Some(_) => {}
+                None => unknown_balance += 1,
+            }
+        }
+        let average_response_time_ms =
+            (response_samples > 0).then(|| (response_sum / response_samples as i128) as i64);
+        json!({
+            "scope": "filtered_channels_before_pagination",
+            "total": items.len(),
+            "enabled": enabled,
+            "successful": successful,
+            "failed": failed,
+            "untested": untested,
+            "slow_over_5000ms": slow_over_5000ms,
+            "zero_balance": zero_balance,
+            "unknown_balance": unknown_balance,
+            "response_samples": response_samples,
+            "average_response_time_ms": average_response_time_ms,
+        })
+    });
     let descending =
         sort_order == "desc" || (params.sort_order.is_none() && params.id_sort == Some(true));
     items.sort_by(|a, b| sorting::compare(a, b, sort_by, params.sort_unit.as_deref(), descending));
@@ -426,6 +481,7 @@ fn page_with_statistics(
         "data": {
             "items": items,
             "total": total,
+            "summary": summary,
             "page": current_page,
             "page_size": page_size,
             "type_counts": type_counts,

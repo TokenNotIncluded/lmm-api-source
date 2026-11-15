@@ -65,6 +65,19 @@ function page() {
   return {
     items: [row],
     total: 30,
+    summary: {
+      scope: 'filtered_channels_before_pagination',
+      total: 30,
+      enabled: 20,
+      successful: 10,
+      failed: 5,
+      untested: 15,
+      slow_over_5000ms: 2,
+      zero_balance: 3,
+      unknown_balance: 10,
+      response_samples: 10,
+      average_response_time_ms: 1250,
+    },
     page: 1,
     page_size: 25,
     config_version: 1,
@@ -99,6 +112,7 @@ test('native sorted pages preserve exact strings and send the original digest', 
     input
   )
   assert.equal(first.items[0].lifetime.exact_usd_numerator, '9007199254740993')
+  assert.equal(first.summary?.average_response_time_ms, 1250)
   data = { ...data, page: 2, pagination_consistency: 'digest_checked' }
   await getNativeChannelPage(
     scope,

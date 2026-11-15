@@ -308,6 +308,275 @@ test('prices require a reviewed preview and editing invalidates the exact confir
   )
 })
 
+test('native channel cards toggle status once with CAS and refresh the published state', async () => {
+  let config = fixture()
+  const writes: Array<Record<string, unknown>> = []
+  api.request = (async (options: {
+    method: string
+    url: string
+    data?: Record<string, unknown>
+  }) => {
+    if (options.method === 'GET') {
+      return { data: { success: true, data: config } }
+    }
+    assert.equal(options.url, '/api/channel/1/status')
+    assert.deepEqual(options.data, {
+      enabled: writes.length === 0 ? false : true,
+      expected_version:
+        writes.length === 0
+          ? { routing: 1, pricing: 1 }
+          : { routing: 2, pricing: 1 },
+    })
+    writes.push(options.data ?? {})
+    const enabled = writes.length !== 1
+    config = {
+      ...config,
+      version: { routing: config.version.routing + 1, pricing: 1 },
+      routing: {
+        ...config.routing,
+        version: config.routing.version + 1,
+        upstreams: [{ ...config.routing.upstreams[0], enabled }],
+      },
+    }
+    return { data: { success: true, data: { version: config.version } } }
+  }) as typeof api.request
+  const container = await mount('channels')
+  await until(() =>
+    [...container.querySelectorAll('button')].some(
+      (element) => element.textContent === 'Disable'
+    )
+  )
+  assert.ok(container.textContent?.includes('#1 · Enabled'))
+  await act(async () => {
+    button(container, 'Disable').click()
+    button(container, 'Disable').click()
+  })
+  await until(
+    () =>
+      writes.length === 1 &&
+      [...container.querySelectorAll('button')].some(
+        (element) => element.textContent === 'Enable'
+      )
+  )
+  assert.ok(container.textContent?.includes('#1 · Disabled'))
+  await act(async () => button(container, 'Enable').click())
+  await until(
+    () =>
+      writes.length === 2 &&
+      [...container.querySelectorAll('button')].some(
+        (element) => element.textContent === 'Disable'
+      )
+  )
+  assert.ok(container.textContent?.includes('#1 · Enabled'))
+})
+
+test('native channel selection batches status changes and expires with the published snapshot', async () => {
+  const base = fixture()
+  let config = {
+    ...base,
+    routing: {
+      ...base.routing,
+      upstreams: [
+        ...base.routing.upstreams,
+        { ...base.routing.upstreams[0], id: 2 },
+      ],
+    },
+    bindings: {
+      ...base.bindings,
+      names: { ...base.bindings.names, 2: 'Secondary provider' },
+    },
+  }
+  const writes: Array<Record<string, unknown>> = []
+  api.request = (async (options: {
+    method: string
+    url: string
+    data?: Record<string, unknown>
+  }) => {
+    if (options.method === 'GET') {
+      return { data: { success: true, data: config } }
+    }
+    assert.equal(options.url, '/api/channel/status/batch')
+    writes.push(options.data ?? {})
+    const ids = options.data?.ids as number[]
+    const enabled = options.data?.enabled as boolean
+    config = {
+      ...config,
+      version: { routing: config.version.routing + 1, pricing: 1 },
+      routing: {
+        ...config.routing,
+        version: config.routing.version + 1,
+        upstreams: config.routing.upstreams.map((channel) =>
+          ids.includes(channel.id) ? { ...channel, enabled } : channel
+        ),
+      },
+    }
+    return { data: { success: true, data: { version: config.version } } }
+  }) as typeof api.request
+  const container = await mount('channels')
+  await until(() => container.querySelectorAll('[role=checkbox]').length === 3)
+  await act(async () =>
+    (container.querySelector('[role=checkbox]') as HTMLButtonElement).click()
+  )
+  await until(() => container.textContent?.includes('2 selected') === true)
+  let batch = required(
+    container.querySelector('[data-slot=channel-batch-actions]')
+  )
+  await act(async () => {
+    button(batch, 'Disable').click()
+    button(batch, 'Disable').click()
+  })
+  await until(
+    () =>
+      writes.length === 1 &&
+      !container.querySelector('[data-slot=channel-batch-actions]')
+  )
+  assert.deepEqual(writes[0], {
+    ids: [1, 2],
+    enabled: false,
+    expected_version: { routing: 1, pricing: 1 },
+  })
+  const secondary = container.querySelectorAll('[role=checkbox]')[2]
+  await act(async () => (secondary as HTMLButtonElement).click())
+  await until(() => container.textContent?.includes('1 selected') === true)
+  batch = required(container.querySelector('[data-slot=channel-batch-actions]'))
+  await act(async () => button(batch, 'Enable').click())
+  await until(
+    () =>
+      writes.length === 2 &&
+      !container.querySelector('[data-slot=channel-batch-actions]')
+  )
+  assert.deepEqual(writes[1], {
+    ids: [2],
+    enabled: true,
+    expected_version: { routing: 2, pricing: 1 },
+  })
+})
+
+test('native batch tags preserve drafts on failure and clear only selected channels', async () => {
+  const base = fixture()
+  let config = {
+    ...base,
+    routing: {
+      ...base.routing,
+      upstreams: [
+        ...base.routing.upstreams,
+        { ...base.routing.upstreams[0], id: 2 },
+      ],
+    },
+    bindings: {
+      ...base.bindings,
+      names: { ...base.bindings.names, 2: 'Secondary provider' },
+      tags: {} as Record<number, string>,
+    },
+  }
+  const writes: Array<Record<string, unknown>> = []
+  api.request = (async (options: {
+    method: string
+    url: string
+    data?: Record<string, unknown>
+  }) => {
+    if (options.method === 'GET') {
+      return { data: { success: true, data: config } }
+    }
+    assert.equal(options.url, '/core/v1/admin/routing/channels/batch/tag')
+    writes.push(options.data ?? {})
+    if (writes.length === 2) {
+      return { data: { success: false, message: 'Tag conflict', data: {} } }
+    }
+    const ids = options.data?.ids as number[]
+    const tag = options.data?.tag as string | null
+    const tags = { ...config.bindings.tags }
+    for (const id of ids) {
+      if (tag === null) delete tags[id]
+      else tags[id] = tag
+    }
+    config = {
+      ...config,
+      version: { routing: config.version.routing + 1, pricing: 1 },
+      routing: { ...config.routing, version: config.routing.version + 1 },
+      bindings: { ...config.bindings, tags },
+    }
+    return {
+      data: {
+        success: true,
+        data: { updated: ids.length, version: config.version },
+      },
+    }
+  }) as typeof api.request
+  const container = await mount('channels')
+  await until(() => container.querySelectorAll('[role=checkbox]').length === 3)
+  await act(async () =>
+    (container.querySelector('[role=checkbox]') as HTMLButtonElement).click()
+  )
+  await until(() => container.textContent?.includes('2 selected') === true)
+  let batch = required(
+    container.querySelector('[data-slot=channel-batch-actions]')
+  )
+  await act(async () => button(batch, 'Tag').click())
+  let form = required(
+    container.querySelector('form[aria-label="Set tag for selected channels"]')
+  )
+  const input = required(form.querySelector('input'))
+  const setter = Object.getOwnPropertyDescriptor(
+    dom.HTMLInputElement.prototype,
+    'value'
+  )?.set
+  assert.ok(setter)
+  await act(async () => {
+    setter.call(input, 'Primary')
+    input.dispatchEvent(new Event('input', { bubbles: true }))
+  })
+  await act(async () => button(form, 'Apply').click())
+  await until(
+    () =>
+      writes.length === 1 &&
+      !container.querySelector(
+        'form[aria-label="Set tag for selected channels"]'
+      )
+  )
+  assert.deepEqual(writes[0], {
+    ids: [1, 2],
+    tag: 'Primary',
+    expected_version: { routing: 1, pricing: 1 },
+  })
+  const first = container.querySelectorAll('[role=checkbox]')[1]
+  await act(async () => (first as HTMLButtonElement).click())
+  await until(() => container.textContent?.includes('1 selected') === true)
+  batch = required(container.querySelector('[data-slot=channel-batch-actions]'))
+  await act(async () => button(batch, 'Tag').click())
+  form = required(
+    container.querySelector('form[aria-label="Set tag for selected channels"]')
+  )
+  const draft = required(form.querySelector('input'))
+  await act(async () => {
+    setter.call(draft, 'Operations')
+    draft.dispatchEvent(new Event('input', { bubbles: true }))
+  })
+  await act(async () => button(form, 'Apply').click())
+  await until(
+    () =>
+      writes.length === 2 &&
+      container.textContent?.includes('Tag conflict') === true
+  )
+  assert.equal(draft.value, 'Operations')
+  assert.ok(container.querySelector('[data-slot=channel-batch-actions]'))
+  await act(async () => button(form, 'Clear').click())
+  await until(
+    () =>
+      writes.length === 3 &&
+      !container.querySelector(
+        'form[aria-label="Set tag for selected channels"]'
+      )
+  )
+  assert.deepEqual(writes[2], {
+    ids: [1],
+    tag: null,
+    expected_version: { routing: 2, pricing: 1 },
+  })
+  assert.equal(config.bindings.tags[1], undefined)
+  assert.equal(config.bindings.tags[2], 'Primary')
+})
+
 test('private channel data and an unsaved secret disappear when the administrator session changes', async () => {
   let reads = 0
   api.request = (async () => {
@@ -1601,7 +1870,10 @@ test('the channel page exposes editing immediately without a configuration toggl
     ),
     false
   )
-  assert.equal(container.querySelectorAll('input').length, 1)
+  assert.equal(
+    container.querySelectorAll('input:not([type=checkbox])').length,
+    1
+  )
   await act(async () => button(container, 'Edit').click())
   assert.ok(container.querySelector('form[aria-label="Edit Channel"]'))
   assert.equal(container.querySelector('input[type=password]'), null)

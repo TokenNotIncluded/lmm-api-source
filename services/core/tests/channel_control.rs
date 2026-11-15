@@ -350,12 +350,14 @@ async fn channel_tags_publish_atomically_enforce_permissions_and_recover(pool: P
     let (status, cleared) = request(
         restored.clone(),
         "POST",
-        path,
+        "/core/v1/admin/routing/channels/batch/tag",
         &admin,
         json!({"ids":[1],"tag":null,"expected_version":changed}),
     )
     .await;
     assert_eq!(status, StatusCode::OK, "{cleared}");
+    assert_eq!(cleared["data"]["updated"], 1);
+    assert_eq!(cleared["data"]["version"]["routing"], changed.routing + 1);
     let (_, list) = request(
         restored,
         "GET",

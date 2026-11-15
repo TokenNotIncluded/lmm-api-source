@@ -6,6 +6,7 @@ import type {
   NativeChannelSort,
   NativeChannelSortInput,
   NativeChannelStatistics,
+  NativeChannelSummary,
 } from '../native-channel-statistics'
 
 export function NativeChannelSortFields({
@@ -98,6 +99,47 @@ export function NativeChannelSortFields({
         </label>
       )}
     </div>
+  )
+}
+
+export function NativeChannelOperationsSummary({
+  value,
+}: {
+  value: NativeChannelSummary
+}) {
+  const { t } = useTranslation()
+  const metrics = [
+    { label: t('Total'), value: value.total },
+    { label: t('Enabled'), value: value.enabled },
+    { label: t('Success'), value: value.successful },
+    { label: t('Failed'), value: value.failed },
+    { label: t('Untested'), value: value.untested },
+    { label: t('Slow (> 5s)'), value: value.slow_over_5000ms },
+    { label: t('Zero balances'), value: value.zero_balance },
+    { label: t('Unknown balances'), value: value.unknown_balance },
+    {
+      label: t('Average duration'),
+      value:
+        value.average_response_time_ms === null
+          ? t('Unknown')
+          : `${value.average_response_time_ms} ms`,
+    },
+  ]
+  return (
+    <section
+      className='bg-card space-y-3 rounded-lg p-4'
+      aria-label={t('Summary')}
+    >
+      <h3 className='text-sm font-medium'>{t('Summary')}</h3>
+      <dl className='grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-5'>
+        {metrics.map((metric) => (
+          <div key={metric.label} className='min-w-0'>
+            <dt className='text-muted-foreground text-xs'>{metric.label}</dt>
+            <dd className='text-lg font-medium tabular-nums'>{metric.value}</dd>
+          </div>
+        ))}
+      </dl>
+    </section>
   )
 }
 

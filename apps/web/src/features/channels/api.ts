@@ -789,6 +789,78 @@ export async function setNativeChannelEnabled(
   return { success: true, data }
 }
 
+export async function setNativeChannelsEnabled(
+  ids: number[],
+  enabled: boolean,
+  expectedVersion: NativeChannelVersion,
+  expectedScope?: NativeRoutingScope
+) {
+  const selected = z
+    .array(z.number().int().positive().safe())
+    .min(1)
+    .max(1000)
+    .parse(ids)
+  if (new Set(selected).size !== selected.length) {
+    throw new Error('Duplicate channel selection')
+  }
+  assertNativeIntegers({ expectedVersion })
+  const scope = expectedScope ?? readNativeRoutingScope()
+  if (!scope) throw new Error('Administrator authentication is required')
+  const data = await nativeRequest(scope, 'PUT', '/api/channel/status/batch', {
+    ids: selected,
+    enabled,
+    expected_version: expectedVersion,
+  })
+  return { success: true, data }
+}
+
+export async function setNativeChannelsTag(
+  ids: number[],
+  tag: string | null,
+  expectedVersion: NativeChannelVersion,
+  expectedScope?: NativeRoutingScope
+) {
+  const selected = z
+    .array(z.number().int().positive().safe())
+    .min(1)
+    .max(1000)
+    .parse(ids)
+  if (new Set(selected).size !== selected.length) {
+    throw new Error('Duplicate channel selection')
+  }
+  const label = tag
+    ? z
+        .string()
+        .min(1)
+        .max(128)
+        .refine((value) => value.trim().length > 0 && !/\p{Cc}/u.test(value))
+        .parse(tag)
+    : null
+  assertNativeIntegers({ expectedVersion })
+  const scope = expectedScope ?? readNativeRoutingScope()
+  if (!scope) throw new Error('Administrator authentication is required')
+  const receipt = z
+    .object({
+      updated: z.number().int().positive().safe(),
+      version: z.object({
+        routing: z.number().int().positive().safe(),
+        pricing: z.number().int().positive().safe(),
+      }),
+    })
+    .parse(
+      await nativeRequest<unknown>(
+        scope,
+        'POST',
+        '/core/v1/admin/routing/channels/batch/tag',
+        { ids: selected, tag: label, expected_version: expectedVersion }
+      )
+    )
+  if (receipt.updated !== selected.length) {
+    throw new Error('The save result is unknown. Reload before continuing.')
+  }
+  return receipt
+}
+
 export async function removeNativeChannel(
   id: number,
   expectedVersion: NativeChannelVersion,

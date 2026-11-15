@@ -1,4 +1,4 @@
-use crate::channel_http::control::observations::{Balance, Statistics};
+use crate::channel_http::control::observations::{Balance, CatalogObservation, Statistics};
 use crate::channel_http::{Params, page_with_statistics};
 use num_bigint::BigInt;
 type BigRational = num_rational::Ratio<num_bigint::BigInt>;
@@ -121,4 +121,68 @@ fn tag_pagination_returns_whole_groups_and_filters_before_counting() {
     assert_eq!(filtered["data"]["items"][0]["tag"], "B");
     assert_eq!(ids(filtered), [1]);
     assert!(ids(read(3, None)).is_empty());
+}
+
+#[test]
+fn operations_summary_uses_filtered_channels_before_pagination() {
+    let (mut config, _) = crate::channel_http::tests::fixture();
+    config.upstreams.truncate(4);
+    let mut stats = BTreeMap::new();
+    for id in 1..=4_u64 {
+        let mut value = Statistics::default();
+        if id <= 3 {
+            let success = id <= 2;
+            let duration = if id == 1 { 100 } else { 6000 };
+            value.catalog_observation = Some(CatalogObservation {
+                scope: "model_catalog",
+                inference_tested: false,
+                result: if success { "success" } else { "failed" }.into(),
+                observed_at: 20,
+                duration_ms: duration,
+            });
+            value.response_time = success.then_some(duration);
+            value.test_time = Some(20);
+        }
+        if id <= 2 {
+            value.observation = Some(Balance {
+                balance: Some(if id == 1 { "0" } else { "5" }.into()),
+                unit_label: Some("USD".into()),
+                balance_updated_time: Some(1),
+                recorded_at: Some(1),
+                source_channel_id: None,
+                kind: "provider".into(),
+                number: Some(if id == 1 { 0.0 } else { 5.0 }),
+            });
+        }
+        stats.insert(id, value);
+    }
+    let value = page_with_statistics(
+        &config,
+        Params {
+            statistics: Some(true),
+            page_size: Some(1),
+            ..Default::default()
+        },
+        &BTreeMap::new(),
+        &BTreeMap::new(),
+        stats,
+    )
+    .unwrap();
+    assert_eq!(value["data"]["items"].as_array().unwrap().len(), 1);
+    assert_eq!(
+        value["data"]["summary"],
+        serde_json::json!({
+            "scope": "filtered_channels_before_pagination",
+            "total": 4,
+            "enabled": 4,
+            "successful": 2,
+            "failed": 1,
+            "untested": 1,
+            "slow_over_5000ms": 1,
+            "zero_balance": 1,
+            "unknown_balance": 2,
+            "response_samples": 2,
+            "average_response_time_ms": 3050,
+        })
+    );
 }

@@ -74,8 +74,34 @@ export const channelStatisticsSchema = z
       : v.test_time === null && v.response_time === null
   )
 export type NativeChannelStatistics = z.infer<typeof channelStatisticsSchema>
+const nativeChannelSummarySchema = z
+  .object({
+    scope: z.literal('filtered_channels_before_pagination'),
+    total: z.number().int().safe().nonnegative(),
+    enabled: z.number().int().safe().nonnegative(),
+    successful: z.number().int().safe().nonnegative(),
+    failed: z.number().int().safe().nonnegative(),
+    untested: z.number().int().safe().nonnegative(),
+    slow_over_5000ms: z.number().int().safe().nonnegative(),
+    zero_balance: z.number().int().safe().nonnegative(),
+    unknown_balance: z.number().int().safe().nonnegative(),
+    response_samples: z.number().int().safe().nonnegative(),
+    average_response_time_ms: time.nullable(),
+  })
+  .refine(
+    (value) =>
+      value.enabled <= value.total &&
+      value.successful + value.failed + value.untested === value.total &&
+      value.zero_balance + value.unknown_balance <= value.total &&
+      value.slow_over_5000ms <= value.response_samples &&
+      value.response_samples === value.successful &&
+      (value.response_samples === 0) ===
+        (value.average_response_time_ms === null)
+  )
+export type NativeChannelSummary = z.infer<typeof nativeChannelSummarySchema>
 const pageSchema = z.object({
   items: z.array(channelStatisticsSchema),
+  summary: nativeChannelSummarySchema.optional(),
   total: z.number().int().safe().nonnegative(),
   page: z.number().int().positive().safe(),
   page_size: z.literal(25),

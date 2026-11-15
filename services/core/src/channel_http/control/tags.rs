@@ -11,10 +11,32 @@ pub(in crate::channel_http) struct BatchTagInput {
 }
 
 pub(in crate::channel_http) async fn batch(
+    state: State<ChannelState>,
+    headers: HeaderMap,
+    input: Json<BatchTagInput>,
+) -> Result<Json<Value>, Failure> {
+    let (version, updated) = apply(state, headers, input).await?;
+    Ok(Json(
+        json!({"success":true,"data":updated,"version":version}),
+    ))
+}
+
+pub(in crate::channel_http) async fn native_batch(
+    state: State<ChannelState>,
+    headers: HeaderMap,
+    input: Json<BatchTagInput>,
+) -> Result<Json<Value>, Failure> {
+    let (version, updated) = apply(state, headers, input).await?;
+    Ok(Json(
+        json!({"success":true,"data":{"updated":updated,"version":version}}),
+    ))
+}
+
+async fn apply(
     State(state): State<ChannelState>,
     headers: HeaderMap,
     Json(input): Json<BatchTagInput>,
-) -> Result<Json<Value>, Failure> {
+) -> Result<(Version, usize), Failure> {
     super::super::admit(&state, &headers).await?;
     let management = state.management.as_ref().ok_or(Failure::Disabled)?;
     if input.ids.is_empty()
@@ -77,7 +99,5 @@ pub(in crate::channel_http) async fn batch(
             },
         )
         .await?;
-    Ok(Json(
-        json!({"success":true,"data":input.ids.len(),"version":version}),
-    ))
+    Ok((version, input.ids.len()))
 }
