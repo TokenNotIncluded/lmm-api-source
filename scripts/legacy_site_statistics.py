@@ -19,6 +19,7 @@ from typing import Any, Literal, TypedDict
 import uuid
 
 import financial_import as F
+import migrate_legacy_available_wallet as W
 
 P = F.PLANNER
 I = F.IDENTITY
@@ -418,44 +419,125 @@ def validate_plan(plan: FinancePlan) -> None:
             "source_rows_hash_mismatch")
 
 
-def load_source(opening_path: Path, supplement: dict | None = None) -> tuple[dict, dict, list[dict], dict]:
-    """Reuse frozen financial material; never connect to source or execute opening."""
-    opening = P.parse_json(F.read_private(opening_path))
-    F.verify_source_files(opening)
-    files = opening["source_files"]
-    load = lambda key: P.parse_json(F.read_private(Path(files[key]["path"])))
-    receipt, proof = load("source_receipt"), load("source_export_proof")
-    columns, counts, _, _, _ = P.metadata(receipt)
+PARTIAL_ADAPTER_KEYS = ("archive", "source_receipt", "source_export", "source_export_proof", "identity_map", "source_plan")
+
+
+def _read_frozen_tables(opening_archive: str, receipt: dict, proof: dict, export_path: Path,
+                        supplement: dict | None, source_plan: dict) -> tuple[dict[str, list[dict]], dict[str, int]]:
+    columns, counts, metadata_hashes, _, _ = P.metadata(receipt)
     require(receipt.get("status") == "snapshot-restored-baseline-verified-frozen-and-classified", "source_not_frozen")
-    require(receipt["archive"]["sha256"] == opening["source_archive_sha256"] and
-            I.sha256_file(I.private_backup_path(Path(receipt["archive"]["path"]))) == opening["source_archive_sha256"],
+    require(receipt["archive"]["sha256"] == opening_archive and
+            I.sha256_file(I.private_backup_path(Path(receipt["archive"]["path"]))) == opening_archive,
             "receipt_archive_mismatch")
-    export_path = Path(files["source_export"]["path"])
     if supplement is not None:
         require(set(supplement) == {"export", "proof"}, "supplement_shape_invalid")
         for item in supplement.values():
             require(I.sha256_file(I.private_backup_path(Path(item["path"]))) == item["sha256"], "supplement_file_changed")
         export_path = Path(supplement["export"]["path"])
+        base_instance = proof["source_instance"]
         proof = P.parse_json(F.read_private(Path(supplement["proof"]["path"])))
-        require(proof["source_archive_sha256"] == opening["source_archive_sha256"] and
+        require(proof["source_archive_sha256"] == opening_archive and
                 proof["source_export_sha256"] == supplement["export"]["sha256"], "supplement_archive_mismatch")
-        require(proof["source_instance"] == load("source_export_proof")["source_instance"], "supplement_instance_mismatch")
+        require(proof["source_instance"] == base_instance, "supplement_instance_mismatch")
     require(proof.get("source_column_coverage_exact") is True and proof.get("source_row_baseline_exact") is True,
             "source_export_baseline_unproven")
-    require(proof.get("metadata_hashes") == P.metadata(receipt)[2], "source_export_metadata_mismatch")
+    require(proof.get("metadata_hashes") == metadata_hashes, "source_export_metadata_mismatch")
     selected = sorted(proof["selected_table_counts"])
     require(proof["selected_table_counts"] == {name: counts[name] for name in selected}, "export_counts_mismatch")
     require(all(name not in columns or name in selected or counts[name] == 0 for name in TABLES), "required_table_not_exported")
-    tables = P.read_frozen_export(export_path, receipt, columns, counts,
-                                  selected, proof["source_instance"])
+    tables = P.read_frozen_export(export_path, receipt, columns, counts, selected, proof["source_instance"])
     for name in TABLES:
         if name in columns and counts[name] == 0:
             tables.setdefault(name, [])
     for name in TABLES:
-        evidence = opening["source_plan"].get("source_evidence", {}).get(name)
+        evidence = source_plan.get("source_evidence", {}).get(name)
         if name in tables and evidence is not None:
             require(sorted(F.digest(row) for row in tables[name]) == sorted(evidence["row_hashes"]),
                     "opening_table_material_changed")
+    return tables, counts
+
+
+def load_partial_source(opening: dict, adapter_path: Path, snapshot: dict,
+                        supplement: dict | None = None) -> tuple[dict, dict, list[dict], dict]:
+    """Explicit adapter for committed partial-wallet-debt opening; never modifies opening or full-mode guards."""
+    W.validate_material(opening)
+    require(opening["mapping_sha256"] != opening["source_plan_mapping_sha256"], "partial_mapping_substitution_rejected")
+    adapter = P.parse_json(F.read_private(adapter_path))
+    require(type(adapter) is dict and adapter.get("scope") == W.SCOPE and adapter.get("policy") == W.POLICY,
+            "partial_adapter_profile_mismatch")
+    require(adapter.get("mapping_sha256") == opening["mapping_sha256"]
+            and adapter.get("source_archive_sha256") == opening["source_archive_sha256"]
+            and adapter.get("source_plan_mapping_sha256") == opening["source_plan_mapping_sha256"],
+            "partial_adapter_binding_mismatch")
+    files = adapter.get("source_files")
+    require(type(files) is dict and set(files) == set(PARTIAL_ADAPTER_KEYS), "partial_adapter_files_invalid")
+    for key in PARTIAL_ADAPTER_KEYS:
+        ref = files[key]
+        require(type(ref) is dict and set(ref) == {"path", "sha256"}, "partial_adapter_file_ref_invalid")
+        p = I.private_backup_path(Path(ref["path"]))
+        require(I.sha256_file(p) == F.checked_hash(ref["sha256"]), "partial_adapter_file_changed")
+    archive_sha = opening["source_archive_sha256"]
+    require(files["archive"]["sha256"] == archive_sha, "archive_binding_mismatch")
+    require(files["source_export"]["sha256"] == opening["source_files"]["source_export"]["sha256"],
+            "partial_export_digest_mismatch")
+    load = lambda key: P.parse_json(F.read_private(Path(files[key]["path"])))
+    receipt, proof, source_plan = load("source_receipt"), load("source_export_proof"), load("source_plan")
+    require(proof.get("source_archive_sha256") == archive_sha and proof.get("source_export_sha256") == files["source_export"]["sha256"],
+            "partial_proof_binding_mismatch")
+    P.verify_plan_mapping(source_plan)
+    require(source_plan["mapping_sha256"] == opening["source_plan_mapping_sha256"]
+            and source_plan["source_archive_sha256"] == archive_sha, "partial_source_plan_mismatch")
+    tables, counts = _read_frozen_tables(archive_sha, receipt, proof, Path(files["source_export"]["path"]), supplement, source_plan)
+    records = [P.parse_json(line) for line in F.read_private(Path(files["identity_map"]["path"])).splitlines() if line]
+    identities = P.identity_index(records)
+    native_users = snapshot.get("native_users")
+    require(type(native_users) is list, "partial_native_users_missing")
+    P.verify_target_identity_binding(source_plan, identities, import_run=opening["identity_import"], native_users=native_users)
+    plan_positions = {p["source_user_id"]: p for p in source_plan["wallet_positions"]}
+    positions = {p["source_user_id"]: p for p in opening["positions"]}
+    require(len(positions) == len(opening["positions"]) and positions.keys() == identities.keys() == plan_positions.keys(),
+            "partial_positions_coverage_mismatch")
+    for uid, pos in positions.items():
+        pp = plan_positions[uid]
+        require(pos["account_id"] == identities[uid] == pp["account_id"]
+                and pos["available_units"] == pp["signed_available_units"]
+                and pos["source_row_sha256"] == pp["source_row_sha256"], "partial_position_mismatch")
+    raw_counters = snapshot.get("opening_counters")
+    require(type(raw_counters) is list and raw_counters, "partial_opening_counters_missing")
+    counters = []
+    for item in raw_counters:
+        require(type(item) is dict and item.get("migration_id") == opening["migration_id"]
+                and type(item.get("request")) is dict, "partial_opening_counter_invalid")
+        req = item["request"]
+        require(req.get("migration_id") == opening["migration_id"]
+                and req.get("mapping_sha256") == opening["mapping_sha256"]
+                and req.get("source_archive_sha256") == archive_sha
+                and req.get("observed_at") == opening["observed_at"], "partial_opening_counter_lineage_mismatch")
+        counters.append(req)
+    adapted_opening = {
+        "source_archive_sha256": archive_sha,
+        "mapping_sha256": opening["mapping_sha256"],
+        "observation": {"observed_at": opening["observed_at"]},
+        "counters": counters,
+        "identity_import": opening["identity_import"],
+    }
+    return tables, adapted_opening, records, counts
+
+
+def load_source(opening_path: Path, supplement: dict | None = None, *,
+                partial_adapter_path: Path | None = None, snapshot: dict | None = None) -> tuple[dict, dict, list[dict], dict]:
+    """Reuse frozen financial material; never connect to source or execute opening."""
+    opening = P.parse_json(F.read_private(opening_path))
+    if opening.get("scope") == W.SCOPE:
+        require(partial_adapter_path is not None and snapshot is not None, "partial_adapter_required")
+        return load_partial_source(opening, partial_adapter_path, snapshot, supplement)
+    require(partial_adapter_path is None, "partial_adapter_unexpected")
+    F.verify_source_files(opening)
+    files = opening["source_files"]
+    load = lambda key: P.parse_json(F.read_private(Path(files[key]["path"])))
+    receipt, proof = load("source_receipt"), load("source_export_proof")
+    tables, counts = _read_frozen_tables(opening["source_archive_sha256"], receipt, proof,
+                                         Path(files["source_export"]["path"]), supplement, opening["source_plan"])
     records = [P.parse_json(line) for line in F.read_private(Path(files["identity_map"]["path"])).splitlines() if line]
     require(files["archive"]["sha256"] == opening["source_archive_sha256"], "archive_binding_mismatch")
     P.verify_plan_mapping(opening["source_plan"])
@@ -714,13 +796,18 @@ def tool_hashes() -> dict[str, str]:
                ("services/core/src/core_schema.rs", "services/core/schema/site_statistics.sql")}}
 
 
-def prepare(opening_path: Path, snapshot: dict, runtime_roles: list[str], supplement: dict | None = None) -> dict:
-    tables, opening, identities, counts = load_source(opening_path, supplement)
+def prepare(opening_path: Path, snapshot: dict, runtime_roles: list[str], supplement: dict | None = None,
+            partial_adapter_path: Path | None = None) -> dict:
+    tables, opening, identities, counts = load_source(
+        opening_path, supplement, partial_adapter_path=partial_adapter_path, snapshot=snapshot)
     plan = build_plan(tables=tables, identity_records=identities, opening=opening, source_table_counts=counts)
     reconciliation = reconcile(plan, snapshot)
-    return {"plan": plan, "snapshot": snapshot, "runtime_roles": runtime_roles,
-            "opening_material": {"path": str(opening_path), "sha256": I.sha256_file(opening_path)},
-            "tool_hashes": tool_hashes(), "reconciliation": reconciliation, "supplement": supplement}
+    material = {"plan": plan, "snapshot": snapshot, "runtime_roles": runtime_roles,
+                "opening_material": {"path": str(opening_path), "sha256": I.sha256_file(opening_path)},
+                "tool_hashes": tool_hashes(), "reconciliation": reconciliation, "supplement": supplement}
+    if partial_adapter_path is not None:
+        material["partial_adapter"] = {"path": str(partial_adapter_path), "sha256": I.sha256_file(partial_adapter_path)}
+    return material
 
 
 def verify_inputs(material: dict) -> FinancePlan:
@@ -728,7 +815,12 @@ def verify_inputs(material: dict) -> FinancePlan:
     path = I.private_backup_path(Path(ref["path"]))
     require(I.sha256_file(path) == ref["sha256"], "opening_material_changed")
     require(tool_hashes() == material["tool_hashes"], "tool_source_changed")
-    rebuilt = prepare(path, material["snapshot"], material["runtime_roles"], material["supplement"])
+    adapter_ref = material.get("partial_adapter")
+    adapter_path = None
+    if adapter_ref is not None:
+        adapter_path = I.private_backup_path(Path(adapter_ref["path"]))
+        require(I.sha256_file(adapter_path) == adapter_ref["sha256"], "partial_adapter_changed")
+    rebuilt = prepare(path, material["snapshot"], material["runtime_roles"], material["supplement"], adapter_path)
     require(rebuilt == material, "site_finance_material_changed")
     return rebuilt["plan"]
 
@@ -771,6 +863,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--mode", choices=("prepare", "snapshot", "apply"), required=True)
     parser.add_argument("--opening-material", type=Path)
+    parser.add_argument("--partial-adapter", type=Path)
     parser.add_argument("--snapshot", type=Path)
     parser.add_argument("--site-export", type=Path)
     parser.add_argument("--site-export-proof", type=Path)
@@ -788,7 +881,7 @@ def main() -> int:
             require(bool(args.site_export) == bool(args.site_export_proof), "supplement_pair_required")
             supplement = {name: {"path": str(I.private_backup_path(path)), "sha256": I.sha256_file(path)}
                 for name, path in (("export", args.site_export), ("proof", args.site_export_proof))} if args.site_export else None
-            material = prepare(args.opening_material, load(args.snapshot), args.runtime_role, supplement)
+            material = prepare(args.opening_material, load(args.snapshot), args.runtime_role, supplement, args.partial_adapter)
             F.write_private(args.output, "material.private.json", F.canonical(material) + "\n")
             sql = build_apply_sql(material["plan"], material["snapshot"], args.runtime_role)
             F.write_private(args.output, "review.private.sql", sql)

@@ -120,11 +120,16 @@ def prepare(plan,proof,source,identity_map,target,unit,observation,source_quotas
     return {**core,'format_version':1,'migration_id':migration_id,'mapping_sha256':evidence,'observed_at':int(__import__('datetime').datetime.fromisoformat(source['started_utc']).timestamp()),'identity_import':identity,'source_review':review,'source_files':{'source_export':{'sha256':proof['source_export_sha256']}},'connection':target['connection'],'target':{k:observation[k] for k in ['database','database_oid','system_identifier','nonce','role','login','postmaster_started_at']},'deferred':{'policy':'retain-source-and-private-snapshot-no-waiver-no-credit-created','families':{k:v for k,v in plan['families'].items() if k!='wallet_positions'},'affiliate_positions':[{'source_user_id':x['source_user_id'],'signed_affiliate_units':x['signed_affiliate_units']} for x in plan['wallet_positions'] if x['signed_affiliate_units']!=0],'source_blockers':plan['blocker_counts']},'target_has_previously_started':True,'apply_requires_actual_current_maintenance':True}
 
 
-def build_sql(material,*,reconcile=False,online=False):
-    require(material['scope']==SCOPE and material['policy']==POLICY,'partial_profile_mismatch')
+def validate_material(material):
+    require(isinstance(material,dict),'partial_material_invalid')
+    require(material.get('scope')==SCOPE and material.get('policy')==POLICY,'partial_profile_mismatch')
     bound={k:material[k] for k in ['scope','policy','source_archive_sha256','source_plan_mapping_sha256','positions']}
-    require(digest(bound)==material['mapping_sha256']==material['source_review']['evidence_sha256'],'partial_material_binding_changed')
-    require(all(type(x['available_units']) is int and abs(x['available_units'])<=SAFE for x in material['positions']),'partial_amount_invalid')
+    require(digest(bound)==material.get('mapping_sha256')==material.get('source_review',{}).get('evidence_sha256'),'partial_material_binding_changed')
+    require(isinstance(material.get('positions'),list) and all(type(x.get('available_units')) is int and abs(x['available_units'])<=SAFE for x in material['positions']),'partial_amount_invalid')
+
+
+def build_sql(material,*,reconcile=False,online=False):
+    validate_material(material)
     m=material;t=m['target'];payload=[]
     for x in m['positions']:
         payload.append({'account_id':x['account_id'],'available_units':x['available_units'],'affiliate_units':0,'reserved_units':0,'mapping_sha256':m['mapping_sha256'],'migration_id':m['migration_id'],'observed_at':m['observed_at'],'source_archive_sha256':m['source_archive_sha256'],'source_entity_key':'legacy.users/'+str(x['source_user_id']),'source_row_sha256':x['source_row_sha256']})
