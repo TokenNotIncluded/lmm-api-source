@@ -404,10 +404,12 @@ mod tests {
                         .await
                         .unwrap();
                     let html = std::str::from_utf8(&body).unwrap();
-                    if signed_in && client == "lmm-pi" && port == 38423 {
-                        if let Ok(path) = std::env::var("LMM_CONSENT_PREVIEW_FILE") {
-                            std::fs::write(path, html).unwrap();
-                        }
+                    if signed_in
+                        && client == "lmm-pi"
+                        && port == 38423
+                        && let Ok(path) = std::env::var("LMM_CONSENT_PREVIEW_FILE")
+                    {
+                        std::fs::write(path, html).unwrap();
                     }
                     let action = if signed_in { "consent" } else { "continue" };
                     assert!(html.contains(&format!(

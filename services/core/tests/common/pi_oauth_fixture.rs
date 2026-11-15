@@ -154,6 +154,7 @@ pub(super) struct Fixture {
 }
 
 #[derive(Clone, Copy)]
+#[allow(clippy::enum_variant_names)]
 enum FixtureApplications {
     PiOnly,
     PiAndManaged,

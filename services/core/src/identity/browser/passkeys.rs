@@ -805,7 +805,7 @@ mod rp69_tests {
         let config = PasskeyConfig::new("example.com", "https://api.example.com:8443").unwrap();
         let expected = Url::parse("https://api.example.com:8443").unwrap();
         assert_eq!(config.origin(), "https://api.example.com:8443");
-        assert_eq!(config.webauthn.get_allowed_origins(), &[expected.clone()]);
+        assert_eq!(config.webauthn.get_allowed_origins(), std::slice::from_ref(&expected));
         assert_eq!(
             config.source_policy_verifier.get_allowed_origins(),
             &[expected]
