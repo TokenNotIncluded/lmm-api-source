@@ -350,6 +350,7 @@ test('independent check failures do not skip the Go host required by Rust tests'
   const source = workflow('core-protocol');
   assert.match(source, /name: Build actual Go host for Rust stream isolation\n        if: \$\{\{ !cancelled\(\) \}\}/);
   assert.match(source, /scripts\/test_core_rpc_fixture\.py -v/);
+  assert.match(source, /tests\/payments\/test_verify_live_discovery\.py -v/);
   assert.doesNotMatch(source, /LMM_CORE_DATABASE_URL_SECRET_FILE|LMM_CORE_WORKER_THREADS/);
   // All main pushes and PRs reach this suite through CI, including workflow-only edits.
   assert.match(workflow('ci'), /uses: \.\/\.github\/workflows\/core-protocol\.yml/);

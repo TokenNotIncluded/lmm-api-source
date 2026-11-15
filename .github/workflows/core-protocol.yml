@@ -90,7 +90,9 @@ jobs:
       - name: Public legal reads with the actual Go host
         run: LMM_EXTENSION_TEST_BIN="$RUNNER_TEMP/lmm-extensions" python3 -B scripts/test-legal-process.py
       - name: File-only Compose and private RPC fixture contracts
-        run: python3 -B scripts/test_core_rpc_fixture.py -v
+        run: |
+          python3 -B scripts/test_core_rpc_fixture.py -v
+          python3 -B tests/payments/test_verify_live_discovery.py -v
       - name: Rust formatting
         working-directory: services/core
         run: cargo fmt --all --check 2>&1 | tee "$RUNNER_TEMP/core-format.log"
