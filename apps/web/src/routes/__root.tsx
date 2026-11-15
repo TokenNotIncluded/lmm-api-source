@@ -13,7 +13,6 @@ import { lazy, Suspense, useEffect } from 'react'
 
 import { AuthBootstrapPending } from '@/components/auth-bootstrap-pending'
 import { AuthCookieRecovery } from '@/components/auth-cookie-recovery'
-import { FeedbackRewardButton } from '@/components/feedback-reward-button'
 
 /*
 Copyright (C) 2023-2026 QuantumNous
@@ -120,7 +119,6 @@ function RootComponent() {
       </div>
       {!hasConsoleLayout && <SourceConsent />}
       {isHomeIntroSurface && <Footer />}
-      {isHomeIntroSurface && <FeedbackRewardButton />}
       <Toaster closeButton duration={5000} position='top-center' richColors />
       {PersonaDebugPanel &&
       document.documentElement.dataset.personaDebug === 'true' ? (
