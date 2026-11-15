@@ -107,7 +107,7 @@ impl Encoder {
     fn block_id(&self, index: usize) -> String {
         let prefix = match self.blocks[index].kind {
             BlockKind::Tool { .. } => "fc",
-            BlockKind::Thinking => "rs",
+            BlockKind::Thinking | BlockKind::ReasoningSummary => "rs",
             _ => "msg",
         };
         format!("{prefix}_{}_{index}", self.id)
@@ -175,6 +175,21 @@ impl Encoder {
                 ) && matches!(kind, BlockKind::Refusal)
                 {
                     return Err(RelayError::Unsupported("native refusal block"));
+                }
+                if matches!(kind, BlockKind::ReasoningSummary)
+                    && matches!(
+                        self.client,
+                        ClientProtocol::Chat | ClientProtocol::Anthropic
+                    )
+                {
+                    return Err(RelayError::Unsupported(
+                        "reasoning summary requires Responses or Gemini",
+                    ));
+                }
+                if matches!(kind, BlockKind::Thinking) && self.client == ClientProtocol::Gemini {
+                    return Err(RelayError::Unsupported(
+                        "raw thinking cannot become a Gemini summary",
+                    ));
                 }
                 if let BlockKind::Tool { id, name } = kind {
                     if id.is_empty()
@@ -750,7 +765,11 @@ mod writer_contract_tests {
                 Event::Start("up".into()),
                 Event::Block {
                     index: 0,
-                    kind: BlockKind::Thinking,
+                    kind: if client == ClientProtocol::Gemini {
+                        BlockKind::ReasoningSummary
+                    } else {
+                        BlockKind::Thinking
+                    },
                 },
                 Event::Delta {
                     index: 0,
@@ -813,7 +832,8 @@ mod writer_contract_tests {
             e.consume(event).unwrap();
         }
         let response: Value = serde_json::from_slice(&finish(&mut e, FinishReason::Stop)).unwrap();
-        assert_eq!(response["output"][0]["summary"][0]["text"], "thought");
+        assert_eq!(response["output"][0]["content"][0]["text"], "thought");
+        assert_eq!(response["output"][0]["summary"], json!([]));
         assert_eq!(
             response["output"][0]["provider_metadata"]["protocol"],
             "gemini"
@@ -996,7 +1016,7 @@ mod writer_contract_tests {
             Event::Start("up".into()),
             Event::Block {
                 index: 0,
-                kind: BlockKind::Thinking,
+                kind: BlockKind::ReasoningSummary,
             },
             Event::Delta {
                 index: 0,
@@ -1040,7 +1060,7 @@ mod writer_contract_tests {
                 Event::Start("up".into()),
                 Event::Block {
                     index: 0,
-                    kind: BlockKind::Thinking,
+                    kind: BlockKind::ReasoningSummary,
                 },
                 Event::Delta {
                     index: 0,

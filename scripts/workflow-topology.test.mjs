@@ -11,7 +11,7 @@ const workflow = (name) => read(`.github/workflows/${name}.yml`);
 
 // Source contracts complement actionlint and runtime tests. They do not assert
 // that unimplemented business modules are ready or that release is authorized.
-test('current workflows preserve preview artifacts without publishing or server access', () => {
+test('preview workflows stay read-only and source publication never grants server access', () => {
   const files = readdirSync(new URL('.github/workflows/', root))
     .filter((name) => /\.ya?ml$/.test(name));
   for (const name of ['ci.yml', 'core-protocol.yml', 'microservice-distribution.yml', 'server-release-qualification.yml']) {
@@ -23,7 +23,10 @@ test('current workflows preserve preview artifacts without publishing or server 
     assert.doesNotMatch(source, /PRODUCTION_SSH|production-auto-deploy|deploy-production|server-ops|inputs\.deploy/);
     assert.doesNotMatch(source, /environment:\s*production/);
     assert.doesNotMatch(source, /^\s*(?:run:\s*)?(?:ssh|scp|rsync)\s/m);
-    assert.doesNotMatch(source, /contents: write|id-token: write|gh release\s/);
+    assert.doesNotMatch(source, /id-token: write/);
+    if (file !== 'source-release.yml') {
+      assert.doesNotMatch(source, /contents: write|gh release\s/);
+    }
   }
   for (const path of ['.github/actions/deploy-production/action.yml', '.github/server-ops-343-request.json', 'scripts/auto-deploy-production-release.sh', 'scripts/server-ops.py']) {
     assert.throws(() => read(path), /ENOENT/);
@@ -47,6 +50,32 @@ test('OpenCode fixture runs the pinned child and real host without privileged ev
   assert.match(source, /opencode-ai\/postinstall\.mjs/);
   assert.match(source, /opencode-ai@\$HOST_VERSION/);
   assert.match(source, /npm run test:host && npm run test:integration/);
+});
+
+test('source publication requires the exact qualified main revision and immutable registry lock', () => {
+  const source = workflow('source-release');
+  const [qualify, publish] = source.split('  publish:\n');
+  assert.match(qualify, /permissions:\n  contents: read/);
+  assert.match(qualify, /scripts\/source-release\.py --github-output/);
+  assert.match(qualify, /scripts\/test-source-release\.py/);
+  assert.match(qualify, /cargo \+1\.100\.0 clippy .* --locked --lib -- -D warnings/);
+  assert.match(qualify, /cargo \+1\.100\.0 test .* --locked --lib relay::/);
+  assert.doesNotMatch(qualify, /GH_TOKEN|contents: write|continue-on-error|services:\n/);
+  assert.match(publish, /needs: qualify/);
+  assert.match(publish, /permissions:\n      contents: write/);
+  assert.match(publish, /ref: \$\{\{ needs\.qualify\.outputs\.revision \}\}/);
+  assert.match(publish, /sha256sum --check SHA256SUMS/);
+  assert.match(publish, /api\("git\/ref\/heads\/main"\)\["object"\]\["sha"\] != revision/);
+  assert.match(publish, /existing release tag identifies a different commit/);
+  assert.match(publish, /"--verify-tag"/);
+  assert.match(publish, /"--prerelease"/);
+  assert.match(qualify, /name: Preserve qualification diagnostics\n        if: always\(\)\n        uses: actions\/upload-artifact@/);
+  assert.doesNotMatch(publish, /always\(\)|failure\(\)/);
+  assert.doesNotMatch(source, /continue-on-error|cargo publish|docker push|systemctl|DATABASE_URL|secrets\./);
+  assert.equal(source.match(/github\.ref == 'refs\/heads\/main'/g)?.length, 2);
+  const guard = read('scripts/source-release.py');
+  assert.match(guard, /REGISTRY = "registry\+https:\/\/github.com\/rust-lang\/crates.io-index"/);
+  assert.match(guard, /lockfile must resolve the exact registry zconv archive/);
 });
 
 test('CLI consumers initialize only the pinned CLI submodule', () => {
@@ -80,7 +109,7 @@ test('retired single-server deployment tools cannot bypass the preview boundary'
 });
 
 
-test('only the isolated microkernel checks may run automatically', () => {
+test('automatic checks and explicit source-release requests have bounded triggers', () => {
   for (const file of readdirSync(new URL('.github/workflows/', root)).filter((name) => /\.ya?ml$/.test(name))) {
     const source = read(`.github/workflows/${file}`);
     const block = source.match(/^on:\n((?:[ \t].*\n|\n)*)/m);
@@ -92,6 +121,17 @@ test('only the isolated microkernel checks may run automatically', () => {
       assert.match(block[1], /push:\n    branches: \[main\]/);
       assert.match(source, /permissions:\n  contents: read/);
       assert.doesNotMatch(source, /secrets\.|contents: write|pull_request_target|environment: production/);
+    } else if (file === 'source-release.yml') {
+      assert.deepEqual(events, ['workflow_dispatch', 'push']);
+      assert.match(block[1], /push:\n    branches: \[main\]\n    paths: \[\.github\/source-release-request\.json\]/);
+      assert.doesNotMatch(source, /pull_request_target|id-token: write|environment: production/);
+    } else if (file === 'layout-reflow-review.yml') {
+      // The existing UI fixture workflow is automatic and read-only.
+      assert.deepEqual(events, ['workflow_dispatch', 'push', 'pull_request']);
+      assert.match(block[1], /push:\n    branches: \[main\]\n    paths:/);
+      assert.match(source, /permissions:\n  contents: read/);
+      assert.doesNotMatch(source, /secrets\.|contents: write|pull_request_target|environment: production/);
+      assert.match(source, /127\.0\.0\.1:4174/);
     } else if (file === 'linux-packages.yml') {
       assert.deepEqual(events, ['workflow_dispatch', 'workflow_call', 'pull_request']);
       assert.match(block[1], /pull_request:\n    branches: \[main\]/);

@@ -14,7 +14,13 @@ pub enum InputBlock {
     Text(String),
     Image(ImageInput),
     Refusal(String),
+    /// Provider thought text; this is not a generated reasoning summary.
     Thinking {
+        text: String,
+        signature: Option<(UpstreamProtocol, String)>,
+    },
+    /// Summary text, with source-owned replay material kept in its namespace.
+    ReasoningSummary {
         text: String,
         signature: Option<(UpstreamProtocol, String)>,
     },
@@ -1502,6 +1508,7 @@ impl Request {
                 }
                 let sig = match b {
                     InputBlock::Thinking { signature, .. }
+                    | InputBlock::ReasoningSummary { signature, .. }
                     | InputBlock::ToolCall { signature, .. } => signature,
                     _ => continue,
                 };
@@ -1557,6 +1564,11 @@ impl Request {
         for block in self.messages.iter().flat_map(|message| &message.content) {
             match block {
                 InputBlock::Thinking { signature, .. } => match protocol {
+                    UpstreamProtocol::Gemini => {
+                        return Err(RelayError::Unsupported(
+                            "raw thinking cannot become a Gemini summary",
+                        ));
+                    }
                     UpstreamProtocol::Responses => {
                         return Err(RelayError::Unsupported(
                             "Responses reasoning history requires native item identity",
@@ -1565,14 +1577,30 @@ impl Request {
                     UpstreamProtocol::Chat if signature.is_some() => {
                         return Err(RelayError::Unsupported("opaque Chat reasoning signatures"));
                     }
-                    UpstreamProtocol::Anthropic | UpstreamProtocol::Gemini
-                        if signature.is_none() =>
-                    {
+                    UpstreamProtocol::Anthropic if signature.is_none() => {
                         return Err(RelayError::Unsupported(
                             "native thinking history needs its original signature",
                         ));
                     }
                     _ => {}
+                },
+                InputBlock::ReasoningSummary { signature, .. } => match protocol {
+                    UpstreamProtocol::Responses => {
+                        return Err(RelayError::Unsupported(
+                            "Responses reasoning history requires native item identity",
+                        ));
+                    }
+                    UpstreamProtocol::Gemini if signature.is_some() => {}
+                    UpstreamProtocol::Gemini => {
+                        return Err(RelayError::Unsupported(
+                            "native thinking history needs its original signature",
+                        ));
+                    }
+                    _ => {
+                        return Err(RelayError::Unsupported(
+                            "reasoning summary cannot become raw thinking",
+                        ));
+                    }
                 },
                 InputBlock::ToolCall {
                     signature: Some(_), ..
@@ -1715,6 +1743,11 @@ impl Request {
                             ));
                         }
                     }
+                    InputBlock::ReasoningSummary { .. } => {
+                        return Err(RelayError::Unsupported(
+                            "reasoning summary cannot become raw thinking",
+                        ));
+                    }
                     InputBlock::ToolCall {
                         id,
                         name,
@@ -1799,7 +1832,7 @@ impl Request {
             InputBlock::Text(s) => input.push(json!({"role":m.role.name(),"content":[{"type":if m.role == Role::Assistant {"output_text"} else {"input_text"},"text":s}]})),
             InputBlock::Image(_) => unreachable!("image messages converted above"),
             InputBlock::Refusal(s) => input.push(json!({"role":"assistant","content":[{"type":"refusal","refusal":s}]})),
-            InputBlock::Thinking { .. } => return Err(RelayError::Unsupported("Responses reasoning history requires native item identity")),
+            InputBlock::Thinking { .. } | InputBlock::ReasoningSummary { .. } => return Err(RelayError::Unsupported("Responses reasoning history requires native item identity")),
             InputBlock::ToolCall { id, name, arguments, signature } => {
                 if signature.is_some() { return Err(RelayError::Unsupported("opaque Responses tool signatures")); }
                 input.push(json!({"type":"function_call","call_id":id,"name":name,"arguments":arguments}));
@@ -1885,6 +1918,7 @@ impl Request {
                 InputBlock::Image(image) => image.wire(UpstreamProtocol::Anthropic)?,
                 InputBlock::Thinking { text, signature: Some((UpstreamProtocol::Anthropic, s)) } => json!({"type":"thinking","thinking":text,"signature":s}),
                 InputBlock::Thinking { .. } => return Err(RelayError::Unsupported("Anthropic thinking history needs its original signature")),
+                InputBlock::ReasoningSummary { .. } => return Err(RelayError::Unsupported("reasoning summary cannot become raw thinking")),
                 InputBlock::ToolCall { id, name, arguments, .. } => json!({"type":"tool_use","id":id,"name":name,"input":serde_json::from_str::<Value>(arguments).map_err(|_| RelayError::Invalid("invalid tool JSON"))?}),
                 InputBlock::ToolResult { id, content } => json!({"type":"tool_result","tool_use_id":id,"content":content}),
             });
@@ -1959,8 +1993,9 @@ impl Request {
                 parts.push(match b {
                 InputBlock::Text(s) | InputBlock::Refusal(s) => json!({"text":s}),
                 InputBlock::Image(image) => image.wire(UpstreamProtocol::Gemini)?,
-                InputBlock::Thinking { text, signature: Some((UpstreamProtocol::Gemini, s)) } => json!({"text":text,"thought":true,"thoughtSignature":s}),
-                InputBlock::Thinking { .. } => return Err(RelayError::Unsupported("Gemini thinking history needs its original signature")),
+                InputBlock::ReasoningSummary { text, signature: Some((UpstreamProtocol::Gemini, s)) } => json!({"text":text,"thought":true,"thoughtSignature":s}),
+                InputBlock::ReasoningSummary { .. } => return Err(RelayError::Unsupported("Gemini thinking history needs its original signature")),
+                InputBlock::Thinking { .. } => return Err(RelayError::Unsupported("raw thinking cannot become a Gemini summary")),
                 InputBlock::ToolCall { id, name, arguments, signature } => {
                     calls.insert(id, name);
                     let mut p = json!({"functionCall":{"id":id,"name":name,"args":serde_json::from_str::<Value>(arguments).map_err(|_| RelayError::Invalid("invalid tool JSON"))?}});
@@ -2286,9 +2321,16 @@ mod zconv_tests {
             request.messages.push(Message {
                 role: Role::Assistant,
                 content: vec![
-                    InputBlock::Thinking {
-                        text: "private thought".into(),
-                        signature: Some((target, "signed-thought".into())),
+                    if target == UpstreamProtocol::Gemini {
+                        InputBlock::ReasoningSummary {
+                            text: "reasoning summary".into(),
+                            signature: Some((target, "signed-thought".into())),
+                        }
+                    } else {
+                        InputBlock::Thinking {
+                            text: "private thought".into(),
+                            signature: Some((target, "signed-thought".into())),
+                        }
                     },
                     InputBlock::ToolCall {
                         id: "call-1".into(),

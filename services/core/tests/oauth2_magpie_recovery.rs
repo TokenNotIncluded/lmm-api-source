@@ -1,8 +1,4 @@
 //! Magpie uses its own managed refresh lineage, including lost-response recovery.
-#[expect(
-    dead_code,
-    reason = "Shared provider fixtures also serve other managed-client targets."
-)]
 #[path = "common/model_fixture.rs"]
 mod model_fixture;
 #[expect(

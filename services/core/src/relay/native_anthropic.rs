@@ -540,6 +540,11 @@ impl NativeEncoder {
                 json!({"type":"tool_use","id":id,"name":name,"input":if empty{json!({})}else{serde_json::from_str::<Unique>(s).map_err(|_|RelayError::Protocol("invalid tool JSON"))?.0}})
             }
             BlockKind::Refusal => return Err(RelayError::Unsupported("native refusal block")),
+            BlockKind::ReasoningSummary => {
+                return Err(RelayError::Unsupported(
+                    "reasoning summary requires Responses or Gemini",
+                ));
+            }
         })
     }
     pub fn consume(&mut self, event: &Event) -> Result<Vec<Vec<u8>>, RelayError> {
@@ -565,6 +570,11 @@ impl NativeEncoder {
                 }
                 if matches!(kind, BlockKind::Refusal) {
                     return Err(RelayError::Unsupported("native refusal block"));
+                }
+                if matches!(kind, BlockKind::ReasoningSummary) {
+                    return Err(RelayError::Unsupported(
+                        "reasoning summary requires Responses or Gemini",
+                    ));
                 }
                 if let BlockKind::Tool { id, name } = kind {
                     ident(&json!(id))?;

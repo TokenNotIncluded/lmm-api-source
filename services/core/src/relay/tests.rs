@@ -724,8 +724,8 @@ fn responses_cache_lifetime_is_bounded_and_not_silently_lost_in_conversion() {
 }
 
 #[test]
-fn chat_reasoning_summary_survives_responses_json_and_stream_lifecycle() {
-    let summary = json!([{"type":"summary_text","text":"think carefully"}]);
+fn chat_raw_reasoning_survives_responses_json_and_stream_lifecycle() {
+    let reasoning = json!([{"type":"reasoning_text","text":"think carefully"}]);
     for finish in ["stop", "length"] {
         for stream in [false, true] {
             let limits = Limits::default();
@@ -760,7 +760,7 @@ fn chat_reasoning_summary_survives_responses_json_and_stream_lifecycle() {
             };
             let mut encoder = Encoder::new(
                 &input(ClientProtocol::Responses, stream),
-                "reasoning_summary",
+                "raw_reasoning",
                 &limits,
             );
             let mut bytes = Vec::new();
@@ -788,8 +788,8 @@ fn chat_reasoning_summary_survives_responses_json_and_stream_lifecycle() {
             };
             let item = &response["output"][0];
             assert_eq!(item["type"], "reasoning");
-            assert_eq!(item["summary"], summary);
-            assert!(item.get("content").is_none());
+            assert_eq!(item["summary"], json!([]));
+            assert_eq!(item["content"], reasoning);
             assert_eq!(response["output"][1]["content"][0]["text"], "answer");
             assert_eq!(
                 response["status"],
@@ -803,10 +803,12 @@ fn chat_reasoning_summary_survives_responses_json_and_stream_lifecycle() {
                 let lifecycle: Vec<_> = packets
                     .iter()
                     .filter(|p| {
-                        p["item"]["type"] == "reasoning"
-                            || p["type"]
-                                .as_str()
-                                .is_some_and(|kind| kind.starts_with("response.reasoning_summary_"))
+                        p["output_index"] == 0
+                            && (p["item"]["type"] == "reasoning"
+                                || p["type"].as_str().is_some_and(|kind| {
+                                    kind.starts_with("response.reasoning_text.")
+                                        || kind.starts_with("response.content_part.")
+                                }))
                     })
                     .collect();
                 assert_eq!(
@@ -816,32 +818,32 @@ fn chat_reasoning_summary_survives_responses_json_and_stream_lifecycle() {
                         .collect::<Vec<_>>(),
                     [
                         "response.output_item.added",
-                        "response.reasoning_summary_part.added",
-                        "response.reasoning_summary_text.delta",
-                        "response.reasoning_summary_text.delta",
-                        "response.reasoning_summary_text.done",
-                        "response.reasoning_summary_part.done",
+                        "response.content_part.added",
+                        "response.reasoning_text.delta",
+                        "response.reasoning_text.delta",
+                        "response.reasoning_text.done",
+                        "response.content_part.done",
                         "response.output_item.done",
                     ]
                 );
                 assert_eq!(lifecycle[0]["item"]["summary"], json!([]));
                 assert_eq!(lifecycle[0]["item"]["id"], item["id"]);
-                assert!(lifecycle[0]["item"].get("content").is_none());
+                assert_eq!(lifecycle[0]["item"]["content"], json!([]));
                 for event in &lifecycle {
                     assert_eq!(event["output_index"], 0);
                     if event.get("item_id").is_some() {
                         assert_eq!(event["item_id"], item["id"]);
-                        assert_eq!(event["summary_index"], 0);
+                        assert_eq!(event["content_index"], 0);
                     }
                 }
                 assert_eq!(
                     lifecycle[1]["part"],
-                    json!({"type":"summary_text","text":""})
+                    json!({"type":"reasoning_text","text":""})
                 );
                 assert_eq!(lifecycle[2]["delta"], "think ");
                 assert_eq!(lifecycle[3]["delta"], "carefully");
                 assert_eq!(lifecycle[4]["text"], "think carefully");
-                assert_eq!(lifecycle[5]["part"], summary[0]);
+                assert_eq!(lifecycle[5]["part"], reasoning[0]);
                 assert_eq!(&lifecycle[6]["item"], item);
             }
         }

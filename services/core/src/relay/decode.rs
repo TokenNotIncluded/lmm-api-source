@@ -434,6 +434,7 @@ impl Decoder {
             let compatible = match (&s.kind, &kind) {
                 (BlockKind::Text, BlockKind::Text)
                 | (BlockKind::Thinking, BlockKind::Thinking)
+                | (BlockKind::ReasoningSummary, BlockKind::ReasoningSummary)
                 | (BlockKind::Refusal, BlockKind::Refusal) => true,
                 (BlockKind::Tool { id: a, name: b }, BlockKind::Tool { id: c, name: d }) => {
                     a == c && b == d
@@ -600,7 +601,9 @@ impl Decoder {
                             "legacy function_call output is unsupported",
                         ));
                     }
-                    for field in ["content", "reasoning_content", "refusal"] {
+                    // zconv owns compatible reasoning aliases and ordered
+                    // string fragments; Core's visible text remains scalar.
+                    for field in ["content", "refusal"] {
                         if let Some(value) = message.get(field).filter(|v| !v.is_null()) {
                             text(value)?;
                         }
@@ -643,6 +646,19 @@ impl Decoder {
                 }
             }
             UpstreamProtocol::Anthropic => {
+                let usage = value.get("message").unwrap_or(value).get("usage");
+                if usage.is_some_and(|usage| {
+                    [
+                        "server_tool_use",
+                        "service_tier",
+                        "inference_geo",
+                        "iterations",
+                    ]
+                    .iter()
+                    .any(|key| usage.get(key).is_some())
+                }) {
+                    return Err(RelayError::Unsupported("provider-owned usage details"));
+                }
                 let delta = if full { value } else { &value["delta"] };
                 if let Some(reason) = delta.get("stop_reason").filter(|v| !v.is_null()) {
                     let reason = text(reason)?;

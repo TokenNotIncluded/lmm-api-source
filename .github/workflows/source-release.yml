@@ -1,0 +1,164 @@
+name: Qualified source release
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: [.github/source-release-request.json]
+permissions:
+  contents: read
+defaults:
+  run:
+    shell: bash
+concurrency:
+  group: source-release
+  cancel-in-progress: false
+jobs:
+  qualify:
+    if: github.repository == 'TokenNotIncluded/lmm-api-source' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      CARGO_BUILD_JOBS: '1'
+      CARGO_INCREMENTAL: '0'
+      CARGO_PROFILE_DEV_DEBUG: '0'
+      CARGO_PROFILE_TEST_DEBUG: '0'
+    outputs:
+      version: ${{ steps.request.outputs.version }}
+      revision: ${{ steps.request.outputs.revision }}
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Verify the exact source and registry candidate
+        id: request
+        run: |
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          python3 -B scripts/source-release.py --github-output "$GITHUB_OUTPUT"
+          python3 -B scripts/test-source-release.py
+          node --test scripts/workflow-topology.test.mjs
+          python3 -B scripts/check-docs-brand.py --docs-only
+      - name: Install the declared Core toolchain
+        run: rustup toolchain install 1.100.0 --profile minimal --component rustfmt --component clippy
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            services/core/target
+          key: source-release-rust-${{ runner.os }}-1.100.0-${{ hashFiles('services/core/Cargo.lock') }}
+          restore-keys: source-release-rust-${{ runner.os }}-1.100.0-
+      - name: Qualify the Core protocol source without external services
+        run: |
+          set -euo pipefail
+          cargo +1.100.0 fmt --manifest-path services/core/Cargo.toml --all --check 2>&1 | tee "$RUNNER_TEMP/core-relay-tests.log"
+          cargo +1.100.0 clippy --manifest-path services/core/Cargo.toml --locked --lib -- -D warnings 2>&1 | tee -a "$RUNNER_TEMP/core-relay-tests.log"
+          cargo +1.100.0 test --manifest-path services/core/Cargo.toml --locked --lib relay:: 2>&1 | tee -a "$RUNNER_TEMP/core-relay-tests.log"
+          cargo +1.100.0 test --manifest-path services/core/Cargo.toml --locked --lib edge_access::tests:: 2>&1 | tee -a "$RUNNER_TEMP/core-relay-tests.log"
+          cargo +1.100.0 test --manifest-path services/core/Cargo.toml --locked --lib identity_http::auth::turnstile_tests:: 2>&1 | tee -a "$RUNNER_TEMP/core-relay-tests.log"
+          git diff --exit-code
+      - name: Preserve qualification diagnostics
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: source-qualification-log-${{ github.sha }}
+          path: ${{ runner.temp }}/core-relay-tests.log
+          if-no-files-found: ignore
+          retention-days: 14
+      - name: Archive the qualified source and provenance
+        env:
+          RELEASE_VERSION: ${{ steps.request.outputs.version }}
+        run: |
+          set -euo pipefail
+          mkdir "$RUNNER_TEMP/source-release"
+          git archive --format=tar.gz --prefix="lmm-api-source-$RELEASE_VERSION/" --output="$RUNNER_TEMP/source-release/lmm-api-source-$RELEASE_VERSION.tar.gz" HEAD
+          python3 - <<'PY'
+          import json, os
+          from pathlib import Path
+          root = Path(os.environ["RUNNER_TEMP"]) / "source-release"
+          record = {
+              "repository": os.environ["GITHUB_REPOSITORY"],
+              "revision": os.environ["GITHUB_SHA"],
+              "version": os.environ["RELEASE_VERSION"],
+              "artifact_kind": "source",
+              "qualification": "Core protocol and affected edge/auth unit tests; independent acceptance not run",
+              "workflow_run": f'https://github.com/{os.environ["GITHUB_REPOSITORY"]}/actions/runs/{os.environ["GITHUB_RUN_ID"]}',
+          }
+          (root / "source.json").write_text(json.dumps(record, indent=2) + "\n")
+          PY
+          cp "$RUNNER_TEMP/core-relay-tests.log" "$RUNNER_TEMP/source-release/"
+          cd "$RUNNER_TEMP/source-release"
+          sha256sum ./*.tar.gz source.json core-relay-tests.log > SHA256SUMS
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: qualified-source-${{ github.sha }}
+          path: ${{ runner.temp }}/source-release/*
+          if-no-files-found: error
+          retention-days: 14
+  publish:
+    needs: qualify
+    if: github.repository == 'TokenNotIncluded/lmm-api-source' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          ref: ${{ needs.qualify.outputs.revision }}
+          persist-credentials: false
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: qualified-source-${{ github.sha }}
+          path: ${{ runner.temp }}/source-release
+      - name: Verify provenance and publish this source revision
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_VERSION: ${{ needs.qualify.outputs.version }}
+          SOURCE_REVISION: ${{ needs.qualify.outputs.revision }}
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP/source-release"
+          sha256sum --check SHA256SUMS
+          python3 - <<'PY'
+          import json, os, subprocess
+          from pathlib import Path
+          repo = os.environ["GITHUB_REPOSITORY"]
+          revision = os.environ["SOURCE_REVISION"]
+          version = os.environ["RELEASE_VERSION"]
+          tag = "v" + version
+          provenance = json.loads(Path("source.json").read_text())
+          if provenance["revision"] != revision or provenance["version"] != version or provenance["repository"] != repo:
+              raise SystemExit("qualified artifact identity differs from release request")
+          def api(path, *args):
+              return json.loads(subprocess.check_output(["gh", "api", f"repos/{repo}/{path}", *args], text=True))
+          if api("git/ref/heads/main")["object"]["sha"] != revision:
+              raise SystemExit("main advanced after qualification; qualify the new revision")
+          refs = [ref for ref in api("git/matching-refs/tags/" + tag) if ref["ref"] == "refs/tags/" + tag]
+          if refs:
+              target = refs[0]["object"]
+              for _ in range(8):
+                  if target["type"] != "tag":
+                      break
+                  target = api("git/tags/" + target["sha"])["object"]
+              if target["type"] != "commit" or target["sha"] != revision:
+                  raise SystemExit("existing release tag identifies a different commit")
+          else:
+              api("git/refs", "--method", "POST", "-f", "ref=refs/tags/" + tag, "-f", "sha=" + revision)
+          releases = json.loads(subprocess.check_output(["gh", "api", "--paginate", "--slurp", f"repos/{repo}/releases?per_page=100"], text=True))
+          if any(release["tag_name"] == tag for page in releases for release in page):
+              raise SystemExit("release already exists; inspect it instead of overwriting immutable assets")
+          Path("notes.md").write_text(
+              f"Source release {version} at {revision}.\n\n"
+              "Pins zconv 0.4.0 and keeps raw reasoning separate from generated summaries in Core response and request histories. "
+              "Provider-owned Anthropic blocks, citations and usage extensions that Core cannot represent remain explicit unsupported errors; server tools never become local tool calls. "
+              "The resource codecs in zconv do not add new gateway HTTP routes. "
+              "The attached source archive and checksums identify the exact source qualified by the linked workflow.\n\n"
+              "Core protocol tests are self-tests. Independent acceptance has not run. "
+              "This source prerelease does not install services, publish runtime images or claim production readiness.\n"
+          )
+          subprocess.run(["gh", "release", "create", tag, "--repo", repo, "--verify-tag",
+                          "--prerelease", "--title", "LMM API " + version + " source",
+                          "--notes-file", "notes.md", "lmm-api-source-" + version + ".tar.gz",
+                          "source.json", "core-relay-tests.log", "SHA256SUMS"], check=True)
+          PY

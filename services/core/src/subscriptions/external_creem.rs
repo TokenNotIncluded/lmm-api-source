@@ -303,8 +303,7 @@ impl SubscriptionStore {
                 id,
                 o.provider_subscription_id.as_deref(),
                 quoted,
-                raw,
-                signature,
+                (raw, signature),
                 now(&mut tx).await?,
             )
             .map_err(pay_error)?;

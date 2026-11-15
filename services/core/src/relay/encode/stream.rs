@@ -31,6 +31,7 @@ fn block_kind(kind: &BlockKind) -> ir::BlockKind {
     match kind {
         BlockKind::Text => ir::BlockKind::Text,
         BlockKind::Thinking => ir::BlockKind::Reasoning,
+        BlockKind::ReasoningSummary => ir::BlockKind::ReasoningSummary,
         BlockKind::Refusal => ir::BlockKind::Refusal,
         BlockKind::Tool { .. } => ir::BlockKind::Tool,
     }
@@ -234,6 +235,7 @@ impl Writer {
                 }
                 e.kind = EventKind::Signature;
                 e.key = key(*index)?;
+                e.block = block_kind(&encoder.blocks[*index].kind);
                 e.a = text(&mut payload, value);
                 e.b = text(
                     &mut payload,
@@ -273,6 +275,7 @@ impl Writer {
                 if let BlockKind::Tool { id, name } = &block.kind {
                     let mut e = event(EventKind::ToolComplete);
                     e.key = key(index)?;
+                    e.block = ir::BlockKind::Tool;
                     e.a = text(&mut payload, id);
                     e.b = text(&mut payload, name);
                     e.c = text(&mut payload, &block.text);

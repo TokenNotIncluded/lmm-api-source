@@ -1,6 +1,6 @@
 //! Library IR to bounded Core lifecycle events. Receipts remain Core-owned.
 use super::*;
-use zconv::ir::{Content, Data, Presence, Record, Text};
+use zconv::ir::{Content, Data, Presence, ReasoningKind, Record, Text};
 use zconv::stream::{BlockKind as Kind, EventKind, EventText};
 
 fn owned(value: Text<'_>) -> Result<String, RelayError> {
@@ -46,6 +46,7 @@ fn kind(value: Kind, id: Option<String>, name: Option<String>) -> Result<BlockKi
     Ok(match value {
         Kind::Text => BlockKind::Text,
         Kind::Reasoning => BlockKind::Thinking,
+        Kind::ReasoningSummary => BlockKind::ReasoningSummary,
         Kind::Refusal => BlockKind::Refusal,
         Kind::Tool => BlockKind::Tool {
             id: id.ok_or(RelayError::Protocol("missing tool ID"))?,
@@ -86,6 +87,7 @@ impl Decoder {
             UpstreamProtocol::Chat => match block {
                 Kind::Text => (0, 0),
                 Kind::Reasoning => (1, 0),
+                Kind::ReasoningSummary => (4, 0),
                 Kind::Refusal => (2, 0),
                 Kind::Tool => (3, u64::from(key.index)),
             },
@@ -94,11 +96,15 @@ impl Decoder {
                 u64::from(key.index),
                 if block == Kind::Tool {
                     u64::MAX
+                } else if block == Kind::ReasoningSummary {
+                    // Responses content_index and summary_index are separate
+                    // namespaces, and both may be zero on one reasoning item.
+                    (1 << 32) | u64::from(key.part)
                 } else {
                     u64::from(key.part)
                 },
             ),
-            // zconv 0.3 signatures retain the text/thought key, but their
+            // Gemini signatures retain the text/thought key, but their
             // block field defaults to Text. Match the key used by the delta.
             UpstreamProtocol::Gemini => (u64::from(key.index == u32::MAX - 2), 0),
         }
@@ -295,6 +301,7 @@ impl Decoder {
                             (&slot.kind, event.block),
                             (BlockKind::Text, Kind::Text)
                                 | (BlockKind::Thinking, Kind::Reasoning)
+                                | (BlockKind::ReasoningSummary, Kind::ReasoningSummary)
                                 | (BlockKind::Refusal, Kind::Refusal)
                                 | (BlockKind::Tool { .. }, Kind::Tool)
                         )
@@ -335,7 +342,10 @@ impl Decoder {
                         self.signature(key, &signature, out)?;
                     }
                 }
-                EventKind::BlockEnd if self.protocol == UpstreamProtocol::Responses => {
+                EventKind::BlockEnd
+                    if self.protocol == UpstreamProtocol::Responses
+                        && value["type"] == "response.output_item.done" =>
+                {
                     let keys: Vec<_> = self
                         .blocks
                         .keys()
@@ -374,6 +384,15 @@ impl Decoder {
                     self.delta(key, &required(&payload, event.a)?, out)?
                 }
                 EventKind::Failure => return Err(RelayError::Protocol("upstream stream failed")),
+                // These are provider-owned content or receipt fields. Core
+                // cannot represent them or authorize their billing semantics;
+                // never silently discard them or turn them into local tools.
+                EventKind::ProviderBlock | EventKind::ProviderDelta => {
+                    return Err(RelayError::Unsupported("provider-owned output content"));
+                }
+                EventKind::ProviderUsage => {
+                    return Err(RelayError::Unsupported("provider-owned usage details"));
+                }
                 // Core previously ignored benign provider metadata and repeated
                 // final snapshots. They are not appended as new content.
                 EventKind::Usage
@@ -460,11 +479,14 @@ impl Decoder {
                             None,
                         ),
                         Content::Reasoning {
+                            kind,
                             text: Presence::Value(text),
                             signature,
-                            ..
                         } => (
-                            BlockKind::Thinking,
+                            match kind {
+                                ReasoningKind::Thought => BlockKind::Thinking,
+                                ReasoningKind::Summary => BlockKind::ReasoningSummary,
+                            },
                             owned(text)?,
                             signature.value().map(owned).transpose()?,
                         ),
@@ -473,6 +495,10 @@ impl Decoder {
                             signature: Presence::Missing | Presence::Null,
                             ..
                         } if self.protocol == UpstreamProtocol::Responses => continue,
+                        Content::Reasoning {
+                            text: Presence::Missing | Presence::Null,
+                            ..
+                        } => return Err(RelayError::Unsupported("provider-owned reasoning")),
                         Content::ToolCall {
                             id,
                             name,
@@ -506,6 +532,9 @@ impl Decoder {
                                 None,
                             )
                         }
+                        Content::Opaque { .. } => {
+                            return Err(RelayError::Unsupported("provider-owned output content"));
+                        }
                         _ => {
                             return Err(RelayError::Protocol(
                                 "unsupported upstream output content",
@@ -516,6 +545,7 @@ impl Decoder {
                         UpstreamProtocol::Chat => match kind {
                             BlockKind::Text => (0, 0),
                             BlockKind::Thinking => (1, 0),
+                            BlockKind::ReasoningSummary => (4, 0),
                             BlockKind::Refusal => (2, 0),
                             BlockKind::Tool { .. } => {
                                 let key = (3, calls);
@@ -525,7 +555,7 @@ impl Decoder {
                         },
                         UpstreamProtocol::Gemini => match kind {
                             BlockKind::Text => (0, 0),
-                            BlockKind::Thinking => (1, 0),
+                            BlockKind::ReasoningSummary => (1, 0),
                             BlockKind::Tool { .. } => {
                                 let key = (2, self.gemini_calls);
                                 self.gemini_calls += 1;
@@ -583,6 +613,13 @@ impl Decoder {
                         .as_string()
                         .ok_or(RelayError::Protocol("invalid continuation token"))?;
                     self.continuation(&owned(Text::Json(token))?, out)?;
+                }
+                Record::Extension(extension)
+                    if self.protocol == UpstreamProtocol::Anthropic
+                        && extension.key.eq_str("citations")
+                        && !extension.value.is_null() =>
+                {
+                    return Err(RelayError::Unsupported("provider-owned output citations"));
                 }
                 _ => {}
             }

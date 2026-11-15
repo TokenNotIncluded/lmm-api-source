@@ -107,7 +107,8 @@ pub(super) fn encode(
             .map(|b| match b {
                 InputBlock::Text(s) | InputBlock::Refusal(s) => s.len(),
                 InputBlock::Image(i) => i.encoded_len(),
-                InputBlock::Thinking { text, signature } => {
+                InputBlock::Thinking { text, signature }
+                | InputBlock::ReasoningSummary { text, signature } => {
                     text.len() + signature.as_ref().map_or(0, |(_, s)| s.len())
                 }
                 InputBlock::ToolCall {
@@ -185,6 +186,11 @@ pub(super) fn encode(
                     text: Presence::Value(text(s)),
                     signature: present(signature.as_ref().map(|(_, s)| s.as_str())),
                 },
+                InputBlock::ReasoningSummary { text: s, signature } => Content::Reasoning {
+                    kind: ReasoningKind::Summary,
+                    text: Presence::Value(text(s)),
+                    signature: present(signature.as_ref().map(|(_, s)| s.as_str())),
+                },
                 InputBlock::Image(_) => {
                     let image = &images[ordinal].as_ref().expect("prepared image")["image_url"];
                     let url = image["url"].as_str().expect("validated image URL");
@@ -228,6 +234,10 @@ pub(super) fn encode(
             let i = records.len();
             records.push(block(content, i + 1));
             if let InputBlock::Thinking {
+                signature: Some((provider, signature)),
+                ..
+            }
+            | InputBlock::ReasoningSummary {
                 signature: Some((provider, signature)),
                 ..
             }

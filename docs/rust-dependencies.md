@@ -1,6 +1,6 @@
 # Rust Core 依赖审查
 
-版本更新于 2026-11-13。范围为 `services/core/Cargo.toml` 的运行、构建及开发直接依赖；当前共有 61 个不同 crate、62 条声明（SQLx 同时用于运行和测试）。版本以当前 `Cargo.lock` 为准，统一构建与业务回归尚未完成。不是传递依赖全量审计、安全漏洞扫描或性能测试。
+zconv 固定版本更新于 2026-11-15，其余版本审查日期为 2026-11-13。范围为 `services/core/Cargo.toml` 的运行、构建及开发直接依赖；当前共有 61 个不同 crate、62 条声明（SQLx 同时用于运行和测试）。版本以当前 `Cargo.lock` 为准，统一构建与业务回归尚未完成。不是传递依赖全量审计、安全漏洞扫描或性能测试。
 
 按用户决定，结合所属领域的成熟度判断，不设固定星数线。表中星数来自 GitHub REST `GET /repos/{owner}/{repo}`，属于上游仓库，不是单个 crate；下载数来自 crates.io `GET /api/v1/crates/{name}`，只作采用程度参考，不证明正确性。未发现这些上游被标为 archived。采用度数据采样于 2026-11-12；新增 webpki-root-certs 采样于 2026-11-13。稳定版本按注册表更新，受兼容约束的例外单列。
 
@@ -12,6 +12,7 @@
 ## 需要单列的结论
 
 - **zconv 是用户开发并指定最高优先级的核心依赖。** 保留固定版本，不以星数、下载量或发布时间作为替换理由；优先验证并修复它的协议转换行为。
+- **zconv 0.4.0 适配范围**：Core 区分原始思考与生成摘要，保留 Responses 的两个索引空间，并仅对已验证 Gemini 来源的原生历史使用摘要分类。无法无损表示的跨协议推理、Anthropic 供应商工具块、引用与扩展用量会显式返回不支持；供应商工具不会触发本地工具执行。现有 Responses 原生身份、annotation 与 encrypted 内容边界保持不变。zconv 新增的资源编解码器不自动增加 Core HTTP 路由；本轮源码资格测试也不替代独立业务验收。
 - 已检查的专用转换候选：[`llm_adapter`](https://github.com/darkskygit/llm_adapter) 3 星、[`gproxy-protocol`](https://github.com/LeenHawk/gproxy-protocol) 3 星、[`llm-relay`](https://github.com/okhsunrog/llm-relay) 2 星；均不能仅凭存在就认定比 zconv 更成熟。[`genai`](https://github.com/jeremychone/rust-genai) 940 星，但其定位是多供应商客户端，尚未做本项目等价验证。
 - **protoc-bin-vendored** 虽仅 14 星，但自 2020 年发布，累计下载 35114960 次，职责仅为构建期提供 protoc；保留跨平台可复现构建用途，不把它误算为线上网络能力。
 - **gjson** 上游 250 星，crate 自 2019 年发布、累计下载 2966141 次，当前版本发布于 2022 年。继续用于既有 GJSON 路径、查询与类型转换兼容；普通 JSON pointer 不能等价替换。保留兼容用途不表示维护活跃或安全审计通过。
@@ -26,7 +27,7 @@
 
 | crate | 固定版本 | 用途 | 上游星数 | 累计下载 | 决定 |
 | --- | --- | --- | ---: | ---: | --- |
-| [`zconv`](https://crates.io/crates/zconv) | `0.3.0` | 跨模型协议请求转换 | [1](https://github.com/LIghtJUNction/zconv) | 1022 | 用户自研，最高优先级保留 |
+| [`zconv`](https://crates.io/crates/zconv) | `0.4.0` | 跨模型协议请求与响应转换 | [1](https://github.com/LIghtJUNction/zconv) | 1022 | 用户自研，最高优先级保留 |
 | [`csv`](https://crates.io/crates/csv) | `1.4.0` | CSV 编解码 | [1968](https://github.com/BurntSushi/rust-csv) | 290033505 | 新增，替换手写编码 |
 | [`lettre`](https://crates.io/crates/lettre) | `0.11.23` | 邮件构造与 SMTP | [2280](https://github.com/lettre/lettre) | 23934841 | 保留 |
 | [`aes-gcm`](https://crates.io/crates/aes-gcm) | `0.11.1` | AES-GCM 认证加密 | [975](https://github.com/RustCrypto/AEADs) | 209738488 | 保留 |

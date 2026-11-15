@@ -130,8 +130,7 @@ impl PaymentsStore {
         order: &str,
         known_subscription: Option<&str>,
         quoted: i64,
-        raw: &[u8],
-        signature: &[u8],
+        (raw, signature): (&[u8], &[u8]),
         now: i64,
     ) -> Result<(Channel, Verified)> {
         if raw.is_empty() || raw.len() > 32768 || signature.len() != 64 {
@@ -191,7 +190,6 @@ impl PaymentsStore {
             period_end: 0,
             state: String::new(),
         };
-        let meta;
         if kind == "checkout.completed" {
             if text(o, "object")? != "checkout"
                 || text(o, "status")? != "completed"
@@ -218,7 +216,6 @@ impl PaymentsStore {
             {
                 return Err(Error::Conflict);
             }
-            meta = &o["metadata"];
         } else {
             if text(o, "object")? != "subscription"
                 || !matches!(
@@ -300,8 +297,8 @@ impl PaymentsStore {
                     .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
                     .map_or(0, |d| d.timestamp());
             }
-            meta = &o["metadata"];
         }
+        let meta = &o["metadata"];
         if !id(&v.subscription_id, "sub_") || !id(&v.customer_id, "cust_") {
             return Err(Error::Invalid);
         }

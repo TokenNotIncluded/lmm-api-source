@@ -1087,7 +1087,8 @@ fn local_input_bound(request: &Request) -> Result<u64, RelayError> {
             match block {
                 InputBlock::Text(value) | InputBlock::Refusal(value) => add(value.len())?,
                 InputBlock::Image(image) => add(image.encoded_len())?,
-                InputBlock::Thinking { text, signature } => {
+                InputBlock::Thinking { text, signature }
+                | InputBlock::ReasoningSummary { text, signature } => {
                     add(text.len())?;
                     if let Some((_, value)) = signature {
                         add(value.len())?;

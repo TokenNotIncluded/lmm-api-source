@@ -27,6 +27,8 @@ mod types;
 mod vision;
 #[cfg(test)]
 mod vision_tests;
+#[cfg(test)]
+mod zconv_compatibility_tests;
 mod zconv_request;
 pub(crate) use decode::Decoder as AssistantDecoder;
 #[cfg(test)]

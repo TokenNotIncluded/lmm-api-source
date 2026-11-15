@@ -56,13 +56,13 @@ impl Matcher {
         }
         let mut net: IpNet = raw.parse().map_err(|_| SetupError)?;
         // Requests normalize mapped IPv6 to IPv4; normalize matching networks too.
-        if let IpNet::V6(v6) = net {
-            if let Some(v4) = v6.addr().to_ipv4_mapped() {
-                if v6.prefix_len() < 96 {
-                    return Err(SetupError);
-                }
-                net = IpNet::new(IpAddr::V4(v4), v6.prefix_len() - 96).map_err(|_| SetupError)?;
+        if let IpNet::V6(v6) = net
+            && let Some(v4) = v6.addr().to_ipv4_mapped()
+        {
+            if v6.prefix_len() < 96 {
+                return Err(SetupError);
             }
+            net = IpNet::new(IpAddr::V4(v4), v6.prefix_len() - 96).map_err(|_| SetupError)?;
         }
         Ok(Self::Prefix(net))
     }

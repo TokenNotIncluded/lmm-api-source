@@ -279,11 +279,12 @@ impl Encoder {
                 BlockKind::Text => Content::Text(Text::Utf8(&b.text)),
                 BlockKind::Refusal => Content::Refusal(Text::Utf8(&b.text)),
                 BlockKind::Thinking => Content::Reasoning {
-                    kind: if self.client == ClientProtocol::Responses {
-                        ir::ReasoningKind::Summary
-                    } else {
-                        ir::ReasoningKind::Thought
-                    },
+                    kind: ir::ReasoningKind::Thought,
+                    text: Presence::Value(Text::Utf8(&b.text)),
+                    signature: Presence::Missing,
+                },
+                BlockKind::ReasoningSummary => Content::Reasoning {
+                    kind: ir::ReasoningKind::Summary,
                     text: Presence::Value(Text::Utf8(&b.text)),
                     signature: Presence::Missing,
                 },
@@ -335,14 +336,18 @@ impl Encoder {
             entry.end = records.len();
             records[at] = Record::Block(entry);
             if self.client == ClientProtocol::Responses
-                && matches!(b.kind, BlockKind::Thinking)
+                && matches!(b.kind, BlockKind::Thinking | BlockKind::ReasoningSummary)
                 && entry.extensions.start != entry.extensions.end
             {
                 // zconv represents item metadata on a reasoning header with
-                // absent text, separately from its summary content records.
+                // absent text, separately from its reasoning content records.
                 let text = entry.content;
                 entry.content = Content::Reasoning {
-                    kind: ir::ReasoningKind::Summary,
+                    kind: if matches!(b.kind, BlockKind::Thinking) {
+                        ir::ReasoningKind::Thought
+                    } else {
+                        ir::ReasoningKind::Summary
+                    },
                     text: Presence::Missing,
                     signature: Presence::Missing,
                 };

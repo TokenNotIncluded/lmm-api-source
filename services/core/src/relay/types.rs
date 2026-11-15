@@ -1186,8 +1186,14 @@ impl FinishReason {
 pub(crate) enum BlockKind {
     Text,
     Refusal,
+    /// Provider thought text; never a generated reasoning summary.
     Thinking,
-    Tool { id: String, name: String },
+    /// A provider-generated summary, preserved separately from raw thinking.
+    ReasoningSummary,
+    Tool {
+        id: String,
+        name: String,
+    },
 }
 #[derive(Clone, Debug)]
 pub(crate) enum Event {

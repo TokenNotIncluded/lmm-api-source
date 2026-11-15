@@ -64,12 +64,12 @@ async fn password_input(
     store: &IdentityStore,
     query: std::result::Result<Query<ChallengeQuery>, QueryRejection>,
     input: std::result::Result<Json<PasswordInput>, JsonRejection>,
-) -> std::result::Result<LoginRequest, Response> {
+) -> std::result::Result<LoginRequest, Box<Response>> {
     let (Ok(Query(query)), Ok(Json(body))) = (query, input) else {
-        return Err(IdentityError::Invalid.into_response());
+        return Err(Box::new(IdentityError::Invalid.into_response()));
     };
     if !query.turnstile.is_empty() && !body.turnstile.is_empty() {
-        return Err(IdentityError::Invalid.into_response());
+        return Err(Box::new(IdentityError::Invalid.into_response()));
     }
     let token = if query.turnstile.is_empty() {
         &body.turnstile
@@ -79,7 +79,7 @@ async fn password_input(
     store
         .verify_turnstile(token)
         .await
-        .map_err(|error| error.response())?;
+        .map_err(|error| Box::new(error.response()))?;
     Ok(LoginRequest {
         login_name: body.login_name,
         password: body.password,
@@ -92,7 +92,7 @@ async fn register(
 ) -> Response {
     let body = match password_input(&store, query, input).await {
         Ok(body) => body,
-        Err(response) => return response,
+        Err(response) => return *response,
     };
     match store.register(&body).await {
         Ok(issued) => (StatusCode::CREATED, Json(issued)).into_response(),
@@ -106,7 +106,7 @@ async fn login(
 ) -> Response {
     let body = match password_input(&store, query, input).await {
         Ok(body) => body,
-        Err(response) => return response,
+        Err(response) => return *response,
     };
     match store.login_with_mfa(&body).await {
         Ok(LoginOutcome::Session(issued)) => Json(issued).into_response(),

@@ -400,6 +400,20 @@ pub(crate) fn parse(
     let bytes = serde_json::to_vec(&canonical)
         .map_err(|_| RelayError::Invalid("Gemini conversion failed"))?;
     let mut request = Request::parse(ClientProtocol::Chat, &bytes, limits)?;
+    // The temporary Chat envelope only admits and bounds the input. Gemini's
+    // thought:true wire content is a summary, not raw Chat reasoning_content.
+    for block in request
+        .messages
+        .iter_mut()
+        .flat_map(|message| &mut message.content)
+    {
+        if let super::InputBlock::Thinking { text, signature } = block {
+            *block = super::InputBlock::ReasoningSummary {
+                text: std::mem::take(text),
+                signature: signature.take(),
+            };
+        }
+    }
     request.client = ClientProtocol::Gemini;
     request.google_search = google_search;
     request.continuation_token = continuation_token(v.get("continuationToken"), limits)?;
@@ -504,7 +518,12 @@ impl NativeEncoder {
     fn part(b: &Block) -> Result<Value, RelayError> {
         let mut p = match &b.kind {
             BlockKind::Text => json!({"text":b.text}),
-            BlockKind::Thinking => json!({"text":b.text,"thought":true}),
+            BlockKind::ReasoningSummary => json!({"text":b.text,"thought":true}),
+            BlockKind::Thinking => {
+                return Err(RelayError::Unsupported(
+                    "raw thinking cannot become a Gemini summary",
+                ));
+            }
             BlockKind::Tool { id, name } => {
                 let args = serde_json::from_str::<Unique>(&b.text)
                     .map_err(|_| RelayError::Protocol("incomplete function arguments"))?
@@ -538,6 +557,11 @@ impl NativeEncoder {
                 }
                 if matches!(kind, BlockKind::Refusal) {
                     return Err(RelayError::Unsupported("Gemini has no refusal text part"));
+                }
+                if matches!(kind, BlockKind::Thinking) {
+                    return Err(RelayError::Unsupported(
+                        "raw thinking cannot become a Gemini summary",
+                    ));
                 }
                 if let BlockKind::Tool { id, name } = kind {
                     self.account(id.len().saturating_add(name.len()))?;
@@ -942,7 +966,7 @@ mod tests {
         let r = parse("m", true, body, &Limits::default()).unwrap();
         assert_eq!(r.messages.len(), 3);
         assert!(
-            matches!(&r.messages[0].content[0],super::super::InputBlock::Thinking {signature:Some((UpstreamProtocol::Gemini,s)),..} if s=="sig")
+            matches!(&r.messages[0].content[0],super::super::InputBlock::ReasoningSummary {signature:Some((UpstreamProtocol::Gemini,s)),..} if s=="sig")
         );
         assert!(
             matches!(&r.messages[1].content[0],super::super::InputBlock::ToolCall {signature:Some((UpstreamProtocol::Gemini,s)),..} if s=="call-sig")
