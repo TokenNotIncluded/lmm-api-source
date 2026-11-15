@@ -22,6 +22,7 @@ OFFLINE_OPERATIONS_CLI = "services/extensions/internal/freshinstall/operations_u
 OFFLINE_RSS_UPGRADE = "services/extensions/internal/modules/operations/rss_upgrade.go"
 OFFLINE_REPOSITORY_UPGRADE = "services/extensions/internal/modules/operations/script_repository_upgrade.go"
 OFFLINE_MAIN = "services/extensions/cmd/extensions/main.go"
+OFFLINE_ASSISTANT_HISTORY = "services/extensions/internal/freshinstall/assistant_history_upgrade.go"
 OFFLINE_SNAPSHOT = "services/extensions/internal/modules/toolmarket/install_snapshot.go"
 OFFLINE_TOKEN_SHA256 = {
     # Closed store/support plan; BEGIN/COMMIT are stripped only after one-pair checks.
@@ -40,18 +41,19 @@ OFFLINE_TOKEN_SHA256 = {
     # optional payment/operations addons remain under complete ACL checks.
     # Community/acquisition use compiled schemas and dedicated runtime grants;
     # URL, owner, empty-database and transaction checks remain in place.
-    'services/extensions/internal/freshinstall/install.go': 'e44d031e1e38344b36108f1f38edbc317e812f93f36e4872860cc9617170f9e2',
+    'services/extensions/internal/freshinstall/install.go': '7a7245c82e96967afa3d50fc457c786fc79515dee7023fad36d58992756bb46b',
     OFFLINE_WALLET_CLI: '87cf633970571aef5b7abc5b3788c30e6bc62c77b1799815faa845f4e9c1ded7',
     OFFLINE_WALLET_UPGRADE: '923244ef59326a37b79ee2bd7a00132a492cf6e8535854356a77f92f7d092aba',
     'services/extensions/internal/freshinstall/cli.go': '014929777131a77c2fe599d53b90d7b65f7ccf6be7f51d4355cc57ac18dd2ae8',
-    'services/extensions/cmd/extensions/main.go': 'c81a5a0b3e46f5da7e5f5c5f99ebea3ebed5fa34b5b071d3c187b2563104d6e7',
+    'services/extensions/cmd/extensions/main.go': 'e69aa202297ee01fc70f62e31fd65f6084f79d9a82b78d3a80bb5016d13494ba',
+    OFFLINE_ASSISTANT_HISTORY: '0ed816d5e863242d54c5425e0d6f403b731b68215b4adeb1925bfc7a3492dd99',
     'services/extensions/internal/modules/toolmarket/install_snapshot.go': '8f6f852068a5891a490876eb8918a58008d3f80844144f84307ba78c36b56013',
 }
 STORE_READ_QUERIES = {'services/extensions/internal/modules/store/promotions.go': ('QueryContext', "`SELECT body->'legacy'->>'promotion_id',\nCOUNT(*) FILTER (WHERE body->>'state' NOT IN ('awaiting_payment','payment_pending')),\nCOUNT(*) FILTER (WHERE body->>'state' IN ('awaiting_payment','payment_pending'))\nFROM lmm_store.orders WHERE shop_id=$1 AND body->'legacy'->>'product_id'=$2\nAND COALESCE(body->'legacy'->>'promotion_id','')<>'' AND body->>'state' NOT IN ('cancelled','refunded')\nGROUP BY body->'legacy'->>'promotion_id'`"), 'services/extensions/internal/modules/store/purchase_limits.go': ('QueryRowContext', "`SELECT COALESCE(SUM((o.body->>'quantity')::bigint),0)\nFROM lmm_store.orders o JOIN lmm_store.variants v ON v.shop_id=o.shop_id AND v.id=o.body->>'variant_id'\nWHERE o.shop_id=$1 AND v.body->>'product_id'=$2 AND o.body->'buyer'->>'kind'=$3\nAND (o.body->'buyer'->>'id')::bigint=$4 AND o.body->>'state' NOT IN ('cancelled','refunded')`")}
 
 COMPOSITION_BUNDLE = "services/extensions/internal/composition/storage_bundle.go"
-BUNDLE_POLICY_TOKEN_SHA256 = "51c9a41318b6aa6aaa319e99a0d1853f4bdf1cf86e6664bac7a8f5fd7a8df6a1"
-STORAGE_TOKEN_SHA256 = "2aa8a755010114321cdcc6d836f77d266206914d065cee20d9dcbe024a60dfcc"
+BUNDLE_POLICY_TOKEN_SHA256 = "3bdfd418b401db059adec43c60040c2e7be3aeeeff06069b1d100e07cfd135ee"
+STORAGE_TOKEN_SHA256 = "df994d590cc141d2a0658ea4eef0bed800a1763a327039996c415bfaca087e71"
 COMPOSITION_STORAGE = "services/extensions/internal/composition/storage.go"
 COMPOSITION_PAYMENTS = "services/extensions/internal/composition/payments.go"
 COMPOSITION_ASSISTANT = "services/extensions/internal/composition/assistant.go"
@@ -135,7 +137,51 @@ REVIEWED_BORROWED_SQL = {
         ],
         "sha256": "16b9adf94f389862bc1b2eb1d65978671e2cfb8afa6a0478f2d4f7224ca2687d"
     },
-    "services/extensions/internal/modules/payments/subscription_stripe.go": {
+    
+    "services/extensions/internal/modules/payments/subscription_creem.go": {
+        "namespace": "payment",
+        "tables": [
+            "pg_class",
+            "pg_namespace",
+            "payment_creem_subscription_checkouts",
+            "payment_creem_subscription_inbox"
+        ],
+        "predicates": [
+            "WHERE order_id=$1 AND checkout_id IS NOT NULL",
+            "WHERE evidence_id=$1 AND payload=$3",
+            "WHERE evidence_id=$1 AND state<>'accepted'"
+        ],
+        "methods": [
+            "ExecContext",
+            "QueryRowContext",
+            "QueryRowContext",
+            "QueryContext",
+            "QueryContext"
+        ],
+        "sha256": "592daf704de173cdd1707d160cb7936ead4a7245e6f909e23cc8d843dafd8715"
+    },
+    "services/extensions/internal/modules/payments/subscription_upgrade_helpers.go": {
+        "namespace": "payment",
+        "tables": [
+            "pg_attribute",
+            "pg_class",
+            "pg_namespace",
+            "pg_proc",
+            "public."
+        ],
+        "predicates": [
+            "WHERE n.nspname='public'",
+            "WHERE n.nspname='public' AND p.proname='guard_payment_subscription_evidence'"
+        ],
+        "methods": [
+            "QueryContext",
+            "QueryRowContext",
+            "QueryContext",
+            "QueryContext"
+        ],
+        "sha256": "4f1e3b5130b0f3cb062fd532abad8024cae3013c8c62e62ec19ad72d01aed131"
+    },
+"services/extensions/internal/modules/payments/subscription_stripe.go": {
         "namespace": "payment",
         "tables": [
             "pg_class",
@@ -304,15 +350,16 @@ REVIEWED_BORROWED_SQL = {
             "QueryRowContext",
             "QueryContext",
             "QueryRowContext",
-            "ExecContext",
             "QueryRowContext",
             "ExecContext",
             "ExecContext",
             "ExecContext",
+            "QueryRowContext",
+            "ExecContext",
             "ExecContext",
             "ExecContext"
         ],
-        "sha256": "6f5f8001dae2333ce52d49ce8faa139f1976042cc12423072cc2a38884faa04d"
+        "sha256": "ba16f0d3a52b0b5c8d22fdc88584c2817e13bf60ca9cec34227cecaccfdfeb8f"
     }
 }
 
@@ -323,11 +370,12 @@ REVIEWED_BORROWED_SQL = {
 REVIEWED_OWNER_BOUNDARIES = {
     "services/extensions/internal/modules/operations/script_repository_credentials_upgrade.go": "d82054fbba76b66bd18137bf489d05aadfbaa9dfdc2bfe33e0f7ab1cb917dcd7",
     "services/extensions/internal/modules/operations/ionet_upgrade.go": "6eb4c17261ea53d121385bbdea0d01502e089ad58e48a3bf3e6d01e14be074ab",
-    "services/extensions/internal/freshinstall/payments_upgrade.go": "213cdac0d35354206a4a0dff53b7ad8d52d31dd1b2e5b91e963c4ae57e56cb3c",
+    "services/extensions/internal/freshinstall/payments_upgrade.go": "d3a894d8ae7f1f411b41dce61ada7e88c6d37a91d4e93296a1184b0c75767ecc",
     "services/extensions/internal/freshinstall/checkin_policy.go": "530834845248e3a119442f2913103102ed1472cce2021075151b88b6b59cc2c2",
     "services/extensions/internal/modules/payments/subscription_epay_upgrade.go": "032e8bfa0774bf7001c761a28d666b48645e85b4786cb07206c4997cedd3bbf7",
-    "services/extensions/internal/modules/payments/subscription_stripe_upgrade.go": "cd89af6c607eca9072726937588fc5365b52e63f50f10a42fbb2350d42e25690",
-    "services/extensions/internal/modules/payments/subscription_pancake_upgrade.go": "3ace1caf899ee56e68f9d8c9711f3421b753da7c1ac01f6fd1f56e4376b1e3ed",
+    "services/extensions/internal/modules/payments/subscription_stripe_upgrade.go": "95e164099ae4c12672e7a323c42ec02cd3e43326f58a3a32ca95e6e1eb0ba0b5",
+    "services/extensions/internal/modules/payments/subscription_pancake_upgrade.go": "2e672e520a7bf5c2856484d29982928e2705106a5a55115bb9eee3ee0144d501",
+    "services/extensions/internal/modules/payments/subscription_creem_upgrade.go": "b41a871e9a4958d54b9dbb90e43b1ff085eac3920f00b90b7a02690e572b0a64",
     "services/extensions/internal/modules/checkins/owner.go": "0736674e5c0939abf39da0f528e3d03818d22045473ae62174ed76dbc3dcec06"
 }
 REVIEWED_OWNER_INPUTS = {
@@ -345,7 +393,7 @@ REVIEWED_OWNER_INPUTS = {
     "services/extensions/internal/modules/payments/subscription_pancake_catalog.sql": "a814b4b97f21c75c6b4b59719177a96aa1ff375591cee286c0137ee1d41715e1",
     "services/extensions/internal/modules/payments/subscription_pancake_storage_contract.json": "2f670d4b1570800652c1e13b44c5981b34c144388f6c73f056a8c108d2613916",
     "services/extensions/internal/modules/checkins/schema.sql": "a5e41379df204162d2aa79fb14fa78102624144b857662be20aa18e87e3ff323",
-    "services/extensions/internal/modules/checkins/types.go": "0cc2333c89ff2ccf3ba16c96375a87edf6cc52ad633cb72561b9e129ed03b76a"
+    "services/extensions/internal/modules/checkins/types.go": "df7e9a1d01c2db35eed9749cc1439385d7f0fed23da3718ca2febc1999d42b15"
 }
 
 # Source registration only: Io.net has module PG evidence, not native CLI
@@ -386,6 +434,8 @@ OWNER_EVIDENCE = {
         "edb40d4a0f6464ce9bc2f6a31cfd10f12640443b6908825c71a2976608a0dd56"),
     "services/extensions/internal/modules/payments/subscription_pancake_upgrade.go": ('lmm-completion-20261113/pancake-independent-qualification-1794641819/RECEIPT.json',
         "4e7c62fc69aacac4743722df4131943d9a52a1effeade0cb2c3bbe17aec8fd16"),
+    "services/extensions/internal/modules/payments/subscription_creem_upgrade.go": ('lmm-completion-20261113/owner-cli-private-probes-20261114/ACTUAL_HANDOFF.md',
+        "edb40d4a0f6464ce9bc2f6a31cfd10f12640443b6908825c71a2976608a0dd56"),
     "services/extensions/internal/modules/operations/script_repository_credentials_upgrade.go": ('lmm-owner-pg-selftest-20261114-145129/cases/script/RESULT.json',
         "82a6a377b3063d2ded4c2185eb15e90b9884effa128bc5c1a8e1d80c6dc316c9"),
     "services/extensions/internal/modules/operations/ionet_upgrade.go": ('lmm-owner-pg-selftest-20261114-145129/cases/ionet/RESULT.json',
@@ -393,6 +443,18 @@ OWNER_EVIDENCE = {
 }
 
 OWNER_ENTRY_CALLERS = {
+    "UpgradeHistory": [
+        "services/extensions/internal/freshinstall/assistant_history_upgrade.go",
+        "services/extensions/internal/modules/assistant/history_upgrade.go"
+    ],
+    "ProjectLegacyHistory": [
+        "services/extensions/internal/freshinstall/assistant_history_upgrade.go",
+        "services/extensions/internal/modules/assistant/history_projection.go"
+    ],
+    "RunAssistantHistoryUpgradeCLI": [
+        "services/extensions/cmd/extensions/main.go",
+        "services/extensions/internal/freshinstall/assistant_history_upgrade.go"
+    ],
     "RunPaymentsSubscriptionUpgradeCLI": [
         "services/extensions/cmd/extensions/main.go",
         "services/extensions/internal/freshinstall/payments_upgrade.go"
@@ -419,6 +481,10 @@ OWNER_ENTRY_CALLERS = {
     "UpgradeSubscriptionPancake": [
         "services/extensions/internal/freshinstall/payments_upgrade.go",
         "services/extensions/internal/modules/payments/subscription_pancake_upgrade.go"
+    ],
+    "UpgradeSubscriptionCreem": [
+        "services/extensions/internal/freshinstall/payments_upgrade.go",
+        "services/extensions/internal/modules/payments/subscription_creem_upgrade.go"
     ],
     "RunCheckinPolicyCLI": [
         "services/extensions/cmd/extensions/main.go",
@@ -480,6 +546,8 @@ CORE_SCHEMAS = (
     "core_account_links.",
     "core_channels.",
     "core_checkins.",
+    "core_checkin_challenges.",
+    "core_oidc.",
     "core_commerce_external.",
     "core_federated_auth.",
     "core_directory_ads.",
@@ -886,7 +954,7 @@ class CoreBoundaryTests(unittest.TestCase):
         if path in PENDING_OWNER_BOUNDARIES:
             self.fail(path + ": owner install/ACL/recovery evidence pending; not runtime admission")
         imported = "github.com/TokenNotIncluded/lmm-api/extensions/internal/freshinstall"
-        if path not in (OFFLINE_MAIN, OFFLINE_INSTALLER, OFFLINE_CLI, OFFLINE_WALLET_CLI, OFFLINE_WALLET_UPGRADE, OFFLINE_OPERATIONS_CLI):
+        if path not in (OFFLINE_MAIN, OFFLINE_INSTALLER, OFFLINE_CLI, OFFLINE_WALLET_CLI, OFFLINE_WALLET_UPGRADE, OFFLINE_OPERATIONS_CLI, OFFLINE_ASSISTANT_HISTORY):
             self.assertNotIn(imported, text, path)
             self.assertNotRegex(" ".join(go_tokens(text)), r"\bfreshinstall \.", path)
             for owner_entry in ('"install-db"', '"owner-url-file"', 'OwnerURLFile'):
@@ -901,6 +969,7 @@ class CoreBoundaryTests(unittest.TestCase):
         # RSS installation is a separate, frozen owner entry point. None of
         # these calls may be borrowed by normal startup or request handlers.
         owner_calls = {
+            "RunAssistantHistoryUpgradeCLI": (OFFLINE_MAIN, OFFLINE_ASSISTANT_HISTORY),
             "compiledCommerce": (OFFLINE_INSTALLER, OFFLINE_COMMERCE_PLAN),
             "RunOperationsUpgradeCLI": (OFFLINE_MAIN, OFFLINE_OPERATIONS_CLI),
             "UpgradeRSS": (OFFLINE_OPERATIONS_CLI, OFFLINE_RSS_UPGRADE),
@@ -920,7 +989,7 @@ class CoreBoundaryTests(unittest.TestCase):
         if path in OFFLINE_TOKEN_SHA256:
             actual = hashlib.sha256(json.dumps(go_tokens(text), separators=(",", ":")).encode()).hexdigest()
             self.assertEqual(actual, OFFLINE_TOKEN_SHA256[path], path + ": offline owner body needs independent review")
-            if path in (OFFLINE_MAIN, OFFLINE_INSTALLER, OFFLINE_COMMERCE_PLAN, OFFLINE_CLI, OFFLINE_WALLET_CLI, OFFLINE_WALLET_UPGRADE, OFFLINE_OPERATIONS_CLI, OFFLINE_RSS_UPGRADE, OFFLINE_REPOSITORY_UPGRADE):
+            if path in (OFFLINE_MAIN, OFFLINE_INSTALLER, OFFLINE_COMMERCE_PLAN, OFFLINE_CLI, OFFLINE_WALLET_CLI, OFFLINE_WALLET_UPGRADE, OFFLINE_OPERATIONS_CLI, OFFLINE_RSS_UPGRADE, OFFLINE_REPOSITORY_UPGRADE, OFFLINE_ASSISTANT_HISTORY):
                 return True
         return False
 
@@ -931,6 +1000,8 @@ class CoreBoundaryTests(unittest.TestCase):
             self.assertNotIn("openStorageBundle", tokens, path)
         if path not in (COMPOSITION_STORAGE, COMPOSITION_BUNDLE, "services/extensions/internal/composition/toolmarket.go"):
             self.assertNotIn("toolMarketBuiltinsBundle", tokens, path)
+            self.assertNotIn("toolMarketStorageBundle", tokens, path)
+            self.assertNotIn("isToolMarketBuiltinBundle", tokens, path)
         if path == "services/extensions/internal/composition/runtime.go":
             body = self.go_function_body(text, "func New(ctx context.Context, cfg Config) (_ *Runtime, resultErr error)")
             self.token_index(body, """if selected["assistant"] {
@@ -945,14 +1016,11 @@ class CoreBoundaryTests(unittest.TestCase):
         if path == "services/extensions/internal/composition/toolmarket.go":
             body = self.go_function_body(text, "func (r *Runtime) composeToolMarket(ctx context.Context, cfg Config, otherCredentials ...[]byte) error")
             self.token_index(body, """
-                bundle := defaultStorageBundle
-                if cfg.ToolMarketBuiltins.configured() {
-                    bundle = toolMarketBuiltinsBundle
-                }
+                bundle := toolMarketStorageBundle(cfg.ToolMarketBuiltins)
                 db, err := openStorageBundle(ctx, cfg.ToolMarket, bundle)
             """)
             self.assertEqual(tokens.count("openStorageBundle"), 1, path)
-            self.assertEqual(tokens.count("toolMarketBuiltinsBundle"), 1, path)
+            self.assertEqual(tokens.count("toolMarketStorageBundle"), 1, path)
         # Borrowed pools can execute SQL from files without a database/sql import.
         # Check Core table access before any unregistered-file early return.
         # Include quoted/future Core schemas: a new registry entry cannot open
@@ -1000,6 +1068,7 @@ class CoreBoundaryTests(unittest.TestCase):
             "services/extensions/internal/modules/assistant_services/support_messages.go": "lmm_assistant.",
             "services/extensions/internal/modules/assistant_services/web_support.go": "lmm_assistant.",
             "services/extensions/internal/modules/payments/postgres.go": "payment_",
+            "services/extensions/internal/modules/payments/subscription_upgrade_helpers.go": "payment_",
             OPERATIONS_POSTGRES: "lmm_operations.",
             OPERATIONS_RELEASES: "lmm_operations.",
             OPERATIONS_RSS: "lmm_operations.",
@@ -1019,6 +1088,10 @@ class CoreBoundaryTests(unittest.TestCase):
                 self.assert_named_go_import(text, "github.com/lib/pq")
                 selectors = [tokens[i+2] for i in range(len(tokens)-2) if tokens[i:i+2] == ["pq", "."]]
                 self.assertEqual(selectors, ["Array"], path)
+            elif path == "services/extensions/internal/modules/assistant/history_upgrade.go":
+                self.assert_named_go_import(text, "github.com/lib/pq")
+                selectors = [tokens[i+2] for i in range(len(tokens)-2) if tokens[i:i+2] == ["pq", "."]]
+                self.assertEqual(selectors, ["QuoteIdentifier"], path)
             else:
                 self.assertNotIn("github.com/lib/pq", text, path)
                 if path == OPERATIONS_RELEASES:
@@ -1082,6 +1155,20 @@ class CoreBoundaryTests(unittest.TestCase):
             self.assertEqual(len(re.findall(r"\.\s*(?:Query|QueryRow|Exec|QueryContext|QueryRowContext|ExecContext|Begin|BeginTx)\s*\(", text)), 1, path)
             for schema in CORE_SCHEMAS + tuple(stores.values()):
                 self.assertNotRegex(text, r"(?i)\b(?:FROM|JOIN|UPDATE|INTO|TRUNCATE)\s+" + re.escape(schema), path)
+            return
+        if path == "services/extensions/internal/modules/assistant/history_projection.go":
+            for guard in ("IN ACCESS EXCLUSIVE MODE", "if recoverOnly {", "owner_only_raw",
+                          "FROZEN_OFFLINE_LEGACY"):
+                self.assertIn(guard, text, path)
+            self.assertNotRegex(text, r"\bsql\s*\.\s*(?:Open|OpenDB)\b", path)
+            return
+        if path == "services/extensions/internal/modules/assistant/history_upgrade.go":
+            # Offline owner upgrade; runtime never imports this entry.
+            for guard in ("current_user=pg_get_userbyid(d.datdba)", "NOT rolcanlogin",
+                          "pid<>pg_backend_pid()", "IN ACCESS EXCLUSIVE MODE",
+                          "if recoverOnly {", "historyUpgradeSQL"):
+                self.assertIn(guard, text, path)
+            self.assertNotRegex(text, r"\bsql\s*\.\s*(?:Open|OpenDB)\b", path)
             return
         if path not in stores and path != COMPOSITION_STORAGE:
             self.assertNotIn('"database/sql"', text, path)
@@ -1168,7 +1255,7 @@ class CoreBoundaryTests(unittest.TestCase):
                 with self.subTest(path=path, extra=extra), self.assertRaises(AssertionError):
                     self.assert_registered_borrowed_sql(path, source + "\n" + extra, check_seal=False)
             for predicate in spec["predicates"]:
-                changed = source.replace(predicate, "TRUE", 1)
+                changed = source.replace(predicate, "TRUE")
                 self.assertNotEqual(changed, source, (path, predicate))
                 with self.subTest(path=path, predicate=predicate), self.assertRaises(AssertionError):
                     self.assert_registered_borrowed_sql(path, changed, check_seal=False)
@@ -1918,8 +2005,17 @@ class CoreBoundaryTests(unittest.TestCase):
 			return nil, errors.New("extension storage grants differ from runtime contract")
 		}
 	}
-	if c.Component == "assistant" || bundle == toolMarketBuiltinsBundle {
+	if c.Component == "assistant" || isToolMarketBuiltinBundle(bundle) {
 		for _, namespace := range policy.namespaces {
+			if c.Component == "toolmarket" {
+				required := false
+				for _, table := range policy.tables {
+					required = required || strings.HasPrefix(table.name, namespace+".")
+				}
+				if !required {
+					continue
+				}
+			}
 			var allowed bool
 			if err := db.QueryRowContext(bounded, `SELECT COALESCE(has_schema_privilege(current_user,$1,'USAGE'),false)`, namespace).Scan(&allowed); err != nil || !allowed {
 				return nil, errors.New("extension bundled storage schema grants unavailable")
@@ -2513,8 +2609,8 @@ class CoreBoundaryTests(unittest.TestCase):
         market_path = "services/extensions/internal/composition/toolmarket.go"
         market = (ROOT / market_path).read_text()
         for changed in (
-            storage.replace('return openStorageBundle(ctx, c, defaultStorageBundle)', 'return openStorageBundle(ctx, c, toolMarketBuiltinsBundle)'),
-            storage.replace('policy, err := storagePolicyFor(c.Component, bundle)', 'policy, err := storagePolicyFor("toolmarket", toolMarketBuiltinsBundle)'),
+            storage.replace('return openStorageBundle(ctx, c, defaultStorageBundle)', 'return openStorageBundle(ctx, c, toolMarketImageBundle)'),
+            storage.replace('policy, err := storagePolicyFor(c.Component, bundle)', 'policy, err := storagePolicyFor("toolmarket", toolMarketImageBundle)'),
             storage.replace("nspname LIKE 'core\\_%' ESCAPE '\\' OR", 'false OR'),
             storage.replace('NOT(nspname=ANY($1::text[]))', 'false'),
             storage.replace('($3 AND nspname NOT LIKE', '(false AND nspname NOT LIKE'),
@@ -2547,7 +2643,7 @@ class CoreBoundaryTests(unittest.TestCase):
             policy.replace('return assistantAgentBundle', 'return defaultStorageBundle'),
             policy.replace('component == "assistant"', 'component == "store"'),
             policy.replace('component == "toolmarket"', 'true'),
-            policy.replace('bundle == toolMarketBuiltinsBundle', 'true'),
+            policy.replace('isToolMarketBuiltinBundle(bundle)', 'true'),
             policy.replace('"lmm_bounties", "extension_wallet"', '"lmm_bounties", "extension_wallet", "core_wallet"'),
             policy.replace('"MAINTAIN"', '"SELECT"'),
             policy.replace('policy.forbiddenColumns =', 'policy.tables ='),
@@ -2556,10 +2652,9 @@ class CoreBoundaryTests(unittest.TestCase):
             with self.subTest(policy=changed), self.assertRaises(AssertionError):
                 self.assert_extension_storage(COMPOSITION_BUNDLE, changed)
         for changed in (
-            market.replace('if cfg.ToolMarketBuiltins.configured() {', 'if true {'),
-            market.replace('bundle := defaultStorageBundle', 'bundle := toolMarketBuiltinsBundle'),
-            market.replace('openStorageBundle(ctx, cfg.ToolMarket, bundle)', 'openStorageBundle(ctx, cfg.ToolMarket, toolMarketBuiltinsBundle)'),
-            market + '\nfunc extra() { openStorageBundle(ctx, cfg, toolMarketBuiltinsBundle) }',
+            market.replace('bundle := toolMarketStorageBundle(cfg.ToolMarketBuiltins)', 'bundle := toolMarketImageBundle'),
+            market.replace('openStorageBundle(ctx, cfg.ToolMarket, bundle)', 'openStorageBundle(ctx, cfg.ToolMarket, toolMarketImageBundle)'),
+            market + '\nfunc extra() { openStorageBundle(ctx, cfg, toolMarketImageBundle) }',
         ):
             self.assertNotEqual(changed, market)
             with self.subTest(market=changed), self.assertRaises(AssertionError):
@@ -2577,7 +2672,7 @@ class CoreBoundaryTests(unittest.TestCase):
         with self.assertRaises(AssertionError):
             self.assert_extension_storage(runtime_path, changed)
         for path in ("services/extensions/internal/app/unapproved.go", "services/extensions/internal/composition/unapproved.go"):
-            for extra in ('openStorageBundle(ctx, cfg, storageBundle(1))', 'toolMarketBuiltinsBundle'):
+            for extra in ('openStorageBundle(ctx, cfg, storageBundle(1))', 'toolMarketBuiltinsBundle', 'toolMarketStorageBundle', 'isToolMarketBuiltinBundle'):
                 with self.subTest(path=path, extra=extra), self.assertRaises(AssertionError):
                     self.assert_extension_storage(path, "package unapproved\nfunc extra() { " + extra + " }")
 
