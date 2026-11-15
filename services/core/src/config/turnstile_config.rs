@@ -41,6 +41,9 @@ pub struct Turnstile {
     client: reqwest::Client,
     secret: Arc<Zeroizing<String>>,
     hostname: String,
+    site_key: String,
+    #[cfg(test)]
+    test_endpoint: Option<String>,
 }
 
 /// Challenge rejection is distinct from an unavailable verification service.
@@ -95,6 +98,9 @@ pub(super) fn load() -> io::Result<Option<Turnstile>> {
                 client,
                 secret: Arc::new(secret),
                 hostname,
+                site_key,
+                #[cfg(test)]
+                test_endpoint: None,
             }))
         }
         _ => Err(invalid_config(
@@ -129,7 +135,32 @@ pub(crate) async fn verify(config: Option<&Turnstile>, token: &str) -> Result<()
 }
 
 impl Turnstile {
+    pub fn site_key(&self) -> &str {
+        &self.site_key
+    }
+
+    /// A check-in token is valid only for this purpose and server-issued challenge.
+    pub(crate) async fn verify_checkin(
+        &self,
+        token: &str,
+        binding: &str,
+    ) -> Result<(), VerifyError> {
+        let endpoint = SITEVERIFY;
+        #[cfg(test)]
+        let endpoint = self.test_endpoint.as_deref().unwrap_or(endpoint);
+        self.verify_context_at(token, endpoint, Some(binding)).await
+    }
+
     async fn verify_at(&self, token: &str, endpoint: &str) -> Result<(), VerifyError> {
+        self.verify_context_at(token, endpoint, None).await
+    }
+
+    async fn verify_context_at(
+        &self,
+        token: &str,
+        endpoint: &str,
+        checkin_binding: Option<&str>,
+    ) -> Result<(), VerifyError> {
         if token.is_empty() || token.len() > 2048 || token.chars().any(char::is_whitespace) {
             return Err(VerifyError::Rejected);
         }
@@ -137,6 +168,8 @@ impl Turnstile {
         struct Verification {
             success: bool,
             hostname: Option<String>,
+            action: Option<String>,
+            cdata: Option<String>,
         }
         let mut response = self
             .client
@@ -165,6 +198,12 @@ impl Turnstile {
         if !result.success || result.hostname.as_deref() != Some(self.hostname.as_str()) {
             return Err(VerifyError::Rejected);
         }
+        if let Some(binding) = checkin_binding
+            && (result.action.as_deref() != Some("daily_checkin")
+                || result.cdata.as_deref() != Some(binding))
+        {
+            return Err(VerifyError::Rejected);
+        }
         Ok(())
     }
 }
@@ -184,6 +223,15 @@ pub(crate) mod tests {
                 .unwrap(),
             secret: Arc::new(Zeroizing::new("test-private-secret".into())),
             hostname: "app.example.test".into(),
+            site_key: "test-public-site-key".into(),
+            test_endpoint: None,
+        }
+    }
+
+    pub(crate) fn verifier_at(endpoint: String) -> Turnstile {
+        Turnstile {
+            test_endpoint: Some(endpoint),
+            ..verifier()
         }
     }
 
@@ -250,6 +298,8 @@ pub(crate) mod tests {
                 .unwrap(),
             secret: Arc::new(Zeroizing::new("2x0000000000000000000000000000000AA".into())),
             hostname: "example.com".into(),
+            site_key: "test-public-site-key".into(),
+            test_endpoint: None,
         };
         assert_eq!(
             verify(Some(&config), "XXXX.DUMMY.TOKEN.XXXX").await,

@@ -1,6 +1,7 @@
 //! Passkey ceremonies use the unmodified MPL-2.0 webauthn-rs 0.5.5 verifier.
 //! <https://docs.rs/webauthn-rs/0.5.5/webauthn_rs/>
 //! Only public browser options leave Core; challenge state remains in PostgreSQL.
+mod checkin;
 mod rp_id;
 use super::*;
 use serde::{Deserialize, Serialize};
