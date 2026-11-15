@@ -363,6 +363,7 @@ export function Dashboard() {
                 <Suspense fallback={<ModelChartsFallback />}>
                   {!dataError && (
                     <LazyConsumptionDistributionChart
+                      key={chartPreferences.consumptionDistributionChart}
                       data={modelData}
                       loading={dataLoading}
                       defaultChartType={

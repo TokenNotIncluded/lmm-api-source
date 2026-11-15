@@ -18,7 +18,7 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { VChart } from '@visactor/react-vchart'
 import { WalletCards } from 'lucide-react'
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { Card, CardContent, CardHeader } from '@/components/ui/card'
@@ -64,10 +64,6 @@ export function ConsumptionDistributionChart(
     props.defaultChartType ?? 'bar'
   )
   const timeGranularity = props.timeGranularity ?? DEFAULT_TIME_GRANULARITY
-
-  useEffect(() => {
-    if (props.defaultChartType) setChartType(props.defaultChartType)
-  }, [props.defaultChartType])
 
   const chartData = useMemo(
     () =>

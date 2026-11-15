@@ -18,7 +18,7 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Loader2 } from 'lucide-react'
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 
@@ -49,9 +49,10 @@ export function ExtendDeploymentDialog({
   const [hours, setHours] = useState(1)
   const [isSubmitting, setIsSubmitting] = useState(false)
 
-  useEffect(() => {
-    if (open) setHours(1)
-  }, [open])
+  const handleOpenChange = (nextOpen: boolean) => {
+    if (!nextOpen) setHours(1)
+    onOpenChange(nextOpen)
+  }
 
   const { data: detailsRes, isLoading: isLoadingDetails } = useQuery({
     queryKey: ['deployment-details-for-extend', deploymentId],
@@ -148,7 +149,7 @@ export function ExtendDeploymentDialog({
           queryKey: deploymentsQueryKeys.lists(),
         })
         queryClient.invalidateQueries({ queryKey: ['deployment-details'] })
-        onOpenChange(false)
+        handleOpenChange(false)
         return
       }
       toast.error(res.message || t('Extend failed'))
@@ -162,7 +163,7 @@ export function ExtendDeploymentDialog({
   return (
     <Dialog
       open={open}
-      onOpenChange={onOpenChange}
+      onOpenChange={handleOpenChange}
       title={t('Extend deployment')}
       contentClassName='sm:max-w-lg'
       footerClassName='mt-4'
@@ -170,7 +171,7 @@ export function ExtendDeploymentDialog({
       bodyClassName='space-y-4'
       footer={
         <>
-          <Button variant='outline' onClick={() => onOpenChange(false)}>
+          <Button variant='outline' onClick={() => handleOpenChange(false)}>
             {t('Cancel')}
           </Button>
           <Button onClick={() => void onSubmit()} disabled={!canSubmit}>
