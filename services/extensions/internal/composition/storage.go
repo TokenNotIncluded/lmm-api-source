@@ -191,8 +191,17 @@ func openStorageBundle(ctx context.Context, c StorageConfig, bundle storageBundl
 			return nil, errors.New("extension storage grants differ from runtime contract")
 		}
 	}
-	if c.Component == "assistant" || bundle == toolMarketBuiltinsBundle {
+	if c.Component == "assistant" || isToolMarketBuiltinBundle(bundle) {
 		for _, namespace := range policy.namespaces {
+			if c.Component == "toolmarket" {
+				required := false
+				for _, table := range policy.tables {
+					required = required || strings.HasPrefix(table.name, namespace+".")
+				}
+				if !required {
+					continue
+				}
+			}
 			var allowed bool
 			if err := db.QueryRowContext(bounded, `SELECT COALESCE(has_schema_privilege(current_user,$1,'USAGE'),false)`, namespace).Scan(&allowed); err != nil || !allowed {
 				return nil, errors.New("extension bundled storage schema grants unavailable")

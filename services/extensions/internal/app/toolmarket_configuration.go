@@ -107,10 +107,13 @@ func (c ToolMarketBuiltinsConfig) validate(profiles ...GoConfig) error {
 	if !c.configured() {
 		return nil
 	}
-	for _, p := range []string{c.WalletSocket, c.WalletTokenFile, c.ImageSocket, c.ImageTokenFile} {
+	for _, p := range []string{c.ImageSocket, c.ImageTokenFile} {
 		if !absolutePath(p) {
 			return errors.New("toolmarket builtin authorities require complete private purpose configuration")
 		}
+	}
+	if (c.WalletSocket != "" || c.WalletTokenFile != "") && (!absolutePath(c.WalletSocket) || !absolutePath(c.WalletTokenFile)) {
+		return errors.New("toolmarket wallet authority requires both private purpose fields")
 	}
 	if (c.BountySocket != "" || c.BountyTokenFile != "") && (!absolutePath(c.BountySocket) || !absolutePath(c.BountyTokenFile)) {
 		return errors.New("toolmarket bounty authority requires both private purpose fields")

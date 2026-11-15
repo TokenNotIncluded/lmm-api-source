@@ -3,6 +3,7 @@ package toolmarket
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"github.com/TokenNotIncluded/lmm-api/extensions/internal/modules/wallet"
 	"strings"
 	"testing"
@@ -77,11 +78,12 @@ func TestCompiledBuiltinRejectsVersionSchemaAndDigestBeforeGate(t *testing.T) {
 func TestCompiledBuiltinRequiresMatchingCoreDispatchAndRealDomain(t *testing.T) {
 	in := builtinTestInvocation(t, "wallet.balance", `{}`)
 	gate := &builtinGateStub{alter: true}
-	d := &BuiltinDispatcher{Gate: gate}
+	d := &BuiltinDispatcher{Gate: gate, Wallet: &wallet.Service{}}
 	if _, e := d.InvokeBuiltin(context.Background(), "synthetic-personal-session", in); e != ErrDenied {
 		t.Fatalf("wrong bound dispatch: %v", e)
 	}
 	gate.alter = false
+	d.Wallet = nil
 	if _, e := d.InvokeBuiltin(context.Background(), "synthetic-personal-session", in); e != ErrUnavailable {
 		t.Fatalf("missing wallet authority: %v", e)
 	}
@@ -204,5 +206,30 @@ func TestBuiltinReadinessOnlyAcknowledgesConfiguredBountyAuthority(t *testing.T)
 	d.Drawing = nil
 	if d.CheckReadiness(context.Background()) == nil || d.LegacyBuiltinReady() {
 		t.Fatal("missing drawing advertised readiness")
+	}
+}
+
+func TestImageOnlyReadinessDoesNotAcquireWalletOrBounty(t *testing.T) {
+	drawing := &configuredDrawingReadiness{}
+	d := &BuiltinDispatcher{Gate: &builtinGateStub{}, Drawing: drawing}
+	if err := d.CheckReadiness(context.Background()); err != nil || !d.LegacyBuiltinReady() {
+		t.Fatal("image-only readiness", err)
+	}
+	if d.Wallet != nil || d.Bounties != nil || drawing.probes != 1 {
+		t.Fatal("omitted authority acquired")
+	}
+}
+
+type unavailableImageReadiness struct{ retiredDrawingPort }
+
+func (*unavailableImageReadiness) Ready(context.Context) error { return ErrUnavailable }
+func TestConfiguredImageFailureClearsAvailability(t *testing.T) {
+	d := &BuiltinDispatcher{Gate: &builtinGateStub{}, Drawing: &configuredDrawingReadiness{}}
+	if err := d.CheckReadiness(context.Background()); err != nil || !d.BuiltinServiceAvailable("drawing") {
+		t.Fatal(err)
+	}
+	d.Drawing = &unavailableImageReadiness{}
+	if err := d.CheckReadiness(context.Background()); !errors.Is(err, ErrUnavailable) || d.BuiltinServiceAvailable("drawing") || d.LegacyBuiltinReady() {
+		t.Fatal("failed image advertised ready", err)
 	}
 }

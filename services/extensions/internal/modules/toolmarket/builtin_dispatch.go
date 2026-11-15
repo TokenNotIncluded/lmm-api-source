@@ -94,7 +94,7 @@ func (d *BuiltinDispatcher) InvokeBuiltin(ctx context.Context, session string, i
 	if in.Context.InputDigest != digest(args) {
 		return out, ErrConflict
 	}
-	if in.ServiceKey == "open_source_bounties" && d.Bounties == nil {
+	if (in.ServiceKey == "wallet" && d.Wallet == nil) || (in.ServiceKey == "open_source_bounties" && d.Bounties == nil) {
 		return out, ErrUnavailable
 	}
 	canonical, _ := json.Marshal(args)
@@ -392,7 +392,10 @@ func (d *BuiltinDispatcher) CheckReadiness(ctx context.Context) error {
 	if e := gate.ReadyBuiltins(ctx); e != nil {
 		return e
 	}
-	ports := []any{d.Wallet, d.Drawing}
+	ports := []any{d.Drawing}
+	if d.Wallet != nil {
+		ports = append(ports, d.Wallet)
+	}
 	if d.Bounties != nil {
 		ports = append(ports, d.Bounties)
 	}
@@ -409,3 +412,20 @@ func (d *BuiltinDispatcher) CheckReadiness(ctx context.Context) error {
 	return nil
 }
 func (d *BuiltinDispatcher) LegacyBuiltinReady() bool { return d != nil && d.ready.Load() }
+
+// Availability names only immutable compiled service keys, never public aliases.
+func (d *BuiltinDispatcher) BuiltinServiceAvailable(key string) bool {
+	if d == nil || !d.ready.Load() {
+		return false
+	}
+	switch key {
+	case "drawing":
+		return !missingInterface(d.Drawing)
+	case "wallet":
+		return d.Wallet != nil
+	case "open_source_bounties":
+		return d.Bounties != nil
+	default:
+		return false
+	}
+}

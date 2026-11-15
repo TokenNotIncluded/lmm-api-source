@@ -137,7 +137,13 @@ func (m *Module) legacyExecute(ctx context.Context, credential, account string, 
 				return ErrUnavailable
 			}
 			builtin, err = legacyCompiledExecution(snapshot, tool)
-			return err
+			if err != nil {
+				return err
+			}
+			if !m.builtinRuntime.BuiltinServiceAvailable(builtin.ServiceKey) {
+				return ErrUnavailable
+			}
+			return nil
 		}
 		service := d.Web.Services[snapshot.Version.ServiceID]
 		remoteCredential, err = webResolveCredential(d, service.OwnerID, service.ID, in.VersionID, snapshot.Version.Endpoint)

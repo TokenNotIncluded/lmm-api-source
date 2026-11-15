@@ -81,10 +81,10 @@ func TestBuiltinHTTPWalletWorksWhileBountyExecutionIsDeferred(t *testing.T) {
 	}
 }
 
-func TestBuiltinHTTPStillRequiresWalletAuthority(t *testing.T) {
-	_, err := NewBuiltinHTTP(newAuth(t, &authCore{}), nil, nil, "https://console.example.test", false)
+func TestBuiltinHTTPStillRequiresSessionAuthenticator(t *testing.T) {
+	_, err := NewBuiltinHTTP(nil, nil, nil, "https://console.example.test", false)
 	if !errors.Is(err, store.ErrUnavailable) {
-		t.Fatalf("missing wallet authority: %v", err)
+		t.Fatalf("missing session authenticator: %v", err)
 	}
 }
 
@@ -176,5 +176,20 @@ func TestBuiltinHTTPPathsParticipateInHostAdmission(t *testing.T) {
 	}
 	if calls != len(paths) {
 		t.Fatalf("disabled or adjacent route reached builtin: calls=%d", calls)
+	}
+}
+
+func TestImageOnlyHTTPKeepsWalletBountyUnavailable(t *testing.T) {
+	_, core := mountTransportHost(t, nil)
+	handlers, err := NewBuiltinHTTP(newAuth(t, core), nil, nil, "https://console.example.test", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, handler := range []http.Handler{handlers.Wallet, handlers.Bounties} {
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, httptest.NewRequest("GET", "/", nil))
+		if response.Code != http.StatusServiceUnavailable {
+			t.Fatal("missing authority accepted", response.Code)
+		}
 	}
 }

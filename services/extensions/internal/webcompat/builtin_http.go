@@ -22,7 +22,7 @@ type BuiltinHTTP struct {
 // to interactive authority. Each downstream domain authenticates it again.
 func NewBuiltinHTTP(auth *Authenticator, walletService *wallet.Service, bountyService *bounties.Service, webOrigin string, localHTTP bool) (BuiltinHTTP, error) {
 	var out BuiltinHTTP
-	if auth == nil || walletService == nil {
+	if auth == nil {
 		return out, store.ErrUnavailable
 	}
 	session := func(ctx context.Context, r *http.Request) (string, error) {
@@ -35,22 +35,32 @@ func NewBuiltinHTTP(auth *Authenticator, walletService *wallet.Service, bountySe
 		}
 		return raw, nil
 	}
-	walletHandler, e := wallet.NewHandlerWithLocalHTTP(walletService, func(ctx context.Context, r *http.Request) (string, error) {
-		raw, e := session(ctx, r)
-		if e == nil {
-			return raw, nil
+	unavailableWallet := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Cache-Control", "no-store")
+		w.WriteHeader(http.StatusServiceUnavailable)
+		_ = json.NewEncoder(w).Encode(map[string]any{"success": false, "code": "WALLET_ERROR", "message": "wallet authority unavailable", "data": nil})
+	})
+	var walletHandler http.Handler = unavailableWallet
+	var e error
+	if walletService != nil {
+		walletHandler, e = wallet.NewHandlerWithLocalHTTP(walletService, func(ctx context.Context, r *http.Request) (string, error) {
+			raw, e := session(ctx, r)
+			if e == nil {
+				return raw, nil
+			}
+			switch {
+			case errors.Is(e, store.ErrUnauthorized):
+				return "", wallet.ErrUnauthorized
+			case errors.Is(e, store.ErrForbidden):
+				return "", wallet.ErrForbidden
+			default:
+				return "", wallet.ErrUnknown
+			}
+		}, webOrigin, localHTTP)
+		if e != nil {
+			return out, e
 		}
-		switch {
-		case errors.Is(e, store.ErrUnauthorized):
-			return "", wallet.ErrUnauthorized
-		case errors.Is(e, store.ErrForbidden):
-			return "", wallet.ErrForbidden
-		default:
-			return "", wallet.ErrUnknown
-		}
-	}, webOrigin, localHTTP)
-	if e != nil {
-		return out, e
 	}
 	if bountyService == nil {
 		// Keep deferred bounty records and funds out of the active runtime.

@@ -51,3 +51,17 @@ func TestToolMarketBuiltinAllowsWalletDrawingWithBountiesDeferred(t *testing.T) 
 		}
 	}
 }
+
+func TestToolMarketBuiltinImageOnlyRejectsHalfPairs(t *testing.T) {
+	cfg := ToolMarketBuiltinsConfig{CorePublicOrigin: "https://api.example.test", ImageSocket: "/run/private.sock", ImageTokenFile: "/private/image"}
+	if err := cfg.validate(); err != nil {
+		t.Fatal(err)
+	}
+	for _, change := range []func(*ToolMarketBuiltinsConfig){func(c *ToolMarketBuiltinsConfig) { c.WalletSocket = "/run/private.sock" }, func(c *ToolMarketBuiltinsConfig) { c.WalletTokenFile = "/private/wallet" }, func(c *ToolMarketBuiltinsConfig) { c.BountySocket = "/run/private.sock" }, func(c *ToolMarketBuiltinsConfig) { c.BountyTokenFile = "/private/bounty" }, func(c *ToolMarketBuiltinsConfig) { c.ImageTokenFile = "" }} {
+		bad := cfg
+		change(&bad)
+		if bad.validate() == nil {
+			t.Fatal("half purpose accepted")
+		}
+	}
+}

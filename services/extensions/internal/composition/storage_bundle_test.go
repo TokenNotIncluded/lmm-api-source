@@ -66,3 +66,43 @@ func TestStorageBundleNamespacesAndGrantsAreClosed(t *testing.T) {
 		t.Fatal("returned policy mutated future storage guards")
 	}
 }
+
+func TestImageOnlyStorageBundleHasNoWalletBountyMinimumGrants(t *testing.T) {
+	cfg := ToolMarketBuiltinConfig{CorePublicOrigin: "https://api.example.test", ImageSocket: "/run/private.sock", ImageTokenFile: "/private/image"}
+	bundle := toolMarketStorageBundle(cfg)
+	if bundle != toolMarketImageBundle {
+		t.Fatal("wrong selected bundle")
+	}
+	policy, err := storagePolicyFor("toolmarket", bundle)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, table := range policy.tables {
+		if table.name == "extension_wallet.transfer_links" || table.name == "lmm_bounties.contract" || table.name == "lmm_bounties.records" {
+			t.Fatal("inactive grant required", table.name)
+		}
+	}
+	for _, name := range []string{"extension_wallet.transfer_links", "lmm_bounties.contract", "lmm_bounties.records"} {
+		found := false
+		for _, table := range policy.forbidden {
+			if table.name == name {
+				for _, priv := range table.privileges {
+					found = found || priv == "SELECT"
+				}
+			}
+		}
+		if !found {
+			t.Fatal("inactive grant not forbidden", name)
+		}
+	}
+	cfg.WalletSocket = "/run/private.sock"
+	cfg.WalletTokenFile = "/private/wallet"
+	if toolMarketStorageBundle(cfg) != toolMarketWalletImageBundle {
+		t.Fatal("wallet bundle lost")
+	}
+	cfg.BountySocket = "/run/private.sock"
+	cfg.BountyTokenFile = "/private/bounty"
+	if toolMarketStorageBundle(cfg) != toolMarketBuiltinsBundle {
+		t.Fatal("full existing bundle changed")
+	}
+}

@@ -13,6 +13,9 @@ const (
 	toolMarketBuiltinsBundle
 	assistantDelegationBundle
 	assistantAgentBundle
+	toolMarketImageBundle
+	toolMarketWalletImageBundle
+	toolMarketBountyImageBundle
 )
 
 func assistantStorageBundle(cfg Config) storageBundle {
@@ -52,7 +55,7 @@ func storagePolicyFor(component string, bundle storageBundle) (storagePolicy, er
 		return storagePolicy{}, errors.New("unknown extension storage component")
 	}
 	if bundle != defaultStorageBundle &&
-		!(bundle == toolMarketBuiltinsBundle && component == "toolmarket") &&
+		!(isToolMarketBuiltinBundle(bundle) && component == "toolmarket") &&
 		!((bundle == assistantDelegationBundle || bundle == assistantAgentBundle) && component == "assistant") {
 		return storagePolicy{}, errors.New("invalid extension storage bundle")
 	}
@@ -144,7 +147,7 @@ func storagePolicyFor(component string, bundle storageBundle) (storagePolicy, er
 			}
 		}
 	}
-	if bundle == toolMarketBuiltinsBundle {
+	if isToolMarketBuiltinBundle(bundle) {
 		policy.namespaces = append(policy.namespaces, "lmm_bounties", "extension_wallet")
 		policy.tables = append(policy.tables,
 			storageTable{"lmm_bounties.contract", []string{"SELECT"}},
@@ -164,5 +167,42 @@ func storagePolicyFor(component string, bundle storageBundle) (storagePolicy, er
 			{"extension_wallet.transfer_links", []string{"UPDATE", "REFERENCES"}},
 		}
 	}
+	if isToolMarketBuiltinBundle(bundle) {
+		wallet := bundle == toolMarketBuiltinsBundle || bundle == toolMarketWalletImageBundle
+		bounty := bundle == toolMarketBuiltinsBundle || bundle == toolMarketBountyImageBundle
+		var required []storageTable
+		for _, table := range policy.tables {
+			inactive := (!wallet && table.name == "extension_wallet.transfer_links") || (!bounty && (table.name == "lmm_bounties.contract" || table.name == "lmm_bounties.records"))
+			if inactive {
+				all := []string{"SELECT", "INSERT", "UPDATE", "DELETE", "TRUNCATE", "REFERENCES", "TRIGGER", "MAINTAIN"}
+				policy.forbidden = append(policy.forbidden, storageTable{table.name, all})
+				policy.forbiddenColumns = append(policy.forbiddenColumns, storageTable{table.name, []string{"SELECT", "INSERT", "UPDATE", "REFERENCES"}})
+			} else {
+				required = append(required, table)
+			}
+		}
+		policy.tables = required
+	}
 	return policy, nil
+}
+
+func isToolMarketBuiltinBundle(bundle storageBundle) bool {
+	return bundle == toolMarketBuiltinsBundle || bundle == toolMarketImageBundle || bundle == toolMarketWalletImageBundle || bundle == toolMarketBountyImageBundle
+}
+func toolMarketStorageBundle(cfg ToolMarketBuiltinConfig) storageBundle {
+	if !cfg.configured() {
+		return defaultStorageBundle
+	}
+	wallet := cfg.WalletSocket != "" || cfg.WalletTokenFile != ""
+	bounty := cfg.BountySocket != "" || cfg.BountyTokenFile != ""
+	if wallet && bounty {
+		return toolMarketBuiltinsBundle
+	}
+	if wallet {
+		return toolMarketWalletImageBundle
+	}
+	if bounty {
+		return toolMarketBountyImageBundle
+	}
+	return toolMarketImageBundle
 }

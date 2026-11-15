@@ -303,7 +303,7 @@ func (m *Module) legacyMCPServer(ctx context.Context, raw string, p LegacyMarket
 				continue
 			}
 			snapshot, exists := webState(&d).Versions[i.VersionID]
-			if !exists || snapshot.Version.ExecutionType != "remote" && snapshot.Version.ExecutionType != "builtin" {
+			if !exists || !m.builtinVersionAvailable(snapshot) || snapshot.Version.ExecutionType != "remote" && snapshot.Version.ExecutionType != "builtin" {
 				continue
 			}
 			tool, e := legacyLiveTool(&d, user, i.ToolID, i.VersionID)

@@ -13,6 +13,7 @@ import (
 )
 
 type executionBuiltinRuntime struct {
+	unavailable               string
 	queryErr                  error
 	resumeErr                 error
 	resumeResult              BuiltinResult
@@ -22,6 +23,9 @@ type executionBuiltinRuntime struct {
 	last                      BuiltinInvocation
 }
 
+func (p *executionBuiltinRuntime) BuiltinServiceAvailable(key string) bool {
+	return key != p.unavailable
+}
 func (p *executionBuiltinRuntime) InvokeBuiltin(_ context.Context, _ string, in BuiltinInvocation) (BuiltinResult, error) {
 	p.invokes++
 	p.last = in
@@ -172,7 +176,7 @@ func TestLegacyExecutionBuiltinUnknownNeverInvokesAgain(t *testing.T) {
 }
 func TestLegacyExecutionBuiltinCompiledBindingAndRemoteOnlyBoundary(t *testing.T) {
 	m, port, runtime, input := builtinExecutionFixture(t)
-	if _, e := m.LegacyExecuteRemote(context.Background(), "1", "1", input); !errors.Is(e, ErrUnavailable) || port.reserves != 0 || runtime.invokes != 0 {
+	if _, e := m.LegacyExecuteRemote(context.Background(), "1", "1", input); !errors.Is(e, ErrUnavailable) || port.dispatches != 0 || port.unknowns != 0 || port.reserves != 0 || runtime.invokes != 0 {
 		t.Fatal("remote API selected builtin", e)
 	}
 	m.builtinRuntime = (*executionBuiltinRuntime)(nil)
@@ -216,5 +220,57 @@ func TestLegacyExecutionBuiltinStaleQueryCannotClearDurableResumeFence(t *testin
 	}
 	if runtime.resumes != 0 || runtime.invokes != 1 {
 		t.Fatal("stale query re-executed downstream")
+	}
+}
+
+func TestMissingBuiltinDomainRejectedBeforeAnyCallOrCredit(t *testing.T) {
+	for _, key := range []string{"wallet", "open_source_bounties"} {
+		name := "wallet.balance"
+		args := json.RawMessage(`{}`)
+		if key == "open_source_bounties" {
+			name = "open_source_bounties.list"
+		}
+		m, port, runtime, input := builtinNamedExecutionFixture(t, key, name, args)
+		runtime.unavailable = key
+		_, err := m.LegacyExecute(context.Background(), "1", "1", input)
+		if !errors.Is(err, ErrUnavailable) {
+			t.Fatal(key, err)
+		}
+		if port.dispatches != 0 || port.unknowns != 0 || port.reserves != 0 || port.finishes != 0 || port.queries != 0 || port.releases != 0 || runtime.invokes != 0 || runtime.queries != 0 {
+			t.Fatal("unavailable domain touched authority", key)
+		}
+		if err := m.store.view(func(d database) error {
+			if len(d.LegacyExecutions) != 0 {
+				t.Fatal("unavailable domain created call")
+			}
+			return nil
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+func TestBuiltinCatalogDoesNotPublishAbsentDomain(t *testing.T) {
+	m, _, runtime, _ := builtinExecutionFixture(t)
+	for _, key := range []string{"wallet", "open_source_bounties"} {
+		runtime.unavailable = key
+		var def CompiledBuiltinDefinition
+		for _, candidate := range CompiledBuiltinDefinitions() {
+			if candidate.Key == key {
+				def = candidate
+			}
+		}
+		rows, err := m.PublicWebCatalogue(context.Background(), "1", "1", WebQuery{Limit: 100})
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, row := range rows {
+			if row.ID == def.ServiceID {
+				t.Fatal("absent domain published", key)
+			}
+		}
+		if _, err := m.PublicWebDetail(context.Background(), "1", "1", def.ServiceID); !errors.Is(err, ErrMissing) {
+			t.Fatal("absent domain detail", key, err)
+		}
 	}
 }

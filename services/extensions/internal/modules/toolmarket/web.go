@@ -190,7 +190,7 @@ func (m *Module) PublicWebCatalogue(ctx context.Context, credential, account str
 		w := webState(&d)
 		for _, s := range w.Services {
 			v, ok := w.Versions[s.LiveVersionID]
-			if !ok || !webVisible(s, v, user) || query.ExecutionType != "" && query.ExecutionType != v.Version.ExecutionType || !webMatches(v, strings.ToLower(text)) {
+			if !ok || !webVisible(s, v, user) || !m.builtinVersionAvailable(v) || query.ExecutionType != "" && query.ExecutionType != v.Version.ExecutionType || !webMatches(v, strings.ToLower(text)) {
 				continue
 			}
 			rows = append(rows, webSummary(s, v))
@@ -258,7 +258,7 @@ func (m *Module) PublicWebDetail(ctx context.Context, credential, account, id st
 		w := webState(&d)
 		s, ok := w.Services[id]
 		v, found := w.Versions[s.LiveVersionID]
-		if !ok || !found || !webVisible(s, v, user) {
+		if !ok || !found || !webVisible(s, v, user) || !m.builtinVersionAvailable(v) {
 			return ErrMissing
 		}
 		out = webDetail(s, v, user, false)
@@ -480,7 +480,7 @@ func (m *Module) LegacyWeb(ctx context.Context, credential, account string, in W
 			if v.Favorite {
 				s, ok := w.Services[in.ID]
 				version, found := w.Versions[s.LiveVersionID]
-				if !ok || !found || !webVisible(s, version, user) {
+				if !ok || !found || !webVisible(s, version, user) || !m.builtinVersionAvailable(version) {
 					return ErrMissing
 				}
 				if len(w.Favorites) >= 100000 {
@@ -965,7 +965,7 @@ func (m *Module) webInstall(p Principal, user int64, raw json.RawMessage) error 
 		}
 		version, ok := w.Versions[v.VersionID]
 		s, found := w.Services[version.Version.ServiceID]
-		if !ok || !found || !webVisible(s, version, user) {
+		if !ok || !found || !webVisible(s, version, user) || !m.builtinVersionAvailable(version) {
 			return ErrMissing
 		}
 		toolFound := false
@@ -1039,7 +1039,7 @@ func (m *Module) webMine(user int64, kind string, offset, limit int) (any, error
 			for _, s := range w.Services {
 				at, ok := w.Favorites[digest([]any{user, s.ID})]
 				v, found := w.Versions[s.LiveVersionID]
-				if ok && found && webVisible(s, v, user) {
+				if ok && found && webVisible(s, v, user) && m.builtinVersionAvailable(v) {
 					rows = append(rows, favorite{webSummary(s, v), at})
 				}
 			}

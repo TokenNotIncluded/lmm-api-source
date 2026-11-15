@@ -55,6 +55,7 @@ type executionCredits struct {
 	releaseErr                            error
 	r                                     LegacyCreditCall
 	finishes, queries, reserves, releases int
+	dispatches, unknowns                  int
 	finishErr                             error
 }
 
@@ -83,6 +84,7 @@ func (p *executionCredits) ReserveLegacyCredits(context.Context, string, LegacyC
 	return r, nil
 }
 func (p *executionCredits) DispatchLegacyCredits(context.Context, string, LegacyCreditID) (LegacyCreditCall, error) {
+	p.dispatches++
 	return p.r, nil
 }
 func (p *executionCredits) FinishLegacyCredits(_ context.Context, in LegacyCreditFinish) (LegacyCreditCall, error) {
@@ -106,6 +108,7 @@ func (p *executionCredits) QueryLegacyCredits(context.Context, string, LegacyCre
 	return p.r, nil
 }
 func (p *executionCredits) UnknownLegacyCredits(context.Context, LegacyCreditID) (LegacyCreditCall, error) {
+	p.unknowns++
 	p.r.State = "unknown"
 	return p.r, nil
 }

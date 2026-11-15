@@ -79,10 +79,7 @@ func (r *Runtime) composeToolMarket(ctx context.Context, cfg Config, otherCreden
 		return err
 	}
 	r.retainPaymentIsolationCredentials(cfg.Selected, credentials...)
-	bundle := defaultStorageBundle
-	if cfg.ToolMarketBuiltins.configured() {
-		bundle = toolMarketBuiltinsBundle
-	}
+	bundle := toolMarketStorageBundle(cfg.ToolMarketBuiltins)
 	db, err := openStorageBundle(ctx, cfg.ToolMarket, bundle)
 	if err != nil {
 		return err

@@ -122,5 +122,28 @@ func TestPostgresToolMarketBuiltinBundleGuard(t *testing.T) {
 		defer exec("REVOKE " + hidden + " FROM " + role)
 		reject()
 	})
+	t.Run("image only does not borrow inactive grants", func(t *testing.T) {
+		rejectImage := func() {
+			db, e := openStorageBundle(ctx, cfg, toolMarketImageBundle)
+			if e == nil {
+				db.Close()
+				t.Fatal("inactive authority grants accepted")
+			}
+		}
+		rejectImage()
+		exec("REVOKE ALL ON lmm_bounties.contract,lmm_bounties.records,extension_wallet.transfer_links FROM " + role)
+		defer exec("GRANT SELECT ON lmm_bounties.contract TO " + role + ";GRANT SELECT,INSERT,UPDATE ON lmm_bounties.records TO " + role + ";GRANT SELECT,INSERT ON extension_wallet.transfer_links TO " + role)
+		db, e := openStorageBundle(ctx, cfg, toolMarketImageBundle)
+		if e != nil {
+			t.Fatal("image only runtime requires inactive grants", e)
+		}
+		db.Close()
+		exec("GRANT SELECT ON extension_wallet.transfer_links TO " + role)
+		rejectImage()
+		exec("REVOKE SELECT ON extension_wallet.transfer_links FROM " + role)
+		exec("GRANT SELECT ON lmm_bounties.contract TO " + role)
+		rejectImage()
+		exec("REVOKE SELECT ON lmm_bounties.contract FROM " + role)
+	})
 	accept()
 }

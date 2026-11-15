@@ -98,3 +98,22 @@ func TestBuiltinPurposeConfigPreservesMissingBountySlot(t *testing.T) {
 		t.Fatal("half-configured bounty accepted")
 	}
 }
+
+func TestImageOnlyPurposeTokensKeepAbsentSlots(t *testing.T) {
+	cfg := builtinHostConfig()
+	cfg.WalletSocket = ""
+	cfg.WalletTokenFile = ""
+	cfg.BountySocket = ""
+	cfg.BountyTokenFile = ""
+	if err := cfg.validate(Config{Socket: "/run/core.sock", ToolMarketSocket: "/run/toolmarket.sock"}); err != nil {
+		t.Fatal(err)
+	}
+	cfg.ImageTokenFile = filepath.Join(t.TempDir(), "image")
+	if err := os.WriteFile(cfg.ImageTokenFile, []byte(strings.Repeat("i", 32)), 0600); err != nil {
+		t.Fatal(err)
+	}
+	tokens, err := loadToolMarketBuiltinTokens(cfg)
+	if err != nil || len(tokens) != 3 || len(tokens[0]) != 0 || len(tokens[1]) != 0 || string(tokens[2]) != strings.Repeat("i", 32) {
+		t.Fatal("image purpose slots", err)
+	}
+}

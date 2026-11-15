@@ -35,9 +35,14 @@ func composeBuiltinDispatcher(ctx context.Context, in BuiltinDependencies) (*too
 	if in.Database == nil || in.ExpectedDatabase == "" || in.Gate == nil {
 		return nil, nil, errors.New("builtin records and authority unavailable")
 	}
+	walletConfigured := in.WalletSocket != "" || len(in.WalletToken) != 0
 	bountyConfigured := in.BountySocket != "" || len(in.BountyToken) != 0
-	tokens := [][]byte{in.WalletToken, in.ImageToken}
-	sockets := []string{in.WalletSocket, in.ImageSocket}
+	tokens := [][]byte{in.ImageToken}
+	sockets := []string{in.ImageSocket}
+	if walletConfigured {
+		tokens = append(tokens, in.WalletToken)
+		sockets = append(sockets, in.WalletSocket)
+	}
 	if bountyConfigured {
 		tokens = append(tokens, in.BountyToken)
 		sockets = append(sockets, in.BountySocket)
@@ -56,24 +61,28 @@ func composeBuiltinDispatcher(ctx context.Context, in BuiltinDependencies) (*too
 			}
 		}
 	}
-	// Missing grants/schema are startup errors, never empty-record success.
-	var walletReady bool
-	if e := in.Database.QueryRowContext(ctx, `SELECT has_schema_privilege(current_user,'extension_wallet','USAGE') AND has_table_privilege(current_user,'extension_wallet.transfer_links','SELECT') AND has_table_privilege(current_user,'extension_wallet.transfer_links','INSERT')`).Scan(&walletReady); e != nil || !walletReady {
-		return nil, nil, errors.New("wallet records installation unavailable")
-	}
-	walletRecords, e := wallet.NewPostgresRecords(in.Database)
-	if e != nil {
-		return nil, nil, e
-	}
-	walletCore, e := wallet.NewCoreClient(in.WalletSocket, in.WalletToken)
-	if e != nil {
-		return nil, nil, e
-	}
-	closeWallet := func() { walletCore.Close() }
-	walletService, e := wallet.NewWithLocalHTTP(walletCore, walletRecords, in.CorePublicOrigin, in.LocalHTTP)
-	if e != nil {
-		closeWallet()
-		return nil, nil, e
+	var walletService *wallet.Service
+	closeWallet := func() {}
+	if walletConfigured {
+		// Missing grants/schema are startup errors, never empty-record success.
+		var walletReady bool
+		if e := in.Database.QueryRowContext(ctx, `SELECT has_schema_privilege(current_user,'extension_wallet','USAGE') AND has_table_privilege(current_user,'extension_wallet.transfer_links','SELECT') AND has_table_privilege(current_user,'extension_wallet.transfer_links','INSERT')`).Scan(&walletReady); e != nil || !walletReady {
+			return nil, nil, errors.New("wallet records installation unavailable")
+		}
+		walletRecords, e := wallet.NewPostgresRecords(in.Database)
+		if e != nil {
+			return nil, nil, e
+		}
+		walletCore, e := wallet.NewCoreClient(in.WalletSocket, in.WalletToken)
+		if e != nil {
+			return nil, nil, e
+		}
+		closeWallet = func() { walletCore.Close() }
+		walletService, e = wallet.NewWithLocalHTTP(walletCore, walletRecords, in.CorePublicOrigin, in.LocalHTTP)
+		if e != nil {
+			closeWallet()
+			return nil, nil, e
+		}
 	}
 	var bountyService *bounties.Service
 	if bountyConfigured {

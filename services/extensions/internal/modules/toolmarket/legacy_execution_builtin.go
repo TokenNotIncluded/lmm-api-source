@@ -9,6 +9,7 @@ import (
 // Invoking and observing an existing operation are deliberately separate.
 // UNKNOWN and awaiting confirmation must never repeat InvokeBuiltin.
 type LegacyBuiltinRuntime interface {
+	BuiltinServiceAvailable(string) bool
 	InvokeBuiltin(context.Context, string, BuiltinInvocation) (BuiltinResult, error)
 	QueryBuiltin(context.Context, string, BuiltinInvocation) (BuiltinResult, error)
 }

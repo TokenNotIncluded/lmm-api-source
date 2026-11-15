@@ -25,3 +25,18 @@ func overlayBuiltinCatalog(d *database) {
 		w.Versions[definition.VersionID] = webSnapshot{Version: WebVersion{ID: definition.VersionID, ServiceID: definition.ServiceID, Status: "published", Name: definition.Name, Description: definition.Description, ExecutionType: "builtin", Visibility: "public", Digest: definition.Digest}, Tools: tools, Digest: definition.Digest, ValidationDigest: definition.Digest, RemoteDigests: remote}
 	}
 }
+
+func (m *Module) builtinVersionAvailable(v webSnapshot) bool {
+	if v.Version.ExecutionType != "builtin" {
+		return true
+	}
+	if missingInterface(m.builtinRuntime) {
+		return false
+	}
+	for _, definition := range CompiledBuiltinDefinitions() {
+		if definition.ServiceID == v.Version.ServiceID && definition.VersionID == v.Version.ID && definition.Digest == v.Digest {
+			return m.builtinRuntime.BuiltinServiceAvailable(definition.Key)
+		}
+	}
+	return false
+}
