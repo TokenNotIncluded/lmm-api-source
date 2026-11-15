@@ -176,11 +176,17 @@ def normalized_usage(tables: dict[str, list[dict]]) -> dict[int, int]:
     audits = tables.get("wallet_credit_rebases", [])
     fees = indexed(tables.get("violation_fee_records", [])) if audits else {}
     for audit in audits:
-        require(type(audit.get("plan")) is str, "invalid_migration_audit")
-        try:
-            plan = P.parse_json(audit["plan"])
-        except ValueError:
-            raise Error("invalid_migration_audit") from None
+        raw_plan = audit.get("plan")
+        require(type(raw_plan) in (str, dict), "invalid_migration_audit")
+        if type(raw_plan) is str:
+            try:
+                plan = P.parse_json(raw_plan)
+            except ValueError:
+                raise Error("invalid_migration_audit") from None
+        else:
+            # PostgreSQL JSONB is already strictly parsed by the frozen adapter.
+            # Keep the original row/value intact for its source evidence digest.
+            plan = raw_plan
         require(type(plan) is dict, "invalid_migration_audit")
         divisor_text = plan.get("divisor")
         require(type(divisor_text) is str and re.fullmatch(r"[0-9]+(?:\.[0-9]{1,18})?", divisor_text),
