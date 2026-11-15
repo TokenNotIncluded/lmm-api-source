@@ -1,9 +1,11 @@
 /* Copyright (C) 2026 LIghtJUNction. SPDX-License-Identifier: AGPL-3.0-or-later */
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { renderToStaticMarkup } from 'react-dom/server'
+
 import { createInstance } from 'i18next'
+import { renderToStaticMarkup } from 'react-dom/server'
 import { I18nextProvider } from 'react-i18next'
+
 import { L0UpgradePanel } from './l0-upgrade-panel'
 
 test('L0 preview is renderable without payment clients or router and disables both actions', async () => {

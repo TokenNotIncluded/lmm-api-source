@@ -6,15 +6,13 @@ import { useAuthStore, useCredentialStore } from './auth-store'
 
 afterEach(() => useCredentialStore.getState().auth.reset())
 test('preview projects a clean L0 while preserving real credentials', () => {
-  useCredentialStore
-    .getState()
-    .auth.setUser({
-      id: 42,
-      username: 'owner-secret',
-      role: 100,
-      email: 'private@example.com',
-      quota: 123,
-    })
+  useCredentialStore.getState().auth.setUser({
+    id: 42,
+    username: 'owner-secret',
+    role: 100,
+    email: 'private@example.com',
+    quota: 123,
+  })
   useCredentialStore.setState((state) => ({
     auth: { ...state.auth, accessToken: 'real-token' },
   }))

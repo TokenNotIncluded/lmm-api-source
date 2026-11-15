@@ -86,6 +86,10 @@ tonic-prost = "=0.14.9"
 tower = { version = "=0.5.3", features = ["util"] }
 gjson = "=0.8.1"
 
+# webauthn-rs pulls openssl-sys; musl package CI has no OpenSSL sysroot.
+[target.'cfg(target_env = "musl")'.dependencies]
+openssl = { version = "=0.10.82", features = ["vendored"] }
+
 [build-dependencies]
 tonic-prost-build = "=0.14.9"
 protoc-bin-vendored = "=3.3.0"

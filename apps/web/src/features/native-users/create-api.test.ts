@@ -20,24 +20,22 @@ const draft = {
   display_name: '',
 }
 function login(sid = scope.sessionId) {
-  useAuthStore
-    .getState()
-    .auth.setBundle({
-      access_token: 'synthetic-credential',
-      token_type: 'Bearer',
-      access_expires_at: 2000000000,
-      user: { id: 7, role: 10, username: 'admin' },
-      session: {
-        sid,
-        current: true,
-        login_method: 'password',
-        ip: '127.0.0.1',
-        user_agent: 'synthetic',
-        created_at: 1,
-        last_active_at: 1,
-        expires_at: 2000000000,
-      },
-    })
+  useAuthStore.getState().auth.setBundle({
+    access_token: 'synthetic-credential',
+    token_type: 'Bearer',
+    access_expires_at: 2000000000,
+    user: { id: 7, role: 10, username: 'admin' },
+    session: {
+      sid,
+      current: true,
+      login_method: 'password',
+      ip: '127.0.0.1',
+      user_agent: 'synthetic',
+      created_at: 1,
+      last_active_at: 1,
+      expires_at: 2000000000,
+    },
+  })
 }
 afterEach(() => {
   api.defaults.adapter = originalAdapter

@@ -36,7 +36,10 @@ test('guide exposes online support without inventing an email recipient', async 
     },
   }).find((entry) => entry.name === 'lmm_guide_read')
   assert.ok(tool)
-  const result = await tool.execute({}, { signal: new AbortController().signal })
+  const result = await tool.execute(
+    {},
+    { signal: new AbortController().signal }
+  )
   assert.deepEqual((result as { support: unknown }).support, {
     email: null,
     email_available: false,

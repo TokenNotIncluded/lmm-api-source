@@ -545,7 +545,11 @@ export function SupportTicket({
                       </Button>
                       {selectedCategory === 'bounty_dispute' && (
                         <Button type='submit' disabled={submitting}>
-                          <HugeiconsIcon icon={MailSend01Icon} strokeWidth={2} data-icon='inline-start' />
+                          <HugeiconsIcon
+                            icon={MailSend01Icon}
+                            strokeWidth={2}
+                            data-icon='inline-start'
+                          />
                           {t('Submit dispute ticket')}
                         </Button>
                       )}
@@ -585,7 +589,6 @@ export function SupportTicket({
                     </li>
                   </ul>
                 </TitledCard>
-
               </aside>
             </div>
           </CardStaggerItem>

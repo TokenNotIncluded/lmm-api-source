@@ -461,7 +461,7 @@ function NativeWalletCheckoutForm({ owner }: { owner: string }) {
                 <dt className='text-muted-foreground text-sm'>
                   {t('You pay')}
                 </dt>
-                <dd className='mt-2 text-2xl font-medium tracking-tight tabular-nums [overflow-wrap:anywhere]'>
+                <dd className='mt-2 text-2xl font-medium tracking-tight [overflow-wrap:anywhere] tabular-nums'>
                   {paymentCurrency(pending.channel)}{' '}
                   {nativeAmountDisplay(
                     quote?.amount_minor ?? pending.request.amount_minor
@@ -484,7 +484,7 @@ function NativeWalletCheckoutForm({ owner }: { owner: string }) {
                 <dt className='text-muted-foreground text-sm'>
                   {t('Wallet credit')}
                 </dt>
-                <dd className='mt-2 text-2xl font-medium tracking-tight tabular-nums [overflow-wrap:anywhere]'>
+                <dd className='mt-2 text-2xl font-medium tracking-tight [overflow-wrap:anywhere] tabular-nums'>
                   {BigInt(quote.credit_units).toLocaleString(
                     i18n.resolvedLanguage || i18n.language
                   )}{' '}

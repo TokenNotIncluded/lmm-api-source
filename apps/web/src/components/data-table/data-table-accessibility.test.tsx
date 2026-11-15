@@ -442,10 +442,7 @@ describe('data-table bulk action keyboard behavior', () => {
 
     const toolbar = rendered.container.querySelector('[role="toolbar"]')
     assert.ok(toolbar)
-    assert.equal(
-      toolbar.classList.contains('max-w-[calc(100vw-2rem)]'),
-      true
-    )
+    assert.equal(toolbar.classList.contains('max-w-[calc(100vw-2rem)]'), true)
     assert.equal(
       toolbar.firstElementChild?.classList.contains('flex-wrap'),
       true

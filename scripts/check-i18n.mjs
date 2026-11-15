@@ -12,7 +12,7 @@ import { resolve } from 'node:path'
 import { parseArgs } from 'node:util'
 import { pathToFileURL } from 'node:url'
 
-export const locales = ['en', 'zh', 'zh-TW', 'fr', 'ja', 'ru', 'vi']
+export const locales = ['en', 'zh-CN', 'zh-TW', 'fr', 'ja', 'ru', 'vi']
 const localeDirectory = 'apps/web/src/i18n/locales'
 const isObject = (value) => value !== null && typeof value === 'object' && !Array.isArray(value)
 const isTranslation = (value) => typeof value === 'string' && value.trim().length > 0

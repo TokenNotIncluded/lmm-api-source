@@ -58,7 +58,8 @@ jobs:
         run: |
           sudo --preserve-env=GITHUB_ACTIONS python3 scripts/prepare-ci-apt.py
           sudo apt-get update
-          sudo apt-get install --no-install-recommends --yes binutils musl-tools gcc zstd rpm
+          # perl/make: openssl vendored (webauthn) when targeting musl
+          sudo apt-get install --no-install-recommends --yes binutils musl-tools gcc zstd rpm perl make
           rustup toolchain install 1.100.0 --profile minimal --target "$RUST_TARGET"
           mkdir -p "$RUNNER_TEMP/nfpm"
           curl --fail --location --retry 2 --max-time 120 \

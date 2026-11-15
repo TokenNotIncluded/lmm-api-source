@@ -380,7 +380,9 @@ export function TestKeyPage() {
         <header className='mb-6 border-b pb-5'>
           <div className='mb-4 flex items-center gap-3'>
             <img src='/test-key-mark.svg' width={40} height={40} alt='' />
-            <p className='text-muted-foreground text-xs font-semibold tracking-widest'>LMM</p>
+            <p className='text-muted-foreground text-xs font-semibold tracking-widest'>
+              LMM
+            </p>
           </div>
           <h1 className='text-2xl font-semibold tracking-tight'>
             {q('title')}

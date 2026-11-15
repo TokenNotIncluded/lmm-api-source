@@ -170,7 +170,13 @@ export function BookmarkletInstall({ compact = false }: { compact?: boolean }) {
     >
       <div className='flex flex-wrap items-start justify-between gap-5'>
         <div className='max-w-xl'>
-          <img src='/test-key-mark.svg' width={40} height={40} alt='' className='mb-4' />
+          <img
+            src='/test-key-mark.svg'
+            width={40}
+            height={40}
+            alt=''
+            className='mb-4'
+          />
           <h2 id={titleId} className='text-lg font-semibold tracking-tight'>
             {q('installTitle')}
           </h2>

@@ -135,7 +135,7 @@ try {
           {
             ...options,
             viewport: null,
-          deviceScaleFactor: undefined,
+            deviceScaleFactor: undefined,
             serviceWorkers: 'allow',
             headless: true,
             ...(process.env.PLAYWRIGHT_CHROME_EXECUTABLE
