@@ -65,6 +65,8 @@ async fn magpie_http_budget_tracks_family_pending_settled_refund_cancel_and_unkn
         // Owner-only historical fixture for the lifetime projection; this is
         // not elapsed-time acceptance. Restore the immutable guard atomically.
         let mut historical=f.owner.begin().await.unwrap();
+        sqlx::query("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE")
+            .execute(&mut *historical).await.unwrap();
         sqlx::query("ALTER TABLE core_charging.requests DISABLE TRIGGER request_identity")
             .execute(&mut *historical).await.unwrap();
         sqlx::query("UPDATE core_charging.requests SET authorized_at=authorized_at-40*86400 WHERE id=$1")
@@ -83,8 +85,12 @@ async fn magpie_http_budget_tracks_family_pending_settled_refund_cancel_and_unkn
         amounts(&budget(&f,&next.access_token).await,30,0,50);
         let unknown=f.reserve(&next.access_token,&f.spec("magpie-unknown",50),&[5;32]).await.unwrap();
         f.charging.start_oauth(&f.issuer,&unknown.id,&[5;32]).await.unwrap();
+        let mut expired=f.owner.begin().await.unwrap();
+        sqlx::query("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE")
+            .execute(&mut *expired).await.unwrap();
         sqlx::query("UPDATE core_charging.requests SET lease_until=floor(extract(epoch FROM clock_timestamp()))::bigint-1,revision=revision+1 WHERE id=$1")
-            .bind(&unknown.id).execute(&f.owner).await.unwrap();
+            .bind(&unknown.id).execute(&mut *expired).await.unwrap();
+        expired.commit().await.unwrap();
         let recovered=f.charging.recover_expired(10).await.unwrap();
         assert_eq!(recovered[0].state,"reconcile");
         amounts(&budget(&f,&next.access_token).await,30,50,0);
@@ -213,6 +219,32 @@ async fn magpie_budget_rejects_wrong_authority_and_keeps_applications_installati
                 .await
                 .is_ok()
         );
+        // Isolate storage unavailability while this family's authority is valid.
+        let before_fault = budget(&f, &cc.access_token).await;
+        sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
+            "REVOKE SELECT ON core_charging.requests FROM \"{}\"",
+            f.role.name
+        )))
+        .execute(&f.owner)
+        .await
+        .unwrap();
+        let failed = f
+            .client
+            .get(format!("{}/api/oauth2/application/budget", f.base))
+            .bearer_auth(&cc.access_token)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(failed.status(), 503);
+        sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
+            "GRANT SELECT ON core_charging.requests TO \"{}\"",
+            f.role.name
+        )))
+        .execute(&f.owner)
+        .await
+        .unwrap();
+        assert_eq!(budget(&f, &cc.access_token).await, before_fault);
+
         let current = f
             .application_token("lmm-magpie", "magpie", 30, &"d".repeat(64))
             .await;
@@ -232,21 +264,15 @@ async fn magpie_budget_rejects_wrong_authority_and_keeps_applications_installati
             .execute(&f.owner)
             .await
             .unwrap();
-        sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
-            "REVOKE SELECT ON core_charging.requests FROM \"{}\"",
-            f.role.name
-        )))
-        .execute(&f.owner)
-        .await
-        .unwrap();
-        let failed = f
+        // Re-granting developer access never revives an old auth generation.
+        let revoked = f
             .client
             .get(format!("{}/api/oauth2/application/budget", f.base))
             .bearer_auth(&cc.access_token)
             .send()
             .await
             .unwrap();
-        assert_eq!(failed.status(), 503);
+        assert_eq!(revoked.status(), 401);
 
         assert_eq!(f.provider.hits.load(Ordering::SeqCst), 0);
     })
