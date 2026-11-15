@@ -77,7 +77,8 @@ export function SettingsSection({
     <Button
       type='button'
       size='sm'
-      variant='outline'
+      variant='ghost'
+      className='settings-configure-action'
       onClick={copyConfigurationPrompt}
       title={t('Copy configuration prompt to AI')}
     >

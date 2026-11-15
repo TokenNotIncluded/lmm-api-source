@@ -116,7 +116,7 @@ export function SettingsPageFrame(props: SettingsPageFrameProps) {
         </SectionPageLayout.Breadcrumb>
         <SectionPageLayout.Title>
           <span className='inline-flex max-w-full min-w-0 flex-wrap items-center gap-3 align-middle'>
-            <span className='truncate'>{props.title}</span>
+            <span className='settings-page-title'>{props.title}</span>
             <span
               ref={setTitleStatusContainer}
               className='inline-flex min-w-0 shrink-0 items-center'
@@ -134,7 +134,13 @@ export function SettingsPageFrame(props: SettingsPageFrameProps) {
         <SectionPageLayout.Content>
           <div className='settings-sheet'>{props.children}</div>
           <PageFooterPortal>
-            <div className='settings-save-dock'>
+            <div
+              className='settings-save-dock'
+              role='group'
+              aria-label={
+                typeof props.title === 'string' ? props.title : undefined
+              }
+            >
               <span className='settings-save-context text-muted-foreground text-sm'>
                 {props.title}
               </span>

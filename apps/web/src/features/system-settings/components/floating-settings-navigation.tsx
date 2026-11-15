@@ -1,16 +1,9 @@
 /* Copyright (C) 2026 LIghtJUNction; SPDX-License-Identifier: AGPL-3.0-or-later */
 import { Link, useLocation, useNavigate } from '@tanstack/react-router'
-import {
-  ArrowLeft,
-  ChevronDown,
-  ChevronUp,
-  GripVertical,
-  Search,
-} from 'lucide-react'
+import { ArrowLeft, ChevronDown, Menu, Search } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
-import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import {
   Sheet,
@@ -144,7 +137,6 @@ export function FloatingSettingsNavigation() {
         >
           <summary>
             <span>{group.group}</span>
-            <small>{group.entries.length}</small>
             <ChevronDown aria-hidden='true' className='size-4' />
           </summary>
           {group.entries.map((entry) => (
@@ -177,7 +169,7 @@ export function FloatingSettingsNavigation() {
           <ArrowLeft aria-hidden='true' className='size-4' />
           <span>{t('Back to Dashboard')}</span>
         </Link>
-        <div className='settings-directory-heading'>{t('System Settings')}</div>
+        <h2 className='settings-directory-heading'>{t('System Settings')}</h2>
         <div className='settings-directory-search'>
           <Search aria-hidden='true' className='size-4' />
           <Input
@@ -190,55 +182,22 @@ export function FloatingSettingsNavigation() {
         {directory}
       </aside>
       <aside className='settings-float-rail' aria-label={t('System Settings')}>
-        <Link
-          to='/dashboard/$section'
-          params={{ section: 'overview' }}
-          className='settings-rail-back'
-          aria-label={t('Back to Dashboard')}
+        <button
+          ref={handle}
+          type='button'
+          className='settings-scrub-handle'
+          aria-label={t(
+            'Open settings directory; hold and drag to switch sections'
+          )}
+          aria-haspopup='dialog'
+          aria-expanded={shown}
+          title={t(
+            'Hold and drag up or down. Release to open the selected section.'
+          )}
         >
-          <ArrowLeft aria-hidden='true' className='size-4' />
-        </Link>
-        <div className='settings-float-handle'>
-          <Button
-            variant='ghost'
-            size='icon'
-            className='size-11'
-            disabled={currentIndex === 0}
-            aria-label={t('Previous settings section')}
-            onClick={() => select(currentIndex - 1)}
-          >
-            <ChevronUp aria-hidden='true' />
-          </Button>
-          <button
-            ref={handle}
-            type='button'
-            className='settings-scrub-handle'
-            aria-label={t(
-              'Open settings directory; hold and drag to switch sections'
-            )}
-            aria-haspopup='dialog'
-            aria-expanded={shown}
-            title={t(
-              'Hold and drag up or down. Release to open the selected section.'
-            )}
-          >
-            <GripVertical aria-hidden='true' className='size-5' />
-            <span>{t('Directory')}</span>
-          </button>
-          <Button
-            variant='ghost'
-            size='icon'
-            className='size-11'
-            disabled={currentIndex === entries.length - 1}
-            aria-label={t('Next settings section')}
-            onClick={() => select(currentIndex + 1)}
-          >
-            <ChevronDown aria-hidden='true' />
-          </Button>
-        </div>
-        <span className='settings-rail-position' aria-hidden='true'>
-          {currentIndex + 1}/{entries.length}
-        </span>
+          <Menu aria-hidden='true' className='size-4' />
+          <span>{t('Directory')}</span>
+        </button>
         <output
           className='settings-scrub-preview'
           hidden={preview === null}
@@ -259,30 +218,33 @@ export function FloatingSettingsNavigation() {
           className='settings-floating-directory'
           finalFocus={isMobile ? handle : undefined}
         >
-          <SheetHeader className='px-5 pt-5 pb-0'>
+          <SheetHeader className='px-6 pt-6 pb-0'>
             <SheetTitle>{t('System Settings')}</SheetTitle>
             <SheetDescription>
               {current?.group} · {current?.section}
             </SheetDescription>
           </SheetHeader>
-          <div className='relative mx-5'>
-            <Search
-              aria-hidden='true'
-              className='text-muted-foreground pointer-events-none absolute top-3.5 left-3 size-4'
-            />
+          <div className='settings-directory-search settings-directory-search-modal'>
+            <Search aria-hidden='true' className='size-4' />
             <Input
               value={query}
               onChange={(event) => setQuery(event.target.value)}
               placeholder={t('Search settings')}
               aria-label={t('Search settings')}
-              className='h-11 rounded-xl pl-9'
             />
           </div>
           {directory}
-          <p className='text-muted-foreground px-5 pb-4 text-xs'>
-            {t('{{count}} sections', { count: entries.length })} ·{' '}
-            {t('Changes are saved only with the Save button.')}
-          </p>
+          <div className='settings-directory-footer'>
+            <Link
+              to='/dashboard/$section'
+              params={{ section: 'overview' }}
+              className='settings-desktop-back'
+              onClick={() => setShown(false)}
+            >
+              <ArrowLeft aria-hidden='true' className='size-4' />
+              <span>{t('Back to Dashboard')}</span>
+            </Link>
+          </div>
         </SheetContent>
       </Sheet>
     </>

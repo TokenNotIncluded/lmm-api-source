@@ -155,101 +155,102 @@ export function SystemInfoSection({ defaultValues }: SystemInfoSectionProps) {
               isSaveDisabled={!isDirty}
             />
             <FormDirtyIndicator isDirty={isDirty} />
-            <SettingsDisclosure
-              title={t('Brand & address')}
-              description={t('The essentials visitors see')}
-              defaultOpen
-            >
-              <div
-                className='settings-brand-preview'
-                aria-label={t('Brand preview')}
-              >
-                <span className='settings-brand-monogram' aria-hidden='true'>
-                  {(form.watch('SystemName') || 'L')
-                    .trim()
-                    .slice(0, 1)
-                    .toUpperCase()}
-                </span>
-                <div className='min-w-0'>
-                  <p className='truncate text-base font-semibold'>
-                    {form.watch('SystemName') || t('System Name')}
-                  </p>
-                  <p className='text-muted-foreground mt-1 truncate font-mono text-xs'>
+            <section aria-label={t('Brand & address')}>
+              <div className='settings-content-heading'>
+                <h3>{t('Brand & address')}</h3>
+                <p>{t('The essentials visitors see')}</p>
+              </div>
+              <div className='settings-identity-layout'>
+                <div className='settings-identity-fields'>
+                  <FormField
+                    control={form.control}
+                    name='SystemName'
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>{t('System Name')}</FormLabel>
+                        <FormControl>
+                          <Input placeholder='LMM API' {...field} />
+                        </FormControl>
+                        <FormDescription>
+                          {t('The name displayed across the application')}
+                        </FormDescription>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <FormField
+                    control={form.control}
+                    name='ServerAddress'
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>{t('Server Address')}</FormLabel>
+                        <FormControl>
+                          <Input
+                            placeholder='https://yourdomain.com'
+                            {...field}
+                            onBlur={(event) => {
+                              const normalized = normalizeServerAddress(
+                                event.currentTarget.value
+                              )
+                              if (normalized !== event.currentTarget.value) {
+                                field.onChange(normalized)
+                              }
+                              field.onBlur()
+                            }}
+                          />
+                        </FormControl>
+                        <FormDescription>
+                          {t(
+                            'The public URL of your server, used for OAuth callbacks, webhooks, and other external integrations'
+                          )}
+                        </FormDescription>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <FormField
+                    control={form.control}
+                    name='Logo'
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>{t('Logo URL')}</FormLabel>
+                        <FormControl>
+                          <Input
+                            placeholder={t('https://example.com/logo.png')}
+                            {...field}
+                          />
+                        </FormControl>
+                        <FormDescription>
+                          {t('URL to your logo image (optional)')}
+                        </FormDescription>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                </div>
+                <aside
+                  className='settings-brand-preview'
+                  aria-label={t('Brand preview')}
+                >
+                  <p className='settings-brand-caption'>{t('Brand preview')}</p>
+                  <div className='settings-brand-identity'>
+                    <span
+                      className='settings-brand-monogram'
+                      aria-hidden='true'
+                    >
+                      {(form.watch('SystemName') || 'L')
+                        .trim()
+                        .slice(0, 1)
+                        .toUpperCase()}
+                    </span>
+                    <p>{form.watch('SystemName') || t('System Name')}</p>
+                  </div>
+                  <p className='settings-brand-address'>
                     {form.watch('ServerAddress') || t('Server Address')}
                   </p>
-                </div>
-                <span className='text-muted-foreground ml-auto hidden text-xs sm:block'>
-                  {t('Brand preview')}
-                </span>
+                </aside>
               </div>
-              <SettingsFormGrid>
-                <FormField
-                  control={form.control}
-                  name='SystemName'
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>{t('System Name')}</FormLabel>
-                      <FormControl>
-                        <Input placeholder='LMM API' {...field} />
-                      </FormControl>
-                      <FormDescription>
-                        {t('The name displayed across the application')}
-                      </FormDescription>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                <FormField
-                  control={form.control}
-                  name='ServerAddress'
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>{t('Server Address')}</FormLabel>
-                      <FormControl>
-                        <Input
-                          placeholder='https://yourdomain.com'
-                          {...field}
-                          onBlur={(event) => {
-                            const normalized = normalizeServerAddress(
-                              event.currentTarget.value
-                            )
-                            if (normalized !== event.currentTarget.value) {
-                              field.onChange(normalized)
-                            }
-                            field.onBlur()
-                          }}
-                        />
-                      </FormControl>
-                      <FormDescription>
-                        {t(
-                          'The public URL of your server, used for OAuth callbacks, webhooks, and other external integrations'
-                        )}
-                      </FormDescription>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                <FormField
-                  control={form.control}
-                  name='Logo'
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>{t('Logo URL')}</FormLabel>
-                      <FormControl>
-                        <Input
-                          placeholder={t('https://example.com/logo.png')}
-                          {...field}
-                        />
-                      </FormControl>
-                      <FormDescription>
-                        {t('URL to your logo image (optional)')}
-                      </FormDescription>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-              </SettingsFormGrid>
-            </SettingsDisclosure>
+            </section>
             <SettingsDisclosure
               title={t('Page content')}
               description={t('Home page, about and footer')}
@@ -380,32 +381,24 @@ export function SystemInfoSection({ defaultValues }: SystemInfoSectionProps) {
                     </FormItem>
                   )}
                 />
-              </SettingsFormGrid>
-              <SettingsFormGrid>
-                {(['refund_policy', 'refund_policy_en'] as const).map((key) => (
-                  <FormField
-                    key={key}
-                    control={form.control}
-                    name={`legal.${key}`}
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>
-                          {t('Refund Policy')}
-                          {key.endsWith('_en') ? ' (English)' : ''}
-                        </FormLabel>
-                        <FormControl>
-                          <Textarea rows={6} {...field} />
-                        </FormControl>
-                        <FormDescription>
-                          {t(
-                            'A separate refund policy at /refund-policy. Existing user agreement and service terms are not changed. An empty English version uses the primary language.'
-                          )}
-                        </FormDescription>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                ))}
+                <FormField
+                  control={form.control}
+                  name='legal.refund_policy'
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>{t('Refund Policy')}</FormLabel>
+                      <FormControl>
+                        <Textarea rows={6} {...field} />
+                      </FormControl>
+                      <FormDescription>
+                        {t(
+                          'A separate refund policy at /refund-policy. Existing user agreement and service terms are not changed. An empty English version uses the primary language.'
+                        )}
+                      </FormDescription>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
               </SettingsFormGrid>
               <SettingsDisclosure title={t('English versions')}>
                 <SettingsFormGrid>
@@ -414,7 +407,12 @@ export function SystemInfoSection({ defaultValues }: SystemInfoSectionProps) {
                     name='legal.user_agreement_en'
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel>{t('User Agreement')} (English)</FormLabel>
+                        <FormLabel>
+                          {t('User Agreement')}{' '}
+                          <span className='settings-field-language'>
+                            ({t('English')})
+                          </span>
+                        </FormLabel>
                         <FormControl>
                           <Textarea
                             placeholder={t(
@@ -438,7 +436,12 @@ export function SystemInfoSection({ defaultValues }: SystemInfoSectionProps) {
                     name='legal.privacy_policy_en'
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel>{t('Privacy Policy')} (English)</FormLabel>
+                        <FormLabel>
+                          {t('Privacy Policy')}{' '}
+                          <span className='settings-field-language'>
+                            ({t('English')})
+                          </span>
+                        </FormLabel>
                         <FormControl>
                           <Textarea
                             placeholder={t(
@@ -447,6 +450,29 @@ export function SystemInfoSection({ defaultValues }: SystemInfoSectionProps) {
                             rows={6}
                             {...field}
                           />
+                        </FormControl>
+                        <FormDescription>
+                          {t(
+                            'Shown to English-language visitors. Leave empty to fall back to the primary-language version above.'
+                          )}
+                        </FormDescription>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <FormField
+                    control={form.control}
+                    name='legal.refund_policy_en'
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>
+                          {t('Refund Policy')}{' '}
+                          <span className='settings-field-language'>
+                            ({t('English')})
+                          </span>
+                        </FormLabel>
+                        <FormControl>
+                          <Textarea rows={6} {...field} />
                         </FormControl>
                         <FormDescription>
                           {t(

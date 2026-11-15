@@ -16,7 +16,6 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { RotateCcw, Save } from 'lucide-react'
 import {
   createContext,
   useContext,
@@ -133,11 +132,10 @@ export function SettingsPageFormActions(props: SettingsPageFormActionsProps) {
         <Button
           type='button'
           size='sm'
-          variant={props.resetVariant ?? 'outline'}
+          variant={props.resetVariant ?? 'ghost'}
           onClick={props.onReset}
           disabled={props.isResetDisabled || props.isSaving}
         >
-          <RotateCcw data-icon='inline-start' />
           <span>{t(props.resetLabel ?? 'Reset')}</span>
         </Button>
       )}
@@ -148,7 +146,6 @@ export function SettingsPageFormActions(props: SettingsPageFormActionsProps) {
         onClick={props.onSave}
         disabled={props.isSaving || props.isSaveDisabled}
       >
-        <Save data-icon='inline-start' />
         <span>{t(saveLabel)}</span>
       </Button>
     </div>,

@@ -9,7 +9,7 @@ License, or (at your option) any later version.
 .assistant-settings-tabs {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 16px;
   min-width: 0;
   overflow-x: auto;
   scrollbar-width: thin;
@@ -19,7 +19,7 @@ License, or (at your option) any later version.
   align-items: center;
   justify-content: space-between;
   gap: 16px;
-  padding-block: 8px;
+  padding-block: 0;
   border-bottom: 1px solid var(--border);
   margin-bottom: 24px;
 }
@@ -27,14 +27,15 @@ License, or (at your option) any later version.
   position: relative;
   min-height: 44px;
   flex-shrink: 0;
-  padding: 10px 14px;
-  border-radius: 12px;
+  padding: 10px 2px;
+  border-bottom: 2px solid transparent;
+  border-radius: 0;
   font-size: 13px;
   color: var(--muted-foreground);
   cursor: pointer;
 }
 .assistant-settings-tabs button[aria-selected='true'] {
-  background: var(--muted);
+  border-bottom-color: var(--foreground);
   color: var(--foreground);
   font-weight: 500;
 }
@@ -70,8 +71,8 @@ License, or (at your option) any later version.
   background: none;
 }
 .assistant-settings-panel [data-slot='form-description'] {
-  font-size: 12px;
-  line-height: 1.7;
+  font-size: 13px;
+  line-height: 1.65;
 }
 .assistant-settings-footer {
   display: flex;
@@ -96,7 +97,7 @@ License, or (at your option) any later version.
     width: 100%;
   }
   .assistant-settings-dirty {
-    margin-inline: 14px;
+    padding-bottom: 12px;
   }
   .assistant-settings-footer > button {
     min-height: 44px;
