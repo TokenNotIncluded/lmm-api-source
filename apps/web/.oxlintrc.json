@@ -132,9 +132,13 @@
         ]
       }
     ],
+    "react/preserve-manual-memoization": "warn",
+    "react/purity": "warn",
     "react/react-in-jsx-scope": "off",
+    "react/refs": "warn",
     "react/rules-of-hooks": "warn",
     "react/self-closing-comp": "warn",
+    "react/set-state-in-effect": "warn",
     "typescript/consistent-type-imports": [
       "error",
       {
