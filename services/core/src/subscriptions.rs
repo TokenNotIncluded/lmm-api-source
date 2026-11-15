@@ -9,15 +9,15 @@ pub use balance_read::BalancePurchaseStatus;
 pub use external_pancake::{
     PANCAKE_SCHEMA, PancakeEventReceipt, PancakeOrder, PublishPancakePrice,
 };
-pub mod epay_rpc;
-mod external_epay;
-mod external_stripe;
-mod external_creem;
 mod creem_http;
 mod creem_rpc;
 #[cfg(test)]
 mod creem_tests;
-pub use external_creem::{CreemPrice, CreemOrder, CreemEventReceipt, CREEM_SCHEMA};
+pub mod epay_rpc;
+mod external_creem;
+mod external_epay;
+mod external_stripe;
+pub use external_creem::{CREEM_SCHEMA, CreemEventReceipt, CreemOrder, CreemPrice};
 mod stripe_http;
 mod stripe_rpc;
 #[cfg(test)]

@@ -53,7 +53,10 @@ impl EPaySubscriptionsRpc {
                 self.store.clone(),
                 self.payments.clone(),
             ))
-            .merge(super::creem_http::router(self.store.clone(), self.payments.clone()))
+            .merge(super::creem_http::router(
+                self.store.clone(),
+                self.payments.clone(),
+            ))
     }
     pub fn features(&self) -> Vec<String> {
         [
@@ -340,10 +343,21 @@ impl pb::core_subscription_payments_server::CoreSubscriptionPayments for EPaySub
         })
         .await
     }
-    async fn resolve_creem_subscription_order(&self, r: Request<pb::CreemSubscriptionLookup>) -> std::result::Result<Response<pb::EPaySubscriptionOrderRequest>, Status> {
+    async fn resolve_creem_subscription_order(
+        &self,
+        r: Request<pb::CreemSubscriptionLookup>,
+    ) -> std::result::Result<Response<pb::EPaySubscriptionOrderRequest>, Status> {
         self.auth.check(r.metadata(), self.permissions.proof_read)?;
         let r = r.into_inner();
-        self.run(async { Ok(pb::EPaySubscriptionOrderRequest { order_id: self.store.resolve_creem_subscription_order(r.channel_id, &r.provider_subscription_id).await? }) }).await
+        self.run(async {
+            Ok(pb::EPaySubscriptionOrderRequest {
+                order_id: self
+                    .store
+                    .resolve_creem_subscription_order(r.channel_id, &r.provider_subscription_id)
+                    .await?,
+            })
+        })
+        .await
     }
     async fn prepare_creem_purchase(
         &self,
@@ -434,7 +448,12 @@ impl pb::core_subscription_payments_server::CoreSubscriptionPayments for EPaySub
         self.run(async {
             Ok(super::creem_rpc::event(
                 self.store
-                    .creem_event(r.payment_channel_id, &r.order_id, &r.provider_event_id, &r.payload_sha256)
+                    .creem_event(
+                        r.payment_channel_id,
+                        &r.order_id,
+                        &r.provider_event_id,
+                        &r.payload_sha256,
+                    )
                     .await?,
             ))
         })

@@ -48,7 +48,10 @@ pub fn router(store: AdminUsersStore) -> Router {
         .merge(super::security::routes())
         .merge(super::appeals::routes())
         .merge(super::balance_adjustments::routes())
-        .route("/core/v1/admin/users", get(users).post(super::create::create))
+        .route(
+            "/core/v1/admin/users",
+            get(users).post(super::create::create),
+        )
         .route("/core/v1/admin/users/groups", get(groups))
         .route("/core/v1/admin/system-resources", get(system_resources))
         .layer(axum::middleware::from_fn(

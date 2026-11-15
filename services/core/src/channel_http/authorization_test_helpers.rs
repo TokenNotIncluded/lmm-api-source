@@ -16,13 +16,7 @@ const READS: [&str; 5] = [
     "/api/channel/1",
 ];
 
-pub(super) async fn policy(
-    pool: &PgPool,
-    user: i64,
-    read: &str,
-    complete: bool,
-    valid_hash: bool,
-) {
+pub(super) async fn policy(pool: &PgPool, user: i64, read: &str, complete: bool, valid_hash: bool) {
     let entries: Vec<_> = permissions::Action::CATALOG
         .iter()
         .map(|action| {

@@ -313,10 +313,11 @@ async fn public_status_response(State(state): State<Readiness>, headers: HeaderM
         .expect("status data is a JSON object")
         .extend(extra);
     if status.federated_auth {
-        let providers = match crate::identity::federated::public_catalog(&state.pool, registration).await {
-            Ok(Value::Array(providers)) => providers,
-            _ => return public_configuration_unavailable(),
-        };
+        let providers =
+            match crate::identity::federated::public_catalog(&state.pool, registration).await {
+                Ok(Value::Array(providers)) => providers,
+                _ => return public_configuration_unavailable(),
+            };
         data["native_federated_auth"] = json!(true);
         data["federated_oauth_providers"] = json!(providers);
         data["custom_oauth_providers"] = json!(
@@ -338,7 +339,10 @@ async fn public_status_response(State(state): State<Readiness>, headers: HeaderM
             data["wechat_login"] = json!(true);
             data["wechat_qrcode"] = wechat["qr_code_url"].clone();
         }
-        if providers.iter().any(|provider| provider["registration_enabled"] == true) {
+        if providers
+            .iter()
+            .any(|provider| provider["registration_enabled"] == true)
+        {
             data["oauth_register_enabled"] = json!(true);
         }
     }
