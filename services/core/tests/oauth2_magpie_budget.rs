@@ -71,6 +71,9 @@ async fn magpie_http_budget_tracks_family_pending_settled_refund_cancel_and_unkn
             .execute(&mut *historical).await.unwrap();
         sqlx::query("UPDATE core_charging.requests SET authorized_at=authorized_at-40*86400 WHERE id=$1")
             .bind(&charge.id).execute(&mut *historical).await.unwrap();
+        // Validate queued deferred constraints before the table ALTER.
+        sqlx::query("SET CONSTRAINTS ALL IMMEDIATE")
+            .execute(&mut *historical).await.unwrap();
         sqlx::query("ALTER TABLE core_charging.requests ENABLE TRIGGER request_identity")
             .execute(&mut *historical).await.unwrap();
         historical.commit().await.unwrap();
