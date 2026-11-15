@@ -69,53 +69,46 @@ class PrivateFixtureTests(unittest.TestCase):
                 )
             run.assert_not_called()
 
+    def component_contract(self):
+        # Inventory size evolves with Core; compare every row instead of a stale list.
+        return {
+            "format_version": 1,
+            "scope": "compiled-core-schema-contract",
+            "components": [
+                {"name": f"component-{index}", "raw_schema_sha256": f"{index:064x}"}
+                for index in range(75)
+            ],
+        }
+
     def test_fresh_install_component_inventory_is_exact(self):
-        source = ast.parse(SOURCE.read_text())
-        checks = [
-            node.test
-            for node in ast.walk(source)
-            if isinstance(node, ast.Assert)
-            and isinstance(node.test, ast.Compare)
-            and ast.unparse(node.test.left) == "set(components)"
-        ]
-        self.assertEqual(len(checks), 1)
-        check = checks[0]
-        self.assertEqual(len(check.ops), 1)
-        self.assertIsInstance(check.ops[0], ast.Eq)
-        self.assertEqual(len(check.comparators), 1)
-        expected = check.comparators[0]
-        self.assertIsInstance(expected, ast.Set)
-        self.assertEqual(
-            ast.literal_eval(expected),
-            {
-                "humangrant",
-                "assistant-model",
-                "tool-market",
-                "gift",
-                "image",
-                "market-oauth",
-                "tool-market-credit",
-                "wallet",
-                "bounties",
-                "assistant-tools",
-                "identity",
-                "oauth-grants",
-                "ledger",
-                "payments",
-                "charging",
-                "routing",
-                "events",
-                "history",
-                "charging-ledger",
-                "migration",
-                "console",
-                "model-gateway",
-                "commerce",
-                "abuse",
-                "telegram-auth",
-                "trust-pricing",
-            },
-        )
+        compiled = self.component_contract()
+        FIXTURE.verify_installed_components(compiled, list(reversed(compiled["components"])))
+
+    def test_component_inventory_rejects_missing_extra_duplicate_and_changed_sql(self):
+        compiled = self.component_contract()
+        rows = compiled["components"]
+        cases = {
+            "obsolete-26-components": rows[:26],
+            "missing": rows[:-1],
+            "extra": rows + [{"name": "unexpected", "raw_schema_sha256": "f" * 64}],
+            "duplicate": rows + [rows[0]],
+            "same-name-wrong-sql": [{**rows[0], "raw_schema_sha256": "f" * 64}] + rows[1:],
+        }
+        for name, installed in cases.items():
+            with self.subTest(name=name), self.assertRaises(AssertionError):
+                FIXTURE.verify_installed_components(compiled, installed)
+
+    def test_component_inventory_rejects_invalid_compiled_contract(self):
+        original = self.component_contract()
+        for change in (
+            {"format_version": 2},
+            {"scope": "unverified"},
+            {"components": []},
+            {"components": original["components"] + [original["components"][0]]},
+            {"components": [{"name": "identity", "raw_schema_sha256": "not-a-sha256"}]},
+        ):
+            with self.subTest(change=change), self.assertRaises(AssertionError):
+                FIXTURE.verify_installed_components({**original, **change}, original["components"])
 
     def test_standalone_limits_are_read_from_the_current_toml_contract(self):
         with (FIXTURE.DOCKER / "config/core-standalone.toml").open("rb") as file:
@@ -450,6 +443,7 @@ class DurableOutputTests(unittest.TestCase):
                 mock.patch.object(FIXTURE, "source_inputs", return_value=inputs),
                 mock.patch.object(FIXTURE, "execute", side_effect=execute),
                 mock.patch.object(FIXTURE.FixtureRun, "capture_owned", return_value=[]),
+                mock.patch.object(FIXTURE.FixtureRun, "run", return_value="") as run,
             ):
                 self.assertEqual(
                     FIXTURE.main(
@@ -463,6 +457,9 @@ class DurableOutputTests(unittest.TestCase):
                     0,
                 )
             self.assertEqual(observed, {"seconds": 2400})
+            self.assertEqual(run.call_count, 1)
+            self.assertEqual(run.call_args.args[:4], ("docker", "ps", "-aq", "--filter"))
+            self.assertTrue(run.call_args.args[4].startswith("label=" + FIXTURE.LABEL + "="))
 
     def test_cli_rejects_unbounded_build_timeout(self):
         with tempfile.TemporaryDirectory() as directory:

@@ -82,6 +82,23 @@ SELECT current_user=session_user
 """
 
 
+def verify_installed_components(compiled, installed):
+    """Match the fresh database to the source-bound image, including SQL hashes."""
+    assert compiled["format_version"] == 1
+    assert compiled["scope"] == "compiled-core-schema-contract"
+    expected = compiled["components"]
+    assert expected, "compiled component inventory must not be empty"
+    expected_by_name = {row["name"]: row["raw_schema_sha256"] for row in expected}
+    assert len(expected_by_name) == len(expected), "duplicate compiled component"
+    assert all(
+        name and re.fullmatch(r"[0-9a-f]{64}", fingerprint)
+        for name, fingerprint in expected_by_name.items()
+    ), "invalid compiled component fingerprint"
+    installed_by_name = {row["name"]: row["raw_schema_sha256"] for row in installed}
+    assert len(installed_by_name) == len(installed), "duplicate installed component"
+    assert installed_by_name == expected_by_name, "installed schema differs from compiled contract"
+
+
 ACTIVE = None
 LABEL = "best.lmm.rpc-fixture"
 
@@ -1178,43 +1195,15 @@ def execute(temp, projects, context, *, build_timeout_seconds=1800):
             "core", "run", "--rm", "-T", "--no-deps", "core-init", "schema-manifest"
         )
     )
-    assert compiled["format_version"] == 1
-    assert compiled["scope"] == "compiled-core-schema-contract"
-    compiled_names = [item["name"] for item in compiled["components"]]
-    assert len(compiled_names) == len(set(compiled_names))
-    components = json.loads(
-        psql("SELECT json_agg(name ORDER BY name) FROM core_meta.component_contract;")
+    installed = json.loads(
+        psql(
+            "SELECT coalesce(json_agg(json_build_object('name',name,"
+            "'raw_schema_sha256',encode(fingerprint,'hex')) ORDER BY name),'[]'::json) "
+            "FROM core_meta.component_contract;"
+        )
     )
-    assert len(components) == len(set(components))
-    assert set(components) == {
-        "humangrant",
-        "assistant-model",
-        "tool-market",
-        "gift",
-        "image",
-        "market-oauth",
-        "tool-market-credit",
-        "assistant-tools",
-        "wallet",
-        "bounties",
-        "identity",
-        "oauth-grants",
-        "ledger",
-        "payments",
-        "charging",
-        "routing",
-        "events",
-        "history",
-        "charging-ledger",
-        "migration",
-        "console",
-        "model-gateway",
-        "commerce",
-        "abuse",
-        "telegram-auth",
-        "trust-pricing",
-    }
-    assert set(compiled_names) == set(components)
+    verify_installed_components(compiled, installed)
+    components = [row["name"] for row in installed]
     assert (
         psql(
             "SELECT bool_and(n.nspowner='lmm_core_owner'::regrole) FROM pg_namespace n WHERE n.nspname LIKE 'core\\_%' ESCAPE '\\';"
