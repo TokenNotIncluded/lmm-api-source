@@ -4,6 +4,7 @@ Only discovery and validation execute; no database or payment process is created
 """
 import ast
 import os
+import re
 from pathlib import Path
 import subprocess
 from types import SimpleNamespace
@@ -29,6 +30,24 @@ INDEX = next(
     )
 )
 DISCOVERY = compile(ast.Module(body=TRY.body[INDEX:INDEX + 2], type_ignores=[]), str(SOURCE), "exec")
+
+
+class FailureDiagnosticsTests(unittest.TestCase):
+    def location(self, text):
+        helper = next(node for node in TREE.body if isinstance(node, ast.FunctionDef) and node.name == "failure_location")
+        namespace = {"re": re}
+        exec(compile(ast.Module(body=[helper], type_ignores=[]), str(SOURCE), "exec"), namespace)
+        return namespace["failure_location"](text)
+
+    def test_only_static_source_location_survives_private_panic_details(self):
+        raw = "thread 'payment' (1234) panicked at tests/payments_live_process.rs:412:7:\n" \
+              "postgresql://user:synthetic-private-password@127.0.0.1/db\nBearer synthetic-token"
+        self.assertEqual(self.location(raw), {"file": "tests/payments_live_process.rs", "line": 412, "column": 7})
+
+    def test_no_location_or_unknown_file_does_not_echo_private_text(self):
+        for raw in ("postgresql://user:secret@localhost/db", "panicked at /private/credential:1:2:", "panicked at tests/payments_live_process.rs:0:2:"):
+            with self.subTest(raw=raw):
+                self.assertIsNone(self.location(raw))
 
 
 class DiscoveryTests(unittest.TestCase):

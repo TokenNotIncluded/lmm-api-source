@@ -9,6 +9,7 @@ import hashlib
 import importlib.util
 import json
 import os
+import re
 from pathlib import Path
 import shutil
 import signal
@@ -27,6 +28,17 @@ BOOT = "TestSyntheticLiveProofAcrossCoreProcess"
 def sha(path):
     with path.open("rb") as stream:
         return hashlib.file_digest(stream, "sha256").hexdigest()
+
+
+def failure_location(text):
+    """Keep only a known test source location, never panic values or private logs."""
+    match = re.search(
+        r"panicked at (tests/payments_live_process\.rs):([1-9][0-9]{0,5}):([1-9][0-9]{0,5}):",
+        text,
+    )
+    if match is None:
+        return None
+    return {"file": match[1], "line": int(match[2]), "column": int(match[3])}
 
 
 def main():
@@ -94,6 +106,8 @@ def main():
             code = child.wait(timeout=180)
         text = log.read_text()
         status.update(exit_code=code, log_sha256=sha(log))
+        if code != 0:
+            status["failure_location"] = failure_location(text)
         if code != 0 or "1 passed; 0 failed; 0 ignored;" not in text:
             raise RuntimeError("selected live test failed or did not execute")
         results = list(root.glob("pay-*/result.json"))
