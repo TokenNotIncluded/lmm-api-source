@@ -14,6 +14,7 @@ import {
   nativeRequest,
   parseNativeDocument,
   readNativeRoutingScope,
+  stringifyNativeDocument,
   updateNativeChannels,
 } from './native-api'
 
@@ -326,6 +327,111 @@ test('native routing rejects rounded identifiers and monetary integers before di
   assert.throws(() => parseNativeDocument('{"id":9007199254740993}'), /safely/)
   assert.throws(() => parseNativeDocument('[]'), /object/)
   assert.equal(calls, 0)
+})
+
+function exactTariffDocument(numerator: string) {
+  return `{"prices":{"version":2,"rules":[{"id":1,"tiered":{"tiers":[{"rates":{"input":{"numerator":${
+    numerator
+  },"denominator":1000000000000000000}}}]}}]}}`
+}
+
+test('exact tariff u64 integers round-trip while rounded numbers, IDs and type substitutions stay rejected', () => {
+  for (let index = 0; index < 20; index++) {
+    const numerator = (9_007_199_254_740_993n + BigInt(index * 2)).toString()
+    const raw = exactTariffDocument(numerator)
+    const parsed = parseNativeDocument(raw)
+    assert.equal(stringifyNativeDocument(parsed), raw)
+    assert.equal(
+      stringifyNativeDocument(
+        parseNativeDocument(stringifyNativeDocument(parsed, 2))
+      ),
+      raw
+    )
+  }
+  const maximum = exactTariffDocument('18446744073709551615')
+  assert.equal(stringifyNativeDocument(parseNativeDocument(maximum)), maximum)
+  for (const literal of [
+    '18446744073709551616',
+    '-9007199254740993',
+    '9007199254740991.1',
+    '1.5',
+    '"9007199254740993"',
+    'true',
+    'null',
+    '{"isLosslessNumber":true,"value":"9007199254740993"}',
+  ]) {
+    assert.throws(
+      () => parseNativeDocument(exactTariffDocument(literal)),
+      /safely/
+    )
+  }
+  assert.throws(() => parseNativeDocument('{"id":9007199254740993}'), /safely/)
+  assert.throws(
+    () =>
+      assertNativeIntegers(JSON.parse(exactTariffDocument('9007199254740993'))),
+    /safely/
+  )
+})
+
+test('native HTTP reads raw tariff integers and writes their exact JSON tokens with CAS and preview', async () => {
+  const scope = login()
+  const raw = exactTariffDocument('9007199254740993')
+  const rawPrices = raw.slice('{"prices":'.length, -1)
+  const calls: string[] = []
+  api.defaults.adapter = async (config) => {
+    calls.push(`${config.method} ${config.url}`)
+    let response = `{"success":true,"data":${raw}}`
+    if (config.method !== 'get') {
+      assert.match(String(config.data), /"numerator":9007199254740993,/)
+      assert.match(String(config.data), /"denominator":1000000000000000000/)
+      assert.doesNotMatch(String(config.data), /9007199254740992/)
+      assert.equal(config.headers.getContentType(), 'application/json')
+      assert.equal(config.skipAuthRefresh, true)
+      assert.deepEqual(
+        parseNativeDocument(String(config.data)).expected_version,
+        {
+          routing: 1,
+          pricing: 1,
+        }
+      )
+      response = config.url?.endsWith('/preview')
+        ? `{"success":true,"data":{"after":${
+            rawPrices
+          },"confirmation_digest":"${'a'.repeat(64)}"}}`
+        : '{"success":true,"data":{"version":{"routing":2,"pricing":2}}}'
+    }
+    return {
+      config,
+      headers: {},
+      status: 200,
+      statusText: 'OK',
+      data: response,
+    }
+  }
+  const received = await nativeRequest<Record<string, unknown>>(
+    scope,
+    'GET',
+    '/core/v1/admin/routing/prices'
+  )
+  assert.equal(stringifyNativeDocument(received), raw)
+  const body = {
+    expected_version: { routing: 1, pricing: 1 },
+    prices: received.prices,
+  }
+  const preview = await nativeRequest<{
+    confirmation_digest: string
+    after: unknown
+  }>(scope, 'POST', '/core/v1/admin/routing/prices/preview', body)
+  assert.equal(stringifyNativeDocument(preview.after), rawPrices)
+  await nativeRequest(scope, 'PUT', '/core/v1/admin/routing/prices', {
+    ...body,
+    confirmation_digest: preview.confirmation_digest,
+  })
+  assert.deepEqual(calls, [
+    'get /core/v1/admin/routing/prices',
+    'post /core/v1/admin/routing/prices/preview',
+    'put /core/v1/admin/routing/prices',
+  ])
 })
 
 test('native publications keep exact version CAS, never refresh/replay and reject malformed success receipts', async () => {

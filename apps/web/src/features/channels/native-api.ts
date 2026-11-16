@@ -1,4 +1,10 @@
 /* Copyright (C) 2026 LIghtJUNction. SPDX-License-Identifier: AGPL-3.0-or-later */
+import {
+  isSafeNumber,
+  LosslessNumber,
+  parse as parseLosslessJson,
+  stringify as stringifyLosslessJson,
+} from 'lossless-json'
 import { z } from 'zod'
 
 import { api } from '@/lib/api'
@@ -133,20 +139,85 @@ export type NativeChannelBatchPatch = {
   timeout_ms?: number
 }
 
-/** Reject rounded identifiers and monetary values before any mutation. */
-export function assertNativeIntegers(value: unknown): void {
-  if (typeof value === 'number' && !Number.isSafeInteger(value)) {
-    throw new Error(
-      'This configuration contains a number that cannot be edited safely in this browser.'
+const nativeIntegerError =
+  'This configuration contains a number that cannot be edited safely in this browser.'
+const maximumNativeInteger = 18_446_744_073_709_551_615n
+const tariffRateFields = new Set([
+  'input',
+  'output',
+  'cache_read',
+  'cache_write',
+  'cache_write_1h',
+  'cache_write_12h',
+])
+
+function isTariffInteger(path: string[]): boolean {
+  return (
+    path.includes('tiered') &&
+    path.at(-3) === 'rates' &&
+    tariffRateFields.has(path.at(-2) ?? '') &&
+    (path.at(-1) === 'numerator' || path.at(-1) === 'denominator')
+  )
+}
+
+/** Keep IDs safe; only exact tariff fractions may use the native u64 range. */
+export function assertNativeIntegers(
+  value: unknown,
+  path: string[] = []
+): void {
+  const tariffInteger = isTariffInteger(path)
+  if (value instanceof LosslessNumber) {
+    if (
+      !tariffInteger ||
+      !/^(0|[1-9]\d*)$/.test(value.value) ||
+      BigInt(value.value) > maximumNativeInteger
+    ) {
+      throw new Error(nativeIntegerError)
+    }
+    return
+  }
+  if (
+    (typeof value === 'number' && !Number.isSafeInteger(value)) ||
+    typeof value === 'bigint' ||
+    (tariffInteger && (typeof value !== 'number' || value < 0))
+  ) {
+    throw new Error(nativeIntegerError)
+  }
+  if (Array.isArray(value)) {
+    value.forEach((item, index) =>
+      assertNativeIntegers(item, [...path, String(index)])
+    )
+  } else if (value !== null && typeof value === 'object') {
+    Object.entries(value).forEach(([key, item]) =>
+      assertNativeIntegers(item, [...path, key])
     )
   }
-  if (Array.isArray(value)) value.forEach(assertNativeIntegers)
-  else if (value !== null && typeof value === 'object') {
-    Object.values(value).forEach(assertNativeIntegers)
-  }
 }
+
+function parseNativeJson(text: string): unknown {
+  return parseLosslessJson(text, undefined, {
+    parseNumber: (literal) =>
+      isSafeNumber(literal) && Number.isSafeInteger(Number(literal))
+        ? Number(literal)
+        : new LosslessNumber(literal),
+  })
+}
+
+/** Use the same exact codec for transport, the JSON editor and visual edits. */
+export function stringifyNativeDocument(
+  value: unknown,
+  space?: number
+): string {
+  assertNativeIntegers(value)
+  const document = stringifyLosslessJson(value, undefined, space)
+  if (document === undefined) {
+    throw new Error('Configuration must be a JSON object.')
+  }
+  return document
+}
+
 export function parseNativeDocument(text: string): Record<string, unknown> {
-  const value: unknown = JSON.parse(text)
+  const value = parseNativeJson(text)
   if (!value || Array.isArray(value) || typeof value !== 'object') {
     throw new Error('Configuration must be a JSON object.')
   }
@@ -208,6 +279,16 @@ export async function nativeRequest<T>(
     method,
     url: path,
     data,
+    transformRequest: [
+      (body, headers) => {
+        if (body === undefined) return undefined
+        headers.setContentType('application/json')
+        return stringifyNativeDocument(body)
+      },
+    ],
+    transformResponse: [
+      (body) => (typeof body === 'string' ? parseNativeJson(body) : body),
+    ],
     authScope: { userId: scope.userId, sessionId: scope.sessionId },
     skipAuthRefresh: true,
     skipBusinessError: true,

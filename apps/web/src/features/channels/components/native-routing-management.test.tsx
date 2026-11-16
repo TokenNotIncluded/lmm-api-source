@@ -4,7 +4,11 @@ import { after, afterEach, test } from 'node:test'
 
 import { Window } from 'happy-dom'
 
-import { parseNativeDocument, type NativeConfiguration } from '../native-api'
+import {
+  parseNativeDocument,
+  stringifyNativeDocument,
+  type NativeConfiguration,
+} from '../native-api'
 
 type SuccessfulResponse<Data> = { data: { success: true; data: Data } }
 
@@ -306,6 +310,108 @@ test('prices require a reviewed preview and editing invalidates the exact confir
     (writes[0].body.prices as typeof config.prices).rules[0].rates.input,
     10
   )
+})
+
+test('twenty exact tariff fractions survive price review, publication and subsequent visual model edits', async () => {
+  const base = fixture()
+  const literals = Array.from({ length: 20 }, (_, index) =>
+    (9_007_199_254_740_993n + BigInt(index * 2)).toString()
+  )
+  const rows = literals.map((literal, index) => {
+    const row = JSON.stringify({
+      ...base.prices.rules[0],
+      id: index + 1,
+      model: index === 0 ? 'model-a' : `catalog-${index}`,
+      rates: { input: 0, output: 0, cache_read: 0, cache_write: 0, request: 0 },
+    })
+    return (
+      `${row.slice(
+        0,
+        -1
+      )},"billing_mode":"tiered_decimal","tiered":{"revision":1,"source_digest":"${'a'.repeat(
+        64
+      )}","uses_cache_read":false,"uses_cache_write":false,"tiers":[{"rates":` +
+      `{"input":{"numerator":${literal},"denominator":1000000000000000000},` +
+      `"output":{"numerator":1,"denominator":1},` +
+      `"cache_read":{"numerator":0,"denominator":1},` +
+      `"cache_write":{"numerator":0,"denominator":1}}}]}}`
+    )
+  })
+  let config: NativeConfiguration = {
+    ...base,
+    prices: parseNativeDocument(
+      `{"prices":{"version":1,"rules":[${rows.join(',')}]}}`
+    ).prices as NativeConfiguration['prices'],
+  }
+  let published = false
+  api.request = (async (options: {
+    url: string
+    method: string
+    data?: Record<string, unknown>
+  }) => {
+    if (options.method === 'GET') {
+      return { data: { success: true, data: config } }
+    }
+    assert.ok(options.data)
+    const wire = stringifyNativeDocument(options.data)
+    for (const literal of literals) {
+      assert.ok(wire.includes(`"numerator":${literal},`))
+    }
+    if (options.url.endsWith('/preview')) {
+      return {
+        data: {
+          success: true,
+          data: {
+            after: options.data.prices ?? options.data.model,
+            confirmation_digest: 'b'.repeat(64),
+          },
+        },
+      }
+    }
+    assert.equal(options.data.confirmation_digest, 'b'.repeat(64))
+    published = true
+    config = {
+      ...config,
+      version: { routing: 2, pricing: 2 },
+      routing: { ...config.routing, version: 2 },
+      prices: options.data.prices as NativeConfiguration['prices'],
+    }
+    return { data: { success: true, data: { version: config.version } } }
+  }) as typeof api.request
+  const container = await mount('prices')
+  await until(() =>
+    [...container.querySelectorAll('button')].some(
+      (element) => element.textContent === 'Edit'
+    )
+  )
+  await act(async () => button(container, 'Edit').click())
+  const textarea = required(container.querySelector('textarea'))
+  for (const literal of literals) assert.ok(textarea.value.includes(literal))
+  assert.equal(textarea.value.includes('isLosslessNumber'), false)
+  await act(async () => button(container, 'Preview').click())
+  await until(
+    () => container.textContent?.includes('Confirm and apply') === true
+  )
+  await act(async () => button(container, 'Confirm and apply').click())
+  await until(() => published && !container.querySelector('textarea'))
+  await act(async () => button(container, 'Models').click())
+  await act(async () => button(container, 'Edit').click())
+  const name = required(
+    [...container.querySelectorAll('label')]
+      .find((label) => label.textContent?.includes('Display name'))
+      ?.querySelector('input')
+  )
+  await changeInput(name, 'Reviewed exact tariff')
+  const edited = required(
+    [...container.querySelectorAll('label')]
+      .find((label) => label.textContent?.includes('Configuration'))
+      ?.querySelector('textarea')
+  )
+  assert.ok(edited.value.includes(literals[0]))
+  assert.equal(edited.value.includes('isLosslessNumber'), false)
+  const modelDraft = stringifyNativeDocument(parseNativeDocument(edited.value))
+  assert.ok(modelDraft.includes(`"numerator":${literals[0]},`))
+  assert.ok(modelDraft.includes('Reviewed exact tariff'))
 })
 
 test('native channel cards toggle status once with CAS and refresh the published state', async () => {

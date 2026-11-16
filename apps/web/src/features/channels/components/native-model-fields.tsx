@@ -7,7 +7,10 @@ import { Checkbox } from '@/components/ui/checkbox'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 
-import type { NativeConfiguration } from '../native-api'
+import {
+  stringifyNativeDocument,
+  type NativeConfiguration,
+} from '../native-api'
 import {
   microsToUsd,
   modelIdentity,
@@ -129,7 +132,7 @@ export function NativeModelFields({
   if (!draft) return null
   const current = draft
   const put = (next: NativeModelDraft) =>
-    onChange(JSON.stringify(next, null, 2))
+    onChange(stringifyNativeDocument(next, 2))
   function patchTarget(index: number, patch: Partial<NativeTargetDraft>) {
     const targets = current.route.targets.map((target, position) =>
       position === index ? { ...target, ...patch } : target

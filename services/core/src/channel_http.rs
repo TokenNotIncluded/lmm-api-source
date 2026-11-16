@@ -4,6 +4,7 @@
 //! Mutations use the durable control plane when installed by the host.
 
 mod control;
+mod pricing_snapshot;
 mod sorting;
 pub use control::{ManagedChannels, ManagementError};
 pub const SCHEMA: &str = include_str!("../schema/channel_control.sql");
@@ -63,6 +64,10 @@ fn routes(state: ChannelState) -> Router {
         .route("/api/channel/", get(list).put(unsupported))
         .route("/api/channel/search", get(list))
         .route("/api/channel/ops", get(ops))
+        .route(
+            "/core/v1/admin/routing/pricing-source-snapshot",
+            get(pricing_snapshot::read),
+        )
         .route("/api/channel/{id}", get(detail).delete(control::remove))
         .route(
             "/api/channel/{id}/status",
@@ -498,6 +503,17 @@ fn page_with_statistics(
 }
 
 async fn admit(state: &ChannelState, headers: &HeaderMap) -> Result<(), HistoryError> {
+    authorized_read_snapshot(state, headers)
+        .await?
+        .commit()
+        .await?;
+    Ok(())
+}
+
+async fn authorized_read_snapshot<'a>(
+    state: &'a ChannelState,
+    headers: &HeaderMap,
+) -> Result<sqlx::Transaction<'a, sqlx::Postgres>, HistoryError> {
     if headers.get_all(header::AUTHORIZATION).iter().count() != 1 {
         return Err(HistoryError::Unauthorized);
     }
@@ -511,8 +527,7 @@ async fn admit(state: &ChannelState, headers: &HeaderMap) -> Result<(), HistoryE
     let mut tx = state.identity.read_snapshot().await?;
     let principal = identity::authenticate_readonly_in_transaction(&mut tx, secret).await?;
     authorize_action(&mut tx, &principal, permissions::Action::ChannelRead).await?;
-    tx.commit().await?;
-    Ok(())
+    Ok(tx)
 }
 
 async fn authorize_action(

@@ -40,6 +40,7 @@
         "i18next": "^27.1.1",
         "i18next-browser-languagedetector": "^8.3.0",
         "katex": "^0.19.1",
+        "lossless-json": "4.3.3",
         "lucide-react": "^1.72.0",
         "marked": "^18.2.0",
         "motion": "^14.13.0",
@@ -1367,6 +1368,8 @@
     "longest-streak": ["longest-streak@3.1.0", "https://registry.npmmirror.com/longest-streak/-/longest-streak-3.1.0.tgz", {}, "sha512-9Ri+o0JYgehTaVBBDoMqIl8GXtbWg711O3srftcHhZ0dqnETqLaoIK0x17fUw9rFSlK/0NlsKe0Ahhyl5pXE2g=="],
 
     "loose-envify": ["loose-envify@1.4.0", "https://registry.npmmirror.com/loose-envify/-/loose-envify-1.4.0.tgz", { "dependencies": { "js-tokens": "^3.0.0 || ^4.0.0" }, "bin": "cli.js" }, "sha512-lyuxPGr/Wfhrlem2CL/UcnUc1zcqKAImBDzukY7Y5F/yQiNdko6+fRLevlw1HgMySw7f611UIY408EtxRSoK3Q=="],
+
+    "lossless-json": ["lossless-json@4.3.3", "https://registry.npmmirror.com/lossless-json/-/lossless-json-4.3.3.tgz", {}, "sha512-FGFrGArHsv7BRiYOf37ZRieT9HlKw+Kpu9HvtpYjcoOEo8lqNkjny8A2YAfWNWWQC+9pcLIrLZ+IviKJhaHwGQ=="],
 
     "lottie-web": ["lottie-web@5.13.0", "https://registry.npmmirror.com/lottie-web/-/lottie-web-5.13.0.tgz", {}, "sha512-+gfBXl6sxXMPe8tKQm7qzLnUy5DUPJPKIyRHwtpCpyUEYjHYRJC/5gjUvdkuO2c3JllrPtHXH5UJJK8LRYl5yQ=="],
 

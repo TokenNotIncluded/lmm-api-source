@@ -11,8 +11,10 @@ import { useChannelOps } from '@/features/channels/use-channel-ops'
 import { useCapabilityFreshness } from '@/hooks/use-capability-freshness'
 import { getServerErrorMessage } from '@/lib/server-error-message'
 
+import { PricingSourceSnapshot } from './pricing-source-snapshot'
+
 /** Prices belong to the published routing release, not the legacy options API. */
-export function NativePricingSection() {
+function NativePricingEditor() {
   const { t } = useTranslation()
   const runtime = useRuntimeCapabilities()
   const localQuery = useChannelOps(!runtime)
@@ -59,4 +61,13 @@ export function NativePricingSection() {
     )
   }
   return <NativeRoutingManagement initialSection='prices' />
+}
+
+export function NativePricingSection() {
+  return (
+    <div className='space-y-8'>
+      <NativePricingEditor />
+      <PricingSourceSnapshot />
+    </div>
+  )
 }

@@ -31,6 +31,7 @@ import {
   type NativeRoutingScope,
   NATIVE_ROOT,
   parseNativeDocument,
+  stringifyNativeDocument,
   type NativeModelRoute,
   type NativePriceDraft,
   type NativeUpstream,
@@ -76,7 +77,7 @@ const sections: Array<[Section, string]> = [
   ['vendors', 'Vendor'],
   ['prices', 'Pricing'],
 ]
-const pretty = (value: unknown) => JSON.stringify(value, null, 2)
+const pretty = (value: unknown) => stringifyNativeDocument(value, 2)
 const nextId = (ids: number[]) =>
   ids.reduce((maximum, id) => Math.max(maximum, id), 0) + 1
 
