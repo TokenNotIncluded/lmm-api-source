@@ -43,18 +43,16 @@ test('navigation shortcuts target registered native routes directly', () => {
   )
 })
 
-test('generated routes retain native destinations and remove retired aliases', () => {
+test('generated routes retain native destinations and released bookmarks', () => {
   const tree = readFileSync(
     new URL('../routeTree.gen.ts', import.meta.url),
     'utf8'
   )
-  for (const path of ['/keys', '/profile']) {
+  for (const path of ['/keys', '/profile', '/api-keys', '/settings']) {
     assert.ok(tree.includes(`'${path}'`))
   }
   for (const path of [
     '/console',
-    '/api-keys',
-    '/settings',
     '/login',
     '/forbidden',
     '/developer-access',

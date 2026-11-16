@@ -53,8 +53,9 @@ export const nativeImageVariantSchema = z
   .object({
     endpoint: z.enum(['generations', 'edits']),
     rate_basis: z.enum(['base_group_rate', 'effective_user_rate']).optional(),
-    size: identifier,
-    quality: identifier,
+    // Empty size/quality means "any / default" for that axis on image SKUs.
+    size: z.string().max(1024),
+    quality: z.string().max(1024),
     max_n: safeInteger.positive(),
     count_basis: z.union([
       z.enum(['requested', 'returned_payloads']),
@@ -75,6 +76,7 @@ export const nativeImageVariantSchema = z
                 .strict(),
               max_input_tokens: safeInteger.positive(),
               max_output_tokens: safeInteger.positive(),
+              usage_contract: z.string().min(1).max(256).optional(),
             })
             .strict(),
         })

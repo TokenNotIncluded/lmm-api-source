@@ -21,14 +21,11 @@ import z from 'zod'
 
 import { Pricing } from '@/features/pricing'
 import { resolvePricingRouteAccess } from '@/features/pricing/lib/route-access'
-import { PublicAccessPricing } from '@/features/pricing/public-access-pricing'
-import { isConsoleActivated } from '@/lib/console-activation'
-import { useAuthStore } from '@/stores/auth-store'
 
 function PricingRoute() {
-  const user = useAuthStore((state) => state.auth.user)
-
-  return isConsoleActivated(user) ? <Pricing /> : <PublicAccessPricing />
+  // Always show the live catalog. L0 gating belongs on purchase/details, not on
+  // hiding model prices behind a marketing-only shell.
+  return <Pricing />
 }
 
 const pricingSearchSchema = z.object({
