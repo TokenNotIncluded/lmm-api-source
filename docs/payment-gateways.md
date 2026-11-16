@@ -89,6 +89,17 @@ role, select `payments` in `host.modules`, enable `host.web_compat`, and configu
 Enable `callbacks_enabled` with its callback ingress. Core requires its own payment
 configuration, narrowly granted RPC permissions and payment runtime privileges.
 The example leaves refund permissions disabled; grant them explicitly when enabling refunds.
+
+Core's `proof_ingress` and `credit_evidence` permissions authorize native intent
+proofs and credits. Historical top-ups instead require `legacy_proof_ingress` and
+`legacy_credit_evidence`, both defaulting to false. Existing configuration files
+remain valid, but deployments that settle historical orders must explicitly grant
+these new permissions after reviewing that settlement scope. Native permissions
+never imply either legacy grant. `proof_read` still permits read-only proof lookup
+for both paths; recovering an already admitted legacy proof still requires
+`legacy_credit_evidence` to credit it. See the
+[legacy settlement contract](legacy-payment-obligations.md#内部-rpc-与旧订单回调).
+
 See [Core runtime configuration](../config/core.example.toml),
 [Extensions runtime configuration](../config/extensions.example.toml) and
 [database provisioning](../deployment/postgres/README.md). Ordinary startup performs no DDL.

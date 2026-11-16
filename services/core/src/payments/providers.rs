@@ -1547,9 +1547,9 @@ mod tests {
             store.clone(),
             b"0123456789abcdef0123456789abcdef",
             crate::payments::rpc::Permissions {
-                proof_ingress: true,
+                legacy_proof_ingress: true,
                 proof_read: true,
-                credit_evidence: true,
+                legacy_credit_evidence: true,
                 ..Default::default()
             },
         )

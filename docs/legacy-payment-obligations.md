@@ -115,10 +115,10 @@ v1 独立 owner 使用另一组合成输入，通过真实 CLI 和全新 Postgre
 
 ### 内部 RPC 与旧订单回调
 
-内部 `CorePayments` 增加 `AcceptLegacyProviderProof`、`GetLegacyProviderProof` 和 `CreditLegacyTopup`，分别使用已有的 proof ingress、proof read、credit evidence 服务权限。服务令牌、protocol metadata、并发上限和超时沿用支付 RPC 边界；客户端不能指定到账账户、汇率或金额。证明响应只含持久 proof/basis、原订单、事件、ORD/PAY、载荷 hash 和接纳时间，不返回签名或到账状态。恢复查询绑定当前配置中的渠道 namespace、原订单、事件和精确载荷 hash，不重新验签；合法公钥轮换后仍能恢复已接纳证明，未知或变更内容不能凭查询取得发放依据。
+内部 `CorePayments` 的 `AcceptLegacyProviderProof`、`GetLegacyProviderProof` 和 `CreditLegacyTopup` 分别使用 `legacy_proof_ingress`、`proof_read`、`legacy_credit_evidence` 服务权限。两个 legacy 写权限默认关闭；原配置仍可解析，但依赖旧订单结算的部署在升级后须显式增加相应授权。原 `proof_ingress` 与 `credit_evidence` 仅授权 native intent，不能用于旧证明接纳或恢复入账。服务令牌、protocol metadata、并发上限和超时沿用支付 RPC 边界；客户端不能指定到账账户、汇率或金额。证明响应只含持久 proof/basis、原订单、事件、ORD/PAY、载荷 hash 和接纳时间，不返回签名或到账状态。恢复查询绑定当前配置中的渠道 namespace、原订单、事件和精确载荷 hash，不重新验签；合法公钥轮换后仍能恢复已接纳证明，未知或变更内容不能凭查询取得发放依据。
 
 Go 的原 `/callbacks/{channel}` 为 Pancake 增加旧引用分支；`top_` 前缀仍走新订单路径，失败不能回退到旧订单。冻结快照的 177 个 Pancake 原引用均不匹配新订单格式。旧分支保留原始请求字节与签名，不把原微单位金额转成新订单整分，不强制匹配当前 Go 商品元数据。它先查询持久证明，仅 NotFound 才提交验签；随后使用固定 `legacy-credit:<basis_id>` 操作键请求入账。只有 Core 返回有效 CREDIT_APPLIED、原 basis 和持久 journal 才确认成功；rejected、未知提交和其他错误不确认成功。新的 delivery/proof 若对应已入账 basis，Core 可返回首次入账的原 proof 回执。
 
-新入口没有安装真实旧订单依据，仍需真实渠道绑定审核、完整折扣/返佣等副作用和最终业务验收。当前没有自动扫描并应用遗留证明的恢复 worker；保留的证明可在后续回调时恢复，不能把仅接纳证明当作已完成入账或已排队资金。
+新入口没有安装真实旧订单依据，仍需真实渠道绑定审核、完整折扣/返佣等副作用和最终业务验收。Go 的 Pancake wallet inbox 可重放已收到的原始回调，仍经过上述查询、接纳与入账 RPC；即使证明已经持久保存，关闭 `legacy_credit_evidence` 也会拒绝该恢复写入。它不自动扫描 Core 中的全部遗留证明，不能把仅接纳证明当作已完成入账。
 
 本地自测已用隔离 PostgreSQL 验证新库安装、证明不增余额、按原额度入账、原回执重放、后续 PAY 别名、单次折扣消费投影及新订单 ORD 冲突拒绝；原有 14 项渠道测试、两项运行时最小权限与禁止写权限测试通过。测试使用本地 RSA 签名和合成账户，Core RPC 方法已在真实数据库验证，Go 回调及 bridge 包测试通过；独立真实 Core/Go 主进程及分离权限 PostgreSQL 联合验收 13/13 通过：正常首次回调、立即重复、证明已保存但无入账时重启、过期/畸形签名配原载荷恢复、新 event/PAY 别名及相应拒绝分支。两笔合成订单各只有一个 application/journal，钱包精确为两份冻结额度之和；原回执内容不变。验收使用冻结二进制，没有重新生成编译缓存，不覆盖真实供应商或完整折扣引擎。Rejected 回执的 HTTP 重放、原生新订单完整生命周期、自动恢复 worker、最终全量演练及页面验收仍未完成。尚无真实供应商回调，也未执行独立业务验收；上述历史本地演练及 RSA 自签名验签结果不能代替这些门槛。

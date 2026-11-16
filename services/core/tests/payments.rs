@@ -1521,6 +1521,7 @@ async fn real_go_http_uds_proof_survives_expiry_and_service_restart(pool: PgPool
         refund_evidence: true,
         read_user: true,
         reconcile: true,
+        ..Permissions::default()
     };
     let (shutdown, receiver) = watch::channel(false);
     let rpc = PaymentsRpc::new(f.store.0.clone(), token.as_bytes(), permissions).unwrap();

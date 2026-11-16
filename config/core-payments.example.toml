@@ -12,6 +12,10 @@ read_user = true
 reconcile = true
 proof_ingress = true
 proof_read = true
+# Historical top-ups need separate, reviewed grants; native permissions do not
+# authorize their proof admission or credit recovery. Both default to false.
+legacy_proof_ingress = false
+legacy_credit_evidence = false
 refund_user = false
 refund_evidence = false
 # External EPay/Stripe/Creem/Pancake subscriptions share these historically named

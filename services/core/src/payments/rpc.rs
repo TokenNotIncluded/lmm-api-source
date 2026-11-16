@@ -10,10 +10,14 @@ use tonic::{Request, Response, Status, metadata::MetadataMap};
 
 #[derive(Clone, Copy, Default)]
 pub struct Permissions {
+    /// Native intent proof admission; legacy bases require a separate grant.
     pub proof_ingress: bool,
+    pub legacy_proof_ingress: bool,
     pub proof_read: bool,
     pub prepare: bool,
+    /// Native intent crediting; legacy proof recovery requires a separate grant.
     pub credit_evidence: bool,
+    pub legacy_credit_evidence: bool,
     pub refund_user: bool,
     pub refund_evidence: bool,
     pub read_user: bool,
@@ -69,9 +73,9 @@ impl PaymentsRpc {
         let p = self.permissions;
         [
             (p.proof_ingress, "payments.proof.accept"),
-            (p.proof_ingress, "payments.legacy.proof.accept"),
+            (p.legacy_proof_ingress, "payments.legacy.proof.accept"),
             (p.proof_read, "payments.legacy.proof.reconcile"),
-            (p.credit_evidence, "payments.legacy.topup.credit"),
+            (p.legacy_credit_evidence, "payments.legacy.topup.credit"),
             (p.proof_read, "payments.proof.reconcile"),
             (p.prepare, "payments.topup.prepare"),
             (p.prepare, "payments.topup.prepare_personal"),
@@ -157,7 +161,7 @@ impl pb::core_payments_server::CorePayments for PaymentsRpc {
         &self,
         request: Request<pb::AcceptLegacyProviderProofRequest>,
     ) -> Result<Response<pb::LegacyProviderProofReceipt>, Status> {
-        self.check(request.metadata(), self.permissions.proof_ingress)?;
+        self.check(request.metadata(), self.permissions.legacy_proof_ingress)?;
         let r = request.into_inner();
         self.bounded_for(Duration::from_secs(3), async {
             self.store
@@ -195,7 +199,7 @@ impl pb::core_payments_server::CorePayments for PaymentsRpc {
         &self,
         request: Request<pb::CreditLegacyTopupRequest>,
     ) -> Result<Response<pb::LegacyPaymentReceipt>, Status> {
-        self.check(request.metadata(), self.permissions.credit_evidence)?;
+        self.check(request.metadata(), self.permissions.legacy_credit_evidence)?;
         let r = request.into_inner();
         let mutation = r
             .mutation
@@ -408,27 +412,20 @@ mod tests {
         );
     }
 
-    #[tokio::test]
-    async fn legacy_methods_require_their_explicit_payment_permissions() {
-        fn auth<T>(body: T) -> Request<T> {
-            let mut request = Request::new(body);
-            request.metadata_mut().insert(
-                "authorization",
-                "Bearer 0123456789abcdef0123456789abcdef".parse().unwrap(),
-            );
-            request
-                .metadata_mut()
-                .insert("x-lmm-protocol", "1".parse().unwrap());
-            request
-        }
-        assert_eq!(
-            service(true)
-                .accept_legacy_provider_proof(auth(pb::AcceptLegacyProviderProofRequest::default()))
-                .await
-                .unwrap_err()
-                .code(),
-            tonic::Code::PermissionDenied
+    fn auth<T>(body: T) -> Request<T> {
+        let mut request = Request::new(body);
+        request.metadata_mut().insert(
+            "authorization",
+            "Bearer 0123456789abcdef0123456789abcdef".parse().unwrap(),
         );
+        request
+            .metadata_mut()
+            .insert("x-lmm-protocol", "1".parse().unwrap());
+        request
+    }
+
+    #[tokio::test]
+    async fn native_permissions_do_not_authorize_legacy_writes_or_recovery() {
         assert_eq!(
             service(true)
                 .get_legacy_provider_proof(auth(pb::GetLegacyProviderProofRequest::default()))
@@ -437,22 +434,127 @@ mod tests {
                 .code(),
             tonic::Code::PermissionDenied
         );
+        let mut rpc = service(true);
+        rpc.permissions.proof_ingress = true;
+        rpc.permissions.credit_evidence = true;
+        rpc.permissions.proof_read = true;
+        rpc.permissions.reconcile = true;
+
         assert_eq!(
-            service(true)
-                .credit_legacy_topup(auth(pb::CreditLegacyTopupRequest::default()))
+            rpc.accept_legacy_provider_proof(auth(pb::AcceptLegacyProviderProofRequest::default()))
                 .await
                 .unwrap_err()
                 .code(),
             tonic::Code::PermissionDenied
         );
+        // The callback recovery worker can find an already admitted proof, but
+        // replaying its stable operation key still needs legacy credit authority.
         assert_eq!(
-            service(true)
-                .credit_legacy_topup(Request::new(pb::CreditLegacyTopupRequest::default()))
+            rpc.credit_legacy_topup(auth(pb::CreditLegacyTopupRequest {
+                proof_id: "lproof_stored_before_restart".into(),
+                mutation: Some(pb::MutationContext {
+                    idempotency_key: "legacy-credit:reviewed_basis".into(),
+                    expected_version: None,
+                }),
+            }))
+            .await
+            .unwrap_err()
+            .code(),
+            tonic::Code::PermissionDenied
+        );
+        assert_eq!(
+            rpc.credit_legacy_topup(Request::new(pb::CreditLegacyTopupRequest::default()))
                 .await
                 .unwrap_err()
                 .code(),
             tonic::Code::Unauthenticated
         );
+        // Native writes and the shared read-only proof lookup retain their
+        // permissions: these invalid bodies reach validation without a database.
+        assert_eq!(
+            rpc.accept_provider_proof(auth(pb::AcceptProviderProofRequest::default()))
+                .await
+                .unwrap_err()
+                .code(),
+            tonic::Code::InvalidArgument
+        );
+        assert_eq!(
+            rpc.credit_topup(auth(pb::CreditTopupRequest::default()))
+                .await
+                .unwrap_err()
+                .code(),
+            tonic::Code::InvalidArgument
+        );
+        assert_eq!(
+            rpc.get_legacy_provider_proof(auth(pb::GetLegacyProviderProofRequest::default()))
+                .await
+                .unwrap_err()
+                .code(),
+            tonic::Code::InvalidArgument
+        );
+        let features = rpc.features();
+        assert!(features.iter().any(|f| f == "payments.proof.accept"));
+        assert!(features.iter().any(|f| f == "payments.topup.credit"));
+        assert!(!features.iter().any(|f| f == "payments.legacy.proof.accept"));
+        assert!(!features.iter().any(|f| f == "payments.legacy.topup.credit"));
+    }
+
+    #[tokio::test]
+    async fn legacy_write_permissions_are_independent_and_advertised_explicitly() {
+        for (proof, credit) in [(true, false), (false, true)] {
+            let mut rpc = service(false);
+            rpc.permissions.legacy_proof_ingress = proof;
+            rpc.permissions.legacy_credit_evidence = credit;
+            // An allowed proof reaches storage. Closing the never-connected pool
+            // makes that boundary observable without contacting PostgreSQL.
+            rpc.store.pool.close().await;
+            assert_eq!(
+                rpc.accept_legacy_provider_proof(auth(
+                    pb::AcceptLegacyProviderProofRequest::default()
+                ))
+                .await
+                .unwrap_err()
+                .code(),
+                if proof {
+                    tonic::Code::Unavailable
+                } else {
+                    tonic::Code::PermissionDenied
+                }
+            );
+            assert_eq!(
+                rpc.credit_legacy_topup(auth(pb::CreditLegacyTopupRequest::default()))
+                    .await
+                    .unwrap_err()
+                    .code(),
+                if credit {
+                    tonic::Code::InvalidArgument
+                } else {
+                    tonic::Code::PermissionDenied
+                }
+            );
+            assert_eq!(
+                rpc.accept_provider_proof(auth(pb::AcceptProviderProofRequest::default()))
+                    .await
+                    .unwrap_err()
+                    .code(),
+                tonic::Code::PermissionDenied
+            );
+            assert_eq!(
+                rpc.credit_topup(auth(pb::CreditTopupRequest::default()))
+                    .await
+                    .unwrap_err()
+                    .code(),
+                tonic::Code::PermissionDenied
+            );
+            assert_eq!(
+                rpc.features(),
+                vec![if proof {
+                    "payments.legacy.proof.accept"
+                } else {
+                    "payments.legacy.topup.credit"
+                }]
+            );
+        }
     }
 
     #[tokio::test]

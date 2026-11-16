@@ -2089,11 +2089,13 @@ struct PaymentPermissions {
     subscription_epay_grant: bool,
     prepare: bool,
     credit_evidence: bool,
+    legacy_credit_evidence: bool,
     refund_user: bool,
     refund_evidence: bool,
     read_user: bool,
     reconcile: bool,
     proof_ingress: bool,
+    legacy_proof_ingress: bool,
     proof_read: bool,
 }
 
@@ -2489,11 +2491,13 @@ pub async fn financial_rpcs(url: &str, control_token: &[u8]) -> io::Result<Finan
         let permissions = crate::payments::rpc::Permissions {
             prepare: p.prepare,
             credit_evidence: p.credit_evidence,
+            legacy_credit_evidence: p.legacy_credit_evidence,
             refund_user: p.refund_user,
             refund_evidence: p.refund_evidence,
             read_user: p.read_user,
             reconcile: p.reconcile,
             proof_ingress: p.proof_ingress,
+            legacy_proof_ingress: p.legacy_proof_ingress,
             proof_read: p.proof_read,
         };
         let pool = bounded_database_pool(url, 2).await?;
@@ -4372,15 +4376,31 @@ email_domain_whitelist = ["gmail.com", "outlook.com"]
         assert!(
             !permissions.prepare
                 && !permissions.credit_evidence
+                && !permissions.legacy_credit_evidence
                 && !permissions.refund_user
                 && !permissions.refund_evidence
                 && !permissions.read_user
                 && !permissions.reconcile
                 && !permissions.proof_ingress
+                && !permissions.legacy_proof_ingress
                 && !permissions.proof_read
         );
         assert!(parse_document::<CommerceConfig>(b"version=1\ntransfer=true\n").is_err());
         assert!(parse_document::<PaymentConfig>(b"version=1\nprovider='stripe-test'\nchannels=[]\n[permissions]\nrelease_refund=true\n").is_err());
+    }
+    #[test]
+    fn payment_configuration_keeps_legacy_write_permissions_explicit() {
+        // Existing documents remain valid, but native grants no longer opt into
+        // legacy proof admission or replay of a previously admitted legacy proof.
+        let native: PaymentPermissions =
+            parse_document(b"proof_ingress=true\ncredit_evidence=true\n").unwrap();
+        assert!(native.proof_ingress && native.credit_evidence);
+        assert!(!native.legacy_proof_ingress && !native.legacy_credit_evidence);
+
+        let legacy: PaymentPermissions =
+            parse_document(b"legacy_proof_ingress=true\nlegacy_credit_evidence=true\n").unwrap();
+        assert!(legacy.legacy_proof_ingress && legacy.legacy_credit_evidence);
+        assert!(!legacy.proof_ingress && !legacy.credit_evidence);
     }
     #[test]
     fn payment_configuration_requires_explicit_direct_usd_mode() {
