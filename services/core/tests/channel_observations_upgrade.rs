@@ -44,11 +44,23 @@ async fn check_history(c: &mut sqlx::PgConnection) {
 #[sqlx::test(migrations = false)]
 async fn fresh_current_is_bound_to_captured_target_and_seeds_no_authority(pool: sqlx::PgPool) {
     lmm_core::core_schema::init(&pool).await.unwrap();
-    assert_eq!(lmm_core::core_schema::component_count(), 47);
-    // Deliberately fails until central captures and approves target46. Never skip.
+    use sha2::{Digest, Sha256};
+    let target: serde_json::Value = serde_json::from_str(include_str!(
+        "../src/core_schema/upgrade/fresh70_target.json"
+    ))
+    .unwrap();
+    let count = usize::try_from(target["component_count"].as_u64().unwrap()).unwrap();
+    assert_eq!(lmm_core::core_schema::component_count(), count);
+    let mut manifest = serde_json::to_vec(&lmm_core::core_schema::schema_manifest()).unwrap();
+    manifest.push(b'\n');
+    assert_eq!(
+        hex_codec::encode(Sha256::digest(manifest)),
+        target["manifest_sha256"].as_str().unwrap()
+    );
+    // The full checked-in manifest binds every component name and SQL digest.
     lmm_core::core_schema::check(&pool)
         .await
-        .expect("capture and review current target catalog first");
+        .expect("current installer must match the independently captured contract");
     let empty:bool=sqlx::query_scalar("SELECT NOT EXISTS(SELECT FROM core_channels.catalog_observations) AND NOT EXISTS(SELECT FROM core_meta.channel_observations_upgrades) AND NOT EXISTS(SELECT FROM core_trust_pricing.policy_edit_signing_key) AND NOT EXISTS(SELECT FROM core_trust_pricing.policy_editors) AND NOT EXISTS(SELECT FROM core_identity.users) AND NOT EXISTS(SELECT FROM core_billing.ledger_journals) AND NOT EXISTS(SELECT FROM core_billing.ledger_entries)")
         .fetch_one(&pool).await.unwrap();
     assert!(empty);
