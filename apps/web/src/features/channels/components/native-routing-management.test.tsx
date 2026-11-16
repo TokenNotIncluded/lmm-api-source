@@ -1845,6 +1845,124 @@ test('channel editing exposes common fields and preserves bindings, context meta
   ])
 })
 
+test('channel bindings add, map and remove models through one reviewed channel draft', async () => {
+  const config: NativeConfiguration = fixture()
+  config.routing.groups.push({ name: 'team', enabled: true })
+  config.routing.routes.push({
+    ...config.routing.routes[0],
+    id: 2,
+    model: 'model-b',
+    group: 'team',
+    targets: [],
+  })
+  config.prices.rules.push({
+    ...config.prices.rules[0],
+    id: 2,
+    model: 'model-b',
+    group: 'team',
+  })
+  config.bindings.contexts = [
+    {
+      upstream_id: 1,
+      upstream_model: 'model-a',
+      protocol: 'openai_chat',
+      endpoint: config.routing.upstreams[0].endpoint,
+      max_input_tokens: 8192,
+      max_output_tokens: 4096,
+      contract_revision: 'supplier-a',
+      reservation: { mode: 'legacy_upper_bound' },
+    },
+  ]
+  const writes: Record<string, unknown>[] = []
+  api.request = (async (options: {
+    method: string
+    url: string
+    data?: Record<string, unknown>
+  }) => {
+    if (options.method === 'GET') {
+      return { data: { success: true, data: config } }
+    }
+    assert.equal(options.method, 'PUT')
+    assert.equal(options.url, '/core/v1/admin/routing/channels/1')
+    writes.push(required(options.data))
+    return {
+      data: { success: true, data: { version: { routing: 2, pricing: 1 } } },
+    }
+  }) as typeof api.request
+  const container = await mount('channels')
+  await until(() =>
+    [...container.querySelectorAll('button')].some(
+      (item) => item.textContent === 'Edit'
+    )
+  )
+  await act(async () => button(container, 'Edit').click())
+  const form = required(
+    container.querySelector<HTMLFormElement>('form[aria-label="Edit Channel"]')
+  )
+  const textarea = required(form.querySelector('textarea'))
+  const routeFields = (id: number) =>
+    required(form.querySelector(`fieldset[data-route-id="${id}"]`))
+  const field = (scope: Element, label: string) =>
+    required(
+      [...scope.querySelectorAll('label')]
+        .find((item) => item.querySelector('span')?.textContent === label)
+        ?.querySelector('input')
+    )
+  const selector = required(form.querySelector('select'))
+  await act(async () => {
+    selector.value = '2'
+    selector.dispatchEvent(new Event('change', { bubbles: true }))
+  })
+  await act(async () => button(form, 'Add Model').click())
+  assert.ok(routeFields(2).textContent?.includes('model-b'))
+  assert.ok(routeFields(2).textContent?.includes('team'))
+  assert.equal(writes.length, 0)
+  assert.equal(form.checkValidity(), false)
+  await changeInput(field(routeFields(2), 'Upstream model'), 'supplier-b')
+  await changeInput(field(routeFields(2), 'Priority'), '2')
+  await changeInput(field(routeFields(2), 'Weight'), '')
+  assert.ok(routeFields(2))
+  assert.equal(JSON.parse(textarea.value).attachments[1].weight, '')
+  assert.equal(form.checkValidity(), false)
+  await changeInput(field(routeFields(2), 'Weight'), '7')
+  await changeInput(field(routeFields(2), 'Timeout (ms)'), '15000')
+  await changeInput(field(routeFields(2), 'Maximum input tokens'), '16384')
+  await changeInput(field(routeFields(2), 'Maximum output tokens'), '2048')
+  await changeInput(field(routeFields(2), 'Contract revision'), 'supplier-b-v1')
+  assert.equal(required(routeFields(2).querySelector('details')).open, true)
+  await act(async () => button(routeFields(1), 'Remove').click())
+  assert.equal(form.querySelector('[data-route-id="1"]'), null)
+  assert.equal(writes.length, 0)
+  const draft = JSON.parse(textarea.value)
+  assert.deepEqual(draft.expected_version, { routing: 1, pricing: 1 })
+  assert.deepEqual(draft.attachments, [
+    {
+      route_id: 2,
+      upstream_model: 'supplier-b',
+      priority: 2,
+      weight: 7,
+      speeds: ['standard'],
+      timeout_ms: 15000,
+      payload: 'adapt',
+    },
+  ])
+  assert.deepEqual(draft.contexts, [
+    {
+      upstream_id: 1,
+      upstream_model: 'supplier-b',
+      endpoint: config.routing.upstreams[0].endpoint,
+      protocol: 'openai_chat',
+      max_input_tokens: 16384,
+      max_output_tokens: 2048,
+      contract_revision: 'supplier-b-v1',
+    },
+  ])
+  assert.equal(form.checkValidity(), true)
+  await act(async () => button(form, 'Save').click())
+  await until(() => writes.length === 1)
+  assert.deepEqual(writes[0], draft)
+})
+
 test('the channel page exposes editing immediately without a configuration toggle or a duplicate read-only list', async () => {
   const config = fixture()
   api.request = (async (options: { method: string; url: string }) => {
@@ -2037,7 +2155,11 @@ test('model fields preserve the CAS draft and require a fresh preview after exac
   await until(() => !!container.textContent?.includes('model-a'))
   await act(async () => button(container, 'Edit').click())
   const form = required(container.querySelector('form'))
-  assert.equal(required(form.querySelector<HTMLDetailsElement>('details:last-of-type')).open, false)
+  assert.equal(
+    required(form.querySelector<HTMLDetailsElement>('details:last-of-type'))
+      .open,
+    false
+  )
   const field = (text: string) =>
     required(
       [...form.querySelectorAll('label')]
@@ -2076,6 +2198,47 @@ test('model fields preserve the CAS draft and require a fresh preview after exac
     (writes[0].route as (typeof config.routing.routes)[0]).targets,
     config.routing.routes[0].targets
   )
+})
+
+test('a newly mapped model keeps its supplier contract open while the operator types its revision', async () => {
+  const config: NativeConfiguration = fixture()
+  config.bindings.contexts = [
+    {
+      upstream_id: 1,
+      upstream_model: 'model-a',
+      protocol: 'openai_chat',
+      endpoint: config.routing.upstreams[0].endpoint,
+      max_input_tokens: 8192,
+      max_output_tokens: 4096,
+      contract_revision: 'supplier-a',
+    },
+  ]
+  api.request = (async (options: { method: string }) => {
+    assert.equal(options.method, 'GET')
+    return { data: { success: true, data: config } }
+  }) as typeof api.request
+  const container = await mount('models')
+  await until(() => !!container.textContent?.includes('model-a'))
+  await act(async () => button(container, 'Edit').click())
+  const form = required(container.querySelector('form'))
+  const fields = required(form.querySelector('fieldset'))
+  const field = (label: string) =>
+    required(
+      [...fields.querySelectorAll('label')]
+        .find((item) => item.querySelector('span')?.textContent === label)
+        ?.querySelector('input')
+    )
+  const contract = required(fields.querySelector('details'))
+  assert.equal(contract.open, false)
+  await changeInput(field('Upstream model'), 'new-supplier-model')
+  assert.equal(contract.open, true)
+  assert.equal(field('Contract revision').value, '')
+  assert.equal(field('Maximum input tokens').value, '')
+  await changeInput(field('Contract revision'), 's')
+  assert.equal(contract.open, true)
+  await changeInput(field('Contract revision'), 'supplier-b')
+  assert.equal(contract.open, true)
+  assert.equal(field('Contract revision').value, 'supplier-b')
 })
 
 for (const unknown of [false, true]) {

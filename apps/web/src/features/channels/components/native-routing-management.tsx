@@ -821,6 +821,7 @@ function NativeRoutingWorkspace({
           {editor.channel && (
             <NativeChannelFields
               document={editor.document}
+              configuration={configuration}
               disabled={busy}
               onChange={(document) => {
                 setEditor({ ...editor, document })

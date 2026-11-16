@@ -319,6 +319,12 @@ export function NativeModelFields({
               ? value
               : ''
           }
+          const publishedContract = configuration.bindings.contexts.some(
+            (item) =>
+              item.upstream_id === target.upstream_id &&
+              item.upstream_model === target.upstream_model &&
+              item.contract_revision !== ''
+          )
           return (
             <fieldset
               key={target.id}
@@ -394,7 +400,7 @@ export function NativeModelFields({
                   {t('Enabled')}
                 </label>
               </div>
-              <details open={!context?.contract_revision}>
+              <details open={!publishedContract}>
                 <summary className='cursor-pointer py-2 text-sm font-medium'>
                   {t('Supplier contract')}
                 </summary>

@@ -71,7 +71,7 @@ test('removing one model binding retains a provider context used by another grou
   assert.deepEqual(none.expected_version, { routing: 5, pricing: 3 })
 })
 
-test('mapping an upstream model preserves its reviewed advanced contract without overwriting a shared destination', () => {
+test('mapping a new upstream model requires its own contract without overwriting a shared destination', () => {
   const draft = fixture()
   const mapped = updateChannelAttachment(draft, 1, {
     upstream_model: 'mapped',
@@ -79,8 +79,13 @@ test('mapping an upstream model preserves its reviewed advanced contract without
   })
   assert.equal(mapped.contexts.length, 2)
   assert.deepEqual(mapped.contexts[1], {
-    ...draft.contexts[0],
+    upstream_id: 2,
     upstream_model: 'mapped',
+    protocol: 'openai_responses',
+    endpoint: 'https://provider.example/v1',
+    max_input_tokens: 0,
+    max_output_tokens: 0,
+    contract_revision: '',
   })
   assert.equal(mapped.attachments[0].enabled, false)
   assert.deepEqual(mapped.attachments[0].client_protocols, ['openai_responses'])
@@ -91,6 +96,30 @@ test('mapping an upstream model preserves its reviewed advanced contract without
   assert.deepEqual(destination.contexts, [mapped.contexts[1]])
 })
 
+test('returning to an exact published model restores only its own supplier contract', () => {
+  const draft = fixture()
+  const source = draft.contexts[0]
+  assert.equal(typeof source.max_input_tokens, 'number')
+  assert.equal(typeof source.max_output_tokens, 'number')
+  const published = {
+    ...source,
+    max_input_tokens: Number(source.max_input_tokens),
+    max_output_tokens: Number(source.max_output_tokens),
+  }
+  const changed = updateChannelAttachment(
+    { ...draft, attachments: [draft.attachments[0]] },
+    1,
+    { upstream_model: 'other' }
+  )
+  const restored = updateChannelAttachment(
+    changed,
+    1,
+    { upstream_model: 'shared' },
+    [published]
+  )
+  assert.deepEqual(restored.contexts, [source])
+})
+
 test('new bindings require explicit provider limits and retain the route speeds', () => {
   const added = toggleChannelAttachment(
     fixture(),
@@ -99,6 +128,8 @@ test('new bindings require explicit provider limits and retain the route speeds'
   )
   assert.equal(added.attachments[2].timeout_ms, 30_000)
   assert.deepEqual(added.attachments[2].speeds, ['fast'])
+  assert.equal(Object.hasOwn(added.attachments[2], 'enabled'), false)
+  assert.equal(Object.hasOwn(added.attachments[2], 'client_protocols'), false)
   assert.equal(added.contexts[1].contract_revision, '')
   assert.equal(added.contexts[1].max_input_tokens, 0)
   assert.deepEqual(
@@ -109,6 +140,16 @@ test('new bindings require explicit provider limits and retain the route speeds'
     ),
     added
   )
+})
+
+test('clearing numeric fields preserves an editable draft without replacing empty values with zero', () => {
+  const draft = fixture()
+  const updated = updateChannelAttachment(draft, 1, { weight: '' })
+  const reread = readChannelDraft(JSON.stringify(updated))
+  assert.ok(reread)
+  assert.equal(reread.attachments[0].weight, '')
+  assert.equal(reread.attachments[1].weight, 3)
+  assert.deepEqual(reread.expected_version, draft.expected_version)
 })
 
 test('a model or group rename updates price identities and retains advanced billing data', () => {

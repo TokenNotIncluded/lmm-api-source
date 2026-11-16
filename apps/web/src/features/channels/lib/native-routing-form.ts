@@ -15,14 +15,16 @@ export const nativeProtocols = [
   'deepseek_fetch',
 ] as const
 
+const numberDraft = z.union([z.number().int().safe(), z.string()])
+
 const contextSchema = z
   .object({
     upstream_id: z.number(),
     upstream_model: z.string(),
     protocol: z.string(),
     endpoint: z.string(),
-    max_input_tokens: z.number(),
-    max_output_tokens: z.number(),
+    max_input_tokens: numberDraft,
+    max_output_tokens: numberDraft,
     contract_revision: z.string(),
   })
   .passthrough()
@@ -30,10 +32,10 @@ const contextSchema = z
 export const targetFieldsSchema = z
   .object({
     upstream_model: z.string(),
-    priority: z.number(),
-    weight: z.number(),
+    priority: numberDraft,
+    weight: numberDraft,
     speeds: z.array(z.string()),
-    timeout_ms: z.number(),
+    timeout_ms: numberDraft,
     payload: z.union([z.string(), z.record(z.string(), z.unknown())]),
     enabled: z.boolean().optional(),
     client_protocols: z.array(z.string()).nullish(),
@@ -159,11 +161,12 @@ export function newNativeContext(
   }
 }
 
-/** A renamed binding shares an existing context or carries its reviewed contract. */
+/** A new supplier model needs its own contract; an exact existing model can share one. */
 export function updateChannelAttachment(
   draft: NativeChannelDraft,
   routeId: number,
-  patch: Partial<NativeTargetFieldsValue>
+  patch: Partial<NativeTargetFieldsValue>,
+  publishedContexts: readonly NativeContext[] = []
 ): NativeChannelDraft {
   const previous = draft.attachments.find((item) => item.route_id === routeId)
   if (!previous) return draft
@@ -175,19 +178,20 @@ export function updateChannelAttachment(
     patch.upstream_model !== undefined &&
     patch.upstream_model !== previous.upstream_model
   ) {
-    const before = contexts.find(
-      (context) => context.upstream_model === previous.upstream_model
-    )
     const destination = contexts.find(
       (context) => context.upstream_model === patch.upstream_model
     )
     if (!destination) {
+      const published = publishedContexts.find(
+        (context) =>
+          context.upstream_id === draft.id &&
+          context.upstream_model === patch.upstream_model
+      )
       contexts = [
         ...contexts,
-        {
-          ...(before ?? newNativeContext(draft, patch.upstream_model)),
-          upstream_model: patch.upstream_model,
-        },
+        published
+          ? { ...published, endpoint: draft.endpoint, protocol: draft.protocol }
+          : newNativeContext(draft, patch.upstream_model),
       ]
     }
     if (
@@ -238,8 +242,6 @@ export function toggleChannelAttachment(
         speeds: [...route.speeds],
         timeout_ms: 30_000,
         payload: 'adapt',
-        enabled: true,
-        client_protocols: null,
       },
     ],
     contexts: draft.contexts.some((item) => item.upstream_model === route.model)
