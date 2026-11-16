@@ -23,7 +23,7 @@ import { useTranslation } from 'react-i18next'
 
 import { Dialog } from '@/components/dialog'
 import { LanguageSwitcher } from '@/components/language-switcher'
-import { LMM_BRAND_NAME, LmmBrandMark } from '@/components/lmm-brand-mark'
+import { LMM_BRAND_NAME } from '@/components/lmm-brand-mark'
 import { LmmBrandWordmark } from '@/components/lmm-brand-wordmark'
 import { NotificationPopover } from '@/components/notification-popover'
 import { ProfileDropdown } from '@/components/profile-dropdown'
@@ -175,7 +175,6 @@ export function PublicHeader(props: PublicHeaderProps) {
   const notifications = useNotifications()
   const routerState = useRouterState()
   const pathname = routerState.location.pathname
-  const isHomeSurface = pathname === '/'
 
   const user = auth.user
   const editorialHeader = props.className?.includes('forge-public-header')
@@ -373,25 +372,14 @@ export function PublicHeader(props: PublicHeaderProps) {
               aria-label={displaySiteName}
               className={cn(
                 'group focus-visible:ring-ring flex min-h-11 min-w-0 touch-manipulation items-center gap-2.5 focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:outline-none min-[1360px]:shrink-0',
-                (isHomeSurface || showsDefaultWordmark) && 'min-w-11',
-                isHomeSurface && 'lmm-brand-hover'
+                showsDefaultWordmark && 'shrink-0'
               )}
             >
-              {isHomeSurface ? (
-                <div className='lmm-brand-icon flex size-9 shrink-0 items-center justify-center'>
-                  {logoContent}
-                </div>
-              ) : showsDefaultWordmark && !loading ? (
-                <>
-                  <LmmBrandMark
-                    className='size-7 min-[480px]:hidden'
-                    aria-hidden='true'
-                  />
-                  <LmmBrandWordmark
-                    className='hidden h-[21px] w-auto min-[480px]:block'
-                    aria-hidden='true'
-                  />
-                </>
+              {showsDefaultWordmark && !loading ? (
+                <LmmBrandWordmark
+                  className='h-[18px] w-auto sm:h-[21px]'
+                  aria-hidden='true'
+                />
               ) : (
                 <>
                   <div className='flex size-7 shrink-0 items-center justify-center transition-all duration-300 group-hover:scale-105'>

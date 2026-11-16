@@ -1,6 +1,6 @@
 /* Copyright (C) 2026 LIghtJUNction. AGPL-3.0-or-later. */
 import { Link, useNavigate } from '@tanstack/react-router'
-import { ArrowUpRight, Globe2 } from 'lucide-react'
+import { ArrowUpRight } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
@@ -37,7 +37,6 @@ export function HomeDirectoryLink() {
           className='home-directory-target focus-visible:ring-2 focus-visible:outline-none'
           aria-describedby='home-directory-hint'
         >
-          <Globe2 className='home-directory-icon' aria-hidden='true' />
           <div className='min-w-0 flex-1'>
             <strong>{t('AI directory')}</strong>
             <span id='home-directory-hint' className='home-directory-hint'>

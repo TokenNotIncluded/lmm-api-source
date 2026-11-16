@@ -154,12 +154,6 @@ export function HomeLanding({
             />
             <canvas data-film />
           </div>
-          <div className='lmm-poster-brand lmm-brand-hover' aria-hidden='true'>
-            <BrandLogo
-              src={brandLogo}
-              className='lmm-poster-logo lmm-brand-icon'
-            />
-          </div>
           <button
             className='lmm-motion-toggle'
             type='button'

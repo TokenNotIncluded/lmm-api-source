@@ -122,20 +122,6 @@
   width: 100%;
   height: 100%;
 }
-.lmm-poster-brand {
-  position: absolute;
-  top: 2rem;
-  left: var(--home-gutter);
-  right: 30%;
-  font-family: 'Forge Poster', var(--font-serif);
-  font-size: clamp(3.8rem, 6.4vw, 6rem);
-  font-weight: 400;
-  line-height: 1.05;
-  letter-spacing: -0.025em;
-  text-transform: uppercase;
-  overflow-wrap: anywhere;
-  pointer-events: none;
-}
 .lmm-poster-caption {
   position: absolute;
   top: 2.6rem;
@@ -1008,13 +994,6 @@
     height: clamp(14rem, 50vw, 22rem);
     margin-block: 0.5rem 1.25rem;
   }
-  .lmm-poster-brand {
-    position: static;
-    order: -4;
-    margin: 1.5rem var(--home-gutter) 0;
-    padding-inline-end: 6rem;
-    font-size: clamp(1.75rem, 4vw, 3rem);
-  }
   .lmm-poster-caption {
     display: none;
   }
@@ -1082,9 +1061,6 @@
 
   .lmm-poster-art {
     height: clamp(14rem, 60vw, 18rem);
-  }
-  .lmm-poster-brand {
-    padding-inline-end: 3.5rem;
   }
   .lmm-scene-panel:not(.lmm-intro) {
     padding-bottom: 3rem;

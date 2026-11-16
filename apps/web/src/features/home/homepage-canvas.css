@@ -31,22 +31,6 @@
   mask-image: linear-gradient(to right, transparent, #000 13%);
 }
 
-.lmm-home-canvas .lmm-poster-brand {
-  top: 9rem;
-  right: auto;
-  z-index: 2;
-  width: max-content;
-  color: var(--poster-muted);
-  pointer-events: auto;
-}
-
-.lmm-poster-logo {
-  display: block;
-  width: 2.5rem;
-  height: 2.5rem;
-  object-fit: contain;
-}
-
 .lmm-home-canvas .lmm-scene-panel {
   z-index: 1;
   max-width: 48rem;
@@ -346,10 +330,6 @@ body:has(.lmm-home-canvas) .forge-public-nav {
   backdrop-filter: none;
 }
 
-body:has(.lmm-home-canvas) .home-directory-link {
-  top: 6rem;
-}
-
 @media (min-width: 901px) and (min-height: 601px) and (prefers-reduced-motion: no-preference) {
   .lmm-home[data-motion='playing'] .lmm-cinema-inner,
   .lmm-home[data-motion='paused'] .lmm-cinema-inner {
@@ -403,21 +383,11 @@ body:has(.lmm-home-canvas) .home-directory-link {
   (max-height: 600px),
   (prefers-reduced-motion: reduce) {
   .lmm-home-canvas .lmm-cinema-inner {
-    padding-top: 4rem;
+    padding-top: 5rem;
   }
 
-  .lmm-home-canvas .lmm-poster-brand {
-    margin-top: 1rem;
-    padding-inline-end: 0;
-  }
-
-  body:has(.home-directory-link) .lmm-home-canvas .lmm-poster-brand {
-    margin-top: 5rem;
-  }
-
-  body:has(.home-directory-link) .lmm-home-canvas .lmm-motion-toggle {
-    top: 9rem;
-    z-index: 2;
+  body:has(.home-directory-link) .lmm-home-canvas .lmm-cinema-inner {
+    padding-top: 8rem;
   }
 
   .lmm-home-canvas .lmm-scene-panel {
@@ -449,7 +419,7 @@ body:has(.lmm-home-canvas) .home-directory-link {
   }
 
   .lmm-home-canvas .lmm-motion-toggle {
-    top: 4.75rem;
+    top: 5rem;
   }
 
   .lmm-home-canvas .lmm-scene-panel:not(.lmm-intro) {
