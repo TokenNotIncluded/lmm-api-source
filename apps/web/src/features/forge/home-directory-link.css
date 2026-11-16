@@ -107,12 +107,6 @@
   }
 }
 
-@media (max-width: 640px) {
-  .home-directory-link {
-    --directory-gutter: 1.25rem;
-  }
-}
-
 @media (pointer: coarse) {
   .home-directory-wheel-hint {
     display: none;
