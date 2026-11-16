@@ -234,13 +234,13 @@ async fn instance_heartbeats_share_database_and_expire_without_clock_trust(pool:
     assert_eq!(stale["items"][1]["online"], false);
     assert_eq!(stale["items"][0]["online"], true);
     two.pulse("stopped", 0, false, false).await.unwrap();
-    assert!(
-        store.instances(&admin.secret).await.unwrap()["items"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .all(|r| r["online"] == false)
-    );
+    let after_stop = store.instances(&admin.secret).await.unwrap();
+    let after_items = after_stop["items"].as_array().unwrap();
+    // Shutdown deletes the boot row; no historical stopped record remains.
+    assert_eq!(after_items.len(), 1);
+    assert_eq!(after_items[0]["boot_id"], one_boot);
+    assert_eq!(after_items[0]["online"], false);
+    assert_eq!(after_stop["retention_days"], 0);
     assert!(matches!(
         store.instances(&user.secret).await,
         Err(OperationsError::Forbidden)

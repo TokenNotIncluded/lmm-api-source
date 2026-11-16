@@ -174,10 +174,11 @@ export function SystemInstancesPanel() {
     queryFn: listSystemInstances,
     refetchInterval: 10_000,
   })
-  const instances = query.data?.data ?? []
-  const current = instances.filter((instance) => instance.phase !== 'stopped')
-  const history = instances.filter((instance) => instance.phase === 'stopped')
-  const online = current.filter((instance) => instance.status === 'online')
+  // Core deletes stopped boots; ignore any leftover historical rows client-side.
+  const instances = (query.data?.data ?? []).filter(
+    (instance) => instance.phase !== 'stopped'
+  )
+  const online = instances.filter((instance) => instance.status === 'online')
   // Resource snapshots have no boot ID. Never duplicate local samples across
   // remote instances, or guess an owner from a truncated heartbeat list.
   const resourceOwner =
@@ -259,13 +260,13 @@ export function SystemInstancesPanel() {
         />
       ) : (
         <>
-          {current.length ? (
-            rows(current)
-          ) : instances.length === 0 ? (
+          {instances.length ? (
+            rows(instances)
+          ) : (
             <p className='text-muted-foreground p-4 text-sm'>
               {t('No instances have reported yet.')}
             </p>
-          ) : null}
+          )}
           {resourceOwner !== undefined && resources.isLoading && (
             <p role='status' className='text-muted-foreground p-4 text-xs'>
               {t('Loading...')}
@@ -277,17 +278,6 @@ export function SystemInstancesPanel() {
               onRetry={() => void resources.refetch()}
               className='min-h-24'
             />
-          )}
-          {history.length > 0 && (
-            <details className='border-t' data-instance-history>
-              <summary className='focus-visible:outline-ring min-h-11 cursor-pointer py-3 text-sm font-medium focus-visible:outline-2'>
-                {t('History')}{' '}
-                <span className='text-muted-foreground'>
-                  ({history.length})
-                </span>
-              </summary>
-              {rows(history)}
-            </details>
           )}
         </>
       )}

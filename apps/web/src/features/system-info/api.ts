@@ -89,7 +89,8 @@ const instanceListSchema = z.object({
   ),
   truncated: z.boolean(),
   stale_after_seconds: nonnegativeInteger.positive(),
-  retention_days: nonnegativeInteger.positive(),
+  // 0 = no historical retention; only live/stale realtime rows are kept.
+  retention_days: nonnegativeInteger,
 })
 
 export async function listSystemInstances(): Promise<SystemInstanceListResponse> {

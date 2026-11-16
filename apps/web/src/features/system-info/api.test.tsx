@@ -187,7 +187,7 @@ const heartbeatList = {
   items: [heartbeat],
   truncated: false,
   stale_after_seconds: 45,
-  retention_days: 7,
+  retention_days: 0,
 }
 function respondInstances(data: unknown) {
   api.get = (async (path) => {
@@ -350,7 +350,7 @@ test('system info page displays native resources and instance heartbeats togethe
 
 for (const scenario of [
   {
-    name: 'stopped boot is neutral history while live and stale boots remain current',
+    name: 'stopped boots are omitted; live and stale realtime rows remain',
     items: [
       heartbeat,
       {
@@ -363,18 +363,21 @@ for (const scenario of [
     ],
     truncated: false,
     linked: true,
+    expectStoppedHidden: true,
   },
   {
     name: 'multiple online boots do not share local resource samples',
     items: [heartbeat, { ...heartbeat, boot_id: 'b'.repeat(32) }],
     truncated: false,
     linked: false,
+    expectStoppedHidden: false,
   },
   {
     name: 'truncated heartbeat lists cannot identify a unique resource owner',
     items: [heartbeat],
     truncated: true,
     linked: false,
+    expectStoppedHidden: false,
   },
 ]) {
   test(scenario.name, async () => {
@@ -427,22 +430,17 @@ for (const scenario of [
       scenario.linked
     )
     assert.equal(container.textContent?.includes('PID123'), scenario.linked)
-    const history = container.querySelector<HTMLDetailsElement>(
-      '[data-instance-history]'
-    )
-    if (scenario.linked) {
-      assert.ok(history)
-      assert.equal(history.open, false)
-      assert.match(history.textContent ?? '', /Stopped/)
-      assert.doesNotMatch(history.textContent ?? '', /Stale|PID123/)
+    assert.equal(container.querySelector('[data-instance-history]'), null)
+    if (scenario.expectStoppedHidden) {
+      assert.equal(
+        container.querySelector(`[data-instance-id="${'b'.repeat(32)}"]`),
+        null
+      )
       const stale = container.querySelector(
         `[data-instance-id="${'c'.repeat(32)}"]`
       )
       assert.match(stale?.textContent ?? '', /Stale/)
-      assert.equal(stale?.closest('details'), null)
       assert.doesNotMatch(stale?.textContent ?? '', /PID123/)
-    } else {
-      assert.equal(history, null)
     }
   })
 }

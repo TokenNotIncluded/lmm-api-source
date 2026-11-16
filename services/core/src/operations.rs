@@ -191,7 +191,8 @@ impl OperationsStore {
     pub async fn instances(&self, secret: &str) -> Result<Value> {
         let mut tx = self.pool.begin().await?;
         authorize(&mut tx, secret, 5).await?;
-        let rows=sqlx::query("SELECT boot_id,instance_name,version,phase,in_flight,models_ready,rpc_ready, floor(extract(epoch FROM started_at))::bigint AS started_at, floor(extract(epoch FROM heartbeat_at))::bigint AS heartbeat_at, heartbeat_at>clock_timestamp()-make_interval(secs=>$1) AND phase<>'stopped' AS online FROM core_operations.instances ORDER BY heartbeat_at DESC,boot_id LIMIT 201")
+        // Live status only: stopped boots are deleted on shutdown and never listed.
+        let rows=sqlx::query("SELECT boot_id,instance_name,version,phase,in_flight,models_ready,rpc_ready, floor(extract(epoch FROM started_at))::bigint AS started_at, floor(extract(epoch FROM heartbeat_at))::bigint AS heartbeat_at, heartbeat_at>clock_timestamp()-make_interval(secs=>$1) AS online FROM core_operations.instances WHERE phase<>'stopped' ORDER BY heartbeat_at DESC,boot_id LIMIT 201")
             .bind(STALE_SECONDS as f64).fetch_all(&mut *tx).await?;
         let items=rows.iter().take(200).map(|row|Ok(json!({
             "boot_id":row.try_get::<String,_>("boot_id")?, "instance_name":row.try_get::<String,_>("instance_name")?,
@@ -202,7 +203,7 @@ impl OperationsStore {
         }))).collect::<std::result::Result<Vec<Value>,sqlx::Error>>()?;
         tx.commit().await?;
         Ok(
-            json!({"items":items,"truncated":rows.len()>200,"stale_after_seconds":STALE_SECONDS,"retention_days":7}),
+            json!({"items":items,"truncated":rows.len()>200,"stale_after_seconds":STALE_SECONDS,"retention_days":0}),
         )
     }
 }
@@ -227,9 +228,26 @@ impl Heartbeat {
         })
     }
     pub async fn pulse(&self, phase: &str, active: usize, models: bool, rpc: bool) -> Result<()> {
+        if phase == "stopped" {
+            // Do not keep shutdown history; realtime status is the only surface.
+            sqlx::query("DELETE FROM core_operations.instances WHERE boot_id=$1")
+                .bind(&self.boot)
+                .execute(&self.store.pool)
+                .await?;
+            return Ok(());
+        }
         sqlx::query("INSERT INTO core_operations.instances(boot_id,instance_name,version,phase,in_flight,models_ready,rpc_ready) VALUES($1,$2,$3,$4,$5,$6,$7) ON CONFLICT(boot_id) DO UPDATE SET heartbeat_at=clock_timestamp(),phase=EXCLUDED.phase,in_flight=EXCLUDED.in_flight,models_ready=EXCLUDED.models_ready,rpc_ready=EXCLUDED.rpc_ready")
             .bind(&self.boot).bind(&self.name).bind(env!("CARGO_PKG_VERSION")).bind(phase).bind(active as i64).bind(models).bind(rpc)
             .execute(&self.store.pool).await?;
+        // Drop leftover stopped rows left by older builds.
+        let _ = sqlx::query(
+            "DELETE FROM core_operations.instances WHERE phase='stopped' OR (instance_name=$1 AND boot_id<>$2 AND heartbeat_at<clock_timestamp()-make_interval(secs=>$3))",
+        )
+        .bind(&self.name)
+        .bind(&self.boot)
+        .bind(STALE_SECONDS as f64 * 20.0)
+        .execute(&self.store.pool)
+        .await;
         Ok(())
     }
     pub async fn run(
@@ -267,9 +285,11 @@ impl Heartbeat {
                     eprintln!("instance heartbeat unavailable");
                 }
             }
-            if ticks.is_multiple_of(3600)
-                && sqlx::query("DELETE FROM core_operations.instances WHERE heartbeat_at<clock_timestamp()-interval '7 days'").execute(&self.store.pool).await.is_err() {
-                    eprintln!("old instance heartbeat cleanup unavailable");
+            if ticks.is_multiple_of(60)
+                && sqlx::query("DELETE FROM core_operations.instances WHERE phase='stopped' OR heartbeat_at<clock_timestamp()-make_interval(secs=>$1)")
+                    .bind(STALE_SECONDS as f64 * 20.0)
+                    .execute(&self.store.pool).await.is_err() {
+                    eprintln!("stale instance heartbeat cleanup unavailable");
                 }
             if self.store.cleanup_batch().await.is_err() {
                 eprintln!("log cleanup batch not confirmed; durable progress will resume");
