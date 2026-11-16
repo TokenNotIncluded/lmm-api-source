@@ -438,7 +438,7 @@ mod tests {
                 .iter()
                 .filter(|r| matches!(r.engine, Engine::Suffix(_)))
                 .count(),
-            18
+            expected.len()
         );
         for (name, prefix) in expected {
             let entry = lookup(name);
@@ -473,6 +473,10 @@ mod tests {
             assert!(std::ptr::fn_addr_eq(
                 entry.hooks.authorize,
                 match name {
+                    "core-subscription-creem-v1" =>
+                        subscription_creem::authorize_target as fn() -> Result<(), UpgradeError>,
+                    "core-checkin-challenges-v1" =>
+                        checkin_challenges::authorize_target as fn() -> Result<(), UpgradeError>,
                     "core-personal-tokens-v1" =>
                         personal_tokens::authorize_target as fn() -> Result<(), UpgradeError>,
                     "core-oauth2-oidc-v1" =>

@@ -26,6 +26,9 @@ jobs:
       CARGO_INCREMENTAL: "0"
       CARGO_PROFILE_DEV_DEBUG: "0"
       CARGO_PROFILE_TEST_DEBUG: "0"
+      # Upgrade preservation tests snapshot cluster-wide roles and memberships.
+      # Concurrent fixtures must not create/drop roles inside another snapshot.
+      RUST_TEST_THREADS: "1"
     services:
       postgres:
         image: postgres:18-alpine@sha256:77f585114c32fbca283dc835b0596f4e52b51b4c6662d7810b2f4084f60a1873
@@ -105,8 +108,20 @@ jobs:
           cargo test --locked --all-targets --no-run
           LMM_MODEL_PROCESS_CORE_BIN="$(realpath target/debug/lmm-core)"
           LMM_MODEL_PROCESS_CORE_SHA256="$(sha256sum "$LMM_MODEL_PROCESS_CORE_BIN" | cut -d ' ' -f1)"
-          LMM_MODEL_PROCESS_ROOT="$(mktemp -d /tmp/lmm-model-XXXXXXXX)"
+          process_evidence_root="$(mktemp -d "$RUNNER_TEMP/core-process-evidence-XXXXXXXX")"
+          LMM_MODEL_PROCESS_ROOT="$(mktemp -d "$process_evidence_root/model-XXXXXXXX")"
           export LMM_MODEL_PROCESS_CORE_BIN LMM_MODEL_PROCESS_CORE_SHA256 LMM_MODEL_PROCESS_ROOT
+          # Independent TCP/process cases require new private evidence roots.
+          # Their child-worker config is created by each owning test.
+          LMM_CONTINUITY_DEV_ARTIFACTS="$(mktemp -d "$process_evidence_root/continuity-dev-XXXXXXXX")"
+          COMPACT_INDEPENDENT_ARTIFACTS="$(mktemp -d "$process_evidence_root/compact-XXXXXXXX")"
+          RESPONSES_CONTINUITY_INDEPENDENT_ARTIFACTS="$(mktemp -d "$process_evidence_root/continuity-independent-XXXXXXXX")"
+          RESPONSES_CONTINUITY_REVIEW_ARTIFACTS="$(mktemp -d "$process_evidence_root/continuity-review-XXXXXXXX")"
+          LMM_WS_ARTIFACTS="$(mktemp -d "$process_evidence_root/websocket-XXXXXXXX")"
+          LMM_WS_CORE_BINARY="$LMM_MODEL_PROCESS_CORE_BIN"
+          export LMM_CONTINUITY_DEV_ARTIFACTS COMPACT_INDEPENDENT_ARTIFACTS
+          export RESPONSES_CONTINUITY_INDEPENDENT_ARTIFACTS RESPONSES_CONTINUITY_REVIEW_ARTIFACTS
+          export LMM_WS_ARTIFACTS LMM_WS_CORE_BINARY
           # The non-ignored payment recovery case requires sealed Core, Go host
           # and bootstrap binaries. The 302-second case stays ignored.
           CGO_ENABLED=0 go test -C ../extensions -mod=readonly -c -o "$RUNNER_TEMP/lmm-payment-bootstrap" ./internal/modules/payments
@@ -195,6 +210,7 @@ jobs:
             ${{ runner.temp }}/core-source-sha.txt
             ${{ runner.temp }}/core-format.log
             ${{ runner.temp }}/core-tests.log
+            ${{ runner.temp }}/core-process-evidence-*
             ${{ runner.temp }}/payment-live-build.log
             ${{ runner.temp }}/payment-live/evidence/result.json
             ${{ runner.temp }}/extension-tests.jsonl

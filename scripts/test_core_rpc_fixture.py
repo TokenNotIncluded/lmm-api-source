@@ -141,22 +141,26 @@ class PrivateFixtureTests(unittest.TestCase):
         )
         self.assertNotRegex(FIXTURE.RUNTIME_PRIVILEGES_SQL, r"\b(?:GRANT|REVOKE)\b")
 
-    def test_charging_audit_resolves_private_relation_before_switching_identity(self):
+    def test_charging_audit_requires_read_only_usage_evidence(self):
         before, after = FIXTURE.RUNTIME_PRIVILEGES_SQL.split(
             "SET SESSION AUTHORIZATION lmm_core_runtime;", 1
         )
-        self.assertIn("'core_charging.requests'::regclass::oid", before)
-        self.assertIn("AS charging_requests_oid \\gset", before)
-        self.assertNotIn("core_charging.requests", after)
-        for function, privileges in (
-            ("has_table_privilege", "INSERT,UPDATE,DELETE,TRUNCATE"),
-            ("has_any_column_privilege", "INSERT,UPDATE"),
-        ):
-            self.assertIn(
-                f"NOT {function}(:'charging_requests_oid'::oid,'{privileges}')", after
-            )
+        for relation in ("requests", "usage_events", "ledger_commands", "refunds"):
+            alias = f"charging_{relation}_oid"
+            self.assertIn(f"'core_charging.{relation}'::regclass::oid", before)
+            self.assertIn(f"AS {alias} \\gset", before)
+            self.assertNotIn(f"core_charging.{relation}", after)
+            self.assertIn(f"has_table_privilege(:'{alias}'::oid,'SELECT')", after)
+            for function, privileges in (
+                ("has_table_privilege", "INSERT,UPDATE,DELETE,TRUNCATE"),
+                ("has_any_column_privilege", "INSERT,UPDATE"),
+            ):
+                self.assertIn(
+                    f"NOT {function}(:'{alias}'::oid,'{privileges}')", after
+                )
         self.assertIn("current_user=session_user", after)
-        self.assertIn("NOT has_schema_privilege('core_charging','USAGE,CREATE')", after)
+        self.assertIn("AND has_schema_privilege('core_charging','USAGE')", after)
+        self.assertIn("NOT has_schema_privilege('core_charging','CREATE')", after)
         self.assertNotRegex(FIXTURE.RUNTIME_PRIVILEGES_SQL, r"\b(?:GRANT|REVOKE)\b")
 
     def test_docker_commands_pin_local_socket_and_keep_secret_input_off_argv(self):

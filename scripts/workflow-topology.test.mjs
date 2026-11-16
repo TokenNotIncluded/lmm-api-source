@@ -374,7 +374,7 @@ test('Core CI freezes the process binary and private root before running all Rus
   const compile = block.indexOf('cargo test --locked --all-targets --no-run');
   const binary = block.indexOf('LMM_MODEL_PROCESS_CORE_BIN="$(realpath target/debug/lmm-core)"');
   const hash = block.indexOf('LMM_MODEL_PROCESS_CORE_SHA256="$(sha256sum "$LMM_MODEL_PROCESS_CORE_BIN"');
-  const root = block.indexOf('LMM_MODEL_PROCESS_ROOT="$(mktemp -d /tmp/lmm-model-XXXXXXXX)"');
+  const root = block.indexOf('LMM_MODEL_PROCESS_ROOT="$(mktemp -d "$process_evidence_root/model-XXXXXXXX")"');
   const exported = block.indexOf('export LMM_MODEL_PROCESS_CORE_BIN LMM_MODEL_PROCESS_CORE_SHA256 LMM_MODEL_PROCESS_ROOT');
   const execute = block.indexOf('cargo test --locked --all-targets --no-fail-fast');
   assert.ok(compile >= 0 && binary > compile && hash > binary && root > hash
@@ -383,6 +383,31 @@ test('Core CI freezes the process binary and private root before running all Rus
   const routed = ' -- --skip synthetic_live_proof_crosses_core_go_processes_and_posts_once';
   assert.equal(block.split(routed).length - 1, 1);
   assert.doesNotMatch(block.replace(routed, ''), /--skip|--exclude|--ignored|continue-on-error|\|\|\s*true/);
+});
+
+test('Core CI isolates independent process evidence and cluster-wide role snapshots', () => {
+  const source = workflow('core-protocol');
+  assert.match(source, /RUST_TEST_THREADS: "1"/);
+  const block = source.match(/      - name: Rust checks and real database tests\n([\s\S]*?)(?=      - name:)/)?.[1];
+  assert.ok(block);
+  const execute = block.indexOf('cargo test --locked --all-targets --no-fail-fast');
+  for (const name of [
+    'LMM_CONTINUITY_DEV_ARTIFACTS',
+    'COMPACT_INDEPENDENT_ARTIFACTS',
+    'RESPONSES_CONTINUITY_INDEPENDENT_ARTIFACTS',
+    'RESPONSES_CONTINUITY_REVIEW_ARTIFACTS',
+    'LMM_WS_ARTIFACTS',
+  ]) {
+    const assigned = block.indexOf(name + '="$(mktemp -d "$process_evidence_root/');
+    const exported = block.split('\n').findIndex((line) =>
+      line.trimStart().startsWith('export ') && line.split(/\s+/).includes(name));
+    assert.ok(assigned >= 0 && assigned < execute, name + ' requires a new private directory before execution');
+    assert.ok(exported >= 0, name + ' must reach the test process');
+  }
+  assert.match(block, /LMM_WS_CORE_BINARY="\$LMM_MODEL_PROCESS_CORE_BIN"/);
+  assert.match(block, /export LMM_WS_ARTIFACTS LMM_WS_CORE_BINARY/);
+  assert.match(block, /process_evidence_root="\$\(mktemp -d "\$RUNNER_TEMP\/core-process-evidence-XXXXXXXX"\)"/);
+  assert.match(source, /\$\{\{ runner.temp \}\}\/core-process-evidence-\*/);
 });
 
 test('externally owned payment live case remains required through its real runner', () => {
