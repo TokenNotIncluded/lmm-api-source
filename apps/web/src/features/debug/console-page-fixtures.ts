@@ -23,6 +23,7 @@ import { ROLE } from '@/lib/roles'
 import { useAuthStore } from '@/stores/auth-store'
 
 import { adminReviewFixture } from './admin-review-fixtures'
+import { nativeWalletReviewFixture } from './native-wallet-review-fixtures'
 import { DEBUG_WALLET_TOPUP_INFO } from './wallet-review-fixtures'
 
 const stamp = 1790035200
@@ -448,6 +449,8 @@ const overviewStatistics = {
 export function consolePageFixture(
   config: InternalAxiosRequestConfig
 ): unknown {
+  const nativeWallet = nativeWalletReviewFixture(config)
+  if (nativeWallet !== undefined) return nativeWallet
   const admin = adminReviewFixture(config)
   if (admin !== undefined) return admin
   if ((config.method ?? 'get').toUpperCase() !== 'GET') return undefined

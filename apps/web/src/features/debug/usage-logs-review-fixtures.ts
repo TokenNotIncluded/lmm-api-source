@@ -3,11 +3,15 @@ import type { AxiosAdapter } from 'axios'
 
 import { useAuthStore } from '@/stores/auth-store'
 
+import { USAGE_REVIEW_USER } from './admin-review-fixtures'
+
 const now = Math.floor(Date.now() / 1000)
 
 /** Synthetic records for the loopback-only console review entry. */
 function records(administrator: boolean) {
-  const userId = useAuthStore.getState().auth.user?.id ?? 1
+  const userId = administrator
+    ? Number(USAGE_REVIEW_USER.id)
+    : (useAuthStore.getState().auth.user?.id ?? 1)
   const samples = [
     ['deepseek-chat', 'success', 12500, 1800, 420, 1834.42, 186.12, true],
     ['claude-sonnet-4-5', 'success', 4800, 720, 180, 962.18, 242.04, true],
@@ -92,7 +96,7 @@ function records(administrator: boolean) {
         wallet_debit_supported: false,
         ...(administrator
           ? {
-              username: 'preview-user',
+              username: USAGE_REVIEW_USER.username,
               channel: index === 2 ? 2 : 1,
               channel_name: null,
               route_attempts: [

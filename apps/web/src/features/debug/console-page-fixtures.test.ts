@@ -37,8 +37,12 @@ const config = (url: string, method = 'get') =>
 
 test('native admin review data validates, filters users and never handles writes or ordinary-user reads', async () => {
   const { adminReviewFixture } = await import('./admin-review-fixtures')
-  const { nativeUsersResponseSchema, DEFAULT_NATIVE_USERS_QUERY } =
-    await import('@/features/native-users/contract')
+  const {
+    nativeGroupsResponseSchema,
+    nativeUserDetailSchema,
+    nativeUsersResponseSchema,
+    DEFAULT_NATIVE_USERS_QUERY,
+  } = await import('@/features/native-users/contract')
   const previous = useAuthStore.getState().auth.user
   try {
     useAuthStore
@@ -52,7 +56,44 @@ test('native admin review data validates, filters users and never handles writes
     delete (request.params as Partial<typeof DEFAULT_NATIVE_USERS_QUERY>)
       .service_level
     const users = nativeUsersResponseSchema.parse(adminReviewFixture(request))
-    assert.equal(users.items.length, 2)
+    assert.equal(users.items.length, 3)
+    const groups = nativeGroupsResponseSchema.parse(
+      adminReviewFixture(config('/core/v1/admin/users/groups'))
+    )
+    assert.deepEqual(groups.items, ['alpha', 'default', 'team-beta'])
+    const secondGroupsPage = nativeGroupsResponseSchema.parse(
+      adminReviewFixture({
+        ...config('/core/v1/admin/users/groups'),
+        params: { page: 2, page_size: 20 },
+      })
+    )
+    assert.equal(secondGroupsPage.page, 2)
+    assert.equal(secondGroupsPage.total, 3)
+    assert.deepEqual(secondGroupsPage.items, [])
+    for (const user of users.items) {
+      const detail = nativeUserDetailSchema.parse(
+        adminReviewFixture(config(`/core/v1/admin/users/${user.id}`))
+      )
+      assert.deepEqual(detail.user, user)
+    }
+    for (const id of ['0', '01006', '100', '10060', 'missing']) {
+      assert.equal(
+        adminReviewFixture(config(`/core/v1/admin/users/${id}`)),
+        undefined
+      )
+    }
+    const { withUsageLogsReviewFixtures } =
+      await import('./usage-logs-review-fixtures')
+    const logs = await withUsageLogsReviewFixtures(async () => {
+      throw new Error('unmocked')
+    })(config('/core/v1/usage/admin/logs'))
+    assert.ok(logs.data.data.items.length > 0)
+    for (const row of logs.data.data.items) {
+      const detail = nativeUserDetailSchema.parse(
+        adminReviewFixture(config(`/core/v1/admin/users/${row.user_id}`))
+      )
+      assert.equal(detail.user.username, row.username)
+    }
     request.params.status = 'disabled'
     const filtered = nativeUsersResponseSchema.parse(
       adminReviewFixture(request)
@@ -69,6 +110,9 @@ test('native admin review data validates, filters users and never handles writes
       '/api/channel/ops',
       '/core/v1/admin/routing/configuration',
       '/core/v1/admin/users',
+      '/core/v1/admin/users/groups',
+      '/core/v1/admin/users/1006',
+      '/core/v1/admin/users/9007199254740993',
     ]) {
       assert.ok(adminReviewFixture(config(path)))
       assert.equal(adminReviewFixture(config(path, 'post')), undefined)
@@ -85,6 +129,14 @@ test('native admin review data validates, filters users and never handles writes
       undefined
     )
     assert.equal(adminReviewFixture(config('/core/v1/admin/users')), undefined)
+    assert.equal(
+      adminReviewFixture(config('/core/v1/admin/users/groups')),
+      undefined
+    )
+    assert.equal(
+      adminReviewFixture(config('/core/v1/admin/users/1006')),
+      undefined
+    )
   } finally {
     useAuthStore.getState().auth.setUser(previous)
   }
@@ -429,5 +481,205 @@ test('overview review data preserves currency separation and admin-only reads', 
   } finally {
     api.defaults.adapter = previousAdapter
     useAuthStore.getState().auth.setUser(previousUser)
+  }
+})
+
+test('native operations preview follows real read contracts and retains administrator-only access', async () => {
+  const { getNativeSystemResources, listSystemInstances } =
+    await import('@/features/system-info/api')
+  const { api } = await import('@/lib/api')
+  const previousUser = useAuthStore.getState().auth.user
+  const previousAdapter = api.defaults.adapter
+  const wrapped = withConsolePageFixtures(async () => {
+    throw new Error('unmocked')
+  })
+  api.defaults.adapter = wrapped
+  const paths = ['/core/v1/admin/instances', '/core/v1/admin/system-resources']
+  try {
+    useAuthStore
+      .getState()
+      .auth.setUser({ id: 9001, username: 'review', role: 10 })
+    const instances = await listSystemInstances()
+    assert.equal(instances.data?.length, 2)
+    assert.equal(instances.data?.[0].node_name, 'synthetic-core-primary')
+    assert.equal(instances.data?.[0].status, 'online')
+    assert.equal(instances.data?.[1].status, 'stale')
+    assert.equal(instances.data?.[1].info?.resources, undefined)
+    assert.equal(instances.retention_days, 0)
+    const resources = await getNativeSystemResources()
+    assert.equal(resources.schema_version, 1)
+    assert.equal(resources.system.logical_cpus, 8)
+    assert.equal(resources.processes['lmm-core'].pid, 3024)
+    assert.equal(resources.processes['lmm-extensions'].pid, 4176)
+    resources.system.logical_cpus = 999
+    assert.equal((await getNativeSystemResources()).system.logical_cpus, 8)
+    for (const path of paths) {
+      for (const method of ['post', 'put', 'patch', 'delete']) {
+        await assert.rejects(wrapped(config(path, method)), /unmocked/)
+      }
+      for (const url of [
+        `${path}/unlisted`,
+        `https://example.invalid${path}`,
+        `http://credential@127.0.0.1:4174${path}`,
+      ]) {
+        await assert.rejects(wrapped(config(url)), /unmocked/)
+      }
+    }
+    await assert.rejects(
+      wrapped(config('/core/v1/admin/resources')),
+      /unmocked/
+    )
+    useAuthStore
+      .getState()
+      .auth.setUser({ id: 9002, username: 'review', role: 1 })
+    for (const path of paths) {
+      await assert.rejects(wrapped(config(path)), /unmocked/)
+    }
+  } finally {
+    api.defaults.adapter = previousAdapter
+    useAuthStore.getState().auth.setUser(previousUser)
+  }
+})
+
+test('native wallet review serves current persona reads through the real API parsers', async () => {
+  const { nativeWalletReviewProfile } =
+    await import('./native-wallet-review-fixtures')
+  const { commerceScope } = await import('@/features/commerce/native-client')
+  const { getPublicPlans, getSelfSubscriptionFull } =
+    await import('@/features/subscriptions/api')
+  const { listNativePlans, listNativePurchases } =
+    await import('@/features/subscriptions/native-api')
+  const { listCampaigns, rewardHistory } =
+    await import('@/features/promotions/native-api')
+  const { getNativePaymentChannels } =
+    await import('@/features/wallet/native-checkout-api')
+  const { getTransferBalance, listTransfers } =
+    await import('@/features/wallet/transfers/api')
+  const { api } = await import('@/lib/api')
+  const previousAuth = useAuthStore.getState().auth
+  const previousAdapter = api.defaults.adapter
+  const wrapped = withConsolePageFixtures(async () => {
+    throw new Error('unmocked')
+  })
+  api.defaults.adapter = wrapped
+  const reads = [
+    '/api/wallet/balance',
+    '/api/wallet-transfer',
+    '/api/user/payments/channels',
+    '/core/v1/subscriptions/plans',
+    '/core/v1/subscriptions/purchases',
+    '/core/v1/promotions/campaigns',
+    '/core/v1/promotions/history',
+  ]
+  try {
+    for (const persona of [
+      { id: 1004, role: 1, name: 'e', balance: 750000 },
+      { id: 1099, role: 100, name: 'admin', balance: 10000000 },
+    ]) {
+      const user = nativeWalletReviewProfile({
+        id: persona.id,
+        role: persona.role,
+        username: `synthetic-${persona.name}`,
+      })
+      const sessionId = `debug-persona-${persona.name}`
+      const expiresAt = Math.floor(Date.now() / 1000) + 86400
+      useAuthStore.getState().auth.setBundle({
+        access_token: sessionId,
+        token_type: 'Bearer',
+        access_expires_at: expiresAt,
+        user,
+        session: {
+          sid: sessionId,
+          current: true,
+          login_method: 'development fixture',
+          ip: '127.0.0.1',
+          user_agent: 'synthetic fixture test',
+          created_at: 1,
+          last_active_at: 1,
+          expires_at: expiresAt,
+        },
+      })
+      const scope = commerceScope()
+      assert.ok(scope)
+      assert.equal(user.financial_projection_available, true)
+      assert.equal(user.wallet_unit, 'core_credit')
+      assert.equal(user.wallet_money_available, false)
+      assert.equal(user.quota, persona.balance)
+      const balance = await getTransferBalance(scope)
+      assert.equal(balance.spendable_credits, user.wallet_spendable_quota)
+      assert.equal(balance.public_credits_per_usd_exact, '500000')
+      const transfers = await listTransfers(scope)
+      assert.equal(transfers.length, 3)
+      assert.equal(transfers[0].status, 'pending')
+      assert.equal(transfers[0].quota, user.wallet_reserved_quota)
+      assert.deepEqual(
+        (await listTransfers(scope, transfers[0].id)).map((row) => row.id),
+        transfers.slice(1).map((row) => row.id)
+      )
+      assert.equal((await listNativePlans(scope)).length, 2)
+      assert.equal((await listNativePurchases(scope)).length, 1)
+      assert.equal((await getPublicPlans(undefined, 'en')).data?.length, 2)
+      assert.equal(
+        (await getSelfSubscriptionFull()).data?.subscriptions.length,
+        1
+      )
+      assert.equal((await listCampaigns(scope)).length, 2)
+      assert.equal((await rewardHistory(scope))[0].amount_units, '10000')
+      const channels = await getNativePaymentChannels()
+      assert.equal(channels.available, true)
+      assert.equal(channels.channels[0].environment, 'test')
+      for (const provider of ['epay', 'pancake', 'stripe', 'creem']) {
+        assert.deepEqual(
+          (
+            await wrapped(
+              config(`/core/v1/subscriptions/plans/401/${provider}-prices`)
+            )
+          ).data,
+          { prices: [] }
+        )
+      }
+      for (const path of reads) {
+        for (const method of ['post', 'put', 'patch', 'delete']) {
+          await assert.rejects(wrapped(config(path, method)), /unmocked/)
+        }
+        for (const url of [
+          `${path}/unlisted`,
+          `https://example.invalid${path}`,
+          `http://credential@127.0.0.1:4174${path}`,
+        ]) {
+          await assert.rejects(wrapped(config(url)), /unmocked/)
+        }
+        await assert.rejects(
+          wrapped({
+            ...config(path),
+            authScope: { userId: persona.id + 1, sessionId },
+          }),
+          /unmocked/
+        )
+      }
+      for (const url of [
+        '/api/wallet-transfer?before=-1',
+        '/api/wallet-transfer?before=1&before=2',
+        '/api/wallet-transfer?before=9007199254740992',
+      ]) {
+        await assert.rejects(wrapped(config(url)), /unmocked/)
+      }
+      for (const path of [
+        '/core/v1/subscriptions/quotes',
+        '/core/v1/promotions/claims',
+        '/api/user/payments/quote',
+        '/api/user/payments/checkout',
+        '/api/wallet-transfer/1/cancel',
+      ]) {
+        await assert.rejects(wrapped(config(path, 'post')), /unmocked/)
+      }
+    }
+    useAuthStore.getState().auth.setUser(null)
+    for (const path of reads) {
+      await assert.rejects(wrapped(config(path)), /unmocked/)
+    }
+  } finally {
+    api.defaults.adapter = previousAdapter
+    useAuthStore.setState({ auth: previousAuth })
   }
 })

@@ -35,6 +35,7 @@ import { api } from '@/lib/http-client'
 import { ROLE } from '@/lib/roles'
 import type { AuthBundle, AuthUser, TrustLevelInfo } from '@/stores/auth-store'
 
+import { nativeWalletReviewProfile } from './native-wallet-review-fixtures'
 import { DEBUG_CURRENCY_STATUS } from './wallet-review-fixtures'
 
 export const DEBUG_PERSONA_IDS = ['l0', 'b', 'e', 'f', 'l1', 'admin'] as const
@@ -72,6 +73,10 @@ type DebugEvent = {
 const DEBUG_EVENT = 'lmm:persona-debug-change'
 const BLOCKED_DEBUG_REQUEST = 'PERSONA_DEBUG_UNMOCKED_REQUEST'
 const now = Math.floor(Date.now() / 1000)
+// Keep the same opt-in captured by debug-main across in-app navigation.
+const nativeConsoleReview =
+  typeof window !== 'undefined' &&
+  new URLSearchParams(window.location.search).get('console_review') === '1'
 const debugAnnouncementReads = new Set<string>()
 const debugAssistantRuntimeKeys = new Set<DebugPersonaId>()
 type DebugProfileShare = {
@@ -505,10 +510,11 @@ function isBackendPath(pathname: string): boolean {
 }
 
 function cloneUser(persona: DebugPersonaId): AuthUser {
-  return {
+  const user = {
     ...structuredClone(DEBUG_USERS[persona]),
     ...state.preferences?.[persona],
   }
+  return nativeConsoleReview ? nativeWalletReviewProfile(user) : user
 }
 
 function authBundle(persona: DebugPersonaId): AuthBundle {
