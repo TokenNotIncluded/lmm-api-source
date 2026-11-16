@@ -21,6 +21,7 @@ import { useTranslation } from 'react-i18next'
 
 import { SettingsPage, SettingsPageFrame } from '../components/settings-page'
 import type { BillingSettings } from '../types'
+import { NativePricingSection } from './native-pricing-section'
 import { RouterPricingSection } from './router-pricing-section'
 import {
   BILLING_DEFAULT_SECTION,
@@ -135,6 +136,18 @@ export function BillingSettings() {
   const { section } = useParams({
     from: '/_authenticated/system-settings/billing/$section',
   })
+  // Published prices have their own capability and versioned management API.
+  if (section === 'model-pricing' || section === 'group-pricing') {
+    return (
+      <SettingsPageFrame
+        title={t(
+          section === 'model-pricing' ? 'Model Pricing' : 'Group Pricing'
+        )}
+      >
+        <NativePricingSection />
+      </SettingsPageFrame>
+    )
+  }
   // Dedicated financial editor; the generic capability view excludes it.
   if (section === 'levels-benefits') {
     return (

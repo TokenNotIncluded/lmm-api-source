@@ -17,7 +17,13 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 /* eslint-disable react-refresh/only-export-components */
-import { createContext, useContext, useState, type ReactNode } from 'react'
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useState,
+  type ReactNode,
+} from 'react'
 
 import { useIsAdmin } from '@/hooks/use-admin'
 
@@ -39,6 +45,8 @@ interface UsageLogsContextValue {
   setSensitiveVisible: (visible: boolean) => void
   usageSource: UsageSource
   setUsageSource: (source: UsageSource) => void
+  initialUsageSourcePending: boolean
+  resolveInitialUsageSource: (hasHistoricalLogs: boolean) => void
   viewScope: LogsViewScope
   setViewScope: (scope: LogsViewScope) => void
 }
@@ -55,7 +63,26 @@ export function UsageLogsProvider({ children }: { children: ReactNode }) {
   const [affinityDialogOpen, setAffinityDialogOpen] = useState(false)
   const [sensitiveVisible, setSensitiveVisible] = useState(true)
   const [viewScope, setViewScope] = useState<LogsViewScope>('all')
-  const [usageSource, setUsageSource] = useState<UsageSource>('native')
+  const [sourceSelection, setSourceSelection] = useState({
+    source: 'native' as UsageSource,
+    pending: true,
+  })
+  const setUsageSource = useCallback((source: UsageSource) => {
+    setSourceSelection({ source, pending: false })
+  }, [])
+  const resolveInitialUsageSource = useCallback(
+    (hasHistoricalLogs: boolean) => {
+      setSourceSelection((current) =>
+        current.pending
+          ? {
+              source: hasHistoricalLogs ? 'historical' : 'native',
+              pending: false,
+            }
+          : current
+      )
+    },
+    []
+  )
 
   return (
     <UsageLogsContext.Provider
@@ -72,8 +99,10 @@ export function UsageLogsProvider({ children }: { children: ReactNode }) {
         setSensitiveVisible,
         viewScope,
         setViewScope,
-        usageSource,
+        usageSource: sourceSelection.source,
         setUsageSource,
+        initialUsageSourcePending: sourceSelection.pending,
+        resolveInitialUsageSource,
       }}
     >
       {children}

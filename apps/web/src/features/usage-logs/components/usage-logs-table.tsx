@@ -39,6 +39,7 @@ import { useColumnsByCategory } from '../lib/columns'
 import { parseLogOther } from '../lib/format'
 import { UsageHistoryUnavailableError } from '../lib/history-response'
 import { readUsageStatisticsScope } from '../lib/statistics'
+import { useInitialUsageSource } from '../lib/use-initial-usage-source'
 import { fetchLogsByCategory } from '../lib/utils'
 import { useTaskLogsTranslation } from '../task-logs-i18n'
 import type { LogCategory } from '../types'
@@ -154,6 +155,7 @@ export function UsageLogsTable({ logCategory }: UsageLogsTableProps) {
     isLoading,
     isFetching,
     isError,
+    isSuccess,
     error,
     refetch,
   } = useQuery({
@@ -205,6 +207,17 @@ export function UsageLogsTable({ logCategory }: UsageLogsTableProps) {
             query.state.status === 'error'
           ),
     refetchIntervalInBackground: false,
+  })
+
+  useInitialUsageSource(data, isSuccess && !isFetching, {
+    logCategory,
+    isAdmin,
+    historical,
+    page: pagination.pageIndex + 1,
+    pageSize: pagination.pageSize,
+    searchParams,
+    columnFilters,
+    scope: scope ?? undefined,
   })
 
   const logs = data?.kind === 'historical' ? [] : data?.items || []
