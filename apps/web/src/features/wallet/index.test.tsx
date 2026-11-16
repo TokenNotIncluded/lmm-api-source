@@ -19,6 +19,7 @@ For commercial licensing, please contact support@quantumnous.com
 import assert from 'node:assert/strict'
 import { after, afterEach, test } from 'node:test'
 
+import { AxiosError, type InternalAxiosRequestConfig } from 'axios'
 import { Window } from 'happy-dom'
 import type React from 'react'
 
@@ -201,24 +202,41 @@ async function renderWallet(
       return { data: body, status: 200, statusText: 'OK', headers: {}, config }
     }
   }
-  api.get = (async (url) => ({
-    data: {
-      success: true,
-      data:
-        url === '/api/user/payments/channels'
-          ? (options.nativeChannels ?? { available: false, channels: [] })
-          : url === '/api/user/self'
-            ? refreshedUser
-            : url.startsWith('/api/user/topup/self?')
-              ? {
-                  items: [],
-                  total: 0,
-                }
-              : url === '/api/user/aff'
-                ? ''
-                : [],
-    },
-  })) as typeof api.get
+  api.get = (async (url) => {
+    // Only an absent classic route selects the native contract. A service
+    // failure must remain visible instead of changing financial protocols.
+    if (
+      user.wallet_unit === 'core_credit' &&
+      typeof url === 'string' &&
+      url.startsWith('/api/subscription/')
+    ) {
+      throw new AxiosError('Route not found', undefined, undefined, undefined, {
+        status: 404,
+        statusText: 'Not Found',
+        data: { error: 'not_found' },
+        headers: {},
+        config: { url } as InternalAxiosRequestConfig,
+      })
+    }
+    return {
+      data: {
+        success: true,
+        data:
+          url === '/api/user/payments/channels'
+            ? (options.nativeChannels ?? { available: false, channels: [] })
+            : url === '/api/user/self'
+              ? refreshedUser
+              : url.startsWith('/api/user/topup/self?')
+                ? {
+                    items: [],
+                    total: 0,
+                  }
+                : url === '/api/user/aff'
+                  ? ''
+                  : [],
+      },
+    }
+  }) as typeof api.get
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   })
@@ -300,7 +318,12 @@ test('unknown historical money retains credits and offers authoritative reward p
     /280 Credits/
   )
   assert.equal(container.querySelector('#topup-amount'), null)
-  assert.match(container.textContent ?? '', /No subscription plans yet/)
+  assert.equal(
+    [...container.querySelectorAll('button')].some(
+      (b) => b.textContent?.trim() === 'Subscribe Now'
+    ),
+    false
+  )
   assert.ok(container.querySelector('#native-redeem-code'))
   for (const label of ['Transfer']) {
     const button = [
@@ -417,7 +440,12 @@ test('unknown historical money still requires explicitly confirmed quoted native
     /Credit conversion unavailable: USD \/ CNY — Unknown/
   )
   assert.equal(posts.length, 0)
-  assert.match(container.textContent ?? '', /No subscription plans yet/)
+  assert.equal(
+    [...container.querySelectorAll('button')].some(
+      (b) => b.textContent?.trim() === 'Subscribe Now'
+    ),
+    false
+  )
   assert.ok(container.querySelector('#native-redeem-code'))
   assert.equal(button('Transfer').disabled, true)
   const preview = container.querySelector<HTMLAnchorElement>(
@@ -549,14 +577,18 @@ test('native wallet exposes credit subscriptions and rewards without fiat conver
     })
     const click = async (label: string) => {
       const button = [
-        ...container.querySelectorAll<HTMLButtonElement>('button'),
+        ...document.querySelectorAll<HTMLButtonElement>('button'),
       ].find((item) => item.textContent?.trim() === label)
       assert.ok(button && !button.disabled, label)
       await act(async () => {
         button.click()
-        await new Promise((r) => setTimeout(r, 20))
+        await new Promise((r) => setTimeout(r, 30))
       })
     }
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 40))
+    })
+    assert.match(container.textContent ?? '', /Credit-only plan/)
     assert.match(container.textContent ?? '', /100,001 Core credits/)
     assert.match(container.textContent ?? '', /230,007 Core credits/)
     assert.match(
@@ -565,13 +597,20 @@ test('native wallet exposes credit subscriptions and rewards without fiat conver
     )
     assert.equal(requests.filter((r) => r.method === 'post').length, 0)
     await click('Preview purchase')
-    assert.match(container.textContent ?? '', /170,003 Core credits/)
+    assert.deepEqual(
+      requests.filter((r) => r.method === 'post').map((r) => r.url),
+      ['/core/v1/subscriptions/quotes']
+    )
     assert.equal(requests.filter((r) => r.url.endsWith('/confirm')).length, 0)
     await click('Confirm')
-    assert.match(
-      container.textContent ?? '',
-      /Subscription purchased successfully · 100,001 Core credits/
-    )
+    const corePosts = () =>
+      requests
+        .filter((r) => r.method === 'post' && r.url.startsWith('/core/v1/'))
+        .map((r) => r.url)
+    assert.deepEqual(corePosts(), [
+      '/core/v1/subscriptions/quotes',
+      `/core/v1/subscriptions/quotes/${quote.id}/confirm`,
+    ])
     await click('Check In')
     await click('Claim reward')
     const input = container.querySelector<HTMLInputElement>(
@@ -592,16 +631,13 @@ test('native wallet exposes credit subscriptions and rewards without fiat conver
       container.textContent ?? '',
       /Reward received · 230,007 Core credits/
     )
-    assert.deepEqual(
-      requests.filter((r) => r.method === 'post').map((r) => r.url),
-      [
-        '/core/v1/subscriptions/quotes',
-        `/core/v1/subscriptions/quotes/${quote.id}/confirm`,
-        `/core/v1/promotions/campaigns/${campaigns[0].id}/checkin`,
-        `/core/v1/promotions/campaigns/${campaigns[1].id}/envelope`,
-        '/core/v1/promotions/redemptions',
-      ]
-    )
+    assert.deepEqual(corePosts(), [
+      '/core/v1/subscriptions/quotes',
+      `/core/v1/subscriptions/quotes/${quote.id}/confirm`,
+      `/core/v1/promotions/campaigns/${campaigns[0].id}/checkin`,
+      `/core/v1/promotions/campaigns/${campaigns[1].id}/envelope`,
+      '/core/v1/promotions/redemptions',
+    ])
     assert.doesNotMatch(container.textContent ?? '', /[$¥￥]|(?:USD|CNY)\s+\d/)
     assert.equal(
       useAuthStore.getState().auth.user?.wallet_money_available,
@@ -631,10 +667,12 @@ test('native workspaces fail closed when their actual catalogs are unavailable',
       throw new Error(`Unavailable module: ${url}`)
     },
   })
-  assert.match(container.textContent ?? '', /Request failed/)
+  assert.match(container.textContent ?? '', /Request failed|Failed to load/)
   assert.equal(
     [...container.querySelectorAll('button')].some(
-      (b) => b.textContent === 'Preview purchase'
+      (b) =>
+        b.textContent === 'Preview purchase' ||
+        b.textContent === 'Subscribe Now'
     ),
     false
   )

@@ -16,9 +16,21 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+import { isAxiosError } from 'axios'
+
+import {
+  CommerceFailure,
+  commerceScope,
+} from '@/features/commerce/native-client'
 import { api } from '@/lib/api'
 import type { WaffoPancakeCheckoutLanguage } from '@/lib/waffo-pancake-checkout'
+import { useAuthStore } from '@/stores/auth-store'
 
+import {
+  nativePlanToRecord,
+  nativePurchasesToSelfData,
+} from './lib/native-classic-bridge'
+import { listNativePlans, listNativePurchases } from './native-api'
 import type {
   ApiResponse,
   PlanRecord,
@@ -35,6 +47,36 @@ import type {
   WaffoPancakeSubscriptionPayRequest,
   SelfSubscriptionData,
 } from './types'
+
+function isClassicSubscriptionPayload<T>(
+  data: unknown
+): data is ApiResponse<T> {
+  return (
+    !!data &&
+    typeof data === 'object' &&
+    'success' in data &&
+    typeof (data as ApiResponse<T>).success === 'boolean'
+  )
+}
+
+function subscriptionOwner() {
+  const { user, session } = useAuthStore.getState().auth
+  return { userId: user?.id, sessionId: session?.sid }
+}
+
+function requireSubscriptionOwner(owner: ReturnType<typeof subscriptionOwner>) {
+  const current = subscriptionOwner()
+  if (
+    current.userId !== owner.userId ||
+    current.sessionId !== owner.sessionId
+  ) {
+    throw new CommerceFailure('SESSION_CHANGED')
+  }
+}
+
+function isMissingSubscriptionRoute(error: unknown) {
+  return isAxiosError(error) && error.response?.status === 404
+}
 
 // ============================================================================
 // Admin Plan Management
@@ -117,7 +159,20 @@ export async function paySubscriptionWaffoPancake(
 export async function paySubscriptionBalance(
   data: SubscriptionPayRequest
 ): Promise<SubscriptionPayResponse> {
-  const res = await api.post('/api/subscription/balance/pay', data)
+  const owner = subscriptionOwner()
+  const scope = commerceScope()
+  // A failed classic payment may already have committed. Native plans use the
+  // native wallet's persisted quote and explicit confirmation instead.
+  const res = await api.post('/api/subscription/balance/pay', data, {
+    ...(scope ? { authScope: scope } : {}),
+    skipAuthRefresh: true,
+  })
+  requireSubscriptionOwner(owner)
+  if (
+    !isClassicSubscriptionPayload<SubscriptionPayResponse['data']>(res.data)
+  ) {
+    throw new CommerceFailure('INVALID_RESPONSE')
+  }
   return res.data
 }
 
@@ -135,15 +190,38 @@ export async function paySubscriptionEpay(
 export async function getSelfSubscriptions(): Promise<
   ApiResponse<UserSubscriptionRecord[]>
 > {
-  const res = await api.get('/api/subscription/self')
-  return res.data
+  const full = await getSelfSubscriptionFull()
+  if (!full.success || !full.data) {
+    return { success: false, message: full.message }
+  }
+  return { success: true, data: full.data.subscriptions }
 }
 
 export async function getSelfSubscriptionFull(): Promise<
   ApiResponse<SelfSubscriptionData>
 > {
-  const res = await api.get('/api/subscription/self')
-  return res.data
+  const owner = subscriptionOwner()
+  const scope = commerceScope()
+  try {
+    const res = await api.get(
+      '/api/subscription/self',
+      scope ? { authScope: scope, skipAuthRefresh: true } : undefined
+    )
+    requireSubscriptionOwner(owner)
+    if (!isClassicSubscriptionPayload<SelfSubscriptionData>(res.data)) {
+      throw new CommerceFailure('INVALID_RESPONSE')
+    }
+    return res.data
+  } catch (error) {
+    requireSubscriptionOwner(owner)
+    if (!scope || !isMissingSubscriptionRoute(error)) throw error
+  }
+  const purchases = await listNativePurchases(scope)
+  requireSubscriptionOwner(owner)
+  return {
+    success: true,
+    data: nativePurchasesToSelfData(purchases, scope.userId),
+  }
 }
 
 export async function getSubscriptionResetVouchers(): Promise<
@@ -168,11 +246,32 @@ export async function getPublicPlans(
   signal: AbortSignal | undefined,
   checkoutLanguage: WaffoPancakeCheckoutLanguage
 ): Promise<ApiResponse<PlanRecord[]>> {
-  const res = await api.get('/api/subscription/plans', {
-    signal,
-    headers: { 'Accept-Language': checkoutLanguage },
-  })
-  return res.data
+  const owner = subscriptionOwner()
+  const scope = commerceScope()
+  try {
+    const res = await api.get('/api/subscription/plans', {
+      signal,
+      headers: { 'Accept-Language': checkoutLanguage },
+      ...(scope ? { authScope: scope, skipAuthRefresh: true } : {}),
+    })
+    requireSubscriptionOwner(owner)
+    signal?.throwIfAborted()
+    if (
+      !isClassicSubscriptionPayload<PlanRecord[]>(res.data) ||
+      (res.data.success && !Array.isArray(res.data.data))
+    ) {
+      throw new CommerceFailure('INVALID_RESPONSE')
+    }
+    return res.data
+  } catch (error) {
+    requireSubscriptionOwner(owner)
+    signal?.throwIfAborted()
+    if (!scope || !isMissingSubscriptionRoute(error)) throw error
+  }
+  const plans = await listNativePlans(scope)
+  requireSubscriptionOwner(owner)
+  signal?.throwIfAborted()
+  return { success: true, data: plans.map(nativePlanToRecord) }
 }
 
 export async function updateBillingPreference(

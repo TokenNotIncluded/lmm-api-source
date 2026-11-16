@@ -88,6 +88,8 @@ export type SubscriptionPlan = z.infer<typeof subscriptionPlanSchema>
 
 export interface PlanRecord {
   plan: SubscriptionPlan
+  /** Preserved by the Core reader so checkout keeps its native protocol. */
+  contract?: 'core.subscriptions.v1'
   /**
    * Public API: checkout methods authorized for this plan and signed-in user.
    * Admin API: configured methods whose gateway credentials are usable.
@@ -268,6 +270,7 @@ export interface SubscriptionResetResult {
 // ============================================================================
 
 export interface SelfSubscriptionData {
+  contract?: 'core.subscriptions.v1'
   billing_preference: string
   subscriptions: UserSubscriptionRecord[]
   all_subscriptions: UserSubscriptionRecord[]

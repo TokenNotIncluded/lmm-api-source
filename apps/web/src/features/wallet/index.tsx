@@ -24,7 +24,6 @@ import { SectionPageLayout } from '@/components/layout'
 import { Button } from '@/components/ui/button'
 import { useAuthUserRefresh } from '@/features/onboarding'
 import { NativeWalletPromotions } from '@/features/promotions/native-wallet'
-import { NativeWalletSubscriptions } from '@/features/subscriptions/native-wallet'
 import { isConsoleActivated } from '@/lib/console-activation'
 import { useAuthStore } from '@/stores/auth-store'
 
@@ -32,8 +31,10 @@ import { AffiliateRewardsCard } from './components/affiliate-rewards-card'
 import { BillingHistoryDialog } from './components/dialogs/billing-history-dialog'
 import { L0UpgradePanel } from './components/l0-upgrade-panel'
 import { NativeWalletCheckout } from './components/native-wallet-checkout'
+import { SubscriptionPlansCard } from './components/subscription-plans-card'
 import { WalletStatsCard } from './components/wallet-stats-card'
 import { useCheckoutOwnerKey } from './hooks/use-checkout-scope'
+import { useTopupInfo } from './hooks/use-topup-info'
 import { walletProjection } from './lib/wallet-projection'
 import type { UserWalletData } from './types'
 
@@ -67,6 +68,7 @@ function NativeWallet({
   // their APIs still enforce the current session, plan, campaign and balance.
   // Recharge separately requires its provider catalog and explicit quote.
   const { refreshUser } = useAuthUserRefresh()
+  const { topupInfo } = useTopupInfo()
   const [historyOpen, setHistoryOpen] = useState(initialShowHistory)
   const [refreshing, setRefreshing] = useState(false)
   const [refreshFailed, setRefreshFailed] = useState(false)
@@ -147,7 +149,24 @@ function NativeWallet({
             </div>
             {nativeCreditsAvailable ? (
               <div className='wallet-secondary-grid grid items-start gap-8 xl:gap-10'>
-                <NativeWalletSubscriptions onUpdated={() => void refresh()} />
+                <section aria-labelledby='wallet-subscription-plans-title'>
+                  <h2
+                    id='wallet-subscription-plans-title'
+                    className='sr-only'
+                  >
+                    {t('Subscription Plans')}
+                  </h2>
+                  <SubscriptionPlansCard
+                    topupInfo={topupInfo}
+                    userId={user?.id}
+                    userQuota={
+                      projection.available !== null
+                        ? Number(projection.available)
+                        : user?.quota
+                    }
+                    onPurchaseSuccess={() => void refresh()}
+                  />
+                </section>
                 <NativeWalletPromotions onUpdated={() => void refresh()} />
               </div>
             ) : null}
