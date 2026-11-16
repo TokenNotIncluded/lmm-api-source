@@ -254,7 +254,7 @@ function UserSnapshot({
               search={{ ...DEFAULT_NATIVE_USERS_QUERY, keyword: user.id }}
             />
           }
-          className='min-h-11'
+          className='h-auto min-h-11 max-w-full py-2 text-center break-words whitespace-normal'
         >
           {t('Open user management')}
         </Button>
