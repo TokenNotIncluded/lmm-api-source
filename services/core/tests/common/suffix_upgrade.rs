@@ -1,7 +1,8 @@
 //! Frozen predecessor upgraded through the public offline Core API.
 //! Uses real separate installer/owner/runtime identities and preserves financial facts.
 use lmm_core::core_schema::{
-    UpgradeDatabase, UpgradeError, UpgradeRequest, UpgradeRoles, schema_manifest, upgrade_database,
+    UpgradeDatabase, UpgradeError, UpgradeReport, UpgradeRequest, UpgradeRoles, schema_manifest,
+    upgrade_database as current_upgrade_database,
 };
 use sha2::{Digest, Sha256};
 use sqlx::{Connection, PgConnection, Row, postgres::PgPoolOptions};
@@ -10,6 +11,23 @@ use super::{
     ERROR_PREFIX, PRE_CATALOG, PRE_MANIFEST, PROCEDURE, RECEIPT, check_history, predecessor,
     seed_history,
 };
+
+#[path = "preserved_pancake_executor.rs"]
+pub(super) mod preserved_pancake_executor;
+
+fn uses_preserved_executor() -> bool {
+    PROCEDURE == "core-subscription-pancake-language-optional-v1"
+}
+async fn upgrade_database(
+    url: &str,
+    request: UpgradeRequest,
+) -> Result<UpgradeReport, UpgradeError> {
+    if uses_preserved_executor() {
+        preserved_pancake_executor::upgrade_database(url, request).await
+    } else {
+        current_upgrade_database(url, request).await
+    }
+}
 
 fn quote(value: &str) -> String {
     format!("\"{}\"", value.replace('"', "\"\""))
@@ -30,6 +48,9 @@ fn target_count() -> usize {
     }
 }
 fn manifest_sha256() -> String {
+    if uses_preserved_executor() {
+        return preserved_pancake_executor::manifest_sha256(target_count());
+    }
     let mut manifest = schema_manifest();
     manifest.components.truncate(target_count());
     let mut bytes = serde_json::to_vec(&manifest).unwrap();
@@ -37,7 +58,12 @@ fn manifest_sha256() -> String {
     hex_codec::encode(Sha256::digest(bytes))
 }
 async fn definitions(connection: &mut PgConnection) -> Result<Vec<String>, sqlx::Error> {
-    sqlx::query_scalar(sqlx::AssertSqlSafe(schema_manifest().catalog.query_utf8))
+    let catalog = if uses_preserved_executor() {
+        preserved_pancake_executor::catalog_query()
+    } else {
+        schema_manifest().catalog.query_utf8
+    };
+    sqlx::query_scalar(sqlx::AssertSqlSafe(catalog))
         .fetch_all(connection)
         .await
 }
@@ -160,6 +186,14 @@ async fn suffix_upgrade_preserves_real_predecessor_and_resolves_exact_replay(poo
         .connect_with(options)
         .await
         .unwrap();
+    let mut url = reqwest::Url::parse(&std::env::var("DATABASE_URL").unwrap()).unwrap();
+    url.set_path(&format!("/{}", r.database.name));
+    url.set_username(&r.roles.installer).unwrap();
+    url.set_password(Some(&password)).unwrap();
+    if uses_preserved_executor() {
+        preserved_pancake_executor::initialize(url.as_str(), &r.roles.owner).await;
+        preserved_pancake_executor::assert_installed_target(&installer).await;
+    }
     predecessor::install(&installer).await;
     sqlx::raw_sql("INSERT INTO core_meta.completion_upgrades(upgrade_id,request_sha256,request,preserved_data_sha256,preserved_permissions_sha256,successor_catalog_sha256) VALUES('frozen-previous-completion',decode(repeat('11',32),'hex'),'{}',decode(repeat('22',32),'hex'),decode(repeat('33',32),'hex'),decode('05d1aa6913236fc12cc099640ead1ac2d88a1bde073923ce8353907cfc46c8bb','hex'))")
         .execute(&installer).await.unwrap();
@@ -256,10 +290,6 @@ async fn suffix_upgrade_preserves_real_predecessor_and_resolves_exact_replay(poo
     .unwrap();
     assert_eq!(actual_grants, (true, true, true, true));
     drop(conn);
-    let mut url = reqwest::Url::parse(&std::env::var("DATABASE_URL").unwrap()).unwrap();
-    url.set_path(&format!("/{}", r.database.name));
-    url.set_username(&r.roles.installer).unwrap();
-    url.set_password(Some(&password)).unwrap();
     installer.close().await;
     pool.close().await;
     let result = upgrade_database(url.as_str(), r.clone()).await.unwrap();

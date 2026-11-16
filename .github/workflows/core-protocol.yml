@@ -99,6 +99,13 @@ jobs:
       - name: Rust formatting
         working-directory: services/core
         run: cargo fmt --all --check 2>&1 | tee "$RUNNER_TEMP/core-format.log"
+      - name: Build the preserved Core67 migration executor
+        if: ${{ !cancelled() }}
+        run: |
+          git fetch --no-tags --depth=1 origin 0510c2455dabcb63e33c719ba52ac189d62612bc
+          rustup toolchain install 1.99.0 --profile minimal
+          rustup run 1.99.0 python3 scripts/build-preserved-core.py --output "$RUNNER_TEMP/preserved-pancake67"
+          cat "$RUNNER_TEMP/preserved-pancake67/executor.env" >> "$GITHUB_ENV"
       - name: Rust checks and real database tests
         if: ${{ !cancelled() }}
         working-directory: services/core
@@ -209,6 +216,10 @@ jobs:
           path: |
             ${{ runner.temp }}/core-source-sha.txt
             ${{ runner.temp }}/core-format.log
+            ${{ runner.temp }}/preserved-pancake67/provenance.json
+            ${{ runner.temp }}/preserved-pancake67/source.tar.gz
+            ${{ runner.temp }}/preserved-pancake67/schema-manifest.json
+            ${{ runner.temp }}/preserved-pancake67/build.log
             ${{ runner.temp }}/core-tests.log
             ${{ runner.temp }}/core-process-evidence-*
             ${{ runner.temp }}/payment-live-build.log

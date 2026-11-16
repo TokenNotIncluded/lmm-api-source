@@ -1,24 +1,21 @@
-//! Reconstruct the exact Core66 catalog in an isolated empty fixture database.
-//! Full historical manifest/catalog pins are checked after removing only Core67.
+//! Derive the exact Core66 fixture from the source-bound retained Core67 installer.
+//! Both full captured catalogs are checked before/after removing only its suffix.
 use sha2::{Digest, Sha256};
 pub async fn install(pool: &sqlx::PgPool) {
-    lmm_core::core_schema::init(pool).await.unwrap();
+    use super::harness::preserved_pancake_executor;
     let mut tx = pool.begin().await.unwrap();
     sqlx::raw_sql("DROP TABLE core_meta.pancake_language_upgrades; ALTER TABLE core_subscriptions.pancake_prices DROP CONSTRAINT pancake_prices_checkout_language_check; ALTER TABLE core_subscriptions.pancake_prices ADD CONSTRAINT pancake_prices_checkout_language_check CHECK(length(checkout_language) BETWEEN 1 AND 32); DELETE FROM core_meta.component_contract WHERE name='subscription-pancake-language-optional';")
         .execute(&mut *tx).await.unwrap();
-    let mut manifest = lmm_core::core_schema::schema_manifest();
-    manifest.components.truncate(66);
-    let mut bytes = serde_json::to_vec(&manifest).unwrap();
-    bytes.push(b'\n');
     assert_eq!(
-        hex_codec::encode(Sha256::digest(bytes)),
+        preserved_pancake_executor::manifest_sha256(66),
         super::PRE_MANIFEST
     );
-    let definitions: Vec<String> =
-        sqlx::query_scalar(sqlx::AssertSqlSafe(manifest.catalog.query_utf8))
-            .fetch_all(&mut *tx)
-            .await
-            .unwrap();
+    let definitions: Vec<String> = sqlx::query_scalar(sqlx::AssertSqlSafe(
+        preserved_pancake_executor::catalog_query(),
+    ))
+    .fetch_all(&mut *tx)
+    .await
+    .unwrap();
     let mut hash = Sha256::new();
     for definition in definitions {
         hash.update((definition.len() as u64).to_be_bytes());
