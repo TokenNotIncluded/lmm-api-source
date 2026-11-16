@@ -14,7 +14,7 @@ import {
   nativeUsersQuery,
   nativeUsersResponseSchema,
   type NativeGroupsResponse,
-  type NativeUser,
+  type NativeUserDetail,
   type NativeUsersQuery,
   type NativeUsersResponse,
 } from './contract'
@@ -92,7 +92,7 @@ export async function readNativeUser(
   scope: NativeUsersScope,
   userId: string,
   signal?: AbortSignal
-): Promise<NativeUser> {
+): Promise<NativeUserDetail> {
   assertScope(scope, signal)
   if (!nativeProfileIdSchema.safeParse(userId).success) {
     throw new NativeUsersFailure('invalid_query')
@@ -107,7 +107,7 @@ export async function readNativeUser(
     if (!parsed.success || parsed.data.user.id !== userId) {
       throw new NativeUsersFailure('invalid_response')
     }
-    return parsed.data.user
+    return parsed.data
   } catch (error) {
     assertScope(scope, signal)
     throw nativeUsersFailure(error)

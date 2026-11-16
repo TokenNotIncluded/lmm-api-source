@@ -10,6 +10,7 @@ import {
   nativeListFixture,
   nativeStatusFixture,
   nativeUserFixture,
+  nativeUsageFixture,
 } from '@/features/native-users/test-fixtures'
 import { ROLE } from '@/lib/roles'
 import { useAuthStore } from '@/stores/auth-store'
@@ -238,7 +239,7 @@ export function adminReviewFixture(
   const detail = /^\/core\/v1\/admin\/users\/([1-9]\d*)$/.exec(url.pathname)
   if (detail) {
     const user = reviewUsers().find((item) => item.id === detail[1])
-    return user ? { version: 1, user } : undefined
+    return user ? { version: 1, user, usage: nativeUsageFixture() } : undefined
   }
   if (url.pathname === '/core/v1/admin/users') {
     const query = nativeUsersQuery({

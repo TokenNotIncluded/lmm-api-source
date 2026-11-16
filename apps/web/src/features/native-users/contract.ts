@@ -229,8 +229,60 @@ export const nativeUserSchema = z
     }
   })
 
+const usageMagnitude = (value: string) =>
+  value.length <= 39 && /^(?:0|[1-9][0-9]*)$/.test(value)
+const exactUsageMagnitude = z.string().refine(usageMagnitude)
+
+export const nativeUserUsageSchema = z.discriminatedUnion('status', [
+  z
+    .object({
+      status: z.literal('available'),
+      unit: z.literal('core_credit'),
+      scope: z.literal('actor_personal_usage'),
+      historical_imports_included: z.literal(false),
+      settled_requests: exactUsageMagnitude,
+      pending_requests: exactUsageMagnitude,
+      gross_settled_units: exactUsageMagnitude,
+      refunded_units: exactUsageMagnitude,
+      net_consumption_units: exactUsageMagnitude,
+      personal_wallet_consumption_units: exactUsageMagnitude,
+      team_wallet_consumption_units: exactUsageMagnitude,
+      subscription_consumption_units: exactUsageMagnitude,
+      sponsored_consumption_units: exactUsageMagnitude,
+    })
+    .strict()
+    .refine((value) => {
+      const amounts = [
+        value.gross_settled_units,
+        value.refunded_units,
+        value.net_consumption_units,
+        value.personal_wallet_consumption_units,
+        value.team_wallet_consumption_units,
+        value.subscription_consumption_units,
+        value.sponsored_consumption_units,
+      ]
+      if (!amounts.every(usageMagnitude)) return false
+      const [gross, refunded, net, personal, team, subscription, sponsored] =
+        amounts.map((amount) => BigInt(amount))
+      return (
+        gross - refunded === net &&
+        personal + team + subscription + sponsored === net
+      )
+    }, 'Inconsistent usage totals'),
+  z
+    .object({
+      status: z.literal('unavailable'),
+      code: z.literal('USAGE_PROJECTION_UNAVAILABLE'),
+    })
+    .strict(),
+])
+
 export const nativeUserDetailSchema = z
-  .object({ version: z.literal(1), user: nativeUserSchema })
+  .object({
+    version: z.literal(1),
+    user: nativeUserSchema,
+    usage: nativeUserUsageSchema,
+  })
   .strict()
 
 export const nativeUsersResponseSchema = z
@@ -269,6 +321,8 @@ export const nativeGroupsResponseSchema = z
   )
 
 export type NativeUser = z.infer<typeof nativeUserSchema>
+export type NativeUserDetail = z.infer<typeof nativeUserDetailSchema>
+export type NativeUserUsage = z.infer<typeof nativeUserUsageSchema>
 export type NativeWallet = z.infer<typeof nativeWalletSchema>
 export type NativeUsersResponse = z.infer<typeof nativeUsersResponseSchema>
 export type NativeGroupsResponse = z.infer<typeof nativeGroupsResponseSchema>

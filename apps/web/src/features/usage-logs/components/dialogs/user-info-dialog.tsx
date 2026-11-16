@@ -36,7 +36,7 @@ import {
 import { readNativeUser } from '@/features/native-users/api'
 import {
   DEFAULT_NATIVE_USERS_QUERY,
-  type NativeUser,
+  type NativeUserDetail,
 } from '@/features/native-users/contract'
 import { toIntlLocale } from '@/i18n/languages'
 import { useAuthStore } from '@/stores/auth-store'
@@ -49,7 +49,7 @@ interface UserInfoDialogProps {
 
 type Load =
   | { status: 'loading' }
-  | { status: 'ready'; user: NativeUser }
+  | { status: 'ready'; detail: NativeUserDetail }
   | { status: 'error'; kind: NativeUsersFailure['kind'] }
 
 function InfoItem({ label, value }: { label: string; value: string | number }) {
@@ -79,8 +79,8 @@ function UserSnapshot({
     const owns = () =>
       !controller.signal.aborted && isCurrentNativeUsersScope(captured)
     void readNativeUser(captured, userId, controller.signal).then(
-      (user) => {
-        if (owns()) setState({ status: 'ready', user })
+      (detail) => {
+        if (owns()) setState({ status: 'ready', detail })
       },
       (error: unknown) => {
         if (owns()) {
@@ -131,7 +131,9 @@ function UserSnapshot({
     )
   }
 
-  const { user } = state
+  const { user, usage } = state.detail
+  const number = (value: string) =>
+    BigInt(value).toLocaleString(toIntlLocale(i18n.language))
   const wallet = user.wallet
   const profile = (value: string | null) =>
     value === null ? t('Unavailable') : value === '' ? t('Empty value') : value
@@ -186,6 +188,73 @@ function UserSnapshot({
         <p className='text-muted-foreground text-xs leading-relaxed'>
           {t(
             'Currency and money basis are unavailable. Amounts are exact Core credit units.'
+          )}
+        </p>
+      </section>
+
+      <section className='space-y-4' aria-label={t('Native usage')}>
+        <h3 className='text-sm font-medium'>{t('Native usage')}</h3>
+        {usage.status === 'available' ? (
+          <>
+            <dl className='grid grid-cols-1 gap-x-6 gap-y-5 min-[380px]:grid-cols-2'>
+              <div className='min-w-0 space-y-1.5 min-[380px]:col-span-2'>
+                <dt className='text-muted-foreground text-xs'>
+                  {t('Net consumption')}
+                </dt>
+                <dd className='flex flex-wrap items-baseline gap-x-2 gap-y-1'>
+                  <span className='font-mono text-2xl font-medium break-all tabular-nums'>
+                    {number(usage.net_consumption_units)}
+                  </span>
+                  <span className='text-muted-foreground text-xs'>
+                    {t('Core credits')}
+                  </span>
+                </dd>
+              </div>
+              <InfoItem
+                label={t('Settled requests')}
+                value={number(usage.settled_requests)}
+              />
+              <InfoItem
+                label={t('Pending settlement')}
+                value={number(usage.pending_requests)}
+              />
+            </dl>
+            <details className='text-sm'>
+              <summary className='text-muted-foreground focus-visible:outline-ring inline-flex min-h-11 cursor-pointer items-center focus-visible:outline-2'>
+                {t('Usage breakdown')}
+              </summary>
+              <dl className='grid grid-cols-1 gap-x-6 gap-y-4 py-3 min-[380px]:grid-cols-2'>
+                {[
+                  [
+                    t('Personal wallet consumption'),
+                    usage.personal_wallet_consumption_units,
+                  ],
+                  [
+                    t('Team wallet consumption'),
+                    usage.team_wallet_consumption_units,
+                  ],
+                  [
+                    t('Subscription consumption'),
+                    usage.subscription_consumption_units,
+                  ],
+                  [
+                    t('Sponsored consumption'),
+                    usage.sponsored_consumption_units,
+                  ],
+                  [t('Gross consumption'), usage.gross_settled_units],
+                  [t('Refunded consumption'), usage.refunded_units],
+                ].map(([label, value]) => (
+                  <InfoItem key={label} label={label} value={number(value)} />
+                ))}
+              </dl>
+            </details>
+          </>
+        ) : (
+          <p className='text-muted-foreground text-sm'>{t('Unavailable')}</p>
+        )}
+        <p className='text-muted-foreground text-xs leading-relaxed'>
+          {t(
+            'Only native requests attributable to this user are included. Imported history and team-owned API keys are excluded.'
           )}
         </p>
       </section>
@@ -288,7 +357,9 @@ export function UserInfoDialog({
       open={open}
       onOpenChange={onOpenChange}
       title={t('User Information')}
-      description={t("View this account's profile, access and wallet balance.")}
+      description={t(
+        "View this account's profile, access, wallet and native usage."
+      )}
       contentClassName='sm:max-w-xl'
       contentHeight='auto'
     >

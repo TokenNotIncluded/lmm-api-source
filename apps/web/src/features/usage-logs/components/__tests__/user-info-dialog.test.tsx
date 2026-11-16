@@ -52,7 +52,7 @@ const { createInstance } = await import('i18next')
 const { I18nextProvider, initReactI18next } = await import('react-i18next')
 const { api } = await import('@/lib/api')
 const { useAuthStore } = await import('@/stores/auth-store')
-const { nativeUserFixture } =
+const { nativeUserFixture, nativeUsageFixture } =
   await import('@/features/native-users/test-fixtures')
 const { nativeQueryFromSearch } = await import('@/features/native-users/search')
 const { UserInfoDialog } = await import('../dialogs/user-info-dialog')
@@ -155,7 +155,7 @@ test('usage user details show the real native record and exact credits with a ma
     seen.push(config.url ?? '')
     return {
       config,
-      data: { version: 1, user: user('10') },
+      data: { version: 1, usage: nativeUsageFixture(), user: user('10') },
       headers: {},
       status: 200,
       statusText: 'OK',
@@ -196,7 +196,7 @@ test('changing users clears old data and discards a late response for the previo
     }
     return {
       config,
-      data: { version: 1, user: user(id) },
+      data: { version: 1, usage: nativeUsageFixture(), user: user(id) },
       headers: {},
       status: 200,
       statusText: 'OK',
@@ -225,7 +225,7 @@ test('failed refreshes hide prior data and retry explicitly without exposing tra
     if (calls === 2) throw new Error('synthetic private internal diagnostic')
     return {
       config,
-      data: { version: 1, user: user('10') },
+      data: { version: 1, usage: nativeUsageFixture(), user: user('10') },
       headers: {},
       status: 200,
       statusText: 'OK',
@@ -256,7 +256,7 @@ test('a same-session role change removes private detail and its pending response
     })
     return {
       config,
-      data: { version: 1, user: user('10') },
+      data: { version: 1, usage: nativeUsageFixture(), user: user('10') },
       headers: {},
       status: 200,
       statusText: 'OK',
@@ -284,7 +284,7 @@ test('unavailable wallet data is not displayed as a zero balance', async () => {
   }
   api.defaults.adapter = async (config) => ({
     config,
-    data: { version: 1, user: unavailable },
+    data: { version: 1, usage: nativeUsageFixture(), user: unavailable },
     headers: {},
     status: 200,
     statusText: 'OK',
@@ -295,4 +295,89 @@ test('unavailable wallet data is not displayed as a zero balance', async () => {
   )
   expect(wallet?.textContent).toContain('Unavailable')
   expect(wallet?.querySelector('dd')).toBeNull()
+})
+
+test('native usage keeps large totals exact and separates the personal wallet from other payers', async () => {
+  login()
+  const usage = nativeUsageFixture({
+    gross_settled_units: '9007199254741193',
+    net_consumption_units: '9007199254740993',
+    personal_wallet_consumption_units: '9007199254740693',
+  })
+  api.defaults.adapter = async (config) => ({
+    config,
+    data: { version: 1, user: user('10'), usage },
+    headers: {},
+    status: 200,
+    statusText: 'OK',
+  })
+  await render(10)
+  const section = dialog().querySelector('section[aria-label="Native usage"]')
+  expect(section?.textContent).toContain('9,007,199,254,740,993')
+  expect(section?.textContent).toContain('Settled requests')
+  expect(section?.textContent).toContain('Pending settlement')
+  expect(section?.textContent).toContain('Imported history')
+  const breakdown = section?.querySelector('details')
+  expect(breakdown?.open).toBe(false)
+  await act(async () => {
+    breakdown?.querySelector('summary')?.click()
+    await pause()
+  })
+  expect(breakdown?.open).toBe(true)
+  expect(breakdown?.textContent).toContain('Personal wallet consumption')
+  expect(breakdown?.textContent).toContain('9,007,199,254,740,693')
+  expect(breakdown?.textContent).toContain('Team wallet consumption')
+  expect(breakdown?.textContent).toContain('Subscription consumption')
+  expect(breakdown?.textContent).toContain('Sponsored consumption')
+  expect(breakdown?.textContent).toContain('Refunded consumption')
+})
+
+test('unavailable usage keeps the profile visible without invented zero statistics', async () => {
+  login()
+  api.defaults.adapter = async (config) => ({
+    config,
+    data: {
+      version: 1,
+      user: user('10'),
+      usage: { status: 'unavailable', code: 'USAGE_PROJECTION_UNAVAILABLE' },
+    },
+    headers: {},
+    status: 200,
+    statusText: 'OK',
+  })
+  await render(10)
+  expect(dialog().textContent).toContain('detail-user-10')
+  const section = dialog().querySelector('section[aria-label="Native usage"]')
+  expect(section?.textContent).toContain('Unavailable')
+  expect(section?.querySelector('dd')).toBeNull()
+})
+
+test('available zero usage is displayed as zero rather than unavailable', async () => {
+  login()
+  const usage = nativeUsageFixture({
+    settled_requests: '0',
+    pending_requests: '0',
+    gross_settled_units: '0',
+    refunded_units: '0',
+    net_consumption_units: '0',
+    personal_wallet_consumption_units: '0',
+    team_wallet_consumption_units: '0',
+    subscription_consumption_units: '0',
+    sponsored_consumption_units: '0',
+  })
+  api.defaults.adapter = async (config) => ({
+    config,
+    data: { version: 1, user: user('10'), usage },
+    headers: {},
+    status: 200,
+    statusText: 'OK',
+  })
+  await render(10)
+  const section = dialog().querySelector('section[aria-label="Native usage"]')
+  expect(section?.textContent).not.toContain('Unavailable')
+  expect(
+    Array.from(section?.querySelectorAll('dd') ?? [])
+      .slice(0, 3)
+      .map((value) => value.textContent?.trim())
+  ).toEqual(['0Core credits', '0', '0'])
 })

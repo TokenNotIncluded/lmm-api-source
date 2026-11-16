@@ -6,7 +6,7 @@ import { api } from '@/lib/api'
 import { useAuthStore } from '@/stores/auth-store'
 
 import { readNativeUser } from './api'
-import { nativeUserFixture } from './test-fixtures'
+import { nativeUserFixture, nativeUsageFixture } from './test-fixtures'
 
 const originalAdapter = api.defaults.adapter
 const previousAuth = useAuthStore.getState().auth
@@ -55,13 +55,17 @@ test('user detail reads one exact ID with scoped native options and exact credit
     expect(config.timeout).toBe(10000)
     return {
       config,
-      data: { version: 1, user },
+      data: { version: 1, user, usage: nativeUsageFixture() },
       headers: {},
       status: 200,
       statusText: 'OK',
     }
   }
-  expect(await readNativeUser(scope, user.id)).toEqual(user)
+  expect(await readNativeUser(scope, user.id)).toEqual({
+    version: 1,
+    user,
+    usage: nativeUsageFixture(),
+  })
   expect(seen).toEqual(['get /core/v1/admin/users/9007199254740993'])
 })
 
@@ -71,8 +75,17 @@ test('a list, old envelope, mismatched user or incomplete wallet cannot become u
   for (const payload of [
     { success: true, data: user },
     { version: 1, items: [user] },
-    { version: 1, user: { ...user, id: '12' } },
-    { version: 1, user: { ...user, wallet: { status: 'available' } } },
+    {
+      version: 1,
+      user,
+      usage: { ...nativeUsageFixture(), net_consumption_units: '999' },
+    },
+    { version: 1, usage: nativeUsageFixture(), user: { ...user, id: '12' } },
+    {
+      version: 1,
+      usage: nativeUsageFixture(),
+      user: { ...user, wallet: { status: 'available' } },
+    },
   ]) {
     api.defaults.adapter = async (config) => ({
       config,
@@ -95,7 +108,11 @@ test('invalid IDs and stale sessions cannot issue or retain native detail reads'
     login(1)
     return {
       config,
-      data: { version: 1, user: nativeUserFixture() },
+      data: {
+        version: 1,
+        usage: nativeUsageFixture(),
+        user: nativeUserFixture(),
+      },
       headers: {},
       status: 200,
       statusText: 'OK',

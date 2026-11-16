@@ -16,11 +16,13 @@ pub use profile_mutation::{
     ProfileUpdateRequest,
 };
 pub use security::{SecurityAction, SecurityRequest, SecuritySnapshot, SecurityUpdate};
+mod usage;
 mod wallet;
 use super::*;
 pub use http::router;
 use serde::{Deserialize, Serialize};
 use sqlx::{Postgres, Row, Transaction};
+pub use usage::UsageProjection;
 pub use wallet::WalletProjection;
 
 pub const PROTOCOL: &str = "core.admin-users.v1";
@@ -309,6 +311,7 @@ pub struct UsersPage {
 pub struct UserDetail {
     pub version: u8,
     pub user: UserRow,
+    pub usage: UsageProjection,
 }
 #[derive(Serialize)]
 pub struct GroupsPage {
@@ -465,9 +468,15 @@ impl AdminUsersStore {
         .fetch_optional(&mut *tx)
         .await?
         .ok_or(AdminUsersError::NotFound)?;
+        let account = row.try_get("personal_account_id")?;
         let user = project_user(&mut tx, row).await?;
+        let usage = usage::read(&mut tx, user_id, account).await?;
         tx.commit().await?;
-        Ok(UserDetail { version: 1, user })
+        Ok(UserDetail {
+            version: 1,
+            user,
+            usage,
+        })
     }
     pub async fn groups(&self, secret: &str, input: &GroupsQuery) -> ReadResult<GroupsPage> {
         let (page, size, offset) = pagination(input.page, input.page_size)?;

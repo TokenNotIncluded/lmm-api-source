@@ -7,12 +7,18 @@ import {
   NATIVE_USERS_CAPABILITIES,
   nativeGroupsResponseSchema,
   nativeUserSchema,
+  nativeUserDetailSchema,
+  nativeUserUsageSchema,
   nativeUsersQuery,
   nativeUsersResponseSchema,
   nativeWalletSchema,
 } from './contract'
 import { nativeQueryFromSearch } from './search'
-import { nativeListFixture, nativeUserFixture } from './test-fixtures'
+import {
+  nativeListFixture,
+  nativeUserFixture,
+  nativeUsageFixture,
+} from './test-fixtures'
 
 test('native identity and financial units remain exact strings beyond JS-safe IDs', () => {
   const parsed = nativeUsersResponseSchema.parse(nativeListFixture())
@@ -293,5 +299,60 @@ test('old fields, invalid native filters and duplicate keys are rejected without
     '?sort_order=up',
   ]) {
     expect(nativeQueryFromSearch(search)).toBeUndefined()
+  }
+})
+
+test('native usage preserves exact totals beyond safe integers and keeps unavailable distinct from zero', () => {
+  const usage = nativeUsageFixture({
+    settled_requests: '9007199254740993',
+    gross_settled_units: '9007199254741193',
+    net_consumption_units: '9007199254740993',
+    personal_wallet_consumption_units: '9007199254740693',
+  })
+  const detail = nativeUserDetailSchema.parse({
+    version: 1,
+    user: nativeUserFixture(),
+    usage,
+  })
+  expect(detail.usage).toEqual(usage)
+  expect(
+    nativeUserUsageSchema.parse({
+      status: 'unavailable',
+      code: 'USAGE_PROJECTION_UNAVAILABLE',
+    })
+  ).toEqual({
+    status: 'unavailable',
+    code: 'USAGE_PROJECTION_UNAVAILABLE',
+  })
+  expect(
+    nativeUserDetailSchema.safeParse({
+      version: 1,
+      user: nativeUserFixture(),
+    }).success
+  ).toBe(false)
+})
+
+test('native usage rejects malformed totals and inconsistent refund or funding arithmetic', () => {
+  for (const value of ['01', '-1', '1.5', '1e3', '', '1'.repeat(40), 1000]) {
+    const usage = { ...nativeUsageFixture(), net_consumption_units: value }
+    expect(() => nativeUserUsageSchema.safeParse(usage)).not.toThrow()
+    expect(nativeUserUsageSchema.safeParse(usage).success).toBe(false)
+  }
+  for (const update of [
+    { settled_requests: '12.5' },
+    { pending_requests: -1 },
+    { net_consumption_units: '1001' },
+    { refunded_units: '1201' },
+    { personal_wallet_consumption_units: '900' },
+    { historical_imports_included: true },
+    { scope: 'all_users' },
+    { unit: 'USD' },
+  ]) {
+    expect(
+      nativeUserUsageSchema.safeParse({
+        ...nativeUsageFixture(),
+        ...update,
+      }).success
+    ).toBe(false)
   }
 })

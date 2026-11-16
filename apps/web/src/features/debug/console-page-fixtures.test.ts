@@ -75,6 +75,11 @@ test('native admin review data validates, filters users and never handles writes
         adminReviewFixture(config(`/core/v1/admin/users/${user.id}`))
       )
       assert.deepEqual(detail.user, user)
+      assert.equal(detail.usage.status, 'available')
+      if (detail.usage.status === 'available') {
+        assert.equal(detail.usage.net_consumption_units, '1000')
+        assert.equal(detail.usage.historical_imports_included, false)
+      }
     }
     for (const id of ['0', '01006', '100', '10060', 'missing']) {
       assert.equal(

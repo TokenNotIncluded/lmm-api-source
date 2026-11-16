@@ -1,5 +1,9 @@
 /* Copyright (C) 2026 LIghtJUNction. SPDX-License-Identifier: AGPL-3.0-or-later */
-import { NATIVE_USERS_CAPABILITIES, type NativeUser } from './contract'
+import {
+  NATIVE_USERS_CAPABILITIES,
+  type NativeUser,
+  type NativeUserUsage,
+} from './contract'
 
 export function nativeUserFixture(
   overrides: Partial<NativeUser> = {}
@@ -63,4 +67,25 @@ export const nativeStatusFixture = {
     admin_users_protocol: 'core.admin-users.v1',
     capabilities: { admin_users_read: true },
   },
+}
+
+export function nativeUsageFixture(
+  overrides: Partial<Extract<NativeUserUsage, { status: 'available' }>> = {}
+): Extract<NativeUserUsage, { status: 'available' }> {
+  return {
+    status: 'available',
+    unit: 'core_credit',
+    scope: 'actor_personal_usage',
+    historical_imports_included: false,
+    settled_requests: '12',
+    pending_requests: '2',
+    gross_settled_units: '1200',
+    refunded_units: '200',
+    net_consumption_units: '1000',
+    personal_wallet_consumption_units: '700',
+    team_wallet_consumption_units: '200',
+    subscription_consumption_units: '80',
+    sponsored_consumption_units: '20',
+    ...overrides,
+  }
 }

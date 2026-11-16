@@ -8,6 +8,7 @@ mod channel;
 pub(crate) mod channel_projection;
 mod export;
 mod log_details;
+pub(crate) mod personal_summary;
 pub(crate) mod receipts;
 pub(crate) use channel::{ChannelUsage, ChannelUsageError, channel_totals, channel_usage};
 pub mod task_log;
