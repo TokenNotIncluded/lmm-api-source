@@ -52,3 +52,6 @@ async fn unpublished_bootstrap_receipts_reserve_ids_without_inventing_retirement
 
 #[path = "../src/hex_codec.rs"]
 mod hex_codec;
+
+#[path = "common/preserved_fixture_manifest.rs"]
+mod preserved_fixture_manifest;

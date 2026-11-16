@@ -2,16 +2,16 @@
 //! Both full captured catalogs are checked before/after removing only its suffix.
 use sha2::{Digest, Sha256};
 pub async fn install(pool: &sqlx::PgPool) {
-    use super::harness::preserved_pancake_executor;
+    use super::harness::preserved_upgrade_executor;
     let mut tx = pool.begin().await.unwrap();
     sqlx::raw_sql("DROP TABLE core_meta.pancake_language_upgrades; ALTER TABLE core_subscriptions.pancake_prices DROP CONSTRAINT pancake_prices_checkout_language_check; ALTER TABLE core_subscriptions.pancake_prices ADD CONSTRAINT pancake_prices_checkout_language_check CHECK(length(checkout_language) BETWEEN 1 AND 32); DELETE FROM core_meta.component_contract WHERE name='subscription-pancake-language-optional';")
         .execute(&mut *tx).await.unwrap();
     assert_eq!(
-        preserved_pancake_executor::manifest_sha256(66),
+        preserved_upgrade_executor::manifest_sha256(66),
         super::PRE_MANIFEST
     );
     let definitions: Vec<String> = sqlx::query_scalar(sqlx::AssertSqlSafe(
-        preserved_pancake_executor::catalog_query(),
+        preserved_upgrade_executor::catalog_query(),
     ))
     .fetch_all(&mut *tx)
     .await

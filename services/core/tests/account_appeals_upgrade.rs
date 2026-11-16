@@ -18,3 +18,6 @@ mod harness;
 
 #[path = "../src/hex_codec.rs"]
 mod hex_codec;
+
+#[path = "common/preserved_fixture_manifest.rs"]
+mod preserved_fixture_manifest;

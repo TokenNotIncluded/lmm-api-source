@@ -29,7 +29,7 @@ pub async fn install(pool: &sqlx::PgPool) {
         ),
         (
             "referral-ledger-revision",
-            include_str!("../../schema/referral_ledger_revision.sql"),
+            include_str!("../fixtures/preserved_core58/referral_ledger_revision.sql"),
         ),
         (
             "legacy-referrals",
@@ -54,7 +54,7 @@ pub async fn install(pool: &sqlx::PgPool) {
             .await
             .unwrap();
     }
-    let mut manifest = lmm_core::core_schema::schema_manifest();
+    let mut manifest = crate::preserved_fixture_manifest::schema_manifest();
     manifest.components.truncate(56);
     let mut bytes = serde_json::to_vec(&manifest).unwrap();
     bytes.push(b'\n');

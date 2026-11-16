@@ -98,3 +98,6 @@ async fn changing_catalog_and_saved_receipt_cannot_redefine_current_target(pool:
 
 #[path = "../src/hex_codec.rs"]
 mod hex_codec;
+
+#[path = "common/preserved_fixture_manifest.rs"]
+mod preserved_fixture_manifest;

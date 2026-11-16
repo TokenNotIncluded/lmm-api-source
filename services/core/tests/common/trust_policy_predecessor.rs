@@ -13,7 +13,7 @@ pub async fn install(pool: &sqlx::PgPool) {
     sqlx::raw_sql(ddl).execute(&mut *tx).await.unwrap();
     sqlx::query("INSERT INTO core_meta.component_contract(name,fingerprint) VALUES('channel-projection',$1)")
         .bind(Sha256::digest(ddl.as_bytes()).to_vec()).execute(&mut *tx).await.unwrap();
-    let mut manifest = lmm_core::core_schema::schema_manifest();
+    let mut manifest = crate::preserved_fixture_manifest::schema_manifest();
     manifest.components.truncate(44);
     let mut bytes = serde_json::to_vec(&manifest).unwrap();
     bytes.push(b'\n');

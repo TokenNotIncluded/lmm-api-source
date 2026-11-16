@@ -4,10 +4,19 @@ use sqlx::PgPool;
 const COMPONENTS: &[(&str, &str)] = &[
     ("humangrant", include_str!("../../schema/humangrant.sql")),
     ("identity", include_str!("../../schema/identity.sql")),
-    ("ledger", include_str!("../../schema/ledger.sql")),
+    (
+        "ledger",
+        include_str!("../fixtures/preserved_core58/ledger.sql"),
+    ),
     ("payments", include_str!("../../schema/payments.sql")),
-    ("charging", include_str!("../../schema/charging.sql")),
-    ("routing", include_str!("../../schema/routing.sql")),
+    (
+        "charging",
+        include_str!("../fixtures/preserved_core58/charging.sql"),
+    ),
+    (
+        "routing",
+        include_str!("../fixtures/preserved_core58/routing.sql"),
+    ),
     ("events", include_str!("../../schema/events.sql")),
     (
         "charging-ledger",
@@ -32,7 +41,10 @@ const COMPONENTS: &[(&str, &str)] = &[
         include_str!("../../schema/assistant_model.sql"),
     ),
     ("gift", include_str!("../../schema/gift.sql")),
-    ("image", include_str!("../../schema/image.sql")),
+    (
+        "image",
+        include_str!("../fixtures/preserved_core58/image.sql"),
+    ),
     (
         "market-oauth",
         include_str!("../../schema/market_oauth.sql"),
@@ -49,11 +61,7 @@ const COMPONENTS: &[(&str, &str)] = &[
     ),
     (
         "trust-pricing",
-        concat!(
-            include_str!("../../schema/trust_pricing.sql"),
-            "\n",
-            include_str!("../../schema/image_trust_extension.sql")
-        ),
+        include_str!("../fixtures/preserved_core58/trust_pricing.sql"),
     ),
     (
         "telegram-auth",
@@ -113,21 +121,41 @@ fn digest(definitions: Vec<String>) -> Vec<u8> {
     hash.finalize().to_vec()
 }
 pub async fn install(pool: &PgPool) {
-    let mut tx = pool.begin().await.unwrap();
-    for (_, ddl) in COMPONENTS {
-        sqlx::raw_sql(*ddl).execute(&mut *tx).await.unwrap();
+    let manifest = crate::preserved_fixture_manifest::schema_manifest();
+    for ((name, ddl), component) in COMPONENTS.iter().zip(&manifest.components) {
+        assert_eq!(*name, component.name);
+        assert_eq!(
+            crate::hex_codec::encode(Sha256::digest(ddl.as_bytes())),
+            component.raw_schema_sha256,
+            "historical component SQL changed: {name}"
+        );
     }
-    sqlx::raw_sql("CREATE TABLE core_meta.component_contract (name TEXT PRIMARY KEY, fingerprint BYTEA NOT NULL CHECK (octet_length(fingerprint)=32)); CREATE TABLE core_meta.runtime_contract (singleton BOOLEAN PRIMARY KEY DEFAULT TRUE CHECK (singleton), catalog_fingerprint BYTEA NOT NULL CHECK (octet_length(catalog_fingerprint)=32));").execute(&mut *tx).await.unwrap();
-    for ddl in [
+    let contract = "CREATE TABLE core_meta.component_contract (name TEXT PRIMARY KEY, fingerprint BYTEA NOT NULL CHECK (octet_length(fingerprint)=32)); CREATE TABLE core_meta.runtime_contract (singleton BOOLEAN PRIMARY KEY DEFAULT TRUE CHECK (singleton), catalog_fingerprint BYTEA NOT NULL CHECK (octet_length(catalog_fingerprint)=32));";
+    let metadata = [
         include_str!("../../schema/core_upgrade.sql"),
         include_str!("../../schema/component_upgrade.sql"),
         include_str!("../../schema/ledger_revision.sql"),
         include_str!("../../src/core_schema/upgrade/console_receipt.sql"),
         include_str!("../../schema/offline_upgrade.sql"),
-    ] {
+    ];
+    let mut metadata_digest = Sha256::new();
+    metadata_digest.update(contract.as_bytes());
+    for ddl in &metadata {
+        metadata_digest.update(ddl.as_bytes());
+    }
+    assert_eq!(
+        crate::hex_codec::encode(metadata_digest.finalize()),
+        manifest.installer_contract_sql_sha256,
+        "historical installer metadata changed"
+    );
+    let mut tx = pool.begin().await.unwrap();
+    for (_, ddl) in COMPONENTS {
+        sqlx::raw_sql(*ddl).execute(&mut *tx).await.unwrap();
+    }
+    sqlx::raw_sql(contract).execute(&mut *tx).await.unwrap();
+    for ddl in metadata {
         sqlx::raw_sql(ddl).execute(&mut *tx).await.unwrap();
     }
-    let manifest = lmm_core::core_schema::schema_manifest();
     sqlx::query(
         "INSERT INTO core_meta.schema_contract(version,fingerprint) VALUES($1,decode($2,'hex'))",
     )

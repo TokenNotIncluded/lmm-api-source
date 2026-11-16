@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build the immutable Core67 used by the frozen Pancake upgrade regression."""
+"""Build the immutable Core executors used by frozen upgrade regressions."""
 import argparse
 import hashlib
 import json
@@ -9,9 +9,23 @@ import subprocess
 import tarfile
 
 ROOT = Path(__file__).resolve().parents[1]
-REVISION = "0510c2455dabcb63e33c719ba52ac189d62612bc"
 TOOLCHAIN = "1.99.0"
-TARGET = ROOT / "services/core/src/core_schema/upgrade/subscription_pancake_language_target.json"
+FAMILIES = {
+    "pancake67": {
+        "revision": "0510c2455dabcb63e33c719ba52ac189d62612bc",
+        "target": "subscription_pancake_language_target.json",
+        "count": 67,
+        "last_component": "subscription-pancake-language-optional",
+        "environment": "PANCAKE67",
+    },
+    "early58": {
+        "revision": "2a0c7bd380f58a553dc903d399255821c1a65d0f",
+        "target": "commerce_display_rate_target.json",
+        "count": 58,
+        "last_component": "display-exchange-rate",
+        "environment": "EARLY58",
+    },
+}
 
 
 def digest(path):
@@ -30,9 +44,12 @@ def output(command, *, cwd=ROOT, env=None):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--family", choices=FAMILIES, default="pancake67")
     parser.add_argument("--output", required=True, type=Path, help="new private evidence directory")
     parser.add_argument("--offline", action="store_true", help="require the existing Cargo cache")
     args = parser.parse_args()
+    spec = FAMILIES[args.family]
+    revision_pin = spec["revision"]
     destination = args.output.absolute()
     if "\n" in str(destination) or "\r" in str(destination):
         parser.error("output path cannot contain line breaks")
@@ -42,12 +59,12 @@ def main():
     cargo = output(["cargo", "--version"]).decode().strip()
     if rustc.split()[1] != TOOLCHAIN or cargo.split()[1] != TOOLCHAIN:
         raise SystemExit("run with Rust 1.99.0 (mise exec rust@1.99.0 or rustup run 1.99.0)")
-    revision = output(["git", "rev-parse", "--verify", REVISION + "^{commit}"]).decode().strip()
-    if revision != REVISION:
-        raise SystemExit("preserved Core67 Git object does not match the immutable source pin")
+    revision = output(["git", "rev-parse", "--verify", revision_pin + "^{commit}"]).decode().strip()
+    if revision != revision_pin:
+        raise SystemExit("preserved Core Git object does not match the immutable source pin")
     archive = destination / "source.tar.gz"
     subprocess.run(
-        ["git", "archive", "--format=tar.gz", "--output", str(archive), REVISION],
+        ["git", "archive", "--format=tar.gz", "--output", str(archive), revision_pin],
         cwd=ROOT, check=True, timeout=60
     )
     source = destination / "source"
@@ -63,7 +80,9 @@ def main():
     if args.offline:
         command.append("--offline")
     report = {
+        "family": args.family,
         "revision": revision,
+        "source": str(source),
         "source_archive_sha256": digest(archive),
         "cargo_lock_sha256": digest(source / "services/core/Cargo.lock"),
         "toolchain": {"rustc": rustc, "cargo": cargo},
@@ -81,22 +100,23 @@ def main():
     if result.returncode:
         report["state"] = "BUILD_FAILED"
         receipt.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
-        raise SystemExit("preserved Core67 build failed; see " + str(destination / "build.log"))
+        raise SystemExit("preserved Core build failed; see " + str(destination / "build.log"))
     binary = (destination / "target/debug/lmm-core").resolve(strict=True)
     probe = subprocess.run(
         [str(binary), "schema-manifest"], env={}, stdin=subprocess.DEVNULL,
         capture_output=True, check=True, timeout=60
     )
     if probe.stderr:
-        raise SystemExit("preserved Core67 schema-manifest wrote unexpected diagnostics")
-    target = json.loads(TARGET.read_text(encoding="utf-8"))
+        raise SystemExit("preserved Core schema-manifest wrote unexpected diagnostics")
+    target_file = ROOT / "services/core/src/core_schema/upgrade" / spec["target"]
+    target = json.loads(target_file.read_text(encoding="utf-8"))
     manifest = json.loads(probe.stdout)
     manifest_digest = hashlib.sha256(probe.stdout).hexdigest()
     if manifest_digest != target["manifest_sha256"]:
-        raise SystemExit("preserved Core67 manifest differs from the frozen captured target")
-    if (len(manifest["components"]) != 67
-            or manifest["components"][66]["name"] != "subscription-pancake-language-optional"):
-        raise SystemExit("preserved Core67 has the wrong schema family")
+        raise SystemExit("preserved Core manifest differs from the frozen captured target")
+    if (len(manifest["components"]) != spec["count"]
+            or manifest["components"][-1]["name"] != spec["last_component"]):
+        raise SystemExit("preserved Core has the wrong schema family")
     (destination / "schema-manifest.json").write_bytes(probe.stdout)
     binary_digest = digest(binary)
     report.update({
@@ -107,9 +127,10 @@ def main():
         "catalog_sha256": target["catalog_sha256"],
     })
     receipt.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
+    environment_prefix = "LMM_PRESERVED_" + spec["environment"]
     (destination / "executor.env").write_text(
-        "LMM_PRESERVED_PANCAKE67_CORE_BIN=" + str(binary) + "\n"
-        "LMM_PRESERVED_PANCAKE67_CORE_SHA256=" + binary_digest + "\n",
+        environment_prefix + "_CORE_BIN=" + str(binary) + "\n"
+        + environment_prefix + "_CORE_SHA256=" + binary_digest + "\n",
         encoding="utf-8"
     )
     print(json.dumps({"receipt": str(receipt), "environment": str(destination / "executor.env")}))

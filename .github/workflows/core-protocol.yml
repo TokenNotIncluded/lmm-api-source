@@ -99,13 +99,17 @@ jobs:
       - name: Rust formatting
         working-directory: services/core
         run: cargo fmt --all --check 2>&1 | tee "$RUNNER_TEMP/core-format.log"
-      - name: Build the preserved Core67 migration executor
+      - name: Build the preserved migration executors
         if: ${{ !cancelled() }}
         run: |
-          git fetch --no-tags --depth=1 origin 0510c2455dabcb63e33c719ba52ac189d62612bc
+          git fetch --no-tags --depth=1 origin 0510c2455dabcb63e33c719ba52ac189d62612bc 2a0c7bd380f58a553dc903d399255821c1a65d0f 8f1b6b837ace7027f2a62f15168843790ce6de28
           rustup toolchain install 1.99.0 --profile minimal
-          rustup run 1.99.0 python3 scripts/build-preserved-core.py --output "$RUNNER_TEMP/preserved-pancake67"
-          cat "$RUNNER_TEMP/preserved-pancake67/executor.env" >> "$GITHUB_ENV"
+          rustup run 1.99.0 python3 scripts/build-preserved-core.py --family pancake67 --output "$RUNNER_TEMP/preserved-pancake67"
+          rustup run 1.99.0 python3 scripts/build-preserved-core.py --family early58 --output "$RUNNER_TEMP/preserved-early58"
+          cat "$RUNNER_TEMP/preserved-pancake67/executor.env" "$RUNNER_TEMP/preserved-early58/executor.env" >> "$GITHUB_ENV"
+      - name: Prepare private acquisition PostgreSQL fixtures
+        if: ${{ !cancelled() }}
+        run: python3 -B scripts/prepare-acquisition-ci.py
       - name: Rust checks and real database tests
         if: ${{ !cancelled() }}
         working-directory: services/core
@@ -220,6 +224,10 @@ jobs:
             ${{ runner.temp }}/preserved-pancake67/source.tar.gz
             ${{ runner.temp }}/preserved-pancake67/schema-manifest.json
             ${{ runner.temp }}/preserved-pancake67/build.log
+            ${{ runner.temp }}/preserved-early58/provenance.json
+            ${{ runner.temp }}/preserved-early58/source.tar.gz
+            ${{ runner.temp }}/preserved-early58/schema-manifest.json
+            ${{ runner.temp }}/preserved-early58/build.log
             ${{ runner.temp }}/core-tests.log
             ${{ runner.temp }}/core-process-evidence-*
             ${{ runner.temp }}/payment-live-build.log

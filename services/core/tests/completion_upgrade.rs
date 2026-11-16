@@ -1,8 +1,6 @@
 //! Exact 32-component predecessor upgraded through the public offline Core API.
 //! Uses real separate installer/owner/runtime identities and preserves financial facts.
-use lmm_core::core_schema::{
-    UpgradeDatabase, UpgradeError, UpgradeRequest, UpgradeRoles, schema_manifest, upgrade_database,
-};
+use lmm_core::core_schema::{UpgradeDatabase, UpgradeError, UpgradeRequest, UpgradeRoles};
 use sha2::{Digest, Sha256};
 use sqlx::{Connection, PgConnection, Row, postgres::PgPoolOptions};
 
@@ -15,21 +13,22 @@ mod canonical;
 mod history;
 #[path = "common/completion_predecessor.rs"]
 mod predecessor;
+#[path = "common/preserved_upgrade_executor.rs"]
+mod preserved_upgrade_executor;
+use preserved_upgrade_executor::upgrade_database;
 
 fn quote(value: &str) -> String {
     format!("\"{}\"", value.replace('"', "\"\""))
 }
 fn manifest_sha256() -> String {
-    let mut manifest = schema_manifest();
-    manifest.components.truncate(44);
-    let mut bytes = serde_json::to_vec(&manifest).unwrap();
-    bytes.push(b'\n');
-    hex_codec::encode(Sha256::digest(bytes))
+    preserved_upgrade_executor::manifest_sha256(44)
 }
 async fn definitions(connection: &mut PgConnection) -> Result<Vec<String>, sqlx::Error> {
-    sqlx::query_scalar(sqlx::AssertSqlSafe(schema_manifest().catalog.query_utf8))
-        .fetch_all(connection)
-        .await
+    sqlx::query_scalar(sqlx::AssertSqlSafe(
+        preserved_upgrade_executor::catalog_query(),
+    ))
+    .fetch_all(connection)
+    .await
 }
 
 async fn sequence_states(
@@ -397,3 +396,6 @@ async fn completion_upgrade_preserves_real_predecessor_and_resolves_exact_replay
 
 #[path = "../src/hex_codec.rs"]
 mod hex_codec;
+
+#[path = "common/preserved_fixture_manifest.rs"]
+mod preserved_fixture_manifest;
