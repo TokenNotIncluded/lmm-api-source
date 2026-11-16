@@ -4,6 +4,10 @@
 
 ## 当前状态
 
+- **原生渠道与系统资源界面补全（源码已推送，未部署）**：[dac23b4](https://github.com/TokenNotIncluded/lmm-api-source/commit/dac23b43cc50961739b3ff2f8c1cc17a7bc77f87) 将渠道模型绑定、上游映射、优先级、权重、超时与供应商合同接入结构化表单，继续共用原 JSON 草稿、版本比较及单次保存；新模型不继承其他模型的合同，共享上下文只在最后一个绑定移除后清理。[d6ad78d](https://github.com/TokenNotIncluded/lmm-api-source/commit/d6ad78d1f00b75528ac391e0e73fcf09180cc608) 展示主机 CPU、负载、内存和 Core/Extensions 版本、进程、线程及采样信息，区分零值与未报告，并保留多实例资源归属限制；七语言同步完成。独立静态复核未发现可证实的新回归，真实浏览器及新旧版等价验收未完成。
+
+- **本轮 Web 全量检查与构建通过**：固定 [a960937](https://github.com/TokenNotIncluded/lmm-api-source/commit/a960937cd01196b9a6a7025181077b8b85e3be5a) 的 [CI 43838128709](https://github.com/TokenNotIncluded/lmm-api-source/actions/runs/43838128709) 已通过格式、版权、lint、类型、翻译回归、760 个源码测试文件（5303 pass、0 fail）与全部 6 个脚本文件；生产构建和首屏包体检查通过，gzip 587044 字节（上限 786432），已保存对应 Web 制品。首次 [CI 43835912453](https://github.com/TokenNotIncluded/lmm-api-source/actions/runs/43835912453) 的 5302 pass、1 fail 保留：排序测试按全局下拉框顺序误选新增模型控件，a960937 改按实际列表控件标签定位，取消响应、币种、快照和草稿断言未删，产品代码不变。Core 全量仍未通过；首轮被修复提交取消前已有六项历史安装、升级与签到用例失败，当前复验尚在运行，不能以 Web 通过替代后端与整站验收。
+
 - **CI 基线修复已推送，未部署**：Web 过期测试合同与合成数据已在 [8de640d](https://github.com/TokenNotIncluded/lmm-api-source/commit/8de640d4bc0f2d535fec36842b1973ba2da67ccb) 修正，保留金额未知、授权与历史计费断言。全量初跑中 753 个源码测试文件报告 5273 pass、0 fail；唯一失败为仓库位于 /tmp 时 operator 脚本测试提前命中正确的部署目录守卫，已在 [5e4242c](https://github.com/TokenNotIncluded/lmm-api-source/commit/5e4242c) 改用独立工作目录，4 项定向及全部 6 个脚本文件复测通过。复测源码树与初跑相同；没有宣称修复后重跑整条 aggregate。Web 类型、格式和 lint 检查通过，生产构建与首屏包体检查退出 0，首屏 gzip 586917 字节（上限 786432）。随后 b36872d 对应远程 CI 43763106737 的 Web 检查和生产构建也已通过；该轮 Core 任务被取消，不能视作 Core 通过。以上仍不是独立业务验收。
 
 - **Core 验收工具与隔离认证修复**：[0ab8578](https://github.com/TokenNotIncluded/lmm-api-source/commit/0ab8578346f3278f6eee98dd349e91c1c8ac530b) 将过期 26 组件清单替换为编译合同与数据库逐项名称/SQL 指纹精确匹配，45 项 fixture 检查通过；[0764c94](https://github.com/TokenNotIncluded/lmm-api-source/commit/0764c941fceedf1fc236d66a38b610d63155c5f3) 精确发现封存付款用例，5 项回归通过并接入 CI。[3961245](https://github.com/TokenNotIncluded/lmm-api-source/commit/39612454502049e5e9c5820822bb4e64e4c28c67) 为隔离 installer/runtime 配置独立临时密码，真实 PostgreSQL 18 SCRAM 场景 1 项通过；[98f4ddb](https://github.com/TokenNotIncluded/lmm-api-source/commit/98f4ddbd7fff65825415b74e7e909c780272f4d5) 恢复历史升级安装器提示，真实 CLI 3 项通过。临时数据库已清理。原合成支付失败现已定位并修复，结果见下一项；历史迁移与 Core 全量验收仍未闭合。
@@ -12,7 +16,7 @@
 
 - **托管恢复密钥隔离回归修复**：[824ab71](https://github.com/TokenNotIncluded/lmm-api-source/commit/824ab718aa7e3fd49c6f6eebe90cd299a3dac170) 使测试生成真实 TOML，并在转换时解开 serde_json 任意精度数字的内部包装；TOML 写入功能只作为 dev-dependency 开启。六项实际 Rust 测试全部通过，保留跨用途材料复用、旧密钥、HMAC 等效密钥、Telegram 派生、硬链接/路径别名及不生成未配置密钥的安全断言。生产加载器和隔离策略未放宽。当前开发证据在 /tmp/lmm-native-iteration/；历史升级测试仍试图用当前 SQL 重建冻结安装器，与当前生产拒绝策略不一致，未改写历史摘要或移除验收。
 
-- **Chrome 对比仍阻塞**：用户已打开 Chrome；本轮直接通过 SSMCP 调用 Codex 工具，补全已有会话元数据后可连接、创建及列举标签页，但导航、AX、截图与关闭仍返回 Cannot read properties of undefined (reading 'timeoutMs')。未取得两站页面或新截图，不再归因为用户未打开浏览器。原开发工作区 WIP 未覆盖，本轮没有部署、生产数据库访问或真实支付；开发机证据目录 /tmp/lmm-native-progress/ 与 /tmp/lmm-native-iteration/ 保存命令结果、源码绑定、通过与失败记录；最新重连仍停在相同页面控制错误。
+- **开发机接入与 Chrome 对比仍阻塞**：本轮 SSMCP 返回 `UNAUTHORIZED`，要求重新认证，未能连接开发机；代码改动在隔离源码副本完成并经 GitHub 插件推送。浏览器插件缺少 originating browser context，本地 Chromium 一次启动因 `socket() failed: Operation not permitted` 退出，未取得新旧站点截图。此前开发机 Chrome 的 `timeoutMs` 错误记录保留为历史证据，不能当作本轮接入结果。原开发工作区 WIP 未触碰，没有部署、生产数据库访问或真实支付；两页的隔离浏览器验收入口已准备，实际预览、交互与视觉对照等待连接恢复。
 
 - **通用影子部署工作流**：环境变量配置任意数量节点，支持手动触发及 `v*` / `shadow-v*` tag。手动 Web 部署已在 ArchDmit、DmitUbuntu 完成（[43740218353](https://github.com/TokenNotIncluded/lmm-api-source/actions/runs/43740218353)），实际浏览器会话恢复通过，未提交登录凭据。tag `shadow-v0.1.151` 的 Core、Extensions、Web 构建均通过，但[部署被 Core 兼容检查拦截](https://github.com/TokenNotIncluded/lmm-api-source/actions/runs/43740351841)：新版返回 `CHECK_DB_SCHEMA_UNVERIFIED`，旧版使用同一账号配置检查通过；未切换或重启后端，候选文件已清理。尚未升级影子数据库，后端更新待完成。工作流校验归档来源、运行程序及 Web 字节，失败回滚，成功清理旧槽和上传包，不累计历史版本；配置见 [automation README](../deployment/automation/README.md)。当前仅影子环境，未切生产流量；开发自测完成，独立业务验收未运行。
 
