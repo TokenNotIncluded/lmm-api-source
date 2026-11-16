@@ -705,16 +705,24 @@ test('a cancelled search response cannot replace current units or digest and lis
     requests.at(-1)?.searchParams.get('snapshot_digest'),
     'c'.repeat(64)
   )
-  const sort = container.querySelector('select')
+  const selectField = (label: string) =>
+    [...container.querySelectorAll('label')]
+      .find((item) => item.querySelector('span')?.textContent === label)
+      ?.querySelector('select')
+  const sort = selectField('Sort by')
   assert.ok(sort)
   assert.equal(sort.disabled, false)
   await act(async () => {
     sort.value = 'balance'
     sort.dispatchEvent(new Event('change', { bubbles: true }))
   })
-  await until(() => container.querySelectorAll('select').length === 3)
+  await until(
+    () => selectField('channelSorting.balanceUnit')?.disabled === false
+  )
+  const unit = selectField('channelSorting.balanceUnit')
+  assert.ok(unit)
   assert.deepEqual(
-    [...container.querySelectorAll('select')[2].options].map((x) => x.value),
+    [...unit.options].map((x) => x.value),
     ['', 'EUR']
   )
   assert.equal(textarea.value, draft)
