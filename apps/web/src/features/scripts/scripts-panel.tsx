@@ -85,12 +85,15 @@ function useScriptList() {
     queryFn: async () => {
       const response = await api.get<ScriptResponse>('/api/scripts', {
         skipBusinessError: true,
+        // The panel owns this optional catalog's failure and retry action.
+        skipErrorHandler: true,
       })
       if (!response.data.success || !Array.isArray(response.data.data)) {
         throw new Error(response.data.message || 'Unable to load scripts')
       }
       return response.data.data
     },
+    retry: false,
     staleTime: 30_000,
   })
 }
@@ -215,7 +218,24 @@ export function PublicScriptsPanel({
     }
   }
   if (scripts.isError) {
-    if (!fullPage) return null
+    if (!fullPage) {
+      return (
+        <div
+          role='alert'
+          className='flex flex-wrap items-center justify-between gap-3 py-2 text-sm'
+        >
+          <p className='text-muted-foreground'>{t('Unable to load scripts')}</p>
+          <Button
+            type='button'
+            className='min-h-11'
+            variant='outline'
+            onClick={() => void scripts.refetch()}
+          >
+            {t('Retry')}
+          </Button>
+        </div>
+      )
+    }
     return (
       <Empty role='alert' className='border-border/70 border py-12'>
         <EmptyHeader>

@@ -44,7 +44,11 @@ const { QueryClient, QueryClientProvider } =
 const { createInstance } = await import('i18next')
 const { I18nextProvider, initReactI18next } = await import('react-i18next')
 const { api } = await import('@/lib/api')
-const { ScriptsAdminSection } = await import('./scripts-panel')
+const { AxiosError } = await import('axios')
+const { toast } = await import('sonner')
+const { createQueryRetry } = await import('@/lib/query-retry')
+const { PublicScriptsPanel, ScriptsAdminSection } =
+  await import('./scripts-panel')
 const { useAuthStore } = await import('@/stores/auth-store')
 const i18n = createInstance()
 await i18n
@@ -375,5 +379,112 @@ test('private repository controls require L6 and preserve credential CAS without
     container.remove()
     api.defaults.adapter = original
     useAuthStore.setState({ auth: previousAuth })
+  }
+})
+
+test('the embedded scripts panel keeps a 503 local and only retries on request', async () => {
+  const originalAdapter = api.defaults.adapter
+  const originalToast = toast.error
+  const toasts: unknown[] = []
+  let available = false
+  let listRequests = 0
+  toast.error = ((message: unknown) => {
+    toasts.push(message)
+    return 'scripts-test-error'
+  }) as typeof toast.error
+  api.defaults.adapter = async (config) => {
+    let data: unknown
+    if (config.url === '/api/scripts') {
+      listRequests++
+      if (!available) {
+        throw new AxiosError(
+          'Request failed with status code 503',
+          AxiosError.ERR_BAD_RESPONSE,
+          config,
+          undefined,
+          {
+            config,
+            status: 503,
+            statusText: 'Service Unavailable',
+            headers: {},
+            data: {
+              error: {
+                code: 'core_migration_incomplete',
+                message: 'The scripts catalog is not enabled.',
+              },
+            },
+          }
+        )
+      }
+      data = { success: true, data: [{ name: 'menu.sh' }] }
+    } else if (config.url === '/api/site/navigation') {
+      data = {
+        success: true,
+        message: '',
+        data: { value: '{}', revision: 1 },
+      }
+    } else {
+      assert.equal(config.url, '/api/status')
+      data = {
+        success: true,
+        data: { server_address: 'https://console.example.test' },
+      }
+    }
+    return { config, data, headers: {}, status: 200, statusText: 'OK' }
+  }
+  // Use the production retry policy so this checks the panel's own override.
+  const client = new QueryClient({
+    defaultOptions: {
+      queries: {
+        retry: createQueryRetry(true),
+        retryDelay: 1,
+        refetchOnWindowFocus: false,
+      },
+    },
+  })
+  const container = document.body.appendChild(document.createElement('div'))
+  const root = createRoot(container)
+  try {
+    await act(async () => {
+      root.render(
+        <I18nextProvider i18n={i18n}>
+          <QueryClientProvider client={client}>
+            <PublicScriptsPanel />
+          </QueryClientProvider>
+        </I18nextProvider>
+      )
+      await flush()
+    })
+    await act(flush)
+    assert.equal(listRequests, 1)
+    assert.equal(client.getQueryState(['public-scripts'])?.status, 'error')
+    assert.equal(client.getQueryData(['public-scripts']), undefined)
+    assert.match(
+      container.querySelector('[role="alert"]')?.textContent ?? '',
+      /Unable to load scripts/
+    )
+    assert.deepEqual(toasts, [])
+
+    const retry = [...container.querySelectorAll('button')].find(
+      (button) => button.textContent?.trim() === 'Retry'
+    )
+    assert.ok(retry)
+    available = true
+    await act(async () => {
+      retry.click()
+      await flush()
+    })
+    await act(flush)
+    assert.equal(listRequests, 2)
+    assert.equal(client.getQueryState(['public-scripts'])?.status, 'success')
+    assert.equal(container.querySelector('[role="alert"]'), null)
+    assert.match(container.textContent ?? '', /menu\.sh/)
+    assert.deepEqual(toasts, [])
+  } finally {
+    await act(async () => root.unmount())
+    client.clear()
+    container.remove()
+    api.defaults.adapter = originalAdapter
+    toast.error = originalToast
   }
 })
