@@ -210,11 +210,16 @@ def identity_contract(root: Path | None = None) -> dict:
     """Only the reviewed schema/version may generate or execute an import."""
     rust = IDENTITY_SCHEMA_RUST if root is None else root / "services/core/src/identity/schema.rs"
     schema = IDENTITY_SCHEMA if root is None else root / "services/core/schema/identity.sql"
+    files = REVIEWED_RUST_FILES if root is None else reviewed_files(root)
+    return _identity_contract(rust, schema, files)
+
+
+def _identity_contract(rust: Path, schema: Path, files: dict) -> dict:
     source = rust.read_text(encoding="utf-8")
     versions = re.findall(r"^const VERSION: i32 = ([0-9]+);$", source, re.MULTILINE)
     require(versions == [str(IDENTITY_VERSION)], "identity_source_version_mismatch")
     _reviewed_constant(source, "SCHEMA", 'include_str!("../../schema/identity.sql")')
-    require(sha256_file(rust) == (REVIEWED_RUST_FILES if root is None else reviewed_files(root))["services/core/src/identity/schema.rs"],
+    require(sha256_file(rust) == files["services/core/src/identity/schema.rs"],
             "identity_rust_source_fingerprint_mismatch")
     fingerprint = sha256_file(schema)
     require(fingerprint == IDENTITY_FINGERPRINT, "identity_source_fingerprint_mismatch")
@@ -994,31 +999,39 @@ def reviewed_profile(root: Path | None = None) -> str:
 
 
 def reviewed_components(root: Path) -> dict:
-    if reviewed_profile(root) == SUCCESSOR69_SEED_CONTRACT:
+    return _reviewed_components_for_profile(reviewed_profile(root))
+
+
+def _reviewed_components_for_profile(profile: str) -> dict:
+    if profile == SUCCESSOR69_SEED_CONTRACT:
         return reviewed_successor69()["components"]
-    if reviewed_profile(root) == MODULE_SPLIT_SEED_CONTRACT:
+    if profile == MODULE_SPLIT_SEED_CONTRACT:
         return reviewed_module_split()["components"]
-    if reviewed_profile(root) == CHECKINS_SEED_CONTRACT:
+    if profile == CHECKINS_SEED_CONTRACT:
         return reviewed_checkins()["components"]
-    if reviewed_profile(root) == PANCAKE_LANGUAGE_SEED_CONTRACT:
+    if profile == PANCAKE_LANGUAGE_SEED_CONTRACT:
         return reviewed_pancake_language()["components"]
-    if reviewed_profile(root) == CREDIT_QUOTES_SEED_CONTRACT:
+    if profile == CREDIT_QUOTES_SEED_CONTRACT:
         return reviewed_credit_quotes()["components"]
-    if reviewed_profile(root) == CURRENT_LEDGER_SEED_CONTRACT:
+    if profile == CURRENT_LEDGER_SEED_CONTRACT:
         return reviewed_current_ledger()["components"]
-    if reviewed_profile(root) == CORE65_SEED_CONTRACT:
+    if profile == CORE65_SEED_CONTRACT:
         return reviewed65()["components"]
     return {CORE49_SEED_CONTRACT: REVIEWED_COMPONENTS, CORE54_SEED_CONTRACT: REVIEWED_COMPONENTS_54,
             CORE55_SEED_CONTRACT: REVIEWED_COMPONENTS_55, CORE56_SEED_CONTRACT: REVIEWED_COMPONENTS_56,
-            CORE58_SEED_CONTRACT: REVIEWED_COMPONENTS_58, CORE59_SEED_CONTRACT: REVIEWED_COMPONENTS_59}[reviewed_profile(root)]
+            CORE58_SEED_CONTRACT: REVIEWED_COMPONENTS_58, CORE59_SEED_CONTRACT: REVIEWED_COMPONENTS_59}[profile]
 
 
 def reviewed_files(root: Path) -> dict:
-    if reviewed_profile(root) == SUCCESSOR69_SEED_CONTRACT:
+    return _reviewed_files_for_profile(root, reviewed_profile(root))
+
+
+def _reviewed_files_for_profile(root: Path, profile: str) -> dict:
+    if profile == SUCCESSOR69_SEED_CONTRACT:
         return reviewed_successor69()["files"]
-    if reviewed_profile(root) == MODULE_SPLIT_SEED_CONTRACT:
+    if profile == MODULE_SPLIT_SEED_CONTRACT:
         return reviewed_module_split()["files"]
-    if reviewed_profile(root) == CHECKINS_SEED_CONTRACT:
+    if profile == CHECKINS_SEED_CONTRACT:
         files = reviewed_checkins()["files"]
         candidate = Path(__file__).with_name("reviewed-core7-source.json")
         require(sha256_file(candidate) == "a44faa1ca90a12ff5b71000db68b9f45ccadfd58133f2f8146fec15ddc0d21ef", "core7_source_review_changed")
@@ -1026,22 +1039,26 @@ def reviewed_files(root: Path) -> dict:
         if all(sha256_file(root / name) == digest for name, digest in reviewed["files"].items()):
             return {**files, **reviewed["files"]}
         return files
-    if reviewed_profile(root) == PANCAKE_LANGUAGE_SEED_CONTRACT:
+    if profile == PANCAKE_LANGUAGE_SEED_CONTRACT:
         return reviewed_pancake_language()["files"]
-    if reviewed_profile(root) == CREDIT_QUOTES_SEED_CONTRACT:
+    if profile == CREDIT_QUOTES_SEED_CONTRACT:
         return reviewed_credit_quotes()["files"]
-    if reviewed_profile(root) == CURRENT_LEDGER_SEED_CONTRACT:
+    if profile == CURRENT_LEDGER_SEED_CONTRACT:
         return reviewed_current_ledger()["files"]
-    if reviewed_profile(root) == CORE65_SEED_CONTRACT:
+    if profile == CORE65_SEED_CONTRACT:
         return reviewed65()["files"]
     return {CORE49_SEED_CONTRACT: REVIEWED_RUST_FILES, CORE54_SEED_CONTRACT: REVIEWED_RUST_FILES_54,
             CORE55_SEED_CONTRACT: REVIEWED_RUST_FILES_55, CORE56_SEED_CONTRACT: REVIEWED_RUST_FILES_56,
-            CORE58_SEED_CONTRACT: REVIEWED_RUST_FILES_58, CORE59_SEED_CONTRACT: REVIEWED_RUST_FILES_59}[reviewed_profile(root)]
+            CORE58_SEED_CONTRACT: REVIEWED_RUST_FILES_58, CORE59_SEED_CONTRACT: REVIEWED_RUST_FILES_59}[profile]
 
 
 def _reviewed_rust(root: Path, relative: str) -> str:
+    return _read_reviewed_rust(root, relative, reviewed_files(root))
+
+
+def _read_reviewed_rust(root: Path, relative: str, files: dict) -> str:
     path = root / relative
-    expected = reviewed_files(root)[relative]
+    expected = files[relative]
     actual = sha256_file(path)
     # bfeb466 changes only the #[cfg(test)] RouteTarget fixture in this file.
     # Keep the Core65 source review and original artifact receipts intact.
@@ -1079,8 +1096,17 @@ def _component_bytes(root: Path, expression: str, source_path: Path) -> bytes:
 def component_schemas(root: Path | None = None) -> dict[str, bytes]:
     """Resolve the complete pinned fresh assembly, never arbitrary Rust code."""
     root = ROOT if root is None else Path(root)
+    profile = reviewed_profile(root)
+    files = _reviewed_files_for_profile(root, profile)
+    return _component_schemas(
+        root, _reviewed_components_for_profile(profile),
+        lambda relative: _read_reviewed_rust(root, relative, files),
+    )
+
+
+def _component_schemas(root: Path, reviewed: dict, read_rust) -> dict[str, bytes]:
     path = root / "services/core/src/core_schema.rs"
-    source = _reviewed_rust(root, "services/core/src/core_schema.rs")
+    source = read_rust("services/core/src/core_schema.rs")
     blocks = re.findall(r"const COMPONENTS:\s*&\[\(&str,\s*&str\)\]\s*=\s*&\[(.*?)\];", source, re.S)
     require(len(blocks) == 1, "component_contract_syntax_unknown")
     include = r'include_str!\("[^"\\]+"\)'
@@ -1090,7 +1116,6 @@ def component_schemas(root: Path | None = None) -> dict[str, bytes]:
     parsed = entries.findall(blocks[0])
     names = [name for name, _ in parsed]
     require(len(names) == len(set(names)), "component_contract_duplicate")
-    reviewed = reviewed_components(root)
     require(names == list(reviewed), "component_contract_incomplete")
     components = {}
     for name, expression in parsed:
@@ -1100,21 +1125,21 @@ def component_schemas(root: Path | None = None) -> dict[str, bytes]:
         source_path = path
         if expression in REVIEWED_SCHEMA_ALIASES:
             relative, constant, expression = REVIEWED_SCHEMA_ALIASES[expression]
-            alias_source = _reviewed_rust(root, relative)
+            alias_source = read_rust(relative)
             _reviewed_constant(alias_source, constant, expression)
             source_path = root / relative
             # Identity re-exports are pinned across both modules, not guessed.
             if name == "telegram-auth":
-                identity = _reviewed_rust(root, "services/core/src/identity.rs")
+                identity = read_rust("services/core/src/identity.rs")
                 aliases = re.findall(r"pub(?:\(crate\))?\s+use\s+([^;]*?)\s+as\s+TELEGRAM_AUTH_SCHEMA\s*;", identity)
                 require(aliases == ["telegram::SCHEMA"], "component_alias_not_reviewed")
             if name == "subscription-epay":
-                subscriptions = _reviewed_rust(root, "services/core/src/subscriptions.rs")
+                subscriptions = read_rust("services/core/src/subscriptions.rs")
                 require(re.findall(r"^mod external_epay;$", subscriptions, re.M) == ["mod external_epay;"]
                         and re.findall(r"^pub use external_epay::\*;$", subscriptions, re.M)
                         == ["pub use external_epay::*;"], "component_alias_not_reviewed")
             if name == "subscription-pancake":
-                subscriptions = _reviewed_rust(root, "services/core/src/subscriptions.rs")
+                subscriptions = read_rust("services/core/src/subscriptions.rs")
                 exports = re.findall(r"^pub use external_pancake::([^;]+);$", subscriptions, re.M)
                 require(re.findall(r"^mod external_pancake;$", subscriptions, re.M) == ["mod external_pancake;"]
                         and len(exports) == 1, "component_alias_not_reviewed")
@@ -1131,7 +1156,10 @@ def component_schemas(root: Path | None = None) -> dict[str, bytes]:
 def installer_metadata(root: Path | None = None) -> bytes:
     """Exact reviewed metadata DDL; callers may inspect, never auto-install it."""
     root = ROOT if root is None else Path(root)
-    source = _reviewed_rust(root, "services/core/src/core_schema.rs")
+    return _installer_metadata(root, _reviewed_rust(root, "services/core/src/core_schema.rs"))
+
+
+def _installer_metadata(root: Path, source: str) -> bytes:
     contracts = re.findall(r'^const CONTRACT: &str = "([^"\\]*)";$', source, re.M)
     require(len(contracts) == 1, "installer_contract_syntax_unknown")
     _reviewed_constant(source, "UPGRADE_METADATA", 'include_str!("../schema/core_upgrade.sql")')
@@ -1151,25 +1179,36 @@ def current_contract(root: Path | None = None) -> dict:
     """Bind every compiled component, identity version and catalog query."""
     root = ROOT if root is None else Path(root)
     profile = reviewed_profile(root)
+    files = _reviewed_files_for_profile(root, profile)
+    reviewed = _reviewed_components_for_profile(profile)
+
+    # Reuse only this invocation's verified review selection. Every source read
+    # still checks its actual hash; the next call selects and verifies anew.
+    def read_rust(relative: str) -> str:
+        return _read_reviewed_rust(root, relative, files)
+
     if profile == SUCCESSOR69_SEED_CONTRACT:
-        require_successor69_source_closure(root, reviewed_successor69()["files"])
-    expected = identity_contract(root)
-    for path, expected_digest in reviewed_files(root).items():
+        require_successor69_source_closure(root, files)
+    expected = _identity_contract(
+        root / "services/core/src/identity/schema.rs",
+        root / "services/core/schema/identity.sql", files,
+    )
+    for path, expected_digest in files.items():
         if profile == SUCCESSOR69_SEED_CONTRACT:
             require(sha256_file(root / path) == expected_digest,
                     "component_rust_source_fingerprint_mismatch")
         else:
-            _reviewed_rust(root, path)
-    components = {name: hashlib.sha256(data).hexdigest() for name, data in component_schemas(root).items()}
-    source = _reviewed_rust(root, "services/core/src/core_schema.rs")
+            read_rust(path)
+    components = {name: hashlib.sha256(data).hexdigest() for name, data in _component_schemas(root, reviewed, read_rust).items()}
+    source = read_rust("services/core/src/core_schema.rs")
     catalogs = re.findall(r'const CATALOG:\s*&str\s*=\s*r#"(.*?)"#;', source, re.S)
     require(len(catalogs) == 1, "catalog_contract_syntax_unknown")
     require(hashlib.sha256(catalogs[0].encode()).hexdigest() == CATALOG_QUERY_SHA256, "catalog_source_fingerprint_mismatch")
-    paths = set(reviewed_files(root)) | {
+    paths = set(files) | {
         "services/core/schema/core_upgrade.sql", "services/core/schema/component_upgrade.sql",
         "services/core/schema/ledger_revision.sql", "services/core/schema/offline_upgrade.sql",
         "services/core/src/core_schema/upgrade/console_receipt.sql"}
-    for expression, _ in reviewed_components(root).values():
+    for expression, _ in reviewed.values():
         source_path = root / "services/core/src/core_schema.rs"
         if expression in REVIEWED_SCHEMA_ALIASES:
             relative, _, expression = REVIEWED_SCHEMA_ALIASES[expression]
@@ -1177,8 +1216,8 @@ def current_contract(root: Path | None = None) -> dict:
         paths.update(str(path.relative_to(root.resolve())) for path in _component_schema_paths(root, expression, source_path))
     contract = {**expected, "component_fingerprints": components,
             "catalog_query_sha256": CATALOG_QUERY_SHA256, "catalog_query": catalogs[0],
-            "installer_contract_sha256": hashlib.sha256(installer_metadata(root)).hexdigest(),
-            "oauth_catalog_query_sha256": hashlib.sha256(oauth_catalog_query(root).encode()).hexdigest(),
+            "installer_contract_sha256": hashlib.sha256(_installer_metadata(root, read_rust("services/core/src/core_schema.rs"))).hexdigest(),
+            "oauth_catalog_query_sha256": hashlib.sha256(_oauth_catalog_query(read_rust("services/core/src/identity/grants.rs")).encode()).hexdigest(),
             "source_file_hashes": {path: sha256_file(root / path) for path in sorted(paths)}}
     profile = reviewed_profile(root)
     if profile in (CORE54_SEED_CONTRACT, CORE55_SEED_CONTRACT, CORE56_SEED_CONTRACT, CORE58_SEED_CONTRACT, CORE59_SEED_CONTRACT, CORE65_SEED_CONTRACT, CURRENT_LEDGER_SEED_CONTRACT, CREDIT_QUOTES_SEED_CONTRACT, PANCAKE_LANGUAGE_SEED_CONTRACT, CHECKINS_SEED_CONTRACT, MODULE_SPLIT_SEED_CONTRACT, SUCCESSOR69_SEED_CONTRACT):
@@ -1228,7 +1267,10 @@ def catalog_hash_sql(contract: dict) -> str:
 
 def oauth_catalog_query(root: Path | None = None) -> str:
     root = ROOT if root is None else Path(root)
-    source = _reviewed_rust(root, "services/core/src/identity/grants.rs")
+    return _oauth_catalog_query(_reviewed_rust(root, "services/core/src/identity/grants.rs"))
+
+
+def _oauth_catalog_query(source: str) -> str:
     catalogs = re.findall(r'const CATALOG:\s*&str\s*=\s*r#"(.*?)"#;', source, re.S)
     require(len(catalogs) == 1, "oauth_catalog_contract_syntax_unknown")
     require('VALUES (1,$1,$2)' in source, "oauth_seed_version_unknown")

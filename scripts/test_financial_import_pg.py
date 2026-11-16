@@ -8,6 +8,7 @@ and schema-manifest. That mode clones only into its random owned test databases.
 Neither mode connects to a legacy snapshot or any production database.
 """
 import copy
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -140,10 +141,56 @@ class FixtureContractTests(unittest.TestCase):
             with patch.object(F.IDENTITY, "reviewed_files", return_value=pins):
                 for fixture in (source, source.replace(b"                    client_protocols: None,\n", b"")):
                     file.write_bytes(fixture)
-                    self.assertEqual(F.IDENTITY._reviewed_rust(root, relative).encode(), fixture)
+                    # Only Core65's exact reviewed pair permits this source edit.
+                    # A later profile (including Core69) gets no new variant.
+                    reviewed65_fixture = (
+                        pins[relative] == "06a9489ac79bc94285c89f45a79356814af238cc279007a0ad9d7c92e83215c5"
+                        and hashlib.sha256(fixture).hexdigest()
+                        == "ea2453dcf49d38bb9652ea04cb4a17d11e3af182df54396f9c348258ba47185e"
+                    )
+                    if fixture == source or reviewed65_fixture:
+                        self.assertEqual(F.IDENTITY._reviewed_rust(root, relative).encode(), fixture)
+                    else:
+                        with self.assertRaisesRegex(F.IDENTITY.MappingError, "component_rust_source_fingerprint_mismatch"):
+                            F.IDENTITY._reviewed_rust(root, relative)
                 file.write_bytes(source.replace(b"channel_vault.sql", b"channel_control.sql"))
                 with self.assertRaisesRegex(F.IDENTITY.MappingError, "component_rust_source_fingerprint_mismatch"):
                     F.IDENTITY._reviewed_rust(root, relative)
+
+    def test_contract_revalidates_source_alias_and_missing_files_between_calls(self):
+        # A call-local review selection must never admit later source changes.
+        # Copy the real reviewed inputs; no review hashes or validators are mocked.
+        expected = F.IDENTITY.current_contract(ROOT)
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            for relative in expected["source_file_hashes"]:
+                target = root / relative
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_bytes((ROOT / relative).read_bytes())
+            self.assertEqual(F.IDENTITY.current_contract(root), expected)
+
+            mutations = (
+                ("services/core/src/identity/grants.rs", None, b"\n// unreviewed source mutation\n"),
+                ("services/core/src/identity.rs", b"telegram::SCHEMA", b"telegram::UNREVIEWED_SCHEMA"),
+            )
+            for relative, before, after in mutations:
+                target = root / relative
+                original = target.read_bytes()
+                changed = original + after if before is None else original.replace(before, after, 1)
+                self.assertNotEqual(changed, original, relative)
+                target.write_bytes(changed)
+                with self.assertRaisesRegex(F.IDENTITY.MappingError, "component_rust_source_fingerprint_mismatch"):
+                    F.IDENTITY.current_contract(root)
+                target.write_bytes(original)
+                self.assertEqual(F.IDENTITY.current_contract(root), expected)
+
+            target = root / "services/core/src/identity/grants.rs"
+            original = target.read_bytes()
+            target.unlink()
+            with self.assertRaises(FileNotFoundError):
+                F.IDENTITY.current_contract(root)
+            target.write_bytes(original)
+            self.assertEqual(F.IDENTITY.current_contract(root), expected)
 
     def test_reviewed_ddl_includes_current_metadata_and_oauth_contract(self):
         contract = F.IDENTITY.current_contract()

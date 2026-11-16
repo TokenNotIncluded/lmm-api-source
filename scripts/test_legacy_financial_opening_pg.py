@@ -23,7 +23,7 @@ I = F.IDENTITY
 
 
 class OpeningReconciliationPostgresTests(unittest.TestCase):
-    def sql(self, text, *, admin=False):
+    def sql(self, text, *, admin=False, expected_error=None):
         self.command_count += 1
         label = f"command-{self.command_count}"
         I.write_private(self.fixture.root, label + ".sql", text)
@@ -40,7 +40,11 @@ class OpeningReconciliationPostgresTests(unittest.TestCase):
                                 capture_output=True, timeout=140)
         I.write_private(self.fixture.root, label + ".stdout", result.stdout)
         I.write_private(self.fixture.root, label + ".stderr", result.stderr)
-        self.assertEqual(result.returncode, 0, f"{label}: {result.stderr}")
+        if expected_error is None:
+            self.assertEqual(result.returncode, 0, f"{label}: {result.stderr}")
+        else:
+            self.assertNotEqual(result.returncode, 0, f"{label}: unexpected SQL success")
+            self.assertIn(expected_error, result.stderr, f"{label}: {result.stderr}")
         return result.stdout.strip()
 
     def query(self, text):
@@ -233,6 +237,98 @@ class OpeningReconciliationPostgresTests(unittest.TestCase):
             raise
         else:
             self.fixture.clean_success()
+
+
+    def test_seed_changes_and_extra_rows_are_rejected_without_financial_effects(self):
+        self.fixture = PrivatePostgres()
+        self.command_count = 0
+        try:
+            self.fixture.start()
+            with patch.object(I, "BACKUP_ROOT", self.fixture.root):
+                self.sql(
+                    "CREATE ROLE opening_o NOLOGIN; CREATE ROLE opening_i LOGIN NOINHERIT;"
+                    "GRANT opening_o TO opening_i; CREATE ROLE opening_r NOLOGIN;"
+                    "GRANT EXECUTE ON FUNCTION pg_control_system() TO opening_o;",
+                    admin=True,
+                )
+                self.prepare(False, "_seed_rejections")
+                original_writer = self.writer
+                baseline = copy.deepcopy(self.inputs.snapshot)
+                original_target = copy.deepcopy(self.inputs.target)
+                mutations = (
+                    ("core_request_limits.policy",
+                     "UPDATE core_request_limits.policy SET enabled=TRUE WHERE singleton;"),
+                    ("core_request_limits.auto_policy",
+                     "UPDATE core_request_limits.auto_policy SET groups=ARRAY['changed']::text[] WHERE singleton;"),
+                    ("core_promotions.secrets",
+                     "UPDATE core_promotions.secrets SET code_key=set_byte(code_key,0,get_byte(code_key,0)#1) WHERE singleton;"),
+                    ("core_channels.projection_state",
+                     "UPDATE core_channels.projection_state SET ready=FALSE WHERE singleton;"),
+                )
+                for table, mutation in mutations:
+                    # Propagate assertions so failures retain the private PG evidence.
+                    original_row = self.query(f"SELECT to_jsonb(seed) FROM {table} seed;")
+                    self.sql(mutation)
+                    changed = self.query(O.snapshot_query())
+                    self.sql(
+                        original_writer,
+                        expected_error="opening unrelated or identity facts differ from review",
+                    )
+                    # Includes every ledger/receipt table and physical
+                    # sequence state, not only the changed seed row.
+                    self.assertEqual(self.query(O.snapshot_query()), changed)
+
+                    # Bind the changed state and seed hash into a new
+                    # synthetic approval to exercise the canonical guard
+                    # independently of the earlier prestate/hash fences.
+                    # A different 32-byte secret is valid initialization;
+                    # its missing-row case tests the required singleton.
+                    if table == "core_promotions.secrets":
+                        self.sql(f"DELETE FROM {table} WHERE singleton;")
+                    noncanonical = self.query(O.snapshot_query())
+                    self.inputs.target = copy.deepcopy(original_target)
+                    self.inputs.target["contract"]["initialized_core_seed_sha256"] = self.sql(
+                        I.fresh_seed_hash_query()
+                    )
+                    self.inputs.snapshot = noncanonical
+                    approval = self.inputs.approval(include=False)
+                    writer = self.inputs.sql(approval, include=False)
+                    self.sql(writer, expected_error="opening noncanonical seed")
+                    self.assertEqual(self.query(O.snapshot_query()), noncanonical)
+
+                    self.sql(
+                        f"BEGIN; DELETE FROM {table}; INSERT INTO {table} "
+                        f"SELECT * FROM jsonb_populate_record(NULL::{table},"
+                        + I.sql_literal(F.canonical(original_row))
+                        + "::jsonb); COMMIT;"
+                    )
+                    self.inputs.target = copy.deepcopy(original_target)
+                    self.inputs.snapshot = copy.deepcopy(baseline)
+                    self.assertEqual(self.query(O.snapshot_query()), baseline)
+
+                    # The exact reviewed catalog has PK(singleton) and
+                    # CHECK(singleton). An extra distinct key is rejected
+                    # by PostgreSQL itself; never remove those constraints
+                    # to manufacture a reachable importer state.
+                    self.sql(
+                        f"INSERT INTO {table} SELECT (jsonb_populate_record("
+                        f"NULL::{table},to_jsonb(seed)||"
+                        "'{\"singleton\":false}'::jsonb)).* "
+                        f"FROM {table} seed;",
+                        expected_error="violates check constraint",
+                    )
+                    self.assertEqual(self.query(O.snapshot_query()), baseline)
+        except BaseException:
+            print(f"\nFAILURE EVIDENCE RETAINED: {self.fixture.root}", flush=True)
+            if (self.fixture.data / "postmaster.pid").exists():
+                self.fixture.run("pg_ctl-stop-failure", [
+                    self.fixture.tools["pg_ctl"], "-D", str(self.fixture.data),
+                    "-w", "-t", "20", "-m", "fast", "stop",
+                ])
+            raise
+        else:
+            self.fixture.clean_success()
+
 
 
 if __name__ == "__main__":

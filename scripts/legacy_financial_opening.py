@@ -537,9 +537,26 @@ def build_import_sql(F, *, approval, target, contract, plan, identities, identit
         seed_exclusion += " AND NOT (n.nspname='core_gift' AND c.relname IN ('risk_key','policy'))"
         seed_exclusion += " AND NOT (n.nspname='core_tool_market' AND c.relname='credit_policy')"
         seed_exclusion += " AND NOT (n.nspname='core_trust_pricing' AND c.relname='policies')"
+        seed_exclusion += " AND NOT (n.nspname='core_request_limits' AND c.relname IN ('policy','auto_policy'))"
+        seed_exclusion += " AND NOT (n.nspname='core_promotions' AND c.relname='secrets')"
+        seed_exclusion += " AND NOT (n.nspname='core_channels' AND c.relname='projection_state')"
+        # These four singleton rows are already bound by the complete seed hash.
+        # Match the identity importer's canonical initialization checks before
+        # exempting them from the business-table emptiness check.
         seed_guard = (
             f" OR ({I.trust_policy_seed_guard_sql(target_contract_record)})"
             f" OR ({I.fresh_seed_hash_query()}) IS DISTINCT FROM {L(target_contract_record['initialized_core_seed_sha256'])}"
+            """
+ OR (SELECT count(*) FROM core_request_limits.policy)<>1
+ OR NOT EXISTS(SELECT 1 FROM core_request_limits.policy WHERE singleton AND revision=1 AND NOT enabled
+  AND window_seconds=60 AND user_limit IS NULL AND group_limits='{}'::jsonb)
+ OR (SELECT count(*) FROM core_request_limits.auto_policy)<>1
+ OR NOT EXISTS(SELECT 1 FROM core_request_limits.auto_policy WHERE singleton AND revision=1 AND cardinality(groups)=0)
+ OR (SELECT count(*) FROM core_promotions.secrets)<>1
+ OR NOT EXISTS(SELECT 1 FROM core_promotions.secrets WHERE singleton AND octet_length(code_key)=32)
+ OR (SELECT count(*) FROM core_channels.projection_state)<>1
+ OR NOT EXISTS(SELECT 1 FROM core_channels.projection_state WHERE singleton AND ready)
+"""
         )
     else:
         seed_exclusion = ""
