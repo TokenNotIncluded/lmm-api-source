@@ -6,12 +6,15 @@
   overflow-wrap: anywhere;
 }
 .wallet-overview-grid,
-.wallet-stats,
 .wallet-checkout-fields,
 .wallet-affiliate-content,
 .wallet-affiliate-stats {
   min-width: 0;
   grid-template-columns: minmax(0, 1fr);
+}
+.wallet-stats {
+  min-width: 0;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 .wallet-overview-grid > *,
 .wallet-checkout-fields > *,
@@ -42,7 +45,6 @@
   overflow-wrap: anywhere;
 }
 @container wallet (min-width: 28rem) {
-  .wallet-stats,
   .wallet-page [data-native-wallet-details] dl,
   .wallet-affiliate-stats {
     grid-template-columns: repeat(3, minmax(0, 1fr));
