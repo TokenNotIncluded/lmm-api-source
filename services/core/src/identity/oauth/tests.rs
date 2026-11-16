@@ -127,7 +127,7 @@ async fn google_login_cannot_issue_sessions_while_local_second_factor_is_require
     let native = store
         .register(&LoginRequest {
             login_name: "mfa-account".into(),
-            password: "test-only long passphrase".into(),
+            password: "test-only password".into(),
         })
         .await
         .unwrap();
@@ -548,7 +548,7 @@ async fn signed_provider_round_trip_creates_native_sessions_without_go_or_email_
     let native = store
         .register(&LoginRequest {
             login_name: "alice".into(),
-            password: "test-only long passphrase".into(),
+            password: "test-only password".into(),
         })
         .await
         .unwrap();

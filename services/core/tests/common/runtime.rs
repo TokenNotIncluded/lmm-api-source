@@ -34,7 +34,7 @@ impl RuntimeRole {
             REVOKE CREATE ON SCHEMA public FROM PUBLIC;
             GRANT CONNECT ON DATABASE "{database}" TO {name};
             GRANT USAGE ON SCHEMA core_meta,core_identity,core_billing TO {name};
-            GRANT SELECT ON core_meta.schema_contract,core_meta.component_contract,core_meta.runtime_contract,core_meta.schema_upgrades,core_meta.component_upgrades,core_meta.ledger_revisions TO {name};
+            GRANT SELECT ON core_meta.schema_contract TO {name};
             GRANT SELECT ON ALL TABLES IN SCHEMA core_billing TO {name};
             GRANT SELECT,INSERT,UPDATE ON core_identity.accounts,core_identity.users,core_identity.teams,core_identity.memberships,core_identity.credentials,core_identity.invites,core_identity.password_logins,core_identity.user_profiles,core_identity.company_billing_profiles,core_identity.web_sessions,core_identity.api_key_settings,core_identity.mfa_factors,core_identity.mfa_enrollments,core_identity.mfa_backup_codes,core_identity.mfa_challenges TO {name};
             GRANT SELECT,INSERT ON core_identity.key_funding_rules,core_identity.credential_grants,core_identity.oauth_identities,core_identity.audit,core_identity.web_session_credentials,core_identity.session_authentication TO {name};
@@ -45,6 +45,30 @@ impl RuntimeRole {
             GRANT SELECT,INSERT,UPDATE ON core_billing.account_policies TO {name};
             GRANT EXECUTE ON FUNCTION core_billing.open_ledger_wallet(bigint),core_billing.post_ledger(jsonb),core_billing.legacy_escrow_finalize(jsonb,bigint,bigint) TO {name};
         "#))).execute(owner).await.unwrap();
+        // Identity/ledger-only fixtures have no Core installer metadata. Grant
+        // only the explicitly named tables their installer actually created.
+        for table in [
+            "component_contract",
+            "runtime_contract",
+            "schema_upgrades",
+            "component_upgrades",
+            "ledger_revisions",
+        ] {
+            let relation = format!("core_meta.{table}");
+            let installed: bool = sqlx::query_scalar("SELECT to_regclass($1) IS NOT NULL")
+                .bind(&relation)
+                .fetch_one(owner)
+                .await
+                .unwrap();
+            if installed {
+                sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
+                    "GRANT SELECT ON {relation} TO {name}"
+                )))
+                .execute(owner)
+                .await
+                .unwrap();
+            }
+        }
         // Historical upgrade fixtures create the role before the Core62 suffix.
         let core62_installed: bool =
             sqlx::query_scalar("SELECT to_regclass('core_meta.core59_to62_upgrades') IS NOT NULL")

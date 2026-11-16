@@ -439,7 +439,10 @@ async fn app07_upgrade_engine_68_to69_exact_replay_and_runtime_denial(pool: PgPo
 
 #[sqlx::test(migrations = false)]
 async fn app07_fresh69_matches_captured_target_and_denies_runtime_tables(pool: PgPool) {
-    assert_eq!(crate::core_schema::component_count(), 69);
+    // Historical 68/69 upgrade pins remain separate from the current installer.
+    let pin: serde_json::Value = serde_json::from_str(include_str!("fresh70_target.json")).unwrap();
+    let count = usize::try_from(pin["component_count"].as_u64().unwrap()).unwrap();
+    assert_eq!(crate::core_schema::component_count(), count);
     crate::core_schema::init(&pool).await.unwrap();
     crate::core_schema::check(&pool).await.unwrap();
     let actual: String = sqlx::query_scalar(
@@ -448,9 +451,8 @@ async fn app07_fresh69_matches_captured_target_and_denies_runtime_tables(pool: P
     .fetch_one(&pool)
     .await
     .unwrap();
-    let pin: serde_json::Value = serde_json::from_str(TARGET).unwrap();
     assert_eq!(actual, pin["catalog_sha256"].as_str().unwrap());
-    assert_eq!(manifest(69), pin["manifest_sha256"].as_str().unwrap());
+    assert_eq!(manifest(count), pin["manifest_sha256"].as_str().unwrap());
     let runtime = crate::test_runtime::RuntimeRole::create(&pool).await;
     runtime.optional("core_model").await;
     assert!(

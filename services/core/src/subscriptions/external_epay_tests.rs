@@ -610,12 +610,9 @@ async fn actual_core_rpc_and_tcp_callbacks_reject_poisoning_and_recover_one_at_a
     let fixture_path = dir.join("fixture.json");
     fs::write(&fixture_path,serde_json::to_vec(&json!({"Socket":socket,"Token":std::str::from_utf8(token).unwrap(),"DatabaseURL":go_url,"DatabaseName":go_db,"FirstOrder":first.order_id,"SecondOrder":second.order_id,"RawFirst":String::from_utf8(raw1).unwrap(),"RawSecond":String::from_utf8(raw2).unwrap(),"RestrictedSocket":restricted_socket,"ThirdOrder":third.order_id,"RawThird":String::from_utf8(raw3).unwrap(),"ReassignedSocket":reassigned_socket,"FourthOrder":fourth.order_id,"RawFourth":String::from_utf8(raw4).unwrap()})).unwrap()).unwrap();
     fs::set_permissions(&fixture_path, fs::Permissions::from_mode(0o600)).unwrap();
-    let mut command = std::process::Command::new("mise");
+    let mut command = std::process::Command::new("go");
     command
         .args([
-            "exec",
-            "--",
-            "go",
             "test",
             "-p=1",
             "-run",

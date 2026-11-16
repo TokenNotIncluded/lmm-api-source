@@ -70,7 +70,7 @@ async fn legacy_google_callback_preserves_pkce_claim_checks_refresh_and_subject_
     let native = store
         .register(&LoginRequest {
             login_name: "email-owner".into(),
-            password: "test-only long passphrase".into(),
+            password: "test-only password".into(),
         })
         .await
         .unwrap();

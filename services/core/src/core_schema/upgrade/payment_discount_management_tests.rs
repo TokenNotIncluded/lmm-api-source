@@ -422,5 +422,10 @@ async fn app06_upgrade_engine_67_to68_exact_replay_and_runtime_denial(pool: PgPo
 async fn app06_fresh_install_68_exact_pin(pool: PgPool) {
     crate::core_schema::init(&pool).await.unwrap();
     crate::core_schema::check(&pool).await.unwrap();
-    assert_eq!(crate::core_schema::component_count(), 68);
+    // This fixture runs the current installer, not the historical 67 -> 68 path.
+    let target: serde_json::Value =
+        serde_json::from_str(include_str!("fresh70_target.json")).unwrap();
+    let count = usize::try_from(target["component_count"].as_u64().unwrap()).unwrap();
+    assert_eq!(crate::core_schema::component_count(), count);
+    assert_eq!(manifest(count), target["manifest_sha256"].as_str().unwrap());
 }

@@ -275,7 +275,8 @@ pub(super) async fn run(pool: &PgPool, request: Request) -> io::Result<Receipt> 
 mod tests {
     use super::*;
 
-    const VALID: &str = r#"{"username":"site-owner","display_name":"Site Owner","password":"synthetic installer password"}"#;
+    const VALID: &str =
+        r#"{"username":"site-owner","display_name":"Site Owner","password":"synthetic password"}"#;
 
     #[test]
     fn accepts_only_bounded_closed_validated_stdin() {
@@ -287,7 +288,7 @@ mod tests {
             VALID.replace("site-owner", "x\\u0000name"),
             VALID.replace("Site Owner", " Site Owner"),
             VALID.replace("Site Owner", "Owner\\nName"),
-            VALID.replace("synthetic installer password", "short"),
+            VALID.replace("synthetic password", "short"),
             VALID.replace('}', ",\"role\":\"admin\"}"),
             VALID.replace('}', ",\"password\":\"duplicate-value\"}"),
             format!("{VALID} trailing"),
@@ -307,7 +308,7 @@ mod tests {
         let request = Request {
             username: "site-owner".into(),
             display_name: "x".repeat(257),
-            password: "synthetic installer password".into(),
+            password: "synthetic password".into(),
         };
         assert!(run(&pool, request).await.is_err());
         let empty: bool = sqlx::query_scalar(

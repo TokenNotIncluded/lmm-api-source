@@ -329,7 +329,7 @@ pub(super) async fn oauth_fixture(
         .with_dashboard_routing(gateway.bridge.routing.clone());
     let actor = identity.authorize(&fixture.session).await.unwrap();
     let hash = identity
-        .hash_installer_password("independent fixture passphrase".into())
+        .hash_installer_password("review password".into())
         .await
         .unwrap();
     sqlx::query("INSERT INTO core_identity.password_logins(login_name,user_id,password_hash) VALUES('review-oauth',$1,$2)")
@@ -338,11 +338,7 @@ pub(super) async fn oauth_fixture(
         .bind(actor.user_id).execute(&fixture.pool).await.unwrap();
     let browser = BrowserAuth::new(identity.clone(), &[43; 32]).unwrap();
     let bundle = browser
-        .login(
-            "review-oauth",
-            "independent fixture passphrase",
-            &Default::default(),
-        )
+        .login("review-oauth", "review password", &Default::default())
         .await
         .unwrap();
     let profile = LmmProfile::new(

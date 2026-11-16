@@ -20,7 +20,7 @@ use std::{
 #[path = "common/runtime.rs"]
 mod runtime;
 
-const PASSWORD: &str = "synthetic first-owner private password";
+const PASSWORD: &str = "synthetic owner pwd";
 
 struct PrivateConfig {
     dir: PathBuf,

@@ -17,7 +17,7 @@ use tower::ServiceExt;
 fn login(name: &str) -> LoginRequest {
     LoginRequest {
         login_name: name.into(),
-        password: "a real test passphrase".into(),
+        password: "a real test password".into(),
     }
 }
 fn team(id: i64) -> Account {
@@ -605,15 +605,16 @@ async fn body(response: axum::response::Response) -> Value {
 async fn public_http_registration_session_and_team_lifecycle_need_no_go_service(pool: PgPool) {
     let store = fresh(pool).await;
     let app = identity_http::router(store.clone());
-    let rejected=call(&app,"POST","/core/v1/auth/register",None,Some(json!({"login_name":"alice","password":"a real test passphrase","platform_role":"superadmin"}))).await;
-    assert_eq!(rejected.status(), StatusCode::UNPROCESSABLE_ENTITY);
+    let rejected=call(&app,"POST","/core/v1/auth/register",None,Some(json!({"login_name":"alice","password":"a real test password","platform_role":"superadmin"}))).await;
+    assert_eq!(rejected.status(), StatusCode::BAD_REQUEST);
     assert_eq!(rejected.headers()["cache-control"], "no-store");
+    assert_eq!(body(rejected).await["error"]["code"], "identity_invalid");
     let registered = call(
         &app,
         "POST",
         "/core/v1/auth/register",
         None,
-        Some(json!({"login_name":"alice","password":"a real test passphrase"})),
+        Some(json!({"login_name":"alice","password":"a real test password"})),
     )
     .await;
     assert_eq!(registered.status(), StatusCode::CREATED);
@@ -780,7 +781,7 @@ async fn password_change_rotates_only_its_session_and_invalidates_old_user_crede
         .change_password(
             &original.secret,
             &login("alice").password,
-            "a different test passphrase",
+            "new test password",
         )
         .await
         .unwrap();
@@ -815,7 +816,7 @@ async fn password_change_rotates_only_its_session_and_invalidates_old_user_crede
         store
             .login(&LoginRequest {
                 login_name: "alice".into(),
-                password: "a different test passphrase".into(),
+                password: "new test password".into(),
             })
             .await
             .is_ok()
@@ -847,7 +848,7 @@ async fn password_change_rotates_only_its_session_and_invalidates_old_user_crede
         original.secret.as_str(),
         updated.secret.as_str(),
         hash.as_str(),
-        "a different test passphrase",
+        "new test password",
     ] {
         assert!(!audits[0].contains(secret));
     }
@@ -871,17 +872,13 @@ async fn password_change_requires_session_old_password_and_strict_http_body(pool
         .unwrap();
     assert!(matches!(
         store
-            .change_password(
-                &key.secret,
-                &login("alice").password,
-                "a different test passphrase"
-            )
+            .change_password(&key.secret, &login("alice").password, "new test password")
             .await,
         Err(E::Forbidden)
     ));
     assert!(matches!(
         store
-            .change_password(&original.secret, "incorrect", "a different test passphrase")
+            .change_password(&original.secret, "incorrect", "new test password")
             .await,
         Err(E::Unauthorized)
     ));
@@ -895,9 +892,9 @@ async fn password_change_requires_session_old_password_and_strict_http_body(pool
     }
     let app = identity_http::router(store.clone());
     for body in [
-        json!({"original_password":login("alice").password,"password":"a different test passphrase","user_id":999}),
-        json!({"password":"a different test passphrase"}),
-        json!({"original_password":null,"password":"a different test passphrase"}),
+        json!({"original_password":login("alice").password,"password":"new test password","user_id":999}),
+        json!({"password":"new test password"}),
+        json!({"original_password":null,"password":"new test password"}),
     ] {
         let response = app
             .clone()
@@ -933,7 +930,7 @@ async fn password_change_requires_session_old_password_and_strict_http_body(pool
                 .header("content-type", "application/json")
                 .body(Body::from(
                     json!({"original_password":login("alice").password,
-            "password":"a different test passphrase"})
+            "password":"new test password"})
                     .to_string(),
                 ))
                 .unwrap(),
@@ -959,7 +956,7 @@ async fn concurrent_password_changes_have_one_winner_and_do_not_revive_old_sessi
     let (one, two) = tokio::time::timeout(std::time::Duration::from_secs(10), async {
         tokio::join!(
             store.change_password(&original.secret, &old_password, "first new passphrase"),
-            store.change_password(&original.secret, &old_password, "second new passphrase"),
+            store.change_password(&original.secret, &old_password, "second new password"),
         )
     })
     .await
@@ -977,7 +974,7 @@ async fn concurrent_password_changes_have_one_winner_and_do_not_revive_old_sessi
     let correct = if first_won {
         "first new passphrase"
     } else {
-        "second new passphrase"
+        "second new password"
     };
     assert!(
         store
@@ -1011,7 +1008,7 @@ async fn password_change_audit_failure_rolls_back_hash_epoch_and_replacement(poo
             .change_password(
                 &original.secret,
                 &login("alice").password,
-                "a different test passphrase"
+                "new test password"
             )
             .await,
         Err(E::Storage)

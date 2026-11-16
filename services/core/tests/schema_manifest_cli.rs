@@ -38,43 +38,57 @@ fn schema_manifest_without_configuration_is_exact_machine_json() {
     let expected = serde_json::to_value(lmm_core::core_schema::schema_manifest()).unwrap();
     assert_eq!(actual, expected);
     assert_eq!(actual["format_version"], 1);
-    assert_eq!(actual["components"].as_array().unwrap().len(), 58);
-    assert_eq!(actual["components"][55]["name"], "directory-ads");
-    assert_eq!(actual["components"][56]["name"], "commerce-self-purchase");
-    assert_eq!(actual["components"][57]["name"], "display-exchange-rate");
-    assert_eq!(actual["components"][51]["name"], "affiliate-claims");
-    assert_eq!(actual["components"][52]["name"], "referral-ledger-revision");
-    assert_eq!(actual["components"][53]["name"], "legacy-referrals");
-    assert_eq!(actual["components"][54]["name"], "connection-history");
-    use sha2::{Digest, Sha256};
+    let target: serde_json::Value = serde_json::from_str(include_str!(
+        "../src/core_schema/upgrade/fresh70_target.json"
+    ))
+    .unwrap();
     assert_eq!(
-        actual["components"][51]["raw_schema_sha256"],
-        hex_codec::encode(Sha256::digest(include_bytes!(
-            "../schema/affiliate_claims.sql"
-        )))
+        actual["components"].as_array().unwrap().len(),
+        usize::try_from(target["component_count"].as_u64().unwrap()).unwrap()
     );
-    for (index, raw) in [
+    assert_eq!(
+        hex_codec::encode(Sha256::digest(&output.stdout)),
+        target["manifest_sha256"].as_str().unwrap()
+    );
+    use sha2::{Digest, Sha256};
+    for (index, name, raw) in [
         (
-            52,
+            50,
+            "affiliate-claims",
+            include_bytes!("../schema/affiliate_claims.sql").as_slice(),
+        ),
+        (
+            51,
+            "referral-ledger-revision",
             include_bytes!("../schema/referral_ledger_revision.sql").as_slice(),
         ),
         (
-            53,
+            52,
+            "legacy-referrals",
             include_bytes!("../schema/legacy_referrals.sql").as_slice(),
         ),
         (
-            54,
+            53,
+            "connection-history",
             include_bytes!("../schema/connection_history.sql").as_slice(),
         ),
         (
-            56,
+            54,
+            "directory-ads",
+            include_bytes!("../schema/directory_ads.sql").as_slice(),
+        ),
+        (
+            55,
+            "commerce-self-purchase",
             include_bytes!("../schema/commerce_self_purchase.sql").as_slice(),
         ),
         (
-            57,
+            56,
+            "display-exchange-rate",
             include_bytes!("../schema/display_exchange_rate.sql").as_slice(),
         ),
     ] {
+        assert_eq!(actual["components"][index]["name"], name);
         assert_eq!(
             actual["components"][index]["raw_schema_sha256"],
             hex_codec::encode(Sha256::digest(raw))

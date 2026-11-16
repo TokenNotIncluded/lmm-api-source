@@ -15,15 +15,27 @@ use lmm_core::{
 use sqlx::PgPool;
 use tower::ServiceExt;
 
-async fn advertising_runtime(owner: &PgPool) -> PgPool {
+async fn advertising_runtime(owner: &PgPool, runtime_password: &str) -> PgPool {
     use lmm_core::runtime_database::{self, RequiredCapabilities, RuntimeDatabaseError};
     use sqlx::postgres::PgPoolOptions;
     let role = format!("ad_runtime_{}", std::process::id());
     let options = owner.connect_options();
     let database = options.get_database().unwrap();
+    let database_url = reqwest::Url::parse(&std::env::var("DATABASE_URL").unwrap()).unwrap();
+    assert!(matches!(
+        database_url.host_str(),
+        Some("localhost" | "127.0.0.1")
+    ));
+    let database_password = database_url.password().map(|value| {
+        percent_encoding::percent_decode_str(value)
+            .decode_utf8()
+            .expect("synthetic database password is UTF-8")
+            .into_owned()
+    });
     let source = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
     let apply = |script: &str, flag: &str| {
-        let output = std::process::Command::new("psql")
+        let mut command = std::process::Command::new("psql");
+        command
             .args([
                 "-X",
                 "-q",
@@ -36,9 +48,16 @@ async fn advertising_runtime(owner: &PgPool) -> PgPool {
                 "-f",
             ])
             .arg(source.join("deployment/postgres").join(script))
-            .env("PGDATABASE", database)
-            .output()
-            .unwrap();
+            // Preserve the SQLx fixture endpoint. Credentials stay in the
+            // subprocess environment, never command argv or a database name.
+            .env("PGHOST", options.get_host())
+            .env("PGPORT", options.get_port().to_string())
+            .env("PGUSER", options.get_username())
+            .env("PGDATABASE", database);
+        if let Some(password) = &database_password {
+            command.env("PGPASSWORD", password);
+        }
+        let output = command.output().unwrap();
         assert!(
             output.status.success(),
             "{}",
@@ -48,7 +67,13 @@ async fn advertising_runtime(owner: &PgPool) -> PgPool {
     apply("grant-core-runtime.sql", "enable_directory_ads=true");
     let runtime = PgPoolOptions::new()
         .max_connections(3)
-        .connect_with(options.as_ref().clone().username(&role))
+        .connect_with(
+            options
+                .as_ref()
+                .clone()
+                .username(&role)
+                .password(runtime_password),
+        )
         .await
         .unwrap();
     let required = || RequiredCapabilities {
@@ -121,7 +146,8 @@ async fn advertising_runtime(owner: &PgPool) -> PgPool {
 #[sqlx::test(migrations = false)]
 async fn browser_confirmed_charge_refund_and_replays(pool: PgPool) {
     let runtime_role = format!("ad_runtime_{}", std::process::id());
-    sqlx::query(sqlx::AssertSqlSafe(format!("CREATE ROLE {runtime_role} LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS")))
+    let runtime_password = format!("synthetic-{:032x}", rand::random::<u128>());
+    sqlx::query(sqlx::AssertSqlSafe(format!("CREATE ROLE {runtime_role} LOGIN PASSWORD '{runtime_password}' NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS")))
         .execute(&pool).await.unwrap();
     let owner_role = "lmm_core_owner";
     let database = pool.connect_options().get_database().unwrap().to_owned();
@@ -190,7 +216,7 @@ async fn browser_confirmed_charge_refund_and_replays(pool: PgPool) {
         })
         .await
         .unwrap();
-    let runtime = advertising_runtime(&pool).await;
+    let runtime = advertising_runtime(&pool, &runtime_password).await;
     let store = Store::new(runtime);
     let input = pb::PrepareDirectoryAdRequest {
         protocol_major: 1,

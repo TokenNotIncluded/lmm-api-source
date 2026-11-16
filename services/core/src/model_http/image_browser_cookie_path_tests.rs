@@ -114,20 +114,28 @@ for value in headers:
         cookies.append(parsed['new_api_refresh'])
 refresh = [cookie for cookie in jar if cookie.name == 'new_api_refresh']
 jar.save(ignore_discard=True, ignore_expires=True)
-cookie = cookies[0] if len(cookies) == 1 else None
+cookies.sort(key=lambda cookie: cookie['path'])
+refresh.sort(key=lambda cookie: cookie.path)
 print(json.dumps({
     'status': status,
     'access': data.get('data', {}).get('access_token'),
     'refresh_set_cookie_count': len(cookies),
-    'path': cookie['path'] if cookie else None,
-    'http_only': bool(cookie and cookie['httponly']),
-    'secure': bool(cookie and cookie['secure']),
-    'same_site': cookie['samesite'] if cookie else None,
-    'domain_attribute_absent': bool(cookie and not cookie['domain']),
+    'refresh_cookies': [{'path': cookie['path'],
+                         'http_only': bool(cookie['httponly']),
+                         'secure': bool(cookie['secure']),
+                         'same_site': cookie['samesite'],
+                         'domain_attribute_absent': not cookie['domain']}
+                        for cookie in cookies],
+    'same_refresh_token': len(cookies) == 2 and bool(cookies[0].value)
+                          and cookies[0].value == cookies[1].value,
     'stored_refresh_count': len(refresh),
-    'stored_path': refresh[0].path if len(refresh) == 1 else None,
-    'stored_host_only': len(refresh) == 1 and not refresh[0].domain_specified,
-    'stored_secure': len(refresh) == 1 and refresh[0].secure,
+    'stored_refresh': [{'path': cookie.path,
+                        'host_only': not cookie.domain_specified,
+                        'secure': cookie.secure}
+                       for cookie in refresh],
+    'stored_tokens_match': len(refresh) == len(cookies)
+                           and all(stored.value == issued.value
+                                   for stored, issued in zip(refresh, cookies)),
 }))
 "#;
 
@@ -202,6 +210,8 @@ scope = {
     'lookalike_prefix': automatically_sends_refresh(
         '/api/user/authentication/images/confirm/' + config['operation_id']),
     'login': automatically_sends_refresh('/api/user/login'),
+    'core_lookalike_prefix': automatically_sends_refresh('/corex/v1/images/confirm'),
+    'extension_route': automatically_sends_refresh('/api/v1/store/orders'),
 }
 old_status, old_headers, _ = request(opener, old_path)
 old_post_status, old_post_headers, _ = request(
@@ -309,16 +319,28 @@ async fn image_drawing_http_cookie_jar_scopes_confirmation_without_bearer_or_mon
     jar.assert_private();
     let login = python(LOGIN, json!({"origin":origin,"jar":jar.path})).await;
     assert_eq!(login["status"], 200);
-    assert_eq!(login["refresh_set_cookie_count"], 1);
-    assert_eq!(login["path"], "/api/user/auth");
-    assert_eq!(login["http_only"], true);
-    assert_eq!(login["secure"], false);
-    assert_eq!(login["same_site"], "Strict");
-    assert_eq!(login["domain_attribute_absent"], true);
-    assert_eq!(login["stored_refresh_count"], 1);
-    assert_eq!(login["stored_path"], "/api/user/auth");
-    assert_eq!(login["stored_host_only"], true);
-    assert_eq!(login["stored_secure"], false);
+    assert_eq!(login["refresh_set_cookie_count"], 2);
+    assert_eq!(login["same_refresh_token"], true);
+    assert_eq!(
+        login["refresh_cookies"],
+        json!(["/api/user/auth", "/core"].map(|path| json!({
+            "path": path,
+            "http_only": true,
+            "secure": false,
+            "same_site": "Strict",
+            "domain_attribute_absent": true,
+        })))
+    );
+    assert_eq!(login["stored_refresh_count"], 2);
+    assert_eq!(login["stored_tokens_match"], true);
+    assert_eq!(
+        login["stored_refresh"],
+        json!(["/api/user/auth", "/core"].map(|path| json!({
+            "path": path,
+            "host_only": true,
+            "secure": false,
+        })))
+    );
     jar.assert_private();
     let access = login["access"]
         .as_str()
@@ -365,7 +387,15 @@ async fn image_drawing_http_cookie_jar_scopes_confirmation_without_bearer_or_mon
     .await;
     assert_eq!(negative["scope"]["new_confirmation"], true);
     assert_eq!(negative["scope"]["auth_refresh"], true);
-    for path in ["old_confirmation", "lookalike_prefix", "login"] {
+    // The separate Core cookie reaches retired Core URLs too; those endpoints
+    // must still reject the request without granting confirmation authority.
+    assert_eq!(negative["scope"]["old_confirmation"], true);
+    for path in [
+        "lookalike_prefix",
+        "login",
+        "core_lookalike_prefix",
+        "extension_route",
+    ] {
         assert_eq!(negative["scope"][path], false, "cookie path: {path}");
     }
     assert_eq!(negative["old_status"], 404);

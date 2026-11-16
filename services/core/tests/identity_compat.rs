@@ -1186,7 +1186,7 @@ mod marked_key_cases {
         let login = store
             .register(&LoginRequest {
                 login_name: "marked_candidate".into(),
-                password: "synthetic password only".into(),
+                password: "synthetic password".into(),
             })
             .await
             .unwrap();

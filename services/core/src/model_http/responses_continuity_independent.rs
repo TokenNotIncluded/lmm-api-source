@@ -1445,7 +1445,14 @@ async fn responses_continuity_independent_fresh69_runtime_capability_and_immutab
     pool: PgPool,
 ) {
     scenario(pool,20000,|lab|Box::pin(async move {
-        assert_eq!(crate::core_schema::schema_manifest().components.len(),69);
+        let target: Value = serde_json::from_str(include_str!("../core_schema/upgrade/fresh70_target.json")).unwrap();
+        let manifest = crate::core_schema::schema_manifest();
+        let count = usize::try_from(target["component_count"].as_u64().unwrap()).unwrap();
+        assert_eq!(manifest.components.len(), count);
+        let mut bytes = serde_json::to_vec(&manifest).unwrap();
+        bytes.push(b'\n');
+        assert_eq!(crate::hex_codec::encode(Sha256::digest(bytes)), target["manifest_sha256"].as_str().unwrap());
+        crate::core_schema::check(&lab.fixture.pool).await.unwrap();
         assert_runtime_boundary(&lab.fixture.pool,&lab.runtime.name).await;
         let core=Core::start(WorkerConfig::new(lab),None).await;
         let (id,_,_)=json_reply(call(&core,&lab.fixture.key,"independent-acl-root",&stored(json!("must-not-be-stored-in-PG"))).await).await;
@@ -1471,7 +1478,7 @@ async fn responses_continuity_independent_fresh69_runtime_capability_and_immutab
         assert_eq!(snapshot(&lab.fixture.pool).await,before);
         let map=mapping(&lab.fixture.pool,&id).await.unwrap().to_string();
         for forbidden in [lab.fixture.key.as_str(),SECRET,"must-not-be-stored-in-PG"] {assert!(!map.contains(forbidden));}
-        save("a9-fresh-runtime",&json!({"components":69,"execute_only":true,"public_execute":false,
+        save("a9-fresh-runtime",&json!({"components":count,"execute_only":true,"public_execute":false,
             "real_runtime_dml_sqlstate":"42501","wrong_worker_rejected":true,"immutable_binding":true,"no_body_or_secret":true}));
     })).await;
 }
@@ -1618,13 +1625,21 @@ pub(crate) async fn responses_continuity_independent_upgrade_68_to69(
             .unwrap();
     assert!(!exists);
     let mut manifest = crate::core_schema::schema_manifest();
+    manifest.components.truncate(69);
     assert_eq!(manifest.components.len(), 69);
-    let current_manifest = serde_json::to_vec(&manifest).unwrap();
-    let mut current_manifest = current_manifest;
-    current_manifest.push(b'\n');
+    let mut successor_manifest = serde_json::to_vec(&manifest).unwrap();
+    successor_manifest.push(b'\n');
+    let successor_pin: Value = serde_json::from_str(include_str!(
+        "../core_schema/upgrade/responses_continuity_target.json"
+    ))
+    .unwrap();
+    assert_eq!(
+        crate::hex_codec::encode(Sha256::digest(&successor_manifest)),
+        successor_pin["manifest_sha256"].as_str().unwrap()
+    );
     assert_eq!(
         request.successor_manifest_sha256,
-        crate::hex_codec::encode(Sha256::digest(&current_manifest))
+        successor_pin["manifest_sha256"].as_str().unwrap()
     );
     manifest.components.truncate(68);
     let mut predecessor_manifest = serde_json::to_vec(&manifest).unwrap();
