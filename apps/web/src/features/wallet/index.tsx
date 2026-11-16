@@ -150,10 +150,7 @@ function NativeWallet({
             {nativeCreditsAvailable ? (
               <div className='wallet-secondary-grid grid items-start gap-8 xl:gap-10'>
                 <section aria-labelledby='wallet-subscription-plans-title'>
-                  <h2
-                    id='wallet-subscription-plans-title'
-                    className='sr-only'
-                  >
+                  <h2 id='wallet-subscription-plans-title' className='sr-only'>
                     {t('Subscription Plans')}
                   </h2>
                   <SubscriptionPlansCard
