@@ -4,6 +4,10 @@
 
 ## 当前状态
 
+- **管理员用户详情接入原生用量（源码已推送，未部署）**：[733948f](https://github.com/TokenNotIncluded/lmm-api-source/commit/733948f8f165e5bd5da7bf06da8241fad53f3f9c) 按目标用户及其个人资源归属读取 Core 原生请求，汇总已结算、待结算请求数以及结算额、退款额和净消费，并区分个人钱包、团队代付、订阅与赞助。团队归属 Key 与历史导入记录不计入个人原生用量。详情在同一只读一致快照中读取，复用账本收据校验，累计金额以 u128 计算并返回十进制字符串；无用量与统计不可用保持不同状态。Web 使用摘要加折叠明细，七语言各新增 10 个词条并通过 helper 同步。最终 Core 定向 5 项、Web 定向 35 项、Core all-targets Clippy、相关 Rust 格式、Web 类型、范围 lint 与全量格式检查通过；生产构建及首屏包体检查通过，gzip 587314 字节（上限 786432）。本地 Chromium 的 1440/390/320px、英中俄、明暗主题共 8 组检查通过，形成 16 个摘要/展开截图，未见横向溢出；页面使用合成只读 fixture，数据库验证使用隔离 PostgreSQL 18.6，尚未运行真实管理员会话到数据库的整链路独立验收。首次失败与修复证据保留。
+
+- **Responses 与当前历史迁移仍有未闭合范围**：既有 responses_continuity_independent_store_tristate_and_exact_refusal 在隔离 PostgreSQL 18.6 中精确运行通过；旧 CI 的失败没有完整断言差异，不能认定已修复，本轮未据此修改产品或测试逻辑。社区导入仍只接受冻结 Core 55/56 目标合同，当前 Core 75 的完整历史导入与升级资格尚未闭合，冻结指纹和目标白名单保持不变。原生订阅空态的格式错误已在 [0f72236](https://github.com/TokenNotIncluded/lmm-api-source/commit/0f72236e38c2db17e0adda5bdfb59e7ed886eb36) 修正。
+
 - **原生渠道与系统资源界面补全（源码已推送，未部署）**：[dac23b4](https://github.com/TokenNotIncluded/lmm-api-source/commit/dac23b43cc50961739b3ff2f8c1cc17a7bc77f87) 将渠道模型绑定、上游映射、优先级、权重、超时与供应商合同接入结构化表单，继续共用原 JSON 草稿、版本比较及单次保存；新模型不继承其他模型的合同，共享上下文只在最后一个绑定移除后清理。[d6ad78d](https://github.com/TokenNotIncluded/lmm-api-source/commit/d6ad78d1f00b75528ac391e0e73fcf09180cc608) 展示主机 CPU、负载、内存和 Core/Extensions 版本、进程、线程及采样信息，区分零值与未报告，并保留多实例资源归属限制；七语言同步完成。独立静态复核未发现可证实的新回归，真实浏览器及新旧版等价验收未完成。
 
 - **本轮 Web 全量检查与构建通过**：固定 [a960937](https://github.com/TokenNotIncluded/lmm-api-source/commit/a960937cd01196b9a6a7025181077b8b85e3be5a) 的 [CI 43838128709](https://github.com/TokenNotIncluded/lmm-api-source/actions/runs/43838128709) 已通过格式、版权、lint、类型、翻译回归、760 个源码测试文件（5303 pass、0 fail）与全部 6 个脚本文件；生产构建和首屏包体检查通过，gzip 587044 字节（上限 786432），已保存对应 Web 制品。首次 [CI 43835912453](https://github.com/TokenNotIncluded/lmm-api-source/actions/runs/43835912453) 的 5302 pass、1 fail 保留：排序测试按全局下拉框顺序误选新增模型控件，a960937 改按实际列表控件标签定位，取消响应、币种、快照和草稿断言未删，产品代码不变。Core 全量仍未通过；首轮被修复提交取消前已有六项历史安装、升级与签到用例失败，当前复验尚在运行，不能以 Web 通过替代后端与整站验收。
@@ -16,7 +20,7 @@
 
 - **托管恢复密钥隔离回归修复**：[824ab71](https://github.com/TokenNotIncluded/lmm-api-source/commit/824ab718aa7e3fd49c6f6eebe90cd299a3dac170) 使测试生成真实 TOML，并在转换时解开 serde_json 任意精度数字的内部包装；TOML 写入功能只作为 dev-dependency 开启。六项实际 Rust 测试全部通过，保留跨用途材料复用、旧密钥、HMAC 等效密钥、Telegram 派生、硬链接/路径别名及不生成未配置密钥的安全断言。生产加载器和隔离策略未放宽。当前开发证据在 /tmp/lmm-native-iteration/；历史升级测试仍试图用当前 SQL 重建冻结安装器，与当前生产拒绝策略不一致，未改写历史摘要或移除验收。
 
-- **开发机接入与 Chrome 对比仍阻塞**：本轮 SSMCP 返回 `UNAUTHORIZED`，要求重新认证，未能连接开发机；代码改动在隔离源码副本完成并经 GitHub 插件推送。浏览器插件缺少 originating browser context，本地 Chromium 一次启动因 `socket() failed: Operation not permitted` 退出，未取得新旧站点截图。此前开发机 Chrome 的 `timeoutMs` 错误记录保留为历史证据，不能当作本轮接入结果。原开发工作区 WIP 未触碰，没有部署、生产数据库访问或真实支付；两页的隔离浏览器验收入口已准备，实际预览、交互与视觉对照等待连接恢复。
+- **开发机连接已恢复，限定页面自测通过**：本轮已通过 SSMCP 连接原开发工作区。共享浏览器插件仍缺少 originating browser context，改用仓库已有的本地 Chromium 检查流程，完成用户详情的合成只读场景；不覆盖渠道、系统资源或新旧站点完整视觉对照。此前认证、Chromium 启动和 Chrome timeoutMs 失败保留为历史证据；开发机其他 WIP 保留。
 
 - **通用影子部署工作流**：环境变量配置任意数量节点，支持手动触发及 `v*` / `shadow-v*` tag。手动 Web 部署已在 ArchDmit、DmitUbuntu 完成（[43740218353](https://github.com/TokenNotIncluded/lmm-api-source/actions/runs/43740218353)），实际浏览器会话恢复通过，未提交登录凭据。tag `shadow-v0.1.151` 的 Core、Extensions、Web 构建均通过，但[部署被 Core 兼容检查拦截](https://github.com/TokenNotIncluded/lmm-api-source/actions/runs/43740351841)：新版返回 `CHECK_DB_SCHEMA_UNVERIFIED`，旧版使用同一账号配置检查通过；未切换或重启后端，候选文件已清理。尚未升级影子数据库，后端更新待完成。工作流校验归档来源、运行程序及 Web 字节，失败回滚，成功清理旧槽和上传包，不累计历史版本；配置见 [automation README](../deployment/automation/README.md)。当前仅影子环境，未切生产流量；开发自测完成，独立业务验收未运行。
 
@@ -153,6 +157,7 @@
 
 | 范围 | 证据位置 |
 | --- | --- |
+| 管理员用户原生用量开发自测 | 开发机 /tmp/lmm-architecture-20261116-jpmxei3q/：user-usage-core-final、web-targeted、web-static、core-clippy-final、web-format-final、web-build 的日志与 result.json；截图及 8 组报告位于父仓库 .git/lmm-architecture-user-usage-v3/，仅合成场景，不替代独立整链路验收 |
 | Core7 制品与准入 | `lmm-core7-release-vh29l59q/admitted-core7.receipt.private.json` |
 | 固定组合 | `lmm-combination-core5-web4-nt6y0hde/core7-go9-web5-combination.receipt.private.json` |
 | release 图片 | `lmm-core7-release-vh29l59q/image-release-r2/result.json` |
