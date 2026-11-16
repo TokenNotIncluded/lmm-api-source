@@ -54,7 +54,7 @@ after(() => {
   dom.close()
 })
 
-test('protected-route error UI shows actionable site-data recovery instead of generic500 and Retry while preserving pending marker', async () => {
+test('protected-route error UI shows actionable site-data recovery instead of generic500 and Retry while preserving the interrupted writer as recoverable uncertainty', async () => {
   const marker = 'pending:crashed-document'
   window.localStorage.setItem('new-api:auth-cookie:uncertain', marker)
   await assert.rejects(
@@ -81,7 +81,7 @@ test('protected-route error UI shows actionable site-data recovery instead of ge
     assert.doesNotMatch(host.textContent ?? '', /Generic 500|Retry/)
     assert.equal(
       window.localStorage.getItem('new-api:auth-cookie:uncertain'),
-      marker
+      'uncertain:crashed-document'
     )
   } finally {
     await act(async () => root.unmount())

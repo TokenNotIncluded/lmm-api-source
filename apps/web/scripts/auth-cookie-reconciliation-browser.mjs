@@ -534,7 +534,9 @@ try {
     await owner.evaluate((k) => localStorage.getItem(k), key),
     'pending:original-operation-id'
   )
-  evidence.cases.push('pending operation ID is never replaced or removed')
+  evidence.cases.push(
+    'pending writer cannot be reconciled before handoff timeout'
+  )
   assert.ok(
     trace.indexOf('old_transport_closed') <
       trace.indexOf('readonly_probe_started')
@@ -657,6 +659,7 @@ try {
     (k) => localStorage.getItem(k),
     key
   )
+  await terminal.locator('summary').filter({ hasText: 'Details' }).click()
   await terminal
     .getByRole('button', { name: 'Back to Home', exact: true })
     .click()
@@ -699,6 +702,64 @@ try {
     'expired previous session offers a public-home exit and explicit full-document reauthentication without replaying refresh or repeating the recovery dead end'
   )
   await terminalContext.close()
+
+  state = 'no_cookie'
+  const crashedContext = await browser.newContext()
+  const crashed = await crashedContext.newPage()
+  await load(crashed)
+  const crashedRequestsBefore = requests.length
+  const crashedRefreshesBefore = refreshCount
+  await crashed.evaluate(async (k) => {
+    localStorage.setItem(k, 'pending:crashed-guest-bootstrap')
+    window.crashedDispatches = 0
+    await window.cookie
+      .withAuthCookieLock(async () => {
+        window.crashedDispatches++
+      })
+      .catch(() => {})
+  }, key)
+  assert.equal(await crashed.evaluate(() => window.crashedDispatches), 0)
+  assert.equal(
+    await crashed.evaluate((k) => localStorage.getItem(k), key),
+    'uncertain:crashed-guest-bootstrap'
+  )
+  assert.equal(requests.length, crashedRequestsBefore)
+  await crashed.evaluate(() => window.mountRecoveryUI())
+  await crashed
+    .getByRole('button', { name: 'Recover browser session', exact: true })
+    .click()
+  await crashed
+    .getByRole('button', { name: 'Sign in again', exact: true })
+    .waitFor()
+  assert.equal(
+    await crashed.evaluate((k) => localStorage.getItem(k), key),
+    'uncertain:crashed-guest-bootstrap',
+    'no-cookie proof must still await the explicit reauthentication action'
+  )
+  await crashed
+    .getByRole('button', { name: 'Sign in again', exact: true })
+    .click()
+  await crashed.waitForURL((url) => url.pathname === '/sign-in')
+  await crashed.waitForFunction(
+    (k) => localStorage.getItem(k) === null && Boolean(window.recovery),
+    key
+  )
+  assert.equal(
+    await crashed.evaluate(
+      () => window.useCredentialStore.getState().auth.accessToken
+    ),
+    null
+  )
+  assert.equal(refreshCount, crashedRefreshesBefore)
+  assert.ok(
+    requests
+      .slice(crashedRequestsBefore)
+      .every((request) => request.path === '/api/user/auth/reconcile')
+  )
+  evidence.cases.push(
+    'crashed pending guest bootstrap becomes recoverable uncertainty; real document handoff reads no-cookie proof, explicit sign-in restart clears the fence without issuing credentials or replaying refresh'
+  )
+  await crashedContext.close()
 
   // A genuine browser Cookie mutation is separate evidence from read-only proof.
   holdRefresh = false

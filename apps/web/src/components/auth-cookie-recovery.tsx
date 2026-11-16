@@ -167,19 +167,22 @@ export function AuthCookieRecovery({
     }
   }
   return (
-    <Alert variant='destructive' className='relative z-50 rounded-none'>
-      <AlertDescription className='space-y-3'>
-        <p>
-          {t(
-            state === 'uncertain'
-              ? authCookieRecoveryMessage
-              : state === 'coordination_unavailable'
-                ? authCookieCoordinationMessage
-                : authCookieStorageMessage
-          )}
-        </p>
-        {state === 'uncertain' ? (
-          <div className='space-y-2'>
+    <Alert
+      variant={recoveryFailed ? 'destructive' : 'default'}
+      className='relative z-50 rounded-none border-x-0 border-t-0 px-4 py-3 sm:px-6'
+    >
+      <AlertDescription className='mx-auto w-full max-w-7xl text-left [&_p:not(:last-child)]:mb-0'>
+        <div className='flex min-w-0 flex-col gap-3 sm:flex-row sm:items-center sm:justify-between'>
+          <div className='min-w-0 space-y-2'>
+            <p className='text-foreground'>
+              {t(
+                state === 'uncertain'
+                  ? authCookieRecoveryMessage
+                  : state === 'coordination_unavailable'
+                    ? authCookieCoordinationMessage
+                    : authCookieStorageMessage
+              )}
+            </p>
             {reauthenticationRequired ? (
               <p role='status'>
                 {t(
@@ -201,64 +204,77 @@ export function AuthCookieRecovery({
                 )}
               </p>
             ) : null}
-            {reauthenticationRequired ? (
-              <Button
-                type='button'
-                disabled={startingSignIn}
-                aria-busy={startingSignIn}
-                className='h-auto min-h-11 whitespace-normal'
-                onClick={() => void handleReauthentication()}
-              >
-                {t('Sign in again')}
-              </Button>
-            ) : (
-              <Button
-                type='button'
-                variant='outline'
-                disabled={recovering}
-                className='h-auto min-h-11 whitespace-normal'
-                onClick={() => void recover(renewalRequired)}
-              >
-                {recovering
-                  ? t('Checking browser session...')
-                  : renewalRequired
-                    ? t('Renew browser session')
-                    : t('Recover browser session')}
-              </Button>
-            )}
           </div>
-        ) : null}
+          {state === 'uncertain' ? (
+            <div className='flex shrink-0 items-center'>
+              {reauthenticationRequired ? (
+                <Button
+                  type='button'
+                  disabled={startingSignIn}
+                  aria-busy={startingSignIn}
+                  className='h-auto min-h-11 whitespace-normal'
+                  onClick={() => void handleReauthentication()}
+                >
+                  {t('Sign in again')}
+                </Button>
+              ) : (
+                <Button
+                  type='button'
+                  variant='outline'
+                  disabled={recovering}
+                  aria-busy={recovering}
+                  className='h-auto min-h-11 whitespace-normal'
+                  onClick={() => void recover(renewalRequired)}
+                >
+                  {recovering
+                    ? t('Checking browser session...')
+                    : renewalRequired
+                      ? t('Renew browser session')
+                      : t('Recover browser session')}
+                </Button>
+              )}
+            </div>
+          ) : null}
+        </div>
         {ended ? (
-          <p role='status'>
+          <p role='status' className='mt-2'>
             {t(
               "This tab's local session has ended. Server sign-out is not confirmed."
             )}
           </p>
         ) : (
-          <>
-            <p>
-              {t(
-                'This only clears sign-in state in this tab. Server sign-out is not confirmed.'
-              )}
-            </p>
-            {result === 'superseded' && (
-              <p role='status'>
+          <details
+            className='mt-2 text-xs'
+            open={result === 'superseded' || undefined}
+          >
+            <summary className='focus-visible:outline-ring w-fit cursor-pointer rounded-sm py-1 focus-visible:outline-2 focus-visible:outline-offset-4'>
+              {t('Details')}
+            </summary>
+            <div className='mt-2 flex flex-wrap items-center gap-x-4 gap-y-2'>
+              <p className='max-w-2xl'>
                 {t(
-                  'Your session changed. Review the current account before trying again.'
+                  'This only clears sign-in state in this tab. Server sign-out is not confirmed.'
                 )}
               </p>
-            )}
-            <Button
-              type='button'
-              variant='outline'
-              className='h-auto min-h-11 whitespace-normal'
-              onClick={handleLocalEnd}
-            >
-              {reauthenticationRequired
-                ? t('Back to Home')
-                : t("End this tab's local session")}
-            </Button>
-          </>
+              <Button
+                type='button'
+                variant='ghost'
+                className='h-auto min-h-11 px-2 text-xs whitespace-normal'
+                onClick={handleLocalEnd}
+              >
+                {reauthenticationRequired
+                  ? t('Back to Home')
+                  : t("End this tab's local session")}
+              </Button>
+              {result === 'superseded' && (
+                <p role='status' className='w-full'>
+                  {t(
+                    'Your session changed. Review the current account before trying again.'
+                  )}
+                </p>
+              )}
+            </div>
+          </details>
         )}
       </AlertDescription>
     </Alert>

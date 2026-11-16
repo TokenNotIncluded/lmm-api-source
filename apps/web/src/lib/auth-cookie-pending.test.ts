@@ -227,7 +227,7 @@ test('storage clear requires a verified absent marker and unrelated events do no
   }
 })
 
-test('a fresh document with a crashed writer intent times out closed without clearing its marker', async () => {
+test('a crashed writer becomes durable uncertainty that explicit recovery can reconcile', async () => {
   const reader = realm(new Map([[KEY, marker]]))
   let attempts = 0
   try {
@@ -243,8 +243,21 @@ test('a fresh document with a crashed writer intent times out closed without cle
     assert.equal(reader.timers.size, 1)
     reader.expire()
     await rejected
-    assert.equal(reader.backing.get(KEY), marker)
+    const uncertainMarker = 'uncertain:synthetic-crashed-writer'
+    assert.equal(reader.backing.get(KEY), uncertainMarker)
+    assert.equal(
+      reader.cookie.getAuthCookieUncertaintyMarker(),
+      uncertainMarker
+    )
     assert.equal(reader.cookie.getAuthCookieBlockedState(), 'uncertain')
+    assert.equal(
+      await reader.cookie.withAuthCookieReconciliationLock(
+        uncertainMarker,
+        async () => 'confirmation-required'
+      ),
+      'confirmation-required'
+    )
+    assert.equal(reader.backing.get(KEY), uncertainMarker)
     reader.cache.clear()
     reader.notice(null)
     await assert.rejects(

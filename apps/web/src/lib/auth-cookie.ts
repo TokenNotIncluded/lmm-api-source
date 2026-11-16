@@ -241,6 +241,20 @@ async function waitForPeerCookieMarker(signal?: AbortSignal): Promise<void> {
     const failUncertain = () => {
       if (settled) return
       blocked = 'uncertain'
+      try {
+        const marker = window.localStorage.getItem(BLOCKED_KEY)
+        if (marker?.startsWith('pending:')) {
+          // A timed-out handoff is still fenced, but must be recoverable in a
+          // new document. Keep the writer identity instead of leaving a
+          // pending marker that the explicit reconciliation flow cannot read.
+          window.localStorage.setItem(
+            BLOCKED_KEY,
+            `uncertain:${marker.slice('pending:'.length)}`
+          )
+        }
+      } catch {
+        // Storage failure never releases the current realm's Cookie fence.
+      }
       notify()
       finish(new AuthCookieBlockedError(blocked))
     }
