@@ -29,8 +29,8 @@ export function SystemInfo() {
   return (
     <SectionPageLayout>
       <SectionPageLayout.Title>
-        <span className='inline-flex min-w-0 items-center gap-2'>
-          <span className='truncate'>{t('System Info')}</span>
+        <span className='inline-flex min-w-0 flex-wrap items-center gap-2'>
+          <span>{t('System Info')}</span>
           <Badge variant='outline' className='shrink-0'>
             {t('Root')}
           </Badge>

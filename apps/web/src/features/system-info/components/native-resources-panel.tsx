@@ -22,60 +22,22 @@ import { ErrorState } from '@/components/error-state'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { getServerErrorMessage } from '@/lib/server-error-message'
+import { useAuthStore } from '@/stores/auth-store'
 
 import { getNativeSystemResources } from '../api'
-import type { SystemProcessInfo } from '../types'
+import {
+  HostResources,
+  ProcessResources,
+  ResourceSampleMetadata,
+} from './resource-metrics'
 
 const POLL_INTERVAL_MS = 30_000
 
-function percent(value?: number) {
-  return typeof value === 'number'
-    ? `${new Intl.NumberFormat(undefined, { maximumFractionDigits: 1 }).format(value)}%`
-    : '-'
-}
-
-function bytes(value?: number) {
-  if (typeof value !== 'number') return '-'
-  return `${new Intl.NumberFormat(undefined, { maximumFractionDigits: 1 }).format(value / 1024 / 1024)} MB`
-}
-
-function Metric({ label, value }: { label: string; value: string | number }) {
-  return (
-    <div className='flex items-center justify-between gap-3 text-xs'>
-      <span className='text-muted-foreground'>{label}</span>
-      <span className='font-mono tabular-nums'>{value}</span>
-    </div>
-  )
-}
-
-function ProcessCard({
-  label,
-  process,
-}: {
-  label: string
-  process?: SystemProcessInfo
-}) {
-  const { t } = useTranslation()
-  return (
-    <div className='bg-card space-y-2 border p-3'>
-      <div className='text-sm font-medium'>{label}</div>
-      {process ? (
-        <>
-          <Metric label={t('PID')} value={process.pid ?? t('Not reported')} />
-          <Metric label={t('CPU')} value={percent(process.cpu_percent)} />
-          <Metric label={t('RSS')} value={bytes(process.memory_bytes)} />
-        </>
-      ) : (
-        <div className='text-muted-foreground text-xs'>{t('Not reported')}</div>
-      )}
-    </div>
-  )
-}
-
 export function NativeResourcesPanel() {
   const { t } = useTranslation()
+  const session = useAuthStore((state) => state.auth.session)
   const query = useQuery({
-    queryKey: ['system-info', 'native-resources'],
+    queryKey: ['system-info', 'native-resources', session?.sid],
     queryFn: getNativeSystemResources,
     staleTime: POLL_INTERVAL_MS,
     refetchInterval: POLL_INTERVAL_MS,
@@ -83,8 +45,8 @@ export function NativeResourcesPanel() {
   })
 
   return (
-    <section className='bg-card overflow-hidden border'>
-      <div className='flex items-center justify-between gap-3 border-b px-4 py-3'>
+    <section className='@container/resources space-y-6'>
+      <div className='flex flex-wrap items-center justify-between gap-3'>
         <div className='flex min-w-0 items-center gap-2'>
           <ServerCog
             className='text-muted-foreground size-4 shrink-0'
@@ -96,8 +58,9 @@ export function NativeResourcesPanel() {
         </div>
         <Button
           type='button'
-          variant='outline'
+          variant='ghost'
           size='sm'
+          className='min-h-11'
           onClick={() => void query.refetch()}
           disabled={query.isFetching}
           aria-label={t('Refresh')}
@@ -106,7 +69,7 @@ export function NativeResourcesPanel() {
           {query.isFetching ? t('Refreshing...') : t('Refresh')}
         </Button>
       </div>
-      <div className='p-4' aria-busy={query.isFetching}>
+      <div aria-busy={query.isFetching}>
         {query.isLoading ? (
           <div className='grid gap-3 sm:grid-cols-3'>
             {[0, 1, 2].map((key) => (
@@ -122,33 +85,22 @@ export function NativeResourcesPanel() {
             className='min-h-[220px]'
           />
         ) : query.data ? (
-          <div className='space-y-3'>
+          <div className='space-y-6'>
             <p className='text-muted-foreground text-xs'>
               {t(
                 'System samples describe the host. Core and Extensions values describe their own processes.'
               )}
             </p>
-            <div className='grid gap-3 sm:grid-cols-3'>
-              <div className='bg-card space-y-2 border p-3'>
-                <div className='text-sm font-medium'>{t('System')}</div>
-                <Metric
-                  label={t('CPU')}
-                  value={percent(query.data.system.cpu_usage_percent)}
-                />
-                <Metric
-                  label={t('Memory')}
-                  value={percent(query.data.system.memory_usage_percent)}
-                />
-                <Metric
-                  label={t('Used')}
-                  value={bytes(query.data.system.memory_used_bytes)}
-                />
+            <div className='grid gap-8 @min-[48rem]/resources:grid-cols-3'>
+              <div className='min-w-0 space-y-5'>
+                <HostResources snapshot={query.data} />
+                <ResourceSampleMetadata snapshot={query.data} />
               </div>
-              <ProcessCard
+              <ProcessResources
                 label={t('Core process')}
                 process={query.data.processes['lmm-core']}
               />
-              <ProcessCard
+              <ProcessResources
                 label={t('Extensions process')}
                 process={query.data.processes['lmm-extensions']}
               />

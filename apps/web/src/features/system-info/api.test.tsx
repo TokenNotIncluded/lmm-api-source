@@ -114,6 +114,7 @@ test('native resource response rejects drift and missing process entries', async
   for (const data of [
     '<html>not the endpoint</html>',
     { ...snapshot, schema_version: 2 },
+    { ...snapshot, observed_at_unix_ms: 8_640_000_000_000_001 },
     { ...snapshot, system: { ...snapshot.system, memory_used_bytes: '1024' } },
     {
       ...snapshot,
@@ -317,7 +318,26 @@ test('system info page displays native resources and instance heartbeats togethe
   assert.ok(row)
   assert.equal(row.querySelectorAll('[role="cell"]').length, 3)
   assert.equal(container.querySelectorAll('[role="columnheader"]').length, 3)
-  assert.match(row.textContent ?? '', /Core processPID123/)
+  const core = row.querySelector('[data-process-status="running"]')
+  assert.match(core?.textContent ?? '', /Core process/)
+  assert.match(core?.textContent ?? '', /Version: 0\.1\.0/)
+  assert.match(core?.textContent ?? '', /PID123/)
+  assert.match(core?.textContent ?? '', /CPU2%/)
+  assert.match(core?.textContent ?? '', /RSS512 B/)
+  assert.match(core?.textContent ?? '', /Memory25%/)
+  assert.match(core?.textContent ?? '', /Threads4/)
+  const host = row.querySelector('[data-resource="host"]')
+  assert.match(host?.textContent ?? '', /Logical CPUs2/)
+  assert.match(host?.textContent ?? '', /0\.1 \/ 0\.2 \/ 0\.3/)
+  assert.match(host?.textContent ?? '', /Total2 KiB/)
+  assert.match(host?.textContent ?? '', /Used1 KiB/)
+  assert.match(host?.textContent ?? '', /Available1 KiB/)
+  assert.equal(
+    row.querySelector('time')?.getAttribute('datetime'),
+    '1970-01-01T00:02:03.456Z'
+  )
+  assert.match(row.textContent ?? '', /Sample window1,000 ms/)
+  assert.match(row.textContent ?? '', /RPC readinessUnavailable/)
   assert.match(row.textContent ?? '', /Extensions process/)
   assert.match(row.textContent ?? '', /worker-a/)
   assert.match(row.textContent ?? '', /test-version/)
@@ -407,7 +427,9 @@ for (const scenario of [
       scenario.linked
     )
     assert.equal(container.textContent?.includes('PID123'), scenario.linked)
-    const history = container.querySelector('details')
+    const history = container.querySelector<HTMLDetailsElement>(
+      '[data-instance-history]'
+    )
     if (scenario.linked) {
       assert.ok(history)
       assert.equal(history.open, false)
@@ -424,3 +446,60 @@ for (const scenario of [
     }
   })
 }
+
+test('resource measurements distinguish measured zero, missing values and unavailable processes', async () => {
+  const measured = structuredClone(snapshot)
+  measured.observed_at_unix_ms = 0
+  measured.system.cpu_usage_percent = 0
+  measured.processes['lmm-core'].cpu_percent = 0
+  measured.processes['lmm-core'].memory_bytes = 0
+  measured.processes['lmm-core'].memory_percent = 0
+  respond({
+    ...measured,
+    processes: {
+      ...measured.processes,
+      'lmm-core': { ...measured.processes['lmm-core'], threads: null },
+    },
+  })
+  const container = document.createElement('div')
+  document.body.append(container)
+  const root = createRoot(container)
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  })
+  dispose = async () => {
+    await act(async () => root.unmount())
+    client.clear()
+  }
+  await act(async () =>
+    root.render(
+      <QueryClientProvider client={client}>
+        <I18nextProvider i18n={i18n}>
+          <NativeResourcesPanel />
+        </I18nextProvider>
+      </QueryClientProvider>
+    )
+  )
+  for (
+    let attempt = 0;
+    attempt < 100 && !container.querySelector('[data-process-status]');
+    attempt++
+  ) {
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 10))
+    })
+  }
+  const running = container.querySelector('[data-process-status="running"]')
+  assert.match(running?.textContent ?? '', /CPU0%/)
+  assert.match(running?.textContent ?? '', /RSS0 B/)
+  assert.match(running?.textContent ?? '', /Memory0%/)
+  assert.match(running?.textContent ?? '', /ThreadsNot reported/)
+  const unavailable = container.querySelector(
+    '[data-process-status="unavailable"]'
+  )
+  assert.match(unavailable?.textContent ?? '', /Unavailable/)
+  assert.match(unavailable?.textContent ?? '', /Not reported/)
+  assert.doesNotMatch(unavailable?.textContent ?? '', /CPU|RSS|0%|0 B/)
+  assert.match(container.textContent ?? '', /Sampled atNot reported/)
+  assert.equal(container.querySelector('time'), null)
+})

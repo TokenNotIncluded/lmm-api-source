@@ -50,7 +50,7 @@ const nativeSnapshotSchema = z.object({
   // Core v1 includes both named processes; unavailable measurements are null.
   // @context-fold begin native-system-resource-fields
   schema_version: z.literal(1),
-  observed_at_unix_ms: z.number().int(),
+  observed_at_unix_ms: z.number().int().min(0).max(8_640_000_000_000_000),
   sample_window_ms: nonnegativeInteger,
   system: z.object({
     logical_cpus: nonnegativeInteger,

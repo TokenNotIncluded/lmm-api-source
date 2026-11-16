@@ -24,12 +24,17 @@ import { ErrorState } from '@/components/error-state'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
-import { toIntlLocale } from '@/i18n/languages'
 import { formatTimestampToDate } from '@/lib/format'
 import { useAuthStore } from '@/stores/auth-store'
 
 import { getNativeSystemResources, listSystemInstances } from '../api'
 import type { SystemInstance, SystemResourceSnapshot } from '../types'
+import {
+  HostResources,
+  ProcessResources,
+  ResourceMetric,
+  ResourceSampleMetadata,
+} from './resource-metrics'
 
 const PHASE_LABELS = {
   preparing: 'Preparing',
@@ -45,30 +50,18 @@ function InstanceRow({
   instance: SystemInstance
   snapshot?: SystemResourceSnapshot
 }) {
-  const { t, i18n } = useTranslation()
-  const number = new Intl.NumberFormat(toIntlLocale(i18n.language), {
-    maximumFractionDigits: 1,
-  })
-  const percent = (value?: number) =>
-    value === undefined ? t('Not reported') : `${number.format(value)}%`
-  const bytes = (value?: number) =>
-    value === undefined
-      ? t('Not reported')
-      : `${number.format(value / 1024 / 1024)} MB`
+  const { t } = useTranslation()
   const stopped = instance.phase === 'stopped'
   const metric = (label: string, value: string | number) => (
-    <div className='flex items-baseline justify-between gap-3 text-xs'>
-      <dt className='text-muted-foreground'>{label}</dt>
-      <dd className='text-right font-mono tabular-nums'>{value}</dd>
-    </div>
+    <ResourceMetric label={label} value={value} />
   )
   return (
     <div
       role='row'
       data-instance-id={instance.reporter_id}
-      className='grid divide-y border-b last:border-b-0 md:grid-cols-3 md:divide-x md:divide-y-0'
+      className='grid gap-8 py-7 not-last:border-b @min-[48rem]/instances:grid-cols-3'
     >
-      <div role='cell' className='min-w-0 space-y-3 p-4'>
+      <div role='cell' className='min-w-0 space-y-5'>
         <div className='flex flex-wrap items-center justify-between gap-2'>
           <h4 className='text-sm font-semibold break-all'>
             {instance.node_name}
@@ -91,7 +84,7 @@ function InstanceRow({
             )}
           </Badge>
         </div>
-        <dl className='space-y-2'>
+        <dl className='space-y-3'>
           {metric(
             t('Status'),
             instance.phase ? t(PHASE_LABELS[instance.phase]) : t('Not reported')
@@ -113,52 +106,56 @@ function InstanceRow({
                   : 'Unavailable'
               )
             )}
+          {!stopped &&
+            metric(
+              t('RPC readiness'),
+              t(
+                instance.status === 'online' && instance.rpc_ready
+                  ? 'Ready'
+                  : 'Unavailable'
+              )
+            )}
+          {metric(
+            t('Started'),
+            formatTimestampToDate(instance.started_at, 'seconds')
+          )}
           {metric(
             t('Last heartbeat'),
             formatTimestampToDate(instance.last_seen_at, 'seconds')
           )}
         </dl>
-        <p className='text-muted-foreground font-mono text-[11px] break-all'>
-          {instance.reporter_id}
-        </p>
+        <details className='text-muted-foreground text-xs'>
+          <summary className='focus-visible:outline-ring min-h-11 cursor-pointer py-3 focus-visible:outline-2'>
+            {t('Instance ID')}
+          </summary>
+          <p className='font-mono break-all'>{instance.reporter_id}</p>
+        </details>
       </div>
-      <div role='cell' className='min-w-0 space-y-3 p-4'>
-        <h4 className='text-sm font-medium md:hidden'>{t('System')}</h4>
+      <div role='cell' className='min-w-0 space-y-5'>
+        <h4 className='text-sm font-medium @min-[48rem]/instances:hidden'>
+          {t('System')}
+        </h4>
         {snapshot ? (
-          <dl className='space-y-2'>
-            {metric(t('CPU'), percent(snapshot.system.cpu_usage_percent))}
-            {metric(t('Memory'), percent(snapshot.system.memory_usage_percent))}
-            {metric(t('Used'), bytes(snapshot.system.memory_used_bytes))}
-          </dl>
+          <>
+            <HostResources snapshot={snapshot} />
+            <ResourceSampleMetadata snapshot={snapshot} />
+          </>
         ) : (
           <p className='text-muted-foreground text-xs'>{t('Not reported')}</p>
         )}
       </div>
-      <div role='cell' className='min-w-0 space-y-4 p-4'>
+      <div role='cell' className='min-w-0 space-y-7'>
         {snapshot ? (
           (['lmm-core', 'lmm-extensions'] as const).map((service) => {
             const process = snapshot.processes[service]
             return (
-              <div key={service} className='space-y-2'>
-                <h4 className='text-xs font-medium'>
-                  {t(
-                    service === 'lmm-core'
-                      ? 'Core process'
-                      : 'Extensions process'
-                  )}
-                </h4>
-                {process.status === 'running' ? (
-                  <dl className='space-y-2'>
-                    {metric(t('PID'), process.pid ?? t('Not reported'))}
-                    {metric(t('CPU'), percent(process.cpu_percent))}
-                    {metric(t('RSS'), bytes(process.memory_bytes))}
-                  </dl>
-                ) : (
-                  <p className='text-muted-foreground text-xs'>
-                    {t('Unavailable')}
-                  </p>
+              <ProcessResources
+                key={service}
+                label={t(
+                  service === 'lmm-core' ? 'Core process' : 'Extensions process'
                 )}
-              </div>
+                process={process}
+              />
             )
           })
         ) : (
@@ -199,15 +196,15 @@ export function SystemInstancesPanel() {
     <div role='table' aria-label={t('Instances')}>
       <div
         role='row'
-        className='bg-muted/40 hidden grid-cols-3 border-b text-xs font-medium md:grid'
+        className='text-muted-foreground hidden grid-cols-3 gap-8 border-b text-xs font-medium @min-[48rem]/instances:grid'
       >
-        <div role='columnheader' className='px-4 py-3'>
+        <div role='columnheader' className='py-3'>
           {t('Instances')}
         </div>
-        <div role='columnheader' className='px-4 py-3'>
+        <div role='columnheader' className='py-3'>
           {t('System')}
         </div>
-        <div role='columnheader' className='px-4 py-3'>
+        <div role='columnheader' className='py-3'>
           {t('Core process')} / {t('Extensions process')}
         </div>
       </div>
@@ -225,8 +222,8 @@ export function SystemInstancesPanel() {
     </div>
   )
   return (
-    <section className='bg-card overflow-hidden rounded-lg border'>
-      <div className='flex items-start justify-between gap-3 border-b p-4'>
+    <section className='@container/instances min-w-0 space-y-6'>
+      <div className='flex flex-wrap items-start justify-between gap-4'>
         <div>
           <h3 className='text-sm font-semibold'>{t('Instances')}</h3>
           <p className='text-muted-foreground mt-1 text-xs'>
@@ -238,7 +235,8 @@ export function SystemInstancesPanel() {
         <Button
           type='button'
           size='sm'
-          variant='outline'
+          variant='ghost'
+          className='min-h-11'
           disabled={query.isFetching || resources.isFetching}
           onClick={() => {
             void query.refetch()
@@ -281,8 +279,8 @@ export function SystemInstancesPanel() {
             />
           )}
           {history.length > 0 && (
-            <details className='border-t'>
-              <summary className='focus-visible:outline-ring cursor-pointer px-4 py-3 text-sm font-medium focus-visible:outline-2'>
+            <details className='border-t' data-instance-history>
+              <summary className='focus-visible:outline-ring min-h-11 cursor-pointer py-3 text-sm font-medium focus-visible:outline-2'>
                 {t('History')}{' '}
                 <span className='text-muted-foreground'>
                   ({history.length})
