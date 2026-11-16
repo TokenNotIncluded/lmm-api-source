@@ -38,9 +38,8 @@ function useSnapshot() {
     const changed = previous.current !== null && previous.current !== registry
     previous.current = registry
     if (changed) {
-      // No reload operation is exposed by the current read-only UI. A changed
-      // registry (including an external administrator's change) invalidates
-      // existing capability/config reads without replaying any write.
+      // Lifecycle changes and other administrators' changes refresh dependent
+      // capability reads without replaying any write.
       for (const queryKey of [
         ['status'],
         ['system-options'],
@@ -60,8 +59,7 @@ function useSnapshot() {
     channelPhase,
     settingsPhase,
     hasPluginInventoryAccess: Boolean(scope),
-    // This DTO has no allowed_actions, atomic generation or write receipt.
-    pluginLifecycleWritable: false as const,
+    pluginLifecycleWritable: Boolean(scope) && pluginPhase === 'fresh',
   }
 }
 

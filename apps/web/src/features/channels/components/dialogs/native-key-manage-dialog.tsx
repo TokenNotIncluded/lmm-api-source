@@ -9,6 +9,7 @@ import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { Textarea } from '@/components/ui/textarea'
 import { getServerErrorMessage } from '@/lib/server-error-message'
 
 import {
@@ -41,6 +42,9 @@ export function NativeKeyManageDialog({
   const [error, setError] = useState<string | null>(null)
   const [label, setLabel] = useState('')
   const [secret, setSecret] = useState('')
+  const [batch, setBatch] = useState(false)
+  const [batchSecrets, setBatchSecrets] = useState('')
+  const [imported, setImported] = useState<number | null>(null)
   const [confirmation, setConfirmation] = useState<string | null>(null)
 
   async function load() {
@@ -56,11 +60,14 @@ export function NativeKeyManageDialog({
     }
   }
   useEffect(() => {
+    setLabel('')
+    setSecret('')
+    setBatchSecrets('')
+    setBatch(false)
+    setImported(null)
+    setConfirmation(null)
     if (open) {
       setKeys(null)
-      setLabel('')
-      setSecret('')
-      setConfirmation(null)
       void load()
     }
     // The parent keys this dialog by channel and administrative session.
@@ -72,11 +79,26 @@ export function NativeKeyManageDialog({
     pending.current = true
     setBusy(true)
     setError(null)
+    setImported(null)
     setConfirmation(null)
+    // Submitted credentials never survive an uncertain mutation for blind replay.
+    setSecret('')
+    setBatchSecrets('')
     try {
-      await changeNativeKey(scope, channelId, keys.version, operation)
+      const receipt = await changeNativeKey(
+        scope,
+        channelId,
+        keys.version,
+        operation
+      )
+      setImported(
+        operation.operation === 'add_many'
+          ? (receipt.imported_count ?? null)
+          : null
+      )
       setLabel('')
       setSecret('')
+      setBatchSecrets('')
       setKeys(await getNativeKeys(scope, channelId))
       onChanged?.()
     } catch (cause) {
@@ -98,7 +120,15 @@ export function NativeKeyManageDialog({
   return (
     <Dialog
       open={open}
-      onOpenChange={onOpenChange}
+      onOpenChange={(nextOpen) => {
+        if (!nextOpen) {
+          setLabel('')
+          setSecret('')
+          setBatchSecrets('')
+          setImported(null)
+        }
+        onOpenChange(nextOpen)
+      }}
       title={t('Multi-Key Management')}
       description={`${channelName} · ${t('Manage multi-key status and configuration for this channel')}`}
       contentClassName='max-w-3xl'
@@ -154,7 +184,7 @@ export function NativeKeyManageDialog({
               return (
                 <div
                   key={id}
-                  className='flex min-w-0 flex-wrap items-center justify-between gap-2 border p-3'
+                  className='flex min-w-0 flex-wrap items-center justify-between gap-3 border-b py-4 last:border-b-0'
                 >
                   <div className='min-w-0'>
                     <p className='[overflow-wrap:anywhere]'>{key.label}</p>
@@ -212,49 +242,149 @@ export function NativeKeyManageDialog({
               )
             })}
           </div>
-          <form
-            className='grid gap-3 sm:grid-cols-2'
-            onSubmit={(event) => {
-              event.preventDefault()
-              void change({
-                operation: 'add',
-                label,
-                secret,
-                activate: false,
-              })
-            }}
+          <section
+            className='space-y-4 border-t pt-5'
+            aria-label={t('Add API keys')}
           >
-            <label className='block space-y-2'>
-              <span className='text-sm'>{t('Name')}</span>
-              <Input
-                className='min-h-11'
-                value={label}
-                maxLength={128}
-                required
-                disabled={busy}
-                onChange={(event) => setLabel(event.target.value)}
-              />
-            </label>
-            <label className='block space-y-2'>
-              <span className='text-sm'>{t('API key')}</span>
-              <Input
-                className='min-h-11'
-                type='password'
-                autoComplete='off'
-                value={secret}
-                required
-                disabled={busy}
-                onChange={(event) => setSecret(event.target.value)}
-              />
-            </label>
-            <Button
-              type='submit'
-              className='min-h-11 sm:col-span-2'
-              disabled={busy}
+            <div
+              className='flex flex-wrap gap-2'
+              role='group'
+              aria-label={t('Add API keys')}
             >
-              {t('Add')}
-            </Button>
-          </form>
+              <Button
+                type='button'
+                variant={batch ? 'ghost' : 'secondary'}
+                className='min-h-11'
+                aria-pressed={!batch}
+                disabled={busy}
+                onClick={() => {
+                  setBatch(false)
+                  setBatchSecrets('')
+                  setImported(null)
+                }}
+              >
+                {t('Single key')}
+              </Button>
+              <Button
+                type='button'
+                variant={batch ? 'secondary' : 'ghost'}
+                className='min-h-11'
+                aria-pressed={batch}
+                disabled={busy}
+                onClick={() => {
+                  setBatch(true)
+                  setSecret('')
+                  setImported(null)
+                }}
+              >
+                {t('Batch import')}
+              </Button>
+            </div>
+            {imported !== null && (
+              <p role='status' className='text-sm'>
+                {t('Imported: {{number}}', { number: imported })}
+              </p>
+            )}
+            <form
+              className='grid min-w-0 gap-4 sm:grid-cols-2'
+              onSubmit={(event) => {
+                event.preventDefault()
+                if (!label.trim()) return
+                if (batch) {
+                  const values = batchSecrets
+                    .split(/\r?\n/)
+                    .map((value) => value.trim())
+                    .filter(Boolean)
+                  if (
+                    values.length < 1 ||
+                    values.length > 100 ||
+                    new Set(values).size !== values.length
+                  ) {
+                    setError(t('Enter 1 to 100 different keys, one per line.'))
+                    return
+                  }
+                  void change({
+                    operation: 'add_many',
+                    keys: values.map((value, index) => ({
+                      label: `${label.trim()} ${index + 1}`,
+                      secret: value,
+                    })),
+                    polling: keys.polling,
+                  })
+                } else {
+                  void change({
+                    operation: 'add',
+                    label: label.trim(),
+                    secret,
+                    activate: false,
+                  })
+                }
+              }}
+            >
+              <label className='block min-w-0 space-y-2'>
+                <span className='text-sm'>
+                  {batch ? t('Name prefix') : t('Name')}
+                </span>
+                <Input
+                  className='dark:bg-background min-h-11'
+                  value={label}
+                  maxLength={batch ? 124 : 128}
+                  required
+                  disabled={busy}
+                  onChange={(event) => setLabel(event.target.value)}
+                />
+              </label>
+              {batch ? (
+                <label className='block min-w-0 space-y-2 sm:col-span-2'>
+                  <span className='text-sm'>{t('API Keys')}</span>
+                  <Textarea
+                    className='dark:bg-background min-h-40 font-mono text-sm'
+                    autoComplete='off'
+                    spellCheck={false}
+                    value={batchSecrets}
+                    required
+                    disabled={busy}
+                    onChange={(event) => setBatchSecrets(event.target.value)}
+                  />
+                  <span className='text-muted-foreground block text-sm'>
+                    {t('Enter 1 to 100 different keys, one per line.')}
+                  </span>
+                </label>
+              ) : (
+                <label className='block min-w-0 space-y-2'>
+                  <span className='text-sm'>{t('API key')}</span>
+                  <Input
+                    className='dark:bg-background min-h-11'
+                    type='password'
+                    autoComplete='off'
+                    value={secret}
+                    required
+                    disabled={busy}
+                    onChange={(event) => setSecret(event.target.value)}
+                  />
+                </label>
+              )}
+              <div className='flex flex-wrap gap-2 sm:col-span-2'>
+                <Button type='submit' className='min-h-11' disabled={busy}>
+                  {batch ? t('Import keys') : t('Add')}
+                </Button>
+                <Button
+                  type='button'
+                  variant='ghost'
+                  className='min-h-11'
+                  disabled={busy}
+                  onClick={() => {
+                    setSecret('')
+                    setBatchSecrets('')
+                    setLabel('')
+                    setImported(null)
+                  }}
+                >
+                  {t('Clear')}
+                </Button>
+              </div>
+            </form>
+          </section>
         </>
       )}
     </Dialog>

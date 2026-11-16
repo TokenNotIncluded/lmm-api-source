@@ -165,7 +165,7 @@ const accountingCapabilities = {
   copy_preserve_counters: true,
 }
 async function mount(
-  initialSection: 'channels' | 'prices',
+  initialSection: 'channels' | 'models' | 'prices',
   nativeSecrets = true,
   accounting: Partial<typeof accountingCapabilities> = accountingCapabilities,
   client = new QueryClient({ defaultOptions: { queries: { retry: false } } }),
@@ -1990,3 +1990,222 @@ test('invalid advanced drafts and unsaved API keys are protected, and confirmed 
     ''
   )
 })
+
+test('model fields preserve the CAS draft and require a fresh preview after exact USD price edits', async () => {
+  const config: NativeConfiguration = fixture()
+  config.bindings.contexts = [
+    {
+      upstream_id: 1,
+      upstream_model: 'model-a',
+      protocol: 'openai_chat',
+      endpoint: config.routing.upstreams[0].endpoint,
+      max_input_tokens: 8192,
+      max_output_tokens: 4096,
+      contract_revision: 'supplier-doc-2026',
+      missing_cached_tokens_is_zero: true,
+    },
+  ]
+  config.routing.routes[0].targets[0].client_protocols = ['openai_chat']
+  const previews: Array<Record<string, unknown>> = []
+  const writes: Array<Record<string, unknown>> = []
+  api.request = (async (options: {
+    method: string
+    url: string
+    data?: Record<string, unknown>
+  }) => {
+    if (options.method === 'GET') {
+      return { data: { success: true, data: config } }
+    }
+    assert.ok(options.data)
+    if (options.url.endsWith('/preview')) {
+      assert.equal(options.data.editing, true)
+      previews.push(options.data.model as Record<string, unknown>)
+      return {
+        data: {
+          success: true,
+          data: { confirmation_digest: String(previews.length).repeat(64) },
+        },
+      }
+    }
+    assert.equal(options.url, '/core/v1/admin/routing/models/1')
+    writes.push(options.data)
+    return {
+      data: { success: true, data: { version: { routing: 2, pricing: 2 } } },
+    }
+  }) as typeof api.request
+  const container = await mount('models')
+  await until(() => !!container.textContent?.includes('model-a'))
+  await act(async () => button(container, 'Edit').click())
+  const form = required(container.querySelector('form'))
+  assert.equal(required(form.querySelector<HTMLDetailsElement>('details:last-of-type')).open, false)
+  const field = (text: string) =>
+    required(
+      [...form.querySelectorAll('label')]
+        .find((item) => item.querySelector('span')?.textContent === text)
+        ?.querySelector('input')
+    )
+  const setter = required(
+    Object.getOwnPropertyDescriptor(dom.HTMLInputElement.prototype, 'value')
+      ?.set
+  )
+  const fill = async (label: string, value: string) =>
+    act(async () => {
+      const input = field(label)
+      setter.call(input, value)
+      input.dispatchEvent(new Event('input', { bubbles: true }))
+    })
+  await fill('Model name', 'public-model')
+  await fill('Input price (USD / 1M tokens)', '1.234567')
+  await act(async () => button(form, 'Preview').click())
+  await until(() => !!form.textContent?.includes('Confirm and apply'))
+  assert.equal(writes.length, 0)
+  await fill('Input price (USD / 1M tokens)', '1.000001')
+  assert.equal(form.textContent?.includes('Confirm and apply'), false)
+  await act(async () => button(form, 'Preview').click())
+  await until(() => previews.length === 2)
+  await act(async () => button(form, 'Confirm and apply').click())
+  await until(() => writes.length === 1)
+  assert.deepEqual(writes[0].expected_version, { routing: 1, pricing: 1 })
+  assert.equal(writes[0].confirmation_digest, '2'.repeat(64))
+  const prices = writes[0].prices as typeof config.prices.rules
+  assert.equal(prices[0].model, 'public-model')
+  assert.equal((prices[0].rates as { input: number }).input, 1_000_001)
+  assert.equal(prices[0].group_multiplier_ppm, 1_000_000)
+  assert.deepEqual(writes[0].contexts, config.bindings.contexts)
+  assert.deepEqual(
+    (writes[0].route as (typeof config.routing.routes)[0]).targets,
+    config.routing.routes[0].targets
+  )
+})
+
+for (const unknown of [false, true]) {
+  test(`batch key import validates distinct lines and clears submitted plaintext: ${
+    unknown ? 'unknown result' : 'verified receipt'
+  }`, async () => {
+    const config = fixture()
+    let version = 1
+    const writes: Array<Record<string, unknown>> = []
+    let keyReads = 0
+    api.request = (async (options: {
+      method: string
+      url: string
+      data?: Record<string, unknown>
+    }) => {
+      if (options.method === 'GET') {
+        if (!options.url.endsWith('/keys')) {
+          return { data: { success: true, data: config } }
+        }
+        keyReads++
+        return {
+          data: {
+            success: true,
+            data: {
+              version: { routing: version, pricing: 1 },
+              active_reference: { id: 7, revision: 1 },
+              polling: false,
+              plaintext_available: false,
+              keys: [
+                {
+                  reference: { id: 7, revision: 1 },
+                  label: 'Primary',
+                  created_at: '2026-11-16T00:00:00Z',
+                  enabled: true,
+                },
+              ],
+            },
+          },
+        }
+      }
+      assert.equal(options.url, '/core/v1/admin/routing/channels/1/keys')
+      assert.ok(options.data)
+      writes.push(options.data)
+      version++
+      if (unknown) throw new Error('Synthetic response lost')
+      return {
+        data: {
+          success: true,
+          data: {
+            version: { routing: version, pricing: 1 },
+            reference: { id: 8, revision: 1 },
+            imported_count: 2,
+          },
+        },
+      }
+    }) as typeof api.request
+    const container = await mount('channels')
+    await until(() =>
+      [...container.querySelectorAll('button')].some(
+        (item) => item.textContent === 'API Keys'
+      )
+    )
+    await act(async () => button(container, 'API Keys').click())
+    await until(
+      () =>
+        !!document
+          .querySelector('[role=dialog]')
+          ?.textContent?.includes('Primary')
+    )
+    const dialog = required(document.querySelector('[role=dialog]'))
+    await act(async () => button(dialog, 'Batch import').click())
+    const form = required(dialog.querySelector('form'))
+    const name = required(form.querySelector('input'))
+    const secret = required(form.querySelector('textarea'))
+    const inputSetter = required(
+      Object.getOwnPropertyDescriptor(dom.HTMLInputElement.prototype, 'value')
+        ?.set
+    )
+    const textSetter = required(
+      Object.getOwnPropertyDescriptor(
+        dom.HTMLTextAreaElement.prototype,
+        'value'
+      )?.set
+    )
+    await act(async () => {
+      inputSetter.call(name, 'Pool')
+      name.dispatchEvent(new Event('input', { bubbles: true }))
+      textSetter.call(secret, 'synthetic-a\nsynthetic-a')
+      secret.dispatchEvent(new Event('input', { bubbles: true }))
+    })
+    await act(async () => button(form, 'Import keys').click())
+    assert.equal(writes.length, 0)
+    assert.match(dialog.textContent ?? '', /1 to 100 different keys/)
+    await act(async () => {
+      textSetter.call(secret, 'synthetic-a\n\nsynthetic-b\n')
+      secret.dispatchEvent(new Event('input', { bubbles: true }))
+    })
+    await act(async () => {
+      button(form, 'Import keys').click()
+      button(form, 'Import keys').click()
+    })
+    await until(
+      () =>
+        writes.length === 1 &&
+        keyReads >= 2 &&
+        !button(form, 'Import keys').disabled
+    )
+    assert.deepEqual(writes[0], {
+      expected_version: { routing: 1, pricing: 1 },
+      operation: 'add_many',
+      polling: false,
+      keys: [
+        { label: 'Pool 1', secret: 'synthetic-a' },
+        { label: 'Pool 2', secret: 'synthetic-b' },
+      ],
+    })
+    assert.equal(secret.value, '')
+    if (unknown) {
+      assert.match(dialog.textContent ?? '', /Synthetic response lost/)
+      assert.doesNotMatch(dialog.textContent ?? '', /Imported:/)
+    } else {
+      assert.match(dialog.textContent ?? '', /Imported: 2/)
+    }
+    await act(async () => {
+      textSetter.call(secret, 'synthetic-unsent')
+      secret.dispatchEvent(new Event('input', { bubbles: true }))
+    })
+    await act(async () => button(dialog, 'Single key').click())
+    await act(async () => button(dialog, 'Batch import').click())
+    assert.equal(required(form.querySelector('textarea')).value, '')
+    assert.equal(writes.length, 1)
+  })
+}

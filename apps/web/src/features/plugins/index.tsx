@@ -1,15 +1,20 @@
 /* Copyright (C) 2026 LIghtJUNction. SPDX-License-Identifier: AGPL-3.0-or-later */
+import { useQueryClient } from '@tanstack/react-query'
 import { isAxiosError } from 'axios'
+import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { ZodError } from 'zod'
 
+import { ConfirmDialog } from '@/components/confirm-dialog'
 import { ErrorState } from '@/components/error-state'
 import { SectionPageLayout } from '@/components/layout'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
 import { useRuntimeCapabilities } from '@/context/runtime-capabilities-context'
 import {
+  isCurrentNativeUsersScope,
   readNativeUsersScope,
   type NativeUsersScope,
 } from '@/features/native-users/access'
@@ -17,15 +22,42 @@ import { useCapabilityFreshness } from '@/hooks/use-capability-freshness'
 import { getServerErrorMessage } from '@/lib/server-error-message'
 import { useAuthStore } from '@/stores/auth-store'
 
+import {
+  changePlugin,
+  reloadPlugins,
+  type PluginAction,
+  type PluginInfo,
+} from './api'
+import {
+  canChangePlugin,
+  pluginDependencies,
+  pluginDependents,
+} from './lifecycle'
 import { usePlugins } from './use-plugins'
+
+type Selection =
+  | { action: 'reload' }
+  | { action: PluginAction; plugin: PluginInfo }
 
 // @context-fold begin plugin-inventory
 function PluginInventory({ scope }: { scope: NativeUsersScope }) {
   const { t } = useTranslation()
+  const client = useQueryClient()
   const runtime = useRuntimeCapabilities()
   const localQuery = usePlugins(runtime ? undefined : scope)
   const query = runtime?.plugins ?? localQuery
   const phase = useCapabilityFreshness(query)
+  const [search, setSearch] = useState('')
+  const [filter, setFilter] = useState('all')
+  const [selection, setSelection] = useState<Selection | null>(null)
+  const [pending, setPending] = useState(false)
+  const [notice, setNotice] = useState<{
+    success: boolean
+    message: string
+    detail?: string
+  } | null>(null)
+  const request = useRef<AbortController | null>(null)
+  useEffect(() => () => request.current?.abort(), [])
   const status = isAxiosError(query.error)
     ? query.error.response?.status
     : undefined
@@ -43,6 +75,86 @@ function PluginInventory({ scope }: { scope: NativeUsersScope }) {
                 'The service is temporarily unavailable. Please try again later.'
               ))
 
+  const registry = query.data ?? []
+  const writable = phase === 'fresh' && !pending && !query.isFetching
+  const selectedPlugin =
+    selection && selection.action !== 'reload'
+      ? registry.find((plugin) => plugin.name === selection.plugin.name)
+      : undefined
+  const selectionCurrent =
+    !selection ||
+    selection.action === 'reload' ||
+    (selectedPlugin !== undefined &&
+      selectedPlugin.version === selection.plugin.version &&
+      selectedPlugin.api_version === selection.plugin.api_version &&
+      selectedPlugin.registration_sha256 ===
+        selection.plugin.registration_sha256 &&
+      canChangePlugin(selection.action, selectedPlugin, registry))
+
+  async function applySelection() {
+    if (
+      !selection ||
+      !writable ||
+      !selectionCurrent ||
+      request.current ||
+      !isCurrentNativeUsersScope(scope)
+    ) {
+      return
+    }
+    const controller = new AbortController()
+    request.current = controller
+    setPending(true)
+    setNotice(null)
+    try {
+      if (selection.action === 'reload') {
+        await reloadPlugins(scope, controller.signal)
+      } else {
+        await changePlugin(
+          scope,
+          selection.plugin,
+          selection.action,
+          controller.signal
+        )
+      }
+      if (isCurrentNativeUsersScope(scope) && !controller.signal.aborted) {
+        setNotice({
+          success: true,
+          message: t('The plugin change was applied.'),
+        })
+      }
+    } catch (error) {
+      if (isCurrentNativeUsersScope(scope) && !controller.signal.aborted) {
+        setNotice({
+          success: false,
+          message: t(
+            'The change could not be confirmed. Review the latest status before trying again.'
+          ),
+          detail:
+            error instanceof ZodError
+              ? t('The plugin response does not match this release.')
+              : (getServerErrorMessage(error) ?? undefined),
+        })
+      }
+    } finally {
+      if (isCurrentNativeUsersScope(scope) && !controller.signal.aborted) {
+        setSelection(null)
+        // Read back once even when the write response was lost. Never replay a write.
+        await query.refetch()
+        if (isCurrentNativeUsersScope(scope) && !controller.signal.aborted) {
+          for (const queryKey of [
+            ['status'],
+            ['system-options'],
+            ['channel-ops'],
+          ]) {
+            void client.invalidateQueries({ queryKey })
+          }
+          setPending(false)
+        }
+      }
+      request.current = null
+    }
+  }
+
   if (query.isPending) return <p>{t('Loading...')}</p>
   if (!query.data) {
     return (
@@ -53,9 +165,87 @@ function PluginInventory({ scope }: { scope: NativeUsersScope }) {
     )
   }
 
-  const enabled = query.data.filter((plugin) => plugin.enabled)
+  const visible = registry.filter(
+    (plugin) =>
+      plugin.name
+        .toLocaleLowerCase()
+        .includes(search.trim().toLocaleLowerCase()) &&
+      (filter === 'all' ||
+        (filter === 'enabled'
+          ? plugin.enabled
+          : filter === 'disabled'
+            ? plugin.installed && !plugin.enabled
+            : !plugin.installed))
+  )
+  const actionLabel = (action: PluginAction) => {
+    switch (action) {
+      case 'install':
+        return t('Install')
+      case 'enable':
+        return t('Enable')
+      case 'disable':
+        return t('Disable')
+      case 'uninstall':
+        return t('Uninstall')
+    }
+  }
+  const title =
+    selection?.action === 'reload'
+      ? t('Reload routes')
+      : selection?.action === 'install'
+        ? t('Install {{name}}?', { name: selection.plugin.name })
+        : selection?.action === 'enable'
+          ? t('Enable {{name}}?', { name: selection.plugin.name })
+          : selection?.action === 'disable'
+            ? t('Disable {{name}}?', { name: selection.plugin.name })
+            : selection?.action === 'uninstall'
+              ? t('Uninstall {{name}}?', { name: selection.plugin.name })
+              : ''
+  const description =
+    selection?.action === 'reload'
+      ? t(
+          'Reload the enabled modules without changing their installation state.'
+        )
+      : selection?.action === 'install'
+        ? t(
+            'Install this registered module. Enable it separately when you are ready.'
+          )
+        : selection?.action === 'enable'
+          ? t('Enable this module and its available routes.')
+          : selection?.action === 'disable'
+            ? t('Disable this module and remove its routes from navigation.')
+            : t(
+                'Uninstall this disabled module. Existing records are retained.'
+              )
+
   return (
-    <div className='@container/plugins min-w-0 space-y-5'>
+    <div className='@container/plugins min-w-0 space-y-8'>
+      <p className='text-muted-foreground max-w-2xl text-sm leading-relaxed'>
+        {t('Manage the modules available in this instance.')}
+      </p>
+      <dl className='flex flex-wrap gap-x-12 gap-y-5'>
+        {[
+          [
+            t('Enabled modules'),
+            registry.filter((plugin) => plugin.enabled).length,
+          ],
+          [
+            t('Installed'),
+            registry.filter((plugin) => plugin.installed).length,
+          ],
+          [
+            t('Available'),
+            registry.filter((plugin) => plugin.available).length,
+          ],
+        ].map(([label, value]) => (
+          <div key={label} className='space-y-1'>
+            <dt className='text-muted-foreground text-xs'>{label}</dt>
+            <dd className='text-3xl font-medium tracking-tight tabular-nums'>
+              {value}
+            </dd>
+          </div>
+        ))}
+      </dl>
       {phase !== 'fresh' && (
         <Alert role='status'>
           <AlertDescription>
@@ -66,109 +256,215 @@ function PluginInventory({ scope }: { scope: NativeUsersScope }) {
           </AlertDescription>
         </Alert>
       )}
-      <div className='flex flex-wrap items-center justify-between gap-3'>
-        <div className='min-w-0 space-y-2'>
-          <Badge variant='outline'>{t('Read only')}</Badge>
-          <p className='text-muted-foreground text-xs tabular-nums'>
-            {t('Last successful read: {{time}}', {
-              time: new Date(query.dataUpdatedAt).toLocaleString(),
-            })}
-          </p>
-        </div>
-        <Button
-          variant='outline'
-          className='min-h-11'
-          onClick={() => void query.refetch()}
-          disabled={query.isFetching}
+      {notice && (
+        <Alert
+          role={notice.success ? 'status' : 'alert'}
+          variant={notice.success ? 'default' : 'destructive'}
         >
-          {query.isFetching ? t('Refreshing...') : t('Refresh')}
-        </Button>
+          <AlertDescription>
+            <p>{notice.message}</p>
+            {notice.detail && <p>{notice.detail}</p>}
+          </AlertDescription>
+        </Alert>
+      )}
+      <div className='flex min-w-0 flex-wrap items-center gap-3'>
+        <Input
+          className='min-h-11 w-full min-w-0 @min-[36rem]/plugins:w-64'
+          type='search'
+          aria-label={t('Search plugins')}
+          placeholder={t('Search plugins')}
+          value={search}
+          onChange={(event) => setSearch(event.target.value)}
+        />
+        <select
+          aria-label={t('Status')}
+          className='bg-muted text-foreground min-h-11 min-w-0 rounded-md px-3 text-sm'
+          value={filter}
+          onChange={(event) => setFilter(event.target.value)}
+        >
+          <option value='all'>{t('All')}</option>
+          <option value='enabled'>{t('Enabled')}</option>
+          <option value='disabled'>{t('Disabled')}</option>
+          <option value='uninstalled'>{t('Not installed')}</option>
+        </select>
+        <div className='flex flex-wrap gap-2 @min-[36rem]/plugins:ms-auto'>
+          <Button
+            variant='ghost'
+            className='min-h-11'
+            onClick={() => void query.refetch()}
+            disabled={query.isFetching || pending}
+          >
+            {query.isFetching ? t('Refreshing...') : t('Refresh')}
+          </Button>
+          <Button
+            variant='outline'
+            className='min-h-11'
+            disabled={!writable}
+            onClick={() => setSelection({ action: 'reload' })}
+          >
+            {t('Reload routes')}
+          </Button>
+        </div>
       </div>
-      <section className='space-y-2'>
-        <h2 className='text-lg font-semibold'>{t('Enabled modules')}</h2>
-        {enabled.length ? (
-          <div className='flex flex-wrap gap-2'>
-            {enabled.map((plugin) => (
-              <Badge
-                key={plugin.name}
-                variant='secondary'
-                className='max-w-full [overflow-wrap:anywhere] whitespace-normal'
-              >
-                {plugin.name}
-              </Badge>
-            ))}
-          </div>
-        ) : (
-          <p className='text-muted-foreground text-sm'>
-            {t('No data available')}
+      <section aria-label={t('Plugin management')} className='divide-y'>
+        {visible.length === 0 && (
+          <p className='text-muted-foreground py-12 text-sm'>
+            {t('No results found.')}
           </p>
         )}
-      </section>
-      <section className='space-y-3' aria-label={t('Plugin management')}>
-        {query.data.length === 0 && (
-          <p className='text-muted-foreground text-sm'>
-            {t('No data available')}
-          </p>
-        )}
-        <div className='divide-y border-y'>
-          {query.data.map((plugin) => (
+        {visible.map((plugin) => {
+          const action: PluginAction = !plugin.installed
+            ? 'install'
+            : plugin.enabled
+              ? 'disable'
+              : 'enable'
+          const dependencies = pluginDependencies(plugin, registry)
+          const dependents = pluginDependents(plugin, registry)
+          return (
             <article
               key={plugin.name}
-              className='grid min-w-0 gap-3 py-4 @min-[44rem]/plugins:grid-cols-[minmax(12rem,1fr)_minmax(0,2fr)] @min-[44rem]/plugins:items-center @min-[44rem]/plugins:gap-6'
+              data-plugin={plugin.name}
+              className='grid min-w-0 gap-5 py-6 first:pt-0 @min-[48rem]/plugins:grid-cols-[minmax(0,1fr)_auto] @min-[48rem]/plugins:items-start'
             >
-              <div className='min-w-0'>
-                <h3 className='font-semibold [overflow-wrap:anywhere]'>
-                  {plugin.name}
-                </h3>
-                <p className='text-muted-foreground mt-1 text-xs [overflow-wrap:anywhere] tabular-nums'>
-                  {t('Version')} {plugin.version} · {t('API version')}{' '}
-                  {plugin.api_version}
-                </p>
-                <details className='mt-1 text-xs'>
-                  <summary className='text-muted-foreground flex min-h-11 cursor-pointer items-center focus-visible:outline-2 focus-visible:outline-offset-2'>
-                    {t('Registration fingerprint')}
+              <div className='min-w-0 space-y-3'>
+                <div className='flex min-w-0 flex-wrap items-center gap-x-3 gap-y-2'>
+                  <h3 className='text-base font-semibold [overflow-wrap:anywhere]'>
+                    {plugin.name}
+                  </h3>
+                  <Badge
+                    variant='secondary'
+                    className={
+                      plugin.enabled ? 'text-success' : 'text-muted-foreground'
+                    }
+                  >
+                    {!plugin.available
+                      ? t('Unavailable')
+                      : plugin.enabled
+                        ? t('Enabled')
+                        : plugin.installed
+                          ? t('Disabled')
+                          : t('Not installed')}
+                  </Badge>
+                  <span className='text-muted-foreground text-xs tabular-nums'>
+                    {plugin.version}
+                  </span>
+                </div>
+                {!plugin.available && (
+                  <p className='text-muted-foreground text-sm'>
+                    {t(
+                      'Configure this module on the host before installing or enabling it.'
+                    )}
+                  </p>
+                )}
+                {plugin.installed &&
+                  !plugin.enabled &&
+                  dependencies.length > 0 && (
+                    <p className='text-muted-foreground text-sm [overflow-wrap:anywhere]'>
+                      {t('Required modules are not enabled: {{names}}.', {
+                        names: dependencies.join(', '),
+                      })}
+                    </p>
+                  )}
+                {plugin.enabled && dependents.length > 0 && (
+                  <p className='text-muted-foreground text-sm [overflow-wrap:anywhere]'>
+                    {t('Disable dependent modules first: {{names}}.', {
+                      names: dependents.join(', '),
+                    })}
+                  </p>
+                )}
+                <details className='text-xs'>
+                  <summary className='text-muted-foreground min-h-11 w-fit cursor-pointer content-center focus-visible:outline-2 focus-visible:outline-offset-2'>
+                    {t('Plugin details')}
                   </summary>
-                  <code className='block [overflow-wrap:anywhere]'>
-                    {plugin.registration_sha256}
-                  </code>
+                  <dl className='bg-muted/50 [&_dt]:text-muted-foreground mt-2 grid min-w-0 gap-4 rounded-lg p-4 @min-[36rem]/plugins:grid-cols-2 [&_dd]:mt-1 [&_dd]:[overflow-wrap:anywhere]'>
+                    <div>
+                      <dt>{t('API version')}</dt>
+                      <dd>{plugin.api_version}</dd>
+                    </div>
+                    <div>
+                      <dt>{t('Installation status')}</dt>
+                      <dd>
+                        {plugin.installed ? t('Installed') : t('Not installed')}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt>{t('Route configuration')}</dt>
+                      <dd>{plugin.enabled ? t('Enabled') : t('Disabled')}</dd>
+                    </div>
+                    <div>
+                      <dt>{t('Requires')}</dt>
+                      <dd>{plugin.requires?.join(', ') || t('None')}</dd>
+                    </div>
+                    <div className='@min-[36rem]/plugins:col-span-2'>
+                      <dt>{t('Registration fingerprint')}</dt>
+                      <dd>
+                        <code>{plugin.registration_sha256}</code>
+                      </dd>
+                    </div>
+                  </dl>
                 </details>
               </div>
-              <dl className='grid min-w-0 gap-2 text-sm @min-[44rem]/plugins:grid-cols-3 @min-[44rem]/plugins:gap-3 [&_dd]:shrink-0 [&>div]:flex [&>div]:min-w-0 [&>div]:items-baseline [&>div]:justify-between [&>div]:gap-4 @min-[44rem]/plugins:[&>div]:block'>
-                <div>
-                  <dt className='text-muted-foreground'>
-                    {t('Registered in this instance')}
-                  </dt>
-                  <dd>
-                    {plugin.available ? t('Available') : t('Unavailable')}
-                  </dd>
-                </div>
-                <div>
-                  <dt className='text-muted-foreground'>
-                    {t('Installation status')}
-                  </dt>
-                  <dd>
-                    {plugin.installed ? t('Installed') : t('Not installed')}
-                  </dd>
-                </div>
-                <div>
-                  <dt className='text-muted-foreground'>
-                    {t('Route configuration')}
-                  </dt>
-                  <dd>{plugin.enabled ? t('Enabled') : t('Disabled')}</dd>
-                </div>
-              </dl>
+              <div className='flex flex-wrap gap-2'>
+                <Button
+                  variant={action === 'disable' ? 'outline' : 'default'}
+                  className='min-h-11'
+                  disabled={
+                    !writable || !canChangePlugin(action, plugin, registry)
+                  }
+                  onClick={() => setSelection({ action, plugin })}
+                >
+                  {actionLabel(action)}
+                </Button>
+                {plugin.installed && !plugin.enabled && (
+                  <Button
+                    variant='ghost'
+                    className='text-muted-foreground min-h-11'
+                    disabled={!writable}
+                    onClick={() =>
+                      setSelection({ action: 'uninstall', plugin })
+                    }
+                  >
+                    {t('Uninstall')}
+                  </Button>
+                )}
+              </div>
             </article>
-          ))}
-        </div>
+          )
+        })}
       </section>
-      <p className='text-muted-foreground text-sm'>
-        {t('Registry entries are declarations, not service health checks.')}
-      </p>
-      <p className='text-muted-foreground text-sm'>
-        {t(
-          'Lifecycle changes are unavailable: this service does not provide permitted actions or an atomic change receipt.'
+      <div className='text-muted-foreground space-y-2 text-xs leading-relaxed'>
+        <p className='tabular-nums'>
+          {t('Last successful read: {{time}}', {
+            time: new Date(query.dataUpdatedAt).toLocaleString(),
+          })}
+        </p>
+        <p>
+          {t('Registry entries are declarations, not service health checks.')}
+        </p>
+      </div>
+      <ConfirmDialog
+        open={selection !== null}
+        onOpenChange={(open) => {
+          if (!open && !pending) setSelection(null)
+        }}
+        title={title}
+        desc={description}
+        confirmText={pending ? t('Loading...') : t('Confirm')}
+        handleConfirm={() => void applySelection()}
+        isLoading={pending}
+        disabled={!writable || !selectionCurrent}
+        destructive={
+          selection?.action === 'disable' || selection?.action === 'uninstall'
+        }
+      >
+        {!selectionCurrent && (
+          <p className='text-destructive text-sm'>
+            {t(
+              'The registry changed. Close this dialog and review the latest state.'
+            )}
+          </p>
         )}
-      </p>
+      </ConfirmDialog>
     </div>
   )
 }
@@ -186,7 +482,7 @@ export function PluginsPage() {
       <SectionPageLayout.Content>
         {scope ? (
           <PluginInventory
-            key={`${scope.userId}:${scope.sessionId}:${scope.role}`}
+            key={[scope.userId, scope.sessionId, scope.role].join(':')}
             scope={scope}
           />
         ) : (

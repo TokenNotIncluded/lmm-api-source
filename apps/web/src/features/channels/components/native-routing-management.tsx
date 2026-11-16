@@ -52,6 +52,7 @@ import {
   NativeChannelSortFields,
   NativeChannelStatisticsRow,
 } from './native-channel-statistics'
+import { NativeModelFields } from './native-model-fields'
 
 type Section = 'channels' | 'models' | 'vendors' | 'prices'
 type Editor = {
@@ -807,7 +808,7 @@ function NativeRoutingWorkspace({
       </nav>
       {editor && (
         <form
-          className='bg-card min-w-0 space-y-4 rounded-lg p-4 sm:p-6'
+          className='min-w-0 space-y-6 py-6'
           aria-label={editor.title}
           ref={editorRef}
           onSubmit={(event) => {
@@ -827,7 +828,18 @@ function NativeRoutingWorkspace({
               }}
             />
           )}
-          <details open={!editor.channel}>
+          {editor.modelEditing !== undefined && (
+            <NativeModelFields
+              document={editor.document}
+              configuration={configuration}
+              disabled={busy}
+              onChange={(document) => {
+                setEditor({ ...editor, document })
+                setPreview(null)
+              }}
+            />
+          )}
+          <details open={!editor.channel && editor.modelEditing === undefined}>
             <summary className='cursor-pointer py-2 text-sm font-medium'>
               {t('Advanced Settings')}
             </summary>
