@@ -73,17 +73,29 @@ const stepSchema = z.discriminatedUnion('kind', [
     id: z.number().int().positive().safe(),
   }),
 ])
+// Preserved keys use the Core/Extensions UTF-8 byte contract. New operations
+// still use UUIDs; historical Unicode keys must retain their original bytes.
+const historicalRequestKey = z.string().refine((value) => {
+  const bytes = new TextEncoder().encode(value).byteLength
+  return (
+    bytes >= 16 &&
+    bytes <= 64 &&
+    !/^\p{White_Space}|\p{White_Space}$/u.test(value) &&
+    !value.includes('\0') &&
+    !/[\uD800-\uDFFF]/u.test(value)
+  )
+})
 export const pendingSchema = z.discriminatedUnion('action', [
   z.object({
     action: z.literal('create'),
-    requestKey: z.string().min(16).max(64),
+    requestKey: historicalRequestKey,
     quota: z.number().int().positive().safe(),
     step: stepSchema,
   }),
   z.object({
     action: z.literal('cancel'),
     id: z.number().int().positive().safe(),
-    requestKey: z.string().optional(),
+    requestKey: historicalRequestKey.optional(),
     quota: z.number().int().positive().safe(),
     step: stepSchema,
   }),
@@ -219,24 +231,14 @@ export function reconcileTransfer(
   }
 }
 export function readPendingTransfer(userID: number): PendingTransfer | null {
-  try {
-    const raw = sessionStorage.getItem(`wallet-transfer-resume:${userID}`)
-    if (!raw) return null
-    const parsed = pendingSchema.safeParse(JSON.parse(raw))
-    return parsed.success ? parsed.data : null
-  } catch {
-    return null
-  }
+  const raw = sessionStorage.getItem(`wallet-transfer-resume:${userID}`)
+  return raw ? pendingSchema.parse(JSON.parse(raw)) : null
 }
 export function savePendingTransfer(
   userID: number,
   pending: PendingTransfer | null
 ): void {
-  try {
-    const key = `wallet-transfer-resume:${userID}`
-    if (pending) sessionStorage.setItem(key, JSON.stringify(pending))
-    else sessionStorage.removeItem(key)
-  } catch {
-    /* The in-memory operation still keeps the immutable request key. */
-  }
+  const key = `wallet-transfer-resume:${userID}`
+  if (pending) sessionStorage.setItem(key, JSON.stringify(pending))
+  else sessionStorage.removeItem(key)
 }

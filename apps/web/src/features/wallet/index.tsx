@@ -22,6 +22,7 @@ import { useTranslation } from 'react-i18next'
 
 import { SectionPageLayout } from '@/components/layout'
 import { Button } from '@/components/ui/button'
+import { commerceScope } from '@/features/commerce/native-client'
 import { useAuthUserRefresh } from '@/features/onboarding'
 import { NativeWalletPromotions } from '@/features/promotions/native-wallet'
 import { isConsoleActivated } from '@/lib/console-activation'
@@ -36,6 +37,7 @@ import { WalletStatsCard } from './components/wallet-stats-card'
 import { useCheckoutOwnerKey } from './hooks/use-checkout-scope'
 import { useTopupInfo } from './hooks/use-topup-info'
 import { walletProjection } from './lib/wallet-projection'
+import { WalletTransferDialog } from './transfers/sender-dialog'
 import type { UserWalletData } from './types'
 
 import './wallet-layout.css'
@@ -70,6 +72,7 @@ function NativeWallet({
   const { refreshUser } = useAuthUserRefresh()
   const { topupInfo } = useTopupInfo()
   const [historyOpen, setHistoryOpen] = useState(initialShowHistory)
+  const [transferOpen, setTransferOpen] = useState(false)
   const [refreshing, setRefreshing] = useState(false)
   const [refreshFailed, setRefreshFailed] = useState(false)
   const refresh = async () => {
@@ -119,7 +122,13 @@ function NativeWallet({
               <WalletStatsCard
                 user={user}
                 balanceAction={
-                  <Button variant='outline' disabled>
+                  <Button
+                    variant='outline'
+                    disabled={
+                      preview || !nativeCreditsAvailable || !commerceScope()
+                    }
+                    onClick={() => setTransferOpen(true)}
+                  >
                     {t('Transfer')}
                   </Button>
                 }
@@ -171,6 +180,13 @@ function NativeWallet({
           </div>
         </SectionPageLayout.Content>
       </SectionPageLayout>
+      {!preview && transferOpen && (
+        <WalletTransferDialog
+          open={transferOpen}
+          onOpenChange={setTransferOpen}
+          onUpdated={() => void refresh()}
+        />
+      )}
       {!preview && (
         <BillingHistoryDialog
           open={historyOpen}

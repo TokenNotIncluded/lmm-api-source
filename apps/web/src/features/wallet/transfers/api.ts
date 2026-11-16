@@ -21,6 +21,10 @@ import { z } from 'zod'
 /*
 Copyright (C) 2026 LIghtJUNction
 */
+import {
+  currentCommerceScope,
+  type CommerceScope,
+} from '@/features/commerce/native-client'
 import { api } from '@/lib/api'
 import { formatQuotaWithCurrency } from '@/lib/currency'
 
@@ -40,11 +44,20 @@ const readConfig = { skipBusinessError: true, skipErrorHandler: true }
 // An authentication retry must not dispatch a second financial POST. Recovery
 // uses the immutable original key/id with GET, including after a missing ACK.
 const writeConfig = { ...readConfig, skipAuthRefresh: true }
+function requireScope(scope: CommerceScope) {
+  if (!currentCommerceScope(scope)) throw new WalletOutcomeUnknown()
+}
+function transferConfig(scope: CommerceScope) {
+  requireScope(scope)
+  return { ...writeConfig, authScope: scope, disableDuplicate: true }
+}
 async function readResult<T>(
   request: Promise<{ data: unknown }>,
-  schema: z.ZodType<T>
+  schema: z.ZodType<T>,
+  scope?: CommerceScope
 ): Promise<T> {
   const { data } = await request
+  if (scope) requireScope(scope)
   const envelope = envelopeSchema.parse(data)
   if (!envelope.success) throw new WalletOutcomeUnknown()
   return schema.parse(envelope.data)
@@ -86,15 +99,31 @@ function actionResult(
   }
   return { kind: 'transfer', transfer }
 }
-export const listTransfers = (before = 0) =>
+export const transferBalanceSchema = z.object({
+  schema_version: z.literal(2),
+  currency_unit: z.literal('CREDIT'),
+  credits_per_usd: z.literal(500000),
+  public_credits_per_usd_exact: z.literal('500000'),
+  spendable_credits: z.number().int().nonnegative().safe(),
+})
+export type TransferBalance = z.infer<typeof transferBalanceSchema>
+export const getTransferBalance = (scope: CommerceScope) =>
+  readResult(
+    api.get<unknown>('/api/wallet/balance', transferConfig(scope)),
+    transferBalanceSchema,
+    scope
+  )
+export const listTransfers = (scope: CommerceScope, before = 0) =>
   readResult(
     api.get<unknown>('/api/wallet-transfer', {
-      ...readConfig,
+      ...transferConfig(scope),
       params: { before },
     }),
-    z.array(transferSchema)
+    z.array(transferSchema),
+    scope
   )
 export async function createTransfer(
+  scope: CommerceScope,
   quota: number,
   requestKey: string
 ): Promise<TransferActionResult> {
@@ -102,14 +131,16 @@ export async function createTransfer(
     const response = await api.post<unknown>(
       '/api/wallet-transfer',
       { quota, request_key: requestKey },
-      writeConfig
+      transferConfig(scope)
     )
+    requireScope(scope)
     return actionResult(response.data, requestKey, undefined, quota)
   } catch {
     throw new WalletOutcomeUnknown()
   }
 }
 export async function cancelTransfer(
+  scope: CommerceScope,
   id: number,
   quota?: number
 ): Promise<CancelActionResult> {
@@ -117,8 +148,12 @@ export async function cancelTransfer(
     const response = await api.post<unknown>(
       `/api/wallet-transfer/${id}/cancel`,
       {},
-      writeConfig
+      transferConfig(scope)
     )
+    requireScope(scope)
+    const envelope = envelopeSchema.parse(response.data)
+    // The Extensions route acknowledges a completed cancellation with null.
+    if (envelope.success && envelope.data === null) return { kind: 'cancelled' }
     const result = actionResult(response.data, undefined, id, quota)
     if (result.kind === 'confirmation') return result
     if (result.transfer.status === 'cancelled') return { kind: 'cancelled' }
@@ -128,41 +163,64 @@ export async function cancelTransfer(
   }
 }
 export async function queryTransfer(
+  scope: CommerceScope,
   requestKey: string
 ): Promise<TransferActionResult> {
   try {
     const response = await api.get<unknown>('/api/wallet-transfer/query', {
-      ...readConfig,
+      ...transferConfig(scope),
       params: { request_key: requestKey },
     })
+    requireScope(scope)
     return actionResult(response.data, requestKey, undefined, undefined)
   } catch {
     throw new WalletOutcomeUnknown()
   }
 }
 export async function queryTransferByID(
+  scope: CommerceScope,
   id: number
 ): Promise<TransferActionResult> {
   try {
     const response = await api.get<unknown>('/api/wallet-transfer/query', {
-      ...readConfig,
+      ...transferConfig(scope),
       params: { cancel_transfer_id: id },
     })
+    requireScope(scope)
     return actionResult(response.data, undefined, id, undefined)
   } catch {
     throw new WalletOutcomeUnknown()
   }
 }
-export const inspectTransfer = (token: string) =>
+export const inspectTransfer = (scope: CommerceScope, token: string) =>
   readResult(
-    api.post<unknown>('/api/wallet-transfer/inspect', { token }, readConfig),
-    receiptSchema
+    api.post<unknown>(
+      '/api/wallet-transfer/inspect',
+      { token },
+      transferConfig(scope)
+    ),
+    receiptSchema,
+    scope
   )
-export const claimTransfer = (token: string) =>
-  readResult(
-    api.post<unknown>('/api/wallet-transfer/claim', { token }, writeConfig),
-    receiptSchema
+export async function claimTransfer(scope: CommerceScope, token: string) {
+  const receipt = await readResult(
+    api.post<unknown>(
+      '/api/wallet-transfer/claim',
+      { token },
+      transferConfig(scope)
+    ),
+    receiptSchema,
+    scope
   )
+  if (
+    receipt.status !== 'claimed' ||
+    !receipt.claimed_by_me ||
+    receipt.is_sender
+  ) {
+    throw new WalletOutcomeUnknown()
+  }
+  return receipt
+}
 
 // A fragment is never sent in an HTTP request or Referer header. Send the
 // credential to the API in a body, never in a URL or analytics event.

@@ -74,6 +74,9 @@ function requireSubscriptionOwner(owner: ReturnType<typeof subscriptionOwner>) {
   }
 }
 
+// A missing classic read selects the native catalog. Scoped read errors are
+// handled by their page so this expected 404 cannot toast before the fallback;
+// non-404 failures still reject without switching financial protocols.
 function isMissingSubscriptionRoute(error: unknown) {
   return isAxiosError(error) && error.response?.status === 404
 }
@@ -205,7 +208,9 @@ export async function getSelfSubscriptionFull(): Promise<
   try {
     const res = await api.get(
       '/api/subscription/self',
-      scope ? { authScope: scope, skipAuthRefresh: true } : undefined
+      scope
+        ? { authScope: scope, skipAuthRefresh: true, skipErrorHandler: true }
+        : undefined
     )
     requireSubscriptionOwner(owner)
     if (!isClassicSubscriptionPayload<SelfSubscriptionData>(res.data)) {
@@ -252,7 +257,9 @@ export async function getPublicPlans(
     const res = await api.get('/api/subscription/plans', {
       signal,
       headers: { 'Accept-Language': checkoutLanguage },
-      ...(scope ? { authScope: scope, skipAuthRefresh: true } : {}),
+      ...(scope
+        ? { authScope: scope, skipAuthRefresh: true, skipErrorHandler: true }
+        : {}),
     })
     requireSubscriptionOwner(owner)
     signal?.throwIfAborted()

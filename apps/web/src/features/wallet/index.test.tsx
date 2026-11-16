@@ -325,13 +325,30 @@ test('unknown historical money retains credits and offers authoritative reward p
     false
   )
   assert.ok(container.querySelector('#native-redeem-code'))
-  for (const label of ['Transfer']) {
-    const button = [
-      ...container.querySelectorAll<HTMLButtonElement>('button'),
-    ].find((item) => item.textContent?.trim() === label)
-    assert.ok(button?.disabled, label)
-    await act(async () => button.click())
-  }
+  const transferButton = [...container.querySelectorAll('button')].find(
+    (item) => item.textContent?.trim() === 'Transfer'
+  )
+  assert.ok(transferButton && !transferButton.disabled)
+  await act(async () => {
+    transferButton.click()
+    await new Promise((resolve) => setTimeout(resolve, 30))
+  })
+  const createButton = [...document.querySelectorAll('button')].find(
+    (item) => item.textContent?.trim() === 'Create transfer link'
+  )
+  assert.ok(
+    createButton?.disabled,
+    'the real balance endpoint must establish transfer readiness'
+  )
+  assert.match(
+    document.body.textContent ?? '',
+    /Failed to load transfer history/
+  )
+  const close = [...document.querySelectorAll('button')].find(
+    (item) => item.textContent?.trim() === 'Close'
+  )
+  assert.ok(close)
+  await act(async () => close.click())
   const preview = container.querySelector<HTMLAnchorElement>(
     'a[href="/core/v1/affiliate/claim"]'
   )
@@ -447,7 +464,7 @@ test('unknown historical money still requires explicitly confirmed quoted native
     false
   )
   assert.ok(container.querySelector('#native-redeem-code'))
-  assert.equal(button('Transfer').disabled, true)
+  assert.equal(button('Transfer').disabled, false)
   const preview = container.querySelector<HTMLAnchorElement>(
     'a[href="/core/v1/affiliate/claim"]'
   )

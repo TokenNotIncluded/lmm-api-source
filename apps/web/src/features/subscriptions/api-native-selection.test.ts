@@ -17,6 +17,7 @@ for (const name of [
     value: name === 'window' ? dom : dom[name],
   })
 }
+const { toast } = await import('sonner')
 const { api } = await import('@/lib/api')
 const { useAuthStore } = await import('@/stores/auth-store')
 const { getPublicPlans, getSelfSubscriptionFull, paySubscriptionBalance } =
@@ -142,9 +143,10 @@ test('classic business refusals and malformed replies do not choose another prot
   assert.ok(requests.every((path) => path.startsWith('/api/subscription/')))
 })
 
-test('an explicit missing read route selects the validated Core contract for the original owner', async () => {
+test('an explicit missing read route selects the validated Core contract without an error toast', async () => {
   login()
   const requests: string[] = []
+  const beforeToasts = toast.getHistory().length
   api.defaults.adapter = async (config) => {
     assert.ok(config.url)
     requests.push(config.url)
@@ -154,17 +156,26 @@ test('an explicit missing read route selects the validated Core contract for the
       sessionId: 'synthetic-52',
     })
     if (config.url?.startsWith('/api/subscription/')) throw failure(config, 404)
-    return response(config, {
-      contract: 'core.subscriptions.v1',
-      purchases: [],
-    })
+    return response(
+      config,
+      config.url.endsWith('/plans')
+        ? { contract: 'core.subscriptions.v1', plans: [] }
+        : { contract: 'core.subscriptions.v1', purchases: [] }
+    )
   }
   const result = await getSelfSubscriptionFull()
   assert.equal(result.data?.contract, 'core.subscriptions.v1')
+  assert.deepEqual(await getPublicPlans(undefined, 'en'), {
+    success: true,
+    data: [],
+  })
   assert.deepEqual(requests, [
     '/api/subscription/self',
     '/core/v1/subscriptions/purchases',
+    '/api/subscription/plans',
+    '/core/v1/subscriptions/plans',
   ])
+  assert.equal(toast.getHistory().length, beforeToasts)
 })
 
 test('an unavailable read route is reported without querying another protocol', async () => {
@@ -208,4 +219,36 @@ test('account changes and aborted reads cannot fall through to a new owner', asy
     '/api/subscription/self',
     '/api/subscription/plans',
   ])
+})
+
+test('native failures after route selection remain errors instead of empty subscription catalogs', async () => {
+  login()
+  for (const nativeFailure of ['unavailable', 'malformed'] as const) {
+    const requests: string[] = []
+    api.defaults.adapter = async (config) => {
+      assert.ok(config.url)
+      requests.push(config.url)
+      if (config.url.startsWith('/api/subscription/')) {
+        throw failure(config, 404)
+      }
+      if (nativeFailure === 'unavailable') {
+        throw failure(config, 503)
+      }
+      return response(config, { success: true, data: [] })
+    }
+    await assert.rejects(getSelfSubscriptionFull(), {
+      code:
+        nativeFailure === 'unavailable' ? 'RESULT_UNKNOWN' : 'INVALID_RESPONSE',
+    })
+    await assert.rejects(getPublicPlans(undefined, 'en'), {
+      code:
+        nativeFailure === 'unavailable' ? 'RESULT_UNKNOWN' : 'INVALID_RESPONSE',
+    })
+    assert.deepEqual(requests, [
+      '/api/subscription/self',
+      '/core/v1/subscriptions/purchases',
+      '/api/subscription/plans',
+      '/core/v1/subscriptions/plans',
+    ])
+  }
 })

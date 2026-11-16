@@ -21,50 +21,99 @@ Copyright (C) 2026 LIghtJUNction
 */
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link, useLocation } from '@tanstack/react-router'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 
 import { Button } from '@/components/ui/button'
+import {
+  commerceScope,
+  currentCommerceScope,
+} from '@/features/commerce/native-client'
 import { ForgePublicShell } from '@/features/forge/forge-public-shell'
-import { useWalletCurrency } from '@/hooks/use-wallet-currency'
+import { toIntlLocale } from '@/i18n/languages'
 import { useAuthStore } from '@/stores/auth-store'
 
 import { claimTransfer, inspectTransfer } from './api'
+import { WalletOutcomeUnknown } from './flow'
 
 const pendingTransferKey = 'wallet-transfer-login'
 export function ClaimTransfer() {
-  const { t } = useTranslation()
-  const { formatQuota: formatTransferQuota } = useWalletCurrency()
-  const user = useAuthStore((state) => state.auth.user)
+  const auth = useAuthStore((state) => state.auth)
+  const location = useLocation()
+  return (
+    <ScopedClaimTransfer
+      key={`${auth.user?.id}:${auth.session?.sid}:${location.hash}`}
+    />
+  )
+}
+function ScopedClaimTransfer() {
+  const { t, i18n } = useTranslation()
+  const locale = toIntlLocale(i18n.language)
+  const scope = commerceScope()
+  const mounted = useRef(true)
+  const current = () =>
+    mounted.current && !!scope && currentCommerceScope(scope)
+  useEffect(() => {
+    mounted.current = true
+    return () => {
+      mounted.current = false
+    }
+  }, [])
   const location = useLocation()
   const hash = location.hash.replace(/^#/, '')
-  const [savedToken] = useState(
-    () => sessionStorage.getItem(pendingTransferKey) ?? ''
+  const [saved] = useState(() => {
+    // A supplied fragment identifies this link even when malformed. Recovery
+    // belongs only to the empty-fragment return from sign-in.
+    if (hash) return { token: '', unavailable: false }
+    try {
+      return {
+        token: sessionStorage.getItem(pendingTransferKey) ?? '',
+        unavailable: false,
+      }
+    } catch {
+      return { token: '', unavailable: true }
+    }
+  })
+  const [recoveryUnavailable, setRecoveryUnavailable] = useState(
+    saved.unavailable
   )
-  const token = /^[a-f0-9]{64}$/.test(hash) ? hash : savedToken
+  const token = hash || saved.token
   const valid = /^[a-f0-9]{64}$/.test(token)
   const client = useQueryClient()
-  // Keep the bearer secret out of the login redirect query (and server logs).
-  useEffect(() => {
-    if (valid && !user) sessionStorage.setItem(pendingTransferKey, token)
-  }, [valid, user, token])
-  const key = ['wallet-transfer-receipt', user?.id, token]
+  const key = [
+    'wallet-transfer-receipt',
+    scope?.userId,
+    scope?.sessionId,
+    token,
+  ]
   const receipt = useQuery({
     queryKey: key,
-    queryFn: () => inspectTransfer(token),
-    enabled: !!user && valid,
+    queryFn: () => {
+      if (!scope) throw new WalletOutcomeUnknown()
+      return inspectTransfer(scope, token)
+    },
+    enabled: !!scope && valid,
     retry: false,
-    refetchInterval: user && valid ? 10000 : false,
+    refetchInterval: scope && valid ? 10000 : false,
   })
   const claim = useMutation({
-    mutationFn: () => claimTransfer(token),
+    mutationFn: () => {
+      if (!scope) throw new WalletOutcomeUnknown()
+      return claimTransfer(scope, token)
+    },
     onSuccess: (data) => {
+      if (!current()) return
       client.setQueryData(key, data)
-      sessionStorage.removeItem(pendingTransferKey)
+      try {
+        sessionStorage.removeItem(pendingTransferKey)
+      } catch {
+        // A confirmed Core receipt remains successful if local cleanup is blocked.
+      }
       toast.success(t('Transfer claimed. Your wallet has been credited.'))
     },
     onError: (err: Error) => {
+      if (!current()) return
       toast.error(t(err.message))
       void receipt.refetch()
     },
@@ -77,13 +126,35 @@ export function ClaimTransfer() {
         <p className='text-destructive text-sm'>
           {t('Do not share this link publicly.')}
         </p>
+        {recoveryUnavailable && (
+          <p role='alert'>
+            {t('Recovery storage is unavailable. No new request can be sent.')}
+          </p>
+        )}
         {!valid ? (
-          <p role='alert'>{t('Invalid transfer link.')}</p>
-        ) : !user ? (
+          !recoveryUnavailable && (
+            <p role='alert'>{t('Invalid transfer link.')}</p>
+          )
+        ) : !scope ? (
           <>
             <p>{t('Sign in to claim this transfer.')}</p>
             <Button
-              render={<Link to='/sign-in' search={{ redirect: '/transfer' }} />}
+              render={
+                <Link
+                  to='/sign-in'
+                  search={{ redirect: '/transfer' }}
+                  onClick={(event) => {
+                    // Save before leaving; the bearer never belongs in a login URL.
+                    try {
+                      sessionStorage.setItem(pendingTransferKey, token)
+                      setRecoveryUnavailable(false)
+                    } catch {
+                      event.preventDefault()
+                      setRecoveryUnavailable(true)
+                    }
+                  }}
+                />
+              }
             >
               {t('Sign in')}
             </Button>
@@ -100,22 +171,17 @@ export function ClaimTransfer() {
         ) : data ? (
           <>
             <p className='text-3xl font-semibold'>
-              {formatTransferQuota(data.quota)}
+              {data.quota.toLocaleString(locale)} {t('Core credits')}
             </p>
             <p>
               {t('Created at')}:{' '}
-              {new Date(data.created_at * 1000).toLocaleString()}
+              {new Date(data.created_at * 1000).toLocaleString(locale)}
             </p>
             {data.status === 'pending' ? (
               data.is_sender ? (
                 <p>{t('You cannot claim your own transfer.')}</p>
               ) : (
                 <>
-                  <p>
-                    {t(
-                      'Claiming shares your user ID, name and email with the sender.'
-                    )}
-                  </p>
                   <Button
                     disabled={claim.isPending}
                     onClick={() => claim.mutate()}
@@ -136,7 +202,7 @@ export function ClaimTransfer() {
             {data.claimed_at > 0 && (
               <p>
                 {t('Claimed at')}:{' '}
-                {new Date(data.claimed_at * 1000).toLocaleString()}
+                {new Date(data.claimed_at * 1000).toLocaleString(locale)}
               </p>
             )}
             <Button variant='outline' render={<Link to='/wallet' />}>
