@@ -54,6 +54,8 @@ const { api } = await import('@/lib/api')
 const { useAuthStore } = await import('@/stores/auth-store')
 const { nativeUserFixture, nativeUsageFixture } =
   await import('@/features/native-users/test-fixtures')
+const { nativeUserStatisticsFixture } =
+  await import('@/features/native-users/detail-test-fixtures')
 const { nativeQueryFromSearch } = await import('@/features/native-users/search')
 const { UserInfoDialog } = await import('../dialogs/user-info-dialog')
 
@@ -312,7 +314,9 @@ test('native usage keeps large totals exact and separates the personal wallet fr
     statusText: 'OK',
   })
   await render(10)
-  const section = dialog().querySelector('section[aria-label="Native usage"]')
+  const section = dialog().querySelector(
+    'section[data-testid="personal-user-usage"]'
+  )
   expect(section?.textContent).toContain('9,007,199,254,740,993')
   expect(section?.textContent).toContain('Settled requests')
   expect(section?.textContent).toContain('Pending settlement')
@@ -347,7 +351,9 @@ test('unavailable usage keeps the profile visible without invented zero statisti
   })
   await render(10)
   expect(dialog().textContent).toContain('detail-user-10')
-  const section = dialog().querySelector('section[aria-label="Native usage"]')
+  const section = dialog().querySelector(
+    'section[data-testid="personal-user-usage"]'
+  )
   expect(section?.textContent).toContain('Unavailable')
   expect(section?.querySelector('dd')).toBeNull()
 })
@@ -373,11 +379,113 @@ test('available zero usage is displayed as zero rather than unavailable', async 
     statusText: 'OK',
   })
   await render(10)
-  const section = dialog().querySelector('section[aria-label="Native usage"]')
+  const section = dialog().querySelector(
+    'section[data-testid="personal-user-usage"]'
+  )
   expect(section?.textContent).not.toContain('Unavailable')
   expect(
     Array.from(section?.querySelectorAll('dd') ?? [])
       .slice(0, 3)
       .map((value) => value.textContent?.trim())
   ).toEqual(['0Core credits', '0', '0'])
+})
+
+test('usage, invitations and original counters keep their exact values and separate units', async () => {
+  login()
+  const target = user('10')
+  const statistics = nativeUserStatisticsFixture(target)
+  if (statistics.usage.status !== 'available') {
+    throw new Error('Expected usage fixture')
+  }
+  statistics.usage.tokens = '340282366920938463463374607431768211455'
+  statistics.referrals.affiliate_balance_units = '-125000'
+  api.defaults.adapter = async (config) => ({
+    config,
+    data: { version: 1, user: target, usage: nativeUsageFixture(), statistics },
+    headers: {},
+    status: 200,
+    statusText: 'OK',
+  })
+  await render(10)
+  const usage = dialog().querySelector(
+    'section[data-testid="actor-user-statistics"]'
+  )
+  expect(usage?.textContent).toContain('1,234')
+  expect(usage?.textContent).toContain(
+    '340,282,366,920,938,463,463,374,607,431,768,211,455'
+  )
+  expect(usage?.textContent).toContain('250,000')
+  expect(usage?.textContent).toContain('overlap personal account usage')
+  const personal = dialog().querySelector(
+    'section[data-testid="personal-user-usage"]'
+  )
+  expect(personal?.textContent).toContain('Personal account usage')
+  expect(personal?.textContent).toContain('1,000')
+  expect(personal?.textContent).toContain(
+    'Imported history and team-owned API keys are excluded.'
+  )
+  expect(personal?.textContent).not.toContain('250,000')
+  expect(usage?.textContent).not.toContain('251,000')
+  expect(usage?.textContent).toContain('500,000 normalized credits = 1 USD.')
+  const invitations = dialog().querySelector(
+    'section[aria-label="Invitation statistics"]'
+  )
+  expect(invitations?.textContent).toContain('Recorded invitees12')
+  expect(invitations?.textContent).toContain('-125,000')
+  expect(invitations?.textContent).toContain(
+    'Cumulative granted rewards (normalized credits)700,000'
+  )
+  const historical = dialog().querySelector(
+    'details[data-testid="imported-user-counters"]'
+  )
+  expect(historical?.textContent).toContain(
+    'Historical usage (source units)-17'
+  )
+  expect(historical?.textContent).toContain('Historical request count76')
+  expect(historical?.textContent).toContain(
+    'Historical rewards (source units)450,000'
+  )
+  expect(usage?.textContent).not.toContain('450,000')
+})
+
+test('unpriced history and missing invitation data remain unavailable, while known zero stays zero', async () => {
+  login()
+  const target = user('10')
+  const statistics = nativeUserStatisticsFixture(target)
+  if (statistics.usage.status !== 'available') {
+    throw new Error('Expected usage fixture')
+  }
+  statistics.usage.requests = '0'
+  statistics.usage.credits = null
+  statistics.usage.pricing_available = false
+  statistics.historical_counters = { status: 'not_imported' }
+  statistics.referrals.invited_users = null
+  statistics.referrals.affiliate_balance_units = null
+  statistics.referrals.reviewed_rewards = null
+  api.defaults.adapter = async (config) => ({
+    config,
+    data: { version: 1, user: target, usage: nativeUsageFixture(), statistics },
+    headers: {},
+    status: 200,
+    statusText: 'OK',
+  })
+  await render(10)
+  const usage = dialog().querySelector(
+    'section[data-testid="actor-user-statistics"]'
+  )
+  expect(usage?.textContent).toContain('Requests0')
+  expect(usage?.textContent).toContain('Usage (normalized credits)Unavailable')
+  expect(usage?.textContent).toContain('Some history has no verified price')
+  const invitations = dialog().querySelector(
+    'section[aria-label="Invitation statistics"]'
+  )
+  expect(
+    Array.from(invitations?.querySelectorAll('dd') ?? []).map(
+      (item) => item.textContent
+    )
+  ).toEqual(['Unavailable', 'Unavailable', 'Unavailable'])
+  expect(
+    dialog().querySelector('details[data-testid="imported-user-counters"]')
+      ?.textContent
+  ).toContain('No imported account counters are available.')
 })

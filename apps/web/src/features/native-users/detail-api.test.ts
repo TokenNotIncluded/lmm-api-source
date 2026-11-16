@@ -6,6 +6,7 @@ import { api } from '@/lib/api'
 import { useAuthStore } from '@/stores/auth-store'
 
 import { readNativeUser } from './api'
+import { nativeUserStatisticsFixture } from './detail-test-fixtures'
 import { nativeUserFixture, nativeUsageFixture } from './test-fixtures'
 
 const originalAdapter = api.defaults.adapter
@@ -146,5 +147,83 @@ test('missing users and denied reads stay failures without legacy fallback or re
     }
     await expect(readNativeUser(scope, '10')).rejects.toMatchObject({ kind })
     expect(seen).toEqual(['/core/v1/admin/users/10'])
+  }
+})
+
+test('statistics retain exact units, signed history and nullable prices for the same subject', async () => {
+  login()
+  const user = nativeUserFixture()
+  const statistics = nativeUserStatisticsFixture(user)
+  if (statistics.usage.status !== 'available') {
+    throw new Error('Expected usage fixture')
+  }
+  statistics.usage.requests = '340282366920938463463374607431768211455'
+  statistics.usage.credits = null
+  statistics.usage.pricing_available = false
+  statistics.referrals.affiliate_balance_units = '-9223372036854775808'
+  if (statistics.historical_counters.status !== 'available') {
+    throw new Error('Expected historical counter fixture')
+  }
+  statistics.historical_counters.used_quota = '-9223372036854775808'
+  statistics.historical_counters.request_count = '9007199254740993'
+  statistics.historical_counters.affiliate_rewards = '9223372036854775807'
+  api.defaults.adapter = async (config) => ({
+    config,
+    data: { version: 1, user, usage: nativeUsageFixture(), statistics },
+    headers: {},
+    status: 200,
+    statusText: 'OK',
+  })
+  expect(await readNativeUser(scope, user.id)).toEqual({
+    version: 1,
+    user,
+    usage: nativeUsageFixture(),
+    statistics,
+  })
+})
+
+test('foreign statistics, mixed units, rounded numbers and invented prices fail closed', async () => {
+  login()
+  const user = nativeUserFixture()
+  const base = nativeUserStatisticsFixture(user)
+  for (const statistics of [
+    { ...base, user_id: '12' },
+    { ...base, personal_account_id: '12' },
+    { ...base, usage: { ...base.usage, tokens: 12 } },
+    {
+      ...base,
+      usage: {
+        ...base.usage,
+        tokens: '340282366920938463463374607431768211456',
+      },
+    },
+    {
+      ...base,
+      usage: { ...base.usage, credits: null, pricing_available: true },
+    },
+    { ...base, usage: { ...base.usage, unit: 'legacy_raw_units' } },
+    {
+      ...base,
+      historical_counters: { ...base.historical_counters, unit: 'core_credit' },
+    },
+    { ...base, referrals: { ...base.referrals, invited_users: '-1' } },
+    {
+      ...base,
+      historical_counters: {
+        ...base.historical_counters,
+        used_quota: '-9223372036854775809',
+      },
+    },
+  ]) {
+    api.defaults.adapter = async (config) => ({
+      config,
+      data: { version: 1, user, usage: nativeUsageFixture(), statistics },
+      headers: {},
+      status: 200,
+      statusText: 'OK',
+    })
+    await expect(readNativeUser(scope, user.id)).rejects.toMatchObject({
+      kind: 'invalid_response',
+    })
   }
 })

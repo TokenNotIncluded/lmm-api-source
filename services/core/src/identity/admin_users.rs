@@ -16,12 +16,14 @@ pub use profile_mutation::{
     ProfileUpdateRequest,
 };
 pub use security::{SecurityAction, SecurityRequest, SecuritySnapshot, SecurityUpdate};
+mod statistics;
 mod usage;
 mod wallet;
 use super::*;
 pub use http::router;
 use serde::{Deserialize, Serialize};
 use sqlx::{Postgres, Row, Transaction};
+pub use statistics::UserStatistics;
 pub use usage::UsageProjection;
 pub use wallet::WalletProjection;
 
@@ -312,6 +314,7 @@ pub struct UserDetail {
     pub version: u8,
     pub user: UserRow,
     pub usage: UsageProjection,
+    pub statistics: UserStatistics,
 }
 #[derive(Serialize)]
 pub struct GroupsPage {
@@ -468,14 +471,22 @@ impl AdminUsersStore {
         .fetch_optional(&mut *tx)
         .await?
         .ok_or(AdminUsersError::NotFound)?;
-        let account = row.try_get("personal_account_id")?;
+        let account: i64 = row.try_get("personal_account_id")?;
         let user = project_user(&mut tx, row).await?;
         let usage = usage::read(&mut tx, user_id, account).await?;
+        let statistics = statistics::read(
+            &mut tx,
+            user_id,
+            account,
+            matches!(&user.wallet, WalletProjection::Available { .. }),
+        )
+        .await?;
         tx.commit().await?;
         Ok(UserDetail {
             version: 1,
             user,
             usage,
+            statistics,
         })
     }
     pub async fn groups(&self, secret: &str, input: &GroupsQuery) -> ReadResult<GroupsPage> {

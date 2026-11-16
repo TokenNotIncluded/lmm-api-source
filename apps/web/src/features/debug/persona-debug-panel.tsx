@@ -53,7 +53,8 @@ const PERSONA_LABELS: Record<DebugPersonaId, string> = {
   e: 'E · Normal user',
   f: 'F · Enterprise operator',
   l1: 'L1 developer',
-  admin: 'Administrator',
+  manager: 'Administrator',
+  admin: 'Super administrator',
 }
 
 export function PersonaDebugPanel() {

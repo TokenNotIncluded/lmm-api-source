@@ -1,5 +1,5 @@
 //! Exact native consumption totals using the same receipts as the usage views.
-use super::{InvalidReceipt, SELECT_REQUESTS, validate_usage_batch};
+use super::{InvalidReceipt, SELECT_REQUESTS, validate_personal_usage_batch};
 use sqlx::PgConnection;
 
 #[derive(Default)]
@@ -57,7 +57,7 @@ pub(crate) async fn read(
             .fetch_all(&mut *connection)
             .await?;
         let count = rows.len();
-        for request in validate_usage_batch(connection, rows)
+        for request in validate_personal_usage_batch(connection, rows)
             .await
             .map_err(|_| InvalidReceipt)?
         {

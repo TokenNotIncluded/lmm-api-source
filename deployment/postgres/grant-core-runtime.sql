@@ -450,6 +450,13 @@ GRANT EXECUTE ON FUNCTION core_charging.period_window(text,bigint,bigint,bigint)
 \if :enable_web_identity
 -- BEGIN affiliate-claims runtime grants
 GRANT SELECT,INSERT ON core_identity.affiliate_codes, core_identity.affiliate_registrations TO :"runtime_role";
+-- Administrator detail reads recorded invitees and the reviewed cumulative
+-- reward counter. Original payment facts and policy columns remain private.
+-- BEGIN admin-user-statistics runtime grants
+GRANT USAGE ON SCHEMA core_referrals TO :"runtime_role";
+GRANT SELECT(user_id,inviter_id) ON core_referrals.bindings TO :"runtime_role";
+GRANT SELECT(inviter,granted) ON core_referrals.history TO :"runtime_role";
+-- END admin-user-statistics runtime grants
 GRANT USAGE ON SCHEMA core_console TO :"runtime_role";
 GRANT SELECT(key,value) ON core_console.options TO :"runtime_role";
 -- Affiliate previews are immutable; only the durable ledger outcome may be sealed.

@@ -99,6 +99,28 @@ const units = z
       BigInt(value) <= 9007199254740991n
   )
 const magnitude = units.refine((value) => !value.startsWith('-'))
+// Detail statistics are decimal BIGINT strings, independently of the older
+// wallet and public numeric projections' JavaScript-safe amount contract.
+const statisticUnits = z
+  .string()
+  .refine(
+    (value) =>
+      value.length <= 20 &&
+      /^(?:0|[1-9][0-9]*|-[1-9][0-9]*)$/.test(value) &&
+      BigInt(value) >= -9223372036854775808n &&
+      BigInt(value) <= 9223372036854775807n
+  )
+const statisticCount = statisticUnits.refine((value) => !value.startsWith('-'))
+
+// Aggregated actor usage is unsigned u128; original source counters remain i64.
+const statisticUsageCount = z
+  .string()
+  .refine(
+    (value) =>
+      value.length <= 39 &&
+      /^(?:0|[1-9][0-9]*)$/.test(value) &&
+      BigInt(value) <= 340282366920938463463374607431768211455n
+  )
 
 function utf8Compare(left: string, right: string): number {
   const a = encoder.encode(left)
@@ -277,13 +299,87 @@ export const nativeUserUsageSchema = z.discriminatedUnion('status', [
     .strict(),
 ])
 
+export const nativeUserStatisticsSchema = z
+  .object({
+    user_id: id,
+    personal_account_id: id,
+    usage: z.discriminatedUnion('status', [
+      z
+        .object({
+          status: z.literal('available'),
+          scope: z.literal('actor_settled_and_complete_history'),
+          requests: statisticUsageCount,
+          tokens: statisticUsageCount,
+          credits: statisticUsageCount.nullable(),
+          model_count: statisticUsageCount,
+          unit: z.literal('credit_500k_usd'),
+          credits_per_usd: z.literal(500000),
+          pricing_available: z.boolean(),
+          history_source: z.enum(['quota_aggregates', 'log_records']),
+          observed_at_unix_ms: safeInteger,
+        })
+        .strict(),
+      z.object({ status: z.literal('unavailable') }).strict(),
+    ]),
+    historical_counters: z.discriminatedUnion('status', [
+      z
+        .object({
+          status: z.literal('available'),
+          unit: z.literal('legacy_raw_units'),
+          used_quota: statisticUnits,
+          request_count: statisticUnits,
+          affiliate_rewards: statisticUnits,
+          observed_at_unix_ms: safeInteger,
+        })
+        .strict(),
+      z.object({ status: z.literal('not_imported') }).strict(),
+      z.object({ status: z.literal('unavailable') }).strict(),
+    ]),
+    referrals: z
+      .object({
+        invited_users: statisticCount.nullable(),
+        invitation_scope: z.literal('recorded_native_and_imported_bindings'),
+        affiliate_balance_units: statisticUnits.nullable(),
+        unit: z.literal('core_credit'),
+        money_basis: z.literal('unknown'),
+        reviewed_rewards: z
+          .object({
+            scope: z.literal('reviewed_history_and_later_settlements'),
+            granted_credits: statisticCount,
+            unit: z.literal('credit_500k_usd'),
+            credits_per_usd: z.literal(500000),
+          })
+          .strict()
+          .nullable(),
+      })
+      .strict(),
+  })
+  .strict()
+  .refine(
+    ({ usage }) =>
+      usage.status !== 'available' ||
+      usage.pricing_available === (usage.credits !== null),
+    'Inconsistent usage pricing'
+  )
+
 export const nativeUserDetailSchema = z
   .object({
     version: z.literal(1),
     user: nativeUserSchema,
     usage: nativeUserUsageSchema,
+    // Native servers may expose receipt-based personal usage before statistics.
+    statistics: nativeUserStatisticsSchema.optional(),
   })
   .strict()
+  .refine(
+    ({ user, statistics }) =>
+      !statistics ||
+      (statistics.user_id === user.id &&
+        statistics.personal_account_id === user.personal_account_id &&
+        (user.wallet.status === 'available' ||
+          statistics.referrals.affiliate_balance_units === null)),
+    'Statistics subject mismatch'
+  )
 
 export const nativeUsersResponseSchema = z
   .object({
@@ -323,6 +419,7 @@ export const nativeGroupsResponseSchema = z
 export type NativeUser = z.infer<typeof nativeUserSchema>
 export type NativeUserDetail = z.infer<typeof nativeUserDetailSchema>
 export type NativeUserUsage = z.infer<typeof nativeUserUsageSchema>
+export type NativeUserStatistics = z.infer<typeof nativeUserStatisticsSchema>
 export type NativeWallet = z.infer<typeof nativeWalletSchema>
 export type NativeUsersResponse = z.infer<typeof nativeUsersResponseSchema>
 export type NativeGroupsResponse = z.infer<typeof nativeGroupsResponseSchema>

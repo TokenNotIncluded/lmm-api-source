@@ -75,6 +75,14 @@ test('native admin review data validates, filters users and never handles writes
         adminReviewFixture(config(`/core/v1/admin/users/${user.id}`))
       )
       assert.deepEqual(detail.user, user)
+      assert.equal(detail.statistics?.user_id, user.id)
+      assert.equal(
+        detail.statistics?.personal_account_id,
+        user.personal_account_id
+      )
+      assert.equal(detail.statistics?.usage.status, 'available')
+      assert.equal(detail.statistics?.historical_counters.status, 'available')
+      assert.equal(detail.statistics?.referrals.invited_users, '12')
       assert.equal(detail.usage.status, 'available')
       if (detail.usage.status === 'available') {
         assert.equal(detail.usage.net_consumption_units, '1000')
@@ -579,6 +587,7 @@ test('native wallet review serves current persona reads through the real API par
   try {
     for (const persona of [
       { id: 1004, role: 1, name: 'e', balance: 750000 },
+      { id: 1098, role: 10, name: 'manager', balance: 5000000 },
       { id: 1099, role: 100, name: 'admin', balance: 10000000 },
     ]) {
       const user = nativeWalletReviewProfile({

@@ -120,13 +120,29 @@ pub(crate) struct ReceiptValidation {
 }
 impl ReceiptValidation {
     pub(crate) fn new(row: &PgRow) -> Result<Self, InvalidReceipt> {
+        Self::new_with_identifiers(row, safe)
+    }
+
+    // Exact internal summaries never serialize these identities as JSON numbers.
+    // Only their representation bound differs; every monetary and receipt proof
+    // below remains shared with the existing public-number reader.
+    pub(super) fn new_exact_identifiers(row: &PgRow) -> Result<Self, InvalidReceipt> {
+        Self::new_with_identifiers(row, |value| {
+            (value > 0).then_some(value).ok_or(InvalidReceipt)
+        })
+    }
+
+    fn new_with_identifiers(
+        row: &PgRow,
+        identifier: fn(i64) -> Result<i64, InvalidReceipt>,
+    ) -> Result<Self, InvalidReceipt> {
         let id: String = row.try_get("id")?;
         let price: Price = decode(row.try_get("price")?)?;
         price.validate().map_err(|_| InvalidReceipt)?;
-        let user = safe(row.try_get("actor_user_id")?)?;
+        let user = identifier(row.try_get("actor_user_id")?)?;
         let key = row
             .try_get::<Option<i64>, _>("key_id")?
-            .map(safe)
+            .map(identifier)
             .transpose()?;
         let oauth_source: Option<crate::identity::grants::OAuthSource> = row
             .try_get::<Option<Value>, _>("oauth_source")?

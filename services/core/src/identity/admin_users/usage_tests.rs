@@ -399,3 +399,107 @@ async fn exact_user_usage_distinguishes_native_zero_unavailable_and_query_failur
     ));
     f.role.cleanup().await;
 }
+
+#[sqlx::test(migrations = false)]
+async fn exact_user_usage_preserves_full_bigint_actor_after_real_settlement(pool: PgPool) {
+    let user = 9_007_199_254_740_993_i64;
+    let f = fresh(&pool).await;
+    let target = person(&f, &pool, user, 0, "usage-bigint-actor").await;
+    let (ledger, account) = fund(&f, &pool, user).await;
+    let issued = key(
+        &f,
+        &pool,
+        &target.secret,
+        user,
+        Account {
+            kind: AccountKind::Personal,
+            id: user,
+        },
+        FundingPolicy::new_personal_key(),
+    )
+    .await;
+    let engine = Charging::new(pool.clone(), Arc::new(TransactionalLedger));
+    settle(
+        &engine,
+        &issued.secret,
+        "usage-bigint-actor",
+        1,
+        Outcome::Completed,
+    )
+    .await;
+    // Establish actual accepted identity, charging and ledger facts before the
+    // read. A regression must not be mistaken for a rejected setup operation.
+    let settled: (i64, i64, i64, i64) = sqlx::query_as(
+        "SELECT actor_user_id,owner_account_id,settled,refunded
+         FROM core_charging.requests WHERE id='usage-bigint-actor' AND state='settled'",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(settled, (user, account, 1, 0));
+    assert_eq!(ledger.balance(account).await.unwrap().available_units, 999);
+
+    let before = state(&pool).await;
+    let detail = serde_json::to_value(
+        f.store
+            .user(&f.admin, user)
+            .await
+            .expect("exact user detail must preserve the settled BIGINT actor"),
+    )
+    .unwrap();
+    assert_eq!(detail["user"]["id"], user.to_string());
+    let result = &detail["usage"];
+    assert_eq!(result["status"], "available");
+    assert_eq!(result["scope"], "actor_personal_usage");
+    assert_eq!(result["historical_imports_included"], false);
+    assert_eq!(result["settled_requests"], "1");
+    assert_eq!(result["pending_requests"], "0");
+    assert_eq!(result["gross_settled_units"], "1");
+    assert_eq!(result["refunded_units"], "0");
+    assert_eq!(result["net_consumption_units"], "1");
+    assert_eq!(result["personal_wallet_consumption_units"], "1");
+
+    // The old administrator log response still projects numeric identifiers.
+    // Its small-ID administrator selects the same large-ID target by username,
+    // so the original public receipt constructor must still reject that row.
+    let app = crate::usage::router(crate::usage::UsageStore::new(f.role.pool.clone()));
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/core/v1/usage/admin/logs?username=usage-bigint-actor")
+                .header("authorization", format!("Bearer {}", f.admin))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+    assert_eq!(response.headers()["cache-control"], "no-store");
+    let bytes = to_bytes(response.into_body(), 64 * 1024).await.unwrap();
+    let rejected: Value = serde_json::from_slice(&bytes).unwrap();
+    assert_eq!(rejected["code"], "USAGE_UNAVAILABLE");
+    assert!(rejected.get("data").is_none());
+    assert_eq!(before, state(&pool).await);
+
+    // Exact identities do not exempt the request from its immutable settlement
+    // evidence. The same new read path must fail closed on a missing command.
+    let mut tx = pool.begin().await.unwrap();
+    sqlx::query("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE")
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    let removed = sqlx::query(
+        "DELETE FROM core_charging.ledger_commands
+         WHERE request_id='usage-bigint-actor' AND command->'change'->>'operation'='settle'",
+    )
+    .execute(&mut *tx)
+    .await
+    .unwrap();
+    assert_eq!(removed.rows_affected(), 1);
+    tx.commit().await.unwrap();
+    assert!(matches!(
+        f.store.user(&f.admin, user).await,
+        Err(AdminUsersError::Unavailable)
+    ));
+    f.role.cleanup().await;
+}

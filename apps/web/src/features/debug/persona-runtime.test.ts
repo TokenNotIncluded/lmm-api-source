@@ -138,6 +138,19 @@ describe('persona debug runtime', () => {
       false
     )
 
+    setActiveDebugPersona('manager')
+    assert.equal(useAuthStore.getState().auth.user?.id, 1098)
+    assert.equal(useAuthStore.getState().auth.user?.role, 10)
+    const managerStatus = await api.get('/api/assistant/status')
+    assert.equal(managerStatus.data.data.is_admin, true)
+    assert.equal(managerStatus.data.data.is_root, false)
+
+    setActiveDebugPersona('e')
+    assert.equal(useAuthStore.getState().auth.user?.role, 1)
+    const userStatus = await api.get('/api/assistant/status')
+    assert.equal(userStatus.data.data.is_admin, false)
+    assert.equal(userStatus.data.data.is_root, false)
+
     setActiveDebugPersona('admin')
     assert.equal(useAuthStore.getState().auth.user?.role, 100)
     assert.equal(useAuthStore.getState().auth.user?.trust_level_info?.level, 4)
@@ -213,7 +226,15 @@ describe('persona debug runtime', () => {
 
   test('covers guided, normal, and operator fixtures across journey and gift routes', async () => {
     installPersonaDebugRuntime()
-    assert.deepEqual(DEBUG_PERSONA_IDS, ['l0', 'b', 'e', 'f', 'l1', 'admin'])
+    assert.deepEqual(DEBUG_PERSONA_IDS, [
+      'l0',
+      'b',
+      'e',
+      'f',
+      'l1',
+      'manager',
+      'admin',
+    ])
 
     for (const fixture of [
       {

@@ -41,6 +41,8 @@ import {
 import { toIntlLocale } from '@/i18n/languages'
 import { useAuthStore } from '@/stores/auth-store'
 
+import { UserStatistics } from './user-statistics'
+
 interface UserInfoDialogProps {
   userId: number | null
   open: boolean
@@ -131,7 +133,7 @@ function UserSnapshot({
     )
   }
 
-  const { user, usage } = state.detail
+  const { user, usage, statistics } = state.detail
   const number = (value: string) =>
     BigInt(value).toLocaleString(toIntlLocale(i18n.language))
   const wallet = user.wallet
@@ -192,8 +194,12 @@ function UserSnapshot({
         </p>
       </section>
 
-      <section className='space-y-4' aria-label={t('Native usage')}>
-        <h3 className='text-sm font-medium'>{t('Native usage')}</h3>
+      <section
+        className='space-y-4'
+        aria-label={t('Personal account usage')}
+        data-testid='personal-user-usage'
+      >
+        <h3 className='text-sm font-medium'>{t('Personal account usage')}</h3>
         {usage.status === 'available' ? (
           <>
             <dl className='grid grid-cols-1 gap-x-6 gap-y-5 min-[380px]:grid-cols-2'>
@@ -220,7 +226,7 @@ function UserSnapshot({
               />
             </dl>
             <details className='text-sm'>
-              <summary className='text-muted-foreground focus-visible:outline-ring inline-flex min-h-11 cursor-pointer items-center focus-visible:outline-2'>
+              <summary className='text-muted-foreground focus-visible:outline-ring min-h-11 cursor-pointer py-3 break-words focus-visible:outline-2'>
                 {t('Usage breakdown')}
               </summary>
               <dl className='grid grid-cols-1 gap-x-6 gap-y-4 py-3 min-[380px]:grid-cols-2'>
@@ -254,10 +260,12 @@ function UserSnapshot({
         )}
         <p className='text-muted-foreground text-xs leading-relaxed'>
           {t(
-            'Only native requests attributable to this user are included. Imported history and team-owned API keys are excluded.'
+            'Personal-account requests may be paid by a personal wallet, team, subscription or sponsor. Imported history and team-owned API keys are excluded.'
           )}
         </p>
       </section>
+
+      <UserStatistics statistics={statistics} />
 
       <dl className='grid grid-cols-1 gap-x-8 gap-y-5 sm:grid-cols-2'>
         <InfoItem
@@ -358,7 +366,7 @@ export function UserInfoDialog({
       onOpenChange={onOpenChange}
       title={t('User Information')}
       description={t(
-        "View this account's profile, access, wallet and native usage."
+        "View this account's profile, access, wallet and recorded activity."
       )}
       contentClassName='sm:max-w-xl'
       contentHeight='auto'

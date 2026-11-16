@@ -38,7 +38,15 @@ import type { AuthBundle, AuthUser, TrustLevelInfo } from '@/stores/auth-store'
 import { nativeWalletReviewProfile } from './native-wallet-review-fixtures'
 import { DEBUG_CURRENCY_STATUS } from './wallet-review-fixtures'
 
-export const DEBUG_PERSONA_IDS = ['l0', 'b', 'e', 'f', 'l1', 'admin'] as const
+export const DEBUG_PERSONA_IDS = [
+  'l0',
+  'b',
+  'e',
+  'f',
+  'l1',
+  'manager',
+  'admin',
+] as const
 export type DebugPersonaId = (typeof DEBUG_PERSONA_IDS)[number]
 
 type MockConversation = {
@@ -322,10 +330,29 @@ const DEBUG_USERS: Record<DebugPersonaId, AuthUser> = {
       stage: 'complete',
     },
   },
+  manager: {
+    id: 1098,
+    username: 'debug_manager',
+    display_name: 'Administrator',
+    role: ROLE.ADMIN,
+    status: 1,
+    group: 'admin',
+    quota: 5_000_000,
+    used_quota: 1_250_000,
+    request_count: 195,
+    developer_access_granted: true,
+    trust_level_info: trustLevel(3),
+    onboarding: {
+      activation_complete: true,
+      credential_complete: true,
+      first_request_complete: true,
+      stage: 'complete',
+    },
+  },
   admin: {
     id: 1099,
     username: 'debug_administrator',
-    display_name: 'Administrator',
+    display_name: 'Super administrator',
     role: ROLE.SUPER_ADMIN,
     status: 1,
     group: 'admin',

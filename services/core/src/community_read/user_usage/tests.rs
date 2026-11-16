@@ -96,14 +96,13 @@ async fn log(
 }
 
 // Actual charging/ledger lifecycle, not a fabricated settled row or mock total.
-async fn native_charge(pool: &PgPool, user: i64) {
+async fn native_charge(pool: &PgPool, user: i64) -> crate::identity::IssuedCredential {
     use crate::{
         accounts::{Account, AccountKind},
         billing::{
             Credits,
-            charging::{Charging, Outcome, Price, Request, Usage},
+            charging::Usage,
             ledger::{Action, Ledger, Request as LedgerRequest},
-            transactional_ledger::TransactionalLedger,
         },
         funding::FundingPolicy,
     };
@@ -140,10 +139,33 @@ async fn native_charge(pool: &PgPool, user: i64) {
         .unwrap();
     sqlx::query("INSERT INTO core_identity.api_key_settings(credential_id,name,group_name) VALUES($1,'APP02 fixture','default')").bind(key.id).execute(pool).await.unwrap();
     sqlx::query("INSERT INTO core_identity.user_routing_groups(user_id,group_name,source_reference) VALUES($1,'default','app02-fixture')").bind(user).execute(pool).await.unwrap();
+    settled_charge(
+        pool,
+        &key.secret,
+        &format!("app02-native-{user}"),
+        Usage {
+            input: 10,
+            output: 5,
+            ..Default::default()
+        },
+    )
+    .await;
+    session
+}
+
+async fn settled_charge(
+    pool: &PgPool,
+    secret: &str,
+    id: &str,
+    usage: crate::billing::charging::Usage,
+) {
+    use crate::billing::{
+        charging::{Charging, Outcome, Price, Request},
+        transactional_ledger::TransactionalLedger,
+    };
     let charging = Charging::new(pool.clone(), std::sync::Arc::new(TransactionalLedger));
-    let id = format!("app02-native-{user}");
     let spec = Request {
-        id: id.clone(),
+        id: id.into(),
         fingerprint: [3; 32],
         reserve: 100,
         lease_seconds: 300,
@@ -167,25 +189,244 @@ async fn native_charge(pool: &PgPool, user: i64) {
         },
     };
     let worker = [9; 32];
-    let usage = Usage {
-        input: 10,
-        output: 5,
-        ..Default::default()
+    charging.reserve(secret, &spec, &worker).await.unwrap();
+    charging.start(id, &worker).await.unwrap();
+    charging
+        .checkpoint(id, &worker, "provider-final", usage)
+        .await
+        .unwrap();
+    charging
+        .settle(id, &worker, usage, Outcome::Completed)
+        .await
+        .unwrap();
+    charging
+        .refund(id, "app02-refund", 5, "Private fixture refund")
+        .await
+        .unwrap();
+}
+
+async fn admin_detail(pool: &PgPool, user: i64) -> serde_json::Value {
+    let session = IdentityStore::from_pool(pool.clone())
+        .bootstrap_user(900, 5)
+        .await
+        .unwrap();
+    // The normal restricted role already has the official history/charging
+    // SELECTs. The private administrator projection requires no new writes.
+    let role = crate::test_runtime::RuntimeRole::create(pool).await;
+    let store = crate::identity::admin_users::AdminUsersStore::new(IdentityStore::from_pool(
+        role.pool.clone(),
+    ));
+    let result = serde_json::to_value(store.user(&session.secret, user).await.unwrap()).unwrap();
+    role.cleanup().await;
+    result
+}
+
+#[sqlx::test(migrations = false)]
+async fn admin_detail_counts_the_actor_across_personal_and_shared_team_payers(pool: PgPool) {
+    use crate::{
+        accounts::{Account, AccountKind, TeamRole},
+        billing::{
+            Credits,
+            charging::Usage,
+            ledger::{Action, Ledger, Outcome, Request as LedgerRequest},
+        },
+        funding::FundingPolicy,
+        identity::InviteRequest,
     };
-    charging.reserve(&key.secret, &spec, &worker).await.unwrap();
-    charging.start(&id, &worker).await.unwrap();
-    charging
-        .checkpoint(&id, &worker, "provider-final", usage)
+    core_schema::init(&pool).await.unwrap();
+    // Each user first settles a personal request (15 tokens, net 10 credits).
+    let target = native_charge(&pool, 71).await;
+    let other = native_charge(&pool, 72).await;
+    let identity = IdentityStore::from_pool(pool.clone());
+    let team = identity.create_team(&target.secret).await.unwrap();
+    let invitation = identity
+        .invite(
+            &target.secret,
+            team,
+            &InviteRequest {
+                recipient_user_id: 72,
+                role: TeamRole::Member,
+                can_spend: true,
+                ttl_seconds: 3600,
+            },
+        )
         .await
         .unwrap();
-    charging
-        .settle(&id, &worker, usage, Outcome::Completed)
+    identity
+        .accept_invite(&other.secret, &invitation.secret)
         .await
         .unwrap();
-    charging
-        .refund(&id, "app02-refund", 5, "Private fixture refund")
+    let team_account: i64 =
+        sqlx::query_scalar("SELECT account_id FROM core_identity.teams WHERE id=$1")
+            .bind(team)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    let ledger = Ledger::from_pool(pool.clone());
+    ledger.open_wallet(team_account).await.unwrap();
+    let funded = ledger
+        .execute(&LedgerRequest {
+            scope: "app02-fixture".into(),
+            operation_key: "fund-shared-team".into(),
+            actor_user_id: Some(71),
+            reason: "Synthetic shared team actor scope".into(),
+            action: Action::Credit {
+                account_id: team_account,
+                amount_units: Credits::try_from(1000).unwrap(),
+                payment_reference: "app02:fund:shared-team".into(),
+            },
+        })
         .await
         .unwrap();
+    assert!(matches!(funded, Outcome::Posted { .. }));
+    for (user, session, input) in [(71, &target, 20), (72, &other, 40)] {
+        let key = identity
+            .issue_key(
+                &session.secret,
+                Account {
+                    kind: AccountKind::Team,
+                    id: team,
+                },
+                FundingPolicy::inherit_account_settings(),
+                3600,
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            identity
+                .authorize(&key.secret)
+                .await
+                .unwrap()
+                .owner_account_id,
+            team_account
+        );
+        sqlx::query("INSERT INTO core_identity.api_key_settings(credential_id,name,group_name) VALUES($1,'APP02 team fixture','default')")
+            .bind(key.id).execute(&pool).await.unwrap();
+        settled_charge(
+            &pool,
+            &key.secret,
+            &format!("app02-team-{user}"),
+            Usage {
+                input,
+                output: 5,
+                ..Default::default()
+            },
+        )
+        .await;
+    }
+    let team_requests: Vec<(i64, i64, i64, i64)> = sqlx::query_as(
+        "SELECT actor_user_id,payer_account_id,settled,refunded FROM core_charging.requests
+         WHERE id IN ('app02-team-71','app02-team-72') AND state='settled' ORDER BY actor_user_id",
+    )
+    .fetch_all(&pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        team_requests,
+        vec![(71, team_account, 25, 5), (72, team_account, 45, 5)]
+    );
+    let detail = admin_detail(&pool, 71).await;
+    // Team-owned requests belong to actor activity, but not to the existing
+    // personal-owner receipt projection. Keep both scopes in the same detail.
+    assert_eq!(detail["usage"]["scope"], "actor_personal_usage");
+    assert_eq!(detail["usage"]["settled_requests"], "1");
+    assert_eq!(detail["usage"]["net_consumption_units"], "10");
+    assert_eq!(detail["statistics"]["usage"]["requests"], "2");
+    assert_eq!(detail["statistics"]["usage"]["tokens"], "40");
+    assert_eq!(detail["statistics"]["usage"]["credits"], "30");
+    assert_eq!(detail["user"]["wallet"]["wallet_units"], "990");
+    assert_eq!(
+        detail["statistics"]["personal_account_id"],
+        owner(&pool, 71).await.to_string()
+    );
+    let team_remaining: i64 = sqlx::query_scalar(
+        "SELECT b.balance_units FROM core_billing.ledger_accounts a
+         JOIN core_billing.balance_state b ON b.ledger_account_id=a.id
+         WHERE a.owner_account_id=$1 AND a.bucket='wallet'",
+    )
+    .bind(team_account)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(team_remaining, 940);
+}
+
+#[sqlx::test(migrations = false)]
+async fn admin_detail_strings_keep_large_totals_without_relaxing_community_numbers(pool: PgPool) {
+    core_schema::init(&pool).await.unwrap();
+    native_charge(&pool, 71).await;
+    let complete = source(&pool, "detail-wide-totals", true).await;
+    for row in [1, 2] {
+        aggregate(&pool, complete, row, 71, row, JS_SAFE, JS_SAFE).await;
+    }
+    let read = CommunityRead::new(pool.clone()).await.unwrap();
+    let end: i64 =
+        sqlx::query_scalar("SELECT floor(extract(epoch FROM clock_timestamp()))::bigint+60")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(
+        read.user_usage(&request(71, end)).await.unwrap_err(),
+        Error::Unavailable,
+        "the existing JSON number endpoint must retain its safe-integer bound",
+    );
+    let detail = admin_detail(&pool, 71).await;
+    assert_eq!(detail["statistics"]["usage"]["requests"], "5");
+    assert_eq!(detail["statistics"]["usage"]["tokens"], "18014398509481997");
+    assert_eq!(
+        detail["statistics"]["usage"]["credits"],
+        "18014398509481992"
+    );
+    assert_eq!(detail["statistics"]["usage"]["model_count"], "2");
+}
+
+#[sqlx::test(migrations = false)]
+async fn admin_detail_keeps_u128_actor_totals_and_native_usage_above_bigint(pool: PgPool) {
+    core_schema::init(&pool).await.unwrap();
+    native_charge(&pool, 71).await;
+    let complete = source(&pool, "detail-u128-totals", true).await;
+    let account = owner(&pool, 71).await;
+    // Each stored row remains within the original history contract. Only the
+    // sum exceeds BIGINT, so the query must not narrow it before Rust reads it.
+    sqlx::query(
+        "INSERT INTO core_history.quota_aggregates(
+           source_id,source_row_id,source_row_sha256,user_id,owner_account_id,
+           model_name,created_at,request_count,token_used,raw_quota,quota_credits,credits_basis)
+         SELECT $1,n,repeat('c',64),71,$2,'past-model',1,$3,$3,$3,$3,'current_units'
+         FROM generate_series(1,1025) AS rows(n)",
+    )
+    .bind(complete)
+    .bind(account)
+    .bind(JS_SAFE)
+    .execute(&pool)
+    .await
+    .unwrap();
+    let imported = 1025_u128 * JS_SAFE as u128;
+    assert!(imported > i64::MAX as u128);
+    let end: i64 =
+        sqlx::query_scalar("SELECT floor(extract(epoch FROM clock_timestamp()))::bigint+60")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    let read = CommunityRead::new(pool.clone()).await.unwrap();
+    assert_eq!(
+        read.user_usage(&request(71, end)).await.unwrap_err(),
+        Error::Unavailable,
+        "the existing JSON number endpoint retains its safe-integer bound",
+    );
+    let detail = admin_detail(&pool, 71).await;
+    assert_eq!(detail["usage"]["status"], "available");
+    assert_eq!(detail["usage"]["historical_imports_included"], false);
+    assert_eq!(detail["usage"]["settled_requests"], "1");
+    assert_eq!(detail["usage"]["net_consumption_units"], "10");
+    let activity = &detail["statistics"]["usage"];
+    assert_eq!(activity["status"], "available");
+    assert_eq!(activity["requests"], (imported + 1).to_string());
+    assert_eq!(activity["tokens"], (imported + 15).to_string());
+    assert_eq!(activity["credits"], (imported + 10).to_string());
+    assert_eq!(activity["history_source"], "quota_aggregates");
+    assert_eq!(activity["model_count"], "2");
+    assert_eq!(detail["user"]["wallet"]["wallet_units"], "990");
 }
 
 #[sqlx::test(migrations = false)]
@@ -206,7 +447,8 @@ async fn alltime_keeps_actor_scope_refunds_and_aggregate_precedence(pool: PgPool
     let incomplete = source(&pool, "app02-incomplete", false).await;
     aggregate(&pool, complete, 1, 71, 1, 30, 11).await;
     aggregate(&pool, complete, 2, 72, 1, 990, 999).await;
-    aggregate(&pool, complete, 3, 71, end + 1, 770, 777).await;
+    // Stay in the future while the restricted administrator role is created.
+    aggregate(&pool, complete, 3, 71, end + 86400, 770, 777).await;
     aggregate(&pool, incomplete, 1, 71, 1, 880, 888).await;
     // The same selected source's logs must not double count hourly aggregates.
     log(
@@ -233,6 +475,18 @@ async fn alltime_keeps_actor_scope_refunds_and_aggregate_precedence(pool: PgPool
     assert_eq!(all.history_source, "quota_aggregates");
     assert_eq!(all.model_count, 2);
     assert!(all.buckets.is_empty());
+    let detail = admin_detail(&pool, 71).await;
+    let usage = &detail["statistics"]["usage"];
+    assert_eq!(detail["statistics"]["user_id"], "71");
+    assert_eq!(usage["scope"], "actor_settled_and_complete_history");
+    assert_eq!(usage["tokens"], "45");
+    assert_eq!(usage["requests"], "3");
+    assert_eq!(usage["credits"], "21");
+    assert_eq!(usage["model_count"], "2");
+    assert_eq!(usage["history_source"], "quota_aggregates");
+    assert_eq!(usage["unit"], "credit_500k_usd");
+    assert_eq!(usage["credits_per_usd"], 500000);
+    assert_eq!(usage["pricing_available"], true);
     let mut year = request(71, end);
     year.start = end - 370 * 86400;
     year.bucket_seconds = 86400;
@@ -464,6 +718,16 @@ async fn mixed_history_keeps_tokens_known_model_and_nullable_total_in_real_route
             .cny_per_usd
             .is_none()
     );
+    let detail = admin_detail(&pool, 71).await;
+    let usage = &detail["statistics"]["usage"];
+    // The detail is all available history through now, so the row just beyond
+    // the private query's older cutoff is also included. Other actors and the
+    // incomplete aggregate remain excluded; unknown prices never become zero.
+    assert_eq!(usage["tokens"], "22017");
+    assert_eq!(usage["requests"], "6");
+    assert!(usage["credits"].is_null());
+    assert_eq!(usage["pricing_available"], false);
+    assert_eq!(usage["history_source"], "log_records");
     let token = "app02-community-host-fixture-token";
     let app = super::super::http::router(read, token.as_bytes()).unwrap();
     for (auth, status) in [

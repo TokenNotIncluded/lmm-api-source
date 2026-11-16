@@ -6,6 +6,7 @@ import {
   DEFAULT_NATIVE_USERS_QUERY,
   nativeUsersQuery,
 } from '@/features/native-users/contract'
+import { nativeUserStatisticsFixture } from '@/features/native-users/detail-test-fixtures'
 import {
   nativeListFixture,
   nativeStatusFixture,
@@ -239,7 +240,14 @@ export function adminReviewFixture(
   const detail = /^\/core\/v1\/admin\/users\/([1-9]\d*)$/.exec(url.pathname)
   if (detail) {
     const user = reviewUsers().find((item) => item.id === detail[1])
-    return user ? { version: 1, user, usage: nativeUsageFixture() } : undefined
+    return user
+      ? {
+          version: 1,
+          user,
+          usage: nativeUsageFixture(),
+          statistics: nativeUserStatisticsFixture(user),
+        }
+      : undefined
   }
   if (url.pathname === '/core/v1/admin/users') {
     const query = nativeUsersQuery({

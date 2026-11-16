@@ -950,9 +950,23 @@ async fn exact_user_detail_preserves_the_list_wallet_projection_and_is_read_only
     assert_eq!(detail["user"]["wallet"]["available_units"], "800");
     assert_eq!(detail["user"]["wallet"]["reserved_units"], "200");
     assert_eq!(detail["user"]["wallet"]["money_available"], false);
+    assert_eq!(detail["statistics"]["user_id"], "10");
+    assert_eq!(
+        detail["statistics"]["personal_account_id"],
+        account.to_string()
+    );
+    assert_eq!(detail["statistics"]["usage"]["requests"], "0");
+    assert_eq!(detail["statistics"]["usage"]["tokens"], "0");
+    assert_eq!(detail["statistics"]["usage"]["credits"], "0");
+    assert_eq!(
+        detail["statistics"]["historical_counters"]["status"],
+        "not_imported"
+    );
+    assert!(detail["statistics"]["referrals"]["invited_users"].is_null());
     let large =
         serde_json::to_value(f.store.user(&f.root, 9_007_199_254_740_993).await.unwrap()).unwrap();
     assert_eq!(large["user"]["id"], "9007199254740993");
+    assert_eq!(large["statistics"]["user_id"], "9007199254740993");
     assert!(matches!(
         f.store.user(&f.admin, 999).await,
         Err(AdminUsersError::NotFound)
@@ -966,6 +980,7 @@ async fn exact_user_detail_preserves_the_list_wallet_projection_and_is_read_only
     let disabled = serde_json::to_value(f.store.user(&f.admin, 10).await.unwrap()).unwrap();
     assert_eq!(disabled["user"]["wallet"]["status"], "unavailable");
     assert!(disabled["user"]["wallet"].get("wallet_units").is_none());
+    assert!(disabled["statistics"]["referrals"]["affiliate_balance_units"].is_null());
     assert_eq!(before, state(&pool).await);
     f.role.cleanup().await;
 }
@@ -1040,8 +1055,296 @@ async fn exact_user_detail_http_keeps_session_authority_and_private_cache_policy
             assert_eq!(body["user"]["id"], "10");
         } else {
             assert!(body.get("user").is_none());
+            assert!(body.get("usage").is_none());
+            assert!(body.get("statistics").is_none());
         }
         assert!(!String::from_utf8_lossy(&bytes).contains(&f.admin));
+    }
+    assert_eq!(before, state(&pool).await);
+    f.role.cleanup().await;
+}
+
+#[sqlx::test(migrations = false)]
+async fn exact_user_detail_statistics_preserve_import_units_and_distinct_invitees(pool: PgPool) {
+    let f = fresh(&pool).await;
+    crate::runtime_database::check(&f.role.pool, Default::default())
+        .await
+        .unwrap();
+    person(&f, &pool, 10, 0, "history-owner").await;
+    let ordinary = person(&f, &pool, 11, 0, "recorded-both").await;
+    person(&f, &pool, 12, 0, "recorded-native").await;
+    person(&f, &pool, 13, 0, "recorded-imported").await;
+    let account: i64 =
+        sqlx::query_scalar("SELECT personal_account_id FROM core_identity.users WHERE id=10")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    let mut tx = pool.begin().await.unwrap();
+    sqlx::query("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE")
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    sqlx::query("SET LOCAL synchronous_commit=on")
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    let opening = serde_json::json!({
+        "migration_id":"detail-history", "source_entity_key":"user:10",
+        "source_archive_sha256":"a".repeat(64), "mapping_sha256":"b".repeat(64),
+        "source_row_sha256":"c".repeat(64), "observed_at":1700000000,
+        "account_id":account, "available_units":5000, "reserved_units":0,
+        "affiliate_units":-250
+    });
+    let receipt: Value = sqlx::query_scalar("SELECT core_billing.import_opening_balance($1)")
+        .bind(&opening)
+        .fetch_one(&mut *tx)
+        .await
+        .unwrap();
+    assert_eq!(receipt["status"], "posted");
+    let counters = serde_json::json!({
+        "migration_id":"detail-history", "source_entity_key":"user:10",
+        "source_archive_sha256":"a".repeat(64), "mapping_sha256":"b".repeat(64),
+        "source_row_sha256":"c".repeat(64), "observed_at":1700000000,
+        "account_id":account, "user_id":10, "used_quota":-17,
+        "request_count":9007199254740991_i64, "aff_history":450000
+    });
+    let receipt: Value =
+        sqlx::query_scalar("SELECT core_billing.import_account_opening_counters($1)")
+            .bind(&counters)
+            .fetch_one(&mut *tx)
+            .await
+            .unwrap();
+    assert_eq!(receipt["status"], "imported");
+    sqlx::query(
+        "INSERT INTO core_identity.affiliate_codes(user_id,code) VALUES(10,repeat('a',32))",
+    )
+    .execute(&mut *tx)
+    .await
+    .unwrap();
+    for invitee in [11, 12] {
+        crate::affiliate::bind_registration(&mut tx, invitee, &"a".repeat(32))
+            .await
+            .unwrap();
+    }
+    sqlx::query("INSERT INTO core_referrals.source(archive_sha256,migration_id,document,review) VALUES(repeat('a',64),'detail-history','{}','{}')")
+        .execute(&mut *tx).await.unwrap();
+    sqlx::query("INSERT INTO core_referrals.bindings(user_id,inviter_id,legacy_first_top_up,stripe_customer,prior_cash,archive_sha256,source_user_id) VALUES(11,10,0,'',false,repeat('a',64),11),(13,10,0,'',false,repeat('a',64),13)")
+        .execute(&mut *tx).await.unwrap();
+    // The importer initializes the separately reviewed normalized counter. It
+    // is not the original raw counter and must never be added to that counter.
+    sqlx::query("INSERT INTO core_referrals.history(inviter,granted) VALUES(10,700000)")
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    tx.commit().await.unwrap();
+
+    let before = state(&pool).await;
+    let detail = serde_json::to_value(f.store.user(&f.admin, 10).await.unwrap()).unwrap();
+    let statistics = &detail["statistics"];
+    // Imported counters remain separate from the existing native receipt reader.
+    assert_eq!(detail["usage"]["status"], "available");
+    assert_eq!(detail["usage"]["scope"], "actor_personal_usage");
+    assert_eq!(detail["usage"]["historical_imports_included"], false);
+    assert_eq!(detail["usage"]["settled_requests"], "0");
+    assert_eq!(detail["usage"]["gross_settled_units"], "0");
+    assert_eq!(detail["usage"]["net_consumption_units"], "0");
+    assert_eq!(statistics["usage"]["requests"], "0");
+    assert_eq!(statistics["usage"]["credits"], "0");
+    assert_eq!(
+        statistics["historical_counters"],
+        serde_json::json!({
+            "status":"available", "unit":"legacy_raw_units", "used_quota":"-17",
+            "request_count":"9007199254740991", "affiliate_rewards":"450000",
+            "observed_at_unix_ms":1700000000000_i64
+        })
+    );
+    assert_eq!(statistics["referrals"]["affiliate_balance_units"], "-250");
+    assert!(statistics["referrals"]["invited_users"].is_null());
+    assert!(statistics["referrals"]["reviewed_rewards"].is_null());
+    assert_eq!(before, state(&pool).await);
+
+    // Apply the exact new production grant fragment, then only the existing
+    // native binding's two read columns. No referral write privilege is needed.
+    let grants = include_str!("../../../../../deployment/postgres/grant-core-runtime.sql")
+        .split_once("-- BEGIN admin-user-statistics runtime grants\n")
+        .unwrap()
+        .1
+        .split_once("-- END admin-user-statistics runtime grants")
+        .unwrap()
+        .0
+        .replace(":\"runtime_role\"", &f.role.name);
+    sqlx::raw_sql(sqlx::AssertSqlSafe::<&str>(&grants))
+        .execute(&pool)
+        .await
+        .unwrap();
+    sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
+        "GRANT SELECT(user_id,inviter_id) ON core_identity.affiliate_registrations TO {}",
+        f.role.name
+    )))
+    .execute(&pool)
+    .await
+    .unwrap();
+    let narrow: bool = sqlx::query_scalar(
+        "SELECT has_column_privilege('core_referrals.bindings','user_id','SELECT')
+         AND has_column_privilege('core_referrals.bindings','inviter_id','SELECT')
+         AND NOT has_column_privilege('core_referrals.bindings','stripe_customer','SELECT')
+         AND NOT has_table_privilege('core_referrals.bindings','SELECT')
+         AND NOT has_table_privilege('core_referrals.bindings','INSERT,UPDATE,DELETE')
+         AND NOT has_any_column_privilege('core_referrals.bindings','INSERT,UPDATE,REFERENCES')
+         AND has_column_privilege('core_referrals.history','inviter','SELECT')
+         AND has_column_privilege('core_referrals.history','granted','SELECT')
+         AND NOT has_table_privilege('core_referrals.history','SELECT')
+         AND NOT has_table_privilege('core_referrals.history','INSERT,UPDATE,DELETE')
+         AND NOT has_any_column_privilege('core_referrals.history','INSERT,UPDATE,REFERENCES')
+         AND NOT has_table_privilege('core_referrals.source','SELECT')
+         AND NOT has_any_column_privilege('core_referrals.source','SELECT')",
+    )
+    .fetch_one(&f.role.pool)
+    .await
+    .unwrap();
+    assert!(narrow);
+    crate::runtime_database::check(&f.role.pool, Default::default())
+        .await
+        .unwrap();
+    let detail = serde_json::to_value(f.store.user(&f.admin, 10).await.unwrap()).unwrap();
+    assert_eq!(detail["statistics"]["referrals"]["invited_users"], "3");
+    assert_eq!(
+        detail["statistics"]["referrals"]["invitation_scope"],
+        "recorded_native_and_imported_bindings"
+    );
+    assert_eq!(
+        detail["statistics"]["referrals"]["reviewed_rewards"],
+        serde_json::json!({
+            "scope":"reviewed_history_and_later_settlements", "granted_credits":"700000",
+            "unit":"credit_500k_usd", "credits_per_usd":500000
+        })
+    );
+    let missing = serde_json::to_value(f.store.user(&f.admin, 12).await.unwrap()).unwrap();
+    assert!(missing["statistics"]["referrals"]["reviewed_rewards"].is_null());
+    assert_eq!(before, state(&pool).await);
+    assert!(matches!(
+        f.store.user(&ordinary.secret, 10).await,
+        Err(AdminUsersError::Forbidden)
+    ));
+
+    // An inaccessible optional schema/table remains unknown without aborting
+    // the authorized profile's read-only transaction or inventing a zero.
+    sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
+        "REVOKE USAGE ON SCHEMA core_referrals FROM {}; REVOKE SELECT ON core_history.log_records FROM {}",
+        f.role.name, f.role.name
+    ))).execute(&pool).await.unwrap();
+    let detail = serde_json::to_value(f.store.user(&f.admin, 10).await.unwrap()).unwrap();
+    assert_eq!(detail["user"]["id"], "10");
+    assert_eq!(detail["usage"]["status"], "available");
+    assert_eq!(detail["usage"]["net_consumption_units"], "0");
+    assert_eq!(
+        detail["statistics"]["usage"],
+        serde_json::json!({"status":"unavailable"})
+    );
+    assert!(detail["statistics"]["referrals"]["invited_users"].is_null());
+    assert!(detail["statistics"]["referrals"]["reviewed_rewards"].is_null());
+    assert_eq!(
+        detail["statistics"]["historical_counters"]["request_count"],
+        "9007199254740991"
+    );
+    assert_eq!(before, state(&pool).await);
+    f.role.cleanup().await;
+}
+
+#[sqlx::test(migrations = false)]
+async fn exact_user_detail_retains_full_bigint_source_counters_without_import_changes(
+    pool: PgPool,
+) {
+    let f = fresh(&pool).await;
+    let cases = [
+        (20_i64, i64::MIN, 9_007_199_254_740_993_i64, i64::MAX),
+        (21_i64, i64::MAX, i64::MIN, -9_007_199_254_740_993_i64),
+    ];
+    for (user, used, requests, rewards) in cases {
+        person(&f, &pool, user, 0, &format!("raw-counter-{user}")).await;
+        let account: i64 =
+            sqlx::query_scalar("SELECT personal_account_id FROM core_identity.users WHERE id=$1")
+                .bind(user)
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        let entity = format!("user:{user}");
+        let row_hash = format!("{user:064x}");
+        let mut tx = pool.begin().await.unwrap();
+        sqlx::query("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE")
+            .execute(&mut *tx)
+            .await
+            .unwrap();
+        sqlx::query("SET LOCAL synchronous_commit=on")
+            .execute(&mut *tx)
+            .await
+            .unwrap();
+        let opening = serde_json::json!({
+            "migration_id":"detail-wide-history", "source_entity_key":entity,
+            "source_archive_sha256":"a".repeat(64), "mapping_sha256":"b".repeat(64),
+            "source_row_sha256":row_hash, "observed_at":1700000000,
+            "account_id":account, "available_units":0, "reserved_units":0, "affiliate_units":0
+        });
+        let receipt: Value = sqlx::query_scalar("SELECT core_billing.import_opening_balance($1)")
+            .bind(&opening)
+            .fetch_one(&mut *tx)
+            .await
+            .unwrap();
+        assert_eq!(receipt["status"], "posted");
+        let counters = serde_json::json!({
+            "migration_id":"detail-wide-history", "source_entity_key":entity,
+            "source_archive_sha256":"a".repeat(64), "mapping_sha256":"b".repeat(64),
+            "source_row_sha256":row_hash, "observed_at":1700000000,
+            "account_id":account, "user_id":user,
+            "used_quota":used, "request_count":requests, "aff_history":rewards
+        });
+        // The current import API still rejects these amounts. This is a read
+        // regression for valid BIGINT storage, not new importer admissibility.
+        sqlx::query("SAVEPOINT unchanged_import_boundary")
+            .execute(&mut *tx)
+            .await
+            .unwrap();
+        let rejected = sqlx::query_scalar::<_, Value>(
+            "SELECT core_billing.import_account_opening_counters($1)",
+        )
+        .bind(&counters)
+        .fetch_one(&mut *tx)
+        .await
+        .unwrap_err();
+        assert_eq!(
+            rejected
+                .as_database_error()
+                .and_then(|error| error.code())
+                .as_deref(),
+            Some("P1000")
+        );
+        sqlx::query("ROLLBACK TO SAVEPOINT unchanged_import_boundary")
+            .execute(&mut *tx)
+            .await
+            .unwrap();
+        sqlx::query("RELEASE SAVEPOINT unchanged_import_boundary")
+            .execute(&mut *tx)
+            .await
+            .unwrap();
+        // Seed pre-existing raw facts as the offline owner, keeping every
+        // account/user/source/opening receipt binding intact. No money changes.
+        sqlx::query("INSERT INTO core_billing.account_opening_counters(account_id,user_id,migration_id,source_entity_key,source_archive_sha256,mapping_sha256,source_row_sha256,observed_at,used_quota,request_count,aff_history,request) VALUES($1,$2,'detail-wide-history',$3,repeat('a',64),repeat('b',64),$4,1700000000,$5,$6,$7,$8)")
+            .bind(account).bind(user).bind(&entity).bind(&row_hash)
+            .bind(used).bind(requests).bind(rewards).bind(&counters)
+            .execute(&mut *tx).await.unwrap();
+        tx.commit().await.unwrap();
+    }
+    let before = state(&pool).await;
+    for (user, used, requests, rewards) in cases {
+        let detail = serde_json::to_value(f.store.user(&f.admin, user).await.unwrap()).unwrap();
+        let counters = &detail["statistics"]["historical_counters"];
+        assert_eq!(counters["status"], "available");
+        assert_eq!(counters["unit"], "legacy_raw_units");
+        assert_eq!(counters["used_quota"], used.to_string());
+        assert_eq!(counters["request_count"], requests.to_string());
+        assert_eq!(counters["affiliate_rewards"], rewards.to_string());
+        assert_eq!(detail["statistics"]["usage"]["requests"], "0");
+        assert_eq!(detail["user"]["wallet"]["wallet_units"], "0");
     }
     assert_eq!(before, state(&pool).await);
     f.role.cleanup().await;

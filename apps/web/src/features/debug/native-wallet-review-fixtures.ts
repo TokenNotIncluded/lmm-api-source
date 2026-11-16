@@ -44,6 +44,13 @@ const profiles: Record<
     used: 340000,
     requests: 120,
   },
+  1098: {
+    persona: 'manager',
+    spendable: 5000000,
+    reserved: 125000,
+    used: 1250000,
+    requests: 195,
+  },
   1099: {
     persona: 'admin',
     spendable: 10000000,

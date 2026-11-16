@@ -9,6 +9,7 @@ mod payments;
 mod user_usage;
 pub use payment_totals::{CashCurrency, CashPaymentTotals, CashPaymentUser, CashPeriodRequest};
 pub use payments::{FirstCashPayment, FirstCashPayments};
+pub(crate) use user_usage::{UserUsageSummary, read_user_usage_summary};
 
 use serde::{Deserialize, Serialize};
 use sqlx::{PgPool, Postgres, Row, Transaction};
@@ -292,6 +293,20 @@ pub fn leaderboard_visibility(setting: Option<&str>) -> &'static str {
     }
 }
 
+/// Use the same complete imported source for private administrator and community reads.
+pub(crate) async fn selected_history_source(
+    connection: &mut sqlx::PgConnection,
+) -> Result<&'static str> {
+    let aggregates: bool = sqlx::query_scalar("SELECT EXISTS(SELECT FROM core_history.quota_aggregates q JOIN core_history.sources s ON s.source_id=q.source_id WHERE s.complete AND s.contract_version='core.history-source.v1')")
+        .fetch_one(connection)
+        .await?;
+    Ok(if aggregates {
+        "quota_aggregates"
+    } else {
+        "log_records"
+    })
+}
+
 impl CommunityRead {
     /// Startup verification: every relation used is readable, with no probe write.
     pub async fn new(pool: PgPool) -> Result<Self> {
@@ -302,9 +317,8 @@ impl CommunityRead {
         // Historical imports are offline and complete before runtime starts.
         // Table existence/permissions cannot select the source: fresh installs
         // always include both tables and startup requires both read grants.
-        let aggregates: bool = sqlx::query_scalar("SELECT EXISTS(SELECT FROM core_history.quota_aggregates q JOIN core_history.sources s ON s.source_id=q.source_id WHERE s.complete AND s.contract_version='core.history-source.v1')")
-            .fetch_one(&mut *tx)
-            .await?;
+        let history_source = selected_history_source(&mut tx).await?;
+        let aggregates = history_source == "quota_aggregates";
         let history = if aggregates {
             HISTORY_AGGREGATES
         } else {
@@ -328,11 +342,7 @@ impl CommunityRead {
         Ok(Self {
             pool,
             usage,
-            history_source: if aggregates {
-                "quota_aggregates"
-            } else {
-                "log_records"
-            },
+            history_source,
         })
     }
 

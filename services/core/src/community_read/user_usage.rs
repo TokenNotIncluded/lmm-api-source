@@ -48,6 +48,62 @@ fn scoped_usage(history_source: &str) -> String {
     format!("({NATIVE} AND r.actor_user_id=$3) UNION ALL ({history})")
 }
 
+pub(crate) struct UserUsageTotals {
+    pub tokens: u128,
+    pub requests: u128,
+    pub credits: Option<u128>,
+}
+
+pub(crate) struct UserUsageSummary {
+    pub totals: UserUsageTotals,
+    pub model_count: i64,
+}
+
+fn exact_total(value: String) -> Result<u128> {
+    value.parse().map_err(|_| Error::Unavailable)
+}
+
+fn community_number(value: u128) -> Result<i64> {
+    safe(i64::try_from(value).map_err(|_| Error::Unavailable)?)
+}
+
+/// Caller owns authorization and a read-only snapshot. This is the same
+/// actor-scoped, refund-aware projection used by the community profile. Numeric
+/// sums are decoded from decimal text so valid BIGINT rows can total above i64.
+/// Callers retain their separate JSON number/string bounds.
+pub(crate) async fn read_user_usage_summary(
+    connection: &mut sqlx::PgConnection,
+    request: &UserUsageRequest,
+    history_source: &str,
+) -> Result<UserUsageSummary> {
+    request.validate()?;
+    let scoped = scoped_usage(history_source);
+    let row = sqlx::query(sqlx::AssertSqlSafe(format!(
+        "SELECT coalesce(sum(tokens),0)::text AS tokens,
+         coalesce(sum(requests),0)::text AS requests,
+         CASE WHEN coalesce(bool_and(credits IS NOT NULL),true)
+          THEN coalesce(sum(credits),0)::text ELSE NULL END AS credits,
+         count(DISTINCT coalesce(nullif(model,''),'unknown'))::bigint AS models
+         FROM ({scoped}) s"
+    )))
+    .bind(request.start)
+    .bind(request.end)
+    .bind(request.user_id)
+    .fetch_one(connection)
+    .await?;
+    Ok(UserUsageSummary {
+        totals: UserUsageTotals {
+            tokens: exact_total(row.try_get("tokens")?)?,
+            requests: exact_total(row.try_get("requests")?)?,
+            credits: row
+                .try_get::<Option<String>, _>("credits")?
+                .map(exact_total)
+                .transpose()?,
+        },
+        model_count: row.try_get("models")?,
+    })
+}
+
 impl CommunityRead {
     /// Actor-scoped native usage plus the selected complete imported source.
     /// Complete imported hourly aggregates supersede logs, never add to them.
@@ -68,21 +124,15 @@ impl CommunityRead {
             None => (false, String::new(), String::new(), String::new()),
         };
         let scoped = scoped_usage(self.history_source);
-        let totals = sqlx::query(sqlx::AssertSqlSafe(format!(
-            "SELECT coalesce(sum(tokens),0)::bigint AS tokens,
-             coalesce(sum(requests),0)::bigint AS requests,
-             coalesce(bool_and(credits IS NOT NULL),true) AS pricing_available,
-             CASE WHEN coalesce(bool_and(credits IS NOT NULL),true)
-              THEN coalesce(sum(credits),0)::bigint ELSE NULL END AS credits,
-             count(DISTINCT coalesce(nullif(model,''),'unknown'))::bigint AS models
-             FROM ({scoped}) s"
-        )))
-        .bind(r.start)
-        .bind(r.end)
-        .bind(r.user_id)
-        .fetch_one(&mut *tx)
-        .await?;
-        let pricing_available: bool = totals.try_get("pricing_available")?;
+        let summary = read_user_usage_summary(&mut tx, r, self.history_source).await?;
+        // Preserve the existing numeric community contract's JS-safe bounds.
+        // The administrator detail has a separate exact-string contract.
+        let totals = UsageTotals {
+            tokens: community_number(summary.totals.tokens)?,
+            requests: community_number(summary.totals.requests)?,
+            credits: summary.totals.credits.map(community_number).transpose()?,
+        };
+        let pricing_available = totals.credits.is_some();
         let mut buckets = Vec::new();
         if r.bucket_seconds > 0 {
             for row in sqlx::query(sqlx::AssertSqlSafe(format!(
@@ -144,15 +194,8 @@ impl CommunityRead {
             name,
             username,
             platform_role,
-            totals: UsageTotals {
-                tokens: safe(totals.try_get("tokens")?)?,
-                requests: safe(totals.try_get("requests")?)?,
-                credits: totals
-                    .try_get::<Option<i64>, _>("credits")?
-                    .map(safe)
-                    .transpose()?,
-            },
-            model_count: totals.try_get("models")?,
+            totals,
+            model_count: summary.model_count,
             buckets,
             models,
             credits_per_usd: crate::billing::CREDITS_PER_USD,

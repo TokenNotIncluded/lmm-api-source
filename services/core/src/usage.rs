@@ -252,14 +252,28 @@ async fn validate_usage_batch(
     c: &mut sqlx::PgConnection,
     rows: Vec<PgRow>,
 ) -> Result<Vec<ValidatedRequest>, Error> {
+    validate_usage_batch_with(c, rows, ReceiptValidation::new).await
+}
+
+// Used only by the exact-string personal summary. Public JSON-number readers
+// retain validate_usage_batch and its original identity bounds.
+async fn validate_personal_usage_batch(
+    c: &mut sqlx::PgConnection,
+    rows: Vec<PgRow>,
+) -> Result<Vec<ValidatedRequest>, Error> {
+    validate_usage_batch_with(c, rows, ReceiptValidation::new_exact_identifiers).await
+}
+
+async fn validate_usage_batch_with(
+    c: &mut sqlx::PgConnection,
+    rows: Vec<PgRow>,
+    validator: fn(&PgRow) -> Result<ReceiptValidation, InvalidReceipt>,
+) -> Result<Vec<ValidatedRequest>, Error> {
     let mut order = Vec::with_capacity(rows.len());
     let mut validators = HashMap::with_capacity(rows.len());
     for row in rows {
         let id: String = row.try_get("id")?;
-        if validators
-            .insert(id.clone(), ReceiptValidation::new(&row)?)
-            .is_some()
-        {
+        if validators.insert(id.clone(), validator(&row)?).is_some() {
             return Err(Error::Storage);
         }
         order.push(id);
