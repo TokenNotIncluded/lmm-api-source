@@ -581,9 +581,7 @@ function SubscriptionWallet({
           })}
         </ul>
         {!loading && !purchases.length && (
-          <p className='text-muted-foreground text-sm'>
-            {t('No data')}
-          </p>
+          <p className='text-muted-foreground text-sm'>{t('No data')}</p>
         )}
       </CardContent>
       <Dialog
