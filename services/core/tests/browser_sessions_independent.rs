@@ -28,20 +28,6 @@ impl RuntimeRole {
         let database = owner.connect_options().get_database().unwrap().to_owned();
         let mut admin = reqwest::Url::parse(&std::env::var("DATABASE_URL").unwrap()).unwrap();
         assert_eq!(admin.host_str(), Some("127.0.0.1"));
-        // The official grant script refuses, and rolls back, unless the NOLOGIN
-        // installation owner already exists. That role is cluster-wide.
-        sqlx::raw_sql(
-            "DO $$ BEGIN \
-                CREATE ROLE lmm_core_owner NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS; \
-             EXCEPTION WHEN duplicate_object THEN \
-                IF EXISTS (SELECT FROM pg_roles r WHERE r.rolname='lmm_core_owner' AND r.rolcanlogin) THEN \
-                    RAISE EXCEPTION 'installation owner must not log in'; \
-                END IF; \
-             END $$;",
-        )
-        .execute(owner)
-        .await
-        .unwrap();
         let grants = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("../../deployment/postgres/grant-core-runtime.sql");
         let output = std::process::Command::new("/usr/bin/psql")
@@ -51,6 +37,8 @@ impl RuntimeRole {
                 "ON_ERROR_STOP=1",
                 "-v",
                 &format!("runtime_role={name}"),
+                "-v",
+                "owner_role=lmm_core_owner",
                 "-v",
                 "enable_oauth2=true",
                 "-v",
@@ -123,11 +111,53 @@ impl Drop for Host {
         self.task.abort();
     }
 }
+async fn install_schema(owner: &PgPool) {
+    // Match the official installation boundary: the NOLOGIN role must own the
+    // schema it installs, not merely exist when runtime grants are applied.
+    sqlx::raw_sql(
+        "DO $$ BEGIN \
+            CREATE ROLE lmm_core_owner NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS; \
+         EXCEPTION WHEN duplicate_object THEN \
+            IF EXISTS (SELECT FROM pg_roles r WHERE r.rolname='lmm_core_owner' AND r.rolcanlogin) THEN \
+                RAISE EXCEPTION 'installation owner must not log in'; \
+            END IF; \
+         END $$;",
+    )
+    .execute(owner)
+    .await
+    .unwrap();
+    let database = owner.connect_options().get_database().unwrap().to_owned();
+    assert!(
+        database
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || byte == b'_')
+    );
+    sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
+        "ALTER DATABASE \"{database}\" OWNER TO lmm_core_owner; ALTER SCHEMA public OWNER TO lmm_core_owner"
+    )))
+    .execute(owner)
+    .await
+    .unwrap();
+    let installation = sqlx::postgres::PgPoolOptions::new()
+        .max_connections(3)
+        .after_connect(|connection, _| {
+            Box::pin(async move {
+                sqlx::query("SET ROLE lmm_core_owner")
+                    .execute(connection)
+                    .await?;
+                Ok(())
+            })
+        })
+        .connect_with(owner.connect_options().as_ref().clone())
+        .await
+        .unwrap();
+    lmm_core::core_schema::init(&installation).await.unwrap();
+    installation.close().await;
+}
+
 async fn setup(owner: &PgPool) -> (BrowserAuth, RuntimeRole, Host) {
+    install_schema(owner).await;
     let store = IdentityStore::from_pool(owner.clone()).with_registration_enabled(true);
-    // The shared restricted runtime role is provisioned against the complete
-    // official fresh schema, including the ledger functions in its grants.
-    lmm_core::core_schema::init(owner).await.unwrap();
     let seed = BrowserAuth::new(store, &[69; 32]).unwrap();
     for name in ["independent_alice", "independent_bob"] {
         seed.register(&BrowserRegistration {

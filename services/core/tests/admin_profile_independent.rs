@@ -312,11 +312,7 @@ async fn revocation_committed_while_patch_waits_on_actor_lock_prevents_mutation(
     });
     // AUTH is 1055 bytes before the suffix; pg_stat_activity commonly
     // truncates at 1KiB, so require the unique AUTH prefix plus a real Lock wait.
-    wait_for_writer_lock(
-        &pool,
-        "SELECT c.id,c.kind,c.user_id,c.user_version,c.owner_account_id",
-    )
-    .await;
+    wait_for_writer_lock(&pool, "SELECT c.id,c.kind,c.user_id,c.user_version,").await;
     tx.commit().await.unwrap();
     let before = data_fingerprint(&pool).await;
     let seq = sequences(&pool).await;

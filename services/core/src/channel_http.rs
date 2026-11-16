@@ -1080,3 +1080,7 @@ mod tests {
 #[cfg(test)]
 #[path = "channel_http/authorization_tests.rs"]
 mod authorization_tests;
+
+#[cfg(test)]
+#[path = "channel_http/recovery_tests.rs"]
+mod recovery_tests;

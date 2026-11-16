@@ -1348,10 +1348,12 @@ async fn private_activity_counts_completed_native_requests_only(pool: PgPool) {
         ),
         (7, (at / 86400) * 86400, at, at)
     );
+    // The exclusive-end check must have a nonempty window even when the
+    // initial wall-clock sample rounds up to the request's persisted second.
     let excluded = read
         .native_activity(&ActivityRequest {
             user_ids: vec![7],
-            from: before,
+            from: at - 1,
             to: at,
         })
         .await

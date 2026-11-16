@@ -138,6 +138,10 @@ fn invalid_arguments_are_rejected_without_echoing_or_reading_configuration() {
 
 #[test]
 fn retired_checkin_commands_are_rejected_before_config_or_stdin() {
+    let unknown = run(&["unknown-retired-checkin-command"], b"", &[]);
+    assert!(!unknown.status.success());
+    assert!(unknown.stdout.is_empty());
+    let unknown_error = String::from_utf8(unknown.stderr).unwrap();
     for name in ["seed-checkin-history", "publish-checkin-policy"] {
         let mut child = file_core(&[name, "--config", "/missing-retired-command.toml"])
             .spawn()
@@ -151,7 +155,10 @@ fn retired_checkin_commands_are_rejected_before_config_or_stdin() {
         let error = String::from_utf8(output.stderr).unwrap();
         assert!(error.contains("Usage: lmm-core"), "{error}");
         assert!(!error.contains(name));
-        assert!(!error.contains("configuration"));
+        assert_eq!(
+            error, unknown_error,
+            "retired commands must fail in argument parsing before configuration or stdin"
+        );
     }
 }
 
@@ -663,7 +670,7 @@ async fn assembled_service_exposes_web_auth_and_explicit_capabilities_without_go
     std::fs::write(&database, url.as_bytes()).unwrap();
     std::fs::set_permissions(&database, std::fs::Permissions::from_mode(0o600)).unwrap();
     let configuration = directory.join("core.toml");
-    std::fs::write(&configuration, format!("version=1\n[server]\nlisten='{address}'\n[database]\nurl_file='{}'\n[identity]\nregistration_enabled=true\npassword_register_enabled=true\noauth_register_enabled=false\nregistration_disabled_methods=[]\nemail_verification_enabled=false\nemail_domain_restriction_enabled=false\nemail_domain_whitelist=[]\n[identity.web]\norigin='http://api.lmm.local'\nrefresh_key_file='{}'\nlocal_http=true\nuser_agreement_enabled=false\nprivacy_policy_enabled=false\n[console]\nenabled=true\n[rpc]\nsocket='{}'\ntoken_file='{}'\n",database.display(),key.display(),socket_path.display(),token.display())).unwrap();
+    std::fs::write(&configuration, format!("version=1\n[server]\nlisten='{address}'\n[database]\nurl_file='{}'\n[identity]\nregistration_enabled=true\npassword_register_enabled=true\noauth_register_enabled=false\nregistration_disabled_methods=[]\nemail_verification_enabled=false\nemail_domain_restriction_enabled=false\nemail_domain_whitelist=[]\n[identity.web]\norigin='http://{address}'\nrefresh_key_file='{}'\nlocal_http=true\nuser_agreement_enabled=false\nprivacy_policy_enabled=false\n[console]\nenabled=true\n[rpc]\nsocket='{}'\ntoken_file='{}'\n",database.display(),key.display(),socket_path.display(),token.display())).unwrap();
     let mut service = Service(
         file_core(&["--config", configuration.to_str().unwrap(), "serve"])
             .spawn()
@@ -676,7 +683,17 @@ async fn assembled_service_exposes_web_auth_and_explicit_capabilities_without_go
     let endpoint = format!("http://{address}");
     let deadline = Instant::now() + Duration::from_secs(5);
     let health = loop {
-        assert!(service.0.try_wait().unwrap().is_none());
+        if let Some(status) = service.0.try_wait().unwrap() {
+            use std::io::Read;
+            let mut stderr = Vec::new();
+            if let Some(pipe) = service.0.stderr.take() {
+                pipe.take(16 * 1024).read_to_end(&mut stderr).unwrap();
+            }
+            panic!(
+                "assembled service exited {status}: {}",
+                String::from_utf8_lossy(&stderr).replace(&url, "[redacted database URL]")
+            );
+        }
         if let Ok(response) = client.get(format!("{endpoint}/health/ready")).send().await {
             assert_eq!(response.status(), 200);
             break response.json::<serde_json::Value>().await.unwrap();
@@ -732,7 +749,7 @@ async fn assembled_service_exposes_web_auth_and_explicit_capabilities_without_go
         403
     );
     let registered = client.post(format!("{endpoint}/api/user/register"))
-        .header("origin","http://api.lmm.local")
+        .header("origin", endpoint.as_str())
         .json(&serde_json::json!({"username":"runtime_user","password":"abc12345","accepted_legal":false}))
         .send().await.unwrap();
     assert_eq!(registered.status(), 200);
@@ -740,7 +757,7 @@ async fn assembled_service_exposes_web_auth_and_explicit_capabilities_without_go
     assert_eq!(registered["success"], true);
     let login = client
         .post(format!("{endpoint}/api/user/login"))
-        .header("origin", "http://api.lmm.local")
+        .header("origin", endpoint.as_str())
         .json(&serde_json::json!({"username":"runtime_user","password":"abc12345"}))
         .send()
         .await
@@ -813,7 +830,7 @@ async fn assembled_service_exposes_web_auth_and_explicit_capabilities_without_go
     // A stalled request body must not pin graceful shutdown. This deadline is
     // confined to body intake and cannot abort a financial finalizer.
     let mut slow_client = std::net::TcpStream::connect(address).unwrap();
-    write!(slow_client,"POST /api/user/login HTTP/1.1\r\nHost: api.lmm.local\r\nOrigin: http://api.lmm.local\r\nContent-Type: application/json\r\nContent-Length: 512\r\n\r\n{{\"username\":\"").unwrap();
+    write!(slow_client,"POST /api/user/login HTTP/1.1\r\nHost: {address}\r\nOrigin: {endpoint}\r\nContent-Type: application/json\r\nContent-Length: 512\r\n\r\n{{\"username\":\"").unwrap();
     slow_client.flush().unwrap();
     tokio::time::sleep(Duration::from_millis(100)).await;
     let started = Instant::now();
@@ -902,6 +919,9 @@ WITH catalog_path AS MATERIALIZED (
 ), definitions AS (
  SELECT json_build_array('relation',n.nspname,c.relname,c.relkind)::text AS definition
  FROM pg_class c JOIN ns n ON n.oid=c.relnamespace
+ UNION ALL
+ SELECT json_build_array('view',n.nspname,c.relname,pg_get_viewdef(c.oid,true),c.reloptions)::text
+ FROM pg_class c JOIN ns n ON n.oid=c.relnamespace WHERE c.relkind IN ('v','m')
  UNION ALL
  SELECT json_build_array('column',n.nspname,c.relname,a.attnum,a.attname,
    format_type(a.atttypid,a.atttypmod),a.attnotnull,a.attidentity,a.attgenerated,
