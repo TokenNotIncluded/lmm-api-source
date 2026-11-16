@@ -1188,6 +1188,55 @@ async fn prepared_contract_damaged_live_proof_keeps_raw_terminal_audit_without_c
                 .is_err()
         );
         assert_eq!(liability_snapshot(&f.pool, &id).await, before);
+        let checkpoint = OutputCheckpoint {
+            sequence: 1,
+            packet_sha256: [47; 32],
+            packet_bytes: 128,
+            usage: usage(10),
+            terminal_observed: true,
+        };
+        for _ in 0..2 {
+            assert!(matches!(
+                g.bridge.persist_output(&reservation, &checkpoint).await,
+                Err(RelayError::SettlementPending)
+            ));
+        }
+        let audited = liability_snapshot(&f.pool, &id).await;
+        for section in ["request", "holds", "commands", "checks"] {
+            assert_eq!(
+                audited[section], before[section],
+                "checkpoint changed {section}"
+            );
+        }
+        let old_events = before["events"].as_array().unwrap();
+        let audit_events = audited["events"].as_array().unwrap();
+        assert_eq!(audit_events.len(), old_events.len() + 1);
+        for event in old_events {
+            assert!(
+                audit_events.contains(event),
+                "checkpoint changed prior evidence"
+            );
+        }
+        let raw: serde_json::Value = sqlx::query_scalar(
+            "SELECT detail FROM core_charging.usage_events WHERE request_id=$1 AND event_id='provider-observation:terminal'",
+        )
+        .bind(&id)
+        .fetch_one(&f.pool)
+        .await
+        .unwrap();
+        assert_eq!(
+            raw,
+            json!({
+                "kind": "provider_observation",
+                "provider_complete": true,
+                "settlement_eligible": false,
+                "route_id": route.id,
+                "raw_usage": serde_json::to_value(usage(10)).unwrap(),
+                "input_token_ceiling": 24,
+                "output_token_ceiling": 8,
+            })
+        );
+        assert_eq!(checkpoint_rows(&f.pool, &id).await, 0);
         assert!(
             g.bridge
                 .finalize(&reservation, &terminal(&id, &route, usage(10)))

@@ -22,7 +22,6 @@ pub(super) enum TerminalEvidence<'a> {
 }
 struct ValidatedCheckpoint {
     worker: [u8; 32],
-    output_ceiling: u32,
     selected: super::routing::Selected,
     frozen: crate::billing::charging::Charge,
     contract: crate::billing::charging::contract::ReservationContract,
@@ -534,6 +533,7 @@ impl Bridge {
         &self,
         reservation: &Reservation,
         checkpoint: &OutputCheckpoint,
+        evidence: TerminalEvidence<'_>,
     ) -> Result<ValidatedCheckpoint, RelayError> {
         let (worker, output_ceiling, selected) = {
             let active = self
@@ -551,6 +551,25 @@ impl Bridge {
             )
         };
         let frozen = self.charging.reservation_contract(&reservation.id).await;
+        if checkpoint.terminal_observed && matches!(evidence, TerminalEvidence::Ordinary) {
+            // Preserve raw terminal evidence before validation can reject it.
+            // An unreadable proof only permits an audit with the selected model
+            // ceiling; it never authorizes output, settlement or recovery.
+            let input_ceiling = frozen
+                .as_ref()
+                .map_or(selected.input_token_ceiling, |(_, contract)| {
+                    contract.bounds().0 as i64
+                });
+            self.persist_provider_observation(
+                &reservation.id,
+                &worker,
+                &selected.route_id,
+                checkpoint.usage.clone(),
+                input_ceiling,
+                output_ceiling,
+            )
+            .await?;
+        }
         let (frozen, contract) = frozen.map_err(|_| RelayError::SettlementPending)?;
         if frozen.price != selected.price {
             return Err(RelayError::SettlementPending);
@@ -591,7 +610,6 @@ impl Bridge {
             i64::try_from(checkpoint.packet_bytes).map_err(|_| RelayError::SettlementPending)?;
         Ok(ValidatedCheckpoint {
             worker,
-            output_ceiling,
             selected,
             frozen,
             contract,
@@ -609,7 +627,6 @@ impl Bridge {
     ) -> Result<(), RelayError> {
         let ValidatedCheckpoint {
             worker,
-            output_ceiling,
             selected,
             frozen,
             contract,
@@ -618,19 +635,8 @@ impl Bridge {
             sequence,
             bytes,
         } = self
-            .validate_output_checkpoint(reservation, checkpoint)
+            .validate_output_checkpoint(reservation, checkpoint, evidence)
             .await?;
-        if checkpoint.terminal_observed && matches!(evidence, TerminalEvidence::Ordinary) {
-            self.persist_provider_observation(
-                &reservation.id,
-                &worker,
-                &selected.route_id,
-                checkpoint.usage.clone(),
-                contract.bounds().0 as i64,
-                output_ceiling,
-            )
-            .await?;
-        }
         for attempt in 0..3 {
             let mut tx = self
                 .pool
