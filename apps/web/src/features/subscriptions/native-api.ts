@@ -213,6 +213,37 @@ export async function confirmNativeSubscription(
   }
   return result
 }
+export async function readNativeSubscription(
+  scope: CommerceScope,
+  quote: NativeQuote
+): Promise<NativeReceipt | null> {
+  const result = await commerceRequest(
+    scope,
+    'get',
+    `${base}/quotes/${quote.id}`,
+    z
+      .object({
+        contract: z.literal('core.subscriptions.v1'),
+        quote: quoteSchema,
+        receipt: receiptSchema.nullable(),
+      })
+      .strict()
+  )
+  if (
+    result.quote.id !== quote.id ||
+    result.quote.plan.id !== quote.plan.id ||
+    result.quote.plan.revision !== quote.plan.revision ||
+    result.quote.plan.terms.price_units !== quote.plan.terms.price_units ||
+    result.quote.renew_from !== quote.renew_from ||
+    (result.receipt &&
+      (result.receipt.quote_id !== quote.id ||
+        result.receipt.amount_units !== quote.plan.terms.price_units ||
+        result.receipt.status === 'refunded'))
+  ) {
+    throw new CommerceFailure('INVALID_RESPONSE')
+  }
+  return result.receipt
+}
 export async function previewNativeRefund(
   scope: CommerceScope,
   purchase: NativePurchase

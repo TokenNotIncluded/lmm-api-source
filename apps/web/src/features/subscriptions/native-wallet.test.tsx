@@ -380,3 +380,147 @@ test('renew uses the current balance-enabled catalogue plan, preserves record re
     useAuthStore.setState({ auth })
   }
 })
+
+test('saved purchase status recovers its receipt with GET only and preserves unknown or mismatched reads', async () => {
+  const adapter = api.defaults.adapter
+  const auth = useAuthStore.getState().auth
+  dom.sessionStorage.clear()
+  login()
+  const plan = {
+    id: 4,
+    revision: 1,
+    archived: false,
+    terms: {
+      title: 'Recoverable Plan',
+      price_units: '100000',
+      duration_seconds: 3600,
+      reset_period: 'grant',
+      reset_seconds: 0,
+      limit_units: '1000',
+      models: ['*'],
+      groups: ['*'],
+      max_purchases_per_user: 0,
+      enabled: true,
+    },
+  }
+  const quote = {
+    id: 'd'.repeat(64),
+    plan,
+    starts_at: 1700000000,
+    ends_at: 1700003600,
+    expires_at: 1700000300,
+    renew_from: null,
+  }
+  const receipt = {
+    quote_id: quote.id,
+    status: 'posted',
+    purchase_id: 8,
+    subscription_id: 9,
+    journal_id: 10,
+    amount_units: '100000',
+    rejection: null,
+  }
+  const key = 'lmm-commerce:52:synthetic-wallet-session:subscription'
+  dom.sessionStorage.setItem(
+    key,
+    JSON.stringify({
+      kind: 'purchase',
+      request: {
+        operation_key: 'saved-subscription-key',
+        plan_id: plan.id,
+        renew_from: null,
+      },
+      quote,
+      confirmed: true,
+    })
+  )
+  let mode = 'pending'
+  let reads = 0
+  let writes = 0
+  api.defaults.adapter = async (config) => {
+    if (config.method !== 'get') writes++
+    assert.equal(
+      config.method,
+      'get',
+      'status recovery must never dispatch payment'
+    )
+    assert.deepEqual(config.authScope, {
+      userId: 52,
+      sessionId: 'synthetic-wallet-session',
+    })
+    let data: unknown
+    if (config.url === `/core/v1/subscriptions/quotes/${quote.id}`) {
+      reads++
+      if (mode === 'missing') {
+        throw Object.assign(new Error('not found'), {
+          isAxiosError: true,
+          response: {
+            status: 404,
+            data: { error: { code: 'SUBSCRIPTION_NOT_FOUND' } },
+          },
+        })
+      }
+      data = {
+        contract: 'core.subscriptions.v1',
+        quote,
+        receipt:
+          mode === 'pending'
+            ? null
+            : mode === 'mismatched'
+              ? { ...receipt, quote_id: 'c'.repeat(64) }
+              : receipt,
+      }
+    } else if (config.url === '/core/v1/subscriptions/plans') {
+      data = { contract: 'core.subscriptions.v1', plans: [plan] }
+    } else if (config.url === '/core/v1/subscriptions/purchases') {
+      data = { contract: 'core.subscriptions.v1', purchases: [] }
+    } else {
+      data = { prices: [] }
+    }
+    return { config, data, headers: {}, status: 200, statusText: 'OK' }
+  }
+  const container = document.body.appendChild(document.createElement('div'))
+  const root = createRoot(container)
+  try {
+    await act(async () => {
+      root.render(
+        <I18nextProvider i18n={i18n}>
+          <NativeWalletSubscriptions />
+        </I18nextProvider>
+      )
+      await flush()
+      await flush()
+    })
+    assert.equal(
+      reads,
+      0,
+      'mount restores the operation without dispatching it'
+    )
+    for (mode of ['pending', 'missing', 'mismatched']) {
+      await click('Refresh payment status')
+      assert.ok(dom.sessionStorage.getItem(key))
+      assert.match(container.textContent ?? '', /Result unknown/)
+      assert.ok(
+        ![...container.querySelectorAll('button')].some(
+          (button) => button.textContent?.trim() === 'Cancel'
+        ),
+        'a failed read never releases an uncertain debit for a new operation'
+      )
+    }
+    mode = 'posted'
+    await click('Refresh payment status')
+    assert.equal(reads, 4)
+    assert.equal(writes, 0)
+    assert.equal(dom.sessionStorage.getItem(key), null)
+    assert.match(
+      container.textContent ?? '',
+      /Subscription purchased successfully/
+    )
+    assert.match(container.textContent ?? '', /100,000 Core credits/)
+  } finally {
+    await act(async () => root.unmount())
+    container.remove()
+    api.defaults.adapter = adapter
+    useAuthStore.setState({ auth })
+  }
+})

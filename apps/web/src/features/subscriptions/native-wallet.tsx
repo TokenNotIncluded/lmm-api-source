@@ -41,6 +41,7 @@ import {
   previewNativeRefund,
   purchasePendingSchema,
   quoteNativeSubscription,
+  readNativeSubscription,
   type NativePlan,
   type NativePurchase,
   type NativeReceipt,
@@ -197,6 +198,30 @@ function SubscriptionWallet({
       await load()
     })
   }
+  function refreshPayment() {
+    if (pending?.kind !== 'purchase' || !pending.quote) return
+    const quote = pending.quote
+    void run(async () => {
+      let result: NativeReceipt | null
+      try {
+        result = await readNativeSubscription(scope, quote)
+      } catch {
+        // A failed status read cannot prove that the original debit failed.
+        throw new CommerceFailure('RESULT_UNKNOWN')
+      }
+      if (!current()) return
+      if (!result) {
+        setNotice(
+          t('Result unknown. Retry the saved request before starting another.')
+        )
+        return
+      }
+      setReceipt(result)
+      remember(null)
+      onUpdated?.()
+      await load()
+    })
+  }
   function refund(item: NativePurchase) {
     void run(async () => {
       const quote = await previewNativeRefund(scope, item)
@@ -274,6 +299,99 @@ function SubscriptionWallet({
           {t('Refresh')}
         </Button>
         {loading && <p role='status'>{t('Loading...')}</p>}
+        {pending && (
+          <Alert>
+            <AlertDescription className='space-y-3'>
+              <p className='font-medium'>
+                {t(
+                  pending.kind === 'refund'
+                    ? 'Confirm refund'
+                    : 'Confirm purchase'
+                )}
+                {amount ? ` · ${credits(amount)}` : ''}
+              </p>
+              {pending.kind === 'refund' ? (
+                <p>
+                  {t(
+                    'Full refunds are available only before any subscription use.'
+                  )}
+                </p>
+              ) : (
+                pending.quote && (
+                  <div className='space-y-1'>
+                    <p>
+                      {pending.quote.plan.terms.title} ·{' '}
+                      {new Date(pending.quote.starts_at * 1000).toLocaleString(
+                        locale
+                      )}{' '}
+                      —{' '}
+                      {new Date(pending.quote.ends_at * 1000).toLocaleString(
+                        locale
+                      )}
+                    </p>
+                    <p>
+                      {t('Quota')}:{' '}
+                      {credits(pending.quote.plan.terms.limit_units)} ·{' '}
+                      {t('Quota reset period')}:{' '}
+                      {t(
+                        {
+                          grant: 'Never',
+                          day: 'Daily',
+                          week: 'Weekly',
+                          month: 'Monthly',
+                          anniversary_month: 'Anniversary month',
+                          custom: 'Custom',
+                        }[pending.quote.plan.terms.reset_period]
+                      )}
+                      {pending.quote.plan.terms.reset_period === 'custom'
+                        ? ` (${pending.quote.plan.terms.reset_seconds.toLocaleString(locale)} s)`
+                        : ''}
+                    </p>
+                    <p className='break-words'>
+                      {t('Models')}:{' '}
+                      {pending.quote.plan.terms.models.join(', ')} ·{' '}
+                      {t('Groups')}:{' '}
+                      {pending.quote.plan.terms.groups.join(', ')}
+                    </p>
+                  </div>
+                )
+              )}
+              <div className='flex flex-wrap gap-2'>
+                <Button disabled={busy || storageBlocked} onClick={retry}>
+                  {t(
+                    pending.confirmed || !pending.quote
+                      ? 'Retry saved request'
+                      : 'Confirm'
+                  )}
+                </Button>
+                {pending.kind === 'purchase' &&
+                  pending.quote &&
+                  pending.confirmed && (
+                    <Button
+                      variant='outline'
+                      disabled={busy || storageBlocked}
+                      onClick={refreshPayment}
+                    >
+                      {t('Refresh payment status')}
+                    </Button>
+                  )}
+                {(!pending.confirmed || refused) && (
+                  <Button
+                    variant='outline'
+                    disabled={busy}
+                    onClick={() => {
+                      remember(null)
+                      setNotice('')
+                      setRefused(false)
+                    }}
+                  >
+                    {t('Cancel')}
+                  </Button>
+                )}
+              </div>
+            </AlertDescription>
+          </Alert>
+        )}
         <ul className='divide-y'>
           {plans
             .filter((plan) => plan.terms.allow_balance_pay)
@@ -282,13 +400,16 @@ function SubscriptionWallet({
                 key={plan.id}
                 className='flex flex-wrap items-center justify-between gap-3 py-3'
               >
-                <div>
-                  <p className='font-medium'>{plan.terms.title}</p>
+                <div className='min-w-0'>
+                  <p className='font-medium break-words'>{plan.terms.title}</p>
                   <p className='text-muted-foreground text-sm'>
                     {credits(plan.terms.price_units)} ·{' '}
                     {(plan.terms.duration_months ?? 0) > 0
                       ? `${plan.terms.duration_months?.toLocaleString(locale)} ${t('months')}`
                       : `${t('Duration (seconds)')}: ${plan.terms.duration_seconds.toLocaleString(locale)}`}
+                  </p>
+                  <p className='text-muted-foreground text-sm tabular-nums'>
+                    {t('Quota')}: {credits(plan.terms.limit_units)}
                   </p>
                 </div>
                 <Button disabled={disabled} onClick={() => preview(plan)}>
@@ -394,10 +515,26 @@ function SubscriptionWallet({
                   {new Date(item.starts_at * 1000).toLocaleString(locale)} —{' '}
                   {new Date(item.ends_at * 1000).toLocaleString(locale)}
                 </p>
-                <p className='text-sm'>
-                  {t('Used')}: {credits(item.used_units)} · {t('Reserved')}:{' '}
-                  {credits(item.reserved_units)}
-                </p>
+                <dl className='grid gap-3 text-sm sm:grid-cols-3'>
+                  <div>
+                    <dt className='text-muted-foreground'>{t('Quota')}</dt>
+                    <dd className='mt-1 tabular-nums'>
+                      {credits(item.plan.terms.limit_units)}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt className='text-muted-foreground'>{t('Used')}</dt>
+                    <dd className='mt-1 tabular-nums'>
+                      {credits(item.used_units)}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt className='text-muted-foreground'>{t('Reserved')}</dt>
+                    <dd className='mt-1 tabular-nums'>
+                      {credits(item.reserved_units)}
+                    </dd>
+                  </div>
+                </dl>
                 <div className='flex flex-wrap gap-2'>
                   {renewalPlan?.terms.allow_balance_pay && (
                     <Button
@@ -443,87 +580,10 @@ function SubscriptionWallet({
             )
           })}
         </ul>
-        {pending && (
-          <Alert>
-            <AlertDescription className='space-y-3'>
-              <p className='font-medium'>
-                {t(
-                  pending.kind === 'refund'
-                    ? 'Confirm refund'
-                    : 'Confirm purchase'
-                )}
-                {amount ? ` · ${credits(amount)}` : ''}
-              </p>
-              {pending.kind === 'refund' ? (
-                <p>
-                  {t(
-                    'Full refunds are available only before any subscription use.'
-                  )}
-                </p>
-              ) : (
-                pending.quote && (
-                  <div className='space-y-1'>
-                    <p>
-                      {pending.quote.plan.terms.title} ·{' '}
-                      {new Date(pending.quote.starts_at * 1000).toLocaleString(
-                        locale
-                      )}{' '}
-                      —{' '}
-                      {new Date(pending.quote.ends_at * 1000).toLocaleString(
-                        locale
-                      )}
-                    </p>
-                    <p>
-                      {t('Quota')}:{' '}
-                      {credits(pending.quote.plan.terms.limit_units)} ·{' '}
-                      {t('Quota reset period')}:{' '}
-                      {t(
-                        {
-                          grant: 'Never',
-                          day: 'Daily',
-                          week: 'Weekly',
-                          month: 'Monthly',
-                          anniversary_month: 'Anniversary month',
-                          custom: 'Custom',
-                        }[pending.quote.plan.terms.reset_period]
-                      )}
-                      {pending.quote.plan.terms.reset_period === 'custom'
-                        ? ` (${pending.quote.plan.terms.reset_seconds.toLocaleString(locale)} s)`
-                        : ''}
-                    </p>
-                    <p className='break-words'>
-                      {t('Models')}:{' '}
-                      {pending.quote.plan.terms.models.join(', ')} ·{' '}
-                      {t('Groups')}:{' '}
-                      {pending.quote.plan.terms.groups.join(', ')}
-                    </p>
-                  </div>
-                )
-              )}
-              <div className='flex flex-wrap gap-2'>
-                <Button disabled={busy || storageBlocked} onClick={retry}>
-                  {t(
-                    pending.confirmed || !pending.quote
-                      ? 'Retry saved request'
-                      : 'Confirm'
-                  )}
-                </Button>
-                {(!pending.confirmed || refused) && (
-                  <Button
-                    variant='outline'
-                    disabled={busy}
-                    onClick={() => {
-                      remember(null)
-                      setNotice('')
-                      setRefused(false)
-                    }}
-                  >
-                    {t('Cancel')}
-                  </Button>
-                )}
-              </div>
-            </AlertDescription>
-          </Alert>
+        {!loading && !purchases.length && (
+          <p className='text-muted-foreground text-sm'>
+            {t('No data')}
+          </p>
         )}
       </CardContent>
       <Dialog
