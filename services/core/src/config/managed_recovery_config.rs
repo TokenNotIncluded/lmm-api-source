@@ -258,14 +258,17 @@ mod tests {
             self.write(&self.secrets.join(name), &[value; 32])
         }
         fn document(&self, name: &str, value: serde_json::Value) -> PathBuf {
+            // Decode JSON numbers before TOML serialization: arbitrary_precision
+            // otherwise emits serde_json's private numeric wrapper as a table.
+            let value: toml::Table = serde_json::from_value(value).unwrap();
             self.write(
                 &self.secrets.join(name),
-                &serde_json::to_vec(&value).unwrap(),
+                toml::to_string(&value).unwrap().as_bytes(),
             )
         }
         fn managed_ring(&mut self, current: &Path) {
             let path = self.document(
-                "managed.json",
+                "managed.toml",
                 json!({
                     "version": 1, "active_key_id": "current", "keys": [
                         {"id": "current", "key_file": current},
@@ -309,7 +312,7 @@ mod tests {
                     ring["replay_key_file"] = json!(replay);
                     paths.push(replay);
                 }
-                let path = self.document(&format!("{name}.json"), ring);
+                let path = self.document(&format!("{name}.toml"), ring);
                 self.settings.insert(setting, path.into_os_string());
             }
             let proof = self.key("email-proof", 17 + paths.len() as u8);
@@ -320,7 +323,7 @@ mod tests {
             paths.push(current.clone());
             let retired = self.key("email-retired", 17 + paths.len() as u8);
             paths.push(retired.clone());
-            let email = self.document("email.json", json!({
+            let email = self.document("email.toml", json!({
                 "challenge_key_id": "proof-v1", "proof_key_file": proof,
                 "rate_key_file": rate, "active_key_id": "current",
                 "key_files": {"current": current, "retired": retired},
@@ -454,7 +457,7 @@ mod tests {
      {
         let mut fixture = Fixture::new();
         assert!(fixture.load(true).is_ok());
-        let ring = fixture.secrets.join("managed.json");
+        let ring = fixture.secrets.join("managed.toml");
         let outside = fixture.write(
             &fixture.root.join("outside-ring"),
             &fs::read(&ring).unwrap(),
