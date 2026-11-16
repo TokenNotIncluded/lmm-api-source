@@ -477,23 +477,3 @@ export interface FetchLogsConfig {
   signal?: AbortSignal
   scope?: UsageStatisticsScope
 }
-
-// ============================================================================
-// User Info Types
-// ============================================================================
-
-export interface UserInfo {
-  id: number
-  username: string
-  display_name?: string
-  quota: number
-  used_quota: number
-  normalized_used_quota?: number | null
-  usage_projection_available?: boolean
-  request_count: number
-  group?: string
-  aff_code?: string
-  aff_count?: number
-  aff_quota?: number
-  remark?: string
-}

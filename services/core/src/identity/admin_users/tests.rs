@@ -909,3 +909,138 @@ fn json_number_bounds_and_defaults_fail_closed() {
     let q = UsersQuery::default().validate().unwrap();
     assert_eq!((q.page, q.size, q.offset), (1, 20, 0));
 }
+
+#[sqlx::test(migrations = false)]
+async fn exact_user_detail_preserves_the_list_wallet_projection_and_is_read_only(pool: PgPool) {
+    let f = fresh(&pool).await;
+    person(&f, &pool, 10, 0, "selected-user").await;
+    person(&f, &pool, 11, 0, "contains-10").await;
+    person(&f, &pool, 9_007_199_254_740_993, 0, "large-user").await;
+    let (ledger, account) = fund(&f, &pool, 10).await;
+    ledger_action(
+        &ledger,
+        "detail-reserve",
+        10,
+        Action::Reserve {
+            account_id: account,
+            amount_units: Credits::try_from(200).unwrap(),
+        },
+    )
+    .await;
+    let before = state(&pool).await;
+    let list = page(&f, &f.admin, search("10")).await;
+    assert_eq!(
+        list["total"], 2,
+        "numeric keyword search also matches profile text"
+    );
+    let detail = serde_json::to_value(f.store.user(&f.admin, 10).await.unwrap()).unwrap();
+    assert_eq!(detail["version"], 1);
+    assert_eq!(detail["user"]["id"], "10");
+    assert_eq!(
+        &detail["user"],
+        list["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|row| row["id"] == "10")
+            .unwrap()
+    );
+    assert_eq!(detail["user"]["wallet"]["available_units"], "800");
+    assert_eq!(detail["user"]["wallet"]["reserved_units"], "200");
+    assert_eq!(detail["user"]["wallet"]["money_available"], false);
+    let large =
+        serde_json::to_value(f.store.user(&f.root, 9_007_199_254_740_993).await.unwrap()).unwrap();
+    assert_eq!(large["user"]["id"], "9007199254740993");
+    assert!(matches!(
+        f.store.user(&f.admin, 999).await,
+        Err(AdminUsersError::NotFound)
+    ));
+    assert_eq!(before, state(&pool).await);
+    sqlx::query("UPDATE core_identity.users SET active=FALSE WHERE id=10")
+        .execute(&pool)
+        .await
+        .unwrap();
+    let before = state(&pool).await;
+    let disabled = serde_json::to_value(f.store.user(&f.admin, 10).await.unwrap()).unwrap();
+    assert_eq!(disabled["user"]["wallet"]["status"], "unavailable");
+    assert!(disabled["user"]["wallet"].get("wallet_units").is_none());
+    assert_eq!(before, state(&pool).await);
+    f.role.cleanup().await;
+}
+
+#[sqlx::test(migrations = false)]
+async fn exact_user_detail_http_keeps_session_authority_and_private_cache_policy(pool: PgPool) {
+    let f = fresh(&pool).await;
+    let ordinary = person(&f, &pool, 10, 4, "detail-target").await;
+    let key = f
+        .identity
+        .issue_key(
+            &f.admin,
+            Account {
+                kind: AccountKind::Personal,
+                id: 900,
+            },
+            FundingPolicy::new_personal_key(),
+            3600,
+        )
+        .await
+        .unwrap();
+    let team = f.identity.create_team(&f.admin).await.unwrap();
+    let team_key = f
+        .identity
+        .issue_key(
+            &f.admin,
+            Account {
+                kind: AccountKind::Team,
+                id: team,
+            },
+            FundingPolicy {
+                version: 1,
+                account_order: Some(vec![Account {
+                    kind: AccountKind::Team,
+                    id: team,
+                }]),
+                personal_billing_preference: None,
+            },
+            3600,
+        )
+        .await
+        .unwrap();
+    let before = state(&pool).await;
+    let app = router(f.store.clone());
+    for (path, credential, status) in [
+        ("10", Some(f.admin.as_str()), StatusCode::OK),
+        ("10", Some(f.root.as_str()), StatusCode::OK),
+        ("999", Some(f.admin.as_str()), StatusCode::NOT_FOUND),
+        ("10", Some(ordinary.secret.as_str()), StatusCode::FORBIDDEN),
+        ("999", Some(ordinary.secret.as_str()), StatusCode::FORBIDDEN),
+        ("10", Some(key.secret.as_str()), StatusCode::FORBIDDEN),
+        ("10", Some(team_key.secret.as_str()), StatusCode::FORBIDDEN),
+        ("10", None, StatusCode::UNAUTHORIZED),
+        ("0", Some(f.admin.as_str()), StatusCode::BAD_REQUEST),
+        ("not-an-id", Some(f.admin.as_str()), StatusCode::BAD_REQUEST),
+    ] {
+        let mut request = Request::builder().uri(format!("/core/v1/admin/users/{path}"));
+        if let Some(secret) = credential {
+            request = request.header("authorization", format!("Bearer {secret}"));
+        }
+        let response = app
+            .clone()
+            .oneshot(request.body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        assert_eq!(response.status(), status, "path {path}");
+        assert_eq!(response.headers()["cache-control"], "private, no-store");
+        assert_eq!(response.headers()["vary"], "Authorization");
+        let bytes = to_bytes(response.into_body(), 64 * 1024).await.unwrap();
+        let body: Value = serde_json::from_slice(&bytes).unwrap();
+        if status == StatusCode::OK {
+            assert_eq!(body["user"]["id"], "10");
+        } else {
+            assert!(body.get("user").is_none());
+        }
+        assert!(!String::from_utf8_lossy(&bytes).contains(&f.admin));
+    }
+    assert_eq!(before, state(&pool).await);
+    f.role.cleanup().await;
+}

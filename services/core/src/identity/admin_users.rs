@@ -29,6 +29,7 @@ pub enum AdminUsersError {
     Unauthorized,
     Forbidden,
     Invalid,
+    NotFound,
     UnsupportedFilter,
     UnsupportedSort,
     Unavailable,
@@ -305,6 +306,11 @@ pub struct UsersPage {
     pub capabilities: ReadCapabilities,
 }
 #[derive(Serialize)]
+pub struct UserDetail {
+    pub version: u8,
+    pub user: UserRow,
+}
+#[derive(Serialize)]
 pub struct GroupsPage {
     pub version: u8,
     pub items: Vec<String>,
@@ -425,35 +431,7 @@ impl AdminUsersStore {
             .bind(&q.keyword).bind(q.keyword_id).bind(&q.group).bind(&q.role).bind(q.active).bind(q.level).bind(i64::from(q.size)).bind(q.offset).fetch_all(&mut *tx).await?;
         let mut items = Vec::with_capacity(rows.len());
         for r in rows {
-            let id: i64 = r.try_get("id")?;
-            let account: i64 = r.try_get("personal_account_id")?;
-            let generation: i64 = r.try_get("auth_version")?;
-            if id <= 0 || account <= 0 || generation <= 0 {
-                return Err(AdminUsersError::Unavailable);
-            }
-            items.push(UserRow {
-                id: id.to_string(),
-                personal_account_id: account.to_string(),
-                auth_version: generation.to_string(),
-                profile_available: r.try_get("profile_available")?,
-                username: r.try_get("username")?,
-                display_name: r.try_get("display_name")?,
-                email: r.try_get("email")?,
-                platform_role: r.try_get("platform_role")?,
-                role: r.try_get("role_number")?,
-                active: r.try_get("active")?,
-                status: r.try_get("status_number")?,
-                account_active: r.try_get("account_active")?,
-                service_level: r.try_get("service_level")?,
-                developer_access_granted: r.try_get("developer_access_granted")?,
-                groups: r.try_get("groups")?,
-                core_account_created_at_unix_ms: safe_time(r.try_get("core_created_ms")?)?,
-                registered_at_unix_ms: r
-                    .try_get::<Option<i64>, _>("registered_ms")?
-                    .map(safe_time)
-                    .transpose()?,
-                wallet: wallet::read(&mut tx, id, account).await?,
-            });
+            items.push(project_user(&mut tx, r).await?);
         }
         let result = UsersPage {
             version: 1,
@@ -465,6 +443,31 @@ impl AdminUsersStore {
         };
         tx.commit().await?;
         Ok(result)
+    }
+
+    pub async fn user(&self, secret: &str, user_id: i64) -> ReadResult<UserDetail> {
+        if user_id <= 0 {
+            return Err(AdminUsersError::Invalid);
+        }
+        let mut tx = self.begin().await?;
+        Self::authorize(&mut tx, secret).await?;
+        // Use the list's projection, but select the exact ID independently of text search.
+        let row = sqlx::query(sqlx::AssertSqlSafe(format!(
+            "{SELECTED} SELECT *,floor(extract(epoch FROM core_created_at)*1000)::bigint AS core_created_ms,floor(extract(epoch FROM registered_at)*1000)::bigint AS registered_ms FROM selected WHERE id=$7"
+        )))
+        .bind("")
+        .bind(None::<i64>)
+        .bind(None::<String>)
+        .bind(None::<String>)
+        .bind(None::<bool>)
+        .bind(None::<i16>)
+        .bind(user_id)
+        .fetch_optional(&mut *tx)
+        .await?
+        .ok_or(AdminUsersError::NotFound)?;
+        let user = project_user(&mut tx, row).await?;
+        tx.commit().await?;
+        Ok(UserDetail { version: 1, user })
     }
     pub async fn groups(&self, secret: &str, input: &GroupsQuery) -> ReadResult<GroupsPage> {
         let (page, size, offset) = pagination(input.page, input.page_size)?;
@@ -482,6 +485,37 @@ impl AdminUsersStore {
             source: "enabled_explicit_user_routing_grants",
         })
     }
+}
+async fn project_user(c: &mut PgConnection, r: sqlx::postgres::PgRow) -> ReadResult<UserRow> {
+    let id: i64 = r.try_get("id")?;
+    let account: i64 = r.try_get("personal_account_id")?;
+    let generation: i64 = r.try_get("auth_version")?;
+    if id <= 0 || account <= 0 || generation <= 0 {
+        return Err(AdminUsersError::Unavailable);
+    }
+    Ok(UserRow {
+        id: id.to_string(),
+        personal_account_id: account.to_string(),
+        auth_version: generation.to_string(),
+        profile_available: r.try_get("profile_available")?,
+        username: r.try_get("username")?,
+        display_name: r.try_get("display_name")?,
+        email: r.try_get("email")?,
+        platform_role: r.try_get("platform_role")?,
+        role: r.try_get("role_number")?,
+        active: r.try_get("active")?,
+        status: r.try_get("status_number")?,
+        account_active: r.try_get("account_active")?,
+        service_level: r.try_get("service_level")?,
+        developer_access_granted: r.try_get("developer_access_granted")?,
+        groups: r.try_get("groups")?,
+        core_account_created_at_unix_ms: safe_time(r.try_get("core_created_ms")?)?,
+        registered_at_unix_ms: r
+            .try_get::<Option<i64>, _>("registered_ms")?
+            .map(safe_time)
+            .transpose()?,
+        wallet: wallet::read(c, id, account).await?,
+    })
 }
 const SELECTED: &str = r#"
 WITH selected AS (

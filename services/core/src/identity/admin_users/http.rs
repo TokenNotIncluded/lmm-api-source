@@ -1,7 +1,10 @@
 use super::*;
 use axum::{
     Json, Router,
-    extract::{Query, State, rejection::QueryRejection},
+    extract::{
+        Path, Query, State,
+        rejection::{PathRejection, QueryRejection},
+    },
     http::{HeaderMap, StatusCode, header},
     response::{IntoResponse, Response},
     routing::get,
@@ -28,6 +31,7 @@ impl IntoResponse for AdminUsersError {
             Self::Unauthorized => (StatusCode::UNAUTHORIZED, "ADMIN_USERS_UNAUTHORIZED"),
             Self::Forbidden => (StatusCode::FORBIDDEN, "ADMIN_USERS_FORBIDDEN"),
             Self::Invalid => (StatusCode::BAD_REQUEST, "ADMIN_USERS_INVALID"),
+            Self::NotFound => (StatusCode::NOT_FOUND, "ADMIN_USERS_NOT_FOUND"),
             Self::UnsupportedFilter => (
                 StatusCode::UNPROCESSABLE_ENTITY,
                 "ADMIN_USERS_FILTER_UNAVAILABLE",
@@ -53,6 +57,7 @@ pub fn router(store: AdminUsersStore) -> Router {
             get(users).post(super::create::create),
         )
         .route("/core/v1/admin/users/groups", get(groups))
+        .route("/core/v1/admin/users/{id}", get(user))
         .route("/core/v1/admin/system-resources", get(system_resources))
         .layer(axum::middleware::from_fn(
             |request: axum::extract::Request, next: axum::middleware::Next| async move {
@@ -79,6 +84,15 @@ async fn users(
     let secret = bearer(&headers)?;
     let Query(input) = input.map_err(|_| AdminUsersError::Invalid)?;
     Ok(Json(store.users(secret, &input).await?))
+}
+async fn user(
+    State(store): State<AdminUsersStore>,
+    headers: HeaderMap,
+    input: std::result::Result<Path<i64>, PathRejection>,
+) -> ReadResult<Json<UserDetail>> {
+    let secret = bearer(&headers)?;
+    let Path(user_id) = input.map_err(|_| AdminUsersError::Invalid)?;
+    Ok(Json(store.user(secret, user_id).await?))
 }
 async fn groups(
     State(store): State<AdminUsersStore>,

@@ -10,12 +10,15 @@ import {
 } from './access'
 import {
   nativeGroupsResponseSchema,
+  nativeUserDetailSchema,
   nativeUsersQuery,
   nativeUsersResponseSchema,
   type NativeGroupsResponse,
+  type NativeUser,
   type NativeUsersQuery,
   type NativeUsersResponse,
 } from './contract'
+import { nativeProfileIdSchema } from './profile-contract'
 
 function assertScope(scope: NativeUsersScope, signal?: AbortSignal) {
   if (!isCurrentNativeUsersScope(scope) || signal?.aborted) {
@@ -78,6 +81,33 @@ export async function readNativeUserGroups(
       throw new NativeUsersFailure('invalid_response')
     }
     return parsed.data
+  } catch (error) {
+    assertScope(scope, signal)
+    throw nativeUsersFailure(error)
+  }
+}
+
+/** Read one exact account independently of list filters and pagination. */
+export async function readNativeUser(
+  scope: NativeUsersScope,
+  userId: string,
+  signal?: AbortSignal
+): Promise<NativeUser> {
+  assertScope(scope, signal)
+  if (!nativeProfileIdSchema.safeParse(userId).success) {
+    throw new NativeUsersFailure('invalid_query')
+  }
+  try {
+    const response = await api.get<unknown>(
+      `/core/v1/admin/users/${userId}`,
+      nativeUsersOptions(scope, signal)
+    )
+    assertScope(scope, signal)
+    const parsed = nativeUserDetailSchema.safeParse(response.data)
+    if (!parsed.success || parsed.data.user.id !== userId) {
+      throw new NativeUsersFailure('invalid_response')
+    }
+    return parsed.data.user
   } catch (error) {
     assertScope(scope, signal)
     throw nativeUsersFailure(error)

@@ -229,6 +229,10 @@ export const nativeUserSchema = z
     }
   })
 
+export const nativeUserDetailSchema = z
+  .object({ version: z.literal(1), user: nativeUserSchema })
+  .strict()
+
 export const nativeUsersResponseSchema = z
   .object({
     version: z.literal(1),
