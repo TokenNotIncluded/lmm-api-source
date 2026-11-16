@@ -28,3 +28,42 @@ test('UI cache rotation preserves pending checkout receipts', () => {
   )
   assert.equal(dom.localStorage.getItem('old-ui-cache'), null)
 })
+
+for (const { name, cacheVersion, marker } of [
+  {
+    name: 'first-load initialization',
+    cacheVersion: null,
+    marker: 'pending:interrupted-guest-refresh',
+  },
+  {
+    name: 'version rotation',
+    cacheVersion: 'older-version',
+    marker: 'uncertain:interrupted-sign-in',
+  },
+]) {
+  test(`UI cache ${name} preserves browser-session recovery and login epochs`, () => {
+    dom.localStorage.clear()
+    if (cacheVersion) {
+      dom.localStorage.setItem('newapi:default:cache-version', cacheVersion)
+    }
+    const protocolState = new Map([
+      ['new-api:auth-cookie:uncertain', marker],
+      ['new-api:auth-login-intent', '0d5322b0-7382-413c-bc55-ec2bb78ec6e4'],
+      [
+        'new-api:auth-login-initialization',
+        '5b32b449-2802-426e-9854-607109ef1cad',
+      ],
+    ])
+    for (const [key, value] of protocolState) {
+      dom.localStorage.setItem(key, value)
+    }
+    dom.localStorage.setItem('old-ui-cache', 'stale')
+
+    initializeFrontendCache()
+
+    for (const [key, value] of protocolState) {
+      assert.equal(dom.localStorage.getItem(key), value)
+    }
+    assert.equal(dom.localStorage.getItem('old-ui-cache'), null)
+  })
+}

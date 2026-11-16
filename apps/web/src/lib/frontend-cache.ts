@@ -24,6 +24,10 @@ const PRESERVED_LOCAL_STORAGE_KEYS = new Set([
   'uid',
   'aff',
   'oauth:binding:result',
+  // Cookie fences and login epochs are protocol state, not disposable UI cache.
+  'new-api:auth-cookie:uncertain',
+  'new-api:auth-login-intent',
+  'new-api:auth-login-initialization',
 ])
 
 export function initializeFrontendCache(): void {
