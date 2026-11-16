@@ -90,6 +90,10 @@ export function requestKey() {
 function storageKey(scope: CommerceScope, area: string) {
   return `lmm-commerce:${scope.userId}:${scope.sessionId}:${area}`
 }
+/** Presence opens the existing scoped recovery view; parsing stays with its owner. */
+export function hasPending(scope: CommerceScope, area: string): boolean {
+  return window.sessionStorage.getItem(storageKey(scope, area)) !== null
+}
 export function readPending<T>(
   scope: CommerceScope,
   area: string,

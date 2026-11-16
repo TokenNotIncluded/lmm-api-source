@@ -2,6 +2,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 
+import { AxiosError } from 'axios'
 import { Window } from 'happy-dom'
 
 const dom = new Window({ url: 'https://wallet.example' })
@@ -36,6 +37,7 @@ const { createRoot } = await import('react-dom/client')
 const { createInstance } = await import('i18next')
 const { I18nextProvider, initReactI18next } = await import('react-i18next')
 const { api } = await import('@/lib/api')
+const { toast } = await import('sonner')
 const { useAuthStore } = await import('@/stores/auth-store')
 const { readNativeCheckout } = await import('../lib/native-checkout')
 const { NativeWalletCheckout } = await import('./native-wallet-checkout')
@@ -124,6 +126,82 @@ test('unavailable native payment channels cannot start a quote, including after 
     container.remove()
     api.get = oldGet
     api.post = oldPost
+  }
+})
+
+test('failed channel reads stay local until explicit retry and are not presented as an empty catalog', async () => {
+  const oldAdapter = api.defaults.adapter
+  dom.sessionStorage.clear()
+  login(21, 'failed-payment-session')
+  const container = document.body.appendChild(document.createElement('div'))
+  const root = createRoot(container)
+  let reads = 0
+  let failed = true
+  const beforeToasts = toast.getHistory().length
+  api.defaults.adapter = async (config) => {
+    assert.equal(config.url, '/api/user/payments/channels')
+    assert.equal(config.method, 'get')
+    reads++
+    if (failed) {
+      throw new AxiosError(
+        'Request failed with status code 503',
+        'ERR_BAD_RESPONSE',
+        config,
+        undefined,
+        {
+          config,
+          status: 503,
+          statusText: 'Unavailable',
+          headers: {},
+          data: { error: { code: 'PAYMENT_DISABLED' } },
+        }
+      )
+    }
+    return {
+      config,
+      status: 200,
+      statusText: 'OK',
+      headers: {},
+      data: {
+        success: true,
+        data: { available: false, channels: [] },
+      },
+    }
+  }
+  try {
+    await act(async () => {
+      root.render(
+        <I18nextProvider i18n={i18n}>
+          <NativeWalletCheckout />
+        </I18nextProvider>
+      )
+      await flush()
+    })
+    assert.match(
+      container.querySelector('[role="alert"]')?.textContent ?? '',
+      /Unable to load payment methods/
+    )
+    assert.doesNotMatch(
+      container.textContent ?? '',
+      /No payment channel is available right now\./
+    )
+    assert.equal(reads, 1)
+    assert.equal(container.querySelector('form'), null)
+    assert.equal(toast.getHistory().length, beforeToasts)
+    failed = false
+    await click('Retry')
+    assert.equal(reads, 2)
+    assert.equal(container.querySelector('[role="alert"]'), null)
+    assert.match(
+      container.querySelector('[role="status"]')?.textContent ?? '',
+      /No payment channel is available right now\./
+    )
+    assert.equal(container.querySelector('form'), null)
+    assert.equal(toast.getHistory().length, beforeToasts)
+  } finally {
+    await act(async () => root.unmount())
+    container.remove()
+    api.defaults.adapter = oldAdapter
   }
 })
 
@@ -756,6 +834,11 @@ test('a shared discount link only prefills one valid code and never starts a pay
         )
         await flush()
       })
+      assert.match(
+        container.querySelector('label[for="native-payment-amount"]')
+          ?.textContent ?? '',
+        /Wallet credit.*USD/
+      )
       const input = container.querySelector('#native-payment-discount')
       assert.ok(input instanceof HTMLInputElement)
       assert.equal(input.value, expected)

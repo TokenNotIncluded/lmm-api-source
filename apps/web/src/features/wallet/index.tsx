@@ -21,10 +21,12 @@ import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { SectionPageLayout } from '@/components/layout'
+import { ConsoleDisclosure } from '@/components/layout/components/console-disclosure'
 import { Button } from '@/components/ui/button'
-import { commerceScope } from '@/features/commerce/native-client'
+import { commerceScope, hasPending } from '@/features/commerce/native-client'
 import { useAuthUserRefresh } from '@/features/onboarding'
 import { NativeWalletPromotions } from '@/features/promotions/native-wallet'
+import { NativeWalletSubscriptions } from '@/features/subscriptions/native-wallet'
 import { isConsoleActivated } from '@/lib/console-activation'
 import { useAuthStore } from '@/stores/auth-store'
 
@@ -32,10 +34,8 @@ import { AffiliateRewardsCard } from './components/affiliate-rewards-card'
 import { BillingHistoryDialog } from './components/dialogs/billing-history-dialog'
 import { L0UpgradePanel } from './components/l0-upgrade-panel'
 import { NativeWalletCheckout } from './components/native-wallet-checkout'
-import { SubscriptionPlansCard } from './components/subscription-plans-card'
 import { WalletStatsCard } from './components/wallet-stats-card'
 import { useCheckoutOwnerKey } from './hooks/use-checkout-scope'
-import { useTopupInfo } from './hooks/use-topup-info'
 import { walletProjection } from './lib/wallet-projection'
 import { WalletTransferDialog } from './transfers/sender-dialog'
 import type { UserWalletData } from './types'
@@ -70,7 +70,25 @@ function NativeWallet({
   // their APIs still enforce the current session, plan, campaign and balance.
   // Recharge separately requires its provider catalog and explicit quote.
   const { refreshUser } = useAuthUserRefresh()
-  const { topupInfo } = useTopupInfo()
+  const [pendingSections] = useState(() => {
+    const scope = commerceScope()
+    if (preview || !scope) return { subscriptions: false, rewards: false }
+    try {
+      return {
+        subscriptions: [
+          'subscription',
+          'subscription-epay',
+          'subscription-pancake',
+          'subscription-stripe',
+          'subscription-creem',
+        ].some((area) => hasPending(scope, area)),
+        rewards: hasPending(scope, 'rewards'),
+      }
+    } catch {
+      // Let the existing recovery views explain inaccessible storage.
+      return { subscriptions: true, rewards: true }
+    }
+  })
   const [historyOpen, setHistoryOpen] = useState(initialShowHistory)
   const [transferOpen, setTransferOpen] = useState(false)
   const [refreshing, setRefreshing] = useState(false)
@@ -113,12 +131,12 @@ function NativeWallet({
           </div>
         </SectionPageLayout.Actions>
         <SectionPageLayout.Content>
-          <div className='wallet-page mx-auto flex w-full max-w-6xl flex-col gap-8 pb-8 sm:gap-12'>
+          <div className='wallet-page mx-auto flex w-full max-w-6xl flex-col gap-5 pb-8 sm:gap-6'>
             {refreshFailed ? <p role='alert'>{t('Refresh failed')}</p> : null}
             {(preview || !isConsoleActivated(account)) && (
               <L0UpgradePanel preview={preview} />
             )}
-            <div className='wallet-overview-grid grid items-start gap-8 xl:gap-10'>
+            <div className='wallet-overview-grid grid items-start gap-5 sm:gap-6'>
               <WalletStatsCard
                 user={user}
                 balanceAction={
@@ -156,27 +174,37 @@ function NativeWallet({
                 )}
               </div>
             </div>
-            {nativeCreditsAvailable ? (
-              <div className='wallet-secondary-grid grid items-start gap-8 xl:gap-10'>
-                <section aria-labelledby='wallet-subscription-plans-title'>
-                  <h2 id='wallet-subscription-plans-title' className='sr-only'>
-                    {t('Subscription Plans')}
-                  </h2>
-                  <SubscriptionPlansCard
-                    topupInfo={topupInfo}
-                    userId={user?.id}
-                    userQuota={
-                      projection.available !== null
-                        ? Number(projection.available)
-                        : user?.quota
-                    }
-                    onPurchaseSuccess={() => void refresh()}
-                  />
-                </section>
-                <NativeWalletPromotions onUpdated={() => void refresh()} />
-              </div>
-            ) : null}
-            <AffiliateRewardsCard user={user} />
+            <div className='space-y-3'>
+              {nativeCreditsAvailable ? (
+                <>
+                  <ConsoleDisclosure
+                    id='subscription-plans'
+                    deferMount
+                    defaultOpen={pendingSections.subscriptions}
+                    title={t('Subscriptions')}
+                  >
+                    <NativeWalletSubscriptions
+                      onUpdated={() => void refresh()}
+                    />
+                  </ConsoleDisclosure>
+                  <ConsoleDisclosure
+                    id='wallet-rewards'
+                    deferMount
+                    defaultOpen={pendingSections.rewards}
+                    title={t('Redemption Code')}
+                  >
+                    <NativeWalletPromotions onUpdated={() => void refresh()} />
+                  </ConsoleDisclosure>
+                </>
+              ) : null}
+              <ConsoleDisclosure
+                id='referral-program'
+                deferMount
+                title={t('Referral Program')}
+              >
+                <AffiliateRewardsCard user={user} />
+              </ConsoleDisclosure>
+            </div>
           </div>
         </SectionPageLayout.Content>
       </SectionPageLayout>

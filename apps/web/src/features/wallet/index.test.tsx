@@ -92,11 +92,15 @@ const { createInstance } = await import('i18next')
 const { I18nextProvider, initReactI18next } = await import('react-i18next')
 const { Wallet } = await import('./index')
 const { api } = await import('@/lib/api')
+const { toast } = await import('sonner')
 const { useAuthStore } = await import('@/stores/auth-store')
 const { useWalletCurrencyPreferenceStore } =
   await import('@/stores/wallet-currency-preference-store')
 const i18n = createInstance()
 await i18n.use(initReactI18next).init({ lng: 'en', resources: {} })
+const { useSystemConfigStore } = await import('@/stores/system-config-store')
+const { mapStatusDataToConfig } = await import('@/hooks/use-system-config')
+const originalConfig = useSystemConfigStore.getState().config
 const originalGet = api.get
 const originalPost = api.post
 const originalAdapter = api.defaults.adapter
@@ -139,9 +143,18 @@ afterEach(async () => {
   api.defaults.adapter = originalAdapter
   window.sessionStorage.clear()
   useAuthStore.getState().auth.reset('complete')
+  useSystemConfigStore.setState({ config: originalConfig })
   window.history.replaceState({}, '', '/wallet')
 })
 after(() => domWindow.close())
+
+async function setSectionOpen(section: HTMLDetailsElement, open: boolean) {
+  await act(async () => {
+    section.open = open
+    section.dispatchEvent(new window.Event('toggle'))
+    await new Promise((resolve) => setTimeout(resolve, 15))
+  })
+}
 
 async function renderWallet(
   activated = false,
@@ -149,13 +162,22 @@ async function renderWallet(
     setting?: AuthUser['setting']
     quota?: number
     preview?: boolean
+    openSections?: boolean
+    pendingSubscription?: unknown
+    pendingPancakeSubscription?: unknown
     selfQuota?: number
     paymentReturn?: 'return' | 'cancel'
     nativeChannels?: unknown
-    nativeResponse?: (url: string, method: string, data: unknown) => unknown
+    nativeResponse?: (
+      url: string,
+      method: string,
+      data: unknown,
+      config: InternalAxiosRequestConfig
+    ) => unknown
     user?: Partial<AuthUser>
   } = {}
 ) {
+  const reads: string[] = []
   const user = {
     ...options.user,
     id: 7,
@@ -184,10 +206,28 @@ async function renderWallet(
         expires_at: 9999999999,
       },
     })
+    if (options.pendingSubscription) {
+      window.sessionStorage.setItem(
+        'lmm-commerce:7:native-wallet-scope:subscription',
+        JSON.stringify(options.pendingSubscription)
+      )
+    }
+    if (options.pendingPancakeSubscription) {
+      window.sessionStorage.setItem(
+        'lmm-commerce:7:native-wallet-scope:subscription-pancake',
+        JSON.stringify(options.pendingPancakeSubscription)
+      )
+    }
     api.defaults.adapter = async (config) => {
       const url = config.url ?? ''
+      if (config.method === 'get') reads.push(url)
       const body = options.nativeResponse
-        ? options.nativeResponse(url, config.method ?? 'get', config.data)
+        ? options.nativeResponse(
+            url,
+            config.method ?? 'get',
+            config.data,
+            config
+          )
         : url.endsWith('/plans')
           ? { contract: 'core.subscriptions.v1', plans: [] }
           : url.endsWith('/purchases')
@@ -203,20 +243,26 @@ async function renderWallet(
     }
   }
   api.get = (async (url) => {
-    // Only an absent classic route selects the native contract. A service
-    // failure must remain visible instead of changing financial protocols.
+    reads.push(String(url))
+    // The real native host rejects retired routes with 503, not 404.
     if (
       user.wallet_unit === 'core_credit' &&
       typeof url === 'string' &&
       url.startsWith('/api/subscription/')
     ) {
-      throw new AxiosError('Route not found', undefined, undefined, undefined, {
-        status: 404,
-        statusText: 'Not Found',
-        data: { error: 'not_found' },
-        headers: {},
-        config: { url } as InternalAxiosRequestConfig,
-      })
+      throw new AxiosError(
+        'Request failed with status code 503',
+        undefined,
+        undefined,
+        undefined,
+        {
+          status: 503,
+          statusText: 'Unavailable',
+          data: { error: { code: 'core_migration_incomplete' } },
+          headers: {},
+          config: { url } as InternalAxiosRequestConfig,
+        }
+      )
     }
     return {
       data: {
@@ -245,7 +291,17 @@ async function renderWallet(
       <Wallet preview={options.preview} paymentReturn={options.paymentReturn} />
     </QueryClientProvider>
   )
-  return { container, queryClient }
+  if (options.openSections !== false) {
+    for (const id of [
+      'subscription-plans',
+      'wallet-rewards',
+      'referral-program',
+    ]) {
+      const section = container.querySelector<HTMLDetailsElement>(`#${id}`)
+      if (section) await setSectionOpen(section, true)
+    }
+  }
+  return { container, queryClient, reads }
 }
 
 test('unavailable ledger facts disable wallet writes without inventing zero amounts or starting quotes', async () => {
@@ -454,7 +510,7 @@ test('unknown historical money still requires explicitly confirmed quoted native
   )
   assert.match(
     container.querySelector('#wallet-balance')?.textContent ?? '',
-    /Credit conversion unavailable: USD \/ CNY — Unknown/
+    /Reference value unavailable/
   )
   assert.equal(posts.length, 0)
   assert.equal(
@@ -669,9 +725,10 @@ test('native wallet exposes credit subscriptions and rewards without fiat conver
   }
 })
 
-test('native workspaces fail closed when their actual catalogs are unavailable', async () => {
-  const requests: string[] = []
-  const { container, queryClient } = await renderWallet(true, {
+test('native subscription failures stay local and distinct from confirmed empty results, with explicit retry', async () => {
+  let failed = true
+  const beforeToasts = toast.getHistory().length
+  const { container, queryClient, reads } = await renderWallet(true, {
     quota: 500000,
     user: {
       financial_projection_available: true,
@@ -679,22 +736,321 @@ test('native workspaces fail closed when their actual catalogs are unavailable',
       wallet_money_basis: 'unknown',
       wallet_money_available: false,
     },
-    nativeResponse: (url, method) => {
-      requests.push(method)
-      throw new Error(`Unavailable module: ${url}`)
+    openSections: false,
+    nativeResponse: (url, method, _data, config) => {
+      assert.equal(method, 'get')
+      if (url.startsWith('/core/v1/subscriptions/')) {
+        if (failed) {
+          throw new AxiosError(
+            'Request failed with status code 503',
+            'ERR_BAD_RESPONSE',
+            config,
+            undefined,
+            {
+              config,
+              status: 503,
+              statusText: 'Unavailable',
+              headers: {},
+              data: { error: { code: 'SUBSCRIPTION_UNAVAILABLE' } },
+            }
+          )
+        }
+        return url.endsWith('/plans')
+          ? { contract: 'core.subscriptions.v1', plans: [] }
+          : { contract: 'core.subscriptions.v1', purchases: [] }
+      }
+      if (url.endsWith('/campaigns')) {
+        return { contract: 'core.promotions.v1', campaigns: [] }
+      }
+      if (url.endsWith('/history')) {
+        return { contract: 'core.promotions.v1', claims: [] }
+      }
+      throw new Error(`Unexpected native path: ${url}`)
     },
   })
-  assert.match(container.textContent ?? '', /Request failed|Failed to load/)
+  const section = container.querySelector<HTMLDetailsElement>(
+    '#subscription-plans'
+  )
+  assert.ok(section)
   assert.equal(
-    [...container.querySelectorAll('button')].some(
-      (b) =>
-        b.textContent === 'Preview purchase' ||
-        b.textContent === 'Subscribe Now'
-    ),
+    section.open,
+    false,
+    'subscriptions do not crowd the top-up workspace'
+  )
+  assert.ok(
+    !reads.some(
+      (url) =>
+        url.startsWith('/core/v1/subscriptions/') ||
+        url.startsWith('/core/v1/promotions/')
+    )
+  )
+  await setSectionOpen(section, true)
+  assert.match(section.textContent ?? '', /Unable to load subscriptions/)
+  assert.doesNotMatch(
+    section.textContent ?? '',
+    /No subscription plans yet|No data|Banked subscription resets|Loading\.\.\./
+  )
+  assert.equal(
+    reads.filter((url) => url === '/core/v1/subscriptions/plans').length,
+    1
+  )
+  assert.equal(
+    reads.filter((url) => url === '/core/v1/subscriptions/purchases').length,
+    1
+  )
+  assert.ok(
+    !reads.some(
+      (url) =>
+        url.startsWith('/api/subscription/') || url === '/api/user/topup/info'
+    )
+  )
+  assert.equal(toast.getHistory().length, beforeToasts)
+
+  const retry = [...section.querySelectorAll('button')].find(
+    (button) => button.textContent?.trim() === 'Retry'
+  )
+  assert.ok(retry)
+  failed = false
+  await act(async () => {
+    section.open = true
+    retry.click()
+    await new Promise((resolve) => setTimeout(resolve, 25))
+  })
+  assert.match(section.textContent ?? '', /No subscription plans yet/)
+  assert.match(section.textContent ?? '', /No data/)
+  assert.doesNotMatch(
+    section.textContent ?? '',
+    /Unable to load subscriptions|Loading\.\.\./
+  )
+  assert.equal(
+    reads.filter((url) => url === '/core/v1/subscriptions/plans').length,
+    2
+  )
+  assert.equal(
+    reads.filter((url) => url === '/core/v1/subscriptions/purchases').length,
+    2
+  )
+  assert.equal(toast.getHistory().length, beforeToasts)
+  queryClient.clear()
+})
+
+test('native wallet uses declared current rates without legacy display flags and keeps the exact credit balance', async () => {
+  useSystemConfigStore.getState().setConfig(
+    mapStatusDataToConfig({
+      currency_unit: 'credit',
+      credit_unit_schema_version: 2,
+      credits_per_usd: 500000,
+      credits_per_usd_exact: '500000',
+      ledger_quota_per_usd: 500000,
+      ledger_quota_per_usd_exact: '500000',
+      quota_unit: 'LEDGER_QUOTA',
+      cny_per_usd: '6.700304',
+    })
+  )
+  const { container, queryClient, reads } = await renderWallet(true, {
+    quota: 8065639,
+    setting: JSON.stringify({ wallet_display_currency: 'CNY' }),
+    openSections: false,
+    user: {
+      financial_projection_available: true,
+      wallet_unit: 'core_credit',
+      wallet_money_basis: 'unknown',
+      wallet_money_available: false,
+    },
+  })
+  const balance = container.querySelector('#wallet-balance')
+  assert.match(balance?.textContent ?? '', /Reference value/)
+  assert.match(balance?.textContent ?? '', /≈ 108\.08 CNY/)
+  assert.match(balance?.textContent ?? '', /8,065,639 Credits/)
+  assert.equal(
+    balance?.querySelector<HTMLDetailsElement>('[data-native-wallet-details]')
+      ?.open,
     false
   )
-  assert.ok(requests.length > 0)
-  assert.ok(requests.every((method) => method === 'get'))
+  assert.equal(useAuthStore.getState().auth.user?.quota, 8065639)
+  assert.equal(useAuthStore.getState().auth.user?.wallet_money_available, false)
+  assert.equal(useAuthStore.getState().auth.user?.wallet_money_basis, 'unknown')
+  assert.ok(
+    !reads.some(
+      (url) =>
+        url.startsWith('/core/v1/subscriptions/') ||
+        url.startsWith('/core/v1/promotions/')
+    )
+  )
+  const subscriptions = container.querySelector<HTMLDetailsElement>(
+    '#subscription-plans'
+  )
+  assert.ok(subscriptions)
+  await setSectionOpen(subscriptions, true)
+  assert.ok(reads.includes('/core/v1/subscriptions/plans'))
+  assert.ok(reads.includes('/core/v1/subscriptions/purchases'))
+  assert.ok(
+    !reads.some(
+      (url) =>
+        url.startsWith('/api/subscription/') || url === '/api/user/topup/info'
+    )
+  )
+  assert.equal(container.querySelector('#banked-reset-heading'), null)
+  queryClient.clear()
+})
+
+test('a saved subscription intent opens its recovery view and survives folding without remount or writes', async () => {
+  const pending = {
+    kind: 'purchase',
+    request: {
+      operation_key: 'synthetic-saved-subscription',
+      plan_id: 4,
+      renew_from: null,
+    },
+    confirmed: false,
+  }
+  const { container, queryClient, reads } = await renderWallet(true, {
+    quota: 500000,
+    openSections: false,
+    pendingSubscription: pending,
+    user: { financial_projection_available: true, wallet_unit: 'core_credit' },
+  })
+  const section = container.querySelector<HTMLDetailsElement>(
+    '#subscription-plans'
+  )
+  assert.ok(section?.open)
+  assert.match(section.textContent ?? '', /Retry saved request/)
+  const initialReads = reads.length
+  await setSectionOpen(section, false)
+  await setSectionOpen(section, true)
+  assert.match(section.textContent ?? '', /Retry saved request/)
+  assert.equal(reads.length, initialReads)
+  const saved = window.sessionStorage.getItem(
+    'lmm-commerce:7:native-wallet-scope:subscription'
+  )
+  assert.ok(saved)
+  assert.deepEqual(JSON.parse(saved), pending)
+  queryClient.clear()
+})
+
+test('a saved Pancake subscription intent opens recovery and only reads the original order', async () => {
+  const { freezePancakeOrder, pancakeOrderSchema } =
+    await import('@/features/subscriptions/native-pancake-api')
+  const plan = {
+    id: 4,
+    revision: 1,
+    archived: false,
+    terms: {
+      title: 'Saved Pancake plan',
+      price_units: '500000',
+      duration_seconds: 3600,
+      reset_period: 'grant',
+      reset_seconds: 0,
+      limit_units: '25000000',
+      models: ['*'],
+      groups: ['*'],
+      max_purchases_per_user: 0,
+      enabled: true,
+    },
+  }
+  const orderId = `sub_${'b'.repeat(64)}`
+  const order = {
+    order: {
+      order_id: orderId,
+      account_id: '7',
+      plan_id: '4',
+      plan_revision: '1',
+      payment_channel_id: '8',
+      currency: 'CNY',
+      amount_minor: '670',
+      expires_at_unix: '9999999999',
+      confirmed_at_unix: '1700000000',
+      canceled_at_unix: null,
+      proof_id: '',
+      subscription_id: null,
+      granted_at_unix: null,
+      ends_at_unix: null,
+      plan_json: Buffer.from(JSON.stringify(plan)).toString('base64'),
+    },
+    price: {
+      plan_id: 4,
+      plan_revision: 1,
+      channel_id: 8,
+      currency: 'CNY',
+      amount_minor: '670',
+      store_id: 'synthetic-store',
+      product_id: 'synthetic-product',
+      product_type: 'one_time',
+      billing_period: '',
+      provider_plan_reference: '',
+      return_url: 'https://console.example.test/wallet',
+      checkout_region: 'china',
+      checkout_language: 'zh-CN',
+      tax_category: '',
+    },
+    merchant: 'synthetic-merchant',
+    environment: 'test',
+    provider_reference: 'synthetic-pancake-order',
+    state: 'pending',
+    latest_grant_id: null,
+  }
+  const pending = {
+    provider: 'waffo_pancake',
+    operation_key: 'wallet-pancake-recovery',
+    plan_id: 4,
+    channel_id: 8,
+    order_id: orderId,
+    frozen: freezePancakeOrder(pancakeOrderSchema.parse(order)),
+    confirm_attempted: true,
+  }
+  const requests: Array<{ url: string; method: string }> = []
+  const orderPath = `/api/user/payments/subscriptions/pancake/orders/${orderId}`
+  const { container, queryClient } = await renderWallet(true, {
+    quota: 500000,
+    openSections: false,
+    pendingPancakeSubscription: pending,
+    user: { financial_projection_available: true, wallet_unit: 'core_credit' },
+    nativeResponse: (url, method) => {
+      requests.push({ url, method })
+      if (method !== 'get') {
+        throw new Error('Recovery must not replay a payment')
+      }
+      if (url === '/core/v1/subscriptions/plans') {
+        return { contract: 'core.subscriptions.v1', plans: [] }
+      }
+      if (url === '/core/v1/subscriptions/purchases') {
+        return { contract: 'core.subscriptions.v1', purchases: [] }
+      }
+      if (url === orderPath) return { order, checkout: null }
+      throw new Error(`Unexpected recovery request: ${url}`)
+    },
+  })
+  const section = container.querySelector<HTMLDetailsElement>(
+    '#subscription-plans'
+  )
+  assert.ok(
+    section?.open,
+    'an external pending payment must expose its recovery view'
+  )
+  const pancake = section.querySelector('[aria-label="Pancake"]')
+  assert.ok(pancake)
+  assert.match(pancake.textContent ?? '', /Saved Pancake plan/)
+  assert.match(pancake.textContent ?? '', /CNY 6\.70/)
+  assert.match(pancake.textContent ?? '', /Retry saved request/)
+  assert.doesNotMatch(
+    pancake.textContent ?? '',
+    /Result unknown|Recovery storage is unavailable/
+  )
+  assert.equal(requests.filter(({ url }) => url === orderPath).length, 1)
+  assert.ok(requests.every(({ method }) => method === 'get'))
+  const initialReads = requests.length
+  await setSectionOpen(section, false)
+  await setSectionOpen(section, true)
+  assert.equal(
+    requests.length,
+    initialReads,
+    'folding keeps the existing recovery instance'
+  )
+  const saved = window.sessionStorage.getItem(
+    'lmm-commerce:7:native-wallet-scope:subscription-pancake'
+  )
+  assert.ok(saved)
+  assert.deepEqual(JSON.parse(saved), pending)
   queryClient.clear()
 })
 

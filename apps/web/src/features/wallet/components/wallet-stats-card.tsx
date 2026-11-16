@@ -21,10 +21,13 @@ import type { ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { Skeleton } from '@/components/ui/skeleton'
+import { useWalletCurrency } from '@/hooks/use-wallet-currency'
+import { toIntlLocale } from '@/i18n/languages'
 import { formatCumulativeUserUsage } from '@/lib/cumulative-user-usage'
 import { cn } from '@/lib/utils'
 
 import { nativeCreditDisplay, walletProjection } from '../lib/wallet-projection'
+import { walletReferenceValue } from '../lib/wallet-reference'
 import type { UserWalletData } from '../types'
 import { NativeWalletDetails } from './native-wallet-details'
 
@@ -42,15 +45,22 @@ export function WalletStatsCard(props: WalletStatsCardProps) {
   const { t, i18n } = useTranslation()
   const projection = walletProjection(props.user)
   const financialAvailable = projection.available !== null
+  const walletCurrency = useWalletCurrency()
+  const reference = walletReferenceValue(
+    projection.available,
+    walletCurrency.currency === 'CNY' ? 'CNY' : 'USD',
+    walletCurrency.config,
+    toIntlLocale(i18n.resolvedLanguage || i18n.language)
+  )
   if (props.loading) {
     return (
-      <div className='wallet-stats bg-muted/40 grid overflow-hidden rounded-2xl'>
+      <div className='wallet-stats bg-card grid overflow-hidden rounded-xl'>
         {['balance', 'usage', 'requests', 'trust'].map((key, index) => (
           <div
             key={key}
             className={cn(
               'min-w-0 p-4 sm:p-6',
-              index === 0 && 'col-span-full min-h-48 p-6 sm:p-8'
+              index === 0 && 'col-span-full p-5 sm:p-6'
             )}
           >
             <Skeleton className='h-3.5 w-full' />
@@ -115,21 +125,21 @@ export function WalletStatsCard(props: WalletStatsCardProps) {
     <div
       id='wallet-balance'
       tabIndex={-1}
-      className='wallet-stats bg-muted/40 grid overflow-hidden rounded-2xl'
+      className='wallet-stats bg-card grid overflow-hidden rounded-xl'
     >
       {stats.map((item, index) => (
         <div
           key={item.label}
           className={cn(
-            'min-w-0 p-4 sm:p-6',
+            'min-w-0 p-4 sm:p-5',
             index === 0
-              ? 'relative isolate col-span-full overflow-hidden p-6 sm:p-8'
-              : ''
+              ? 'relative isolate col-span-full overflow-hidden p-5 sm:p-6'
+              : 'border-border/60 border-t'
           )}
         >
           <div
             className={cn(
-              'pointer-events-none relative z-10 flex min-w-0 flex-wrap gap-2',
+              'relative z-10 flex min-w-0 flex-wrap gap-2',
               index === 0 ? 'items-center' : 'flex-col items-start'
             )}
           >
@@ -138,15 +148,10 @@ export function WalletStatsCard(props: WalletStatsCardProps) {
               aria-hidden='true'
             />
             <div className='text-muted-foreground min-h-8 text-xs leading-4 font-medium sm:min-h-0'>
-              {item.label}
+              {index === 0 && reference ? t('Reference value') : item.label}
             </div>
-            {index === 0 && (
-              <span
-                className='ml-auto text-xs'
-                aria-label={t('Balance display currency')}
-              >
-                {t('Credits')}
-              </span>
+            {index === 0 && props.balanceAction && (
+              <div className='ml-auto'>{props.balanceAction}</div>
             )}
           </div>
 
@@ -158,23 +163,21 @@ export function WalletStatsCard(props: WalletStatsCardProps) {
                 : 'text-sm sm:text-xl [overflow-wrap:anywhere]'
             )}
           >
-            {item.value}
+            {index === 0 && reference ? `≈ ${reference}` : item.value}
           </div>
           {index === 0 ? (
-            <div className='relative z-10 mt-3 flex items-end justify-between gap-4'>
-              <div className='text-muted-foreground pointer-events-none text-xs'>
-                {item.description}
-              </div>
-            </div>
+            <p
+              className='text-muted-foreground relative z-10 mt-2 text-sm tabular-nums'
+              data-wallet-credit-balance
+            >
+              {reference ? item.value : t('Reference value unavailable')}
+            </p>
           ) : (
             <div className='text-muted-foreground pointer-events-none relative z-10 mt-2 hidden text-xs leading-5 sm:block'>
               {item.description}
             </div>
           )}
           {index === 0 && <NativeWalletDetails user={props.user} />}
-          {index === 0 && props.balanceAction && (
-            <div className='mt-6 flex justify-end'>{props.balanceAction}</div>
-          )}
         </div>
       ))}
     </div>

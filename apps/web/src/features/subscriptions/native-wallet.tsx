@@ -79,6 +79,7 @@ function SubscriptionWallet({
   const [plans, setPlans] = useState<NativePlan[]>([])
   const [purchases, setPurchases] = useState<NativePurchase[]>([])
   const [loading, setLoading] = useState(true)
+  const [loadFailed, setLoadFailed] = useState(false)
   const [creemBlocked, setCreemBlocked] = useState(true)
   const [stripeBlocked, setStripeBlocked] = useState(true)
   const [epayBlocked, setEPayBlocked] = useState(true)
@@ -107,9 +108,10 @@ function SubscriptionWallet({
       if (owns()) {
         setPlans(catalog)
         setPurchases(history)
+        setLoadFailed(false)
       }
     } catch {
-      if (owns()) setNotice(t('Request failed'))
+      if (owns()) setLoadFailed(true)
     } finally {
       if (owns()) setLoading(false)
     }
@@ -238,6 +240,7 @@ function SubscriptionWallet({
   const disabled =
     busy ||
     loading ||
+    loadFailed ||
     !!pending ||
     storageBlocked ||
     epayBlocked ||
@@ -261,6 +264,13 @@ function SubscriptionWallet({
         </CardDescription>
       </CardHeader>
       <CardContent className='space-y-4'>
+        {loadFailed && (
+          <Alert role='alert'>
+            <AlertDescription>
+              {t('Unable to load subscriptions')}
+            </AlertDescription>
+          </Alert>
+        )}
         {notice && (
           <Alert role='alert'>
             <AlertDescription>{notice}</AlertDescription>
@@ -296,7 +306,7 @@ function SubscriptionWallet({
           disabled={busy}
           onClick={() => void load()}
         >
-          {t('Refresh')}
+          {loadFailed ? t('Retry') : t('Refresh')}
         </Button>
         {loading && <p role='status'>{t('Loading...')}</p>}
         {pending && (
@@ -418,7 +428,7 @@ function SubscriptionWallet({
               </li>
             ))}
         </ul>
-        {!loading && !plans.length && (
+        {!loading && !loadFailed && !plans.length && (
           <p className='text-muted-foreground text-sm'>
             {t('No subscription plans yet')}
           </p>
@@ -428,6 +438,7 @@ function SubscriptionWallet({
           plans={plans}
           blocked={
             busy ||
+            loadFailed ||
             !!pending ||
             storageBlocked ||
             pancakeBlocked ||
@@ -445,6 +456,7 @@ function SubscriptionWallet({
           plans={plans}
           blocked={
             busy ||
+            loadFailed ||
             !!pending ||
             storageBlocked ||
             epayBlocked ||
@@ -462,6 +474,7 @@ function SubscriptionWallet({
           plans={plans}
           blocked={
             busy ||
+            loadFailed ||
             !!pending ||
             storageBlocked ||
             epayBlocked ||
@@ -479,6 +492,7 @@ function SubscriptionWallet({
           plans={plans}
           blocked={
             busy ||
+            loadFailed ||
             !!pending ||
             storageBlocked ||
             epayBlocked ||
@@ -580,7 +594,7 @@ function SubscriptionWallet({
             )
           })}
         </ul>
-        {!loading && !purchases.length && (
+        {!loading && !loadFailed && !purchases.length && (
           <p className='text-muted-foreground text-sm'>{t('No data')}</p>
         )}
       </CardContent>

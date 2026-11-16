@@ -24,17 +24,24 @@ export function ConsoleDisclosure({
   id,
   title,
   children,
+  deferMount = false,
+  defaultOpen = false,
 }: {
   id: string
   title: ReactNode
   children: ReactNode
+  deferMount?: boolean
+  defaultOpen?: boolean
 }) {
   const hash = useLocation({ select: (location) => location.hash })
   const [choice, setChoice] = useState<{ hash: string; open: boolean } | null>(
     null
   )
+  const [visited, setVisited] = useState(defaultOpen)
   const open =
-    choice?.hash === hash ? choice.open : hash.replace(/^#/, '') === id
+    choice?.hash === hash
+      ? choice.open
+      : defaultOpen || hash.replace(/^#/, '') === id
   return (
     <details
       id={id}
@@ -42,6 +49,7 @@ export function ConsoleDisclosure({
       open={open}
       onToggle={(event) => {
         const nextOpen = event.currentTarget.open
+        if (nextOpen) setVisited(true)
         if (nextOpen !== open) setChoice({ hash, open: nextOpen })
       }}
     >
@@ -49,7 +57,9 @@ export function ConsoleDisclosure({
         <span>{title}</span>
         <ChevronRight aria-hidden='true' />
       </summary>
-      <div className='console-disclosure-body'>{children}</div>
+      <div className='console-disclosure-body'>
+        {(!deferMount || open || visited) && children}
+      </div>
     </details>
   )
 }

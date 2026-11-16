@@ -50,6 +50,7 @@ const { SidebarProvider } = await import('@/components/ui/sidebar')
 const { useAuthStore } = await import('@/stores/auth-store')
 const { DEFAULT_CURRENCY_CONFIG, useSystemConfigStore } =
   await import('@/stores/system-config-store')
+const { mapStatusDataToConfig } = await import('@/hooks/use-system-config')
 const { AccountBalanceBadge } = await import('./account-balance-badge')
 const { ConsoleBalanceEntry } = await import('./console-navigation')
 const originalUser = useAuthStore.getState().auth.user
@@ -211,3 +212,45 @@ for (const projection of [undefined, true]) {
     assert.doesNotMatch(container.textContent ?? '', /USD|Top up/)
   })
 }
+
+test('declared current rates make compact reference values while keeping exact credits in accessible labels', async () => {
+  const container = await mount(true, 8065639, {
+    wallet_unit: 'core_credit',
+    wallet_money_available: false,
+    wallet_money_basis: 'unknown',
+    setting: JSON.stringify({ wallet_display_currency: 'CNY' }),
+  })
+  await act(async () => {
+    useSystemConfigStore.getState().setConfig(
+      mapStatusDataToConfig({
+        currency_unit: 'credit',
+        credit_unit_schema_version: 2,
+        credits_per_usd: 500000,
+        credits_per_usd_exact: '500000',
+        ledger_quota_per_usd: 500000,
+        ledger_quota_per_usd_exact: '500000',
+        quota_unit: 'LEDGER_QUOTA',
+        cny_per_usd: '6.700304',
+      })
+    )
+  })
+  for (const testid of [
+    'mobile-account-balance',
+    'account-balance-badge',
+    'console-balance',
+  ]) {
+    const element = container.querySelector(`[data-testid="${testid}"]`)
+    assert.ok(element)
+    assert.match(element.textContent ?? '', /Reference value/)
+    assert.match(element.textContent ?? '', /≈ 108\.08 CNY/)
+    assert.doesNotMatch(element.textContent ?? '', /8,065,639/)
+    const labelled = element.hasAttribute('aria-label')
+      ? element
+      : element.querySelector('[aria-label*="8,065,639 Credits"]')
+    assert.match(
+      labelled?.getAttribute('aria-label') ?? '',
+      /8,065,639 Credits/
+    )
+  }
+  assert.equal(useAuthStore.getState().auth.user?.wallet_money_available, false)
+})

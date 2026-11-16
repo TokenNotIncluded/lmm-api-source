@@ -19,7 +19,9 @@ import {
   nativeCreditDisplay,
   walletProjection,
 } from '@/features/wallet/lib/wallet-projection'
+import { walletReferenceValue } from '@/features/wallet/lib/wallet-reference'
 import { useWalletCurrency } from '@/hooks/use-wallet-currency'
+import { toIntlLocale } from '@/i18n/languages'
 import { cn } from '@/lib/utils'
 import { useAuthStore } from '@/stores/auth-store'
 
@@ -31,8 +33,8 @@ export function AccountBalanceBadge({
   className?: string
   compactMobile?: boolean
 }) {
-  const { t } = useTranslation()
-  const { formatQuota } = useWalletCurrency()
+  const { t, i18n } = useTranslation()
+  const { formatQuota, config, currency } = useWalletCurrency()
   const user = useAuthStore((state) => state.auth.user)
   const projection = walletProjection(user)
   const balance = projection.native
@@ -41,6 +43,17 @@ export function AccountBalanceBadge({
       ? t('Unavailable')
       : formatQuota(user?.quota ?? 0)
   const walletAction = projection.native ? t('Wallet') : t('Top up')
+  const reference = walletReferenceValue(
+    projection.available,
+    currency === 'CNY' ? 'CNY' : 'USD',
+    config,
+    toIntlLocale(i18n.resolvedLanguage || i18n.language)
+  )
+  const visibleBalance = reference ? `≈ ${reference}` : balance
+  const balanceLabel = reference ? t('Reference value') : t('Balance')
+  const description = reference
+    ? `${t('Reference value')}: ${reference} · ${t('Balance')}: ${balance}`
+    : `${t('Balance')}: ${balance}`
 
   return (
     <>
@@ -48,12 +61,17 @@ export function AccountBalanceBadge({
         <Link
           to='/wallet'
           className='border-border/70 bg-muted/40 hover:bg-accent focus-visible:ring-ring/50 inline-flex h-auto min-h-11 max-w-32 min-w-11 shrink-0 items-center justify-center gap-1 rounded-lg border px-2 py-1 text-sm font-medium tabular-nums outline-none focus-visible:ring-[3px] md:hidden'
-          aria-label={`${t('Balance')}: ${balance} · ${walletAction}`}
-          title={`${t('Balance')}: ${balance} · ${walletAction}`}
+          aria-label={`${description} · ${walletAction}`}
+          title={`${description} · ${walletAction}`}
           data-testid='mobile-account-balance'
         >
           <span className='min-w-0 text-center leading-4 wrap-anywhere whitespace-normal'>
-            {balance}
+            {reference && (
+              <span className='block text-[10px] font-normal'>
+                {t('Reference value')}
+              </span>
+            )}
+            {visibleBalance}
           </span>
           {!projection.native && (
             <span aria-hidden='true' className='text-muted-foreground shrink-0'>
@@ -71,7 +89,7 @@ export function AccountBalanceBadge({
         data-testid='account-balance-badge'
       >
         <span className='text-muted-foreground ps-2 md:ps-2.5'>
-          {t('Balance')}
+          {balanceLabel}
         </span>
         <Tooltip>
           <TooltipTrigger
@@ -86,19 +104,31 @@ export function AccountBalanceBadge({
             <sup aria-hidden='true'>?</sup>
           </TooltipTrigger>
           <TooltipContent side='bottom' className='max-w-72 leading-5'>
-            {projection.native
-              ? t('Credit conversion unavailable')
-              : t(
-                  'Your balance is stored in credits. Display currency does not change the amount charged at checkout.'
-                )}
+            {projection.native ? (
+              reference ? (
+                <>
+                  {t('Balance')}: {balance}
+                  <br />
+                  {t(
+                    'Reference values use the current pricing rate. Your balance is recorded in credits.'
+                  )}
+                </>
+              ) : (
+                t('Reference value unavailable')
+              )
+            ) : (
+              t(
+                'Your balance is stored in credits. Display currency does not change the amount charged at checkout.'
+              )
+            )}
           </TooltipContent>
         </Tooltip>
         <Link
           to='/wallet'
-          className='hover:text-accent-foreground focus-visible:ring-ring/50 max-w-24 truncate px-1 tabular-nums outline-none focus-visible:ring-[3px]'
-          aria-label={`${t('Balance')}: ${balance}`}
+          className='hover:text-accent-foreground focus-visible:ring-ring/50 max-w-44 truncate px-2 tabular-nums outline-none focus-visible:ring-[3px]'
+          aria-label={description}
         >
-          {balance}
+          {visibleBalance}
         </Link>
         <Link
           to='/wallet'

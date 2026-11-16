@@ -6,6 +6,7 @@ it under the terms of the GNU Affero General Public License as published by
 the Free Software Foundation, either version 3 of the License, or
 (at your option) any later version.
 */
+import { ChevronDown } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 
 import {
@@ -14,7 +15,7 @@ import {
   type WalletProjectionUser,
 } from '../lib/wallet-projection'
 
-/** Separate native ledger buckets, without assigning legacy money units. */
+/** Ledger details stay distinct from the current-rate reference display. */
 export function NativeWalletDetails({
   user,
 }: {
@@ -23,27 +24,31 @@ export function NativeWalletDetails({
   const { t } = useTranslation()
   const projection = walletProjection(user)
   return (
-    <div
-      className='relative z-10 mt-8 flex flex-col gap-5 text-xs'
+    <details
+      className='group relative z-10 mt-4 text-xs'
       data-native-wallet-details
     >
-      <p className='text-muted-foreground order-last leading-relaxed'>
-        {t('Credit conversion unavailable')}: USD / CNY — {t('Unknown')}
-      </p>
-      <dl className='grid grid-cols-1 gap-5 sm:grid-cols-3'>
+      <summary className='text-muted-foreground hover:text-foreground focus-visible:outline-ring flex min-h-8 w-fit cursor-pointer list-none items-center gap-2 rounded-sm focus-visible:outline-2 focus-visible:outline-offset-2'>
+        {t('Balance details')}
+        <ChevronDown
+          className='size-3.5 transition-transform group-open:rotate-180'
+          aria-hidden='true'
+        />
+      </summary>
+      <dl className='mt-3 grid grid-cols-1 gap-4 sm:grid-cols-3'>
         {(
           [
             [
               'wallet_spendable_quota',
-              t('钱包原生投影：可花积分'),
+              t('Spendable credits'),
               projection.spendable,
             ],
             [
               'wallet_reserved_quota',
-              t('钱包原生投影：预留积分'),
+              t('Reserved credits'),
               projection.reserved,
             ],
-            ['wallet_debt', t('钱包原生投影：欠款积分'), projection.debt],
+            ['wallet_debt', t('Credit debt'), projection.debt],
           ] as const
         ).map(([field, label, value]) => (
           <div key={field} data-wallet-bucket={field}>
@@ -54,6 +59,11 @@ export function NativeWalletDetails({
           </div>
         ))}
       </dl>
-    </div>
+      <p className='text-muted-foreground mt-4 max-w-prose leading-relaxed'>
+        {t(
+          'Reference values use the current pricing rate. Your balance is recorded in credits.'
+        )}
+      </p>
+    </details>
   )
 }

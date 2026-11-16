@@ -311,8 +311,13 @@ function NativeWalletCheckoutForm({ owner }: { owner: string }) {
           <p role='status'>{t('Loading payment methods…')}</p>
         ) : channelsFailed || channels.length === 0 ? (
           <div className='space-y-3'>
-            <p className='text-muted-foreground text-sm'>
-              {t('No payment channel is available right now.')}
+            <p
+              className='text-muted-foreground text-sm'
+              role={channelsFailed ? 'alert' : 'status'}
+            >
+              {channelsFailed
+                ? t('Unable to load payment methods')
+                : t('No payment channel is available right now.')}
             </p>
             <Button
               variant='outline'
@@ -323,7 +328,7 @@ function NativeWalletCheckoutForm({ owner }: { owner: string }) {
                 setChannelVersion((value) => value + 1)
               }}
             >
-              {t('Refresh')}
+              {channelsFailed ? t('Retry') : t('Refresh')}
             </Button>
           </div>
         ) : (
@@ -358,7 +363,7 @@ function NativeWalletCheckoutForm({ owner }: { owner: string }) {
               </div>
               <div className='space-y-3'>
                 <Label htmlFor='native-payment-amount'>
-                  {t('Amount')} ·{' '}
+                  {t(selected?.credit_quantity ? 'Wallet credit' : 'Amount')} ·{' '}
                   {selected?.credit_quantity
                     ? 'USD'
                     : selected && paymentCurrency(selected)}

@@ -6,7 +6,6 @@
   overflow-wrap: anywhere;
 }
 .wallet-overview-grid,
-.wallet-secondary-grid,
 .wallet-stats,
 .wallet-checkout-fields,
 .wallet-affiliate-content,
@@ -15,7 +14,6 @@
   grid-template-columns: minmax(0, 1fr);
 }
 .wallet-overview-grid > *,
-.wallet-secondary-grid > *,
 .wallet-checkout-fields > *,
 .wallet-affiliate-content > *,
 .wallet-affiliate-stats > * {
@@ -54,14 +52,6 @@
   .wallet-affiliate-content {
     grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr);
     align-items: center;
-  }
-}
-@container wallet (min-width: 64rem) {
-  .wallet-overview-grid {
-    grid-template-columns: minmax(0, 0.85fr) minmax(0, 1.15fr);
-  }
-  .wallet-secondary-grid {
-    grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr);
   }
 }
 @container checkout (min-width: 28rem) {

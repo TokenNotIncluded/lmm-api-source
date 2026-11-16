@@ -54,8 +54,11 @@ import {
   nativeCreditDisplay,
   walletProjection,
 } from '@/features/wallet/lib/wallet-projection'
+import { walletReferenceValue } from '@/features/wallet/lib/wallet-reference'
 import { useSidebarView } from '@/hooks/use-sidebar-view'
 import { useTopNavLinks } from '@/hooks/use-top-nav-links'
+import { useWalletCurrency } from '@/hooks/use-wallet-currency'
+import { toIntlLocale } from '@/i18n/languages'
 import { formatQuota } from '@/lib/format'
 import { useAuthStore } from '@/stores/auth-store'
 
@@ -166,7 +169,8 @@ export function ConsoleNavSection({ group }: { group: NavGroupProps }) {
  * (where the tooltip carries the same text).
  */
 export function ConsoleBalanceEntry() {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
+  const { config, currency } = useWalletCurrency()
   const { setOpenMobile } = useSidebar()
   const user = useAuthStore((state) => state.auth.user)
   const projection = walletProjection(user)
@@ -176,21 +180,32 @@ export function ConsoleBalanceEntry() {
       ? t('Unavailable')
       : formatQuota(Math.max(0, user?.quota ?? 0))
   const walletAction = projection.native ? t('Wallet') : t('Top up')
+  const reference = walletReferenceValue(
+    projection.available,
+    currency === 'CNY' ? 'CNY' : 'USD',
+    config,
+    toIntlLocale(i18n.resolvedLanguage || i18n.language)
+  )
+  const visibleBalance = reference ? `≈ ${reference}` : balance
+  const description = reference
+    ? `${t('Reference value')}: ${reference} · ${t('Balance')}: ${balance}`
+    : `${t('Balance')}: ${balance}`
 
   return (
     <SidebarMenu>
       <SidebarMenuItem>
         <SidebarMenuButton
-          tooltip={`${t('Balance')}: ${balance} · ${walletAction}`}
+          tooltip={`${description} · ${walletAction}`}
+          aria-label={`${description} · ${walletAction}`}
           className='bg-background/70 h-9 rounded-lg'
           onClick={() => setOpenMobile(false)}
           render={<Link to='/wallet' />}
         >
           <CoinsIcon aria-hidden='true' />
           <span className='min-w-0 flex-1 truncate'>
-            {t('Balance')}
+            {reference ? t('Reference value') : t('Balance')}
             <span className='text-muted-foreground ms-1 tabular-nums'>
-              {balance}
+              {visibleBalance}
             </span>
           </span>
           {!projection.native && (
