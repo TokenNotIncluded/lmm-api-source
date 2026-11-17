@@ -1,4 +1,3 @@
-import { mock } from 'bun:test'
 /* Copyright (C) 2026 LIghtJUNction. SPDX-License-Identifier: AGPL-3.0-or-later */
 import assert from 'node:assert/strict'
 import { after, afterEach, beforeEach, test } from 'node:test'
@@ -40,27 +39,20 @@ let readResponse: () => Promise<unknown> = async () => ({
   data: { purchases_available: false },
 })
 const requests: string[] = []
-mock.module('@/lib/api', () => ({
-  api: {
-    get: async (path: string) => {
-      requests.push(path)
-      assert.equal(path, '/api/hero-sms/capabilities')
-      return { data: await readResponse() }
-    },
-  },
-}))
-mock.module('react-i18next', () => ({
-  useTranslation: () => ({ t: (key: string) => key }),
-}))
-mock.module('@/components/loading-state', () => ({
-  LoadingState: ({ message }: { message: string }) =>
-    createElement('p', null, message),
-}))
 
 const { QueryClient, QueryClientProvider } =
   await import('@tanstack/react-query')
 const { createRoot } = await import('react-dom/client')
+const { createInstance } = await import('i18next')
+const { I18nextProvider, initReactI18next } = await import('react-i18next')
+const { api } = await import('@/lib/api')
 const { useAuthStore } = await import('@/stores/auth-store')
+const i18n = createInstance()
+await i18n
+  .use(initReactI18next)
+  .init({ lng: 'en', resources: { en: { translation: {} } } })
+const previousAdapter = api.defaults.adapter
+const previousAuth = useAuthStore.getState().auth
 const { HeroSmsPurchaseCapabilityGate } =
   await import('./purchase-capability-gate')
 
@@ -118,9 +110,11 @@ async function mount() {
   await act(async () => {
     root.render(
       <QueryClientProvider client={client}>
-        <HeroSmsPurchaseCapabilityGate>
-          <PurchaseProbe />
-        </HeroSmsPurchaseCapabilityGate>
+        <I18nextProvider i18n={i18n}>
+          <HeroSmsPurchaseCapabilityGate>
+            <PurchaseProbe />
+          </HeroSmsPurchaseCapabilityGate>
+        </I18nextProvider>
       </QueryClientProvider>
     )
     await flush()
@@ -134,6 +128,18 @@ async function refresh() {
 }
 
 beforeEach(() => {
+  api.defaults.adapter = async (config) => {
+    const path = config.url ?? ''
+    requests.push(path)
+    assert.equal(path, '/api/hero-sms/capabilities')
+    return {
+      config,
+      headers: {},
+      status: 200,
+      statusText: 'OK',
+      data: await readResponse(),
+    }
+  }
   document.body.innerHTML = '<div id="root"></div>'
   const element = document.getElementById('root')
   assert.ok(element)
@@ -156,7 +162,8 @@ afterEach(async () => {
     await flush()
   })
   client.clear()
-  session(null, null)
+  api.defaults.adapter = previousAdapter
+  useAuthStore.setState({ auth: previousAuth })
 })
 after(async () => {
   await dom.happyDOM.cancelAsync()

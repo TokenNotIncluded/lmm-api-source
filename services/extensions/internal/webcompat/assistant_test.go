@@ -151,7 +151,7 @@ func TestAssistantWebRequiresSessionForReadsAndKeepsPresetsPublic(t *testing.T) 
 		}
 	}
 	w := assistantRequest(mux, "GET", "/api/assistant/pre-conversation-presets?language=zh-TW", "", "")
-	if w.Code != 200 || !strings.Contains(w.Body.String(), "存取權限") {
+	if w.Code != 200 || !strings.Contains(w.Body.String(), "第一次來，我該從哪開始？") {
 		t.Fatal(w.Code, w.Body.String())
 	}
 	w = assistantRequest(mux, "POST", "/api/assistant/pre-conversation-presets/getting_started/click", "", "")
