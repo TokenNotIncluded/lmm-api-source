@@ -54,7 +54,6 @@ import {
   reportAuthError,
 } from '@/features/auth/lib/auth-completion'
 import { federatedProviders } from '@/features/auth/lib/federated-oauth'
-import { hasOAuthLoginProvider } from '@/features/auth/lib/registration'
 import { beginPasskeyLogin } from '@/features/auth/passkey'
 import type { AuthFormProps } from '@/features/auth/types'
 import { AccountClosureRecovery } from '@/features/profile/components/account-closure-recovery'
@@ -111,7 +110,6 @@ export function UserAuthForm({
   const hasWeChatLogin = federatedProviders(status).some(
     (provider) => provider.kind === 'wechat'
   )
-  const hasOAuthLogin = hasOAuthLoginProvider(status)
 
   const [previousLegalConsent, setPreviousLegalConsent] =
     useState(requiresLegalConsent)
