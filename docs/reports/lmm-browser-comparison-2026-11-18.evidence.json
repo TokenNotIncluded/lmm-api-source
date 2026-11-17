@@ -1,0 +1,392 @@
+{
+  "schema_version": 1,
+  "title": "LMM API 新旧站点浏览器实测证据（脱敏摘要）",
+  "observed_timezone": "Asia/Taipei",
+  "observed_date": "2026-11-18",
+  "scope": "Public browsing and read-only documented HTTP calls in the same developer-machine Chromium session; existing Chrome session observations recorded without user identifiers or balances.",
+  "sites": {
+    "legacy": "https://api.lmm.best",
+    "native": "https://native.api.lmm.best"
+  },
+  "reference_source_commit": "48f343fce385d77162868e3360947834382872f0",
+  "findings": [
+    {
+      "id": "B01",
+      "kind": "browser_observed",
+      "case": "首页",
+      "legacy": "LMM Forge；导航较多，主文案为 AI 模型，一处接入。",
+      "native": "LMM API；工具市场、价格、开发者与更多导航，主文案为 AI 工具，汇聚同一个社区。"
+    },
+    {
+      "id": "B02",
+      "kind": "browser_observed",
+      "case": "访客价格与工具市场",
+      "legacy": "/pricing 与 /tool-market 跳转 /sign-in 并保留 redirect。",
+      "native": "/pricing 与 /tool-market 跳转 /sign-in 并保留 redirect。"
+    },
+    {
+      "id": "B03",
+      "kind": "browser_observed",
+      "case": "登录与注册入口",
+      "legacy": "显示注册、Google、GitHub、Discord、LinuxDO、Telegram、Passkey。仅观察入口，未验证各供应商登录成功。",
+      "native": "未显示注册；GitHub、Telegram 标为仅限登录；支持密码及 Passkey 入口。仅观察入口，未验证各供应商登录成功。"
+    },
+    {
+      "id": "B04",
+      "kind": "browser_observed",
+      "case": "已有 Chrome 会话",
+      "legacy": "已登录会话可打开 dashboard/overview 与 wallet，余额、用量图表、人民币支付预览表单可见。未支付。",
+      "native": "出现登录中断恢复提示；正在按页面恢复、续期流程核查。"
+    },
+    {
+      "id": "B05",
+      "kind": "http_observed",
+      "case": "开发者页价格示例",
+      "legacy": {
+        "path": "/api/pricing",
+        "status": 404,
+        "message": "Not Found"
+      },
+      "native": {
+        "path": "/core/v1/pricing/public",
+        "status": 403,
+        "error": "pricing_forbidden"
+      }
+    },
+    {
+      "id": "B06",
+      "kind": "browser_observed",
+      "case": "开发者页",
+      "legacy": "有请求构建器；默认示例模型可见。",
+      "native": "有当前域名请求构建器；显示模型目录暂时不可用，可手工输入模型 ID；OAuth 服务发现链接仍指向 api.lmm.best。需确认正式发行的 canonical 地址策略。"
+    }
+  ],
+  "public_status": [
+    {
+      "site": "old",
+      "at": "2026-11-17T20:51:54.360Z",
+      "headers": [
+        [
+          "x-new-api-version",
+          "0.2.118"
+        ]
+      ],
+      "keys": [
+        "HeaderNavModules",
+        "SidebarModulesAdmin",
+        "announcements",
+        "announcements_enabled",
+        "api_info_enabled",
+        "assistant",
+        "backend_capabilities",
+        "chats",
+        "checkin_enabled",
+        "cny_per_usd",
+        "credit_unit_schema_version",
+        "credits_per_usd",
+        "currency_unit",
+        "custom_currency_code",
+        "custom_currency_exchange_rate",
+        "custom_currency_symbol",
+        "custom_oauth_providers",
+        "data_export_default_time",
+        "default_collapse_sidebar",
+        "default_use_auto_group",
+        "demo_site_enabled",
+        "discord_client_id",
+        "discord_oauth",
+        "display_in_currency",
+        "docs_access",
+        "docs_link",
+        "email_verification",
+        "enable_batch_update",
+        "enable_data_export",
+        "enable_drawing",
+        "enable_task",
+        "faq",
+        "faq_enabled",
+        "footer_html",
+        "github_client_id",
+        "github_oauth",
+        "ledger_quota_per_usd",
+        "ledger_quota_per_usd_exact",
+        "legacy_credit_unit",
+        "legacy_pricing_units_per_usd",
+        "linuxdo_client_id",
+        "linuxdo_minimum_trust_level",
+        "linuxdo_oauth",
+        "logo",
+        "mj_notify_enabled",
+        "oauth_register_enabled",
+        "oauth_registration_disabled_methods",
+        "oidc_authorization_endpoint",
+        "oidc_client_id",
+        "oidc_display_name",
+        "oidc_enabled",
+        "passkey_allow_insecure",
+        "passkey_attachment",
+        "passkey_display_name",
+        "passkey_login",
+        "passkey_origins",
+        "passkey_rp_id",
+        "passkey_user_verification",
+        "password_login_enabled",
+        "password_register_enabled",
+        "preview_model_ids",
+        "price",
+        "privacy_policy_enabled",
+        "public_credit_unit",
+        "public_credits_per_usd",
+        "public_credits_per_usd_exact",
+        "quota_display_type",
+        "quota_per_unit",
+        "quota_per_usd",
+        "quota_unit",
+        "register_enabled",
+        "self_use_mode_enabled",
+        "server_address",
+        "setup",
+        "start_time",
+        "stripe_unit_price",
+        "system_name",
+        "telegram_bot_name",
+        "telegram_oauth",
+        "theme",
+        "turnstile_check",
+        "turnstile_site_key",
+        "uptime_kuma_enabled",
+        "usd_exchange_rate",
+        "user_agreement_enabled",
+        "version",
+        "wechat_login",
+        "wechat_qrcode"
+      ],
+      "selected": {
+        "credit_unit_schema_version": 2,
+        "discord_oauth": true,
+        "email_verification": true,
+        "github_oauth": true,
+        "linuxdo_oauth": true,
+        "oauth_register_enabled": true,
+        "passkey_allow_insecure": false,
+        "passkey_attachment": "",
+        "passkey_display_name": "lmm.best",
+        "passkey_login": true,
+        "passkey_origins": "https://api.lmm.best",
+        "passkey_rp_id": "api.lmm.best",
+        "passkey_user_verification": "preferred",
+        "password_login_enabled": true,
+        "password_register_enabled": true,
+        "register_enabled": true,
+        "system_name": "lmm.best",
+        "telegram_oauth": true,
+        "turnstile_check": false,
+        "version": "0.2.118"
+      },
+      "status": 200,
+      "url": "https://api.lmm.best/api/status"
+    },
+    {
+      "site": "new",
+      "at": "2026-11-17T20:51:55.265Z",
+      "headers": [
+        [
+          "x-lmm-api-version",
+          "0.1.0"
+        ]
+      ],
+      "keys": [
+        "admin_users_protocol",
+        "assistant",
+        "backend_capabilities",
+        "capabilities",
+        "capability_scope",
+        "cny_per_usd",
+        "commerce_rpc_enabled",
+        "configured_components",
+        "credit_unit_schema_version",
+        "credits_per_usd",
+        "credits_per_usd_exact",
+        "currency_unit",
+        "custom_oauth_providers",
+        "discord_client_id",
+        "discord_oauth",
+        "email_verification",
+        "external_model_providers_enabled",
+        "external_oauth_browser",
+        "github_client_id",
+        "github_oauth",
+        "google_browser_callback",
+        "google_client_id",
+        "google_oauth",
+        "ledger_quota_per_usd",
+        "ledger_quota_per_usd_exact",
+        "legacy_credit_unit",
+        "legacy_pricing_units_per_usd",
+        "linuxdo_client_id",
+        "linuxdo_oauth",
+        "models_local_synthetic",
+        "models_streaming",
+        "native_account_bindings",
+        "oauth_register_enabled",
+        "oauth_registration_disabled_methods",
+        "oidc_enabled",
+        "passkey_login",
+        "password_login_enabled",
+        "password_register_enabled",
+        "payments_enabled",
+        "payments_test_rpc_enabled",
+        "privacy_policy_enabled",
+        "public_credit_unit",
+        "public_credits_per_usd",
+        "public_credits_per_usd_exact",
+        "quota_per_unit",
+        "quota_unit",
+        "register_enabled",
+        "server_address",
+        "system_name",
+        "telegram_bot_name",
+        "telegram_oauth",
+        "telegram_register_enabled",
+        "turnstile_check",
+        "turnstile_site_key",
+        "two_factor_enabled",
+        "usd_exchange_rate",
+        "user_agreement_enabled",
+        "version",
+        "wechat_login"
+      ],
+      "selected": {
+        "credit_unit_schema_version": 2,
+        "discord_oauth": false,
+        "email_verification": false,
+        "external_oauth_browser": true,
+        "github_oauth": true,
+        "google_oauth": false,
+        "linuxdo_oauth": false,
+        "oauth_register_enabled": false,
+        "passkey_login": true,
+        "password_login_enabled": true,
+        "password_register_enabled": false,
+        "payments_enabled": false,
+        "payments_test_rpc_enabled": true,
+        "register_enabled": false,
+        "system_name": "LMM API",
+        "telegram_oauth": true,
+        "telegram_register_enabled": false,
+        "turnstile_check": false,
+        "version": "0.1.0"
+      },
+      "status": 200,
+      "url": "https://native.api.lmm.best/api/status"
+    }
+  ],
+  "public_capabilities": [
+    {
+      "site": "old",
+      "at": "2026-11-17T20:52:55.734Z",
+      "backend_capabilities": {
+        "bounty_challenge_cancel": true,
+        "bounty_notifications": true,
+        "bounty_public_read": true,
+        "responses_websocket": true,
+        "self_oauth_unbind": true
+      },
+      "flags": {
+        "version": "0.2.118"
+      },
+      "meta": [
+        {
+          "content": "rv.go-v0.2.118.2k6e8r7p",
+          "name": "build-id"
+        }
+      ],
+      "scripts": [
+        "https://api.lmm.best/extore-callback.js",
+        "https://cdn.agentlane.com/v1/snippet.js",
+        "https://api.lmm.best/static/js/vendor-ui-primitives.a5a859ba9c.js",
+        "https://api.lmm.best/static/js/vendor-tanstack.e7940684cd.js",
+        "https://api.lmm.best/static/js/lib-react.3372bffa23.js",
+        "https://api.lmm.best/static/js/2036.c88085c820.js",
+        "https://api.lmm.best/static/js/index.d92362a4d7.js"
+      ],
+      "url": "https://api.lmm.best/sign-in?redirect=%2Fpricing"
+    },
+    {
+      "site": "new",
+      "at": "2026-11-17T20:52:56.567Z",
+      "backend_capabilities": {
+        "bounty_challenge_cancel": false,
+        "bounty_notifications": false,
+        "bounty_public_read": false,
+        "responses_websocket": false,
+        "self_oauth_unbind": false
+      },
+      "capabilities": {
+        "admin_users_read": true
+      },
+      "flags": {
+        "capability_scope": "configured_components_only",
+        "commerce_rpc_enabled": true,
+        "external_model_providers_enabled": false,
+        "models_local_synthetic": true,
+        "models_streaming": true,
+        "native_account_bindings": true,
+        "payments_enabled": false,
+        "payments_test_rpc_enabled": true,
+        "version": "0.1.0"
+      },
+      "meta": [
+        {
+          "content": "rv.04fef6f15b8214b56494ad2af8f3e2c8076035af.2k6e8r7p",
+          "name": "build-id"
+        }
+      ],
+      "scripts": [
+        "https://native.api.lmm.best/extore-callback.js",
+        "https://cdn.agentlane.com/v1/snippet.js",
+        "https://native.api.lmm.best/static/js/vendor-ui-primitives.4ee6a9de12.js",
+        "https://native.api.lmm.best/static/js/vendor-tanstack.01c9f87a55.js",
+        "https://native.api.lmm.best/static/js/lib-react.91dfd7c47e.js",
+        "https://native.api.lmm.best/static/js/a3.1519577a62.js",
+        "https://native.api.lmm.best/static/js/index.07f6cfbc9e.js"
+      ],
+      "url": "https://native.api.lmm.best/sign-in?redirect=%2Fpricing"
+    }
+  ],
+  "public_pricing_api": [
+    {
+      "site": "old",
+      "at": "2026-11-17T20:56:39.472Z",
+      "count": null,
+      "keys": [
+        "message"
+      ],
+      "message": "Not Found",
+      "models": null,
+      "path": "/api/pricing",
+      "status": 404
+    },
+    {
+      "site": "new",
+      "at": "2026-11-17T20:56:40.777Z",
+      "error": {
+        "code": "pricing_forbidden"
+      },
+      "groups_count": null,
+      "keys": [
+        "error"
+      ],
+      "models": null,
+      "models_count": null,
+      "path": "/core/v1/pricing/public",
+      "status": 403
+    }
+  ],
+  "limitations": [
+    "No production database access or modification.",
+    "No new production accounts, API keys, payments, refunds, paid model calls, deployment or load tests.",
+    "Public pages used an isolated Chromium browser context; existing-user checks used the user's Chrome session; account-data equivalence has not been established.",
+    "Raw screenshots, account balances, personal identifiers, tokens and browser storage are excluded."
+  ]
+}
