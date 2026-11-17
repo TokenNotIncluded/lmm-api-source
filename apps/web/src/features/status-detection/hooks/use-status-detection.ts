@@ -22,7 +22,13 @@ Copyright (C) 2026 LIghtJUNction
 import { useQuery } from '@tanstack/react-query'
 import { useCallback, useMemo } from 'react'
 
-import { getStatusDetectionMetrics, getStatusDetectionSummary } from '../api'
+import { useAuthStore } from '@/stores/auth-store'
+
+import {
+  getServiceHealth,
+  getStatusDetectionMetrics,
+  getStatusDetectionSummary,
+} from '../api'
 import { aggregateStatusGroups, latestStatusTimestamp } from '../lib/aggregate'
 
 const MAX_MODELS = 48
@@ -36,13 +42,26 @@ type StatusDetectionOptions = {
 }
 
 export function useStatusDetection(options: StatusDetectionOptions = {}) {
+  const sessionScope = useAuthStore((state) => {
+    const { user, session } = state.auth
+    return user && session ? `${user.id}:${session.sid}` : null
+  })
   const hours = options.hours ?? 24
   const modelFilter = options.model?.trim() ?? ''
   const groupFilter = options.group?.trim() ?? ''
   const vendorFilter = options.vendor?.trim() ?? ''
+  const healthQuery = useQuery({
+    queryKey: ['service-health'],
+    queryFn: getServiceHealth,
+    staleTime: 30_000,
+    refetchInterval: 60_000,
+    refetchIntervalInBackground: false,
+    retry: false,
+  })
   const summaryQuery = useQuery({
-    queryKey: ['perf-metrics-summary', hours],
+    queryKey: ['perf-metrics-summary', sessionScope, hours],
     queryFn: () => getStatusDetectionSummary(hours),
+    enabled: sessionScope !== null,
     staleTime: 60 * 1000,
     retry: false,
   })
@@ -72,9 +91,9 @@ export function useStatusDetection(options: StatusDetectionOptions = {}) {
   )
 
   const detailsQuery = useQuery({
-    queryKey: ['status-detection-metrics', hours, modelNames],
+    queryKey: ['status-detection-metrics', sessionScope, hours, modelNames],
     queryFn: () => getStatusDetectionMetrics(modelNames, hours),
-    enabled: modelNames.length > 0,
+    enabled: sessionScope !== null && modelNames.length > 0,
     staleTime: 60 * 1000,
     retry: false,
   })
@@ -96,11 +115,21 @@ export function useStatusDetection(options: StatusDetectionOptions = {}) {
   )
 
   const refresh = useCallback(async () => {
-    await summaryQuery.refetch()
-    await detailsQuery.refetch()
-  }, [detailsQuery, summaryQuery])
+    await Promise.all([
+      healthQuery.refetch(),
+      ...(sessionScope !== null ? [summaryQuery.refetch()] : []),
+      ...(sessionScope !== null && modelNames.length > 0
+        ? [detailsQuery.refetch()]
+        : []),
+    ])
+  }, [detailsQuery, healthQuery, modelNames.length, sessionScope, summaryQuery])
 
   return {
+    health: healthQuery.data,
+    healthError: healthQuery.error,
+    healthLoading: healthQuery.isLoading,
+    healthCheckedAt: healthQuery.dataUpdatedAt,
+    requiresSignIn: sessionScope === null,
     coverage: summaryQuery.data,
     groups,
     availableGroups: allGroups.map((group) => group.group),
@@ -109,7 +138,10 @@ export function useStatusDetection(options: StatusDetectionOptions = {}) {
     modelsWithData: detailsQuery.data?.entries.length ?? 0,
     failedModelCount: detailsQuery.data?.failedModels.length ?? 0,
     isLoading: summaryQuery.isLoading || detailsQuery.isLoading,
-    isFetching: summaryQuery.isFetching || detailsQuery.isFetching,
+    isFetching:
+      healthQuery.isFetching ||
+      summaryQuery.isFetching ||
+      detailsQuery.isFetching,
     error: summaryQuery.error ?? detailsQuery.error,
     hasSummary: Boolean(summaryQuery.data?.success),
     latestTimestamp,

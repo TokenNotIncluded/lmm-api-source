@@ -14,7 +14,7 @@ export function StoreNativeAmount({ price }: { price?: StorePrice | null }) {
       {value === undefined
         ? t(STORE_NATIVE_COPY.unknown, { defaultValue: 'Amount unknown' })
         : price?.unit === 'credits'
-          ? value
+          ? t('{{amount}} credits', { amount: price.amount_credits })
           : t(STORE_NATIVE_COPY.minor, {
               defaultValue: '{{value}} (minor units)',
               value,

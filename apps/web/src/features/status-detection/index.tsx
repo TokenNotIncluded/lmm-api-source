@@ -63,6 +63,7 @@ import { cn } from '@/lib/utils'
 
 import { useStatusDetection } from './hooks/use-status-detection'
 import { sortStatusGroups } from './lib/aggregate'
+import { ServiceHealthPanel } from './service-health-panel'
 import type { StatusGroup, StatusSort } from './types'
 
 import './status-detection.css'
@@ -343,7 +344,7 @@ function StatusDetectionSkeleton() {
   )
 }
 
-function EmptyStatusState(props: { message: string }) {
+function EmptyStatusState(props: { message: string; description?: string }) {
   return (
     <div className='bg-muted/35 rounded-xl px-6 py-10 text-center'>
       <AlertCircle
@@ -353,6 +354,11 @@ function EmptyStatusState(props: { message: string }) {
       <p className='text-foreground mt-3 text-sm font-semibold'>
         {props.message}
       </p>
+      {props.description && (
+        <p className='text-muted-foreground mx-auto mt-2 max-w-xl text-sm leading-relaxed'>
+          {props.description}
+        </p>
+      )}
     </div>
   )
 }
@@ -423,14 +429,21 @@ export function StatusDetection() {
     [status.groups]
   )
   const partial = isPerformancePartial(status.coverage)
-  const coverageNotice = performanceCoverageNotice(status.coverage, t)
+  const performanceCoverage = status.coverage?.coverage
+  const coverageNotice =
+    performanceCoverage &&
+    performanceCoverage.sampled_requests === 0 &&
+    performanceCoverage.missing_samples === 0
+      ? null
+      : performanceCoverageNotice(status.coverage, t)
   const healthyCount = status.groups.filter((group) =>
     ['excellent', 'good'].includes(getSuccessRateLevel(group.successRate))
   ).length
   const hasError = Boolean(status.error)
-  const hasActiveFilters = Boolean(
-    search.hours !== 24 || search.model || search.group || search.vendor
+  const hasSelectionFilters = Boolean(
+    search.model || search.group || search.vendor
   )
+  const hasActiveFilters = search.hours !== 24 || hasSelectionFilters
   const freshnessLabel = formatStatusTimestamp(
     status.latestTimestamp,
     status.hours,
@@ -461,10 +474,7 @@ export function StatusDetection() {
                 {t('Status detection')}
               </h1>
               <p className='text-muted-foreground mt-2 text-sm'>
-                {t('Request performance by group')}
-              </p>
-              <p className='text-muted-foreground mt-1 text-xs'>
-                {freshnessLabel}
+                {t('Live service checks and request performance')}
               </p>
             </div>
             <Button
@@ -486,293 +496,336 @@ export function StatusDetection() {
             </Button>
           </div>
 
-          {coverageNotice && (
-            <p role='status' className='text-warning text-sm'>
-              {coverageNotice}
-            </p>
-          )}
-          {status.coverage?.coverage && (
-            <p className='text-muted-foreground text-xs'>
-              {t(RELAY_TIMING_DESCRIPTION)}
-            </p>
-          )}
+          <ServiceHealthPanel
+            health={status.health}
+            error={status.healthError}
+            loading={status.healthLoading}
+            checkedAt={status.healthCheckedAt}
+          />
 
-          <div className='status-filter-grid bg-muted/35 rounded-xl p-4'>
-            <Select
-              value={String(search.hours)}
-              onValueChange={(value) => value && updateSearch('hours', value)}
-            >
-              <SelectTrigger
-                className='min-h-11 w-full'
-                aria-label={t('Time range')}
-              >
-                <SelectValue>
-                  {t(
-                    search.hours === 24
-                      ? 'Last 24 hours'
-                      : search.hours === 72
-                        ? 'Last 3 days'
-                        : search.hours === 168
-                          ? 'Last 7 days'
-                          : 'Last 30 days'
-                  )}
-                </SelectValue>
-              </SelectTrigger>
-              <SelectContent>
-                <SelectGroup>
-                  {STATUS_HOUR_OPTIONS.map((hours) => (
-                    <SelectItem key={hours} value={String(hours)}>
+          <div className='pt-6'>
+            <h2 className='text-base font-semibold'>
+              {t('Request performance by group')}
+            </h2>
+            <p className='text-muted-foreground mt-1 text-xs'>
+              {freshnessLabel}
+            </p>
+          </div>
+          {status.requiresSignIn ? (
+            <div className='bg-muted/35 space-y-4 rounded-xl p-6'>
+              <p className='text-muted-foreground text-sm'>
+                {t(
+                  'Sign in to view request performance for your available models.'
+                )}
+              </p>
+              <Button render={<a href='/sign-in?redirect=%2Fstatus' />}>
+                {t('Sign in')}
+              </Button>
+            </div>
+          ) : (
+            <>
+              {coverageNotice && (
+                <p role='status' className='text-warning text-sm'>
+                  {coverageNotice}
+                </p>
+              )}
+              {(performanceCoverage?.sampled_requests ?? 0) > 0 && (
+                <p className='text-muted-foreground text-xs'>
+                  {t(RELAY_TIMING_DESCRIPTION)}
+                </p>
+              )}
+
+              <div className='status-filter-grid bg-muted/35 rounded-xl p-4'>
+                <Select
+                  value={String(search.hours)}
+                  onValueChange={(value) =>
+                    value && updateSearch('hours', value)
+                  }
+                >
+                  <SelectTrigger
+                    className='min-h-11 w-full'
+                    aria-label={t('Time range')}
+                  >
+                    <SelectValue>
                       {t(
-                        hours === 24
+                        search.hours === 24
                           ? 'Last 24 hours'
-                          : hours === 72
+                          : search.hours === 72
                             ? 'Last 3 days'
-                            : hours === 168
+                            : search.hours === 168
                               ? 'Last 7 days'
                               : 'Last 30 days'
                       )}
-                    </SelectItem>
-                  ))}
-                </SelectGroup>
-              </SelectContent>
-            </Select>
-            <Select
-              value={search.model || 'all'}
-              onValueChange={(value) =>
-                value && updateSearch('model', value === 'all' ? '' : value)
-              }
-            >
-              <SelectTrigger
-                className='min-h-11 w-full'
-                aria-label={t('Model')}
-              >
-                <SelectValue>{search.model || t('All models')}</SelectValue>
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value='all'>{t('All models')}</SelectItem>
-                {status.availableModels.map((model) => (
-                  <SelectItem key={model} value={model}>
-                    {model}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <Select
-              value={search.group || 'all'}
-              onValueChange={(value) =>
-                value && updateSearch('group', value === 'all' ? '' : value)
-              }
-            >
-              <SelectTrigger
-                className='min-h-11 w-full'
-                aria-label={t('Group')}
-              >
-                <SelectValue>{search.group || t('All groups')}</SelectValue>
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value='all'>{t('All groups')}</SelectItem>
-                {status.availableGroups.map((group) => (
-                  <SelectItem key={group} value={group}>
-                    {group}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            {vendorOptions.length > 0 ? (
-              <Select
-                value={search.vendor || 'all'}
-                onValueChange={(value) =>
-                  value && updateSearch('vendor', value === 'all' ? '' : value)
-                }
-              >
-                <SelectTrigger
-                  className='min-h-11 w-full'
-                  aria-label={t('Provider')}
-                >
-                  <SelectValue>
-                    {search.vendor || t('All providers')}
-                  </SelectValue>
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value='all'>{t('All providers')}</SelectItem>
-                  {vendorOptions.map((vendor) => (
-                    <SelectItem key={vendor} value={vendor}>
-                      {vendor}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            ) : null}
-            {hasActiveFilters ? (
-              <Button
-                variant='ghost'
-                className='status-filter-reset min-h-11'
-                onClick={clearFilters}
-              >
-                {t('Clear filters')}
-              </Button>
-            ) : null}
-          </div>
-
-          {!status.isLoading && !hasError && (
-            <p className='text-muted-foreground text-xs' role='status'>
-              {t('Data coverage: {{reported}} of {{total}} models reported.', {
-                reported: status.modelsWithData,
-                total: status.modelCount,
-              })}
-            </p>
-          )}
-          {dataMayBeDelayed ? (
-            <p className='text-muted-foreground text-xs' role='status'>
-              {t(
-                'Performance data may be delayed. The latest sample is more than 6 hours old.'
-              )}
-            </p>
-          ) : null}
-
-          {hasError && (
-            <Alert variant='destructive'>
-              <AlertCircle />
-              <AlertTitle>{t('Unable to load status data')}</AlertTitle>
-              <AlertDescription className='flex flex-wrap items-center gap-2'>
-                <span>{t('Please try again in a moment.')}</span>
-                <Button
-                  variant='outline'
-                  size='xs'
-                  onClick={() => void status.refresh()}
-                >
-                  {t('Retry')}
-                </Button>
-              </AlertDescription>
-            </Alert>
-          )}
-
-          {status.isLoading ? (
-            <StatusDetectionSkeleton />
-          ) : hasError ? null : status.groups.length === 0 ? (
-            <EmptyStatusState
-              message={
-                hasActiveFilters
-                  ? t('No models match the current filters.')
-                  : t('No status data is available yet.')
-              }
-            />
-          ) : (
-            <>
-              <dl className='bg-muted/35 grid grid-cols-2 gap-x-4 rounded-xl sm:grid-cols-4'>
-                <SummaryMetric
-                  label={t('Fastest first token')}
-                  value={
-                    fastestGroup &&
-                    Number.isFinite(fastestGroup.avgTtftMs) &&
-                    fastestGroup.avgTtftMs > 0
-                      ? formatLatency(fastestGroup.avgTtftMs)
-                      : '—'
+                    </SelectValue>
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectGroup>
+                      {STATUS_HOUR_OPTIONS.map((hours) => (
+                        <SelectItem key={hours} value={String(hours)}>
+                          {t(
+                            hours === 24
+                              ? 'Last 24 hours'
+                              : hours === 72
+                                ? 'Last 3 days'
+                                : hours === 168
+                                  ? 'Last 7 days'
+                                  : 'Last 30 days'
+                          )}
+                        </SelectItem>
+                      ))}
+                    </SelectGroup>
+                  </SelectContent>
+                </Select>
+                <Select
+                  value={search.model || 'all'}
+                  onValueChange={(value) =>
+                    value && updateSearch('model', value === 'all' ? '' : value)
                   }
-                  detail={
-                    fastestGroup &&
-                    Number.isFinite(fastestGroup.avgTtftMs) &&
-                    fastestGroup.avgTtftMs > 0
-                      ? fastestGroup.group
-                      : undefined
-                  }
-                />
-                <SummaryMetric
-                  label={t('Groups monitored')}
-                  value={String(status.groups.length)}
-                />
-                <SummaryMetric
-                  label={t('Operational')}
-                  value={partial ? '—' : String(healthyCount)}
-                />
-                <SummaryMetric
-                  label={t('Models checked')}
-                  value={String(status.modelsWithData)}
-                />
-              </dl>
-
-              {status.failedModelCount > 0 && (
-                <div
-                  className='bg-muted/40 text-muted-foreground flex items-center gap-2 rounded-md px-3 py-2 text-sm sm:text-xs'
-                  role='status'
                 >
-                  <TriangleAlert
-                    className='size-4 shrink-0'
-                    aria-hidden='true'
-                  />
-                  <p>
-                    {t('{{count}} model checks could not be completed.', {
-                      count: status.failedModelCount,
-                    })}
-                  </p>
-                </div>
-              )}
-
-              <section aria-labelledby='status-groups-heading'>
-                <div className='mb-3 flex flex-wrap items-center justify-between gap-3'>
-                  <div className='flex items-baseline gap-2'>
-                    <h2
-                      id='status-groups-heading'
-                      className='text-foreground text-base font-semibold tracking-normal'
-                    >
-                      {t('Group status')}
-                    </h2>
-                    <p className='text-muted-foreground text-sm sm:text-xs'>
-                      {t('{{count}} groups', { count: status.groups.length })}
-                    </p>
-                  </div>
+                  <SelectTrigger
+                    className='min-h-11 w-full'
+                    aria-label={t('Model')}
+                  >
+                    <SelectValue>{search.model || t('All models')}</SelectValue>
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value='all'>{t('All models')}</SelectItem>
+                    {status.availableModels.map((model) => (
+                      <SelectItem key={model} value={model}>
+                        {model}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <Select
+                  value={search.group || 'all'}
+                  onValueChange={(value) =>
+                    value && updateSearch('group', value === 'all' ? '' : value)
+                  }
+                >
+                  <SelectTrigger
+                    className='min-h-11 w-full'
+                    aria-label={t('Group')}
+                  >
+                    <SelectValue>{search.group || t('All groups')}</SelectValue>
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value='all'>{t('All groups')}</SelectItem>
+                    {status.availableGroups.map((group) => (
+                      <SelectItem key={group} value={group}>
+                        {group}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                {vendorOptions.length > 0 ? (
                   <Select
-                    value={sort}
+                    value={search.vendor || 'all'}
                     onValueChange={(value) =>
-                      value !== null && setSort(value as StatusSort)
+                      value &&
+                      updateSearch('vendor', value === 'all' ? '' : value)
                     }
                   >
                     <SelectTrigger
-                      size='sm'
-                      className='min-h-11 w-full sm:w-52'
-                      aria-label={t('Sort groups')}
+                      className='min-h-11 w-full'
+                      aria-label={t('Provider')}
                     >
                       <SelectValue>
-                        <span className='flex min-w-0 items-center gap-2'>
-                          <ArrowDownWideNarrow
-                            className='text-muted-foreground size-4 shrink-0'
-                            aria-hidden='true'
-                          />
-                          <span className='truncate'>
-                            {sort === 'ttft'
-                              ? t('Fastest first token')
-                              : sort === 'reliability'
-                                ? t('Highest success rate')
-                                : t('Group name')}
-                          </span>
-                        </span>
+                        {search.vendor || t('All providers')}
                       </SelectValue>
                     </SelectTrigger>
-                    <SelectContent alignItemWithTrigger={false}>
-                      <SelectGroup>
-                        <SelectItem value='ttft'>
-                          {t('Fastest first token')}
+                    <SelectContent>
+                      <SelectItem value='all'>{t('All providers')}</SelectItem>
+                      {vendorOptions.map((vendor) => (
+                        <SelectItem key={vendor} value={vendor}>
+                          {vendor}
                         </SelectItem>
-                        <SelectItem value='reliability'>
-                          {t('Highest success rate')}
-                        </SelectItem>
-                        <SelectItem value='name'>{t('Group name')}</SelectItem>
-                      </SelectGroup>
+                      ))}
                     </SelectContent>
                   </Select>
-                </div>
-                <div className='status-group-grid'>
-                  {sortedGroups.map((group) => (
-                    <GroupStatusCard
-                      key={group.group}
-                      group={group}
-                      partial={partial}
-                      ttftTrendLabel={t('First-token trend')}
-                      successTrendLabel={t('Success rate trend')}
+                ) : null}
+                {hasActiveFilters ? (
+                  <Button
+                    variant='ghost'
+                    className='status-filter-reset min-h-11'
+                    onClick={clearFilters}
+                  >
+                    {t('Clear filters')}
+                  </Button>
+                ) : null}
+              </div>
+
+              {!status.isLoading && !hasError && status.modelCount > 0 && (
+                <p className='text-muted-foreground text-xs' role='status'>
+                  {t(
+                    'Data coverage: {{reported}} of {{total}} models reported.',
+                    {
+                      reported: status.modelsWithData,
+                      total: status.modelCount,
+                    }
+                  )}
+                </p>
+              )}
+              {dataMayBeDelayed ? (
+                <p className='text-muted-foreground text-xs' role='status'>
+                  {t(
+                    'Performance data may be delayed. The latest sample is more than 6 hours old.'
+                  )}
+                </p>
+              ) : null}
+
+              {hasError && (
+                <Alert variant='destructive'>
+                  <AlertCircle />
+                  <AlertTitle>{t('Unable to load status data')}</AlertTitle>
+                  <AlertDescription className='flex flex-wrap items-center gap-2'>
+                    <span>{t('Please try again in a moment.')}</span>
+                    <Button
+                      variant='outline'
+                      size='xs'
+                      onClick={() => void status.refresh()}
+                    >
+                      {t('Retry')}
+                    </Button>
+                  </AlertDescription>
+                </Alert>
+              )}
+
+              {status.isLoading ? (
+                <StatusDetectionSkeleton />
+              ) : hasError ? null : status.groups.length === 0 ? (
+                <EmptyStatusState
+                  message={
+                    hasSelectionFilters && status.availableModels.length > 0
+                      ? t('No models match the current filters.')
+                      : t('No request samples in this time range.')
+                  }
+                  description={t(
+                    'Performance appears after model requests are recorded. Historical imports are excluded. Try a longer time range.'
+                  )}
+                />
+              ) : (
+                <>
+                  <dl className='bg-muted/35 grid grid-cols-2 gap-x-4 rounded-xl sm:grid-cols-4'>
+                    <SummaryMetric
+                      label={t('Fastest first token')}
+                      value={
+                        fastestGroup &&
+                        Number.isFinite(fastestGroup.avgTtftMs) &&
+                        fastestGroup.avgTtftMs > 0
+                          ? formatLatency(fastestGroup.avgTtftMs)
+                          : '—'
+                      }
+                      detail={
+                        fastestGroup &&
+                        Number.isFinite(fastestGroup.avgTtftMs) &&
+                        fastestGroup.avgTtftMs > 0
+                          ? fastestGroup.group
+                          : undefined
+                      }
                     />
-                  ))}
-                </div>
-              </section>
+                    <SummaryMetric
+                      label={t('Groups monitored')}
+                      value={String(status.groups.length)}
+                    />
+                    <SummaryMetric
+                      label={t('Operational')}
+                      value={partial ? '—' : String(healthyCount)}
+                    />
+                    <SummaryMetric
+                      label={t('Models checked')}
+                      value={String(status.modelsWithData)}
+                    />
+                  </dl>
+
+                  {status.failedModelCount > 0 && (
+                    <div
+                      className='bg-muted/40 text-muted-foreground flex items-center gap-2 rounded-md px-3 py-2 text-sm sm:text-xs'
+                      role='status'
+                    >
+                      <TriangleAlert
+                        className='size-4 shrink-0'
+                        aria-hidden='true'
+                      />
+                      <p>
+                        {t('{{count}} model checks could not be completed.', {
+                          count: status.failedModelCount,
+                        })}
+                      </p>
+                    </div>
+                  )}
+
+                  <section aria-labelledby='status-groups-heading'>
+                    <div className='mb-3 flex flex-wrap items-center justify-between gap-3'>
+                      <div className='flex items-baseline gap-2'>
+                        <h2
+                          id='status-groups-heading'
+                          className='text-foreground text-base font-semibold tracking-normal'
+                        >
+                          {t('Group status')}
+                        </h2>
+                        <p className='text-muted-foreground text-sm sm:text-xs'>
+                          {t('{{count}} groups', {
+                            count: status.groups.length,
+                          })}
+                        </p>
+                      </div>
+                      <Select
+                        value={sort}
+                        onValueChange={(value) =>
+                          value !== null && setSort(value as StatusSort)
+                        }
+                      >
+                        <SelectTrigger
+                          size='sm'
+                          className='min-h-11 w-full sm:w-52'
+                          aria-label={t('Sort groups')}
+                        >
+                          <SelectValue>
+                            <span className='flex min-w-0 items-center gap-2'>
+                              <ArrowDownWideNarrow
+                                className='text-muted-foreground size-4 shrink-0'
+                                aria-hidden='true'
+                              />
+                              <span className='truncate'>
+                                {sort === 'ttft'
+                                  ? t('Fastest first token')
+                                  : sort === 'reliability'
+                                    ? t('Highest success rate')
+                                    : t('Group name')}
+                              </span>
+                            </span>
+                          </SelectValue>
+                        </SelectTrigger>
+                        <SelectContent alignItemWithTrigger={false}>
+                          <SelectGroup>
+                            <SelectItem value='ttft'>
+                              {t('Fastest first token')}
+                            </SelectItem>
+                            <SelectItem value='reliability'>
+                              {t('Highest success rate')}
+                            </SelectItem>
+                            <SelectItem value='name'>
+                              {t('Group name')}
+                            </SelectItem>
+                          </SelectGroup>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className='status-group-grid'>
+                      {sortedGroups.map((group) => (
+                        <GroupStatusCard
+                          key={group.group}
+                          group={group}
+                          partial={partial}
+                          ttftTrendLabel={t('First-token trend')}
+                          successTrendLabel={t('Success rate trend')}
+                        />
+                      ))}
+                    </div>
+                  </section>
+                </>
+              )}
             </>
           )}
         </div>

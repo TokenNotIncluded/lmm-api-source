@@ -47,9 +47,13 @@ const writeConfig = { ...readConfig, skipAuthRefresh: true }
 function requireScope(scope: CommerceScope) {
   if (!currentCommerceScope(scope)) throw new WalletOutcomeUnknown()
 }
-function transferConfig(scope: CommerceScope) {
+function transferConfig(scope: CommerceScope, write = false) {
   requireScope(scope)
-  return { ...writeConfig, authScope: scope, disableDuplicate: true }
+  return {
+    ...(write ? writeConfig : readConfig),
+    authScope: scope,
+    disableDuplicate: true,
+  }
 }
 async function readResult<T>(
   request: Promise<{ data: unknown }>,
@@ -131,7 +135,7 @@ export async function createTransfer(
     const response = await api.post<unknown>(
       '/api/wallet-transfer',
       { quota, request_key: requestKey },
-      transferConfig(scope)
+      transferConfig(scope, true)
     )
     requireScope(scope)
     return actionResult(response.data, requestKey, undefined, quota)
@@ -148,7 +152,7 @@ export async function cancelTransfer(
     const response = await api.post<unknown>(
       `/api/wallet-transfer/${id}/cancel`,
       {},
-      transferConfig(scope)
+      transferConfig(scope, true)
     )
     requireScope(scope)
     const envelope = envelopeSchema.parse(response.data)
@@ -197,7 +201,7 @@ export const inspectTransfer = (scope: CommerceScope, token: string) =>
     api.post<unknown>(
       '/api/wallet-transfer/inspect',
       { token },
-      transferConfig(scope)
+      transferConfig(scope, true)
     ),
     receiptSchema,
     scope
@@ -207,7 +211,7 @@ export async function claimTransfer(scope: CommerceScope, token: string) {
     api.post<unknown>(
       '/api/wallet-transfer/claim',
       { token },
-      transferConfig(scope)
+      transferConfig(scope, true)
     ),
     receiptSchema,
     scope

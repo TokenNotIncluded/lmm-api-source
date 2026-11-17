@@ -37,6 +37,27 @@ export const STATIC_I18N_KEYS = [
   'How do I get the new-user gift?',
   'Any top-up discounts this week?',
 
+  // Store navigation, conversation filters and sender labels.
+  'Shop',
+  'Shopping cart',
+  'My orders',
+  'Messages',
+  'Seller center',
+  'Customer management',
+  'Favorites',
+  'Settings',
+  'Review products',
+  'Open conversations',
+  'Resolved conversations',
+  'My purchases',
+  'My sales',
+  'You',
+  'Buyer',
+  'Seller',
+  'Read',
+  'Sent',
+  'Copy all',
+
   // Header navigation
   'Home',
   'Console',

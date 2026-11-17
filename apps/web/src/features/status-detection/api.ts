@@ -19,15 +19,48 @@ For commercial licensing, please contact support@quantumnous.com
 /*
 Copyright (C) 2026 LIghtJUNction
 */
+import { z } from 'zod'
+
 import {
   getPerfMetrics,
   getPerfMetricsSummary,
 } from '@/features/performance-metrics/api'
 import type { PerfSummaryAllData } from '@/features/performance-metrics/types'
+import { api } from '@/lib/api'
 
 import type { ModelPerformanceSnapshot, StatusDetectionMetrics } from './types'
 
 const MAX_CONCURRENCY = 6
+
+const serviceHealthSchema = z.object({
+  service: z.literal('lmm-core'),
+  status: z.enum(['ready', 'unavailable']),
+  database: z.boolean(),
+  capabilities: z.object({
+    identity: z.boolean(),
+    models: z.boolean(),
+  }),
+  readiness_scope: z.literal('configured_components'),
+  upstream_health_checked: z.literal(false),
+})
+
+export type ServiceHealth = z.infer<typeof serviceHealthSchema>
+
+export async function getServiceHealth(): Promise<ServiceHealth> {
+  const response = await api.get<unknown>('/health/ready', {
+    authMode: 'anonymous',
+    skipAuthRefresh: true,
+    skipBusinessError: true,
+    skipErrorHandler: true,
+    timeout: 10_000,
+    validateStatus: (status) => status === 200 || status === 503,
+  })
+  const health = serviceHealthSchema.parse(response.data)
+  if ((response.status === 200) !== (health.status === 'ready')) {
+    throw new Error('Invalid service health response')
+  }
+  return health
+}
 
 export async function getStatusDetectionSummary(
   hours = 24

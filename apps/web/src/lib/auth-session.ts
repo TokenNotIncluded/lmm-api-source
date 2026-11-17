@@ -488,16 +488,18 @@ function isAuthTokenRotation(value: unknown): value is AuthTokenRotation {
 
 // An anonymous capability read can already be mounted when bootstrap refresh
 // returns 401. Removing its query cancels the request and strands its observer
-// on a pending result. Only keep that active public read; all user-scoped
+// on a pending result. Keep active public capability and health reads; all user-scoped
 // status, permissions, financial data and mutations must leave with the session.
 function clearSessionCache(queryClient: QueryClient): void {
   queryClient.removeQueries({
     predicate: (query) =>
       !(
         query.isActive() &&
-        query.queryKey.length === 2 &&
-        query.queryKey[0] === 'status' &&
-        query.queryKey[1] === 'anonymous'
+        ((query.queryKey.length === 2 &&
+          query.queryKey[0] === 'status' &&
+          query.queryKey[1] === 'anonymous') ||
+          (query.queryKey.length === 1 &&
+            query.queryKey[0] === 'service-health'))
       ),
   })
   queryClient.getMutationCache().clear()

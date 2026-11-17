@@ -79,7 +79,8 @@ function TransferWorkspace({
   const [pending, setPending] = useState<PendingTransfer | null>(null)
   const [storageBlocked, setStorageBlocked] = useState(false)
   const [loading, setLoading] = useState(true)
-  const [loadFailed, setLoadFailed] = useState(false)
+  const [balanceFailed, setBalanceFailed] = useState(false)
+  const [historyFailed, setHistoryFailed] = useState(false)
   const [more, setMore] = useState(false)
   const [busy, setBusy] = useState(false)
   const [notice, setNotice] = useState('')
@@ -88,6 +89,7 @@ function TransferWorkspace({
   const running = useRef(false)
   const requests = useRef({ generation: 0 })
   const current = () => mounted.current && currentCommerceScope(scope)
+  const loadFailed = balanceFailed || historyFailed
   const credits = (value: number) =>
     `${value.toLocaleString(locale)} ${t('Core credits')}`
   const parsedAmount = /^\d+$/.test(amount) ? Number(amount) : Number.NaN
@@ -98,29 +100,29 @@ function TransferWorkspace({
     parsedAmount <= balance.spendable_credits
 
   async function load(append = false) {
+    if (!current()) return
     const loadingRequests = requests.current
     const generation = ++loadingRequests.generation
     const owns = () => current() && generation === loadingRequests.generation
     setLoading(true)
-    try {
-      const cursor = append ? (transfers.at(-1)?.id ?? 0) : 0
-      const [rows, facts] = await Promise.all([
-        listTransfers(scope, cursor),
-        append ? Promise.resolve(balance) : getTransferBalance(scope),
-      ])
-      if (!owns()) return
-      setTransfers((previous) => (append ? [...previous, ...rows] : rows))
-      setBalance(facts)
-      setMore(rows.length === 50)
-      setLoadFailed(false)
-    } catch {
-      if (owns()) {
-        setLoadFailed(true)
-        if (!append) setBalance(null)
-      }
-    } finally {
-      if (owns()) setLoading(false)
+    const cursor = append ? (transfers.at(-1)?.id ?? 0) : 0
+    const [rows, facts] = await Promise.allSettled([
+      listTransfers(scope, cursor),
+      append ? Promise.resolve(balance) : getTransferBalance(scope),
+    ])
+    if (!owns()) return
+    if (rows.status === 'fulfilled') {
+      setTransfers((previous) =>
+        append ? [...previous, ...rows.value] : rows.value
+      )
+      setMore(rows.value.length === 50)
     }
+    setHistoryFailed(rows.status === 'rejected')
+    if (!append) {
+      setBalance(facts.status === 'fulfilled' ? facts.value : null)
+      setBalanceFailed(facts.status === 'rejected')
+    }
+    setLoading(false)
   }
   useEffect(() => {
     const loadingRequests = requests.current
@@ -313,7 +315,14 @@ function TransferWorkspace({
               <AlertDescription>{notice}</AlertDescription>
             </Alert>
           )}
-          {loadFailed && (
+          {balanceFailed && (
+            <Alert role='alert'>
+              <AlertDescription>
+                {t('Failed to load wallet balance.')}
+              </AlertDescription>
+            </Alert>
+          )}
+          {historyFailed && (
             <Alert role='alert'>
               <AlertDescription>
                 {t('Failed to load transfer history.')}
@@ -480,7 +489,7 @@ function TransferWorkspace({
                 </li>
               ))}
             </ul>
-            {!loading && !loadFailed && transfers.length === 0 && (
+            {!loading && !historyFailed && transfers.length === 0 && (
               <p className='text-muted-foreground text-sm'>
                 {t('No transfers yet.')}
               </p>
