@@ -84,11 +84,6 @@ pub(crate) async fn target(
                     account_active: true,
                     auth_version: actor.auth_version,
                     credential_auth_version: actor.auth_version,
-                    developer: if actor.developer {
-                        permissions::DeveloperState::Granted
-                    } else {
-                        permissions::DeveloperState::Denied
-                    },
                 },
                 &loaded.as_policy(),
                 permissions::Action::UserRead,

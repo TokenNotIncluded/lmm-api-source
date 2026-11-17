@@ -843,13 +843,6 @@ async fn run_core() -> Result<(), Box<dyn Error>> {
     });
     #[cfg(unix)]
     let mut terminate = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())?;
-    if let Some(pool) = &database_pool {
-        app = lmm_core::network_access::NetworkAccess::new(
-            capabilities.console.then(|| pool.clone()),
-            config::network_access_config()?,
-        )?
-        .protect(app);
-    }
     if let Some(edge) = config::edge_access_config()? {
         let pool = database_pool
             .clone()

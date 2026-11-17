@@ -384,11 +384,6 @@ impl BrowserAuth {
         let hash = digest(presented)?;
         let current: Vec<u8> = row.try_get("refresh_digest")?;
         let previous: Option<Vec<u8>> = row.try_get("previous_refresh_digest")?;
-        if constant_digest(&current, &hash)
-            || previous.as_ref().is_some_and(|previous| constant_digest(previous, &hash))
-        {
-            super::network_policy::authorize_request_ip(&mut tx, row.try_get("user_id")?).await?;
-        }
         let next = self.derived_secret(b"browser-refresh-v1", sid, presented, "lmmr_")?;
         if constant_digest(&current, &hash) {
             let access = self.derived_secret(b"browser-access-v1", sid, &next, "lmms_")?;

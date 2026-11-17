@@ -10,7 +10,7 @@ Core 拥有账号、浏览器会话、Key、OAuth 授权和申诉；Go 不得直
 
 ## 账号与权限分开
 
-`accounts.id` 是资源与资金归属标识，`users.id` 是登录人标识，`teams.id` 是公开团队标识。个人用户与团队各自指向独立账号。平台角色 `user`、`admin`、`superadmin` 与账号服务等级 L0–L4 分开；界面的 L5/L6 兼容展示不授予团队消费权或提高个人服务权益。
+`accounts.id` 是资源与资金归属标识，`users.id` 是登录人标识，`teams.id` 是公开团队标识。个人用户与团队各自指向独立账号。新架构使用用户、团队成员关系、平台角色和显式消费额度管理访问与支出。平台角色 `user`、`admin`、`superadmin` 负责站点管理权限；团队角色 `owner`、`admin`、`member` 及 `can_spend` 负责团队内的管理与消费授权。
 
 Key 保存 `owner_account_id`，付款候选的外键和顺序在 `key_funding_rules`，账号内订阅/钱包顺序在 `core_billing.account_policies`。个人 Key 默认仅用个人账号，显式配置后才可加入当前获准消费的团队；团队 Key 仅用所属团队。服务凭证及平台管理角色均不能代替消费授权。
 

@@ -5,8 +5,6 @@ pub mod admin_approval;
 pub mod admin_users;
 pub(crate) mod permissions;
 pub mod personal_token;
-pub(crate) mod network_policy;
-pub use network_policy::scope_request_ip;
 pub(crate) use permissions::authorize_admin_read_snapshot;
 pub use permissions::{
     Action, CONTRACT_VERSION as PERMISSIONS_CONTRACT, CatalogDecision, Effect, PermissionReadStore,
@@ -380,7 +378,7 @@ async fn authenticate(c: &mut PgConnection, secret: &str, write: bool) -> Result
     .fetch_optional(&mut *c)
     .await?
     .ok_or(IdentityError::Unauthorized)?;
-    let actor = principal_with_assurance_mode(
+    principal_with_assurance_mode(
         c,
         row,
         if write {
@@ -389,9 +387,7 @@ async fn authenticate(c: &mut PgConnection, secret: &str, write: bool) -> Result
             mfa::AssuranceRead::Snapshot
         },
     )
-    .await?;
-    network_policy::authorize_request_ip(c, actor.user_id).await?;
-    Ok(actor)
+    .await
 }
 /// Authenticate a caller against this transaction's read snapshot without
 /// taking authority locks. This is for read-only views, never spending writes.

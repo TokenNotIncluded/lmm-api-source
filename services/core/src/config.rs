@@ -366,7 +366,6 @@ struct CoreFile {
     community: Option<SupportProjectionFile>,
     ingress: Option<IngressFile>,
     edge_access: Option<crate::edge_access::TypedConfig>,
-    network_access: Option<crate::network_access::TypedConfig>,
 }
 
 fn parse_document<T: serde::de::DeserializeOwned>(document: &[u8]) -> io::Result<T> {
@@ -480,8 +479,7 @@ fn parse_core_file(document: &[u8]) -> io::Result<BTreeMap<&'static str, OsStrin
             || file.bounties.is_some()
             || file.images.is_some()
             || file.community.is_some()
-            || file.edge_access.is_some()
-            || file.network_access.is_some())
+            || file.edge_access.is_some())
     {
         return Err(invalid_config(
             "configured identity and business capabilities require a core database",
@@ -496,7 +494,7 @@ fn parse_core_file(document: &[u8]) -> io::Result<BTreeMap<&'static str, OsStrin
         values.insert(name, value.into());
     };
     let configured_listen = file.server.listen.clone();
-    if (file.edge_access.is_some() || file.network_access.is_some()) && !file.console.enabled {
+    if file.edge_access.is_some() && !file.console.enabled {
         return Err(invalid_config(
             "edge access requires the console policy store",
         ));
@@ -813,11 +811,6 @@ fn parse_core_file(document: &[u8]) -> io::Result<BTreeMap<&'static str, OsStrin
             put(uri_key, provider.redirect_uri);
             paths.push((secret_key, provider.client_secret_file));
         }
-    }
-    if let Some(network) = file.network_access
-        && let Some(path) = network.geoip_database
-    {
-        paths.push(("LMM_CORE_GEOIP_DATABASE", path));
     }
     if let Some(edge) = file.edge_access {
         paths.push(("LMM_CORE_EDGE_PROOF_FILE", edge.proof_file));
@@ -1323,14 +1316,6 @@ pub fn identity_database_required() -> io::Result<bool> {
         || setting_os("LMM_CORE_TELEGRAM_BOT_TOKEN_FILE").is_some()
         || oauth2_configured()
         || market_oauth_configured())
-}
-
-pub fn network_access_config() -> io::Result<crate::network_access::TypedConfig> {
-    let geoip_database = setting_os("LMM_CORE_GEOIP_DATABASE").map(PathBuf::from);
-    if let Some(path) = &geoip_database {
-        absolute_path(path)?;
-    }
-    Ok(crate::network_access::TypedConfig { geoip_database })
 }
 
 pub fn edge_access_config() -> io::Result<Option<crate::edge_access::TypedConfig>> {

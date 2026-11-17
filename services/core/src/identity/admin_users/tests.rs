@@ -446,7 +446,7 @@ async fn real_group_membership_count_pagination_and_array_sort_match(pool: PgPoo
     f.role.cleanup().await;
 }
 #[sqlx::test(migrations = false)]
-async fn role_status_service_level_and_inactive_account_are_distinct_filters(pool: PgPool) {
+async fn role_status_and_inactive_account_are_distinct_filters(pool: PgPool) {
     let f = fresh(&pool).await;
     person(&f, &pool, 10, 0, "filter-zero").await;
     person(&f, &pool, 11, 4, "filter-four").await;
@@ -459,7 +459,7 @@ async fn role_status_service_level_and_inactive_account_are_distinct_filters(poo
         &f.admin,
         UsersQuery {
             role: Some("user".into()),
-            service_level: Some(0),
+            status: Some("active".into()),
             ..UsersQuery::default()
         },
     )
@@ -649,11 +649,10 @@ async fn original_reader_precision_and_partial_bucket_fail_closed(pool: PgPool) 
 async fn unsupported_filters_sorts_and_invalid_bounds_never_mutate(pool: PgPool) {
     let f = fresh(&pool).await;
     let before = state(&pool).await;
+    for key in ["service_level", "trust_level"] {
+        assert!(serde_json::from_value::<UsersQuery>(json!({key:0})).is_err());
+    }
     for q in [
-        UsersQuery {
-            trust_level: Some("0".into()),
-            ..UsersQuery::default()
-        },
         UsersQuery {
             risk_min: Some("0.8".into()),
             ..UsersQuery::default()

@@ -336,7 +336,7 @@ impl MarketIssuer {
             identity::reject_marked_new_action(
                 &mut t,
                 actor.user,
-                identity::NewResourceAction::RemoteExecution,
+                identity::NewResourceAction::MarketAuthorization,
             )
             .await?
         }

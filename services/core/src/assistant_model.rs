@@ -346,7 +346,7 @@ impl AssistantModel {
                 identity::reject_marked_new_action(
                     &mut tx,
                     a.user_id,
-                    identity::NewResourceAction::RemoteExecution,
+                    identity::NewResourceAction::AssistantConversation,
                 )
                 .await?;
                 let id = random("lmm_cv_");
@@ -386,7 +386,7 @@ impl AssistantModel {
         identity::reject_marked_new_action(
             &mut tx,
             a.user_id,
-            identity::NewResourceAction::RemoteExecution,
+            identity::NewResourceAction::AssistantTurn,
         )
         .await?;
         let active:bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM core_assistant.grants g LEFT JOIN core_assistant.operations o ON o.grant_id=g.id LEFT JOIN core_charging.requests r ON r.id=o.request_id WHERE g.conversation_id=$1 AND ((o.request_id IS NOT NULL AND r.state NOT IN ('settled','released')) OR (o.request_id IS NULL AND NOT g.revoked AND g.expires_at>extract(epoch FROM clock_timestamp())::bigint)))").bind(conversation_id).fetch_one(&mut *tx).await?;
