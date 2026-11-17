@@ -6,7 +6,6 @@ it under the terms of the GNU Affero General Public License as
 published by the Free Software Foundation, either version 3 of the
 License, or (at your option) any later version.
 */
-import { useNavigate } from '@tanstack/react-router'
 import { useTranslation } from 'react-i18next'
 
 import {
@@ -19,7 +18,6 @@ import {
 import { Kbd, KbdGroup } from '@/components/ui/kbd'
 
 import {
-  CONSOLE_SHORTCUTS,
   SHORTCUT_GROUP_ORDER,
   SHORTCUT_GROUP_TITLES,
   type ShortcutDefinition,
@@ -69,8 +67,12 @@ function ShortcutRow({
 /** The `?` keyboard shortcut cheat sheet for the signed-in console. */
 export function ShortcutCheatsheetDialog() {
   const { t } = useTranslation()
-  const navigate = useNavigate()
-  const { shortcutSheetOpen, setShortcutSheetOpen } = useQuickSwitch()
+  const {
+    shortcuts: availableShortcuts,
+    runNavigationShortcut,
+    shortcutSheetOpen,
+    setShortcutSheetOpen,
+  } = useQuickSwitch()
 
   return (
     <Dialog open={shortcutSheetOpen} onOpenChange={setShortcutSheetOpen}>
@@ -86,7 +88,7 @@ export function ShortcutCheatsheetDialog() {
         </DialogHeader>
         <div className='flex flex-col gap-5'>
           {SHORTCUT_GROUP_ORDER.map((group) => {
-            const shortcuts = CONSOLE_SHORTCUTS.filter(
+            const shortcuts = availableShortcuts.filter(
               (shortcut) => shortcut.group === group
             )
             if (shortcuts.length === 0) return null
@@ -101,8 +103,9 @@ export function ShortcutCheatsheetDialog() {
                       key={shortcut.id}
                       shortcut={shortcut}
                       onNavigate={(to) => {
-                        setShortcutSheetOpen(false)
-                        void navigate({ to })
+                        if (runNavigationShortcut(to)) {
+                          setShortcutSheetOpen(false)
+                        }
                       }}
                     />
                   ))}

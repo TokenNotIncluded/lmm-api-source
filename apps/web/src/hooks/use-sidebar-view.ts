@@ -34,21 +34,12 @@ import { useSidebarData } from './use-sidebar-data'
 const ROOT_VIEW_KEY = '__root'
 
 /**
- * Resolve the active sidebar view for the current location.
- *
- * - Returns the matching nested {@link SidebarView} (with its nav
- *   groups) when the URL belongs to a registered drill-in workspace.
- * - Otherwise returns the root navigation, narrowed by:
- *     · admin-only group visibility (role-based);
- *     · `useSidebarConfig` (admin × user `sidebar_modules` overlay).
- *
- * Nested views are intentionally NOT passed through `useSidebarConfig`
- * — those filters target known dashboard URLs only, and gating is
- * already enforced at the route level (`beforeLoad` redirects).
+ * Root navigation filtered by role, sidebar modules and runtime capabilities.
+ * Global shortcuts use this even while a nested workspace owns the sidebar.
+ * Route-level guards continue to enforce access independently.
  */
-export function useSidebarView(): ResolvedSidebarView {
+export function useRootSidebarNavigation(): NavGroup[] {
   const { t } = useTranslation()
-  const pathname = useLocation({ select: (l) => l.pathname })
   const userRole = useAuthStore((s) => s.auth.user?.role)
   const rootSidebarData = useSidebarData()
   const configFilteredRoot = useSidebarConfig(rootSidebarData.navGroups)
@@ -67,24 +58,26 @@ export function useSidebarView(): ResolvedSidebarView {
       })
   }, [configFilteredRoot, userRole])
 
+  return useMemo(
+    () =>
+      runtime?.hasPluginInventoryAccess
+        ? applyRuntimeNavigation(rootNavGroups, runtime.plugins, {
+            unknown: t('Capability unknown'),
+            unavailable: t('Capability unavailable'),
+          })
+        : rootNavGroups,
+    [rootNavGroups, runtime, t]
+  )
+}
+
+/** The active workspace view, sharing the same filtered root navigation. */
+export function useSidebarView(): ResolvedSidebarView {
+  const { t } = useTranslation()
+  const pathname = useLocation({ select: (location) => location.pathname })
+  const rootNavGroups = useRootSidebarNavigation()
   const view = resolveSidebarView(pathname)
 
-  if (view) {
-    return {
-      key: view.id,
-      view,
-      navGroups: view.getNavGroups(t),
-    }
-  }
-
-  return {
-    key: ROOT_VIEW_KEY,
-    view: null,
-    navGroups: runtime?.hasPluginInventoryAccess
-      ? applyRuntimeNavigation(rootNavGroups, runtime.plugins, {
-          unknown: t('Capability unknown'),
-          unavailable: t('Capability unavailable'),
-        })
-      : rootNavGroups,
-  }
+  return view
+    ? { key: view.id, view, navGroups: view.getNavGroups(t) }
+    : { key: ROOT_VIEW_KEY, view: null, navGroups: rootNavGroups }
 }

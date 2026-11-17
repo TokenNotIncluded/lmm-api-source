@@ -82,7 +82,9 @@ export function CommandMenu() {
   const recentEntries = quickSwitch.recentRoutes
     .flatMap((pathname) => {
       const item = findConsoleNavItem(navGroups, pathname)
-      return item && !item.disabled ? [{ pathname, label: item.title }] : []
+      return item && !item.disabled
+        ? [{ pathname, label: item.title, interaction: item.interaction }]
+        : []
     })
     .slice(0, 5)
 
@@ -128,7 +130,11 @@ export function CommandMenu() {
                     key={`recent-${entry.pathname}`}
                     value={`recent ${entry.label} ${entry.pathname}`}
                     onSelect={() =>
-                      runCommand(() => navigate({ to: entry.pathname }))
+                      runCommand(() =>
+                        entry.interaction === 'model-panel'
+                          ? openPanel()
+                          : navigate({ to: entry.pathname })
+                      )
                     }
                   >
                     <Clock />

@@ -18,8 +18,12 @@ import {
   type ReactNode,
 } from 'react'
 
+import { useModelPlaza } from '@/context/model-plaza-provider'
+import { useRootSidebarNavigation } from '@/hooks/use-sidebar-view'
+
+import { findConsoleNavItem } from '../lib/console-navigation'
 import { requestPaletteOpen } from '../lib/quick-switch-events'
-import { NAVIGATION_SHORTCUTS } from '../lib/shortcuts'
+import { CONSOLE_SHORTCUTS, type ShortcutDefinition } from '../lib/shortcuts'
 
 const RECENT_ROUTES_STORAGE_KEY = 'lmm.recent-routes'
 const RECENT_ROUTES_LIMIT = 5
@@ -27,6 +31,10 @@ const RECENT_ROUTES_LIMIT = 5
 type QuickSwitchContextValue = {
   /** Recently visited console paths, newest first. */
   recentRoutes: string[]
+  /** Available shortcuts after role, module and runtime capability filtering. */
+  shortcuts: readonly ShortcutDefinition[]
+  /** Shared dispatch for key sequences and the shortcut sheet. */
+  runNavigationShortcut: (to: string) => boolean
   /** Ctrl/⌘ K — the same palette the search provider owns. */
   openPalette: () => void
   /** `?` — the keyboard shortcut cheat sheet. */
@@ -50,6 +58,13 @@ function readStoredRoutes(): string[] {
   }
 }
 
+function recordRoute(pathname: string, routes: string[]): string[] {
+  return [pathname, ...routes.filter((entry) => entry !== pathname)].slice(
+    0,
+    RECENT_ROUTES_LIMIT
+  )
+}
+
 function isTypingTarget(target: EventTarget | null) {
   if (!(target instanceof HTMLElement)) return false
   return Boolean(
@@ -66,37 +81,57 @@ function isTypingTarget(target: EventTarget | null) {
  * Mounted by the signed-in shell only; public pages keep their own behaviour.
  */
 export function QuickSwitchProvider({ children }: { children: ReactNode }) {
-  const [recentRoutes, setRecentRoutes] = useState<string[]>(readStoredRoutes)
   const [shortcutSheetOpen, setShortcutSheetOpen] = useState(false)
   const pathname = useLocation({ select: (location) => location.pathname })
+  const [history, setHistory] = useState(() => ({
+    pathname,
+    routes: recordRoute(pathname, readStoredRoutes()),
+  }))
+  if (history.pathname !== pathname) {
+    setHistory({ pathname, routes: recordRoute(pathname, history.routes) })
+  }
+  const recentRoutes = history.routes
   const navigate = useNavigate()
+  const { openPanel } = useModelPlaza()
+  const navGroups = useRootSidebarNavigation()
+  const shortcuts = useMemo(
+    () =>
+      CONSOLE_SHORTCUTS.filter((shortcut) => {
+        if (!shortcut.to) return true
+        const item = findConsoleNavItem(navGroups, shortcut.to)
+        return item && !item.disabled
+      }),
+    [navGroups]
+  )
+  const runNavigationShortcut = useCallback(
+    (to: string) => {
+      const item = findConsoleNavItem(navGroups, to)
+      if (!item || item.disabled) return false
+      if (item.interaction === 'model-panel') openPanel()
+      else void navigate({ to })
+      return true
+    },
+    [navGroups, navigate, openPanel]
+  )
   const pendingPrefixRef = useRef<number | null>(null)
 
-  // Record visits to console routes.
+  // Persist the bounded history after the current route has committed.
   useEffect(() => {
-    if (!pathname) return
-    setRecentRoutes((previous) => {
-      const next = [
-        pathname,
-        ...previous.filter((entry) => entry !== pathname),
-      ].slice(0, RECENT_ROUTES_LIMIT)
-      try {
-        window.localStorage.setItem(
-          RECENT_ROUTES_STORAGE_KEY,
-          JSON.stringify(next)
-        )
-      } catch {
-        // Storage can be unavailable (private mode); recents stay in memory.
-      }
-      return next
-    })
-  }, [pathname])
+    try {
+      window.localStorage.setItem(
+        RECENT_ROUTES_STORAGE_KEY,
+        JSON.stringify(recentRoutes)
+      )
+    } catch {
+      // Storage can be unavailable (private mode); recents stay in memory.
+    }
+  }, [recentRoutes])
 
   const openPalette = useCallback(() => requestPaletteOpen(), [])
 
   useEffect(() => {
     const down = (event: KeyboardEvent) => {
-      if (event.defaultPrevented || event.repeat) return
+      if (event.defaultPrevented || event.repeat || event.isComposing) return
       if (event.key !== '?' || event.metaKey || event.ctrlKey || event.altKey) {
         return
       }
@@ -141,12 +176,13 @@ export function QuickSwitchProvider({ children }: { children: ReactNode }) {
       const prefixTime = pendingPrefixRef.current
       if (prefixTime !== null && Date.now() - prefixTime < 1000) {
         pendingPrefixRef.current = null
-        const destination = NAVIGATION_SHORTCUTS.find(
-          (shortcut) => shortcut.keys[1] === key
+        const destination = shortcuts.find(
+          (shortcut) =>
+            shortcut.group === 'navigation' &&
+            shortcut.keys[1]?.toLowerCase() === key
         )
-        if (destination) {
+        if (destination?.to && runNavigationShortcut(destination.to)) {
           event.preventDefault()
-          void navigate({ to: destination.to })
         }
         return
       }
@@ -165,17 +201,25 @@ export function QuickSwitchProvider({ children }: { children: ReactNode }) {
       document.removeEventListener('keydown', down)
       document.removeEventListener('pointerdown', reset)
     }
-  }, [navigate])
+  }, [runNavigationShortcut, shortcuts])
 
   const value = useMemo<QuickSwitchContextValue>(
     () => ({
       recentRoutes,
+      shortcuts,
+      runNavigationShortcut,
       openPalette,
       openShortcuts: () => setShortcutSheetOpen(true),
       shortcutSheetOpen,
       setShortcutSheetOpen,
     }),
-    [openPalette, recentRoutes, shortcutSheetOpen]
+    [
+      openPalette,
+      recentRoutes,
+      shortcuts,
+      runNavigationShortcut,
+      shortcutSheetOpen,
+    ]
   )
 
   return (
