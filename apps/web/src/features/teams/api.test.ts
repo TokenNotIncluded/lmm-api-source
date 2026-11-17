@@ -330,3 +330,153 @@ test('team mutation cannot follow a replacement session during refresh', async (
     'replacement-team-session'
   )
 })
+
+test('named team creation sends the trimmed name in the create operation', async () => {
+  login()
+  api.defaults.adapter = async (config) => {
+    assert.equal(config.url, '/core/v1/teams')
+    assert.deepEqual(JSON.parse(String(config.data)), {
+      name: 'Research studio',
+    })
+    return {
+      config,
+      data: { id: 101 },
+      headers: {},
+      status: 201,
+      statusText: 'Created',
+    }
+  }
+  assert.equal((await createTeam(scope, '  Research studio  ')).id, 101)
+})
+
+const budgetFixture = {
+  id: '61',
+  scope: 'account' as const,
+  account_id: 201,
+  user_id: null,
+  issuer_user_id: scope.userId,
+  period: 'month' as const,
+  revision: 2,
+  limit_credits: '9007199254740993',
+  consumed_credits: '100',
+  reserved_credits: '50',
+  remaining_credits: '9007199254740843',
+  window_start: 1793491200,
+  window_end: 1796083200,
+  can_edit: true,
+}
+
+test('budget saves preserve exact integer credits and the reviewed revision', async () => {
+  const { saveBudget, budgetProgress, validCreditLimit } =
+    await import('./budget-api')
+  login()
+  let calls = 0
+  api.defaults.adapter = async (config) => {
+    calls++
+    assert.equal(config.url, '/core/v1/teams/101/budgets')
+    assert.equal(config.method, 'put')
+    assert.deepEqual(JSON.parse(String(config.data)), {
+      scope: 'account',
+      period: 'month',
+      limit_credits: '9007199254740993',
+      expected_revision: 1,
+    })
+    return {
+      config,
+      data: budgetFixture,
+      headers: {},
+      status: 200,
+      statusText: 'OK',
+    }
+  }
+  assert.equal(
+    (
+      await saveBudget(
+        scope,
+        {
+          scope: 'account',
+          period: 'month',
+          limit_credits: '9007199254740993',
+          expected_revision: 1,
+        },
+        101
+      )
+    ).limit_credits,
+    '9007199254740993'
+  )
+  assert.equal(calls, 1)
+  assert.equal(
+    budgetProgress({
+      ...budgetFixture,
+      limit_credits: '0',
+      remaining_credits: '0',
+    }),
+    100
+  )
+  assert.equal(
+    budgetProgress({
+      ...budgetFixture,
+      limit_credits: '200',
+      remaining_credits: '50',
+    }),
+    75
+  )
+  for (const value of ['-1', '1.5', '1e3', '01', '9223372036854775808']) {
+    assert.equal(validCreditLimit(value), false)
+  }
+  assert.equal(validCreditLimit('0'), true)
+})
+
+test('budget reads reject numeric money and cross-user personal budgets', async () => {
+  const { listBudgets } = await import('./budget-api')
+  login()
+  for (const item of [
+    { ...budgetFixture, limit_credits: 100 },
+    {
+      ...budgetFixture,
+      scope: 'self',
+      account_id: null,
+      user_id: scope.userId + 1,
+    },
+  ]) {
+    api.defaults.adapter = async (config) => ({
+      config,
+      data: { version: 1, items: [item] },
+      headers: {},
+      status: 200,
+      statusText: 'OK',
+    })
+    await assert.rejects(listBudgets(scope), /unavailable/)
+  }
+})
+
+test('stale budgets and lost write responses do not replay writes', async () => {
+  const { saveBudget } = await import('./budget-api')
+  login()
+  let calls = 0
+  const draft = {
+    scope: 'self' as const,
+    period: 'day' as const,
+    limit_credits: '0',
+    expected_revision: null,
+  }
+  api.defaults.adapter = async (config) => {
+    calls++
+    assert.deepEqual(JSON.parse(String(config.data)), {
+      period: 'day',
+      limit_credits: '0',
+      expected_revision: null,
+    })
+    throw Object.assign(new Error('stale budget'), {
+      response: { status: 409 },
+    })
+  }
+  await assert.rejects(saveBudget(scope, draft), /conflict/)
+  assert.equal(calls, 1)
+  api.defaults.adapter = async () => {
+    calls++
+    throw new Error('response lost')
+  }
+  await assert.rejects(saveBudget(scope, draft), /unknown/)
+  assert.equal(calls, 2)
+})

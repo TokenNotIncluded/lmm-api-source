@@ -388,8 +388,7 @@ function CheckinCalendar({ checkinEnabled }: CheckinCalendarCardProps) {
                 </p>
                 {rewardRange ? (
                   <p className='text-muted-foreground mt-1 text-[11px] sm:text-xs'>
-                    {t('Reward range for level {{level}}: {{min}}–{{max}}', {
-                      level: rewardRange.trust_level,
+                    {t('Reward range: {{min}}–{{max}}', {
                       min: formatQuota(rewardRange.min_quota),
                       max: formatQuota(rewardRange.max_quota),
                     })}

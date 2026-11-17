@@ -16,11 +16,13 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+import { useNavigate, useSearch } from '@tanstack/react-router'
 import { useTranslation } from 'react-i18next'
 
 import { ErrorState } from '@/components/error-state'
 import { SectionPageLayout } from '@/components/layout'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { PersonalBudgetPanel } from '@/features/teams/budget-panel'
 import { TeamsPanel } from '@/features/teams/panel'
 import { useStatus } from '@/hooks/use-status'
 import { useAuthStore } from '@/stores/auth-store'
@@ -36,6 +38,7 @@ import {
   ProfileTwoFactorCapability,
 } from './components/profile-feature-capabilities'
 import { ProfileHeader } from './components/profile-header'
+import { ProfileIdentityCard } from './components/profile-identity-card'
 import { ProfileSecurityCard } from './components/profile-security-card'
 import { ProfileSettingsCard } from './components/profile-settings-card'
 import { ReferralOverviewCard } from './components/referral-overview-card'
@@ -43,6 +46,7 @@ import { SettlementCurrencyCard } from './components/settlement-currency-card'
 import { SidebarModulesCard } from './components/sidebar-modules-card'
 import { WalletDisplayCurrencyCard } from './components/wallet-display-currency-card'
 import { useProfile } from './hooks'
+import { profileSearchSchema } from './navigation'
 
 interface ProfilePasskeyCapabilityProps {
   capabilitiesReady: boolean
@@ -61,6 +65,9 @@ export function ProfilePasskeyCapability({
 
 export function Profile() {
   const { t } = useTranslation()
+  const navigate = useNavigate()
+  const search = useSearch({ strict: false })
+  const activeTab = profileSearchSchema.parse(search).tab ?? 'overview'
   const { profile, loading, error, fetchProfile, refreshProfile } = useProfile()
   const {
     status,
@@ -69,6 +76,7 @@ export function Profile() {
     refetch: refreshStatus,
   } = useStatus()
   const permissions = useAuthStore((s) => s.auth.user?.permissions)
+  const sessionId = useAuthStore((s) => s.auth.session?.sid)
   const canConfigureSidebar = permissions?.sidebar_settings !== false
 
   return (
@@ -83,12 +91,18 @@ export function Profile() {
           />
         ) : (
           <Tabs
-            defaultValue='overview'
-            className='console-page-tabs mx-auto max-w-6xl'
+            value={activeTab}
+            onValueChange={(tab) =>
+              void navigate({
+                to: '/profile',
+                search: profileSearchSchema.parse({ tab }),
+              })
+            }
+            className='console-page-tabs mx-auto max-w-6xl pb-8'
           >
             <TabsList variant='navigation' aria-label={t('Profile')}>
               <TabsTrigger value='overview'>{t('Overview')}</TabsTrigger>
-              <TabsTrigger value='account'>{t('Account')}</TabsTrigger>
+              <TabsTrigger value='account'>{t('Account & budget')}</TabsTrigger>
               <TabsTrigger value='security'>{t('Security')}</TabsTrigger>
               <TabsTrigger value='teams'>{t('Teams')}</TabsTrigger>
               <TabsTrigger value='preferences'>{t('Preferences')}</TabsTrigger>
@@ -97,7 +111,14 @@ export function Profile() {
             <TabsContent value='overview'>
               <ProfileHeader profile={profile} loading={loading} />
             </TabsContent>
-            <TabsContent value='account' className='space-y-5'>
+            <TabsContent value='account' className='space-y-7'>
+              <ProfileIdentityCard
+                key={`${String(profile?.id)  }:${  sessionId}`}
+                profile={profile}
+                loading={loading}
+                onProfileUpdate={refreshProfile}
+              />
+              <PersonalBudgetPanel />
               <ProfileSettingsCard
                 profile={profile}
                 loading={loading}

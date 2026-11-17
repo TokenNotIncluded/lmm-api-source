@@ -20,6 +20,7 @@ For commercial licensing, please contact support@quantumnous.com
 // Profile Type Definitions
 // ============================================================================
 
+import type { WalletProjectionUser } from '@/features/wallet/lib/wallet-projection'
 import type { WalletDisplayCurrencyPreference } from '@/stores/wallet-currency-preference-store'
 
 /**
@@ -88,7 +89,7 @@ export interface ProfileAggregateSettings {
 /**
  * User profile data
  */
-export interface UserProfile {
+export interface UserProfile extends WalletProjectionUser {
   /** User ID */
   id: number
   /** Username */

@@ -19,7 +19,9 @@ For commercial licensing, please contact support@quantumnous.com
 import { createFileRoute } from '@tanstack/react-router'
 
 import { Profile } from '@/features/profile'
+import { profileSearchSchema } from '@/features/profile/navigation'
 
 export const Route = createFileRoute('/_authenticated/profile/')({
+  validateSearch: profileSearchSchema,
   component: Profile,
 })

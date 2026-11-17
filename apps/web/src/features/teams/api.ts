@@ -22,6 +22,8 @@ export const teamSchema = z
 export const memberSchema = z
   .object({
     user_id: id,
+    username: z.string().optional(),
+    display_name: z.string().optional(),
     role: z.enum(['owner', 'admin', 'member']),
     can_spend: z.boolean(),
     membership_version: z.number().int().safe().nonnegative(),
@@ -77,9 +79,9 @@ export function currentTeamScope(scope: TeamScope) {
   const auth = useAuthStore.getState().auth
   return auth.user?.id === scope.userId && auth.session?.sid === scope.sessionId
 }
-async function request<T>(
+export async function request<T>(
   scope: TeamScope,
-  method: 'GET' | 'POST' | 'PATCH' | 'DELETE',
+  method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE',
   path: string,
   schema: z.ZodType<T>,
   data?: unknown,
@@ -196,13 +198,15 @@ export const listKeys = (
     undefined,
     signal
   )
-export const createTeam = (scope: TeamScope) =>
+export const createTeam = (scope: TeamScope, name?: string) =>
   request(
     scope,
     'POST',
     '/core/v1/teams',
     z.object({ id }).strict(),
-    undefined,
+    name === undefined
+      ? undefined
+      : { name: z.string().trim().min(1).max(100).parse(name) },
     undefined,
     201
   )

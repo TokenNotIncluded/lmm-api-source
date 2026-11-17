@@ -277,6 +277,13 @@ test('profile header shows unavailable image tokens and keeps actual zero text t
     }
     assert.equal(host.querySelectorAll('dd')[0]?.textContent, 'Unavailable')
     assert.equal(host.querySelectorAll('dd')[1]?.textContent, 'Unavailable')
+    assert.equal(host.querySelectorAll('dd')[2]?.textContent, 'Unavailable')
+    assert.equal(
+      host.querySelector('[data-testid=profile-wallet-balance]')?.textContent,
+      'Unavailable'
+    )
+    assert.ok(host.querySelector('a[href="/profile?tab=teams"]'))
+    assert.ok(host.querySelector('a[href="/profile?tab=account"]'))
     assert.match(
       host.textContent ?? '',
       /Images: 2 · Platform sponsored requests: 1/

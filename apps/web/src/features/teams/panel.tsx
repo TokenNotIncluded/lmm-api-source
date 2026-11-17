@@ -1,5 +1,6 @@
 /* Copyright (C) 2026 LIghtJUNction. SPDX-License-Identifier: AGPL-3.0-or-later */
 import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { Check, Plus, Users } from 'lucide-react'
 import { useRef, useState, type FormEvent } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
@@ -18,9 +19,12 @@ import {
 } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { toIntlLocale } from '@/i18n/languages'
 import { useAuthStore } from '@/stores/auth-store'
 
 import * as teams from './api'
+import { TeamBudgetPanel } from './budget-panel'
 
 const selectClass =
   'border-input bg-background min-h-11 rounded-md border px-3 py-2 text-sm'
@@ -38,6 +42,8 @@ function Workspace({ scope }: { scope: teams.TeamScope }) {
   const client = useQueryClient()
   const prefix = ['native-teams', scope.userId, scope.sessionId] as const
   const [teamId, setTeamId] = useState<number>()
+  const [createOpen, setCreateOpen] = useState(false)
+  const [newName, setNewName] = useState('')
   const [after, setAfter] = useState(0)
   const [inboxAfter, setInboxAfter] = useState(0)
   const [busy, setBusy] = useState(false)
@@ -90,18 +96,15 @@ function Workspace({ scope }: { scope: teams.TeamScope }) {
   }
   return (
     <section className='space-y-8' aria-label={t('Teams')}>
-      <header className='flex flex-wrap items-center justify-between gap-3'>
-        <h2 className='text-base font-semibold'>{t('My teams')}</h2>
-        <Button
-          disabled={busy || list.isPending}
-          onClick={() =>
-            void run(async () => {
-              const created = await teams.createTeam(scope)
-              setTeamId(created.id)
-              setAfter(0)
-            })
-          }
-        >
+      <header className='flex flex-wrap items-start justify-between gap-4'>
+        <div className='max-w-xl space-y-2'>
+          <h2 className='text-lg font-semibold'>{t('My teams')}</h2>
+          <p className='text-muted-foreground text-sm leading-relaxed'>
+            {t('Manage team access, API keys, and spending in one place.')}
+          </p>
+        </div>
+        <Button disabled={busy} onClick={() => setCreateOpen(true)}>
+          <Plus className='size-4' />
           {t('Create team')}
         </Button>
       </header>
@@ -114,32 +117,76 @@ function Workspace({ scope }: { scope: teams.TeamScope }) {
         <p role='status'>{t('Loading')}</p>
       ) : list.isError ? (
         <Alert role='alert'>
-          <AlertDescription>{t('Request failed')}</AlertDescription>
+          <AlertDescription className='flex flex-wrap items-center justify-between gap-3'>
+            <span>{t('Request failed')}</span>
+            <Button
+              variant='outline'
+              size='sm'
+              onClick={() => void list.refetch()}
+            >
+              {t('Retry')}
+            </Button>
+          </AlertDescription>
         </Alert>
       ) : (
         <>
-          <div className='flex flex-wrap items-center gap-3'>
-            <Label htmlFor='selected-team'>{t('Team')}</Label>
-            <select
-              id='selected-team'
-              className={selectClass}
-              value={selected?.id ?? ''}
-              onChange={(event) => setTeamId(Number(event.target.value))}
+          {!list.data?.length ? (
+            <div className='bg-muted/40 flex items-start gap-4 rounded-xl p-6'>
+              <Users className='text-muted-foreground mt-1 size-6 shrink-0' />
+              <div className='space-y-2'>
+                <p className='font-medium'>{t('No teams yet')}</p>
+                <p className='text-muted-foreground text-sm'>
+                  {t('Create a team to share access and set spending limits.')}
+                </p>
+              </div>
+            </div>
+          ) : (
+            <div
+              className='grid gap-3 sm:grid-cols-2 xl:grid-cols-3'
+              aria-label={t('Select team')}
             >
-              {!list.data?.length && <option value=''>{t('No data')}</option>}
               {list.data?.map((team) => (
-                <option key={team.id} value={team.id}>
-                  {team.name} · {team.id}
-                </option>
+                <button
+                  type='button'
+                  key={team.id}
+                  aria-pressed={selected?.id === team.id}
+                  onClick={() => setTeamId(team.id)}
+                  className={`focus-visible:ring-ring flex min-w-0 items-center gap-3 rounded-xl p-4 text-left transition-colors focus-visible:ring-2 focus-visible:outline-none ${
+                    selected?.id === team.id
+                      ? 'bg-primary/8 ring-primary/25 ring-1'
+                      : 'bg-muted/40 hover:bg-muted/70'
+                  }`}
+                >
+                  <span className='bg-background flex size-10 shrink-0 items-center justify-center rounded-lg'>
+                    <Users className='size-5' />
+                  </span>
+                  <span className='min-w-0 flex-1'>
+                    <span className='block truncate text-sm font-medium'>
+                      {team.name}
+                    </span>
+                    <span className='text-muted-foreground mt-1 block text-xs'>
+                      {t(
+                        team.role === 'owner'
+                          ? 'Owner'
+                          : team.role === 'admin'
+                            ? 'Administrator'
+                            : 'Member'
+                      )}
+                    </span>
+                  </span>
+                  {selected?.id === team.id && (
+                    <Check className='text-primary size-4 shrink-0' />
+                  )}
+                </button>
               ))}
-            </select>
-            <Pager
-              after={after}
-              last={list.data?.at(-1)?.id}
-              full={list.data?.length === 100}
-              change={setAfter}
-            />
-          </div>
+            </div>
+          )}
+          <Pager
+            after={after}
+            last={list.data?.at(-1)?.id}
+            full={list.data?.length === 100}
+            change={setAfter}
+          />
           {selected && (
             <TeamDetail
               key={`${selected.id}:${selected.version}:${selected.membership_version}`}
@@ -177,6 +224,69 @@ function Workspace({ scope }: { scope: teams.TeamScope }) {
           </>
         )}
       </section>
+      <Dialog
+        open={createOpen}
+        onOpenChange={(open) => {
+          if (!busy) {
+            setCreateOpen(open)
+            if (!open) setNewName('')
+          }
+        }}
+      >
+        <DialogContent className='sm:max-w-md'>
+          <DialogHeader>
+            <DialogTitle>{t('Create team')}</DialogTitle>
+            <DialogDescription>
+              {t('Create a team to share access and set spending limits.')}
+            </DialogDescription>
+          </DialogHeader>
+          <form
+            className='space-y-5'
+            onSubmit={(event) => {
+              event.preventDefault()
+              if (!newName.trim() || busy) return
+              void run(async () => {
+                const created = await teams.createTeam(scope, newName.trim())
+                setTeamId(created.id)
+                setAfter(0)
+                setCreateOpen(false)
+                setNewName('')
+              })
+            }}
+          >
+            <div className='space-y-2'>
+              <Label htmlFor='new-team-name'>{t('Team name')}</Label>
+              <Input
+                id='new-team-name'
+                maxLength={100}
+                required
+                autoComplete='off'
+                value={newName}
+                disabled={busy}
+                onChange={(event) => setNewName(event.target.value)}
+              />
+            </div>
+            {notice && (
+              <Alert role='alert'>
+                <AlertDescription>{notice}</AlertDescription>
+              </Alert>
+            )}
+            <DialogFooter>
+              <Button
+                type='button'
+                variant='outline'
+                disabled={busy}
+                onClick={() => setCreateOpen(false)}
+              >
+                {t('Cancel')}
+              </Button>
+              <Button disabled={busy || !newName.trim()}>
+                {t(busy ? 'Creating...' : 'Create team')}
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
       <Dialog
         open={Boolean(pending)}
         onOpenChange={(open) => {
@@ -258,7 +368,7 @@ function InviteRows({
     action: 'accept' | 'reject' | 'withdraw'
   ) => void
 }) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const statuses = {
     pending: t('Pending'),
     accepted: t('Accepted'),
@@ -285,7 +395,10 @@ function InviteRows({
             <p className='text-muted-foreground'>
               {t(invite.role === 'admin' ? 'Administrator' : 'Member')} ·{' '}
               {statuses[invite.status]} ·{' '}
-              {new Date(invite.expires_at * 1000).toLocaleString()}
+              {new Intl.DateTimeFormat(
+                toIntlLocale(i18n.resolvedLanguage ?? i18n.language),
+                { dateStyle: 'medium', timeStyle: 'short' }
+              ).format(invite.expires_at * 1000)}
             </p>
           </div>
           {invite.status === 'pending' && (
@@ -341,7 +454,7 @@ function TeamDetail({
   confirm: (value: Pending) => void
   prefix: readonly ['native-teams', number, string]
 }) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const [name, setName] = useState(team.name)
   const [recipient, setRecipient] = useState('')
   const [role, setRole] = useState<'admin' | 'member'>('member')
@@ -379,7 +492,7 @@ function TeamDetail({
     })
   }
   return (
-    <div className='space-y-7'>
+    <div className='min-w-0 space-y-5'>
       <div className='flex flex-wrap items-center gap-3'>
         <Badge variant='secondary'>
           {t(
@@ -394,213 +507,256 @@ function TeamDetail({
           <Badge variant='outline'>{t('Allow spending')}</Badge>
         )}
       </div>
-      {manager && (
-        <form
-          className='flex flex-wrap items-end gap-3'
-          onSubmit={(event) => {
-            event.preventDefault()
-            void run(() => teams.renameTeam(scope, team, name))
-          }}
-        >
-          <div className='min-w-48 flex-1 space-y-2'>
-            <Label htmlFor='team-name'>{t('Team name')}</Label>
-            <Input
-              id='team-name'
-              maxLength={100}
-              value={name}
-              onChange={(event) => setName(event.target.value)}
-            />
-          </div>
-          <Button disabled={busy || !name.trim() || name.trim() === team.name}>
-            {t('Save')}
-          </Button>
-        </form>
-      )}
-      <section className='space-y-3'>
-        <h3 className='font-medium'>{t('Members')}</h3>
-        {members.isPending ? (
-          <p role='status'>{t('Loading')}</p>
-        ) : members.isError ? (
-          <p role='alert'>{t('Request failed')}</p>
-        ) : (
-          <>
-            <div className='divide-y'>
-              {members.data?.map((member) => (
-                <MemberRow
-                  key={`${member.user_id}:${member.membership_version}`}
-                  member={member}
-                  scope={scope}
-                  team={team}
-                  busy={busy}
-                  run={run}
-                  confirm={confirm}
+      <Tabs defaultValue='members' className='min-w-0'>
+        <TabsList variant='navigation' aria-label={t('Team settings')}>
+          <TabsTrigger value='members'>{t('Members')}</TabsTrigger>
+          <TabsTrigger value='budget'>{t('Spending limits')}</TabsTrigger>
+          <TabsTrigger value='keys'>{t('API keys')}</TabsTrigger>
+          {manager && (
+            <TabsTrigger value='settings'>{t('Settings')}</TabsTrigger>
+          )}
+        </TabsList>
+        <TabsContent value='members' className='space-y-7'>
+          <section className='space-y-3'>
+            <h3 className='font-medium'>{t('Members')}</h3>
+            {members.isPending ? (
+              <p role='status'>{t('Loading')}</p>
+            ) : members.isError ? (
+              <p role='alert'>{t('Request failed')}</p>
+            ) : (
+              <>
+                <div className='divide-y'>
+                  {members.data?.map((member) => (
+                    <MemberRow
+                      key={`${member.user_id}:${member.membership_version}`}
+                      member={member}
+                      scope={scope}
+                      team={team}
+                      busy={busy}
+                      run={run}
+                      confirm={confirm}
+                    />
+                  ))}
+                </div>
+                <Pager
+                  after={memberAfter}
+                  last={members.data?.at(-1)?.user_id}
+                  full={members.data?.length === 100}
+                  change={setMemberAfter}
                 />
-              ))}
-            </div>
-            <Pager
-              after={memberAfter}
-              last={members.data?.at(-1)?.user_id}
-              full={members.data?.length === 100}
-              change={setMemberAfter}
-            />
-          </>
-        )}
-      </section>
-      {manager && (
-        <section className='space-y-4 border-t pt-6'>
-          <h3 className='font-medium'>{t('Invite member')}</h3>
-          <form onSubmit={invite} className='flex flex-wrap items-end gap-3'>
-            <div className='space-y-2'>
-              <Label htmlFor='invite-user'>{t('User ID')}</Label>
-              <Input
-                id='invite-user'
-                inputMode='numeric'
-                pattern='[1-9][0-9]*'
-                required
-                value={recipient}
-                onChange={(event) => setRecipient(event.target.value)}
-              />
-            </div>
-            <div className='space-y-2'>
-              <Label htmlFor='invite-role'>{t('Role')}</Label>
-              <select
-                id='invite-role'
-                className={selectClass}
-                value={role}
-                onChange={(event) =>
-                  setRole(event.target.value as 'admin' | 'member')
-                }
+              </>
+            )}
+          </section>
+          {manager && (
+            <section className='space-y-4 border-t pt-6'>
+              <h3 className='font-medium'>{t('Invite member')}</h3>
+              <form
+                onSubmit={invite}
+                className='flex flex-wrap items-end gap-3'
               >
-                <option value='member'>{t('Member')}</option>
-                {team.role === 'owner' && (
-                  <option value='admin'>{t('Administrator')}</option>
-                )}
-              </select>
-            </div>
-            <Label className='flex min-h-11 items-center gap-2'>
-              <Checkbox checked={canSpend} onCheckedChange={setCanSpend} />
-              {t('Allow spending')}
-            </Label>
-            <Button
-              disabled={
-                busy || !Number.isSafeInteger(recipientId) || recipientId <= 0
-              }
-            >
-              {t('Invite member')}
-            </Button>
-          </form>
-          {invitations.isError ? (
-            <p role='alert'>{t('Request failed')}</p>
-          ) : (
-            <InviteRows
-              items={invitations.data ?? []}
-              outgoing
-              busy={busy}
-              onAction={(invite, action) =>
-                void run(() => teams.respondToInvite(scope, invite, action))
-              }
-            />
-          )}
-          <Pager
-            after={inviteAfter}
-            last={invitations.data?.at(-1)?.id}
-            full={invitations.data?.length === 100}
-            change={setInviteAfter}
-          />
-        </section>
-      )}
-      <section className='space-y-3 border-t pt-6'>
-        <div className='flex flex-wrap items-center justify-between gap-3'>
-          <h3 className='font-medium'>{t('API keys')}</h3>
-          {team.can_spend && (
-            <Button
-              size='sm'
-              disabled={busy}
-              onClick={() =>
-                void run(async () => {
-                  const key = await teams.issueTeamKey(scope, team.id)
-                  if (teams.currentTeamScope(scope)) setSecret(key.secret)
-                })
-              }
-            >
-              {t('Create API key')}
-            </Button>
-          )}
-        </div>
-        {secret && (
-          <Alert>
-            <AlertDescription>
-              <p>
-                {t(
-                  'Copy this key now. It is shown only once and expires after 30 days.'
-                )}
-              </p>
-              <code className='block py-3 break-all'>{secret}</code>
-              <Button variant='outline' size='sm' onClick={() => setSecret('')}>
-                {t('Close')}
-              </Button>
-            </AlertDescription>
-          </Alert>
-        )}
-        {keys.isError ? (
-          <p role='alert'>{t('Request failed')}</p>
-        ) : (
-          <div className='divide-y'>
-            {keys.data?.map((key) => (
-              <div
-                key={key.id}
-                className='flex flex-wrap items-center justify-between gap-3 py-3 text-sm'
-              >
-                <span>
-                  #{key.id} · {t('User ID')} {key.user_id} ·{' '}
-                  {new Date(key.expires_at * 1000).toLocaleString()}
-                </span>
-                {key.revoked ? (
-                  <Badge variant='outline'>{t('Revoked')}</Badge>
-                ) : (
-                  <Button
-                    size='sm'
-                    variant='outline'
-                    disabled={busy}
-                    onClick={() =>
-                      confirm({
-                        label: t('Revoke'),
-                        detail: `${t('API keys')} #${key.id}`,
-                        run: () => teams.revokeTeamKey(scope, key.id),
-                      })
+                <div className='space-y-2'>
+                  <Label htmlFor='invite-user'>{t('User ID')}</Label>
+                  <Input
+                    id='invite-user'
+                    inputMode='numeric'
+                    pattern='[1-9][0-9]*'
+                    required
+                    value={recipient}
+                    onChange={(event) => setRecipient(event.target.value)}
+                  />
+                </div>
+                <div className='space-y-2'>
+                  <Label htmlFor='invite-role'>{t('Role')}</Label>
+                  <select
+                    id='invite-role'
+                    className={selectClass}
+                    value={role}
+                    onChange={(event) =>
+                      setRole(event.target.value as 'admin' | 'member')
                     }
                   >
-                    {t('Revoke')}
+                    <option value='member'>{t('Member')}</option>
+                    {team.role === 'owner' && (
+                      <option value='admin'>{t('Administrator')}</option>
+                    )}
+                  </select>
+                </div>
+                <Label className='flex min-h-11 items-center gap-2'>
+                  <Checkbox
+                    checked={canSpend}
+                    disabled={busy}
+                    onCheckedChange={setCanSpend}
+                  />
+                  {t('Allow spending')}
+                </Label>
+                <Button
+                  disabled={
+                    busy ||
+                    !Number.isSafeInteger(recipientId) ||
+                    recipientId <= 0
+                  }
+                >
+                  {t('Invite member')}
+                </Button>
+              </form>
+              {invitations.isError ? (
+                <p role='alert'>{t('Request failed')}</p>
+              ) : (
+                <InviteRows
+                  items={invitations.data ?? []}
+                  outgoing
+                  busy={busy}
+                  onAction={(invite, action) =>
+                    void run(() => teams.respondToInvite(scope, invite, action))
+                  }
+                />
+              )}
+              <Pager
+                after={inviteAfter}
+                last={invitations.data?.at(-1)?.id}
+                full={invitations.data?.length === 100}
+                change={setInviteAfter}
+              />
+            </section>
+          )}
+        </TabsContent>
+        <TabsContent value='budget'>
+          <TeamBudgetPanel
+            scope={scope}
+            team={team}
+            members={members.data ?? []}
+          />
+        </TabsContent>
+        <TabsContent value='keys'>
+          <section className='space-y-3'>
+            <div className='flex flex-wrap items-center justify-between gap-3'>
+              <h3 className='font-medium'>{t('API keys')}</h3>
+              {team.can_spend && (
+                <Button
+                  size='sm'
+                  disabled={busy}
+                  onClick={() =>
+                    void run(async () => {
+                      const key = await teams.issueTeamKey(scope, team.id)
+                      if (teams.currentTeamScope(scope)) setSecret(key.secret)
+                    })
+                  }
+                >
+                  {t('Create API key')}
+                </Button>
+              )}
+            </div>
+            {secret && (
+              <Alert>
+                <AlertDescription>
+                  <p>
+                    {t(
+                      'Copy this key now. It is shown only once and expires after 30 days.'
+                    )}
+                  </p>
+                  <code className='block py-3 break-all'>{secret}</code>
+                  <Button
+                    variant='outline'
+                    size='sm'
+                    onClick={() => setSecret('')}
+                  >
+                    {t('Close')}
                   </Button>
-                )}
+                </AlertDescription>
+              </Alert>
+            )}
+            {keys.isError ? (
+              <p role='alert'>{t('Request failed')}</p>
+            ) : (
+              <div className='divide-y'>
+                {keys.data?.map((key) => (
+                  <div
+                    key={key.id}
+                    className='flex flex-wrap items-center justify-between gap-3 py-3 text-sm'
+                  >
+                    <span>
+                      #{key.id} · {t('User ID')} {key.user_id} ·{' '}
+                      {new Intl.DateTimeFormat(
+                        toIntlLocale(i18n.resolvedLanguage ?? i18n.language),
+                        { dateStyle: 'medium', timeStyle: 'short' }
+                      ).format(key.expires_at * 1000)}
+                    </span>
+                    {key.revoked ? (
+                      <Badge variant='outline'>{t('Revoked')}</Badge>
+                    ) : (
+                      <Button
+                        size='sm'
+                        variant='outline'
+                        disabled={busy}
+                        onClick={() =>
+                          confirm({
+                            label: t('Revoke'),
+                            detail: `${t('API keys')} #${key.id}`,
+                            run: () => teams.revokeTeamKey(scope, key.id),
+                          })
+                        }
+                      >
+                        {t('Revoke')}
+                      </Button>
+                    )}
+                  </div>
+                ))}
               </div>
-            ))}
-          </div>
+            )}
+            <Pager
+              after={keyAfter}
+              last={keys.data?.at(-1)?.id}
+              full={keys.data?.length === 100}
+              change={setKeyAfter}
+            />
+          </section>
+        </TabsContent>
+        {manager && (
+          <TabsContent value='settings' className='space-y-8'>
+            {manager && (
+              <form
+                className='flex flex-wrap items-end gap-3'
+                onSubmit={(event) => {
+                  event.preventDefault()
+                  void run(() => teams.renameTeam(scope, team, name))
+                }}
+              >
+                <div className='min-w-48 flex-1 space-y-2'>
+                  <Label htmlFor='team-name'>{t('Team name')}</Label>
+                  <Input
+                    id='team-name'
+                    maxLength={100}
+                    value={name}
+                    onChange={(event) => setName(event.target.value)}
+                  />
+                </div>
+                <Button
+                  disabled={busy || !name.trim() || name.trim() === team.name}
+                >
+                  {t('Save')}
+                </Button>
+              </form>
+            )}
+            {team.role === 'owner' && (
+              <Button
+                variant='outline'
+                disabled={busy}
+                onClick={() =>
+                  confirm({
+                    label: t('Close team'),
+                    detail: t(
+                      'Closing this team immediately revokes all team access. Its records are retained.'
+                    ),
+                    run: () => teams.closeTeam(scope, team),
+                  })
+                }
+              >
+                {t('Close team')}
+              </Button>
+            )}
+          </TabsContent>
         )}
-        <Pager
-          after={keyAfter}
-          last={keys.data?.at(-1)?.id}
-          full={keys.data?.length === 100}
-          change={setKeyAfter}
-        />
-      </section>
-      {team.role === 'owner' && (
-        <Button
-          variant='outline'
-          disabled={busy}
-          onClick={() =>
-            confirm({
-              label: t('Close team'),
-              detail: t(
-                'Closing this team immediately revokes all team access. Its records are retained.'
-              ),
-              run: () => teams.closeTeam(scope, team),
-            })
-          }
-        >
-          {t('Close team')}
-        </Button>
-      )}
+      </Tabs>
     </div>
   )
 }
@@ -633,9 +789,17 @@ function MemberRow({
       (team.role === 'admin' && member.role === 'member'))
   return (
     <div className='flex flex-wrap items-center justify-between gap-3 py-4 text-sm'>
-      <span className='font-mono'>
-        {t('User ID')} {member.user_id}
-      </span>
+      <div className='min-w-0 flex-1'>
+        <p className='truncate font-medium'>
+          {member.display_name ||
+            member.username ||
+            t('User ID {{id}}', { id: member.user_id })}
+        </p>
+        <p className='text-muted-foreground mt-1 text-xs'>
+          {member.username ? `@${member.username} · ` : ''}
+          {t('User ID {{id}}', { id: member.user_id })}
+        </p>
+      </div>
       {editable ? (
         <div className='flex flex-wrap items-center gap-3'>
           <select

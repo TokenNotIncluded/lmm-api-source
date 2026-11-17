@@ -210,7 +210,7 @@ export function ProfileSharePage() {
     <SectionPageLayout>
       <SectionPageLayout.Title>{t('Public SVG badge')}</SectionPageLayout.Title>
       <SectionPageLayout.Content>
-        <div className='mx-auto max-w-6xl space-y-6 pb-10'>
+        <div className='mx-auto max-w-6xl space-y-8 pb-10'>
           <div className='space-y-2'>
             <Link
               to='/profile'
@@ -239,7 +239,7 @@ export function ProfileSharePage() {
           ) : (
             <div
               data-testid='badge-sharing'
-              className='border-border/70 bg-card/40 flex flex-col gap-4 rounded-2xl border p-4 sm:flex-row sm:items-center sm:justify-between sm:p-5'
+              className='bg-card flex flex-col gap-5 rounded-2xl p-5 sm:flex-row sm:items-center sm:justify-between sm:p-7'
             >
               <div className='space-y-1'>
                 <h2 className='font-medium'>
@@ -334,7 +334,7 @@ export function ProfileSharePage() {
             </p>
           ) : null}
           <section className='space-y-5' aria-label={t('Your SVG badge')}>
-            <div className='border-border space-y-4 rounded-xl border p-4 sm:p-5'>
+            <div className='bg-card space-y-6 rounded-2xl p-5 sm:p-7'>
               <div className='flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between'>
                 <div>
                   <h2 className='text-lg font-semibold tracking-tight'>
@@ -431,7 +431,7 @@ export function ProfileSharePage() {
               </p>
             </div>
             {badgeURL ? (
-              <details className='border-border space-y-5 rounded-xl border p-4 sm:p-5'>
+              <details className='space-y-5 rounded-2xl py-4 sm:py-5'>
                 <summary className='flex min-h-11 cursor-pointer items-center text-sm font-medium'>
                   {t('Embed code and image URL')}
                 </summary>
@@ -497,7 +497,7 @@ export function ProfileSharePage() {
               }
             />
           ) : null}
-          <details className='border-border rounded-xl border p-4 sm:p-5'>
+          <details className='bg-card rounded-2xl p-5 sm:p-7'>
             <summary className='flex min-h-11 cursor-pointer items-center text-sm font-medium'>
               {t('Customize appearance')}
             </summary>
@@ -839,7 +839,7 @@ export function ProfileSharePage() {
             </div>
           </details>
           <details
-            className='border-border/70 rounded-2xl border p-4 sm:p-6'
+            className='bg-card rounded-2xl p-5 sm:p-7'
             onToggle={(event) => setShowStatistics(event.currentTarget.open)}
           >
             <summary className='cursor-pointer text-sm font-medium'>
