@@ -39,7 +39,7 @@ describe('native user management search state', () => {
       group: ' exact ',
       role: 'admin',
       status: 'disabled',
-      service_level: '0',
+      team_id: '12',
       page: 2,
       page_size: 37,
       sort_by: 'display_name',
@@ -51,9 +51,8 @@ describe('native user management search state', () => {
     assert.deepEqual(nativeQueryFromSearch(url), state)
     assert.deepEqual(usersSearchSchema.parse({}), DEFAULT_NATIVE_USERS_QUERY)
     assert.equal(
-      usersSearchSchema.parse(defaultParseSearch('?service_level=0'))
-        .service_level,
-      '0'
+      usersSearchSchema.parse(defaultParseSearch('?team_id=12')).team_id,
+      '12'
     )
   })
   test('all native sorts are accepted while old or invalid filters fail instead of defaulting', () => {
@@ -72,6 +71,9 @@ describe('native user management search state', () => {
       { sort_by: 'quota' },
       { sort_order: 'up' },
       { service_level: 5 },
+      { service_level: 0 },
+      { sort_by: 'service_level' },
+      { team_id: '0' },
       { page: 0 },
       { page_size: 101 },
       { keyword: true },

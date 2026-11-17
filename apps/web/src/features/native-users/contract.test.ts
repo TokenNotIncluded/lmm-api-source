@@ -194,15 +194,15 @@ test('the complete capability and paging envelope cannot omit, invent or round f
   ).toBe(false)
 })
 
-test('supported queries retain literal metacharacters, exact groups and native level zero', () => {
+test('supported queries retain literal metacharacters, exact routing groups and team identifiers', () => {
   expect(
     nativeUsersQuery({
       ...DEFAULT_NATIVE_USERS_QUERY,
       keyword: '  %_  ',
       group: ' spaced ',
-      service_level: '0',
+      team_id: '12',
     })
-  ).toMatchObject({ keyword: '%_', group: ' spaced ', service_level: '0' })
+  ).toMatchObject({ keyword: '%_', group: ' spaced ', team_id: '12' })
   const invalid: unknown[] = [
     null,
     [],
@@ -230,7 +230,7 @@ test('native URLs preserve all filters, exact text and every native sort', () =>
     group: ' spaced ',
     role: 'admin',
     status: 'disabled',
-    service_level: '0',
+    team_id: '12',
     sort_by: 'display_name',
     sort_order: 'asc',
   })
@@ -242,7 +242,7 @@ test('native URLs preserve all filters, exact text and every native sort', () =>
     group: ' spaced ',
     role: 'admin',
     status: 'disabled',
-    service_level: '0',
+    team_id: '12',
     sort_by: 'display_name',
     sort_order: 'asc',
   })
@@ -257,9 +257,7 @@ test('native URLs preserve all filters, exact text and every native sort', () =>
     expect(nativeQueryFromSearch(`?sort_by=${sort}`)?.sort_by).toBe(sort)
   }
   for (const level of ['0', '1', '2', '3', '4']) {
-    expect(
-      nativeQueryFromSearch(`?service_level=${level}`)?.service_level
-    ).toBe(level)
+    expect(nativeQueryFromSearch(`?service_level=${level}`)).toBeUndefined()
   }
 })
 
@@ -283,6 +281,10 @@ test('old fields, invalid native filters and duplicate keys are rejected without
     '?sort_by=quota',
     '?sort_by=unknown',
     '?service_level=5',
+    '?sort_by=service_level',
+    '?team_id=0',
+    '?team_id=-1',
+    '?team_id=9007199254740993',
     '?service_level=true',
     '?page=1&page=2',
     '?role=user&role=admin',
@@ -354,5 +356,30 @@ test('native usage rejects malformed totals and inconsistent refund or funding a
         ...update,
       }).success
     ).toBe(false)
+  }
+})
+
+test('team memberships carry their own role and spending permission with exact identifiers', () => {
+  const user = nativeUserFixture({
+    teams: [
+      {
+        id: '9007199254740993',
+        account_id: '9007199254740995',
+        name: 'Synthetic team',
+        role: 'member',
+        can_spend: false,
+      },
+    ],
+  })
+  expect(nativeUserSchema.parse(user).teams[0]).toEqual(user.teams[0])
+  expect(nativeUserSchema.parse({ ...user, teams: [] }).teams).toEqual([])
+  for (const team of [
+    { ...user.teams[0], id: 9007199254740992 },
+    { ...user.teams[0], role: 'superadmin' },
+    { ...user.teams[0], can_spend: 'true' },
+  ]) {
+    expect(nativeUserSchema.safeParse({ ...user, teams: [team] }).success).toBe(
+      false
+    )
   }
 })

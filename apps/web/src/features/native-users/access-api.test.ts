@@ -22,13 +22,9 @@ const before: UserAccessSnapshot = {
   auth_version: '9007199254740997',
   active: true,
   account_active: true,
-  service_level: 1,
-  developer_access_granted: false,
   groups: [' paid group '],
 }
 const values = {
-  service_level: 2,
-  developer_access_granted: true,
   groups: ['paid', '研发'],
 }
 

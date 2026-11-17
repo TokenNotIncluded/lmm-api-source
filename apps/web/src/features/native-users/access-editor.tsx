@@ -5,7 +5,6 @@ import { toast } from 'sonner'
 
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
-import { Checkbox } from '@/components/ui/checkbox'
 import {
   Dialog,
   DialogContent,
@@ -46,8 +45,6 @@ export function NativeUserAccess({
   const auth = useAuthStore((state) => state.auth)
   const [open, setOpen] = useState(false)
   const [snapshot, setSnapshot] = useState<UserAccessSnapshot>()
-  const [level, setLevel] = useState(0)
-  const [developer, setDeveloper] = useState(false)
   const [groups, setGroups] = useState('')
   const [reason, setReason] = useState('')
   const [review, setReview] = useState<UserAccessValues>()
@@ -75,8 +72,6 @@ export function NativeUserAccess({
           return
         }
         setSnapshot(value)
-        setLevel(value.service_level)
-        setDeveloper(value.developer_access_granted)
         setGroups(value.groups.join('\n'))
       },
       (error: unknown) => {
@@ -115,8 +110,6 @@ export function NativeUserAccess({
   }
 
   const values = {
-    service_level: level,
-    developer_access_granted: developer,
     groups: parseAccessGroups(groups),
   }
   const valid =
@@ -213,9 +206,7 @@ export function NativeUserAccess({
               {t('Access settings')} · {userId}
             </DialogTitle>
             <DialogDescription>
-              {t(
-                'Manage service level, developer access and routing groups for this user.'
-              )}
+              {t('Manage routing groups for this user.')}
             </DialogDescription>
           </DialogHeader>
           {notice && (
@@ -259,20 +250,6 @@ export function NativeUserAccess({
                       {t('Current')}
                     </span>
                     <span className='font-medium'>{t('After change')}</span>
-                    <span>{t('Service level')}</span>
-                    <span>{snapshot.service_level}</span>
-                    <span className='font-medium'>{review.service_level}</span>
-                    <span>{t('Developer access')}</span>
-                    <span>
-                      {snapshot.developer_access_granted
-                        ? t('Granted')
-                        : t('Not granted')}
-                    </span>
-                    <span className='font-medium'>
-                      {review.developer_access_granted
-                        ? t('Granted')
-                        : t('Not granted')}
-                    </span>
                     <span>{t('Routing groups')}</span>
                     <span className='break-all'>
                       {displayGroups(snapshot.groups)}
@@ -288,38 +265,6 @@ export function NativeUserAccess({
                 </section>
               ) : (
                 <>
-                  <div className='space-y-2'>
-                    <Label htmlFor={`access-level-${userId}`}>
-                      {t('Service level')}
-                    </Label>
-                    <select
-                      id={`access-level-${userId}`}
-                      className='border-input bg-background min-h-11 w-full rounded-md border px-3 py-2 text-sm'
-                      value={level}
-                      disabled={!snapshot.account_active}
-                      onChange={(event) => setLevel(Number(event.target.value))}
-                    >
-                      {[0, 1, 2, 3, 4].map((value) => (
-                        <option key={value} value={value}>
-                          {value}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                  <div className='flex items-start gap-3'>
-                    <Checkbox
-                      id={`access-developer-${userId}`}
-                      checked={developer}
-                      disabled={!snapshot.account_active}
-                      onCheckedChange={(value) => setDeveloper(value === true)}
-                    />
-                    <Label
-                      htmlFor={`access-developer-${userId}`}
-                      className='leading-5'
-                    >
-                      {t('Developer access')}
-                    </Label>
-                  </div>
                   <div className='space-y-2'>
                     <Label htmlFor={`access-groups-${userId}`}>
                       {t('Routing groups')}

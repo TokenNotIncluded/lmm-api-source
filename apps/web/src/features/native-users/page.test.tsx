@@ -174,11 +174,14 @@ test('the actual page renders exact identity, memberships and signed units witho
     'Debt magnitude',
     '1970',
     '—',
-    'Service level',
+    'Synthetic research team',
+    'Spending enabled',
   ]) {
     expect(row?.textContent).toContain(value)
   }
-  expect(row?.textContent).not.toMatch(/\$|USD|L0/)
+  expect(row?.textContent).not.toMatch(/\$|USD|L0|Service level/)
+  expect(container.querySelector('#native-user-level')).toBeNull()
+  expect(row?.querySelector('.native-user-groups')).toBeNull()
   expect(container.textContent).toContain(
     'Open Manage to review account usage, imported counters and available actions.'
   )
@@ -260,11 +263,13 @@ test('collapsed memberships stay compact and opening Manage loads exact usage wi
   ])
 })
 
-test('column selection survives a list refresh and group shortcuts use the server filter', async () => {
+test('column selection survives a list refresh and team shortcuts use the server filter', async () => {
   login()
-  const groups: unknown[] = []
+  const teams: unknown[] = []
   api.defaults.adapter = async (config) => {
-    if (config.url === '/core/v1/admin/users') groups.push(config.params?.group)
+    if (config.url === '/core/v1/admin/users') {
+      teams.push(config.params?.team_id)
+    }
     return {
       config,
       data:
@@ -298,21 +303,33 @@ test('column selection survives a list refresh and group shortcuts use the serve
     await pause()
   })
   expect(container.querySelector('.native-user-email')).toBeNull()
-  const group = container.querySelector<HTMLButtonElement>(
-    '.native-user-row [aria-label="Filter by group alpha"]'
+  const team = container.querySelector<HTMLButtonElement>(
+    '.native-user-row [aria-label="Filter by team Synthetic research team"]'
   )
-  expect(group).not.toBeNull()
+  expect(team).not.toBeNull()
   await act(async () => {
-    group?.click()
+    team?.click()
     await pause()
   })
   await act(async () => {
     await pause()
   })
-  expect(groups.at(-1)).toBe('alpha')
+  expect(teams.at(-1)).toBe('12')
   expect(
-    (container.querySelector('#native-user-group') as HTMLInputElement).value
-  ).toBe('alpha')
+    (container.querySelector('#native-user-team') as HTMLInputElement).value
+  ).toBe('12')
+  await act(async () => {
+    container
+      .querySelector<HTMLButtonElement>(
+        '[aria-label="Remove filter: Team #12"]'
+      )
+      ?.click()
+    await pause()
+  })
+  expect(teams.at(-1)).toBeUndefined()
+  expect(
+    (container.querySelector('#native-user-team') as HTMLInputElement).value
+  ).toBe('')
 })
 
 test('false or absent capabilities and an ordinary role produce zero native or legacy user requests', async () => {
@@ -669,7 +686,7 @@ test('native saved URL applies every filter and sort directly to Core without tr
     group: ' exact ',
     role: 'admin',
     status: 'disabled',
-    service_level: '0',
+    team_id: '12',
     sort_by: 'display_name',
     sort_order: 'asc',
   })
@@ -683,7 +700,7 @@ test('native saved URL applies every filter and sort directly to Core without tr
       group: ' exact ',
       role: 'admin',
       status: 'disabled',
-      service_level: '0',
+      team_id: '12',
       sort_by: 'display_name',
       sort_order: 'asc',
     },
@@ -855,7 +872,7 @@ test('clear filters restores the default query and collapses user details initia
   ).toBe('false')
   expect(
     container.querySelector<HTMLDetailsElement>('form details')?.open
-  ).toBe(true)
+  ).toBe(false)
   await act(async () => {
     button(container, 'Clear filters').click()
     await pause()
@@ -1009,4 +1026,72 @@ test('copy uses applied filters and sorting a table heading sends an exact serve
     container.querySelector(`#${details?.getAttribute('aria-controls')}`)
       ?.textContent
   ).toContain('Security')
+})
+
+test('create user opens a focused dialog and submits one account without inline form clutter', async () => {
+  login()
+  const writes: Record<string, unknown>[] = []
+  api.defaults.adapter = async (config) => {
+    if (config.method === 'post') {
+      writes.push(JSON.parse(String(config.data)))
+      return {
+        config,
+        data: { version: 1, user_id: '902', platform_role: 'user' },
+        headers: {},
+        status: 201,
+        statusText: 'Created',
+      }
+    }
+    return {
+      config,
+      data:
+        config.url === '/api/status'
+          ? nativeStatusFixture
+          : nativeListFixture(),
+      headers: {},
+      status: 200,
+      statusText: 'OK',
+    }
+  }
+  const container = await mount()
+  expect(document.getElementById('native-create-password')).toBeNull()
+  await act(async () => {
+    button(container, 'Create user').click()
+    await pause()
+  })
+  const dialog = (await waitForElement(
+    document.body,
+    '[role="dialog"]'
+  )) as HTMLElement
+  expect(dialog.textContent).toContain('Create a personal account.')
+  expect(button(dialog, 'Create user').disabled).toBe(true)
+  await act(async () => {
+    for (const [id, value] of [
+      ['native-create-username', 'synthetic-new-user'],
+      ['native-create-display-name', 'New user'],
+      ['native-create-password', 'test-only-password'],
+    ]) {
+      const input = document.getElementById(id) as HTMLInputElement
+      Object.getOwnPropertyDescriptor(
+        dom.HTMLInputElement.prototype,
+        'value'
+      )?.set?.call(input, value)
+      input.dispatchEvent(new Event('input', { bubbles: true }))
+    }
+  })
+  expect(button(dialog, 'Create user').disabled).toBe(false)
+  await act(async () => {
+    button(dialog, 'Create user').click()
+    await pause()
+  })
+  await act(pause)
+  expect(writes).toEqual([
+    {
+      username: 'synthetic-new-user',
+      display_name: 'New user',
+      password: 'test-only-password',
+    },
+  ])
+  expect(document.getElementById('native-create-password')).toBeNull()
+  expect(container.querySelector('[data-native-user-id]')).not.toBeNull()
 })

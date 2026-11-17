@@ -33,9 +33,12 @@ export async function readNativeUsers(
 ): Promise<NativeUsersResponse> {
   assertScope(scope, signal)
   const params = nativeUsersQuery(query)
-  // Core's optional integer cannot parse an empty query value; absence means no level filter.
-  const { service_level, ...rest } = params
-  const requestParams = service_level === '' ? rest : { ...rest, service_level }
+  // Core optional integers are omitted when the corresponding filter is empty.
+  const { team_id, ...rest } = params
+  const requestParams = {
+    ...rest,
+    ...(team_id ? { team_id } : {}),
+  }
   try {
     const response = await api.get<unknown>('/core/v1/admin/users', {
       ...nativeUsersOptions(scope, signal),

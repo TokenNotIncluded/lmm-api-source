@@ -16,19 +16,19 @@ export const nativeUsersSearchSchema = z
   .object({
     keyword: z.string().default(DEFAULT_NATIVE_USERS_QUERY.keyword),
     group: z.string().default(DEFAULT_NATIVE_USERS_QUERY.group),
+    team_id: z.preprocess(
+      (value) =>
+        typeof value === 'number' && Number.isSafeInteger(value)
+          ? String(value)
+          : value,
+      z.string().default(DEFAULT_NATIVE_USERS_QUERY.team_id)
+    ),
     role: z
       .enum(['', 'user', 'admin', 'superadmin'])
       .default(DEFAULT_NATIVE_USERS_QUERY.role),
     status: z
       .enum(['', 'active', 'disabled'])
       .default(DEFAULT_NATIVE_USERS_QUERY.status),
-    // TanStack decodes an unquoted URL level as a JSON number.
-    service_level: z.preprocess(
-      (value) => (typeof value === 'number' ? String(value) : value),
-      z
-        .enum(['', '0', '1', '2', '3', '4'])
-        .default(DEFAULT_NATIVE_USERS_QUERY.service_level)
-    ),
     page: z.number().default(DEFAULT_NATIVE_USERS_QUERY.page),
     page_size: z.number().default(DEFAULT_NATIVE_USERS_QUERY.page_size),
     sort_by: z

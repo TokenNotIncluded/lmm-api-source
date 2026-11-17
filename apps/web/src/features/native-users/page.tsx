@@ -6,6 +6,7 @@ import {
   Search,
   SlidersHorizontal,
   Users,
+  X,
 } from 'lucide-react'
 import { useContext, useEffect, useRef, useState, type FormEvent } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -32,7 +33,11 @@ import {
 import { NativeCreateUser } from './create-editor'
 import { nativeUsersCsv } from './export'
 import { nativeQueryFromSearch, nativeUsersSearch } from './search'
-import { NativeUserList, type NativeUserColumn } from './user-list'
+import {
+  NativeUserColumns,
+  NativeUserList,
+  type NativeUserColumn,
+} from './user-list'
 
 type Props = { scope: NativeUsersScope; recheck: () => void; search: string }
 type Load<T> =
@@ -239,13 +244,11 @@ function UsersWorkspace({
   const [invalidQuery, setInvalidQuery] = useState(false)
   const [groupsOpen, setGroupsOpen] = useState(false)
   const [filtersOpen, setFiltersOpen] = useState(
-    Boolean(
-      initial.group || initial.role || initial.status || initial.service_level
-    )
+    Boolean(initial.group || initial.team_id)
   )
   const [selected, setSelected] = useState<ReadonlySet<string>>(new Set())
   const [columns, setColumns] = useState<ReadonlySet<NativeUserColumn>>(
-    new Set(['email', 'groups', 'role', 'created'])
+    new Set(['email', 'teams', 'role'])
   )
   const [feedback, setFeedback] = useState<
     'none' | 'copied' | 'copy_failed' | 'exported' | 'export_failed'
@@ -358,9 +361,8 @@ function UsersWorkspace({
         t('Role'),
         t('User status'),
         t('Account status'),
-        t('Service level'),
-        t('Developer access'),
-        t('Explicit group memberships'),
+        t('Routing groups'),
+        t('Team memberships'),
         t('Registration time (Unix ms)'),
         t('Account creation time (Unix ms)'),
         t('Wallet status'),
@@ -395,214 +397,298 @@ function UsersWorkspace({
     core_created_at: t('Core account created'),
     registered_at: t('Observed registration time'),
     groups: t('Explicit group memberships'),
-    service_level: t('Service level'),
     role: t('Role'),
     status: t('User status'),
   }
+  const statusFilter = (id: string) => (
+    <FieldSelect
+      id={id}
+      label={t('User status')}
+      value={draft.status}
+      onChange={(value) => set('status', value as NativeUsersQuery['status'])}
+      options={[
+        { value: '', label: t('All user statuses') },
+        { value: 'active', label: t('Active user') },
+        { value: 'disabled', label: t('Disabled user') },
+      ]}
+    />
+  )
+  const roleFilter = (id: string) => (
+    <FieldSelect
+      id={id}
+      label={t('Role')}
+      value={draft.role}
+      onChange={(value) => set('role', value as NativeUsersQuery['role'])}
+      options={[
+        { value: '', label: t('All roles') },
+        { value: 'user', label: t('User') },
+        { value: 'admin', label: t('Administrator') },
+        { value: 'superadmin', label: t('Super administrator') },
+      ]}
+    />
+  )
+  const activeFilters: {
+    key: 'keyword' | 'team_id' | 'group' | 'role' | 'status'
+    label: string
+  }[] = [
+    ...(query.keyword
+      ? [{ key: 'keyword' as const, label: query.keyword }]
+      : []),
+    ...(query.team_id
+      ? [
+          {
+            key: 'team_id' as const,
+            label: t('Team #{{id}}', { id: query.team_id }),
+          },
+        ]
+      : []),
+    ...(query.group
+      ? [
+          {
+            key: 'group' as const,
+            label: t('Routing group: {{group}}', { group: query.group }),
+          },
+        ]
+      : []),
+    ...(query.role
+      ? [
+          {
+            key: 'role' as const,
+            label: {
+              user: t('User'),
+              admin: t('Administrator'),
+              superadmin: t('Super administrator'),
+            }[query.role],
+          },
+        ]
+      : []),
+    ...(query.status
+      ? [
+          {
+            key: 'status' as const,
+            label:
+              query.status === 'active' ? t('Active user') : t('Disabled user'),
+          },
+        ]
+      : []),
+  ]
+  const hasFilterChanges = (
+    Object.keys(DEFAULT_NATIVE_USERS_QUERY) as (keyof NativeUsersQuery)[]
+  ).some(
+    (key) =>
+      key !== 'page' &&
+      (draft[key] !== DEFAULT_NATIVE_USERS_QUERY[key] ||
+        query[key] !== DEFAULT_NATIVE_USERS_QUERY[key])
+  )
   if (!isCurrentNativeUsersScope(scope)) return null
   return (
     <div className='@container/users w-full min-w-0 space-y-5'>
       <div className='flex flex-wrap items-center justify-between gap-3'>
         <p className='text-muted-foreground max-w-xl text-sm'>
-          {t('Find accounts, update access and review balances.')}
+          {t('Manage accounts, team memberships and spending access.')}
         </p>
-        <div className='flex flex-wrap gap-1'>
+        <div className='flex flex-wrap items-center gap-2'>
+          {state.status === 'ready' &&
+            state.data.capabilities.implemented_write_actions.includes(
+              'create'
+            ) && (
+              <NativeCreateUser
+                key={`${scope.userId}:${scope.sessionId}`}
+                scope={scope}
+                onCreated={refresh}
+                onAccessDenied={onAccessDenied}
+              />
+            )}
           <Button
             type='button'
             variant='ghost'
-            className='min-h-11'
+            className='size-11 shrink-0 px-0 sm:w-auto sm:px-3'
             onClick={copyFilters}
           >
             <Copy aria-hidden='true' />
-            {t('Copy filter link')}
+            <span className='sr-only sm:not-sr-only'>
+              {t('Copy filter link')}
+            </span>
           </Button>
           <Button
             type='button'
             variant='ghost'
-            className='min-h-11'
+            className='size-11 shrink-0 px-0 sm:w-auto sm:px-3'
             onClick={refresh}
             disabled={state.status === 'loading'}
           >
             <RefreshCw aria-hidden='true' />
-            {t('Refresh users')}
+            <span className='sr-only sm:not-sr-only'>{t('Refresh users')}</span>
           </Button>
         </div>
       </div>
-      {state.status === 'ready' &&
-        state.data.capabilities.implemented_write_actions.includes(
-          'create'
-        ) && (
-          <div className='[&>section]:rounded-none [&>section]:border-0 [&>section]:p-0'>
-            <NativeCreateUser
-              key={`${scope.userId}:${scope.sessionId}`}
-              scope={scope}
-              onCreated={refresh}
-              onAccessDenied={onAccessDenied}
-            />
-          </div>
-        )}
       <form
         onSubmit={submit}
         className='space-y-5'
         aria-label={t('User filters')}
       >
-        <div className='grid grid-cols-1 items-end gap-3 @min-[28rem]/users:grid-cols-2 @min-[64rem]/users:grid-cols-[minmax(0,1fr)_11rem_11rem_auto]'>
+        <div className='grid grid-cols-2 items-end gap-3 @min-[64rem]/users:grid-cols-[minmax(0,1fr)_11rem_11rem_auto]'>
           <div className='col-span-full min-w-0 space-y-2 @min-[64rem]/users:col-span-1'>
             <Label htmlFor='native-user-keyword'>
               {t('Search username, display name, email or user ID')}
             </Label>
-            <div className='relative'>
-              <Search
-                className='text-muted-foreground pointer-events-none absolute top-3.5 left-3 size-4'
-                aria-hidden='true'
-              />
-              <Input
-                id='native-user-keyword'
-                type='search'
-                className='min-h-11 pl-10'
-                value={draft.keyword}
-                onChange={(event) => set('keyword', event.target.value)}
-              />
+            <div className='flex min-w-0 items-center gap-2'>
+              <div className='relative min-w-0 flex-1'>
+                <Search
+                  className='text-muted-foreground pointer-events-none absolute top-3.5 left-3 size-4'
+                  aria-hidden='true'
+                />
+                <Input
+                  id='native-user-keyword'
+                  type='search'
+                  className='min-h-11 pl-10'
+                  value={draft.keyword}
+                  onChange={(event) => set('keyword', event.target.value)}
+                />
+              </div>
+              <Button
+                type='submit'
+                className='size-11 shrink-0 px-0 @min-[28rem]/users:hidden'
+              >
+                <Search aria-hidden='true' />
+                <span className='sr-only'>{t('Apply filters')}</span>
+              </Button>
             </div>
           </div>
-          <FieldSelect
-            id='native-user-status'
-            label={t('User status')}
-            value={draft.status}
-            onChange={(value) =>
-              set('status', value as NativeUsersQuery['status'])
-            }
-            options={[
-              { value: '', label: t('All user statuses') },
-              { value: 'active', label: t('Active user') },
-              { value: 'disabled', label: t('Disabled user') },
-            ]}
-          />
-          <FieldSelect
-            id='native-user-role'
-            label={t('Role')}
-            value={draft.role}
-            onChange={(value) => set('role', value as NativeUsersQuery['role'])}
-            options={[
-              { value: '', label: t('All roles') },
-              { value: 'user', label: t('User') },
-              { value: 'admin', label: t('Administrator') },
-              { value: 'superadmin', label: t('Super administrator') },
-            ]}
-          />
+          <div className='hidden @min-[28rem]/users:block'>
+            {statusFilter('native-user-status')}
+          </div>
+          <div className='hidden @min-[28rem]/users:block'>
+            {roleFilter('native-user-role')}
+          </div>
           <Button
             type='submit'
-            className='col-span-full min-h-11 @min-[64rem]/users:col-span-1'
+            className='col-span-full hidden min-h-11 @min-[28rem]/users:inline-flex @min-[64rem]/users:col-span-1'
           >
             {t('Apply filters')}
           </Button>
         </div>
-        <details
-          open={filtersOpen}
-          onToggle={(event) => setFiltersOpen(event.currentTarget.open)}
-        >
-          <summary className='focus-visible:outline-ring inline-flex min-h-11 cursor-pointer list-none items-center gap-2 text-sm font-medium focus-visible:outline-2 [&::-webkit-details-marker]:hidden'>
-            <SlidersHorizontal className='size-4' aria-hidden='true' />
-            {t('Advanced filters')}
-          </summary>
-          <div className='bg-muted/25 mt-2 space-y-5 rounded-xl p-5'>
-            <div className='grid gap-5 @min-[28rem]/users:grid-cols-2 @min-[64rem]/users:grid-cols-3'>
-              <div className='space-y-2'>
-                <Label htmlFor='native-user-group'>
-                  {t('Exact group membership')}
-                </Label>
-                <Input
-                  id='native-user-group'
-                  className='min-h-11'
-                  value={draft.group}
-                  onChange={(event) => set('group', event.target.value)}
+        <div className='relative'>
+          <details
+            open={filtersOpen}
+            onToggle={(event) => setFiltersOpen(event.currentTarget.open)}
+          >
+            <summary className='focus-visible:outline-ring flex min-h-11 max-w-full cursor-pointer list-none items-center gap-2 pr-32 text-sm font-medium focus-visible:outline-2 [&::-webkit-details-marker]:hidden'>
+              <SlidersHorizontal className='size-4' aria-hidden='true' />
+              {t('Advanced filters')}
+            </summary>
+            <div className='bg-muted/25 mt-2 space-y-5 rounded-xl p-5'>
+              <div className='grid gap-5 @min-[28rem]/users:grid-cols-2 @min-[64rem]/users:grid-cols-3'>
+                <div className='@min-[28rem]/users:hidden'>
+                  {statusFilter('native-user-status-compact')}
+                </div>
+                <div className='@min-[28rem]/users:hidden'>
+                  {roleFilter('native-user-role-compact')}
+                </div>
+
+                <div className='space-y-2'>
+                  <Label htmlFor='native-user-team'>{t('Team ID')}</Label>
+                  <Input
+                    id='native-user-team'
+                    className='min-h-11'
+                    inputMode='numeric'
+                    value={draft.team_id}
+                    onChange={(event) => set('team_id', event.target.value)}
+                    placeholder={t('Any team')}
+                  />
+                </div>
+                <div className='space-y-2'>
+                  <Label htmlFor='native-user-group'>
+                    {t('Routing groups')}
+                  </Label>
+                  <Input
+                    id='native-user-group'
+                    className='min-h-11'
+                    value={draft.group}
+                    onChange={(event) => set('group', event.target.value)}
+                  />
+                </div>
+                <FieldSelect
+                  id='native-user-sort'
+                  label={t('Sort by')}
+                  value={draft.sort_by}
+                  onChange={(value) =>
+                    set('sort_by', value as NativeUsersQuery['sort_by'])
+                  }
+                  options={Object.entries(sorts).map(([value, label]) => ({
+                    value,
+                    label,
+                  }))}
+                />
+                <FieldSelect
+                  id='native-user-order'
+                  label={t('Sort order')}
+                  value={draft.sort_order}
+                  onChange={(value) =>
+                    set('sort_order', value as NativeUsersQuery['sort_order'])
+                  }
+                  options={[
+                    { value: 'desc', label: t('Descending') },
+                    { value: 'asc', label: t('Ascending') },
+                  ]}
+                />
+                <FieldSelect
+                  id='native-user-page-size'
+                  label={t('Users per page')}
+                  value={String(draft.page_size)}
+                  onChange={(value) => set('page_size', Number(value))}
+                  options={[...new Set([draft.page_size, 20, 50, 100])]
+                    .sort((a, b) => a - b)
+                    .map((value) => ({
+                      value: String(value),
+                      label: String(value),
+                    }))}
                 />
               </div>
-              <FieldSelect
-                id='native-user-level'
-                label={t('Service level')}
-                value={draft.service_level}
-                onChange={(value) =>
-                  set(
-                    'service_level',
-                    value as NativeUsersQuery['service_level']
-                  )
-                }
-                options={[
-                  { value: '', label: t('All service levels') },
-                  ...['0', '1', '2', '3', '4'].map((value) => ({
-                    value,
-                    label: value,
-                  })),
-                ]}
-              />
-              <FieldSelect
-                id='native-user-sort'
-                label={t('Sort by')}
-                value={draft.sort_by}
-                onChange={(value) =>
-                  set('sort_by', value as NativeUsersQuery['sort_by'])
-                }
-                options={Object.entries(sorts).map(([value, label]) => ({
-                  value,
-                  label,
-                }))}
-              />
-              <FieldSelect
-                id='native-user-order'
-                label={t('Sort order')}
-                value={draft.sort_order}
-                onChange={(value) =>
-                  set('sort_order', value as NativeUsersQuery['sort_order'])
-                }
-                options={[
-                  { value: 'desc', label: t('Descending') },
-                  { value: 'asc', label: t('Ascending') },
-                ]}
-              />
-              <FieldSelect
-                id='native-user-page-size'
-                label={t('Users per page')}
-                value={String(draft.page_size)}
-                onChange={(value) => set('page_size', Number(value))}
-                options={[...new Set([draft.page_size, 20, 50, 100])]
-                  .sort((a, b) => a - b)
-                  .map((value) => ({
-                    value: String(value),
-                    label: String(value),
-                  }))}
-              />
+              <div className='flex flex-wrap gap-2'>
+                <Button type='submit' className='min-h-11'>
+                  {t('Apply filters')}
+                </Button>
+                <Button
+                  type='button'
+                  variant='outline'
+                  className='min-h-11'
+                  onClick={() => setGroupsOpen((value) => !value)}
+                >
+                  {groupsOpen
+                    ? t('Hide group directory')
+                    : t('Browse group directory')}
+                </Button>
+                <Button
+                  type='button'
+                  variant='ghost'
+                  className='min-h-11'
+                  onClick={recheck}
+                >
+                  {t('Recheck server availability')}
+                </Button>
+              </div>
+              <p className='text-muted-foreground text-xs'>
+                {t(
+                  'Routing groups select upstream routes. Team membership and spending permissions are managed separately.'
+                )}
+              </p>
             </div>
-            <div className='flex flex-wrap gap-2'>
-              <Button type='submit' className='min-h-11'>
-                {t('Apply filters')}
-              </Button>
-              <Button
-                type='button'
-                variant='outline'
-                className='min-h-11'
-                onClick={() => setGroupsOpen((value) => !value)}
-              >
-                {groupsOpen
-                  ? t('Hide group directory')
-                  : t('Browse group directory')}
-              </Button>
-              <Button
-                type='button'
-                variant='ghost'
-                className='min-h-11'
-                onClick={recheck}
-              >
-                {t('Recheck server availability')}
-              </Button>
-            </div>
-            <p className='text-muted-foreground text-xs'>
-              {t(
-                'Service level is the native account level, independent of legacy trust. Group names match exactly, including spaces.'
-              )}
-            </p>
-          </div>
-        </details>
+          </details>
+          {hasFilterChanges && (
+            <Button
+              type='button'
+              variant='ghost'
+              className='absolute top-0 right-0 min-h-11 max-w-32'
+              onClick={() => {
+                setFiltersOpen(false)
+                applyQuery({ ...DEFAULT_NATIVE_USERS_QUERY })
+              }}
+            >
+              <span className='truncate'>{t('Clear filters')}</span>
+            </Button>
+          )}
+        </div>
         {invalidQuery && (
           <Alert role='alert'>
             <AlertDescription>
@@ -612,18 +698,25 @@ function UsersWorkspace({
             </AlertDescription>
           </Alert>
         )}
-        <Button
-          type='button'
-          variant='ghost'
-          className='min-h-11'
-          onClick={() => {
-            setFiltersOpen(false)
-            applyQuery({ ...DEFAULT_NATIVE_USERS_QUERY })
-          }}
-        >
-          {t('Clear filters')}
-        </Button>
       </form>
+      {activeFilters.length > 0 && (
+        <div className='flex flex-wrap gap-2' aria-label={t('Applied filters')}>
+          {activeFilters.map(({ key, label }) => (
+            <Button
+              key={key}
+              type='button'
+              variant='secondary'
+              size='sm'
+              className='max-w-full gap-2'
+              aria-label={t('Remove filter: {{filter}}', { filter: label })}
+              onClick={() => applyQuery({ ...query, [key]: '', page: 1 })}
+            >
+              <span className='truncate'>{label}</span>
+              <X className='size-3.5 shrink-0' aria-hidden='true' />
+            </Button>
+          ))}
+        </div>
+      )}
       {groupsOpen && (
         <GroupsBrowser
           scope={scope}
@@ -736,6 +829,10 @@ function UsersWorkspace({
                     ? t('Export selected')
                     : t('Export current page')}
                 </Button>
+                <NativeUserColumns
+                  columns={columns}
+                  onColumnsChange={setColumns}
+                />
               </div>
             </div>
             {state.data.items.length === 0 ? (
@@ -756,7 +853,10 @@ function UsersWorkspace({
                 query={query}
                 selected={selected}
                 columns={columns}
-                onColumnsChange={setColumns}
+                onTeamSelect={(team_id) => {
+                  setFiltersOpen(true)
+                  applyQuery({ ...query, team_id, page: 1 })
+                }}
                 onGroupSelect={(group) => {
                   setFiltersOpen(true)
                   applyQuery({ ...query, group, page: 1 })

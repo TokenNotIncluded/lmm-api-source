@@ -10,7 +10,7 @@ test('copied filter URLs preserve long numeric IDs, exact groups and the applied
     ...DEFAULT_NATIVE_USERS_QUERY,
     keyword: '9007199254740993',
     group: ' exact ',
-    service_level: '0' as const,
+    team_id: '9007199254740993',
     role: 'admin' as const,
     status: 'disabled' as const,
     page: 2,

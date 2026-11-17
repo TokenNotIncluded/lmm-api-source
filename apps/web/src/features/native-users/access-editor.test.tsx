@@ -71,8 +71,6 @@ const snapshot: UserAccessSnapshot = {
   auth_version: '9007199254740997',
   active: true,
   account_active: true,
-  service_level: 1,
-  developer_access_granted: false,
   groups: ['synthetic-private-route'],
 }
 let root: ReturnType<typeof createRoot> | undefined
@@ -128,17 +126,18 @@ async function waitFor(condition: () => boolean) {
   expect(condition()).toBe(true)
 }
 
-async function edit(level: string, reason: string) {
-  const select = document.getElementById(
-    `access-level-${userId}`
-  ) as HTMLSelectElement | null
+async function edit(group: string, reason: string) {
+  const textarea = document.getElementById(`access-groups-${userId}`)
   const input = document.getElementById(`access-reason-${userId}`)
-  if (!select || !(input instanceof HTMLInputElement)) {
+  if (!textarea || !(input instanceof HTMLInputElement)) {
     throw new Error('Missing access inputs')
   }
   await act(async () => {
-    select.value = level
-    select.dispatchEvent(new Event('change', { bubbles: true }))
+    Object.getOwnPropertyDescriptor(
+      dom.HTMLTextAreaElement.prototype,
+      'value'
+    )?.set?.call(textarea, group)
+    textarea.dispatchEvent(new Event('input', { bubbles: true }))
     Object.getOwnPropertyDescriptor(
       dom.HTMLInputElement.prototype,
       'value'
@@ -169,8 +168,6 @@ function transport(
           auth_version: (
             BigInt(String(body.expected_auth_version)) + 1n
           ).toString(),
-          service_level: body.service_level,
-          developer_access_granted: body.developer_access_granted,
           groups: body.groups,
         },
       }
@@ -244,7 +241,9 @@ test('loading and the review step never PATCH before explicit confirmation', asy
   await click('Confirm changes')
   await waitFor(() => updated === 1)
   expect(calls.writes).toHaveLength(1)
-  expect(calls.writes[0].service_level).toBe(4)
+  expect(calls.writes[0]).not.toHaveProperty('service_level')
+  expect(calls.writes[0]).not.toHaveProperty('developer_access_granted')
+  expect(calls.writes[0].groups).toEqual(['4'])
 })
 
 test('a conflict clears confirmation and requires loading a new snapshot before another save', async () => {
@@ -277,14 +276,16 @@ test('a conflict clears confirmation and requires loading a new snapshot before 
   expect(document.querySelector('form')).toBeNull()
   expect(calls.reads).toBe(1)
   expect(calls.writes).toHaveLength(1)
-  current = { ...snapshot, auth_version: '9007199254740999', service_level: 3 }
+  current = {
+    ...snapshot,
+    auth_version: '9007199254740999',
+    groups: ['updated'],
+  }
   conflict = false
   await click('Reload access settings')
   await waitFor(() => Boolean(button('Review changes')))
-  expect(
-    (document.getElementById(`access-level-${userId}`) as HTMLSelectElement)
-      .value
-  ).toBe('3')
+  expect(document.getElementById(`access-level-${userId}`)).toBeNull()
+  expect(document.body.textContent).not.toContain('Service level')
   expect(
     (document.getElementById(`access-reason-${userId}`) as HTMLInputElement)
       .value
@@ -298,6 +299,7 @@ test('a conflict clears confirmation and requires loading a new snapshot before 
   expect(calls.reads).toBe(2)
   expect(calls.writes).toHaveLength(2)
   expect(calls.writes[1].expected_auth_version).toBe(current.auth_version)
+  expect(calls.writes[1].expected).toEqual({ groups: current.groups })
 })
 
 test('a closed account keeps all access inputs and submission disabled', async () => {
@@ -309,7 +311,8 @@ test('a closed account keeps all access inputs and submission disabled', async (
   expect(document.body.textContent).toContain(
     'This account is closed. Access settings cannot be changed.'
   )
-  for (const field of ['level', 'developer', 'groups', 'reason']) {
+  expect(document.getElementById(`access-developer-${userId}`)).toBeNull()
+  for (const field of ['groups', 'reason']) {
     const element = document.getElementById(`access-${field}-${userId}`)
     expect(
       element?.matches(':disabled, [aria-disabled="true"], [data-disabled]')

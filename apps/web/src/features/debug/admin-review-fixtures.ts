@@ -24,8 +24,6 @@ export const USAGE_REVIEW_USER = nativeUserFixture({
   username: 'preview-user',
   display_name: 'Synthetic usage account',
   email: 'preview-user@example.invalid',
-  service_level: 1,
-  developer_access_granted: true,
   groups: ['default'],
   core_account_created_at_unix_ms: 1790035200000,
   registered_at_unix_ms: 1790035200000,
@@ -263,8 +261,7 @@ export function adminReviewFixture(
         (!query.status || (query.status === 'active') === user.active) &&
         (!query.role || query.role === user.platform_role) &&
         (!query.group || user.groups.includes(query.group)) &&
-        (!query.service_level ||
-          String(user.service_level) === query.service_level)
+        (!query.team_id || user.teams.some((team) => team.id === query.team_id))
     )
     const start = (query.page - 1) * query.page_size
     return {

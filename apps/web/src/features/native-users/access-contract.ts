@@ -31,8 +31,6 @@ function compareGroups(left: string, right: string): number {
 
 export const userAccessValuesSchema = z
   .object({
-    service_level: z.number().int().min(0).max(4),
-    developer_access_granted: z.boolean(),
     groups: z
       .array(group)
       .max(100)
@@ -65,8 +63,6 @@ export type UserAccessUpdate = z.infer<typeof userAccessUpdateSchema>
 
 export function accessValues(snapshot: UserAccessValues): UserAccessValues {
   return {
-    service_level: snapshot.service_level,
-    developer_access_granted: snapshot.developer_access_granted,
     groups: [...snapshot.groups],
   }
 }
@@ -81,8 +77,6 @@ export function parseAccessGroups(value: string): string[] {
 
 export function sameAccess(left: UserAccessValues, right: UserAccessValues) {
   return (
-    left.service_level === right.service_level &&
-    left.developer_access_granted === right.developer_access_granted &&
     left.groups.length === right.groups.length &&
     left.groups.every((value, index) => value === right.groups[index])
   )

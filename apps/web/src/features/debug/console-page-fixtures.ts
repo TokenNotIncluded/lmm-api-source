@@ -24,6 +24,7 @@ import { useAuthStore } from '@/stores/auth-store'
 
 import { adminReviewFixture } from './admin-review-fixtures'
 import { nativeWalletReviewFixture } from './native-wallet-review-fixtures'
+import { createTeamBudgetReviewFixture } from './team-budget-review-fixtures'
 import { DEBUG_WALLET_TOPUP_INFO } from './wallet-review-fixtures'
 
 const stamp = 1790035200
@@ -118,6 +119,12 @@ const reads: Record<string, unknown> = {
   '/api/user/company-billing-profile': null,
   '/api/user/topup/info': DEBUG_WALLET_TOPUP_INFO,
   '/api/user/aff': 'local-preview-referral',
+  '/core/v1/notifications/preferences': {
+    enabled: true,
+    low_balance_units: '500000',
+    revision: 1,
+    delivery: 'in_app',
+  },
   '/api/user/2fa/status': {
     enabled: false,
     locked: false,
@@ -697,7 +704,43 @@ export function consolePageFixture(
 }
 
 export function withConsolePageFixtures(fallback: AxiosAdapter): AxiosAdapter {
+  const teamBudgetReview = createTeamBudgetReviewFixture()
+  const neutralReviewIdentity =
+    ['127.0.0.1', 'localhost', '[::1]'].includes(window.location.hostname) &&
+    new URLSearchParams(window.location.search).get('team_profile_review') ===
+      '1'
   return async (config) => {
+    if (neutralReviewIdentity) {
+      const url = new URL(config.url ?? '', window.location.origin)
+      const auth = useAuthStore.getState().auth
+      const user = auth.user
+      if (
+        url.origin === window.location.origin &&
+        !url.username &&
+        !url.password &&
+        user
+      ) {
+        const admin = user.role >= ROLE.ADMIN
+        const username = admin ? 'synthetic_admin' : 'synthetic_member'
+        const displayName = admin
+          ? 'Synthetic administrator'
+          : 'Synthetic member'
+        if (
+          user.username !== username ||
+          user.display_name !== displayName ||
+          user.permissions?.api_key_management !== true
+        ) {
+          auth.setUser({
+            ...user,
+            username,
+            display_name: displayName,
+            permissions: { ...user.permissions, api_key_management: true },
+          })
+        }
+      }
+    }
+    const teamBudget = teamBudgetReview(config)
+    if (teamBudget !== undefined) return teamBudget
     const data = consolePageFixture(config)
     if (data === undefined) return fallback(config)
     return {

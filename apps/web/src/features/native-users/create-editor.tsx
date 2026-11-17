@@ -1,9 +1,20 @@
 /* Copyright (C) 2026 LIghtJUNction. SPDX-License-Identifier: AGPL-3.0-or-later */
+import { Plus } from 'lucide-react'
 import { useRef, useState, type FormEvent } from 'react'
 import { useTranslation } from 'react-i18next'
+import { toast } from 'sonner'
 
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 
@@ -32,11 +43,10 @@ export function NativeCreateUser({
   })
   const [phase, setPhase] = useState<'ready' | 'saving' | 'unknown'>('ready')
   const [notice, setNotice] = useState<
-    'none' | 'success' | 'unknown' | 'conflict' | 'invalid'
+    'none' | 'unknown' | 'conflict' | 'invalid'
   >('none')
   const notices = {
     none: '',
-    success: t('User created successfully'),
     unknown: t(
       'User creation could not be confirmed. Check the user list before creating another account.'
     ),
@@ -45,6 +55,12 @@ export function NativeCreateUser({
   }
   const busy = useRef(false)
   if (!isCurrentNativeUsersScope(scope)) return null
+
+  const changeOpen = (next: boolean) => {
+    if (busy.current) return
+    setOpen(next)
+    setDraft((previous) => ({ ...previous, password: '' }))
+  }
   const submit = async (event: FormEvent) => {
     event.preventDefault()
     if (busy.current || phase !== 'ready' || !validNativeUserDraft(draft)) {
@@ -58,8 +74,8 @@ export function NativeCreateUser({
       if (!isCurrentNativeUsersScope(scope)) return
       setDraft({ username: '', password: '', display_name: '' })
       setPhase('ready')
-      setNotice('success')
       setOpen(false)
+      toast.success(t('User created successfully'))
       onCreated()
     } catch (error) {
       if (!isCurrentNativeUsersScope(scope)) return
@@ -83,30 +99,31 @@ export function NativeCreateUser({
     }
   }
   return (
-    <section
-      className='space-y-3 rounded-lg border p-4'
-      aria-label={t('Create user')}
-    >
-      <Button
-        type='button'
-        variant='outline'
-        disabled={phase === 'saving'}
-        onClick={() => {
-          setOpen((value) => !value)
-          setDraft((previous) => ({ ...previous, password: '' }))
-        }}
+    <Dialog open={open} onOpenChange={changeOpen}>
+      <DialogTrigger render={<Button className='min-h-11' />}>
+        <Plus aria-hidden='true' />
+        {t('Create user')}
+      </DialogTrigger>
+      <DialogContent
+        className='sm:max-w-lg'
+        showCloseButton={phase !== 'saving'}
       >
-        {open ? t('Cancel') : t('Create user')}
-      </Button>
-      {notice !== 'none' && (
-        <Alert role='status'>
-          <AlertDescription>{notices[notice]}</AlertDescription>
-        </Alert>
-      )}
-      {open && (
+        <DialogHeader>
+          <DialogTitle>{t('Create user')}</DialogTitle>
+          <DialogDescription>
+            {t(
+              'Create a personal account. Team membership and spending permissions are managed separately.'
+            )}
+          </DialogDescription>
+        </DialogHeader>
+        {notice !== 'none' && (
+          <Alert role='alert'>
+            <AlertDescription>{notices[notice]}</AlertDescription>
+          </Alert>
+        )}
         <form
           onSubmit={submit}
-          className='grid gap-4 sm:grid-cols-2'
+          className='space-y-5'
           aria-busy={phase === 'saving'}
           autoComplete='off'
         >
@@ -151,16 +168,24 @@ export function NativeCreateUser({
               required
             />
           </div>
-          <div className='flex items-end'>
+          <DialogFooter>
+            <Button
+              type='button'
+              variant='ghost'
+              disabled={phase === 'saving'}
+              onClick={() => changeOpen(false)}
+            >
+              {t('Cancel')}
+            </Button>
             <Button
               type='submit'
               disabled={phase !== 'ready' || !validNativeUserDraft(draft)}
             >
               {phase === 'saving' ? t('Creating...') : t('Create user')}
             </Button>
-          </div>
+          </DialogFooter>
         </form>
-      )}
-    </section>
+      </DialogContent>
+    </Dialog>
   )
 }

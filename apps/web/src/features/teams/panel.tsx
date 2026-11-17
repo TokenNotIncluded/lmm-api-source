@@ -280,7 +280,7 @@ function Workspace({ scope }: { scope: teams.TeamScope }) {
               >
                 {t('Cancel')}
               </Button>
-              <Button disabled={busy || !newName.trim()}>
+              <Button type='submit' disabled={busy || !newName.trim()}>
                 {t(busy ? 'Creating...' : 'Create team')}
               </Button>
             </DialogFooter>

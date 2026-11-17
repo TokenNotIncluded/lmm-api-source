@@ -49,7 +49,7 @@ test('native reads bind only supported literal query values to the current Sessi
       ...DEFAULT_NATIVE_USERS_QUERY,
       keyword: '%_',
       group: ' exact ',
-      service_level: '0',
+      team_id: '12',
     })
     expect(config.authScope).toEqual({
       userId: 901,
@@ -70,7 +70,7 @@ test('native reads bind only supported literal query values to the current Sessi
     ...DEFAULT_NATIVE_USERS_QUERY,
     keyword: ' %_ ',
     group: ' exact ',
-    service_level: '0',
+    team_id: '12',
   })
   expect(result.items[0].id).toBe('9007199254740993')
   expect(seen).toEqual(['get /core/v1/admin/users'])
@@ -221,7 +221,7 @@ test('aborted reads and status responses stay scoped without a retry or a mislea
   expect(calls).toBe(3)
 })
 
-test('an unset service level is absent from the actual URI, while native levels zero and four remain explicit', async () => {
+test('an unset team filter is absent from the URI and team identifiers retain exact decimal strings', async () => {
   login()
   const uris: string[] = []
   api.defaults.adapter = async (config) => {
@@ -234,16 +234,17 @@ test('an unset service level is absent from the actual URI, while native levels 
       statusText: 'OK',
     }
   }
-  for (const level of ['', '0', '4'] as const) {
+  for (const team_id of ['', '12', '9007199254740993']) {
     await readNativeUsers(scope, {
       ...DEFAULT_NATIVE_USERS_QUERY,
-      service_level: level,
+      team_id,
     })
   }
   const params = uris.map(
     (uri) => new URL(uri, 'https://synthetic.example.invalid').searchParams
   )
-  expect(params[0].has('service_level')).toBe(false)
-  expect(params[1].get('service_level')).toBe('0')
-  expect(params[2].get('service_level')).toBe('4')
+  expect(params[0].has('team_id')).toBe(false)
+  expect(params[1].get('team_id')).toBe('12')
+  expect(params[2].get('team_id')).toBe('9007199254740993')
+  expect(params.every((value) => !value.has('service_level'))).toBe(true)
 })

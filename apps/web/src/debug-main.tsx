@@ -65,6 +65,17 @@ if (new URLSearchParams(window.location.search).get('logs_review') === '1') {
   api.defaults.adapter = withUsageLogsReviewFixtures(api.defaults.adapter)
 }
 
+// The team gallery owns synthetic writes; keep it outside read-only galleries.
+const teamProfileLocation = new URL(window.location.href)
+if (
+  ['127.0.0.1', 'localhost', '[::1]'].includes(window.location.hostname) &&
+  teamProfileLocation.searchParams.get('team_profile_review') === '1'
+) {
+  api.defaults.adapter = withConsolePageFixtures(api.defaults.adapter)
+  teamProfileLocation.searchParams.delete('team_profile_review')
+  window.history.replaceState(window.history.state, '', teamProfileLocation)
+}
+
 if (new URLSearchParams(window.location.search).get('ui_review') === '1') {
   void import('@/features/debug/ui-foundation-entry')
 } else {

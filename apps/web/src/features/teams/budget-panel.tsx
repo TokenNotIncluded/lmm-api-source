@@ -322,7 +322,7 @@ function SpendingBudgets({
                   </div>
                 )}
               </div>
-              <dl className='grid grid-cols-3 gap-3 text-sm'>
+              <dl className='grid gap-3 text-sm sm:grid-cols-3'>
                 {(
                   [
                     ['Limit', budget.unlimited ? null : budget.limit_credits],
@@ -330,11 +330,14 @@ function SpendingBudgets({
                     ['Reserved', budget.reserved_credits],
                   ] as const
                 ).map(([label, amount]) => (
-                  <div key={label} className='min-w-0'>
-                    <dt className='text-muted-foreground text-xs'>
+                  <div
+                    key={label}
+                    className='flex min-w-0 items-baseline justify-between gap-3 sm:block'
+                  >
+                    <dt className='text-muted-foreground shrink-0 text-xs'>
                       {t(label)}
                     </dt>
-                    <dd className='mt-1 font-medium break-words tabular-nums'>
+                    <dd className='min-w-0 text-right font-medium break-all tabular-nums sm:mt-1 sm:text-left'>
                       {amount === null ? t('Unlimited') : number(amount)}
                     </dd>
                   </div>

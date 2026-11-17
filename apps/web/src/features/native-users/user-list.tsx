@@ -10,6 +10,7 @@ import {
 } from 'lucide-react'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { toast } from 'sonner'
 
 import { EntityQuickActions } from '@/components/entity-quick-actions'
 import { Button } from '@/components/ui/button'
@@ -28,6 +29,7 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import { toIntlLocale } from '@/i18n/languages'
+import { copyToClipboard } from '@/lib/copy-to-clipboard'
 
 import type { NativeUsersScope } from './access'
 import { NativeUserAccess } from './access-editor'
@@ -39,7 +41,7 @@ import { NativeUserUsage } from './user-usage'
 
 import './user-list.css'
 
-export type NativeUserColumn = 'email' | 'groups' | 'role' | 'created'
+export type NativeUserColumn = 'email' | 'teams' | 'groups' | 'role' | 'created'
 
 type Props = {
   users: NativeUser[]
@@ -47,11 +49,11 @@ type Props = {
   query: NativeUsersQuery
   selected: ReadonlySet<string>
   columns: ReadonlySet<NativeUserColumn>
-  onColumnsChange: (columns: ReadonlySet<NativeUserColumn>) => void
   onSelect: (id: string, checked: boolean) => void
   onSelectPage: (checked: boolean) => void
   onSort: (sort: NativeUsersSort) => void
   onGroupSelect: (group: string) => void
+  onTeamSelect: (teamId: string) => void
   onUpdated: () => void
   onAccessDenied: () => void
 }
@@ -62,12 +64,18 @@ function UserRecord({
   checked,
   columns,
   onGroupSelect,
+  onTeamSelect,
   onSelect,
   onUpdated,
   onAccessDenied,
 }: Pick<
   Props,
-  'scope' | 'onSelect' | 'onUpdated' | 'onAccessDenied' | 'onGroupSelect'
+  | 'scope'
+  | 'onSelect'
+  | 'onUpdated'
+  | 'onAccessDenied'
+  | 'onGroupSelect'
+  | 'onTeamSelect'
 > & {
   user: NativeUser
   checked: boolean
@@ -109,24 +117,52 @@ function UserRecord({
           />
         </TableCell>
         <TableCell className='native-user-id font-mono text-xs'>
-          <span className='sr-only'>{t('User ID')}: </span>#{user.id}
+          <button
+            type='button'
+            className='focus-visible:outline-ring flex min-h-11 max-w-full items-center rounded text-left hover:underline focus-visible:outline-2 sm:min-h-8'
+            title={user.id}
+            aria-label={[t('Copy'), t('User ID'), user.id].join(' ')}
+            onClick={async () => {
+              const copied = await copyToClipboard(user.id)
+              if (copied) toast.success(t('Copied'))
+              else toast.error(t('Failed to copy'))
+            }}
+          >
+            <span className='truncate'>#{user.id}</span>
+          </button>
         </TableCell>
         <TableCell className='native-user-identity'>
-          <p
-            className='truncate font-medium'
-            title={user.username || undefined}
-          >
-            <EntityQuickActions
-              kind='username'
-              value={user.username ?? ''}
-              label={profile(user.username)}
-            />
-          </p>
-          {user.display_name && user.display_name !== user.username && (
-            <p className='text-muted-foreground mt-1 truncate text-xs'>
-              {user.display_name}
-            </p>
-          )}
+          <div className='flex min-w-0 items-center gap-3'>
+            <span
+              className='bg-muted text-muted-foreground flex size-9 shrink-0 items-center justify-center rounded-full text-xs font-medium'
+              aria-hidden='true'
+            >
+              {Array.from(user.display_name || user.username || user.id)
+                .slice(0, 1)
+                .join('')
+                .toUpperCase()}
+            </span>
+            <div className='min-w-0'>
+              <p
+                className='truncate font-medium'
+                title={user.username || undefined}
+              >
+                <EntityQuickActions
+                  kind='username'
+                  value={user.username ?? ''}
+                  label={profile(user.username)}
+                />
+              </p>
+              {user.display_name && user.display_name !== user.username && (
+                <p
+                  className='text-muted-foreground mt-1 truncate text-xs'
+                  title={user.display_name}
+                >
+                  {user.display_name}
+                </p>
+              )}
+            </div>
+          </div>
         </TableCell>
         {columns.has('email') && (
           <TableCell className='native-user-email'>
@@ -162,14 +198,49 @@ function UserRecord({
         {columns.has('role') && (
           <TableCell className='native-user-role'>
             <p className='text-xs'>{role}</p>
-            <p className='text-muted-foreground mt-1 text-xs'>
-              {t('Service level {{level}}', { level: user.service_level })}
-            </p>
+          </TableCell>
+        )}
+        {columns.has('teams') && (
+          <TableCell className='native-user-teams'>
+            <p className='native-user-field-label'>{t('Teams')}</p>
+            {user.teams.length === 0 ? (
+              <span className='text-muted-foreground text-xs'>
+                {t('Personal account')}
+              </span>
+            ) : (
+              <div className='flex min-w-0 items-center gap-1.5'>
+                <button
+                  type='button'
+                  className='focus-visible:outline-ring min-w-0 truncate rounded text-left text-sm hover:underline focus-visible:outline-2'
+                  title={user.teams[0].name}
+                  aria-label={t('Filter by team {{name}}', {
+                    name: user.teams[0].name,
+                  })}
+                  onClick={() => onTeamSelect(user.teams[0].id)}
+                >
+                  {user.teams[0].name ||
+                    t('Team #{{id}}', { id: user.teams[0].id })}
+                </button>
+                {user.teams.length > 1 && (
+                  <Button
+                    variant='ghost'
+                    size='sm'
+                    className='h-7 shrink-0 px-1.5 text-xs'
+                    aria-label={t('View all team memberships')}
+                    aria-expanded={expanded}
+                    aria-controls={detailsId}
+                    onClick={() => setExpanded(true)}
+                  >
+                    +{user.teams.length - 1}
+                  </Button>
+                )}
+              </div>
+            )}
           </TableCell>
         )}
         {columns.has('groups') && (
           <TableCell className='native-user-groups'>
-            <p className='native-user-field-label'>{t('Groups')}</p>
+            <p className='native-user-field-label'>{t('Routing groups')}</p>
             {user.groups.length === 0 ? (
               <span className='text-muted-foreground'>—</span>
             ) : (
@@ -262,6 +333,55 @@ function UserRecord({
                 )}
               </p>
             )}
+            <section className='space-y-3' aria-label={t('Team memberships')}>
+              <h3 className='font-medium'>{t('Team memberships')}</h3>
+              {user.teams.length === 0 ? (
+                <p className='text-muted-foreground text-sm'>
+                  {t('No team memberships')}
+                </p>
+              ) : (
+                <ul className='grid gap-3 @min-[40rem]/users:grid-cols-2'>
+                  {user.teams.map((team) => (
+                    <li
+                      key={team.id}
+                      className='bg-background/70 flex flex-wrap items-center justify-between gap-3 rounded-xl px-4 py-3'
+                    >
+                      <div className='min-w-0'>
+                        <Button
+                          variant='link'
+                          className='h-auto max-w-full p-0 text-left break-words whitespace-normal'
+                          onClick={() => onTeamSelect(team.id)}
+                          aria-label={t('Filter by team {{name}}', {
+                            name: team.name,
+                          })}
+                        >
+                          {team.name || t('Team #{{id}}', { id: team.id })}
+                        </Button>
+                        <p className='text-muted-foreground mt-1 text-xs'>
+                          {t('Team #{{id}}', { id: team.id })} ·{' '}
+                          {team.role === 'owner'
+                            ? t('Owner')
+                            : team.role === 'admin'
+                              ? t('Administrator')
+                              : t('Member')}
+                        </p>
+                      </div>
+                      <span
+                        className={
+                          team.can_spend
+                            ? 'text-success text-xs'
+                            : 'text-muted-foreground text-xs'
+                        }
+                      >
+                        {team.can_spend
+                          ? t('Spending enabled')
+                          : t('Spending disabled')}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </section>
             {expanded && (
               <NativeUserUsage
                 scope={scope}
@@ -302,7 +422,7 @@ function UserRecord({
               )}
             </div>
             <div className='space-y-2 text-sm'>
-              <h3 className='font-medium'>{t('Groups')}</h3>
+              <h3 className='font-medium'>{t('Routing groups')}</h3>
               <div className='flex flex-wrap gap-2'>
                 {user.groups.length === 0 ? (
                   <span className='text-muted-foreground'>
@@ -337,16 +457,6 @@ function UserRecord({
                     {t('Profile unavailable')}
                   </p>
                 )}
-                <div>
-                  <dt className='text-muted-foreground'>
-                    {t('Developer access')}
-                  </dt>
-                  <dd className='mt-1'>
-                    {user.developer_access_granted
-                      ? t('Granted')
-                      : t('Not granted')}
-                  </dd>
-                </div>
                 <div>
                   <dt className='text-muted-foreground'>
                     {t('Account status')}
@@ -440,6 +550,51 @@ function UserRecord({
   )
 }
 
+export function NativeUserColumns({
+  columns,
+  onColumnsChange,
+}: {
+  columns: ReadonlySet<NativeUserColumn>
+  onColumnsChange: (columns: ReadonlySet<NativeUserColumn>) => void
+}) {
+  const { t } = useTranslation()
+  const optionalColumns: [NativeUserColumn, string][] = [
+    ['email', t('Email')],
+    ['teams', t('Teams')],
+    ['groups', t('Routing groups')],
+    ['role', t('Role')],
+    ['created', t('Core account created')],
+  ]
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger
+        render={
+          <Button variant='ghost' size='sm' className='min-h-11 sm:min-h-9' />
+        }
+      >
+        <Columns3 aria-hidden='true' />
+        {t('Columns')}
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align='end'>
+        {optionalColumns.map(([key, label]) => (
+          <DropdownMenuCheckboxItem
+            key={key}
+            checked={columns.has(key)}
+            onCheckedChange={(checked) => {
+              const next = new Set(columns)
+              if (checked) next.add(key)
+              else next.delete(key)
+              onColumnsChange(next)
+            }}
+          >
+            {label}
+          </DropdownMenuCheckboxItem>
+        ))}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  )
+}
+
 export function NativeUserList({
   users,
   query,
@@ -447,16 +602,9 @@ export function NativeUserList({
   onSelectPage,
   onSort,
   columns,
-  onColumnsChange,
   ...props
 }: Props) {
   const { t } = useTranslation()
-  const optionalColumns: [NativeUserColumn, string][] = [
-    ['email', t('Email')],
-    ['groups', t('Groups')],
-    ['role', t('Role')],
-    ['created', t('Core account created')],
-  ]
   const allSelected =
     users.length > 0 && users.every((user) => selected.has(user.id))
   const someSelected = users.some((user) => selected.has(user.id))
@@ -488,48 +636,14 @@ export function NativeUserList({
         : 'descending'
   return (
     <div className='native-users-list'>
-      <div className='mb-2 flex min-h-11 items-center justify-between gap-3'>
-        <label className='native-users-mobile-select text-muted-foreground min-h-11 items-center gap-3 px-2 text-sm'>
-          <Checkbox
-            checked={allSelected}
-            indeterminate={someSelected && !allSelected}
-            onCheckedChange={onSelectPage}
-          />
-          {t('Select current page')}
-        </label>
-        <div className='ml-auto'>
-          <DropdownMenu>
-            <DropdownMenuTrigger
-              render={
-                <Button
-                  variant='ghost'
-                  size='sm'
-                  className='min-h-11 sm:min-h-9'
-                />
-              }
-            >
-              <Columns3 aria-hidden='true' />
-              {t('Columns')}
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align='end'>
-              {optionalColumns.map(([key, label]) => (
-                <DropdownMenuCheckboxItem
-                  key={key}
-                  checked={columns.has(key)}
-                  onCheckedChange={(checked) => {
-                    const next = new Set(columns)
-                    if (checked) next.add(key)
-                    else next.delete(key)
-                    onColumnsChange(next)
-                  }}
-                >
-                  {label}
-                </DropdownMenuCheckboxItem>
-              ))}
-            </DropdownMenuContent>
-          </DropdownMenu>
-        </div>
-      </div>
+      <label className='native-users-mobile-select text-muted-foreground min-h-11 items-center gap-3 px-2 text-sm'>
+        <Checkbox
+          checked={allSelected}
+          indeterminate={someSelected && !allSelected}
+          onCheckedChange={onSelectPage}
+        />
+        {t('Select current page')}
+      </label>
       <Table className='native-users-table'>
         <TableHeader className='native-users-heading'>
           <TableRow className='hover:bg-transparent'>
@@ -564,12 +678,15 @@ export function NativeUserList({
                 {sortHeading('role', t('Role'))}
               </TableHead>
             )}
+            {columns.has('teams') && (
+              <TableHead className='native-user-teams'>{t('Teams')}</TableHead>
+            )}
             {columns.has('groups') && (
               <TableHead
                 className='native-user-groups'
                 aria-sort={sort('groups')}
               >
-                {sortHeading('groups', t('Groups'))}
+                {sortHeading('groups', t('Routing groups'))}
               </TableHead>
             )}
             <TableHead className='native-user-wallet text-right whitespace-normal'>

@@ -5,7 +5,7 @@ import { NativeUsersFailure } from './access'
 
 // Exact literal from the frozen Core CONTRACT-v2, never a client permission grant.
 export const NATIVE_USERS_CAPABILITIES = {
-  filters: ['keyword', 'group', 'role', 'status', 'service_level'],
+  filters: ['keyword', 'group', 'role', 'status', 'team_id'],
   sorts: [
     'id',
     'username',
@@ -13,14 +13,12 @@ export const NATIVE_USERS_CAPABILITIES = {
     'core_created_at',
     'registered_at',
     'groups',
-    'service_level',
     'role',
     'status',
   ],
   implemented_write_actions: ['create'],
   unavailable_projections: [
     'legacy_group',
-    'legacy_trust',
     'used_quota',
     'normalized_used_quota',
     'request_count',
@@ -47,7 +45,6 @@ export const NATIVE_USERS_CAPABILITIES = {
     'promote',
     'demote',
     'adjust_money',
-    'set_trust_level',
     'reset_onboarding',
     'normal_ban',
     'ban_abuse',
@@ -193,10 +190,22 @@ export const nativeWalletSchema = z.discriminatedUnion('status', [
     .strict(),
 ])
 
+export const nativeUserTeamSchema = z
+  .object({
+    id,
+    account_id: id,
+    name: text,
+    role: z.enum(['owner', 'admin', 'member']),
+    can_spend: z.boolean(),
+  })
+  .strict()
+export type NativeUserTeam = z.infer<typeof nativeUserTeamSchema>
+
 export const nativeUserSchema = z
   .object({
     id,
     personal_account_id: id,
+    teams: z.array(nativeUserTeamSchema),
     auth_version: id,
     profile_available: z.boolean(),
     username: text.nullable(),
@@ -207,14 +216,6 @@ export const nativeUserSchema = z
     active: z.boolean(),
     status: z.union([z.literal(1), z.literal(2)]),
     account_active: z.boolean(),
-    service_level: z.union([
-      z.literal(0),
-      z.literal(1),
-      z.literal(2),
-      z.literal(3),
-      z.literal(4),
-    ]),
-    developer_access_granted: z.boolean(),
     groups,
     core_account_created_at_unix_ms: safeInteger,
     registered_at_unix_ms: safeInteger.nullable(),
@@ -427,9 +428,9 @@ export type NativeUsersSort = (typeof NATIVE_USERS_CAPABILITIES.sorts)[number]
 export type NativeUsersQuery = {
   keyword: string
   group: string
+  team_id: string
   role: '' | 'user' | 'admin' | 'superadmin'
   status: '' | 'active' | 'disabled'
-  service_level: '' | '0' | '1' | '2' | '3' | '4'
   page: number
   page_size: number
   sort_by: NativeUsersSort
@@ -438,9 +439,9 @@ export type NativeUsersQuery = {
 export const DEFAULT_NATIVE_USERS_QUERY: NativeUsersQuery = {
   keyword: '',
   group: '',
+  team_id: '',
   role: '',
   status: '',
-  service_level: '',
   page: 1,
   page_size: 20,
   sort_by: 'id',
@@ -457,13 +458,14 @@ export function nativeUsersQuery(value: NativeUsersQuery): NativeUsersQuery {
     expected.some((key) => !Object.hasOwn(value, key)) ||
     typeof value.keyword !== 'string' ||
     typeof value.group !== 'string' ||
+    typeof value.team_id !== 'string' ||
+    (value.team_id !== '' && !id.safeParse(value.team_id).success) ||
     !validUnicode(value.keyword) ||
     encoder.encode(value.keyword.trim()).length > 256 ||
     hasControls(value.keyword) ||
     (value.group !== '' && !group.safeParse(value.group).success) ||
     !['', 'user', 'admin', 'superadmin'].includes(value.role) ||
     !['', 'active', 'disabled'].includes(value.status) ||
-    !['', '0', '1', '2', '3', '4'].includes(value.service_level) ||
     !Number.isSafeInteger(value.page) ||
     value.page < 1 ||
     value.page > 100000 ||

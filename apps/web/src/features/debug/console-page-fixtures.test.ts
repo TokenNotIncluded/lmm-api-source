@@ -52,11 +52,32 @@ test('native admin review data validates, filters users and never handles writes
       ...config('/core/v1/admin/users'),
       params: { ...DEFAULT_NATIVE_USERS_QUERY },
     }
-    // The real client omits the absent optional service level.
+    // The client omits an unset team ID instead of sending an empty integer.
     delete (request.params as Partial<typeof DEFAULT_NATIVE_USERS_QUERY>)
-      .service_level
+      .team_id
     const users = nativeUsersResponseSchema.parse(adminReviewFixture(request))
     assert.equal(users.items.length, 3)
+    const teamUsers = nativeUsersResponseSchema.parse(
+      adminReviewFixture({
+        ...request,
+        params: { ...request.params, team_id: '12' },
+      })
+    )
+    assert.ok(teamUsers.items.length > 0)
+    assert.ok(
+      teamUsers.items.every((user) =>
+        user.teams.some((team) => team.id === '12')
+      )
+    )
+    const absentTeam = nativeUsersResponseSchema.parse(
+      adminReviewFixture({
+        ...request,
+        params: { ...request.params, team_id: '99999' },
+      })
+    )
+    assert.equal(absentTeam.total, 0)
+    assert.deepEqual(absentTeam.items, [])
+
     const groups = nativeGroupsResponseSchema.parse(
       adminReviewFixture(config('/core/v1/admin/users/groups'))
     )
