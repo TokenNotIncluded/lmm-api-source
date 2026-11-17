@@ -7,6 +7,8 @@ import { readFile, writeFile, mkdir, stat } from 'node:fs/promises'
 import { createServer } from 'node:http'
 import path from 'node:path'
 
+import { heroSmsTranslations } from '../src/features/email-activations/i18n.ts'
+
 const { chromium } = await import(process.env.PLAYWRIGHT_MODULE ?? 'playwright')
 const web = path.resolve(import.meta.dirname, '..')
 const dist = path.join(web, 'dist')
@@ -17,6 +19,7 @@ const translations = JSON.parse(
   await readFile(path.join(web, 'src/i18n/locales/zh-CN.json'), 'utf8')
 ).translation
 const t = (key) => translations[key] ?? key
+const heroT = (key) => heroSmsTranslations['zh-CN'][key] ?? t(key)
 const mime = {
   '.html': 'text/html',
   '.js': 'text/javascript',
@@ -56,6 +59,14 @@ const report = {
       cwd: web,
       encoding: 'utf8',
     }).trim(),
+  script_sha256: createHash('sha256')
+    .update(await readFile(import.meta.filename))
+    .digest('hex'),
+  feature_translations_sha256: createHash('sha256')
+    .update(
+      await readFile(path.join(web, 'src/features/email-activations/i18n.ts'))
+    )
+    .digest('hex'),
   index_sha256: createHash('sha256')
     .update(await readFile(path.join(dist, 'index.html')))
     .digest('hex'),
@@ -435,6 +446,7 @@ async function capture(page, name) {
   await page.screenshot({
     path: path.join(output, `${name}.png`),
     fullPage: true,
+    animations: 'disabled',
   })
   report.screenshots.push({ name, ...details })
   assert.ok(
@@ -486,6 +498,10 @@ try {
       const go = (route) => page.goto(origin + route)
       const btn = (key) =>
         page.getByRole('button', { name: t(key), exact: true })
+      const priceAction = async (key) => {
+        await btn('Actions').first().click()
+        await page.getByRole('menuitem', { name: t(key), exact: true }).click()
+      }
       await check(`${label}-pricing`, async () => {
         await go('/system-settings/billing/model-pricing')
         await page
@@ -493,6 +509,32 @@ try {
           .waitFor()
         assert.equal(await page.locator('tbody tr').count(), 20)
         await capture(page, `${label}-pricing`)
+        const table = page.locator('[data-slot="table-container"]').first()
+        const actionButton = btn('Actions').first()
+        const tableBox = await table.boundingBox()
+        const actionBox = await actionButton.boundingBox()
+        assert.ok(tableBox && actionBox)
+        assert.ok(actionBox.x >= tableBox.x - 1)
+        assert.ok(
+          actionBox.x + actionBox.width <= tableBox.x + tableBox.width + 1
+        )
+        assert.equal(await table.evaluate((element) => element.scrollLeft), 0)
+        await actionButton.click()
+        for (const action of ['Edit', 'Copy', 'Remove']) {
+          await page
+            .getByRole('menuitem', { name: t(action), exact: true })
+            .waitFor()
+        }
+        assert.equal(await table.evaluate((element) => element.scrollLeft), 0)
+        await capture(page, `${label}-price-actions`)
+        await page.keyboard.press('Escape')
+        await page.getByRole('menu').waitFor({ state: 'hidden' })
+        assert.equal(
+          await actionButton.evaluate(
+            (element) => element === document.activeElement
+          ),
+          true
+        )
         await btn('Next').click()
         await page
           .getByRole('cell', { name: 'gpt-test-24', exact: false })
@@ -505,9 +547,15 @@ try {
           .getByRole('cell', { name: 'gpt-test-01', exact: false })
           .waitFor()
         assert.equal(await page.locator('tbody tr').count(), 1)
-        await btn('Edit').first().click()
+        await priceAction('Edit')
         await page.getByRole('dialog').waitFor()
         await capture(page, `${label}-price-editor`)
+        assert.equal(
+          await page
+            .getByRole('dialog')
+            .evaluate((element) => getComputedStyle(element).opacity),
+          '1'
+        )
         await page
           .getByRole('dialog')
           .getByRole('textbox', {
@@ -522,7 +570,7 @@ try {
         await btn('Confirm and publish').click()
         await page.getByRole('dialog').waitFor({ state: 'hidden' })
         assert.equal(state.configuration.prices.rules[0].rates.input, 2000001)
-        await btn('Edit').first().click()
+        await priceAction('Edit')
         await page
           .getByRole('dialog')
           .getByRole('textbox', {
@@ -540,7 +588,7 @@ try {
           .getByRole('dialog')
           .getByRole('button', { name: t('Cancel'), exact: true })
           .click()
-        await btn('Edit').first().click()
+        await priceAction('Edit')
         assert.equal(
           await page
             .getByRole('dialog')
@@ -627,6 +675,13 @@ try {
         )
         await capture(page, `${label}-hero-purchases-unavailable`)
         await go('/system-settings/operations/hero-sms')
+        await page
+          .getByRole('heading', {
+            level: 1,
+            name: t('HeroSMS temporary activations'),
+            exact: true,
+          })
+          .waitFor()
         const multiplier = page.locator('input[type="number"]')
         await multiplier.waitFor()
         assert.equal(await multiplier.isEnabled(), true)
@@ -644,15 +699,17 @@ try {
         await go('/system-settings/operations/hero-sms')
         await multiplier.waitFor()
         assert.equal(await multiplier.inputValue(), '2.000001')
-        await btn('Test connection').click()
         await page
-          .getByText(t('Connection test succeeded'), { exact: true })
+          .getByRole('button', { name: heroT('Test connection'), exact: true })
+          .click()
+        await page
+          .getByText(heroT('Connection test succeeded'), { exact: true })
           .waitFor()
         state.rejectHero = true
         await multiplier.fill('3.000001')
         await btn('Save Changes').click()
         await page
-          .getByText(t('Unable to save HeroSMS settings'), { exact: true })
+          .getByText(heroT('Unable to save HeroSMS settings'), { exact: true })
           .first()
           .waitFor()
         assert.equal(await multiplier.inputValue(), '3.000001')

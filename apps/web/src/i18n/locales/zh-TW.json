@@ -5203,6 +5203,7 @@
     "HeroSMS only returns purchasable email domains after you provide a non-empty target site.": "填寫目標網站後，HeroSMS 才會回傳可購網域。",
     "HeroSMS purchasing is disabled": "HeroSMS 購買已關閉",
     "HeroSMS settings changed. Reload the latest settings before saving again.": "HeroSMS 設定已變更。請重新載入最新設定後再儲存。",
+    "HeroSMS temporary activations": "HeroSMS 臨時接碼",
     "HeroSMS will be asked to cancel this activation. Your balance is refunded only after HeroSMS confirms cancellation; a verification code received first will complete the order instead.": "平台將請求 HeroSMS 取消此接碼。只有 HeroSMS 確認取消後才會退還餘額；如果驗證碼先到達，訂單將正常完成。",
     "HI,$name, it is $time": "HI,$name,現在是$time",
     "Hidden": "屏蔽",

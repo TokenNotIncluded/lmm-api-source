@@ -252,15 +252,29 @@ test('unavailable native configuration does not open a price editor', async () =
   assert.equal(container.querySelector('textarea'), null)
 })
 
-async function clickButton(label: string) {
-  const button = [
-    ...document.querySelectorAll<HTMLButtonElement>('button'),
-  ].find((element) => element.textContent === label)
+async function clickButton(label: string, within: ParentNode = document) {
+  const button = [...within.querySelectorAll<HTMLButtonElement>('button')].find(
+    (element) => element.textContent === label
+  )
   assert.ok(button, `Missing button: ${label}`)
   await act(async () => button.click())
 }
+async function clickPriceAction(label: string, row?: Element) {
+  await clickButton('Actions', row ?? document)
+  await until(() =>
+    [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].some(
+      (element) => element.textContent === label
+    )
+  )
+  const item = [
+    ...document.querySelectorAll<HTMLElement>('[role="menuitem"]'),
+  ].find((element) => element.textContent === label)
+  assert.ok(item, `Missing price action: ${label}`)
+  await act(async () => item.click())
+}
+
 async function editInputPrice(value: string) {
-  await clickButton('Edit')
+  await clickPriceAction('Edit')
   await until(() => document.querySelector('#native-price-rule-form') !== null)
   const label = [...document.querySelectorAll('label')].find((element) =>
     element.textContent?.includes('Input price (USD / 1M tokens)')
@@ -282,6 +296,45 @@ async function editInputPrice(value: string) {
     form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))
   )
 }
+
+test('row actions copy exact prices and remove only the chosen draft rule', async () => {
+  section = 'model-pricing'
+  const { container, writes } = await mount()
+  await until(() => container.querySelector('tbody tr') !== null)
+  await clickPriceAction('Copy')
+  await until(() => document.querySelector('#native-price-rule-form') !== null)
+  const form = document.querySelector<HTMLFormElement>(
+    '#native-price-rule-form'
+  )
+  assert.ok(form)
+  const model = form.querySelector<HTMLInputElement>(
+    'input[list="native-price-models"]'
+  )
+  assert.equal(model?.value, 'imported-model-copy')
+  await act(async () =>
+    form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))
+  )
+  await until(() => container.querySelectorAll('tbody tr').length === 2)
+  const copied = [...container.querySelectorAll('tbody tr')].find((row) =>
+    row.textContent?.includes('imported-model-copy')
+  )
+  assert.ok(copied)
+  const cells = [...copied.querySelectorAll('td')]
+  assert.equal(cells[2].textContent, '2')
+  assert.equal(cells[3].textContent, '6')
+  assert.equal(cells[4].textContent, '0.5')
+  await clickPriceAction('Remove', copied)
+  await until(() => container.querySelectorAll('tbody tr').length === 1)
+  assert.doesNotMatch(
+    container.querySelector('tbody')?.textContent ?? '',
+    /imported-model-copy/
+  )
+  assert.match(
+    container.querySelector('tbody')?.textContent ?? '',
+    /imported-model/
+  )
+  assert.equal(writes.length, 0)
+})
 
 test('visual edits publish exact rates only after preview and confirmation', async () => {
   section = 'model-pricing'
