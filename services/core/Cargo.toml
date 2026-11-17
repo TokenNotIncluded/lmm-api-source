@@ -19,7 +19,7 @@ resource-acceptance = []
 # MIT OR Apache-2.0, dependency-free bounded request conversion.
 zconv = "=0.4.0"
 zclap = "=0.1.4"
-sysinfo = { version = "=0.40.3", default-features = false, features = ["system"] }
+sysinfo = { version = "=0.40.4", default-features = false, features = ["system"] }
 tokio-util = { version = "=0.7.20", features = ["rt"] }
 csv = "=1.4.0"
 zhex = "=0.1.3"
@@ -37,7 +37,7 @@ hmac = "=0.13.0"
 md-5 = "=0.11.0"
 form_urlencoded = "=1.2.2"
 rsa = { version = "=0.10.0", features = ["pkcs1v15"] }
-jsonwebtoken = { version = "=11.1.0", default-features = false, features = ["aws_lc_rs"] }
+jsonwebtoken = { version = "=12.0.0", default-features = false, features = ["aws_lc_rs"] }
 jsonschema = { version = "=0.61.2", default-features = false, features = ["arbitrary-precision"] }
 # Existing locked MIT/Apache-2.0 arithmetic; bounded tariff fractions must not
 # overflow merely while finding a common denominator before final rounding.
@@ -55,7 +55,7 @@ http-body-util = "=0.1.5"
 hyper = { version = "=1.12.0", features = ["server", "http1", "http2"] }
 hyper-util = { version = "=0.1.21", features = ["server-auto", "server-graceful", "tokio", "service"] }
 ipnet = "=2.12.2"
-rand = "=0.10.3"
+rand = "=0.10.4"
 regex = "=1.13.1"
 # Fixed legacy OpenAI precharge estimates use the original split pattern and BPE ranks.
 tiktoken-rs = "=0.12.1"
@@ -78,7 +78,7 @@ zeroize = { version = "=1.9.1", default-features = false, features = ["alloc"] }
 webauthn-rs = { version = "=0.5.5", default-features = false, features = ["danger-allow-state-serialisation", "conditional-ui"] }
 webauthn-rs-core = "=0.5.5"
 # Static Mozilla PSL (ICANN and private suffixes); no runtime network updates.
-psl = "=2.1.184"
+psl = "=2.1.256"
 tokio-stream = { version = "=0.1.19", features = ["net"] }
 toml = { version = "=1.2.1", default-features = false, features = ["std", "serde", "parse"] }
 tonic = "=0.14.9"

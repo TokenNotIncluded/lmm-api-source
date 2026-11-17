@@ -25,7 +25,7 @@ fn signed(claims: &Value) -> String {
     encode(
         &Header::new(Algorithm::HS256),
         claims,
-        &EncodingKey::from_secret(SECRET.as_bytes()),
+        &EncodingKey::from_secret(SECRET.as_bytes()).unwrap(),
     )
     .unwrap()
 }
@@ -55,16 +55,11 @@ fn oidc_verifies_signature_issuer_audience_nonce_and_time() {
             "{field}"
         );
     }
-    assert!(
-        verify_id_token(
-            &signed(&claims),
-            &json!({}),
-            &configuration,
-            &nonce,
-            "wrong-secret"
-        )
-        .is_err()
-    );
+    for secret in ["wrong-secret", ""] {
+        assert!(
+            verify_id_token(&signed(&claims), &json!({}), &configuration, &nonce, secret).is_err()
+        );
+    }
     let mut missing = claims;
     missing.as_object_mut().unwrap().remove("nonce");
     assert!(

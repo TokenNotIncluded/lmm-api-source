@@ -168,7 +168,7 @@ fn verify_id_token(
         header.alg,
         Algorithm::HS256 | Algorithm::HS384 | Algorithm::HS512
     ) {
-        DecodingKey::from_secret(secret.as_bytes())
+        DecodingKey::from_secret(secret.as_bytes()).map_err(|_| IdentityError::Unauthorized)?
     } else {
         let candidates = keys
             .get("keys")

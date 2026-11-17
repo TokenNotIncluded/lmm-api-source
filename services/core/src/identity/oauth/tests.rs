@@ -455,7 +455,7 @@ async fn exchange(
         encode(
             &header,
             &claims,
-            &EncodingKey::from_secret(b"synthetic-wrong-algorithm-key"),
+            &EncodingKey::from_secret(b"synthetic-wrong-algorithm-key").unwrap(),
         )
         .unwrap()
     } else {
