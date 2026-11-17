@@ -1,0 +1,7 @@
+{
+  "revision": 0,
+  "enabled": false,
+  "sms_enabled": false,
+  "email_enabled": false,
+  "price_multiplier": "1"
+}

@@ -66,6 +66,17 @@ enabled = false
 # also apply the matching service-manager group and directory permissions.
 # shared_group_id = 12345
 
+# HeroSMS configuration and read-only connection testing. This release does not
+# advertise purchase/receipt capability. Policy changes take effect without restart.
+# Install core-hero-sms-policy.example.json as a service-owned 0600 file in a
+# private writable directory. Supplier and transport credentials are separate.
+# [hero_sms]
+# socket = "/run/lmm/core/private.sock"
+# token_file = "/etc/lmm.conf.d/secrets/core/hero-sms-token"
+# policy_file = "/var/lib/lmm/core/hero-sms/policy.json"
+# api_key_file = "/etc/lmm.conf.d/secrets/core/hero-sms-api-key"
+# shared_group_id = 12345
+
 # Optional functionality is disabled until its TOML and credentials are supplied.
 # [model]
 # config_file = "/etc/lmm.conf.d/core-model.toml"
