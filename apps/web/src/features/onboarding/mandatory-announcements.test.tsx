@@ -154,6 +154,7 @@ async function gateFixture(
 ) {
   const originalGet = api.get
   const originalPost = api.post
+  const originalAuth = useAuthStore.getState().auth
   api.get = get as typeof api.get
   api.post = (post ??
     (async () => {
@@ -195,7 +196,7 @@ async function gateFixture(
     container.remove()
     api.get = originalGet
     api.post = originalPost
-    useAuthStore.getState().auth.setUser(null)
+    useAuthStore.setState({ auth: originalAuth })
   }
 }
 
@@ -335,7 +336,7 @@ for (const nextGet of ['fails', 'is stale'] as const) {
         assert.equal(gets, 1)
         assert.ok(container.querySelector('[data-testid="workspace"]'))
         assert.equal(container.querySelector('[role="alert"]'), null)
-        assert.deepEqual(client.getQueryData(['mandatory-announcements', 7]), {
+        assert.deepEqual(client.getQueryData(['mandatory-announcements', 7, null]), {
           supported: true,
           items: acknowledged,
         })
@@ -360,7 +361,7 @@ test('an acknowledgement replaces the complete list including a new server-side 
     async (container, client) => {
       await confirmAnnouncement(container)
       assert.equal(gets, 1)
-      assert.deepEqual(client.getQueryData(['mandatory-announcements', 7]), {
+      assert.deepEqual(client.getQueryData(['mandatory-announcements', 7, null]), {
         supported: true,
         items: updated,
       })
@@ -386,7 +387,7 @@ test('an in-flight background GET cannot overwrite a successful acknowledgement 
       let refreshing!: Promise<void>
       await act(async () => {
         refreshing = client.refetchQueries({
-          queryKey: ['mandatory-announcements', 7],
+          queryKey: ['mandatory-announcements', 7, null],
           exact: true,
         })
       })
@@ -400,7 +401,7 @@ test('an in-flight background GET cannot overwrite a successful acknowledgement 
       await flushQuery()
       assert.equal(gets, 2)
       assert.ok(container.querySelector('[data-testid="workspace"]'))
-      assert.deepEqual(client.getQueryData(['mandatory-announcements', 7]), {
+      assert.deepEqual(client.getQueryData(['mandatory-announcements', 7, null]), {
         supported: true,
         items: acknowledged,
       })
@@ -423,7 +424,7 @@ test('a failed acknowledgement keeps the reader and workspace blocked until a su
       assert.equal(container.querySelector('[data-testid="workspace"]'), null)
       assert.ok(container.querySelector('[role="alert"]'))
       assert.ok(container.querySelector('[role="region"]'))
-      assert.deepEqual(client.getQueryData(['mandatory-announcements', 7]), {
+      assert.deepEqual(client.getQueryData(['mandatory-announcements', 7, null]), {
         supported: true,
         items: unread,
       })
@@ -497,7 +498,7 @@ test('a revision conflict refreshes the new notice and acknowledges only its new
       assert.deepEqual(acknowledged, [{ id: 1, revision: 'r1' }])
       assert.ok(container.querySelector('[role="region"]'))
       assert.equal(container.querySelector('[data-testid="workspace"]'), null)
-      assert.deepEqual(client.getQueryData(['mandatory-announcements', 7]), {
+      assert.deepEqual(client.getQueryData(['mandatory-announcements', 7, null]), {
         supported: true,
         items: [notice('Updated notice', 'r2')],
       })
@@ -557,7 +558,7 @@ test('an in-flight acknowledgement from one user cannot acknowledge the next use
       assert.equal(container.querySelector('[data-testid="workspace"]'), null)
       await act(async () =>
         client.removeQueries({
-          queryKey: ['mandatory-announcements', 7],
+          queryKey: ['mandatory-announcements', 7, null],
           exact: true,
         })
       )
@@ -570,10 +571,10 @@ test('an in-flight acknowledgement from one user cannot acknowledge the next use
       assert.ok(container.querySelector('[role="region"]'))
       assert.equal(container.querySelector('[data-testid="workspace"]'), null)
       assert.equal(
-        client.getQueryData(['mandatory-announcements', 7]),
+        client.getQueryData(['mandatory-announcements', 7, null]),
         undefined
       )
-      assert.deepEqual(client.getQueryData(['mandatory-announcements', 8]), {
+      assert.deepEqual(client.getQueryData(['mandatory-announcements', 8, null]), {
         supported: true,
         items: [notice('User 8 notice')],
       })
@@ -735,7 +736,7 @@ test('a newly supported backend still requires an unread announcement', async ()
       supported = true
       await act(async () => {
         await client.invalidateQueries({
-          queryKey: ['mandatory-announcements', 7],
+          queryKey: ['mandatory-announcements', 7, null],
         })
       })
       await flushQuery()
@@ -745,7 +746,69 @@ test('a newly supported backend still requires an unread announcement', async ()
   )
 })
 
-for (const status of [401, 403, 500, 503]) {
+test('a replacement session reads its own announcements and discards the previous session response', async () => {
+  const previous = deferred<unknown>()
+  const scopes: ApiRequestConfig['authScope'][] = []
+  let previousSignal: AbortSignal | undefined
+  await gateFixture(
+    async (_url, config) => {
+      scopes.push(config?.authScope)
+      if (!config?.authScope?.sessionId) {
+        previousSignal = config?.signal as AbortSignal
+        return previous.promise
+      }
+      return {
+        data: { success: true, data: [notice('Replacement session notice')] },
+      }
+    },
+    async (container, client) => {
+      await act(async () =>
+        useAuthStore.setState((state) => ({
+          auth: {
+            ...state.auth,
+            session: {
+              sid: 'replacement-session',
+              current: true,
+              login_method: 'password',
+              ip: '127.0.0.1',
+              user_agent: 'synthetic',
+              created_at: 1,
+              last_active_at: 1,
+              expires_at: 2_000_000_000,
+            },
+          },
+        }))
+      )
+      await flushQuery()
+      assert.equal(previousSignal?.aborted, true)
+      assert.deepEqual(scopes, [
+        { userId: 7, sessionId: undefined },
+        { userId: 7, sessionId: 'replacement-session' },
+      ])
+      await act(async () =>
+        previous.resolve({ data: { success: true, data: [] } })
+      )
+      await flushQuery()
+      assert.match(container.textContent ?? '', /Required announcement/)
+      assert.equal(container.querySelector('[data-testid="workspace"]'), null)
+      assert.deepEqual(
+        client.getQueryData([
+          'mandatory-announcements',
+          7,
+          'replacement-session',
+        ]),
+        { supported: true, items: [notice('Replacement session notice')] }
+      )
+    }
+  )
+})
+
+for (const [status, message] of [
+  [401, 'Your session has expired. Sign in again.'],
+  [403, 'You do not have permission to read announcements.'],
+  [500, 'Unable to load announcements'],
+  [503, 'The announcement service is temporarily unavailable.'],
+] as const) {
   test(`HTTP ${status} remains a recoverable error, not an announcement bypass`, async () => {
     await gateFixture(
       async () => {
@@ -753,10 +816,18 @@ for (const status of [401, 403, 500, 503]) {
       },
       async (container) => {
         assert.equal(container.querySelector('[data-testid="workspace"]'), null)
-        assert.ok(
-          container.textContent?.includes('Unable to load announcements')
-        )
-        assert.equal(container.querySelector('button')?.textContent, 'Retry')
+        assert.ok(container.textContent?.includes(message))
+        if (status === 401) {
+          const signIn = container.querySelector('a[href^="/sign-in"]')
+          assert.equal(signIn?.textContent, 'Sign in again')
+          assert.equal(
+            new URL(signIn!.getAttribute('href')!, dom.location.origin)
+              .searchParams.get('reauth'),
+            '1'
+          )
+        } else {
+          assert.equal(container.querySelector('button')?.textContent, 'Retry')
+        }
       }
     )
   })
