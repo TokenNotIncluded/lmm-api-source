@@ -32,12 +32,12 @@ export function UnauthorisedError() {
   return (
     <ErrorPageFrame
       status='401'
-      title={t('You are not signed in for this one.')}
-      description={t('This page needs an account before it answers.')}
+      title={t('Sign in to continue')}
+      description={t('Sign in to your account to open this page.')}
       note={
         user
           ? t('Your session may have expired. Sign in again to continue.')
-          : t('Signing in takes a moment and skips this screen entirely.')
+          : undefined
       }
       actions={
         <>

@@ -423,12 +423,12 @@ For commercial licensing, please contact support@quantumnous.com
  *
  * Opt-outs:
  *   - `default`: keeps neutral surfaces from :root.
- *   - `anthropic`: warm cream surfaces are a brand choice, NOT a primary-mix
- *     derivation (the Anthropic system deliberately uses warm neutrals for
+ *   - `ant`: warm cream surfaces are a brand choice, NOT a primary-mix
+ *     derivation (the Ant system deliberately uses warm neutrals for
  *     cards/borders rather than tinting them with the clay accent).
  *   - `simple-large`: keeps intentionally neutral, high-contrast surfaces. */
 [data-theme-preset]:not([data-theme-preset='default']):not(
-    [data-theme-preset='anthropic']
+    [data-theme-preset='ant']
   ):not([data-theme-preset='simple-large']) {
   --card: color-mix(in oklch, var(--primary) 3%, var(--background));
   --popover: color-mix(in oklch, var(--primary) 5%, var(--background));
@@ -453,7 +453,7 @@ For commercial licensing, please contact support@quantumnous.com
 }
 .dark
   [data-theme-preset]:not([data-theme-preset='default']):not(
-    [data-theme-preset='anthropic']
+    [data-theme-preset='ant']
   ):not([data-theme-preset='simple-large']) {
   --card: color-mix(in oklch, var(--primary) 8%, var(--background));
   --popover: color-mix(in oklch, var(--primary) 12%, var(--background));
@@ -471,40 +471,21 @@ For commercial licensing, please contact support@quantumnous.com
   --sidebar-border: color-mix(in oklch, var(--primary) 22%, var(--background));
 }
 
-/* ── Anthropic ────────────────────────────────────────────────────────── */
-/*
- * Inspired by Anthropic's official brand language: warm cream canvas
- * (#faf9f5) on warm slate ink (#141413), with clay/coral (#d97757) as the
- * single primary accent. The dormant accent palette (olive, sky, fig,
- * cactus) is wired into chart and semantic tokens.
- *
- * Defining counter-positioning: a tinted (non-white) canvas with warm
- * neutral cards and borders — NOT primary-tinted surfaces. This is the
- * brand's deliberate counter-positioning against every cool-gray AI tool.
- *
- * Anthropic is opted out of the semantic surface bridge above so these
- * bespoke warm-neutral surface tokens win the cascade. Without the opt-out,
- * the bridge selector (specificity 0,3,0 because of `:not()`) would override
- * this block (specificity 0,1,0) and tint every surface with the clay
- * accent — producing the peach/pink look that doesn't match Anthropic.
- *
- * OKLCH hue 95 = warm yellow-cream (matches #faf9f5 family);
- * OKLCH hue 60 = warm slate (matches #141413 family);
- * OKLCH hue 38 = clay/coral (matches #d97757).
- */
-[data-theme-preset='anthropic'] {
+/* ── Ant ──────────────────────────────────────────────────────────────── */
+/* Warm paper and charcoal surfaces with a restrained clay accent.
+ * These neutral surfaces opt out of the primary-colour surface bridge. */
+[data-theme-preset='ant'] {
   /* Canvas + ink — the defining pair. */
   --background: oklch(0.984 0.004 95); /* ≈ #faf9f5 cream */
   --foreground: oklch(0.205 0.005 60); /* ≈ #141413 ink */
 
-  /* Warm-neutral surfaces (NOT primary-tinted). Stepped opacity matches
-   * the Anthropic surface ladder: canvas → secondary → card → strong. */
+  /* Warm-neutral surfaces: canvas → secondary → card → strong. */
   --card: oklch(0.945 0.008 92); /* ≈ #efe9de */
   --card-foreground: oklch(0.205 0.005 60);
   --popover: oklch(0.97 0.006 92); /* slight cream lift */
   --popover-foreground: oklch(0.205 0.005 60);
 
-  /* Clay/coral — Anthropic's signature accent, used scarcely on CTAs. */
+  /* Clay accent for primary actions. */
   --primary: oklch(0.685 0.142 38); /* ≈ #d97757 */
   --primary-foreground: oklch(0.99 0.005 95);
 
@@ -532,7 +513,7 @@ For commercial licensing, please contact support@quantumnous.com
   --input: oklch(0.895 0.008 92);
   --ring: oklch(0.685 0.142 38);
 
-  /* Chart palette uses Anthropic's dormant accent swatches. */
+  /* Quiet chart accents remain distinct in both themes. */
   --chart-1: oklch(0.685 0.142 38); /* clay */
   --chart-2: oklch(0.59 0.082 130); /* olive */
   --chart-3: oklch(0.67 0.075 248); /* sky */
@@ -553,12 +534,12 @@ For commercial licensing, please contact support@quantumnous.com
 
   --radius: 0.625rem;
 
-  /* Default typography for the Anthropic preset is the editorial serif.
+  /* Default typography for the Ant preset is the editorial serif.
    * Users can override this with the Font axis (`data-theme-font='sans'`).
    * The `--font-serif` token itself is declared once in theme.css. */
   --font-body: var(--font-serif);
 }
-.dark [data-theme-preset='anthropic'] {
+.dark [data-theme-preset='ant'] {
   /* Warm near-black product surfaces, not pure black — keeps the editorial
    * personality even when inverted. Coral lifts slightly for legibility. */
   --background: oklch(0.215 0.004 60);
@@ -614,7 +595,7 @@ For commercial licensing, please contact support@quantumnous.com
 
 /* ── Font axis ────────────────────────────────────────────────────────────
  * Mirrors how `data-theme-radius` overrides a preset's default radius:
- * presets may set `--font-body` (Anthropic → serif), and the user's
+ * presets may set `--font-body` (Ant → serif), and the user's
  * explicit Font choice wins because these blocks sit AFTER preset blocks.
  *
  * The provider resolves `font: 'default'` → `'sans' | 'serif'` against the
@@ -637,17 +618,17 @@ For commercial licensing, please contact support@quantumnous.com
  *      through Tailwind preflight's `button, input, ... { font: inherit }`
  *      rule plus natural HTML inheritance. We intentionally do NOT carry
  *      a per-slot opt-out list: it adds maintenance cost and only blunts
- *      the Anthropic editorial intent. Monospace contexts are excluded
+ *      the Ant editorial intent. Monospace contexts are excluded
  *      automatically because:
  *        - `<code>`, `<kbd>`, `<pre>`, `<samp>` are typed monospace by
  *          Tailwind preflight (specificity wins over body inheritance).
  *        - `.font-mono` and `.tabular-nums` utilities declare their own
  *          font-family / font-variant-numeric on the element itself.
- *   3. Headings adopt the Anthropic display setting (medium weight, slight
+ *   3. Headings adopt the Ant display setting (medium weight, slight
  *      negative tracking).
  *
  * All keyed off `[data-theme-font='serif']` so they apply to any preset
- * paired with the serif font — not just Anthropic. */
+ * paired with the serif font — not just Ant. */
 [data-theme-font='serif'] {
   font-feature-settings:
     'kern' 1,

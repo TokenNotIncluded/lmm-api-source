@@ -21,6 +21,7 @@ import {
   useCallback,
   useContext,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useState,
 } from 'react'
@@ -46,18 +47,11 @@ import {
 
 const COOKIE_MAX_AGE = 60 * 60 * 24 * 365 // 1 year
 
-// d0ee5933 temporarily shipped Anthropic as the default and may have left
-// existing users with a cookie. Migrate that legacy default once; an explicit
-// Anthropic choice made after migration remains a valid user preference.
-const LEGACY_DEFAULT_PRESET: ThemePreset = 'anthropic'
-const DEFAULT_PRESET_MIGRATION_COOKIE = 'theme_preset_default_migrated_v1'
+// Older releases stored the warm palette under a different identifier.
+const LEGACY_PRESET = 'anthropic'
 
 function readInitialPreset(): ThemePreset {
-  const stored = getCookie(THEME_COOKIE_KEYS.preset)
-  const migrated = getCookie(DEFAULT_PRESET_MIGRATION_COOKIE) === '1'
-  if (stored === LEGACY_DEFAULT_PRESET && !migrated) {
-    return DEFAULT_THEME_CUSTOMIZATION.preset
-  }
+  if (getCookie(THEME_COOKIE_KEYS.preset) === LEGACY_PRESET) return 'ant'
   return readCookie<ThemePreset>(
     THEME_COOKIE_KEYS.preset,
     THEME_PRESET_VALUES,
@@ -154,23 +148,17 @@ export function ThemeCustomizationProvider(props: {
     )
   )
 
-  // Mirror state to the <body> via data-* attributes so theme-presets.css can
-  // override CSS variables at the right cascade layer.
-  useEffect(() => {
-    applyAttribute(
-      'data-theme-preset',
-      displayedPreset === DEFAULT_THEME_CUSTOMIZATION.preset
-        ? null
-        : displayedPreset
-    )
+  // Apply before paint so every surface, including chart measurements,
+  // observes the selected palette during the same render.
+  useLayoutEffect(() => {
+    applyAttribute('data-theme-preset', displayedPreset)
   }, [displayedPreset])
 
   useEffect(() => {
-    const stored = getCookie(THEME_COOKIE_KEYS.preset)
-    const migrated = getCookie(DEFAULT_PRESET_MIGRATION_COOKIE) === '1'
-    if (stored !== LEGACY_DEFAULT_PRESET || migrated) return
-    removeCookie(THEME_COOKIE_KEYS.preset)
-    setCookie(DEFAULT_PRESET_MIGRATION_COOKIE, '1', COOKIE_MAX_AGE)
+    if (getCookie(THEME_COOKIE_KEYS.preset) === LEGACY_PRESET) {
+      removeCookie(THEME_COOKIE_KEYS.preset)
+    }
+    removeCookie('theme_preset_default_migrated_v1')
   }, [])
 
   // Font is the one axis where we resolve before writing the attribute:
@@ -179,33 +167,31 @@ export function ThemeCustomizationProvider(props: {
   // Resolving here (instead of in CSS via `:not()` selectors) keeps the
   // stylesheet to one simple `[data-theme-font='serif']` selector and lets
   // future presets opt into typography via `PRESET_DEFAULT_FONT` alone.
-  useEffect(() => {
+  useLayoutEffect(() => {
     applyAttribute('data-theme-font', resolveThemeFont(font, displayedPreset))
   }, [font, displayedPreset])
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     applyAttribute(
       'data-theme-radius',
       radius === DEFAULT_THEME_CUSTOMIZATION.radius ? null : radius
     )
   }, [radius])
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     applyAttribute(
       'data-theme-scale',
       scale === DEFAULT_THEME_CUSTOMIZATION.scale ? null : scale
     )
   }, [scale])
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     applyAttribute('data-theme-content-layout', contentLayout)
   }, [contentLayout])
 
   const setPreset = useCallback(
     (value: ThemePreset) => {
       clearPreview()
-      // An explicit choice is not the legacy default being migrated.
-      setCookie(DEFAULT_PRESET_MIGRATION_COOKIE, '1', COOKIE_MAX_AGE)
       _setPreset(value)
       if (value === DEFAULT_THEME_CUSTOMIZATION.preset) {
         removeCookie(THEME_COOKIE_KEYS.preset)

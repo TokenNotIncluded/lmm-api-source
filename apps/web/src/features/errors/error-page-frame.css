@@ -16,44 +16,19 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
 
 .error-editorial {
-  --background: var(--forge-paper-light);
-  --foreground: var(--forge-ink-light);
-  --card: var(--forge-card-light);
-  --card-foreground: var(--foreground);
-  --primary: var(--foreground);
-  --primary-foreground: var(--background);
-  --muted: var(--forge-muted-light);
-  --muted-foreground: var(--forge-muted-ink-light);
-  --border: color-mix(in oklch, var(--foreground) 14%, transparent);
-  --input: var(--border);
   --error-paper: var(--background);
   --error-ink: var(--foreground);
   --error-muted: var(--muted-foreground);
-  --error-clay: color-mix(
-    in oklch,
-    var(--forge-clay-light) 68%,
-    var(--foreground)
-  );
-  --error-cactus: var(--forge-cactus-light);
-  color-scheme: light;
+  --error-accent: var(--primary);
+  min-height: 100svh;
+  min-height: 100dvh;
   background: var(--error-paper);
   color: var(--error-ink);
   font-family: var(--font-sans);
 }
 
-.dark .error-editorial {
-  --background: var(--forge-surface-dark);
-  --foreground: var(--forge-foreground-dark);
-  --card: var(--forge-card-dark);
-  --muted: var(--forge-muted-dark);
-  --muted-foreground: var(--forge-muted-ink-dark);
-  --error-clay: var(--forge-clay-dark);
-  --error-cactus: var(--forge-cactus-dark);
-  color-scheme: dark;
-}
-
-.error-editorial :where(a, button):focus-visible {
-  outline: 2px solid var(--error-clay);
+.error-editorial :where(a, button, summary):focus-visible {
+  outline: 2px solid var(--error-accent);
   outline-offset: 4px;
 }
 
@@ -61,30 +36,31 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
   display: flex;
   flex-direction: column;
   min-height: 100svh;
-  max-width: 90rem;
+  min-height: 100dvh;
+  max-width: 80rem;
   margin-inline: auto;
-  padding: clamp(1.25rem, 4vw, 3.5rem) clamp(1.25rem, 6vw, 6rem);
+  padding: clamp(1.25rem, 4vw, 3rem) clamp(1.25rem, 6vw, 5rem);
 }
 
 .error-editorial-brand {
   display: inline-flex;
   align-self: flex-start;
   align-items: center;
-  gap: 0.65rem;
+  gap: 0.75rem;
   min-height: 2.75rem;
   color: var(--error-ink);
-  font-size: 0.9rem;
-  font-weight: 650;
+  font-size: 0.875rem;
+  font-weight: 600;
   text-decoration: none;
 }
 
 .error-editorial-layout {
   display: grid;
   flex: 1;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1.05fr);
+  grid-template-columns: minmax(0, 1.1fr) minmax(0, 0.9fr);
   align-items: center;
   gap: clamp(2rem, 5vw, 5rem);
-  padding-block: clamp(3rem, 8vh, 7rem);
+  padding-block: clamp(3rem, 8vh, 6rem);
 }
 
 .error-editorial-copy {
@@ -92,100 +68,89 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 }
 
 .error-editorial-status {
-  display: flex;
-  align-items: center;
-  gap: 1rem;
-  margin: 0 0 1.5rem;
-  color: var(--error-clay);
+  margin: 0 0 1.25rem;
+  color: var(--error-accent);
   font-family: var(--font-mono, monospace);
-  font-size: clamp(2.5rem, 5vw, 4.5rem);
+  font-size: 0.875rem;
   font-weight: 500;
   line-height: 1;
-  letter-spacing: -0.075em;
-}
-
-.error-editorial-status::after {
-  content: '';
-  width: 2.5rem;
-  height: 1px;
-  background: currentColor;
-  opacity: 0.45;
+  letter-spacing: 0.14em;
 }
 
 .error-editorial-title {
   max-width: 20ch;
   margin: 0;
   color: var(--error-ink);
-  font-size: clamp(2.1rem, 3.8vw, 3.8rem);
-  font-weight: 650;
-  letter-spacing: -0.055em;
-  line-height: 1.12;
+  font-size: clamp(1.875rem, 3.4vw, 3rem);
+  font-weight: 550;
+  letter-spacing: -0.045em;
+  line-height: 1.2;
   text-wrap: balance;
   overflow-wrap: anywhere;
 }
 
 .error-editorial-description {
-  max-width: 34ch;
-  margin: 1.5rem 0 0;
+  max-width: 40ch;
+  margin: 1.25rem 0 0;
   color: var(--error-muted);
-  font-size: 1rem;
-  line-height: 1.75;
+  font-size: 0.9375rem;
+  line-height: 1.8;
 }
 
 .error-editorial-note {
-  max-width: 42ch;
-  margin-top: 1.5rem;
+  max-width: 46ch;
+  margin-top: 1.75rem;
   color: var(--error-muted);
-  font-size: 0.8rem;
+  font-size: 0.8125rem;
   line-height: 1.7;
+}
+
+.error-editorial-note :where(a, button, summary) {
+  min-height: 2.75rem;
 }
 
 .error-editorial-note :where(a, button) {
   display: inline-flex;
   align-items: center;
-  min-height: 2.75rem;
 }
 
-.error-editorial-actions {
+.error-editorial-actions,
+.error-editorial-detail-actions {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.625rem;
+  gap: 0.75rem;
   margin-top: 2rem;
 }
 
 .error-editorial-action {
   min-height: 2.875rem;
   height: auto;
-  border-radius: 0.75rem !important;
+  border-radius: var(--radius);
   padding: 0.75rem 1.25rem;
-  font-size: 0.875rem !important;
-  font-weight: 600 !important;
+  font-size: 0.875rem;
+  font-weight: 500;
   white-space: normal;
   text-align: center;
 }
 
 .error-editorial-action-primary {
-  border-color: transparent !important;
-  background: var(--error-ink) !important;
-  color: var(--error-paper) !important;
+  border-color: transparent;
+  background: var(--primary);
+  color: var(--primary-foreground);
 }
 
 .error-editorial-action-primary:hover {
-  background: color-mix(
-    in oklch,
-    var(--error-ink) 86%,
-    var(--error-paper)
-  ) !important;
+  background: color-mix(in oklch, var(--primary) 90%, var(--foreground));
 }
 
 .error-editorial-action-secondary {
-  border-color: var(--border) !important;
-  background: transparent !important;
-  color: var(--error-ink) !important;
+  border-color: var(--border);
+  background: transparent;
+  color: var(--error-ink);
 }
 
 .error-editorial-action-secondary:hover {
-  background: var(--card) !important;
+  background: var(--muted);
 }
 
 .error-editorial-art-column {
@@ -201,98 +166,100 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 }
 
 .error-editorial-image {
-  border-radius: 2rem;
+  border-radius: var(--radius);
 }
 
 .error-art-halo {
-  fill: color-mix(in oklch, var(--error-cactus) 16%, var(--error-paper));
+  fill: color-mix(in oklch, var(--primary) 5%, var(--background));
 }
 
-.error-art-orbits {
-  stroke: color-mix(in oklch, var(--error-ink) 13%, transparent);
+.error-art-guides {
+  stroke: color-mix(in oklch, var(--foreground) 15%, transparent);
   stroke-width: 1;
 }
 
 .error-art-trace {
-  stroke: var(--error-clay);
-  stroke-width: 2;
-  stroke-linecap: round;
-  stroke-dasharray: 5 7;
-  animation: error-signal-arrive 3.6s ease-out both;
+  stroke: var(--error-accent);
+  stroke-width: 1.5;
 }
 
-.error-art-token,
+.error-art-disconnected {
+  stroke: color-mix(in oklch, var(--foreground) 25%, transparent);
+  stroke-width: 1.5;
+  stroke-dasharray: 3 7;
+}
+
+.error-art-terminal {
+  fill: var(--error-accent);
+}
+
+.error-art-endpoint {
+  fill: var(--background);
+  stroke: color-mix(in oklch, var(--foreground) 35%, transparent);
+  stroke-width: 1.5;
+}
+
 .error-art-core {
-  fill: var(--error-paper);
-  stroke: color-mix(in oklch, var(--error-ink) 18%, transparent);
+  fill: var(--background);
+  stroke: color-mix(in oklch, var(--error-accent) 28%, var(--background));
   stroke-width: 1;
 }
 
-.error-art-core-shadow {
-  fill: color-mix(in oklch, var(--error-ink) 6%, transparent);
-}
-
-.error-art-token-mark,
-.error-art-symbol,
-.error-art-spark {
-  stroke: var(--error-clay);
+.error-art-symbol {
+  stroke: var(--error-accent);
   stroke-width: 2;
   stroke-linecap: round;
   stroke-linejoin: round;
 }
 
-.error-art-symbol {
-  stroke-width: 2.5;
+.error-editorial-details summary {
+  width: fit-content;
+  align-content: center;
+  cursor: pointer;
+  color: var(--error-muted);
 }
 
-.error-art-dot {
-  fill: var(--error-clay);
+.error-editorial-details[open] summary {
+  color: var(--error-ink);
 }
 
-.error-art-packets {
-  animation: error-packets-arrive 3.6s ease-out both;
+.error-editorial-details-content {
+  padding-top: 0.5rem;
 }
 
-@keyframes error-signal-arrive {
-  from {
-    stroke-dashoffset: 48;
-    opacity: 0;
-  }
-  to {
-    stroke-dashoffset: 0;
-    opacity: 1;
-  }
+.error-editorial-details-content p + p {
+  margin-top: 0.75rem;
 }
 
-@keyframes error-packets-arrive {
-  from {
-    transform: translateY(10px);
-    opacity: 0;
-  }
-  to {
-    transform: translateY(0);
-    opacity: 1;
-  }
+.error-editorial-detail-actions {
+  margin-top: 1rem;
 }
 
 @media (max-width: 760px) {
   .error-editorial-layout {
     grid-template-columns: minmax(0, 1fr);
-    gap: 1rem;
-    padding-block: 2.5rem 1rem;
+    gap: 1.5rem;
+    padding-block: 2rem;
   }
+
   .error-editorial-art-column {
-    width: min(100%, 23rem);
+    order: -1;
+    width: min(100%, 17rem);
     justify-self: center;
+  }
+
+  .error-editorial-copy {
+    align-self: start;
   }
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .error-editorial *,
-  .error-editorial *::before,
-  .error-editorial *::after {
-    animation: none !important;
-    transition: none !important;
-    scroll-behavior: auto !important;
+@media (max-height: 600px) {
+  .error-editorial-art-column {
+    display: none;
+  }
+
+  .error-editorial-layout {
+    grid-template-columns: minmax(0, 1fr);
+    padding-block: 2rem;
   }
 }

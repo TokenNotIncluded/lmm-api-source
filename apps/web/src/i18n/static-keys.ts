@@ -19,6 +19,11 @@ For commercial licensing, please contact support@quantumnous.com
 // Static translation keys that don't get picked up by the t('...') regex.
 // These cover dynamic labels (e.g. constants, configs) that are passed into t at runtime.
 export const STATIC_I18N_KEYS = [
+  // Appearance controls use configuration-driven labels.
+  'preset.ant',
+  'Auto',
+  'Sans',
+  'Serif',
   // Usage log validation selects these messages from the active filter.
   'Channel ID must be a positive integer.',
   'Choose a valid time range with the start before the end.',

@@ -16,81 +16,34 @@ export function ErrorArtwork({ status }: { status?: string | number }) {
   return (
     <svg
       className='error-editorial-art'
-      viewBox='0 0 520 440'
+      viewBox='0 0 440 320'
       fill='none'
       aria-hidden='true'
       focusable='false'
     >
-      <circle className='error-art-halo' cx='260' cy='220' r='172' />
-      <g className='error-art-orbits'>
-        <ellipse
-          cx='260'
-          cy='220'
-          rx='214'
-          ry='116'
-          transform='rotate(-32 260 220)'
-        />
-        <ellipse
-          cx='260'
-          cy='220'
-          rx='174'
-          ry='158'
-          transform='rotate(28 260 220)'
-        />
-        <path d='M44 220h92m248 0h92M260 26v62m0 264v62' />
+      <circle className='error-art-halo' cx='220' cy='160' r='102' />
+      <g className='error-art-guides'>
+        <path d='M48 84V68h16m312 0h16v16M48 236v16h16m312 0h16v-16' />
+        <path d='M212 68h16m-16 184h16' />
       </g>
-      <g className='error-art-trace'>
-        <path d='M75 280h63a24 24 0 0 0 24-24v-12a24 24 0 0 1 24-24h24' />
-        <path d='M310 220h24a24 24 0 0 0 24-24v-12a24 24 0 0 1 24-24h63' />
-      </g>
-      <g className='error-art-packets'>
-        <rect
-          className='error-art-token'
-          x='58'
-          y='263'
-          width='34'
-          height='34'
-          rx='10'
-        />
-        <path className='error-art-token-mark' d='m79 273-8 7 8 7' />
-        <rect
-          className='error-art-token'
-          x='428'
-          y='143'
-          width='34'
-          height='34'
-          rx='10'
-        />
-        <path className='error-art-token-mark' d='m441 153 8 7-8 7' />
-        <circle className='error-art-dot' cx='169' cy='79' r='6' />
-        <circle className='error-art-dot' cx='353' cy='361' r='4' />
-      </g>
-      <rect
-        className='error-art-core-shadow'
-        x='202'
-        y='166'
-        width='116'
-        height='116'
-        rx='32'
-      />
+      <path className='error-art-trace' d='M60 160h120' />
+      <path className='error-art-disconnected' d='M260 160h120' />
+      <circle className='error-art-terminal' cx='60' cy='160' r='7' />
+      <circle className='error-art-endpoint' cx='380' cy='160' r='7' />
       <rect
         className='error-art-core'
-        x='202'
-        y='158'
-        width='116'
-        height='116'
-        rx='32'
+        x='180'
+        y='120'
+        width='80'
+        height='80'
+        rx='24'
       />
-      <svg x='236' y='192' width='48' height='48' viewBox='0 0 48 48'>
+      <svg x='200' y='140' width='40' height='40' viewBox='0 0 48 48'>
         <path
           className='error-art-symbol'
           d={marks[String(status)] ?? disconnected}
         />
       </svg>
-      <path
-        className='error-art-spark'
-        d='M369 78v16m-8-8h16M125 344v12m-6-6h12'
-      />
     </svg>
   )
 }

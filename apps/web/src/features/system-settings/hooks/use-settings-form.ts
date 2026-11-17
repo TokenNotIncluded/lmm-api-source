@@ -23,6 +23,8 @@ import {
   type UseFormProps,
   type FieldValues,
   type FieldNamesMarkedBoolean,
+  type Path,
+  type PathValue,
 } from 'react-hook-form'
 import { toast } from 'sonner'
 
@@ -171,8 +173,8 @@ function expandDotPaths<T extends FieldValues>(
  * Unified hook for system settings forms
  *
  * Key features:
- * - Initializes form with defaultValues only on mount
- * - No automatic resets that could overwrite user input
+ * - Refreshes untouched fields while preserving dirty input
+ * - Resets to the latest saved values
  * - Tracks changed fields to minimize API calls
  * - Provides manual reset functionality
  *
@@ -202,6 +204,7 @@ export function useSettingsForm<T extends FieldValues>({
   )
 
   const form = useForm<T>({ ...formOptions, defaultValues: expandedDefaults })
+  const { dirtyFields, isDirty, isSubmitting } = form.formState
   useSettingsAgentForm(form, agentFields)
 
   const defaultValuesRef = useRef<T>((expandedDefaults ?? ({} as T)) as T)
@@ -228,7 +231,7 @@ export function useSettingsForm<T extends FieldValues>({
     baselineRef.current = flattened
     defaultValuesRef.current = expandedDefaults as T
     serializedDefaultsRef.current = serialized
-    form.reset(expandedDefaults as T)
+    form.reset(expandedDefaults as T, { keepDirtyValues: true })
   }, [expandedDefaults, form])
 
   const defaultCompare = (a: unknown, b: unknown): boolean => {
@@ -252,7 +255,7 @@ export function useSettingsForm<T extends FieldValues>({
   const compare = compareValues || defaultCompare
 
   const handleSubmit = async (data: T) => {
-    const dirtyValues = collectDirtyValues(form.formState.dirtyFields, data)
+    const dirtyValues = collectDirtyValues(dirtyFields, data)
     const changedEntries = Object.entries(dirtyValues).filter(
       ([key, value]) => !compare(value, baselineRef.current[key])
     )
@@ -270,13 +273,26 @@ export function useSettingsForm<T extends FieldValues>({
       {}
     )
 
+    const submittedValues = flattenValues(data)
     await onSubmit(data, changedFields)
 
-    const flattenedValues = flattenValues(data)
-    baselineRef.current = flattenedValues
-    defaultValuesRef.current = data
-    serializedDefaultsRef.current = JSON.stringify(flattenedValues)
-    form.reset(data)
+    const currentValues = flattenValues(form.getValues())
+    const savedValues = expandDotPaths({
+      ...baselineRef.current,
+      ...changedFields,
+    }) as T
+    baselineRef.current = flattenValues(savedValues)
+    defaultValuesRef.current = savedValues
+    // Keep the last incoming-defaults fingerprint separate from the accepted
+    // write, so an unchanged cached response cannot roll back a saved value.
+    form.reset(savedValues)
+    for (const [key, value] of Object.entries(currentValues)) {
+      if (!compare(value, submittedValues[key])) {
+        form.setValue(key as Path<T>, value as PathValue<T, Path<T>>, {
+          shouldDirty: true,
+        })
+      }
+    }
   }
 
   const handleReset = () => {
@@ -289,7 +305,7 @@ export function useSettingsForm<T extends FieldValues>({
     // eslint-disable-next-line react-hooks/refs
     handleSubmit: form.handleSubmit(handleSubmit),
     handleReset,
-    isDirty: form.formState.isDirty,
-    isSubmitting: form.formState.isSubmitting,
+    isDirty,
+    isSubmitting,
   }
 }

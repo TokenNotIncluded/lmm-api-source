@@ -194,6 +194,54 @@ function LimitedSettings({
 }) {
   // @context-fold begin limited-settings-view
   const { t } = useTranslation()
+  const fields: Record<string, { section: string; label: string }> = {
+    ServerAddress: { section: 'system-info', label: t('Server Address') },
+    RegisterEnabled: {
+      section: 'basic-auth',
+      label: t('Registration Enabled'),
+    },
+    PasswordRegisterEnabled: {
+      section: 'basic-auth',
+      label: t('Password Registration'),
+    },
+    OAuthRegisterEnabled: {
+      section: 'basic-auth',
+      label: t('OAuth Registration'),
+    },
+    RegistrationDisabledMethods: {
+      section: 'basic-auth',
+      label: t('Disabled registration methods'),
+    },
+    HeaderNavModules: {
+      section: 'header-navigation',
+      label: t('Header navigation'),
+    },
+    Notice: { section: 'notice', label: t('System Notice') },
+    Announcements: {
+      section: 'announcements',
+      label: t('Announcements'),
+    },
+    'console_setting.announcements': {
+      section: 'announcements',
+      label: t('Announcements'),
+    },
+    'console_setting.announcements_enabled': {
+      section: 'announcements',
+      label: t('Enable Announcements'),
+    },
+    USDExchangeRate: {
+      section: 'currency',
+      label: t('USD Exchange Rate'),
+    },
+    IPAccessRoutingRules: {
+      section: 'ip-access-routing',
+      label: t('IP access routing'),
+    },
+    AssistantPersona: {
+      section: 'assistant',
+      label: t('Assistant persona'),
+    },
+  }
   const navigationOption = options.find(
     (option) => option.key === 'HeaderNavModules'
   )
@@ -207,11 +255,9 @@ function LimitedSettings({
     activeSection === 'notice' &&
     options.some((option) => option.key === 'Notice') &&
     writableOptionKey(capabilities, 'Notice') === 'Notice'
-  const announcementOption = options.find(
-    (option) =>
-      option.key === 'console_setting.announcements' ||
-      option.key === 'Announcements'
-  )
+  const announcementOption =
+    options.find((option) => option.key === 'console_setting.announcements') ??
+    options.find((option) => option.key === 'Announcements')
   const writableAnnouncements =
     !readOnly &&
     activeSection === 'announcements' &&
@@ -226,63 +272,41 @@ function LimitedSettings({
     exchangeRateOption !== undefined &&
     writableOptionKey(capabilities, 'USDExchangeRate') === 'USDExchangeRate'
   const visibleOptions = options.filter((option) => {
+    if (fields[option.key]?.section !== activeSection) return false
     if (writableExchangeRate && option.key === 'USDExchangeRate') return false
     if (writableNavigation && option.key === 'HeaderNavModules') return false
     if (writableNotice && option.key === 'Notice') return false
     if (
-      writableAnnouncements &&
-      (option.key === 'Announcements' ||
-        option.key === 'console_setting.announcements')
+      option.key === 'Announcements' ||
+      option.key === 'console_setting.announcements'
     ) {
-      return false
+      return !writableAnnouncements && option === announcementOption
     }
     return true
   })
+  const hasEditor =
+    writableNavigation ||
+    writableNotice ||
+    writableAnnouncements ||
+    writableExchangeRate
+  const hasContent =
+    hasEditor || visibleOptions.length > 0 || activeSection === 'basic-auth'
+  const deploymentNote =
+    activeSection === 'system-info'
+      ? t('The server address is managed in the deployment configuration.')
+      : activeSection === 'basic-auth'
+        ? t(
+            'Registration availability is managed in the deployment configuration.'
+          )
+        : t('These settings are read-only on this server.')
+
   return (
-    <div className='space-y-4'>
-      <Alert>
-        <AlertTitle>{readOnly ? t('Read only') : t('Settings')}</AlertTitle>
-        <AlertDescription className='space-y-2'>
-          {partial ? (
-            <p>
-              {t(
-                'Only part of the settings is available. Missing settings are not displayed.'
-              )}
-            </p>
-          ) : null}
-          {readOnly ? (
-            <p>
-              {t(
-                'Settings are read-only. Apply changes through the host configuration upgrade procedure.'
-              )}
-            </p>
-          ) : null}
-        </AlertDescription>
-      </Alert>
-      {activeSection === 'basic-auth' ? (
-        <LimitedOAuthRegistrationPolicy />
-      ) : null}
-      {visibleOptions.length > 0 ? (
-        <dl className='settings-readonly-values'>
-          {visibleOptions.map((option) => (
-            <div key={option.key} className='settings-readonly-row'>
-              <dt className='text-sm font-medium break-words'>
-                {option.key}
-                <span className='text-muted-foreground ml-2 text-xs'>
-                  {t('Read only')}
-                </span>
-              </dt>
-              <dd className='min-w-0 font-mono text-sm break-words whitespace-pre-wrap'>
-                {option.value}
-              </dd>
-            </div>
-          ))}
-        </dl>
-      ) : (
-        <p className='text-muted-foreground text-sm'>
-          {t('No data available')}
+    <div className='settings-available-content'>
+      {partial && hasContent ? (
+        <p className='settings-summary-note'>
+          {t('Only settings supported by this server are shown.')}
         </p>
-      )}
+      ) : null}
       {writableNavigation && navigationOption ? (
         <LimitedNavigationSection
           config={parseHeaderNavModules(navigationOption.value)}
@@ -320,11 +344,47 @@ function LimitedSettings({
           }}
         />
       ) : null}
-      <div className='flex justify-end'>
-        <Button type='button' disabled>
-          {t('Save Settings')}
-        </Button>
-      </div>
+      {visibleOptions.length > 0 ? (
+        <section className='settings-server-values'>
+          <div className='settings-readonly-heading'>
+            <h3>{t('Current settings')}</h3>
+            <span className='settings-readonly-label'>{t('Read only')}</span>
+          </div>
+          <p className='settings-summary-note'>{deploymentNote}</p>
+          <dl className='settings-readonly-values'>
+            {visibleOptions.map((option) => (
+              <div key={option.key} className='settings-readonly-row'>
+                <dt>{fields[option.key].label}</dt>
+                <dd className='settings-readonly-value'>
+                  {(option.key.endsWith('Enabled') ||
+                    option.key.endsWith('_enabled')) &&
+                  option.value === 'true'
+                    ? t('Enabled')
+                    : (option.key.endsWith('Enabled') ||
+                          option.key.endsWith('_enabled')) &&
+                        option.value === 'false'
+                      ? t('Disabled')
+                      : option.value || t('Not configured')}
+                </dd>
+              </div>
+            ))}
+          </dl>
+        </section>
+      ) : null}
+      {activeSection === 'basic-auth' ? (
+        <LimitedOAuthRegistrationPolicy />
+      ) : null}
+      {!hasContent ? (
+        <section className='settings-unavailable' role='status'>
+          <span className='settings-readonly-label'>{t('Read only')}</span>
+          <h3>{t('No settings available in this section')}</h3>
+          <p>
+            {activeSection === 'system-info'
+              ? deploymentNote
+              : t('This server does not expose controls for this section.')}
+          </p>
+        </section>
+      ) : null}
     </div>
   )
   // @context-fold end limited-settings-view

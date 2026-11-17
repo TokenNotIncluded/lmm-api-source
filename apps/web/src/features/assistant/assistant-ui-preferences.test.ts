@@ -151,6 +151,25 @@ test('only exact, bounded, session-bound action envelopes are accepted', () => {
   )
 })
 
+test('saved legacy theme actions apply Ant and retain the previous preference for undo', async () => {
+  const f = fixture()
+  const saved = JSON.stringify({
+    ...f.action(),
+    preview: { theme: 'anthropic' },
+  })
+  const action = parseAssistantUIPreferenceAction(JSON.parse(saved))
+  assert.ok(action)
+  assert.deepEqual(action.preview, { theme: 'ant' })
+  assert.equal(
+    (await f.runtime.run(action, f.adapter, f.signal.signal)).status,
+    'applied'
+  )
+  assert.deepEqual(f.writes, [{ theme: 'ant' }])
+  assert.equal(f.current().theme, 'ant')
+  await f.runtime.undo(f.adapter, f.signal.signal, action.action_id)
+  assert.equal(f.current().theme, 'default')
+})
+
 test('a partial change saves once, reports success, and does not replay', async () => {
   const f = fixture()
   const action = f.action({ mode: 'dark', currency: 'CNY' })

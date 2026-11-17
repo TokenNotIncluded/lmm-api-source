@@ -29,7 +29,7 @@ export function resolveThemeRadiusPx(
   probe.style.position = 'absolute'
   probe.style.visibility = 'hidden'
 
-  document.documentElement.appendChild(probe)
+  document.body.appendChild(probe)
   const resolvedRadius = getComputedStyle(probe).borderTopLeftRadius
   probe.remove()
 

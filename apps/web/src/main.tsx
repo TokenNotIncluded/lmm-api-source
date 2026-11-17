@@ -29,7 +29,7 @@ import ReactDOM from 'react-dom/client'
 import { I18nextProvider } from 'react-i18next'
 import { toast } from 'sonner'
 
-import { LoadingState } from '@/components/loading-state'
+import { PageLoadingState } from '@/components/loading-state'
 import { installWebMcp } from '@/features/webmcp'
 import { getStatus } from '@/lib/api'
 import { bindAuthCache } from '@/lib/auth-session'
@@ -94,7 +94,7 @@ const router = createRouter({
   InnerWrap: RouteLanguageProvider,
   context: { queryClient },
   defaultPreload: 'intent',
-  defaultPendingComponent: LoadingState,
+  defaultPendingComponent: PageLoadingState,
   defaultPendingMinMs: 0,
   // Avoid re-running every hover preload while auth/session state is settling.
   // The router-core update also handles an in-flight preload being evicted.
@@ -162,20 +162,7 @@ if (!rootElement.innerHTML) {
   const root = ReactDOM.createRoot(rootElement)
   root.render(
     <StrictMode>
-      <Suspense
-        fallback={
-          <div
-            className='bg-background text-foreground flex min-h-svh items-center justify-center'
-            role='status'
-            aria-label='Loading interface'
-          >
-            <span
-              className='bg-primary size-3 animate-pulse'
-              aria-hidden='true'
-            />
-          </div>
-        }
-      >
+      <Suspense fallback={<PageLoadingState />}>
         <I18nextProvider i18n={appI18n}>
           <QueryClientProvider client={queryClient}>
             <ThemeProvider>

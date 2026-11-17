@@ -19,9 +19,12 @@ For commercial licensing, please contact support@quantumnous.com
 import { Loader2 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 
+import { LmmBrandMark } from '@/components/lmm-brand-mark'
 import { cn } from '@/lib/utils'
 
 import { WaitCompanion } from './wait-companion'
+
+import './loading-state.css'
 
 interface LoadingStateProps {
   className?: string
@@ -36,15 +39,40 @@ const sizeMap = {
   lg: 'size-8',
 } as const
 
+/** Route and application startup share a full-height, non-suspending shell. */
+export function PageLoadingState() {
+  const { t } = useTranslation(undefined, { useSuspense: false })
+
+  return (
+    <main className='page-loading' aria-busy='true'>
+      <div className='page-loading-content' role='status' aria-live='polite'>
+        <div className='page-loading-identity' aria-hidden='true'>
+          <LmmBrandMark className='size-10' />
+          <span>LMM API</span>
+        </div>
+        <div className='page-loading-track' aria-hidden='true'>
+          <span />
+        </div>
+        <p>{t('Preparing your workspace')}</p>
+      </div>
+    </main>
+  )
+}
+
 export function LoadingState(props: LoadingStateProps) {
   const { t } = useTranslation()
   const iconSize = sizeMap[props.size ?? 'md']
 
   if (props.inline) {
     return (
-      <span className={cn('inline-flex items-center gap-2', props.className)}>
+      <span
+        className={cn('inline-flex items-center gap-2', props.className)}
+        role='status'
+        aria-label={props.message ?? t('Loading...')}
+      >
         <Loader2
           className={cn(iconSize, 'animate-spin motion-reduce:animate-none')}
+          aria-hidden='true'
         />
         {props.message != null && (
           <span className='text-muted-foreground text-sm'>{props.message}</span>
@@ -59,8 +87,14 @@ export function LoadingState(props: LoadingStateProps) {
         'flex min-h-[200px] flex-col items-center justify-center gap-3',
         props.className
       )}
+      role='status'
+      aria-live='polite'
+      aria-busy='true'
     >
-      <div className='animate-spin motion-reduce:animate-none'>
+      <div
+        className='text-primary animate-spin motion-reduce:animate-none'
+        aria-hidden='true'
+      >
         <Loader2 className={iconSize} />
       </div>
       <p className='text-muted-foreground text-sm'>

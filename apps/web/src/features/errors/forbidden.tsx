@@ -30,20 +30,20 @@ export function ForbiddenError() {
   const { history } = useRouter()
   const user = useAuthStore((state) => state.auth.user)
 
-  // Signing in is the only real fix for a permissions wall, so the button that
-  // moves the visitor forward sits first and carries the filled style.
   const signIn = () =>
     navigate({ to: '/sign-in', search: { redirect: '/wallet' } })
 
   return (
     <ErrorPageFrame
       status='403'
-      title={t('This one is members only.')}
-      description={t('Your account does not cover this page yet.')}
+      title={t('Access denied')}
+      description={t(
+        'Your account does not have permission to open this page.'
+      )}
       note={
         user
-          ? t('Ask an administrator for access, or check the guide.')
-          : t('Sign in and the right pages will open themselves.')
+          ? t('Contact an administrator if you need access.')
+          : t('Sign in to continue.')
       }
       actions={
         <>
@@ -51,9 +51,9 @@ export function ForbiddenError() {
             <Button
               size='lg'
               className='error-editorial-action error-editorial-action-primary'
-              onClick={() => navigate({ to: '/wallet' })}
+              onClick={() => navigate({ to: '/' })}
             >
-              {t('Open wallet')}
+              {t('Back to Home')}
             </Button>
           ) : (
             <Button
@@ -64,13 +64,15 @@ export function ForbiddenError() {
               {t('Sign in to get started')}
             </Button>
           )}
-          <Button
-            variant='outline'
-            className='error-editorial-action error-editorial-action-secondary'
-            onClick={() => navigate({ to: '/' })}
-          >
-            {t('Back to Home')}
-          </Button>
+          {!user && (
+            <Button
+              variant='outline'
+              className='error-editorial-action error-editorial-action-secondary'
+              onClick={() => navigate({ to: '/' })}
+            >
+              {t('Back to Home')}
+            </Button>
+          )}
           <Button
             variant='outline'
             className='error-editorial-action error-editorial-action-secondary'

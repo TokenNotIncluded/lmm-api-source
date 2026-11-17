@@ -93,7 +93,57 @@
     <!--Google Analytics-->
   </head>
 
-  <body>
+  <body
+    data-theme-preset="ant"
+    data-theme-font="serif"
+    data-theme-content-layout="full"
+  >
+    <script id="theme-customization-bootstrap">
+      ;(() => {
+        const read = (name) =>
+          document.cookie.match(
+            new RegExp('(?:^|;\\s*)' + name + '=([^;]*)(?:;|$)')
+          )?.[1]
+        const stored = read('theme_preset')
+        const presets = [
+          'ant',
+          'default',
+          'simple-large',
+          'underground',
+          'rose-garden',
+          'lake-view',
+          'sunset-glow',
+          'forest-whisper',
+          'ocean-breeze',
+          'lavender-dream',
+        ]
+        const preset =
+          stored === 'anthropic'
+            ? 'ant'
+            : presets.includes(stored)
+              ? stored
+              : 'ant'
+        const body = document.body
+        body.dataset.themePreset = preset
+        const font = read('theme_font')
+        body.dataset.themeFont =
+          font === 'sans' || font === 'serif'
+            ? font
+            : preset === 'ant'
+              ? 'serif'
+              : 'sans'
+        for (const [axis, allowed] of [
+          ['radius', ['none', 'sm', 'md', 'lg', 'xl']],
+          ['scale', ['sm', 'lg', 'xl']],
+        ]) {
+          const value = read('theme_' + axis)
+          if (allowed.includes(value))
+            body.setAttribute('data-theme-' + axis, value)
+        }
+        body.dataset.themeContentLayout =
+          read('theme_content_layout') === 'centered' ? 'centered' : 'full'
+      })()
+    </script>
     <div id="root" translate="no" class="notranslate"></div>
   </body>
 </html>

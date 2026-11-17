@@ -1,18 +1,9 @@
 /* Copyright (C) 2026 LIghtJUNction. SPDX-License-Identifier: AGPL-3.0-or-later */
+import { THEME_PRESETS } from '@/lib/theme-customization'
+
 export const UI_PREFERENCE_OPTIONS = {
   mode: ['light', 'dark', 'system'],
-  theme: [
-    'default',
-    'anthropic',
-    'simple-large',
-    'underground',
-    'rose-garden',
-    'lake-view',
-    'sunset-glow',
-    'forest-whisper',
-    'ocean-breeze',
-    'lavender-dream',
-  ],
+  theme: THEME_PRESETS.map((preset) => preset.value),
   language: ['zh-CN', 'en', 'fr', 'ru', 'ja', 'vi', 'zh-TW'],
   currency: ['auto', 'USD', 'CNY', 'CREDIT'],
 } as const
@@ -49,10 +40,12 @@ export function parseUIPreferencePatch(
     if (!Object.hasOwn(UI_PREFERENCE_OPTIONS, key)) return undefined
     const values: readonly string[] =
       UI_PREFERENCE_OPTIONS[key as keyof UIPreferences]
-    if (typeof selected !== 'string' || !values.includes(selected)) {
+    const normalized =
+      key === 'theme' && selected === 'anthropic' ? 'ant' : selected
+    if (typeof normalized !== 'string' || !values.includes(normalized)) {
       return undefined
     }
-    patch[key] = selected
+    patch[key] = normalized
   }
   return patch as UIPreferencePatch
 }

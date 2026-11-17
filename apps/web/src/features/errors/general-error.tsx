@@ -119,35 +119,62 @@ function GeneralFailure({ className, minimal, error }: GeneralErrorProps) {
         showStatus={!minimal}
         title={
           isRateLimited
-            ? t('Too many requests. Give it a beat.')
-            : t('The request fell over.')
+            ? t('Too many requests')
+            : t('This page could not be opened')
         }
         description={
           isRateLimited
-            ? t('Slow down for a second, then send it again.')
+            ? t('Please wait a moment before trying again.')
             : t('Reload the page to try again.')
         }
         note={
           !minimal ? (
-            <>
-              <p>{t('Still broken? Report it on GitHub Issues.')}</p>
-              <p>
-                {t(
-                  'The event ID is local to this page, not a server request ID.'
-                )}
-              </p>
-              <p role='status' aria-live='polite'>
-                {!diagnostics
-                  ? t('Diagnostic information is unavailable in this browser.')
-                  : currentCopyResult
-                    ? currentCopyResult.success
-                      ? t('Diagnostic information copied.')
-                      : t('Could not copy diagnostic information. Try again.')
-                    : t(
-                        'Only time, build, route template, local event ID, HTTP status and error type are copied.'
-                      )}
-              </p>
-            </>
+            <details className='error-editorial-details'>
+              <summary>{t('Troubleshooting')}</summary>
+              <div className='error-editorial-details-content'>
+                <p>
+                  {t(
+                    'The event ID is local to this page, not a server request ID.'
+                  )}
+                </p>
+                <p role='status' aria-live='polite'>
+                  {!diagnostics
+                    ? t(
+                        'Diagnostic information is unavailable in this browser.'
+                      )
+                    : currentCopyResult
+                      ? currentCopyResult.success
+                        ? t('Diagnostic information copied.')
+                        : t('Could not copy diagnostic information. Try again.')
+                      : t(
+                          'Only time, build, route template, local event ID, HTTP status and error type are copied.'
+                        )}
+                </p>
+                <div className='error-editorial-detail-actions'>
+                  <Button
+                    variant='outline'
+                    className='error-editorial-action error-editorial-action-secondary'
+                    disabled={!diagnostics || copying}
+                    onClick={() => void copyDiagnostics()}
+                  >
+                    {t('Copy diagnostic information')}
+                  </Button>
+                  <Button
+                    variant='outline'
+                    className='error-editorial-action error-editorial-action-secondary'
+                    render={
+                      <a
+                        href={FEEDBACK_URL}
+                        target='_blank'
+                        rel='noopener noreferrer'
+                      />
+                    }
+                  >
+                    {t('Report an issue')}
+                  </Button>
+                </div>
+              </div>
+            </details>
           ) : undefined
         }
         actions={
@@ -166,27 +193,6 @@ function GeneralFailure({ className, minimal, error }: GeneralErrorProps) {
                 onClick={() => navigate({ to: '/' })}
               >
                 {t('Back to Home')}
-              </Button>
-              <Button
-                variant='outline'
-                className='error-editorial-action error-editorial-action-secondary'
-                disabled={!diagnostics || copying}
-                onClick={() => void copyDiagnostics()}
-              >
-                {t('Copy diagnostic information')}
-              </Button>
-              <Button
-                variant='outline'
-                className='error-editorial-action error-editorial-action-secondary'
-                render={
-                  <a
-                    href={FEEDBACK_URL}
-                    target='_blank'
-                    rel='noopener noreferrer'
-                  />
-                }
-              >
-                {t('Report an issue')}
               </Button>
             </>
           ) : undefined

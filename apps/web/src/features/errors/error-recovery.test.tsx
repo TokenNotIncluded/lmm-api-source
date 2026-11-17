@@ -47,7 +47,11 @@ test('server errors retain recovery and reporting actions without a game', async
   const html = await renderError(<GeneralError />)
   assert.doesNotMatch(html, /aria-label="500"/)
   assert.match(html, />Copy diagnostic information</)
-  assert.match(html, /The request fell over/)
+  assert.match(html, /This page could not be opened/)
+  assert.match(
+    html,
+    /<details class="error-editorial-details"><summary>Troubleshooting<\/summary>/
+  )
   assert.match(html, />Retry</)
   assert.match(html, />Back to Home</)
   assert.match(html, /issues" target="_blank" rel="noopener noreferrer"/)

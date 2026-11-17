@@ -38,8 +38,10 @@ export function NotFoundError() {
   return (
     <ErrorPageFrame
       status='404'
-      title={t('This page slipped through the grid.')}
-      description={t('Nothing lives at this address.')}
+      title={t('Page not found')}
+      description={t(
+        'The page may have moved, or the address may be incorrect.'
+      )}
       actions={
         <>
           <Button

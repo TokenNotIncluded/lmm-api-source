@@ -25,7 +25,7 @@ import {
   RotateCcw,
   Settings2,
 } from 'lucide-react'
-import type { SVGProps } from 'react'
+import { useId, type SVGProps } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { IconDir } from '@/assets/custom/icon-dir'
@@ -47,6 +47,7 @@ import {
 import { Button } from '@/components/ui/button'
 import {
   Sheet,
+  SheetClose,
   SheetContent,
   SheetDescription,
   SheetFooter,
@@ -124,32 +125,45 @@ export function ConfigDrawer({
           <Palette className='size-[1.2rem]' aria-hidden='true' />
         )}
       </SheetTrigger>
-      <SheetContent className={sideDrawerContentClassName('sm:max-w-md')}>
+      <SheetContent className={sideDrawerContentClassName('sm:max-w-lg')}>
         <SheetHeader className={sideDrawerHeaderClassName()}>
-          <SheetTitle>{t('Theme Settings')}</SheetTitle>
+          <SheetTitle>{t('Appearance')}</SheetTitle>
           <SheetDescription id='config-drawer-description'>
-            {t('Adjust the appearance and layout to suit your preferences.')}
+            {t('Changes apply instantly and are saved in this browser.')}
           </SheetDescription>
         </SheetHeader>
-        <div className={sideDrawerFormClassName()}>
-          <ThemeConfig />
+        <div className={sideDrawerFormClassName('gap-8 py-6 sm:py-7')}>
           <PresetConfig />
+          <ThemeConfig />
           <FontConfig />
           <RadiusConfig />
           <ScaleConfig />
-          <SidebarConfig />
-          <LayoutConfig />
-          <ContentLayoutConfig />
-          <DirConfig />
+          <details className='group border-border/70 border-t pt-6'>
+            <summary className='flex min-h-11 cursor-pointer list-none items-center justify-between gap-3 text-sm font-medium [&::-webkit-details-marker]:hidden'>
+              {t('Layout')}
+              <ChevronRight
+                className='size-4 transition-transform group-open:rotate-90 motion-reduce:transition-none'
+                aria-hidden='true'
+              />
+            </summary>
+            <div className='mt-5 space-y-8'>
+              <SidebarConfig />
+              <LayoutConfig />
+              <ContentLayoutConfig />
+              <DirConfig />
+            </div>
+          </details>
         </div>
-        <SheetFooter className={sideDrawerFooterClassName('grid-cols-1')}>
+        <SheetFooter className={sideDrawerFooterClassName()}>
           <Button
-            variant='destructive'
+            variant='ghost'
             onClick={handleReset}
             aria-label={t('Reset all settings to default values')}
           >
-            {t('Reset')}
+            <RotateCcw className='size-4' aria-hidden='true' />
+            {t('Reset appearance')}
           </Button>
+          <SheetClose render={<Button />}>{t('Done')}</SheetClose>
         </SheetFooter>
       </SheetContent>
     </Sheet>
@@ -167,7 +181,7 @@ function SectionTitle(props: {
   return (
     <div
       className={cn(
-        'text-muted-foreground mb-2 flex items-center gap-2 text-sm font-semibold',
+        'text-foreground mb-3 flex min-h-8 items-center justify-between gap-2 text-sm font-medium',
         props.className
       )}
     >
@@ -175,12 +189,12 @@ function SectionTitle(props: {
       {props.showReset && props.onReset && (
         <Button
           size='icon'
-          variant='secondary'
-          className='size-4'
+          variant='ghost'
+          className='-my-1.5 -me-2 min-h-11 min-w-11'
           onClick={props.onReset}
           aria-label={t('Reset')}
         >
-          <RotateCcw className='size-3' aria-hidden='true' />
+          <RotateCcw className='size-3.5' aria-hidden='true' />
         </Button>
       )}
     </div>
@@ -196,33 +210,30 @@ function RadioGroupItem(props: {
   isTheme?: boolean
 }) {
   const { t } = useTranslation()
+  const descriptionId = useId()
   const isTheme = props.isTheme ?? false
   return (
     <Item
       value={props.item.value}
-      className={cn('group outline-none', 'transition duration-200 ease-in')}
+      className='group min-w-0 outline-none'
       aria-label={t('Select {{label}}', {
         label: props.item.label.toLowerCase(),
       })}
-      aria-describedby={`${props.item.value}-description`}
+      aria-describedby={descriptionId}
     >
       <div
         className={cn(
-          'ring-border relative rounded-md ring-[1px]',
-          'group-data-checked:ring-primary group-data-checked:shadow-2xl',
+          'ring-border/70 bg-card relative overflow-hidden rounded-lg ring-[1px] transition-colors motion-reduce:transition-none',
+          'group-data-checked:ring-primary group-data-checked:bg-primary/5',
           'group-focus-visible:ring-2'
         )}
-        role='img'
-        aria-hidden='false'
-        aria-label={t('{{label}} option preview', {
-          label: props.item.label,
-        })}
+        aria-hidden='true'
       >
         <CircleCheck
           className={cn(
-            'fill-primary size-6 stroke-white',
+            'fill-primary stroke-primary-foreground size-4',
             'group-data-unchecked:hidden',
-            'absolute top-0 right-0 translate-x-1/2 -translate-y-1/2'
+            'absolute top-2 right-2'
           )}
           aria-hidden='true'
         />
@@ -234,11 +245,7 @@ function RadioGroupItem(props: {
           aria-hidden='true'
         />
       </div>
-      <div
-        className='mt-1 text-xs'
-        id={`${props.item.value}-description`}
-        aria-live='polite'
-      >
+      <div className='mt-1 text-xs' id={descriptionId}>
         {props.item.label}
       </div>
     </Item>
@@ -290,7 +297,7 @@ function PresetConfig() {
       <Radio
         value={customization.preset}
         onValueChange={(v) => setPreset(v as ThemePreset)}
-        className='grid w-full grid-cols-2 gap-3 sm:grid-cols-4'
+        className='grid w-full grid-cols-2 gap-x-4 gap-y-5'
         aria-label={t('Select color preset')}
       >
         {THEME_PRESETS.map((preset) => (
@@ -302,15 +309,15 @@ function PresetConfig() {
           >
             <div
               className={cn(
-                'ring-border relative h-12 rounded-md ring-[1px] transition',
-                'group-data-checked:ring-primary group-data-checked:shadow-md',
+                'ring-border/70 bg-card relative h-12 rounded-lg ring-[1px] transition-colors motion-reduce:transition-none',
+                'group-data-checked:ring-primary group-data-checked:bg-primary/5',
                 'group-focus-visible:ring-2',
                 'group-hover:ring-primary/60'
               )}
             >
               <div
                 aria-hidden='true'
-                className='absolute inset-0 flex overflow-hidden rounded-md'
+                className='absolute inset-0 flex overflow-hidden rounded-lg'
               >
                 {preset.swatches.map((color) => (
                   <span
@@ -322,14 +329,17 @@ function PresetConfig() {
               </div>
               <CircleCheck
                 className={cn(
-                  'fill-primary absolute top-0 right-0 z-10 size-5 translate-x-1/2 -translate-y-1/2 stroke-white',
+                  'fill-primary stroke-primary-foreground absolute top-2 right-2 z-10 size-4',
                   'group-data-unchecked:hidden'
                 )}
                 aria-hidden='true'
               />
             </div>
-            <div className='mt-1.5 text-center text-xs break-words'>
-              {t(`preset.${preset.value}`)}
+            <div className='mt-2 flex min-w-0 flex-wrap items-center justify-between gap-x-2 gap-y-1 text-start text-xs'>
+              <span>{t(`preset.${preset.value}`)}</span>
+              {preset.value === defaults.preset && (
+                <span className='text-muted-foreground'>{t('Default')}</span>
+              )}
             </div>
           </Item>
         ))}
@@ -344,7 +354,7 @@ function PresetConfig() {
  * Each option renders a live "Aa" preview in the font it represents.
  * `Auto` deliberately leaves `fontFamily` undefined so the preview inherits
  * the currently active body font — that way the user sees what `Auto` will
- * actually look like for the active preset (Anthropic → serif glyphs,
+ * actually look like for the active preset (Ant → serif glyphs,
  * everything else → sans glyphs) without us having to duplicate the
  * preset-default mapping in the UI.
  */
@@ -382,20 +392,20 @@ function FontConfig() {
             value={option.value}
             className='group flex flex-col items-stretch outline-none'
             aria-label={
-              option.value === 'default' ? t('System default') : option.label
+              option.value === 'default' ? t('System default') : t(option.label)
             }
           >
             <div
               className={cn(
-                'ring-border relative h-12 rounded-md ring-[1px] transition',
-                'group-data-checked:ring-primary group-data-checked:shadow-md',
+                'ring-border/70 bg-card relative h-12 rounded-lg ring-[1px] transition-colors motion-reduce:transition-none',
+                'group-data-checked:ring-primary group-data-checked:bg-primary/5',
                 'group-focus-visible:ring-2',
                 'group-hover:ring-primary/60'
               )}
             >
               <CircleCheck
                 className={cn(
-                  'fill-primary absolute top-0 right-0 z-10 size-5 translate-x-1/2 -translate-y-1/2 stroke-white',
+                  'fill-primary stroke-primary-foreground absolute top-2 right-2 z-10 size-4',
                   'group-data-unchecked:hidden'
                 )}
                 aria-hidden='true'
@@ -414,7 +424,7 @@ function FontConfig() {
                 Aa
               </span>
             </div>
-            <div className='mt-1.5 text-center text-xs'>{option.label}</div>
+            <div className='mt-1.5 text-center text-xs'>{t(option.label)}</div>
           </Item>
         ))}
       </Radio>
@@ -449,7 +459,7 @@ function RadiusConfig() {
       <Radio
         value={customization.radius}
         onValueChange={(v) => setRadius(v as ThemeRadius)}
-        className='grid w-full grid-cols-6 gap-2'
+        className='grid w-full grid-cols-3 gap-3 sm:grid-cols-6'
         aria-label={t('Select border radius')}
       >
         {RADIUS_OPTIONS.map((option) => (
@@ -463,15 +473,15 @@ function RadiusConfig() {
           >
             <div
               className={cn(
-                'ring-border relative h-12 rounded-md ring-[1px] transition',
-                'group-data-checked:ring-primary group-data-checked:shadow-md',
+                'ring-border/70 bg-card relative h-12 rounded-lg ring-[1px] transition-colors motion-reduce:transition-none',
+                'group-data-checked:ring-primary group-data-checked:bg-primary/5',
                 'group-focus-visible:ring-2',
                 'group-hover:ring-primary/60'
               )}
             >
               <CircleCheck
                 className={cn(
-                  'fill-primary absolute top-0 right-0 z-10 size-5 translate-x-1/2 -translate-y-1/2 stroke-white',
+                  'fill-primary stroke-primary-foreground absolute top-2 right-2 z-10 size-4',
                   'group-data-unchecked:hidden'
                 )}
                 aria-hidden='true'
@@ -482,7 +492,9 @@ function RadiusConfig() {
                 style={{ borderTopLeftRadius: option.preview }}
               />
             </div>
-            <div className='mt-1.5 text-center text-xs'>{option.label}</div>
+            <div className='mt-1.5 text-center text-xs'>
+              {option.value === 'default' ? t('Auto') : option.label}
+            </div>
           </Item>
         ))}
       </Radio>
@@ -550,15 +562,15 @@ function ScaleConfig() {
           >
             <div
               className={cn(
-                'ring-border relative h-12 rounded-md ring-[1px] transition',
-                'group-data-checked:ring-primary group-data-checked:shadow-md',
+                'ring-border/70 bg-card relative h-12 rounded-lg ring-[1px] transition-colors motion-reduce:transition-none',
+                'group-data-checked:ring-primary group-data-checked:bg-primary/5',
                 'group-focus-visible:ring-2',
                 'group-hover:ring-primary/60'
               )}
             >
               <CircleCheck
                 className={cn(
-                  'fill-primary absolute top-0 right-0 z-10 size-5 translate-x-1/2 -translate-y-1/2 stroke-white',
+                  'fill-primary stroke-primary-foreground absolute top-2 right-2 z-10 size-4',
                   'group-data-unchecked:hidden'
                 )}
                 aria-hidden='true'
@@ -691,15 +703,15 @@ function ContentLayoutConfig() {
           >
             <div
               className={cn(
-                'ring-border relative h-12 rounded-md ring-[1px] transition',
-                'group-data-checked:ring-primary group-data-checked:shadow-md',
+                'ring-border/70 bg-card relative h-12 rounded-lg ring-[1px] transition-colors motion-reduce:transition-none',
+                'group-data-checked:ring-primary group-data-checked:bg-primary/5',
                 'group-focus-visible:ring-2',
                 'group-hover:ring-primary/60'
               )}
             >
               <CircleCheck
                 className={cn(
-                  'fill-primary absolute top-0 right-0 z-10 size-5 translate-x-1/2 -translate-y-1/2 stroke-white',
+                  'fill-primary stroke-primary-foreground absolute top-2 right-2 z-10 size-4',
                   'group-data-unchecked:hidden'
                 )}
                 aria-hidden='true'

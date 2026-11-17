@@ -1,6 +1,7 @@
 /* Copyright (C) 2026 LIghtJUNction. SPDX-License-Identifier: AGPL-3.0-or-later */
 import assert from 'node:assert/strict'
-import { after, test } from 'node:test'
+import { readFileSync } from 'node:fs'
+import { after, beforeEach, test } from 'node:test'
 
 import { Window } from 'happy-dom'
 
@@ -27,7 +28,27 @@ const { createRoot } = await import('react-dom/client')
 const { ThemeProvider, useTheme } = await import('./theme-provider')
 const { ThemeCustomizationProvider, useThemeCustomization } =
   await import('./theme-customization-provider')
-const { getCookie } = await import('@/lib/cookies')
+const { getCookie, removeCookie, setCookie } = await import('@/lib/cookies')
+const { THEME_COOKIE_KEYS, THEME_PRESETS } =
+  await import('@/lib/theme-customization')
+const bootstrap = readFileSync(
+  new URL('../../index.html', import.meta.url),
+  'utf8'
+).match(/<script id="theme-customization-bootstrap">([\s\S]*?)<\/script>/)?.[1]
+assert.ok(bootstrap)
+const applyBootstrap = new Function('document', bootstrap)
+beforeEach(() => {
+  for (const name of [
+    ...Object.values(THEME_COOKIE_KEYS),
+    'theme_preset_default_migrated_v1',
+    'vite-ui-theme',
+  ]) {
+    removeCookie(name)
+  }
+  for (const name of document.body.getAttributeNames()) {
+    if (name.startsWith('data-theme-')) document.body.removeAttribute(name)
+  }
+})
 after(() => window.happyDOM.abort())
 
 async function render() {
@@ -95,7 +116,7 @@ test('appearance preview changes real provider output without saving cookies', a
       stopPreset()
     })
     assert.equal(document.documentElement.classList.contains('light'), true)
-    assert.equal(document.body.getAttribute('data-theme-preset'), null)
+    assert.equal(document.body.getAttribute('data-theme-preset'), 'default')
     assert.equal(persistentCookies(), cookies)
   } finally {
     await mounted.close()
@@ -134,15 +155,95 @@ test('manual choices, including the same saved value, win over old preview clean
   }
 })
 
-test('a newly selected Anthropic preset survives remount and the legacy migration', async () => {
+test('Ant is the default palette before the first paint and after mounting', async () => {
+  applyBootstrap(document)
+  assert.equal(document.body.dataset.themePreset, 'ant')
+  assert.equal(document.body.dataset.themeFont, 'serif')
   const mounted = await render()
-  await act(async () => mounted.current().style.setPreset('anthropic'))
-  assert.equal(getCookie('theme_preset_default_migrated_v1'), '1')
+  try {
+    assert.equal(mounted.current().style.customization.preset, 'ant')
+    assert.equal(mounted.current().style.defaults.preset, 'ant')
+    assert.equal(document.body.dataset.themePreset, 'ant')
+    assert.equal(document.body.dataset.themeFont, 'serif')
+  } finally {
+    await mounted.close()
+  }
+})
+
+test('first-paint initialization preserves every registered palette and explicit axes', () => {
+  setCookie('theme_font', 'sans')
+  setCookie('theme_radius', 'xl')
+  setCookie('theme_scale', 'lg')
+  setCookie('theme_content_layout', 'centered')
+  for (const { value } of THEME_PRESETS) {
+    setCookie('theme_preset', value)
+    applyBootstrap(document)
+    assert.equal(document.body.dataset.themePreset, value)
+    assert.equal(document.body.dataset.themeFont, 'sans')
+    assert.equal(document.body.dataset.themeRadius, 'xl')
+    assert.equal(document.body.dataset.themeScale, 'lg')
+    assert.equal(document.body.dataset.themeContentLayout, 'centered')
+  }
+})
+
+test('legacy warm-palette cookies migrate to Ant without losing the saved font', async () => {
+  setCookie('theme_preset', 'anthropic')
+  setCookie('theme_preset_default_migrated_v1', '1')
+  setCookie('theme_font', 'sans')
+  applyBootstrap(document)
+  assert.equal(document.body.dataset.themePreset, 'ant')
+  assert.equal(document.body.dataset.themeFont, 'sans')
+  const mounted = await render()
+  assert.equal(mounted.current().style.customization.preset, 'ant')
+  assert.ok(!getCookie('theme_preset'))
   await mounted.close()
   const reloaded = await render()
   try {
-    assert.equal(reloaded.current().style.customization.preset, 'anthropic')
-    assert.equal(document.body.getAttribute('data-theme-preset'), 'anthropic')
+    assert.equal(reloaded.current().style.customization.preset, 'ant')
+    assert.equal(reloaded.current().style.customization.font, 'sans')
+    assert.equal(document.body.dataset.themePreset, 'ant')
+    assert.equal(document.body.dataset.themeFont, 'sans')
+  } finally {
+    await reloaded.close()
+  }
+})
+
+test('appearance choices survive remount and reset restores Ant and all layout defaults', async () => {
+  const mounted = await render()
+  await act(async () => {
+    const style = mounted.current().style
+    style.setPreset('ocean-breeze')
+    style.setFont('sans')
+    style.setRadius('sm')
+    style.setScale('lg')
+    style.setContentLayout('centered')
+  })
+  await mounted.close()
+  const reloaded = await render()
+  try {
+    assert.deepEqual(reloaded.current().style.customization, {
+      preset: 'ocean-breeze',
+      font: 'sans',
+      radius: 'sm',
+      scale: 'lg',
+      contentLayout: 'centered',
+    })
+    assert.equal(document.body.dataset.themeRadius, 'sm')
+    assert.equal(document.body.dataset.themeScale, 'lg')
+    assert.equal(document.body.dataset.themeContentLayout, 'centered')
+    await act(async () => reloaded.current().style.resetCustomization())
+    assert.deepEqual(
+      reloaded.current().style.customization,
+      reloaded.current().style.defaults
+    )
+    assert.equal(document.body.dataset.themePreset, 'ant')
+    assert.equal(document.body.dataset.themeFont, 'serif')
+    assert.equal(document.body.getAttribute('data-theme-radius'), null)
+    assert.equal(document.body.getAttribute('data-theme-scale'), null)
+    assert.equal(document.body.dataset.themeContentLayout, 'full')
+    for (const key of Object.values(THEME_COOKIE_KEYS)) {
+      assert.ok(!getCookie(key))
+    }
   } finally {
     await reloaded.close()
   }

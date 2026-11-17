@@ -16,7 +16,6 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { Button } from '@/components/ui/button'
@@ -25,31 +24,18 @@ import { ErrorPageFrame } from './error-page-frame'
 
 export function MaintenanceError() {
   const { t } = useTranslation()
-  const [checked, setChecked] = useState(false)
-
-  // There is no server action available during maintenance, so the primary
-  // button reloads the page - the one thing a visitor can actually try.
-  const retry = () => {
-    setChecked(true)
-    window.location.reload()
-  }
 
   return (
     <ErrorPageFrame
       status='503'
-      title={t('Down for a short repair.')}
-      description={t('The site is offline while it is being upgraded.')}
-      note={
-        checked
-          ? t('Still offline. Reload again in a minute.')
-          : t('Everything else keeps working: prices and docs stay public.')
-      }
+      title={t('Temporarily unavailable')}
+      description={t('Please try again in a moment.')}
       actions={
         <>
           <Button
             size='lg'
             className='error-editorial-action error-editorial-action-primary'
-            onClick={retry}
+            onClick={() => window.location.reload()}
           >
             {t('Retry')}
           </Button>

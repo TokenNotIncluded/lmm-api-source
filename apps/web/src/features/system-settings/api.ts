@@ -83,13 +83,17 @@ export async function getSystemOptions(
       ...res.data.data,
       { key: 'HeaderNavModules', value: navigation.value },
     ],
-    capabilities: {
-      ...res.data.capabilities,
-      writable_keys: [
-        ...(res.data.capabilities?.writable_keys ?? []),
-        'HeaderNavModules',
-      ],
-    },
+    // Navigation has a separate endpoint. It must not turn a full settings
+    // response into a restricted capability projection.
+    capabilities: res.data.capabilities
+      ? {
+          ...res.data.capabilities,
+          writable_keys: [
+            ...(res.data.capabilities.writable_keys ?? []),
+            'HeaderNavModules',
+          ],
+        }
+      : undefined,
   }
 }
 

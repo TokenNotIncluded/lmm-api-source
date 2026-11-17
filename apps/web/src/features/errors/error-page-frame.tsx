@@ -37,7 +37,7 @@ export function ErrorPageFrame(props: ErrorPageFrameProps) {
     <main className='error-editorial min-h-svh' data-status={props.status}>
       <div className='error-editorial-shell'>
         <a href='/' className='error-editorial-brand'>
-          <LmmBrandMark className='size-7' title={systemName} />
+          <LmmBrandMark className='size-7' />
           <span>{systemName}</span>
         </a>
         <div className='error-editorial-layout'>

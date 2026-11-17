@@ -91,6 +91,7 @@ const { api } = await import('@/lib/api')
 const { useAuthStore } = await import('@/stores/auth-store')
 const { SettingsPage } = await import('../settings-page')
 const { useUpdateOptions } = await import('../../hooks/use-update-option')
+const { useSettingsForm } = await import('../../hooks/use-settings-form')
 notifyManager.setScheduler(queueMicrotask)
 await i18n.changeLanguage('en')
 
@@ -313,6 +314,7 @@ for (const capabilities of [
   { read_only: false, partial: true },
 ]) {
   test(`limited settings ${JSON.stringify(capabilities)} show actual values without editable defaults`, async () => {
+    activeTestSection = 'system-info'
     read = async (config) =>
       response(config, 200, {
         success: true,
@@ -332,28 +334,26 @@ for (const capabilities of [
     assert.equal(container.querySelector('form'), null)
     assert.equal(container.querySelector('input'), null)
     assert.doesNotMatch(container.textContent ?? '', /Saved persona/)
-    assert.match(container.textContent ?? '', /ServerAddress/)
-    assert.match(container.textContent ?? '', /RegisterEnabled/)
-    assert.match(container.textContent ?? '', /false/)
+    assert.match(container.textContent ?? '', /Server Address/)
+    assert.doesNotMatch(container.textContent ?? '', /RegisterEnabled/)
+    assert.doesNotMatch(container.textContent ?? '', /Registration Enabled/)
     if (capabilities.partial) {
       assert.match(
         container.textContent ?? '',
-        /Only part of the settings is available/
+        /Only settings supported by this server are shown/
       )
     }
     if (capabilities.read_only) {
       assert.match(container.textContent ?? '', /Read only/)
       assert.match(
         container.textContent ?? '',
-        /host configuration upgrade procedure/
+        /server address is managed in the deployment configuration/
       )
     }
     const saveButton = [...container.querySelectorAll('button')].find(
       (button) => button.textContent === 'Save Settings'
     )
-    assert.ok(saveButton)
-    assert.equal(saveButton.disabled, true)
-    await act(async () => saveButton.click())
+    assert.equal(saveButton, undefined)
     assert.ok(requests.every((request) => request.method === 'get'))
   })
 }
@@ -384,7 +384,8 @@ test('read_only false does not enable non-allowlisted settings', async () => {
   )
   assert.equal(container.querySelector('form'), null)
   assert.equal(container.querySelector('input'), null)
-  assert.match(container.textContent ?? '', /AssistantPersona/)
+  assert.match(container.textContent ?? '', /Assistant persona/)
+  assert.doesNotMatch(container.textContent ?? '', /Maintenance notice/)
   assert.match(container.textContent ?? '', /Read only/)
   assert.equal(
     [...container.querySelectorAll('button')].some(
@@ -415,10 +416,10 @@ test('a partial read-only refresh removes cached editable defaults and disables 
     'a restricted projection must not retain the editable full-settings form'
   )
   assert.doesNotMatch(container.textContent ?? '', /Saved persona/)
-  assert.match(container.textContent ?? '', /RegisterEnabled/)
+  assert.doesNotMatch(container.textContent ?? '', /RegisterEnabled/)
   assert.match(
     container.textContent ?? '',
-    /Only part of the settings is available/
+    /No settings available in this section/
   )
   assert.ok(requests.every((request) => request.method === 'get'))
 })
@@ -788,4 +789,189 @@ test('a provider HTTP failure preserves the saved rate and shows its reason', as
     '7.1'
   )
   assert.ok(requests.every((request) => request.method === 'get'))
+})
+
+test('a full settings response keeps its editors after navigation is merged', async () => {
+  await renderPage(false)
+  await until(
+    () => container.querySelector('form') !== null,
+    'a full backend response must keep the existing settings form'
+  )
+  assert.equal(
+    queryClient.getQueryData<{ capabilities?: unknown }>(queryKey)
+      ?.capabilities,
+    undefined
+  )
+  await edit('Editable full settings')
+  await save()
+  await until(() => postRequests().length === 1, 'the full settings form saves')
+  assert.deepEqual(postRequests()[0]?.values, {
+    AssistantPersona: 'Editable full settings',
+  })
+})
+
+type DraftValues = { title: string; address: string }
+type DraftSave = (
+  values: DraftValues,
+  changed: Record<string, unknown>
+) => Promise<void>
+
+function SettingsFormHarness({
+  values,
+  onSave,
+}: {
+  values: DraftValues
+  onSave: DraftSave
+}) {
+  const { form, handleSubmit, handleReset, isDirty, isSubmitting } =
+    useSettingsForm<DraftValues>({
+      defaultValues: values,
+      onSubmit: onSave,
+    })
+  return (
+    <form onSubmit={(event) => void handleSubmit(event).catch(() => {})}>
+      <Controller
+        control={form.control}
+        name='title'
+        render={({ field }) => <input aria-label='Draft title' {...field} />}
+      />
+      <Controller
+        control={form.control}
+        name='address'
+        render={({ field }) => <input aria-label='Draft address' {...field} />}
+      />
+      <button type='submit'>Save</button>
+      <button type='button' onClick={handleReset}>
+        Reset
+      </button>
+      <output data-testid='dirty'>{isDirty ? 'dirty' : 'clean'}</output>
+      <output data-testid='saving'>{isSubmitting ? 'saving' : 'idle'}</output>
+    </form>
+  )
+}
+
+async function renderForm(values: DraftValues, onSave: DraftSave) {
+  await act(async () => {
+    root.render(
+      <I18nextProvider i18n={i18n}>
+        <SettingsFormHarness values={values} onSave={onSave} />
+      </I18nextProvider>
+    )
+  })
+}
+
+test('settings refresh keeps dirty fields, updates untouched fields, and resets to the new baseline', async () => {
+  const onSave: DraftSave = async () => {}
+  await renderForm(
+    { title: 'Saved title', address: 'saved.example.test' },
+    onSave
+  )
+  await edit('Unsaved title')
+  await renderForm(
+    { title: 'Server title', address: 'new.example.test' },
+    onSave
+  )
+  assert.equal(
+    container.querySelector<HTMLInputElement>('[aria-label="Draft title"]')
+      ?.value,
+    'Unsaved title'
+  )
+  assert.equal(
+    container.querySelector<HTMLInputElement>('[aria-label="Draft address"]')
+      ?.value,
+    'new.example.test'
+  )
+  const reset = container.querySelector<HTMLButtonElement>(
+    'button[type="button"]'
+  )
+  assert.ok(reset)
+  await act(async () => reset.click())
+  assert.equal(
+    container.querySelector<HTMLInputElement>('[aria-label="Draft title"]')
+      ?.value,
+    'Server title'
+  )
+  assert.equal(
+    container.querySelector('[data-testid="dirty"]')?.textContent,
+    'clean'
+  )
+})
+
+test('a successful settings save survives unchanged cached defaults and becomes the reset baseline', async () => {
+  const writes: Record<string, unknown>[] = []
+  const onSave: DraftSave = async (_values, changed) => {
+    writes.push(changed)
+  }
+  const values = { title: 'Saved title', address: 'saved.example.test' }
+  await renderForm(values, onSave)
+  await edit('Accepted title')
+  await save()
+  await until(
+    () =>
+      container.querySelector('[data-testid="dirty"]')?.textContent === 'clean',
+    'acknowledged fields become clean'
+  )
+  await renderForm({ ...values }, onSave)
+  assert.equal(
+    container.querySelector<HTMLInputElement>('[aria-label="Draft title"]')
+      ?.value,
+    'Accepted title'
+  )
+  await edit('Another draft')
+  const reset = container.querySelector<HTMLButtonElement>(
+    'button[type="button"]'
+  )
+  assert.ok(reset)
+  await act(async () => reset.click())
+  assert.equal(
+    container.querySelector<HTMLInputElement>('[aria-label="Draft title"]')
+      ?.value,
+    'Accepted title'
+  )
+  assert.deepEqual(writes, [{ title: 'Accepted title' }])
+})
+
+test('settings edits made during a save remain dirty for the next explicit save', async () => {
+  let accept!: () => void
+  const pending = new Promise<void>((resolve) => {
+    accept = resolve
+  })
+  const writes: Record<string, unknown>[] = []
+  const onSave: DraftSave = async (_values, changed) => {
+    writes.push(changed)
+    if (writes.length === 1) await pending
+  }
+  await renderForm(
+    { title: 'Saved title', address: 'saved.example.test' },
+    onSave
+  )
+  await edit('First title')
+  await save()
+  await until(() => writes.length === 1, 'the first save is in flight')
+  await edit('Second title')
+  await act(async () => accept())
+  await until(
+    () =>
+      container.querySelector('[data-testid="saving"]')?.textContent === 'idle',
+    'the first save settles'
+  )
+  assert.equal(
+    container.querySelector<HTMLInputElement>('[aria-label="Draft title"]')
+      ?.value,
+    'Second title'
+  )
+  assert.equal(
+    container.querySelector('[data-testid="dirty"]')?.textContent,
+    'dirty'
+  )
+  await save()
+  await until(
+    () =>
+      container.querySelector('[data-testid="dirty"]')?.textContent === 'clean',
+    'the second explicit save accepts the remaining draft'
+  )
+  assert.deepEqual(writes, [
+    { title: 'First title' },
+    { title: 'Second title' },
+  ])
 })
