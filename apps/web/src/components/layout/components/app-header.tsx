@@ -217,7 +217,7 @@ export function AppHeader({
                     variant='ghost'
                     size='icon'
                     className={cn(
-                      'relative h-11 w-auto min-w-11 gap-2 rounded-full bg-primary/5 px-3 text-primary transition-colors hover:bg-primary/10 md:h-9',
+                      'text-muted-foreground hover:text-foreground relative h-11 w-auto min-w-11 gap-2 rounded-lg px-2.5 transition-colors hover:bg-accent md:h-9',
                       !showMobileAssistant && 'hidden md:inline-flex',
                       !assistantEnabled && 'md:hidden',
                       railOpen && 'bg-accent text-accent-foreground'
@@ -237,15 +237,9 @@ export function AppHeader({
                   className='relative z-10'
                   aria-hidden='true'
                 />
-                <span className='hidden text-xs font-semibold md:inline'>
+                <span className='hidden text-xs font-medium md:inline'>
                   {t('AI assistant')}
                 </span>
-                <kbd
-                  className='text-muted-foreground hidden px-1.5 py-0.5 font-mono text-[10px] 2xl:inline'
-                  aria-hidden='true'
-                >
-                  Ctrl / ⌘ ⇧ Space
-                </kbd>
               </TooltipTrigger>
               <TooltipContent side='bottom'>
                 {t('Open AI assistant')} · Ctrl / ⌘ + ⇧ + Space

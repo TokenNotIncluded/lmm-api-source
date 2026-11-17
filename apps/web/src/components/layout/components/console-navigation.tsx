@@ -95,13 +95,20 @@ export function ConsoleSearch() {
         <SidebarMenuButton
           tooltip={t('Search')}
           className='text-muted-foreground bg-background/70 rounded-lg'
+          aria-keyshortcuts='Control+k Meta+k'
           onClick={() => {
             setOpenMobile(false)
             setOpen(true)
           }}
         >
           <Search aria-hidden='true' />
-          <span>{t('Search')}</span>
+          <span className='min-w-0 flex-1 truncate'>{t('Search')}</span>
+          <kbd
+            className='text-muted-foreground/70 hidden shrink-0 font-mono text-[10px] font-normal group-data-[collapsible=icon]:hidden md:inline'
+            aria-hidden='true'
+          >
+            Ctrl / ⌘ K
+          </kbd>
         </SidebarMenuButton>
       </SidebarMenuItem>
     </SidebarMenu>
@@ -288,9 +295,9 @@ export function ConsoleSidebarFooter({ groups }: { groups: NavGroupProps[] }) {
           </SidebarMenu>
         </SidebarGroup>
       )}
-      <div className='border-sidebar-border/70 bg-sidebar-accent/20 flex min-w-0 items-center gap-0.5 rounded-lg border p-0.5 group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:border-0 group-data-[collapsible=icon]:bg-transparent'>
+      <div className='flex min-w-0 items-center gap-1 rounded-lg px-0.5 py-1 group-data-[collapsible=icon]:justify-center'>
         <ConfigDrawer sidebarAction />
-        <div className='border-sidebar-border/70 shrink-0 border-l ps-0.5 group-data-[collapsible=icon]:hidden'>
+        <div className='shrink-0 group-data-[collapsible=icon]:hidden'>
           <LanguageSwitcher />
         </div>
       </div>
