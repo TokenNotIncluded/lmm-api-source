@@ -181,6 +181,7 @@ test('blocked Cookie writers allow exact original-family revocation; local recov
   await assert.rejects(logout(), AuthCookieBlockedError)
   assert.equal(revocations, 1)
   assert.equal(dispatches, 0)
+  assert.equal(storage.get(markerKey), 'uncertain:synthetic-crashed-writer')
   assert.equal(endLocalAuthSessionForRecovery(preMfaScope).kind, 'superseded')
   assert.equal(
     useAuthStore.getState().auth.pending2FAFlowToken,
@@ -200,7 +201,7 @@ test('blocked Cookie writers allow exact original-family revocation; local recov
     assert.equal(auth.pending2FAFlowExpiresAt, null)
     assert.equal(auth.bootstrapState, 'complete')
     assert.equal(cache.getQueryCache().getAll().length, 0)
-    assert.equal(storage.get(markerKey), 'pending:synthetic-crashed-writer')
+    assert.equal(storage.get(markerKey), 'uncertain:synthetic-crashed-writer')
     assert.equal(writes.length, beforeWrites)
     assert.deepEqual(published, [])
   } finally {

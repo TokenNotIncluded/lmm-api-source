@@ -63,7 +63,7 @@ describe('authenticated header responsive navigation', () => {
     assert.match(balanceBadgeSource, /\{t\('Balance'\)\}/)
     assert.match(
       balanceBadgeSource,
-      /const \{ formatQuota \} = useWalletCurrency\(\)/
+      /const \{ formatQuota, config, currency \} = useWalletCurrency\(\)/
     )
     assert.match(balanceBadgeSource, /financial_projection_available === false/)
     assert.match(balanceBadgeSource, /t\('Unavailable'\)/)

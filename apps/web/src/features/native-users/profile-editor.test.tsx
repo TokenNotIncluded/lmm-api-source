@@ -512,7 +512,7 @@ test('the live native page scopes management to ordinary users and replaces unav
   assert.equal(aboutData.querySelectorAll('button').length, 0)
   assert.match(
     aboutData.textContent ?? '',
-    /Available actions are shown beside each user\. Risk, usage, top-up, referral history and legacy trust information are unavailable in this view\./
+    /Open Manage to review account usage, imported counters and available actions\. Empty fields are shown as a dash; unavailable data is never a zero balance\./
   )
   const userCards = container.querySelectorAll('[data-native-user-id]')
   for (const [index, card] of Array.from(userCards).entries()) {
