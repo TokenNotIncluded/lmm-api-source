@@ -4,6 +4,11 @@
 
 ## 当前状态
 
+- **原生地域与用户 IP 白名单（代码和 SQL 目标已补齐，Core 运行验证待续，2026-11-17）**：Rust Core 新增公开入口策略、进程内 MMDB 地域查询及可信 edge 元数据传递；用户 IPv4/IPv6/CIDR 白名单接入 Session、密码/MFA/OAuth 签发、浏览器刷新/恢复和模型/Key 读取。用户和 Key 规则取交，保存非空用户名单须包含本次服务端来源 IP；旧账户空设置按未配置处理。平台 `IPAccessRoutingRules` 接入保存、批量比较保存与审计，固定键函数保持 runtime 无 options 表直接写权限。配置与接口见[地域访问控制](network-access.md)。
+  界面已推送 [44728f3](https://github.com/TokenNotIncluded/lmm-api-source/commit/44728f37d7ec3107a703b5a1e5f01e77c5253e0e)：真实设置页按可写 capability 挂载地域编辑器，个人卡片按用户/会话绑定请求，七语言通过 helper 同步；35 项定向测试、修改范围严格类型检查、lint 和局部真实组件构建通过。全项目 Web 类型检查两次被环境 SIGKILL/137 终止，无 TS 诊断；未完成浏览器截图，不能据此宣称视觉检查通过。
+  新增第 76 组件及标准 `core-network-access-v1`。隔离 PostgreSQL 18.6 下，75 前置 manifest/catalog 均匹配冻结合同；追加 76 与全新 76 的实测 catalog 一致，目标 manifest `2c14283c2d35580f3fe314b7de6a88e3aec3524e74157310bf5022415367ff8e`、catalog `bed3e7e3ad2810bda942473b660e4348294dab31e8fdc72e52cb5693507158db`。这是原始 SQL 与正式 catalog query 的测量，未替代 Rust 原生初始化或升级回执验证。 新 writer 的 10 项受限 runtime SQL 检查通过，覆盖实际插入/修订、直接表写拒绝、空/超限参数拒绝以及显式和异常事务回滚；HTTP 审计路径仍未运行。
+  Core 的 lib-test 和较小 production-lib 集成目标编译均在 Core 阶段收到 SIGKILL；依赖下载/编译完成，但未取得 Core 可执行测试产物。原生 HTTP、用户白名单、升级/replay 用例已准备，仍未运行；未做独立验收、生产升级、部署或启用新限制。开发机当前仅开放 packages 只读范围，恢复可写项目根目录后继续标准验证。证据入口：本轮交付包的 `validation/`、`ui-validation/`，以及开发工作区 `out/network-access-validation/`。
+
 - **Native 扩展接口 503 与申诉上下文请求修复（源码已推送，未部署，2026-11-17）**：[15c26f59](https://github.com/TokenNotIncluded/lmm-api-source/commit/15c26f59cfb4bb5b676966b8aa165708042a0c71) 对明确的 `core_migration_incomplete` 停止自动重试，普通暂时性 503 保留既有重试；赏金页按实际选中的标签加载列表，首屏赏金请求由 7 项降为列表与配置 2 项，保留手动重试、费用配置和待办计数依赖。[64bd8f42](https://github.com/TokenNotIncluded/lmm-api-source/commit/64bd8f423d821cd79a5bca87bf8471c4ac0adfe1) 仅在已验证的封禁登录响应后加载申诉上下文，保留 OAuth 跳转和证明过期处理；普通登录与手动密码申诉不再无条件请求该接口，服务端证明校验保持有效。
   开发自测为重试/赏金 8 项、申诉 13 项，共 21 项通过；不是独立验收或线上验证。冻结提交的首次 Web 类型检查发现导航键和已删除账户字段相关的 7 处错误，[04fef6f1](https://github.com/TokenNotIncluded/lmm-api-source/commit/04fef6f15b8214b56494ad2af8f3e2c8076035af) 已提交两文件的最小兼容修正；修正后的类型检查结果未能读回，生产构建未完成。
   现场只读检查确认：公共请求的 503 命中 Core 未匹配路由的迁移回退；Extensions 直连 AI 目录为 200、匿名 RSS 为 401，可准备两个精确路由；scripts 直连仍为内容不可用 503，赏金直连为 authority 不可用 503，public-relays 在当前 Core/Extensions 中没有对应实现。开发机连接离线前没有修改或重载 Nginx，没有重启服务或部署前端；路由候选、脚本真实内容、赏金存储/授权/费用策略和 public-relays 实现仍待处理。赏金启用涉及独立记录库、Core 权限及费用策略，不能仅补配置后重启。

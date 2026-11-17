@@ -378,6 +378,7 @@ struct CoreFile {
     ingress: Option<IngressFile>,
     remote_control: Option<RemoteControlFile>,
     edge_access: Option<crate::edge_access::TypedConfig>,
+    network_access: Option<crate::network_access::TypedConfig>,
     trust_policy_editor: Option<trust_policy_config::EditorFile>,
 }
 
@@ -499,7 +500,8 @@ fn parse_core_file(document: &[u8]) -> io::Result<BTreeMap<&'static str, OsStrin
             || file.images.is_some()
             || file.community.is_some()
             || file.remote_control.is_some()
-            || file.edge_access.is_some())
+            || file.edge_access.is_some()
+            || file.network_access.is_some())
     {
         return Err(invalid_config(
             "configured identity and business capabilities require a core database",
@@ -514,9 +516,9 @@ fn parse_core_file(document: &[u8]) -> io::Result<BTreeMap<&'static str, OsStrin
         values.insert(name, value.into());
     };
     let configured_listen = file.server.listen.clone();
-    if file.edge_access.is_some() && !file.console.enabled {
+    if (file.edge_access.is_some() || file.network_access.is_some()) && !file.console.enabled {
         return Err(invalid_config(
-            "edge access requires the console policy store",
+            "network access policies require the console policy store",
         ));
     }
     if (file.identity.github.is_some()
@@ -834,6 +836,11 @@ fn parse_core_file(document: &[u8]) -> io::Result<BTreeMap<&'static str, OsStrin
             put(uri_key, provider.redirect_uri);
             paths.push((secret_key, provider.client_secret_file));
         }
+    }
+    if let Some(network) = file.network_access
+        && let Some(path) = network.geoip_database
+    {
+        paths.push(("LMM_CORE_GEOIP_DATABASE", path));
     }
     if let Some(edge) = file.edge_access {
         paths.push(("LMM_CORE_EDGE_PROOF_FILE", edge.proof_file));
@@ -1367,6 +1374,14 @@ pub fn identity_database_required() -> io::Result<bool> {
         || setting_os("LMM_CORE_TELEGRAM_BOT_TOKEN_FILE").is_some()
         || oauth2_configured()
         || market_oauth_configured())
+}
+
+pub fn network_access_config() -> io::Result<crate::network_access::TypedConfig> {
+    let geoip_database = setting_os("LMM_CORE_GEOIP_DATABASE").map(PathBuf::from);
+    if let Some(path) = &geoip_database {
+        absolute_path(path)?;
+    }
+    Ok(crate::network_access::TypedConfig { geoip_database })
 }
 
 pub fn edge_access_config() -> io::Result<Option<crate::edge_access::TypedConfig>> {
@@ -4150,6 +4165,28 @@ email_domain_whitelist = ["gmail.com", "outlook.com"]
             parse_core_file(
                 document
                     .replace("'/nonexistent-lmm-test/edge-proof'", "'relative-proof'")
+                    .as_bytes()
+            )
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn network_access_configuration_requires_console_and_absolute_database_path() {
+        let network = "\n[network_access]\ngeoip_database='/var/lib/lmm-api/country.mmdb'\n";
+        assert!(parse_core_file(format!("version=1{network}").as_bytes()).is_err());
+        let base = "version=1\n[database]\nurl_file='/nonexistent-lmm-test/db'\n";
+        assert!(parse_core_file(format!("{base}{network}").as_bytes()).is_err());
+        let document = format!("{base}[console]\nenabled=true\n{network}");
+        let values = parse_core_file(document.as_bytes()).unwrap();
+        assert_eq!(
+            values.get("LMM_CORE_GEOIP_DATABASE"),
+            Some(&OsString::from("/var/lib/lmm-api/country.mmdb"))
+        );
+        assert!(
+            parse_core_file(
+                document
+                    .replace("'/var/lib/lmm-api/country.mmdb'", "'country.mmdb'")
                     .as_bytes()
             )
             .is_err()

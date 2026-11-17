@@ -23,6 +23,7 @@ mod historical_fixture;
 mod ledger;
 pub(super) mod managed_applications;
 mod navigation_options;
+mod network_access;
 mod oidc;
 mod payment_discount_management;
 mod payment_discounts;

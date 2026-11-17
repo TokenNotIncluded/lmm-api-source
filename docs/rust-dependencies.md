@@ -1,6 +1,6 @@
 # Rust Core 依赖审查
 
-zconv 固定版本更新于 2026-11-15，其余版本审查日期为 2026-11-13。范围为 `services/core/Cargo.toml` 的运行、构建及开发直接依赖；当前共有 61 个不同 crate、62 条声明（SQLx 同时用于运行和测试）。版本以当前 `Cargo.lock` 为准，统一构建与业务回归尚未完成。不是传递依赖全量审计、安全漏洞扫描或性能测试。
+zconv 固定版本更新于 2026-11-15，maxminddb 新增审查于 2026-11-17，其余版本审查日期为 2026-11-13。范围为 `services/core/Cargo.toml` 的运行、构建及开发直接依赖；当前共有 64 个不同 crate、66 条声明（SQLx、TOML 同时用于运行和测试）。版本以当前 `Cargo.lock` 为准，统一构建与业务回归尚未完成。不是传递依赖全量审计、安全漏洞扫描或性能测试。
 
 按用户决定，结合所属领域的成熟度判断，不设固定星数线。表中星数来自 GitHub REST `GET /repos/{owner}/{repo}`，属于上游仓库，不是单个 crate；下载数来自 crates.io `GET /api/v1/crates/{name}`，只作采用程度参考，不证明正确性。未发现这些上游被标为 archived。采用度数据采样于 2026-11-12；新增 webpki-root-certs 采样于 2026-11-13。稳定版本按注册表更新，受兼容约束的例外单列。
 
@@ -53,6 +53,7 @@ zconv 固定版本更新于 2026-11-15，其余版本审查日期为 2026-11-13�
 | [`hyper`](https://crates.io/crates/hyper) | `1.12.0` | HTTP 协议连接 | [16425](https://github.com/hyperium/hyper) | 1117876681 | 保留 |
 | [`hyper-util`](https://crates.io/crates/hyper-util) | `0.1.21` | Hyper 连接/运行时适配 | [182](https://github.com/hyperium/hyper-util) | 627716666 | 保留 |
 | [`ipnet`](https://crates.io/crates/ipnet) | `2.12.2` | IP 网段计算 | [171](https://github.com/krisprice/ipnet) | 728326681 | 保留 |
+| [`maxminddb`](https://crates.io/crates/maxminddb) | `0.33.0` | 进程内 MMDB 国家字段读取 | [280](https://github.com/oschwald/maxminddb-rust)（2026-11-17） | 未采集 | 新增，ISC，专用离线地域查询 |
 | [`rand`](https://crates.io/crates/rand) | `0.10.3` | 随机数生成 | [2105](https://github.com/rust-random/rand) | 2155428171 | 保留 |
 | [`regex`](https://crates.io/crates/regex) | `1.13.1` | 正则匹配 | [4056](https://github.com/rust-lang/regex) | 1380838359 | 保留 |
 | [`tiktoken-rs`](https://crates.io/crates/tiktoken-rs) | `0.12.1` | 旧 OpenAI BPE 预扣估算 | [411](https://github.com/zurawiki/tiktoken-rs) | 24776336 | 保留 |

@@ -2,8 +2,11 @@
 
 Core exposes the effective settings through `GET /api/option/`. Its
 `capabilities.writable_keys` is the write contract: currently `Notice`,
-`Announcements` and `console_setting.announcements`. The two announcement keys
-refer to the same content. `partial=true` remains explicit; host TOML, credentials,
+`Announcements`, `console_setting.announcements`, `USDExchangeRate` and
+`IPAccessRoutingRules`. The two announcement keys refer to the same content.
+The exchange rate is display-only. Network rules use the shared native validator;
+see [region and IP access control](network-access.md) for their scope and exact
+75-to-76 upgrade. `partial=true` remains explicit; host TOML, credentials,
 financial policy and unsupported settings are not writable through this API.
 
 `PUT /api/option/` accepts one string value. `POST /api/option/bulk` accepts a
@@ -27,7 +30,9 @@ matching content does not identify which request committed it.
 
 The database runtime role is the trusted Core application identity. It has no
 direct write privilege on `core_console.options`; it executes owner-controlled,
-fixed-search-path functions restricted to the public keys. HTTP authorization,
+fixed-search-path functions restricted to their supported keys. Network rules
+have a separate fixed-key writer, `core_console.write_ip_access_rules(text)`.
+HTTP authorization,
 content validation and actor audit are enforced by Core's transaction. These
 functions do not independently authenticate a browser actor or guarantee actor
 audit for a direct SQL call by that trusted role. Browser callers receive no

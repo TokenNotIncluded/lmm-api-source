@@ -881,14 +881,6 @@ async fn run_core() -> Result<(), Box<dyn Error>> {
     });
     #[cfg(unix)]
     let mut terminate = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())?;
-    if let Some(edge) = config::edge_access_config()? {
-        let pool = database_pool
-            .clone()
-            .ok_or("edge access requires a database")?;
-        app = lmm_core::edge_access::EdgeAccess::new(pool, edge)
-            .await?
-            .protect(app);
-    }
     app = app.layer(axum::middleware::from_fn(
         lmm_core::http::request_body_deadline,
     ));
@@ -902,6 +894,22 @@ async fn run_core() -> Result<(), Box<dyn Error>> {
             remote,
             lmm_core::remote_control::preadmit,
         ));
+    }
+    // Enclose pre-admission authentication as well as the public handlers.
+    if let Some(pool) = &database_pool {
+        app = lmm_core::network_access::NetworkAccess::new(
+            capabilities.console.then(|| pool.clone()),
+            config::network_access_config()?,
+        )?
+        .protect(app);
+    }
+    if let Some(edge) = config::edge_access_config()? {
+        let pool = database_pool
+            .clone()
+            .ok_or("edge access requires a database")?;
+        app = lmm_core::edge_access::EdgeAccess::new(pool, edge)
+            .await?
+            .protect(app);
     }
     // Outermost: see the final status, and mask query credentials before stderr.
     app = app.layer(axum::middleware::from_fn(

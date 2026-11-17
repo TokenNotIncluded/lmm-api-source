@@ -118,6 +118,7 @@ impl BrowserAuth {
             ));
         }
         let user: i64 = row.try_get("user_id")?;
+        network_policy::authorize_request_ip(c, user).await?;
         let version: i64 = row.try_get("user_version")?;
         let Some(credential): Option<i64> = row.try_get("selected_credential_id")? else {
             return Ok(reply(Status::AuthorityUnavailable, None));

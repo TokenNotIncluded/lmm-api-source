@@ -1,4 +1,4 @@
-//! Public content and the display-only exchange rate are writable.
+//! Public content, display exchange rate and native network access rules are writable.
 //! Host TOML, credentials, model policy and payment rates are never setters.
 
 use super::*;
@@ -70,6 +70,7 @@ fn canonical(key: &str) -> Result<&str, Error> {
     match key {
         "Notice" => Ok("Notice"),
         "USDExchangeRate" => Ok("USDExchangeRate"),
+        "IPAccessRoutingRules" => Ok("IPAccessRoutingRules"),
         "Announcements" | "console_setting.announcements" => Ok("console_setting.announcements"),
         _ => Err(Error::Unsupported),
     }
@@ -101,6 +102,13 @@ fn validate_values(values: &BTreeMap<String, String>) -> Result<(), Error> {
         if key == "USDExchangeRate" && display_exchange_rate(value).is_none() {
             return Err(Error::Invalid(
                 "Display exchange rate must be a finite number between 0.0001 and 1000000000",
+            ));
+        }
+        if key == "IPAccessRoutingRules"
+            && (value.contains('\0') || crate::edge_access::validate_policy(value).is_err())
+        {
+            return Err(Error::Invalid(
+                "Invalid IP access rules; use valid rules up to 16 KiB, or fallback: direct to allow all regions",
             ));
         }
         if key != "console_setting.announcements" {
@@ -176,7 +184,7 @@ async fn handle(state: OptionsHttp, headers: HeaderMap, body: Bytes, op: Operati
                 Error::Unsupported => (
                     StatusCode::CONFLICT,
                     "SYSTEM_OPTION_NOT_WRITABLE",
-                    "Only notices, announcements and the display exchange rate are writable; unsupported options were not saved",
+                    "Only notices, announcements, the display exchange rate and IP access rules are writable; unsupported options were not saved",
                 ),
                 Error::Conflict => (
                     StatusCode::CONFLICT,
@@ -246,7 +254,7 @@ async fn apply(
         .await?;
     let stored: BTreeMap<String, (String, i64)> = sqlx::query_as::<_, (String, String, i64)>(
         "SELECT key,value,revision FROM core_console.options
-             WHERE key IN ('Notice','Announcements','console_setting.announcements','USDExchangeRate')",
+             WHERE key IN ('Notice','Announcements','console_setting.announcements','USDExchangeRate','IPAccessRoutingRules')",
     )
     .fetch_all(&mut *tx)
     .await?
@@ -261,7 +269,7 @@ async fn apply(
                     .flatten()
             });
             let default = match key.as_str() {
-                "Notice" | "USDExchangeRate" => "",
+                "Notice" | "USDExchangeRate" | "IPAccessRoutingRules" => "",
                 _ => "[]",
             };
             if current.map_or(default, |(value, _)| value.as_str()) != value {
@@ -286,6 +294,11 @@ async fn apply(
             }
             let revision: i64 = if *key == "USDExchangeRate" {
                 sqlx::query_scalar("SELECT core_console.write_display_exchange_rate($1)")
+                    .bind(&value)
+                    .fetch_one(&mut *tx)
+                    .await?
+            } else if *key == "IPAccessRoutingRules" {
+                sqlx::query_scalar("SELECT core_console.write_ip_access_rules($1)")
                     .bind(&value)
                     .fetch_one(&mut *tx)
                     .await?

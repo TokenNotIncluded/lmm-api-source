@@ -453,6 +453,21 @@ GRANT USAGE ON SEQUENCE core_abuse.audit_id_seq TO {name};
                 .await
                 .unwrap();
             }
+            let has_network_access: bool = sqlx::query_scalar(
+                "SELECT to_regprocedure('core_console.write_ip_access_rules(text)') IS NOT NULL",
+            )
+            .fetch_one(&self.owner)
+            .await
+            .unwrap();
+            if has_network_access {
+                sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
+                    "GRANT EXECUTE ON FUNCTION core_console.write_ip_access_rules(text) TO {}",
+                    self.name
+                )))
+                .execute(&self.owner)
+                .await
+                .unwrap();
+            }
             return;
         }
         if schema == "core_model" {

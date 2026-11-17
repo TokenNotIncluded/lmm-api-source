@@ -20,6 +20,7 @@
 | 领域 | 稳定指南 |
 | --- | --- |
 | 身份与跨进程授权 | [核心身份](core-identity.md)、[核心协议](core-protocol.md) |
+| 地域和来源网络限制 | [原生地域与 IP 访问控制](network-access.md) |
 | 模型计费与用量 | [供应商计费与原生用量](model-billing.md)、[路由计费合同](../services/core/src/routing/README.md) |
 | 请求限制与模型目录 | [限速与 Auto](request-limits.md)、[按次计费与原生模型](text-request-and-native-models.md) |
 | 支付、金额与历史 | [支付网关](payment-gateways.md)、[金额合同](payment-money-contract.md)、[钱包历史导入](wallet-history.md)、[财务期初导入](legacy-financial-opening.md) |

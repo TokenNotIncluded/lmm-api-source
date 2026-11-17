@@ -49,6 +49,9 @@ impl std::error::Error for SetupError {}
 pub struct OriginalSocketPeer(pub SocketAddr);
 #[derive(Clone, Copy)]
 struct EdgeClient(IpAddr);
+/// Country metadata is trusted only after authenticating the physical edge.
+#[derive(Clone)]
+pub(crate) struct TrustedCountry(pub(crate) Option<String>);
 #[derive(Clone)]
 pub struct EdgeAccess {
     pool: PgPool,
@@ -197,6 +200,11 @@ async fn trusted_edge(
     else {
         return denied("INTERNAL_ONLY");
     };
+    let country = match country(request.headers()) {
+        Ok(country) => country,
+        Err(_) => return denied("POLICY_UNAVAILABLE"),
+    };
+    request.extensions_mut().insert(TrustedCountry(country));
     request
         .extensions_mut()
         .insert(OriginalSocketPeer(physical));
@@ -209,6 +217,8 @@ async fn trusted_edge(
     // inputs, not downstream application identity.
     request.headers_mut().remove(PROOF_HEADER);
     request.headers_mut().remove(CLIENT_HEADER);
+    request.headers_mut().remove("x-lmm-edge-country");
+    request.headers_mut().remove("x-lmm-cn-source");
     next.run(request).await
 }
 fn denied(code: &'static str) -> Response {
@@ -223,10 +233,10 @@ async fn check(State(state): State<EdgeAccess>, request: Request) -> Response {
     let Some(client) = request.extensions().get::<EdgeClient>().map(|p| p.0) else {
         return denied("INTERNAL_ONLY");
     };
-    let country = match country(request.headers()) {
-        Ok(c) => c,
-        Err(_) => return denied("POLICY_UNAVAILABLE"),
-    };
+    let country = request
+        .extensions()
+        .get::<TrustedCountry>()
+        .and_then(|country| country.0.clone());
     let policy = tokio::time::timeout(LOOKUP_TIMEOUT, async {
         let source: Option<String> =
             sqlx::query_scalar("SELECT value FROM core_console.options WHERE key=$1")
@@ -340,9 +350,16 @@ impl Eligibility {
 mod policy;
 use policy::{Action, Policy};
 
-#[cfg(test)]
 pub(crate) fn validate_policy(source: &str) -> Result<(), SetupError> {
     Policy::parse(source).map(|_| ())
+}
+
+pub(crate) fn evaluate_policy(
+    source: &str,
+    ip: IpAddr,
+    country: Option<&str>,
+) -> Result<bool, SetupError> {
+    Ok(Policy::parse(source)?.evaluate(ip, country)? == Action::Direct)
 }
 
 pub(crate) fn preview_policy(
