@@ -114,7 +114,7 @@ export function Profile() {
             </TabsContent>
             <TabsContent value='account' className='space-y-7'>
               <ProfileIdentityCard
-                key={`${String(profile?.id)  }:${  sessionId}`}
+                key={`${String(profile?.id)}:${sessionId}`}
                 profile={profile}
                 loading={loading}
                 onProfileUpdate={refreshProfile}

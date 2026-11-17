@@ -50,8 +50,9 @@ export function ProfileIdentityCard({
 
   async function save(event: FormEvent) {
     event.preventDefault()
-    if (!available || !userId || !sessionId || !changed || active.current)
-      {return}
+    if (!available || !userId || !sessionId || !changed || active.current) {
+      return
+    }
     if (!validProfileDisplayName(displayName)) {
       setNotice('invalid')
       return
@@ -72,14 +73,17 @@ export function ProfileIdentityCard({
       )
       if (request.signal.aborted || !currentProfileIdentity(scope)) return
       const auth = useAuthStore.getState().auth
-      if (auth.user)
-        {auth.setUser({ ...auth.user, display_name: updated.display_name })}
+      if (auth.user) {
+        auth.setUser({ ...auth.user, display_name: updated.display_name })
+      }
       await onProfileUpdate()
-      if (!request.signal.aborted && currentProfileIdentity(scope))
-        {setNotice('saved')}
+      if (!request.signal.aborted && currentProfileIdentity(scope)) {
+        setNotice('saved')
+      }
     } catch {
-      if (!request.signal.aborted && currentProfileIdentity(scope))
-        {setNotice('failed')}
+      if (!request.signal.aborted && currentProfileIdentity(scope)) {
+        setNotice('failed')
+      }
     } finally {
       unsubscribe()
       if (active.current === request) {

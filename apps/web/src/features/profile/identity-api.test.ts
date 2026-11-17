@@ -75,8 +75,9 @@ test('display name save writes only the name and confirms the same identity by r
     calls.push(config.method ?? '')
     assert.equal(config.url, '/api/user/self')
     assert.deepEqual(config.authScope, scope)
-    if (config.method === 'put')
-      {assert.deepEqual(JSON.parse(config.data), { display_name: 'New name' })}
+    if (config.method === 'put') {
+      assert.deepEqual(JSON.parse(config.data), { display_name: 'New name' })
+    }
     return {
       config,
       status: 200,
