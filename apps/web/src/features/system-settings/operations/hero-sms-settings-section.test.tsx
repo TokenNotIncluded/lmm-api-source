@@ -71,6 +71,7 @@ const settings = {
   api_key_configured: true,
   credential_managed_by_file: true,
   pending_work: false,
+  purchases_available: false,
   currency: 'USD',
   currency_code: 840,
   price_multiplier: '10',
@@ -108,6 +109,7 @@ async function mount() {
         'HeroSMS API key is managed on the host'
       ) === true
   )
+  assert.ok(container.textContent?.includes('Purchases unavailable'))
   return { container, actions }
 }
 

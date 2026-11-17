@@ -156,6 +156,7 @@ export function HeroSmsSettingsSection() {
 
   const configured = settingsQuery.data?.api_key_configured ?? false
   const pendingWork = settingsQuery.data?.pending_work ?? false
+  const purchasesAvailable = settingsQuery.data?.purchases_available ?? false
   const enabled = serviceEnabled
   const handleSubmit = async (values: HeroSmsSettingsFormValues) => {
     if (values.enabled && !configured) {
@@ -284,6 +285,22 @@ export function HeroSmsSettingsSection() {
             </AlertDescription>
           </Alert>
 
+          {!purchasesAvailable ? (
+            <Alert>
+              <HugeiconsIcon
+                icon={InformationCircleIcon}
+                strokeWidth={2}
+                aria-hidden='true'
+              />
+              <AlertTitle>{t('Purchases unavailable')}</AlertTitle>
+              <AlertDescription>
+                {t(
+                  'You can save settings and test the connection. SMS and email purchases are not available on this server.'
+                )}
+              </AlertDescription>
+            </Alert>
+          ) : null}
+
           {pendingWork ? (
             <Alert>
               <HugeiconsIcon
@@ -341,7 +358,7 @@ export function HeroSmsSettingsSection() {
             </Alert>
           ) : null}
 
-          {!enabled ? (
+          {!enabled && purchasesAvailable ? (
             <Alert>
               <HugeiconsIcon
                 icon={InformationCircleIcon}
@@ -392,11 +409,13 @@ export function HeroSmsSettingsSection() {
               <SettingsSwitchItem>
                 <SettingsSwitchContent>
                   <FormLabel>{t('Enable temporary activations')}</FormLabel>
-                  <FormDescription>
-                    {t(
-                      'Allow authenticated users to purchase temporary phone-number and email activations.'
-                    )}
-                  </FormDescription>
+                  {purchasesAvailable ? (
+                    <FormDescription>
+                      {t(
+                        'Allow authenticated users to purchase temporary phone-number and email activations.'
+                      )}
+                    </FormDescription>
+                  ) : null}
                 </SettingsSwitchContent>
                 <FormControl>
                   <Switch
@@ -415,11 +434,13 @@ export function HeroSmsSettingsSection() {
               <SettingsSwitchItem>
                 <SettingsSwitchContent>
                   <FormLabel>{t('Enable phone-number activations')}</FormLabel>
-                  <FormDescription>
-                    {t(
-                      'Allow users to purchase temporary phone numbers and receive SMS verification codes.'
-                    )}
-                  </FormDescription>
+                  {purchasesAvailable ? (
+                    <FormDescription>
+                      {t(
+                        'Allow users to purchase temporary phone numbers and receive SMS verification codes.'
+                      )}
+                    </FormDescription>
+                  ) : null}
                 </SettingsSwitchContent>
                 <FormControl>
                   <Switch
@@ -439,11 +460,13 @@ export function HeroSmsSettingsSection() {
               <SettingsSwitchItem>
                 <SettingsSwitchContent>
                   <FormLabel>{t('Enable email activations')}</FormLabel>
-                  <FormDescription>
-                    {t(
-                      'Allow users to purchase temporary email addresses and receive verification messages.'
-                    )}
-                  </FormDescription>
+                  {purchasesAvailable ? (
+                    <FormDescription>
+                      {t(
+                        'Allow users to purchase temporary email addresses and receive verification messages.'
+                      )}
+                    </FormDescription>
+                  ) : null}
                 </SettingsSwitchContent>
                 <FormControl>
                   <Switch

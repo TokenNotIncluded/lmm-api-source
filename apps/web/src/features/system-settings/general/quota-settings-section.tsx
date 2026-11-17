@@ -16,425 +16,77 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { zodResolver } from '@hookform/resolvers/zod'
-import type { ChangeEvent } from 'react'
-import type { Resolver } from 'react-hook-form'
+import { Link } from '@tanstack/react-router'
 import { useTranslation } from 'react-i18next'
-import * as z from 'zod'
 
-import { Alert, AlertDescription } from '@/components/ui/alert'
-import {
-  Form,
-  FormControl,
-  FormDescription,
-  FormField,
-  FormItem,
-  FormLabel,
-  FormMessage,
-} from '@/components/ui/form'
-import { Input } from '@/components/ui/input'
-import { Switch } from '@/components/ui/switch'
-import { Textarea } from '@/components/ui/textarea'
-import { formatQuota } from '@/lib/format'
+import { Button } from '@/components/ui/button'
 
-import { FormDirtyIndicator } from '../components/form-dirty-indicator'
-import { FormNavigationGuard } from '../components/form-navigation-guard'
-import {
-  SettingsForm,
-  SettingsSwitchContent,
-  SettingsSwitchItem,
-  SettingsFormGrid,
-  SettingsFormGridItem,
-} from '../components/settings-form-layout'
-import { SettingsPageFormActions } from '../components/settings-page-context'
 import { SettingsSection } from '../components/settings-section'
-import { useSettingsForm } from '../hooks/use-settings-form'
-import { useUpdateOption } from '../hooks/use-update-option'
 
-const quotaSchema = z.object({
-  QuotaForNewUser: z.coerce.number().min(0),
-  PreConsumedQuota: z.coerce.number().min(0),
-  QuotaForInviter: z.coerce.number().int().min(0).max(Number.MAX_SAFE_INTEGER),
-  ReferralRegistrationRewardQuota: z.coerce
-    .number()
-    .int()
-    .min(0)
-    .max(Number.MAX_SAFE_INTEGER),
-  ReferralMinTopUpAmounts: z.string().refine((value) => {
-    try {
-      const amounts: unknown = JSON.parse(value)
-      if (!amounts || typeof amounts !== 'object' || Array.isArray(amounts)) {
-        return false
-      }
-      const entries = Object.entries(amounts)
-      return (
-        entries.length > 0 &&
-        entries.length <= 32 &&
-        entries.every(
-          ([currency, amount]) =>
-            /^[A-Z]{3}$/.test(currency) &&
-            /^(?:[0-9]{1,10})(?:\.[0-9]{1,6})?$/.test(String(amount)) &&
-            Number(amount) > 0
-        )
-      )
-    } catch {
-      return false
-    }
-  }, 'Use currency codes and positive amounts, for example {"USD":"10","CNY":"70"}.'),
-  ReferralMinTopUpQuota: z.coerce
-    .number()
-    .int()
-    .min(0)
-    .max(Number.MAX_SAFE_INTEGER),
-  ReferralMaxRewardQuota: z.coerce
-    .number()
-    .int()
-    .min(0)
-    .max(Number.MAX_SAFE_INTEGER),
-  ReferralPenaltyPercent: z.coerce.number().int().min(0).max(100),
-  ReferralMaxPenaltyQuota: z.coerce
-    .number()
-    .int()
-    .min(0)
-    .max(Number.MAX_SAFE_INTEGER),
-  OpenSourceBountyFeeRate: z.coerce.number().min(0).max(100),
-  TopUpLink: z.string(),
-  general_setting: z.object({
-    docs_link: z.string(),
-  }),
-  quota_setting: z.object({
-    enable_free_model_pre_consume: z.boolean(),
-  }),
-})
-
-type QuotaFormValues = z.infer<typeof quotaSchema>
-type QuotaInputValue = number | ''
-
-function formatQuotaInputValue(value: QuotaInputValue): string {
-  return formatQuota(value === '' ? 0 : value)
-}
-
-type QuotaSettingsSectionProps = {
-  defaultValues: QuotaFormValues
-  complianceConfirmed?: boolean
-}
-
-export function QuotaSettingsSection({
-  defaultValues,
-  complianceConfirmed = true,
-}: QuotaSettingsSectionProps) {
+export function QuotaSettingsSection() {
   const { t } = useTranslation()
-  const updateOption = useUpdateOption()
-  const handleNumberChange =
-    (onChange: (value: QuotaInputValue) => void) =>
-    (event: ChangeEvent<HTMLInputElement>) => {
-      const value = event.currentTarget.valueAsNumber
-      onChange(Number.isNaN(value) ? '' : value)
-    }
-
-  const { form, handleSubmit, isDirty, isSubmitting } =
-    useSettingsForm<QuotaFormValues>({
-      resolver: zodResolver(quotaSchema) as Resolver<
-        QuotaFormValues,
-        unknown,
-        QuotaFormValues
-      >,
-      defaultValues,
-      onSubmit: async (_data, changedFields) => {
-        for (const [key, value] of Object.entries(changedFields)) {
-          await updateOption.mutateAsync({
-            key,
-            value: value as string | number | boolean,
-          })
-        }
-      },
-    })
-
+  const destinations = [
+    {
+      to: '/redemption-codes' as const,
+      title: t('Promotion campaigns'),
+      description: t(
+        'Manage reward campaigns, budgets and redemption codes through the Core promotion service.'
+      ),
+    },
+    {
+      to: '/operations/sources' as const,
+      title: t('Promotion links'),
+      description: t(
+        'Manage promotion links and review registration, payment and source reports.'
+      ),
+    },
+    {
+      to: '/system-settings/billing/$section' as const,
+      params: { section: 'checkin' },
+      title: t('Check-in Rewards'),
+      description: t(
+        'Set the daily check-in reward range and inspect the Core funding ceiling.'
+      ),
+    },
+  ]
   return (
     <SettingsSection title={t('Quota Settings')}>
-      <FormNavigationGuard when={isDirty} />
-
-      {!complianceConfirmed ? (
-        <Alert variant='destructive'>
-          <AlertDescription>
-            {t(
-              'Non-zero invitation rewards require compliance confirmation in Payment Gateway settings.'
-            )}
-          </AlertDescription>
-        </Alert>
-      ) : null}
-
-      <Form {...form}>
-        <SettingsForm onSubmit={handleSubmit}>
-          <SettingsPageFormActions
-            onSave={handleSubmit}
-            isSaving={updateOption.isPending || isSubmitting}
-          />
-          <FormDirtyIndicator isDirty={isDirty} />
-          <SettingsFormGrid>
-            <FormField
-              control={form.control}
-              name='QuotaForNewUser'
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>{t('New User Quota')}</FormLabel>
-                  <FormControl>
-                    <Input
-                      type='number'
-                      value={field.value ?? ''}
-                      onChange={handleNumberChange(field.onChange)}
-                      name={field.name}
-                      onBlur={field.onBlur}
-                      ref={field.ref}
-                    />
-                  </FormControl>
-                  <FormDescription>
-                    {t(
-                      'Initial quota given to new users ({{formattedQuota}})',
-                      {
-                        formattedQuota: formatQuotaInputValue(field.value),
-                      }
-                    )}
-                  </FormDescription>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-
-            <FormField
-              control={form.control}
-              name='PreConsumedQuota'
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>{t('Pre-Consumed Quota')}</FormLabel>
-                  <FormControl>
-                    <Input
-                      type='number'
-                      value={field.value ?? ''}
-                      onChange={handleNumberChange(field.onChange)}
-                      name={field.name}
-                      onBlur={field.onBlur}
-                      ref={field.ref}
-                    />
-                  </FormControl>
-                  <FormDescription>
-                    {t('Quota consumed before charging users')}
-                  </FormDescription>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-
-            <FormField
-              control={form.control}
-              name='QuotaForInviter'
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>{t('Inviter Reward')}</FormLabel>
-                  <FormControl>
-                    <Input
-                      type='number'
-                      value={field.value ?? ''}
-                      onChange={handleNumberChange(field.onChange)}
-                      name={field.name}
-                      onBlur={field.onBlur}
-                      ref={field.ref}
-                    />
-                  </FormControl>
-                  <FormDescription>
-                    {t(
-                      'Tail reward after the invited user’s first cash payment meets the minimum ({{formattedQuota}})',
-                      {
-                        formattedQuota: formatQuotaInputValue(field.value),
-                      }
-                    )}
-                  </FormDescription>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-
-            <FormField
-              control={form.control}
-              name='ReferralMinTopUpAmounts'
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>
-                    {t('Minimum first cash payment by currency')}
-                  </FormLabel>
-                  <FormControl>
-                    <Textarea
-                      {...field}
-                      rows={3}
-                      spellCheck={false}
-                      className='font-mono'
-                    />
-                  </FormControl>
-                  <FormDescription>
-                    {t(
-                      'Amounts are actual payments in each currency, not credits or exchange rates. A payment equal to the minimum qualifies. Unlisted currencies do not earn a tail reward.'
-                    )}
-                  </FormDescription>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-
-            {(
-              [
-                [
-                  'ReferralRegistrationRewardQuota',
-                  'Registration advance reward (0 = disabled)',
-                ],
-                [
-                  'ReferralMinTopUpQuota',
-                  'Additional first top-up credit floor',
-                ],
-                [
-                  'ReferralMaxRewardQuota',
-                  'Maximum referral reward quota (0 = no additional cap)',
-                ],
-                ['ReferralPenaltyPercent', 'Extra referral penalty (%)'],
-                [
-                  'ReferralMaxPenaltyQuota',
-                  'Maximum extra penalty quota (0 = no additional cap)',
-                ],
-              ] as const
-            ).map(([name, label]) => (
-              <FormField
-                key={name}
-                control={form.control}
-                name={name}
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>{t(label)}</FormLabel>
-                    <FormControl>
-                      <Input
-                        type='number'
-                        min={0}
-                        max={
-                          name === 'ReferralPenaltyPercent'
-                            ? 100
-                            : Number.MAX_SAFE_INTEGER
-                        }
-                        step={1}
-                        value={field.value ?? ''}
-                        onChange={handleNumberChange(field.onChange)}
-                        name={field.name}
-                        onBlur={field.onBlur}
-                        ref={field.ref}
-                      />
-                    </FormControl>
-                    <FormDescription>
-                      {name === 'ReferralPenaltyPercent'
-                        ? t(
-                            'Applied only when an administrator confirms inviter involvement. The policy is fixed when the reward is granted.'
-                          )
-                        : formatQuotaInputValue(field.value)}
-                    </FormDescription>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-            ))}
-
-            <FormField
-              control={form.control}
-              name='OpenSourceBountyFeeRate'
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>{t('Bounty platform fee (%)')}</FormLabel>
-                  <FormControl>
-                    <Input
-                      type='number'
-                      min={0}
-                      max={100}
-                      step={0.01}
-                      value={field.value ?? ''}
-                      onChange={handleNumberChange(field.onChange)}
-                      name={field.name}
-                      onBlur={field.onBlur}
-                      ref={field.ref}
-                    />
-                  </FormControl>
-                  <FormDescription>
-                    {t(
-                      'Public percentage deducted from each listed reward when a bounty is published. The fee is credited to the enabled super administrator account, and the remainder is locked as contributor escrow.'
-                    )}
-                  </FormDescription>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-
-            <SettingsFormGridItem span='full'>
-              <FormField
-                control={form.control}
-                name='quota_setting.enable_free_model_pre_consume'
-                render={({ field }) => (
-                  <SettingsSwitchItem>
-                    <SettingsSwitchContent>
-                      <FormLabel>{t('Pre-Consume for Free Models')}</FormLabel>
-                      <FormDescription>
-                        {t(
-                          'When enabled, zero-cost models also pre-consume quota before final settlement.'
-                        )}
-                      </FormDescription>
-                    </SettingsSwitchContent>
-                    <FormControl>
-                      <Switch
-                        checked={field.value}
-                        onCheckedChange={field.onChange}
-                        disabled={updateOption.isPending}
-                      />
-                    </FormControl>
-                  </SettingsSwitchItem>
-                )}
-              />
-            </SettingsFormGridItem>
-
-            <FormField
-              control={form.control}
-              name='TopUpLink'
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>{t('Top-Up Link')}</FormLabel>
-                  <FormControl>
-                    <Input
-                      placeholder={t('https://example.com/topup')}
-                      {...field}
-                    />
-                  </FormControl>
-                  <FormDescription>
-                    {t('External link for users to purchase quota')}
-                  </FormDescription>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-
-            <FormField
-              control={form.control}
-              name='general_setting.docs_link'
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>{t('Documentation Link')}</FormLabel>
-                  <FormControl>
-                    <Input
-                      placeholder={t('https://docs.example.com')}
-                      {...field}
-                    />
-                  </FormControl>
-                  <FormDescription>
-                    {t('Link to your documentation site')}
-                  </FormDescription>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-          </SettingsFormGrid>
-        </SettingsForm>
-      </Form>
+      <div className='max-w-3xl space-y-8'>
+        <p className='text-muted-foreground text-sm'>
+          {t(
+            'Reward settings are managed by the services that apply them. Choose a supported workflow below.'
+          )}
+        </p>
+        <div className='divide-y'>
+          {destinations.map((destination) => (
+            <div
+              key={destination.to}
+              className='flex flex-col gap-4 py-6 sm:flex-row sm:items-center sm:justify-between'
+            >
+              <div className='space-y-2'>
+                <h3 className='font-medium'>{destination.title}</h3>
+                <p className='text-muted-foreground max-w-xl text-sm'>
+                  {destination.description}
+                </p>
+              </div>
+              <Button
+                asChild
+                variant='outline'
+                className='shrink-0 self-start sm:self-auto'
+              >
+                <Link to={destination.to} params={destination.params}>
+                  {t('Open')}
+                </Link>
+              </Button>
+            </div>
+          ))}
+        </div>
+        <p className='text-muted-foreground text-sm'>
+          {t(
+            'Automatic registration and invitation rewards, referral thresholds and penalties have no online policy implementation in this deployment.'
+          )}
+        </p>
+      </div>
     </SettingsSection>
   )
 }

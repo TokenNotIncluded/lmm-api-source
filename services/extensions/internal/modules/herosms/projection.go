@@ -61,6 +61,7 @@ type settingsProjection struct {
 	APIKeyConfigured        bool   `json:"api_key_configured"`
 	CredentialManagedByFile bool   `json:"credential_managed_by_file"`
 	PendingWork             bool   `json:"pending_work"`
+	PurchasesAvailable      bool   `json:"purchases_available"`
 	Currency                string `json:"currency"`
 	CurrencyCode            int    `json:"currency_code"`
 	Multiplier              string `json:"price_multiplier"`
@@ -68,13 +69,14 @@ type settingsProjection struct {
 
 func (s *Service) settingsSnapshot(ctx context.Context, user string) (settingsProjection, error) {
 	var current struct {
-		Revision         int64  `json:"revision"`
-		Enabled          bool   `json:"enabled"`
-		SMS              bool   `json:"sms_enabled"`
-		Email            bool   `json:"email_enabled"`
-		APIKeyConfigured bool   `json:"api_key_configured"`
-		PendingWork      bool   `json:"pending_work"`
-		Multiplier       string `json:"price_multiplier"`
+		Revision           int64  `json:"revision"`
+		Enabled            bool   `json:"enabled"`
+		SMS                bool   `json:"sms_enabled"`
+		Email              bool   `json:"email_enabled"`
+		APIKeyConfigured   bool   `json:"api_key_configured"`
+		PendingWork        bool   `json:"pending_work"`
+		PurchasesAvailable bool   `json:"purchases_available"`
+		Multiplier         string `json:"price_multiplier"`
 	}
 	if err := s.Core.Call(ctx, "settings", user, struct{}{}, &current); err != nil {
 		return settingsProjection{}, err
@@ -83,7 +85,8 @@ func (s *Service) settingsSnapshot(ctx context.Context, user string) (settingsPr
 		Revision: strconv.FormatInt(current.Revision, 10), Enabled: current.Enabled,
 		SMS: current.SMS, Email: current.Email, APIKeyConfigured: current.APIKeyConfigured,
 		CredentialManagedByFile: true, PendingWork: current.PendingWork,
-		Currency: "USD", CurrencyCode: 840, Multiplier: current.Multiplier,
+		PurchasesAvailable: current.PurchasesAvailable,
+		Currency:           "USD", CurrencyCode: 840, Multiplier: current.Multiplier,
 	}, nil
 }
 

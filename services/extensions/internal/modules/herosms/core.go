@@ -87,7 +87,7 @@ func (c *Core) Call(ctx context.Context, action, user string, in, out any) error
 			return ErrUnavailable
 		}
 		switch res.StatusCode {
-		case 400, 402, 403, 404, 409, 503:
+		case 400, 401, 402, 403, 404, 409, 502, 503:
 			return &Failure{res.StatusCode, f.Error}
 		default:
 			return ErrUnavailable

@@ -149,6 +149,32 @@ function configuration() {
 function fixture() {
   return {
     configuration: configuration(),
+    rejectHero: false,
+    rejectCheckin: false,
+    hero: {
+      revision: '2',
+      enabled: false,
+      email_enabled: false,
+      sms_enabled: false,
+      api_key_configured: true,
+      credential_managed_by_file: true,
+      pending_work: false,
+      purchases_available: false,
+      currency: 'USD',
+      currency_code: 840,
+      price_multiplier: '1',
+    },
+    checkin: {
+      revision: 1,
+      enabled: true,
+      min_quota: '100000',
+      max_quota: '200000',
+      writable: true,
+      funding_available: true,
+      module_enabled: true,
+      funding_limit: '500000',
+    },
+
     rejectPricing: false,
     announcementStatus: 0,
     requests: [],
@@ -295,6 +321,55 @@ async function install(context, state, theme) {
       result = json([
         { name: 'setup.sh', size: 128, updated: '2026-11-17T00:00:00Z' },
       ])
+    } else if (p === '/api/option/hero-sms') {
+      if (method === 'PUT') {
+        assert.equal(body.expected_revision, state.hero.revision)
+        if (state.rejectHero) {
+          status = 409
+          result = {
+            success: false,
+            code: 'STATE_CONFLICT',
+            message: 'Synthetic conflict',
+          }
+        } else {
+          state.hero = {
+            ...state.hero,
+            enabled: body.enabled,
+            sms_enabled: body.sms_enabled,
+            email_enabled: body.email_enabled,
+            price_multiplier: body.price_multiplier,
+            revision: String(BigInt(state.hero.revision) + 1n),
+          }
+          report.writes.push({ path: p, body })
+          result = json(state.hero)
+        }
+      } else result = json(state.hero)
+    } else if (p === '/api/option/hero-sms/test') {
+      assert.equal(method, 'POST')
+      result = json({ ok: true })
+    } else if (p === '/api/option/checkin') {
+      if (method === 'PUT') {
+        assert.equal(body.revision, state.checkin.revision)
+        assert.ok(body.operation_key)
+        if (state.rejectCheckin) {
+          status = 409
+          result = {
+            success: false,
+            code: 'STATE_CONFLICT',
+            message: 'Synthetic conflict',
+          }
+        } else {
+          state.checkin = {
+            ...state.checkin,
+            enabled: body.enabled,
+            min_quota: body.min_quota,
+            max_quota: body.max_quota,
+            revision: state.checkin.revision + 1,
+          }
+          report.writes.push({ path: p, body })
+          result = json(state.checkin)
+        }
+      } else result = json(state.checkin)
     } else if (p === '/api/scripts/repository') {
       if (method === 'PUT') {
         assert.equal(body.revision, state.scripts.revision)
@@ -528,6 +603,78 @@ try {
         await page
           .getByRole('textbox', { name: t('Search models'), exact: true })
           .waitFor()
+      })
+
+      await check(`${label}-hero-settings`, async () => {
+        await go('/system-settings/operations/hero-sms')
+        const multiplier = page.locator('input[type="number"]')
+        await multiplier.waitFor()
+        assert.equal(await multiplier.isEnabled(), true)
+        await capture(page, `${label}-hero-settings`)
+        await multiplier.fill('2.000001')
+        const saved = page.waitForResponse(
+          (response) =>
+            response.url().endsWith('/api/option/hero-sms') &&
+            response.request().method() === 'PUT'
+        )
+        await btn('Save Changes').click()
+        await saved
+        await btn('Save Changes').waitFor({ state: 'visible' })
+        assert.equal(state.hero.price_multiplier, '2.000001')
+        await go('/system-settings/operations/hero-sms')
+        await multiplier.waitFor()
+        assert.equal(await multiplier.inputValue(), '2.000001')
+        await btn('Test connection').click()
+        await page
+          .getByText(t('Connection test succeeded'), { exact: true })
+          .waitFor()
+        state.rejectHero = true
+        await multiplier.fill('3.000001')
+        await btn('Save Changes').click()
+        await page
+          .getByText(t('Unable to save HeroSMS settings'), { exact: true })
+          .first()
+          .waitFor()
+        assert.equal(await multiplier.inputValue(), '3.000001')
+        await capture(page, `${label}-hero-conflict`)
+        await btn('Reload').click()
+        await page.waitForFunction(
+          () =>
+            document.querySelector('input[type="number"]')?.value === '2.000001'
+        )
+      })
+      await check(`${label}-checkin-settings`, async () => {
+        await go('/system-settings/billing/checkin')
+        const minimum = page.locator('#checkin-minimum')
+        const maximum = page.locator('#checkin-maximum')
+        await minimum.waitFor()
+        assert.equal(await minimum.isEnabled(), true)
+        await minimum.fill('100001')
+        await btn('Save check-in settings').click()
+        await page.getByText(t('Setting saved'), { exact: true }).waitFor()
+        assert.equal(state.checkin.min_quota, '100001')
+        await go('/system-settings/billing/checkin')
+        await minimum.waitFor()
+        assert.equal(await minimum.inputValue(), '100001')
+        await maximum.fill('500001')
+        assert.equal(await btn('Save check-in settings').isDisabled(), true)
+        await page.getByRole('alert').first().waitFor()
+        await capture(page, `${label}-checkin-ceiling`)
+        await maximum.fill('200001')
+        state.rejectCheckin = true
+        await btn('Save check-in settings').click()
+        await page
+          .getByText(
+            t('Settings changed on the server. Reload before saving.'),
+            { exact: true }
+          )
+          .waitFor()
+        assert.equal(await maximum.inputValue(), '200001')
+        await capture(page, `${label}-checkin-conflict`)
+        await btn('Discard changes and reload').click()
+        await page.waitForFunction(
+          () => document.querySelector('#checkin-maximum')?.value === '200000'
+        )
       })
       await context.close()
     }

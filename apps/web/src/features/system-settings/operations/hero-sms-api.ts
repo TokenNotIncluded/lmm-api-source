@@ -29,6 +29,7 @@ const heroSmsSettingsResponseSchema = z.object({
   api_key_configured: z.boolean(),
   credential_managed_by_file: z.literal(true),
   pending_work: z.boolean(),
+  purchases_available: z.boolean(),
   currency: z.literal('USD'),
   currency_code: z.literal(840),
   price_multiplier: z.string().regex(/^\d+(?:\.\d{1,6})?$/),

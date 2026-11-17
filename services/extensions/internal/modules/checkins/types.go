@@ -157,6 +157,9 @@ func (p Policy) rewardRange(level uint32) (RewardRange, error) {
 	low = max(low, 0)
 	high = max(high, low)
 	scale := func(v int64) (int64, error) {
+		if mult == 1 {
+			return v, nil
+		}
 		s := math.Round(float64(v) * mult)
 		if math.IsNaN(s) || math.IsInf(s, 0) || s < 0 || s >= float64(math.MaxInt64) {
 			return 0, ErrInvalid

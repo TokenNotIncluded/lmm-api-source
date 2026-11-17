@@ -277,7 +277,7 @@ func TestHeroSMSSettingsExposeOnlyPublicFileManagedConfiguration(t *testing.T) {
 	if code != 200 || data["revision"] != "9007199254740993" || data["credential_managed_by_file"] != true || data["api_key_configured"] != true || data["sms_enabled"] != true || data["email_enabled"] != false || data["price_multiplier"] != "12.500000" {
 		t.Fatal(out)
 	}
-	if data["currency"] != "USD" || data["currency_code"] != float64(840) || data["pending_work"] != true {
+	if data["currency"] != "USD" || data["currency_code"] != float64(840) || data["pending_work"] != true || data["purchases_available"] != false {
 		t.Fatal(out)
 	}
 	for _, key := range []string{"api_key", "credential_path", "credential_sha256"} {
@@ -386,5 +386,26 @@ func TestHeroSMSPartialEmailBatchPreservesConfirmedActivations(t *testing.T) {
 	order := data["order"].(map[string]any)
 	if order["status"] != "partial" || order["charge_quota"] != float64(100000) || order["quantity"] != float64(2) || len(data["activations"].([]any)) != 1 {
 		t.Fatal(out)
+	}
+}
+
+func TestHeroSMSPreservesSessionAndProviderCredentialFailures(t *testing.T) {
+	for _, tc := range []struct {
+		status int
+		code   string
+	}{
+		{401, "UNAUTHORIZED"},
+		{502, "PROVIDER_CREDENTIAL_REJECTED"},
+	} {
+		t.Run(tc.code, func(t *testing.T) {
+			service := serviceFixture(t, func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(tc.status)
+				writeJSON(w, map[string]any{"error": tc.code})
+			})
+			status, out := webRequest(t, service, "POST", "/api/option/hero-sms/test", `{}`, "")
+			if status != tc.status || out["code"] != tc.code {
+				t.Fatal(status, out)
+			}
+		})
 	}
 }
