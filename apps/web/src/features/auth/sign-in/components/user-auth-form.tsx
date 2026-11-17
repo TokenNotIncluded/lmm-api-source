@@ -112,8 +112,6 @@ export function UserAuthForm({
     (provider) => provider.kind === 'wechat'
   )
   const hasOAuthLogin = hasOAuthLoginProvider(status)
-  const hasAlternativeLogin =
-    passkeyLoginEnabled || hasWeChatLogin || hasOAuthLogin
 
   const [previousLegalConsent, setPreviousLegalConsent] =
     useState(requiresLegalConsent)
