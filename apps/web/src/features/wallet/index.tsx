@@ -153,7 +153,7 @@ function NativeWallet({
               />
               <div id='wallet-checkout' className='min-w-0 scroll-mt-4'>
                 {nativeCreditsAvailable ? (
-                  <NativeWalletCheckout />
+                  <NativeWalletCheckout onUpdated={() => void refresh()} />
                 ) : (
                   <section className='wallet-checkout bg-card space-y-6 rounded-2xl p-6 sm:p-8'>
                     <h2 className='text-xl font-semibold tracking-tight'>

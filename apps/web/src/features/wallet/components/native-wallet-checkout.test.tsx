@@ -214,6 +214,8 @@ test('native checkout reviews exact Core quote, preserves a lost checkout and re
   let root = createRoot(container)
   const writes: Array<{ url: string; data: Record<string, string> }> = []
   let coreCredit = false
+  let refunded = false
+  let accountRefreshes = 0
   const order = {
     order_id: 'top_42',
     state: 'awaiting_payment',
@@ -243,7 +245,11 @@ test('native checkout reviews exact Core quote, preserves a lost checkout and re
             }
           : {
               ...order,
-              state: coreCredit ? 'credited' : 'credit_pending',
+              state: refunded
+                ? 'refunded'
+                : coreCredit
+                  ? 'credited'
+                  : 'credit_pending',
               core_credit_confirmed: coreCredit,
             },
     },
@@ -286,7 +292,7 @@ test('native checkout reviews exact Core quote, preserves a lost checkout and re
     await act(async () => {
       root.render(
         <I18nextProvider i18n={i18n}>
-          <NativeWalletCheckout />
+          <NativeWalletCheckout onUpdated={() => accountRefreshes++} />
         </I18nextProvider>
       )
       await flush()
@@ -340,12 +346,24 @@ test('native checkout reviews exact Core quote, preserves a lost checkout and re
       document.body.textContent?.includes('Start another payment'),
       false
     )
+    assert.equal(accountRefreshes, 0, 'provider payment is not wallet credit')
     coreCredit = true
     await click('Refresh payment status')
     assert.ok(
       document.body.textContent?.includes('Funds have reached your wallet.')
     )
     assert.ok(document.body.textContent?.includes('Start another payment'))
+    assert.equal(accountRefreshes, 1, 'confirmed credit refreshes the balance')
+    await click('Refresh payment status')
+    assert.equal(accountRefreshes, 1, 'repeated status does not refresh again')
+    refunded = true
+    await click('Refresh payment status')
+    assert.ok(
+      document.body.textContent?.includes('This payment has been refunded.')
+    )
+    assert.equal(accountRefreshes, 2, 'completed refund refreshes the balance')
+    await click('Refresh payment status')
+    assert.equal(accountRefreshes, 2)
     assert.equal(writes.length, 2)
     await act(async () => {
       login(20, 'another-session')

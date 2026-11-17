@@ -60,12 +60,21 @@ function restore(owner: string) {
   }
 }
 
-export function NativeWalletCheckout() {
-  const owner = useCheckoutOwnerKey()
-  return <NativeWalletCheckoutForm key={owner} owner={owner} />
+interface NativeWalletCheckoutProps {
+  onUpdated?: () => void
 }
 
-function NativeWalletCheckoutForm({ owner }: { owner: string }) {
+export function NativeWalletCheckout({ onUpdated }: NativeWalletCheckoutProps) {
+  const owner = useCheckoutOwnerKey()
+  return (
+    <NativeWalletCheckoutForm key={owner} owner={owner} onUpdated={onUpdated} />
+  )
+}
+
+function NativeWalletCheckoutForm({
+  owner,
+  onUpdated,
+}: NativeWalletCheckoutProps & { owner: string }) {
   const { t, i18n } = useTranslation()
   const [restored] = useState(() => restore(owner))
   const [pending, setPending] = useState<PendingNativeCheckout | null>(
@@ -93,6 +102,7 @@ function NativeWalletCheckoutForm({ owner }: { owner: string }) {
   const [busy, setBusy] = useState(false)
   const running = useRef(false)
   const mounted = useRef(true)
+  const lastWalletUpdate = useRef('')
   const selected =
     pending?.channel ??
     channels.find((item) => item.id === selectedID) ??
@@ -145,6 +155,14 @@ function NativeWalletCheckoutForm({ owner }: { owner: string }) {
       })
     return () => controller.abort()
   }, [channelVersion, isCurrent])
+
+  useEffect(() => {
+    if (!finished || !result || !isCurrent()) return
+    const update = `${result.order_id}:${result.state}`
+    if (lastWalletUpdate.current === update) return
+    lastWalletUpdate.current = update
+    onUpdated?.()
+  }, [finished, isCurrent, onUpdated, result])
 
   const remember = (value: PendingNativeCheckout | null) => {
     try {
