@@ -153,7 +153,7 @@ function SpendingBudgets({
             ? 'account'
             : String(editableMembers[0]?.user_id ?? ''),
       period: budget?.period ?? 'month',
-      limit: budget?.limit_credits ?? '',
+      limit: budget?.unlimited ? '' : (budget?.limit_credits ?? ''),
     })
   }
   async function submit(event: FormEvent) {
@@ -297,29 +297,35 @@ function SpendingBudgets({
                   {t('Remaining')}
                 </p>
                 <p className='mt-1 text-2xl font-semibold tracking-tight break-words tabular-nums'>
-                  {number(budget.remaining_credits)}{' '}
-                  <span className='text-muted-foreground text-xs font-normal'>
-                    credit
-                  </span>
+                  {budget.unlimited
+                    ? t('Unlimited')
+                    : number(budget.remaining_credits)}
+                  {!budget.unlimited && (
+                    <span className='text-muted-foreground ml-1 text-xs font-normal'>
+                      credit
+                    </span>
+                  )}
                 </p>
-                <div
-                  role='progressbar'
-                  aria-label={t('Budget usage')}
-                  aria-valuenow={budgetProgress(budget)}
-                  aria-valuemin={0}
-                  aria-valuemax={100}
-                  className='bg-muted mt-4 h-1.5 overflow-hidden rounded-full'
-                >
+                {!budget.unlimited && (
                   <div
-                    className={`h-full rounded-full ${budget.remaining_credits === '0' ? 'bg-destructive' : 'bg-primary'}`}
-                    style={{ width: `${budgetProgress(budget)}%` }}
-                  />
-                </div>
+                    role='progressbar'
+                    aria-label={t('Budget usage')}
+                    aria-valuenow={budgetProgress(budget)}
+                    aria-valuemin={0}
+                    aria-valuemax={100}
+                    className='bg-muted mt-4 h-1.5 overflow-hidden rounded-full'
+                  >
+                    <div
+                      className={`h-full rounded-full ${budget.remaining_credits === '0' ? 'bg-destructive' : 'bg-primary'}`}
+                      style={{ width: `${budgetProgress(budget)}%` }}
+                    />
+                  </div>
+                )}
               </div>
               <dl className='grid grid-cols-3 gap-3 text-sm'>
                 {(
                   [
-                    ['Limit', budget.limit_credits],
+                    ['Limit', budget.unlimited ? null : budget.limit_credits],
                     ['Used', budget.consumed_credits],
                     ['Reserved', budget.reserved_credits],
                   ] as const
@@ -329,7 +335,7 @@ function SpendingBudgets({
                       {t(label)}
                     </dt>
                     <dd className='mt-1 font-medium break-words tabular-nums'>
-                      {number(amount)}
+                      {amount === null ? t('Unlimited') : number(amount)}
                     </dd>
                   </div>
                 ))}
@@ -368,6 +374,13 @@ function SpendingBudgets({
               )}
             </DialogTitle>
             <DialogDescription>
+              {editor?.current?.unlimited && (
+                <>
+                  {t(
+                    'Enter a finite limit to replace this unlimited rule. Recorded spending is kept.'
+                  )}{' '}
+                </>
+              )}
               {t(
                 'A limit of 0 blocks new spending. Daily and monthly limits reset at 00:00 UTC.'
               )}

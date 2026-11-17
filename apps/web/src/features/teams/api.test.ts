@@ -357,6 +357,7 @@ const budgetFixture = {
   issuer_user_id: scope.userId,
   period: 'month' as const,
   revision: 2,
+  unlimited: false as const,
   limit_credits: '9007199254740993',
   consumed_credits: '100',
   reserved_credits: '50',
@@ -431,7 +432,13 @@ test('budget reads reject numeric money and cross-user personal budgets', async 
   const { listBudgets } = await import('./budget-api')
   login()
   for (const item of [
-    { ...budgetFixture, limit_credits: 100 },
+    {
+      ...budgetFixture,
+      scope: 'self',
+      account_id: null,
+      user_id: scope.userId,
+      limit_credits: 100,
+    },
     {
       ...budgetFixture,
       scope: 'self',
@@ -478,5 +485,64 @@ test('stale budgets and lost write responses do not replay writes', async () => 
     throw new Error('response lost')
   }
   await assert.rejects(saveBudget(scope, draft), /unknown/)
+  assert.equal(calls, 2)
+})
+
+test('unlimited budgets retain exact aggregate usage without reporting a zero balance', async () => {
+  const { listBudgets, budgetProgress, budgetSchema } =
+    await import('./budget-api')
+  login()
+  const item = {
+    ...budgetFixture,
+    unlimited: true as const,
+    consumed_credits: '18446744073709551614',
+    reserved_credits: '9223372036854775808',
+    remaining_credits: null,
+  }
+  api.defaults.adapter = async (config) => ({
+    config,
+    data: { version: 1, items: [item] },
+    headers: {},
+    status: 200,
+    statusText: 'OK',
+  })
+  const page = await listBudgets(scope, 101)
+  assert.equal(page.items[0].unlimited, true)
+  assert.equal(page.items[0].remaining_credits, null)
+  assert.equal(page.items[0].consumed_credits, '18446744073709551614')
+  assert.equal(budgetProgress(page.items[0]), 0)
+  assert.equal(
+    budgetSchema.safeParse({ ...item, remaining_credits: '0' }).success,
+    false
+  )
+  assert.equal(
+    budgetSchema.safeParse({ ...budgetFixture, remaining_credits: null })
+      .success,
+    false
+  )
+  const { unlimited: _unlimited, ...incomplete } = budgetFixture
+  assert.equal(budgetSchema.safeParse(incomplete).success, false)
+})
+
+test('budget saves reject an unlimited or stale response after writing a finite limit', async () => {
+  const { saveBudget } = await import('./budget-api')
+  login()
+  let calls = 0
+  const draft = {
+    scope: 'account' as const,
+    period: 'month' as const,
+    limit_credits: budgetFixture.limit_credits,
+    expected_revision: 1,
+  }
+  for (const data of [
+    { ...budgetFixture, unlimited: true, remaining_credits: null },
+    { ...budgetFixture, revision: 1 },
+  ]) {
+    api.defaults.adapter = async (config) => {
+      calls++
+      return { config, data, headers: {}, status: 200, statusText: 'OK' }
+    }
+    await assert.rejects(saveBudget(scope, draft, 101), /unknown/)
+  }
   assert.equal(calls, 2)
 })
