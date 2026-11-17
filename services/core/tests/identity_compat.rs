@@ -616,7 +616,7 @@ async fn fresh_browser_signup_can_use_default_models_and_respects_explicit_group
     let (store, app, _, _) = fixture(&pool).await;
     let browser = lmm_core::identity::BrowserAuth::new(store.clone(), &[43; 32]).unwrap();
     let username = "instant_use";
-    let password = "synthetic instant use password";
+    let password = "instant-use-test";
     browser
         .register(&lmm_core::identity::BrowserRegistration {
             username,
