@@ -1,19 +1,18 @@
 /* Copyright (C) 2026 LIghtJUNction. AGPL-3.0-or-later. */
 .overview-dashboard {
   container-type: inline-size;
-  max-width: 72rem;
   margin-inline: auto;
   width: 100%;
 }
 
 .overview-summary {
   display: grid;
-  gap: 2rem;
+  gap: 1.5rem;
 }
 
 .overview-balance {
   min-width: 0;
-  padding: clamp(1.5rem, 3.5cqi, 3rem);
+  padding: clamp(1.25rem, 2cqi, 1.75rem);
   border: 0;
   background: color-mix(in oklch, var(--primary) 4%, var(--card));
   border-radius: var(--radius-xl, var(--radius));
@@ -77,9 +76,9 @@
 }
 
 .overview-balance-value {
-  margin-block: 2.25rem 2.5rem;
+  margin-block: 1.25rem;
   min-height: 2.75rem;
-  font-size: clamp(2rem, 5cqi, 3.75rem);
+  font-size: clamp(1.75rem, 3.2cqi, 2.5rem);
   font-weight: 600;
   line-height: 1.15;
   letter-spacing: -0.045em;
@@ -106,14 +105,14 @@
   justify-content: space-between;
   flex-wrap: wrap;
   gap: 1rem;
-  margin-top: 1.5rem;
-  padding-top: 1.5rem;
+  margin-top: 0.75rem;
+  padding-top: 0.5rem;
 }
 
 .overview-usage {
   align-self: stretch;
   min-width: 0;
-  padding: clamp(1.5rem, 3.5cqi, 3rem);
+  padding: clamp(1.25rem, 2cqi, 1.75rem);
   border: 0;
   background: transparent;
 }
@@ -127,21 +126,26 @@
   grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr);
   align-items: baseline;
   gap: 0.5rem 1rem;
-  padding-block: 1.75rem;
+  padding-block: 0.875rem;
 }
 
 .overview-metric-value {
   text-align: end;
-  font-size: clamp(1.25rem, 2.5cqi, 1.8rem);
+  font-size: clamp(1.125rem, 2cqi, 1.5rem);
   font-weight: 600;
   letter-spacing: -0.025em;
   font-variant-numeric: tabular-nums;
   overflow-wrap: anywhere;
 }
 
+.overview-metric-description {
+  grid-column: 1 / -1;
+  line-height: 1.5;
+}
+
 .overview-site-statistics {
   border-block-start: 0;
-  padding-block-start: 2.5rem;
+  padding-block-start: 0;
 }
 
 .overview-ledger {
@@ -315,13 +319,25 @@
 
 @container (min-width: 46rem) {
   .overview-summary {
-    grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr);
+    grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.6fr);
     align-items: stretch;
     gap: 2rem;
   }
 
-  .overview-balance {
-    padding: 3rem;
+  .overview-metrics {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 1.5rem;
+  }
+
+  .overview-metric {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.75rem;
+  }
+
+  .overview-metric-value {
+    text-align: start;
   }
 }
 
@@ -350,7 +366,7 @@
     padding: 1.25rem;
   }
   .overview-balance-value {
-    font-size: clamp(2.1rem, 9cqi, 3rem);
+    font-size: clamp(1.75rem, 8cqi, 2.25rem);
   }
   .overview-chart-toolbar {
     align-items: flex-start;

@@ -47,8 +47,13 @@ const { api } = await import('@/lib/api')
 const { useAuthStore } = await import('@/stores/auth-store')
 const { NativeAdminUsersEntry } = await import('./entry')
 const { NativeUsersPage } = await import('./page')
-const { nativeListFixture, nativeUserFixture, nativeStatusFixture } =
-  await import('./test-fixtures')
+const {
+  nativeListFixture,
+  nativeUserFixture,
+  nativeStatusFixture,
+  nativeUsageFixture,
+} = await import('./test-fixtures')
+const { nativeUserStatisticsFixture } = await import('./detail-test-fixtures')
 const originalAdapter = api.defaults.adapter
 const previousAuth = useAuthStore.getState().auth
 const cleanups: (() => void)[] = []
@@ -168,14 +173,14 @@ test('the actual page renders exact identity, memberships and signed units witho
     '-7',
     'Debt magnitude',
     '1970',
-    'Empty value',
+    '—',
     'Service level',
   ]) {
     expect(row?.textContent).toContain(value)
   }
   expect(row?.textContent).not.toMatch(/\$|USD|L0/)
   expect(container.textContent).toContain(
-    'Risk, usage, top-up, referral history and legacy trust information are unavailable'
+    'Open Manage to review account usage, imported counters and available actions.'
   )
   expect(container.textContent).not.toContain('Unavailable user actions')
   expect(container.textContent).not.toContain('Delete user')
@@ -185,6 +190,129 @@ test('the actual page renders exact identity, memberships and signed units witho
   expect(security).toBeDefined()
   expect(security?.disabled).toBe(false)
   expect(seen).toEqual(['get /api/status', 'get /core/v1/admin/users'])
+})
+
+test('collapsed memberships stay compact and opening Manage loads exact usage without enabling an inactive account', async () => {
+  login()
+  const user = nativeUserFixture({
+    active: false,
+    status: 2,
+    account_active: false,
+    wallet: { status: 'unavailable', code: 'WALLET_SUBJECT_UNAVAILABLE' },
+  })
+  const seen: string[] = []
+  api.defaults.adapter = async (config) => {
+    seen.push(`${config.method} ${config.url}`)
+    return {
+      config,
+      data:
+        config.url === '/api/status'
+          ? nativeStatusFixture
+          : config.url === `/core/v1/admin/users/${user.id}`
+            ? {
+                version: 1,
+                user,
+                usage: nativeUsageFixture(),
+                statistics: nativeUserStatisticsFixture(user),
+              }
+            : nativeListFixture([user]),
+      headers: {},
+      status: 200,
+      statusText: 'OK',
+    }
+  }
+  const container = await mount()
+  const row = container.querySelector('[data-native-user-id]') as HTMLElement
+  expect(row.querySelector('.native-user-row')?.textContent).toContain('+1')
+  expect(row.querySelector('.native-user-row')?.textContent).not.toContain(
+    'team-beta'
+  )
+  expect(
+    row.querySelector('.native-user-expanded-row')?.hasAttribute('hidden')
+  ).toBe(true)
+  expect(seen).toEqual(['get /api/status', 'get /core/v1/admin/users'])
+  await act(async () => {
+    button(row, 'Manage').click()
+    await pause()
+  })
+  await act(async () => {
+    await pause()
+  })
+  expect(
+    row.querySelector('.native-user-expanded-row')?.hasAttribute('hidden')
+  ).toBe(false)
+  expect(row.textContent).toContain('1,234')
+  expect(row.textContent).toContain('9,876,543')
+  expect(row.textContent).toContain('250,000 credits')
+  expect(row.textContent).toContain('-17')
+  expect(row.textContent).toContain('Disabled user')
+  expect(row.textContent).toContain(
+    'Viewing its history does not enable sign-in or spending.'
+  )
+  expect(row.querySelector('.native-user-wallet')?.textContent).toContain('—')
+  expect(row.querySelector('.native-user-wallet')?.textContent).not.toContain(
+    '250,000'
+  )
+  expect(seen).toEqual([
+    'get /api/status',
+    'get /core/v1/admin/users',
+    `get /core/v1/admin/users/${user.id}`,
+  ])
+})
+
+test('column selection survives a list refresh and group shortcuts use the server filter', async () => {
+  login()
+  const groups: unknown[] = []
+  api.defaults.adapter = async (config) => {
+    if (config.url === '/core/v1/admin/users') groups.push(config.params?.group)
+    return {
+      config,
+      data:
+        config.url === '/api/status'
+          ? nativeStatusFixture
+          : nativeListFixture(),
+      headers: {},
+      status: 200,
+      statusText: 'OK',
+    }
+  }
+  const container = await mount()
+  await act(async () => {
+    button(container, 'Columns').click()
+    await pause()
+  })
+  const email = Array.from(
+    document.querySelectorAll<HTMLElement>('[role="menuitemcheckbox"]')
+  ).find((item) => item.textContent === 'Email')
+  expect(email).toBeDefined()
+  await act(async () => {
+    email?.click()
+    await pause()
+  })
+  expect(container.querySelector('.native-user-email')).toBeNull()
+  await act(async () => {
+    button(container, 'Refresh users').click()
+    await pause()
+  })
+  await act(async () => {
+    await pause()
+  })
+  expect(container.querySelector('.native-user-email')).toBeNull()
+  const group = container.querySelector<HTMLButtonElement>(
+    '.native-user-row [aria-label="Filter by group alpha"]'
+  )
+  expect(group).not.toBeNull()
+  await act(async () => {
+    group?.click()
+    await pause()
+  })
+  await act(async () => {
+    await pause()
+  })
+  expect(groups.at(-1)).toBe('alpha')
+  expect(
+    (container.querySelector('#native-user-group') as HTMLInputElement).value
+  ).toBe('alpha')
 })
 
 test('false or absent capabilities and an ordinary role produce zero native or legacy user requests', async () => {

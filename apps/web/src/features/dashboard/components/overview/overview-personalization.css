@@ -49,8 +49,8 @@
   flex-wrap: wrap;
   align-items: end;
   justify-content: space-between;
-  gap: 2rem;
-  margin-bottom: 2rem;
+  gap: 1rem;
+  margin-bottom: 1rem;
 }
 .overview-chart-eyebrow {
   margin-bottom: 0.4rem;
@@ -65,14 +65,14 @@
 }
 .overview-chart-empty {
   display: flex;
-  min-height: 14rem;
+  min-height: 10rem;
   align-items: center;
   justify-content: center;
   flex-direction: column;
   gap: 0.75rem;
   border: 0;
   border-radius: var(--radius-xl);
-  padding: 2rem;
+  padding: 1.5rem;
   background: color-mix(in oklch, var(--muted) 25%, var(--background));
   text-align: center;
 }

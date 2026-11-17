@@ -32,7 +32,7 @@ import {
 import { NativeCreateUser } from './create-editor'
 import { nativeUsersCsv } from './export'
 import { nativeQueryFromSearch, nativeUsersSearch } from './search'
-import { NativeUserList } from './user-list'
+import { NativeUserList, type NativeUserColumn } from './user-list'
 
 type Props = { scope: NativeUsersScope; recheck: () => void; search: string }
 type Load<T> =
@@ -244,6 +244,9 @@ function UsersWorkspace({
     )
   )
   const [selected, setSelected] = useState<ReadonlySet<string>>(new Set())
+  const [columns, setColumns] = useState<ReadonlySet<NativeUserColumn>>(
+    new Set(['email', 'groups', 'role', 'created'])
+  )
   const [feedback, setFeedback] = useState<
     'none' | 'copied' | 'copy_failed' | 'exported' | 'export_failed'
   >('none')
@@ -398,7 +401,7 @@ function UsersWorkspace({
   }
   if (!isCurrentNativeUsersScope(scope)) return null
   return (
-    <div className='@container/users mx-auto w-full max-w-7xl min-w-0 space-y-7'>
+    <div className='@container/users w-full min-w-0 space-y-5'>
       <div className='flex flex-wrap items-center justify-between gap-3'>
         <p className='text-muted-foreground max-w-xl text-sm'>
           {t('Find accounts, update access and review balances.')}
@@ -752,6 +755,12 @@ function UsersWorkspace({
                 scope={scope}
                 query={query}
                 selected={selected}
+                columns={columns}
+                onColumnsChange={setColumns}
+                onGroupSelect={(group) => {
+                  setFiltersOpen(true)
+                  applyQuery({ ...query, group, page: 1 })
+                }}
                 onSelect={(id, checked) =>
                   setSelected((previous) => {
                     const next = new Set(previous)
@@ -828,7 +837,7 @@ function UsersWorkspace({
         <div className='max-w-3xl space-y-2 pb-4'>
           <p>
             {t(
-              'User management. Available actions are shown beside each user. Risk, usage, top-up, referral history and legacy trust information are unavailable in this view.'
+              'Open Manage to review account usage, imported counters and available actions. Empty fields are shown as a dash; unavailable data is never a zero balance.'
             )}
           </p>
           <p>

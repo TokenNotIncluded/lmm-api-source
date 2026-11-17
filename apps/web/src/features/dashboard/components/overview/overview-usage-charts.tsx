@@ -29,12 +29,14 @@ export function OverviewUsageCharts() {
   const user = useAuthStore((state) => state.auth.user)
   const isAdmin = Boolean(user && user.role >= ROLE.ADMIN)
   const [days, setDays] = useState(7)
+  const [scope, setScope] = useState<'all' | 'personal'>('all')
+  const allAccounts = isAdmin && scope === 'all'
   const [metric, setMetric] = useState<OverviewMetric>('requests')
   const query = useQuery({
-    queryKey: ['overview-recorded-usage', user?.id, isAdmin, days],
+    queryKey: ['overview-recorded-usage', user?.id, allAccounts, days],
     queryFn: async ({ signal }) => {
       const range = overviewUsageRange(days)
-      const data = await getUserQuotaDates(range, isAdmin, signal)
+      const data = await getUserQuotaDates(range, allAccounts, signal)
       return {
         rows: data.data,
         coverage: data.coverage,
@@ -48,13 +50,17 @@ export function OverviewUsageCharts() {
     retry: false,
   })
   const partialAdminUsage =
-    isAdmin &&
+    allAccounts &&
     (query.data?.availability === 'partial' ||
       query.data?.coverage?.complete !== true ||
       query.data?.coverage?.historical_imports !== true)
-  const provenance = isAdmin
-    ? t('All accounts: native Core usage')
-    : t('Recorded account usage')
+  const provenance = allAccounts
+    ? query.data?.coverage?.historical_imports === true
+      ? t('All accounts: current usage and imported history')
+      : t('All accounts: native Core usage')
+    : query.data?.coverage?.historical_imports === true
+      ? t('Your account: current usage and imported history')
+      : t('Recorded account usage')
   const usage = useMemo(() => {
     if (!query.data) return undefined
     try {
@@ -97,13 +103,26 @@ export function OverviewUsageCharts() {
       <header className='overview-chart-toolbar'>
         <div>
           <p className='overview-chart-eyebrow'>
-            {isAdmin ? provenance : t('Your account only')}
+            {allAccounts ? provenance : t('Your account only')}
           </p>
           <h2 className='text-xl font-medium tracking-tight'>
             {t('Usage at a glance')}
           </h2>
         </div>
         <div className='flex flex-wrap items-center gap-2'>
+          {isAdmin && (
+            <select
+              className='border-input bg-background min-h-11 rounded-xl border px-3 text-sm'
+              aria-label={t('Usage scope')}
+              value={scope}
+              onChange={(event) =>
+                setScope(event.target.value as 'all' | 'personal')
+              }
+            >
+              <option value='all'>{t('All accounts')}</option>
+              <option value='personal'>{t('My account')}</option>
+            </select>
+          )}
           <div
             className='bg-muted/50 flex rounded-xl p-1'
             role='group'
@@ -142,7 +161,7 @@ export function OverviewUsageCharts() {
       {!loading && !failed && partialAdminUsage && (
         <p className='text-muted-foreground mt-3 text-sm' role='status'>
           {t(
-            'Partial usage across all accounts: only native Core requests are included; imported historical usage is unavailable.'
+            'All accounts shows native requests. Imported history is available in Usage logs or My account.'
           )}
         </p>
       )}
@@ -170,7 +189,21 @@ export function OverviewUsageCharts() {
       )}
       {empty && partialAdminUsage && (
         <div className='overview-chart-empty' role='status'>
-          {t('Unavailable')}
+          <ChartNoAxesCombined
+            className='text-muted-foreground size-7'
+            aria-hidden='true'
+          />
+          <h3 className='font-medium'>
+            {t('No native requests in this period')}
+          </h3>
+          <p className='text-muted-foreground max-w-xl text-sm'>
+            {t(
+              'Imported logs are preserved separately and are not included in this chart.'
+            )}
+          </p>
+          <Button variant='outline' render={<a href='/usage-logs/common' />}>
+            {t('Usage Logs')}
+          </Button>
         </div>
       )}
       {empty && !partialAdminUsage && (
@@ -242,6 +275,7 @@ export function OverviewUsageCharts() {
           </p>
         )}
       <p className='text-muted-foreground mt-3 text-xs'>
+        {!allAccounts && <span>{provenance}. </span>}
         {t(
           'Recorded usage may appear with a delay. Dates follow your browser time zone.'
         )}

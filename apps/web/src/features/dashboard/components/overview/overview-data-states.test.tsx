@@ -390,15 +390,20 @@ test('failed usage stays unknown and a new account fetches its own usage', async
     () => container.textContent?.includes('Failed to load data') === true
   )
   assert.doesNotMatch(container.textContent ?? '', /Healthy|No recent usage/)
-  assert.match(container.textContent ?? '', /Unknown/)
-  assert.match(container.textContent ?? '', /1,000 Credits/)
-  assert.match(container.textContent ?? '', /Total consumed \(Credits\)/)
+  assert.equal(
+    container.querySelector('[data-metric="todayUsage"] .overview-metric-value')
+      ?.textContent,
+    '—'
+  )
+  assert.match(container.textContent ?? '', /1,000 Raw credits/)
+  assert.match(container.textContent ?? '', /Original imported counters/)
   await act(async () =>
     useAuthStore.getState().auth.setUser({ ...user, id: 902 })
   )
   await until(
     () =>
-      usageCalls === 2 && container.textContent?.includes('Unknown') === true
+      usageCalls === 2 &&
+      container.textContent?.includes('0 Raw credits') === true
   )
   assert.doesNotMatch(container.textContent ?? '', /Failed to load data/)
 })
@@ -438,6 +443,49 @@ test('successful null usage renders an empty overview without crashing', async (
   assert.doesNotMatch(
     container.textContent ?? '',
     /Failed to load data|No recent usage/
+  )
+})
+
+test('missing consumption is not turned into zero when request rows exist', async () => {
+  configureCurrencyOverview()
+  const originalRead = api.get
+  api.get = (async (
+    url: string,
+    config: { params?: { start_timestamp?: number } } = {}
+  ) =>
+    url === '/api/data/self'
+      ? {
+          data: {
+            success: true,
+            data: [
+              {
+                created_at: config.params?.start_timestamp,
+                count: 3,
+                quota: null,
+              },
+            ],
+          },
+        }
+      : originalRead(url, config)) as typeof api.get
+  const container = await mount(SummaryCards)
+  await until(
+    () =>
+      container.textContent?.includes(
+        'Usage totals are incomplete for this period.'
+      ) === true
+  )
+  assert.equal(
+    container.querySelector('[data-metric="todayUsage"] .overview-metric-value')
+      ?.textContent,
+    '—'
+  )
+  assert.doesNotMatch(
+    container.querySelector('[data-metric="todayUsage"]')?.textContent ?? '',
+    /0 Raw credits/
+  )
+  assert.match(
+    container.querySelector('[data-metric="usage"]')?.textContent ?? '',
+    /1,000,000 Credits/
   )
 })
 
@@ -561,7 +609,7 @@ function configureCurrencyOverview() {
 }
 
 for (const shape of ['nonzero', 'zero', 'absent'] as const) {
-  test(`financial projection false keeps ${shape} summary data unavailable, never zero or depleted`, async () => {
+  test(`financial projection false keeps the ${shape} wallet unknown while real usage stays visible`, async () => {
     configureCurrencyOverview()
     const current = useAuthStore.getState().auth.user
     assert.ok(current)
@@ -580,16 +628,20 @@ for (const shape of ['nonzero', 'zero', 'absent'] as const) {
           ?.textContent?.trim() === 'Unknown'
     )
     assert.equal(container.querySelector('.overview-health'), null)
-    assert.equal(
-      container.querySelector('.overview-balance-footer dd')?.textContent,
-      'Unavailable'
+    assert.match(
+      container.querySelector('.overview-balance-footer')?.textContent ?? '',
+      /The current wallet balance could not be read/
     )
     const metricValue = (title: string) =>
       [...container.querySelectorAll('.overview-metric')]
         .find((row) => row.querySelector('dt')?.textContent === title)
         ?.querySelector('.overview-metric-value')?.textContent
-    assert.equal(metricValue('Historical Usage'), 'Unavailable')
-    assert.equal(metricValue('Request Count'), 'Unavailable')
+    await until(() => metricValue('Last 24h usage') === '250,000 Raw credits')
+    assert.equal(metricValue('Recorded consumption'), '1,000,000 Credits')
+    assert.equal(
+      metricValue('Request Count'),
+      shape === 'nonzero' ? '20' : shape === 'zero' ? '0' : '—'
+    )
     assert.doesNotMatch(
       container.querySelector('.overview-balance')?.textContent ?? '',
       /Balance depleted|Healthy|10 USD/
@@ -615,7 +667,16 @@ for (const financial of [undefined, true]) {
     )
     const metrics =
       container.querySelector('.overview-metrics')?.textContent ?? ''
-    assert.match(metrics, /Unavailable/)
+    assert.equal(
+      container.querySelector('[data-metric="usage"] .overview-metric-value')
+        ?.textContent,
+      '—'
+    )
+    assert.equal(
+      container.querySelector('[data-metric="requests"] .overview-metric-value')
+        ?.textContent,
+      '—'
+    )
     assert.doesNotMatch(metrics, /1,000,000|20/)
     assert.equal(container.querySelector('[data-currency]'), null)
   })
@@ -652,7 +713,7 @@ test('native wallet with unknown imported history stays raw and keeps reservatio
   assert.equal(container.querySelector('[data-currency="USD"]'), null)
   const metrics =
     container.querySelector('.overview-metrics')?.textContent ?? ''
-  assert.match(metrics, /Unavailable/)
+  assert.match(metrics, /—/)
   assert.doesNotMatch(
     container.querySelector('.overview-balance')?.textContent ?? '',
     /Healthy|No recent usage/
@@ -713,7 +774,7 @@ test('native summary stays in credits across preferences while site cash and unp
     )
     assert.match(
       container.querySelector('.overview-balance-footer')?.textContent ?? '',
-      /Unknown/
+      /Current personal wallet/
     )
     assert.equal(container.querySelector('.overview-health'), null)
     assert.equal(container.querySelector('[data-currency]'), null)
@@ -752,7 +813,7 @@ test('a depleted current balance stays known when historical quota cannot be val
     )
     assert.match(
       container.querySelector('.overview-balance-footer')?.textContent ?? '',
-      /Balance depleted/
+      /Current personal wallet/
     )
     assert.doesNotMatch(
       container.querySelector('.overview-balance-footer')?.textContent ?? '',

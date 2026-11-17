@@ -113,15 +113,18 @@ test('administrator usage requests all accounts and leaves uncovered history una
   const requests: string[] = []
   api.get = (async (url: string) => {
     requests.push(url)
+    const allAccounts = url === '/api/data'
     return {
       data: {
         success: true,
-        availability: 'partial',
+        availability: allAccounts ? 'partial' : 'available',
         coverage: {
-          scope: 'administrator_all_accounts',
+          scope: allAccounts
+            ? 'administrator_all_accounts'
+            : 'actor_personal_usage',
           native_requests: true,
-          historical_imports: false,
-          complete: false,
+          historical_imports: !allAccounts,
+          complete: !allAccounts,
         },
         data: [],
       },
@@ -131,10 +134,14 @@ test('administrator usage requests all accounts and leaves uncovered history una
     defaultOptions: { queries: { retry: false } },
   })
   // A personal cache for the same identity must not satisfy an admin query.
-  client.setQueryData(['overview-recorded-usage', 882, false, 7], {
-    ...overviewUsageRange(7),
-    rows: [],
-  })
+  client.setQueryData(
+    ['overview-recorded-usage', 882, false, 7],
+    {
+      ...overviewUsageRange(7),
+      rows: [],
+    },
+    { updatedAt: 0 }
+  )
   const container = document.createElement('div')
   document.body.append(container)
   const root = createRoot(container)
@@ -161,15 +168,42 @@ test('administrator usage requests all accounts and leaves uncovered history una
   assert.match(container.textContent ?? '', /All accounts: native Core usage/)
   assert.match(
     container.textContent ?? '',
-    /imported historical usage is unavailable/
+    /Imported history is available in Usage logs or My account/
   )
-  assert.match(container.textContent ?? '', /Unavailable/)
+  assert.match(container.textContent ?? '', /No native requests in this period/)
+  assert.equal(
+    container.querySelector('a[href="/usage-logs/common"]')?.textContent,
+    'Usage Logs'
+  )
   assert.doesNotMatch(
     container.textContent ?? '',
     /Your account only|No recorded usage in this period|Your charts will appear/
   )
   assert.equal(container.querySelector('.overview-chart-grid'), null)
   assert.equal(container.querySelector('[role="alert"]'), null)
+
+  const scope = container.querySelector<HTMLSelectElement>(
+    'select[aria-label="Usage scope"]'
+  )
+  assert.ok(scope)
+  await act(async () => {
+    scope.value = 'personal'
+    scope.dispatchEvent(new dom.Event('change', { bubbles: true }))
+    await new Promise((resolve) => setTimeout(resolve, 20))
+  })
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 20))
+  })
+  assert.deepEqual(requests, ['/api/data', '/api/data/self'])
+  assert.match(
+    container.textContent ?? '',
+    /Your account: current usage and imported history/
+  )
+  assert.match(container.textContent ?? '', /No recorded usage in this period/)
+  assert.doesNotMatch(
+    container.textContent ?? '',
+    /No native requests in this period/
+  )
 
   await act(async () => {
     useAuthStore

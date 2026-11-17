@@ -51,7 +51,7 @@ export function OverviewDashboard() {
   const showContentPanels = showLeftContentPanels || showUptimePanel
 
   return (
-    <div className='dashboard-editorial overview-dashboard flex flex-col gap-8 sm:gap-12'>
+    <div className='dashboard-editorial overview-dashboard flex flex-col gap-6 sm:gap-8'>
       <OverviewGreeting />
       {!isAdmin && <LatestRequestCard />}
       <SummaryCards />
