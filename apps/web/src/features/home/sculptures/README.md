@@ -17,6 +17,12 @@ The five chapters, page content, scrolling, controls and point brush stay in pla
 
 There are 30 registered scenes. Portrait, whale, nature and Moon-far-side factories remain outside the active carousel. The local Claude mark is the loading/no-canvas fallback. Preserve the source attribution in `ai-brand-outlines.LICENSE` when updating the outlines.
 
+The abstract chapter uses ivory, stone and clay materials. The gyroscope has three independently tilting gimbals around a solid rotor and spindle. Mobius and wave ribbons use continuous surfaces with fine edges; the helix and trefoil retain their connected structures with fewer decorative details.
+
+Rings distribute their existing 1,680 samples over the torus surface instead of stacking circular cross sections. This removes the repeated hollow-loop pattern without increasing point or cache budgets. The shared brush is finer and the background grid is lighter; provider mark colours and the five chapter sequences remain unchanged.
+
+Tube samples advance along each path segment rather than clustering into separate hoops. Abstract sheets use deterministic sampling within each grid cell while preserving their boundaries, reducing visible stripes without adding points. These sampling changes happen when geometry is built; frame animation still modifies only the renderer's scratch vector.
+
 ## Add an object
 
 Use the project skill at `.agents/skills/home-sculpture/SKILL.md` for image, video or text references. The reference brief and modelling limits for this update are in [REFERENCES.md](REFERENCES.md). An inaccessible reference must remain pending, not become an invented scene.

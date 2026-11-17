@@ -105,25 +105,25 @@ export function createHomePoster(
     colors = new WeakMap()
     paintGround(hexColor(style.getPropertyValue('--poster-glow'), 0xd97757))
   }
-  /** A soft halo and a faint print grid, settling to the exact ground at the edges. */
+  /** A restrained halo and sparse print grid fade into the ground at the edges. */
   const paintGround = (glow: number) => {
     if (!ground) return
     const tint = palette.coverage(
       pack((glow >>> 16) & 255, (glow >>> 8) & 255, glow & 255),
       1
     )
-    const strength = palette.light ? 0.09 : 0.16
+    const strength = palette.light ? 0.06 : 0.1
     const cx = canvas.width / 2,
       cy = canvas.height * 0.43,
       reach = Math.min(canvas.width, canvas.height) * 0.72
-    const cell = Math.round(26 * ratio),
+    const cell = Math.round(36 * ratio),
       grid = width >= 320
     const levels = Array.from({ length: 129 }, (_, i) =>
       palette.coverage(tint, strength * (i / 128) ** 3)
     )
     const dot = palette.coverage(
       palette.ink(palette.light ? [0, 0, 0] : [255, 255, 255]),
-      palette.light ? 0.07 : 0.06
+      palette.light ? 0.035 : 0.03
     )
     for (let row = 0; row < canvas.height; row++) {
       for (let col = 0; col < canvas.width; col++) {
@@ -205,7 +205,7 @@ export function createHomePoster(
         right = sequenceAt(to, ages[to])
       canvas.dataset.sculpture = pageMix < 0.5 ? left.from : right.from
       // Free-floating stipple: no lattice, so no brick rows or moiré bands.
-      const size = Math.max(1, Math.round((w < 680 ? 1.5 : 2.2) * ratio)),
+      const size = Math.max(1, Math.round((w < 680 ? 1.25 : 1.5) * ratio)),
         round = size >= 3,
         trailStart = size + 1
       const inputs = [

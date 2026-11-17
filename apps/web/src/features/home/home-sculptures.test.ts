@@ -273,8 +273,8 @@ test('gyroscope rings tilt out of their original planes, not just spin in place'
   assert.ok(max - min > 0.5)
 })
 
-test('AI marks and helix stay inside phone and desktop frames through their motion', () => {
-  for (const id of [...HOME_SEQUENCES[0], 'helix'] as const) {
+test('AI marks and abstract scenes stay inside phone and desktop frames through their motion', () => {
+  for (const id of [...HOME_SEQUENCES[0], ...HOME_SEQUENCES[2]]) {
     const model = getSculpture(id)
     const [yaw, pitch] = model.view ?? [0, 0]
     for (const [width, height] of [
@@ -302,5 +302,57 @@ test('AI marks and helix stay inside phone and desktop frames through their moti
         }
       }
     }
+  }
+})
+
+test('abstract scenes keep their complete surfaces within the phone point budget', () => {
+  for (const id of HOME_SEQUENCES[2]) {
+    assert.ok(getSculpture(id).points.length <= 22000, id)
+  }
+})
+
+test('rings have continuous coverage without separate cross-section hoops', () => {
+  for (const axis of [0, 1, 2] as const) {
+    const shape = new Shape(),
+      center: Vec3 = [0.1, -0.05, 0.08],
+      radius = 0.8,
+      thickness = 0.014
+    shape.ring(center, radius, thickness, palette.cream, 0, axis)
+    const a = (axis + 1) % 3,
+      b = (axis + 2) % 3
+    const angles = shape.points
+      .map((point) => {
+        const v = [point.x, point.y, point.z].map(
+          (value, i) => value - center[i]
+        )
+        const distance = Math.hypot(Math.hypot(v[a], v[b]) - radius, v[axis])
+        assert.ok(Math.abs(distance - thickness) < 1e-12)
+        return Math.atan2(v[b], v[a])
+      })
+      .sort((left, right) => left - right)
+    assert.ok(shape.points.length <= 140 * 12, 'do not raise the ring budget')
+    for (let i = 0; i < angles.length; i++) {
+      const next =
+        i + 1 < angles.length ? angles[i + 1] : angles[0] + Math.PI * 2
+      // Below one pixel at a 200px radius, including the closing seam.
+      assert.ok(next - angles[i] < 0.005)
+    }
+  }
+})
+
+test('tube samples fill longitudinal gaps while retaining their radius and endpoints', () => {
+  const shape = new Shape()
+  shape.tube((t) => [t * 2, 0, 0], 0.02, palette.cream)
+  assert.equal(shape.points.length, 600)
+  const positions = shape.points
+    .map((point) => {
+      assert.ok(Math.abs(Math.hypot(point.y, point.z) - 0.02) < 1e-12)
+      return point.x
+    })
+    .sort((left, right) => left - right)
+  assert.equal(positions[0], 0)
+  assert.equal(positions.at(-1), 2)
+  for (let i = 1; i < positions.length; i++) {
+    assert.ok(positions[i] - positions[i - 1] < 0.005)
   }
 })

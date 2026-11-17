@@ -108,8 +108,8 @@ export class Shape {
     for (let i = 0; i < steps; i++) {
       const t = i / (steps - 1),
         p = path(t),
-        q = path(Math.min(1, t + 0.001)),
-        prev = path(Math.max(0, t - 0.001))
+        q = path(Math.min(1, (i + 1) / (steps - 1))),
+        prev = path(Math.max(0, (i - 1) / (steps - 1)))
       const dx = q[0] - prev[0],
         dy = q[1] - prev[1],
         dz = q[2] - prev[2]
@@ -129,16 +129,19 @@ export class Shape {
         by = tz * ax - tx * az,
         bz = tx * ay - ty * ax
       for (let j = 0; j < sides; j++) {
-        const a = (j / sides) * TAU,
+        // Stagger samples along each segment, keeping both endpoints covered.
+        // A full cross-section at every step reads as separate wire hoops.
+        const along = j / sides,
+          a = (i * sides + j) * 2.3999632297,
           c = Math.cos(a) * radius,
           s = Math.sin(a) * radius
         this.add(
           [
-            p[0] + ax * c + bx * s,
-            p[1] + ay * c + by * s,
-            p[2] + az * c + bz * s,
+            mix(p[0], q[0], along) + ax * c + bx * s,
+            mix(p[1], q[1], along) + ay * c + by * s,
+            mix(p[2], q[2], along) + az * c + bz * s,
           ],
-          tint(color, 0.72 + 0.28 * (j / sides)),
+          tint(color, 0.72 + 0.28 * (Math.sin(a) * 0.5 + 0.5)),
           part
         )
       }
@@ -164,19 +167,21 @@ export class Shape {
   ) {
     const a = (axis + 1) % 3,
       b = (axis + 2) % 3
-    this.tube(
-      (t) => {
-        const v: Vec3 = [...center]
-        v[a] += Math.cos(t * TAU) * radius
-        v[b] += Math.sin(t * TAU) * radius
-        return v
-      },
-      thickness,
-      color,
-      part,
-      140,
-      12
-    )
+    // Spread the same sample budget around the surface instead of drawing
+    // repeated cross-section hoops. The golden angle avoids visible seams.
+    const count = 140 * 12
+    for (let i = 0; i < count; i++) {
+      const angle = (i / count) * TAU,
+        cross = i * 2.3999632297,
+        radial = Math.cos(cross),
+        depth = Math.sin(cross),
+        ringRadius = radius + thickness * radial
+      const v: Vec3 = [...center]
+      v[a] += Math.cos(angle) * ringRadius
+      v[b] += Math.sin(angle) * ringRadius
+      v[axis] += thickness * depth
+      this.add(v, tint(color, 0.74 + 0.26 * (depth * 0.5 + 0.5)), part)
+    }
   }
   box(center: Vec3, size: Vec3, color: Vec3, part = 0) {
     for (let axis = 0; axis < 3; axis++) {
