@@ -168,7 +168,7 @@ async function renderWallet(
     selfQuota?: number
     paymentReturn?: 'return' | 'cancel'
     nativeChannels?: unknown
-    transferHistoryUnavailable?: boolean
+    unavailableTransferReads?: boolean
     nativeResponse?: (
       url: string,
       method: string,
@@ -245,14 +245,14 @@ async function renderWallet(
   }
   api.get = (async (url) => {
     reads.push(String(url))
-    if (options.transferHistoryUnavailable && url === '/api/wallet-transfer') {
-      throw new Error('Transfer history unavailable')
-    }
-    // The real native host rejects retired routes with 503, not 404.
+    // Retired subscription routes and explicitly unavailable transfer reads
+    // return a migration error, never a successful empty collection.
     if (
       user.wallet_unit === 'core_credit' &&
       typeof url === 'string' &&
-      url.startsWith('/api/subscription/')
+      (url.startsWith('/api/subscription/') ||
+        (options.unavailableTransferReads &&
+          (url === '/api/wallet/balance' || url === '/api/wallet-transfer')))
     ) {
       throw new AxiosError(
         'Request failed with status code 503',
@@ -353,7 +353,7 @@ test('unknown historical money retains credits and offers authoritative reward p
   }) as typeof api.post
   const { container, queryClient, reads } = await renderWallet(true, {
     quota: 199671,
-    transferHistoryUnavailable: true,
+    unavailableTransferReads: true,
     user: {
       financial_projection_available: true,
       usage_projection_available: false,
@@ -408,6 +408,7 @@ test('unknown historical money retains credits and offers authoritative reward p
     document.body.textContent ?? '',
     /Failed to load transfer history/
   )
+  assert.doesNotMatch(document.body.textContent ?? '', /No transfers yet/)
   const close = [...document.querySelectorAll('button')].find(
     (item) => item.textContent?.trim() === 'Close'
   )

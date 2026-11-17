@@ -55,6 +55,7 @@ const {
   createRootRoute,
   createRoute,
   createRouter,
+  isRedirect,
   RouterProvider,
 } = await import('@tanstack/react-router')
 const { dataTableFeatures, useTable } = await import('@/lib/table')
@@ -757,19 +758,37 @@ test('the common route freezes its default time range for the list and a next-da
   }
 })
 
-test('time normalization preserves explicit ranges, single bounds and other log categories', () => {
-  for (const [section, search] of [
-    ['common', { startTime: 10, endTime: 20 }],
-    ['common', { startTime: 10 }],
-    ['common', { endTime: 20 }],
-    ['drawing', {}],
-    ['task', {}],
+test('time normalization preserves explicit common ranges and single bounds', () => {
+  for (const search of [
+    { startTime: 10, endTime: 20 },
+    { startTime: 10 },
+    { endTime: 20 },
   ] as const) {
+    const applied = { ...search }
     assert.doesNotThrow(() =>
       UsageLogsRoute.options.beforeLoad?.({
-        params: { section },
-        search,
+        params: { section: 'common' },
+        search: applied,
       } as never)
+    )
+    assert.deepEqual(applied, search)
+  }
+})
+
+test('unsupported drawing and task sections return to common logs', () => {
+  for (const section of ['drawing', 'task']) {
+    assert.throws(
+      () =>
+        UsageLogsRoute.options.beforeLoad?.({
+          params: { section },
+          search: {},
+        } as never),
+      (error: unknown) => {
+        assert.ok(isRedirect(error))
+        assert.equal(error.options.to, '/usage-logs/$section')
+        assert.deepEqual(error.options.params, { section: 'common' })
+        return true
+      }
     )
   }
 })
