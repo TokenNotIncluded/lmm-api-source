@@ -59,6 +59,7 @@ await i18n
 let root: ReturnType<typeof createRoot> | undefined
 let client: InstanceType<typeof QueryClient> | undefined
 const originalCatalog = storeApi.extoreCatalog
+const originalAuthorize = storeApi.extoreAuthorize
 const flush = () => new Promise((resolve) => setTimeout(resolve, 30))
 async function mount(node: React.ReactNode) {
   const host = document.createElement('div')
@@ -83,6 +84,7 @@ afterEach(async () => {
   client?.clear()
   client = undefined
   storeApi.extoreCatalog = originalCatalog
+  storeApi.extoreAuthorize = originalAuthorize
   document.body.replaceChildren()
 })
 after(() => dom.happyDOM.abort())
@@ -116,4 +118,37 @@ test('Extore callback shows per-source sync results', async () => {
     /Product synchronized from Extore/
   )
   assert.equal(imported, true)
+})
+
+test('failed one-time callbacks recover through a new authorization', async () => {
+  let catalogCalls = 0
+  let authorizationCalls = 0
+  storeApi.extoreCatalog = async () => {
+    catalogCalls++
+    throw new Error('Authorization expired')
+  }
+  storeApi.extoreAuthorize = async () => {
+    authorizationCalls++
+    throw new Error('New authorization started')
+  }
+  await mount(
+    <StoreExtoreImport
+      callbackUrl='https://shop.example.test/store/manage?state=test&code=test&iss=https%3A%2F%2Fextore.lmm.best'
+      onClose={() => undefined}
+      onImported={() => undefined}
+    />
+  )
+  assert.equal(catalogCalls, 1)
+  const button = [
+    ...document.querySelectorAll<HTMLButtonElement>('button'),
+  ].find((item) => item.textContent === 'Connect again')
+  assert.ok(button)
+  await act(async () => {
+    button.click()
+    await flush()
+  })
+  await act(flush)
+  assert.equal(catalogCalls, 1)
+  assert.equal(authorizationCalls, 1)
+  assert.match(document.body.textContent || '', /New authorization started/)
 })

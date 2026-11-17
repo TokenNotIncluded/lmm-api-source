@@ -326,7 +326,13 @@ function StoreSellerCenter({ user }: { user: AuthUser }) {
           </Button>
         </div>
       </div>
-      <StoreExtoreConnections />
+      <StoreExtoreConnections
+        enabled={config.data?.extore_import_supported === true}
+        onConnect={() => {
+          setExtoreCallback(null)
+          setImporting(true)
+        }}
+      />
       <StoreError
         error={error || query.error}
         retry={() => void query.refetch()}

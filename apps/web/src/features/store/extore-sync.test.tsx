@@ -65,6 +65,8 @@ let client: InstanceType<typeof QueryClient> | undefined
 const originalConnections = storeApi.extoreConnections
 const originalCatalog = storeApi.extoreConnectionCatalog
 const originalSync = storeApi.extoreSync
+const originalSyncAll = storeApi.extoreSyncAll
+const originalDisconnect = storeApi.extoreDisconnect
 const flush = () => new Promise((resolve) => setTimeout(resolve, 30))
 
 async function mount(node: React.ReactNode) {
@@ -85,6 +87,18 @@ async function mount(node: React.ReactNode) {
   await act(flush)
 }
 
+async function click(label: string) {
+  const button = [
+    ...document.querySelectorAll<HTMLButtonElement>('button'),
+  ].find((element) => element.textContent?.trim() === label)
+  assert.ok(button, label)
+  await act(async () => {
+    button.click()
+    await flush()
+  })
+  await act(flush)
+}
+
 afterEach(async () => {
   await act(async () => root?.unmount())
   root = undefined
@@ -93,6 +107,8 @@ afterEach(async () => {
   storeApi.extoreConnections = originalConnections
   storeApi.extoreConnectionCatalog = originalCatalog
   storeApi.extoreSync = originalSync
+  storeApi.extoreSyncAll = originalSyncAll
+  storeApi.extoreDisconnect = originalDisconnect
   useAuthStore.getState().auth.setUser(null)
   document.body.replaceChildren()
 })
@@ -101,7 +117,14 @@ after(() => dom.happyDOM.abort())
 test('Extore connections render sync controls for imported products', async () => {
   useAuthStore.getState().auth.setUser({ id: 7, username: 'seller' } as never)
   storeApi.extoreConnections = async () => ({
-    connections: [{ id: 'c1', shop_name: 'Demo shop', expires_at: 1 }],
+    connections: [
+      {
+        id: 'c1',
+        origin: 'https://extore.lmm.best',
+        shop_name: 'Demo shop',
+        expires_at: Math.floor(Date.now() / 1000) + 3600,
+      },
+    ],
     sources: [
       {
         connection_id: 'c1',
@@ -139,6 +162,8 @@ test('Extore connections render sync controls for imported products', async () =
       ],
     }) as never
   await mount(<StoreExtoreConnections />)
+  assert.equal(document.body.textContent?.includes('Notes'), false)
+  await click('View products')
   const deadline = Date.now() + 3000
   while (
     !document.body.textContent?.includes('Notes') &&
@@ -149,6 +174,129 @@ test('Extore connections render sync controls for imported products', async () =
   assert.match(document.body.textContent || '', /Demo shop/)
   assert.match(document.body.textContent || '', /Notes/)
   assert.match(document.body.textContent || '', /Extore code status/)
+  await act(async () => root?.unmount())
+  root = undefined
+  client?.clear()
   await mount(<StoreExtoreProductSync productId='local-1' />)
   assert.match(document.body.textContent || '', /Imported from Extore/)
+})
+
+test('expired connections offer reconnection without fetching or syncing', async () => {
+  useAuthStore.getState().auth.setUser({ id: 7, username: 'seller' } as never)
+  storeApi.extoreConnections = async () => ({
+    connections: [
+      {
+        id: 'expired',
+        shop_name: 'Expired shop',
+        expires_at: 1,
+        status: 'expired',
+      },
+    ],
+    sources: [],
+  })
+  let requests = 0
+  let reconnects = 0
+  storeApi.extoreConnectionCatalog = async () => {
+    requests++
+    throw new Error('must not fetch')
+  }
+  await mount(
+    <StoreExtoreConnections
+      onConnect={() => {
+        reconnects++
+      }}
+    />
+  )
+  assert.match(document.body.textContent || '', /Expired/)
+  assert.equal(
+    [...document.querySelectorAll('button')].some(
+      (button) => button.textContent === 'Sync all products'
+    ),
+    false
+  )
+  await click('Connect again')
+  assert.equal(reconnects, 1)
+  assert.equal(requests, 0)
+})
+
+test('batch sync reports individual failures and links successful imports', async () => {
+  useAuthStore.getState().auth.setUser({ id: 7, username: 'seller' } as never)
+  storeApi.extoreConnections = async () => ({
+    connections: [
+      {
+        id: 'c1',
+        origin: 'https://extore.lmm.best',
+        shop_name: 'Demo shop',
+        expires_at: Math.floor(Date.now() / 1000) + 3600,
+      },
+    ],
+    sources: [],
+  })
+  let synced = ''
+  storeApi.extoreSyncAll = async (id) => {
+    synced = id
+    return {
+      connection_id: id,
+      results: [
+        {
+          source_id: 'ok',
+          product_id: 'local-ok',
+          success: true,
+          message: 'Product synchronized from Extore',
+        },
+        {
+          source_id: 'unpriced',
+          success: false,
+          message:
+            'Configure the selling price for every variant in Extore before syncing',
+        },
+      ],
+    }
+  }
+  await mount(<StoreExtoreConnections />)
+  await click('Sync all products')
+  assert.equal(synced, 'c1')
+  assert.match(document.body.textContent || '', /1 synced · 1 need attention/)
+  assert.match(document.body.textContent || '', /Configure the selling price/)
+  assert.equal(
+    document.querySelector('a[href="/store/preview/local-ok"]')?.textContent,
+    'View in store'
+  )
+})
+
+test('disconnect requires confirmation and keeps failed revocation recoverable', async () => {
+  useAuthStore.getState().auth.setUser({ id: 7, username: 'seller' } as never)
+  storeApi.extoreConnections = async () => ({
+    connections: [
+      {
+        id: 'c1',
+        shop_name: 'Demo shop',
+        expires_at: Math.floor(Date.now() / 1000) + 3600,
+      },
+    ],
+    sources: [],
+  })
+  let requests = 0
+  storeApi.extoreDisconnect = async () => {
+    requests++
+    throw new Error('Upstream unavailable')
+  }
+  await mount(<StoreExtoreConnections />)
+  await click('Disconnect')
+  assert.equal(requests, 0)
+  const dialog = document.querySelector('[role="alertdialog"]')
+  assert.ok(dialog)
+  const confirm = [
+    ...dialog.querySelectorAll<HTMLButtonElement>('button'),
+  ].find((button) => button.textContent === 'Disconnect')
+  assert.ok(confirm)
+  await act(async () => {
+    confirm.click()
+    await flush()
+  })
+  await act(flush)
+  assert.equal(requests, 1)
+  assert.match(document.body.textContent || '', /Upstream unavailable/)
+  assert.ok(document.querySelector('[role="alertdialog"]'))
+  assert.match(document.body.textContent || '', /Demo shop/)
 })

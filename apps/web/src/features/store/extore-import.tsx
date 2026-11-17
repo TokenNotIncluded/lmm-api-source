@@ -11,18 +11,11 @@ import {
 } from '@/components/ui/dialog'
 
 import { storeApi } from './api'
+import { StoreExtoreResults } from './extore-results'
+import type { ExtoreImportResult } from './extore-types'
 import { StoreError, StoreLoading } from './shared'
 
-export type ExtoreImportResult = {
-  connection: { id: string }
-  results: {
-    source_id: string
-    product_id?: string
-    success: boolean
-    message: string
-    last_synced_at?: number
-  }[]
-}
+export type { ExtoreImportResult } from './extore-types'
 
 export function StoreExtoreImport({
   callbackUrl,
@@ -40,11 +33,12 @@ export function StoreExtoreImport({
   const request = useRef<Promise<unknown> | null>(null)
   const notified = useRef(false)
   const [attempt, setAttempt] = useState(0)
+  const [reconnecting, setReconnecting] = useState(false)
   useEffect(() => {
     let active = true
     setBusy(true)
     setError(null)
-    if (callbackUrl) {
+    if (callbackUrl && !reconnecting) {
       request.current ??= storeApi.extoreCatalog(callbackUrl)
       void request.current
         .then((value) => {
@@ -100,7 +94,7 @@ export function StoreExtoreImport({
     return () => {
       active = false
     }
-  }, [callbackUrl, onImported, attempt])
+  }, [callbackUrl, onImported, attempt, reconnecting])
   return (
     <Dialog
       open
@@ -119,22 +113,19 @@ export function StoreExtoreImport({
         {busy ? (
           <StoreLoading />
         ) : result ? (
-          <div className='space-y-3' role='status'>
-            {result.results.map((item) => (
-              <p key={item.source_id}>
-                {item.source_id}: {t(item.message)}
-              </p>
-            ))}
+          <div className='space-y-4'>
+            <StoreExtoreResults results={result.results} />
             <Button onClick={onClose}>{t('Back to store')}</Button>
           </div>
         ) : (
           <Button
             onClick={() => {
               request.current = null
+              if (callbackUrl) setReconnecting(true)
               setAttempt((value) => value + 1)
             }}
           >
-            {t('Try again')}
+            {callbackUrl ? t('Connect again') : t('Try again')}
           </Button>
         )}
       </DialogContent>

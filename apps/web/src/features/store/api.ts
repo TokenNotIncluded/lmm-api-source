@@ -7,7 +7,11 @@ import type {
   ExtoreAuthorization,
   ExtoreCatalog,
 } from './extore-import-protocol'
-import type { ExtoreConnections } from './extore-sync'
+import type {
+  ExtoreBatchResult,
+  ExtoreConnections,
+  ExtoreImportResult,
+} from './extore-types'
 import { storeSocialProductResponse } from './product-social-state'
 import { STORE_PUBLISHING_COPY as publishingCopy } from './publishing-copy'
 import { STORE_PURCHASE_LIMIT_COPY } from './quantity'
@@ -191,12 +195,28 @@ export const storeApi = {
         options
       )
     ),
+  extoreSyncAll: (id: string) =>
+    unwrap<ExtoreBatchResult>(
+      api.post(
+        `${root}/extore/connections/${encodeURIComponent(id)}/sync-all`,
+        {},
+        options
+      )
+    ),
+  extoreDisconnect: (id: string) =>
+    unwrap<{ id: string; revoked_at: number }>(
+      api.post(
+        `${root}/extore/connections/${encodeURIComponent(id)}/disconnect`,
+        {},
+        options
+      )
+    ),
   extoreAuthorize: (base_url: string, client_id: string) =>
     unwrap<ExtoreAuthorization>(
       api.post(`${root}/extore/authorize`, { base_url, client_id }, options)
     ),
   extoreCatalog: (callback_url: string) =>
-    unwrap<unknown>(
+    unwrap<ExtoreImportResult>(
       api.post(`${root}/extore/catalog`, { callback_url }, options)
     ),
   merchantHome: (id: number, signal?: AbortSignal) =>
