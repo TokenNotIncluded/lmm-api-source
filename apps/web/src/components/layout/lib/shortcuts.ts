@@ -68,12 +68,3 @@ export const SHORTCUT_GROUP_TITLES: Record<ShortcutGroupId, string> = {
   navigation: 'Go to',
   appearance: 'Appearance',
 }
-
-/** Lowercase key sequence for a navigation shortcut, e.g. `['g', 'd']`. */
-export const NAVIGATION_SHORTCUTS = CONSOLE_SHORTCUTS.filter(
-  (shortcut) => shortcut.group === 'navigation' && shortcut.to
-).map((shortcut) => ({
-  keys: shortcut.keys.map((key) => key.toLowerCase()),
-  to: shortcut.to as string,
-  label: shortcut.id,
-}))

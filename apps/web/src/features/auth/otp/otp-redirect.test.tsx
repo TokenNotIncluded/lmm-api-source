@@ -189,7 +189,7 @@ async function mount(entry: string) {
   })
   const landingRoute = createRoute({
     getParentRoute: () => rootRoute,
-    path: '/wallet',
+    path: '/dashboard',
     component: () => <p>Default landing fixture</p>,
   })
   const router = createRouter({
@@ -324,7 +324,7 @@ test('password and OTP without a redirect keep the default landing route', async
   assert.equal(router.state.location.pathname, '/otp')
   assert.equal(router.state.location.search.redirect, undefined)
   await otpLogin(host)
-  assert.equal(router.state.location.pathname, '/wallet')
+  assert.equal(router.state.location.pathname, '/dashboard')
 })
 
 for (const unsafe of [
@@ -340,7 +340,7 @@ for (const unsafe of [
     assert.equal(router.state.location.pathname, '/otp')
     assert.equal(router.state.location.search.redirect, undefined)
     await otpLogin(host)
-    assert.equal(router.state.location.pathname, '/wallet')
+    assert.equal(router.state.location.pathname, '/dashboard')
     assert.equal(window.location.origin, origin)
   })
 }
@@ -356,7 +356,7 @@ test('a directly opened OTP URL also rejects a malicious return target', async (
   assert.ok(relogin)
   assert.equal(relogin.getAttribute('href'), '/sign-in')
   await otpLogin(host)
-  assert.equal(router.state.location.pathname, '/wallet')
+  assert.equal(router.state.location.pathname, '/dashboard')
 })
 
 for (const action of ['Back to login', 'Re-login']) {
@@ -538,7 +538,7 @@ test('registration without a return target keeps the normal sign-in and default 
   assert.equal(router.state.location.search.redirect, undefined)
   await passwordLogin(host)
   await otpLogin(host)
-  assert.equal(router.state.location.pathname, '/wallet')
+  assert.equal(router.state.location.pathname, '/dashboard')
 })
 
 for (const unsafe of [
@@ -560,7 +560,7 @@ for (const unsafe of [
     assert.equal(router.state.location.search.redirect, undefined)
     await passwordLogin(host)
     await otpLogin(host)
-    assert.equal(router.state.location.pathname, '/wallet')
+    assert.equal(router.state.location.pathname, '/dashboard')
   })
 }
 
