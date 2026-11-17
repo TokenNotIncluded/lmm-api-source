@@ -80,7 +80,11 @@ export function MandatoryAnnouncements({ children }: { children: ReactNode }) {
   const userID = useAuthStore((state) => state.auth.user?.id)
   const sessionID = useAuthStore((state) => state.auth.session?.sid)
   const queryClient = useQueryClient()
-  const queryKey = ['mandatory-announcements', userID, sessionID ?? null] as const
+  const queryKey = [
+    'mandatory-announcements',
+    userID,
+    sessionID ?? null,
+  ] as const
   const query = useQuery({
     queryKey,
     queryFn: ({ signal }) => loadAnnouncements(userID, sessionID, signal),

@@ -336,10 +336,13 @@ for (const nextGet of ['fails', 'is stale'] as const) {
         assert.equal(gets, 1)
         assert.ok(container.querySelector('[data-testid="workspace"]'))
         assert.equal(container.querySelector('[role="alert"]'), null)
-        assert.deepEqual(client.getQueryData(['mandatory-announcements', 7, null]), {
-          supported: true,
-          items: acknowledged,
-        })
+        assert.deepEqual(
+          client.getQueryData(['mandatory-announcements', 7, null]),
+          {
+            supported: true,
+            items: acknowledged,
+          }
+        )
       },
       true,
       async () => ({ data: { success: true, data: acknowledged } })
@@ -361,10 +364,13 @@ test('an acknowledgement replaces the complete list including a new server-side 
     async (container, client) => {
       await confirmAnnouncement(container)
       assert.equal(gets, 1)
-      assert.deepEqual(client.getQueryData(['mandatory-announcements', 7, null]), {
-        supported: true,
-        items: updated,
-      })
+      assert.deepEqual(
+        client.getQueryData(['mandatory-announcements', 7, null]),
+        {
+          supported: true,
+          items: updated,
+        }
+      )
       assert.ok(container.textContent?.includes('Announcement 2 of 2'))
       assert.equal(container.querySelector('[data-testid="workspace"]'), null)
     },
@@ -401,10 +407,13 @@ test('an in-flight background GET cannot overwrite a successful acknowledgement 
       await flushQuery()
       assert.equal(gets, 2)
       assert.ok(container.querySelector('[data-testid="workspace"]'))
-      assert.deepEqual(client.getQueryData(['mandatory-announcements', 7, null]), {
-        supported: true,
-        items: acknowledged,
-      })
+      assert.deepEqual(
+        client.getQueryData(['mandatory-announcements', 7, null]),
+        {
+          supported: true,
+          items: acknowledged,
+        }
+      )
     },
     true,
     async () => ({ data: { success: true, data: acknowledged } })
@@ -424,10 +433,13 @@ test('a failed acknowledgement keeps the reader and workspace blocked until a su
       assert.equal(container.querySelector('[data-testid="workspace"]'), null)
       assert.ok(container.querySelector('[role="alert"]'))
       assert.ok(container.querySelector('[role="region"]'))
-      assert.deepEqual(client.getQueryData(['mandatory-announcements', 7, null]), {
-        supported: true,
-        items: unread,
-      })
+      assert.deepEqual(
+        client.getQueryData(['mandatory-announcements', 7, null]),
+        {
+          supported: true,
+          items: unread,
+        }
+      )
       await confirmAnnouncement(container)
       assert.equal(posts, 2)
       assert.equal(gets, 1)
@@ -498,10 +510,13 @@ test('a revision conflict refreshes the new notice and acknowledges only its new
       assert.deepEqual(acknowledged, [{ id: 1, revision: 'r1' }])
       assert.ok(container.querySelector('[role="region"]'))
       assert.equal(container.querySelector('[data-testid="workspace"]'), null)
-      assert.deepEqual(client.getQueryData(['mandatory-announcements', 7, null]), {
-        supported: true,
-        items: [notice('Updated notice', 'r2')],
-      })
+      assert.deepEqual(
+        client.getQueryData(['mandatory-announcements', 7, null]),
+        {
+          supported: true,
+          items: [notice('Updated notice', 'r2')],
+        }
+      )
       await confirmAnnouncement(container)
       assert.deepEqual(acknowledged, [
         { id: 1, revision: 'r1' },
@@ -574,10 +589,13 @@ test('an in-flight acknowledgement from one user cannot acknowledge the next use
         client.getQueryData(['mandatory-announcements', 7, null]),
         undefined
       )
-      assert.deepEqual(client.getQueryData(['mandatory-announcements', 8, null]), {
-        supported: true,
-        items: [notice('User 8 notice')],
-      })
+      assert.deepEqual(
+        client.getQueryData(['mandatory-announcements', 8, null]),
+        {
+          supported: true,
+          items: [notice('User 8 notice')],
+        }
+      )
       await confirmAnnouncement(container)
       assert.deepEqual(gets, [7, 8])
       assert.deepEqual(posts, [7, 8])
@@ -821,8 +839,10 @@ for (const [status, message] of [
           const signIn = container.querySelector('a[href^="/sign-in"]')
           assert.equal(signIn?.textContent, 'Sign in again')
           assert.equal(
-            new URL(signIn!.getAttribute('href')!, dom.location.origin)
-              .searchParams.get('reauth'),
+            new URL(
+              signIn!.getAttribute('href')!,
+              dom.location.origin
+            ).searchParams.get('reauth'),
             '1'
           )
         } else {
