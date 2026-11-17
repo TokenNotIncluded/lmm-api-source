@@ -221,10 +221,7 @@ test('fetches the authoritative catalog only when the tools panel becomes active
       rendered.container.textContent ?? '',
       /Writes after server checks/
     )
-    assert.match(
-      rendered.container.textContent ?? '',
-      /L6 \(Super administrator\)/
-    )
+    assert.match(rendered.container.textContent ?? '', /Super administrator/)
     await rendered.rerender(false)
     assert.equal(rendered.requests, 1)
   } finally {
@@ -336,7 +333,7 @@ test('searches readable labels, identifiers and permissions without changing the
       rendered.container.querySelector('[data-tool-name="request_create_key"]')
     )
     await act(async () => {
-      setInput(search, 'L6 (Super administrator)')
+      setInput(search, 'Super administrator')
       await flush()
     })
     assert.ok(
@@ -485,23 +482,16 @@ test('configures a disabled tool group without enabling it or saving early', asy
     )
     assert.ok(dialog)
     assert.match(dialog.textContent ?? '', /Changes stay in this draft/)
-    const controls = dialog.querySelectorAll('[role="combobox"]')
-    assert.equal(controls.length, 2)
-    assert.equal(controls[0].textContent, 'L1')
-    assert.equal(controls[1].textContent, 'L6 (Super administrator)')
-    await click(controls[0])
-    const options = Array.from(document.querySelectorAll('[role="option"]'))
-    assert.equal(
-      options.some((item) => item.textContent === 'L0'),
-      false
+    assert.equal(dialog.querySelectorAll('[role="combobox"]').length, 0)
+    assert.doesNotMatch(
+      dialog.textContent ?? '',
+      /Allowed account levels|Minimum level|Maximum level|\bL[0-6]\b/
     )
-    await click(options.find((item) => item.textContent === 'L2') ?? null)
+    await click(dialog.querySelector('[role="switch"]'))
     const changed = JSON.parse(rendered.changes.at(-1) ?? '{}')
-    assert.deepEqual(changed.rules.request_create_key, {
-      min_level: 2,
-      max_level: 6,
-    })
+    assert.equal(changed.tools.request_create_key, false)
     assert.equal(changed.groups.api_keys, false)
+    assert.equal(changed.rules, undefined)
     await click(
       Array.from(dialog.querySelectorAll('button')).find(
         (button) => button.textContent === 'Reset tool rules'
@@ -525,7 +515,7 @@ test('configures a disabled tool group without enabling it or saving early', asy
   }
 })
 
-test('weekly discount dialog edits member ceilings but never grants administrator rewards', async () => {
+test('weekly discount configuration no longer exposes tier discounts', async () => {
   const withDiscount = structuredClone(catalog)
   withDiscount.data.groups[2].tools.push({
     name: 'prepare_weekly_discount',
@@ -545,36 +535,15 @@ test('weekly discount dialog edits member ceilings but never grants administrato
       '[data-testid="assistant-tool-configuration"]'
     )
     assert.ok(dialog)
-    const inputs = dialog.querySelectorAll<HTMLInputElement>(
-      'input[type="number"]'
+    assert.equal(dialog.querySelectorAll('input[type="number"]').length, 0)
+    assert.doesNotMatch(
+      dialog.textContent ?? '',
+      /Maximum discount by level|\bL[0-6]\b/
     )
-    assert.equal(inputs.length, 7)
-    assert.equal(inputs[1].value, '10')
-    assert.equal(inputs[5].disabled, true)
-    assert.equal(inputs[5].value, '0')
-    assert.equal(inputs[6].disabled, true)
-    await act(async () => {
-      setInput(inputs[1], '25')
-      await flush()
-    })
-    const rule = JSON.parse(rendered.changes.at(-1) ?? '{}').rules
-      .prepare_weekly_discount
-    assert.equal(rule.discount_percent_by_level['1'], 25)
-    const count = rendered.changes.length
-    await act(async () => {
-      setInput(inputs[1], '100')
-      await flush()
-    })
-    assert.equal(rendered.changes.length, count)
-    await act(async () => {
-      setInput(inputs[1], '0')
-      await flush()
-    })
-    assert.equal(
-      JSON.parse(rendered.changes.at(-1) ?? '{}').rules.prepare_weekly_discount
-        .discount_percent_by_level['1'],
-      0
-    )
+    await click(dialog.querySelector('[role="switch"]'))
+    const saved = JSON.parse(rendered.changes.at(-1) ?? '{}')
+    assert.equal(saved.tools.prepare_weekly_discount, false)
+    assert.equal(saved.rules, undefined)
   } finally {
     await rendered.cleanup()
   }

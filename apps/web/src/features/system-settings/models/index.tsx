@@ -91,6 +91,7 @@ export function ModelSettings() {
     <SettingsPage
       routePath='/_authenticated/system-settings/models/$section'
       defaultSettings={defaultModelSettings}
+      independentSections={['model-deployment']}
       defaultSection={MODELS_DEFAULT_SECTION}
       getSectionContent={getModelsSectionContent}
       getSectionMeta={getModelsSectionMeta}

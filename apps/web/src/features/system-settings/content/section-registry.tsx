@@ -156,8 +156,6 @@ const CONTENT_SECTIONS = [
           AssistantRegistrationDailySuspendCap:
             settings.AssistantRegistrationDailySuspendCap,
 
-          AssistantL1AutoApprovalUserIDs:
-            settings.AssistantL1AutoApprovalUserIDs,
           AssistantRetentionEnabled: settings.AssistantRetentionEnabled,
           AssistantActiveRetentionDays: settings.AssistantActiveRetentionDays,
           AssistantArchivedRetentionDays:

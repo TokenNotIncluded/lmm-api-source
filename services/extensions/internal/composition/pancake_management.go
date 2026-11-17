@@ -22,6 +22,57 @@ type PancakeAdministration struct {
 	replace  func(string, []byte, []byte) error
 }
 
+// This projection deliberately excludes secret bytes and private file paths.
+// A configured key is not a claim that the provider has accepted it.
+type pancakeConfiguration struct {
+	Contract             string                        `json:"contract"`
+	MerchantID           string                        `json:"merchant_id"`
+	StoreID              string                        `json:"store_id"`
+	ProductID            string                        `json:"product_id"`
+	ReturnURL            string                        `json:"return_url"`
+	Environment          string                        `json:"environment"`
+	PrivateKeyConfigured bool                          `json:"private_key_configured"`
+	Channels             []pancakeConfigurationChannel `json:"channels"`
+}
+
+type pancakeConfigurationChannel struct {
+	ID                  int64  `json:"id"`
+	Currency            string `json:"currency"`
+	Enabled             bool   `json:"enabled"`
+	SubscriptionEnabled bool   `json:"subscription_enabled"`
+}
+
+func (a *PancakeAdministration) Configuration(ctx context.Context) (any, error) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if ctx.Err() != nil {
+		return nil, payments.ErrUnavailable
+	}
+	selected, err := a.selected()
+	if err != nil {
+		return nil, err
+	}
+	first := a.document.Channels[selected[0]]
+	view := pancakeConfiguration{
+		Contract: "extensions.pancake-configuration.v1", MerchantID: first.Merchant,
+		StoreID: first.StoreID, ProductID: first.ProductID, ReturnURL: first.ReturnURL,
+		Environment: first.Environment, PrivateKeyConfigured: first.PrivateKeyFile != "",
+		Channels: make([]pancakeConfigurationChannel, 0, len(selected)),
+	}
+	for _, index := range selected {
+		channel := a.document.Channels[index]
+		// The single form must not project one alias's redirect over another.
+		if channel.ReturnURL != first.ReturnURL {
+			return nil, payments.ErrConflict
+		}
+		view.Channels = append(view.Channels, pancakeConfigurationChannel{
+			ID: channel.ID, Currency: channel.Currency, Enabled: channel.Enabled,
+			SubscriptionEnabled: channel.SubscriptionEnabled,
+		})
+	}
+	return view, nil
+}
+
 func newPancakeAdministration(path string, wallet *payments.Service, subscriptions *payments.PancakeSubscriptions) (*PancakeAdministration, error) {
 	raw, err := coreclient.ReadPrivateFile(path, 64<<10)
 	if err != nil {

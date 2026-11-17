@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 )
 
@@ -239,7 +240,7 @@ func TestHeroSMSCoreFailuresAndCredentialAdministrationFailClosed(t *testing.T) 
 		t.Error("key replacement mutated policy")
 	}
 	mu.Unlock()
-	code, out = webRequest(t, s, "PUT", "/api/option/hero-sms", `{"enabled":true,"sms_enabled":true,"email_enabled":true,"price_multiplier":"10"}`, "")
+	code, out = webRequest(t, s, "PUT", "/api/option/hero-sms", `{"expected_revision":"4","enabled":true,"sms_enabled":true,"email_enabled":true,"price_multiplier":"10"}`, "")
 	if code != 409 || out["code"] != "STATE_CONFLICT" {
 		t.Fatal(out)
 	}
@@ -256,6 +257,101 @@ func TestHeroSMSCoreFailuresAndCredentialAdministrationFailClosed(t *testing.T) 
 	}
 	if _, err := NewCore("https://caller-chosen-host", []byte(syntheticServiceToken)); err == nil {
 		t.Fatal("non-Unix Core transport accepted")
+	}
+}
+
+func TestHeroSMSSettingsExposeOnlyPublicFileManagedConfiguration(t *testing.T) {
+	s := serviceFixture(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/internal/hero-sms/v1/settings" {
+			t.Errorf("unexpected RPC %s", r.URL.Path)
+		}
+		writeJSON(w, map[string]any{
+			"revision": int64(9007199254740993), "enabled": true, "sms_enabled": true,
+			"email_enabled": false, "api_key_configured": true, "pending_work": true,
+			"price_multiplier": "12.500000", "api_key": "synthetic-private-key",
+			"credential_path": "/private/synthetic-key", "credential_sha256": "private-fingerprint",
+		})
+	})
+	code, out := webRequest(t, s, "GET", "/api/option/hero-sms", "", "")
+	data := out["data"].(map[string]any)
+	if code != 200 || data["revision"] != "9007199254740993" || data["credential_managed_by_file"] != true || data["api_key_configured"] != true || data["sms_enabled"] != true || data["email_enabled"] != false || data["price_multiplier"] != "12.500000" {
+		t.Fatal(out)
+	}
+	if data["currency"] != "USD" || data["currency_code"] != float64(840) || data["pending_work"] != true {
+		t.Fatal(out)
+	}
+	for _, key := range []string{"api_key", "credential_path", "credential_sha256"} {
+		if _, exists := data[key]; exists {
+			t.Errorf("settings leaked %s", key)
+		}
+	}
+}
+
+func TestHeroSMSPolicyWritesKeepTheBrowsersExpectedRevision(t *testing.T) {
+	var settingsReads, policyWrites atomic.Int32
+	s := serviceFixture(t, func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/internal/hero-sms/v1/settings":
+			settingsReads.Add(1)
+			writeJSON(w, map[string]any{"revision": 5, "enabled": true, "sms_enabled": true, "email_enabled": false, "price_multiplier": "12"})
+		case "/internal/hero-sms/v1/save-policy":
+			policyWrites.Add(1)
+			var in struct {
+				Revision   int64  `json:"revision"`
+				Multiplier string `json:"price_multiplier"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
+				t.Error(err)
+			}
+			if in.Revision != 4 {
+				w.WriteHeader(409)
+				_, _ = io.WriteString(w, `{"error":"STATE_CONFLICT"}`)
+				return
+			}
+			if in.Multiplier != "12" {
+				t.Error("multiplier was not forwarded")
+			}
+			writeJSON(w, map[string]any{"ok": true})
+		default:
+			t.Errorf("unexpected RPC %s", r.URL.Path)
+		}
+	})
+	code, out := webRequest(t, s, "PUT", "/api/option/hero-sms", `{"expected_revision":"3","enabled":true,"sms_enabled":true,"email_enabled":false,"price_multiplier":"12"}`, "")
+	if code != 409 || out["code"] != "STATE_CONFLICT" || policyWrites.Load() != 1 || settingsReads.Load() != 0 {
+		t.Fatal("stale browser revision must be rejected without loading a newer revision", out)
+	}
+	code, out = webRequest(t, s, "PUT", "/api/option/hero-sms", `{"expected_revision":"4","enabled":true,"sms_enabled":true,"email_enabled":false,"price_multiplier":"12"}`, "")
+	if code != 200 || out["data"].(map[string]any)["revision"] != "5" || policyWrites.Load() != 2 || settingsReads.Load() != 1 {
+		t.Fatal("successful policy update must return a new public snapshot", out)
+	}
+	code, out = webRequest(t, s, "PUT", "/api/option/hero-sms", `{"enabled":true,"sms_enabled":true,"email_enabled":false,"price_multiplier":"12"}`, "")
+	if code != 400 || policyWrites.Load() != 2 || settingsReads.Load() != 1 {
+		t.Fatal("missing revision must not issue a policy write", out)
+	}
+}
+
+func TestHeroSMSConnectionTestUsesOnlyTheConfiguredCredential(t *testing.T) {
+	var calls atomic.Int32
+	s := serviceFixture(t, func(w http.ResponseWriter, r *http.Request) {
+		calls.Add(1)
+		if r.URL.Path != "/internal/hero-sms/v1/test" {
+			t.Errorf("unexpected RPC %s", r.URL.Path)
+		}
+		var input map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&input)
+		if len(input) != 0 {
+			t.Error("connection test must not send browser credentials")
+		}
+		writeJSON(w, map[string]any{"ok": true, "api_key": "synthetic-private-key"})
+	})
+	code, out := webRequest(t, s, "POST", "/api/option/hero-sms/test", `{}`, "")
+	data := out["data"].(map[string]any)
+	if code != 200 || data["ok"] != true || len(data) != 1 || calls.Load() != 1 {
+		t.Fatal(out)
+	}
+	code, out = webRequest(t, s, "POST", "/api/option/hero-sms/test", `{"api_key":"synthetic-candidate-key"}`, "")
+	if code != 409 || out["code"] != "CREDENTIAL_MANAGED_BY_FILE" || calls.Load() != 1 {
+		t.Fatal("candidate credentials must never reach Core", out)
 	}
 }
 

@@ -58,11 +58,6 @@ export const assistantSettingsSchema = z.object({
   AssistantSkillFiles: z.string().max(400000),
   AssistantRegistrationAutoSuspendEnabled: z.boolean(),
   AssistantRegistrationDailySuspendCap: z.number().int().min(0).max(5),
-  AssistantL1AutoApprovalUserIDs: z
-    .string()
-    .trim()
-    .max(4000)
-    .regex(/^(?:[1-9]\d*(?:[\s,，]+[1-9]\d*)*)?$/),
   AssistantRetentionEnabled: z.boolean(),
   AssistantActiveRetentionDays: z.number().int().min(7).max(3650),
   AssistantArchivedRetentionDays: z.number().int().min(1).max(3650),

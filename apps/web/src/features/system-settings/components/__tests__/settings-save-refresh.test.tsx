@@ -207,6 +207,35 @@ async function renderPage(cached = true) {
   })
 }
 
+test('native settings remain available when the legacy options API is unavailable', async () => {
+  activeTestSection = 'scripts'
+  read = (config) => Promise.reject(transportFailure(config))
+  await act(async () => {
+    root.render(
+      <QueryClientProvider client={queryClient}>
+        <I18nextProvider i18n={i18n}>
+          <SettingsPage
+            routePath='/system-settings/operations/$section'
+            defaultSettings={baseline}
+            defaultSection='scripts'
+            independentSections={['scripts']}
+            getSectionMeta={() => ({ titleKey: 'Scripts' })}
+            getSectionContent={() => (
+              <button type='button'>Save repository</button>
+            )}
+          />
+        </I18nextProvider>
+      </QueryClientProvider>
+    )
+  })
+  assert.ok(container.textContent?.includes('Save repository'))
+  assert.equal(container.querySelector('fieldset[disabled]'), null)
+  assert.equal(
+    requests.some((request) => request.url === '/api/option/'),
+    false
+  )
+})
+
 async function until(check: () => boolean, label: string) {
   for (let attempt = 0; attempt < 100; attempt += 1) {
     if (check()) return

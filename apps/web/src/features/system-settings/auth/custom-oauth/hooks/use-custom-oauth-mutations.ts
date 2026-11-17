@@ -46,6 +46,7 @@ export function useCreateProvider() {
   const invalidate = useInvalidateOnSuccess()
 
   return useMutation({
+    retry: false,
     mutationFn: ({
       data,
       operationKey,
@@ -69,6 +70,7 @@ export function useUpdateProvider() {
   const invalidate = useInvalidateOnSuccess()
 
   return useMutation({
+    retry: false,
     mutationFn: ({
       provider,
       data,
@@ -94,6 +96,7 @@ export function useDeleteProvider() {
   const invalidate = useInvalidateOnSuccess()
 
   return useMutation({
+    retry: false,
     mutationFn: ({
       provider,
       operationKey,

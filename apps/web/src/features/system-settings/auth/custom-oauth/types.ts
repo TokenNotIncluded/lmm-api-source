@@ -42,6 +42,7 @@ export interface CustomOAuthProvider {
   email_field: string
   well_known: string
   auth_style: number // 0=auto, 1=params, 2=header
+  pkce_s256: boolean
   access_policy: string
   access_denied_message: string
 }
@@ -75,11 +76,22 @@ export const customOAuthFormSchema = z.object({
   email_field: z.string().optional().default(''),
   well_known: z.string().optional().default(''),
   auth_style: z.number().int().min(0).max(2).default(0),
+  pkce_s256: z.boolean().default(false),
   access_policy: z.string().optional().default(''),
   access_denied_message: z.string().optional().default(''),
 })
 
 export type CustomOAuthFormValues = z.infer<typeof customOAuthFormSchema>
+
+// Core returns decimal strings so provider identifiers and revisions never
+// pass through JavaScript's lossy number representation.
+const providerVersion = z.string().regex(/^[1-9][0-9]*$/)
+export const customOAuthProviderSchema = customOAuthFormSchema.extend({
+  id: providerVersion,
+  revision: providerVersion,
+  secret_configured: z.boolean(),
+  client_secret: z.literal(''),
+})
 
 // ============================================================================
 // OIDC Discovery

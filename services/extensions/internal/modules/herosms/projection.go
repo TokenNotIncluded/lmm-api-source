@@ -2,7 +2,9 @@
 package herosms
 
 import (
+	"context"
 	"net/http"
+	"strconv"
 	"time"
 )
 
@@ -48,37 +50,79 @@ func email(r Receipt) map[string]any {
 	}
 	return map[string]any{"id": r.ID, "order_id": r.ID, "domain_id": r.QuoteID, "email": a.Email, "code": a.Code, "message": a.Message, "site": r.Quote.Selection.Site, "domain": r.Quote.Selection.Domain, "status": viewState(r), "charge_quota": r.Charge, "refunded_quota": r.Refunded, "cancel_reason": "", "created_at": r.Created, "updated_at": r.Updated}
 }
+
+// Only these public settings cross the browser boundary. Credentials and
+// provider diagnostics remain in Core, even if its RPC adds fields later.
+type settingsProjection struct {
+	Revision                string `json:"revision"`
+	Enabled                 bool   `json:"enabled"`
+	SMS                     bool   `json:"sms_enabled"`
+	Email                   bool   `json:"email_enabled"`
+	APIKeyConfigured        bool   `json:"api_key_configured"`
+	CredentialManagedByFile bool   `json:"credential_managed_by_file"`
+	PendingWork             bool   `json:"pending_work"`
+	Currency                string `json:"currency"`
+	CurrencyCode            int    `json:"currency_code"`
+	Multiplier              string `json:"price_multiplier"`
+}
+
+func (s *Service) settingsSnapshot(ctx context.Context, user string) (settingsProjection, error) {
+	var current struct {
+		Revision         int64  `json:"revision"`
+		Enabled          bool   `json:"enabled"`
+		SMS              bool   `json:"sms_enabled"`
+		Email            bool   `json:"email_enabled"`
+		APIKeyConfigured bool   `json:"api_key_configured"`
+		PendingWork      bool   `json:"pending_work"`
+		Multiplier       string `json:"price_multiplier"`
+	}
+	if err := s.Core.Call(ctx, "settings", user, struct{}{}, &current); err != nil {
+		return settingsProjection{}, err
+	}
+	return settingsProjection{
+		Revision: strconv.FormatInt(current.Revision, 10), Enabled: current.Enabled,
+		SMS: current.SMS, Email: current.Email, APIKeyConfigured: current.APIKeyConfigured,
+		CredentialManagedByFile: true, PendingWork: current.PendingWork,
+		Currency: "USD", CurrencyCode: 840, Multiplier: current.Multiplier,
+	}, nil
+}
+
 func (s *Service) settings(w http.ResponseWriter, r *http.Request, user string) {
 	var out any
 	var err error
 	switch {
 	case r.Method == http.MethodGet && r.URL.Path == "/api/option/hero-sms":
-		err = s.Core.Call(r.Context(), "settings", user, struct{}{}, &out)
+		out, err = s.settingsSnapshot(r.Context(), user)
 	case r.Method == http.MethodPut && r.URL.Path == "/api/option/hero-sms":
 		var in struct {
-			Enabled    *bool  `json:"enabled"`
-			SMS        *bool  `json:"sms_enabled"`
-			Email      *bool  `json:"email_enabled"`
-			Multiplier string `json:"price_multiplier"`
-			Key        string `json:"api_key"`
+			ExpectedRevision string `json:"expected_revision"`
+			Enabled          *bool  `json:"enabled"`
+			SMS              *bool  `json:"sms_enabled"`
+			Email            *bool  `json:"email_enabled"`
+			Multiplier       string `json:"price_multiplier"`
+			Key              string `json:"api_key"`
 		}
 		if err = decode(r, &in); err == nil {
 			if in.Enabled == nil || in.SMS == nil || in.Email == nil {
 				respond(w, nil, ErrInvalid)
 				return
 			}
-			var current struct {
-				Revision int64 `json:"revision"`
+			if in.Key != "" {
+				_, err = s.settingsSnapshot(r.Context(), user)
+				if err == nil {
+					err = &Failure{409, "CREDENTIAL_MANAGED_BY_FILE"}
+				}
+				respond(w, nil, err)
+				return
 			}
-			err = s.Core.Call(r.Context(), "settings", user, struct{}{}, &current)
-			if err == nil && in.Key != "" {
-				err = &Failure{409, "CREDENTIAL_MANAGED_BY_FILE"}
+			revision, parseErr := strconv.ParseInt(in.ExpectedRevision, 10, 64)
+			if parseErr != nil || revision < 0 || strconv.FormatInt(revision, 10) != in.ExpectedRevision {
+				respond(w, nil, ErrInvalid)
+				return
 			}
+			err = s.Core.Call(r.Context(), "save-policy", user, map[string]any{"revision": revision, "enabled": in.Enabled, "sms_enabled": in.SMS, "email_enabled": in.Email, "price_multiplier": in.Multiplier}, &out)
 			if err == nil {
-				err = s.Core.Call(r.Context(), "save-policy", user, map[string]any{"revision": current.Revision, "enabled": in.Enabled, "sms_enabled": in.SMS, "email_enabled": in.Email, "price_multiplier": in.Multiplier}, &out)
-			}
-			if err == nil {
-				err = s.Core.Call(r.Context(), "settings", user, struct{}{}, &out)
+				out, err = s.settingsSnapshot(r.Context(), user)
 			}
 		}
 	case r.Method == http.MethodPost && r.URL.Path == "/api/option/hero-sms/test":
@@ -89,11 +133,15 @@ func (s *Service) settings(w http.ResponseWriter, r *http.Request, user string) 
 			if in.Key != "" {
 				err = &Failure{409, "CREDENTIAL_MANAGED_BY_FILE"}
 			} else {
-				err = s.Core.Call(r.Context(), "test", user, struct{}{}, &out)
+				var result struct {
+					OK bool `json:"ok"`
+				}
+				err = s.Core.Call(r.Context(), "test", user, struct{}{}, &result)
+				out = result
 			}
 		}
 	case r.Method == http.MethodDelete && r.URL.Path == "/api/option/hero-sms/key":
-		err = s.Core.Call(r.Context(), "settings", user, struct{}{}, &out)
+		_, err = s.settingsSnapshot(r.Context(), user)
 		if err == nil {
 			err = &Failure{409, "CREDENTIAL_MANAGED_BY_FILE"}
 		}

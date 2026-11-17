@@ -60,6 +60,7 @@ describe('Google built-in vs custom registry', () => {
       email_field: 'email',
       well_known: '',
       auth_style: 0,
+      pkce_s256: false,
       access_policy: '',
       access_denied_message: '',
     }

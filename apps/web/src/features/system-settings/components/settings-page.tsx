@@ -88,6 +88,8 @@ type SettingsPageProps<
     settings: TSettings,
     raw: SystemOption[] | undefined
   ) => TSettings
+  /** Sections that load and save through their own authenticated API. */
+  independentSections?: readonly TSectionId[]
 }
 
 type SettingsPageFrameProps = {
@@ -415,6 +417,35 @@ function LimitedSettings({
  * Handles loading state, data fetching, and section rendering
  */
 export function SettingsPage<
+  TSettings extends Record<string, string | number | boolean | unknown[]>,
+  TSectionId extends string,
+  TExtraArgs extends unknown[] = [],
+>(props: SettingsPageProps<TSettings, TSectionId, TExtraArgs>) {
+  const { t } = useTranslation()
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const params = useParams({ from: props.routePath as any })
+  const section = (params?.section ?? props.defaultSection) as TSectionId
+
+  if (props.independentSections?.includes(section)) {
+    return (
+      <SettingsPageFrame title={t(props.getSectionMeta(section).titleKey)}>
+        <Suspense
+          fallback={<LoadingState message={t('Loading settings...')} />}
+        >
+          {props.getSectionContent(
+            section,
+            props.defaultSettings,
+            ...((props.extraArgs ?? []) as TExtraArgs)
+          )}
+        </Suspense>
+      </SettingsPageFrame>
+    )
+  }
+
+  return <OptionSettingsPage {...props} />
+}
+
+function OptionSettingsPage<
   TSettings extends Record<string, string | number | boolean | unknown[]>,
   TSectionId extends string,
   TExtraArgs extends unknown[] = [],

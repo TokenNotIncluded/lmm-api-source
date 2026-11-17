@@ -32,7 +32,7 @@ export const STATIC_I18N_KEYS = [
   'Sign-in needs browser storage. Allow this site to save site data in your browser settings, then reload and try again.',
   'Sign-in needs HTTPS and a browser with Web Locks support. Open this site in a supported browser over HTTPS, then reload and try again.',
   // Assistant starters use stable server IDs to select these keys.
-  'How do I apply for L1 access?',
+  'Create an API key',
   'Where should I start?',
   'How do I get the new-user gift?',
   'Any top-up discounts this week?',

@@ -6,6 +6,7 @@ import (
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/x509"
+	"encoding/json"
 	"encoding/pem"
 	"errors"
 	"os"
@@ -132,6 +133,36 @@ func TestPancakeManagementSavesPrivateConfigurationAndRestarts(t *testing.T) {
 	if got := configurationOrder(t, restarted, "configuration_restart_01"); !reflect.DeepEqual(got.PancakeBinding, current.PancakeBinding) {
 		t.Fatal("restart lost selected configuration")
 	}
+	view, err := admin.Configuration(context.Background())
+	if err != nil || view.(pancakeConfiguration).ReturnURL != request.ReturnURL {
+		t.Fatal("configuration readback did not follow committed runtime", err)
+	}
+}
+
+func TestPancakeManagementReadbackOmitsSecretsAndDetectsExternalEdits(t *testing.T) {
+	admin, _, _, quotes := pancakeManagementFixture(t)
+	before := append([]byte(nil), admin.expected...)
+	value, err := admin.Configuration(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	view := value.(pancakeConfiguration)
+	if view.Contract != "extensions.pancake-configuration.v1" || !view.PrivateKeyConfigured || view.MerchantID != admin.document.Channels[0].Merchant || view.ReturnURL != "https://example.test/old" || len(view.Channels) != 2 || quotes.next != 0 {
+		t.Fatal("incomplete or mutating configuration projection")
+	}
+	raw, err := json.Marshal(view)
+	if err != nil || bytes.Contains(raw, []byte("PRIVATE KEY")) || bytes.Contains(raw, []byte(admin.document.Channels[0].PrivateKeyFile)) || bytes.Contains(raw, []byte(admin.path)) {
+		t.Fatal("private configuration material leaked")
+	}
+	if current, err := os.ReadFile(admin.path); err != nil || !bytes.Equal(before, current) {
+		t.Fatal("configuration read mutated storage")
+	}
+	if err := os.WriteFile(admin.path, append(before, []byte("\n# operator edit\n")...), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := admin.Configuration(context.Background()); !errors.Is(err, payments.ErrConflict) {
+		t.Fatal("readback hid a changed host configuration", err)
+	}
 }
 
 func TestPancakeManagementPreservesPolicyAndFailedSaves(t *testing.T) {
@@ -190,6 +221,10 @@ func TestPancakeManagementFollowsVisibleUncertainCommit(t *testing.T) {
 	}
 	if _, err := os.Stat(admin.document.Channels[0].PrivateKeyFile); err != nil {
 		t.Fatal("committed key removed after uncertainty")
+	}
+	value, err := admin.Configuration(context.Background())
+	if err != nil || value.(pancakeConfiguration).ReturnURL != request.ReturnURL {
+		t.Fatal("uncertain commit cannot be read back", err)
 	}
 }
 

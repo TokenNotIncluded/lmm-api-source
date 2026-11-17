@@ -55,8 +55,8 @@ const DEFAULT_CONVERSATION_STARTERS: ConversationStarter[] = [
   },
   {
     id: 'ai_recommendation',
-    label: { default: 'How do I apply for L1 access?' },
-    prompt: { default: 'How do I apply for L1 access?' },
+    label: { default: 'Create an API key' },
+    prompt: { default: 'Create an API key' },
   },
 ]
 

@@ -105,9 +105,6 @@ const quotaSchema = z.object({
   quota_setting: z.object({
     enable_free_model_pre_consume: z.boolean(),
   }),
-  developer_access_setting: z.object({
-    invite_registration_enabled: z.boolean(),
-  }),
 })
 
 type QuotaFormValues = z.infer<typeof quotaSchema>
@@ -369,34 +366,6 @@ export function QuotaSettingsSection({
                 </FormItem>
               )}
             />
-
-            <SettingsFormGridItem span='full'>
-              <FormField
-                control={form.control}
-                name='developer_access_setting.invite_registration_enabled'
-                render={({ field }) => (
-                  <SettingsSwitchItem>
-                    <SettingsSwitchContent>
-                      <FormLabel>
-                        {t('Grant L1 when registering through an invitation')}
-                      </FormLabel>
-                      <FormDescription>
-                        {t(
-                          'When enabled, new accounts registered through a valid invitation link receive L1 automatically. Existing accounts are not upgraded.'
-                        )}
-                      </FormDescription>
-                    </SettingsSwitchContent>
-                    <FormControl>
-                      <Switch
-                        checked={field.value}
-                        onCheckedChange={field.onChange}
-                        disabled={updateOption.isPending}
-                      />
-                    </FormControl>
-                  </SettingsSwitchItem>
-                )}
-              />
-            </SettingsFormGridItem>
 
             <SettingsFormGridItem span='full'>
               <FormField

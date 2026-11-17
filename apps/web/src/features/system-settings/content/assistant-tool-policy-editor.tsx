@@ -14,7 +14,6 @@ import { useAuthStore } from '@/stores/auth-store'
 import { AssistantToolConfiguration } from './assistant-tool-configuration'
 import {
   DEFAULT_ASSISTANT_TOOL_POLICY,
-  assistantToolRule,
   assistantPolicyMatchesCatalog,
   isAssistantToolEnabled,
   parseAssistantToolCatalog,
@@ -33,10 +32,10 @@ const effectLabels: Record<AssistantToolEffect, string> = {
 }
 const accessLabels: Record<AssistantToolAccess, string> = {
   user: 'Signed-in users',
-  l0: 'L0 users',
-  l1: 'Level at least L1',
-  admin: 'L5 (Administrator)',
-  root: 'L6 (Super administrator)',
+  l0: 'Depends on the action',
+  l1: 'Depends on the action',
+  admin: 'Administrator',
+  root: 'Super administrator',
   mixed: 'Depends on the action',
 }
 
@@ -91,22 +90,7 @@ export function AssistantToolPolicyEditor(props: {
   }
   const accessLabel = (
     tool: NonNullable<typeof groups>[number]['tools'][number]
-  ) => {
-    if (!policy) return t(accessLabels[tool.access])
-    const rule = assistantToolRule(policy, tool)
-    if (rule.min_level === 6) return t('L6 (Super administrator)')
-    if (rule.min_level === 5 && rule.max_level === 6) {
-      return t('Level at least L5 (Administrator)')
-    }
-    if (rule.max_level === 6) {
-      return t('Level at least L{{level}}', { level: rule.min_level })
-    }
-    if (rule.min_level === rule.max_level) return `L${rule.min_level}`
-    return t('Levels L{{min}}–L{{max}}', {
-      min: rule.min_level,
-      max: rule.max_level,
-    })
-  }
+  ) => t(accessLabels[tool.access])
   const query = search.trim().toLocaleLowerCase()
   const filteredGroups = groups
     ?.map((group) => ({

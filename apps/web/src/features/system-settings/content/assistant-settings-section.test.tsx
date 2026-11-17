@@ -120,7 +120,6 @@ const baseValues = {
   AssistantSkillFiles: '[]',
   AssistantRegistrationAutoSuspendEnabled: true,
   AssistantRegistrationDailySuspendCap: 5,
-  AssistantL1AutoApprovalUserIDs: '',
   AssistantRetentionEnabled: true,
   AssistantActiveRetentionDays: 90,
   AssistantArchivedRetentionDays: 30,

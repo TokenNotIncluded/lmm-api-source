@@ -25,7 +25,7 @@ export function useCustomOAuthProviders() {
     queryKey: ['custom-oauth-providers'],
     queryFn: async () => {
       const res = await getCustomOAuthProviders()
-      return res.data ?? []
+      return res.data
     },
   })
 }

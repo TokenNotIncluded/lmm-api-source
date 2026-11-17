@@ -21,17 +21,15 @@ import { useTranslation } from 'react-i18next'
 
 import { SettingsPage, SettingsPageFrame } from '../components/settings-page'
 import type { BillingSettings } from '../types'
+import { NativePaymentSettings } from './native-payment-settings'
 import { NativePricingSection } from './native-pricing-section'
-import { RouterPricingSection } from './router-pricing-section'
 import {
   BILLING_DEFAULT_SECTION,
   getBillingSectionContent,
   getBillingSectionMeta,
 } from './section-registry.tsx'
-import { TrustLevelBenefitsSection } from './trust-level-benefits-section'
 
 const defaultBillingSettings: BillingSettings = {
-  TrustLevelBenefits: '',
   QuotaForNewUser: 0,
   PreConsumedQuota: 0,
   QuotaForInviter: 0,
@@ -47,9 +45,6 @@ const defaultBillingSettings: BillingSettings = {
   TopUpLink: '',
   'general_setting.docs_link': '',
   'quota_setting.enable_free_model_pre_consume': true,
-  'developer_access_setting.invite_registration_enabled': false,
-  'developer_access_setting.paid_activation_enabled': true,
-  'developer_access_setting.paid_activation_min_amount': 1,
   QuotaPerUnit: 500000,
   PublicCreditsPerUSD: '',
   USDExchangeRate: 7,
@@ -128,7 +123,6 @@ const defaultBillingSettings: BillingSettings = {
   'checkin_setting.enabled': false,
   'checkin_setting.min_quota': 1000,
   'checkin_setting.max_quota': 10000,
-  'checkin_setting.level_multipliers': [0.5, 0.65, 0.8, 0.9, 1],
 }
 
 export function BillingSettings() {
@@ -148,18 +142,17 @@ export function BillingSettings() {
       </SettingsPageFrame>
     )
   }
-  // Dedicated financial editor; the generic capability view excludes it.
-  if (section === 'levels-benefits') {
-    return (
-      <SettingsPageFrame title={t('Levels & Benefits')}>
-        <TrustLevelBenefitsSection />
-      </SettingsPageFrame>
-    )
-  }
   if (section === 'router-pricing') {
     return (
       <SettingsPageFrame title={t('Router pricing')}>
-        <RouterPricingSection />
+        <NativePricingSection initialMode='upstream_cost' />
+      </SettingsPageFrame>
+    )
+  }
+  if (section === 'payment') {
+    return (
+      <SettingsPageFrame title={t('Payment Gateway')}>
+        <NativePaymentSettings />
       </SettingsPageFrame>
     )
   }
