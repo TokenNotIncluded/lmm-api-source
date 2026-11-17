@@ -5203,6 +5203,7 @@
     "HeroSMS only returns purchasable email domains after you provide a non-empty target site.": "HeroSMS fournit les domaines e-mail disponibles après saisie du site cible.",
     "HeroSMS purchasing is disabled": "Les achats HeroSMS sont désactivés",
     "HeroSMS settings changed. Reload the latest settings before saving again.": "Les paramètres HeroSMS ont changé. Rechargez leur dernière version avant d’enregistrer à nouveau.",
+    "HeroSMS temporary activations": "Activations temporaires HeroSMS",
     "HeroSMS will be asked to cancel this activation. Your balance is refunded only after HeroSMS confirms cancellation; a verification code received first will complete the order instead.": "HeroSMS recevra une demande d’annulation. Votre solde ne sera remboursé qu’après confirmation de HeroSMS ; si le code de vérification arrive avant, la commande sera terminée normalement.",
     "HI,$name, it is $time": "Bonjour $name, il est $time",
     "Hidden": "Masqué",

@@ -5203,6 +5203,7 @@
     "HeroSMS only returns purchasable email domains after you provide a non-empty target site.": "対象サイトを入力すると、HeroSMS が購入可能なメールドメインを返します。",
     "HeroSMS purchasing is disabled": "HeroSMS の購入は無効です",
     "HeroSMS settings changed. Reload the latest settings before saving again.": "HeroSMS の設定が変更されています。最新の設定を再読み込みしてから、もう一度保存してください。",
+    "HeroSMS temporary activations": "HeroSMS 一時認証",
     "HeroSMS will be asked to cancel this activation. Your balance is refunded only after HeroSMS confirms cancellation; a verification code received first will complete the order instead.": "HeroSMS にキャンセルを要求します。残高は HeroSMS がキャンセルを確認した後にのみ返金されます。先に認証コードを受信した場合、注文は通常どおり完了します。",
     "HI,$name, it is $time": "こんにちは、$name。現在は $time です",
     "Hidden": "非表示",

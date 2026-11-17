@@ -184,7 +184,7 @@ export function NativePriceRuleDialog({
       description={t(
         'Changes stay in your draft until you preview and publish them.'
       )}
-      contentClassName='sm:max-w-3xl'
+      contentClassName='bg-background sm:max-w-3xl'
       footer={
         <>
           <Button type='button' variant='ghost' onClick={onClose}>

@@ -10,6 +10,12 @@ import { LoadingState } from '@/components/loading-state'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
 import { Input } from '@/components/ui/input'
 import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select'
 import {
@@ -562,7 +568,9 @@ function PricingWorkspace({
               <TableHead>{t('Cache write')}</TableHead>
               <TableHead>{t('Request fee')}</TableHead>
               <TableHead>{t('Multiplier')}</TableHead>
-              <TableHead className='text-right'>{t('Actions')}</TableHead>
+              <TableHead className='bg-background sticky right-0 z-10 w-24 text-right'>
+                {t('Actions')}
+              </TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -604,51 +612,63 @@ function PricingWorkspace({
                     {t('Group')} × {t('Speed')}
                   </div>
                 </TableCell>
-                <TableCell>
-                  <div className='flex justify-end gap-1'>
-                    <Button
-                      type='button'
-                      variant='ghost'
-                      size='sm'
+                <TableCell className='bg-background sticky right-0 z-10 w-24 text-right'>
+                  <DropdownMenu>
+                    <DropdownMenuTrigger
                       disabled={busy}
-                      onClick={() => setEditing({ rule, previousId: rule.id })}
-                    >
-                      {t('Edit')}
-                    </Button>
-                    <Button
-                      type='button'
-                      variant='ghost'
-                      size='sm'
-                      disabled={busy}
-                      onClick={() =>
-                        setEditing({
-                          rule: {
-                            ...rule,
-                            id: nextPriceRuleId(prices),
-                            model: `${rule.model}-copy`,
-                          },
-                        })
+                      render={
+                        <Button
+                          type='button'
+                          variant='ghost'
+                          size='sm'
+                          className='min-h-11 sm:min-h-8'
+                        />
                       }
                     >
-                      {t('Copy')}
-                    </Button>
-                    <Button
-                      type='button'
-                      variant='ghost'
-                      size='sm'
-                      disabled={busy}
-                      onClick={() =>
-                        updatePrices({
-                          ...prices,
-                          rules: prices.rules.filter(
-                            (item) => item.id !== rule.id
-                          ),
-                        })
-                      }
+                      {t('Actions')}
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent
+                      align='end'
+                      className='bg-background min-w-40'
                     >
-                      {t('Remove')}
-                    </Button>
-                  </div>
+                      <DropdownMenuItem
+                        disabled={busy}
+                        onClick={() =>
+                          setEditing({ rule, previousId: rule.id })
+                        }
+                      >
+                        {t('Edit')}
+                      </DropdownMenuItem>
+                      <DropdownMenuItem
+                        disabled={busy}
+                        onClick={() =>
+                          setEditing({
+                            rule: {
+                              ...rule,
+                              id: nextPriceRuleId(prices),
+                              model: `${rule.model}-copy`,
+                            },
+                          })
+                        }
+                      >
+                        {t('Copy')}
+                      </DropdownMenuItem>
+                      <DropdownMenuItem
+                        disabled={busy}
+                        variant='destructive'
+                        onClick={() =>
+                          updatePrices({
+                            ...prices,
+                            rules: prices.rules.filter(
+                              (item) => item.id !== rule.id
+                            ),
+                          })
+                        }
+                      >
+                        {t('Remove')}
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
                 </TableCell>
               </TableRow>
             ))}
