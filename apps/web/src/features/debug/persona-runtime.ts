@@ -844,7 +844,7 @@ const debugAdapter: AxiosAdapter = async (config) => {
             medium: 'readme',
             campaign: 'local-preview',
             content: 'setup-guide',
-            target: '/guide',
+            target: '/developers',
             archived: false,
           },
         ],
@@ -861,7 +861,7 @@ const debugAdapter: AxiosAdapter = async (config) => {
       config,
       envelope({
         link_id: '0123456789abcdef0123456789abcdef',
-        target: '/guide',
+        target: '/developers',
         source: 'documentation',
         medium: 'readme',
         campaign: 'local-preview',
@@ -1053,7 +1053,7 @@ const debugAdapter: AxiosAdapter = async (config) => {
             evidence: 'promotion_link',
             created_at: now - 15 * 86400 - 300,
             referrer_host: 'github.com',
-            landing: '/guide',
+            landing: '/developers',
           },
         ],
       })

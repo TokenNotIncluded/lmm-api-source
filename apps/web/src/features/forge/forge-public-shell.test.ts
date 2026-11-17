@@ -43,7 +43,7 @@ describe('Forge public navigation', () => {
     for (const [title, href] of [
       ['Tool market', '/'],
       ['Models and pricing', '/pricing'],
-      ['Guide', '/guide'],
+      ['Developers', '/developers'],
       ['Challenges', '/challenges'],
       ['Security', '/security'],
     ]) {

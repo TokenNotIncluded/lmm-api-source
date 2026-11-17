@@ -119,8 +119,6 @@ const NAVIGATION = [
   ['share', 'Open usage sharing', '/profile/share', 'signed-in'],
   ['wallet', 'Open wallet', '/wallet', 'signed-in'],
   ['common_logs', 'Open usage logs', '/usage-logs/common', 'signed-in'],
-  ['drawing_logs', 'Open drawing logs', '/usage-logs/drawing', 'signed-in'],
-  ['task_logs', 'Open task logs', '/usage-logs/task', 'signed-in'],
   ['subscriptions', 'Open subscription plans', '/subscriptions', 'admin'],
   [
     'subscription_reset',

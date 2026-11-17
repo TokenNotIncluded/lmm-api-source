@@ -25,7 +25,6 @@ import {
   Box,
   Building2,
   Bug,
-  Compass,
   CreditCard,
   FileText,
   Globe2,
@@ -35,7 +34,6 @@ import {
   LayoutDashboard,
   LifeBuoy,
   ListChecks,
-  ListTodo,
   Medal,
   MessageSquare,
   MonitorCog,
@@ -166,15 +164,7 @@ export function useSidebarData(): SidebarData {
         items: [
           { title: t('Integration guide'), url: '/developers', icon: FileText },
           { title: t('API Keys'), url: '/keys', icon: Key },
-          { title: t('Client setup'), url: '/guide', icon: Compass },
           { title: t('Usage Logs'), url: '/usage-logs/common', icon: FileText },
-          {
-            title: t('Task Logs'),
-            url: '/usage-logs/task',
-            activeUrls: ['/usage-logs/drawing'],
-            configUrls: ['/usage-logs/drawing', '/usage-logs/task'],
-            icon: ListTodo,
-          },
           { title: t('Status detection'), url: '/status', icon: Server },
           {
             title: t('Remote control'),

@@ -193,13 +193,6 @@ function buildSectionDefs(t: (key: string) => string): SectionDef[] {
           description: t('API usage records'),
           config: { section: 'console', key: 'log' },
         },
-        {
-          id: '/usage-logs/task',
-          key: 'task-logs',
-          title: t('Task Logs'),
-          description: t('System task records'),
-          config: { section: 'console', key: 'task' },
-        },
       ],
     },
     {
@@ -318,11 +311,7 @@ function buildSectionDefs(t: (key: string) => string): SectionDef[] {
   if (!general || !chat || !ecosystem || !personal || !onboarding || !admin) {
     return sections
   }
-  const developerRoutes = new Set([
-    '/keys',
-    '/usage-logs/common',
-    '/usage-logs/task',
-  ])
+  const developerRoutes = new Set(['/keys', '/usage-logs/common'])
   const module = (id: string, title: string) => ({
     id,
     key: id.slice(1),
@@ -337,7 +326,6 @@ function buildSectionDefs(t: (key: string) => string): SectionDef[] {
     modules: [
       module('/developers', 'Integration guide'),
       ...general.modules.filter((item) => developerRoutes.has(item.id)),
-      module('/guide', 'Client setup'),
       module('/status', 'Status detection'),
       module('/remote-control', 'Remote control'),
     ],
@@ -410,7 +398,6 @@ const DEFAULT_ROUTES: DefaultRouteDef[] = [
   { route: '/challenges', title: 'Challenges', requiresConsole: true },
   { route: '/rankings', title: 'Rankings', requiresConsole: true },
   { route: '/usage-logs/common', title: 'Usage Logs', requiresConsole: true },
-  { route: '/usage-logs/task', title: 'Task Logs', requiresConsole: true },
   { route: '/support', title: 'Submit a ticket', requiresConsole: true },
   {
     route: '/channels',

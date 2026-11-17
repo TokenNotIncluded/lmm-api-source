@@ -363,9 +363,9 @@ export function Footer(props: FooterProps) {
                 <div className='flex flex-wrap gap-4 sm:flex-col'>
                   <Link
                     className='text-muted-foreground hover:text-primary block transition-colors duration-150'
-                    to='/guide'
+                    to='/developers'
                   >
-                    {t('Guide')}
+                    {t('Integration guide')}
                   </Link>
                   <Link
                     className='text-muted-foreground hover:text-primary block transition-colors duration-150'

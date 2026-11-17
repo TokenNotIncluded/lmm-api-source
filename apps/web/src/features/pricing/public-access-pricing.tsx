@@ -95,7 +95,7 @@ export function PublicAccessPricing() {
                   size='lg'
                   variant='outline'
                   className='h-auto min-h-12 px-6 py-3 text-base whitespace-normal'
-                  render={<Link to='/guide' />}
+                  render={<Link to='/developers' />}
                 >
                   {t('Read the guide')}
                 </Button>

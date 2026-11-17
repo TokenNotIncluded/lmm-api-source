@@ -268,8 +268,8 @@ export function HomeLanding({
               )}
             </p>
             <div className='lmm-world-links'>
-              {navigation.guide && (
-                <a className='lmm-core-link' href='/guide#client-setup'>
+              {navigation.developers && (
+                <a className='lmm-core-link' href='/developers'>
                   {t('Explore plugins')} <Arrow />
                 </a>
               )}
@@ -317,7 +317,7 @@ export function HomeLanding({
           brandName={brandName}
           brandLogo={brandLogo}
           pricingHref={pricingHref}
-          guideHref={navigation.guide ? '/guide' : null}
+          guideHref={navigation.developers ? '/developers' : null}
           t={t}
         />
       </section>
@@ -328,8 +328,8 @@ export function HomeLanding({
       >
         <div className='lmm-section-intro'>
           <h2 id='lmm-connect-title'>{t('Connect in three steps')}</h2>
-          {navigation.guide && (
-            <a className='lmm-text-link' href='/guide'>
+          {navigation.developers && (
+            <a className='lmm-text-link' href='/developers'>
               {t('Read the guide')}
               <Arrow />
             </a>
@@ -502,8 +502,8 @@ export function HomeLanding({
       <footer className='lmm-home-footer'>
         <div>
           <RepositoryLink kind='project' className='lmm-home-repository' />
-          {navigation.guide && (
-            <a className='lmm-text-link' href='/guide'>
+          {navigation.developers && (
+            <a className='lmm-text-link' href='/developers'>
               {t('Read the guide')}
               <Arrow />
             </a>

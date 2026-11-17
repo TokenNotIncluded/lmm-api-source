@@ -403,12 +403,15 @@ export function ForgeHome() {
             {!assistantEnabled && (
               <p className='text-muted-foreground mt-3 text-sm'>
                 {t(
-                  navigation.guide
+                  navigation.developers
                     ? 'Assistant is unavailable. Open the guide to continue.'
                     : 'Assistant unavailable'
                 )}{' '}
-                {navigation.guide && (
-                  <Link to='/guide' className='underline underline-offset-4'>
+                {navigation.developers && (
+                  <Link
+                    to='/developers'
+                    className='underline underline-offset-4'
+                  >
                     {t('Open guide')}
                   </Link>
                 )}
@@ -461,8 +464,8 @@ export function ForgeHome() {
                   </span>
                 </Button>
               </div>
-              {navigation.guide && (
-                <a href='/guide#client-setup' className='lmm-text-link'>
+              {navigation.developers && (
+                <a href='/developers' className='lmm-text-link'>
                   {t('Read the Pi OAuth setup steps')}
                   <ArrowRight aria-hidden='true' />
                 </a>
@@ -494,8 +497,8 @@ export function ForgeHome() {
                   </span>
                 </Button>
               </div>
-              {navigation.guide && (
-                <a href='/guide#client-setup' className='lmm-text-link'>
+              {navigation.developers && (
+                <a href='/developers' className='lmm-text-link'>
                   {t('Open guide')}
                   <ArrowRight aria-hidden='true' />
                 </a>

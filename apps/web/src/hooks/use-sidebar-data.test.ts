@@ -91,7 +91,11 @@ describe('authenticated sidebar discovery', () => {
     assert.doesNotMatch(section('general', 'developer'), /getting-started/)
     assert.match(section('general', 'developer'), /url: '\/chat-management'/)
     assert.match(section('developer', 'forge'), /url: '\/keys'/)
-    assert.match(section('developer', 'forge'), /url: '\/guide'/)
+    assert.match(section('developer', 'forge'), /url: '\/developers'/)
+    assert.doesNotMatch(
+      section('developer', 'forge'),
+      /\/guide|Task Logs|\/usage-logs\/(?:task|drawing)/
+    )
     assert.match(section('forge', 'personal'), /url: '\/scripts'/)
     assert.match(section('personal', 'services'), /url: '\/wallet'/)
     assert.doesNotMatch(

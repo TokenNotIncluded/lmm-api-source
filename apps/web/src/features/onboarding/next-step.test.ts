@@ -43,7 +43,7 @@ test('OAuth and undecided users are not required to create manual keys', () => {
       stage: 'first_request' as const,
     },
   }
-  assert.equal(getAccountNextStep(approved, 'oauth').to, '/guide')
+  assert.equal(getAccountNextStep(approved, 'oauth').to, '/developers')
   assert.equal(getAccountNextStep(approved).label, 'Choose your client')
   assert.equal(getAccountNextStep(approved, 'api-key').to, '/keys')
   assert.equal(

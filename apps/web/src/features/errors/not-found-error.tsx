@@ -27,7 +27,7 @@ import { ErrorPageFrame } from './error-page-frame'
 const RESCUE_LINKS = [
   { to: '/', label: 'Home' },
   { to: '/pricing', label: 'Models and pricing' },
-  { to: '/guide', label: 'Guide' },
+  { to: '/developers', label: 'Guide' },
   { to: '/challenges', label: 'Challenges' },
 ] as const
 
