@@ -99,19 +99,30 @@ func (c *Core) Call(ctx context.Context, action, user string, in, out any) error
 	}
 	return nil
 }
-func (c *Core) Ready(ctx context.Context) error {
+
+// Capabilities exposes implementation availability, never credentials or policy.
+type Capabilities struct {
+	PurchasesAvailable bool `json:"purchases_available"`
+}
+
+func (c *Core) Capabilities(ctx context.Context) (Capabilities, error) {
 	var out struct {
-		Protocol int    `json:"protocol"`
-		Service  string `json:"service"`
-		Ready    bool   `json:"ready"`
+		Protocol           int    `json:"protocol"`
+		Service            string `json:"service"`
+		Ready              bool   `json:"ready"`
+		PurchasesAvailable bool   `json:"purchases_available"`
 	}
 	if err := c.Call(ctx, "ready", "", struct{}{}, &out); err != nil {
-		return err
+		return Capabilities{}, err
 	}
 	if out.Protocol != 1 || out.Service != "hero-sms" || !out.Ready {
-		return ErrUnavailable
+		return Capabilities{}, ErrUnavailable
 	}
-	return nil
+	return Capabilities{PurchasesAvailable: out.PurchasesAvailable}, nil
+}
+func (c *Core) Ready(ctx context.Context) error {
+	_, err := c.Capabilities(ctx)
+	return err
 }
 func status(err error) (int, string) {
 	var f *Failure

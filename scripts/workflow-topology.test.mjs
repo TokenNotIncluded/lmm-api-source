@@ -255,7 +255,7 @@ test('continuous CI bounds duplicate work and preserves only checked web assets'
   const check = web.indexOf('bun run --filter @lmm/web bundle:check\n');
   const upload = web.indexOf('uses: actions/upload-artifact@');
   assert.ok(build >= 0 && check > build && upload > check);
-  assert.match(web, /path: apps\/web\/dist\/\n          if-no-files-found: error\n          retention-days: 3/);
+  assert.match(web, /path: apps\/web\/dist\/\n          include-hidden-files: true\n          if-no-files-found: error\n          retention-days: 3/);
   assert.match(source, /github\.event\.pull_request\.base\.sha/);
   assert.match(source, /github\.event\.before/);
   assert.match(source, /node scripts\/check-i18n\.mjs --base "\$BASE_REF" --merge-base/);

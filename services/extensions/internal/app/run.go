@@ -120,7 +120,7 @@ func Run() error {
 	if err != nil {
 		return err
 	}
-	pluginManager, err := modules.NewPluginManager(host, runtime.Modules, cfg.Host.PluginStateFile, composition.ModuleDescriptors()...)
+	pluginManager, err := modules.NewPluginManager(host, runtime.Modules, cfg.Host.PluginStateFile, runtime.ModuleDescriptors()...)
 	if err != nil {
 		return err
 	}
@@ -134,7 +134,7 @@ func Run() error {
 	}
 	subscriptionPayments := runtime.SubscriptionPaymentHandler()
 	if cfg.Host.WebCompat {
-		if runtime.Store == nil && runtime.AssistantHistory == nil && runtime.Operations == nil && runtime.Payments == nil && runtime.ToolMarket == nil && runtime.Community == nil && runtime.Acquisition == nil && runtime.Checkins == nil {
+		if runtime.Store == nil && runtime.AssistantHistory == nil && runtime.Operations == nil && runtime.Payments == nil && runtime.ToolMarket == nil && runtime.Community == nil && runtime.Acquisition == nil && runtime.Checkins == nil && runtime.HeroSMS == nil && runtime.MarketReview == nil {
 			return errors.New("Web compatibility requires an assembled Web module")
 		}
 		api = webcompat.Mount(host, auth, runtime.Store, runtime.Support, webcompat.AdditionalServices{Checkins: runtime.Checkins, HeroSMS: runtime.HeroSMS, MarketReview: runtime.MarketReview, Builtins: builtinHTTP, ToolMarket: runtime.ToolMarket, ToolMarketMCP: runtime.ToolMarketMCP, Assistant: runtime.AssistantHistory, AssistantChat: runtime.AssistantChat, AssistantServices: runtime.AssistantServices, Operations: runtime.Operations, Payments: webcompat.NewPaymentStatusReader(runtime.Payments), PaymentCheckout: runtime.Payments, PaymentPortal: runtime.Payments, PancakeAdmin: runtime.PancakeAdmin, SubscriptionPayments: subscriptionPayments, Plugins: pluginManager, Community: runtime.Community, Acquisition: runtime.Acquisition})

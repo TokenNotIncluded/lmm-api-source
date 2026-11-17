@@ -35,7 +35,7 @@ func serviceFixture(t *testing.T, handler http.HandlerFunc) *Service {
 			http.Error(w, "forbidden", 403)
 			return
 		}
-		if r.Header.Get("X-LMM-User-Credential") != syntheticSession {
+		if r.URL.Path != "/internal/hero-sms/v1/ready" && r.Header.Get("X-LMM-User-Credential") != syntheticSession {
 			w.WriteHeader(403)
 			_, _ = io.WriteString(w, `{"error":"FORBIDDEN"}`)
 			return
@@ -407,5 +407,49 @@ func TestHeroSMSPreservesSessionAndProviderCredentialFailures(t *testing.T) {
 				t.Fatal(status, out)
 			}
 		})
+	}
+}
+
+func TestHeroSMSPurchaseCapabilitiesAreExplicitAndDoNotExposeSettings(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		field any
+		want  bool
+	}{
+		{"missing", nil, false},
+		{"not implemented", false, false},
+		{"implemented", true, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			service := serviceFixture(t, func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path != "/internal/hero-sms/v1/ready" || r.Header.Get("X-LMM-User-Credential") != "" {
+					t.Error("capability discovery must use only the separate host authority")
+				}
+				out := map[string]any{"protocol": 1, "service": "hero-sms", "ready": true, "api_key": "synthetic-private-key", "price_multiplier": "10"}
+				if tc.field != nil {
+					out["purchases_available"] = tc.field
+				}
+				writeJSON(w, out)
+			})
+			code, out := webRequest(t, service, "GET", "/api/hero-sms/capabilities", "", "")
+			data, ok := out["data"].(map[string]any)
+			if code != http.StatusOK || !ok || len(data) != 1 || data["purchases_available"] != tc.want {
+				t.Fatal(code, out)
+			}
+		})
+	}
+	service := serviceFixture(t, func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusServiceUnavailable)
+		writeJSON(w, map[string]any{"error": "HERO_SMS_UNAVAILABLE"})
+	})
+	code, out := webRequest(t, service, "GET", "/api/hero-sms/capabilities", "", "")
+	if code != http.StatusServiceUnavailable || out["success"] != false || out["data"] != nil {
+		t.Fatal("a failed capability read must not enable purchasing", code, out)
+	}
+	request := httptest.NewRequest(http.MethodGet, "/api/hero-sms/capabilities", nil)
+	response := httptest.NewRecorder()
+	service.ServeHTTP(response, request)
+	if response.Code != http.StatusForbidden {
+		t.Fatal("capability route requires an authenticated user")
 	}
 }

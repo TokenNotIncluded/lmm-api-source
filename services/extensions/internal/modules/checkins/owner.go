@@ -7,8 +7,9 @@ import (
 	"errors"
 )
 
-// PublishPolicy is an offline owner operation. Runtime receives SELECT only on
-// policy tables and can neither enable rewards nor alter published policy.
+// PublishPolicy is an offline owner operation preserving full policy metadata.
+// Runtime changes online settings only through the bounded save_settings function
+// and has no direct write permission on the policy tables.
 func PublishPolicy(ctx context.Context, db *sql.DB, key string, expected int64, p Policy) (int64, error) {
 	if !validKey(key) || expected < 0 || expected == 9223372036854775807 || p.Validate() != nil {
 		return 0, ErrInvalid

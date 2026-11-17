@@ -54,6 +54,7 @@ import { useTranslation } from 'react-i18next'
 
 import { StoreIcon } from '@/components/layout/components/store-icon'
 import type { SidebarData } from '@/components/layout/types'
+import { useHeroSmsPurchaseCapability } from '@/features/email-activations/purchase-capabilities'
 import { getTodos } from '@/features/todos/api'
 /*
 Copyright (C) 2023-2026 QuantumNous
@@ -88,6 +89,9 @@ export function useSidebarData(): SidebarData {
   const { t } = useTranslation()
   const user = useAuthStore((state) => state.auth.user)
   const consoleActivated = isConsoleActivated(user)
+  const heroSmsCapability = useHeroSmsPurchaseCapability(
+    Boolean(user) && consoleActivated
+  )
   const todosQuery = useQuery({
     queryKey: ['todos', 'all'],
     queryFn: () => getTodos('all'),
@@ -212,17 +216,21 @@ export function useSidebarData(): SidebarData {
           },
         ],
       },
-      {
-        id: 'services',
-        title: t('Other services'),
-        items: [
-          {
-            title: t('Temporary activations'),
-            url: '/temporary-activations',
-            icon: PhoneCall,
-          },
-        ],
-      },
+      ...(heroSmsCapability.available
+        ? [
+            {
+              id: 'services',
+              title: t('Other services'),
+              items: [
+                {
+                  title: t('Temporary activations'),
+                  url: '/temporary-activations' as const,
+                  icon: PhoneCall,
+                },
+              ],
+            },
+          ]
+        : []),
       {
         id: 'admin',
         title: t('Admin'),

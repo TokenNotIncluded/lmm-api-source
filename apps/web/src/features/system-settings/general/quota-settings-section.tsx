@@ -70,13 +70,13 @@ export function QuotaSettingsSection() {
                 </p>
               </div>
               <Button
-                asChild
+                render={
+                  <Link to={destination.to} params={destination.params} />
+                }
                 variant='outline'
                 className='shrink-0 self-start sm:self-auto'
               >
-                <Link to={destination.to} params={destination.params}>
-                  {t('Open')}
-                </Link>
+                {t('Open')}
               </Button>
             </div>
           ))}

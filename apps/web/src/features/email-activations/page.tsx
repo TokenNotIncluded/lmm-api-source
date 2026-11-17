@@ -101,6 +101,7 @@ import {
   useRefreshHeroSmsActivation,
   useReorderHeroSmsActivation,
 } from './hooks'
+import { HeroSmsPurchaseCapabilityGate } from './purchase-capability-gate'
 import { HeroSmsSmsActivationPanel } from './sms-activation-panel'
 import { HeroSmsStatusBadge } from './status'
 import {
@@ -363,6 +364,14 @@ function MetaItem({ label, value }: { label: string; value: string }) {
 }
 
 export function EmailActivationsPage() {
+  return (
+    <HeroSmsPurchaseCapabilityGate>
+      <EmailActivationsContent />
+    </HeroSmsPurchaseCapabilityGate>
+  )
+}
+
+function EmailActivationsContent() {
   const { t } = useTranslation()
   const { formatQuota, formatPrice } = useHeroSmsCurrency()
   const [activationKind, setActivationKind] = useState<'sms' | 'email'>('sms')

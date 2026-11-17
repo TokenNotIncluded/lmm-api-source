@@ -12,7 +12,11 @@ import (
 	"strings"
 )
 
-type Service struct{ Core *Core }
+type Service struct {
+	Core *Core
+	// Set only from the authenticated Core capability handshake during assembly.
+	PurchasesAvailable bool
+}
 
 func (s *Service) Name() string          { return "hero-sms" }
 func (s *Service) Handler() http.Handler { return s }
@@ -57,6 +61,11 @@ func (s *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	user := r.Header.Get("X-LMM-User-Credential")
 	if user == "" || len(r.Header.Values("X-LMM-User-Credential")) != 1 {
 		respond(w, nil, &Failure{403, "FORBIDDEN"})
+		return
+	}
+	if r.Method == http.MethodGet && r.URL.Path == "/api/hero-sms/capabilities" {
+		capabilities, err := s.Core.Capabilities(r.Context())
+		respond(w, capabilities, err)
 		return
 	}
 	path := strings.TrimPrefix(r.URL.Path, "/api/hero-sms")

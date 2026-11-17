@@ -231,7 +231,10 @@ async function install(context, state, theme) {
     let status = 200
     if (p === '/api/user/auth/refresh') result = json(bundle)
     else if (p === '/api/user/self') result = json(user)
-    else if (p === '/api/setup') result = json({ status: true })
+    else if (p === '/api/hero-sms/capabilities') {
+      assert.equal(method, 'GET')
+      result = json({ purchases_available: false })
+    } else if (p === '/api/setup') result = json({ status: true })
     else if (p === '/api/status') {
       result = json({
         system_name: 'LMM',
@@ -606,6 +609,23 @@ try {
       })
 
       await check(`${label}-hero-settings`, async () => {
+        await go('/temporary-activations')
+        await page
+          .getByText(t('Purchases unavailable'), { exact: true })
+          .waitFor()
+        assert.equal(
+          await page.locator('a[href="/temporary-activations"]').count(),
+          0
+        )
+        assert.equal(
+          state.requests.some(
+            (request) =>
+              request.path.startsWith('/api/hero-sms') &&
+              request.path !== '/api/hero-sms/capabilities'
+          ),
+          false
+        )
+        await capture(page, `${label}-hero-purchases-unavailable`)
         await go('/system-settings/operations/hero-sms')
         const multiplier = page.locator('input[type="number"]')
         await multiplier.waitFor()
