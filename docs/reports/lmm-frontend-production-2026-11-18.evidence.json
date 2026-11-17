@@ -1,0 +1,1454 @@
+{
+  "schema": "lmm.web.release-evidence.v1",
+  "document_status": "final_web_deployed_with_known_browser_blocker",
+  "generated_at_utc": "2026-11-17T22:19:54.441727+00:00",
+  "project": "LMM API",
+  "repository": "TokenNotIncluded/lmm-api-source",
+  "candidate": {
+    "revision": "3a9986d92ce8c464e4ef3fa67ee521f6e0fde5c9",
+    "tree": "e27d59f4060e021b6522ecb4e26263a3fa7755c1",
+    "feature_candidate_revision": "0a24786c130fce08af32e84980e79f73627e5345",
+    "changes_since_feature_candidate": [
+      "apps/web/src/features/drawing/index.test.tsx",
+      "apps/web/src/features/users/components/assistant-leads-panel.test.tsx",
+      "apps/web/src/features/webmcp/bootstrap.test.ts",
+      "apps/web/src/lib/public-directory-route.test.ts"
+    ],
+    "changes_since_feature_candidate_are_tests_only": true,
+    "production_source_changes_for_test_repairs": false,
+    "tracked_worktree_clean_at_draft_generation": true,
+    "included_commits": [
+      {
+        "revision": "48f343fce385d77162868e3360947834382872f0",
+        "scope": "Localized command-menu and navigation matching; optional WebMCP runtime loading."
+      },
+      {
+        "revision": "1e8843299a24bba1f6b1429dc208212e9f942c6b",
+        "scope": "Visibility-consistent shortcuts and recent navigation; existing OTP landing expectations updated."
+      },
+      {
+        "revision": "9c427fa75e9677b9b9d0c5a2ab89e8e74d1b7f15",
+        "scope": "Behavior-test type corrections; includes previously merged pricing UI changes."
+      },
+      {
+        "revision": "0a24786c130fce08af32e84980e79f73627e5345",
+        "scope": "Shared model/vendor empty and no-match states."
+      },
+      {
+        "revision": "3a9986d92ce8c464e4ef3fa67ee521f6e0fde5c9",
+        "scope": "Four test-only repairs; no production source changes from preceding feature candidate."
+      }
+    ]
+  },
+  "final_build": {
+    "status": "passed",
+    "revision": "3a9986d92ce8c464e4ef3fa67ee521f6e0fde5c9",
+    "steps": [
+      {
+        "command": [
+          "mise",
+          "exec",
+          "--",
+          "bun",
+          "run",
+          "typecheck:web"
+        ],
+        "exit_code": 0,
+        "seconds": 14.151,
+        "evidence_ref": "release-3a9986d9-build-0.log"
+      },
+      {
+        "command": [
+          "mise",
+          "exec",
+          "--",
+          "just",
+          "build-web"
+        ],
+        "exit_code": 0,
+        "seconds": 9.404,
+        "evidence_ref": "release-3a9986d9-build-1.log"
+      }
+    ],
+    "result_evidence_ref": "release-3a9986d9-build-result.json",
+    "bundle_gate": {
+      "initial_rsbuild_gzip_bytes": 499597,
+      "limit_bytes": 786432,
+      "passed": true
+    }
+  },
+  "package_identity": {
+    "revision": "3a9986d92ce8c464e4ef3fa67ee521f6e0fde5c9",
+    "version": "0.0.0-ui.20261118.3a9986d9",
+    "archive_filename": "lmm-web-0.0.0-ui.20261118.3a9986d9-any.tar.gz",
+    "archive_sha256": "96c3ca96f04bd553cff82180b612e583b65d6e31a46f0f45c2dd9d6d55fec135",
+    "archive_bytes": 19427567,
+    "archive_hash_independently_matches_retained_file": true,
+    "manifest_sha256": "39134ddc132cc92663cffabf4a6b84614bd3782aa34f30436dc26b4db9096bc0",
+    "manifest_files": 625,
+    "index_sha256": "1adb4750b3086c67b3e57025d7a2ed2d7d639d50b93dd4aa06d257c6d308ba8c",
+    "source_date_epoch": 1794952843,
+    "preview": true,
+    "standard_verifier_output": "Verified web: 3a9986d92ce8c464e4ef3fa67ee521f6e0fde5c9",
+    "evidence_refs": [
+      "package-3a9986d9.json",
+      "package-3a9986d9-0.log",
+      "package-3a9986d9-1.log",
+      "final-distribution-3a9986d9/lmm-web-0.0.0-ui.20261118.3a9986d9-any.tar.gz"
+    ]
+  },
+  "performance": {
+    "status": "passed_controlled_comparison",
+    "candidate_revision": "3a9986d92ce8c464e4ef3fa67ee521f6e0fde5c9",
+    "baseline_revision": "7c0af204303efdba618345dc4b4f890e3f403c1b",
+    "baseline_kind": "prior native-architecture frontend, not legacy Go frontend",
+    "method": {
+      "chromium_version": "157.0.8103.38",
+      "viewport": {
+        "width": 1440,
+        "height": 900
+      },
+      "locale": "en-US",
+      "timezone": "Asia/Taipei",
+      "theme": "dark",
+      "reduced_motion": "reduce",
+      "rounds_per_variant_per_scenario": 3,
+      "order": "AB/BA/AB for each scenario",
+      "fresh_context_per_sample": true,
+      "http_cache_disabled": true,
+      "service_workers_blocked": true,
+      "static_serving": "local loopback HTTP with gzip level9 for compressible assets",
+      "api_data": "fixed synthetic fixtures shared by both variants within this run",
+      "api_delay_ms": 25,
+      "fixture_content_sha256": "28032b364b5f4273dd17b9c93fa1313556a1fe45f85a42a069e2823e4ae71289",
+      "external_dependencies": "replaced with recorded empty responses",
+      "readiness": "visible route selector, fonts ready, fixed 1000ms settle",
+      "static_bytes": "Resource Timing encodedBodySize of static subresources; excludes response headers and navigation HTML",
+      "heap": "V8 usedSize after HeapProfiler.collectGarbage; not process RSS",
+      "expected_anonymous_refresh_status": 401,
+      "measurement_script_sha256": "876beb7581964cda0442f4046ff77fcfa3d9ef48c8f44c13a462a6acaf2fdc6b",
+      "dependency_input_hashes": {
+        "bun.lock": "16c3ba0a14ce43b7a017110b2b997b9b171362b6ea32092576239819e4c5c343",
+        "package.json": "48c7ca5f377f2c6a948cc41d47ea490eec259d7911f0ab896905db7d480296aa",
+        "apps/web/package.json": "461a9233117b4b7a2c08f0a22f48ae0231ecd6a99471fde64e7446bd2352e112",
+        "mise.toml": "1362cb8439079e4f63c469c5e4479587501101201b66ba8163284b9ffc5b3939"
+      },
+      "host_loadavg": {
+        "before": [
+          "10.70",
+          "14.50",
+          "15.27"
+        ],
+        "after": [
+          "8.57",
+          "13.45",
+          "14.88"
+        ]
+      }
+    },
+    "initial_script_styles_gzip9": {
+      "baseline_bytes": 609043,
+      "candidate_bytes": 500178,
+      "change_pct": -17.8748
+    },
+    "rsbuild_initial_assets_gzip9": {
+      "baseline_bytes": 608462,
+      "candidate_bytes": 499597,
+      "change_pct": -17.8918
+    },
+    "scenarios": [
+      {
+        "scenario": "sign-in",
+        "samples_per_variant": 3,
+        "valid": true,
+        "static_encoded_bytes": {
+          "baseline": 986305,
+          "candidate": 884718,
+          "change_pct": -10.2998
+        },
+        "js_heap_after_gc_bytes": {
+          "baseline": 13419132,
+          "candidate": 12783368,
+          "change_pct": -4.7377
+        },
+        "fcp_ms": {
+          "baseline": 320,
+          "candidate": 280
+        },
+        "script_ms": {
+          "baseline": 178.867,
+          "candidate": 158.26999999999998
+        },
+        "javascript_requests": {
+          "baseline": 18,
+          "candidate": 20
+        },
+        "ranges": {
+          "baseline": {
+            "heapUsedBytes": [
+              13414564,
+              13426024
+            ],
+            "scriptDurationMs": [
+              172.208,
+              186.71699999999998
+            ],
+            "firstContentfulPaintMs": [
+              284,
+              424
+            ]
+          },
+          "candidate": {
+            "heapUsedBytes": [
+              12778484,
+              12786704
+            ],
+            "scriptDurationMs": [
+              143.65900000000002,
+              176.72099999999998
+            ],
+            "firstContentfulPaintMs": [
+              260,
+              308
+            ]
+          }
+        }
+      },
+      {
+        "scenario": "pricing",
+        "samples_per_variant": 3,
+        "valid": true,
+        "static_encoded_bytes": {
+          "baseline": 2802928,
+          "candidate": 2716886,
+          "change_pct": -3.0697
+        },
+        "js_heap_after_gc_bytes": {
+          "baseline": 22480348,
+          "candidate": 22045868,
+          "change_pct": -1.9327
+        },
+        "fcp_ms": {
+          "baseline": 680,
+          "candidate": 628
+        },
+        "script_ms": {
+          "baseline": 327.764,
+          "candidate": 279.84
+        },
+        "javascript_requests": {
+          "baseline": 27,
+          "candidate": 30
+        },
+        "ranges": {
+          "baseline": {
+            "heapUsedBytes": [
+              22473564,
+              22548972
+            ],
+            "scriptDurationMs": [
+              228.389,
+              359.348
+            ],
+            "firstContentfulPaintMs": [
+              488,
+              708
+            ]
+          },
+          "candidate": {
+            "heapUsedBytes": [
+              22033188,
+              22220824
+            ],
+            "scriptDurationMs": [
+              206.78,
+              290.264
+            ],
+            "firstContentfulPaintMs": [
+              496,
+              636
+            ]
+          }
+        }
+      },
+      {
+        "scenario": "dashboard",
+        "samples_per_variant": 3,
+        "valid": true,
+        "static_encoded_bytes": {
+          "baseline": 3120350,
+          "candidate": 3051140,
+          "change_pct": -2.218
+        },
+        "js_heap_after_gc_bytes": {
+          "baseline": 24692224,
+          "candidate": 24461040,
+          "change_pct": -0.9363
+        },
+        "fcp_ms": {
+          "baseline": 640,
+          "candidate": 580
+        },
+        "script_ms": {
+          "baseline": 361.402,
+          "candidate": 312.452
+        },
+        "javascript_requests": {
+          "baseline": 42,
+          "candidate": 49
+        },
+        "ranges": {
+          "baseline": {
+            "heapUsedBytes": [
+              24667896,
+              24692376
+            ],
+            "scriptDurationMs": [
+              338.45399999999995,
+              467.478
+            ],
+            "firstContentfulPaintMs": [
+              524,
+              972
+            ]
+          },
+          "candidate": {
+            "heapUsedBytes": [
+              24456300,
+              24489140
+            ],
+            "scriptDurationMs": [
+              290.995,
+              316.981
+            ],
+            "firstContentfulPaintMs": [
+              568,
+              588
+            ]
+          }
+        }
+      }
+    ],
+    "total_valid_navigation_samples": 18,
+    "errors": {
+      "navigation": 0,
+      "page": 0,
+      "requests": 0,
+      "missing_fixtures": {
+        "baseline": [],
+        "candidate": []
+      }
+    },
+    "webmcp_catalogue_loaded_samples": {
+      "baseline": 9,
+      "candidate": 0
+    },
+    "candidate_index_sha256": "1adb4750b3086c67b3e57025d7a2ed2d7d639d50b93dd4aa06d257c6d308ba8c",
+    "measurement_seconds": 38.993,
+    "source_dist_and_frozen_snapshot_unchanged": true,
+    "limitations": [
+      "Real production JS is rendered in Chromium; all API data is a fixed synthetic fixture. This does not validate live authentication, pricing accuracy, money operations, or backend latency.",
+      "Static transfer uses a local Node HTTP server with gzip level 9 and 300-byte Resource Timing response overhead; it is not production CDN or WAN throughput. Navigation HTML is reported separately from the static subresource total.",
+      "JS heap is V8 usedSize after CDP HeapProfiler.collectGarbage, not browser/process RSS, GPU memory, server memory, or a leak test.",
+      "Measurement occurs after the route-specific visible selector, resolved fonts, and a fixed 1000ms settle interval. Expected anonymous refresh 401 is permitted. Fresh browser contexts, disabled HTTP cache, identical viewport/locale/theme/API latency, and alternating A/B order reduce but do not eliminate timing noise. Three samples establish a small reproducible comparison, not a statistical SLA.",
+      "Any external network dependencies are replaced with an empty successful response and recorded; this intentionally excludes real third-party payloads from the controlled fixture.",
+      "A timing sample can include browser startup/order/host noise. Transfer and decoded byte counts are deterministic for the same route and bundle."
+    ],
+    "evidence_refs": [
+      "browser-performance-final-3a9986d92ce8/publication-summary.json",
+      "browser-performance-final-3a9986d92ce8/config.json",
+      "browser-performance-final-3a9986d92ce8/fixtures.json",
+      "browser-performance-final-3a9986d92ce8/samples.json",
+      "browser-performance-final-3a9986d92ce8/report.json",
+      "browser-performance-final-3a9986d92ce8/provenance.json",
+      "browser-performance-final-3a9986d92ce8/candidate-manifest.json",
+      "browser-performance-final-3a9986d92ce8/baseline-manifest.json",
+      "browser-performance-final-3a9986d92ce8/webmcp-download-proof.json"
+    ]
+  },
+  "first_full_test_run": {
+    "revision": "0a24786c130fce08af32e84980e79f73627e5345",
+    "command": [
+      "mise",
+      "exec",
+      "--",
+      "bun",
+      "run",
+      "test:web"
+    ],
+    "source_test_files": 760,
+    "script_test_files": 6,
+    "exit_code": 1,
+    "seconds": 1162.814,
+    "failed_source_files": 4,
+    "failed_tests": 14,
+    "original_failure_evidence_retained": true,
+    "evidence_refs": [
+      "release-0a24786c-web-result.json",
+      "release-0a24786c-web-0.log"
+    ]
+  },
+  "test_repairs": {
+    "commit": "3a9986d92ce8c464e4ef3fa67ee521f6e0fde5c9",
+    "files": [
+      {
+        "file": "apps/web/src/features/drawing/index.test.tsx",
+        "source_sha256": "2d44fa74346ec7cec8f99e2d21cf40ed44f2c001fd50d2943f8e813f856e0fef",
+        "initial_failed_tests": 11,
+        "cause": "Both image price variants omitted rate_basis required to match the effective_group_rate session catalog.",
+        "change": "Add rate_basis: 'effective_group_rate' to the shared image-variant fixture.",
+        "targeted_pass": 11,
+        "targeted_fail": 0,
+        "evidence_refs": [
+          "review/fixed-drawing-result.json",
+          "review/fixed-drawing-standard.log"
+        ],
+        "preserved": "All existing business assertions, confirmation flow and account/session isolation; production schema unchanged."
+      },
+      {
+        "file": "apps/web/src/features/users/components/assistant-leads-panel.test.tsx",
+        "source_sha256": "7ea40cf5b2cf0a9f8d14a30e50a69a979024b324b16f06ab08abb56d4dbc666b",
+        "initial_failed_tests": 1,
+        "cause": "The assertion expected the retired Onboarding and L1 label.",
+        "change": "Expect Client setup with the same exact count5.",
+        "targeted_pass": 1,
+        "targeted_fail": 0,
+        "evidence_refs": [
+          "review/fixed-assistant-leads-result.json",
+          "review/fixed-assistant-leads-standard.log"
+        ],
+        "preserved": "Exact count5 and all other task/history/cost assertions; no level capability restored."
+      },
+      {
+        "file": "apps/web/src/features/webmcp/bootstrap.test.ts",
+        "source_sha256": "10a904d268b4bb470bed2ff1d890624e0e353f7da014a993adbe9a2e6d133933",
+        "initial_failed_tests": 1,
+        "cause": "A plain document object lacked getElementsByTagName required by a real cold-import dependency.",
+        "change": "Use an existing happy-dom document and abort its pending tasks during cleanup.",
+        "targeted_pass": 3,
+        "targeted_fail": 0,
+        "evidence_refs": [
+          "review/bootstrap-document-fixture-test.json",
+          "review/bootstrap-document-fixture-test.log"
+        ],
+        "preserved": "Real dynamic import, registration count/uniqueness, AbortSignal, subscription and cleanup assertions; test timeout unchanged."
+      },
+      {
+        "file": "apps/web/src/lib/public-directory-route.test.ts",
+        "source_sha256": "39d67d3fd1ab4373b6eb84a56645e6daad395122b6c6868614003c1c65e6d7d6",
+        "initial_failed_tests": 1,
+        "cause": "Source assertions still required retired activation and contributor-bypass guards.",
+        "change": "Reject reintroduction of those two removed conditions.",
+        "targeted_pass": 4,
+        "targeted_fail": 0,
+        "evidence_refs": [
+          "review/public-directory-route-fix.json",
+          "review/public-directory-route-fixed.log"
+        ],
+        "preserved": "Exact public-path boundaries and user/accessToken authentication guards."
+      }
+    ],
+    "targeted_pass_total": 19,
+    "targeted_fail_total": 0,
+    "targeted_execution_note": "Targeted checks ran on the repaired files before the final commit; each checked file SHA256 equals the final candidate.",
+    "per_test_timeout_ms": 15000,
+    "format": {
+      "status": "passed",
+      "files": 4,
+      "evidence_ref": "review/final-fixture-format.log"
+    },
+    "lint": {
+      "warnings": 0,
+      "errors": 0,
+      "files": 4,
+      "evidence_ref": "review/final-fixture-lint.log"
+    }
+  },
+  "reused_auth_browser_evidence": {
+    "execution_revision": "48f343fce385d77162868e3360947834382872f0",
+    "candidate_revision": "3a9986d92ce8c464e4ef3fa67ee521f6e0fde5c9",
+    "exit_code": 0,
+    "seconds": 36.029,
+    "cases": 16,
+    "requests": 47,
+    "rerun_on_candidate": false,
+    "reuse_basis": "All five recorded authentication source/script hashes match both the original execution source and the final candidate.",
+    "source_files": [
+      {
+        "file": "apps/web/src/lib/auth-cookie.ts",
+        "original_sha256": "8a3427373e014483961492a29f17a3ada01318e71acd013ad373cb90f6e49913",
+        "candidate_sha256": "8a3427373e014483961492a29f17a3ada01318e71acd013ad373cb90f6e49913",
+        "unchanged": true
+      },
+      {
+        "file": "apps/web/src/lib/auth-cookie-reconciliation.ts",
+        "original_sha256": "801cda0d1cefc48e21af78603e5f5ed5cf3553dfe3bfadd53db02cedaaa19c02",
+        "candidate_sha256": "801cda0d1cefc48e21af78603e5f5ed5cf3553dfe3bfadd53db02cedaaa19c02",
+        "unchanged": true
+      },
+      {
+        "file": "apps/web/src/lib/auth-session.ts",
+        "original_sha256": "04e3efd07a2ca57d89689ea68f6ac629f34f7365617e074dc9d050b1840c608a",
+        "candidate_sha256": "04e3efd07a2ca57d89689ea68f6ac629f34f7365617e074dc9d050b1840c608a",
+        "unchanged": true
+      },
+      {
+        "file": "apps/web/src/components/auth-cookie-recovery.tsx",
+        "original_sha256": "0733dfaa70b05b6cf2817f20963a22ba4a6f58595dde017033de5c831f9df27f",
+        "candidate_sha256": "0733dfaa70b05b6cf2817f20963a22ba4a6f58595dde017033de5c831f9df27f",
+        "unchanged": true
+      },
+      {
+        "file": "apps/web/scripts/auth-cookie-reconciliation-browser.mjs",
+        "original_sha256": "bcc7700607a9aa9599870ddb8ca0fd1277461c7c6745fabaa5b31af19eebccc7",
+        "candidate_sha256": "bcc7700607a9aa9599870ddb8ca0fd1277461c7c6745fabaa5b31af19eebccc7",
+        "unchanged": true
+      }
+    ],
+    "original_browser_bundle_sha256": "486cf307846f3b6bfe11324feb5c90f280ef4f917e373b2046e0b392a7ec96ae",
+    "scope": "Local real-Chromium authentication recovery scenarios; this is not live-site logged-in business acceptance.",
+    "evidence_refs": [
+      "auth-cookie-browser-result.json",
+      "auth-cookie-browser.log",
+      "auth-cookie-browser-cases-result.json",
+      "auth-source-proof.json",
+      "final-auth-source-proof-3a9986d9.json"
+    ]
+  },
+  "deployment_script_review": {
+    "status": "reviewed_with_isolated_scenarios",
+    "script_filename": "activate-web-561faf51.remote.py",
+    "script_sha256": "ac26767e8bc042aab4c8c207b4b84db4ea78a94e093b5e2578ff47697e6c77c6",
+    "candidate_revision": "3a9986d92ce8c464e4ef3fa67ee521f6e0fde5c9",
+    "previous_web_source_revision": "561faf51a74a4000ebb2c7d812da4230eba3a213",
+    "candidate_package_identity_matches_audit": true,
+    "isolated_scenarios": [
+      {
+        "scenario": "preflight",
+        "exit_code": 0,
+        "assertions": "passed",
+        "deployment_status": "preflight_verified"
+      },
+      {
+        "scenario": "success",
+        "exit_code": 0,
+        "assertions": "passed",
+        "deployment_status": "deployed"
+      },
+      {
+        "scenario": "asset_mismatch",
+        "exit_code": 1,
+        "assertions": "passed",
+        "deployment_status": "failed"
+      },
+      {
+        "scenario": "retained_asset_mismatch",
+        "exit_code": 1,
+        "assertions": "passed",
+        "deployment_status": "failed"
+      },
+      {
+        "scenario": "concurrent_receipt",
+        "exit_code": 1,
+        "assertions": "passed",
+        "deployment_status": "failed"
+      },
+      {
+        "scenario": "displaced_changed",
+        "exit_code": 1,
+        "assertions": "passed",
+        "deployment_status": "preflight_rejected"
+      },
+      {
+        "scenario": "preactivation_reference",
+        "exit_code": 1,
+        "assertions": "passed",
+        "deployment_status": "failed"
+      }
+    ],
+    "isolated_scenario_count": 7,
+    "scenario_reuse_basis": "same activation script bytes, archive protocol, verifier/specification and previous production baseline; only candidate source identity changes",
+    "archive_tools": "actual frozen source tools",
+    "fixture_inputs": "Verified previous561 and displaced04 archives, extracted only into isolated temporary fixtures.",
+    "http_and_backend_service_state": "explicit local fixture substitutes",
+    "fixture_production_or_network_actions": false,
+    "unresolved_script_blockers_in_review": [],
+    "scope": "Script review and isolated recovery/race scenarios. Actual production preflight, switching, cleanup and independent readback are recorded separately in final release results.",
+    "evidence_refs": [
+      "deploy/deployment-audit-3a9986d9.json",
+      "deploy/activation-561-fixture-results.json",
+      "deploy/activate-web-561faf51.remote.py"
+    ]
+  },
+  "remaining_required_results": {
+    "final_full_test_gate": {
+      "status": "passed",
+      "revision": "3a9986d92ce8c464e4ef3fa67ee521f6e0fde5c9",
+      "source_test_files": 760,
+      "script_test_files": 6,
+      "actual_result": {
+        "command": [
+          "mise",
+          "exec",
+          "--",
+          "bun",
+          "run",
+          "test:web"
+        ],
+        "exit_code": 0,
+        "seconds": 860.875,
+        "failed_source_files": 0,
+        "failed_tests": 0,
+        "evidence_refs": [
+          "release-3a9986d9-web-result.json",
+          "release-3a9986d9-web-0.log"
+        ]
+      }
+    },
+    "actual_web_deployment": {
+      "status": "deployed",
+      "revision": "3a9986d92ce8c464e4ef3fa67ee521f6e0fde5c9",
+      "origin": "https://native.api.lmm.best",
+      "access_scope": "existing operator-restricted Native entry",
+      "started_at_utc": "2026-11-17T22:18:39.630021+00:00",
+      "finished_at_utc": "2026-11-17T22:18:43.997524+00:00",
+      "finished_at_asia_taipei": "2026-11-18T06:18:43.997524+08:00",
+      "exit_code": 0,
+      "script_sha256": "ac26767e8bc042aab4c8c207b4b84db4ea78a94e093b5e2578ff47697e6c77c6",
+      "inputs_sha256": "9701cce80125f5ba71d1e15be51977b565ceb947908e55a61068c43c72630a59",
+      "previous_revision": "561faf51a74a4000ebb2c7d812da4230eba3a213",
+      "archive_sha256": "96c3ca96f04bd553cff82180b612e583b65d6e31a46f0f45c2dd9d6d55fec135",
+      "index_sha256": "1adb4750b3086c67b3e57025d7a2ed2d7d639d50b93dd4aa06d257c6d308ba8c",
+      "receipt_sha256": "f1d1556d546ec72c418b009cbc66bc3a785e99695276aed89f75a9b820879503",
+      "verified_files": 625,
+      "preview": true,
+      "backend_processes_unchanged": true,
+      "previous_slot_removed": true,
+      "upload_cleanup_complete": true,
+      "actual_receipt": {
+        "component_revisions": {
+          "core": "c67892ba5be613bf2ef6de51a4b841043f9b881e",
+          "extensions": "dc94d4c2562db52537e3abbced030f6da32ed78f",
+          "web": "3a9986d92ce8c464e4ef3fa67ee521f6e0fde5c9"
+        }
+      },
+      "evidence_refs": [
+        "deploy/preflight-3a9986d9-result.json",
+        "deploy/activate-3a9986d9-result.json"
+      ]
+    },
+    "independent_online_acceptance": {
+      "status": "http_inventory_passed_browser_5_of_6",
+      "revision": "3a9986d92ce8c464e4ef3fa67ee521f6e0fde5c9",
+      "http_and_inventory": {
+        "passed": true,
+        "observed_at_utc": "2026-11-17T22:19:17.243726+00:00",
+        "completed_at_utc": "2026-11-17T22:19:44.873420+00:00",
+        "checks": {
+          "active_slot_web_a": true,
+          "exact_revision": true,
+          "exact_manifest": true,
+          "exact_index": true,
+          "exact_625_file_inventory": true,
+          "preview_semantics_preserved": true,
+          "receipt_web_revision": true,
+          "receipt_other_components_preserved": true,
+          "backend_pids_and_binaries_unchanged": true,
+          "nginx_pid_and_config_unchanged": true,
+          "old_static_inventories_intact": true,
+          "old_slot_and_upload_cleaned": true,
+          "public_https_index_exact": true,
+          "all_initial_resources_exact": true,
+          "old_https_561faf51": true,
+          "old_https_04fef6f1": true,
+          "missing_static_is_404": true,
+          "both_status_and_signin_200": true,
+          "old_go_version_unchanged": true,
+          "inspection_complete": true
+        },
+        "verified_manifest_files": 625,
+        "initial_resource_count": 10,
+        "initial_script_style_count": 7,
+        "initial_icon_count": 3,
+        "retained_http_samples": 6,
+        "retained_inventory_file_counts": [
+          568,
+          573
+        ],
+        "application_credentials_used": false,
+        "production_business_writes": false,
+        "comparison": [
+          {
+            "origin": "https://api.lmm.best",
+            "path": "/api/scripts",
+            "status": 200,
+            "bytes": 5269,
+            "sha256": "23420e47f4694f264f99f4679c57130a689d5ce51032829a08724bee0a8eb72a",
+            "content_type": "application/json; charset=utf-8",
+            "cache_control": "no-store, no-cache, must-revalidate, private, max-age=0",
+            "same_origin": true,
+            "error_code": null
+          },
+          {
+            "origin": "https://api.lmm.best",
+            "path": "/api/ai-directory",
+            "status": 200,
+            "bytes": 38,
+            "sha256": "f81e30961263c5662e734e333c2c3d7c0e7b0625d5c3e66f3afd800285ccd19d",
+            "content_type": "application/json; charset=utf-8",
+            "cache_control": null,
+            "same_origin": true,
+            "error_code": null
+          },
+          {
+            "origin": "https://api.lmm.best",
+            "path": "/api/rss",
+            "status": 401,
+            "bytes": 91,
+            "sha256": "906f2bbece07ef88cf37a8a2031b98f55913dd0e51389c5db788c172d7a32071",
+            "content_type": "application/json; charset=utf-8",
+            "cache_control": null,
+            "same_origin": true,
+            "error_code": "AUTH_UNAUTHORIZED"
+          },
+          {
+            "origin": "https://api.lmm.best",
+            "path": "/api/bounties/config",
+            "status": 404,
+            "bytes": 23,
+            "sha256": "8fd54eee4277f1327015cc0bcaed8a878bf44d1804364cd5d93dfab9e2d1a5af",
+            "content_type": "application/json; charset=utf-8",
+            "cache_control": null,
+            "same_origin": true,
+            "error_code": null
+          },
+          {
+            "origin": "https://api.lmm.best",
+            "path": "/api/public-relays/config",
+            "status": 200,
+            "bytes": 167,
+            "sha256": "8f3408a17cfac416da3ad1f79d66a72814a1625158b5cee4e5739b44e24a2b4d",
+            "content_type": "application/json; charset=utf-8",
+            "cache_control": null,
+            "same_origin": true,
+            "error_code": null
+          },
+          {
+            "origin": "https://api.lmm.best",
+            "path": "/api/status",
+            "status": 200,
+            "bytes": 19008,
+            "sha256": "d6314bf4acc95472f3f9481037723f0bd84dd1036cf3eadbe2d7f30bb046a8ef",
+            "content_type": "application/json; charset=utf-8",
+            "cache_control": "no-store",
+            "same_origin": true,
+            "error_code": null,
+            "version": "0.2.118",
+            "public_flags": {}
+          },
+          {
+            "origin": "https://api.lmm.best",
+            "path": "/sign-in",
+            "status": 200,
+            "bytes": 2523,
+            "sha256": "11f8f6c85984b8d0071e0606588fe77a79aabdf3e258003640e38907d22eca33",
+            "content_type": "text/html; charset=utf-8",
+            "cache_control": null,
+            "same_origin": true
+          },
+          {
+            "origin": "https://native.api.lmm.best",
+            "path": "/api/scripts",
+            "status": 200,
+            "bytes": 4503,
+            "sha256": "c6a64f395228d874709ad4ced5de51c194733996f3f61e4ecc3e64acf2478b71",
+            "content_type": "application/json; charset=utf-8",
+            "cache_control": "no-store",
+            "same_origin": true,
+            "error_code": null
+          },
+          {
+            "origin": "https://native.api.lmm.best",
+            "path": "/api/ai-directory",
+            "status": 200,
+            "bytes": 52,
+            "sha256": "2ef4a1fb4a5399b9063db9ee1d6bee0c685283411f777cf304d6c8a195b2aead",
+            "content_type": "application/json; charset=utf-8",
+            "cache_control": "no-store",
+            "same_origin": true,
+            "error_code": null
+          },
+          {
+            "origin": "https://native.api.lmm.best",
+            "path": "/api/rss",
+            "status": 401,
+            "bytes": 97,
+            "sha256": "7ed6332667a3c6fff2cbcfcb943404c7608bb0fe58460434acd810dfa321ca02",
+            "content_type": "application/json; charset=utf-8",
+            "cache_control": "no-store",
+            "same_origin": true,
+            "error_code": "OPERATIONS_LOGIN_REQUIRED"
+          },
+          {
+            "origin": "https://native.api.lmm.best",
+            "path": "/api/bounties/config",
+            "status": 503,
+            "bytes": 157,
+            "sha256": "f2dce82f5abbc1d4bea8e5fd3d5ec24fd5327fc2c9000152f6dde0d64ba676d7",
+            "content_type": "application/json",
+            "cache_control": "no-store",
+            "same_origin": true,
+            "error_code": "core_migration_incomplete"
+          },
+          {
+            "origin": "https://native.api.lmm.best",
+            "path": "/api/public-relays/config",
+            "status": 503,
+            "bytes": 157,
+            "sha256": "f2dce82f5abbc1d4bea8e5fd3d5ec24fd5327fc2c9000152f6dde0d64ba676d7",
+            "content_type": "application/json",
+            "cache_control": "no-store",
+            "same_origin": true,
+            "error_code": "core_migration_incomplete"
+          },
+          {
+            "origin": "https://native.api.lmm.best",
+            "path": "/api/status",
+            "status": 200,
+            "bytes": 2197,
+            "sha256": "ec3cb36d032c3bde486673ca5b6c500e914af68a6da990d0acb7b25af57ee17c",
+            "content_type": "application/json",
+            "cache_control": "no-store",
+            "same_origin": true,
+            "error_code": null,
+            "version": "0.1.0",
+            "public_flags": {
+              "external_model_providers_enabled": false,
+              "models_local_synthetic": true,
+              "payments_enabled": false,
+              "payments_test_rpc_enabled": true
+            }
+          },
+          {
+            "origin": "https://native.api.lmm.best",
+            "path": "/sign-in",
+            "status": 200,
+            "bytes": 5828,
+            "sha256": "1adb4750b3086c67b3e57025d7a2ed2d7d639d50b93dd4aa06d257c6d308ba8c",
+            "content_type": "text/html; charset=utf-8",
+            "cache_control": "no-cache, must-revalidate",
+            "same_origin": true
+          }
+        ],
+        "evidence_refs": [
+          "deploy/independent-live-readback-3a9986d9.json",
+          "deploy/legacy-native-readonly-comparison-3a9986d9.json"
+        ]
+      },
+      "browser": {
+        "status": "partial_failure",
+        "overall_exit_code": 1,
+        "native_cases": 6,
+        "native_passed": 5,
+        "page_errors": 0,
+        "asset_errors": 0,
+        "console_error_messages": 13,
+        "blocked_telemetry_posts": 6,
+        "anonymous_refresh_statuses": [
+          401,
+          401,
+          401,
+          401,
+          401,
+          401
+        ],
+        "anonymous_refresh_credentials_absent": true,
+        "source_bound_cases": [
+          {
+            "name": "desktop-light",
+            "pass": true,
+            "document": {
+              "url": "https://native.api.lmm.best/sign-in",
+              "status": 200,
+              "sha256": "1adb4750b3086c67b3e57025d7a2ed2d7d639d50b93dd4aa06d257c6d308ba8c"
+            },
+            "dom_revision": "rv.3a9986d92ce8.2k6e8r7p",
+            "viewport_width": 1440,
+            "document_width": 1440,
+            "checked_asset_responses": 33,
+            "redirect": null,
+            "pricing_policy": null,
+            "public_pricing_response": null,
+            "screenshot": "desktop-light.png"
+          },
+          {
+            "name": "desktop-dark",
+            "pass": true,
+            "document": {
+              "url": "https://native.api.lmm.best/sign-in",
+              "status": 200,
+              "sha256": "1adb4750b3086c67b3e57025d7a2ed2d7d639d50b93dd4aa06d257c6d308ba8c"
+            },
+            "dom_revision": "rv.3a9986d92ce8.2k6e8r7p",
+            "viewport_width": 1440,
+            "document_width": 1440,
+            "checked_asset_responses": 23,
+            "redirect": null,
+            "pricing_policy": null,
+            "public_pricing_response": null,
+            "screenshot": "desktop-dark.png"
+          },
+          {
+            "name": "narrow-light",
+            "pass": true,
+            "document": {
+              "url": "https://native.api.lmm.best/sign-in",
+              "status": 200,
+              "sha256": "1adb4750b3086c67b3e57025d7a2ed2d7d639d50b93dd4aa06d257c6d308ba8c"
+            },
+            "dom_revision": "rv.3a9986d92ce8.2k6e8r7p",
+            "viewport_width": 390,
+            "document_width": 390,
+            "checked_asset_responses": 33,
+            "redirect": null,
+            "pricing_policy": null,
+            "public_pricing_response": null,
+            "screenshot": "narrow-light.png"
+          },
+          {
+            "name": "narrow-dark",
+            "pass": true,
+            "document": {
+              "url": "https://native.api.lmm.best/sign-in",
+              "status": 200,
+              "sha256": "1adb4750b3086c67b3e57025d7a2ed2d7d639d50b93dd4aa06d257c6d308ba8c"
+            },
+            "dom_revision": "rv.3a9986d92ce8.2k6e8r7p",
+            "viewport_width": 390,
+            "document_width": 390,
+            "checked_asset_responses": 33,
+            "redirect": null,
+            "pricing_policy": null,
+            "public_pricing_response": null,
+            "screenshot": "narrow-dark.png"
+          },
+          {
+            "name": "pricing-redirect",
+            "pass": false,
+            "document": {
+              "url": "https://native.api.lmm.best/pricing",
+              "status": 200,
+              "sha256": "1adb4750b3086c67b3e57025d7a2ed2d7d639d50b93dd4aa06d257c6d308ba8c"
+            },
+            "dom_revision": "rv.3a9986d92ce8.2k6e8r7p",
+            "viewport_width": 1440,
+            "document_width": 1440,
+            "checked_asset_responses": 35,
+            "redirect": null,
+            "pricing_policy": {
+              "raw": null,
+              "enabled": true,
+              "requireAuth": false,
+              "missingUsesSourceDefaults": true
+            },
+            "public_pricing_response": {
+              "status": 403,
+              "contentType": "application/json"
+            },
+            "screenshot": "pricing-redirect.png"
+          },
+          {
+            "name": "tool-market-redirect",
+            "pass": true,
+            "document": {
+              "url": "https://native.api.lmm.best/tool-market",
+              "status": 200,
+              "sha256": "1adb4750b3086c67b3e57025d7a2ed2d7d639d50b93dd4aa06d257c6d308ba8c"
+            },
+            "dom_revision": "rv.3a9986d92ce8.2k6e8r7p",
+            "viewport_width": 390,
+            "document_width": 390,
+            "checked_asset_responses": 33,
+            "redirect": "/tool-market",
+            "pricing_policy": null,
+            "public_pricing_response": null,
+            "screenshot": "tool-market-redirect.png"
+          }
+        ],
+        "initial_protocol_run": {
+          "exit_code": 1,
+          "cases": 6,
+          "passed": 4,
+          "retained": true,
+          "reason": "All POST requests were blocked, including token-free anonymous auth refresh. This caused interrupted-session UI and prevented authenticated-route redirects. These are injected test constraints, not established backend faults."
+        },
+        "legacy": {
+          "exit_code": 0,
+          "cases": 2,
+          "passed": 2,
+          "runtime_build": "rv.go-v0.2.118.2k6e8r7p",
+          "cases_detail": [
+            {
+              "name": "desktop-light",
+              "width": 1440,
+              "document_width": 1440,
+              "theme": "light",
+              "http_status": 200,
+              "page_errors": 0,
+              "blocked_other_posts": 1,
+              "anonymous_refresh_checks": [
+                {
+                  "eligible": true,
+                  "cookiePresent": false,
+                  "authorizationPresent": false,
+                  "sessionHeaderPresent": false,
+                  "bodyBytes": 0
+                }
+              ],
+              "screenshot": "desktop-light.png"
+            },
+            {
+              "name": "narrow-light",
+              "width": 390,
+              "document_width": 390,
+              "theme": "light",
+              "http_status": 200,
+              "page_errors": 0,
+              "blocked_other_posts": 1,
+              "anonymous_refresh_checks": [
+                {
+                  "eligible": true,
+                  "cookiePresent": false,
+                  "authorizationPresent": false,
+                  "sessionHeaderPresent": false,
+                  "bodyBytes": 0
+                }
+              ],
+              "screenshot": "narrow-light.png"
+            }
+          ]
+        },
+        "visual_review": {
+          "actually_viewed": [
+            "final-live-browser-3a9986d9-v2/desktop-dark.png",
+            "final-live-browser-3a9986d9-v2/narrow-light.png",
+            "final-live-browser-3a9986d9-v2/pricing-redirect.png",
+            "final-live-legacy-3a9986d9/desktop-light.png",
+            "final-live-legacy-3a9986d9/narrow-light.png"
+          ],
+          "native": "Password form comes first, centered desktop composition, compact header and optional collapsed game. Desktop dark and 390px light fields, main action and labels are legible with no horizontal overflow; normal anonymous refresh removes the injected interrupted-session banner.",
+          "legacy": "Desktop uses a login column plus a prominent signal puzzle. Social providers precede password fields. The narrow page keeps that provider-first order, placing the password form lower than Native. Both legacy widths render without horizontal overflow.",
+          "comparison_limit": "Only anonymous sign-in visual/accessibility-by-inspection and basic rendering are compared. No real authentication, money, provider behavior, browser RSS, or controlled old-Go performance claim."
+        },
+        "review_browsers_closed": true,
+        "existing_user_browsers_touched": false,
+        "evidence_refs": [
+          "review/final-live-browser-summary.json",
+          "final-live-browser-3a9986d9/report.json",
+          "final-live-browser-3a9986d9-v2/report.json",
+          "final-live-legacy-3a9986d9/report.json",
+          "review/root-live-image-review-3a9986d9.json"
+        ],
+        "script_sha256": "69d85bba061583e105c9977463a37d8b46326ae5fc8bb4b67abb86850fcf44ea",
+        "started_at_utc": "2026-11-17T22:26:17.965Z",
+        "completed_at_utc": "2026-11-17T22:26:38.398Z"
+      }
+    }
+  },
+  "acceptance_boundaries": {
+    "full_architecture_production_cutover_claimed": false,
+    "live_account_overview_wallet_and_settings_acceptance": "not established by this evidence",
+    "real_payment_or_external_model_acceptance": "not established by this evidence",
+    "retired_capabilities_restored_by_test_repairs": false,
+    "retired_capabilities_to_keep_removed": [
+      "developer activation or paid unlocking",
+      "platform trust levels and level benefits",
+      "remote-control/Pi remote access",
+      "FastPay",
+      "task-log and client-configuration pages"
+    ],
+    "scalar_check_in_reward_cap": "preserve; not evidence of real-money reward acceptance",
+    "public_pricing_business_accepted": false,
+    "pricing_count_on_error_accepted": false
+  },
+  "evidence_map_note": "Each entry references a retained evidence file by relative name and hash. File contents are not embedded or automatically published by this draft.",
+  "evidence_map": [
+    {
+      "file": "release-3a9986d9-build-result.json",
+      "sha256": "46f8fff1b530df2e1cd1e88f5f8bc87c29c81d21f3c3fcb76cbe79dcb6a6baa9",
+      "bytes": 518
+    },
+    {
+      "file": "release-3a9986d9-build-0.log",
+      "sha256": "dd68f3f0e7409d0f24e33480296822e9e7455445b59845680b0468b50fa2d549",
+      "bytes": 77
+    },
+    {
+      "file": "release-3a9986d9-build-1.log",
+      "sha256": "b99e654b9d13da8c176829f43d129ca19138b279376d74e77fc2e43612c5fcb8",
+      "bytes": 49908
+    },
+    {
+      "file": "package-3a9986d9.json",
+      "sha256": "f333e91675d9e0be023370f26b2434f267aa439f1c5a268ad8753a9c4cae16ec",
+      "bytes": 692
+    },
+    {
+      "file": "package-3a9986d9-0.log",
+      "sha256": "805cb0332c2b6e20fe6a899b6658a06c99f4eb286f94f9f2dfc2b44aa5126e55",
+      "bytes": 148
+    },
+    {
+      "file": "package-3a9986d9-1.log",
+      "sha256": "f70000a5dccd47fe0e78f894020f95fc79d0dad7f40aa06ee656fd5c771c09c4",
+      "bytes": 55
+    },
+    {
+      "file": "release-0a24786c-web-result.json",
+      "sha256": "4f372ac9c256b0f577c30e55e9dc7b11dde0ffcb26fdf8a6728a84565eb045ab",
+      "bytes": 264
+    },
+    {
+      "file": "release-0a24786c-web-0.log",
+      "sha256": "2083f876b79a47e9c0ac2899c98163de261c15ad11209e75bfbadbd8a7d949e9",
+      "bytes": 993343
+    },
+    {
+      "file": "release-3a9986d9-web-result.json",
+      "sha256": "19162c2273df6c66cbe3888116041ea7fc2350e35a1ee401894f53f735d2c8fd",
+      "bytes": 263
+    },
+    {
+      "file": "release-3a9986d9-web-0.log",
+      "sha256": "fc0d14dbb0cd5124644a14a551dfc2d5a2281dacb7d23291a04ec0d8746ad34d",
+      "bytes": 956420
+    },
+    {
+      "file": "review/fixed-drawing-result.json",
+      "sha256": "cf96e31e44bc8a57b98f5797f708200bb039cc570da4c3c863d501e02129c7a7",
+      "bytes": 498
+    },
+    {
+      "file": "review/fixed-drawing-standard.log",
+      "sha256": "fad072507f10ca4a47f670601914b2f11c09098d361928792e1e5eb04cc7293e",
+      "bytes": 1331
+    },
+    {
+      "file": "review/fixed-assistant-leads-result.json",
+      "sha256": "78c93d81ea15cb9cc89afb8e903458eea8b1aaaed4d191deca4e21a7d6d6bd2b",
+      "bytes": 555
+    },
+    {
+      "file": "review/fixed-assistant-leads-standard.log",
+      "sha256": "dbee701d5332ca98e33df1a8818be8b2034d3654c9ecf7f9360cb61489a81081",
+      "bytes": 248
+    },
+    {
+      "file": "review/bootstrap-document-fixture-test.json",
+      "sha256": "e14ecffae9650a1c991a24e82854095496c87e5613a5b71f93499823ea1d8f19",
+      "bytes": 706
+    },
+    {
+      "file": "review/bootstrap-document-fixture-test.log",
+      "sha256": "7fe565b0476c3c12c0781193f2d8c3c4f8db9a71e8efd34df0bb7b5cbda25456",
+      "bytes": 329
+    },
+    {
+      "file": "review/public-directory-route-fix.json",
+      "sha256": "945462d9b0c6401fec6a4bc42597f15d8ac3a641cb88539611bd2714fb17f7d1",
+      "bytes": 872
+    },
+    {
+      "file": "review/public-directory-route-fixed.log",
+      "sha256": "811f8fb001851e7fe2c4e08bdf1463341d064e4e3acc97134e8e9a65c28a37a1",
+      "bytes": 435
+    },
+    {
+      "file": "review/final-fixture-format.log",
+      "sha256": "786e3ba15bdc20c55b87347b55a2d9fc5e6879489314c99c18fb5b369423319b",
+      "bytes": 111
+    },
+    {
+      "file": "review/final-fixture-lint.log",
+      "sha256": "685c60986958e8b1d4f4901ddf19c740afdc2e96ba0bb375ad485e8822203366",
+      "bytes": 93
+    },
+    {
+      "file": "auth-cookie-browser-result.json",
+      "sha256": "f1919b5fbc4eb7c49e5e677826cbfb408d017907d89be6f7b9609e93dd0d7d29",
+      "bytes": 210
+    },
+    {
+      "file": "auth-cookie-browser.log",
+      "sha256": "a8bade9040aee797980f6ffdb3d24436c2dee27edb4e1a6eb0a1ef663a9ff49c",
+      "bytes": 1867
+    },
+    {
+      "file": "auth-source-proof.json",
+      "sha256": "5930abbf093ea0d9635c88efcb5f4ba8337c02d4cf2b89e76431419a6a2a5116",
+      "bytes": 383
+    },
+    {
+      "file": "final-auth-source-proof-3a9986d9.json",
+      "sha256": "f20537b397ca945b94f8154407af50592b30f472d9f10ecb9b936cf62b841f9d",
+      "bytes": 949
+    },
+    {
+      "file": "auth-cookie-browser-cases-result.json",
+      "sha256": "e108413aa606c5830bdc2c7c0663debd4d8918febd71f57b56c05ca62d21adf5",
+      "bytes": 14436
+    },
+    {
+      "file": "deploy/deployment-audit-3a9986d9.json",
+      "sha256": "f2fd9a1ed58c6cb2d488c9fa395063652a3dbbf5d519893e6cfb290c0059d967",
+      "bytes": 2152
+    },
+    {
+      "file": "deploy/activation-561-fixture-results.json",
+      "sha256": "6e6470163a7915441f3624ffd60aa3d298eb4c00f8dd889fedbaf9d3028c78a6",
+      "bytes": 1581
+    },
+    {
+      "file": "browser-performance-final-3a9986d92ce8/publication-summary.json",
+      "sha256": "da858886ae5ecc675b0fd98591bab42baa1ec1cae10b75d7474256be46a48fcc",
+      "bytes": 6821
+    },
+    {
+      "file": "browser-performance-final-3a9986d92ce8/config.json",
+      "sha256": "e4f0acce81c23c5d736584c276b1b29537fc61c490ecd4ea38902e79421f4901",
+      "bytes": 1081
+    },
+    {
+      "file": "browser-performance-final-3a9986d92ce8/fixtures.json",
+      "sha256": "3e9ea1cf69487deacf52fe13ee69231ffcafc8564ac238b1425f1a0f72a9df3d",
+      "bytes": 21725
+    },
+    {
+      "file": "browser-performance-final-3a9986d92ce8/samples.json",
+      "sha256": "bc5e974a619a9736a2bd9ff7ab9bef66035048211dd18a8986ca1dfbcce2e5c4",
+      "bytes": 314405
+    },
+    {
+      "file": "browser-performance-final-3a9986d92ce8/report.json",
+      "sha256": "157036b07ff60ab66530acd35bb277a8b1e63e33461b1747d8a1eae8ab29d0c3",
+      "bytes": 8932
+    },
+    {
+      "file": "browser-performance-final-3a9986d92ce8/provenance.json",
+      "sha256": "9cf9a709c0cfaac4228e2f79b6137dc4c6497a2addd52791a1d1c27f4608f329",
+      "bytes": 4810
+    },
+    {
+      "file": "browser-performance-final-3a9986d92ce8/candidate-manifest.json",
+      "sha256": "51555dfaf9a3c891b4c82730185b657f3bd4612930b9a97612e0ee25065c2a52",
+      "bytes": 105663
+    },
+    {
+      "file": "browser-performance-final-3a9986d92ce8/baseline-manifest.json",
+      "sha256": "c80c05160071a9da83f8cde7397a525a27df0cfbe431bda1dd191471088f843b",
+      "bytes": 102450
+    },
+    {
+      "file": "browser-performance-final-3a9986d92ce8/baseline-initial-resources.json",
+      "sha256": "12f3cba1f3b4ea207eb59c100decebc9ee769ec96df88f7a9446b701187528ea",
+      "bytes": 3002
+    },
+    {
+      "file": "browser-performance-final-3a9986d92ce8/candidate-initial-resources.json",
+      "sha256": "9256fbd9c58ca1136af3e2c57a1873d40535bb9a3bd81dac878b6c068686a716",
+      "bytes": 2907
+    },
+    {
+      "file": "browser-performance-final-3a9986d92ce8/candidate-initial-bundle.json",
+      "sha256": "b22a95038d96e9150ea408869a0040f8f8acdfac91af0fb89453c1bb5e3703b9",
+      "bytes": 2115
+    },
+    {
+      "file": "browser-performance-final-3a9986d92ce8/webmcp-download-proof.json",
+      "sha256": "33aab0e3a40761075b713fa34432fb69fd4b084bd7148c4dac5e295330b27f59",
+      "bytes": 2759
+    },
+    {
+      "file": "browser-performance-final-3a9986d92ce8/command-0.log",
+      "sha256": "bb5c8f860c4957b5a969ffcbd4a82e881508272c748e2690d549f46f6edd08c1",
+      "bytes": 421
+    },
+    {
+      "file": "browser-performance-final-3a9986d92ce8/command-1.log",
+      "sha256": "65cb47c0a492ba24a121029eada300819c6a40292c645d37fc9ec42cc168f0d0",
+      "bytes": 423
+    },
+    {
+      "file": "browser-performance-final-3a9986d92ce8/command-2.log",
+      "sha256": "aa2153323866171c68db522ab2b08908cad8ba6506eebf89fd127f41ddab5325",
+      "bytes": 233
+    },
+    {
+      "file": "browser-performance-final-3a9986d92ce8/command-3.log",
+      "sha256": "281a7fbf692523a63f4a9c595c296581bc87bc458f776d6ba5a8a1db5fa4eb52",
+      "bytes": 10823
+    },
+    {
+      "file": "browser-performance-final-3a9986d92ce8/sign-in-baseline.png",
+      "sha256": "70b2764fe6d07fa60eb5240044fd62230be2cfd36ea09f5b037c72551a52007e",
+      "bytes": 61149
+    },
+    {
+      "file": "browser-performance-final-3a9986d92ce8/sign-in-candidate.png",
+      "sha256": "95059672e189818d6ecc24a89ca9337d88e75eaa716dd3ac69183f3d08c64fc8",
+      "bytes": 61565
+    },
+    {
+      "file": "browser-performance-final-3a9986d92ce8/pricing-baseline.png",
+      "sha256": "839d9a165ee6d375e35c5815f011476b8766ddf85002382e5f4a22ab8ab93ff9",
+      "bytes": 283325
+    },
+    {
+      "file": "browser-performance-final-3a9986d92ce8/pricing-candidate.png",
+      "sha256": "839d9a165ee6d375e35c5815f011476b8766ddf85002382e5f4a22ab8ab93ff9",
+      "bytes": 283325
+    },
+    {
+      "file": "browser-performance-final-3a9986d92ce8/dashboard-baseline.png",
+      "sha256": "a3fce0d61364d27db6ab009d552de04405d471a2401d619739da9ca5ef363941",
+      "bytes": 109363
+    },
+    {
+      "file": "browser-performance-final-3a9986d92ce8/dashboard-candidate.png",
+      "sha256": "a3fce0d61364d27db6ab009d552de04405d471a2401d619739da9ca5ef363941",
+      "bytes": 109363
+    },
+    {
+      "file": "deploy/activate-web-561faf51.remote.py",
+      "sha256": "ac26767e8bc042aab4c8c207b4b84db4ea78a94e093b5e2578ff47697e6c77c6",
+      "bytes": 21420
+    },
+    {
+      "file": "final-distribution-3a9986d9/lmm-web-0.0.0-ui.20261118.3a9986d9-any.tar.gz",
+      "sha256": "96c3ca96f04bd553cff82180b612e583b65d6e31a46f0f45c2dd9d6d55fec135",
+      "bytes": 19427567
+    },
+    {
+      "file": "deploy/upload-3a9986d9-result.json",
+      "sha256": "39d77b08911f5ee2c0bf5c430381b9c673538a382a20ee94c28e1fe73e4307fe",
+      "bytes": 1188
+    },
+    {
+      "file": "deploy/preflight-3a9986d9-result.json",
+      "sha256": "503d553dde1a43facf0434289f7a4bf33f352cc137420f6d1c613b21e66c306f",
+      "bytes": 1395
+    },
+    {
+      "file": "deploy/activate-3a9986d9-result.json",
+      "sha256": "b2a09b12939d61dcc581a2e6bafc3f67dd25a60f9accddd26a5aacab9743b367",
+      "bytes": 5507
+    },
+    {
+      "file": "deploy/independent-live-readback-3a9986d9.json",
+      "sha256": "92d52c26e318b89612fed4a427053e08793939fc361456f7d42c69e5f1c81b92",
+      "bytes": 17378
+    },
+    {
+      "file": "deploy/legacy-native-readonly-comparison-3a9986d9.json",
+      "sha256": "0369b751120e7c75740580b15eca823f65760298b0cf0b74b3b20b3205193f63",
+      "bytes": 6252
+    },
+    {
+      "file": "deploy/public-pricing-readonly-diagnosis-3a9986d9.json",
+      "sha256": "316e23b7010edaf4a411ef6f21aa9da2be4440c241d1aa72bebca2b34ae3020c",
+      "bytes": 6300
+    },
+    {
+      "file": "review/final-live-browser-summary.json",
+      "sha256": "42d9bb570565b5456cc47b1382620b80af471d7e7b177171fd7b0ea5c93d590f",
+      "bytes": 8540
+    },
+    {
+      "file": "final-live-browser-3a9986d9/report.json",
+      "sha256": "8f60bc40ccb2a16f3165e42eed7b2e56e5f742c30818f3f515a8020af651fa8e",
+      "bytes": 65036
+    },
+    {
+      "file": "final-live-browser-3a9986d9-v2/report.json",
+      "sha256": "3703a930b5846e3658dbc509dd41347b6469698d461ddf8cf7f703dc90e3f831",
+      "bytes": 75296
+    },
+    {
+      "file": "final-live-legacy-3a9986d9/report.json",
+      "sha256": "69e42ff80c9dd1929514ec8072103d3005ee9e385613b75d23f369c3711b8281",
+      "bytes": 6992
+    },
+    {
+      "file": "review/root-live-image-review-3a9986d9.json",
+      "sha256": "bc1ac817abbf905057d4c95feb588a1d10b52afff30e91333a0dd8c6c0b0ff89",
+      "bytes": 1173
+    },
+    {
+      "file": "final-live-browser-3a9986d9-v2/desktop-dark.png",
+      "sha256": "0412e0601a022d52b23961f5bc1af960c21c2c78f3d29b1a969d9310507dc910",
+      "bytes": 81535
+    },
+    {
+      "file": "final-live-browser-3a9986d9-v2/narrow-light.png",
+      "sha256": "69b582bc14a163740287fbe1b7ed8d448c235edec93e4e9f97d82533bd39e213",
+      "bytes": 69866
+    },
+    {
+      "file": "final-live-browser-3a9986d9-v2/pricing-redirect.png",
+      "sha256": "a83c0737cece5e1ea30e61d196624a662c6e9e2ae5760a58ecc144bb85e27af5",
+      "bytes": 93189
+    },
+    {
+      "file": "final-live-legacy-3a9986d9/desktop-light.png",
+      "sha256": "fd825a80d56ea7d20326f733e1d2d47bf47477d48ff960f1778bb83b1796415c",
+      "bytes": 110597
+    },
+    {
+      "file": "final-live-legacy-3a9986d9/narrow-light.png",
+      "sha256": "40ca5d525a47c366124dcc28f96547f7ed4cd50d4a52b5390dfdf54a782763a7",
+      "bytes": 102246
+    }
+  ],
+  "finalized_at_utc": "2026-11-17T22:33:02.345114+00:00",
+  "public_pricing_diagnosis": {
+    "path": "/core/v1/pricing/public",
+    "public_url": "https://native.api.lmm.best/core/v1/pricing/public",
+    "status": 403,
+    "error_code": "pricing_forbidden",
+    "response_bytes": 38,
+    "response_sha256": "bfe17b9282fb816406673d2f25a39d42d06db0b9d8361e4a9842e84db0d236dd",
+    "verified_rejection_origin": "running Core",
+    "edge_forwards_without_replacing_error": true,
+    "source_comparison": [
+      {
+        "path": "apps/web/src/features/pricing/api.ts",
+        "old_sha256": "76e86d7bb87615747c2ced00aa471ed4bc39d2f9523f518c89b9207d29f2ae51",
+        "new_sha256": "76e86d7bb87615747c2ced00aa471ed4bc39d2f9523f518c89b9207d29f2ae51",
+        "identical": true
+      },
+      {
+        "path": "apps/web/src/lib/header-nav-config.ts",
+        "old_sha256": "ed972cda1d8a0ff552506c4ffa2389fa54393ccc8bcfddb58d23f12299572708",
+        "new_sha256": "ed972cda1d8a0ff552506c4ffa2389fa54393ccc8bcfddb58d23f12299572708",
+        "identical": true
+      },
+      {
+        "path": "apps/web/src/lib/nav-modules.ts",
+        "old_sha256": "559d76f65ef0ec230f1c7dd96776be4de564c45aebc528b0426cd664066b62e8",
+        "new_sha256": "559d76f65ef0ec230f1c7dd96776be4de564c45aebc528b0426cd664066b62e8",
+        "identical": true
+      }
+    ],
+    "compiled_request_equal_in_previous_and_candidate": true,
+    "historical_limit": "No timestamped pre-deployment 561 HTTP response for this precise endpoint was captured here, and database/configuration policy values were not inspected; the exact first occurrence of the backend denial is not established.",
+    "repair_scope": [
+      "Reconcile the authoritative Core public-pricing policy with the public status/navigation visibility contract.",
+      "If pricing should be public, validate the existing Core public catalog authorization/configuration path; if it should require login, expose that requirement consistently to navigation and the route.",
+      "Validate anonymous and signed-in pricing outcomes against the chosen policy with the same production deployment; this diagnosis does not qualify signed-in pricing."
+    ],
+    "production_business_writes": false,
+    "database_access": false,
+    "credentials_read": false,
+    "evidence_ref": "deploy/public-pricing-readonly-diagnosis-3a9986d9.json"
+  }
+}
