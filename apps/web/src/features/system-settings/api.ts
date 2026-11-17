@@ -206,9 +206,10 @@ export async function updateAssistantSystemOptions(
   request: UpdateAssistantOptionsRequest,
   options?: SettingsRequestOptions
 ) {
-  if (Object.hasOwn(request.values, 'AssistantToolPolicy')) {
+  const values = { ...request.values }
+  if (Object.hasOwn(values, 'AssistantToolPolicy')) {
     // Recheck immediately before every write: a loaded catalog can outlive a
-    // backend rollback. Never drop unsupported restrictions from the draft.
+    // backend rollback. Keep unknown group or tool switches from being lost.
     const catalog = await api.get<unknown>(
       '/api/assistant/admin/tool-catalog',
       {
@@ -217,7 +218,7 @@ export async function updateAssistantSystemOptions(
         authScope: request.authScope,
       }
     )
-    const policy = parseAssistantToolPolicy(request.values.AssistantToolPolicy)
+    const policy = parseAssistantToolPolicy(values.AssistantToolPolicy)
     if (
       !policy ||
       !assistantPolicyMatchesBackendCatalog(policy, catalog.data)
@@ -226,11 +227,14 @@ export async function updateAssistantSystemOptions(
         'Unable to refresh tool settings. Your draft was kept. Try saving again.'
       )
     }
+    // Persist the supported switches without retired rules. The CAS baseline
+    // below remains the exact raw server value, including legacy fields.
+    values.AssistantToolPolicy = JSON.stringify(policy)
   }
   const res = await api.post<UpdateOptionResponse>(
     '/api/option/bulk',
     {
-      values: request.values,
+      values,
       ...(request.expectedValues
         ? { expected_values: request.expectedValues }
         : {}),

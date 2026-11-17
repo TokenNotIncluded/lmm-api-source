@@ -27,7 +27,7 @@ const user: AuthUser = { id: 1, username: 'new-user', role: 1 }
 test('ordinary users can start client setup immediately', () => {
   assert.equal(getAccountNextStep(null).to, '/sign-in')
   assert.deepEqual(getAccountNextStep(user), {
-    to: '/guide',
+    to: '/developers',
     label: 'Choose your client',
   })
 })

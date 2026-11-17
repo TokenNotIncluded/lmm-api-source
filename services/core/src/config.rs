@@ -1912,10 +1912,7 @@ pub async fn tool_market_server(
             let supplier = service
                 .credential()
                 .map_err(|_| invalid_config("HeroSMS credential unavailable"))?;
-            if credentials
-                .iter()
-                .any(|value| *value == supplier.as_bytes())
-            {
+            if credentials.contains(&supplier.as_bytes()) {
                 return Err(invalid_config(
                     "HeroSMS supplier key must be independent from host credentials",
                 ));

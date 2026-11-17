@@ -995,7 +995,7 @@ describe('Primary next step follows account access', () => {
       purchase.click()
       await flushEffects()
     })
-    assert.equal(rendered.router.state.location.pathname, '/guide')
+    assert.equal(rendered.router.state.location.pathname, '/developers')
     await unmountHome(rendered)
   })
 

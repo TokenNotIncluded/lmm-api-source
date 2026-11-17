@@ -41,11 +41,11 @@ OFFLINE_TOKEN_SHA256 = {
     # optional payment/operations addons remain under complete ACL checks.
     # Community/acquisition use compiled schemas and dedicated runtime grants;
     # URL, owner, empty-database and transaction checks remain in place.
-    'services/extensions/internal/freshinstall/install.go': '7a7245c82e96967afa3d50fc457c786fc79515dee7023fad36d58992756bb46b',
+    'services/extensions/internal/freshinstall/install.go': '3815d820012c4c2c0df43bffb728c3dc5096310be2069d4d1adda9ee1f10643d',
     OFFLINE_WALLET_CLI: '87cf633970571aef5b7abc5b3788c30e6bc62c77b1799815faa845f4e9c1ded7',
     OFFLINE_WALLET_UPGRADE: '923244ef59326a37b79ee2bd7a00132a492cf6e8535854356a77f92f7d092aba',
     'services/extensions/internal/freshinstall/cli.go': '014929777131a77c2fe599d53b90d7b65f7ccf6be7f51d4355cc57ac18dd2ae8',
-    'services/extensions/cmd/extensions/main.go': 'e69aa202297ee01fc70f62e31fd65f6084f79d9a82b78d3a80bb5016d13494ba',
+    'services/extensions/cmd/extensions/main.go': '706dcbdfbfd91205ef935c267006af8d24fdc02ee7f8a618e54fba4d91ac5425',
     OFFLINE_ASSISTANT_HISTORY: '0ed816d5e863242d54c5425e0d6f403b731b68215b4adeb1925bfc7a3492dd99',
     'services/extensions/internal/modules/toolmarket/install_snapshot.go': '8f6f852068a5891a490876eb8918a58008d3f80844144f84307ba78c36b56013',
 }
@@ -96,7 +96,92 @@ PQ_ARRAY_ADAPTERS = {
 # Exact file registrations, not directory or provider capability exemptions.
 # These seals bind the reviewed source, while tables/predicates/pool checks below
 # express the storage boundary independently. They are not runtime ACL receipts.
+CHECKIN_SETTINGS_RUNTIME = 'services/extensions/internal/modules/checkins/settings.go'
+CHECKIN_SETTINGS_UPGRADE = 'services/extensions/internal/modules/checkins/settings_upgrade.go'
+CHECKIN_SETTINGS_CLI = 'services/extensions/internal/freshinstall/checkin_settings_upgrade.go'
+CHECKIN_SETTINGS_SCHEMA = 'services/extensions/internal/modules/checkins/settings.sql'
+CHECKIN_SETTINGS_CLI_GUARDS = (
+    'ownerURL(c, plan{prefix: "lmm_checkins"})',
+    'db.SetMaxOpenConns(1)',
+    'defer tx.Rollback()',
+    'current_database()=$1 AND pg_get_userbyid(d.datdba)=$2 AND session_user<>$3',
+    'rolname=$2 AND NOT rolcanlogin',
+    'rolname IN(session_user,$2,$3) AND (rolsuper OR rolcreatedb OR rolcreaterole OR rolreplication OR rolbypassrls)',
+    'pg_auth_members WHERE member=(SELECT oid FROM pg_roles WHERE rolname=$3)',
+    'rolcanlogin AND NOT rolsuper AND rolname<>session_user',
+    "has_database_privilege(oid,d.oid,'CONNECT')",
+    "pg_has_role(oid,$2,'SET')",
+    "pg_has_role(oid,$3,'SET')",
+    '"SET LOCAL ROLE "+pq.QuoteIdentifier(c.OwnerRole)',
+    'checkins.UpgradeSettings(ctx, tx, c.RuntimeRole, operation, recoverOnly)',
+    'if !recoverOnly {',
+    'return ErrCommitUnknown',
+)
+CHECKIN_SETTINGS_UPGRADE_GUARDS = (
+    '!settingsUpgradeKey.MatchString(operation)',
+    'current_user=pg_get_userbyid(d.datdba)',
+    'rolname=$1 AND NOT rolcanlogin',
+    'NOT(rolsuper OR rolcreatedb OR rolcreaterole OR rolreplication OR rolbypassrls)',
+    'pid<>pg_backend_pid()',
+    'pg_prepared_xacts WHERE database=current_database()',
+    "nspname='lmm_checkins' AND nspowner<>d.datdba",
+    'LOCK TABLE lmm_checkins.contract,lmm_checkins.policy_revisions,lmm_checkins.active_policy IN ACCESS EXCLUSIVE MODE',
+    'version != 1',
+    'if !receipt {',
+    'operation_id=$1 AND installed_by=session_user AND database_oid=(SELECT oid FROM pg_database WHERE datname=current_database())',
+    'if receipt || recoverOnly {',
+    'tx.ExecContext(ctx, SettingsSchema)',
+    '"GRANT EXECUTE ON FUNCTION "+settingsFunction+" TO "+pq.QuoteIdentifier(runtime)',
+    'INSERT INTO lmm_checkins.settings_upgrade SELECT true,$1,session_user,oid FROM pg_database WHERE datname=current_database()',
+)
+CHECKIN_SETTINGS_SQL_GUARDS = (
+    'CREATE FUNCTION lmm_checkins.save_settings(',
+    'LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog',
+    'expected_revision < 0 OR expected_revision >= 9223372036854775807',
+    "operation !~ '^admin-[1-9][0-9]*-[A-Za-z0-9_-]{16,40}$'",
+    "minimum !~ '^(0|[1-9][0-9]{0,18})$'",
+    "maximum !~ '^(0|[1-9][0-9]{0,18})$'",
+    'minimum::numeric > 9223372036854775807',
+    'maximum::numeric > 9223372036854775807',
+    'minimum::numeric > maximum::numeric',
+    "pg_advisory_xact_lock(hashtextextended('lmm-checkins-owner',0))",
+    'WHERE operation_key=operation',
+    'prior_revision<>expected_revision+1',
+    "prior->'enabled'<>to_jsonb(enabled)",
+    "prior->>'min_quota'<>minimum",
+    "prior->>'max_quota'<>maximum",
+    'IF current_revision<>expected_revision THEN',
+    "next_policy := (next_policy - 'level_multipliers') || jsonb_build_object(",
+    'ON CONFLICT(singleton) DO UPDATE SET revision=excluded.revision',
+    'REVOKE ALL ON FUNCTION lmm_checkins.save_settings(bigint,text,boolean,text,text) FROM PUBLIC;',
+)
+
 REVIEWED_BORROWED_SQL = {
+    'services/extensions/internal/modules/checkins/settings.go': {
+        "namespace": "lmm_checkins",
+        "tables": [
+            "pg_proc",
+            "pg_database",
+            "aclexplode",
+            "lmm_checkins.policy_revisions"
+        ],
+        "predicates": [
+            "p.prosecdef AND p.proowner=d.datdba",
+            "p.proconfig=ARRAY['search_path=pg_catalog']",
+            "has_function_privilege(current_user,p.oid,'EXECUTE')",
+            "NOT EXISTS(SELECT FROM aclexplode(coalesce(p.proacl,acldefault('f',p.proowner))) a WHERE a.grantee=0 AND a.privilege_type='EXECUTE')",
+            "JOIN pg_database d ON d.datname=current_database()",
+            "WHERE p.oid=to_regprocedure($1)",
+            "SELECT lmm_checkins.save_settings($1,$2,$3,$4,$5)",
+            "WHERE revision=$1"
+        ],
+        "methods": [
+            "QueryRowContext",
+            "QueryRowContext",
+            "QueryRowContext"
+        ],
+        "sha256": "d1e6ce1098623d164a3b143aba1c32bfc2bf85ba356321a2135156f5a8fe6258"
+    },
     "services/extensions/internal/modules/assistant/agent_start_fence.go": {
         "namespace": "lmm_assistant",
         "tables": [
@@ -359,7 +444,7 @@ REVIEWED_BORROWED_SQL = {
             "ExecContext",
             "ExecContext"
         ],
-        "sha256": "ba16f0d3a52b0b5c8d22fdc88584c2817e13bf60ca9cec34227cecaccfdfeb8f"
+        "sha256": "1dde049b11c6cd6f2a4c2dbaba988a0da62cc33cede1386e2dd4a23d7759c2f2"
     }
 }
 
@@ -368,6 +453,8 @@ REVIEWED_BORROWED_SQL = {
 # 2026-11-14. This grants no runtime SQL or provider/funds exception. Each CLI
 # remains confined by OWNER_ENTRY_CALLERS; embedded schemas/pins are sealed too.
 REVIEWED_OWNER_BOUNDARIES = {
+    'services/extensions/internal/freshinstall/checkin_settings_upgrade.go': '2d15974f38a69946497a1b0d22361ce91ca881027c22f0049deee057250f6eb5',
+    'services/extensions/internal/modules/checkins/settings_upgrade.go': 'b4b93d74fd2b59fd56b7f9aa6620ad0aa84480ab2528526e029aa9a4ae6d12ec',
     "services/extensions/internal/modules/operations/script_repository_credentials_upgrade.go": "d82054fbba76b66bd18137bf489d05aadfbaa9dfdc2bfe33e0f7ab1cb917dcd7",
     "services/extensions/internal/modules/operations/ionet_upgrade.go": "6eb4c17261ea53d121385bbdea0d01502e089ad58e48a3bf3e6d01e14be074ab",
     "services/extensions/internal/freshinstall/payments_upgrade.go": "d3a894d8ae7f1f411b41dce61ada7e88c6d37a91d4e93296a1184b0c75767ecc",
@@ -379,6 +466,8 @@ REVIEWED_OWNER_BOUNDARIES = {
     "services/extensions/internal/modules/checkins/owner.go": "0736674e5c0939abf39da0f528e3d03818d22045473ae62174ed76dbc3dcec06"
 }
 REVIEWED_OWNER_INPUTS = {
+    'services/extensions/internal/modules/checkins/settings.sql': 'c76ff35256ad3bce531cc38abb03e88cd8f0013bc6213b51809a19e70413b3a6',
+    'services/extensions/internal/webcompat/checkins_settings.go': '8a5687cb022da9373e4dad815564db2ae04b4b988948342f8b2faebc19de3497',
     "services/extensions/internal/modules/operations/postgres.go": "6e2ad61c0f515461be2b70e97de829d0b8625157eceeaef25b7382bcef38e9ad",
     "services/extensions/internal/modules/operations/script_repository_credentials_schema.sql": "cb52890bcfa8fea138146523aa5f5d52d0cf10d0add067b6d239eb212f25ebd6",
     "services/extensions/internal/modules/operations/ionet_schema.sql": "c56821a0c8f7be66145125bacf943a67e0eb3e92726d89868ee33e7ca39921ac",
@@ -393,7 +482,7 @@ REVIEWED_OWNER_INPUTS = {
     "services/extensions/internal/modules/payments/subscription_pancake_catalog.sql": "a814b4b97f21c75c6b4b59719177a96aa1ff375591cee286c0137ee1d41715e1",
     "services/extensions/internal/modules/payments/subscription_pancake_storage_contract.json": "2f670d4b1570800652c1e13b44c5981b34c144388f6c73f056a8c108d2613916",
     "services/extensions/internal/modules/checkins/schema.sql": "a5e41379df204162d2aa79fb14fa78102624144b857662be20aa18e87e3ff323",
-    "services/extensions/internal/modules/checkins/types.go": "df7e9a1d01c2db35eed9749cc1439385d7f0fed23da3718ca2febc1999d42b15"
+    "services/extensions/internal/modules/checkins/types.go": "286852cc5faa7a3fcd75bfbf7397c71ea045cc550af4a62973849eaeac349ca6"
 }
 
 # Source registration only: Io.net has module PG evidence, not native CLI
@@ -421,13 +510,16 @@ OWNER_OPERATIONS_GUARDS = (
 
 # Private qualification artifacts, relative to the private cache; never loaded
 # by the portable source suite. Hashes bind the reviewed report, not a PG rerun.
+# Checkin entries retain the original owner/CLI qualification. Flat-reward
+# input changes have separate seals above and settings_test.go coverage;
+# updating those contracts does not claim a new owner-CLI acceptance run.
 OWNER_EVIDENCE = {
+    'services/extensions/internal/freshinstall/checkin_settings_upgrade.go': ('settings-closure-extensions/checkin-settings-qualification.json', '1c64053a8984a126a5b1475453d443ef6828716ba2d1c07b4367753d49de785a'),
+    'services/extensions/internal/modules/checkins/settings_upgrade.go': ('settings-closure-extensions/checkin-settings-qualification.json', '1c64053a8984a126a5b1475453d443ef6828716ba2d1c07b4367753d49de785a'),
     "services/extensions/internal/freshinstall/payments_upgrade.go": ('lmm-completion-20261113/pancake-independent-qualification-1794641819/RECEIPT.json',
         "4e7c62fc69aacac4743722df4131943d9a52a1effeade0cb2c3bbe17aec8fd16"),
-    "services/extensions/internal/freshinstall/checkin_policy.go": ('lmm-completion-20261113/owner-cli-private-probes-20261114/ACTUAL_HANDOFF.md',
-        "edb40d4a0f6464ce9bc2f6a31cfd10f12640443b6908825c71a2976608a0dd56"),
-    "services/extensions/internal/modules/checkins/owner.go": ('lmm-completion-20261113/owner-cli-private-probes-20261114/ACTUAL_HANDOFF.md',
-        "edb40d4a0f6464ce9bc2f6a31cfd10f12640443b6908825c71a2976608a0dd56"),
+    'services/extensions/internal/freshinstall/checkin_policy.go': ('settings-closure-extensions/checkin-settings-qualification.json', '1c64053a8984a126a5b1475453d443ef6828716ba2d1c07b4367753d49de785a'),
+    'services/extensions/internal/modules/checkins/owner.go': ('settings-closure-extensions/checkin-settings-qualification.json', '1c64053a8984a126a5b1475453d443ef6828716ba2d1c07b4367753d49de785a'),
     "services/extensions/internal/modules/payments/subscription_epay_upgrade.go": ('lmm-owner-pg-selftest-20261114-145129/cases/epay/RESULT.json',
         "1a06b3f7b466ed69f5013d4612a894a5fb78a1d7241ea50f5d5d79fd4a826877"),
     "services/extensions/internal/modules/payments/subscription_stripe_upgrade.go": ('lmm-completion-20261113/owner-cli-private-probes-20261114/ACTUAL_HANDOFF.md',
@@ -443,6 +535,9 @@ OWNER_EVIDENCE = {
 }
 
 OWNER_ENTRY_CALLERS = {
+    'RunCheckinSettingsUpgradeCLI': ['services/extensions/cmd/extensions/main.go', 'services/extensions/internal/freshinstall/checkin_settings_upgrade.go'],
+    'UpgradeSettings': ['services/extensions/internal/freshinstall/checkin_settings_upgrade.go', 'services/extensions/internal/modules/checkins/settings_upgrade.go'],
+    'SettingsSchema': ['services/extensions/internal/freshinstall/install.go', 'services/extensions/internal/modules/checkins/settings.go', 'services/extensions/internal/modules/checkins/settings_upgrade.go'],
     "UpgradeHistory": [
         "services/extensions/internal/freshinstall/assistant_history_upgrade.go",
         "services/extensions/internal/modules/assistant/history_upgrade.go"
@@ -894,9 +989,32 @@ class CoreBoundaryTests(unittest.TestCase):
         for name in borrowed:
             self.assertNotRegex(code, r"\b" + re.escape(name) + r" \. Close\b", path)
 
+    def assert_checkin_settings_schema(self, text):
+        for guard in CHECKIN_SETTINGS_SQL_GUARDS:
+            self.assertIn(guard, text, CHECKIN_SETTINGS_SCHEMA)
+        # New revisions remove the retired field; immutable prior rows stay intact.
+        self.assertEqual(re.findall(r"\blevel_multipliers\b", text), ["level_multipliers"],
+                         "retired multipliers may only be removed from the next policy")
+        self.assertNotRegex(text, r"(?i)\b(?:UPDATE|DELETE\s+FROM)\s+lmm_checkins\.policy_revisions\b")
+        self.assertNotRegex(text, r"(?i)\bcore_[a-z0-9_]+\s*\.")
+        self.assertNotRegex(text, r"(?i)\bEXECUTE\s+")
+        self.assertEqual(re.findall(r"(?i)\bINSERT\s+INTO\s+([a-z0-9_.]+)", text),
+                         ["lmm_checkins.policy_revisions", "lmm_checkins.active_policy"])
+        self.assertEqual(len(re.findall(r"(?i)\bCREATE\s+FUNCTION\b", text)), 1)
+
     def assert_reviewed_owner_boundary(self, path, text, *, check_seal=True):
         tokens = go_tokens(text)
-        if path.endswith("freshinstall/payments_upgrade.go"):
+        if path == CHECKIN_SETTINGS_CLI:
+            for guard in CHECKIN_SETTINGS_CLI_GUARDS:
+                self.assertIn(guard, text, path)
+            self.token_index(tokens, "if !recoverOnly { if tx.Commit() != nil { return ErrCommitUnknown } }")
+        elif path == CHECKIN_SETTINGS_UPGRADE:
+            for guard in CHECKIN_SETTINGS_UPGRADE_GUARDS:
+                self.assertIn(guard, text, path)
+            self.token_index(tokens, "if e != nil || !same { return ErrConflict }")
+            self.token_index(tokens, "if receipt || recoverOnly { return ErrConflict }")
+            self.assert_checkin_settings_schema((ROOT / CHECKIN_SETTINGS_SCHEMA).read_text())
+        elif path.endswith("freshinstall/payments_upgrade.go"):
             for guard in ("db.SetMaxOpenConns(1)", "db.SetMaxIdleConns(1)",
                           "SET ROLE ", "session_user<>$3", "NOT rolcanlogin",
                           "pg_has_role(oid,$2,'SET')", "pg_has_role(oid,$3,'SET')",
@@ -1219,7 +1337,7 @@ class CoreBoundaryTests(unittest.TestCase):
         self.assertEqual(methods, list(spec["methods"]), path)
         self.assertFalse(set(methods) & {"Conn", "Driver", "Raw", "Open", "OpenDB", "Prepare", "PrepareContext"}, path)
         if '"github.com/lib/pq"' in tokens:
-            self.assertTrue(path.endswith("/operations/ionet_journal.go"), path)
+            self.assertIn(path, {"services/extensions/internal/modules/operations/ionet_journal.go", CHECKIN_SETTINGS_RUNTIME}, path)
             self.assert_named_go_import(text, "github.com/lib/pq")
             selectors = [tokens[i+2] for i in range(len(tokens)-2) if tokens[i:i+2] == ["pq", "."]]
             self.assertEqual(selectors, ["Error"], path)
@@ -1270,6 +1388,10 @@ class CoreBoundaryTests(unittest.TestCase):
                 old, new = 'receipt.Status != "already_committed"', "false"
             elif "/payments/" in path:
                 old, new = "after != before", "false"
+            elif path == CHECKIN_SETTINGS_CLI:
+                old, new = "session_user<>$3", "true"
+            elif path == CHECKIN_SETTINGS_UPGRADE:
+                old, new = "NOT rolcanlogin", "rolcanlogin"
             elif path.endswith("freshinstall/checkin_policy.go"):
                 old, new = "current_user<>$3", "true"
             elif "/operations/" in path:
@@ -1299,6 +1421,43 @@ class CoreBoundaryTests(unittest.TestCase):
                           'sql.Open("postgres", "unapproved")'):
                 with self.subTest(owner=path, extra=extra), self.assertRaises(AssertionError):
                     self.assert_extension_storage(path, source + "\nfunc bad() { " + extra + " }")
+
+    def test_checkin_settings_guards_without_body_seals(self):
+        for path, guards in ((CHECKIN_SETTINGS_CLI, CHECKIN_SETTINGS_CLI_GUARDS),
+                             (CHECKIN_SETTINGS_UPGRADE, CHECKIN_SETTINGS_UPGRADE_GUARDS)):
+            source = (ROOT / path).read_text()
+            for guard in guards:
+                changed = source.replace(guard, "REMOVED_CHECKIN_OWNER_GUARD", 1)
+                self.assertNotEqual(changed, source, (path, guard))
+                with self.subTest(path=path, guard=guard), self.assertRaises(AssertionError):
+                    self.assert_reviewed_owner_boundary(path, changed, check_seal=False)
+            for extra in ('sql.Open("postgres", input)',
+                          'tx.ExecContext(ctx, "DELETE FROM core_billing.accounts")'):
+                with self.subTest(path=path, extra=extra), self.assertRaises(AssertionError):
+                    self.assert_extension_storage(path, source + "\nfunc bad() { " + extra + " }")
+        sql = (ROOT / CHECKIN_SETTINGS_SCHEMA).read_text()
+        self.assert_checkin_settings_schema(sql)
+        for guard in CHECKIN_SETTINGS_SQL_GUARDS:
+            changed = sql.replace(guard, "REMOVED_CHECKIN_SQL_GUARD", 1)
+            self.assertNotEqual(changed, sql, guard)
+            with self.subTest(sql_guard=guard), self.assertRaises(AssertionError):
+                self.assert_checkin_settings_schema(changed)
+
+    def test_checkin_settings_preserve_flat_rewards_and_immutable_history_without_body_seals(self):
+        sql = (ROOT / CHECKIN_SETTINGS_SCHEMA).read_text()
+        self.assert_checkin_settings_schema(sql)
+        fields = "'enabled',enabled,'min_quota',minimum,'max_quota',maximum"
+        insert = ' INSERT INTO lmm_checkins.policy_revisions(revision,policy,operation_key,created_at)'
+        changes = {
+            'reintroduce_multiplier_field': sql.replace(fields, fields + ",\n  'level_multipliers','[1,1,1,1,1]'::jsonb", 1),
+            'write_multiplier_with_jsonb_set': sql.replace(insert, " next_policy := jsonb_set(next_policy,'{level_multipliers}','[1,1,1,1,1]'::jsonb);\n" + insert, 1),
+            'rewrite_historical_policy': sql.replace(insert, " UPDATE lmm_checkins.policy_revisions SET policy=policy || '{}'::jsonb;\n" + insert, 1),
+            'delete_historical_policy': sql.replace(insert, " DELETE FROM lmm_checkins.policy_revisions WHERE revision=1;\n" + insert, 1),
+        }
+        for name, changed in changes.items():
+            self.assertNotEqual(changed, sql, name)
+            with self.subTest(mutation=name), self.assertRaises(AssertionError):
+                self.assert_checkin_settings_schema(changed)
 
     def test_pending_owner_closure_is_not_reachable_from_runtime(self):
         seen = set()

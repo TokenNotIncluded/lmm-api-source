@@ -285,7 +285,7 @@ test('onboarding status ignores retired access metadata and proceeds directly to
     assert.equal(Object.hasOwn(result, retired), false)
   }
   assert.deepEqual(result.next_step, {
-    path: '/guide',
+    path: '/developers',
     label: 'Choose your client',
   })
 })

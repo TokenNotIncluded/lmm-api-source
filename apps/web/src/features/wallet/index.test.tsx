@@ -168,6 +168,7 @@ async function renderWallet(
     selfQuota?: number
     paymentReturn?: 'return' | 'cancel'
     nativeChannels?: unknown
+    transferHistoryUnavailable?: boolean
     nativeResponse?: (
       url: string,
       method: string,
@@ -244,6 +245,9 @@ async function renderWallet(
   }
   api.get = (async (url) => {
     reads.push(String(url))
+    if (options.transferHistoryUnavailable && url === '/api/wallet-transfer') {
+      throw new Error('Transfer history unavailable')
+    }
     // The real native host rejects retired routes with 503, not 404.
     if (
       user.wallet_unit === 'core_credit' &&
@@ -347,8 +351,9 @@ test('unknown historical money retains credits and offers authoritative reward p
     posts.push(url)
     throw new Error('No native payment capability')
   }) as typeof api.post
-  const { container, queryClient } = await renderWallet(true, {
+  const { container, queryClient, reads } = await renderWallet(true, {
     quota: 199671,
+    transferHistoryUnavailable: true,
     user: {
       financial_projection_available: true,
       usage_projection_available: false,
@@ -396,6 +401,9 @@ test('unknown historical money retains credits and offers authoritative reward p
     createButton?.disabled,
     'the real balance endpoint must establish transfer readiness'
   )
+  assert.ok(reads.includes('/api/wallet/balance'))
+  assert.ok(reads.includes('/api/wallet-transfer'))
+  assert.match(document.body.textContent ?? '', /Failed to load wallet balance/)
   assert.match(
     document.body.textContent ?? '',
     /Failed to load transfer history/
