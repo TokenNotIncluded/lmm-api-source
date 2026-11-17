@@ -23,7 +23,9 @@ import * as z from 'zod'
 // ============================================================================
 
 export interface CustomOAuthProvider {
-  id: number
+  id: string
+  revision: string
+  secret_configured: boolean
   name: string
   slug: string
   icon: string

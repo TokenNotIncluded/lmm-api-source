@@ -17,7 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { zodResolver } from '@hookform/resolvers/zod'
-import { useEffect } from 'react'
+import { useEffect, useRef } from 'react'
 import { type Resolver, useForm, useWatch } from 'react-hook-form'
 import { useTranslation } from 'react-i18next'
 
@@ -109,6 +109,7 @@ export function ProviderFormDialog(props: ProviderFormDialogProps) {
     },
   })
   const watchedSlug = useWatch({ control: form.control, name: 'slug' })
+  const operationKey = useRef('')
   const callbackPath = watchedSlug?.trim() || '{slug}'
   const callbackUrl = buildOAuthCallbackUrl(
     props.serverAddress,
@@ -117,6 +118,7 @@ export function ProviderFormDialog(props: ProviderFormDialogProps) {
   )
 
   useEffect(() => {
+    if (props.open) operationKey.current = crypto.randomUUID()
     if (props.open && props.provider) {
       form.reset({
         name: props.provider.name,
@@ -124,7 +126,7 @@ export function ProviderFormDialog(props: ProviderFormDialogProps) {
         icon: props.provider.icon || '',
         enabled: props.provider.enabled,
         client_id: props.provider.client_id,
-        client_secret: props.provider.client_secret || '',
+        client_secret: '',
         authorization_endpoint: props.provider.authorization_endpoint,
         token_endpoint: props.provider.token_endpoint,
         user_info_endpoint: props.provider.user_info_endpoint,
@@ -165,16 +167,18 @@ export function ProviderFormDialog(props: ProviderFormDialogProps) {
   const onSubmit = async (values: CustomOAuthFormValues) => {
     if (isEditing && props.provider) {
       const res = await updateProvider.mutateAsync({
-        id: props.provider.id,
+        provider: props.provider,
         data: values,
+        operationKey: operationKey.current,
       })
       if (res.success) {
         props.onOpenChange(false)
       }
     } else {
-      const res = await createProvider.mutateAsync(
-        values as Omit<CustomOAuthProvider, 'id'>
-      )
+      const res = await createProvider.mutateAsync({
+        data: values,
+        operationKey: operationKey.current,
+      })
       if (res.success) {
         props.onOpenChange(false)
       }
@@ -221,7 +225,7 @@ export function ProviderFormDialog(props: ProviderFormDialogProps) {
       <Form {...form}>
         <SettingsForm
           id={PROVIDER_FORM_ID}
-          onSubmit={form.handleSubmit(onSubmit)}
+          onSubmit={(event) => void form.handleSubmit(onSubmit)(event)}
         >
           {/* Preset Selector (only for creating) */}
           {!isEditing && <PresetSelector form={form} />}

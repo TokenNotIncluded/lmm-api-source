@@ -17,7 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { Plus } from 'lucide-react'
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { ConfirmDialog } from '@/components/confirm-dialog'
@@ -42,10 +42,14 @@ export function ProviderTable(props: ProviderTableProps) {
   const [deleteTarget, setDeleteTarget] = useState<CustomOAuthProvider | null>(
     null
   )
+  const deleteOperationKey = useRef('')
 
   const handleDelete = async () => {
     if (!deleteTarget) return
-    await deleteProvider.mutateAsync(deleteTarget.id)
+    await deleteProvider.mutateAsync({
+      provider: deleteTarget,
+      operationKey: deleteOperationKey.current,
+    })
     setDeleteTarget(null)
   }
 
@@ -127,7 +131,10 @@ export function ProviderTable(props: ProviderTableProps) {
                 deleteLabel={t('Delete')}
                 menuLabel={t('Open menu')}
                 onEdit={() => props.onEdit(provider)}
-                onDelete={() => setDeleteTarget(provider)}
+                onDelete={() => {
+                  deleteOperationKey.current = crypto.randomUUID()
+                  setDeleteTarget(provider)
+                }}
               />
             ),
           },

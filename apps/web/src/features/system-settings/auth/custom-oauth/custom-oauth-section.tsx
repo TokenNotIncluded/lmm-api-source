@@ -20,6 +20,7 @@ import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { CopyButton } from '@/components/copy-button'
+import { ErrorState } from '@/components/error-state'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 
 import { SettingsSection } from '../../components/settings-section'
@@ -35,7 +36,12 @@ type CustomOAuthSectionProps = {
 
 export function CustomOAuthSection(props: CustomOAuthSectionProps) {
   const { t } = useTranslation()
-  const { data: providers = [], isLoading } = useCustomOAuthProviders()
+  const {
+    data: providers = [],
+    isLoading,
+    error,
+    refetch,
+  } = useCustomOAuthProviders()
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editingProvider, setEditingProvider] =
     useState<CustomOAuthProvider | null>(null)
@@ -69,6 +75,15 @@ export function CustomOAuthSection(props: CustomOAuthSectionProps) {
           {t('Loading...')}
         </div>
       </SettingsSection>
+    )
+  }
+
+  if (error) {
+    return (
+      <ErrorState
+        title={t('Failed to load settings')}
+        onRetry={() => void refetch()}
+      />
     )
   }
 

@@ -18,7 +18,11 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { api } from '@/lib/api'
 
-import type { CustomOAuthProvider, DiscoveryResponse } from './types'
+import type {
+  CustomOAuthFormValues,
+  CustomOAuthProvider,
+  DiscoveryResponse,
+} from './types'
 
 // ============================================================================
 // Response Types
@@ -42,31 +46,46 @@ export async function getCustomOAuthProviders(): Promise<
 }
 
 export async function getCustomOAuthProvider(
-  id: number
+  id: string
 ): Promise<ApiResponse<CustomOAuthProvider>> {
   const res = await api.get(`/api/custom-oauth-provider/${id}`)
   return res.data
 }
 
 export async function createCustomOAuthProvider(
-  data: Omit<CustomOAuthProvider, 'id'>
+  data: CustomOAuthFormValues,
+  operationKey: string
 ): Promise<ApiResponse<CustomOAuthProvider>> {
-  const res = await api.post('/api/custom-oauth-provider/', data)
+  const res = await api.post('/api/custom-oauth-provider/', {
+    ...data,
+    operation_key: operationKey,
+  })
   return res.data
 }
 
 export async function updateCustomOAuthProvider(
-  id: number,
-  data: Partial<CustomOAuthProvider>
+  provider: Pick<CustomOAuthProvider, 'id' | 'revision'>,
+  data: Partial<CustomOAuthFormValues>,
+  operationKey: string
 ): Promise<ApiResponse<CustomOAuthProvider>> {
-  const res = await api.put(`/api/custom-oauth-provider/${id}`, data)
+  const res = await api.put(`/api/custom-oauth-provider/${provider.id}`, {
+    ...data,
+    expected_revision: provider.revision,
+    operation_key: operationKey,
+  })
   return res.data
 }
 
 export async function deleteCustomOAuthProvider(
-  id: number
+  provider: Pick<CustomOAuthProvider, 'id' | 'revision'>,
+  operationKey: string
 ): Promise<ApiResponse> {
-  const res = await api.delete(`/api/custom-oauth-provider/${id}`)
+  const res = await api.delete(`/api/custom-oauth-provider/${provider.id}`, {
+    data: {
+      expected_revision: provider.revision,
+      operation_key: operationKey,
+    },
+  })
   return res.data
 }
 
