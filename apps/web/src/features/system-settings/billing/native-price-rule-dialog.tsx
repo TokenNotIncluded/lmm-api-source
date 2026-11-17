@@ -112,7 +112,7 @@ export function NativePriceRuleDialog({
         )
       )
     }
-    const next = {
+    const next: NativePriceRule = {
       ...rule,
       group_multiplier_ppm: group,
       speed_multiplier_ppm: speed,
