@@ -36,6 +36,7 @@ import {
   type IPAccessRoutingFormValues,
   normalizeIPAccessRoutingRules,
 } from './ip-access-routing-config'
+import { RegionRuleBuilder } from './region-rule-builder'
 
 type Props = {
   defaultValues: {
@@ -130,6 +131,15 @@ export function IPAccessRoutingSection({ defaultValues }: Props) {
             </AlertDescription>
           </Alert>
 
+          <RegionRuleBuilder
+            onApply={(rules) =>
+              form.setValue('IPAccessRoutingRules', rules, {
+                shouldDirty: true,
+                shouldValidate: true,
+              })
+            }
+          />
+
           <FormField
             control={form.control}
             name='IPAccessRoutingRules'
@@ -149,7 +159,7 @@ export function IPAccessRoutingSection({ defaultValues }: Props) {
                 </FormControl>
                 <FormDescription>
                   {t(
-                    'Use one Daed-style rule per line. This HTTP edge supports domain(full/suffix/keyword/regex), dip/ip, sip, dport, sport, l4proto, ipversion, ! negation, fallback, and direct/reject. geosite/ext/qname/mac/pname/dscp need packet or DNS data and are rejected when saved. Use # for comments.'
+                    'Use one rule per line: ip/dip with IPv4, IPv6, CIDR, IP ranges or geoip:XX; ipversion(4/6); ! negation; fallback; and unknown-country. Actions are direct or reject. Use # for comments. Regions are resolved by the server.'
                   )}
                 </FormDescription>
                 <FormMessage />

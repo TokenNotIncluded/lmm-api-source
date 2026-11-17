@@ -174,6 +174,10 @@ const LimitedPricingSection = lazyNamedSection(
   () => import('../general/pricing-section'),
   'PricingSection'
 )
+const LimitedIPAccessSection = lazyNamedSection(
+  () => import('../security/ip-access-routing-section'),
+  'IPAccessRoutingSection'
+)
 const LimitedOAuthRegistrationPolicy = lazyNamedSection(
   () => import('../auth/oauth-registration-policy'),
   'OAuthRegistrationPolicy'
@@ -271,9 +275,19 @@ function LimitedSettings({
     activeSection === 'currency' &&
     exchangeRateOption !== undefined &&
     writableOptionKey(capabilities, 'USDExchangeRate') === 'USDExchangeRate'
+  const ipAccessOption = options.find(
+    (option) => option.key === 'IPAccessRoutingRules'
+  )
+  const writableIPAccess =
+    !readOnly &&
+    activeSection === 'ip-access-routing' &&
+    ipAccessOption !== undefined &&
+    writableOptionKey(capabilities, 'IPAccessRoutingRules') ===
+      'IPAccessRoutingRules'
   const visibleOptions = options.filter((option) => {
     if (fields[option.key]?.section !== activeSection) return false
     if (writableExchangeRate && option.key === 'USDExchangeRate') return false
+    if (writableIPAccess && option.key === 'IPAccessRoutingRules') return false
     if (writableNavigation && option.key === 'HeaderNavModules') return false
     if (writableNotice && option.key === 'Notice') return false
     if (
@@ -288,7 +302,8 @@ function LimitedSettings({
     writableNavigation ||
     writableNotice ||
     writableAnnouncements ||
-    writableExchangeRate
+    writableExchangeRate ||
+    writableIPAccess
   const hasContent =
     hasEditor || visibleOptions.length > 0 || activeSection === 'basic-auth'
   const deploymentNote =
@@ -342,6 +357,11 @@ function LimitedSettings({
                 ? undefined
                 : Number(exchangeRateOption.value),
           }}
+        />
+      ) : null}
+      {writableIPAccess && ipAccessOption ? (
+        <LimitedIPAccessSection
+          defaultValues={{ IPAccessRoutingRules: ipAccessOption.value }}
         />
       ) : null}
       {visibleOptions.length > 0 ? (

@@ -39,6 +39,7 @@ import {
 } from './components/profile-feature-capabilities'
 import { ProfileHeader } from './components/profile-header'
 import { ProfileIdentityCard } from './components/profile-identity-card'
+import { ProfileIPAllowlistCard } from './components/profile-ip-allowlist-card'
 import { ProfileSecurityCard } from './components/profile-security-card'
 import { ProfileSettingsCard } from './components/profile-settings-card'
 import { ReferralOverviewCard } from './components/referral-overview-card'
@@ -142,6 +143,7 @@ export function Profile() {
                   />
                 </div>
               </div>
+              <ProfileIPAllowlistCard />
               <LoginSessionsCard />
               <OAuthGrantsCard />
             </TabsContent>

@@ -49,6 +49,7 @@ export const WRITABLE_SYSTEM_OPTION_KEYS = [
   'Announcements',
   'console_setting.announcements',
   'USDExchangeRate',
+  'IPAccessRoutingRules',
 ] as const
 
 export type WritableSystemOptionKey =
