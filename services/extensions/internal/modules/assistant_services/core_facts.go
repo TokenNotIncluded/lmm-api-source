@@ -50,7 +50,6 @@ func (c *CoreBusinessFacts) AvailableModels(ctx context.Context, credential stri
 	var r struct {
 		ActorUserID int64           `json:"actor_user_id"`
 		IDs         []string        `json:"exact_model_ids"`
-		Developer   bool            `json:"developer_access_granted"`
 		Locked      bool            `json:"locked"`
 		Preview     bool            `json:"public_preview"`
 		Groups      []string        `json:"key_group_options"`
@@ -68,7 +67,7 @@ func (c *CoreBusinessFacts) AvailableModels(ctx context.Context, credential stri
 		seen[id] = true
 		groups = append(groups, PublicKeyGroup{ID: id})
 	}
-	return ModelCatalogSnapshot{ActorUserID: r.ActorUserID, DeveloperAccessGranted: r.Developer, AccountModelAccessLocked: r.Locked, PublicPreview: r.Preview, ModelIDs: append([]string(nil), r.IDs...), KeyGroupOptions: groups}, nil
+	return ModelCatalogSnapshot{ActorUserID: r.ActorUserID, AccountModelAccessLocked: r.Locked, PublicPreview: r.Preview, ModelIDs: append([]string(nil), r.IDs...), KeyGroupOptions: groups}, nil
 }
 func decodeFacts(raw []byte, out any) error {
 	if len(raw) == 0 || len(raw) > 1<<20 {

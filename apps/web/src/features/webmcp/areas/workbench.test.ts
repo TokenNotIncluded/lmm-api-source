@@ -122,13 +122,12 @@ test('read tools declare readOnlyHint and never consequentialHint', () => {
       'lmm_workbench_list_tool_market',
       'lmm_workbench_list_public_relays',
       'lmm_workbench_list_bounties',
-      'lmm_workbench_list_remote_sessions',
       'lmm_workbench_image_prompt_ideas',
       'lmm_workbench_public_relay_routing',
       'lmm_workbench_bounty_detail',
     ].includes(tool.name)
   )
-  assert.equal(reads.length, 11)
+  assert.equal(reads.length, 10)
   for (const tool of reads) {
     assert.equal(tool.annotations?.readOnlyHint, true, tool.name)
     assert.equal(tool.annotations?.consequentialHint, undefined, tool.name)
@@ -220,7 +219,6 @@ test('marking one to-do read needs a concrete category and source id', async () 
     'all',
     'open_source_bounty_review',
     'open_source_bounty',
-    'developer_access',
     'account_action',
     'security_incident',
     'moderation',

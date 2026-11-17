@@ -12,7 +12,6 @@ export type TodoCategory =
   | 'all'
   | 'open_source_bounty_review'
   | 'open_source_bounty'
-  | 'developer_access'
   | 'account_action'
   | 'security_incident'
   | 'moderation'

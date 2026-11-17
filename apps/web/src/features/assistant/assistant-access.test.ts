@@ -22,27 +22,22 @@ import { describe, test } from 'node:test'
 import type { AssistantStatus } from './api'
 import { getAssistantAccountAccessState } from './assistant-access'
 
-function status(developerAccessGranted: boolean): AssistantStatus {
+function status(): AssistantStatus {
   return {
     enabled: true,
     model: 'deepseek-v4-flash',
-    developer_access_granted: developerAccessGranted,
-    funding: {
-      mode: 'super_administrator',
-    },
+    funding: { mode: 'super_administrator' },
   }
 }
 
 describe('assistant account access state', () => {
-  test('restricts only an explicit L0 response', () => {
-    assert.equal(
-      getAssistantAccountAccessState(status(false), false),
-      'restricted'
-    )
-    assert.equal(getAssistantAccountAccessState(status(true), false), 'granted')
+  test('accepts an ordinary account status without an access grant', () => {
+    assert.equal(getAssistantAccountAccessState(status(), false), 'granted')
+    const staleStatus = Object.assign(status(), JSON.parse(JSON.stringify({ developer_access_granted: false, trust_level: 0 })))
+    assert.equal(getAssistantAccountAccessState(staleStatus, false), 'granted')
   })
 
-  test('keeps loading and failed status requests distinct from L0', () => {
+  test('keeps loading and failed status requests distinct', () => {
     assert.equal(getAssistantAccountAccessState(undefined, false), 'loading')
     assert.equal(getAssistantAccountAccessState(undefined, true), 'error')
   })

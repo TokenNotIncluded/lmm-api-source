@@ -240,11 +240,7 @@ export interface TopupInfo extends Partial<CreditUnitMetadata> {
   legacy_amount_unit?: 'LEGACY'
   legacy_amount_options?: number[]
   legacy_discount?: Record<number, number>
-  /** Whether this account has completed the paid developer-access activation. */
-  developer_access_granted?: boolean
-  /** Whether activation is required before normal console access. */
-  activation_required?: boolean
-  /** Whether at least one activation payment path is configured. */
+  /** Whether at least one payment provider is configured. */
   payment_available?: boolean
   /** Whether online topup is enabled */
   enable_online_topup: boolean
@@ -474,9 +470,6 @@ export interface UserWalletData extends Pick<
   /** User group */
   group: string
   role?: number
-  trust_level_info?: import('@/stores/auth-store').TrustLevelInfo
-  trust_level_tiers?: import('@/stores/auth-store').TrustLevelTier[]
-  trust_level_role_tiers?: import('@/stores/auth-store').TrustLevelRoleTier[]
 }
 
 /**

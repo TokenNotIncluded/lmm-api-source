@@ -170,16 +170,15 @@ impl super::Bridge {
         {
             return Ok(None);
         }
-        let trust = self
-            .charging
-            .legacy_precharge_trust(secret, peer, issuer, &selected.price)
+        self.charging
+            .authorize_legacy_precharge(secret, peer, issuer, &selected.price)
             .await
             .map_err(super::billing::error)?;
-        let maximum = source.maximum_billable(&selected.price, bounds, trust.as_ref())?;
+        let maximum = source.maximum_billable(&selected.price, bounds, None)?;
         if source.derive_native_reservation && maximum == 0 {
             return Ok(None);
         }
-        match authorization(source, request, body, rates.input, group, trust, maximum) {
+        match authorization(source, request, body, rates.input, group, None, maximum) {
             Ok(authorization) => Ok(Some(authorization)),
             Err(RelayError::Unsupported(_)) => Ok(None),
             Err(error) => Err(error),

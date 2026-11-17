@@ -210,12 +210,14 @@ async fn fixture(pool: PgPool) -> Fixture {
         )
         .await
         .unwrap();
-    let developer: bool =
-        sqlx::query_scalar("SELECT granted FROM core_identity.developer_access WHERE user_id=7")
-            .fetch_one(&pool)
-            .await
-            .unwrap();
-    assert!(developer);
+    let legacy_activation: bool = sqlx::query_scalar(
+        "SELECT EXISTS(SELECT FROM core_identity.developer_access WHERE user_id=7)",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert!(!legacy_activation);
+    assert!(identity.authorize(&key.secret).await.is_ok());
     sqlx::query("INSERT INTO core_identity.user_routing_groups(user_id,group_name,enabled,source_reference) VALUES(7,'allowed',TRUE,'synthetic-image-pg-test')")
         .execute(&pool).await.unwrap();
     let ledger = Ledger::from_pool(pool.clone());

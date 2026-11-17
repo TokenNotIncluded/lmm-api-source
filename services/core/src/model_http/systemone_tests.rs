@@ -169,13 +169,14 @@ async fn fixture(pool: PgPool) -> Fixture {
         .unwrap();
     sqlx::query("INSERT INTO core_identity.user_routing_groups(user_id,group_name,enabled,source_reference) VALUES(7,'allowed',TRUE,'synthetic-systemone-pg')").execute(&pool).await.unwrap();
     assert!(
-        sqlx::query_scalar::<_, bool>(
-            "SELECT granted FROM core_identity.developer_access WHERE user_id=7"
+        !sqlx::query_scalar::<_, bool>(
+            "SELECT EXISTS(SELECT FROM core_identity.developer_access WHERE user_id=7)"
         )
         .fetch_one(&pool)
         .await
         .unwrap()
     );
+    assert!(identity.authorize(&key.secret).await.is_ok());
     let ledger = Ledger::from_pool(pool.clone());
     ledger.open_wallet(actor.owner_account_id).await.unwrap();
     ledger
@@ -990,7 +991,6 @@ async fn real_pi_access(f: &Fixture, gateway: &ModelGateway) -> String {
         .authorize(bundle.data["access_token"].as_str().unwrap())
         .await
         .unwrap();
-    sqlx::query("INSERT INTO core_identity.developer_access(user_id,granted,source_reference) VALUES($1,TRUE,'synthetic-systemone-pi')").bind(actor.user_id).execute(&f.pool).await.unwrap();
     sqlx::query("INSERT INTO core_identity.user_routing_groups(user_id,group_name,enabled,source_reference) VALUES($1,'allowed',TRUE,'synthetic-systemone-pi')").bind(actor.user_id).execute(&f.pool).await.unwrap();
     let profile = LmmProfile::new(ISSUER, vec!["allowed".into()])
         .unwrap()

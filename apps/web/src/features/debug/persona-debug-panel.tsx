@@ -48,11 +48,11 @@ import {
 } from './persona-runtime'
 
 const PERSONA_LABELS: Record<DebugPersonaId, string> = {
-  l0: 'L0 newcomer',
+  l0: 'New user',
   b: 'B · Guided buyer',
   e: 'E · Normal user',
   f: 'F · Enterprise operator',
-  l1: 'L1 developer',
+  l1: 'Returning user',
   manager: 'Administrator',
   admin: 'Super administrator',
 }

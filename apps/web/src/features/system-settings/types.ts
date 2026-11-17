@@ -33,7 +33,6 @@ export type SystemOptionsCapabilities = {
   partial?: boolean
   writable_keys?: string[]
   model_price_locks?: boolean
-  trust_level_benefits?: boolean
 }
 
 export type SystemOptionsResponse = {
@@ -49,6 +48,7 @@ export const WRITABLE_SYSTEM_OPTION_KEYS = [
   'Announcements',
   'console_setting.announcements',
   'USDExchangeRate',
+  'IPAccessRoutingRules',
 ] as const
 
 export type WritableSystemOptionKey =
@@ -323,7 +323,6 @@ export type ContentSettings = {
   AssistantSkillFiles: string
   AssistantRegistrationAutoSuspendEnabled: boolean
   AssistantRegistrationDailySuspendCap: number
-  AssistantL1AutoApprovalUserIDs: string
   AssistantRetentionEnabled: boolean
   AssistantActiveRetentionDays: number
   AssistantArchivedRetentionDays: number
@@ -400,7 +399,6 @@ export type ModelSettings = {
 }
 
 export type BillingSettings = {
-  TrustLevelBenefits: string
   ReferralRegistrationRewardQuota?: number
   ReferralMinTopUpAmounts?: string
   ReferralMinTopUpQuota: number
@@ -416,9 +414,6 @@ export type BillingSettings = {
   TopUpLink: string
   'general_setting.docs_link': string
   'quota_setting.enable_free_model_pre_consume': boolean
-  'developer_access_setting.invite_registration_enabled': boolean
-  'developer_access_setting.paid_activation_enabled': boolean
-  'developer_access_setting.paid_activation_min_amount': number
   QuotaPerUnit: number
   PublicCreditsPerUSD: string
   USDExchangeRate: number
@@ -499,7 +494,6 @@ export type BillingSettings = {
   'checkin_setting.enabled': boolean
   'checkin_setting.min_quota': number
   'checkin_setting.max_quota': number
-  'checkin_setting.level_multipliers': number[]
 }
 
 export type OperationsSettings = {

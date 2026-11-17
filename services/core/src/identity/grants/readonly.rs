@@ -152,14 +152,7 @@ impl LmmIssuer {
                 .await?;
         let updated_at = u64::try_from(updated_at).map_err(|_| ReadError::Unavailable)?;
         let result = surface
-            .project_for_user(
-                &mut tx,
-                actor.user,
-                &actor.groups,
-                self.profile.resource(),
-                updated_at,
-            )
-            .await
+            .project(&actor.groups, self.profile.resource(), updated_at)
             .map_err(|_| ReadError::Unavailable)?;
         tx.commit().await?;
         Ok(result)

@@ -244,8 +244,8 @@ test('opening an auth page navigates and rejects an unknown page', async () => {
   assert.equal(calls.length, 1)
 })
 
-test('onboarding status reports exact L0 credit progress and the next step without legacy dollar projections', async () => {
-  useAuthStore.getState().auth.setUser({
+test('onboarding status ignores retired access metadata and proceeds directly to client setup', async () => {
+  useAuthStore.getState().auth.setUser(JSON.parse(JSON.stringify({
     id: 42,
     username: 'l0-progress',
     role: 1,
@@ -271,27 +271,22 @@ test('onboarding status reports exact L0 credit progress and the next step witho
       decay_period_days: 0,
       overridden: false,
     },
-  })
+  })))
   const { tools } = buildTools()
   const result = (await byName(tools, 'lmm_onboarding_status').execute(
     {},
     { signal: signal() }
   )) as Record<string, unknown>
   assert.equal(result.authenticated, true)
-  assert.equal(result.developer_access_granted, false)
-  assert.equal(result.stage, 'activate')
-  assert.deepEqual(result.paid_access, {
-    mode: 'topup',
-    quota_unit: 'LEDGER_QUOTA',
-    paid_credits: '1000000',
-    threshold_credits: '2500001',
-    remaining_credits: '1500001',
-    note: 'Displayed progress only. Topping up does not itself grant developer access; the server decides.',
-  })
-  assert.doesNotMatch(JSON.stringify(result.paid_access), /_usd|9999/)
+  assert.equal(result.credential_complete, false)
+  assert.equal(result.first_request_complete, false)
+  assert.equal(result.stage, 'credential')
+  for (const retired of ['activation_complete', 'developer_access_granted', 'trust_level', 'paid_access']) {
+    assert.equal(Object.hasOwn(result, retired), false)
+  }
   assert.deepEqual(result.next_step, {
-    path: '/wallet',
-    label: 'Enable L1 access',
+    path: '/guide',
+    label: 'Choose your client',
   })
 })
 
@@ -302,14 +297,7 @@ test('onboarding status stays readable while signed out', async () => {
     { signal: signal() }
   )) as Record<string, unknown>
   assert.equal(result.authenticated, false)
-  assert.deepEqual(result.paid_access, {
-    mode: 'unknown',
-    quota_unit: 'LEDGER_QUOTA',
-    paid_credits: null,
-    threshold_credits: null,
-    remaining_credits: null,
-    note: 'Displayed progress only. Topping up does not itself grant developer access; the server decides.',
-  })
+  assert.equal(Object.hasOwn(result, 'paid_access'), false)
   assert.deepEqual(result.next_step, {
     path: '/sign-in',
     label: 'Sign in to get started',
@@ -317,12 +305,12 @@ test('onboarding status stays readable while signed out', async () => {
 })
 
 test('opening the assistant queues only a fixed preset', async () => {
-  useAuthStore.getState().auth.setUser({
+  useAuthStore.getState().auth.setUser(JSON.parse(JSON.stringify({
     id: 1,
     username: 'activated',
     role: 1,
     developer_access_granted: true,
-  })
+  })))
   const { tools } = buildTools()
   const open = byName(tools, 'lmm_onboarding_open_assistant')
   await open.execute({ preset: 'human' }, { signal: signal() })
@@ -337,19 +325,19 @@ test('opening the assistant queues only a fixed preset', async () => {
   )
 })
 
-test('L0 onboarding help opens the assistant from the wallet', async () => {
-  useAuthStore.getState().auth.setUser({
+test('ordinary account setup help opens the assistant without an activation redirect', async () => {
+  useAuthStore.getState().auth.setUser(JSON.parse(JSON.stringify({
     id: 1,
     username: 'l0',
     role: 1,
     developer_access_granted: false,
-  })
+  })))
   const { tools, calls } = buildTools()
   await byName(tools, 'lmm_onboarding_open_assistant').execute(
     { preset: 'onboarding' },
     { signal: signal() }
   )
-  assert.deepEqual(calls, [{ to: '/wallet' }])
+  assert.deepEqual(calls, [])
   assert.equal(consumeQueuedAssistantRequest()?.preset, 'onboarding')
 })
 

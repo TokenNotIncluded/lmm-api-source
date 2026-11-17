@@ -66,12 +66,12 @@ const originalPreference =
   useWalletCurrencyPreferenceStore.getState().preference
 const cleanups = new Set<() => Promise<void>>()
 const flush = () => new Promise((resolve) => setTimeout(resolve, 25))
-const user = {
+const user = JSON.parse(JSON.stringify({
   id: 77,
   username: 'tester',
   role: 1,
   developer_access_granted: true,
-}
+}))
 let copies: string[] = []
 afterEach(async () => {
   for (const cleanup of cleanups) await cleanup()
@@ -92,7 +92,7 @@ async function mount(
     key?: string
     anonymous?: boolean
     checking?: boolean
-    inactive?: boolean
+    legacyAccessDenied?: boolean
     warning?: number
     component?: typeof TestKeyPage
     displayCurrency?: '' | 'CREDIT' | 'CNY' | 'USD'
@@ -105,11 +105,11 @@ async function mount(
   useAuthStore.getState().auth.setUser(
     options.anonymous
       ? null
-      : {
+      : JSON.parse(JSON.stringify({
           ...user,
-          developer_access_granted: !options.inactive,
+          developer_access_granted: !options.legacyAccessDenied,
           setting: { wallet_display_currency: options.displayCurrency ?? '' },
-        }
+        }))
   )
   if (options.checking) {
     useAuthStore.getState().auth.setBootstrapState('checking')
@@ -274,12 +274,23 @@ describe('test key popup', () => {
     assert.equal(page.container.querySelector('form'), null)
     await page.unmount()
   })
-  test('keeps unactivated accounts on the setup path', async () => {
-    const page = await mount({ inactive: true })
-    assert.ok(page.container.querySelector('a[href="/wallet"]'))
-    assert.equal(page.container.querySelector('form'), null)
-    assert.equal(page.posts.length, 0)
-    await page.unmount()
+  test('lets an ordinary account create a key despite stale access metadata', async () => {
+    const page = await mount({ legacyAccessDenied: true })
+    try {
+      assert.equal(page.container.querySelector('a[href="/wallet"]'), null)
+      const form = page.container.querySelector('form')
+      assert.ok(form)
+      assert.equal(page.posts.length, 0)
+      await page.chooseGroup()
+      await act(async () => {
+        form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))
+        await flush()
+      })
+      assert.equal(page.posts.length, 1)
+      assert.match(page.container.textContent ?? '', /Created and copied/)
+    } finally {
+      await page.unmount()
+    }
   })
   test('creates once after an explicit action, copies, and never caches the secret', async () => {
     const page = await mount()

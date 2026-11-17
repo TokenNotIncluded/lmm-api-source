@@ -229,9 +229,9 @@ export const publicSiteTools: WebMcpToolFactory = ({ router }) => [
           },
           {
             step: 2,
-            action: 'Top up credit to unlock developer access',
+            action: 'Top up credit for API usage',
             path: '/wallet',
-            note: 'Wallet shows the current access requirements and credited progress.',
+            note: 'Signed-in users can create keys immediately. The wallet shows the balance available to pay for requests.',
           },
           {
             step: 3,

@@ -137,7 +137,7 @@ pub(crate) enum LegacyPrechargeAuthorization {
 }
 
 /// Exact estimator inputs captured by the trusted route preparer. The Core
-/// recomputes the hold and rechecks actor trust inside its reserve transaction.
+/// recomputes the hold and validates the captured price terms when reserving.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct LegacyOrdinaryEstimate {

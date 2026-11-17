@@ -7,7 +7,6 @@ import (
 
 	"github.com/TokenNotIncluded/lmm-api/extensions/internal/modules"
 	"github.com/TokenNotIncluded/lmm-api/extensions/internal/modules/identity"
-	"github.com/TokenNotIncluded/lmm-api/extensions/internal/modules/remotecontrol"
 )
 
 type moduleRegistration struct {
@@ -35,10 +34,6 @@ var moduleRegistrations = []moduleRegistration{
 	{
 		descriptor: modules.Descriptor{Name: "assistant", Version: "1.0.0", NavigationPaths: []string{"/chat-management"}},
 		bind:       func(r *Runtime) (modules.Module, error) { return r.Assistant, nil },
-	},
-	{
-		descriptor: modules.Descriptor{Name: "remote-control", Version: "1.0.0", NavigationPaths: []string{"/remote-control"}},
-		bind:       func(r *Runtime) (modules.Module, error) { return remotecontrol.New(r.Client) },
 	},
 	{
 		descriptor: modules.Descriptor{Name: "payments", Version: "1.0.0"},

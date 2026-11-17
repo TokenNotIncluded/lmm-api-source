@@ -95,17 +95,15 @@ export function adminReviewFixture(
   if (url.pathname === '/api/extensions/plugins') {
     return {
       success: true,
-      data: ['store', 'support', 'toolmarket', 'remote-control'].map(
-        (name, index) => ({
-          name,
-          version: '1.0.0',
-          api_version: 1,
-          available: index !== 3,
-          installed: index !== 3,
-          enabled: index < 2,
-          registration_sha256: String(index + 1).repeat(64),
-        })
-      ),
+      data: ['store', 'support', 'toolmarket'].map((name, index) => ({
+        name,
+        version: '1.0.0',
+        api_version: 1,
+        available: index !== 3,
+        installed: index !== 3,
+        enabled: index < 2,
+        registration_sha256: String(index + 1).repeat(64),
+      })),
     }
   }
   if (url.pathname === '/api/channel/ops') {

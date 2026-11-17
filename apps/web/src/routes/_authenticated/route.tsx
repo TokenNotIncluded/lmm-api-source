@@ -25,10 +25,6 @@ import {
 
 import { AuthenticatedLayout } from '@/components/layout'
 import { ForgePublicShell } from '@/features/forge/forge-public-shell'
-import {
-  isConsoleActivated,
-  isContributorRoute,
-} from '@/lib/console-activation'
 import { isPublicDirectoryPath } from '@/lib/public-directory-route'
 import { useAuthStore } from '@/stores/auth-store'
 
@@ -68,12 +64,6 @@ export const Route = createFileRoute('/_authenticated')({
       })
     }
 
-    if (
-      !isConsoleActivated(auth.user) &&
-      !isContributorRoute(location.pathname)
-    ) {
-      throw redirect({ to: '/wallet', replace: true })
-    }
   },
   component: DirectoryAwareLayout,
 })

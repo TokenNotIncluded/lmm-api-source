@@ -38,7 +38,6 @@ import {
   ListTodo,
   Medal,
   MessageSquare,
-  MonitorCog,
   PhoneCall,
   Radio,
   Rss,
@@ -102,38 +101,6 @@ export function useSidebarData(): SidebarData {
       ? String(todosQuery.data?.total_unread_count)
       : undefined
 
-  if (!consoleActivated) {
-    return {
-      navGroups: [
-        {
-          id: 'onboarding',
-          title: t('Account'),
-          items: [
-            { title: t('Wallet'), url: '/wallet', icon: Wallet },
-            { title: t('Tool market'), url: '/tool-market', icon: Box },
-            { title: t('Shop'), url: '/store', icon: StoreIcon },
-            {
-              title: t('Challenges'),
-              url: '/challenges',
-              icon: Trophy,
-            },
-            {
-              title: t('Models and pricing'),
-              url: '/pricing',
-              icon: Box,
-              interaction: 'model-panel',
-            },
-            {
-              title: t('Status detection'),
-              url: '/status',
-              icon: Server,
-            },
-          ],
-        },
-      ],
-    }
-  }
-
   return {
     navGroups: [
       {
@@ -176,11 +143,6 @@ export function useSidebarData(): SidebarData {
             icon: ListTodo,
           },
           { title: t('Status detection'), url: '/status', icon: Server },
-          {
-            title: t('Remote control'),
-            url: '/remote-control',
-            icon: MonitorCog,
-          },
         ],
       },
       {

@@ -21,7 +21,6 @@ export function useModelRuntime(names: string[], enabled = true) {
         user?.id ?? 0,
         session?.sid ?? null,
         user?.group ?? '',
-        user?.developer_access_granted,
         models,
       ],
       queryFn: async ({ signal }) => {

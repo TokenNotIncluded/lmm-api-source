@@ -1,7 +1,7 @@
 // Copyright (C) 2026 LIghtJUNction. AGPL-3.0-or-later.
 
 // Package community serves the legacy community pages that have no Core
-// backend: AI directory, profile share links, L1 onboarding progress and the
+// backend: AI directory, profile share links, onboarding progress and the
 // signal game. It owns only its dedicated lmm_community database. Identity and
 // platform roles always come from Core; it never moves money.
 package community

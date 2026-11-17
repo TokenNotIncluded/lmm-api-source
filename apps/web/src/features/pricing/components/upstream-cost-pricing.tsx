@@ -33,7 +33,7 @@ export function UpstreamCostPricing(props: {
       )}
       {props.detailed && (
         <>
-          <PricingContextLabel model={props.model} showDiscountNote />
+          <PricingContextLabel model={props.model} />
           <p className='text-muted-foreground'>
             {t(
               'Final usage.cost includes the router charges. Token and tool fees are not added again. Missing cost stays pending; explicit zero releases the hold.'

@@ -108,7 +108,7 @@ export async function waitFor(
 }
 
 export async function renderTool(
-  developerAccessGranted: boolean,
+  authenticated: boolean,
   onContinueSetup = () => {},
   confirmationAction?: AssistantCreateKeyAction,
   autoConfirm = false,
@@ -125,7 +125,7 @@ export async function renderTool(
             baseUrl='https://api.example.test/v1'
             availableModels={['claude-sonnet-4-5']}
             modelsLoading={false}
-            developerAccessGranted={developerAccessGranted}
+            authenticated={authenticated}
             confirmationAction={confirmationAction}
             autoConfirm={autoConfirm}
             onKeyPreparationInvalid={onKeyPreparationInvalid}

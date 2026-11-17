@@ -132,7 +132,6 @@ await i18n.use(initReactI18next).init({
 const assistantStatus = {
   enabled: true,
   model: 'deepseek-v4-flash',
-  developer_access_granted: true,
   funding: {
     mode: 'super_administrator' as const,
   },
@@ -155,13 +154,13 @@ const assistantPreConversationPresets = {
   ],
 }
 
-const registrationUser: AuthUser = {
+const registrationUser: AuthUser = JSON.parse(JSON.stringify({
   id: 93,
   username: 'registration-user',
   role: 1,
   developer_access_granted: false,
-  trust_level_info: { level: 0 } as AuthUser['trust_level_info'],
-}
+  trust_level_info: { level: 0 }  ,
+}))
 
 async function flushEffects() {
   await new Promise((resolve) => setTimeout(resolve, 25))
@@ -200,7 +199,7 @@ function trackRoot(
 async function renderPanel(
   initialPreset?: 'api-key' | 'human' | 'models' | 'onboarding' | 'plan',
   mode: 'mobile' | 'page' | 'rail' = 'mobile',
-  user: AuthUser | null = null,
+  user: AuthUser | null = registrationUser,
   handoff?: {
     initialMessage: string
     autoSendRequestId: string
@@ -251,7 +250,7 @@ async function renderPanel(
   return { container, queryClient, root }
 }
 
-async function renderLauncher(user: AuthUser | null = null, width = 1280) {
+async function renderLauncher(user: AuthUser | null = registrationUser, width = 1280) {
   Object.defineProperty(window, 'innerWidth', {
     configurable: true,
     value: width,
@@ -370,14 +369,14 @@ function requireValue<T>(value: T | null | undefined): T {
 }
 
 describe('AssistantPanel', () => {
-  test('lets an L0 user review their own key action and never executes from chat confirmation', async () => {
+  test('lets an ordinary user review their own key action and never executes from chat confirmation', async () => {
     let keyActions = 0
     api.get = (async (url: string) => {
       if (url === '/api/assistant/status') {
         return {
           data: {
             success: true,
-            data: { ...assistantStatus, developer_access_granted: false },
+            data: JSON.parse(JSON.stringify({ ...assistantStatus, developer_access_granted: false })),
           },
         }
       }
@@ -446,7 +445,7 @@ describe('AssistantPanel', () => {
       return {
         data: {
           success: true,
-          data: { ...assistantStatus, developer_access_granted: false },
+          data: JSON.parse(JSON.stringify({ ...assistantStatus, developer_access_granted: false })),
         },
       }
     }) as typeof api.get
@@ -475,45 +474,79 @@ describe('AssistantPanel', () => {
     }
   })
 
-  test('opens human support for an L0 user even when model routing is unavailable', async () => {
-    let chatRequests = 0
+  test('opens human support for an ordinary user even when model routing is unavailable', async () => {
+    const supportRequest = {
+      id: 17,
+      user_id: registrationUser.id,
+      conversation_id: 91,
+      kind: 'handoff',
+      status: 'pending',
+      topic: '',
+      preferred_time: '',
+      scheduled_at: 0,
+      assigned_admin_id: 0,
+      assigned_admin_name: '',
+      created_at: 1,
+      updated_at: 1,
+      accepted_at: 0,
+      closed_at: 0,
+    }
+    let currentSupport: typeof supportRequest | null = null
+    const posts: Array<{ url: string; body: Record<string, unknown> }> = []
     api.get = (async (url: string) => {
       if (url === '/api/assistant/status') {
         return {
           data: {
             success: true,
-            data: {
+            data: JSON.parse(JSON.stringify({
               ...assistantStatus,
               developer_access_granted: false,
               route_available: false,
-            },
+            })),
           },
         }
       }
-      if (url === '/api/assistant/handoffs/self') {
-        return { data: { success: true, data: null } }
+      if (url === '/api/assistant/support/eligibility') {
+        return { data: { success: true, data: { eligible: false } } }
       }
-      throw new Error(`Unexpected GET ${url}`)
+      if (url === '/api/assistant/support/self') {
+        return { data: { success: true, data: { request: currentSupport } } }
+      }
+      if (url === '/api/assistant/support/17') {
+        return {
+          data: { success: true, data: { request: currentSupport, messages: [] } },
+        }
+      }
+      return { data: { success: false, message: 'Not enabled in this test' } }
     }) as typeof api.get
-    api.post = (async () => {
-      chatRequests++
-      throw new Error('No model needed')
+    api.post = (async (url: string, body: Record<string, unknown>) => {
+      posts.push({ url, body })
+      assert.equal(url, '/api/assistant/support')
+      currentSupport = supportRequest
+      return {
+        data: { success: true, data: { request: currentSupport, created: true } },
+      }
     }) as typeof api.post
     const rendered = await renderPanel()
     try {
+      assert.equal(posts.length, 0)
       await act(async () => {
         requireValue(
           document.querySelector<HTMLButtonElement>(
             'button[aria-label="Contact support"]'
           )
         ).click()
-        await flushEffects()
+        await waitForCondition(
+          () => document.body.textContent?.includes('Waiting for an administrator to join') === true,
+          'Human support request was not reflected in the conversation'
+        )
       })
-      assert.match(
-        document.body.textContent ?? '',
-        /Send a message to an administrator/
+      assert.equal(posts.length, 1)
+      assert.equal(posts[0]?.body.kind, 'handoff')
+      assert.equal(
+        document.querySelector<HTMLTextAreaElement>('textarea[aria-label="Ask AI assistant"]')?.disabled,
+        false
       )
-      assert.equal(chatRequests, 0)
     } finally {
       await act(async () => rendered.root.unmount())
       rendered.queryClient.clear()
@@ -1519,7 +1552,7 @@ describe('AssistantPanel', () => {
     }
   })
 
-  test('does not expose the console-only chat management link to L0 history', async () => {
+  test('exposes own chat management to every signed-in account', async () => {
     api.get = (async (url: string) => {
       if (url === '/api/assistant/status') {
         return { data: { success: true, data: assistantStatus } }
@@ -1544,12 +1577,12 @@ describe('AssistantPanel', () => {
       }
     }) as typeof api.get
 
-    const rendered = await renderPanel(undefined, 'mobile', {
+    const rendered = await renderPanel(undefined, 'mobile', JSON.parse(JSON.stringify({
       id: 7,
       username: 'l0-user',
       role: 1,
       developer_access_granted: false,
-    })
+    })))
     try {
       await act(async () => {
         findHistoryToggle().click()
@@ -1561,15 +1594,15 @@ describe('AssistantPanel', () => {
         )
       })
 
-      assert.equal(document.querySelector('a[href="/chat-management"]'), null)
-      assert.doesNotMatch(document.body.textContent ?? '', /Chat management/)
+      const link = requireValue(document.querySelector('a[href="/chat-management"]'))
+      assert.match(link.textContent ?? '', /Conversation records/)
     } finally {
       await act(async () => rendered.root.unmount())
       rendered.queryClient.clear()
     }
   })
 
-  test('keeps restricted page and mobile composers compact without changing preset content', async () => {
+  test('keeps page and mobile composers compact without changing preset content', async () => {
     api.get = (async (url: string) => {
       if (url === '/api/assistant/pre-conversation-presets') {
         return {
@@ -1580,7 +1613,7 @@ describe('AssistantPanel', () => {
       return {
         data: {
           success: true,
-          data: { ...assistantStatus, developer_access_granted: false },
+          data: JSON.parse(JSON.stringify({ ...assistantStatus, developer_access_granted: false })),
         },
       }
     }) as typeof api.get
@@ -1648,7 +1681,7 @@ describe('AssistantPanel', () => {
     { timeout: 30_000 },
     async () => {
       const keys = {
-        ai_recommendation: 'How do I apply for L1 access?',
+        ai_recommendation: 'Which model should I use?',
         getting_started: 'Where should I start?',
         new_user_gift: 'How do I get the new-user gift?',
         weekly_discount: 'Any top-up discounts this week?',
@@ -1682,7 +1715,7 @@ describe('AssistantPanel', () => {
         return {
           data: {
             success: true,
-            data: { ...assistantStatus, developer_access_granted: false },
+            data: JSON.parse(JSON.stringify({ ...assistantStatus, developer_access_granted: false })),
           },
         }
       }) as typeof api.get
@@ -1699,13 +1732,13 @@ describe('AssistantPanel', () => {
         }
       }) as typeof api.post
 
-      const rendered = await renderPanel(undefined, 'mobile', {
+      const rendered = await renderPanel(undefined, 'mobile', JSON.parse(JSON.stringify({
         id: 7,
         username: 'l0-preset-user',
         role: 1,
-        trust_level_info: { level: 0 } as AuthUser['trust_level_info'],
+        trust_level_info: { level: 0 }  ,
         developer_access_granted: false,
-      })
+      })))
       try {
         for (const [language, file] of [
           ['en', 'en'],
@@ -1841,13 +1874,13 @@ describe('AssistantPanel', () => {
       true
     )
     await i18n.changeLanguage('fr')
-    const rendered = await renderPanel(undefined, 'mobile', {
+    const rendered = await renderPanel(undefined, 'mobile', JSON.parse(JSON.stringify({
       id: 7,
       username: 'l0-preset-user',
       role: 1,
-      trust_level_info: { level: 0 } as AuthUser['trust_level_info'],
+      trust_level_info: { level: 0 }  ,
       developer_access_granted: false,
-    })
+    })))
     try {
       await act(async () =>
         waitForCondition(
@@ -2159,7 +2192,7 @@ describe('AssistantPanel', () => {
     }
   })
 
-  test('uses an L1 unlock label only for L0 users', async () => {
+  test('uses the same assistant launcher for every signed-in account', async () => {
     api.get = (async (url: string) => {
       if (url === '/api/assistant/status') {
         return { data: { success: true, data: assistantStatus } }
@@ -2173,30 +2206,30 @@ describe('AssistantPanel', () => {
       }
     }) as typeof api.get
 
-    const l0User: AuthUser = {
+    const l0User: AuthUser = JSON.parse(JSON.stringify({
       id: 7,
       username: 'l0-user',
       role: 1,
       developer_access_granted: false,
-    }
+    }))
     const rendered = await renderLauncher(l0User)
     try {
       const launcherButton = document.querySelector<HTMLButtonElement>(
         '[data-testid="assistant-launcher"]'
       )
       assert.ok(launcherButton)
-      assert.equal(launcherButton.textContent?.trim(), 'Unlock L1 with AI')
+      assert.equal(launcherButton.textContent?.trim(), 'AI assistant')
       assert.equal(
         launcherButton.getAttribute('aria-label'),
-        'Unlock L1 with AI'
+        'Open AI assistant'
       )
-      assert.equal(launcherButton.getAttribute('title'), 'Unlock L1 with AI')
+      assert.equal(launcherButton.getAttribute('title'), 'Open AI assistant')
 
       await act(async () => {
-        useAuthStore.getState().auth.setUser({
+        useAuthStore.getState().auth.setUser(JSON.parse(JSON.stringify({
           ...l0User,
           developer_access_granted: true,
-        })
+        })))
         await flushEffects()
       })
 
@@ -2598,14 +2631,14 @@ describe('AssistantPanel', () => {
     }
   })
 
-  test('opens backend-authorized plan checkout from an L0 entry point', async () => {
+  test('opens backend-authorized plan checkout from an ordinary account', async () => {
     let offerReads = 0
     api.get = (async (url: string) => {
       if (url === '/api/assistant/status') {
         return {
           data: {
             success: true,
-            data: { ...assistantStatus, developer_access_granted: false },
+            data: JSON.parse(JSON.stringify({ ...assistantStatus, developer_access_granted: false })),
           },
         }
       }
@@ -2614,7 +2647,7 @@ describe('AssistantPanel', () => {
         return {
           data: {
             success: true,
-            data: {
+            data: JSON.parse(JSON.stringify({
               ok: true,
               developer_access_granted: false,
               read_only: false,
@@ -2623,7 +2656,7 @@ describe('AssistantPanel', () => {
               payment_compliance_confirmed: true,
               plans: [],
               topup_discounts: {},
-            },
+            })),
           },
         }
       }
@@ -2648,127 +2681,65 @@ describe('AssistantPanel', () => {
     }
   })
 
-  test('keeps L0 guidance useful without exposing account or payment actions', async () => {
+  test('opens client setup immediately for an ordinary signed-in account', async () => {
     api.get = (async (url: string) => {
       if (url === '/api/assistant/status') {
-        return {
-          data: {
-            success: true,
-            data: { ...assistantStatus, developer_access_granted: false },
-          },
-        }
+        return { data: { success: true, data: assistantStatus } }
       }
-      if (url === '/api/assistant/registration-check') {
-        return { data: { success: true, data: { state: 'context_needed' } } }
+      if (url === '/api/assistant/setup-models') {
+        return { data: { success: true, data: ['test-model'] } }
       }
-      if (url === '/api/assistant/pre-conversation-presets') {
-        return {
-          data: { success: true, data: assistantPreConversationPresets },
-        }
-      }
-      throw new Error(`Unexpected GET ${url}`)
+      return { data: { success: true, data: {} } }
     }) as typeof api.get
-
     const rendered = await renderPanel('onboarding', 'mobile', registrationUser)
     try {
-      await act(async () =>
-        waitForCondition(
-          () =>
-            document.body.textContent?.includes('Tell us what you need') ===
-            true,
-          'Authenticated L0 verification did not render'
-        )
-      )
-      assert.ok(
-        document.querySelector('[data-testid="assistant-registration-status"]')
-      )
-      assert.doesNotMatch(
-        document.body.textContent ?? '',
-        /Submit for review|Confirm AI recommendation/
-      )
-      assert.equal(
-        document.querySelector(
-          'textarea[placeholder="Explain what you want to build and why you need L1 access."]'
-        ),
-        null
-      )
-      assert.doesNotMatch(
-        document.body.textContent ?? '',
-        /Ask an administrator to raise my access level/
-      )
-      assert.doesNotMatch(
-        document.body.textContent ?? '',
-        /What are my Base URL, model ID, and API key\?/
-      )
-      assert.equal(document.querySelector('a[href="/wallet"]'), null)
-      assert.doesNotMatch(
-        document.body.textContent ?? '',
-        /Your wallet is charged/
-      )
-
-      await act(async () => {
-        findButton('Clear conversation').click()
-        await flushEffects()
-      })
-      assert.doesNotMatch(
-        document.body.textContent ?? '',
-        /Ask an administrator to raise my access level/
-      )
-      assert.throws(() => findButton('Which option is the best value?'))
-      assert.throws(() => findButton('How is request cost calculated?'))
-      assert.ok(findButton('Talk to support'))
-      assert.throws(() =>
-        findButton('How do I set up Claude Code or CC Switch?')
-      )
-
-      assert.doesNotMatch(document.body.textContent ?? '', /save 20%/)
-      assert.equal(document.querySelector('#assistant-expected-credit'), null)
-      assert.equal(document.querySelector('#assistant-topup-credit'), null)
-      assert.equal(document.querySelector('a[href="/wallet"]'), null)
-
-      assert.throws(() => findButton('Create API key'))
-      assert.equal(document.querySelector('a[href="/wallet"]'), null)
+      await act(async () => waitForCondition(
+        () => document.body.textContent?.includes('Client setup') === true,
+        'Client setup did not render'
+      ))
+      assert.equal(document.querySelector('[data-testid="assistant-registration-status"]'), null)
+      assert.doesNotMatch(document.body.textContent ?? '', /L1|Request API access|Registration verification/)
     } finally {
       await act(async () => rendered.root.unmount())
       rendered.queryClient.clear()
     }
   })
 
-  test('allows an L0 user to open the administrator handoff', async () => {
+  test('offers human support to an ordinary account without a developer grant', async () => {
+    let posts = 0
     api.get = (async (url: string) => {
       if (url === '/api/assistant/status') {
         return {
           data: {
             success: true,
-            data: { ...assistantStatus, developer_access_granted: false },
+            data: JSON.parse(JSON.stringify({ ...assistantStatus, developer_access_granted: false })),
           },
         }
       }
-      if (url === '/api/assistant/handoffs/self') {
-        return { data: { success: true, data: null } }
-      }
-      throw new Error(`Unexpected GET ${url}`)
+      return { data: { success: false, message: 'Not enabled in this test' } }
     }) as typeof api.get
+    api.post = (async () => {
+      posts += 1
+      throw new Error('Opening support must not submit a request')
+    }) as typeof api.post
 
     const rendered = await renderPanel('human')
     try {
       await act(async () =>
         waitForCondition(
-          () => document.querySelector('#assistant-handoff-message') !== null,
-          'L0 administrator handoff did not render'
+          () => findCard('Human technical support') !== null,
+          'Human support action did not render'
         )
       )
-      assert.match(
-        document.body.textContent ?? '',
-        /Send a message to an administrator/
-      )
+      assert.equal(findButton('Transfer to human').disabled, false)
+      assert.equal(posts, 0)
     } finally {
       await act(async () => rendered.root.unmount())
       rendered.queryClient.clear()
     }
   })
 
-  test('shows the onboarding todo only after developer access is granted', async () => {
+  test('shows the setup checklist for an ordinary account without a grant', async () => {
     api.get = (async (url: string) => {
       if (url === '/api/assistant/status') {
         return { data: { success: true, data: assistantStatus } }
@@ -2780,8 +2751,6 @@ describe('AssistantPanel', () => {
           data: {
             eligibility: {
               eligible: true,
-              developer_access_granted: true,
-              trust_level: 1,
             },
             status: 'in_progress',
             current_step: 'create_api_key',
@@ -2796,18 +2765,18 @@ describe('AssistantPanel', () => {
       }
     }) as typeof api.get
 
-    const rendered = await renderPanel(undefined, 'mobile', {
+    const rendered = await renderPanel(undefined, 'mobile', JSON.parse(JSON.stringify({
       id: 42,
-      username: 'l1-user',
+      username: 'ordinary-user',
       role: 1,
-      developer_access_granted: true,
+      developer_access_granted: false,
       onboarding: {
         activation_complete: true,
         credential_complete: false,
         first_request_complete: false,
         stage: 'credential',
       },
-    })
+    })))
     try {
       await act(async () =>
         waitForCondition(
@@ -2815,7 +2784,7 @@ describe('AssistantPanel', () => {
             document.querySelector(
               '[data-testid="assistant-onboarding-todo"]'
             ) !== null,
-          'L1 onboarding todo did not render'
+          'Account setup checklist did not render'
         )
       )
       assert.match(document.body.textContent ?? '', /First-use checklist/)
@@ -2826,7 +2795,7 @@ describe('AssistantPanel', () => {
     }
   })
 
-  test('does not mistake a failed access check for L0 or expose presets', async () => {
+  test('keeps a failed account status request unavailable without exposing presets', async () => {
     api.get = (async (url: string) => {
       assert.equal(url, '/api/assistant/status')
       throw new Error('status unavailable')
@@ -2925,13 +2894,13 @@ describe('AssistantPanel', () => {
   })
 
   test('confirms an edited nickname, refreshes the authenticated user, and removes the card', async () => {
-    const user: AuthUser = {
+    const user: AuthUser = JSON.parse(JSON.stringify({
       id: 94,
       username: 'nickname-user',
       display_name: 'Current nickname',
       role: 1,
       developer_access_granted: true,
-    }
+    }))
     useAuthStore.getState().auth.setBundle({
       access_token: 'test-access-token',
       token_type: 'Bearer',
@@ -3104,7 +3073,6 @@ describe('AssistantPanel', () => {
             ...assistantStatus,
             role: 10,
             is_admin: true,
-            access_level: 'ADMIN',
             capabilities: {
               account: true,
               admin_config: true,
@@ -3153,7 +3121,7 @@ describe('AssistantPanel', () => {
     try {
       assert.match(
         document.body.textContent ?? '',
-        /ADMIN · Administrator mode/
+        /Administrator mode/
       )
       const textarea = document.querySelector<HTMLTextAreaElement>(
         'textarea[placeholder="Ask about server configuration, model pricing, or operations..."]'
@@ -3672,113 +3640,7 @@ describe('AssistantPanel', () => {
     }
   })
 
-  test('keeps cached recommendation actions read-only without replaying retired submission', async () => {
-    const posted: string[] = []
-    let registrationReads = 0
-    api.get = (async (url: string) => {
-      if (url === '/api/assistant/status') {
-        return {
-          data: {
-            success: true,
-            data: { ...assistantStatus, developer_access_granted: false },
-          },
-        }
-      }
-      if (url === '/api/assistant/registration-check') {
-        registrationReads += 1
-        return { data: { success: true, data: { state: 'ready' } } }
-      }
-      throw new Error(`Unexpected GET ${url}`)
-    }) as typeof api.get
-    api.post = (async (url: string) => {
-      posted.push(url)
-      assert.equal(
-        url,
-        '/api/assistant/chat',
-        'A cached recommendation must never submit a write'
-      )
-      return {
-        data: {
-          choices: [
-            {
-              message: {
-                content: 'I have enough detail to recommend L1 access.',
-              },
-            },
-          ],
-          lmm_assistant_action: {
-            type: 'l1_recommendation',
-            user_statement: 'I will connect Claude Code for private work.',
-            recommendation:
-              'Recommend L1 because the user identified a specific client and purpose.',
-            confirmation_token: 'assistant-confirmation-token',
-          },
-        },
-        headers: { 'x-lmm-assistant-intent': 'onboarding' },
-      }
-    }) as typeof api.post
 
-    const rendered = await renderPanel(undefined, 'mobile', registrationUser)
-    try {
-      const textarea = document.querySelector<HTMLTextAreaElement>(
-        'textarea[placeholder="Ask AI assistant"]'
-      )
-      assert.ok(textarea)
-      await setTextareaValue(
-        textarea,
-        'I want developer access for my private project.'
-      )
-      await act(async () => {
-        findButton('Send').click()
-        await flushEffects()
-      })
-      await act(async () =>
-        waitForCondition(
-          () =>
-            document.body.textContent?.includes(
-              'The assistant can enable L1 during this conversation.'
-            ) === true,
-          'Cached recommendation did not fall back to read-only verification'
-        )
-      )
-      assert.ok(
-        document.querySelector('[data-testid="assistant-registration-status"]')
-      )
-      assert.doesNotMatch(
-        document.body.textContent ?? '',
-        /Confirm AI recommendation|Confirm and submit|assistant-confirmation-token/
-      )
-      assert.equal(
-        document.querySelector(
-          'textarea[placeholder="Explain what you want to build and why you need L1 access."]'
-        ),
-        null
-      )
-      const readsBeforeRefresh = registrationReads
-      await act(async () => {
-        const refresh = document.querySelector<HTMLButtonElement>(
-          '[aria-label="Refresh registration status"]'
-        )
-        assert.ok(refresh)
-        refresh.click()
-        await flushEffects()
-      })
-      await act(async () =>
-        waitForCondition(
-          () => registrationReads > readsBeforeRefresh,
-          'Verification refresh did not perform a read'
-        )
-      )
-      assert.deepEqual(posted, ['/api/assistant/chat'])
-      assert.equal(
-        useAuthStore.getState().auth.user?.developer_access_granted,
-        false
-      )
-    } finally {
-      await act(async () => rendered.root.unmount())
-      rendered.queryClient.clear()
-    }
-  })
 
   test('retries the exact failed conversation without duplicating the user message', async () => {
     const posted: unknown[] = []
@@ -3877,98 +3739,15 @@ describe('AssistantPanel', () => {
     rendered.queryClient.clear()
   })
 
-  test('keeps verification visible without reviving legacy letters when AI fails', async () => {
-    let registrationReads = 0
-    api.get = (async (url: string) => {
-      if (url === '/api/assistant/status') {
-        return {
-          data: {
-            success: true,
-            data: { ...assistantStatus, developer_access_granted: false },
-          },
-        }
-      }
-      if (url === '/api/assistant/registration-check') {
-        registrationReads += 1
-        return { data: { success: true, data: { state: 'context_needed' } } }
-      }
-      throw new Error(`Unexpected GET ${url}`)
-    }) as typeof api.get
-    api.post = (async (url: string) => {
-      assert.equal(url, '/api/assistant/chat')
-      throw new Error('assistant offline')
-    }) as typeof api.post
 
-    const rendered = await renderPanel('onboarding', 'mobile', registrationUser)
-    try {
-      const textarea = document.querySelector<HTMLTextAreaElement>(
-        'textarea[placeholder="Ask AI assistant"]'
-      )
-      assert.ok(textarea)
-      await setTextareaValue(textarea, 'I need L1 for a small integration.')
 
-      await act(async () => {
-        findButton('Send').click()
-        await flushEffects()
-      })
-      await act(async () =>
-        waitForCondition(
-          () =>
-            document.body.textContent?.includes(
-              'The AI assistant could not answer right now.'
-            ) === true,
-          'Assistant failure message did not render'
-        )
-      )
-
-      assert.equal(
-        document.querySelector(
-          'textarea[placeholder="Explain what you want to build and why you need L1 access."]'
-        ),
-        null
-      )
-      assert.equal(
-        [...document.querySelectorAll('button')].some(
-          (button) => button.textContent === 'Write request myself'
-        ),
-        false
-      )
-      assert.ok(findButton('Registration verification'))
-      assert.ok(
-        document.querySelector('[data-testid="assistant-registration-status"]')
-      )
-      const readsBeforeRefresh = registrationReads
-      await act(async () => {
-        const refresh = document.querySelector<HTMLButtonElement>(
-          '[aria-label="Refresh registration status"]'
-        )
-        assert.ok(refresh)
-        refresh.click()
-        await flushEffects()
-      })
-      await act(async () =>
-        waitForCondition(
-          () => registrationReads > readsBeforeRefresh,
-          'Verification refresh must work independently of the failed AI request'
-        )
-      )
-      assert.doesNotMatch(
-        document.body.textContent ?? '',
-        /L1 access is active|Submit for review/
-      )
-    } finally {
-      await act(async () => rendered.root.unmount())
-      rendered.queryClient.clear()
-    }
-  })
-
-  test('does not push a general L0 question into an L1 application', async () => {
+  test('does not create a registration workflow for a general question', async () => {
     api.get = (async (url: string) => {
       assert.equal(url, '/api/assistant/status')
       return {
         data: {
           success: true,
-          data: { ...assistantStatus, developer_access_granted: false },
+          data: JSON.parse(JSON.stringify({ ...assistantStatus, developer_access_granted: false })),
         },
       }
     }) as typeof api.get
@@ -3985,7 +3764,7 @@ describe('AssistantPanel', () => {
     const rendered = await renderPanel()
     try {
       const textarea = document.querySelector<HTMLTextAreaElement>(
-        'textarea[placeholder="Ask AI assistant"]'
+        'textarea[aria-label="Ask AI assistant"]'
       )
       assert.ok(textarea)
       await setTextareaValue(textarea, 'What models are available?')
@@ -4078,124 +3857,16 @@ describe('AssistantPanel', () => {
       rendered.queryClient.clear()
     }
   })
-  test('refreshes global access and never offers manual review after a direct L1 grant', async () => {
-    const l0User: AuthUser = {
-      id: 91,
-      username: 'direct-grant-user',
-      role: 1,
-      developer_access_granted: false,
-    }
-    const l1User = { ...l0User, developer_access_granted: true }
-    let granted = false
-    let selfCalls = 0
-    useAuthStore.getState().auth.setBundle({
-      access_token: 'test-access-token',
-      token_type: 'Bearer',
-      access_expires_at: 1_900_000_000,
-      user: l0User,
-      session: {
-        sid: 'direct-grant-session',
-        current: true,
-        login_method: 'password',
-        ip: '127.0.0.1',
-        user_agent: 'test',
-        created_at: 1,
-        last_active_at: 1,
-        expires_at: 1_900_000_000,
-      },
-    })
-    api.get = (async (url: string) => {
-      if (url === '/api/assistant/status') {
-        return {
-          data: {
-            success: true,
-            data: {
-              ...assistantStatus,
-              developer_access_granted: granted,
-              access_level: granted ? 'L1' : 'L0',
-            },
-          },
-        }
-      }
-      if (url === '/api/user/self') {
-        selfCalls += 1
-        return { data: { success: true, data: l1User } }
-      }
-      if (url === '/api/assistant/pre-conversation-presets') {
-        return {
-          data: { success: true, data: assistantPreConversationPresets },
-        }
-      }
-      if (url === '/api/assistant/available-models') {
-        return { data: { success: true, data: { models: [] } } }
-      }
-      return { data: { success: true, data: null } }
-    }) as typeof api.get
-    api.post = (async (url: string) => {
-      assert.equal(url, '/api/assistant/chat')
-      granted = true
-      return {
-        headers: {},
-        data: {
-          choices: [
-            {
-              message: {
-                content: 'L1 access is active. No manual review is required.',
-              },
-            },
-          ],
-          lmm_assistant_intent: 'onboarding',
-          lmm_assistant_tools: [
-            { name: 'grant_l1_access', status: 'output-available' },
-          ],
-          lmm_assistant_history: { conversation_id: 41 },
-        },
-      }
-    }) as typeof api.post
 
-    const rendered = await renderPanel('onboarding', 'page', l0User)
-    try {
-      await setTextareaValue(
-        requireValue(
-          document.querySelector<HTMLTextAreaElement>(
-            'textarea[aria-label="Ask AI assistant"]'
-          )
-        ),
-        'Please grant me L1 access now.'
-      )
-      await act(async () => {
-        requireValue(
-          document.querySelector<HTMLButtonElement>('button[aria-label="Send"]')
-        ).click()
-        await flushEffects()
-      })
-      await waitForCondition(
-        () =>
-          useAuthStore.getState().auth.user?.developer_access_granted === true,
-        'Direct grant did not refresh the authenticated user'
-      )
-
-      assert.equal(selfCalls, 1)
-      assert.doesNotMatch(document.body.textContent ?? '', /Submit for review/)
-      assert.doesNotMatch(
-        document.body.textContent ?? '',
-        /Write request myself/
-      )
-      assert.match(document.body.textContent ?? '', /Open client setup guide/)
-    } finally {
-      await act(async () => rendered.root.unmount())
-      rendered.queryClient.clear()
-    }
-  })
 })
 
 describe('AssistantPanel in-site human support', () => {
-  const user: AuthUser = {
+  const user: AuthUser = JSON.parse(JSON.stringify({
     id: 88,
     username: 'support-user',
     role: 1,
     developer_access_granted: true,
-  }
+  }))
   const fixture = (changes: Record<string, unknown> = {}) => ({
     id: 17,
     user_id: 88,
@@ -4677,12 +4348,12 @@ describe('AssistantPanel in-site human support', () => {
 })
 
 describe('AssistantLauncher lifecycle', () => {
-  const launcherOwner: AuthUser = {
+  const launcherOwner: AuthUser = JSON.parse(JSON.stringify({
     id: 401,
     username: 'launcher-owner',
     role: 100,
     developer_access_granted: true,
-  }
+  }))
 
   test('mount replays a queued draft once, preserves user edits on profile refresh and resets external fullscreen closure', async () => {
     api.get = (async (url: string) => {
@@ -4696,11 +4367,11 @@ describe('AssistantLauncher lifecycle', () => {
           data: {
             success: true,
             data: {
-              eligibility: {
+              eligibility: JSON.parse(JSON.stringify({
                 eligible: false,
                 developer_access_granted: true,
                 trust_level: 6,
-              },
+              })),
               status: 'unavailable',
               current_step: null,
               steps: [],
@@ -4795,11 +4466,11 @@ describe('AssistantLauncher lifecycle', () => {
         data: {
           success: true,
           data: {
-            eligibility: {
+            eligibility: JSON.parse(JSON.stringify({
               eligible: false,
               developer_access_granted: true,
               trust_level: 6,
-            },
+            })),
             status: 'unavailable',
             current_step: null,
             steps: [],

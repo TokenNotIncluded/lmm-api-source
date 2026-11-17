@@ -29,7 +29,7 @@ export async function refreshCurrentAccount(): Promise<AuthUser | null> {
   const before = useAuthStore.getState().auth
   if (!before.user) return null
   // The object is this read's generation. A newer read supersedes it even if
-  // the user and session are unchanged (for example, immediately after L1).
+  // the user and session are unchanged (for example, after a profile update).
   const request = {
     userId: before.user.id,
     sessionId: before.session?.sid,

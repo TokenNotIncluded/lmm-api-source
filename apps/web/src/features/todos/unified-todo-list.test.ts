@@ -22,18 +22,14 @@ Copyright (C) 2026 LIghtJUNction
 import assert from 'node:assert/strict'
 import { describe, test } from 'node:test'
 
+import type { TodoItem } from './api'
 import { todoItemTitleKey } from './todo-labels'
 import { todoItemCanOpen, todoItemHasDestination } from './todo-navigation'
 
 function item(
-  category:
-    | 'open_source_bounty'
-    | 'security_incident'
-    | 'developer_access'
-    | 'account_action'
-    | 'human_support',
+  category: TodoItem['category'],
   details: Record<string, unknown> = {}
-) {
+): TodoItem {
   return {
     id: `${category}:1`,
     source_id: 1,
@@ -45,7 +41,7 @@ function item(
     created_at: 1,
     updated_at: 1,
     details,
-  } as const
+  }
 }
 
 describe('unified todo destinations', () => {
@@ -71,9 +67,7 @@ describe('unified todo destinations', () => {
       ),
       true
     )
-    // The request ID is enough for an administrator to open the review panel;
-    // resolving a user profile first would hide the actionable approve/reject UI.
-    assert.equal(todoItemHasDestination(item('developer_access')), false)
+    // A valid request ID keeps account-action and support queues actionable.
     assert.equal(todoItemHasDestination(item('account_action')), true)
     assert.equal(todoItemHasDestination(item('human_support')), true)
     assert.equal(

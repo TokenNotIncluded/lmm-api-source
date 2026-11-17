@@ -118,8 +118,8 @@ function getRecommendationMessage(
 }
 
 export function AssistantPlanTool(props: {
-  developerAccessGranted: boolean
-  onRequestAccess: () => void
+  authenticated: boolean
+  onSignIn: () => void
 }) {
   const { t, i18n } = useTranslation()
   const {
@@ -448,7 +448,7 @@ export function AssistantPlanTool(props: {
         {readOnly ? (
           <p className='text-muted-foreground text-xs leading-5'>
             {t(
-              'This read-only estimate applies the configured amount discount only. It does not start a payment; currency, payment method, and group multipliers are shown only after L1 approval.'
+              'Sign in to continue setup'
             )}
           </p>
         ) : null}
@@ -485,20 +485,20 @@ export function AssistantPlanTool(props: {
         <HugeiconsIcon icon={Alert02Icon} strokeWidth={2} aria-hidden='true' />
         <AlertTitle>{t('Read-only plan advice')}</AlertTitle>
         <AlertDescription>
-          {props.developerAccessGranted
+          {props.authenticated
             ? t('Payment is unavailable for this account.')
             : t(
-                'You can compare live plans and discounts now. Follow the current account access requirements to continue to checkout.'
+                'Sign in to continue setup'
               )}
         </AlertDescription>
-        {!props.developerAccessGranted ? (
+        {!props.authenticated ? (
           <AlertAction>
             <Button
               type='button'
               variant='outline'
-              onClick={props.onRequestAccess}
+              onClick={props.onSignIn}
             >
-              {t('Unlock L1 access')}
+              {t('Sign in to continue setup')}
               <HugeiconsIcon
                 icon={ArrowRight01Icon}
                 strokeWidth={2}

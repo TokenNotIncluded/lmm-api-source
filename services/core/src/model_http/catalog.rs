@@ -30,7 +30,6 @@ pub enum CatalogError {
 /// No URL, credential material, raw release, or NativePrincipal is serialized.
 pub struct CatalogSurface {
     inventory_router: Arc<Router>,
-    trust_pricing_enabled: std::sync::atomic::AtomicBool,
     state: RwLock<SurfaceState>,
 }
 
@@ -226,7 +225,6 @@ pub struct CatalogPricing {
     pub unit: &'static str,
     pub price_basis: &'static str,
     pub group_multiplier: Option<Number>,
-    pub trust_multiplier: Option<Number>,
     pub input: Option<Number>,
     pub output: Option<Number>,
     pub cache_read: Option<Number>,
@@ -238,65 +236,6 @@ pub struct CatalogPricing {
 }
 
 impl CatalogSurface {
-    pub(super) fn enable_trust_pricing(&self) {
-        self.trust_pricing_enabled
-            .store(true, std::sync::atomic::Ordering::Release);
-    }
-    /// Called only after issuer ReadAuthority authentication, in its same
-    /// SERIALIZABLE transaction. An OAuth reader remains a reader, not a Key.
-    pub(crate) async fn project_for_user(
-        &self,
-        c: &mut sqlx::PgConnection,
-        user_id: i64,
-        groups: &[String],
-        resource: &str,
-        updated_at: u64,
-    ) -> Result<CatalogV1, CatalogError> {
-        let authority = if self
-            .trust_pricing_enabled
-            .load(std::sync::atomic::Ordering::Acquire)
-        {
-            Some(
-                crate::billing::trust_pricing::quote_in_transaction(c, user_id)
-                    .await
-                    .map_err(|_| CatalogError::Unavailable)?,
-            )
-        } else {
-            None
-        };
-        let mut result = self.project(groups, resource, updated_at)?;
-        if let Some(authority) = authority {
-            let discount = authority.discount();
-            let one: Number = "1".parse().map_err(|_| CatalogError::Unavailable)?;
-            let display = super::pricing::scaled_number(Some(&one), discount)
-                .map_err(|_| CatalogError::Unavailable)?
-                .ok_or(CatalogError::Unavailable)?;
-            for model in &mut result.models {
-                model.pricing.trust_multiplier = Some(display.clone());
-                model.pricing.price_basis = "effective_user_rates";
-                for rate in [
-                    &mut model.pricing.input,
-                    &mut model.pricing.output,
-                    &mut model.pricing.cache_read,
-                    &mut model.pricing.cache_write,
-                    &mut model.pricing.request,
-                ] {
-                    *rate = super::pricing::scaled_number(rate.as_ref(), discount)
-                        .map_err(|_| CatalogError::Unavailable)?;
-                }
-                model.native_cost = NativeCost::from_pricing(&model.pricing);
-            }
-        }
-        if serde_json::to_vec(&result)
-            .map_err(|_| CatalogError::Unavailable)?
-            .len()
-            > MAX_CATALOG_BYTES
-        {
-            return Err(CatalogError::Unavailable);
-        }
-        Ok(result)
-    }
-
     #[cfg_attr(not(test), allow(dead_code))] // Tests build a surface without provider policy.
     pub(super) fn from_gateway(
         router: Arc<Router>,
@@ -305,7 +244,6 @@ impl CatalogSurface {
     ) -> Self {
         Self::load(router.clone(), credentials, total_timeout, None).unwrap_or(Self {
             inventory_router: router,
-            trust_pricing_enabled: std::sync::atomic::AtomicBool::new(false),
             state: RwLock::new(SurfaceState::Disabled),
         })
     }
@@ -324,7 +262,6 @@ impl CatalogSurface {
         )
         .unwrap_or(Self {
             inventory_router: router,
-            trust_pricing_enabled: std::sync::atomic::AtomicBool::new(false),
             state: RwLock::new(SurfaceState::Disabled),
         })
     }
@@ -472,7 +409,6 @@ impl CatalogSurface {
         }
         Ok(Self {
             inventory_router: router.clone(),
-            trust_pricing_enabled: std::sync::atomic::AtomicBool::new(false),
             state: RwLock::new(SurfaceState::Ready {
                 router,
                 version,
@@ -877,7 +813,6 @@ fn pricing(quote: PriceQuote, tool: bool) -> Result<CatalogPricing, CatalogError
             "unknown"
         },
         group_multiplier: Some(decimal(u128::from(group_ppm), 6)?),
-        trust_multiplier: None,
         input: if tool { None } else { rate(rates.input)? },
         output: if tool { None } else { rate(rates.output)? },
         cache_read: if tool { None } else { rate(rates.cache_read)? },
@@ -1032,7 +967,6 @@ mod tests {
         assert!(denied["groups"].as_array().unwrap().is_empty());
         let disabled = CatalogSurface {
             inventory_router: s.inventory_router.clone(),
-            trust_pricing_enabled: std::sync::atomic::AtomicBool::new(false),
             state: RwLock::new(SurfaceState::Disabled),
         };
         assert_eq!(
@@ -1202,7 +1136,7 @@ mod tests {
         assert_eq!(v["models"][0]["pricing"]["input"].to_string(), "2.5");
         assert_eq!(v["models"][0]["pricing"]["output"].to_string(), "5");
         assert_eq!(v["models"][0]["pricing"]["cache_read"].to_string(), "1.25");
-        assert!(v["models"][0]["pricing"]["trust_multiplier"].is_null());
+        assert!(v["models"][0]["pricing"].get("trust_multiplier").is_none());
         assert_eq!(
             v["models"][0]["native_cost"],
             serde_json::json!({"input":2.5,"output":5,"cacheRead":1.25,"cacheWrite":0})
@@ -1521,7 +1455,6 @@ mod tests {
         assert!(v.groups.is_empty());
         let disabled = CatalogSurface {
             inventory_router: s.inventory_router.clone(),
-            trust_pricing_enabled: std::sync::atomic::AtomicBool::new(false),
             state: RwLock::new(SurfaceState::Disabled),
         };
         assert!(matches!(

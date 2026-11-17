@@ -322,7 +322,15 @@ describe('Guide when the AI assistant is disabled', () => {
     )
 
     await click(findButton(container, 'Cherry Studio'))
-    await click(findButton(container, 'Continue to account setup'))
+    const signIn = [
+      ...container.querySelectorAll<HTMLAnchorElement>('a'),
+    ].find((link) => link.textContent?.trim() === 'Sign in to continue setup')
+    assert.ok(signIn, 'The account setup action is a sign-in link')
+    assert.equal(signIn.getAttribute('href'), '/sign-in?redirect=%2Fguide')
+    await act(async () => {
+      signIn.click()
+      await flushEffects()
+    })
 
     assert.equal(router.state.location.pathname, '/sign-in')
     assert.deepEqual(
@@ -332,13 +340,13 @@ describe('Guide when the AI assistant is disabled', () => {
     assert.equal(consumeQueuedAssistantRequest(), undefined)
   })
 
-  test('takes approved users directly to API Keys', async () => {
-    const { container, router } = await renderGuide({
+  test('takes signed-in users directly to API Keys', async () => {
+    const { container, router } = await renderGuide(JSON.parse(JSON.stringify({
       id: 31,
       username: 'approved',
       role: 1,
       developer_access_granted: true,
-    })
+    })))
 
     await click(findButton(container, 'Create a key and import'))
 
@@ -346,43 +354,17 @@ describe('Guide when the AI assistant is disabled', () => {
     assert.equal(consumeQueuedAssistantRequest(), undefined)
   })
 
-  test('keeps pending users on the guide and focuses reachable human support for access and errors', async () => {
-    const { container, router } = await renderGuide({
+  test('lets an ordinary account create a key despite stale access metadata', async () => {
+    const { container, router } = await renderGuide(JSON.parse(JSON.stringify({
       id: 32,
-      username: 'pending',
+      username: 'ordinary-user',
       role: 1,
       developer_access_granted: false,
-    })
-    const support = container.querySelector<HTMLElement>('#guide-support')
-    assert.ok(support)
-    assert.equal(support.querySelector('a[href^="mailto:"]'), null)
-    const supportLink =
-      support.querySelector<HTMLAnchorElement>('a[href="/support"]')
-    assert.ok(supportLink)
-
-    await click(findButton(container, 'Continue to account setup'))
-    assert.equal(router.state.location.pathname, '/guide')
-    assert.equal(document.activeElement, support)
-
-    const troubleshooting = container.querySelector<HTMLDetailsElement>(
-      '#guide-troubleshooting details'
-    )
-    assert.ok(troubleshooting)
-    await act(async () => {
-      troubleshooting.querySelector('summary')?.click()
-      await flushEffects()
-    })
-    assert.equal(troubleshooting.open, true)
-    await click(findButton(troubleshooting, 'Contact support'))
-    assert.equal(router.state.location.pathname, '/guide')
-    assert.equal(document.activeElement, support)
+    })))
+    assert.doesNotMatch(container.textContent ?? '', /access is approved|Request API access|L1/)
+    await click(findButton(container, 'Create a key and import'))
+    assert.equal(router.state.location.pathname, '/keys')
     assert.equal(consumeQueuedAssistantRequest(), undefined)
-
-    await act(async () => {
-      supportLink.click()
-      await flushEffects()
-    })
-    assert.equal(router.state.location.pathname, '/support')
   })
 })
 

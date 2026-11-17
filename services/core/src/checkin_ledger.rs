@@ -19,7 +19,7 @@ use tonic::{Request, Response, Status, metadata::MetadataMap};
 pub struct CheckinLedger {
     pool: PgPool,
     digest: [u8; 32],
-    caps: [i64; 5],
+    max_daily_units: i64,
     challenges: Option<ChallengeConfig>,
 }
 fn unavailable(_: impl std::fmt::Display) -> Status {
@@ -38,17 +38,17 @@ fn single<'a>(m: &'a MetadataMap, key: &'static str) -> Result<&'a str, Status> 
         .map_err(|_| Status::unauthenticated("invalid funding credential"))
 }
 impl CheckinLedger {
-    pub fn new(pool: PgPool, token: &[u8], caps: [i64; 5]) -> Result<Self, Status> {
+    pub fn new(pool: PgPool, token: &[u8], max_daily_units: i64) -> Result<Self, Status> {
         if !(32..=256).contains(&token.len())
             || !token.iter().all(u8::is_ascii_graphic)
-            || caps.iter().any(|v| *v < 0)
+            || max_daily_units < 0
         {
             return Err(Status::invalid_argument("invalid funding authority"));
         };
         Ok(Self {
             pool,
             digest: Sha256::digest(token).into(),
-            caps,
+            max_daily_units,
             challenges: None,
         })
     }
@@ -117,17 +117,13 @@ impl CheckinLedger {
         let blocked = crate::abuse::is_marked_in_transaction(c, a.user_id)
             .await
             .map_err(unavailable)?;
-        let authority = crate::billing::trust_pricing::quote_in_transaction(c, a.user_id)
-            .await
-            .map_err(unavailable)?;
-        let level = u32::from(authority.evidence().level());
         Ok(pb::CheckinLedgerContext {
             user_id: a.user_id,
             account_id: a.owner_account_id,
             day,
             timestamp,
-            trust_level: level,
-            max_daily_units: self.caps[level.min(4) as usize],
+            trust_level: 0,
+            max_daily_units: self.max_daily_units,
             blocked,
         })
     }
@@ -289,13 +285,12 @@ impl pb::core_checkin_ledger_server::CoreCheckinLedger for CheckinLedger {
             },
         };
         // Authenticate first, then replay an immutable result before changed ceilings,
-        // trust, abuse status or clock. Never execute a second credit for an old day.
+        // abuse status or clock. Never execute a second credit for an old day.
         if let Some(row)=sqlx::query("SELECT request,result FROM core_billing.ledger_operations WHERE scope='core-checkins' AND operation_key=$1").bind(&key).fetch_optional(&mut *tx).await.map_err(unavailable)?{let prior:Json<Posting>=row.try_get("request").map_err(unavailable)?;if prior.0!=request{return Err(Status::already_exists("daily funding intention conflict"))};let result:Json<Outcome>=row.try_get("result").map_err(unavailable)?;let Outcome::Posted{journal_id,..}=result.0 else{return Err(Status::already_exists("daily funding rejected"))};let receipt=Self::receipt(&mut tx,&a,&input.day,input.amount_units,Some(journal_id),true).await?;tx.commit().await.map_err(unavailable)?;return Ok(Response::new(receipt))}
         let authority = self.context(&mut tx, &a).await?;
-        if authority.blocked
-            || authority.trust_level != input.trust_level
-            || input.amount_units > authority.max_daily_units
-        {
+        // Historical pending intentions retain their wire scalar; it no longer
+        // selects eligibility or funding. The live amount ceiling still applies.
+        if authority.blocked || input.amount_units > authority.max_daily_units {
             return Err(Status::permission_denied("funding authority denied"));
         };
         if input.day != authority.day {

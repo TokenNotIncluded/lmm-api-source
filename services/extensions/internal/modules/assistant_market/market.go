@@ -54,7 +54,7 @@ func New(module *toolmarket.Module) (*Executor, error) {
 		return nil, access.ErrInvalid
 	}
 	var d definition
-	if json.Unmarshal(definitionJSON, &d) != nil || d.Name != "call_market_tool" || d.Version != assistant.FixedMainToolVersion || d.Effect != "server_guarded" || d.Access != "l1" || digest([]byte(d.SchemaJSON)) != d.SchemaSHA256 {
+	if json.Unmarshal(definitionJSON, &d) != nil || d.Name != "call_market_tool" || d.Version != assistant.FixedMainToolVersion || d.Effect != "server_guarded" || d.Access != "user" || digest([]byte(d.SchemaJSON)) != d.SchemaSHA256 {
 		return nil, access.ErrUnavailable
 	}
 	return &Executor{market: module, definition: d}, nil

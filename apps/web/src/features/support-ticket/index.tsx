@@ -149,15 +149,15 @@ export function SupportTicket({
   const { t } = useTranslation()
   const queryClient = useQueryClient()
   const user = useAuthStore((state) => state.auth.user)
-  const developerAccessGranted = isConsoleActivated(user)
-  const categoryMeta = developerAccessGranted
+  const authenticated = isConsoleActivated(user)
+  const categoryMeta = authenticated
     ? CATEGORY_META
     : CATEGORY_META.filter((category) =>
         NEUTRAL_CATEGORY_VALUES.has(category.value)
       )
   const requestedInitialCategory = initialSearch?.category
   const initialCategory =
-    developerAccessGranted ||
+    authenticated ||
     (requestedInitialCategory &&
       NEUTRAL_CATEGORY_VALUES.has(requestedInitialCategory))
       ? (requestedInitialCategory ?? 'technical')
@@ -208,7 +208,7 @@ export function SupportTicket({
   }
 
   const submitDispute = handleSubmit(async (values) => {
-    if (developerAccessGranted && values.category === 'bounty_dispute') {
+    if (authenticated && values.category === 'bounty_dispute') {
       const challengeId = Number(values.referenceId)
       if (
         !window.confirm(
@@ -245,7 +245,7 @@ export function SupportTicket({
   })
 
   const handleFormSubmit = (event: FormEvent<HTMLFormElement>) => {
-    if (developerAccessGranted && selectedCategory === 'bounty_dispute') {
+    if (authenticated && selectedCategory === 'bounty_dispute') {
       void submitDispute(event)
       return
     }
@@ -447,7 +447,7 @@ export function SupportTicket({
                           placeholder={
                             selectedCategory === 'bounty_dispute'
                               ? t('Numeric challenge ID')
-                              : developerAccessGranted
+                              : authenticated
                                 ? t('Order ID, request ID, or log ID')
                                 : t(
                                     'Include any relevant order or account reference.'
@@ -498,7 +498,7 @@ export function SupportTicket({
                         rows={8}
                         aria-invalid={errors.details ? true : undefined}
                         placeholder={
-                          developerAccessGranted
+                          authenticated
                             ? t(
                                 'Describe the issue, what you expected, and what you already tried.'
                               )
@@ -520,7 +520,7 @@ export function SupportTicket({
                         strokeWidth={2}
                       />
                       <AlertDescription>
-                        {developerAccessGranted
+                        {authenticated
                           ? t(
                               'Do not include passwords, full API keys, or payment card details.'
                             )
@@ -576,12 +576,12 @@ export function SupportTicket({
                 >
                   <ul className='text-muted-foreground space-y-3 text-sm leading-relaxed'>
                     <li>
-                      {developerAccessGranted
+                      {authenticated
                         ? t('Include the relevant order, request, or log ID.')
                         : t('Include any relevant order or account reference.')}
                     </li>
                     <li>
-                      {developerAccessGranted
+                      {authenticated
                         ? t(
                             'For technical issues, include the model, endpoint, timestamp, and error message.'
                           )

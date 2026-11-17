@@ -21,10 +21,7 @@ use sha2::{Digest, Sha256};
 use sqlx::{PgConnection, PgPool, Postgres, Row, Transaction, postgres::PgRow};
 use std::{
     net::IpAddr,
-    sync::{
-        Arc,
-        atomic::{AtomicBool, Ordering},
-    },
+    sync::Arc,
 };
 use subtle::ConstantTimeEq;
 
@@ -32,7 +29,6 @@ use subtle::ConstantTimeEq;
 pub struct Charging {
     pool: PgPool,
     ledger: Arc<dyn Ledger>,
-    trust_pricing: Arc<AtomicBool>,
 }
 struct Stored {
     charge: Charge,
@@ -81,15 +77,6 @@ fn prepared_admission_spec(
     ))
 }
 // @context-fold end prepared-admission-spec
-
-fn trust_error(error: crate::billing::trust_pricing::Error) -> Error {
-    use crate::billing::trust_pricing::Error as Trust;
-    match error {
-        Trust::Retry => Error::Retry,
-        Trust::Denied => Error::Forbidden,
-        Trust::Invalid | Trust::Unavailable | Trust::Storage => Error::Storage,
-    }
-}
 
 // Metadata only, inside the caller's existing successful funding transaction.
 // Preserve PostgreSQL whole-transaction retry semantics without replaying money.
@@ -157,21 +144,7 @@ mod trust_admission_tests {
         assert_eq!(admission_spec(&request, None, true), Err(Error::Conflict));
         assert_eq!(admission_spec(&request, basis, true).unwrap(), trusted);
     }
-    #[test]
-    fn trust_serialization_retry_retains_the_existing_whole_transaction_policy() {
-        assert_eq!(
-            trust_error(crate::billing::trust_pricing::Error::Retry),
-            Error::Retry
-        );
-        assert_eq!(
-            trust_error(crate::billing::trust_pricing::Error::Denied),
-            Error::Forbidden
-        );
-        assert_eq!(
-            trust_error(crate::billing::trust_pricing::Error::Unavailable),
-            Error::Storage
-        );
-    }
+
 }
 // The host derives activity from measured usage, independently of price or
 // response status. Request/client/Go input cannot supply this decision.
@@ -533,53 +506,20 @@ impl Charging {
         Self {
             pool,
             ledger,
-            trust_pricing: Arc::new(AtomicBool::new(false)),
         }
     }
-    /// The production Rust host enables this once after checking component 25.
-    /// There is deliberately no runtime/client switch to disable entitlements.
-    pub(crate) fn enable_trust_pricing(&self) {
-        self.trust_pricing.store(true, Ordering::Release);
-    }
-    pub(crate) fn trust_pricing_enabled(&self) -> bool {
-        self.trust_pricing.load(Ordering::Acquire)
-    }
-    pub(crate) async fn freeze_trust_request(
-        &self,
-        c: &mut PgConnection,
-        actor: i64,
-        request: &Request,
-        basis: ReservationBasis,
-    ) -> Result<Request> {
-        request.validate()?;
-        if request.price.user_trust.is_some()
-            || request.reserve != request.price.reservation_ceiling(basis)?
-        {
-            return Err(Error::Invalid);
-        }
-        let mut frozen = request.clone();
-        if self.trust_pricing_enabled() {
-            let authority = crate::billing::trust_pricing::quote_in_transaction(c, actor)
-                .await
-                .map_err(trust_error)?;
-            frozen.price = frozen.price.with_user_authority(&authority)?;
-            frozen.price.validate_actor(actor)?;
-            frozen.reserve = frozen.price.reservation_ceiling(basis)?;
-        }
-        Ok(frozen)
-    }
-    /// Preparation-only snapshot. Admission reauthenticates and verifies every
-    /// pricing authority field in its own SERIALIZABLE funding transaction.
-    pub(crate) async fn legacy_precharge_trust(
+    /// Authenticate the preparation without changing configured prices.
+    /// Admission reauthenticates inside its SERIALIZABLE funding transaction.
+    pub(crate) async fn authorize_legacy_precharge(
         &self,
         secret: &str,
         peer: Option<IpAddr>,
         issuer: Option<&crate::identity::grants::LmmIssuer>,
         price: &Price,
-    ) -> Result<Option<crate::billing::trust_pricing::FrozenTrustPrice>> {
+    ) -> Result<()> {
         price.validate()?;
         let mut tx = self.begin().await?;
-        let actor = if let Some(issuer) = issuer {
+        if let Some(issuer) = issuer {
             issuer
                 .authorize_model_in_transaction(
                     &mut tx,
@@ -588,29 +528,15 @@ impl Charging {
                     Some(&price.group),
                 )
                 .await
-                .map_err(authority::identity_error)?
-                .user_id
+                .map_err(authority::identity_error)?;
         } else {
             let actor = authority::authenticate(&mut tx, secret).await?;
             if actor.kind != "api_key" {
                 return Err(Error::Forbidden);
             }
             authority::model_policy(&mut tx, secret, price, peer).await?;
-            actor.user
-        };
-        let trust = if self.trust_pricing_enabled() {
-            Some(
-                crate::billing::trust_pricing::quote_in_transaction(&mut tx, actor)
-                    .await
-                    .map_err(trust_error)?
-                    .evidence()
-                    .clone(),
-            )
-        } else {
-            None
-        };
-        commit(tx).await?;
-        Ok(trust)
+        }
+        commit(tx).await
     }
     async fn begin(&self) -> Result<Transaction<'_, Postgres>> {
         let mut tx = self.pool.begin().await?;
@@ -780,25 +706,20 @@ impl Charging {
             commit(tx).await?;
             return Ok(stored.charge);
         }
-        if self.trust_pricing_enabled() && basis.is_none() {
-            return Err(Error::Forbidden);
+        let spec = prepared_admission_spec(request, basis, false, prepared)?;
+        if let Some(basis) = basis
+            && request.reserve != request.price.reservation_ceiling(basis)?
+        {
+            return Err(Error::Invalid);
         }
-        let spec = prepared_admission_spec(request, basis, self.trust_pricing_enabled(), prepared)?;
-        let effective_request = if self.trust_pricing_enabled() {
-            self.freeze_trust_request(&mut tx, user, request, basis.ok_or(Error::Forbidden)?)
-                .await?
-        } else {
-            request.clone()
-        };
         if let Some(legacy) = prepared.and_then(PreparedReservation::legacy_precharge) {
-            legacy.verify_trust(effective_request.price.user_trust.as_ref())?;
+            legacy.verify_trust(request.price.user_trust.as_ref())?;
             if legacy.derives_native_reservation()
-                && legacy.max_billable() != effective_request.reserve
+                && legacy.max_billable() != request.reserve
             {
                 return Err(Error::Conflict);
             }
         }
-        let request = &effective_request;
         // Existing exact operation receipts above remain safely replayable.
         // Only a NEW reservation is excluded by the current abuse mark.
         authority::reject_new_model(&mut tx, user).await?;

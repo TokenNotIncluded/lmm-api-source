@@ -119,12 +119,12 @@ test('channel market does not request administrator data for contributors or ord
   }
 
   const renderForRole = async (role: number) => {
-    useAuthStore.getState().auth.setUser({
+    useAuthStore.getState().auth.setUser(JSON.parse(JSON.stringify({
       id: role,
       username: `role-${role}`,
       role,
       developer_access_granted: true,
-    })
+    })))
     const client = new QueryClient({
       defaultOptions: { queries: { retry: false, gcTime: 0 } },
     })
@@ -309,7 +309,7 @@ test('tip display uses real currency and withdrawal uses remaining Credits', asy
       item.available_tip_quota = fixture.available
       minimum = fixture.missing ? undefined : 5_000_000
       await i18n.changeLanguage(fixture.language)
-      useAuthStore.getState().auth.setUser({
+      useAuthStore.getState().auth.setUser(JSON.parse(JSON.stringify({
         id: 1,
         username: 'currency-user',
         role: 1,
@@ -317,7 +317,7 @@ test('tip display uses real currency and withdrawal uses remaining Credits', asy
         setting: JSON.stringify({
           wallet_display_currency: fixture.preference,
         }),
-      })
+      })))
       const client = new QueryClient({
         defaultOptions: { queries: { retry: false, gcTime: 0 } },
       })
@@ -386,12 +386,12 @@ const marketButton = (container: ParentNode, text: string) => {
   return button
 }
 async function renderMarket(role = 1) {
-  useAuthStore.getState().auth.setUser({
+  useAuthStore.getState().auth.setUser(JSON.parse(JSON.stringify({
     id: 1,
     username: 'audit-user',
     role,
     developer_access_granted: true,
-  })
+  })))
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false, gcTime: 0 } },
   })

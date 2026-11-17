@@ -1,5 +1,5 @@
 {
   "version": 1,
-  "max_daily_units_by_trust": [0, 0, 0, 0, 0],
+  "max_daily_units": 0,
   "require_passkey": true
 }

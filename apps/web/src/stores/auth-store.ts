@@ -29,47 +29,6 @@ export type UserPermissions = {
   docs_access?: boolean
 }
 
-export interface TrustLevelInfo {
-  level: number
-  automatic_level: number
-  override_level: number | null
-  paid_amount: number
-  paid_credits?: string | null
-  paid_credit_projection_available?: boolean
-  discount_ratio: number
-  discount_percent: number
-  next_level?: number | null
-  next_level_paid_amount?: number | null
-  amount_to_next_level?: number | null
-  next_level_paid_credits?: string | null
-  credits_to_next_level?: string | null
-  level_source?: 'role' | 'override' | 'automatic'
-  next_decay_at?: number | null
-  inactivity_decay_steps: number
-  decay_period_days: number
-  overridden: boolean
-}
-
-export interface TrustLevelTier {
-  level: number
-  min_paid_amount: number
-  min_paid_credits?: string
-  discount_percent: number
-  benefits?: string[]
-  benefit_count?: number
-  benefits_hidden?: boolean
-  discount_hidden?: boolean
-}
-
-export interface TrustLevelRoleTier {
-  level: 5 | 6
-  role: 10 | 100
-  role_only: true
-  discount_ratio: number
-  discount_percent: number
-  benefits: string[]
-}
-
 export type OnboardingStage =
   | 'activate'
   | 'credential'
@@ -77,10 +36,6 @@ export type OnboardingStage =
   | 'complete'
 
 export interface OnboardingState {
-  paid_activation_enabled?: boolean
-  paid_activation_min_credits?: string
-  paid_activation_min_amount?: number
-  paid_activation_complete?: boolean
   details_available?: boolean
   activation_complete: boolean
   api_key_created?: boolean
@@ -128,11 +83,6 @@ export interface AuthUser {
   stripe_customer?: string
   sidebar_modules?: string
   permissions?: UserPermissions
-  /** Authoritative server decision for developer access. Unknown means denied. */
-  developer_access_granted?: boolean
-  trust_level_info?: TrustLevelInfo
-  trust_level_tiers?: TrustLevelTier[]
-  trust_level_role_tiers?: TrustLevelRoleTier[]
   // The nested state is the current API contract. Flat fields remain optional
   // while locally running binaries transition to the nested response shape.
   onboarding?: OnboardingState
@@ -164,9 +114,6 @@ export interface AuthBundle {
 export type AuthBootstrapState = 'idle' | 'checking' | 'complete'
 
 interface AuthState {
-  preview: { returnHref: string; ownerId: number } | null
-  startPreview: (returnHref: string) => void
-  stopPreview: () => void
   auth: {
     user: AuthUser | null
     /** Changes whenever an authoritative account write replaces this state. */
@@ -192,14 +139,6 @@ interface AuthState {
 }
 
 export const useCredentialStore = create<AuthState>()((set) => ({
-  preview: null,
-  startPreview: (returnHref) =>
-    set((state) =>
-      state.auth.user?.role === 100
-        ? { preview: { returnHref, ownerId: state.auth.user.id } }
-        : {}
-    ),
-  stopPreview: () => set({ preview: null }),
   auth: {
     user: null,
     accountWriteEpoch: 0,
@@ -212,10 +151,6 @@ export const useCredentialStore = create<AuthState>()((set) => ({
     setBundle: (bundle) =>
       set((state) => ({
         ...state,
-        preview:
-          state.preview?.ownerId === bundle.user.id && bundle.user.role === 100
-            ? state.preview
-            : null,
         auth: {
           ...state.auth,
           user: bundle.user,
@@ -229,22 +164,14 @@ export const useCredentialStore = create<AuthState>()((set) => ({
         },
       })),
     setUser: (user) =>
-      set((state) =>
-        state.preview && user === l0PreviewUser
-          ? state
-          : {
-              ...state,
-              preview:
-                state.preview?.ownerId === user?.id && user?.role === 100
-                  ? state.preview
-                  : null,
-              auth: {
-                ...state.auth,
-                user,
-                accountWriteEpoch: state.auth.accountWriteEpoch + 1,
-              },
-            }
-      ),
+      set((state) => ({
+        ...state,
+        auth: {
+          ...state.auth,
+          user,
+          accountWriteEpoch: state.auth.accountWriteEpoch + 1,
+        },
+      })),
     setPending2FAFlowToken: (pending2FAFlowToken, expiresAt) =>
       set((state) => ({
         ...state,
@@ -273,7 +200,6 @@ export const useCredentialStore = create<AuthState>()((set) => ({
             state.auth.pending2FAFlowExpiresAt > Date.now() / 1000)
         return {
           ...state,
-          preview: null,
           auth: {
             ...state.auth,
             user: null,
@@ -294,57 +220,4 @@ export const useCredentialStore = create<AuthState>()((set) => ({
   },
 }))
 
-// Never copy fields from the real account into the displayed preview identity.
-export const l0PreviewUser: AuthUser = {
-  id: -1,
-  username: 'L0',
-  role: 1,
-  status: 1,
-  developer_access_granted: false,
-  financial_projection_available: false,
-  trust_level_info: {
-    level: 0,
-    automatic_level: 0,
-    override_level: null,
-    paid_amount: 0,
-    discount_ratio: 1,
-    discount_percent: 0,
-    inactivity_decay_steps: 0,
-    decay_period_days: 0,
-    overridden: false,
-    level_source: 'automatic',
-  },
-  permissions: { api_key_management: false, sidebar_settings: false },
-  onboarding: {
-    activation_complete: false,
-    credential_complete: false,
-    first_request_complete: false,
-    stage: 'activate',
-  },
-}
-const projectedStates = new WeakMap<AuthState, AuthState>()
-function viewState(state: AuthState): AuthState {
-  if (!state.preview) return state
-  let projected = projectedStates.get(state)
-  if (!projected) {
-    projected = { ...state, auth: { ...state.auth, user: l0PreviewUser } }
-    projectedStates.set(state, projected)
-  }
-  return projected
-}
-export const useAuthStore = Object.assign(
-  function useAuthStore<T = AuthState>(
-    selector: (state: AuthState) => T = (state: AuthState) => state as T
-  ) {
-    return useCredentialStore((state) => selector(viewState(state)))
-  },
-  useCredentialStore,
-  {
-    getState: () => viewState(useCredentialStore.getState()),
-    getInitialState: () => viewState(useCredentialStore.getInitialState()),
-    subscribe: (listener: (state: AuthState, previous: AuthState) => void) =>
-      useCredentialStore.subscribe((state, previous) =>
-        listener(viewState(state), viewState(previous))
-      ),
-  }
-)
+export const useAuthStore = useCredentialStore

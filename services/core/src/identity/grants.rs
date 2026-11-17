@@ -35,7 +35,6 @@ const SCOPES: &[&str] = &[
     "models:invoke",
     "mcp:bounties",
     "mcp:drawing",
-    "remote:control",
 ];
 
 #[derive(Clone, Copy)]
@@ -158,19 +157,6 @@ pub struct TokenBundle {
     pub expires_in: i64,
     pub scopes: Vec<String>,
 }
-#[derive(Debug)]
-pub enum RemoteSource {
-    NativePersonal { credential_id: i64 },
-    OAuthGrant { grant_id: String, access_id: String },
-}
-#[derive(Debug)]
-pub struct RemoteAuthority {
-    pub source: RemoteSource,
-    pub user_id: i64,
-    pub owner_account_id: i64,
-    pub auth_version: i64,
-    pub expires_at: i64,
-}
 #[derive(Clone)]
 pub struct GrantStore {
     identity: IdentityStore,
@@ -262,7 +248,9 @@ async fn live(
     if !current || !family_live {
         return Err(IdentityError::Unauthorized);
     }
-    scopes(&row.try_get::<Vec<String>, _>("scopes")?).map_err(|_| IdentityError::Storage)
+    // Stored families may name a retired capability. They require a fresh
+    // authorization; a readable but obsolete grant is not a storage failure.
+    scopes(&row.try_get::<Vec<String>, _>("scopes")?).map_err(|_| IdentityError::Unauthorized)
 }
 async fn issue(
     c: &mut PgConnection,
@@ -436,73 +424,7 @@ impl GrantStore {
         tx.commit().await?;
         Ok(())
     }
-    /// Purpose-specific read authority, never a native Principal or spend grant.
-    pub async fn authorize_remote(&self, token: &str) -> Result<RemoteAuthority> {
-        let hash = token_digest(token, "lmm_at_")?;
-        let mut tx = transaction(&self.identity.pool).await?;
-        let token = sqlx::query("SELECT id,family_id,consent_version,scopes FROM core_oauth.access_tokens WHERE digest=$1").bind(&hash).fetch_optional(&mut *tx).await?.ok_or(IdentityError::Unauthorized)?;
-        let f = family(&mut tx, &token.try_get::<String, _>("family_id")?, false).await?;
-        live(
-            &mut tx,
-            &f,
-            &self.profile,
-            token.try_get("consent_version")?,
-        )
-        .await?;
-        let selected: Vec<String> = token.try_get("scopes")?;
-        let allowed: Vec<String> = f.try_get("scopes")?;
-        let expiry: i64 = sqlx::query_scalar("SELECT ceil(extract(epoch FROM expires_at))::bigint FROM core_oauth.access_tokens WHERE digest=$1 AND expires_at>clock_timestamp()")
-            .bind(hash).fetch_optional(&mut *tx).await?.ok_or(IdentityError::Unauthorized)?;
-        if !selected.iter().any(|s| s == "remote:control")
-            || !allowed.iter().any(|s| s == "remote:control")
-        {
-            return Err(IdentityError::Forbidden);
-        }
-        let authority = RemoteAuthority {
-            source: RemoteSource::OAuthGrant {
-                grant_id: f.try_get("id")?,
-                access_id: token.try_get("id")?,
-            },
-            user_id: f.try_get("user_id")?,
-            owner_account_id: f.try_get("owner_account_id")?,
-            auth_version: f.try_get("user_version")?,
-            expires_at: expiry,
-        };
-        tx.commit().await?;
-        Ok(authority)
-    }
-}
-impl IdentityStore {
-    pub async fn authorize_remote_native(&self, secret: &str) -> Result<RemoteAuthority> {
-        let mut tx = transaction(&self.pool).await?;
-        sqlx::query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY")
-            .execute(&mut *tx)
-            .await?;
-        // Native authority and expiry come from one read-only snapshot. The RPC
-        // startup pool prohibits FOR SHARE; no spending authority is acquired.
-        let row = sqlx::query(sqlx::AssertSqlSafe(format!("SELECT native.*,ceil(extract(epoch FROM c.expires_at))::bigint AS expiry FROM ({AUTH} AND c.digest=$1) native JOIN core_identity.credentials c ON c.id=native.id")))
-            .bind(digest(secret)?).fetch_optional(&mut *tx).await?.ok_or(IdentityError::Unauthorized)?;
-        if row.try_get::<String, _>("kind")? != "session" {
-            return Err(IdentityError::Forbidden);
-        }
-        let expiry: i64 = row.try_get("expiry")?;
-        let actor =
-            principal_with_assurance_mode(&mut tx, row, mfa::AssuranceRead::Snapshot).await?;
-        if actor.owner.kind != AccountKind::Personal || actor.owner.id != actor.user_id {
-            return Err(IdentityError::Forbidden);
-        }
-        let authority = RemoteAuthority {
-            source: RemoteSource::NativePersonal {
-                credential_id: actor.credential_id,
-            },
-            user_id: actor.user_id,
-            owner_account_id: actor.owner_account_id,
-            auth_version: actor.user_version,
-            expires_at: expiry,
-        };
-        tx.commit().await?;
-        Ok(authority)
-    }
+
 }
 #[cfg(test)]
 pub(crate) mod tests;

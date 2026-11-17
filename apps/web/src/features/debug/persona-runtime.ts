@@ -33,7 +33,7 @@ import {
 } from '@/lib/auth-session'
 import { api } from '@/lib/http-client'
 import { ROLE } from '@/lib/roles'
-import type { AuthBundle, AuthUser, TrustLevelInfo } from '@/stores/auth-store'
+import type { AuthBundle, AuthUser } from '@/stores/auth-store'
 
 import { nativeWalletReviewProfile } from './native-wallet-review-fixtures'
 import { DEBUG_CURRENCY_STATUS } from './wallet-review-fixtures'
@@ -212,57 +212,34 @@ function debugAggregateSources(
   ]
 }
 
-function trustLevel(level: number): TrustLevelInfo {
-  return {
-    level,
-    automatic_level: level,
-    override_level: null,
-    paid_amount: level === 0 ? 0 : 50,
-    discount_ratio: level > 0 ? 0.98 : 1,
-    discount_percent: level > 0 ? 2 : 0,
-    next_level: level < 2 ? level + 1 : null,
-    next_level_paid_amount: level < 2 ? 100 : null,
-    amount_to_next_level: level < 2 ? 50 : null,
-    inactivity_decay_steps: 0,
-    decay_period_days: 90,
-    overridden: false,
-  }
-}
-
 const DEBUG_USERS: Record<DebugPersonaId, AuthUser> = {
   l0: {
     id: 1001,
-    username: 'debug_l0_newcomer',
-    display_name: 'L0 Newcomer',
+    username: 'debug_new_user',
+    display_name: 'New user',
     role: ROLE.USER,
     status: 1,
     group: 'default',
     quota: 0,
     used_quota: 0,
     request_count: 0,
-    developer_access_granted: false,
-    trust_level_info: trustLevel(0),
     onboarding: {
-      paid_activation_enabled: true,
-      paid_activation_min_amount: 1,
-      activation_complete: false,
+      activation_complete: true,
       credential_complete: false,
       first_request_complete: false,
-      stage: 'activate',
+      stage: 'credential',
     },
   },
   l1: {
     id: 1002,
-    username: 'debug_l1_developer',
-    display_name: 'L1 Developer',
+    username: 'debug_returning_user',
+    display_name: 'Returning user',
     role: ROLE.USER,
     status: 1,
     group: 'default',
     quota: 500_000,
     used_quota: 125_000,
     request_count: 42,
-    developer_access_granted: true,
-    trust_level_info: trustLevel(1),
     onboarding: {
       activation_complete: true,
       credential_complete: true,
@@ -281,13 +258,11 @@ const DEBUG_USERS: Record<DebugPersonaId, AuthUser> = {
     quota: 0,
     used_quota: 0,
     request_count: 3,
-    developer_access_granted: false,
-    trust_level_info: trustLevel(0),
     onboarding: {
-      activation_complete: false,
+      activation_complete: true,
       credential_complete: false,
       first_request_complete: false,
-      stage: 'activate',
+      stage: 'credential',
     },
   },
   e: {
@@ -301,8 +276,6 @@ const DEBUG_USERS: Record<DebugPersonaId, AuthUser> = {
     quota: 750_000,
     used_quota: 190_000,
     request_count: 88,
-    developer_access_granted: true,
-    trust_level_info: trustLevel(1),
     onboarding: {
       activation_complete: true,
       credential_complete: true,
@@ -321,8 +294,6 @@ const DEBUG_USERS: Record<DebugPersonaId, AuthUser> = {
     quota: 2_000_000,
     used_quota: 340_000,
     request_count: 120,
-    developer_access_granted: true,
-    trust_level_info: trustLevel(2),
     onboarding: {
       activation_complete: true,
       credential_complete: true,
@@ -340,8 +311,6 @@ const DEBUG_USERS: Record<DebugPersonaId, AuthUser> = {
     quota: 5_000_000,
     used_quota: 1_250_000,
     request_count: 195,
-    developer_access_granted: true,
-    trust_level_info: trustLevel(3),
     onboarding: {
       activation_complete: true,
       credential_complete: true,
@@ -359,8 +328,6 @@ const DEBUG_USERS: Record<DebugPersonaId, AuthUser> = {
     quota: 10_000_000,
     used_quota: 2_500_000,
     request_count: 390,
-    developer_access_granted: true,
-    trust_level_info: trustLevel(4),
     onboarding: {
       activation_complete: true,
       credential_complete: true,
@@ -375,14 +342,14 @@ function initialConversations(): MockConversation[] {
     {
       id: 8101,
       userId: DEBUG_USERS.l0.id,
-      title: 'Need help requesting L1 access',
-      preview: 'My email is [REDACTED:EMAIL] and I need L1 access.',
+      title: 'Need help connecting a client',
+      preview: 'My email is [REDACTED:EMAIL] and I need client setup help.',
       createdAt: now - 3_600,
       messages: [
         {
           id: 9101,
           role: 'user',
-          content: 'My email is [REDACTED:EMAIL] and I need L1 access.',
+          content: 'My email is [REDACTED:EMAIL] and I need client setup help.',
           created_at: now - 3_600,
         },
         {
@@ -636,9 +603,9 @@ function preConversationPresets() {
         prompt: 'Help me connect my current AI client step by step.',
       },
       {
-        id: 'l1-access',
-        label: 'Request L1 access',
-        prompt: 'Help me prepare one clear recommendation for L1 access.',
+        id: 'model-selection',
+        label: 'Which model should I use?',
+        prompt: 'Help me choose a model for my task and budget.',
       },
       {
         id: 'bounty',
@@ -654,7 +621,6 @@ function personaTodoPage(category = 'all') {
     'security_incident',
     'open_source_bounty_review',
     'open_source_bounty',
-    'developer_access',
     'account_action',
     'moderation',
     'human_support',
@@ -693,10 +659,7 @@ function canReadUserConversations(targetUserId: number): boolean {
   const target = userById(targetUserId)
   if (!target) return false
   if (viewer.role >= ROLE.ADMIN && viewer.role > target.role) return true
-  return (
-    (viewer.trust_level_info?.level ?? 0) >
-    (target.trust_level_info?.level ?? 0)
-  )
+  return false
 }
 
 function rejectRequest(
@@ -1233,8 +1196,6 @@ const debugAdapter: AxiosAdapter = async (config) => {
     )
   }
   if (method === 'GET' && path === '/api/token/') {
-    const developerAccessGranted =
-      activeUser().developer_access_granted === true
     const runtimeKeys =
       url.searchParams.get('creation_mode') === 'automatic' &&
       debugAssistantRuntimeKeys.has(state.activePersona)
@@ -1261,9 +1222,7 @@ const debugAdapter: AxiosAdapter = async (config) => {
         : []
     return response(
       config,
-      !developerAccessGranted
-        ? { success: false, message: 'Developer access required' }
-        : {
+      {
             success: true,
             data: {
               items: runtimeKeys,
@@ -1271,8 +1230,7 @@ const debugAdapter: AxiosAdapter = async (config) => {
               page: 1,
               page_size: 10,
             },
-          },
-      !developerAccessGranted ? 403 : 200
+          }
     )
   }
   if (method === 'GET' && (path === '/api/data/self' || path === '/api/data')) {
@@ -1281,16 +1239,6 @@ const debugAdapter: AxiosAdapter = async (config) => {
   if (method === 'GET' && path === '/api/perf-metrics/summary') {
     return response(config, envelope({ models: [] }))
   }
-  if (method === 'GET' && path === '/api/assistant/registration-check') {
-    return response(
-      config,
-      envelope({
-        state: activeUser().developer_access_granted
-          ? 'active'
-          : 'context_needed',
-      })
-    )
-  }
   if (method === 'GET' && path === '/api/assistant/status') {
     const user = activeUser()
     return response(
@@ -1298,16 +1246,14 @@ const debugAdapter: AxiosAdapter = async (config) => {
       envelope({
         enabled: true,
         model: 'debug-fixture',
-        developer_access_granted: user.developer_access_granted === true,
         funding: { mode: 'super_administrator' },
-        trust_level: user.trust_level_info?.level ?? 0,
         role: user.role,
         is_admin: user.role >= ROLE.ADMIN,
         is_root: user.role === ROLE.SUPER_ADMIN,
         capabilities: {
           public_assistant: true,
           account: true,
-          developer_tools: user.developer_access_granted === true,
+          account_tools: true,
           admin_config: user.role >= ROLE.ADMIN,
         },
       })
@@ -1317,20 +1263,16 @@ const debugAdapter: AxiosAdapter = async (config) => {
     return response(config, envelope(preConversationPresets()))
   }
   if (method === 'GET' && path === '/api/assistant/journey') {
-    const access = activeUser().developer_access_granted === true
+    const hasCompletedSetup = activeUser().onboarding?.first_request_complete === true
     return response(
       config,
       envelope({
         main: [
           { id: 'ask_ai', status: 'completed' },
-          {
-            id: 'get_recommendation',
-            status: access ? 'completed' : 'pending',
-          },
-          { id: 'create_api_key', status: access ? 'completed' : 'pending' },
-          { id: 'install_client', status: access ? 'completed' : 'pending' },
-          { id: 'configure_client', status: access ? 'completed' : 'pending' },
-          { id: 'first_api_call', status: access ? 'completed' : 'pending' },
+          { id: 'create_api_key', status: hasCompletedSetup ? 'completed' : 'pending' },
+          { id: 'install_client', status: hasCompletedSetup ? 'completed' : 'pending' },
+          { id: 'configure_client', status: hasCompletedSetup ? 'completed' : 'pending' },
+          { id: 'first_api_call', status: hasCompletedSetup ? 'completed' : 'pending' },
         ],
         side: [
           {
@@ -1435,16 +1377,14 @@ const debugAdapter: AxiosAdapter = async (config) => {
     return response(config, envelope(null))
   }
   if (method === 'GET' && path === '/api/user/self/onboarding/todo') {
-    const granted = activeUser().developer_access_granted === true
+    const hasCompletedSetup = activeUser().onboarding?.first_request_complete === true
     return response(
       config,
       envelope({
         eligibility: {
-          eligible: granted,
-          developer_access_granted: granted,
-          trust_level: activeUser().trust_level_info?.level ?? 0,
+          eligible: true,
         },
-        status: granted ? 'completed' : 'unavailable',
+        status: hasCompletedSetup ? 'completed' : 'in_progress',
         steps: [],
       })
     )

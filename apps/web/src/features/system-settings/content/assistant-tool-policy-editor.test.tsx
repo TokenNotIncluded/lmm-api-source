@@ -57,7 +57,6 @@ await i18n
 const catalog = {
   success: true,
   data: {
-    capabilities: { policy_rules: true },
     groups: [
       {
         id: 'api_keys',
@@ -75,7 +74,7 @@ const catalog = {
             label: 'Create an API key',
             description: 'Prepare creation after confirmation.',
             effect: 'confirmation',
-            access: 'l1',
+            access: 'user',
           },
         ],
       },
@@ -223,7 +222,7 @@ test('fetches the authoritative catalog only when the tools panel becomes active
     )
     assert.match(
       rendered.container.textContent ?? '',
-      /L6 \(Super administrator\)/
+      /Super administrator/
     )
     await rendered.rerender(false)
     assert.equal(rendered.requests, 1)
@@ -232,7 +231,7 @@ test('fetches the authoritative catalog only when the tools panel becomes active
   }
 })
 
-test('legacy catalogs open configuration without adding unsupported rules', async () => {
+test('configuration saves tool switches without exposing retired rule controls', async () => {
   const rendered = await renderEditor({
     get: () => ({ success: true, data: { groups: catalog.data.groups } }),
   })
@@ -247,12 +246,9 @@ test('legacy catalogs open configuration without adding unsupported rules', asyn
       '[data-testid="assistant-tool-configuration"]'
     )
     assert.ok(dialog)
-    assert.match(
-      dialog.textContent ?? '',
-      /does not support tool-level rules yet/
-    )
-    const fieldset = dialog.querySelector('fieldset')
-    assert.equal(fieldset?.disabled, true)
+    assert.equal(dialog.querySelector('[role="combobox"]'), null)
+    assert.equal(dialog.querySelector('input[type="number"]'), null)
+    assert.doesNotMatch(dialog.textContent ?? '', /account levels|Minimum level|Maximum level/)
     const baseSwitch = dialog.querySelector('[role="switch"]')
     assert.ok(baseSwitch)
     await click(baseSwitch)
@@ -264,10 +260,10 @@ test('legacy catalogs open configuration without adding unsupported rules', asyn
   }
 })
 
-test('disabled groups prevent per-tool bypass and restore the individual override when enabled', async () => {
+test('retired rules preserve disabled groups and the individual choices restored on enable', async () => {
   const rendered = await renderEditor({
     value:
-      '{"version":1,"groups":{"api_keys":false},"tools":{"list_my_api_keys":true,"request_create_key":false}}',
+      '{"version":1,"groups":{"api_keys":false},"tools":{"list_my_api_keys":true,"request_create_key":false},"rules":{"request_create_key":{"min_level":2,"max_level":6}}}',
   })
   try {
     const list = rendered.container.querySelector(
@@ -293,6 +289,7 @@ test('disabled groups prevent per-tool bypass and restore the individual overrid
     const savedRaw = rendered.changes.at(-1)
     assert.ok(savedRaw)
     const saved = JSON.parse(savedRaw)
+    assert.equal(Object.hasOwn(saved, 'rules'), false)
     assert.deepEqual(saved.tools, {
       list_my_api_keys: true,
       request_create_key: false,
@@ -336,7 +333,7 @@ test('searches readable labels, identifiers and permissions without changing the
       rendered.container.querySelector('[data-tool-name="request_create_key"]')
     )
     await act(async () => {
-      setInput(search, 'L6 (Super administrator)')
+      setInput(search, 'Super administrator')
       await flush()
     })
     assert.ok(
@@ -485,31 +482,12 @@ test('configures a disabled tool group without enabling it or saving early', asy
     )
     assert.ok(dialog)
     assert.match(dialog.textContent ?? '', /Changes stay in this draft/)
-    const controls = dialog.querySelectorAll('[role="combobox"]')
-    assert.equal(controls.length, 2)
-    assert.equal(controls[0].textContent, 'L1')
-    assert.equal(controls[1].textContent, 'L6 (Super administrator)')
-    await click(controls[0])
-    const options = Array.from(document.querySelectorAll('[role="option"]'))
-    assert.equal(
-      options.some((item) => item.textContent === 'L0'),
-      false
-    )
-    await click(options.find((item) => item.textContent === 'L2') ?? null)
+    assert.equal(dialog.querySelector('[role="combobox"]'), null)
+    await click(dialog.querySelector('[role="switch"]'))
     const changed = JSON.parse(rendered.changes.at(-1) ?? '{}')
-    assert.deepEqual(changed.rules.request_create_key, {
-      min_level: 2,
-      max_level: 6,
-    })
+    assert.equal(changed.tools.request_create_key, false)
     assert.equal(changed.groups.api_keys, false)
-    await click(
-      Array.from(dialog.querySelectorAll('button')).find(
-        (button) => button.textContent === 'Reset tool rules'
-      ) ?? null
-    )
-    const reset = JSON.parse(rendered.changes.at(-1) ?? '{}')
-    assert.equal(reset.rules, undefined)
-    assert.equal(reset.groups.api_keys, false)
+    assert.equal(Object.hasOwn(changed, 'rules'), false)
     await click(
       Array.from(dialog.querySelectorAll('button')).find(
         (button) => button.textContent === 'Done'
@@ -525,7 +503,7 @@ test('configures a disabled tool group without enabling it or saving early', asy
   }
 })
 
-test('weekly discount dialog edits member ceilings but never grants administrator rewards', async () => {
+test('weekly discount configuration has no per-level price or reward controls', async () => {
   const withDiscount = structuredClone(catalog)
   withDiscount.data.groups[2].tools.push({
     name: 'prepare_weekly_discount',
@@ -545,43 +523,20 @@ test('weekly discount dialog edits member ceilings but never grants administrato
       '[data-testid="assistant-tool-configuration"]'
     )
     assert.ok(dialog)
-    const inputs = dialog.querySelectorAll<HTMLInputElement>(
-      'input[type="number"]'
-    )
-    assert.equal(inputs.length, 7)
-    assert.equal(inputs[1].value, '10')
-    assert.equal(inputs[5].disabled, true)
-    assert.equal(inputs[5].value, '0')
-    assert.equal(inputs[6].disabled, true)
-    await act(async () => {
-      setInput(inputs[1], '25')
-      await flush()
-    })
-    const rule = JSON.parse(rendered.changes.at(-1) ?? '{}').rules
-      .prepare_weekly_discount
-    assert.equal(rule.discount_percent_by_level['1'], 25)
-    const count = rendered.changes.length
-    await act(async () => {
-      setInput(inputs[1], '100')
-      await flush()
-    })
-    assert.equal(rendered.changes.length, count)
-    await act(async () => {
-      setInput(inputs[1], '0')
-      await flush()
-    })
-    assert.equal(
-      JSON.parse(rendered.changes.at(-1) ?? '{}').rules.prepare_weekly_discount
-        .discount_percent_by_level['1'],
-      0
-    )
+    assert.equal(dialog.querySelector('input[type="number"]'), null)
+    assert.equal(dialog.querySelector('[role="combobox"]'), null)
+    assert.doesNotMatch(dialog.textContent ?? '', /discount by level|Minimum level|Maximum level/)
+    await click(dialog.querySelector('[role="switch"]'))
+    const saved = JSON.parse(rendered.changes.at(-1) ?? '{}')
+    assert.equal(saved.tools.prepare_weekly_discount, false)
+    assert.equal(Object.hasOwn(saved, 'rules'), false)
   } finally {
     await rendered.cleanup()
   }
 })
 
-// Keep every historical tool covered without reading the removed monolith.
-// This is a frontend compatibility fixture, not the active extension registry.
+// Keep switch configuration covered for the retained compatibility catalog.
+// Production permissions remain enforced by the installed extension registry.
 const compatibilityCatalog = parseAssistantToolCatalog(
   JSON.parse(
     readFileSync(
@@ -593,38 +548,35 @@ const compatibilityCatalog = parseAssistantToolCatalog(
 assert.ok(compatibilityCatalog)
 assert.equal(compatibilityCatalog.length, 17)
 const registeredTools = compatibilityCatalog.flatMap((group) => group.tools)
-assert.equal(registeredTools.length, 72)
+assert.equal(registeredTools.length, 68)
 for (const tool of registeredTools) {
   test(`configuration opens and saves a switch for ${tool.name}`, async () => {
-    for (const supported of [true, false]) {
-      const rendered = await renderEditor({
-        get: () => ({
-          success: true,
-          data: {
-            capabilities: { policy_rules: supported },
-            groups: [{ id: 'audit', label: 'Audit', tools: [tool] }],
-          },
-        }),
-      })
-      try {
-        const button = rendered.container.querySelector<HTMLButtonElement>(
-          `[data-tool-name="${tool.name}"] button[aria-label^="Configure "]`
-        )
-        assert.ok(button)
-        assert.equal(button.disabled, false)
-        await click(button)
-        const dialog = document.querySelector(
-          '[data-testid="assistant-tool-configuration"]'
-        )
-        assert.ok(dialog)
-        assert.equal(dialog.querySelector('fieldset')?.disabled, !supported)
-        await click(dialog.querySelector('[role="switch"]'))
-        const saved = JSON.parse(rendered.changes.at(-1) ?? '{}')
-        assert.equal(saved.tools[tool.name], false)
-        assert.equal(Object.hasOwn(saved, 'rules'), false)
-      } finally {
-        await rendered.cleanup()
-      }
+    const rendered = await renderEditor({
+      get: () => ({
+        success: true,
+        data: {
+          groups: [{ id: 'audit', label: 'Audit', tools: [tool] }],
+        },
+      }),
+    })
+    try {
+      const button = rendered.container.querySelector<HTMLButtonElement>(
+        `[data-tool-name="${tool.name}"] button[aria-label^="Configure "]`
+      )
+      assert.ok(button)
+      assert.equal(button.disabled, false)
+      await click(button)
+      const dialog = document.querySelector(
+        '[data-testid="assistant-tool-configuration"]'
+      )
+      assert.ok(dialog)
+      assert.equal(dialog.querySelector('[role="combobox"]'), null)
+      await click(dialog.querySelector('[role="switch"]'))
+      const saved = JSON.parse(rendered.changes.at(-1) ?? '{}')
+      assert.equal(saved.tools[tool.name], false)
+      assert.equal(Object.hasOwn(saved, 'rules'), false)
+    } finally {
+      await rendered.cleanup()
     }
   })
 }

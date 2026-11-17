@@ -578,16 +578,6 @@ mod usage_tests {
     }
 
     #[tokio::test]
-    async fn trust_mode_is_shared_with_gateway_clones_created_before_enablement() {
-        let gateway = gateway(false);
-        let earlier = gateway.clone();
-        assert!(!earlier.trust_pricing_enabled());
-        let enabled = gateway.with_trust_pricing();
-        assert!(enabled.trust_pricing_enabled());
-        assert!(earlier.trust_pricing_enabled());
-    }
-
-    #[tokio::test]
     async fn quote_and_preparation_freeze_the_same_selected_creation_contract() {
         let mut frozen_quotes = Vec::new();
         for missing_creation_is_zero in [false, true] {

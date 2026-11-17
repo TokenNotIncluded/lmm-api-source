@@ -513,7 +513,7 @@ async fn native_audited_zero_is_not_unknown_legacy_missing_wallet(pool: PgPool) 
     let f = fresh(&pool).await;
     person(&f, &pool, 10, 0, "zero-native").await;
     let mut tx = pool.begin().await.unwrap();
-    let account = super::super::new_account(&mut tx, "personal", 0)
+    let account = super::super::new_account(&mut tx, "personal")
         .await
         .unwrap();
     let user: i64 = sqlx::query_scalar(

@@ -30,7 +30,6 @@ import type {
   UserFormData,
   ManageUserAction,
   ManageUserQuotaPayload,
-  ManageUserTrustLevelPayload,
   ApiResponse,
   AccountActionRequestAdmin,
   AccountActionRequestStatus,
@@ -111,7 +110,6 @@ export async function searchUsers(
     group = '',
     role = '',
     status = '',
-    trust_level,
     p = 1,
     page_size = 10,
     sort_by,
@@ -128,9 +126,6 @@ export async function searchUsers(
   queryParams.set('group', group)
   if (role) queryParams.set('role', role)
   if (status) queryParams.set('status', status)
-  if (trust_level !== undefined) {
-    queryParams.set('trust_level', String(trust_level))
-  }
   queryParams.set('p', String(p))
   queryParams.set('page_size', String(page_size))
   if (sort_by) queryParams.set('sort_by', sort_by)
@@ -259,12 +254,6 @@ export async function adjustUserQuota(
   return res.data
 }
 
-export async function setUserTrustLevel(
-  payload: ManageUserTrustLevelPayload
-): Promise<ApiResponse<Partial<User>>> {
-  const res = await api.post('/api/user/manage', payload)
-  return res.data
-}
 
 /**
  * Reset user's Passkey registration

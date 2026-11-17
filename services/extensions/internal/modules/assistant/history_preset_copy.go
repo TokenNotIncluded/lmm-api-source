@@ -7,13 +7,13 @@ package assistant
 // merely because it carries a known preset ID.
 var requiredPromptPresetCopy = map[string]map[string]string{
 	"ai_recommendation": {
-		"en":    "How do I apply for L1 access?",
-		"zh":    "如何申请 L1 访问权限？",
-		"zh-TW": "如何申請 L1 存取權限？",
-		"fr":    "Comment demander l’accès L1 ?",
-		"ja":    "L1 の利用を申請するには？",
-		"ru":    "Как запросить доступ L1?",
-		"vi":    "Làm cách nào để xin quyền L1?",
+		"en":    "Which model should I use?",
+		"zh":    "我应该使用哪个模型？",
+		"zh-TW": "我應該使用哪個模型？",
+		"fr":    "Quel modèle devrais-je utiliser ?",
+		"ja":    "どのモデルを使えばよいですか？",
+		"ru":    "Какую модель мне использовать?",
+		"vi":    "Tôi nên dùng mô hình nào?",
 	},
 	"getting_started": {
 		"en":    "Where should I start?",

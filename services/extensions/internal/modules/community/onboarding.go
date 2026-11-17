@@ -36,15 +36,10 @@ type onboardingTodo struct {
 	keyProvenAt, installedAt, configuredAt, completedAt, createdAt int64
 }
 
-// Eligibility uses the Core platform level (L1+ or administrator). Core's
-// developer-access grant is not part of the identity RPC response.
-func eligibility(actor *pb.AuthorizeResponse) map[string]any {
-	level := actor.GetPlatformLevel()
-	e := map[string]any{"eligible": level >= 1, "developer_access_granted": level >= 5, "trust_level": level}
-	if level < 1 {
-		e["reason"] = "L1_REQUIRED"
-	}
-	return e
+// Every authenticated user can complete onboarding. Core still validates the
+// session or API key before either handler constructs this view.
+func eligibility(_ *pb.AuthorizeResponse) map[string]any {
+	return map[string]any{"eligible": true}
 }
 
 func (t onboardingTodo) view(actor *pb.AuthorizeResponse) onboardingView {
@@ -88,15 +83,11 @@ func (s *Service) loadTodo(ctx context.Context, q interface {
 }
 
 // GET and PATCH /api/user/self/onboarding/todo. PATCH is a refresh and accepts
-// no completion flags. L0 users receive an unavailable state and no row.
+// no completion flags. Core authenticates the user before progress is read.
 func (h *handlers) onboardingTodo(w http.ResponseWriter, r *http.Request) {
 	actor, err := h.user(r)
 	if err != nil {
 		respond(w, nil, err)
-		return
-	}
-	if actor.GetPlatformLevel() < 1 {
-		respond(w, onboardingView{Eligibility: eligibility(actor), Status: "unavailable", Steps: []onboardingStep{}}, nil)
 		return
 	}
 	now := h.s.now().Unix()
@@ -126,7 +117,7 @@ func (h *handlers) onboardingProof(w http.ResponseWriter, r *http.Request) {
 		BaseURL string `json:"base_url"`
 		Group   string `json:"group"`
 	}
-	invalid := &apiError{http.StatusUnprocessableEntity, "L1_ONBOARDING_INVALID_PROOF", "invalid onboarding proof"}
+	invalid := &apiError{http.StatusUnprocessableEntity, "ONBOARDING_INVALID_PROOF", "invalid onboarding proof"}
 	if err = decode(w, r, 4<<10, &proof, false); err != nil {
 		respond(w, nil, invalid)
 		return
@@ -134,7 +125,7 @@ func (h *handlers) onboardingProof(w http.ResponseWriter, r *http.Request) {
 	proof.Step, proof.Client = strings.TrimSpace(proof.Step), strings.TrimSpace(proof.Client)
 	proof.BaseURL, proof.Group = strings.TrimSpace(proof.BaseURL), strings.TrimSpace(proof.Group)
 	if proof.Step != stepInstallClient && proof.Step != stepConfigureClient {
-		respond(w, nil, &apiError{http.StatusUnprocessableEntity, "L1_ONBOARDING_INVALID_STEP", "invalid L1 onboarding step"})
+		respond(w, nil, &apiError{http.StatusUnprocessableEntity, "ONBOARDING_INVALID_STEP", "invalid onboarding step"})
 		return
 	}
 	if n := len([]rune(proof.Client)); n == 0 || n > 64 {
@@ -147,10 +138,6 @@ func (h *handlers) onboardingProof(w http.ResponseWriter, r *http.Request) {
 			respond(w, nil, invalid)
 			return
 		}
-	}
-	if actor.GetPlatformLevel() < 1 {
-		respond(w, nil, &apiError{http.StatusForbidden, "L1_ONBOARDING_NOT_ELIGIBLE", "L1 onboarding is only available to users with approved developer access"})
-		return
 	}
 	now := h.s.now().Unix()
 	var t onboardingTodo
@@ -173,7 +160,7 @@ func (h *handlers) onboardingProof(w http.ResponseWriter, r *http.Request) {
 		case stepConfigureClient:
 			if t.configuredAt == 0 {
 				if t.installedAt == 0 {
-					return &apiError{http.StatusConflict, "L1_ONBOARDING_OUT_OF_ORDER", "L1 onboarding steps must be completed in order"}
+					return &apiError{http.StatusConflict, "ONBOARDING_OUT_OF_ORDER", "onboarding steps must be completed in order"}
 				}
 				t.configuredAt = now
 			}

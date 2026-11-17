@@ -92,21 +92,6 @@ class BackendHandler(BaseHTTPRequestHandler):
             self.wfile.write(b"\x81\x04" + text)
             self.wfile.flush()
             return
-        if self.path.startswith("/api/remote-control/v1/pi/events"):
-            first = b"data: first\n\n"
-            second = b"data: second\n\n"
-            self.send_response(200)
-            self.send_header("Content-Type", "text/event-stream")
-            self.send_header("Cache-Control", "no-store")
-            self.send_header("X-Accel-Buffering", "no")
-            self.send_header("Content-Length", str(len(first) + len(second)))
-            self.end_headers()
-            self.wfile.write(first)
-            self.wfile.flush()
-            time.sleep(0.18)
-            self.wfile.write(second)
-            self.wfile.flush()
-            return
         if self.path.startswith("/health/ready"):
             self._reply(200, b'{"service":"core","ready":true}')
             return
@@ -133,6 +118,27 @@ class BackendHandler(BaseHTTPRequestHandler):
         size = int(self.headers.get("Content-Length", "0"))
         body = self.rfile.read(size)
         self._record("POST", body)
+        if getattr(self.server, "role", "unknown") == "core" and self.path == "/v1/responses":
+            try:
+                streaming = json.loads(body).get("stream") is True
+            except (ValueError, AttributeError):
+                self._reply(400, b'{"error":"invalid_json"}')
+                return
+            if streaming:
+                first = b"data: first\n\n"
+                second = b"data: second\n\n"
+                self.send_response(200)
+                self.send_header("Content-Type", "text/event-stream")
+                self.send_header("Cache-Control", "no-store")
+                self.send_header("X-Accel-Buffering", "no")
+                self.send_header("Content-Length", str(len(first) + len(second)))
+                self.end_headers()
+                self.wfile.write(first)
+                self.wfile.flush()
+                time.sleep(0.18)
+                self.wfile.write(second)
+                self.wfile.flush()
+                return
         if getattr(self.server, "role", "unknown") == "core" and (
                 self.path.startswith("/api/oauth/federated/")
                 or self.path.startswith("/api/user/account-links/") or self.path == "/v1/responses"):
@@ -169,7 +175,10 @@ def _request(port: int, method: str, path: str, body: bytes = b"", headers: dict
 def _stream_first_chunk(port: int) -> tuple[int, dict[str, str], bytes, float]:
     connection = http.client.HTTPConnection("127.0.0.1", port, timeout=4)
     started = time.monotonic()
-    connection.request("GET", "/api/remote-control/v1/pi/events")
+    connection.request(
+        "POST", "/v1/responses", b'{"input":"fixture","stream":true}',
+        {"Content-Type": "application/json", "Authorization": "Bearer fixture-model-key"},
+    )
     response = connection.getresponse()
     first = response.read(len(b"data: first\n\n"))
     elapsed = time.monotonic() - started
@@ -224,7 +233,6 @@ def _nginx_config(root: Path, edge_port: int, core_port: int, extension_port: in
         "location = /health/ready { proxy_set_header X-LMM-Edge-Proof fixture-proof; proxy_set_header X-LMM-Edge-Client-IP $remote_addr; proxy_pass http://fixture_core; }\n"
         "location = /v1/responses { proxy_set_header Upgrade $http_upgrade; proxy_set_header Connection $fixture_connection_upgrade; proxy_set_header X-LMM-Edge-Proof fixture-proof; proxy_set_header X-LMM-Edge-Client-IP $remote_addr; proxy_buffering off; proxy_pass http://fixture_core; }\n"
         "location ^~ /v1/ { proxy_set_header X-LMM-Edge-Proof fixture-proof; proxy_set_header X-LMM-Edge-Client-IP $remote_addr; proxy_pass http://fixture_core; }\n"
-        "location ^~ /api/remote-control/v1/pi/ { proxy_buffering off; proxy_read_timeout 30s; proxy_set_header X-LMM-Edge-Proof fixture-proof; proxy_set_header X-LMM-Edge-Client-IP $remote_addr; proxy_pass http://fixture_core; }\n"
         "location ^~ /api/oauth { proxy_set_header X-LMM-Edge-Proof fixture-proof; proxy_set_header X-LMM-Edge-Client-IP $remote_addr; proxy_pass http://fixture_core; }\n"
         "location ^~ /api/user/ { proxy_set_header X-LMM-Edge-Proof fixture-proof; proxy_set_header X-LMM-Edge-Client-IP $remote_addr; proxy_pass http://fixture_core; }\n"
         "location = /api/custom-oauth-provider { proxy_set_header X-LMM-Edge-Proof fixture-proof; proxy_set_header X-LMM-Edge-Client-IP $remote_addr; proxy_pass http://fixture_core; }\n"
@@ -339,6 +347,9 @@ def run_harness() -> dict[str, object]:
             assert status == 404 and b"fixture-spa" not in body
             status, headers, body = _request(edge_port, "GET", "/api/unknown")
             assert status == 404 and b"fixture-spa" not in body
+            for path in ("/api/remote-control/v1/pi/sessions", "/api/remote-control/v1/pi/events"):
+                status, _, body = _request(edge_port, "GET", path)
+                assert status == 404 and b"fixture-spa" not in body
             status, headers, body = _request(edge_port, "GET", "/static/app.123456.js")
             assert status == 200 and headers.get("cache-control", "").startswith("public")
             status, headers, body = _request(edge_port, "GET", "/unknown")
@@ -347,6 +358,11 @@ def run_harness() -> dict[str, object]:
             assert status == 200 and headers.get("content-type", "").startswith("text/event-stream")
             assert body == b"data: first\n\n", (headers, body)
             assert elapsed < 0.15, f"SSE first chunk was buffered ({elapsed:.3f}s)"
+            stream = core.seen[-1]
+            assert stream["method"] == "POST" and stream["path"] == "/v1/responses"
+            assert stream["body"] == '{"input":"fixture","stream":true}'
+            assert stream["headers"]["authorization"] == "Bearer fixture-model-key"
+            assert stream["headers"]["x-lmm-edge-proof"] == "fixture-proof"
             before_extensions = len(extensions.seen)
             _websocket_round_trip(edge_port)
             upgrade = core.seen[-1]["headers"]
@@ -358,7 +374,7 @@ def run_harness() -> dict[str, object]:
             assert (status, json.loads(body)["service"]) == (200, "core")
             assert core.seen[-1]["body"] == '{"input":"fixture"}'
             assert "upgrade" not in core.seen[-1]["headers"]
-            return {"status": "PASS", "nginx_test": True, "checks": 22, "listen": "127.0.0.1"}
+            return {"status": "PASS", "nginx_test": True, "checks": 23, "listen": "127.0.0.1"}
     finally:
         if nginx_process is not None and nginx_process.poll() is None:
             nginx_process.terminate()

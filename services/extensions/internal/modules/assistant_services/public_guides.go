@@ -41,10 +41,6 @@ type PublicKeyGroup struct {
 	Warning     *PublicGroupWarning `json:"warning,omitempty"`
 }
 type PublicCheckinUser struct {
-	TrustLevel     int
-	Multiplier     int64
-	MinCredits     int64
-	MaxCredits     int64
 	CheckedInToday bool
 }
 
@@ -52,7 +48,6 @@ type PublicCheckinUser struct {
 // ActorUserID binds the response to that session; Go supplies no entitlement.
 type ModelCatalogSnapshot struct {
 	ActorUserID              int64
-	DeveloperAccessGranted   bool
 	AccountModelAccessLocked bool
 	PublicPreview            bool
 	ModelIDs                 []string
@@ -95,7 +90,7 @@ func (g *PublicGuides) current(ctx context.Context, credential string) (PublicCo
 	if err != nil {
 		return empty, noCatalog, err
 	}
-	if catalog.ActorUserID != p.UserID || (catalog.DeveloperAccessGranted && catalog.AccountModelAccessLocked) || (!catalog.DeveloperAccessGranted && !catalog.AccountModelAccessLocked && !catalog.PublicPreview) || len(catalog.ModelIDs) > 4096 || len(catalog.KeyGroupOptions) > 128 {
+	if catalog.ActorUserID != p.UserID || len(catalog.ModelIDs) > 4096 || len(catalog.KeyGroupOptions) > 128 {
 		return empty, noCatalog, access.ErrUnavailable
 	}
 	seen := map[string]bool{}
@@ -112,9 +107,6 @@ func (g *PublicGuides) current(ctx context.Context, credential string) (PublicCo
 		if group.Warning != nil && (!utf8.ValidString(group.Warning.Message) || len(group.Warning.Message) > 4096 || group.Warning.Confirmations < 0 || group.Warning.Confirmations > 16) {
 			return empty, noCatalog, access.ErrUnavailable
 		}
-	}
-	if user := catalog.CheckinUser; user != nil && (user.TrustLevel < 0 || user.TrustLevel > 6 || user.Multiplier < 0 || user.MinCredits < 0 || user.MaxCredits < user.MinCredits) {
-		return empty, noCatalog, access.ErrUnavailable
 	}
 	return snapshot, catalog, nil
 }
@@ -160,11 +152,10 @@ func (g *PublicGuides) ServiceFacts(ctx context.Context, credential string) (jso
 	if snapshot.CheckinEnabled {
 		checkin["base_min_quota"] = snapshot.CheckinMinCredits
 		checkin["base_max_quota"] = snapshot.CheckinMaxCredits
+		checkin["reward_multiplier"] = 1
+		checkin["min_quota"] = snapshot.CheckinMinCredits
+		checkin["max_quota"] = snapshot.CheckinMaxCredits
 		if user := catalog.CheckinUser; user != nil {
-			checkin["trust_level"] = user.TrustLevel
-			checkin["reward_multiplier"] = user.Multiplier
-			checkin["min_quota"] = user.MinCredits
-			checkin["max_quota"] = user.MaxCredits
 			checkin["checked_in_today"] = user.CheckedInToday
 		}
 	}
@@ -247,7 +238,6 @@ func buildSetupGuide(rootURL string, catalog ModelCatalogSnapshot, input setupGu
 		return map[string]any{"ok": false, "status": status, "error": "the requested model ID is not available in the signed-in account catalog", "available_model_ids": modelIDs, "next_step": "Use one exact available_model_ids value; do not guess or rewrite the model ID."}
 	}
 	accountModelAccessLocked := catalog.AccountModelAccessLocked
-	developerAccessGranted := catalog.DeveloperAccessGranted
 	if (topic == "cc-switch" || topic == "claude-desktop") && !ccSwitchEnabled {
 		return map[string]any{"ok": false, "status": "client_import_unavailable", "error": "CC Switch integration is not enabled by the current host configuration"}
 	}
@@ -256,10 +246,8 @@ func buildSetupGuide(rootURL string, catalog ModelCatalogSnapshot, input setupGu
 	credentialPhrase := "a newly created API key"
 	testStep := "Send a short test request after configuring the client."
 	if accountModelAccessLocked {
-		securityNote = "API key creation and authenticated requests remain locked until L1 approval. You can install the client and review the placeholder configuration now without creating or sharing a key."
-		credentialStep = "Keep the <YOUR_API_KEY> placeholder while access is locked; after L1 approval, create a key in this console and replace only that placeholder."
-		credentialPhrase = "the <YOUR_API_KEY> placeholder (replace it with a new key only after L1 approval)"
-		testStep = "After L1 approval and key creation, open a new client session and send a short test request."
+		securityNote = "The account's model catalog is currently unavailable. Create and store API keys only in the private console, and check model availability before sending a request."
+		testStep = "Once the requested model is available, open a new client session and send a short test request."
 	}
 	lockedAwareStep := func(unlocked, locked string) string {
 		if accountModelAccessLocked {
@@ -276,7 +264,6 @@ func buildSetupGuide(rootURL string, catalog ModelCatalogSnapshot, input setupGu
 		"openai_base_url":             openAIBaseURL,
 		"client_model_id":             clientModel,
 		"api_key":                     "<YOUR_API_KEY>",
-		"developer_access_granted":    developerAccessGranted,
 		"account_model_access_locked": accountModelAccessLocked,
 		"security_note":               securityNote,
 		"verification":                lockedAwareStep("Save the provider, select the exact returned model, and send: Reply with OK. A response without an error confirms this request worked; importing settings alone does not verify connectivity.", testStep),

@@ -7,7 +7,6 @@ published by the Free Software Foundation, either version 3 of the
 License, or (at your option) any later version.
 */
 import { drawPromptIdeas } from '@/features/drawing/prompt-inspiration'
-import { normalizePiSessionEnvelopes } from '@/features/remote-control/protocol'
 import { api } from '@/lib/api'
 
 import {
@@ -39,7 +38,6 @@ const TODO_CATEGORIES = [
   'all',
   'open_source_bounty_review',
   'open_source_bounty',
-  'developer_access',
   'account_action',
   'security_incident',
   'moderation',
@@ -759,55 +757,6 @@ export const workbenchTools: WebMcpToolFactory = ({ router }) => [
       ensureNotAborted(signal)
       await router.navigate({ to: '/bounties', search })
       return { path: '/bounties', search }
-    },
-  },
-  {
-    name: 'lmm_workbench_list_remote_sessions',
-    title: 'List remote-control sessions',
-    description:
-      'Read the signed-in account’s Pi remote-control session envelopes: session id, device id, expiry, update time and whether the session is active. Session content is end-to-end encrypted and is never decrypted here.',
-    inputSchema: {
-      type: 'object',
-      properties: { active_only: { type: 'boolean' } },
-      additionalProperties: false,
-    },
-    annotations: { readOnlyHint: true },
-    execute: async (rawInput, { signal }) => {
-      requireSignedIn()
-      const input = ensureObject(rawInput)
-      const activeOnly = input.active_only === true
-      ensureNotAborted(signal)
-      const response = await api.get<
-        ApiEnvelope<{
-          sessions?: Array<Record<string, unknown>>
-          items?: Array<Record<string, unknown>>
-        }>
-      >('/api/remote-control/v1/pi/sessions', {
-        signal,
-        skipBusinessError: true,
-      })
-      ensureNotAborted(signal)
-      if (!response.data.success) {
-        throw new Error(response.data.message || 'Unable to load sessions')
-      }
-      // The wire format is snake_case; normalizePiSessionEnvelopes is the one
-      // place that knows it, and it also drops rows without ciphertext.
-      const items = normalizePiSessionEnvelopes(response.data.data)
-      const now = Date.now()
-      const sessions = items
-        .map((item) => ({
-          session_id: clip(item.sessionId, 80),
-          device_id: clip(item.deviceId, 80),
-          expires_at: item.expiresAt,
-          updated_at: item.updatedAt,
-          active: item.expiresAt * 1000 > now,
-        }))
-        .filter((session) => !activeOnly || session.active)
-      return {
-        count: sessions.length,
-        note: 'Message content stays encrypted in the browser; open /remote-control to read a session.',
-        sessions: sessions.slice(0, 50),
-      }
     },
   },
   {

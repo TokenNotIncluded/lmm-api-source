@@ -100,7 +100,7 @@ func proof(t *testing.T, s *Service, key string) ClaimRequest {
 	return ClaimRequest{OperationKey: challenge.OperationKey, ChallengeID: challenge.ChallengeID, TurnstileToken: "synthetic-verified-token"}
 }
 func (l *fakeLedger) Post(_ context.Context, user string, input Posting) (Receipt, error) {
-	date, amount, level := input.Day, input.Amount, input.Level
+	date, amount := input.Day, input.Amount
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	if user != "fresh-personal-session" {
@@ -110,7 +110,7 @@ func (l *fakeLedger) Post(_ context.Context, user string, input Posting) (Receip
 		r.Replayed = true
 		return r, nil
 	}
-	if l.a.Blocked || amount > l.a.MaxDailyUnits || level != l.a.TrustLevel {
+	if l.a.Blocked || amount > l.a.MaxDailyUnits {
 		return Receipt{}, ErrForbidden
 	}
 	if date != l.a.Day {
@@ -143,7 +143,7 @@ var accountCounter atomic.Int64
 func newLedger() *fakeLedger {
 	id := time.Now().UnixNano() + accountCounter.Add(1)
 	at := time.Now().Unix()
-	return &fakeLedger{a: Authority{UserID: id, AccountID: id + 1, Timestamp: at, Day: day(at), TrustLevel: 4, MaxDailyUnits: 100}, receipts: map[string]Receipt{}, challenges: map[string]string{}, authorizations: map[string]string{}}
+	return &fakeLedger{a: Authority{UserID: id, AccountID: id + 1, Timestamp: at, Day: day(at), MaxDailyUnits: 100}, receipts: map[string]Receipt{}, challenges: map[string]string{}, authorizations: map[string]string{}}
 }
 func TestRealPostgresDailyIntentionAndRecovery(t *testing.T) {
 	ctx := context.Background()
@@ -243,7 +243,6 @@ func TestRealPostgresDailyIntentionAndRecovery(t *testing.T) {
 	unknown.a.Timestamp += 86400
 	unknown.a.Day = day(unknown.a.Timestamp)
 	unknown.a.MaxDailyUnits = 0
-	unknown.a.TrustLevel = 0
 	unknown.a.Blocked = true
 	p.Enabled = false
 	publish(p)
@@ -353,15 +352,39 @@ func TestRealPostgresDailyIntentionAndRecovery(t *testing.T) {
 		t.Fatalf("zero reward %+v %v", z, e)
 	}
 }
-func TestRewardRangeMatchesOriginalGoRounding(t *testing.T) {
-	p := Policy{MinQuota: "1", MaxQuota: "3", SourceRevision: SourceRevision, CalendarOffsetSeconds: Offset, CreditsPerUSD: 500000}
-	r, e := p.rewardRange(0)
-	if e != nil || r.MinQuota != "1" || r.MaxQuota != "2" {
-		t.Fatalf("half away rounding %+v %v", r, e)
+func TestRewardRangeUsesConfiguredBaseForAllUsers(t *testing.T) {
+	var p Policy
+	if err := json.Unmarshal([]byte(`{"min_quota":"1","max_quota":"3","level_multipliers":[0.5,0.65,0.8,0.9,1]}`), &p); err != nil {
+		t.Fatal(err)
 	}
-	p.LevelMultipliers = []float64{-1}
-	r, e = p.rewardRange(0)
-	if e != nil || r.RewardMultiplier != .5 {
-		t.Fatal("invalid tier multiplier lost original default")
+	r, err := p.rewardRange()
+	if err != nil || r.MinQuota != "1" || r.MaxQuota != "3" || r.RewardMultiplier != 1 {
+		t.Fatalf("base rewards changed by legacy multipliers: %+v %v", r, err)
+	}
+	p.MinQuota, p.MaxQuota = "9007199254740993", "9007199254740995"
+	r, err = p.rewardRange()
+	if err != nil || r.MinQuota != p.MinQuota || r.MaxQuota != p.MaxQuota {
+		t.Fatalf("integer reward range lost precision: %+v %v", r, err)
+	}
+}
+
+func TestHistoricalRecordStorageDoesNotExposeTrustLevel(t *testing.T) {
+	stored := json.RawMessage(`{"checkin_date":"2026-11-15","quota_awarded":"7","created_at":1794715200,"journal_id":1,"origin":"native","policy_revision":2,"trust_level":4}`)
+	var record DailyRecord
+	if err := json.Unmarshal(stored, &record); err != nil {
+		t.Fatal(err)
+	}
+	result := ClaimResult{AlreadyClaimed: true, Record: record}
+	public, err := json.Marshal(result)
+	if err != nil || strings.Contains(string(public), "trust_level") || record.QuotaAwarded != "7" {
+		t.Fatalf("historical public projection: %s %v", public, err)
+	}
+	persisted, err := storedClaimResult(result, stored)
+	var decoded struct {
+		AlreadyClaimed bool `json:"already_claimed"`
+		Record struct { Level uint32 `json:"trust_level"` } `json:"record"`
+	}
+	if err != nil || json.Unmarshal(persisted, &decoded) != nil || !decoded.AlreadyClaimed || decoded.Record.Level != 4 {
+		t.Fatalf("historical durable record changed: %s %v", persisted, err)
 	}
 }

@@ -22,14 +22,13 @@ export type AssistantAccountAccessState =
   | 'loading'
   | 'error'
   | 'granted'
-  | 'restricted'
 
 export function getAssistantAccountAccessState(
   status: AssistantStatus | undefined,
   failed: boolean
 ): AssistantAccountAccessState {
   if (status) {
-    return status.developer_access_granted ? 'granted' : 'restricted'
+    return 'granted'
   }
   return failed ? 'error' : 'loading'
 }

@@ -38,7 +38,6 @@ pub struct RequiredCapabilities {
     pub wallet: bool,
     pub bounties: bool,
     pub community: bool,
-    pub trust_policy_editor: bool,
     pub federated_auth: bool,
     pub checkins: bool,
     pub checkin_rewards: bool,
@@ -291,25 +290,7 @@ pub(crate) async fn check_connection(
     }
 
     crate::directory_ads::check_privileges(connection, required.directory_ads).await?;
-    trust_policy::check(connection, required.trust_policy_editor).await?;
-    if required.models
-        || required.images
-        || required.assistant
-        || required.assistant_agent
-        || required.checkins
-        || required.checkin_rewards
-    {
-        let trust_visible:bool=sqlx::query_scalar("SELECT COALESCE((SELECT has_schema_privilege(n.oid,'USAGE') FROM pg_namespace n WHERE n.nspname='core_trust_pricing'),false)")
-            .fetch_one(&mut *connection).await?;
-        if !trust_visible {
-            return Err(RuntimeDatabaseError::MissingPrivileges);
-        }
-        let trust_complete:bool=sqlx::query_scalar("SELECT count(*)=3 AND COALESCE(bool_and(has_table_privilege(c.oid,'SELECT')),false) FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='core_trust_pricing' AND c.relkind='r' AND c.relname IN ('policies','user_bases','legacy_paid_orders')")
-            .fetch_one(&mut *connection).await?;
-        if !trust_complete {
-            return Err(RuntimeDatabaseError::MissingPrivileges);
-        }
-    }
+    trust_policy::check(connection).await?;
 
     tool_market_credit::check(connection, required.tool_market).await?;
     operations::check(connection).await?;
@@ -387,7 +368,6 @@ pub(crate) async fn check_connection(
               ('session_authentication','user_id')) p(name,column_name)
             WHERE NOT has_column_privilege('core_identity.'||p.name,p.column_name,'UPDATE'))
           AND has_table_privilege('core_identity.auth_attempts','UPDATE')
-          AND has_table_privilege('core_identity.developer_access','SELECT')
           AND has_table_privilege('core_identity.user_routing_groups','SELECT')
           AND has_table_privilege('core_identity.privileged_import_facts','SELECT')
           AND has_table_privilege('core_identity.permission_policies','SELECT')

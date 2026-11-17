@@ -21,8 +21,6 @@ import { useTranslation } from 'react-i18next'
 
 import { Button } from '@/components/ui/button'
 import { SourceQuestionnaire } from '@/features/acquisition/source-questionnaire'
-import { requestAssistantOpen } from '@/features/assistant/assistant-events'
-import { AssistantRegistrationStatus } from '@/features/assistant/assistant-registration-status'
 import { formatQuota } from '@/lib/format'
 
 import { useAccountNextStep } from './use-account-next-step'
@@ -35,14 +33,12 @@ export function AccountStatus({
   const { t } = useTranslation()
   const { user, nextStep } = useAccountNextStep()
   if (!user) return null
-  const granted = user.developer_access_granted === true
-  const access = granted ? 'API access enabled' : 'Enable L1 access'
   const details =
     user.onboarding?.details_available === false ? undefined : user.onboarding
   const keyCreated = details?.api_key_created
   const firstRequest = details?.first_request_complete
   const facts = [
-    [t('API access'), t(access)],
+    [t('API access'), t('API access enabled')],
     [
       t('API Key'),
       t(
@@ -82,14 +78,7 @@ export function AccountStatus({
           </div>
         ))}
       </dl>
-      {showRequestDetails && <AssistantRegistrationStatus key={user.id} />}
-      {showRequestDetails && !granted ? (
-        <Button onClick={() => requestAssistantOpen('onboarding')}>
-          {t('Start with AI assistant')}
-        </Button>
-      ) : (
-        <Button render={<Link to={nextStep.to} />}>{t(nextStep.label)}</Button>
-      )}
+      <Button render={<Link to={nextStep.to} />}>{t(nextStep.label)}</Button>
       {showRequestDetails && <SourceQuestionnaire />}
     </section>
   )

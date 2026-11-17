@@ -384,6 +384,11 @@ impl BrowserAuth {
         let hash = digest(presented)?;
         let current: Vec<u8> = row.try_get("refresh_digest")?;
         let previous: Option<Vec<u8>> = row.try_get("previous_refresh_digest")?;
+        if constant_digest(&current, &hash)
+            || previous.as_ref().is_some_and(|previous| constant_digest(previous, &hash))
+        {
+            super::network_policy::authorize_request_ip(&mut tx, row.try_get("user_id")?).await?;
+        }
         let next = self.derived_secret(b"browser-refresh-v1", sid, presented, "lmmr_")?;
         if constant_digest(&current, &hash) {
             let access = self.derived_secret(b"browser-access-v1", sid, &next, "lmms_")?;
@@ -569,19 +574,17 @@ async fn revoke_family(c: &mut PgConnection, sid: &str) -> BrowserResult<()> {
     Ok(())
 }
 async fn user_projection(c: &mut PgConnection, user: i64, financial: bool) -> BrowserResult<Value> {
-    let r=sqlx::query("SELECT u.id,u.active,u.platform_role,p.username,p.display_name,p.email,p.setting, (u.platform_role IN ('admin','superadmin') OR COALESCE((SELECT d.granted FROM core_identity.developer_access d WHERE d.user_id=u.id),FALSE)) AS developer_access_granted FROM core_identity.users u JOIN core_identity.user_profiles p ON p.user_id=u.id WHERE u.id=$1").bind(user).fetch_one(&mut *c).await?;
+    let r=sqlx::query("SELECT u.id,u.active,u.platform_role,p.username,p.display_name,p.email,p.setting FROM core_identity.users u JOIN core_identity.user_profiles p ON p.user_id=u.id WHERE u.id=$1").bind(user).fetch_one(&mut *c).await?;
     let role = match r.try_get::<String, _>("platform_role")?.as_str() {
         "user" => 1,
         "admin" => 10,
         "superadmin" => 100,
         _ => return Err(IdentityError::Storage.into()),
     };
-    let api_key_management = r.try_get::<bool, _>("active")?
-        && (r.try_get::<bool, _>("developer_access_granted")?
-            || compat::marked_key_management(c, user).await?);
+    let api_key_management = r.try_get::<bool, _>("active")?;
     let raw: String = r.try_get("setting")?;
     let settings: Value = serde_json::from_str(&raw).map_err(|_| IdentityError::Storage)?;
-    let mut result = json!({"id":r.try_get::<i64,_>("id")?,"username":r.try_get::<String,_>("username")?,"display_name":r.try_get::<String,_>("display_name")?,"email":r.try_get::<String,_>("email")?,"setting":raw,"role":role,"status":if r.try_get::<bool,_>("active")? {1}else{2},"financial_projection_available":false,"usage_projection_available":false,"developer_access_granted":r.try_get::<bool,_>("developer_access_granted")?,"permissions":{"api_key_management":api_key_management}});
+    let mut result = json!({"id":r.try_get::<i64,_>("id")?,"username":r.try_get::<String,_>("username")?,"display_name":r.try_get::<String,_>("display_name")?,"email":r.try_get::<String,_>("email")?,"setting":raw,"role":role,"status":if r.try_get::<bool,_>("active")? {1}else{2},"financial_projection_available":false,"usage_projection_available":false,"permissions":{"api_key_management":api_key_management}});
     // Isolated identity fixtures may omit later components. The assembled
     // production database must pass its complete schema/runtime checks first.
     let has_telegram: bool =

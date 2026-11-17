@@ -94,12 +94,10 @@ function OverviewGreetingSession({ user }: { user: AuthUser }) {
   const language = overviewLanguage(i18n.resolvedLanguage || i18n.language)
   const level =
     user.role >= ROLE.SUPER_ADMIN
-      ? `L6 (${t('Super administrator')})`
+      ? t('Super administrator')
       : user.role >= ROLE.ADMIN
-        ? `L5 (${t('Administrator')})`
-        : user.trust_level_info?.level !== undefined
-          ? `L${user.trust_level_info.level}`
-          : '—'
+        ? t('Administrator')
+        : t('User')
   const valuesFor = (locale: string) => ({
     $name: user.display_name || user.username,
     $time: new Intl.DateTimeFormat(locale, {

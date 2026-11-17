@@ -68,12 +68,10 @@ pub struct UsersQuery {
     pub group: Option<String>,
     pub role: Option<String>,
     pub status: Option<String>,
-    pub service_level: Option<i16>,
     pub page: Option<u32>,
     pub page_size: Option<u32>,
     pub sort_by: Option<String>,
     pub sort_order: Option<String>,
-    pub trust_level: Option<String>,
     pub risk_min: Option<String>,
     pub risk_max: Option<String>,
     pub transfers: Option<String>,
@@ -93,7 +91,6 @@ struct ValidQuery {
     group: Option<String>,
     role: Option<String>,
     active: Option<bool>,
-    level: Option<i16>,
     page: u32,
     size: u32,
     offset: i64,
@@ -113,7 +110,6 @@ impl UsersQuery {
             return Err(AdminUsersError::Invalid);
         }
         for value in [
-            &self.trust_level,
             &self.risk_min,
             &self.risk_max,
             &self.transfers,
@@ -145,9 +141,6 @@ impl UsersQuery {
             Some("deleted" | "-1") => return Err(AdminUsersError::UnsupportedFilter),
             _ => return Err(AdminUsersError::Invalid),
         };
-        if self.service_level.is_some_and(|v| !(0..=4).contains(&v)) {
-            return Err(AdminUsersError::Invalid);
-        }
         let (page, size, offset) = pagination(self.page, self.page_size)?;
         let sort = match self.sort_by.as_deref().unwrap_or("id") {
             "id" => "id",
@@ -156,7 +149,6 @@ impl UsersQuery {
             "core_created_at" => "core_created_at",
             "registered_at" => "registered_at",
             "groups" => "groups COLLATE \"C\"",
-            "service_level" => "service_level",
             "role" => "role_number",
             "status" => "status_number",
             "quota"
@@ -189,7 +181,6 @@ impl UsersQuery {
             group,
             role,
             active,
-            level: self.service_level,
             page,
             size,
             offset,
@@ -211,8 +202,6 @@ pub struct UserRow {
     pub active: bool,
     pub status: i16,
     pub account_active: bool,
-    pub service_level: i16,
-    pub developer_access_granted: bool,
     pub groups: Vec<String>,
     pub core_account_created_at_unix_ms: i64,
     pub registered_at_unix_ms: Option<i64>,
@@ -241,7 +230,7 @@ fn safe_time(value: i64) -> ReadResult<i64> {
 }
 fn capabilities() -> ReadCapabilities {
     ReadCapabilities {
-        filters: &["keyword", "group", "role", "status", "service_level"],
+        filters: &["keyword", "group", "role", "status"],
         sorts: &[
             "id",
             "username",
@@ -249,14 +238,12 @@ fn capabilities() -> ReadCapabilities {
             "core_created_at",
             "registered_at",
             "groups",
-            "service_level",
             "role",
             "status",
         ],
         implemented_write_actions: &["create"],
         unavailable_projections: &[
             "legacy_group",
-            "legacy_trust",
             "used_quota",
             "normalized_used_quota",
             "request_count",
@@ -283,7 +270,6 @@ fn capabilities() -> ReadCapabilities {
             "promote",
             "demote",
             "adjust_money",
-            "set_trust_level",
             "reset_onboarding",
             "normal_ban",
             "ban_abuse",
@@ -403,7 +389,6 @@ impl AdminUsersStore {
                     account_active,
                     auth_version,
                     credential_auth_version: actor.user_version,
-                    developer: super::permissions::DeveloperState::Granted,
                 },
                 &loaded.as_policy(),
                 super::permissions::Action::AdminUsersRead,
@@ -430,11 +415,10 @@ impl AdminUsersStore {
         .bind(&q.group)
         .bind(&q.role)
         .bind(q.active)
-        .bind(q.level)
         .fetch_one(&mut *tx)
         .await?;
-        let rows=sqlx::query(sqlx::AssertSqlSafe(format!("{SELECTED} SELECT *,floor(extract(epoch FROM core_created_at)*1000)::bigint AS core_created_ms,floor(extract(epoch FROM registered_at)*1000)::bigint AS registered_ms FROM selected ORDER BY {} LIMIT $7 OFFSET $8",q.order)))
-            .bind(&q.keyword).bind(q.keyword_id).bind(&q.group).bind(&q.role).bind(q.active).bind(q.level).bind(i64::from(q.size)).bind(q.offset).fetch_all(&mut *tx).await?;
+        let rows=sqlx::query(sqlx::AssertSqlSafe(format!("{SELECTED} SELECT *,floor(extract(epoch FROM core_created_at)*1000)::bigint AS core_created_ms,floor(extract(epoch FROM registered_at)*1000)::bigint AS registered_ms FROM selected ORDER BY {} LIMIT $6 OFFSET $7",q.order)))
+            .bind(&q.keyword).bind(q.keyword_id).bind(&q.group).bind(&q.role).bind(q.active).bind(i64::from(q.size)).bind(q.offset).fetch_all(&mut *tx).await?;
         let mut items = Vec::with_capacity(rows.len());
         for r in rows {
             items.push(project_user(&mut tx, r).await?);
@@ -459,14 +443,13 @@ impl AdminUsersStore {
         Self::authorize(&mut tx, secret).await?;
         // Use the list's projection, but select the exact ID independently of text search.
         let row = sqlx::query(sqlx::AssertSqlSafe(format!(
-            "{SELECTED} SELECT *,floor(extract(epoch FROM core_created_at)*1000)::bigint AS core_created_ms,floor(extract(epoch FROM registered_at)*1000)::bigint AS registered_ms FROM selected WHERE id=$7"
+            "{SELECTED} SELECT *,floor(extract(epoch FROM core_created_at)*1000)::bigint AS core_created_ms,floor(extract(epoch FROM registered_at)*1000)::bigint AS registered_ms FROM selected WHERE id=$6"
         )))
         .bind("")
         .bind(None::<i64>)
         .bind(None::<String>)
         .bind(None::<String>)
         .bind(None::<bool>)
-        .bind(None::<i16>)
         .bind(user_id)
         .fetch_optional(&mut *tx)
         .await?
@@ -526,8 +509,6 @@ async fn project_user(c: &mut PgConnection, r: sqlx::postgres::PgRow) -> ReadRes
         active: r.try_get("active")?,
         status: r.try_get("status_number")?,
         account_active: r.try_get("account_active")?,
-        service_level: r.try_get("service_level")?,
-        developer_access_granted: r.try_get("developer_access_granted")?,
         groups: r.try_get("groups")?,
         core_account_created_at_unix_ms: safe_time(r.try_get("core_created_ms")?)?,
         registered_at_unix_ms: r
@@ -540,12 +521,11 @@ async fn project_user(c: &mut PgConnection, r: sqlx::postgres::PgRow) -> ReadRes
 const SELECTED: &str = r#"
 WITH selected AS (
  SELECT u.id,u.personal_account_id,u.auth_version,u.platform_role,u.active,
-  a.active AS account_active,a.service_level,a.created_at AS core_created_at,
+  a.active AS account_active,a.created_at AS core_created_at,
   p.user_id IS NOT NULL AS profile_available,p.username,p.display_name,p.email,
   o.registered_at,
   CASE u.platform_role WHEN 'user' THEN 1::smallint WHEN 'admin' THEN 10::smallint WHEN 'superadmin' THEN 100::smallint END AS role_number,
   CASE WHEN u.active THEN 1::smallint ELSE 2::smallint END AS status_number,
-  (u.platform_role IN ('admin','superadmin') OR EXISTS(SELECT FROM core_identity.developer_access d WHERE d.user_id=u.id AND d.granted)) AS developer_access_granted,
   ARRAY(SELECT g.group_name FROM core_identity.user_routing_groups g WHERE g.user_id=u.id AND g.enabled ORDER BY g.group_name COLLATE "C") AS groups
  FROM core_identity.users u JOIN core_identity.accounts a ON a.id=u.personal_account_id AND a.kind='personal'
  LEFT JOIN core_identity.user_profiles p ON p.user_id=u.id
@@ -554,7 +534,6 @@ WITH selected AS (
    OR position(lower($1) in lower(COALESCE(p.display_name,'')))>0 OR position(lower($1) in lower(COALESCE(p.email,'')))>0)
   AND ($3::text IS NULL OR EXISTS(SELECT FROM core_identity.user_routing_groups g WHERE g.user_id=u.id AND g.enabled AND g.group_name COLLATE "C"=$3::text COLLATE "C"))
   AND ($4::text IS NULL OR u.platform_role=$4) AND ($5::boolean IS NULL OR u.active=$5)
-  AND ($6::smallint IS NULL OR a.service_level=$6)
 )
 "#;
 #[cfg(all(test, unix))]

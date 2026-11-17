@@ -25,6 +25,9 @@
 //! OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 //! THE SOFTWARE.
 
+mod write_io;
+
+use write_io::{PublicWriteIo, public_listener};
 use axum::{Router, body::Body, serve::Listener};
 use hyper::{Request, body::Incoming, service::service_fn};
 use hyper_util::{
@@ -60,7 +63,7 @@ pub const PUBLIC_HEADER_TIMEOUT: Duration = Duration::from_secs(10);
 // The permit follows the actual IO through HTTP upgrades. Keeping it only in
 // the connection task would release capacity while the upgraded socket lives.
 struct AdmittedIo {
-    inner: crate::remote_control::PublicWriteIo<TcpStream>,
+    inner: PublicWriteIo<TcpStream>,
     first_parsed: Arc<AtomicBool>,
     abort_on_drop: Arc<AtomicBool>,
     _permit: OwnedSemaphorePermit,
@@ -130,7 +133,7 @@ pub async fn serve<F>(listener: TcpListener, app: Router, shutdown: F) -> io::Re
 where
     F: Future<Output = ()> + Send + 'static,
 {
-    let mut listener = crate::remote_control::public_listener(listener);
+    let mut listener = public_listener(listener);
     let slots = std::sync::Arc::new(Semaphore::new(MAX_PUBLIC_CONNECTIONS));
     let graceful = GracefulShutdown::new();
     let mut make_service = app.into_make_service_with_connect_info::<SocketAddr>();

@@ -143,7 +143,7 @@ fn country_and_native_bearer_are_unambiguous() {
     assert!(bearer(&h).is_none());
 }
 #[test]
-fn explicit_opt_in_and_frozen_eligibility_are_separate_requirements() {
+fn explicit_opt_in_is_required_without_user_tiers() {
     for invalid in [
         r#"{"allow_key_bypass_ip_policy":"true"}"#,
         r#"{"allow_key_bypass_ip_policy":1}"#,
@@ -156,29 +156,10 @@ fn explicit_opt_in_and_frozen_eligibility_are_separate_requirements() {
             .unwrap()
             .allow_key_bypass_ip_policy
     );
-    let facts = json!({"version":1,"users":[{"user_id":7,"minimum_trust_level":1,"basis":"source_console_activation","source_facts_sha256":"a".repeat(64)}]});
-    let eligibility: Eligibility = serde_json::from_value(facts.clone()).unwrap();
-    assert!(eligibility.allows(7));
-    assert!(!eligibility.allows(8));
-    let mut bad = facts.clone();
-    bad["users"][0]["minimum_trust_level"] = json!(0);
     assert!(
-        !serde_json::from_value::<Eligibility>(bad)
+        serde_json::from_str::<OptIn>(r#"{"allow_key_bypass_ip_policy":true}"#)
             .unwrap()
-            .allows(7)
-    );
-    let mut bad = facts.clone();
-    bad["users"][0]["basis"] = json!("developer_access");
-    assert!(serde_json::from_value::<Eligibility>(bad).is_err());
-    let mut bad = facts.clone();
-    bad["users"]
-        .as_array_mut()
-        .unwrap()
-        .push(facts["users"][0].clone());
-    assert!(
-        !serde_json::from_value::<Eligibility>(bad)
-            .unwrap()
-            .allows(7)
+            .allow_key_bypass_ip_policy
     );
 }
 #[test]

@@ -44,7 +44,7 @@ const INVALIDATING_CONFIRMATION_CODES = new Set([
 ])
 
 export function useAssistantKeyCreation(options: {
-  developerAccessGranted: boolean
+  authenticated: boolean
   confirmationAction?: AssistantCreateKeyAction | null
   autoConfirm?: boolean
   onKeyCreated?: () => void
@@ -54,7 +54,7 @@ export function useAssistantKeyCreation(options: {
   const {
     autoConfirm,
     confirmationAction,
-    developerAccessGranted,
+    authenticated,
     onKeyCreated,
     onKeyPreparationInvalid,
   } = options
@@ -73,7 +73,7 @@ export function useAssistantKeyCreation(options: {
   const groupsQuery = useQuery({
     queryKey: ['assistant-user-groups'],
     queryFn: getUserGroups,
-    enabled: developerAccessGranted,
+    enabled: authenticated,
     staleTime: 0,
     refetchOnMount: 'always',
     refetchOnWindowFocus: true,

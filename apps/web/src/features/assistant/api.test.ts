@@ -29,6 +29,7 @@ import {
   executeAssistantUserAction,
   getAssistantConversationHistory,
   getAssistantAvailableModels,
+  getAccountSetupTodo,
   getAssistantSetupModels,
   isAssistantRequestAborted,
   parseAssistantAction,
@@ -47,6 +48,65 @@ function retryableAxiosError(status: number) {
     response: { status },
   })
 }
+
+describe('account setup checklist response validation', () => {
+  test('reads the current checklist without restoring retired eligibility metadata', async () => {
+    const originalGet = api.get
+    const todo = {
+      eligibility: { eligible: true },
+      status: 'in_progress',
+      current_step: 'create_api_key',
+      steps: [{ id: 'create_api_key', status: 'pending' }],
+    }
+    api.get = (async (url: string) => {
+      assert.equal(url, '/api/user/self/onboarding/todo')
+      return {
+        data: {
+          success: true,
+          data: { ...todo, developer_access_granted: false, trust_level: 0 },
+        },
+      }
+    }) as typeof api.get
+    try {
+      assert.deepEqual(await getAccountSetupTodo(), todo)
+    } finally {
+      api.get = originalGet
+    }
+  })
+
+  test('rejects malformed checklist data before it reaches the assistant view', async () => {
+    const originalGet = api.get
+    const valid = {
+      eligibility: { eligible: true },
+      status: 'in_progress',
+      steps: [],
+    }
+    try {
+      for (const data of [
+        null,
+        {},
+        { ...valid, eligibility: null },
+        { ...valid, eligibility: { eligible: 'true' } },
+        { ...valid, status: 'activate' },
+        { ...valid, steps: null },
+        { ...valid, steps: [{ id: 'create_api_key', status: 'unknown' }] },
+        { ...valid, steps: [{ id: 'grant_developer_access', status: 'pending' }] },
+        { ...valid, current_step: 'grant_developer_access' },
+        { ...valid, completed_at: 'yesterday' },
+      ]) {
+        api.get = (async () => ({ data: { success: true, data } })) as typeof api.get
+        await assert.rejects(
+          getAccountSetupTodo(),
+          (error: unknown) =>
+            error instanceof AssistantRequestError &&
+            error.message === 'Unable to load setup checklist'
+        )
+      }
+    } finally {
+      api.get = originalGet
+    }
+  })
+})
 
 describe('assistant chat setup model discovery', () => {
   test('excludes native aliases using endpoint metadata while retaining key model access', async () => {
@@ -653,12 +713,12 @@ describe('assistant response parsing', () => {
       parseAssistantAction({
         type: 'navigate',
         path: '/users',
-        query: { filter: 'alice', l0Only: false },
+        query: { filter: 'alice' },
       }),
       {
         type: 'navigate',
         path: '/users',
-        query: { filter: 'alice', l0Only: false },
+        query: { filter: 'alice' },
       }
     )
     assert.equal(

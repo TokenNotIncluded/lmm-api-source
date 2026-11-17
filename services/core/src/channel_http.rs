@@ -588,7 +588,6 @@ async fn authorize_action(
                 account_active: row.try_get("account_active")?,
                 auth_version: row.try_get("auth_version")?,
                 credential_auth_version: row.try_get("user_version")?,
-                developer: permissions::DeveloperState::Granted,
             },
             &policy.as_policy(),
             action,

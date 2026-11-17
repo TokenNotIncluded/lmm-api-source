@@ -89,13 +89,13 @@ const EMPTY_PROFILES: AssistantProfileSummary[] = []
 const EMPTY_FIRST_QUESTIONS: AssistantFirstQuestionSummary[] = []
 
 const INTENT_LABELS: Record<string, string> = {
-  onboarding: 'Onboarding and L1',
+  onboarding: 'Client setup',
   plan_purchase: 'Plans and purchase',
   api_key: 'API keys',
   client_setup: 'Client setup',
   cost: 'Cost calculation',
   math: 'Math calculation',
-  recommendation: 'Onboarding and L1',
+  recommendation: 'Client setup',
   bounty: 'Bounties',
   usage: 'Usage',
   models: 'Models',

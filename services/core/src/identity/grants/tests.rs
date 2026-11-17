@@ -63,7 +63,6 @@ pub(crate) async fn tokens(store: &GrantStore, native: &str) -> TokenBundle {
             "balance:read",
             "usage:read",
             "models:invoke",
-            "remote:control",
         ],
     )
     .await;
@@ -104,14 +103,15 @@ fn profile_pkce_and_bounded_inputs() {
     );
     assert!(pkce(&challenge, Some("S256"), Some(&"a".repeat(129))).is_err());
     assert!(scopes(&[]).is_err());
-    assert!(scopes(&["remote:control".into(), "remote:control".into()]).is_err());
+    assert!(scopes(&["remote:control".into()]).is_err());
+    assert!(scopes(&["balance:read".into(), "balance:read".into()]).is_err());
     assert!(scopes(&["group:host".into()]).is_err());
     assert!(token_digest(&"a".repeat(10000), "lmm_at_").is_err());
 }
 #[sqlx::test(migrations = false)]
 async fn grants_binding_code_consumption_and_native_rejection(pool: PgPool) {
     let (identity, store, native) = fresh(&pool).await;
-    let code = seed(&store, &native.secret, &["remote:control"]).await;
+    let code = seed(&store, &native.secret, &["balance:read"]).await;
     for field in 0..6 {
         let mut input = exchange(&code);
         match field {
@@ -146,13 +146,7 @@ async fn grants_binding_code_consumption_and_native_rejection(pool: PgPool) {
             .await
             .is_err()
     );
-    assert!(
-        identity
-            .authorize_remote_native(&bundle.access_token)
-            .await
-            .is_err()
-    );
-    assert!(store.authorize_remote(&native.secret).await.is_err());
+    assert!(store.fixture_balance_access(&native.secret).await.is_err());
     let key = identity
         .issue_key(
             &native.secret,
@@ -166,24 +160,15 @@ async fn grants_binding_code_consumption_and_native_rejection(pool: PgPool) {
         .await
         .unwrap();
     assert!(identity.authorize(&key.secret).await.is_ok());
-    assert!(identity.authorize_remote_native(&key.secret).await.is_err());
     for bad in [
         &key.secret,
         "lmm_host_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
         "group:host",
     ] {
-        assert!(store.authorize_remote(bad).await.is_err());
+        assert!(store.fixture_balance_access(bad).await.is_err());
     }
-    let current = identity
-        .authorize_remote_native(&native.secret)
-        .await
-        .unwrap();
-    assert!(matches!(
-        current.source,
-        RemoteSource::NativePersonal { .. }
-    ));
-    let authority = store.authorize_remote(&bundle.access_token).await.unwrap();
-    assert!(matches!(authority.source, RemoteSource::OAuthGrant { .. }));
+    assert!(identity.authorize(&native.secret).await.is_ok());
+    assert!(store.fixture_balance_access(&bundle.access_token).await.is_ok());
     let rows: Vec<String> =
         sqlx::query_scalar("SELECT row_to_json(t)::text FROM core_oauth.access_tokens t")
             .fetch_all(&pool)
@@ -201,7 +186,7 @@ async fn grants_binding_code_consumption_and_native_rejection(pool: PgPool) {
 async fn grants_rotation_shrink_replay_and_reopen(pool: PgPool) {
     let (identity, store, native) = fresh(&pool).await;
     let initial = tokens(&store, &native.secret).await;
-    let selected = vec!["catalog:read".into(), "remote:control".into()];
+    let selected = vec!["catalog:read".into(), "balance:read".into()];
     let mut request = refresh(&initial.refresh_token);
     request.scopes = Some(&selected);
     let rotated = store.refresh(request, 3600).await.unwrap();
@@ -209,7 +194,7 @@ async fn grants_rotation_shrink_replay_and_reopen(pool: PgPool) {
     assert_eq!(rotated.scopes, selected);
     let widen = vec![
         "catalog:read".into(),
-        "remote:control".into(),
+        "balance:read".into(),
         "models:invoke".into(),
     ];
     let mut request = refresh(&rotated.refresh_token);
@@ -218,7 +203,7 @@ async fn grants_rotation_shrink_replay_and_reopen(pool: PgPool) {
     let reopened = GrantStore::open(identity, profile()).await.unwrap();
     assert!(
         reopened
-            .authorize_remote(&rotated.access_token)
+            .fixture_balance_access(&rotated.access_token)
             .await
             .is_ok()
     );
@@ -235,7 +220,7 @@ async fn grants_rotation_shrink_replay_and_reopen(pool: PgPool) {
         .unwrap();
     assert!(
         reopened
-            .authorize_remote(&rotated.access_token)
+            .fixture_balance_access(&rotated.access_token)
             .await
             .is_err()
     );
@@ -263,7 +248,7 @@ async fn grants_concurrent_refresh_loser_commits_family_revocation(pool: PgPool)
     );
     assert_ne!(a.is_ok(), b.is_ok());
     let winner = a.or(b).unwrap();
-    assert!(store.authorize_remote(&winner.access_token).await.is_err());
+    assert!(store.fixture_balance_access(&winner.access_token).await.is_err());
     assert!(
         store
             .refresh(refresh(&winner.refresh_token), 3600)
@@ -296,7 +281,7 @@ async fn grants_live_authority_expiry_consent_and_revoke(pool: PgPool) {
         sqlx::raw_sql(sqlx::AssertSqlSafe::<&str>(&mutation)).execute(&mut *tx).await.unwrap();
         tx.commit().await.unwrap();
         assert!(
-            store.authorize_remote(&bundle.access_token).await.is_err(),
+            store.fixture_balance_access(&bundle.access_token).await.is_err(),
             "{mutation}"
         );
     }
@@ -310,7 +295,7 @@ async fn grants_live_authority_expiry_consent_and_revoke(pool: PgPool) {
         .revoke_access(&bundle.access_token, "lmm-pi")
         .await
         .unwrap();
-    assert!(store.authorize_remote(&bundle.access_token).await.is_err());
+    assert!(store.fixture_balance_access(&bundle.access_token).await.is_err());
     assert!(
         store
             .refresh(refresh(&bundle.refresh_token), 3600)
@@ -322,12 +307,12 @@ async fn grants_live_authority_expiry_consent_and_revoke(pool: PgPool) {
     let mut request = refresh(&bundle.refresh_token);
     request.scopes = Some(&selected);
     store.refresh(request, 3600).await.unwrap();
-    assert!(store.authorize_remote(&bundle.access_token).await.is_err());
+    assert!(store.fixture_balance_access(&bundle.access_token).await.is_err());
 }
 #[sqlx::test(migrations = false)]
 async fn grants_owner_rebinding_and_transaction_failure_retry(pool: PgPool) {
     let (_, store, native) = fresh(&pool).await;
-    let code = seed(&store, &native.secret, &["remote:control"]).await;
+    let code = seed(&store, &native.secret, &["balance:read"]).await;
     // PostgreSQL injected persistence failure must roll back code consumption.
     sqlx::raw_sql("CREATE FUNCTION core_oauth.fail_insert() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'fixture issuance failure'; END $$; CREATE TRIGGER fail_insert BEFORE INSERT ON core_oauth.refresh_tokens FOR EACH ROW EXECUTE FUNCTION core_oauth.fail_insert()").execute(&pool).await.unwrap();
     assert!(store.exchange(exchange(&code), 3600).await.is_err());
@@ -360,14 +345,14 @@ async fn grants_owner_rebinding_and_transaction_failure_retry(pool: PgPool) {
         Some("23514")
     );
     // Native identity remains immutable; attempted rebinding does not revoke it.
-    assert!(store.authorize_remote(&bundle.access_token).await.is_ok());
+    assert!(store.fixture_balance_access(&bundle.access_token).await.is_ok());
     // Separately corrupt a family's binding: defensive authority checks must deny.
     sqlx::query("UPDATE core_oauth.families SET owner_account_id=$1")
         .bind(replacement)
         .execute(&pool)
         .await
         .unwrap();
-    assert!(store.authorize_remote(&bundle.access_token).await.is_err());
+    assert!(store.fixture_balance_access(&bundle.access_token).await.is_err());
     assert!(
         store
             .refresh(refresh(&bundle.refresh_token), 3600)
@@ -410,17 +395,17 @@ async fn grants_browser_refresh_does_not_revoke_independent_family(pool: PgPool)
     let bundle = tokens(&store, access).await;
     browser.refresh(&login.refresh_token, None).await.unwrap();
     assert!(store.identity.authorize(access).await.is_err());
-    assert!(store.authorize_remote(&bundle.access_token).await.is_ok());
+    assert!(store.fixture_balance_access(&bundle.access_token).await.is_ok());
 }
 
 #[sqlx::test(migrations = false)]
 async fn grants_ttl_boundaries_and_refresh_failure_retry(pool: PgPool) {
     let (_, store, native) = fresh(&pool).await;
     for ttl in [1, 86400] {
-        let code = seed(&store, &native.secret, &["remote:control"]).await;
+        let code = seed(&store, &native.secret, &["balance:read"]).await;
         let bundle = store.exchange(exchange(&code), ttl).await.unwrap();
         assert!((1..=ttl).contains(&bundle.expires_in));
-        assert!(store.authorize_remote(&bundle.access_token).await.is_ok());
+        assert!(store.fixture_balance_access(&bundle.access_token).await.is_ok());
     }
     let bundle = tokens(&store, &native.secret).await;
     sqlx::raw_sql("CREATE FUNCTION core_oauth.fail_refresh() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'fixture refresh failure'; END $$; CREATE TRIGGER fail_refresh BEFORE INSERT ON core_oauth.refresh_tokens FOR EACH ROW EXECUTE FUNCTION core_oauth.fail_refresh()").execute(&pool).await.unwrap();
@@ -466,7 +451,7 @@ async fn grants_ttl_boundaries_and_refresh_failure_retry(pool: PgPool) {
 #[sqlx::test(migrations = false)]
 async fn grants_restricted_runtime_permissions(pool: PgPool) {
     let (_, store, native) = fresh(&pool).await;
-    let code = seed(&store, &native.secret, &["remote:control"]).await;
+    let code = seed(&store, &native.secret, &["balance:read"]).await;
     let suffix = new_secret("").unwrap();
     let role = format!("oauth_fixture_runtime_{}", &suffix[..16]);
     let login = format!("oauth_fixture_login_{}", &suffix[..16]);
@@ -548,7 +533,7 @@ async fn grants_restricted_runtime_permissions(pool: PgPool) {
             .await
             .unwrap();
         let bundle = runtime.exchange(exchange(&code), 3600).await.unwrap();
-        assert!(runtime.authorize_remote(&bundle.access_token).await.is_ok());
+        assert!(runtime.fixture_balance_access(&bundle.access_token).await.is_ok());
         let rotated = runtime
             .refresh(refresh(&bundle.refresh_token), 3600)
             .await
@@ -643,7 +628,7 @@ async fn grants_foreign_profile_replay_cannot_revoke_family(pool: PgPool) {
         !revoked,
         "foreign-profile replay must not mutate the family"
     );
-    assert!(store.authorize_remote(&rotated.access_token).await.is_ok());
+    assert!(store.fixture_balance_access(&rotated.access_token).await.is_ok());
     // Bound replay must still revoke, even if the consumed lineage has expired.
     sqlx::query("UPDATE core_oauth.refresh_tokens SET expires_at=clock_timestamp()-interval '1 second' WHERE digest=$1")
         .bind(digest(&initial.refresh_token).unwrap()).execute(&pool).await.unwrap();
@@ -657,7 +642,7 @@ async fn grants_foreign_profile_replay_cannot_revoke_family(pool: PgPool) {
             .await
             .unwrap();
     assert!(revoked);
-    assert!(store.authorize_remote(&rotated.access_token).await.is_err());
+    assert!(store.fixture_balance_access(&rotated.access_token).await.is_err());
 }
 
 // Wait for a real PostgreSQL authority-lock waiter, then cross the exact DB
@@ -706,7 +691,7 @@ async fn release_after_expiry(
 
 async fn expiry_lock_regression(pool: PgPool, mode: &str) {
     let (_, store, native) = fresh(&pool).await;
-    let code = seed(&store, &native.secret, &["remote:control"]).await;
+    let code = seed(&store, &native.secret, &["balance:read"]).await;
     let is_code = mode == "code_native";
     let bundle = if is_code {
         None
@@ -756,7 +741,7 @@ async fn expiry_lock_regression(pool: PgPool, mode: &str) {
                     .map(|_| ())
             } else {
                 owned_store
-                    .authorize_remote(&bundle.access_token)
+                    .fixture_balance_access(&bundle.access_token)
                     .await
                     .map(|_| ())
             }
@@ -806,4 +791,53 @@ async fn grants_code_expiry_during_native_lock(pool: PgPool) {
 #[sqlx::test(migrations = false)]
 async fn grants_refresh_expiry_during_native_lock(pool: PgPool) {
     expiry_lock_regression(pool, "refresh_native").await;
+}
+
+impl GrantStore {
+    // Inspect the foundation fixture with the same live/expiry primitives used by exchange and refresh.
+    // This test helper grants no application capability.
+    async fn fixture_balance_access(&self, token: &str) -> Result<()> {
+        let hash = token_digest(token, "lmm_at_")?;
+        let mut tx = transaction(&self.identity.pool).await?;
+        let token = sqlx::query("SELECT id,family_id,consent_version,scopes FROM core_oauth.access_tokens WHERE digest=$1").bind(&hash).fetch_optional(&mut *tx).await?.ok_or(IdentityError::Unauthorized)?;
+        let f = family(&mut tx, &token.try_get::<String, _>("family_id")?, false).await?;
+        live(
+            &mut tx,
+            &f,
+            &self.profile,
+            token.try_get("consent_version")?,
+        )
+        .await?;
+        let selected: Vec<String> = token.try_get("scopes")?;
+        let allowed: Vec<String> = f.try_get("scopes")?;
+        let _expiry: i64 = sqlx::query_scalar("SELECT ceil(extract(epoch FROM expires_at))::bigint FROM core_oauth.access_tokens WHERE digest=$1 AND expires_at>clock_timestamp()")
+            .bind(hash).fetch_optional(&mut *tx).await?.ok_or(IdentityError::Unauthorized)?;
+        if !selected.iter().any(|s| s == "balance:read")
+            || !allowed.iter().any(|s| s == "balance:read")
+        {
+            return Err(IdentityError::Forbidden);
+        }
+        tx.commit().await?;
+        Ok(())
+    }
+}
+
+#[sqlx::test(migrations = false)]
+async fn retired_foundation_scope_requires_reauthentication(pool: PgPool) {
+    let (_, store, native) = fresh(&pool).await;
+    let code = seed(&store, &native.secret, &["balance:read"]).await;
+    let bundle = store.exchange(exchange(&code), 3600).await.unwrap();
+    let refresh_digest = digest(&bundle.refresh_token).unwrap();
+    // Represent an existing family admitted by the preserved historical schema.
+    // The runtime must reject its retired authority without rewriting history.
+    sqlx::query("UPDATE core_oauth.families SET scopes=array_append(scopes,'remote:control') WHERE id=(SELECT family_id FROM core_oauth.refresh_tokens WHERE digest=$1)")
+        .bind(&refresh_digest).execute(&pool).await.unwrap();
+    assert!(matches!(
+        store.refresh(refresh(&bundle.refresh_token), 3600).await,
+        Err(IdentityError::Unauthorized)
+    ));
+    let row = sqlx::query("SELECT consumed_at IS NOT NULL AS consumed,(SELECT count(*) FROM core_oauth.access_tokens a WHERE a.family_id=r.family_id) AS access_count FROM core_oauth.refresh_tokens r WHERE digest=$1")
+        .bind(&refresh_digest).fetch_one(&pool).await.unwrap();
+    assert!(!row.try_get::<bool, _>("consumed").unwrap());
+    assert_eq!(row.try_get::<i64, _>("access_count").unwrap(), 1);
 }

@@ -13,95 +13,13 @@ GNU Affero General Public License for more details.
 */
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
-import { describe, test } from 'node:test'
+import { test } from 'node:test'
 
-const source = readFileSync(
-  new URL('./use-sidebar-data.ts', import.meta.url),
-  'utf8'
-)
-
-describe('authenticated sidebar discovery', () => {
-  test('keeps pre-activation links on publicly reachable surfaces', () => {
-    const onboardingStart = source.indexOf("id: 'onboarding'")
-    const activatedForgeStart = source.indexOf("id: 'general'", onboardingStart)
-    const onboardingSection =
-      onboardingStart >= 0 && activatedForgeStart > onboardingStart
-        ? source.slice(onboardingStart, activatedForgeStart)
-        : ''
-
-    assert.ok(onboardingSection)
-    assert.match(onboardingSection, /title: t\('Challenges'\)/)
-    assert.match(onboardingSection, /url: '\/challenges'/)
-    assert.match(onboardingSection, /url: '\/wallet'/)
-    assert.doesNotMatch(onboardingSection, /getting-started/)
-    assert.match(onboardingSection, /title: t\('Models and pricing'\)/)
-    assert.match(onboardingSection, /url: '\/pricing'/)
-    assert.doesNotMatch(
-      onboardingSection,
-      /url: '\/(open-source-bounties|public-relay|todos)'/
-    )
-  })
-
-  test('does not query todos before console activation', () => {
-    assert.match(source, /const consoleActivated = isConsoleActivated\(user\)/)
-    assert.match(source, /enabled: Boolean\(user\) && consoleActivated/)
-    assert.match(source, /if \(!consoleActivated\)/)
-  })
-
-  test('exposes the reset workspace only as a root navigation item', () => {
-    const resetStart = source.indexOf("title: t('Subscription reset')")
-    const resetSection =
-      resetStart >= 0 ? source.slice(resetStart, resetStart + 180) : ''
-
-    assert.ok(resetSection)
-    assert.match(resetSection, /url: '\/subscriptions\/reset'/)
-    assert.match(resetSection, /requiredRole: ROLE\.SUPER_ADMIN/)
-  })
-
-  test('keeps the model square visible without making it navigable', () => {
-    const generalStart = source.indexOf("id: 'general'")
-    const personalStart = source.indexOf("id: 'personal'", generalStart)
-    const activatedGeneralSection =
-      generalStart >= 0 && personalStart > generalStart
-        ? source.slice(generalStart, personalStart)
-        : ''
-
-    assert.ok(activatedGeneralSection)
-    assert.match(activatedGeneralSection, /title: t\('Models and pricing'\)/)
-    assert.match(activatedGeneralSection, /url: '\/pricing'/)
-    assert.match(activatedGeneralSection, /interaction: 'model-panel'/)
-  })
-
-  test('exposes Pi remote control in the developer section', () => {
-    const generalStart = source.indexOf("id: 'developer'")
-    const personalStart = source.indexOf("id: 'forge'", generalStart)
-    const activatedGeneralSection = source.slice(generalStart, personalStart)
-
-    assert.match(activatedGeneralSection, /title: t\('Remote control'\)/)
-    assert.match(activatedGeneralSection, /url: '\/remote-control'/)
-  })
-  test('separates developer tools, ecosystem, account and standalone services', () => {
-    const activated = source.slice(source.indexOf("id: 'general'"))
-    const section = (id: string, next: string) =>
-      activated.slice(
-        activated.indexOf(`id: '${id}'`),
-        activated.indexOf(`id: '${next}'`)
-      )
-    assert.match(section('general', 'developer'), /title: t\('Use AI'\)/)
-    assert.doesNotMatch(section('general', 'developer'), /getting-started/)
-    assert.match(section('general', 'developer'), /url: '\/chat-management'/)
-    assert.match(section('developer', 'forge'), /url: '\/keys'/)
-    assert.match(section('developer', 'forge'), /url: '\/guide'/)
-    assert.match(section('forge', 'personal'), /url: '\/scripts'/)
-    assert.match(section('personal', 'services'), /url: '\/wallet'/)
-    assert.doesNotMatch(
-      section('personal', 'services'),
-      /temporary-activations/
-    )
-    assert.match(section('services', 'admin'), /url: '\/temporary-activations'/)
-    assert.doesNotMatch(
-      activated.slice(0, activated.indexOf("id: 'admin'")),
-      /url: '\/(users|operations|channels)/
-    )
-  })
+const source = readFileSync(new URL('./use-sidebar-data.ts', import.meta.url), 'utf8')
+test('one console navigation serves every signed-in user', () => {
+  assert.doesNotMatch(source, /id: 'onboarding'/)
+  for (const path of ['/keys', '/guide', '/usage-logs/common', '/wallet']) {
+    assert.ok(source.includes(`url: '${path}'`))
+  }
+  assert.doesNotMatch(source, /remote-control|Remote control/)
 })

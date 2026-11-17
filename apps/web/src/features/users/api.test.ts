@@ -108,48 +108,9 @@ describe('user management API filters', () => {
     }
   })
 
-  test('passes the L0 filter to the paginated user endpoint', async () => {
-    const originalGet = api.get
-    let requestConfig: unknown
-    api.get = (async (url: string, config?: unknown) => {
-      assert.equal(url, '/api/user/')
-      requestConfig = config
-      return { data: { success: true, data: { items: [], total: 0 } } }
-    }) as typeof api.get
 
-    try {
-      await getUsers({ p: 2, page_size: 20, trust_level: 0 })
-      assert.deepEqual(requestConfig, {
-        params: {
-          p: 2,
-          page_size: 20,
-          trust_level: 0,
-        },
-      })
-    } finally {
-      api.get = originalGet
-    }
-  })
 
-  test('passes the L0 filter to user search', async () => {
-    const originalGet = api.get
-    let requestUrl = ''
-    api.get = (async (url: string) => {
-      requestUrl = url
-      return { data: { success: true, data: { items: [], total: 0 } } }
-    }) as typeof api.get
 
-    try {
-      await searchUsers({ keyword: 'alice', trust_level: 0 })
-      const [path, query = ''] = requestUrl.split('?')
-      assert.equal(path, '/api/user/search')
-      const params = new URLSearchParams(query)
-      assert.equal(params.get('keyword'), 'alice')
-      assert.equal(params.get('trust_level'), '0')
-    } finally {
-      api.get = originalGet
-    }
-  })
 })
 
 describe('administrator assistant profile API', () => {

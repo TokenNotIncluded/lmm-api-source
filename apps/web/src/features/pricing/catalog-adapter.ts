@@ -89,7 +89,6 @@ export function adaptNativePricing(
 ): PricingData {
   const pricingContext = {
     rate_basis: document.rate_basis,
-    user_price: document.user_price,
   }
   const grouped = new Map<string, NativePricingDocument['models']>()
   for (const row of document.models) {

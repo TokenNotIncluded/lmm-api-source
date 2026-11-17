@@ -129,14 +129,11 @@ after(() => {
 })
 
 describe('persona debug runtime', () => {
-  test('installs an isolated L0 bundle and switches complete personas', async () => {
+  test('installs an ordinary account and switches complete personas', async () => {
     installPersonaDebugRuntime()
 
     assert.equal(getActiveDebugPersona(), 'l0')
-    assert.equal(
-      useAuthStore.getState().auth.user?.developer_access_granted,
-      false
-    )
+    assert.equal(useAuthStore.getState().auth.user?.role, 1)
 
     setActiveDebugPersona('manager')
     assert.equal(useAuthStore.getState().auth.user?.id, 1098)
@@ -153,27 +150,21 @@ describe('persona debug runtime', () => {
 
     setActiveDebugPersona('admin')
     assert.equal(useAuthStore.getState().auth.user?.role, 100)
-    assert.equal(useAuthStore.getState().auth.user?.trust_level_info?.level, 4)
 
     const status = await api.get('/api/assistant/status')
     assert.equal(status.data.data.is_root, true)
   })
 
-  test('registration status follows the active persona without reviving requests', async () => {
+  test('ordinary personas can list keys without a registration endpoint', async () => {
     installPersonaDebugRuntime()
     const previousPersona = getActiveDebugPersona()
     try {
-      for (const [persona, state] of [
-        ['l0', 'context_needed'],
-        ['l1', 'active'],
-      ] as const) {
+      for (const persona of ['l0', 'l1'] as const) {
         setActiveDebugPersona(persona)
-        const result = await api.get('/api/assistant/registration-check')
-        assert.equal(result.data.success, true)
-        assert.deepEqual(result.data.data, { state })
+        assert.equal((await api.get('/api/token/')).status, 200)
       }
       await assert.rejects(
-        api.get('/api/user/developer-access/request'),
+        api.get('/api/assistant/registration-check'),
         /PERSONA_DEBUG_UNMOCKED_REQUEST/
       )
     } finally {
@@ -214,7 +205,6 @@ describe('persona debug runtime', () => {
         .sort(),
       [
         'account_action',
-        'developer_access',
         'human_support',
         'moderation',
         'open_source_bounty',
@@ -240,22 +230,16 @@ describe('persona debug runtime', () => {
       {
         id: 'b',
         username: 'debug_b_guided_buyer',
-        access: false,
-        trust: 0,
         group: 'default',
       },
       {
         id: 'e',
         username: 'debug_e_normal_user',
-        access: true,
-        trust: 1,
         group: 'default',
       },
       {
         id: 'f',
         username: 'debug_f_enterprise_operator',
-        access: true,
-        trust: 2,
         group: 'enterprise',
       },
     ] as const) {
@@ -263,34 +247,30 @@ describe('persona debug runtime', () => {
 
       const user = await api.get('/api/user/self')
       assert.equal(user.data.data.username, fixture.username)
-      assert.equal(user.data.data.developer_access_granted, fixture.access)
-      assert.equal(user.data.data.trust_level_info.level, fixture.trust)
+      assert.equal(Object.hasOwn(user.data.data, 'developer_access_granted'), false)
+      assert.equal(Object.hasOwn(user.data.data, 'trust_level_info'), false)
       assert.equal(user.data.data.group, fixture.group)
 
       const groups = await api.get('/api/user/self/groups')
       assert.deepEqual(Object.keys(groups.data.data), [fixture.group])
 
-      if (fixture.access) {
-        assert.equal((await api.get('/api/token/')).status, 200)
-      } else {
-        assert.equal((await api.get('/api/token/')).status, 403)
-      }
+      assert.equal((await api.get('/api/token/')).status, 200)
 
       const journey = await api.get('/api/assistant/journey')
       assert.equal(journey.data.success, true)
-      assert.equal(journey.data.data.main.length, 6)
+      assert.equal(journey.data.data.main.length, 5)
       assert.equal(journey.data.data.side.length, 2)
       assert.equal(
-        journey.data.data.main.find(
+        journey.data.data.main.some(
           (step: { id: string }) => step.id === 'get_recommendation'
-        )?.status,
-        fixture.access ? 'completed' : 'pending'
+        ),
+        false
       )
       assert.equal(
         journey.data.data.main.filter(
           (step: { status: string }) => step.status === 'pending'
         ).length,
-        fixture.access ? 0 : 5
+        fixture.id === 'b' ? 4 : 0
       )
       assert.equal(
         journey.data.data.side[0].status,
@@ -313,7 +293,7 @@ describe('persona debug runtime', () => {
     assert.equal(history.data.data.conversations.length, 1)
   })
 
-  test('returns lower-access conversation fixtures without raw secrets', async () => {
+  test('returns administrator-visible conversation fixtures without raw secrets', async () => {
     setActiveDebugPersona('admin')
     const history = await api.get('/api/assistant/conversations', {
       params: { user_id: 1001 },
@@ -325,7 +305,7 @@ describe('persona debug runtime', () => {
     assert.doesNotMatch(serialized, /@example\./)
   })
 
-  test('applies the same hierarchy boundary to history lists and details', async () => {
+  test('applies the same ownership and administrator boundary to history lists and details', async () => {
     setActiveDebugPersona('l0')
     await assert.rejects(
       api.get('/api/assistant/conversations', { params: { user_id: 1002 } }),
@@ -339,13 +319,15 @@ describe('persona debug runtime', () => {
     )
 
     setActiveDebugPersona('l1')
-    const lowerAccess = await api.get('/api/assistant/conversations', {
-      params: { user_id: 1001 },
-    })
-    assert.equal(lowerAccess.data.data.conversations.length, 1)
-    assert.equal(
-      (await api.get('/api/assistant/conversations/8101')).status,
-      200
+    await assert.rejects(
+      api.get('/api/assistant/conversations', { params: { user_id: 1001 } }),
+      (error: unknown) =>
+        (error as { response?: { status?: number } }).response?.status === 404
+    )
+    await assert.rejects(
+      api.get('/api/assistant/conversations/8101'),
+      (error: unknown) =>
+        (error as { response?: { status?: number } }).response?.status === 404
     )
     await assert.rejects(
       api.get('/api/assistant/conversations', { params: { user_id: 1099 } }),
@@ -373,7 +355,7 @@ describe('persona debug runtime', () => {
     assert.equal(useAuthStore.getState().auth.session?.sid, 'debug-persona-l1')
   })
 
-  test('saves only non-sensitive preview preferences without changing account grants', async () => {
+  test('saves only non-sensitive preview preferences without changing account roles', async () => {
     setActiveDebugPersona('l1')
     const before = (await api.get('/api/user/self')).data.data
     await api.put('/api/user/self', { language: 'zh', sidebar_modules: '{}' })
@@ -382,8 +364,8 @@ describe('persona debug runtime', () => {
     assert.equal(after.sidebar_modules, '{}')
     assert.equal(after.quota, before.quota)
     assert.equal(
-      after.developer_access_granted,
-      before.developer_access_granted
+      after.role,
+      before.role
     )
     await assert.rejects(
       api.put(
@@ -414,8 +396,8 @@ describe('persona debug runtime', () => {
       assert.equal(JSON.parse(after.setting).wallet_display_currency, currency)
       assert.equal(after.quota, before.quota)
       assert.equal(
-        after.developer_access_granted,
-        before.developer_access_granted
+        after.role,
+        before.role
       )
     }
     await api.put('/api/user/self', { wallet_display_currency: 'CNY' })
@@ -464,7 +446,7 @@ describe('persona debug runtime', () => {
     assert.equal((await status.json()).data.system_name, 'LMM Persona Lab')
   })
 
-  test('reset restores the deterministic L0 fixture', () => {
+  test('reset restores the deterministic newcomer fixture', () => {
     setActiveDebugPersona('l1')
     resetPersonaDebugRuntime()
 

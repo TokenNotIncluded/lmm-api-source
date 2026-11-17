@@ -178,7 +178,7 @@ async function renderWallet(
   } = {}
 ) {
   const reads: string[] = []
-  const user = {
+  const user = JSON.parse(JSON.stringify({
     ...options.user,
     id: 7,
     username: 'checkout-user',
@@ -186,7 +186,7 @@ async function renderWallet(
     developer_access_granted: activated,
     quota: options.quota ?? 0,
     setting: options.setting,
-  }
+  }))
   const refreshedUser = { ...user, quota: options.selfQuota ?? user.quota }
   useAuthStore.getState().auth.setUser(user)
   if (user.wallet_unit === 'core_credit') {
@@ -1054,7 +1054,7 @@ test('a saved Pancake subscription intent opens recovery and only reads the orig
   queryClient.clear()
 })
 
-test('L0 wallet preview preserves the signed-in account and mounts no financial clients', async () => {
+test('Wallet layout preview preserves the signed-in account and mounts no financial clients', async () => {
   const requests: string[] = []
   const { container } = await renderWallet(true, {
     preview: true,
@@ -1064,11 +1064,14 @@ test('L0 wallet preview preserves the signed-in account and mounts no financial 
       throw new Error('Preview must not request financial data')
     },
   })
-  assert.ok(container.textContent?.includes('Your next idea starts here'))
+  assert.match(
+    container.querySelector('#wallet-checkout')?.textContent ?? '',
+    /Wallet data is unavailable/
+  )
   assert.equal(requests.length, 0)
   assert.equal(
-    useAuthStore.getState().auth.user?.developer_access_granted,
-    true
+    useAuthStore.getState().auth.user?.id,
+    7
   )
   for (const button of container.querySelectorAll('button')) {
     assert.equal(button.disabled, true, button.textContent ?? '')

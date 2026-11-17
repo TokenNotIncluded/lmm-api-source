@@ -14,20 +14,17 @@ GNU Affero General Public License for more details.
 You should have received a copy of the GNU Affero General Public License
 along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
-import { ROLE } from '@/lib/roles'
-
 import type { AssistantPreConversationPreset } from './api'
 
 // Bump both the query key and HTTP URL when reviewed starter copy changes.
-export const ASSISTANT_PROMPT_PRESET_COPY_VERSION = 'access-v3'
+export const ASSISTANT_PROMPT_PRESET_COPY_VERSION = 'model-help-v1'
 
 type AssistantPresetViewer = {
   role: number
-  trust_level_info?: { level: number }
 }
 
 const requiredPresetKeys = {
-  ai_recommendation: 'How do I apply for L1 access?',
+  ai_recommendation: 'Which model should I use?',
   getting_started: 'Where should I start?',
   new_user_gift: 'How do I get the new-user gift?',
   weekly_discount: 'Any top-up discounts this week?',
@@ -37,23 +34,13 @@ const fallbackPresets: AssistantPreConversationPreset[] = Object.entries(
   requiredPresetKeys
 ).map(([id, prompt]) => ({ id, prompt, label: prompt }))
 
-export function canSeeAccessVerificationPreset(
-  user: AssistantPresetViewer | null | undefined
-): boolean {
-  return Boolean(
-    user && user.role < ROLE.ADMIN && user.trust_level_info?.level === 0
-  )
-}
-
 export function filterAssistantPreConversationPresets(
   presets: AssistantPreConversationPreset[] | undefined,
-  user: AssistantPresetViewer | null | undefined,
+  _user: AssistantPresetViewer | null | undefined,
   capabilities?: { new_user_gift?: boolean }
 ): AssistantPreConversationPreset[] {
   return (presets ?? fallbackPresets).filter(
     (preset) =>
-      (preset.id !== 'ai_recommendation' ||
-        canSeeAccessVerificationPreset(user)) &&
       (preset.id !== 'new_user_gift' || capabilities?.new_user_gift !== false)
   )
 }

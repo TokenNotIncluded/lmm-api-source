@@ -53,12 +53,12 @@ async function renderCard(log: UsageLog) {
   useAuthStore.setState({
     auth: {
       ...originalAuth,
-      user: {
+      user: JSON.parse(JSON.stringify({
         id: 1,
         username: 'synthetic',
         role: 1,
         developer_access_granted: true,
-      },
+      })),
       session: null,
     },
   })

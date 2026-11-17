@@ -104,20 +104,13 @@ function pricingDocument(
   input: number
 ): NativePricingDocument {
   const rateBasis =
-    visibility === 'public' ? 'base_group_rate' : 'effective_user_rate'
+    visibility === 'public' ? 'base_group_rate' : 'effective_group_rate'
   return {
     schema_version: 1,
     visibility,
     observed_at: 100,
     credits_per_usd: 500_000,
     rate_basis: rateBasis,
-    user_price:
-      visibility === 'public'
-        ? { status: 'not_evaluated' }
-        : {
-            status: 'verified',
-            multiplier: { numerator: '1', denominator: '2' },
-          },
     invocation_authorized: false,
     routing_version: 1,
     pricing_version: 2,
@@ -324,7 +317,7 @@ test('an unavailable refresh hides the previously verified account price', async
         config,
         undefined,
         {
-          data: { error: 'user_price_unknown' },
+          data: { error: 'pricing_unavailable' },
           status: 503,
           statusText: 'Service Unavailable',
           headers: {},

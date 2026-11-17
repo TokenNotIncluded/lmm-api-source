@@ -49,7 +49,6 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { l0PreviewRead, isL0PreviewPublicRead } from '@/lib/l0-preview-read'
 import { rateLimitMessage } from '@/lib/request-rate-limit'
 import {
   getServerErrorMessageKey,
@@ -71,7 +70,6 @@ declare module 'axios' {
     authReadRetryInLock?: boolean
     acceptAuthRotation?: boolean
     authScope?: { userId: number | undefined; sessionId: string | undefined }
-    previewDispatch?: boolean
     authDispatchEpoch?: number
   }
 }
@@ -99,7 +97,7 @@ api.get = ((url: string, config: ApiRequestConfig = {}) => {
 
   const params = config.params ? JSON.stringify(config.params) : '{}'
   const sessionSID = useAuthStore.getState().auth.session?.sid || 'anonymous'
-  const key = `${Boolean(useAuthStore.getState().preview)}:${sessionSID}:${url}?${params}`
+  const key = `${sessionSID}:${url}?${params}`
   const existingRequest = inFlightGet.get(key)
   if (existingRequest) return existingRequest
 
@@ -117,7 +115,7 @@ function requestAuthentication(config: ApiRequestConfig) {
   const scope = config.authScope
   if (
     scope &&
-    ((useAuthStore.getState().preview ? -1 : auth.user?.id) !== scope.userId ||
+    (auth.user?.id !== scope.userId ||
       auth.session?.sid !== scope.sessionId)
   ) {
     throw Object.assign(
@@ -211,12 +209,6 @@ function createConfiguredRequestError(
 
 api.interceptors.response.use(
   (response) => {
-    if (
-      Boolean(response.config.previewDispatch) !==
-      Boolean(useAuthStore.getState().preview)
-    ) {
-      throw new axios.CanceledError('View changed while request was pending')
-    }
     if (response.config.authScope) requestAuthentication(response.config)
     delete response.config.authReadRetryInLock
     if (response.config.acceptAuthRotation && response.data?.success === true) {
@@ -363,36 +355,6 @@ api.interceptors.response.use(
 )
 
 api.interceptors.request.use(async (config) => {
-  config.previewDispatch = Boolean(useAuthStore.getState().preview)
-  if (useAuthStore.getState().preview) {
-    // Public catalog reads use the fetch adapter: false means credentials=omit
-    // there (unlike XHR, which sends same-origin cookies regardless).
-    const url = new URL(config.url ?? '', 'https://preview.invalid')
-    const path = url.pathname
-    const data =
-      config.method?.toLowerCase() === 'get'
-        ? l0PreviewRead(path, url.searchParams)
-        : undefined
-    if (data !== undefined) {
-      config.adapter = async () => ({
-        config,
-        status: 200,
-        statusText: 'OK',
-        headers: {},
-        data: { success: true, data },
-      })
-      config.authMode = 'anonymous'
-    }
-    if (
-      data === undefined &&
-      (config.method?.toLowerCase() !== 'get' || !isL0PreviewPublicRead(path))
-    ) {
-      throw new axios.CanceledError('L0 read-only preview')
-    }
-    if (data === undefined) config.adapter = 'fetch'
-    config.authMode = 'anonymous'
-  }
-
   if (config.authMode === 'anonymous') {
     if (config.authScope) requestAuthentication(config)
     config.headers.delete('Authorization')

@@ -519,17 +519,7 @@ impl LmmIssuer {
         account: i64,
         version: i64,
     ) -> Result<Vec<String>> {
-        let groups = self.current_groups(c, user, account, version).await?;
-        let developer: Option<bool> = sqlx::query_scalar(
-            "SELECT granted FROM core_identity.developer_access WHERE user_id=$1",
-        )
-        .bind(user)
-        .fetch_optional(c)
-        .await?;
-        if developer != Some(true) {
-            return Err(IdentityError::Forbidden);
-        }
-        Ok(groups)
+        self.current_groups(c, user, account, version).await
     }
     pub(super) async fn current_groups(
         &self,
@@ -543,23 +533,8 @@ impl LmmIssuer {
         if !r.try_get::<bool, _>("live")? {
             return Err(IdentityError::Unauthorized);
         }
-        // Runtime has SELECT only on policy tables. Revocation triggers update
-        // this locked user's auth_version in the same transaction, so they
-        // cannot commit past this authorization until it finishes. Do not ask
-        // for row-lock UPDATE privileges on developer_access/routing policy.
-        let developer: Option<bool> = sqlx::query_scalar(
-            "SELECT granted FROM core_identity.developer_access WHERE user_id=$1",
-        )
-        .bind(user)
-        .fetch_optional(&mut *c)
-        .await
-        .map_err(auth::password_change_error)?;
-        let role: String = r.try_get("platform_role")?;
-        if !matches!(role.as_str(), "admin" | "superadmin") && developer != Some(true) {
-            return Err(IdentityError::Forbidden);
-        }
-        let candidates:Vec<String>=sqlx::query_scalar("SELECT group_name FROM core_identity.user_routing_groups WHERE user_id=$1 AND enabled ORDER BY group_name")
-            .bind(user).fetch_all(&mut *c).await.map_err(auth::password_change_error)?;
+        // Routing policy revocations advance the locked user generation.
+        let candidates = crate::identity::routing_group_names_in_transaction(c, user).await?;
         let enabled: Vec<String> = if let Some(router) = &self.identity.dashboard_routing {
             candidates
                 .iter()

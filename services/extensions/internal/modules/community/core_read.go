@@ -191,7 +191,6 @@ type CoreUserInfo struct {
 	UserID            int64  `json:"user_id"`
 	Active            bool   `json:"active"`
 	Name              string `json:"name"`
-	DeveloperAccess   bool   `json:"developer_access"`
 	HasActiveKey      bool   `json:"has_active_key"`
 	LastAPIActivityAt int64  `json:"last_api_activity_at"`
 }

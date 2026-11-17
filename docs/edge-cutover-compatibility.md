@@ -9,7 +9,7 @@ examples alone.
 
 | Process | Listener in the native path | Public paths it may own |
 | --- | --- | --- |
-| Core (`lmm-core`) | `8080` by default (`127.0.0.1:18080` in the Docker compose mapping) | identity, model, OAuth, pricing, history, remote-control relay, and Core health |
+| Core (`lmm-core`) | `8080` by default (`127.0.0.1:18080` in the Docker compose mapping) | identity, model, OAuth, pricing, history, and Core health |
 | Extensions (`lmm-extensions`) | `8081` by default (`127.0.0.1:18081` in the Docker compose mapping) | Web compatibility routes, payment callbacks, and service-token module routes |
 | Web | Nginx-readable static `dist` | `/static/` immutable assets and the SPA fallback at `/` |
 
@@ -46,8 +46,6 @@ configured:
 - Core-owned browser surfaces include `/core/v1/pricing/*`, selected wallet,
   bounty, history (`/api/log*`, `/api/data/self`, `/api/finance/export`,
   `/api/mj*`, `/api/task*`) and human-grant routes.
-- Remote control is exposed at `/api/remote-control/v1/pi/*`; Core authenticates
-  the browser request and relays to the private Extensions origin.
 
 Core's fallback is a 503 migration/readiness error. API errors must never fall
 through to the SPA `index.html`.
@@ -108,9 +106,10 @@ not proof that every selected module or database is ready.
 
 ## Streaming and upgrade behavior
 
-Core model responses and remote-control events use HTTP streaming/SSE. The
-remote-control SSE response is `text/event-stream` with `X-Accel-Buffering: no`.
-The edge candidate must disable proxy buffering for these locations, allow a
+Core model responses use HTTP streaming/SSE. The edge fixture exercises a
+streaming `POST /v1/responses` response with `text/event-stream` and
+`X-Accel-Buffering: no`. The edge candidate must disable proxy buffering for
+model-streaming locations, allow a
 stream's intended lifetime, and preserve request/response cancellation while
 keeping bounded connect, header, body, and send-backpressure timeouts. Do not
 add a total response timeout that cuts a valid stream during normal operation.
@@ -189,10 +188,11 @@ retain the existing bounded timeouts. The localhost edge harness checks the
 `101` response and a frame round trip separately from POST routing. Actual TLS
 proxy behavior and production cutover still need independent verification.
 
-The remote-control relay is still a source/WIP contract and has no independent
-public OAuth plus edge acceptance in this revision. Keep that route out of a
-cutover sign-off until the browser OAuth flow, public adapter, and end-to-end
-edge SSE test are all independently recorded.
+LMM and the Pi plugin no longer provide remote control. Do not add an upstream
+location for `/api/remote-control/v1/pi/*`; retired paths follow the unknown-API
+404 rule. Remote control belongs to the separate ssmcp project. The
+[retired Pi relay specification](pi-remote-control-api.md) is preserved only as
+historical evidence.
 
 ## Safe candidate preflight
 
@@ -203,8 +203,8 @@ its hash. Review the candidate against that frozen input:
    callback, and static locations explicitly; do not replace the server block
    with `deployment/native/templates/web-location.conf`.
 2. Confirm exact-prefix ownership for the route families above. In particular,
-   split Core `/api/user/*`, `/api/oauth*`, `/api/status`, history and remote
-   control from Extensions `/api/store/*`, `/api/tool-market*`, assistant,
+   split Core `/api/user/*`, `/api/oauth*`, `/api/status` and history
+   from Extensions `/api/store/*`, `/api/tool-market*`, assistant,
    scripts, RSS, wallet/bounty and payment paths. A broad `/api/` proxy is unsafe.
    Keep the three legal-page locations and the tool-market OAuth callback ahead
    of generic API or SPA handling.
@@ -239,10 +239,11 @@ python3 -B scripts/test_edge_cutover_harness.py
 ```
 
 It starts disposable Core and Extensions HTTP stubs plus a temporary Nginx
-instance, then checks ten candidate-edge properties: Core/Extensions route
-precedence, OAuth query preservation, callback body preservation and host-token
-stripping, private-route denial, API-vs-SPA fallback, immutable static assets,
-SSE content type and first-chunk timing, and `nginx -t`. It binds every listener
+instance, then checks Core/Extensions route precedence, OAuth query
+preservation, callback body preservation and host-token stripping, private and
+retired-route denial, API-vs-SPA fallback, immutable static assets, model SSE
+content type and first-chunk timing, WebSocket frame transport, and `nginx -t`.
+It binds every listener
 to `127.0.0.1` and removes the temporary fixture after the run. This proves the
 candidate contract and catches Nginx precedence regressions; it does not prove
 the production host's TLS server block or module configuration.
@@ -266,5 +267,5 @@ the production host's TLS server block or module configuration.
 References: `deployment/native/README.md`,
 `deployment/native/templates/web-location.conf`,
 `services/core/src/main.rs`, `services/core/src/model_http.rs`,
-`services/core/src/remote_control.rs`, `services/core/src/http.rs`, and
+`services/core/src/http.rs`, and
 `services/extensions/internal/webcompat/router.go`.

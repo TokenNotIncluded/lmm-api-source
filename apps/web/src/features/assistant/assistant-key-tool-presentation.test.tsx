@@ -46,7 +46,7 @@ describe('AssistantKeyTool presentation and prepared flow', () => {
     assert.match(rendered.container.textContent ?? '', /<MODEL_ID>/)
     assert.match(
       rendered.container.textContent ?? '',
-      /API key creation requires L1/
+      /Sign in to continue setup/
     )
     assert.equal(rendered.container.querySelector('#assistant-key-name'), null)
     assert.equal(

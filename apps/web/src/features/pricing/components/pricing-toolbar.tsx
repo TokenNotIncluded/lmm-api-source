@@ -57,7 +57,6 @@ import {
 import {
   hasCurrentPricingContext,
   getPricingBasisLabel,
-  getAccountPriceMultiplier,
 } from '../lib/pricing-context'
 import type {
   PricingModel,
@@ -169,9 +168,7 @@ export function PricingToolbar(props: PricingToolbarProps) {
     contextModel &&
     props.models.every(
       (model) =>
-        getPricingBasisLabel(model) === getPricingBasisLabel(contextModel) &&
-        getAccountPriceMultiplier(model) ===
-          getAccountPriceMultiplier(contextModel)
+        getPricingBasisLabel(model) === getPricingBasisLabel(contextModel)
     )
       ? contextModel
       : undefined
@@ -320,7 +317,6 @@ export function PricingToolbar(props: PricingToolbarProps) {
         {sharedContextModel && (
           <PricingContextLabel
             model={sharedContextModel}
-            showDiscountNote
             className='mb-1'
           />
         )}

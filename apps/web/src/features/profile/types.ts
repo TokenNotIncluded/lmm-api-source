@@ -140,8 +140,6 @@ export interface UserProfile extends WalletProjectionUser {
   telegram_id?: string
   /** LinuxDO ID (OAuth) */
   linux_do_id?: string
-  /** Effective trust level returned by the authenticated self endpoint */
-  trust_level_info?: import('@/stores/auth-store').TrustLevelInfo
 }
 
 /**
@@ -192,7 +190,7 @@ export interface UserSettings {
   wallet_display_currency?: WalletDisplayCurrencyPreference
   /** How this user's usage appears on the public leaderboard */
   usage_leaderboard_visibility?: UsageLeaderboardVisibility
-  /** L1+ only: bypass IP/region access policy when a valid API key is used */
+  /** Bypass IP/region access policy when a valid API key is used. */
   allow_key_bypass_ip_policy?: boolean
 }
 

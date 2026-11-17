@@ -61,8 +61,7 @@ function deriveStage(state: {
 }
 
 /**
- * Normalizes onboarding details without inferring access from legacy fields.
- * The server-provided developer access decision is the only access boundary.
+ * All signed-in accounts can use the console. Setup state is guidance only.
  */
 export function getOnboardingState(
   user: AuthUser | null | undefined
@@ -77,7 +76,7 @@ export function getOnboardingState(
     }
   }
 
-  const activationComplete = user.developer_access_granted === true
+  const activationComplete = true
 
   const hasNestedState = user.onboarding !== undefined
   const nested =
@@ -122,24 +121,20 @@ export function getOnboardingState(
       firstRequestComplete,
     }),
     isExplicit:
-      user.developer_access_granted !== undefined ||
       hasNestedState ||
       hasFlatState,
   }
 }
 
 export function isConsoleActivated(user: AuthUser | null | undefined): boolean {
-  return user?.developer_access_granted === true
+  return Boolean(user)
 }
 
 export function getAuthenticatedLandingRoute(
   user: AuthUser | null | undefined,
   sidebarModulesAdmin: unknown = getCachedSidebarModulesAdmin()
 ): string {
-  // The server access decision is the access boundary.  The remaining setup
-  // checklist is guidance for an already-enabled account, not a route gate.
-  // L0 accounts can access the wallet and ask the assistant for help.
-  if (!getOnboardingState(user).activationComplete) return '/wallet'
+  if (!user) return '/sign-in'
 
   // Keep the login redirect aligned with the rendered sidebar. Accounts that
   // cannot edit sidebar settings do not have an effective user overlay.
@@ -175,31 +170,6 @@ export function getAuthenticatedLandingRoute(
     (!superAdminOnlyRoutes.has(requested) || role === ROLE.SUPER_ADMIN)
 
   return allowed ? requested : '/dashboard'
-}
-
-export function isContributorRoute(pathname: string): boolean {
-  // L0 can explore and reach checkout before paid activation. Payment methods
-  // remain subject to the server's payment access gate. Account settings and
-  // the API key access explanation are also available; the key management
-  // components still require the explicit server developer-access decision.
-  // Native Pi control needs only a signed-in browser owner. This exception does
-  // not grant model access; the server still checks each session's ownership.
-  return (
-    pathname === '/keys' ||
-    pathname === '/keys/' ||
-    pathname === '/profile' ||
-    pathname === '/profile/' ||
-    pathname === '/support' ||
-    pathname === '/support/' ||
-    pathname === '/todos' ||
-    pathname === '/todos/' ||
-    pathname === '/wallet' ||
-    pathname === '/wallet/' ||
-    pathname === '/remote-control' ||
-    pathname === '/remote-control/' ||
-    pathname === '/tool-market' ||
-    pathname.startsWith('/tool-market/')
-  )
 }
 
 export function isRestrictedPublicRoute(pathname: string): boolean {

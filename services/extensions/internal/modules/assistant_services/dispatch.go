@@ -145,7 +145,6 @@ func (s *Service) navigate(ctx context.Context, in assistant.AgentInvocation, p 
 		if p.Level < 5 {
 			return assistant.AgentToolResult{}, access.ErrForbidden
 		}
-		query["l0Only"] = false
 	}
 	if input.Page == "usage-logs" {
 		path = "/usage-logs/common"

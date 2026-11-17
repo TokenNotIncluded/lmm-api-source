@@ -102,24 +102,9 @@
 \else
 \set enable_bounties false
 \endif
-\if :{?enable_trust_pricing}
-\else
-\set enable_trust_pricing false
-\endif
-\if :{?enable_trust_policy_editor}
-\else
-\set enable_trust_policy_editor false
-\endif
 \if :{?enable_community}
 \else
 \set enable_community false
-\endif
--- Native production model/image/assistant entrypoints require Core-owned trust.
-\if :enable_models
-\set enable_trust_pricing true
-\endif
-\if :enable_assistant
-\set enable_trust_pricing true
 \endif
 BEGIN;
 SET LOCAL statement_timeout = '5s';
@@ -242,8 +227,7 @@ GRANT SELECT, INSERT, DELETE ON core_identity.oauth_flows TO :"runtime_role";
 GRANT SELECT, INSERT, UPDATE, DELETE ON core_identity.auth_attempts TO :"runtime_role";
 GRANT USAGE ON SEQUENCE core_identity.mfa_enrollments_id_seq,
     core_identity.mfa_backup_codes_id_seq TO :"runtime_role";
-GRANT SELECT ON core_identity.developer_access,
-    core_identity.user_routing_groups TO :"runtime_role";
+GRANT SELECT ON core_identity.user_routing_groups TO :"runtime_role";
 GRANT USAGE ON SEQUENCE core_identity.accounts_id_seq, core_identity.users_id_seq,
     core_identity.teams_id_seq, core_identity.credentials_id_seq,
     core_identity.invites_id_seq, core_identity.audit_id_seq TO :"runtime_role";
@@ -712,29 +696,6 @@ GRANT SELECT,INSERT(id,actor,credential,request,expires,policy),UPDATE(approved,
     ON core_bounties.confirmations TO :"runtime_role";
 GRANT SELECT,INSERT ON core_bounties.operations TO :"runtime_role";
 \endif
-\if :enable_trust_pricing
-GRANT USAGE ON SCHEMA core_trust_pricing,core_payments,core_charging TO :"runtime_role";
-GRANT SELECT ON core_payments.intents,core_charging.requests,core_charging.usage_events TO :"runtime_role";
-GRANT SELECT ON core_trust_pricing.policies, core_trust_pricing.user_bases,
-    core_trust_pricing.legacy_paid_orders TO :"runtime_role";
-\endif
-\if :enable_trust_policy_editor
--- Independent editor keys, enrollments, challenges, previews and audit rows stay owner-only.
-GRANT USAGE ON SCHEMA core_trust_pricing TO :"runtime_role";
-GRANT SELECT ON core_trust_pricing.policies TO :"runtime_role";
-GRANT EXECUTE ON FUNCTION
-    core_trust_pricing.read_policy_edit_description(bigint),
-    core_trust_pricing.read_policy_editors(bigint),
-    core_trust_pricing.policy_editor_ready(bytea),
-    core_trust_pricing.policy_edit_binding(text,jsonb),
-    core_trust_pricing.authorized_policy_preview(bytea,bigint,bigint,bigint,jsonb,jsonb,jsonb,jsonb,bytea,bytea),
-    core_trust_pricing.authorized_policy_resolve(bytea,bigint,bigint,bytea),
-    core_trust_pricing.policy_editor_context(text,bigint),
-    core_trust_pricing.authorized_policy_challenge(jsonb,bytea),
-    core_trust_pricing.policy_challenge_context(bytea,bytea,bigint,bigint),
-    core_trust_pricing.authorized_policy_confirm(jsonb,bytea)
-TO :"runtime_role";
-\endif
 \if :enable_community
 -- Community read service: aggregate reads of settled requests; history and
 -- identity profile reads are granted above. No writes.
@@ -776,11 +737,9 @@ GRANT DELETE ON core_federated_auth.flows, core_federated_auth.assertions TO :"r
 \endif
 \if :enable_checkins
 -- BEGIN checkins runtime grants
-GRANT USAGE ON SCHEMA core_checkins,core_trust_pricing TO :"runtime_role";
+GRANT USAGE ON SCHEMA core_checkins TO :"runtime_role";
 GRANT SELECT ON core_checkins.policy_revisions,core_checkins.active_policy TO :"runtime_role";
 GRANT SELECT,INSERT ON core_checkins.days,core_checkins.claim_commands TO :"runtime_role";
-GRANT SELECT ON core_trust_pricing.policies,core_trust_pricing.user_bases,
-    core_trust_pricing.legacy_paid_orders TO :"runtime_role";
 -- END checkins runtime grants
 \endif
 -- BEGIN personal-tokens runtime grants

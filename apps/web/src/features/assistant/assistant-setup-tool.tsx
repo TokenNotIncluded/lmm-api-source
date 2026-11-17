@@ -208,9 +208,9 @@ export function AssistantSetupTool(props: {
   openAIBaseUrl: string
   availableModels: string[]
   modelsLoading?: boolean
-  developerAccessGranted: boolean
+  authenticated: boolean
   onCreateKey: () => void
-  onRequestAccess: () => void
+  onSignIn: () => void
   onAskQuestion?: (question: string) => void
   publicGuide?: boolean
   onClientChange?: (client: ClientTab) => void
@@ -229,7 +229,7 @@ export function AssistantSetupTool(props: {
   const [selectedModel, setSelectedModel] = useState('')
   const mobile = isMobileSetupPlatform(platform)
   const desktopPlatform = mobile ? 'windows' : platform
-  const canConnect = props.developerAccessGranted
+  const canConnect = props.authenticated
   const eligibleModels = getGuideEligibleModels(props.availableModels)
   const model = canConnect
     ? selectGuideModel(eligibleModels, selectedModel)
@@ -329,14 +329,14 @@ export function AssistantSetupTool(props: {
         {t(
           props.publicGuide
             ? 'Start with the installation'
-            : 'Request API access'
+            : 'Sign in to continue setup'
         )}
       </AlertTitle>
       <AlertDescription>
         {t(
           props.publicGuide
-            ? 'Browse the download and setup steps freely. Sign in and complete access setup to see your connection values and create an API key.'
-            : 'You can install clients during review. API requests become available after access is approved.'
+            ? 'Browse downloads and setup steps. Sign in to see your connection values and create an API key.'
+            : 'Browse downloads and setup steps. Sign in to see your connection values and create an API key.'
         )}
       </AlertDescription>
     </Alert>
@@ -820,7 +820,7 @@ export function AssistantSetupTool(props: {
                 ) : (
                   <p className='text-muted-foreground text-sm'>
                     {t('CC Switch one-click import')}:{' '}
-                    {t('Available after access setup and API key creation.')}
+                    {t('Create an API key')}
                   </p>
                 )}
               </TabsContent>
@@ -1129,12 +1129,12 @@ export function AssistantSetupTool(props: {
           <Button
             type='button'
             className='min-h-11'
-            onClick={props.onRequestAccess}
+            onClick={props.onSignIn}
           >
             {t(
               props.publicGuide
-                ? 'Continue to account setup'
-                : 'Request API access'
+                ? 'Sign in to continue setup'
+                : 'Sign in to continue setup'
             )}
             <HugeiconsIcon
               icon={ArrowRight01Icon}

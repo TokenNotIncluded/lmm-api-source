@@ -79,8 +79,6 @@ async fn fixture_with_opening(
         .open_wallet(account)
         .await
         .unwrap();
-    sqlx::query("INSERT INTO core_trust_pricing.user_bases(user_id,original_created_at,console_activated_at,last_api_activity_at,override_level,projection_known,order_count,revision,source_digest) VALUES(61001,floor(extract(epoch FROM clock_timestamp()))::bigint,0,0,0,true,0,1,decode(repeat('11',32),'hex'))")
-        .execute(pool).await.unwrap();
     let at: i64 = sqlx::query_scalar("SELECT floor(extract(epoch FROM clock_timestamp()))::bigint")
         .fetch_one(pool)
         .await
@@ -160,52 +158,46 @@ async fn journals(pool: &PgPool) -> i64 {
         .await
         .unwrap()
 }
-async fn override_level(pool: &PgPool, level: i16) {
-    sqlx::query("UPDATE core_trust_pricing.user_bases SET override_level=$1,revision=revision+1 WHERE user_id=61001").bind(level).execute(pool).await.unwrap();
-}
-
 #[test]
-fn exact_cc52_ranges_round_clamp_and_calendar() {
+fn base_ranges_keep_clamps_calendar_and_ignore_legacy_multipliers() {
     let seed:SeedReceipt=serde_json::from_value(json!({"seed_id":"d".repeat(64),"history_migration_id":"h","identity_migration_id":"i",
         "source_archive_sha256":"a".repeat(64),"mapping_sha256":"b".repeat(64),"source_cutoff":1,"source_options_sha256":"c".repeat(64),
         "source_rows":0,"mapped_rows":0,"orphan_rows":0,"balance_effect":"none"})).unwrap();
     let policy = source_policy(1, 500000, &seed);
-    for (level, (min, max)) in [(0, 0), (0, 100000), (1, 350000), (1, 500000), (2, 750000)]
-        .into_iter()
-        .enumerate()
-    {
-        let range = policy.reward_range(level as u8).unwrap();
-        assert_eq!(
-            (range.min_quota, range.max_quota),
-            (min.to_string(), max.to_string())
-        );
+    let expected = policy.reward_range().unwrap();
+    assert_eq!(expected.min_quota, "1");
+    assert_eq!(expected.max_quota, "500000");
+    assert_eq!(expected.reward_multiplier, 1.0);
+    assert!(serde_json::to_value(&expected).unwrap().get("trust_level").is_none());
+    for legacy in [
+        vec![],
+        vec![-1.0],
+        vec![0.0],
+        vec![0.0, 0.2, 0.7, 1.0, 1.5],
+        vec![100.0; 5],
+    ] {
+        let mut retained = policy.clone();
+        retained.level_multipliers = legacy;
+        assert_eq!(retained.reward_range().unwrap(), expected);
     }
-    assert_eq!(
-        policy.reward_range(6).unwrap().max_quota,
-        policy.reward_range(4).unwrap().max_quota
-    );
     let boundary = chrono::DateTime::parse_from_rfc3339("2026-11-11T16:00:00Z")
         .unwrap()
         .timestamp();
     assert_eq!(checkins::calendar_day(boundary - 1).unwrap(), "2026-11-11");
     assert_eq!(checkins::calendar_day(boundary).unwrap(), "2026-11-12");
-    let mut fallback = policy.clone();
-    fallback.level_multipliers.clear();
-    assert_eq!(fallback.reward_range(0).unwrap().min_quota, "1");
-    assert_eq!(fallback.reward_range(0).unwrap().max_quota, "250000");
-    fallback.level_multipliers = vec![-1.0];
-    assert_eq!(fallback.reward_range(0).unwrap().max_quota, "250000");
-    fallback.level_multipliers = vec![0.0];
-    assert_eq!(fallback.reward_range(0).unwrap().max_quota, "0");
-    let mut zero = policy.clone();
-    zero.min_quota = "-5".into();
-    zero.max_quota = "-10".into();
-    assert_eq!(zero.reward_range(4).unwrap().max_quota, "0");
+    let mut clamped = policy.clone();
+    clamped.min_quota = "-5".into();
+    clamped.max_quota = "-10".into();
+    assert_eq!(clamped.reward_range().unwrap().min_quota, "0");
+    assert_eq!(clamped.reward_range().unwrap().max_quota, "0");
+    clamped.min_quota = "10".into();
+    clamped.max_quota = "5".into();
+    assert_eq!(clamped.reward_range().unwrap().max_quota, "10");
 }
 
 #[sqlx::test]
-async fn zero_dynamic_trust_revision_and_durable_operation_replay(pool: PgPool) {
-    let f = fixture(&pool, 1, 500000, false).await;
+async fn configured_zero_reward_ignores_legacy_trust_and_replays_exactly(pool: PgPool) {
+    let f = fixture(&pool, 0, 0, false).await;
     let before = journals(&pool).await;
     let status = f.store.status(&f.user, None).await.unwrap();
     assert!(status.enabled);
@@ -218,11 +210,15 @@ async fn zero_dynamic_trust_revision_and_durable_operation_replay(pool: PgPool) 
     assert!(!receipt.already_claimed);
     assert_eq!(receipt.record.quota_awarded, "0");
     assert_eq!(receipt.record.journal_id, None);
+    assert_eq!(receipt.record.trust_level, None);
+    assert!(serde_json::to_value(&receipt).unwrap()["record"].get("trust_level").is_none());
     assert_eq!(journals(&pool).await, before);
-    override_level(&pool, 3).await;
+    // Retained legacy facts cannot alter new reward eligibility or amounts.
+    sqlx::query("INSERT INTO core_trust_pricing.user_bases(user_id,original_created_at,console_activated_at,last_api_activity_at,override_level,projection_known,order_count,revision,source_digest) VALUES(61001,$1,0,0,3,true,0,1,decode(repeat('11',32),'hex'))")
+        .bind(f.at).execute(&pool).await.unwrap();
     let status = f.store.status(&f.user, None).await.unwrap();
     assert!(status.checked_in_today);
-    assert_eq!(status.reward_range.unwrap().max_quota, "500000");
+    assert_eq!(status.reward_range.unwrap().max_quota, "0");
     assert_eq!(
         f.store
             .claim(&f.user, claim("zero_checkin_first_key_0001"))
@@ -234,7 +230,7 @@ async fn zero_dynamic_trust_revision_and_durable_operation_replay(pool: PgPool) 
         .publish_policy(PublishPolicy {
             operation_key: "publish_checkin_policy_0002".into(),
             expected_revision: Some(1),
-            policy: source_policy(1, 500000, &f.seed),
+            policy: source_policy(0, 0, &f.seed),
             source_options: None,
         })
         .await
@@ -248,7 +244,11 @@ async fn zero_dynamic_trust_revision_and_durable_operation_replay(pool: PgPool) 
     assert_eq!(duplicate.record, receipt.record);
     assert_eq!(journals(&pool).await, before);
     let admin = f.store.status(&f.admin, None).await.unwrap();
-    assert_eq!(admin.reward_range.unwrap().trust_level, 6);
+    let admin_range = admin.reward_range.unwrap();
+    assert_eq!(admin_range.min_quota, "0");
+    assert_eq!(admin_range.max_quota, "0");
+    assert_eq!(admin_range.reward_multiplier, 1.0);
+    assert!(serde_json::to_value(admin_range).unwrap().get("trust_level").is_none());
     // A durable earlier-day command is returned before today's new eligibility.
     let mut earlier = receipt.clone();
     earlier.record.checkin_date = "2026-01-01".into();
@@ -305,7 +305,6 @@ async fn complete_history_seed_formal_mapping_and_no_recredit(pool: PgPool) {
 #[sqlx::test]
 async fn gift_repays_debt_and_failure_rolls_back_every_reward_record(pool: PgPool) {
     let f = fixture_with_opening(&pool, 100, 100, false, -70).await;
-    override_level(&pool, 3).await;
     let ledger = Ledger::from_pool(pool.clone());
     let before = ledger.balance(f.account).await.unwrap();
     assert_eq!(before.available_units, -70);
@@ -339,7 +338,6 @@ async fn gift_repays_debt_and_failure_rolls_back_every_reward_record(pool: PgPoo
 #[sqlx::test]
 async fn concurrent_distinct_keys_create_one_gift_and_runtime_cannot_publish(pool: PgPool) {
     let f = fixture(&pool, 5, 5, false).await;
-    override_level(&pool, 3).await;
     let barrier = Arc::new(Barrier::new(6));
     let mut tasks = Vec::new();
     for i in 0..6 {
@@ -391,7 +389,6 @@ mod runtime_wiring;
 #[sqlx::test]
 async fn actual_csprng_claim_preserves_inclusive_range_and_zero_journal_semantics(pool: PgPool) {
     let f = fixture(&pool, 0, 2, false).await;
-    override_level(&pool, 3).await;
     let result = f
         .store
         .claim(&f.user, claim("actual_csprng_bounded_claim_0001"))
@@ -505,7 +502,6 @@ async fn exact_runtime_acl_rejects_owner_table_and_column_privileges(pool: PgPoo
     lmm_core::runtime_database::check(&runtime.pool, required)
         .await
         .unwrap();
-    override_level(&pool, 3).await;
     let live = CheckinStore::new(runtime.pool.clone());
     let receipt = live
         .claim(&f.user, claim("runtime_actual_checkin_gift_0001"))
@@ -577,7 +573,6 @@ async fn exact_runtime_acl_rejects_owner_table_and_column_privileges(pool: PgPoo
 #[sqlx::test]
 async fn owner_range_update_is_audited_cas_and_preserves_old_day(pool: PgPool) {
     let f = fixture(&pool, 5, 5, false).await;
-    override_level(&pool, 3).await;
     let original = f
         .store
         .claim(&f.user, claim("before_owner_range_update_0001"))

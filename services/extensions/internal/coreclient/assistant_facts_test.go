@@ -57,7 +57,7 @@ func (p *factsPeer) GetAssistantBusinessFacts(ctx context.Context, r *pb.GetAssi
 	if err := p.check(ctx); err != nil {
 		return nil, err
 	}
-	raw := `{"actor_user_id":7,"exact_model_ids":["vendor/model"],"developer_access_granted":true,"locked":false,"public_preview":false,"key_group_options":["default"],"catalogue":null}`
+	raw := `{"actor_user_id":7,"exact_model_ids":["vendor/model"],"locked":false,"public_preview":false,"key_group_options":["default"],"catalogue":null}`
 	if r.Kind == pb.AssistantBusinessFactKind_ASSISTANT_BUSINESS_FACT_KIND_SUPPORT_ELIGIBILITY {
 		raw = `{"ok":true,"scope":"self","actor_user_id":7,"eligible":true,"successful_external_payments":1,"unrefunded_amount_minor":"900719925474099312345","currency":"USD","evidence":"core verified external payment receipts","wallet_balance_is_not_qualification":true,"checked_at_unix":123456,"projection_id":"support-observation-v1:` + strings.Repeat("a", 64) + `","projection_kind":"authenticated_read_observation_not_financial_receipt"}`
 	}

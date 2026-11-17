@@ -19,7 +19,6 @@ For commercial licensing, please contact support@quantumnous.com
 import { z } from 'zod'
 
 import type { AdminPermissionMatrix } from '@/lib/admin-permissions'
-import type { TrustLevelInfo } from '@/stores/auth-store'
 
 // ============================================================================
 // User Schema & Types
@@ -65,8 +64,6 @@ export const userSchema = z.object({
   admin_permissions: z
     .record(z.string(), z.record(z.string(), z.boolean()))
     .optional(),
-  trust_level_override: z.number().nullable().optional(),
-  trust_level_info: z.any().optional(),
   payment_restriction_flags: z.number().optional(),
   disposable_email: z.boolean().optional(),
   linux_do_gamification_score: z.number().optional(),
@@ -180,7 +177,6 @@ export interface UserActivityFilters {
 export interface GetUsersParams extends UserActivityFilters {
   p?: number
   page_size?: number
-  trust_level?: number
   sort_by?: UserSortBy
   sort_order?: UserSortOrder
 }
@@ -201,7 +197,6 @@ export interface SearchUsersParams extends UserActivityFilters {
   group?: string
   role?: string
   status?: string
-  trust_level?: number
   p?: number
   page_size?: number
   sort_by?: UserSortBy
@@ -246,7 +241,6 @@ export interface UserFormData {
   group?: string // Only used when updating user
   remark?: string // Only used when updating user
   admin_permissions?: AdminPermissionMatrix
-  trust_level_override?: number | null
 }
 
 export type ManageUserAction =
@@ -256,7 +250,6 @@ export type ManageUserAction =
   | 'disable'
   | 'delete'
   | 'add_quota'
-  | 'set_trust_level'
   | 'reset_onboarding'
 
 export type QuotaAdjustMode = 'add' | 'subtract' | 'override'
@@ -268,11 +261,6 @@ export interface ManageUserQuotaPayload {
   value: number
 }
 
-export interface ManageUserTrustLevelPayload {
-  id: number
-  action: 'set_trust_level'
-  value: number
-}
 
 export type AccountActionRequestKind = 'disable' | 'appeal'
 export type AccountActionRequestStatus =
@@ -300,7 +288,6 @@ export interface AccountActionRequestAdmin {
   requested_by_email: string
 }
 
-export type UserTrustLevelInfo = TrustLevelInfo
 
 // ============================================================================
 // Dialog Types

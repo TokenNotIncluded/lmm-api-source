@@ -16,7 +16,7 @@ import {
 
 const originalAdapter = api.defaults.adapter
 const previousAuth = useAuthStore.getState().auth
-const remotePolicy = '{"version":1,"groups":{"drawing":false},"tools":{}}'
+const remotePolicy = ' { "version":1, "groups":{"drawing":false}, "tools":{}, "rules":{} } '
 
 function rootBundle(id: number, sid: string): AuthBundle {
   return {
@@ -81,29 +81,24 @@ afterEach(() => {
   useAuthStore.setState({ auth: previousAuth })
 })
 
-test('every policy write rechecks live catalog capability and rejects unsupported fields without a POST', async () => {
+test('policy writes retire rules while preserving switches and the exact raw CAS baseline', async () => {
   useAuthStore
     .getState()
     .auth.setBundle(rootBundle(901, 'local-root-a-session'))
   const scope = captureAssistantSettingsAuthScope()
-  let rulesSupported = false
   const requests: AxiosRequestConfig[] = []
   const catalog = {
-    groups: [
-      {
-        id: 'service_help',
-        label: 'Service help',
-        tools: [
-          {
-            name: 'calculate_math',
-            label: 'Calculator',
-            description: 'Arithmetic only.',
-            effect: 'read_only',
-            access: 'user',
-          },
-        ],
-      },
-    ],
+    groups: [{
+      id: 'service_help',
+      label: 'Service help',
+      tools: [{
+        name: 'calculate_math',
+        label: 'Calculator',
+        description: 'Arithmetic only.',
+        effect: 'read_only',
+        access: 'user',
+      }],
+    }],
   }
   api.defaults.adapter = async (config) => {
     requests.push(config)
@@ -112,46 +107,40 @@ test('every policy write rechecks live catalog capability and rejects unsupporte
       statusText: 'OK',
       headers: {},
       config,
-      data:
-        config.method === 'get'
-          ? {
-              success: true,
-              data: {
-                ...catalog,
-                capabilities: { policy_rules: rulesSupported },
-              },
-            }
-          : { success: true },
+      data: config.method === 'get'
+        ? { success: true, data: catalog }
+        : { success: true },
     }
   }
+  const legacy = ' { "version":1, "groups":{"service_help":false}, "tools":{"calculate_math":true}, "rules":{"calculate_math":{"min_level":1,"max_level":6}} } '
   const write = (policy: string) =>
     updateAssistantSystemOptions(
       {
         values: { AssistantToolPolicy: policy },
-        expectedValues: { AssistantToolPolicy: DEFAULT_ASSISTANT_TOOL_POLICY },
+        expectedValues: { AssistantToolPolicy: legacy },
         authScope: scope,
       },
       { silent: true }
     )
-  const legacy = '{"version":1,"groups":{},"tools":{"calculate_math":false}}'
   assert.equal((await write(legacy)).success, true)
-  assert.equal(requests.filter((r) => r.method === 'post').length, 1)
-  const rules =
-    '{"version":1,"groups":{},"tools":{},"rules":{"calculate_math":{"min_level":1,"max_level":6}}}'
+  const writes = requests.filter((request) => request.method === 'post')
+  assert.equal(writes.length, 1)
+  const body = JSON.parse(String(writes[0].data))
+  assert.deepEqual(JSON.parse(body.values.AssistantToolPolicy), {
+    version: 1,
+    groups: { service_help: false },
+    tools: { calculate_math: true },
+  })
+  assert.equal(body.expected_values.AssistantToolPolicy, legacy)
   for (const policy of [
-    rules,
-    '{"version":1,"groups":{},"tools":{},"rules":{}}',
+    '{"version":1,"groups":{},"tools":{},"unexpected":{}}',
     '{"version":1,"groups":{"new_server_group":false},"tools":{}}',
     '{"version":1,"groups":{},"tools":{"new_server_tool":false}}',
+    '{"version":1,"groups":{},"tools":{"calculate_math":"false"}}',
   ]) {
     await assert.rejects(write(policy), /Your draft was kept/)
     assert.equal(requests.filter((r) => r.method === 'post').length, 1)
   }
-  rulesSupported = true
-  assert.equal((await write(rules)).success, true)
-  rulesSupported = false
-  await assert.rejects(write(rules), /Your draft was kept/)
-  assert.equal(requests.filter((r) => r.method === 'post').length, 2)
   for (const request of requests.filter((r) => r.method === 'get')) {
     assert.equal(request.url, '/api/assistant/admin/tool-catalog')
     assert.equal(request.disableDuplicate, true)

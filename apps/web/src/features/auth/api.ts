@@ -253,7 +253,6 @@ export async function executeLogout(
 
 // User logout
 export async function logout(): Promise<ApiResponse> {
-  useAuthStore.getState().stopPreview()
   invalidatePendingLogins()
   const initial = useAuthStore.getState().auth
   return withAuthCookieActivity(async () => {

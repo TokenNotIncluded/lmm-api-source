@@ -60,7 +60,7 @@ impl IdentityStore {
     pub async fn create_team(&self, secret: &str) -> Result<i64> {
         let mut tx = self.pool.begin().await?;
         let actor = session(&mut tx, secret).await?;
-        let account_id = new_account(&mut tx, "team", 0).await?;
+        let account_id = new_account(&mut tx, "team").await?;
         let id: i64 = sqlx::query_scalar(
             "INSERT INTO core_identity.teams(account_id,owner_user_id,created_by_user_id) VALUES ($1,$2,$2) RETURNING id",
         )

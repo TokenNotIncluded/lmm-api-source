@@ -19,6 +19,12 @@ For commercial licensing, please contact support@quantumnous.com
 // Static translation keys that don't get picked up by the t('...') regex.
 // These cover dynamic labels (e.g. constants, configs) that are passed into t at runtime.
 export const STATIC_I18N_KEYS = [
+  'Super administrator',
+  'Administrator',
+  'Returning user',
+  'New user',
+  'Pay for requests with your account balance.',
+  'Group price',
   // Appearance controls use configuration-driven labels.
   'preset.ant',
   'Auto',
@@ -32,7 +38,7 @@ export const STATIC_I18N_KEYS = [
   'Sign-in needs browser storage. Allow this site to save site data in your browser settings, then reload and try again.',
   'Sign-in needs HTTPS and a browser with Web Locks support. Open this site in a supported browser over HTTPS, then reload and try again.',
   // Assistant starters use stable server IDs to select these keys.
-  'How do I apply for L1 access?',
+  'Which model should I use?',
   'Where should I start?',
   'How do I get the new-user gift?',
   'Any top-up discounts this week?',

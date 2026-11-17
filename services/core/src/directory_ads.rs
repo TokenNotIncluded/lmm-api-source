@@ -150,7 +150,6 @@ async fn root(c: &mut PgConnection, secret: &str) -> Result<Principal> {
             account_active: true,
             auth_version: version,
             credential_auth_version: version,
-            developer: p::DeveloperState::Granted,
         },
         &loaded.as_policy(),
         p::Action::DirectoryModerate,

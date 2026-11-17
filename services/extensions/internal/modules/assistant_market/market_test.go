@@ -76,7 +76,7 @@ func setup(t *testing.T) (*Executor, *marketFixture, assistant.AgentInvocation) 
 func TestBindingUsesExactFixedMainSchemaAndFreeOuterPrice(t *testing.T) {
 	e, _, _ := setup(t)
 	b := e.Binding()
-	if b.Name != "call_market_tool" || b.Effect != "server_guarded" || b.Access != "l1" || b.Version != assistant.FixedMainToolVersion || b.PriceSHA256 != assistant.FreeAgentPriceSHA256() || digest(b.Parameters) != e.definition.SchemaSHA256 {
+	if b.Name != "call_market_tool" || b.Effect != "server_guarded" || b.Access != "user" || b.Version != assistant.FixedMainToolVersion || b.PriceSHA256 != assistant.FreeAgentPriceSHA256() || digest(b.Parameters) != e.definition.SchemaSHA256 {
 		t.Fatalf("wrong binding: %+v", b)
 	}
 	if _, err := assistant.NewAgentRegistry([]assistant.AgentToolBinding{b}); err != nil {

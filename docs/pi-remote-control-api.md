@@ -1,4 +1,16 @@
-# Pi Remote Control API v1
+# Pi Remote Control API v1 (archived)
+
+> Archived on 2026-11-17. LMM and the Pi plugin no longer implement remote
+> control; the separate ssmcp project owns that function. The endpoints, scopes,
+> module paths, configuration examples and test commands below describe the
+> retired implementation. They are not current deployment or validation steps.
+> References to “WIP” describe the revision before retirement.
+
+Current LMM client authorization is documented in [Core identity](core-identity.md).
+Current proxy routes and model-streaming checks are documented in the
+[edge compatibility guide](edge-cutover-compatibility.md).
+
+## Preserved historical contract
 
 This is the v1 contract implemented by the historical site and reused by the
 WIP browser and Pi plugin. **WIP source now has an opt-in native-browser public

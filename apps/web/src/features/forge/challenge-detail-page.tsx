@@ -21,7 +21,6 @@ Copyright (C) 2026 LIghtJUNction
 */
 import {
   ArrowLeft01Icon,
-  ArrowRight01Icon,
   CheckmarkCircle02Icon,
   GitPullRequestIcon,
   LinkSquare02Icon,
@@ -195,7 +194,6 @@ export function ChallengeDetailPage(props: ChallengeDetailPageProps) {
     project.status === 'published' &&
     bountyAvailableSlots(project) > 0 &&
     (acceptanceState === 'available' || acceptanceState === 'retryable')
-  const developerAccessGranted = user?.developer_access_granted === true
   const isRetry = acceptanceState === 'retryable'
   const dateFormatter = new Intl.DateTimeFormat(toIntlLocale(i18n.language), {
     dateStyle: 'medium',
@@ -224,30 +222,6 @@ export function ChallengeDetailPage(props: ChallengeDetailPageProps) {
     acceptanceAction = (
       <div className='border-foreground border px-4 py-3 text-sm font-semibold'>
         {t(project.status === 'paused' ? 'Paused' : project.status)}
-      </div>
-    )
-  } else if (user && !developerAccessGranted) {
-    acceptanceAction = (
-      <div className='border-foreground grid gap-3 border px-4 py-3'>
-        <p className='text-sm font-semibold'>
-          {t(
-            'L0 accounts can browse challenges and ask the AI assistant to request L1 access.'
-          )}
-        </p>
-        <Button
-          variant='outline'
-          size='sm'
-          className='w-full'
-          render={<Link to='/wallet' />}
-        >
-          {t('Start with AI assistant')}
-          <HugeiconsIcon
-            icon={ArrowRight01Icon}
-            data-icon='inline-end'
-            strokeWidth={2}
-            aria-hidden='true'
-          />
-        </Button>
       </div>
     )
   } else if (user) {

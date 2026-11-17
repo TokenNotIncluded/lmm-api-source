@@ -49,7 +49,14 @@ func (p Principal) LevelLabel() string {
 	if p.Level < 0 || p.Level > 6 {
 		return "unknown"
 	}
-	return [...]string{"L0", "L1", "L2", "L3", "L4", "L5 (administrator)", "L6 (super administrator)"}[p.Level]
+	switch p.Level {
+	case 5:
+		return "administrator"
+	case 6:
+		return "super administrator"
+	default:
+		return "user"
+	}
 }
 
 type Permission string

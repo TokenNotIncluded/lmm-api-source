@@ -158,10 +158,10 @@ func TestPostgresHTTP(t *testing.T) {
 	}
 	session := pb.CredentialKind_CREDENTIAL_KIND_SESSION
 	auth := fakeAuth{
-		"user":  {UserId: 900001, PlatformLevel: 1, CredentialKind: session},
-		"l0":    {UserId: 900002, PlatformLevel: 0, CredentialKind: session},
+		"user":  {UserId: 900001, PlatformLevel: 0, CredentialKind: session},
+		"member":    {UserId: 900002, PlatformLevel: 0, CredentialKind: session},
 		"admin": {UserId: 900003, PlatformLevel: 5, CredentialKind: session},
-		"key":   {UserId: 900001, PlatformLevel: 1, CredentialKind: pb.CredentialKind_CREDENTIAL_KIND_API_KEY},
+		"key":   {UserId: 900001, PlatformLevel: 0, CredentialKind: pb.CredentialKind_CREDENTIAL_KIND_API_KEY},
 	}
 	mux := http.NewServeMux()
 	svc.Register(mux, auth)
@@ -217,8 +217,13 @@ func TestPostgresHTTP(t *testing.T) {
 	if rec.Code != 404 {
 		t.Fatalf("revoked svg: %d", rec.Code)
 	}
-	if _, out := call("GET", "/api/user/self/onboarding/todo", "l0", ""); out["data"].(map[string]any)["status"] != "unavailable" {
-		t.Fatalf("l0 onboarding: %v", out)
+	if code, out := call("GET", "/api/user/self/onboarding/todo", "member", ""); code != 200 || out["data"].(map[string]any)["status"] != "in_progress" {
+		t.Fatalf("authenticated onboarding: %d %v", code, out)
+	} else {
+		eligibility := out["data"].(map[string]any)["eligibility"].(map[string]any)
+		if eligibility["eligible"] != true || eligibility["developer_access_granted"] != nil || eligibility["trust_level"] != nil {
+			t.Fatalf("obsolete onboarding qualification: %v", eligibility)
+		}
 	}
 	if code, _ := call("POST", "/api/onboarding/todo/proof", "user", `{"step":"install_client","client":"cli"}`); code != 403 {
 		t.Fatalf("session proof accepted: %d", code)

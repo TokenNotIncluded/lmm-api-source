@@ -415,26 +415,6 @@ export function AssistantSettingsSection(props: {
         expectedValues = {
           AssistantToolPolicy: fresh.incoming.AssistantToolPolicy,
         }
-        if (
-          JSON.stringify(
-            JSON.parse(
-              beforeRefresh.AssistantToolPolicy || DEFAULT_ASSISTANT_TOOL_POLICY
-            ).rules ?? {}
-          ) !==
-          JSON.stringify(
-            JSON.parse(
-              fresh.incoming.AssistantToolPolicy ||
-                DEFAULT_ASSISTANT_TOOL_POLICY
-            ).rules ?? {}
-          )
-        ) {
-          setPanel('tools')
-          setToolPolicyNotice({
-            message:
-              'Tool conditions changed in another session. Review the merged limits and save again.',
-          })
-          return
-        }
       } catch {
         setPanel('tools')
         setToolPolicyNotice({

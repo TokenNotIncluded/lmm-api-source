@@ -36,13 +36,12 @@ func validBusinessFacts(raw []byte, kind pb.AssistantBusinessFactKind, user int6
 		var r struct {
 			Actor     int64           `json:"actor_user_id"`
 			Models    []string        `json:"exact_model_ids"`
-			Developer *bool           `json:"developer_access_granted"`
 			Locked    *bool           `json:"locked"`
 			Preview   *bool           `json:"public_preview"`
 			Groups    []string        `json:"key_group_options"`
 			Catalogue json.RawMessage `json:"catalogue"`
 		}
-		if !decodeBusinessFacts(raw, &r) || r.Actor != user || r.Developer == nil || r.Locked == nil || r.Preview == nil || len(r.Models) > 4096 || len(r.Groups) > 128 || len(r.Catalogue) == 0 {
+		if !decodeBusinessFacts(raw, &r) || r.Actor != user || r.Locked == nil || r.Preview == nil || len(r.Models) > 4096 || len(r.Groups) > 128 || len(r.Catalogue) == 0 {
 			return false
 		}
 		for _, list := range [][]string{r.Models, r.Groups} {

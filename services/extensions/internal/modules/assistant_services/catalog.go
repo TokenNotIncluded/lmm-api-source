@@ -54,14 +54,14 @@ func assistantSkillTools() []assistantOpenAIToolDefinition {
 						"technical_cost_sensitive", "guided_buyer",
 						"production_operator", "privacy_conscious",
 						"mobile_accessibility", "normal_user",
-						"support_seeking", "l0_applicant",
+						"support_seeking",
 					},
 				},
 				"tags": map[string]any{
 					"type": "array", "maxItems": 4,
 					"items": map[string]any{
 						"type": "string",
-						"enum": []string{"advanced", "needs_steps", "cost_sensitive", "production", "privacy", "mobile", "accessibility", "support", "l0"},
+						"enum": []string{"advanced", "needs_steps", "cost_sensitive", "production", "privacy", "mobile", "accessibility", "support"},
 					},
 				},
 			}, []string{"profile_key"}),
@@ -115,9 +115,9 @@ func issueDefinitions() []assistantOpenAIToolDefinition {
 	add := func(name, description string, properties map[string]any, required []string) {
 		definitions = append(definitions, assistantOpenAIToolDefinition{Type: "function", Function: assistantOpenAIToolFunction{Name: name, Description: description, Parameters: objectSchema(properties, required)}})
 	}
-	add("get_site_issues", "Read the current user's visible in-site improvement issues, or one exact issue and recent status events. Administrators (L5) and super administrators (L6) may inspect all. Security reports are administrator-only. An unavailable record must not be treated as resolved.", map[string]any{"issue_id": integer, "before_id": integer}, nil)
+	add("get_site_issues", "Read the current user's visible in-site improvement issues, or one exact issue and recent status events. Administrators and super administrators may inspect all. Security reports are administrator-only. An unavailable record must not be treated as resolved.", map[string]any{"issue_id": integer, "before_id": integer}, nil)
 	add("create_site_issue", "Prepare an in-site report: bug, security vulnerability, experience improvement or feature request. Default visibility follows administrator policy. User-visible means the reporter and administrators, not other users. Security reports are always administrator-only. The user must confirm before an issue is created. Do not include secrets.", map[string]any{"kind": enumeration("bug", "security", "experience", "feature"), "title": text(128), "body": text(4000), "visibility": enumeration("user", "admin")}, []string{"kind", "title", "body"})
-	add("update_site_issue", "For L5 (administrator) or L6 (super administrator) only, prepare an issue status, visibility and note change using the exact ID and revision read from get_site_issues. User visibility is reporter-only. Security reports remain administrator-only. Browser confirmation and a fresh role check are required.", map[string]any{"issue_id": integer, "revision": integer, "status": enumeration("open", "triaged", "in_progress", "resolved", "declined"), "visibility": enumeration("user", "admin"), "note": map[string]any{"type": "string", "maxLength": 1500}}, []string{"issue_id", "revision", "status", "visibility", "note"})
+	add("update_site_issue", "For administrators or super administrators only, prepare an issue status, visibility and note change using the exact ID and revision read from get_site_issues. User visibility is reporter-only. Security reports remain administrator-only. Browser confirmation and a fresh role check are required.", map[string]any{"issue_id": integer, "revision": integer, "status": enumeration("open", "triaged", "in_progress", "resolved", "declined"), "visibility": enumeration("user", "admin"), "note": map[string]any{"type": "string", "maxLength": 1500}}, []string{"issue_id", "revision", "status", "visibility", "note"})
 	return definitions
 }
 func serviceDefinitions() []PureDefinition {
@@ -210,18 +210,17 @@ var serviceToolMetadata = map[string][2]string{
 	"get_account_access":               {"read_only", "user"},
 	"get_user_overview":                {"read_only", "user"},
 	"get_user_usage_summary":           {"read_only", "user"},
-	"get_usage_summary":                {"read_only", "l1"},
+	"get_usage_summary":                {"read_only", "user"},
 	"prepare_user_action":              {"confirmation", "user"},
-	"grant_l1_access":                  {"server_guarded", "l0"},
 	"get_available_models":             {"read_only", "user"},
 	"get_model_pricing":                {"read_only", "user"},
 	"calculate_cost":                   {"read_only", "user"},
 	"get_plan_offers":                  {"read_only", "user"},
-	"request_create_key":               {"confirmation", "l1"},
+	"request_create_key":               {"confirmation", "user"},
 	"list_my_api_keys":                 {"read_only", "user"},
 	"prepare_api_key_action":           {"confirmation", "user"},
-	"send_invitation":                  {"confirmation", "l1"},
-	"get_invitation_rewards":           {"read_only", "l1"},
+	"send_invitation":                  {"confirmation", "user"},
+	"get_invitation_rewards":           {"read_only", "user"},
 	"get_new_user_gift_status":         {"read_only", "user"},
 	"prepare_new_user_gift":            {"server_guarded", "user"},
 	"get_weekly_discount_status":       {"read_only", "user"},
@@ -232,7 +231,7 @@ var serviceToolMetadata = map[string][2]string{
 	"get_store_product":                {"read_only", "user"},
 	"get_tool_market_services":         {"read_only", "user"},
 	"get_tool_market_service":          {"read_only", "user"},
-	"prepare_image_generation":         {"confirmation", "l1"},
+	"prepare_image_generation":         {"confirmation", "user"},
 	"get_human_support_status":         {"read_only", "user"},
 	"book_technical_support":           {"server_guarded", "user"},
 	"request_human_support":            {"confirmation", "user"},
@@ -243,10 +242,7 @@ var serviceToolMetadata = map[string][2]string{
 	"remember_memory":                  {"server_guarded", "user"},
 	"remember_profile_skill":           {"server_guarded", "user"},
 	"forget_profile_skill":             {"server_guarded", "user"},
-	"get_registration_risk":            {"read_only", "l0"},
-	"notify_registration_risk":         {"server_guarded", "l0"},
-	"end_registration_conversation":    {"server_guarded", "l0"},
-	"ban_l0_user":                      {"server_guarded", "l0"},
+	"get_registration_risk":            {"read_only", "user"},
 	"get_admin_user_skills":            {"read_only", "admin"},
 	"get_admin_server_config":          {"read_only", "root"},
 	"get_admin_channels":               {"read_only", "admin"},
@@ -262,9 +258,9 @@ var serviceToolMetadata = map[string][2]string{
 	"get_site_issues":                  {"read_only", "user"},
 	"create_site_issue":                {"confirmation", "user"},
 	"update_site_issue":                {"confirmation", "admin"},
-	"get_connected_market_tools":       {"read_only", "l1"},
-	"connect_market_tool":              {"confirmation", "l1"},
-	"call_market_tool":                 {"server_guarded", "l1"},
+	"get_connected_market_tools":       {"read_only", "user"},
+	"connect_market_tool":              {"confirmation", "user"},
+	"call_market_tool":                 {"server_guarded", "user"},
 	"show_chart":                       {"read_only", "user"},
 	"show_statistics":                  {"read_only", "user"},
 	"show_choices":                     {"read_only", "user"},

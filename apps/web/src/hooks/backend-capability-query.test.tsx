@@ -215,12 +215,12 @@ describe('backend capability query safety', () => {
   })
 
   test('does not query bounty notifications before developer access activation', async () => {
-    useAuthStore.getState().auth.setUser({
+    useAuthStore.getState().auth.setUser(JSON.parse(JSON.stringify({
       id: 8,
       username: 'pending-user',
       role: 1,
       developer_access_granted: false,
-    })
+    })))
     const gets: string[] = []
     api.get = (async (url) => {
       gets.push(url)

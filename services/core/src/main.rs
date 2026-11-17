@@ -19,12 +19,11 @@ use std::{
 mod admin;
 mod hex_codec;
 
-const USAGE: &str = "Usage: lmm-core [--config /absolute/core.toml] [serve | init-db | upgrade-db | upgrade-history | upgrade-offline | create-first-owner | bootstrap-user | complete-setup | install-tool-market-builtins | install-usage-receipt-index | rebuild-channel-usage | plan-admin-activation | apply-admin-activation | plan-admin-key-continuity | apply-admin-key-continuity | publish-subscription-pancake-price | schema-manifest | check-db | trust-policy-editor]\n\n\
+const USAGE: &str = "Usage: lmm-core [--config /absolute/core.toml] [serve | init-db | upgrade-db | upgrade-history | upgrade-offline | create-first-owner | bootstrap-user | complete-setup | install-tool-market-builtins | install-usage-receipt-index | rebuild-channel-usage | plan-admin-activation | apply-admin-activation | plan-admin-key-continuity | apply-admin-key-continuity | publish-subscription-pancake-price | schema-manifest | check-db]\n\n\
 Commands:\n\
   serve           Start the core service (the default without arguments).\n\
   schema-manifest Print the compiled schema contract as JSON; accepts no config options and performs no I/O except stdout.\n\
   check-db        Read-only schema/runtime authority JSON; requires explicit --config.\n\
-  trust-policy-editor Owner-only offline editor registration, review, approval, revocation and key provisioning; explicit --config and bounded stdin JSON.\n\
   init-db         Initialize a new, empty core database.\n\
   upgrade-offline Explicit native v3 schema upgrade/recovery with independent history and persistent fencing.\n\
   upgrade-history Install/query an independent history database; requires explicit authority --config and stdin JSON.\n\
@@ -81,7 +80,6 @@ enum Command {
     PublishSubscriptionPancakePrice,
     SchemaManifest,
     CheckDb,
-    TrustPolicyEditor,
     Help,
     Version,
 }
@@ -122,7 +120,6 @@ const OPERATIONS: &[(&str, Command)] = &[
     ),
     ("schema-manifest", Command::SchemaManifest),
     ("check-db", Command::CheckDb),
-    ("trust-policy-editor", Command::TrustPolicyEditor),
 ];
 
 fn command(args: impl IntoIterator<Item = OsString>) -> io::Result<Arguments> {
@@ -243,16 +240,6 @@ fn main() -> Result<(), Box<dyn Error>> {
         }
         Command::CheckDb => std::process::exit(admin::check_database(arguments.config.as_deref())),
         Command::Serve => None,
-        Command::TrustPolicyEditor => {
-            if arguments.config.is_none() {
-                return Err(io::Error::new(
-                    io::ErrorKind::InvalidInput,
-                    "trust-policy-editor requires explicit offline owner --config",
-                )
-                .into());
-            }
-            Some(admin::Operation::trust_policy_editor(io::stdin().lock())?)
-        }
         Command::InitDb => Some(admin::Operation::InitDb),
         Command::UpgradeDb => {
             if arguments.config.is_none() {
@@ -408,7 +395,6 @@ async fn run_core() -> Result<(), Box<dyn Error>> {
     let mut capabilities = lmm_core::http::Capabilities::default();
     let mut public_status = lmm_core::http::PublicStatus::default();
     let mut database_pool = None;
-    let mut remote_store = None;
     let mut model_gateway = None;
     let mut humangrant_engine = None;
     let mut email_runtime = None;
@@ -437,7 +423,6 @@ async fn run_core() -> Result<(), Box<dyn Error>> {
                 wallet: config::wallet_configured(),
                 bounties: config::bounties_configured(),
                 community: config::community_configured(),
-                trust_policy_editor: config::trust_policy_editor_enabled()?,
                 federated_auth,
                 checkins: false,
                 checkin_rewards: config::checkin_rewards_configured(),
@@ -447,8 +432,6 @@ async fn run_core() -> Result<(), Box<dyn Error>> {
         // Installation belongs solely to the explicit init-db command. Even a
         // valid identity-only installation cannot stand in for the whole core.
         lmm_core::core_schema::check(&pool).await?;
-        // Validate the configured editor authority before starting services.
-        let trust_policy_editor = config::trust_policy_editor(pool.clone()).await?;
         let (abuse, configured_models) = config::models_and_abuse(pool.clone())?;
         let mut store = config::identity_auth(IdentityStore::from_pool(pool.clone()))?
             .with_password_slots(config::password_slots()?)?
@@ -457,9 +440,7 @@ async fn run_core() -> Result<(), Box<dyn Error>> {
             .with_commerce_scope_enabled(config::commerce_configured());
         store.check_federated_auth_ready().await?;
         capabilities.identity = true;
-        // Production never silently opts out of owner-controlled user pricing.
-        // Library fixtures may omit the builder; serving this binary may not.
-        model_gateway = configured_models.map(|gateway| gateway.with_trust_pricing());
+        model_gateway = configured_models;
         if let Some(gateway) = &mut model_gateway {
             gateway.verify_legacy_key_aliases().await?;
             store = store.with_dashboard_routing(gateway.dashboard_routing());
@@ -521,7 +502,6 @@ async fn run_core() -> Result<(), Box<dyn Error>> {
             notification_runtime = Some(console);
             capabilities.console = true;
         }
-        remote_store = Some(store.clone());
         if let Some(issuer) = config::market_oauth_issuer(pool.clone()).await? {
             routes = routes.merge(lmm_core::market_oauth::http::router(issuer));
         }
@@ -580,7 +560,7 @@ async fn run_core() -> Result<(), Box<dyn Error>> {
                 federated_auth: store.federated_auth_enabled(),
             };
             if console_enabled {
-                let mut options = lmm_core::options_http::OptionsHttp::new(
+                let options = lmm_core::options_http::OptionsHttp::new(
                     pool.clone(),
                     store.clone(),
                     lmm_core::options_http::RuntimeOptions {
@@ -593,9 +573,6 @@ async fn run_core() -> Result<(), Box<dyn Error>> {
                             .to_vec(),
                     },
                 );
-                if let Some(editor) = trust_policy_editor {
-                    options = options.with_trust_policy_editor(editor);
-                }
                 routes = routes.merge(lmm_core::options_http::router(options));
             }
             routes = routes.merge(lmm_core::topup_info_http::unconfigured_router(
@@ -678,11 +655,9 @@ async fn run_core() -> Result<(), Box<dyn Error>> {
         || config::bounties_configured()
         || config::image_host_configured()
         || config::community_configured()
-        || config::remote_control_configured()
         || legacy_config.is_some()
         || config::identity_database_required()?
         || console_enabled
-        || config::trust_policy_editor_enabled()?
         || config::payments_configured()
         || config::commerce_configured()
         || config::setting_os("LMM_CORE_MODEL_CONFIG_FILE").is_some()
@@ -692,19 +667,6 @@ async fn run_core() -> Result<(), Box<dyn Error>> {
         return Err("Web authentication and model configuration require a core database".into());
     }
     let (stop, stopped) = tokio::sync::watch::channel(false);
-    #[cfg(unix)]
-    let mut remote_proxy = None;
-    #[cfg(unix)]
-    if let Some(store) = remote_store
-        && let Some(remote) = config::remote_control(store, stopped.clone())?
-    {
-        app = app.merge(remote.clone().router());
-        remote_proxy = Some(remote);
-    }
-    #[cfg(not(unix))]
-    if config::remote_control_configured() {
-        return Err("remote relay requires Unix Core RPC on this release".into());
-    }
     // RPC remains usable while accepted public requests and completions drain.
     #[cfg(unix)]
     let (rpc_stop, rpc_stopped) = tokio::sync::watch::channel(false);
@@ -881,6 +843,13 @@ async fn run_core() -> Result<(), Box<dyn Error>> {
     });
     #[cfg(unix)]
     let mut terminate = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())?;
+    if let Some(pool) = &database_pool {
+        app = lmm_core::network_access::NetworkAccess::new(
+            capabilities.console.then(|| pool.clone()),
+            config::network_access_config()?,
+        )?
+        .protect(app);
+    }
     if let Some(edge) = config::edge_access_config()? {
         let pool = database_pool
             .clone()
@@ -896,13 +865,6 @@ async fn run_core() -> Result<(), Box<dyn Error>> {
         Admission::new(lifecycle.clone(), ingress),
         lmm_core::lifecycle::admit,
     ));
-    #[cfg(unix)]
-    if let Some(remote) = remote_proxy {
-        app = app.layer(axum::middleware::from_fn_with_state(
-            remote,
-            lmm_core::remote_control::preadmit,
-        ));
-    }
     // Outermost: see the final status, and mask query credentials before stderr.
     app = app.layer(axum::middleware::from_fn(
         lmm_core::log_redact::log_redacted_request_target,
@@ -1152,8 +1114,8 @@ mod check_db_parser_tests {
     }
 
     #[test]
-    fn retired_checkin_commands_are_unknown_even_with_config_or_help() {
-        for name in ["seed-checkin-history", "publish-checkin-policy"] {
+    fn retired_owner_commands_are_unknown_even_with_config_or_help() {
+        for name in ["seed-checkin-history", "publish-checkin-policy", "trust-policy-editor"] {
             for input in [
                 vec![name],
                 vec![name, "--config", "/private/owner.toml"],

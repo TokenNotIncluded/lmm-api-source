@@ -80,12 +80,12 @@ await i18n.use(initReactI18next).init({
   resources: { en: { translation: {} } },
 })
 
-const restrictedStatus = {
+const restrictedStatus = JSON.parse(JSON.stringify({
   enabled: true,
   model: 'deepseek-v4-flash',
   developer_access_granted: false,
   funding: { mode: 'super_administrator' as const },
-}
+}))
 
 const generatedPresets = {
   generation: 1_786_500_000,
@@ -207,7 +207,7 @@ afterEach(() => {
 
 after(() => domWindow.close())
 
-describe('L0 onboarding assistant experience', () => {
+describe('Assistant first-use experience', () => {
   test('allows short assistant messages but rejects a single punctuation mark', () => {
     assert.deepEqual(getAssistantPromptValidation('  甲  ', true), {
       characterCount: 1,
@@ -227,7 +227,7 @@ describe('L0 onboarding assistant experience', () => {
     })
   })
 
-  test('puts L0 onboarding and privacy guidance on the first assistant screen', async () => {
+  test('shows setup and privacy guidance on the first assistant screen', async () => {
     api.get = (async (url: string) => {
       if (url === '/api/assistant/pre-conversation-presets') {
         return { data: { success: true, data: generatedPresets } }
@@ -241,9 +241,9 @@ describe('L0 onboarding assistant experience', () => {
       await act(async () =>
         waitForCondition(
           () =>
-            document.querySelector('[data-testid="assistant-l0-welcome"]') !==
+            document.querySelector('[data-testid="assistant-welcome"]') !==
             null,
-          'L0 welcome card did not render'
+          'Welcome card did not render'
         )
       )
 
@@ -257,7 +257,7 @@ describe('L0 onboarding assistant experience', () => {
       )
       assert.match(
         document.body.textContent ?? '',
-        /What would you like to do\?/
+        /How can I help\?/
       )
       assert.doesNotMatch(
         document.body.textContent ?? '',
@@ -276,7 +276,7 @@ describe('L0 onboarding assistant experience', () => {
       assert.ok(textarea.minLength <= 0)
       assert.doesNotMatch(
         textarea.getAttribute('aria-describedby') ?? '',
-        /assistant-l0-input-hint/
+        /assistant-input-hint/
       )
       assert.match(document.body.textContent ?? '', /Talk to support/)
     } finally {
@@ -285,7 +285,7 @@ describe('L0 onboarding assistant experience', () => {
     }
   })
 
-  test('allows a short L0 message and rejects a single punctuation mark', async () => {
+  test('allows a short message and rejects a single punctuation mark', async () => {
     api.get = (async (url: string) => {
       assert.equal(url, '/api/assistant/status')
       return { data: { success: true, data: restrictedStatus } }
@@ -309,13 +309,13 @@ describe('L0 onboarding assistant experience', () => {
       assert.ok(submit)
       assert.equal(submit.disabled, false)
       assert.equal(textarea.getAttribute('aria-invalid'), 'false')
-      assert.equal(document.querySelector('#assistant-l0-input-hint'), null)
+      assert.equal(document.querySelector('#assistant-input-hint'), null)
 
       await setTextareaValue(textarea, '。')
       assert.equal(submit.disabled, true)
       assert.equal(textarea.getAttribute('aria-invalid'), 'true')
       assert.equal(
-        document.querySelector('#assistant-l0-input-hint')?.textContent,
+        document.querySelector('#assistant-input-hint')?.textContent,
         'Please enter a message other than a single punctuation mark.'
       )
     } finally {

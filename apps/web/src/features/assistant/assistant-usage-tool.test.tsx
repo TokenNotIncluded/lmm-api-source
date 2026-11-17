@@ -84,7 +84,7 @@ async function flushQueries() {
   await new Promise((resolve) => setTimeout(resolve, 20))
 }
 
-async function renderTool(developerAccessGranted: boolean) {
+async function renderTool(authenticated: boolean) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   })
@@ -92,7 +92,7 @@ async function renderTool(developerAccessGranted: boolean) {
     component: () => (
       <QueryClientProvider client={queryClient}>
         <I18nextProvider i18n={i18n}>
-          <AssistantUsageTool developerAccessGranted={developerAccessGranted} />
+          <AssistantUsageTool authenticated={authenticated} />
         </I18nextProvider>
       </QueryClientProvider>
     ),
@@ -240,18 +240,19 @@ describe('AssistantUsageTool', () => {
     }
   })
 
-  test('keeps L0 restricted without requesting account usage', async () => {
+  test('does not request account usage while signed out', async () => {
     let calls = 0
     api.get = (async () => {
       calls += 1
       throw new Error('usage endpoint must stay disabled')
     }) as typeof api.get
 
+    useAuthStore.getState().auth.setUser(null)
     const rendered = await renderTool(false)
     try {
       assert.equal(calls, 0)
       assert.match(rendered.container.textContent ?? '', /Historical Usage/)
-      assert.match(rendered.container.textContent ?? '', /access is activated/)
+      assert.match(rendered.container.textContent ?? '', /Sign in to continue setup/)
     } finally {
       await unmount(rendered)
     }

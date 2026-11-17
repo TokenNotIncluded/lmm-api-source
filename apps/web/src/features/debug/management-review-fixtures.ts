@@ -43,7 +43,6 @@ export function withManagementReviewFixtures(next: AxiosAdapter): AxiosAdapter {
     'store',
     'support',
     'toolmarket',
-    'remote-control',
   ].map((name, index) => ({
     name,
     version: '1.0.0',

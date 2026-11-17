@@ -284,13 +284,8 @@ export function AssistantLauncher(props: {
     )
   }
 
-  const needsL1Unlock = user !== null && !isConsoleActivated(user)
-  const visibleLabel = needsL1Unlock
-    ? t('Unlock L1 with AI')
-    : t('AI assistant')
-  const accessibleLabel = needsL1Unlock
-    ? t('Unlock L1 with AI')
-    : t('Open AI assistant')
+  const visibleLabel = t('AI assistant')
+  const accessibleLabel = t('Open AI assistant')
 
   return (
     <div className='contents'>

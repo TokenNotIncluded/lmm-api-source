@@ -16,7 +16,6 @@ import {
   isRegistrationEnabled,
 } from '@/features/auth/lib/registration'
 import type { SystemStatus } from '@/features/auth/types'
-import { getL0PaidAccess } from '@/features/onboarding/l0-paid-access'
 import { getAccountNextStep } from '@/features/onboarding/next-step'
 import { getStatus } from '@/lib/api'
 import { getOnboardingState } from '@/lib/console-activation'
@@ -93,31 +92,12 @@ async function readSystemStatus(signal: AbortSignal): Promise<SystemStatus> {
 function onboardingSnapshot() {
   const user = useAuthStore.getState().auth.user
   const state = getOnboardingState(user)
-  const access = getL0PaidAccess(user)
-  const paidProgressAvailable =
-    access.mode === 'topup' || access.mode === 'sync'
   const next = getAccountNextStep(user)
   return {
     authenticated: Boolean(user),
-    developer_access_granted: user?.developer_access_granted === true,
     stage: state.stage,
-    activation_complete: state.activationComplete,
     credential_complete: state.credentialComplete,
     first_request_complete: state.firstRequestComplete,
-    trust_level: user?.trust_level_info?.level ?? null,
-    // Presentation only; the server is the sole authority on access.
-    paid_access: {
-      mode: access.mode,
-      quota_unit: 'LEDGER_QUOTA',
-      paid_credits: paidProgressAvailable ? String(access.paidCredits) : null,
-      threshold_credits: paidProgressAvailable
-        ? String(access.thresholdCredits)
-        : null,
-      remaining_credits: paidProgressAvailable
-        ? String(access.remainingCredits)
-        : null,
-      note: 'Displayed progress only. Topping up does not itself grant developer access; the server decides.',
-    },
     next_step: { path: next.to, label: next.label },
   }
 }
@@ -176,7 +156,7 @@ export const authOnboardingTools: WebMcpToolFactory = ({ router }) => {
       name: 'lmm_onboarding_status',
       title: 'Read onboarding stage and next step',
       description:
-        'Read the current account onboarding state: the stage, which of activation, credential, and first-request steps are complete, the trust level, the L0 to L1 progress as exact integer credit strings (paid_credits, threshold_credits, remaining_credits in LEDGER_QUOTA; null when unavailable), a recommended next step, and which assistant preset fits. Works while signed out. Never returns credentials or private profile data.',
+        'Read the current account setup state: credential and first-request progress and a recommended next step. Works while signed out. Never returns credentials or private profile data.',
       inputSchema: EMPTY_INPUT_SCHEMA,
       annotations: { readOnlyHint: true },
       execute: async (_input, options) => {
@@ -188,7 +168,7 @@ export const authOnboardingTools: WebMcpToolFactory = ({ router }) => {
       name: 'lmm_onboarding_open_assistant',
       title: 'Open onboarding help',
       description:
-        'Open onboarding help for a signed-in account. Unactivated accounts can open the assistant from the wallet; plan and human presets open the wallet or support page. Activated accounts use the console assistant. This tool sends no message.',
+        'Open setup help in the console assistant for a signed-in account. This tool sends no message.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -199,21 +179,11 @@ export const authOnboardingTools: WebMcpToolFactory = ({ router }) => {
       },
       annotations: { readOnlyHint: true },
       execute: async (rawInput, options) => {
-        const user = requireSignedIn()
+        requireSignedIn()
         const input = ensureObject(rawInput)
         const preset = optionalEnum(input, 'preset', ASSISTANT_PRESETS)
         if (!preset) throw new TypeError('preset is required')
         ensureNotAborted(options.signal)
-        if (!getOnboardingState(user).activationComplete) {
-          if (preset === 'plan' || preset === 'human') {
-            const path = preset === 'plan' ? '/wallet' : '/support'
-            await router.navigate({ to: path })
-            return { preset, opened: true, path, mode: 'page' }
-          }
-          requestAssistantOpen(preset)
-          await router.navigate({ to: '/wallet' })
-          return { preset, opened: true, path: '/wallet', mode: 'assistant' }
-        }
         requestAssistantOpen(preset)
         return { preset, opened: true }
       },

@@ -197,7 +197,6 @@ pub struct UserInfo {
     pub active: bool,
     pub platform_role: String,
     pub name: String,
-    pub developer_access: bool,
     pub has_active_key: bool,
     pub last_api_activity_at: i64,
 }
@@ -332,7 +331,7 @@ impl CommunityRead {
         .bind(0_i64)
         .fetch_all(&mut *tx)
         .await?;
-        sqlx::query("SELECT u.id,u.active,u.platform_role,p.username,p.display_name,p.setting,d.granted,k.group_name,k.auto_groups,k.enabled,c.kind,c.revoked_at,c.expires_at FROM core_identity.users u JOIN core_identity.user_profiles p ON p.user_id=u.id LEFT JOIN core_identity.developer_access d ON d.user_id=u.id JOIN core_identity.credentials c ON c.user_id=u.id JOIN core_identity.api_key_settings k ON k.credential_id=c.id WHERE FALSE")
+        sqlx::query("SELECT u.id,u.active,u.platform_role,p.username,p.display_name,p.setting,k.group_name,k.auto_groups,k.enabled,c.kind,c.revoked_at,c.expires_at FROM core_identity.users u JOIN core_identity.user_profiles p ON p.user_id=u.id JOIN core_identity.credentials c ON c.user_id=u.id JOIN core_identity.api_key_settings k ON k.credential_id=c.id WHERE FALSE")
             .fetch_all(&mut *tx)
             .await?;
         sqlx::query("SELECT value FROM core_console.options WHERE key='USDExchangeRate' AND FALSE")
@@ -585,13 +584,11 @@ impl CommunityRead {
             "SELECT u.id, u.active, u.platform_role,
               CASE WHEN {REGISTRATION_TIME_PROVEN} THEN floor(extract(epoch FROM a.created_at))::bigint ELSE NULL END AS registered_at,
               coalesce(nullif(btrim(p.display_name),''),btrim(p.username),'') AS name,
-              (u.platform_role IN ('admin','superadmin') OR coalesce(d.granted,false)) AS developer,
               EXISTS(SELECT FROM core_identity.credentials c JOIN core_identity.api_key_settings k ON k.credential_id=c.id
                 WHERE c.user_id=u.id AND c.kind='api_key' AND k.enabled AND c.revoked_at IS NULL AND c.expires_at>clock_timestamp()) AS has_key,
               greatest(coalesce((SELECT max(r.authorized_at) FROM core_charging.requests r WHERE r.actor_user_id=u.id AND r.state='settled' AND r.outcome='completed'),0),
                        coalesce({history},0))::bigint AS last_api
              FROM core_identity.users u JOIN core_identity.accounts a ON a.id=u.personal_account_id LEFT JOIN core_identity.user_profiles p ON p.user_id=u.id
-             LEFT JOIN core_identity.developer_access d ON d.user_id=u.id
              WHERE u.id=ANY($1) ORDER BY u.id"
         )))
         .bind(&r.user_ids)
@@ -606,7 +603,6 @@ impl CommunityRead {
                     active: row.try_get("active")?,
                     platform_role: row.try_get("platform_role")?,
                     name: row.try_get("name")?,
-                    developer_access: row.try_get("developer")?,
                     has_active_key: row.try_get("has_key")?,
                     last_api_activity_at: row.try_get("last_api")?,
                 })

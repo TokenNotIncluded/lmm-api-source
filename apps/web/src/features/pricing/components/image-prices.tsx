@@ -38,8 +38,8 @@ export function ImagePrices({ model }: { model: PricingModel }) {
             <dd className='break-words'>{variant.quality}</dd>
             <dt className='text-muted-foreground'>
               {t(
-                variant.rate_basis === 'effective_user_rate'
-                  ? 'Current account price'
+                variant.rate_basis === 'effective_group_rate'
+                  ? 'Group price'
                   : variant.rate_basis === 'base_group_rate'
                     ? 'Group base price'
                     : 'Price'

@@ -52,7 +52,7 @@ func (l CheckinLedger) Inspect(ctx context.Context, user string) (checkins.Autho
 	if e != nil {
 		return checkins.Authority{}, checkinError(e)
 	}
-	return checkins.Authority{UserID: r.UserId, AccountID: r.AccountId, Day: r.Day, Timestamp: r.Timestamp, TrustLevel: r.TrustLevel, MaxDailyUnits: r.MaxDailyUnits, Blocked: r.Blocked}, nil
+	return checkins.Authority{UserID: r.UserId, AccountID: r.AccountId, Day: r.Day, Timestamp: r.Timestamp, MaxDailyUnits: r.MaxDailyUnits, Blocked: r.Blocked}, nil
 }
 func (l CheckinLedger) Challenge(ctx context.Context, user, key string) (checkins.Challenge, error) {
 	if !validUserCredential(user) {

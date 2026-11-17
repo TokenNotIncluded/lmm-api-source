@@ -46,7 +46,7 @@ func (s *Service) begin(ctx context.Context) (*sql.Tx, error) {
 	return tx, nil
 }
 func inspectValid(a Authority) bool {
-	return a.UserID > 0 && a.AccountID > 0 && a.TrustLevel <= 6 && a.Timestamp > 0 && a.MaxDailyUnits >= 0 && a.Day == day(a.Timestamp)
+	return a.UserID > 0 && a.AccountID > 0 && a.Timestamp > 0 && a.MaxDailyUnits >= 0 && a.Day == day(a.Timestamp)
 }
 func loadPolicy(ctx context.Context, tx *sql.Tx) (*Policy, *int64, error) {
 	var revision int64
@@ -97,7 +97,7 @@ func (s *Service) Status(ctx context.Context, user, month string) (Status, error
 	}
 	result := Status{Today: a.Day, Month: month, CalendarOffsetSeconds: Offset, PolicyRevision: revision, Records: []DailyRecord{}, TotalQuotaAwarded: "0"}
 	if p != nil && p.Enabled {
-		r, e := p.rewardRange(a.TrustLevel)
+		r, e := p.rewardRange()
 		if e != nil {
 			return Status{}, e
 		}
@@ -196,7 +196,7 @@ func (s *Service) Challenge(ctx context.Context, user, key string) (Challenge, e
 		if p == nil || !p.Enabled {
 			return Challenge{}, ErrForbidden
 		}
-		r, e := p.rewardRange(a.TrustLevel)
+		r, e := p.rewardRange()
 		if e != nil {
 			return Challenge{}, e
 		}
@@ -267,7 +267,7 @@ func (s *Service) Claim(ctx context.Context, user string, input ClaimRequest) (C
 		if json.Unmarshal(i.Record, &record) != nil {
 			return ClaimResult{}, ErrUnavailable
 		}
-		return s.remember(ctx, a.UserID, input.OperationKey, ClaimResult{AlreadyClaimed: i.Key != input.OperationKey, Record: record})
+		return s.remember(ctx, a.UserID, input.OperationKey, ClaimResult{AlreadyClaimed: i.Key != input.OperationKey, Record: record}, i.Record)
 	}
 	if i.Key != input.OperationKey {
 		authorization = ""
@@ -290,8 +290,13 @@ func (s *Service) Claim(ctx context.Context, user string, input ClaimRequest) (C
 	if receipt.UserID != i.User || receipt.AccountID != i.Account || receipt.Day != i.Day || receipt.AmountUnits != i.Amount || receipt.Timestamp <= 0 || (receipt.JournalID != nil && *receipt.JournalID <= 0) || (i.Amount == 0) != (receipt.JournalID == nil) {
 		return ClaimResult{}, ErrConflict
 	}
-	record := DailyRecord{CheckinDate: i.Day, QuotaAwarded: strconv.FormatInt(i.Amount, 10), CreatedAt: receipt.Timestamp, JournalID: receipt.JournalID, Origin: "native", PolicyRevision: &i.Revision, TrustLevel: &i.Level}
-	raw, e := json.Marshal(record)
+	record := DailyRecord{CheckinDate: i.Day, QuotaAwarded: strconv.FormatInt(i.Amount, 10), CreatedAt: receipt.Timestamp, JournalID: receipt.JournalID, Origin: "native", PolicyRevision: &i.Revision}
+	// Preserve the immutable storage contract without exposing the historical
+	// scalar in the public DailyRecord DTO. New intentions always store zero.
+	raw, e := json.Marshal(struct {
+		DailyRecord
+		LegacyLevel uint32 `json:"trust_level"`
+	}{record, i.Level})
 	if e != nil {
 		return ClaimResult{}, ErrUnavailable
 	}
@@ -308,7 +313,7 @@ func (s *Service) Claim(ctx context.Context, user string, input ClaimRequest) (C
 		return ClaimResult{}, ErrUnavailable
 	}
 	result := ClaimResult{AlreadyClaimed: i.Key != input.OperationKey, Record: record}
-	resultRaw, _ := json.Marshal(result)
+	resultRaw, _ := storedClaimResult(result, actual.Record)
 	if _, e = finish.ExecContext(ctx, "UPDATE lmm_checkins.claim_commands SET result=$1::jsonb WHERE user_id=$2 AND operation_key=$3 AND result IS NULL", string(resultRaw), a.UserID, input.OperationKey); e != nil {
 		return ClaimResult{}, ErrUnavailable
 	}
@@ -361,7 +366,7 @@ func (s *Service) prepareClaim(ctx context.Context, a Authority, key string, aut
 		if p == nil || !p.Enabled {
 			return intention{}, nil, ErrForbidden
 		}
-		r, e := p.rewardRange(a.TrustLevel)
+		r, e := p.rewardRange()
 		if e != nil {
 			return intention{}, nil, e
 		}
@@ -376,7 +381,7 @@ func (s *Service) prepareClaim(ctx context.Context, a Authority, key string, aut
 		if e != nil {
 			return intention{}, nil, e
 		}
-		i = intention{Account: a.AccountID, User: a.UserID, Day: date, Key: key, Amount: amount, Level: a.TrustLevel, Revision: *revision, Created: a.Timestamp, State: "pending"}
+		i = intention{Account: a.AccountID, User: a.UserID, Day: date, Key: key, Amount: amount, Level: 0, Revision: *revision, Created: a.Timestamp, State: "pending"}
 		if _, e = tx.ExecContext(ctx, "INSERT INTO lmm_checkins.intentions(account_id,user_id,day,operation_key,amount_units,trust_level,policy_revision,created_at,state) VALUES($1,$2,$3::date,$4,$5,$6,$7,$8,'pending')", i.Account, i.User, i.Day, i.Key, i.Amount, i.Level, i.Revision, i.Created); e != nil {
 			return intention{}, nil, ErrUnavailable
 		}
@@ -412,10 +417,19 @@ func (s *Service) authorize(ctx context.Context, user string, input ClaimRequest
 	return grant, nil
 }
 
-func (s *Service) remember(ctx context.Context, user int64, key string, result ClaimResult) (ClaimResult, error) {
-	raw, _ := json.Marshal(result)
+func (s *Service) remember(ctx context.Context, user int64, key string, result ClaimResult, storedRecord json.RawMessage) (ClaimResult, error) {
+	raw, _ := storedClaimResult(result, storedRecord)
 	if _, e := s.db.ExecContext(ctx, "UPDATE lmm_checkins.claim_commands SET result=$1::jsonb WHERE user_id=$2 AND operation_key=$3 AND result IS NULL", string(raw), user, key); e != nil {
 		return ClaimResult{}, ErrUnavailable
 	}
 	return result, nil
+}
+
+// Persist the original record bytes, including historical fields required by
+// the immutable ledger trigger. Public responses use the narrower DailyRecord.
+func storedClaimResult(result ClaimResult, record json.RawMessage) ([]byte, error) {
+	return json.Marshal(struct {
+		AlreadyClaimed bool            `json:"already_claimed"`
+		Record         json.RawMessage `json:"record"`
+	}{result.AlreadyClaimed, record})
 }

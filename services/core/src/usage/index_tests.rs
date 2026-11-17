@@ -350,7 +350,6 @@ async fn shared_usage_streams_past_100000_without_silent_truncation(pool: PgPool
         &mut tx,
         &self_context,
         &crate::assistant_tools_core::account::UsageSummaryArgs::default(),
-        false,
     )
     .await
     .unwrap();
@@ -371,7 +370,6 @@ async fn shared_usage_streams_past_100000_without_silent_truncation(pool: PgPool
             user_id: Some(7),
             ..Default::default()
         },
-        true,
     )
     .await
     .unwrap();
@@ -403,8 +401,7 @@ async fn shared_usage_streams_past_100000_without_silent_truncation(pool: PgPool
         assistant_summary_in_transaction(
             &mut tx,
             &context,
-            &crate::assistant_tools_core::account::UsageSummaryArgs::default(),
-            false
+            &crate::assistant_tools_core::account::UsageSummaryArgs::default()
         )
         .await
         .is_err()

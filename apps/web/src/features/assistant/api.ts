@@ -212,9 +212,6 @@ export type AssistantStatus = {
   group?: string
   route_available?: boolean
   funding: AssistantFundingStatus
-  developer_access_granted: boolean
-  access_level?: string
-  trust_level?: number
   role?: number
   is_admin?: boolean
   is_root?: boolean
@@ -222,7 +219,7 @@ export type AssistantStatus = {
     public_assistant?: boolean
     new_user_gift?: boolean
     account?: boolean
-    developer_tools?: boolean
+    account_tools?: boolean
     usage_discount?: boolean
     admin_config?: boolean
     admin_pricing?: boolean
@@ -231,23 +228,21 @@ export type AssistantStatus = {
   }
 }
 
-export type L1OnboardingStepId =
+export type AccountSetupStepId =
   | 'create_api_key'
   | 'install_client'
   | 'configure_client'
   | 'first_successful_response'
 
-export type L1OnboardingTodo = {
+export type AccountSetupTodo = {
   eligibility: {
     eligible: boolean
-    developer_access_granted: boolean
-    trust_level: number
     reason?: string
   }
   status: 'unavailable' | 'in_progress' | 'completed'
-  current_step?: L1OnboardingStepId
+  current_step?: AccountSetupStepId
   steps: Array<{
-    id: L1OnboardingStepId
+    id: AccountSetupStepId
     status: 'pending' | 'completed'
     completed_at?: number
   }>
@@ -256,7 +251,6 @@ export type L1OnboardingTodo = {
 
 export type AssistantJourneyStepId =
   | 'ask_ai'
-  | 'get_recommendation'
   | 'create_api_key'
   | 'install_client'
   | 'configure_client'
@@ -650,7 +644,6 @@ export type AssistantReply = {
 
 export type AssistantPlanOffers = {
   ok: boolean
-  developer_access_granted: boolean
   read_only: boolean
   checkout_available: boolean
   payment_hidden: boolean
@@ -865,7 +858,7 @@ const ASSISTANT_NAVIGATION_QUERY_KEYS: Partial<
   '/profile': [],
   '/support': [],
   '/bounties': [],
-  '/users': ['filter', 'l0Only'],
+  '/users': ['filter'],
   '/store': [],
   '/tool-market': ['service_id'],
 }
@@ -2447,8 +2440,31 @@ export async function confirmAssistantKeyAction(
   }
 }
 
-export async function getL1OnboardingTodo(): Promise<L1OnboardingTodo> {
-  const response = await api.get<AssistantAPIResponse<L1OnboardingTodo>>(
+const accountSetupStepIdSchema = z.enum([
+  'create_api_key',
+  'install_client',
+  'configure_client',
+  'first_successful_response',
+])
+const accountSetupTodoSchema = z.object({
+  eligibility: z.object({
+    eligible: z.boolean(),
+    reason: z.string().optional(),
+  }),
+  status: z.enum(['unavailable', 'in_progress', 'completed']),
+  current_step: accountSetupStepIdSchema.optional(),
+  steps: z.array(
+    z.object({
+      id: accountSetupStepIdSchema,
+      status: z.enum(['pending', 'completed']),
+      completed_at: z.number().finite().optional(),
+    })
+  ),
+  completed_at: z.number().finite().optional(),
+})
+
+export async function getAccountSetupTodo(): Promise<AccountSetupTodo> {
+  const response = await api.get<AssistantAPIResponse<unknown>>(
     '/api/user/self/onboarding/todo',
     {
       disableDuplicate: true,
@@ -2456,7 +2472,12 @@ export async function getL1OnboardingTodo(): Promise<L1OnboardingTodo> {
       skipErrorHandler: true,
     }
   )
-  return requireAssistantData(response.data, 'Unable to load setup checklist')
+  const fallback = 'Unable to load setup checklist'
+  const parsed = accountSetupTodoSchema.safeParse(
+    requireAssistantData(response.data, fallback)
+  )
+  if (!parsed.success) throw new AssistantRequestError(fallback)
+  return parsed.data
 }
 
 export async function getAssistantJourney(): Promise<AssistantJourney> {

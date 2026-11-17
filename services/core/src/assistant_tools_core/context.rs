@@ -17,7 +17,6 @@ pub struct Facts {
     pub user: i64,
     pub account: i64,
     pub role: String,
-    pub developer: bool,
     pub auth_version: i64,
     pub browser_session: Option<String>,
 }
@@ -73,13 +72,12 @@ impl VerifiedToolContext {
         self.credential
     }
     pub async fn revalidate(&self, c: &mut PgConnection) -> Result<Facts, Error> {
-        let row=sqlx::query("SELECT u.platform_role,u.auth_version,s.sid AS browser_session,(u.platform_role IN ('admin','superadmin') OR COALESCE(d.granted,FALSE)) AS developer FROM core_identity.credentials k JOIN core_identity.users u ON u.id=k.user_id JOIN core_identity.accounts a ON a.id=u.personal_account_id LEFT JOIN core_identity.web_session_credentials m ON m.credential_id=k.id LEFT JOIN core_identity.web_sessions s ON s.sid=m.sid LEFT JOIN core_identity.developer_access d ON d.user_id=u.id WHERE k.id=$1 AND k.user_id=$2 AND k.owner_account_id=$3 AND u.personal_account_id=$3 AND k.kind='session' AND k.revoked_at IS NULL AND k.expires_at>clock_timestamp() AND k.user_version=u.auth_version AND k.user_version=$4 AND u.active AND a.active AND a.kind='personal' AND (m.sid IS NULL OR (s.current_credential_id=k.id AND s.user_id=u.id AND s.user_version=u.auth_version AND s.revoked_at IS NULL AND s.expires_at>clock_timestamp() AND (NOT s.weekly_logout OR s.created_at>clock_timestamp()-interval '7 days'))) FOR SHARE OF k,u,a")
+        let row=sqlx::query("SELECT u.platform_role,u.auth_version,s.sid AS browser_session FROM core_identity.credentials k JOIN core_identity.users u ON u.id=k.user_id JOIN core_identity.accounts a ON a.id=u.personal_account_id LEFT JOIN core_identity.web_session_credentials m ON m.credential_id=k.id LEFT JOIN core_identity.web_sessions s ON s.sid=m.sid WHERE k.id=$1 AND k.user_id=$2 AND k.owner_account_id=$3 AND u.personal_account_id=$3 AND k.kind='session' AND k.revoked_at IS NULL AND k.expires_at>clock_timestamp() AND k.user_version=u.auth_version AND k.user_version=$4 AND u.active AND a.active AND a.kind='personal' AND (m.sid IS NULL OR (s.current_credential_id=k.id AND s.user_id=u.id AND s.user_version=u.auth_version AND s.revoked_at IS NULL AND s.expires_at>clock_timestamp() AND (NOT s.weekly_logout OR s.created_at>clock_timestamp()-interval '7 days'))) FOR SHARE OF k,u,a")
             .bind(self.credential).bind(self.user).bind(self.account).bind(self.version).fetch_optional(c).await?.ok_or(Error::Unauthorized)?;
         Ok(Facts {
             user: self.user,
             account: self.account,
             role: row.try_get("platform_role")?,
-            developer: row.try_get("developer")?,
             auth_version: row.try_get("auth_version")?,
             browser_session: row.try_get("browser_session")?,
         })

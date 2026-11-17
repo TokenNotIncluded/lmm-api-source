@@ -65,7 +65,7 @@ function parseTokenCount(value: string): number {
   return Number.isFinite(parsed) && parsed >= 0 ? parsed : Number.NaN
 }
 
-export function AssistantCostTool(props: { developerAccessGranted: boolean }) {
+export function AssistantCostTool(props: { authenticated: boolean }) {
   const { t } = useTranslation()
   const { formatUSD } = useWalletCurrency()
   const [modelName, setModelName] = useState('')
@@ -75,7 +75,7 @@ export function AssistantCostTool(props: { developerAccessGranted: boolean }) {
   const pricingQuery = useQuery({
     queryKey: ['assistant-pricing'],
     queryFn: getAssistantPricing,
-    enabled: props.developerAccessGranted,
+    enabled: props.authenticated,
     staleTime: 5 * 60 * 1000,
     retry: false,
   })
@@ -119,13 +119,13 @@ export function AssistantCostTool(props: { developerAccessGranted: boolean }) {
     })
 
   let calculatorContent: ReactNode
-  if (!props.developerAccessGranted) {
+  if (!props.authenticated) {
     calculatorContent = (
       <Alert>
         <HugeiconsIcon icon={Alert02Icon} strokeWidth={2} aria-hidden='true' />
         <AlertTitle>{t('Read-only')}</AlertTitle>
         <AlertDescription>
-          {t('This estimate is read-only until L1 access is active.')}
+          {t('Sign in to continue setup')}
         </AlertDescription>
       </Alert>
     )
@@ -333,7 +333,7 @@ export function AssistantCostTool(props: { developerAccessGranted: boolean }) {
         </CardDescription>
       </CardHeader>
       <CardContent className='grid gap-3'>
-        {!props.developerAccessGranted ? (
+        {!props.authenticated ? (
           <Alert>
             <HugeiconsIcon
               icon={Alert02Icon}
@@ -342,7 +342,7 @@ export function AssistantCostTool(props: { developerAccessGranted: boolean }) {
             />
             <AlertTitle>{t('Read-only')}</AlertTitle>
             <AlertDescription>
-              {t('This estimate is read-only until L1 access is active.')}
+              {t('Sign in to continue setup')}
             </AlertDescription>
           </Alert>
         ) : null}

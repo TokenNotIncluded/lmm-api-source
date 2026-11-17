@@ -25,6 +25,7 @@ func TestRegisteredModuleSelection(t *testing.T) {
 		{config: " support , store ", want: []string{"support", "store"}},
 		{config: "support", invalid: true},
 		{config: "missing", invalid: true},
+		{config: "remote-control", invalid: true},
 		{config: "identity,identity", invalid: true},
 	} {
 		t.Run(test.config, func(t *testing.T) {
@@ -62,7 +63,7 @@ func TestCompositionRejectsInvalidSelectionBeforeCredentials(t *testing.T) {
 func TestModuleRegistryBindsSelectedRoutes(t *testing.T) {
 	credential := []byte("synthetic_registry_host_credential_000001")
 	runtime, err := New(context.Background(), Config{
-		Selected:       []string{"remote-control", "identity"},
+		Selected:       []string{"identity"},
 		Socket:         "/tmp/lmm-registry-unused.sock",
 		HostCredential: credential,
 		TokenFile:      paymentPrivate(t, "identity-token", "synthetic_registry_identity_credential_000001"),
@@ -71,16 +72,16 @@ func TestModuleRegistryBindsSelectedRoutes(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer runtime.Close()
-	if len(runtime.Modules) != 2 || runtime.Modules[0].Name() != "remote-control" || runtime.Modules[1].Name() != "identity" {
+	if len(runtime.Modules) != 1 || runtime.Modules[0].Name() != "identity" {
 		t.Fatalf("selected module order was not bound: %v", runtime.Modules)
 	}
 	host, err := modules.New(runtime.Modules, credential)
 	if err != nil {
 		t.Fatal(err)
 	}
-	// Both real adapters must be mounted and retain their own user credential
-	// check. These rejected requests do not need a live Core or a database.
-	for _, path := range []string{"/extensions/v1/identity/self", "/extensions/v1/remote-control/pi/sessions"} {
+	// The real identity adapter retains its user credential check.
+	// This rejected request does not need a live Core or a database.
+	for _, path := range []string{"/extensions/v1/identity/self"} {
 		request := httptest.NewRequest(http.MethodGet, path, nil)
 		request.Header.Set("Authorization", "Bearer "+string(credential))
 		response := httptest.NewRecorder()
@@ -88,5 +89,12 @@ func TestModuleRegistryBindsSelectedRoutes(t *testing.T) {
 		if response.Code != http.StatusUnauthorized {
 			t.Fatalf("bound route %s status=%d body=%s", path, response.Code, response.Body.String())
 		}
+	}
+	request := httptest.NewRequest(http.MethodGet, "/extensions/v1/remote-control/pi/sessions", nil)
+	request.Header.Set("Authorization", "Bearer "+string(credential))
+	response := httptest.NewRecorder()
+	host.ServeHTTP(response, request)
+	if response.Code != http.StatusNotFound {
+		t.Fatalf("retired remote route status=%d body=%s", response.Code, response.Body.String())
 	}
 }

@@ -219,7 +219,7 @@ fn requires_developer(action: &str) -> bool {
     )
 }
 async fn developer(c: &mut PgConnection, a: &Principal, secret: &str) -> Result<()> {
-    identity::require_bounty_developer_in_transaction(c, a, secret)
+    identity::authorize_bounty_session_in_transaction(c, a, secret)
         .await
         .map_err(|error| match error {
             identity::IdentityError::Storage | identity::IdentityError::Conflict => Error::Storage,

@@ -249,18 +249,14 @@ async fn pricing_pg_header_nav_policy_bounds_and_public_runtime_unknown(pool: Pg
 }
 
 #[sqlx::test(migrations = false)]
-async fn pricing_pg_trusted_user_rates_public_isolation_and_incomplete_basis_rejection(
-    pool: PgPool,
-) {
-    let (identity, session, _) = setup(&pool).await;
-    let gateway = gateway(pool.clone()).with_trust_pricing();
-    let surface = Arc::new(PricingSurface::from_gateway(&gateway).unwrap());
+async fn pricing_pg_configured_group_rates_ignore_legacy_trust_state(pool: PgPool) {
+    let (_, session, surface) = setup(&pool).await;
     let router = PricingHttp::new(pool.clone(), surface).router();
     let before = counts(&pool).await;
     let (status, public) = call(&router, "/core/v1/pricing/public", None, None).await;
     assert_eq!(status, StatusCode::OK, "{public}");
     assert_eq!(public["rate_basis"], "base_group_rate");
-    assert_eq!(public["user_price"], json!({"status":"not_evaluated"}));
+    assert!(public.get("user_price").is_none());
     let now: i64 =
         sqlx::query_scalar("SELECT floor(extract(epoch FROM transaction_timestamp()))::bigint")
             .fetch_one(&pool)
@@ -276,21 +272,29 @@ async fn pricing_pg_trusted_user_rates_public_isolation_and_incomplete_basis_rej
     )
     .await;
     assert_eq!(status, StatusCode::OK, "{own}");
-    assert_eq!(own["rate_basis"], "effective_user_rate");
-    assert_eq!(
-        own["user_price"],
-        json!({"status":"verified","multiplier":{"numerator":"97","denominator":"100"}})
-    );
+    assert_eq!(own["rate_basis"], "effective_group_rate");
+    assert!(own.get("user_price").is_none());
     for row in own["models"].as_array().unwrap() {
+        let public_row = public["models"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|candidate| candidate["id"] == row["id"])
+            .unwrap();
+        let mut expected = public_row.clone();
         if !row["token_price"].is_null() {
-            assert_eq!(row["token_price"]["rate_basis"], "effective_user_rate");
+            expected["token_price"]["rate_basis"] = json!("effective_group_rate");
         }
-        for image in row["image_variants"].as_array().unwrap() {
-            assert_eq!(image["rate_basis"], "effective_user_rate");
+        if !row["upstream_cost_price"].is_null() {
+            expected["upstream_cost_price"]["rate_basis"] = json!("effective_group_rate");
         }
+        for image in expected["image_variants"].as_array_mut().unwrap() {
+            image["rate_basis"] = json!("effective_group_rate");
+        }
+        assert_eq!(row, &expected);
     }
     let (_, public_again) = call(&router, "/core/v1/pricing/public", None, None).await;
-    assert_eq!(public_again["user_price"], public["user_price"]);
+    assert!(public_again.get("user_price").is_none());
     assert_eq!(public_again["models"], public["models"]);
     sqlx::query("UPDATE core_trust_pricing.policies SET native_user_floor=8")
         .execute(&pool)
@@ -300,31 +304,23 @@ async fn pricing_pg_trusted_user_rates_public_isolation_and_incomplete_basis_rej
         .execute(&pool)
         .await
         .unwrap();
-    assert_eq!(
-        call(
-            &router,
-            "/core/v1/pricing/session",
-            Some(&session.secret),
-            None
-        )
-        .await
-        .0,
-        StatusCode::SERVICE_UNAVAILABLE
-    );
-    assert_eq!(
-        call(&router, "/core/v1/pricing/public", None, None).await.0,
-        StatusCode::OK
-    );
+    let (status, own_again) = call(
+        &router,
+        "/core/v1/pricing/session",
+        Some(&session.secret),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{own_again}");
+    assert_eq!(own_again["models"], own["models"]);
+    assert!(own_again.get("user_price").is_none());
     assert_eq!(counts(&pool).await, before);
-    // Session read-only paths never create charging or financial events.
-    let _ = identity;
 }
 
 #[sqlx::test(migrations = false)]
 async fn pricing_pg_upstream_cost_rule_is_readonly_exact_and_session_isolated(pool: PgPool) {
     let (_, session, _) = setup(&pool).await;
-    let gateway = crate::model_http::pricing::tests::upstream_cost_gateway(pool.clone(), true)
-        .with_trust_pricing();
+    let gateway = crate::model_http::pricing::tests::upstream_cost_gateway(pool.clone(), true);
     let role = runtime::RuntimeRole::create(&pool).await;
     role.optional("core_console").await;
     let router = PricingHttp::from_gateway(role.pool.clone(), &gateway).router();
@@ -340,7 +336,7 @@ async fn pricing_pg_upstream_cost_rule_is_readonly_exact_and_session_isolated(po
     assert_eq!(status, StatusCode::OK, "{public}");
     assert_eq!(public["credits_per_usd"], 500_000);
     assert_eq!(public["rate_basis"], "base_group_rate");
-    assert_eq!(public["user_price"], json!({"status":"not_evaluated"}));
+    assert!(public.get("user_price").is_none());
     assert_eq!(public["groups"], json!(["allowed", "private"]));
     assert_eq!(public["invocation_authorized"], false);
     assert_eq!(public["models"].as_array().unwrap().len(), 6);
@@ -374,13 +370,10 @@ async fn pricing_pg_upstream_cost_rule_is_readonly_exact_and_session_isolated(po
     )
     .await;
     assert_eq!(status, StatusCode::OK, "{own}");
-    assert_eq!(own["rate_basis"], "effective_user_rate");
+    assert_eq!(own["rate_basis"], "effective_group_rate");
     assert_eq!(own["groups"], json!(["allowed"]));
     assert_eq!(own["invocation_authorized"], false);
-    assert_eq!(
-        own["user_price"],
-        json!({"status":"verified","multiplier":{"numerator":"97","denominator":"100"}})
-    );
+    assert!(own.get("user_price").is_none());
     assert_eq!(own["models"].as_array().unwrap().len(), 5);
     for row in own["models"].as_array().unwrap() {
         assert_eq!(row["group"], "allowed");
@@ -390,10 +383,10 @@ async fn pricing_pg_upstream_cost_rule_is_readonly_exact_and_session_isolated(po
             "upstream_budget_contract_required"
         );
         assert_eq!(row["upstream_cost_price"]["rate_basis"], own["rate_basis"]);
-        // 1.25 group multiplier * 0.97 account multiplier, applied once.
+        // Only the configured group multiplier applies, even with legacy trust data.
         assert_eq!(
             row["upstream_cost_price"]["multiplier"],
-            json!({"numerator":"97","denominator":"80"})
+            json!({"numerator":"1250000","denominator":"1000000"})
         );
     }
     let (status, own_again) = call(
@@ -408,7 +401,7 @@ async fn pricing_pg_upstream_cost_rule_is_readonly_exact_and_session_isolated(po
     let (status, public_again) = call(&router, "/core/v1/pricing/public", None, None).await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(public_again["models"], public["models"]);
-    assert_eq!(public_again["user_price"], public["user_price"]);
+    assert!(public_again.get("user_price").is_none());
     let (status, runtime) = call(
         &router,
         "/core/v1/pricing/runtime",

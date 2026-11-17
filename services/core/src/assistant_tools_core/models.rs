@@ -15,7 +15,6 @@ pub struct ModelsProjection {
 pub struct AvailableModels {
     pub actor_user_id: i64,
     pub exact_model_ids: Vec<String>,
-    pub developer_access_granted: bool,
     pub locked: bool,
     pub public_preview: bool,
     pub key_group_options: Vec<String>,
@@ -35,7 +34,7 @@ impl ModelsProjection {
     ) -> Result<Value, Error> {
         let facts = self.read_in_transaction(c, context).await?;
         Ok(
-            json!({"ok":!facts.exact_model_ids.is_empty(),"status":if facts.exact_model_ids.is_empty(){"catalog_unavailable"}else if facts.public_preview{"public_preview"}else{"available"},"model_ids":facts.exact_model_ids,"developer_access_granted":facts.developer_access_granted,"account_model_access_locked":facts.locked,"public_preview":facts.public_preview,"key_group_options":facts.key_group_options,"catalog_source":"core serving model catalogue","availability_scope":if facts.public_preview{"current_public_model_policy"}else{"current_account_routing_groups"}}),
+            json!({"ok":!facts.exact_model_ids.is_empty(),"status":if facts.exact_model_ids.is_empty(){"catalog_unavailable"}else if facts.public_preview{"public_preview"}else{"available"},"model_ids":facts.exact_model_ids,"account_model_access_locked":facts.locked,"public_preview":facts.public_preview,"key_group_options":facts.key_group_options,"catalog_source":"core serving model catalogue","availability_scope":if facts.public_preview{"current_public_model_policy"}else{"current_account_routing_groups"}}),
         )
     }
     pub async fn pricing_in_transaction(
@@ -90,7 +89,9 @@ impl ModelsProjection {
         context: &VerifiedToolContext,
     ) -> Result<AvailableModels, Error> {
         let actor = context.revalidate(c).await?;
-        let candidates:Vec<String>=sqlx::query_scalar("SELECT group_name FROM core_identity.user_routing_groups WHERE user_id=$1 AND enabled ORDER BY group_name").bind(actor.user).fetch_all(&mut *c).await?;
+        let candidates = crate::identity::routing_group_names_in_transaction(c, actor.user)
+            .await
+            .map_err(|_| Error::Unavailable)?;
         let groups: Vec<String> = candidates
             .into_iter()
             .filter(|g| self.routing.catalog(g).is_ok())
@@ -98,11 +99,10 @@ impl ModelsProjection {
         let public = crate::abuse::public_models_in_transaction(c, actor.user)
             .await
             .map_err(|_| Error::Unavailable)?;
-        if groups.is_empty() || (!actor.developer && public.is_none()) {
+        if groups.is_empty() {
             return Ok(AvailableModels {
                 actor_user_id: actor.user,
                 exact_model_ids: vec![],
-                developer_access_granted: actor.developer,
                 locked: true,
                 public_preview: public.is_some(),
                 key_group_options: vec![],
@@ -127,10 +127,9 @@ impl ModelsProjection {
         Ok(AvailableModels {
             actor_user_id: actor.user,
             exact_model_ids: ids.into_iter().collect(),
-            developer_access_granted: actor.developer,
             locked: false,
             public_preview: public.is_some(),
-            key_group_options: if actor.developer { groups } else { vec![] },
+            key_group_options: groups,
             catalogue: Some(catalogue),
         })
     }

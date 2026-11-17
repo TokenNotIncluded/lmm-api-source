@@ -19,9 +19,9 @@ For commercial licensing, please contact support@quantumnous.com
 /*
 Copyright (C) 2026 LIghtJUNction
 */
-import type { L1OnboardingStepId, L1OnboardingTodo } from './api'
+import type { AccountSetupStepId, AccountSetupTodo } from './api'
 
-const STEP_IDS: L1OnboardingStepId[] = [
+const STEP_IDS: AccountSetupStepId[] = [
   'create_api_key',
   'install_client',
   'configure_client',
@@ -29,7 +29,7 @@ const STEP_IDS: L1OnboardingStepId[] = [
 ]
 
 export function getAssistantOnboardingTodoSteps(
-  todo: Pick<L1OnboardingTodo, 'steps'>
+  todo: Pick<AccountSetupTodo, 'steps'>
 ) {
   const completed = new Set(
     todo.steps
@@ -41,6 +41,6 @@ export function getAssistantOnboardingTodoSteps(
     id,
     complete: completed.has(id),
     available:
-      index === 0 || completed.has(STEP_IDS[index - 1] as L1OnboardingStepId),
+      index === 0 || completed.has(STEP_IDS[index - 1] as AccountSetupStepId),
   }))
 }

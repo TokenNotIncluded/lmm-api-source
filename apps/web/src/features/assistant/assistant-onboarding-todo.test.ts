@@ -25,7 +25,7 @@ import { describe, test } from 'node:test'
 import { getAssistantOnboardingTodoSteps } from './assistant-onboarding-todo-state'
 
 describe('assistant onboarding todo', () => {
-  test('keeps the four L1 steps ordered and gated by server progress', () => {
+  test('keeps the four setup steps ordered and gated by server progress', () => {
     const steps = getAssistantOnboardingTodoSteps({
       steps: [
         { id: 'create_api_key', status: 'pending' },

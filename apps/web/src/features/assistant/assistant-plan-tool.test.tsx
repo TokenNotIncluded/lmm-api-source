@@ -89,7 +89,6 @@ const assistantOffersFixture = {
   success: true,
   data: {
     ok: true,
-    developer_access_granted: true,
     read_only: false,
     checkout_available: true,
     payment_hidden: false,
@@ -135,8 +134,8 @@ const assistantOffersFixture = {
 }
 
 async function renderTool(
-  developerAccessGranted: boolean,
-  onRequestAccess = () => {}
+  authenticated: boolean,
+  onSignIn = () => {}
 ) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
@@ -146,8 +145,8 @@ async function renderTool(
       <QueryClientProvider client={queryClient}>
         <I18nextProvider i18n={i18n}>
           <AssistantPlanTool
-            developerAccessGranted={developerAccessGranted}
-            onRequestAccess={onRequestAccess}
+            authenticated={authenticated}
+            onSignIn={onSignIn}
           />
         </I18nextProvider>
       </QueryClientProvider>
@@ -226,12 +225,12 @@ describe('AssistantPlanTool', () => {
       return {
         data: {
           ...assistantOffersFixture,
-          data: {
+          data: JSON.parse(JSON.stringify({
             ...assistantOffersFixture.data,
             developer_access_granted: false,
             read_only: false,
             checkout_available: true,
-          },
+          })),
         },
       }
     }) as typeof api.get
@@ -259,7 +258,7 @@ describe('AssistantPlanTool', () => {
     assert.doesNotMatch(rendered.container.textContent ?? '', /Read-only/)
     assert.doesNotMatch(
       rendered.container.textContent ?? '',
-      /Unlock L1 access/
+      /Sign in to continue setup/
     )
 
     await unmount(rendered)
@@ -272,12 +271,12 @@ describe('AssistantPlanTool', () => {
       return {
         data: {
           ...assistantOffersFixture,
-          data: {
+          data: JSON.parse(JSON.stringify({
             ...assistantOffersFixture.data,
             developer_access_granted: false,
             read_only: true,
             checkout_available: false,
-          },
+          })),
         },
       }
     }) as typeof api.get
@@ -291,7 +290,7 @@ describe('AssistantPlanTool', () => {
 
     await act(async () => {
       const button = [...rendered.container.querySelectorAll('button')].find(
-        (candidate) => candidate.textContent?.includes('Unlock L1 access')
+        (candidate) => candidate.textContent?.includes('Sign in to continue setup')
       )
       assert.ok(button)
       button.click()
@@ -380,7 +379,7 @@ describe('AssistantPlanTool', () => {
     assert.equal(rendered.container.querySelector('a[href="/wallet"]'), null)
     assert.doesNotMatch(
       rendered.container.textContent ?? '',
-      /Unlock L1 access/
+      /Sign in to continue setup/
     )
     assert.doesNotMatch(rendered.container.textContent ?? '', /save 20%/)
 

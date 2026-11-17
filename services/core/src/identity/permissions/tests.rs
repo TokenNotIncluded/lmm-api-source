@@ -10,7 +10,6 @@ fn actor(role: PlatformRole) -> Actor {
         account_active: true,
         auth_version: 3,
         credential_auth_version: 3,
-        developer: DeveloperState::Granted,
     }
 }
 fn policy(overrides: &[Override]) -> Policy<'_> {

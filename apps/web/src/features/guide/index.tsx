@@ -176,7 +176,7 @@ export function Guide() {
     capabilitiesReady && status?.assistant?.enabled !== false
   const user = useAuthStore((state) => state.auth.user)
   const copy = useGuideCopy()
-  const developerAccessGranted = isConsoleActivated(user)
+  const authenticated = isConsoleActivated(user)
   const onboarding = getOnboardingState(user)
   const [selectedClient, setSelectedClient] = useState<ClientTab>(
     () => readSetupPreferences()?.client ?? 'cherry-studio'
@@ -219,12 +219,12 @@ export function Guide() {
   const modelsQuery = useQuery({
     queryKey: ['guide-available-models', user?.id],
     queryFn: getAssistantSetupModels,
-    enabled: developerAccessGranted,
+    enabled: authenticated,
     staleTime: 60_000,
     retry: false,
   })
   const contactSupport = () => {
-    if (developerAccessGranted) {
+    if (authenticated) {
       void navigate({ to: '/support' })
       return
     }
@@ -251,18 +251,14 @@ export function Guide() {
     }
   }
   const createKey = () => {
-    if (developerAccessGranted && !assistantAvailable) {
+    if (authenticated && !assistantAvailable) {
       void navigate({ to: '/keys' })
       return
     }
     askAssistant(copy.createKeyQuestion, 'api-key')
   }
-  const requestAccess = () => {
-    if (!assistantAvailable && !user) {
-      void navigate({ to: '/sign-in', search: { redirect: '/guide' } })
-      return
-    }
-    askAssistant(copy.requestAccessQuestion, 'onboarding')
+  const signIn = () => {
+    void navigate({ to: '/sign-in', search: { redirect: '/guide' } })
   }
   const example = baseUrl
     ? buildRequestSnippet('curl', `${baseUrl}/chat/completions`, {
@@ -380,12 +376,12 @@ export function Guide() {
                     rootUrl={rootUrl}
                     openAIBaseUrl={baseUrl}
                     availableModels={
-                      developerAccessGranted ? (modelsQuery.data ?? []) : []
+                      authenticated ? (modelsQuery.data ?? []) : []
                     }
                     modelsLoading={modelsQuery.isLoading}
-                    developerAccessGranted={developerAccessGranted}
+                    authenticated={authenticated}
                     onCreateKey={createKey}
-                    onRequestAccess={requestAccess}
+                    onSignIn={signIn}
                     onAskQuestion={
                       assistantAvailable ? askAssistant : undefined
                     }
@@ -393,7 +389,7 @@ export function Guide() {
                 ) : (
                   <p role='status'>{t('API address unavailable')}</p>
                 )}
-                {developerAccessGranted && modelsQuery.isError && (
+                {authenticated && modelsQuery.isError && (
                   <div className='guide-model-error' role='alert'>
                     <p>{copy.modelsError}</p>
                     <Button
@@ -427,7 +423,7 @@ export function Guide() {
                   />
                 </div>
                 <div className='guide-inline-links'>
-                  {developerAccessGranted && (
+                  {authenticated && (
                     <Link to='/usage-logs'>
                       {copy.usage}
                       <ArrowUpRight aria-hidden='true' />
@@ -547,22 +543,14 @@ export function Guide() {
                         </li>
                       ))}
                     </ol>
-                    {oauth && developerAccessGranted ? (
+                    {oauth && authenticated ? (
                       <Button render={<a href='#client-setup' />}>
                         {t('Continue client setup')}
                         <ArrowRight aria-hidden='true' />
                       </Button>
                     ) : user ? (
-                      <Button
-                        onClick={
-                          developerAccessGranted ? createKey : requestAccess
-                        }
-                      >
-                        {developerAccessGranted
-                          ? copy.createKey
-                          : assistantAvailable
-                            ? copy.requestAccess
-                            : copy.requestManualAccess}
+                      <Button onClick={createKey}>
+                        {copy.createKey}
                         <ArrowRight aria-hidden='true' />
                       </Button>
                     ) : (

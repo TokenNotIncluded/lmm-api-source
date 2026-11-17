@@ -568,7 +568,7 @@ async fn auto_inherits_current_global_order_without_rewriting_custom_keys(pool: 
     );
 }
 #[sqlx::test(migrations = false)]
-async fn grants_never_follow_service_level_or_client_fields(pool: PgPool) {
+async fn key_access_does_not_require_service_level_or_client_activation(pool: PgPool) {
     let (store, app, _, _) = fixture(&pool).await;
     let session = store
         .register(&LoginRequest {
@@ -578,34 +578,22 @@ async fn grants_never_follow_service_level_or_client_fields(pool: PgPool) {
         .await
         .unwrap();
     let user = store.authorize(&session.secret).await.unwrap().user_id;
-    sqlx::query("UPDATE core_identity.accounts SET service_level=4 WHERE id=(SELECT personal_account_id FROM core_identity.users WHERE id=$1)").bind(user).execute(&pool).await.unwrap();
-    assert!(matches!(
-        store
-            .issue_key(
-                &session.secret,
-                Account {
-                    kind: AccountKind::Personal,
-                    id: user
-                },
-                FundingPolicy::new_personal_key(),
-                3600
-            )
-            .await,
-        Err(IdentityError::Forbidden)
-    ));
-    assert_eq!(
-        call(
-            &app,
-            "POST",
-            "/api/token/",
-            Some(&session.secret),
-            Some(input()),
-            Some(ORIGIN)
+    let native = store
+        .issue_key(
+            &session.secret,
+            Account {
+                kind: AccountKind::Personal,
+                id: user,
+            },
+            FundingPolicy::new_personal_key(),
+            3600,
         )
         .await
-        .0,
-        StatusCode::FORBIDDEN
-    );
+        .unwrap();
+    assert!(store.authorize(&native.secret).await.is_ok());
+    sqlx::query("UPDATE core_identity.accounts SET service_level=4 WHERE id=(SELECT personal_account_id FROM core_identity.users WHERE id=$1)").bind(user).execute(&pool).await.unwrap();
+    let dashboard = create(&app, &session.secret, input()).await;
+    assert!(store.authorize(dashboard["key"].as_str().unwrap()).await.is_ok());
     assert_eq!(
         call(
             &app,
@@ -620,6 +608,146 @@ async fn grants_never_follow_service_level_or_client_fields(pool: PgPool) {
         StatusCode::BAD_REQUEST
     );
 }
+
+#[sqlx::test(migrations = false)]
+async fn fresh_browser_signup_can_use_default_models_and_respects_explicit_group_policy(
+    pool: PgPool,
+) {
+    let (store, app, _, _) = fixture(&pool).await;
+    let browser = lmm_core::identity::BrowserAuth::new(store.clone(), &[43; 32]).unwrap();
+    let username = "instant_use";
+    let password = "synthetic instant use password";
+    browser
+        .register(&lmm_core::identity::BrowserRegistration {
+            username,
+            password,
+            email: "",
+        })
+        .await
+        .unwrap();
+    let bundle = browser
+        .login(
+            username,
+            password,
+            &lmm_core::identity::BrowserSessionMetadata::default(),
+        )
+        .await
+        .unwrap();
+    let access = bundle.data["access_token"].as_str().unwrap();
+    let user = store.authorize(access).await.unwrap().user_id;
+    let assignments: (i64, i64) = sqlx::query_as(
+        "SELECT (SELECT count(*) FROM core_identity.developer_access WHERE user_id=$1),(SELECT count(*) FROM core_identity.user_routing_groups WHERE user_id=$1)",
+    )
+    .bind(user)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(assignments, (0, 0));
+
+    let (status, self_view, _) =
+        call(&app, "GET", "/api/user/self", Some(access), None, None).await;
+    assert_eq!(status, StatusCode::OK, "{self_view}");
+    assert_eq!(self_view["data"]["permissions"]["api_key_management"], true);
+    assert!(self_view["data"].get("developer_access_granted").is_none());
+    assert!(self_view["data"].get("trust_level").is_none());
+    let (status, groups, _) =
+        call(&app, "GET", "/api/user/self/groups", Some(access), None, None).await;
+    assert_eq!(status, StatusCode::OK, "{groups}");
+    assert_eq!(
+        groups["data"],
+        json!({
+            "auto":{"desc":"auto","ratio":"model-specific"},
+            "default":{"desc":"default","ratio":"model-specific"}
+        })
+    );
+    let (status, models, _) =
+        call(&app, "GET", "/api/user/models", Some(access), None, None).await;
+    assert_eq!(status, StatusCode::OK, "{models}");
+    assert_eq!(models["data"], json!(["local-model"]));
+
+    let key = create(&app, access, input()).await;
+    let secret = key["key"].as_str().unwrap();
+    assert_eq!(
+        store.api_key_routing_groups(secret).await.unwrap(),
+        vec!["default"]
+    );
+    assert!(
+        store
+            .authorize_model_request(
+                secret,
+                "local-model",
+                Some("127.0.0.1".parse().unwrap()),
+                "default",
+            )
+            .await
+            .is_ok()
+    );
+    let mut private_input = input();
+    private_input["group"] = json!("private");
+    private_input["model_limits"] = json!("private-model");
+    assert_eq!(
+        call(&app, "POST", "/api/token/", Some(access), Some(private_input.clone()), Some(ORIGIN)).await.0,
+        StatusCode::FORBIDDEN
+    );
+    assert!(matches!(
+        store
+            .authorize_model_request(
+                secret,
+                "private-model",
+                Some("127.0.0.1".parse().unwrap()),
+                "private",
+            )
+            .await,
+        Err(IdentityError::Forbidden)
+    ));
+
+    // An explicit denial suppresses fallback without creating any new authority.
+    sqlx::query("INSERT INTO core_identity.user_routing_groups(user_id,group_name,enabled,source_reference) VALUES($1,'default',FALSE,'synthetic-explicit-denial')")
+        .bind(user).execute(&pool).await.unwrap();
+    assert_eq!(store.dashboard_groups(access).await.unwrap(), json!([]));
+    assert!(store.dashboard_models(access).await.unwrap().is_empty());
+    assert!(matches!(
+        store.api_key_routing_groups(secret).await,
+        Err(IdentityError::Forbidden)
+    ));
+    assert!(matches!(
+        store
+            .authorize_model_request(
+                secret,
+                "local-model",
+                Some("127.0.0.1".parse().unwrap()),
+                "default",
+            )
+            .await,
+        Err(IdentityError::Forbidden)
+    ));
+    assert_eq!(
+        call(&app, "POST", "/api/token/", Some(access), Some(input()), Some(ORIGIN)).await.0,
+        StatusCode::FORBIDDEN
+    );
+
+    // Explicit assignments keep their original scope; default is not added.
+    sqlx::query("INSERT INTO core_identity.user_routing_groups(user_id,group_name,enabled,source_reference) VALUES($1,'private',TRUE,'synthetic-explicit-assignment')")
+        .bind(user).execute(&pool).await.unwrap();
+    assert_eq!(
+        store.dashboard_groups(access).await.unwrap(),
+        json!(["auto", "private"])
+    );
+    assert_eq!(
+        store.dashboard_models(access).await.unwrap(),
+        vec!["private-model"]
+    );
+    let private = create(&app, access, private_input).await;
+    assert_eq!(
+        store.api_key_routing_groups(private["key"].as_str().unwrap()).await.unwrap(),
+        vec!["private"]
+    );
+    assert_eq!(
+        call(&app, "POST", "/api/token/", Some(access), Some(input()), Some(ORIGIN)).await.0,
+        StatusCode::FORBIDDEN
+    );
+}
+
 #[sqlx::test(migrations = false)]
 async fn unsafe_methods_require_canonical_origin(pool: PgPool) {
     let (_, app, alice, _) = fixture(&pool).await;
@@ -1305,26 +1433,26 @@ mod marked_key_cases {
     }
 
     #[sqlx::test(migrations = false)]
-    async fn marked_l0_runtime_http_key_lifecycle_keeps_real_authority(pool: PgPool) {
+    async fn marked_user_runtime_http_key_lifecycle_keeps_real_authority(pool: PgPool) {
         let (owner, _, _, bob) = fixture(&pool).await;
         let (user, secret) = browser_account(&owner, "marked_candidate").await;
         let (abuse, admin) = policy(&pool, &owner).await;
         let before = unchanged_authority(&pool, user).await;
         assert!(
             before.1 == 0 && !before.2 && before.3 == 0,
-            "fixture must be an ungranted L0 user"
+            "fixture must be an ordinary user without explicit routing assignments"
         );
         let role = restricted(&pool).await;
         let store = runtime_store(&role.pool);
         let app = app(store.clone());
         assert_eq!(
             self_view(&app, &secret).await["permissions"]["api_key_management"],
-            false
+            true
         );
         mark(&abuse, &admin, user, 0, true).await;
         let view = self_view(&app, &secret).await;
         assert_eq!(view["permissions"]["api_key_management"], true);
-        assert_eq!(view["developer_access_granted"], false);
+        assert!(view.get("developer_access_granted").is_none());
         assert!(
             view.get("marked").is_none() && view.get("honeypot").is_none(),
             "self must expose only the generic permission"
@@ -1575,7 +1703,7 @@ mod marked_key_cases {
     }
 
     #[sqlx::test(migrations = false)]
-    async fn marked_native_issuance_restricts_real_developer_and_l0_funding(pool: PgPool) {
+    async fn marked_native_issuance_restricts_personal_funding_for_all_users(pool: PgPool) {
         use lmm_core::{accounts::TeamRole, identity::InviteRequest};
         let (owner, _, alice, _) = fixture(&pool).await;
         let (user, secret) = ordinary(&owner).await;
@@ -1641,7 +1769,7 @@ mod marked_key_cases {
                         store.issue_key(issuer, account, policy, 3600).await,
                         Err(IdentityError::Forbidden)
                     ),
-                    "marked issuance must reject foreign or team funding even for a real developer"
+                    "marked issuance must reject foreign or team funding for every user"
                 );
                 assert_eq!(mutation_counts(&pool).await, before);
             }
@@ -1744,18 +1872,11 @@ mod marked_key_cases {
     }
 
     #[sqlx::test(migrations = false)]
-    async fn unmark_removes_only_the_narrow_capability_and_disabled_user_stays_disabled(
+    async fn unmark_preserves_normal_key_access_and_disabled_user_stays_disabled(
         pool: PgPool,
     ) {
         let (owner, _, _, _) = fixture(&pool).await;
-        let (developer, alice) = browser_account(&owner, "browser_developer").await;
-        // The synthetic installation owner grants the real policy row. Service
-        // level, browser fields and client-supplied flags do not grant access.
-        sqlx::query("INSERT INTO core_identity.developer_access(user_id,granted,source_reference) VALUES ($1,TRUE,'synthetic-browser-developer-control')")
-            .bind(developer)
-            .execute(&pool)
-            .await
-            .unwrap();
+        let (_, alice) = browser_account(&owner, "browser_control").await;
         let (user, secret) = browser_account(&owner, "marked_candidate").await;
         let (abuse, admin) = policy(&pool, &owner).await;
         let role = restricted(&pool).await;
@@ -1771,20 +1892,21 @@ mod marked_key_cases {
         mark(&abuse, &admin, user, 1, false).await;
         assert_eq!(unchanged_authority(&pool, user).await, before);
         let view = self_view(&app, &secret).await;
-        assert_eq!(view["permissions"]["api_key_management"], false);
-        assert_eq!(view["developer_access_granted"], false);
+        assert_eq!(view["permissions"]["api_key_management"], true);
+        assert!(view.get("developer_access_granted").is_none());
         assert_eq!(
             call(&app, "GET", "/api/token/", Some(&secret), None, None)
                 .await
                 .0,
-            StatusCode::FORBIDDEN
+            StatusCode::OK
         );
-        assert!(matches!(
+        assert_eq!(
             store
                 .api_key_routing_groups(key["key"].as_str().unwrap())
-                .await,
-            Err(IdentityError::Forbidden)
-        ));
+                .await
+                .unwrap(),
+            vec!["default"]
+        );
         mark(&abuse, &admin, user, 2, true).await;
         sqlx::query("UPDATE core_identity.users SET active=FALSE WHERE id=$1")
             .bind(user)

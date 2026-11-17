@@ -13158,6 +13158,16 @@
     "Zhipu V4": "Zhipu V4",
     "Zoom": "Zoom",
     "Zoom in": "Agrandir",
-    "Zoom out": "Réduire"
+    "Zoom out": "Réduire",
+    "Signed-in users can use the assistant immediately. Registration protection remains active.": "Les utilisateurs connectés peuvent utiliser l’assistant immédiatement. La protection des inscriptions reste active.",
+    "Allow evidence-based account suspensions": "Autoriser la suspension des comptes sur la base d’éléments probants",
+    "Sign in, create an API key and connect LMM to your app.": "Connectez-vous, créez une clé API et connectez LMM à votre application.",
+    "Browse downloads and setup steps. Sign in to see your connection values and create an API key.": "Consultez les téléchargements et les étapes de configuration. Connectez-vous pour afficher vos paramètres de connexion et créer une clé API.",
+    "Help me set up LMM. Ask which device and app I use, then guide me through installation, sign-in, API key creation and my first request.": "Aidez-moi à configurer LMM. Demandez-moi quel appareil et quelle application j’utilise, puis guidez-moi pour l’installation, la connexion, la création d’une clé API et ma première requête.",
+    "Which model should I use?": "Quel modèle devrais-je utiliser ?",
+    "Group price": "Tarif du groupe",
+    "Pay for requests with your account balance.": "Payez vos requêtes avec le solde de votre compte.",
+    "New user": "Nouvel utilisateur",
+    "Returning user": "Utilisateur existant"
   }
 }

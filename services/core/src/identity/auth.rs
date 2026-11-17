@@ -38,7 +38,7 @@ pub(super) async fn lock_registration(c: &mut PgConnection) -> Result<()> {
 }
 pub(super) async fn create_user(c: &mut PgConnection) -> Result<i64> {
     lock_registration(c).await?;
-    let account_id = new_account(c, "personal", 0).await?;
+    let account_id = new_account(c, "personal").await?;
     let id = sqlx::query_scalar(
         "INSERT INTO core_identity.users(personal_account_id) VALUES ($1) RETURNING id",
     )
@@ -73,6 +73,7 @@ pub(super) async fn issue_session_with_assurance(
     let user = sqlx::query("SELECT u.personal_account_id,u.auth_version FROM core_identity.users u JOIN core_identity.accounts a ON a.id=u.personal_account_id WHERE u.id=$1 AND u.active AND a.active FOR SHARE OF u,a")
         .bind(user_id).fetch_optional(&mut *c).await?.ok_or(IdentityError::Unauthorized)?;
     proof.validate(c, user_id).await?;
+    super::network_policy::authorize_request_ip(c, user_id).await?;
     let id = sqlx::query_scalar("INSERT INTO core_identity.credentials(digest,kind,user_id,user_version,owner_account_id,expires_at) VALUES ($1,'session',$2,$3,$4,clock_timestamp()+interval '7 days') RETURNING id")
         .bind(digest(&secret)?).bind(user_id).bind(user.try_get::<i64,_>("auth_version")?)
         .bind(user.try_get::<i64,_>("personal_account_id")?).fetch_one(&mut *c).await?;

@@ -72,7 +72,7 @@ export function AssistantConnectionDetails(props: {
   model: string
   availableModels: string[]
   modelsLoading: boolean
-  developerAccessGranted: boolean
+  authenticated: boolean
   selectedModel: string
   onSelectedModelChange: (model: string) => void
   detailsOpen: boolean
@@ -112,7 +112,7 @@ export function AssistantConnectionDetails(props: {
             <p className='text-muted-foreground text-xs'>
               {props.t('Model ID')}
             </p>
-            {props.developerAccessGranted &&
+            {props.authenticated &&
             props.availableModels.length > 0 ? (
               <NativeSelect
                 className='mt-1 w-full'
@@ -395,11 +395,11 @@ export function AssistantAccessNotice(props: {
     <Card size='sm'>
       <CardContent className='grid gap-2'>
         <p className='text-sm font-medium'>
-          {props.t('API key creation requires L1')}
+          {props.t('Sign in to continue setup')}
         </p>
         <p className='text-muted-foreground text-sm'>
           {props.t(
-            'After L1 is enabled, return here to create a private key and continue setup.'
+            'Sign in, create an API key and connect LMM to your app.'
           )}
         </p>
         <p className='text-muted-foreground text-xs'>

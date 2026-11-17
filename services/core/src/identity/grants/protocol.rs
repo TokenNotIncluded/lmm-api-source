@@ -209,7 +209,7 @@ impl LmmProfile {
                     "usage:read",
                 ]
         } else {
-            scopes.len() <= 7
+            scopes.len() <= super::SCOPES.len()
                 && scopes.len() == unique.len()
                 && [
                     "catalog:read",

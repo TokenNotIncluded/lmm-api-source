@@ -106,7 +106,7 @@ export function AssistantRegistrationGuardSettings() {
         <h3 className='text-sm font-medium'>{t('Registration protection')}</h3>
         <p className='text-muted-foreground mt-1 text-sm leading-6'>
           {t(
-            'The built-in assistant enables L1 using server-checked tools. Registration protection remains active.'
+            'Signed-in users can use the assistant immediately. Registration protection remains active.'
           )}
         </p>
       </div>
@@ -118,7 +118,7 @@ export function AssistantRegistrationGuardSettings() {
             <FormItem>
               <div className='flex items-center justify-between gap-3'>
                 <FormLabel>
-                  {t('Allow evidence-gated L0 suspensions')}
+                  {t('Allow evidence-based account suspensions')}
                 </FormLabel>
                 <FormControl>
                   <Switch

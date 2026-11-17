@@ -148,18 +148,7 @@ describe('server error message mapping', () => {
     )
   })
 
-  test('retired L1 errors point to current activation, never letter editing', () => {
-    for (const code of [
-      'DEVELOPER_ACCESS_LETTER_RETIRED',
-      'DEVELOPER_ACCESS_AI_CONFIRMATION_INVALID',
-      'DEVELOPER_ACCESS_AI_CONFIRMATION_MISMATCH',
-    ]) {
-      assert.equal(
-        getServerErrorMessageKey({ response: { data: { code } } }),
-        'Describe what you need. The assistant can enable L1 directly.'
-      )
-    }
-  })
+
 })
 
 test('OAuth denial and legal-acceptance codes use existing localized keys', () => {

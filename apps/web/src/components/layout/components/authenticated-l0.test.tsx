@@ -120,13 +120,13 @@ test('L0 retains the wallet header and normal assistant shell', async () => {
       },
     }
   }) as typeof api.get
-  useAuthStore.getState().auth.setUser({
+  useAuthStore.getState().auth.setUser(JSON.parse(JSON.stringify({
     id: 1,
     username: 'l0',
     role: 1,
     quota: 500000,
     developer_access_granted: false,
-  })
+  })))
   setAssistantRailOpen(true)
   requestAssistantOpen('onboarding')
   const rootRoute = createRootRoute({ component: Outlet })

@@ -5,6 +5,8 @@ pub mod admin_approval;
 pub mod admin_users;
 pub(crate) mod permissions;
 pub mod personal_token;
+pub(crate) mod network_policy;
+pub use network_policy::scope_request_ip;
 pub(crate) use permissions::authorize_admin_read_snapshot;
 pub use permissions::{
     Action, CONTRACT_VERSION as PERMISSIONS_CONTRACT, CatalogDecision, Effect, PermissionReadStore,
@@ -76,7 +78,7 @@ use std::{fmt, time::Duration};
 
 const MAX_TTL: i64 = 31_536_000;
 const SESSION_TTL: i64 = 604_800;
-const AUTH: &str = "SELECT c.id,c.kind,c.user_id,c.user_version,u.auth_version AS current_user_version,c.owner_account_id,c.personal_billing_preference,u.personal_account_id,t.id AS team_id,CASE u.platform_role WHEN 'superadmin' THEN 6::smallint WHEN 'admin' THEN 5::smallint ELSE pa.service_level END AS platform_level FROM core_identity.credentials c JOIN core_identity.users u ON u.id=c.user_id JOIN core_identity.accounts pa ON pa.id=u.personal_account_id JOIN core_identity.accounts own ON own.id=c.owner_account_id LEFT JOIN core_identity.teams t ON t.account_id=c.owner_account_id WHERE c.revoked_at IS NULL AND c.expires_at>clock_timestamp() AND u.active AND pa.active AND own.active AND NOT EXISTS (SELECT 1 FROM core_identity.api_key_settings ks WHERE ks.credential_id=c.id AND NOT ks.enabled) AND NOT EXISTS (SELECT 1 FROM core_identity.web_sessions ws WHERE ws.current_credential_id=c.id AND (ws.revoked_at IS NOT NULL OR ws.expires_at<=clock_timestamp() OR ws.user_version<>u.auth_version OR (ws.weekly_logout AND ws.created_at<=clock_timestamp()-interval '7 days')))";
+const AUTH: &str = "SELECT c.id,c.kind,c.user_id,c.user_version,u.auth_version AS current_user_version,c.owner_account_id,c.personal_billing_preference,u.personal_account_id,t.id AS team_id,CASE u.platform_role WHEN 'superadmin' THEN 6::smallint WHEN 'admin' THEN 5::smallint ELSE 0::smallint END AS platform_level FROM core_identity.credentials c JOIN core_identity.users u ON u.id=c.user_id JOIN core_identity.accounts pa ON pa.id=u.personal_account_id JOIN core_identity.accounts own ON own.id=c.owner_account_id LEFT JOIN core_identity.teams t ON t.account_id=c.owner_account_id WHERE c.revoked_at IS NULL AND c.expires_at>clock_timestamp() AND u.active AND pa.active AND own.active AND NOT EXISTS (SELECT 1 FROM core_identity.api_key_settings ks WHERE ks.credential_id=c.id AND NOT ks.enabled) AND NOT EXISTS (SELECT 1 FROM core_identity.web_sessions ws WHERE ws.current_credential_id=c.id AND (ws.revoked_at IS NOT NULL OR ws.expires_at<=clock_timestamp() OR ws.user_version<>u.auth_version OR (ws.weekly_logout AND ws.created_at<=clock_timestamp()-interval '7 days')))";
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum IdentityError {
@@ -104,6 +106,31 @@ impl From<sqlx::Error> for IdentityError {
     }
 }
 type Result<T> = std::result::Result<T, IdentityError>;
+
+/// Resolve account group choices in the caller's authenticated transaction.
+/// Any explicit assignment, including a disabled one, overrides the default.
+/// Callers still intersect these names with their current published catalogue.
+pub(crate) async fn routing_group_names_in_transaction(
+    c: &mut PgConnection,
+    user: i64,
+) -> Result<Vec<String>> {
+    Ok(sqlx::query_scalar(
+        "WITH assignments AS (SELECT group_name,enabled FROM core_identity.user_routing_groups WHERE user_id=$1) SELECT group_name FROM assignments WHERE enabled UNION ALL SELECT 'default'::text WHERE NOT EXISTS(SELECT FROM assignments) ORDER BY group_name",
+    )
+    .bind(user)
+    .fetch_all(c)
+    .await?)
+}
+pub(crate) async fn routing_group_allowed_in_transaction(
+    c: &mut PgConnection,
+    user: i64,
+    group: &str,
+) -> Result<bool> {
+    Ok(routing_group_names_in_transaction(c, user)
+        .await?
+        .iter()
+        .any(|candidate| candidate == group))
+}
 
 #[derive(Clone)]
 pub struct IdentityStore {
@@ -210,14 +237,12 @@ pub(crate) async fn audit(
     Ok(())
 }
 
-async fn new_account(c: &mut PgConnection, kind: &str, level: i16) -> Result<i64> {
-    let id: i64 = sqlx::query_scalar(
-        "INSERT INTO core_identity.accounts(kind,service_level) VALUES ($1,$2) RETURNING id",
-    )
-    .bind(kind)
-    .bind(level)
-    .fetch_one(&mut *c)
-    .await?;
+async fn new_account(c: &mut PgConnection, kind: &str) -> Result<i64> {
+    let id: i64 =
+        sqlx::query_scalar("INSERT INTO core_identity.accounts(kind) VALUES ($1) RETURNING id")
+            .bind(kind)
+            .fetch_one(&mut *c)
+            .await?;
     sqlx::query("INSERT INTO core_billing.account_policies(account_id) VALUES ($1)")
         .bind(id)
         .execute(c)
@@ -355,7 +380,7 @@ async fn authenticate(c: &mut PgConnection, secret: &str, write: bool) -> Result
     .fetch_optional(&mut *c)
     .await?
     .ok_or(IdentityError::Unauthorized)?;
-    principal_with_assurance_mode(
+    let actor = principal_with_assurance_mode(
         c,
         row,
         if write {
@@ -364,7 +389,9 @@ async fn authenticate(c: &mut PgConnection, secret: &str, write: bool) -> Result
             mfa::AssuranceRead::Snapshot
         },
     )
-    .await
+    .await?;
+    network_policy::authorize_request_ip(c, actor.user_id).await?;
+    Ok(actor)
 }
 /// Authenticate a caller against this transaction's read snapshot without
 /// taking authority locks. This is for read-only views, never spending writes.
@@ -382,7 +409,7 @@ pub(crate) async fn authorize_in_transaction(
 ) -> Result<Principal> {
     authenticate(c, secret, true).await
 }
-/// A current personal Session may use only its persisted enabled routing group.
+/// A current personal Session may use only an eligible account routing group.
 /// This is a dedicated model authority, never an API-key compatibility adapter.
 pub(crate) async fn authorize_assistant_model_in_transaction(
     c: &mut PgConnection,
@@ -393,20 +420,12 @@ pub(crate) async fn authorize_assistant_model_in_transaction(
     if actor.owner.kind != AccountKind::Personal || actor.owner.id != actor.user_id {
         return Err(IdentityError::Forbidden);
     }
-    compat::developer(c, &actor).await?;
-    let granted: Option<bool> = sqlx::query_scalar(
-        "SELECT enabled FROM core_identity.user_routing_groups WHERE user_id=$1 AND group_name=$2",
-    )
-    .bind(actor.user_id)
-    .bind(group)
-    .fetch_optional(c)
-    .await?;
-    if granted != Some(true) {
+    if !routing_group_allowed_in_transaction(c, actor.user_id, group).await? {
         return Err(IdentityError::Forbidden);
     }
     Ok(actor)
 }
-pub(crate) async fn require_bounty_developer_in_transaction(
+pub(crate) async fn authorize_bounty_session_in_transaction(
     c: &mut PgConnection,
     actor: &Principal,
     secret: &str,
@@ -416,7 +435,10 @@ pub(crate) async fn require_bounty_developer_in_transaction(
             .await
             .map_err(|_| IdentityError::Forbidden)?;
     }
-    compat::developer(c, actor).await
+    if actor.credential_kind != CredentialKind::Session {
+        return Err(IdentityError::Forbidden);
+    }
+    Ok(())
 }
 async fn session(c: &mut PgConnection, secret: &str) -> Result<Principal> {
     let actor = authorize_in_transaction(c, secret).await?;
@@ -511,14 +533,9 @@ impl IdentityStore {
             5 => "admin",
             _ => "user",
         };
-        let service_level = if level <= 4 { level } else { 0 };
-        let account_id = new_account(&mut tx, "personal", service_level).await?;
+        let account_id = new_account(&mut tx, "personal").await?;
         sqlx::query("INSERT INTO core_identity.users(id,personal_account_id,platform_role) VALUES ($1,$2,$3)")
             .bind(user_id).bind(account_id).bind(role).execute(&mut *tx).await?;
-        // This explicit offline development bootstrap grants synthetic users
-        // access; ordinary self-registration never receives this grant.
-        sqlx::query("INSERT INTO core_identity.developer_access(user_id,granted,source_reference) VALUES ($1,TRUE,'offline-development-bootstrap')")
-            .bind(user_id).execute(&mut *tx).await?;
         sqlx::query("SELECT setval('core_identity.users_id_seq', GREATEST((SELECT last_value FROM core_identity.users_id_seq), $1))")
             .bind(user_id).execute(&mut *tx).await?;
         let id: i64 = sqlx::query_scalar("INSERT INTO core_identity.credentials(digest,kind,user_id,user_version,owner_account_id,expires_at) VALUES ($1,'session',$2,1,$3,clock_timestamp()+$4::bigint*interval '1 second') RETURNING id")

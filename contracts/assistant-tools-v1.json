@@ -81,7 +81,7 @@
       "version": "main-3948a0a1"
     },
     {
-      "description": "Read the current user's visible in-site improvement issues, or one exact issue and recent status events. Administrators (L5) and super administrators (L6) may inspect all. Security reports are administrator-only. An unavailable record must not be treated as resolved.",
+      "description": "Read the current user's visible in-site improvement issues, or one exact issue and recent status events. Administrators and super administrators may inspect all. Security reports are administrator-only. An unavailable record must not be treated as resolved.",
       "domain": "extension",
       "name": "get_site_issues",
       "price_sha256": "5d6fb460c679922a1976e87ef729440d5394187e9b12331f33faf12904a64192",
@@ -101,7 +101,7 @@
       "version": "main-3948a0a1"
     },
     {
-      "description": "List only the signed-in user's existing API key metadata: exact ID, name, status, group and timestamps. No credential, masked key, quota, IP rule, or secret is returned. Read this before preparing deletion or disabling; never guess IDs. Paginate when needed. token_id can read one exact ID specified by the user; exact_name is an exact name filter. Duplicate names require the user to choose an exact ID. Revocation remains available after loss of L1 access; it never grants key creation or developer access.",
+      "description": "List only the signed-in user's existing API key metadata: exact ID, name, status, group and timestamps. No credential, masked key, quota, IP rule, or secret is returned. Read this before preparing deletion or disabling; never guess IDs. Paginate when needed. token_id can read one exact ID specified by the user; exact_name is an exact name filter. Duplicate names require the user to choose an exact ID. Revocation remains available to the key owner and never grants access to another account.",
       "domain": "registered_core",
       "name": "list_my_api_keys",
       "price_sha256": "5d6fb460c679922a1976e87ef729440d5394187e9b12331f33faf12904a64192",
@@ -136,8 +136,8 @@
       "name": "remember_profile_skill",
       "price_sha256": "5d6fb460c679922a1976e87ef729440d5394187e9b12331f33faf12904a64192",
       "price_version": "builtin-free-v1",
-      "schema_json": "{\"additionalProperties\":false,\"properties\":{\"profile_key\":{\"enum\":[\"technical_cost_sensitive\",\"guided_buyer\",\"production_operator\",\"privacy_conscious\",\"mobile_accessibility\",\"normal_user\",\"support_seeking\",\"l0_applicant\"],\"type\":\"string\"},\"tags\":{\"items\":{\"enum\":[\"advanced\",\"needs_steps\",\"cost_sensitive\",\"production\",\"privacy\",\"mobile\",\"accessibility\",\"support\",\"l0\"],\"type\":\"string\"},\"maxItems\":4,\"type\":\"array\"}},\"required\":[\"profile_key\"],\"type\":\"object\"}",
-      "schema_sha256": "2f2150dba3f5b9e46671b41f9509ef66d9a5cc03dc371a4ef2e906335bc6dd97",
+      "schema_json": "{\"additionalProperties\":false,\"properties\":{\"profile_key\":{\"enum\":[\"technical_cost_sensitive\",\"guided_buyer\",\"production_operator\",\"privacy_conscious\",\"mobile_accessibility\",\"normal_user\",\"support_seeking\"],\"type\":\"string\"},\"tags\":{\"items\":{\"enum\":[\"advanced\",\"needs_steps\",\"cost_sensitive\",\"production\",\"privacy\",\"mobile\",\"accessibility\",\"support\"],\"type\":\"string\"},\"maxItems\":4,\"type\":\"array\"}},\"required\":[\"profile_key\"],\"type\":\"object\"}",
+      "schema_sha256": "c2ff9ea61d550dabefb4c09bec3a8f66958a9bc8b143a65aa5bc40aa0007f28a",
       "version": "main-3948a0a1"
     },
     {

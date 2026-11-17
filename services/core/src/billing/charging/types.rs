@@ -311,17 +311,6 @@ pub struct Price {
     pub output_per_million: i64,
 }
 impl Price {
-    pub(crate) fn with_user_authority(
-        mut self,
-        authority: &crate::billing::trust_pricing::UserPriceAuthority,
-    ) -> Result<Self> {
-        if self.user_trust.is_some() {
-            return Err(Error::Invalid);
-        }
-        self.user_trust = Some(authority.evidence().clone());
-        self.validate()?;
-        Ok(self)
-    }
     pub(crate) fn base_price(&self) -> Self {
         let mut base = self.clone();
         base.user_trust = None;

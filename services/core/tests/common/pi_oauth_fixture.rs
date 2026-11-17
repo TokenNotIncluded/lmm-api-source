@@ -350,7 +350,7 @@ impl Fixture {
         }
     }
     pub fn request(&self) -> AuthorizationRequest {
-        AuthorizationRequest{response_type:"code".into(),client_id:"lmm-pi".into(),redirect_uri:REDIRECT.into(),scope:"catalog:read balance:read usage:read models:invoke mcp:bounties mcp:drawing remote:control".into(),resource:format!("{ISSUER}/api/oauth2"),code_challenge:URL_SAFE_NO_PAD.encode(Sha256::digest(VERIFIER)),code_challenge_method:"S256".into(),state:"synthetic-pi-state".into()}
+        AuthorizationRequest{response_type:"code".into(),client_id:"lmm-pi".into(),redirect_uri:REDIRECT.into(),scope:"catalog:read balance:read usage:read models:invoke mcp:bounties mcp:drawing".into(),resource:format!("{ISSUER}/api/oauth2"),code_challenge:URL_SAFE_NO_PAD.encode(Sha256::digest(VERIFIER)),code_challenge_method:"S256".into(),state:"synthetic-pi-state".into()}
     }
     pub fn managed_request(&self, installation: &str) -> ManagedAuthorizationRequest {
         ManagedAuthorizationRequest {

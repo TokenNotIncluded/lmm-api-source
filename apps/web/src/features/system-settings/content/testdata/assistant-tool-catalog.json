@@ -1,9 +1,6 @@
 {
   "success": true,
   "data": {
-    "capabilities": {
-      "policy_rules": true
-    },
     "groups": [
       {
         "id": "service_help",
@@ -67,7 +64,7 @@
           {
             "name": "get_account_access",
             "label": "Account access and progress",
-            "description": "Read your current access level, wallet balance and recorded setup progress.",
+            "description": "Read your account access, wallet balance and recorded setup progress.",
             "effect": "read_only",
             "access": "user"
           },
@@ -90,7 +87,7 @@
             "label": "Usage summary",
             "description": "Read your current model and group usage summary.",
             "effect": "read_only",
-            "access": "l1"
+            "access": "user"
           },
           {
             "name": "prepare_user_action",
@@ -98,13 +95,6 @@
             "description": "Prepare a secure form for supported profile or account actions; the user must confirm.",
             "effect": "confirmation",
             "access": "user"
-          },
-          {
-            "name": "grant_l1_access",
-            "label": "Grant verified L1 access",
-            "description": "Activate only the current L0 account after server-checked conversation and registration requirements.",
-            "effect": "server_guarded",
-            "access": "l0"
           }
         ]
       },
@@ -115,7 +105,7 @@
           {
             "name": "get_available_models",
             "label": "Available models",
-            "description": "Read live public model IDs for L0, or usable model IDs for an authorized account.",
+            "description": "Read public model IDs or the models available to the signed-in account.",
             "effect": "read_only",
             "access": "user"
           },
@@ -136,7 +126,7 @@
           {
             "name": "get_plan_offers",
             "label": "Plans and top-up offers",
-            "description": "Read current offers while retaining the L0 payment-intent and checkout restrictions.",
+            "description": "Read current offers while retaining payment-intent and checkout safeguards.",
             "effect": "read_only",
             "access": "user"
           }
@@ -151,7 +141,7 @@
             "label": "Prepare API key creation",
             "description": "Prepare a browser confirmation for a key in a permitted group; never reveal it in chat.",
             "effect": "confirmation",
-            "access": "l1"
+            "access": "user"
           },
           {
             "name": "list_my_api_keys",
@@ -178,14 +168,14 @@
             "label": "Send an invitation",
             "description": "Prepare an invitation email using your own referral link; send only after confirmation.",
             "effect": "confirmation",
-            "access": "l1"
+            "access": "user"
           },
           {
             "name": "get_invitation_rewards",
             "label": "Invitation rewards",
             "description": "Read your invitation reward status and the current reward rules.",
             "effect": "read_only",
-            "access": "l1"
+            "access": "user"
           },
           {
             "name": "get_new_user_gift_status",
@@ -280,7 +270,7 @@
             "label": "Prepare image generation",
             "description": "Prepare a drawing confirmation using current permitted models; generation may charge the wallet after confirmation.",
             "effect": "confirmation",
-            "access": "l1"
+            "access": "user"
           }
         ]
       },
@@ -373,30 +363,9 @@
           {
             "name": "get_registration_risk",
             "label": "Registration eligibility check",
-            "description": "Read server-verified evidence for the current L0 account.",
+            "description": "Read server-verified registration evidence for your account.",
             "effect": "read_only",
-            "access": "l0"
-          },
-          {
-            "name": "notify_registration_risk",
-            "label": "Record a registration alert",
-            "description": "Record a bounded in-site risk alert only from server-verified registration evidence.",
-            "effect": "server_guarded",
-            "access": "l0"
-          },
-          {
-            "name": "end_registration_conversation",
-            "label": "Hold an unsafe registration",
-            "description": "Hold the current L0 registration flow only when deterministic server checks require it.",
-            "effect": "server_guarded",
-            "access": "l0"
-          },
-          {
-            "name": "ban_l0_user",
-            "label": "Suspend an abusive L0 account",
-            "description": "Suspend only the current L0 account when matching server evidence and the global suspension cap permit it.",
-            "effect": "server_guarded",
-            "access": "l0"
+            "access": "user"
           }
         ]
       },
@@ -532,21 +501,21 @@
             "label": "Read connected market tools",
             "description": "Read allowed services, exact schemas and your own current grants.",
             "effect": "read_only",
-            "access": "l1"
+            "access": "user"
           },
           {
             "name": "connect_market_tool",
             "label": "Authorize a market tool",
             "description": "Prepare version-bound access and spending limits for browser confirmation.",
             "effect": "confirmation",
-            "access": "l1"
+            "access": "user"
           },
           {
             "name": "call_market_tool",
             "label": "Use a connected market tool",
             "description": "Call an allowed remote tool using your explicit bounded grant and the existing billing checks.",
             "effect": "server_guarded",
-            "access": "l1"
+            "access": "user"
           }
         ]
       },

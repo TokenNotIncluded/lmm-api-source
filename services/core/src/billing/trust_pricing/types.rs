@@ -1,9 +1,6 @@
 use super::{Error, Result};
 use serde::{Deserialize, Serialize};
-use sha2::{Digest, Sha256};
 const MAX_AT: i64 = 253_402_300_799;
-// The legacy console and JavaScript share this exact safe-credit bound.
-const MAX_POLICY_CREDITS: i64 = 9_007_199_254_740_991;
 const MAX_DENOMINATOR: u64 = 1_000_000_000_000_000_000;
 
 /// Exact bounded ratio. Construction rejects zero, increases and rounding.
@@ -58,44 +55,9 @@ impl DiscountRatio {
         self.denominator
     }
 }
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct TrustTier {
-    pub level: u8,
-    pub min_paid_credits: i64,
-    pub discount: DiscountRatio,
-}
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct TrustPolicy {
-    pub version: u32,
-    pub paid_activation_enabled: bool,
-    pub decay_period_days: u16,
-    pub tiers: [TrustTier; 5],
-    pub admin_discount: DiscountRatio,
-    pub superadmin_discount: DiscountRatio,
-}
-impl TrustPolicy {
-    pub fn validate(&self) -> Result<()> {
-        if self.version != 1 || self.decay_period_days > 3650 {
-            return Err(Error::Invalid);
-        }
-        for (level, tier) in self.tiers.iter().enumerate() {
-            if usize::from(tier.level) != level
-                || tier.min_paid_credits < 0
-                || tier.min_paid_credits > MAX_POLICY_CREDITS
-                || (level == 0 && tier.min_paid_credits != 0)
-                || (level > 0 && tier.min_paid_credits <= self.tiers[level - 1].min_paid_credits)
-            {
-                return Err(Error::Invalid);
-            }
-        }
-        Ok(())
-    }
-}
-/// Stored with a trusted charging price, never accepted as authority for a new
-/// quote. Only UserPriceAuthority is usable for new admission. Deserialize here
-/// supports restart of ALREADY persisted server-owned request evidence.
+/// Legacy discount evidence for an already admitted server-owned request.
+/// Deserialization supports restart and settlement; fresh requests cannot mint
+/// or accept this evidence as price authority.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct FrozenTrustPrice {
@@ -144,124 +106,6 @@ impl FrozenTrustPrice {
         self.next_decay_at
     }
 }
-/// No Deserialize and no public constructor: only the same-transaction Core
-/// resolver can mint a new-user quote. Go/HTTP fields cannot become this type.
-#[derive(Clone, Debug)]
-pub(crate) struct UserPriceAuthority {
-    frozen: FrozenTrustPrice,
-}
-impl UserPriceAuthority {
-    pub(crate) fn discount(&self) -> DiscountRatio {
-        self.frozen.discount
-    }
-    pub(crate) fn evidence(&self) -> &FrozenTrustPrice {
-        &self.frozen
-    }
-}
-#[derive(Clone, Debug, Serialize)]
-pub(super) struct Facts {
-    pub user_id: i64,
-    pub role: String,
-    pub basis_revision: i64,
-    pub created_at: i64,
-    pub activated_at: i64,
-    pub last_api_at: i64,
-    pub override_level: Option<u8>,
-    pub projection_known: bool,
-    pub net_paid_credits: i64,
-    pub positive_orders: i64,
-    pub last_paid_at: i64,
-    pub evidence: serde_json::Value,
-}
-pub(super) fn valid_at(at: i64) -> bool {
+fn valid_at(at: i64) -> bool {
     (0..=MAX_AT).contains(&at)
-}
-pub(super) fn evaluate(
-    policy: &TrustPolicy,
-    revision: i64,
-    f: &Facts,
-    at: i64,
-) -> Result<UserPriceAuthority> {
-    policy.validate()?;
-    if f.user_id <= 0
-        || revision <= 0
-        || f.basis_revision < 0
-        || !valid_at(at)
-        || [f.created_at, f.activated_at, f.last_api_at, f.last_paid_at]
-            .into_iter()
-            .any(|v| !valid_at(v) || v > at)
-        || f.net_paid_credits < 0
-        || f.positive_orders < 0
-        || (f.positive_orders == 0 && (f.net_paid_credits != 0 || f.last_paid_at != 0))
-        || (f.positive_orders > 0 && (f.net_paid_credits == 0 || f.last_paid_at == 0))
-        || f.override_level.is_some_and(|v| v > 4)
-    {
-        return Err(Error::Invalid);
-    }
-    let (level, source, next) = match f.role.as_str() {
-        "superadmin" => (6, "role", None),
-        "admin" => (5, "role", None),
-        "user" => {
-            if let Some(level) = f.override_level {
-                (level, "override", None)
-            } else {
-                if !f.projection_known {
-                    return Err(Error::Unavailable);
-                }
-                let activated = f.activated_at > 0
-                    || (policy.paid_activation_enabled
-                        && f.positive_orders > 0
-                        && f.net_paid_credits >= policy.tiers[1].min_paid_credits);
-                let automatic = if !activated {
-                    0
-                } else {
-                    (2..=4)
-                        .rev()
-                        .find(|level| f.net_paid_credits >= policy.tiers[*level].min_paid_credits)
-                        .unwrap_or(1)
-                };
-                let anchor = f.created_at.max(f.last_api_at).max(f.last_paid_at);
-                let period = i64::from(policy.decay_period_days) * 86400;
-                let steps = if automatic > 1 && anchor > 0 && period > 0 {
-                    ((at - anchor) / period).min((automatic - 1) as i64)
-                } else {
-                    0
-                };
-                let level = automatic as u8 - steps as u8;
-                let next = if level > 1 && anchor > 0 && period > 0 {
-                    Some(
-                        anchor
-                            .checked_add((steps + 1).checked_mul(period).ok_or(Error::Invalid)?)
-                            .filter(|v| valid_at(*v))
-                            .ok_or(Error::Invalid)?,
-                    )
-                } else {
-                    None
-                };
-                (level, "automatic", next)
-            }
-        }
-        _ => return Err(Error::Invalid),
-    };
-    let discount = match level {
-        6 => policy.superadmin_discount,
-        5 => policy.admin_discount,
-        v => policy.tiers[usize::from(v)].discount,
-    };
-    let digest =
-        Sha256::digest(serde_json::to_vec(&(policy, revision, f, at)).map_err(|_| Error::Invalid)?)
-            .into();
-    let frozen = FrozenTrustPrice {
-        user_id: f.user_id,
-        policy_revision: revision,
-        basis_revision: f.basis_revision,
-        effective_level: level,
-        level_source: source.into(),
-        discount,
-        evaluated_at: at,
-        next_decay_at: next,
-        evidence_digest: digest,
-    };
-    frozen.validate()?;
-    Ok(UserPriceAuthority { frozen })
 }

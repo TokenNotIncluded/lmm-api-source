@@ -12,13 +12,11 @@ use std::collections::BTreeSet;
 #[serde(deny_unknown_fields)]
 pub(crate) struct AssistantMarketPolicy {
     pub revision: String,
-    pub minimum_level: i16,
     pub allowed_service_ids: BTreeSet<String>,
 }
 impl AssistantMarketPolicy {
     pub(crate) fn validate(&self) -> Result<(), Error> {
         if !super::super::label(&self.revision, 128)
-            || !(0..=6).contains(&self.minimum_level)
             || self.allowed_service_ids.is_empty()
             || self.allowed_service_ids.len() > 128
             || self
@@ -71,11 +69,6 @@ pub(crate) async fn authorize_market_policy_context_in_transaction(
                 crate::identity::permissions::PolicyLoadError::Storage => Error::Unavailable,
                 _ => Error::Forbidden,
             })?;
-    }
-    let level:i16=sqlx::query_scalar("SELECT CASE u.platform_role WHEN 'superadmin' THEN 6::smallint WHEN 'admin' THEN 5::smallint ELSE a.service_level END FROM core_identity.users u JOIN core_identity.accounts a ON a.id=u.personal_account_id WHERE u.id=$1 AND a.id=$2 AND u.active AND a.active FOR SHARE OF u,a")
-        .bind(context.user_id()).bind(context.account_id()).fetch_optional(&mut *c).await?.ok_or(Error::Forbidden)?;
-    if level < policy.minimum_level {
-        return Err(Error::Forbidden);
     }
     Ok(MarketPolicyPermission { _private: () })
 }
@@ -258,4 +251,25 @@ pub(super) async fn freeze_market_scope_in_transaction(
         remote_sha256: super::registry::hex32(&q.remote_digest)?,
         price_sha256: super::registry::hex32(&q.pricing_digest)?,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn market_policy_uses_service_allowlist_without_user_tiers() {
+        let raw = serde_json::json!({
+            "revision": "market-v1",
+            "allowed_service_ids": ["approved-service"],
+        });
+        let mut policy: AssistantMarketPolicy = serde_json::from_value(raw.clone()).unwrap();
+        policy.validate().unwrap();
+        policy.allowed_service_ids.clear();
+        assert!(policy.validate().is_err());
+
+        let mut retired = raw;
+        retired["minimum_level"] = serde_json::json!(1);
+        assert!(serde_json::from_value::<AssistantMarketPolicy>(retired).is_err());
+    }
 }

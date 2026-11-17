@@ -3448,7 +3448,7 @@
     "Deny claim": "申し立てを却下",
     "Deny dispute claim": "異議申し立てを却下",
     "Deny this dispute claim? The administrator resolution will be visible to both parties.": "この異議申し立てを却下しますか？ 管理者の裁定は両者に表示されます。",
-    "Depends on the action": "操作によって異なる",
+    "Depends on the action": "操作によって異なります",
     "Deploy your own gateway and start routing requests through your configured upstream services.": "独自のゲートウェイをデプロイし、設定済みのアップストリームサービスへリクエストをルーティングできます。",
     "Deployment created successfully": "デプロイを作成しました",
     "Deployment details": "デプロイメントの詳細",
@@ -10511,7 +10511,7 @@
     "Signed in via WeChat": "WeChat経由でサインインしました",
     "Signed in with Passkey": "パスキーでサインインしました",
     "Signed out": "サインアウトしました",
-    "Signed-in users": "ログイン中のユーザー",
+    "Signed-in users": "ログイン済みのユーザー",
     "Significant outages detected": "大規模な障害を検出",
     "Signing in takes a moment and skips this screen entirely.": "ログインして続行してください。",
     "Signing key": "署名キー",
@@ -13158,6 +13158,16 @@
     "Zhipu V4": "Zhipu V 4",
     "Zoom": "ズーム",
     "Zoom in": "拡大",
-    "Zoom out": "縮小"
+    "Zoom out": "縮小",
+    "Signed-in users can use the assistant immediately. Registration protection remains active.": "ログイン後、すぐにアシスタントを利用できます。登録時の不正利用対策は引き続き有効です。",
+    "Allow evidence-based account suspensions": "証拠に基づくアカウントの停止を許可する",
+    "Sign in, create an API key and connect LMM to your app.": "ログインして API キーを作成し、LMM をアプリに接続しましょう。",
+    "Browse downloads and setup steps. Sign in to see your connection values and create an API key.": "ダウンロードと設定の手順を確認できます。ログインすると、接続情報の確認と API キーの作成ができます。",
+    "Help me set up LMM. Ask which device and app I use, then guide me through installation, sign-in, API key creation and my first request.": "LMM の設定を手伝ってください。使用する端末とアプリを確認してから、インストール、ログイン、API キーの作成、最初のリクエストまで案内してください。",
+    "Which model should I use?": "どのモデルを使えばよいですか？",
+    "Group price": "グループ料金",
+    "Pay for requests with your account balance.": "アカウント残高で API リクエストの料金を支払います。",
+    "New user": "新規ユーザー",
+    "Returning user": "既存ユーザー"
   }
 }

@@ -21,7 +21,7 @@ func (c *syntheticFactsClient) GetAssistantBusinessFacts(_ context.Context, cred
 }
 func TestCoreBusinessFactsProjectionBinding(t *testing.T) {
 	auth := &guideAuth{principal: access.Principal{UserID: 7, Account: access.Account{Kind: "personal", ID: 7}}}
-	client := &syntheticFactsClient{raw: json.RawMessage(`{"actor_user_id":7,"exact_model_ids":["serving/model"],"developer_access_granted":false,"locked":false,"public_preview":true,"key_group_options":["actual-group"],"catalogue":null}`)}
+	client := &syntheticFactsClient{raw: json.RawMessage(`{"actor_user_id":7,"exact_model_ids":["serving/model"],"locked":false,"public_preview":true,"key_group_options":["actual-group"],"catalogue":null}`)}
 	facts, err := NewCoreBusinessFacts(client, auth)
 	if err != nil {
 		t.Fatal(err)

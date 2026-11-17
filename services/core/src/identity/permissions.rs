@@ -53,49 +53,6 @@ pub enum MemberRole {
     Admin,
     Member,
 }
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum DeveloperState {
-    Granted,
-    Denied,
-    Unknown,
-}
-/// Paid qualification is supplied by the locked Core financial policy, not an
-/// amount or balance from a browser. No financial-unit conversion lives here.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum PaidQualification {
-    Qualified,
-    NotQualified,
-    Unknown,
-}
-#[derive(Clone, Copy, Debug)]
-pub(crate) struct DeveloperFacts {
-    pub role: PlatformRole,
-    pub override_level: Option<i16>,
-    pub manually_activated: bool,
-    pub paid: PaidQualification,
-}
-/// @mark identity.developer-access role=authority contract=core.permissions.v1
-pub(crate) fn developer_access(facts: DeveloperFacts) -> DeveloperState {
-    if facts.role != PlatformRole::User {
-        return DeveloperState::Granted;
-    }
-    if let Some(level) = facts.override_level {
-        return if (1..=4).contains(&level) {
-            DeveloperState::Granted
-        } else {
-            DeveloperState::Denied
-        };
-    }
-    if facts.manually_activated {
-        return DeveloperState::Granted;
-    }
-    match facts.paid {
-        PaidQualification::Qualified => DeveloperState::Granted,
-        PaidQualification::NotQualified => DeveloperState::Denied,
-        PaidQualification::Unknown => DeveloperState::Unknown,
-    }
-}
-
 /// Route-selected operation, NEVER parsed from a caller-selected action string.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Action {
@@ -112,7 +69,6 @@ pub enum Action {
     /// Existing administrator user-directory read, distinct from managing a target user.
     AdminUsersRead,
     UserManage,
-    DeveloperReview,
     PermissionCatalogRead,
     UserPermissionsWrite,
     RootSettings,
@@ -121,7 +77,7 @@ pub enum Action {
     OwnProfileRead,
     OwnProfileWrite,
     OwnKeyManage,
-    DeveloperConsole,
+    ConsoleRead,
     TeamRead,
     TeamInviteAdmin,
     TeamInviteMember,
@@ -509,7 +465,6 @@ pub(crate) struct Actor {
     pub account_active: bool,
     pub auth_version: i64,
     pub credential_auth_version: i64,
-    pub developer: DeveloperState,
 }
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct Membership {
@@ -532,7 +487,6 @@ pub enum Denial {
     ExplicitDeny,
     RoleDenied,
     TenantDenied,
-    DeveloperUnknown,
 }
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum PermissionDecision {
@@ -641,8 +595,8 @@ pub(crate) fn decide(
         }
     } else {
         let correct = match action {
-            UserRead | UserManage | DeveloperReview | UserPermissionsWrite | OwnProfileRead
-            | OwnProfileWrite | OwnKeyManage | DeveloperConsole => {
+            UserRead | UserManage | UserPermissionsWrite | OwnProfileRead
+            | OwnProfileWrite | OwnKeyManage | ConsoleRead => {
                 matches!(scope, Scope::User { .. })
             }
             TeamRead | TeamInviteAdmin | TeamInviteMember | TeamRemoveAdmin | TeamRemoveMember
@@ -661,7 +615,7 @@ pub(crate) fn decide(
             actor.role != PlatformRole::User
         }
         RootSettings | DirectoryModerate => actor.role == PlatformRole::Root,
-        UserRead | UserManage | DeveloperReview | UserPermissionsWrite => {
+        UserRead | UserManage | UserPermissionsWrite => {
             let Scope::User { role, .. } = scope else {
                 return deny(Denial::InvalidScope);
             };
@@ -671,7 +625,7 @@ pub(crate) fn decide(
                 can_manage_role(actor.role, role)
             }
         }
-        OwnProfileRead | OwnProfileWrite | OwnKeyManage | DeveloperConsole => {
+        OwnProfileRead | OwnProfileWrite | OwnKeyManage | ConsoleRead => {
             let Scope::User {
                 user_id,
                 account_id,
@@ -685,14 +639,6 @@ pub(crate) fn decide(
                 || role != actor.role
             {
                 return deny(Denial::TenantDenied);
-            }
-            if matches!(action, OwnKeyManage | DeveloperConsole) && actor.role == PlatformRole::User
-            {
-                match actor.developer {
-                    DeveloperState::Unknown => return deny(Denial::DeveloperUnknown),
-                    DeveloperState::Denied => return deny(Denial::RoleDenied),
-                    DeveloperState::Granted => {}
-                }
             }
             true
         }

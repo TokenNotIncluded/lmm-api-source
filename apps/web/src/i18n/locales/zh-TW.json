@@ -10511,7 +10511,7 @@
     "Signed in via WeChat": "透過微信登入",
     "Signed in with Passkey": "使用 Passkey 登入",
     "Signed out": "已登出",
-    "Signed-in users": "已登入使用者",
+    "Signed-in users": "已登入的使用者",
     "Significant outages detected": "偵測到較為嚴重的故障",
     "Signing in takes a moment and skips this screen entirely.": "登入後繼續操作。",
     "Signing key": "簽章金鑰",
@@ -13158,6 +13158,16 @@
     "Zhipu V4": "智譜 V4",
     "Zoom": "縮放",
     "Zoom in": "放大",
-    "Zoom out": "縮小"
+    "Zoom out": "縮小",
+    "Signed-in users can use the assistant immediately. Registration protection remains active.": "登入後即可使用助理。註冊風險防護繼續生效。",
+    "Allow evidence-based account suspensions": "允許依據證據停用帳號",
+    "Sign in, create an API key and connect LMM to your app.": "登入並建立 API 金鑰，即可將 LMM 連接到你的應用程式。",
+    "Browse downloads and setup steps. Sign in to see your connection values and create an API key.": "你可以先查看下載與設定步驟。登入後即可查看連線資訊並建立 API 金鑰。",
+    "Help me set up LMM. Ask which device and app I use, then guide me through installation, sign-in, API key creation and my first request.": "請幫我設定 LMM。先詢問我使用的裝置和應用程式，再引導我完成安裝、登入、建立 API 金鑰與第一次請求。",
+    "Which model should I use?": "我應該使用哪個模型？",
+    "Group price": "分組價格",
+    "Pay for requests with your account balance.": "使用帳戶餘額支付 API 請求費用。",
+    "New user": "新使用者",
+    "Returning user": "既有使用者"
   }
 }

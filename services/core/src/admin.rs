@@ -14,7 +14,6 @@ use serde::Deserialize;
 mod check_db;
 mod first_owner;
 mod schema_upgrade;
-mod trust_policy_editor;
 pub use check_db::{invalid_arguments as invalid_check_db_arguments, run as check_database};
 use std::{
     error::Error,
@@ -49,7 +48,6 @@ pub enum Operation {
     SeedCheckinHistory(lmm_core::checkins::SeedHistory),
     #[cfg(test)]
     PublishCheckinPolicy(lmm_core::checkins::PublishPolicy),
-    TrustPolicyEditor(trust_policy_editor::Request),
 }
 
 impl Operation {
@@ -63,9 +61,6 @@ impl Operation {
         admin_approval::read_bounded_json(input)
             .map(|request| Self::ApplyAdminKeyContinuity(Box::new(request)))
             .map_err(approval_io)
-    }
-    pub fn trust_policy_editor(input: impl Read) -> io::Result<Self> {
-        trust_policy_editor::read(input).map(Self::TrustPolicyEditor)
     }
     pub fn upgrade_offline(input: impl Read) -> io::Result<Self> {
         lmm_core::upgrade_offline::Request::read(input)
@@ -228,25 +223,6 @@ pub async fn run(operation: Operation) -> Result<(), Box<dyn Error>> {
     let pool = config::database_pool(&url).await?;
     let store = IdentityStore::from_pool(pool.clone());
     match operation {
-        Operation::TrustPolicyEditor(request) => {
-            match trust_policy_editor::run(&pool, request).await {
-                Ok(report) => {
-                    serde_json::to_writer(io::stdout().lock(), &report)?;
-                    println!();
-                }
-                Err(error) => {
-                    serde_json::to_writer(
-                        io::stdout().lock(),
-                        &serde_json::json!({
-                            "protocol":"core.trust-policy-owner.v1","status":"unconfirmed",
-                            "code":error.to_string(),"retry_allowed":false
-                        }),
-                    )?;
-                    println!();
-                    return Err(error.into());
-                }
-            }
-        }
         Operation::UpgradeOffline(_) => unreachable!("dedicated offline command returned above"),
         Operation::UpgradeHistory(_) => unreachable!("dedicated authority command returned above"),
         Operation::UpgradeDatabase(_) => unreachable!("dedicated schema upgrade returned above"),

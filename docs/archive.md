@@ -148,6 +148,7 @@
 
 ## 保留的历史记录
 
+- [Pi 远程控制 v1](pi-remote-control-api.md)：2026-11-17 归档，保留退役协议与当时的 WIP 限制；LMM 和 Pi 插件已移除该功能，远程控制由独立 ssmcp 项目提供。
 - [旧合并式 Changelog](history/changelog.md)：保留原文，不定义当前版本和发布状态。
 - [部署研究](deployment-research.md)：已移除实验的结论、原始来源和未接入项。
 - [恢复事故](incidents/2026-09-20-recovery-retirement.md)、[助手反馈审计](assistant-feedback-audit.md)和[注册安全边界](security/assistant-registration-guard.md)：保留事故、安全结论与原始限制。

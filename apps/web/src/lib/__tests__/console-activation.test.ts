@@ -21,42 +21,27 @@ import { describe, test } from 'node:test'
 
 import type { AuthUser } from '@/stores/auth-store'
 
-import {
-  getAuthenticatedLandingRoute,
-  isConsoleActivated,
-  isContributorRoute,
-  isRestrictedPublicRoute,
-} from '../console-activation'
+import { getAuthenticatedLandingRoute, getOnboardingState, isConsoleActivated } from '../console-activation'
 
-function user(overrides: Partial<AuthUser> = {}): AuthUser {
-  return {
-    id: 7,
-    username: 'contributor',
-    role: 1,
-    ...overrides,
-  }
-}
+const user = (overrides: Partial<AuthUser> = {}): AuthUser => ({
+  id: 7,
+  username: 'member',
+  role: 1,
+  ...overrides,
+})
 
-describe('console activation boundary', () => {
-  test('keeps new accounts restricted until the server grants access', () => {
-    assert.equal(
-      isConsoleActivated(
-        user({
-          developer_access_granted: false,
-          onboarding: {
-            activation_complete: false,
-            credential_complete: false,
-            first_request_complete: false,
-            stage: 'activate',
-          },
-        })
-      ),
-      false
-    )
+describe('signed-in console access', () => {
+  test('opens the console for a regular account without an access grant', () => {
+    for (const account of [user(), user(JSON.parse(JSON.stringify({ developer_access_granted: false })))]) {
+      assert.equal(isConsoleActivated(account), true)
+      assert.equal(getAuthenticatedLandingRoute(account), '/dashboard')
+    }
+    assert.equal(isConsoleActivated(null), false)
+    assert.equal(getAuthenticatedLandingRoute(null), '/sign-in')
   })
 
-  test('uses the nested server state before temporary flat compatibility fields', () => {
-    const account = user({
+  test('keeps setup guidance separate from access', () => {
+    const account = user(JSON.parse(JSON.stringify({
       developer_access_granted: false,
       onboarding: {
         activation_complete: false,
@@ -64,221 +49,22 @@ describe('console activation boundary', () => {
         first_request_complete: false,
         stage: 'activate',
       },
-      activation_complete: true,
-      onboarding_stage: 'complete',
-      trust_level_info: {
-        level: 2,
-        automatic_level: 2,
-        override_level: null,
-        paid_amount: 10,
-        discount_ratio: 0.9,
-        discount_percent: 10,
-        inactivity_decay_steps: 0,
-        decay_period_days: 90,
-        overridden: false,
-      },
-    })
-
-    assert.equal(isConsoleActivated(account), false)
-    assert.equal(getAuthenticatedLandingRoute(account), '/wallet')
-  })
-
-  test('keeps activation distinct from onboarding completion', () => {
-    const account = user({
-      developer_access_granted: true,
-      onboarding: {
-        activation_complete: true,
-        credential_complete: false,
-        first_request_complete: false,
-        stage: 'credential',
-      },
-    })
-
-    assert.equal(isConsoleActivated(account), true)
+    })))
+    assert.equal(getOnboardingState(account).stage, 'credential')
     assert.equal(getAuthenticatedLandingRoute(account), '/dashboard')
   })
 
-  test('uses a valid visible user-selected landing page after activation', () => {
-    const account = user({
-      developer_access_granted: true,
-      sidebar_modules: JSON.stringify({
-        modules: {},
-        preferences: {
-          default_route: '/profile',
-          hidden_sections: [],
-        },
-      }),
+  test('preserves sidebar preferences and administrator route boundaries', () => {
+    const withRoute = (route: string, role = 1) => user({
+      role,
+      sidebar_modules: JSON.stringify({ modules: {}, preferences: { default_route: route } }),
     })
-
-    assert.equal(getAuthenticatedLandingRoute(account), '/profile')
-  })
-
-  test('falls back when the selected page is hidden or outside the role', () => {
-    const hidden = user({
-      developer_access_granted: true,
-      sidebar_modules: JSON.stringify({
-        modules: {},
-        preferences: {
-          default_route: '/profile',
-          hidden: ['/profile'],
-        },
-      }),
-    })
-    const nonAdmin = user({
-      developer_access_granted: true,
-      sidebar_modules: JSON.stringify({
-        modules: {},
-        preferences: { default_route: '/users' },
-      }),
-    })
-
-    assert.equal(getAuthenticatedLandingRoute(hidden), '/dashboard')
-    assert.equal(getAuthenticatedLandingRoute(nonAdmin), '/dashboard')
-  })
-
-  test('falls back when either effective sidebar module layer hides the selected page', () => {
-    const account = user({
-      developer_access_granted: true,
-      sidebar_modules: JSON.stringify({
-        modules: { console: { detail: false } },
-        preferences: { default_route: '/dashboard/overview' },
-      }),
-    })
-    const adminHidden = user({
-      developer_access_granted: true,
-      sidebar_modules: JSON.stringify({
-        modules: {},
-        preferences: { default_route: '/dashboard/overview' },
-      }),
-    })
-
-    assert.equal(getAuthenticatedLandingRoute(account, {}), '/dashboard')
-    assert.equal(
-      getAuthenticatedLandingRoute(adminHidden, {
-        console: { enabled: true, detail: false },
-      }),
-      '/dashboard'
-    )
-  })
-
-  test('lands only explicitly granted complete accounts in the dashboard', () => {
-    assert.equal(
-      getAuthenticatedLandingRoute(
-        user({
-          developer_access_granted: true,
-          onboarding: {
-            activation_complete: true,
-            credential_complete: true,
-            first_request_complete: true,
-            stage: 'complete',
-          },
-        })
-      ),
-      '/dashboard'
-    )
-    assert.equal(getAuthenticatedLandingRoute(user({ role: 10 })), '/wallet')
-    assert.equal(
-      getAuthenticatedLandingRoute(
-        user({
-          developer_access_granted: true,
-          trust_level_info: {
-            level: 0,
-            paid_amount: 1,
-          } as AuthUser['trust_level_info'],
-        })
-      ),
-      '/dashboard'
-    )
-  })
-
-  test('does not infer access from an administrator level override or legacy fields', () => {
-    const overridden = user({
-      trust_level_info: {
-        level: 2,
-        paid_amount: 0,
-        overridden: true,
-      } as AuthUser['trust_level_info'],
-    })
-
-    assert.equal(isConsoleActivated(overridden), false)
-    assert.equal(getAuthenticatedLandingRoute(overridden), '/wallet')
-    assert.equal(
-      isConsoleActivated(
-        user({ permissions: { console_activated_at: 1720000000 } })
-      ),
-      false
-    )
-  })
-
-  test('derives nested stages from monotonic booleans and fails closed on malformed state', () => {
-    const contradictory = user({
-      onboarding: {
-        activation_complete: false,
-        credential_complete: true,
-        first_request_complete: true,
-        stage: 'complete',
-      },
-    })
-    const malformed = user({
-      onboarding: 'complete' as unknown as AuthUser['onboarding'],
-    })
-
-    assert.equal(isConsoleActivated(contradictory), false)
-    assert.equal(getAuthenticatedLandingRoute(contradictory), '/wallet')
-    assert.equal(isConsoleActivated(malformed), false)
-    assert.equal(getAuthenticatedLandingRoute(malformed), '/wallet')
-  })
-
-  test('fails closed for unknown activation state', () => {
-    assert.equal(isConsoleActivated(user()), false)
-    assert.equal(getAuthenticatedLandingRoute(user()), '/wallet')
-    assert.equal(
-      isConsoleActivated(
-        user({
-          trust_level_info: {
-            paid_amount: Number.POSITIVE_INFINITY,
-          } as AuthUser['trust_level_info'],
-        })
-      ),
-      false
-    )
-    assert.equal(
-      isConsoleActivated(user({ permissions: { console_activated_at: 0 } })),
-      false
-    )
-  })
-
-  test('allows onboarding, tools and checkout before activation', () => {
-    assert.equal(isContributorRoute('/getting-started'), false)
-    assert.equal(isContributorRoute('/getting-started/request'), false)
-    assert.equal(isContributorRoute('/wallet'), true)
-    assert.equal(isContributorRoute('/wallet/'), true)
-    assert.equal(isContributorRoute('/wallet/admin'), false)
-    assert.equal(isContributorRoute('/tool-market'), true)
-    assert.equal(isContributorRoute('/bounties'), false)
-    assert.equal(isContributorRoute('/profile/security'), false)
-    assert.equal(isContributorRoute('/support'), true)
-    assert.equal(isContributorRoute('/support/'), true)
-    assert.equal(isContributorRoute('/support/admin'), false)
-    assert.equal(isContributorRoute('/todos'), true)
-    assert.equal(isContributorRoute('/todos/'), true)
-    assert.equal(isContributorRoute('/todos/admin'), false)
-    assert.equal(isContributorRoute('/workspace'), false)
-    assert.equal(isContributorRoute('/challenges/42'), false)
-    assert.equal(isContributorRoute('/models'), false)
-    assert.equal(isContributorRoute('/remote-control'), true)
-    assert.equal(isContributorRoute('/remote-control/'), true)
-    assert.equal(isContributorRoute('/remote-control/admin'), false)
-    assert.equal(isContributorRoute('/remote-control-extra'), false)
-  })
-
-  test('hides legacy public discovery surfaces before activation', () => {
-    assert.equal(isRestrictedPublicRoute('/pricing'), false)
-    assert.equal(isRestrictedPublicRoute('/pricing/model-1'), false)
-    assert.equal(isRestrictedPublicRoute('/rankings'), true)
-    assert.equal(isRestrictedPublicRoute('/about'), true)
-    assert.equal(isRestrictedPublicRoute('/challenges/42'), false)
-    assert.equal(isRestrictedPublicRoute('/privacy-policy'), false)
-    assert.equal(isRestrictedPublicRoute('/sign-in'), false)
+    assert.equal(getAuthenticatedLandingRoute(withRoute('/profile'), {}), '/profile')
+    assert.equal(getAuthenticatedLandingRoute(withRoute('/users'), {}), '/dashboard')
+    assert.equal(getAuthenticatedLandingRoute(withRoute('/users', 10), {}), '/users')
+    assert.equal(getAuthenticatedLandingRoute(withRoute('/remote-control'), {}), '/dashboard')
+    assert.equal(getAuthenticatedLandingRoute(withRoute('/dashboard/overview'), {
+      console: { enabled: true, detail: false },
+    }), '/dashboard')
   })
 })

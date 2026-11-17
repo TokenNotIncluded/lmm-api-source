@@ -104,7 +104,7 @@ async function flushQueries() {
   await new Promise((resolve) => setTimeout(resolve, 25))
 }
 
-async function renderTool(developerAccessGranted: boolean) {
+async function renderTool(authenticated: boolean) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   })
@@ -116,7 +116,7 @@ async function renderTool(developerAccessGranted: boolean) {
     root.render(
       <QueryClientProvider client={queryClient}>
         <I18nextProvider i18n={i18n}>
-          <AssistantCostTool developerAccessGranted={developerAccessGranted} />
+          <AssistantCostTool authenticated={authenticated} />
         </I18nextProvider>
       </QueryClientProvider>
     )
@@ -165,7 +165,7 @@ describe('AssistantCostTool', () => {
     }
   })
 
-  test('keeps live pricing unavailable while L0 is under review', async () => {
+  test('does not request live pricing while signed out', async () => {
     let calls = 0
     api.get = (async (url: string) => {
       assert.equal(url, '/api/assistant/pricing')
@@ -174,13 +174,16 @@ describe('AssistantCostTool', () => {
     }) as typeof api.get
 
     const rendered = await renderTool(false)
-    assert.equal(calls, 0)
-    assert.match(
-      rendered.container.textContent ?? '',
-      /read-only until L1 access is active/
-    )
-    assert.doesNotMatch(rendered.container.textContent ?? '', /\$0\.3600/)
-    await unmount(rendered)
+    try {
+      assert.equal(calls, 0)
+      assert.match(
+        rendered.container.textContent ?? '',
+        /Sign in to continue setup/
+      )
+      assert.doesNotMatch(rendered.container.textContent ?? '', /\$0\.3600/)
+    } finally {
+      await unmount(rendered)
+    }
   })
 
   test('expands all usable groups and recovers from a pricing error', async () => {

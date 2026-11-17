@@ -14,11 +14,11 @@ const originalAdapter = api.defaults.adapter
 const previousAuth = useAuthStore.getState().auth
 const user = { id: 41, username: 'test', quota: 10 } as AuthUser
 
-const bundle = (sid: string, granted = false) => ({
+const bundle = (sid: string, available = false) => ({
   access_token: 'local-test-token',
   token_type: 'Bearer',
   access_expires_at: 1900000000,
-  user: { ...user, developer_access_granted: granted },
+  user: { ...user, financial_projection_available: available },
   session: {
     sid,
     current: true,
@@ -40,11 +40,11 @@ function deferredAccountRead() {
   })
   return {
     response,
-    resolve: (granted: boolean) =>
+    resolve: (available: boolean) =>
       resolve({
         data: {
           success: true,
-          data: { ...user, developer_access_granted: granted },
+          data: { ...user, financial_projection_available: available },
         },
       }),
     reject,
@@ -80,7 +80,7 @@ test('does not restore the old account if it changes while refreshing', async ()
   assert.equal(useAuthStore.getState().auth.user?.id, 42)
 })
 
-test('a grant refresh cannot promote a newer session of the same account', async () => {
+test('a profile refresh cannot overwrite a newer session of the same account', async () => {
   useAuthStore.getState().auth.setBundle(bundle('old-session'))
   let finish: (value: unknown) => void = () => undefined
   api.get = (() =>
@@ -90,18 +90,18 @@ test('a grant refresh cannot promote a newer session of the same account', async
   const request = refreshCurrentAccount()
   useAuthStore.getState().auth.setBundle(bundle('new-session'))
   finish({
-    data: { success: true, data: { ...user, developer_access_granted: true } },
+    data: { success: true, data: { ...user, financial_projection_available: true } },
   })
   assert.equal(await request, null)
   assert.equal(useAuthStore.getState().auth.session?.sid, 'new-session')
   assert.equal(
-    useAuthStore.getState().auth.user?.developer_access_granted,
+    useAuthStore.getState().auth.user?.financial_projection_available,
     false
   )
 })
 
 for (const order of ['new-first', 'old-first']) {
-  test(`same-account reads retain the new L1 result when responses finish ${order}`, async () => {
+  test(`same-account reads retain the new profile result when responses finish ${order}`, async () => {
     useAuthStore.getState().auth.setBundle(bundle('same-session', false))
     const oldRead = deferredAccountRead()
     const newRead = deferredAccountRead()
@@ -112,24 +112,24 @@ for (const order of ['new-first', 'old-first']) {
     const newRequest = refreshCurrentAccount()
     if (order === 'new-first') {
       newRead.resolve(true)
-      assert.equal((await newRequest)?.developer_access_granted, true)
+      assert.equal((await newRequest)?.financial_projection_available, true)
       oldRead.resolve(false)
       assert.equal(await oldRequest, null)
     } else {
       oldRead.resolve(false)
       assert.equal(await oldRequest, null)
       newRead.resolve(true)
-      assert.equal((await newRequest)?.developer_access_granted, true)
+      assert.equal((await newRequest)?.financial_projection_available, true)
     }
     assert.equal(
-      useAuthStore.getState().auth.user?.developer_access_granted,
+      useAuthStore.getState().auth.user?.financial_projection_available,
       true
     )
   })
 }
 
 for (const order of ['failure-first', 'stale-first']) {
-  test(`a failed newer refresh preserves confirmed L1 when responses finish ${order}`, async () => {
+  test(`a failed newer refresh preserves confirmed profile data when responses finish ${order}`, async () => {
     useAuthStore.getState().auth.setBundle(bundle('same-session', true))
     const oldRead = deferredAccountRead()
     const newRead = deferredAccountRead()
@@ -150,17 +150,17 @@ for (const order of ['failure-first', 'stale-first']) {
       assert.equal(await newRequest, null)
     }
     assert.equal(
-      useAuthStore.getState().auth.user?.developer_access_granted,
+      useAuthStore.getState().auth.user?.financial_projection_available,
       true
     )
   })
 }
 
-test('a grant refresh sends a fresh identity-scoped GET instead of joining the old HTTP request', async () => {
+test('a profile refresh sends a fresh identity-scoped GET instead of joining the old HTTP request', async () => {
   useAuthStore.getState().auth.setBundle(bundle('same-http-session', false))
   const reads: Array<{
     config: AxiosRequestConfig
-    finish: (granted: boolean) => void
+    finish: (available: boolean) => void
   }> = []
   // Preserve the actual HTTP client's duplicate-request and auth interceptors.
   // Only its transport adapter is mocked; no network request is sent.
@@ -168,7 +168,7 @@ test('a grant refresh sends a fresh identity-scoped GET instead of joining the o
     new Promise<AxiosResponse>((resolve) => {
       reads.push({
         config,
-        finish: (granted) =>
+        finish: (available) =>
           resolve({
             status: 200,
             statusText: 'OK',
@@ -176,7 +176,7 @@ test('a grant refresh sends a fresh identity-scoped GET instead of joining the o
             config,
             data: {
               success: true,
-              data: { ...user, developer_access_granted: granted },
+              data: { ...user, financial_projection_available: available },
             },
           }),
       })
@@ -189,7 +189,7 @@ test('a grant refresh sends a fresh identity-scoped GET instead of joining the o
   assert.equal(
     reads.length,
     2,
-    'a completed grant requires a new physical account read'
+    'a completed profile update requires a new physical account read'
   )
   for (const read of reads) {
     assert.equal(read.config.url, '/api/user/self')
@@ -200,56 +200,56 @@ test('a grant refresh sends a fresh identity-scoped GET instead of joining the o
     })
   }
   reads[1].finish(true)
-  assert.equal((await newRequest)?.developer_access_granted, true)
+  assert.equal((await newRequest)?.financial_projection_available, true)
   reads[0].finish(false)
   assert.equal(await oldRequest, null)
   assert.equal(
-    useAuthStore.getState().auth.user?.developer_access_granted,
+    useAuthStore.getState().auth.user?.financial_projection_available,
     true
   )
 })
 
 for (const scenario of [
   {
-    name: 'a same-session bundle confirms L1',
+    name: 'a same-session bundle confirms the new projection',
     write: () =>
       useAuthStore
         .getState()
         .auth.setBundle(bundle('same-write-session', true)),
-    staleGranted: false,
-    expectedGranted: true,
+    staleAvailable: false,
+    expectedAvailable: true,
   },
   {
-    name: 'a same-account user write confirms L1',
+    name: 'a same-account user write confirms the new projection',
     write: () =>
       useAuthStore.getState().auth.setUser({
         ...user,
-        developer_access_granted: true,
+        financial_projection_available: true,
       }),
-    staleGranted: false,
-    expectedGranted: true,
+    staleAvailable: false,
+    expectedAvailable: true,
   },
   {
-    name: 'reset restores the same account and session as L0',
+    name: 'reset restores the same account and session without the projection',
     write: () => {
       useAuthStore.getState().auth.reset()
       useAuthStore
         .getState()
         .auth.setBundle(bundle('same-write-session', false))
     },
-    staleGranted: true,
-    expectedGranted: false,
+    staleAvailable: true,
+    expectedAvailable: false,
   },
 ]) {
   test(`a late physical self response is ignored after ${scenario.name}`, async () => {
     useAuthStore.getState().auth.setBundle(bundle('same-write-session', false))
     let dispatched = false
-    let finish: (granted: boolean) => void = () => undefined
+    let finish: (available: boolean) => void = () => undefined
     // Keep the real HTTP client so a same-ID/SID response passes its scope check.
     api.defaults.adapter = (config) =>
       new Promise<AxiosResponse>((resolve) => {
         dispatched = true
-        finish = (granted) =>
+        finish = (available) =>
           resolve({
             status: 200,
             statusText: 'OK',
@@ -257,7 +257,7 @@ for (const scenario of [
             config,
             data: {
               success: true,
-              data: { ...user, developer_access_granted: granted },
+              data: { ...user, financial_projection_available: available },
             },
           })
       })
@@ -267,7 +267,7 @@ for (const scenario of [
     }
     assert.equal(dispatched, true)
     scenario.write()
-    finish(scenario.staleGranted)
+    finish(scenario.staleAvailable)
     assert.equal(await oldRequest, null)
     assert.equal(useAuthStore.getState().auth.user?.id, user.id)
     assert.equal(
@@ -275,8 +275,8 @@ for (const scenario of [
       'same-write-session'
     )
     assert.equal(
-      useAuthStore.getState().auth.user?.developer_access_granted,
-      scenario.expectedGranted
+      useAuthStore.getState().auth.user?.financial_projection_available,
+      scenario.expectedAvailable
     )
   })
 }

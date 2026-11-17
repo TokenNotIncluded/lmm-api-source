@@ -16,7 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { Activity, BarChart3, ShieldCheck, WalletCards } from 'lucide-react'
+import { Activity, BarChart3, WalletCards } from 'lucide-react'
 import type { ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 
@@ -30,10 +30,6 @@ import { nativeCreditDisplay, walletProjection } from '../lib/wallet-projection'
 import { walletReferenceValue } from '../lib/wallet-reference'
 import type { UserWalletData } from '../types'
 import { NativeWalletDetails } from './native-wallet-details'
-
-function formatDiscount(percent: number) {
-  return `${Math.round(percent)}%`
-}
 
 interface WalletStatsCardProps {
   user: UserWalletData | null
@@ -55,7 +51,7 @@ export function WalletStatsCard(props: WalletStatsCardProps) {
   if (props.loading) {
     return (
       <div className='wallet-stats bg-card grid overflow-hidden rounded-xl'>
-        {['balance', 'usage', 'requests', 'trust'].map((key, index) => (
+        {['balance', 'usage', 'requests'].map((key, index) => (
           <div
             key={key}
             className={cn(
@@ -112,12 +108,6 @@ export function WalletStatsCard(props: WalletStatsCardProps) {
           : t('Unavailable'),
       description: t('Total requests made'),
       icon: Activity,
-    },
-    {
-      label: t('Trust level'),
-      value: `L${props.user?.trust_level_info?.level ?? 0}`,
-      description: `${formatDiscount(props.user?.trust_level_info?.discount_percent ?? 0)} ${t('discount')}`,
-      icon: ShieldCheck,
     },
   ]
 

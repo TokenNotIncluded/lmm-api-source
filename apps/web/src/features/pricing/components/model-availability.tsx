@@ -71,9 +71,7 @@ export function ModelAvailability({
   const groups = getAvailableGroups(model, usableGroup)
   const access = !user
     ? t('Sign in to check model access')
-    : user.developer_access_granted !== true
-      ? t('API access is required')
-      : groups.length > 0
+    : groups.length > 0
         ? t('Your account has an eligible model group')
         : t('No eligible model group for this account')
   return (
@@ -114,10 +112,10 @@ export function ModelAvailability({
         )}
       </p>
       <p className='text-sm font-medium'>{access}</p>
-      {(!user || user.developer_access_granted !== true) && (
+      {!user && (
         <a
           className='text-primary text-sm underline underline-offset-4'
-          href='/wallet'
+          href='/sign-in'
         >
           {t('Check API access status')}
         </a>

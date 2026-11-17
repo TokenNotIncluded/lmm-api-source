@@ -29,7 +29,7 @@ import { useTranslation } from 'react-i18next'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 
-import { getL1OnboardingTodo } from './api.js'
+import { getAccountSetupTodo } from './api.js'
 import { getAssistantOnboardingTodoSteps } from './assistant-onboarding-todo-state.js'
 
 /** Resolve the next actionable step into a handler + label. */
@@ -77,14 +77,14 @@ export function AssistantOnboardingTodo(props: {
   )
   const todoQuery = useQuery({
     queryKey: ['assistant-onboarding-todo', props.userId],
-    queryFn: getL1OnboardingTodo,
+    queryFn: getAccountSetupTodo,
     enabled: props.enabled,
     staleTime: 60_000,
     retry: false,
   })
 
   if (!props.enabled || todoQuery.isLoading) return null
-  if (todoQuery.isError || !todoQuery.data?.eligibility.eligible) return null
+  if (todoQuery.isError || !todoQuery.data?.eligibility?.eligible) return null
 
   const steps = getAssistantOnboardingTodoSteps(todoQuery.data)
   const compact = props.presentation === 'compact'

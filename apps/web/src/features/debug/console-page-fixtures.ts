@@ -147,7 +147,6 @@ const reads: Record<string, unknown> = {
   '/api/log/stat': { quota: 15000, rpm: 0, tpm: 0 },
   '/api/task/self': page,
   '/api/task/': page,
-  '/api/remote-control/v1/pi/sessions': { sessions: [] },
   '/api/bounties/config': {
     rate_percent: 1,
     rate_basis_points: 100,

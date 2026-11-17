@@ -113,7 +113,6 @@ const { consumeQueuedAssistantRequest, subscribeToAssistantOpen } =
   await import('@/features/assistant/assistant-events')
 const { useAuthStore } = await import('@/stores/auth-store')
 const { ForgeHome } = await import('./forge-home')
-const { PublicAccessPricing } = await import('../pricing/public-access-pricing')
 
 const originalGet = api.get
 const reactTestGlobals = globalThis as typeof globalThis & {
@@ -752,7 +751,7 @@ describe('ForgeHome assistant entry', () => {
     await unmountHome(rendered)
   })
 
-  test('queues onboarding with the message and redirects an L0 user to wallet', async () => {
+  test('opens the assistant dashboard for an ordinary user with stale access metadata', async () => {
     const opened: Array<{
       autoSend: boolean
       message: string | undefined
@@ -765,25 +764,25 @@ describe('ForgeHome assistant entry', () => {
         autoSend: queued.autoSend,
       })
     })
-    const rendered = await renderHome({
+    const rendered = await renderHome(JSON.parse(JSON.stringify({
       id: 7,
       username: 'l0-user',
       role: 1,
       developer_access_granted: false,
-    })
+    })))
 
-    await submitMessage(rendered.container, '  I need L1 access  ')
+    await submitMessage(rendered.container, '  Help me connect my client  ')
 
     assert.deepEqual(opened, [
-      { preset: 'onboarding', message: 'I need L1 access', autoSend: true },
+      { preset: 'service', message: 'Help me connect my client', autoSend: true },
     ])
-    assert.equal(rendered.router.state.location.pathname, '/wallet')
+    assert.equal(rendered.router.state.location.pathname, '/dashboard')
 
     unsubscribe()
     await unmountHome(rendered)
   })
 
-  test('queues service guidance with the message and redirects an L1 user to the dashboard', async () => {
+  test('queues service guidance and opens the dashboard for a signed-in user', async () => {
     const opened: Array<{
       autoSend: boolean
       message: string | undefined
@@ -796,12 +795,12 @@ describe('ForgeHome assistant entry', () => {
         autoSend: queued.autoSend,
       })
     })
-    const rendered = await renderHome({
+    const rendered = await renderHome(JSON.parse(JSON.stringify({
       id: 8,
       username: 'l1-user',
       role: 1,
       developer_access_granted: true,
-    })
+    })))
 
     await submitMessage(rendered.container, '  Show me the API setup  ')
 
@@ -943,7 +942,7 @@ describe('Primary next step follows account access', () => {
     )
     assert.ok(
       ready.container.textContent?.includes(
-        'unlocks developer access (L1) automatically.'
+        'Pay for requests with your account balance.'
       )
     )
     await unmountHome(ready)
@@ -962,13 +961,13 @@ describe('Primary next step follows account access', () => {
     await unmountHome(rendered)
   })
 
-  test('takes an approved customer to client setup', async () => {
-    const rendered = await renderHome({
+  test('takes a signed-in customer to client setup', async () => {
+    const rendered = await renderHome(JSON.parse(JSON.stringify({
       id: 11,
       username: 'approved',
       role: 1,
       developer_access_granted: true,
-    })
+    })))
     const purchase = rendered.container.querySelector<HTMLAnchorElement>(
       '[data-account-action]'
     )
@@ -981,53 +980,25 @@ describe('Primary next step follows account access', () => {
     await unmountHome(rendered)
   })
 
-  test('takes an inactive customer directly to L1 activation', async () => {
-    const rendered = await renderHome({
+  test('takes every ordinary customer directly to client setup', async () => {
+    const rendered = await renderHome(JSON.parse(JSON.stringify({
       id: 12,
       username: 'pending',
       role: 1,
       developer_access_granted: false,
-    })
+    })))
     const purchase = rendered.container.querySelector<HTMLAnchorElement>(
       '[data-account-action]'
     )
     assert.ok(purchase)
-    assert.equal(purchase.textContent?.trim(), 'Enable L1 access')
+    assert.equal(purchase.textContent?.trim(), 'Continue setup')
     await act(async () => {
       purchase.click()
       await flushEffects()
     })
-    assert.equal(rendered.router.state.location.pathname, '/wallet')
+    assert.equal(rendered.router.state.location.pathname, '/guide')
     await unmountHome(rendered)
   })
 
-  test('explains purchase conditions and answers pricing questions before access', async () => {
-    const rendered = await renderHome(
-      { id: 13, username: 'pending', role: 1, developer_access_granted: false },
-      true,
-      false,
-      { component: PublicAccessPricing }
-    )
-    const main = rendered.container.querySelector('main')
-    assert.ok(main)
-    assert.equal(main.querySelector('a')?.getAttribute('href'), '/wallet')
-    assert.equal(main.querySelectorAll('ol li').length, 3)
-    const question = Array.from(
-      main.querySelectorAll<HTMLButtonElement>('button')
-    ).find((button) =>
-      button.textContent?.includes('Is platform credit the same as money?')
-    )
-    assert.ok(question)
-    await act(async () => {
-      question.click()
-      await flushEffects()
-    })
-    assert.equal(question.getAttribute('aria-expanded'), 'true')
-    assert.ok(
-      main.textContent?.includes(
-        'The checkout shows the actual payment separately, with its settlement currency.'
-      )
-    )
-    await unmountHome(rendered)
-  })
+
 })

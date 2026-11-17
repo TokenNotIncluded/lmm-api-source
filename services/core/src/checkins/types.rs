@@ -17,6 +17,7 @@ pub struct DailyRecord {
     pub journal_id: Option<i64>,
     pub origin: String,
     pub policy_revision: Option<i64>,
+    #[serde(skip_serializing)]
     pub trust_level: Option<u8>,
 }
 
@@ -28,6 +29,7 @@ pub struct ClaimResult {
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
 pub struct RewardRange {
+    #[serde(skip_serializing)]
     pub trust_level: u8,
     pub reward_multiplier: f64,
     pub base_min_quota: String,

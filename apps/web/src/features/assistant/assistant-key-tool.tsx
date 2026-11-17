@@ -93,11 +93,11 @@ function validateCCSwitchImportUrl(
 }
 
 function selectedConnectionModel(
-  developerAccessGranted: boolean,
+  authenticated: boolean,
   availableModels: string[],
   selectedModel: string
 ) {
-  if (!developerAccessGranted || availableModels.length === 0) {
+  if (!authenticated || availableModels.length === 0) {
     return '<MODEL_ID>'
   }
   if (availableModels.includes(selectedModel)) return selectedModel
@@ -105,7 +105,7 @@ function selectedConnectionModel(
 }
 
 export function AssistantKeyTool(props: {
-  developerAccessGranted: boolean
+  authenticated: boolean
   baseUrl: string
   availableModels: string[]
   modelsLoading: boolean
@@ -119,14 +119,14 @@ export function AssistantKeyTool(props: {
   const [selectedModel, setSelectedModel] = useState('')
   const [detailsOpen, setDetailsOpen] = useState(true)
   const creation = useAssistantKeyCreation({
-    developerAccessGranted: props.developerAccessGranted,
+    authenticated: props.authenticated,
     confirmationAction: props.confirmationAction,
     autoConfirm: props.autoConfirm,
     onKeyCreated: props.onKeyCreated,
     onKeyPreparationInvalid: props.onKeyPreparationInvalid,
   })
   const model = selectedConnectionModel(
-    props.developerAccessGranted,
+    props.authenticated,
     props.availableModels,
     selectedModel
   )
@@ -185,7 +185,7 @@ export function AssistantKeyTool(props: {
           model={model}
           availableModels={props.availableModels}
           modelsLoading={props.modelsLoading}
-          developerAccessGranted={props.developerAccessGranted}
+          authenticated={props.authenticated}
           selectedModel={selectedModel}
           onSelectedModelChange={setSelectedModel}
           detailsOpen={detailsOpen}
@@ -193,7 +193,7 @@ export function AssistantKeyTool(props: {
           t={t}
         />
 
-        {!props.developerAccessGranted ? (
+        {!props.authenticated ? (
           <AssistantAccessNotice
             modelsLoading={props.modelsLoading}
             availableModels={props.availableModels}

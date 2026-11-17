@@ -19,12 +19,10 @@ const recordSchema = z.object({
   journal_id: integer.positive().nullable(),
   origin: z.enum(['native', 'history']),
   policy_revision: integer.positive().nullable(),
-  trust_level: integer.max(255).nullable(),
 })
 
 const rewardRangeSchema = z
   .object({
-    trust_level: integer.max(255),
     reward_multiplier: z.number().nonnegative(),
     base_min_quota: units,
     base_max_quota: units,

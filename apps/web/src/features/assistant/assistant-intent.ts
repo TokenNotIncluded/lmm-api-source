@@ -28,6 +28,7 @@ export type AssistantNavigationPath =
   | '/models'
   | '/bounties'
   | '/support'
+  | '/guide'
 
 const INTENT_PRESET: Partial<Record<AssistantIntent, AssistantPresetId>> = {
   onboarding: 'onboarding',
@@ -62,7 +63,7 @@ export function getExplicitAssistantNavigation(
   if (!intent || !NAVIGATION_WORDS.test(message)) return undefined
   switch (intent) {
     case 'onboarding':
-      return '/wallet'
+      return '/guide'
     case 'plan_purchase':
       return '/pricing'
     case 'api_key':
@@ -80,15 +81,4 @@ export function getExplicitAssistantNavigation(
     default:
       return undefined
   }
-}
-
-export function isExplicitAssistantL1Request(message: string): boolean {
-  const normalized = message.toLocaleLowerCase().trim()
-  return [
-    /(?:申请|开通|解锁|升级|审核|需要|想要).{0,12}l1/i,
-    /l1.{0,12}(?:申请|开通|解锁|升级|审核|需要|想要)/i,
-    /(?:request|apply|unlock|upgrade|review|need|want).{0,12}l1/i,
-    /(?:developer|api) access.{0,20}(?:request|apply|unlock|upgrade|need|want)/i,
-    /(?:request|apply|unlock|upgrade|need|want).{0,20}(?:l1|developer|api) access?/i,
-  ].some((pattern) => pattern.test(normalized))
 }

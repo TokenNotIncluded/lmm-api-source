@@ -16,7 +16,6 @@ const record = {
   journal_id: null,
   origin: 'history',
   policy_revision: null,
-  trust_level: null,
 }
 const exactTotal = (BigInt(Number.MAX_SAFE_INTEGER) + 123456789n).toString()
 const status = {
@@ -27,8 +26,7 @@ const status = {
   policy_revision: 1,
   checked_in_today: true,
   reward_range: {
-    trust_level: 0,
-    reward_multiplier: 0,
+    reward_multiplier: 1,
     base_min_quota: '1',
     base_max_quota: '500000',
     min_quota: '0',

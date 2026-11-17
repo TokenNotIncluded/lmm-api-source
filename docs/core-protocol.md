@@ -79,7 +79,7 @@ GET /extensions/v1/identity/teams?after_id=0
 
 返回使用 Protobuf JSON，64 位 ID 为字符串。TOML 的 `[host].modules` 控制显式启用列表；`["none"]` 关闭全部模块。Go 已删除 `--legacy-env` 和 `LMM_EXTENSION_MODULES` 环境入口。默认只在 RPC 已配置时启用 identity。未知或重复名称使启动失败，新模块不会自动对所有部署启用。
 
-这些模块是可信的编译期 Go 代码，不是不可信插件沙箱。需要进程级隔离时，使用独立扩展容器。当前 [`composition/registry.go`](../services/extensions/internal/composition/registry.go) 注册 12 个模块：`checkins`、`identity`、`store`、`support`、`assistant`、`remote-control`、`payments`、`toolmarket`、`hero-sms`、`operations`、`community`、`acquisition`。`support` 必须同时显式选择 `store`；`operations`、`community`、`acquisition` 的 Web 适配器由进程入口装配。注册不等于全部启用，也不证明业务验收或生产部署完成。
+这些模块是可信的编译期 Go 代码，不是不可信插件沙箱。需要进程级隔离时，使用独立扩展容器。当前 [`composition/registry.go`](../services/extensions/internal/composition/registry.go) 注册 11 个模块：`checkins`、`identity`、`store`、`support`、`assistant`、`payments`、`toolmarket`、`hero-sms`、`operations`、`community`、`acquisition`。`support` 必须同时显式选择 `store`；`operations`、`community`、`acquisition` 的 Web 适配器由进程入口装配。注册不等于全部启用，也不证明业务验收或生产部署完成。
 
 ## 生成与验证
 

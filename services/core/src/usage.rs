@@ -1203,16 +1203,12 @@ pub(crate) async fn assistant_summary_in_transaction(
     c: &mut sqlx::PgConnection,
     context: &crate::assistant_tools_core::context::VerifiedToolContext,
     input: &crate::assistant_tools_core::account::UsageSummaryArgs,
-    require_developer: bool,
 ) -> Result<Value, crate::assistant_tools_core::Error> {
     use crate::assistant_tools_core::{
         Error as E,
         account::{self, UserTarget},
     };
     let actor = context.revalidate(c).await?;
-    if require_developer && !actor.developer {
-        return Err(E::Forbidden);
-    }
     let target = account::target(
         c,
         &actor,

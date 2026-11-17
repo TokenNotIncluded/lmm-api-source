@@ -3,8 +3,6 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet};
 
-const DEFAULT_MULTIPLIERS: [f64; 5] = [0.5, 0.65, 0.8, 0.9, 1.0];
-
 impl Policy {
     pub fn validate(&self) -> Result<()> {
         if self.source_revision != SOURCE_REVISION
@@ -12,40 +10,19 @@ impl Policy {
             || self.credits_per_usd != 500_000
             || !hash_valid(&self.source_options_sha256)
             || !hash_valid(&self.history_seed_id)
-            || self.level_multipliers.iter().any(|v| !v.is_finite())
         {
             return Err(Error::Invalid);
         }
-        for level in 0..5 {
-            self.reward_range(level)?;
-        }
+        self.reward_range()?;
         Ok(())
     }
 
-    pub fn reward_range(&self, level: u8) -> Result<RewardRange> {
-        let index = usize::from(level.min(4));
-        let multiplier = self
-            .level_multipliers
-            .get(index)
-            .copied()
-            .filter(|v| v.is_finite() && *v >= 0.0)
-            .unwrap_or(DEFAULT_MULTIPLIERS[index]);
-        let base_min = integer(&self.min_quota)?.max(0);
-        let base_max = integer(&self.max_quota)?.max(base_min);
-        let scale = |value: i64| -> Result<i64> {
-            // cc52 uses Go math.Round(float64(base)*multiplier), half away
-            // from zero. Bounds here are nonnegative, matching f64::round.
-            let scaled = (value as f64 * multiplier).round();
-            if !scaled.is_finite() || scaled < 0.0 || scaled >= i64::MAX as f64 {
-                return Err(Error::Invalid);
-            }
-            Ok(scaled as i64)
-        };
-        let min = scale(base_min)?;
-        let max = scale(base_max)?.max(min);
+    pub fn reward_range(&self) -> Result<RewardRange> {
+        let min = integer(&self.min_quota)?.max(0);
+        let max = integer(&self.max_quota)?.max(min);
         Ok(RewardRange {
-            trust_level: level,
-            reward_multiplier: multiplier,
+            trust_level: 0,
+            reward_multiplier: 1.0,
             base_min_quota: self.min_quota.clone(),
             base_max_quota: self.max_quota.clone(),
             min_quota: min.to_string(),

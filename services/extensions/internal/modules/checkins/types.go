@@ -8,7 +8,6 @@ import (
 	"crypto/rand"
 	"encoding/json"
 	"errors"
-	"math"
 	"math/big"
 	"strconv"
 	"time"
@@ -33,7 +32,6 @@ type Policy struct {
 	Enabled               bool      `json:"enabled"`
 	MinQuota              string    `json:"min_quota"`
 	MaxQuota              string    `json:"max_quota"`
-	LevelMultipliers      []float64 `json:"level_multipliers"`
 	CalendarOffsetSeconds int32     `json:"calendar_offset_seconds"`
 	CreditsPerUSD         int64     `json:"credits_per_usd"`
 	SourceRevision        string    `json:"source_revision"`
@@ -41,7 +39,6 @@ type Policy struct {
 	HistorySeedID         string    `json:"history_seed_id"`
 }
 type RewardRange struct {
-	TrustLevel       uint32  `json:"trust_level"`
 	RewardMultiplier float64 `json:"reward_multiplier"`
 	BaseMinQuota     string  `json:"base_min_quota"`
 	BaseMaxQuota     string  `json:"base_max_quota"`
@@ -55,7 +52,6 @@ type DailyRecord struct {
 	JournalID      *int64  `json:"journal_id"`
 	Origin         string  `json:"origin"`
 	PolicyRevision *int64  `json:"policy_revision"`
-	TrustLevel     *uint32 `json:"trust_level"`
 }
 type ClaimRequest struct {
 	OperationKey     string          `json:"operation_key"`
@@ -109,7 +105,6 @@ type Status struct {
 type Authority struct {
 	UserID, AccountID, Timestamp, MaxDailyUnits int64
 	Day                                         string
-	TrustLevel                                  uint32
 	Blocked                                     bool
 }
 type Receipt struct {
@@ -139,56 +134,27 @@ func validKey(key string) bool {
 func day(timestamp int64) string {
 	return time.Unix(timestamp, 0).UTC().Add(Offset * time.Second).Format("2006-01-02")
 }
-func (p Policy) rewardRange(level uint32) (RewardRange, error) {
-	defaults := []float64{0.5, 0.65, 0.8, 0.9, 1}
-	index := min(level, 4)
-	mult := defaults[index]
-	if int(index) < len(p.LevelMultipliers) && p.LevelMultipliers[index] >= 0 && !math.IsNaN(p.LevelMultipliers[index]) && !math.IsInf(p.LevelMultipliers[index], 0) {
-		mult = p.LevelMultipliers[index]
-	}
-	low, e := strconv.ParseInt(p.MinQuota, 10, 64)
-	if e != nil || strconv.FormatInt(low, 10) != p.MinQuota {
+func (p Policy) rewardRange() (RewardRange, error) {
+	low, err := strconv.ParseInt(p.MinQuota, 10, 64)
+	if err != nil || strconv.FormatInt(low, 10) != p.MinQuota {
 		return RewardRange{}, ErrInvalid
 	}
-	high, e := strconv.ParseInt(p.MaxQuota, 10, 64)
-	if e != nil || strconv.FormatInt(high, 10) != p.MaxQuota {
+	high, err := strconv.ParseInt(p.MaxQuota, 10, 64)
+	if err != nil || strconv.FormatInt(high, 10) != p.MaxQuota {
 		return RewardRange{}, ErrInvalid
 	}
 	low = max(low, 0)
 	high = max(high, low)
-	scale := func(v int64) (int64, error) {
-		s := math.Round(float64(v) * mult)
-		if math.IsNaN(s) || math.IsInf(s, 0) || s < 0 || s >= float64(math.MaxInt64) {
-			return 0, ErrInvalid
-		}
-		return int64(s), nil
-	}
-	l, e := scale(low)
-	if e != nil {
-		return RewardRange{}, e
-	}
-	h, e := scale(high)
-	if e != nil {
-		return RewardRange{}, e
-	}
-	return RewardRange{level, mult, p.MinQuota, p.MaxQuota, strconv.FormatInt(l, 10), strconv.FormatInt(max(h, l), 10)}, nil
+	return RewardRange{RewardMultiplier: 1, BaseMinQuota: p.MinQuota, BaseMaxQuota: p.MaxQuota, MinQuota: strconv.FormatInt(low, 10), MaxQuota: strconv.FormatInt(high, 10)}, nil
 }
 func (p Policy) Validate() error {
 	if p.SourceRevision != SourceRevision || p.CalendarOffsetSeconds != Offset || p.CreditsPerUSD != 500000 {
 		return ErrInvalid
 	}
-	for _, m := range p.LevelMultipliers {
-		if math.IsNaN(m) || math.IsInf(m, 0) {
-			return ErrInvalid
-		}
-	}
-	for l := uint32(0); l < 5; l++ {
-		if _, e := p.rewardRange(l); e != nil {
-			return e
-		}
-	}
-	return nil
+	_, err := p.rewardRange()
+	return err
 }
+
 func draw(r RewardRange) (int64, error) {
 	l, _ := strconv.ParseInt(r.MinQuota, 10, 64)
 	h, _ := strconv.ParseInt(r.MaxQuota, 10, 64)

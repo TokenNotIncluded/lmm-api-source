@@ -32,10 +32,6 @@ const QuotaSettingsSection = lazyNamedSection(
   () => import('../general/quota-settings-section'),
   'QuotaSettingsSection'
 )
-const TrustLevelBenefitsSection = lazyNamedSection(
-  () => import('./trust-level-benefits-section'),
-  'TrustLevelBenefitsSection'
-)
 const PaymentSettingsSection = lazyNamedSection(
   () => import('../integrations/payment-settings-section'),
   'PaymentSettingsSection'
@@ -78,13 +74,6 @@ const getGroupDefaults = (settings: BillingSettings) => ({
 
 const BILLING_SECTIONS = [
   {
-    id: 'levels-benefits',
-    titleKey: 'Levels & Benefits',
-    build: (settings: BillingSettings) => (
-      <TrustLevelBenefitsSection value={settings.TrustLevelBenefits} />
-    ),
-  },
-  {
     id: 'quota',
     titleKey: 'Quota Settings',
     build: (settings: BillingSettings) => (
@@ -109,12 +98,6 @@ const BILLING_SECTIONS = [
           quota_setting: {
             enable_free_model_pre_consume:
               settings['quota_setting.enable_free_model_pre_consume'],
-          },
-          developer_access_setting: {
-            invite_registration_enabled:
-              settings[
-                'developer_access_setting.invite_registration_enabled'
-              ] ?? false,
           },
         }}
         complianceConfirmed={
@@ -235,7 +218,6 @@ const BILLING_SECTIONS = [
           enabled: settings['checkin_setting.enabled'],
           minQuota: settings['checkin_setting.min_quota'],
           maxQuota: settings['checkin_setting.max_quota'],
-          levelMultipliers: settings['checkin_setting.level_multipliers'],
         }}
       />
     ),

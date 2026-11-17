@@ -35,7 +35,6 @@ const ROUTE_MODULES: ReadonlyArray<readonly [string, readonly string[]]> = [
   ['/tool-market', ['toolmarket']],
   ['/store', ['store']],
   ['/support', ['store', 'support']],
-  ['/remote-control', ['remote-control']],
 ]
 
 export function moduleNavigationState(

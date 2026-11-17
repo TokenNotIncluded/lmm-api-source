@@ -146,7 +146,6 @@ import {
   type AssistantAccountAccessState,
 } from './assistant-access'
 import { AssistantAccountActionTool } from './assistant-account-action-tool'
-import { AssistantActivationTool } from './assistant-activation-tool'
 import { AssistantAdminChangeTool } from './assistant-admin-change-tool'
 import {
   copyAssistantText,
@@ -167,7 +166,6 @@ import { AssistantImageTool } from './assistant-image-tool'
 import {
   getExplicitAssistantNavigation,
   getAssistantPresetForIntent,
-  isExplicitAssistantL1Request,
 } from './assistant-intent'
 import { AssistantJourneyProgress } from './assistant-journey'
 import { AssistantKeyManagementTool } from './assistant-key-management-tool'
@@ -187,7 +185,6 @@ import {
   localizeAssistantPreConversationPresets,
 } from './assistant-prompt-presets'
 import { getAssistantPromptValidation } from './assistant-prompt-validation'
-import { AssistantRegistrationStatus } from './assistant-registration-status'
 import { AssistantSetupTool } from './assistant-setup-tool'
 import {
   isExplicitAssistantHandoff,
@@ -222,7 +219,6 @@ type AssistantAction =
       kind: 'tool'
       label: string
       tool:
-        | 'activation'
         | 'key'
         | 'cost'
         | 'handoff'
@@ -486,7 +482,6 @@ function AssistantThinkingIndicator(props: { step: number }) {
 
 function AssistantModernWelcome(props: {
   description: string
-  restricted: boolean
 }) {
   const { t } = useTranslation()
 
@@ -496,9 +491,7 @@ function AssistantModernWelcome(props: {
       data-testid='assistant-modern-welcome'
     >
       <h2>
-        {props.restricted
-          ? t('What would you like to do?')
-          : t('How can I help?')}
+        {t('How can I help?')}
       </h2>
       <p>{props.description}</p>
     </div>
@@ -507,7 +500,6 @@ function AssistantModernWelcome(props: {
 
 function AssistantGettingStartedActions(props: {
   disabled: boolean
-  restricted: boolean
   onOpen: (target: AssistantPresetId) => void
 }) {
   const { t } = useTranslation()
@@ -520,11 +512,9 @@ function AssistantGettingStartedActions(props: {
     },
     {
       icon: KeyRound,
-      title: props.restricted ? t('Get API access') : t('Create API key'),
-      description: props.restricted
-        ? t('The assistant can enable L1 during this conversation.')
-        : t('Create a key, then import it into a supported client.'),
-      open: () => props.onOpen(props.restricted ? 'onboarding' : 'api-key'),
+      title: t('Create API key'),
+      description: t('Create a key, then import it into a supported client.'),
+      open: () => props.onOpen('api-key'),
     },
     {
       icon: Wrench,
@@ -575,7 +565,6 @@ function AssistantActionButton(props: {
   action: AssistantAction
   onToolOpen: (
     tool:
-      | 'activation'
       | 'key'
       | 'cost'
       | 'handoff'
@@ -650,7 +639,7 @@ function getAssistantToolForTarget(
 ): AssistantTool | null {
   switch (target) {
     case 'onboarding':
-      return 'activation'
+      return 'setup'
     case 'api-key':
       return 'key'
     case 'client-setup':
@@ -678,8 +667,8 @@ function getAssistantActionForTarget(
     case 'onboarding':
       return {
         kind: 'tool',
-        label: translate('Unlock L1 access'),
-        tool: 'activation',
+        label: translate('Open client setup guide'),
+        tool: 'setup',
       }
     case 'plan':
       return {
@@ -878,7 +867,7 @@ function AssistantPromptInputSync(props: {
 
 function AssistantPresetPrompts(props: {
   presets: AssistantPreConversationPreset[] | undefined
-  user: Pick<AuthUser, 'role' | 'trust_level_info'> | null
+  user: Pick<AuthUser, 'role'> | null
   onSelect: (preset: AssistantPreConversationPreset) => void
 }) {
   const { t } = useTranslation()
@@ -920,7 +909,6 @@ function AssistantPresetPrompts(props: {
 function AssistantPromptComposer(props: {
   footerStatus: string
   placeholder: string
-  restricted: boolean
   terminated: boolean
   routeUnavailable: boolean
   sending: boolean
@@ -937,10 +925,10 @@ function AssistantPromptComposer(props: {
     textInput: { setInput, value },
   } = usePromptInputController()
   const onSubmit = props.onSubmit
-  const validation = getAssistantPromptValidation(value, props.restricted)
+  const validation = getAssistantPromptValidation(value)
   const hasText = value.trim().length > 0
   const showValidationError = hasText && validation.invalid
-  const hintId = 'assistant-l0-input-hint'
+  const hintId = 'assistant-input-hint'
   const describedBy = showValidationError ? hintId : undefined
 
   const handleSubmit = useCallback(
@@ -976,7 +964,7 @@ function AssistantPromptComposer(props: {
             }
             aria-label={t('Ask AI assistant')}
             maxLength={4000}
-            required={props.restricted}
+            required
             aria-describedby={describedBy}
             aria-invalid={hasText ? validation.invalid : undefined}
             disabled={
@@ -1329,7 +1317,6 @@ function AssistantPanelSession(props: AssistantPanelProps) {
     'list' | AssistantConversationHistoryItem | null
   >(null)
   const [activeTool, setActiveTool] = useState<
-    | 'activation'
     | 'key'
     | 'cost'
     | 'handoff'
@@ -1357,8 +1344,8 @@ function AssistantPanelSession(props: AssistantPanelProps) {
     statusQuery.isError
   )
   const accountAccessConfirmed =
-    accountAccessState === 'granted' || accountAccessState === 'restricted'
-  const developerAccessGranted = accountAccessState === 'granted'
+    accountAccessState === 'granted'
+  const authenticated = Boolean(authUser) && accountAccessConfirmed
   const assistantRouteUnavailable = statusQuery.data?.route_available === false
   const presetLanguage = i18n.resolvedLanguage || i18n.language
   const preConversationPresetsQuery = useQuery({
@@ -1371,9 +1358,7 @@ function AssistantPanelSession(props: AssistantPanelProps) {
     ],
     queryFn: () => getAssistantPreConversationPresets(presetLanguage),
     placeholderData: (previous) => previous,
-    // Presets are public onboarding guidance, not an L0-only capability.
-    // Keep them available for L1/admin users too so returning users can still
-    // discover the assistant's current workflows.
+    // Returning users can also use setup guidance and model recommendations.
     enabled: panelVisible && accountAccessConfirmed,
     staleTime: 5 * 60_000,
     retry: false,
@@ -1388,9 +1373,6 @@ function AssistantPanelSession(props: AssistantPanelProps) {
     }
   }, [])
   const isAdministrator = statusQuery.data?.is_admin === true
-  const accessLevel = statusQuery.data?.access_level
-  const withAccessLevel = (message: string) =>
-    accessLevel ? `${accessLevel} · ${message}` : message
   const superAdministratorFunded =
     statusQuery.data?.funding?.mode === 'super_administrator'
   const connectionModelsQuery = useQuery({
@@ -1406,7 +1388,7 @@ function AssistantPanelSession(props: AssistantPanelProps) {
         : getAssistantAvailableModels,
     enabled:
       props.open &&
-      developerAccessGranted &&
+      authenticated &&
       (activeTool === 'key' || activeTool === 'setup'),
     staleTime: 60_000,
     retry: false,
@@ -1446,15 +1428,15 @@ function AssistantPanelSession(props: AssistantPanelProps) {
   let assistantDescription = t('Loading...')
   let assistantPromptPlaceholder = t('Ask AI assistant')
   if (isAdministrator) {
-    assistantFooterStatus = withAccessLevel(t('Administrator mode'))
+    assistantFooterStatus = (t('Administrator mode'))
     assistantDescription = t(
       'Administrator mode executes requested management tasks using your current permissions and reports the results.'
     )
     assistantPromptPlaceholder = t(
       'Ask about server configuration, model pricing, or operations...'
     )
-  } else if (developerAccessGranted) {
-    assistantFooterStatus = withAccessLevel(
+  } else if (accountAccessConfirmed) {
+    assistantFooterStatus = (
       superAdministratorFunded
         ? t('Funded by the super administrator')
         : t('Write actions need your confirmation')
@@ -1463,18 +1445,8 @@ function AssistantPanelSession(props: AssistantPanelProps) {
       'Guidance for plans, setup, API keys, costs, and support.'
     )
     assistantPromptPlaceholder = t('Ask about plans, setup, keys, or costs...')
-  } else if (accountAccessState === 'restricted') {
-    assistantFooterStatus = withAccessLevel(
-      superAdministratorFunded
-        ? t('Funded by the super administrator')
-        : t('Read-only')
-    )
-    assistantDescription = t(
-      'Guidance for plans, setup, API keys, costs, and support.'
-    )
-    assistantPromptPlaceholder = t('Ask AI assistant')
   } else if (accountAccessState === 'error') {
-    assistantFooterStatus = withAccessLevel(
+    assistantFooterStatus = (
       t('Unable to verify account access')
     )
     assistantDescription = t('Unable to verify account access')
@@ -1665,17 +1637,9 @@ function AssistantPanelSession(props: AssistantPanelProps) {
 
   const openAssistantTarget = useCallback(
     (target: AssistantPresetId) => {
-      const restrictedTarget =
-        target === 'onboarding' ||
-        target === 'plan' ||
-        target === 'client-setup' ||
-        target === 'bounty' ||
-        target === 'cost' ||
-        target === 'human'
-      if (
-        accountAccessState !== 'granted' &&
-        !(accountAccessState === 'restricted' && restrictedTarget)
-      ) {
+      if (!accountAccessConfirmed) return false
+      if (!authUser && ['api-key', 'models', 'usage'].includes(target)) {
+        void navigate({ to: '/sign-in', search: { redirect: '/dashboard' } })
         return false
       }
 
@@ -1694,7 +1658,7 @@ function AssistantPanelSession(props: AssistantPanelProps) {
       ])
       return true
     },
-    [accountAccessState, assistantDescription, clearTransientCards, t]
+    [accountAccessConfirmed, authUser, navigate, assistantDescription, clearTransientCards, t]
   )
 
   useEffect(() => {
@@ -1947,38 +1911,11 @@ function AssistantPanelSession(props: AssistantPanelProps) {
         reply.action?.type === 'user_account_action'
           ? reply.action
           : undefined
-      const directL1GrantSucceeded =
-        reply.tools?.some(
-          (trace) =>
-            trace.name === 'grant_l1_access' &&
-            trace.status === 'output-available'
-        ) === true
-      if (directL1GrantSucceeded) void refreshAuthenticatedUser()
       let suggestedAction: AssistantAction | undefined
-      const restrictedTargetAllowed =
-        accountAccessState === 'restricted' &&
-        suggestedTarget !== undefined &&
-        (suggestedTarget !== 'onboarding' ||
-          isExplicitAssistantL1Request(message)) &&
-        [
-          'onboarding',
-          'client-setup',
-          'cost',
-          'bounty',
-          'plan',
-          'human',
-        ].includes(suggestedTarget)
-      if (developerAccessGranted || restrictedTargetAllowed) {
+      if (authenticated) {
         suggestedAction = getAssistantActionForTarget(suggestedTarget, t)
       }
-      if (directL1GrantSucceeded) {
-        setAccountDisableDraft(null)
-        setHumanSupportAction(null)
-        setKeyCreationAction(null)
-        setUserActionDraft(null)
-        setActiveTool('setup')
-        suggestedAction = getAssistantActionForTarget('client-setup', t)
-      } else if (imageAction) {
+      if (imageAction) {
         setAccountDisableDraft(null)
         setHumanSupportAction(null)
         setKeyCreationAction(null)
@@ -2039,27 +1976,6 @@ function AssistantPanelSession(props: AssistantPanelProps) {
         setActiveTool('handoff')
         suggestedAction = undefined
       }
-      if (
-        accountAccessState === 'restricted' &&
-        isExplicitAssistantL1Request(message) &&
-        !directL1GrantSucceeded &&
-        !adminChange &&
-        !imageAction &&
-        !humanSupportAction &&
-        !keyManagementAction &&
-        !userAction &&
-        reply.action?.type !== 'account_disable_request' &&
-        reply.action?.type !== 'navigate' &&
-        reply.action?.type !== 'create_key' &&
-        reply.action?.type !== 'human_support'
-      ) {
-        setActiveTool('activation')
-        suggestedAction ??= {
-          kind: 'tool',
-          label: t('Registration verification'),
-          tool: 'activation',
-        }
-      }
       const completedEntry: ConversationEntry = {
         id: streamingEntryId,
         role: 'assistant',
@@ -2078,14 +1994,13 @@ function AssistantPanelSession(props: AssistantPanelProps) {
           entry.id === streamingEntryId ? completedEntry : entry
         )
       })
-      if (explicitNavigation && developerAccessGranted) {
+      if (explicitNavigation && authenticated) {
         void navigate({ to: explicitNavigation })
       }
       // Account/history refreshes must not keep the completed answer's composer locked.
       void Promise.all(
         [
           'assistant-status',
-          'assistant-registration-state',
           'assistant-journey',
           'assistant-new-user-gift',
           'assistant-weekly-discount',
@@ -2176,20 +2091,8 @@ function AssistantPanelSession(props: AssistantPanelProps) {
         )
         return
       }
-      const showVerificationOnFailure =
-        accountAccessState === 'restricted' &&
-        isExplicitAssistantL1Request(message)
-      if (showVerificationOnFailure) {
-        setActiveTool('activation')
-      }
       let errorAction: AssistantAction | undefined
-      if (showVerificationOnFailure) {
-        errorAction = {
-          kind: 'tool',
-          label: t('Registration verification'),
-          tool: 'activation',
-        }
-      } else if (accountAccessConfirmed) {
+      if (accountAccessConfirmed) {
         errorAction = {
           kind: 'tool',
           label: t('Contact support'),
@@ -2512,10 +2415,10 @@ function AssistantPanelSession(props: AssistantPanelProps) {
               onRetry={() => void statusQuery.refetch()}
             />
           ) : null}
-          {developerAccessGranted && authUser ? (
+          {authenticated && authUser ? (
             <AssistantOnboardingTodo
               userId={authUser.id}
-              enabled={developerAccessGranted}
+              enabled={authenticated}
               presentation={mode === 'page' ? 'compact' : 'default'}
               onOpenKey={() => {
                 clearToolState()
@@ -2560,15 +2463,13 @@ function AssistantPanelSession(props: AssistantPanelProps) {
                   ) : null}
                   <div
                     className='assistant-start-shell flex min-h-0 flex-1 flex-col'
-                    data-testid='assistant-l0-welcome'
+                    data-testid='assistant-welcome'
                   >
                     <AssistantModernWelcome
                       description={assistantDescription}
-                      restricted={accountAccessState === 'restricted'}
                     />
                     <AssistantGettingStartedActions
                       disabled={!accountAccessConfirmed}
-                      restricted={accountAccessState === 'restricted'}
                       onOpen={(target) => openAssistantTarget(target)}
                     />
                   </div>
@@ -2734,12 +2635,12 @@ function AssistantPanelSession(props: AssistantPanelProps) {
                           onRetry={() => void statusQuery.refetch()}
                         />
                       ) : null}
-                      {activeTool === 'key' && developerAccessGranted ? (
+                      {activeTool === 'key' && authenticated ? (
                         <AssistantKeyTool
                           baseUrl={baseUrl}
                           availableModels={connectionModelsQuery.data ?? []}
                           modelsLoading={connectionModelsQuery.isLoading}
-                          developerAccessGranted={developerAccessGranted}
+                          authenticated={authenticated}
                           confirmationAction={keyCreationAction}
                           autoConfirm={
                             autoConfirmKeyToken ===
@@ -2765,12 +2666,6 @@ function AssistantPanelSession(props: AssistantPanelProps) {
                             }
                           }}
                           onContinueSetup={() => setActiveTool('setup')}
-                        />
-                      ) : null}
-                      {activeTool === 'activation' && accountAccessConfirmed ? (
-                        <AssistantActivationTool
-                          onContinueSetup={() => setActiveTool('setup')}
-                          onApproved={refreshAuthenticatedUser}
                         />
                       ) : null}
                       {accountDisableDraft ? (
@@ -2813,7 +2708,7 @@ function AssistantPanelSession(props: AssistantPanelProps) {
                       ) : null}
                       {activeTool === 'cost' && accountAccessConfirmed ? (
                         <AssistantCostTool
-                          developerAccessGranted={developerAccessGranted}
+                          authenticated={authenticated}
                         />
                       ) : null}
                       {activeTool === 'handoff' && accountAccessConfirmed ? (
@@ -2831,13 +2726,13 @@ function AssistantPanelSession(props: AssistantPanelProps) {
                           confirmationAction={humanSupportAction}
                         />
                       ) : null}
-                      {activeTool === 'models' && developerAccessGranted ? (
+                      {activeTool === 'models' && authenticated ? (
                         <AssistantModelsTool />
                       ) : null}
                       {activeTool === 'plan' && accountAccessConfirmed ? (
                         <AssistantPlanTool
-                          developerAccessGranted={developerAccessGranted}
-                          onRequestAccess={() => setActiveTool('activation')}
+                          authenticated={authenticated}
+                          onSignIn={() => void navigate({ to: '/sign-in', search: { redirect: '/guide' } })}
                         />
                       ) : null}
                       {activeTool === 'setup' && accountAccessConfirmed ? (
@@ -2846,17 +2741,17 @@ function AssistantPanelSession(props: AssistantPanelProps) {
                           openAIBaseUrl={baseUrl}
                           availableModels={connectionModelsQuery.data ?? []}
                           modelsLoading={connectionModelsQuery.isLoading}
-                          developerAccessGranted={developerAccessGranted}
+                          authenticated={authenticated}
                           onCreateKey={() => setActiveTool('key')}
-                          onRequestAccess={() => setActiveTool('activation')}
+                          onSignIn={() => void navigate({ to: '/sign-in', search: { redirect: '/guide' } })}
                           onAskQuestion={(question) =>
                             requestAssistantOpen(undefined, question)
                           }
                         />
                       ) : null}
-                      {activeTool === 'usage' && developerAccessGranted ? (
+                      {activeTool === 'usage' && authenticated ? (
                         <AssistantUsageTool
-                          developerAccessGranted={developerAccessGranted}
+                          authenticated={authenticated}
                         />
                       ) : null}
                     </div>
@@ -2956,13 +2851,6 @@ function AssistantPanelSession(props: AssistantPanelProps) {
                 mode === 'page' && 'mx-auto w-full max-w-3xl'
               )}
             >
-              {accountAccessConfirmed &&
-              !developerAccessGranted &&
-              activeTool !== 'activation' ? (
-                <div className='mb-2'>
-                  <AssistantRegistrationStatus compact />
-                </div>
-              ) : null}
               <PromptInputProvider
                 key={conversationResetRevision}
                 initialInput={props.initialMessage}
@@ -3054,10 +2942,9 @@ function AssistantPanelSession(props: AssistantPanelProps) {
                       ? t('Message human support...')
                       : assistantPromptPlaceholder
                   }
-                  restricted={accountAccessState === 'restricted'}
                   terminated={
                     conversationCancelled ||
-                    (conversationRestricted && !authUser)
+                    (conversationRestricted && !support.aiPaused)
                   }
                   routeUnavailable={assistantRouteUnavailable && !authUser}
                   pending={entries.some((entry) => entry.pending === true)}

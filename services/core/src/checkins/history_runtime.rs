@@ -21,7 +21,7 @@ impl CheckinStore {
         let policy = policy(&mut tx).await?;
         let range = match &policy {
             Some(p) if p.policy.enabled => {
-                Some(reward_range(&mut tx, actor.user_id, &p.policy).await?)
+                Some(reward_range(&p.policy)?)
             }
             _ => None,
         };
@@ -61,7 +61,7 @@ impl CheckinStore {
             .bind(actor.owner_account_id)
             .execute(&mut *tx)
             .await?;
-        // Check the durable operation before the clock, policy or current trust.
+        // Check the durable operation before the clock or current reward policy.
         let prior: Option<Json<ClaimResult>> = sqlx::query_scalar(
             "SELECT result FROM core_checkins.claim_commands WHERE user_id=$1 AND operation_key=$2",
         )
@@ -91,7 +91,7 @@ impl CheckinStore {
             {
                 return Err(Error::Forbidden);
             }
-            let range = reward_range(&mut tx, actor.user_id, &published.policy).await?;
+            let range = reward_range(&published.policy)?;
             let amount = draw(integer(&range.min_quota)?, integer(&range.max_quota)?)?;
             let journal_id = gift(&mut tx, &actor, &today, amount).await?;
             let record = DailyRecord {
@@ -101,7 +101,7 @@ impl CheckinStore {
                 journal_id,
                 origin: "native".into(),
                 policy_revision: Some(published.revision),
-                trust_level: Some(range.trust_level),
+                trust_level: None,
             };
             sqlx::query("INSERT INTO core_checkins.days(account_id,user_id,checkin_date,amount_units,origin,policy_revision,journal_id,created_at,result) VALUES($1,$2,$3::text::date,$4,'native',$5,$6,$7,$8)")
                 .bind(actor.owner_account_id).bind(actor.user_id).bind(&today).bind(amount)
@@ -150,15 +150,10 @@ fn validate_month(month: &str) -> Result<()> {
     }
     Ok(())
 }
-async fn reward_range(c: &mut PgConnection, user: i64, policy: &Policy) -> Result<RewardRange> {
-    let authority = crate::billing::trust_pricing::quote_in_transaction(c, user)
-        .await
-        .map_err(|error| match error {
-            crate::billing::trust_pricing::Error::Retry => Error::Retry,
-            _ => Error::Unavailable,
-        })?;
-    policy.reward_range(authority.evidence().level())
+fn reward_range(policy: &Policy) -> Result<RewardRange> {
+    policy.reward_range()
 }
+
 fn draw(min: i64, max: i64) -> Result<i64> {
     if min < 0 || max < min {
         return Err(Error::Invalid);

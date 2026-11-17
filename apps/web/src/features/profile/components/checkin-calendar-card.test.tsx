@@ -273,7 +273,6 @@ test('check-in success uses the newly selected currency without remounting', asy
                 origin: 'native',
                 journal_id: 1,
                 policy_revision: 1,
-                trust_level: 1,
               },
             },
           },
@@ -341,7 +340,6 @@ const nativeZeroRecord = {
   journal_id: null,
   origin: 'history',
   policy_revision: null,
-  trust_level: null,
 }
 function nativeStatus(checked: boolean, month = '2030-01') {
   return {
@@ -352,8 +350,7 @@ function nativeStatus(checked: boolean, month = '2030-01') {
     policy_revision: 1,
     checked_in_today: checked,
     reward_range: {
-      trust_level: 0,
-      reward_multiplier: 0,
+      reward_multiplier: 1,
       base_min_quota: '1',
       base_max_quota: '500000',
       min_quota: '0',
@@ -397,7 +394,6 @@ function claimResponse(alreadyClaimed = false) {
           ...nativeZeroRecord,
           origin: 'native',
           policy_revision: 1,
-          trust_level: 0,
         },
       },
     },

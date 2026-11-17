@@ -19,8 +19,7 @@ For commercial licensing, please contact support@quantumnous.com
 /*
 Copyright (C) 2026 LIghtJUNction
 */
-import { useQueryClient } from '@tanstack/react-query'
-import { useNavigate, useRouter } from '@tanstack/react-router'
+import { useNavigate } from '@tanstack/react-router'
 import {
   Building2,
   Key,
@@ -55,8 +54,6 @@ import { useAuthStore } from '@/stores/auth-store'
 
 export function ProfileDropdown() {
   const { t } = useTranslation()
-  const queryClient = useQueryClient()
-  const router = useRouter()
   const navigate = useNavigate()
   const [open, setOpen] = useDialogState()
   const user = useAuthStore((state) => state.auth.user)
@@ -172,24 +169,6 @@ export function ProfileDropdown() {
             </>
           ) : null}
 
-          {isSuperAdmin && (
-            <DropdownMenuItem
-              onClick={async () => {
-                await queryClient.cancelQueries()
-                useAuthStore
-                  .getState()
-                  .startPreview(
-                    window.location.pathname +
-                      window.location.search +
-                      window.location.hash
-                  )
-                queryClient.clear()
-                void navigate({ to: '/wallet' }).then(() => router.invalidate())
-              }}
-            >
-              {t('Preview L0 page')}
-            </DropdownMenuItem>
-          )}
           {isSuperAdmin && (
             <DropdownMenuItem
               onClick={() =>

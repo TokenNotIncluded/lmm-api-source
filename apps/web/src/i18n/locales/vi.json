@@ -3448,7 +3448,7 @@
     "Deny claim": "Từ chối yêu cầu",
     "Deny dispute claim": "Từ chối yêu cầu khiếu nại",
     "Deny this dispute claim? The administrator resolution will be visible to both parties.": "Từ chối yêu cầu khiếu nại này? Kết luận của quản trị viên sẽ hiển thị cho cả hai bên.",
-    "Depends on the action": "Tùy theo thao tác",
+    "Depends on the action": "Tùy thuộc vào thao tác",
     "Deploy your own gateway and start routing requests through your configured upstream services.": "Triển khai cổng riêng của bạn và bắt đầu định tuyến yêu cầu qua các dịch vụ thượng nguồn đã cấu hình.",
     "Deployment created successfully": "Tạo triển khai thành công",
     "Deployment details": "Chi tiết triển khai",
@@ -13158,6 +13158,16 @@
     "Zhipu V4": "Zhipu V4",
     "Zoom": "Thu phóng",
     "Zoom in": "Phóng to",
-    "Zoom out": "Thu nhỏ"
+    "Zoom out": "Thu nhỏ",
+    "Signed-in users can use the assistant immediately. Registration protection remains active.": "Người dùng có thể sử dụng trợ lý ngay sau khi đăng nhập. Biện pháp bảo vệ khi đăng ký vẫn hoạt động.",
+    "Allow evidence-based account suspensions": "Cho phép tạm khóa tài khoản dựa trên bằng chứng",
+    "Sign in, create an API key and connect LMM to your app.": "Đăng nhập, tạo khóa API và kết nối LMM với ứng dụng của bạn.",
+    "Browse downloads and setup steps. Sign in to see your connection values and create an API key.": "Xem các bản tải xuống và các bước thiết lập. Đăng nhập để xem thông tin kết nối và tạo khóa API.",
+    "Help me set up LMM. Ask which device and app I use, then guide me through installation, sign-in, API key creation and my first request.": "Hãy giúp tôi thiết lập LMM. Hỏi tôi đang dùng thiết bị và ứng dụng nào, rồi hướng dẫn tôi cài đặt, đăng nhập, tạo khóa API và gửi yêu cầu đầu tiên.",
+    "Which model should I use?": "Tôi nên dùng mô hình nào?",
+    "Group price": "Giá nhóm",
+    "Pay for requests with your account balance.": "Thanh toán các yêu cầu bằng số dư tài khoản của bạn.",
+    "New user": "Người dùng mới",
+    "Returning user": "Người dùng hiện có"
   }
 }

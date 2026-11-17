@@ -4,7 +4,7 @@ import { ROLE } from './roles'
 export const ASSISTANT_PRESET_SETTINGS_PATH =
   '/system-settings/content/assistant'
 
-// The assistant publication has its own L5 read/L6 write API. Other settings
+// Assistant publication allows administrator reads and super-administrator writes. Other settings
 // retain their existing super-administrator route and navigation restriction.
 export function canReadSystemSettingsPath(
   role: number | undefined,

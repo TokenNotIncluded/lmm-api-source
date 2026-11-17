@@ -97,11 +97,11 @@ describe('AssistantSetupTool', () => {
             rootUrl='https://api.example.test'
             openAIBaseUrl='https://api.example.test/v1'
             availableModels={['claude-sonnet-4-5', 'gpt-5.6-codex']}
-            developerAccessGranted
+            authenticated
             onCreateKey={() => {
               createKeyCalls += 1
             }}
-            onRequestAccess={() => {}}
+            onSignIn={() => {}}
           />
         </I18nextProvider>
       )
@@ -297,9 +297,9 @@ describe('AssistantSetupTool', () => {
             rootUrl='https://api.example.test'
             openAIBaseUrl='https://api.example.test/v1'
             availableModels={['deepseek-v4-flash']}
-            developerAccessGranted={false}
+            authenticated={false}
             onCreateKey={() => {}}
-            onRequestAccess={() => {
+            onSignIn={() => {
               accessRequests += 1
             }}
           />
@@ -308,7 +308,7 @@ describe('AssistantSetupTool', () => {
       await flushEffects()
     })
 
-    assert.match(container.textContent ?? '', /Request API access/)
+    assert.match(container.textContent ?? '', /Sign in to continue setup/)
     await act(async () => {
       findButton('Windows').click()
       findButton('Claude Code').click()
@@ -335,7 +335,7 @@ describe('AssistantSetupTool', () => {
     assert.match(container.textContent ?? '', /CC Switch one-click import/)
 
     await act(async () => {
-      findButton('Request API access').click()
+      findButton('Sign in to continue setup').click()
       await flushEffects()
     })
     assert.equal(accessRequests, 1)
@@ -354,9 +354,9 @@ describe('AssistantSetupTool', () => {
             rootUrl='https://api.example.test'
             openAIBaseUrl='https://api.example.test/v1'
             availableModels={['gpt-image-2']}
-            developerAccessGranted
+            authenticated
             onCreateKey={() => {}}
-            onRequestAccess={() => {}}
+            onSignIn={() => {}}
           />
         </I18nextProvider>
       )
@@ -383,9 +383,9 @@ test('mobile walkthrough exposes official Chatbox steps and keeps desktop comman
           rootUrl='https://console.example.test'
           openAIBaseUrl='https://console.example.test/v1'
           availableModels={['available-model']}
-          developerAccessGranted
+          authenticated
           onCreateKey={() => {}}
-          onRequestAccess={() => {}}
+          onSignIn={() => {}}
           onAskQuestion={(value) => {
             question = value
           }}
@@ -459,10 +459,10 @@ test('public installation guide hides account connection values and private impo
           rootUrl='https://private.example.test'
           openAIBaseUrl='https://private.example.test/v1'
           availableModels={['private-model']}
-          developerAccessGranted={false}
+          authenticated={false}
           publicGuide
           onCreateKey={() => assert.fail('must not create a key')}
-          onRequestAccess={() => {}}
+          onSignIn={() => {}}
         />
       </I18nextProvider>
     )

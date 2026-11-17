@@ -27,12 +27,10 @@ import { commerceScope, hasPending } from '@/features/commerce/native-client'
 import { useAuthUserRefresh } from '@/features/onboarding'
 import { NativeWalletPromotions } from '@/features/promotions/native-wallet'
 import { NativeWalletSubscriptions } from '@/features/subscriptions/native-wallet'
-import { isConsoleActivated } from '@/lib/console-activation'
 import { useAuthStore } from '@/stores/auth-store'
 
 import { AffiliateRewardsCard } from './components/affiliate-rewards-card'
 import { BillingHistoryDialog } from './components/dialogs/billing-history-dialog'
-import { L0UpgradePanel } from './components/l0-upgrade-panel'
 import { NativeWalletCheckout } from './components/native-wallet-checkout'
 import { WalletStatsCard } from './components/wallet-stats-card'
 import { useCheckoutOwnerKey } from './hooks/use-checkout-scope'
@@ -133,9 +131,6 @@ function NativeWallet({
         <SectionPageLayout.Content>
           <div className='wallet-page mx-auto flex w-full max-w-6xl flex-col gap-5 pb-8 sm:gap-6'>
             {refreshFailed ? <p role='alert'>{t('Refresh failed')}</p> : null}
-            {(preview || !isConsoleActivated(account)) && (
-              <L0UpgradePanel preview={preview} />
-            )}
             <div className='wallet-overview-grid grid items-start gap-5 sm:gap-6'>
               <WalletStatsCard
                 user={user}

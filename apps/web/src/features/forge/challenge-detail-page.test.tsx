@@ -94,6 +94,10 @@ const { createInstance } = await import('i18next')
 const { I18nextProvider, initReactI18next } = await import('react-i18next')
 const { api } = await import('@/lib/api')
 const { useAuthStore } = await import('@/stores/auth-store')
+const { DirectionProvider } = await import('@/context/direction-provider')
+const { ThemeProvider } = await import('@/context/theme-provider')
+const { ThemeCustomizationProvider } =
+  await import('@/context/theme-customization-provider')
 const { ChallengeDetailPage } = await import('./challenge-detail-page')
 
 const originalGet = api.get
@@ -108,12 +112,12 @@ await i18n.use(initReactI18next).init({
   resources: { en: { translation: {} } },
 })
 
-const user: AuthUser = {
+const user: AuthUser = JSON.parse(JSON.stringify({
   id: 7,
   username: 'l0-user',
   role: 1,
   developer_access_granted: false,
-}
+}))
 
 const detail = {
   project: {
@@ -201,7 +205,13 @@ async function renderPage() {
     root.render(
       <QueryClientProvider client={queryClient}>
         <I18nextProvider i18n={i18n}>
-          <RouterProvider router={router} />
+          <DirectionProvider>
+            <ThemeProvider defaultTheme='light'>
+              <ThemeCustomizationProvider>
+                <RouterProvider router={router} />
+              </ThemeCustomizationProvider>
+            </ThemeProvider>
+          </DirectionProvider>
         </I18nextProvider>
       </QueryClientProvider>
     )
@@ -227,22 +237,24 @@ afterEach(() => {
 
 after(() => domWindow.close())
 
-describe('L0 challenge contribution entry', () => {
-  test('offers the onboarding assistant path instead of a read-only dead end', async () => {
+describe('ordinary-account challenge contribution entry', () => {
+  test('opens the challenge form for an ordinary account with stale access metadata', async () => {
     const rendered = await renderPage()
-
-    assert.match(
-      rendered.container.textContent ?? '',
-      /ask the AI assistant to request L1 access/
-    )
-    const onboardingLink = [...rendered.container.querySelectorAll('a')].find(
-      (link) =>
-        link.getAttribute('href') === '/wallet' &&
-        link.textContent?.includes('Start with AI assistant')
-    )
-    assert.ok(onboardingLink)
-    assert.match(onboardingLink.textContent ?? '', /Start with AI assistant/)
-
-    await unmount(rendered)
+    try {
+      assert.doesNotMatch(rendered.container.textContent ?? '', /request L1 access/)
+      const accept = [...rendered.container.querySelectorAll('button')].find(
+        (button) => button.textContent?.trim() === 'Accept challenge'
+      )
+      assert.ok(accept)
+      assert.equal(accept.disabled, false)
+      await act(async () => {
+        accept.click()
+        await flushEffects()
+      })
+      assert.match(document.body.textContent ?? '', /Your GitHub handle will be attached to this delivery/)
+      assert.ok(document.querySelector('[role="dialog"] input'))
+    } finally {
+      await unmount(rendered)
+    }
   })
 })

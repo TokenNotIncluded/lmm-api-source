@@ -13158,6 +13158,16 @@
     "Zhipu V4": "智谱 V4",
     "Zoom": "缩放",
     "Zoom in": "放大",
-    "Zoom out": "缩小"
+    "Zoom out": "缩小",
+    "Signed-in users can use the assistant immediately. Registration protection remains active.": "登录后即可使用助手。注册风险防护继续生效。",
+    "Allow evidence-based account suspensions": "允许依据证据暂停账号",
+    "Sign in, create an API key and connect LMM to your app.": "登录并创建 API 密钥，即可将 LMM 连接到你的应用。",
+    "Browse downloads and setup steps. Sign in to see your connection values and create an API key.": "你可以先查看下载和配置步骤。登录后即可查看连接信息并创建 API 密钥。",
+    "Help me set up LMM. Ask which device and app I use, then guide me through installation, sign-in, API key creation and my first request.": "请帮我配置 LMM。先询问我使用的设备和应用，再引导我完成安装、登录、创建 API 密钥和第一次请求。",
+    "Which model should I use?": "我应该使用哪个模型？",
+    "Group price": "分组价格",
+    "Pay for requests with your account balance.": "使用账户余额支付 API 请求费用。",
+    "New user": "新用户",
+    "Returning user": "已有用户"
   }
 }

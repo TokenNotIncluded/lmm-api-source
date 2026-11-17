@@ -186,7 +186,7 @@ export function WebMcpPage() {
         </div>
         <details className='bg-muted/30 mt-5 rounded-2xl p-4'>
           <summary className='min-h-11 cursor-pointer text-sm font-medium'>
-            {t('Adjust settings with WebMCP')} · L6
+            {t('Adjust settings with WebMCP')} · {t('Super administrator')}
           </summary>
           <ol className='mt-4 grid gap-5 sm:grid-cols-3'>
             {[

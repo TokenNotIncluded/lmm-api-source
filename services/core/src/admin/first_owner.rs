@@ -236,7 +236,7 @@ pub(super) async fn run(pool: &PgPool, request: Request) -> io::Result<Receipt> 
     let mut tx = pool.begin().await.map_err(storage)?;
     lock_fresh_database(&mut tx).await?;
     let account: i64 = sqlx::query_scalar(
-        "INSERT INTO core_identity.accounts(kind,service_level) VALUES ('personal',0) RETURNING id",
+        "INSERT INTO core_identity.accounts(kind) VALUES ('personal') RETURNING id",
     )
     .fetch_one(&mut *tx)
     .await

@@ -47,9 +47,6 @@ const schema = z.object({
   enabled: z.boolean(),
   minQuota: z.coerce.number().int().min(0),
   maxQuota: z.coerce.number().int().min(0),
-  levelMultipliers: z
-    .array(z.coerce.number().finite().min(0).max(10))
-    .length(5),
 })
 
 type Values = z.infer<typeof schema>
@@ -61,7 +58,6 @@ export function CheckinSettingsSection({
     enabled: boolean
     minQuota: number
     maxQuota: number
-    levelMultipliers: number[]
   }
 }) {
   const { t } = useTranslation()
@@ -73,7 +69,6 @@ export function CheckinSettingsSection({
       enabled: defaultValues.enabled,
       minQuota: defaultValues.minQuota,
       maxQuota: defaultValues.maxQuota,
-      levelMultipliers: defaultValues.levelMultipliers,
     },
   })
   const enabled = useWatch({ control: form.control, name: 'enabled' })
@@ -101,16 +96,6 @@ export function CheckinSettingsSection({
       updates.push({
         key: 'checkin_setting.max_quota',
         value: String(values.maxQuota),
-      })
-    }
-
-    if (
-      JSON.stringify(values.levelMultipliers) !==
-      JSON.stringify(defaultValues.levelMultipliers)
-    ) {
-      updates.push({
-        key: 'checkin_setting.level_multipliers',
-        value: JSON.stringify(values.levelMultipliers),
       })
     }
 
@@ -208,54 +193,6 @@ export function CheckinSettingsSection({
                 />
               </div>
 
-              <div className='space-y-3'>
-                <div>
-                  <h3 className='text-sm font-medium'>
-                    {t('Reward multiplier by trust level')}
-                  </h3>
-                  <p className='text-muted-foreground text-sm'>
-                    {t(
-                      'Lower trust levels receive a smaller share of the base range.'
-                    )}
-                  </p>
-                </div>
-                <div className='grid gap-4 sm:grid-cols-2 lg:grid-cols-5'>
-                  {Array.from({ length: 5 }, (_, level) => (
-                    <FormField
-                      key={level}
-                      control={form.control}
-                      name={`levelMultipliers.${level}` as const}
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>
-                            {t('Trust level {{level}}', { level })}
-                          </FormLabel>
-                          <FormControl>
-                            <Input
-                              type='number'
-                              min={0}
-                              max={10}
-                              step='0.05'
-                              inputMode='decimal'
-                              aria-label={t(
-                                'Multiplier for trust level {{level}}',
-                                {
-                                  level,
-                                }
-                              )}
-                              {...field}
-                            />
-                          </FormControl>
-                          <FormDescription>
-                            {t('0.5 = 50% of base range')}
-                          </FormDescription>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-                  ))}
-                </div>
-              </div>
             </div>
           )}
         </SettingsForm>

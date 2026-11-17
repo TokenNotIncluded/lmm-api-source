@@ -595,33 +595,42 @@ async fn prepared_contract_exact_count_bridge_rejects_missing_or_changed_evidenc
 }
 
 #[sqlx::test(migrations = false)]
-async fn prepared_contract_same_id_replay_binds_proof_with_and_without_trust(pool: PgPool) {
+async fn prepared_contract_same_id_replay_binds_proof_without_trust_prices(pool: PgPool) {
     let f = fixture(pool, 1000).await;
-    for trusted in [false, true] {
-        let charging = charging(&f);
-        if trusted {
-            charging.enable_trust_pricing();
-        }
-        let id = format!("prepared-replay-{trusted}");
-        let (spec, basis, proof) = preparation(&id, 24, 8, price(), b"original-wire");
-        let first = reserve(&charging, &f.key, &spec, basis, &proof)
+    let charging = charging(&f);
+    let id = "prepared-replay";
+    let (spec, basis, proof) = preparation(id, 24, 8, price(), b"original-wire");
+    let first = reserve(&charging, &f.key, &spec, basis, &proof)
+        .await
+        .unwrap();
+    assert_eq!(first.reserved, 32);
+    assert!(first.price.user_trust.is_none());
+    let before = liability_snapshot(&f.pool, id).await;
+    let duplicate = reserve(&charging, &f.key, &spec, basis, &proof)
+        .await
+        .unwrap();
+    assert_eq!(duplicate, first);
+    assert_eq!(liability_snapshot(&f.pool, id).await, before);
+    let (_, _, changed_proof) = preparation(id, 24, 8, price(), b"changed-wire");
+    assert_eq!(
+        reserve(&charging, &f.key, &spec, basis, &changed_proof).await,
+        Err(charging::Error::Conflict)
+    );
+    assert_eq!(liability_snapshot(&f.pool, id).await, before);
+    let now: i64 =
+        sqlx::query_scalar("SELECT floor(extract(epoch FROM transaction_timestamp()))::bigint")
+            .fetch_one(&f.pool)
             .await
             .unwrap();
-        assert_eq!(first.reserved, 32);
-        assert_eq!(first.price.user_trust.is_some(), trusted);
-        let before = liability_snapshot(&f.pool, &id).await;
-        let duplicate = reserve(&charging, &f.key, &spec, basis, &proof)
-            .await
-            .unwrap();
-        assert_eq!(duplicate, first);
-        assert_eq!(liability_snapshot(&f.pool, &id).await, before);
-        let (_, _, changed_proof) = preparation(&id, 24, 8, price(), b"changed-wire");
-        assert_eq!(
-            reserve(&charging, &f.key, &spec, basis, &changed_proof).await,
-            Err(charging::Error::Conflict)
-        );
-        assert_eq!(liability_snapshot(&f.pool, &id).await, before);
-    }
+    sqlx::query("INSERT INTO core_trust_pricing.user_bases(user_id,original_created_at,console_activated_at,last_api_activity_at,override_level,projection_known,order_count,revision,source_digest) VALUES($1,$2,0,0,4,TRUE,0,1,decode(repeat('11',32),'hex'))")
+        .bind(first.actor_user_id).bind(now).execute(&f.pool).await.unwrap();
+    let (next, basis, proof) =
+        preparation("prepared-legacy-trust-ignored", 24, 8, price(), b"next-wire");
+    let next = reserve(&charging, &f.key, &next, basis, &proof)
+        .await
+        .unwrap();
+    assert_eq!(next.reserved, 32);
+    assert!(next.price.user_trust.is_none());
     assert_eq!(requests(&f.pool).await, 2);
     assert_balance(&f, 936, 64).await;
 }

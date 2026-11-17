@@ -184,12 +184,6 @@ impl ImageService {
         {
             return Err(Error::Forbidden);
         }
-        let frozen = if existing.is_none() {
-            self.freeze_image_price(&mut tx, actor.user_id, frozen)
-                .await?
-        } else {
-            frozen
-        };
         frozen.validate_actor(actor.user_id)?;
         let fingerprint = digest(&json!([source, input, metadata, response_format, frozen]))?;
         let state: String = if let Some(row) = existing {

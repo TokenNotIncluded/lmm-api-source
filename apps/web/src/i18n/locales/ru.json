@@ -10511,7 +10511,7 @@
     "Signed in via WeChat": "Вошли через WeChat",
     "Signed in with Passkey": "Вошли с помощью Passkey",
     "Signed out": "Выход выполнен",
-    "Signed-in users": "Пользователи, вошедшие в аккаунт",
+    "Signed-in users": "Пользователи, вошедшие в систему",
     "Significant outages detected": "Обнаружены серьёзные сбои",
     "Signing in takes a moment and skips this screen entirely.": "Войдите, чтобы продолжить.",
     "Signing key": "Ключ подписи",
@@ -13158,6 +13158,16 @@
     "Zhipu V4": "Zhipu V4",
     "Zoom": "Масштаб",
     "Zoom in": "Увеличить",
-    "Zoom out": "Уменьшить"
+    "Zoom out": "Уменьшить",
+    "Signed-in users can use the assistant immediately. Registration protection remains active.": "После входа пользователи могут сразу пользоваться помощником. Защита регистрации остаётся активной.",
+    "Allow evidence-based account suspensions": "Разрешить блокировку аккаунтов на основании доказательств",
+    "Sign in, create an API key and connect LMM to your app.": "Войдите, создайте API-ключ и подключите LMM к своему приложению.",
+    "Browse downloads and setup steps. Sign in to see your connection values and create an API key.": "Ознакомьтесь с загрузками и шагами настройки. Войдите, чтобы увидеть параметры подключения и создать API-ключ.",
+    "Help me set up LMM. Ask which device and app I use, then guide me through installation, sign-in, API key creation and my first request.": "Помогите мне настроить LMM. Сначала спросите, каким устройством и приложением я пользуюсь, затем проведите меня через установку, вход, создание API-ключа и первый запрос.",
+    "Which model should I use?": "Какую модель мне использовать?",
+    "Group price": "Цена группы",
+    "Pay for requests with your account balance.": "Оплачивайте запросы со счёта вашего аккаунта.",
+    "New user": "Новый пользователь",
+    "Returning user": "Существующий пользователь"
   }
 }

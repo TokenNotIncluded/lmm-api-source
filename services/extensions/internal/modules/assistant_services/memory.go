@@ -198,9 +198,8 @@ var profileStrategies = map[string]string{
 	"mobile_accessibility":     "Prefer short mobile-friendly actions, clear labels, keyboard and screen-reader compatible instructions, and avoid dense layouts.",
 	"normal_user":              "Answer the user's current request directly and concisely without repeating generic onboarding questions.",
 	"support_seeking":          "First resolve the immediate support issue, summarize the evidence, and prepare a human handoff only when needed.",
-	"l0_applicant":             "Answer directly. Reuse the stated ordinary purpose and enable L1 with get_registration_risk and grant_l1_access immediately when allowed, even in the first reply. No turn minimum or application letter. On failure give the actual next step or human support, never require more chatting. Developer writes remain unavailable until the grant succeeds.",
 }
-var profileTags = map[string]bool{"advanced": true, "needs_steps": true, "cost_sensitive": true, "production": true, "privacy": true, "mobile": true, "accessibility": true, "support": true, "l0": true}
+var profileTags = map[string]bool{"advanced": true, "needs_steps": true, "cost_sensitive": true, "production": true, "privacy": true, "mobile": true, "accessibility": true, "support": true}
 
 func (s *Service) rememberProfile(ctx context.Context, tx *sql.Tx, user int64, input ProfileInput) (any, error) {
 	strategy, ok := profileStrategies[input.Key]

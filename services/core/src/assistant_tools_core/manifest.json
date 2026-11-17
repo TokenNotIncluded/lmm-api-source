@@ -52,7 +52,7 @@
   },
   {
     "name": "list_my_api_keys",
-    "description": "List only the signed-in user's existing API key metadata: exact ID, name, status, group and timestamps. No credential, masked key, quota, IP rule, or secret is returned. Read this before preparing deletion or disabling; never guess IDs. Paginate when needed. token_id can read one exact ID specified by the user; exact_name is an exact name filter. Duplicate names require the user to choose an exact ID. Revocation remains available after loss of L1 access; it never grants key creation or developer access.",
+    "description": "List only the signed-in user's existing API key metadata: exact ID, name, status, group and timestamps. No credential, masked key, quota, IP rule, or secret is returned. Read this before preparing deletion or disabling; never guess IDs. Paginate when needed. token_id can read one exact ID specified by the user; exact_name is an exact name filter. Duplicate names require the user to choose an exact ID. Revocation remains available to the key owner and never grants access to another account.",
     "version": "main-3948a0a1",
     "parameters": {
       "type": "object",
@@ -122,7 +122,7 @@
     },
     "schema_sha256": "99334726611ccf58a148b0814696bfa6fe08c1b2d027e946beccf5a74331c9aa",
     "effect": "read_only",
-    "access": "l0",
+    "access": "user",
     "domain": "registered_core",
     "price_version": "builtin-free-v1",
     "price": {

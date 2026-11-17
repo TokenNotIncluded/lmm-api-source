@@ -53,11 +53,6 @@ export function pluginPresentation(name: string, t: TFunction) {
         title: 'Hero SMS',
         description: t('SMS activation services and their records.'),
       }
-    case 'remote-control':
-      return {
-        title: t('Remote control'),
-        description: t('Remote connections and control sessions.'),
-      }
     case 'toolmarket':
       return {
         title: t('Tool market'),

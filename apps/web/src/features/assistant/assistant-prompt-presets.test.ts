@@ -25,13 +25,12 @@ import { api } from '@/lib/api'
 import { getAssistantPreConversationPresets } from './api'
 import {
   ASSISTANT_PROMPT_PRESET_COPY_VERSION,
-  canSeeAccessVerificationPreset,
   filterAssistantPreConversationPresets,
   localizeAssistantPreConversationPresets,
 } from './assistant-prompt-presets'
 
 const starterKeys = {
-  ai_recommendation: 'How do I apply for L1 access?',
+  ai_recommendation: 'Which model should I use?',
   getting_started: 'Where should I start?',
   new_user_gift: 'How do I get the new-user gift?',
   weekly_discount: 'Any top-up discounts this week?',
@@ -44,27 +43,13 @@ const legacyPresets = Object.keys(starterKeys).map((id) => ({
 }))
 
 describe('localized assistant conversation starters', () => {
-  test('shows access verification only to a trusted L0 user', () => {
-    const l0 = { role: 1, trust_level_info: { level: 0 } }
-    const l1 = { role: 1, trust_level_info: { level: 1 } }
-    const admin = { role: 10, trust_level_info: { level: 0 } }
-
-    assert.equal(canSeeAccessVerificationPreset(l0), true)
-    assert.equal(canSeeAccessVerificationPreset(l1), false)
-    assert.equal(canSeeAccessVerificationPreset(admin), false)
-    assert.equal(canSeeAccessVerificationPreset(null), false)
-    assert.deepEqual(
-      filterAssistantPreConversationPresets(legacyPresets, l0).map(
-        (preset) => preset.id
-      ),
-      Object.keys(starterKeys)
-    )
-    assert.deepEqual(
-      filterAssistantPreConversationPresets(legacyPresets, l1).map(
-        (preset) => preset.id
-      ),
-      Object.keys(starterKeys).slice(1)
-    )
+  test('offers model recommendations equally to every account', () => {
+    for (const viewer of [null, { role: 1 }, { role: 10 }]) {
+      assert.deepEqual(
+        filterAssistantPreConversationPresets(legacyPresets, viewer).map((preset) => preset.id),
+        Object.keys(starterKeys)
+      )
+    }
   })
 
   for (const locale of ['en', 'zh-CN', 'zh-TW', 'fr', 'ja', 'ru', 'vi']) {

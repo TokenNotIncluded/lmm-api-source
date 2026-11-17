@@ -44,7 +44,7 @@ func newGuideFixture(t *testing.T) (*PublicGuides, *guideAuth, *guideSnapshots, 
 	t.Helper()
 	a := &guideAuth{principal: access.Principal{UserID: 7, Account: access.Account{Kind: "personal", ID: 7}}}
 	s := &guideSnapshots{snapshot: PublicConfigurationSnapshot{Revision: "reviewed-runtime-v1", ServiceRoot: "https://console.example.test/", CheckinEnabled: true, CheckinMinCredits: 10, CheckinMaxCredits: 20, CCSwitchImportEnabled: true}}
-	c := &guideCatalog{snapshot: ModelCatalogSnapshot{ActorUserID: 7, DeveloperAccessGranted: true, ModelIDs: []string{"exact/model-A"}, KeyGroupOptions: []PublicKeyGroup{{ID: "reviewed-group", Description: "Reviewed current user group"}}, CheckinUser: &PublicCheckinUser{TrustLevel: 2, Multiplier: 2, MinCredits: 20, MaxCredits: 40, CheckedInToday: true}}}
+	c := &guideCatalog{snapshot: ModelCatalogSnapshot{ActorUserID: 7, ModelIDs: []string{"exact/model-A"}, KeyGroupOptions: []PublicKeyGroup{{ID: "reviewed-group", Description: "Reviewed current user group"}}, CheckinUser: &PublicCheckinUser{CheckedInToday: true}}}
 	g, err := NewPublicGuides(a, s, c)
 	if err != nil {
 		t.Fatal(err)
@@ -70,7 +70,7 @@ func TestPublicFactsFreshSessionAndConfiguration(t *testing.T) {
 		t.Fatal(r)
 	}
 	checkin := r["activities"].(map[string]any)["daily_checkin"].(map[string]any)
-	if checkin["enabled"] != true || checkin["min_quota"] != float64(20) || checkin["checked_in_today"] != true {
+	if checkin["enabled"] != true || checkin["min_quota"] != float64(10) || checkin["max_quota"] != float64(20) || checkin["reward_multiplier"] != float64(1) || checkin["trust_level"] != nil || checkin["checked_in_today"] != true {
 		t.Fatal(checkin)
 	}
 	s.snapshot.CheckinEnabled = false
@@ -101,7 +101,6 @@ func TestPublicGuidesExactModelsAndLockedPreview(t *testing.T) {
 			t.Fatal(string(raw), err)
 		}
 	}
-	c.snapshot.DeveloperAccessGranted = false
 	c.snapshot.AccountModelAccessLocked = true
 	c.snapshot.PublicPreview = true
 	raw, err := g.SetupGuide(context.Background(), "session", json.RawMessage(`{"platform":"windows","topic":"codex","model_id":"exact/model-A"}`))
@@ -109,7 +108,7 @@ func TestPublicGuidesExactModelsAndLockedPreview(t *testing.T) {
 		t.Fatal(err)
 	}
 	r := decodeGuide(t, raw)
-	if r["account_model_access_locked"] != true || r["api_key"] != "<YOUR_API_KEY>" || !strings.Contains(r["security_note"].(string), "locked until L1 approval") || !strings.Contains(r["config_toml"].(string), "exact/model-A") {
+	if r["account_model_access_locked"] != true || r["api_key"] != "<YOUR_API_KEY>" || !strings.Contains(r["security_note"].(string), "model catalog is currently unavailable") || !strings.Contains(r["config_toml"].(string), "exact/model-A") {
 		t.Fatal(r)
 	}
 	s.snapshot.CCSwitchImportEnabled = false
@@ -138,7 +137,7 @@ func TestPublicSetupTopicPlatformSourceMatrix(t *testing.T) {
 	}
 }
 func TestPublicGuideRejectsUnboundOrMalformedInputs(t *testing.T) {
-	for _, mode := range []string{"other-user", "team", "contradictory-entitlement", "duplicate-model", "unconfigured-root", "secret-url", "invalid-local"} {
+	for _, mode := range []string{"other-user", "team", "duplicate-model", "unconfigured-root", "secret-url", "invalid-local"} {
 		t.Run(mode, func(t *testing.T) {
 			g, a, s, c := newGuideFixture(t)
 			switch mode {
@@ -146,8 +145,6 @@ func TestPublicGuideRejectsUnboundOrMalformedInputs(t *testing.T) {
 				c.snapshot.ActorUserID = 8
 			case "team":
 				a.principal.Account = access.Account{Kind: "team", ID: 7}
-			case "contradictory-entitlement":
-				c.snapshot.AccountModelAccessLocked = true
 			case "duplicate-model":
 				c.snapshot.ModelIDs = append(c.snapshot.ModelIDs, "exact/model-A")
 			case "unconfigured-root":
@@ -189,10 +186,9 @@ func TestPublicSetupShellQuoting(t *testing.T) {
 	}
 }
 
-// Core's actual catalog may grant a bounded public preview without L1.
+// Core's actual catalog may expose a bounded public preview.
 func TestPublicGuidesCoreUnlockedPublicPreview(t *testing.T) {
 	g, _, _, c := newGuideFixture(t)
-	c.snapshot.DeveloperAccessGranted = false
 	c.snapshot.AccountModelAccessLocked = false
 	c.snapshot.PublicPreview = true
 	raw, err := g.SetupGuide(context.Background(), "session", json.RawMessage(`{"platform":"linux","topic":"codex","model_id":"exact/model-A"}`))

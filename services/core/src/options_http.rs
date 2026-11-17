@@ -20,7 +20,6 @@ use crate::identity::{CredentialKind, IdentityError, IdentityStore};
 
 mod exchange_rate;
 mod ip_access;
-pub mod trust_policy;
 mod writes;
 
 /// Public, effective configuration; never pass raw TOML or secret references.
@@ -38,42 +37,29 @@ pub struct OptionsHttp {
     pool: PgPool,
     identity: IdentityStore,
     runtime: RuntimeOptions,
-    trust_policy_editor: Option<trust_policy::Service>,
     exchange_rates: exchange_rate::Reader,
 }
 
 impl OptionsHttp {
-    /// Call only after component/key/ACL checks have succeeded.
-    pub fn with_trust_policy_editor(mut self, editor: trust_policy::Service) -> Self {
-        self.trust_policy_editor = Some(editor);
-        self
-    }
-
     pub fn new(pool: PgPool, identity: IdentityStore, runtime: RuntimeOptions) -> Self {
         Self {
             pool,
             identity,
             runtime,
-            trust_policy_editor: None,
             exchange_rates: exchange_rate::Reader::new(),
         }
     }
 }
 
 pub fn router(state: OptionsHttp) -> Router {
-    let editor = state.trust_policy_editor.clone();
-    let routes = Router::new()
+    Router::new()
         .route("/api/option/", get(read).put(writes::write))
         .route("/api/option", get(read).put(writes::write))
         .route("/api/option/bulk", post(writes::bulk))
         .route("/api/option/validate", post(writes::validate))
         .route("/api/option/exchange-rate", get(exchange_rate::read))
         .route("/api/option/ip-access/preview", post(ip_access::preview))
-        .with_state(state);
-    match editor {
-        Some(editor) => routes.merge(trust_policy::http::router(editor)),
-        None => routes,
-    }
+        .with_state(state)
 }
 
 #[derive(Serialize)]
@@ -219,8 +205,7 @@ async fn read(State(state): State<OptionsHttp>, headers: HeaderMap) -> Response 
                 "read_only":false,
                 "partial":true,
                 "writable_keys":["Notice","Announcements","console_setting.announcements","USDExchangeRate"],
-                "model_price_locks":false,
-                "trust_level_benefits":state.trust_policy_editor.is_some()
+                "model_price_locks":false
             }
         }),
     )
@@ -321,6 +306,31 @@ mod tests {
         }
     }
 
+    #[tokio::test]
+    async fn retired_trust_policy_routes_are_not_registered() {
+        let pool = sqlx::postgres::PgPoolOptions::new()
+            .connect_lazy("postgres://localhost/unused")
+            .unwrap();
+        let app = router(OptionsHttp::new(
+            pool.clone(),
+            IdentityStore::from_pool(pool),
+            runtime(),
+        ));
+        for (method, path) in [
+            ("GET", "/core/v1/admin/trust-policy"),
+            ("POST", "/api/option/trust-policy/preview"),
+            ("POST", "/api/option/trust-policy/challenge"),
+            ("POST", "/api/option/trust-policy/confirm"),
+            ("POST", "/api/option/trust-policy/resolve"),
+        ] {
+            let response = app.clone().oneshot(
+                Request::builder().method(method).uri(path)
+                    .body(Body::empty()).unwrap(),
+            ).await.unwrap();
+            assert_eq!(response.status(), StatusCode::NOT_FOUND, "{method} {path}");
+        }
+    }
+
     #[sqlx::test(migrations = false)]
     async fn authentic_settings_are_allowlisted(pool: PgPool) {
         crate::core_schema::init(&pool).await.unwrap();
@@ -335,6 +345,7 @@ mod tests {
         let (status, body) = call(&app, "GET", "/api/option/", Some(&root.secret)).await;
         assert_eq!(status, StatusCode::OK);
         assert_eq!(body["capabilities"]["partial"], true);
+        assert!(body["capabilities"].get("trust_level_benefits").is_none());
         assert_eq!(body["capabilities"]["read_only"], false);
         assert_eq!(
             body["capabilities"]["writable_keys"],

@@ -19,7 +19,7 @@ pub mod registration {
         context: &VerifiedToolContext,
     ) -> Result<Value, Error> {
         let actor = context.revalidate(c).await?;
-        if actor.developer || actor.role != "user" {
+        if actor.role != "user" {
             return Err(Error::Forbidden);
         }
         let r=sqlx::query("SELECT o.source_policy_version,o.source_kind,o.source_ip IS NOT NULL AS network_available,q.evidence_kind,q.registration_hold,q.reward_used FROM core_abuse.registration_observations o LEFT JOIN core_gift.qualifications q ON q.user_id=o.user_id WHERE o.user_id=$1")
@@ -190,7 +190,7 @@ pub async fn read_in_transaction(
             account::overview_in_transaction(c, context, input).await?
         }
         TypedReadArgs::UserUsage(input) => {
-            crate::usage::assistant_summary_in_transaction(c, context, input, false).await?
+            crate::usage::assistant_summary_in_transaction(c, context, input).await?
         }
         TypedReadArgs::OwnUsage(input) => {
             crate::usage::assistant_summary_in_transaction(
@@ -201,7 +201,6 @@ pub async fn read_in_transaction(
                     identifier: None,
                     days: input.days,
                 },
-                true,
             )
             .await?
         }

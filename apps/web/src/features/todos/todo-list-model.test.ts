@@ -134,13 +134,12 @@ describe('todo dates and destinations', () => {
         ),
         false
       )
-      assert.equal(
-        todoItemHasDestination({
-          ...item('developer_access'),
-          source_id: value,
-        }),
-        false
-      )
+      for (const category of ['account_action', 'human_support'] as const) {
+        assert.equal(
+          todoItemHasDestination({ ...item(category), source_id: value }),
+          false
+        )
+      }
     }
     assert.equal(
       todoDetailNumber(
@@ -184,5 +183,7 @@ describe('todo dates and destinations', () => {
 })
 
 test('a stale selected category cannot restore the retired L1 filter', () => {
-  assert.deepEqual(visibleTodoCategories([], 'developer_access', true), ['all'])
+  // @ts-expect-error Retired persisted values are outside the current category contract.
+  const categories = visibleTodoCategories([], 'developer_access', true)
+  assert.deepEqual(categories, ['all'])
 })

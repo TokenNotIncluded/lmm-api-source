@@ -10,12 +10,7 @@ mod market_oauth_config;
 pub use market_oauth_config::{market_oauth_configured, market_oauth_issuer, market_oauth_profile};
 #[cfg(test)]
 mod federated_config_tests;
-mod trust_policy_config;
 use serde::Deserialize;
-pub use trust_policy_config::{
-    trust_policy_editor, trust_policy_editor_config, trust_policy_editor_enabled,
-    trust_policy_signing_key,
-};
 #[cfg(test)]
 mod reservation_tests;
 #[cfg(test)]
@@ -345,12 +340,6 @@ struct IngressFile {
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
-struct RemoteControlFile {
-    origin: String,
-    token_file: PathBuf,
-}
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
 struct CoreFile {
     version: u32,
     #[serde(default)]
@@ -376,9 +365,8 @@ struct CoreFile {
     images: Option<SupportProjectionFile>,
     community: Option<SupportProjectionFile>,
     ingress: Option<IngressFile>,
-    remote_control: Option<RemoteControlFile>,
     edge_access: Option<crate::edge_access::TypedConfig>,
-    trust_policy_editor: Option<trust_policy_config::EditorFile>,
+    network_access: Option<crate::network_access::TypedConfig>,
 }
 
 fn parse_document<T: serde::de::DeserializeOwned>(document: &[u8]) -> io::Result<T> {
@@ -440,12 +428,6 @@ fn parse_core_file(document: &[u8]) -> io::Result<BTreeMap<&'static str, OsStrin
             ));
         }
     }
-    trust_policy_config::validate(
-        file.trust_policy_editor.as_ref(),
-        file.console.enabled,
-        file.identity.web.as_ref().map(|web| web.origin.as_str()),
-        file.database.is_some(),
-    )?;
     validate_registration_policy(
         file.identity.registration_enabled,
         file.identity.password_register_enabled,
@@ -498,8 +480,8 @@ fn parse_core_file(document: &[u8]) -> io::Result<BTreeMap<&'static str, OsStrin
             || file.bounties.is_some()
             || file.images.is_some()
             || file.community.is_some()
-            || file.remote_control.is_some()
-            || file.edge_access.is_some())
+            || file.edge_access.is_some()
+            || file.network_access.is_some())
     {
         return Err(invalid_config(
             "configured identity and business capabilities require a core database",
@@ -514,7 +496,7 @@ fn parse_core_file(document: &[u8]) -> io::Result<BTreeMap<&'static str, OsStrin
         values.insert(name, value.into());
     };
     let configured_listen = file.server.listen.clone();
-    if file.edge_access.is_some() && !file.console.enabled {
+    if (file.edge_access.is_some() || file.network_access.is_some()) && !file.console.enabled {
         return Err(invalid_config(
             "edge access requires the console policy store",
         ));
@@ -580,9 +562,6 @@ fn parse_core_file(document: &[u8]) -> io::Result<BTreeMap<&'static str, OsStrin
     }
     put("LMM_CORE_CONSOLE_ENABLED", file.console.enabled.to_string());
     let mut paths = Vec::new();
-    if let Some(editor) = file.trust_policy_editor {
-        trust_policy_config::export(editor, &mut put, &mut paths);
-    }
     if let Some(path) = file.identity.email_config_file {
         paths.push(("LMM_CORE_EMAIL_CONFIG_FILE", path));
     }
@@ -835,6 +814,11 @@ fn parse_core_file(document: &[u8]) -> io::Result<BTreeMap<&'static str, OsStrin
             paths.push((secret_key, provider.client_secret_file));
         }
     }
+    if let Some(network) = file.network_access
+        && let Some(path) = network.geoip_database
+    {
+        paths.push(("LMM_CORE_GEOIP_DATABASE", path));
+    }
     if let Some(edge) = file.edge_access {
         paths.push(("LMM_CORE_EDGE_PROOF_FILE", edge.proof_file));
     }
@@ -988,10 +972,6 @@ fn parse_core_file(document: &[u8]) -> io::Result<BTreeMap<&'static str, OsStrin
             ("LMM_CORE_ASSISTANT_TOKEN_FILE", assistant.token_file),
         ]);
     }
-    if let Some(remote) = file.remote_control {
-        put("LMM_CORE_REMOTE_CONTROL_ORIGIN", remote.origin);
-        paths.push(("LMM_CORE_REMOTE_CONTROL_TOKEN_FILE", remote.token_file));
-    }
     if let Some(ingress) = file.ingress {
         put("LMM_CORE_INGRESS_ACK_URL", ingress.ack_url);
         put("LMM_CORE_INSTANCE", ingress.instance);
@@ -1002,30 +982,6 @@ fn parse_core_file(document: &[u8]) -> io::Result<BTreeMap<&'static str, OsStrin
         values.insert(name, path.into_os_string());
     }
     Ok(values)
-}
-
-pub fn remote_control_configured() -> bool {
-    setting_os("LMM_CORE_REMOTE_CONTROL_ORIGIN").is_some()
-        || setting_os("LMM_CORE_REMOTE_CONTROL_TOKEN_FILE").is_some()
-}
-#[cfg(unix)]
-pub fn remote_control(
-    store: crate::identity::IdentityStore,
-    stopped: tokio::sync::watch::Receiver<bool>,
-) -> io::Result<Option<crate::remote_control::RemoteProxy>> {
-    match (
-        setting("LMM_CORE_REMOTE_CONTROL_ORIGIN"),
-        setting_os("LMM_CORE_REMOTE_CONTROL_TOKEN_FILE"),
-    ) {
-        (Err(env::VarError::NotPresent), None) => Ok(None),
-        (Ok(origin), Some(path)) => {
-            let token = service_token(Path::new(&path))?;
-            crate::remote_control::RemoteProxy::new(store, &origin, &token, stopped).map(Some)
-        }
-        _ => Err(invalid_config(
-            "configure both remote relay origin and service token file",
-        )),
-    }
 }
 
 pub fn listen_address() -> io::Result<std::net::SocketAddr> {
@@ -1367,6 +1323,14 @@ pub fn identity_database_required() -> io::Result<bool> {
         || setting_os("LMM_CORE_TELEGRAM_BOT_TOKEN_FILE").is_some()
         || oauth2_configured()
         || market_oauth_configured())
+}
+
+pub fn network_access_config() -> io::Result<crate::network_access::TypedConfig> {
+    let geoip_database = setting_os("LMM_CORE_GEOIP_DATABASE").map(PathBuf::from);
+    if let Some(path) = &geoip_database {
+        absolute_path(path)?;
+    }
+    Ok(crate::network_access::TypedConfig { geoip_database })
 }
 
 pub fn edge_access_config() -> io::Result<Option<crate::edge_access::TypedConfig>> {
@@ -2475,7 +2439,7 @@ pub async fn financial_rpcs(url: &str, control_token: &[u8]) -> io::Result<Finan
             crate::checkin_ledger::CheckinLedger::new(
                 bounded_database_pool(url, 2).await?,
                 &token,
-                config.max_daily_units_by_trust,
+                config.max_daily_units,
             )
             .map_err(|_| invalid_config("invalid reward funding authority"))?
             .with_challenges(challenges),
@@ -2931,13 +2895,54 @@ pub struct WebAuthConfig {
     pub privacy_policy_enabled: bool,
 }
 
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
+#[derive(serde::Serialize)]
 struct RewardFundingConfig {
     version: u32,
-    max_daily_units_by_trust: [i64; 5],
-    #[serde(default = "require_checkin_passkey")]
+    max_daily_units: i64,
     require_passkey: bool,
+}
+
+impl<'de> Deserialize<'de> for RewardFundingConfig {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        #[derive(Deserialize)]
+        #[serde(deny_unknown_fields)]
+        struct Scalar {
+            version: u32,
+            max_daily_units: crate::billing::Credits,
+            #[serde(default = "require_checkin_passkey")]
+            require_passkey: bool,
+        }
+        #[derive(Deserialize)]
+        #[serde(deny_unknown_fields)]
+        struct Legacy {
+            version: u32,
+            max_daily_units_by_trust: [crate::billing::Credits; 5],
+            #[serde(default = "require_checkin_passkey")]
+            require_passkey: bool,
+        }
+        #[derive(Deserialize)]
+        #[serde(untagged)]
+        enum Input {
+            Scalar(Scalar),
+            Legacy(Legacy),
+        }
+
+        // The strict alternatives reject documents containing both field names.
+        // Legacy values are validated in full, then use the former fifth cap
+        // for every account. Only the scalar survives this configuration boundary.
+        Ok(match Input::deserialize(deserializer)? {
+            Input::Scalar(input) => Self {
+                version: input.version,
+                max_daily_units: input.max_daily_units.into(),
+                require_passkey: input.require_passkey,
+            },
+            Input::Legacy(input) => Self {
+                version: input.version,
+                max_daily_units: input.max_daily_units_by_trust[4].into(),
+                require_passkey: input.require_passkey,
+            },
+        })
+    }
 }
 
 fn require_checkin_passkey() -> bool {
@@ -4242,6 +4247,8 @@ email_domain_whitelist = ["gmail.com", "outlook.com"]
         for document in [
             b"".as_slice(), b"version=2\n", b"version=1\nversion=1\n",
             b"version=1\nunknown='do-not-print-this'\n", b"version=1\n[database]\nurl='secret'\n",
+            b"version=1\n[trust_policy_editor]\nenabled=true\n",
+            b"version=1\n[remote_control]\norigin='http://127.0.0.1:8081'\n",
             b"version=1\n[server]\nworker_threads=0\n", b"version=1\n[server]\ndrain_timeout_seconds=301\n",
             b"version=1\n[identity.web]\norigin='http://api.lmm.local'\nrefresh_key_file='/missing-key'\n",
             b"version=1\n[identity]\napi_key_encryption_key_file='relative-key'\n",

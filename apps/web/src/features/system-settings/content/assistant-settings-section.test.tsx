@@ -120,7 +120,6 @@ const baseValues = {
   AssistantSkillFiles: '[]',
   AssistantRegistrationAutoSuspendEnabled: true,
   AssistantRegistrationDailySuspendCap: 5,
-  AssistantL1AutoApprovalUserIDs: '',
   AssistantRetentionEnabled: true,
   AssistantActiveRetentionDays: 90,
   AssistantArchivedRetentionDays: 30,
@@ -311,9 +310,11 @@ describe('assistant search provider settings', () => {
       ...baseValues,
       AssistantL1AutoReviewEnabled: true,
       AssistantL1AutoReviewModel: 'retired-model',
+      AssistantL1AutoApprovalUserIDs: '1,2',
     })
     assert.equal('AssistantL1AutoReviewEnabled' in legacy, false)
     assert.equal('AssistantL1AutoReviewModel' in legacy, false)
+    assert.equal('AssistantL1AutoApprovalUserIDs' in legacy, false)
   })
 
   test('accepts the default tool policy and the legacy empty value supplied by the settings defaults', () => {
@@ -809,16 +810,16 @@ describe('assistant settings workspace', () => {
     })
   }
 
-  test('saves local tool choices with remote group disables and a fresh policy baseline', async () => {
+  test('retires legacy rules while saving local choices with remote disables and a fresh raw baseline', async () => {
     const originalGet = api.get
     const originalPost = api.post
     const requests: string[] = []
     const initialPolicy =
-      '{"version":1,"groups":{},"tools":{"request_create_key":false}}'
+      '{"version":1,"groups":{},"tools":{"request_create_key":false},"rules":{"request_create_key":{"min_level":1,"max_level":6}}}'
     const remotePolicy =
-      '{"version":1,"groups":{"drawing":false},"tools":{"request_create_key":false}}'
+      '{"version":1,"groups":{"drawing":false},"tools":{"request_create_key":false},"rules":{}}'
     const freshPolicy =
-      '{"version":1,"groups":{"drawing":false},"tools":{"request_create_key":false,"request_image_generation":false}}'
+      ' { "version":1, "groups":{"drawing":false}, "tools":{"request_create_key":false,"request_image_generation":false}, "rules":{} } '
     const updates: Array<{
       url: string
       values: Record<string, string>
@@ -860,7 +861,7 @@ describe('assistant settings workspace', () => {
                     label: 'Create an API key',
                     description: 'Prepare an API key after user confirmation.',
                     effect: 'confirmation',
-                    access: 'l1',
+                    access: 'user',
                   },
                 ],
               },
@@ -874,7 +875,7 @@ describe('assistant settings workspace', () => {
                     description:
                       'Prepare image generation after user confirmation.',
                     effect: 'confirmation',
-                    access: 'l1',
+                    access: 'user',
                   },
                 ],
               },
@@ -1072,7 +1073,7 @@ describe('assistant settings workspace', () => {
                     description:
                       'Prepare image generation after user confirmation.',
                     effect: 'confirmation',
-                    access: 'l1',
+                    access: 'user',
                   },
                 ],
               },
@@ -1519,7 +1520,6 @@ async function openToolConfiguration(
         data: {
           success: true,
           data: {
-            capabilities: { policy_rules: true },
             groups: [
               {
                 id: 'review_tools',

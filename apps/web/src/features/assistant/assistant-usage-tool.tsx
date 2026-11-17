@@ -67,7 +67,7 @@ type UsageDays = 7 | 30 | 90
 
 const USAGE_DAY_OPTIONS: UsageDays[] = [7, 30, 90]
 
-export function AssistantUsageTool(props: { developerAccessGranted: boolean }) {
+export function AssistantUsageTool(props: { authenticated: boolean }) {
   const { t, i18n } = useTranslation()
   const { formatQuota } = useWalletCurrency()
   const [days, setDays] = useState<UsageDays>(30)
@@ -76,7 +76,7 @@ export function AssistantUsageTool(props: { developerAccessGranted: boolean }) {
   const usageQuery = useQuery({
     queryKey: ['assistant-usage', userId, sessionId, days],
     queryFn: () => getAssistantUsageData(days),
-    enabled: props.developerAccessGranted && userId !== undefined,
+    enabled: props.authenticated && userId !== undefined,
     staleTime: 60_000,
     retry: false,
   })
@@ -93,7 +93,7 @@ export function AssistantUsageTool(props: { developerAccessGranted: boolean }) {
     [i18n.language]
   )
 
-  if (!props.developerAccessGranted) {
+  if (!props.authenticated) {
     return (
       <Alert>
         <HugeiconsIcon
@@ -104,12 +104,12 @@ export function AssistantUsageTool(props: { developerAccessGranted: boolean }) {
         <AlertTitle>{t('Historical Usage')}</AlertTitle>
         <AlertDescription>
           {t(
-            'Current usage rates and available amounts are shown after access is activated.'
+            'Sign in to continue setup'
           )}
         </AlertDescription>
         <AlertAction>
-          <Button variant='outline' size='sm' render={<Link to='/wallet' />}>
-            {t('Choose an activation path')}
+          <Button variant='outline' size='sm' render={<Link to='/sign-in' />}>
+            {t('Sign in')}
             <HugeiconsIcon
               icon={ArrowRight01Icon}
               strokeWidth={2}

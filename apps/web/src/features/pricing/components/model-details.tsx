@@ -318,7 +318,6 @@ function ModalityLabels(props: { items: string[] }) {
 export function ModelCatalogMetadata({ model }: { model: PricingModel }) {
   const { t, i18n } = useTranslation()
   if (!model.catalog_metadata) return null
-  const account = model.pricing_context?.user_price
   const format = (value: number | null) =>
     value === null
       ? t('Unknown')
@@ -345,12 +344,6 @@ export function ModelCatalogMetadata({ model }: { model: PricingModel }) {
                 metadata.group_multiplier === null
                   ? t('Unknown')
                   : `×${format(metadata.group_multiplier)}`,
-              ],
-              [
-                t('Account multiplier'),
-                account?.status === 'verified'
-                  ? `${account.multiplier.numerator}/${account.multiplier.denominator}`
-                  : t('Unknown'),
               ],
             ].map(([label, value]) => (
               <div key={label} className='min-w-0'>
@@ -760,7 +753,6 @@ function PriceSection(props: {
           <PricingContextLabel
             model={props.model}
             legacyLabel='Configured group prices'
-            showDiscountNote
           />
         </SectionTitle>
         <p className='text-muted-foreground text-xs leading-5'>
@@ -823,7 +815,7 @@ function PriceSection(props: {
       return (
         <section>
           <SectionTitle>
-            <PricingContextLabel model={props.model} showDiscountNote />
+            <PricingContextLabel model={props.model} />
           </SectionTitle>
           <div className='forge-price-warning-panel rounded-none border p-3'>
             <div className='forge-price-warning-label text-sm font-medium'>
@@ -848,7 +840,7 @@ function PriceSection(props: {
     return (
       <section>
         <SectionTitle>
-          <PricingContextLabel model={props.model} showDiscountNote />
+          <PricingContextLabel model={props.model} />
         </SectionTitle>
         {dynamicSummary.primaryEntries.length > 0 ? (
           <div className='grid grid-cols-2 gap-2'>
@@ -902,7 +894,7 @@ function PriceSection(props: {
     return (
       <section>
         <SectionTitle>
-          <PricingContextLabel model={props.model} showDiscountNote />
+          <PricingContextLabel model={props.model} />
         </SectionTitle>
         <div className='flex items-baseline justify-between'>
           <span className='text-muted-foreground text-sm'>
@@ -941,7 +933,7 @@ function PriceSection(props: {
   return (
     <section>
       <SectionTitle>
-        <PricingContextLabel model={props.model} showDiscountNote />
+        <PricingContextLabel model={props.model} />
       </SectionTitle>
       <div className='grid grid-cols-2 gap-2'>
         {primaryPriceTypes.map((item) => (

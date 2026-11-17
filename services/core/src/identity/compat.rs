@@ -48,14 +48,7 @@ pub struct ProfileUpdate {
     pub sidebar_modules: Option<String>,
 }
 
-pub(super) async fn developer(c: &mut PgConnection, actor: &Principal) -> Result<()> {
-    if actor.credential_kind != CredentialKind::Session {
-        return Err(IdentityError::Forbidden);
-    }
-    require_developer(c, actor.user_id).await
-}
-// This capability applies only to API-key management. It never supplies a
-// developer grant or authorizes model routing, commerce or account balance.
+// Abuse-marked credentials remain restricted to personal funding.
 pub(super) async fn marked_key_management(c: &mut PgConnection, user: i64) -> Result<bool> {
     crate::abuse::is_marked_in_transaction(c, user)
         .await
@@ -69,47 +62,26 @@ pub(super) async fn key_management(c: &mut PgConnection, actor: &Principal) -> R
     if actor.credential_kind != CredentialKind::Session {
         return Err(IdentityError::Forbidden);
     }
-    // Check the mark even for an actual developer: marked credentials are
-    // restricted to the user's personal account and personal funding.
-    let marked = marked_key_management(c, actor.user_id).await?;
-    if !marked {
-        developer(c, actor).await?;
-    }
-    Ok(marked)
-}
-async fn require_developer(c: &mut PgConnection, user: i64) -> Result<()> {
-    let role: String =
-        sqlx::query_scalar("SELECT platform_role FROM core_identity.users WHERE id=$1 FOR SHARE")
-            .bind(user)
-            .fetch_one(&mut *c)
-            .await?;
-    if matches!(role.as_str(), "admin" | "superadmin") {
-        return Ok(());
-    }
-    let grant: Option<bool> =
-        sqlx::query_scalar("SELECT granted FROM core_identity.developer_access WHERE user_id=$1")
-            .bind(user)
-            .fetch_optional(c)
-            .await?;
-    if grant != Some(true) {
-        return Err(IdentityError::Forbidden);
-    }
-    Ok(())
+    marked_key_management(c, actor.user_id).await
 }
 async fn groups(
     c: &mut PgConnection,
     user: i64,
     routing: Option<&crate::routing::Router>,
 ) -> Result<Vec<String>> {
+    let candidates = routing_group_names_in_transaction(c, user).await?;
     if let Some(routing) = routing {
-        let candidates:Vec<String>=sqlx::query_scalar("SELECT group_name FROM core_identity.user_routing_groups WHERE user_id=$1 AND enabled ORDER BY group_name").bind(user).fetch_all(&mut *c).await?;
         return Ok(candidates
             .into_iter()
             .filter(|g| routing.catalog(g).is_ok())
             .collect());
     }
-    Ok(sqlx::query_scalar("SELECT ug.group_name FROM core_identity.user_routing_groups ug JOIN routing_active_release a ON a.singleton JOIN routing_groups g ON g.version=a.config_version AND g.name=ug.group_name WHERE ug.user_id=$1 AND ug.enabled AND g.enabled ORDER BY ug.group_name")
-        .bind(user).fetch_all(c).await?)
+    Ok(sqlx::query_scalar(
+        "SELECT g.name FROM public.routing_active_release a JOIN public.routing_groups g ON g.version=a.config_version WHERE a.singleton AND g.enabled AND g.name=ANY($1) ORDER BY g.name",
+    )
+    .bind(&candidates)
+    .fetch_all(c)
+    .await?)
 }
 fn list(input: &str, max: usize, item_max: usize) -> Result<Vec<String>> {
     let values: Vec<String> = input
@@ -391,15 +363,16 @@ impl IdentityStore {
         if actor.credential_kind != CredentialKind::ApiKey {
             return Err(IdentityError::Forbidden);
         }
+        if marked_key_management(&mut tx, actor.user_id).await? {
+            return Err(IdentityError::Forbidden);
+        }
         let row=sqlx::query("SELECT group_name,auto_groups FROM core_identity.api_key_settings WHERE credential_id=$1 FOR SHARE")
             .bind(actor.credential_id).fetch_optional(&mut *tx).await?;
         let result = if let Some(row) = row {
-            require_developer(&mut tx, actor.user_id).await?;
+
             let selected: String = row.try_get("group_name")?;
             if selected != "auto" {
-                let granted: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM core_identity.user_routing_groups WHERE user_id=$1 AND group_name=$2 AND enabled)")
-                    .bind(actor.user_id).bind(&selected).fetch_one(&mut *tx).await?;
-                if !granted {
+                if !routing_group_allowed_in_transaction(&mut tx, actor.user_id, &selected).await? {
                     return Err(IdentityError::Forbidden);
                 }
             }
@@ -739,7 +712,7 @@ impl IdentityStore {
     ) -> Result<()> {
         let mut tx = self.pool.begin().await?;
         let actor = session(&mut tx, secret).await?;
-        developer(&mut tx, &actor).await?;
+
         let row = owned_key(&mut tx, actor.user_id, id, true).await?;
         if row.try_get::<bool, _>("revoked")? {
             return Err(IdentityError::Forbidden);
@@ -816,8 +789,13 @@ impl IdentityStore {
             tx.commit().await?;
             return Ok(models.into_iter().collect());
         }
-        let result=sqlx::query_scalar("SELECT DISTINCT r.model FROM routing_routes r JOIN routing_active_release a ON a.config_version=r.version JOIN routing_groups g ON g.version=r.version AND g.name=r.group_name JOIN core_identity.user_routing_groups ug ON ug.group_name=r.group_name AND ug.user_id=$1 WHERE r.enabled AND g.enabled AND ug.enabled ORDER BY r.model")
-            .bind(actor.user_id).fetch_all(&mut *tx).await?;
+        let allowed = groups(&mut tx, actor.user_id, None).await?;
+        let result = sqlx::query_scalar(
+            "SELECT DISTINCT r.model FROM public.routing_routes r JOIN public.routing_active_release a ON a.config_version=r.version JOIN public.routing_groups g ON g.version=r.version AND g.name=r.group_name WHERE a.singleton AND r.enabled AND g.enabled AND r.group_name=ANY($1) ORDER BY r.model",
+        )
+        .bind(&allowed)
+        .fetch_all(&mut *tx)
+        .await?;
         tx.commit().await?;
         Ok(result)
     }
@@ -890,7 +868,7 @@ impl IdentityStore {
         }
         let mut tx = self.pool.begin().await?;
         let actor = session(&mut tx, secret).await?;
-        developer(&mut tx, &actor).await?;
+
         let target=sqlx::query("SELECT c.user_id,c.owner_account_id,c.kind,c.revoked_at IS NOT NULL AS revoked,t.id AS team_id FROM core_identity.credentials c LEFT JOIN core_identity.teams t ON t.account_id=c.owner_account_id WHERE c.id=$1 FOR UPDATE OF c").bind(id).fetch_optional(&mut *tx).await?.ok_or(IdentityError::Forbidden)?;
         if target.try_get::<String, _>("kind")? != "api_key"
             || target.try_get::<bool, _>("revoked")?
@@ -949,6 +927,7 @@ pub async fn authorize_model_request_in_transaction(
     if actor.credential_kind != CredentialKind::ApiKey {
         return Err(IdentityError::Forbidden);
     }
+    super::network_policy::authorize_user_ip(c, actor.user_id, peer).await?;
     if let Some(row)=sqlx::query("SELECT *, cardinality(allow_ips)=0 OR ($2::text IS NOT NULL AND $2::inet <<= ANY(allow_ips)) AS ip_allowed FROM core_identity.api_key_settings WHERE credential_id=$1 FOR SHARE").bind(actor.credential_id).bind(peer.map(|p|p.to_string())).fetch_optional(&mut *c).await? {
         let models:Vec<String>=row.try_get("model_limits")?;
         let selected:String=row.try_get("group_name")?;
@@ -962,9 +941,10 @@ pub async fn authorize_model_request_in_transaction(
         if !row.try_get::<bool,_>("enabled")? || !row.try_get::<bool,_>("ip_allowed")?
             || (row.try_get::<bool,_>("model_limits_enabled")? && !models.iter().any(|m|m==model))
             || (selected!="auto" && selected!=group) || (selected=="auto" && !auto_allowed) {return Err(IdentityError::Forbidden);}
-        require_developer(c,actor.user_id).await?;
-        let granted:Option<bool>=sqlx::query_scalar("SELECT enabled FROM core_identity.user_routing_groups WHERE user_id=$1 AND group_name=$2").bind(actor.user_id).bind(group).fetch_optional(c).await?;
-        if granted!=Some(true) {return Err(IdentityError::Forbidden);}
+
+        if !routing_group_allowed_in_transaction(c, actor.user_id, group).await? {
+            return Err(IdentityError::Forbidden);
+        }
     }
     Ok(actor)
 }

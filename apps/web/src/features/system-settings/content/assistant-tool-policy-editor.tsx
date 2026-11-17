@@ -14,14 +14,11 @@ import { useAuthStore } from '@/stores/auth-store'
 import { AssistantToolConfiguration } from './assistant-tool-configuration'
 import {
   DEFAULT_ASSISTANT_TOOL_POLICY,
-  assistantToolRule,
   assistantPolicyMatchesCatalog,
   isAssistantToolEnabled,
   parseAssistantToolCatalog,
   parseAssistantToolPolicy,
-  supportsAssistantToolPolicyRules,
   updateAssistantToolPolicy,
-  type AssistantToolAccess,
   type AssistantToolEffect,
 } from './assistant-tool-policy'
 
@@ -31,15 +28,6 @@ const effectLabels: Record<AssistantToolEffect, string> = {
   confirmation: 'Requires confirmation',
   server_guarded: 'Writes after server checks',
 }
-const accessLabels: Record<AssistantToolAccess, string> = {
-  user: 'Signed-in users',
-  l0: 'L0 users',
-  l1: 'Level at least L1',
-  admin: 'L5 (Administrator)',
-  root: 'L6 (Super administrator)',
-  mixed: 'Depends on the action',
-}
-
 export function AssistantToolPolicyEditor(props: {
   value: string
   onChange: (value: string) => void
@@ -62,10 +50,7 @@ export function AssistantToolPolicyEditor(props: {
       )
       const groups = parseAssistantToolCatalog(response.data)
       if (!groups) throw new Error('Invalid assistant tool catalog')
-      return {
-        groups,
-        policyRules: supportsAssistantToolPolicyRules(response.data),
-      }
+      return { groups }
     },
     enabled: props.active,
     staleTime: 60_000,
@@ -73,7 +58,6 @@ export function AssistantToolPolicyEditor(props: {
   })
   const policy = parseAssistantToolPolicy(props.value)
   const groups = catalog.data?.groups
-  const policyRulesSupported = catalog.data?.policyRules === true
   const valid =
     policy !== null &&
     (!groups || assistantPolicyMatchesCatalog(policy, groups))
@@ -92,20 +76,16 @@ export function AssistantToolPolicyEditor(props: {
   const accessLabel = (
     tool: NonNullable<typeof groups>[number]['tools'][number]
   ) => {
-    if (!policy) return t(accessLabels[tool.access])
-    const rule = assistantToolRule(policy, tool)
-    if (rule.min_level === 6) return t('L6 (Super administrator)')
-    if (rule.min_level === 5 && rule.max_level === 6) {
-      return t('Level at least L5 (Administrator)')
+    switch (tool.access) {
+      case 'admin':
+        return t('Administrator')
+      case 'root':
+        return t('Super administrator')
+      case 'mixed':
+        return t('Depends on the action')
+      default:
+        return t('Signed-in users')
     }
-    if (rule.max_level === 6) {
-      return t('Level at least L{{level}}', { level: rule.min_level })
-    }
-    if (rule.min_level === rule.max_level) return `L${rule.min_level}`
-    return t('Levels L{{min}}–L{{max}}', {
-      min: rule.min_level,
-      max: rule.max_level,
-    })
   }
   const query = search.trim().toLocaleLowerCase()
   const filteredGroups = groups
@@ -119,7 +99,6 @@ export function AssistantToolPolicyEditor(props: {
           t(tool.label),
           t(tool.description),
           t(effectLabels[tool.effect]),
-          t(accessLabels[tool.access]),
           accessLabel(tool),
         ].some((text) => text.toLocaleLowerCase().includes(query))
       ),
@@ -148,7 +127,6 @@ export function AssistantToolPolicyEditor(props: {
     >
       {props.active && valid && policy && selectedTool && (
         <AssistantToolConfiguration
-          rulesSupported={policyRulesSupported}
           groupEnabled={
             !selectedGroup || policy.groups[selectedGroup.id] !== false
           }

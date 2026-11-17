@@ -262,48 +262,20 @@ GRANT USAGE ON SEQUENCE core_abuse.audit_id_seq TO {name};
                 "GRANT USAGE ON SCHEMA core_telegram_auth TO {name}; GRANT SELECT ON core_telegram_auth.bindings,core_telegram_auth.flows,core_telegram_auth.assertions TO {name}; GRANT INSERT(subject,user_id),UPDATE(revoked_at) ON core_telegram_auth.bindings TO {name}; GRANT INSERT(token_digest,purpose,binding_digest,user_id,user_version,sid),UPDATE(consumed_at),DELETE ON core_telegram_auth.flows TO {name}; GRANT INSERT(digest),DELETE ON core_telegram_auth.assertions TO {name}",
             ))).execute(owner).await.unwrap();
         }
-        // Match the production enable_trust_pricing read grants, without adding
-        // optional components or authority to older partial-schema fixtures.
-        let trust_installed: bool = sqlx::query_scalar(
-            "SELECT count(*)=3 FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='core_trust_pricing' AND c.relkind='r' AND c.relname IN ('policies','user_bases','legacy_paid_orders')",
+        // Identity history reads use charging evidence independently of retired pricing tables.
+        let charging_installed: bool = sqlx::query_scalar(
+            "SELECT count(*)=4 FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='core_charging' AND c.relkind='r' AND c.relname IN ('requests','usage_events','ledger_commands','refunds')",
         )
         .fetch_one(owner)
         .await
         .unwrap();
-        if trust_installed {
+        if charging_installed {
             sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
-                "GRANT USAGE ON SCHEMA core_trust_pricing TO {name}; GRANT SELECT ON core_trust_pricing.policies,core_trust_pricing.user_bases,core_trust_pricing.legacy_paid_orders TO {name}",
+                "GRANT USAGE ON SCHEMA core_charging TO {name}; GRANT SELECT ON core_charging.requests,core_charging.usage_events,core_charging.ledger_commands,core_charging.refunds TO {name}",
             )))
             .execute(owner)
             .await
             .unwrap();
-            let payments_installed: bool =
-                sqlx::query_scalar("SELECT to_regclass('core_payments.intents') IS NOT NULL")
-                    .fetch_one(owner)
-                    .await
-                    .unwrap();
-            if payments_installed {
-                sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
-                    "GRANT USAGE ON SCHEMA core_payments TO {name}; GRANT SELECT ON core_payments.intents TO {name}",
-                )))
-                .execute(owner)
-                .await
-                .unwrap();
-            }
-            let charging_installed: bool = sqlx::query_scalar(
-                "SELECT to_regclass('core_charging.requests') IS NOT NULL AND to_regclass('core_charging.usage_events') IS NOT NULL",
-            )
-            .fetch_one(owner)
-            .await
-            .unwrap();
-            if charging_installed {
-                sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
-                    "GRANT USAGE ON SCHEMA core_charging TO {name}; GRANT SELECT ON core_charging.requests,core_charging.usage_events,core_charging.ledger_commands,core_charging.refunds TO {name}",
-                )))
-                .execute(owner)
-                .await
-                .unwrap();
-            }
         }
         let mut url = reqwest::Url::parse(&std::env::var("DATABASE_URL").unwrap()).unwrap();
         assert!(matches!(url.host_str(), Some("localhost" | "127.0.0.1")));

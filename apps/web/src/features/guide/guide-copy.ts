@@ -40,7 +40,6 @@ export function useGuideCopy() {
       t('Account and support'),
     ],
     contactSupport: t('Contact support'),
-    requestManualAccess: t('Contact support for access'),
     supportTitle: t('Need help from a person?'),
     supportBody: t(
       'Email support with your account, device and issue. Hide your API key.'
@@ -53,7 +52,7 @@ export function useGuideCopy() {
     stages: [
       t('Choose an app'),
       t('Download and install'),
-      t('Request access and create a key'),
+      t('Create an API key'),
       t('Configure your client'),
       t('Send your first message'),
     ],
@@ -63,26 +62,22 @@ export function useGuideCopy() {
     ),
     accountTitle: t('Prepare your account'),
     accountBody: t(
-      'Once access is approved, create a key to connect LMM to your app.'
+      'Sign in, create an API key and connect LMM to your app.'
     ),
     accountSteps: [
-      t('Get API access'),
+      t('Sign in'),
       t('Create an API key'),
       t('Complete your first request'),
     ],
     complete: t('Complete'),
     pending: t('Pending'),
     signIn: t('Sign in to continue setup'),
-    requestAccess: t('Ask the assistant for access'),
     createKey: t('Create a key and import'),
-    requestAccessQuestion: t(
-      'I am reading the getting-started guide and want to use the LMM API. Explain what information is needed for access and guide me through the application.'
-    ),
     createKeyQuestion: t(
       'I have read the getting-started guide. Help me create an API key for my first connection, explain permissions, limits and routing groups, then guide me through importing it into my chosen client.'
     ),
     setupQuestion: t(
-      'I am new to LMM. First ask which device and app I use and what I want to do, then guide me through the official download, installation, access request, key creation, base URL and model configuration, and my first message. Explain where to click and how to verify each step.'
+      'Help me set up LMM. Ask which device and app I use, then guide me through installation, sign-in, API key creation and my first request.'
     ),
     securityTitle: t('Enter keys only in trusted clients'),
     securityBody: t(

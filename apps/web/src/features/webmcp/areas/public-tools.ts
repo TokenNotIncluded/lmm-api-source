@@ -315,7 +315,6 @@ export const publicToolsTools: WebMcpToolFactory = ({ router }) => [
       return {
         page: '/pricing',
         rate_basis: pricing.pricing_context?.rate_basis ?? null,
-        user_price: pricing.pricing_context?.user_price ?? null,
         model: model.model_name,
         vendor: model.vendor_name ?? null,
         group: chosenGroup,
@@ -328,7 +327,7 @@ export const publicToolsTools: WebMcpToolFactory = ({ router }) => [
         credits_per_usd: 500_000,
         estimable: safeCredit !== null,
         billing_basis:
-          'Displayed USD rates already include applicable account and group factors; they are converted at 500000 Credits per USD without applying discounts again. This text-only estimate is not a locked quote or a settlement receipt.',
+          'Displayed USD rates already include the configured group factors and are converted at 500000 Credits per USD. This text-only estimate is not a locked quote or a settlement receipt.',
       }
     },
   },

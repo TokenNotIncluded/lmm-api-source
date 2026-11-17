@@ -23,8 +23,7 @@ import { Pricing } from '@/features/pricing'
 import { resolvePricingRouteAccess } from '@/features/pricing/lib/route-access'
 
 function PricingRoute() {
-  // Always show the live catalog. L0 gating belongs on purchase/details, not on
-  // hiding model prices behind a marketing-only shell.
+  // The live catalog follows the configured public or signed-in route policy.
   return <Pricing />
 }
 

@@ -58,11 +58,7 @@ pub(super) fn load(
 
     // Compare bytes rather than filenames: copies, hardlinks and aliases cannot
     // turn a session, identity or signing key into a dedicated recovery key.
-    let mut other_files: Vec<(PathBuf, usize)> =
-        [("LMM_CORE_TRUST_POLICY_EDITOR_SIGNING_KEY_FILE", 32)]
-            .into_iter()
-            .filter_map(|(name, maximum)| setting(name).map(|path| (PathBuf::from(path), maximum)))
-            .collect();
+    let mut other_files: Vec<(PathBuf, usize)> = Vec::new();
     let mut others = Vec::new();
     let mut hmac_keys = Vec::new();
     if let Some(path) = setting("LMM_CORE_API_KEY_ENCRYPTION_KEY_FILE") {
@@ -289,7 +285,6 @@ mod tests {
             for (name, setting) in [
                 ("web", "LMM_CORE_WEB_REFRESH_KEY_FILE"),
                 ("api", "LMM_CORE_API_KEY_ENCRYPTION_KEY_FILE"),
-                ("trust", "LMM_CORE_TRUST_POLICY_EDITOR_SIGNING_KEY_FILE"),
             ] {
                 let key = self.key(name, 17 + paths.len() as u8);
                 self.settings.insert(setting, key.clone().into_os_string());

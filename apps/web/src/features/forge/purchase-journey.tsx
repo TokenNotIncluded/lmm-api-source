@@ -11,7 +11,6 @@ import { ArrowRight } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 
 import { Button } from '@/components/ui/button'
-import { isConsoleActivated } from '@/lib/console-activation'
 import { useAuthStore } from '@/stores/auth-store'
 
 const STEPS = [
@@ -22,7 +21,7 @@ const STEPS = [
   ],
   [
     'Top up credit',
-    'Any amount works. A successful top-up unlocks developer access (L1) automatically.',
+    'Pay for requests with your account balance.',
     { to: '/wallet' as const, label: 'Open wallet' },
   ],
   [
@@ -35,7 +34,6 @@ const STEPS = [
 export function PurchaseJourney() {
   const { t } = useTranslation()
   const user = useAuthStore((state) => state.auth.user)
-  const activated = isConsoleActivated(user)
 
   return (
     <div className='space-y-6'>
@@ -49,11 +47,7 @@ export function PurchaseJourney() {
           />
         }
       >
-        {!user
-          ? t('Sign in to top up')
-          : activated
-            ? t('Top up credit')
-            : t('Top up to unlock access')}
+        {user ? t('Top up credit') : t('Sign in to top up')}
         <ArrowRight data-icon='inline-end' />
       </Button>
       <ol className='grid gap-6 md:grid-cols-3 md:gap-8'>

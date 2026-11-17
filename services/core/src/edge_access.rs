@@ -28,7 +28,6 @@ use subtle::ConstantTimeEq;
 pub const PROOF_HEADER: &str = "x-lmm-edge-proof";
 pub const CLIENT_HEADER: &str = "x-lmm-edge-client-ip";
 const RULE_KEY: &str = "IPAccessRoutingRules";
-const ELIGIBILITY_KEY: &str = "IPAccessRoutingBypassEligibilityV1";
 const LOOKUP_TIMEOUT: Duration = Duration::from_secs(2);
 
 #[derive(Clone, Deserialize)]
@@ -49,6 +48,9 @@ impl std::error::Error for SetupError {}
 pub struct OriginalSocketPeer(pub SocketAddr);
 #[derive(Clone, Copy)]
 struct EdgeClient(IpAddr);
+/// Country metadata is trusted only after authenticating the physical edge.
+#[derive(Clone)]
+pub(crate) struct TrustedCountry(pub(crate) Option<String>);
 #[derive(Clone)]
 pub struct EdgeAccess {
     pool: PgPool,
@@ -122,25 +124,11 @@ impl EdgeAccess {
             if setting.len() > 32768 {
                 return None;
             }
-            // The original explicit opt-in is independent of every trust/access fact.
+            // The authenticated key owner must explicitly opt in to this bypass.
             if !serde_json::from_str::<OptIn>(&setting)
                 .ok()?
                 .allow_key_bypass_ip_policy
             {
-                return None;
-            }
-            let document: Option<String> =
-                sqlx::query_scalar("SELECT value FROM core_console.options WHERE key=$1")
-                    .bind(ELIGIBILITY_KEY)
-                    .fetch_optional(&mut *tx)
-                    .await
-                    .ok()?;
-            let document = document?;
-            if document.len() > 1048576 {
-                return None;
-            }
-            let facts: Eligibility = serde_json::from_str(&document).ok()?;
-            if !facts.allows(actor.user_id) {
                 return None;
             }
             tx.commit().await.ok()?;
@@ -197,6 +185,11 @@ async fn trusted_edge(
     else {
         return denied("INTERNAL_ONLY");
     };
+    let country = match country(request.headers()) {
+        Ok(country) => country,
+        Err(_) => return denied("POLICY_UNAVAILABLE"),
+    };
+    request.extensions_mut().insert(TrustedCountry(country));
     request
         .extensions_mut()
         .insert(OriginalSocketPeer(physical));
@@ -209,6 +202,8 @@ async fn trusted_edge(
     // inputs, not downstream application identity.
     request.headers_mut().remove(PROOF_HEADER);
     request.headers_mut().remove(CLIENT_HEADER);
+    request.headers_mut().remove("x-lmm-edge-country");
+    request.headers_mut().remove("x-lmm-cn-source");
     next.run(request).await
 }
 fn denied(code: &'static str) -> Response {
@@ -223,10 +218,8 @@ async fn check(State(state): State<EdgeAccess>, request: Request) -> Response {
     let Some(client) = request.extensions().get::<EdgeClient>().map(|p| p.0) else {
         return denied("INTERNAL_ONLY");
     };
-    let country = match country(request.headers()) {
-        Ok(c) => c,
-        Err(_) => return denied("POLICY_UNAVAILABLE"),
-    };
+    let country = request.extensions().get::<TrustedCountry>()
+        .and_then(|country| country.0.clone());
     let policy = tokio::time::timeout(LOOKUP_TIMEOUT, async {
         let source: Option<String> =
             sqlx::query_scalar("SELECT value FROM core_console.options WHERE key=$1")
@@ -288,61 +281,20 @@ struct OptIn {
     #[serde(default)]
     allow_key_bypass_ip_policy: bool,
 }
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct Eligibility {
-    version: u8,
-    users: Vec<EligibilityUser>,
-}
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct EligibilityUser {
-    user_id: i64,
-    minimum_trust_level: u8,
-    basis: EligibilityBasis,
-    source_facts_sha256: String,
-}
-#[derive(Deserialize)]
-enum EligibilityBasis {
-    #[serde(rename = "source_console_activation")]
-    ConsoleActivation,
-    #[serde(rename = "source_explicit_override")]
-    ExplicitOverride,
-    #[serde(rename = "source_admin_role")]
-    AdminRole,
-    #[serde(rename = "source_paid_projection")]
-    PaidProjection,
-}
-impl Eligibility {
-    fn allows(&self, user: i64) -> bool {
-        if self.version != 1 || self.users.len() > 4096 {
-            return false;
-        }
-        let mut seen = std::collections::HashSet::new();
-        for fact in &self.users {
-            if fact.user_id <= 0
-                || !seen.insert(fact.user_id)
-                || !(1..=6).contains(&fact.minimum_trust_level)
-                || fact.source_facts_sha256.len() != 64
-                || !fact
-                    .source_facts_sha256
-                    .bytes()
-                    .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
-            {
-                return false;
-            }
-            let _ = &fact.basis;
-        }
-        self.users.iter().any(|fact| fact.user_id == user)
-    }
-}
-
 mod policy;
 use policy::{Action, Policy};
 
 #[cfg(test)]
 pub(crate) fn validate_policy(source: &str) -> Result<(), SetupError> {
     Policy::parse(source).map(|_| ())
+}
+
+pub(crate) fn evaluate_policy(
+    source: &str,
+    ip: IpAddr,
+    country: Option<&str>,
+) -> Result<bool, SetupError> {
+    Ok(Policy::parse(source)?.evaluate(ip, country)? == Action::Direct)
 }
 
 pub(crate) fn preview_policy(

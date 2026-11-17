@@ -10,13 +10,7 @@ import {
   isAssistantToolEnabled,
   parseAssistantToolCatalog,
   parseAssistantToolPolicy,
-  supportsAssistantToolPolicyRules,
   updateAssistantToolPolicy,
-  defaultAssistantToolRule,
-  assistantToolRule,
-  updateAssistantToolRule,
-  weeklyDiscountLimit,
-  mergeAssistantToolPolicy,
 } from './assistant-tool-policy'
 
 const catalogPayload = {
@@ -32,14 +26,14 @@ const catalogPayload = {
             label: 'List API keys',
             description: 'View key settings.',
             effect: 'read_only',
-            access: 'l1',
+            access: 'user',
           },
           {
             name: 'create_my_key',
             label: 'Create an API key',
             description: 'Create a key after confirmation.',
             effect: 'confirmation',
-            access: 'l1',
+            access: 'user',
           },
         ],
       },
@@ -47,47 +41,20 @@ const catalogPayload = {
   },
 }
 
-test('legacy catalogs retain known toggles but require literal capability for every rules field', () => {
-  const legacy = parseAssistantToolPolicy(
+test('known switches match the catalog and reject unknown tools or groups', () => {
+  const policy = parseAssistantToolPolicy(
     '{"version":1,"groups":{"api_keys":false},"tools":{"list_my_keys":false}}'
   )
-  assert.ok(legacy)
-  assert.equal(
-    assistantPolicyMatchesBackendCatalog(legacy, catalogPayload),
-    true
-  )
-  for (const flag of [undefined, false, 'true', 1]) {
-    const payload = {
-      ...catalogPayload,
-      data: { ...catalogPayload.data, capabilities: { policy_rules: flag } },
-    }
-    assert.equal(supportsAssistantToolPolicyRules(payload), false)
-    assert.equal(
-      assistantPolicyMatchesBackendCatalog({ ...legacy, rules: {} }, payload),
-      false,
-      'even an empty rules object is an unknown top-level field on legacy parsers'
-    )
-  }
-  const supported = {
-    ...catalogPayload,
-    data: { ...catalogPayload.data, capabilities: { policy_rules: true } },
-  }
-  assert.equal(supportsAssistantToolPolicyRules(supported), true)
-  assert.equal(
-    assistantPolicyMatchesBackendCatalog(
-      { ...legacy, rules: { list_my_keys: { min_level: 2, max_level: 6 } } },
-      supported
-    ),
-    true
-  )
+  assert.ok(policy)
+  assert.equal(assistantPolicyMatchesBackendCatalog(policy, catalogPayload), true)
   for (const scope of ['groups', 'tools'] as const) {
     assert.equal(
       assistantPolicyMatchesBackendCatalog(
         {
-          ...legacy,
-          [scope]: { ...legacy[scope], new_server_identifier: false },
+          ...policy,
+          [scope]: { ...policy[scope], new_server_identifier: false },
         },
-        supported
+        catalogPayload
       ),
       false
     )
@@ -259,122 +226,47 @@ test('requires a successful complete catalog and rejects ambiguous identifiers o
   )
 })
 
-test('level defaults express inclusive minimums without granting administrator roles', () => {
-  const group = parseAssistantToolCatalog(catalogPayload)![0]
-  assert.deepEqual(defaultAssistantToolRule(group.tools[0]), {
-    min_level: 1,
-    max_level: 6,
-  })
-  assert.deepEqual(
-    defaultAssistantToolRule({ ...group.tools[0], access: 'admin' }),
-    { min_level: 5, max_level: 6 }
-  )
-  assert.deepEqual(
-    defaultAssistantToolRule({ ...group.tools[0], access: 'root' }),
-    { min_level: 6, max_level: 6 }
-  )
-  const policy = parseAssistantToolPolicy(DEFAULT_ASSISTANT_TOOL_POLICY)!
-  const configured = parseAssistantToolPolicy(
-    updateAssistantToolRule(policy, 'list_my_keys', {
-      min_level: 2,
-      max_level: 4,
-    })
-  )!
-  assert.deepEqual(assistantToolRule(configured, group.tools[0]), {
-    min_level: 2,
-    max_level: 4,
-  })
-  assert.equal(assistantPolicyMatchesCatalog(configured, [group]), true)
-  const tooLow = {
-    ...configured,
-    rules: { list_my_keys: { min_level: 0, max_level: 6 } },
+test('retired rules are ignored while every group and tool choice is preserved', () => {
+  const choices = {
+    version: 1,
+    groups: { api_keys: false },
+    tools: { list_my_keys: true, create_my_key: false },
   }
-  assert.equal(assistantPolicyMatchesCatalog(tooLow, [group]), false)
-  assert.deepEqual(
-    parseAssistantToolPolicy(
-      updateAssistantToolRule(configured, 'list_my_keys')
-    ),
-    policy
-  )
-})
-
-test('discount, market and issue policies reject unsafe values instead of enabling defaults', () => {
-  const make = (name: string, rule: unknown) =>
-    JSON.stringify({ version: 1, rules: { [name]: rule } })
-  const bounds = { min_level: 1, max_level: 6 }
-  assert.equal(weeklyDiscountLimit(bounds, 1), 10)
-  assert.equal(weeklyDiscountLimit(bounds, 5), 0)
-  for (const raw of [
-    make('prepare_weekly_discount', {
-      ...bounds,
-      discount_percent_by_level: { '1': 100 },
-    }),
-    make('prepare_weekly_discount', {
-      ...bounds,
-      discount_percent_by_level: { '5': 1 },
-    }),
-    make('calculate_math', {
-      ...bounds,
-      discount_percent_by_level: { '1': 20 },
-    }),
-    make('call_market_tool', { ...bounds, market_service_ids: ['a', 'a'] }),
-    make('call_market_tool', { ...bounds, market_service_ids: null }),
-    make('create_site_issue', { ...bounds, default_visibility: 'public' }),
+  for (const rules of [
+    {},
+    { list_my_keys: { min_level: 1, max_level: 6 } },
+    {
+      prepare_weekly_discount: {
+        min_level: 0,
+        max_level: 6,
+        discount_percent_by_level: { '1': 25 },
+      },
+    },
   ]) {
-    assert.equal(parseAssistantToolPolicy(raw), null, raw)
+    const raw = JSON.stringify({ ...choices, rules })
+    assert.deepEqual(parseAssistantToolPolicy(raw), choices)
+    const saved = assistantToolPolicySchema.parse(raw)
+    assert.deepEqual(JSON.parse(saved), choices)
+    assert.equal(Object.hasOwn(JSON.parse(saved), 'rules'), false)
   }
-  const raw = make('prepare_weekly_discount', {
-    ...bounds,
-    discount_percent_by_level: { '1': 25 },
-  })
-  assert.equal(
-    weeklyDiscountLimit(
-      parseAssistantToolPolicy(raw)!.rules!.prepare_weekly_discount,
-      1
-    ),
-    25
-  )
 })
 
-test('concurrent rule edits intersect access and keep the lower reward cap', () => {
-  const encode = (rules: unknown) =>
-    JSON.stringify({ version: 1, groups: {}, tools: {}, rules })
-  const before = encode({
-    prepare_weekly_discount: { min_level: 0, max_level: 6 },
-  })
-  const local = encode({
-    prepare_weekly_discount: {
-      min_level: 2,
-      max_level: 6,
-      discount_percent_by_level: { '2': 25 },
+test('catalog permissions distinguish users and administrator roles without member levels', () => {
+  const withAccess = (access: string) => ({
+    success: true,
+    data: {
+      groups: [{
+        ...catalogPayload.data.groups[0],
+        tools: [{ ...catalogPayload.data.groups[0].tools[0], access }],
+      }],
     },
   })
-  const remote = encode({
-    prepare_weekly_discount: {
-      min_level: 0,
-      max_level: 4,
-      discount_percent_by_level: { '2': 15 },
-    },
-  })
-  const merged = parseAssistantToolPolicy(
-    mergeAssistantToolPolicy(before, local, remote)
-  )!
-  assert.equal(merged.rules!.prepare_weekly_discount.min_level, 2)
-  assert.equal(merged.rules!.prepare_weekly_discount.max_level, 4)
-  assert.equal(
-    weeklyDiscountLimit(merged.rules!.prepare_weekly_discount, 2),
-    15
-  )
-  const market = (ids: string[]) =>
-    encode({
-      call_market_tool: { min_level: 1, max_level: 6, market_service_ids: ids },
-    })
-  const linked = parseAssistantToolPolicy(
-    mergeAssistantToolPolicy(
-      market(['a']),
-      market(['a', 'b']),
-      market(['a', 'c'])
-    )
-  )!
-  assert.deepEqual(linked.rules!.call_market_tool.market_service_ids, ['a'])
+  for (const access of ['user', 'admin', 'root', 'mixed']) {
+    const groups = parseAssistantToolCatalog(withAccess(access))
+    assert.ok(groups)
+    assert.equal(groups[0].tools[0].access, access)
+  }
+  for (const access of ['l0', 'l1', 'l5', 'l6']) {
+    assert.equal(parseAssistantToolCatalog(withAccess(access)), null)
+  }
 })

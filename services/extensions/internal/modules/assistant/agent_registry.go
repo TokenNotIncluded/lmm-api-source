@@ -120,7 +120,7 @@ func NewAgentRegistry(bindings []AgentToolBinding) (*AgentRegistry, error) {
 			return nil, access.ErrInvalid
 		}
 		switch b.Access {
-		case "user", "l0", "l1", "admin", "root", "mixed":
+		case "user", "admin", "root", "mixed":
 		default:
 			return nil, access.ErrInvalid
 		}

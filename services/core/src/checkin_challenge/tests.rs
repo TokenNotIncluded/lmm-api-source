@@ -104,7 +104,7 @@ async fn fixture(owner: &PgPool, strict: bool) -> Fixture {
         strict,
     )
     .unwrap();
-    let ledger = CheckinLedger::new(role.pool.clone(), SERVICE.as_bytes(), [100; 5])
+    let ledger = CheckinLedger::new(role.pool.clone(), SERVICE.as_bytes(), 100)
         .unwrap()
         .with_challenges(config);
     Fixture {
@@ -265,7 +265,17 @@ async fn provider_binding_is_mandatory_and_success_posts_once(owner: PgPool) {
         .unwrap();
     assert_eq!(recovered, authorized);
     assert_eq!(f.calls.load(Ordering::SeqCst), calls);
-    let input = posting(&context, &challenge, 31);
+    let mut input = posting(&context, &challenge, 31);
+    assert_eq!(context.trust_level, 0);
+    // A pre-retirement intention can still be pending in the extension journal.
+    input.trust_level = 4;
+    let mut over_cap = input.clone();
+    over_cap.amount_units = context.max_daily_units + 1;
+    status(
+        f.ledger.post(request(access(&f.bundle), over_cap)).await.unwrap_err(),
+        Code::PermissionDenied,
+        "funding authority denied",
+    );
     // Fail after authorization consumption, at the real ledger call. The
     // transaction must retain neither a consumed proof nor a partial reward.
     sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
@@ -476,7 +486,7 @@ async fn expiry_rate_limits_and_concurrent_posting_fail_closed(owner: PgPool) {
     let f = fixture(&owner, false).await;
     let context = f.context().await;
     let challenge = f.challenge(OPERATION).await;
-    let no_config = CheckinLedger::new(f.role.pool.clone(), SERVICE.as_bytes(), [100; 5]).unwrap();
+    let no_config = CheckinLedger::new(f.role.pool.clone(), SERVICE.as_bytes(), 100).unwrap();
     status(
         no_config
             .post(request(

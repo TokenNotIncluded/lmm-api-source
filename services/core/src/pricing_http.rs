@@ -69,18 +69,9 @@ pub struct PricingResponse {
     pub observed_at: u64,
     pub credits_per_usd: i64,
     pub rate_basis: &'static str,
-    pub user_price: UserPrice,
     pub invocation_authorized: bool,
     #[serde(flatten)]
     pub catalog: PricingProjection,
-}
-#[derive(Serialize)]
-#[serde(tag = "status", rename_all = "snake_case")]
-pub enum UserPrice {
-    NotEvaluated,
-    Verified {
-        multiplier: crate::model_http::pricing::ExactFraction,
-    },
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -218,7 +209,7 @@ impl PricingHttp {
         if secret.is_none() && (!policy.enabled || policy.require_auth) {
             return Err(Error::Forbidden);
         }
-        let (allowed, model_filter, authority) = if let Some(secret) = secret {
+        let (allowed, model_filter) = if let Some(secret) = secret {
             let actor = identity::authenticate_readonly_in_transaction(&mut tx, secret).await?;
             if actor.credential_kind != CredentialKind::Session
                 || actor.owner.kind != crate::accounts::AccountKind::Personal
@@ -230,25 +221,13 @@ impl PricingHttp {
             if !policy.enabled && actor.platform_level != 6 {
                 return Err(Error::Forbidden);
             }
-            let groups:Vec<String>=sqlx::query_scalar("SELECT group_name FROM core_identity.user_routing_groups WHERE user_id=$1 AND enabled ORDER BY group_name").bind(actor.user_id).fetch_all(&mut *tx).await?;
+            let groups = identity::routing_group_names_in_transaction(&mut tx, actor.user_id).await?;
             let models = crate::abuse::public_models_in_transaction(&mut tx, actor.user_id)
                 .await
                 .map_err(|_| Error::Unavailable)?;
-            let authority = if surface.as_ref().is_some_and(|s| s.trust_pricing_enabled()) {
-                Some(
-                    crate::billing::trust_pricing::quote_readonly_in_transaction(
-                        &mut tx,
-                        actor.user_id,
-                    )
-                    .await
-                    .map_err(|_| Error::Unavailable)?,
-                )
-            } else {
-                None
-            };
-            (Some(groups), models, authority)
+            (Some(groups), models)
         } else {
-            (None, None, None)
+            (None, None)
         };
         let timestamp: i64 =
             sqlx::query_scalar("SELECT floor(extract(epoch FROM clock_timestamp()))::bigint")
@@ -260,26 +239,11 @@ impl PricingHttp {
             .ok_or(Error::Unavailable)?
             .project(allowed.as_deref(), model_filter.as_deref())
             .map_err(|_| Error::Unavailable)?;
-        let (rate_basis, user_price) = if let Some(authority) = authority {
-            catalog
-                .apply_user_authority(&authority)
-                .map_err(|_| Error::Unavailable)?;
-            let d = authority.discount();
-            (
-                "effective_user_rate",
-                UserPrice::Verified {
-                    multiplier: crate::model_http::pricing::ExactFraction {
-                        numerator: d.numerator().to_string(),
-                        denominator: d.denominator().to_string(),
-                    },
-                },
-            )
-        } else if secret.is_some() {
-            // Only library fixtures omit production's mandatory host builder.
-            catalog.legacy_fixture_basis();
-            ("effective_group_rate", UserPrice::NotEvaluated)
+        let rate_basis = if secret.is_some() {
+            catalog.effective_group_basis();
+            "effective_group_rate"
         } else {
-            ("base_group_rate", UserPrice::NotEvaluated)
+            "base_group_rate"
         };
         tx.commit().await?;
         Ok(PricingResponse {
@@ -292,7 +256,6 @@ impl PricingHttp {
             observed_at,
             credits_per_usd: crate::billing::CREDITS_PER_USD,
             rate_basis,
-            user_price,
             invocation_authorized: false,
             catalog,
         })

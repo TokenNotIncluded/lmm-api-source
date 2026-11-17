@@ -73,7 +73,6 @@ const rawWalletCatalog = {
   discount: {},
   topup_group_ratio: 1,
   payment_compliance_confirmed: true,
-  developer_access_granted: true,
   payment_available: true,
 } satisfies TopupInfo & {
   // Required in the latest version-1 catalog; kept explicit for older type snapshots.

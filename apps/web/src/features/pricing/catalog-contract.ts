@@ -14,36 +14,7 @@ const fraction = z.object({
   denominator: z.string().regex(/^[1-9]\d{0,127}$/),
 })
 
-const rateBasis = z.enum([
-  'base_group_rate',
-  'effective_user_rate',
-  'effective_group_rate',
-])
-const accountMultiplier = z
-  .object({
-    numerator: z.string().regex(/^[1-9]\d{0,19}$/),
-    denominator: z.string().regex(/^[1-9]\d{0,19}$/),
-  })
-  .refine(({ numerator, denominator }) => {
-    if (
-      !/^[1-9]\d{0,19}$/.test(numerator) ||
-      !/^[1-9]\d{0,19}$/.test(denominator)
-    ) {
-      return false
-    }
-    const n = BigInt(numerator)
-    const d = BigInt(denominator)
-    return n <= d && n <= 18_446_744_073_709_551_615n && d <= 10n ** 18n
-  }, 'Invalid account price multiplier')
-const userPrice = z.discriminatedUnion('status', [
-  z.object({ status: z.literal('not_evaluated') }).strict(),
-  z
-    .object({
-      status: z.literal('verified'),
-      multiplier: accountMultiplier,
-    })
-    .strict(),
-])
+const rateBasis = z.enum(['base_group_rate', 'effective_group_rate'])
 
 const imageTokenRatio = z
   .object({ numerator: safeInteger, denominator: safeInteger.positive() })
@@ -52,7 +23,7 @@ const imageTokenRatio = z
 export const nativeImageVariantSchema = z
   .object({
     endpoint: z.enum(['generations', 'edits']),
-    rate_basis: z.enum(['base_group_rate', 'effective_user_rate']).optional(),
+    rate_basis: rateBasis.optional(),
     // Empty size/quality means "any / default" for that axis on image SKUs.
     size: z.string().max(1024),
     quality: z.string().max(1024),
@@ -246,8 +217,6 @@ export const nativePricingSchema = z
     observed_at: safeInteger,
     credits_per_usd: z.literal(500_000),
     rate_basis: rateBasis,
-    // Only historical effective_group_rate documents may omit this field.
-    user_price: userPrice.optional(),
     invocation_authorized: z.literal(false),
     routing_version: safeInteger,
     pricing_version: safeInteger,
@@ -278,23 +247,15 @@ export const nativePricingSchema = z
       .max(4096),
   })
   .superRefine((document, context) => {
-    const publicPrice =
-      document.visibility === 'public' &&
-      document.rate_basis === 'base_group_rate' &&
-      document.user_price?.status === 'not_evaluated'
-    const accountPrice =
-      document.visibility === 'session' &&
-      document.rate_basis === 'effective_user_rate' &&
-      document.user_price?.status === 'verified'
-    const legacyPrice =
-      document.rate_basis === 'effective_group_rate' &&
-      (document.user_price === undefined ||
-        document.user_price.status === 'not_evaluated')
-    if (!publicPrice && !accountPrice && !legacyPrice) {
+    const expectedBasis =
+      document.visibility === 'public'
+        ? 'base_group_rate'
+        : 'effective_group_rate'
+    if (document.rate_basis !== expectedBasis) {
       context.addIssue({
         code: 'custom',
-        path: ['user_price'],
-        message: 'Price basis, visibility and account pricing disagree',
+        path: ['rate_basis'],
+        message: 'Price basis and visibility disagree',
       })
     }
     const groups = new Set(document.groups)
@@ -344,11 +305,7 @@ export const nativePricingSchema = z
         })
       }
       for (const [variantIndex, variant] of model.image_variants.entries()) {
-        if (
-          (document.rate_basis !== 'effective_group_rate' &&
-            variant.rate_basis === undefined) ||
-          (variant.rate_basis === 'effective_user_rate' && !accountPrice)
-        ) {
+        if (variant.rate_basis !== document.rate_basis) {
           context.addIssue({
             code: 'custom',
             path: [
@@ -358,7 +315,7 @@ export const nativePricingSchema = z
               variantIndex,
               'rate_basis',
             ],
-            message: 'Image price basis must identify the applicable rates',
+            message: 'Image prices must use the document price basis',
           })
         }
       }
@@ -382,7 +339,7 @@ export const nativeRuntimeSchema = z.object({
 export type NativePricingDocument = z.infer<typeof nativePricingSchema>
 export type NativePricingContext = Pick<
   NativePricingDocument,
-  'rate_basis' | 'user_price'
+  'rate_basis'
 >
 export type NativeImageVariant = z.infer<typeof nativeImageVariantSchema>
 export type NativeUpstreamCostPrice = z.infer<

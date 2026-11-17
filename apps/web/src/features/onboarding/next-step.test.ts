@@ -24,17 +24,16 @@ import type { AuthUser } from '@/stores/auth-store'
 import { getAccountNextStep } from './next-step'
 
 const user: AuthUser = { id: 1, username: 'new-user', role: 1 }
-test('L0 guidance uses the current access decision, not old applications', () => {
+test('ordinary users can start client setup immediately', () => {
   assert.equal(getAccountNextStep(null).to, '/sign-in')
   assert.deepEqual(getAccountNextStep(user), {
-    to: '/wallet',
-    label: 'Enable L1 access',
+    to: '/guide',
+    label: 'Choose your client',
   })
 })
 test('OAuth and undecided users are not required to create manual keys', () => {
   const approved = {
     ...user,
-    developer_access_granted: true,
     onboarding: {
       activation_complete: true,
       credential_complete: true,

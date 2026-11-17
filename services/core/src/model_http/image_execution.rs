@@ -163,50 +163,6 @@ pub struct ImageService {
     recovery_cursor: Arc<tokio::sync::Mutex<Option<(i64, String)>>>,
 }
 impl ImageService {
-    pub(crate) fn enable_trust_pricing(&self) {
-        self.charging.enable_trust_pricing();
-    }
-
-    async fn freeze_image_price(
-        &self,
-        c: &mut PgConnection,
-        actor_user_id: i64,
-        base: Price,
-    ) -> Result<Price> {
-        if base.user_trust.is_some() {
-            return Err(Error::Invalid);
-        }
-        base.validate_actor(actor_user_id)?;
-        let Some(authority) = self.image_price_authority(c, actor_user_id).await? else {
-            return Ok(base);
-        };
-        let frozen = base.with_user_authority(&authority)?;
-        frozen.validate_actor(actor_user_id)?;
-        Ok(frozen)
-    }
-
-    async fn image_price_authority(
-        &self,
-        c: &mut PgConnection,
-        actor_user_id: i64,
-    ) -> Result<Option<crate::billing::trust_pricing::UserPriceAuthority>> {
-        if !self.charging.trust_pricing_enabled() {
-            return Ok(None);
-        }
-        crate::billing::trust_pricing::quote_in_transaction(c, actor_user_id)
-            .await
-            .map(Some)
-            .map_err(|error| {
-                use crate::billing::trust_pricing::Error as E;
-                match error {
-                    E::Retry => Error::Retry,
-                    E::Denied => Error::Forbidden,
-                    E::Invalid | E::Unavailable => Error::Pending,
-                    E::Storage => Error::Storage,
-                }
-            })
-    }
-
     /// Host readiness only: no user admission, provider dispatch or funds write.
     pub(crate) async fn ready(&self) -> Result<()> {
         if self.providers.is_empty() || self.prices.rules.is_empty() || self.gate.is_closed() {
@@ -566,11 +522,9 @@ impl ImageService {
         )
         .await
         .map_err(market_error)?;
-        let groups:Vec<String>=sqlx::query_scalar("SELECT group_name FROM core_identity.user_routing_groups WHERE user_id=$1 AND enabled ORDER BY group_name").bind(a.user_id).fetch_all(&mut *tx).await?;
-        // This authenticated fee overview uses one current entitlement. Only
-        // creation of a preview makes a durable, separately confirmed promise.
-        let authority = self.image_price_authority(&mut tx, a.user_id).await?;
-        let discount = authority.as_ref().map(|value| value.discount());
+        let groups = identity::routing_group_names_in_transaction(&mut tx, a.user_id)
+            .await
+            .map_err(identity_error)?;
         let mut out = Vec::new();
         for rule in &self.prices.rules {
             if !groups.contains(&rule.billing_group) {
@@ -585,12 +539,7 @@ impl ImageService {
                 n: 1,
             };
             if let Ok(quote) = self.quote_for(&input, rule.endpoint) {
-                let credits_per_image = match discount {
-                    Some(discount) => quote
-                        .reservation_with_discount(Some(discount))
-                        .map_err(|_| Error::Pending)?,
-                    None => quote.reservation_credits(),
-                };
+                let credits_per_image = quote.reservation_credits();
                 let edits = rule.endpoint == ImageEndpoint::Edits;
                 let item = Capability {
                     endpoint: rule.endpoint,
@@ -724,9 +673,8 @@ impl ImageService {
             )
         } else {
             let quote = self.drawing_quote(&parsed)?;
-            let frozen = self
-                .freeze_image_price(&mut tx, actor.user_id, price(&quote))
-                .await?;
+            let frozen = price(&quote);
+            frozen.validate_actor(actor.user_id)?;
             (
                 format!(
                     "image:{}",

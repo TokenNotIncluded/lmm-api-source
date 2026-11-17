@@ -25,12 +25,12 @@ export function LatestRequestCard() {
   const query = useQuery({
     queryKey: ['latest-user-request', user?.id, session],
     queryFn: loadLatestRequest,
-    enabled: user?.developer_access_granted === true,
+    enabled: Boolean(user),
     retry: false,
     staleTime: 30_000,
     refetchInterval: 60_000,
   })
-  if (user?.developer_access_granted !== true) return null
+  if (!user) return null
   const log = query.data
   const status = log ? latestRequestStatus(log) : null
   return (

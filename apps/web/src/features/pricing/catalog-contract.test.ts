@@ -118,6 +118,7 @@ test('router schema permits an independently priced image variant while retainin
     image_variants: [
       {
         endpoint: 'generations',
+        rate_basis: 'effective_group_rate',
         size: '1024x1024',
         quality: 'standard',
         max_n: 1,
@@ -152,7 +153,7 @@ function fixture(): NativePricingDocument {
   >
   return {
     schema_version: 1,
-    visibility: 'public',
+    visibility: 'session',
     observed_at: 100,
     credits_per_usd: 500_000,
     rate_basis: 'effective_group_rate',
@@ -203,35 +204,25 @@ test('native pricing parses the direct versioned document and keeps group rates 
   assert.equal(model.performance_available, false)
 })
 
-test('public group prices retain not-evaluated account context without inventing a discount', () => {
+test('public pricing exposes configured group rates without account pricing metadata', () => {
   const input = fixture()
+  input.visibility = 'public'
   input.rate_basis = 'base_group_rate'
-  input.user_price = { status: 'not_evaluated' }
   for (const row of input.models) {
     if (row.token_price) row.token_price.rate_basis = 'base_group_rate'
   }
   const pricing = adaptNativePricing(nativePricingSchema.parse(input))
-  assert.deepEqual(pricing.pricing_context, {
-    rate_basis: 'base_group_rate',
-    user_price: { status: 'not_evaluated' },
-  })
+  assert.deepEqual(pricing.pricing_context, { rate_basis: 'base_group_rate' })
   assert.deepEqual(pricing.data[0]?.pricing_context, pricing.pricing_context)
   const model = pricing.data[0]
   assert.ok(model)
   assert.equal(formatPrice(model, 'input', 'M', 'USD', 'standard'), '2 USD')
 })
 
-test('verified account rates are already discounted and are never multiplied again', () => {
+test('session prices use returned group rates without a second multiplication', () => {
   const input = fixture()
-  input.visibility = 'session'
-  input.rate_basis = 'effective_user_rate'
-  input.user_price = {
-    status: 'verified',
-    multiplier: { numerator: '97', denominator: '100' },
-  }
   for (const row of input.models) {
     if (row.token_price) {
-      row.token_price.rate_basis = 'effective_user_rate'
       row.token_price.input = 1.94
       row.token_price.output = 0
       row.token_price.cache_read = null
@@ -240,7 +231,7 @@ test('verified account rates are already discounted and are never multiplied aga
   const pricing = adaptNativePricing(nativePricingSchema.parse(input))
   const model = pricing.data[0]
   assert.ok(model)
-  assert.deepEqual(model.pricing_context?.user_price, input.user_price)
+  assert.deepEqual(model.pricing_context, { rate_basis: 'effective_group_rate' })
   assert.equal(formatPrice(model, 'input', 'M', 'USD', 'standard'), '1.94 USD')
   assert.equal(
     formatGroupPrice(model, 'premium', 'input', 'M', 'USD', { premium: 500 }),
@@ -250,108 +241,37 @@ test('verified account rates are already discounted and are never multiplied aga
   assert.equal(formatPrice(model, 'cache', 'M', 'USD', 'standard'), '-')
 })
 
-test('missing, mismatched or fabricated account pricing fails at the external boundary', () => {
-  const input = fixture()
-  const base = {
-    ...input,
+test('public and session price bases stay distinct without trust metadata', () => {
+  const session = fixture()
+  const publicDocument = {
+    ...session,
+    visibility: 'public',
     rate_basis: 'base_group_rate',
-    user_price: { status: 'not_evaluated' },
     models: [],
   }
-  const session = {
-    ...base,
-    visibility: 'session',
-    rate_basis: 'effective_user_rate',
-    user_price: {
-      status: 'verified',
-      multiplier: { numerator: '97', denominator: '100' },
-    },
-  }
-  assert.equal(nativePricingSchema.safeParse(base).success, true)
+  assert.equal(nativePricingSchema.safeParse(publicDocument).success, true)
   assert.equal(nativePricingSchema.safeParse(session).success, true)
   for (const bad of [
-    { ...base, user_price: undefined },
-    {
-      ...base,
-      user_price: {
-        status: 'verified',
-        multiplier: { numerator: '1', denominator: '1' },
-      },
-    },
-    {
-      ...base,
-      user_price: {
-        status: 'not_evaluated',
-        multiplier: { numerator: '1', denominator: '1' },
-      },
-    },
     { ...session, visibility: 'public' },
-    { ...session, user_price: { status: 'not_evaluated' } },
-    { ...session, user_price: null },
-    { ...session, user_price: { status: 'verified', multiplier: null } },
-    {
-      ...session,
-      user_price: {
-        status: 'verified',
-        multiplier: { numerator: '0', denominator: '1' },
-      },
-    },
-    {
-      ...session,
-      user_price: {
-        status: 'verified',
-        multiplier: { numerator: '1', denominator: '0' },
-      },
-    },
-    {
-      ...session,
-      user_price: {
-        status: 'verified',
-        multiplier: { numerator: '0.97', denominator: '1' },
-      },
-    },
-    {
-      ...session,
-      user_price: {
-        status: 'verified',
-        multiplier: { numerator: '101', denominator: '100' },
-      },
-    },
-    {
-      ...session,
-      user_price: {
-        status: 'verified',
-        multiplier: { numerator: '1', denominator: '1000000000000000001' },
-      },
-    },
-    { ...base, models: input.models },
+    { ...publicDocument, visibility: 'session' },
+    { ...publicDocument, models: session.models },
+    { ...session, rate_basis: 'effective_user_rate' },
   ]) {
     assert.equal(nativePricingSchema.safeParse(bad).success, false)
   }
-  // Historical documents remain unverified, never a substitute for account pricing.
-  assert.equal(nativePricingSchema.safeParse(input).success, true)
-  assert.equal(
-    adaptNativePricing(nativePricingSchema.parse(input)).pricing_context
-      ?.user_price,
-    undefined
-  )
-  assert.equal(
-    nativePricingSchema.safeParse({
-      ...input,
-      user_price: { status: 'not_evaluated' },
-    }).success,
-    true
-  )
+  const withRetiredFields = nativePricingSchema.parse({
+    ...session,
+    user_price: { status: 'not_evaluated' },
+    trust_multiplier: 0,
+  })
+  assert.equal(Object.hasOwn(withRetiredFields, 'user_price'), false)
+  assert.deepEqual(adaptNativePricing(withRetiredFields).pricing_context, {
+    rate_basis: 'effective_group_rate',
+  })
 })
 
-test('native image rates identify their own basis independently of account token prices', () => {
+test('native image rates use the same configured group basis as the session document', () => {
   const input = fixture()
-  input.visibility = 'session'
-  input.rate_basis = 'effective_user_rate'
-  input.user_price = {
-    status: 'verified',
-    multiplier: { numerator: '97', denominator: '100' },
-  }
   const original = input.models[0]
   assert.ok(original)
   input.models = [
@@ -361,7 +281,7 @@ test('native image rates identify their own basis independently of account token
       image_variants: [
         {
           endpoint: 'generations',
-          rate_basis: 'base_group_rate',
+          rate_basis: 'effective_group_rate',
           size: '1024x1024',
           quality: 'standard',
           max_n: 1,
@@ -379,11 +299,13 @@ test('native image rates identify their own basis independently of account token
   assert.ok(model)
   const image = model.image_variants?.[0]
   assert.ok(image)
-  assert.equal(image.rate_basis, 'base_group_rate')
+  assert.equal(image.rate_basis, 'effective_group_rate')
   assert.equal(formatImageVariantUSD(image), '0.04 USD')
   assert.equal(formatImageVariantCredits(image), '20000 Credits')
   const sourceVariant = input.models[0]?.image_variants[0]
   assert.ok(sourceVariant)
+  sourceVariant.rate_basis = 'base_group_rate'
+  assert.equal(nativePricingSchema.safeParse(input).success, false)
   delete sourceVariant.rate_basis
   assert.equal(nativePricingSchema.safeParse(input).success, false)
 })
@@ -474,6 +396,7 @@ test('image exact ratios stay per-image and cannot become token quotes', () => {
   const input = fixture()
   const variant = {
     endpoint: 'generations',
+    rate_basis: 'effective_group_rate',
     size: '1024x1024',
     quality: 'standard',
     max_n: 4,
@@ -715,7 +638,7 @@ test('12-hour cache pricing keeps each group and tier without a fictional scalar
     assert.equal(nativePricingSchema.safeParse(invalid).success, false)
   }
   const wrongBasis = structuredClone(document)
-  wrongBasis.models[0]!.token_price!.rate_basis = 'effective_user_rate'
+  wrongBasis.models[0]!.token_price!.rate_basis = 'base_group_rate'
   assert.equal(nativePricingSchema.safeParse(wrongBasis).success, false)
   const scalar = structuredClone(document)
   scalar.models[0]!.token_price!.input = 10
@@ -730,6 +653,7 @@ test('12-hour cache pricing keeps each group and tier without a fictional scalar
 test('usage-priced image variants preserve null prices and operation reservation', () => {
   const variant = {
     endpoint: 'generations',
+    rate_basis: 'effective_group_rate',
     size: '1024x1024',
     quality: 'standard',
     max_n: 4,

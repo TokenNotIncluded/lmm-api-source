@@ -2,6 +2,8 @@
 
 Core 拥有账号、浏览器会话、Key、OAuth 授权和申诉；Go 不得直连身份数据库或取得密码验证器、Session 秘密。当前安装与验收状态统一见[新架构进度](progress.md)，本页维护接口、配置和恢复边界。
 
+新架构不设开发者准入或信任等级。启用账号登录后即可使用面向普通用户的已启用功能，无需提交申请或等待助手提权。模型调用、资金和团队操作仍检查资源授权、额度与预算；账号停用、会话和 MFA 校验继续生效。具体权限由 [Core 原生权限检查](../services/core/src/identity/permissions.rs)和[工具上下文](../services/core/src/assistant_tools_core/context.rs)决定，历史申请或等级记录不产生当前资格。
+
 `lmm-core init-db` 只接受全新空库，重复安装拒绝；普通启动不执行 DDL。`IdentityStore::init_database()` 仅安装身份叶表，Key 管理、用户投影和模型预留还依赖 `abuse.sql` 等完整 Core 组件；缺表或缺权限必须报错。现有账号、Key、余额与旧 schema 使用另行审核的迁移或升级流程，不能靠改指纹、重跑初始化或 staged delta 升级。版本/指纹检查验证安装合同，不是任意人工改表的完整检测。
 
 当前源码的 identity 契约为 v6；MFA 引入阶段的 v5、OAuth 早期的 13 组件记录均有各自历史范围，不作为当前完整库的组件总数。私密文件、服务账户和备份权限统一遵循[文件系统规则](filesystem-layout.md#权限与服务账户)。
@@ -104,10 +106,10 @@ discovery 失败会选中 OIDC 页签，在 URL 字段显示既有本地化错�
 
 | 客户端 | 必需 scope | 额外条件 |
 | --- | --- | --- |
-| `lmm` | 恰好 `catalog:read balance:read` | 只读目录与个人余额；不签发 Key 或授予开发者资格。 |
-| `lmm-pi` | `catalog:read balance:read usage:read models:invoke` | 已配置有限 `pi_max_credits` 及实际 ModelGateway，用户已有真实 `developer_access`，同意不超过安装上限的整数 credits 预算。管理员身份不能替代资格。 |
+| `lmm` | 恰好 `catalog:read balance:read` | 只读目录与个人余额；不签发 Key。 |
+| `lmm-pi` | `catalog:read balance:read usage:read models:invoke` | 已配置有限 `pi_max_credits` 及实际 ModelGateway；已认证用户同意不超过安装上限的整数 credits 预算，并具有所选 group 的资源授权。 |
 
-真实登录及 MFA 后，用户显式 Continue，核对账号和 group 快照，再 Allow/Deny；签发 scope 另含对应 `group:`。安装的 groups 只是上限，仍检查当前开发者许可和各 group 授权。客户端可申请已知的可选 MCP/remote scope，本 issuer 不发行它们，也不授予团队、管理员、支付、转账或市场权限。
+真实登录及 MFA 后，用户显式 Continue，核对账号和 group 快照，再 Allow/Deny；签发 scope 另含对应 `group:`。安装的 groups 只是上限，仍检查账号状态和各 group 授权。客户端可申请已知的可选 MCP scope，本 issuer 不发行它们，也不授予团队、管理员、支付、转账或市场权限。远程控制由独立项目 ssmcp 提供，LMM 不再提供远程控制 scope、API 或会话。
 
 预备 GET 不自动授权。每个不可变阶段使用独立 HttpOnly cookie 和一次性 CSRF，延迟响应仅清自己的 cookie；Core 同时验证持久绑定、原生 Session、当前权限与 MFA。Web refresh cookie 路径保持 `/api/user/auth`。回调只含 code/state/iss 或 error/state/iss，access/refresh 不进入 URL。
 
@@ -133,7 +135,7 @@ access TTL 为 1–86400 秒，family TTL 为 1–31536000 秒，refresh 不延�
 
 ### Pi 模型与财务来源
 
-Pi 使用真实 Bearer access token 进入同一 Chat/Responses JSON/SSE 网关。`X-LMM-Group` 为规范无 padding base64url group 选择器，重复或超出同意范围拒绝。预留、开始及追加预算的同一数据库事务重检 family/access、本人账号、身份版本、开发者资格、group、期限和有限预算。
+Pi 使用真实 Bearer access token 进入同一 Chat/Responses JSON/SSE 网关。`X-LMM-Group` 为规范无 padding base64url group 选择器，重复或超出同意范围拒绝。预留、开始及追加预算的同一数据库事务重检 family/access、本人账号、身份版本、group、期限和有限预算。
 
 OAuth 财务记录使用 `key_id=null` 及不可变 OAuth 来源；原生 Key 整数与旧 JSON receipt 保持。不创建假 Key、不信任客户端来源 JSON，不使用他人或团队资金。同一 family 的预算覆盖 refresh 前后全部 access、已消费净额及未结算预留，本人/账号/套餐限制继续生效。
 
@@ -280,6 +282,6 @@ mise exec -- just test-docker \
 
 既有身份测试范围包含非空库/并发安装、版本不符、账号和付款规则、权限分离、邀请/退出重入、审计回滚、凭据到期/撤销和 DB 故障。已记录的 Pi 编译与独立 PostgreSQL/TCP 验收覆盖来源绑定、跨续期预算、撤销竞争、用量和退款，上游为受控本地服务；各记录仅适用于其固定组合。
 
-真实 HTTPS CLI/Pi SDK、系统凭据库、browser/MFA/多标签、模型协议与正反例、余额并发、安装/独立升级、加密备份/空目标恢复仍须对应验收；scope 不代替实际模型支持。旧候选的目录证据限本机 loopback Chat/Responses、相同公开/上游模型名及受限价格，外部 HTTPS、模型名重映射和图片能力按具体组合验证。市场 OAuth/MCP 与 marked L0 honey-only Pi 需要独立来源和授权，普通模型委托不得绕过标记。
+真实 HTTPS CLI/Pi SDK、系统凭据库、browser/MFA/多标签、模型协议与正反例、余额并发、安装/独立升级、加密备份/空目标恢复仍须对应验收；scope 不代替实际模型支持。旧候选的目录证据限本机 loopback Chat/Responses、相同公开/上游模型名及受限价格，外部 HTTPS、模型名重映射和图片能力按具体组合验证。市场 OAuth/MCP 与被标记账号的 honey-only Pi 需要独立来源和授权，普通模型委托不得绕过标记。
 
 Google 外部凭据、MFA 续接、Passkey及旧身份迁移的当前范围以[进度](progress.md)为准。`/health/ready` 依赖受限 runtime 和启用组件；模型默认关闭，readiness 不代替供应商调用和扣费验收。完整方法见[质量指南](quality.md)。

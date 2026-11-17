@@ -8,10 +8,7 @@ import { createInstance } from 'i18next'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { I18nextProvider, initReactI18next } from 'react-i18next'
 
-import {
-  getAccountPriceMultiplier,
-  getPricingBasisLabel,
-} from '../lib/pricing-context'
+import { getPricingBasisLabel } from '../lib/pricing-context'
 import type { PricingModel } from '../types'
 import { ImagePrices } from './image-prices'
 import { ModelCard } from './model-card'
@@ -22,7 +19,7 @@ import { RequestEstimator } from './request-estimator'
 
 test('router cards and details show the exact effective cost factor once and keep budget blocks visible', () => {
   const model: PricingModel = {
-    ...accountModel,
+    ...groupModel,
     model_name: 'openrouter/fusion',
     billing_mode: 'upstream_cost',
     input_price: null,
@@ -33,7 +30,7 @@ test('router cards and details show the exact effective cost factor once and kee
         cost_source: 'usage.cost',
         credits_per_usd: 500_000,
         rounding: 'ceil_total_credits',
-        rate_basis: 'effective_user_rate',
+        rate_basis: 'effective_group_rate',
         multiplier: { numerator: '97', denominator: '80' },
       },
     },
@@ -56,7 +53,7 @@ test('router cards and details show the exact effective cost factor once and kee
       displayCurrency='USD'
     />
   ).textContent
-  assert.match(details, /Prices include your account discount/)
+  assert.doesNotMatch(details, /Account discount|account discount/)
   assert.match(details, /Missing cost stays pending/)
   assert.equal(renderEstimator(model).textContent, '')
 })
@@ -76,9 +73,9 @@ after(() => {
   domWindow.close()
 })
 
-const accountModel: PricingModel = {
+const groupModel: PricingModel = {
   id: 1,
-  model_name: 'account-priced-model',
+  model_name: 'group-priced-model',
   quota_type: 0,
   pricing_schema_version: 2,
   pricing_currency: 'USD',
@@ -88,11 +85,7 @@ const accountModel: PricingModel = {
   enable_groups: ['standard'],
   group_ratio: { standard: 10 },
   pricing_context: {
-    rate_basis: 'effective_user_rate',
-    user_price: {
-      status: 'verified',
-      multiplier: { numerator: '97', denominator: '100' },
-    },
+    rate_basis: 'effective_group_rate',
   },
 }
 
@@ -111,19 +104,6 @@ const baseImageVariant = {
   model: 'image-model',
   rate_basis: 'base_group_rate',
 } as const
-
-function quoteModel(numerator: string, denominator: string): PricingModel {
-  return {
-    ...accountModel,
-    pricing_context: {
-      rate_basis: 'effective_user_rate',
-      user_price: {
-        status: 'verified',
-        multiplier: { numerator, denominator },
-      },
-    },
-  }
-}
 
 function render(element: React.ReactNode) {
   const container = domWindow.document.createElement('div')
@@ -153,50 +133,29 @@ function renderEstimator(model: PricingModel) {
   )
 }
 
-for (const [numerator, denominator, expected] of [
-  ['97', '100', '97%'],
-  ['1', '1', '100%'],
-  ['1', '8', '12.5%'],
-  ['1', '3', '1/3×'],
-  ['999999999999999999', '1000000000000000000', '99.9999999999999999%'],
-] as const) {
-  test(`account factor ${numerator}/${denominator} displays without rounding`, () => {
-    assert.equal(
-      getAccountPriceMultiplier(quoteModel(numerator, denominator)),
-      expected
-    )
-  })
-}
-
 test('public group prices do not invent a personal discount', () => {
   const model: PricingModel = {
-    ...accountModel,
+    ...groupModel,
     pricing_context: {
       rate_basis: 'base_group_rate',
-      user_price: { status: 'not_evaluated' },
     },
   }
   const text = renderCard(model).textContent ?? ''
   assert.match(text, /Group base price/)
   assert.doesNotMatch(
     text,
-    /Current account price|Account discount|100%|not_evaluated|verified/
+    /Group price|Account discount|100%|not_evaluated|verified/
   )
-  assert.equal(getAccountPriceMultiplier(model), null)
 })
 
-test('the account label explains the multiplier and already discounted rates', () => {
-  const text =
-    render(<PricingContextLabel model={accountModel} showDiscountNote />)
-      .textContent ?? ''
-  assert.match(text, /Current account price/)
-  assert.match(text, /Account discount: 97% of group base price/)
-  assert.match(text, /Prices include your account discount\./)
-  assert.doesNotMatch(text, /verified|trust|proof|source.policy/i)
+test('the session label describes group pricing without a trust discount', () => {
+  const text = render(<PricingContextLabel model={groupModel} />).textContent ?? ''
+  assert.match(text, /Group price/)
+  assert.doesNotMatch(text, /discount|multiplier|trust|verified/i)
 })
 
-test('the card uses returned account rates without multiplying either factor again', () => {
-  for (const model of [accountModel, quoteModel('1', '2')]) {
+test('the card uses returned group rates without multiplying either factor again', () => {
+  for (const model of [groupModel, { ...groupModel, group_ratio: { standard: 500 } }]) {
     const text = renderCard(model).textContent ?? ''
     assert.match(text, /Input 1\.94 USD/)
     assert.match(text, /Output 3\.88 USD/)
@@ -204,22 +163,22 @@ test('the card uses returned account rates without multiplying either factor aga
   }
 })
 
-test('a missing account input rate stays unavailable rather than becoming free', () => {
-  const model = { ...accountModel, input_price: null }
+test('a missing group input rate stays unavailable rather than becoming free', () => {
+  const model = { ...groupModel, input_price: null }
   const text = renderCard(model).textContent ?? ''
   assert.match(text, /Input -/)
   assert.doesNotMatch(text, /Input 0 USD/)
   assert.match(renderEstimator(model).textContent ?? '', /Estimate unavailable/)
 })
 
-test('request estimates use returned account rates once and describe that basis', () => {
-  for (const model of [accountModel, quoteModel('1', '2')]) {
+test('request estimates use returned group rates once and describe that basis', () => {
+  for (const model of [groupModel, { ...groupModel, group_ratio: { standard: 500 } }]) {
     const estimate = renderEstimator(model)
     assert.equal(
       estimate.querySelector('[aria-live="polite"]')?.textContent,
       '0.02716 USD'
     )
-    assert.match(estimate.textContent ?? '', /Current account price/)
+    assert.match(estimate.textContent ?? '', /Group price/)
     assert.match(
       estimate.textContent ?? '',
       /One request using the displayed prices/
@@ -228,69 +187,38 @@ test('request estimates use returned account rates once and describe that basis'
   }
 })
 
-test('legacy pricing keeps its existing basis label and has no guessed discount', () => {
-  for (const pricing_context of [
-    undefined,
-    { rate_basis: 'effective_group_rate' } as const,
-  ]) {
-    const model = { ...accountModel, pricing_context }
-    assert.equal(getPricingBasisLabel(model), 'Base price (1×)')
-    assert.equal(getAccountPriceMultiplier(model), null)
-    assert.doesNotMatch(
-      renderCard(model).textContent ?? '',
-      /Account discount|Current account price/
-    )
-  }
+test('a model without a native pricing context retains its explicit fallback label', () => {
+  const model = { ...groupModel, pricing_context: undefined }
+  assert.equal(getPricingBasisLabel(model), 'Base price (1×)')
+  assert.doesNotMatch(renderCard(model).textContent ?? '', /Account discount|Group price/)
 })
 
-test('image-only pricing uses its own explicit basis instead of token account context', () => {
-  const imageModel: PricingModel = {
-    ...accountModel,
+test('image-only pricing labels public and session group rates', () => {
+  const publicImages: PricingModel = {
+    ...groupModel,
     quota_type: 2,
+    pricing_context: { rate_basis: 'base_group_rate' },
     image_variants: [baseImageVariant],
   }
-  assert.equal(getPricingBasisLabel(imageModel), 'Group base price')
-  assert.equal(getAccountPriceMultiplier(imageModel), null)
-  assert.doesNotMatch(
-    renderCard(imageModel).textContent ?? '',
-    /Account discount|Current account price/
-  )
-  const accountImages: PricingModel = {
-    ...imageModel,
-    image_variants: [
-      { ...baseImageVariant, rate_basis: 'effective_user_rate' },
-    ],
+  assert.equal(getPricingBasisLabel(publicImages), 'Group base price')
+  const sessionImages: PricingModel = {
+    ...publicImages,
+    pricing_context: { rate_basis: 'effective_group_rate' },
+    image_variants: [{ ...baseImageVariant, rate_basis: 'effective_group_rate' }],
   }
-  assert.equal(getPricingBasisLabel(accountImages), 'Current account price')
-  assert.equal(getAccountPriceMultiplier(accountImages), '97%')
-  assert.equal(
-    getAccountPriceMultiplier({ ...imageModel, image_variants: [] }),
-    null
-  )
-  assert.equal(
-    getPricingBasisLabel({ ...imageModel, image_variants: [] }),
-    'Price'
-  )
-  assert.equal(
-    getPricingBasisLabel({
-      ...imageModel,
-      image_variants: [
-        baseImageVariant,
-        { ...baseImageVariant, rate_basis: 'effective_user_rate' },
-      ],
-    }),
-    'Image prices'
-  )
+  assert.equal(getPricingBasisLabel(sessionImages), 'Group price')
+  assert.doesNotMatch(renderCard(sessionImages).textContent ?? '', /Account discount/)
+  assert.equal(getPricingBasisLabel({ ...sessionImages, image_variants: [] }), 'Price')
 })
 
-test('mixed token and image prices label each image basis and do not discount its rates again', () => {
+test('image prices preserve returned group rates without a second multiplication', () => {
   const model: PricingModel = {
-    ...accountModel,
+    ...groupModel,
     image_variants: [
-      baseImageVariant,
+      { ...baseImageVariant, rate_basis: 'effective_group_rate' },
       {
         ...baseImageVariant,
-        rate_basis: 'effective_user_rate',
+        rate_basis: 'effective_group_rate',
         usd_micros_per_image: { numerator: '38800', denominator: '1' },
         credits_per_image: { numerator: '19400', denominator: '1' },
       },
@@ -299,20 +227,16 @@ test('mixed token and image prices label each image basis and do not discount it
   const prices = render(<ImagePrices model={model} />)
   const lists = [...prices.querySelectorAll('dl')]
   assert.equal(lists.length, 2)
-  assert.match(lists[0].textContent ?? '', /Group base price0\.04 USD/)
+  assert.match(lists[0].textContent ?? '', /Group price0\.04 USD/)
   assert.match(lists[0].textContent ?? '', /20000 Credits/)
-  assert.doesNotMatch(
-    lists[0].textContent ?? '',
-    /Current account price|Account discount/
-  )
-  assert.match(lists[1].textContent ?? '', /Current account price0\.0388 USD/)
+  assert.match(lists[1].textContent ?? '', /Group price0\.0388 USD/)
   assert.match(lists[1].textContent ?? '', /19400 Credits/)
-  assert.doesNotMatch(prices.textContent ?? '', /0\.037636|18818 Credits/)
+  assert.doesNotMatch(prices.textContent ?? '', /Account discount|0\.037636|18818 Credits/)
 })
 
-test('model details show already discounted account group prices and keep missing rates unavailable', () => {
+test('model details show configured group prices and keep missing rates unavailable', () => {
   const model: PricingModel = {
-    ...accountModel,
+    ...groupModel,
     performance_available: false,
     group_prices: {
       standard: {
@@ -339,15 +263,14 @@ test('model details show already discounted account group prices and keep missin
     />
   )
   const text = details.textContent ?? ''
-  assert.match(text, /Current account price/)
-  assert.match(text, /Account discount: 97% of group base price/)
-  assert.match(text, /Prices include your account discount/)
+  assert.match(text, /Group price/)
+  assert.doesNotMatch(text, /Account discount|account discount/)
   assert.match(text, /Input1\.94 USD/)
   assert.match(text, /Output-/)
   assert.doesNotMatch(text, /1\.8818 USD|19\.4 USD|base price \(1×\)/)
 })
 
-test('toolbar explains a shared account price without claiming an old 1x basis', () => {
+test('toolbar explains a shared group price without claiming an old 1x basis', () => {
   const noChange = () => {}
   const props: PricingToolbarProps = {
     filteredCount: 1,
@@ -372,22 +295,21 @@ test('toolbar explains a shared account price without claiming an old 1x basis',
     vendors: [],
     groups: ['standard'],
     tags: [],
-    models: [accountModel],
+    models: [groupModel],
     hasActiveFilters: false,
     activeFilterCount: 0,
     onClearFilters: noChange,
   }
   const toolbar = render(<PricingToolbar {...props} />)
   const note = toolbar.querySelector('[role="note"]')?.textContent ?? ''
-  assert.match(note, /Current account price/)
-  assert.match(note, /Account discount: 97% of group base price/)
-  assert.match(note, /Prices include your account discount/)
+  assert.match(note, /Group price/)
+  assert.doesNotMatch(note, /Account discount|account discount/)
   assert.doesNotMatch(note, /base price \(1×\)/)
 })
 
 test('usage-priced images show an operation reservation without a fictional per-image price', () => {
   const model: PricingModel = {
-    ...accountModel,
+    ...groupModel,
     image_variants: [
       {
         group: 'standard',

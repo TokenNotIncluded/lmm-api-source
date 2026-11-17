@@ -206,8 +206,6 @@ function safeAccountStatus() {
   return {
     authenticated: true,
     role: user.role,
-    trust_level: user.trust_level_info?.level ?? null,
-    developer_access_granted: user.developer_access_granted === true,
     onboarding_stage: user.onboarding?.stage ?? user.onboarding_stage ?? null,
   }
 }
@@ -357,9 +355,8 @@ function coreTools(router: WebMcpRouter): ModelContextTool[] {
           })
         return {
           rate_basis: pricing.pricing_context?.rate_basis ?? null,
-          user_price: pricing.pricing_context?.user_price ?? null,
           pricing_basis:
-            'Token rates already include all applicable account and group factors. Do not multiply them again. Token amounts are USD and Credits per million tokens; image variants retain exact per-image ratios and their own price basis. Unknown prices are null. This is not a locked quote or a fiat checkout price.',
+            'Token rates already include the configured group factors. Do not multiply them again. Token amounts are USD and Credits per million tokens; image variants retain exact per-image ratios and their own price basis. Unknown prices are null. This is not a locked quote or a fiat checkout price.',
           credits_per_usd: 500_000,
           count: models.length,
           models,

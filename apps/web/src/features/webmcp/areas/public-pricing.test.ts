@@ -27,7 +27,7 @@ function native(input: number | null = 2): NativePricingDocument {
     visibility: 'public',
     observed_at: 100,
     credits_per_usd: 500_000,
-    rate_basis: 'effective_group_rate',
+    rate_basis: 'base_group_rate',
     invocation_authorized: false,
     routing_version: 1,
     pricing_version: 1,
@@ -44,7 +44,7 @@ function native(input: number | null = 2): NativePricingDocument {
         token_price: {
           currency: 'USD',
           unit: 'million_tokens',
-          rate_basis: 'effective_group_rate',
+          rate_basis: 'base_group_rate',
           group_multiplier: 5,
           input,
           output: 6,
@@ -82,8 +82,7 @@ test('WebMCP estimate uses exact model and effective rates and converts USD to C
   )
   assert.deepEqual(result, {
     page: '/pricing',
-    rate_basis: 'effective_group_rate',
-    user_price: null,
+    rate_basis: 'base_group_rate',
     model: 'exact-model',
     vendor: null,
     group: 'standard',
@@ -96,7 +95,7 @@ test('WebMCP estimate uses exact model and effective rates and converts USD to C
     credits_per_usd: 500_000,
     estimable: true,
     billing_basis:
-      'Displayed USD rates already include applicable account and group factors; they are converted at 500000 Credits per USD without applying discounts again. This text-only estimate is not a locked quote or a settlement receipt.',
+      'Displayed USD rates already include the configured group factors and are converted at 500000 Credits per USD. This text-only estimate is not a locked quote or a settlement receipt.',
   })
   await assert.rejects(
     estimate.execute(
@@ -119,17 +118,13 @@ test('WebMCP estimate uses exact model and effective rates and converts USD to C
   )
 })
 
-test('WebMCP account estimate preserves verified factor and uses the already discounted rate once', async () => {
+test('WebMCP session estimate uses the configured group rate once', async () => {
   const document = native(1.94)
   document.visibility = 'session'
-  document.rate_basis = 'effective_user_rate'
-  document.user_price = {
-    status: 'verified',
-    multiplier: { numerator: '97', denominator: '100' },
-  }
+  document.rate_basis = 'effective_group_rate'
   const token = document.models[0]?.token_price
   assert.ok(token)
-  token.rate_basis = 'effective_user_rate'
+  token.rate_basis = 'effective_group_rate'
   serve(document)
   useAuthStore.getState().auth.setBundle({
     access_token: 'synthetic-price-session',
@@ -160,13 +155,12 @@ test('WebMCP account estimate preserves verified factor and uses the already dis
   assert.ok(
     'estimated_usd' in result &&
       'estimated_credit' in result &&
-      'rate_basis' in result &&
-      'user_price' in result
+      'rate_basis' in result
   )
   assert.equal(result.estimated_usd, 1.94)
   assert.equal(result.estimated_credit, 970_000)
-  assert.equal(result.rate_basis, 'effective_user_rate')
-  assert.deepEqual(result.user_price, document.user_price)
+  assert.equal(result.rate_basis, 'effective_group_rate')
+  assert.equal(Object.hasOwn(result, 'user_price'), false)
 })
 
 test('unknown and unsafe large estimates are unavailable and explicit free input remains zero', async () => {

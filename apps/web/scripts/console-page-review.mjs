@@ -47,7 +47,6 @@ const userRoutes = [
   '/drawing',
   '/usage-logs/common',
   '/usage-logs/task',
-  '/remote-control',
   '/open-source-bounties',
   '/public-relay',
   '/tool-market',
