@@ -398,25 +398,6 @@ export function UserAuthForm({
         className={cn('auth-login-form grid gap-6', className)}
         {...props}
       >
-        <HumanGrantButton
-          configured={
-            capabilitiesReady
-              ? status?.configured_components?.humangrant
-              : false
-          }
-          disabled={isLoading || (requiresLegalConsent && !agreedToLegal)}
-        />
-        {hasAlternativeLogin && alternativeLoginMethods}
-
-        {hasAlternativeLogin && passwordLoginEnabled ? (
-          <div
-            className='auth-login-divider text-muted-foreground py-1 text-center text-xs'
-            aria-hidden='true'
-          >
-            {t('Or')}
-          </div>
-        ) : null}
-
         {(passwordLoginEnabled || passkeyLoginEnabled) && (
           <>
             {/* Username Field */}
@@ -474,16 +455,6 @@ export function UserAuthForm({
               )}
             />
 
-            {/* Submit Button */}
-            <Button
-              type='submit'
-              className='auth-submit mt-2 h-12 w-full justify-center gap-2 rounded-xl'
-              disabled={isLoading || isPasskeyLoading}
-            >
-              {isLoading && <Loader2 className='animate-spin' />}
-              {t('Sign in')}
-            </Button>
-
             {/* Turnstile */}
             {isTurnstileEnabled && (
               <div className='mt-2'>
@@ -516,7 +487,35 @@ export function UserAuthForm({
           className='auth-legal-consent mt-1 border-0 bg-transparent p-0'
         />
 
-        {!hasAlternativeLogin && alternativeLoginMethods}
+        {passwordLoginEnabled && (
+          <Button
+            type='submit'
+            className='auth-submit mt-2 h-12 w-full justify-center gap-2 rounded-xl'
+            disabled={isLoading || isPasskeyLoading}
+          >
+            {isLoading && <Loader2 className='animate-spin' />}
+            {t('Sign in')}
+          </Button>
+        )}
+
+        {hasAlternativeLogin && passwordLoginEnabled ? (
+          <div
+            className='auth-login-divider text-muted-foreground py-1 text-center text-xs'
+            aria-hidden='true'
+          >
+            {t('Or')}
+          </div>
+        ) : null}
+
+        <HumanGrantButton
+          configured={
+            capabilitiesReady
+              ? status?.configured_components?.humangrant
+              : false
+          }
+          disabled={isLoading || (requiresLegalConsent && !agreedToLegal)}
+        />
+        {alternativeLoginMethods}
       </form>
 
       {hasWeChatLogin && (

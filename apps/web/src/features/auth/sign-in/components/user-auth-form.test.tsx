@@ -588,6 +588,24 @@ test('legal-consent policies for Passkey OAuth and WeChat remain disabled before
     'passkey login did not render'
   )
 
+  const consent = host.querySelector('#legal-consent')
+  assert.ok(consent)
+  const orderedControls = [
+    inputByName(host, 'username'),
+    inputByName(host, 'password'),
+    consent,
+    passwordSubmitButton(host),
+    buttonByAccessibleName(host, 'Continue with Google'),
+    buttonByAccessibleName(host, 'Continue with WeChat'),
+    buttonByName(host, 'Sign in with Passkey'),
+  ]
+  for (const [index, control] of orderedControls.slice(1).entries()) {
+    assert.ok(
+      orderedControls[index].compareDocumentPosition(control) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+      'password fields and legal consent precede submit and alternative sign-in'
+    )
+  }
   assert.equal(passwordSubmitButton(host).disabled, false)
   assert.equal(buttonByName(host, 'Sign in with Passkey').disabled, true)
   assert.equal(
@@ -606,8 +624,6 @@ test('legal-consent policies for Passkey OAuth and WeChat remain disabled before
   assert.deepEqual(wechatStartCalls, [])
   assert.deepEqual(oauthClicks, [])
 
-  const consent = host.querySelector('#legal-consent')
-  assert.ok(consent)
   await click(consent as HTMLElement)
   assert.equal(buttonByName(host, 'Sign in with Passkey').disabled, false)
   assert.equal(
