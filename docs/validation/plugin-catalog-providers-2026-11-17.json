@@ -1,0 +1,319 @@
+{
+  "schema_version": 1,
+  "task": "Cached fuzzy models.dev metadata and complete account model discovery",
+  "packages_root": "/home/lightjunction/Documents/GITHUB/lmm-api/generated/lmm-api-source/packages",
+  "shared_runtime": {
+    "typescript_sha256": "9071d0d85aef16a3f9f588bdbb133c50db75e3ee5f853d6e6b627d0e4798c6b0",
+    "url": "https://models.dev/api.json?type=all",
+    "default_cache_ttl_hours": 24,
+    "zero_limits": "unknown",
+    "model_identity": "Exact authorized wire IDs retained; fuzzy matching only enriches metadata"
+  },
+  "packages": [
+    {
+      "repository": "codewhale-lmm-provider",
+      "version": "0.1.0-alpha.3",
+      "commit": "2b0d6b22af069ac8685dd677d99dbbfd2340514e",
+      "artifact": "tokennotincluded-codewhale-lmm-provider-0.1.0-alpha.3.tgz",
+      "sha256": "54b3ecaa85ce1a6de3573a4e14b030eda45338c2312fc7a195b8bdaefcac8da4",
+      "tests": [
+        {
+          "command": "node --test test/model-metadata.test.mjs test/provider.test.mjs",
+          "passed": 19
+        },
+        {
+          "command": "npm test",
+          "passed": 44,
+          "scope": "Initial runtime integration; later specialized-model and zero-limit changes covered by focused suite"
+        }
+      ],
+      "install": "npm install --global https://github.com/TokenNotIncluded/codewhale-lmm-provider/releases/download/v0.1.0-alpha.3/tokennotincluded-codewhale-lmm-provider-0.1.0-alpha.3.tgz",
+      "artifact_bytes": 23761,
+      "commit_url": "https://github.com/TokenNotIncluded/codewhale-lmm-provider/commit/2b0d6b22af069ac8685dd677d99dbbfd2340514e",
+      "checkout_matches_commit": true,
+      "working_tree_clean": true,
+      "manifest_version": "0.1.0-alpha.3",
+      "release_lookup_exit_code": 0,
+      "release": {
+        "html_url": "https://github.com/TokenNotIncluded/codewhale-lmm-provider/releases/tag/v0.1.0-alpha.3",
+        "tag_name": "v0.1.0-alpha.3",
+        "target_commitish": "2b0d6b22af069ac8685dd677d99dbbfd2340514e",
+        "draft": false,
+        "prerelease": true,
+        "assets": [
+          {
+            "name": "release.json",
+            "size": 371,
+            "digest": "sha256:b0cd45140a51d83f6be177f1e33305d1ee8ca250c3f31b497e66c45175e36540",
+            "browser_download_url": "https://github.com/TokenNotIncluded/codewhale-lmm-provider/releases/download/v0.1.0-alpha.3/release.json"
+          },
+          {
+            "name": "SHA256SUMS",
+            "size": 124,
+            "digest": "sha256:2f9b5aa7dc30820de4f53cc7ca980584f561f8221abf6e1546acea0208b54a14",
+            "browser_download_url": "https://github.com/TokenNotIncluded/codewhale-lmm-provider/releases/download/v0.1.0-alpha.3/SHA256SUMS"
+          },
+          {
+            "name": "tokennotincluded-codewhale-lmm-provider-0.1.0-alpha.3.tgz",
+            "size": 23761,
+            "digest": "sha256:54b3ecaa85ce1a6de3573a4e14b030eda45338c2312fc7a195b8bdaefcac8da4",
+            "browser_download_url": "https://github.com/TokenNotIncluded/codewhale-lmm-provider/releases/download/v0.1.0-alpha.3/tokennotincluded-codewhale-lmm-provider-0.1.0-alpha.3.tgz"
+          }
+        ]
+      },
+      "published_asset_digest_matches": true
+    },
+    {
+      "repository": "dsh-lmm-provider",
+      "version": "0.1.0-alpha.8",
+      "commit": "2f11acf7419513dd549e4afe8515f44a95fb1123",
+      "artifact": "tokennotincluded-dsh-lmm-provider-0.1.0-alpha.8.tgz",
+      "artifact_alias": "dsh-lmm-provider.tgz",
+      "sha256": "7cf932b0a79bd61c1b3c10b044d5464f1c85acbd781641aaf03617953826e8bc",
+      "nested_pi_commit": "358960d02828eb385aa35514c5c56470a4349572",
+      "tests": [
+        {
+          "command": "npm test",
+          "passed": 17
+        },
+        {
+          "command": "npm run typecheck",
+          "result": "passed"
+        },
+        {
+          "command": "npm run build",
+          "result": "passed"
+        },
+        {
+          "command": "LMM_DSH_PLUGIN=/tmp/lmm-plugin-release-20261117/tokennotincluded-dsh-lmm-provider-0.1.0-alpha.8.tgz npm run test:host",
+          "result": "passed",
+          "scope": "Official DSH Web process in a fresh temporary home; built tarball install, authenticated RPC, OAuth PKCE fixture callback, durable credential, model catalog, fixture streaming invocation and sign-out. No production grant or billable request.",
+          "test_source": "scripts/test-host.mjs"
+        }
+      ],
+      "install": "dsh plugin --profile web add https://github.com/TokenNotIncluded/dsh-lmm-provider/releases/download/v0.1.0-alpha.8/dsh-lmm-provider.tgz --ignore-scripts",
+      "artifact_bytes": 39403,
+      "commit_url": "https://github.com/TokenNotIncluded/dsh-lmm-provider/commit/2f11acf7419513dd549e4afe8515f44a95fb1123",
+      "checkout_matches_commit": true,
+      "working_tree_clean": true,
+      "manifest_version": "0.1.0-alpha.8",
+      "release_lookup_exit_code": 0,
+      "release": {
+        "html_url": "https://github.com/TokenNotIncluded/dsh-lmm-provider/releases/tag/v0.1.0-alpha.8",
+        "tag_name": "v0.1.0-alpha.8",
+        "target_commitish": "2f11acf7419513dd549e4afe8515f44a95fb1123",
+        "draft": false,
+        "prerelease": false,
+        "assets": [
+          {
+            "name": "dsh-lmm-provider.tgz",
+            "size": 39403,
+            "digest": "sha256:7cf932b0a79bd61c1b3c10b044d5464f1c85acbd781641aaf03617953826e8bc",
+            "browser_download_url": "https://github.com/TokenNotIncluded/dsh-lmm-provider/releases/download/v0.1.0-alpha.8/dsh-lmm-provider.tgz"
+          },
+          {
+            "name": "release.json",
+            "size": 497,
+            "digest": "sha256:135c74678c752984ee484b440452154d167edad024038fad97bfb6aba14a3166",
+            "browser_download_url": "https://github.com/TokenNotIncluded/dsh-lmm-provider/releases/download/v0.1.0-alpha.8/release.json"
+          },
+          {
+            "name": "SHA256SUMS",
+            "size": 205,
+            "digest": "sha256:07f5a67836868f1b6900a6de3546b8624672353810f7976f5214eb6a6d881917",
+            "browser_download_url": "https://github.com/TokenNotIncluded/dsh-lmm-provider/releases/download/v0.1.0-alpha.8/SHA256SUMS"
+          },
+          {
+            "name": "tokennotincluded-dsh-lmm-provider-0.1.0-alpha.8.tgz",
+            "size": 39403,
+            "digest": "sha256:7cf932b0a79bd61c1b3c10b044d5464f1c85acbd781641aaf03617953826e8bc",
+            "browser_download_url": "https://github.com/TokenNotIncluded/dsh-lmm-provider/releases/download/v0.1.0-alpha.8/tokennotincluded-dsh-lmm-provider-0.1.0-alpha.8.tgz"
+          }
+        ]
+      },
+      "published_asset_digest_matches": true
+    },
+    {
+      "repository": "zed-lmm-provider",
+      "version": "0.1.3",
+      "commit": "f18268100b0b11b9d30d2dde010948db7c2934f4",
+      "artifact": "tokennotincluded-zed-lmm-provider-0.1.3.tgz",
+      "sha256": "2a8e4bfd930bb304d4f77d9c707a51f35b994f0546e874dd88acaa52a619573f",
+      "runtime_equivalent_release": "0.1.2",
+      "tests": [
+        {
+          "command": "node --experimental-strip-types --test test/server-metadata.test.ts",
+          "passed": 4
+        },
+        {
+          "command": "npm test",
+          "passed": 26,
+          "scope": "Initial runtime integration; later specialized-model and zero-limit changes covered by focused suite"
+        },
+        {
+          "command": "npm run typecheck",
+          "result": "passed"
+        },
+        {
+          "command": "npm pack --pack-destination /tmp/lmm-plugin-release-20261117",
+          "result": "passed; prepack rebuilt distribution"
+        }
+      ],
+      "install": "npm install -g https://github.com/TokenNotIncluded/zed-lmm-provider/releases/download/v0.1.3/tokennotincluded-zed-lmm-provider-0.1.3.tgz",
+      "notes": "README now installs exact GitHub release while npm registry remains older. Native Zed UI was not exercised.",
+      "artifact_bytes": 74410,
+      "commit_url": "https://github.com/TokenNotIncluded/zed-lmm-provider/commit/f18268100b0b11b9d30d2dde010948db7c2934f4",
+      "checkout_matches_commit": true,
+      "working_tree_clean": true,
+      "manifest_version": "0.1.3",
+      "release_lookup_exit_code": 0,
+      "release": {
+        "html_url": "https://github.com/TokenNotIncluded/zed-lmm-provider/releases/tag/v0.1.3",
+        "tag_name": "v0.1.3",
+        "target_commitish": "f18268100b0b11b9d30d2dde010948db7c2934f4",
+        "draft": false,
+        "prerelease": false,
+        "assets": [
+          {
+            "name": "release.json",
+            "size": 343,
+            "digest": "sha256:d0b87eaddc2f1e8c92450768288de7323dd635f2022052e8d6a90f1b0a20a499",
+            "browser_download_url": "https://github.com/TokenNotIncluded/zed-lmm-provider/releases/download/v0.1.3/release.json"
+          },
+          {
+            "name": "SHA256SUMS",
+            "size": 110,
+            "digest": "sha256:d8e12f33d15101e2abe984424de685ab9d8c7706514d817099f44976ae966408",
+            "browser_download_url": "https://github.com/TokenNotIncluded/zed-lmm-provider/releases/download/v0.1.3/SHA256SUMS"
+          },
+          {
+            "name": "tokennotincluded-zed-lmm-provider-0.1.3.tgz",
+            "size": 74410,
+            "digest": "sha256:2a8e4bfd930bb304d4f77d9c707a51f35b994f0546e874dd88acaa52a619573f",
+            "browser_download_url": "https://github.com/TokenNotIncluded/zed-lmm-provider/releases/download/v0.1.3/tokennotincluded-zed-lmm-provider-0.1.3.tgz"
+          }
+        ]
+      },
+      "published_asset_digest_matches": true
+    },
+    {
+      "repository": "vscode-lmm-provider",
+      "version": "0.1.5",
+      "commit": "23a278af3743afdd09dad7f98daa666b5188efd8",
+      "artifact": "lmm-copilot-provider-0.1.5.vsix",
+      "sha256": "81a9adf0a761f00a894c8164e006adce6fef205084018616c20b116b3bf16cd8",
+      "runtime_equivalent_release": "0.1.4",
+      "tests": [
+        {
+          "command": "npm run compile && node --test test/metadata.test.cjs test/provider.test.cjs",
+          "passed": 21
+        },
+        {
+          "command": "npm test",
+          "passed": 39,
+          "scope": "Initial runtime integration; later specialized-model and zero-limit changes covered by focused suite"
+        },
+        {
+          "command": "npm run package -- --out /tmp/lmm-plugin-release-20261117/lmm-copilot-provider-0.1.5.vsix",
+          "result": "passed; precompile removed stale generated files"
+        }
+      ],
+      "install": "code --install-extension ./lmm-copilot-provider-0.1.5.vsix",
+      "download_url": "https://github.com/TokenNotIncluded/vscode-lmm-provider/releases/download/v0.1.5/lmm-copilot-provider-0.1.5.vsix",
+      "notes": "VSIX runtime bytes match 0.1.4; README points to 0.1.5 and runtime automatic caching, with deleted snapshot script instructions removed. Real desktop VS Code was not exercised.",
+      "artifact_bytes": 64874,
+      "commit_url": "https://github.com/TokenNotIncluded/vscode-lmm-provider/commit/23a278af3743afdd09dad7f98daa666b5188efd8",
+      "checkout_matches_commit": true,
+      "working_tree_clean": true,
+      "manifest_version": "0.1.5",
+      "release_lookup_exit_code": 0,
+      "release": {
+        "html_url": "https://github.com/TokenNotIncluded/vscode-lmm-provider/releases/tag/v0.1.5",
+        "tag_name": "v0.1.5",
+        "target_commitish": "23a278af3743afdd09dad7f98daa666b5188efd8",
+        "draft": false,
+        "prerelease": false,
+        "assets": [
+          {
+            "name": "lmm-copilot-provider-0.1.5.vsix",
+            "size": 64874,
+            "digest": "sha256:81a9adf0a761f00a894c8164e006adce6fef205084018616c20b116b3bf16cd8",
+            "browser_download_url": "https://github.com/TokenNotIncluded/vscode-lmm-provider/releases/download/v0.1.5/lmm-copilot-provider-0.1.5.vsix"
+          },
+          {
+            "name": "release.json",
+            "size": 334,
+            "digest": "sha256:5bc4280bc4f199347e88c6409068e39b1cb1d1d883623f63da6838ca1282458a",
+            "browser_download_url": "https://github.com/TokenNotIncluded/vscode-lmm-provider/releases/download/v0.1.5/release.json"
+          },
+          {
+            "name": "SHA256SUMS",
+            "size": 98,
+            "digest": "sha256:da6dbbea23529e1755d48fb525e3b0ac4fab603cd571a515c836684120643cd7",
+            "browser_download_url": "https://github.com/TokenNotIncluded/vscode-lmm-provider/releases/download/v0.1.5/SHA256SUMS"
+          }
+        ]
+      },
+      "published_asset_digest_matches": true
+    }
+  ],
+  "installer": {
+    "repository": "lmm-scripts",
+    "commit": "74fa5968bb9376abcf7e3ea47f8e39569d68e929",
+    "helper_commit": "967563d3e00a53c9deaddb7276247407935598ad",
+    "helper_sha256": "e30adefd8b94d9806a437a98b9c669759c1c13e78a50485b43e68f98b854d2f7",
+    "provider_commit": "2b0d6b22af069ac8685dd677d99dbbfd2340514e",
+    "delivery": "Installs complete pinned provider GitHub archive including models-dev-cache.mjs",
+    "tests": [
+      {
+        "command": "node --test test-codewhale.mjs",
+        "passed": 32
+      },
+      {
+        "command": "bash -n codewhale.sh",
+        "result": "passed"
+      }
+    ],
+    "note": "Parent agent owns subsequent unrelated installer updates and final release tag"
+  },
+  "marketplace": {
+    "publisher": "LIghtJUNction",
+    "read_only_command": "./node_modules/.bin/vsce ls-publishers",
+    "exit_code": 0,
+    "stdout": "",
+    "result": "No stored publisher account listed; no login, credential-file inspection or account change performed"
+  },
+  "validation_limits": [
+    "Corpus is a public-model/account-shaped fixture; it verifies completeness without a production OAuth grant.",
+    "Metadata misses retain authorized compatible models with explicit estimates.",
+    "Known non-chat types, non-text modalities and unsupported protocols remain read-only; they are not omitted from the raw authorized directory.",
+    "No publication, tags, or parent gitlink updates were performed by this child agent; parent owns final release coordination."
+  ],
+  "generated_at": "2026-11-17T10:30:18.176035+00:00",
+  "corpus": {
+    "at": "2026-11-17T10:25:46.399Z",
+    "fixture": "/tmp/lmm-plugin-acceptance-20261117/catalog-fixture.json",
+    "metadata": "/tmp/lmm-plugin-acceptance-20261117/models-dev.json",
+    "fixture_routes": 4419,
+    "reference_providers": 326,
+    "reference_models": 10010,
+    "codewhale": {
+      "raw": 4419,
+      "chat": 4002,
+      "excluded": 417
+    },
+    "zed": {
+      "raw": 4419,
+      "chat": 4002,
+      "excluded": 417
+    },
+    "vscode": {
+      "raw": 4419,
+      "chat": 4002,
+      "excluded": 417
+    },
+    "identity_and_prices_preserved": true,
+    "positive_host_budgets": true
+  },
+  "dsh_host_version": "0.2.2-rc.1"
+}

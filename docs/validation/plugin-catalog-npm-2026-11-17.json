@@ -1,0 +1,21 @@
+{
+  "package": "@tokennotincluded/pi-lmm-provider",
+  "version": "0.1.0-alpha.6",
+  "dist_tags": {
+    "latest": "0.1.0-alpha.2",
+    "alpha": "0.1.0-alpha.6"
+  },
+  "integrity": "sha512-6W1v/XACwU8qNaSYAqyvn/kXbQyt+slJm4VXDBHBIfujQW4RDF8f2xufdMvTsgQ2G/xINdBwak0id9x8FuqVbw==",
+  "expected_integrity": "sha512-6W1v/XACwU8qNaSYAqyvn/kXbQyt+slJm4VXDBHBIfujQW4RDF8f2xufdMvTsgQ2G/xINdBwak0id9x8FuqVbw==",
+  "downloaded_sha256": "853f1cc821184793cd2a29129b6266a55422bc61e7169c03af3a8b3206161d58",
+  "expected_sha256": "853f1cc821184793cd2a29129b6266a55422bc61e7169c03af3a8b3206161d58",
+  "attestations": {
+    "url": "https://registry.npmjs.org/-/npm/v1/attestations/@tokennotincluded%2fpi-lmm-provider@0.1.0-alpha.6",
+    "provenance": {
+      "predicateType": "https://slsa.dev/provenance/v1"
+    }
+  },
+  "tarball": "https://registry.npmjs.org/@tokennotincluded/pi-lmm-provider/-/pi-lmm-provider-0.1.0-alpha.6.tgz",
+  "workflow": "https://github.com/TokenNotIncluded/pi-lmm-provider/actions/runs/44064957826",
+  "status": "verified"
+}

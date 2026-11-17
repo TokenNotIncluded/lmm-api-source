@@ -1,0 +1,508 @@
+{
+  "schema_version": 1,
+  "generated_at": "2026-11-17T10:30:14.691845+00:00",
+  "overall_status": "pass",
+  "scope": {
+    "environment": "User developer machine via ssmcp shell; actual Magpie 0.1.2512 in isolated task-specific config/XDG directories.",
+    "authorization": "Synthetic local trusted HTTPS OAuth with PKCE verification; no live production LMM grant used.",
+    "corpus": "Complete observed public models.dev ID corpus plus dynamic fuzzy aliases and unknown future IDs, served through an account-shaped fixture.",
+    "claims_limit": "Counts prove installed artifacts preserve every supported fixture route. These are not counts available to the user in a live LMM account.",
+    "production_catalog": "No independently usable public catalog or current local LMM grant was available; live account listing remains unverified.",
+    "paid_inference_requests": 0,
+    "existing_user_configuration_modified": false,
+    "specialized_models": "417 explicitly specialized/non-text/unsupported-protocol routes are excluded from the host chat selector. They are not metadata whitelist omissions."
+  },
+  "source": {
+    "source": "automatic runtime models.dev cache download during actual Magpie install validation",
+    "url": "https://models.dev/api.json?type=all",
+    "retrieved_at": "2026-11-17T10:14:50.398000+00:00",
+    "etag": "W/\"3a2cb0e0a51da323b166d2effd27e86a\"",
+    "sha256": "3a2cb0e0a51da323b166d2effd27e86a22c609936b2982bd3342873a083d3073",
+    "automatic_cache_sha256": "efea709e2a1bf84b8809776e7cce4de6c967e827461ce945a007c3a0aa74e397",
+    "providers": 326,
+    "provider_model_rows": 10010,
+    "unique_model_ids": 4404,
+    "bytes": 6743069
+  },
+  "corpus": {
+    "public_unique_model_ids": 4404,
+    "dynamic_fuzzy_aliases": 3,
+    "unknown_future_ids": 2,
+    "unique_fixture_upstream_names": 4409,
+    "fixture_groups": 2,
+    "additional_second_group_routes": 10,
+    "offered_routes": 4419,
+    "supported_chat_routes": 4002,
+    "explicitly_unsupported_routes": 417,
+    "fixture_path": "/tmp/lmm-plugin-acceptance-20261117/catalog-fixture.json",
+    "fixture_sha256": "364b80279f26290c923f077e3f6127074c5f8e08319e1d9ac1be45192bd29385"
+  },
+  "cache_acceptance": {
+    "status": "pass",
+    "observed": "Actual cold runtime fetched official metadata, saved complete cache with fetchedAt/ETag, and retained an unknown model. Final corpus tests consumed that frozen fresh cache.",
+    "endpoint": "https://models.dev/api.json?type=all",
+    "cold_cache_evidence": "/tmp/lmm-plugin-acceptance-20261117/empty-metadata-cache-r2.json",
+    "final_cache_evidence": "/tmp/lmm-plugin-acceptance-20261117/models-cache.json",
+    "raw_snapshot": "/tmp/lmm-plugin-acceptance-20261117/models-dev.json"
+  },
+  "integrations": [
+    {
+      "integration": "opencode_magpie",
+      "status": "pass",
+      "host": "magpie 0.1.2512",
+      "artifact": {
+        "name": "tokennotincluded-opencode-lmm-auth-0.1.4.tgz",
+        "sha256": "58f7527543c63d9a69c9622282bd9191d8039da9be99ca3ac6f925d39e403f87",
+        "developer_machine_path": "/tmp/lmm-plugin-release-20261117/tokennotincluded-opencode-lmm-auth-0.1.4.tgz"
+      },
+      "installation": {
+        "method": "extract release tarball then magpie plugin add exact built entry",
+        "provider_id": "lmm-magpie",
+        "entry": "/tmp/lmm-plugin-acceptance-20261117/artifacts/opencode-0.1.4-r3/package/dist/magpie.js"
+      },
+      "counts": {
+        "fixture_groups": 2,
+        "offered_routes": 4419,
+        "supported_expected": 4002,
+        "registered_actual": 4002,
+        "explicitly_unsupported_specialized_routes": 417,
+        "missing_supported": 0,
+        "unexpected": 0,
+        "duplicate_registered_ids": 0,
+        "groups": [
+          {
+            "fixture_group": 1,
+            "offered_routes": 4409,
+            "registered_routes": 3995,
+            "registered_ids_sha256": "d9094c48e04cc24d283e21f20f6d52d02da7bf8ae7a7ea85b630b0cf9659215e"
+          },
+          {
+            "fixture_group": 2,
+            "offered_routes": 10,
+            "registered_routes": 7,
+            "registered_ids_sha256": "a096a66f4876c9992d326a8e38abfad9b3b4c3eb48ae24732d1ed5741effdff8"
+          }
+        ]
+      },
+      "route_set_hashes": {
+        "serialization": "SHA-256 of UTF-8 IDs in JavaScript default sorted order, separated by LF, no trailing LF",
+        "offered_all_sha256": "7706995cbc2a664a8ba0bc61b08b5ac37c34cae3178aadb5fced0c45747ad803",
+        "supported_expected_sha256": "09fc6f3ec8a2f5224f795de27cb52681763ae04647eca74b7ea6336f2ae753a3",
+        "registered_actual_sha256": "09fc6f3ec8a2f5224f795de27cb52681763ae04647eca74b7ea6336f2ae753a3",
+        "excluded_sha256": "35a7cf76f339b194b4cca1edd3577a2b988f8b495e5a91d41eddcc4dccf60688",
+        "expected_supported_equals_actual": true
+      },
+      "metadata_checks": {
+        "reference_matches": 2933,
+        "reference_reasoning_image_mismatches": 0,
+        "reasoning_enabled": 2305,
+        "image_capable": 1849,
+        "positive_context_and_output": 4002,
+        "account_prices_preserved": 4002,
+        "fixture_prices": {
+          "input": 1,
+          "output": 2,
+          "cache_read": 0.1,
+          "cache_write": 0.2
+        },
+        "api_url_check": {
+          "status": "pass",
+          "matching_local_fixture_urls": 4002,
+          "explanation": "Every model retains the synthetic HTTPS catalog API URL."
+        },
+        "tool_flag_check": "Public Magpie CLI result does not expose a separate tool capability field.",
+        "unresolved_reference_policy": "Models remain registered. OpenCode uses conservative generic budgets; Pi may also use host registry metadata."
+      },
+      "fuzzy_aliases": [
+        {
+          "upstream_id": "gateway/KIMI_K2_7_CODE",
+          "registered": true,
+          "reasoning": true,
+          "image_input": true,
+          "context": 262144,
+          "output": 262144,
+          "reference_id": "kimi-k2.7-code"
+        },
+        {
+          "upstream_id": "gateway/QWEN3_5_122B_A10B",
+          "registered": true,
+          "reasoning": true,
+          "image_input": true,
+          "context": 262144,
+          "output": 65536,
+          "reference_id": "qwen3.5-122b-a10b"
+        },
+        {
+          "upstream_id": "gateway/STEP_3_5_FLASH_2603",
+          "registered": true,
+          "reasoning": true,
+          "image_input": false,
+          "context": 256000,
+          "output": 256000,
+          "reference_id": "step-3.5-flash-2603"
+        }
+      ],
+      "unknown_future_models": [
+        {
+          "upstream_id": "acceptance-future-model-987",
+          "registered": true,
+          "reasoning": false,
+          "image_input": false,
+          "context": 32768,
+          "output": 4096,
+          "metadata_unavailable_marked": true
+        },
+        {
+          "upstream_id": "acceptance/future.model.987",
+          "registered": true,
+          "reasoning": false,
+          "image_input": false,
+          "context": 32768,
+          "output": 4096,
+          "metadata_unavailable_marked": true
+        }
+      ],
+      "activity": {
+        "inference_requests": 0,
+        "refresh_requests": 0,
+        "fixture_errors": 0
+      },
+      "evidence": {
+        "report": {
+          "path": "/tmp/lmm-plugin-acceptance-20261117/final-native-complete/report.json",
+          "sha256": "74723e1dd93548a8d22d9100084eb8214d4f691b1c8d0663b7abd42cc4f2d044"
+        },
+        "model_listing": {
+          "path": "/tmp/lmm-plugin-acceptance-20261117/final-native-complete/models.json",
+          "sha256": "a40d43b1d67fff6ceb8c57f7f82d63a2874dbc5b1a05547f0b9a819f5837d496"
+        },
+        "route_comparison": {
+          "path": "/tmp/lmm-plugin-acceptance-20261117/final-native-complete/comparison.json",
+          "sha256": "4dd5a5586cfb964d948078155b36831b2093d312c1451507f93146b2ca875463"
+        },
+        "metadata_verification": {
+          "path": "/tmp/lmm-plugin-acceptance-20261117/final-native-complete/metadata-verification.json",
+          "sha256": "d1751909905f45189092444ceeb7a641ed4db8244dd8ecf77f114bfb530030cf"
+        }
+      }
+    },
+    {
+      "integration": "opencode_default",
+      "status": "pass",
+      "host": "magpie 0.1.2512",
+      "artifact": {
+        "name": "tokennotincluded-opencode-lmm-auth-0.1.4.tgz",
+        "sha256": "58f7527543c63d9a69c9622282bd9191d8039da9be99ca3ac6f925d39e403f87",
+        "developer_machine_path": "/tmp/lmm-plugin-release-20261117/tokennotincluded-opencode-lmm-auth-0.1.4.tgz"
+      },
+      "installation": {
+        "method": "extract release tarball then magpie plugin add exact built entry",
+        "provider_id": "lmm",
+        "entry": "/tmp/lmm-plugin-acceptance-20261117/artifacts/opencode-0.1.4-r3/package/dist/index.js"
+      },
+      "counts": {
+        "fixture_groups": 2,
+        "offered_routes": 4419,
+        "supported_expected": 4002,
+        "registered_actual": 4002,
+        "explicitly_unsupported_specialized_routes": 417,
+        "missing_supported": 0,
+        "unexpected": 0,
+        "duplicate_registered_ids": 0,
+        "groups": [
+          {
+            "fixture_group": 1,
+            "offered_routes": 4409,
+            "registered_routes": 3995,
+            "registered_ids_sha256": "d9094c48e04cc24d283e21f20f6d52d02da7bf8ae7a7ea85b630b0cf9659215e"
+          },
+          {
+            "fixture_group": 2,
+            "offered_routes": 10,
+            "registered_routes": 7,
+            "registered_ids_sha256": "a096a66f4876c9992d326a8e38abfad9b3b4c3eb48ae24732d1ed5741effdff8"
+          }
+        ]
+      },
+      "route_set_hashes": {
+        "serialization": "SHA-256 of UTF-8 IDs in JavaScript default sorted order, separated by LF, no trailing LF",
+        "offered_all_sha256": "7706995cbc2a664a8ba0bc61b08b5ac37c34cae3178aadb5fced0c45747ad803",
+        "supported_expected_sha256": "09fc6f3ec8a2f5224f795de27cb52681763ae04647eca74b7ea6336f2ae753a3",
+        "registered_actual_sha256": "09fc6f3ec8a2f5224f795de27cb52681763ae04647eca74b7ea6336f2ae753a3",
+        "excluded_sha256": "35a7cf76f339b194b4cca1edd3577a2b988f8b495e5a91d41eddcc4dccf60688",
+        "expected_supported_equals_actual": true
+      },
+      "metadata_checks": {
+        "reference_matches": 2933,
+        "reference_reasoning_image_mismatches": 0,
+        "reasoning_enabled": 2305,
+        "image_capable": 1849,
+        "positive_context_and_output": 4002,
+        "account_prices_preserved": 4002,
+        "fixture_prices": {
+          "input": 1,
+          "output": 2,
+          "cache_read": 0.1,
+          "cache_write": 0.2
+        },
+        "api_url_check": {
+          "status": "pass",
+          "matching_local_fixture_urls": 4002,
+          "explanation": "Every model retains the synthetic HTTPS catalog API URL."
+        },
+        "tool_flag_check": "Public Magpie CLI result does not expose a separate tool capability field.",
+        "unresolved_reference_policy": "Models remain registered. OpenCode uses conservative generic budgets; Pi may also use host registry metadata."
+      },
+      "fuzzy_aliases": [
+        {
+          "upstream_id": "gateway/KIMI_K2_7_CODE",
+          "registered": true,
+          "reasoning": true,
+          "image_input": true,
+          "context": 262144,
+          "output": 262144,
+          "reference_id": "kimi-k2.7-code"
+        },
+        {
+          "upstream_id": "gateway/QWEN3_5_122B_A10B",
+          "registered": true,
+          "reasoning": true,
+          "image_input": true,
+          "context": 262144,
+          "output": 65536,
+          "reference_id": "qwen3.5-122b-a10b"
+        },
+        {
+          "upstream_id": "gateway/STEP_3_5_FLASH_2603",
+          "registered": true,
+          "reasoning": true,
+          "image_input": false,
+          "context": 256000,
+          "output": 256000,
+          "reference_id": "step-3.5-flash-2603"
+        }
+      ],
+      "unknown_future_models": [
+        {
+          "upstream_id": "acceptance-future-model-987",
+          "registered": true,
+          "reasoning": false,
+          "image_input": false,
+          "context": 32768,
+          "output": 4096,
+          "metadata_unavailable_marked": true
+        },
+        {
+          "upstream_id": "acceptance/future.model.987",
+          "registered": true,
+          "reasoning": false,
+          "image_input": false,
+          "context": 32768,
+          "output": 4096,
+          "metadata_unavailable_marked": true
+        }
+      ],
+      "activity": {
+        "inference_requests": 0,
+        "refresh_requests": 0,
+        "fixture_errors": 0
+      },
+      "evidence": {
+        "report": {
+          "path": "/tmp/lmm-plugin-acceptance-20261117/final-default-complete/report.json",
+          "sha256": "6f4378bc7637000af8e3b402ae4f1415b3de2918f7373cb06d51bd9f91268513"
+        },
+        "model_listing": {
+          "path": "/tmp/lmm-plugin-acceptance-20261117/final-default-complete/models.json",
+          "sha256": "1cbbc7c801cded67db9591ac42d72e84c25cc8d7131a8933a2c3c9d1f920980c"
+        },
+        "route_comparison": {
+          "path": "/tmp/lmm-plugin-acceptance-20261117/final-default-complete/comparison.json",
+          "sha256": "4dd5a5586cfb964d948078155b36831b2093d312c1451507f93146b2ca875463"
+        },
+        "metadata_verification": {
+          "path": "/tmp/lmm-plugin-acceptance-20261117/final-default-complete/metadata-verification.json",
+          "sha256": "d1751909905f45189092444ceeb7a641ed4db8244dd8ecf77f114bfb530030cf"
+        }
+      }
+    },
+    {
+      "integration": "pi",
+      "status": "pass",
+      "host": "magpie 0.1.2512",
+      "artifact": {
+        "name": "tokennotincluded-pi-lmm-provider-0.1.0-alpha.6.tgz",
+        "sha256": "853f1cc821184793cd2a29129b6266a55422bc61e7169c03af3a8b3206161d58",
+        "developer_machine_path": "/tmp/lmm-plugin-release-20261117/tokennotincluded-pi-lmm-provider-0.1.0-alpha.6.tgz"
+      },
+      "installation": {
+        "method": "normal npm install of release tarball then magpie plugin add installed directory",
+        "provider_id": "lmm",
+        "entry": "/tmp/lmm-plugin-acceptance-20261117/installed-pi-alpha6/node_modules/@tokennotincluded/pi-lmm-provider"
+      },
+      "counts": {
+        "fixture_groups": 2,
+        "offered_routes": 4419,
+        "supported_expected": 4002,
+        "registered_actual": 4002,
+        "explicitly_unsupported_specialized_routes": 417,
+        "missing_supported": 0,
+        "unexpected": 0,
+        "duplicate_registered_ids": 0,
+        "groups": [
+          {
+            "fixture_group": 1,
+            "offered_routes": 4409,
+            "registered_routes": 3995,
+            "registered_ids_sha256": "51c4981cddf1719f76f1556bd40e4f7c8407166f9260932ba6ca9a510a99981a"
+          },
+          {
+            "fixture_group": 2,
+            "offered_routes": 10,
+            "registered_routes": 7,
+            "registered_ids_sha256": "8dcf958ef47431e57054f38f4ef00923ea203cbbf5d2f0262a30898b7fc77b0e"
+          }
+        ]
+      },
+      "route_set_hashes": {
+        "serialization": "SHA-256 of UTF-8 IDs in JavaScript default sorted order, separated by LF, no trailing LF",
+        "offered_all_sha256": "3e7d539c5e1d3d57e7d4171bed5a27104ba4a91c4ee14804faf71389e0543b71",
+        "supported_expected_sha256": "fa56baa0a1dda513ae3c8392a153f2f4c4ff4a0c2ba014c7c3962e5c4e74c7ae",
+        "registered_actual_sha256": "fa56baa0a1dda513ae3c8392a153f2f4c4ff4a0c2ba014c7c3962e5c4e74c7ae",
+        "excluded_sha256": "3160eae211b411acb219caed079af6a805805e5a9b5299a9a38d41c394b76002",
+        "expected_supported_equals_actual": true
+      },
+      "metadata_checks": {
+        "reference_matches": 2933,
+        "reference_reasoning_image_mismatches": 0,
+        "reasoning_enabled": 2577,
+        "image_capable": 2051,
+        "positive_context_and_output": 4002,
+        "account_prices_preserved": 4002,
+        "fixture_prices": {
+          "input": 1,
+          "output": 2,
+          "cache_read": 0.1,
+          "cache_write": 0.2
+        },
+        "api_url_check": {
+          "status": "not_exposed_by_pi_host_cli",
+          "matching_local_fixture_urls": 0,
+          "explanation": "Pi listing omits URL; internal relay endpoint not validated by inference."
+        },
+        "tool_flag_check": "Not exposed per model by Pi schema.",
+        "unresolved_reference_policy": "Models remain registered. OpenCode uses conservative generic budgets; Pi may also use host registry metadata."
+      },
+      "fuzzy_aliases": [
+        {
+          "upstream_id": "gateway/KIMI_K2_7_CODE",
+          "registered": true,
+          "reasoning": true,
+          "image_input": true,
+          "context": 262144,
+          "output": 262144,
+          "reference_id": "kimi-k2.7-code"
+        },
+        {
+          "upstream_id": "gateway/QWEN3_5_122B_A10B",
+          "registered": true,
+          "reasoning": true,
+          "image_input": true,
+          "context": 262144,
+          "output": 65536,
+          "reference_id": "qwen3.5-122b-a10b"
+        },
+        {
+          "upstream_id": "gateway/STEP_3_5_FLASH_2603",
+          "registered": true,
+          "reasoning": true,
+          "image_input": false,
+          "context": 256000,
+          "output": 256000,
+          "reference_id": "step-3.5-flash-2603"
+        }
+      ],
+      "unknown_future_models": [
+        {
+          "upstream_id": "acceptance-future-model-987",
+          "registered": true,
+          "reasoning": false,
+          "image_input": false,
+          "context": 32768,
+          "output": 4096,
+          "metadata_unavailable_marked": false
+        },
+        {
+          "upstream_id": "acceptance/future.model.987",
+          "registered": true,
+          "reasoning": false,
+          "image_input": false,
+          "context": 32768,
+          "output": 4096,
+          "metadata_unavailable_marked": false
+        }
+      ],
+      "activity": {
+        "inference_requests": 0,
+        "refresh_requests": 0,
+        "fixture_errors": 0
+      },
+      "evidence": {
+        "report": {
+          "path": "/tmp/lmm-plugin-acceptance-20261117/final-pi-installed/report.json",
+          "sha256": "332083fa65b389d1572e9c1d89b347fa379e526248c06f6a827418d001472405"
+        },
+        "model_listing": {
+          "path": "/tmp/lmm-plugin-acceptance-20261117/final-pi-installed/models.json",
+          "sha256": "cab5ac5ab5a1d0c5056367f186c57c4d0502cc8757c762e1421018d067aa615d"
+        },
+        "route_comparison": {
+          "path": "/tmp/lmm-plugin-acceptance-20261117/final-pi-installed/comparison.json",
+          "sha256": "04563ba7e3b6f97bdf1508c37db474078627f71e4bedc7094ae1058bbcec8fca"
+        },
+        "metadata_verification": {
+          "path": "/tmp/lmm-plugin-acceptance-20261117/final-pi-installed/metadata-verification.json",
+          "sha256": "a7339f96cc75a1bf37f64b184d79a94e15174eeb44b332960d57b9eed3f592b9"
+        }
+      }
+    }
+  ],
+  "commands": {
+    "notes": [
+      "These preserve exact CLI forms used; placeholders replace task-specific paths. Normal production login was not performed.",
+      "Choose one OpenCode entry. Each integration used separate isolated configuration during acceptance.",
+      "The harness set a synthetic issuer with plugin options for OpenCode and LMM_ISSUER for Pi. Test-only issuer overrides are omitted below.",
+      "Create extraction/installation directories before using the templates."
+    ],
+    "opencode_magpie": [
+      "tar -xzf <release-dir>/tokennotincluded-opencode-lmm-auth-0.1.4.tgz -C <extraction-dir>",
+      "magpie plugin add <extraction-dir>/package/dist/magpie.js",
+      "magpie plugin login lmm-magpie",
+      "magpie plugin list --json"
+    ],
+    "opencode_default": [
+      "tar -xzf <release-dir>/tokennotincluded-opencode-lmm-auth-0.1.4.tgz -C <extraction-dir>",
+      "magpie plugin add <extraction-dir>/package/dist/index.js",
+      "magpie plugin login lmm",
+      "magpie plugin list --json"
+    ],
+    "pi": [
+      "npm install --prefix <installation-dir> --omit=dev --ignore-scripts --no-audit --no-fund <release-dir>/tokennotincluded-pi-lmm-provider-0.1.0-alpha.6.tgz",
+      "magpie plugin add <installation-dir>/node_modules/@tokennotincluded/pi-lmm-provider",
+      "magpie plugin login lmm",
+      "magpie plugin list --json"
+    ],
+    "count_reading": "Read providers[].models.length from magpie plugin list --json for provider lmm-magpie or lmm."
+  },
+  "harness_evidence": {
+    "magpie-acceptance.mjs": {
+      "path": "/tmp/lmm-plugin-acceptance-20261117/magpie-acceptance.mjs",
+      "sha256": "760e7230fd11eb01c074fb49c375ea4d2adf8afa37e13e6837f0afd55f54af5c"
+    },
+    "verify-opencode-metadata.mjs": {
+      "path": "/tmp/lmm-plugin-acceptance-20261117/verify-opencode-metadata.mjs",
+      "sha256": "0dd1ad57ed6e649521dd4650564e93193cc2974a48df73609e1b0af266524153"
+    }
+  },
+  "additional_native_adapter_evidence": "/tmp/lmm-plugin-release-20261117/provider-corpus-counts.json"
+}

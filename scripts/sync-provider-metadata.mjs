@@ -20,8 +20,6 @@ for (const entry of await readdir(join(root, 'packages'), { withFileTypes: true 
   if (await exists(join(directory, 'src'))) {
     const extension = await exists(join(directory, 'tsconfig.json')) ? 'ts' : 'mjs';
     targets.push([join(directory, 'src/models-dev-cache.' + extension), extension === 'ts' ? source : javascript]);
-  } else if (await exists(join(directory, 'codewhale.mjs'))) {
-    targets.push([join(directory, 'models-dev-cache.mjs'), javascript]);
   }
 }
 const changed = [];
