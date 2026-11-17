@@ -20,7 +20,10 @@ import {
 import { useAuthStore, type AuthBundle } from '@/stores/auth-store'
 
 import { finishPasskeyLogin } from '../passkey'
-import { hasVerifiedAccountAppeal } from './account-appeal'
+import {
+  hasVerifiedAccountAppeal,
+  setVerifiedAccountAppealHint,
+} from './account-appeal'
 
 class AuthCompletionError extends Error {}
 
@@ -112,6 +115,7 @@ export function showVerifiedAuthAppeal(
   onAppeal?: (value: unknown) => boolean | void
 ): boolean {
   if (!hasVerifiedAccountAppeal(value)) return false
+  setVerifiedAccountAppealHint(true)
   if (onAppeal?.(value) !== true) {
     toast.error(
       t(

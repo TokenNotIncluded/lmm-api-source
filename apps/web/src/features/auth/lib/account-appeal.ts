@@ -40,6 +40,31 @@ export function hasVerifiedAccountAppeal(value: unknown): boolean {
   ).success
 }
 
+const APPEAL_HINT_KEY = 'lmm.verified-account-appeal'
+let verifiedAppealHint = false
+
+/** A tab-local UI hint; the server's HttpOnly Cookie remains the only proof. */
+export function hasVerifiedAccountAppealHint(): boolean {
+  try {
+    return (
+      verifiedAppealHint ||
+      window.sessionStorage.getItem(APPEAL_HINT_KEY) === '1'
+    )
+  } catch {
+    return verifiedAppealHint
+  }
+}
+
+export function setVerifiedAccountAppealHint(available: boolean) {
+  verifiedAppealHint = available
+  try {
+    if (available) window.sessionStorage.setItem(APPEAL_HINT_KEY, '1')
+    else window.sessionStorage.removeItem(APPEAL_HINT_KEY)
+  } catch {
+    // Keep the current navigation usable when browser storage is unavailable.
+  }
+}
+
 export const appealStatusKeys = {
   pending: 'Pending review',
   approved: 'Approved',

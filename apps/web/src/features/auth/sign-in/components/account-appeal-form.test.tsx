@@ -47,6 +47,9 @@ const { createRoot } = await import('react-dom/client')
 const { createInstance } = await import('i18next')
 const { I18nextProvider, initReactI18next } = await import('react-i18next')
 const { AccountAppealForm } = await import('./account-appeal-form')
+const { hasVerifiedAccountAppealHint, setVerifiedAccountAppealHint } =
+  await import('../../lib/account-appeal')
+const { showVerifiedAuthAppeal } = await import('../../lib/auth-completion')
 const { api } = await import('@/lib/api')
 const { useAuthStore } = await import('@/stores/auth-store')
 const { setDevelopmentAuthRefreshAdapter } = await import('@/lib/auth-session')
@@ -156,10 +159,70 @@ afterEach(async () => {
   assert.equal(refreshes, 0)
   refreshes = 0
   notices.length = 0
+  setVerifiedAccountAppealHint(false)
 })
 after(() => {
   mock.restore()
   dom.close()
+})
+
+test('ordinary sign-in and manual password appeal do not probe a missing Cookie', async () => {
+  let reads = 0
+  api.defaults.adapter = async (config) => {
+    reads++
+    return respond(config, {}, 401)
+  }
+  await mount()
+  assert.equal(reads, 0)
+  await click('Account disabled? Submit an appeal')
+  assert.ok(document.getElementById('appeal-password'))
+  assert.equal(reads, 0)
+  assert.deepEqual(notices, [])
+})
+
+test('a verified OAuth denial preserves automatic appeal opening after navigation', async () => {
+  let reads = 0
+  let navigated = false
+  assert.equal(
+    showVerifiedAuthAppeal(
+      {
+        code: 'AUTH_USER_DISABLED',
+        data: { ...context, appeal_available: true },
+      },
+      i18n.t,
+      () => {
+        assert.equal(hasVerifiedAccountAppealHint(), true)
+        navigated = true
+        return true
+      }
+    ),
+    true
+  )
+  api.defaults.adapter = async (config) => {
+    reads++
+    return respond(config, { success: true, data: context })
+  }
+  await mount()
+  assert.equal(navigated, true)
+  assert.equal(reads, 1)
+  assert.match(document.body.textContent ?? '', /github-only/)
+  assert.equal(document.getElementById('appeal-password'), null)
+  assert.deepEqual(notices, [])
+})
+
+test('expired verified-appeal hints keep the server rejection and are cleared', async () => {
+  let reads = 0
+  setVerifiedAccountAppealHint(true)
+  api.defaults.adapter = async (config) => {
+    reads++
+    return respond(config, {}, 401)
+  }
+  await mount()
+  assert.equal(reads, 1)
+  assert.equal(hasVerifiedAccountAppealHint(), false)
+  assert.match(document.body.textContent ?? '', /Appeal verification expired/)
+  assert.equal(button('Send appeal').disabled, true)
+  assert.deepEqual(notices, [])
 })
 
 test('OAuth-only identity submits only reason and shows the existing server receipt', async () => {
@@ -177,7 +240,7 @@ test('OAuth-only identity submits only reason and shows the existing server rece
       data: { ...receipt, already_pending: true, admin_note: 'SECRET' },
     })
   }
-  await mount()
+  await mount(1)
   assert.match(document.body.textContent ?? '', /github-only/)
   assert.match(document.body.textContent ?? '', /Published account restriction/)
   assert.equal(document.querySelector('input[type=password]'), null)
@@ -217,7 +280,7 @@ for (const status of [
           request: { ...receipt, status },
         },
       })
-    await mount()
+    await mount(1)
     assert.match(
       document.body.textContent ?? '',
       /No public reason has been provided/
@@ -251,7 +314,7 @@ test('receipt status and original reason override a submitted draft, including a
           ? context
           : { ...receipt, status: 'approved', already_pending: false },
     })
-  await mount()
+  await mount(1)
   await fill('appeal-reason', 'draft explanation')
   await click('Send appeal')
   assert.match(document.body.textContent ?? '', /Approved/)
@@ -301,7 +364,7 @@ test('password failure refresh signal reloads Cookie context and removes passwor
   assert.ok(document.getElementById('appeal-password'))
   verified = true
   await mount(1)
-  assert.equal(reads, 2)
+  assert.equal(reads, 1)
   assert.equal(document.getElementById('appeal-password'), null)
   assert.match(document.body.textContent ?? '', /github-only/)
 })
@@ -315,7 +378,7 @@ test('expired Cookie submission is not replayed and asks for new identity verifi
     posts++
     return respond(config, { message: 'PRIVATE' }, 401)
   }
-  await mount()
+  await mount(1)
   await fill('appeal-reason', 'explanation')
   await click('Send appeal')
   assert.equal(posts, 1)
@@ -337,11 +400,11 @@ test('a late receipt cannot appear under a newly verified identity', async () =>
     const data = await pendingReceipt
     return respond(config, data)
   }
-  await mount()
+  await mount(1)
   await fill('appeal-reason', 'first identity explanation')
   await click('Send appeal')
   username = 'second-identity'
-  await mount(1)
+  await mount(2)
   await act(async () => {
     release({ success: true, data: { ...receipt, already_pending: false } })
     await new Promise((resolve) => setTimeout(resolve, 10))
