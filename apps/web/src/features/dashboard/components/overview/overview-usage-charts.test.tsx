@@ -11,6 +11,7 @@ for (const [key, value] of Object.entries({
   navigator: dom.navigator,
   HTMLElement: dom.HTMLElement,
   Element: dom.Element,
+  Event: dom.Event,
   Node: dom.Node,
   MutationObserver: dom.MutationObserver,
   getComputedStyle: dom.getComputedStyle,
@@ -188,7 +189,7 @@ test('administrator usage requests all accounts and leaves uncovered history una
   assert.ok(scope)
   await act(async () => {
     scope.value = 'personal'
-    scope.dispatchEvent(new dom.Event('change', { bubbles: true }))
+    scope.dispatchEvent(new Event('change', { bubbles: true }))
     await new Promise((resolve) => setTimeout(resolve, 20))
   })
   await act(async () => {

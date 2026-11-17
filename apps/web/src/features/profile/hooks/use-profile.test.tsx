@@ -31,6 +31,7 @@ after(() => domWindow.close())
 test('profile failure ends loading, keeps the actual error and recovers on explicit retry', async () => {
   const previousGet = api.get
   let state: ReturnType<typeof useProfile> | undefined
+  const currentState = () => state
   let succeed = false
   let calls = 0
   api.get = (async (_url, config) => {
@@ -57,7 +58,7 @@ test('profile failure ends loading, keeps the actual error and recovers on expli
       await state?.fetchProfile()
     })
     assert.equal(state?.error, null)
-    assert.equal(state?.profile?.username, 'synthetic-profile')
+    assert.equal(currentState()?.profile?.username, 'synthetic-profile')
     assert.equal(state?.loading, false)
     assert.equal(calls, 2)
     api.get = (async () => ({
