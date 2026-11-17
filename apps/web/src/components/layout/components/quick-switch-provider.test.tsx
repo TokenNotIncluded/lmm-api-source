@@ -19,6 +19,7 @@ for (const key of [
   'Node',
   'Element',
   'Event',
+  'KeyboardEvent',
 ] as const) {
   Object.defineProperty(globalThis, key, {
     configurable: true,
@@ -66,7 +67,7 @@ after(() => {
   dom.close()
 })
 
-async function mount(items: NavGroup[0]['items']) {
+async function mount(items: NavGroup['items']) {
   groups = [{ title: 'Console', items }]
   navigations.length = 0
   panelOpens = 0
@@ -82,7 +83,7 @@ async function mount(items: NavGroup[0]['items']) {
   await act(async () => render())
   return {
     host,
-    async update(next: NavGroup[0]['items']) {
+    async update(next: NavGroup['items']) {
       groups = [{ title: 'Console', items: next }]
       await act(async () => render())
     },
@@ -94,7 +95,7 @@ async function mount(items: NavGroup[0]['items']) {
 }
 function key(value: string, target: EventTarget = document) {
   target.dispatchEvent(
-    new dom.KeyboardEvent('keydown', {
+    new KeyboardEvent('keydown', {
       key: value,
       bubbles: true,
       cancelable: true,
