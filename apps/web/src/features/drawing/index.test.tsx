@@ -242,6 +242,7 @@ const nativePricing = {
       token_price: null,
       image_variants: ['generations', 'edits'].map((endpoint) => ({
         endpoint,
+        rate_basis: 'effective_group_rate',
         size: '1024x1024',
         quality: 'standard',
         max_n: 2,

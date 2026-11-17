@@ -38,8 +38,8 @@ test('the public layout and guard use the same exact path boundary', () => {
   assert.match(route, /if \(isPublicDirectoryPath\(pathname\)\)/)
   assert.match(route, /<ForgePublicShell>/)
   assert.match(route, /if \(!auth.user \|\| !auth.accessToken\)/)
-  assert.match(route, /!isConsoleActivated\(auth.user\)/)
-  assert.match(route, /!isContributorRoute\(location.pathname\)/)
+  assert.doesNotMatch(route, /!isConsoleActivated\(auth.user\)/)
+  assert.doesNotMatch(route, /!isContributorRoute\(location.pathname\)/)
 })
 
 test('public directory rendering does not wait for an account session', () => {

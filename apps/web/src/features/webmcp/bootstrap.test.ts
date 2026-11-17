@@ -2,6 +2,8 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 
+import { Window } from 'happy-dom'
+
 import { bootstrapWebMcp } from './bootstrap'
 import type { WebMcpRouter } from './tool-kit'
 
@@ -51,17 +53,19 @@ test('a blocked capability getter cannot prevent startup', async () => {
 test('supported browsers load real tools and preserve their cleanup', async () => {
   const registered: { name: string; signal?: AbortSignal }[] = []
   let subscribed = false
-  const restore = withDocument({
-    documentElement: {},
-    modelContext: {
-      registerTool(
-        tool: { name: string },
-        options?: { signal?: AbortSignal }
-      ) {
-        registered.push({ name: tool.name, signal: options?.signal })
+  const dom = new Window({ url: 'https://lmm.test/' })
+  const restore = withDocument(
+    Object.assign(dom.document, {
+      modelContext: {
+        registerTool(
+          tool: { name: string },
+          options?: { signal?: AbortSignal }
+        ) {
+          registered.push({ name: tool.name, signal: options?.signal })
+        },
       },
-    },
-  })
+    })
+  )
   let cleanup: (() => void) | undefined
   try {
     cleanup = await bootstrapWebMcp({
@@ -88,5 +92,6 @@ test('supported browsers load real tools and preserve their cleanup', async () =
   } finally {
     cleanup?.()
     restore()
+    await dom.happyDOM.abort()
   }
 })
