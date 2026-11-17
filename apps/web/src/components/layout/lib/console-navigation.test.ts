@@ -21,6 +21,7 @@ import { describe, test } from 'node:test'
 
 import type { NavGroup, NavLink } from '../types'
 import {
+  findConsoleNavItem,
   getConsolePageTitle,
   getConsoleSiteLinks,
   organizeConsoleNavigation,
@@ -133,6 +134,85 @@ describe('current location and secondary site links', () => {
       getConsolePageTitle(nested, '/usage-logs/drawing'),
       'Task Logs'
     )
+  })
+
+  test('uses localized child titles for recently visited settings', () => {
+    const settings: NavGroup[] = [
+      {
+        title: '设置',
+        items: [
+          {
+            title: '站点与品牌',
+            items: [
+              { title: '系统公告', url: '/system-settings/site/notice' },
+              {
+                title: '侧边栏模块',
+                url: '/system-settings/site/sidebar-modules',
+              },
+            ],
+          },
+        ],
+      },
+    ]
+    assert.equal(
+      findConsoleNavItem(settings, '/system-settings/site/notice')?.title,
+      '系统公告'
+    )
+    assert.equal(
+      findConsoleNavItem(settings, '/system-settings/site/sidebar-modules/')
+        ?.title,
+      '侧边栏模块'
+    )
+    assert.equal(
+      findConsoleNavItem([], '/system-settings/site/notice'),
+      undefined
+    )
+  })
+
+  test('ranks the matched alias instead of an unrelated primary URL', () => {
+    const aliases: NavGroup[] = [
+      {
+        title: 'Console',
+        items: [
+          {
+            title: 'Overview',
+            url: '/very-long-overview-path',
+            activeUrls: ['/dashboard'],
+          },
+          {
+            title: 'Models',
+            url: '/models',
+            activeUrls: ['/dashboard/models'],
+          },
+        ],
+      },
+    ]
+    assert.equal(
+      getConsolePageTitle(aliases, '/dashboard/models?range=7d'),
+      'Models'
+    )
+  })
+
+  test('retains disabled parent and child states for recent navigation', () => {
+    const disabled: NavGroup[] = [
+      {
+        title: 'Settings',
+        items: [
+          {
+            title: 'Billing',
+            disabled: true,
+            items: [{ title: 'Payment', url: '/settings/payment' }],
+          },
+          { title: 'Keys', url: '/keys', disabled: true },
+        ],
+      },
+    ]
+    assert.equal(
+      findConsoleNavItem(disabled, '/settings/payment')?.disabled,
+      true
+    )
+    assert.equal(findConsoleNavItem(disabled, '/keys')?.disabled, true)
+    assert.equal(disabled[0].items[0].items?.[0].disabled, undefined)
   })
 
   test('removes duplicate site links without dropping external/disabled semantics', () => {

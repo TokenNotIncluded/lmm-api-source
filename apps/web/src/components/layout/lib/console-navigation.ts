@@ -15,7 +15,7 @@ You should have received a copy of the GNU Affero General Public License
 along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 */
-import type { NavGroup, NavItem, TopNavLink } from '../types'
+import type { NavGroup, NavItem, NavLink, TopNavLink } from '../types'
 
 // Promote only links that have already passed role and sidebar-module filters.
 // Do not reconstruct entries here: badges, aliases and panel interactions matter.
@@ -61,22 +61,36 @@ function leafItems(groups: NavGroup[]) {
   )
 }
 
-export function getConsolePageTitle(groups: NavGroup[], href: string) {
+export function findConsoleNavItem(groups: NavGroup[], href: string) {
   const pathname = href.split(/[?#]/)[0].replace(/\/+$/, '') || '/'
-  // Prefer the longest exact/prefix match, so /subscriptions/reset does not
-  // accidentally inherit the /subscriptions title.
-  return leafItems(groups)
-    .filter((item) =>
-      [item.url, ...(item.activeUrls ?? [])].some((url) => {
-        if (typeof url !== 'string') return false
-        const base = url.split(/[?#]/)[0].replace(/\/+$/, '') || '/'
-        return (
-          pathname === base || (base !== '/' && pathname.startsWith(`${base}/`))
-        )
-      })
-    )
-    .sort((a, b) => String(b.url ?? '').length - String(a.url ?? '').length)[0]
-    ?.title
+  let match: NavLink | undefined
+  let matchedLength = -1
+
+  for (const group of groups) {
+    for (const parent of group.items) {
+      for (const item of parent.items ?? [parent]) {
+        if (!item.url) continue
+        for (const url of [item.url, ...(item.activeUrls ?? [])]) {
+          if (typeof url !== 'string') continue
+          const base = url.split(/[?#]/)[0].replace(/\/+$/, '') || '/'
+          if (
+            base.length > matchedLength &&
+            (pathname === base ||
+              (base !== '/' && pathname.startsWith(`${base}/`)))
+          ) {
+            match = parent.disabled ? { ...item, disabled: true } : item
+            matchedLength = base.length
+          }
+        }
+      }
+    }
+  }
+
+  return match
+}
+
+export function getConsolePageTitle(groups: NavGroup[], href: string) {
+  return findConsoleNavItem(groups, href)?.title
 }
 
 export function getConsoleSiteLinks(links: TopNavLink[], groups: NavGroup[]) {

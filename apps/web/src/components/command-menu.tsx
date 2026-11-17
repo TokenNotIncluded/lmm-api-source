@@ -21,12 +21,9 @@ import {
   ArrowRight,
   ChevronRight,
   Clock,
-  CoinsIcon,
-  KeyRound,
   Keyboard,
   Laptop,
   Moon,
-  Plus,
   Sun,
 } from 'lucide-react'
 import React from 'react'
@@ -55,9 +52,8 @@ import { api } from '@/lib/api'
 import { useAuthStore } from '@/stores/auth-store'
 
 import { useQuickSwitch } from './layout/components/quick-switch-provider'
+import { findConsoleNavItem } from './layout/lib/console-navigation'
 import { onPaletteOpenRequest } from './layout/lib/quick-switch-events'
-import { resolveRecentRouteLabel } from './layout/lib/recent-routes'
-import { ScrollArea } from './ui/scroll-area'
 
 export function CommandMenu() {
   const { t } = useTranslation()
@@ -84,13 +80,10 @@ export function CommandMenu() {
   React.useEffect(() => onPaletteOpenRequest(() => setOpen(true)), [setOpen])
 
   const recentEntries = quickSwitch.recentRoutes
-    .map((pathname) => ({
-      pathname,
-      label: resolveRecentRouteLabel(navGroups, pathname),
-    }))
-    .filter((entry): entry is { pathname: string; label: string } =>
-      Boolean(entry.label)
-    )
+    .flatMap((pathname) => {
+      const item = findConsoleNavItem(navGroups, pathname)
+      return item && !item.disabled ? [{ pathname, label: item.title }] : []
+    })
     .slice(0, 5)
 
   // Mirrors the header language switcher: switch immediately, persist best-effort.
@@ -106,147 +99,135 @@ export function CommandMenu() {
   }
 
   return (
-    <CommandDialog modal open={open} onOpenChange={setOpen}>
-      <Command>
+    <CommandDialog
+      modal
+      open={open}
+      onOpenChange={setOpen}
+      title={t('Search')}
+      description={t('Type a command or search...')}
+    >
+      <Command className='[&_[cmdk-item]]:min-h-11'>
         <CommandInput placeholder={t('Type a command or search...')} />
         <CommandList>
-          <ScrollArea className='h-72 pe-1'>
-            <CommandEmpty>{t('No results found.')}</CommandEmpty>
-            <CommandGroup heading={t('Quick actions')}>
-              <CommandItem
-                value={`${t('Top up')} wallet`}
-                onSelect={() => runCommand(() => navigate({ to: '/wallet' }))}
-              >
-                <CoinsIcon />
-                <span>{t('Top up')}</span>
-              </CommandItem>
-              <CommandItem
-                value={`${t('Create API key')} keys`}
-                onSelect={() => runCommand(() => navigate({ to: '/keys' }))}
-              >
-                <Plus />
-                <span>{t('Create API key')}</span>
-              </CommandItem>
-              <CommandItem
-                value={`${t('API keys')} keys`}
-                onSelect={() => runCommand(() => navigate({ to: '/keys' }))}
-              >
-                <KeyRound />
-                <span>{t('API keys')}</span>
-              </CommandItem>
-              <CommandItem
-                value={`${t('Keyboard shortcuts')} shortcuts`}
-                onSelect={() => runCommand(() => quickSwitch.openShortcuts())}
-              >
-                <Keyboard />
-                <span>{t('Keyboard shortcuts')}</span>
-              </CommandItem>
-            </CommandGroup>
-            {recentEntries.length > 0 && (
-              <>
-                <CommandSeparator />
-                <CommandGroup heading={t('Recently visited')}>
-                  {recentEntries.map((entry) => (
+          <CommandEmpty>{t('No results found.')}</CommandEmpty>
+          <CommandGroup heading={t('Quick actions')}>
+            <CommandItem
+              value={`${t('Keyboard shortcuts')} shortcuts`}
+              onSelect={() => runCommand(() => quickSwitch.openShortcuts())}
+            >
+              <Keyboard />
+              <span>{t('Keyboard shortcuts')}</span>
+            </CommandItem>
+          </CommandGroup>
+          {recentEntries.length > 0 && (
+            <>
+              <CommandSeparator />
+              <CommandGroup heading={t('Recently visited')}>
+                {recentEntries.map((entry) => (
+                  <CommandItem
+                    key={`recent-${entry.pathname}`}
+                    value={`recent ${entry.label} ${entry.pathname}`}
+                    onSelect={() =>
+                      runCommand(() => navigate({ to: entry.pathname }))
+                    }
+                  >
+                    <Clock />
+                    <span>{entry.label}</span>
+                  </CommandItem>
+                ))}
+              </CommandGroup>
+            </>
+          )}
+          {navGroups.map((group) => (
+            <CommandGroup key={group.id || group.title} heading={group.title}>
+              {group.items.map((navItem, i) => {
+                if (navItem.url) {
+                  return (
                     <CommandItem
-                      key={`recent-${entry.pathname}`}
-                      value={`recent ${entry.label} ${entry.pathname}`}
-                      onSelect={() =>
-                        runCommand(() => navigate({ to: entry.pathname }))
+                      key={`${navItem.url}-${i}`}
+                      value={`${navItem.title} ${navItem.url}`}
+                      keywords={
+                        navItem.url === '/wallet' ? [t('Top up')] : undefined
                       }
-                    >
-                      <Clock />
-                      <span>{entry.label}</span>
-                    </CommandItem>
-                  ))}
-                </CommandGroup>
-              </>
-            )}
-            {navGroups.map((group) => (
-              <CommandGroup key={group.id || group.title} heading={group.title}>
-                {group.items.map((navItem, i) => {
-                  if (navItem.url) {
-                    return (
-                      <CommandItem
-                        key={`${navItem.url}-${i}`}
-                        value={navItem.title}
-                        disabled={navItem.disabled}
-                        onSelect={() => {
-                          runCommand(() =>
-                            navItem.interaction === 'model-panel'
-                              ? openPanel()
-                              : navigate({ to: navItem.url })
-                          )
-                        }}
-                      >
-                        <div className='flex size-4 items-center justify-center'>
-                          <ArrowRight className='text-muted-foreground/80 size-2' />
-                        </div>
-                        {navItem.title}
-                      </CommandItem>
-                    )
-                  }
-
-                  return navItem.items?.map((subItem, i) => (
-                    <CommandItem
-                      key={`${navItem.title}-${subItem.url}-${i}`}
-                      value={`${navItem.title}-${subItem.url}`}
-                      disabled={navItem.disabled || subItem.disabled}
+                      disabled={navItem.disabled}
                       onSelect={() => {
                         runCommand(() =>
-                          subItem.interaction === 'model-panel'
+                          navItem.interaction === 'model-panel'
                             ? openPanel()
-                            : navigate({ to: subItem.url })
+                            : navigate({ to: navItem.url })
                         )
                       }}
                     >
                       <div className='flex size-4 items-center justify-center'>
                         <ArrowRight className='text-muted-foreground/80 size-2' />
                       </div>
-                      {navItem.title} <ChevronRight /> {subItem.title}
+                      <span className='min-w-0 break-words'>
+                        {navItem.title}
+                      </span>
                     </CommandItem>
-                  ))
-                })}
-              </CommandGroup>
-            ))}
-            <CommandSeparator />
-            <CommandGroup heading={t('Language')}>
-              {INTERFACE_LANGUAGE_OPTIONS.map((language) => (
-                <CommandItem
-                  key={`language-${language.code}`}
-                  value={`language ${language.label}`}
-                  onSelect={() =>
-                    runCommand(() => {
-                      void changeLanguage(language.code)
-                    })
-                  }
-                  aria-current={
-                    currentLanguage === language.code ? 'true' : undefined
-                  }
-                >
-                  <span className='w-4 text-center text-xs'>
-                    {currentLanguage === language.code ? '✓' : ''}
-                  </span>
-                  <span>{language.label}</span>
-                </CommandItem>
-              ))}
+                  )
+                }
+
+                return navItem.items?.map((subItem, i) => (
+                  <CommandItem
+                    key={`${navItem.title}-${subItem.url}-${i}`}
+                    value={`${navItem.title} ${subItem.title} ${subItem.url}`}
+                    disabled={navItem.disabled || subItem.disabled}
+                    onSelect={() => {
+                      runCommand(() =>
+                        subItem.interaction === 'model-panel'
+                          ? openPanel()
+                          : navigate({ to: subItem.url })
+                      )
+                    }}
+                  >
+                    <div className='flex size-4 items-center justify-center'>
+                      <ArrowRight className='text-muted-foreground/80 size-2' />
+                    </div>
+                    <span className='min-w-0 break-words'>{navItem.title}</span>
+                    <ChevronRight aria-hidden='true' />
+                    <span className='min-w-0 break-words'>{subItem.title}</span>
+                  </CommandItem>
+                ))
+              })}
             </CommandGroup>
-            <CommandSeparator />
-            <CommandGroup heading={t('Theme')}>
-              <CommandItem onSelect={() => runCommand(() => setTheme('light'))}>
-                <Sun /> <span>{t('Light')}</span>
-              </CommandItem>
-              <CommandItem onSelect={() => runCommand(() => setTheme('dark'))}>
-                <Moon className='scale-90' />
-                <span>{t('Dark')}</span>
-              </CommandItem>
+          ))}
+          <CommandSeparator />
+          <CommandGroup heading={t('Language')}>
+            {INTERFACE_LANGUAGE_OPTIONS.map((language) => (
               <CommandItem
-                onSelect={() => runCommand(() => setTheme('system'))}
+                key={`language-${language.code}`}
+                value={`language ${language.label}`}
+                onSelect={() =>
+                  runCommand(() => {
+                    void changeLanguage(language.code)
+                  })
+                }
+                aria-current={
+                  currentLanguage === language.code ? 'true' : undefined
+                }
               >
-                <Laptop />
-                <span>{t('System')}</span>
+                <span className='w-4 text-center text-xs'>
+                  {currentLanguage === language.code ? '✓' : ''}
+                </span>
+                <span>{language.label}</span>
               </CommandItem>
-            </CommandGroup>
-          </ScrollArea>
+            ))}
+          </CommandGroup>
+          <CommandSeparator />
+          <CommandGroup heading={t('Theme')}>
+            <CommandItem onSelect={() => runCommand(() => setTheme('light'))}>
+              <Sun /> <span>{t('Light')}</span>
+            </CommandItem>
+            <CommandItem onSelect={() => runCommand(() => setTheme('dark'))}>
+              <Moon className='scale-90' />
+              <span>{t('Dark')}</span>
+            </CommandItem>
+            <CommandItem onSelect={() => runCommand(() => setTheme('system'))}>
+              <Laptop />
+              <span>{t('System')}</span>
+            </CommandItem>
+          </CommandGroup>
         </CommandList>
       </Command>
     </CommandDialog>

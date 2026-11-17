@@ -30,7 +30,7 @@ import { I18nextProvider } from 'react-i18next'
 import { toast } from 'sonner'
 
 import { PageLoadingState } from '@/components/loading-state'
-import { installWebMcp } from '@/features/webmcp'
+import { bootstrapWebMcp } from '@/features/webmcp/bootstrap'
 import { getStatus } from '@/lib/api'
 import { bindAuthCache } from '@/lib/auth-session'
 import '@/lib/dayjs'
@@ -101,7 +101,7 @@ const router = createRouter({
   defaultPreloadStaleTime: 30_000,
 })
 
-installWebMcp(router)
+void bootstrapWebMcp(router)
 
 // Register the router instance for type safety
 declare module '@tanstack/react-router' {

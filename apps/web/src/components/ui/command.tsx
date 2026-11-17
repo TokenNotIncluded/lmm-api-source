@@ -42,7 +42,7 @@ function Command({
     <CommandPrimitive
       data-slot='command'
       className={cn(
-        'flex size-full flex-col overflow-hidden rounded-xl! bg-popover text-popover-foreground rounded-4xl p-1',
+        'flex size-full min-h-0 flex-col overflow-hidden rounded-xl bg-popover p-1 text-popover-foreground',
         className
       )}
       {...props}
@@ -66,17 +66,17 @@ function CommandDialog({
 }) {
   return (
     <Dialog {...props}>
-      <DialogHeader className='sr-only'>
-        <DialogTitle>{title}</DialogTitle>
-        <DialogDescription>{description}</DialogDescription>
-      </DialogHeader>
       <DialogContent
         className={cn(
-          'top-1/3 translate-y-0 overflow-hidden rounded-xl! p-0',
+          'flex flex-col overflow-hidden rounded-xl p-0 sm:p-0',
           className
         )}
         showCloseButton={showCloseButton}
       >
+        <DialogHeader className='sr-only'>
+          <DialogTitle>{title}</DialogTitle>
+          <DialogDescription>{description}</DialogDescription>
+        </DialogHeader>
         {children}
       </DialogContent>
     </Dialog>
@@ -88,12 +88,12 @@ function CommandInput({
   ...props
 }: React.ComponentProps<typeof CommandPrimitive.Input>) {
   return (
-    <div data-slot='command-input-wrapper' className={'p-1 pb-0'}>
-      <InputGroup className='border-input/30 bg-input/30 h-8! rounded-lg! shadow-none! *:data-[slot=input-group-addon]:pl-2!'>
+    <div data-slot='command-input-wrapper' className='shrink-0 p-1 pb-0'>
+      <InputGroup className='border-input/30 bg-input/30 h-12! rounded-lg! shadow-none! *:data-[slot=input-group-addon]:pl-2!'>
         <CommandPrimitive.Input
           data-slot='command-input'
           className={cn(
-            'outline-hidden disabled:cursor-not-allowed disabled:opacity-50 w-full text-sm',
+            'outline-hidden disabled:cursor-not-allowed disabled:opacity-50 w-full text-base md:text-sm',
             className
           )}
           {...props}
@@ -118,7 +118,7 @@ function CommandList({
     <CommandPrimitive.List
       data-slot='command-list'
       className={cn(
-        'no-scrollbar overflow-x-hidden overflow-y-auto no-scrollbar max-h-72 scroll-py-1 outline-none',
+        'min-h-0 max-h-80 flex-1 scroll-py-1 overflow-x-hidden overflow-y-auto overscroll-contain outline-none',
         className
       )}
       {...props}
