@@ -45,17 +45,21 @@ pub(in crate::channel_http) async fn configure(
     {
         return Err(ManagementError::Invalid.into());
     }
-    let action = if changes_targets {
-        Action::ChannelSensitiveWrite
-    } else if patch.tag.is_some() {
-        Action::ChannelWrite
-    } else {
-        Action::ChannelOperate
-    };
+    let mut actions = [
+        (patch.enabled.is_some(), Action::ChannelOperate),
+        (patch.tag.is_some(), Action::ChannelWrite),
+        (changes_targets, Action::ChannelSensitiveWrite),
+    ]
+    .into_iter()
+    .filter_map(|(required, action)| required.then_some(action));
+    let first = actions.next().ok_or(ManagementError::Invalid)?;
     let _guard = management.publication.lock().await;
-    let (tx, principal) = management
-        .begin(bearer(&headers)?, action, ReadView::Current)
+    let (mut tx, principal) = management
+        .begin(bearer(&headers)?, first, ReadView::Current)
         .await?;
+    for action in actions {
+        authorize_action(&mut tx, &principal, action).await?;
+    }
     let mut document = next_document(management, input.expected_version)?;
     let mut bindings = management.current_bindings()?;
     for id in &ids {

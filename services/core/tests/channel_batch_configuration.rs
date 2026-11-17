@@ -1,6 +1,10 @@
 //! Channel card and batch controls publish one durable routing revision.
 use axum::http::StatusCode;
 use lmm_core::channel_http::{ManagedChannels, managed_router};
+use lmm_core::identity::{
+    Action, IdentityStore, PERMISSIONS_CONTRACT, canonical_policy_payload,
+    complete_policy_snapshot, policy_sha256,
+};
 use serde_json::{Value, json};
 use sqlx::PgPool;
 #[path = "common/channel_control.rs"]
@@ -208,4 +212,152 @@ async fn channel_batch_target_settings_require_configured_models(pool: PgPool) {
     .await;
     assert_eq!(saved["updated"], 1);
     assert_eq!(saved["target_count"], 0);
+}
+
+async fn channel_admin_with_denied_actions(pool: &PgPool, user: i64, denied: &[Action]) -> String {
+    let credential = IdentityStore::from_pool(pool.clone())
+        .bootstrap_user(user, 5)
+        .await
+        .unwrap();
+    let entries: Vec<_> = Action::CATALOG
+        .iter()
+        .map(|action| {
+            (
+                action.catalog_name().unwrap().to_owned(),
+                if denied.contains(action) {
+                    "deny"
+                } else {
+                    "allow"
+                }
+                .to_owned(),
+            )
+        })
+        .collect();
+    let snapshot = complete_policy_snapshot(user, 1, &entries).unwrap();
+    let payload = canonical_policy_payload(&snapshot).unwrap();
+    let hash = policy_sha256(&snapshot).unwrap();
+    let mut tx = pool.begin().await.unwrap();
+    sqlx::query("INSERT INTO core_identity.permission_policies(user_id,revision,contract,sha256,canonical_payload,verified_complete) VALUES ($1,1,$2,$3,$4,TRUE)")
+        .bind(user).bind(PERMISSIONS_CONTRACT).bind(hash.as_slice()).bind(payload)
+        .execute(&mut *tx).await.unwrap();
+    for (action, effect) in entries {
+        sqlx::query("INSERT INTO core_identity.permission_policy_rows(user_id,action,effect) VALUES ($1,$2,$3)")
+            .bind(user).bind(action).bind(effect).execute(&mut *tx).await.unwrap();
+    }
+    tx.commit().await.unwrap();
+    credential.secret
+}
+
+#[sqlx::test(migrations = false)]
+async fn channel_batch_mixed_fields_require_every_permission(pool: PgPool) {
+    let (app, gateway, root, _) = vault_app(&pool).await;
+    let routing = gateway.dashboard_routing();
+    let created = success(
+        &app,
+        "POST",
+        "/core/v1/admin/routing/channels",
+        &root,
+        channel_input(
+            Version::from(routing.version().unwrap()),
+            2,
+            "synthetic-mixed-permissions-only",
+        ),
+    )
+    .await;
+    let version: Version = serde_json::from_value(created["version"].clone()).unwrap();
+    let deny_operate =
+        channel_admin_with_denied_actions(&pool, 101, &[Action::ChannelOperate]).await;
+    let deny_write = channel_admin_with_denied_actions(&pool, 102, &[Action::ChannelWrite]).await;
+    let deny_sensitive =
+        channel_admin_with_denied_actions(&pool, 103, &[Action::ChannelSensitiveWrite]).await;
+    let allow_all = channel_admin_with_denied_actions(&pool, 104, &[]).await;
+    let bindings_before: Option<Value> =
+        sqlx::query_scalar("SELECT public.routing_control_bindings($1)")
+            .bind(version.routing as i64)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    let before = serde_json::to_value(active(&pool).await).unwrap();
+    let audit_before: i64 = sqlx::query_scalar("SELECT count(*) FROM core_identity.audit")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    let path = "/core/v1/admin/routing/channels/batch/configuration";
+    for (credential, patch) in [
+        (&deny_operate, json!({"tag":"Denied tag","enabled":false})),
+        (&deny_operate, json!({"priority":600,"enabled":false})),
+        (&deny_write, json!({"priority":600,"tag":"Denied tag"})),
+        (&deny_write, json!({"enabled":false,"tag":"Denied tag"})),
+        (&deny_sensitive, json!({"priority":600,"tag":"Denied tag"})),
+    ] {
+        let (status, response) = request(
+            app.clone(),
+            "PUT",
+            path,
+            credential,
+            json!({"expected_version":version,"ids":[1,2],"patch":patch}),
+        )
+        .await;
+        assert_eq!(status, StatusCode::FORBIDDEN, "{response}");
+        assert_eq!(Version::from(routing.version().unwrap()), version);
+        assert_eq!(serde_json::to_value(active(&pool).await).unwrap(), before);
+        let audit_after: i64 = sqlx::query_scalar("SELECT count(*) FROM core_identity.audit")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(audit_after, audit_before);
+        let bindings_after: Option<Value> =
+            sqlx::query_scalar("SELECT public.routing_control_bindings($1)")
+                .bind(version.routing as i64)
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(bindings_after, bindings_before);
+    }
+    let saved = success(
+        &app,
+        "PUT",
+        path,
+        &allow_all,
+        json!({"expected_version":version,"ids":[1,2],
+            "patch":{"enabled":false,"tag":"Allowed tag","priority":600}}),
+    )
+    .await;
+    let changed: Version = serde_json::from_value(saved["version"].clone()).unwrap();
+    assert_eq!(changed.routing, version.routing + 1);
+    assert_eq!(changed.pricing, version.pricing);
+    assert_eq!(saved["updated"], 2);
+    let durable = active(&pool).await;
+    assert_eq!(Version::of(&durable), changed);
+    assert!(
+        durable
+            .routing
+            .upstreams
+            .iter()
+            .all(|upstream| !upstream.enabled)
+    );
+    assert!(
+        durable
+            .routing
+            .routes
+            .iter()
+            .flat_map(|route| &route.targets)
+            .all(|target| target.priority == 600)
+    );
+    for id in [1, 2] {
+        let detail = success(
+            &app,
+            "GET",
+            &format!("/api/channel/{id}"),
+            &root,
+            Value::Null,
+        )
+        .await;
+        assert_eq!(detail["tag"], "Allowed tag");
+    }
+    let audit_after: i64 = sqlx::query_scalar("SELECT count(*) FROM core_identity.audit")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(audit_after, audit_before + 1);
 }
