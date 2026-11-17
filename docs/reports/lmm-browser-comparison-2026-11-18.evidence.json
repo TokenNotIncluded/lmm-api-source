@@ -1,9 +1,9 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "title": "LMM API 新旧站点浏览器实测证据（脱敏摘要）",
   "observed_timezone": "Asia/Taipei",
   "observed_date": "2026-11-18",
-  "scope": "Public browsing and read-only documented HTTP calls in the same developer-machine Chromium session; existing Chrome session observations recorded without user identifiers or balances.",
+  "scope": "Developer-machine public Chromium browsing and read-only documented HTTP requests, plus existing-user Chrome UI observation. No new credentials, financial writes, paid provider requests, deployment or load test.",
   "sites": {
     "legacy": "https://api.lmm.best",
     "native": "https://native.api.lmm.best"
@@ -36,7 +36,7 @@
       "kind": "browser_observed",
       "case": "已有 Chrome 会话",
       "legacy": "已登录会话可打开 dashboard/overview 与 wallet，余额、用量图表、人民币支付预览表单可见。未支付。",
-      "native": "出现登录中断恢复提示；正在按页面恢复、续期流程核查。"
+      "native": "Existing-session recovery followed by explicit browser-session renewal succeeded and opened /dashboard/overview. Fresh password/OAuth login, registration and revocation were not tested."
     },
     {
       "id": "B05",
@@ -59,6 +59,112 @@
       "case": "开发者页",
       "legacy": "有请求构建器；默认示例模型可见。",
       "native": "有当前域名请求构建器；显示模型目录暂时不可用，可手工输入模型 ID；OAuth 服务发现链接仍指向 api.lmm.best。需确认正式发行的 canonical 地址策略。"
+    },
+    {
+      "id": "B07",
+      "kind": "browser_observed",
+      "case": "Wallet",
+      "legacy": "Balance and cumulative usage/API-count fields plus CNY Waffo Pancake amount/payment-preview form visible. No payment submitted.",
+      "native": "Credit balance and reference currency visible; cumulative usage/API-count shown unavailable; recharge says no available payment channels. Trust-level L0/discount card still visible in sampled UI.",
+      "qualification": "No balances or user identifiers retained. L0 may be the UI missing-value default, not an audited role or financial rate."
+    },
+    {
+      "id": "B08",
+      "kind": "browser_observed",
+      "case": "Authenticated pricing",
+      "legacy": {
+        "visible_models_count": 673,
+        "visible_token_prices": true
+      },
+      "native": {
+        "visible_models_count": 52,
+        "sampled_token_prices": "—",
+        "sampled_routing_status": "unknown",
+        "quick_picker": "52/52; sampled entries say no data"
+      },
+      "qualification": "Different snapshots and user scopes were not reconciled. Counts do not measure migration completion or runnable model coverage. No provider invocation performed."
+    },
+    {
+      "id": "B09",
+      "kind": "browser_observed",
+      "case": "Dashboard scope",
+      "legacy": "Existing-account historical totals and charts are visible.",
+      "native": "Personal current usage empty; personal cumulative statistics unavailable; lower charts explicitly aggregate all accounts including imported history.",
+      "qualification": "Different aggregation scopes; no inference of financial data loss from visible totals."
+    },
+    {
+      "id": "B10",
+      "kind": "browser_observed",
+      "case": "Store listing and search",
+      "legacy": {
+        "listed_products": 3,
+        "all_out_of_stock": true,
+        "search": "MetaStore",
+        "search_matches": 1
+      },
+      "native": {
+        "listed_products": 3,
+        "all_out_of_stock": true,
+        "search": "MetaStore",
+        "search_matches": 1,
+        "seller_display": "Generic user identifier instead of legacy display profile/official marker"
+      },
+      "qualification": "Seller personal details omitted. Search only; no inventory or financial mutation."
+    },
+    {
+      "id": "B11",
+      "kind": "browser_observed",
+      "case": "Store product detail",
+      "legacy": "Same sampled product detail renders; stock 0; Add to cart disabled.",
+      "native": "Same sampled product detail renders; stock 0; Add to cart disabled.",
+      "qualification": "Only the out-of-stock flow passed; in-stock purchase/delivery/refund were not tested."
+    },
+    {
+      "id": "B12",
+      "kind": "http_observed",
+      "case": "OAuth authorization-server discovery",
+      "path": "/.well-known/oauth-authorization-server",
+      "legacy": {
+        "at": "2026-11-17T21:04:06.309Z",
+        "status": 200,
+        "issuer": "https://api.lmm.best",
+        "pkce_methods": [
+          "S256"
+        ]
+      },
+      "native": {
+        "at": "2026-11-17T21:04:07.502Z",
+        "status": 503,
+        "error_code": "core_migration_incomplete"
+      },
+      "qualification": "Discovery only. Browser session recovery is a separate path. Native 503 reconfirmed in final public checks."
+    },
+    {
+      "id": "B13",
+      "kind": "browser_observed",
+      "case": "Native key management",
+      "native": "/keys loads; base URL ends in /v1 with do-not-append-twice guidance; manual-key tab shows empty state.",
+      "qualification": "Auto-key tab, legacy-key list, issue/revoke/migration behavior were not tested. Empty manual tab does not prove no keys."
+    },
+    {
+      "id": "B14",
+      "kind": "browser_and_http_observed",
+      "case": "Native status page",
+      "native": "API, database, model-routing readiness indicators green. Existing-session 24-hour view reports no request samples. Anonymous view shows login requirement for historical performance.",
+      "final_web_build": "rv.561faf51a74a4000ebb2c7d812da4230eba3a213.2k6e8r7p",
+      "qualification": "/health/ready explicitly says configured_components and upstream_health_checked=false. Component readiness does not establish external provider success, billing correctness, or availability SLA."
+    },
+    {
+      "id": "B15",
+      "kind": "source_review",
+      "case": "Retired capability residues",
+      "source_commit": "561faf51a74a4000ebb2c7d812da4230eba3a213",
+      "facts": [
+        "Wallet trust-level card and L0/0% missing-field defaults remain.",
+        "Console activation still checks developer_access_granted.",
+        "Main baseline 48f343f contains retirement fixes not present in the sampled Web source."
+      ],
+      "qualification": "Exact running Core binary was not identified. Source pricing branches do not establish which rate is active in production."
     }
   ],
   "public_status": [
@@ -70,96 +176,6 @@
           "x-new-api-version",
           "0.2.118"
         ]
-      ],
-      "keys": [
-        "HeaderNavModules",
-        "SidebarModulesAdmin",
-        "announcements",
-        "announcements_enabled",
-        "api_info_enabled",
-        "assistant",
-        "backend_capabilities",
-        "chats",
-        "checkin_enabled",
-        "cny_per_usd",
-        "credit_unit_schema_version",
-        "credits_per_usd",
-        "currency_unit",
-        "custom_currency_code",
-        "custom_currency_exchange_rate",
-        "custom_currency_symbol",
-        "custom_oauth_providers",
-        "data_export_default_time",
-        "default_collapse_sidebar",
-        "default_use_auto_group",
-        "demo_site_enabled",
-        "discord_client_id",
-        "discord_oauth",
-        "display_in_currency",
-        "docs_access",
-        "docs_link",
-        "email_verification",
-        "enable_batch_update",
-        "enable_data_export",
-        "enable_drawing",
-        "enable_task",
-        "faq",
-        "faq_enabled",
-        "footer_html",
-        "github_client_id",
-        "github_oauth",
-        "ledger_quota_per_usd",
-        "ledger_quota_per_usd_exact",
-        "legacy_credit_unit",
-        "legacy_pricing_units_per_usd",
-        "linuxdo_client_id",
-        "linuxdo_minimum_trust_level",
-        "linuxdo_oauth",
-        "logo",
-        "mj_notify_enabled",
-        "oauth_register_enabled",
-        "oauth_registration_disabled_methods",
-        "oidc_authorization_endpoint",
-        "oidc_client_id",
-        "oidc_display_name",
-        "oidc_enabled",
-        "passkey_allow_insecure",
-        "passkey_attachment",
-        "passkey_display_name",
-        "passkey_login",
-        "passkey_origins",
-        "passkey_rp_id",
-        "passkey_user_verification",
-        "password_login_enabled",
-        "password_register_enabled",
-        "preview_model_ids",
-        "price",
-        "privacy_policy_enabled",
-        "public_credit_unit",
-        "public_credits_per_usd",
-        "public_credits_per_usd_exact",
-        "quota_display_type",
-        "quota_per_unit",
-        "quota_per_usd",
-        "quota_unit",
-        "register_enabled",
-        "self_use_mode_enabled",
-        "server_address",
-        "setup",
-        "start_time",
-        "stripe_unit_price",
-        "system_name",
-        "telegram_bot_name",
-        "telegram_oauth",
-        "theme",
-        "turnstile_check",
-        "turnstile_site_key",
-        "uptime_kuma_enabled",
-        "usd_exchange_rate",
-        "user_agreement_enabled",
-        "version",
-        "wechat_login",
-        "wechat_qrcode"
       ],
       "selected": {
         "credit_unit_schema_version": 2,
@@ -194,67 +210,6 @@
           "x-lmm-api-version",
           "0.1.0"
         ]
-      ],
-      "keys": [
-        "admin_users_protocol",
-        "assistant",
-        "backend_capabilities",
-        "capabilities",
-        "capability_scope",
-        "cny_per_usd",
-        "commerce_rpc_enabled",
-        "configured_components",
-        "credit_unit_schema_version",
-        "credits_per_usd",
-        "credits_per_usd_exact",
-        "currency_unit",
-        "custom_oauth_providers",
-        "discord_client_id",
-        "discord_oauth",
-        "email_verification",
-        "external_model_providers_enabled",
-        "external_oauth_browser",
-        "github_client_id",
-        "github_oauth",
-        "google_browser_callback",
-        "google_client_id",
-        "google_oauth",
-        "ledger_quota_per_usd",
-        "ledger_quota_per_usd_exact",
-        "legacy_credit_unit",
-        "legacy_pricing_units_per_usd",
-        "linuxdo_client_id",
-        "linuxdo_oauth",
-        "models_local_synthetic",
-        "models_streaming",
-        "native_account_bindings",
-        "oauth_register_enabled",
-        "oauth_registration_disabled_methods",
-        "oidc_enabled",
-        "passkey_login",
-        "password_login_enabled",
-        "password_register_enabled",
-        "payments_enabled",
-        "payments_test_rpc_enabled",
-        "privacy_policy_enabled",
-        "public_credit_unit",
-        "public_credits_per_usd",
-        "public_credits_per_usd_exact",
-        "quota_per_unit",
-        "quota_unit",
-        "register_enabled",
-        "server_address",
-        "system_name",
-        "telegram_bot_name",
-        "telegram_oauth",
-        "telegram_register_enabled",
-        "turnstile_check",
-        "turnstile_site_key",
-        "two_factor_enabled",
-        "usd_exchange_rate",
-        "user_agreement_enabled",
-        "version",
-        "wechat_login"
       ],
       "selected": {
         "credit_unit_schema_version": 2,
@@ -301,15 +256,6 @@
           "name": "build-id"
         }
       ],
-      "scripts": [
-        "https://api.lmm.best/extore-callback.js",
-        "https://cdn.agentlane.com/v1/snippet.js",
-        "https://api.lmm.best/static/js/vendor-ui-primitives.a5a859ba9c.js",
-        "https://api.lmm.best/static/js/vendor-tanstack.e7940684cd.js",
-        "https://api.lmm.best/static/js/lib-react.3372bffa23.js",
-        "https://api.lmm.best/static/js/2036.c88085c820.js",
-        "https://api.lmm.best/static/js/index.d92362a4d7.js"
-      ],
       "url": "https://api.lmm.best/sign-in?redirect=%2Fpricing"
     },
     {
@@ -341,15 +287,6 @@
           "content": "rv.04fef6f15b8214b56494ad2af8f3e2c8076035af.2k6e8r7p",
           "name": "build-id"
         }
-      ],
-      "scripts": [
-        "https://native.api.lmm.best/extore-callback.js",
-        "https://cdn.agentlane.com/v1/snippet.js",
-        "https://native.api.lmm.best/static/js/vendor-ui-primitives.4ee6a9de12.js",
-        "https://native.api.lmm.best/static/js/vendor-tanstack.01c9f87a55.js",
-        "https://native.api.lmm.best/static/js/lib-react.91dfd7c47e.js",
-        "https://native.api.lmm.best/static/js/a3.1519577a62.js",
-        "https://native.api.lmm.best/static/js/index.07f6cfbc9e.js"
       ],
       "url": "https://native.api.lmm.best/sign-in?redirect=%2Fpricing"
     }
@@ -388,5 +325,99 @@
     "No new production accounts, API keys, payments, refunds, paid model calls, deployment or load tests.",
     "Public pages used an isolated Chromium browser context; existing-user checks used the user's Chrome session; account-data equivalence has not been established.",
     "Raw screenshots, account balances, personal identifiers, tokens and browser storage are excluded."
+  ],
+  "observation_phases": [
+    {
+      "id": "initial",
+      "native_web_build": "rv.04fef6f15b8214b56494ad2af8f3e2c8076035af.2k6e8r7p",
+      "captured_at": "2026-11-17T20:52:56.567Z"
+    },
+    {
+      "id": "final",
+      "at": "2026-11-17T21:13:27.673Z",
+      "build": "rv.561faf51a74a4000ebb2c7d812da4230eba3a213.2k6e8r7p",
+      "flags": {
+        "capability_scope": "configured_components_only",
+        "external_model_providers_enabled": false,
+        "models_local_synthetic": true,
+        "payments_enabled": false,
+        "version": "0.1.0"
+      },
+      "scripts": [
+        "https://native.api.lmm.best/extore-callback.js",
+        "https://cdn.agentlane.com/v1/snippet.js",
+        "https://native.api.lmm.best/static/js/vendor-ui-primitives.c3ff3e1995.js",
+        "https://native.api.lmm.best/static/js/vendor-tanstack.33c2c9db94.js",
+        "https://native.api.lmm.best/static/js/lib-react.a540caf5d6.js",
+        "https://native.api.lmm.best/static/js/cl.48fc1f94d8.js",
+        "https://native.api.lmm.best/static/js/index.ca37ab4539.js"
+      ],
+      "status": 200,
+      "url": "https://native.api.lmm.best/status?hours=24"
+    }
+  ],
+  "version_warning": "Web build changed during observation. Earlier UI observations are not all bound to the final Web build; no complete Core/Extensions/Web/CLI/schema/config release bundle was audited. Cause of the change was not inferred.",
+  "final_public_checks": {
+    "at": "2026-11-17T21:14:03.023Z",
+    "build": "rv.561faf51a74a4000ebb2c7d812da4230eba3a213.2k6e8r7p",
+    "observations": [
+      {
+        "body": {
+          "error": {
+            "code": "core_migration_incomplete",
+            "message": "Core billing, identity and forwarding are not enabled. Keep production on the existing Go service."
+          }
+        },
+        "path": "/.well-known/oauth-authorization-server",
+        "status": 503
+      },
+      {
+        "body": {
+          "error": {
+            "code": "pricing_forbidden"
+          }
+        },
+        "path": "/core/v1/pricing/public",
+        "status": 403
+      },
+      {
+        "body": {
+          "capabilities": {
+            "abuse_admin": true,
+            "admin_users_read": true,
+            "checkins": false,
+            "commerce": true,
+            "console": true,
+            "events": true,
+            "humangrant": false,
+            "identity": true,
+            "legacy_web_auth": true,
+            "models": true,
+            "models_streaming": true,
+            "payments": true
+          },
+          "database": true,
+          "readiness_scope": "configured_components",
+          "service": "lmm-core",
+          "status": "ready",
+          "upstream_health_checked": false
+        },
+        "path": "/health/ready",
+        "status": 200
+      }
+    ]
+  },
+  "interpretation_limits": [
+    "external_model_providers_enabled=false and payments_enabled=false in public /api/status are fixed declarations in inspected source, not an exhaustive runtime configuration audit.",
+    "Anonymous pricing_forbidden 403 is an application access-policy response, not proof of missing catalog or an edge access-control failure.",
+    "Token price — and routing unknown need billing_status, price dimension, group rule and runtime-status contract examination; they do not by themselves prove absent model implementation.",
+    "Successful fresh login, paid provider operation, purchase, payment settlement, restore, failover and capacity qualification remain untested."
+  ],
+  "completed_actions": [
+    "Read-only browser comparison",
+    "Existing-session recovery/renewal through visible application controls",
+    "Public store search",
+    "Sanitized evidence capture",
+    "Fixed-revision source review"
   ]
 }
