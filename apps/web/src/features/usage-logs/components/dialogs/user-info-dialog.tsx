@@ -281,13 +281,6 @@ function UserSnapshot({
           label={t('Account status')}
           value={user.account_active ? t('Active') : t('Inactive')}
         />
-        <InfoItem label={t('Service level')} value={user.service_level} />
-        <InfoItem
-          label={t('Developer access')}
-          value={
-            user.developer_access_granted ? t('Granted') : t('Not granted')
-          }
-        />
         <InfoItem
           label={t('Explicit group memberships')}
           value={

@@ -41,7 +41,7 @@ type HomeLandingProps = {
   brandLogo: string
   apiBaseUrl: string | null
   pricingHref: string | null
-  navigation: Pick<HeaderNavModules, 'guide' | 'directory' | 'about'>
+  navigation: Pick<HeaderNavModules, 'developers' | 'directory' | 'about'>
   t: TFunction
   language: string
   toolMarketAction: ReactNode
