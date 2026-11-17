@@ -39,7 +39,6 @@ const ROUTES = {
   console: { title: 'Open workspace', href: '' },
   pricing: { title: 'Models and pricing', href: '/pricing' },
   developers: { title: 'Developers', href: '/developers' },
-  guide: { title: 'Guide', href: '/guide' },
   scripts: { title: 'Scripts', href: '/scripts' },
   webmcp: { title: 'WebMCP', href: '/webmcp' },
   signal: { title: 'Signal path', href: '/games/signal' },
@@ -69,7 +68,6 @@ const SURFACE_ORDER: Record<TopNavSurface, readonly (keyof typeof ROUTES)[]> = {
     'directory',
     'pricing',
     'developers',
-    'guide',
     'scripts',
     'webmcp',
     'signal',
@@ -81,7 +79,7 @@ const SURFACE_ORDER: Record<TopNavSurface, readonly (keyof typeof ROUTES)[]> = {
 const PRIMARY_ROUTES: Record<TopNavSurface, readonly (keyof typeof ROUTES)[]> =
   {
     default: ['home', 'console', 'pricing'],
-    public: ['home', 'pricing', 'guide'],
+    public: ['home', 'pricing', 'developers'],
   }
 
 export function buildTopNavLinks({

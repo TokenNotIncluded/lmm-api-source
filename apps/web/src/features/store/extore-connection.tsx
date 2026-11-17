@@ -19,9 +19,9 @@ import { toIntlLocale } from '@/i18n/languages'
 import { useAuthStore } from '@/stores/auth-store'
 
 import { storeApi } from './api'
-import { extoreText } from './extore-import-protocol'
+import { extoreSourceURL, extoreText } from './extore-import-protocol'
 import { StoreExtoreResults } from './extore-results'
-import { extoreSourceURL, StoreExtoreSync } from './extore-sync-action'
+import { StoreExtoreSync } from './extore-sync-action'
 import type {
   ExtoreConnection,
   ExtoreSource,

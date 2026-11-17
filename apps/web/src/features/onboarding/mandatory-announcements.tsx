@@ -25,6 +25,7 @@ import { LoadingState } from '@/components/loading-state'
 import { RichContent } from '@/components/rich-content'
 import { Button } from '@/components/ui/button'
 import { Progress } from '@/components/ui/progress'
+import { signInHref } from '@/features/auth/lib/auth-redirect'
 import { api } from '@/lib/api'
 import { useAuthStore } from '@/stores/auth-store'
 
@@ -41,6 +42,7 @@ export type MandatoryAnnouncement = {
 
 async function loadAnnouncements(
   userID: number | undefined,
+  sessionID: string | undefined,
   signal: AbortSignal
 ) {
   if (!userID) throw new Error('Unable to load announcements')
@@ -50,7 +52,7 @@ async function loadAnnouncements(
       signal,
       authScope: {
         userId: userID,
-        sessionId: useAuthStore.getState().auth.session?.sid,
+        sessionId: sessionID,
       },
       skipErrorHandler: true,
       skipBusinessError: true,
@@ -78,10 +80,14 @@ export function MandatoryAnnouncements({ children }: { children: ReactNode }) {
   const userID = useAuthStore((state) => state.auth.user?.id)
   const sessionID = useAuthStore((state) => state.auth.session?.sid)
   const queryClient = useQueryClient()
-  const queryKey = ['mandatory-announcements', userID] as const
+  const queryKey = [
+    'mandatory-announcements',
+    userID,
+    sessionID ?? null,
+  ] as const
   const query = useQuery({
     queryKey,
-    queryFn: ({ signal }) => loadAnnouncements(userID, signal),
+    queryFn: ({ signal }) => loadAnnouncements(userID, sessionID, signal),
     enabled: !!userID,
     // Let the bounded request reach the error view when the browser is offline.
     networkMode: 'always',
@@ -110,20 +116,37 @@ export function MandatoryAnnouncements({ children }: { children: ReactNode }) {
     )
   }
   if (query.isError) {
+    const status = isAxiosError(query.error)
+      ? query.error.response?.status
+      : undefined
+    const description =
+      status === 401
+        ? t('Your session has expired. Sign in again.')
+        : status === 403
+          ? t('You do not have permission to read announcements.')
+          : status === 503
+            ? t('The announcement service is temporarily unavailable.')
+            : t('Unable to load announcements')
     return (
       <main
         className='mx-auto flex min-h-dvh max-w-xl flex-col justify-center gap-4 p-6'
         aria-live='polite'
       >
         <h1 className='text-xl font-semibold'>{t('Announcements')}</h1>
-        <p>{t('Unable to load announcements')}</p>
+        <p>{description}</p>
         <div className='flex flex-wrap gap-2'>
-          <Button
-            disabled={query.isFetching}
-            onClick={() => void query.refetch()}
-          >
-            {t('Retry')}
-          </Button>
+          {status === 401 ? (
+            <Button render={<a href={signInHref(window.location, true)} />}>
+              {t('Sign in again')}
+            </Button>
+          ) : (
+            <Button
+              disabled={query.isFetching}
+              onClick={() => void query.refetch()}
+            >
+              {t('Retry')}
+            </Button>
+          )}
           <Button variant='outline' render={<a href='/' />}>
             {t('Back to home')}
           </Button>

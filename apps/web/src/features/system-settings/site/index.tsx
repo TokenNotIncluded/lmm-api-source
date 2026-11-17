@@ -62,6 +62,7 @@ export function SiteSettings() {
     <SettingsPage
       routePath='/_authenticated/system-settings/site/$section'
       defaultSettings={defaultSiteSettings}
+      independentSections={['ai-directory-ads']}
       defaultSection={SITE_DEFAULT_SECTION}
       getSectionContent={getSiteSectionContent}
       getSectionMeta={getSiteSectionMeta}

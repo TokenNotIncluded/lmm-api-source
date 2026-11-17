@@ -212,6 +212,10 @@ const COMPONENTS: &[(&str, &str)] = &[
     ("personal-tokens", crate::identity::personal_token::SCHEMA),
     ("subscription-creem", crate::subscriptions::CREEM_SCHEMA),
     ("checkin-challenges", crate::checkin_challenge::SCHEMA),
+    (
+        "network-access",
+        include_str!("../schema/network_access.sql"),
+    ),
 ];
 
 /// Verify the installed managed contract without installing or repairing it.

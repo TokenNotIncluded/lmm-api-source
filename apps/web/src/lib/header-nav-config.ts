@@ -33,7 +33,6 @@ export function isHeaderNavAccessModule(key: string): key is HeaderNavModule {
 export type HeaderNavModules = {
   directory: boolean
   developers: boolean
-  guide: boolean
   scripts: boolean
   webmcp: boolean
   signal: boolean
@@ -51,7 +50,6 @@ export type HeaderNavModules = {
 const DEFAULT_HEADER_NAV_MODULES: HeaderNavModules = {
   directory: true,
   developers: true,
-  guide: true,
   scripts: true,
   webmcp: true,
   signal: true,

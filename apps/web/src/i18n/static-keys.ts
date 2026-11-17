@@ -38,10 +38,31 @@ export const STATIC_I18N_KEYS = [
   'Sign-in needs browser storage. Allow this site to save site data in your browser settings, then reload and try again.',
   'Sign-in needs HTTPS and a browser with Web Locks support. Open this site in a supported browser over HTTPS, then reload and try again.',
   // Assistant starters use stable server IDs to select these keys.
-  'Which model should I use?',
+  'Create an API key',
   'Where should I start?',
   'How do I get the new-user gift?',
   'Any top-up discounts this week?',
+
+  // Store navigation, conversation filters and sender labels.
+  'Shop',
+  'Shopping cart',
+  'My orders',
+  'Messages',
+  'Seller center',
+  'Customer management',
+  'Favorites',
+  'Settings',
+  'Review products',
+  'Open conversations',
+  'Resolved conversations',
+  'My purchases',
+  'My sales',
+  'You',
+  'Buyer',
+  'Seller',
+  'Read',
+  'Sent',
+  'Copy all',
 
   // Header navigation
   'Home',

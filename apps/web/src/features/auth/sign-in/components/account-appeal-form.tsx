@@ -14,6 +14,8 @@ import { useTurnstile } from '@/features/auth/hooks/use-turnstile'
 import { getAccountAppealContext, submitAccountAppeal } from '../../api'
 import {
   appealStatusKeys,
+  hasVerifiedAccountAppealHint,
+  setVerifiedAccountAppealHint,
   type AccountAppealContext,
   type AccountAppealReceipt,
 } from '../../lib/account-appeal'
@@ -23,7 +25,7 @@ export function AccountAppealForm({ refreshKey = 0 }: { refreshKey?: number }) {
   const [open, setOpen] = useState(false)
   const [context, setContext] = useState<AccountAppealContext | null>(null)
   const [receipt, setReceipt] = useState<AccountAppealReceipt | null>(null)
-  const [loading, setLoading] = useState(true)
+  const [loading, setLoading] = useState(false)
   const [expired, setExpired] = useState(false)
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
@@ -43,29 +45,35 @@ export function AccountAppealForm({ refreshKey = 0 }: { refreshKey?: number }) {
     let active = true
     const identity = { active: true }
     identityRequest.current = identity
+    const shouldLoadContext = refreshKey > 0 || hasVerifiedAccountAppealHint()
     setReason('')
     setPassword('')
-    setLoading(true)
+    setLoading(shouldLoadContext)
+    setExpired(false)
     setContext(null)
     setReceipt(null)
-    void getAccountAppealContext()
-      .then((value) => {
-        if (!active) return
-        setContext(value)
-        setExpired(value.expires_at <= Date.now() / 1000)
-        setOpen(true)
-      })
-      .catch((error: unknown) => {
-        if (!active) return
-        if (axios.isAxiosError(error) && error.response?.status === 401) {
-          setExpired(refreshKey > 0)
-        } else {
-          toast.error(t('Unable to load account appeal'))
-        }
-      })
-      .finally(() => {
-        if (active) setLoading(false)
-      })
+    if (shouldLoadContext) {
+      void getAccountAppealContext()
+        .then((value) => {
+          if (!active) return
+          setContext(value)
+          setExpired(value.expires_at <= Date.now() / 1000)
+          setOpen(true)
+        })
+        .catch((error: unknown) => {
+          if (!active) return
+          if (axios.isAxiosError(error) && error.response?.status === 401) {
+            setVerifiedAccountAppealHint(false)
+            setExpired(true)
+            setOpen(true)
+          } else {
+            toast.error(t('Unable to load account appeal'))
+          }
+        })
+        .finally(() => {
+          if (active) setLoading(false)
+        })
+    }
     return () => {
       active = false
       identity.active = false

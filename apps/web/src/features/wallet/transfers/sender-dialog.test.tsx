@@ -166,7 +166,10 @@ test('transfers keep exact amounts and original recovery across lost acknowledge
       userId: 52,
       sessionId: 'synthetic-transfer-session',
     })
-    assert.equal(config.skipAuthRefresh, true)
+    assert.equal(
+      config.skipAuthRefresh,
+      config.method === 'get' ? undefined : true
+    )
     let data: unknown
     if (config.method === 'get') {
       assert.ok(config.url)
@@ -329,6 +332,47 @@ test('unavailable transfer authority remains unavailable instead of exposing a z
   )
   assert.match(document.body.textContent ?? '', /Unavailable/)
   assert.doesNotMatch(document.body.textContent ?? '', /0 Core credits/)
+  assert.equal(button('Create transfer link').disabled, true)
+})
+
+test('history and balance failures stay separate and do not discard successful reads', async () => {
+  login()
+  let failedRead = '/api/wallet-transfer'
+  api.defaults.adapter = async (config) => {
+    assert.equal(config.method, 'get')
+    if (config.url === failedRead) throw new Error('synthetic read failure')
+    return {
+      config,
+      data: {
+        success: true,
+        data: config.url === '/api/wallet/balance' ? balance : [],
+      },
+      headers: {},
+      status: 200,
+      statusText: 'OK',
+    }
+  }
+  await render()
+  assert.match(document.body.textContent ?? '', /1,000 Core credits/)
+  assert.match(
+    document.body.textContent ?? '',
+    /Failed to load transfer history/
+  )
+  assert.doesNotMatch(
+    document.body.textContent ?? '',
+    /Failed to load wallet balance/
+  )
+  assert.equal(button('Create transfer link').disabled, true)
+
+  failedRead = '/api/wallet/balance'
+  await click('Refresh')
+  assert.match(document.body.textContent ?? '', /Failed to load wallet balance/)
+  assert.doesNotMatch(
+    document.body.textContent ?? '',
+    /Failed to load transfer history/
+  )
+  assert.match(document.body.textContent ?? '', /No transfers yet/)
+  assert.match(document.body.textContent ?? '', /Unavailable/)
   assert.equal(button('Create transfer link').disabled, true)
 })
 

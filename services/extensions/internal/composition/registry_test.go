@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/TokenNotIncluded/lmm-api/extensions/internal/modules"
+	"github.com/TokenNotIncluded/lmm-api/extensions/internal/modules/herosms"
 )
 
 func TestRegisteredModuleSelection(t *testing.T) {
@@ -96,5 +97,27 @@ func TestModuleRegistryBindsSelectedRoutes(t *testing.T) {
 	host.ServeHTTP(response, request)
 	if response.Code != http.StatusNotFound {
 		t.Fatalf("retired remote route status=%d body=%s", response.Code, response.Body.String())
+	}
+}
+
+func TestHeroSMSManagementRegistrationDoesNotAdvertiseUnsupportedPurchases(t *testing.T) {
+	for _, available := range []bool{false, true} {
+		runtime := &Runtime{HeroSMS: &herosms.Service{PurchasesAvailable: available}}
+		found := false
+		for _, descriptor := range runtime.ModuleDescriptors() {
+			if descriptor.Name != "hero-sms" {
+				continue
+			}
+			found = true
+			if available && !reflect.DeepEqual(descriptor.NavigationPaths, []string{"/temporary-activations", "/email-activations"}) {
+				t.Fatal("verified purchase capability lost its navigation", descriptor)
+			}
+			if !available && len(descriptor.NavigationPaths) != 0 {
+				t.Fatal("settings-only adapter must not advertise purchasing", descriptor)
+			}
+		}
+		if !found || runtime.HeroSMS.Name() != "hero-sms" {
+			t.Fatal("the settings module must remain registered")
+		}
 	}
 }

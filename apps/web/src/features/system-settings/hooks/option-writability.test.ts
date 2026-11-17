@@ -74,3 +74,19 @@ test('the exchange rate is writable only when the server advertises it', () => {
     undefined
   )
 })
+
+test('IP routing is editable only when its specific capability is advertised', () => {
+  const key = 'IPAccessRoutingRules'
+  assert.equal(writableOptionKey(capabilities, key), undefined)
+  const regional = { ...capabilities, partial: true, writable_keys: [key] }
+  assert.equal(settingsUseRestrictedView(regional), true)
+  assert.equal(writableOptionKey(regional, key), key)
+  assert.equal(
+    writableOptionKey({ ...regional, read_only: true }, key),
+    undefined
+  )
+  assert.equal(
+    writableOptionKey({ ...regional, writable_keys: [] }, key),
+    undefined
+  )
+})

@@ -43,37 +43,12 @@ import {
 
 /**
  * Public-site area tools: the read-only, marketing-facing surfaces an agent
- * may explore without an account — home, about, developers, the getting
- * started guide, release notes, the legal documents and the open challenges.
+ * may explore without an account — home, about, developers, release notes, the legal documents and the open challenges.
  *
  * Every tool here is read-only. Nothing in this module writes, spends credit
  * or opens a private page; anything that needs an account or moves money
  * belongs to another area.
  */
-
-/** The guide's jump targets, in reading order, mirrored from the page TOC. */
-const GUIDE_SECTIONS = [
-  {
-    id: 'client-setup',
-    title: 'Choose a client and install it',
-    anchors: ['#client-setup'],
-  },
-  {
-    id: 'guide-first-message',
-    title: 'Send your first message',
-    anchors: ['#guide-first-message'],
-  },
-  {
-    id: 'guide-troubleshooting',
-    title: 'Common errors: 401, 404 and 429',
-    anchors: ['#guide-troubleshooting'],
-  },
-  {
-    id: 'guide-support',
-    title: 'Account setup and support',
-    anchors: ['#guide-support'],
-  },
-] as const
 
 /** The developer guide's sections, mirrored from the page nav. */
 const DEVELOPER_SECTIONS = [
@@ -242,11 +217,10 @@ export const publicSiteTools: WebMcpToolFactory = ({ router }) => [
           {
             step: 4,
             action: 'Point your client at the base URL',
-            path: '/guide',
+            path: '/developers',
           },
         ],
         entry_points: [
-          { path: '/guide', purpose: 'Getting started guide' },
           { path: '/developers', purpose: 'API and OAuth documentation' },
           { path: '/pricing', purpose: 'Model prices before you spend' },
         ],
@@ -400,91 +374,6 @@ export const publicSiteTools: WebMcpToolFactory = ({ router }) => [
         snippet,
         copy_paste_safe: true,
         note: 'Placeholder key only. The request is never sent from the browser.',
-      }
-    },
-  },
-  {
-    name: 'lmm_guide_read',
-    title: 'Read the getting started guide contents',
-    description:
-      'Read the guide as data: the five setup stages, the account checklist, the jump targets and the troubleshooting error codes. Read-only.',
-    inputSchema: EMPTY_INPUT_SCHEMA,
-    annotations: { readOnlyHint: true },
-    execute: async (_rawInput, options) => {
-      ensureNotAborted(options.signal)
-      return {
-        page: '/guide',
-        base_url: `${siteOrigin()}/v1`,
-        stages: [
-          'Choose an app',
-          'Download and install',
-          'Request access and create a key',
-          'Configure your client',
-          'Send your first message',
-        ],
-        account_steps: [
-          'Get API access',
-          'Create an API key',
-          'Complete your first request',
-        ],
-        oauth_clients: ['lmm', 'lmm-pi (when enabled)'],
-        oauth_note:
-          'Use discovery to check enabled native clients. The read-only lmm profile cannot invoke models; Pi requires its own enabled profile and finite budget.',
-        troubleshooting: [
-          {
-            code: '401',
-            title: 'API key authentication failed',
-            fix: 'Recopy the key, check for spaces, and confirm it is not revoked.',
-          },
-          {
-            code: '404',
-            title: 'Check the endpoint and model',
-            fix: 'Avoid a duplicated /v1 and use an exact model ID.',
-          },
-          {
-            code: '429',
-            title: 'A request limit was reached',
-            fix: 'Wait, lower concurrency, or check key quota and balance.',
-          },
-        ],
-        support: {
-          email: null,
-          email_available: false,
-          ticket_path: '/support',
-          page_anchor: '#guide-support',
-        },
-      }
-    },
-  },
-  {
-    name: 'lmm_guide_open_section',
-    title: 'Open a chapter of the guide',
-    description:
-      'Open the getting started guide and scroll to one of its chapters. Navigates the current tab. Read-only.',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        section: { type: 'string', enum: GUIDE_SECTIONS.map((s) => s.id) },
-      },
-      required: ['section'],
-      additionalProperties: false,
-    },
-    annotations: { readOnlyHint: true },
-    execute: async (rawInput, options) => {
-      const input = ensureObject(rawInput)
-      const section = optionalEnum(
-        input,
-        'section',
-        GUIDE_SECTIONS.map((s) => s.id)
-      )
-      if (!section) throw new TypeError('section is required')
-      ensureNotAborted(options.signal)
-      await router.navigate({ to: '/guide' })
-      return {
-        page: '/guide',
-        section,
-        anchor: `#${section}`,
-        navigated: true,
       }
     },
   },

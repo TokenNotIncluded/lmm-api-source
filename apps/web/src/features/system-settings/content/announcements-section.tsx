@@ -172,7 +172,10 @@ export function AnnouncementsSection({
   const [previousData, setPreviousData] = useState(data)
   const [previousEnabled, setPreviousEnabled] = useState(enabled)
   const [isEnabled, setIsEnabled] = useState(enabled === true)
-  const [hasChanges, setHasChanges] = useState(false)
+  const [savedData, setSavedData] = useState(() =>
+    JSON.stringify(parseAnnouncementData(data) ?? [])
+  )
+  const hasChanges = JSON.stringify(announcements) !== savedData
   const [selectedIds, setSelectedIds] = useState<number[]>([])
   const [showDialog, setShowDialog] = useState(false)
   const [showDeleteDialog, setShowDeleteDialog] = useState(false)
@@ -198,7 +201,10 @@ export function AnnouncementsSection({
     setPreviousData(data)
     const parsed = parseAnnouncementData(data)
     // A valid non-array JSON value historically leaves the current list intact.
-    if (parsed !== null) setAnnouncements(parsed)
+    if (parsed !== null && !hasChanges && !updateOption.isPending) {
+      setAnnouncements(parsed)
+      setSavedData(JSON.stringify(parsed))
+    }
   }
   if (enabled !== previousEnabled) {
     setPreviousEnabled(enabled)
@@ -266,14 +272,12 @@ export function AnnouncementsSection({
       setAnnouncements((prev) =>
         prev.filter((item) => item.id !== editingAnnouncement.id)
       )
-      setHasChanges(true)
       toast.success(t('Announcement deleted. Click "Save Settings" to apply.'))
     } else if (deleteTarget === 'batch') {
       setAnnouncements((prev) =>
         prev.filter((item) => !selectedIds.includes(item.id))
       )
       setSelectedIds([])
-      setHasChanges(true)
       toast.success(
         t('{{count}} announcements deleted. Click "Save Settings" to apply.', {
           count: selectedIds.length,
@@ -311,18 +315,18 @@ export function AnnouncementsSection({
       ])
       toast.success(t('Announcement added. Click "Save Settings" to apply.'))
     }
-    setHasChanges(true)
     setShowDialog(false)
   }
 
   const handleSaveAll = async () => {
+    const submittedData = JSON.stringify(announcements)
     try {
       const response = await updateOption.mutateAsync({
         key: 'console_setting.announcements',
-        value: JSON.stringify(announcements),
+        value: submittedData,
       })
       if (!response.success) return
-      setHasChanges(false)
+      setSavedData(submittedData)
       toast.success(t('Announcements saved successfully'))
     } catch {
       toast.error(t('Failed to save announcements'))

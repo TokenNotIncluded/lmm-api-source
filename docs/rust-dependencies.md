@@ -1,6 +1,6 @@
 # Rust Core 依赖审查
 
-zconv 固定版本更新于 2026-11-15，其余版本审查日期为 2026-11-13。范围为 `services/core/Cargo.toml` 的运行、构建及开发直接依赖；当前共有 61 个不同 crate、62 条声明（SQLx 同时用于运行和测试）。版本以当前 `Cargo.lock` 为准，统一构建与业务回归尚未完成。不是传递依赖全量审计、安全漏洞扫描或性能测试。
+zconv 固定版本更新于 2026-11-15；sysinfo、rand、psl 和 jsonwebtoken 更新于 2026-11-17，maxminddb 新增审查于同日，其余版本审查日期为 2026-11-13。范围为 `services/core/Cargo.toml` 的运行、构建及开发直接依赖；当前共有 64 个不同 crate、66 条声明（SQLx、TOML 同时用于运行和测试）。版本以当前 `Cargo.lock` 为准，统一构建与业务回归尚未完成。不是传递依赖全量审计、安全漏洞扫描或性能测试。
 
 按用户决定，结合所属领域的成熟度判断，不设固定星数线。表中星数来自 GitHub REST `GET /repos/{owner}/{repo}`，属于上游仓库，不是单个 crate；下载数来自 crates.io `GET /api/v1/crates/{name}`，只作采用程度参考，不证明正确性。未发现这些上游被标为 archived。采用度数据采样于 2026-11-12；新增 webpki-root-certs 采样于 2026-11-13。稳定版本按注册表更新，受兼容约束的例外单列。
 
@@ -40,7 +40,7 @@ zconv 固定版本更新于 2026-11-15，其余版本审查日期为 2026-11-13�
 | [`md-5`](https://crates.io/crates/md-5) | `0.11.0` | 旧支付签名兼容 | [2312](https://github.com/RustCrypto/hashes) | 458472931 | 保留 |
 | [`form_urlencoded`](https://crates.io/crates/form_urlencoded) | `1.2.2` | URL 表单编解码 | [1589](https://github.com/servo/rust-url) | 976259596 | 保留 |
 | [`rsa`](https://crates.io/crates/rsa) | `0.10.0` | 旧支付 RSA 验签 | [678](https://github.com/RustCrypto/RSA) | 270428346 | 保留 |
-| [`jsonwebtoken`](https://crates.io/crates/jsonwebtoken) | `11.1.0` | JWT/JWS | [2106](https://github.com/Keats/jsonwebtoken) | 241735568 | 保留 |
+| [`jsonwebtoken`](https://crates.io/crates/jsonwebtoken) | `12.0.0` | JWT/JWS | [2106](https://github.com/Keats/jsonwebtoken) | 241735568 | 更新固定版本，适配可失败的密钥构造 |
 | [`jsonschema`](https://crates.io/crates/jsonschema) | `0.61.2` | JSON Schema 校验 | [836](https://github.com/Stranger6667/jsonschema) | 120858273 | 保留 |
 | [`num-bigint`](https://crates.io/crates/num-bigint) | `0.5.1` | 精确大整数 | [616](https://github.com/rust-num/num-bigint) | 740389035 | 保留 |
 | [`num-rational`](https://crates.io/crates/num-rational) | `0.4.2` | 精确有理数 | [154](https://github.com/rust-num/num-rational) | 463727902 | 保留 |
@@ -53,7 +53,10 @@ zconv 固定版本更新于 2026-11-15，其余版本审查日期为 2026-11-13�
 | [`hyper`](https://crates.io/crates/hyper) | `1.12.0` | HTTP 协议连接 | [16425](https://github.com/hyperium/hyper) | 1117876681 | 保留 |
 | [`hyper-util`](https://crates.io/crates/hyper-util) | `0.1.21` | Hyper 连接/运行时适配 | [182](https://github.com/hyperium/hyper-util) | 627716666 | 保留 |
 | [`ipnet`](https://crates.io/crates/ipnet) | `2.12.2` | IP 网段计算 | [171](https://github.com/krisprice/ipnet) | 728326681 | 保留 |
-| [`rand`](https://crates.io/crates/rand) | `0.10.3` | 随机数生成 | [2105](https://github.com/rust-random/rand) | 2155428171 | 保留 |
+| [`psl`](https://crates.io/crates/psl) | `2.1.256` | 公共后缀列表与域名边界 | 未采集 | 未采集 | 更新固定版本 |
+| [`maxminddb`](https://crates.io/crates/maxminddb) | `0.33.0` | 进程内 MMDB 国家字段读取 | [280](https://github.com/oschwald/maxminddb-rust)（2026-11-17） | 未采集 | 新增，ISC，专用离线地域查询 |
+| [`rand`](https://crates.io/crates/rand) | `0.10.4` | 随机数生成 | [2105](https://github.com/rust-random/rand) | 2155428171 | 更新固定版本 |
+| [`sysinfo`](https://crates.io/crates/sysinfo) | `0.40.4` | 主机与进程资源计数（仅 system feature） | 未采集 | 未采集 | 用户指定，更新固定版本 |
 | [`regex`](https://crates.io/crates/regex) | `1.13.1` | 正则匹配 | [4056](https://github.com/rust-lang/regex) | 1380838359 | 保留 |
 | [`tiktoken-rs`](https://crates.io/crates/tiktoken-rs) | `0.12.1` | 旧 OpenAI BPE 预扣估算 | [411](https://github.com/zurawiki/tiktoken-rs) | 24776336 | 保留 |
 | [`fancy-regex`](https://crates.io/crates/fancy-regex) | `0.20.2` | 兼容分词的扩展正则 | [646](https://github.com/fancy-regex/fancy-regex) | 301795196 | 保留 |
@@ -88,9 +91,11 @@ zconv 固定版本更新于 2026-11-15，其余版本审查日期为 2026-11-13�
 
 - 十六进制使用用户指定的 [`zhex = 0.1.3`](https://crates.io/crates/zhex/0.1.3)，上游为 [LIghtJUNction/zhex](https://github.com/LIghtJUNction/zhex)，MIT，无传递依赖。已移除 hex 直接依赖；固定缓冲区解码直接调用 zhex，`hex_codec` 只为 String/Vec 返回值分配缓冲区，保留入口长度、大小写和错误分类。
 - 百分号解码使用 [percent-encoding 2.3.2](https://docs.rs/percent-encoding/2.3.2/percent_encoding/)，HTML 转义使用 [html-escape 0.3.1](https://docs.rs/html-escape/0.3.1/html_escape/)，保留原 HTML 实体表示。
-- 用户指定的 [sysinfo](https://github.com/GuillaumeGomez/sysinfo) 0.40.3（仅 system feature）承接资源计数，保留 250ms 快照、整机 CPU 归一化和权限下的进程识别，不收集命令行或环境。
+- 用户指定的 [sysinfo](https://github.com/GuillaumeGomez/sysinfo) 0.40.4（仅 system feature）承接资源计数，保留 250ms 快照、整机 CPU 归一化和权限下的进程识别，不收集命令行或环境。
 - 用户指定的 [zclap](https://github.com/LIghtJUNction/zclap) 0.1.4 以 parse_os 保留非 UTF-8 绝对路径及原命令互斥；[tokio-util](https://github.com/tokio-rs/tokio) 0.7.20（rt feature）的 CancellationToken 替代 watch 手写实现，资金收尾仍不随上游取消。
 - [serde_json RawValue](https://docs.rs/serde_json/latest/serde_json/value/struct.RawValue.html) 配合 Seed/Visitor 替代 receipt Scan 词法扫描，保留逐层重复键拒绝、深度、数字拼写和签名字节；其余业务验证仍由 Core 负责。
+
+2026-11-17 的依赖更新见 [1362b3ac](https://github.com/TokenNotIncluded/lmm-api-source/commit/1362b3ac2c741c83cf955f5880d62bf28ab7ce4d)：适配 jsonwebtoken 12 的可失败密钥构造，并显式拒绝无效 HMAC 解码密钥和空密钥。固定 74 组件渠道候选的 release 构建与标准发布包验证通过；隔离 PostgreSQL 批量配置 3 项通过，旧 vault 测试为 2 项通过、1 项旧夹具失败。规范恢复替代用例及 JWT、PSL、sysinfo、relay/zconv 定向库回归尚未启动，不能据局部渠道测试认定依赖行为回归通过；本轮未部署。当前阻塞和证据入口见[新架构进度](progress.md)。上述版本更新未重新采集星数或下载数，表中既有采用度数据仍对应原采样日期。
 
 2026-11-12 开发自测中，CSV 与用量导出定向测试通过；internal_rpc 8 项通过、1 项因未提供 `DATABASE_URL` 失败。zhex 接入后的 137 项普通/本地异步测试通过，普通 Clippy 通过但有 141 条既有警告；依赖审查轮次的严格 Clippy 在未改位置报告 70 项错误。原始失败保留在对应 Git 历史，不将换库或局部自测视为独立业务验收、真实 PostgreSQL、性能、发布或部署验证。
 

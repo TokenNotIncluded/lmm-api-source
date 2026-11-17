@@ -17,15 +17,13 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { getRouteApi } from '@tanstack/react-router'
-import { useCallback, useMemo } from 'react'
+import { useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { SectionPageLayout } from '@/components/layout'
-import type { NavGroup } from '@/components/layout/types'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { CacheStatsDialog } from '@/features/system-settings/general/channel-affinity/cache-stats-dialog'
 import { useMediaQuery } from '@/hooks'
-import { useSidebarConfig } from '@/hooks/use-sidebar-config'
 import { cn } from '@/lib/utils'
 import { useAuthStore } from '@/stores/auth-store'
 
@@ -37,36 +35,13 @@ import {
   useUsageLogsContext,
 } from './components/usage-logs-provider'
 import { UsageLogsTable } from './components/usage-logs-table'
-import {
-  isUsageLogsSectionId,
-  USAGE_LOGS_DEFAULT_SECTION,
-  type UsageLogsSectionId,
-} from './section-registry'
 
 const route = getRouteApi('/_authenticated/usage-logs/$section')
-const TASK_LOG_SECTIONS = ['drawing', 'task'] as const
-
-const SECTION_META: Record<UsageLogsSectionId, { titleKey: string }> = {
-  common: {
-    titleKey: 'Common Logs',
-  },
-  drawing: {
-    titleKey: 'Drawing Logs',
-  },
-  task: {
-    titleKey: 'Task Logs',
-  },
-}
 
 function UsageLogsContent() {
   const { t } = useTranslation()
   const navigate = route.useNavigate()
   const isMobile = useMediaQuery('(max-width: 640px)')
-  const params = route.useParams()
-  const activeCategory: UsageLogsSectionId =
-    params.section && isUsageLogsSectionId(params.section)
-      ? params.section
-      : USAGE_LOGS_DEFAULT_SECTION
   const {
     selectedUserId,
     userInfoDialogOpen,
@@ -82,49 +57,13 @@ function UsageLogsContent() {
     usageSource,
     setUsageSource,
   } = useLogsViewScope()
-  const tabNavGroups = useMemo<NavGroup[]>(
-    () => [
-      {
-        title: 'Task Logs',
-        items: TASK_LOG_SECTIONS.map((section) => ({
-          title: SECTION_META[section].titleKey,
-          url: `/usage-logs/${section}`,
-        })),
-      },
-    ],
-    []
-  )
-  const filteredTabGroups = useSidebarConfig(tabNavGroups)
-  const visibleSections = useMemo(
-    () =>
-      (filteredTabGroups[0]?.items ?? [])
-        .map((item) => {
-          if (!('url' in item) || typeof item.url !== 'string') return null
-          return item.url.split('/').pop() ?? null
-        })
-        .filter((section): section is UsageLogsSectionId =>
-          Boolean(section && isUsageLogsSectionId(section))
-        ),
-    [filteredTabGroups]
-  )
-
-  const handleSectionChange = useCallback(
-    (section: string) => {
-      void navigate({
-        to: '/usage-logs/$section',
-        params: { section: section as UsageLogsSectionId },
-      })
-    },
-    [navigate]
-  )
-
   const handleViewScopeChange = useCallback(
     (scope: string) => {
       if (scope === 'all' || scope === 'self') {
         setViewScope(scope as LogsViewScope)
         void navigate({
           to: '/usage-logs/$section',
-          params: { section: activeCategory },
+          params: { section: 'common' },
           search: (previous) => ({
             ...previous,
             page: 1,
@@ -134,78 +73,57 @@ function UsageLogsContent() {
         })
       }
     },
-    [setViewScope, navigate, activeCategory]
+    [setViewScope, navigate]
   )
-
-  const pageMeta = SECTION_META[activeCategory]
-  const showTaskSwitcher =
-    activeCategory !== 'common' && visibleSections.length > 1
 
   return (
     <>
       <SectionPageLayout fixedContent={!isMobile}>
-        <SectionPageLayout.Title>
-          {t(pageMeta.titleKey)}
-        </SectionPageLayout.Title>
-        {(canManageScope || activeCategory === 'common') && (
-          <SectionPageLayout.Actions>
-            {activeCategory === 'common' && (
-              <Tabs
-                value={usageSource}
-                onValueChange={(value) => {
-                  if (value !== 'native' && value !== 'historical') return
-                  setUsageSource(value)
-                  void navigate({
-                    to: '/usage-logs/$section',
-                    params: { section: 'common' },
-                    search: (previous) => ({
-                      ...previous,
-                      page: 1,
-                      channel: undefined,
-                      upstreamRequestId: undefined,
-                      status: undefined,
-                      minDurationMs: undefined,
-                      maxDurationMs: undefined,
-                      sortOrder: undefined,
-                    }),
-                  })
-                }}
-              >
-                <TabsList>
-                  <TabsTrigger value='native'>{t('Native usage')}</TabsTrigger>
-                  <TabsTrigger value='historical'>
-                    {t('Historical Usage')}
-                  </TabsTrigger>
-                </TabsList>
-              </Tabs>
-            )}
-            {canManageScope && (
-              <Tabs value={viewScope} onValueChange={handleViewScopeChange}>
-                <TabsList>
-                  <TabsTrigger value='all'>{t('All')}</TabsTrigger>
-                  <TabsTrigger value='self'>{t('Only Mine')}</TabsTrigger>
-                </TabsList>
-              </Tabs>
-            )}
-          </SectionPageLayout.Actions>
-        )}
+        <SectionPageLayout.Title>{t('Usage Logs')}</SectionPageLayout.Title>
+        <SectionPageLayout.Actions>
+          <Tabs
+            value={usageSource}
+            onValueChange={(value) => {
+              if (value !== 'native' && value !== 'historical') return
+              setUsageSource(value)
+              void navigate({
+                to: '/usage-logs/$section',
+                params: { section: 'common' },
+                search: (previous) => ({
+                  ...previous,
+                  page: 1,
+                  channel: undefined,
+                  upstreamRequestId: undefined,
+                  status: undefined,
+                  minDurationMs: undefined,
+                  maxDurationMs: undefined,
+                  sortOrder: undefined,
+                }),
+              })
+            }}
+          >
+            <TabsList>
+              <TabsTrigger value='native'>{t('Native usage')}</TabsTrigger>
+              <TabsTrigger value='historical'>
+                {t('Historical Usage')}
+              </TabsTrigger>
+            </TabsList>
+          </Tabs>
+          {canManageScope && (
+            <Tabs value={viewScope} onValueChange={handleViewScopeChange}>
+              <TabsList>
+                <TabsTrigger value='all'>{t('All')}</TabsTrigger>
+                <TabsTrigger value='self'>{t('Only Mine')}</TabsTrigger>
+              </TabsList>
+            </Tabs>
+          )}
+        </SectionPageLayout.Actions>
         <SectionPageLayout.Content>
           <div
             className={cn('flex min-h-0 flex-col gap-4', !isMobile && 'h-full')}
           >
-            {showTaskSwitcher && (
-              <Tabs value={activeCategory} onValueChange={handleSectionChange}>
-                <TabsList variant='navigation'>
-                  {visibleSections.map((section) => (
-                    <TabsTrigger key={section} value={section}>
-                      {t(SECTION_META[section].titleKey)}
-                    </TabsTrigger>
-                  ))}
-                </TabsList>
-              </Tabs>
-            )}
             <div className={cn('min-h-0', !isMobile && 'flex-1')}>
-              <UsageLogsTable logCategory={activeCategory} />
+              <UsageLogsTable logCategory='common' />
             </div>
           </div>
         </SectionPageLayout.Content>

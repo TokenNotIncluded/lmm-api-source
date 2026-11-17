@@ -28,24 +28,18 @@ test('public developer summary lists distinct public, Session and OAuth catalog 
 })
 
 const originalAdapter = api.defaults.adapter
-test('guide exposes online support without inventing an email recipient', async () => {
-  const tool = publicSiteTools({
+test('retired client setup tools are absent from public discovery', () => {
+  const tools = publicSiteTools({
     router: {
       navigate: async () => undefined,
       subscribe: () => () => undefined,
     },
-  }).find((entry) => entry.name === 'lmm_guide_read')
-  assert.ok(tool)
-  const result = await tool.execute(
-    {},
-    { signal: new AbortController().signal }
-  )
-  assert.deepEqual((result as { support: unknown }).support, {
-    email: null,
-    email_available: false,
-    ticket_path: '/support',
-    page_anchor: '#guide-support',
   })
+  assert.ok(tools.some((tool) => tool.name === 'lmm_developers_read'))
+  assert.equal(
+    tools.some((tool) => tool.name.startsWith('lmm_guide_')),
+    false
+  )
 })
 
 const originalAuth = useAuthStore.getState().auth

@@ -37,8 +37,9 @@ export async function saveProfileDisplayName(
     }
   }
   assertCurrent()
-  if (!validProfileDisplayName(displayName))
-    {throw new Error('Invalid display name')}
+  if (!validProfileDisplayName(displayName)) {
+    throw new Error('Invalid display name')
+  }
   await withAuthenticatedCookieWrite(async (config) => {
     assertCurrent()
     const result = await api.put(

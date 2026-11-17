@@ -8,6 +8,7 @@ mod email;
 mod external_login;
 mod federated;
 mod federated_admin;
+mod network_policy;
 mod oauth2;
 mod passkeys;
 mod reconcile;
@@ -194,6 +195,7 @@ fn build_router(
             Router::new()
         })
         .merge(compatibility::routes())
+        .merge(network_policy::routes())
         .merge(sessions::routes())
         .merge(oauth2::routes())
         .merge(external_login::routes())

@@ -129,15 +129,22 @@ impl Reads {
             .await
             .map_err(|e| match e {
                 crate::identity::IdentityError::Unauthorized
-                | crate::identity::IdentityError::Invalid
-                | crate::identity::IdentityError::Forbidden => Failure::Unauthorized,
+                | crate::identity::IdentityError::Invalid => Failure::Unauthorized,
+                crate::identity::IdentityError::Forbidden => Failure::Ip,
                 _ => Failure::Unavailable,
             })?;
         if actor.credential_kind != crate::identity::CredentialKind::ApiKey {
             return Err(Failure::Unauthorized);
         }
+        let peer = crate::identity::network_policy::canonical_ip(peer.ip());
+        crate::identity::network_policy::authorize_user_ip(tx, actor.user_id, Some(peer))
+            .await
+            .map_err(|error| match error {
+                crate::identity::IdentityError::Forbidden => Failure::Ip,
+                _ => Failure::Unavailable,
+            })?;
         let settings = sqlx::query("SELECT account_balance_read,cardinality(allow_ips)=0 OR $2::inet <<= ANY(allow_ips) AS ip_allowed FROM core_identity.api_key_settings WHERE credential_id=$1 AND enabled")
-            .bind(actor.credential_id).bind(peer.ip().to_string()).fetch_optional(&mut **tx).await?
+            .bind(actor.credential_id).bind(peer.to_string()).fetch_optional(&mut **tx).await?
             .ok_or(Failure::Unauthorized)?;
         if !settings.try_get::<bool, _>("ip_allowed")? {
             return Err(Failure::Ip);

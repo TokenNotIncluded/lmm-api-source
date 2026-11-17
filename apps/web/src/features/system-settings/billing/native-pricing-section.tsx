@@ -6,15 +6,15 @@ import { LoadingState } from '@/components/loading-state'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import { useRuntimeCapabilities } from '@/context/runtime-capabilities-context'
-import { NativeRoutingManagement } from '@/features/channels/components/native-routing-management'
 import { useChannelOps } from '@/features/channels/use-channel-ops'
 import { useCapabilityFreshness } from '@/hooks/use-capability-freshness'
 import { getServerErrorMessage } from '@/lib/server-error-message'
 
+import { NativePricingManagement } from './native-pricing-management'
 import { PricingSourceSnapshot } from './pricing-source-snapshot'
 
 /** Prices belong to the published routing release, not the legacy options API. */
-function NativePricingEditor() {
+function NativePricingEditor({ initialMode }: { initialMode?: string }) {
   const { t } = useTranslation()
   const runtime = useRuntimeCapabilities()
   const localQuery = useChannelOps(!runtime)
@@ -60,13 +60,17 @@ function NativePricingEditor() {
       </p>
     )
   }
-  return <NativeRoutingManagement initialSection='prices' />
+  return <NativePricingManagement initialMode={initialMode} />
 }
 
-export function NativePricingSection() {
+export function NativePricingSection({
+  initialMode,
+}: {
+  initialMode?: string
+}) {
   return (
     <div className='space-y-8'>
-      <NativePricingEditor />
+      <NativePricingEditor initialMode={initialMode} />
       <PricingSourceSnapshot />
     </div>
   )

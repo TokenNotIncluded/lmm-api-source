@@ -53,8 +53,22 @@ let coverage:
   | undefined
 let error: Error | null = null
 let isLoading = false
+let requiresSignIn = false
+let healthError: Error | null = null
 mock.module('./hooks/use-status-detection', () => ({
   useStatusDetection: () => ({
+    health: {
+      service: 'lmm-core',
+      status: 'ready',
+      database: true,
+      capabilities: { identity: true, models: false },
+      readiness_scope: 'configured_components',
+      upstream_health_checked: false,
+    },
+    healthError,
+    healthLoading: false,
+    healthCheckedAt: 1_790_000_000_000,
+    requiresSignIn,
     groups,
     coverage,
     availableModels: [],
@@ -78,6 +92,8 @@ afterEach(() => {
   coverage = undefined
   error = null
   isLoading = false
+  requiresSignIn = false
+  healthError = null
 })
 
 async function statusMarkup() {
@@ -152,6 +168,36 @@ test('loading and failed requests do not present zero coverage as measured data'
     failed,
     /Data coverage: 0 of 0|No status data is available yet/
   )
+})
+
+test('live service status stays visible without performance samples or a signed-in account', async () => {
+  latestTimestamp = null
+  coverage = {
+    availability: 'partial',
+    coverage: { sampled_requests: 0, missing_samples: 0 },
+  }
+  const empty = await statusMarkup()
+  assert.match(empty, /Current service status/)
+  assert.match(empty, /API service/)
+  assert.match(empty, /Model routing/)
+  assert.match(empty, /Unavailable/)
+  assert.match(empty, /No request samples in this time range/)
+  assert.match(empty, /Historical imports are excluded/)
+  assert.doesNotMatch(
+    empty,
+    /No status data is available yet|Data coverage: 0 of 0|Partial coverage: 0/
+  )
+
+  requiresSignIn = true
+  const anonymous = await statusMarkup()
+  assert.match(anonymous, /Current service status/)
+  assert.match(anonymous, /Sign in to view request performance/)
+  assert.doesNotMatch(anonymous, /Data coverage:|No request samples/)
+
+  healthError = new Error('health endpoint unavailable')
+  const unavailable = await statusMarkup()
+  assert.match(unavailable, /Service check failed/)
+  assert.doesNotMatch(unavailable, />Ready</)
 })
 
 test('status freshness renders across interface language changes and timestamp units', async () => {

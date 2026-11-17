@@ -16,7 +16,14 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { SettingsPage } from '../components/settings-page'
+import { useParams } from '@tanstack/react-router'
+import { Suspense } from 'react'
+import { useTranslation } from 'react-i18next'
+
+import { LoadingState } from '@/components/loading-state'
+import { useStatus } from '@/hooks/use-status'
+
+import { SettingsPage, SettingsPageFrame } from '../components/settings-page'
 import type { AuthSettings } from '../types'
 import {
   AUTH_DEFAULT_SECTION,
@@ -73,6 +80,28 @@ const defaultAuthSettings: AuthSettings = {
 }
 
 export function AuthSettings() {
+  const { t } = useTranslation()
+  const { section } = useParams({
+    from: '/_authenticated/system-settings/auth/$section',
+  })
+  if (section === 'humangrant') {
+    return (
+      <SettingsPageFrame title={t('HumanGrant')}>
+        <Suspense fallback={<LoadingState />}>
+          {getAuthSectionContent('humangrant', defaultAuthSettings)}
+        </Suspense>
+      </SettingsPageFrame>
+    )
+  }
+  if (section === 'custom-oauth') {
+    return (
+      <SettingsPageFrame title={t('Custom OAuth')}>
+        <Suspense fallback={<LoadingState />}>
+          <NativeCustomOAuthSection />
+        </Suspense>
+      </SettingsPageFrame>
+    )
+  }
   return (
     <SettingsPage
       routePath='/_authenticated/system-settings/auth/$section'
@@ -82,4 +111,13 @@ export function AuthSettings() {
       getSectionMeta={getAuthSectionMeta}
     />
   )
+}
+
+function NativeCustomOAuthSection() {
+  const { status } = useStatus()
+  return getAuthSectionContent('custom-oauth', {
+    ...defaultAuthSettings,
+    ServerAddress:
+      typeof status?.server_address === 'string' ? status.server_address : '',
+  })
 }

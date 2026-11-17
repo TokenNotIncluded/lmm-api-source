@@ -29,14 +29,14 @@ const Offset = 28800
 const SourceRevision = "cc52aa195c6f2a01d703a1a407be73c31b89867d"
 
 type Policy struct {
-	Enabled               bool      `json:"enabled"`
-	MinQuota              string    `json:"min_quota"`
-	MaxQuota              string    `json:"max_quota"`
-	CalendarOffsetSeconds int32     `json:"calendar_offset_seconds"`
-	CreditsPerUSD         int64     `json:"credits_per_usd"`
-	SourceRevision        string    `json:"source_revision"`
-	SourceOptionsSHA256   string    `json:"source_options_sha256"`
-	HistorySeedID         string    `json:"history_seed_id"`
+	Enabled               bool   `json:"enabled"`
+	MinQuota              string `json:"min_quota"`
+	MaxQuota              string `json:"max_quota"`
+	CalendarOffsetSeconds int32  `json:"calendar_offset_seconds"`
+	CreditsPerUSD         int64  `json:"credits_per_usd"`
+	SourceRevision        string `json:"source_revision"`
+	SourceOptionsSHA256   string `json:"source_options_sha256"`
+	HistorySeedID         string `json:"history_seed_id"`
 }
 type RewardRange struct {
 	RewardMultiplier float64 `json:"reward_multiplier"`
@@ -46,12 +46,12 @@ type RewardRange struct {
 	MaxQuota         string  `json:"max_quota"`
 }
 type DailyRecord struct {
-	CheckinDate    string  `json:"checkin_date"`
-	QuotaAwarded   string  `json:"quota_awarded"`
-	CreatedAt      int64   `json:"created_at"`
-	JournalID      *int64  `json:"journal_id"`
-	Origin         string  `json:"origin"`
-	PolicyRevision *int64  `json:"policy_revision"`
+	CheckinDate    string `json:"checkin_date"`
+	QuotaAwarded   string `json:"quota_awarded"`
+	CreatedAt      int64  `json:"created_at"`
+	JournalID      *int64 `json:"journal_id"`
+	Origin         string `json:"origin"`
+	PolicyRevision *int64 `json:"policy_revision"`
 }
 type ClaimRequest struct {
 	OperationKey     string          `json:"operation_key"`

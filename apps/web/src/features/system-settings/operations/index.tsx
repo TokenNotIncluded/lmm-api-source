@@ -65,6 +65,7 @@ export function OperationsSettings() {
     <SettingsPage
       routePath='/_authenticated/system-settings/operations/$section'
       defaultSettings={defaultOperationsSettings}
+      independentSections={['hero-sms', 'scripts', 'update-checker']}
       defaultSection={OPERATIONS_DEFAULT_SECTION}
       getSectionContent={getOperationsSectionContent}
       getSectionMeta={getOperationsSectionMeta}

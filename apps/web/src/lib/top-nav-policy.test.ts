@@ -17,7 +17,6 @@ import { buildTopNavLinks, type TopNavSurface } from './top-nav-policy'
 const extraKeys = [
   'directory',
   'developers',
-  'guide',
   'scripts',
   'webmcp',
   'signal',
@@ -26,7 +25,6 @@ const extraKeys = [
 const extraRoutes = [
   '/ai-directory',
   '/developers',
-  '/guide',
   '/scripts',
   '/webmcp',
   '/games/signal',
@@ -75,7 +73,6 @@ test('both surfaces retain their established route order with legacy/missing con
       '/ai-directory',
       '/pricing',
       '/developers',
-      '/guide',
       '/scripts',
       '/webmcp',
       '/games/signal',
@@ -198,7 +195,7 @@ test('marketplace leads each surface and supporting destinations are secondary',
   assert.deepEqual(hrefs(publicLinks.filter((link) => !link.secondary)), [
     '/',
     '/pricing',
-    '/guide',
+    '/developers',
   ])
 
   const defaultLinks = makeLinks({}, 'default', {
@@ -217,9 +214,7 @@ test('marketplace leads each surface and supporting destinations are secondary',
     assert.ok(links.filter((link) => link.secondary).length > 0)
     assert.ok(
       links
-        .filter((link) =>
-          ['/security', '/scripts', '/developers'].includes(link.href)
-        )
+        .filter((link) => ['/security', '/scripts'].includes(link.href))
         .every((link) => link.secondary === true)
     )
   }

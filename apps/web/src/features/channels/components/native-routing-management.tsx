@@ -15,6 +15,7 @@ import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { useRuntimeCapabilities } from '@/context/runtime-capabilities-context'
 import { useCapabilityFreshness } from '@/hooks/use-capability-freshness'
+import { toIntlLocale } from '@/i18n/languages'
 import { getServerErrorMessage } from '@/lib/server-error-message'
 import { useAuthStore } from '@/stores/auth-store'
 
@@ -23,6 +24,7 @@ import {
   setNativeChannelsEnabled,
   setNativeChannelsTag,
 } from '../api'
+import { nativeProtocolLabel } from '../lib/native-routing-form'
 import {
   copyNativeChannel,
   getNativeConfiguration,
@@ -154,7 +156,7 @@ function NativeRoutingWorkspace({
     path: string,
     data?: unknown
   ) => scopedNativeRequest<T>(scope, method, path, data)
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const client = useQueryClient()
   const [copyReset, setCopyReset] = useState(true)
   const [balanceChannel, setBalanceChannel] = useState<NativeUpstream | null>(
@@ -386,6 +388,7 @@ function NativeRoutingWorkspace({
     try {
       const value = await operation()
       setResult(value)
+      toast.success(t('Operation successful'))
       setConfirmation(null)
       if (close) {
         setEditor(null)
@@ -778,15 +781,18 @@ function NativeRoutingWorkspace({
   }
   return (
     <section
-      className='@container/routing min-w-0 space-y-4'
+      className='@container/routing min-w-0 space-y-6'
       aria-label={t('Configuration')}
     >
-      <nav className='flex flex-wrap gap-2' aria-label={t('Configuration')}>
+      <nav
+        className='flex flex-wrap items-center gap-1'
+        aria-label={t('Configuration')}
+      >
         {sections.map(([value, label]) => (
           <Button
             key={value}
             type='button'
-            variant={section === value ? 'default' : 'outline'}
+            variant={section === value ? 'secondary' : 'ghost'}
             className='min-h-11'
             disabled={busy}
             aria-current={section === value ? 'page' : undefined}
@@ -800,7 +806,7 @@ function NativeRoutingWorkspace({
         <Button
           type='button'
           variant='ghost'
-          className='min-h-11'
+          className='ml-auto min-h-11'
           disabled={busy}
           onClick={() => void refresh()}
         >
@@ -809,7 +815,7 @@ function NativeRoutingWorkspace({
       </nav>
       {editor && (
         <form
-          className='min-w-0 space-y-6 py-6'
+          className='min-w-0 space-y-6 p-5 sm:p-7'
           aria-label={editor.title}
           ref={editorRef}
           onSubmit={(event) => {
@@ -824,6 +830,22 @@ function NativeRoutingWorkspace({
               document={editor.document}
               configuration={configuration}
               disabled={busy}
+              credential={
+                editor.secret ? (
+                  <label className='block space-y-2'>
+                    <span className='text-sm font-medium'>{t('API key')}</span>
+                    <Input
+                      type='password'
+                      autoComplete='off'
+                      className='min-h-11'
+                      value={secret}
+                      disabled={busy}
+                      required
+                      onChange={(event) => setSecret(event.target.value)}
+                    />
+                  </label>
+                ) : undefined
+              }
               onChange={(document) => {
                 setEditor({ ...editor, document })
                 setPreview(null)
@@ -859,20 +881,6 @@ function NativeRoutingWorkspace({
               />
             </label>
           </details>
-          {editor.secret && (
-            <label className='block space-y-2'>
-              <span className='text-sm'>{t('API key')}</span>
-              <Input
-                type='password'
-                autoComplete='off'
-                className='min-h-11'
-                value={secret}
-                disabled={busy}
-                required
-                onChange={(event) => setSecret(event.target.value)}
-              />
-            </label>
-          )}
           {preview && (
             <pre
               className='max-h-80 overflow-auto border p-3 text-xs'
@@ -935,18 +943,37 @@ function NativeRoutingWorkspace({
       >
         {null}
       </Dialog>
-      <label className='block space-y-2'>
-        <span className='text-sm'>{t('Search')}</span>
-        <Input
-          aria-label={t('Search')}
-          className='min-h-11'
-          value={search}
-          onChange={(event) => {
-            setSearch(event.target.value)
-            setPage(1)
-          }}
-        />
-      </label>
+      <div className='flex flex-wrap items-end gap-3'>
+        <label className='min-w-0 flex-1 basis-72 space-y-2'>
+          <span className='text-sm'>{t('Search')}</span>
+          <Input
+            aria-label={t('Search')}
+            className='min-h-11'
+            placeholder={
+              section === 'channels'
+                ? t('Search by name, ID, tag or endpoint')
+                : undefined
+            }
+            value={search}
+            onChange={(event) => {
+              setSearch(event.target.value)
+              setPage(1)
+            }}
+          />
+        </label>
+        {section === 'channels' && (
+          <Button
+            type='button'
+            className='min-h-11'
+            disabled={
+              busy || !secretsAllowed || !configuration.secret_storage_enabled
+            }
+            onClick={() => channelEditor()}
+          >
+            {t('Create Channel')}
+          </Button>
+        )}
+      </div>
       {error && (
         <Alert variant='destructive' role='alert'>
           <AlertDescription>{error}</AlertDescription>
@@ -954,14 +981,6 @@ function NativeRoutingWorkspace({
       )}
       {section === 'channels' && (
         <>
-          <Button
-            type='button'
-            className='min-h-11'
-            disabled={busy || !configuration.secret_storage_enabled}
-            onClick={() => channelEditor()}
-          >
-            {t('Create Channel')}
-          </Button>
           {(!secretsAllowed || !configuration.secret_storage_enabled) && (
             <p className='text-muted-foreground text-sm' role='status'>
               {t('API Keys')}: {t('Capability unavailable')}
@@ -1117,203 +1136,331 @@ function NativeRoutingWorkspace({
               </Button>
             </form>
           )}
-          <div className='space-y-3'>
-            {visibleChannels.map((channel) => (
-              <div key={channel.id} className='min-w-0 space-y-2 border p-3'>
-                <div className='flex items-center gap-2'>
-                  <Checkbox
-                    aria-label={
-                      configuration.bindings.names[channel.id] ??
-                      `Channel ${channel.id}`
-                    }
-                    checked={selectedVisibleIds.includes(channel.id)}
-                    disabled={busy}
-                    onCheckedChange={(checked) =>
-                      updateChannelSelection(
-                        checked
-                          ? [...selectedChannelIds, channel.id]
-                          : selectedChannelIds.filter((id) => id !== channel.id)
-                      )
-                    }
-                  />
-                  <h3 className='min-w-0 font-medium [overflow-wrap:anywhere]'>
-                    {configuration.bindings.names[channel.id] ??
-                      `Channel ${channel.id}`}
-                  </h3>
-                </div>
+          {visibleChannels.length === 0 &&
+            (!serverChannels || verifiedChannelPage) && (
+              <div
+                className='bg-card space-y-3 rounded-xl px-6 py-14 text-center'
+                role='status'
+              >
+                <h3 className='font-medium'>
+                  {search.trim()
+                    ? t('No results found')
+                    : t('No channels found')}
+                </h3>
                 <p className='text-muted-foreground text-sm'>
-                  #{channel.id} ·{' '}
-                  {channel.enabled ? t('Enabled') : t('Disabled')}
+                  {search.trim()
+                    ? t('Try a different search or clear the current filter.')
+                    : t('Connect a provider to start routing model requests.')}
                 </p>
-                {configuration.bindings.tags?.[channel.id] && (
-                  <p className='text-muted-foreground text-xs [overflow-wrap:anywhere]'>
-                    {configuration.bindings.tags[channel.id]}
-                  </p>
-                )}
-                <p className='text-muted-foreground text-sm break-all'>
-                  {channel.endpoint}
-                </p>
-                {serverChannels && (
-                  <NativeChannelStatisticsRow
-                    value={statisticsById.get(channel.id)}
-                  />
-                )}
-                {configuration.bindings.discoveries[channel.id] && (
-                  <details className='min-w-0'>
-                    <summary className='cursor-pointer text-sm'>
-                      {t('Models')}
-                    </summary>
-                    <time
-                      className='text-muted-foreground text-xs'
-                      dateTime={new Date(
-                        configuration.bindings.discoveries[channel.id]
-                          .observed_at * 1000
-                      ).toISOString()}
-                    >
-                      {new Date(
-                        configuration.bindings.discoveries[channel.id]
-                          .observed_at * 1000
-                      ).toLocaleString()}
-                    </time>
-                    <pre className='max-h-48 overflow-auto text-xs whitespace-pre-wrap'>
-                      {configuration.bindings.discoveries[
-                        channel.id
-                      ].models.join('\n')}
-                    </pre>
-                  </details>
-                )}
-                <div className='flex flex-wrap gap-2'>
-                  {accounting.usage && (
-                    <Button
-                      type='button'
-                      variant='outline'
-                      className='min-h-11'
-                      onClick={() => setUsageChannel(channel)}
-                    >
-                      {t('channelUsage.open')}
-                    </Button>
-                  )}
-                  {accounting.counters && (
-                    <Button
-                      type='button'
-                      variant='outline'
-                      className='min-h-11'
-                      onClick={() => setBalanceChannel(channel)}
-                    >
-                      {t('channelBalance.title')}
-                    </Button>
-                  )}
-                  {accounting.balanceProbe && (
-                    <Button
-                      type='button'
-                      variant='outline'
-                      className='min-h-11'
-                      disabled={busy}
-                      onClick={() => setBalanceConfigChannel(channel)}
-                    >
-                      {t('channelBalance.configure')}
-                    </Button>
-                  )}
+                {search.trim() && (
                   <Button
                     type='button'
                     variant='outline'
-                    className='min-h-11'
-                    disabled={busy}
-                    onClick={() =>
-                      void run(() =>
-                        setNativeChannelEnabled(
-                          channel.id,
-                          !channel.enabled,
-                          configuration.version,
-                          scope
-                        )
-                      )
-                    }
-                  >
-                    {channel.enabled ? t('Disable') : t('Enable')}
-                  </Button>
-                  <Button
-                    type='button'
-                    variant='outline'
-                    className='min-h-11'
-                    disabled={busy}
-                    onClick={() => channelEditor(channel)}
-                  >
-                    {t('Edit')}
-                  </Button>
-                  <Button
-                    type='button'
-                    variant='outline'
-                    className='min-h-11'
-                    disabled={
-                      busy ||
-                      !secretsAllowed ||
-                      !configuration.secret_storage_enabled
-                    }
-                    title={
-                      !secretsAllowed || !configuration.secret_storage_enabled
-                        ? t('Capability unavailable')
-                        : undefined
-                    }
                     onClick={() => {
-                      setCopyError(null)
-                      setCopyChannel(channel)
+                      setSearch('')
+                      setPage(1)
                     }}
                   >
-                    {t('Copy Channel')}
+                    {t('Clear')}
                   </Button>
-                  <Button
-                    type='button'
-                    variant='outline'
-                    className='min-h-11'
-                    disabled={
-                      busy ||
-                      !secretsAllowed ||
-                      !configuration.secret_storage_enabled
-                    }
-                    title={
-                      !secretsAllowed || !configuration.secret_storage_enabled
-                        ? t('Capability unavailable')
-                        : undefined
-                    }
-                    onClick={() => setKeyChannel(channel.id)}
-                  >
-                    {t('API Keys')}
-                  </Button>
-                  <Button
-                    type='button'
-                    variant='outline'
-                    className='min-h-11'
-                    disabled={busy}
-                    onClick={() =>
-                      void run(() =>
-                        nativeRequest('GET', `/api/channel/test/${channel.id}`)
-                      )
-                    }
-                  >
-                    {t('Test')}
-                  </Button>
-                  <Button
-                    type='button'
-                    variant='outline'
-                    className='min-h-11'
-                    disabled={busy}
-                    onClick={() =>
-                      void run(() =>
-                        nativeRequest(
-                          'POST',
-                          `${NATIVE_ROOT}/channels/${channel.id}/models/synchronize`,
-                          { expected_version: configuration.version }
-                        )
-                      )
-                    }
-                  >
-                    {t('Sync')}
-                  </Button>
-                  {deleteButton(`${NATIVE_ROOT}/channels/${channel.id}`)}
-                </div>
+                )}
               </div>
-            ))}
+            )}
+          <div className='divide-border/50 divide-y'>
+            {visibleChannels.map((channel) => {
+              const name =
+                configuration.bindings.names[channel.id] ??
+                t('Channel {{id}}', { id: channel.id })
+              const routes = configuration.routing.routes.filter((route) =>
+                route.targets.some(
+                  (target) => target.upstream_id === channel.id
+                )
+              )
+              const discovery = configuration.bindings.discoveries[channel.id]
+              return (
+                <article
+                  key={channel.id}
+                  className='min-w-0 space-y-3 py-5'
+                  aria-label={name}
+                >
+                  <div className='flex min-w-0 flex-wrap items-start justify-between gap-4'>
+                    <div className='flex min-w-0 flex-1 basis-72 items-start gap-3'>
+                      <Checkbox
+                        className='mt-1'
+                        aria-label={name}
+                        checked={selectedVisibleIds.includes(channel.id)}
+                        disabled={busy}
+                        onCheckedChange={(checked) =>
+                          updateChannelSelection(
+                            checked
+                              ? [...selectedChannelIds, channel.id]
+                              : selectedChannelIds.filter(
+                                  (id) => id !== channel.id
+                                )
+                          )
+                        }
+                      />
+                      <div className='min-w-0 space-y-1.5'>
+                        <div className='flex flex-wrap items-baseline gap-x-3 gap-y-1'>
+                          <h3 className='font-medium [overflow-wrap:anywhere]'>
+                            {name}
+                          </h3>
+                          <p className='text-muted-foreground text-xs tabular-nums'>
+                            #{channel.id} ·{' '}
+                            <span
+                              className={
+                                channel.enabled ? 'text-success' : undefined
+                              }
+                            >
+                              {channel.enabled ? t('Enabled') : t('Disabled')}
+                            </span>
+                          </p>
+                        </div>
+                        <p className='text-muted-foreground font-mono text-xs break-all'>
+                          {channel.endpoint}
+                        </p>
+                        <div className='text-muted-foreground flex flex-wrap items-center gap-x-3 gap-y-1 text-xs'>
+                          <span>
+                            {nativeProtocolLabel(channel.protocol, t)}
+                          </span>
+                          <span>
+                            {t('{{count}} models', { count: routes.length })}
+                          </span>
+                          {configuration.bindings.tags?.[channel.id] && (
+                            <span className='bg-muted rounded-md px-2 py-0.5 [overflow-wrap:anywhere]'>
+                              {configuration.bindings.tags[channel.id]}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                    <div className='flex flex-wrap items-center gap-2'>
+                      <Button
+                        type='button'
+                        variant='outline'
+                        className='min-h-11'
+                        disabled={busy}
+                        onClick={() => channelEditor(channel)}
+                      >
+                        {t('Edit')}
+                      </Button>
+                      <Button
+                        type='button'
+                        variant='outline'
+                        className='min-h-11'
+                        disabled={busy}
+                        onClick={() =>
+                          void run(() =>
+                            nativeRequest(
+                              'GET',
+                              `/api/channel/test/${channel.id}`
+                            )
+                          )
+                        }
+                      >
+                        {t('Test')}
+                      </Button>
+                    </div>
+                  </div>
+                  <details className='group ml-7 min-w-0'>
+                    <summary className='text-muted-foreground hover:text-foreground w-fit cursor-pointer py-1.5 text-xs font-medium focus-visible:outline-2 focus-visible:outline-offset-4'>
+                      {t('Details')}
+                    </summary>
+                    <div className='bg-card mt-3 min-w-0 space-y-5 rounded-xl p-4 sm:p-5'>
+                      {serverChannels && (
+                        <NativeChannelStatisticsRow
+                          value={statisticsById.get(channel.id)}
+                        />
+                      )}
+                      {routes.length > 0 && (
+                        <div className='overflow-x-auto'>
+                          <table
+                            className='w-full text-left text-xs'
+                            aria-label={t('Models')}
+                          >
+                            <thead className='text-muted-foreground'>
+                              <tr>
+                                <th className='px-2 py-2 font-medium'>
+                                  {t('Models')}
+                                </th>
+                                <th className='px-2 py-2 font-medium'>
+                                  {t('Group')}
+                                </th>
+                                <th className='px-2 py-2 font-medium'>
+                                  {t('Priority')}
+                                </th>
+                                <th className='px-2 py-2 font-medium'>
+                                  {t('Weight')}
+                                </th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {routes.map((route) => {
+                                const targets = route.targets.filter(
+                                  (target) => target.upstream_id === channel.id
+                                )
+                                return (
+                                  <tr key={route.id}>
+                                    <td className='px-2 py-2 font-mono'>
+                                      {route.model}
+                                    </td>
+                                    <td className='px-2 py-2'>{route.group}</td>
+                                    <td className='px-2 py-2 tabular-nums'>
+                                      {targets
+                                        .map((target) => target.priority)
+                                        .join(', ')}
+                                    </td>
+                                    <td className='px-2 py-2 tabular-nums'>
+                                      {targets
+                                        .map((target) => target.weight)
+                                        .join(', ')}
+                                    </td>
+                                  </tr>
+                                )
+                              })}
+                            </tbody>
+                          </table>
+                        </div>
+                      )}
+                      {discovery && (
+                        <details>
+                          <summary className='cursor-pointer text-sm'>
+                            {t('Models')} · {discovery.models.length}
+                          </summary>
+                          <time
+                            className='text-muted-foreground text-xs'
+                            dateTime={new Date(
+                              discovery.observed_at * 1000
+                            ).toISOString()}
+                          >
+                            {new Date(
+                              discovery.observed_at * 1000
+                            ).toLocaleString(
+                              toIntlLocale(
+                                i18n.resolvedLanguage ?? i18n.language
+                              )
+                            )}
+                          </time>
+                          <pre className='mt-2 max-h-48 overflow-auto text-xs whitespace-pre-wrap'>
+                            {discovery.models.join('\n')}
+                          </pre>
+                        </details>
+                      )}
+                      <div className='flex flex-wrap gap-2'>
+                        {accounting.usage && (
+                          <Button
+                            type='button'
+                            variant='outline'
+                            className='min-h-11'
+                            onClick={() => setUsageChannel(channel)}
+                          >
+                            {t('channelUsage.open')}
+                          </Button>
+                        )}
+                        {accounting.counters && (
+                          <Button
+                            type='button'
+                            variant='outline'
+                            className='min-h-11'
+                            onClick={() => setBalanceChannel(channel)}
+                          >
+                            {t('channelBalance.title')}
+                          </Button>
+                        )}
+                        {accounting.balanceProbe && (
+                          <Button
+                            type='button'
+                            variant='outline'
+                            className='min-h-11'
+                            disabled={busy}
+                            onClick={() => setBalanceConfigChannel(channel)}
+                          >
+                            {t('channelBalance.configure')}
+                          </Button>
+                        )}
+                        <Button
+                          type='button'
+                          variant='outline'
+                          className='min-h-11'
+                          disabled={busy}
+                          onClick={() =>
+                            void run(() =>
+                              setNativeChannelEnabled(
+                                channel.id,
+                                !channel.enabled,
+                                configuration.version,
+                                scope
+                              )
+                            )
+                          }
+                        >
+                          {channel.enabled ? t('Disable') : t('Enable')}
+                        </Button>
+                        <Button
+                          type='button'
+                          variant='outline'
+                          className='min-h-11'
+                          disabled={
+                            busy ||
+                            !secretsAllowed ||
+                            !configuration.secret_storage_enabled
+                          }
+                          title={
+                            !secretsAllowed ||
+                            !configuration.secret_storage_enabled
+                              ? t('Capability unavailable')
+                              : undefined
+                          }
+                          onClick={() => {
+                            setCopyError(null)
+                            setCopyChannel(channel)
+                          }}
+                        >
+                          {t('Copy Channel')}
+                        </Button>
+                        <Button
+                          type='button'
+                          variant='outline'
+                          className='min-h-11'
+                          disabled={
+                            busy ||
+                            !secretsAllowed ||
+                            !configuration.secret_storage_enabled
+                          }
+                          title={
+                            !secretsAllowed ||
+                            !configuration.secret_storage_enabled
+                              ? t('Capability unavailable')
+                              : undefined
+                          }
+                          onClick={() => setKeyChannel(channel.id)}
+                        >
+                          {t('API Keys')}
+                        </Button>
+                        <Button
+                          type='button'
+                          variant='outline'
+                          className='min-h-11'
+                          disabled={busy}
+                          onClick={() =>
+                            void run(() =>
+                              nativeRequest(
+                                'POST',
+                                `${NATIVE_ROOT}/channels/${channel.id}/models/synchronize`,
+                                { expected_version: configuration.version }
+                              )
+                            )
+                          }
+                        >
+                          {t('Sync')}
+                        </Button>
+                        {deleteButton(`${NATIVE_ROOT}/channels/${channel.id}`)}
+                      </div>
+                    </div>
+                  </details>
+                </article>
+              )
+            })}
           </div>
         </>
       )}
@@ -1524,7 +1671,7 @@ function NativeRoutingWorkspace({
           }
           channelName={
             configuration.bindings.names[balanceChannel.id] ??
-            `Channel ${balanceChannel.id}`
+            t('Channel {{id}}', { id: balanceChannel.id })
           }
           onClose={() => setBalanceChannel(null)}
         />
@@ -1536,7 +1683,7 @@ function NativeRoutingWorkspace({
           channelId={balanceConfigChannel.id}
           channelName={
             configuration.bindings.names[balanceConfigChannel.id] ??
-            `Channel ${balanceConfigChannel.id}`
+            t('Channel {{id}}', { id: balanceConfigChannel.id })
           }
           version={configuration.version}
           initialProbe={
@@ -1555,7 +1702,7 @@ function NativeRoutingWorkspace({
           countersEnabled={accounting.counters}
           channelName={
             configuration.bindings.names[usageChannel.id] ??
-            `Channel ${usageChannel.id}`
+            t('Channel {{id}}', { id: usageChannel.id })
           }
           onClose={() => setUsageChannel(null)}
         />
@@ -1572,7 +1719,7 @@ function NativeRoutingWorkspace({
             <strong>
               {copyChannel &&
                 (configuration.bindings.names[copyChannel.id] ??
-                  `Channel ${copyChannel.id}`)}
+                  t('Channel {{id}}', { id: copyChannel.id }))}
             </strong>
           </>
         }
@@ -1611,7 +1758,7 @@ function NativeRoutingWorkspace({
           {t('New name will be:')}{' '}
           {copyChannel &&
             (configuration.bindings.names[copyChannel.id] ??
-              `Channel ${copyChannel.id}`)}
+              t('Channel {{id}}', { id: copyChannel.id }))}
           {copySuffix}
         </p>
         <div className='mt-4 flex items-center gap-2'>
@@ -1646,18 +1793,21 @@ function NativeRoutingWorkspace({
           scope={scope}
           channelId={keyChannel}
           channelName={
-            configuration.bindings.names[keyChannel] ?? `Channel ${keyChannel}`
+            configuration.bindings.names[keyChannel] ??
+            t('Channel {{id}}', { id: keyChannel })
           }
           onChanged={() => void refresh()}
         />
       )}
       {result !== null && (
-        <pre
-          className='max-h-80 overflow-auto border p-3 text-xs'
-          role='status'
-        >
-          {pretty(result)}
-        </pre>
+        <details className='bg-card rounded-xl p-4'>
+          <summary className='cursor-pointer text-sm font-medium'>
+            {t('Operation successful')} · {t('View details')}
+          </summary>
+          <pre className='mt-3 max-h-80 overflow-auto text-xs' role='status'>
+            {pretty(result)}
+          </pre>
+        </details>
       )}
     </section>
   )

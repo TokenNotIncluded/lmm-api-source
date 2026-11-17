@@ -655,6 +655,7 @@ async fn run_core() -> Result<(), Box<dyn Error>> {
         || config::bounties_configured()
         || config::image_host_configured()
         || config::community_configured()
+        || config::hero_sms_configured()
         || legacy_config.is_some()
         || config::identity_database_required()?
         || console_enabled
@@ -751,6 +752,7 @@ async fn run_core() -> Result<(), Box<dyn Error>> {
         || config::bounties_configured()
         || config::image_host_configured()
         || config::community_configured()
+        || config::hero_sms_configured()
     {
         return Err("internal RPC requires a Unix socket on this release".into());
     }
@@ -762,7 +764,8 @@ async fn run_core() -> Result<(), Box<dyn Error>> {
             || config::wallet_configured()
             || config::bounties_configured()
             || config::image_host_configured()
-            || config::community_configured() =>
+            || config::community_configured()
+            || config::hero_sms_configured() =>
         {
             return Err("tool market requires the Core database".into());
         }
@@ -843,6 +846,21 @@ async fn run_core() -> Result<(), Box<dyn Error>> {
     });
     #[cfg(unix)]
     let mut terminate = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())?;
+    app = app.layer(axum::middleware::from_fn(
+        lmm_core::http::request_body_deadline,
+    ));
+    app = app.layer(axum::middleware::from_fn_with_state(
+        Admission::new(lifecycle.clone(), ingress),
+        lmm_core::lifecycle::admit,
+    ));
+    // Apply network policy before lifecycle admission and public handlers.
+    if let Some(pool) = &database_pool {
+        app = lmm_core::network_access::NetworkAccess::new(
+            capabilities.console.then(|| pool.clone()),
+            config::network_access_config()?,
+        )?
+        .protect(app);
+    }
     if let Some(edge) = config::edge_access_config()? {
         let pool = database_pool
             .clone()
@@ -851,13 +869,6 @@ async fn run_core() -> Result<(), Box<dyn Error>> {
             .await?
             .protect(app);
     }
-    app = app.layer(axum::middleware::from_fn(
-        lmm_core::http::request_body_deadline,
-    ));
-    app = app.layer(axum::middleware::from_fn_with_state(
-        Admission::new(lifecycle.clone(), ingress),
-        lmm_core::lifecycle::admit,
-    ));
     // Outermost: see the final status, and mask query credentials before stderr.
     app = app.layer(axum::middleware::from_fn(
         lmm_core::log_redact::log_redacted_request_target,

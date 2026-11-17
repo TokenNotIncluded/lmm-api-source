@@ -1,4 +1,5 @@
 /* Copyright (C) 2026 LIghtJUNction. SPDX-License-Identifier: AGPL-3.0-or-later */
+import type { TFunction } from 'i18next'
 import { z } from 'zod'
 
 import { parseNativeDocument, type NativeContext } from '../native-api'
@@ -14,6 +15,31 @@ export const nativeProtocols = [
   'deepseek_search',
   'deepseek_fetch',
 ] as const
+
+export function nativeProtocolLabel(protocol: string, t: TFunction): string {
+  switch (protocol) {
+    case 'openai_chat':
+      return t('OpenAI Chat Completions')
+    case 'openai_responses':
+      return t('OpenAI Responses')
+    case 'anthropic_messages':
+      return t('Anthropic Messages')
+    case 'gemini':
+      return t('Gemini')
+    case 'system_one':
+      return t('System One')
+    case 'openai_embeddings':
+      return t('OpenAI Embeddings')
+    case 'jina_rerank':
+      return t('Jina Rerank')
+    case 'deepseek_search':
+      return t('DeepSeek Search')
+    case 'deepseek_fetch':
+      return t('DeepSeek Fetch')
+    default:
+      return protocol
+  }
+}
 
 const numberDraft = z.union([z.number().int().safe(), z.string()])
 

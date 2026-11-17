@@ -2879,7 +2879,7 @@ function AssistantPanelSession(props: AssistantPanelProps) {
                       variant='ghost'
                       size='sm'
                       className='text-muted-foreground min-h-10'
-                      render={<Link to='/guide' />}
+                      render={<Link to='/developers' />}
                       onClick={() => props.onOpenChange(false)}
                     >
                       {t('Browse the setup guide')}

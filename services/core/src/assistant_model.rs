@@ -656,4 +656,3 @@ impl AssistantModel {
         task.await.map_err(|_| Error::Unavailable)?
     }
 }
-

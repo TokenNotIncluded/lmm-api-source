@@ -17,34 +17,42 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { isAxiosError } from 'axios'
+import * as z from 'zod'
 
 import { api } from '@/lib/api'
 
-export interface HeroSmsSettingsResponse {
-  enabled: boolean
-  email_enabled: boolean
-  sms_enabled: boolean
-  api_key_configured: boolean
-  pending_work: boolean
-  currency: 'USD'
-  currency_code: 840
-  price_multiplier: number
-}
+const heroSmsSettingsResponseSchema = z.object({
+  revision: z.string().regex(/^(0|[1-9][0-9]*)$/),
+  enabled: z.boolean(),
+  email_enabled: z.boolean(),
+  sms_enabled: z.boolean(),
+  api_key_configured: z.boolean(),
+  credential_managed_by_file: z.literal(true),
+  pending_work: z.boolean(),
+  purchases_available: z.boolean(),
+  currency: z.literal('USD'),
+  currency_code: z.literal(840),
+  price_multiplier: z.string().regex(/^\d+(?:\.\d{1,6})?$/),
+})
+
+export type HeroSmsSettingsResponse = z.infer<
+  typeof heroSmsSettingsResponseSchema
+>
 
 export interface HeroSmsSettingsFormValues {
+  revision: string
   enabled: boolean
   emailEnabled: boolean
   smsEnabled: boolean
-  apiKey: string
   priceMultiplier: number
 }
 
 export interface HeroSmsSettingsUpdateRequest {
+  expected_revision: string
   enabled: boolean
   email_enabled: boolean
   sms_enabled: boolean
   price_multiplier: string
-  api_key?: string
 }
 
 interface HeroSmsEnvelope<T> {
@@ -70,10 +78,10 @@ export function toHeroSmsSettingsFormValues(
   data: HeroSmsSettingsResponse
 ): HeroSmsSettingsFormValues {
   return {
+    revision: data.revision,
     enabled: Boolean(data.enabled),
     emailEnabled: data.email_enabled !== false,
     smsEnabled: data.sms_enabled === true,
-    apiKey: '',
     priceMultiplier: Number(data.price_multiplier || 1),
   }
 }
@@ -81,13 +89,12 @@ export function toHeroSmsSettingsFormValues(
 export function serializeHeroSmsSettingsUpdate(
   values: HeroSmsSettingsFormValues
 ): HeroSmsSettingsUpdateRequest {
-  const trimmedApiKey = values.apiKey.trim()
   return {
+    expected_revision: values.revision,
     enabled: values.enabled,
     email_enabled: values.emailEnabled,
     sms_enabled: values.smsEnabled,
     price_multiplier: String(values.priceMultiplier),
-    ...(trimmedApiKey ? { api_key: trimmedApiKey } : {}),
   }
 }
 
@@ -99,6 +106,7 @@ export function parseHeroSmsSettingsError(error: unknown) {
   if (isAxiosError(error)) {
     return {
       status: error.response?.status,
+      code: (error.response?.data as { code?: string } | undefined)?.code,
       message:
         (error.response?.data as { message?: string } | undefined)?.message ||
         error.message ||
@@ -107,45 +115,53 @@ export function parseHeroSmsSettingsError(error: unknown) {
   }
 
   if (error instanceof Error) {
-    return { message: error.message }
+    return {
+      message: error.message,
+      code:
+        'code' in error && typeof error.code === 'string'
+          ? error.code
+          : undefined,
+    }
   }
 
   return { message: 'HeroSMS settings request failed' }
 }
 
 export async function getHeroSmsSettings() {
-  return unwrap<HeroSmsSettingsResponse>(
-    api.get('/api/option/hero-sms', {
-      skipBusinessError: true,
-      skipErrorHandler: true,
-    })
+  return heroSmsSettingsResponseSchema.parse(
+    await unwrap<unknown>(
+      api.get('/api/option/hero-sms', {
+        skipBusinessError: true,
+        skipErrorHandler: true,
+      })
+    )
   )
 }
 
 export async function updateHeroSmsSettings(values: HeroSmsSettingsFormValues) {
-  return unwrap<HeroSmsSettingsResponse>(
-    api.put('/api/option/hero-sms', serializeHeroSmsSettingsUpdate(values), {
-      skipBusinessError: true,
-      skipErrorHandler: true,
-    })
+  return heroSmsSettingsResponseSchema.parse(
+    await unwrap<unknown>(
+      api.put('/api/option/hero-sms', serializeHeroSmsSettingsUpdate(values), {
+        skipBusinessError: true,
+        skipErrorHandler: true,
+        skipAuthRefresh: true,
+      })
+    )
   )
 }
 
-export async function testHeroSmsConnection(candidateApiKey?: string) {
-  const apiKey = candidateApiKey?.trim()
-  return unwrap<{ ok?: boolean }>(
-    api.post('/api/option/hero-sms/test', apiKey ? { api_key: apiKey } : {}, {
-      skipBusinessError: true,
-      skipErrorHandler: true,
-    })
+export async function testHeroSmsConnection() {
+  const result = await unwrap<{ ok: boolean }>(
+    api.post(
+      '/api/option/hero-sms/test',
+      {},
+      {
+        skipBusinessError: true,
+        skipErrorHandler: true,
+        skipAuthRefresh: true,
+      }
+    )
   )
-}
-
-export async function clearHeroSmsApiKey() {
-  return unwrap<{ ok?: boolean }>(
-    api.delete('/api/option/hero-sms/key', {
-      skipBusinessError: true,
-      skipErrorHandler: true,
-    })
-  )
+  if (result.ok !== true) throw new Error('HeroSMS connection test failed')
+  return result
 }

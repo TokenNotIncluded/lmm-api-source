@@ -88,6 +88,8 @@ type SettingsPageProps<
     settings: TSettings,
     raw: SystemOption[] | undefined
   ) => TSettings
+  /** Sections that load and save through their own authenticated API. */
+  independentSections?: readonly TSectionId[]
 }
 
 type SettingsPageFrameProps = {
@@ -173,6 +175,10 @@ const LimitedAnnouncementsSection = lazyNamedSection(
 const LimitedPricingSection = lazyNamedSection(
   () => import('../general/pricing-section'),
   'PricingSection'
+)
+const LimitedIPAccessSection = lazyNamedSection(
+  () => import('../security/ip-access-routing-section'),
+  'IPAccessRoutingSection'
 )
 const LimitedOAuthRegistrationPolicy = lazyNamedSection(
   () => import('../auth/oauth-registration-policy'),
@@ -271,9 +277,19 @@ function LimitedSettings({
     activeSection === 'currency' &&
     exchangeRateOption !== undefined &&
     writableOptionKey(capabilities, 'USDExchangeRate') === 'USDExchangeRate'
+  const ipAccessOption = options.find(
+    (option) => option.key === 'IPAccessRoutingRules'
+  )
+  const writableIPAccess =
+    !readOnly &&
+    activeSection === 'ip-access-routing' &&
+    ipAccessOption !== undefined &&
+    writableOptionKey(capabilities, 'IPAccessRoutingRules') ===
+      'IPAccessRoutingRules'
   const visibleOptions = options.filter((option) => {
     if (fields[option.key]?.section !== activeSection) return false
     if (writableExchangeRate && option.key === 'USDExchangeRate') return false
+    if (writableIPAccess && option.key === 'IPAccessRoutingRules') return false
     if (writableNavigation && option.key === 'HeaderNavModules') return false
     if (writableNotice && option.key === 'Notice') return false
     if (
@@ -288,7 +304,8 @@ function LimitedSettings({
     writableNavigation ||
     writableNotice ||
     writableAnnouncements ||
-    writableExchangeRate
+    writableExchangeRate ||
+    writableIPAccess
   const hasContent =
     hasEditor || visibleOptions.length > 0 || activeSection === 'basic-auth'
   const deploymentNote =
@@ -344,6 +361,11 @@ function LimitedSettings({
           }}
         />
       ) : null}
+      {writableIPAccess && ipAccessOption ? (
+        <LimitedIPAccessSection
+          defaultValues={{ IPAccessRoutingRules: ipAccessOption.value }}
+        />
+      ) : null}
       {visibleOptions.length > 0 ? (
         <section className='settings-server-values'>
           <div className='settings-readonly-heading'>
@@ -395,6 +417,35 @@ function LimitedSettings({
  * Handles loading state, data fetching, and section rendering
  */
 export function SettingsPage<
+  TSettings extends Record<string, string | number | boolean | unknown[]>,
+  TSectionId extends string,
+  TExtraArgs extends unknown[] = [],
+>(props: SettingsPageProps<TSettings, TSectionId, TExtraArgs>) {
+  const { t } = useTranslation()
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const params = useParams({ from: props.routePath as any })
+  const section = (params?.section ?? props.defaultSection) as TSectionId
+
+  if (props.independentSections?.includes(section)) {
+    return (
+      <SettingsPageFrame title={t(props.getSectionMeta(section).titleKey)}>
+        <Suspense
+          fallback={<LoadingState message={t('Loading settings...')} />}
+        >
+          {props.getSectionContent(
+            section,
+            props.defaultSettings,
+            ...((props.extraArgs ?? []) as TExtraArgs)
+          )}
+        </Suspense>
+      </SettingsPageFrame>
+    )
+  }
+
+  return <OptionSettingsPage {...props} />
+}
+
+function OptionSettingsPage<
   TSettings extends Record<string, string | number | boolean | unknown[]>,
   TSectionId extends string,
   TExtraArgs extends unknown[] = [],

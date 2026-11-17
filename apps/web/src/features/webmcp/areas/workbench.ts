@@ -25,7 +25,7 @@ import {
 /**
  * Workbench area tools: the developer-facing console surfaces — API keys,
  * models, the playground shell, to-dos, the tool market, support, public
- * relays, open-source bounties, remote control and the contributor workspace.
+ * relays, open-source bounties and the contributor workspace.
  *
  * Secrets rule: no tool here ever returns a complete API key. The key list
  * exposes a locally masked preview plus name, id, status, quota and expiry

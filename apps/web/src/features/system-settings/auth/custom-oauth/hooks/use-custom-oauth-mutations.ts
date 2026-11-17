@@ -26,7 +26,11 @@ import {
   deleteCustomOAuthProvider,
   discoverOIDCEndpoints,
 } from '../api'
-import type { CustomOAuthProvider, DiscoveryResponse } from '../types'
+import type {
+  CustomOAuthFormValues,
+  CustomOAuthProvider,
+  DiscoveryResponse,
+} from '../types'
 
 function useInvalidateOnSuccess() {
   const queryClient = useQueryClient()
@@ -42,8 +46,14 @@ export function useCreateProvider() {
   const invalidate = useInvalidateOnSuccess()
 
   return useMutation({
-    mutationFn: (data: Omit<CustomOAuthProvider, 'id'>) =>
-      createCustomOAuthProvider(data),
+    retry: false,
+    mutationFn: ({
+      data,
+      operationKey,
+    }: {
+      data: CustomOAuthFormValues
+      operationKey: string
+    }) => createCustomOAuthProvider(data, operationKey),
     onSuccess: (res) => {
       if (res.success) {
         toast.success(i18next.t('Provider created successfully'))
@@ -60,13 +70,16 @@ export function useUpdateProvider() {
   const invalidate = useInvalidateOnSuccess()
 
   return useMutation({
+    retry: false,
     mutationFn: ({
-      id,
+      provider,
       data,
+      operationKey,
     }: {
-      id: number
-      data: Partial<CustomOAuthProvider>
-    }) => updateCustomOAuthProvider(id, data),
+      provider: Pick<CustomOAuthProvider, 'id' | 'revision'>
+      data: Partial<CustomOAuthFormValues>
+      operationKey: string
+    }) => updateCustomOAuthProvider(provider, data, operationKey),
     onSuccess: (res) => {
       if (res.success) {
         toast.success(i18next.t('Provider updated successfully'))
@@ -83,7 +96,14 @@ export function useDeleteProvider() {
   const invalidate = useInvalidateOnSuccess()
 
   return useMutation({
-    mutationFn: (id: number) => deleteCustomOAuthProvider(id),
+    retry: false,
+    mutationFn: ({
+      provider,
+      operationKey,
+    }: {
+      provider: Pick<CustomOAuthProvider, 'id' | 'revision'>
+      operationKey: string
+    }) => deleteCustomOAuthProvider(provider, operationKey),
     onSuccess: (res) => {
       if (res.success) {
         toast.success(i18next.t('Provider deleted successfully'))

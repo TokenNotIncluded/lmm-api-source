@@ -927,6 +927,8 @@ pub async fn authorize_model_request_in_transaction(
     if actor.credential_kind != CredentialKind::ApiKey {
         return Err(IdentityError::Forbidden);
     }
+    let peer = peer.map(network_policy::canonical_ip);
+    network_policy::authorize_user_ip(c, actor.user_id, peer).await?;
     if let Some(row)=sqlx::query("SELECT *, cardinality(allow_ips)=0 OR ($2::text IS NOT NULL AND $2::inet <<= ANY(allow_ips)) AS ip_allowed FROM core_identity.api_key_settings WHERE credential_id=$1 FOR SHARE").bind(actor.credential_id).bind(peer.map(|p|p.to_string())).fetch_optional(&mut *c).await? {
         let models:Vec<String>=row.try_get("model_limits")?;
         let selected:String=row.try_get("group_name")?;

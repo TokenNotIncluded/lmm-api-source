@@ -377,7 +377,7 @@ test('dependencies prevent disabling an active requirement and unconfigured modu
       { ...plugin, name: 'support', requires: ['store'] },
       {
         ...plugin,
-        name: 'remote-control',
+        name: 'hero-sms',
         available: false,
         installed: false,
         enabled: false,
@@ -389,11 +389,18 @@ test('dependencies prevent disabling an active requirement and unconfigured modu
   assert.ok(store)
   const support = container.querySelector('[data-plugin="support"]')
   assert.ok(support)
-  const remote = container.querySelector('[data-plugin="remote-control"]')
-  assert.ok(remote)
+  const unconfigured = container.querySelector('[data-plugin="hero-sms"]')
+  assert.ok(unconfigured)
   assert.equal(button('Disable', store).disabled, true)
   assert.equal(button('Disable', support).disabled, false)
-  assert.equal(button('Install', remote).disabled, true)
+  assert.equal(unconfigured.querySelector('button'), null)
+  assert.equal(
+    unconfigured.querySelector('a')?.getAttribute('href'),
+    '/system-settings/operations/hero-sms'
+  )
+  assert.match(unconfigured.textContent ?? '', /Setup required/)
+  assert.match(unconfigured.textContent ?? '', /hero_sms.core_token_file/)
+  assert.match(unconfigured.textContent ?? '', /host.modules/)
   assert.match(
     store.textContent ?? '',
     /Disable dependent modules first: support/
@@ -446,7 +453,7 @@ test('plugin search matches its purpose and unavailable filter keeps lifecycle g
       plugin,
       {
         ...plugin,
-        name: 'remote-control',
+        name: 'checkins',
         available: false,
         installed: false,
         enabled: false,
@@ -478,9 +485,13 @@ test('plugin search matches its purpose and unavailable filter keeps lifecycle g
     select.dispatchEvent(new Event('change', { bubbles: true }))
   })
   await until(() => container.querySelectorAll('[data-plugin]').length === 1)
-  const remote = container.querySelector('[data-plugin="remote-control"]')
-  assert.ok(remote)
-  assert.equal(button('Install', remote).disabled, true)
+  const unconfigured = container.querySelector('[data-plugin="checkins"]')
+  assert.ok(unconfigured)
+  assert.equal(unconfigured.querySelector('button'), null)
+  assert.equal(
+    unconfigured.querySelector('a')?.getAttribute('href'),
+    '/system-settings/billing/checkin'
+  )
 })
 
 test('switching sessions prevents a lifecycle write and discards a previous session response', async () => {

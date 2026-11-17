@@ -1001,4 +1001,3 @@ async fn read_derived_attribution(pool: &PgPool, charge: &Charge) -> contract::R
     .unwrap()
     .unwrap()
 }
-

@@ -16,18 +16,76 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+import axios from 'axios'
+import i18next from 'i18next'
+import * as z from 'zod'
+
 import { api } from '@/lib/api'
 
-import type { CustomOAuthProvider, DiscoveryResponse } from './types'
+import {
+  customOAuthFormSchema,
+  customOAuthProviderSchema,
+  type CustomOAuthFormValues,
+  type CustomOAuthProvider,
+  type DiscoveryResponse,
+} from './types'
 
 // ============================================================================
 // Response Types
 // ============================================================================
 
-interface ApiResponse<T = unknown> {
-  success: boolean
+interface ApiResponse<T> {
+  success: true
   message?: string
-  data?: T
+  data: T
+}
+
+class ProviderResponseError extends Error {
+  constructor(
+    message: string,
+    readonly resultUnknown: boolean
+  ) {
+    super(message)
+  }
+}
+
+export function isProviderWriteResultUnknown(error: unknown): boolean {
+  if (error instanceof ProviderResponseError) return error.resultUnknown
+  return (
+    !axios.isAxiosError(error) ||
+    !error.response ||
+    error.response.status >= 500
+  )
+}
+
+function providerResponse<T>(
+  payload: { success?: boolean; message?: string; data?: unknown },
+  schema: z.ZodType<T>,
+  fallback: string
+): ApiResponse<T> {
+  if (payload?.success !== true) {
+    throw new ProviderResponseError(
+      payload?.message || fallback,
+      payload?.success !== false
+    )
+  }
+  const parsed = schema.safeParse(payload.data)
+  if (!parsed.success) throw new ProviderResponseError(fallback, true)
+  return { success: true, message: payload.message, data: parsed.data }
+}
+
+const writeOptions = {
+  // A provider write is tied to its operation key and the current Session.
+  // Recovery is an explicit retry of that same request, never an auth replay.
+  skipAuthRefresh: true,
+  skipBusinessError: true,
+  skipErrorHandler: true,
+}
+const writableFields = new Set(Object.keys(customOAuthFormSchema.shape))
+function providerChanges(data: Partial<CustomOAuthFormValues>) {
+  return Object.fromEntries(
+    Object.entries(data).filter(([key]) => writableFields.has(key))
+  )
 }
 
 // ============================================================================
@@ -38,36 +96,77 @@ export async function getCustomOAuthProviders(): Promise<
   ApiResponse<CustomOAuthProvider[]>
 > {
   const res = await api.get('/api/custom-oauth-provider/')
-  return res.data
+  return providerResponse(
+    res.data,
+    z.array(customOAuthProviderSchema),
+    i18next.t('Failed to load settings')
+  )
 }
 
 export async function getCustomOAuthProvider(
-  id: number
+  id: string
 ): Promise<ApiResponse<CustomOAuthProvider>> {
   const res = await api.get(`/api/custom-oauth-provider/${id}`)
-  return res.data
+  return providerResponse(
+    res.data,
+    customOAuthProviderSchema,
+    i18next.t('Failed to load settings')
+  )
 }
 
 export async function createCustomOAuthProvider(
-  data: Omit<CustomOAuthProvider, 'id'>
+  data: CustomOAuthFormValues,
+  operationKey: string
 ): Promise<ApiResponse<CustomOAuthProvider>> {
-  const res = await api.post('/api/custom-oauth-provider/', data)
-  return res.data
+  const res = await api.post(
+    '/api/custom-oauth-provider/',
+    { ...providerChanges(data), operation_key: operationKey },
+    writeOptions
+  )
+  return providerResponse(
+    res.data,
+    customOAuthProviderSchema,
+    i18next.t('Failed to create provider')
+  )
 }
 
 export async function updateCustomOAuthProvider(
-  id: number,
-  data: Partial<CustomOAuthProvider>
+  provider: Pick<CustomOAuthProvider, 'id' | 'revision'>,
+  data: Partial<CustomOAuthFormValues>,
+  operationKey: string
 ): Promise<ApiResponse<CustomOAuthProvider>> {
-  const res = await api.put(`/api/custom-oauth-provider/${id}`, data)
-  return res.data
+  const res = await api.put(
+    `/api/custom-oauth-provider/${provider.id}`,
+    {
+      ...providerChanges(data),
+      expected_revision: provider.revision,
+      operation_key: operationKey,
+    },
+    writeOptions
+  )
+  return providerResponse(
+    res.data,
+    customOAuthProviderSchema,
+    i18next.t('Failed to update provider')
+  )
 }
 
 export async function deleteCustomOAuthProvider(
-  id: number
-): Promise<ApiResponse> {
-  const res = await api.delete(`/api/custom-oauth-provider/${id}`)
-  return res.data
+  provider: Pick<CustomOAuthProvider, 'id' | 'revision'>,
+  operationKey: string
+): Promise<ApiResponse<CustomOAuthProvider>> {
+  const res = await api.delete(`/api/custom-oauth-provider/${provider.id}`, {
+    data: {
+      expected_revision: provider.revision,
+      operation_key: operationKey,
+    },
+    ...writeOptions,
+  })
+  return providerResponse(
+    res.data,
+    customOAuthProviderSchema,
+    i18next.t('Failed to delete provider')
+  )
 }
 
 export async function discoverOIDCEndpoints(

@@ -158,7 +158,6 @@ export function serializeSidebarModulesAdmin(
 export const toHeaderNavFormValues = (config: HeaderNavModulesConfig) => ({
   directory: config.directory ?? HEADER_NAV_DEFAULT.directory,
   developers: config.developers ?? HEADER_NAV_DEFAULT.developers,
-  guide: config.guide ?? HEADER_NAV_DEFAULT.guide,
   scripts: config.scripts ?? HEADER_NAV_DEFAULT.scripts,
   webmcp: config.webmcp ?? HEADER_NAV_DEFAULT.webmcp,
   signal: config.signal ?? HEADER_NAV_DEFAULT.signal,
@@ -211,7 +210,6 @@ export function applyHeaderNavFormValues(
     ...config,
     directory: values.directory,
     developers: values.developers,
-    guide: values.guide,
     scripts: values.scripts,
     webmcp: values.webmcp,
     signal: values.signal,

@@ -199,12 +199,12 @@ async fn read(State(state): State<OptionsHttp>, headers: HeaderMap) -> Response 
         StatusCode::OK,
         json!({
             "success":true,
-            "message":"Notices, announcements and the display exchange rate can be changed here.",
+            "message":"Notices, announcements, the display exchange rate and IP access rules can be changed here.",
             "data":data,
             "capabilities":{
                 "read_only":false,
                 "partial":true,
-                "writable_keys":["Notice","Announcements","console_setting.announcements","USDExchangeRate"],
+                "writable_keys":["Notice","Announcements","console_setting.announcements","USDExchangeRate","IPAccessRoutingRules"],
                 "model_price_locks":false
             }
         }),
@@ -353,7 +353,8 @@ mod tests {
                 "Notice",
                 "Announcements",
                 "console_setting.announcements",
-                "USDExchangeRate"
+                "USDExchangeRate",
+                "IPAccessRoutingRules"
             ])
         );
         let (status, _) = call(&app, "PUT", "/api/option/", Some(&root.secret)).await;

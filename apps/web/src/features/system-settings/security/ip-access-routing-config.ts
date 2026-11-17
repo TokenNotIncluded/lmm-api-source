@@ -34,3 +34,32 @@ export type IPAccessRoutingFormValues = z.infer<
 export function normalizeIPAccessRoutingRules(value: string) {
   return value.replaceAll('\r\n', '\n').replaceAll('\r', '\n').trim()
 }
+
+export function createRegionRoutingRules(
+  input: string,
+  mode: 'allow' | 'block',
+  unknown: 'direct' | 'reject'
+): string | null {
+  const codes = [
+    ...new Set(
+      input
+        .toUpperCase()
+        .split(/[,\s]+/u)
+        .filter(Boolean)
+    ),
+  ]
+  if (
+    codes.length === 0 ||
+    codes.length > 64 ||
+    codes.some((code) => !/^[A-Z]{2}$/.test(code))
+  ) {
+    return null
+  }
+  const action = mode === 'allow' ? 'direct' : 'reject'
+  const fallback = mode === 'allow' ? 'reject' : 'direct'
+  return [
+    `unknown-country: ${unknown}`,
+    `ip(${codes.map((code) => `geoip:${code}`).join(', ')}) -> ${action}`,
+    `fallback: ${fallback}`,
+  ].join('\n')
+}

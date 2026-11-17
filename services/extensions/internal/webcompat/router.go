@@ -109,6 +109,7 @@ func Mount(host *modules.Host, auth *Authenticator, catalogue StoreService, supp
 		RegisterCommunity(routes.forPlugins("community"), auth, additional.Community)
 		RegisterAcquisition(routes.forPlugins("acquisition"), auth, additional.Acquisition)
 	}
+	RegisterCheckinSettings(routes.forPlugins(), auth, additional.Checkins, additional.Plugins)
 	RegisterOperations(routes.forPlugins("operations"), auth, operationsService)
 	RegisterPayments(routes.forPlugins("payments"), auth, paymentReader)
 	RegisterPaymentCheckout(routes.forPlugins("payments"), auth, paymentCheckout, paymentPortal)

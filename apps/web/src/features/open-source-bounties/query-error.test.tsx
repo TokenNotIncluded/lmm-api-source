@@ -281,3 +281,99 @@ test('bounty board distinguishes failed requests, retry, cached data and success
     container.remove()
   }
 })
+
+test('bounty tabs request only visible lists and keep shared fee and owner dispute data', async () => {
+  const originalAdapter = api.defaults.adapter
+  const originalAuth = useAuthStore.getState().auth
+  const client = new QueryClient({
+    defaultOptions: {
+      queries: { retry: false, gcTime: 0, staleTime: Infinity },
+    },
+  })
+  const container = document.createElement('div')
+  document.body.append(container)
+  const root = createRoot(container)
+  const requests: string[] = []
+  api.defaults.adapter = async (config) => {
+    const url = config.url ?? ''
+    requests.push(url)
+    const data = url.startsWith('/api/bounties?')
+      ? { items: [], total: 0, page: 1, page_size: 50 }
+      : url === '/api/bounties/config'
+        ? { enabled: true, rate_basis_points: 100, rate_percent: 1 }
+        : url === '/api/status'
+          ? { backend_capabilities: {} }
+          : url.startsWith('/api/todos?')
+            ? { total: 0 }
+            : []
+    return {
+      config,
+      status: 200,
+      statusText: 'OK',
+      headers: {},
+      data: { success: true, data },
+    }
+  }
+  useAuthStore
+    .getState()
+    .auth.setUser({ id: 7, username: 'fixture-admin', role: 100 })
+  const flush = async () => {
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 30))
+    })
+  }
+  const takeBountyRequests = () => {
+    const result = requests.filter((url) => url.startsWith('/api/bounties'))
+    requests.length = 0
+    return result.sort()
+  }
+  const click = async (label: string) => {
+    const button = [...container.querySelectorAll('button')].find(
+      (item) => item.textContent?.trim() === label
+    )
+    assert.ok(button, label)
+    await act(async () => button.click())
+    await flush()
+  }
+  try {
+    await act(async () => {
+      root.render(
+        <QueryClientProvider client={client}>
+          <I18nextProvider i18n={i18n}>
+            <OpenSourceBounties />
+          </I18nextProvider>
+        </QueryClientProvider>
+      )
+    })
+    await flush()
+    assert.deepEqual(takeBountyRequests(), [
+      '/api/bounties/config',
+      '/api/bounties?page=1&page_size=50',
+    ])
+    await click('My bounty projects')
+    assert.deepEqual(takeBountyRequests(), [
+      '/api/bounties/disputes/mine',
+      '/api/bounties/mine?archived=false',
+    ])
+    await click('Archived projects')
+    assert.deepEqual(takeBountyRequests(), ['/api/bounties/mine?archived=true'])
+    await click('My challenges')
+    assert.deepEqual(takeBountyRequests(), ['/api/bounties/accepted'])
+    await click('Dispute cases')
+    assert.deepEqual(takeBountyRequests(), ['/api/bounties/disputes/admin'])
+    await click('My disputes')
+    assert.deepEqual(takeBountyRequests(), [])
+    await click('Rules')
+    await act(async () => {
+      await client.invalidateQueries({ queryKey: ['open-source-bounties'] })
+    })
+    await flush()
+    assert.deepEqual(takeBountyRequests(), ['/api/bounties/config'])
+  } finally {
+    await act(async () => root.unmount())
+    client.clear()
+    api.defaults.adapter = originalAdapter
+    useAuthStore.setState({ auth: originalAuth })
+    container.remove()
+  }
+})

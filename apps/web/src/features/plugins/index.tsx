@@ -28,6 +28,7 @@ import {
   type PluginAction,
   type PluginInfo,
 } from './api'
+import { pluginConfiguration } from './configuration'
 import {
   canChangePlugin,
   pluginDependencies,
@@ -349,6 +350,7 @@ function PluginInventory({ scope }: { scope: NativeUsersScope }) {
           const dependencies = pluginDependencies(plugin, registry)
           const dependents = pluginDependents(plugin, registry)
           const presentation = pluginPresentation(plugin.name, t)
+          const configuration = pluginConfiguration(plugin.name)
           return (
             <article
               key={plugin.name}
@@ -367,7 +369,7 @@ function PluginInventory({ scope }: { scope: NativeUsersScope }) {
                     }
                   >
                     {!plugin.available
-                      ? t('Unavailable')
+                      ? t('Setup required')
                       : plugin.enabled
                         ? t('Enabled')
                         : plugin.installed
@@ -389,9 +391,7 @@ function PluginInventory({ scope }: { scope: NativeUsersScope }) {
                 )}
                 {!plugin.available && (
                   <p className='text-warning text-xs leading-relaxed'>
-                    {t(
-                      'Configure this module on the host before installing or enabling it.'
-                    )}
+                    {t('This module has not been configured on the server.')}
                   </p>
                 )}
                 {plugin.installed &&
@@ -441,18 +441,61 @@ function PluginInventory({ scope }: { scope: NativeUsersScope }) {
                     </div>
                   </dl>
                 </details>
+                {!plugin.available && (
+                  <details className='bg-muted/50 rounded-lg px-3 py-2 text-xs'>
+                    <summary className='min-h-9 w-fit cursor-pointer content-center font-medium focus-visible:outline-2 focus-visible:outline-offset-2'>
+                      {t('Host setup')}
+                    </summary>
+                    <div className='text-muted-foreground space-y-3 pb-2 leading-relaxed'>
+                      <p>
+                        {t(
+                          'Select the module and configure its credentials and storage in the server configuration. Restart the extension service, then refresh this page.'
+                        )}
+                      </p>
+                      <p>
+                        <code>/etc/lmm.conf.d/extensions.toml</code>
+                      </p>
+                      <ul className='list-inside list-disc space-y-1'>
+                        {[
+                          'host.modules',
+                          'host.web_compat',
+                          'core.socket',
+                          'core.identity_token_file',
+                          ...(configuration?.fields ?? []),
+                        ].map((field) => (
+                          <li key={field}>
+                            <code className='[overflow-wrap:anywhere]'>
+                              {field}
+                            </code>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  </details>
+                )}
               </div>
               <div className='flex flex-wrap items-center gap-2'>
-                <Button
-                  variant={action === 'disable' ? 'outline' : 'default'}
-                  className='min-h-11'
-                  disabled={
-                    !writable || !canChangePlugin(action, plugin, registry)
-                  }
-                  onClick={() => setSelection({ action, plugin })}
-                >
-                  {actionLabel(action)}
-                </Button>
+                {plugin.available && (
+                  <Button
+                    variant={action === 'disable' ? 'outline' : 'default'}
+                    className='min-h-11'
+                    disabled={
+                      !writable || !canChangePlugin(action, plugin, registry)
+                    }
+                    onClick={() => setSelection({ action, plugin })}
+                  >
+                    {actionLabel(action)}
+                  </Button>
+                )}
+                {configuration?.href && (
+                  <Button
+                    variant={plugin.available ? 'ghost' : 'outline'}
+                    className='min-h-11'
+                    render={<a href={configuration.href} />}
+                  >
+                    {t('Settings')}
+                  </Button>
+                )}
                 {plugin.installed && !plugin.enabled && (
                   <Button
                     variant='ghost'

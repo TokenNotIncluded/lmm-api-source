@@ -1927,15 +1927,28 @@ test('channel editing exposes common fields and preserves bindings, context meta
     setter.call(field('Base URL'), 'https://edited-provider.example/v1/')
     field('Base URL').dispatchEvent(new Event('input', { bubbles: true }))
   })
+  const protocol = required(
+    [...form.querySelectorAll('label')]
+      .find((item) => item.querySelector('span')?.textContent === 'Protocol')
+      ?.querySelector('select')
+  )
+  assert.equal(protocol.value, 'openai_chat')
+  assert.ok(protocol.textContent?.includes('OpenAI Responses'))
+  await act(async () => {
+    protocol.value = 'openai_responses'
+    protocol.dispatchEvent(new Event('change', { bubbles: true }))
+  })
   await act(async () => button(form, 'Save').click())
   await until(() => writes.length === 1)
   assert.equal(writes[0].name, 'Edited provider')
+  assert.equal(writes[0].protocol, 'openai_responses')
   assert.equal(Object.hasOwn(writes[0], 'secret'), false)
   assert.deepEqual(writes[0].expected_version, { routing: 1, pricing: 1 })
   assert.deepEqual(writes[0].contexts, [
     {
       ...config.bindings.contexts[0],
       endpoint: 'https://edited-provider.example/v1/',
+      protocol: 'openai_responses',
     },
   ])
   assert.deepEqual(writes[0].attachments, [
@@ -2014,7 +2027,13 @@ test('channel bindings add, map and remove models through one reviewed channel d
         .find((item) => item.querySelector('span')?.textContent === label)
         ?.querySelector('input')
     )
-  const selector = required(form.querySelector('select'))
+  const selector = required(
+    [...form.querySelectorAll('label')]
+      .find(
+        (item) => item.querySelector('span')?.textContent === 'Available models'
+      )
+      ?.querySelector('select')
+  )
   await act(async () => {
     selector.value = '2'
     selector.dispatchEvent(new Event('change', { bubbles: true }))
@@ -2478,3 +2497,28 @@ for (const unknown of [false, true]) {
     assert.equal(writes.length, 1)
   })
 }
+
+test('channel search explains an empty result and clearing restores the compact channel list', async () => {
+  api.request = (async (options: { method: string }) => {
+    assert.equal(options.method, 'GET')
+    return { data: { success: true, data: fixture() } }
+  }) as typeof api.request
+  const container = await mount('channels')
+  await until(
+    () => !!container.querySelector('article[aria-label="Private provider"]')
+  )
+  const row = required(container.querySelector('article'))
+  assert.ok(row.textContent?.includes('OpenAI Chat Completions'))
+  assert.equal(required(row.querySelector('details')).open, false)
+  assert.equal(button(row, 'Edit').closest('details'), null)
+  assert.equal(button(row, 'Test').closest('details'), null)
+  const search = required(
+    container.querySelector<HTMLInputElement>('input[aria-label="Search"]')
+  )
+  await changeInput(search, 'missing-provider')
+  assert.equal(container.querySelector('article'), null)
+  assert.ok(container.textContent?.includes('No results found'))
+  await act(async () => button(container, 'Clear').click())
+  assert.equal(search.value, '')
+  assert.ok(container.querySelector('article[aria-label="Private provider"]'))
+})

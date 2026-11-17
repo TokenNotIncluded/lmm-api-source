@@ -55,6 +55,8 @@ http-body-util = "=0.1.5"
 hyper = { version = "=1.12.0", features = ["server", "http1", "http2"] }
 hyper-util = { version = "=0.1.21", features = ["server-auto", "server-graceful", "tokio", "service"] }
 ipnet = "=2.12.2"
+# ISC, focused in-process GeoIP2/GeoLite2 country lookup.
+maxminddb = "=0.33.0"
 rand = "=0.10.4"
 regex = "=1.13.1"
 # Fixed legacy OpenAI precharge estimates use the original split pattern and BPE ranks.

@@ -246,7 +246,7 @@ test('default About describes current services without a first-top-up promise', 
   )
   assert.equal(host.querySelectorAll('dl > div').length, 3)
   assert.equal(
-    host.querySelector('a[href="/guide"]')?.textContent,
+    host.querySelector('a[href="/developers"]')?.textContent,
     'Read the guide'
   )
 })

@@ -1,11 +1,14 @@
 /* Copyright (C) 2026 LIghtJUNction. SPDX-License-Identifier: AGPL-3.0-or-later */
-import { useId } from 'react'
+import type { ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { Checkbox } from '@/components/ui/checkbox'
 import { Input } from '@/components/ui/input'
 
-import { nativeProtocols } from '../lib/native-routing-form'
+import {
+  nativeProtocolLabel,
+  nativeProtocols,
+} from '../lib/native-routing-form'
 import { parseNativeDocument, type NativeConfiguration } from '../native-api'
 import { NativeChannelModelsFields } from './native-channel-models-fields'
 
@@ -14,15 +17,16 @@ export function NativeChannelFields({
   document,
   configuration,
   disabled,
+  credential,
   onChange,
 }: {
   document: string
   configuration: NativeConfiguration
   disabled: boolean
+  credential?: ReactNode
   onChange: (document: string) => void
 }) {
   const { t } = useTranslation()
-  const id = useId()
   let draft: Record<string, unknown>
   try {
     draft = parseNativeDocument(document)
@@ -47,12 +51,6 @@ export function NativeChannelFields({
     { key: 'name', label: t('Name'), required: true },
     { key: 'tag', label: t('Tag') },
     { key: 'endpoint', label: t('Base URL'), required: true, type: 'url' },
-    {
-      key: 'protocol',
-      label: t('Protocol'),
-      required: true,
-      list: `${id}-protocols`,
-    },
   ]
   return (
     <div className='min-w-0 space-y-7'>
@@ -69,17 +67,27 @@ export function NativeChannelFields({
               disabled={disabled}
               required={field.required}
               type={field.type}
-              list={field.list}
               className='min-h-11'
               onChange={(event) => change(field.key, event.target.value)}
             />
           </label>
         ))}
-        <datalist id={`${id}-protocols`}>
-          {nativeProtocols.map((protocol) => (
-            <option key={protocol} value={protocol} />
-          ))}
-        </datalist>
+        <label className='block min-w-0 space-y-2'>
+          <span className='text-sm font-medium'>{t('Protocol')}</span>
+          <select
+            value={typeof draft.protocol === 'string' ? draft.protocol : ''}
+            required
+            disabled={disabled}
+            className='border-input bg-background block min-h-11 w-full rounded-md border px-3 text-sm'
+            onChange={(event) => change('protocol', event.target.value)}
+          >
+            {nativeProtocols.map((protocol) => (
+              <option key={protocol} value={protocol}>
+                {nativeProtocolLabel(protocol, t)}
+              </option>
+            ))}
+          </select>
+        </label>
         <label className='flex min-h-11 items-center gap-3 text-sm @min-[40rem]/routing:col-span-2'>
           <Checkbox
             checked={draft.enabled === true}
@@ -89,6 +97,7 @@ export function NativeChannelFields({
           {t('Enabled')}
         </label>
       </div>
+      {credential}
       <NativeChannelModelsFields
         document={document}
         configuration={configuration}

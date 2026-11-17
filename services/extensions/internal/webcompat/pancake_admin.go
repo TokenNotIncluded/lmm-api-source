@@ -16,6 +16,7 @@ import (
 type PancakeAdminRequest = payments.PancakeAdminRequest
 
 type PancakeAdmin interface {
+	Configuration(context.Context) (any, error)
 	Catalog(context.Context, PancakeAdminRequest) (any, error)
 	Pair(context.Context, PancakeAdminRequest) (any, error)
 	Save(context.Context, PancakeAdminRequest) (any, error)
@@ -27,6 +28,19 @@ func RegisterPancakeAdmin(mux RouteRegistrar, auth *Authenticator, admin Pancake
 	if store.Missing(admin) {
 		return
 	}
+	mux.HandleFunc("GET /api/option/waffo-pancake/config", func(w http.ResponseWriter, r *http.Request) {
+		self, err := auth.Verify(r.Context(), r)
+		if err != nil {
+			Respond(w, nil, err)
+			return
+		}
+		if self.GetPlatformLevel() != 6 {
+			Respond(w, nil, store.ErrForbidden)
+			return
+		}
+		value, err := admin.Configuration(r.Context())
+		respondPancakeAdmin(w, value, err)
+	})
 	for action, invoke := range map[string]func(context.Context, PancakeAdminRequest) (any, error){
 		"catalog": admin.Catalog, "pair": admin.Pair, "save": admin.Save,
 	} {

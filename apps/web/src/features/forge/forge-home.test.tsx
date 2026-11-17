@@ -141,7 +141,7 @@ function makeRouter(component = ForgeHome) {
     '/about',
     '/challenges',
     '/dashboard',
-    '/guide',
+    '/developers',
     '/open-source-bounties',
     '/pricing',
     '/security',
@@ -364,7 +364,6 @@ describe('ForgeHome configured destinations', () => {
         console: false,
         directory: false,
         developers: false,
-        guide: false,
         scripts: false,
         webmcp: false,
         signal: false,
@@ -390,7 +389,7 @@ describe('ForgeHome configured destinations', () => {
       for (const path of [
         '/ai-directory',
         '/pricing',
-        '/guide',
+        '/developers',
         '/scripts',
         '/challenges',
         '/security',
@@ -976,7 +975,7 @@ describe('Primary next step follows account access', () => {
       purchase.click()
       await flushEffects()
     })
-    assert.equal(rendered.router.state.location.pathname, '/guide')
+    assert.equal(rendered.router.state.location.pathname, '/developers')
     await unmountHome(rendered)
   })
 

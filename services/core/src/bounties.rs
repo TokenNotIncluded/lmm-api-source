@@ -203,9 +203,9 @@ async fn actor(c: &mut PgConnection, s: &str) -> Result<Principal> {
     }
     Ok(a)
 }
-// Private bounty admission uses Core's live developer authority. Existing holds
-// retain their settlement, appeal, return and recovery paths after downgrade.
-fn requires_developer(action: &str) -> bool {
+// New bounty actions require a current personal Session and resource policy.
+// Existing holds retain their settlement, appeal, return and recovery paths.
+fn requires_bounty_admission(action: &str) -> bool {
     !matches!(
         action,
         "close"
@@ -218,7 +218,7 @@ fn requires_developer(action: &str) -> bool {
             | "resolve_dispute"
     )
 }
-async fn developer(c: &mut PgConnection, a: &Principal, secret: &str) -> Result<()> {
+async fn authorize_bounty_admission(c: &mut PgConnection, a: &Principal, secret: &str) -> Result<()> {
     identity::authorize_bounty_session_in_transaction(c, a, secret)
         .await
         .map_err(|error| match error {
@@ -321,8 +321,8 @@ impl BountyStore {
         valid(cmd)?;
         let mut tx = self.pool.begin().await?;
         let a = actor(&mut tx, secret).await?;
-        if requires_developer(&cmd.action) {
-            developer(&mut tx, &a, secret).await?;
+        if requires_bounty_admission(&cmd.action) {
+            authorize_bounty_admission(&mut tx, &a, secret).await?;
         }
         let t = now(&mut tx).await?;
         let mut policy_basis = None;
@@ -382,8 +382,8 @@ impl BountyStore {
             tx.commit().await?;
             return Ok(receipt);
         }
-        if requires_developer(&cmd.action) {
-            developer(&mut tx, &a, secret).await?;
+        if requires_bounty_admission(&cmd.action) {
+            authorize_bounty_admission(&mut tx, &a, secret).await?;
         }
         let r=sqlx::query("SELECT actor,credential,request,expires,policy,approved FROM core_bounties.confirmations WHERE id=$1 FOR UPDATE").bind(&cmd.confirmation).fetch_optional(&mut *tx).await?.ok_or(Error::Forbidden)?;
         let Json(confirmed): Json<Command> = r.try_get("request")?;
@@ -960,7 +960,7 @@ impl BountyStore {
     pub async fn authorize(&self, secret: &str) -> Result<Actor> {
         let mut tx = self.pool.begin().await?;
         let a = actor(&mut tx, secret).await?;
-        developer(&mut tx, &a, secret).await?;
+        authorize_bounty_admission(&mut tx, &a, secret).await?;
         let admin = administrator(&mut tx, secret).await?;
         tx.commit().await?;
         Ok(Actor {

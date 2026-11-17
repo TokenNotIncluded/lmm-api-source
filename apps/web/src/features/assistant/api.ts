@@ -429,8 +429,6 @@ export type AssistantNavigationPath =
   | '/pricing'
   | '/wallet'
   | '/usage-logs/common'
-  | '/usage-logs/drawing'
-  | '/usage-logs/task'
   | '/keys'
   | '/drawing'
   | '/models'
@@ -830,8 +828,6 @@ const ASSISTANT_NAVIGATION_PATHS = new Set<AssistantNavigationPath>([
   '/pricing',
   '/wallet',
   '/usage-logs/common',
-  '/usage-logs/drawing',
-  '/usage-logs/task',
   '/keys',
   '/drawing',
   '/models',
@@ -850,8 +846,6 @@ const ASSISTANT_NAVIGATION_QUERY_KEYS: Partial<
   '/pricing': [],
   '/wallet': [],
   '/usage-logs/common': ['username'],
-  '/usage-logs/drawing': ['username'],
-  '/usage-logs/task': ['username'],
   '/keys': [],
   '/drawing': [],
   '/models': [],

@@ -218,7 +218,9 @@ async fn check(State(state): State<EdgeAccess>, request: Request) -> Response {
     let Some(client) = request.extensions().get::<EdgeClient>().map(|p| p.0) else {
         return denied("INTERNAL_ONLY");
     };
-    let country = request.extensions().get::<TrustedCountry>()
+    let country = request
+        .extensions()
+        .get::<TrustedCountry>()
         .and_then(|country| country.0.clone());
     let policy = tokio::time::timeout(LOOKUP_TIMEOUT, async {
         let source: Option<String> =
@@ -284,7 +286,6 @@ struct OptIn {
 mod policy;
 use policy::{Action, Policy};
 
-#[cfg(test)]
 pub(crate) fn validate_policy(source: &str) -> Result<(), SetupError> {
     Policy::parse(source).map(|_| ())
 }

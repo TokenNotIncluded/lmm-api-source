@@ -392,10 +392,12 @@ export function OpenSourceBounties({
   const bountyQuery = useQuery({
     queryKey: BOUNTY_QUERY_KEYS[0],
     queryFn: listBounties,
+    enabled: view === 'browse' || view === 'accepted',
   })
   const ownedQuery = useQuery({
     queryKey: [...BOUNTY_QUERY_KEYS[1], 'active'],
     queryFn: () => listOwnedBounties(false),
+    enabled: view === 'owned' && !showArchivedOwned,
   })
   const pendingReviewCountQuery = useQuery({
     queryKey: [...BOUNTY_QUERY_KEYS[1], 'pending-review-count'],
@@ -405,10 +407,12 @@ export function OpenSourceBounties({
   const archivedOwnedQuery = useQuery({
     queryKey: [...BOUNTY_QUERY_KEYS[1], 'archived'],
     queryFn: () => listOwnedBounties(true),
+    enabled: view === 'owned' && showArchivedOwned,
   })
   const acceptedQuery = useQuery({
     queryKey: BOUNTY_QUERY_KEYS[2],
     queryFn: listAcceptedBounties,
+    enabled: view === 'accepted',
   })
   const bountyRankByProjectId = useMemo(() => {
     const items = bountyQuery.data?.items ?? []
@@ -423,14 +427,17 @@ export function OpenSourceBounties({
   const disputesQuery = useQuery({
     queryKey: BOUNTY_QUERY_KEYS[3],
     queryFn: listMyBountyDisputes,
+    // Owner cards use open disputes to explain blocked escrow transitions.
+    enabled: view === 'owned' || view === 'disputes',
   })
   const isAdmin = (user?.role ?? 0) >= 10
   const isSuperAdmin = (user?.role ?? 0) >= 100
   const adminDisputesQuery = useQuery({
     queryKey: ['open-source-bounties', 'disputes', 'admin'],
     queryFn: listAdminBountyDisputes,
-    enabled: isAdmin,
+    enabled: isAdmin && view === 'admin-disputes',
   })
+  const activeOwnedQuery = showArchivedOwned ? archivedOwnedQuery : ownedQuery
   const configQuery = useQuery({
     queryKey: ['open-source-bounties', 'config'],
     queryFn: getBountyConfig,
@@ -931,8 +938,9 @@ export function OpenSourceBounties({
                     size='sm'
                     onClick={() => setShowArchivedOwned(true)}
                   >
-                    {t('Archived projects')} (
-                    {archivedOwnedQuery.data?.length ?? 0})
+                    {t('Archived projects')}
+                    {archivedOwnedQuery.data !== undefined &&
+                      ` (${archivedOwnedQuery.data.length})`}
                   </Button>
                   <span className='text-muted-foreground text-sm'>
                     {showArchivedOwned
@@ -944,9 +952,9 @@ export function OpenSourceBounties({
                         )}
                   </span>
                 </div>
-                {((showArchivedOwned
-                  ? archivedOwnedQuery.data?.length
-                  : ownedQuery.data?.length) ?? 0) === 0 ? (
+                {activeOwnedQuery.isLoading || disputesQuery.isLoading ? (
+                  <LoadingState label={t('Loading bounties...')} />
+                ) : (activeOwnedQuery.data?.length ?? 0) === 0 ? (
                   <Empty className='bg-muted/20 min-h-56'>
                     <EmptyHeader>
                       <EmptyMedia variant='icon'>
@@ -975,10 +983,7 @@ export function OpenSourceBounties({
                   </Empty>
                 ) : (
                   <div className='grid gap-4'>
-                    {(showArchivedOwned
-                      ? archivedOwnedQuery.data
-                      : ownedQuery.data
-                    )?.map((project) => (
+                    {activeOwnedQuery.data?.map((project) => (
                       <OwnerProjectCard
                         key={project.id}
                         project={project}
@@ -1041,7 +1046,9 @@ export function OpenSourceBounties({
               </TabsContent>
 
               <TabsContent value='accepted' className='mt-3 sm:mt-4'>
-                {(acceptedQuery.data?.length ?? 0) === 0 ? (
+                {acceptedQuery.isLoading ? (
+                  <LoadingState label={t('Loading bounties...')} />
+                ) : (acceptedQuery.data?.length ?? 0) === 0 ? (
                   <Empty className='bg-muted/20 min-h-56'>
                     <EmptyHeader>
                       <EmptyMedia variant='icon'>

@@ -106,7 +106,13 @@ export function StoreAmount({ quota }: { quota: number | null | undefined }) {
   if (typeof quota !== 'number' || !Number.isSafeInteger(quota) || quota < 0) {
     return <span>{t('No data provided')}</span>
   }
-  if (quota === 0) return <span className='tabular-nums'>0 credits</span>
+  if (quota === 0) {
+    return (
+      <span className='tabular-nums'>
+        {t('{{amount}} credits', { amount: 0 })}
+      </span>
+    )
+  }
   return (
     <span className='tabular-nums'>
       {money.formatQuota(quota, { abbreviate: false, digitsSmall: 2 })}

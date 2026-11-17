@@ -20,9 +20,11 @@ import { useParams } from '@tanstack/react-router'
 import { useTranslation } from 'react-i18next'
 
 import { SettingsPage, SettingsPageFrame } from '../components/settings-page'
+import { CheckinSettingsSection } from '../general/checkin-settings-section'
+import { QuotaSettingsSection } from '../general/quota-settings-section'
 import type { BillingSettings } from '../types'
+import { NativePaymentSettings } from './native-payment-settings'
 import { NativePricingSection } from './native-pricing-section'
-import { RouterPricingSection } from './router-pricing-section'
 import {
   BILLING_DEFAULT_SECTION,
   getBillingSectionContent,
@@ -145,7 +147,28 @@ export function BillingSettings() {
   if (section === 'router-pricing') {
     return (
       <SettingsPageFrame title={t('Router pricing')}>
-        <RouterPricingSection />
+        <NativePricingSection initialMode='upstream_cost' />
+      </SettingsPageFrame>
+    )
+  }
+  if (section === 'quota') {
+    return (
+      <SettingsPageFrame title={t('Quota Settings')}>
+        <QuotaSettingsSection />
+      </SettingsPageFrame>
+    )
+  }
+  if (section === 'checkin') {
+    return (
+      <SettingsPageFrame title={t('Check-in Rewards')}>
+        <CheckinSettingsSection />
+      </SettingsPageFrame>
+    )
+  }
+  if (section === 'payment') {
+    return (
+      <SettingsPageFrame title={t('Payment Gateway')}>
+        <NativePaymentSettings />
       </SettingsPageFrame>
     )
   }

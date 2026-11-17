@@ -4,7 +4,7 @@ import { isAxiosError } from 'axios'
 
 import { isRateLimitedError } from './request-rate-limit'
 
-/** Rate limiting is server backpressure, not a transient failure to amplify. */
+/** Do not amplify backpressure or retry a route the server has not implemented. */
 export function createQueryRetry(production: boolean, maximumRetries = 4) {
   return (failureCount: number, error: DefaultError): boolean =>
     production &&
@@ -12,6 +12,8 @@ export function createQueryRetry(production: boolean, maximumRetries = 4) {
     !isRateLimitedError(error) &&
     !(
       isAxiosError(error) &&
-      [401, 402, 403, 429].includes(error.response?.status ?? 0)
+      ([401, 402, 403, 429].includes(error.response?.status ?? 0) ||
+        error.response?.data?.code === 'core_migration_incomplete' ||
+        error.response?.data?.error?.code === 'core_migration_incomplete')
     )
 }

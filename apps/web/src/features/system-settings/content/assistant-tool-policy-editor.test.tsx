@@ -220,10 +220,7 @@ test('fetches the authoritative catalog only when the tools panel becomes active
       rendered.container.textContent ?? '',
       /Writes after server checks/
     )
-    assert.match(
-      rendered.container.textContent ?? '',
-      /Super administrator/
-    )
+    assert.match(rendered.container.textContent ?? '', /Super administrator/)
     await rendered.rerender(false)
     assert.equal(rendered.requests, 1)
   } finally {
@@ -482,7 +479,11 @@ test('configures a disabled tool group without enabling it or saving early', asy
     )
     assert.ok(dialog)
     assert.match(dialog.textContent ?? '', /Changes stay in this draft/)
-    assert.equal(dialog.querySelector('[role="combobox"]'), null)
+    assert.equal(dialog.querySelectorAll('[role="combobox"]').length, 0)
+    assert.doesNotMatch(
+      dialog.textContent ?? '',
+      /Allowed account levels|Minimum level|Maximum level|\bL[0-6]\b/
+    )
     await click(dialog.querySelector('[role="switch"]'))
     const changed = JSON.parse(rendered.changes.at(-1) ?? '{}')
     assert.equal(changed.tools.request_create_key, false)
@@ -525,7 +526,10 @@ test('weekly discount configuration has no per-level price or reward controls', 
     assert.ok(dialog)
     assert.equal(dialog.querySelector('input[type="number"]'), null)
     assert.equal(dialog.querySelector('[role="combobox"]'), null)
-    assert.doesNotMatch(dialog.textContent ?? '', /discount by level|Minimum level|Maximum level/)
+    assert.doesNotMatch(
+      dialog.textContent ?? '',
+      /discount by level|Minimum level|Maximum level|\bL[0-6]\b/
+    )
     await click(dialog.querySelector('[role="switch"]'))
     const saved = JSON.parse(rendered.changes.at(-1) ?? '{}')
     assert.equal(saved.tools.prepare_weekly_discount, false)

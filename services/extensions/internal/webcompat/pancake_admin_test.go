@@ -15,6 +15,11 @@ import (
 
 type pancakeAdminProbe struct{ calls int }
 
+func (p *pancakeAdminProbe) Configuration(context.Context) (any, error) {
+	p.calls++
+	return map[string]any{"contract": "extensions.pancake-configuration.v1", "private_key_configured": true}, nil
+}
+
 func (p *pancakeAdminProbe) Catalog(context.Context, PancakeAdminRequest) (any, error) {
 	p.calls++
 	return map[string]any{"stores": []any{}}, nil
@@ -46,14 +51,48 @@ func TestPancakeAdminMountedWithPaymentLifecycleAndLegacyEnvelope(t *testing.T) 
 			t.Fatal("legacy Web envelope or normal router missing", action, w.Code)
 		}
 	}
+	if w := pluginRequest(handler, "GET", "/api/option/waffo-pancake/config", "", webToken); w.Code != 200 || !strings.Contains(w.Body.String(), "extensions.pancake-configuration.v1") || w.Header().Get("Cache-Control") != "no-store" {
+		t.Fatal("safe configuration readback missing", w.Code)
+	}
 	plugins.enabled["payments"] = false
-	if w := request("catalog"); w.Code != 503 || probe.calls != 3 {
+	if w := request("catalog"); w.Code != 503 || probe.calls != 4 {
 		t.Fatal("admin bypassed disabled payment module")
+	}
+	if w := pluginRequest(handler, "GET", "/api/option/waffo-pancake/config", "", webToken); w.Code != 503 || probe.calls != 4 {
+		t.Fatal("configuration bypassed disabled payment module")
 	}
 	plugins.enabled["payments"] = true
 	host.BeginDrain()
-	if w := request("catalog"); w.Code != 503 || probe.calls != 3 {
+	if w := request("catalog"); w.Code != 503 || probe.calls != 4 {
 		t.Fatal("admin bypassed drain")
+	}
+}
+
+func TestPancakeConfigurationRequiresOwnerSession(t *testing.T) {
+	for _, tc := range []struct {
+		name, token string
+		level       int32
+		want        int
+	}{
+		{"owner", webToken, 6, 200},
+		{"admin", webToken, 5, 403},
+		{"anonymous", "", 6, 401},
+		{"host", hostToken, 6, 401},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			core := &authCore{fn: func(context.Context, string) (*pb.AuthorizeResponse, error) {
+				self := sessionSelf()
+				self.PlatformLevel = tc.level
+				return self, nil
+			}}
+			probe := &pancakeAdminProbe{}
+			mux := http.NewServeMux()
+			RegisterPancakeAdmin(mux, newAuth(t, core), probe)
+			w := pluginRequest(mux, "GET", "/api/option/waffo-pancake/config", "", tc.token)
+			if w.Code != tc.want || (probe.calls == 1) != (tc.want == 200) {
+				t.Fatal("configuration authorization mismatch", w.Code, probe.calls)
+			}
+		})
 	}
 }
 

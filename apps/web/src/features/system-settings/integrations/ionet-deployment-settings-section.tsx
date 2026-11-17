@@ -64,9 +64,7 @@ const schema = z.object({
 // NOTE: react-hook-form resolver uses the schema input type
 type Values = z.input<typeof schema>
 
-export function IoNetDeploymentSettingsSection(_props: {
-  defaultValues: { enabled: boolean; apiKey: string }
-}) {
+export function IoNetDeploymentSettingsSection() {
   const auth = useAuthStore((state) => state.auth)
   const { i18n } = useTranslation()
   return (

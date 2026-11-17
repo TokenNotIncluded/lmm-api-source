@@ -5,6 +5,8 @@ import { after, afterEach, test } from 'node:test'
 import { Window } from 'happy-dom'
 import type React from 'react'
 
+import chineseLocale from '@/i18n/locales/zh-CN.json'
+
 import type { SupportHistory } from './support-api'
 import type { SupportDraft } from './support-helpers'
 
@@ -60,6 +62,7 @@ const { consumeQueuedAssistantRequest } =
 const { supportApi } = await import('./support-api')
 const { StoreSupportChat } = await import('./support-chat')
 const { StoreSupportPage } = await import('./support-page')
+const { StoreNavigation } = await import('./store-navigation')
 const i18n = createInstance()
 await i18n
   .use(initReactI18next)
@@ -160,8 +163,64 @@ afterEach(async () => {
   Object.assign(supportApi, originals)
   useAuthStore.setState({ auth: originalAuth })
   consumeQueuedAssistantRequest()
+  await i18n.changeLanguage('en')
 })
 after(() => dom.happyDOM.abort())
+
+test('store navigation and messages use the selected Chinese locale', async () => {
+  i18n.addResourceBundle('zh-CN', 'translation', chineseLocale.translation)
+  await i18n.changeLanguage('zh-CN')
+  const conversation = history()
+  conversation.conversation.order_id = 'order-1'
+  conversation.items.push({
+    id: 2,
+    conversation_id: 'c1',
+    sender_id: 11,
+    body: '买家回复',
+    created_at: 2,
+  })
+  supportApi.history = async () => conversation
+  supportApi.conversations = async () => ({
+    items: [
+      {
+        ...conversation.conversation,
+        buyer_name: '买家昵称',
+        seller_name: '卖家昵称',
+        unread_count: 1,
+      },
+    ],
+    has_more: false,
+  })
+  await render(
+    <>
+      <StoreNavigation path='/store/support' canReview={false} />
+      <StoreSupportPage
+        search={{ role: 'buyer', tab: 'messages', conversation: 'c1' }}
+      />
+    </>
+  )
+
+  assert.equal(
+    document.querySelector('nav a[href="/store/support"]')?.textContent,
+    '消息'
+  )
+  assert.ok(document.querySelector('[aria-label="未读消息: 1"]'))
+  assert.ok(document.querySelector('[role="log"][aria-label="消息"]'))
+  assert.equal(
+    document.querySelector('label[for="support-message-c1"]')?.textContent,
+    '消息'
+  )
+  assert.ok(document.body.textContent?.includes('查看订单'))
+  assert.ok(document.body.textContent?.includes('已发送'))
+  assert.ok(document.body.textContent?.includes('卖家'))
+  assert.equal(
+    /\b(Messages|Message|Seller|Sent|View order)\b/.test(
+      document.querySelector('[data-testid="store-support-workspace"]')
+        ?.textContent ?? ''
+    ),
+    false
+  )
+})
 
 test('conversation text is escaped and assistant sharing requires explicit review', async () => {
   supportApi.history = async () => history()

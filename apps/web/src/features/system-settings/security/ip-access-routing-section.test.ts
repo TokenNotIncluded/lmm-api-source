@@ -14,6 +14,7 @@ import type { TFunction } from 'i18next'
 
 import {
   createIPAccessRoutingSchema,
+  createRegionRoutingRules,
   DEFAULT_IP_ACCESS_ROUTING_RULES,
 } from './ip-access-routing-config'
 
@@ -47,6 +48,29 @@ describe('IP access routing settings', () => {
     assert.equal(
       schema.safeParse({ IPAccessRoutingRules: '中'.repeat(6000) }).success,
       false
+    )
+  })
+})
+
+describe('region rule builder', () => {
+  test('block mode preserves access from unmatched regions and sets unknown behavior', () => {
+    assert.equal(
+      createRegionRoutingRules('cn, jp, CN', 'block', 'direct'),
+      'unknown-country: direct\nip(geoip:CN, geoip:JP) -> reject\nfallback: direct'
+    )
+  })
+  test('allow-only mode explicitly rejects other regions', () => {
+    assert.equal(
+      createRegionRoutingRules('US\nCA', 'allow', 'reject'),
+      'unknown-country: reject\nip(geoip:US, geoip:CA) -> direct\nfallback: reject'
+    )
+  })
+  test('invalid country inputs cannot inject arbitrary routing rules', () => {
+    assert.equal(createRegionRoutingRules('', 'block', 'reject'), null)
+    assert.equal(createRegionRoutingRules('USA', 'block', 'reject'), null)
+    assert.equal(
+      createRegionRoutingRules('CN) -> direct', 'block', 'reject'),
+      null
     )
   })
 })

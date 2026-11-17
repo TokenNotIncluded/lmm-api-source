@@ -45,9 +45,10 @@ func (r *Runtime) composeHeroSMS(ctx context.Context, cfg Config, credentials ..
 		return err
 	}
 	r.close = append(r.close, func() error { core.Close(); return nil })
-	if err = core.Ready(ctx); err != nil {
+	capabilities, err := core.Capabilities(ctx)
+	if err != nil {
 		return errors.New("Core HeroSMS capability unavailable")
 	}
-	r.HeroSMS = &herosms.Service{Core: core}
+	r.HeroSMS = &herosms.Service{Core: core, PurchasesAvailable: capabilities.PurchasesAvailable}
 	return nil
 }

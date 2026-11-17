@@ -7,7 +7,8 @@ import { useAuthStore } from '@/stores/auth-store'
 
 import { storeApi } from './api'
 import { StoreExtoreConnection } from './extore-connection'
-import { extoreSourceURL, StoreExtoreSync } from './extore-sync-action'
+import { extoreSourceURL } from './extore-import-protocol'
+import { StoreExtoreSync } from './extore-sync-action'
 import { StoreError, StoreLoading } from './shared'
 
 export type { ExtoreConnections } from './extore-types'

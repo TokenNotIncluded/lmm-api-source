@@ -3,9 +3,13 @@ import assert from 'node:assert/strict'
 import { afterEach, beforeEach, test } from 'node:test'
 
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { createInstance } from 'i18next'
 import type { ReactNode } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
+import { I18nextProvider } from 'react-i18next'
 
+import englishLocale from '@/i18n/locales/en.json'
+import chineseLocale from '@/i18n/locales/zh-CN.json'
 import { useAuthStore } from '@/stores/auth-store'
 
 import { StoreCatalogueProductCard } from './catalogue-product-card'
@@ -14,6 +18,7 @@ import { nativePriceText } from './native-projection-values'
 import { StoreOrderRow } from './orders-page'
 import { StoreCheckout } from './product-page'
 import { storeCheckoutCapacity } from './quantity'
+import { StoreAmount } from './shared'
 import type { StoreOrder, StorePrice, StoreProduct } from './types'
 import { storeDate } from './utils'
 import { StoreProductPrice } from './variant-summary'
@@ -49,6 +54,14 @@ const product = {
   ],
 } as unknown as StoreProduct // Deliberately partial native DTO: legacy metadata is absent.
 
+const englishI18n = createInstance()
+await englishI18n.init({
+  lng: 'en',
+  keySeparator: false,
+  nsSeparator: false,
+  resources: { en: englishLocale },
+})
+
 beforeEach(() => {
   useAuthStore
     .getState()
@@ -64,7 +77,7 @@ function render(node: ReactNode) {
   try {
     return renderToStaticMarkup(
       <QueryClientProvider client={new QueryClient()}>
-        {node}
+        <I18nextProvider i18n={englishI18n}>{node}</I18nextProvider>
       </QueryClientProvider>
     )
   } finally {
@@ -91,6 +104,25 @@ test('native exact units preserve zero, safe integer and currency minor amounts'
     assert.match(text, new RegExp(`123 ${currency}.*minor units`))
     assert.doesNotMatch(text, /credits/)
   }
+})
+
+test('product prices and checkout labels use the selected interface language', async () => {
+  const i18n = createInstance()
+  await i18n.init({
+    lng: 'zh-CN',
+    keySeparator: false,
+    nsSeparator: false,
+    resources: { 'zh-CN': chineseLocale },
+  })
+  const markup = render(
+    <I18nextProvider i18n={i18n}>
+      <StoreNativeProduct product={product} />
+      <StoreAmount quota={0} />
+    </I18nextProvider>
+  )
+  assert.match(markup, /立即购买/)
+  assert.match(markup, /0 额度/)
+  assert.doesNotMatch(markup, /Buy now|credits/)
 })
 
 test('invalid or missing money stays unknown, never free or rounded', () => {

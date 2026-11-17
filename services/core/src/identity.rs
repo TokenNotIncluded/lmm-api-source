@@ -14,6 +14,8 @@ pub use permissions::{
 };
 mod auth;
 mod browser;
+pub(crate) mod network_policy;
+pub use network_policy::scope_request_ip;
 pub(crate) mod registration_policy;
 pub(crate) use browser::FederatedCallbackInput;
 pub use browser::{
@@ -378,7 +380,7 @@ async fn authenticate(c: &mut PgConnection, secret: &str, write: bool) -> Result
     .fetch_optional(&mut *c)
     .await?
     .ok_or(IdentityError::Unauthorized)?;
-    principal_with_assurance_mode(
+    let actor = principal_with_assurance_mode(
         c,
         row,
         if write {
@@ -387,7 +389,9 @@ async fn authenticate(c: &mut PgConnection, secret: &str, write: bool) -> Result
             mfa::AssuranceRead::Snapshot
         },
     )
-    .await
+    .await?;
+    network_policy::authorize_request_ip(c, actor.user_id).await?;
+    Ok(actor)
 }
 /// Authenticate a caller against this transaction's read snapshot without
 /// taking authority locks. This is for read-only views, never spending writes.

@@ -55,8 +55,8 @@ const DEFAULT_CONVERSATION_STARTERS: ConversationStarter[] = [
   },
   {
     id: 'ai_recommendation',
-    label: { default: 'Which model should I use?' },
-    prompt: { default: 'Which model should I use?' },
+    label: { default: 'Create an API key' },
+    prompt: { default: 'Create an API key' },
   },
 ]
 

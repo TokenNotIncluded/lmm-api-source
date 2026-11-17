@@ -17,7 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { Plus } from 'lucide-react'
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { ConfirmDialog } from '@/components/confirm-dialog'
@@ -25,8 +25,10 @@ import { BadgeCell } from '@/components/data-table/core/badge-cell'
 import { StaticDataTable } from '@/components/data-table/static/static-data-table'
 import { StaticRowActions } from '@/components/data-table/static/static-row-actions'
 import { StatusBadge } from '@/components/status-badge'
+import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 
+import { isProviderWriteResultUnknown } from '../api'
 import { useDeleteProvider } from '../hooks/use-custom-oauth-mutations'
 import type { CustomOAuthProvider } from '../types'
 
@@ -42,11 +44,20 @@ export function ProviderTable(props: ProviderTableProps) {
   const [deleteTarget, setDeleteTarget] = useState<CustomOAuthProvider | null>(
     null
   )
+  const deleteOperationKey = useRef('')
+  const [resultUnknown, setResultUnknown] = useState(false)
 
   const handleDelete = async () => {
     if (!deleteTarget) return
-    await deleteProvider.mutateAsync(deleteTarget.id)
-    setDeleteTarget(null)
+    try {
+      await deleteProvider.mutateAsync({
+        provider: deleteTarget,
+        operationKey: deleteOperationKey.current,
+      })
+      setDeleteTarget(null)
+    } catch (error) {
+      setResultUnknown(isProviderWriteResultUnknown(error))
+    }
   }
 
   return (
@@ -127,7 +138,11 @@ export function ProviderTable(props: ProviderTableProps) {
                 deleteLabel={t('Delete')}
                 menuLabel={t('Open menu')}
                 onEdit={() => props.onEdit(provider)}
-                onDelete={() => setDeleteTarget(provider)}
+                onDelete={() => {
+                  deleteOperationKey.current = crypto.randomUUID()
+                  setResultUnknown(false)
+                  setDeleteTarget(provider)
+                }}
               />
             ),
           },
@@ -136,17 +151,29 @@ export function ProviderTable(props: ProviderTableProps) {
 
       <ConfirmDialog
         open={!!deleteTarget}
-        onOpenChange={(open) => !open && setDeleteTarget(null)}
+        onOpenChange={(open) =>
+          !open && !deleteProvider.isPending && setDeleteTarget(null)
+        }
         title={t('Delete Provider')}
         desc={t(
-          'Are you sure you want to delete "{{name}}"? Users who authenticated with this provider will no longer be able to log in.',
+          'Delete "{{name}}"? Providers with linked accounts cannot be deleted.',
           { name: deleteTarget?.name || '' }
         )}
-        confirmText={t('Delete')}
+        confirmText={resultUnknown ? t('Retry saved request') : t('Delete')}
         destructive
         handleConfirm={handleDelete}
         isLoading={deleteProvider.isPending}
-      />
+      >
+        {resultUnknown && (
+          <Alert>
+            <AlertDescription>
+              {t(
+                'Result unknown. Retry the saved request before starting another.'
+              )}
+            </AlertDescription>
+          </Alert>
+        )}
+      </ConfirmDialog>
     </>
   )
 }

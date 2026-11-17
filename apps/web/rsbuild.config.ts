@@ -21,10 +21,9 @@ export default defineConfig(({ envMode }) => {
   const devProxy = personaDebugEnabled
     ? {}
     : (Object.fromEntries(
-        (['/api', '/core', '/mj', '/pg', '/mcp'] as const).map((key) => [
-          key,
-          { target: serverUrl, changeOrigin: true },
-        ])
+        (['/api', '/core', '/health', '/mj', '/pg', '/mcp'] as const).map(
+          (key) => [key, { target: serverUrl, changeOrigin: true }]
+        )
       ) as Record<string, { target: string; changeOrigin: boolean }>)
 
   return {

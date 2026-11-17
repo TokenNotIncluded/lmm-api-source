@@ -386,6 +386,7 @@ impl BrowserAuth {
         let previous: Option<Vec<u8>> = row.try_get("previous_refresh_digest")?;
         let next = self.derived_secret(b"browser-refresh-v1", sid, presented, "lmmr_")?;
         if constant_digest(&current, &hash) {
+            network_policy::authorize_request_ip(&mut tx, row.try_get("user_id")?).await?;
             let access = self.derived_secret(b"browser-access-v1", sid, &next, "lmms_")?;
             let old: i64 = row.try_get("current_credential_id")?;
             let assurance = super::mfa::from_session(
@@ -425,6 +426,7 @@ impl BrowserAuth {
             .as_ref()
             .is_some_and(|previous| constant_digest(previous, &hash))
         {
+            network_policy::authorize_request_ip(&mut tx, row.try_get("user_id")?).await?;
             if !row.try_get::<bool, _>("previous_live")? {
                 revoke_family(&mut tx, sid).await?;
                 tx.commit().await?;

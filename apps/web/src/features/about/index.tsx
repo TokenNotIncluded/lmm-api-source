@@ -82,7 +82,7 @@ function EmptyAboutState() {
           <ArrowRight data-icon='inline-end' />
         </Button>
         <Link
-          to='/guide'
+          to='/developers'
           className='text-sm font-medium underline underline-offset-4'
         >
           {t('Read the guide')}

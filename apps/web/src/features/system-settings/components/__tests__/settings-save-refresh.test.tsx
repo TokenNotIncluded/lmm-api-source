@@ -207,6 +207,35 @@ async function renderPage(cached = true) {
   })
 }
 
+test('native settings remain available when the legacy options API is unavailable', async () => {
+  activeTestSection = 'scripts'
+  read = (config) => Promise.reject(transportFailure(config))
+  await act(async () => {
+    root.render(
+      <QueryClientProvider client={queryClient}>
+        <I18nextProvider i18n={i18n}>
+          <SettingsPage
+            routePath='/system-settings/operations/$section'
+            defaultSettings={baseline}
+            defaultSection='scripts'
+            independentSections={['scripts']}
+            getSectionMeta={() => ({ titleKey: 'Scripts' })}
+            getSectionContent={() => (
+              <button type='button'>Save repository</button>
+            )}
+          />
+        </I18nextProvider>
+      </QueryClientProvider>
+    )
+  })
+  assert.ok(container.textContent?.includes('Save repository'))
+  assert.equal(container.querySelector('fieldset[disabled]'), null)
+  assert.equal(
+    requests.some((request) => request.url === '/api/option/'),
+    false
+  )
+})
+
 async function until(check: () => boolean, label: string) {
   for (let attempt = 0; attempt < 100; attempt += 1) {
     if (check()) return
@@ -354,6 +383,84 @@ for (const capabilities of [
       (button) => button.textContent === 'Save Settings'
     )
     assert.equal(saveButton, undefined)
+    assert.ok(requests.every((request) => request.method === 'get'))
+  })
+}
+
+for (const scenario of [
+  {
+    name: 'advertised with a returned value',
+    writable: true,
+    returned: true,
+    readOnly: false,
+  },
+  {
+    name: 'absent from writable keys',
+    writable: false,
+    returned: true,
+    readOnly: false,
+  },
+  {
+    name: 'missing its returned value',
+    writable: true,
+    returned: false,
+    readOnly: false,
+  },
+  {
+    name: 'read-only despite a writable key',
+    writable: true,
+    returned: true,
+    readOnly: true,
+  },
+]) {
+  test(`native IP routing editor is gated when ${scenario.name}`, async () => {
+    activeTestSection = 'ip-access-routing'
+    const rules = '# Saved policy\nunknown-country: direct\nfallback: direct'
+    read = async (config) =>
+      response(config, 200, {
+        success: true,
+        message: '',
+        capabilities: {
+          read_only: scenario.readOnly,
+          partial: true,
+          writable_keys: scenario.writable ? ['IPAccessRoutingRules'] : [],
+        },
+        data: scenario.returned
+          ? [{ key: 'IPAccessRoutingRules', value: rules }]
+          : [],
+      })
+    await renderPage(false)
+    await until(
+      () => Boolean(container.querySelector('.settings-available-content')),
+      'the actual server capabilities must settle before asserting editor availability'
+    )
+    if (scenario.writable && scenario.returned && !scenario.readOnly) {
+      await until(
+        () => Boolean(container.querySelector('textarea')),
+        'the native capability must mount the real IP routing editor'
+      )
+      assert.equal(container.querySelector('textarea')?.value, rules)
+      assert.ok(
+        [...container.querySelectorAll('button')].some(
+          (button) => button.textContent === 'Replace draft with region rules'
+        )
+      )
+    } else {
+      assert.equal(container.querySelector('form'), null)
+      assert.equal(container.querySelector('textarea'), null)
+      assert.doesNotMatch(
+        container.textContent ?? '',
+        /Replace draft with region rules/
+      )
+      if (scenario.returned) {
+        assert.ok(container.textContent?.includes(rules))
+      } else {
+        assert.match(
+          container.textContent ?? '',
+          /No settings available in this section/
+        )
+      }
+    }
     assert.ok(requests.every((request) => request.method === 'get'))
   })
 }

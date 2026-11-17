@@ -54,7 +54,6 @@ import {
 const headerNavSchema = z.object({
   directory: z.boolean(),
   developers: z.boolean(),
-  guide: z.boolean(),
   scripts: z.boolean(),
   webmcp: z.boolean(),
   signal: z.boolean(),
@@ -125,7 +124,6 @@ export function HeaderNavigationSection({
     },
     { key: 'directory', title: t('AI directory') },
     { key: 'developers', title: t('Developers') },
-    { key: 'guide', title: t('Guide') },
     { key: 'scripts', title: t('Scripts') },
     { key: 'webmcp', title: 'WebMCP' },
     { key: 'signal', title: t('Signal path') },

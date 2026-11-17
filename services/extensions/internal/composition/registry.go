@@ -66,6 +66,20 @@ func ModuleDescriptors() []modules.Descriptor {
 	return result
 }
 
+// ModuleDescriptors keeps management availability independent from buying.
+// An assembled settings adapter must not advertise unsupported purchase pages.
+func (r *Runtime) ModuleDescriptors() []modules.Descriptor {
+	result := ModuleDescriptors()
+	if r.HeroSMS == nil || !r.HeroSMS.PurchasesAvailable {
+		for i := range result {
+			if result[i].Name == "hero-sms" {
+				result[i].NavigationPaths = nil
+			}
+		}
+	}
+	return result
+}
+
 // SelectModules requires dependencies to be explicitly selected. Registering a
 // new package never enables it or grants access to another package's resources.
 func SelectModules(config string, defaults []string) ([]string, error) {

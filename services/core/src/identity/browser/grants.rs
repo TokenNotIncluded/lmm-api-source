@@ -33,6 +33,7 @@ impl BrowserAuth {
         // lock_family has already verified persisted assurance on the current
         // credential. Stable SID/version survive normal refresh rotation.
         let user = row.try_get("user_id")?;
+        network_policy::authorize_request_ip(c, user).await?;
         let account =
             sqlx::query_scalar("SELECT personal_account_id FROM core_identity.users WHERE id=$1")
                 .bind(user)

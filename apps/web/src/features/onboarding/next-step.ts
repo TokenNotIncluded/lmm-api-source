@@ -32,7 +32,7 @@ export function getAccountNextStep(
     return { to: '/dashboard', label: 'Open dashboard' }
   }
   // Without a selected client, never force an OAuth user to create a manual key.
-  if (!method) return { to: '/guide', label: 'Choose your client' }
+  if (!method) return { to: '/developers', label: 'Choose your client' }
   if (
     method === 'api-key' &&
     user.onboarding?.details_available !== false &&
@@ -40,5 +40,5 @@ export function getAccountNextStep(
   ) {
     return { to: '/keys', label: 'Create your first API key' }
   }
-  return { to: '/guide', label: 'Continue client setup' }
+  return { to: '/developers', label: 'Continue client setup' }
 }

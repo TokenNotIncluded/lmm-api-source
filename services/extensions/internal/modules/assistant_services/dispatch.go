@@ -119,7 +119,7 @@ func (s *Service) navigate(ctx context.Context, in assistant.AgentInvocation, p 
 	input.Page = strings.TrimSpace(input.Page)
 	input.Identifier = strings.TrimSpace(input.Identifier)
 	input.Query = strings.TrimSpace(input.Query)
-	// Resource visibility, non-self target resolution, and developer access need
+	// Resource visibility, non-self target resolution, and account access need
 	// a typed live projection. No model-supplied ID proves any of those rights.
 	if input.Page == "drawing" || input.Page == "store-product" || input.Page == "tool-market-service" || ((input.Page == "users" || input.Page == "usage-logs") && (input.Identifier != "" || input.Query != "")) {
 		if access.Missing(s.dependencies.Navigation) {

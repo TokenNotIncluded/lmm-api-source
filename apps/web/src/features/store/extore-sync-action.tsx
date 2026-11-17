@@ -8,22 +8,7 @@ import { toIntlLocale } from '@/i18n/languages'
 import { useAuthStore } from '@/stores/auth-store'
 
 import { storeApi } from './api'
-import { extoreOrigin } from './extore-import-protocol'
-import type { ExtoreConnection } from './extore-types'
 import { StoreError } from './shared'
-
-export function extoreSourceURL(
-  connection: ExtoreConnection,
-  sourceId?: string
-) {
-  if (!connection.origin) return undefined
-  try {
-    const origin = extoreOrigin(connection.origin)
-    return `${origin}/admin${sourceId ? `?product=${encodeURIComponent(sourceId)}` : ''}`
-  } catch {
-    return undefined
-  }
-}
 
 export function StoreExtoreSync({
   connectionId,

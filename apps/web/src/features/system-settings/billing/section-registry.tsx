@@ -76,36 +76,7 @@ const BILLING_SECTIONS = [
   {
     id: 'quota',
     titleKey: 'Quota Settings',
-    build: (settings: BillingSettings) => (
-      <QuotaSettingsSection
-        defaultValues={{
-          QuotaForNewUser: settings.QuotaForNewUser,
-          PreConsumedQuota: settings.PreConsumedQuota,
-          QuotaForInviter: settings.QuotaForInviter,
-          ReferralRegistrationRewardQuota:
-            settings.ReferralRegistrationRewardQuota ?? 0,
-          ReferralMinTopUpAmounts:
-            settings.ReferralMinTopUpAmounts ?? '{"USD":"10","CNY":"70"}',
-          ReferralMinTopUpQuota: settings.ReferralMinTopUpQuota,
-          ReferralMaxRewardQuota: settings.ReferralMaxRewardQuota,
-          ReferralPenaltyPercent: settings.ReferralPenaltyPercent,
-          ReferralMaxPenaltyQuota: settings.ReferralMaxPenaltyQuota,
-          OpenSourceBountyFeeRate: settings.OpenSourceBountyFeeRate,
-          TopUpLink: settings.TopUpLink,
-          general_setting: {
-            docs_link: settings['general_setting.docs_link'],
-          },
-          quota_setting: {
-            enable_free_model_pre_consume:
-              settings['quota_setting.enable_free_model_pre_consume'],
-          },
-        }}
-        complianceConfirmed={
-          (settings['payment_setting.compliance_confirmed'] ?? false) &&
-          settings['payment_setting.compliance_terms_version'] === 'v1'
-        }
-      />
-    ),
+    build: () => <QuotaSettingsSection />,
   },
   {
     id: 'currency',
@@ -212,15 +183,7 @@ const BILLING_SECTIONS = [
   {
     id: 'checkin',
     titleKey: 'Check-in Rewards',
-    build: (settings: BillingSettings) => (
-      <CheckinSettingsSection
-        defaultValues={{
-          enabled: settings['checkin_setting.enabled'],
-          minQuota: settings['checkin_setting.min_quota'],
-          maxQuota: settings['checkin_setting.max_quota'],
-        }}
-      />
-    ),
+    build: () => <CheckinSettingsSection />,
   },
 ] as const
 

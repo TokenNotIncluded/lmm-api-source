@@ -12,11 +12,11 @@ import {
 import { createQueryRetry } from './query-retry'
 import { rateLimitWaitSeconds } from './request-rate-limit'
 
-function failure(status: number, retryAfter?: string) {
+function failure(status: number, retryAfter?: string, data: unknown = '') {
   return new AxiosError('request rejected', undefined, undefined, undefined, {
     status,
     statusText: 'rejected',
-    data: '',
+    data,
     config: {} as InternalAxiosRequestConfig,
     headers: new AxiosHeaders(retryAfter ? { 'Retry-After': retryAfter } : {}),
   })
@@ -54,6 +54,42 @@ test('actual query execution stops at one 429 attempt even with Retry-After', as
         },
       }),
       'recovered'
+    )
+    assert.equal(attempts, 2)
+    client.clear()
+  }
+})
+
+test('unmigrated routes stop after one attempt and a later user retry can recover', async () => {
+  for (const data of [
+    { error: { code: 'core_migration_incomplete' } },
+    { success: false, code: 'core_migration_incomplete' },
+  ]) {
+    const client = new QueryClient({
+      defaultOptions: {
+        queries: { retry: createQueryRetry(true), retryDelay: 0 },
+      },
+    })
+    let attempts = 0
+    await assert.rejects(
+      client.fetchQuery({
+        queryKey: ['unmigrated'],
+        queryFn: async () => {
+          attempts++
+          throw failure(503, undefined, data)
+        },
+      })
+    )
+    assert.equal(attempts, 1)
+    assert.equal(
+      await client.fetchQuery({
+        queryKey: ['unmigrated'],
+        queryFn: async () => {
+          attempts++
+          return 'ready'
+        },
+      }),
+      'ready'
     )
     assert.equal(attempts, 2)
     client.clear()
