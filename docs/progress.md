@@ -4,6 +4,10 @@
 
 ## 当前状态
 
+- **系统设置、定价和截图问题修复（源码已推送，现场闭环未完成）**：[eec3d27c](https://github.com/TokenNotIncluded/lmm-api-source/commit/eec3d27c2d0944f7a2fecb0fda48e9addb400b52) 修正未装配模块的配置引导和公告的会话隔离、重新登录及错误恢复；[24ed31e7](https://github.com/TokenNotIncluded/lmm-api-source/commit/24ed31e7fc7fa22a6259f84542898e3f6343ae69) 让具有独立接口的设置绕过旧 options 只读门控，补充精确定价表单、缓存及阶梯价格、分组倍率、草稿与预览确认发布，接入原生 Pancake 配置读取和保存，修复 OAuth 写入恢复及 Hero SMS 版本覆盖，并移除 L0–L6 等级权益、邀请升 L1、签到倍率与助手等级编辑控件。新增文案覆盖七种语言。
+  分项开发自测共 198 项 Web 测试通过；Pancake 的 webcompat/composition 定向 Go 测试和 Hero SMS 包测试通过。Web 生产构建及首屏包体门禁通过；完整 Web 类型检查被环境以 137 终止且没有 TS 诊断，不能记为通过。浏览器启动/控制均受当前环境阻塞，未取得实际页面截图，桌面、手机及明暗主题视觉检查未完成。
+  此轮未部署。当前 ssmcp 授权需要重新认证，无法核对现网路由、已装配模块或实际公告失败响应。Hero SMS 的 Core `settings/save-policy/test` 写侧在当前源码中仍缺失，修复 Go/Web 合同不代表真实短信配置已经可用；签到、推广及其他主机/安装阶段管理的配置也不能冒充在线保存。恢复开发机连接后须先核对运行版本及迁移状态，再继续补齐后端、验证配置持久化和公告读取。自测通过的范围不替代独立验收，也不代表用户要求的全部配置已恢复。
+
 - **渠道配置与 Rust 依赖更新（部分源码已推送，候选验证未完成，2026-11-18）**：[1362b3ac](https://github.com/TokenNotIncluded/lmm-api-source/commit/1362b3ac2c741c83cf955f5880d62bf28ab7ce4d) 更新依赖并适配可失败的 JWT 密钥构造；[112aedb4](https://github.com/TokenNotIncluded/lmm-api-source/commit/112aedb4442d496cf60c10eab0e2af48ab81f6f1) 增加版本绑定的原子批量渠道配置；[0de5ca6d](https://github.com/TokenNotIncluded/lmm-api-source/commit/0de5ca6d5938c8bc4e8d36e81df3dee62c9cd503) 对混合更新中的启用、标签和路由参数分别检查所需权限，全部授权通过后才修改。三项提交均已在 main，依赖版本见[Rust 依赖审查](rust-dependencies.md)。
   固定 74 组件候选的 Core release 构建与标准发布包验证通过；隔离 PostgreSQL 的批量配置 3 项通过。原基座 vault 测试 3 项中 2 项通过，1 项旧传输夹具因内存路由与数据库版本不一致返回 503，失败记录保留。已核对主线规范恢复替代用例保留关键断言，但该用例及 JWT、PSL、sysinfo、relay/zconv 定向库回归尚未启动，不能记为通过。
   前端卡片/表格和分区编辑器候选已有阶段性自测及桌面、窄屏检查；最终输入边界与密钥占位提示修正、26 文件 UI 提交及最终 Web 发布包仍未完成。当前项目开发机的 ssmcp 连接不可用，无法续跑或读回余下收据。本轮没有激活 Core/Web，没有完成线上验证或独立业务验收；已完成的构建与局部测试不代表渠道功能已上线。候选仍固定为现网兼容的 74 组件基座及本轮补丁，不包含 main 并行新增的第 75/76 组件。开发机证据入口：`out/channel-management-20261117/`；恢复连接后先核实既有任务结果与当前部署基线，再继续验证和发布。
