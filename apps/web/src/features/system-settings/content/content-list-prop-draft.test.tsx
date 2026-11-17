@@ -44,7 +44,9 @@ Object.defineProperty(globalThis, 'IS_REACT_ACT_ENVIRONMENT', {
   value: true,
 })
 const writes: { key: string; value: string | boolean }[] = []
-let saveResult: () => Promise<{ success: boolean }> = async () => ({ success: true })
+let saveResult: () => Promise<{ success: boolean }> = async () => ({
+  success: true,
+})
 mock.module('../hooks/use-update-option', () => ({
   useUpdateOption: () => ({
     isPending: false,
@@ -236,35 +238,49 @@ for (const fixture of cases) {
   if (fixture.name === 'announcements') {
     test('announcements: refresh preserves the unsaved list', async () => {
       const ui = await mount()
-      await ui.render(JSON.stringify([
-        fixture.data('Delete Alpha', 1),
-        fixture.data('Keep Beta', 2),
-      ]))
+      await ui.render(
+        JSON.stringify([
+          fixture.data('Delete Alpha', 1),
+          fixture.data('Keep Beta', 2),
+        ])
+      )
       await click(checkbox(1))
       await click(button('Delete (1)'))
       await click(button('Delete'))
-      await ui.render(JSON.stringify([
-        fixture.data('Server Alpha', 1),
-        fixture.data('Server Beta', 2),
-      ]))
-      assert.doesNotMatch(document.body.textContent || '', /Delete Alpha|Server Alpha|Server Beta/)
+      await ui.render(
+        JSON.stringify([
+          fixture.data('Server Alpha', 1),
+          fixture.data('Server Beta', 2),
+        ])
+      )
+      assert.doesNotMatch(
+        document.body.textContent || '',
+        /Delete Alpha|Server Alpha|Server Beta/
+      )
       assert.match(document.body.textContent || '', /Keep Beta/)
       assert.equal(button('Save Settings').disabled, false)
       await click(button('Save Settings'))
-      assert.deepEqual(JSON.parse(String(writes[0]?.value)), [fixture.data('Keep Beta', 2)])
+      assert.deepEqual(JSON.parse(String(writes[0]?.value)), [
+        fixture.data('Keep Beta', 2),
+      ])
     })
     test('announcements: acknowledgement retains edits made while saving', async () => {
       const ui = await mount()
-      await ui.render(JSON.stringify([
-        fixture.data('Delete Alpha', 1),
-        fixture.data('Delete Beta', 2),
-        fixture.data('Keep Gamma', 3),
-      ]))
+      await ui.render(
+        JSON.stringify([
+          fixture.data('Delete Alpha', 1),
+          fixture.data('Delete Beta', 2),
+          fixture.data('Keep Gamma', 3),
+        ])
+      )
       await click(checkbox(1))
       await click(button('Delete (1)'))
       await click(button('Delete'))
       let acknowledge!: (result: { success: boolean }) => void
-      saveResult = () => new Promise((resolve) => { acknowledge = resolve })
+      saveResult = () =>
+        new Promise((resolve) => {
+          acknowledge = resolve
+        })
       await click(button('Save Settings'))
       assert.equal(writes.length, 1)
       await click(checkbox(1))
@@ -275,11 +291,16 @@ for (const fixture of cases) {
         await flush()
       })
       assert.equal(button('Save Settings').disabled, false)
-      assert.doesNotMatch(document.body.textContent || '', /Delete Alpha|Delete Beta/)
+      assert.doesNotMatch(
+        document.body.textContent || '',
+        /Delete Alpha|Delete Beta/
+      )
       assert.match(document.body.textContent || '', /Keep Gamma/)
       saveResult = async () => ({ success: true })
       await click(button('Save Settings'))
-      assert.deepEqual(JSON.parse(String(writes[1]?.value)), [fixture.data('Keep Gamma', 3)])
+      assert.deepEqual(JSON.parse(String(writes[1]?.value)), [
+        fixture.data('Keep Gamma', 3),
+      ])
       assert.equal(button('Save Settings').disabled, true)
     })
     test('announcements: a rejected save keeps the pending list', async () => {
@@ -288,7 +309,9 @@ for (const fixture of cases) {
       await click(checkbox(1))
       await click(button('Delete (1)'))
       await click(button('Delete'))
-      saveResult = async () => { throw new Error('Server unavailable') }
+      saveResult = async () => {
+        throw new Error('Server unavailable')
+      }
       await click(button('Save Settings'))
       assert.equal(button('Save Settings').disabled, false)
       assert.doesNotMatch(document.body.textContent || '', /Delete Alpha/)

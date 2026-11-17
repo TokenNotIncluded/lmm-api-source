@@ -172,8 +172,8 @@ export function AnnouncementsSection({
   const [previousData, setPreviousData] = useState(data)
   const [previousEnabled, setPreviousEnabled] = useState(enabled)
   const [isEnabled, setIsEnabled] = useState(enabled === true)
-  const [savedData, setSavedData] = useState(
-    () => JSON.stringify(parseAnnouncementData(data) ?? [])
+  const [savedData, setSavedData] = useState(() =>
+    JSON.stringify(parseAnnouncementData(data) ?? [])
   )
   const hasChanges = JSON.stringify(announcements) !== savedData
   const [selectedIds, setSelectedIds] = useState<number[]>([])
