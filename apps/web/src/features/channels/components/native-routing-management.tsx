@@ -5,6 +5,7 @@ import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 
 import { Dialog } from '@/components/dialog'
+import { EmptyState } from '@/components/empty-state'
 import { ErrorState } from '@/components/error-state'
 import { LoadingState } from '@/components/loading-state'
 import { Alert, AlertDescription } from '@/components/ui/alert'
@@ -1547,6 +1548,38 @@ function NativeRoutingWorkspace({
             ))}
           </div>
         </>
+      )}
+      {(section === 'models' || section === 'vendors') && total === 0 && (
+        <div role='status'>
+          <EmptyState
+            className='min-h-48'
+            title={search.trim() ? t('No results found') : t('No Data')}
+            description={
+              search.trim()
+                ? t('Try a different search or clear the current filter.')
+                : section === 'models'
+                  ? t(
+                      'Add a new model to the system by providing the necessary information.'
+                    )
+                  : t('Add a new vendor to the system')
+            }
+            action={
+              search.trim() ? (
+                <Button
+                  type='button'
+                  variant='outline'
+                  className='min-h-11'
+                  onClick={() => {
+                    setSearch('')
+                    setPage(1)
+                  }}
+                >
+                  {t('Clear filters')}
+                </Button>
+              ) : undefined
+            }
+          />
+        </div>
       )}
       {section === 'prices' && (
         <>

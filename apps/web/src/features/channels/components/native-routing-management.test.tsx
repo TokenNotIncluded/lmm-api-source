@@ -12,7 +12,9 @@ import {
 
 type SuccessfulResponse<Data> = { data: { success: true; data: Data } }
 
-const dom = new Window()
+const dom = new Window({
+  settings: { device: { prefersReducedMotion: 'reduce' } },
+})
 for (const [name, value] of Object.entries({
   window: dom,
   document: dom.document,
@@ -169,7 +171,7 @@ const accountingCapabilities = {
   copy_preserve_counters: true,
 }
 async function mount(
-  initialSection: 'channels' | 'models' | 'prices',
+  initialSection: 'channels' | 'models' | 'vendors' | 'prices',
   nativeSecrets = true,
   accounting: Partial<typeof accountingCapabilities> = accountingCapabilities,
   client = new QueryClient({ defaultOptions: { queries: { retry: false } } }),
@@ -2522,3 +2524,65 @@ test('channel search explains an empty result and clearing restores the compact 
   assert.equal(search.value, '')
   assert.ok(container.querySelector('article[aria-label="Private provider"]'))
 })
+
+for (const section of ['models', 'vendors'] as const) {
+  test(`empty ${section} explain the next step and keep creation available`, async () => {
+    const config: NativeConfiguration = fixture()
+    if (section === 'models') config.routing.routes = []
+    api.request = (async (options: { method: string }) => {
+      assert.equal(options.method, 'GET')
+      return { data: { success: true, data: config } }
+    }) as typeof api.request
+    const container = await mount(section)
+    await until(
+      () =>
+        !!container
+          .querySelector('[role="status"]')
+          ?.textContent?.includes('No Data')
+    )
+    const empty = required(container.querySelector('[role="status"]'))
+    assert.match(empty.textContent ?? '', /No Data/)
+    assert.match(
+      empty.textContent ?? '',
+      section === 'models'
+        ? /Add a new model to the system/
+        : /Add a new vendor to the system/
+    )
+    assert.equal(empty.querySelector('button'), null)
+    const create = button(
+      container,
+      section === 'models' ? 'Add Model' : 'Create'
+    )
+    assert.equal(create.disabled, false)
+    await act(async () => create.click())
+    assert.ok(
+      container.querySelector(section === 'models' ? 'form' : 'textarea')
+    )
+  })
+
+  test(`unmatched ${section} search can be cleared to recover the list`, async () => {
+    const config: NativeConfiguration = fixture()
+    config.bindings.vendors = {
+      1: { id: 1, name: 'Synthetic vendor', description: '' },
+    }
+    const name = section === 'models' ? 'model-a' : 'Synthetic vendor'
+    api.request = (async (options: { method: string }) => {
+      assert.equal(options.method, 'GET')
+      return { data: { success: true, data: config } }
+    }) as typeof api.request
+    const container = await mount(section)
+    await until(() => !!container.textContent?.includes(name))
+    const search = required(
+      container.querySelector<HTMLInputElement>('input[aria-label="Search"]')
+    )
+    await changeInput(search, 'missing-result')
+    const empty = required(container.querySelector('[role="status"]'))
+    assert.match(empty.textContent ?? '', /No results found/)
+    assert.match(empty.textContent ?? '', /Try a different search or clear/)
+    assert.equal(container.textContent?.includes(name), false)
+    await act(async () => button(empty, 'Clear filters').click())
+    assert.equal(search.value, '')
+    assert.equal(container.querySelector('[role="status"]'), null)
+    assert.ok(container.textContent?.includes(name))
+  })
+}
