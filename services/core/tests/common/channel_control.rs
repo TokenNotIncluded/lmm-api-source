@@ -55,6 +55,8 @@ pub(super) fn fixture() -> ReleaseDocument {
         pricing: prices,
     }
 }
+// This shared fixture is used by channel_control, but not by channel_batch_configuration.
+#[allow(dead_code)]
 pub(super) fn route_request() -> lmm_core::routing::RouteRequest<'static> {
     lmm_core::routing::RouteRequest {
         model: "model-a",

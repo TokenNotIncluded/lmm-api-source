@@ -1,6 +1,7 @@
 /* Copyright (C) 2026 LIghtJUNction; SPDX-License-Identifier: AGPL-3.0-or-later */
 import { z } from 'zod'
 
+import type { ExtoreConnection } from './extore-types'
 import type { StoreProductInput } from './types'
 
 export const EXTORE_DEFAULT_ORIGIN = 'https://extore.lmm.best'
@@ -127,6 +128,19 @@ export function extoreOrigin(value: string): string {
     throw new Error('Enter a public HTTPS Extore base URL without a path.')
   }
   return url.origin
+}
+
+export function extoreSourceURL(
+  connection: ExtoreConnection,
+  sourceId?: string
+) {
+  if (!connection.origin) return undefined
+  try {
+    const origin = extoreOrigin(connection.origin)
+    return `${origin}/admin${sourceId ? `?product=${encodeURIComponent(sourceId)}` : ''}`
+  } catch {
+    return undefined
+  }
 }
 
 export function parseExtoreCatalog(value: unknown): ExtoreCatalog {
