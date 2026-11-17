@@ -815,7 +815,7 @@ function NativeRoutingWorkspace({
       </nav>
       {editor && (
         <form
-          className='bg-card min-w-0 space-y-6 rounded-xl p-5 sm:p-7'
+          className='min-w-0 space-y-6 p-5 sm:p-7'
           aria-label={editor.title}
           ref={editorRef}
           onSubmit={(event) => {
