@@ -151,6 +151,10 @@ fn routes(state: ChannelState) -> Router {
             axum::routing::put(control::configuration::update).delete(control::remove),
         )
         .route(
+            "/core/v1/admin/routing/channels/batch/configuration",
+            axum::routing::put(control::batch::configure),
+        )
+        .route(
             "/core/v1/admin/routing/channels/batch/tag",
             axum::routing::post(control::tags::native_batch),
         )
@@ -200,6 +204,7 @@ struct Params {
     group: Option<String>,
     model: Option<String>,
     status: Option<String>,
+    protocol: Option<Protocol>,
     #[serde(rename = "type")]
     channel_type: Option<u16>,
     sort_by: Option<String>,
@@ -383,6 +388,9 @@ fn page_with_statistics(
         }) && params.model.as_ref().is_none_or(|model| {
             model.is_empty() || channel.models.split(',').any(|value| value == model)
         }) && status.is_none_or(|status| channel.status == status)
+            && params
+                .protocol
+                .is_none_or(|protocol| channel.protocol == protocol)
     });
     let mut type_counts = std::collections::BTreeMap::<u16, usize>::new();
     for channel in &items {
@@ -1005,6 +1013,41 @@ mod tests {
             )
             .is_err()
         );
+    }
+
+    #[test]
+    fn protocol_filter_precedes_summary_and_pagination() {
+        let (mut config, _) = fixture();
+        config.upstreams[0].protocol = Protocol::AnthropicMessages;
+        config.upstreams[1].protocol = Protocol::AnthropicMessages;
+        config.upstreams[1].enabled = false;
+        let value = page(
+            &config,
+            Params {
+                protocol: Some(Protocol::AnthropicMessages),
+                page_size: Some(1),
+                p: Some(2),
+                statistics: Some(true),
+                ..Params::default()
+            },
+        )
+        .unwrap();
+        assert_eq!(value["data"]["total"], 2);
+        assert_eq!(value["data"]["items"][0]["id"], 2);
+        assert_eq!(value["data"]["summary"]["total"], 2);
+        assert_eq!(value["data"]["summary"]["enabled"], 1);
+        let value = page(
+            &config,
+            Params {
+                protocol: Some(Protocol::AnthropicMessages),
+                status: Some("enabled".into()),
+                group: Some("default".into()),
+                ..Params::default()
+            },
+        )
+        .unwrap();
+        assert_eq!(value["data"]["total"], 1);
+        assert_eq!(value["data"]["items"][0]["id"], 1);
     }
 
     pub(super) async fn request(

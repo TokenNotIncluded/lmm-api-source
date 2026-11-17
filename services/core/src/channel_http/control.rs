@@ -2,6 +2,7 @@
 //! the serving snapshot changes only after its audit and release commit.
 pub(super) mod accounting;
 pub(super) mod balance;
+pub(super) mod batch;
 pub(super) mod catalog;
 pub(super) mod configuration;
 pub(super) mod copy;
