@@ -1,8 +1,12 @@
 # 新架构进度
 
-更新于 2026-11-17。此文件只维护当前状态、剩余阻塞和证据入口；执行过程、逐轮测试及历史失败保留在 Git 历史与对应验收收据。
+更新于 2026-11-18。此文件只维护当前状态、剩余阻塞和证据入口；执行过程、逐轮测试及历史失败保留在 Git 历史与对应验收收据。
 
 ## 当前状态
+
+- **渠道配置与 Rust 依赖更新（部分源码已推送，候选验证未完成，2026-11-18）**：[1362b3ac](https://github.com/TokenNotIncluded/lmm-api-source/commit/1362b3ac2c741c83cf955f5880d62bf28ab7ce4d) 更新依赖并适配可失败的 JWT 密钥构造；[112aedb4](https://github.com/TokenNotIncluded/lmm-api-source/commit/112aedb4442d496cf60c10eab0e2af48ab81f6f1) 增加版本绑定的原子批量渠道配置；[0de5ca6d](https://github.com/TokenNotIncluded/lmm-api-source/commit/0de5ca6d5938c8bc4e8d36e81df3dee62c9cd503) 对混合更新中的启用、标签和路由参数分别检查所需权限，全部授权通过后才修改。三项提交均已在 main，依赖版本见[Rust 依赖审查](rust-dependencies.md)。
+  固定 74 组件候选的 Core release 构建与标准发布包验证通过；隔离 PostgreSQL 的批量配置 3 项通过。原基座 vault 测试 3 项中 2 项通过，1 项旧传输夹具因内存路由与数据库版本不一致返回 503，失败记录保留。已核对主线规范恢复替代用例保留关键断言，但该用例及 JWT、PSL、sysinfo、relay/zconv 定向库回归尚未启动，不能记为通过。
+  前端卡片/表格和分区编辑器候选已有阶段性自测及桌面、窄屏检查；最终输入边界与密钥占位提示修正、26 文件 UI 提交及最终 Web 发布包仍未完成。当前项目开发机的 ssmcp 连接不可用，无法续跑或读回余下收据。本轮没有激活 Core/Web，没有完成线上验证或独立业务验收；已完成的构建与局部测试不代表渠道功能已上线。候选仍固定为现网兼容的 74 组件基座及本轮补丁，不包含 main 并行新增的第 75/76 组件。开发机证据入口：`out/channel-management-20261117/`；恢复连接后先核实既有任务结果与当前部署基线，再继续验证和发布。
 
 - **原生地域与用户 IP 白名单（代码和 SQL 目标已补齐，Core 运行验证待续，2026-11-17）**：Rust Core 新增公开入口策略、进程内 MMDB 地域查询及可信 edge 元数据传递；用户 IPv4/IPv6/CIDR 白名单接入 Session、密码/MFA/OAuth 签发、浏览器刷新/恢复和模型/Key 读取。用户和 Key 规则取交，保存非空用户名单须包含本次服务端来源 IP；旧账户空设置按未配置处理。平台 `IPAccessRoutingRules` 接入保存、批量比较保存与审计，固定键函数保持 runtime 无 options 表直接写权限。配置与接口见[地域访问控制](network-access.md)。
   界面已推送 [44728f3](https://github.com/TokenNotIncluded/lmm-api-source/commit/44728f37d7ec3107a703b5a1e5f01e77c5253e0e)：真实设置页按可写 capability 挂载地域编辑器，个人卡片按用户/会话绑定请求，七语言通过 helper 同步；35 项定向测试、修改范围严格类型检查、lint 和局部真实组件构建通过。全项目 Web 类型检查两次被环境 SIGKILL/137 终止，无 TS 诊断；未完成浏览器截图，不能据此宣称视觉检查通过。
