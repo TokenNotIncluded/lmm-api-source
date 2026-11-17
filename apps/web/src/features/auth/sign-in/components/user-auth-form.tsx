@@ -498,15 +498,6 @@ export function UserAuthForm({
           </Button>
         )}
 
-        {hasAlternativeLogin && passwordLoginEnabled ? (
-          <div
-            className='auth-login-divider text-muted-foreground py-1 text-center text-xs'
-            aria-hidden='true'
-          >
-            {t('Or')}
-          </div>
-        ) : null}
-
         <HumanGrantButton
           configured={
             capabilitiesReady
