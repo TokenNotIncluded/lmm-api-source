@@ -23,14 +23,14 @@ export function useGuideCopy() {
 
   return {
     eyebrow: t('Getting started'),
-    title: t('Connect once. Start building.'),
+    title: t('Client configuration'),
     intro: t(
-      'Pick your device and app, then follow the steps to your first request.'
+      'Choose a client, connect your account and send your first request.'
     ),
     start: t('Choose my client'),
     assistant: t('Guide me with AI'),
     manualIntro: t(
-      'Pick your device and app, then follow the steps. Support is here if you get stuck.'
+      'Choose a client, connect your account and send your first request.'
     ),
     sectionsTitle: t('On this page'),
     sections: [

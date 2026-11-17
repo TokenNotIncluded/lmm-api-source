@@ -22,12 +22,14 @@ Copyright (C) 2026 LIghtJUNction
 // @ts-expect-error Bun's test module is available only in the test runtime.
 import { mock } from 'bun:test'
 import assert from 'node:assert/strict'
-import { test } from 'node:test'
+import { afterEach, test } from 'node:test'
 
 import { createInstance } from 'i18next'
 import type { ReactNode } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { I18nextProvider } from 'react-i18next'
+
+import type { StatusGroup } from './types'
 
 mock.module('@tanstack/react-router', () => ({
   getRouteApi: () => ({
@@ -42,22 +44,115 @@ mock.module('@/features/pricing/hooks/use-pricing-data', () => ({
   usePricingData: () => ({ models: [] }),
 }))
 let latestTimestamp: number | null = 1_790_000_000
+let groups: StatusGroup[] = []
+let coverage:
+  | {
+      availability: 'partial'
+      coverage: { sampled_requests: number; missing_samples: number }
+    }
+  | undefined
+let error: Error | null = null
+let isLoading = false
 mock.module('./hooks/use-status-detection', () => ({
   useStatusDetection: () => ({
-    groups: [],
+    groups,
+    coverage,
     availableModels: [],
     availableGroups: [],
     hours: 24,
     latestTimestamp,
-    modelsWithData: 0,
-    modelCount: 0,
-    isLoading: false,
+    modelsWithData: groups.length,
+    modelCount: groups.length,
+    failedModelCount: 0,
+    isLoading,
     isFetching: false,
-    error: null,
+    error,
     refresh: async () => {},
   }),
 }))
 const { StatusDetection } = await import('./index')
+
+afterEach(() => {
+  latestTimestamp = 1_790_000_000
+  groups = []
+  coverage = undefined
+  error = null
+  isLoading = false
+})
+
+async function statusMarkup() {
+  const i18n = createInstance()
+  await i18n.init({
+    lng: 'en',
+    resources: {},
+    interpolation: { escapeValue: false },
+  })
+  return renderToStaticMarkup(
+    <I18nextProvider i18n={i18n}>
+      <StatusDetection />
+    </I18nextProvider>
+  )
+}
+
+test('compact status cards retain partial coverage, stale samples and unknown readings', async () => {
+  groups = [
+    {
+      group: 'sampled-group',
+      avgTtftMs: 120,
+      avgLatencyMs: 400,
+      avgTps: 25,
+      successRate: 100,
+      successTrend: [100],
+      ttftTrend: [120],
+      modelCount: 1,
+    },
+  ]
+  coverage = {
+    availability: 'partial',
+    coverage: { sampled_requests: 8, missing_samples: 2 },
+  }
+  latestTimestamp = Date.now() - 7 * 60 * 60 * 1000
+  const partial = await statusMarkup()
+  assert.match(
+    partial,
+    /Partial coverage: 8 sampled requests; 2 missing samples/
+  )
+  assert.match(partial, /Partial performance coverage/)
+  assert.match(partial, /more than 6 hours old/)
+  assert.match(partial, /Data coverage: 1 of 1 models reported/)
+
+  coverage = undefined
+  latestTimestamp = null
+  groups = [
+    {
+      ...groups[0],
+      successRate: Number.NaN,
+      avgTtftMs: Number.NaN,
+      avgLatencyMs: Number.NaN,
+      avgTps: Number.NaN,
+      successTrend: [],
+      ttftTrend: [],
+    },
+  ]
+  const unknown = await statusMarkup()
+  assert.match(unknown, /No data/)
+  assert.match(unknown, /Performance window: last 24 hours/)
+  assert.doesNotMatch(unknown, /100%|0 ms|more than 6 hours old/)
+})
+
+test('loading and failed requests do not present zero coverage as measured data', async () => {
+  isLoading = true
+  assert.doesNotMatch(await statusMarkup(), /Data coverage: 0 of 0/)
+  isLoading = false
+  error = new Error('synthetic request failure')
+  const failed = await statusMarkup()
+  assert.match(failed, /Unable to load status data/)
+  assert.match(failed, /Retry/)
+  assert.doesNotMatch(
+    failed,
+    /Data coverage: 0 of 0|No status data is available yet/
+  )
+})
 
 test('status freshness renders across interface language changes and timestamp units', async () => {
   const i18n = createInstance()

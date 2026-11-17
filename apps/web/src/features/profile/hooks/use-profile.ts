@@ -34,25 +34,31 @@ import type {
 export function useProfile() {
   const [profile, setProfile] = useState<UserProfile | null>(null)
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
   const [updating, setUpdating] = useState(false)
 
   // Fetch user profile (with optional silent mode)
   const fetchProfile = useCallback(async (silent = false) => {
+    setError(null)
     try {
       if (!silent) {
         setLoading(true)
       }
-      const response = await getUserProfile()
-
-      if (response.success && response.data) {
-        setProfile(response.data)
+      const response = await getUserProfile({
+        skipBusinessError: true,
+        skipErrorHandler: true,
+      })
+      if (!response.success || !response.data) {
+        throw new Error(response.message || i18next.t('Failed to load profile'))
       }
+      setProfile(response.data)
     } catch (error) {
-      // eslint-disable-next-line no-console
-      console.error('Failed to fetch profile:', error)
-      if (!silent) {
-        toast.error(i18next.t('Failed to load profile'))
-      }
+      setProfile(null)
+      setError(
+        error instanceof Error
+          ? error.message
+          : i18next.t('Failed to load profile')
+      )
     } finally {
       if (!silent) {
         setLoading(false)
@@ -127,6 +133,7 @@ export function useProfile() {
   return {
     profile,
     loading,
+    error,
     updating,
     fetchProfile,
     refreshProfile,

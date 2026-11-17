@@ -608,8 +608,16 @@ export function checkinFailureCode(error: unknown): string | undefined {
 /**
  * List gifts currently visible to the user with claim/eligibility status
  */
-export async function getAvailableGifts(): Promise<ApiResponse<GiftItem[]>> {
-  const res = await api.get('/api/user/gift')
+export async function getAvailableGifts(
+  signal?: AbortSignal
+): Promise<ApiResponse<GiftItem[]>> {
+  const { user, session } = useAuthStore.getState().auth
+  const res = await api.get('/api/user/gift', {
+    signal,
+    authScope: { userId: user?.id, sessionId: session?.sid },
+    skipBusinessError: true,
+    skipErrorHandler: true,
+  })
   return res.data
 }
 

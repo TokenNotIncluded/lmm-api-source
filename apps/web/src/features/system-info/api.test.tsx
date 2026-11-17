@@ -265,6 +265,16 @@ test('instance panel shows stale readiness and bounded-list notice', async () =>
   assert.match(container.textContent ?? '', /Stale/)
   assert.match(container.textContent ?? '', /Unavailable/)
   assert.match(container.textContent ?? '', /200 most recent/)
+  const summary = container.querySelector('[aria-label="Instance summary"]')
+  assert.ok(summary)
+  assert.deepEqual(
+    [...summary.querySelectorAll('dd')].map((el) => el.textContent),
+    ['0', '1', '1']
+  )
+  assert.match(
+    container.textContent ?? '',
+    /Legacy service heartbeats are separate/
+  )
   assert.doesNotMatch(
     container.textContent ?? '',
     /Average CPU|master|worker-only/
@@ -318,6 +328,12 @@ test('system info page displays native resources and instance heartbeats togethe
   assert.ok(row)
   assert.equal(row.querySelectorAll('[role="cell"]').length, 3)
   assert.equal(container.querySelectorAll('[role="columnheader"]').length, 3)
+  const summary = container.querySelector('[aria-label="Instance summary"]')
+  assert.ok(summary)
+  assert.deepEqual(
+    [...summary.querySelectorAll('dd')].map((el) => el.textContent),
+    ['1', '0', '1']
+  )
   const core = row.querySelector('[data-process-status="running"]')
   assert.match(core?.textContent ?? '', /Core process/)
   assert.match(core?.textContent ?? '', /Version: 0\.1\.0/)

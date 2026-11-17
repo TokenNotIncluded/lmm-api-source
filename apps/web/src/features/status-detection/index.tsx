@@ -65,6 +65,8 @@ import { useStatusDetection } from './hooks/use-status-detection'
 import { sortStatusGroups } from './lib/aggregate'
 import type { StatusGroup, StatusSort } from './types'
 
+import './status-detection.css'
+
 type TFunction = {
   (key: string): string
   (key: string, options: Record<string, unknown>): string
@@ -123,16 +125,16 @@ function SummaryMetric(props: {
   className?: string
 }) {
   return (
-    <div className={cn('min-w-0 px-4 py-3', props.className)}>
+    <div className={cn('min-w-0 px-4 py-4', props.className)}>
       <dt className='text-muted-foreground text-sm sm:text-xs'>
         {props.label}
       </dt>
       <dd className='mt-1 flex min-w-0 items-baseline gap-2'>
-        <span className='text-foreground shrink-0 font-mono text-base font-semibold tabular-nums'>
+        <span className='text-foreground min-w-0 text-lg font-semibold break-words tabular-nums'>
           {props.value}
         </span>
         {props.detail && (
-          <span className='text-muted-foreground min-w-0 truncate text-sm sm:text-xs'>
+          <span className='text-muted-foreground min-w-0 text-xs break-words'>
             {props.detail}
           </span>
         )}
@@ -147,7 +149,7 @@ function TtftTrend(props: { values: number[]; label: string }) {
   )
   if (values.length === 0) {
     return (
-      <div className='border-border/50 text-muted-foreground flex h-16 items-center justify-center rounded-md border border-dashed text-xs'>
+      <div className='bg-muted/45 text-muted-foreground flex h-14 items-center justify-center rounded-md px-3 text-xs'>
         {props.label}
       </div>
     )
@@ -213,11 +215,11 @@ function SuccessPips(props: {
 function statusSurfaceClass(level: SuccessRateLevel) {
   switch (level) {
     case 'warning':
-      return 'border-warning/35 bg-warning/10'
+      return 'bg-warning/10'
     case 'critical':
-      return 'border-destructive/35 bg-destructive/10'
+      return 'bg-destructive/10'
     default:
-      return 'border-border/70 bg-muted/40'
+      return 'bg-muted/50'
   }
 }
 
@@ -236,10 +238,10 @@ function GroupStatusCard(props: {
   return (
     <Card
       data-card-hover='false'
-      className='border-border/70 bg-card min-w-0 rounded-xl shadow-none'
+      className='bg-card min-w-0 rounded-xl border-0 shadow-none'
       size='sm'
     >
-      <CardHeader className='border-border/60 gap-3 border-b px-4 py-3'>
+      <CardHeader className='gap-3 px-4 pt-4 pb-1'>
         <div className='min-w-0'>
           <CardTitle
             className='line-clamp-2 min-w-0 text-base leading-5 font-semibold tracking-normal break-words'
@@ -251,23 +253,14 @@ function GroupStatusCard(props: {
             {t('{{count}} models reporting', { count: props.group.modelCount })}
           </span>
         </div>
-        <div className='flex min-w-0 items-center justify-between gap-3'>
+        <div className='flex min-w-0 flex-wrap items-center justify-between gap-2'>
           <div
             className={cn(
-              'flex min-w-0 items-center gap-1.5 rounded-full border px-2 py-1 text-sm sm:text-xs',
+              'flex min-w-0 max-w-full items-center gap-1.5 rounded-md px-2 py-1.5 text-xs',
               statusSurfaceClass(level)
             )}
           >
             <span className='relative grid shrink-0 place-items-center'>
-              {level === 'excellent' || level === 'good' ? (
-                <span
-                  aria-hidden='true'
-                  className={cn(
-                    'motion-safe:animate-ping absolute inline-flex size-4 rounded-full opacity-60',
-                    getSuccessRateDotClass(props.group.successRate)
-                  )}
-                />
-              ) : null}
               <Icon
                 className={cn(
                   'relative size-3.5 shrink-0',
@@ -278,7 +271,7 @@ function GroupStatusCard(props: {
                 aria-hidden='true'
               />
             </span>
-            <span className='text-foreground truncate font-medium'>
+            <span className='text-foreground min-w-0 font-medium break-words'>
               {props.partial
                 ? t('Partial performance coverage')
                 : statusLabel(t, level)}
@@ -294,13 +287,13 @@ function GroupStatusCard(props: {
           />
         </div>
       </CardHeader>
-      <CardContent className='flex flex-col gap-3 px-4 py-3'>
+      <CardContent className='flex flex-col gap-4 px-4 pt-3 pb-4'>
         <dl>
           <div className='flex items-baseline justify-between gap-3'>
             <dt className='text-muted-foreground text-sm font-medium sm:text-xs'>
               {t('Average TTFT')}
             </dt>
-            <dd className='text-foreground font-mono text-2xl font-semibold tabular-nums'>
+            <dd className='text-foreground text-xl font-semibold tabular-nums'>
               {formatLatency(props.group.avgTtftMs)}
             </dd>
           </div>
@@ -309,7 +302,7 @@ function GroupStatusCard(props: {
           values={props.group.ttftTrend}
           label={props.ttftTrendLabel}
         />
-        <dl className='border-border/60 grid grid-cols-2 border-t pt-3'>
+        <dl className='grid grid-cols-2 gap-4 pt-1'>
           <MetricValue
             label={t('Average latency')}
             value={formatLatency(props.group.avgLatencyMs)}
@@ -326,11 +319,11 @@ function GroupStatusCard(props: {
 
 function MetricValue(props: { label: string; value: string }) {
   return (
-    <div className='min-w-0 first:pr-3 last:border-l last:pl-3'>
-      <dt className='text-muted-foreground truncate text-sm sm:text-xs'>
+    <div className='min-w-0'>
+      <dt className='text-muted-foreground text-xs break-words'>
         {props.label}
       </dt>
-      <dd className='text-foreground mt-1 truncate font-mono text-sm font-semibold tabular-nums'>
+      <dd className='text-foreground mt-1 text-sm font-medium break-words tabular-nums'>
         {props.value}
       </dd>
     </div>
@@ -340,8 +333,8 @@ function MetricValue(props: { label: string; value: string }) {
 function StatusDetectionSkeleton() {
   return (
     <div className='space-y-5'>
-      <Skeleton className='h-[116px] rounded-lg sm:h-[74px]' />
-      <div className='grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3'>
+      <Skeleton className='h-24 rounded-xl' />
+      <div className='status-group-grid'>
         {Array.from({ length: 6 }).map((_, index) => (
           <Skeleton key={index} className='h-64 rounded-xl' />
         ))}
@@ -352,7 +345,7 @@ function StatusDetectionSkeleton() {
 
 function EmptyStatusState(props: { message: string }) {
   return (
-    <div className='border-border/70 bg-card rounded-lg border border-dashed px-6 py-14 text-center'>
+    <div className='bg-muted/35 rounded-xl px-6 py-10 text-center'>
       <AlertCircle
         className='text-muted-foreground/60 mx-auto size-8'
         aria-hidden='true'
@@ -460,21 +453,24 @@ export function StatusDetection() {
 
   return (
     <ForgePublicShell>
-      <main className='min-h-svh'>
-        <div className='mx-auto w-full max-w-7xl space-y-8 px-5 pt-12 pb-20 md:px-10 md:pt-16'>
+      <main className='status-detection min-h-svh'>
+        <div className='status-detection-container'>
           <div className='flex flex-wrap items-end justify-between gap-3'>
             <div className='min-w-0'>
-              <h1 className='font-serif text-5xl leading-[1.05] font-normal tracking-tight sm:text-6xl'>
+              <h1 className='status-detection-title'>
                 {t('Status detection')}
               </h1>
-              <p className='text-muted-foreground mt-1 text-sm'>
+              <p className='text-muted-foreground mt-2 text-sm'>
+                {t('Request performance by group')}
+              </p>
+              <p className='text-muted-foreground mt-1 text-xs'>
                 {freshnessLabel}
               </p>
             </div>
             <Button
               variant='outline'
               size='sm'
-              className='h-11 sm:h-8'
+              className='h-11 sm:h-9'
               onClick={() => void status.refresh()}
               disabled={status.isFetching}
               aria-label={t('Refresh')}
@@ -501,13 +497,13 @@ export function StatusDetection() {
             </p>
           )}
 
-          <div className='border-foreground/20 grid gap-3 border-y py-4 sm:grid-cols-4'>
+          <div className='status-filter-grid bg-muted/35 rounded-xl p-4'>
             <Select
               value={String(search.hours)}
               onValueChange={(value) => value && updateSearch('hours', value)}
             >
               <SelectTrigger
-                className='h-10 w-full'
+                className='min-h-11 w-full'
                 aria-label={t('Time range')}
               >
                 <SelectValue>
@@ -546,7 +542,10 @@ export function StatusDetection() {
                 value && updateSearch('model', value === 'all' ? '' : value)
               }
             >
-              <SelectTrigger className='h-10 w-full' aria-label={t('Model')}>
+              <SelectTrigger
+                className='min-h-11 w-full'
+                aria-label={t('Model')}
+              >
                 <SelectValue>{search.model || t('All models')}</SelectValue>
               </SelectTrigger>
               <SelectContent>
@@ -564,7 +563,10 @@ export function StatusDetection() {
                 value && updateSearch('group', value === 'all' ? '' : value)
               }
             >
-              <SelectTrigger className='h-10 w-full' aria-label={t('Group')}>
+              <SelectTrigger
+                className='min-h-11 w-full'
+                aria-label={t('Group')}
+              >
                 <SelectValue>{search.group || t('All groups')}</SelectValue>
               </SelectTrigger>
               <SelectContent>
@@ -584,7 +586,7 @@ export function StatusDetection() {
                 }
               >
                 <SelectTrigger
-                  className='h-10 w-full'
+                  className='min-h-11 w-full'
                   aria-label={t('Provider')}
                 >
                   <SelectValue>
@@ -604,7 +606,7 @@ export function StatusDetection() {
             {hasActiveFilters ? (
               <Button
                 variant='ghost'
-                className='h-10 justify-self-start sm:col-span-4 sm:justify-self-end'
+                className='status-filter-reset min-h-11'
                 onClick={clearFilters}
               >
                 {t('Clear filters')}
@@ -612,12 +614,14 @@ export function StatusDetection() {
             ) : null}
           </div>
 
-          <p className='text-muted-foreground text-xs' role='status'>
-            {t('Data coverage: {{reported}} of {{total}} models reported.', {
-              reported: status.modelsWithData,
-              total: status.modelCount,
-            })}
-          </p>
+          {!status.isLoading && !hasError && (
+            <p className='text-muted-foreground text-xs' role='status'>
+              {t('Data coverage: {{reported}} of {{total}} models reported.', {
+                reported: status.modelsWithData,
+                total: status.modelCount,
+              })}
+            </p>
+          )}
           {dataMayBeDelayed ? (
             <p className='text-muted-foreground text-xs' role='status'>
               {t(
@@ -655,9 +659,8 @@ export function StatusDetection() {
             />
           ) : (
             <>
-              <dl className='border-border/70 bg-card grid grid-cols-2 overflow-hidden rounded-lg border sm:grid-cols-4'>
+              <dl className='bg-muted/35 grid grid-cols-2 gap-x-4 rounded-xl sm:grid-cols-4'>
                 <SummaryMetric
-                  className='border-border/60 border-r border-b sm:border-b-0'
                   label={t('Fastest first token')}
                   value={
                     fastestGroup &&
@@ -675,12 +678,10 @@ export function StatusDetection() {
                   }
                 />
                 <SummaryMetric
-                  className='border-border/60 border-b sm:border-r sm:border-b-0'
                   label={t('Groups monitored')}
                   value={String(status.groups.length)}
                 />
                 <SummaryMetric
-                  className='border-border/60 border-r'
                   label={t('Operational')}
                   value={partial ? '—' : String(healthyCount)}
                 />
@@ -728,7 +729,7 @@ export function StatusDetection() {
                   >
                     <SelectTrigger
                       size='sm'
-                      className='h-11 w-full sm:h-8 sm:w-52'
+                      className='min-h-11 w-full sm:w-52'
                       aria-label={t('Sort groups')}
                     >
                       <SelectValue>
@@ -760,7 +761,7 @@ export function StatusDetection() {
                     </SelectContent>
                   </Select>
                 </div>
-                <div className='grid grid-cols-1 gap-3 sm:gap-4 md:grid-cols-2 xl:grid-cols-3'>
+                <div className='status-group-grid'>
                   {sortedGroups.map((group) => (
                     <GroupStatusCard
                       key={group.group}

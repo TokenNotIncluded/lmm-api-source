@@ -33,6 +33,7 @@ import {
   pluginDependencies,
   pluginDependents,
 } from './lifecycle'
+import { pluginPresentation } from './presentation'
 import { usePlugins } from './use-plugins'
 
 type Selection =
@@ -167,7 +168,8 @@ function PluginInventory({ scope }: { scope: NativeUsersScope }) {
 
   const visible = registry.filter(
     (plugin) =>
-      plugin.name
+      [plugin.name, ...Object.values(pluginPresentation(plugin.name, t))]
+        .join(' ')
         .toLocaleLowerCase()
         .includes(search.trim().toLocaleLowerCase()) &&
       (filter === 'all' ||
@@ -175,7 +177,9 @@ function PluginInventory({ scope }: { scope: NativeUsersScope }) {
           ? plugin.enabled
           : filter === 'disabled'
             ? plugin.installed && !plugin.enabled
-            : !plugin.installed))
+            : filter === 'unavailable'
+              ? !plugin.available
+              : !plugin.installed))
   )
   const actionLabel = (action: PluginAction) => {
     switch (action) {
@@ -219,11 +223,11 @@ function PluginInventory({ scope }: { scope: NativeUsersScope }) {
               )
 
   return (
-    <div className='@container/plugins min-w-0 space-y-8'>
+    <div className='@container/plugins min-w-0 space-y-6'>
       <p className='text-muted-foreground max-w-2xl text-sm leading-relaxed'>
         {t('Manage the modules available in this instance.')}
       </p>
-      <dl className='flex flex-wrap gap-x-12 gap-y-5'>
+      <dl className='bg-muted/40 grid grid-cols-3 gap-4 rounded-xl px-5 py-4'>
         {[
           [
             t('Enabled modules'),
@@ -240,7 +244,7 @@ function PluginInventory({ scope }: { scope: NativeUsersScope }) {
         ].map(([label, value]) => (
           <div key={label} className='space-y-1'>
             <dt className='text-muted-foreground text-xs'>{label}</dt>
-            <dd className='text-3xl font-medium tracking-tight tabular-nums'>
+            <dd className='text-2xl font-semibold tracking-tight tabular-nums'>
               {value}
             </dd>
           </div>
@@ -269,7 +273,7 @@ function PluginInventory({ scope }: { scope: NativeUsersScope }) {
       )}
       <div className='flex min-w-0 flex-wrap items-center gap-3'>
         <Input
-          className='min-h-11 w-full min-w-0 @min-[36rem]/plugins:w-64'
+          className='min-h-11 w-full min-w-0 @min-[36rem]/plugins:w-72'
           type='search'
           aria-label={t('Search plugins')}
           placeholder={t('Search plugins')}
@@ -286,6 +290,7 @@ function PluginInventory({ scope }: { scope: NativeUsersScope }) {
           <option value='enabled'>{t('Enabled')}</option>
           <option value='disabled'>{t('Disabled')}</option>
           <option value='uninstalled'>{t('Not installed')}</option>
+          <option value='unavailable'>{t('Unavailable')}</option>
         </select>
         <div className='flex flex-wrap gap-2 @min-[36rem]/plugins:ms-auto'>
           <Button
@@ -306,11 +311,34 @@ function PluginInventory({ scope }: { scope: NativeUsersScope }) {
           </Button>
         </div>
       </div>
-      <section aria-label={t('Plugin management')} className='divide-y'>
+      <p
+        className='text-muted-foreground text-xs tabular-nums'
+        aria-live='polite'
+      >
+        {t('Showing {{visible}} of {{total}} modules', {
+          visible: visible.length,
+          total: registry.length,
+        })}
+      </p>
+      <section
+        aria-label={t('Plugin management')}
+        className='grid min-w-0 items-start gap-4 @min-[42rem]/plugins:grid-cols-2 @min-[68rem]/plugins:grid-cols-3'
+      >
         {visible.length === 0 && (
-          <p className='text-muted-foreground py-12 text-sm'>
-            {t('No results found.')}
-          </p>
+          <div className='col-span-full space-y-3 py-10 text-center'>
+            <p className='text-muted-foreground text-sm'>
+              {t('No results found.')}
+            </p>
+            <Button
+              variant='ghost'
+              onClick={() => {
+                setSearch('')
+                setFilter('all')
+              }}
+            >
+              {t('Clear filters')}
+            </Button>
+          </div>
         )}
         {visible.map((plugin) => {
           const action: PluginAction = !plugin.installed
@@ -320,16 +348,17 @@ function PluginInventory({ scope }: { scope: NativeUsersScope }) {
               : 'enable'
           const dependencies = pluginDependencies(plugin, registry)
           const dependents = pluginDependents(plugin, registry)
+          const presentation = pluginPresentation(plugin.name, t)
           return (
             <article
               key={plugin.name}
               data-plugin={plugin.name}
-              className='grid min-w-0 gap-5 py-6 first:pt-0 @min-[48rem]/plugins:grid-cols-[minmax(0,1fr)_auto] @min-[48rem]/plugins:items-start'
+              className='bg-card grid min-w-0 gap-4 rounded-xl p-5'
             >
               <div className='min-w-0 space-y-3'>
-                <div className='flex min-w-0 flex-wrap items-center gap-x-3 gap-y-2'>
+                <div className='flex min-w-0 flex-wrap items-center justify-between gap-x-3 gap-y-2'>
                   <h3 className='text-base font-semibold [overflow-wrap:anywhere]'>
-                    {plugin.name}
+                    {presentation.title}
                   </h3>
                   <Badge
                     variant='secondary'
@@ -345,12 +374,21 @@ function PluginInventory({ scope }: { scope: NativeUsersScope }) {
                           ? t('Disabled')
                           : t('Not installed')}
                   </Badge>
-                  <span className='text-muted-foreground text-xs tabular-nums'>
-                    {plugin.version}
-                  </span>
                 </div>
+                <p className='text-muted-foreground flex min-w-0 flex-wrap items-center gap-x-2 text-xs'>
+                  <code className='[overflow-wrap:anywhere]'>
+                    {plugin.name}
+                  </code>
+                  <span aria-hidden='true'>·</span>
+                  <span className='tabular-nums'>{plugin.version}</span>
+                </p>
+                {presentation.description && (
+                  <p className='text-muted-foreground text-sm leading-relaxed'>
+                    {presentation.description}
+                  </p>
+                )}
                 {!plugin.available && (
-                  <p className='text-muted-foreground text-sm'>
+                  <p className='text-warning text-xs leading-relaxed'>
                     {t(
                       'Configure this module on the host before installing or enabling it.'
                     )}
@@ -359,14 +397,14 @@ function PluginInventory({ scope }: { scope: NativeUsersScope }) {
                 {plugin.installed &&
                   !plugin.enabled &&
                   dependencies.length > 0 && (
-                    <p className='text-muted-foreground text-sm [overflow-wrap:anywhere]'>
+                    <p className='text-warning text-xs [overflow-wrap:anywhere]'>
                       {t('Required modules are not enabled: {{names}}.', {
                         names: dependencies.join(', '),
                       })}
                     </p>
                   )}
                 {plugin.enabled && dependents.length > 0 && (
-                  <p className='text-muted-foreground text-sm [overflow-wrap:anywhere]'>
+                  <p className='text-muted-foreground text-xs [overflow-wrap:anywhere]'>
                     {t('Disable dependent modules first: {{names}}.', {
                       names: dependents.join(', '),
                     })}
@@ -376,7 +414,7 @@ function PluginInventory({ scope }: { scope: NativeUsersScope }) {
                   <summary className='text-muted-foreground min-h-11 w-fit cursor-pointer content-center focus-visible:outline-2 focus-visible:outline-offset-2'>
                     {t('Plugin details')}
                   </summary>
-                  <dl className='bg-muted/50 [&_dt]:text-muted-foreground mt-2 grid min-w-0 gap-4 rounded-lg p-4 @min-[36rem]/plugins:grid-cols-2 [&_dd]:mt-1 [&_dd]:[overflow-wrap:anywhere]'>
+                  <dl className='[&_dt]:text-muted-foreground mt-2 grid min-w-0 grid-cols-2 gap-4 [&_dd]:mt-1 [&_dd]:[overflow-wrap:anywhere]'>
                     <div>
                       <dt>{t('API version')}</dt>
                       <dd>{plugin.api_version}</dd>
@@ -395,7 +433,7 @@ function PluginInventory({ scope }: { scope: NativeUsersScope }) {
                       <dt>{t('Requires')}</dt>
                       <dd>{plugin.requires?.join(', ') || t('None')}</dd>
                     </div>
-                    <div className='@min-[36rem]/plugins:col-span-2'>
+                    <div className='col-span-2'>
                       <dt>{t('Registration fingerprint')}</dt>
                       <dd>
                         <code>{plugin.registration_sha256}</code>
@@ -404,7 +442,7 @@ function PluginInventory({ scope }: { scope: NativeUsersScope }) {
                   </dl>
                 </details>
               </div>
-              <div className='flex flex-wrap gap-2'>
+              <div className='flex flex-wrap items-center gap-2'>
                 <Button
                   variant={action === 'disable' ? 'outline' : 'default'}
                   className='min-h-11'

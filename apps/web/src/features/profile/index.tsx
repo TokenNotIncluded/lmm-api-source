@@ -16,30 +16,31 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { useQuery } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
 
+import { ErrorState } from '@/components/error-state'
 import { SectionPageLayout } from '@/components/layout'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { TeamsPanel } from '@/features/teams/panel'
 import { useStatus } from '@/hooks/use-status'
 import { useAuthStore } from '@/stores/auth-store'
 
-import { getCheckinCapabilities } from './api'
-import { CheckinCalendarCard } from './components/checkin-calendar-card'
 import { CheckinHistoryCard } from './components/checkin-history-card'
 import { GiftCard } from './components/gift-card'
 import { LanguagePreferencesCard } from './components/language-preferences-card'
 import { LoginSessionsCard } from './components/login-sessions-card'
 import { OAuthGrantsCard } from './components/oauth-grants-card'
 import { PasskeyCard } from './components/passkey-card'
+import {
+  ProfileCheckinCapability,
+  ProfileTwoFactorCapability,
+} from './components/profile-feature-capabilities'
 import { ProfileHeader } from './components/profile-header'
 import { ProfileSecurityCard } from './components/profile-security-card'
 import { ProfileSettingsCard } from './components/profile-settings-card'
 import { ReferralOverviewCard } from './components/referral-overview-card'
 import { SettlementCurrencyCard } from './components/settlement-currency-card'
 import { SidebarModulesCard } from './components/sidebar-modules-card'
-import { TwoFACard } from './components/two-fa-card'
 import { WalletDisplayCurrencyCard } from './components/wallet-display-currency-card'
 import { useProfile } from './hooks'
 
@@ -60,93 +61,107 @@ export function ProfilePasskeyCapability({
 
 export function Profile() {
   const { t } = useTranslation()
-  const { profile, loading, refreshProfile } = useProfile()
-  const { status, capabilitiesReady } = useStatus()
+  const { profile, loading, error, fetchProfile, refreshProfile } = useProfile()
+  const {
+    status,
+    capabilitiesReady,
+    loading: statusLoading,
+    refetch: refreshStatus,
+  } = useStatus()
   const permissions = useAuthStore((s) => s.auth.user?.permissions)
-  const { data: checkinCapabilities } = useQuery({
-    queryKey: ['checkin', 'capabilities'],
-    queryFn: getCheckinCapabilities,
-    retry: false,
-  })
-  const checkinEnabled = checkinCapabilities?.enabled === true
   const canConfigureSidebar = permissions?.sidebar_settings !== false
 
   return (
     <SectionPageLayout>
       <SectionPageLayout.Title>{t('Profile')}</SectionPageLayout.Title>
       <SectionPageLayout.Content>
-        <Tabs
-          defaultValue='overview'
-          className='console-page-tabs mx-auto max-w-6xl'
-        >
-          <TabsList variant='navigation' aria-label={t('Profile')}>
-            <TabsTrigger value='overview'>{t('Overview')}</TabsTrigger>
-            <TabsTrigger value='account'>{t('Account')}</TabsTrigger>
-            <TabsTrigger value='security'>{t('Security')}</TabsTrigger>
-            <TabsTrigger value='teams'>{t('Teams')}</TabsTrigger>
-            <TabsTrigger value='preferences'>{t('Preferences')}</TabsTrigger>
-            <TabsTrigger value='rewards'>{t('Rewards')}</TabsTrigger>
-          </TabsList>
-          <TabsContent value='overview' keepMounted>
-            <ProfileHeader profile={profile} loading={loading} />
-          </TabsContent>
-          <TabsContent value='account' keepMounted className='space-y-5'>
-            <ProfileSettingsCard
-              profile={profile}
-              loading={loading}
-              onProfileUpdate={refreshProfile}
-            />
-          </TabsContent>
-          <TabsContent value='security' keepMounted className='space-y-5'>
-            <div className='grid items-start gap-5 lg:grid-cols-2'>
-              <ProfileSecurityCard profile={profile} loading={loading} />
-              <div className='space-y-5'>
-                <TwoFACard loading={loading} />
-                <ProfilePasskeyCapability
-                  capabilitiesReady={capabilitiesReady}
-                  passkeyLogin={status?.passkey_login === true}
+        {error ? (
+          <ErrorState
+            title={t('Failed to load profile')}
+            description={error}
+            onRetry={() => void fetchProfile()}
+          />
+        ) : (
+          <Tabs
+            defaultValue='overview'
+            className='console-page-tabs mx-auto max-w-6xl'
+          >
+            <TabsList variant='navigation' aria-label={t('Profile')}>
+              <TabsTrigger value='overview'>{t('Overview')}</TabsTrigger>
+              <TabsTrigger value='account'>{t('Account')}</TabsTrigger>
+              <TabsTrigger value='security'>{t('Security')}</TabsTrigger>
+              <TabsTrigger value='teams'>{t('Teams')}</TabsTrigger>
+              <TabsTrigger value='preferences'>{t('Preferences')}</TabsTrigger>
+              <TabsTrigger value='rewards'>{t('Rewards')}</TabsTrigger>
+            </TabsList>
+            <TabsContent value='overview'>
+              <ProfileHeader profile={profile} loading={loading} />
+            </TabsContent>
+            <TabsContent value='account' className='space-y-5'>
+              <ProfileSettingsCard
+                profile={profile}
+                loading={loading}
+                onProfileUpdate={refreshProfile}
+              />
+            </TabsContent>
+            <TabsContent value='security' className='space-y-5'>
+              <div className='grid items-start gap-5 lg:grid-cols-2'>
+                <ProfileSecurityCard profile={profile} loading={loading} />
+                <div className='space-y-5'>
+                  <ProfileTwoFactorCapability
+                    ready={capabilitiesReady}
+                    enabled={status?.two_factor_enabled === true}
+                    loading={statusLoading}
+                    onRefresh={() => void refreshStatus()}
+                  />
+                  <ProfilePasskeyCapability
+                    capabilitiesReady={capabilitiesReady}
+                    passkeyLogin={status?.passkey_login === true}
+                    loading={loading}
+                  />
+                </div>
+              </div>
+              <LoginSessionsCard />
+              <OAuthGrantsCard />
+            </TabsContent>
+            <TabsContent value='teams'>
+              <TeamsPanel />
+            </TabsContent>
+            <TabsContent value='preferences' className='space-y-5'>
+              <div className='grid items-start gap-5 lg:grid-cols-2'>
+                <LanguagePreferencesCard
+                  profile={profile}
+                  onProfileUpdate={refreshProfile}
+                />
+                <WalletDisplayCurrencyCard
+                  profile={profile}
                   loading={loading}
+                  onProfileUpdate={refreshProfile}
+                />
+                <SettlementCurrencyCard
+                  profile={profile}
+                  loading={loading}
+                  onProfileUpdate={refreshProfile}
                 />
               </div>
-            </div>
-            <LoginSessionsCard />
-            <OAuthGrantsCard />
-          </TabsContent>
-          <TabsContent value='teams'>
-            <TeamsPanel />
-          </TabsContent>
-          <TabsContent value='preferences' keepMounted className='space-y-5'>
-            <div className='grid items-start gap-5 lg:grid-cols-2'>
-              <LanguagePreferencesCard
-                profile={profile}
-                onProfileUpdate={refreshProfile}
+              {canConfigureSidebar && <SidebarModulesCard />}
+            </TabsContent>
+            <TabsContent
+              value='rewards'
+              className='grid items-start gap-5 lg:grid-cols-2'
+            >
+              <GiftCard />
+              <ReferralOverviewCard />
+              <CheckinHistoryCard />
+              <ProfileCheckinCapability
+                ready={capabilitiesReady}
+                enabled={status?.checkin_enabled === true}
+                loading={statusLoading}
+                onRefresh={() => void refreshStatus()}
               />
-              <WalletDisplayCurrencyCard
-                profile={profile}
-                loading={loading}
-                onProfileUpdate={refreshProfile}
-              />
-              <SettlementCurrencyCard
-                profile={profile}
-                loading={loading}
-                onProfileUpdate={refreshProfile}
-              />
-            </div>
-            {canConfigureSidebar && <SidebarModulesCard />}
-          </TabsContent>
-          <TabsContent
-            value='rewards'
-            keepMounted
-            className='grid items-start gap-5 lg:grid-cols-2'
-          >
-            <GiftCard />
-            <ReferralOverviewCard />
-            <CheckinHistoryCard />
-            {checkinEnabled && (
-              <CheckinCalendarCard checkinEnabled={checkinEnabled} />
-            )}
-          </TabsContent>
-        </Tabs>
+            </TabsContent>
+          </Tabs>
+        )}
       </SectionPageLayout.Content>
     </SectionPageLayout>
   )

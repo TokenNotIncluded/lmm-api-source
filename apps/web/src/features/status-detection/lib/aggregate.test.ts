@@ -22,7 +22,46 @@ Copyright (C) 2026 LIghtJUNction
 import assert from 'node:assert/strict'
 import { describe, test } from 'node:test'
 
-import { aggregateStatusGroups, sortStatusGroups } from './aggregate'
+import {
+  aggregateStatusGroups,
+  latestStatusTimestamp,
+  sortStatusGroups,
+} from './aggregate'
+
+test('freshness retains the latest real sample and leaves absent timestamps unknown', () => {
+  const metrics = {
+    avg_ttft_ms: 120,
+    avg_latency_ms: 300,
+    avg_tps: 20,
+    success_rate: 100,
+  }
+  const snapshot = (times: number[]) => ({
+    modelName: 'sampled-model',
+    groups: [
+      {
+        ...metrics,
+        group: 'default',
+        series: times.map((ts) => ({ ...metrics, ts })),
+      },
+    ],
+  })
+  assert.equal(
+    latestStatusTimestamp([
+      snapshot([1790000000, 1790001800]),
+      snapshot([1790000900]),
+    ]),
+    1790001800
+  )
+  assert.equal(
+    latestStatusTimestamp([snapshot([Number.NaN, 1790001800000])]),
+    1790001800000
+  )
+  assert.equal(latestStatusTimestamp([]), null)
+  assert.equal(
+    latestStatusTimestamp([snapshot([]), snapshot([Number.NaN])]),
+    null
+  )
+})
 
 describe('aggregateStatusGroups', () => {
   test('orders aggregated metrics consistently for every input permutation', () => {

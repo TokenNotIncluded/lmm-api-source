@@ -21,7 +21,6 @@ import { Link, useNavigate } from '@tanstack/react-router'
 import {
   ArrowRight,
   ArrowUpRight,
-  BookOpen,
   Check,
   ChevronDown,
   Copy,
@@ -284,119 +283,83 @@ export function Guide() {
     <ForgePublicShell>
       <main className='guide-page'>
         <div className='guide-container'>
-          <div className='guide-breadcrumb'>
-            <span className='guide-pixel-mark' aria-hidden='true' />
-            <span>LMM</span>
-            <span aria-hidden='true'>/</span>
-            <span>{copy.workspaceLabel}</span>
-            <Link to='/developers'>
-              {copy.reference}
-              <ArrowUpRight aria-hidden='true' />
-            </Link>
-          </div>
-
-          <header className='guide-hero'>
-            <div className='guide-hero-main'>
-              <div className='guide-hero-copy'>
-                <p className='guide-kicker'>
-                  <span className='guide-pixel-dot' aria-hidden='true' />
-                  {copy.eyebrow}
-                </p>
-                <h1>{copy.title}</h1>
-                <p className='guide-hero-intro'>
-                  {assistantAvailable ? copy.intro : copy.manualIntro}
-                </p>
-                <div className='guide-actions'>
-                  <Button
-                    className='guide-primary-action'
-                    render={<a href='#client-setup' />}
-                  >
-                    {copy.start}
-                    <ArrowRight aria-hidden='true' />
-                  </Button>
-                  <Button
-                    variant='ghost'
-                    className='guide-secondary-action'
-                    onClick={
-                      assistantAvailable
-                        ? () => askAssistant(copy.setupQuestion)
-                        : contactSupport
-                    }
-                  >
-                    <MessageCircle aria-hidden='true' />
-                    {assistantAvailable
-                      ? user
-                        ? copy.assistant
-                        : copy.guestAssistant
-                      : copy.contactSupport}
-                  </Button>
-                </div>
-              </div>
-              <div className='guide-connection'>
-                <div className='guide-connection-heading'>
-                  <Terminal aria-hidden='true' />
-                  <span>{oauth ? t('Sign in with OAuth') : copy.endpoint}</span>
-                  <span className='guide-connection-mark' aria-hidden='true'>
-                    ↗
-                  </span>
-                </div>
-                {oauth ? (
-                  <div className='guide-oauth-summary'>
-                    <code>
-                      {selectedClient === 'pi'
-                        ? 'Pi'
-                        : selectedClient === 'dsh'
-                          ? 'DSH'
-                          : 'Codewhale'}{' '}
-                      / OAuth
-                    </code>
-                    <p>
-                      {t(
-                        'Use Pi or a client that supports LMM OAuth. No manual API key is needed.'
-                      )}
-                    </p>
-                  </div>
-                ) : (
-                  <>
-                    <GuideCode
-                      label={t('API endpoint root')}
-                      value={rootUrl ?? t('API address unavailable')}
-                      disabled={!rootUrl}
-                      copy={copy}
-                    />
-                    <p className='guide-connection-note'>{copy.endpointHint}</p>
-                  </>
-                )}
-                <Link to='/pricing' className='guide-connection-link'>
-                  {copy.browseModels}
-                  <ArrowUpRight aria-hidden='true' />
-                </Link>
-              </div>
+          <header className='guide-workspace-header'>
+            <div className='min-w-0'>
+              <p className='guide-kicker'>{copy.workspaceLabel}</p>
+              <h1>{copy.title}</h1>
+              <p className='guide-intro'>
+                {assistantAvailable ? copy.intro : copy.manualIntro}
+              </p>
             </div>
-            <ol className='guide-stages'>{stageItems}</ol>
+            <div className='guide-actions'>
+              <Button
+                variant='outline'
+                onClick={
+                  assistantAvailable
+                    ? () => askAssistant(copy.setupQuestion)
+                    : contactSupport
+                }
+              >
+                <MessageCircle aria-hidden='true' />
+                {assistantAvailable
+                  ? user
+                    ? copy.assistant
+                    : copy.guestAssistant
+                  : copy.contactSupport}
+              </Button>
+              <Button variant='ghost' render={<Link to='/developers' />}>
+                {copy.reference}
+                <ArrowUpRight aria-hidden='true' />
+              </Button>
+            </div>
           </header>
 
-          <details id='guide-overview' className='guide-mobile-contents'>
-            <summary>
-              {copy.sectionsTitle}
-              <ChevronDown aria-hidden='true' />
-            </summary>
-            <ol className='guide-mobile-stages'>{stageItems}</ol>
-            <GuideContents copy={copy} />
-          </details>
+          <div className='guide-workspace-meta'>
+            <div className='guide-connection'>
+              {oauth ? (
+                <div className='guide-oauth-summary'>
+                  <p className='guide-kicker'>{t('Sign in with OAuth')}</p>
+                  <code>
+                    {selectedClient === 'pi'
+                      ? 'Pi'
+                      : selectedClient === 'dsh'
+                        ? 'DSH'
+                        : 'Codewhale'}{' '}
+                    / OAuth
+                  </code>
+                  <p>
+                    {t(
+                      'Use Pi or a client that supports LMM OAuth. No manual API key is needed.'
+                    )}
+                  </p>
+                </div>
+              ) : (
+                <div className='min-w-0 flex-1'>
+                  <GuideCode
+                    label={t('API endpoint root')}
+                    value={rootUrl ?? t('API address unavailable')}
+                    disabled={!rootUrl}
+                    copy={copy}
+                  />
+                  <p className='guide-connection-note'>{copy.endpointHint}</p>
+                </div>
+              )}
+              <Link to='/pricing' className='guide-connection-link'>
+                {copy.browseModels}
+                <ArrowUpRight aria-hidden='true' />
+              </Link>
+            </div>
+            <details id='guide-overview' className='guide-overview'>
+              <summary>
+                {copy.sectionsTitle}
+                <ChevronDown aria-hidden='true' />
+              </summary>
+              <GuideContents copy={copy} />
+              <ol className='guide-stages'>{stageItems}</ol>
+            </details>
+          </div>
 
           <div className='guide-layout'>
-            <aside className='guide-sidebar'>
-              <GuideContents copy={copy} />
-              <div className='guide-sidebar-reference'>
-                <BookOpen aria-hidden='true' />
-                <Link to='/developers'>
-                  {copy.reference}
-                  <ArrowUpRight aria-hidden='true' />
-                </Link>
-              </div>
-            </aside>
-
             <div className='guide-content'>
               <section
                 id='client-setup'

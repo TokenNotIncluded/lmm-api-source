@@ -47,15 +47,17 @@ function useResourceFormat() {
 
 export function HostResources({
   snapshot,
+  compact = false,
 }: {
   snapshot: SystemResourceSnapshot
+  compact?: boolean
 }) {
   const { t } = useTranslation()
   const format = useResourceFormat()
   const { system } = snapshot
   return (
-    <div className='space-y-6' data-resource='host'>
-      <div className='space-y-3'>
+    <div className={compact ? 'space-y-4' : 'space-y-6'} data-resource='host'>
+      <div className='space-y-2'>
         <div className='flex flex-wrap items-baseline justify-between gap-2'>
           <h4 className='text-sm font-medium'>{t('CPU')}</h4>
           <span className='text-2xl font-semibold tracking-tight tabular-nums'>
@@ -79,7 +81,7 @@ export function HostResources({
           />
         </dl>
       </div>
-      <div className='space-y-3'>
+      <div className='space-y-2'>
         <div className='flex flex-wrap items-baseline justify-between gap-2'>
           <h4 className='text-sm font-medium'>{t('Memory')}</h4>
           <span className='text-2xl font-semibold tracking-tight tabular-nums'>
@@ -108,9 +110,11 @@ export function HostResources({
 export function ProcessResources({
   label,
   process,
+  compact = false,
 }: {
   label: string
   process: SystemResourceProcess
+  compact?: boolean
 }) {
   const { t } = useTranslation()
   const format = useResourceFormat()
@@ -125,29 +129,50 @@ export function ProcessResources({
           {t('Version')}: {process.version ?? t('Not reported')}
         </span>
       </div>
-      {process.status === 'running' ? (
-        <dl className='space-y-2'>
-          <ResourceMetric
-            label={t('PID')}
-            value={process.pid ?? t('Not reported')}
-          />
-          <ResourceMetric
-            label={t('CPU')}
-            value={format.percent(process.cpu_percent)}
-          />
-          <ResourceMetric
-            label={t('RSS')}
-            value={format.bytes(process.memory_bytes)}
-          />
-          <ResourceMetric
-            label={t('Memory')}
-            value={format.percent(process.memory_percent)}
-          />
-          <ResourceMetric
-            label={t('Threads')}
-            value={format.number(process.threads)}
-          />
+      {compact && process.status === 'running' && (
+        <dl className='flex flex-wrap gap-x-6 gap-y-2'>
+          <div className='flex items-baseline gap-2 text-xs'>
+            <dt className='text-muted-foreground'>{t('CPU')}</dt>
+            <dd className='tabular-nums'>
+              {format.percent(process.cpu_percent)}
+            </dd>
+          </div>
+          <div className='flex items-baseline gap-2 text-xs'>
+            <dt className='text-muted-foreground'>{t('RSS')}</dt>
+            <dd className='tabular-nums'>
+              {format.bytes(process.memory_bytes)}
+            </dd>
+          </div>
         </dl>
+      )}
+      {process.status === 'running' ? (
+        <details open={compact ? undefined : true} className='text-xs'>
+          <summary className='text-muted-foreground focus-visible:outline-ring min-h-11 cursor-pointer py-3 focus-visible:outline-2'>
+            {t('Process details')}
+          </summary>
+          <dl className='space-y-2'>
+            <ResourceMetric
+              label={t('PID')}
+              value={process.pid ?? t('Not reported')}
+            />
+            <ResourceMetric
+              label={t('CPU')}
+              value={format.percent(process.cpu_percent)}
+            />
+            <ResourceMetric
+              label={t('RSS')}
+              value={format.bytes(process.memory_bytes)}
+            />
+            <ResourceMetric
+              label={t('Memory')}
+              value={format.percent(process.memory_percent)}
+            />
+            <ResourceMetric
+              label={t('Threads')}
+              value={format.number(process.threads)}
+            />
+          </dl>
+        </details>
       ) : (
         <p className='text-muted-foreground text-sm'>{t('Not reported')}</p>
       )}

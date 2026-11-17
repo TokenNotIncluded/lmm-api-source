@@ -59,9 +59,9 @@ function InstanceRow({
     <div
       role='row'
       data-instance-id={instance.reporter_id}
-      className='grid gap-8 py-7 not-last:border-b @min-[48rem]/instances:grid-cols-3'
+      className='bg-muted/35 grid gap-5 rounded-xl p-5 @min-[48rem]/instances:grid-cols-3'
     >
-      <div role='cell' className='min-w-0 space-y-5'>
+      <div role='cell' className='min-w-0 space-y-3'>
         <div className='flex flex-wrap items-center justify-between gap-2'>
           <h4 className='text-sm font-semibold break-all'>
             {instance.node_name}
@@ -84,7 +84,7 @@ function InstanceRow({
             )}
           </Badge>
         </div>
-        <dl className='space-y-3'>
+        <dl className='space-y-2'>
           {metric(
             t('Status'),
             instance.phase ? t(PHASE_LABELS[instance.phase]) : t('Not reported')
@@ -116,35 +116,45 @@ function InstanceRow({
               )
             )}
           {metric(
-            t('Started'),
-            formatTimestampToDate(instance.started_at, 'seconds')
-          )}
-          {metric(
             t('Last heartbeat'),
             formatTimestampToDate(instance.last_seen_at, 'seconds')
           )}
         </dl>
         <details className='text-muted-foreground text-xs'>
           <summary className='focus-visible:outline-ring min-h-11 cursor-pointer py-3 focus-visible:outline-2'>
-            {t('Instance ID')}
+            {t('Instance details')}
           </summary>
-          <p className='font-mono break-all'>{instance.reporter_id}</p>
+          <dl className='space-y-2'>
+            {metric(
+              t('Started'),
+              formatTimestampToDate(instance.started_at, 'seconds')
+            )}
+            <div className='space-y-1'>
+              <dt>{t('Instance ID')}</dt>
+              <dd className='font-mono break-all'>{instance.reporter_id}</dd>
+            </div>
+          </dl>
         </details>
       </div>
-      <div role='cell' className='min-w-0 space-y-5'>
+      <div role='cell' className='min-w-0 space-y-3'>
         <h4 className='text-sm font-medium @min-[48rem]/instances:hidden'>
           {t('System')}
         </h4>
         {snapshot ? (
           <>
-            <HostResources snapshot={snapshot} />
-            <ResourceSampleMetadata snapshot={snapshot} />
+            <HostResources snapshot={snapshot} compact />
+            <details className='text-muted-foreground text-xs'>
+              <summary className='focus-visible:outline-ring min-h-11 cursor-pointer py-3 focus-visible:outline-2'>
+                {t('Sample details')}
+              </summary>
+              <ResourceSampleMetadata snapshot={snapshot} />
+            </details>
           </>
         ) : (
           <p className='text-muted-foreground text-xs'>{t('Not reported')}</p>
         )}
       </div>
-      <div role='cell' className='min-w-0 space-y-7'>
+      <div role='cell' className='min-w-0 space-y-5'>
         {snapshot ? (
           (['lmm-core', 'lmm-extensions'] as const).map((service) => {
             const process = snapshot.processes[service]
@@ -155,6 +165,7 @@ function InstanceRow({
                   service === 'lmm-core' ? 'Core process' : 'Extensions process'
                 )}
                 process={process}
+                compact
               />
             )
           })
@@ -194,10 +205,10 @@ export function SystemInstancesPanel() {
     retry: false,
   })
   const rows = (items: SystemInstance[]) => (
-    <div role='table' aria-label={t('Instances')}>
+    <div role='table' aria-label={t('Instances')} className='space-y-3'>
       <div
         role='row'
-        className='text-muted-foreground hidden grid-cols-3 gap-8 border-b text-xs font-medium @min-[48rem]/instances:grid'
+        className='text-muted-foreground hidden grid-cols-3 gap-5 px-5 text-xs font-medium @min-[48rem]/instances:grid'
       >
         <div role='columnheader' className='py-3'>
           {t('Instances')}
@@ -223,10 +234,10 @@ export function SystemInstancesPanel() {
     </div>
   )
   return (
-    <section className='@container/instances min-w-0 space-y-6'>
+    <section className='@container/instances min-w-0 space-y-4'>
       <div className='flex flex-wrap items-start justify-between gap-4'>
         <div>
-          <h3 className='text-sm font-semibold'>{t('Instances')}</h3>
+          <h3 className='text-sm font-semibold'>{t('Native instances')}</h3>
           <p className='text-muted-foreground mt-1 text-xs'>
             {t(
               'System samples describe the host. Core and Extensions values describe their own processes.'
@@ -248,6 +259,11 @@ export function SystemInstancesPanel() {
           {t('Refresh')}
         </Button>
       </div>
+      <p className='text-muted-foreground max-w-3xl text-xs leading-relaxed'>
+        {t(
+          'Only instances reporting to this native Core deployment are listed. Legacy service heartbeats are separate.'
+        )}
+      </p>
       {query.isLoading ? (
         <div className='p-4'>
           <Skeleton className='h-24 w-full' />
@@ -260,6 +276,21 @@ export function SystemInstancesPanel() {
         />
       ) : (
         <>
+          <dl
+            className='grid grid-cols-3 gap-3 py-2'
+            aria-label={t('Instance summary')}
+          >
+            {[
+              [t('Online'), online.length],
+              [t('Stale'), instances.length - online.length],
+              [t('Reported instances'), instances.length],
+            ].map(([label, value]) => (
+              <div key={label} className='space-y-1'>
+                <dt className='text-muted-foreground text-xs'>{label}</dt>
+                <dd className='text-2xl font-semibold tabular-nums'>{value}</dd>
+              </div>
+            ))}
+          </dl>
           {instances.length ? (
             rows(instances)
           ) : (

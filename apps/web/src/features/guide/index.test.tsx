@@ -217,7 +217,7 @@ afterEach(async () => {
 after(() => domWindow.close())
 
 describe('Guide when the AI assistant is disabled', () => {
-  test('keeps setup directly available and the compact contents expandable with working section targets', async () => {
+  test('opens on client configuration with one optional contents list and all setup stages', async () => {
     const { container } = await renderGuide(null)
     const overview =
       container.querySelector<HTMLDetailsElement>('#guide-overview')
@@ -227,10 +227,19 @@ describe('Guide when the AI assistant is disabled', () => {
       overview.querySelector('summary')?.textContent?.trim(),
       'On this page'
     )
-    const setupLink = container.querySelector<HTMLAnchorElement>(
-      'header a[href="#client-setup"]'
+    assert.equal(
+      container.querySelector('.guide-workspace-header h1')?.textContent,
+      'Client configuration'
     )
-    assert.ok(setupLink)
+    assert.equal(container.querySelectorAll('.guide-contents').length, 1)
+    assert.equal(
+      container.querySelector('.guide-content > section')?.id,
+      'client-setup'
+    )
+    assert.equal(
+      container.querySelector('#client-setup')?.closest('details'),
+      null
+    )
     assert.ok(container.querySelector('#client-setup button'))
 
     await act(async () => {

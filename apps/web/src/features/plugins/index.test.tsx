@@ -439,6 +439,50 @@ test('installation binds the advertised manifest and every lifecycle response is
   assert.equal(requests[2], 'delete /api/extensions/plugins/store')
 })
 
+test('plugin search matches its purpose and unavailable filter keeps lifecycle guards', async () => {
+  login(100)
+  api.defaults.adapter = async (config) =>
+    response(config, [
+      plugin,
+      {
+        ...plugin,
+        name: 'remote-control',
+        available: false,
+        installed: false,
+        enabled: false,
+      },
+    ])
+  const container = await mount()
+  await until(() => container.querySelectorAll('[data-plugin]').length === 2)
+  const input = container.querySelector('input')
+  assert.ok(input)
+  const setter = Object.getOwnPropertyDescriptor(
+    window.HTMLInputElement.prototype,
+    'value'
+  )?.set
+  assert.ok(setter)
+  await act(async () => {
+    setter.call(input, 'purchases')
+    input.dispatchEvent(new Event('input', { bubbles: true }))
+  })
+  await until(() => container.querySelectorAll('[data-plugin]').length === 1)
+  assert.ok(container.querySelector('[data-plugin="store"]'))
+  await act(async () => {
+    setter.call(input, '')
+    input.dispatchEvent(new Event('input', { bubbles: true }))
+  })
+  const select = container.querySelector('select')
+  assert.ok(select)
+  await act(async () => {
+    select.value = 'unavailable'
+    select.dispatchEvent(new Event('change', { bubbles: true }))
+  })
+  await until(() => container.querySelectorAll('[data-plugin]').length === 1)
+  const remote = container.querySelector('[data-plugin="remote-control"]')
+  assert.ok(remote)
+  assert.equal(button('Install', remote).disabled, true)
+})
+
 test('switching sessions prevents a lifecycle write and discards a previous session response', async () => {
   login(100)
   const scope = readNativeUsersScope()

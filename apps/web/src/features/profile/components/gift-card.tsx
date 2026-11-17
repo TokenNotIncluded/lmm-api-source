@@ -21,6 +21,7 @@ import { Gift, CheckCircle2, Clock, Lock } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 
+import { ErrorState } from '@/components/error-state'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
@@ -29,6 +30,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { useDeadlineClock } from '@/hooks/use-deadline-clock'
 import { useWalletCurrency } from '@/hooks/use-wallet-currency'
 import dayjs from '@/lib/dayjs'
+import { useAuthStore } from '@/stores/auth-store'
 
 import { claimGift, getAvailableGifts } from '../api'
 import type { GiftItem } from '../types'
@@ -40,14 +42,23 @@ import type { GiftItem } from '../types'
 export function GiftCard() {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
+  const userId = useAuthStore((state) => state.auth.user?.id)
+  const sessionId = useAuthStore((state) => state.auth.session?.sid)
 
-  const { data, isLoading } = useQuery({
-    queryKey: ['available-gifts'],
-    queryFn: async () => {
-      const res = await getAvailableGifts()
-      return res.success && Array.isArray(res.data) ? res.data : []
+  const { data, isLoading, isError, error, refetch } = useQuery({
+    queryKey: ['available-gifts', userId, sessionId],
+    queryFn: async ({ signal }) => {
+      const res = await getAvailableGifts(signal)
+      if (!res.success || !Array.isArray(res.data)) {
+        throw new Error(res.message || t('Unable to load compensation gifts'))
+      }
+      return res.data
     },
+    enabled: !!userId && !!sessionId,
+    retry: false,
+    refetchOnWindowFocus: false,
     staleTime: 30_000,
+    gcTime: 0,
   })
 
   const claimMutation = useMutation({
@@ -78,6 +89,16 @@ export function GiftCard() {
           </div>
         </div>
       </Card>
+    )
+  }
+
+  if (isError) {
+    return (
+      <ErrorState
+        title={t('Unable to load compensation gifts')}
+        description={error instanceof Error ? error.message : undefined}
+        onRetry={() => void refetch()}
+      />
     )
   }
 

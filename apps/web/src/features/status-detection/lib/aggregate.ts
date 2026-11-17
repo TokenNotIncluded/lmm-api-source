@@ -37,6 +37,25 @@ type GroupAccumulator = {
   buckets: Map<number, PerformanceSeriesPoint[]>
 }
 
+export function latestStatusTimestamp(
+  entries: ModelPerformanceSnapshot[]
+): number | null {
+  let latest: number | null = null
+  for (const entry of entries) {
+    for (const group of entry.groups) {
+      for (const point of group.series) {
+        if (
+          Number.isFinite(point.ts) &&
+          (latest === null || point.ts > latest)
+        ) {
+          latest = point.ts
+        }
+      }
+    }
+  }
+  return latest
+}
+
 /** Aggregate native counters; rows without counters remain unavailable. */
 export function aggregateStatusGroups(
   entries: ModelPerformanceSnapshot[]

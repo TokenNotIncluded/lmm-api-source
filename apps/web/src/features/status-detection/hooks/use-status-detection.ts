@@ -23,7 +23,7 @@ import { useQuery } from '@tanstack/react-query'
 import { useCallback, useMemo } from 'react'
 
 import { getStatusDetectionMetrics, getStatusDetectionSummary } from '../api'
-import { aggregateStatusGroups } from '../lib/aggregate'
+import { aggregateStatusGroups, latestStatusTimestamp } from '../lib/aggregate'
 
 const MAX_MODELS = 48
 
@@ -90,17 +90,10 @@ export function useStatusDetection(options: StatusDetectionOptions = {}) {
         : allGroups,
     [allGroups, groupFilter]
   )
-  const latestTimestamp = useMemo(() => {
-    let latest = Number.NaN
-    for (const entry of detailsQuery.data?.entries ?? []) {
-      for (const group of entry.groups) {
-        for (const point of group.series ?? []) {
-          if (Number.isFinite(point.ts)) latest = Math.max(latest, point.ts)
-        }
-      }
-    }
-    return Number.isFinite(latest) ? latest : null
-  }, [detailsQuery.data?.entries])
+  const latestTimestamp = useMemo(
+    () => latestStatusTimestamp(detailsQuery.data?.entries ?? []),
+    [detailsQuery.data?.entries]
+  )
 
   const refresh = useCallback(async () => {
     await summaryQuery.refetch()

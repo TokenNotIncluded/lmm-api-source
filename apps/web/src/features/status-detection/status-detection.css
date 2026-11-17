@@ -1,0 +1,56 @@
+/* Copyright (C) 2026 LIghtJUNction. SPDX-License-Identifier: AGPL-3.0-or-later */
+.status-detection {
+  container-name: status;
+  container-type: inline-size;
+  min-width: 0;
+}
+.status-detection-container {
+  width: 100%;
+  max-width: 80rem;
+  margin-inline: auto;
+  padding: 2rem clamp(1rem, 3cqi, 2.5rem) 4rem;
+}
+.status-detection-container > * + * {
+  margin-top: 1.25rem;
+}
+.status-detection-title {
+  font-size: clamp(1.5rem, 2.5cqi, 2rem);
+  font-weight: 600;
+  line-height: 1.25;
+  letter-spacing: -0.035em;
+  overflow-wrap: anywhere;
+}
+.status-filter-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.75rem;
+}
+.status-filter-grid > * {
+  min-width: 0;
+}
+.status-filter-reset {
+  grid-column: 1 / -1;
+  justify-self: end;
+}
+.status-group-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 19rem), 1fr));
+  align-items: start;
+  gap: 1rem;
+}
+@container status (max-width: 50rem) {
+  .status-filter-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+@container status (max-width: 32rem) {
+  .status-detection-container {
+    padding-top: 1.25rem;
+  }
+  .status-filter-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .status-filter-reset {
+    justify-self: start;
+  }
+}
