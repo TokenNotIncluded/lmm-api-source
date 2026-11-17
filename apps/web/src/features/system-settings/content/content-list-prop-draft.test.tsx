@@ -44,12 +44,13 @@ Object.defineProperty(globalThis, 'IS_REACT_ACT_ENVIRONMENT', {
   value: true,
 })
 const writes: { key: string; value: string | boolean }[] = []
+let saveResult: () => Promise<{ success: boolean }> = async () => ({ success: true })
 mock.module('../hooks/use-update-option', () => ({
   useUpdateOption: () => ({
     isPending: false,
     mutateAsync: async (request: { key: string; value: string | boolean }) => {
       writes.push(request)
-      return { success: true }
+      return saveResult()
     },
   }),
 }))
@@ -70,6 +71,7 @@ afterEach(async () => {
   })
   document.body.replaceChildren()
   writes.length = 0
+  saveResult = async () => ({ success: true })
 })
 after(() => dom.close())
 const flush = () => new Promise<void>((resolve) => setTimeout(resolve, 0))
@@ -231,6 +233,71 @@ for (const fixture of cases) {
     await ui.render('[]')
     assert.doesNotMatch(document.body.textContent || '', /Recovered Alpha/)
   })
+  if (fixture.name === 'announcements') {
+    test('announcements: refresh preserves the unsaved list', async () => {
+      const ui = await mount()
+      await ui.render(JSON.stringify([
+        fixture.data('Delete Alpha', 1),
+        fixture.data('Keep Beta', 2),
+      ]))
+      await click(checkbox(1))
+      await click(button('Delete (1)'))
+      await click(button('Delete'))
+      await ui.render(JSON.stringify([
+        fixture.data('Server Alpha', 1),
+        fixture.data('Server Beta', 2),
+      ]))
+      assert.doesNotMatch(document.body.textContent || '', /Delete Alpha|Server Alpha|Server Beta/)
+      assert.match(document.body.textContent || '', /Keep Beta/)
+      assert.equal(button('Save Settings').disabled, false)
+      await click(button('Save Settings'))
+      assert.deepEqual(JSON.parse(String(writes[0]?.value)), [fixture.data('Keep Beta', 2)])
+    })
+    test('announcements: acknowledgement retains edits made while saving', async () => {
+      const ui = await mount()
+      await ui.render(JSON.stringify([
+        fixture.data('Delete Alpha', 1),
+        fixture.data('Delete Beta', 2),
+        fixture.data('Keep Gamma', 3),
+      ]))
+      await click(checkbox(1))
+      await click(button('Delete (1)'))
+      await click(button('Delete'))
+      let acknowledge!: (result: { success: boolean }) => void
+      saveResult = () => new Promise((resolve) => { acknowledge = resolve })
+      await click(button('Save Settings'))
+      assert.equal(writes.length, 1)
+      await click(checkbox(1))
+      await click(button('Delete (1)'))
+      await click(button('Delete'))
+      await act(async () => {
+        acknowledge({ success: true })
+        await flush()
+      })
+      assert.equal(button('Save Settings').disabled, false)
+      assert.doesNotMatch(document.body.textContent || '', /Delete Alpha|Delete Beta/)
+      assert.match(document.body.textContent || '', /Keep Gamma/)
+      saveResult = async () => ({ success: true })
+      await click(button('Save Settings'))
+      assert.deepEqual(JSON.parse(String(writes[1]?.value)), [fixture.data('Keep Gamma', 3)])
+      assert.equal(button('Save Settings').disabled, true)
+    })
+    test('announcements: a rejected save keeps the pending list', async () => {
+      const ui = await mount()
+      await ui.render(JSON.stringify([fixture.data('Delete Alpha', 1)]))
+      await click(checkbox(1))
+      await click(button('Delete (1)'))
+      await click(button('Delete'))
+      saveResult = async () => { throw new Error('Server unavailable') }
+      await click(button('Save Settings'))
+      assert.equal(button('Save Settings').disabled, false)
+      assert.doesNotMatch(document.body.textContent || '', /Delete Alpha/)
+      saveResult = async () => ({ success: true })
+      await click(button('Save Settings'))
+      assert.deepEqual(JSON.parse(String(writes[1]?.value)), [])
+      assert.equal(button('Save Settings').disabled, true)
+    })
+  }
   test(`${fixture.name}: unrelated data update preserves locally acknowledged enabled value`, async () => {
     const ui = await mount()
     await ui.render(JSON.stringify([fixture.data('Alpha')]))
