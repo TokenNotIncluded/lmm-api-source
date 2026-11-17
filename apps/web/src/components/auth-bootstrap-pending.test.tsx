@@ -198,7 +198,7 @@ test('a terminal transient check offers recovery without automatically dispatchi
   const task = deferred<RefreshOutcome>()
   const error = new AuthBootstrapPendingError(task.promise, '/profile')
   let runs = 0
-  const { host } = await mount(() => {
+  const { router, host } = await mount(() => {
     runs++
     throw error
   })
@@ -210,8 +210,15 @@ test('a terminal transient check offers recovery without automatically dispatchi
     await task.promise
   })
   await flush()
-  assert.match(host.textContent ?? '', /request fell over/)
-  assert.match(host.textContent ?? '', /Retry/)
+  const content = host.textContent ?? ''
+  assert.match(content, /This page could not be opened/)
+  assert.doesNotMatch(content, /backend unavailable|Protected profile content/)
+  const retry = [...host.querySelectorAll('button')].find(
+    (button) => button.textContent === 'Retry'
+  )
+  assert.ok(retry, 'the completed failure must offer explicit recovery')
+  assert.equal(retry.disabled, false)
+  assert.equal(router.state.location.href, '/profile')
   assert.equal(runs, 1)
 })
 
