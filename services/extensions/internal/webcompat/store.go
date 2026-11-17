@@ -48,6 +48,7 @@ type storeExtoreService interface {
 	ExtoreConnections(context.Context, string, int64) (map[string]any, error)
 	ExtoreConnectionCatalog(context.Context, string, int64, string) (any, error)
 	ExtoreSyncProduct(context.Context, string, int64, string, string) (any, error)
+	ExtoreSyncConnection(context.Context, string, int64, string) (any, error)
 	ExtoreDisconnect(context.Context, string, int64, string) (any, error)
 }
 type storePickupService interface {
@@ -262,6 +263,14 @@ func RegisterStore(mux RouteRegistrar, auth *Authenticator, service StoreService
 			return
 		}
 		value, err := port.ExtoreSyncProduct(r.Context(), bearer(r), actor, r.PathValue("id"), in.SourceID)
+		Respond(w, value, err)
+	}))
+	mux.HandleFunc("POST /api/store/extore/connections/{id}/sync-all", withExtore(func(w http.ResponseWriter, r *http.Request, actor int64, port storeExtoreService) {
+		if _, err := supportQuery(r); err != nil || !supportID(r.PathValue("id")) {
+			Respond(w, nil, store.ErrInvalid)
+			return
+		}
+		value, err := port.ExtoreSyncConnection(r.Context(), bearer(r), actor, r.PathValue("id"))
 		Respond(w, value, err)
 	}))
 	mux.HandleFunc("POST /api/store/extore/connections/{id}/disconnect", withExtore(func(w http.ResponseWriter, r *http.Request, actor int64, port storeExtoreService) {

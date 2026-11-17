@@ -29,6 +29,19 @@ func (row extoreConnectionRow) connectionStatus(now int64) extoreConnectionStatu
 	}
 }
 
+func (row extoreConnectionRow) publicStatus(now int64) string {
+	switch row.connectionStatus(now) {
+	case extoreConnectionExpired:
+		return "expired"
+	case extoreConnectionRefreshPending:
+		return "reauthorization_required"
+	case extoreConnectionRevoked:
+		return "disconnected"
+	default:
+		return "connected"
+	}
+}
+
 func (s *Service) readExtoreConnection(ctx context.Context, userID int64, id string) (extoreConnectionRow, error) {
 	var row extoreConnectionRow
 	err := s.repo.Within(ctx, extoreSellerShop(userID), func(tx Tx) error {

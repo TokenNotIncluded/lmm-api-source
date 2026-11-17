@@ -186,6 +186,7 @@ func (s *Service) ExtoreConnections(ctx context.Context, token string, userID in
 		connections = append(connections, map[string]any{
 			"id": row.ID, "origin": row.Origin, "shop_id": row.ShopID, "shop_name": row.ShopName,
 			"expires_at": row.ExpiresAt, "updated_at": row.UpdatedAt,
+			"status": row.publicStatus(time.Now().UTC().Unix()),
 		})
 	}
 	legacy, err := s.legacyShop(ctx, Account{Kind: "personal", ID: userID})
@@ -230,6 +231,28 @@ func (s *Service) ExtoreConnectionCatalog(ctx context.Context, token string, use
 		return nil, err
 	}
 	return catalog, nil
+}
+
+// ExtoreSyncConnection reads the approved catalogue once and reports every
+// source result. One invalid product must not hide the successfully synced ones.
+func (s *Service) ExtoreSyncConnection(ctx context.Context, token string, userID int64, connectionID string) (any, error) {
+	if !s.ExtoreReady() {
+		return nil, ErrUnavailable
+	}
+	if userID <= 0 || !Text(token, 256) || !Text(connectionID, 128) {
+		return nil, ErrUnauthorized
+	}
+	if _, err := s.check(ctx, token, Account{Kind: "personal", ID: userID}, Manage); err != nil {
+		return nil, err
+	}
+	catalog, _, err := s.connectionCatalog(ctx, userID, connectionID)
+	if err != nil {
+		return nil, err
+	}
+	return map[string]any{
+		"connection_id": connectionID,
+		"results":       s.syncExtoreCatalog(ctx, userID, connectionID, catalog),
+	}, nil
 }
 
 // ExtoreSyncProduct imports one approved Extore listing into the seller catalogue.

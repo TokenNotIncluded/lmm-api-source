@@ -37,6 +37,9 @@ func (s *extoreTransportFake) ExtoreConnectionCatalog(_ context.Context, token s
 func (s *extoreTransportFake) ExtoreSyncProduct(_ context.Context, token string, actor int64, id, source string) (any, error) {
 	return s.capture(token, actor, "sync", id, source)
 }
+func (s *extoreTransportFake) ExtoreSyncConnection(_ context.Context, token string, actor int64, id string) (any, error) {
+	return s.capture(token, actor, "sync-all", id)
+}
 func (s *extoreTransportFake) ExtoreDisconnect(_ context.Context, token string, actor int64, id string) (any, error) {
 	return s.capture(token, actor, "disconnect", id)
 }
@@ -52,6 +55,7 @@ func TestStoreExtoreTransportGuardsAndForwarding(t *testing.T) {
 		{"GET", "/api/store/extore/connections", "", []string{"connections"}},
 		{"GET", "/api/store/extore/connections/connection-1/catalog", "", []string{"connection-catalog", "connection-1"}},
 		{"POST", "/api/store/extore/connections/connection-1/sync", `{"source_id":"source-1"}`, []string{"sync", "connection-1", "source-1"}},
+		{"POST", "/api/store/extore/connections/connection-1/sync-all", "", []string{"sync-all", "connection-1"}},
 		{"POST", "/api/store/extore/connections/connection-1/disconnect", "", []string{"disconnect", "connection-1"}},
 	} {
 		t.Run(route.args[0], func(t *testing.T) {

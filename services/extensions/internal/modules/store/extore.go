@@ -122,7 +122,7 @@ func (s *Service) ExtoreAuthorize(ctx context.Context, token string, userID int6
 	if userID <= 0 || !Text(token, 256) {
 		return nil, ErrUnauthorized
 	}
-	if _, err := s.check(ctx, token, Account{Kind: "personal", ID: userID}, Read); err != nil {
+	if _, err := s.check(ctx, token, Account{Kind: "personal", ID: userID}, Manage); err != nil {
 		return nil, err
 	}
 	if clientID == "" {
@@ -166,7 +166,7 @@ func (s *Service) ExtoreCatalog(ctx context.Context, token string, userID int64,
 	if userID <= 0 || !Text(token, 256) {
 		return nil, ErrUnauthorized
 	}
-	if _, err := s.check(ctx, token, Account{Kind: "personal", ID: userID}, Read); err != nil {
+	if _, err := s.check(ctx, token, Account{Kind: "personal", ID: userID}, Manage); err != nil {
 		return nil, err
 	}
 	_, query, err := extore.ParseCallback(callbackURL)
