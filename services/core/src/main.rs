@@ -675,6 +675,7 @@ async fn run_core() -> Result<(), Box<dyn Error>> {
         || config::bounties_configured()
         || config::image_host_configured()
         || config::community_configured()
+        || config::hero_sms_configured()
         || config::remote_control_configured()
         || legacy_config.is_some()
         || config::identity_database_required()?
@@ -786,6 +787,7 @@ async fn run_core() -> Result<(), Box<dyn Error>> {
         || config::bounties_configured()
         || config::image_host_configured()
         || config::community_configured()
+        || config::hero_sms_configured()
     {
         return Err("internal RPC requires a Unix socket on this release".into());
     }
@@ -797,7 +799,8 @@ async fn run_core() -> Result<(), Box<dyn Error>> {
             || config::wallet_configured()
             || config::bounties_configured()
             || config::image_host_configured()
-            || config::community_configured() =>
+            || config::community_configured()
+            || config::hero_sms_configured() =>
         {
             return Err("tool market requires the Core database".into());
         }

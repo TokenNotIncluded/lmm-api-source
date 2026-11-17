@@ -1,4 +1,6 @@
 mod email_config;
+mod hero_sms_config;
+pub use hero_sms_config::hero_sms_configured;
 mod managed_recovery_config;
 mod oidc_config;
 pub mod turnstile_config;
@@ -373,6 +375,7 @@ struct CoreFile {
     bounties: Option<SupportProjectionFile>,
     images: Option<SupportProjectionFile>,
     community: Option<SupportProjectionFile>,
+    hero_sms: Option<hero_sms_config::HeroSmsFile>,
     ingress: Option<IngressFile>,
     remote_control: Option<RemoteControlFile>,
     edge_access: Option<crate::edge_access::TypedConfig>,
@@ -496,6 +499,7 @@ fn parse_core_file(document: &[u8]) -> io::Result<BTreeMap<&'static str, OsStrin
             || file.bounties.is_some()
             || file.images.is_some()
             || file.community.is_some()
+            || file.hero_sms.is_some()
             || file.remote_control.is_some()
             || file.edge_access.is_some())
     {
@@ -936,6 +940,32 @@ fn parse_core_file(document: &[u8]) -> io::Result<BTreeMap<&'static str, OsStrin
             );
         }
     }
+    if let Some(hero) = file.hero_sms {
+        if hero.policy_file == hero.token_file
+            || hero
+                .api_key_file
+                .as_ref()
+                .is_some_and(|key| *key == hero.token_file || *key == hero.policy_file)
+        {
+            return Err(invalid_config(
+                "HeroSMS policy and credentials must use separate files",
+            ));
+        }
+        paths.extend([
+            ("LMM_CORE_HERO_SMS_SOCKET", hero.socket),
+            ("LMM_CORE_HERO_SMS_TOKEN_FILE", hero.token_file),
+            ("LMM_CORE_HERO_SMS_POLICY_FILE", hero.policy_file),
+        ]);
+        if let Some(key) = hero.api_key_file {
+            paths.push(("LMM_CORE_HERO_SMS_API_KEY_FILE", key));
+        }
+        if let Some(group) = hero.shared_group_id {
+            if group == 0 {
+                return Err(invalid_config("HeroSMS private group must not be root"));
+            }
+            put("LMM_CORE_HERO_SMS_SHARED_GROUP_ID", group.to_string());
+        }
+    }
     if let Some(model) = file.model {
         put("LMM_CORE_MODEL_LOCAL_HTTP", model.local_http.to_string());
         paths.push(("LMM_CORE_MODEL_CONFIG_FILE", model.config_file));
@@ -994,6 +1024,21 @@ fn parse_core_file(document: &[u8]) -> io::Result<BTreeMap<&'static str, OsStrin
         put("LMM_CORE_INGRESS_ACK_URL", ingress.ack_url);
         put("LMM_CORE_INSTANCE", ingress.instance);
         paths.push(("LMM_CORE_INGRESS_TOKEN_FILE", ingress.token_file));
+    }
+    // A writable policy must not replace a secret, and a supplier credential
+    // must never alias a database or another service's private configuration.
+    for (hero_name, hero_path) in paths
+        .iter()
+        .filter(|(name, _)| name.starts_with("LMM_CORE_HERO_SMS_") && name.ends_with("_FILE"))
+    {
+        if paths
+            .iter()
+            .any(|(name, path)| name != hero_name && name.ends_with("_FILE") && path == hero_path)
+        {
+            return Err(invalid_config(
+                "HeroSMS files must be separate from other configuration",
+            ));
+        }
     }
     for (name, path) in paths {
         absolute_path(&path)?;
@@ -1596,6 +1641,7 @@ pub async fn tool_market_server(
         && !bounties_configured()
         && !image_host_configured()
         && !community_configured()
+        && !hero_sms_configured()
     {
         return Ok(None);
     }
@@ -1643,6 +1689,9 @@ pub async fn tool_market_server(
     if community_configured() && community.is_none() {
         return Err(invalid_config("community requires independent token file"));
     }
+    let hero_sms = setting_os("LMM_CORE_HERO_SMS_TOKEN_FILE")
+        .map(|p| service_token(Path::new(&p)))
+        .transpose()?;
     let witness = setting_os("LMM_CORE_TOOL_MARKET_FIXED_WITNESS_TOKEN_FILE")
         .map(|p| service_token(Path::new(&p)))
         .transpose()?;
@@ -1659,6 +1708,7 @@ pub async fn tool_market_server(
         setting_os("LMM_CORE_BOUNTIES_SOCKET"),
         setting_os("LMM_CORE_IMAGES_SOCKET"),
         setting_os("LMM_CORE_COMMUNITY_SOCKET"),
+        setting_os("LMM_CORE_HERO_SMS_SOCKET"),
     ]
     .into_iter()
     .flatten()
@@ -1683,7 +1733,7 @@ pub async fn tool_market_server(
     if let Some(token) = &wallet {
         credentials.push(token.as_slice());
     }
-    for token in [&bounties, &images, &community, &witness]
+    for token in [&bounties, &images, &community, &hero_sms, &witness]
         .into_iter()
         .flatten()
     {
@@ -1741,6 +1791,7 @@ pub async fn tool_market_server(
         group_setting("LMM_CORE_BOUNTIES_SHARED_GROUP_ID")?,
         group_setting("LMM_CORE_IMAGES_SHARED_GROUP_ID")?,
         group_setting("LMM_CORE_COMMUNITY_SHARED_GROUP_ID")?,
+        group_setting("LMM_CORE_HERO_SMS_SHARED_GROUP_ID")?,
     ]
     .into_iter()
     .flatten()
@@ -1888,6 +1939,29 @@ pub async fn tool_market_server(
                 .map_err(|_| invalid_config("invalid private community service"))?,
         );
     }
+    if let Some(token) = &hero_sms {
+        let service = hero_sms_config::service(pool.clone())?;
+        if service
+            .credential_configured()
+            .map_err(|_| invalid_config("HeroSMS credential unavailable"))?
+        {
+            let supplier = service
+                .credential()
+                .map_err(|_| invalid_config("HeroSMS credential unavailable"))?;
+            if credentials
+                .iter()
+                .any(|value| *value == supplier.as_bytes())
+            {
+                return Err(invalid_config(
+                    "HeroSMS supplier key must be independent from host credentials",
+                ));
+            }
+        }
+        app = app.merge(
+            crate::hero_sms::http::router(service, token)
+                .map_err(|_| invalid_config("invalid private HeroSMS service"))?,
+        );
+    }
     let binding_token = tool
         .as_ref()
         .map(|v| v.1.as_slice())
@@ -1896,6 +1970,7 @@ pub async fn tool_market_server(
         .or(bounties.as_deref())
         .or(images.as_deref())
         .or(community.as_deref())
+        .or(hero_sms.as_deref())
         .ok_or_else(|| invalid_config("missing private binding credential"))?;
     crate::tool_market::server::ToolMarketServer::bind_with_router(
         Path::new(&socket),

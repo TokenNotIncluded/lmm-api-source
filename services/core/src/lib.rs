@@ -28,6 +28,7 @@ pub mod financial_profile;
 pub mod funding;
 pub mod gift;
 mod go_json;
+pub mod hero_sms;
 mod hex_codec;
 pub mod history_http;
 pub mod history_read;
