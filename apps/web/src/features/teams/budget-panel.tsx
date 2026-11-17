@@ -218,7 +218,9 @@ function SpendingBudgets({
           </h3>
           <p className='text-muted-foreground text-sm leading-relaxed'>
             {t(
-              'Budget limits new spending without changing the account balance.'
+              team
+                ? 'Budget limits new spending without changing the account balance.'
+                : 'Your spending limit includes your personal and team spending. It does not change any account balance.'
             )}
           </p>
         </div>
