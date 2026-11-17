@@ -482,7 +482,7 @@ REVIEWED_OWNER_INPUTS = {
     "services/extensions/internal/modules/payments/subscription_pancake_catalog.sql": "a814b4b97f21c75c6b4b59719177a96aa1ff375591cee286c0137ee1d41715e1",
     "services/extensions/internal/modules/payments/subscription_pancake_storage_contract.json": "2f670d4b1570800652c1e13b44c5981b34c144388f6c73f056a8c108d2613916",
     "services/extensions/internal/modules/checkins/schema.sql": "a5e41379df204162d2aa79fb14fa78102624144b857662be20aa18e87e3ff323",
-    "services/extensions/internal/modules/checkins/types.go": "286852cc5faa7a3fcd75bfbf7397c71ea045cc550af4a62973849eaeac349ca6"
+    "services/extensions/internal/modules/checkins/types.go": "cdacc49e0511b1cfc77cdf599fe186d0dc320a01edd7b262ee03134543e87366"
 }
 
 # Source registration only: Io.net has module PG evidence, not native CLI
