@@ -20,7 +20,7 @@ import { zodResolver } from '@hookform/resolvers/zod'
 import { Link } from '@tanstack/react-router'
 import axios from 'axios'
 import { Loader2, KeyRound } from 'lucide-react'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { useForm } from 'react-hook-form'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
@@ -58,6 +58,10 @@ import { beginPasskeyLogin } from '@/features/auth/passkey'
 import type { AuthFormProps } from '@/features/auth/types'
 import { AccountClosureRecovery } from '@/features/profile/components/account-closure-recovery'
 import { useStatus } from '@/hooks/use-status'
+import {
+  getAuthCookieBlockedState,
+  subscribeAuthCookieState,
+} from '@/lib/auth-cookie'
 import { capturePasswordLoginGuard } from '@/lib/auth-session'
 import { isPasskeySupported as detectPasskeySupport } from '@/lib/passkey'
 import { cn } from '@/lib/utils'
@@ -70,6 +74,13 @@ export function UserAuthForm({
   ...props
 }: AuthFormProps) {
   const { t } = useTranslation()
+  const cookieBlocked = Boolean(
+    useSyncExternalStore(
+      subscribeAuthCookieState,
+      getAuthCookieBlockedState,
+      () => null
+    )
+  )
   const [isLoading, setIsLoading] = useState(false)
   const [appealRefreshKey, setAppealRefreshKey] = useState(0)
   const [passkeySupported, setPasskeySupported] = useState(false)
@@ -103,6 +114,7 @@ export function UserAuthForm({
   const requiresLegalConsent = hasUserAgreement || hasPrivacyPolicy
   const [agreedToLegal, setAgreedToLegal] = useState(!requiresLegalConsent)
   const passkeyButtonDisabled =
+    cookieBlocked ||
     isLoading ||
     isPasskeyLoading ||
     !passkeySupported ||
@@ -150,7 +162,7 @@ export function UserAuthForm({
   )
 
   async function onSubmit(data: z.infer<typeof loginFormSchema>) {
-    if (!passwordLoginEnabled) return
+    if (!passwordLoginEnabled || getAuthCookieBlockedState()) return
     if (requiresLegalConsent && !agreedToLegal) {
       toast.error(legalConsentErrorMessage)
       return
@@ -217,7 +229,7 @@ export function UserAuthForm({
   }
 
   async function handlePasskeyLogin() {
-    if (!passkeyLoginEnabled) return
+    if (!passkeyLoginEnabled || getAuthCookieBlockedState()) return
     if (pendingLogin.current) return
     if (requiresLegalConsent && !agreedToLegal) {
       toast.error(legalConsentErrorMessage)
@@ -342,6 +354,7 @@ export function UserAuthForm({
         redirectTo={redirectTo}
         acceptedLegal={agreedToLegal}
         disabled={
+          cookieBlocked ||
           isLoading ||
           isPasskeyLoading ||
           (requiresLegalConsent && !agreedToLegal)
@@ -487,7 +500,7 @@ export function UserAuthForm({
           <Button
             type='submit'
             className='auth-submit mt-2 h-12 w-full justify-center gap-2 rounded-xl'
-            disabled={isLoading || isPasskeyLoading}
+            disabled={cookieBlocked || isLoading || isPasskeyLoading}
           >
             {isLoading && <Loader2 className='animate-spin' />}
             {t('Sign in')}
@@ -500,7 +513,11 @@ export function UserAuthForm({
               ? status?.configured_components?.humangrant
               : false
           }
-          disabled={isLoading || (requiresLegalConsent && !agreedToLegal)}
+          disabled={
+            cookieBlocked ||
+            isLoading ||
+            (requiresLegalConsent && !agreedToLegal)
+          }
         />
         {alternativeLoginMethods}
       </form>
@@ -531,6 +548,7 @@ export function UserAuthForm({
                 type='button'
                 onClick={handleWeChatLogin}
                 disabled={
+                  cookieBlocked ||
                   isWeChatSubmitting ||
                   !wechatCode.trim() ||
                   (requiresLegalConsent && !agreedToLegal)

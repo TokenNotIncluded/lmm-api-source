@@ -64,6 +64,17 @@ export function beginAuthCookieReload(): boolean {
   return true
 }
 
+/** A cleared shared marker permits a new document, never an old realm unlock. */
+export function beginResolvedAuthCookieReload(): boolean {
+  if (
+    getAuthCookieBlockedState() !== 'uncertain' ||
+    window.localStorage.getItem(BLOCKED_KEY) !== null
+  ) {
+    return false
+  }
+  return beginAuthCookieReload()
+}
+
 function coordinated(): boolean {
   return (
     globalThis.isSecureContext === true &&

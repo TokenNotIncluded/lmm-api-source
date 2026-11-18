@@ -159,7 +159,11 @@ export function AuthCookieRecovery({
     void navigate({ to: '/', replace: true })
   }
   const handleReauthentication = async () => {
-    if (startingSignIn) return
+    if (startingSignIn || recoveryRequest.current) return
+    if (!hasAuthCookieReconciliationHandoff()) {
+      await recover()
+      return
+    }
     setStartingSignIn(true)
     setRecoveryFailed(false)
     try {
@@ -167,9 +171,9 @@ export function AuthCookieRecovery({
       setResult('ended')
       onLocalEnd?.()
       window.location.replace(authCookieRecoverySignInHref())
-    } catch {
+    } catch (error) {
       setStartingSignIn(false)
-      setRecoveryFailed(true)
+      handleRecoveryError(error)
     }
   }
   return (

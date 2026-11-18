@@ -373,6 +373,13 @@ test('transport timeout keeps a durable marker and blocks every participating wr
   assert.ok(
     [...storage.values()].some((value) => value.startsWith('uncertain:'))
   )
+  const loginIntent = storage.get('new-api:auth-login-intent')
+  await assert.rejects(
+    login({ username: 'synthetic', password: 'synthetic' }),
+    AuthCookieBlockedError
+  )
+  assert.equal(storage.get('new-api:auth-login-intent'), loginIntent)
+  assert.equal(attempts, 1)
   const originalFetch = globalThis.fetch
   let revocations = 0
   globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -387,7 +394,6 @@ test('transport timeout keeps a durable marker and blocks every participating wr
   }) as typeof fetch
   try {
     for (const write of [
-      () => login({ username: 'synthetic', password: 'synthetic' }),
       () => login2fa({ code: '123456', flow_token: 'flow' }),
       () => setup2FA(),
       () => enable2FA('123456'),

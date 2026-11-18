@@ -12,6 +12,7 @@ import {
   AuthCookieBlockedError,
   AUTH_COOKIE_TIMEOUT_MS,
   beginAuthCookieReload,
+  beginResolvedAuthCookieReload,
   getAuthCookieUncertaintyMarker,
   waitForAuthCookieIdle,
   withAuthCookieReconciliationLock,
@@ -117,8 +118,15 @@ export async function prepareAuthCookieReconciliation(
     epoch: initial.accountWriteEpoch,
   }
   await waitForAuthCookieIdle()
+  signal?.throwIfAborted()
   const marker = getAuthCookieUncertaintyMarker()
-  if (!marker) throw new AuthCookieBlockedError('uncertain')
+  if (!marker) {
+    if (!beginResolvedAuthCookieReload()) {
+      throw new AuthCookieBlockedError('uncertain')
+    }
+    window.location.replace(authCookieRecoverySignInHref(true))
+    return
+  }
   await withAuthCookieReconciliationLock(
     marker,
     async () => {
@@ -158,7 +166,8 @@ export function hasAuthCookieReconciliationHandoff(): boolean {
     return (
       handoff.success &&
       handoff.data.documentId !== recoveryDocumentId() &&
-      handoff.data.intent === readLoginIntent(window.localStorage)
+      handoff.data.intent === readLoginIntent(window.localStorage) &&
+      handoff.data.marker === getAuthCookieUncertaintyMarker()
     )
   } catch {
     return false

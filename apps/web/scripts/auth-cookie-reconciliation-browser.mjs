@@ -19,7 +19,7 @@ await writeFile(
 import axios from ${from('node_modules/axios/index.js')}
 import * as cookie from ${from('src/lib/auth-cookie.ts')}
 import * as recovery from ${from('src/lib/auth-cookie-reconciliation.ts')}
-import { capturePasswordLoginGuard, applyAuthBundle, prepareLoginIntentVersion, captureLoginIntentGuard } from ${from('src/lib/auth-session.ts')}
+import { capturePasswordLoginGuard, applyAuthBundle, prepareLoginIntentVersion, captureLoginIntentGuard, invalidatePendingLogins } from ${from('src/lib/auth-session.ts')}
 import { useCredentialStore } from ${from('src/stores/auth-store.ts')}
 import { createElement, StrictMode } from ${from('node_modules/react/index.js')}
 import { createRoot } from ${from('node_modules/react-dom/client.js')}
@@ -27,7 +27,7 @@ import { createRouter, createRootRoute, createRoute, RouterProvider } from ${fro
 import { createInstance } from ${from('node_modules/i18next/dist/esm/i18next.js')}
 import { I18nextProvider, initReactI18next } from ${from('node_modules/react-i18next/dist/es/index.js')}
 import { AuthCookieRecovery } from ${from('src/components/auth-cookie-recovery.tsx')}
-Object.assign(window, { axios, cookie, recovery, capturePasswordLoginGuard, applyAuthBundle, prepareLoginIntentVersion, captureLoginIntentGuard, useCredentialStore })
+Object.assign(window, { axios, cookie, recovery, capturePasswordLoginGuard, applyAuthBundle, prepareLoginIntentVersion, captureLoginIntentGuard, invalidatePendingLogins, useCredentialStore })
 window.mountRecoveryUI = async () => {
  sessionStorage.setItem('harness:recovery-ui','1')
  const i18n=createInstance(); await i18n.use(initReactI18next).init({lng:'en',resources:{}})
@@ -515,6 +515,35 @@ try {
   })
   delayed.end(JSON.stringify({ success: true, data: bundle }))
   trace.push('late_server_response_attempted')
+  const stickyRequestsBefore = requests.length
+  await sticky.evaluate(() => {
+    window.stickyOldDocument = true
+    return window.mountRecoveryUI()
+  })
+  await Promise.all([
+    sticky.waitForEvent('domcontentloaded', { timeout: 5000 }),
+    sticky
+      .getByRole('button', { name: 'Recover browser session', exact: true })
+      .click(),
+  ])
+  await sticky.waitForFunction(
+    () => Boolean(window.recovery) && !window.stickyOldDocument
+  )
+  assert.equal(
+    await sticky.evaluate(() => window.cookie.getAuthCookieBlockedState()),
+    null
+  )
+  assert.equal(await sticky.evaluate((k) => localStorage.getItem(k), key), null)
+  assert.equal(requests.length, stickyRequestsBefore)
+  assert.equal(
+    await owner.evaluate(
+      () => window.useCredentialStore.getState().auth.user?.id
+    ),
+    8
+  )
+  evidence.cases.push(
+    'a peer-confirmed session keeps the old realm blocked until explicit recovery replaces the document, without changing the peer account or sending a Cookie writer'
+  )
   await owner.reload()
   await owner.waitForFunction(() => Boolean(window.recovery))
   assert.equal(
@@ -748,6 +777,34 @@ try {
     await crashed.evaluate((k) => localStorage.getItem(k), key),
     'uncertain:crashed-guest-bootstrap',
     'no-cookie proof must still await the explicit reauthentication action'
+  )
+  await crashed.evaluate(() => {
+    window.supersededRecoveryDocument = true
+    window.invalidatePendingLogins()
+  })
+  assert.equal(
+    await crashed.evaluate(() =>
+      window.recovery.hasAuthCookieReconciliationHandoff()
+    ),
+    false
+  )
+  await Promise.all([
+    crashed.waitForEvent('domcontentloaded', { timeout: 5000 }),
+    crashed.getByRole('button', { name: 'Sign in again', exact: true }).click(),
+  ])
+  await crashed
+    .getByRole('button', { name: 'Sign in again', exact: true })
+    .waitFor()
+  assert.equal(
+    await crashed.evaluate(() => Boolean(window.supersededRecoveryDocument)),
+    false
+  )
+  assert.equal(
+    await crashed.evaluate((k) => localStorage.getItem(k), key),
+    'uncertain:crashed-guest-bootstrap'
+  )
+  evidence.cases.push(
+    'a superseded recovery intent restarts in a fresh document and reads a new no-cookie proof without clearing the shared fence or replaying authentication'
   )
   await crashed
     .getByRole('button', { name: 'Sign in again', exact: true })

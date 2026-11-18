@@ -22,6 +22,8 @@ import { z } from 'zod'
 import { api } from '@/lib/api'
 import {
   AUTH_COOKIE_TIMEOUT_MS,
+  AuthCookieBlockedError,
+  getAuthCookieBlockedState,
   withAuthCookieActivity,
   withAuthCookieLock,
 } from '@/lib/auth-cookie'
@@ -70,6 +72,8 @@ import type {
 
 // User login with username and password
 export async function login(payload: LoginPayload, signal?: AbortSignal) {
+  const blocked = getAuthCookieBlockedState()
+  if (blocked) throw new AuthCookieBlockedError(blocked)
   const turnstile = payload.turnstile ?? ''
   // Choosing an account supersedes earlier OAuth in every same-origin tab,
   // including a callback that will construct its guard in a fresh document.

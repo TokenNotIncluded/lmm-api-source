@@ -13,8 +13,10 @@ import {
   AuthCookieBlockedError,
   authCookieRecoveryMessage,
   authCookieStorageMessage,
+  withAuthCookieReconciliationLock,
 } from '@/lib/auth-cookie'
 import { useAuthStore } from '@/stores/auth-store'
+import { installSupportedAuthBrowser } from '@/test-support/supported-auth-browser'
 
 const unexpectedRequests: string[] = []
 function rejectNetwork({ request }: { request: { url: string } }): never {
@@ -1383,4 +1385,79 @@ test('a late Passkey finish from the unmounted form cannot replace the new form 
   assert.deepEqual(otpRedirects, [])
   assert.deepEqual(toastErrors, [])
   assert.deepEqual(toastSuccesses, ['Welcome back!'])
+})
+
+test('Cookie recovery blocks login controls and live handlers until confirmed recovery', async () => {
+  const restoreBrowser = installSupportedAuthBrowser({ window: dom })
+  const markerKey = 'new-api:auth-cookie:uncertain'
+  const marker = 'uncertain:sign-in-form-fixture'
+  try {
+    Object.defineProperty(navigator, 'credentials', {
+      configurable: true,
+      value: { get: async () => ({}) },
+    })
+    const host = await render({
+      passkey_login: true,
+      google_oauth: true,
+      google_client_id: 'google-client',
+    })
+    await fillCredentials(host)
+    const passkey = buttonByName(host, 'Sign in with Passkey')
+    await waitFor(() => !passkey.disabled, 'Passkey unavailable')
+    const submit = passwordSubmitButton(host)
+    const google = buttonByAccessibleName(host, 'Continue with Google')
+    const form = host.querySelector('form')
+    assert.ok(form)
+    assert.equal(submit.disabled, false)
+    assert.equal(google.disabled, false)
+
+    // The shared fence can change before its storage notification reaches React.
+    await act(async () => {
+      localStorage.setItem(markerKey, marker)
+      passkey.click()
+      form.dispatchEvent(
+        new Event('submit', { bubbles: true, cancelable: true })
+      )
+      await flush()
+    })
+    assert.deepEqual(passkeyUsernames, [])
+    assert.deepEqual(loginCalls, [])
+    assert.deepEqual(successBundles, [])
+    assert.deepEqual(toastErrors, [])
+
+    await act(async () => {
+      dom.dispatchEvent(new dom.StorageEvent('storage', { key: markerKey }))
+      await flush()
+    })
+    assert.equal(submit.disabled, true)
+    assert.equal(passkey.disabled, true)
+    assert.equal(google.disabled, true)
+    await submitPassword(host)
+    await click(google)
+    assert.deepEqual(loginCalls, [])
+    assert.deepEqual(oauthClicks, [])
+
+    await act(async () => {
+      await withAuthCookieReconciliationLock(marker, async (confirm) => {
+        confirm(() => {})
+      })
+      await flush()
+    })
+    assert.equal(submit.disabled, false)
+    assert.equal(passkey.disabled, false)
+    assert.equal(google.disabled, false)
+    await submitPassword(host)
+    assert.equal(loginCalls.length, 1)
+    assert.equal(successBundles.length, 1)
+    assert.deepEqual(toastSuccesses, ['Welcome back!'])
+  } finally {
+    if (localStorage.getItem(markerKey) === marker) {
+      await act(async () => {
+        await withAuthCookieReconciliationLock(marker, async (confirm) => {
+          confirm(() => {})
+        })
+      })
+    }
+    restoreBrowser()
+  }
 })
