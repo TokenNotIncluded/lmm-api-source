@@ -35,6 +35,8 @@ import {
   NATIVE_ROOT,
   parseNativeDocument,
   stringifyNativeDocument,
+  updateNativeChannels,
+  type NativeChannelBatchPatch,
   type NativeModelRoute,
   type NativePriceDraft,
   type NativeUpstream,
@@ -50,6 +52,7 @@ import { NativeBalanceConfigDialog } from './dialogs/native-balance-config-dialo
 import { NativeBalanceDialog } from './dialogs/native-balance-dialog'
 import { NativeChannelUsageDialog } from './dialogs/native-channel-usage-dialog'
 import { NativeKeyManageDialog } from './dialogs/native-key-manage-dialog'
+import { NativeChannelBatchEditor } from './native-channel-batch-editor'
 import { NativeChannelFields } from './native-channel-fields'
 import {
   NativeChannelOperationsSummary,
@@ -181,6 +184,9 @@ function NativeRoutingWorkspace({
     snapshot: string
     value: string
   } | null>(null)
+  const [batchRoutingEditor, setBatchRoutingEditor] = useState<string | null>(
+    null
+  )
   const [channelSort, setChannelSort] = useState<
     Pick<NativeChannelSortInput, 'sort' | 'order' | 'unit'>
   >({ sort: 'id', order: 'asc', unit: '' })
@@ -263,6 +269,7 @@ function NativeRoutingWorkspace({
       ? channelSelection.ids
       : []
   function updateChannelSelection(ids: number[]) {
+    setBatchRoutingEditor(null)
     setChannelSelection({ snapshot: channelSelectionSnapshot, ids })
   }
   const selection = JSON.stringify([
@@ -735,6 +742,12 @@ function NativeRoutingWorkspace({
   const allVisibleSelected =
     visibleChannelIds.length > 0 &&
     selectedVisibleIds.length === visibleChannelIds.length
+  const batchRoutingSnapshot = JSON.stringify([
+    channelSelectionSnapshot,
+    selectedVisibleIds,
+  ])
+  const batchRoutingOpen =
+    selectedVisibleIds.length > 0 && batchRoutingEditor === batchRoutingSnapshot
   const batchTagValue =
     selectedVisibleIds.length > 0 &&
     batchTagEditor?.snapshot === channelSelectionSnapshot
@@ -765,6 +778,21 @@ function NativeRoutingWorkspace({
     if (saved) {
       updateChannelSelection([])
       setBatchTagEditor(null)
+    }
+  }
+  async function saveSelectedRouting(patch: NativeChannelBatchPatch) {
+    if (!configuration || selectedVisibleIds.length === 0) return
+    const saved = await run(() =>
+      updateNativeChannels(
+        scope,
+        configuration.version,
+        selectedVisibleIds,
+        patch
+      )
+    )
+    if (saved) {
+      updateChannelSelection([])
+      setBatchRoutingEditor(null)
     }
   }
   function deleteButton(path: string) {
@@ -1073,18 +1101,39 @@ function NativeRoutingWorkspace({
                   variant='outline'
                   className='min-h-11'
                   disabled={busy}
-                  onClick={() =>
+                  onClick={() => {
+                    setBatchRoutingEditor(null)
                     setBatchTagEditor({
                       snapshot: channelSelectionSnapshot,
                       value: batchTagValue ?? '',
                     })
-                  }
+                  }}
                 >
                   {t('Tag')}
+                </Button>
+                <Button
+                  type='button'
+                  variant='outline'
+                  className='min-h-11'
+                  disabled={busy}
+                  onClick={() => {
+                    setBatchTagEditor(null)
+                    setBatchRoutingEditor(batchRoutingSnapshot)
+                  }}
+                >
+                  {t('Edit routing')}
                 </Button>
               </div>
             )}
           </div>
+          {batchRoutingOpen && (
+            <NativeChannelBatchEditor
+              key={batchRoutingSnapshot}
+              busy={busy}
+              onSave={saveSelectedRouting}
+              onCancel={() => setBatchRoutingEditor(null)}
+            />
+          )}
           {batchTagValue !== null && (
             <form
               className='bg-card flex flex-wrap items-end gap-3 rounded-lg p-4'

@@ -560,6 +560,206 @@ test('native channel selection batches status changes and expires with the publi
   })
 })
 
+test('native batch routing submits selected channels once with only valid changed fields', async () => {
+  const base = fixture()
+  let config = {
+    ...base,
+    routing: {
+      ...base.routing,
+      upstreams: [
+        ...base.routing.upstreams,
+        { ...base.routing.upstreams[0], id: 2 },
+      ],
+    },
+    bindings: {
+      ...base.bindings,
+      names: { ...base.bindings.names, 2: 'Secondary provider' },
+    },
+  }
+  const writes: Array<Record<string, unknown>> = []
+  api.request = (async (options: {
+    method: string
+    url: string
+    data?: Record<string, unknown>
+  }) => {
+    if (options.method === 'GET') {
+      return { data: { success: true, data: config } }
+    }
+    assert.equal(options.method, 'PUT')
+    assert.equal(
+      options.url,
+      '/core/v1/admin/routing/channels/batch/configuration'
+    )
+    writes.push(options.data ?? {})
+    config = {
+      ...config,
+      version: { routing: 2, pricing: 1 },
+      routing: { ...config.routing, version: 2 },
+    }
+    return {
+      data: {
+        success: true,
+        data: { version: config.version, updated: 2, target_count: 1 },
+      },
+    }
+  }) as typeof api.request
+  const container = await mount('channels')
+  await until(() => container.querySelectorAll('[role=checkbox]').length === 3)
+  await act(async () =>
+    (container.querySelector('[role=checkbox]') as HTMLButtonElement).click()
+  )
+  const batch = required(
+    container.querySelector('[data-slot=channel-batch-actions]')
+  )
+  await act(async () => button(batch, 'Edit routing').click())
+  const form = required(
+    container.querySelector('form[aria-label="Edit routing"]')
+  )
+  assert.equal(button(form, 'Apply').disabled, true)
+  await changeInput(required(form.querySelector('input[name=priority]')), '0')
+  await changeInput(required(form.querySelector('input[name=weight]')), '1.5')
+  assert.equal(button(form, 'Apply').disabled, true)
+  assert.match(
+    form.textContent ?? '',
+    /Enter whole numbers within the allowed ranges/
+  )
+  assert.equal(writes.length, 0)
+  await changeInput(required(form.querySelector('input[name=weight]')), '')
+  await changeInput(required(form.querySelector('input[name=timeout_ms]')), '0')
+  assert.equal(button(form, 'Apply').disabled, true)
+  await changeInput(
+    required(form.querySelector('input[name=timeout_ms]')),
+    '1200'
+  )
+  assert.equal(button(form, 'Apply').disabled, false)
+  await act(async () => {
+    button(form, 'Apply').click()
+    button(form, 'Apply').click()
+  })
+  await until(
+    () =>
+      writes.length === 1 &&
+      !container.querySelector('[data-slot=channel-batch-actions]')
+  )
+  assert.deepEqual(writes[0], {
+    expected_version: { routing: 1, pricing: 1 },
+    ids: [1, 2],
+    patch: { priority: 0, timeout_ms: 1200 },
+  })
+  assert.equal(container.querySelector('form[aria-label="Edit routing"]'), null)
+})
+
+test('native batch routing preserves a failed draft without replay and discards it when selection changes', async () => {
+  const config = fixture()
+  const writes: Array<Record<string, unknown>> = []
+  api.request = (async (options: {
+    method: string
+    data?: Record<string, unknown>
+  }) => {
+    if (options.method === 'GET') {
+      return { data: { success: true, data: config } }
+    }
+    writes.push(options.data ?? {})
+    return { data: { success: false, message: 'Routing save failed' } }
+  }) as typeof api.request
+  const container = await mount('channels')
+  await until(() => container.querySelectorAll('[role=checkbox]').length === 2)
+  const selection = container.querySelector(
+    '[role=checkbox]'
+  ) as HTMLButtonElement
+  await act(async () => selection.click())
+  const batch = required(
+    container.querySelector('[data-slot=channel-batch-actions]')
+  )
+  await act(async () => button(batch, 'Edit routing').click())
+  const form = required(
+    container.querySelector('form[aria-label="Edit routing"]')
+  )
+  const weight = required(
+    form.querySelector<HTMLInputElement>('input[name=weight]')
+  )
+  await changeInput(weight, '0')
+  await act(async () => button(form, 'Apply').click())
+  await until(
+    () => container.textContent?.includes('Routing save failed') === true
+  )
+  assert.deepEqual(writes, [
+    {
+      expected_version: { routing: 1, pricing: 1 },
+      ids: [1],
+      patch: { weight: 0 },
+    },
+  ])
+  assert.equal(weight.value, '0')
+  assert.equal(button(form, 'Apply').disabled, false)
+  await act(async () => selection.click())
+  assert.equal(container.querySelector('form[aria-label="Edit routing"]'), null)
+  await act(async () => selection.click())
+  assert.equal(container.querySelector('form[aria-label="Edit routing"]'), null)
+  const nextBatch = required(
+    container.querySelector('[data-slot=channel-batch-actions]')
+  )
+  await act(async () => button(nextBatch, 'Edit routing').click())
+  const reopened = required(
+    container.querySelector('form[aria-label="Edit routing"]')
+  )
+  assert.equal(
+    required(reopened.querySelector<HTMLInputElement>('input[name=weight]'))
+      .value,
+    ''
+  )
+  assert.equal(button(reopened, 'Apply').disabled, true)
+  assert.equal(writes.length, 1)
+})
+
+test('native batch routing rejects a stale version without replaying against the refreshed configuration', async () => {
+  let config = fixture()
+  const writes: Array<Record<string, unknown>> = []
+  api.request = (async (options: {
+    method: string
+    data?: Record<string, unknown>
+  }) => {
+    if (options.method === 'GET') {
+      return { data: { success: true, data: config } }
+    }
+    writes.push(options.data ?? {})
+    config = {
+      ...config,
+      version: { routing: 2, pricing: 1 },
+      routing: { ...config.routing, version: 2 },
+    }
+    return { data: { success: false, message: 'Routing version conflict' } }
+  }) as typeof api.request
+  const container = await mount('channels')
+  await until(() => container.querySelectorAll('[role=checkbox]').length === 2)
+  await act(async () =>
+    (container.querySelector('[role=checkbox]') as HTMLButtonElement).click()
+  )
+  const batch = required(
+    container.querySelector('[data-slot=channel-batch-actions]')
+  )
+  await act(async () => button(batch, 'Edit routing').click())
+  const form = required(
+    container.querySelector('form[aria-label="Edit routing"]')
+  )
+  await changeInput(required(form.querySelector('input[name=priority]')), '10')
+  await act(async () => button(form, 'Apply').click())
+  await until(
+    () => container.textContent?.includes('Routing version conflict') === true
+  )
+  await until(
+    () => !container.querySelector('[data-slot=channel-batch-actions]')
+  )
+  assert.equal(container.querySelector('form[aria-label="Edit routing"]'), null)
+  assert.deepEqual(writes, [
+    {
+      expected_version: { routing: 1, pricing: 1 },
+      ids: [1],
+      patch: { priority: 10 },
+    },
+  ])
+})
+
 test('native batch tags preserve drafts on failure and clear only selected channels', async () => {
   const base = fixture()
   let config = {
