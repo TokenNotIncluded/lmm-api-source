@@ -4,6 +4,9 @@
 
 ## 当前状态
 
+- **渠道批量路由与模型估算器（源码已推送，开发自测通过；2026-11-18）**：渠道支持批量修改优先级、权重、超时，留空保留原值，草稿绑定选择与版本，冲突刷新后不自动重放；纯输入端点模型隐藏不适用的输出、缓存及聊天预设。代码 [be27b613](https://github.com/TokenNotIncluded/lmm-api-source/commit/be27b6133ac6d0ea5ae684631be6660da35dbcbc)、[028eb4e3](https://github.com/TokenNotIncluded/lmm-api-source/commit/028eb4e3a885438fab0319cf2fa265be6998a58a)，预览夹具修复 [9aba1b87](https://github.com/TokenNotIncluded/lmm-api-source/commit/9aba1b872725c24d78a0c3d87d17f306d4f1a23d)。
+  **开发自测**：渠道 60 项、估算器 11 项通过；完整类型检查、修改文件格式与 lint、生产构建及包体检查通过，首屏 gzip 499,589 B。Chromium 的 1440/390 px、明暗及中/法/俄六场景 6/6，最终截图已实际检查；使用本地合成数据，未写入真实后端。首次预览错误横幅和一次类型检查超时均保留在[迭代报告](reports/lmm-channel-routing-2026-11-18.md)及[结构化证据](reports/lmm-channel-routing-2026-11-18.evidence.json)。未部署，独立业务验收未执行。[交付附件](https://drive.google.com/drive/folders/1Ixnf5t8di1HmVyWJUu6F9L2bQ-jP2yL3)。
+
 - **定价导航与未知计数修复（源码已推送，开发自测通过；2026-11-18）**：代码 [5080810c](https://github.com/TokenNotIncluded/lmm-api-source/commit/5080810c72e47535c4bb0fafe63f37199a5942cd) 已进入 main。路由改读现行 `/api/site/navigation`，配置要求登录时保留原地址跳转登录，导航读取失败继续关闭入口。目录尚未取得有效数据时，价格页隐藏模型数量、筛选器、厂商空态及价格基准说明；模型面板同步隐藏未知计数，重试成功后显示真实空目录。
   **开发自测**：导航与认证 8 项、价格状态与会话隔离 7 项通过，修改文件格式与 lint 通过。共享工作区的类型检查被既有渠道文件合并标记阻塞；从 a83dbf27 固定归档覆盖本轮六文件后，完整类型检查、生产构建及包体检查全部 exit 0，首屏 gzip 499,663 B。实际候选静态产物在 Chromium 中完成 1440px/390px 明暗错误与重试场景及登录回跳，共 5/5；接口使用合成响应，外部网络封锁。独立业务验收未执行，生产仍为 Web 3a9986d9。[结构化证据](reports/lmm-pricing-navigation-2026-11-18.evidence.json)；[交付附件](https://drive.google.com/drive/folders/1U9kWpknGqHWwBnDWaXmzFKb2qtnGdh43)。
 

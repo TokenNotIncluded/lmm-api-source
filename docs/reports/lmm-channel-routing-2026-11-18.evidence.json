@@ -1,0 +1,534 @@
+{
+  "schema_version": 1,
+  "recorded_date": "2026-11-18",
+  "timezone": "Asia/Taipei",
+  "state": "Development self-check completed; not deployed; independent business acceptance not performed.",
+  "source": {
+    "repository": "https://github.com/TokenNotIncluded/lmm-api-source",
+    "baseline": "dc9bebfcb78dc6d2f956a663e84ae0b189b710a6",
+    "estimator_commit": "028eb4e3a885438fab0319cf2fa265be6998a58a",
+    "channel_commit": "be27b6133ac6d0ea5ae684631be6660da35dbcbc",
+    "preview_fixture_commit": "9aba1b872725c24d78a0c3d87d17f306d4f1a23d",
+    "build_commit": "be27b6133ac6d0ea5ae684631be6660da35dbcbc",
+    "source_tree": "537c347cf41f192f3822f3e00412e779dc79ffee",
+    "concurrent_preserved_commit": "e1b461a7b710ae10e56e751b67a61db57512885a",
+    "concurrent_scope_note": "The network regression runner belongs to another ongoing task and is not included in this feature validation."
+  },
+  "checks": [
+    {
+      "name": "channel-tests",
+      "command": [
+        "mise",
+        "exec",
+        "--",
+        "bun",
+        "test",
+        "--preload",
+        "./scripts/test-preload.mjs",
+        "--timeout",
+        "15000",
+        "src/features/channels/components/native-routing-management.test.tsx",
+        "src/features/channels/native-api.test.ts"
+      ],
+      "cwd": "apps/web",
+      "seconds": 16.285,
+      "exit_code": 0,
+      "passed": 60,
+      "failed": 0,
+      "started_at_utc": "2026-11-18T08:54:38.770981+00:00",
+      "log": "out/lmm-channel-routing-20261118/channel-tests.log"
+    },
+    {
+      "name": "model-details-tests",
+      "command": [
+        "mise",
+        "exec",
+        "--",
+        "bun",
+        "test",
+        "--preload",
+        "./scripts/test-preload.mjs",
+        "--timeout",
+        "15000",
+        "src/features/pricing/components/model-details.test.tsx"
+      ],
+      "cwd": "apps/web",
+      "seconds": 6.962,
+      "exit_code": 0,
+      "passed": 11,
+      "failed": 0,
+      "bun_reported_seconds": 6.82,
+      "job_id": "56bcdb7468451fee2e672d25a0c23f53-786",
+      "log_persistence": "Completed ssmcp job output; no separate disk log"
+    },
+    {
+      "name": "channel-lint",
+      "command": [
+        "mise",
+        "exec",
+        "--",
+        "bun",
+        "x",
+        "--no-install",
+        "oxlint",
+        "-c",
+        ".oxlintrc.json",
+        "src/features/channels/components/native-channel-batch-editor.tsx",
+        "src/features/channels/components/native-routing-management.tsx",
+        "src/features/channels/components/native-routing-management.test.tsx"
+      ],
+      "cwd": "apps/web",
+      "seconds": 1.052,
+      "exit_code": 0
+    },
+    {
+      "name": "typecheck-web",
+      "command": [
+        "mise",
+        "exec",
+        "--",
+        "bun",
+        "run",
+        "typecheck:web"
+      ],
+      "cwd": ".",
+      "seconds": 52.241,
+      "exit_code": 0,
+      "started_at_utc": "2026-11-18T08:54:38.989210+00:00"
+    },
+    {
+      "name": "build-web",
+      "command": [
+        "mise",
+        "exec",
+        "--",
+        "just",
+        "build-web"
+      ],
+      "cwd": ".",
+      "seconds": 14.793,
+      "exit_code": 0,
+      "started_at_utc": "2026-11-18T08:57:54.842342+00:00"
+    },
+    {
+      "name": "typecheck-delivery",
+      "command": [
+        "mise",
+        "exec",
+        "--",
+        "bun",
+        "run",
+        "typecheck:web"
+      ],
+      "cwd": ".",
+      "seconds": 66.026,
+      "exit_code": 0,
+      "started_at_utc": "2026-11-18T09:11:17.085203+00:00",
+      "job_id": "56bcdb7468451fee2e672d25a0c23f53-7c7"
+    },
+    {
+      "name": "fixture-format",
+      "command": [
+        "mise",
+        "exec",
+        "--",
+        "bun",
+        "x",
+        "--no-install",
+        "oxfmt",
+        "--check",
+        "src/features/debug/console-page-fixtures.ts"
+      ],
+      "cwd": "apps/web",
+      "seconds": 0.444,
+      "exit_code": 0
+    },
+    {
+      "name": "fixture-lint",
+      "command": [
+        "mise",
+        "exec",
+        "--",
+        "bun",
+        "x",
+        "--no-install",
+        "oxlint",
+        "-c",
+        ".oxlintrc.json",
+        "src/features/debug/console-page-fixtures.ts"
+      ],
+      "cwd": "apps/web",
+      "seconds": 0.203,
+      "exit_code": 0,
+      "warnings": 0,
+      "errors": 0
+    },
+    {
+      "name": "browser-channel-review-final",
+      "command": [
+        "node",
+        "$EVIDENCE/browser-review.mjs"
+      ],
+      "cwd": ".",
+      "seconds": 105.23,
+      "exit_code": 0,
+      "started_at_utc": "2026-11-18T09:04:00.296580+00:00",
+      "passed": 6,
+      "failed": 0
+    },
+    {
+      "name": "estimator-format",
+      "command": [
+        "mise",
+        "exec",
+        "--",
+        "bun",
+        "x",
+        "--no-install",
+        "oxfmt",
+        "--write",
+        "src/features/pricing/components/request-estimator.tsx",
+        "src/features/pricing/components/model-details.test.tsx"
+      ],
+      "cwd": "apps/web",
+      "exit_code": 0,
+      "tool_reported_ms": 185,
+      "job_id": "56bcdb7468451fee2e672d25a0c23f53-784",
+      "note": "Existing copyright header preserved by the formatter wrapper."
+    },
+    {
+      "name": "estimator-lint",
+      "command": [
+        "mise",
+        "exec",
+        "--",
+        "bun",
+        "x",
+        "--no-install",
+        "oxlint",
+        "-c",
+        ".oxlintrc.json",
+        "src/features/pricing/components/request-estimator.tsx",
+        "src/features/pricing/components/model-details.test.tsx"
+      ],
+      "cwd": "apps/web",
+      "exit_code": 0,
+      "tool_reported_ms": 868,
+      "warnings": 0,
+      "errors": 0,
+      "job_id": "56bcdb7468451fee2e672d25a0c23f53-788"
+    },
+    {
+      "name": "docs-brand-final",
+      "command": [
+        "python3",
+        "-B",
+        "scripts/check-docs-brand.py",
+        "--docs-only"
+      ],
+      "cwd": ".",
+      "started_at_utc": "2026-11-18T09:25:28.383885+00:00",
+      "seconds": 0.342,
+      "exit_code": 0,
+      "log": "out/lmm-channel-routing-20261118/docs-brand-final.log"
+    }
+  ],
+  "test_summary": {
+    "passed": 71,
+    "failed": 0,
+    "includes_existing_regressions": true,
+    "repeated_runs_counted_once": true
+  },
+  "bundle": {
+    "initial_bundle_gzip_bytes": 499589,
+    "limit_bytes": 786432,
+    "exit_code": 0,
+    "performance_comparison_claimed": false
+  },
+  "browser": {
+    "source_commit": "be27b6133ac6d0ea5ae684631be6660da35dbcbc",
+    "fixture_change": "GET /api/hero-sms/capabilities -> purchases_available=false",
+    "passed": 6,
+    "failed": 0,
+    "cases": [
+      {
+        "name": "channels-1440-light-zh-CN",
+        "viewport_width": 1440,
+        "theme": "light",
+        "language": "zh-CN",
+        "passed": true,
+        "document_width": 1440,
+        "form_width": 1128,
+        "form_scroll_width": 1128,
+        "input_width": 352,
+        "control_height": 44,
+        "screenshot": "channels-1440-light-zh-CN.png",
+        "visual_inspection": "Actual final screenshot viewed by implementation agent; form labels, focus state, inputs and actions visible without error banners.",
+        "page_errors": [],
+        "visible_error_toasts": [],
+        "backend_writes": 0,
+        "screenshot_integrity": {
+          "bytes": 135739,
+          "sha256": "2c969e804a6e2535f418bc495b1d271e29ecf7fe169e2409907cfb84ffc43602"
+        }
+      },
+      {
+        "name": "channels-1440-dark-zh-CN",
+        "viewport_width": 1440,
+        "theme": "dark",
+        "language": "zh-CN",
+        "passed": true,
+        "document_width": 1440,
+        "form_width": 1128,
+        "form_scroll_width": 1128,
+        "input_width": 352,
+        "control_height": 44,
+        "screenshot": "channels-1440-dark-zh-CN.png",
+        "visual_inspection": "Actual final screenshot viewed by implementation agent; form labels, focus state, inputs and actions visible without error banners.",
+        "page_errors": [],
+        "visible_error_toasts": [],
+        "backend_writes": 0,
+        "screenshot_integrity": {
+          "bytes": 136341,
+          "sha256": "0e05bd809ded505dffae12bf6a599d3aa98bfcc549f2d4a3db0b58fc43233ee9"
+        }
+      },
+      {
+        "name": "channels-390-light-zh-CN",
+        "viewport_width": 390,
+        "theme": "light",
+        "language": "zh-CN",
+        "passed": true,
+        "document_width": 390,
+        "form_width": 358,
+        "form_scroll_width": 358,
+        "input_width": 326,
+        "control_height": 44,
+        "screenshot": "channels-390-light-zh-CN.png",
+        "visual_inspection": "Actual final screenshot viewed by implementation agent; form labels, focus state, inputs and actions visible without error banners.",
+        "page_errors": [],
+        "visible_error_toasts": [],
+        "backend_writes": 0,
+        "screenshot_integrity": {
+          "bytes": 51565,
+          "sha256": "aba54ed49aaf70868d76f06f897945f4871ef99cbfc8d8c17ffb234d14f2f79a"
+        }
+      },
+      {
+        "name": "channels-390-dark-zh-CN",
+        "viewport_width": 390,
+        "theme": "dark",
+        "language": "zh-CN",
+        "passed": true,
+        "document_width": 390,
+        "form_width": 358,
+        "form_scroll_width": 358,
+        "input_width": 326,
+        "control_height": 44,
+        "screenshot": "channels-390-dark-zh-CN.png",
+        "visual_inspection": "Actual final screenshot viewed by implementation agent; form labels, focus state, inputs and actions visible without error banners.",
+        "page_errors": [],
+        "visible_error_toasts": [],
+        "backend_writes": 0,
+        "screenshot_integrity": {
+          "bytes": 51956,
+          "sha256": "5bb7a4a3e69402bd6bbea50e1e5286bed9a080c93c44281b9abd5115ed27155b"
+        }
+      },
+      {
+        "name": "channels-390-light-fr",
+        "viewport_width": 390,
+        "theme": "light",
+        "language": "fr",
+        "passed": true,
+        "document_width": 390,
+        "form_width": 358,
+        "form_scroll_width": 358,
+        "input_width": 326,
+        "control_height": 44,
+        "screenshot": "channels-390-light-fr.png",
+        "visual_inspection": "Actual final screenshot viewed by implementation agent; form labels, focus state, inputs and actions visible without error banners.",
+        "page_errors": [],
+        "visible_error_toasts": [],
+        "backend_writes": 0,
+        "screenshot_integrity": {
+          "bytes": 53483,
+          "sha256": "ad7a202ad32b9dea4949890648d2e7ef8a4b7b56a6afa9cfa2d9bf1f101481fb"
+        }
+      },
+      {
+        "name": "channels-390-dark-ru",
+        "viewport_width": 390,
+        "theme": "dark",
+        "language": "ru",
+        "passed": true,
+        "document_width": 390,
+        "form_width": 358,
+        "form_scroll_width": 358,
+        "input_width": 326,
+        "control_height": 44,
+        "screenshot": "channels-390-dark-ru.png",
+        "visual_inspection": "Actual final screenshot viewed by implementation agent; form labels, focus state, inputs and actions visible without error banners.",
+        "page_errors": [],
+        "visible_error_toasts": [],
+        "backend_writes": 0,
+        "screenshot_integrity": {
+          "bytes": 61406,
+          "sha256": "d7975538ea4bae43fce610395bf876d83c2d74b91e0071695e8d316aec2aea27"
+        }
+      }
+    ],
+    "assertions": [
+      "Blank form cannot submit",
+      "priority=0 accepted",
+      "Fractional weight prevents submit and displays validation feedback",
+      "Corrected integers enable submit",
+      "Tab moves from priority to weight",
+      "Cancel closes the editor",
+      "No horizontal document or form overflow",
+      "Input and button height is 44px",
+      "No page errors or visible error toast",
+      "No backend write calls"
+    ],
+    "scope": "Real changed components in local debug preview with existing synthetic management fixtures; backend and external network blocked.",
+    "expected_blocked_origin": "https://cdn.agentlane.com"
+  },
+  "preserved_attempts": [
+    {
+      "name": "Initial browser screenshots",
+      "interaction_assertions": "6/6 passed",
+      "visual_review": "Missing capability fixture produced an error banner; this attempt was not treated as completed visual verification.",
+      "retained_directory": "out/lmm-channel-routing-20261118/browser-initial-fixture/",
+      "resolution": "Add unavailable-purchase fixture, assert no visible error toast, rerun all six cases and view each final screenshot."
+    },
+    {
+      "name": "typecheck-fixture-final",
+      "state": "timed_out",
+      "timeout_ms": 180000,
+      "duration_ms": 180370,
+      "exit_code": null,
+      "job_id": "56bcdb7468451fee2e672d25a0c23f53-7b6",
+      "diagnostics": "No type diagnostic returned before timeout.",
+      "retained_log": "out/lmm-channel-routing-20261118/typecheck-fixture-final.log",
+      "resolution": "Stop own preview server and rerun once; typecheck-delivery exited 0 in 66.026 seconds."
+    }
+  ],
+  "source_file_git_objects": [
+    {
+      "path": "apps/web/src/features/pricing/components/request-estimator.tsx",
+      "git_blob_sha": "5191b131a8951947d2aba8d298a1acd17135244d",
+      "bytes": 6544
+    },
+    {
+      "path": "apps/web/src/features/pricing/components/model-details.test.tsx",
+      "git_blob_sha": "5e3bf5684182b6f6a2f87f0f590b83913112c1a0",
+      "bytes": 13693
+    },
+    {
+      "path": "apps/web/src/features/channels/components/native-channel-batch-editor.tsx",
+      "git_blob_sha": "e6ee2a62d4eb1427ec491c7f9f303e70237ee07e",
+      "bytes": 3979
+    },
+    {
+      "path": "apps/web/src/features/channels/components/native-routing-management.tsx",
+      "git_blob_sha": "d172353c6eb293ab9b727ad680fd953b1c8b5749",
+      "bytes": 66063
+    },
+    {
+      "path": "apps/web/src/features/channels/components/native-routing-management.test.tsx",
+      "git_blob_sha": "6ad4588a9278afde173bdf898510961bc2526b44",
+      "bytes": 96743
+    },
+    {
+      "path": "apps/web/src/i18n/locales/en.json",
+      "git_blob_sha": "55026df3bac968fdd7527c67545d7bbdd0769396",
+      "bytes": 1133201
+    },
+    {
+      "path": "apps/web/src/i18n/locales/fr.json",
+      "git_blob_sha": "41988de0c70523d78da1188ac45492ffa3061d31",
+      "bytes": 1273094
+    },
+    {
+      "path": "apps/web/src/i18n/locales/ja.json",
+      "git_blob_sha": "b2401ab9a32592f833b51e6d5bdae81d86d3c71d",
+      "bytes": 1353650
+    },
+    {
+      "path": "apps/web/src/i18n/locales/ru.json",
+      "git_blob_sha": "06e4cb2dd04ce6f72048ef39216aacafb3f6825a",
+      "bytes": 1643269
+    },
+    {
+      "path": "apps/web/src/i18n/locales/vi.json",
+      "git_blob_sha": "57d50aedccfbc07061fcbda4d17fd69a8e2bffa3",
+      "bytes": 1323067
+    },
+    {
+      "path": "apps/web/src/i18n/locales/zh-CN.json",
+      "git_blob_sha": "7cacf58b66087e76c96669be5c92cf166d7c8910",
+      "bytes": 1094822
+    },
+    {
+      "path": "apps/web/src/i18n/locales/zh-TW.json",
+      "git_blob_sha": "7133465d7a16ebc3ec0656868cb5f93272f06c9c",
+      "bytes": 1099023
+    },
+    {
+      "path": "apps/web/src/features/debug/console-page-fixtures.ts",
+      "git_blob_sha": "d3ad8bddf3e0c8865385497b14729893d6bea99f",
+      "bytes": 24024
+    }
+  ],
+  "delivery": {
+    "google_drive_folder": "https://drive.google.com/drive/folders/1Ixnf5t8di1HmVyWJUu6F9L2bQ-jP2yL3",
+    "raw_evidence_directory_relative_to_recipe": "out/lmm-channel-routing-20261118/",
+    "transport_note": "ssmcp client disconnected briefly after final feature checks and reconnected before delivery."
+  },
+  "limits": [
+    "Local browser used synthetic fixtures and blocked live backend and external traffic.",
+    "No production deployment, live Core/PostgreSQL integration, external model call, real money reconciliation, or independent business acceptance performed.",
+    "Six browser scenes cover channel UI; estimator behavior is covered by component tests.",
+    "No new blanket whole-repository test or comparative performance claim."
+  ],
+  "documentation_validation": {
+    "name": "delivery-document-check",
+    "scope": "Only this report, evidence JSON and inserted progress entry; unchanged canonical document_links parser with actual Git tree path metadata, not the full --docs-only gate.",
+    "source_git_tree": "537c347cf41f192f3822f3e00412e779dc79ffee",
+    "json_parse": "passed",
+    "whitespace": "passed",
+    "relative_links": [
+      {
+        "source": "docs/reports/lmm-channel-routing-2026-11-18.md",
+        "target": "lmm-channel-routing-2026-11-18.evidence.json",
+        "resolved": "docs/reports/lmm-channel-routing-2026-11-18.evidence.json",
+        "exists_in_fixed_git_tree_or_this_change": true
+      },
+      {
+        "source": "docs/progress.md",
+        "target": "reports/lmm-channel-routing-2026-11-18.md",
+        "resolved": "docs/reports/lmm-channel-routing-2026-11-18.md",
+        "exists_in_fixed_git_tree_or_this_change": true
+      },
+      {
+        "source": "docs/progress.md",
+        "target": "reports/lmm-channel-routing-2026-11-18.evidence.json",
+        "resolved": "docs/reports/lmm-channel-routing-2026-11-18.evidence.json",
+        "exists_in_fixed_git_tree_or_this_change": true
+      }
+    ],
+    "exit_code": 0,
+    "errors": [],
+    "full_repository_gate": {
+      "command": [
+        "python3",
+        "-B",
+        "scripts/check-docs-brand.py",
+        "--docs-only"
+      ],
+      "exit_code": 0,
+      "seconds": 0.342,
+      "scope": "Maintained document paths, skill metadata, and README badges."
+    }
+  }
+}
