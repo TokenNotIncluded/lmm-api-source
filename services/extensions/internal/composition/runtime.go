@@ -100,6 +100,7 @@ type Runtime struct {
 	CreemSubscriptionPayments   *payments.CreemSubscriptions
 	PancakeSubscriptionPayments *payments.PancakeSubscriptions
 	PancakeAdmin                *PancakeAdministration
+	EPayAdmin                   *payments.EPayAdministration
 	CommerceClient              *coreclient.Client
 	Store                       *store.Service
 	Support                     *support.Service

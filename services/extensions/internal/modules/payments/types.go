@@ -26,6 +26,8 @@ const MaxEvidence = 32 << 10 // Fits the core's 64 KiB RPC limit, with overhead.
 const maxAmount int64 = 9_000_000_000_000
 
 type Channel struct {
+	// A read-only admission hint; Core enforces this only for new wallet intents.
+	MinAmountMinor int64  `json:"min_amount_minor,omitempty"`
 	CreditQuantity bool   `json:"credit_quantity,omitempty"`
 	ID             int64  `json:"id"`
 	Provider       string `json:"provider"`
@@ -36,7 +38,7 @@ type Channel struct {
 }
 
 func (c Channel) valid() bool {
-	return c.ID > 0 && validID(c.Provider) && validID(c.Merchant) &&
+	return c.ID > 0 && c.MinAmountMinor >= 0 && c.MinAmountMinor <= maxAmount && validID(c.Provider) && validID(c.Merchant) &&
 		(c.Environment == "test" || c.Environment == "live") && validCurrency(c.Currency)
 }
 func (c Channel) namespace() string { return c.Provider + "/" + c.Merchant + "/" + c.Environment }

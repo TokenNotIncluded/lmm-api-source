@@ -1480,7 +1480,9 @@ pub fn configured_payment_channels() -> io::Result<Vec<crate::payments::Channel>
     let document = configuration_file(Path::new(&path), 64 * 1024)?;
     let config: PaymentConfig =
         parse_document(&document).map_err(|_| invalid_config("invalid payment configuration"))?;
-    config.load().map(|(channels, _)| channels)
+    let (channels, _) = config.load()?;
+    crate::payments::configuration::configured_channels(PathBuf::from(path), &document, channels)
+        .map_err(|_| invalid_config("invalid persisted payment configuration"))
 }
 
 pub fn payments_configured() -> bool {
@@ -2154,6 +2156,10 @@ struct LegacyPaymentConfig {
 #[serde(deny_unknown_fields)]
 struct GatewayPaymentChannel {
     id: i64,
+    #[serde(default)]
+    enabled: Option<bool>,
+    #[serde(default)]
+    min_amount_minor: Option<i64>,
     provider: String,
     merchant: String,
     environment: String,
@@ -2219,6 +2225,8 @@ impl PaymentConfig {
                                     && c.inquiry_private_key_file.is_none()
                             }
                             && c.max_amount_minor > 0
+                            && c.min_amount_minor.unwrap_or(1) > 0
+                            && c.min_amount_minor.unwrap_or(1) <= c.max_amount_minor
                             && match &c.credit_quote {
                                 None => {
                                     c.credits_per_minor > 0
@@ -2317,6 +2325,8 @@ impl PaymentConfig {
                             max_amount_minor: channel.max_amount_minor,
                             webhook_secrets: vec![secret(&channel.webhook_secret_file)?],
                             verification: crate::payments::ProviderVerification {
+                                enabled: channel.enabled,
+                                min_amount_minor: channel.min_amount_minor,
                                 payment_type: channel.payment_type,
                                 store_id: channel.store_id,
                                 product_id: channel.product_id,
@@ -2533,7 +2543,10 @@ pub async fn financial_rpcs(url: &str, control_token: &[u8]) -> io::Result<Finan
             proof_read: p.proof_read,
         };
         let pool = bounded_database_pool(url, 2).await?;
+        let path = setting_os("LMM_CORE_PAYMENTS_CONFIG_FILE")
+            .ok_or_else(|| invalid_config("payment configuration path required"))?;
         let store = crate::payments::PaymentsStore::new(pool.clone(), channels)
+            .and_then(|store| store.with_configuration_file(PathBuf::from(path), &document))
             .map_err(|_| invalid_config("invalid payment channel configuration"))?;
         let subscription_permissions = crate::subscriptions::epay_rpc::Permissions {
             user_orders: p.subscription_epay_user_orders,
@@ -2612,7 +2625,7 @@ pub async fn financial_rpcs(url: &str, control_token: &[u8]) -> io::Result<Finan
 pub(crate) fn private_file(path: &Path, maximum: usize) -> io::Result<Vec<u8>> {
     read_file(path, maximum, true)
 }
-fn configuration_file(path: &Path, maximum: usize) -> io::Result<Vec<u8>> {
+pub(crate) fn configuration_file(path: &Path, maximum: usize) -> io::Result<Vec<u8>> {
     read_file(path, maximum, false)
 }
 fn read_file(path: &Path, maximum: usize, private: bool) -> io::Result<Vec<u8>> {

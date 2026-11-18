@@ -303,6 +303,9 @@ func (r *Runtime) composePayments(ctx context.Context, cfg Config, paymentToken 
 	if err == nil && len(pancake) > 0 {
 		r.PancakeAdmin, err = newPancakeAdministration(cfg.PaymentConfigFile, r.Payments, r.PancakeSubscriptionPayments)
 	}
+	if err == nil {
+		r.EPayAdmin, err = payments.NewEPayAdministration(r.PaymentClient, r.Payments, stripeAdmission)
+	}
 	return err
 }
 

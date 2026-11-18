@@ -23,7 +23,7 @@ import { SettingsPage, SettingsPageFrame } from '../components/settings-page'
 import { CheckinSettingsSection } from '../general/checkin-settings-section'
 import { QuotaSettingsSection } from '../general/quota-settings-section'
 import type { BillingSettings } from '../types'
-import { NativePaymentSettings } from './native-payment-settings'
+import { NativePaymentGateways } from './native-payment-gateways'
 import { NativePricingSection } from './native-pricing-section'
 import {
   BILLING_DEFAULT_SECTION,
@@ -168,7 +168,7 @@ export function BillingSettings() {
   if (section === 'payment') {
     return (
       <SettingsPageFrame title={t('Payment Gateway')}>
-        <NativePaymentSettings />
+        <NativePaymentGateways />
       </SettingsPageFrame>
     )
   }

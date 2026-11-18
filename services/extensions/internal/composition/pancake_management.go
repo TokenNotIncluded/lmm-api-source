@@ -174,7 +174,7 @@ func pancakeAdminAdapter(c multiPaymentChannel, request payments.PancakeAdminReq
 		}
 	}
 	return payments.NewPancake(payments.PancakeConfig{
-		Channel:    payments.Channel{ID: c.ID, Provider: c.Provider, Merchant: merchant, Environment: c.Environment, Currency: c.Currency, Enabled: c.Enabled, CreditQuantity: c.CreditQuantity},
+		Channel:    payments.Channel{ID: c.ID, Provider: c.Provider, Merchant: merchant, Environment: c.Environment, Currency: c.Currency, Enabled: c.Enabled, CreditQuantity: c.CreditQuantity, MinAmountMinor: c.minimumWalletAmount()},
 		PrivateKey: key, StoreID: c.StoreID, ProductID: c.ProductID, ReturnURL: c.ReturnURL,
 		CheckoutRegion: c.CheckoutRegion, CheckoutLanguage: c.CheckoutLanguage, TaxCategory: c.TaxCategory,
 	})

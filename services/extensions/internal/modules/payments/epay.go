@@ -43,9 +43,13 @@ func NewCoreEPay(cfg EPayConfig, signer EPayCheckoutSigner) (*EPay, error) {
 		(cfg.Channel.Currency == "LDC" && cfg.PaymentType != "epay") || cfg.EnableLegacyRefund || cfg.AllowPartialRefund {
 		return nil, ErrInvalid
 	}
-	for _, c := range cfg.Channel.Merchant {
-		if c < '0' || c > '9' {
-			return nil, ErrInvalid
+	// Linux DO identifies an application by an opaque Client ID, carried as
+	// the original pid string. The ordinary CNY EPay profile remains numeric.
+	if cfg.Channel.Currency == "CNY" {
+		for _, c := range cfg.Channel.Merchant {
+			if c < '0' || c > '9' {
+				return nil, ErrInvalid
+			}
 		}
 	}
 	return &EPay{cfg: cfg, signer: signer}, nil

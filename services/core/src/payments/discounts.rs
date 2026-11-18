@@ -65,7 +65,7 @@ pub(super) fn normalize_optional(raw: &str) -> Result<String> {
     }
     Ok(code)
 }
-async fn session(
+pub(super) async fn session(
     c: &mut PgConnection,
     credential: &str,
     admin: bool,
@@ -173,6 +173,9 @@ impl PaymentsStore {
         units(credits)?;
         let code = normalize_optional(raw_code)?;
         let channel = self.channels.get(&channel_id).ok_or(Error::Unavailable)?;
+        if !channel.enabled() {
+            return Err(Error::Denied);
+        }
         let policy = channel.credit_quote.as_ref().ok_or(Error::Invalid)?;
         let mut tx = self.begin().await?;
         session(&mut tx, credential, false).await?;
@@ -185,7 +188,10 @@ impl PaymentsStore {
             row.discount_percent
         };
         let amount_minor = quote.amount_minor(credits)?;
-        if amount_minor > channel.max_amount_minor || credits < amount_minor {
+        if amount_minor < channel.min_amount_minor()
+            || amount_minor > channel.max_amount_minor
+            || credits < amount_minor
+        {
             return Err(Error::Invalid);
         }
         tx.commit().await?;

@@ -34,6 +34,7 @@ const (
 	CorePayments_ReleaseRefund_FullMethodName             = "/lmm.core.v1.CorePayments/ReleaseRefund"
 	CorePayments_ApplyExternalRefund_FullMethodName       = "/lmm.core.v1.CorePayments/ApplyExternalRefund"
 	CorePayments_GetPaymentReceipt_FullMethodName         = "/lmm.core.v1.CorePayments/GetPaymentReceipt"
+	CorePayments_GetEPayConfiguration_FullMethodName      = "/lmm.core.v1.CorePayments/GetEPayConfiguration"
 )
 
 // CorePaymentsClient is the client API for CorePayments service.
@@ -64,6 +65,7 @@ type CorePaymentsClient interface {
 	ReleaseRefund(ctx context.Context, in *ResolveRefundRequest, opts ...grpc.CallOption) (*PaymentReceipt, error)
 	ApplyExternalRefund(ctx context.Context, in *ExternalRefundRequest, opts ...grpc.CallOption) (*PaymentReceipt, error)
 	GetPaymentReceipt(ctx context.Context, in *GetPaymentReceiptRequest, opts ...grpc.CallOption) (*PaymentReceipt, error)
+	GetEPayConfiguration(ctx context.Context, in *GetEPayConfigurationRequest, opts ...grpc.CallOption) (*EPayConfiguration, error)
 }
 
 type corePaymentsClient struct {
@@ -224,6 +226,16 @@ func (c *corePaymentsClient) GetPaymentReceipt(ctx context.Context, in *GetPayme
 	return out, nil
 }
 
+func (c *corePaymentsClient) GetEPayConfiguration(ctx context.Context, in *GetEPayConfigurationRequest, opts ...grpc.CallOption) (*EPayConfiguration, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(EPayConfiguration)
+	err := c.cc.Invoke(ctx, CorePayments_GetEPayConfiguration_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // CorePaymentsServer is the server API for CorePayments service.
 // All implementations must embed UnimplementedCorePaymentsServer
 // for forward compatibility.
@@ -252,6 +264,7 @@ type CorePaymentsServer interface {
 	ReleaseRefund(context.Context, *ResolveRefundRequest) (*PaymentReceipt, error)
 	ApplyExternalRefund(context.Context, *ExternalRefundRequest) (*PaymentReceipt, error)
 	GetPaymentReceipt(context.Context, *GetPaymentReceiptRequest) (*PaymentReceipt, error)
+	GetEPayConfiguration(context.Context, *GetEPayConfigurationRequest) (*EPayConfiguration, error)
 	mustEmbedUnimplementedCorePaymentsServer()
 }
 
@@ -306,6 +319,9 @@ func (UnimplementedCorePaymentsServer) ApplyExternalRefund(context.Context, *Ext
 }
 func (UnimplementedCorePaymentsServer) GetPaymentReceipt(context.Context, *GetPaymentReceiptRequest) (*PaymentReceipt, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetPaymentReceipt not implemented")
+}
+func (UnimplementedCorePaymentsServer) GetEPayConfiguration(context.Context, *GetEPayConfigurationRequest) (*EPayConfiguration, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetEPayConfiguration not implemented")
 }
 func (UnimplementedCorePaymentsServer) mustEmbedUnimplementedCorePaymentsServer() {}
 func (UnimplementedCorePaymentsServer) testEmbeddedByValue()                      {}
@@ -598,6 +614,24 @@ func _CorePayments_GetPaymentReceipt_Handler(srv interface{}, ctx context.Contex
 	return interceptor(ctx, in, info, handler)
 }
 
+func _CorePayments_GetEPayConfiguration_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetEPayConfigurationRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(CorePaymentsServer).GetEPayConfiguration(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: CorePayments_GetEPayConfiguration_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(CorePaymentsServer).GetEPayConfiguration(ctx, req.(*GetEPayConfigurationRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // CorePayments_ServiceDesc is the grpc.ServiceDesc for CorePayments service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -664,6 +698,10 @@ var CorePayments_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "GetPaymentReceipt",
 			Handler:    _CorePayments_GetPaymentReceipt_Handler,
+		},
+		{
+			MethodName: "GetEPayConfiguration",
+			Handler:    _CorePayments_GetEPayConfiguration_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

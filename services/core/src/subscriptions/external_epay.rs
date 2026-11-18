@@ -141,6 +141,7 @@ impl SubscriptionStore {
         key: &str,
         p: &ExternalPrice,
     ) -> Result<ExternalPrice> {
+        let payments = payments.freeze().map_err(payment_error)?;
         operation_key(key)?;
         let n = amount(&p.amount_minor)?;
         let mut tx = self.begin().await?;
@@ -155,7 +156,8 @@ impl SubscriptionStore {
         let channel = payments
             .subscription_channel(p.channel_id)
             .map_err(payment_error)?;
-        if current.revision != p.plan_revision
+        if !channel.enabled()
+            || current.revision != p.plan_revision
             || current.archived
             || channel.currency != p.currency
             || n > channel.max_amount_minor
@@ -209,6 +211,7 @@ impl SubscriptionStore {
         secret: &str,
         r: &EPayPurchaseRequest,
     ) -> Result<EPayPurchase> {
+        let payments = payments.freeze().map_err(payment_error)?;
         operation_key(&r.operation_key)?;
         let mut tx = self.begin().await?;
         let a = actor(&mut tx, secret, false).await?;
@@ -232,7 +235,7 @@ impl SubscriptionStore {
         let channel = payments
             .subscription_channel(r.channel_id)
             .map_err(payment_error)?;
-        if currency != channel.currency || n > channel.max_amount_minor {
+        if !channel.enabled() || currency != channel.currency || n > channel.max_amount_minor {
             return Err(Error::Conflict);
         }
         let b = payments

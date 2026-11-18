@@ -27,6 +27,7 @@ service CorePayments {
   rpc ReleaseRefund(ResolveRefundRequest) returns (PaymentReceipt);
   rpc ApplyExternalRefund(ExternalRefundRequest) returns (PaymentReceipt);
   rpc GetPaymentReceipt(GetPaymentReceiptRequest) returns (PaymentReceipt);
+  rpc GetEPayConfiguration(GetEPayConfigurationRequest) returns (EPayConfiguration);
 }
 message ExternalPaymentReference {
   string provider = 1;
@@ -106,6 +107,7 @@ message EPayCheckout {
   // GET opens checkout_url; POST submits its query fields to its queryless URL.
   string method = 4;
 }
+
 message CreditTopupRequest {
   MutationContext mutation = 1;
   int64 intent_id = 2;
@@ -400,3 +402,28 @@ message CreemSubscriptionLookup { int64 channel_id = 1; string provider_subscrip
 
 message AcceptCreemSubscriptionEventRequest { string order_id = 1; bytes signed_payload = 2; bytes signature = 3; int64 payment_channel_id = 4; }
 message GetCreemSubscriptionEventRequest { string order_id = 1; string provider_event_id = 2; bytes payload_sha256 = 3; int64 payment_channel_id = 4; }
+
+// Safe effective configuration only. This projection is read by Go through the
+// dedicated payment principal; only Core's owner HTTP endpoint can edit it.
+message GetEPayConfigurationRequest {}
+message EPayConfiguration {
+  string revision = 1;
+  repeated EPayConfigurationBinding bindings = 2;
+}
+message EPayConfigurationBinding {
+  int64 channel_id = 1;
+  string merchant_id = 2;
+  string environment = 3;
+  string currency = 4;
+  string payment_type = 5;
+  string endpoint = 6;
+  string notify_url = 7;
+  string return_url = 8;
+  bool key_configured = 9;
+  bool enabled = 10;
+  bool editable = 11;
+  string credits_per_minor = 12;
+  string max_amount_minor = 13;
+  // Wallet admission only; existing obligations and subscription prices are unchanged.
+  string min_amount_minor = 14;
+}

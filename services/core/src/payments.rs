@@ -1,6 +1,7 @@
 //! Core-owned payment intents and independently verified provider transitions.
 //! All money uses the existing controlled ledger, inside the metadata transaction.
 //! Provider requests never run while this transaction is open.
+pub mod configuration;
 pub(crate) mod credit_quote;
 pub mod discounts;
 pub(crate) mod identifiers;
@@ -79,6 +80,8 @@ pub struct Channel {
 /// They never come from the browser, Go's interpretation, or a callback.
 #[derive(Clone, Default)]
 pub(crate) struct ProviderVerification {
+    pub enabled: Option<bool>,
+    pub min_amount_minor: Option<i64>,
     pub payment_type: String,
     pub store_id: String,
     pub product_id: String,
@@ -88,6 +91,14 @@ pub(crate) struct ProviderVerification {
     pub waffo_inquiry: Option<Arc<waffo::Inquiry>>,
 }
 impl Channel {
+    pub(crate) fn enabled(&self) -> bool {
+        self.verification.enabled.unwrap_or(true)
+    }
+
+    pub(crate) fn min_amount_minor(&self) -> i64 {
+        self.verification.min_amount_minor.unwrap_or(1)
+    }
+
     pub fn pancake_isolated_test(
         id: i64,
         merchant: String,
@@ -187,6 +198,8 @@ impl Channel {
             && self.currency.len() == 3
             && self.currency.bytes().all(|b| b.is_ascii_uppercase())
             && self.max_amount_minor > 0
+            && self.min_amount_minor() > 0
+            && self.min_amount_minor() <= self.max_amount_minor
             && match &self.credit_quote {
                 None => {
                     self.credits_per_minor > 0
@@ -252,6 +265,8 @@ type Result<T> = std::result::Result<T, Error>;
 pub struct PaymentsStore {
     pool: PgPool,
     channels: Arc<BTreeMap<i64, Channel>>,
+    configuration: Option<Arc<configuration::Runtime>>,
+    frozen: bool,
 }
 #[derive(sqlx::FromRow)]
 struct IntentRow {
@@ -376,6 +391,14 @@ impl PaymentsStore {
         })
     }
     pub fn new(pool: PgPool, channels: Vec<Channel>) -> Result<Self> {
+        Ok(Self {
+            pool,
+            channels: Self::compile_channels(channels)?,
+            configuration: None,
+            frozen: false,
+        })
+    }
+    fn compile_channels(channels: Vec<Channel>) -> Result<Arc<BTreeMap<i64, Channel>>> {
         let mut by_id = BTreeMap::new();
         let mut namespaces = std::collections::BTreeSet::new();
         let mut secrets = BTreeMap::new();
@@ -417,10 +440,7 @@ impl PaymentsStore {
             }
             by_id.insert(channel.id, channel);
         }
-        Ok(Self {
-            pool,
-            channels: Arc::new(by_id),
-        })
+        Ok(Arc::new(by_id))
     }
     async fn begin(&self) -> Result<Transaction<'static, Postgres>> {
         let mut tx = self.pool.begin().await?;
@@ -998,6 +1018,9 @@ impl PaymentsStore {
             tx.commit().await?;
             return Ok(intent);
         }
+        if !channel.enabled() {
+            return Err(Error::Denied);
+        }
         // Subscription-only Creem channels have no wallet product. Existing
         // intent recovery above remains available; new wallet orders are denied.
         if channel.provider == "creem" && channel.verification.product_id.is_empty() {
@@ -1057,7 +1080,10 @@ impl PaymentsStore {
                 (request.amount_minor, credits, None)
             }
         };
-        if amount_minor > channel.max_amount_minor || credit_units < amount_minor {
+        if amount_minor < channel.min_amount_minor()
+            || amount_minor > channel.max_amount_minor
+            || credit_units < amount_minor
+        {
             return Err(Error::Invalid);
         }
         let id: i64 = sqlx::query_scalar("INSERT INTO core_payments.intents(account_id,created_by_user_id,channel_id,provider,merchant,environment,currency,amount_minor,credit_units,credits_per_minor,prepare_key,prepare_hash,credit_quote) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) RETURNING id")

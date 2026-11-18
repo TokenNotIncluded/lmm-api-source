@@ -137,12 +137,16 @@ impl pb::core_subscription_payments_server::CoreSubscriptionPayments for EPaySub
             .check(r.metadata(), self.permissions.user_orders)?;
         let user = single(r.metadata(), "x-lmm-user-credential")?.to_owned();
         let r = r.into_inner();
+        let payments = self
+            .payments
+            .freeze()
+            .map_err(|_| Status::unavailable("payment configuration unavailable"))?;
         self.run(async {
             let key = r.mutation.ok_or(Error::Invalid)?.idempotency_key;
             super::pancake_rpc::order(
                 self.store
                     .prepare_pancake_purchase(
-                        &self.payments,
+                        &payments,
                         &user,
                         &EPayPurchaseRequest {
                             operation_key: key,
@@ -213,11 +217,15 @@ impl pb::core_subscription_payments_server::CoreSubscriptionPayments for EPaySub
             self.permissions.proof_ingress && self.permissions.grant,
         )?;
         let r = r.into_inner();
+        let payments = self
+            .payments
+            .freeze()
+            .map_err(|_| Status::unavailable("payment configuration unavailable"))?;
         self.run(async {
             Ok(super::pancake_rpc::event(
                 self.store
                     .accept_pancake_event(
-                        &self.payments,
+                        &payments,
                         r.payment_channel_id,
                         &r.provider_reference,
                         &r.signed_payload,
@@ -257,12 +265,16 @@ impl pb::core_subscription_payments_server::CoreSubscriptionPayments for EPaySub
             .check(r.metadata(), self.permissions.user_orders)?;
         let user = single(r.metadata(), "x-lmm-user-credential")?.to_owned();
         let r = r.into_inner();
+        let payments = self
+            .payments
+            .freeze()
+            .map_err(|_| Status::unavailable("payment configuration unavailable"))?;
         self.run(async {
             let key = r.mutation.ok_or(Error::Invalid)?.idempotency_key;
             super::stripe_rpc::order(
                 self.store
                     .prepare_stripe_purchase(
-                        &self.payments,
+                        &payments,
                         &user,
                         &EPayPurchaseRequest {
                             operation_key: key,
@@ -314,15 +326,14 @@ impl pb::core_subscription_payments_server::CoreSubscriptionPayments for EPaySub
             self.permissions.proof_ingress && self.permissions.grant,
         )?;
         let r = r.into_inner();
+        let payments = self
+            .payments
+            .freeze()
+            .map_err(|_| Status::unavailable("payment configuration unavailable"))?;
         self.run(async {
             Ok(super::stripe_rpc::event(
                 self.store
-                    .accept_stripe_event(
-                        &self.payments,
-                        &r.order_id,
-                        &r.signed_payload,
-                        &r.signature,
-                    )
+                    .accept_stripe_event(&payments, &r.order_id, &r.signed_payload, &r.signature)
                     .await?,
             ))
         })
@@ -367,12 +378,16 @@ impl pb::core_subscription_payments_server::CoreSubscriptionPayments for EPaySub
             .check(r.metadata(), self.permissions.user_orders)?;
         let user = single(r.metadata(), "x-lmm-user-credential")?.to_owned();
         let r = r.into_inner();
+        let payments = self
+            .payments
+            .freeze()
+            .map_err(|_| Status::unavailable("payment configuration unavailable"))?;
         self.run(async {
             let key = r.mutation.ok_or(Error::Invalid)?.idempotency_key;
             super::creem_rpc::order(
                 self.store
                     .prepare_creem_purchase(
-                        &self.payments,
+                        &payments,
                         &user,
                         &EPayPurchaseRequest {
                             operation_key: key,
@@ -424,11 +439,15 @@ impl pb::core_subscription_payments_server::CoreSubscriptionPayments for EPaySub
             self.permissions.proof_ingress && self.permissions.grant,
         )?;
         let r = r.into_inner();
+        let payments = self
+            .payments
+            .freeze()
+            .map_err(|_| Status::unavailable("payment configuration unavailable"))?;
         self.run(async {
             Ok(super::creem_rpc::event(
                 self.store
                     .accept_creem_event(
-                        &self.payments,
+                        &payments,
                         r.payment_channel_id,
                         &r.order_id,
                         &r.signed_payload,
@@ -467,12 +486,16 @@ impl pb::core_subscription_payments_server::CoreSubscriptionPayments for EPaySub
             .check(r.metadata(), self.permissions.user_orders)?;
         let user = single(r.metadata(), "x-lmm-user-credential")?.to_owned();
         let r = r.into_inner();
+        let payments = self
+            .payments
+            .freeze()
+            .map_err(|_| Status::unavailable("payment configuration unavailable"))?;
         self.run(async {
             let key = r.mutation.ok_or(Error::Invalid)?.idempotency_key;
             order_wire(
                 self.store
                     .prepare_epay_purchase(
-                        &self.payments,
+                        &payments,
                         &user,
                         &EPayPurchaseRequest {
                             operation_key: key,
@@ -493,9 +516,13 @@ impl pb::core_subscription_payments_server::CoreSubscriptionPayments for EPaySub
             .check(r.metadata(), self.permissions.user_orders)?;
         let user = single(r.metadata(), "x-lmm-user-credential")?.to_owned();
         let r = r.into_inner();
+        let payments = self
+            .payments
+            .freeze()
+            .map_err(|_| Status::unavailable("payment configuration unavailable"))?;
         self.run(
             self.store
-                .confirm_epay_purchase(&self.payments, &user, &r.order_id),
+                .confirm_epay_purchase(&payments, &user, &r.order_id),
         )
         .await
     }
@@ -507,10 +534,14 @@ impl pb::core_subscription_payments_server::CoreSubscriptionPayments for EPaySub
             .check(r.metadata(), self.permissions.user_orders)?;
         let user = single(r.metadata(), "x-lmm-user-credential")?.to_owned();
         let r = r.into_inner();
+        let payments = self
+            .payments
+            .freeze()
+            .map_err(|_| Status::unavailable("payment configuration unavailable"))?;
         self.run(async {
             let (o, checkout) = self
                 .store
-                .read_epay_purchase_with_checkout(&self.payments, &user, &r.order_id)
+                .read_epay_purchase_with_checkout(&payments, &user, &r.order_id)
                 .await?;
             let mut wire = order_wire(o)?;
             wire.checkout = checkout;
@@ -536,10 +567,14 @@ impl pb::core_subscription_payments_server::CoreSubscriptionPayments for EPaySub
         self.auth
             .check(r.metadata(), self.permissions.proof_ingress)?;
         let r = r.into_inner();
+        let payments = self
+            .payments
+            .freeze()
+            .map_err(|_| Status::unavailable("payment configuration unavailable"))?;
         self.run(async {
             Ok(proof_wire(
                 self.store
-                    .accept_epay_proof(&self.payments, &r.order_id, &r.signed_payload, &r.signature)
+                    .accept_epay_proof(&payments, &r.order_id, &r.signed_payload, &r.signature)
                     .await?,
             ))
         })

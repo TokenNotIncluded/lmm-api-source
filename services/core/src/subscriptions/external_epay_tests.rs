@@ -767,3 +767,84 @@ async fn admin_epay_price_get_is_root_only_and_reads_current_disabled_revision(p
     assert_eq!(archived, body);
     server.abort();
 }
+
+#[sqlx::test(migrations = false)]
+async fn epay_configuration_disabled_subscription_keeps_only_existing_obligations(pool: PgPool) {
+    let f = fixture(&pool, 3).await;
+    let mut channel = f.payments.subscription_channel(7).unwrap().clone();
+    // The imported minimum is a wallet top-up limit, not a subscription floor.
+    channel.verification.min_amount_minor = Some(10_000);
+    let wallet_minimum = PaymentsStore::new(pool.clone(), vec![channel.clone()]).unwrap();
+    let original = f
+        .store
+        .prepare_epay_purchase(
+            &wallet_minimum,
+            &f.user,
+            &EPayPurchaseRequest {
+                operation_key: "epay_configuration_before_disabled".into(),
+                plan_id: f.plan.id,
+                channel_id: 7,
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(original.amount_minor, "125");
+    channel.verification.enabled = Some(false);
+    let disabled = PaymentsStore::new(pool.clone(), vec![channel]).unwrap();
+    let request = |key: &str| EPayPurchaseRequest {
+        operation_key: key.into(),
+        plan_id: f.plan.id,
+        channel_id: 7,
+    };
+    assert_eq!(
+        f.store
+            .prepare_epay_purchase(
+                &disabled,
+                &f.user,
+                &request("epay_configuration_before_disabled")
+            )
+            .await
+            .unwrap(),
+        original
+    );
+    assert_eq!(
+        f.store
+            .prepare_epay_purchase(
+                &disabled,
+                &f.user,
+                &request("epay_configuration_after_disabled")
+            )
+            .await
+            .unwrap_err(),
+        Error::Conflict
+    );
+    assert!(
+        f.store
+            .confirm_epay_purchase(&disabled, &f.user, &original.order_id)
+            .await
+            .is_ok()
+    );
+    assert_eq!(
+        f.store
+            .save_epay_price(
+                &disabled,
+                &f.admin,
+                "epay_configuration_price_disabled",
+                &ExternalPrice {
+                    plan_id: f.plan.id,
+                    plan_revision: f.plan.revision,
+                    channel_id: 7,
+                    currency: "CNY".into(),
+                    amount_minor: "125".into(),
+                }
+            )
+            .await
+            .unwrap_err(),
+        Error::Conflict
+    );
+    let count: i64 = sqlx::query_scalar("SELECT count(*) FROM core_subscriptions.external_orders")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(count, 1);
+}

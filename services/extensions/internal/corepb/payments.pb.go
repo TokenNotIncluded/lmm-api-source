@@ -3806,6 +3806,245 @@ func (x *GetCreemSubscriptionEventRequest) GetPaymentChannelId() int64 {
 	return 0
 }
 
+// Safe effective configuration only. This projection is read by Go through the
+// dedicated payment principal; only Core's owner HTTP endpoint can edit it.
+type GetEPayConfigurationRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetEPayConfigurationRequest) Reset() {
+	*x = GetEPayConfigurationRequest{}
+	mi := &file_lmm_core_v1_payments_proto_msgTypes[46]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetEPayConfigurationRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetEPayConfigurationRequest) ProtoMessage() {}
+
+func (x *GetEPayConfigurationRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_lmm_core_v1_payments_proto_msgTypes[46]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetEPayConfigurationRequest.ProtoReflect.Descriptor instead.
+func (*GetEPayConfigurationRequest) Descriptor() ([]byte, []int) {
+	return file_lmm_core_v1_payments_proto_rawDescGZIP(), []int{46}
+}
+
+type EPayConfiguration struct {
+	state         protoimpl.MessageState      `protogen:"open.v1"`
+	Revision      string                      `protobuf:"bytes,1,opt,name=revision,proto3" json:"revision,omitempty"`
+	Bindings      []*EPayConfigurationBinding `protobuf:"bytes,2,rep,name=bindings,proto3" json:"bindings,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *EPayConfiguration) Reset() {
+	*x = EPayConfiguration{}
+	mi := &file_lmm_core_v1_payments_proto_msgTypes[47]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *EPayConfiguration) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*EPayConfiguration) ProtoMessage() {}
+
+func (x *EPayConfiguration) ProtoReflect() protoreflect.Message {
+	mi := &file_lmm_core_v1_payments_proto_msgTypes[47]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use EPayConfiguration.ProtoReflect.Descriptor instead.
+func (*EPayConfiguration) Descriptor() ([]byte, []int) {
+	return file_lmm_core_v1_payments_proto_rawDescGZIP(), []int{47}
+}
+
+func (x *EPayConfiguration) GetRevision() string {
+	if x != nil {
+		return x.Revision
+	}
+	return ""
+}
+
+func (x *EPayConfiguration) GetBindings() []*EPayConfigurationBinding {
+	if x != nil {
+		return x.Bindings
+	}
+	return nil
+}
+
+type EPayConfigurationBinding struct {
+	state           protoimpl.MessageState `protogen:"open.v1"`
+	ChannelId       int64                  `protobuf:"varint,1,opt,name=channel_id,json=channelId,proto3" json:"channel_id,omitempty"`
+	MerchantId      string                 `protobuf:"bytes,2,opt,name=merchant_id,json=merchantId,proto3" json:"merchant_id,omitempty"`
+	Environment     string                 `protobuf:"bytes,3,opt,name=environment,proto3" json:"environment,omitempty"`
+	Currency        string                 `protobuf:"bytes,4,opt,name=currency,proto3" json:"currency,omitempty"`
+	PaymentType     string                 `protobuf:"bytes,5,opt,name=payment_type,json=paymentType,proto3" json:"payment_type,omitempty"`
+	Endpoint        string                 `protobuf:"bytes,6,opt,name=endpoint,proto3" json:"endpoint,omitempty"`
+	NotifyUrl       string                 `protobuf:"bytes,7,opt,name=notify_url,json=notifyUrl,proto3" json:"notify_url,omitempty"`
+	ReturnUrl       string                 `protobuf:"bytes,8,opt,name=return_url,json=returnUrl,proto3" json:"return_url,omitempty"`
+	KeyConfigured   bool                   `protobuf:"varint,9,opt,name=key_configured,json=keyConfigured,proto3" json:"key_configured,omitempty"`
+	Enabled         bool                   `protobuf:"varint,10,opt,name=enabled,proto3" json:"enabled,omitempty"`
+	Editable        bool                   `protobuf:"varint,11,opt,name=editable,proto3" json:"editable,omitempty"`
+	CreditsPerMinor string                 `protobuf:"bytes,12,opt,name=credits_per_minor,json=creditsPerMinor,proto3" json:"credits_per_minor,omitempty"`
+	MaxAmountMinor  string                 `protobuf:"bytes,13,opt,name=max_amount_minor,json=maxAmountMinor,proto3" json:"max_amount_minor,omitempty"`
+	// Wallet admission only; existing obligations and subscription prices are unchanged.
+	MinAmountMinor string `protobuf:"bytes,14,opt,name=min_amount_minor,json=minAmountMinor,proto3" json:"min_amount_minor,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
+}
+
+func (x *EPayConfigurationBinding) Reset() {
+	*x = EPayConfigurationBinding{}
+	mi := &file_lmm_core_v1_payments_proto_msgTypes[48]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *EPayConfigurationBinding) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*EPayConfigurationBinding) ProtoMessage() {}
+
+func (x *EPayConfigurationBinding) ProtoReflect() protoreflect.Message {
+	mi := &file_lmm_core_v1_payments_proto_msgTypes[48]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use EPayConfigurationBinding.ProtoReflect.Descriptor instead.
+func (*EPayConfigurationBinding) Descriptor() ([]byte, []int) {
+	return file_lmm_core_v1_payments_proto_rawDescGZIP(), []int{48}
+}
+
+func (x *EPayConfigurationBinding) GetChannelId() int64 {
+	if x != nil {
+		return x.ChannelId
+	}
+	return 0
+}
+
+func (x *EPayConfigurationBinding) GetMerchantId() string {
+	if x != nil {
+		return x.MerchantId
+	}
+	return ""
+}
+
+func (x *EPayConfigurationBinding) GetEnvironment() string {
+	if x != nil {
+		return x.Environment
+	}
+	return ""
+}
+
+func (x *EPayConfigurationBinding) GetCurrency() string {
+	if x != nil {
+		return x.Currency
+	}
+	return ""
+}
+
+func (x *EPayConfigurationBinding) GetPaymentType() string {
+	if x != nil {
+		return x.PaymentType
+	}
+	return ""
+}
+
+func (x *EPayConfigurationBinding) GetEndpoint() string {
+	if x != nil {
+		return x.Endpoint
+	}
+	return ""
+}
+
+func (x *EPayConfigurationBinding) GetNotifyUrl() string {
+	if x != nil {
+		return x.NotifyUrl
+	}
+	return ""
+}
+
+func (x *EPayConfigurationBinding) GetReturnUrl() string {
+	if x != nil {
+		return x.ReturnUrl
+	}
+	return ""
+}
+
+func (x *EPayConfigurationBinding) GetKeyConfigured() bool {
+	if x != nil {
+		return x.KeyConfigured
+	}
+	return false
+}
+
+func (x *EPayConfigurationBinding) GetEnabled() bool {
+	if x != nil {
+		return x.Enabled
+	}
+	return false
+}
+
+func (x *EPayConfigurationBinding) GetEditable() bool {
+	if x != nil {
+		return x.Editable
+	}
+	return false
+}
+
+func (x *EPayConfigurationBinding) GetCreditsPerMinor() string {
+	if x != nil {
+		return x.CreditsPerMinor
+	}
+	return ""
+}
+
+func (x *EPayConfigurationBinding) GetMaxAmountMinor() string {
+	if x != nil {
+		return x.MaxAmountMinor
+	}
+	return ""
+}
+
+func (x *EPayConfigurationBinding) GetMinAmountMinor() string {
+	if x != nil {
+		return x.MinAmountMinor
+	}
+	return ""
+}
+
 var File_lmm_core_v1_payments_proto protoreflect.FileDescriptor
 
 const file_lmm_core_v1_payments_proto_rawDesc = "" +
@@ -4159,7 +4398,31 @@ const file_lmm_core_v1_payments_proto_rawDesc = "" +
 	"\border_id\x18\x01 \x01(\tR\aorderId\x12*\n" +
 	"\x11provider_event_id\x18\x02 \x01(\tR\x0fproviderEventId\x12%\n" +
 	"\x0epayload_sha256\x18\x03 \x01(\fR\rpayloadSha256\x12,\n" +
-	"\x12payment_channel_id\x18\x04 \x01(\x03R\x10paymentChannelId*\xdf\x02\n" +
+	"\x12payment_channel_id\x18\x04 \x01(\x03R\x10paymentChannelId\"\x1d\n" +
+	"\x1bGetEPayConfigurationRequest\"r\n" +
+	"\x11EPayConfiguration\x12\x1a\n" +
+	"\brevision\x18\x01 \x01(\tR\brevision\x12A\n" +
+	"\bbindings\x18\x02 \x03(\v2%.lmm.core.v1.EPayConfigurationBindingR\bbindings\"\xf2\x03\n" +
+	"\x18EPayConfigurationBinding\x12\x1d\n" +
+	"\n" +
+	"channel_id\x18\x01 \x01(\x03R\tchannelId\x12\x1f\n" +
+	"\vmerchant_id\x18\x02 \x01(\tR\n" +
+	"merchantId\x12 \n" +
+	"\venvironment\x18\x03 \x01(\tR\venvironment\x12\x1a\n" +
+	"\bcurrency\x18\x04 \x01(\tR\bcurrency\x12!\n" +
+	"\fpayment_type\x18\x05 \x01(\tR\vpaymentType\x12\x1a\n" +
+	"\bendpoint\x18\x06 \x01(\tR\bendpoint\x12\x1d\n" +
+	"\n" +
+	"notify_url\x18\a \x01(\tR\tnotifyUrl\x12\x1d\n" +
+	"\n" +
+	"return_url\x18\b \x01(\tR\treturnUrl\x12%\n" +
+	"\x0ekey_configured\x18\t \x01(\bR\rkeyConfigured\x12\x18\n" +
+	"\aenabled\x18\n" +
+	" \x01(\bR\aenabled\x12\x1a\n" +
+	"\beditable\x18\v \x01(\bR\beditable\x12*\n" +
+	"\x11credits_per_minor\x18\f \x01(\tR\x0fcreditsPerMinor\x12(\n" +
+	"\x10max_amount_minor\x18\r \x01(\tR\x0emaxAmountMinor\x12(\n" +
+	"\x10min_amount_minor\x18\x0e \x01(\tR\x0eminAmountMinor*\xdf\x02\n" +
 	"\x13PaymentReceiptState\x12%\n" +
 	"!PAYMENT_RECEIPT_STATE_UNSPECIFIED\x10\x00\x12(\n" +
 	"$PAYMENT_RECEIPT_STATE_CREDIT_APPLIED\x10\x01\x12%\n" +
@@ -4168,8 +4431,7 @@ const file_lmm_core_v1_payments_proto_rawDesc = "" +
 	"%PAYMENT_RECEIPT_STATE_REFUND_RELEASED\x10\x04\x121\n" +
 	"-PAYMENT_RECEIPT_STATE_EXTERNAL_REFUND_APPLIED\x10\x05\x12\"\n" +
 	"\x1ePAYMENT_RECEIPT_STATE_REJECTED\x10\x06\x12\"\n" +
-	"\x1ePAYMENT_RECEIPT_STATE_PREPARED\x10\a2\xd1\n" +
-	"\n" +
+	"\x1ePAYMENT_RECEIPT_STATE_PREPARED\x10\a2\xb3\v\n" +
 	"\fCorePayments\x12s\n" +
 	"\x19AcceptLegacyProviderProof\x12-.lmm.core.v1.AcceptLegacyProviderProofRequest\x1a'.lmm.core.v1.LegacyProviderProofReceipt\x12m\n" +
 	"\x16GetLegacyProviderProof\x12*.lmm.core.v1.GetLegacyProviderProofRequest\x1a'.lmm.core.v1.LegacyProviderProofReceipt\x12]\n" +
@@ -4186,7 +4448,8 @@ const file_lmm_core_v1_payments_proto_rawDesc = "" +
 	"\fCommitRefund\x12!.lmm.core.v1.ResolveRefundRequest\x1a\x1b.lmm.core.v1.PaymentReceipt\x12O\n" +
 	"\rReleaseRefund\x12!.lmm.core.v1.ResolveRefundRequest\x1a\x1b.lmm.core.v1.PaymentReceipt\x12V\n" +
 	"\x13ApplyExternalRefund\x12\".lmm.core.v1.ExternalRefundRequest\x1a\x1b.lmm.core.v1.PaymentReceipt\x12W\n" +
-	"\x11GetPaymentReceipt\x12%.lmm.core.v1.GetPaymentReceiptRequest\x1a\x1b.lmm.core.v1.PaymentReceipt2\xc4\x14\n" +
+	"\x11GetPaymentReceipt\x12%.lmm.core.v1.GetPaymentReceiptRequest\x1a\x1b.lmm.core.v1.PaymentReceipt\x12`\n" +
+	"\x14GetEPayConfiguration\x12(.lmm.core.v1.GetEPayConfigurationRequest\x1a\x1e.lmm.core.v1.EPayConfiguration2\xc4\x14\n" +
 	"\x18CoreSubscriptionPayments\x12h\n" +
 	"\x16PreparePancakePurchase\x12'.lmm.core.v1.PrepareEPayPurchaseRequest\x1a%.lmm.core.v1.PancakeSubscriptionOrder\x12j\n" +
 	"\x16ConfirmPancakePurchase\x12).lmm.core.v1.EPaySubscriptionOrderRequest\x1a%.lmm.core.v1.PancakeSubscriptionOrder\x12g\n" +
@@ -4226,7 +4489,7 @@ func file_lmm_core_v1_payments_proto_rawDescGZIP() []byte {
 }
 
 var file_lmm_core_v1_payments_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_lmm_core_v1_payments_proto_msgTypes = make([]protoimpl.MessageInfo, 46)
+var file_lmm_core_v1_payments_proto_msgTypes = make([]protoimpl.MessageInfo, 49)
 var file_lmm_core_v1_payments_proto_goTypes = []any{
 	(PaymentReceiptState)(0),                      // 0: lmm.core.v1.PaymentReceiptState
 	(*ExternalPaymentReference)(nil),              // 1: lmm.core.v1.ExternalPaymentReference
@@ -4275,117 +4538,123 @@ var file_lmm_core_v1_payments_proto_goTypes = []any{
 	(*CreemSubscriptionLookup)(nil),               // 44: lmm.core.v1.CreemSubscriptionLookup
 	(*AcceptCreemSubscriptionEventRequest)(nil),   // 45: lmm.core.v1.AcceptCreemSubscriptionEventRequest
 	(*GetCreemSubscriptionEventRequest)(nil),      // 46: lmm.core.v1.GetCreemSubscriptionEventRequest
-	(*MutationContext)(nil),                       // 47: lmm.core.v1.MutationContext
+	(*GetEPayConfigurationRequest)(nil),           // 47: lmm.core.v1.GetEPayConfigurationRequest
+	(*EPayConfiguration)(nil),                     // 48: lmm.core.v1.EPayConfiguration
+	(*EPayConfigurationBinding)(nil),              // 49: lmm.core.v1.EPayConfigurationBinding
+	(*MutationContext)(nil),                       // 50: lmm.core.v1.MutationContext
 }
 var file_lmm_core_v1_payments_proto_depIdxs = []int32{
 	1,  // 0: lmm.core.v1.ProviderEvidence.payment:type_name -> lmm.core.v1.ExternalPaymentReference
 	2,  // 1: lmm.core.v1.AcceptProviderProofRequest.evidence:type_name -> lmm.core.v1.ProviderEvidence
 	1,  // 2: lmm.core.v1.ProviderProofReceipt.payment:type_name -> lmm.core.v1.ExternalPaymentReference
-	47, // 3: lmm.core.v1.PrepareTopupRequest.mutation:type_name -> lmm.core.v1.MutationContext
-	47, // 4: lmm.core.v1.PreparePersonalTopupRequest.mutation:type_name -> lmm.core.v1.MutationContext
-	47, // 5: lmm.core.v1.CreditTopupRequest.mutation:type_name -> lmm.core.v1.MutationContext
+	50, // 3: lmm.core.v1.PrepareTopupRequest.mutation:type_name -> lmm.core.v1.MutationContext
+	50, // 4: lmm.core.v1.PreparePersonalTopupRequest.mutation:type_name -> lmm.core.v1.MutationContext
+	50, // 5: lmm.core.v1.CreditTopupRequest.mutation:type_name -> lmm.core.v1.MutationContext
 	2,  // 6: lmm.core.v1.CreditTopupRequest.evidence:type_name -> lmm.core.v1.ProviderEvidence
-	47, // 7: lmm.core.v1.HoldRefundRequest.mutation:type_name -> lmm.core.v1.MutationContext
-	47, // 8: lmm.core.v1.ResolveRefundRequest.mutation:type_name -> lmm.core.v1.MutationContext
+	50, // 7: lmm.core.v1.HoldRefundRequest.mutation:type_name -> lmm.core.v1.MutationContext
+	50, // 8: lmm.core.v1.ResolveRefundRequest.mutation:type_name -> lmm.core.v1.MutationContext
 	2,  // 9: lmm.core.v1.ResolveRefundRequest.evidence:type_name -> lmm.core.v1.ProviderEvidence
-	47, // 10: lmm.core.v1.ExternalRefundRequest.mutation:type_name -> lmm.core.v1.MutationContext
+	50, // 10: lmm.core.v1.ExternalRefundRequest.mutation:type_name -> lmm.core.v1.MutationContext
 	2,  // 11: lmm.core.v1.ExternalRefundRequest.evidence:type_name -> lmm.core.v1.ProviderEvidence
 	0,  // 12: lmm.core.v1.PaymentReceipt.state:type_name -> lmm.core.v1.PaymentReceiptState
 	16, // 13: lmm.core.v1.PaymentStateChangedEvent.receipt:type_name -> lmm.core.v1.PaymentReceipt
-	47, // 14: lmm.core.v1.CreditLegacyTopupRequest.mutation:type_name -> lmm.core.v1.MutationContext
+	50, // 14: lmm.core.v1.CreditLegacyTopupRequest.mutation:type_name -> lmm.core.v1.MutationContext
 	0,  // 15: lmm.core.v1.LegacyPaymentReceipt.state:type_name -> lmm.core.v1.PaymentReceiptState
 	31, // 16: lmm.core.v1.StripeSubscriptionOrder.order:type_name -> lmm.core.v1.EPaySubscriptionOrder
 	23, // 17: lmm.core.v1.StripeSubscriptionOrder.price:type_name -> lmm.core.v1.StripeSubscriptionPrice
 	31, // 18: lmm.core.v1.CreemSubscriptionOrder.order:type_name -> lmm.core.v1.EPaySubscriptionOrder
 	26, // 19: lmm.core.v1.CreemSubscriptionOrder.price:type_name -> lmm.core.v1.CreemSubscriptionPrice
-	47, // 20: lmm.core.v1.PrepareEPayPurchaseRequest.mutation:type_name -> lmm.core.v1.MutationContext
+	50, // 20: lmm.core.v1.PrepareEPayPurchaseRequest.mutation:type_name -> lmm.core.v1.MutationContext
 	10, // 21: lmm.core.v1.EPaySubscriptionOrder.checkout:type_name -> lmm.core.v1.EPayCheckout
 	31, // 22: lmm.core.v1.PancakeSubscriptionOrder.order:type_name -> lmm.core.v1.EPaySubscriptionOrder
 	37, // 23: lmm.core.v1.PancakeSubscriptionOrder.price:type_name -> lmm.core.v1.PancakeSubscriptionPrice
 	38, // 24: lmm.core.v1.PancakeSubscriptionOrders.orders:type_name -> lmm.core.v1.PancakeSubscriptionOrder
-	18, // 25: lmm.core.v1.CorePayments.AcceptLegacyProviderProof:input_type -> lmm.core.v1.AcceptLegacyProviderProofRequest
-	19, // 26: lmm.core.v1.CorePayments.GetLegacyProviderProof:input_type -> lmm.core.v1.GetLegacyProviderProofRequest
-	21, // 27: lmm.core.v1.CorePayments.CreditLegacyTopup:input_type -> lmm.core.v1.CreditLegacyTopupRequest
-	3,  // 28: lmm.core.v1.CorePayments.AcceptProviderProof:input_type -> lmm.core.v1.AcceptProviderProofRequest
-	4,  // 29: lmm.core.v1.CorePayments.GetProviderProof:input_type -> lmm.core.v1.GetProviderProofRequest
-	6,  // 30: lmm.core.v1.CorePayments.PrepareTopup:input_type -> lmm.core.v1.PrepareTopupRequest
-	7,  // 31: lmm.core.v1.CorePayments.PreparePersonalTopup:input_type -> lmm.core.v1.PreparePersonalTopupRequest
-	9,  // 32: lmm.core.v1.CorePayments.GetEPayCheckout:input_type -> lmm.core.v1.GetEPayCheckoutRequest
-	11, // 33: lmm.core.v1.CorePayments.CreditTopup:input_type -> lmm.core.v1.CreditTopupRequest
-	12, // 34: lmm.core.v1.CorePayments.HoldRefund:input_type -> lmm.core.v1.HoldRefundRequest
-	13, // 35: lmm.core.v1.CorePayments.BeginRefundDispatch:input_type -> lmm.core.v1.ResolveRefundRequest
-	13, // 36: lmm.core.v1.CorePayments.CommitRefund:input_type -> lmm.core.v1.ResolveRefundRequest
-	13, // 37: lmm.core.v1.CorePayments.ReleaseRefund:input_type -> lmm.core.v1.ResolveRefundRequest
-	14, // 38: lmm.core.v1.CorePayments.ApplyExternalRefund:input_type -> lmm.core.v1.ExternalRefundRequest
-	15, // 39: lmm.core.v1.CorePayments.GetPaymentReceipt:input_type -> lmm.core.v1.GetPaymentReceiptRequest
-	29, // 40: lmm.core.v1.CoreSubscriptionPayments.PreparePancakePurchase:input_type -> lmm.core.v1.PrepareEPayPurchaseRequest
-	30, // 41: lmm.core.v1.CoreSubscriptionPayments.ConfirmPancakePurchase:input_type -> lmm.core.v1.EPaySubscriptionOrderRequest
-	30, // 42: lmm.core.v1.CoreSubscriptionPayments.ReadPancakePurchase:input_type -> lmm.core.v1.EPaySubscriptionOrderRequest
-	39, // 43: lmm.core.v1.CoreSubscriptionPayments.ListPancakePurchases:input_type -> lmm.core.v1.ListPancakePurchasesRequest
-	41, // 44: lmm.core.v1.CoreSubscriptionPayments.AcceptPancakeSubscriptionEvent:input_type -> lmm.core.v1.AcceptPancakeSubscriptionEventRequest
-	42, // 45: lmm.core.v1.CoreSubscriptionPayments.GetPancakeSubscriptionEvent:input_type -> lmm.core.v1.GetPancakeSubscriptionEventRequest
-	29, // 46: lmm.core.v1.CoreSubscriptionPayments.PrepareStripePurchase:input_type -> lmm.core.v1.PrepareEPayPurchaseRequest
-	30, // 47: lmm.core.v1.CoreSubscriptionPayments.ConfirmStripePurchase:input_type -> lmm.core.v1.EPaySubscriptionOrderRequest
-	30, // 48: lmm.core.v1.CoreSubscriptionPayments.ReadStripePurchase:input_type -> lmm.core.v1.EPaySubscriptionOrderRequest
-	32, // 49: lmm.core.v1.CoreSubscriptionPayments.AcceptStripeSubscriptionEvent:input_type -> lmm.core.v1.AcceptEPaySubscriptionProofRequest
-	33, // 50: lmm.core.v1.CoreSubscriptionPayments.GetStripeSubscriptionEvent:input_type -> lmm.core.v1.GetEPaySubscriptionProofRequest
-	44, // 51: lmm.core.v1.CoreSubscriptionPayments.ResolveCreemSubscriptionOrder:input_type -> lmm.core.v1.CreemSubscriptionLookup
-	29, // 52: lmm.core.v1.CoreSubscriptionPayments.PrepareCreemPurchase:input_type -> lmm.core.v1.PrepareEPayPurchaseRequest
-	30, // 53: lmm.core.v1.CoreSubscriptionPayments.ConfirmCreemPurchase:input_type -> lmm.core.v1.EPaySubscriptionOrderRequest
-	30, // 54: lmm.core.v1.CoreSubscriptionPayments.ReadCreemPurchase:input_type -> lmm.core.v1.EPaySubscriptionOrderRequest
-	45, // 55: lmm.core.v1.CoreSubscriptionPayments.AcceptCreemSubscriptionEvent:input_type -> lmm.core.v1.AcceptCreemSubscriptionEventRequest
-	46, // 56: lmm.core.v1.CoreSubscriptionPayments.GetCreemSubscriptionEvent:input_type -> lmm.core.v1.GetCreemSubscriptionEventRequest
-	29, // 57: lmm.core.v1.CoreSubscriptionPayments.PrepareEPayPurchase:input_type -> lmm.core.v1.PrepareEPayPurchaseRequest
-	30, // 58: lmm.core.v1.CoreSubscriptionPayments.ConfirmEPayPurchase:input_type -> lmm.core.v1.EPaySubscriptionOrderRequest
-	30, // 59: lmm.core.v1.CoreSubscriptionPayments.ReadEPayPurchase:input_type -> lmm.core.v1.EPaySubscriptionOrderRequest
-	30, // 60: lmm.core.v1.CoreSubscriptionPayments.CancelEPayPurchase:input_type -> lmm.core.v1.EPaySubscriptionOrderRequest
-	32, // 61: lmm.core.v1.CoreSubscriptionPayments.AcceptEPaySubscriptionProof:input_type -> lmm.core.v1.AcceptEPaySubscriptionProofRequest
-	33, // 62: lmm.core.v1.CoreSubscriptionPayments.GetEPaySubscriptionProof:input_type -> lmm.core.v1.GetEPaySubscriptionProofRequest
-	35, // 63: lmm.core.v1.CoreSubscriptionPayments.ApplyEPaySubscriptionGrant:input_type -> lmm.core.v1.ApplyEPaySubscriptionGrantRequest
-	20, // 64: lmm.core.v1.CorePayments.AcceptLegacyProviderProof:output_type -> lmm.core.v1.LegacyProviderProofReceipt
-	20, // 65: lmm.core.v1.CorePayments.GetLegacyProviderProof:output_type -> lmm.core.v1.LegacyProviderProofReceipt
-	22, // 66: lmm.core.v1.CorePayments.CreditLegacyTopup:output_type -> lmm.core.v1.LegacyPaymentReceipt
-	5,  // 67: lmm.core.v1.CorePayments.AcceptProviderProof:output_type -> lmm.core.v1.ProviderProofReceipt
-	5,  // 68: lmm.core.v1.CorePayments.GetProviderProof:output_type -> lmm.core.v1.ProviderProofReceipt
-	8,  // 69: lmm.core.v1.CorePayments.PrepareTopup:output_type -> lmm.core.v1.PaymentIntent
-	8,  // 70: lmm.core.v1.CorePayments.PreparePersonalTopup:output_type -> lmm.core.v1.PaymentIntent
-	10, // 71: lmm.core.v1.CorePayments.GetEPayCheckout:output_type -> lmm.core.v1.EPayCheckout
-	16, // 72: lmm.core.v1.CorePayments.CreditTopup:output_type -> lmm.core.v1.PaymentReceipt
-	16, // 73: lmm.core.v1.CorePayments.HoldRefund:output_type -> lmm.core.v1.PaymentReceipt
-	16, // 74: lmm.core.v1.CorePayments.BeginRefundDispatch:output_type -> lmm.core.v1.PaymentReceipt
-	16, // 75: lmm.core.v1.CorePayments.CommitRefund:output_type -> lmm.core.v1.PaymentReceipt
-	16, // 76: lmm.core.v1.CorePayments.ReleaseRefund:output_type -> lmm.core.v1.PaymentReceipt
-	16, // 77: lmm.core.v1.CorePayments.ApplyExternalRefund:output_type -> lmm.core.v1.PaymentReceipt
-	16, // 78: lmm.core.v1.CorePayments.GetPaymentReceipt:output_type -> lmm.core.v1.PaymentReceipt
-	38, // 79: lmm.core.v1.CoreSubscriptionPayments.PreparePancakePurchase:output_type -> lmm.core.v1.PancakeSubscriptionOrder
-	38, // 80: lmm.core.v1.CoreSubscriptionPayments.ConfirmPancakePurchase:output_type -> lmm.core.v1.PancakeSubscriptionOrder
-	38, // 81: lmm.core.v1.CoreSubscriptionPayments.ReadPancakePurchase:output_type -> lmm.core.v1.PancakeSubscriptionOrder
-	40, // 82: lmm.core.v1.CoreSubscriptionPayments.ListPancakePurchases:output_type -> lmm.core.v1.PancakeSubscriptionOrders
-	43, // 83: lmm.core.v1.CoreSubscriptionPayments.AcceptPancakeSubscriptionEvent:output_type -> lmm.core.v1.PancakeSubscriptionEvent
-	43, // 84: lmm.core.v1.CoreSubscriptionPayments.GetPancakeSubscriptionEvent:output_type -> lmm.core.v1.PancakeSubscriptionEvent
-	24, // 85: lmm.core.v1.CoreSubscriptionPayments.PrepareStripePurchase:output_type -> lmm.core.v1.StripeSubscriptionOrder
-	24, // 86: lmm.core.v1.CoreSubscriptionPayments.ConfirmStripePurchase:output_type -> lmm.core.v1.StripeSubscriptionOrder
-	24, // 87: lmm.core.v1.CoreSubscriptionPayments.ReadStripePurchase:output_type -> lmm.core.v1.StripeSubscriptionOrder
-	25, // 88: lmm.core.v1.CoreSubscriptionPayments.AcceptStripeSubscriptionEvent:output_type -> lmm.core.v1.StripeSubscriptionEvent
-	25, // 89: lmm.core.v1.CoreSubscriptionPayments.GetStripeSubscriptionEvent:output_type -> lmm.core.v1.StripeSubscriptionEvent
-	30, // 90: lmm.core.v1.CoreSubscriptionPayments.ResolveCreemSubscriptionOrder:output_type -> lmm.core.v1.EPaySubscriptionOrderRequest
-	27, // 91: lmm.core.v1.CoreSubscriptionPayments.PrepareCreemPurchase:output_type -> lmm.core.v1.CreemSubscriptionOrder
-	27, // 92: lmm.core.v1.CoreSubscriptionPayments.ConfirmCreemPurchase:output_type -> lmm.core.v1.CreemSubscriptionOrder
-	27, // 93: lmm.core.v1.CoreSubscriptionPayments.ReadCreemPurchase:output_type -> lmm.core.v1.CreemSubscriptionOrder
-	28, // 94: lmm.core.v1.CoreSubscriptionPayments.AcceptCreemSubscriptionEvent:output_type -> lmm.core.v1.CreemSubscriptionEvent
-	28, // 95: lmm.core.v1.CoreSubscriptionPayments.GetCreemSubscriptionEvent:output_type -> lmm.core.v1.CreemSubscriptionEvent
-	31, // 96: lmm.core.v1.CoreSubscriptionPayments.PrepareEPayPurchase:output_type -> lmm.core.v1.EPaySubscriptionOrder
-	10, // 97: lmm.core.v1.CoreSubscriptionPayments.ConfirmEPayPurchase:output_type -> lmm.core.v1.EPayCheckout
-	31, // 98: lmm.core.v1.CoreSubscriptionPayments.ReadEPayPurchase:output_type -> lmm.core.v1.EPaySubscriptionOrder
-	31, // 99: lmm.core.v1.CoreSubscriptionPayments.CancelEPayPurchase:output_type -> lmm.core.v1.EPaySubscriptionOrder
-	34, // 100: lmm.core.v1.CoreSubscriptionPayments.AcceptEPaySubscriptionProof:output_type -> lmm.core.v1.EPaySubscriptionProof
-	34, // 101: lmm.core.v1.CoreSubscriptionPayments.GetEPaySubscriptionProof:output_type -> lmm.core.v1.EPaySubscriptionProof
-	36, // 102: lmm.core.v1.CoreSubscriptionPayments.ApplyEPaySubscriptionGrant:output_type -> lmm.core.v1.EPaySubscriptionGrant
-	64, // [64:103] is the sub-list for method output_type
-	25, // [25:64] is the sub-list for method input_type
-	25, // [25:25] is the sub-list for extension type_name
-	25, // [25:25] is the sub-list for extension extendee
-	0,  // [0:25] is the sub-list for field type_name
+	49, // 25: lmm.core.v1.EPayConfiguration.bindings:type_name -> lmm.core.v1.EPayConfigurationBinding
+	18, // 26: lmm.core.v1.CorePayments.AcceptLegacyProviderProof:input_type -> lmm.core.v1.AcceptLegacyProviderProofRequest
+	19, // 27: lmm.core.v1.CorePayments.GetLegacyProviderProof:input_type -> lmm.core.v1.GetLegacyProviderProofRequest
+	21, // 28: lmm.core.v1.CorePayments.CreditLegacyTopup:input_type -> lmm.core.v1.CreditLegacyTopupRequest
+	3,  // 29: lmm.core.v1.CorePayments.AcceptProviderProof:input_type -> lmm.core.v1.AcceptProviderProofRequest
+	4,  // 30: lmm.core.v1.CorePayments.GetProviderProof:input_type -> lmm.core.v1.GetProviderProofRequest
+	6,  // 31: lmm.core.v1.CorePayments.PrepareTopup:input_type -> lmm.core.v1.PrepareTopupRequest
+	7,  // 32: lmm.core.v1.CorePayments.PreparePersonalTopup:input_type -> lmm.core.v1.PreparePersonalTopupRequest
+	9,  // 33: lmm.core.v1.CorePayments.GetEPayCheckout:input_type -> lmm.core.v1.GetEPayCheckoutRequest
+	11, // 34: lmm.core.v1.CorePayments.CreditTopup:input_type -> lmm.core.v1.CreditTopupRequest
+	12, // 35: lmm.core.v1.CorePayments.HoldRefund:input_type -> lmm.core.v1.HoldRefundRequest
+	13, // 36: lmm.core.v1.CorePayments.BeginRefundDispatch:input_type -> lmm.core.v1.ResolveRefundRequest
+	13, // 37: lmm.core.v1.CorePayments.CommitRefund:input_type -> lmm.core.v1.ResolveRefundRequest
+	13, // 38: lmm.core.v1.CorePayments.ReleaseRefund:input_type -> lmm.core.v1.ResolveRefundRequest
+	14, // 39: lmm.core.v1.CorePayments.ApplyExternalRefund:input_type -> lmm.core.v1.ExternalRefundRequest
+	15, // 40: lmm.core.v1.CorePayments.GetPaymentReceipt:input_type -> lmm.core.v1.GetPaymentReceiptRequest
+	47, // 41: lmm.core.v1.CorePayments.GetEPayConfiguration:input_type -> lmm.core.v1.GetEPayConfigurationRequest
+	29, // 42: lmm.core.v1.CoreSubscriptionPayments.PreparePancakePurchase:input_type -> lmm.core.v1.PrepareEPayPurchaseRequest
+	30, // 43: lmm.core.v1.CoreSubscriptionPayments.ConfirmPancakePurchase:input_type -> lmm.core.v1.EPaySubscriptionOrderRequest
+	30, // 44: lmm.core.v1.CoreSubscriptionPayments.ReadPancakePurchase:input_type -> lmm.core.v1.EPaySubscriptionOrderRequest
+	39, // 45: lmm.core.v1.CoreSubscriptionPayments.ListPancakePurchases:input_type -> lmm.core.v1.ListPancakePurchasesRequest
+	41, // 46: lmm.core.v1.CoreSubscriptionPayments.AcceptPancakeSubscriptionEvent:input_type -> lmm.core.v1.AcceptPancakeSubscriptionEventRequest
+	42, // 47: lmm.core.v1.CoreSubscriptionPayments.GetPancakeSubscriptionEvent:input_type -> lmm.core.v1.GetPancakeSubscriptionEventRequest
+	29, // 48: lmm.core.v1.CoreSubscriptionPayments.PrepareStripePurchase:input_type -> lmm.core.v1.PrepareEPayPurchaseRequest
+	30, // 49: lmm.core.v1.CoreSubscriptionPayments.ConfirmStripePurchase:input_type -> lmm.core.v1.EPaySubscriptionOrderRequest
+	30, // 50: lmm.core.v1.CoreSubscriptionPayments.ReadStripePurchase:input_type -> lmm.core.v1.EPaySubscriptionOrderRequest
+	32, // 51: lmm.core.v1.CoreSubscriptionPayments.AcceptStripeSubscriptionEvent:input_type -> lmm.core.v1.AcceptEPaySubscriptionProofRequest
+	33, // 52: lmm.core.v1.CoreSubscriptionPayments.GetStripeSubscriptionEvent:input_type -> lmm.core.v1.GetEPaySubscriptionProofRequest
+	44, // 53: lmm.core.v1.CoreSubscriptionPayments.ResolveCreemSubscriptionOrder:input_type -> lmm.core.v1.CreemSubscriptionLookup
+	29, // 54: lmm.core.v1.CoreSubscriptionPayments.PrepareCreemPurchase:input_type -> lmm.core.v1.PrepareEPayPurchaseRequest
+	30, // 55: lmm.core.v1.CoreSubscriptionPayments.ConfirmCreemPurchase:input_type -> lmm.core.v1.EPaySubscriptionOrderRequest
+	30, // 56: lmm.core.v1.CoreSubscriptionPayments.ReadCreemPurchase:input_type -> lmm.core.v1.EPaySubscriptionOrderRequest
+	45, // 57: lmm.core.v1.CoreSubscriptionPayments.AcceptCreemSubscriptionEvent:input_type -> lmm.core.v1.AcceptCreemSubscriptionEventRequest
+	46, // 58: lmm.core.v1.CoreSubscriptionPayments.GetCreemSubscriptionEvent:input_type -> lmm.core.v1.GetCreemSubscriptionEventRequest
+	29, // 59: lmm.core.v1.CoreSubscriptionPayments.PrepareEPayPurchase:input_type -> lmm.core.v1.PrepareEPayPurchaseRequest
+	30, // 60: lmm.core.v1.CoreSubscriptionPayments.ConfirmEPayPurchase:input_type -> lmm.core.v1.EPaySubscriptionOrderRequest
+	30, // 61: lmm.core.v1.CoreSubscriptionPayments.ReadEPayPurchase:input_type -> lmm.core.v1.EPaySubscriptionOrderRequest
+	30, // 62: lmm.core.v1.CoreSubscriptionPayments.CancelEPayPurchase:input_type -> lmm.core.v1.EPaySubscriptionOrderRequest
+	32, // 63: lmm.core.v1.CoreSubscriptionPayments.AcceptEPaySubscriptionProof:input_type -> lmm.core.v1.AcceptEPaySubscriptionProofRequest
+	33, // 64: lmm.core.v1.CoreSubscriptionPayments.GetEPaySubscriptionProof:input_type -> lmm.core.v1.GetEPaySubscriptionProofRequest
+	35, // 65: lmm.core.v1.CoreSubscriptionPayments.ApplyEPaySubscriptionGrant:input_type -> lmm.core.v1.ApplyEPaySubscriptionGrantRequest
+	20, // 66: lmm.core.v1.CorePayments.AcceptLegacyProviderProof:output_type -> lmm.core.v1.LegacyProviderProofReceipt
+	20, // 67: lmm.core.v1.CorePayments.GetLegacyProviderProof:output_type -> lmm.core.v1.LegacyProviderProofReceipt
+	22, // 68: lmm.core.v1.CorePayments.CreditLegacyTopup:output_type -> lmm.core.v1.LegacyPaymentReceipt
+	5,  // 69: lmm.core.v1.CorePayments.AcceptProviderProof:output_type -> lmm.core.v1.ProviderProofReceipt
+	5,  // 70: lmm.core.v1.CorePayments.GetProviderProof:output_type -> lmm.core.v1.ProviderProofReceipt
+	8,  // 71: lmm.core.v1.CorePayments.PrepareTopup:output_type -> lmm.core.v1.PaymentIntent
+	8,  // 72: lmm.core.v1.CorePayments.PreparePersonalTopup:output_type -> lmm.core.v1.PaymentIntent
+	10, // 73: lmm.core.v1.CorePayments.GetEPayCheckout:output_type -> lmm.core.v1.EPayCheckout
+	16, // 74: lmm.core.v1.CorePayments.CreditTopup:output_type -> lmm.core.v1.PaymentReceipt
+	16, // 75: lmm.core.v1.CorePayments.HoldRefund:output_type -> lmm.core.v1.PaymentReceipt
+	16, // 76: lmm.core.v1.CorePayments.BeginRefundDispatch:output_type -> lmm.core.v1.PaymentReceipt
+	16, // 77: lmm.core.v1.CorePayments.CommitRefund:output_type -> lmm.core.v1.PaymentReceipt
+	16, // 78: lmm.core.v1.CorePayments.ReleaseRefund:output_type -> lmm.core.v1.PaymentReceipt
+	16, // 79: lmm.core.v1.CorePayments.ApplyExternalRefund:output_type -> lmm.core.v1.PaymentReceipt
+	16, // 80: lmm.core.v1.CorePayments.GetPaymentReceipt:output_type -> lmm.core.v1.PaymentReceipt
+	48, // 81: lmm.core.v1.CorePayments.GetEPayConfiguration:output_type -> lmm.core.v1.EPayConfiguration
+	38, // 82: lmm.core.v1.CoreSubscriptionPayments.PreparePancakePurchase:output_type -> lmm.core.v1.PancakeSubscriptionOrder
+	38, // 83: lmm.core.v1.CoreSubscriptionPayments.ConfirmPancakePurchase:output_type -> lmm.core.v1.PancakeSubscriptionOrder
+	38, // 84: lmm.core.v1.CoreSubscriptionPayments.ReadPancakePurchase:output_type -> lmm.core.v1.PancakeSubscriptionOrder
+	40, // 85: lmm.core.v1.CoreSubscriptionPayments.ListPancakePurchases:output_type -> lmm.core.v1.PancakeSubscriptionOrders
+	43, // 86: lmm.core.v1.CoreSubscriptionPayments.AcceptPancakeSubscriptionEvent:output_type -> lmm.core.v1.PancakeSubscriptionEvent
+	43, // 87: lmm.core.v1.CoreSubscriptionPayments.GetPancakeSubscriptionEvent:output_type -> lmm.core.v1.PancakeSubscriptionEvent
+	24, // 88: lmm.core.v1.CoreSubscriptionPayments.PrepareStripePurchase:output_type -> lmm.core.v1.StripeSubscriptionOrder
+	24, // 89: lmm.core.v1.CoreSubscriptionPayments.ConfirmStripePurchase:output_type -> lmm.core.v1.StripeSubscriptionOrder
+	24, // 90: lmm.core.v1.CoreSubscriptionPayments.ReadStripePurchase:output_type -> lmm.core.v1.StripeSubscriptionOrder
+	25, // 91: lmm.core.v1.CoreSubscriptionPayments.AcceptStripeSubscriptionEvent:output_type -> lmm.core.v1.StripeSubscriptionEvent
+	25, // 92: lmm.core.v1.CoreSubscriptionPayments.GetStripeSubscriptionEvent:output_type -> lmm.core.v1.StripeSubscriptionEvent
+	30, // 93: lmm.core.v1.CoreSubscriptionPayments.ResolveCreemSubscriptionOrder:output_type -> lmm.core.v1.EPaySubscriptionOrderRequest
+	27, // 94: lmm.core.v1.CoreSubscriptionPayments.PrepareCreemPurchase:output_type -> lmm.core.v1.CreemSubscriptionOrder
+	27, // 95: lmm.core.v1.CoreSubscriptionPayments.ConfirmCreemPurchase:output_type -> lmm.core.v1.CreemSubscriptionOrder
+	27, // 96: lmm.core.v1.CoreSubscriptionPayments.ReadCreemPurchase:output_type -> lmm.core.v1.CreemSubscriptionOrder
+	28, // 97: lmm.core.v1.CoreSubscriptionPayments.AcceptCreemSubscriptionEvent:output_type -> lmm.core.v1.CreemSubscriptionEvent
+	28, // 98: lmm.core.v1.CoreSubscriptionPayments.GetCreemSubscriptionEvent:output_type -> lmm.core.v1.CreemSubscriptionEvent
+	31, // 99: lmm.core.v1.CoreSubscriptionPayments.PrepareEPayPurchase:output_type -> lmm.core.v1.EPaySubscriptionOrder
+	10, // 100: lmm.core.v1.CoreSubscriptionPayments.ConfirmEPayPurchase:output_type -> lmm.core.v1.EPayCheckout
+	31, // 101: lmm.core.v1.CoreSubscriptionPayments.ReadEPayPurchase:output_type -> lmm.core.v1.EPaySubscriptionOrder
+	31, // 102: lmm.core.v1.CoreSubscriptionPayments.CancelEPayPurchase:output_type -> lmm.core.v1.EPaySubscriptionOrder
+	34, // 103: lmm.core.v1.CoreSubscriptionPayments.AcceptEPaySubscriptionProof:output_type -> lmm.core.v1.EPaySubscriptionProof
+	34, // 104: lmm.core.v1.CoreSubscriptionPayments.GetEPaySubscriptionProof:output_type -> lmm.core.v1.EPaySubscriptionProof
+	36, // 105: lmm.core.v1.CoreSubscriptionPayments.ApplyEPaySubscriptionGrant:output_type -> lmm.core.v1.EPaySubscriptionGrant
+	66, // [66:106] is the sub-list for method output_type
+	26, // [26:66] is the sub-list for method input_type
+	26, // [26:26] is the sub-list for extension type_name
+	26, // [26:26] is the sub-list for extension extendee
+	0,  // [0:26] is the sub-list for field type_name
 }
 
 func init() { file_lmm_core_v1_payments_proto_init() }
@@ -4407,7 +4676,7 @@ func file_lmm_core_v1_payments_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_lmm_core_v1_payments_proto_rawDesc), len(file_lmm_core_v1_payments_proto_rawDesc)),
 			NumEnums:      1,
-			NumMessages:   46,
+			NumMessages:   49,
 			NumExtensions: 0,
 			NumServices:   2,
 		},

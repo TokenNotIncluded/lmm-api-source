@@ -109,6 +109,10 @@ impl PaymentsRpc {
             slots: Arc::new(Semaphore::new(8)),
         })
     }
+    pub fn configuration_router(&self) -> axum::Router {
+        super::discounts::http::router(self.store.clone())
+            .merge(super::configuration::http::router(self.store.clone()))
+    }
     pub(crate) fn check(&self, metadata: &MetadataMap, allowed: bool) -> Result<(), Status> {
         let token = single(metadata, "authorization")?
             .strip_prefix("Bearer ")
@@ -157,14 +161,52 @@ impl PaymentsRpc {
 }
 #[tonic::async_trait]
 impl pb::core_payments_server::CorePayments for PaymentsRpc {
+    async fn get_e_pay_configuration(
+        &self,
+        request: Request<pb::GetEPayConfigurationRequest>,
+    ) -> Result<Response<pb::EPayConfiguration>, Status> {
+        self.check(request.metadata(), self.permissions.read_user)?;
+        let store = self.store.freeze().map_err(status)?;
+        self.bounded(async {
+            let configuration = store
+                .epay_configuration()
+                .await
+                .map_err(|_| Error::Unavailable)?;
+            Ok(pb::EPayConfiguration {
+                revision: configuration.revision,
+                bindings: configuration
+                    .bindings
+                    .into_iter()
+                    .map(|binding| pb::EPayConfigurationBinding {
+                        channel_id: binding.channel_id,
+                        merchant_id: binding.merchant_id,
+                        environment: binding.environment,
+                        currency: binding.currency,
+                        payment_type: binding.payment_type,
+                        endpoint: binding.endpoint,
+                        notify_url: binding.notify_url,
+                        return_url: binding.return_url,
+                        key_configured: binding.key_configured,
+                        enabled: binding.enabled,
+                        editable: binding.editable,
+                        credits_per_minor: binding.credits_per_minor,
+                        max_amount_minor: binding.max_amount_minor,
+                        min_amount_minor: binding.min_amount_minor,
+                    })
+                    .collect(),
+            })
+        })
+        .await
+    }
     async fn accept_legacy_provider_proof(
         &self,
         request: Request<pb::AcceptLegacyProviderProofRequest>,
     ) -> Result<Response<pb::LegacyProviderProofReceipt>, Status> {
         self.check(request.metadata(), self.permissions.legacy_proof_ingress)?;
         let r = request.into_inner();
+        let store = self.store.freeze().map_err(status)?;
         self.bounded_for(Duration::from_secs(3), async {
-            self.store
+            store
                 .admit_legacy_pancake(
                     r.payment_channel_id,
                     &r.order_reference,
@@ -182,8 +224,9 @@ impl pb::core_payments_server::CorePayments for PaymentsRpc {
     ) -> Result<Response<pb::LegacyProviderProofReceipt>, Status> {
         self.check(request.metadata(), self.permissions.proof_read)?;
         let r = request.into_inner();
+        let store = self.store.freeze().map_err(status)?;
         self.bounded(async {
-            self.store
+            store
                 .get_legacy_proof(
                     r.payment_channel_id,
                     &r.order_reference,
@@ -209,9 +252,9 @@ impl pb::core_payments_server::CorePayments for PaymentsRpc {
                 "legacy payment does not accept expected version",
             ));
         }
+        let store = self.store.freeze().map_err(status)?;
         self.bounded(async {
-            let receipt = self
-                .store
+            let receipt = store
                 .apply_legacy_payment(&r.proof_id, &mutation.idempotency_key)
                 .await?;
             let (state, journal_id, rejection_code) = match receipt.outcome {
@@ -246,9 +289,10 @@ impl pb::core_payments_server::CorePayments for PaymentsRpc {
         request: Request<pb::AcceptProviderProofRequest>,
     ) -> Result<Response<pb::ProviderProofReceipt>, Status> {
         self.check(request.metadata(), self.permissions.proof_ingress)?;
+        let store = self.store.freeze().map_err(status)?;
         self.bounded_for(
             Duration::from_secs(3),
-            self.store.accept_proof(request.into_inner()),
+            store.accept_proof(request.into_inner()),
         )
         .await
     }
@@ -257,8 +301,8 @@ impl pb::core_payments_server::CorePayments for PaymentsRpc {
         request: Request<pb::GetProviderProofRequest>,
     ) -> Result<Response<pb::ProviderProofReceipt>, Status> {
         self.check(request.metadata(), self.permissions.proof_read)?;
-        self.bounded(self.store.get_proof(request.into_inner()))
-            .await
+        let store = self.store.freeze().map_err(status)?;
+        self.bounded(store.get_proof(request.into_inner())).await
     }
     async fn prepare_topup(
         &self,
@@ -266,7 +310,8 @@ impl pb::core_payments_server::CorePayments for PaymentsRpc {
     ) -> Result<Response<pb::PaymentIntent>, Status> {
         self.check(request.metadata(), self.permissions.prepare)?;
         let user = single(request.metadata(), "x-lmm-user-credential")?.to_owned();
-        self.bounded(self.store.prepare(&user, request.into_inner()))
+        let store = self.store.freeze().map_err(status)?;
+        self.bounded(store.prepare(&user, request.into_inner()))
             .await
     }
     async fn prepare_personal_topup(
@@ -275,7 +320,8 @@ impl pb::core_payments_server::CorePayments for PaymentsRpc {
     ) -> Result<Response<pb::PaymentIntent>, Status> {
         self.check(request.metadata(), self.permissions.prepare)?;
         let user = single(request.metadata(), "x-lmm-user-credential")?.to_owned();
-        self.bounded(self.store.prepare_personal(&user, request.into_inner()))
+        let store = self.store.freeze().map_err(status)?;
+        self.bounded(store.prepare_personal(&user, request.into_inner()))
             .await
     }
     async fn credit_topup(
@@ -283,14 +329,16 @@ impl pb::core_payments_server::CorePayments for PaymentsRpc {
         request: Request<pb::CreditTopupRequest>,
     ) -> Result<Response<pb::PaymentReceipt>, Status> {
         self.check(request.metadata(), self.permissions.credit_evidence)?;
-        self.bounded(self.store.credit(request.into_inner())).await
+        let store = self.store.freeze().map_err(status)?;
+        self.bounded(store.credit(request.into_inner())).await
     }
     async fn get_e_pay_checkout(
         &self,
         request: Request<pb::GetEPayCheckoutRequest>,
     ) -> Result<Response<pb::EPayCheckout>, Status> {
         self.check(request.metadata(), self.permissions.prepare)?;
-        self.bounded(self.store.epay_checkout(request.into_inner().intent_id))
+        let store = self.store.freeze().map_err(status)?;
+        self.bounded(store.epay_checkout(request.into_inner().intent_id))
             .await
     }
     async fn hold_refund(
@@ -299,15 +347,16 @@ impl pb::core_payments_server::CorePayments for PaymentsRpc {
     ) -> Result<Response<pb::PaymentReceipt>, Status> {
         self.check(request.metadata(), self.permissions.refund_user)?;
         let user = single(request.metadata(), "x-lmm-user-credential")?.to_owned();
-        self.bounded(self.store.hold(&user, request.into_inner()))
-            .await
+        let store = self.store.freeze().map_err(status)?;
+        self.bounded(store.hold(&user, request.into_inner())).await
     }
     async fn begin_refund_dispatch(
         &self,
         request: Request<pb::ResolveRefundRequest>,
     ) -> Result<Response<pb::PaymentReceipt>, Status> {
         self.check(request.metadata(), self.permissions.refund_evidence)?;
-        self.bounded(self.store.begin_refund_dispatch(request.into_inner()))
+        let store = self.store.freeze().map_err(status)?;
+        self.bounded(store.begin_refund_dispatch(request.into_inner()))
             .await
     }
     async fn commit_refund(
@@ -315,7 +364,8 @@ impl pb::core_payments_server::CorePayments for PaymentsRpc {
         request: Request<pb::ResolveRefundRequest>,
     ) -> Result<Response<pb::PaymentReceipt>, Status> {
         self.check(request.metadata(), self.permissions.refund_evidence)?;
-        self.bounded(self.store.resolve(request.into_inner(), true))
+        let store = self.store.freeze().map_err(status)?;
+        self.bounded(store.resolve(request.into_inner(), true))
             .await
     }
     async fn release_refund(
@@ -323,7 +373,8 @@ impl pb::core_payments_server::CorePayments for PaymentsRpc {
         request: Request<pb::ResolveRefundRequest>,
     ) -> Result<Response<pb::PaymentReceipt>, Status> {
         self.check(request.metadata(), self.permissions.refund_evidence)?;
-        self.bounded(self.store.resolve(request.into_inner(), false))
+        let store = self.store.freeze().map_err(status)?;
+        self.bounded(store.resolve(request.into_inner(), false))
             .await
     }
     async fn apply_external_refund(
@@ -331,7 +382,8 @@ impl pb::core_payments_server::CorePayments for PaymentsRpc {
         request: Request<pb::ExternalRefundRequest>,
     ) -> Result<Response<pb::PaymentReceipt>, Status> {
         self.check(request.metadata(), self.permissions.refund_evidence)?;
-        self.bounded(self.store.external_refund(request.into_inner()))
+        let store = self.store.freeze().map_err(status)?;
+        self.bounded(store.external_refund(request.into_inner()))
             .await
     }
     async fn get_payment_receipt(
@@ -345,7 +397,8 @@ impl pb::core_payments_server::CorePayments for PaymentsRpc {
             self.check(request.metadata(), self.permissions.reconcile)?;
             None
         };
-        self.bounded(self.store.receipt(user.as_deref(), request.into_inner()))
+        let store = self.store.freeze().map_err(status)?;
+        self.bounded(store.receipt(user.as_deref(), request.into_inner()))
             .await
     }
 }

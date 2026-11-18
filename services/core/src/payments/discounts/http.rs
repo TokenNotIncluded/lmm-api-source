@@ -82,6 +82,7 @@ async fn list(
     h: HeaderMap,
     Query(p): Query<CodesQuery>,
 ) -> HttpResult {
+    let s = s.freeze()?;
     Ok(Json(
         json!({"success":true,"data":s.list_discount_codes(bearer(&h)?, &p).await?}),
     ))
@@ -97,6 +98,7 @@ async fn status(
     h: HeaderMap,
     Json(input): Json<StatusInput>,
 ) -> HttpResult {
+    let s = s.freeze()?;
     Ok(Json(
         json!({"success":true,"data":s.set_discount_status(bearer(&h)?,id,input.enabled).await?}),
     ))
@@ -106,15 +108,18 @@ async fn batch(
     h: HeaderMap,
     Json(input): Json<Batch>,
 ) -> HttpResult {
+    let s = s.freeze()?;
     Ok(Json(
         json!({"success":true,"data":{"items":s.generate_discount_codes(bearer(&h)?, input).await?}}),
     ))
 }
 async fn remove(State(s): State<PaymentsStore>, Path(id): Path<i64>, h: HeaderMap) -> HttpResult {
+    let s = s.freeze()?;
     s.delete_discount_code(bearer(&h)?, id).await?;
     Ok(Json(json!({"success":true,"data":null})))
 }
 async fn exhausted(State(s): State<PaymentsStore>, h: HeaderMap) -> HttpResult {
+    let s = s.freeze()?;
     Ok(Json(
         json!({"success":true,"data":{"count":s.delete_exhausted_discount_codes(bearer(&h)?).await?.to_string()}}),
     ))
@@ -124,6 +129,7 @@ async fn create(
     h: HeaderMap,
     Json(input): Json<Definition>,
 ) -> HttpResult {
+    let s = s.freeze()?;
     let credential = bearer(&h)?;
     let code = s.save_discount(credential, None, input).await?;
     Ok(Json(
@@ -136,6 +142,7 @@ async fn update(
     h: HeaderMap,
     Json(input): Json<Definition>,
 ) -> HttpResult {
+    let s = s.freeze()?;
     let credential = bearer(&h)?;
     let code = s.save_discount(credential, Some(id), input).await?;
     Ok(Json(
@@ -154,6 +161,7 @@ async fn quote(
     h: HeaderMap,
     Json(input): Json<QuoteInput>,
 ) -> HttpResult {
+    let s = s.freeze()?;
     Ok(Json(
         json!({"success":true,"data":s.quote_discount(bearer(&h)?, input.payment_channel_id, input.credit_units, &input.discount_code).await?}),
     ))
@@ -173,6 +181,7 @@ async fn prepare(
     h: HeaderMap,
     Json(input): Json<PrepareInput>,
 ) -> HttpResult {
+    let s = s.freeze()?;
     if input.expected_amount_minor <= 0 {
         return Err(Failure(Error::Invalid));
     }

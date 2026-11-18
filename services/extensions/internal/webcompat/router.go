@@ -33,6 +33,7 @@ type AdditionalServices struct {
 	PaymentCheckout      PaymentCheckoutService
 	PaymentPortal        PaymentPortal
 	PancakeAdmin         PancakeAdmin
+	EPayAdmin            EPayAdmin
 	SubscriptionPayments http.Handler
 	Plugins              PluginController
 	Community            *community.Service
@@ -69,6 +70,7 @@ func Mount(host *modules.Host, auth *Authenticator, catalogue StoreService, supp
 		paymentPortal = additional.PaymentPortal
 		RegisterPaymentPortal(routes.forPlugins("payments"), auth, paymentPortal)
 		RegisterPancakeAdmin(routes.forPlugins("payments"), auth, additional.PancakeAdmin)
+		RegisterEPayAdmin(routes.forPlugins("payments"), auth, additional.EPayAdmin)
 		if !store.Missing(additional.SubscriptionPayments) {
 			subscriptions := http.StripPrefix("/api/user/payments/subscriptions", additional.SubscriptionPayments)
 			routes.forPlugins("payments").Handle("/api/user/payments/subscriptions/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
