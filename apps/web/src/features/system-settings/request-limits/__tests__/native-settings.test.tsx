@@ -128,7 +128,9 @@ async function submit(host: HTMLElement) {
 }
 async function clickButton(host: HTMLElement, label: string) {
   const button = Array.from(host.querySelectorAll('button')).find(
-    (button) => button.textContent === label
+    (button) =>
+      button.textContent === label ||
+      button.getAttribute('aria-label') === label
   )
   assert.ok(button)
   await act(async () => {
@@ -236,7 +238,11 @@ test('version conflict preserves rate draft until explicit reload and does not r
       data: {
         ...initial,
         revision: 8,
-        policy: { ...initial.policy, user_limit: 12 },
+        policy: {
+          ...initial.policy,
+          user_limit: 12,
+          group_limits: { priority: 80 },
+        },
       },
     }
   }
@@ -244,6 +250,8 @@ test('version conflict preserves rate draft until explicit reload and does not r
     <RequestLimitEditor initial={initial} scope={scope} onSnapshot={() => {}} />
   )
   await change('native-rate-user', '3')
+  await change('native-rate-group-name-0', '研发/试用')
+  await change('native-rate-group-limit-0', '70')
   await submit(host)
   assert.equal(writes, 1)
   assert.equal(
@@ -251,28 +259,168 @@ test('version conflict preserves rate draft until explicit reload and does not r
     '3'
   )
   assert.match(host.textContent ?? '', /Settings changed\. Reload/)
+  assert.equal(
+    host.querySelector<HTMLInputElement>('#native-rate-group-name-0')?.value,
+    '研发/试用'
+  )
+  assert.equal(
+    host.querySelector<HTMLInputElement>('#native-rate-group-limit-0')?.value,
+    '70'
+  )
   await clickButton(host, 'Reload current configuration')
   assert.equal(
     host.querySelector<HTMLInputElement>('#native-rate-user')?.value,
     '12'
   )
+  assert.equal(
+    host.querySelector<HTMLInputElement>('#native-rate-group-name-0')?.value,
+    'priority'
+  )
+  assert.equal(
+    host.querySelector<HTMLInputElement>('#native-rate-group-limit-0')?.value,
+    '80'
+  )
   client.put = async (_url, body) => {
     writes++
     assert.deepEqual(body, {
       expected_revision: 8,
-      policy: { ...initial.policy, user_limit: 13 },
+      policy: {
+        ...initial.policy,
+        user_limit: 13,
+        group_limits: { priority: 80 },
+      },
     })
     return {
       data: {
         ...initial,
         revision: 9,
-        policy: { ...initial.policy, user_limit: 13 },
+        policy: {
+          ...initial.policy,
+          user_limit: 13,
+          group_limits: { priority: 80 },
+        },
       },
     }
   }
   await change('native-rate-user', '13')
   await submit(host)
   assert.equal(writes, 2)
+})
+
+test('group rows add exact labels, edit counts and remove limits in one versioned save', async () => {
+  const writes: unknown[] = []
+  client.put = async (_url, body, config) => {
+    writes.push(body)
+    assert.deepEqual((config as { authScope: unknown }).authScope, scope)
+    return {
+      data: {
+        ...initial,
+        revision: 5,
+        policy: (body as { policy: unknown }).policy,
+      },
+    }
+  }
+  const host = await render(
+    <RequestLimitEditor initial={initial} scope={scope} onSnapshot={() => {}} />
+  )
+  await change('native-rate-group-limit-0', '75')
+  await clickButton(host, 'Add group limit')
+  assert.equal(document.activeElement?.id, 'native-rate-group-name-1')
+  await change('native-rate-group-name-1', '研发/试用')
+  await change('native-rate-group-limit-1', '300')
+  await clickButton(host, 'Add group limit')
+  await change('native-rate-group-name-2', 'unused-but-valid')
+  await change('native-rate-group-limit-2', '40')
+  await clickButton(host, 'Remove group limit 3')
+  assert.equal(writes.length, 0)
+  await submit(host)
+  assert.deepEqual(writes, [
+    {
+      expected_revision: 4,
+      policy: {
+        ...initial.policy,
+        group_limits: { default: 75, '研发/试用': 300 },
+      },
+    },
+  ])
+  assert.equal(
+    Array.from(host.querySelectorAll('button')).find(
+      (button) => button.textContent === 'Save rate limits'
+    )?.disabled,
+    true
+  )
+})
+
+test('invalid and duplicate group rows stay editable without sending a policy', async () => {
+  const writes: unknown[] = []
+  client.put = async (_url, body) => {
+    writes.push(body)
+    return {
+      data: {
+        ...initial,
+        revision: 5,
+        policy: (body as { policy: unknown }).policy,
+      },
+    }
+  }
+  const host = await render(
+    <RequestLimitEditor initial={initial} scope={scope} onSnapshot={() => {}} />
+  )
+  await clickButton(host, 'Add group limit')
+  await change('native-rate-group-name-1', 'default')
+  await change('native-rate-group-limit-1', '25')
+  await submit(host)
+  assert.match(host.textContent ?? '', /Group names must be unique/)
+  assert.equal(writes.length, 0)
+
+  for (const [name, limit] of [
+    ['', '25'],
+    [' default ', '25'],
+    ['VIP', ''],
+    ['VIP', '0'],
+    ['VIP', '1.5'],
+    ['VIP', '100000001'],
+  ]) {
+    await change('native-rate-group-name-1', name)
+    await change('native-rate-group-limit-1', limit)
+    await submit(host)
+    assert.match(host.textContent ?? '', /Enter exact group names/)
+    assert.equal(writes.length, 0)
+  }
+  await change('native-rate-group-name-1', 'Default')
+  await change('native-rate-group-limit-1', '25')
+  await submit(host)
+  assert.deepEqual(writes, [
+    {
+      expected_revision: 4,
+      policy: { ...initial.policy, group_limits: { default: 50, Default: 25 } },
+    },
+  ])
+})
+
+test('removing the last group leaves the user limit and clears the group policy', async () => {
+  let saved: unknown
+  client.put = async (_url, body) => {
+    saved = body
+    return {
+      data: {
+        ...initial,
+        revision: 5,
+        policy: { ...initial.policy, group_limits: {} },
+      },
+    }
+  }
+  const host = await render(
+    <RequestLimitEditor initial={initial} scope={scope} onSnapshot={() => {}} />
+  )
+  await clickButton(host, 'Remove group limit 1')
+  assert.match(host.textContent ?? '', /No group limits configured/)
+  assert.equal(saved, undefined)
+  await submit(host)
+  assert.deepEqual(saved, {
+    expected_revision: 4,
+    policy: { ...initial.policy, group_limits: {} },
+  })
 })
 
 test('Auto order saves empty inheritance and rejects duplicate lists before writing', async () => {

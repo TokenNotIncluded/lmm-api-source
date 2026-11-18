@@ -18,7 +18,7 @@ For commercial licensing, please contact support@quantumnous.com
 */
 /* Copyright (C) 2026 LIghtJUNction. SPDX-License-Identifier: AGPL-3.0-or-later */
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { ErrorState } from '@/components/error-state'
@@ -27,7 +27,6 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
-import { Textarea } from '@/components/ui/textarea'
 import { ROLE } from '@/lib/roles'
 import { useAuthStore } from '@/stores/auth-store'
 
@@ -52,8 +51,22 @@ function draftOf(snapshot: RequestLimitSnapshot) {
       snapshot.policy.user_limit === null
         ? ''
         : String(snapshot.policy.user_limit),
-    groups: JSON.stringify(snapshot.policy.group_limits, null, 2),
+    groups: Object.entries(snapshot.policy.group_limits).map(
+      ([name, limit], id) => ({
+        id,
+        name,
+        limit: String(limit),
+        focus: false,
+      })
+    ),
   }
+}
+
+function draftValue(draft: ReturnType<typeof draftOf>) {
+  return JSON.stringify({
+    ...draft,
+    groups: draft.groups.map(({ name, limit }) => [name, limit]),
+  })
 }
 
 export function RequestLimitEditor({
@@ -68,11 +81,16 @@ export function RequestLimitEditor({
   const { t } = useTranslation()
   const [baseline, setBaseline] = useState(initial)
   const [draft, setDraft] = useState(() => draftOf(initial))
-  const [invalid, setInvalid] = useState(false)
+  const nextGroupId = useRef(draft.groups.length)
+  const [invalid, setInvalid] = useState<
+    'policy' | 'groups' | 'duplicate' | null
+  >(null)
   const accept = (snapshot: RequestLimitSnapshot) => {
     setBaseline(snapshot)
-    setDraft(draftOf(snapshot))
-    setInvalid(false)
+    const next = draftOf(snapshot)
+    nextGroupId.current = next.groups.length
+    setDraft(next)
+    setInvalid(null)
     onSnapshot(snapshot)
   }
   const save = useMutation({
@@ -88,7 +106,7 @@ export function RequestLimitEditor({
     },
   })
   const busy = save.isPending || reload.isPending
-  const dirty = JSON.stringify(draft) !== JSON.stringify(draftOf(baseline))
+  const dirty = draftValue(draft) !== draftValue(draftOf(baseline))
 
   return (
     <form
@@ -96,24 +114,32 @@ export function RequestLimitEditor({
       onSubmit={(event) => {
         event.preventDefault()
         if (busy) return
-        let groupLimits: unknown
-        try {
-          groupLimits = JSON.parse(draft.groups)
-        } catch {
-          setInvalid(true)
+        if (
+          new Set(draft.groups.map(({ name }) => name)).size !==
+          draft.groups.length
+        ) {
+          setInvalid('duplicate')
           return
         }
         const parsed = requestLimitPolicySchema.safeParse({
           enabled: draft.enabled,
           window_seconds: Number(draft.window),
           user_limit: draft.user === '' ? null : Number(draft.user),
-          group_limits: groupLimits,
+          group_limits: Object.fromEntries(
+            draft.groups.map(({ name, limit }) => [name, Number(limit)])
+          ),
         })
         if (!parsed.success) {
-          setInvalid(true)
+          setInvalid(
+            parsed.error.issues.some(
+              (issue) => issue.path[0] === 'group_limits'
+            )
+              ? 'groups'
+              : 'policy'
+          )
           return
         }
-        setInvalid(false)
+        setInvalid(null)
         save.mutate(parsed.data)
       }}
     >
@@ -173,28 +199,109 @@ export function RequestLimitEditor({
               {t('Leave blank for no user limit.')}
             </p>
           </div>
-          <SettingsFormGridItem span='full' className='space-y-2'>
-            <Label htmlFor='native-rate-groups'>
-              {t('Shared group request limits (JSON)')}
-            </Label>
-            <Textarea
-              id='native-rate-groups'
-              className='min-h-36 font-mono'
-              value={draft.groups}
-              onChange={(event) =>
-                setDraft({ ...draft, groups: event.target.value })
-              }
-              placeholder='{"default": 300}'
-              aria-describedby='native-rate-group-help'
-            />
+          <SettingsFormGridItem span='full' className='space-y-4'>
+            <h3 className='text-sm font-medium'>
+              {t('Shared group request limits')}
+            </h3>
             <p
               id='native-rate-group-help'
               className='text-muted-foreground text-sm'
             >
               {t(
-                'Map exact group names to request counts per window. Omitted groups have no group limit.'
+                'Each group shares its request limit across all users. Groups not listed here have no group limit.'
               )}
             </p>
+            {draft.groups.length === 0 && (
+              <p className='text-muted-foreground text-sm'>
+                {t('No group limits configured.')}
+              </p>
+            )}
+            {draft.groups.map((group, index) => (
+              <div
+                key={group.id}
+                className='grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-end gap-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,12rem)_auto]'
+              >
+                <div className='col-span-2 min-w-0 space-y-2 sm:col-span-1'>
+                  <Label htmlFor={`native-rate-group-name-${group.id}`}>
+                    {t('Group name')}
+                  </Label>
+                  <Input
+                    id={`native-rate-group-name-${group.id}`}
+                    value={group.name}
+                    autoFocus={group.focus}
+                    required
+                    aria-describedby='native-rate-group-help'
+                    onChange={(event) => {
+                      const name = event.target.value
+                      setDraft((current) => ({
+                        ...current,
+                        groups: current.groups.map((row) =>
+                          row.id === group.id ? { ...row, name } : row
+                        ),
+                      }))
+                    }}
+                  />
+                </div>
+                <div className='min-w-0 space-y-2'>
+                  <Label htmlFor={`native-rate-group-limit-${group.id}`}>
+                    {t('Requests per window')}
+                  </Label>
+                  <Input
+                    id={`native-rate-group-limit-${group.id}`}
+                    type='number'
+                    min={1}
+                    max={100_000_000}
+                    step={1}
+                    required
+                    value={group.limit}
+                    onChange={(event) => {
+                      const limit = event.target.value
+                      setDraft((current) => ({
+                        ...current,
+                        groups: current.groups.map((row) =>
+                          row.id === group.id ? { ...row, limit } : row
+                        ),
+                      }))
+                    }}
+                  />
+                </div>
+                <Button
+                  type='button'
+                  variant='ghost'
+                  className='min-h-11'
+                  aria-label={t('Remove group limit {{number}}', {
+                    number: index + 1,
+                  })}
+                  onClick={() =>
+                    setDraft((current) => ({
+                      ...current,
+                      groups: current.groups.filter(
+                        (row) => row.id !== group.id
+                      ),
+                    }))
+                  }
+                >
+                  {t('Remove')}
+                </Button>
+              </div>
+            ))}
+            <Button
+              type='button'
+              variant='outline'
+              disabled={draft.groups.length >= 1024}
+              onClick={() => {
+                const id = nextGroupId.current++
+                setDraft((current) => ({
+                  ...current,
+                  groups: [
+                    ...current.groups,
+                    { id, name: '', limit: '', focus: true },
+                  ],
+                }))
+              }}
+            >
+              {t('Add group limit')}
+            </Button>
           </SettingsFormGridItem>
         </SettingsFormGrid>
       </fieldset>
@@ -205,9 +312,15 @@ export function RequestLimitEditor({
       </p>
       {invalid && (
         <p role='alert' className='text-destructive text-sm'>
-          {t(
-            'Enter a window of 1–86400 seconds and positive integer limits up to 100000000. Enable at least one limit when rate limiting is on.'
-          )}
+          {invalid === 'duplicate'
+            ? t('Group names must be unique.')
+            : invalid === 'groups'
+              ? t(
+                  'Enter exact group names and positive integer limits up to 100000000. Group names cannot contain spaces.'
+                )
+              : t(
+                  'Enter a window of 1–86400 seconds and positive integer limits up to 100000000. Enable at least one limit when rate limiting is on.'
+                )}
         </p>
       )}
       {(save.error || reload.error) && (
