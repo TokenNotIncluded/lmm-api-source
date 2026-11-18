@@ -25,7 +25,13 @@ type PancakeAdministration struct {
 // This projection deliberately excludes secret bytes and private file paths.
 // A configured key is not a claim that the provider has accepted it.
 type pancakeConfiguration struct {
-	Contract             string                        `json:"contract"`
+	Contract string `json:"contract"`
+	*pancakeConfigurationBinding
+	Bindings []pancakeConfigurationBinding `json:"bindings"`
+}
+
+type pancakeConfigurationBinding struct {
+	ChannelID            int64                         `json:"channel_id"`
 	MerchantID           string                        `json:"merchant_id"`
 	StoreID              string                        `json:"store_id"`
 	ProductID            string                        `json:"product_id"`
@@ -48,27 +54,35 @@ func (a *PancakeAdministration) Configuration(ctx context.Context) (any, error) 
 	if ctx.Err() != nil {
 		return nil, payments.ErrUnavailable
 	}
-	selected, err := a.selected()
+	groups, err := a.bindingGroups()
 	if err != nil {
 		return nil, err
 	}
-	first := a.document.Channels[selected[0]]
 	view := pancakeConfiguration{
-		Contract: "extensions.pancake-configuration.v1", MerchantID: first.Merchant,
-		StoreID: first.StoreID, ProductID: first.ProductID, ReturnURL: first.ReturnURL,
-		Environment: first.Environment, PrivateKeyConfigured: first.PrivateKeyFile != "",
-		Channels: make([]pancakeConfigurationChannel, 0, len(selected)),
+		Contract: "extensions.pancake-configuration.v1",
+		Bindings: make([]pancakeConfigurationBinding, 0, len(groups)),
 	}
-	for _, index := range selected {
-		channel := a.document.Channels[index]
-		// The single form must not project one alias's redirect over another.
-		if channel.ReturnURL != first.ReturnURL {
-			return nil, payments.ErrConflict
+	for _, group := range groups {
+		first := a.document.Channels[group[0]]
+		binding := pancakeConfigurationBinding{
+			ChannelID: first.ID, MerchantID: first.Merchant,
+			StoreID: first.StoreID, ProductID: first.ProductID, ReturnURL: first.ReturnURL,
+			Environment: first.Environment, PrivateKeyConfigured: first.PrivateKeyFile != "",
+			Channels: make([]pancakeConfigurationChannel, 0, len(group)),
 		}
-		view.Channels = append(view.Channels, pancakeConfigurationChannel{
-			ID: channel.ID, Currency: channel.Currency, Enabled: channel.Enabled,
-			SubscriptionEnabled: channel.SubscriptionEnabled,
-		})
+		for _, index := range group {
+			channel := a.document.Channels[index]
+			binding.Channels = append(binding.Channels, pancakeConfigurationChannel{
+				ID: channel.ID, Currency: channel.Currency, Enabled: channel.Enabled,
+				SubscriptionEnabled: channel.SubscriptionEnabled,
+			})
+		}
+		view.Bindings = append(view.Bindings, binding)
+	}
+	// Retain the original projection for single-binding clients. A multi-binding
+	// installation requires explicit selection before any provider operation.
+	if len(view.Bindings) == 1 {
+		view.pancakeConfigurationBinding = &view.Bindings[0]
 	}
 	return view, nil
 }
@@ -86,37 +100,65 @@ func newPancakeAdministration(path string, wallet *payments.Service, subscriptio
 	return &PancakeAdministration{path: path, expected: raw, document: document, runtime: payments.AttachPancakeConfiguration(wallet, subscriptions), replace: replacePancakeConfiguration}, nil
 }
 
-// The legacy form describes one merchant binding. Currency aliases share it;
-// multiple distinct bindings require the caller to use explicit channel setup.
-func (a *PancakeAdministration) selected() ([]int, error) {
+// Currency aliases share a binding even when checkout admission is disabled.
+// Independent test/live bindings are always listed, never selected implicitly.
+func (a *PancakeAdministration) bindingGroups() ([][]int, error) {
 	current, err := coreclient.ReadPrivateFile(a.path, 64<<10)
 	if err != nil || !bytes.Equal(current, a.expected) {
 		return nil, payments.ErrConflict
 	}
-	var selected []int
-	for i, c := range a.document.Channels {
-		if c.Provider == "waffo_pancake" && c.Enabled {
-			selected = append(selected, i)
+	var groups [][]int
+	for index, channel := range a.document.Channels {
+		if channel.Provider != "waffo_pancake" {
+			continue
+		}
+		found := false
+		for groupIndex, group := range groups {
+			if samePancakeBinding(channel, a.document.Channels[group[0]]) {
+				groups[groupIndex] = append(group, index)
+				found = true
+				break
+			}
+		}
+		if !found {
+			groups = append(groups, []int{index})
 		}
 	}
-	if len(selected) == 0 {
-		for i, c := range a.document.Channels {
-			if c.Provider == "waffo_pancake" {
-				selected = append(selected, i)
+	if len(groups) == 0 {
+		return nil, payments.ErrUnavailable
+	}
+	return groups, nil
+}
+
+func samePancakeBinding(left, right multiPaymentChannel) bool {
+	return left.Merchant == right.Merchant && left.Environment == right.Environment &&
+		left.StoreID == right.StoreID && left.ProductID == right.ProductID &&
+		left.PrivateKeyFile == right.PrivateKeyFile && left.TaxCategory == right.TaxCategory &&
+		left.ReturnURL == right.ReturnURL
+}
+
+func (a *PancakeAdministration) selected(channelID int64) ([]int, error) {
+	if channelID < 0 {
+		return nil, payments.ErrInvalid
+	}
+	groups, err := a.bindingGroups()
+	if err != nil {
+		return nil, err
+	}
+	if channelID == 0 {
+		if len(groups) != 1 {
+			return nil, payments.ErrConflict
+		}
+		return groups[0], nil
+	}
+	for _, group := range groups {
+		for _, index := range group {
+			if a.document.Channels[index].ID == channelID {
+				return group, nil
 			}
 		}
 	}
-	if len(selected) == 0 {
-		return nil, payments.ErrUnavailable
-	}
-	first := a.document.Channels[selected[0]]
-	for _, i := range selected[1:] {
-		c := a.document.Channels[i]
-		if c.Merchant != first.Merchant || c.Environment != first.Environment || c.StoreID != first.StoreID || c.ProductID != first.ProductID || c.PrivateKeyFile != first.PrivateKeyFile || c.TaxCategory != first.TaxCategory {
-			return nil, payments.ErrConflict
-		}
-	}
-	return selected, nil
+	return nil, payments.ErrInvalid
 }
 
 func pancakeAdminAdapter(c multiPaymentChannel, request payments.PancakeAdminRequest) (*payments.Pancake, error) {
@@ -141,7 +183,7 @@ func pancakeAdminAdapter(c multiPaymentChannel, request payments.PancakeAdminReq
 func (a *PancakeAdministration) probe(request payments.PancakeAdminRequest) (*payments.Pancake, []string, error) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	selected, err := a.selected()
+	selected, err := a.selected(request.ChannelID)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -180,7 +222,7 @@ func (a *PancakeAdministration) Save(ctx context.Context, request payments.Panca
 		return nil, payments.ErrUnavailable
 	}
 	request = payments.NormalizePancakeAdminRequest(request)
-	selected, err := a.selected()
+	selected, err := a.selected(request.ChannelID)
 	if err != nil {
 		return nil, err
 	}

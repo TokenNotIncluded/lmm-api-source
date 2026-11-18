@@ -13,15 +13,19 @@ import (
 	"github.com/TokenNotIncluded/lmm-api/extensions/internal/modules/payments"
 )
 
-type pancakeAdminProbe struct{ calls int }
+type pancakeAdminProbe struct {
+	calls     int
+	channelID int64
+}
 
 func (p *pancakeAdminProbe) Configuration(context.Context) (any, error) {
 	p.calls++
 	return map[string]any{"contract": "extensions.pancake-configuration.v1", "private_key_configured": true}, nil
 }
 
-func (p *pancakeAdminProbe) Catalog(context.Context, PancakeAdminRequest) (any, error) {
+func (p *pancakeAdminProbe) Catalog(_ context.Context, request PancakeAdminRequest) (any, error) {
 	p.calls++
+	p.channelID = request.ChannelID
 	return map[string]any{"stores": []any{}}, nil
 }
 
@@ -158,6 +162,34 @@ func TestPancakeAdminHTTPAuthorityAndBody(t *testing.T) {
 				}
 				if (probe.calls == 1) != (tc.want == 200) {
 					t.Fatal("provider called before admission")
+				}
+			})
+		}
+	}
+}
+
+func TestPancakeAdminForwardsExplicitBindingToEachAction(t *testing.T) {
+	for _, action := range []string{"catalog", "pair", "save"} {
+		for _, tc := range []struct {
+			body      string
+			status    int
+			channelID int64
+		}{
+			{`{"channel_id":51}`, 200, 51},
+			{`{"channel_id":"51"}`, 422, 0},
+		} {
+			t.Run(action+"/"+tc.body, func(t *testing.T) {
+				core := &authCore{fn: func(context.Context, string) (*pb.AuthorizeResponse, error) {
+					self := sessionSelf()
+					self.PlatformLevel = 6
+					return self, nil
+				}}
+				probe := &pancakeAdminProbe{}
+				mux := http.NewServeMux()
+				RegisterPancakeAdmin(mux, newAuth(t, core), probe)
+				response := pluginRequest(mux, "POST", "/api/option/waffo-pancake/"+action, tc.body, webToken)
+				if response.Code != tc.status || probe.channelID != tc.channelID || (probe.calls == 1) != (tc.status == 200) {
+					t.Fatal("selected binding did not survive HTTP admission", response.Code, probe.channelID, probe.calls)
 				}
 			})
 		}

@@ -23,8 +23,8 @@ import { ROLE } from '@/lib/roles'
 import { useAuthStore } from '@/stores/auth-store'
 
 const endpoint = '/api/option/waffo-pancake'
-const configurationSchema = z.object({
-  contract: z.literal('extensions.pancake-configuration.v1'),
+const bindingSchema = z.object({
+  channel_id: z.number().int().positive().optional(),
   merchant_id: z.string().min(1),
   store_id: z.string().min(1),
   product_id: z.string().min(1),
@@ -42,6 +42,27 @@ const configurationSchema = z.object({
     )
     .min(1),
 })
+const configurationSchema = z.union([
+  z.object({
+    contract: z.literal('extensions.pancake-configuration.v1'),
+    bindings: z
+      .array(
+        bindingSchema.extend({
+          channel_id: z.number().int().positive(),
+        })
+      )
+      .min(1),
+  }),
+  bindingSchema
+    .extend({
+      contract: z.literal('extensions.pancake-configuration.v1'),
+    })
+    .transform((binding) => ({
+      contract: binding.contract,
+      bindings: [binding],
+    })),
+])
+
 const productSchema = z.object({
   id: z.string().min(1),
   name: z.string(),
@@ -68,9 +89,27 @@ const pairSchema = z.object({
 })
 const saveSchema = z.object({ store_id: z.string(), product_id: z.string() })
 type Configuration = z.infer<typeof configurationSchema>
+type PaymentBinding = z.infer<typeof bindingSchema>
 type Catalog = z.infer<typeof catalogSchema>
 type Pair = z.infer<typeof pairSchema>
 type Action = 'catalog' | 'pair' | 'save'
+
+function bindingID(binding: PaymentBinding): number {
+  return binding.channel_id ?? binding.channels[0].id
+}
+
+function selectedBinding(
+  configuration: Configuration,
+  id: number
+): PaymentBinding {
+  const binding = configuration.bindings.find(
+    (item) =>
+      bindingID(item) === id ||
+      item.channels.some((channel) => channel.id === id)
+  )
+  if (!binding) throw new PaymentFailure(0, 'INVALID_RESPONSE')
+  return binding
+}
 
 class PaymentFailure extends Error {
   constructor(
@@ -315,7 +354,7 @@ function PaymentWorkspace({ scope }: { scope: NativeUsersScope }) {
   return (
     <PaymentEditor
       scope={scope}
-      current={query.data}
+      configuration={query.data}
       queryKey={queryKey}
       onDenied={() => setDenied(true)}
     />
@@ -324,17 +363,21 @@ function PaymentWorkspace({ scope }: { scope: NativeUsersScope }) {
 
 function PaymentEditor({
   scope,
-  current,
+  configuration,
   queryKey,
   onDenied,
 }: {
   scope: NativeUsersScope
-  current: Configuration
+  configuration: Configuration
   queryKey: (string | number)[]
   onDenied: () => void
 }) {
   const { t } = useTranslation()
   const client = useQueryClient()
+  const [selectedID, setSelectedID] = useState(() =>
+    bindingID(configuration.bindings[0])
+  )
+  const current = selectedBinding(configuration, selectedID)
   const [returnURL, setReturnURL] = useState(current.return_url)
   const [privateKey, setPrivateKey] = useState('')
   const [busy, setBusy] = useState<Action | null>(null)
@@ -393,6 +436,9 @@ function PaymentEditor({
     if (action === 'catalog') setCatalog(null)
     setConfirmPair(false)
     const values = {
+      ...(current.channel_id === undefined
+        ? {}
+        : { channel_id: current.channel_id }),
       merchant_id: current.merchant_id,
       private_key: privateKey.trim(),
       return_url: returnURL.trim(),
@@ -427,9 +473,11 @@ function PaymentEditor({
           throw new PaymentFailure(0, 'INVALID_RESPONSE')
         }
         acknowledged = true
-        const actual = await readConfiguration(scope, controller.signal)
+        const refreshed = await readConfiguration(scope, controller.signal)
         if (!active()) return
-        client.setQueryData(queryKey, actual)
+        const actual = selectedBinding(refreshed, selectedID)
+        client.setQueryData(queryKey, refreshed)
+        setSelectedID(bindingID(actual))
         setReturnURL(actual.return_url)
         setPrivateKey('')
         if (
@@ -473,9 +521,11 @@ function PaymentEditor({
       ) {
         // An uncertain write is read back once. Never replay a configuration write.
         try {
-          const actual = await readConfiguration(scope, controller.signal)
+          const refreshed = await readConfiguration(scope, controller.signal)
           if (!active()) return
-          client.setQueryData(queryKey, actual)
+          const actual = selectedBinding(refreshed, selectedID)
+          client.setQueryData(queryKey, refreshed)
+          setSelectedID(bindingID(actual))
           setReturnURL(actual.return_url)
           setPrivateKey('')
           setMessage(
@@ -514,6 +564,64 @@ function PaymentEditor({
 
   return (
     <div className='space-y-10'>
+      {configuration.bindings.length > 1 && (
+        <div className='max-w-3xl space-y-2'>
+          <Label htmlFor='native-payment-binding'>
+            {t('Payment connection')}
+          </Label>
+          <select
+            id='native-payment-binding'
+            value={selectedID}
+            disabled={busy !== null || dirty}
+            aria-describedby='native-payment-binding-help'
+            className='border-input bg-background block min-h-11 w-full rounded-md border px-3 text-sm'
+            onChange={(event) => {
+              if (dirty || inFlight.current) return
+              const next = selectedBinding(
+                configuration,
+                Number(event.target.value)
+              )
+              setSelectedID(bindingID(next))
+              setReturnURL(next.return_url)
+              setPrivateKey('')
+              setCatalog(null)
+              setPair(null)
+              setConfirmPair(false)
+              setMessage('')
+              setSaved(false)
+            }}
+          >
+            {configuration.bindings.map((binding) => (
+              <option key={bindingID(binding)} value={bindingID(binding)}>
+                {t('{{environment}} · {{currencies}} · Channel #{{id}}', {
+                  environment:
+                    binding.environment === 'live'
+                      ? t('Production')
+                      : t('Test environment'),
+                  currencies: [
+                    ...new Set(
+                      binding.channels.map((channel) => channel.currency)
+                    ),
+                  ].join(' / '),
+                  id: bindingID(binding),
+                })}
+              </option>
+            ))}
+          </select>
+          <p
+            id='native-payment-binding-help'
+            className='text-muted-foreground text-xs'
+          >
+            {dirty
+              ? t(
+                  'Save or discard changes before switching payment connections.'
+                )
+              : t(
+                  'Choose the payment connection to review and edit. Changes apply to its listed currency channels.'
+                )}
+          </p>
+        </div>
+      )}
       <section className='space-y-5' aria-labelledby='payment-binding-heading'>
         <div className='flex flex-wrap items-start justify-between gap-4'>
           <div className='space-y-1'>

@@ -59,6 +59,11 @@ func pancakeManagementFixture(t *testing.T) (*PancakeAdministration, *payments.S
 		{ID: 51, Provider: "waffo_pancake", Merchant: "MER_0123456789abcdefghijkl", Environment: "test", Currency: "USD", Enabled: true, PrivateKeyFile: key, StoreID: "STO_0123456789abcdefghijkl", ProductID: "PROD_0123456789abcdefghijkl", TaxCategory: "saas", ReturnURL: "https://example.test/old"},
 		{ID: 53, Provider: "waffo_pancake", Merchant: "MER_0123456789abcdefghijkl", Environment: "test", Currency: "CNY", Enabled: true, PrivateKeyFile: key, StoreID: "STO_0123456789abcdefghijkl", ProductID: "PROD_0123456789abcdefghijkl", TaxCategory: "saas", ReturnURL: "https://example.test/old"},
 	}}
+	return pancakeManagementDocumentFixture(t, document)
+}
+
+func pancakeManagementDocumentFixture(t *testing.T, document multiPaymentDocument) (*PancakeAdministration, *payments.Service, *configurationOrders, *configurationQuotes) {
+	t.Helper()
 	var raw bytes.Buffer
 	if err := toml.NewEncoder(&raw).Encode(document); err != nil {
 		t.Fatal(err)
@@ -216,7 +221,7 @@ func TestPancakeManagementFollowsVisibleUncertainCommit(t *testing.T) {
 	if got := configurationOrder(t, wallet, "configuration_uncertain_01"); got.PancakeBinding.ReturnURL != request.ReturnURL {
 		t.Fatal("runtime did not follow visible config")
 	}
-	if _, err := admin.selected(); err != nil {
+	if _, err := admin.selected(0); err != nil {
 		t.Fatal("visible config was not read back into admin state", err)
 	}
 	if _, err := os.Stat(admin.document.Channels[0].PrivateKeyFile); err != nil {

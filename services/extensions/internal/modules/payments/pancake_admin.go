@@ -17,6 +17,7 @@ var ErrPancakePolicy = errors.New("Pancake binding requires a Core payment polic
 // PancakeAdminRequest keeps credentials in the private request body. Channel
 // identity is selected from installation configuration, never monetary input.
 type PancakeAdminRequest struct {
+	ChannelID  int64  `json:"channel_id,omitempty"`
 	MerchantID string `json:"merchant_id"`
 	PrivateKey string `json:"private_key"`
 	ReturnURL  string `json:"return_url"`

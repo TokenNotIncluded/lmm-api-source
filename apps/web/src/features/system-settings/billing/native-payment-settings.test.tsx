@@ -460,3 +460,296 @@ test('server revocation removes configuration and credentials from the mounted w
   assert.equal(container.querySelector('textarea'), null)
   assert.ok(!container.textContent?.includes('MER_fixture'))
 })
+
+function bindingsConfiguration() {
+  const { contract, ...legacy } = configuration()
+  return {
+    contract,
+    bindings: [
+      {
+        ...legacy,
+        channel_id: 51,
+        merchant_id: 'MER_live',
+        store_id: 'STO_live',
+        product_id: 'PROD_live',
+        environment: 'live',
+        return_url: 'https://example.com/live',
+        channels: [
+          {
+            id: 51,
+            currency: 'USD',
+            enabled: false,
+            subscription_enabled: false,
+          },
+          {
+            id: 53,
+            currency: 'CNY',
+            enabled: false,
+            subscription_enabled: false,
+          },
+        ],
+      },
+      {
+        ...legacy,
+        channel_id: 52,
+        merchant_id: 'MER_test',
+        store_id: 'STO_test',
+        product_id: 'PROD_test',
+        channels: [
+          {
+            id: 52,
+            currency: 'USD',
+            enabled: false,
+            subscription_enabled: false,
+          },
+        ],
+      },
+    ],
+  }
+}
+
+async function chooseBinding(id: number) {
+  const select = document.getElementById(
+    'native-payment-binding'
+  ) as HTMLSelectElement | null
+  assert.ok(select)
+  assert.equal(select.disabled, false)
+  await act(async () => {
+    select.value = String(id)
+    select.dispatchEvent(new Event('change', { bubbles: true }))
+  })
+}
+
+test('multiple disabled payment bindings can be selected without admitting payments or mixing provider actions', async () => {
+  const { container, requests } = await mount((config) => {
+    if (config.method === 'get') return success(bindingsConfiguration())
+    assert.equal(body(config).channel_id, 52)
+    assert.equal(body(config).merchant_id, 'MER_test')
+    assert.equal(body(config).store_id, 'STO_test')
+    if (config.url?.endsWith('/catalog')) {
+      return success({
+        stores: [
+          {
+            id: 'STO_catalog',
+            name: 'Selected test shop',
+            status: 'active',
+            prodEnabled: false,
+            onetimeProducts: [],
+            subscriptionProducts: [],
+          },
+        ],
+      })
+    }
+    assert.equal(config.url, '/api/option/waffo-pancake/pair')
+    return success({
+      store_id: 'STO_new',
+      store_name: 'New test store',
+      product_id: 'PROD_new',
+      product_name: 'New test product',
+    })
+  })
+  await until(() => Boolean(container.querySelector('form')))
+  const selector = document.getElementById(
+    'native-payment-binding'
+  ) as HTMLSelectElement
+  assert.match(
+    selector.textContent ?? '',
+    /Production · USD \/ CNY · Channel #51/
+  )
+  assert.match(
+    selector.textContent ?? '',
+    /Test environment · USD · Channel #52/
+  )
+  assert.match(container.querySelector('dl')?.textContent ?? '', /MER_live/)
+  assert.match(container.querySelector('dl')?.textContent ?? '', /Disabled/)
+  await chooseBinding(52)
+  assert.equal(requests.length, 1)
+  assert.match(container.querySelector('dl')?.textContent ?? '', /MER_test/)
+  assert.ok(!container.querySelector('dl')?.textContent?.includes('MER_live'))
+  await click('Load provider catalog')
+  await until(
+    () => container.textContent?.includes('Selected test shop') === true
+  )
+  await click('Create store and product')
+  assert.equal(requests.length, 2)
+  await click('Create provider objects')
+  await until(
+    () =>
+      container.textContent?.includes(
+        'Provider objects created; activation required'
+      ) === true
+  )
+  assert.equal(requests.length, 3)
+  assert.ok(!requests.some((request) => request.url?.endsWith('/save')))
+  await edit('native-payment-private-key', 'selected-draft-key')
+  assert.equal(selector.disabled, true)
+  assert.match(
+    container.textContent ?? '',
+    /Save or discard changes before switching/
+  )
+  await click('Discard changes')
+  assert.equal(selector.disabled, false)
+  await chooseBinding(51)
+  assert.match(container.querySelector('dl')?.textContent ?? '', /MER_live/)
+  assert.ok(!container.textContent?.includes('Selected test shop'))
+  assert.ok(!container.textContent?.includes('STO_new'))
+  assert.equal(
+    (
+      document.getElementById(
+        'native-payment-private-key'
+      ) as HTMLTextAreaElement
+    ).value,
+    ''
+  )
+  assert.equal(requests.length, 3)
+})
+
+for (const uncertain of [false, true]) {
+  test(`selected payment binding survives ${
+    uncertain ? 'uncertain' : 'successful'
+  } save readback without changing another binding`, async () => {
+    let current = bindingsConfiguration()
+    const originalLive = structuredClone(current.bindings[0])
+    let releaseSave!: () => void
+    const saveGate = new Promise<void>((resolve) => {
+      releaseSave = resolve
+    })
+    const { container, client, requests } = await mount(async (config) => {
+      if (config.method === 'get') {
+        return success({
+          ...current,
+          bindings: current.bindings.map((binding) => ({
+            ...binding,
+            private_key: 'must-not-cache-binding-secret',
+            private_key_file: '/synthetic/private/key.pem',
+          })),
+        })
+      }
+      assert.equal(config.url, '/api/option/waffo-pancake/save')
+      const values = body(config)
+      assert.deepEqual(values, {
+        channel_id: 52,
+        merchant_id: 'MER_test',
+        store_id: 'STO_test',
+        product_id: 'PROD_test',
+        return_url: 'https://example.com/test-saved',
+        private_key: 'synthetic-selected-key',
+      })
+      await saveGate
+      current = {
+        ...current,
+        bindings: current.bindings.map((binding) =>
+          binding.channel_id === values.channel_id
+            ? { ...binding, return_url: values.return_url }
+            : binding
+        ),
+      }
+      if (uncertain) {
+        return rejected(503, 'PAYMENT_CONFIGURATION_DURABILITY_UNKNOWN')
+      }
+      return success({
+        store_id: values.store_id,
+        product_id: values.product_id,
+      })
+    })
+    await until(() => Boolean(container.querySelector('form')))
+    await chooseBinding(52)
+    await edit('native-payment-return-url', 'https://example.com/test-saved')
+    await edit('native-payment-private-key', 'synthetic-selected-key')
+    await click('Save payment settings')
+    const selector = document.getElementById(
+      'native-payment-binding'
+    ) as HTMLSelectElement
+    assert.equal(selector.disabled, true)
+    await act(async () => releaseSave())
+    await until(
+      () =>
+        container.textContent?.includes(
+          uncertain
+            ? 'crash durability is unknown'
+            : 'Payment settings saved and read back'
+        ) === true
+    )
+    assert.equal(selector.value, '52')
+    assert.equal(selector.disabled, false)
+    assert.equal(
+      (document.getElementById('native-payment-return-url') as HTMLInputElement)
+        .value,
+      'https://example.com/test-saved'
+    )
+    assert.equal(
+      (
+        document.getElementById(
+          'native-payment-private-key'
+        ) as HTMLTextAreaElement
+      ).value,
+      ''
+    )
+    assert.deepEqual(current.bindings[0], originalLive)
+    assert.equal(
+      requests.filter((request) => request.method === 'post').length,
+      1
+    )
+    assert.equal(
+      requests.filter((request) => request.method === 'get').length,
+      2
+    )
+    const cached = JSON.stringify(
+      client.getQueryData([
+        'native-payment-configuration',
+        501,
+        'payment-session',
+      ])
+    )
+    for (const secret of [
+      'synthetic-selected-key',
+      'must-not-cache-binding-secret',
+      '/synthetic/private/key.pem',
+    ]) {
+      assert.ok(!cached.includes(secret))
+    }
+    if (uncertain) {
+      assert.ok(
+        !container.textContent?.includes('Payment settings saved and read back')
+      )
+    }
+  })
+}
+
+test('readback keeps the selected currency when equivalent bindings regroup after save', async () => {
+  const config = bindingsConfiguration()
+  const live = config.bindings[0]
+  config.bindings = [
+    { ...live, channels: [live.channels[0]] },
+    {
+      ...live,
+      channel_id: 53,
+      return_url: 'https://example.com/cny',
+      channels: [live.channels[1]],
+    },
+  ]
+  let current = config
+  const { container, requests } = await mount((request) => {
+    if (request.method === 'get') return success(current)
+    assert.equal(body(request).channel_id, 53)
+    current = { ...current, bindings: [live] }
+    return success({ store_id: live.store_id, product_id: live.product_id })
+  })
+  await until(() => Boolean(container.querySelector('form')))
+  await chooseBinding(53)
+  await edit('native-payment-return-url', live.return_url)
+  await click('Save payment settings')
+  await until(
+    () =>
+      container.textContent?.includes(
+        'Payment settings saved and read back'
+      ) === true
+  )
+  assert.equal(document.getElementById('native-payment-binding'), null)
+  assert.match(container.querySelector('dl')?.textContent ?? '', /USD #51/)
+  assert.match(container.querySelector('dl')?.textContent ?? '', /CNY #53/)
+  assert.equal(
+    requests.filter((request) => request.method === 'post').length,
+    1
+  )
+})
