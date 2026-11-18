@@ -13,6 +13,7 @@ import {
   type NativeChannelDraft,
 } from '../lib/native-routing-form'
 import type { NativeConfiguration } from '../native-api'
+import { NativeTargetTimeoutField } from './native-target-timeout-field'
 
 const fieldClass = 'block min-w-0 space-y-2 text-sm'
 
@@ -211,11 +212,10 @@ export function NativeChannelModelsFields({
                   )
                 }
               />
-              <IntegerField
-                label={t('Timeout (ms)')}
+              <NativeTargetTimeoutField
                 value={attachment.timeout_ms}
-                min={1}
-                max={3_600_000}
+                configuration={configuration}
+                enabled={draft.enabled}
                 disabled={disabled}
                 onChange={(timeout_ms) =>
                   put(
@@ -318,7 +318,14 @@ export function NativeChannelModelsFields({
             disabled={disabled || !selectedRoute}
             onClick={() => {
               if (!selectedRoute) return
-              put(toggleChannelAttachment(draft, selectedRoute, true))
+              put(
+                toggleChannelAttachment(
+                  draft,
+                  selectedRoute,
+                  true,
+                  configuration
+                )
+              )
               setSelected('')
             }}
           >

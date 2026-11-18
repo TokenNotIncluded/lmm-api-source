@@ -236,6 +236,11 @@ impl ModelGateway {
         )
     }
 
+    /// Public control-plane metadata; Limits::validate bounds this to one day.
+    pub(crate) fn channel_total_timeout_ms(&self) -> u64 {
+        self.limits.total_timeout.as_millis() as u64
+    }
+
     /// Validate complete executable bindings before a control-plane commit.
     /// The incoming key set contains only already validated vault revisions.
     pub(crate) fn validate_channel_release(

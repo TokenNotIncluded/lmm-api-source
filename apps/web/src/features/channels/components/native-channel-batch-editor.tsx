@@ -7,13 +7,25 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { toIntlLocale } from '@/i18n/languages'
 
-import type { NativeChannelBatchPatch } from '../native-api'
+import {
+  nativeGlobalTimeoutMs,
+  targetTimeoutTooShort,
+} from '../lib/native-target-timeout'
+import type {
+  NativeChannelBatchPatch,
+  NativeConfiguration,
+} from '../native-api'
+import { NativeTimeoutHint } from './native-target-timeout-field'
 
 export function NativeChannelBatchEditor({
+  configuration,
+  enforceMinimum,
   busy,
   onSave,
   onCancel,
 }: {
+  configuration: NativeConfiguration
+  enforceMinimum: boolean
   busy: boolean
   onSave: (patch: NativeChannelBatchPatch) => Promise<void>
   onCancel: () => void
@@ -25,10 +37,21 @@ export function NativeChannelBatchEditor({
     weight: '',
     timeout_ms: '',
   })
+  const minimumTimeout = enforceMinimum
+    ? nativeGlobalTimeoutMs(configuration)
+    : null
+  const timeoutTooShort =
+    values.timeout_ms.trim() !== '' &&
+    targetTimeoutTooShort(Number(values.timeout_ms), minimumTimeout)
   const fields = [
     { key: 'priority', label: t('Priority'), min: 0, max: 65_535 },
     { key: 'weight', label: t('Weight'), min: 0, max: 4_294_967_295 },
-    { key: 'timeout_ms', label: t('Timeout (ms)'), min: 1, max: 3_600_000 },
+    {
+      key: 'timeout_ms',
+      label: t('Timeout (ms)'),
+      min: minimumTimeout ?? 1,
+      max: 3_600_000,
+    },
   ] as const
   const patch: NativeChannelBatchPatch = {}
   let invalid = false
@@ -80,7 +103,14 @@ export function NativeChannelBatchEditor({
               max={max}
               step={1}
               placeholder={t('Keep current value')}
-              aria-describedby={`${formId}-${key}-range`}
+              aria-invalid={
+                (key === 'timeout_ms' && timeoutTooShort) || undefined
+              }
+              aria-describedby={
+                key === 'timeout_ms'
+                  ? `${formId}-${key}-range ${formId}-timeout-hint`
+                  : `${formId}-${key}-range`
+              }
               value={values[key]}
               disabled={busy}
               onChange={(event) =>
@@ -95,9 +125,18 @@ export function NativeChannelBatchEditor({
           'Lower priority values run first. Weight distributes requests within the same priority.'
         )}
       </p>
+      <NativeTimeoutHint
+        configuration={configuration}
+        id={`${formId}-timeout-hint`}
+      />
       {invalid && (
         <p className='text-destructive text-sm' role='alert'>
-          {t('Enter whole numbers within the allowed ranges.')}
+          {timeoutTooShort
+            ? t(
+                'Target timeout must be at least {{timeout}} ms for enabled channels.',
+                { timeout: minimumTimeout }
+              )
+            : t('Enter whole numbers within the allowed ranges.')}
         </p>
       )}
       <div className='flex flex-wrap gap-2'>

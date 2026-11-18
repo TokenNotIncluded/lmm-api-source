@@ -181,6 +181,7 @@ test('native configuration retains channel tags and target protocol admission on
       success: true,
       data: {
         version: { routing: 4, pricing: 3 },
+        model_limits: { total_timeout_ms: 120_000 },
         routing: {
           version: 4,
           upstreams: [
@@ -231,6 +232,7 @@ test('native configuration retains channel tags and target protocol admission on
     },
   })
   const configuration = await getNativeConfiguration(scope)
+  assert.deepEqual(configuration.model_limits, { total_timeout_ms: 120_000 })
   assert.deepEqual(configuration.bindings.tags, { '1': 'Vision' })
   assert.deepEqual(configuration.bindings.key_pools, {
     '1': { polling: true, disabled: [{ id: 8, revision: 1 }] },

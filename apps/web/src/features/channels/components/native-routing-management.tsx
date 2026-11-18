@@ -27,6 +27,10 @@ import {
 } from '../api'
 import { nativeProtocolLabel } from '../lib/native-routing-form'
 import {
+  assertNativeDraftTimeouts,
+  nativeTimeoutErrorMessage,
+} from '../lib/native-target-timeout'
+import {
   copyNativeChannel,
   getNativeConfiguration,
   nativeRequest as scopedNativeRequest,
@@ -345,7 +349,8 @@ function NativeRoutingWorkspace({
 
   function report(cause: unknown) {
     setError(
-      getServerErrorMessage(cause) ??
+      nativeTimeoutErrorMessage(cause, t) ??
+        getServerErrorMessage(cause) ??
         (cause instanceof Error ? cause.message : t('Failed to save'))
     )
   }
@@ -661,6 +666,7 @@ function NativeRoutingWorkspace({
     setError(null)
     try {
       const body = parseNativeDocument(editor.document)
+      if (configuration) assertNativeDraftTimeouts(body, configuration)
       const request =
         editor.modelEditing === undefined
           ? body
@@ -687,6 +693,7 @@ function NativeRoutingWorkspace({
     if (!editor || editorStale || (editor.previewPath && !preview)) return
     void run(async () => {
       const body = parseNativeDocument(editor.document)
+      if (configuration) assertNativeDraftTimeouts(body, configuration)
       if (editor.secret) body.secret = secret
       if (preview) body.confirmation_digest = preview.confirmation_digest
       return nativeRequest(editor.method, editor.path, body)
@@ -1187,6 +1194,10 @@ function NativeRoutingWorkspace({
           {batchRoutingOpen && (
             <NativeChannelBatchEditor
               key={batchRoutingSnapshot}
+              configuration={configuration}
+              enforceMinimum={configuration.routing.upstreams.some(
+                (item) => item.enabled && selectedVisibleIds.includes(item.id)
+              )}
               busy={busy}
               onSave={saveSelectedRouting}
               onCancel={() => setBatchRoutingEditor(null)}

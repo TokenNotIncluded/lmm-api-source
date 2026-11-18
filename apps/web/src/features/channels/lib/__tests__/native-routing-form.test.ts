@@ -222,3 +222,17 @@ test('malformed advanced input stays outside the visual editor instead of invent
   )
   assert.equal(readModelDraft('{"route":null}'), null)
 })
+
+test('a new channel attachment follows the global timeout without rewriting existing bindings', () => {
+  const draft = fixture()
+  const route = { id: 3, model: 'public-c', speeds: ['standard'] }
+  const configuration = { model_limits: { total_timeout_ms: 120_000 } }
+  const added = toggleChannelAttachment(draft, route, true, configuration)
+  assert.equal(added.attachments[2].timeout_ms, 120_000)
+  assert.equal(added.attachments[0].timeout_ms, 10_000)
+  assert.deepEqual(added.attachments.slice(0, 2), draft.attachments)
+  assert.equal(
+    toggleChannelAttachment(added, route, true, configuration),
+    added
+  )
+})

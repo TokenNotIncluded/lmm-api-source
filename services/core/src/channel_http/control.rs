@@ -39,6 +39,7 @@ pub enum ManagementError {
     Invalid,
     Conflict,
     BindingChanged,
+    TargetTimeoutTooShort { required_min_timeout_ms: u64 },
     CommitUnknown,
     ApplyPending,
 }
@@ -257,6 +258,28 @@ impl ManagedChannels {
         crate::model_http::channel_operations::validate_publication_prices(document)
             .map_err(|_| ManagementError::Invalid)?;
         if let Some(gateway) = &self.gateway {
+            let required_min_timeout_ms = gateway.channel_total_timeout_ms();
+            let enabled_upstreams: BTreeSet<_> = document
+                .routing
+                .upstreams
+                .iter()
+                .filter(|upstream| upstream.enabled)
+                .map(|upstream| upstream.id)
+                .collect();
+            if document
+                .routing
+                .routes
+                .iter()
+                .flat_map(|route| &route.targets)
+                .any(|target| {
+                    enabled_upstreams.contains(&target.upstream_id)
+                        && u64::from(target.timeout_ms) < required_min_timeout_ms
+                })
+            {
+                return Err(ManagementError::TargetTimeoutTooShort {
+                    required_min_timeout_ms,
+                });
+            }
             return gateway
                 .validate_channel_release(document, bindings.contexts.clone(), new_keys)
                 .map_err(|_| ManagementError::BindingChanged);
@@ -611,6 +634,17 @@ impl IntoResponse for Failure {
                 "CHANNEL_CONTROL_INVALID",
                 "Invalid routing or price configuration",
             ),
+            Self::Management(ManagementError::TargetTimeoutTooShort { required_min_timeout_ms }) => {
+                return (
+                    StatusCode::CONFLICT,
+                    Json(json!({
+                        "success": false,
+                        "code": "CHANNEL_TARGET_TIMEOUT_TOO_SHORT",
+                        "message": "Target timeout must be at least the Core model total timeout",
+                        "data": { "required_min_timeout_ms": required_min_timeout_ms }
+                    })),
+                ).into_response();
+            },
             Self::Management(ManagementError::BindingChanged) => (
                 StatusCode::CONFLICT,
                 "CHANNEL_BINDING_NOT_CONFIGURED",

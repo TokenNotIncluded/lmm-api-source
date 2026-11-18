@@ -564,6 +564,7 @@ test('native batch routing submits selected channels once with only valid change
   const base = fixture()
   let config = {
     ...base,
+    model_limits: { total_timeout_ms: 120_000 },
     routing: {
       ...base.routing,
       upstreams: [
@@ -627,9 +628,19 @@ test('native batch routing submits selected channels once with only valid change
   await changeInput(required(form.querySelector('input[name=weight]')), '')
   await changeInput(required(form.querySelector('input[name=timeout_ms]')), '0')
   assert.equal(button(form, 'Apply').disabled, true)
+  assert.match(
+    form.textContent ?? '',
+    /Target timeout must be at least 120000 ms/
+  )
+  assert.match(form.textContent ?? '', /larger values do not extend execution/)
+  assert.equal(
+    required(form.querySelector<HTMLInputElement>('input[name=timeout_ms]'))
+      .min,
+    '120000'
+  )
   await changeInput(
     required(form.querySelector('input[name=timeout_ms]')),
-    '1200'
+    '120000'
   )
   assert.equal(button(form, 'Apply').disabled, false)
   await act(async () => {
@@ -644,7 +655,7 @@ test('native batch routing submits selected channels once with only valid change
   assert.deepEqual(writes[0], {
     expected_version: { routing: 1, pricing: 1 },
     ids: [1, 2],
-    patch: { priority: 0, timeout_ms: 1200 },
+    patch: { priority: 0, timeout_ms: 120000 },
   })
   assert.equal(container.querySelector('form[aria-label="Edit routing"]'), null)
 })
@@ -2900,4 +2911,67 @@ test('model confirmation stops when configuration changes and reload requires a 
     { routing: 2, pricing: 2 }
   )
   assert.equal(writes, 0)
+})
+
+test('model timeout edits keep the saved value, block a short JSON draft and show a newer server minimum', async () => {
+  const config: NativeConfiguration = {
+    ...fixture(),
+    model_limits: { total_timeout_ms: 120_000 },
+  }
+  let posts = 0
+  api.request = (async (options: { method: string }) => {
+    if (options.method === 'GET') {
+      return { data: { success: true, data: config } }
+    }
+    posts++
+    throw {
+      response: {
+        data: {
+          success: false,
+          code: 'CHANNEL_TARGET_TIMEOUT_TOO_SHORT',
+          message: 'Target timeout is below the global deadline',
+          data: { required_min_timeout_ms: 180_000 },
+        },
+      },
+    }
+  }) as typeof api.request
+  const container = await mount('models')
+  await until(() => !!container.textContent?.includes('model-a'))
+  await act(async () => button(container, 'Edit').click())
+  const form = required(container.querySelector('form'))
+  const input = required(
+    [...form.querySelectorAll('label')]
+      .find(
+        (item) => item.querySelector('span')?.textContent === 'Timeout (ms)'
+      )
+      ?.querySelector('input')
+  )
+  assert.equal(input.value, '30000')
+  assert.equal(input.min, '120000')
+  assert.equal(input.getAttribute('aria-invalid'), 'true')
+  assert.match(form.textContent ?? '', /larger values do not extend execution/)
+  // A programmatic submit also covers the advanced JSON path beyond HTML min validation.
+  await act(async () =>
+    form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))
+  )
+  assert.equal(posts, 0)
+  assert.match(
+    container.textContent ?? '',
+    /Target timeout must be at least 120000 ms/
+  )
+  await changeInput(input, '120000')
+  assert.equal(input.getAttribute('aria-invalid'), null)
+  await act(async () =>
+    form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))
+  )
+  await until(
+    () =>
+      posts === 1 &&
+      !!container.textContent?.includes(
+        'Target timeout must be at least 180000 ms'
+      )
+  )
+  assert.equal(button(form, 'Preview').disabled, false)
+  assert.equal(form.textContent?.includes('Confirm and apply'), false)
+  assert.equal(config.routing.routes[0].targets[0].timeout_ms, 30000)
 })

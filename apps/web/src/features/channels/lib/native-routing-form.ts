@@ -2,7 +2,12 @@
 import type { TFunction } from 'i18next'
 import { z } from 'zod'
 
-import { parseNativeDocument, type NativeContext } from '../native-api'
+import {
+  parseNativeDocument,
+  type NativeContext,
+  type NativeConfiguration,
+} from '../native-api'
+import { newNativeTargetTimeoutMs } from './native-target-timeout'
 
 export const nativeProtocols = [
   'openai_chat',
@@ -236,7 +241,8 @@ export function updateChannelAttachment(
 export function toggleChannelAttachment(
   draft: NativeChannelDraft,
   route: { id: number; model: string; speeds: string[] },
-  enabled: boolean
+  enabled: boolean,
+  configuration?: Pick<NativeConfiguration, 'model_limits'>
 ): NativeChannelDraft {
   if (!enabled) {
     const attachments = draft.attachments.filter(
@@ -266,7 +272,7 @@ export function toggleChannelAttachment(
         priority: 0,
         weight: 1,
         speeds: [...route.speeds],
-        timeout_ms: 30_000,
+        timeout_ms: newNativeTargetTimeoutMs(configuration),
         payload: 'adapt',
       },
     ],

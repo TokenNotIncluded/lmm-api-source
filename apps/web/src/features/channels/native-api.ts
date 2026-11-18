@@ -70,6 +70,7 @@ export type NativePrices = {
 export type NativeConfiguration = {
   version: NativeVersion
   channel_id_high_water?: number
+  model_limits?: { total_timeout_ms: number } | null
   routing: {
     version: number
     upstreams: NativeUpstream[]
@@ -481,6 +482,9 @@ export async function saveNativeLegacyBalance(
 const configurationSchema = z.object({
   version: versionSchema,
   channel_id_high_water: z.number().int().nonnegative().safe().optional(),
+  model_limits: z
+    .object({ total_timeout_ms: z.number().int().positive().safe() })
+    .nullish(),
   routing: z.object({
     version: z.number(),
     upstreams: z.array(

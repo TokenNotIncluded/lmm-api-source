@@ -211,8 +211,12 @@ pub(in crate::channel_http) async fn read(
             .unwrap_or(0),
     );
     tx.commit().await.map_err(ManagementError::from)?;
+    let model_limits = management
+        .gateway
+        .as_ref()
+        .map(|gateway| json!({ "total_timeout_ms": gateway.channel_total_timeout_ms() }));
     Ok(Json(
-        json!({"success":true,"data":{"version":Version::of(&document),"routing":document.routing,"prices":document.pricing,"bindings":bindings,"channel_id_high_water":channel_id_high_water,"secret_storage_enabled":management.gateway.as_ref().and_then(|g|g.channel_secret_key()).is_some()}}),
+        json!({"success":true,"data":{"version":Version::of(&document),"routing":document.routing,"prices":document.pricing,"bindings":bindings,"channel_id_high_water":channel_id_high_water,"model_limits":model_limits,"secret_storage_enabled":management.gateway.as_ref().and_then(|g|g.channel_secret_key()).is_some()}}),
     ))
 }
 pub(in crate::channel_http) async fn preview(

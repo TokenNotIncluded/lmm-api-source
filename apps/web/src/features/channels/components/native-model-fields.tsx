@@ -22,6 +22,7 @@ import {
   type NativeModelDraft,
   type NativeTargetDraft,
 } from './native-model-draft'
+import { NativeTargetTimeoutField } from './native-target-timeout-field'
 
 const fieldClass = 'block min-w-0 space-y-2 text-sm'
 const selectClass =
@@ -385,11 +386,12 @@ export function NativeModelFields({
                   disabled={disabled}
                   onChange={(weight) => patchTarget(index, { weight })}
                 />
-                <IntegerField
-                  label={t('Timeout (ms)')}
+                <NativeTargetTimeoutField
                   value={target.timeout_ms}
-                  min={1}
-                  max={3_600_000}
+                  configuration={configuration}
+                  enabled={configuration.routing.upstreams.some(
+                    (item) => item.id === target.upstream_id && item.enabled
+                  )}
                   disabled={disabled}
                   onChange={(timeout_ms) => patchTarget(index, { timeout_ms })}
                 />

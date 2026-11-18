@@ -1,6 +1,7 @@
 /* Copyright (C) 2026 LIghtJUNction. SPDX-License-Identifier: AGPL-3.0-or-later */
 import { z } from 'zod'
 
+import { newNativeTargetTimeoutMs } from '../lib/native-target-timeout'
 import { parseNativeDocument, type NativeConfiguration } from '../native-api'
 
 const numberDraft = z.union([z.number().int().safe(), z.string()])
@@ -153,7 +154,7 @@ export function newModelTarget(
     enabled: true,
     priority: 0,
     weight: 1,
-    timeout_ms: 30_000,
+    timeout_ms: newNativeTargetTimeoutMs(configuration),
     speeds: [...draft.route.speeds],
     payload: 'adapt',
   }
