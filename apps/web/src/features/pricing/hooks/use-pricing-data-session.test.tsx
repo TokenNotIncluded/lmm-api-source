@@ -1,5 +1,6 @@
 /* Copyright (C) 2026 LIghtJUNction. AGPL-3.0-or-later. */
 import assert from 'node:assert/strict'
+import { createRequire } from 'node:module'
 import { after, afterEach, test } from 'node:test'
 
 import { AxiosError, type InternalAxiosRequestConfig } from 'axios'
@@ -7,7 +8,16 @@ import { Window } from 'happy-dom'
 
 import type { NativePricingDocument } from '../catalog-contract'
 
+const { mock } = createRequire(import.meta.url)('bun:test') as {
+  mock: { module: (name: string, factory: () => unknown) => void }
+}
+
 const domWindow = new Window({ url: 'https://console.example.test/' })
+// Match other motion fixtures: happy-dom rejects canceled native animations.
+Object.defineProperty(domWindow.HTMLElement.prototype, 'animate', {
+  configurable: true,
+  value: undefined,
+})
 domWindow.document.write('<!doctype html><html><body></body></html>')
 Object.defineProperty(domWindow.document, 'compatMode', {
   configurable: true,
@@ -59,8 +69,13 @@ const { act } = await import('react')
 const { createRoot } = await import('react-dom/client')
 const { QueryClient, QueryClientProvider } =
   await import('@tanstack/react-query')
-const { createRouter, createRootRoute, createMemoryHistory, RouterProvider } =
-  await import('@tanstack/react-router')
+const {
+  createRouter,
+  createRootRoute,
+  createRoute,
+  createMemoryHistory,
+  RouterProvider,
+} = await import('@tanstack/react-router')
 const { createInstance } = await import('i18next')
 const { I18nextProvider, initReactI18next } = await import('react-i18next')
 const { api } = await import('@/lib/api')
@@ -70,6 +85,11 @@ const { ModelPlazaProvider, useModelPlaza } =
   await import('@/context/model-plaza-provider')
 const { ModelPlazaPanel } = await import('../components/model-plaza-panel')
 const { usePricingData } = await import('./use-pricing-data')
+
+mock.module('@/features/forge/forge-public-shell', () => ({
+  ForgePublicShell: ({ children }: React.PropsWithChildren) => <>{children}</>,
+}))
+const { Pricing } = await import('../index')
 
 const i18n = createInstance()
 await i18n.use(initReactI18next).init({
@@ -191,9 +211,15 @@ async function render(component: () => React.JSX.Element) {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   })
+  const rootRoute = createRootRoute()
+  const pricingRoute = createRoute({
+    getParentRoute: () => rootRoute,
+    path: '/pricing/',
+    component,
+  })
   const router = createRouter({
-    routeTree: createRootRoute({ component }),
-    history: createMemoryHistory({ initialEntries: ['/'] }),
+    routeTree: rootRoute.addChildren([pricingRoute]),
+    history: createMemoryHistory({ initialEntries: ['/pricing/'] }),
   })
   await router.load()
   const container = document.createElement('div')
@@ -265,6 +291,7 @@ for (const [name, nextUserId, nextSID] of [
     )
     await act(async () => setSession(nextUserId, nextSID))
     assert.equal(latest?.models.length, 0)
+    assert.equal(latest?.catalogAvailable, false)
     assert.equal(rendered.container.textContent, 'loading')
     await act(async () => next.resolve(pricingDocument('session', 82)))
     await waitFor(
@@ -351,8 +378,125 @@ test('an unavailable refresh hides the previously verified account price', async
   await waitFor(() => Boolean(latest?.error), 'pricing error missing')
   assert.equal(latest?.models.length, 0)
   assert.deepEqual(latest?.groupRatio, {})
+  assert.equal(latest?.catalogAvailable, false)
   assert.equal(rendered.container.textContent, 'unavailable')
   assert.equal(publicRequests, 0)
+})
+
+function pricingUnavailable(config: InternalAxiosRequestConfig) {
+  return new AxiosError('Pricing unavailable', undefined, config, undefined, {
+    data: { error: { code: 'pricing_unavailable' } },
+    status: 503,
+    statusText: 'Service Unavailable',
+    headers: {},
+    config,
+  })
+}
+
+test('the pricing page keeps unknown counts hidden and restores a verified empty catalogue after retry', async () => {
+  useAuthStore.getState().auth.reset('complete')
+  const initial = deferred<NativePricingDocument>()
+  let requests = 0
+  installAdapter(async (config) => {
+    if (requests++ === 0) {
+      await initial.promise
+      throw pricingUnavailable(config)
+    }
+    return { ...pricingDocument('public', 1), models: [] }
+  })
+  const { container } = await render(Pricing)
+  assert.doesNotMatch(
+    container.textContent ?? '',
+    /This site currently has|0 models/
+  )
+  await act(async () => initial.resolve(pricingDocument('public', 1)))
+  await waitFor(
+    () =>
+      container.textContent?.includes('Failed to load enabled models') === true,
+    'pricing failure missing'
+  )
+  assert.doesNotMatch(
+    container.textContent ?? '',
+    /This site currently has|0 models|No models found|Prices always use the base price/
+  )
+  assert.equal(container.querySelector('input'), null)
+  const retry = [...container.querySelectorAll('button')].find(
+    (button) => button.textContent?.trim() === 'Retry'
+  )
+  assert.ok(retry)
+  await act(async () => retry.click())
+  await waitFor(
+    () =>
+      container.textContent?.includes(
+        'This site currently has 0 models enabled'
+      ) === true,
+    'successful empty catalogue count missing'
+  )
+  assert.match(container.textContent ?? '', /No models found/)
+  assert.doesNotMatch(
+    container.textContent ?? '',
+    /Failed to load enabled models/
+  )
+  assert.ok(container.querySelector('input'))
+  assert.equal(requests, 2)
+})
+
+test('the model panel shows counts only after the catalogue is available', async () => {
+  useAuthStore.getState().auth.reset('complete')
+  const initial = deferred<NativePricingDocument>()
+  let requests = 0
+  installAdapter(async (config) => {
+    if (requests++ === 0) {
+      await initial.promise
+      throw pricingUnavailable(config)
+    }
+    return { ...pricingDocument('public', 1), models: [] }
+  })
+  function OpenPanel() {
+    const { openPanel } = useModelPlaza()
+    return (
+      <>
+        <button type='button' onClick={() => openPanel()}>
+          Open models
+        </button>
+        <ModelPlazaPanel />
+      </>
+    )
+  }
+  const { container } = await render(() => (
+    <ModelPlazaProvider>
+      <OpenPanel />
+    </ModelPlazaProvider>
+  ))
+  const open = container.querySelector('button')
+  assert.ok(open)
+  await act(async () => open.click())
+  assert.equal(domWindow.document.body.textContent?.includes('0 / 0'), false)
+  await act(async () => initial.resolve(pricingDocument('public', 1)))
+  await waitFor(
+    () =>
+      domWindow.document.body.textContent?.includes(
+        'Unable to load live pricing'
+      ) === true,
+    'panel failure missing'
+  )
+  assert.equal(domWindow.document.body.textContent?.includes('0 / 0'), false)
+  assert.doesNotMatch(
+    domWindow.document.body.textContent ?? '',
+    /No models found/
+  )
+  const retry = [...domWindow.document.querySelectorAll('button')].find(
+    (button) => button.textContent?.trim() === 'Retry'
+  )
+  assert.ok(retry)
+  await act(async () => retry.click())
+  await waitFor(
+    () =>
+      domWindow.document.body.textContent?.includes('0 / 0 models') === true,
+    'successful empty panel count missing'
+  )
+  assert.match(domWindow.document.body.textContent ?? '', /No models found/)
+  assert.equal(requests, 2)
 })
 
 test('an open model drawer follows the current account catalogue', async () => {

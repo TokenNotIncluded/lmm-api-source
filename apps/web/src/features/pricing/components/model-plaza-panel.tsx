@@ -316,14 +316,16 @@ export function ModelPlazaPanel() {
                 </div>
               </div>
               <div className='text-muted-foreground flex items-center justify-between text-xs'>
-                <span>
-                  {visibleModels.length} / {pricing.models.length}{' '}
-                  {t('Models').toLowerCase()}
-                </span>
+                {pricing.catalogAvailable && (
+                  <span>
+                    {visibleModels.length} / {pricing.models.length}{' '}
+                    {t('Models').toLowerCase()}
+                  </span>
+                )}
                 <Button
                   variant='link'
                   size='sm'
-                  className='h-auto p-0 text-xs'
+                  className='ml-auto h-auto p-0 text-xs'
                   render={<Link to='/pricing' onClick={closePanel} />}
                 >
                   {t('Models and pricing')}
@@ -333,7 +335,8 @@ export function ModelPlazaPanel() {
             </div>
 
             <div className='min-h-0 flex-1 overflow-y-auto'>
-              {pricing.isLoading ? (
+              {pricing.isLoading ||
+              (!pricing.catalogAvailable && !pricing.error) ? (
                 <ModelPanelSkeleton />
               ) : pricing.error ? (
                 <ErrorState

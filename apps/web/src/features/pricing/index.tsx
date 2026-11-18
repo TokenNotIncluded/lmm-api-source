@@ -70,6 +70,7 @@ export function Pricing() {
     usableGroup,
     endpointMap,
     autoGroups,
+    catalogAvailable,
     isLoading,
     error,
     refetch,
@@ -207,7 +208,7 @@ export function Pricing() {
     )
   }
 
-  if (isLoading) {
+  if (isLoading || (!catalogAvailable && !error)) {
     return (
       <ForgePublicShell>
         <div className='min-h-svh'>
@@ -234,11 +235,13 @@ export function Pricing() {
                 <h1 className='font-sans text-3xl leading-tight font-semibold tracking-tight text-balance sm:text-4xl lg:text-5xl'>
                   {t('Models and pricing')}
                 </h1>
-                <p className='text-muted-foreground mt-3 max-w-2xl text-sm leading-6 sm:text-base'>
-                  {t('This site currently has {{count}} models enabled', {
-                    count: models?.length || 0,
-                  })}
-                </p>
+                {catalogAvailable && (
+                  <p className='text-muted-foreground mt-3 max-w-2xl text-sm leading-6 sm:text-base'>
+                    {t('This site currently has {{count}} models enabled', {
+                      count: models.length,
+                    })}
+                  </p>
+                )}
               </div>
               {/* The single most-asked question on this page: how do I pay? */}
               <Button
@@ -262,95 +265,102 @@ export function Pricing() {
             </div>
           </div>
 
-          <div className='bg-background border-border/50 sticky top-16 z-40 -mx-5 mb-8 border-b py-4 sm:mb-12 sm:py-5 md:-mx-10'>
-            <div className='flex min-w-0 flex-col gap-3 px-5 sm:gap-4 md:px-10'>
-              <SearchBar
-                value={searchInput}
-                onChange={setSearchInput}
-                onClear={clearSearch}
-                placeholder={t(
-                  'Search model name, provider, endpoint, or tag...'
-                )}
-                className='w-full'
-              />
-              <PricingToolbar
-                filteredCount={filteredModels.length}
-                totalCount={models?.length}
-                sortBy={sortBy}
-                onSortChange={setSortBy}
-                tokenUnit={tokenUnit}
-                onTokenUnitChange={setTokenUnit}
-                displayCurrency={displayCurrency}
-                onDisplayCurrencyChange={(currency) => {
-                  void setDisplayCurrency(currency)
-                }}
-                viewMode={viewMode}
-                onViewModeChange={(next) => {
-                  setViewMode(next)
-                  setVisibleCount(PAGE_SIZE)
-                }}
-                quotaTypeFilter={quotaTypeFilter}
-                endpointTypeFilter={endpointTypeFilter}
-                vendorFilter={vendorFilter}
-                groupFilter={groupFilter}
-                tagFilter={tagFilter}
-                onQuotaTypeChange={setQuotaTypeFilter}
-                onEndpointTypeChange={setEndpointTypeFilter}
-                onVendorChange={setVendorFilter}
-                onGroupChange={setGroupFilter}
-                onTagChange={setTagFilter}
-                vendors={vendors || []}
-                groups={availableGroups}
-                groupRatios={groupRatio}
-                tags={availableTags}
-                models={models || []}
-                hasActiveFilters={hasActiveFilters}
-                activeFilterCount={activeFilterCount}
-                onClearFilters={() => {
-                  clearFilters()
-                  setVisibleCount(PAGE_SIZE)
-                }}
-              />
-              {displayCurrencyError && (
-                <p role='alert' className='text-destructive text-xs'>
-                  {t(displayCurrencyError)}
+          {catalogAvailable && (
+            <>
+              <div className='bg-background border-border/50 sticky top-16 z-40 -mx-5 mb-8 border-b py-4 sm:mb-12 sm:py-5 md:-mx-10'>
+                <div className='flex min-w-0 flex-col gap-3 px-5 sm:gap-4 md:px-10'>
+                  <SearchBar
+                    value={searchInput}
+                    onChange={setSearchInput}
+                    onClear={clearSearch}
+                    placeholder={t(
+                      'Search model name, provider, endpoint, or tag...'
+                    )}
+                    className='w-full'
+                  />
+                  <PricingToolbar
+                    filteredCount={filteredModels.length}
+                    totalCount={models?.length}
+                    sortBy={sortBy}
+                    onSortChange={setSortBy}
+                    tokenUnit={tokenUnit}
+                    onTokenUnitChange={setTokenUnit}
+                    displayCurrency={displayCurrency}
+                    onDisplayCurrencyChange={(currency) => {
+                      void setDisplayCurrency(currency)
+                    }}
+                    viewMode={viewMode}
+                    onViewModeChange={(next) => {
+                      setViewMode(next)
+                      setVisibleCount(PAGE_SIZE)
+                    }}
+                    quotaTypeFilter={quotaTypeFilter}
+                    endpointTypeFilter={endpointTypeFilter}
+                    vendorFilter={vendorFilter}
+                    groupFilter={groupFilter}
+                    tagFilter={tagFilter}
+                    onQuotaTypeChange={setQuotaTypeFilter}
+                    onEndpointTypeChange={setEndpointTypeFilter}
+                    onVendorChange={setVendorFilter}
+                    onGroupChange={setGroupFilter}
+                    onTagChange={setTagFilter}
+                    vendors={vendors || []}
+                    groups={availableGroups}
+                    groupRatios={groupRatio}
+                    tags={availableTags}
+                    models={models || []}
+                    hasActiveFilters={hasActiveFilters}
+                    activeFilterCount={activeFilterCount}
+                    onClearFilters={() => {
+                      clearFilters()
+                      setVisibleCount(PAGE_SIZE)
+                    }}
+                  />
+                  {displayCurrencyError && (
+                    <p role='alert' className='text-destructive text-xs'>
+                      {t(displayCurrencyError)}
+                    </p>
+                  )}
+                </div>
+              </div>
+
+              <div className='mb-5 flex flex-col gap-2 sm:hidden'>
+                <div className='text-muted-foreground flex items-baseline gap-1 text-sm'>
+                  <span className='text-foreground font-semibold tabular-nums'>
+                    {filteredModels.length.toLocaleString()}
+                  </span>
+                  <span>
+                    {filteredModels.length === 1 ? t('model') : t('models')}
+                  </span>
+                  {hasActiveFilters && models?.length ? (
+                    <span className='text-xs'>
+                      / {models.length.toLocaleString()}
+                    </span>
+                  ) : null}
+                </div>
+                <p
+                  role='note'
+                  className='text-muted-foreground text-xs leading-5'
+                >
+                  {t(
+                    models.some((model) => model.group_prices)
+                      ? 'Prices include the selected group factors. Select a group to compare its rates.'
+                      : 'Groups filter model availability only. Prices always use the base price (1×).'
+                  )}
                 </p>
-              )}
-            </div>
-          </div>
+              </div>
 
-          <div className='mb-5 flex flex-col gap-2 sm:hidden'>
-            <div className='text-muted-foreground flex items-baseline gap-1 text-sm'>
-              <span className='text-foreground font-semibold tabular-nums'>
-                {filteredModels.length.toLocaleString()}
-              </span>
-              <span>
-                {filteredModels.length === 1 ? t('model') : t('models')}
-              </span>
-              {hasActiveFilters && models?.length ? (
-                <span className='text-xs'>
-                  / {models.length.toLocaleString()}
-                </span>
-              ) : null}
-            </div>
-            <p role='note' className='text-muted-foreground text-xs leading-5'>
-              {t(
-                models.some((model) => model.group_prices)
-                  ? 'Prices include the selected group factors. Select a group to compare its rates.'
-                  : 'Groups filter model availability only. Prices always use the base price (1×).'
-              )}
-            </p>
-          </div>
-
-          <VendorIconWall
-            vendors={vendors || []}
-            models={models || []}
-            activeVendor={vendorFilter}
-            onVendorChange={(next) => {
-              setVendorFilter(next)
-              setVisibleCount(PAGE_SIZE)
-            }}
-          />
+              <VendorIconWall
+                vendors={vendors || []}
+                models={models || []}
+                activeVendor={vendorFilter}
+                onVendorChange={(next) => {
+                  setVendorFilter(next)
+                  setVisibleCount(PAGE_SIZE)
+                }}
+              />
+            </>
+          )}
 
           <main className='min-w-0'>{renderPricingContent()}</main>
         </div>

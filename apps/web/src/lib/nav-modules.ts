@@ -16,7 +16,6 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { getStatus } from '@/lib/api'
 import {
   cloneHeaderNavDefaults,
   parseHeaderNavModules,
@@ -25,6 +24,7 @@ import {
   type ModuleAccess,
 } from '@/lib/header-nav-config'
 import { isSidebarModuleEnabledByModules } from '@/lib/sidebar-preferences'
+import { getSiteNavigation } from '@/lib/site-navigation'
 
 export { parseHeaderNavBoolean } from '@/lib/header-nav-config'
 export type {
@@ -70,16 +70,6 @@ export function getCachedSidebarModulesAdmin(): unknown {
   return getCachedStatus()?.SidebarModulesAdmin
 }
 
-function cacheStatus(status: Record<string, unknown> | null): void {
-  try {
-    if (typeof window !== 'undefined' && status) {
-      window.localStorage.setItem('status', JSON.stringify(status))
-    }
-  } catch {
-    /* empty */
-  }
-}
-
 export function getModuleAccessFromStatus(
   status: Record<string, unknown> | null,
   module: HeaderNavModule
@@ -95,9 +85,11 @@ export async function getFreshModuleAccess(
   module: HeaderNavModule
 ): Promise<ModuleAccess> {
   try {
-    const status = await getStatus()
-    cacheStatus(status)
-    return getModuleAccessFromStatus(status, module)
+    const navigation = await getSiteNavigation({
+      skipBusinessError: true,
+      skipErrorHandler: true,
+    })
+    return parseHeaderNavModules(navigation.value)[module]
   } catch {
     return { enabled: false, requireAuth: true }
   }

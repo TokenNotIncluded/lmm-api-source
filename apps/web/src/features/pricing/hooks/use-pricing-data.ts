@@ -91,6 +91,7 @@ export function usePricingData(options?: { enabled?: boolean }) {
     autoGroups: data?.auto_groups ?? [],
     performanceAvailable: data?.performance_available === true,
     runtimeAvailable: data?.runtime_available === true,
+    catalogAvailable: data !== undefined,
     isLoading,
     error,
     refetch,
