@@ -39,22 +39,20 @@ export function withManagementReviewFixtures(next: AxiosAdapter): AxiosAdapter {
   ) {
     return next
   }
-  const plugins: ReviewPlugin[] = [
-    'store',
-    'support',
-    'toolmarket',
-  ].map((name, index) => ({
-    name,
-    version: '1.0.0',
-    api_version: 1,
-    available: index !== 3,
-    installed: index < 2,
-    enabled: index < 2,
-    registration_sha256: String(index + 1).repeat(64),
-    requires: name === 'toolmarket' ? ['store'] : [],
-    navigation_paths:
-      name === 'store' ? ['/store'] : name === 'support' ? ['/support'] : [],
-  }))
+  const plugins: ReviewPlugin[] = ['store', 'support', 'toolmarket'].map(
+    (name, index) => ({
+      name,
+      version: '1.0.0',
+      api_version: 1,
+      available: index !== 3,
+      installed: index < 2,
+      enabled: index < 2,
+      registration_sha256: String(index + 1).repeat(64),
+      requires: name === 'toolmarket' ? ['store'] : [],
+      navigation_paths:
+        name === 'store' ? ['/store'] : name === 'support' ? ['/support'] : [],
+    })
+  )
   const configuration: NativeConfiguration = {
     version: { routing: 1, pricing: 1 },
     channel_id_high_water: 2,
@@ -132,6 +130,25 @@ export function withManagementReviewFixtures(next: AxiosAdapter): AxiosAdapter {
       },
       price_drafts: {},
     },
+  }
+  // Keep multiple unbound catalog entries available for the local model picker.
+  configuration.routing.groups.push({ name: 'team', enabled: true })
+  for (const [id, model, group] of [
+    [2, 'synthetic-vision', 'default'],
+    [3, 'synthetic-reasoning-model-with-a-long-provider-identifier', 'team'],
+  ] as const) {
+    configuration.routing.routes.push({
+      ...structuredClone(configuration.routing.routes[0]),
+      id,
+      model,
+      group,
+      targets: [],
+    })
+    configuration.bindings.models[id] = {
+      display_name: model,
+      description: 'Local fixture; no provider is called.',
+      vendor_id: null,
+    }
   }
   const keyLists = new Map<number, NativeKeyList>(
     [1, 2].map((id) => [

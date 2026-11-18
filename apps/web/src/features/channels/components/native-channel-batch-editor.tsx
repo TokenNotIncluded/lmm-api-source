@@ -21,12 +21,14 @@ export function NativeChannelBatchEditor({
   configuration,
   enforceMinimum,
   busy,
+  writable = true,
   onSave,
   onCancel,
 }: {
   configuration: NativeConfiguration
   enforceMinimum: boolean
   busy: boolean
+  writable?: boolean
   onSave: (patch: NativeChannelBatchPatch) => Promise<void>
   onCancel: () => void
 }) {
@@ -61,7 +63,7 @@ export function NativeChannelBatchEditor({
     if (!Number.isInteger(value) || value < min || value > max) invalid = true
     else patch[key] = value
   }
-  const canSave = !busy && !invalid && Object.keys(patch).length > 0
+  const canSave = writable && !busy && !invalid && Object.keys(patch).length > 0
   const number = new Intl.NumberFormat(toIntlLocale(i18n.language))
 
   return (

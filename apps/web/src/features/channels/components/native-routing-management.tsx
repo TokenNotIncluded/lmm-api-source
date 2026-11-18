@@ -63,6 +63,7 @@ import {
   NativeChannelOperationsSummary,
   NativeChannelSortFields,
   NativeChannelStatisticsRow,
+  NativeChannelStatisticsSummary,
 } from './native-channel-statistics'
 import { NativeModelFields } from './native-model-fields'
 
@@ -96,8 +97,10 @@ const nextId = (ids: number[]) =>
 /** Administrative edits always start from a server version and require CAS. */
 export function NativeRoutingManagement({
   initialSection = 'channels',
+  configurationWritable = true,
 }: {
   initialSection?: Section
+  configurationWritable?: boolean
 }) {
   const { t } = useTranslation()
   const runtime = useRuntimeCapabilities()
@@ -122,6 +125,11 @@ export function NativeRoutingManagement({
     <NativeRoutingWorkspace
       key={`${scope.userId}:${scope.sessionId}:${scope.role}`}
       scope={scope}
+      configurationWritable={
+        configurationWritable &&
+        capabilityPhase === 'fresh' &&
+        capabilities.data?.data?.native_configuration === true
+      }
       secretsAllowed={secretsAllowed}
       accounting={{
         observations:
@@ -147,11 +155,13 @@ export function NativeRoutingManagement({
 function NativeRoutingWorkspace({
   initialSection,
   scope,
+  configurationWritable,
   secretsAllowed,
   accounting,
 }: {
   initialSection: Section
   scope: NativeRoutingScope
+  configurationWritable: boolean
   secretsAllowed: boolean
   accounting: {
     observations: boolean
@@ -165,7 +175,18 @@ function NativeRoutingWorkspace({
     method: 'GET' | 'POST' | 'PUT' | 'DELETE',
     path: string,
     data?: unknown
-  ) => scopedNativeRequest<T>(scope, method, path, data)
+  ) => {
+    if (method !== 'GET' && !configurationWritable) {
+      return Promise.reject(
+        new Error(
+          t(
+            'Capability information is not current. Refresh before making changes.'
+          )
+        )
+      )
+    }
+    return scopedNativeRequest<T>(scope, method, path, data)
+  }
   const { t, i18n } = useTranslation()
   const client = useQueryClient()
   const [copyReset, setCopyReset] = useState(true)
@@ -219,6 +240,7 @@ function NativeRoutingWorkspace({
   const [secret, setSecret] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+  const writeDisabled = busy || !configurationWritable
   const operationPending = useRef(false)
   const [preview, setPreview] = useState<{
     confirmation_digest: string
@@ -405,7 +427,7 @@ function NativeRoutingWorkspace({
     operation: () => Promise<unknown>,
     close = false
   ): Promise<boolean> {
-    if (busy || operationPending.current) return false
+    if (!configurationWritable || busy || operationPending.current) return false
     operationPending.current = true
     setBusy(true)
     setError(null)
@@ -434,6 +456,7 @@ function NativeRoutingWorkspace({
   }
   async function submitCopy() {
     if (
+      !configurationWritable ||
       !copyChannel ||
       !configuration ||
       !secretsAllowed ||
@@ -661,7 +684,9 @@ function NativeRoutingWorkspace({
     )
   }
   async function previewEditor() {
-    if (!editor?.previewPath || busy || editorStale) return
+    if (!configurationWritable || !editor?.previewPath || busy || editorStale) {
+      return
+    }
     setBusy(true)
     setError(null)
     try {
@@ -700,7 +725,7 @@ function NativeRoutingWorkspace({
     }, true)
   }
   function remove(path: string) {
-    if (!configuration) return
+    if (!configurationWritable || !configuration) return
     if (confirmation !== path) {
       setConfirmation(path)
       return
@@ -842,7 +867,7 @@ function NativeRoutingWorkspace({
         type='button'
         variant={confirmation === path ? 'destructive' : 'outline'}
         className='min-h-11'
-        disabled={busy}
+        disabled={writeDisabled}
         onClick={() => remove(path)}
       >
         {confirmation === path ? t('Confirm delete') : t('Delete')}
@@ -917,6 +942,7 @@ function NativeRoutingWorkspace({
           )}
           {editor.channel && (
             <NativeChannelFields
+              key={editor.path}
               document={editor.document}
               configuration={configuration}
               disabled={busy}
@@ -983,7 +1009,7 @@ function NativeRoutingWorkspace({
             <Button
               type='submit'
               className='min-h-11'
-              disabled={busy || editorStale}
+              disabled={writeDisabled || editorStale}
             >
               {editor.previewPath
                 ? preview
@@ -1045,7 +1071,7 @@ function NativeRoutingWorkspace({
             className='min-h-11'
             placeholder={
               section === 'channels'
-                ? t('Search by name, ID, tag or endpoint')
+                ? [t('Name'), t('ID'), t('Models'), t('Tag')].join(' / ')
                 : undefined
             }
             value={search}
@@ -1060,7 +1086,9 @@ function NativeRoutingWorkspace({
             type='button'
             className='min-h-11'
             disabled={
-              busy || !secretsAllowed || !configuration.secret_storage_enabled
+              writeDisabled ||
+              !secretsAllowed ||
+              !configuration.secret_storage_enabled
             }
             onClick={() => channelEditor()}
           >
@@ -1147,7 +1175,7 @@ function NativeRoutingWorkspace({
                   type='button'
                   variant='outline'
                   className='min-h-11'
-                  disabled={busy}
+                  disabled={writeDisabled}
                   onClick={() => void changeSelectedStatus(true)}
                 >
                   {t('Enable')}
@@ -1156,7 +1184,7 @@ function NativeRoutingWorkspace({
                   type='button'
                   variant='outline'
                   className='min-h-11'
-                  disabled={busy}
+                  disabled={writeDisabled}
                   onClick={() => void changeSelectedStatus(false)}
                 >
                   {t('Disable')}
@@ -1199,6 +1227,7 @@ function NativeRoutingWorkspace({
                 (item) => item.enabled && selectedVisibleIds.includes(item.id)
               )}
               busy={busy}
+              writable={configurationWritable}
               onSave={saveSelectedRouting}
               onCancel={() => setBatchRoutingEditor(null)}
             />
@@ -1231,7 +1260,7 @@ function NativeRoutingWorkspace({
               <Button
                 type='submit'
                 className='min-h-11'
-                disabled={busy || !batchTagValue.trim()}
+                disabled={writeDisabled || !batchTagValue.trim()}
               >
                 {t('Apply')}
               </Button>
@@ -1239,7 +1268,7 @@ function NativeRoutingWorkspace({
                 type='button'
                 variant='outline'
                 className='min-h-11'
-                disabled={busy}
+                disabled={writeDisabled}
                 onClick={() => void saveSelectedTag(null)}
               >
                 {t('Clear')}
@@ -1367,7 +1396,7 @@ function NativeRoutingWorkspace({
                         type='button'
                         variant='outline'
                         className='min-h-11'
-                        disabled={busy}
+                        disabled={writeDisabled}
                         onClick={() =>
                           void run(() =>
                             nativeRequest(
@@ -1379,8 +1408,52 @@ function NativeRoutingWorkspace({
                       >
                         {t('Test')}
                       </Button>
+                      <Button
+                        type='button'
+                        variant='outline'
+                        className='min-h-11'
+                        disabled={
+                          writeDisabled ||
+                          !secretsAllowed ||
+                          !configuration.secret_storage_enabled
+                        }
+                        title={
+                          !secretsAllowed ||
+                          !configuration.secret_storage_enabled
+                            ? t('Capability unavailable')
+                            : undefined
+                        }
+                        onClick={() => setKeyChannel(channel.id)}
+                      >
+                        {t('API Keys')}
+                      </Button>
+                      <Button
+                        type='button'
+                        variant='outline'
+                        className='min-h-11'
+                        disabled={writeDisabled}
+                        onClick={() =>
+                          void run(() =>
+                            setNativeChannelEnabled(
+                              channel.id,
+                              !channel.enabled,
+                              configuration.version,
+                              scope
+                            )
+                          )
+                        }
+                      >
+                        {channel.enabled ? t('Disable') : t('Enable')}
+                      </Button>
                     </div>
                   </div>
+                  {serverChannels && (
+                    <div className='ml-7'>
+                      <NativeChannelStatisticsSummary
+                        value={statisticsById.get(channel.id)}
+                      />
+                    </div>
+                  )}
                   <details className='group ml-7 min-w-0'>
                     <summary className='text-muted-foreground hover:text-foreground w-fit cursor-pointer py-1.5 text-xs font-medium focus-visible:outline-2 focus-visible:outline-offset-4'>
                       {t('Details')}
@@ -1491,7 +1564,7 @@ function NativeRoutingWorkspace({
                             type='button'
                             variant='outline'
                             className='min-h-11'
-                            disabled={busy}
+                            disabled={writeDisabled}
                             onClick={() => setBalanceConfigChannel(channel)}
                           >
                             {t('channelBalance.configure')}
@@ -1501,26 +1574,8 @@ function NativeRoutingWorkspace({
                           type='button'
                           variant='outline'
                           className='min-h-11'
-                          disabled={busy}
-                          onClick={() =>
-                            void run(() =>
-                              setNativeChannelEnabled(
-                                channel.id,
-                                !channel.enabled,
-                                configuration.version,
-                                scope
-                              )
-                            )
-                          }
-                        >
-                          {channel.enabled ? t('Disable') : t('Enable')}
-                        </Button>
-                        <Button
-                          type='button'
-                          variant='outline'
-                          className='min-h-11'
                           disabled={
-                            busy ||
+                            writeDisabled ||
                             !secretsAllowed ||
                             !configuration.secret_storage_enabled
                           }
@@ -1541,26 +1596,7 @@ function NativeRoutingWorkspace({
                           type='button'
                           variant='outline'
                           className='min-h-11'
-                          disabled={
-                            busy ||
-                            !secretsAllowed ||
-                            !configuration.secret_storage_enabled
-                          }
-                          title={
-                            !secretsAllowed ||
-                            !configuration.secret_storage_enabled
-                              ? t('Capability unavailable')
-                              : undefined
-                          }
-                          onClick={() => setKeyChannel(channel.id)}
-                        >
-                          {t('API Keys')}
-                        </Button>
-                        <Button
-                          type='button'
-                          variant='outline'
-                          className='min-h-11'
-                          disabled={busy}
+                          disabled={writeDisabled}
                           onClick={() =>
                             void run(() =>
                               nativeRequest(
@@ -1811,12 +1847,13 @@ function NativeRoutingWorkspace({
           {t('Next')}
         </Button>
       </div>
-      {balanceChannel && accounting.counters && (
+      {balanceChannel && (
         <NativeBalanceDialog
           key={balanceChannel.id}
           scope={scope}
           channelId={balanceChannel.id}
           probeConfigured={
+            configurationWritable &&
             accounting.balanceProbe &&
             !!configuration.bindings.balance_probes?.[balanceChannel.id]
           }
@@ -1827,7 +1864,7 @@ function NativeRoutingWorkspace({
           onClose={() => setBalanceChannel(null)}
         />
       )}
-      {balanceConfigChannel && accounting.balanceProbe && (
+      {balanceConfigChannel && (
         <NativeBalanceConfigDialog
           key={balanceConfigChannel.id}
           scope={scope}
@@ -1837,6 +1874,7 @@ function NativeRoutingWorkspace({
             t('Channel {{id}}', { id: balanceConfigChannel.id })
           }
           version={configuration.version}
+          writable={configurationWritable && accounting.balanceProbe}
           initialProbe={
             configuration.bindings.balance_probes?.[balanceConfigChannel.id] ??
             null
@@ -1885,7 +1923,7 @@ function NativeRoutingWorkspace({
             </Button>
             <Button
               disabled={
-                busy ||
+                writeDisabled ||
                 !secretsAllowed ||
                 !configuration.secret_storage_enabled ||
                 (!copyReset && !accounting.preserveCounters)
@@ -1943,6 +1981,11 @@ function NativeRoutingWorkspace({
           }}
           scope={scope}
           channelId={keyChannel}
+          writable={
+            configurationWritable &&
+            secretsAllowed &&
+            configuration.secret_storage_enabled
+          }
           channelName={
             configuration.bindings.names[keyChannel] ??
             t('Channel {{id}}', { id: keyChannel })

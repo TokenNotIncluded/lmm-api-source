@@ -79,10 +79,12 @@ export function Channels() {
                 </AlertDescription>
               </Alert>
             )}
-            {phase === 'fresh' &&
-            !channelOpsQuery.isError &&
-            channelOpsQuery.data?.data?.native_configuration === true ? (
-              <NativeRoutingManagement />
+            {channelOpsQuery.data?.data?.native_configuration === true ? (
+              <NativeRoutingManagement
+                configurationWritable={
+                  phase === 'fresh' && !channelOpsQuery.isError
+                }
+              />
             ) : (
               <>
                 <div className='mb-4 flex items-center gap-3'>

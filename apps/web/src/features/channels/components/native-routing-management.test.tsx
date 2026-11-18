@@ -33,6 +33,7 @@ for (const [name, value] of Object.entries({
   requestAnimationFrame: dom.requestAnimationFrame.bind(dom),
   cancelAnimationFrame: dom.cancelAnimationFrame.bind(dom),
   getComputedStyle: dom.getComputedStyle.bind(dom),
+  scrollTo: dom.scrollTo.bind(dom),
 })) {
   Object.defineProperty(globalThis, name, { configurable: true, value })
 }
@@ -51,6 +52,14 @@ const { api } = await import('@/lib/api')
 const { useAuthStore } = await import('@/stores/auth-store')
 const { NativeRoutingManagement } = await import('./native-routing-management')
 const { Channels } = await import('../index')
+const {
+  createRootRoute,
+  createRoute,
+  createRouter,
+  createMemoryHistory,
+  RouterProvider,
+  Outlet,
+} = await import('@tanstack/react-router')
 const adapter = api.defaults.adapter
 const request = api.request
 const previous = useAuthStore.getState().auth
@@ -178,6 +187,15 @@ async function mount(
   channelPage = false
 ) {
   api.defaults.adapter = async (config) => {
+    if (config.url === '/api/channel') {
+      return {
+        config,
+        headers: {},
+        status: 200,
+        statusText: 'OK',
+        data: { success: true, data: { items: [], total: 0 } },
+      }
+    }
     assert.equal(config.url, '/api/channel/ops')
     return {
       config,
@@ -188,7 +206,7 @@ async function mount(
         success: true,
         data: {
           native_secrets: nativeSecrets,
-          ...(channelPage ? { native_configuration: true } : {}),
+          native_configuration: true,
           ...accounting,
         },
       },
@@ -198,13 +216,33 @@ async function mount(
   const container = document.createElement('div')
   document.body.append(container)
   const root = createRoot(container)
+  const rootRoute = createRootRoute({ component: Outlet })
+  const authRoute = createRoute({
+    getParentRoute: () => rootRoute,
+    id: '_authenticated',
+    component: Outlet,
+  })
+  const channelsRoute = createRoute({
+    getParentRoute: () => authRoute,
+    path: '/channels/',
+    validateSearch: (search: Record<string, unknown>) => ({
+      filter: typeof search.filter === 'string' ? search.filter : '',
+      page: typeof search.page === 'number' ? search.page : 1,
+    }),
+    component: Channels,
+  })
+  const router = createRouter({
+    routeTree: rootRoute.addChildren([authRoute.addChildren([channelsRoute])]),
+    history: createMemoryHistory({ initialEntries: ['/channels/'] }),
+  })
+  if (channelPage) await router.load()
   await act(async () =>
     root.render(
       <QueryClientProvider client={client}>
         <I18nextProvider i18n={i18n}>
           <>
             {channelPage ? (
-              <Channels />
+              <RouterProvider router={router} />
             ) : (
               <NativeRoutingManagement initialSection={initialSection} />
             )}
@@ -455,6 +493,8 @@ test('native channel cards toggle status once with CAS and refresh the published
     )
   )
   assert.ok(container.textContent?.includes('#1 · Enabled'))
+  assert.equal(button(container, 'Disable').closest('details'), null)
+  assert.equal(button(container, 'API Keys').closest('details'), null)
   await act(async () => {
     button(container, 'Disable').click()
     button(container, 'Disable').click()
@@ -2240,20 +2280,20 @@ test('channel bindings add, map and remove models through one reviewed channel d
         .find((item) => item.querySelector('span')?.textContent === label)
         ?.querySelector('input')
     )
-  const selector = required(
-    [...form.querySelectorAll('label')]
-      .find(
-        (item) => item.querySelector('span')?.textContent === 'Available models'
-      )
-      ?.querySelector('select')
+  const picker = required(
+    form.querySelector('section[aria-label="Available models"]')
   )
-  await act(async () => {
-    selector.value = '2'
-    selector.dispatchEvent(new Event('change', { bubbles: true }))
-  })
-  await act(async () => button(form, 'Add Model').click())
+  const choice = required(
+    [...picker.querySelectorAll('label')]
+      .find((item) => item.textContent?.includes('model-b'))
+      ?.querySelector<HTMLInputElement>('input[type=checkbox]')
+  )
+  await act(async () => choice.click())
+  await act(async () => button(form, 'Add selected models').click())
   assert.ok(routeFields(2).textContent?.includes('model-b'))
-  assert.ok(routeFields(2).textContent?.includes('team'))
+  assert.ok(routeFields(2).closest('details')?.textContent?.includes('team'))
+  assert.equal(required(routeFields(2).closest('details')).open, true)
+  assert.equal(required(routeFields(1).closest('details')).open, false)
   assert.equal(writes.length, 0)
   assert.equal(form.checkValidity(), false)
   await changeInput(field(routeFields(2), 'Upstream model'), 'supplier-b')
@@ -2299,6 +2339,126 @@ test('channel bindings add, map and remove models through one reviewed channel d
   await act(async () => button(form, 'Save').click())
   await until(() => writes.length === 1)
   assert.deepEqual(writes[0], draft)
+})
+
+test('channel model multi-selection survives filtering and adds distinct bindings in one unchanged CAS draft', async () => {
+  const config: NativeConfiguration = fixture()
+  config.routing.groups.push({ name: 'team', enabled: true })
+  for (const [id, model, group] of [
+    [2, 'model-b', 'team'],
+    [3, 'model-b', 'default'],
+    [4, 'model-c', 'team'],
+  ] as const) {
+    config.routing.routes.push({
+      ...config.routing.routes[0],
+      id,
+      model,
+      group,
+      targets: [],
+    })
+  }
+  config.bindings.contexts = [
+    {
+      upstream_id: 1,
+      upstream_model: 'model-a',
+      protocol: 'openai_chat',
+      endpoint: config.routing.upstreams[0].endpoint,
+      max_input_tokens: 8192,
+      max_output_tokens: 4096,
+      contract_revision: 'supplier-a',
+      reservation: { mode: 'legacy_upper_bound' },
+    },
+  ]
+  api.request = (async (options: { method: string }) => {
+    assert.equal(
+      options.method,
+      'GET',
+      'model selection only edits the local draft'
+    )
+    return { data: { success: true, data: config } }
+  }) as typeof api.request
+  const container = await mount('channels')
+  await until(() =>
+    [...container.querySelectorAll('button')].some(
+      (item) => item.textContent === 'Edit'
+    )
+  )
+  await act(async () => button(container, 'Edit').click())
+  const form = required(
+    container.querySelector<HTMLFormElement>('form[aria-label="Edit Channel"]')
+  )
+  const picker = required(
+    form.querySelector('section[aria-label="Available models"]')
+  )
+  const search = required(
+    picker.querySelector<HTMLInputElement>(
+      'input[aria-label="Search models or groups"]'
+    )
+  )
+  const selectMatches = () =>
+    required(
+      [...picker.querySelectorAll('label')]
+        .find((item) => item.textContent?.includes('Select all matches'))
+        ?.querySelector<HTMLInputElement>('input[type=checkbox]')
+    )
+  await changeInput(search, 'model-b')
+  await act(async () => selectMatches().click())
+  assert.ok(picker.textContent?.includes('2 selected'))
+  await changeInput(search, 'no matching model')
+  assert.ok(picker.textContent?.includes('No results found'))
+  assert.ok(picker.textContent?.includes('2 selected'))
+  assert.equal(button(picker, 'Add selected models').disabled, false)
+  await changeInput(search, 'team')
+  await act(async () => selectMatches().click())
+  assert.ok(picker.textContent?.includes('3 selected'))
+  await act(async () => selectMatches().click())
+  assert.ok(picker.textContent?.includes('1 selected'))
+  await act(async () => selectMatches().click())
+  await act(async () => button(picker, 'Add selected models').click())
+  const textarea = required(form.querySelector('textarea'))
+  const draft = JSON.parse(textarea.value)
+  assert.deepEqual(draft.expected_version, { routing: 1, pricing: 1 })
+  assert.deepEqual(
+    draft.attachments.map((item: { route_id: number }) => item.route_id),
+    [1, 2, 3, 4]
+  )
+  assert.deepEqual(draft.contexts[0], config.bindings.contexts[0])
+  assert.deepEqual(
+    draft.contexts.map(
+      (item: { upstream_model: string }) => item.upstream_model
+    ),
+    ['model-a', 'model-b', 'model-c']
+  )
+  assert.equal(Object.hasOwn(draft, 'secret'), false)
+  assert.equal(
+    form.checkValidity(),
+    false,
+    'new supplier contracts still require explicit input'
+  )
+  for (const id of [2, 3, 4]) {
+    const fields = required(
+      form.querySelector(`fieldset[data-route-id="${id}"]`)
+    )
+    assert.equal(required(fields.closest('details')).open, true)
+  }
+  const details = required(
+    form.querySelector('fieldset[data-route-id="2"]')?.closest('details')
+  )
+  const before = textarea.value
+  await act(async () => {
+    details.open = false
+    details.dispatchEvent(new Event('toggle'))
+  })
+  assert.equal(textarea.value, before)
+  await act(async () => {
+    details.open = true
+    details.dispatchEvent(new Event('toggle'))
+  })
+  assert.equal(textarea.value, before)
+  assert.equal(
+    form.querySelector('section[aria-label="Available models"]'),
+    null
+  )
 })
 
 test('the channel page exposes editing immediately without a configuration toggle or a duplicate read-only list', async () => {
@@ -2974,4 +3134,413 @@ test('model timeout edits keep the saved value, block a short JSON draft and sho
   assert.equal(button(form, 'Preview').disabled, false)
   assert.equal(form.textContent?.includes('Confirm and apply'), false)
   assert.equal(config.routing.routes[0].targets[0].timeout_ms, 30000)
+})
+
+test('channel capability expiry and failed refresh preserve the draft and CAS until recovery, while explicit withdrawal returns to read only', async () => {
+  const config: NativeConfiguration = fixture()
+  config.bindings.contexts = [
+    {
+      upstream_id: 1,
+      upstream_model: 'model-a',
+      protocol: 'openai_chat',
+      endpoint: config.routing.upstreams[0].endpoint,
+      max_input_tokens: 8192,
+      max_output_tokens: 4096,
+      contract_revision: 'synthetic-capability-draft',
+    },
+  ]
+  const writes: Record<string, unknown>[] = []
+  let reads = 0
+  api.request = (async (options: {
+    method: string
+    data?: Record<string, unknown>
+  }) => {
+    if (options.method === 'GET') {
+      reads++
+      return { data: { success: true, data: config } }
+    }
+    writes.push(required(options.data))
+    return {
+      data: { success: true, data: { version: { routing: 2, pricing: 1 } } },
+    }
+  }) as typeof api.request
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  })
+  const container = await mount(
+    'channels',
+    true,
+    accountingCapabilities,
+    client,
+    true
+  )
+  await until(() => !!container.textContent?.includes('Private provider'))
+  await act(async () => button(container, 'Edit').click())
+  const form = required(
+    container.querySelector('form[aria-label="Edit Channel"]')
+  )
+  const name = required(form.querySelector('input'))
+  await changeInput(name, 'Draft retained while capabilities expire')
+  const draft = required(form.querySelector('textarea')).value
+  const evidence = required(client.getQueryData(['channel-ops']))
+
+  await act(async () => {
+    client.setQueryData(['channel-ops'], evidence, {
+      updatedAt: Date.now() - 60_001,
+    })
+  })
+  await until(() => button(form, 'Save').disabled)
+  assert.equal(container.querySelector('form[aria-label="Edit Channel"]'), form)
+  assert.equal(required(form.querySelector('textarea')).value, draft)
+  assert.equal(name.value, 'Draft retained while capabilities expire')
+  assert.equal(button(container, 'Refresh').disabled, false)
+  assert.equal(button(container, 'Refresh capabilities').disabled, false)
+  assert.equal(button(form, 'Cancel').disabled, false)
+  for (const label of ['Disable', 'Test', 'Sync', 'Delete', 'API Keys']) {
+    assert.equal(button(container, label).disabled, true)
+  }
+  await act(async () =>
+    form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))
+  )
+  assert.equal(writes.length, 0)
+  const readsBeforeRefresh = reads
+  await act(async () => button(container, 'Refresh').click())
+  await until(() => reads > readsBeforeRefresh)
+  assert.equal(required(form.querySelector('textarea')).value, draft)
+
+  const successfulAdapter = api.defaults.adapter
+  api.defaults.adapter = async () => {
+    throw new Error('Synthetic capability refresh failure')
+  }
+  await act(async () => button(container, 'Refresh capabilities').click())
+  await until(() => client.getQueryState(['channel-ops'])?.status === 'error')
+  assert.equal(container.querySelector('form[aria-label="Edit Channel"]'), form)
+  assert.equal(required(form.querySelector('textarea')).value, draft)
+  assert.equal(button(form, 'Save').disabled, true)
+  await act(async () =>
+    form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))
+  )
+  assert.equal(writes.length, 0)
+
+  api.defaults.adapter = successfulAdapter
+  await act(async () => button(container, 'Refresh capabilities').click())
+  await until(() => !button(form, 'Save').disabled)
+  assert.equal(container.querySelector('form[aria-label="Edit Channel"]'), form)
+  assert.equal(required(form.querySelector('textarea')).value, draft)
+  await act(async () => button(form, 'Save').click())
+  await until(
+    () =>
+      writes.length === 1 &&
+      !container.querySelector('form[aria-label="Edit Channel"]')
+  )
+  assert.equal(writes[0].name, 'Draft retained while capabilities expire')
+  assert.deepEqual(writes[0].expected_version, { routing: 1, pricing: 1 })
+  assert.equal(Object.hasOwn(writes[0], 'secret'), false)
+
+  await act(async () => {
+    client.setQueryData(['channel-ops'], {
+      success: true,
+      data: {
+        native_configuration: false,
+        native_control: false,
+        native_secrets: false,
+      },
+    })
+  })
+  await until(
+    () => !!container.textContent?.includes('Channels are read-only.')
+  )
+  await until(() => !!container.textContent?.includes('Total: 0'))
+  assert.equal(
+    container.querySelector('section[aria-label="Configuration"]'),
+    null
+  )
+  await until(
+    () => client.isFetching({ queryKey: ['channels', 'read-only'] }) === 0
+  )
+  assert.equal(button(container, 'Configuration').disabled, true)
+  assert.equal(writes.length, 1)
+})
+
+test('an open key manager preserves unsubmitted credentials and blocks writes during capability expiry', async () => {
+  const config = fixture()
+  const writes: Record<string, unknown>[] = []
+  api.request = (async (options: {
+    method: string
+    url: string
+    data?: Record<string, unknown>
+  }) => {
+    if (options.method === 'GET') {
+      return {
+        data: {
+          success: true,
+          data: options.url.endsWith('/keys')
+            ? {
+                version: config.version,
+                active_reference: { id: 7, revision: 1 },
+                polling: true,
+                plaintext_available: false,
+                keys: [
+                  {
+                    reference: { id: 7, revision: 1 },
+                    label: 'Primary',
+                    created_at: '2026-11-18T00:00:00Z',
+                    enabled: true,
+                  },
+                ],
+              }
+            : config,
+        },
+      }
+    }
+    writes.push(required(options.data))
+    return {
+      data: {
+        success: true,
+        data: {
+          version: { routing: 2, pricing: 1 },
+          reference: { id: 8, revision: 1 },
+        },
+      },
+    }
+  }) as typeof api.request
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  })
+  const container = await mount(
+    'channels',
+    true,
+    accountingCapabilities,
+    client,
+    true
+  )
+  await until(() => !!container.textContent?.includes('Private provider'))
+  await act(async () => button(container, 'API Keys').click())
+  await until(() => !!document.querySelector('[role=dialog] form'))
+  const dialog = required(document.querySelector('[role=dialog]'))
+  const form = required(dialog.querySelector('form'))
+  const name = required(
+    form.querySelector<HTMLInputElement>('input:not([type=password])')
+  )
+  const secret = required(
+    form.querySelector<HTMLInputElement>('input[type=password]')
+  )
+  await changeInput(name, 'Unsubmitted key')
+  await changeInput(secret, 'synthetic-not-a-real-key')
+  const evidence = required(client.getQueryData(['channel-ops']))
+  await act(async () =>
+    client.setQueryData(['channel-ops'], evidence, {
+      updatedAt: Date.now() - 60_001,
+    })
+  )
+  await until(() => button(form, 'Add').disabled)
+  assert.equal(document.querySelector('[role=dialog]'), dialog)
+  assert.equal(secret.value, 'synthetic-not-a-real-key')
+  assert.equal(name.value, 'Unsubmitted key')
+  assert.equal(secret.type, 'password')
+  assert.equal(dialog.textContent?.includes('synthetic-not-a-real-key'), false)
+  assert.equal(dialog.textContent?.includes('Saving...'), false)
+  await act(async () =>
+    form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))
+  )
+  assert.equal(writes.length, 0)
+  assert.equal(secret.value, 'synthetic-not-a-real-key')
+  await act(async () => client.setQueryData(['channel-ops'], evidence))
+  await until(() => !button(form, 'Add').disabled)
+  await act(async () => button(form, 'Add').click())
+  await until(() => writes.length === 1 && !button(form, 'Add').disabled)
+  assert.deepEqual(writes[0], {
+    expected_version: { routing: 1, pricing: 1 },
+    operation: 'add',
+    label: 'Unsubmitted key',
+    secret: 'synthetic-not-a-real-key',
+    activate: false,
+  })
+  assert.equal(secret.value, '')
+})
+
+test('batch routing retains local values through capability expiry without claiming to save', async () => {
+  const config = fixture()
+  const writes: Record<string, unknown>[] = []
+  api.request = (async (options: {
+    method: string
+    data?: Record<string, unknown>
+  }) => {
+    if (options.method === 'GET') {
+      return { data: { success: true, data: config } }
+    }
+    writes.push(required(options.data))
+    return {
+      data: {
+        success: true,
+        data: {
+          version: { routing: 2, pricing: 1 },
+          updated: 1,
+          target_count: 1,
+        },
+      },
+    }
+  }) as typeof api.request
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  })
+  const container = await mount(
+    'channels',
+    true,
+    accountingCapabilities,
+    client,
+    true
+  )
+  await until(() => !!container.textContent?.includes('Private provider'))
+  await act(async () =>
+    (
+      required(container.querySelector('[role=checkbox]')) as HTMLElement
+    ).click()
+  )
+  const actions = required(
+    container.querySelector('[data-slot=channel-batch-actions]')
+  )
+  await act(async () => button(actions, 'Edit routing').click())
+  const form = required(
+    container.querySelector('form[aria-label="Edit routing"]')
+  )
+  const priority = required(
+    form.querySelector<HTMLInputElement>('input[name=priority]')
+  )
+  await changeInput(priority, '7')
+  assert.equal(button(form, 'Apply').disabled, false)
+  const evidence = required(client.getQueryData(['channel-ops']))
+  await act(async () =>
+    client.setQueryData(['channel-ops'], evidence, {
+      updatedAt: Date.now() - 60_001,
+    })
+  )
+  await until(() => button(form, 'Apply').disabled)
+  assert.equal(container.querySelector('form[aria-label="Edit routing"]'), form)
+  assert.equal(priority.value, '7')
+  assert.equal(form.textContent?.includes('Saving...'), false)
+  assert.equal(button(form, 'Cancel').disabled, false)
+  await act(async () =>
+    form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))
+  )
+  assert.equal(writes.length, 0)
+  await act(async () => client.setQueryData(['channel-ops'], evidence))
+  await until(() => !button(form, 'Apply').disabled)
+  await act(async () => button(form, 'Apply').click())
+  await until(() => writes.length === 1)
+  assert.deepEqual(writes[0], {
+    expected_version: { routing: 1, pricing: 1 },
+    ids: [1],
+    patch: { priority: 7 },
+  })
+})
+
+test('open balance views preserve observations and configuration drafts while capability expiry blocks probe and save', async () => {
+  const config: NativeConfiguration = {
+    ...fixture(),
+    bindings: {
+      ...fixture().bindings,
+      balance_probes: {
+        1: {
+          path: '/balance',
+          json_pointer: '/available',
+          unit_label: 'points',
+        },
+      },
+    },
+  }
+  const writes: Record<string, unknown>[] = []
+  let probes = 0
+  api.request = (async (options: {
+    method: string
+    url: string
+    data?: Record<string, unknown>
+  }) => {
+    if (options.url.endsWith('/balance')) probes++
+    if (options.method === 'GET') {
+      return {
+        data: {
+          success: true,
+          data: options.url.endsWith('/counters')
+            ? { ...countersFixture, balance: balanceFixture }
+            : config,
+        },
+      }
+    }
+    writes.push(required(options.data))
+    return {
+      data: { success: true, data: { version: { routing: 2, pricing: 1 } } },
+    }
+  }) as typeof api.request
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  })
+  const container = await mount(
+    'channels',
+    true,
+    accountingCapabilities,
+    client,
+    true
+  )
+  await until(() => !!container.textContent?.includes('Private provider'))
+  await act(async () =>
+    button(container, i18n.t('channelBalance.title')).click()
+  )
+  await until(() => !!document.querySelector('[role=dialog] dl'))
+  let dialog = required(document.querySelector('[role=dialog]'))
+  assert.equal(button(dialog, 'Update Balance').disabled, false)
+  const evidence = required(client.getQueryData(['channel-ops']))
+  await act(async () =>
+    client.setQueryData(['channel-ops'], evidence, {
+      updatedAt: Date.now() - 60_001,
+    })
+  )
+  await until(() => button(dialog, 'Update Balance').disabled)
+  assert.equal(document.querySelector('[role=dialog]'), dialog)
+  assert.ok(dialog.textContent?.includes(balanceFixture.balance))
+  await act(async () => button(dialog, 'Update Balance').click())
+  assert.equal(probes, 0)
+  assert.equal(button(dialog, 'Close').disabled, false)
+  await act(async () => button(dialog, 'Close').click())
+  await act(async () => client.setQueryData(['channel-ops'], evidence))
+  await until(() =>
+    [...container.querySelectorAll('button')].some(
+      (item) => item.textContent === i18n.t('channelBalance.configure')
+    )
+  )
+  await act(async () =>
+    button(container, i18n.t('channelBalance.configure')).click()
+  )
+  dialog = required(document.querySelector('[role=dialog]'))
+  const form = required(dialog.querySelector('form'))
+  const path = required(form.querySelector('input'))
+  await changeInput(path, '/account/available')
+  await act(async () =>
+    client.setQueryData(['channel-ops'], evidence, {
+      updatedAt: Date.now() - 60_001,
+    })
+  )
+  await until(() => button(dialog, 'Save').disabled)
+  assert.equal(document.querySelector('[role=dialog]'), dialog)
+  assert.equal(path.value, '/account/available')
+  assert.equal(button(dialog, 'Disable').disabled, true)
+  assert.equal(button(dialog, 'Cancel').disabled, false)
+  await act(async () =>
+    form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))
+  )
+  assert.equal(writes.length, 0)
+  await act(async () => client.setQueryData(['channel-ops'], evidence))
+  await until(() => !button(dialog, 'Save').disabled)
+  await act(async () => button(dialog, 'Save').click())
+  await until(
+    () => writes.length === 1 && !document.querySelector('[role=dialog]')
+  )
+  assert.deepEqual(writes[0], {
+    expected_version: { routing: 1, pricing: 1 },
+    probe: {
+      path: '/account/available',
+      json_pointer: '/available',
+      unit_label: 'points',
+    },
+  })
 })

@@ -1,8 +1,10 @@
 /* Copyright (C) 2026 LIghtJUNction. SPDX-License-Identifier: AGPL-3.0-or-later */
+import { ChevronDown } from 'lucide-react'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { Button } from '@/components/ui/button'
+import { Checkbox } from '@/components/ui/checkbox'
 import { Input } from '@/components/ui/input'
 
 import {
@@ -67,7 +69,22 @@ export function NativeChannelModelsFields({
   onChange: (document: string) => void
 }) {
   const { t } = useTranslation()
-  const [selected, setSelected] = useState('')
+  const [modelSearch, setModelSearch] = useState('')
+  const [selected, setSelected] = useState<number[]>([])
+  const [collapsed, setCollapsed] = useState<number[]>(() => {
+    const initial = readChannelDraft(document)
+    return (
+      initial?.attachments
+        .filter((attachment) =>
+          initial.contexts.some(
+            (context) =>
+              context.upstream_model === attachment.upstream_model &&
+              context.contract_revision.trim() !== ''
+          )
+        )
+        .map((attachment) => attachment.route_id) ?? []
+    )
+  })
   const draft = readChannelDraft(document)
   if (!draft) return null
   const current = draft
@@ -76,7 +93,32 @@ export function NativeChannelModelsFields({
   const available = configuration.routing.routes.filter(
     (route) => !draft.attachments.some((item) => item.route_id === route.id)
   )
-  const selectedRoute = available.find((route) => String(route.id) === selected)
+  const searchTerm = modelSearch.trim().toLowerCase()
+  const matches = available.filter(
+    (route) =>
+      route.model.toLowerCase().includes(searchTerm) ||
+      route.group.toLowerCase().includes(searchTerm)
+  )
+  const selectedRoutes = available.filter((route) =>
+    selected.includes(route.id)
+  )
+  const allMatchesSelected =
+    matches.length > 0 && matches.every((route) => selected.includes(route.id))
+  const someMatchesSelected = matches.some((route) =>
+    selected.includes(route.id)
+  )
+  function addSelectedModels() {
+    if (selectedRoutes.length === 0) return
+    put(
+      selectedRoutes.reduce(
+        (next, route) =>
+          toggleChannelAttachment(next, route, true, configuration),
+        current
+      )
+    )
+    setCollapsed((ids) => ids.filter((id) => !selected.includes(id)))
+    setSelected([])
+  }
   const tool = ['deepseek_search', 'deepseek_fetch'].includes(draft.protocol)
   const inputOnly = ['openai_embeddings', 'jina_rerank'].includes(
     draft.protocol
@@ -110,6 +152,117 @@ export function NativeChannelModelsFields({
           )}
         </p>
       </div>
+      {available.length > 0 && (
+        <section
+          className='bg-muted/40 min-w-0 space-y-4 rounded-xl p-4 sm:p-5'
+          aria-label={t('Available models')}
+        >
+          <div className='space-y-1'>
+            <h5 className='text-sm font-medium'>{t('Available models')}</h5>
+            <p className='text-muted-foreground text-sm'>
+              {t(
+                'Choose models from the catalog. Search by model ID or group.'
+              )}
+            </p>
+          </div>
+          <Input
+            aria-label={t('Search models or groups')}
+            placeholder={t('Search models or groups')}
+            className='min-h-11'
+            value={modelSearch}
+            disabled={disabled}
+            onChange={(event) => setModelSearch(event.target.value)}
+          />
+          <div className='flex flex-wrap items-center justify-between gap-3'>
+            <label className='flex min-h-11 cursor-pointer items-center gap-3 text-sm'>
+              <Checkbox
+                checked={allMatchesSelected}
+                indeterminate={someMatchesSelected && !allMatchesSelected}
+                disabled={disabled || matches.length === 0}
+                onCheckedChange={(checked) =>
+                  setSelected((ids) =>
+                    checked
+                      ? [
+                          ...new Set([
+                            ...ids,
+                            ...matches.map((route) => route.id),
+                          ]),
+                        ]
+                      : ids.filter(
+                          (id) => !matches.some((route) => route.id === id)
+                        )
+                  )
+                }
+              />
+              {t('Select all matches')}
+            </label>
+            <span
+              className='text-muted-foreground text-sm tabular-nums'
+              role='status'
+            >
+              {t('{{count}} selected', { count: selectedRoutes.length })}
+            </span>
+          </div>
+          <div className='max-h-56 min-w-0 overflow-y-auto overscroll-contain'>
+            {matches.length === 0 ? (
+              <p className='text-muted-foreground py-5 text-center text-sm'>
+                {t('No results found')}
+              </p>
+            ) : (
+              <div className='grid min-w-0 gap-1 @min-[40rem]/routing:grid-cols-2'>
+                {matches.map((route) => (
+                  <label
+                    key={route.id}
+                    className='hover:bg-muted/70 flex min-h-12 min-w-0 cursor-pointer items-start gap-3 rounded-lg px-3 py-2.5'
+                  >
+                    <Checkbox
+                      className='mt-0.5 shrink-0'
+                      checked={selected.includes(route.id)}
+                      disabled={disabled}
+                      onCheckedChange={(checked) =>
+                        setSelected((ids) =>
+                          checked
+                            ? [...ids, route.id]
+                            : ids.filter((id) => id !== route.id)
+                        )
+                      }
+                    />
+                    <span className='min-w-0 space-y-0.5'>
+                      <span className='block font-mono text-sm [overflow-wrap:anywhere]'>
+                        {route.model}
+                      </span>
+                      <span className='text-muted-foreground block text-xs [overflow-wrap:anywhere]'>
+                        {route.group}
+                      </span>
+                    </span>
+                  </label>
+                ))}
+              </div>
+            )}
+          </div>
+          <div className='flex flex-wrap items-center gap-2'>
+            <Button
+              type='button'
+              className='min-h-11'
+              disabled={disabled || selectedRoutes.length === 0}
+              onClick={addSelectedModels}
+            >
+              {t('Add selected models')}
+            </Button>
+            {selectedRoutes.length > 0 && (
+              <Button
+                type='button'
+                variant='ghost'
+                className='min-h-11'
+                disabled={disabled}
+                onClick={() => setSelected([])}
+              >
+                {t('Clear')}
+              </Button>
+            )}
+          </div>
+        </section>
+      )}
       {draft.attachments.map((attachment) => {
         const route = configuration.routing.routes.find(
           (item) => item.id === attachment.route_id
@@ -124,168 +277,199 @@ export function NativeChannelModelsFields({
             item.contract_revision !== ''
         )
         return (
-          <fieldset
+          <details
             key={attachment.route_id}
-            className='min-w-0 space-y-4 border-t pt-4'
-            data-route-id={attachment.route_id}
+            className='group/model min-w-0 border-t'
+            open={!collapsed.includes(attachment.route_id)}
+            onToggle={(event) => {
+              const open = event.currentTarget.open
+              setCollapsed((ids) =>
+                open
+                  ? ids.includes(attachment.route_id)
+                    ? ids.filter((id) => id !== attachment.route_id)
+                    : ids
+                  : ids.includes(attachment.route_id)
+                    ? ids
+                    : [...ids, attachment.route_id]
+              )
+            }}
           >
-            <legend className='sr-only'>
-              {route?.model ?? attachment.upstream_model}
-            </legend>
-            <div className='flex min-w-0 flex-wrap items-start justify-between gap-3'>
-              <div className='min-w-0 space-y-1'>
-                <h5 className='font-mono text-sm font-medium break-all'>
+            <summary className='flex min-h-16 min-w-0 cursor-pointer list-none items-center justify-between gap-3 py-4 focus-visible:outline-2 focus-visible:outline-offset-4 [&::-webkit-details-marker]:hidden'>
+              <span className='min-w-0 space-y-1'>
+                <span className='block font-mono text-sm font-medium [overflow-wrap:anywhere]'>
                   {route?.model ?? attachment.upstream_model}
-                </h5>
-                {route && (
-                  <p className='text-muted-foreground text-sm break-all'>
-                    {t('Group')}: {route.group}
-                  </p>
-                )}
-              </div>
-              <Button
-                type='button'
-                variant='ghost'
-                className='min-h-11'
-                disabled={disabled}
-                onClick={() =>
-                  put(
-                    toggleChannelAttachment(
-                      draft,
-                      route ?? {
-                        id: attachment.route_id,
-                        model: attachment.upstream_model,
-                        speeds: attachment.speeds,
-                      },
-                      false
-                    )
-                  )
-                }
-              >
-                {t('Remove')}
-              </Button>
-            </div>
-            <label className={fieldClass}>
-              <span>{t('Upstream model')}</span>
-              <Input
-                className='min-h-11 font-mono'
-                value={attachment.upstream_model}
-                maxLength={200}
-                required
-                disabled={disabled}
-                onChange={(event) =>
-                  put(
-                    updateChannelAttachment(
-                      draft,
-                      attachment.route_id,
-                      { upstream_model: event.target.value },
-                      configuration.bindings.contexts
-                    )
-                  )
-                }
+                </span>
+                <span className='text-muted-foreground flex flex-wrap gap-x-4 gap-y-1 text-xs'>
+                  {route && (
+                    <span>
+                      {t('Group')}: {route.group}
+                    </span>
+                  )}
+                  <span>
+                    {t('Priority')}: {attachment.priority}
+                  </span>
+                  <span>
+                    {t('Weight')}: {attachment.weight}
+                  </span>
+                </span>
+              </span>
+              <ChevronDown
+                className='text-muted-foreground size-4 shrink-0 transition-transform group-open/model:rotate-180 motion-reduce:transition-none'
+                aria-hidden='true'
               />
-            </label>
-            <div className='grid min-w-0 gap-4 @min-[40rem]/routing:grid-cols-3'>
-              <IntegerField
-                label={t('Priority')}
-                value={attachment.priority}
-                max={65_535}
-                disabled={disabled}
-                onChange={(priority) =>
-                  put(
-                    updateChannelAttachment(draft, attachment.route_id, {
-                      priority,
-                    })
-                  )
-                }
-              />
-              <IntegerField
-                label={t('Weight')}
-                value={attachment.weight}
-                max={4_294_967_295}
-                disabled={disabled}
-                onChange={(weight) =>
-                  put(
-                    updateChannelAttachment(draft, attachment.route_id, {
-                      weight,
-                    })
-                  )
-                }
-              />
-              <NativeTargetTimeoutField
-                value={attachment.timeout_ms}
-                configuration={configuration}
-                enabled={draft.enabled}
-                disabled={disabled}
-                onChange={(timeout_ms) =>
-                  put(
-                    updateChannelAttachment(draft, attachment.route_id, {
-                      timeout_ms,
-                    })
-                  )
-                }
-              />
-            </div>
-            <details open={!publishedContract}>
-              <summary className='cursor-pointer py-2 text-sm font-medium'>
-                {t('Supplier contract')}
-              </summary>
-              <p className='text-muted-foreground mb-4 text-sm'>
-                {t(
-                  'Use the token limits and revision documented by this supplier for this model.'
-                )}
-              </p>
-              <div className='grid min-w-0 gap-4 @min-[40rem]/routing:grid-cols-2'>
-                <IntegerField
-                  label={t('Maximum input tokens')}
-                  value={context?.max_input_tokens ?? ''}
-                  min={tool ? 0 : 1}
-                  max={tool ? 0 : 4_294_967_295}
+            </summary>
+            <fieldset
+              className='min-w-0 space-y-4 pb-5'
+              data-route-id={attachment.route_id}
+            >
+              <legend className='sr-only'>
+                {route?.model ?? attachment.upstream_model}
+              </legend>
+              <div className='flex justify-end'>
+                <Button
+                  type='button'
+                  variant='ghost'
+                  className='min-h-11'
                   disabled={disabled}
-                  onChange={(value) =>
-                    patchContext(
-                      attachment.upstream_model,
-                      'max_input_tokens',
-                      value
+                  onClick={() =>
+                    put(
+                      toggleChannelAttachment(
+                        draft,
+                        route ?? {
+                          id: attachment.route_id,
+                          model: attachment.upstream_model,
+                          speeds: attachment.speeds,
+                        },
+                        false
+                      )
                     )
                   }
-                />
-                <IntegerField
-                  label={t('Maximum output tokens')}
-                  value={context?.max_output_tokens ?? ''}
-                  min={tool || inputOnly ? 0 : 1}
-                  max={tool || inputOnly ? 0 : 4_294_967_295}
-                  disabled={disabled}
-                  onChange={(value) =>
-                    patchContext(
-                      attachment.upstream_model,
-                      'max_output_tokens',
-                      value
-                    )
-                  }
-                />
-                <label
-                  className={`${fieldClass} @min-[40rem]/routing:col-span-2`}
                 >
-                  <span>{t('Contract revision')}</span>
-                  <Input
-                    className='min-h-11'
-                    value={context?.contract_revision ?? ''}
-                    maxLength={512}
-                    required
+                  {t('Remove')}
+                </Button>
+              </div>
+              <label className={fieldClass}>
+                <span>{t('Upstream model')}</span>
+                <Input
+                  className='min-h-11 font-mono'
+                  value={attachment.upstream_model}
+                  maxLength={200}
+                  required
+                  disabled={disabled}
+                  onChange={(event) =>
+                    put(
+                      updateChannelAttachment(
+                        draft,
+                        attachment.route_id,
+                        { upstream_model: event.target.value },
+                        configuration.bindings.contexts
+                      )
+                    )
+                  }
+                />
+              </label>
+              <div className='grid min-w-0 gap-4 @min-[40rem]/routing:grid-cols-3'>
+                <IntegerField
+                  label={t('Priority')}
+                  value={attachment.priority}
+                  max={65_535}
+                  disabled={disabled}
+                  onChange={(priority) =>
+                    put(
+                      updateChannelAttachment(draft, attachment.route_id, {
+                        priority,
+                      })
+                    )
+                  }
+                />
+                <IntegerField
+                  label={t('Weight')}
+                  value={attachment.weight}
+                  max={4_294_967_295}
+                  disabled={disabled}
+                  onChange={(weight) =>
+                    put(
+                      updateChannelAttachment(draft, attachment.route_id, {
+                        weight,
+                      })
+                    )
+                  }
+                />
+                <NativeTargetTimeoutField
+                  value={attachment.timeout_ms}
+                  configuration={configuration}
+                  enabled={draft.enabled}
+                  disabled={disabled}
+                  onChange={(timeout_ms) =>
+                    put(
+                      updateChannelAttachment(draft, attachment.route_id, {
+                        timeout_ms,
+                      })
+                    )
+                  }
+                />
+              </div>
+              <details open={!publishedContract}>
+                <summary className='cursor-pointer py-2 text-sm font-medium'>
+                  {t('Supplier contract')}
+                </summary>
+                <p className='text-muted-foreground mb-4 text-sm'>
+                  {t(
+                    'Use the token limits and revision documented by this supplier for this model.'
+                  )}
+                </p>
+                <div className='grid min-w-0 gap-4 @min-[40rem]/routing:grid-cols-2'>
+                  <IntegerField
+                    label={t('Maximum input tokens')}
+                    value={context?.max_input_tokens ?? ''}
+                    min={tool ? 0 : 1}
+                    max={tool ? 0 : 4_294_967_295}
                     disabled={disabled}
-                    onChange={(event) =>
+                    onChange={(value) =>
                       patchContext(
                         attachment.upstream_model,
-                        'contract_revision',
-                        event.target.value
+                        'max_input_tokens',
+                        value
                       )
                     }
                   />
-                </label>
-              </div>
-            </details>
-          </fieldset>
+                  <IntegerField
+                    label={t('Maximum output tokens')}
+                    value={context?.max_output_tokens ?? ''}
+                    min={tool || inputOnly ? 0 : 1}
+                    max={tool || inputOnly ? 0 : 4_294_967_295}
+                    disabled={disabled}
+                    onChange={(value) =>
+                      patchContext(
+                        attachment.upstream_model,
+                        'max_output_tokens',
+                        value
+                      )
+                    }
+                  />
+                  <label
+                    className={`${fieldClass} @min-[40rem]/routing:col-span-2`}
+                  >
+                    <span>{t('Contract revision')}</span>
+                    <Input
+                      className='min-h-11'
+                      value={context?.contract_revision ?? ''}
+                      maxLength={512}
+                      required
+                      disabled={disabled}
+                      onChange={(event) =>
+                        patchContext(
+                          attachment.upstream_model,
+                          'contract_revision',
+                          event.target.value
+                        )
+                      }
+                    />
+                  </label>
+                </div>
+              </details>
+            </fieldset>
+          </details>
         )
       })}
       {draft.attachments.length === 0 && (
@@ -293,50 +477,11 @@ export function NativeChannelModelsFields({
           {t('No models selected')}
         </p>
       )}
-      {available.length > 0 ? (
-        <div className='flex min-w-0 flex-wrap items-end gap-3'>
-          <label className={`${fieldClass} flex-1 basis-56`}>
-            <span>{t('Available models')}</span>
-            <select
-              className='bg-muted/65 min-h-11 w-full min-w-0 rounded-lg px-3 text-base'
-              value={selectedRoute ? selected : ''}
-              disabled={disabled}
-              onChange={(event) => setSelected(event.target.value)}
-            >
-              <option value=''>{t('Select a model ID')}</option>
-              {available.map((route) => (
-                <option key={route.id} value={route.id}>
-                  {route.model} · {route.group}
-                </option>
-              ))}
-            </select>
-          </label>
-          <Button
-            type='button'
-            variant='outline'
-            className='min-h-11'
-            disabled={disabled || !selectedRoute}
-            onClick={() => {
-              if (!selectedRoute) return
-              put(
-                toggleChannelAttachment(
-                  draft,
-                  selectedRoute,
-                  true,
-                  configuration
-                )
-              )
-              setSelected('')
-            }}
-          >
-            {t('Add Model')}
-          </Button>
-        </div>
-      ) : configuration.routing.routes.length === 0 ? (
+      {configuration.routing.routes.length === 0 && (
         <p className='text-muted-foreground text-sm'>
           {t('No models available')}
         </p>
-      ) : null}
+      )}
     </section>
   )
 }

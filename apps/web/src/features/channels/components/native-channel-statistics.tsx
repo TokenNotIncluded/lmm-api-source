@@ -143,6 +143,50 @@ export function NativeChannelOperationsSummary({
   )
 }
 
+export function NativeChannelStatisticsSummary({
+  value,
+}: {
+  value: NativeChannelStatistics | undefined
+}) {
+  const { t } = useTranslation()
+  if (!value) return null
+  const balance = value.observation
+  const metrics = [
+    {
+      label: t('channelCounters.lifetime'),
+      value: value.lifetime.complete
+        ? `${value.lifetime.total_usd} USD`
+        : t('Unknown'),
+    },
+    {
+      label: t('Balance'),
+      value:
+        balance?.balance === null || balance?.balance === undefined
+          ? t('Unknown')
+          : `${balance.balance} ${balance.unit_label ?? t('channelBalance.unitUnknown')}`,
+    },
+    {
+      label: t('channelSorting.catalogDuration'),
+      value:
+        value.response_time === null
+          ? t('Unknown')
+          : `${value.response_time} ms`,
+    },
+  ]
+  return (
+    <dl className='grid grid-cols-2 gap-x-6 gap-y-3 text-sm sm:grid-cols-3'>
+      {metrics.map((metric) => (
+        <div key={metric.label} className='min-w-0 space-y-1'>
+          <dt className='text-muted-foreground text-xs'>{metric.label}</dt>
+          <dd className='font-medium [overflow-wrap:anywhere] tabular-nums'>
+            {metric.value}
+          </dd>
+        </div>
+      ))}
+    </dl>
+  )
+}
+
 export function NativeChannelStatisticsRow({
   value,
 }: {
@@ -154,18 +198,6 @@ export function NativeChannelStatisticsRow({
   const probe = value.catalog_observation
   return (
     <div className='space-y-1 text-sm'>
-      <p>
-        {t('channelCounters.lifetime')}:{' '}
-        {value.lifetime.complete
-          ? `${value.lifetime.total_usd} USD`
-          : t('Unknown')}
-      </p>
-      <p>
-        {t('Balance')}:{' '}
-        {balance?.balance === null || balance?.balance === undefined
-          ? t('Unknown')
-          : `${balance.balance} ${balance.unit_label ?? t('channelBalance.unitUnknown')}`}
-      </p>
       {balance && (
         <p>
           {t('channelBalance.source')}:{' '}
@@ -178,12 +210,6 @@ export function NativeChannelStatisticsRow({
             : new Date(balance.balance_updated_time * 1000).toLocaleString()}
         </p>
       )}
-      <p>
-        {t('channelSorting.catalogDuration')}:{' '}
-        {value.response_time === null
-          ? t('Unknown')
-          : `${value.response_time} ms`}
-      </p>
       <p>
         {t('channelSorting.catalogTime')}:{' '}
         {probe

@@ -374,6 +374,7 @@ export function ReadOnlyChannels({
             if (!open) setKeyChannel(null)
           }}
           scope={scope}
+          writable={canManageKeys}
           channelId={keyChannel.id}
           channelName={keyChannel.name}
           onChanged={() => void query.refetch()}

@@ -26,6 +26,7 @@ export function NativeKeyManageDialog({
   scope,
   channelId,
   channelName,
+  writable = true,
   onChanged,
 }: {
   open: boolean
@@ -33,6 +34,7 @@ export function NativeKeyManageDialog({
   scope: NativeRoutingScope
   channelId: number
   channelName: string
+  writable?: boolean
   onChanged?: () => void
 }) {
   const { t } = useTranslation()
@@ -75,7 +77,7 @@ export function NativeKeyManageDialog({
   }, [open, channelId])
 
   async function change(operation: NativeKeyOperation) {
-    if (!keys || pending.current) return
+    if (!writable || !keys || pending.current) return
     pending.current = true
     setBusy(true)
     setError(null)
@@ -134,6 +136,15 @@ export function NativeKeyManageDialog({
       contentClassName='max-w-3xl'
       bodyClassName='space-y-4'
     >
+      {!writable && (
+        <Alert role='status'>
+          <AlertDescription>
+            {t(
+              'Capability information is not current. Refresh before making changes.'
+            )}
+          </AlertDescription>
+        </Alert>
+      )}
       {error && (
         <Alert variant='destructive' role='alert'>
           <AlertDescription>
@@ -160,7 +171,7 @@ export function NativeKeyManageDialog({
             <Checkbox
               id={`native-key-polling-${channelId}`}
               checked={keys.polling}
-              disabled={busy}
+              disabled={busy || !writable}
               onCheckedChange={(checked) => {
                 if (typeof checked === 'boolean') {
                   void change({ operation: 'set_polling', enabled: checked })
@@ -200,7 +211,9 @@ export function NativeKeyManageDialog({
                       variant='outline'
                       className='min-h-11'
                       disabled={
-                        busy || (active && (key.enabled || !keys.polling))
+                        busy ||
+                        !writable ||
+                        (active && (key.enabled || !keys.polling))
                       }
                       onClick={() =>
                         void change(
@@ -223,7 +236,7 @@ export function NativeKeyManageDialog({
                       type='button'
                       variant={confirmation === id ? 'destructive' : 'outline'}
                       className='min-h-11'
-                      disabled={busy || active}
+                      disabled={busy || !writable || active}
                       onClick={() => {
                         if (confirmation === id) {
                           void change({
@@ -289,7 +302,7 @@ export function NativeKeyManageDialog({
               className='grid min-w-0 gap-4 sm:grid-cols-2'
               onSubmit={(event) => {
                 event.preventDefault()
-                if (!label.trim()) return
+                if (!writable || !label.trim()) return
                 if (batch) {
                   const values = batchSecrets
                     .split(/\r?\n/)
@@ -365,7 +378,11 @@ export function NativeKeyManageDialog({
                 </label>
               )}
               <div className='flex flex-wrap gap-2 sm:col-span-2'>
-                <Button type='submit' className='min-h-11' disabled={busy}>
+                <Button
+                  type='submit'
+                  className='min-h-11'
+                  disabled={busy || !writable}
+                >
                   {batch ? t('Import keys') : t('Add')}
                 </Button>
                 <Button

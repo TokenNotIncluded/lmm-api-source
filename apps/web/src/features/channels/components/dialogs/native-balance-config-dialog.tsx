@@ -23,6 +23,7 @@ export function NativeBalanceConfigDialog({
   channelName,
   version,
   initialProbe,
+  writable = true,
   onSaved,
   onClose,
 }: {
@@ -31,6 +32,7 @@ export function NativeBalanceConfigDialog({
   channelName: string
   version: NativeVersion
   initialProbe: NativeBalanceProbe | null
+  writable?: boolean
   onSaved: () => void
   onClose: () => void
 }) {
@@ -50,7 +52,7 @@ export function NativeBalanceConfigDialog({
     }
   }, [])
   async function save(probe: NativeBalanceProbe | null) {
-    if (pending.current) return
+    if (!writable || pending.current) return
     pending.current = true
     setBusy(true)
     setError(null)
@@ -91,7 +93,7 @@ export function NativeBalanceConfigDialog({
         <>
           <Button
             variant='outline'
-            disabled={busy}
+            disabled={busy || !writable}
             onClick={() => void save(null)}
           >
             {t('Disable')}
@@ -99,12 +101,21 @@ export function NativeBalanceConfigDialog({
           <Button variant='outline' disabled={busy} onClick={onClose}>
             {t('Cancel')}
           </Button>
-          <Button form={formId} type='submit' disabled={busy}>
+          <Button form={formId} type='submit' disabled={busy || !writable}>
             {t('Save')}
           </Button>
         </>
       }
     >
+      {!writable && (
+        <Alert role='status'>
+          <AlertDescription>
+            {t(
+              'Capability information is not current. Refresh before making changes.'
+            )}
+          </AlertDescription>
+        </Alert>
+      )}
       <form
         id={formId}
         className='space-y-4'
