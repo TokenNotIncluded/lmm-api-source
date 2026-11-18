@@ -670,6 +670,13 @@ pub(in crate::channel_http) async fn keys(
     ))
 }
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(in crate::channel_http) struct KeyImport {
+    label: String,
+    secret: String,
+}
+
+#[derive(Deserialize)]
 #[serde(tag = "operation", rename_all = "snake_case", deny_unknown_fields)]
 pub(in crate::channel_http) enum KeyOperation {
     Add {
@@ -677,6 +684,11 @@ pub(in crate::channel_http) enum KeyOperation {
         label: String,
         secret: String,
         activate: bool,
+    },
+    AddMany {
+        expected_version: Version,
+        keys: Vec<KeyImport>,
+        polling: bool,
     },
     Activate {
         expected_version: Version,
@@ -716,6 +728,9 @@ pub(in crate::channel_http) async fn change_key(
         KeyOperation::Add {
             expected_version, ..
         }
+        | KeyOperation::AddMany {
+            expected_version, ..
+        }
         | KeyOperation::Activate {
             expected_version, ..
         }
@@ -738,6 +753,7 @@ pub(in crate::channel_http) async fn change_key(
         .ok_or(Failure::NotFound)?;
     let mut bindings = management.current_bindings()?;
     let mut credentials = Vec::new();
+    let mut imported_count = None;
     let (reference, action) = match input {
         KeyOperation::Add {
             label,
@@ -752,6 +768,29 @@ pub(in crate::channel_http) async fn change_key(
             }
             credentials.push(key);
             (reference, "channel.key.add")
+        }
+        KeyOperation::AddMany { keys, polling, .. } => {
+            let mut secrets = BTreeSet::new();
+            if !(1..=100).contains(&keys.len()) {
+                return Err(ManagementError::Invalid.into());
+            }
+            for key in &keys {
+                if !valid_label(&key.label) || !secrets.insert(key.secret.as_str()) {
+                    return Err(ManagementError::Invalid.into());
+                }
+                vault::validate_secret(&key.secret)?;
+            }
+            imported_count = Some(keys.len());
+            for key in keys {
+                credentials
+                    .push(store_secret(management, &mut tx, id, &key.label, key.secret).await?);
+            }
+            if polling {
+                bindings.key_pools.entry(id).or_default().polling = true;
+            } else {
+                bindings.key_pools.remove(&id);
+            }
+            (upstream.credential, "channel.key.add_many")
         }
         KeyOperation::Activate { reference, .. } => {
             let keys: Value = sqlx::query_scalar("SELECT public.routing_control_secret_list($1)")
@@ -856,6 +895,10 @@ pub(in crate::channel_http) async fn change_key(
             (reference, "channel.key.remove")
         }
     };
+    let mut target = json!({"id":id,"reference":reference});
+    if let Some(count) = imported_count {
+        target["imported_count"] = json!(count);
+    }
     let version = management
         .publish_bindings(
             tx,
@@ -864,13 +907,12 @@ pub(in crate::channel_http) async fn change_key(
             document,
             bindings,
             credentials,
-            PublicationChange::Normal {
-                action,
-                target: json!({"id":id,"reference":reference}),
-            },
+            PublicationChange::Normal { action, target },
         )
         .await?;
-    Ok(Json(
-        json!({"success":true,"data":{"version":version,"reference":reference}}),
-    ))
+    let mut data = json!({"version":version,"reference":reference});
+    if let Some(count) = imported_count {
+        data["imported_count"] = json!(count);
+    }
+    Ok(Json(json!({"success":true,"data":data})))
 }

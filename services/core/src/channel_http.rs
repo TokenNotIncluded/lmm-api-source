@@ -373,16 +373,31 @@ fn page_with_statistics(
             channel.name_source = "published_channel_configuration";
         }
     }
+    let keyword = params
+        .keyword
+        .as_ref()
+        .map(|keyword| keyword.to_lowercase());
+    let endpoint_matches: std::collections::BTreeSet<_> = keyword
+        .as_ref()
+        .map(|keyword| {
+            config
+                .upstreams
+                .iter()
+                .filter(|upstream| upstream.endpoint.as_str().to_lowercase().contains(keyword))
+                .map(|upstream| upstream.id)
+                .collect()
+        })
+        .unwrap_or_default();
     items.retain(|channel| {
-        params.keyword.as_ref().is_none_or(|keyword| {
-            let keyword = keyword.to_lowercase();
-            channel.name.to_lowercase().contains(&keyword)
-                || channel.id.to_string() == keyword
-                || channel.models.to_lowercase().contains(&keyword)
+        keyword.as_ref().is_none_or(|keyword| {
+            channel.name.to_lowercase().contains(keyword)
+                || channel.id.to_string() == *keyword
+                || channel.models.to_lowercase().contains(keyword)
                 || channel
                     .tag
                     .as_ref()
-                    .is_some_and(|tag| tag.to_lowercase().contains(&keyword))
+                    .is_some_and(|tag| tag.to_lowercase().contains(keyword))
+                || endpoint_matches.contains(&channel.id)
         }) && params.group.as_ref().is_none_or(|group| {
             group.is_empty() || channel.group.split(',').any(|value| value == group)
         }) && params.model.as_ref().is_none_or(|model| {
@@ -926,6 +941,45 @@ mod tests {
         ] {
             assert!(!encoded.contains(forbidden), "{forbidden}");
         }
+    }
+
+    #[test]
+    fn endpoint_keyword_filters_before_pagination_without_exposing_private_fields() {
+        let (mut config, _) = fixture();
+        config.upstreams[0].endpoint = "https://selected-provider.invalid/v1"
+            .to_owned()
+            .try_into()
+            .unwrap();
+        config.upstreams[20].endpoint = "https://selected-provider.invalid/anthropic"
+            .to_owned()
+            .try_into()
+            .unwrap();
+        let value = page(
+            &config,
+            Params {
+                keyword: Some("SELECTED-PROVIDER.INVALID".into()),
+                p: Some(2),
+                page_size: Some(1),
+                ..Params::default()
+            },
+        )
+        .unwrap();
+        assert_eq!(value["data"]["total"], 2);
+        assert_eq!(value["data"]["items"][0]["id"], 21);
+        let encoded = serde_json::to_string(&value).unwrap();
+        for private in ["selected-provider", "endpoint", "credential", "base_url"] {
+            assert!(!encoded.contains(private), "{private}");
+        }
+        let empty = page(
+            &config,
+            Params {
+                keyword: Some("unconfigured-provider.invalid".into()),
+                ..Params::default()
+            },
+        )
+        .unwrap();
+        assert_eq!(empty["data"]["total"], 0);
+        assert_eq!(empty["data"]["items"], json!([]));
     }
 
     #[test]

@@ -25,14 +25,19 @@ fn aad(reference: CredentialRef) -> [u8; 24] {
     data[16..].copy_from_slice(&reference.revision.to_be_bytes());
     data
 }
+pub(super) fn validate_secret(secret: &str) -> Result<(), ManagementError> {
+    if secret.is_empty() || secret.len() > 4096 || secret.bytes().any(|b| !b.is_ascii_graphic()) {
+        return Err(ManagementError::Invalid);
+    }
+    Ok(())
+}
+
 pub(super) fn encrypt(
     key: &[u8],
     reference: CredentialRef,
     secret: &str,
 ) -> Result<Vec<u8>, ManagementError> {
-    if secret.is_empty() || secret.len() > 4096 || secret.bytes().any(|b| !b.is_ascii_graphic()) {
-        return Err(ManagementError::Invalid);
-    }
+    validate_secret(secret)?;
     let mut nonce = [0_u8; 12];
     SysRng
         .try_fill_bytes(&mut nonce)

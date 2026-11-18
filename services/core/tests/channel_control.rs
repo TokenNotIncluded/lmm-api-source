@@ -1485,3 +1485,206 @@ async fn channel_copy_legacy_names_and_failures_are_atomic(pool: PgPool) {
 
 #[path = "../src/hex_codec.rs"]
 mod hex_codec;
+
+#[sqlx::test(migrations = false)]
+async fn vault_key_import_is_version_bound_and_recoverable(pool: PgPool) {
+    let (app, _, admin, ordinary) = vault_app(&pool).await;
+    success(
+        &app,
+        "POST",
+        "/core/v1/admin/routing/channels",
+        &admin,
+        channel_input(Version::of(&fixture()), 2, "synthetic-import-primary"),
+    )
+    .await;
+    let before = active(&pool).await;
+    let expected = Version::of(&before);
+    let primary = before
+        .routing
+        .upstreams
+        .iter()
+        .find(|u| u.id == 2)
+        .unwrap()
+        .credential;
+    let path = "/core/v1/admin/routing/channels/2/keys";
+    let input = json!({
+        "operation": "add_many",
+        "expected_version": expected,
+        "keys": [
+            {"label": "Batch A", "secret": "synthetic-import-alpha"},
+            {"label": "Batch B", "secret": "synthetic-import-beta"}
+        ],
+        "polling": false
+    });
+    assert_eq!(
+        request(app.clone(), "POST", path, &ordinary, input.clone())
+            .await
+            .0,
+        StatusCode::FORBIDDEN
+    );
+    assert_eq!(Version::of(&active(&pool).await), expected);
+    let imported = success(&app, "POST", path, &admin, input.clone()).await;
+    assert_eq!(imported["imported_count"], 2);
+    assert_eq!(imported["reference"], json!(primary));
+    assert_eq!(imported["version"]["routing"], expected.routing + 1);
+    assert_eq!(imported["version"]["pricing"], expected.pricing);
+    assert_eq!(
+        request(app.clone(), "POST", path, &admin, input).await.0,
+        StatusCode::CONFLICT
+    );
+    let listed = success(&app, "GET", path, &admin, Value::Null).await;
+    assert_eq!(listed["active_reference"], json!(primary));
+    assert_eq!(listed["polling"], false);
+    assert_eq!(listed["plaintext_available"], false);
+    let keys = listed["keys"].as_array().unwrap();
+    assert_eq!(keys.len(), 3);
+    assert_eq!(keys.iter().filter(|key| key["enabled"] == true).count(), 1);
+    let serialized = serde_json::to_string(&listed).unwrap();
+    for secret in [
+        "synthetic-import-primary",
+        "synthetic-import-alpha",
+        "synthetic-import-beta",
+    ] {
+        assert!(!serialized.contains(secret));
+    }
+    let audit: Value = sqlx::query_scalar(
+        "SELECT target FROM core_identity.audit WHERE action='channel.key.add_many'",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(audit["change"]["imported_count"], 2);
+    assert!(
+        !serde_json::to_string(&audit)
+            .unwrap()
+            .contains("synthetic-import")
+    );
+    let restored = ManagedChannels::recover(
+        pool.clone(),
+        gateway(&pool).with_channel_secret_key(&[83; 32]).unwrap(),
+    )
+    .await
+    .unwrap();
+    let restored_app = managed_router(pool.clone(), restored);
+    let restored_keys = success(&restored_app, "GET", path, &admin, Value::Null).await;
+    assert_eq!(restored_keys, listed);
+    let receipt = success(
+        &restored_app,
+        "POST",
+        path,
+        &admin,
+        json!({
+            "operation": "add_many",
+            "expected_version": listed["version"],
+            "keys": [{"label": "Batch C", "secret": "synthetic-import-gamma"}],
+            "polling": true
+        }),
+    )
+    .await;
+    assert_eq!(receipt["imported_count"], 1);
+    let final_keys = success(&restored_app, "GET", path, &admin, Value::Null).await;
+    assert_eq!(final_keys["active_reference"], json!(primary));
+    assert_eq!(final_keys["polling"], true);
+    assert_eq!(final_keys["keys"].as_array().unwrap().len(), 4);
+    assert!(
+        final_keys["keys"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|key| key["enabled"] == true)
+    );
+}
+
+#[sqlx::test(migrations = false)]
+async fn vault_key_import_rejects_invalid_batches_and_rolls_back_audit_failure(pool: PgPool) {
+    let (app, gateway, admin, _) = vault_app(&pool).await;
+    success(
+        &app,
+        "POST",
+        "/core/v1/admin/routing/channels",
+        &admin,
+        channel_input(
+            Version::of(&fixture()),
+            2,
+            "synthetic-import-stable-primary",
+        ),
+    )
+    .await;
+    let before = active(&pool).await;
+    let expected = Version::of(&before);
+    let path = "/core/v1/admin/routing/channels/2/keys";
+    let too_many: Vec<_> = (0..101)
+        .map(|id| {
+            json!({
+                "label": format!("Batch {id}"), "secret": format!("synthetic-import-{id}")
+            })
+        })
+        .collect();
+    for keys in [
+        json!([]),
+        json!(too_many),
+        json!([
+            {"label": "First", "secret": "synthetic-import-duplicate"},
+            {"label": "Second", "secret": "synthetic-import-duplicate"}
+        ]),
+        json!([
+            {"label": "Valid first", "secret": "synthetic-import-valid"},
+            {"label": "Invalid second", "secret": "invalid\nsecret"}
+        ]),
+        json!([
+            {"label": "Valid first", "secret": "synthetic-import-valid"},
+            {"label": "", "secret": "synthetic-import-invalid-label"}
+        ]),
+    ] {
+        let (status, body) = request(
+            app.clone(),
+            "POST",
+            path,
+            &admin,
+            json!({"operation":"add_many","expected_version":expected,"keys":keys,"polling":true}),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+        let count: i64 = sqlx::query_scalar("SELECT count(*) FROM public.channel_secret_revisions")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(count, 1);
+        assert_eq!(Version::of(&active(&pool).await), expected);
+    }
+    sqlx::raw_sql(
+        "CREATE FUNCTION public.reject_key_import_audit() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.action='channel.key.add_many' THEN RAISE EXCEPTION 'synthetic batch audit failure'; END IF; RETURN NEW; END $$; CREATE TRIGGER reject_key_import_audit BEFORE INSERT ON core_identity.audit FOR EACH ROW EXECUTE FUNCTION public.reject_key_import_audit();"
+    ).execute(&pool).await.unwrap();
+    let (status, body) = request(
+        app.clone(),
+        "POST",
+        path,
+        &admin,
+        json!({
+            "operation":"add_many",
+            "expected_version":expected,
+            "keys":[
+                {"label":"Rollback A","secret":"synthetic-import-rollback-alpha"},
+                {"label":"Rollback B","secret":"synthetic-import-rollback-beta"}
+            ],
+            "polling":true
+        }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE, "{body}");
+    assert_eq!(
+        serde_json::to_value(active(&pool).await).unwrap(),
+        serde_json::to_value(before).unwrap()
+    );
+    assert_eq!(
+        Version::from(gateway.dashboard_routing().version().unwrap()),
+        expected
+    );
+    let counts: (i64, i64) = sqlx::query_as(
+        "SELECT (SELECT count(*) FROM public.channel_secret_revisions), (SELECT count(*) FROM core_identity.audit WHERE action='channel.key.add_many')"
+    ).fetch_one(&pool).await.unwrap();
+    assert_eq!(counts, (1, 0));
+    let listed = success(&app, "GET", path, &admin, Value::Null).await;
+    assert_eq!(listed["keys"].as_array().unwrap().len(), 1);
+    assert_eq!(listed["polling"], false);
+}
