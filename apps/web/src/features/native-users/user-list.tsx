@@ -326,6 +326,48 @@ function UserRecord({
       <tr className='native-user-expanded-row' hidden={!expanded}>
         <td colSpan={6 + columns.size}>
           <div id={detailsId} className='space-y-5'>
+            <header className='flex flex-wrap items-start justify-between gap-4'>
+              <div className='min-w-0 space-y-1'>
+                <h3 className='font-medium break-all'>
+                  {user.display_name || user.username || user.id}
+                </h3>
+                <p className='text-muted-foreground text-sm break-all'>
+                  {user.username && `@${user.username} · `}#{user.id}
+                </p>
+              </div>
+              <div className='flex flex-wrap gap-2 [&_button]:min-h-11 sm:[&_button]:min-h-9'>
+                {user.platform_role === 'user' && (
+                  <>
+                    <NativeDisplayNameEditor
+                      scope={scope}
+                      userId={user.id}
+                      onUpdated={onUpdated}
+                      onAccessDenied={onAccessDenied}
+                    />
+                    <NativeUserAccess
+                      scope={scope}
+                      userId={user.id}
+                      onUpdated={onUpdated}
+                      onAccessDenied={onAccessDenied}
+                    />
+                    <NativeUserSecurity
+                      scope={scope}
+                      userId={user.id}
+                      onUpdated={onUpdated}
+                      onAccessDenied={onAccessDenied}
+                    />
+                    {wallet.status === 'available' && (
+                      <NativeBalanceAdjustment
+                        scope={scope}
+                        userId={user.id}
+                        onUpdated={onUpdated}
+                        onAccessDenied={onAccessDenied}
+                      />
+                    )}
+                  </>
+                )}
+              </div>
+            </header>
             {!user.active && (
               <p className='text-muted-foreground text-sm'>
                 {t(
@@ -389,38 +431,7 @@ function UserRecord({
                 onAccessDenied={onAccessDenied}
               />
             )}
-            <div className='flex flex-wrap gap-2 [&_button]:min-h-11 sm:[&_button]:min-h-9'>
-              {user.platform_role === 'user' && (
-                <>
-                  <NativeDisplayNameEditor
-                    scope={scope}
-                    userId={user.id}
-                    onUpdated={onUpdated}
-                    onAccessDenied={onAccessDenied}
-                  />
-                  <NativeUserAccess
-                    scope={scope}
-                    userId={user.id}
-                    onUpdated={onUpdated}
-                    onAccessDenied={onAccessDenied}
-                  />
-                  <NativeUserSecurity
-                    scope={scope}
-                    userId={user.id}
-                    onUpdated={onUpdated}
-                    onAccessDenied={onAccessDenied}
-                  />
-                  {wallet.status === 'available' && (
-                    <NativeBalanceAdjustment
-                      scope={scope}
-                      userId={user.id}
-                      onUpdated={onUpdated}
-                      onAccessDenied={onAccessDenied}
-                    />
-                  )}
-                </>
-              )}
-            </div>
+
             <div className='space-y-2 text-sm'>
               <h3 className='font-medium'>{t('Routing groups')}</h3>
               <div className='flex flex-wrap gap-2'>

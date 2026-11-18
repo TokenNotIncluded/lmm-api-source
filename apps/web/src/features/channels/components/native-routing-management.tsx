@@ -41,6 +41,7 @@ import {
   type NativePriceDraft,
   type NativeUpstream,
   type NativeVendor,
+  type NativeVersion,
 } from '../native-api'
 import {
   isChannelSnapshotChanged,
@@ -64,6 +65,7 @@ import { NativeModelFields } from './native-model-fields'
 type Section = 'channels' | 'models' | 'vendors' | 'prices'
 type Editor = {
   title: string
+  version: NativeVersion
   path: string
   method: 'POST' | 'PUT'
   document: string
@@ -255,6 +257,13 @@ function NativeRoutingWorkspace({
     [client, scope.userId, scope.sessionId, scope.role]
   )
   const configuration = query.data
+  const editorStale = !!(
+    editor &&
+    (editor.channel || editor.modelEditing !== undefined) &&
+    configuration &&
+    (editor.version.routing !== configuration.version.routing ||
+      editor.version.pricing !== configuration.version.pricing)
+  )
   const channelSelectionSnapshot = JSON.stringify([
     channelSort,
     configuration?.version,
@@ -362,8 +371,11 @@ function NativeRoutingWorkspace({
       changeEditor(destination)
     }
   }
-  function openEditor(value: Editor) {
-    requestEditorChange({ editor: value })
+  function openEditor(value: Omit<Editor, 'version'>) {
+    if (!configuration) return
+    requestEditorChange({
+      editor: { ...value, version: { ...configuration.version } },
+    })
   }
   async function refresh() {
     snapshotAnchor.current = null
@@ -621,8 +633,30 @@ function NativeRoutingWorkspace({
       }),
     })
   }
+  function reloadEditor() {
+    if (!editor || !configuration) return
+    const id = Number(editor.path.split('/').at(-1))
+    if (editor.channel) {
+      const channel = configuration.routing.upstreams.find(
+        (item) => item.id === id
+      )
+      if (editor.method === 'POST' || channel) {
+        channelEditor(channel)
+        return
+      }
+    } else if (editor.modelEditing !== undefined) {
+      const route = configuration.routing.routes.find((item) => item.id === id)
+      if (!editor.modelEditing || route) {
+        modelEditor(route)
+        return
+      }
+    }
+    setError(
+      t('This item was removed. Close the editor and select another item.')
+    )
+  }
   async function previewEditor() {
-    if (!editor?.previewPath || busy) return
+    if (!editor?.previewPath || busy || editorStale) return
     setBusy(true)
     setError(null)
     try {
@@ -650,7 +684,7 @@ function NativeRoutingWorkspace({
     }
   }
   function saveEditor() {
-    if (!editor || (editor.previewPath && !preview)) return
+    if (!editor || editorStale || (editor.previewPath && !preview)) return
     void run(async () => {
       const body = parseNativeDocument(editor.document)
       if (editor.secret) body.secret = secret
@@ -854,6 +888,26 @@ function NativeRoutingWorkspace({
           }}
         >
           <h3 className='font-medium'>{editor.title}</h3>
+          {editorStale && (
+            <Alert role='status'>
+              <AlertDescription className='space-y-3'>
+                <p>
+                  {t(
+                    'Configuration changed. Your draft is preserved. Reload the editor before saving.'
+                  )}
+                </p>
+                <Button
+                  type='button'
+                  variant='outline'
+                  className='min-h-11'
+                  disabled={busy}
+                  onClick={reloadEditor}
+                >
+                  {t('Reload editor')}
+                </Button>
+              </AlertDescription>
+            </Alert>
+          )}
           {editor.channel && (
             <NativeChannelFields
               document={editor.document}
@@ -910,7 +964,7 @@ function NativeRoutingWorkspace({
               />
             </label>
           </details>
-          {preview && (
+          {preview && !editorStale && (
             <pre
               className='max-h-80 overflow-auto border p-3 text-xs'
               aria-label={t('Preview')}
@@ -919,7 +973,11 @@ function NativeRoutingWorkspace({
             </pre>
           )}
           <div className='flex flex-wrap gap-2'>
-            <Button type='submit' className='min-h-11' disabled={busy}>
+            <Button
+              type='submit'
+              className='min-h-11'
+              disabled={busy || editorStale}
+            >
               {editor.previewPath
                 ? preview
                   ? t('Confirm and apply')

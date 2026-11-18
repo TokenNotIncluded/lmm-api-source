@@ -11,6 +11,7 @@ import {
   stringifyNativeDocument,
   type NativeConfiguration,
 } from '../native-api'
+import { NativeFailoverFields } from './native-failover-fields'
 import {
   microsToUsd,
   modelIdentity,
@@ -478,6 +479,13 @@ export function NativeModelFields({
           )
         })}
       </section>
+      <NativeFailoverFields
+        value={draft.route.failover}
+        disabled={disabled}
+        onChange={(failover) =>
+          put({ ...draft, route: { ...draft.route, failover } })
+        }
+      />
       <section className='space-y-5' aria-label={t('Pricing')}>
         <h4 className='font-medium'>{t('Pricing')}</h4>
         {draft.prices.map((price, index) => (

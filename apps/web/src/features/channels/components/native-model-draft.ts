@@ -26,6 +26,11 @@ const modelDraftSchema = z
         enabled: z.boolean(),
         targets: z.array(targetSchema),
         speeds: z.array(z.string()),
+        failover: z.object({
+          max_attempts: numberDraft,
+          retry_on: z.array(z.string()),
+          allow_replay_after_send: z.boolean(),
+        }),
       })
       .passthrough(),
     metadata: z

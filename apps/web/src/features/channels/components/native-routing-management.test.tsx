@@ -2786,3 +2786,118 @@ for (const section of ['models', 'vendors'] as const) {
     assert.ok(container.textContent?.includes(name))
   })
 }
+
+test('channel edits preserve stale drafts and require explicit reload after a configuration version changes', async () => {
+  let config: NativeConfiguration = fixture()
+  let writes = 0
+  api.request = (async (options: { method: string }) => {
+    if (options.method !== 'GET') writes++
+    return { data: { success: true, data: config } }
+  }) as typeof api.request
+  const container = await mount('channels')
+  await until(() => !!container.textContent?.includes('Private provider'))
+  await act(async () => button(container, 'Edit').click())
+  const form = required(container.querySelector('form'))
+  const name = required(form.querySelector('input'))
+  const setter = required(
+    Object.getOwnPropertyDescriptor(dom.HTMLInputElement.prototype, 'value')
+      ?.set
+  )
+  await act(async () => {
+    setter.call(name, 'Unpublished channel')
+    name.dispatchEvent(new Event('input', { bubbles: true }))
+  })
+  config = {
+    ...config,
+    version: { routing: 2, pricing: 1 },
+    routing: { ...config.routing, version: 2 },
+    bindings: { ...config.bindings, names: { 1: 'Updated provider' } },
+  }
+  await act(async () => button(container, 'Refresh').click())
+  await until(() => !!form.textContent?.includes('Configuration changed.'))
+  assert.equal(name.value, 'Unpublished channel')
+  assert.deepEqual(
+    parseNativeDocument(required(form.querySelector('textarea')).value)
+      .expected_version,
+    { routing: 1, pricing: 1 }
+  )
+  assert.equal(button(form, 'Save').disabled, true)
+  await act(async () => {
+    form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))
+  })
+  assert.equal(writes, 0)
+
+  await act(async () => button(form, 'Reload editor').click())
+  let dialog = required(document.querySelector('[role=dialog]'))
+  await act(async () => button(dialog, 'Stay').click())
+  assert.equal(name.value, 'Unpublished channel')
+  await act(async () => button(form, 'Reload editor').click())
+  dialog = required(document.querySelector('[role=dialog]'))
+  await act(async () => button(dialog, 'Leave').click())
+  assert.equal(name.value, 'Updated provider')
+  assert.equal(button(form, 'Save').disabled, false)
+  assert.deepEqual(
+    parseNativeDocument(required(form.querySelector('textarea')).value)
+      .expected_version,
+    { routing: 2, pricing: 1 }
+  )
+  assert.equal(writes, 0)
+})
+
+test('model confirmation stops when configuration changes and reload requires a new preview', async () => {
+  let config: NativeConfiguration = fixture()
+  const previews: Record<string, unknown>[] = []
+  let writes = 0
+  api.request = (async (options: {
+    method: string
+    url: string
+    data?: Record<string, unknown>
+  }) => {
+    if (options.method === 'GET') {
+      return { data: { success: true, data: config } }
+    }
+    if (options.url.endsWith('/models/preview')) {
+      previews.push(required(options.data))
+      return {
+        data: { success: true, data: { confirmation_digest: 'a'.repeat(64) } },
+      }
+    }
+    writes++
+    return { data: { success: true, data: {} } }
+  }) as typeof api.request
+  const container = await mount('models')
+  await until(() => !!container.textContent?.includes('model-a'))
+  await act(async () => button(container, 'Edit').click())
+  const form = required(container.querySelector('form'))
+  await act(async () => {
+    form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))
+  })
+  await until(() => previews.length === 1)
+  assert.equal(button(form, 'Confirm and apply').disabled, false)
+  config = {
+    ...config,
+    version: { routing: 2, pricing: 2 },
+    routing: { ...config.routing, version: 2 },
+    prices: { ...config.prices, version: 2 },
+  }
+  await act(async () => button(container, 'Refresh').click())
+  await until(() => !!form.textContent?.includes('Configuration changed.'))
+  assert.equal(button(form, 'Confirm and apply').disabled, true)
+  assert.equal(form.querySelector('pre[aria-label=Preview]'), null)
+  await act(async () => {
+    form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))
+  })
+  assert.equal(writes, 0)
+  assert.equal(previews.length, 1)
+  await act(async () => button(form, 'Reload editor').click())
+  assert.equal(button(form, 'Preview').disabled, false)
+  await act(async () => {
+    form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))
+  })
+  await until(() => previews.length === 2)
+  assert.deepEqual(
+    (previews[1].model as Record<string, unknown>).expected_version,
+    { routing: 2, pricing: 2 }
+  )
+  assert.equal(writes, 0)
+})

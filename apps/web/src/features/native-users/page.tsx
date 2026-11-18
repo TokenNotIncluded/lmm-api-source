@@ -238,6 +238,7 @@ function UsersWorkspace({
   const { t } = useTranslation()
   const [draft, setDraft] = useState(initial)
   const [query, setQuery] = useState(initial)
+  const [pageDraft, setPageDraft] = useState(String(initial.page))
   const [state, setState] = useState<Load<NativeUsersResponse>>({
     status: 'loading',
   })
@@ -317,6 +318,7 @@ function UsersWorkspace({
       setInvalidQuery(false)
       setQuery(validated)
       setDraft(validated)
+      setPageDraft(String(validated.page))
     } catch {
       setInvalidQuery(true)
     }
@@ -400,19 +402,6 @@ function UsersWorkspace({
     role: t('Role'),
     status: t('User status'),
   }
-  const statusFilter = (id: string) => (
-    <FieldSelect
-      id={id}
-      label={t('User status')}
-      value={draft.status}
-      onChange={(value) => set('status', value as NativeUsersQuery['status'])}
-      options={[
-        { value: '', label: t('All user statuses') },
-        { value: 'active', label: t('Active user') },
-        { value: 'disabled', label: t('Disabled user') },
-      ]}
-    />
-  )
   const roleFilter = (id: string) => (
     <FieldSelect
       id={id}
@@ -480,6 +469,17 @@ function UsersWorkspace({
       (draft[key] !== DEFAULT_NATIVE_USERS_QUERY[key] ||
         query[key] !== DEFAULT_NATIVE_USERS_QUERY[key])
   )
+  const lastPage =
+    state.status === 'ready'
+      ? Math.max(1, Math.ceil(state.data.total / query.page_size))
+      : query.page
+  const requestedPage = Number(pageDraft)
+  const canGoToPage =
+    state.status === 'ready' &&
+    Number.isInteger(requestedPage) &&
+    requestedPage >= 1 &&
+    requestedPage <= Math.min(lastPage, 100000) &&
+    requestedPage !== query.page
   if (!isCurrentNativeUsersScope(scope)) return null
   return (
     <div className='@container/users w-full min-w-0 space-y-5'>
@@ -522,12 +522,36 @@ function UsersWorkspace({
           </Button>
         </div>
       </div>
+      <div
+        className='flex flex-wrap gap-1'
+        role='group'
+        aria-label={t('User status')}
+      >
+        {(
+          [
+            ['', t('All users')],
+            ['active', t('Active user')],
+            ['disabled', t('Disabled user')],
+          ] as const
+        ).map(([status, label]) => (
+          <Button
+            key={status}
+            type='button'
+            variant={query.status === status ? 'secondary' : 'ghost'}
+            className='min-h-11'
+            aria-pressed={query.status === status}
+            onClick={() => applyQuery({ ...draft, status, page: 1 })}
+          >
+            {label}
+          </Button>
+        ))}
+      </div>
       <form
         onSubmit={submit}
         className='space-y-5'
         aria-label={t('User filters')}
       >
-        <div className='grid grid-cols-2 items-end gap-3 @min-[64rem]/users:grid-cols-[minmax(0,1fr)_11rem_11rem_auto]'>
+        <div className='grid grid-cols-2 items-end gap-3 @min-[64rem]/users:grid-cols-[minmax(0,1fr)_11rem_auto]'>
           <div className='col-span-full min-w-0 space-y-2 @min-[64rem]/users:col-span-1'>
             <Label htmlFor='native-user-keyword'>
               {t('Search username, display name, email or user ID')}
@@ -556,14 +580,11 @@ function UsersWorkspace({
             </div>
           </div>
           <div className='hidden @min-[28rem]/users:block'>
-            {statusFilter('native-user-status')}
-          </div>
-          <div className='hidden @min-[28rem]/users:block'>
             {roleFilter('native-user-role')}
           </div>
           <Button
             type='submit'
-            className='col-span-full hidden min-h-11 @min-[28rem]/users:inline-flex @min-[64rem]/users:col-span-1'
+            className='hidden min-h-11 @min-[28rem]/users:inline-flex'
           >
             {t('Apply filters')}
           </Button>
@@ -579,9 +600,6 @@ function UsersWorkspace({
             </summary>
             <div className='bg-muted/25 mt-2 space-y-5 rounded-xl p-5'>
               <div className='grid gap-5 @min-[28rem]/users:grid-cols-2 @min-[64rem]/users:grid-cols-3'>
-                <div className='@min-[28rem]/users:hidden'>
-                  {statusFilter('native-user-status-compact')}
-                </div>
                 <div className='@min-[28rem]/users:hidden'>
                   {roleFilter('native-user-role-compact')}
                 </div>
@@ -898,13 +916,43 @@ function UsersWorkspace({
             {state.status === 'ready' &&
               t('Page {{page}} of {{pages}}', {
                 page: query.page,
-                pages: Math.max(
-                  1,
-                  Math.ceil(state.data.total / query.page_size)
-                ),
+                pages: lastPage,
               })}
           </p>
-          <div className='flex flex-wrap gap-2'>
+          <div className='flex flex-wrap items-center gap-2'>
+            <form
+              className='flex items-center gap-2'
+              aria-label={t('Page')}
+              onSubmit={(event) => {
+                event.preventDefault()
+                if (canGoToPage) applyQuery({ ...query, page: requestedPage })
+              }}
+            >
+              <Label htmlFor='native-user-page-number' className='sr-only'>
+                {t('Page number')}
+              </Label>
+              <Input
+                id='native-user-page-number'
+                type='number'
+                inputMode='numeric'
+                min={1}
+                max={Math.min(lastPage, 100000)}
+                step={1}
+                required
+                className='min-h-11 w-24 tabular-nums'
+                value={pageDraft}
+                disabled={state.status !== 'ready'}
+                onChange={(event) => setPageDraft(event.target.value)}
+              />
+              <Button
+                type='submit'
+                variant='outline'
+                className='min-h-11'
+                disabled={!canGoToPage}
+              >
+                {t('Go')}
+              </Button>
+            </form>
             <Button
               type='button'
               variant='ghost'

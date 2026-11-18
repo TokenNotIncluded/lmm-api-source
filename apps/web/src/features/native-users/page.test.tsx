@@ -1,6 +1,7 @@
-/* Copyright (C) 2026 LIghtJUNction. SPDX-License-Identifier: AGPL-3.0-or-later */
 // @ts-expect-error Bun's test module is only available in the test runtime.
 import { afterEach, expect, test } from 'bun:test'
+/* Copyright (C) 2026 LIghtJUNction. SPDX-License-Identifier: AGPL-3.0-or-later */
+import assert from 'node:assert/strict'
 
 import { Window } from 'happy-dom'
 
@@ -244,6 +245,20 @@ test('collapsed memberships stay compact and opening Manage loads exact usage wi
   expect(
     row.querySelector('.native-user-expanded-row')?.hasAttribute('hidden')
   ).toBe(false)
+  const detailHeader = row.querySelector<HTMLElement>(
+    '.native-user-expanded-row header'
+  )
+  const usageSection = row.querySelector<HTMLElement>(
+    '[aria-label="Account usage"]'
+  )
+  assert.ok(detailHeader && usageSection)
+  expect(detailHeader.textContent).toContain(user.username)
+  expect(detailHeader.textContent).toContain('Security')
+  expect(detailHeader.textContent).toContain('Access settings')
+  expect(
+    detailHeader.compareDocumentPosition(usageSection) &
+      Node.DOCUMENT_POSITION_FOLLOWING
+  ).not.toBe(0)
   expect(row.textContent).toContain('1,234')
   expect(row.textContent).toContain('9,876,543')
   expect(row.textContent).toContain('250,000 credits')
@@ -1094,4 +1109,142 @@ test('create user opens a focused dialog and submits one account without inline 
   ])
   expect(document.getElementById('native-create-password')).toBeNull()
   expect(container.querySelector('[data-native-user-id]')).not.toBeNull()
+})
+
+test('status shortcuts apply the current search and keep team, role and sort filters', async () => {
+  login()
+  const reads: Record<string, unknown>[] = []
+  api.defaults.adapter = async (config) => {
+    if (config.url !== '/api/status') reads.push(config.params)
+    return {
+      config,
+      data:
+        config.url === '/api/status'
+          ? nativeStatusFixture
+          : nativeListFixture(
+              [
+                nativeUserFixture({
+                  active: config.params.status !== 'disabled',
+                  status: config.params.status === 'disabled' ? 2 : 1,
+                }),
+              ],
+              config.params.page,
+              60
+            ),
+      headers: {},
+      status: 200,
+      statusText: 'OK',
+    }
+  }
+  const container = await mount(
+    '?keyword=alice&team_id=12&role=user&sort_by=username&sort_order=asc&page=2'
+  )
+  const keyword = container.querySelector<HTMLInputElement>(
+    '#native-user-keyword'
+  )
+  assert.ok(keyword)
+  await act(async () => {
+    Object.getOwnPropertyDescriptor(
+      dom.HTMLInputElement.prototype,
+      'value'
+    )?.set?.call(keyword, 'updated search')
+    keyword.dispatchEvent(new Event('input', { bubbles: true }))
+  })
+  const status = container.querySelector<HTMLElement>(
+    '[role=group][aria-label="User status"]'
+  )
+  assert.ok(status)
+  await act(async () => {
+    button(status, 'Disabled user').click()
+    await pause()
+  })
+  expect(reads.at(-1)).toMatchObject({
+    keyword: 'updated search',
+    team_id: '12',
+    role: 'user',
+    sort_by: 'username',
+    sort_order: 'asc',
+    status: 'disabled',
+    page: 1,
+  })
+  expect(button(status, 'Disabled user').getAttribute('aria-pressed')).toBe(
+    'true'
+  )
+  await act(async () => {
+    button(status, 'All users').click()
+    await pause()
+  })
+  expect(reads.at(-1)).toMatchObject({
+    keyword: 'updated search',
+    team_id: '12',
+    role: 'user',
+    status: '',
+    page: 1,
+  })
+  expect(button(status, 'All users').getAttribute('aria-pressed')).toBe('true')
+})
+
+test('page jump validates the requested range, preserves filters and clears page selection', async () => {
+  login()
+  const reads: Record<string, unknown>[] = []
+  api.defaults.adapter = async (config) => {
+    if (config.url !== '/api/status') reads.push(config.params)
+    return {
+      config,
+      data:
+        config.url === '/api/status'
+          ? nativeStatusFixture
+          : nativeListFixture(undefined, config.params.page, 205),
+      headers: {},
+      status: 200,
+      statusText: 'OK',
+    }
+  }
+  const container = await mount('?keyword=alice&group=alpha')
+  await act(async () => {
+    container
+      .querySelector<HTMLElement>('[data-native-user-id] [role=checkbox]')
+      ?.click()
+  })
+  expect(container.textContent).toContain('Selected: 1')
+  const page = container.querySelector<HTMLInputElement>(
+    '#native-user-page-number'
+  )
+  assert.ok(page)
+  const changePage = async (value: string) => {
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(
+        dom.HTMLInputElement.prototype,
+        'value'
+      )?.set?.call(page, value)
+      page.dispatchEvent(new Event('input', { bubbles: true }))
+    })
+  }
+  expect(page.max).toBe('11')
+  for (const invalid of ['', '0', '12', '1.5']) {
+    await changePage(invalid)
+    expect(button(container, 'Go').disabled).toBe(true)
+    await act(async () => {
+      page.form?.dispatchEvent(
+        new Event('submit', { bubbles: true, cancelable: true })
+      )
+    })
+    expect(reads).toHaveLength(1)
+  }
+  await changePage('7')
+  expect(button(container, 'Go').disabled).toBe(false)
+  await act(async () => {
+    button(container, 'Go').click()
+    await pause()
+  })
+  expect(reads.at(-1)).toMatchObject({
+    keyword: 'alice',
+    group: 'alpha',
+    page: 7,
+    page_size: 20,
+  })
+  expect(container.textContent).toContain('Page 7 of 11')
+  expect(container.textContent).not.toContain('Selected:')
+  expect(page.value).toBe('7')
+  expect(button(container, 'Go').disabled).toBe(true)
 })
