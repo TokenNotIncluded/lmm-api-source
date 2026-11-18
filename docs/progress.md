@@ -4,6 +4,9 @@
 
 ## 当前状态
 
+- **分组请求限额逐行编辑（源码已推送，开发自测通过；2026-11-18）**：管理页支持逐行添加、修改、移除分组限额，保留精确 Unicode 组名，保存前拦截重复名称与非法次数。版本号、会话隔离、冲突草稿和显式重新读取沿用既有合同，七语言同步完成。代码 [c1890bc6](https://github.com/TokenNotIncluded/lmm-api-source/commit/c1890bc673c3751c992fb536a2180959b756a004)。
+  **开发自测**：7 项定向测试、修改范围格式与 lint、完整 Web 类型检查、生产构建与包体检查通过；真实 Chromium 交互及 1440/390/320px 明暗、中/英/法四种布局通过，截图已实际检查。浏览器使用本地合成接口。独立业务验收未执行，未部署。[使用说明](request-limits.md#管理请求限额)；[本轮记录](reports/lmm-request-limits-2026-11-18.md)。
+
 - **渠道批量路由与模型估算器（源码已推送，开发自测通过；2026-11-18）**：渠道支持批量修改优先级、权重、超时，留空保留原值，草稿绑定选择与版本，冲突刷新后不自动重放；纯输入端点模型隐藏不适用的输出、缓存及聊天预设。代码 [be27b613](https://github.com/TokenNotIncluded/lmm-api-source/commit/be27b6133ac6d0ea5ae684631be6660da35dbcbc)、[028eb4e3](https://github.com/TokenNotIncluded/lmm-api-source/commit/028eb4e3a885438fab0319cf2fa265be6998a58a)，预览夹具修复 [9aba1b87](https://github.com/TokenNotIncluded/lmm-api-source/commit/9aba1b872725c24d78a0c3d87d17f306d4f1a23d)。
   **开发自测**：渠道 60 项、估算器 11 项通过；完整类型检查、修改文件格式与 lint、生产构建及包体检查通过，首屏 gzip 499,589 B。Chromium 的 1440/390 px、明暗及中/法/俄六场景 6/6，最终截图已实际检查；使用本地合成数据，未写入真实后端。首次预览错误横幅和一次类型检查超时均保留在[迭代报告](reports/lmm-channel-routing-2026-11-18.md)及[结构化证据](reports/lmm-channel-routing-2026-11-18.evidence.json)。未部署，独立业务验收未执行。[交付附件](https://drive.google.com/drive/folders/1Ixnf5t8di1HmVyWJUu6F9L2bQ-jP2yL3)。
 
