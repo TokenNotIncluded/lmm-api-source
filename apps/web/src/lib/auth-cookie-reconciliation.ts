@@ -2,6 +2,10 @@
 import axios from 'axios'
 import { z } from 'zod'
 
+import {
+  sanitizeAuthRedirect,
+  signInHref,
+} from '@/features/auth/lib/auth-redirect'
 import { useCredentialStore, type AuthBundle } from '@/stores/auth-store'
 
 import {
@@ -80,6 +84,28 @@ const renewalClient = axios.create({
   timeout: AUTH_COOKIE_TIMEOUT_MS,
 })
 
+/** Preserve the requested page through the recovery sign-in document. */
+export function authCookieRecoveryRedirect(): string | null {
+  const location = window.location
+  const redirect = sanitizeAuthRedirect(
+    location.pathname === '/sign-in'
+      ? new URLSearchParams(location.search).get('redirect')
+      : `${location.pathname}${location.search}${location.hash}`,
+    location.origin
+  )
+  return redirect && new URL(redirect, location.origin).pathname !== '/sign-in'
+    ? redirect
+    : null
+}
+
+export function authCookieRecoverySignInHref(reauthenticate = false): string {
+  const redirect = authCookieRecoveryRedirect()
+  return signInHref(
+    redirect ? new URL(redirect, window.location.origin) : window.location,
+    reauthenticate
+  )
+}
+
 /** The handoff contains no token and never removes the uncertainty marker. */
 export async function prepareAuthCookieReconciliation(
   signal?: AbortSignal
@@ -121,7 +147,7 @@ export async function prepareAuthCookieReconciliation(
   )
   signal?.throwIfAborted()
   if (!beginAuthCookieReload()) throw new AuthCookieBlockedError('uncertain')
-  window.location.replace('/sign-in?reauth=1')
+  window.location.replace(authCookieRecoverySignInHref(true))
 }
 
 export function hasAuthCookieReconciliationHandoff(): boolean {

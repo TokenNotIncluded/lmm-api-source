@@ -19,6 +19,8 @@ import {
   subscribeAuthCookieState,
 } from '@/lib/auth-cookie'
 import {
+  authCookieRecoveryRedirect,
+  authCookieRecoverySignInHref,
   hasAuthCookieReconciliationHandoff,
   AuthCookieSessionNeedsRenewalError,
   AuthCookieSessionReauthenticationError,
@@ -91,7 +93,9 @@ export function AuthCookieRecovery({
           )(controller.signal)
           if (!controller.signal.aborted) {
             void navigate({
-              to: getAuthenticatedLandingRoute(bundle.user),
+              href:
+                authCookieRecoveryRedirect() ??
+                getAuthenticatedLandingRoute(bundle.user),
               replace: true,
             })
           }
@@ -120,7 +124,9 @@ export function AuthCookieRecovery({
         .then((bundle) => {
           if (!controller.signal.aborted) {
             void navigate({
-              to: getAuthenticatedLandingRoute(bundle.user),
+              href:
+                authCookieRecoveryRedirect() ??
+                getAuthenticatedLandingRoute(bundle.user),
               replace: true,
             })
           }
@@ -160,7 +166,7 @@ export function AuthCookieRecovery({
       await restartAuthCookieAuthentication(scope)
       setResult('ended')
       onLocalEnd?.()
-      window.location.replace('/sign-in')
+      window.location.replace(authCookieRecoverySignInHref())
     } catch {
       setStartingSignIn(false)
       setRecoveryFailed(true)

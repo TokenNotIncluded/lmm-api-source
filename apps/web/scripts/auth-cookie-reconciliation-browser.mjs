@@ -201,8 +201,12 @@ const [owner, sticky, unseen] = await Promise.all([
   context.newPage(),
   context.newPage(),
 ])
-async function load(page) {
-  await page.goto(`${origin}/writer`)
+const recoveryTarget = '/channels?tag=example&tag=priority%2Bhigh#routing'
+// TanStack preserves duplicate filter values in its canonical JSON array form.
+const recoveredTarget =
+  '/channels?tag=%5B%22example%22%2C%22priority%2Bhigh%22%5D#routing'
+async function load(page, destination = recoveryTarget) {
+  await page.goto(`${origin}${destination}`)
   await page.waitForFunction(() => Boolean(window.recovery))
 }
 async function renewalDocument() {
@@ -293,7 +297,12 @@ try {
   await sticky.evaluate(() => window.cookie.getAuthCookieBlockedState())
   const oldMarker = await owner.evaluate((k) => localStorage.getItem(k), key)
   await Promise.all([
-    owner.waitForURL('**/sign-in?reauth=1'),
+    owner.waitForURL(
+      (url) =>
+        url.pathname === '/sign-in' &&
+        url.searchParams.get('reauth') === '1' &&
+        url.searchParams.get('redirect') === recoveryTarget
+    ),
     owner
       .evaluate(async () => {
         await window.recovery.prepareAuthCookieReconciliation()
@@ -557,7 +566,10 @@ try {
   ])
   const ui = await uiContext.newPage()
   const probesBeforeUI = requests.length
-  await load(ui)
+  await load(
+    ui,
+    `/sign-in?${new URLSearchParams({ redirect: recoveryTarget })}`
+  )
   await ui.evaluate(() =>
     window.cookie
       .withAuthCookieLock((t) =>
@@ -609,13 +621,14 @@ try {
     .getByRole('button', { name: 'Recover browser session', exact: true })
     .waitFor({ state: 'detached' })
   assert.equal(await ui.evaluate((k) => localStorage.getItem(k), key), null)
-  await ui.waitForURL((url) => url.pathname !== '/sign-in', { timeout: 5000 })
-  assert.ok(
-    !ui.url().includes('/sign-in'),
-    'successful proof must navigate the user out of the recovery sign-in page'
+  await ui.waitForURL(`${origin}${recoveredTarget}`, { timeout: 5000 })
+  assert.equal(
+    ui.url(),
+    `${origin}${recoveredTarget}`,
+    'successful proof must preserve the original page, search and fragment'
   )
   evidence.cases.push(
-    'actual StrictMode recovery button with no cached SID omits optional header, performs document handoff and restores the cookie current account, then leaves sign-in'
+    'actual StrictMode recovery button with no cached SID omits optional header, performs document handoff and restores the cookie current account, then returns to the original complete channel URL'
   )
   assert.ok(
     requests
@@ -739,7 +752,12 @@ try {
   await crashed
     .getByRole('button', { name: 'Sign in again', exact: true })
     .click()
-  await crashed.waitForURL((url) => url.pathname === '/sign-in')
+  await crashed.waitForURL(
+    (url) =>
+      url.pathname === '/sign-in' &&
+      !url.searchParams.has('reauth') &&
+      url.searchParams.get('redirect') === recoveryTarget
+  )
   await crashed.waitForFunction(
     (k) => localStorage.getItem(k) === null && Boolean(window.recovery),
     key
@@ -757,7 +775,7 @@ try {
       .every((request) => request.path === '/api/user/auth/reconcile')
   )
   evidence.cases.push(
-    'crashed pending guest bootstrap becomes recoverable uncertainty; real document handoff reads no-cookie proof, explicit sign-in restart clears the fence without issuing credentials or replaying refresh'
+    'crashed pending guest bootstrap becomes recoverable uncertainty; real document handoff reads no-cookie proof, explicit sign-in restart preserves the complete destination and clears the fence without issuing credentials or replaying refresh'
   )
   await crashedContext.close()
 
@@ -773,7 +791,7 @@ try {
   await fresh.page
     .getByRole('button', { name: 'Renew browser session', exact: true })
     .click()
-  await fresh.page.waitForURL((url) => url.pathname !== '/sign-in', {
+  await fresh.page.waitForURL(`${origin}${recoveredTarget}`, {
     timeout: 5000,
   })
   assert.equal(refreshCount, 1)
@@ -802,7 +820,7 @@ try {
     ]
   )
   evidence.cases.push(
-    'expired access requires an explicit renewal click: read-only expired proof, one real XHR Set-Cookie, matching current proof, then commit'
+    'expired access requires an explicit renewal click: read-only expired proof, one real XHR Set-Cookie, matching current proof, then commit and return to the complete destination'
   )
   await fresh.profile.close()
 
