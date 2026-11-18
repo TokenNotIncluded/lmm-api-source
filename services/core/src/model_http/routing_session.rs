@@ -140,14 +140,26 @@ impl Bridge {
             ],
         };
         let mut plans: VecDeque<_> = plans.into();
-        let first = plans
-            .front()
-            .ok_or(RelayError::RouteUnavailable)?
-            .planned_attempts()
-            .into_iter()
-            .find(Attempt::is_available)
-            .ok_or(RelayError::RouteUnavailable)?;
-        let (selected, route) = self.route_for_attempt(Arc::new(first), request)?;
+        // Request-specific bounds are not part of the routing snapshot. Reject
+        // incompatible candidates before consuming any actual dispatch attempts.
+        let mut selected_route = None;
+        'select: for plan in &plans {
+            for attempt in plan
+                .candidate_attempts()
+                .into_iter()
+                .filter(Attempt::is_available)
+            {
+                match self.route_for_attempt(Arc::new(attempt), request) {
+                    Ok(candidate) => {
+                        selected_route = Some(candidate);
+                        break 'select;
+                    }
+                    Err(RelayError::RouteUnavailable) => continue,
+                    Err(error) => return Err(error),
+                }
+            }
+        }
+        let (selected, route) = selected_route.ok_or(RelayError::RouteUnavailable)?;
         let primary = binding(self, &selected, &route, request)?;
         let mut candidates = BTreeMap::new();
         candidates.insert(
@@ -166,12 +178,14 @@ impl Bridge {
         ) && selected.price.upstream_cost_group_ppm.is_none()
         {
             for plan in &plans {
-                for attempt in plan.planned_attempts() {
-                    if candidates.len() >= 8 {
+                let mut remaining = plan.planned_attempts().len();
+                for attempt in plan.candidate_attempts() {
+                    if candidates.len() >= 8 || remaining == 0 {
                         break;
                     }
                     let id = attempt.route_key();
                     if candidates.contains_key(&id) {
+                        remaining -= 1;
                         continue;
                     }
                     let Ok((candidate, next)) = self.route_for_attempt(Arc::new(attempt), request)
@@ -203,6 +217,7 @@ impl Bridge {
                             binding,
                         },
                     );
+                    remaining -= 1;
                 }
             }
         }

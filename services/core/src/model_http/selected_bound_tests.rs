@@ -1179,6 +1179,177 @@ async fn selected_bound_small_external_model_is_fundable_without_global_hold(poo
     assert_balance(&f, 70_000 - SMALL_INPUT, SMALL_INPUT).await;
 }
 
+fn request_aware_gateway(f: &Fixture, max_attempts: u8, output_caps: [u32; 3]) -> ModelGateway {
+    let original = gateway(f, EXTERNAL_BASE, contexts(SMALL_INPUT));
+    let mut document = original.bridge.routing.catalog_document().unwrap();
+    let mut contracts = contexts(SMALL_INPUT);
+    contracts[0].max_output_tokens = output_caps[0];
+    document.routing.routes[0].failover.max_attempts = max_attempts;
+    document.routing.routes[0].failover.retry_on = vec![routing::RetryCause::Connect];
+    for (index, output_cap) in output_caps.into_iter().enumerate().skip(1) {
+        let mut upstream = document.routing.upstreams[0].clone();
+        upstream.id = index as u64 + 1;
+        document.routing.upstreams.push(upstream);
+        let mut target = document.routing.routes[0].targets[0].clone();
+        target.id = index as u64 + 2;
+        target.upstream_id = index as u64 + 1;
+        target.upstream_model = "large-provider".into();
+        target.priority = index as u16;
+        document.routing.routes[0].targets.push(target);
+        let mut contract = contracts[1].clone();
+        contract.upstream_id = index as u64 + 1;
+        contract.max_output_tokens = output_cap;
+        contracts.push(contract);
+    }
+    ModelGateway::new_with_provider_policy(
+        f.pool.clone(),
+        Arc::new(
+            routing::Router::new(
+                document.routing,
+                Arc::new(PriceSnapshot::compile(document.pricing).unwrap()),
+            )
+            .unwrap(),
+        ),
+        vec![UpstreamCredential {
+            reference: CredentialRef { id: 7, revision: 1 },
+            secret: "synthetic-selected-bound-provider-key".into(),
+        }],
+        BTreeMap::from([(f.key_id, "allowed".into())]),
+        original.limits.clone(),
+        original.bridge.policy,
+        ProviderPolicy::new(contracts, GLOBAL_INPUT).unwrap(),
+    )
+    .unwrap()
+}
+
+#[sqlx::test(migrations = false)]
+async fn selected_bound_request_aware_selection_precedes_attempt_limit(pool: PgPool) {
+    let f = fixture(pool, 2_000_000).await;
+    for (index, (limit, output, expected_route, bound, fallback_count)) in [
+        (1, SMALL_OUTPUT, "r1-t1-u1", SMALL_INPUT, 0),
+        (1, SMALL_OUTPUT + 1, "r1-t3-u2", GLOBAL_INPUT, 0),
+        (2, SMALL_OUTPUT + 1, "r1-t3-u2", GLOBAL_INPUT, 1),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let g = request_aware_gateway(&f, limit, [SMALL_OUTPUT, GLOBAL_OUTPUT, GLOBAL_OUTPUT]);
+        let id = format!("request-aware-selection-{index}");
+        let (context, request) = admit(&g, &f, &id, "small-model", output).await;
+        let route = g.bridge.select(&context, &request).await.unwrap();
+        assert_eq!(route.id, expected_route);
+        assert_eq!(selected_bound(&g, &id), bound);
+        assert_eq!(requests(&f.pool).await, index as i64);
+
+        let reservation = g.bridge.reserve(&context, &route, &request).await.unwrap();
+        let charge = receipt(&g, &id).await;
+        assert_eq!(charge.reserved, bound);
+        assert_eq!(charge.price.model, "small-model");
+        let contract: serde_json::Value = sqlx::query_scalar(
+            "SELECT detail FROM core_charging.usage_events WHERE request_id=$1 AND event_id='reservation-contract:v1'",
+        )
+        .bind(&id)
+        .fetch_one(&f.pool)
+        .await
+        .unwrap();
+        assert_eq!(contract["binding"]["route_id"], expected_route);
+        if fallback_count == 0 {
+            assert!(contract.get("fallbacks").is_none());
+        } else {
+            let fallbacks = contract["fallbacks"].as_array().unwrap();
+            assert_eq!(fallbacks.len(), fallback_count);
+            assert_eq!(fallbacks[0]["binding"]["route_id"], "r1-t4-u3");
+        }
+        g.bridge
+            .finalize(&reservation, &terminal(&id, &route, usage(2)))
+            .await
+            .unwrap();
+        assert_balance(&f, 2_000_000 - 2 * (index as i64 + 1), 0).await;
+    }
+}
+
+#[sqlx::test(migrations = false)]
+async fn selected_bound_request_aware_retry_keeps_one_reservation(pool: PgPool) {
+    let f = fixture(pool, 2_000_000).await;
+    let g = request_aware_gateway(&f, 2, [SMALL_OUTPUT, GLOBAL_OUTPUT, GLOBAL_OUTPUT]);
+    let (context, request) = admit(
+        &g,
+        &f,
+        "request-aware-retry",
+        "small-model",
+        SMALL_OUTPUT + 1,
+    )
+    .await;
+    let route = g.bridge.select(&context, &request).await.unwrap();
+    assert_eq!(route.id, "r1-t3-u2");
+    let reservation = g.bridge.reserve(&context, &route, &request).await.unwrap();
+    g.bridge
+        .dispatching(&context, &route, &request.upstream_body(&route).unwrap())
+        .await
+        .unwrap();
+    let next = g
+        .bridge
+        .failed(
+            &context,
+            &request,
+            &route,
+            relay::AttemptFailure {
+                failure: routing::Failure {
+                    kind: routing::FailureKind::Connect,
+                    delivery: routing::DeliveryState::NotSent,
+                },
+                http_status: None,
+                response_sha256: None,
+            },
+        )
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(next.id, "r1-t4-u3");
+    g.bridge
+        .dispatching(&context, &next, &request.upstream_body(&next).unwrap())
+        .await
+        .unwrap();
+    let mut report = terminal(&reservation.id, &next, usage(2));
+    report.attempts = 2;
+    g.bridge.finalize(&reservation, &report).await.unwrap();
+    assert_eq!(requests(&f.pool).await, 1);
+    let dispatches: Vec<serde_json::Value> = sqlx::query_scalar(
+        "SELECT detail FROM core_charging.usage_events WHERE request_id=$1 AND event_id LIKE 'route-dispatch:%' ORDER BY event_id",
+    )
+    .bind(&reservation.id)
+    .fetch_all(&f.pool)
+    .await
+    .unwrap();
+    assert_eq!(dispatches.len(), 2);
+    assert_eq!(dispatches[0]["number"], 1);
+    assert_eq!(dispatches[0]["route_id"], "r1-t3-u2");
+    assert_eq!(dispatches[1]["number"], 2);
+    assert_eq!(dispatches[1]["route_id"], "r1-t4-u3");
+    assert_eq!(receipt(&g, &reservation.id).await.settled, 2);
+    assert_balance(&f, 1_999_998, 0).await;
+}
+
+#[sqlx::test(migrations = false)]
+async fn selected_bound_request_aware_rejects_all_incompatible_without_hold(pool: PgPool) {
+    let f = fixture(pool, 2_000_000).await;
+    let g = request_aware_gateway(&f, 2, [SMALL_OUTPUT; 3]);
+    let (context, request) = admit(
+        &g,
+        &f,
+        "request-aware-no-route",
+        "small-model",
+        SMALL_OUTPUT + 1,
+    )
+    .await;
+    assert!(matches!(
+        g.bridge.select(&context, &request).await,
+        Err(RelayError::RouteUnavailable)
+    ));
+    assert_eq!(requests(&f.pool).await, 0);
+    assert_balance(&f, 2_000_000, 0).await;
+}
+
 #[sqlx::test(migrations = false)]
 async fn selected_bound_output_over_model_cap_is_rejected_before_any_hold(pool: PgPool) {
     let f = fixture(pool, 70_000).await;
