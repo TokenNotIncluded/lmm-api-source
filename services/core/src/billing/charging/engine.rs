@@ -19,10 +19,7 @@ use serde::Serialize;
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use sqlx::{PgConnection, PgPool, Postgres, Row, Transaction, postgres::PgRow};
-use std::{
-    net::IpAddr,
-    sync::Arc,
-};
+use std::{net::IpAddr, sync::Arc};
 use subtle::ConstantTimeEq;
 
 #[derive(Clone)]
@@ -144,7 +141,6 @@ mod trust_admission_tests {
         assert_eq!(admission_spec(&request, None, true), Err(Error::Conflict));
         assert_eq!(admission_spec(&request, basis, true).unwrap(), trusted);
     }
-
 }
 // The host derives activity from measured usage, independently of price or
 // response status. Request/client/Go input cannot supply this decision.
@@ -503,10 +499,7 @@ async fn event(c: &mut PgConnection, id: &str, event_id: &str, detail: Value) ->
 impl Charging {
     /// No default ledger. Supplying a test double never enables production.
     pub fn new(pool: PgPool, ledger: Arc<dyn Ledger>) -> Self {
-        Self {
-            pool,
-            ledger,
-        }
+        Self { pool, ledger }
     }
     /// Authenticate the preparation without changing configured prices.
     /// Admission reauthenticates inside its SERIALIZABLE funding transaction.
@@ -714,9 +707,7 @@ impl Charging {
         }
         if let Some(legacy) = prepared.and_then(PreparedReservation::legacy_precharge) {
             legacy.verify_trust(request.price.user_trust.as_ref())?;
-            if legacy.derives_native_reservation()
-                && legacy.max_billable() != request.reserve
-            {
+            if legacy.derives_native_reservation() && legacy.max_billable() != request.reserve {
                 return Err(Error::Conflict);
             }
         }

@@ -168,7 +168,12 @@ fn base_ranges_keep_clamps_calendar_and_ignore_legacy_multipliers() {
     assert_eq!(expected.min_quota, "1");
     assert_eq!(expected.max_quota, "500000");
     assert_eq!(expected.reward_multiplier, 1.0);
-    assert!(serde_json::to_value(&expected).unwrap().get("trust_level").is_none());
+    assert!(
+        serde_json::to_value(&expected)
+            .unwrap()
+            .get("trust_level")
+            .is_none()
+    );
     for legacy in [
         vec![],
         vec![-1.0],
@@ -211,7 +216,11 @@ async fn configured_zero_reward_ignores_legacy_trust_and_replays_exactly(pool: P
     assert_eq!(receipt.record.quota_awarded, "0");
     assert_eq!(receipt.record.journal_id, None);
     assert_eq!(receipt.record.trust_level, None);
-    assert!(serde_json::to_value(&receipt).unwrap()["record"].get("trust_level").is_none());
+    assert!(
+        serde_json::to_value(&receipt).unwrap()["record"]
+            .get("trust_level")
+            .is_none()
+    );
     assert_eq!(journals(&pool).await, before);
     // Retained legacy facts cannot alter new reward eligibility or amounts.
     sqlx::query("INSERT INTO core_trust_pricing.user_bases(user_id,original_created_at,console_activated_at,last_api_activity_at,override_level,projection_known,order_count,revision,source_digest) VALUES(61001,$1,0,0,3,true,0,1,decode(repeat('11',32),'hex'))")
@@ -248,7 +257,12 @@ async fn configured_zero_reward_ignores_legacy_trust_and_replays_exactly(pool: P
     assert_eq!(admin_range.min_quota, "0");
     assert_eq!(admin_range.max_quota, "0");
     assert_eq!(admin_range.reward_multiplier, 1.0);
-    assert!(serde_json::to_value(admin_range).unwrap().get("trust_level").is_none());
+    assert!(
+        serde_json::to_value(admin_range)
+            .unwrap()
+            .get("trust_level")
+            .is_none()
+    );
     // A durable earlier-day command is returned before today's new eligibility.
     let mut earlier = receipt.clone();
     earlier.record.checkin_date = "2026-01-01".into();

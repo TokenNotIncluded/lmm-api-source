@@ -168,7 +168,12 @@ async fn grants_binding_code_consumption_and_native_rejection(pool: PgPool) {
         assert!(store.fixture_balance_access(bad).await.is_err());
     }
     assert!(identity.authorize(&native.secret).await.is_ok());
-    assert!(store.fixture_balance_access(&bundle.access_token).await.is_ok());
+    assert!(
+        store
+            .fixture_balance_access(&bundle.access_token)
+            .await
+            .is_ok()
+    );
     let rows: Vec<String> =
         sqlx::query_scalar("SELECT row_to_json(t)::text FROM core_oauth.access_tokens t")
             .fetch_all(&pool)
@@ -248,7 +253,12 @@ async fn grants_concurrent_refresh_loser_commits_family_revocation(pool: PgPool)
     );
     assert_ne!(a.is_ok(), b.is_ok());
     let winner = a.or(b).unwrap();
-    assert!(store.fixture_balance_access(&winner.access_token).await.is_err());
+    assert!(
+        store
+            .fixture_balance_access(&winner.access_token)
+            .await
+            .is_err()
+    );
     assert!(
         store
             .refresh(refresh(&winner.refresh_token), 3600)
@@ -295,7 +305,12 @@ async fn grants_live_authority_expiry_consent_and_revoke(pool: PgPool) {
         .revoke_access(&bundle.access_token, "lmm-pi")
         .await
         .unwrap();
-    assert!(store.fixture_balance_access(&bundle.access_token).await.is_err());
+    assert!(
+        store
+            .fixture_balance_access(&bundle.access_token)
+            .await
+            .is_err()
+    );
     assert!(
         store
             .refresh(refresh(&bundle.refresh_token), 3600)
@@ -307,7 +322,12 @@ async fn grants_live_authority_expiry_consent_and_revoke(pool: PgPool) {
     let mut request = refresh(&bundle.refresh_token);
     request.scopes = Some(&selected);
     store.refresh(request, 3600).await.unwrap();
-    assert!(store.fixture_balance_access(&bundle.access_token).await.is_err());
+    assert!(
+        store
+            .fixture_balance_access(&bundle.access_token)
+            .await
+            .is_err()
+    );
 }
 #[sqlx::test(migrations = false)]
 async fn grants_owner_rebinding_and_transaction_failure_retry(pool: PgPool) {
@@ -345,14 +365,24 @@ async fn grants_owner_rebinding_and_transaction_failure_retry(pool: PgPool) {
         Some("23514")
     );
     // Native identity remains immutable; attempted rebinding does not revoke it.
-    assert!(store.fixture_balance_access(&bundle.access_token).await.is_ok());
+    assert!(
+        store
+            .fixture_balance_access(&bundle.access_token)
+            .await
+            .is_ok()
+    );
     // Separately corrupt a family's binding: defensive authority checks must deny.
     sqlx::query("UPDATE core_oauth.families SET owner_account_id=$1")
         .bind(replacement)
         .execute(&pool)
         .await
         .unwrap();
-    assert!(store.fixture_balance_access(&bundle.access_token).await.is_err());
+    assert!(
+        store
+            .fixture_balance_access(&bundle.access_token)
+            .await
+            .is_err()
+    );
     assert!(
         store
             .refresh(refresh(&bundle.refresh_token), 3600)
@@ -395,7 +425,12 @@ async fn grants_browser_refresh_does_not_revoke_independent_family(pool: PgPool)
     let bundle = tokens(&store, access).await;
     browser.refresh(&login.refresh_token, None).await.unwrap();
     assert!(store.identity.authorize(access).await.is_err());
-    assert!(store.fixture_balance_access(&bundle.access_token).await.is_ok());
+    assert!(
+        store
+            .fixture_balance_access(&bundle.access_token)
+            .await
+            .is_ok()
+    );
 }
 
 #[sqlx::test(migrations = false)]
@@ -405,7 +440,12 @@ async fn grants_ttl_boundaries_and_refresh_failure_retry(pool: PgPool) {
         let code = seed(&store, &native.secret, &["balance:read"]).await;
         let bundle = store.exchange(exchange(&code), ttl).await.unwrap();
         assert!((1..=ttl).contains(&bundle.expires_in));
-        assert!(store.fixture_balance_access(&bundle.access_token).await.is_ok());
+        assert!(
+            store
+                .fixture_balance_access(&bundle.access_token)
+                .await
+                .is_ok()
+        );
     }
     let bundle = tokens(&store, &native.secret).await;
     sqlx::raw_sql("CREATE FUNCTION core_oauth.fail_refresh() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'fixture refresh failure'; END $$; CREATE TRIGGER fail_refresh BEFORE INSERT ON core_oauth.refresh_tokens FOR EACH ROW EXECUTE FUNCTION core_oauth.fail_refresh()").execute(&pool).await.unwrap();
@@ -628,7 +668,12 @@ async fn grants_foreign_profile_replay_cannot_revoke_family(pool: PgPool) {
         !revoked,
         "foreign-profile replay must not mutate the family"
     );
-    assert!(store.fixture_balance_access(&rotated.access_token).await.is_ok());
+    assert!(
+        store
+            .fixture_balance_access(&rotated.access_token)
+            .await
+            .is_ok()
+    );
     // Bound replay must still revoke, even if the consumed lineage has expired.
     sqlx::query("UPDATE core_oauth.refresh_tokens SET expires_at=clock_timestamp()-interval '1 second' WHERE digest=$1")
         .bind(digest(&initial.refresh_token).unwrap()).execute(&pool).await.unwrap();
@@ -642,7 +687,12 @@ async fn grants_foreign_profile_replay_cannot_revoke_family(pool: PgPool) {
             .await
             .unwrap();
     assert!(revoked);
-    assert!(store.fixture_balance_access(&rotated.access_token).await.is_err());
+    assert!(
+        store
+            .fixture_balance_access(&rotated.access_token)
+            .await
+            .is_err()
+    );
 }
 
 // Wait for a real PostgreSQL authority-lock waiter, then cross the exact DB

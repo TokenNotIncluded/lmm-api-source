@@ -224,7 +224,11 @@ async fn first_owner_logs_in_to_web_with_real_root_role_and_no_financial_grant(p
         .await
         .unwrap();
     assert_eq!(session.data["user"]["role"], 100);
-    assert!(session.data["user"].get("developer_access_granted").is_none());
+    assert!(
+        session.data["user"]
+            .get("developer_access_granted")
+            .is_none()
+    );
     let secret = session.data["access_token"].as_str().unwrap();
     assert_eq!(identity.authorize(secret).await.unwrap().platform_level, 6);
     AdminUsersStore::new(identity)

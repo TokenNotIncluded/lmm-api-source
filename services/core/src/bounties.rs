@@ -218,7 +218,11 @@ fn requires_bounty_admission(action: &str) -> bool {
             | "resolve_dispute"
     )
 }
-async fn authorize_bounty_admission(c: &mut PgConnection, a: &Principal, secret: &str) -> Result<()> {
+async fn authorize_bounty_admission(
+    c: &mut PgConnection,
+    a: &Principal,
+    secret: &str,
+) -> Result<()> {
     identity::authorize_bounty_session_in_transaction(c, a, secret)
         .await
         .map_err(|error| match error {

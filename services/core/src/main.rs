@@ -1119,7 +1119,11 @@ mod check_db_parser_tests {
 
     #[test]
     fn retired_owner_commands_are_unknown_even_with_config_or_help() {
-        for name in ["seed-checkin-history", "publish-checkin-policy", "trust-policy-editor"] {
+        for name in [
+            "seed-checkin-history",
+            "publish-checkin-policy",
+            "trust-policy-editor",
+        ] {
             for input in [
                 vec![name],
                 vec![name, "--config", "/private/owner.toml"],

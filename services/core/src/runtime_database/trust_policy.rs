@@ -2,9 +2,7 @@
 use super::RuntimeDatabaseError;
 use sqlx::PgConnection;
 
-pub(super) async fn check(
-    c: &mut PgConnection,
-) -> Result<(), RuntimeDatabaseError> {
+pub(super) async fn check(c: &mut PgConnection) -> Result<(), RuntimeDatabaseError> {
     let unsafe_privileges: bool = sqlx::query_scalar(r#"
 WITH expected(signature) AS (VALUES
  ('read_policy_edit_description(bigint)'),

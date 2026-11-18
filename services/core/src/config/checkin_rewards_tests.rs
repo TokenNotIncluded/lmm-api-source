@@ -4,10 +4,9 @@ fn checkin_rewards_default_to_explicit_user_verification() {
     let config: RewardFundingConfig =
         serde_json::from_str(r#"{"version":1,"max_daily_units":4}"#).unwrap();
     assert!(config.require_passkey);
-    let config: RewardFundingConfig = serde_json::from_str(
-        r#"{"version":1,"max_daily_units":4,"require_passkey":false}"#,
-    )
-    .unwrap();
+    let config: RewardFundingConfig =
+        serde_json::from_str(r#"{"version":1,"max_daily_units":4,"require_passkey":false}"#)
+            .unwrap();
     assert!(!config.require_passkey);
     assert!(
         serde_json::from_str::<RewardFundingConfig>(
@@ -18,10 +17,9 @@ fn checkin_rewards_default_to_explicit_user_verification() {
 }
 #[test]
 fn checkin_reward_limits_read_legacy_caps_and_write_only_the_scalar() {
-    let config: RewardFundingConfig = serde_json::from_str(
-        r#"{"version":1,"max_daily_units_by_trust":[100,200,300,400,4]}"#,
-    )
-    .unwrap();
+    let config: RewardFundingConfig =
+        serde_json::from_str(r#"{"version":1,"max_daily_units_by_trust":[100,200,300,400,4]}"#)
+            .unwrap();
     assert_eq!(config.max_daily_units, 4);
     assert!(config.require_passkey);
     assert_eq!(
@@ -68,8 +66,14 @@ fn checkin_reward_limits_reject_conflicting_or_invalid_amounts() {
 fn checkin_reward_limits_validate_the_production_toml_boundary() {
     for (document, expected) in [
         ("version = 1\nmax_daily_units = 0\n", 0),
-        ("version = 1\nmax_daily_units = 9223372036854775807\n", i64::MAX),
-        ("version = 1\nmax_daily_units_by_trust = [900, 80, 70, 60, 4]\n", 4),
+        (
+            "version = 1\nmax_daily_units = 9223372036854775807\n",
+            i64::MAX,
+        ),
+        (
+            "version = 1\nmax_daily_units_by_trust = [900, 80, 70, 60, 4]\n",
+            4,
+        ),
     ] {
         let config: RewardFundingConfig = parse_document(document.as_bytes()).unwrap();
         assert_eq!(config.max_daily_units, expected);
@@ -86,7 +90,10 @@ fn checkin_reward_limits_validate_the_production_toml_boundary() {
         "version = 1\nmax_daily_units_by_trust = [0,1,2,3]\n",
         "version = 1\nmax_daily_units = 4\nunexpected = true\n",
     ] {
-        assert!(parse_document::<RewardFundingConfig>(document.as_bytes()).is_err(), "{document}");
+        assert!(
+            parse_document::<RewardFundingConfig>(document.as_bytes()).is_err(),
+            "{document}"
+        );
     }
 }
 

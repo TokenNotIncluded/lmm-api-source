@@ -1,5 +1,10 @@
 //! Bounded public socket writes independent of request or stream lifetimes.
-use std::{io, pin::Pin, task::{Context, Poll}, time::Duration};
+use std::{
+    io,
+    pin::Pin,
+    task::{Context, Poll},
+    time::Duration,
+};
 
 /// Maximum duration of a pending downstream write operation.
 pub const PUBLIC_WRITE_TIMEOUT: Duration = Duration::from_secs(5);
@@ -180,11 +185,14 @@ pub fn public_listener(listener: tokio::net::TcpListener) -> PublicListener {
     PublicWriteListener(listener).tap_io((|_| {}) as fn(&mut PublicWriteIo<tokio::net::TcpStream>))
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use axum::{Router, body::{Body, Bytes}, http::header};
+    use axum::{
+        Router,
+        body::{Body, Bytes},
+        http::header,
+    };
     use tokio::sync::watch;
     use tokio_stream::StreamExt;
 

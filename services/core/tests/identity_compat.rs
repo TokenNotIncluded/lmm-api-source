@@ -593,7 +593,12 @@ async fn key_access_does_not_require_service_level_or_client_activation(pool: Pg
     assert!(store.authorize(&native.secret).await.is_ok());
     sqlx::query("UPDATE core_identity.accounts SET service_level=4 WHERE id=(SELECT personal_account_id FROM core_identity.users WHERE id=$1)").bind(user).execute(&pool).await.unwrap();
     let dashboard = create(&app, &session.secret, input()).await;
-    assert!(store.authorize(dashboard["key"].as_str().unwrap()).await.is_ok());
+    assert!(
+        store
+            .authorize(dashboard["key"].as_str().unwrap())
+            .await
+            .is_ok()
+    );
     assert_eq!(
         call(
             &app,
@@ -650,8 +655,15 @@ async fn fresh_browser_signup_can_use_default_models_and_respects_explicit_group
     assert_eq!(self_view["data"]["permissions"]["api_key_management"], true);
     assert!(self_view["data"].get("developer_access_granted").is_none());
     assert!(self_view["data"].get("trust_level").is_none());
-    let (status, groups, _) =
-        call(&app, "GET", "/api/user/self/groups", Some(access), None, None).await;
+    let (status, groups, _) = call(
+        &app,
+        "GET",
+        "/api/user/self/groups",
+        Some(access),
+        None,
+        None,
+    )
+    .await;
     assert_eq!(status, StatusCode::OK, "{groups}");
     assert_eq!(
         groups["data"],
@@ -660,8 +672,7 @@ async fn fresh_browser_signup_can_use_default_models_and_respects_explicit_group
             "default":{"desc":"default","ratio":"model-specific"}
         })
     );
-    let (status, models, _) =
-        call(&app, "GET", "/api/user/models", Some(access), None, None).await;
+    let (status, models, _) = call(&app, "GET", "/api/user/models", Some(access), None, None).await;
     assert_eq!(status, StatusCode::OK, "{models}");
     assert_eq!(models["data"], json!(["local-model"]));
 
@@ -686,7 +697,16 @@ async fn fresh_browser_signup_can_use_default_models_and_respects_explicit_group
     private_input["group"] = json!("private");
     private_input["model_limits"] = json!("private-model");
     assert_eq!(
-        call(&app, "POST", "/api/token/", Some(access), Some(private_input.clone()), Some(ORIGIN)).await.0,
+        call(
+            &app,
+            "POST",
+            "/api/token/",
+            Some(access),
+            Some(private_input.clone()),
+            Some(ORIGIN)
+        )
+        .await
+        .0,
         StatusCode::FORBIDDEN
     );
     assert!(matches!(
@@ -722,7 +742,16 @@ async fn fresh_browser_signup_can_use_default_models_and_respects_explicit_group
         Err(IdentityError::Forbidden)
     ));
     assert_eq!(
-        call(&app, "POST", "/api/token/", Some(access), Some(input()), Some(ORIGIN)).await.0,
+        call(
+            &app,
+            "POST",
+            "/api/token/",
+            Some(access),
+            Some(input()),
+            Some(ORIGIN)
+        )
+        .await
+        .0,
         StatusCode::FORBIDDEN
     );
 
@@ -739,11 +768,23 @@ async fn fresh_browser_signup_can_use_default_models_and_respects_explicit_group
     );
     let private = create(&app, access, private_input).await;
     assert_eq!(
-        store.api_key_routing_groups(private["key"].as_str().unwrap()).await.unwrap(),
+        store
+            .api_key_routing_groups(private["key"].as_str().unwrap())
+            .await
+            .unwrap(),
         vec!["private"]
     );
     assert_eq!(
-        call(&app, "POST", "/api/token/", Some(access), Some(input()), Some(ORIGIN)).await.0,
+        call(
+            &app,
+            "POST",
+            "/api/token/",
+            Some(access),
+            Some(input()),
+            Some(ORIGIN)
+        )
+        .await
+        .0,
         StatusCode::FORBIDDEN
     );
 }
@@ -1872,9 +1913,7 @@ mod marked_key_cases {
     }
 
     #[sqlx::test(migrations = false)]
-    async fn unmark_preserves_normal_key_access_and_disabled_user_stays_disabled(
-        pool: PgPool,
-    ) {
+    async fn unmark_preserves_normal_key_access_and_disabled_user_stays_disabled(pool: PgPool) {
         let (owner, _, _, _) = fixture(&pool).await;
         let (_, alice) = browser_account(&owner, "browser_control").await;
         let (user, secret) = browser_account(&owner, "marked_candidate").await;

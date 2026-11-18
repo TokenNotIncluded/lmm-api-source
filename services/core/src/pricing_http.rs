@@ -221,7 +221,8 @@ impl PricingHttp {
             if !policy.enabled && actor.platform_level != 6 {
                 return Err(Error::Forbidden);
             }
-            let groups = identity::routing_group_names_in_transaction(&mut tx, actor.user_id).await?;
+            let groups =
+                identity::routing_group_names_in_transaction(&mut tx, actor.user_id).await?;
             let models = crate::abuse::public_models_in_transaction(&mut tx, actor.user_id)
                 .await
                 .map_err(|_| Error::Unavailable)?;

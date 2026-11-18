@@ -272,7 +272,10 @@ async fn provider_binding_is_mandatory_and_success_posts_once(owner: PgPool) {
     let mut over_cap = input.clone();
     over_cap.amount_units = context.max_daily_units + 1;
     status(
-        f.ledger.post(request(access(&f.bundle), over_cap)).await.unwrap_err(),
+        f.ledger
+            .post(request(access(&f.bundle), over_cap))
+            .await
+            .unwrap_err(),
         Code::PermissionDenied,
         "funding authority denied",
     );

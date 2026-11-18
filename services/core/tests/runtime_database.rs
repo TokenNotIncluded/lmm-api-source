@@ -476,7 +476,10 @@ async fn restricted_role_checks_without_disabled_module_grants(pool: PgPool) {
     let trust_access: bool = sqlx::query_scalar(
         "SELECT has_schema_privilege('core_trust_pricing','USAGE') OR EXISTS(SELECT FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='core_trust_pricing' AND c.relkind='r' AND (has_table_privilege(c.oid,'SELECT') OR has_any_column_privilege(c.oid,'SELECT')))",
     ).fetch_one(&role.pool).await.unwrap();
-    assert!(!trust_access, "enabled model runtime must not need retired trust data");
+    assert!(
+        !trust_access,
+        "enabled model runtime must not need retired trust data"
+    );
     runtime_database::check(
         &role.pool,
         RequiredCapabilities {

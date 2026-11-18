@@ -27,7 +27,6 @@
 
 mod write_io;
 
-use write_io::{PublicWriteIo, public_listener};
 use axum::{Router, body::Body, serve::Listener};
 use hyper::{Request, body::Incoming, service::service_fn};
 use hyper_util::{
@@ -54,6 +53,7 @@ use tokio::{
     time::{Instant, sleep_until},
 };
 use tower::{Service, ServiceExt};
+use write_io::{PublicWriteIo, public_listener};
 
 /// Independent from the lifecycle's per-request admission and finalizer leases.
 pub const MAX_PUBLIC_CONNECTIONS: usize = 64;

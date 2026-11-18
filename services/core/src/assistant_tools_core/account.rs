@@ -136,7 +136,8 @@ pub async fn access_in_transaction(
         .bind(actor.user).bind(actor.account).fetch_one(&mut *c).await?;
     let calls:i64=sqlx::query_scalar("SELECT count(*) FROM core_charging.requests WHERE actor_user_id=$1 AND owner_account_id=$2 AND assistant_grant_id IS NULL AND state='settled' AND outcome='completed'").bind(actor.user).bind(actor.account).fetch_one(&mut *c).await?;
     let mut overview = overview_in_transaction(c, context, &UserTarget::default()).await?;
-    overview["access"] = json!({"authenticated":true,"api_key_management":true,"source":"core live identity"});
+    overview["access"] =
+        json!({"authenticated":true,"api_key_management":true,"source":"core live identity"});
     overview["progress"] = json!({"active_personal_api_keys":keys,"completed_native_model_requests":calls,"client_installation_proof_available":false,"client_configuration_proof_available":false});
     Ok(overview)
 }

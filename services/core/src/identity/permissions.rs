@@ -595,8 +595,8 @@ pub(crate) fn decide(
         }
     } else {
         let correct = match action {
-            UserRead | UserManage | UserPermissionsWrite | OwnProfileRead
-            | OwnProfileWrite | OwnKeyManage | ConsoleRead => {
+            UserRead | UserManage | UserPermissionsWrite | OwnProfileRead | OwnProfileWrite
+            | OwnKeyManage | ConsoleRead => {
                 matches!(scope, Scope::User { .. })
             }
             TeamRead | TeamInviteAdmin | TeamInviteMember | TeamRemoveAdmin | TeamRemoveMember

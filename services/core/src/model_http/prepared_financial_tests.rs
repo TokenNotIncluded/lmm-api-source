@@ -624,8 +624,13 @@ async fn prepared_contract_same_id_replay_binds_proof_without_trust_prices(pool:
             .unwrap();
     sqlx::query("INSERT INTO core_trust_pricing.user_bases(user_id,original_created_at,console_activated_at,last_api_activity_at,override_level,projection_known,order_count,revision,source_digest) VALUES($1,$2,0,0,4,TRUE,0,1,decode(repeat('11',32),'hex'))")
         .bind(first.actor_user_id).bind(now).execute(&f.pool).await.unwrap();
-    let (next, basis, proof) =
-        preparation("prepared-legacy-trust-ignored", 24, 8, price(), b"next-wire");
+    let (next, basis, proof) = preparation(
+        "prepared-legacy-trust-ignored",
+        24,
+        8,
+        price(),
+        b"next-wire",
+    );
     let next = reserve(&charging, &f.key, &next, basis, &proof)
         .await
         .unwrap();

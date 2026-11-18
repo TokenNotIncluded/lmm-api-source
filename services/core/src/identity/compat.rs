@@ -369,7 +369,6 @@ impl IdentityStore {
         let row=sqlx::query("SELECT group_name,auto_groups FROM core_identity.api_key_settings WHERE credential_id=$1 FOR SHARE")
             .bind(actor.credential_id).fetch_optional(&mut *tx).await?;
         let result = if let Some(row) = row {
-
             let selected: String = row.try_get("group_name")?;
             if selected != "auto" {
                 if !routing_group_allowed_in_transaction(&mut tx, actor.user_id, &selected).await? {

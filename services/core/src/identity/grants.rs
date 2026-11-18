@@ -424,7 +424,6 @@ impl GrantStore {
         tx.commit().await?;
         Ok(())
     }
-
 }
 #[cfg(test)]
 pub(crate) mod tests;

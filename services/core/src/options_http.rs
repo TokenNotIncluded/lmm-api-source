@@ -323,10 +323,17 @@ mod tests {
             ("POST", "/api/option/trust-policy/confirm"),
             ("POST", "/api/option/trust-policy/resolve"),
         ] {
-            let response = app.clone().oneshot(
-                Request::builder().method(method).uri(path)
-                    .body(Body::empty()).unwrap(),
-            ).await.unwrap();
+            let response = app
+                .clone()
+                .oneshot(
+                    Request::builder()
+                        .method(method)
+                        .uri(path)
+                        .body(Body::empty())
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
             assert_eq!(response.status(), StatusCode::NOT_FOUND, "{method} {path}");
         }
     }

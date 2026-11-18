@@ -20,9 +20,7 @@ impl CheckinStore {
         validate_month(&month)?;
         let policy = policy(&mut tx).await?;
         let range = match &policy {
-            Some(p) if p.policy.enabled => {
-                Some(reward_range(&p.policy)?)
-            }
+            Some(p) if p.policy.enabled => Some(reward_range(&p.policy)?),
             _ => None,
         };
         let today_record = daily(&mut tx, actor.owner_account_id, &today).await?;
