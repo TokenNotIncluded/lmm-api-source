@@ -218,14 +218,7 @@ type AssistantAction =
   | {
       kind: 'tool'
       label: string
-      tool:
-        | 'key'
-        | 'cost'
-        | 'handoff'
-        | 'models'
-        | 'plan'
-        | 'setup'
-        | 'usage'
+      tool: 'key' | 'cost' | 'handoff' | 'models' | 'plan' | 'setup' | 'usage'
     }
 
 type AssistantTurnIdentity =
@@ -480,9 +473,7 @@ function AssistantThinkingIndicator(props: { step: number }) {
   )
 }
 
-function AssistantModernWelcome(props: {
-  description: string
-}) {
+function AssistantModernWelcome(props: { description: string }) {
   const { t } = useTranslation()
 
   return (
@@ -490,9 +481,7 @@ function AssistantModernWelcome(props: {
       className='assistant-start-intro'
       data-testid='assistant-modern-welcome'
     >
-      <h2>
-        {t('How can I help?')}
-      </h2>
+      <h2>{t('How can I help?')}</h2>
       <p>{props.description}</p>
     </div>
   )
@@ -564,14 +553,7 @@ function AssistantGettingStartedActions(props: {
 function AssistantActionButton(props: {
   action: AssistantAction
   onToolOpen: (
-    tool:
-      | 'key'
-      | 'cost'
-      | 'handoff'
-      | 'models'
-      | 'plan'
-      | 'setup'
-      | 'usage'
+    tool: 'key' | 'cost' | 'handoff' | 'models' | 'plan' | 'setup' | 'usage'
   ) => void
 }) {
   const { action } = props
@@ -1317,14 +1299,7 @@ function AssistantPanelSession(props: AssistantPanelProps) {
     'list' | AssistantConversationHistoryItem | null
   >(null)
   const [activeTool, setActiveTool] = useState<
-    | 'key'
-    | 'cost'
-    | 'handoff'
-    | 'models'
-    | 'plan'
-    | 'setup'
-    | 'usage'
-    | null
+    'key' | 'cost' | 'handoff' | 'models' | 'plan' | 'setup' | 'usage' | null
   >(null)
   const openedTargetRef = useRef<AssistantPresetId | undefined>(undefined)
   const activeToolRegionRef = useRef<HTMLDivElement | null>(null)
@@ -1343,8 +1318,7 @@ function AssistantPanelSession(props: AssistantPanelProps) {
     statusQuery.data,
     statusQuery.isError
   )
-  const accountAccessConfirmed =
-    accountAccessState === 'granted'
+  const accountAccessConfirmed = accountAccessState === 'granted'
   const authenticated = Boolean(authUser) && accountAccessConfirmed
   const assistantRouteUnavailable = statusQuery.data?.route_available === false
   const presetLanguage = i18n.resolvedLanguage || i18n.language
@@ -1428,7 +1402,7 @@ function AssistantPanelSession(props: AssistantPanelProps) {
   let assistantDescription = t('Loading...')
   let assistantPromptPlaceholder = t('Ask AI assistant')
   if (isAdministrator) {
-    assistantFooterStatus = (t('Administrator mode'))
+    assistantFooterStatus = t('Administrator mode')
     assistantDescription = t(
       'Administrator mode executes requested management tasks using your current permissions and reports the results.'
     )
@@ -1436,19 +1410,15 @@ function AssistantPanelSession(props: AssistantPanelProps) {
       'Ask about server configuration, model pricing, or operations...'
     )
   } else if (accountAccessConfirmed) {
-    assistantFooterStatus = (
-      superAdministratorFunded
-        ? t('Funded by the super administrator')
-        : t('Write actions need your confirmation')
-    )
+    assistantFooterStatus = superAdministratorFunded
+      ? t('Funded by the super administrator')
+      : t('Write actions need your confirmation')
     assistantDescription = t(
       'Guidance for plans, setup, API keys, costs, and support.'
     )
     assistantPromptPlaceholder = t('Ask about plans, setup, keys, or costs...')
   } else if (accountAccessState === 'error') {
-    assistantFooterStatus = (
-      t('Unable to verify account access')
-    )
+    assistantFooterStatus = t('Unable to verify account access')
     assistantDescription = t('Unable to verify account access')
   }
 
@@ -1658,7 +1628,14 @@ function AssistantPanelSession(props: AssistantPanelProps) {
       ])
       return true
     },
-    [accountAccessConfirmed, authUser, navigate, assistantDescription, clearTransientCards, t]
+    [
+      accountAccessConfirmed,
+      authUser,
+      navigate,
+      assistantDescription,
+      clearTransientCards,
+      t,
+    ]
   )
 
   useEffect(() => {
@@ -2707,9 +2684,7 @@ function AssistantPanelSession(props: AssistantPanelProps) {
                         />
                       ) : null}
                       {activeTool === 'cost' && accountAccessConfirmed ? (
-                        <AssistantCostTool
-                          authenticated={authenticated}
-                        />
+                        <AssistantCostTool authenticated={authenticated} />
                       ) : null}
                       {activeTool === 'handoff' && accountAccessConfirmed ? (
                         <AssistantHandoffTool
@@ -2732,7 +2707,12 @@ function AssistantPanelSession(props: AssistantPanelProps) {
                       {activeTool === 'plan' && accountAccessConfirmed ? (
                         <AssistantPlanTool
                           authenticated={authenticated}
-                          onSignIn={() => void navigate({ to: '/sign-in', search: { redirect: '/guide' } })}
+                          onSignIn={() =>
+                            void navigate({
+                              to: '/sign-in',
+                              search: { redirect: '/guide' },
+                            })
+                          }
                         />
                       ) : null}
                       {activeTool === 'setup' && accountAccessConfirmed ? (
@@ -2743,16 +2723,19 @@ function AssistantPanelSession(props: AssistantPanelProps) {
                           modelsLoading={connectionModelsQuery.isLoading}
                           authenticated={authenticated}
                           onCreateKey={() => setActiveTool('key')}
-                          onSignIn={() => void navigate({ to: '/sign-in', search: { redirect: '/guide' } })}
+                          onSignIn={() =>
+                            void navigate({
+                              to: '/sign-in',
+                              search: { redirect: '/guide' },
+                            })
+                          }
                           onAskQuestion={(question) =>
                             requestAssistantOpen(undefined, question)
                           }
                         />
                       ) : null}
                       {activeTool === 'usage' && authenticated ? (
-                        <AssistantUsageTool
-                          authenticated={authenticated}
-                        />
+                        <AssistantUsageTool authenticated={authenticated} />
                       ) : null}
                     </div>
                   ) : null}

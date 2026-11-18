@@ -133,10 +133,7 @@ const assistantOffersFixture = {
   },
 }
 
-async function renderTool(
-  authenticated: boolean,
-  onSignIn = () => {}
-) {
+async function renderTool(authenticated: boolean, onSignIn = () => {}) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   })
@@ -225,12 +222,14 @@ describe('AssistantPlanTool', () => {
       return {
         data: {
           ...assistantOffersFixture,
-          data: JSON.parse(JSON.stringify({
-            ...assistantOffersFixture.data,
-            developer_access_granted: false,
-            read_only: false,
-            checkout_available: true,
-          })),
+          data: JSON.parse(
+            JSON.stringify({
+              ...assistantOffersFixture.data,
+              developer_access_granted: false,
+              read_only: false,
+              checkout_available: true,
+            })
+          ),
         },
       }
     }) as typeof api.get
@@ -271,12 +270,14 @@ describe('AssistantPlanTool', () => {
       return {
         data: {
           ...assistantOffersFixture,
-          data: JSON.parse(JSON.stringify({
-            ...assistantOffersFixture.data,
-            developer_access_granted: false,
-            read_only: true,
-            checkout_available: false,
-          })),
+          data: JSON.parse(
+            JSON.stringify({
+              ...assistantOffersFixture.data,
+              developer_access_granted: false,
+              read_only: true,
+              checkout_available: false,
+            })
+          ),
         },
       }
     }) as typeof api.get
@@ -290,7 +291,8 @@ describe('AssistantPlanTool', () => {
 
     await act(async () => {
       const button = [...rendered.container.querySelectorAll('button')].find(
-        (candidate) => candidate.textContent?.includes('Sign in to continue setup')
+        (candidate) =>
+          candidate.textContent?.includes('Sign in to continue setup')
       )
       assert.ok(button)
       button.click()

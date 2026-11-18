@@ -90,7 +90,10 @@ test('a profile refresh cannot overwrite a newer session of the same account', a
   const request = refreshCurrentAccount()
   useAuthStore.getState().auth.setBundle(bundle('new-session'))
   finish({
-    data: { success: true, data: { ...user, financial_projection_available: true } },
+    data: {
+      success: true,
+      data: { ...user, financial_projection_available: true },
+    },
   })
   assert.equal(await request, null)
   assert.equal(useAuthStore.getState().auth.session?.sid, 'new-session')

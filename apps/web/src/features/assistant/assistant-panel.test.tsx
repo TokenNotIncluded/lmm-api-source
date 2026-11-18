@@ -154,13 +154,15 @@ const assistantPreConversationPresets = {
   ],
 }
 
-const registrationUser: AuthUser = JSON.parse(JSON.stringify({
-  id: 93,
-  username: 'registration-user',
-  role: 1,
-  developer_access_granted: false,
-  trust_level_info: { level: 0 }  ,
-}))
+const registrationUser: AuthUser = JSON.parse(
+  JSON.stringify({
+    id: 93,
+    username: 'registration-user',
+    role: 1,
+    developer_access_granted: false,
+    trust_level_info: { level: 0 },
+  })
+)
 
 async function flushEffects() {
   await new Promise((resolve) => setTimeout(resolve, 25))
@@ -250,7 +252,10 @@ async function renderPanel(
   return { container, queryClient, root }
 }
 
-async function renderLauncher(user: AuthUser | null = registrationUser, width = 1280) {
+async function renderLauncher(
+  user: AuthUser | null = registrationUser,
+  width = 1280
+) {
   Object.defineProperty(window, 'innerWidth', {
     configurable: true,
     value: width,
@@ -376,7 +381,12 @@ describe('AssistantPanel', () => {
         return {
           data: {
             success: true,
-            data: JSON.parse(JSON.stringify({ ...assistantStatus, developer_access_granted: false })),
+            data: JSON.parse(
+              JSON.stringify({
+                ...assistantStatus,
+                developer_access_granted: false,
+              })
+            ),
           },
         }
       }
@@ -445,7 +455,12 @@ describe('AssistantPanel', () => {
       return {
         data: {
           success: true,
-          data: JSON.parse(JSON.stringify({ ...assistantStatus, developer_access_granted: false })),
+          data: JSON.parse(
+            JSON.stringify({
+              ...assistantStatus,
+              developer_access_granted: false,
+            })
+          ),
         },
       }
     }) as typeof api.get
@@ -498,11 +513,13 @@ describe('AssistantPanel', () => {
         return {
           data: {
             success: true,
-            data: JSON.parse(JSON.stringify({
-              ...assistantStatus,
-              developer_access_granted: false,
-              route_available: false,
-            })),
+            data: JSON.parse(
+              JSON.stringify({
+                ...assistantStatus,
+                developer_access_granted: false,
+                route_available: false,
+              })
+            ),
           },
         }
       }
@@ -514,7 +531,10 @@ describe('AssistantPanel', () => {
       }
       if (url === '/api/assistant/support/17') {
         return {
-          data: { success: true, data: { request: currentSupport, messages: [] } },
+          data: {
+            success: true,
+            data: { request: currentSupport, messages: [] },
+          },
         }
       }
       return { data: { success: false, message: 'Not enabled in this test' } }
@@ -524,7 +544,10 @@ describe('AssistantPanel', () => {
       assert.equal(url, '/api/assistant/support')
       currentSupport = supportRequest
       return {
-        data: { success: true, data: { request: currentSupport, created: true } },
+        data: {
+          success: true,
+          data: { request: currentSupport, created: true },
+        },
       }
     }) as typeof api.post
     const rendered = await renderPanel()
@@ -537,14 +560,19 @@ describe('AssistantPanel', () => {
           )
         ).click()
         await waitForCondition(
-          () => document.body.textContent?.includes('Waiting for an administrator to join') === true,
+          () =>
+            document.body.textContent?.includes(
+              'Waiting for an administrator to join'
+            ) === true,
           'Human support request was not reflected in the conversation'
         )
       })
       assert.equal(posts.length, 1)
       assert.equal(posts[0]?.body.kind, 'handoff')
       assert.equal(
-        document.querySelector<HTMLTextAreaElement>('textarea[aria-label="Ask AI assistant"]')?.disabled,
+        document.querySelector<HTMLTextAreaElement>(
+          'textarea[aria-label="Ask AI assistant"]'
+        )?.disabled,
         false
       )
     } finally {
@@ -1577,12 +1605,18 @@ describe('AssistantPanel', () => {
       }
     }) as typeof api.get
 
-    const rendered = await renderPanel(undefined, 'mobile', JSON.parse(JSON.stringify({
-      id: 7,
-      username: 'l0-user',
-      role: 1,
-      developer_access_granted: false,
-    })))
+    const rendered = await renderPanel(
+      undefined,
+      'mobile',
+      JSON.parse(
+        JSON.stringify({
+          id: 7,
+          username: 'l0-user',
+          role: 1,
+          developer_access_granted: false,
+        })
+      )
+    )
     try {
       await act(async () => {
         findHistoryToggle().click()
@@ -1594,7 +1628,9 @@ describe('AssistantPanel', () => {
         )
       })
 
-      const link = requireValue(document.querySelector('a[href="/chat-management"]'))
+      const link = requireValue(
+        document.querySelector('a[href="/chat-management"]')
+      )
       assert.match(link.textContent ?? '', /Conversation records/)
     } finally {
       await act(async () => rendered.root.unmount())
@@ -1613,7 +1649,12 @@ describe('AssistantPanel', () => {
       return {
         data: {
           success: true,
-          data: JSON.parse(JSON.stringify({ ...assistantStatus, developer_access_granted: false })),
+          data: JSON.parse(
+            JSON.stringify({
+              ...assistantStatus,
+              developer_access_granted: false,
+            })
+          ),
         },
       }
     }) as typeof api.get
@@ -1715,7 +1756,12 @@ describe('AssistantPanel', () => {
         return {
           data: {
             success: true,
-            data: JSON.parse(JSON.stringify({ ...assistantStatus, developer_access_granted: false })),
+            data: JSON.parse(
+              JSON.stringify({
+                ...assistantStatus,
+                developer_access_granted: false,
+              })
+            ),
           },
         }
       }) as typeof api.get
@@ -1732,13 +1778,19 @@ describe('AssistantPanel', () => {
         }
       }) as typeof api.post
 
-      const rendered = await renderPanel(undefined, 'mobile', JSON.parse(JSON.stringify({
-        id: 7,
-        username: 'l0-preset-user',
-        role: 1,
-        trust_level_info: { level: 0 }  ,
-        developer_access_granted: false,
-      })))
+      const rendered = await renderPanel(
+        undefined,
+        'mobile',
+        JSON.parse(
+          JSON.stringify({
+            id: 7,
+            username: 'l0-preset-user',
+            role: 1,
+            trust_level_info: { level: 0 },
+            developer_access_granted: false,
+          })
+        )
+      )
       try {
         for (const [language, file] of [
           ['en', 'en'],
@@ -1874,13 +1926,19 @@ describe('AssistantPanel', () => {
       true
     )
     await i18n.changeLanguage('fr')
-    const rendered = await renderPanel(undefined, 'mobile', JSON.parse(JSON.stringify({
-      id: 7,
-      username: 'l0-preset-user',
-      role: 1,
-      trust_level_info: { level: 0 }  ,
-      developer_access_granted: false,
-    })))
+    const rendered = await renderPanel(
+      undefined,
+      'mobile',
+      JSON.parse(
+        JSON.stringify({
+          id: 7,
+          username: 'l0-preset-user',
+          role: 1,
+          trust_level_info: { level: 0 },
+          developer_access_granted: false,
+        })
+      )
+    )
     try {
       await act(async () =>
         waitForCondition(
@@ -2206,12 +2264,14 @@ describe('AssistantPanel', () => {
       }
     }) as typeof api.get
 
-    const l0User: AuthUser = JSON.parse(JSON.stringify({
-      id: 7,
-      username: 'l0-user',
-      role: 1,
-      developer_access_granted: false,
-    }))
+    const l0User: AuthUser = JSON.parse(
+      JSON.stringify({
+        id: 7,
+        username: 'l0-user',
+        role: 1,
+        developer_access_granted: false,
+      })
+    )
     const rendered = await renderLauncher(l0User)
     try {
       const launcherButton = document.querySelector<HTMLButtonElement>(
@@ -2226,10 +2286,14 @@ describe('AssistantPanel', () => {
       assert.equal(launcherButton.getAttribute('title'), 'Open AI assistant')
 
       await act(async () => {
-        useAuthStore.getState().auth.setUser(JSON.parse(JSON.stringify({
-          ...l0User,
-          developer_access_granted: true,
-        })))
+        useAuthStore.getState().auth.setUser(
+          JSON.parse(
+            JSON.stringify({
+              ...l0User,
+              developer_access_granted: true,
+            })
+          )
+        )
         await flushEffects()
       })
 
@@ -2638,7 +2702,12 @@ describe('AssistantPanel', () => {
         return {
           data: {
             success: true,
-            data: JSON.parse(JSON.stringify({ ...assistantStatus, developer_access_granted: false })),
+            data: JSON.parse(
+              JSON.stringify({
+                ...assistantStatus,
+                developer_access_granted: false,
+              })
+            ),
           },
         }
       }
@@ -2647,16 +2716,18 @@ describe('AssistantPanel', () => {
         return {
           data: {
             success: true,
-            data: JSON.parse(JSON.stringify({
-              ok: true,
-              developer_access_granted: false,
-              read_only: false,
-              checkout_available: true,
-              payment_hidden: false,
-              payment_compliance_confirmed: true,
-              plans: [],
-              topup_discounts: {},
-            })),
+            data: JSON.parse(
+              JSON.stringify({
+                ok: true,
+                developer_access_granted: false,
+                read_only: false,
+                checkout_available: true,
+                payment_hidden: false,
+                payment_compliance_confirmed: true,
+                plans: [],
+                topup_discounts: {},
+              })
+            ),
           },
         }
       }
@@ -2693,12 +2764,20 @@ describe('AssistantPanel', () => {
     }) as typeof api.get
     const rendered = await renderPanel('onboarding', 'mobile', registrationUser)
     try {
-      await act(async () => waitForCondition(
-        () => document.body.textContent?.includes('Client setup') === true,
-        'Client setup did not render'
-      ))
-      assert.equal(document.querySelector('[data-testid="assistant-registration-status"]'), null)
-      assert.doesNotMatch(document.body.textContent ?? '', /L1|Request API access|Registration verification/)
+      await act(async () =>
+        waitForCondition(
+          () => document.body.textContent?.includes('Client setup') === true,
+          'Client setup did not render'
+        )
+      )
+      assert.equal(
+        document.querySelector('[data-testid="assistant-registration-status"]'),
+        null
+      )
+      assert.doesNotMatch(
+        document.body.textContent ?? '',
+        /L1|Request API access|Registration verification/
+      )
     } finally {
       await act(async () => rendered.root.unmount())
       rendered.queryClient.clear()
@@ -2712,7 +2791,12 @@ describe('AssistantPanel', () => {
         return {
           data: {
             success: true,
-            data: JSON.parse(JSON.stringify({ ...assistantStatus, developer_access_granted: false })),
+            data: JSON.parse(
+              JSON.stringify({
+                ...assistantStatus,
+                developer_access_granted: false,
+              })
+            ),
           },
         }
       }
@@ -2765,18 +2849,24 @@ describe('AssistantPanel', () => {
       }
     }) as typeof api.get
 
-    const rendered = await renderPanel(undefined, 'mobile', JSON.parse(JSON.stringify({
-      id: 42,
-      username: 'ordinary-user',
-      role: 1,
-      developer_access_granted: false,
-      onboarding: {
-        activation_complete: true,
-        credential_complete: false,
-        first_request_complete: false,
-        stage: 'credential',
-      },
-    })))
+    const rendered = await renderPanel(
+      undefined,
+      'mobile',
+      JSON.parse(
+        JSON.stringify({
+          id: 42,
+          username: 'ordinary-user',
+          role: 1,
+          developer_access_granted: false,
+          onboarding: {
+            activation_complete: true,
+            credential_complete: false,
+            first_request_complete: false,
+            stage: 'credential',
+          },
+        })
+      )
+    )
     try {
       await act(async () =>
         waitForCondition(
@@ -2894,13 +2984,15 @@ describe('AssistantPanel', () => {
   })
 
   test('confirms an edited nickname, refreshes the authenticated user, and removes the card', async () => {
-    const user: AuthUser = JSON.parse(JSON.stringify({
-      id: 94,
-      username: 'nickname-user',
-      display_name: 'Current nickname',
-      role: 1,
-      developer_access_granted: true,
-    }))
+    const user: AuthUser = JSON.parse(
+      JSON.stringify({
+        id: 94,
+        username: 'nickname-user',
+        display_name: 'Current nickname',
+        role: 1,
+        developer_access_granted: true,
+      })
+    )
     useAuthStore.getState().auth.setBundle({
       access_token: 'test-access-token',
       token_type: 'Bearer',
@@ -3119,10 +3211,7 @@ describe('AssistantPanel', () => {
 
     const rendered = await renderPanel()
     try {
-      assert.match(
-        document.body.textContent ?? '',
-        /Administrator mode/
-      )
+      assert.match(document.body.textContent ?? '', /Administrator mode/)
       const textarea = document.querySelector<HTMLTextAreaElement>(
         'textarea[placeholder="Ask about server configuration, model pricing, or operations..."]'
       )
@@ -3640,8 +3729,6 @@ describe('AssistantPanel', () => {
     }
   })
 
-
-
   test('retries the exact failed conversation without duplicating the user message', async () => {
     const posted: unknown[] = []
     const attempts: unknown[] = []
@@ -3739,15 +3826,18 @@ describe('AssistantPanel', () => {
     rendered.queryClient.clear()
   })
 
-
-
   test('does not create a registration workflow for a general question', async () => {
     api.get = (async (url: string) => {
       assert.equal(url, '/api/assistant/status')
       return {
         data: {
           success: true,
-          data: JSON.parse(JSON.stringify({ ...assistantStatus, developer_access_granted: false })),
+          data: JSON.parse(
+            JSON.stringify({
+              ...assistantStatus,
+              developer_access_granted: false,
+            })
+          ),
         },
       }
     }) as typeof api.get
@@ -3857,16 +3947,17 @@ describe('AssistantPanel', () => {
       rendered.queryClient.clear()
     }
   })
-
 })
 
 describe('AssistantPanel in-site human support', () => {
-  const user: AuthUser = JSON.parse(JSON.stringify({
-    id: 88,
-    username: 'support-user',
-    role: 1,
-    developer_access_granted: true,
-  }))
+  const user: AuthUser = JSON.parse(
+    JSON.stringify({
+      id: 88,
+      username: 'support-user',
+      role: 1,
+      developer_access_granted: true,
+    })
+  )
   const fixture = (changes: Record<string, unknown> = {}) => ({
     id: 17,
     user_id: 88,
@@ -4348,12 +4439,14 @@ describe('AssistantPanel in-site human support', () => {
 })
 
 describe('AssistantLauncher lifecycle', () => {
-  const launcherOwner: AuthUser = JSON.parse(JSON.stringify({
-    id: 401,
-    username: 'launcher-owner',
-    role: 100,
-    developer_access_granted: true,
-  }))
+  const launcherOwner: AuthUser = JSON.parse(
+    JSON.stringify({
+      id: 401,
+      username: 'launcher-owner',
+      role: 100,
+      developer_access_granted: true,
+    })
+  )
 
   test('mount replays a queued draft once, preserves user edits on profile refresh and resets external fullscreen closure', async () => {
     api.get = (async (url: string) => {
@@ -4367,11 +4460,13 @@ describe('AssistantLauncher lifecycle', () => {
           data: {
             success: true,
             data: {
-              eligibility: JSON.parse(JSON.stringify({
-                eligible: false,
-                developer_access_granted: true,
-                trust_level: 6,
-              })),
+              eligibility: JSON.parse(
+                JSON.stringify({
+                  eligible: false,
+                  developer_access_granted: true,
+                  trust_level: 6,
+                })
+              ),
               status: 'unavailable',
               current_step: null,
               steps: [],
@@ -4466,11 +4561,13 @@ describe('AssistantLauncher lifecycle', () => {
         data: {
           success: true,
           data: {
-            eligibility: JSON.parse(JSON.stringify({
-              eligible: false,
-              developer_access_granted: true,
-              trust_level: 6,
-            })),
+            eligibility: JSON.parse(
+              JSON.stringify({
+                eligible: false,
+                developer_access_granted: true,
+                trust_level: 6,
+              })
+            ),
             status: 'unavailable',
             current_step: null,
             steps: [],

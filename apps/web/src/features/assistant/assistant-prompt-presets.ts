@@ -41,7 +41,7 @@ export function filterAssistantPreConversationPresets(
 ): AssistantPreConversationPreset[] {
   return (presets ?? fallbackPresets).filter(
     (preset) =>
-      (preset.id !== 'new_user_gift' || capabilities?.new_user_gift !== false)
+      preset.id !== 'new_user_gift' || capabilities?.new_user_gift !== false
   )
 }
 

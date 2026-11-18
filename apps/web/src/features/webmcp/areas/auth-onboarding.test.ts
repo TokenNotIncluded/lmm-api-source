@@ -245,33 +245,37 @@ test('opening an auth page navigates and rejects an unknown page', async () => {
 })
 
 test('onboarding status ignores retired access metadata and proceeds directly to client setup', async () => {
-  useAuthStore.getState().auth.setUser(JSON.parse(JSON.stringify({
-    id: 42,
-    username: 'l0-progress',
-    role: 1,
-    developer_access_granted: false,
-    onboarding: {
-      activation_complete: false,
-      credential_complete: false,
-      first_request_complete: false,
-      stage: 'activate',
-      paid_activation_enabled: true,
-      paid_activation_min_amount: 9999,
-      paid_activation_min_credits: '2500001',
-    },
-    trust_level_info: {
-      level: 0,
-      automatic_level: 0,
-      override_level: null,
-      paid_amount: 99999,
-      paid_credits: '1000000',
-      discount_ratio: 1,
-      discount_percent: 0,
-      inactivity_decay_steps: 0,
-      decay_period_days: 0,
-      overridden: false,
-    },
-  })))
+  useAuthStore.getState().auth.setUser(
+    JSON.parse(
+      JSON.stringify({
+        id: 42,
+        username: 'l0-progress',
+        role: 1,
+        developer_access_granted: false,
+        onboarding: {
+          activation_complete: false,
+          credential_complete: false,
+          first_request_complete: false,
+          stage: 'activate',
+          paid_activation_enabled: true,
+          paid_activation_min_amount: 9999,
+          paid_activation_min_credits: '2500001',
+        },
+        trust_level_info: {
+          level: 0,
+          automatic_level: 0,
+          override_level: null,
+          paid_amount: 99999,
+          paid_credits: '1000000',
+          discount_ratio: 1,
+          discount_percent: 0,
+          inactivity_decay_steps: 0,
+          decay_period_days: 0,
+          overridden: false,
+        },
+      })
+    )
+  )
   const { tools } = buildTools()
   const result = (await byName(tools, 'lmm_onboarding_status').execute(
     {},
@@ -281,7 +285,12 @@ test('onboarding status ignores retired access metadata and proceeds directly to
   assert.equal(result.credential_complete, false)
   assert.equal(result.first_request_complete, false)
   assert.equal(result.stage, 'credential')
-  for (const retired of ['activation_complete', 'developer_access_granted', 'trust_level', 'paid_access']) {
+  for (const retired of [
+    'activation_complete',
+    'developer_access_granted',
+    'trust_level',
+    'paid_access',
+  ]) {
     assert.equal(Object.hasOwn(result, retired), false)
   }
   assert.deepEqual(result.next_step, {
@@ -305,12 +314,16 @@ test('onboarding status stays readable while signed out', async () => {
 })
 
 test('opening the assistant queues only a fixed preset', async () => {
-  useAuthStore.getState().auth.setUser(JSON.parse(JSON.stringify({
-    id: 1,
-    username: 'activated',
-    role: 1,
-    developer_access_granted: true,
-  })))
+  useAuthStore.getState().auth.setUser(
+    JSON.parse(
+      JSON.stringify({
+        id: 1,
+        username: 'activated',
+        role: 1,
+        developer_access_granted: true,
+      })
+    )
+  )
   const { tools } = buildTools()
   const open = byName(tools, 'lmm_onboarding_open_assistant')
   await open.execute({ preset: 'human' }, { signal: signal() })
@@ -326,12 +339,16 @@ test('opening the assistant queues only a fixed preset', async () => {
 })
 
 test('ordinary account setup help opens the assistant without an activation redirect', async () => {
-  useAuthStore.getState().auth.setUser(JSON.parse(JSON.stringify({
-    id: 1,
-    username: 'l0',
-    role: 1,
-    developer_access_granted: false,
-  })))
+  useAuthStore.getState().auth.setUser(
+    JSON.parse(
+      JSON.stringify({
+        id: 1,
+        username: 'l0',
+        role: 1,
+        developer_access_granted: false,
+      })
+    )
+  )
   const { tools, calls } = buildTools()
   await byName(tools, 'lmm_onboarding_open_assistant').execute(
     { preset: 'onboarding' },

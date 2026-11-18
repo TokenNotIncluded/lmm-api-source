@@ -58,12 +58,14 @@ describe('pricing route authentication', () => {
       bootstrapAuth: async () => {
         bootstrapStarted.resolve()
         await releaseBootstrap.promise
-        user = JSON.parse(JSON.stringify({
-          id: 7,
-          username: 'refreshed-user',
-          role: 1,
-          developer_access_granted: true,
-        }))
+        user = JSON.parse(
+          JSON.stringify({
+            id: 7,
+            username: 'refreshed-user',
+            role: 1,
+            developer_access_granted: true,
+          })
+        )
       },
       getUser: () => user,
     }
@@ -122,12 +124,14 @@ describe('pricing route authentication', () => {
   test('restores an activated session before checking model details access', async () => {
     const fixture = runtime({
       requireAuth: false,
-      refreshedUser: JSON.parse(JSON.stringify({
-        id: 8,
-        username: 'model-reader',
-        role: 1,
-        developer_access_granted: true,
-      })),
+      refreshedUser: JSON.parse(
+        JSON.stringify({
+          id: 8,
+          username: 'model-reader',
+          role: 1,
+          developer_access_granted: true,
+        })
+      ),
     })
 
     const decision = await resolvePricingRouteAccess(

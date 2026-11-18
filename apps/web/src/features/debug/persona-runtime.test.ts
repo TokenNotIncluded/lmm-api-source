@@ -247,7 +247,10 @@ describe('persona debug runtime', () => {
 
       const user = await api.get('/api/user/self')
       assert.equal(user.data.data.username, fixture.username)
-      assert.equal(Object.hasOwn(user.data.data, 'developer_access_granted'), false)
+      assert.equal(
+        Object.hasOwn(user.data.data, 'developer_access_granted'),
+        false
+      )
       assert.equal(Object.hasOwn(user.data.data, 'trust_level_info'), false)
       assert.equal(user.data.data.group, fixture.group)
 
@@ -363,10 +366,7 @@ describe('persona debug runtime', () => {
     assert.equal(after.language, 'zh')
     assert.equal(after.sidebar_modules, '{}')
     assert.equal(after.quota, before.quota)
-    assert.equal(
-      after.role,
-      before.role
-    )
+    assert.equal(after.role, before.role)
     await assert.rejects(
       api.put(
         '/api/user/self',
@@ -395,10 +395,7 @@ describe('persona debug runtime', () => {
       const after = (await api.get('/api/user/self')).data.data
       assert.equal(JSON.parse(after.setting).wallet_display_currency, currency)
       assert.equal(after.quota, before.quota)
-      assert.equal(
-        after.role,
-        before.role
-      )
+      assert.equal(after.role, before.role)
     }
     await api.put('/api/user/self', { wallet_display_currency: 'CNY' })
     setActiveDebugPersona('b')

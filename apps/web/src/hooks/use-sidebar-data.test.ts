@@ -23,7 +23,12 @@ const source = readFileSync(
 describe('authenticated sidebar discovery', () => {
   test('one console navigation serves every signed-in user', () => {
     assert.doesNotMatch(source, /id: 'onboarding'/)
-    for (const path of ['/keys', '/developers', '/usage-logs/common', '/wallet']) {
+    for (const path of [
+      '/keys',
+      '/developers',
+      '/usage-logs/common',
+      '/wallet',
+    ]) {
       assert.ok(source.includes(`url: '${path}'`))
     }
     assert.doesNotMatch(source, /remote-control|Remote control/)

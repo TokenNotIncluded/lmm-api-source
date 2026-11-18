@@ -179,15 +179,17 @@ async function renderWallet(
   } = {}
 ) {
   const reads: string[] = []
-  const user = JSON.parse(JSON.stringify({
-    ...options.user,
-    id: 7,
-    username: 'checkout-user',
-    role: 1,
-    developer_access_granted: activated,
-    quota: options.quota ?? 0,
-    setting: options.setting,
-  }))
+  const user = JSON.parse(
+    JSON.stringify({
+      ...options.user,
+      id: 7,
+      username: 'checkout-user',
+      role: 1,
+      developer_access_granted: activated,
+      quota: options.quota ?? 0,
+      setting: options.setting,
+    })
+  )
   const refreshedUser = { ...user, quota: options.selfQuota ?? user.quota }
   useAuthStore.getState().auth.setUser(user)
   if (user.wallet_unit === 'core_credit') {
@@ -1078,10 +1080,7 @@ test('Wallet layout preview preserves the signed-in account and mounts no financ
     /Wallet data is unavailable/
   )
   assert.equal(requests.length, 0)
-  assert.equal(
-    useAuthStore.getState().auth.user?.id,
-    7
-  )
+  assert.equal(useAuthStore.getState().auth.user?.id, 7)
   for (const button of container.querySelectorAll('button')) {
     assert.equal(button.disabled, true, button.textContent ?? '')
   }

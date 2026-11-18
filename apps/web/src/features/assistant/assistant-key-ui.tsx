@@ -112,8 +112,7 @@ export function AssistantConnectionDetails(props: {
             <p className='text-muted-foreground text-xs'>
               {props.t('Model ID')}
             </p>
-            {props.authenticated &&
-            props.availableModels.length > 0 ? (
+            {props.authenticated && props.availableModels.length > 0 ? (
               <NativeSelect
                 className='mt-1 w-full'
                 value={props.model}
@@ -398,9 +397,7 @@ export function AssistantAccessNotice(props: {
           {props.t('Sign in to continue setup')}
         </p>
         <p className='text-muted-foreground text-sm'>
-          {props.t(
-            'Sign in, create an API key and connect LMM to your app.'
-          )}
+          {props.t('Sign in, create an API key and connect LMM to your app.')}
         </p>
         <p className='text-muted-foreground text-xs'>
           {props.modelsLoading

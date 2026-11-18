@@ -102,11 +102,7 @@ export function AssistantUsageTool(props: { authenticated: boolean }) {
           aria-hidden='true'
         />
         <AlertTitle>{t('Historical Usage')}</AlertTitle>
-        <AlertDescription>
-          {t(
-            'Sign in to continue setup'
-          )}
-        </AlertDescription>
+        <AlertDescription>{t('Sign in to continue setup')}</AlertDescription>
         <AlertAction>
           <Button variant='outline' size='sm' render={<Link to='/sign-in' />}>
             {t('Sign in')}

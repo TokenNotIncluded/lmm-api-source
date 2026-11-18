@@ -92,8 +92,24 @@ describe('authenticated route access', () => {
   })
 
   test('opens ordinary console routes for a signed-in user without a developer grant', async () => {
-    authenticate(JSON.parse(JSON.stringify({ id: 9, username: 'member', role: 1, developer_access_granted: false })))
-    for (const path of ['/dashboard', '/keys', '/guide', '/todos', '/wallet', '/profile']) {
+    authenticate(
+      JSON.parse(
+        JSON.stringify({
+          id: 9,
+          username: 'member',
+          role: 1,
+          developer_access_granted: false,
+        })
+      )
+    )
+    for (const path of [
+      '/dashboard',
+      '/keys',
+      '/guide',
+      '/todos',
+      '/wallet',
+      '/profile',
+    ]) {
       assert.equal(await runBeforeLoad(path), undefined)
     }
   })

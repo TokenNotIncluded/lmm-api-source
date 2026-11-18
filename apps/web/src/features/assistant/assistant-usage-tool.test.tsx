@@ -252,7 +252,10 @@ describe('AssistantUsageTool', () => {
     try {
       assert.equal(calls, 0)
       assert.match(rendered.container.textContent ?? '', /Historical Usage/)
-      assert.match(rendered.container.textContent ?? '', /Sign in to continue setup/)
+      assert.match(
+        rendered.container.textContent ?? '',
+        /Sign in to continue setup/
+      )
     } finally {
       await unmount(rendered)
     }

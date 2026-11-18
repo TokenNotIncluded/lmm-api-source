@@ -46,7 +46,9 @@ describe('localized assistant conversation starters', () => {
   test('offers model recommendations equally to every account', () => {
     for (const viewer of [null, { role: 1 }, { role: 10 }]) {
       assert.deepEqual(
-        filterAssistantPreConversationPresets(legacyPresets, viewer).map((preset) => preset.id),
+        filterAssistantPreConversationPresets(legacyPresets, viewer).map(
+          (preset) => preset.id
+        ),
         Object.keys(starterKeys)
       )
     }

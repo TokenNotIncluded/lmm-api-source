@@ -447,9 +447,7 @@ export function AssistantPlanTool(props: {
         ) : null}
         {readOnly ? (
           <p className='text-muted-foreground text-xs leading-5'>
-            {t(
-              'Sign in to continue setup'
-            )}
+            {t('Sign in to continue setup')}
           </p>
         ) : null}
       </div>
@@ -487,17 +485,11 @@ export function AssistantPlanTool(props: {
         <AlertDescription>
           {props.authenticated
             ? t('Payment is unavailable for this account.')
-            : t(
-                'Sign in to continue setup'
-              )}
+            : t('Sign in to continue setup')}
         </AlertDescription>
         {!props.authenticated ? (
           <AlertAction>
-            <Button
-              type='button'
-              variant='outline'
-              onClick={props.onSignIn}
-            >
+            <Button type='button' variant='outline' onClick={props.onSignIn}>
               {t('Sign in to continue setup')}
               <HugeiconsIcon
                 icon={ArrowRight01Icon}

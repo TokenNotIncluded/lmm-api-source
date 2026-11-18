@@ -72,8 +72,8 @@ export function ModelAvailability({
   const access = !user
     ? t('Sign in to check model access')
     : groups.length > 0
-        ? t('Your account has an eligible model group')
-        : t('No eligible model group for this account')
+      ? t('Your account has an eligible model group')
+      : t('No eligible model group for this account')
   return (
     <section
       className='space-y-2 border-b pb-4'

@@ -120,9 +120,7 @@ export function getOnboardingState(
       credentialComplete,
       firstRequestComplete,
     }),
-    isExplicit:
-      hasNestedState ||
-      hasFlatState,
+    isExplicit: hasNestedState || hasFlatState,
   }
 }
 

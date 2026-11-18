@@ -34,7 +34,6 @@ import { lazy, Suspense, useEffect } from 'react'
 
 import { AuthBootstrapPending } from '@/components/auth-bootstrap-pending'
 import { AuthCookieRecovery } from '@/components/auth-cookie-recovery'
-
 /*
 Copyright (C) 2023-2026 QuantumNous
 

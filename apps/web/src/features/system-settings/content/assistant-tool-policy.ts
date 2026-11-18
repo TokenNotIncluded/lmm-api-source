@@ -15,11 +15,7 @@ export type AssistantToolEffect =
   | 'navigation'
   | 'confirmation'
   | 'server_guarded'
-export type AssistantToolAccess =
-  | 'user'
-  | 'admin'
-  | 'root'
-  | 'mixed'
+export type AssistantToolAccess = 'user' | 'admin' | 'root' | 'mixed'
 export type AssistantCatalogTool = {
   name: string
   label: string

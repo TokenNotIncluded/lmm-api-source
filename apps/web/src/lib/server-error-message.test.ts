@@ -147,8 +147,6 @@ describe('server error message mapping', () => {
       'Configure at least one available payment method before enabling this plan.'
     )
   })
-
-
 })
 
 test('OAuth denial and legal-acceptance codes use existing localized keys', () => {

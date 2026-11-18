@@ -80,12 +80,14 @@ await i18n.use(initReactI18next).init({
   resources: { en: { translation: {} } },
 })
 
-const restrictedStatus = JSON.parse(JSON.stringify({
-  enabled: true,
-  model: 'deepseek-v4-flash',
-  developer_access_granted: false,
-  funding: { mode: 'super_administrator' as const },
-}))
+const restrictedStatus = JSON.parse(
+  JSON.stringify({
+    enabled: true,
+    model: 'deepseek-v4-flash',
+    developer_access_granted: false,
+    funding: { mode: 'super_administrator' as const },
+  })
+)
 
 const generatedPresets = {
   generation: 1_786_500_000,
@@ -255,10 +257,7 @@ describe('Assistant first-use experience', () => {
         document.querySelector('[data-testid="assistant-onboarding-todo"]'),
         null
       )
-      assert.match(
-        document.body.textContent ?? '',
-        /How can I help\?/
-      )
+      assert.match(document.body.textContent ?? '', /How can I help\?/)
       assert.doesNotMatch(
         document.body.textContent ?? '',
         /shielded private card|private card/

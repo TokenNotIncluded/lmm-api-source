@@ -18,10 +18,7 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import type { AssistantStatus } from './api'
 
-export type AssistantAccountAccessState =
-  | 'loading'
-  | 'error'
-  | 'granted'
+export type AssistantAccountAccessState = 'loading' | 'error' | 'granted'
 
 export function getAssistantAccountAccessState(
   status: AssistantStatus | undefined,

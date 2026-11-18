@@ -90,11 +90,16 @@ describe('account setup checklist response validation', () => {
         { ...valid, status: 'activate' },
         { ...valid, steps: null },
         { ...valid, steps: [{ id: 'create_api_key', status: 'unknown' }] },
-        { ...valid, steps: [{ id: 'grant_developer_access', status: 'pending' }] },
+        {
+          ...valid,
+          steps: [{ id: 'grant_developer_access', status: 'pending' }],
+        },
         { ...valid, current_step: 'grant_developer_access' },
         { ...valid, completed_at: 'yesterday' },
       ]) {
-        api.get = (async () => ({ data: { success: true, data } })) as typeof api.get
+        api.get = (async () => ({
+          data: { success: true, data },
+        })) as typeof api.get
         await assert.rejects(
           getAccountSetupTodo(),
           (error: unknown) =>

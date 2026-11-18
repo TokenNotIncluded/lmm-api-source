@@ -112,12 +112,14 @@ await i18n.use(initReactI18next).init({
   resources: { en: { translation: {} } },
 })
 
-const user: AuthUser = JSON.parse(JSON.stringify({
-  id: 7,
-  username: 'l0-user',
-  role: 1,
-  developer_access_granted: false,
-}))
+const user: AuthUser = JSON.parse(
+  JSON.stringify({
+    id: 7,
+    username: 'l0-user',
+    role: 1,
+    developer_access_granted: false,
+  })
+)
 
 const detail = {
   project: {
@@ -241,7 +243,10 @@ describe('ordinary-account challenge contribution entry', () => {
   test('opens the challenge form for an ordinary account with stale access metadata', async () => {
     const rendered = await renderPage()
     try {
-      assert.doesNotMatch(rendered.container.textContent ?? '', /request L1 access/)
+      assert.doesNotMatch(
+        rendered.container.textContent ?? '',
+        /request L1 access/
+      )
       const accept = [...rendered.container.querySelectorAll('button')].find(
         (button) => button.textContent?.trim() === 'Accept challenge'
       )
@@ -251,7 +256,10 @@ describe('ordinary-account challenge contribution entry', () => {
         accept.click()
         await flushEffects()
       })
-      assert.match(document.body.textContent ?? '', /Your GitHub handle will be attached to this delivery/)
+      assert.match(
+        document.body.textContent ?? '',
+        /Your GitHub handle will be attached to this delivery/
+      )
       assert.ok(document.querySelector('[role="dialog"] input'))
     } finally {
       await unmount(rendered)

@@ -25,12 +25,14 @@ const i18n = createInstance()
 await i18n
   .use(initReactI18next)
   .init({ lng: 'en', resources: { en: { translation: {} } } })
-const l0 = JSON.parse(JSON.stringify({
-  id: 71,
-  username: 'support-test',
-  role: 1,
-  developer_access_granted: false,
-}))
+const l0 = JSON.parse(
+  JSON.stringify({
+    id: 71,
+    username: 'support-test',
+    role: 1,
+    developer_access_granted: false,
+  })
+)
 const request: AssistantSupportRequest = {
   id: 8,
   user_id: 71,
@@ -116,10 +118,7 @@ test('An ordinary account can request human support without an AI call or an exi
     ])
     assert.ok(view.container.querySelector('textarea'))
     assert.ok(reads.every((url) => url.startsWith('/api/assistant/support')))
-    assert.equal(
-      useAuthStore.getState().auth.user?.id,
-      71
-    )
+    assert.equal(useAuthStore.getState().auth.user?.id, 71)
   } finally {
     await view.cleanup()
   }

@@ -110,19 +110,21 @@ function setUser(role: number, trustLevel = 0) {
     username: 'history-tester',
     role,
     ...(trustLevel > 0
-      ? JSON.parse(JSON.stringify({
-          trust_level_info: {
-            level: trustLevel,
-            automatic_level: trustLevel,
-            override_level: null,
-            paid_amount: 0,
-            discount_ratio: 1,
-            discount_percent: 0,
-            inactivity_decay_steps: 0,
-            decay_period_days: 0,
-            overridden: false,
-          },
-        }))
+      ? JSON.parse(
+          JSON.stringify({
+            trust_level_info: {
+              level: trustLevel,
+              automatic_level: trustLevel,
+              override_level: null,
+              paid_amount: 0,
+              discount_ratio: 1,
+              discount_percent: 0,
+              inactivity_decay_steps: 0,
+              decay_period_days: 0,
+              overridden: false,
+            },
+          })
+        )
       : {}),
   })
 }

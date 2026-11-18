@@ -23,7 +23,8 @@ function document(visibility: 'public' | 'session'): NativePricingDocument {
     visibility,
     observed_at: 100,
     credits_per_usd: 500_000,
-    rate_basis: visibility === 'public' ? 'base_group_rate' : 'effective_group_rate',
+    rate_basis:
+      visibility === 'public' ? 'base_group_rate' : 'effective_group_rate',
     invocation_authorized: false,
     routing_version: 1,
     pricing_version: 2,

@@ -149,13 +149,17 @@ test('public group prices do not invent a personal discount', () => {
 })
 
 test('the session label describes group pricing without a trust discount', () => {
-  const text = render(<PricingContextLabel model={groupModel} />).textContent ?? ''
+  const text =
+    render(<PricingContextLabel model={groupModel} />).textContent ?? ''
   assert.match(text, /Group price/)
   assert.doesNotMatch(text, /discount|multiplier|trust|verified/i)
 })
 
 test('the card uses returned group rates without multiplying either factor again', () => {
-  for (const model of [groupModel, { ...groupModel, group_ratio: { standard: 500 } }]) {
+  for (const model of [
+    groupModel,
+    { ...groupModel, group_ratio: { standard: 500 } },
+  ]) {
     const text = renderCard(model).textContent ?? ''
     assert.match(text, /Input 1\.94 USD/)
     assert.match(text, /Output 3\.88 USD/)
@@ -172,7 +176,10 @@ test('a missing group input rate stays unavailable rather than becoming free', (
 })
 
 test('request estimates use returned group rates once and describe that basis', () => {
-  for (const model of [groupModel, { ...groupModel, group_ratio: { standard: 500 } }]) {
+  for (const model of [
+    groupModel,
+    { ...groupModel, group_ratio: { standard: 500 } },
+  ]) {
     const estimate = renderEstimator(model)
     assert.equal(
       estimate.querySelector('[aria-live="polite"]')?.textContent,
@@ -190,7 +197,10 @@ test('request estimates use returned group rates once and describe that basis', 
 test('a model without a native pricing context retains its explicit fallback label', () => {
   const model = { ...groupModel, pricing_context: undefined }
   assert.equal(getPricingBasisLabel(model), 'Base price (1×)')
-  assert.doesNotMatch(renderCard(model).textContent ?? '', /Account discount|Group price/)
+  assert.doesNotMatch(
+    renderCard(model).textContent ?? '',
+    /Account discount|Group price/
+  )
 })
 
 test('image-only pricing labels public and session group rates', () => {
@@ -204,11 +214,19 @@ test('image-only pricing labels public and session group rates', () => {
   const sessionImages: PricingModel = {
     ...publicImages,
     pricing_context: { rate_basis: 'effective_group_rate' },
-    image_variants: [{ ...baseImageVariant, rate_basis: 'effective_group_rate' }],
+    image_variants: [
+      { ...baseImageVariant, rate_basis: 'effective_group_rate' },
+    ],
   }
   assert.equal(getPricingBasisLabel(sessionImages), 'Group price')
-  assert.doesNotMatch(renderCard(sessionImages).textContent ?? '', /Account discount/)
-  assert.equal(getPricingBasisLabel({ ...sessionImages, image_variants: [] }), 'Price')
+  assert.doesNotMatch(
+    renderCard(sessionImages).textContent ?? '',
+    /Account discount/
+  )
+  assert.equal(
+    getPricingBasisLabel({ ...sessionImages, image_variants: [] }),
+    'Price'
+  )
 })
 
 test('image prices preserve returned group rates without a second multiplication', () => {
@@ -231,7 +249,10 @@ test('image prices preserve returned group rates without a second multiplication
   assert.match(lists[0].textContent ?? '', /20000 Credits/)
   assert.match(lists[1].textContent ?? '', /Group price0\.0388 USD/)
   assert.match(lists[1].textContent ?? '', /19400 Credits/)
-  assert.doesNotMatch(prices.textContent ?? '', /Account discount|0\.037636|18818 Credits/)
+  assert.doesNotMatch(
+    prices.textContent ?? '',
+    /Account discount|0\.037636|18818 Credits/
+  )
 })
 
 test('model details show configured group prices and keep missing rates unavailable', () => {

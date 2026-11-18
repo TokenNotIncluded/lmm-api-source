@@ -50,12 +50,14 @@ test('support retains online tickets and request copying without email actions',
     useAuthStore.setState({
       auth: {
         ...previous,
-        user: JSON.parse(JSON.stringify({
-          id: 71,
-          username: 'support-test',
-          role: 1,
-          developer_access_granted: false,
-        })),
+        user: JSON.parse(
+          JSON.stringify({
+            id: 71,
+            username: 'support-test',
+            role: 1,
+            developer_access_granted: false,
+          })
+        ),
       },
     })
     await act(async () => {

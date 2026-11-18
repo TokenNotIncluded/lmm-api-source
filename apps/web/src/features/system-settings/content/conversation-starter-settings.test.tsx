@@ -111,12 +111,14 @@ function bundle(role = 100, userId = 101): AuthBundle {
     access_token: `lmms_${'a'.repeat(43)}`,
     token_type: 'Bearer',
     access_expires_at: 2000000000,
-    user: JSON.parse(JSON.stringify({
-      id: userId,
-      username: 'synthetic-administrator',
-      role,
-      developer_access_granted: true,
-    })),
+    user: JSON.parse(
+      JSON.stringify({
+        id: userId,
+        username: 'synthetic-administrator',
+        role,
+        developer_access_granted: true,
+      })
+    ),
     session: {
       sid: `session-${userId}`,
       current: true,

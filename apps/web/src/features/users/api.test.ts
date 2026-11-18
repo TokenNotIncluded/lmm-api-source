@@ -107,10 +107,6 @@ describe('user management API filters', () => {
       api.get = originalGet
     }
   })
-
-
-
-
 })
 
 describe('administrator assistant profile API', () => {

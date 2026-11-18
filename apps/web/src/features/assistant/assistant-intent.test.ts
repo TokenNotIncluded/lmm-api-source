@@ -54,6 +54,4 @@ describe('assistant retention actions', () => {
     assert.equal(getAssistantPresetForIntent('other'), undefined)
     assert.equal(getAssistantPresetForIntent(undefined), undefined)
   })
-
-
 })

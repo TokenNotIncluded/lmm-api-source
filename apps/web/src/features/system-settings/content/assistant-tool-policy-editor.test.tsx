@@ -245,7 +245,10 @@ test('configuration saves tool switches without exposing retired rule controls',
     assert.ok(dialog)
     assert.equal(dialog.querySelector('[role="combobox"]'), null)
     assert.equal(dialog.querySelector('input[type="number"]'), null)
-    assert.doesNotMatch(dialog.textContent ?? '', /account levels|Minimum level|Maximum level/)
+    assert.doesNotMatch(
+      dialog.textContent ?? '',
+      /account levels|Minimum level|Maximum level/
+    )
     const baseSwitch = dialog.querySelector('[role="switch"]')
     assert.ok(baseSwitch)
     await click(baseSwitch)

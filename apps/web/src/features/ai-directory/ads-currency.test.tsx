@@ -353,13 +353,15 @@ test('a one-dollar bid submits 100 USD cents and the server charge while its dis
   useAuthStore.setState({
     auth: {
       ...original.auth,
-      user: JSON.parse(JSON.stringify({
-        id: 7,
-        username: 'advertiser',
-        role: 1,
-        developer_access_granted: true,
-        setting: { wallet_display_currency: 'CNY' },
-      })),
+      user: JSON.parse(
+        JSON.stringify({
+          id: 7,
+          username: 'advertiser',
+          role: 1,
+          developer_access_granted: true,
+          setting: { wallet_display_currency: 'CNY' },
+        })
+      ),
       accessToken: 'test-only-token',
     },
   })
@@ -428,12 +430,14 @@ test('a legacy backend quote cannot open confirmation or submit a payment', asyn
   useAuthStore.setState({
     auth: {
       ...original.auth,
-      user: JSON.parse(JSON.stringify({
-        id: 7,
-        username: 'advertiser',
-        role: 1,
-        developer_access_granted: true,
-      })),
+      user: JSON.parse(
+        JSON.stringify({
+          id: 7,
+          username: 'advertiser',
+          role: 1,
+          developer_access_granted: true,
+        })
+      ),
       accessToken: 'test-only-token',
     },
   })

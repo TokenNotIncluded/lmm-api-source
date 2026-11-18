@@ -21,7 +21,11 @@ import { describe, test } from 'node:test'
 
 import type { AuthUser } from '@/stores/auth-store'
 
-import { getAuthenticatedLandingRoute, getOnboardingState, isConsoleActivated } from '../console-activation'
+import {
+  getAuthenticatedLandingRoute,
+  getOnboardingState,
+  isConsoleActivated,
+} from '../console-activation'
 
 const user = (overrides: Partial<AuthUser> = {}): AuthUser => ({
   id: 7,
@@ -32,7 +36,10 @@ const user = (overrides: Partial<AuthUser> = {}): AuthUser => ({
 
 describe('signed-in console access', () => {
   test('opens the console for a regular account without an access grant', () => {
-    for (const account of [user(), user(JSON.parse(JSON.stringify({ developer_access_granted: false })))]) {
+    for (const account of [
+      user(),
+      user(JSON.parse(JSON.stringify({ developer_access_granted: false }))),
+    ]) {
       assert.equal(isConsoleActivated(account), true)
       assert.equal(getAuthenticatedLandingRoute(account), '/dashboard')
     }
@@ -41,30 +48,53 @@ describe('signed-in console access', () => {
   })
 
   test('keeps setup guidance separate from access', () => {
-    const account = user(JSON.parse(JSON.stringify({
-      developer_access_granted: false,
-      onboarding: {
-        activation_complete: false,
-        credential_complete: false,
-        first_request_complete: false,
-        stage: 'activate',
-      },
-    })))
+    const account = user(
+      JSON.parse(
+        JSON.stringify({
+          developer_access_granted: false,
+          onboarding: {
+            activation_complete: false,
+            credential_complete: false,
+            first_request_complete: false,
+            stage: 'activate',
+          },
+        })
+      )
+    )
     assert.equal(getOnboardingState(account).stage, 'credential')
     assert.equal(getAuthenticatedLandingRoute(account), '/dashboard')
   })
 
   test('preserves sidebar preferences and administrator route boundaries', () => {
-    const withRoute = (route: string, role = 1) => user({
-      role,
-      sidebar_modules: JSON.stringify({ modules: {}, preferences: { default_route: route } }),
-    })
-    assert.equal(getAuthenticatedLandingRoute(withRoute('/profile'), {}), '/profile')
-    assert.equal(getAuthenticatedLandingRoute(withRoute('/users'), {}), '/dashboard')
-    assert.equal(getAuthenticatedLandingRoute(withRoute('/users', 10), {}), '/users')
-    assert.equal(getAuthenticatedLandingRoute(withRoute('/remote-control'), {}), '/dashboard')
-    assert.equal(getAuthenticatedLandingRoute(withRoute('/dashboard/overview'), {
-      console: { enabled: true, detail: false },
-    }), '/dashboard')
+    const withRoute = (route: string, role = 1) =>
+      user({
+        role,
+        sidebar_modules: JSON.stringify({
+          modules: {},
+          preferences: { default_route: route },
+        }),
+      })
+    assert.equal(
+      getAuthenticatedLandingRoute(withRoute('/profile'), {}),
+      '/profile'
+    )
+    assert.equal(
+      getAuthenticatedLandingRoute(withRoute('/users'), {}),
+      '/dashboard'
+    )
+    assert.equal(
+      getAuthenticatedLandingRoute(withRoute('/users', 10), {}),
+      '/users'
+    )
+    assert.equal(
+      getAuthenticatedLandingRoute(withRoute('/remote-control'), {}),
+      '/dashboard'
+    )
+    assert.equal(
+      getAuthenticatedLandingRoute(withRoute('/dashboard/overview'), {
+        console: { enabled: true, detail: false },
+      }),
+      '/dashboard'
+    )
   })
 })

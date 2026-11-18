@@ -21,9 +21,6 @@ import { afterEach, describe, test } from 'node:test'
 
 import { QueryClient } from '@tanstack/react-query'
 
-import { canManageApiKeys } from './can-manage-api-keys'
-import { isConsoleActivated } from './console-activation'
-
 import { useAuthStore, type AuthBundle } from '../stores/auth-store'
 import {
   applyAuthBundle,
@@ -36,6 +33,8 @@ import {
   isAuthBundle,
   type AuthRefreshRuntime,
 } from './auth-session'
+import { canManageApiKeys } from './can-manage-api-keys'
+import { isConsoleActivated } from './console-activation'
 
 const bundle: AuthBundle = {
   access_token: 'access-token',
@@ -64,22 +63,31 @@ afterEach(() => {
 
 describe('authentication session coordination', () => {
   test('restores a historical user payload without applying retired eligibility fields', async () => {
-    const persisted = JSON.parse(JSON.stringify({
-      ...bundle,
-      user: {
-        ...bundle.user,
-        developer_access_granted: false,
-        trust_level_info: { level: 0 },
-        permissions: { api_key_management: false },
-      },
-    }))
+    const persisted = JSON.parse(
+      JSON.stringify({
+        ...bundle,
+        user: {
+          ...bundle.user,
+          developer_access_granted: false,
+          trust_level_info: { level: 0 },
+          permissions: { api_key_management: false },
+        },
+      })
+    )
     let clears = 0
     const runtime: AuthRefreshRuntime = {
-      request: async () => ({ status: 200, data: { success: true, data: persisted } }),
+      request: async () => ({
+        status: 200,
+        data: { success: true, data: persisted },
+      }),
       getExpectedSID: () => bundle.session.sid,
       parseBundle: (value) => (isAuthBundle(value) ? value : null),
-      acceptBundle: (accepted) => { applyAuthBundle(accepted, false) },
-      clear: () => { clears += 1 },
+      acceptBundle: (accepted) => {
+        applyAuthBundle(accepted, false)
+      },
+      clear: () => {
+        clears += 1
+      },
       markTransient: () => undefined,
       wait: async () => undefined,
     }
@@ -389,9 +397,14 @@ describe('authentication session coordination', () => {
 
   test('a rejected refresh clears the bound authenticated cache', async () => {
     const queryClient = new QueryClient()
-    queryClient.setQueryData(['assistant-status'], JSON.parse(JSON.stringify({
-      developer_access_granted: true,
-    })))
+    queryClient.setQueryData(
+      ['assistant-status'],
+      JSON.parse(
+        JSON.stringify({
+          developer_access_granted: true,
+        })
+      )
+    )
     useAuthStore.getState().auth.setBundle(bundle)
     const unbind = bindAuthCache(queryClient)
 

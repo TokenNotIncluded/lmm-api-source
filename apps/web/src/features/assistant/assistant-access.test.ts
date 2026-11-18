@@ -33,7 +33,12 @@ function status(): AssistantStatus {
 describe('assistant account access state', () => {
   test('accepts an ordinary account status without an access grant', () => {
     assert.equal(getAssistantAccountAccessState(status(), false), 'granted')
-    const staleStatus = Object.assign(status(), JSON.parse(JSON.stringify({ developer_access_granted: false, trust_level: 0 })))
+    const staleStatus = Object.assign(
+      status(),
+      JSON.parse(
+        JSON.stringify({ developer_access_granted: false, trust_level: 0 })
+      )
+    )
     assert.equal(getAssistantAccountAccessState(staleStatus, false), 'granted')
   })
 

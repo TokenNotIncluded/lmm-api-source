@@ -231,7 +231,9 @@ test('session prices use returned group rates without a second multiplication', 
   const pricing = adaptNativePricing(nativePricingSchema.parse(input))
   const model = pricing.data[0]
   assert.ok(model)
-  assert.deepEqual(model.pricing_context, { rate_basis: 'effective_group_rate' })
+  assert.deepEqual(model.pricing_context, {
+    rate_basis: 'effective_group_rate',
+  })
   assert.equal(formatPrice(model, 'input', 'M', 'USD', 'standard'), '1.94 USD')
   assert.equal(
     formatGroupPrice(model, 'premium', 'input', 'M', 'USD', { premium: 500 }),

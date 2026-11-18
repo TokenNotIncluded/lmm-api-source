@@ -1220,18 +1220,15 @@ const debugAdapter: AxiosAdapter = async (config) => {
             },
           ]
         : []
-    return response(
-      config,
-      {
-            success: true,
-            data: {
-              items: runtimeKeys,
-              total: runtimeKeys.length,
-              page: 1,
-              page_size: 10,
-            },
-          }
-    )
+    return response(config, {
+      success: true,
+      data: {
+        items: runtimeKeys,
+        total: runtimeKeys.length,
+        page: 1,
+        page_size: 10,
+      },
+    })
   }
   if (method === 'GET' && (path === '/api/data/self' || path === '/api/data')) {
     return response(config, envelope([]))
@@ -1263,16 +1260,29 @@ const debugAdapter: AxiosAdapter = async (config) => {
     return response(config, envelope(preConversationPresets()))
   }
   if (method === 'GET' && path === '/api/assistant/journey') {
-    const hasCompletedSetup = activeUser().onboarding?.first_request_complete === true
+    const hasCompletedSetup =
+      activeUser().onboarding?.first_request_complete === true
     return response(
       config,
       envelope({
         main: [
           { id: 'ask_ai', status: 'completed' },
-          { id: 'create_api_key', status: hasCompletedSetup ? 'completed' : 'pending' },
-          { id: 'install_client', status: hasCompletedSetup ? 'completed' : 'pending' },
-          { id: 'configure_client', status: hasCompletedSetup ? 'completed' : 'pending' },
-          { id: 'first_api_call', status: hasCompletedSetup ? 'completed' : 'pending' },
+          {
+            id: 'create_api_key',
+            status: hasCompletedSetup ? 'completed' : 'pending',
+          },
+          {
+            id: 'install_client',
+            status: hasCompletedSetup ? 'completed' : 'pending',
+          },
+          {
+            id: 'configure_client',
+            status: hasCompletedSetup ? 'completed' : 'pending',
+          },
+          {
+            id: 'first_api_call',
+            status: hasCompletedSetup ? 'completed' : 'pending',
+          },
         ],
         side: [
           {
@@ -1377,7 +1387,8 @@ const debugAdapter: AxiosAdapter = async (config) => {
     return response(config, envelope(null))
   }
   if (method === 'GET' && path === '/api/user/self/onboarding/todo') {
-    const hasCompletedSetup = activeUser().onboarding?.first_request_complete === true
+    const hasCompletedSetup =
+      activeUser().onboarding?.first_request_complete === true
     return response(
       config,
       envelope({

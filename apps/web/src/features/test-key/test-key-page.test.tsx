@@ -66,12 +66,14 @@ const originalPreference =
   useWalletCurrencyPreferenceStore.getState().preference
 const cleanups = new Set<() => Promise<void>>()
 const flush = () => new Promise((resolve) => setTimeout(resolve, 25))
-const user = JSON.parse(JSON.stringify({
-  id: 77,
-  username: 'tester',
-  role: 1,
-  developer_access_granted: true,
-}))
+const user = JSON.parse(
+  JSON.stringify({
+    id: 77,
+    username: 'tester',
+    role: 1,
+    developer_access_granted: true,
+  })
+)
 let copies: string[] = []
 afterEach(async () => {
   for (const cleanup of cleanups) await cleanup()
@@ -105,11 +107,13 @@ async function mount(
   useAuthStore.getState().auth.setUser(
     options.anonymous
       ? null
-      : JSON.parse(JSON.stringify({
-          ...user,
-          developer_access_granted: !options.legacyAccessDenied,
-          setting: { wallet_display_currency: options.displayCurrency ?? '' },
-        }))
+      : JSON.parse(
+          JSON.stringify({
+            ...user,
+            developer_access_granted: !options.legacyAccessDenied,
+            setting: { wallet_display_currency: options.displayCurrency ?? '' },
+          })
+        )
   )
   if (options.checking) {
     useAuthStore.getState().auth.setBootstrapState('checking')
@@ -283,7 +287,9 @@ describe('test key popup', () => {
       assert.equal(page.posts.length, 0)
       await page.chooseGroup()
       await act(async () => {
-        form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))
+        form.dispatchEvent(
+          new Event('submit', { bubbles: true, cancelable: true })
+        )
         await flush()
       })
       assert.equal(page.posts.length, 1)

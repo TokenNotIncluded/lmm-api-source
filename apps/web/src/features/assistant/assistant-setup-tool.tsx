@@ -819,8 +819,7 @@ export function AssistantSetupTool(props: {
                   </>
                 ) : (
                   <p className='text-muted-foreground text-sm'>
-                    {t('CC Switch one-click import')}:{' '}
-                    {t('Create an API key')}
+                    {t('CC Switch one-click import')}: {t('Create an API key')}
                   </p>
                 )}
               </TabsContent>
@@ -1126,11 +1125,7 @@ export function AssistantSetupTool(props: {
         </Tabs>
 
         {!canConnect && !oauthClient ? (
-          <Button
-            type='button'
-            className='min-h-11'
-            onClick={props.onSignIn}
-          >
+          <Button type='button' className='min-h-11' onClick={props.onSignIn}>
             {t(
               props.publicGuide
                 ? 'Sign in to continue setup'

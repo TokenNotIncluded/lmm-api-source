@@ -115,8 +115,7 @@ function requestAuthentication(config: ApiRequestConfig) {
   const scope = config.authScope
   if (
     scope &&
-    (auth.user?.id !== scope.userId ||
-      auth.session?.sid !== scope.sessionId)
+    (auth.user?.id !== scope.userId || auth.session?.sid !== scope.sessionId)
   ) {
     throw Object.assign(
       new axios.CanceledError(

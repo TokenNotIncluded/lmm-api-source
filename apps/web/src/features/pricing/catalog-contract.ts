@@ -337,10 +337,7 @@ export const nativeRuntimeSchema = z.object({
 })
 
 export type NativePricingDocument = z.infer<typeof nativePricingSchema>
-export type NativePricingContext = Pick<
-  NativePricingDocument,
-  'rate_basis'
->
+export type NativePricingContext = Pick<NativePricingDocument, 'rate_basis'>
 export type NativeImageVariant = z.infer<typeof nativeImageVariantSchema>
 export type NativeUpstreamCostPrice = z.infer<
   typeof nativeUpstreamCostPriceSchema

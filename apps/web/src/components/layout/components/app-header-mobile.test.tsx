@@ -113,13 +113,17 @@ async function renderHeader(
             : '',
     },
   })) as typeof api.get
-  useAuthStore.getState().auth.setUser(JSON.parse(JSON.stringify({
-    id: 7,
-    username: 'mobile-user',
-    role: 1,
-    quota: 125000000,
-    developer_access_granted: true,
-  })))
+  useAuthStore.getState().auth.setUser(
+    JSON.parse(
+      JSON.stringify({
+        id: 7,
+        username: 'mobile-user',
+        role: 1,
+        quota: 125000000,
+        developer_access_granted: true,
+      })
+    )
+  )
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   })

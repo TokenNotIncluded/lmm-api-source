@@ -108,9 +108,7 @@ describe('assistant game-style progress', () => {
         data: {
           success: true,
           data: {
-            main: [
-              { id: 'ask_ai', status: 'completed' },
-            ],
+            main: [{ id: 'ask_ai', status: 'completed' }],
             side: [
               { id: 'earn_ai_gift', status: 'failed' },
               { id: 'accept_bounty', status: 'pending' },

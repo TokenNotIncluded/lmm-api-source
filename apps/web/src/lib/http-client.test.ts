@@ -68,12 +68,14 @@ function bundle(token: string, expiresAt: number): AuthBundle {
     access_token: token,
     token_type: 'Bearer',
     access_expires_at: expiresAt,
-    user: JSON.parse(JSON.stringify({
-      id: 42,
-      username: 'refresh-test',
-      role: 1,
-      developer_access_granted: true,
-    })),
+    user: JSON.parse(
+      JSON.stringify({
+        id: 42,
+        username: 'refresh-test',
+        role: 1,
+        developer_access_granted: true,
+      })
+    ),
     session: {
       sid: 'refresh-session',
       current: true,
@@ -357,9 +359,14 @@ describe('authenticated HTTP requests', () => {
     const now = Math.floor(Date.now() / 1000)
     useAuthStore.getState().auth.setBundle(bundle('expired-token', now - 1))
     const queryClient = new QueryClient()
-    queryClient.setQueryData(['assistant-status'], JSON.parse(JSON.stringify({
-      developer_access_granted: true,
-    })))
+    queryClient.setQueryData(
+      ['assistant-status'],
+      JSON.parse(
+        JSON.stringify({
+          developer_access_granted: true,
+        })
+      )
+    )
     const unbind = bindAuthCache(queryClient)
     setDevelopmentAuthRefreshAdapter(async (config) =>
       response(config, 401, { success: false })

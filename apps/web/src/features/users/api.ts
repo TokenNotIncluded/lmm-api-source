@@ -254,7 +254,6 @@ export async function adjustUserQuota(
   return res.data
 }
 
-
 /**
  * Reset user's Passkey registration
  */

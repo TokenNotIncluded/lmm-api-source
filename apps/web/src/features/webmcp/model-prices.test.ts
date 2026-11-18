@@ -128,10 +128,7 @@ test('registered model price tool reports native group USD and Credits without l
       { signal: new AbortController().signal }
     )
     assert.ok(typeof personal === 'object' && personal !== null)
-    assert.ok(
-      'rate_basis' in personal &&
-        'models' in personal
-    )
+    assert.ok('rate_basis' in personal && 'models' in personal)
     assert.equal(personal.rate_basis, 'effective_group_rate')
     assert.equal(Object.hasOwn(personal, 'user_price'), false)
     // The returned amount already contains the factor; metadata cannot reprice it.

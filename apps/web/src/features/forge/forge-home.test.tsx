@@ -763,17 +763,25 @@ describe('ForgeHome assistant entry', () => {
         autoSend: queued.autoSend,
       })
     })
-    const rendered = await renderHome(JSON.parse(JSON.stringify({
-      id: 7,
-      username: 'l0-user',
-      role: 1,
-      developer_access_granted: false,
-    })))
+    const rendered = await renderHome(
+      JSON.parse(
+        JSON.stringify({
+          id: 7,
+          username: 'l0-user',
+          role: 1,
+          developer_access_granted: false,
+        })
+      )
+    )
 
     await submitMessage(rendered.container, '  Help me connect my client  ')
 
     assert.deepEqual(opened, [
-      { preset: 'service', message: 'Help me connect my client', autoSend: true },
+      {
+        preset: 'service',
+        message: 'Help me connect my client',
+        autoSend: true,
+      },
     ])
     assert.equal(rendered.router.state.location.pathname, '/dashboard')
 
@@ -794,12 +802,16 @@ describe('ForgeHome assistant entry', () => {
         autoSend: queued.autoSend,
       })
     })
-    const rendered = await renderHome(JSON.parse(JSON.stringify({
-      id: 8,
-      username: 'l1-user',
-      role: 1,
-      developer_access_granted: true,
-    })))
+    const rendered = await renderHome(
+      JSON.parse(
+        JSON.stringify({
+          id: 8,
+          username: 'l1-user',
+          role: 1,
+          developer_access_granted: true,
+        })
+      )
+    )
 
     await submitMessage(rendered.container, '  Show me the API setup  ')
 
@@ -961,12 +973,16 @@ describe('Primary next step follows account access', () => {
   })
 
   test('takes a signed-in customer to client setup', async () => {
-    const rendered = await renderHome(JSON.parse(JSON.stringify({
-      id: 11,
-      username: 'approved',
-      role: 1,
-      developer_access_granted: true,
-    })))
+    const rendered = await renderHome(
+      JSON.parse(
+        JSON.stringify({
+          id: 11,
+          username: 'approved',
+          role: 1,
+          developer_access_granted: true,
+        })
+      )
+    )
     const purchase = rendered.container.querySelector<HTMLAnchorElement>(
       '[data-account-action]'
     )
@@ -980,12 +996,16 @@ describe('Primary next step follows account access', () => {
   })
 
   test('takes every ordinary customer directly to client setup', async () => {
-    const rendered = await renderHome(JSON.parse(JSON.stringify({
-      id: 12,
-      username: 'pending',
-      role: 1,
-      developer_access_granted: false,
-    })))
+    const rendered = await renderHome(
+      JSON.parse(
+        JSON.stringify({
+          id: 12,
+          username: 'pending',
+          role: 1,
+          developer_access_granted: false,
+        })
+      )
+    )
     const purchase = rendered.container.querySelector<HTMLAnchorElement>(
       '[data-account-action]'
     )
@@ -998,6 +1018,4 @@ describe('Primary next step follows account access', () => {
     assert.equal(rendered.router.state.location.pathname, '/developers')
     await unmountHome(rendered)
   })
-
-
 })

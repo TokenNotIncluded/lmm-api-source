@@ -315,10 +315,7 @@ export function PricingToolbar(props: PricingToolbarProps) {
         className='text-muted-foreground mt-2.5 text-xs leading-5'
       >
         {sharedContextModel && (
-          <PricingContextLabel
-            model={sharedContextModel}
-            className='mb-1'
-          />
+          <PricingContextLabel model={sharedContextModel} className='mb-1' />
         )}
         {t(
           props.models.some(

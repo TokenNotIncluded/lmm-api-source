@@ -124,9 +124,7 @@ export function AssistantCostTool(props: { authenticated: boolean }) {
       <Alert>
         <HugeiconsIcon icon={Alert02Icon} strokeWidth={2} aria-hidden='true' />
         <AlertTitle>{t('Read-only')}</AlertTitle>
-        <AlertDescription>
-          {t('Sign in to continue setup')}
-        </AlertDescription>
+        <AlertDescription>{t('Sign in to continue setup')}</AlertDescription>
       </Alert>
     )
   } else if (pricingQuery.isLoading) {

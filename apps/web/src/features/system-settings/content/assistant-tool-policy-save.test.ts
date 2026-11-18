@@ -16,7 +16,8 @@ import {
 
 const originalAdapter = api.defaults.adapter
 const previousAuth = useAuthStore.getState().auth
-const remotePolicy = ' { "version":1, "groups":{"drawing":false}, "tools":{}, "rules":{} } '
+const remotePolicy =
+  ' { "version":1, "groups":{"drawing":false}, "tools":{}, "rules":{} } '
 
 function rootBundle(id: number, sid: string): AuthBundle {
   return {
@@ -88,17 +89,21 @@ test('policy writes retire rules while preserving switches and the exact raw CAS
   const scope = captureAssistantSettingsAuthScope()
   const requests: AxiosRequestConfig[] = []
   const catalog = {
-    groups: [{
-      id: 'service_help',
-      label: 'Service help',
-      tools: [{
-        name: 'calculate_math',
-        label: 'Calculator',
-        description: 'Arithmetic only.',
-        effect: 'read_only',
-        access: 'user',
-      }],
-    }],
+    groups: [
+      {
+        id: 'service_help',
+        label: 'Service help',
+        tools: [
+          {
+            name: 'calculate_math',
+            label: 'Calculator',
+            description: 'Arithmetic only.',
+            effect: 'read_only',
+            access: 'user',
+          },
+        ],
+      },
+    ],
   }
   api.defaults.adapter = async (config) => {
     requests.push(config)
@@ -107,12 +112,14 @@ test('policy writes retire rules while preserving switches and the exact raw CAS
       statusText: 'OK',
       headers: {},
       config,
-      data: config.method === 'get'
-        ? { success: true, data: catalog }
-        : { success: true },
+      data:
+        config.method === 'get'
+          ? { success: true, data: catalog }
+          : { success: true },
     }
   }
-  const legacy = ' { "version":1, "groups":{"service_help":false}, "tools":{"calculate_math":true}, "rules":{"calculate_math":{"min_level":1,"max_level":6}} } '
+  const legacy =
+    ' { "version":1, "groups":{"service_help":false}, "tools":{"calculate_math":true}, "rules":{"calculate_math":{"min_level":1,"max_level":6}} } '
   const write = (policy: string) =>
     updateAssistantSystemOptions(
       {

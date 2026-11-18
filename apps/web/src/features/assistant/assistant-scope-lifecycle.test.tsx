@@ -310,13 +310,15 @@ beforeEach(() => {
       if (request.path === '/api/assistant/status') {
         return {
           success: true,
-          data: JSON.parse(JSON.stringify({
-            enabled: true,
-            model: 'synthetic-model',
-            developer_access_granted: true,
-            funding: { mode: 'super_administrator' },
-            agent: { stream_enabled: true },
-          })),
+          data: JSON.parse(
+            JSON.stringify({
+              enabled: true,
+              model: 'synthetic-model',
+              developer_access_granted: true,
+              funding: { mode: 'super_administrator' },
+              agent: { stream_enabled: true },
+            })
+          ),
         }
       }
       if (request.path === '/api/assistant/pre-conversation-presets') {

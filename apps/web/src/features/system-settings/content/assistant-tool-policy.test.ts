@@ -46,7 +46,10 @@ test('known switches match the catalog and reject unknown tools or groups', () =
     '{"version":1,"groups":{"api_keys":false},"tools":{"list_my_keys":false}}'
   )
   assert.ok(policy)
-  assert.equal(assistantPolicyMatchesBackendCatalog(policy, catalogPayload), true)
+  assert.equal(
+    assistantPolicyMatchesBackendCatalog(policy, catalogPayload),
+    true
+  )
   for (const scope of ['groups', 'tools'] as const) {
     assert.equal(
       assistantPolicyMatchesBackendCatalog(
@@ -255,10 +258,12 @@ test('catalog permissions distinguish users and administrator roles without memb
   const withAccess = (access: string) => ({
     success: true,
     data: {
-      groups: [{
-        ...catalogPayload.data.groups[0],
-        tools: [{ ...catalogPayload.data.groups[0].tools[0], access }],
-      }],
+      groups: [
+        {
+          ...catalogPayload.data.groups[0],
+          tools: [{ ...catalogPayload.data.groups[0].tools[0], access }],
+        },
+      ],
     },
   })
   for (const access of ['user', 'admin', 'root', 'mixed']) {

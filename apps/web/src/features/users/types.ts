@@ -261,7 +261,6 @@ export interface ManageUserQuotaPayload {
   value: number
 }
 
-
 export type AccountActionRequestKind = 'disable' | 'appeal'
 export type AccountActionRequestStatus =
   | 'pending'
@@ -287,7 +286,6 @@ export interface AccountActionRequestAdmin {
   requested_by_username: string
   requested_by_email: string
 }
-
 
 // ============================================================================
 // Dialog Types
