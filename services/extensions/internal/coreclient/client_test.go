@@ -21,8 +21,8 @@ const testToken = "0123456789abcdef0123456789abcdef"
 
 type testCore struct {
 	pb.UnimplementedCoreControlServer
-	caps   func(context.Context) (*pb.CapabilitiesResponse, error)
-	auth   func(context.Context) (*pb.AuthorizeResponse, error)
+	caps func(context.Context) (*pb.CapabilitiesResponse, error)
+	auth func(context.Context) (*pb.AuthorizeResponse, error)
 }
 
 func (s *testCore) Capabilities(ctx context.Context, _ *pb.CapabilitiesRequest) (*pb.CapabilitiesResponse, error) {

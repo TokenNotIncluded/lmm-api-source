@@ -158,10 +158,10 @@ func TestPostgresHTTP(t *testing.T) {
 	}
 	session := pb.CredentialKind_CREDENTIAL_KIND_SESSION
 	auth := fakeAuth{
-		"user":  {UserId: 900001, PlatformLevel: 0, CredentialKind: session},
-		"member":    {UserId: 900002, PlatformLevel: 0, CredentialKind: session},
-		"admin": {UserId: 900003, PlatformLevel: 5, CredentialKind: session},
-		"key":   {UserId: 900001, PlatformLevel: 0, CredentialKind: pb.CredentialKind_CREDENTIAL_KIND_API_KEY},
+		"user":   {UserId: 900001, PlatformLevel: 0, CredentialKind: session},
+		"member": {UserId: 900002, PlatformLevel: 0, CredentialKind: session},
+		"admin":  {UserId: 900003, PlatformLevel: 5, CredentialKind: session},
+		"key":    {UserId: 900001, PlatformLevel: 0, CredentialKind: pb.CredentialKind_CREDENTIAL_KIND_API_KEY},
 	}
 	mux := http.NewServeMux()
 	svc.Register(mux, auth)

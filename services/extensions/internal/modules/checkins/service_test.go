@@ -382,7 +382,9 @@ func TestHistoricalRecordStorageDoesNotExposeTrustLevel(t *testing.T) {
 	persisted, err := storedClaimResult(result, stored)
 	var decoded struct {
 		AlreadyClaimed bool `json:"already_claimed"`
-		Record struct { Level uint32 `json:"trust_level"` } `json:"record"`
+		Record         struct {
+			Level uint32 `json:"trust_level"`
+		} `json:"record"`
 	}
 	if err != nil || json.Unmarshal(persisted, &decoded) != nil || !decoded.AlreadyClaimed || decoded.Record.Level != 4 {
 		t.Fatalf("historical durable record changed: %s %v", persisted, err)
