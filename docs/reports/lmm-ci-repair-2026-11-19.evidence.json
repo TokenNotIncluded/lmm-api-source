@@ -1,0 +1,597 @@
+{
+  "schema_version": 1,
+  "project": "LMM API",
+  "date": "2026-11-19",
+  "timezone": "Asia/Taipei",
+  "recorded_at_utc": "2026-11-18T19:03:54.139211+00:00",
+  "source": {
+    "baseline": "234643a101dcd0bc400b01a0c95cb0ad7ed852bd",
+    "preserved_parallel_commit": "b76a68bc8d66f15da829458cb44e9a6afbf8b743",
+    "web_format_commit": "7ebaf6422742beb7fcfdd874c2a25c916b0cf00b",
+    "remaining_fix_base": "7ebaf6422742beb7fcfdd874c2a25c916b0cf00b"
+  },
+  "changes": {
+    "web_format_files": 62,
+    "copyright_files": 1,
+    "core_files": 2,
+    "formatting_rules_changed": false,
+    "dependencies_changed": false,
+    "workflow_gates_changed": false,
+    "core_semantics": "Equivalent short-circuit authorization predicate; target-local shared-fixture dead_code allowance.",
+    "copyright": "Move the existing LIghtJUNction/AGPL header before imports; preserve the Bun type directive."
+  },
+  "baseline_ci": {
+    "run_id": 44368105622,
+    "url": "https://github.com/TokenNotIncluded/lmm-api-source/actions/runs/44368105622",
+    "web_job": 135027591438,
+    "core_job": 135027592190,
+    "failures": [
+      "62 Web formatting failures",
+      "Clippy collapsible_if in identity/compat.rs"
+    ]
+  },
+  "subsequent_ci": {
+    "run_id": 44374854572,
+    "url": "https://github.com/TokenNotIncluded/lmm-api-source/actions/runs/44374854572",
+    "web_job": 135051483793,
+    "formatting": "passed",
+    "copyright": "failed before header-position repair in this batch",
+    "full_suite": "not yet passed for final source"
+  },
+  "development_checks": {
+    "web": [
+      {
+        "command": [
+          "mise",
+          "exec",
+          "--",
+          "bun",
+          "run",
+          "--filter",
+          "@lmm/web",
+          "format"
+        ],
+        "exit_code": 0,
+        "seconds": 3.401,
+        "log_name": "format-write.log"
+      },
+      {
+        "command": [
+          "mise",
+          "exec",
+          "--",
+          "bun",
+          "run",
+          "--filter",
+          "@lmm/web",
+          "format:check"
+        ],
+        "exit_code": 0,
+        "seconds": 1.612,
+        "log_name": "format-check.log"
+      },
+      {
+        "command": [
+          "mise",
+          "exec",
+          "--",
+          "bun",
+          "run",
+          "--filter",
+          "@lmm/web",
+          "lint"
+        ],
+        "exit_code": 0,
+        "seconds": 1.692,
+        "log_name": "lint.log"
+      },
+      {
+        "command": [
+          "mise",
+          "exec",
+          "--",
+          "bun",
+          "run",
+          "--filter",
+          "@lmm/web",
+          "typecheck"
+        ],
+        "exit_code": 0,
+        "seconds": 13.192,
+        "log_name": "typecheck.log"
+      }
+    ],
+    "copyright": [
+      {
+        "command": [
+          "mise",
+          "exec",
+          "--",
+          "bun",
+          "run",
+          "--filter",
+          "@lmm/web",
+          "copyright:check"
+        ],
+        "exit_code": 0,
+        "seconds": 0.997,
+        "log_name": "copyright-check.log",
+        "working_directory": "repository root"
+      },
+      {
+        "command": [
+          "mise",
+          "exec",
+          "--",
+          "bun",
+          "run",
+          "oxfmt",
+          "-c",
+          ".oxfmtrc.json",
+          "--check",
+          "src/features/native-users/page.test.tsx"
+        ],
+        "exit_code": 0,
+        "seconds": 0.172,
+        "log_name": "file-format-check.log",
+        "working_directory": "apps/web"
+      }
+    ],
+    "core": {
+      "core-format": {
+        "step": "core-format",
+        "command": [
+          "cargo",
+          "fmt",
+          "--manifest-path",
+          "services/core/Cargo.toml",
+          "--all",
+          "--check"
+        ],
+        "exit_code": 0,
+        "elapsed_seconds": 8.08,
+        "log": "core-format.log",
+        "source_sha256": "2f3769ec89a658390990c2013ca3886f59352896e7715aeaf6d51e0dd96f9d69",
+        "finished_at": "2026-11-18T18:51:13.199997+00:00",
+        "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "core-clippy": {
+        "step": "core-clippy",
+        "command": [
+          "cargo",
+          "clippy",
+          "--manifest-path",
+          "services/core/Cargo.toml",
+          "--locked",
+          "--offline",
+          "--all-targets",
+          "--",
+          "-D",
+          "warnings"
+        ],
+        "exit_code": 101,
+        "elapsed_seconds": 391.18,
+        "log": "core-clippy.log",
+        "source_sha256": "2f3769ec89a658390990c2013ca3886f59352896e7715aeaf6d51e0dd96f9d69",
+        "finished_at": "2026-11-18T18:57:44.389336+00:00",
+        "log_sha256": "d7ac9b463f80dae8f0b6a5c1c9a60442bd22966397fe377289b09e8e61e7e78d"
+      },
+      "core-fixture-format": {
+        "step": "core-fixture-format",
+        "command": [
+          "rustfmt",
+          "--edition",
+          "2024",
+          "--check",
+          "--config",
+          "skip_children=true",
+          "services/core/tests/abuse_resources.rs"
+        ],
+        "exit_code": 0,
+        "elapsed_seconds": 0.13,
+        "log": "core-fixture-format.log",
+        "finished_at": "2026-11-18T18:58:59.787269+00:00",
+        "inputs": {
+          "services/core/src/identity/compat.rs": "2f3769ec89a658390990c2013ca3886f59352896e7715aeaf6d51e0dd96f9d69",
+          "services/core/tests/abuse_resources.rs": "6cc138775cdca98aa80b1feeb525a2049e6d73cf6bcae999d1ef4b17a1fc93cb"
+        },
+        "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "core-clippy-final": {
+        "step": "core-clippy-final",
+        "command": [
+          "cargo",
+          "clippy",
+          "--manifest-path",
+          "services/core/Cargo.toml",
+          "--locked",
+          "--offline",
+          "--all-targets",
+          "--",
+          "-D",
+          "warnings"
+        ],
+        "exit_code": 0,
+        "elapsed_seconds": 234.85,
+        "log": "core-clippy-final.log",
+        "finished_at": "2026-11-18T19:02:54.641702+00:00",
+        "inputs": {
+          "services/core/src/identity/compat.rs": "2f3769ec89a658390990c2013ca3886f59352896e7715aeaf6d51e0dd96f9d69",
+          "services/core/tests/abuse_resources.rs": "6cc138775cdca98aa80b1feeb525a2049e6d73cf6bcae999d1ef4b17a1fc93cb"
+        },
+        "log_sha256": "f6e3af2759b0b75e2900b73326617abdc13280afd7a8d1e177281151bba181ad"
+      }
+    },
+    "web_lint": {
+      "errors": 0,
+      "warnings": 350
+    },
+    "full_web_tests": "not run locally",
+    "full_web_build": "not run locally",
+    "runtime_database_tests": "not run in this iteration",
+    "docs": {
+      "command": [
+        "python3",
+        "-B",
+        "scripts/check-docs-brand.py",
+        "--docs-only"
+      ],
+      "exit_code": 0,
+      "seconds": 0.21,
+      "log_name": "docs-check.log",
+      "log_sha256": "79a2c71edcde0c2802d19a027ec7d33da5a840991676f4c346ed7296f52f306e",
+      "finished_at_utc": "2026-11-18T19:08:56.849460+00:00"
+    }
+  },
+  "files": [
+    {
+      "path": "apps/web/src/components/layout/components/app-header-mobile.test.tsx",
+      "sha256": "f91caea4bdc1689212d191fd99fccfd93a73fa3e3ca8c447d2d934e815885fb5",
+      "bytes": 11122
+    },
+    {
+      "path": "apps/web/src/components/layout/components/authenticated-l0.test.tsx",
+      "sha256": "2ac9a2ea621d7e955ecd43f2c7a5f78825c15c8a627b56fc9f7817c015ec093e",
+      "bytes": 5993
+    },
+    {
+      "path": "apps/web/src/features/ai-directory/ads-currency.test.tsx",
+      "sha256": "f666272c6eab96d9741d59bdf1053996bc8776f9c46ffd4b8e32e6aab08afde6",
+      "bytes": 14709
+    },
+    {
+      "path": "apps/web/src/features/assistant/api.test.ts",
+      "sha256": "ca898469b9a97e5df8603e12f8e0c211373d6f7fba8dbd4b78d8671ec3ca68f4",
+      "bytes": 47603
+    },
+    {
+      "path": "apps/web/src/features/assistant/assistant-access.test.ts",
+      "sha256": "a10b61aad3b7ed8154ac920dc43984f21c46f3fc1ffc486f33d373a8d6580d2b",
+      "bytes": 1774
+    },
+    {
+      "path": "apps/web/src/features/assistant/assistant-access.ts",
+      "sha256": "6a99f75a05d3adf1f3824c426f7c0453ac16b9a4d13163f33545a7f7c60b7b58",
+      "bytes": 1081
+    },
+    {
+      "path": "apps/web/src/features/assistant/assistant-cost-tool.tsx",
+      "sha256": "d9f1deed2e4a71b1c2293270249bba28594323862e21e3ab1e23bd79776783d5",
+      "bytes": 11333
+    },
+    {
+      "path": "apps/web/src/features/assistant/assistant-history.test.tsx",
+      "sha256": "21d04689376bb74eb09e5ca57752866e65baceb9f9b1745791954c233af679ad",
+      "bytes": 22057
+    },
+    {
+      "path": "apps/web/src/features/assistant/assistant-intent.test.ts",
+      "sha256": "c437f2064717e9cceb9ee86f7ad510166b458074497cb84ac328b65d9101055f",
+      "bytes": 2167
+    },
+    {
+      "path": "apps/web/src/features/assistant/assistant-journey.test.tsx",
+      "sha256": "a469c207f6965a090bf16612d3d6ec792c98ac3966b0b60b46c8bd11e3e9102a",
+      "bytes": 14560
+    },
+    {
+      "path": "apps/web/src/features/assistant/assistant-key-ui.tsx",
+      "sha256": "8501840db1f0b2dd86a2d1a6830d674c678be9290215402e4e3fee75aba197e2",
+      "bytes": 13392
+    },
+    {
+      "path": "apps/web/src/features/assistant/assistant-panel.test.tsx",
+      "sha256": "8093d0da33e52513bfa5e314f8de5c0e87bea30b082ff2e4a83d52d3daf234c6",
+      "bytes": 148667
+    },
+    {
+      "path": "apps/web/src/features/assistant/assistant-panel.tsx",
+      "sha256": "bdc1947aeae6d1819b3b9348ec7aa20f1c3a8c1f7295a2a1a0518cdde16f2127",
+      "bytes": 103098
+    },
+    {
+      "path": "apps/web/src/features/assistant/assistant-plan-tool.test.tsx",
+      "sha256": "17e84e9667a7eb40c38fa417932c15a55e96d93da46cb3c57d4cdd5c9c51f0ee",
+      "bytes": 17055
+    },
+    {
+      "path": "apps/web/src/features/assistant/assistant-plan-tool.tsx",
+      "sha256": "d4c1964f80ed7db18674df08f270fcac719dba8b640af0c2468b61e02ee5bdc8",
+      "bytes": 19724
+    },
+    {
+      "path": "apps/web/src/features/assistant/assistant-prompt-presets.test.ts",
+      "sha256": "3707d124458bbc45fcf0207d75c806f94a3bb66adc74e2f36f94f9d3ed86e2f1",
+      "bytes": 5419
+    },
+    {
+      "path": "apps/web/src/features/assistant/assistant-prompt-presets.ts",
+      "sha256": "54d47083d4ad1d4f8072259381b67504dab5e22e923e43b2fac4cc36574506fe",
+      "bytes": 2436
+    },
+    {
+      "path": "apps/web/src/features/assistant/assistant-scope-lifecycle.test.tsx",
+      "sha256": "2f59581798bae7fec5fb3fbbde29ab1b4f14548e86e4634c8b53af2e56ba013b",
+      "bytes": 18779
+    },
+    {
+      "path": "apps/web/src/features/assistant/assistant-setup-tool.tsx",
+      "sha256": "46c22688b5cadcc6910d06d97c6b00afc2c191b8856a4fc1525059fa0951219f",
+      "bytes": 46467
+    },
+    {
+      "path": "apps/web/src/features/assistant/assistant-usage-tool.test.tsx",
+      "sha256": "3268ce540f0ceaf73581997d6915c3422f82125419a7b6b2cbe7a5f757f7de7c",
+      "bytes": 11718
+    },
+    {
+      "path": "apps/web/src/features/assistant/assistant-usage-tool.tsx",
+      "sha256": "cb66aa4bc519a2a82165c3520c750bf133b10351189d916706f4f1db97ce07e6",
+      "bytes": 10947
+    },
+    {
+      "path": "apps/web/src/features/assistant/l0-onboarding-experience.test.tsx",
+      "sha256": "cf217a0e91600439f46432ef38466cd74b40baadad74e00c6876052a715048c8",
+      "bytes": 11215
+    },
+    {
+      "path": "apps/web/src/features/debug/persona-runtime.test.ts",
+      "sha256": "8683633965adb068b681596a122262799264a4a4be2e644335f52dd5293a7455",
+      "bytes": 15975
+    },
+    {
+      "path": "apps/web/src/features/debug/persona-runtime.ts",
+      "sha256": "954dfac3e23c11c60912e9b8895ac7086313fbae217d8962875417412ab9dcde",
+      "bytes": 41636
+    },
+    {
+      "path": "apps/web/src/features/forge/challenge-detail-page.test.tsx",
+      "sha256": "cb97052765d9093ddae2861c0411c6263bfc9bd89a584858c59d94c89de0c679",
+      "bytes": 7523
+    },
+    {
+      "path": "apps/web/src/features/forge/forge-home.test.tsx",
+      "sha256": "243cb68162b177121f8837d15f4ee2a46d9c201cf7389a4aab756fd1f55611b2",
+      "bytes": 30350
+    },
+    {
+      "path": "apps/web/src/features/onboarding/latest-request-card.test.tsx",
+      "sha256": "61458342c9fb13cdb4e784e9e941464e7790aeb4d4af5eaa6e04f1c388235123",
+      "bytes": 4082
+    },
+    {
+      "path": "apps/web/src/features/onboarding/refresh-current-account.test.ts",
+      "sha256": "b6ecb725fb901121e5f38a0014b561d9868c092f7f9611c59b3185b38c02b980",
+      "bytes": 9274
+    },
+    {
+      "path": "apps/web/src/features/pricing/api.test.ts",
+      "sha256": "b16129b85c86b771da92d6c994be213ba2f10f5f4b6263fc5ac2c7b5045e0965",
+      "bytes": 7051
+    },
+    {
+      "path": "apps/web/src/features/pricing/catalog-contract.test.ts",
+      "sha256": "2e7cc2be1f0ed87a773b8bcaddbfb3713627d93c6a7c21a73a6ff50187a3645a",
+      "bytes": 25065
+    },
+    {
+      "path": "apps/web/src/features/pricing/catalog-contract.ts",
+      "sha256": "e569c89876516dff923faf18d527a0371383f0deb3204da4f8b428858289808c",
+      "bytes": 11386
+    },
+    {
+      "path": "apps/web/src/features/pricing/components/model-availability.tsx",
+      "sha256": "dc09a03f1ec3c68d81ed59652bdbf93b57fc687e1d4080d4d92246e23a4c2a95",
+      "bytes": 5480
+    },
+    {
+      "path": "apps/web/src/features/pricing/components/pricing-context-label.test.tsx",
+      "sha256": "60472af2ff0b2e53fb9cfa7c40b05898dc304502ee23a5865a2e53a1126aa1ff",
+      "bytes": 11794
+    },
+    {
+      "path": "apps/web/src/features/pricing/components/pricing-toolbar.tsx",
+      "sha256": "ebcb1438a4e8048d42daae97faa0b6a222991ef60fcc9925f10de8629d3a4f52",
+      "bytes": 13198
+    },
+    {
+      "path": "apps/web/src/features/pricing/lib/route-access.test.ts",
+      "sha256": "314abb74b99a0eea1d58ce61eb57dab0f39c77bb107bfaa31c4e3b5b3ab9e712",
+      "bytes": 3949
+    },
+    {
+      "path": "apps/web/src/features/public-relay/access.test.tsx",
+      "sha256": "f52e2dd6ccc0aa703015dc45c8f34d65c49dc2f225b89af9b93e9e76783623cb",
+      "bytes": 17727
+    },
+    {
+      "path": "apps/web/src/features/support-ticket/index.test.tsx",
+      "sha256": "89304d88fc3e55822118afa535e464d01666481418f97686369dc2e32d8f03fc",
+      "bytes": 2695
+    },
+    {
+      "path": "apps/web/src/features/support-ticket/support-conversation.test.tsx",
+      "sha256": "c36ce8b9718869123261e57db234b795bd201f9c15118a1c44834dd8c2db6cee",
+      "bytes": 7621
+    },
+    {
+      "path": "apps/web/src/features/system-settings/content/assistant-tool-policy-editor.test.tsx",
+      "sha256": "54501f77fec51e84ceb73ea1e6f3fa6479a8695ae286792ed0403ca3a1861bb3",
+      "bytes": 18096
+    },
+    {
+      "path": "apps/web/src/features/system-settings/content/assistant-tool-policy-save.test.ts",
+      "sha256": "05b388683afecb5010813dc2158f4a9486b4d5b99ee5acf7082ec7482a280bfb",
+      "bytes": 7906
+    },
+    {
+      "path": "apps/web/src/features/system-settings/content/assistant-tool-policy.test.ts",
+      "sha256": "df414b10c8466cf567e8a7bc3a2fbe00e60817c41114bc881a1045f0a9d33c96",
+      "bytes": 7733
+    },
+    {
+      "path": "apps/web/src/features/system-settings/content/assistant-tool-policy.ts",
+      "sha256": "3e208fe4c25d280c78385801f267dc84e95d93212e9b88ad1613d2be8cd951b5",
+      "bytes": 8213
+    },
+    {
+      "path": "apps/web/src/features/system-settings/content/conversation-starter-settings.test.tsx",
+      "sha256": "6ad6e59f5df9c3a912584a9046e124dc2325ab5037b27ad6655b19ec89fc5ab7",
+      "bytes": 19601
+    },
+    {
+      "path": "apps/web/src/features/test-key/test-key-page.test.tsx",
+      "sha256": "f2752b165f8dba8edc7491bdd208eb5b5d81e2ac957d8e55712c2924a9facc4d",
+      "bytes": 23701
+    },
+    {
+      "path": "apps/web/src/features/users/api.test.ts",
+      "sha256": "ca20ac085c5cd3a4109452d21c633cc6a4c7a3ac55d157f98018fe9a95dae5c9",
+      "bytes": 6092
+    },
+    {
+      "path": "apps/web/src/features/users/api.ts",
+      "sha256": "9c4e3bba07a980d30972243f626b4c31772ef323a75142a8a00479f49f243adb",
+      "bytes": 7795
+    },
+    {
+      "path": "apps/web/src/features/users/types.ts",
+      "sha256": "66ec8689b73df0c61b84f69f5278a6110dd5b76f4c454634cf7125f1adeddfde",
+      "bytes": 8565
+    },
+    {
+      "path": "apps/web/src/features/wallet/index.test.tsx",
+      "sha256": "7571df4e7331d84188f906febd48b5b6dd006cc8316ce283752affe8f6d3f195",
+      "bytes": 37258
+    },
+    {
+      "path": "apps/web/src/features/webmcp/areas/auth-onboarding.test.ts",
+      "sha256": "704809b443129607ced0a7854f92e629006b5b357c3c2b7a560ffdde79d260d4",
+      "bytes": 12781
+    },
+    {
+      "path": "apps/web/src/features/webmcp/model-prices.test.ts",
+      "sha256": "1d6b88e1ede546420d40909546390422b3927caefa064429bdf0539baf65c613",
+      "bytes": 4580
+    },
+    {
+      "path": "apps/web/src/hooks/backend-capability-query.test.tsx",
+      "sha256": "0d7f73e27608e298fe6654d89ae46015934c5e21185c98e1086ec4ba5d537c42",
+      "bytes": 8946
+    },
+    {
+      "path": "apps/web/src/hooks/use-sidebar-data.test.ts",
+      "sha256": "e6acfaf5c371369cd83b2aad1491f75c0de7ead3f32be21b30dda5cccc3701c2",
+      "bytes": 3465
+    },
+    {
+      "path": "apps/web/src/lib/__tests__/console-activation.test.ts",
+      "sha256": "90b70ba0f545b34e7f22e31a715d57737e6dc3b74c86cd21e564add5b68aba05",
+      "bytes": 3064
+    },
+    {
+      "path": "apps/web/src/lib/auth-session.test.ts",
+      "sha256": "9da0df3f5531b001a9713142f37529a111f502b04f40ca8c419980209f4703a0",
+      "bytes": 14671
+    },
+    {
+      "path": "apps/web/src/lib/can-manage-api-keys.test.ts",
+      "sha256": "cf20715124f854a869ee52fd2431c327a8fd40c483047274018b13e37c906fd0",
+      "bytes": 790
+    },
+    {
+      "path": "apps/web/src/lib/console-activation.ts",
+      "sha256": "7df92446ab67315c30c351fc7ac130e6fc4241bf68f44559e1e1bbaa985e64db",
+      "bytes": 5601
+    },
+    {
+      "path": "apps/web/src/lib/http-client.test.ts",
+      "sha256": "3bd065cb5155a8c13d62d53c8cc2fd7d9bd05b25d38427feb13883680443983a",
+      "bytes": 28075
+    },
+    {
+      "path": "apps/web/src/lib/http-client.ts",
+      "sha256": "adae1dd0517046149c4f29cb95f1dc90c9ef4cf7525afa06af316400820f1eee",
+      "bytes": 13608
+    },
+    {
+      "path": "apps/web/src/lib/server-error-message.test.ts",
+      "sha256": "9d8f9800bb20b7feceb18b11291acf5387702b6a6b533ae788fc3c6cb734f970",
+      "bytes": 6395
+    },
+    {
+      "path": "apps/web/src/routes/__root.tsx",
+      "sha256": "b654a2a8a3661ba19b36f15158ba3b2a3dd57783f6f4ebf19704009cd53d6fb2",
+      "bytes": 9503
+    },
+    {
+      "path": "apps/web/src/routes/_authenticated/route.test.ts",
+      "sha256": "8cab53faa510a504435cb8c8c27d2e045999cb218946de72be51c09a1c08bdf6",
+      "bytes": 3937
+    },
+    {
+      "path": "apps/web/src/routes/_authenticated/route.tsx",
+      "sha256": "574a77f6a2e7ce22cf13de46ec8a963f47f1ca0fc5ded08c9c9bdf433ef32850",
+      "bytes": 2143
+    },
+    {
+      "path": "services/core/src/identity/compat.rs",
+      "sha256": "2f3769ec89a658390990c2013ca3886f59352896e7715aeaf6d51e0dd96f9d69",
+      "git_blob": "48692af898c2fe72c8b735b1ee8b2039db9f0272"
+    },
+    {
+      "path": "services/core/tests/abuse_resources.rs",
+      "sha256": "6cc138775cdca98aa80b1feeb525a2049e6d73cf6bcae999d1ef4b17a1fc93cb",
+      "git_blob": "7ad6676af087a2b15b7be5f55a035ac261107d1a"
+    },
+    {
+      "path": "apps/web/src/features/native-users/page.test.tsx",
+      "sha256": "a15493a4a4774c017d27762ba22ed001f201e018266835550ef5571ed3ce7e78",
+      "git_blob": "a69942bf116ceab7353a58817d817c4e2eedd35b"
+    }
+  ],
+  "diff_review": {
+    "files": 62,
+    "normalized_syntax_identical": 60,
+    "manual_equivalence": [
+      {
+        "file": "apps/web/src/features/assistant/assistant-setup-tool.tsx",
+        "reason": "Formatter merged the explicit space JSX expression into adjacent text; both render a colon followed by one space."
+      },
+      {
+        "file": "apps/web/src/lib/auth-session.test.ts",
+        "reason": "Formatter reordered existing test-only import declarations and wrapped expressions; no imports added or removed."
+      }
+    ]
+  },
+  "boundaries": {
+    "independent_acceptance": "not run",
+    "deployment": "not run",
+    "live_paid_provider": "not called",
+    "production_database": "not accessed",
+    "full_ci": "pending final push result"
+  },
+  "delivery": {
+    "google_drive_folder": "https://drive.google.com/drive/folders/10XD834rnPHw_fMjZOfebUIQmQ5t1Ri73"
+  }
+}

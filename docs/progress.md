@@ -4,6 +4,9 @@
 
 ## 当前状态
 
+- **主线 CI 前置检查修复（开发自测通过；2026-11-19）**：Web 62 个格式失败已由 [7ebaf642](https://github.com/TokenNotIncluded/lmm-api-source/commit/7ebaf6422742beb7fcfdd874c2a25c916b0cf00b) 修复；原生用户测试的版权声明已移至文件头。Core 显式分组授权条件作等价合并，共用 abuse 夹具的未使用函数注解限定于锁顺序测试目标。
+  **验证与边界**：Web format、lint、typecheck、copyright 均 exit 0；lint 保留 350 warnings、0 errors。Core 全目标 Clippy（`-D warnings`）最终 exit 0，相关格式检查通过。初始 CI、后续版权检查及首次 Clippy 失败保留在[本轮报告](reports/lmm-ci-repair-2026-11-19.md)与[结构化证据](reports/lmm-ci-repair-2026-11-19.evidence.json)。后续全量 CI 尚需读取实际结果；本轮未执行独立业务验收或部署。
+
 - **请求能力路由实机 HTTP 验证（3/3 通过；2026-11-19）**：通过 ssmcp 在开发机发送真实 TCP/HTTP 请求，使用实际 Core 网关、私有 PostgreSQL 和受限运行角色。次数上限 1 时跳过输出不足的 A、由 B 返回 200；B 真实连接拒绝后转向 C 返回 200，发送编号 1、2 且仅一笔预留与结算；全部不兼容返回 503、零发送和零预扣。重复请求 409，无新增上游调用或扣费。测试 [234643a1](https://github.com/TokenNotIncluded/lmm-api-source/commit/234643a101dcd0bc400b01a0c95cb0ad7ed852bd)。
   **证据与边界**：两个成功场景各结算 10 合成 credits，冻结归零；1,091 项输入摘要前后一致。首次执行 3/3 通过，临时数据库已清理。[实测报告](reports/lmm-request-aware-http-2026-11-19.md)与[结构化证据](reports/lmm-request-aware-http-2026-11-19.evidence.json)已记录。上游为本地测试 HTTP 服务；生产主程序配置启动、真实付费供应商、部署与独立业务验收未执行。
 
@@ -11,7 +14,7 @@
   **开发自测**：复用源码一致的渠道 52 项回归，重复执行不累加；完整 Web 类型检查与修改范围 lint 通过。1440/390px 的能力过期场景通过；新增 390px 浅深色检查覆盖七个字段、原版本与保存按钮键盘可达性，截图已实际查看，配置写入为零。
   **发布**：[Web run 44363827572](https://github.com/TokenNotIncluded/lmm-api-source/actions/runs/44363827572) 成功，2026-11-19 02:02:33（Asia/Taipei）记录完成。发布 CI 类型检查、11 项认证回归、18 个 Chromium 恢复场景、构建和制品校验通过；首屏 gzip 499,783 / 786,432 bytes。arch-shadow 与 ubuntu-shadow 均通过健康及实际 HTML／制品匹配检查，本轮只部署 Web。
   **Key 与四协议**：测试提交 [97c50253](https://github.com/TokenNotIncluded/lmm-api-source/commit/97c50253122b8eb305518882d692fab9ae56c2e6) 的隔离 PostgreSQL 定向集合 3/3 通过。管理创建 Key 后四协议均 HTTP 200，每笔结算 49 测试 credits、预留为零；撤销后四入口拒绝，上游和账本无新增。采用真实 TCP、正式管理／模型路由与 PostgreSQL，供应商响应合成；首轮夹具解码失败及修正记录保留。
-  **剩余边界**：全库 [CI run 44368105622](https://github.com/TokenNotIncluded/lmm-api-source/actions/runs/44368105622) 仍有 62 个本轮范围外文件格式失败，较原基线减少一项，没有新增格式失败。当前会话无法控制所需已登录 native 浏览器，生产用户链路未验收；本轮没有真实付费模型调用。详见[本轮报告](reports/lmm-channel-key-protocol-2026-11-19.md)和[结构化证据](reports/lmm-channel-key-protocol-2026-11-19.evidence.json)。
+  **剩余边界**：全库 [CI run 44368105622](https://github.com/TokenNotIncluded/lmm-api-source/actions/runs/44368105622) 当时记录的 62 个格式失败已由本页 CI 修复条目处理，原始失败记录保留。当前会话无法控制所需已登录 native 浏览器，生产用户链路未验收；本轮没有真实付费模型调用。详见[本轮报告](reports/lmm-channel-key-protocol-2026-11-19.md)和[结构化证据](reports/lmm-channel-key-protocol-2026-11-19.evidence.json)。
 
 - **浏览器会话恢复（首次 Web 发布历史；2026-11-19）**：该修复首次发布的 Web 为 [300d41c2](https://github.com/TokenNotIncluded/lmm-api-source/commit/300d41c2f86acc6471dd30d0e8aeaca5fd9d6d86)，包含 [8abbbdd1](https://github.com/TokenNotIncluded/lmm-api-source/commit/8abbbdd141a221d781279404c154298f7acb95e6) 的原页面回跳修复。受阻的密码提交在改变登录意图前停止；恢复、续期及重新登录保留路径、查询参数和 fragment。失效交接记录和其他标签已恢复后的旧页面通过新的完整文档继续，旧页面内的 Cookie 阻断与待完成写入仍受保护。
   **开发自测**：18 项真实 Chromium 恢复场景、8 项 Cookie API、48 项登录表单、2 项恢复组件及 6 项本地退出合同通过；完整 Web 类型检查与修改范围 lint／格式通过。原始红测与两次浏览器夹具失败均保留在[认证报告](reports/lmm-auth-session-recovery-2026-11-19.md)和[结构化证据](reports/lmm-auth-session-recovery-2026-11-19.evidence.json)。

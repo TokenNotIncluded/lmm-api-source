@@ -2,6 +2,7 @@
 use lmm_core::{core_schema, identity::IdentityStore};
 use sqlx::PgPool;
 #[path = "common/abuse_resources.rs"]
+#[allow(dead_code)] // This target only needs the shared marker preview helpers.
 mod common;
 
 #[sqlx::test(migrations = false)]

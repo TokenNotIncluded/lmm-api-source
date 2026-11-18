@@ -1,6 +1,6 @@
+/* Copyright (C) 2026 LIghtJUNction. SPDX-License-Identifier: AGPL-3.0-or-later */
 // @ts-expect-error Bun's test module is only available in the test runtime.
 import { afterEach, expect, test } from 'bun:test'
-/* Copyright (C) 2026 LIghtJUNction. SPDX-License-Identifier: AGPL-3.0-or-later */
 import assert from 'node:assert/strict'
 
 import { Window } from 'happy-dom'

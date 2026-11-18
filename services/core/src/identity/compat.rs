@@ -370,10 +370,10 @@ impl IdentityStore {
             .bind(actor.credential_id).fetch_optional(&mut *tx).await?;
         let result = if let Some(row) = row {
             let selected: String = row.try_get("group_name")?;
-            if selected != "auto" {
-                if !routing_group_allowed_in_transaction(&mut tx, actor.user_id, &selected).await? {
-                    return Err(IdentityError::Forbidden);
-                }
+            if selected != "auto"
+                && !routing_group_allowed_in_transaction(&mut tx, actor.user_id, &selected).await?
+            {
+                return Err(IdentityError::Forbidden);
             }
 
             let allowed = groups(&mut tx, actor.user_id, self.dashboard_routing.as_deref()).await?;
