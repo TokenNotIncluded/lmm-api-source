@@ -554,6 +554,12 @@ mod tests {
     async fn user_ip_allowlist_intersects_key_policy_without_http_context(pool: PgPool) {
         let store = IdentityStore::from_pool(pool.clone()).with_registration_enabled(true);
         store.init_database().await.unwrap();
+        // Issuing a key also reads the abuse policy; identity-only installation
+        // deliberately does not create that separate component.
+        sqlx::raw_sql(sqlx::AssertSqlSafe(crate::abuse::SCHEMA))
+            .execute(&pool)
+            .await
+            .unwrap();
         let session = store
             .register(&LoginRequest {
                 login_name: "network-key-user".into(),
