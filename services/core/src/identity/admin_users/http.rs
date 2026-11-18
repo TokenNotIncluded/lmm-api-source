@@ -49,6 +49,7 @@ pub fn router(store: AdminUsersStore) -> Router {
     let personal_tokens = super::super::personal_token::router(store.identity.clone());
     Router::new()
         .merge(super::profile_mutation::routes())
+        .merge(super::access_groups::routes())
         .merge(super::security::routes())
         .merge(super::appeals::routes())
         .merge(super::balance_adjustments::routes())

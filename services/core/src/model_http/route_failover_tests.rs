@@ -519,3 +519,68 @@ async fn route_affinity_pg_explicit_session_is_stable_and_not_disclosed(pool: Pg
         3
     );
 }
+
+#[sqlx::test(migrations = false)]
+async fn key_pool_pg_forwarding_and_reservations_use_the_same_revision(pool: PgPool) {
+    async fn reply(
+        State(keys): State<Arc<std::sync::Mutex<Vec<String>>>>,
+        headers: HeaderMap,
+        Json(_body): Json<serde_json::Value>,
+    ) -> Json<serde_json::Value> {
+        keys.lock()
+            .unwrap()
+            .push(headers[header::AUTHORIZATION].to_str().unwrap().to_owned());
+        Json(json!({
+            "id":"synthetic-key-pool","object":"chat.completion",
+            "choices":[{"index":0,"message":{"role":"assistant","content":"pool response"},"finish_reason":"stop"}],
+            "usage":{"prompt_tokens":2,"completion_tokens":3,"prompt_tokens_details":{"cached_tokens":0}}
+        }))
+    }
+    let f = fixture(pool, 10_000_000).await;
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let base = format!("http://{}/v1", listener.local_addr().unwrap());
+    let keys = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let app = Router::new()
+        .route("/v1/chat/completions", post(reply))
+        .with_state(keys.clone());
+    let supplier = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+    let g = gateway(&f, &base, vec![]).with_local_streaming();
+    let primary = CredentialRef { id: 7, revision: 1 };
+    let secondary = CredentialRef { id: 8, revision: 2 };
+    g.bridge
+        .credentials
+        .append(vec![UpstreamCredential {
+            reference: secondary,
+            secret: "synthetic-pool-secondary".into(),
+        }])
+        .unwrap();
+    g.bridge
+        .routing
+        .install_credential_pools(
+            g.bridge.routing.version().unwrap(),
+            &BTreeMap::from([(1, vec![primary, secondary])]),
+        )
+        .unwrap();
+
+    for (index, reference) in [primary, secondary, primary].into_iter().enumerate() {
+        let (status, body, id) = call(&g, &f, &format!("key-pool-{index}"), false, None).await;
+        assert_eq!(status, 200, "{body}");
+        let persisted: serde_json::Value = sqlx::query_scalar(
+            "SELECT detail FROM core_charging.usage_events WHERE request_id=$1 AND event_id='reservation-contract:v1'",
+        ).bind(&id).fetch_one(&f.pool).await.unwrap();
+        assert_eq!(persisted["binding"]["credential_ref"], json!(reference));
+        let charge = receipt(&g, &id).await;
+        assert_eq!((charge.state.as_str(), charge.settled), ("settled", 2));
+    }
+    assert_eq!(
+        *keys.lock().unwrap(),
+        [
+            "Bearer synthetic-selected-bound-provider-key",
+            "Bearer synthetic-pool-secondary",
+            "Bearer synthetic-selected-bound-provider-key",
+        ]
+    );
+    assert_eq!(requests(&f.pool).await, 3);
+    assert_balance(&f, 9_999_994, 0).await;
+    supplier.abort();
+}

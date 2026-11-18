@@ -313,10 +313,10 @@ async fn prepare_request(
                 replay: ReplayPermission::Denied,
             };
             let routed = if let Some(parent) = &parent {
-                gateway
-                    .bridge
-                    .routing
-                    .route_responses_http_bound(routing_request, parent.binding.target_id)
+                gateway.bridge.routing.route_responses_http_bound(
+                    routing_request,
+                    (parent.binding.target_id, parent.binding.credential_ref),
+                )
             } else {
                 gateway.bridge.routing.route(routing_request)
             };

@@ -657,7 +657,11 @@ async fn restricted_runtime_publishes_without_routing_dml_and_rolls_back_with_au
 
 #[sqlx::test(migrations = false)]
 async fn vault_key_polling_persists_enabled_states_with_permission_and_version_cas(pool: PgPool) {
-    let (app, _, admin, ordinary) = vault_app(&pool).await;
+    let (app, live_gateway, admin, ordinary) = vault_app(&pool).await;
+    let routing = live_gateway.dashboard_routing();
+    routing
+        .set_operational_enabled(routing.version().unwrap(), 1, false)
+        .unwrap();
     success(
         &app,
         "POST",
@@ -738,6 +742,40 @@ async fn vault_key_polling_persists_enabled_states_with_permission_and_version_c
     )
     .await;
     assert_eq!(listed["polling"], true);
+    let primary_ref: CredentialRef =
+        serde_json::from_value(listed["active_reference"].clone()).unwrap();
+    for reference in [primary_ref, secondary, primary_ref, secondary] {
+        let attempt = routing.route(route_request()).unwrap().start().unwrap();
+        assert_eq!(attempt.upstream_id(), 2);
+        assert_eq!(attempt.credential_ref(), reference);
+    }
+    // Recovery must decrypt every enabled key, not only the primary reference.
+    let recovered_gateway = gateway(&pool).with_channel_secret_key(&[83; 32]).unwrap();
+    let recovered_routing = recovered_gateway.dashboard_routing();
+    let _recovered = ManagedChannels::recover(pool.clone(), recovered_gateway)
+        .await
+        .unwrap();
+    recovered_routing
+        .set_operational_enabled(recovered_routing.version().unwrap(), 1, false)
+        .unwrap();
+    assert_eq!(
+        recovered_routing
+            .route(route_request())
+            .unwrap()
+            .start()
+            .unwrap()
+            .credential_ref(),
+        primary_ref
+    );
+    assert_eq!(
+        recovered_routing
+            .route(route_request())
+            .unwrap()
+            .start()
+            .unwrap()
+            .credential_ref(),
+        secondary
+    );
     assert!(
         listed["keys"]
             .as_array()
@@ -773,10 +811,50 @@ async fn vault_key_polling_persists_enabled_states_with_permission_and_version_c
         json!({"operation":"set_enabled","expected_version":listed["version"],"reference":secondary,"enabled":false}),
     )
     .await;
+    assert_eq!(
+        routing
+            .route(route_request())
+            .unwrap()
+            .start()
+            .unwrap()
+            .credential_ref(),
+        primary_ref
+    );
+    assert_eq!(
+        routing
+            .route(route_request())
+            .unwrap()
+            .start()
+            .unwrap()
+            .credential_ref(),
+        primary_ref
+    );
     let restored_gateway = gateway(&pool).with_channel_secret_key(&[83; 32]).unwrap();
+    let restored_routing = restored_gateway.dashboard_routing();
     let restored = ManagedChannels::recover(pool.clone(), restored_gateway)
         .await
         .unwrap();
+    restored_routing
+        .set_operational_enabled(restored_routing.version().unwrap(), 1, false)
+        .unwrap();
+    assert_eq!(
+        restored_routing
+            .route(route_request())
+            .unwrap()
+            .start()
+            .unwrap()
+            .credential_ref(),
+        primary_ref
+    );
+    assert_eq!(
+        restored_routing
+            .route(route_request())
+            .unwrap()
+            .start()
+            .unwrap()
+            .credential_ref(),
+        primary_ref
+    );
     let restored_app = managed_router(pool.clone(), restored);
     let listed = success(
         &restored_app,

@@ -37,6 +37,7 @@ pub(super) struct Turn {
     request: Request,
     pub(super) route: Route,
     pub(super) target_id: u64,
+    pub(super) credential_ref: crate::routing::CredentialRef,
     pub(super) frame: PreparedCreate,
 }
 
@@ -215,7 +216,7 @@ async fn serve(
                     .ok()
                     .and_then(|value| value.strip_prefix("Bearer "))
                     .map(str::to_owned);
-                pinned_target = Some(turn.target_id);
+                pinned_target = Some((turn.target_id, turn.credential_ref));
                 pinned_model = Some(turn.request.model.clone());
             }
             let upstream = upstream.as_mut().ok_or(RelayError::UpstreamConnection)?;
@@ -489,7 +490,7 @@ impl Turn {
         peer: Option<IpAddr>,
         session_turn: SessionTurn<'_>,
         create: &Create,
-        pinned_target: Option<u64>,
+        pinned_target: Option<(u64, crate::routing::CredentialRef)>,
         previous_response: Option<&str>,
     ) -> Result<Self, RelayError> {
         let SessionTurn { session, sequence } = session_turn;
@@ -602,18 +603,20 @@ impl Turn {
                 .map_err(|_| RelayError::BillingUnavailable)?;
             let operation = active.get_mut(&id).ok_or(RelayError::Conflict)?;
             operation.fingerprint = frame.frame_commitment;
-            let target_id = operation
+            let attempt = &operation
                 .selected
                 .as_ref()
                 .ok_or(RelayError::RouteUnavailable)?
-                .attempt
-                .target_id();
+                .attempt;
+            let target_id = attempt.target_id();
+            let credential_ref = attempt.credential_ref();
             Ok(Self {
                 bridge: gateway.bridge.clone(),
                 context,
                 request,
                 route,
                 target_id,
+                credential_ref,
                 frame,
             })
         })();

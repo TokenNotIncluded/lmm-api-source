@@ -1,4 +1,6 @@
 //! Core-owned administrator user reads and a separate conditional display-name update.
+mod access_groups;
+pub use access_groups::{AccessRequest, AccessSnapshot, AccessUpdate, AccessValues};
 mod appeals;
 mod create;
 pub use create::{CreateUserRequest, CreatedUser};
@@ -68,6 +70,7 @@ pub struct UsersQuery {
     pub group: Option<String>,
     pub role: Option<String>,
     pub status: Option<String>,
+    pub team_id: Option<String>,
     pub page: Option<u32>,
     pub page_size: Option<u32>,
     pub sort_by: Option<String>,
@@ -91,6 +94,7 @@ struct ValidQuery {
     group: Option<String>,
     role: Option<String>,
     active: Option<bool>,
+    team_id: Option<i64>,
     page: u32,
     size: u32,
     offset: i64,
@@ -141,6 +145,20 @@ impl UsersQuery {
             Some("deleted" | "-1") => return Err(AdminUsersError::UnsupportedFilter),
             _ => return Err(AdminUsersError::Invalid),
         };
+        let team_id = self
+            .team_id
+            .as_deref()
+            .map(|value| {
+                if value.is_empty() || !value.bytes().all(|c| c.is_ascii_digit()) {
+                    return Err(AdminUsersError::Invalid);
+                }
+                value
+                    .parse::<i64>()
+                    .ok()
+                    .filter(|id| *id > 0)
+                    .ok_or(AdminUsersError::Invalid)
+            })
+            .transpose()?;
         let (page, size, offset) = pagination(self.page, self.page_size)?;
         let sort = match self.sort_by.as_deref().unwrap_or("id") {
             "id" => "id",
@@ -181,12 +199,21 @@ impl UsersQuery {
             group,
             role,
             active,
+            team_id,
             page,
             size,
             offset,
             order,
         })
     }
+}
+#[derive(Serialize)]
+pub struct AdminUserTeam {
+    pub id: String,
+    pub account_id: String,
+    pub name: String,
+    pub role: String,
+    pub can_spend: bool,
 }
 #[derive(Serialize)]
 pub struct UserRow {
@@ -203,6 +230,7 @@ pub struct UserRow {
     pub status: i16,
     pub account_active: bool,
     pub groups: Vec<String>,
+    pub teams: Vec<AdminUserTeam>,
     pub core_account_created_at_unix_ms: i64,
     pub registered_at_unix_ms: Option<i64>,
     pub wallet: WalletProjection,
@@ -230,7 +258,7 @@ fn safe_time(value: i64) -> ReadResult<i64> {
 }
 fn capabilities() -> ReadCapabilities {
     ReadCapabilities {
-        filters: &["keyword", "group", "role", "status"],
+        filters: &["keyword", "group", "role", "status", "team_id"],
         sorts: &[
             "id",
             "username",
@@ -415,10 +443,11 @@ impl AdminUsersStore {
         .bind(&q.group)
         .bind(&q.role)
         .bind(q.active)
+        .bind(q.team_id)
         .fetch_one(&mut *tx)
         .await?;
-        let rows=sqlx::query(sqlx::AssertSqlSafe(format!("{SELECTED} SELECT *,floor(extract(epoch FROM core_created_at)*1000)::bigint AS core_created_ms,floor(extract(epoch FROM registered_at)*1000)::bigint AS registered_ms FROM selected ORDER BY {} LIMIT $6 OFFSET $7",q.order)))
-            .bind(&q.keyword).bind(q.keyword_id).bind(&q.group).bind(&q.role).bind(q.active).bind(i64::from(q.size)).bind(q.offset).fetch_all(&mut *tx).await?;
+        let rows=sqlx::query(sqlx::AssertSqlSafe(format!("{SELECTED} SELECT *,floor(extract(epoch FROM core_created_at)*1000)::bigint AS core_created_ms,floor(extract(epoch FROM registered_at)*1000)::bigint AS registered_ms FROM selected ORDER BY {} LIMIT $7 OFFSET $8",q.order)))
+            .bind(&q.keyword).bind(q.keyword_id).bind(&q.group).bind(&q.role).bind(q.active).bind(q.team_id).bind(i64::from(q.size)).bind(q.offset).fetch_all(&mut *tx).await?;
         let mut items = Vec::with_capacity(rows.len());
         for r in rows {
             items.push(project_user(&mut tx, r).await?);
@@ -443,13 +472,14 @@ impl AdminUsersStore {
         Self::authorize(&mut tx, secret).await?;
         // Use the list's projection, but select the exact ID independently of text search.
         let row = sqlx::query(sqlx::AssertSqlSafe(format!(
-            "{SELECTED} SELECT *,floor(extract(epoch FROM core_created_at)*1000)::bigint AS core_created_ms,floor(extract(epoch FROM registered_at)*1000)::bigint AS registered_ms FROM selected WHERE id=$6"
+            "{SELECTED} SELECT *,floor(extract(epoch FROM core_created_at)*1000)::bigint AS core_created_ms,floor(extract(epoch FROM registered_at)*1000)::bigint AS registered_ms FROM selected WHERE id=$7"
         )))
         .bind("")
         .bind(None::<i64>)
         .bind(None::<String>)
         .bind(None::<String>)
         .bind(None::<bool>)
+        .bind(None::<i64>)
         .bind(user_id)
         .fetch_optional(&mut *tx)
         .await?
@@ -510,6 +540,7 @@ async fn project_user(c: &mut PgConnection, r: sqlx::postgres::PgRow) -> ReadRes
         status: r.try_get("status_number")?,
         account_active: r.try_get("account_active")?,
         groups: r.try_get("groups")?,
+        teams: user_teams(c, id).await?,
         core_account_created_at_unix_ms: safe_time(r.try_get("core_created_ms")?)?,
         registered_at_unix_ms: r
             .try_get::<Option<i64>, _>("registered_ms")?
@@ -517,6 +548,27 @@ async fn project_user(c: &mut PgConnection, r: sqlx::postgres::PgRow) -> ReadRes
             .transpose()?,
         wallet: wallet::read(c, id, account).await?,
     })
+}
+async fn user_teams(c: &mut PgConnection, user_id: i64) -> ReadResult<Vec<AdminUserTeam>> {
+    let rows = sqlx::query(
+        "SELECT t.id,t.account_id,t.name,
+          CASE WHEN t.owner_user_id=$1 THEN 'owner' ELSE m.role END AS role,
+          (t.owner_user_id=$1 OR COALESCE(m.can_spend,FALSE)) AS can_spend
+         FROM core_identity.teams t JOIN core_identity.accounts a ON a.id=t.account_id
+         LEFT JOIN core_identity.memberships m ON m.team_id=t.id AND m.user_id=$1 AND m.active
+         WHERE t.active AND a.active AND (t.owner_user_id=$1 OR m.user_id IS NOT NULL) ORDER BY t.id",
+    ).bind(user_id).fetch_all(c).await?;
+    rows.into_iter()
+        .map(|row| {
+            Ok(AdminUserTeam {
+                id: row.try_get::<i64, _>("id")?.to_string(),
+                account_id: row.try_get::<i64, _>("account_id")?.to_string(),
+                name: row.try_get("name")?,
+                role: row.try_get("role")?,
+                can_spend: row.try_get("can_spend")?,
+            })
+        })
+        .collect()
 }
 const SELECTED: &str = r#"
 WITH selected AS (
@@ -534,6 +586,10 @@ WITH selected AS (
    OR position(lower($1) in lower(COALESCE(p.display_name,'')))>0 OR position(lower($1) in lower(COALESCE(p.email,'')))>0)
   AND ($3::text IS NULL OR EXISTS(SELECT FROM core_identity.user_routing_groups g WHERE g.user_id=u.id AND g.enabled AND g.group_name COLLATE "C"=$3::text COLLATE "C"))
   AND ($4::text IS NULL OR u.platform_role=$4) AND ($5::boolean IS NULL OR u.active=$5)
+  AND ($6::bigint IS NULL OR EXISTS(
+    SELECT FROM core_identity.teams t JOIN core_identity.accounts ta ON ta.id=t.account_id
+    LEFT JOIN core_identity.memberships m ON m.team_id=t.id AND m.user_id=u.id AND m.active
+    WHERE t.id=$6 AND t.active AND ta.active AND (t.owner_user_id=u.id OR m.user_id IS NOT NULL)))
 )
 "#;
 #[cfg(all(test, unix))]

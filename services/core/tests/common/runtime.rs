@@ -45,6 +45,19 @@ impl RuntimeRole {
             GRANT SELECT,INSERT,UPDATE ON core_billing.account_policies TO {name};
             GRANT EXECUTE ON FUNCTION core_billing.open_ledger_wallet(bigint),core_billing.post_ledger(jsonb),core_billing.legacy_escrow_finalize(jsonb,bigint,bigint) TO {name};
         "#))).execute(owner).await.unwrap();
+        // Exercise the deployed column grants, never a test-only privilege bypass.
+        let access_grants = include_str!("../../../../deployment/postgres/grant-core-runtime.sql")
+            .split_once("-- BEGIN native-user-access runtime grants\n")
+            .unwrap()
+            .1
+            .split_once("-- END native-user-access runtime grants")
+            .unwrap()
+            .0
+            .replace(":\"runtime_role\"", &name);
+        sqlx::raw_sql(sqlx::AssertSqlSafe::<&str>(&access_grants))
+            .execute(owner)
+            .await
+            .unwrap();
         // Identity/ledger-only fixtures have no Core installer metadata. Grant
         // only the explicitly named tables their installer actually created.
         for table in [

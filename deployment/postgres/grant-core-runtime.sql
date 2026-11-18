@@ -227,7 +227,12 @@ GRANT SELECT, INSERT, DELETE ON core_identity.oauth_flows TO :"runtime_role";
 GRANT SELECT, INSERT, UPDATE, DELETE ON core_identity.auth_attempts TO :"runtime_role";
 GRANT USAGE ON SEQUENCE core_identity.mfa_enrollments_id_seq,
     core_identity.mfa_backup_codes_id_seq TO :"runtime_role";
+-- BEGIN native-user-access runtime grants
 GRANT SELECT ON core_identity.user_routing_groups TO :"runtime_role";
+-- Grant only membership creation and activation; identity/source fields stay immutable.
+GRANT INSERT(user_id,group_name,enabled,source_reference), UPDATE(enabled)
+    ON core_identity.user_routing_groups TO :"runtime_role";
+-- END native-user-access runtime grants
 GRANT USAGE ON SEQUENCE core_identity.accounts_id_seq, core_identity.users_id_seq,
     core_identity.teams_id_seq, core_identity.credentials_id_seq,
     core_identity.invites_id_seq, core_identity.audit_id_seq TO :"runtime_role";

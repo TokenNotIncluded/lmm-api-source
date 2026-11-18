@@ -168,7 +168,7 @@ pub(crate) async fn check_connection(
           WHERE c.relkind IN ('r','p','v','m','f') AND (
             ((n.nspname IN ('core_meta','core_migration','core_model','core_history','core_trust_pricing')
               OR (n.nspname='core_console' AND c.relname IN ('options','initialization'))
-              OR (n.nspname='core_identity' AND c.relname IN ('developer_access','user_routing_groups','privileged_import_facts','permission_policies','permission_policy_rows','admin_activation_receipts'))
+              OR (n.nspname='core_identity' AND c.relname IN ('developer_access','privileged_import_facts','permission_policies','permission_policy_rows','admin_activation_receipts'))
               OR (n.nspname='public' AND c.relname IN ('routing_active_release','routing_groups','routing_routes'))
               OR (n.nspname='core_charging' AND c.relname IN ('budget_opening_consumption','subscription_opening_consumption'))
               OR (n.nspname='core_billing' AND c.relname<>'account_policies')
@@ -179,6 +179,12 @@ pub(crate) async fn check_connection(
               OR (n.nspname='core_payments' AND c.relname='legacy_bases'))
              AND (has_table_privilege(c.oid,'INSERT,UPDATE,DELETE,TRUNCATE,TRIGGER,REFERENCES,MAINTAIN')
                OR has_any_column_privilege(c.oid,'INSERT,UPDATE,REFERENCES')))
+            OR (n.nspname='core_identity' AND c.relname='user_routing_groups'
+              AND (has_table_privilege(c.oid,'INSERT,UPDATE,DELETE,TRUNCATE,TRIGGER,REFERENCES,MAINTAIN')
+                OR has_any_column_privilege(c.oid,'REFERENCES')
+                OR EXISTS(SELECT FROM pg_attribute a WHERE a.attrelid=c.oid AND a.attnum>0 AND NOT a.attisdropped
+                  AND ((a.attname NOT IN ('user_id','group_name','enabled','source_reference') AND has_column_privilege(c.oid,a.attname,'INSERT'))
+                    OR (a.attname<>'enabled' AND has_column_privilege(c.oid,a.attname,'UPDATE'))))))
             OR ((n.nspname='core_console' AND c.relname='announcement_reads'
                OR n.nspname='core_payments' AND c.relname IN ('receipts','provider_events','provider_refunds','blocked_refunds','accepted_proofs','refund_dispatches','refund_dispatch_bindings','legacy_proofs','provider_identifiers','legacy_applications','discount_code_tombstones','discount_management_batches')
                OR n.nspname='core_charging' AND c.relname IN ('budget_checks','usage_events','refunds','policy_events','ledger_commands')
@@ -369,6 +375,9 @@ pub(crate) async fn check_connection(
             WHERE NOT has_column_privilege('core_identity.'||p.name,p.column_name,'UPDATE'))
           AND has_table_privilege('core_identity.auth_attempts','UPDATE')
           AND has_table_privilege('core_identity.user_routing_groups','SELECT')
+          AND NOT EXISTS(SELECT FROM (VALUES ('user_id'),('group_name'),('enabled'),('source_reference')) p(name)
+            WHERE NOT has_column_privilege('core_identity.user_routing_groups',p.name,'INSERT'))
+          AND has_column_privilege('core_identity.user_routing_groups','enabled','UPDATE')
           AND has_table_privilege('core_identity.privileged_import_facts','SELECT')
           AND has_table_privilege('core_identity.permission_policies','SELECT')
           AND has_table_privilege('core_identity.permission_policy_rows','SELECT')

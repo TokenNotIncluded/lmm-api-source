@@ -937,7 +937,7 @@ async fn websocket_turn_authorization_rechecks_credentials_and_previous_response
     )
     .await
     .unwrap();
-    let target = turn.target_id;
+    let target = (turn.target_id, turn.credential_ref);
     let reservation = turn.reserve(&create, &g.limits).await.unwrap();
     turn.record_dispatch().await.unwrap();
     turn.finalize(
@@ -999,7 +999,7 @@ async fn websocket_turn_authorization_rechecks_credentials_and_previous_response
     )
     .await
     .unwrap();
-    assert_eq!(continued.target_id, target);
+    assert_eq!((continued.target_id, continued.credential_ref), target);
     drop(continued);
     assert_eq!(requests(&f.pool).await, 1);
     assert_balance(&f, 1_999_998, 0).await;

@@ -1,6 +1,6 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fmt;
-use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU8, AtomicUsize, Ordering};
 use std::sync::{Arc, RwLock};
 
 use rand::{RngExt, SeedableRng};
@@ -42,9 +42,24 @@ impl RuntimeHealth {
     }
 }
 
+struct CredentialPool {
+    references: Vec<CredentialRef>,
+    next: AtomicUsize,
+}
+
+impl CredentialPool {
+    fn select(&self) -> CredentialRef {
+        if self.references.len() == 1 {
+            return self.references[0];
+        }
+        self.references[self.next.fetch_add(1, Ordering::Relaxed) % self.references.len()]
+    }
+}
+
 struct Upstream {
     config: UpstreamConfig,
     health: Arc<RuntimeHealth>,
+    credentials: Arc<CredentialPool>,
 }
 
 struct Target {
@@ -84,6 +99,7 @@ impl Snapshot {
         config: RoutingConfig,
         prices: Arc<PriceSnapshot>,
         previous: Option<&Self>,
+        credential_pools: Option<&BTreeMap<u64, Vec<CredentialRef>>>,
     ) -> Result<Self, RoutingError> {
         if !valid_id(config.version)
             || config.routes.len() > MAX_ROUTES
@@ -132,13 +148,51 @@ impl Snapshot {
                         enabled: AtomicBool::new(true),
                     })
                 });
+            let previous_pool = previous
+                .and_then(|old| old.upstreams.get(&upstream.id))
+                .filter(|old| old.config.same_destination(&upstream))
+                .map(|old| &old.credentials);
+            let references = match credential_pools {
+                Some(pools) => pools
+                    .get(&upstream.id)
+                    .cloned()
+                    .unwrap_or_else(|| vec![upstream.credential]),
+                None => previous_pool
+                    .map(|pool| pool.references.clone())
+                    .unwrap_or_else(|| vec![upstream.credential]),
+            };
+            let unique: HashSet<_> = references.iter().copied().collect();
+            if references.is_empty()
+                || references.len() > MAX_ROUTES
+                || unique.len() != references.len()
+                || !references.contains(&upstream.credential)
+                || references
+                    .iter()
+                    .any(|reference| !valid_id(reference.id) || !valid_id(reference.revision))
+            {
+                return Err(RoutingError::InvalidConfig("credential pool"));
+            }
+            let credentials = previous_pool
+                .filter(|pool| pool.references == references)
+                .cloned()
+                .unwrap_or_else(|| {
+                    Arc::new(CredentialPool {
+                        references,
+                        next: AtomicUsize::new(0),
+                    })
+                });
             upstreams.insert(
                 upstream.id,
                 Arc::new(Upstream {
                     config: upstream,
                     health,
+                    credentials,
                 }),
             );
+        }
+        if credential_pools.is_some_and(|pools| pools.keys().any(|id| !upstreams.contains_key(id)))
+        {
+            return Err(RoutingError::InvalidConfig("credential pool upstream"));
         }
         let mut route_ids = HashSet::new();
         let mut target_ids = HashSet::new();
@@ -266,15 +320,21 @@ pub struct Router {
 
 #[derive(Clone, Copy)]
 enum RouteTransport {
-    Http { allow_passthrough: bool },
-    ResponsesWebSocket { pinned_target: Option<u64> },
-    ResponsesHttp { pinned_target: u64 },
+    Http {
+        allow_passthrough: bool,
+    },
+    ResponsesWebSocket {
+        pinned_target: Option<(u64, CredentialRef)>,
+    },
+    ResponsesHttp {
+        pinned_target: (u64, CredentialRef),
+    },
 }
 
 impl Router {
     pub fn new(config: RoutingConfig, prices: Arc<PriceSnapshot>) -> Result<Self, RoutingError> {
         Ok(Self {
-            active: RwLock::new(Arc::new(Snapshot::compile(config, prices, None)?)),
+            active: RwLock::new(Arc::new(Snapshot::compile(config, prices, None, None)?)),
         })
     }
 
@@ -344,6 +404,26 @@ impl Router {
         config: RoutingConfig,
         prices: Arc<PriceSnapshot>,
     ) -> Result<ReleaseVersion, RoutingError> {
+        self.publish_with_pools(expected, config, prices, None)
+    }
+
+    pub(crate) fn publish_with_credential_pools(
+        &self,
+        expected: ReleaseVersion,
+        config: RoutingConfig,
+        prices: Arc<PriceSnapshot>,
+        pools: &BTreeMap<u64, Vec<CredentialRef>>,
+    ) -> Result<ReleaseVersion, RoutingError> {
+        self.publish_with_pools(expected, config, prices, Some(pools))
+    }
+
+    fn publish_with_pools(
+        &self,
+        expected: ReleaseVersion,
+        config: RoutingConfig,
+        prices: Arc<PriceSnapshot>,
+        pools: Option<&BTreeMap<u64, Vec<CredentialRef>>>,
+    ) -> Result<ReleaseVersion, RoutingError> {
         let previous = self.snapshot()?;
         if previous.version != expected {
             return Err(RoutingError::VersionConflict);
@@ -356,7 +436,7 @@ impl Router {
         {
             return Err(RoutingError::PriceVersionConflict);
         }
-        let next = Arc::new(Snapshot::compile(config, prices, Some(&previous))?);
+        let next = Arc::new(Snapshot::compile(config, prices, Some(&previous), pools)?);
         let mut active = self
             .active
             .write()
@@ -370,6 +450,48 @@ impl Router {
         drop(active);
         drop(retired);
         Ok(version)
+    }
+
+    /// Recover the credential pools for an already-installed durable release.
+    /// Existing plans retain their selected immutable credential revisions.
+    pub(crate) fn install_credential_pools(
+        &self,
+        expected: ReleaseVersion,
+        pools: &BTreeMap<u64, Vec<CredentialRef>>,
+    ) -> Result<(), RoutingError> {
+        let previous = self.snapshot()?;
+        if previous.version != expected {
+            return Err(RoutingError::VersionConflict);
+        }
+        if pools.keys().all(|id| previous.upstreams.contains_key(id))
+            && previous
+                .upstreams
+                .iter()
+                .all(|(id, upstream)| match pools.get(id) {
+                    Some(references) => upstream.credentials.references == *references,
+                    None => {
+                        upstream.credentials.references.as_slice() == [upstream.config.credential]
+                    }
+                })
+        {
+            return Ok(());
+        }
+        let config = self.catalog_document()?.routing;
+        let next = Arc::new(Snapshot::compile(
+            config,
+            previous.prices.clone(),
+            Some(&previous),
+            Some(pools),
+        )?);
+        let mut active = self
+            .active
+            .write()
+            .map_err(|_| RoutingError::LockPoisoned)?;
+        if !Arc::ptr_eq(&active, &previous) {
+            return Err(RoutingError::VersionConflict);
+        }
+        *active = next;
+        Ok(())
     }
 
     /// Call with an authenticated group from task 01/03, not a raw client group header.
@@ -408,13 +530,14 @@ impl Router {
     pub(crate) fn route_responses_http_bound(
         &self,
         request: RouteRequest<'_>,
-        pinned_target: u64,
+        pinned_target: (u64, CredentialRef),
     ) -> Result<RoutePlan, RoutingError> {
         Self::route_in_snapshot(
             self.snapshot()?,
             request,
             &mut rand::rng(),
             RouteTransport::ResponsesHttp { pinned_target },
+            &mut HashMap::new(),
         )
     }
 
@@ -423,7 +546,7 @@ impl Router {
         model: &str,
         groups: &[String],
         affinity: Option<[u8; 32]>,
-        pinned_target: Option<u64>,
+        pinned_target: Option<(u64, CredentialRef)>,
     ) -> Result<Vec<RoutePlan>, RoutingError> {
         self.route_groups(
             model,
@@ -444,6 +567,9 @@ impl Router {
     ) -> Result<Vec<RoutePlan>, RoutingError> {
         let snapshot = self.snapshot()?;
         let mut plans = Vec::new();
+        // All group alternatives belong to one request. Advance each channel's
+        // pool once so unused group plans cannot starve a key from actual traffic.
+        let mut credentials = HashMap::new();
         for group in groups {
             let request = RouteRequest {
                 model,
@@ -460,9 +586,21 @@ impl Router {
                 digest.update([0]);
                 digest.update(group.as_bytes());
                 let mut rng = rand::rngs::StdRng::from_seed(digest.finalize().into());
-                Self::route_in_snapshot(snapshot.clone(), request, &mut rng, transport)
+                Self::route_in_snapshot(
+                    snapshot.clone(),
+                    request,
+                    &mut rng,
+                    transport,
+                    &mut credentials,
+                )
             } else {
-                Self::route_in_snapshot(snapshot.clone(), request, &mut rand::rng(), transport)
+                Self::route_in_snapshot(
+                    snapshot.clone(),
+                    request,
+                    &mut rand::rng(),
+                    transport,
+                    &mut credentials,
+                )
             };
             match plan {
                 Ok(plan) => plans.push(plan),
@@ -494,6 +632,7 @@ impl Router {
             request,
             rng,
             RouteTransport::Http { allow_passthrough },
+            &mut HashMap::new(),
         )
     }
 
@@ -502,6 +641,7 @@ impl Router {
         request: RouteRequest<'_>,
         rng: &mut R,
         transport: RouteTransport,
+        credentials: &mut HashMap<u64, CredentialRef>,
     ) -> Result<RoutePlan, RoutingError> {
         if !valid_group(request.group) {
             return Err(RoutingError::InvalidRequest);
@@ -546,11 +686,23 @@ impl Router {
                         RouteTransport::Http { .. } => true,
                         RouteTransport::ResponsesHttp { pinned_target } => {
                             target.upstream.config.protocol == Protocol::OpenAiResponses
-                                && target.config.id == pinned_target
+                                && target.config.id == pinned_target.0
+                                && target
+                                    .upstream
+                                    .credentials
+                                    .references
+                                    .contains(&pinned_target.1)
                         }
                         RouteTransport::ResponsesWebSocket { pinned_target } => {
                             target.upstream.config.protocol == Protocol::OpenAiResponses
-                                && pinned_target.is_none_or(|id| target.config.id == id)
+                                && pinned_target.is_none_or(|(id, reference)| {
+                                    target.config.id == id
+                                        && target
+                                            .upstream
+                                            .credentials
+                                            .references
+                                            .contains(&reference)
+                                })
                         }
                     }
                     && target.config.allows_client(request.protocol)
@@ -592,7 +744,17 @@ impl Router {
                 }
                 ticket -= weight;
             }
-            candidates.push(pool.remove(selected));
+            let target = pool.remove(selected);
+            let credential = match transport {
+                RouteTransport::ResponsesHttp { pinned_target }
+                | RouteTransport::ResponsesWebSocket {
+                    pinned_target: Some(pinned_target),
+                } => pinned_target.1,
+                _ => *credentials
+                    .entry(target.upstream.config.id)
+                    .or_insert_with(|| target.upstream.credentials.select()),
+            };
+            candidates.push(Candidate { target, credential });
         }
         let route = Arc::clone(route);
         Ok(RoutePlan {
@@ -756,12 +918,18 @@ pub struct Failure {
 
 /// A request owns this plan until completion. Do not call Router::route on retry.
 /// Routing version, price, model, group, speed and all allowed candidates are pinned.
+struct Candidate {
+    target: Arc<Target>,
+    credential: CredentialRef,
+}
+
+/// A request owns this plan until completion. Do not call Router::route on retry.
 pub struct RoutePlan {
     snapshot: Arc<Snapshot>,
     route: Arc<Route>,
     quote: PriceQuote,
     calendar: Option<Arc<super::FrozenCalendar>>,
-    candidates: Vec<Arc<Target>>,
+    candidates: Vec<Candidate>,
     requested_model: Box<str>,
     speed: Speed,
     replay: ReplayPermission,
@@ -806,7 +974,7 @@ impl RoutePlan {
             return Err(RoutingError::InvalidTransition);
         }
         self.candidates
-            .retain(|target| targets.contains(&target.config.id));
+            .retain(|candidate| targets.contains(&candidate.target.config.id));
         Ok(())
     }
     /// These are the bounded original candidates, before any dispatch. Live
@@ -822,8 +990,9 @@ impl RoutePlan {
         self.candidates
             .iter()
             .enumerate()
-            .map(|(index, target)| Attempt {
-                target: target.clone(),
+            .map(|(index, candidate)| Attempt {
+                target: candidate.target.clone(),
+                credential: candidate.credential,
                 route: self.route.clone(),
                 version: self.snapshot.version,
                 quote: self.quote,
@@ -905,15 +1074,16 @@ impl RoutePlan {
         {
             let index = self.next_index;
             self.next_index += 1;
-            let target = &self.candidates[index];
+            let candidate = &self.candidates[index];
             // This can REMOVE a candidate. It can never add or re-resolve a route.
-            if !target.available() {
+            if !candidate.target.available() {
                 continue;
             }
             self.attempts += 1;
             self.current = Some(index);
             return Ok(Attempt {
-                target: Arc::clone(target),
+                target: Arc::clone(&candidate.target),
+                credential: candidate.credential,
                 route: Arc::clone(&self.route),
                 version: self.snapshot.version,
                 quote: self.quote,
@@ -942,6 +1112,7 @@ impl fmt::Debug for RoutePlan {
 /// No Serialize implementation: never send this object to a public response or log.
 pub struct Attempt {
     target: Arc<Target>,
+    credential: CredentialRef,
     route: Arc<Route>,
     version: ReleaseVersion,
     quote: PriceQuote,
@@ -1006,7 +1177,7 @@ impl Attempt {
         self.target.config.payload
     }
     pub fn credential_ref(&self) -> CredentialRef {
-        self.target.upstream.config.credential
+        self.credential
     }
     pub fn timeout_ms(&self) -> u32 {
         self.target.config.timeout_ms

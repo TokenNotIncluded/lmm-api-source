@@ -10,6 +10,10 @@ use std::collections::BTreeSet;
 #[path = "channel_balance_decimal_oracle_tests.rs"]
 mod channel_balance_decimal_oracle_tests;
 
+#[cfg(test)]
+#[path = "channel_catalog_tests.rs"]
+mod channel_catalog_tests;
+
 #[derive(Serialize)]
 pub(crate) struct ChannelProbe {
     pub models: Vec<String>,
@@ -103,11 +107,16 @@ fn endpoint(base: &str, protocol: crate::routing::Protocol) -> Result<reqwest::U
         .push("models");
     Ok(url)
 }
+struct CatalogPage {
+    models: Vec<String>,
+    next_cursor: Option<String>,
+}
+
 fn parse_models(
     bytes: &[u8],
     protocol: crate::routing::Protocol,
     secret: &str,
-) -> Result<Vec<String>, RelayError> {
+) -> Result<CatalogPage, RelayError> {
     let value: serde_json::Value =
         serde_json::from_slice(bytes).map_err(|_| RelayError::RouteUnavailable)?;
     let (field, name) = if protocol == crate::routing::Protocol::Gemini {
@@ -133,16 +142,44 @@ fn parse_models(
         {
             return Err(RelayError::RouteUnavailable);
         }
-        models.insert(
-            if protocol == crate::routing::Protocol::Gemini {
-                model.strip_prefix("models/").unwrap_or(model)
-            } else {
-                model
-            }
-            .to_owned(),
-        );
+        let model = if protocol == crate::routing::Protocol::Gemini {
+            model.strip_prefix("models/").unwrap_or(model)
+        } else {
+            model
+        };
+        if model.is_empty() {
+            return Err(RelayError::RouteUnavailable);
+        }
+        models.insert(model.to_owned());
     }
-    Ok(models.into_iter().collect())
+    let next_cursor = match protocol {
+        crate::routing::Protocol::Gemini => match value.get("nextPageToken") {
+            None => None,
+            Some(Value::String(cursor)) if cursor.is_empty() => None,
+            Some(Value::String(cursor)) => Some(cursor.as_str()),
+            Some(_) => return Err(RelayError::RouteUnavailable),
+        },
+        crate::routing::Protocol::AnthropicMessages => match value.get("has_more") {
+            None | Some(Value::Bool(false)) => None,
+            Some(Value::Bool(true)) => Some(
+                value
+                    .get("last_id")
+                    .and_then(Value::as_str)
+                    .filter(|cursor| !cursor.is_empty())
+                    .ok_or(RelayError::RouteUnavailable)?,
+            ),
+            Some(_) => return Err(RelayError::RouteUnavailable),
+        },
+        _ => None,
+    };
+    if next_cursor.is_some_and(|cursor| cursor.len() > 4096 || cursor.chars().any(char::is_control))
+    {
+        return Err(RelayError::RouteUnavailable);
+    }
+    Ok(CatalogPage {
+        models: models.into_iter().collect(),
+        next_cursor: next_cursor.map(str::to_owned),
+    })
 }
 impl ModelGateway {
     pub(crate) fn channel_contexts(&self) -> Vec<ExternalModelContext> {
@@ -289,32 +326,63 @@ impl ModelGateway {
             .map_err(|_| RelayError::RouteUnavailable)?;
         let started = std::time::Instant::now();
         let models = tokio::time::timeout(self.limits.total_timeout, async {
+            let mut url = url;
+            let mut models = BTreeSet::new();
+            let mut cursors = BTreeSet::new();
+            // Resolve and pin the configured origin once. Pagination only
+            // adds an encoded cursor to this fixed endpoint; it cannot change
+            // the host, path, transport, or credential between pages.
             let connection = self
                 .native_http
                 .transport
                 .prepare(&url, &self.limits)
                 .await?;
-            let request = connection
-                .client()
-                .get(url)
-                .header(header::ACCEPT, "application/json");
-            let request = match upstream.protocol {
-                crate::routing::Protocol::AnthropicMessages => request
-                    .header("x-api-key", &credential)
-                    .header("anthropic-version", "2023-06-01"),
-                crate::routing::Protocol::Gemini => request.header("x-goog-api-key", &credential),
-                _ => request.bearer_auth(&credential),
-            };
-            let response = request
-                .send()
-                .await
-                .map_err(|_| RelayError::RouteUnavailable)?;
-            if !response.status().is_success() {
-                return Err(RelayError::RouteUnavailable);
+            // A catalogue is returned only after every page succeeds. Keep the
+            // existing 10,000-model publication bound across the whole result.
+            for _ in 0..1000 {
+                let request = connection
+                    .client()
+                    .get(url.clone())
+                    .header(header::ACCEPT, "application/json");
+                let request = match upstream.protocol {
+                    crate::routing::Protocol::AnthropicMessages => request
+                        .header("x-api-key", &credential)
+                        .header("anthropic-version", "2023-06-01"),
+                    crate::routing::Protocol::Gemini => {
+                        request.header("x-goog-api-key", &credential)
+                    }
+                    _ => request.bearer_auth(&credential),
+                };
+                let response = request
+                    .send()
+                    .await
+                    .map_err(|_| RelayError::RouteUnavailable)?;
+                if !response.status().is_success() {
+                    return Err(RelayError::RouteUnavailable);
+                }
+                let bytes =
+                    native_http::read_response_bytes(&connection, response, &self.limits).await?;
+                let page = parse_models(&bytes, upstream.protocol, &credential)?;
+                models.extend(page.models);
+                if models.len() > 10_000 {
+                    return Err(RelayError::RouteUnavailable);
+                }
+                let Some(cursor) = page.next_cursor else {
+                    return Ok(models.into_iter().collect());
+                };
+                if !cursors.insert(cursor.clone()) {
+                    return Err(RelayError::RouteUnavailable);
+                }
+                let parameter = if upstream.protocol == crate::routing::Protocol::Gemini {
+                    "pageToken"
+                } else {
+                    "after_id"
+                };
+                url.query_pairs_mut()
+                    .clear()
+                    .append_pair(parameter, &cursor);
             }
-            let bytes =
-                native_http::read_response_bytes(&connection, response, &self.limits).await?;
-            parse_models(&bytes, upstream.protocol, &credential)
+            Err(RelayError::RouteUnavailable)
         })
         .await
         .map_err(|_| RelayError::RouteUnavailable)??;
@@ -332,14 +400,15 @@ mod tests {
     use crate::routing::Protocol;
     #[test]
     fn provider_catalogues_preserve_model_ids_without_exposing_provider_documents() {
-        assert_eq!(parse_models(br#"{"data":[{"id":"model-z","owner":"private"},{"id":"model-a"},{"id":"model-a"}]}"#,Protocol::OpenAiChat,"synthetic-secret").unwrap(),vec!["model-a","model-z"]);
+        assert_eq!(parse_models(br#"{"data":[{"id":"model-z","owner":"private"},{"id":"model-a"},{"id":"model-a"}]}"#,Protocol::OpenAiChat,"synthetic-secret").unwrap().models,vec!["model-a","model-z"]);
         assert_eq!(
             parse_models(
                 br#"{"models":[{"name":"models/gemini-test","description":"private"}]}"#,
                 Protocol::Gemini,
                 "synthetic-secret"
             )
-            .unwrap(),
+            .unwrap()
+            .models,
             vec!["gemini-test"]
         );
         for invalid in [

@@ -13,6 +13,8 @@ use axum::{
 };
 use totp_rs::{Algorithm, Builder, Secret};
 use tower::ServiceExt;
+#[path = "access_groups_tests.rs"]
+mod access_groups_tests;
 #[path = "usage_tests.rs"]
 mod usage_tests;
 const PASSWORD: &str = "synthetic passphrase";

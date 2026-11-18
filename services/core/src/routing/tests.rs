@@ -1548,7 +1548,16 @@ fn responses_websocket_selects_native_target_before_priority_and_keeps_pin() {
     config.routes[0].failover.max_attempts = 1;
     let router = build(config, prices);
     let groups = ["default".to_owned()];
-    for pinned in [None, Some(2)] {
+    for pinned in [
+        None,
+        Some((
+            2,
+            CredentialRef {
+                id: 200,
+                revision: 1,
+            },
+        )),
+    ] {
         let mut plans = router
             .route_responses_ws_groups("model-a", &groups, Some([5; 32]), pinned)
             .unwrap();
@@ -1558,7 +1567,18 @@ fn responses_websocket_selects_native_target_before_priority_and_keeps_pin() {
     }
     assert!(
         router
-            .route_responses_ws_groups("model-a", &groups, None, Some(1))
+            .route_responses_ws_groups(
+                "model-a",
+                &groups,
+                None,
+                Some((
+                    1,
+                    CredentialRef {
+                        id: 100,
+                        revision: 1
+                    }
+                ))
+            )
             .unwrap()
             .is_empty()
     );
@@ -1737,3 +1757,6 @@ fn legacy_haiku_payload_requires_anthropic_upstream_and_strict_config() {
         assert_eq!(result.is_ok(), protocol == Protocol::AnthropicMessages);
     }
 }
+
+#[path = "key_pool_tests.rs"]
+mod key_pool_tests;

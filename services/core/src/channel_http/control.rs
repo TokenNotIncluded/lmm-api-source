@@ -261,6 +261,9 @@ impl ManagedChannels {
                 .validate_channel_release(document, bindings.contexts.clone(), new_keys)
                 .map_err(|_| ManagementError::BindingChanged);
         }
+        if bindings.key_pools.values().any(|pool| pool.polling) {
+            return Err(ManagementError::BindingChanged);
+        }
         // Runtime edits cannot create an unconfigured credential or provider
         // context. Existing keys/endpoints remain bound to the same upstream ID.
         for upstream in &document.routing.upstreams {
@@ -319,30 +322,54 @@ impl ManagedChannels {
             },
         };
         let mut credentials = Vec::new();
+        let mut credential_pools = std::collections::BTreeMap::new();
         if let Some(gateway) = &self.gateway {
             for upstream in &document.routing.upstreams {
-                let reference = upstream.credential;
-                if gateway.has_channel_credential(reference) {
-                    continue;
+                let mut references = vec![upstream.credential];
+                if let Some(pool) = bindings
+                    .key_pools
+                    .get(&upstream.id)
+                    .filter(|pool| pool.polling)
+                {
+                    let keys: Value =
+                        sqlx::query_scalar("SELECT public.routing_control_secret_list($1)")
+                            .bind(upstream.id as i64)
+                            .fetch_one(&self.pool)
+                            .await?;
+                    let keys = keys.as_array().ok_or(ManagementError::Invalid)?;
+                    for key in keys {
+                        let reference: crate::routing::CredentialRef =
+                            serde_json::from_value(key["reference"].clone())
+                                .map_err(|_| ManagementError::Invalid)?;
+                        if reference != upstream.credential && !pool.disabled.contains(&reference) {
+                            references.push(reference);
+                        }
+                    }
+                    credential_pools.insert(upstream.id, references.clone());
                 }
-                let encrypted: Option<Vec<u8>> =
-                    sqlx::query_scalar("SELECT public.routing_control_secret_read($1,$2)")
-                        .bind(reference.id as i64)
-                        .bind(reference.revision as i64)
-                        .fetch_one(&self.pool)
-                        .await?;
-                if encrypted.is_none() && !upstream.enabled {
-                    continue;
+                for reference in references {
+                    if gateway.has_channel_credential(reference) {
+                        continue;
+                    }
+                    let encrypted: Option<Vec<u8>> =
+                        sqlx::query_scalar("SELECT public.routing_control_secret_read($1,$2)")
+                            .bind(reference.id as i64)
+                            .bind(reference.revision as i64)
+                            .fetch_one(&self.pool)
+                            .await?;
+                    if encrypted.is_none() && !upstream.enabled {
+                        continue;
+                    }
+                    let key = gateway
+                        .channel_secret_key()
+                        .ok_or(ManagementError::BindingChanged)?;
+                    let secret = vault::decrypt(
+                        key,
+                        reference,
+                        &encrypted.ok_or(ManagementError::BindingChanged)?,
+                    )?;
+                    credentials.push(crate::model_http::UpstreamCredential { reference, secret });
                 }
-                let key = gateway
-                    .channel_secret_key()
-                    .ok_or(ManagementError::BindingChanged)?;
-                let secret = vault::decrypt(
-                    key,
-                    reference,
-                    &encrypted.ok_or(ManagementError::BindingChanged)?,
-                )?;
-                credentials.push(crate::model_http::UpstreamCredential { reference, secret });
             }
         }
         let references = credentials
@@ -365,8 +392,28 @@ impl ManagedChannels {
             .map_err(|_| ManagementError::Storage)?;
         let version = document.routing.version;
         if current != document {
-            document
-                .apply(&self.routing)
+            let prices = Arc::new(
+                crate::routing::PriceSnapshot::compile(document.pricing)
+                    .map_err(|_| ManagementError::Invalid)?,
+            );
+            self.routing
+                .publish_with_credential_pools(
+                    self.routing
+                        .version()
+                        .map_err(|_| ManagementError::Storage)?,
+                    document.routing,
+                    prices,
+                    &credential_pools,
+                )
+                .map_err(|_| ManagementError::ApplyPending)?;
+        } else {
+            self.routing
+                .install_credential_pools(
+                    self.routing
+                        .version()
+                        .map_err(|_| ManagementError::Storage)?,
+                    &credential_pools,
+                )
                 .map_err(|_| ManagementError::ApplyPending)?;
         }
         *self
