@@ -4,6 +4,9 @@
 
 ## 当前状态
 
+- **请求能力路由实机 HTTP 验证（3/3 通过；2026-11-19）**：通过 ssmcp 在开发机发送真实 TCP/HTTP 请求，使用实际 Core 网关、私有 PostgreSQL 和受限运行角色。次数上限 1 时跳过输出不足的 A、由 B 返回 200；B 真实连接拒绝后转向 C 返回 200，发送编号 1、2 且仅一笔预留与结算；全部不兼容返回 503、零发送和零预扣。重复请求 409，无新增上游调用或扣费。测试 [234643a1](https://github.com/TokenNotIncluded/lmm-api-source/commit/234643a101dcd0bc400b01a0c95cb0ad7ed852bd)。
+  **证据与边界**：两个成功场景各结算 10 合成 credits，冻结归零；1,091 项输入摘要前后一致。首次执行 3/3 通过，临时数据库已清理。[实测报告](reports/lmm-request-aware-http-2026-11-19.md)与[结构化证据](reports/lmm-request-aware-http-2026-11-19.evidence.json)已记录。上游为本地测试 HTTP 服务；生产主程序配置启动、真实付费供应商、部署与独立业务验收未执行。
+
 - **渠道配置与 Key 多协议（Web 已部署；2026-11-19）**：当前 Web 为 [9f1bd154](https://github.com/TokenNotIncluded/lmm-api-source/commit/9f1bd154139f154b9e5952c4a9c8922a3e10c50f)。模型选择支持搜索、多选与跨筛选保留选择；合同和路由字段可折叠；渠道提供启停与密钥入口。能力过期或读取失败时保留草稿，暂停写入，刷新后恢复；密钥、批量路由和余额配置采用相同保护。
   **开发自测**：复用源码一致的渠道 52 项回归，重复执行不累加；完整 Web 类型检查与修改范围 lint 通过。1440/390px 的能力过期场景通过；新增 390px 浅深色检查覆盖七个字段、原版本与保存按钮键盘可达性，截图已实际查看，配置写入为零。
   **发布**：[Web run 44363827572](https://github.com/TokenNotIncluded/lmm-api-source/actions/runs/44363827572) 成功，2026-11-19 02:02:33（Asia/Taipei）记录完成。发布 CI 类型检查、11 项认证回归、18 个 Chromium 恢复场景、构建和制品校验通过；首屏 gzip 499,783 / 786,432 bytes。arch-shadow 与 ubuntu-shadow 均通过健康及实际 HTML／制品匹配检查，本轮只部署 Web。

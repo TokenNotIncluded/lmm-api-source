@@ -1,0 +1,217 @@
+{
+  "schema_version": 1,
+  "project": "LMM API",
+  "date": "2026-11-19",
+  "display_timezone": "Asia/Taipei",
+  "test_commit": "234643a101dcd0bc400b01a0c95cb0ad7ed852bd",
+  "related_fix_commit": "1831c35bf7c047c6af59491ce6a4ce1f06a81c08",
+  "verification": "development-machine real TCP/HTTP integration",
+  "independent_business_acceptance": "not run",
+  "release": "not run",
+  "deployment": "not run",
+  "receipt": {
+    "stage": "tcp-1",
+    "source_base_commit": "4c2b2a3203d6803312cf24d3a193da783dc8547f",
+    "command": [
+      "cargo",
+      "test",
+      "--locked",
+      "--offline",
+      "--jobs",
+      "1",
+      "--manifest-path",
+      "services/core/Cargo.toml",
+      "--test",
+      "request_aware_http",
+      "--",
+      "--test-threads=1",
+      "--nocapture"
+    ],
+    "toolchain": "rustc 1.100.0 (0ef1bc386 2026-11-09)",
+    "machine": {
+      "system": "Linux",
+      "architecture": "x86_64"
+    },
+    "profile": {
+      "jobs": 1,
+      "dev_debug": 0,
+      "test_debug": 0,
+      "incremental": false
+    },
+    "scope": "real TCP HTTP client -> production ModelGateway router -> synthetic loopback HTTP supplier; private SCRAM PostgreSQL; restricted runtime role",
+    "not_covered": [
+      "production lmm-core TOML startup",
+      "live paid supplier compatibility",
+      "production deployment"
+    ],
+    "started_at": "2026-11-18T18:39:39.923311+00:00",
+    "inputs_before": {
+      "file_count": 1091,
+      "manifest_sha256": "a85915f2bee7477f3003fb767771a6139ce5176631ba9815bc3372128b6f2265",
+      "critical": {
+        "services/core/tests/request_aware_http.rs": "e552e51a2769d508f5d6ca8a3ebfa2f2db4d4c10cb05e948c2ee1bec139ed632",
+        "services/core/src/model_http/routing_session.rs": "b8b8017ffea31d367546ac9f9242afad343410547037cd242a2b1f5e775233a4",
+        "services/core/src/model_http/provider_policy.rs": "599059fa8b59f1254f6f3854e751c9f689423b30c6878d1488dddf5254e3ae62",
+        "services/core/src/model_http.rs": "a15739474cf44d9da3f195aca7ae1c87342828d239429b629fd23abeb0f0a123",
+        "services/core/src/relay/provider_network.rs": "ff9a96a865c33640c0039045d3080115d80e32f024105374c3936f2ce5213de9",
+        "services/core/src/routing/engine.rs": "e3bbdef221e461a77f83742ad433eb4886c31b10042153a6636ea036a6bc651d",
+        "services/core/tests/common/model_fixture.rs": "fa7092ec2010e3f4e9a090c5f9d5debf96a8d176d290b962fa4f19bcf4b7d1b6",
+        "services/core/tests/common/runtime.rs": "7568cb185e9bafcf205a09544c28077370b9a46471a17ca28aee63da38c55902",
+        "services/core/Cargo.toml": "af7cfa39666ca747f4429aad556a7deb49a950820706a6473b411d3e6f0ed734",
+        "services/core/Cargo.lock": "f4334263249f9d950cc54a59b19118e5ae6a304a3161344b678e075b500f378c"
+      }
+    },
+    "driver_sha256": "845e3e3e2505eda25d84a01b1115f0c44063e2665f75630c46392b07eb16ba98",
+    "state": "finished",
+    "summaries": [
+      {
+        "status": "ok",
+        "passed": 3,
+        "failed": 0
+      }
+    ],
+    "http_cases": [
+      {
+        "b_http_hits": null,
+        "b_mode": "refused_tcp_port",
+        "balance": {
+          "available": 1999990,
+          "reserved": 0,
+          "unbalanced_journals": 0
+        },
+        "c_http_hits": 1,
+        "case": "connect_failure_then_fallback",
+        "charge": {
+          "input_tokens": 10,
+          "output_tokens": 20,
+          "reserved": 1048576,
+          "settled": 10,
+          "state": "settled"
+        },
+        "charging_requests": 1,
+        "database_role": "restricted_runtime",
+        "dispatches": [
+          {
+            "actual_group": "allowed",
+            "kind": "model_route_dispatch",
+            "number": 1,
+            "route_id": "r1-t2-u2",
+            "wire_sha256": "e31591c44bd0b46e4574c490444e698bcee9f880392b45b4fff00304c2cd793b"
+          },
+          {
+            "actual_group": "allowed",
+            "kind": "model_route_dispatch",
+            "number": 2,
+            "route_id": "r1-t3-u3",
+            "wire_sha256": "e31591c44bd0b46e4574c490444e698bcee9f880392b45b4fff00304c2cd793b"
+          }
+        ],
+        "duplicate_http_status": null,
+        "gateway_transport": "real_tcp_http",
+        "hold": {
+          "captured": 10,
+          "closed": true,
+          "count": 1,
+          "reserved": 1048576
+        },
+        "http_status": 200,
+        "journals": {
+          "capture": 1,
+          "reserve": 1
+        },
+        "max_attempts": 2,
+        "request_id": "f69092b42947803c71778d31530346292bc11aab3d071cfc09cd0ff4c4c0e184",
+        "requested_max_output": 129
+      },
+      {
+        "balance": {
+          "available": 2000000,
+          "reserved": 0,
+          "unbalanced_journals": 0
+        },
+        "case": "all_candidates_incompatible",
+        "charging_journals": 0,
+        "charging_requests": 0,
+        "database_role": "restricted_runtime",
+        "dispatches": 0,
+        "error": "route_unavailable",
+        "gateway_transport": "real_tcp_http",
+        "holds": 0,
+        "http_status": 503,
+        "requested_max_output": 129
+      },
+      {
+        "b_http_hits": 1,
+        "b_mode": "live_http_supplier",
+        "balance": {
+          "available": 1999990,
+          "reserved": 0,
+          "unbalanced_journals": 0
+        },
+        "c_http_hits": 0,
+        "case": "skip_incompatible_with_one_attempt",
+        "charge": {
+          "input_tokens": 10,
+          "output_tokens": 20,
+          "reserved": 1048576,
+          "settled": 10,
+          "state": "settled"
+        },
+        "charging_requests": 1,
+        "database_role": "restricted_runtime",
+        "dispatches": [
+          {
+            "actual_group": "allowed",
+            "kind": "model_route_dispatch",
+            "number": 1,
+            "route_id": "r1-t2-u2",
+            "wire_sha256": "e31591c44bd0b46e4574c490444e698bcee9f880392b45b4fff00304c2cd793b"
+          }
+        ],
+        "duplicate_http_status": 409,
+        "gateway_transport": "real_tcp_http",
+        "hold": {
+          "captured": 10,
+          "closed": true,
+          "count": 1,
+          "reserved": 1048576
+        },
+        "http_status": 200,
+        "journals": {
+          "capture": 1,
+          "reserve": 1
+        },
+        "max_attempts": 1,
+        "request_id": "f69092b42947803c71778d31530346292bc11aab3d071cfc09cd0ff4c4c0e184",
+        "requested_max_output": 129
+      }
+    ],
+    "test_executable": {
+      "name": "request_aware_http-f6029becc5881df6",
+      "sha256": "82080944e499b72e8331948939f8449522c9612c9b5ede150cea71ae59fb940d"
+    },
+    "postgres_stop_exit_code": 0,
+    "fixture_removed": true,
+    "exit_code": 0,
+    "elapsed_seconds": 31.982,
+    "inputs_after": {
+      "file_count": 1091,
+      "manifest_sha256": "a85915f2bee7477f3003fb767771a6139ce5176631ba9815bc3372128b6f2265",
+      "critical": {
+        "services/core/tests/request_aware_http.rs": "e552e51a2769d508f5d6ca8a3ebfa2f2db4d4c10cb05e948c2ee1bec139ed632",
+        "services/core/src/model_http/routing_session.rs": "b8b8017ffea31d367546ac9f9242afad343410547037cd242a2b1f5e775233a4",
+        "services/core/src/model_http/provider_policy.rs": "599059fa8b59f1254f6f3854e751c9f689423b30c6878d1488dddf5254e3ae62",
+        "services/core/src/model_http.rs": "a15739474cf44d9da3f195aca7ae1c87342828d239429b629fd23abeb0f0a123",
+        "services/core/src/relay/provider_network.rs": "ff9a96a865c33640c0039045d3080115d80e32f024105374c3936f2ce5213de9",
+        "services/core/src/routing/engine.rs": "e3bbdef221e461a77f83742ad433eb4886c31b10042153a6636ea036a6bc651d",
+        "services/core/tests/common/model_fixture.rs": "fa7092ec2010e3f4e9a090c5f9d5debf96a8d176d290b962fa4f19bcf4b7d1b6",
+        "services/core/tests/common/runtime.rs": "7568cb185e9bafcf205a09544c28077370b9a46471a17ca28aee63da38c55902",
+        "services/core/Cargo.toml": "af7cfa39666ca747f4429aad556a7deb49a950820706a6473b411d3e6f0ed734",
+        "services/core/Cargo.lock": "f4334263249f9d950cc54a59b19118e5ae6a304a3161344b678e075b500f378c"
+      }
+    },
+    "finished_at": "2026-11-18T18:40:12.030366+00:00",
+    "inputs_unchanged": true,
+    "changed_inputs": []
+  }
+}
