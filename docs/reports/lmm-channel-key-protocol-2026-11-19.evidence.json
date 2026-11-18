@@ -1,0 +1,255 @@
+{
+  "schema_version": 1,
+  "recorded_date": "2026-11-19",
+  "timezone": "Asia/Taipei",
+  "source": {
+    "repository": "https://github.com/TokenNotIncluded/lmm-api-source",
+    "baseline": "0f416d9a3616d6ce5b6c4760cb610cb4a8938c3f",
+    "web_commit": "9f1bd154139f154b9e5952c4a9c8922a3e10c50f",
+    "test_commit": "97c50253122b8eb305518882d692fab9ae56c2e6",
+    "web_file_count": 17,
+    "all_web_files_match_reused_evidence": true,
+    "manifest": "scratch/channel-workspace-20261118/final-source-manifest.json",
+    "manifest_sha256": "00c9745c8bdb7f97421f56e2aa0eaa76ced4e7d66661e7870cbfef3cdd673ba1"
+  },
+  "web_checks": {
+    "channel_regressions": {
+      "passed": 52,
+      "failed": 0,
+      "reused": true,
+      "repeated_runs_counted_once": true,
+      "receipt": "scratch/channel-workspace-20261118/capability-management-final.json"
+    },
+    "routed_subset": {
+      "passed": 2,
+      "failed": 0,
+      "included_in_channel_52": true
+    },
+    "full_typecheck": {
+      "exit_code": 0,
+      "reused": true,
+      "receipt": "scratch/auth-recovery-return-20261118/typecheck-channels-final-v2.json"
+    },
+    "lint": {
+      "exit_code": 0,
+      "warnings": 0,
+      "errors": 0,
+      "receipt": "scratch/channel-workspace-20261118/capability-lint-final.json"
+    },
+    "i18n": {
+      "locales": 7,
+      "new_keys": 4,
+      "missing": 0,
+      "extra": 0
+    }
+  },
+  "browser": {
+    "scope": "Actual components using local synthetic management fixtures; no production writes.",
+    "capability_expiry": {
+      "widths": [
+        1440,
+        390
+      ],
+      "passed": 2,
+      "failed": 0,
+      "reused": true,
+      "draft_retained": true,
+      "selection_retained": true,
+      "stale_submit_writes": 0,
+      "recovery_passed": true,
+      "screenshots_viewed": 8,
+      "receipt": "scratch/channel-workspace-20261118/browser-final-v2/result.json"
+    },
+    "narrow_fields": {
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "themes": [
+        "light",
+        "dark"
+      ],
+      "field_count": 7,
+      "draft_valid": true,
+      "expected_version_preserved": true,
+      "save_visible_unobstructed": true,
+      "save_keyboard_reachable": true,
+      "keyboard_action": "Shift+Tab",
+      "horizontal_overflow": false,
+      "page_errors": [],
+      "submitted": false,
+      "writes": 0,
+      "screenshots_viewed": 6,
+      "receipt": "scratch/channel-workspace-20261118/browser-fields-390/result.json",
+      "first_attempt_receipt": "scratch/channel-workspace-20261118/browser-fields-390/result-server-unavailable.json"
+    }
+  },
+  "web_deployment": {
+    "schema": "lmm.web-deployment-evidence.v1",
+    "run_id": 44363827572,
+    "url": "https://github.com/TokenNotIncluded/lmm-api-source/actions/runs/44363827572",
+    "source_revision": "9f1bd154139f154b9e5952c4a9c8922a3e10c50f",
+    "status": "completed",
+    "conclusion": "success",
+    "completed_observed_at": "2026-11-18T18:02:33Z",
+    "component": "web",
+    "targets": [
+      "arch-shadow",
+      "ubuntu-shadow"
+    ],
+    "build": {
+      "job_id": 135012228019,
+      "typecheck": "passed",
+      "auth_regressions": {
+        "pass": 11,
+        "fail": 0
+      },
+      "real_chromium_recovery": {
+        "cases": 18,
+        "requests": 48,
+        "result": "passed"
+      },
+      "static_build": "passed",
+      "bundle_gzip_bytes": 499783,
+      "bundle_limit_bytes": 786432,
+      "archive_revision_verified": "9f1bd154139f154b9e5952c4a9c8922a3e10c50f"
+    },
+    "deploy": {
+      "job_id": 135015686155,
+      "disposable_http_rollback_fixture": "passed",
+      "targets": [
+        {
+          "name": "arch-shadow",
+          "ok": 28,
+          "changed": 7,
+          "unreachable": 0,
+          "failed": 0,
+          "health": "passed",
+          "served_html_matches_artifact": true
+        },
+        {
+          "name": "ubuntu-shadow",
+          "ok": 28,
+          "changed": 7,
+          "unreachable": 0,
+          "failed": 0,
+          "health": "passed",
+          "served_html_matches_artifact": true
+        }
+      ]
+    },
+    "boundaries": [
+      "Web component only",
+      "No authenticated production model lifecycle or paid supplier calls performed"
+    ]
+  },
+  "core_integration": {
+    "scope": "reqwest over real loopback TCP into formal management authentication and ModelGateway routers with ConnectInfo; isolated PostgreSQL; synthetic supplier responses.",
+    "runtime": "test binary",
+    "production_main_started": false,
+    "live_supplier_calls": 0,
+    "test": "dashboard_key_four_protocol_http_lifecycle_and_settlement",
+    "test_file": "services/core/tests/native_model_http.rs",
+    "test_file_sha256": "257d57301ea9f01a3661789f8549e36bd3f8a39e71ac2b0a97a7f12c7ba3cdee",
+    "protocols": [
+      {
+        "name": "OpenAI Chat",
+        "path": "/v1/chat/completions"
+      },
+      {
+        "name": "OpenAI Responses",
+        "path": "/v1/responses"
+      },
+      {
+        "name": "Anthropic Messages",
+        "path": "/v1/messages"
+      },
+      {
+        "name": "Gemini",
+        "path": "/v1beta/models/native-model:generateContent"
+      }
+    ],
+    "assertions": {
+      "http_successes": 4,
+      "distinct_request_ids": 4,
+      "settled_credits_each": 49,
+      "reserved_credits_each": 0,
+      "settled_credits_total": 196,
+      "key_remaining_credits": 316,
+      "account_remaining_credits": 804,
+      "revoked_requests_rejected": 4,
+      "extra_upstream_calls_after_revocation": 0,
+      "extra_ledger_entries_after_revocation": 0,
+      "unbalanced_journals": 0,
+      "one_time_reveal": true,
+      "key_lifetime_seconds": 600
+    },
+    "first_failure": {
+      "receipt": "scratch/key-protocol-flow-20261119/run-01.json",
+      "passed": 1,
+      "failed": 2,
+      "exit_code": 101,
+      "elapsed_seconds": 220.76,
+      "cause": "Synthetic Anthropic full response omitted role=assistant required by the current decoder.",
+      "repair": "Add fixture role/model and retain anthropic-version on revoked requests.",
+      "production_decoder_modified": false,
+      "preserved": true
+    },
+    "final_receipt": "scratch/key-protocol-flow-20261119/run-02.json",
+    "final_run": {
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "--offline",
+        "--jobs",
+        "1",
+        "--manifest-path",
+        "services/core/Cargo.toml",
+        "--test",
+        "native_model_http",
+        "--",
+        "--test-threads=1",
+        "--nocapture"
+      ],
+      "state": "finished",
+      "started_at": "2026-11-18T18:05:19.604865+00:00",
+      "finished_at": "2026-11-18T18:05:30.540153+00:00",
+      "exit_code": 0,
+      "elapsed_seconds": 10.903,
+      "input_count": 1109,
+      "inputs_unchanged": true,
+      "test_file_sha256": "257d57301ea9f01a3661789f8549e36bd3f8a39e71ac2b0a97a7f12c7ba3cdee",
+      "summaries": [
+        {
+          "status": "ok",
+          "passed": 3,
+          "failed": 0
+        }
+      ],
+      "postgres_stop_exit_code": 0,
+      "fixture_removed": true,
+      "log_sha256": "b7d06f629e695914b55ec804eb0d756ca158a58febf1216eaa43accbb7545b54",
+      "runner_sha256": "6e4c75d17fe2ef393c325e9edaca56feed1c5a41a46b7e913c972f850e2d27d6"
+    }
+  },
+  "full_repository_ci": {
+    "green": false,
+    "current_run": 44368105622,
+    "current_web_job": 135027591438,
+    "baseline_run": 44348323101,
+    "baseline_web_job": 134957072820,
+    "baseline_format_failures": 63,
+    "current_format_failures": 62,
+    "new_format_failures": 0,
+    "remaining_files_outside_this_change": true,
+    "resolved_file": "apps/web/src/features/debug/management-review-fixtures.ts",
+    "comparison_receipt": "scratch/channel-workspace-20261118/baseline-ci-comparison.json"
+  },
+  "production_acceptance": {
+    "authenticated_browser_available": false,
+    "complete_user_flow_verified": false,
+    "paid_model_calls": 0,
+    "real_funds_operations": 0
+  }
+}
