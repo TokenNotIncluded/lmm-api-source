@@ -2,7 +2,7 @@
 
 日期：2026-11-18。此记录承接[渠道批量路由与模型估算器](lmm-channel-routing-2026-11-18.md)，只汇总本轮代码、验证及发布状态；早期记录按其当时的版本保留。
 
-**当前结论：已部署应用版本 72392577 的 Core、Extensions、Web 已通过最终发布流程及 CI 运行态验收；native 数据库 76、管理反代及 EPay 5004 禁用配置导入均已完成。** 三阶段运维回执确认 Core 私有持久 base 已切换、Core／Extensions 就绪检查通过，应用版本仍为 72392577。服务器备份及数据库备份的隔离恢复校验已完成；开发机第二份完整备份复制、真实管理员浏览器 E2E 仍待完成。渠道默认超时与发布错误提示修正正在进行，尚未计为完成。75c9d482 的首次 Core 摘要作为历史阶段回执保留；旧版主域名保持原部署。
+**当前结论：已部署应用版本 6fa1b905 的 Core、Extensions、Web 已通过最终发布流程及 CI 运行态验收；渠道超时修复、native 数据库 76、管理反代及 EPay 5004 禁用配置导入均已完成。** [三组件发布 run 44315659498](https://github.com/TokenNotIncluded/lmm-api-source/actions/runs/44315659498)／[部署 job 134848523976](https://github.com/TokenNotIncluded/lmm-api-source/actions/runs/44315659498/job/134848523976) 于 13:52:42 UTC（21:52:42 Asia/Taipei）成功完成。Core `check-db`、三组件 health、Core／Extensions 实际运行文件摘要与 manifest、served HTML 与 Web 产物比对全部通过。5004 三阶段运维回执、72392577 上一批发布与 75c9d482 首次 Core 摘要分别保留为历史证据。服务器备份及数据库备份的隔离恢复校验已完成；开发机第二份完整备份复制仍未完成，渠道超时页面读回与真实管理员浏览器 E2E 待原生批准。旧版主域名保持原部署。
 
 ## 当前状态
 
@@ -12,13 +12,15 @@
 | 用户管理界面与 Core 合同 | 列表／详情团队字段、筛选及可访问分组读取／保存已接通 | Web／Core 已发布，native 管理反代已上线；旧 Core 浏览器错误保留为修复前证据 | 登录态复验列表、详情、分组保存及权限拒绝 |
 | Pancake 独立绑定 | [6fd21f21](https://github.com/TokenNotIncluded/lmm-api-source/commit/6fd21f219ab3d88b23ef8b77468b734a186ab9b6)，已纳入最新交付 | Go／Web 定向检查通过；管理员保存与真实支付交易仍待验收 | 读取、保存、重新读取的实际回执 |
 | Core 路由、模型目录与用户合同 | [c1d93906](https://github.com/TokenNotIncluded/lmm-api-source/commit/c1d93906ec6fa02cc15e7081428cea68906b9560)，格式修复 [75c9d482](https://github.com/TokenNotIncluded/lmm-api-source/commit/75c9d482ea03885db0a2bd4376f06f04f3e9f51a) | 18 项定向 lib、1 项 vault、2 项隔离 schema 升级测试通过；正式数据库已升级至 76 | 登录态业务验收 |
-| 最终 Core／Extensions／Web 发布 | [72392577](https://github.com/TokenNotIncluded/lmm-api-source/commit/723925770caae52cc33a331bbfe2d758729fdc28) 已进入 main | [run 44305784095](https://github.com/TokenNotIncluded/lmm-api-source/actions/runs/44305784095) 全流程成功；部署 job 核对实际运行文件摘要与 served HTML | 开发机 SSH 独立回读、真实管理员验收 |
+| 渠道超时默认值与发布错误提示 | [6fa1b905](https://github.com/TokenNotIncluded/lmm-api-source/commit/6fa1b9054c1a03898e082aacf28e228880c3004e) 已进入 main 并部署；Core 真实下限和专用 409、Web 新目标默认值与提示已接通 | Core 3/3；Web 5 文件 77/77、tsgo／修改范围 lint／格式 exit 0；三组件发布与 CI 运行态验收成功 | 原生批准后的页面读回与真实管理员操作 |
+| 最终 Core／Extensions／Web 发布 | 已部署应用 [6fa1b905](https://github.com/TokenNotIncluded/lmm-api-source/commit/6fa1b9054c1a03898e082aacf28e228880c3004e) | [run 44315659498](https://github.com/TokenNotIncluded/lmm-api-source/actions/runs/44315659498)／[job 134848523976](https://github.com/TokenNotIncluded/lmm-api-source/actions/runs/44315659498/job/134848523976) 全成功；数据库兼容、health、实际进程文件及 served HTML 均通过校验 | 真实管理员验收；开发机 SSH 补充独立回读仍受阻 |
+| 上一批三组件发布（历史阶段） | 72392577 | [run 44305784095](https://github.com/TokenNotIncluded/lmm-api-source/actions/runs/44305784095)／[job 134813816947](https://github.com/TokenNotIncluded/lmm-api-source/actions/runs/44305784095/job/134813816947) 成功，随后完成 5004 导入 | 保留该阶段自己的运行态回执 |
 | 第一批 Web／Extensions 发布（历史阶段） | 格式修复 [3b140f2c](https://github.com/TokenNotIncluded/lmm-api-source/commit/3b140f2c6ab7b837b29de27233603b4bcd2a192c) | [run 44296422533](https://github.com/TokenNotIncluded/lmm-api-source/actions/runs/44296422533) 成功，后由最终三组件流程接续 | 历史回执保留 |
 | 第一批 Core 发布（历史阶段） | 固定 75c9d482，具名用户级单元完成构建 | 两次客户端重启中断保留；最终构建／打包／校验均 exit 0，编译 6m57s，运行摘要已回读 | `release-build-persistent.json`；该阶段摘要单独保留 |
-| EPay／LINUX DO Credit | owner 配置 CAS、私有密钥持久化、共享运行版本与钱包最低额合同已纳入已部署应用版本 72392577 | Core 16/16、bin 检查 0、Go／Web 检查通过；5004 已经 stage／prepare／activate 三阶段导入，私有 base 已切换、health 通过，仍保持禁用 | 真实 owner 安全投影、保存、冲突与版本回读 |
+| EPay／LINUX DO Credit | owner 配置 CAS、私有密钥持久化、共享运行版本与钱包最低额合同自 72392577 发布，本次 6fa1b905 继续保留 | Core 16/16、bin 检查 0、Go／Web 检查通过；5004 已经 stage／prepare／activate 三阶段导入，私有 base 已切换、health 通过，仍保持禁用 | 真实 owner 安全投影、保存、冲突与版本回读 |
 | native 管理反向代理 | 精确方法、正整数 ID 与路径白名单；只装入 native vhost | 真实 Nginx loopback 2/2，含 14 个拒绝场景；实际部署与公网匿名拒绝边界已回读 | 已认证请求与页面操作 |
 | 备份与恢复 | 服务器保留数据库与运行时备份；数据库备份完成隔离恢复校验 | 开发机第二份完整备份复制因 SSH 握手阻塞未完成 | 完整复制与摘要匹配回执 |
-| 真实管理员浏览器验收 | 既有 Chrome 的 Playwright 扩展接入桥已准备 | 准备回执保留；真实管理员 E2E 仍 pending | 真实管理员读取、保存及冲突恢复结果 |
+| 真实管理员浏览器验收 | 既有 Chrome 的 Playwright 扩展接入桥已准备 | 准备回执保留；真实管理员 E2E 待原生批准 | 真实管理员读取、保存及冲突恢复结果 |
 
 ## 行为与验证边界
 
@@ -28,7 +30,7 @@
 
 路由修复使渠道密钥池的选择、故障切换和在途请求使用一致的配置版本，保留 Responses 续接绑定。模型目录读取补齐分页与游标处理，并验证跨页失败不会返回部分成功。证据分别位于[密钥池测试](../../services/core/src/routing/key_pool_tests.rs)、[路由持久化测试](../../services/core/src/model_http/route_failover_tests.rs)和[目录测试](../../services/core/src/model_http/channel_catalog_tests.rs)。
 
-已部署版本中的渠道 `timeout_ms` 仍要求不小于当前 `ModelLimits.total_timeout`，请求执行超时继续使用后者。当前正在修正运行下限的呈现、新建表单默认值和发布失败的准确提示，尚无最终完成或发布回执；本次修正不扩展为逐目标 deadline 项目。相关发布验证、请求准入与执行文件在 75c9d482 与 72392577 之间无差异，该边界已存在于第一批发布。对应代码见[发布验证](../../services/core/src/model_http/channel_operations.rs)与[输入请求执行](../../services/core/src/model_http/input_api.rs)。
+渠道超时默认值与发布错误提示已在 [6fa1b905](https://github.com/TokenNotIncluded/lmm-api-source/commit/6fa1b9054c1a03898e082aacf28e228880c3004e) 修复，通过定向验证并完成三组件发布。Core 配置读取返回 `data.model_limits.total_timeout_ms`；低于实际运行下限的启用 upstream 目标在预览、发布和批量修改时返回专用 409 `CHANNEL_TARGET_TIMEOUT_TOO_SHORT`，附 `data.required_min_timeout_ms`。Web 新目标采用 `max(30000, actual)`，既有值保留。修复不改变目标原有准入范围、重试或执行 deadline；请求执行仍使用全局 `ModelLimits.total_timeout`。实现见[发布验证](../../services/core/src/channel_http/control.rs)、[HTTP 合同测试](../../services/core/tests/channel_timeout_contract.rs)与[输入请求执行](../../services/core/src/model_http/input_api.rs)。
 
 EPay 管理保存通过 Core 维护单一有效配置版本。HTTP 与只读 RPC 返回同一安全投影；仅 owner 可以修改没有历史资金绑定、保持禁用的 LDC EPay 连接。商户身份、币种、倍率、最低／最高金额与启用状态保持只读，空密钥输入保留原密钥。配置使用 revision 做并发比较，私有 overlay 与不可变密钥文件持久化后发布共享运行快照；每个已进入的请求固定所用快照。最终持久化确认或审计失败会返回明确的不确定状态，界面回读版本。证据见[配置实现](../../services/core/src/payments/configuration.rs)、[私有存储](../../services/core/src/payments/configuration/storage.rs)与[真实 PostgreSQL／HTTP／RPC 回归](../../services/core/src/payments/configuration/tests.rs)。
 
@@ -81,10 +83,24 @@ Nginx 用例可通过 `python3 deployment/native/test_management_routes.py` 在�
 
 前端用户管理与故障切换组件合并定向运行 23 项通过，修改范围 lint 为 0 错误、0 警告。此前 EPay 文案通过翻译 helper 应用七语言，该次同步变更为 0，missing／extra 均为 0，新增 key 均非空。该次全站检查仍有既存 untranslated 计数：fr 52、ja 116、ru 117、vi 52、zh-CN 10；本轮结果不表示全站翻译已全部完成。
 
+### 渠道超时修复回执（6fa1b905）
+
+修复源码已进入 main，已部署应用为 6fa1b905；[三组件发布 run 44315659498](https://github.com/TokenNotIncluded/lmm-api-source/actions/runs/44315659498) 及其 [部署 job 134848523976](https://github.com/TokenNotIncluded/lmm-api-source/actions/runs/44315659498/job/134848523976) 均成功。下列开发验证与[最终线上发布回执](#最终发布与-native-管理反代)分别记录。
+
+| 检查 | 实际结果 | 开发机证据 |
+| --- | --- | --- |
+| Core 超时 HTTP／PostgreSQL 合同 | 3/3；编译 6m19s，用例 4.09s，exit 0；5 个输入的前后 SHA-256 相同 | `channel-timeout-contract-checks.json` |
+| Web 超时与既有编辑合同 | 5 个测试文件，77/77，全部 exit 0 | `timeout-web-tests.json` 及其引用日志 |
+| 完整 Web 类型检查、修改范围 lint／格式 | 均 exit 0 | `timeout-web-gates.json`、修改范围格式命令回执 |
+| 新增文案 | 4 个 key 的七语言内容完整 | 本轮翻译 helper 与同步回执 |
+
+Core 回归覆盖实际下限读取、保留已有值、预览／发布／批量错误、真实 preview 确认摘要、满足下限后的保存，以及禁用 upstream 草稿和重新启用检查。Web 验证覆盖新目标默认值与现有编辑数据的保留。首次 Web lint 曾有两条 curly 错误，修复后通过；`timeout-web-gates.json` 保留 `initial_lint_exit_code=1`，原失败日志继续保留。新 key 的完整性不改变前述全站既存 untranslated 计数。
+
 ## 保留的失败与中断
 
 | 历史尝试 | 当时结果 | 后续证据 |
 | --- | --- | --- |
+| 超时修复首次 Web lint | 两条 curly 错误，exit 1；`timeout-web-gates.json` 保留首次失败码，原日志保留 | 修复后修改范围 lint／格式及完整 tsgo 均 exit 0；Web 5 文件 77/77 |
 | 初次密钥池定向测试 | `key-pool-lib-first.log`：3 通过、1 失败 | 最终密钥池 5 项通过；原失败日志保留 |
 | 初次模型目录测试 | `catalogue-tests.log`：1 通过、4 失败 | 修复后最终同范围 5 项通过；原失败日志保留 |
 | 首次 Core release 构建 | `release-build.json` 标记客户端重启中断，未观察到完成 | 不能记为构建通过 |
@@ -106,7 +122,17 @@ Nginx 用例可通过 `python3 deployment/native/test_management_routes.py` 在�
 
 ## 最终发布与 native 管理反代
 
-已部署应用版本为 [723925770caae52cc33a331bbfe2d758729fdc28](https://github.com/TokenNotIncluded/lmm-api-source/commit/723925770caae52cc33a331bbfe2d758729fdc28)。[GitHub Actions 44305784095](https://github.com/TokenNotIncluded/lmm-api-source/actions/runs/44305784095) 的 Core、Extensions、Web 全流程成功；发起回执 `epay-deploy-dispatch.json` 记录 `components=core,extensions,web`、`targets=arch-shadow` 与 `version=0.0.0-config.72392577`。[部署 job 134813816947](https://github.com/TokenNotIncluded/lmm-api-source/actions/runs/44305784095/job/134813816947) 已核对实际进程可执行文件摘要与 served HTML，确认对应本次 72392577 发布。后续文档和运维提交不改变这一应用版本；开发机 SSH 独立回读仍受握手阻塞。前节 75c9d482 的包和可执行文件摘要继续归属于第一次 Core 发布。
+### 当前三组件发布（6fa1b905）
+
+已部署应用版本为 [6fa1b9054c1a03898e082aacf28e228880c3004e](https://github.com/TokenNotIncluded/lmm-api-source/commit/6fa1b9054c1a03898e082aacf28e228880c3004e)。[GitHub Actions 44315659498](https://github.com/TokenNotIncluded/lmm-api-source/actions/runs/44315659498) 的 Core、Extensions、Web 全流程成功；[部署 job 134848523976](https://github.com/TokenNotIncluded/lmm-api-source/actions/runs/44315659498/job/134848523976) 于 2026-11-18 13:52:42 UTC（21:52:42 Asia/Taipei）完成，Ansible 汇总为 `ok=54 changed=14 failed=0 unreachable=0 rescued=0`。
+
+该 job 确认 Core 正式 `check-db` 兼容检查通过，三组件 health 检查通过；实际 Core／Extensions 的 `/proc/<pid>/exe` 摘要分别与组件 manifest 匹配，served HTML 与 Web 产物匹配。上述结果构成本次 6fa1b905 的 CI 运行态验收。开发机 SSH 独立回读仍受握手阻塞，属于尚未完成的补充复核；真实管理员页面与写入验收待原生批准。
+
+### 上一批三组件发布（72392577，历史阶段）
+
+[723925770caae52cc33a331bbfe2d758729fdc28](https://github.com/TokenNotIncluded/lmm-api-source/commit/723925770caae52cc33a331bbfe2d758729fdc28) 的 [GitHub Actions 44305784095](https://github.com/TokenNotIncluded/lmm-api-source/actions/runs/44305784095) 全流程成功；发起回执 `epay-deploy-dispatch.json` 记录 `components=core,extensions,web`、`targets=arch-shadow` 与 `version=0.0.0-config.72392577`。[部署 job 134813816947](https://github.com/TokenNotIncluded/lmm-api-source/actions/runs/44305784095/job/134813816947) 已核对实际进程可执行文件摘要与 served HTML，确认对应当时的 72392577 发布。该阶段随后完成 EPay 5004 实际导入，回执见下节。前节 75c9d482 的包和可执行文件摘要继续归属于第一次 Core 发布。
+
+### native 管理反代
 
 native 管理 include 已实际部署到 `native.api.lmm.best`，回执中的模板 SHA-256 为 `771b7da302c8a2c775a245eebea7bc637b2b9dcb1737ed3b1328d538cc7efde6`。部署只覆盖 native vhost；旧版主域名保持原部署。实际部署回读与随后独立公网匿名检查如下：
 
@@ -147,14 +173,14 @@ Core 主配置 `/etc/lmm.conf.d/native69-20261115/core-final.toml` 的 `payments
 
 | 待完成事项 | 当前状态 | 收尾时追加的实际证据 |
 | --- | --- | --- |
-| 开发机 SSH 独立回读 | 72392577 已有 CI 运行态验收；开发机连接仍受握手阻塞 | 独立回读的 slot／进程、文件摘要与 readiness |
+| 开发机 SSH 独立回读 | 6fa1b905 已有完整 CI 运行态验收；开发机连接仍受握手阻塞 | 补充独立回读的 slot／进程、文件摘要与 readiness |
 | 开发机第二份完整备份 | 完整数据库／运行时备份复制未完成 | 文件字节数、复制退出码及与服务器原件一致的摘要 |
 | EPay owner 配置读回 | 5004 已完成实际导入、私有 base 切换及 health 检查；真实 owner 页面尚未验收 | Core／Go 安全投影版本、5004 禁用状态及最低额的实际页面回执；报告不包含密钥 |
-| 真实管理员浏览器读取 | 桥已 prepared，`armed=false`，页面工具调用为 0 | 原生批准后，渠道、用户列表／详情与 EPay 配置读取的真实页面结果 |
-| 管理员保存与冲突恢复 | 尚无生产页面通过回执 | 渠道、用户分组、EPay 保存／冲突／回读的请求及界面结果 |
-| 渠道默认超时与发布错误提示 | 运行超时下限的呈现、新建默认值与准确错误提示修正进行中；本次不扩展为逐目标 deadline 实现 | Core／Web 定向验证、固定修复版本及发布回执 |
+| 真实管理员浏览器读取 | 准备回执记录桥为 prepared、`armed=false`、页面工具调用为 0；实际读取待原生批准 | 原生批准后，渠道、用户列表／详情与 EPay 配置读取的真实页面结果 |
+| 管理员保存与冲突恢复 | 待原生批准，尚无生产页面通过回执 | 渠道、用户分组、EPay 保存／冲突／回读的请求及界面结果 |
+| 渠道超时修复页面读回 | 6fa1b905 源码、定向验证、三组件发布及 CI 运行态验收均完成；页面读回待原生批准 | 实际运行下限、新目标默认值及发布错误提示的真实管理员页面结果 |
 | 正式启用与真实交易 | 本轮未执行 | 另行明确的启用范围、实际交易与核账结果 |
 
 浏览器准备证据位于开发机 `~/.local/state/lmm-api/browser-mcp-20261118-owtg7u1i/preparation.json`。固定 `@playwright/mcp@0.0.85` 已在任务私有目录安装，MCP 握手与 25 项工具 schema 读取完成，未触发页面调用或原生批准页；该准备回执尚未包含实际管理员 E2E。此前 native 登录页观察、旧 Core 用户页错误和独立后台浏览器缺少登录态的记录继续保留。真实管理员页面验收结果由主任务在实际完成后追加。
 
-SSH 阻塞期间保留服务器备份、隔离恢复回执与开发机已取得的非秘密证据。5004 已通过 GitHub runner 完成导入；开发机第二份完整备份复制和真实管理员业务验收仍为 pending。渠道默认超时与发布错误提示修正继续单独收口。
+SSH 阻塞期间保留服务器备份、隔离恢复回执与开发机已取得的非秘密证据。5004 已通过 GitHub runner 完成导入；渠道超时修复 6fa1b905 也已完成三组件发布及 CI 运行态验收。开发机第二份完整备份复制尚未完成；页面读回和真实管理员业务验收待原生批准后追加实际结果。
