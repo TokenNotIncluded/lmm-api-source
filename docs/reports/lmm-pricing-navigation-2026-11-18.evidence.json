@@ -1,0 +1,215 @@
+{
+  "schema_version": 1,
+  "recorded_at": "2026-11-18T15:57:34+08:00",
+  "scope": "Pricing navigation and unavailable catalog UI",
+  "source_commit": "5080810c72e47535c4bb0fafe63f37199a5942cd",
+  "baseline_commit": "a83dbf2736ff44677f3a546929d701b5fe343643",
+  "changed_files": [
+    "apps/web/src/lib/nav-modules.ts",
+    "apps/web/src/lib/nav-modules.test.ts",
+    "apps/web/src/features/pricing/index.tsx",
+    "apps/web/src/features/pricing/components/model-plaza-panel.tsx",
+    "apps/web/src/features/pricing/hooks/use-pricing-data.ts",
+    "apps/web/src/features/pricing/hooks/use-pricing-data-session.test.tsx"
+  ],
+  "source_sha256": {
+    "apps/web/src/lib/nav-modules.ts": "26c3f7dfad2848bf88013e73e5def04a9532b94d2648e498b19240f82d7152d6",
+    "apps/web/src/lib/nav-modules.test.ts": "30362480922961a4e67008bfaa3e40c4a47af95782d84c8bd1e570d2b93b7037",
+    "apps/web/src/features/pricing/index.tsx": "811cd5adc1ec2ce3cea372151d7ca86f9b4b36f5172f7e12eca4f5f368c8825a",
+    "apps/web/src/features/pricing/components/model-plaza-panel.tsx": "c11350584d11ebed2aa6b353836dbf4f1fb6c8ab2cc89be60f200f7cc974e282",
+    "apps/web/src/features/pricing/hooks/use-pricing-data.ts": "d7326859a9a1831fdaa5062d0f9c7f67ce535319cde2bcaf1211a3ac5efb1af8",
+    "apps/web/src/features/pricing/hooks/use-pricing-data-session.test.tsx": "0548a79d82e1815d2cba3046e8946a056779b663a07527c08abee2c84a173ffe"
+  },
+  "native_read_only_observation": {
+    "origin": "https://native.api.lmm.best",
+    "navigation": {
+      "endpoint": "/api/site/navigation",
+      "revision": 2,
+      "pricing": {
+        "enabled": true,
+        "requireAuth": true
+      }
+    },
+    "anonymous_pricing": {
+      "endpoint": "/core/v1/pricing/public",
+      "http_status": 403,
+      "error_code": "pricing_forbidden"
+    },
+    "conclusion": "The live navigation requires sign-in. The prior claim that the configured policy allowed anonymous access came from the old status-based route reader."
+  },
+  "behavior": [
+    "Route access reads the current site navigation endpoint and preserves sign-in return URLs.",
+    "Navigation read failure remains closed.",
+    "Pricing counts, controls, vendor empty states and pricing basis are hidden until validated catalog data is available.",
+    "The model panel hides unknown counts and preserves loading/error/retry/confirmed-empty states.",
+    "Core authorization and production configuration are unchanged."
+  ],
+  "self_tests": [
+    {
+      "command": "mise exec -- bun test --preload ./scripts/test-preload.mjs --timeout 15000 src/lib/nav-modules.test.ts src/features/pricing/lib/route-access.test.ts",
+      "cwd": "apps/web",
+      "pass": 8,
+      "fail": 0,
+      "exit_code": 0
+    },
+    {
+      "command": "mise exec -- bun test --preload ./scripts/test-preload.mjs --timeout 15000 src/features/pricing/hooks/use-pricing-data-session.test.tsx",
+      "cwd": "apps/web",
+      "pass": 7,
+      "fail": 0,
+      "exit_code": 0
+    },
+    {
+      "check": "oxfmt and oxlint on the six changed TypeScript files",
+      "exit_code": 0,
+      "lint_warnings": 0,
+      "lint_errors": 0
+    },
+    {
+      "check": "typecheck-final",
+      "command": [
+        "mise",
+        "exec",
+        "--",
+        "bun",
+        "run",
+        "typecheck:web"
+      ],
+      "started_at_utc": "2026-11-18T07:53:24.731565+00:00",
+      "seconds": 26.053,
+      "exit_code": 0
+    },
+    {
+      "check": "build-web",
+      "command": [
+        "mise",
+        "exec",
+        "--",
+        "bun",
+        "run",
+        "build:web"
+      ],
+      "started_at_utc": "2026-11-18T07:53:50.792518+00:00",
+      "seconds": 15.784,
+      "exit_code": 0
+    },
+    {
+      "check": "bundle-check",
+      "command": [
+        "mise",
+        "exec",
+        "--",
+        "bun",
+        "run",
+        "--filter",
+        "@lmm/web",
+        "bundle:check"
+      ],
+      "started_at_utc": "2026-11-18T07:54:06.577012+00:00",
+      "seconds": 0.478,
+      "exit_code": 0
+    },
+    {
+      "check": "initial bundle",
+      "gzip_bytes": 499663,
+      "budget_bytes": 786432,
+      "exit_code": 0
+    },
+    {
+      "check": "real Chromium, real candidate dist, synthetic API responses",
+      "pass": 5,
+      "fail": 0,
+      "exit_code": 0,
+      "results": [
+        {
+          "case": "configured sign-in and return URL",
+          "passed": true,
+          "pricingRequests": 0
+        },
+        {
+          "case": "1440-light error, retry and real empty state",
+          "passed": true,
+          "pricingRequests": 2,
+          "externalRequests": [
+            "https://cdn.agentlane.com"
+          ]
+        },
+        {
+          "case": "1440-dark error, retry and real empty state",
+          "passed": true,
+          "pricingRequests": 2,
+          "externalRequests": [
+            "https://cdn.agentlane.com"
+          ]
+        },
+        {
+          "case": "390-light error, retry and real empty state",
+          "passed": true,
+          "pricingRequests": 2,
+          "externalRequests": [
+            "https://cdn.agentlane.com"
+          ]
+        },
+        {
+          "case": "390-dark error, retry and real empty state",
+          "passed": true,
+          "pricingRequests": 2,
+          "externalRequests": [
+            "https://cdn.agentlane.com"
+          ]
+        }
+      ],
+      "console_errors": [],
+      "external_network": "All non-loopback requests were blocked, including the optional Agentlane CDN request."
+    }
+  ],
+  "build": {
+    "version": "pricing-candidate.20261118.a83dbf27",
+    "method": "Archive the fixed baseline, overlay the six reviewed files, reuse the locked dependencies, and execute the build-web recipe's equivalent build and bundle commands with an explicit candidate version.",
+    "dependency_inputs": {
+      "bun.lock": "16c3ba0a14ce43b7a017110b2b997b9b171362b6ea32092576239819e4c5c343",
+      "package.json": "48c7ca5f377f2c6a948cc41d47ea490eec259d7911f0ab896905db7d480296aa",
+      "apps/web/package.json": "461a9233117b4b7a2c08f0a22f48ae0231ecd6a99471fde64e7446bd2352e112"
+    },
+    "index_sha256": "487798d6f56dfe1f5660bd5cadd9f0cc7fa05a631b62d92c1e2a73247d144938"
+  },
+  "prior_failures": [
+    {
+      "check": "shared working-tree typecheck",
+      "exit_code": 1,
+      "cause": "Pre-existing unresolved merge markers in channels/components/native-routing-management.tsx; unrelated work preserved."
+    },
+    {
+      "check": "initial new UI test fixtures",
+      "pass": 5,
+      "fail": 2,
+      "cause": "The page fixture lacked the /pricing/ route; happy-dom rejected canceled native animations.",
+      "resolution": "Use the real pricing route in the test router and the repository's existing JS-animation fixture pattern."
+    },
+    {
+      "check": "initial isolated typecheck",
+      "command": [
+        "mise",
+        "exec",
+        "--",
+        "bun",
+        "run",
+        "typecheck:web"
+      ],
+      "exit_code": 1,
+      "error": "src/features/pricing/hooks/use-pricing-data-session.test.tsx(2,22): TS2307 Cannot find module 'bun:test' or its corresponding type declarations.",
+      "input_manifest": "candidate-inputs.initial.json",
+      "resolution": "Use the repository's existing typed createRequire loader for the Bun test runtime; final typecheck passes."
+    }
+  ],
+  "remaining": [
+    "This source change has not been deployed to production.",
+    "Independent business acceptance, authenticated production wallet/root operations, real payments and external model calls were not performed.",
+    "Extensions navigation presentation and Core pricing authorization remain separate sources; future policy changes need an explicit Core policy migration.",
+    "The unrelated channel-management working changes still contain merge conflicts."
+  ],
+  "delivery": {
+    "code": "https://github.com/TokenNotIncluded/lmm-api-source/commit/5080810c72e47535c4bb0fafe63f37199a5942cd",
+    "drive": "https://drive.google.com/drive/folders/1U9kWpknGqHWwBnDWaXmzFKb2qtnGdh43"
+  }
+}

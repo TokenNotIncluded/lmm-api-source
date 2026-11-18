@@ -4,10 +4,13 @@
 
 ## 当前状态
 
+- **定价导航与未知计数修复（源码已推送，开发自测通过；2026-11-18）**：代码 [5080810c](https://github.com/TokenNotIncluded/lmm-api-source/commit/5080810c72e47535c4bb0fafe63f37199a5942cd) 已进入 main。路由改读现行 `/api/site/navigation`，配置要求登录时保留原地址跳转登录，导航读取失败继续关闭入口。目录尚未取得有效数据时，价格页隐藏模型数量、筛选器、厂商空态及价格基准说明；模型面板同步隐藏未知计数，重试成功后显示真实空目录。
+  **开发自测**：导航与认证 8 项、价格状态与会话隔离 7 项通过，修改文件格式与 lint 通过。共享工作区的类型检查被既有渠道文件合并标记阻塞；从 a83dbf27 固定归档覆盖本轮六文件后，完整类型检查、生产构建及包体检查全部 exit 0，首屏 gzip 499,663 B。实际候选静态产物在 Chromium 中完成 1440px/390px 明暗错误与重试场景及登录回跳，共 5/5；接口使用合成响应，外部网络封锁。独立业务验收未执行，生产仍为 Web 3a9986d9。[结构化证据](reports/lmm-pricing-navigation-2026-11-18.evidence.json)；[交付附件](https://drive.google.com/drive/folders/1U9kWpknGqHWwBnDWaXmzFKb2qtnGdh43)。
+
 - **新架构前端生产化（Web 已部署，浏览器 5/6；2026-11-18）**：最终 Web 固定为 [3a9986d9](https://github.com/TokenNotIncluded/lmm-api-source/commit/3a9986d92ce8c464e4ef3fa67ee521f6e0fde5c9)，06:18（UTC+8）部署至 https://native.api.lmm.best，公开 api.lmm.best 继续运行旧 Go 0.2.118。补齐共享模型/厂商空态，整合导航、最近访问和快捷入口，可选 WebMCP 按浏览器能力载入。四处过时或不完整的测试夹具/断言已修正，生产校验与权限逻辑未为测试而改变。
   **最终门禁**：760 个源测试文件 + 6 个脚本测试文件全部通过，exit 0、860.875 秒；完整类型检查、生产构建、标准 Web 包校验均通过。最终生产 dist 对同一新架构固定基线的七个首屏 JS/CSS gzip 从 609,043 降至 500,178 B（−17.8748%）；三场景强制 GC 后 JS 堆中位数下降 0.9363%–4.7377%，18/18 导航有效。这些比例不表示相对旧 Go 的性能收益。
   **实际部署与独立回读**：625 个文件逐项核验，首页与全部 10 个引用资源一致；两代保留静态文件实盘核对及六项 HTTPS 抽样通过。独立回读 20/20，Core/Extensions 的进程与二进制、Nginx 的进程和配置未变，旧 Web 槽位和本次上传目录已清理。实际组件仍为 Core c67892ba、Extensions dc94d4c2、Web 3a9986d9，包保持 preview=true。
-  **浏览器与剩余阻塞**：真实匿名桌面/390px 明暗登录页及工具市场回跳通过，Native 为 5/6、整体 exit 1；旧 Go 登录页两场 2/2。公开价格策略允许匿名进入，但实际 GET /core/v1/pricing/public 被运行中的 Core 以 403 pricing_forbidden 拒绝，网关转发正常；相关客户端请求与默认导航代码在 561 和 3a 中相同，未确定后端拒绝的起始时间。价格错误页仍显示零计数，不能当作真实空目录。需对齐 Core 的公开定价权威策略、状态声明和路由，并修正未知计数。生产登录态概览/钱包/Root 保存、真实资金、外部模型和后端迁移核账仍未验收；赏金、公共中转 config 仍 503。已删除的激活付费、平台等级、远控/Pi、FastPay、任务日志和客户端配置页面保持移除。
+  **浏览器与剩余阻塞**：真实匿名桌面/390px 明暗登录页及工具市场回跳通过，Native 为 5/6、整体 exit 1；旧 Go 登录页两场 2/2。本轮回读现行 /api/site/navigation（revision=2）确认 pricing.requireAuth=true，匿名 GET /core/v1/pricing/public 返回 403 pricing_forbidden 符合当前配置。此前关于允许匿名的判断来自旧路由读取缺少导航字段的 /api/status 后采用默认值。线上 Web 3a 的路由与错误零计数仍待部署本轮修复；Extensions 导航呈现和 Core 定价授权维持各自边界，后续策略调整需明确 Core 迁移方案。生产登录态概览/钱包/Root 保存、真实资金、外部模型和后端迁移核账仍未验收；赏金、公共中转 config 仍 503。已删除的激活付费、平台等级、远控/Pi、FastPay、任务日志和客户端配置页面保持移除。
   完整测试失败与修复、性能方法、部署与回退边界、实际新旧对比及限制见[最终部署报告](reports/lmm-frontend-production-2026-11-18.md)和[证据摘要](reports/lmm-frontend-production-2026-11-18.evidence.json)。文档后续提交不改变本次上线的 3a 身份。
 
 - **控制台页面补修（历史候选记录，当前 Web 见本页首项）**：商品与消息页补齐七语言实际缺失的文案，并将额度显示接入翻译；本轮新增 36 个 key，合并时保留并行任务的既有译文。任务日志与客户端配置的导航、设置和工具入口已清理，旧地址分别回到使用日志与开发者入口，见 [9ca5258](https://github.com/TokenNotIncluded/lmm-api-source/commit/9ca52583f68f669a8ccd7973a87175db5cd68c27)。原界面将后端 `model-specific` 误显示为“自动倍率”，现显示“按模型定价”，真实数值倍率单独显示；计价规则未改动。
