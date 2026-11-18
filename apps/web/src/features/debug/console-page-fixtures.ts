@@ -290,6 +290,7 @@ const reads: Record<string, unknown> = {
     reason: 'Local preview',
   },
   '/api/assistant/support/self': [],
+  '/api/hero-sms/capabilities': { purchases_available: false },
   '/api/channel/ops': { retry_times: 0 },
   '/api/channel': page,
   '/api/models/': page,
