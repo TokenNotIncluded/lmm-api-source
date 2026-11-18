@@ -1,0 +1,55 @@
+name: One-off disabled LDC management (20261118)
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: Fixed operation; verify only reads state. Review each result before advancing.
+        type: choice
+        default: verify
+        options: [verify, stage, prepare, activate]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-${{ vars.DEPLOY_ENVIRONMENT || 'shadow' }}
+  cancel-in-progress: false
+
+jobs:
+  operation:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    environment: ${{ vars.DEPLOY_ENVIRONMENT || 'shadow' }}
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Require reviewed main source and test the fixed operation boundary
+        run: |
+          git merge-base --is-ancestor HEAD origin/main
+          python3 -B deployment/operations/ldc-20261118/test_operations.py
+      - name: Configure ephemeral SSH credentials
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.DEPLOY_SSH_PRIVATE_KEY }}
+          SSH_KNOWN_HOSTS: ${{ vars.DEPLOY_KNOWN_HOSTS }}
+        run: |
+          umask 077
+          mkdir -p "$RUNNER_TEMP/ldc-ops-ssh"
+          test -n "$SSH_PRIVATE_KEY"
+          test -n "$SSH_KNOWN_HOSTS"
+          printf '%s\n' "$SSH_PRIVATE_KEY" > "$RUNNER_TEMP/ldc-ops-ssh/key"
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > "$RUNNER_TEMP/ldc-ops-ssh/known_hosts"
+          echo "LDC_SSH_KEY_FILE=$RUNNER_TEMP/ldc-ops-ssh/key" >> "$GITHUB_ENV"
+          echo "LDC_KNOWN_HOSTS_FILE=$RUNNER_TEMP/ldc-ops-ssh/known_hosts" >> "$GITHUB_ENV"
+      - name: Run the fixed operation and read its safe receipt
+        env:
+          DEPLOY_TARGETS: ${{ vars.DEPLOY_TARGETS }}
+          LDC_OPERATION_MODE: ${{ inputs.mode }}
+        run: python3 -B deployment/operations/ldc-20261118/runner.py --mode "$LDC_OPERATION_MODE"
+      - name: Delete runner SSH credentials
+        if: always()
+        run: rm -rf -- "$RUNNER_TEMP/ldc-ops-ssh"
