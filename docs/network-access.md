@@ -113,16 +113,21 @@ PUT 请求示例：
 
 地域读取复用 [maxminddb 0.33.0](https://github.com/oschwald/maxminddb-rust)，ISC 许可，职责仅为读取 MaxMind DB；上游仓库于 2026-11-17 查得 280 stars。它支持本地文件及选择性国家字段解码，符合本功能的离线定位需求。既有 IP/CIDR 解析继续使用 `ipnet`，zconv 等已有依赖保持原用途。
 
-定向检查：
+准备项目固定的 Rust 工具链、已缓存的 Core 依赖及 PostgreSQL 后，在仓库根目录运行：
 
 ```sh
-cargo test --manifest-path services/core/Cargo.toml --lib network_access::tests -j 1 -- --test-threads=1
-cargo test --manifest-path services/core/Cargo.toml --lib user_ip_allowlist -j 1 -- --test-threads=1
-cargo test --manifest-path services/core/Cargo.toml --test network_access_options -j 1 -- --test-threads=1
-cargo test --manifest-path services/core/Cargo.toml --lib network_access76 -j 1 -- --test-threads=1
+mise exec -- bash scripts/test-network-access.sh
 ```
 
-数据库测试要求独立 PostgreSQL 测试实例，并由 SQLx 创建各测试数据库。不要使用业务数据库运行这些测试。平台测试使用仓库附带的 MaxMind 合成测试数据库，来源和 MIT 许可见 `services/core/tests/fixtures/geoip/`。
+脚本创建私有 Unix socket PostgreSQL 实例，覆盖地域入口、用户白名单解析、受限运行角色的配置保存与审计、用户登录和 Cookie 恢复、用户与 Key 规则交集，以及第 75 → 76 组件的原生升级与回执重放。SQLx 为各用例建立独立数据库。脚本清除继承的 PostgreSQL 连接变量并设置自己的 `DATABASE_URL`，无需传入业务数据库地址。
 
-本页定义配置和行为；本轮实际执行结果统一记入 [架构进度](progress.md)。
+构建和用例默认串行运行。内存紧张时可关闭开发测试的调试信息和增量编译：
 
+```sh
+CARGO_PROFILE_DEV_DEBUG=0 CARGO_PROFILE_TEST_DEBUG=0 CARGO_INCREMENTAL=0 \
+  mise exec -- bash scripts/test-network-access.sh
+```
+
+测试结束后停止本轮创建的数据库；全部通过时删除临时目录，失败时保留数据库和日志并输出路径。平台测试使用仓库附带的 MaxMind 合成测试数据库，来源和 MIT 许可见 `services/core/tests/fixtures/geoip/`。
+
+本页定义配置和行为；实际执行结果统一记入 [架构进度](progress.md)。
