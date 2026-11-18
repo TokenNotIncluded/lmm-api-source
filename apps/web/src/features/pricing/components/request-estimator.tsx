@@ -19,7 +19,7 @@ const PRESETS = [
   { key: 'Code review', input: '20000', output: '8000' },
 ] as const
 
-const SYSTEMONE_PRESETS = [
+const INPUT_ONLY_PRESETS = [
   { key: 'Long document', input: '50000', output: '0' },
 ] as const
 
@@ -29,9 +29,12 @@ export function RequestEstimator(props: ModelDetailsContentProps) {
   const [input, setInput] = useState('10000')
   const [output, setOutput] = useState('2000')
   const [cached, setCached] = useState('0')
-  const isSystemone =
-    props.model.supported_endpoint_types?.includes('systemone') ?? false
   const endpoints = props.model.supported_endpoint_types
+  const isInputOnly = endpoints?.length
+    ? endpoints.every((endpoint) =>
+        ['systemone', 'embeddings', 'jina-rerank'].includes(endpoint)
+      )
+    : false
   const isNativeSession = endpoints?.length
     ? endpoints.some(isNativeSessionEndpointType)
     : /(^|\/)gpt-(?:live|realtime)(?:-|$)/.test(props.model.model_name)
@@ -42,15 +45,15 @@ export function RequestEstimator(props: ModelDetailsContentProps) {
   ) {
     return null
   }
-  const presets = isSystemone ? SYSTEMONE_PRESETS : PRESETS
+  const presets = isInputOnly ? INPUT_ONLY_PRESETS : PRESETS
   const parse = (value: string) =>
     value.trim() === '' ? Number.NaN : Number(value)
   const amount = estimateRequestCost(
     props.model,
     1,
     parse(input),
-    isSystemone ? 0 : parse(output),
-    isSystemone ? 0 : parse(cached)
+    isInputOnly ? 0 : parse(output),
+    isInputOnly ? 0 : parse(cached)
   )
   return (
     <section
@@ -75,7 +78,7 @@ export function RequestEstimator(props: ModelDetailsContentProps) {
             {presets.map((preset) => {
               const active =
                 input === preset.input &&
-                (isSystemone || output === preset.output)
+                (isInputOnly || output === preset.output)
               return (
                 <button
                   key={preset.key}
@@ -98,7 +101,7 @@ export function RequestEstimator(props: ModelDetailsContentProps) {
               )
             })}
           </div>
-          <div className={cn('grid gap-3', !isSystemone && 'sm:grid-cols-3')}>
+          <div className={cn('grid gap-3', !isInputOnly && 'sm:grid-cols-3')}>
             {[
               {
                 key: 'input',
@@ -106,7 +109,7 @@ export function RequestEstimator(props: ModelDetailsContentProps) {
                 value: input,
                 set: setInput,
               },
-              ...(isSystemone
+              ...(isInputOnly
                 ? []
                 : [
                     {
@@ -154,12 +157,12 @@ export function RequestEstimator(props: ModelDetailsContentProps) {
         <p className='text-muted-foreground mt-1 text-xs leading-relaxed'>
           {t(
             hasCurrentPricingContext(props.model)
-              ? isSystemone
+              ? isInputOnly
                 ? 'One request using the displayed prices. Actual charges may differ.'
                 : 'One request using the displayed prices. Cached tokens are part of input. Excludes cache writes, media and tool fees; actual charges may differ.'
               : props.model.group_prices
                 ? 'Prices include the selected group factors. Select a group to compare its rates.'
-                : isSystemone
+                : isInputOnly
                   ? 'One request at the base price (1×), using input tokens. Actual charges may differ.'
                   : 'One request at the base price (1×). Cached tokens are part of input. Excludes cache writes, media and tool fees; actual charges may differ.'
           )}

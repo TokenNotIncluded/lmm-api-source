@@ -255,65 +255,100 @@ describe('ModelDetails group pricing', () => {
     await unmount(rendered)
   })
 
-  test('uses input-only estimation for a mapped SystemOne model alias', async () => {
-    const rendered = await renderModelDetails(
-      'account-judge',
-      {
-        supported_endpoint_types: ['systemone'],
-        input_price: 0.042,
-        model_ratio: 0.021,
-        completion_ratio: 1000,
-      },
-      2
-    )
-    const title = [...rendered.container.querySelectorAll('h3')].find(
-      (element) => element.textContent === 'Request cost estimate'
-    )
-    assert.ok(title)
-    const section = title.closest('section')
-    assert.ok(section)
-    const inputs = [...section.querySelectorAll('input')]
-    assert.equal(inputs.length, 1)
-    assert.equal(inputs[0].value, '10000')
-    assert.equal(inputs[0].type, 'number')
-    const inputLabel = [...section.querySelectorAll('label')].find(
-      (label) => label.htmlFor === inputs[0].id
-    )
-    assert.equal(inputLabel?.textContent, 'Input Tokens')
-    assert.doesNotMatch(
-      section.textContent ?? '',
-      /Short chat|Code review|Output Tokens|Cached input tokens|Cached tokens/
-    )
-    assert.match(
-      section.querySelector('[aria-live]')?.textContent ?? '',
-      /^0\.00042 USD$/
-    )
-    const presets = [...section.querySelectorAll('button')]
-    assert.equal(presets.length, 1)
-    assert.equal(presets[0].textContent, 'Long document')
-    await act(async () => presets[0].click())
-    assert.equal(inputs[0].value, '50000')
-    assert.equal(presets[0].getAttribute('aria-pressed'), 'true')
-    assert.match(
-      section.querySelector('[aria-live]')?.textContent ?? '',
-      /^0\.0021 USD$/
-    )
+  for (const endpoint of ['systemone', 'embeddings', 'jina-rerank']) {
+    test(`uses input-only estimation for a mapped ${endpoint} model alias`, async () => {
+      const rendered = await renderModelDetails(
+        'account-judge',
+        {
+          supported_endpoint_types: [endpoint],
+          input_price: 0.042,
+          model_ratio: 0.021,
+          completion_ratio: 1000,
+        },
+        2
+      )
+      const title = [...rendered.container.querySelectorAll('h3')].find(
+        (element) => element.textContent === 'Request cost estimate'
+      )
+      assert.ok(title)
+      const section = title.closest('section')
+      assert.ok(section)
+      const inputs = [...section.querySelectorAll('input')]
+      assert.equal(inputs.length, 1)
+      assert.equal(inputs[0].value, '10000')
+      assert.equal(inputs[0].type, 'number')
+      const inputLabel = [...section.querySelectorAll('label')].find(
+        (label) => label.htmlFor === inputs[0].id
+      )
+      assert.equal(inputLabel?.textContent, 'Input Tokens')
+      assert.doesNotMatch(
+        section.textContent ?? '',
+        /Short chat|Code review|Output Tokens|Cached input tokens|Cached tokens/
+      )
+      assert.match(
+        section.querySelector('[aria-live]')?.textContent ?? '',
+        /^0\.00042 USD$/
+      )
+      const presets = [...section.querySelectorAll('button')]
+      assert.equal(presets.length, 1)
+      assert.equal(presets[0].textContent, 'Long document')
+      await act(async () => presets[0].click())
+      assert.equal(inputs[0].value, '50000')
+      assert.equal(presets[0].getAttribute('aria-pressed'), 'true')
+      assert.match(
+        section.querySelector('[aria-live]')?.textContent ?? '',
+        /^0\.0021 USD$/
+      )
 
-    const setValue = Object.getOwnPropertyDescriptor(
-      HTMLInputElement.prototype,
-      'value'
-    )?.set
-    assert.ok(setValue)
-    await act(async () => {
-      setValue.call(inputs[0], '25000')
-      inputs[0].dispatchEvent(new Event('input', { bubbles: true }))
+      const setValue = Object.getOwnPropertyDescriptor(
+        HTMLInputElement.prototype,
+        'value'
+      )?.set
+      assert.ok(setValue)
+      await act(async () => {
+        setValue.call(inputs[0], '25000')
+        inputs[0].dispatchEvent(new Event('input', { bubbles: true }))
+      })
+      assert.equal(presets[0].getAttribute('aria-pressed'), 'false')
+      assert.match(
+        section.querySelector('[aria-live]')?.textContent ?? '',
+        /^0\.00105 USD$/
+      )
+      await unmount(rendered)
     })
-    assert.equal(presets[0].getAttribute('aria-pressed'), 'false')
-    assert.match(
-      section.querySelector('[aria-live]')?.textContent ?? '',
-      /^0\.00105 USD$/
-    )
-    await unmount(rendered)
+  }
+
+  test('preserves output and cache inputs when a model also supports chat', async () => {
+    for (const endpoint of ['systemone', 'embeddings', 'jina-rerank']) {
+      const rendered = await renderModelDetails('mixed-capability-model', {
+        supported_endpoint_types: [endpoint, 'openai'],
+      })
+      const section = [...rendered.container.querySelectorAll('h3')]
+        .find((element) => element.textContent === 'Request cost estimate')
+        ?.closest('section')
+      assert.ok(section)
+      assert.deepEqual(
+        [...section.querySelectorAll('input')].map((input) => input.value),
+        ['10000', '2000', '0']
+      )
+      assert.deepEqual(
+        [...section.querySelectorAll('label')].map(
+          (label) => label.textContent
+        ),
+        ['Input Tokens', 'Output Tokens', 'Cached input tokens']
+      )
+      assert.deepEqual(
+        [...section.querySelectorAll('button')].map(
+          (button) => button.textContent
+        ),
+        ['Short chat', 'Long document', 'Code review']
+      )
+      assert.equal(
+        section.querySelector('[aria-live]')?.textContent,
+        '0.024 USD'
+      )
+      await unmount(rendered)
+    }
   })
 
   test('recalculates the request estimate when cached input tokens change', async () => {
