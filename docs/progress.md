@@ -4,6 +4,9 @@
 
 ## 当前状态
 
+- **请求能力感知路由（源码已推送，开发自测通过；2026-11-18）**：首个候选的输出上限不足时，继续按既有顺序选择满足请求的候选；不兼容且尚未发送的候选不消耗发送次数。可用备用渠道继续受既有计数、协议及报价合同约束，重试沿用同一笔预留金。代码 [1831c35b](https://github.com/TokenNotIncluded/lmm-api-source/commit/1831c35bf7c047c6af59491ce6a4ce1f06a81c08)。
+  **开发自测**：新增 3 项 PostgreSQL 回归全部通过；相关集合 49 项通过，已有 TCP 丢失确认用例在 Unix socket 环境失败，改用私有回环 TCP PostgreSQL 后专项复验 1 项通过，六项共有输入 SHA 未变。最终为 49＋1，共 50 项跨运行通过。首次回归的夹具断言错误及连接环境失败均保留在[本轮报告](reports/lmm-request-aware-routing-2026-11-18.md)与[结构化证据](reports/lmm-request-aware-routing-2026-11-18.evidence.json)。独立业务验收、发布与部署未执行。
+
 - **渠道、AI 路由、用户管理与 EPay 配置（三组件已发布，5004 已导入；2026-11-18）**：已部署应用版本为 [6fa1b905](https://github.com/TokenNotIncluded/lmm-api-source/commit/6fa1b9054c1a03898e082aacf28e228880c3004e)。GitHub [发布 run 44315659498](https://github.com/TokenNotIncluded/lmm-api-source/actions/runs/44315659498) 的 Core、Extensions、Web 全流程成功；[部署 job 134848523976](https://github.com/TokenNotIncluded/lmm-api-source/actions/runs/44315659498/job/134848523976) 于 13:52:42 UTC（21:52:42 Asia/Taipei）完成。Core `check-db` 兼容检查、三组件 health、实际 Core／Extensions 进程可执行文件与 manifest 摘要比对，以及 served HTML 与 Web 产物比对均通过。渠道草稿、故障切换、密钥轮询、目录分页、用户团队／可访问分组合同与 Pancake 独立绑定均保留。
   **上一批发布（历史阶段）**：72392577 的 [run 44305784095](https://github.com/TokenNotIncluded/lmm-api-source/actions/runs/44305784095)／[job 134813816947](https://github.com/TokenNotIncluded/lmm-api-source/actions/runs/44305784095/job/134813816947) 已成功，其运行态回执及 75c9d482 首次 Core 摘要各自保留，不作为当前 6fa1b905 的文件摘要。
   **已核验**：渠道／用户的 18 项定向 lib、1 项 vault 持久化、2 项隔离 PostgreSQL 升级测试通过。EPay 最终 16/16、Core 主程序检查 exit 0，13 个 Rust 文件及协议文件共 14 个输入 SHA 未变；Go 定向命令 4 个包均 exit 0（其中 internal/app 的筛选未命中用例），Web 6/6、tsgo／oxlint exit 0。Nginx 真实 loopback 2/2，含 14 个拒绝场景；native-only 管理 include 已上线。独立公网匿名回读：登录页 200、user-access/1 为 401、/0 为 404、Core EPay 配置为 403、Go EPay 投影为 401。

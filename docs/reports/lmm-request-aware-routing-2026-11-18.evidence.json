@@ -1,0 +1,203 @@
+{
+  "schema_version": 1,
+  "project": "LMM API",
+  "iteration": "request-aware routing",
+  "date": "2026-11-18",
+  "display_timezone": "Asia/Taipei",
+  "repository": "https://github.com/TokenNotIncluded/lmm-api-source",
+  "baseline_commit": "dab41dbb55fa85f1d8879e33d50623e70baa97ee",
+  "implementation_commit": "1831c35bf7c047c6af59491ce6a4ce1f06a81c08",
+  "verification": "development self-test",
+  "independent_business_acceptance": "not run",
+  "release": "not run",
+  "deployment": "not run",
+  "toolchain": "rustc 1.100.0 (0ef1bc386 2026-11-09)",
+  "interpretation": {
+    "verified_related_cases": 50,
+    "aggregation": "49 cases passed in the related suite; its single failing TCP-dependent case passed in a focused rerun",
+    "single_all_green_suite": false,
+    "source_commit_field": "The raw run receipts retain the baseline HEAD. Tested working-tree content is identified by inputs_before and inputs_after, and was committed as implementation_commit.",
+    "red_failures": [
+      "Retry regression reproduced RouteUnavailable in the original implementation.",
+      "Selection regression initially expected an empty fallbacks array, but serialization omits this field. The assertion was corrected."
+    ],
+    "green_failure": "The existing real lost-ack test uses a TCP proxy. Unix-socket connection options caused an Io(NotFound) connection failure.",
+    "focused_rerun": "The same test and business sources passed against a fresh private PostgreSQL instance on 127.0.0.1 using an ephemeral port and random SCRAM credentials.",
+    "equal_green_rerun_common_inputs": true
+  },
+  "new_tests": [
+    "selected_bound_request_aware_selection_precedes_attempt_limit",
+    "selected_bound_request_aware_retry_keeps_one_reservation",
+    "selected_bound_request_aware_rejects_all_incompatible_without_hold"
+  ],
+  "runs": [
+    {
+      "stage": "red",
+      "source_commit": "dab41dbb55fa85f1d8879e33d50623e70baa97ee",
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "--offline",
+        "--jobs",
+        "1",
+        "--manifest-path",
+        "services/core/Cargo.toml",
+        "--lib",
+        "--",
+        "--test-threads=1",
+        "selected_bound_request_aware"
+      ],
+      "profile": {
+        "jobs": 1,
+        "dev_debug": 0,
+        "test_debug": 0,
+        "incremental": false
+      },
+      "scope": "private Unix-socket PostgreSQL cluster; synthetic identity, routing and ledger fixtures; no external provider request",
+      "started_at": "2026-11-18T15:13:51.138652+00:00",
+      "inputs_before": {
+        "services/core/src/model_http/routing_session.rs": "2997141562404c8573ea8be0a7fbf97741e82a973124c6ce2029e6545ce6e870",
+        "services/core/src/model_http/selected_bound_tests.rs": "d2a8eb7c98629da1f9678acc78a4a0a27fa71ef54a271b0d6fac6e17defbcad1",
+        "services/core/src/routing/engine.rs": "e3bbdef221e461a77f83742ad433eb4886c31b10042153a6636ea036a6bc651d",
+        "services/core/src/model_http/provider_policy.rs": "599059fa8b59f1254f6f3854e751c9f689423b30c6878d1488dddf5254e3ae62",
+        "services/core/Cargo.toml": "af7cfa39666ca747f4429aad556a7deb49a950820706a6473b411d3e6f0ed734",
+        "services/core/Cargo.lock": "f4334263249f9d950cc54a59b19118e5ae6a304a3161344b678e075b500f378c"
+      },
+      "state": "finished",
+      "summaries": [
+        {
+          "status": "FAILED",
+          "passed": 1,
+          "failed": 2
+        }
+      ],
+      "postgres_stop_exit_code": 0,
+      "exit_code": 101,
+      "elapsed_seconds": 594.126,
+      "inputs_after": {
+        "services/core/src/model_http/routing_session.rs": "2997141562404c8573ea8be0a7fbf97741e82a973124c6ce2029e6545ce6e870",
+        "services/core/src/model_http/selected_bound_tests.rs": "d2a8eb7c98629da1f9678acc78a4a0a27fa71ef54a271b0d6fac6e17defbcad1",
+        "services/core/src/routing/engine.rs": "e3bbdef221e461a77f83742ad433eb4886c31b10042153a6636ea036a6bc651d",
+        "services/core/src/model_http/provider_policy.rs": "599059fa8b59f1254f6f3854e751c9f689423b30c6878d1488dddf5254e3ae62",
+        "services/core/Cargo.toml": "af7cfa39666ca747f4429aad556a7deb49a950820706a6473b411d3e6f0ed734",
+        "services/core/Cargo.lock": "f4334263249f9d950cc54a59b19118e5ae6a304a3161344b678e075b500f378c"
+      },
+      "finished_at": "2026-11-18T15:23:45.293116+00:00",
+      "inputs_unchanged": true
+    },
+    {
+      "stage": "green",
+      "source_commit": "dab41dbb55fa85f1d8879e33d50623e70baa97ee",
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "--offline",
+        "--jobs",
+        "1",
+        "--manifest-path",
+        "services/core/Cargo.toml",
+        "--lib",
+        "--",
+        "--test-threads=1",
+        "selected_bound_",
+        "route_failover_pg"
+      ],
+      "profile": {
+        "jobs": 1,
+        "dev_debug": 0,
+        "test_debug": 0,
+        "incremental": false
+      },
+      "scope": "private Unix-socket PostgreSQL cluster; synthetic identity, routing and ledger fixtures; no external provider request",
+      "started_at": "2026-11-18T15:27:59.783003+00:00",
+      "inputs_before": {
+        "services/core/src/model_http/routing_session.rs": "b8b8017ffea31d367546ac9f9242afad343410547037cd242a2b1f5e775233a4",
+        "services/core/src/model_http/selected_bound_tests.rs": "39c54fdd34569cfdcf54fd612e690dee42ec11248685f7a492e14194ec59a981",
+        "services/core/src/routing/engine.rs": "e3bbdef221e461a77f83742ad433eb4886c31b10042153a6636ea036a6bc651d",
+        "services/core/src/model_http/provider_policy.rs": "599059fa8b59f1254f6f3854e751c9f689423b30c6878d1488dddf5254e3ae62",
+        "services/core/Cargo.toml": "af7cfa39666ca747f4429aad556a7deb49a950820706a6473b411d3e6f0ed734",
+        "services/core/Cargo.lock": "f4334263249f9d950cc54a59b19118e5ae6a304a3161344b678e075b500f378c"
+      },
+      "state": "finished",
+      "summaries": [
+        {
+          "status": "FAILED",
+          "passed": 49,
+          "failed": 1
+        }
+      ],
+      "postgres_stop_exit_code": 0,
+      "exit_code": 101,
+      "elapsed_seconds": 567.769,
+      "inputs_after": {
+        "services/core/src/model_http/routing_session.rs": "b8b8017ffea31d367546ac9f9242afad343410547037cd242a2b1f5e775233a4",
+        "services/core/src/model_http/selected_bound_tests.rs": "39c54fdd34569cfdcf54fd612e690dee42ec11248685f7a492e14194ec59a981",
+        "services/core/src/routing/engine.rs": "e3bbdef221e461a77f83742ad433eb4886c31b10042153a6636ea036a6bc651d",
+        "services/core/src/model_http/provider_policy.rs": "599059fa8b59f1254f6f3854e751c9f689423b30c6878d1488dddf5254e3ae62",
+        "services/core/Cargo.toml": "af7cfa39666ca747f4429aad556a7deb49a950820706a6473b411d3e6f0ed734",
+        "services/core/Cargo.lock": "f4334263249f9d950cc54a59b19118e5ae6a304a3161344b678e075b500f378c"
+      },
+      "finished_at": "2026-11-18T15:37:28.888942+00:00",
+      "inputs_unchanged": true
+    },
+    {
+      "stage": "lost-ack",
+      "source_commit": "dab41dbb55fa85f1d8879e33d50623e70baa97ee",
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "--offline",
+        "--jobs",
+        "1",
+        "--manifest-path",
+        "services/core/Cargo.toml",
+        "--lib",
+        "--",
+        "--test-threads=1",
+        "prepared_contract_real_lost_ack_reserve_start_capture_preserve_one_operation"
+      ],
+      "profile": {
+        "jobs": 1,
+        "dev_debug": 0,
+        "test_debug": 0,
+        "incremental": false
+      },
+      "scope": "private loopback TCP PostgreSQL with random SCRAM credentials; real PostgreSQL COMMIT/ReadyForQuery suppression",
+      "started_at": "2026-11-18T15:40:51.464152+00:00",
+      "inputs_before": {
+        "services/core/src/model_http/routing_session.rs": "b8b8017ffea31d367546ac9f9242afad343410547037cd242a2b1f5e775233a4",
+        "services/core/src/model_http/selected_bound_tests.rs": "39c54fdd34569cfdcf54fd612e690dee42ec11248685f7a492e14194ec59a981",
+        "services/core/src/routing/engine.rs": "e3bbdef221e461a77f83742ad433eb4886c31b10042153a6636ea036a6bc651d",
+        "services/core/src/model_http/provider_policy.rs": "599059fa8b59f1254f6f3854e751c9f689423b30c6878d1488dddf5254e3ae62",
+        "services/core/Cargo.toml": "af7cfa39666ca747f4429aad556a7deb49a950820706a6473b411d3e6f0ed734",
+        "services/core/Cargo.lock": "f4334263249f9d950cc54a59b19118e5ae6a304a3161344b678e075b500f378c",
+        "services/core/src/model_http/prepared_financial_tests.rs": "664f8a66eb94286f35876ed59c0977579958d979024cfaa077df424466962440"
+      },
+      "state": "finished",
+      "summaries": [
+        {
+          "status": "ok",
+          "passed": 1,
+          "failed": 0
+        }
+      ],
+      "postgres_stop_exit_code": 0,
+      "exit_code": 0,
+      "elapsed_seconds": 10.631,
+      "inputs_after": {
+        "services/core/src/model_http/routing_session.rs": "b8b8017ffea31d367546ac9f9242afad343410547037cd242a2b1f5e775233a4",
+        "services/core/src/model_http/selected_bound_tests.rs": "39c54fdd34569cfdcf54fd612e690dee42ec11248685f7a492e14194ec59a981",
+        "services/core/src/routing/engine.rs": "e3bbdef221e461a77f83742ad433eb4886c31b10042153a6636ea036a6bc651d",
+        "services/core/src/model_http/provider_policy.rs": "599059fa8b59f1254f6f3854e751c9f689423b30c6878d1488dddf5254e3ae62",
+        "services/core/Cargo.toml": "af7cfa39666ca747f4429aad556a7deb49a950820706a6473b411d3e6f0ed734",
+        "services/core/Cargo.lock": "f4334263249f9d950cc54a59b19118e5ae6a304a3161344b678e075b500f378c",
+        "services/core/src/model_http/prepared_financial_tests.rs": "664f8a66eb94286f35876ed59c0977579958d979024cfaa077df424466962440"
+      },
+      "finished_at": "2026-11-18T15:41:02.115162+00:00",
+      "inputs_unchanged": true
+    }
+  ]
+}
