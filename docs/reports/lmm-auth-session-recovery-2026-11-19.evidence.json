@@ -1,0 +1,828 @@
+{
+  "schema_version": 1,
+  "recorded_date": "2026-11-19",
+  "timezone": "Asia/Taipei",
+  "state": "Development self-tests passed; both fixes committed to main and both Web-only deployments succeeded; the refreshed native channels page had no recovery alerts and two channel reads returned HTTP 200 after the user signed in; full independent business acceptance not run.",
+  "source": {
+    "repository": "TokenNotIncluded/lmm-api-source",
+    "branch": "main",
+    "return_target_commit": "8abbbdd141a221d781279404c154298f7acb95e6",
+    "recovery_loop_commit": "300d41c2f86acc6471dd30d0e8aeaca5fd9d6d86",
+    "return_target_change": {
+      "files": 3,
+      "insertions": 67,
+      "deletions": 17
+    },
+    "recovery_loop_change": {
+      "files": 8,
+      "insertions": 199,
+      "deletions": 13
+    },
+    "commit_delivery": "Both source commits published through the GitHub plugin and synchronized to the development workspace."
+  },
+  "observations": [
+    {
+      "id": "native-no-cookie",
+      "source": "Main task live browser observation",
+      "surface": "https://native.api.lmm.best/sign-in",
+      "visible_elements": [
+        "session recovery banner",
+        "ordinary password sign-in form"
+      ],
+      "response": {
+        "http_status": 200,
+        "classification": "no_cookie"
+      },
+      "data_scope": "Protocol classification and HTTP status only; no Cookie, token, or account data recorded.",
+      "first_interruption_trigger": "undetermined"
+    },
+    {
+      "id": "native-post-deployment-channel-read",
+      "source": "Main task live browser read-only observation after full-document refresh",
+      "surface": "https://native.api.lmm.best/channels",
+      "web_script": "index.d2eff6ef66.js",
+      "alert_count": 0,
+      "requests_observed": [
+        {
+          "path": "/api/channel/ops",
+          "http_status": 200
+        },
+        {
+          "path": "/core/v1/admin/routing/configuration",
+          "http_status": 200
+        }
+      ],
+      "login_completed_by": "user",
+      "automation_submitted_login_credentials": false,
+      "automation_wrote_channel_configuration": false,
+      "automation_actions": [
+        "full-document refresh",
+        "DOM read",
+        "read-only request observation"
+      ],
+      "evidence_scope": "The refreshed page could access channel reads and displayed no recovery alert at the observation time; this is not a login-submission or channel-write acceptance result.",
+      "data_scope": "Only the script identifier, alert count, request paths, HTTP statuses and receipt metadata are recorded; no Cookie, token or account data.",
+      "receipts": [
+        {
+          "id": "lmm-auth-loop-20261119-dom-after-refresh",
+          "path": "/home/lightjunction/.local/state/lmm-api/browser-mcp-20261118-owtg7u1i/receipts/lmm-auth-loop-20261119-dom-after-refresh.json",
+          "sha256": "3272bb5f0d7f44c2e56de270e446b3fdd6b1fbc628be030f3e10db5f7e681c4c",
+          "bytes": 1226
+        },
+        {
+          "id": "lmm-auth-loop-20261119-channel-ops",
+          "path": "/home/lightjunction/.local/state/lmm-api/browser-mcp-20261118-owtg7u1i/receipts/lmm-auth-loop-20261119-channel-ops.json",
+          "sha256": "0b1bfc48bc0f093c21d6cc28cf68bd9b8b7886284090005a3f62fbf735d3b358",
+          "bytes": 390
+        },
+        {
+          "id": "lmm-auth-loop-20261119-native-channel-requests",
+          "path": "/home/lightjunction/.local/state/lmm-api/browser-mcp-20261118-owtg7u1i/receipts/lmm-auth-loop-20261119-native-channel-requests.json",
+          "sha256": "2017a5c28a201cd98d7c8f2489c040a19269e33e9c509b4bd2b0d706868cffc1",
+          "bytes": 697
+        }
+      ]
+    }
+  ],
+  "claim_evidence_map": [
+    {
+      "claim": "A blocked password submission previously superseded recovery intent before the Cookie lock rejected it.",
+      "evidence": [
+        "password-preflight-red",
+        "cookie-api-green",
+        "source:apps/web/src/features/auth/api.ts"
+      ],
+      "status": "supported"
+    },
+    {
+      "claim": "Recovery preserves the destination through document handoff, success, renewal and sign-in restart, including query values and hash.",
+      "evidence": [
+        "browser-v2",
+        "browser-loop-v2",
+        "source:apps/web/src/lib/auth-cookie-reconciliation.ts",
+        "source:apps/web/src/components/auth-cookie-recovery.tsx"
+      ],
+      "status": "supported_in_synthetic_browser_tests"
+    },
+    {
+      "claim": "An invalid recovery handoff can rebuild through a fresh document instead of repeating the same failed restart.",
+      "evidence": [
+        "browser-loop-v2",
+        "source:apps/web/src/components/auth-cookie-recovery.tsx"
+      ],
+      "status": "supported_in_synthetic_browser_tests"
+    },
+    {
+      "claim": "A peer-cleared shared marker permits explicit document replacement only when idle; the old realm remains fenced.",
+      "evidence": [
+        "browser-loop-v2",
+        "source:apps/web/src/lib/auth-cookie.ts"
+      ],
+      "status": "supported_in_synthetic_browser_tests"
+    },
+    {
+      "claim": "The first native login interruption trigger has been identified.",
+      "evidence": [
+        "native-no-cookie"
+      ],
+      "status": "not_supported_do_not_claim"
+    },
+    {
+      "claim": "After the user independently signed in, the refreshed native channels page loaded the new Web script, had no recovery alerts, and both specified channel reads returned HTTP 200.",
+      "evidence": [
+        "lmm-auth-loop-20261119-dom-after-refresh",
+        "lmm-auth-loop-20261119-channel-ops",
+        "lmm-auth-loop-20261119-native-channel-requests"
+      ],
+      "status": "supported_by_scoped_live_read_only_observation"
+    }
+  ],
+  "delivery": {
+    "first": {
+      "commit": "8abbbdd141a221d781279404c154298f7acb95e6",
+      "components": [
+        "web"
+      ],
+      "target": "arch-shadow",
+      "run_id": 44340342536,
+      "run_url": "https://github.com/TokenNotIncluded/lmm-api-source/actions/runs/44340342536",
+      "run_status": "completed",
+      "conclusion": "success",
+      "run_started_at": "2026-11-18T15:50:57Z",
+      "deploy_job_id": 134932889337,
+      "deploy_completed_at": "2026-11-18T15:59:23Z",
+      "workflow_updated_at": "2026-11-18T15:59:26Z",
+      "run_metadata_source": "GitHub plugin GET actions/runs/44340342536",
+      "deploy_log_evidence": {
+        "source": "Main task read deploy job 134932889337 log",
+        "served_html_matches": true,
+        "health_passed": true,
+        "ansible_host": "arch-shadow",
+        "recap": {
+          "ok": 28,
+          "changed": 7,
+          "failed": 0
+        }
+      }
+    },
+    "second": {
+      "commit": "300d41c2f86acc6471dd30d0e8aeaca5fd9d6d86",
+      "components": [
+        "web"
+      ],
+      "target": "arch-shadow",
+      "run_id": 44343809950,
+      "run_url": "https://github.com/TokenNotIncluded/lmm-api-source/actions/runs/44343809950",
+      "state": "deployed",
+      "conclusion": "success",
+      "run_status": "completed",
+      "run_started_at": "2026-11-18T16:08:57Z",
+      "deploy_job_id": 134942165546,
+      "deploy_completed_at": "2026-11-18T16:12:53Z",
+      "workflow_updated_at": "2026-11-18T16:12:56Z",
+      "run_metadata_source": "GitHub plugin GET actions/runs/44343809950",
+      "deploy_log_evidence": {
+        "source": "Main task read deploy job 134942165546 log",
+        "served_html_matches": true,
+        "health_passed": true,
+        "ansible_host": "arch-shadow",
+        "recap": {
+          "ok": 28,
+          "changed": 7,
+          "unreachable": 0,
+          "failed": 0,
+          "rescued": 0,
+          "ignored": 0
+        }
+      }
+    }
+  },
+  "limits": [
+    "Only the repeated recovery dead ends are source- and regression-supported; the earliest interruption trigger remains undetermined.",
+    "Chromium cases use the actual project code with a local synthetic service and isolated browser contexts.",
+    "Local recovery is not claimed to complete server logout.",
+    "Independent administrator business acceptance, channel business acceptance and financial acceptance were not run.",
+    "Raw developer logs and the temporary browser result are referenced by path and SHA-256; request bodies are not copied.",
+    "The user signed in independently. The automation only refreshed and read the existing signed-in page; it did not submit credentials or write channel configuration.",
+    "Post-deployment evidence establishes the observed page state and successful channel reads, not full login-submission, channel-write or financial workflow acceptance."
+  ],
+  "documentation_validation": {
+    "status": "passed",
+    "command": [
+      "python3",
+      "-B",
+      "scripts/check-docs-brand.py",
+      "--docs-only"
+    ],
+    "exit_code": 0,
+    "duration_seconds": 0.301,
+    "executed_by": "main_task",
+    "log": "scratch/auth-recovery-return-20261118/docs-auth-v1.log",
+    "log_sha256": "79a2c71edcde0c2802d19a027ec7d33da5a840991676f4c346ed7296f52f306e",
+    "scope": "Maintained document paths, skill metadata and README badges; report text and JSON separately read back."
+  },
+  "writing_sources": {
+    "research_skill": "https://github.com/Master-cai/Research-Paper-Writing-Skills/blob/77e7c2c1ba06f7d71844873147665437a03aac1b/research-paper-writing/SKILL.md",
+    "guides_read": [
+      "research-paper-writing/references/experiments.md",
+      "research-paper-writing/references/paper-review.md"
+    ],
+    "project_skill": ".agents/skills/docs-maintenance/SKILL.md",
+    "application": "Paragraph-level claim clarity, evidence mapping, preserved failures and explicit evaluation limits; no additional implementation review or test run."
+  },
+  "writing_self_check": [
+    {
+      "dimension": "contribution",
+      "answer": "The scope is destination retention and reproducible recovery dead ends; no general completion claim."
+    },
+    {
+      "dimension": "clarity",
+      "answer": "Local fence, document handoff, server proof and deployment are distinguished."
+    },
+    {
+      "dimension": "experimental_strength",
+      "answer": "Real Chromium synthetic-service tests, a reproduced failing API test and passing regressions are separately recorded."
+    },
+    {
+      "dimension": "evaluation_completeness",
+      "answer": "Both Web deployments and the scoped post-deployment channel reads are confirmed. Login submission, channel writes and full independent administrator or financial acceptance were not performed."
+    },
+    {
+      "dimension": "design_soundness",
+      "answer": "Old-realm fencing, pending-writer exclusion and server proof requirements remain in scope and covered by the existing recovery tests."
+    }
+  ],
+  "checks": [
+    {
+      "id": "browser-v2",
+      "phase": "return_target",
+      "command": [
+        "env",
+        "PLAYWRIGHT_MODULE=/home/lightjunction/.local/state/lmm-api/browser-mcp-20261118-owtg7u1i/node_modules/playwright/index.mjs",
+        "PLAYWRIGHT_CHROME_EXECUTABLE=/opt/google/chrome/chrome",
+        "/usr/bin/mise",
+        "exec",
+        "--",
+        "node",
+        "scripts/auth-cookie-reconciliation-browser.mjs"
+      ],
+      "cwd": "/home/lightjunction/Documents/GITHUB/lmm-api/.lmm-console-review/apps/web",
+      "exit_code": 0,
+      "duration_seconds": 28.11,
+      "duration_basis": "recorded subprocess wall time",
+      "metadata": {
+        "path": "scratch/auth-recovery-return-20261118/browser-v2.json",
+        "sha256": "aba2e63f3bdd8428f85e41b32179be00272fec980fa69983c56696b572c41e80",
+        "bytes": 620
+      },
+      "log": {
+        "path": "/home/lightjunction/Documents/GITHUB/lmm-api/.lmm-console-review/scratch/auth-recovery-return-20261118/browser-v2.log",
+        "sha256": "9a6567fd44f387991c6eb92e2c93939dd8c9416af4a4a7ff680bb3b58a5a10b5",
+        "bytes": 1975
+      },
+      "cases_passed": 16
+    },
+    {
+      "id": "typecheck-v1",
+      "phase": "return_target",
+      "command": [
+        "/usr/bin/mise",
+        "exec",
+        "--",
+        "bun",
+        "run",
+        "typecheck:web"
+      ],
+      "cwd": "/home/lightjunction/Documents/GITHUB/lmm-api/.lmm-console-review",
+      "exit_code": 0,
+      "duration_seconds": 29.056,
+      "duration_basis": "recorded subprocess wall time",
+      "metadata": {
+        "path": "scratch/auth-recovery-return-20261118/typecheck-v1.json",
+        "sha256": "3226aa31354a8d030c2ff3d00ba398bb3a29a75ede777aefe7ea42bd253c6d5a",
+        "bytes": 390
+      },
+      "log": {
+        "path": "/home/lightjunction/Documents/GITHUB/lmm-api/.lmm-console-review/scratch/auth-recovery-return-20261118/typecheck-v1.log",
+        "sha256": "dd68f3f0e7409d0f24e33480296822e9e7455445b59845680b0468b50fa2d549",
+        "bytes": 77
+      }
+    },
+    {
+      "id": "local-recovery-v1",
+      "phase": "return_target",
+      "command": [
+        "/usr/bin/mise",
+        "exec",
+        "--",
+        "bun",
+        "test",
+        "--preload",
+        "./scripts/test-preload.mjs",
+        "--timeout",
+        "15000",
+        "src/components/auth-cookie-recovery-local.test.tsx"
+      ],
+      "cwd": "/home/lightjunction/Documents/GITHUB/lmm-api/.lmm-console-review/apps/web",
+      "exit_code": 0,
+      "duration_seconds": 4.878,
+      "duration_basis": "recorded subprocess wall time",
+      "metadata": {
+        "path": "scratch/auth-recovery-return-20261118/local-recovery-v1.json",
+        "sha256": "2a93d0f029a601de2ef19adcf156ce273238e0b64a6cb13b915163aa6220fe46",
+        "bytes": 527
+      },
+      "log": {
+        "path": "/home/lightjunction/Documents/GITHUB/lmm-api/.lmm-console-review/scratch/auth-recovery-return-20261118/local-recovery-v1.log",
+        "sha256": "67bb94c04ebb62acec96da47c692c8388d8ea3237b07629fedc2cab35dccc6ed",
+        "bytes": 366
+      },
+      "cases_passed": 2
+    },
+    {
+      "id": "lint-v2",
+      "phase": "return_target",
+      "command": [
+        "./node_modules/.bin/oxlint",
+        "-c",
+        ".oxlintrc.json",
+        "src/lib/auth-cookie-reconciliation.ts",
+        "src/components/auth-cookie-recovery.tsx",
+        "scripts/auth-cookie-reconciliation-browser.mjs"
+      ],
+      "cwd": "/home/lightjunction/Documents/GITHUB/lmm-api/.lmm-console-review/apps/web",
+      "exit_code": 0,
+      "duration_seconds": 0.383,
+      "duration_basis": "recorded subprocess wall time",
+      "metadata": {
+        "path": "scratch/auth-recovery-return-20261118/lint-v2.json",
+        "sha256": "25c8fa13776aab9534e69ede1ab4fb9b6bc6d3418bd7ad00fddb5db647de754d",
+        "bytes": 514
+      },
+      "log": {
+        "path": "/home/lightjunction/Documents/GITHUB/lmm-api/.lmm-console-review/scratch/auth-recovery-return-20261118/lint-v2.log",
+        "sha256": "6d555c7073afaeb74a18d95c417c9db36ef3c6924dc8bce869035d15ed08949a",
+        "bytes": 93
+      },
+      "warnings": 0,
+      "errors": 0
+    },
+    {
+      "id": "browser-loop-v2",
+      "phase": "recovery_loop",
+      "command": [
+        "env",
+        "PLAYWRIGHT_MODULE=/home/lightjunction/.local/state/lmm-api/browser-mcp-20261118-owtg7u1i/node_modules/playwright/index.mjs",
+        "PLAYWRIGHT_CHROME_EXECUTABLE=/opt/google/chrome/chrome",
+        "/usr/bin/mise",
+        "exec",
+        "--",
+        "node",
+        "scripts/auth-cookie-reconciliation-browser.mjs"
+      ],
+      "cwd": "/home/lightjunction/Documents/GITHUB/lmm-api/.lmm-console-review/apps/web",
+      "exit_code": 0,
+      "duration_seconds": 32.247,
+      "duration_basis": "recorded subprocess wall time",
+      "metadata": {
+        "path": "scratch/auth-recovery-return-20261118/browser-loop-v2.json",
+        "sha256": "3fb7b4dcb573c30989d2777d46fd0951ec718e311ebd000053af68143730f8e9",
+        "bytes": 631
+      },
+      "log": {
+        "path": "/home/lightjunction/Documents/GITHUB/lmm-api/.lmm-console-review/scratch/auth-recovery-return-20261118/browser-loop-v2.log",
+        "sha256": "3343ce3015f450c88b61bd14d47439d62ae6b170ca6114c4b5514298cf71f2ce",
+        "bytes": 2292
+      },
+      "cases_passed": 18
+    },
+    {
+      "id": "typecheck-loop-v1",
+      "phase": "recovery_loop",
+      "command": [
+        "/usr/bin/mise",
+        "exec",
+        "--",
+        "bun",
+        "run",
+        "typecheck:web"
+      ],
+      "cwd": "/home/lightjunction/Documents/GITHUB/lmm-api/.lmm-console-review",
+      "exit_code": 0,
+      "duration_seconds": 14.256,
+      "duration_basis": "recorded subprocess wall time",
+      "metadata": {
+        "path": "scratch/auth-recovery-return-20261118/typecheck-loop-v1.json",
+        "sha256": "f481bc7119a3f4d7834e77cb26963260cfaa36a6acef059e381f98dd96d9d56c",
+        "bytes": 400
+      },
+      "log": {
+        "path": "/home/lightjunction/Documents/GITHUB/lmm-api/.lmm-console-review/scratch/auth-recovery-return-20261118/typecheck-loop-v1.log",
+        "sha256": "dd68f3f0e7409d0f24e33480296822e9e7455445b59845680b0468b50fa2d549",
+        "bytes": 77
+      }
+    },
+    {
+      "id": "local-recovery-loop-v1",
+      "phase": "recovery_loop",
+      "command": [
+        "/usr/bin/mise",
+        "exec",
+        "--",
+        "bun",
+        "test",
+        "--preload",
+        "./scripts/test-preload.mjs",
+        "--timeout",
+        "15000",
+        "src/components/auth-cookie-recovery-local.test.tsx"
+      ],
+      "cwd": "/home/lightjunction/Documents/GITHUB/lmm-api/.lmm-console-review/apps/web",
+      "exit_code": 0,
+      "duration_seconds": 0.674,
+      "duration_basis": "recorded subprocess wall time",
+      "metadata": {
+        "path": "scratch/auth-recovery-return-20261118/local-recovery-loop-v1.json",
+        "sha256": "2a796f61201dede9b511a7f33e00a279154e7b42f1dea06ebb4b905f10d00618",
+        "bytes": 537
+      },
+      "log": {
+        "path": "/home/lightjunction/Documents/GITHUB/lmm-api/.lmm-console-review/scratch/auth-recovery-return-20261118/local-recovery-loop-v1.log",
+        "sha256": "7dace9c07c71cd0e2db3a705588d40f1b1474a9a24ad4687688c995e3be0df34",
+        "bytes": 368
+      },
+      "cases_passed": 2
+    },
+    {
+      "id": "local-authority-loop-v1",
+      "phase": "recovery_loop",
+      "command": [
+        "/usr/bin/mise",
+        "exec",
+        "--",
+        "bun",
+        "test",
+        "--preload",
+        "./scripts/test-preload.mjs",
+        "--timeout",
+        "15000",
+        "src/lib/auth-local-recovery.test.ts"
+      ],
+      "cwd": "/home/lightjunction/Documents/GITHUB/lmm-api/.lmm-console-review/apps/web",
+      "exit_code": 0,
+      "duration_seconds": 10.417,
+      "duration_basis": "recorded subprocess wall time",
+      "metadata": {
+        "path": "scratch/auth-recovery-return-20261118/local-authority-loop-v1.json",
+        "sha256": "44522e13a525eae3fa783aba2dda6fc58456dcf35964147770a6627dff79c3dd",
+        "bytes": 525
+      },
+      "log": {
+        "path": "/home/lightjunction/Documents/GITHUB/lmm-api/.lmm-console-review/scratch/auth-recovery-return-20261118/local-authority-loop-v1.log",
+        "sha256": "ad7ef5e5d06f0ea20b16c46f2cdeae1576106b6e72fbdeddd3852ba016545af7",
+        "bytes": 730
+      },
+      "cases_passed": 6
+    },
+    {
+      "id": "recovery-lint-v4",
+      "phase": "recovery_loop",
+      "command": [
+        "./node_modules/.bin/oxlint",
+        "-c",
+        ".oxlintrc.json",
+        "src/lib/auth-cookie.ts",
+        "src/lib/auth-cookie-reconciliation.ts",
+        "src/components/auth-cookie-recovery.tsx",
+        "scripts/auth-cookie-reconciliation-browser.mjs"
+      ],
+      "cwd": "/home/lightjunction/Documents/GITHUB/lmm-api/.lmm-console-review/apps/web",
+      "exit_code": 0,
+      "duration_seconds": 0.256,
+      "duration_basis": "recorded subprocess wall time",
+      "metadata": {
+        "path": "scratch/auth-recovery-return-20261118/recovery-lint-v4.json",
+        "sha256": "4926113f89ec870c0acc3772eb4773f5900f06fb160dcb204c616c15030730c8",
+        "bytes": 562
+      },
+      "log": {
+        "path": "/home/lightjunction/Documents/GITHUB/lmm-api/.lmm-console-review/scratch/auth-recovery-return-20261118/recovery-lint-v4.log",
+        "sha256": "1878c41b61fec6391977c82d06da86e3b8edbf3af5580e3c1c8908c35bb25bbd",
+        "bytes": 93
+      },
+      "warnings": 0,
+      "errors": 0
+    },
+    {
+      "id": "cookie-api-green",
+      "phase": "recovery_loop",
+      "command": [
+        "mise",
+        "exec",
+        "--",
+        "bun",
+        "test",
+        "--preload",
+        "./scripts/test-preload.mjs",
+        "--timeout",
+        "15000",
+        "src/lib/auth-cookie.test.ts"
+      ],
+      "cwd": "/home/lightjunction/Documents/GITHUB/lmm-api/.lmm-console-review/apps/web",
+      "exit_code": 0,
+      "cases_passed": 8,
+      "cases_failed": 0,
+      "duration_seconds": 0.314,
+      "duration_basis": "Bun test total from retained log",
+      "log": {
+        "path": "scratch/login-fence-selftest/auth-cookie-green.log",
+        "sha256": "a4b7003ceb87561a39daa15ccf281ff5bdaaee8055f3582dfc2d4d99744626a4",
+        "bytes": 855
+      }
+    },
+    {
+      "id": "sign-in-form-green",
+      "phase": "recovery_loop",
+      "command": [
+        "mise",
+        "exec",
+        "--",
+        "bun",
+        "test",
+        "--preload",
+        "./scripts/test-preload.mjs",
+        "--timeout",
+        "15000",
+        "src/features/auth/sign-in/components/user-auth-form.test.tsx"
+      ],
+      "cwd": "/home/lightjunction/Documents/GITHUB/lmm-api/.lmm-console-review/apps/web",
+      "exit_code": 0,
+      "cases_passed": 48,
+      "cases_failed": 0,
+      "duration_seconds": 12.9,
+      "duration_basis": "Bun test total from retained log",
+      "log": {
+        "path": "scratch/login-fence-selftest/user-auth-form-green.log",
+        "sha256": "d098d79074866aa0b1540642dd2e7b03f0504355cbc26fa725c43586c9685bf1",
+        "bytes": 4738
+      }
+    },
+    {
+      "id": "login-fence-scoped-lint",
+      "phase": "recovery_loop",
+      "exit_code": 0,
+      "warnings": 0,
+      "errors": 0,
+      "duration_seconds": 0.355,
+      "duration_basis": "oxlint reported duration",
+      "command": [
+        "mise",
+        "exec",
+        "--",
+        "bun",
+        "run",
+        "oxlint",
+        "-c",
+        ".oxlintrc.json",
+        "src/features/auth/api.ts",
+        "src/features/auth/sign-in/components/user-auth-form.tsx",
+        "src/lib/auth-cookie.test.ts",
+        "src/features/auth/sign-in/components/user-auth-form.test.tsx"
+      ],
+      "cwd": "/home/lightjunction/Documents/GITHUB/lmm-api/.lmm-console-review/apps/web",
+      "evidence_source": "Observed original implementation tool output; no separate log file was created."
+    },
+    {
+      "id": "login-fence-scoped-format-and-diff",
+      "phase": "recovery_loop",
+      "exit_code": 0,
+      "files": [
+        "apps/web/src/features/auth/api.ts",
+        "apps/web/src/features/auth/sign-in/components/user-auth-form.tsx",
+        "apps/web/src/lib/auth-cookie.test.ts",
+        "apps/web/src/features/auth/sign-in/components/user-auth-form.test.tsx"
+      ],
+      "format_command": [
+        "mise",
+        "exec",
+        "--",
+        "bun",
+        "run",
+        "oxfmt",
+        "-c",
+        ".oxfmtrc.json",
+        "--write",
+        "src/features/auth/api.ts",
+        "src/features/auth/sign-in/components/user-auth-form.tsx",
+        "src/lib/auth-cookie.test.ts",
+        "src/features/auth/sign-in/components/user-auth-form.test.tsx"
+      ],
+      "copyright_headers": "Existing QuantumNous headers saved and removed before formatting only these files, then restored byte for byte.",
+      "diff_command": [
+        "git",
+        "diff",
+        "--check",
+        "--",
+        "apps/web/src/features/auth/api.ts",
+        "apps/web/src/features/auth/sign-in/components/user-auth-form.tsx",
+        "apps/web/src/lib/auth-cookie.test.ts",
+        "apps/web/src/features/auth/sign-in/components/user-auth-form.test.tsx"
+      ],
+      "evidence_source": "Observed original implementation tool output; not rerun for documentation."
+    }
+  ],
+  "preserved_attempts": [
+    {
+      "id": "browser-v1",
+      "phase": "recovery_loop",
+      "command": [
+        "env",
+        "PLAYWRIGHT_MODULE=/home/lightjunction/.local/state/lmm-api/browser-mcp-20261118-owtg7u1i/node_modules/playwright/index.mjs",
+        "PLAYWRIGHT_CHROME_EXECUTABLE=/opt/google/chrome/chrome",
+        "/usr/bin/mise",
+        "exec",
+        "--",
+        "node",
+        "scripts/auth-cookie-reconciliation-browser.mjs"
+      ],
+      "cwd": "/home/lightjunction/Documents/GITHUB/lmm-api/.lmm-console-review/apps/web",
+      "exit_code": 1,
+      "duration_seconds": 17.79,
+      "duration_basis": "recorded subprocess wall time",
+      "metadata": {
+        "path": "scratch/auth-recovery-return-20261118/browser-v1.json",
+        "sha256": "96d4e6b8f55b8775b2397c733aca5576dca7f30623b540081ff0fa72dcb7557e",
+        "bytes": 620
+      },
+      "log": {
+        "path": "/home/lightjunction/Documents/GITHUB/lmm-api/.lmm-console-review/scratch/auth-recovery-return-20261118/browser-v1.log",
+        "sha256": "154f134625fb9490019a58b4f349f275ce1d1099737b3ac45eb2b4d1cbc4ca12",
+        "bytes": 540
+      },
+      "classification": "test_expectation_mismatch",
+      "reason": "Exact URL matcher expected the original repeated-query encoding; TanStack canonicalized values into its JSON-array search encoding.",
+      "resolution": "A fixed expected canonical URL preserves both tag values and hash; raw document-handoff URL assertion retained. browser-v2 passed."
+    },
+    {
+      "id": "browser-loop-v1",
+      "phase": "recovery_loop",
+      "command": [
+        "env",
+        "PLAYWRIGHT_MODULE=/home/lightjunction/.local/state/lmm-api/browser-mcp-20261118-owtg7u1i/node_modules/playwright/index.mjs",
+        "PLAYWRIGHT_CHROME_EXECUTABLE=/opt/google/chrome/chrome",
+        "/usr/bin/mise",
+        "exec",
+        "--",
+        "node",
+        "scripts/auth-cookie-reconciliation-browser.mjs"
+      ],
+      "cwd": "/home/lightjunction/Documents/GITHUB/lmm-api/.lmm-console-review/apps/web",
+      "exit_code": 1,
+      "duration_seconds": 4.786,
+      "duration_basis": "recorded subprocess wall time",
+      "metadata": {
+        "path": "scratch/auth-recovery-return-20261118/browser-loop-v1.json",
+        "sha256": "023c04324a5323a11832a9f53df3a240716c5cb1ef6fb85c63cd311e97b7ec1a",
+        "bytes": 630
+      },
+      "log": {
+        "path": "/home/lightjunction/Documents/GITHUB/lmm-api/.lmm-console-review/scratch/auth-recovery-return-20261118/browser-loop-v1.log",
+        "sha256": "ab2d57f2dd77a951dc16872e46bca4b7f684d3fc048147ca9a5d680d5685075e",
+        "bytes": 455
+      },
+      "classification": "test_fixture_ordering",
+      "reason": "The fixture checked the old in-memory synthetic identity after owner.reload() had replaced that document.",
+      "resolution": "Moved the existing identity assertion before reload; did not remove it. browser-loop-v2 passed."
+    },
+    {
+      "id": "password-preflight-red",
+      "phase": "recovery_loop",
+      "exit_code": 1,
+      "cases_failed": 1,
+      "classification": "reproduced_product_defect",
+      "reason": "Blocked password login altered the login-intent version before its Cookie-lock rejection.",
+      "resolution": "Synchronous blocked-state preflight precedes invalidation; passing regression verifies unchanged intent and no additional HTTP request.",
+      "command": [
+        "mise",
+        "exec",
+        "--",
+        "bun",
+        "test",
+        "--preload",
+        "./scripts/test-preload.mjs",
+        "--timeout",
+        "15000",
+        "--test-name-pattern",
+        "transport timeout keeps",
+        "src/lib/auth-cookie.test.ts"
+      ],
+      "cwd": "/home/lightjunction/Documents/GITHUB/lmm-api/.lmm-console-review/apps/web",
+      "log": {
+        "path": "scratch/login-fence-selftest/password-preflight-red.log",
+        "sha256": "8a61bcac5999529606582006a3a2e619b228fdff374fb635fbf9f73f7cf6250f",
+        "bytes": 982
+      }
+    }
+  ],
+  "browser": {
+    "synthetic_server": true,
+    "isolated_browser_contexts": true,
+    "engine": "Chromium",
+    "result": {
+      "path": "/tmp/lmm-auth-reconciliation-kEjOtL/result.json",
+      "sha256": "45080465fc872e49f658a012432776992f3c75dd0c08ae47c739d3abf09df7e0",
+      "bytes": 14979
+    },
+    "case_count": 18,
+    "cases": [
+      "explicit full-document handoff keeps original uncertain marker",
+      "all non-current classifications preserve guard",
+      "401,503 and invalid protocol never confirm",
+      "malformed, expired, mismatched SID and noncurrent bundle never confirm",
+      "cancelled read-only proof preserves the original marker",
+      "current server proof commits existing bundle; stale unobserved login/passkey generation rejected; observed old realm stays blocked",
+      "a peer-confirmed session keeps the old realm blocked until explicit recovery replaces the document, without changing the peer account or sending a Cookie writer",
+      "late server Set-Cookie after native XHR abort and document replacement cannot overwrite current cookie",
+      "pending writer cannot be reconciled before handoff timeout",
+      "unmount during a manual retry cancels the active proof; a late current reply cannot unlock or apply credentials",
+      "actual StrictMode recovery button with no cached SID omits optional header, performs document handoff and restores the cookie current account, then returns to the original complete channel URL",
+      "expired previous session offers a public-home exit and explicit full-document reauthentication without replaying refresh or repeating the recovery dead end",
+      "a superseded recovery intent restarts in a fresh document and reads a new no-cookie proof without clearing the shared fence or replaying authentication",
+      "crashed pending guest bootstrap becomes recoverable uncertainty; real document handoff reads no-cookie proof, explicit sign-in restart preserves the complete destination and clears the fence without issuing credentials or replaying refresh",
+      "expired access requires an explicit renewal click: read-only expired proof, one real XHR Set-Cookie, matching current proof, then commit and return to the complete destination",
+      "a completed refresh and Set-Cookie cannot unlock without a matching terminal current proof",
+      "cancelled in-flight renewal retains its lock until native completion, keeps the exact old marker and applies no authority",
+      "real 10s renewal timeout natively aborts; late Set-Cookie cannot overwrite; read-only previous classification prevents refresh replay"
+    ],
+    "synthetic_test_bundle_sha256": "5dd797d42e8dab3ffe13f9f6a8017d82499f8a738afac59344aee7aa696796c5",
+    "source_sha256": {
+      "src/lib/auth-cookie.ts": "e6664fe79843faf35c6f71d0b42cbe4751fbe5f3ca2f101abc54769f51e635d5",
+      "src/lib/auth-cookie-reconciliation.ts": "567393dbf724f736a44bb628b680dd4db5b98964d95d1df56417a43f3a84cb97",
+      "src/lib/auth-session.ts": "04e3efd07a2ca57d89689ea68f6ac629f34f7365617e074dc9d050b1840c608a",
+      "src/components/auth-cookie-recovery.tsx": "19233d4cb876176b69e9c05d2bb69841f62ff5b9641a252a7b2b519bbd634685",
+      "scripts/auth-cookie-reconciliation-browser.mjs": "3c78e7b3c8a40799ea996f2a35f0a78eda4d1d15e59fbf958b638903c734765a"
+    },
+    "source_matches_published_commit": true
+  },
+  "source_file_git_objects": [
+    {
+      "path": "apps/web/src/lib/auth-cookie.ts",
+      "commit": "300d41c2f86acc6471dd30d0e8aeaca5fd9d6d86",
+      "git_blob": "5222ae2b03d38fc3387fb9185ad6d73774972057",
+      "sha256": "e6664fe79843faf35c6f71d0b42cbe4751fbe5f3ca2f101abc54769f51e635d5",
+      "browser_source_matches": true
+    },
+    {
+      "path": "apps/web/src/lib/auth-cookie-reconciliation.ts",
+      "commit": "300d41c2f86acc6471dd30d0e8aeaca5fd9d6d86",
+      "git_blob": "0293a78bbee89ed4e2dffb2afd0d28db89103949",
+      "sha256": "567393dbf724f736a44bb628b680dd4db5b98964d95d1df56417a43f3a84cb97",
+      "browser_source_matches": true
+    },
+    {
+      "path": "apps/web/src/lib/auth-session.ts",
+      "commit": "300d41c2f86acc6471dd30d0e8aeaca5fd9d6d86",
+      "git_blob": "3cda95987a64f664a492b98424415984b7b81f58",
+      "sha256": "04e3efd07a2ca57d89689ea68f6ac629f34f7365617e074dc9d050b1840c608a",
+      "browser_source_matches": true
+    },
+    {
+      "path": "apps/web/src/components/auth-cookie-recovery.tsx",
+      "commit": "300d41c2f86acc6471dd30d0e8aeaca5fd9d6d86",
+      "git_blob": "602804f988d56357486f47753acf831dfa6dffaa",
+      "sha256": "19233d4cb876176b69e9c05d2bb69841f62ff5b9641a252a7b2b519bbd634685",
+      "browser_source_matches": true
+    },
+    {
+      "path": "apps/web/scripts/auth-cookie-reconciliation-browser.mjs",
+      "commit": "300d41c2f86acc6471dd30d0e8aeaca5fd9d6d86",
+      "git_blob": "b133e8fb21b44cf8d16661a277aede40a8e7fdf4",
+      "sha256": "3c78e7b3c8a40799ea996f2a35f0a78eda4d1d15e59fbf958b638903c734765a",
+      "browser_source_matches": true
+    },
+    {
+      "path": "apps/web/src/features/auth/api.ts",
+      "commit": "300d41c2f86acc6471dd30d0e8aeaca5fd9d6d86",
+      "git_blob": "4a06d23845674cd51f1b24e53c452834c1392d75",
+      "sha256": "d67dcc927d8a6ee9ae419ac7ca7810b0f29a07d1b3824bcd7455186aae47afd2"
+    },
+    {
+      "path": "apps/web/src/features/auth/sign-in/components/user-auth-form.tsx",
+      "commit": "300d41c2f86acc6471dd30d0e8aeaca5fd9d6d86",
+      "git_blob": "05a8f1a3d514a6b2b08e8b180bf765a5a32664c6",
+      "sha256": "56b59ad71d44cfbd5c60ddb72bbeee568b1bc3235c7fc3b2c868dea0122b2969"
+    },
+    {
+      "path": "apps/web/src/lib/auth-cookie.test.ts",
+      "commit": "300d41c2f86acc6471dd30d0e8aeaca5fd9d6d86",
+      "git_blob": "e363128968f64d84eef3f9591135a2a7e6ed465c",
+      "sha256": "b0365179078e3ea62fcf06008b8fcb08e73ded24473c10c2c0ad0e4afe5c0082"
+    },
+    {
+      "path": "apps/web/src/features/auth/sign-in/components/user-auth-form.test.tsx",
+      "commit": "300d41c2f86acc6471dd30d0e8aeaca5fd9d6d86",
+      "git_blob": "a30a058eaafa112fab9f541ea14957f8ca76af4a",
+      "sha256": "4c528e86776837373ea0d0f8854b8acffd26b88026c0dd78798ec105088a2925"
+    }
+  ]
+}
