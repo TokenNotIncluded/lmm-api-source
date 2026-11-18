@@ -4,6 +4,11 @@
 
 ## 当前状态
 
+- **渠道、AI 路由、用户管理与 EPay 配置（三组件已发布，5004 已导入；2026-11-18）**：已部署应用版本为 [72392577](https://github.com/TokenNotIncluded/lmm-api-source/commit/723925770caae52cc33a331bbfe2d758729fdc28)，GitHub [发布 run 44305784095](https://github.com/TokenNotIncluded/lmm-api-source/actions/runs/44305784095) 的 Core、Extensions、Web 全流程成功。部署 job 134813816947 已核对实际运行文件摘要与 served HTML；后续文档与一次性运维提交不改变该应用版本。渠道草稿、故障切换、密钥轮询、目录分页、用户团队／可访问分组合同与 Pancake 独立绑定均保留。
+  **已核验**：渠道／用户的 18 项定向 lib、1 项 vault 持久化、2 项隔离 PostgreSQL 升级测试通过。EPay 最终 16/16、Core 主程序检查 exit 0，13 个 Rust 文件及协议文件共 14 个输入 SHA 未变；Go 定向命令 4 个包均 exit 0（其中 internal/app 的筛选未命中用例），Web 6/6、tsgo／oxlint exit 0。Nginx 真实 loopback 2/2，含 14 个拒绝场景；native-only 管理 include 已上线。独立公网匿名回读：登录页 200、user-access/1 为 401、/0 为 404、Core EPay 配置为 403、Go EPay 投影为 401。
+  **5004 实际导入**：固定运维代码 [42c0e49b](https://github.com/TokenNotIncluded/lmm-api-source/commit/42c0e49be8305920051ce37021226e273c41bd35) 的 stage、prepare、activate 三阶段均成功；最终安全回执为 `activated`、`recovery_required=false`、`helper_exit_code=0`、`release_verified=true`。Core 已切换到私有持久 base，Core／Extensions 就绪检查通过。5004 保持禁用；已有资金开关、Pancake 配置及 Go 5002 原有 `subscription_enabled=true` 均保留。[完整阶段回执](reports/native-channel-routing-20261118.md#epay-5004-实际导入回执)记录实际路径、权限、plan 摘要和运行链接；一次性入口随收尾撤下，固定 Git 历史与安全回执保留。
+  **剩余事项**：native 数据库已完成 74→75→76 升级，服务器备份及数据库备份的隔离恢复校验完成；开发机第二份完整数据库／运行时备份复制仍因 SSH 握手阻塞未完成。真实管理员读取、保存与冲突恢复验收仍 pending；渠道运行超时下限的呈现、新建默认值与发布错误提示修正进行中，尚无完成回执。75c9d482 的首次 Core 摘要保留为历史回执；72392577 已有 CI 运行态验收，开发机 SSH 独立回读仍待完成。失败、中断、修复及证据入口见[本轮报告](reports/native-channel-routing-20261118.md)；以下条目保留各阶段自己的版本与验收边界。
+
 - **分组请求限额逐行编辑（源码已推送，开发自测通过；2026-11-18）**：管理页支持逐行添加、修改、移除分组限额，保留精确 Unicode 组名，保存前拦截重复名称与非法次数。版本号、会话隔离、冲突草稿和显式重新读取沿用既有合同，七语言同步完成。代码 [c1890bc6](https://github.com/TokenNotIncluded/lmm-api-source/commit/c1890bc673c3751c992fb536a2180959b756a004)。
   **开发自测**：7 项定向测试、修改范围格式与 lint、完整 Web 类型检查、生产构建与包体检查通过；真实 Chromium 交互及 1440/390/320px 明暗、中/英/法四种布局通过，截图已实际检查。浏览器使用本地合成接口。独立业务验收未执行，未部署。[使用说明](request-limits.md#管理请求限额)；[本轮记录](reports/lmm-request-limits-2026-11-18.md)。
 

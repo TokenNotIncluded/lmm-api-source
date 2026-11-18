@@ -54,7 +54,7 @@ When changing that policy, allocate a new ID and retain the old channel's verifi
 material for outstanding callbacks. Setting the old Go channel's `enabled = false`
 removes it from new checkout selection while allowing recovery.
 
-Core owns `credits_per_minor` and `max_amount_minor`. It freezes the checked integer
+Core owns `credits_per_minor`, `min_amount_minor` and `max_amount_minor`. It freezes the checked integer
 quote `amount_minor × credits_per_minor` on the intent. The ledger unit is
 `credit_500k_usd`; one USD cent corresponds to 5,000 credit units. Example non-USD
 rates are illustrative administrator policy, not live exchange rates or defaults.
@@ -103,6 +103,63 @@ for both paths; recovering an already admitted legacy proof still requires
 See [Core runtime configuration](../config/core.example.toml),
 [Extensions runtime configuration](../config/extensions.example.toml) and
 [database provisioning](../deployment/postgres/README.md). Ordinary startup performs no DDL.
+
+## Owner-managed EPay / Linux DO Credit settings
+
+The owner can edit an existing LDC connection in the payment settings UI when it
+is disabled and has no payment or external subscription history. Core checks
+this condition again on save, including legacy bases, proofs, events and refunds.
+Ordinary administrator sessions cannot read or change this configuration.
+
+| Setting | Management contract |
+| --- | --- |
+| Endpoint, notify URL, return URL | Editable for the eligible LDC binding; Core validates the URLs and LDC policy constraints. |
+| Merchant key | Write-only replacement. Leave blank to retain the current key; reads return only `key_configured`, never the secret. |
+| Merchant, environment, currency, payment type | Fixed policy; the editor cannot change them. |
+| `credits_per_minor`, amount limits, `enabled` | Fixed policy; editing the connection does not change conversion or enable payments. |
+
+Save uses `expected_revision` and verifies the result by reading it back.
+A conflict or unknown save outcome requires an explicit fresh read; it does not
+automatically replay the write. The Core endpoints are
+`GET /core/v1/payment-gateways/epay` and
+`PUT /core/v1/payment-gateways/epay/{id}`; the browser uses the existing
+`/api/option/epay/config` bridge. See the [configuration implementation](../services/core/src/payments/configuration.rs).
+
+For editable installations, keep the base payment TOML in a persistent directory
+owned and writable by the Core service, with directory mode `0700` and base file
+mode `0600`. Back up and retain that directory as one configuration set:
+the base file, `<base-filename>.epay.json`, `<base-filename>.epay.lock`, and
+versioned `epay-key-<channel-id>-<random>.secret` files. Core writes private files
+with mode `0600`; deployment cleanup must preserve these files.
+The overlay binds the exact base bytes by SHA-256, so even reformatting the base
+changes its identity. Do not overwrite the running overlay or replace its base
+during an ordinary binary deployment; changing the base requires a coordinated
+configuration migration. See [persistent storage](../services/core/src/payments/configuration/storage.rs).
+
+`min_amount_minor` is optional in the Core channel configuration and defaults to
+`1`; it must be positive and no greater than `max_amount_minor`. It applies only
+to the final payable amount of a new wallet intent or discount quote, after any
+configured discount. Existing intents, their checkout and external subscriptions
+keep their original contracts; changing the minimum does not reprice them.
+
+The imported legacy policy for LDC channel `5004` retains
+`enabled = false`, `min_amount_minor = 10000`, `credits_per_minor = 500`, and
+`max_amount_minor = 9000000000000`. LDC minor units are hundredths: the minimum
+therefore represents 100 LDC and 5,000,000 wallet credit units. The maximum is a
+technical numeric ceiling, not a recovered legacy business limit. These values
+do not enable legacy group, preset or coupon discounts; those require a separate
+review before admitting new orders.
+
+The native installation imported this disabled channel on 2026-11-18, after the
+separate stage, prepare and activate operations all completed successfully.
+Core now loads `/var/lib/lmm/core/config/payments.toml` from a Core-owned
+`0700` directory; its base and initial key files are `0600`. Core and Extensions
+readiness checks passed with deployed application revision `72392577`.
+Existing gateway settings and funds permissions retained their original values,
+including Go channel `5002`'s existing `subscription_enabled = true`.
+Channel `5004` remains disabled for wallet and subscription purchases.
+Real administrator read/save/reload acceptance is still pending; see the
+[deployment receipts](reports/native-channel-routing-20261118.md#epay-5004-实际导入回执).
 
 ## External subscription checkout
 

@@ -96,6 +96,24 @@ Do not echo secret contents or place URLs/tokens in process arguments.
    OAuth discovery and Core/Go API routes. `web-location.conf` is only a static
    SPA example, not a replacement site config. Never expose private UDS APIs.
    Nginx must read static files but not service secrets.
+
+   For the native console vhost, install the reviewed
+   [management snippet](templates/native-management-locations.conf) as
+   `/etc/nginx/lmm/native-management-locations.conf` and include that copy at
+   server scope beside the existing Extensions settings routes:
+
+   ```nginx
+   include /etc/nginx/lmm/native-management-locations.conf;
+   ```
+
+   Scope this include to the native console server so the legacy domain keeps its
+   existing routes. Preserve its ACL and `@lmm_extensions_backend`; confirm that
+   `127.0.0.1:3101` is the selected Core listener. The snippet admits the EPay
+   configuration getter, Core EPay management, and user access management with
+   explicit methods and positive numeric IDs. Run `nginx -t` before a graceful
+   reload, then compare the public management responses with their intended
+   Core/Go backends. The isolated source check is
+   `python3 -B deployment/native/test_management_routes.py`.
 6. Explicitly initialize the **new, verified empty** database once using the
    separate offline owner TOML and `lmm-core --config /absolute/owner.toml init-db`.
    Provision exact reviewed runtime grants. Normal start/update never initializes
