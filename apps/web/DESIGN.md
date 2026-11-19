@@ -11,7 +11,7 @@ colors:
 
 ## Visual Theme & Atmosphere
 
-- [observed] Authenticated product surfaces use a restrained, Google-inspired console with open spacing, neutral tonal surfaces, semantic accents, and theme-aware navigation. Ant is the default palette: warm paper and clay in light mode, warm charcoal in dark mode. Classic retains the white and pale-gray palette. Shared page cards have no decorative border or shadow.
+- [observed] Authenticated product surfaces use a restrained, Google-inspired console with open spacing, neutral tonal surfaces, semantic accents, and theme-aware navigation. Classic is the default palette: white and pale-gray surfaces with a blue primary action in light mode. Ant remains an optional warm paper/clay palette with warm charcoal in dark mode. Existing saved palette and font choices are preserved. Shared page cards have no decorative border or shadow.
 - [observed] Authentication uses the active semantic palette and a centered, single-column form. Public scenes retain their declared visual exceptions; their editorial palettes do not become defaults for operational pages.
 - [design rule] Make the current task easy to scan through alignment, typography, and space. Give related controls one clear group; let secondary history and metadata recede without surrounding each region with a frame.
 
@@ -19,13 +19,13 @@ colors:
 
 - [observed] Components consume semantic variables: `--background`, `--foreground`, `--card`, `--muted`, `--primary`, `--border`, `--success`, `--warning`, `--info`, `--destructive`, and their foreground pairs.
 - [observed] Both light and dark modes define complete semantic roles. State is never encoded by a literal page-local color alone.
-- [observed] The default Ant palette defines its canvas, surfaces and clay accent in `theme-presets.css`. Classic canvas/card pairs remain `#ffffff` / `#f7f8fa` in light mode and `#111214` / `#1b1d21` in dark mode. Components consume semantic variables so palette and user preferences remain effective.
+- [observed] The optional Ant palette defines its canvas, surfaces and clay accent in `theme-presets.css`. Default Classic canvas/card pairs are `#ffffff` / `#f7f8fa` in light mode and `#111214` / `#1b1d21` in dark mode. Components consume semantic variables so palette and user preferences remain effective.
 - [observed] Forge raw identity tokens use warm paper/ink, cactus, clay, and sage values, but they are mapped through shared theme variables before components consume them.
 - [inferred confidence=high] Third-party providers do not introduce their own palette. Use a provider mark only when an approved shared identity token already exists.
 
 ## Typography Rules
 
-- [observed] Ant resolves the automatic font choice to Lora through `--font-body`; other presets resolve it to Public Sans. An explicit font preference overrides the preset. Utility screens using `--font-sans` retain Public Sans.
+- [observed] The default Classic preset resolves the automatic font choice to Public Sans through `--font-body`. Ant resolves it to Lora; other presets also use Public Sans. An explicit font preference overrides the preset. Utility screens using `--font-sans` retain Public Sans.
 - [observed] Console page titles use `clamp(1.5rem, 2.5cqi, 2rem)`, weight 600, a 1.25 line height and tight tracking. Their scale follows the available content container, and long titles can wrap. Shared card titles use medium weight; page and section headings have no decorative cut marker.
 - [inferred confidence=high] Let a clear title and readable text measure lead the page. Use tabular numerals for comparable values and generous gaps between sections; reserve display/serif treatments for established editorial scenes and explicit typography preferences.
 
@@ -148,7 +148,7 @@ Review the saved screenshots as well as the measured results. Report each execut
 
 ## Frontend behavior boundaries
 
-These rules describe retained browser behavior, not completed server integration. The current core HTTP host and extension host do not expose the legacy assistant, tool-market, store or ranked-game APIs. Pages, mocks, fixtures and browser receipts cannot establish backend availability, payment settlement or production acceptance. Current server contracts live in the module READMEs, including [tool market](../../services/extensions/internal/modules/toolmarket/README.md); financial safeguards belong to the [payment contract](../../docs/payment-money-contract.md).
+These rules describe browser behavior. Live server capabilities determine which operations are available; the store compatibility routes include real backend operations and must be verified against the enabled Core and extension services. Pages, mocks, fixtures and browser receipts alone cannot establish backend availability, payment settlement or production acceptance. Current server contracts live in the module READMEs, including [tool market](../../services/extensions/internal/modules/toolmarket/README.md); financial safeguards belong to the [payment contract](../../docs/payment-money-contract.md).
 
 ### Navigation, motion and optional experiences
 

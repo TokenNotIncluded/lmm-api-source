@@ -22,6 +22,8 @@ use std::{
     time::{Duration, Instant},
 };
 
+#[path = "../../../tests/commerce/merchant_cases.rs"]
+mod merchant_cases;
 #[path = "../../../tests/commerce/mixed_cases.rs"]
 mod mixed_cases;
 #[path = "common/commerce_resources.rs"]
@@ -425,7 +427,7 @@ async fn real_core_and_go_store_replay_refund_and_restart_after_lost_ack(pool: P
         core_url.display(), socket.display(), control.display(), permissions.display(), money.display()
     ).as_bytes());
     let go_config = private(&root, "go.toml", format!(
-        "version=1\n[host]\nlisten='{extension_address}'\ntoken_file='{}'\nmodules=['identity','store']\n[core]\nsocket='{}'\nidentity_token_file='{}'\ncommerce_token_file='{}'\n[store]\ndatabase_name='{database}'\ndatabase_url_file='{}'\n",
+        "version=1\n[host]\nlisten='{extension_address}'\nweb_compat=true\nlocal_http=true\npublic_origin='http://{extension_address}'\ntoken_file='{}'\nmodules=['identity','store']\n[core]\nsocket='{}'\nidentity_token_file='{}'\ncommerce_token_file='{}'\n[store]\ndatabase_name='{database}'\ndatabase_url_file='{}'\n",
         host_file.display(), socket.display(), control.display(), money.display(), store_url.display()
     ).as_bytes());
     let client = Client::builder()
@@ -485,6 +487,24 @@ async fn real_core_and_go_store_replay_refund_and_restart_after_lost_ack(pool: P
         record_identity(&core, "after-mixed");
         record_identity(&go, "after-mixed");
     }
+    let merchant_evidence = merchant_cases::before_restart(
+        &client,
+        &endpoint,
+        merchant_cases::Actors {
+            seller: &seller,
+            buyer: &buyer,
+            buyer_id,
+            admin: &outsider,
+            host,
+        },
+        &store_owner,
+    )
+    .await;
+    private(
+        &root,
+        "merchant-before-restart.json",
+        &serde_json::to_vec(&merchant_evidence).unwrap(),
+    );
     let commerce_baseline: i64 =
         sqlx::query_scalar("SELECT count(*) FROM core_commerce.operations")
             .fetch_one(&pool)
@@ -737,6 +757,15 @@ async fn real_core_and_go_store_replay_refund_and_restart_after_lost_ack(pool: P
         "go-restart.log",
     );
     ready(&client, &endpoint, &mut go).await;
+    merchant_cases::after_restart(
+        &client,
+        &endpoint,
+        &seller,
+        &store_owner,
+        &merchant_evidence,
+    )
+    .await;
+    private(&root, "merchant-after-restart.json", b"{\"verified\":true}");
     // The production worker must use read-only service reconciliation, not a
     // stored user bearer or permission to issue another refund after logout.
     let deadline = Instant::now() + Duration::from_secs(20);

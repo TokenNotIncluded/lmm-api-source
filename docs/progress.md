@@ -4,6 +4,14 @@
 
 ## 当前状态
 
+- **控制台与商户主页迭代（候选已提交，独立联合验收进行中；2026-11-20）**：[845dfaf4](https://github.com/TokenNotIncluded/lmm-api-source/commit/845dfaf4f5739d2f316c71a62b41216d8fa52bca) 统一默认 Classic 外观、无衬线字体、概览与 Key 入口；[6941fbad](https://github.com/TokenNotIncluded/lmm-api-source/commit/6941fbadb7e391e2800e14d0cdaa056501529489) 将商户介绍、图片、商户公告及全局公告接入真实 Go HTTP、Core Session 授权与 PostgreSQL；[279312cb](https://github.com/TokenNotIncluded/lmm-api-source/commit/279312cb85d323b1bfc4f6920fecfef07c561fb1) 补齐 Key 列表错误重试、筛选恢复、渠道导航、商户资料提示和七语言文本。商户更新使用版本比较，普通用户不能修改全局公告，已有原生商户无需先进入编辑页即可被公开读取。
+  **开发自测**：渠道原有 52 项、Key 状态 2 项、商户主页组件 7 项通过；修改范围格式、lint、类型检查与最终 Web 构建通过，初始 gzip 499,827 / 786,432 bytes。真实 PostgreSQL 的 Go HTTP race 自测与能力声明回归通过，保留修复前失败记录；其中 Core 授权为开发测试替身，不能代替独立业务验收。浅深色桌面与手机布局已检查，截图使用隔离 fixture。
+  **独立验收与部署边界**：新增真实 Core Session、Go HTTP、分库 PostgreSQL 的商户持久化、CAS、权限和重启断言；原有订单、支付、退款与资金断言保留。完整联合负载、慢消费者与真实浏览器流程仍在执行。此条记录时尚未升级线上数据库、激活候选制品或变更路由；最终部署必须使用对应提交的完整 CI 与正式构建，不能以旧版本 CI 或布局截图替代。
+
+- **前置完整 CI 与 Core 独立资源测量（已通过；2026-11-20）**：前置提交 c2242c88 的[完整 CI](https://github.com/TokenNotIncluded/lmm-api-source/actions/runs/44577503481) 已通过翻译、Web、Microkernel/protocol 及最终聚合检查，修复了此前条目所记录的候选后端 CI 未完成状态；该结果只适用于 c2242c88，不直接批准上述新候选部署。
+  **实际测量**：冻结的正式 Core 二进制在 1 CPU / 256 MiB 下完成 540 秒场景。正常阶段共 2,100 / 2,100 请求成功，稳态 5 RPS 的 P95 为 90 ms、P99 为 209 ms；过载阶段拒绝 5,760 次超额请求，随后恢复阶段 300 / 300 成功。cgroup 峰值 51,359,744 bytes，无 memory high/max/oom/oom_kill；仍记录到 sock_throttled 226，不能表述为所有事件均为零。2,884 笔刻意制造的 UNKNOWN 资金预留在重启后仍保留并进入核对分类，没有误当作已结算或已释放。
+  **范围**：本地受控上游、合成账号和资金；PostgreSQL 与压测驱动不在该 256 MiB 产品预算内。此结果不能证明 Core + Go 联合容量、完整宿主机预算或真实付费模型容量。原始报告及输入绑定保留，独立联合验收继续执行。
+
 - **数据库升级回归修复（源码已推送，定向自测通过；2026-11-20）**：[e312c77a](https://github.com/TokenNotIncluded/lmm-api-source/commit/e312c77a9e5d128d7aa5e09146e66d321cc2bec2) 隔离钱包升级测试继承的 PostgreSQL 连接环境；[827d0e08](https://github.com/TokenNotIncluded/lmm-api-source/commit/827d0e087650757fa11772eb5cefeface7ecab26) 在历史升级测试关闭连接池后等待本夹具连接进程退出，再请求独占升级。
   **自测**：Go 在复现原拒绝的环境条件下，四个顶层测试及三个子场景通过 race 检测；Rust 八条历史升级路径分阶段通过真实 PostgreSQL 自测，涵盖数据、账本、权限、序列及重复执行回执。修改范围格式与差异检查通过，临时数据库已清理；构建执行时限和一次保留执行器路径错误的原记录保留。
   **范围**：本轮修改测试夹具；Core69 历史身份/API Key 导入资格、真实数据与额度对账及独立业务验收继续单列推进。未重跑远程 CI，未发布、部署或切流。见[本轮报告](reports/lmm-upgrade-regression-2026-11-20.md)与[结构化证据](reports/lmm-upgrade-regression-2026-11-20.evidence.json)。**self-tested; independent acceptance not run**。
