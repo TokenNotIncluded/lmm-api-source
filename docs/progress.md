@@ -4,9 +4,13 @@
 
 ## 当前状态
 
+- **Key quota 验证与 Core77 社区连接历史导入（源码已推送，定向自测通过；2026-11-19）**：[b4414aa5](https://github.com/TokenNotIncluded/lmm-api-source/commit/b4414aa5849f2c1bfc4dd8678c15af1d6d52df48) 修复当前原生 quota 夹具的结构合同发现；[2991afc7](https://github.com/TokenNotIncluded/lmm-api-source/commit/2991afc7eac02f812abed17dbd519f72cf96f6ec) 增加 component77、显式 owner 离线 76→77 升级及精确历史连接导入目标，保留冻结的 55/56 SQL 与 Core69 身份导入审核材料。真实链路还修复 community 单独启用时缺少显示汇率只读权限的问题，补齐启动检查和列权限撤销。
+  **定向自测**：Core76 quota 8 项业务加 1 项辅助，共 9/9；Core77 另复验同一条导入→计费业务 1/1，不增加不同用例计数。社区注册表 5、manifest 1、真实升级 1，以及最终历史导入运行链 1，共 8 个不同检查分阶段通过；Go 漏斗用例实际 PASS，Python 计划器 5/5。最终 16 个提交文件与构建输入一致，原始失败、修复和各阶段产物来源分别保留，临时数据库与凭据已清理。
+  **范围与剩余工作**：本轮完成当前原生额度验证与保留连接历史的导入/分类/只读漏斗；Core69→当前版本的完整历史身份/Key 导入资格、真实数据与额度对账、完整候选后端 CI 及独立业务验收仍待完成。本轮未发新版本、部署或切流。见[本轮报告](reports/lmm-migration-closure-2026-11-19.md)与[结构化证据](reports/lmm-migration-closure-2026-11-19.evidence.json)。**self-tested; independent acceptance not run**。
+
 - **后端修复与 0.1.21 源码预发布（已发布；2026-11-19）**：已提交 Go 环境隔离 [f8a2868e](https://github.com/TokenNotIncluded/lmm-api-source/commit/f8a2868ebc61fb974eb1e8eb4bd90a0e8b529ee6)、CI PostgreSQL 18 工具 [d40e8a21](https://github.com/TokenNotIncluded/lmm-api-source/commit/d40e8a21116aeabbff1a3a9c45cda58155010000)，以及 Core、夹具与 MK 工作流 [9d50a054](https://github.com/TokenNotIncluded/lmm-api-source/commit/9d50a05465d2680904ebdbb041b3e877a04e1448)。修复可选 managed 模块读取、流式费用补充字段及支付夹具缺表；保持原费用、资金、权限和进程守卫。
   **定向自测**：身份 11、协议 64、钱包／奖励／当前安装器拒绝 3、支付进程 2，共 80 个不同 Rust 用例通过，保留 1 个原有 ignored。Go 5 个顶层测试含 46 个 pass 事件，真实 Ubuntu／PG18 财务夹具 2 项通过。一次 Go 环境纠正和一次 PG 锁容量纠正均保留首轮失败，只复验失败项；owned 数据库已确认清理。
-  **剩余阻塞**：Key quota 首项失败、7 项未运行，已审核 Core69 与当前 Core76 不匹配；community 的 55／56 组件历史导入未适配当前运行时。未改审核 pin 或绕过守卫。完整后端 CI 和本候选独立业务验收尚未通过。
+  **后续进展**：当轮的 quota 夹具失败与 55／56 历史连接导入限制已由本页最新 Core77 条目推进，原失败记录保留。Core69 历史身份/Key 导入的完整资格、真实数据对账、完整候选后端 CI 与独立业务验收仍未完成。
   **CI/CD**：[9b9d4234](https://github.com/TokenNotIncluded/lmm-api-source/commit/9b9d4234bd4a926ecc557e076a69615943a68c37)补齐部署前同提交完整 CI 门禁和 runner 镜像 URI 修复，10 项模拟 API、5 项 APT 配置与 19 项拓扑检查通过；真实 API 已确认进行中 CI 会阻止部署。同一发布提交的 Web／翻译通过，官方 Ubuntu archive/security 连接失败导致工具安装退出 100；后端被后续进度提交取消，聚合门禁失败，完整后端 CI 尚未通过。
   **发布**：[v0.1.21](https://github.com/TokenNotIncluded/lmm-api-source/releases/tag/v0.1.21)于 20:34:45（Asia/Taipei）发布，固定源码 [0c8844b0](https://github.com/TokenNotIncluded/lmm-api-source/commit/0c8844b0ea13b67ca25fa6103b712260e8f4011a)。[资格与发布流水线](https://github.com/TokenNotIncluded/lmm-api-source/actions/runs/44523376980)成功，格式、Clippy 及 289／10／1 项单元检查通过；这 300 项与定向自测有重叠。四份附件、校验和、来源身份及归档内 14 个变更文件已回读验证。本轮未部署或切流。见[本轮报告](reports/lmm-ci-followup-2026-11-19.md)与[结构化证据](reports/lmm-ci-followup-2026-11-19.evidence.json)。
 
@@ -123,7 +127,7 @@
 
 - **管理员用户详情接入原生用量（源码已推送，未部署）**：[733948f](https://github.com/TokenNotIncluded/lmm-api-source/commit/733948f8f165e5bd5da7bf06da8241fad53f3f9c) 按目标用户及其个人资源归属读取 Core 原生请求，汇总已结算、待结算请求数以及结算额、退款额和净消费，并区分个人钱包、团队代付、订阅与赞助。团队归属 Key 与历史导入记录不计入个人原生用量。详情在同一只读一致快照中读取，复用账本收据校验，累计金额以 u128 计算并返回十进制字符串；无用量与统计不可用保持不同状态。Web 使用摘要加折叠明细，七语言各新增 10 个词条并通过 helper 同步。最终 Core 定向 5 项、Web 定向 35 项、Core all-targets Clippy、相关 Rust 格式、Web 类型、范围 lint 与全量格式检查通过；生产构建及首屏包体检查通过，gzip 587314 字节（上限 786432）。本地 Chromium 的 1440/390/320px、英中俄、明暗主题共 8 组检查通过，形成 16 个摘要/展开截图，未见横向溢出；页面使用合成只读 fixture，数据库验证使用隔离 PostgreSQL 18.6，尚未运行真实管理员会话到数据库的整链路独立验收。首次失败与修复证据保留。
 
-- **Responses 与当前历史迁移仍有未闭合范围**：既有 responses_continuity_independent_store_tristate_and_exact_refusal 在隔离 PostgreSQL 18.6 中精确运行通过；旧 CI 的失败没有完整断言差异，不能认定已修复，本轮未据此修改产品或测试逻辑。社区导入仍只接受冻结 Core 55/56 目标合同，当前 Core 75 的完整历史导入与升级资格尚未闭合，冻结指纹和目标白名单保持不变。原生订阅空态的格式错误已在 [0f72236](https://github.com/TokenNotIncluded/lmm-api-source/commit/0f72236e38c2db17e0adda5bdfb59e7ed886eb36) 修正。
+- **Responses 与当前历史迁移仍有未闭合范围**：既有 responses_continuity_independent_store_tristate_and_exact_refusal 在隔离 PostgreSQL 18.6 中精确运行通过；旧 CI 的失败没有完整断言差异，不能认定已修复，本轮未据此修改产品或测试逻辑。当时的社区导入仅接受冻结 Core55/56，Core75 的完整历史导入资格尚未闭合；当前 Core77 的连接历史接入与定向验证见本页最新条目。冻结旧合同继续保留，全部历史数据迁移资格仍需单独完成。原生订阅空态的格式错误已在 [0f72236](https://github.com/TokenNotIncluded/lmm-api-source/commit/0f72236e38c2db17e0adda5bdfb59e7ed886eb36) 修正。
 
 - **原生钱包、用户详情与实例状态已补齐一批功能（已推送，未部署）**：[b45a89f](https://github.com/TokenNotIncluded/lmm-api-source/commit/b45a89f0842c7000dbe3ebf29e4dabc6d40f6ea6) 加入订阅原报价的只读收据恢复；[94ddf72](https://github.com/TokenNotIncluded/lmm-api-source/commit/94ddf72cbaf279ecf645769f13bc403bd8b62fcb) 补全钱包转移的准备、确认、领用、取消、列表与原请求恢复。未知结果保留原请求，不自动再次发送资金写入；恢复按账户范围绑定。[5e3cf1f](https://github.com/TokenNotIncluded/lmm-api-source/commit/5e3cf1ffe82108d111f667bc2e59b22e5526145b) 增加精确字符串用户 ID 的只读详情，保留管理授权与账户隔离，使用记录可以打开资料、访问状态与钱包信息。[c6b6d00](https://github.com/TokenNotIncluded/lmm-api-source/commit/c6b6d0061d39eaf09cbb298ee8a4b786238075a1) 使系统状态只展示当前存活实例，停止实例不留下停机历史项。
 
