@@ -26,6 +26,8 @@ use std::{
 mod merchant_cases;
 #[path = "../../../tests/commerce/mixed_cases.rs"]
 mod mixed_cases;
+#[path = "../../../tests/commerce/native_inputs.rs"]
+mod native_inputs;
 #[path = "common/commerce_resources.rs"]
 mod resources;
 #[path = "common/runtime.rs"]
@@ -426,8 +428,18 @@ async fn real_core_and_go_store_replay_refund_and_restart_after_lost_ack(pool: P
         "version=1\n[server]\nlisten='{core_address}'\n{server_settings}[database]\nurl_file='{}'\n{database_settings}[rpc]\nsocket='{}'\ntoken_file='{}'\n[commerce]\nconfig_file='{}'\ntoken_file='{}'\n{model_settings}",
         core_url.display(), socket.display(), control.display(), permissions.display(), money.display()
     ).as_bytes());
+    let native = native_inputs::Inputs::from_environment(&root);
+    let public_origin = if native.is_some() {
+        "https://api.lmm.best".to_owned()
+    } else {
+        format!("http://{extension_address}")
+    };
+    let native_settings = native
+        .as_ref()
+        .map(native_inputs::Inputs::store_settings)
+        .unwrap_or_default();
     let go_config = private(&root, "go.toml", format!(
-        "version=1\n[host]\nlisten='{extension_address}'\nweb_compat=true\nlocal_http=true\npublic_origin='http://{extension_address}'\ntoken_file='{}'\nmodules=['identity','store']\n[core]\nsocket='{}'\nidentity_token_file='{}'\ncommerce_token_file='{}'\n[store]\ndatabase_name='{database}'\ndatabase_url_file='{}'\n",
+        "version=1\n[host]\nlisten='{extension_address}'\nweb_compat=true\nlocal_http=true\npublic_origin='{public_origin}'\ntoken_file='{}'\nmodules=['identity','store']\n[core]\nsocket='{}'\nidentity_token_file='{}'\ncommerce_token_file='{}'\n[store]\ndatabase_name='{database}'\ndatabase_url_file='{}'\n{native_settings}",
         host_file.display(), socket.display(), control.display(), money.display(), store_url.display()
     ).as_bytes());
     let client = Client::builder()
@@ -446,6 +458,9 @@ async fn real_core_and_go_store_replay_refund_and_restart_after_lost_ack(pool: P
     );
     let mut go = spawn(&extension, &extension_sha, &go_config, &root, "go.log");
     ready(&client, &endpoint, &mut go).await;
+    if let Some(native) = &native {
+        native.observe(&go, "initial");
+    }
 
     let shop = success(&client, &endpoint, host, &seller, "/catalog", json!({"action":"create_shop","owner":{"kind":"personal","id":9},"title":"Synthetic shop","key":"shop"})).await;
     let shop_id = shop["id"].as_str().unwrap();
@@ -486,6 +501,9 @@ async fn real_core_and_go_store_replay_refund_and_restart_after_lost_ack(pool: P
         mixed.run(&store, &core_endpoint, &root).await;
         record_identity(&core, "after-mixed");
         record_identity(&go, "after-mixed");
+        if let Some(native) = &native {
+            native.observe(&go, "after-mixed");
+        }
     }
     let merchant_evidence = merchant_cases::before_restart(
         &client,
@@ -757,6 +775,10 @@ async fn real_core_and_go_store_replay_refund_and_restart_after_lost_ack(pool: P
         "go-restart.log",
     );
     ready(&client, &endpoint, &mut go).await;
+    if let Some(native) = &native {
+        native.observe(&go, "restart");
+    }
+
     merchant_cases::after_restart(
         &client,
         &endpoint,
