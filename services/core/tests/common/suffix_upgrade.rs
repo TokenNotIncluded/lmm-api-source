@@ -133,23 +133,17 @@ SELECT jsonb_build_object(
 }
 
 // SQLx close sends Terminate but does not await PostgreSQL backend exit.
-// Observe only this fixture's closed PID from the maintenance database before
+// Observe only this fixture's closed PIDs from the maintenance database before
 // asking the offline API for exclusivity; never retry or relax that API's guard.
-async fn close_inspection(connection: PgConnection) {
-    let mut connection = connection;
-    let pid: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
-        .fetch_one(&mut connection)
-        .await
-        .unwrap();
-    connection.close().await.unwrap();
+async fn wait_for_closed_backends(pids: &[i32]) {
     let mut monitor = PgConnection::connect(&std::env::var("DATABASE_URL").unwrap())
         .await
         .unwrap();
     let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(5);
     loop {
         let present: bool =
-            sqlx::query_scalar("SELECT EXISTS(SELECT FROM pg_stat_activity WHERE pid=$1)")
-                .bind(pid)
+            sqlx::query_scalar("SELECT EXISTS(SELECT FROM pg_stat_activity WHERE pid=ANY($1))")
+                .bind(pids)
                 .fetch_one(&mut monitor)
                 .await
                 .unwrap();
@@ -158,11 +152,20 @@ async fn close_inspection(connection: PgConnection) {
         }
         assert!(
             tokio::time::Instant::now() < deadline,
-            "closed fixture backend {pid} did not exit"
+            "closed fixture backends {pids:?} did not exit"
         );
         tokio::time::sleep(std::time::Duration::from_millis(10)).await;
     }
     monitor.close().await.unwrap();
+}
+
+async fn close_inspection(mut connection: PgConnection) {
+    let pid: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
+        .fetch_one(&mut connection)
+        .await
+        .unwrap();
+    connection.close().await.unwrap();
+    wait_for_closed_backends(&[pid]).await;
 }
 
 fn request() -> UpgradeRequest {
@@ -322,8 +325,16 @@ async fn suffix_upgrade_preserves_real_predecessor_and_resolves_exact_replay(poo
     .unwrap();
     assert_eq!(actual_grants, (true, true, true, true));
     drop(conn);
+    let fixture_pids: Vec<i32> = sqlx::query_scalar(
+        "SELECT pid FROM pg_stat_activity WHERE datname=current_database() AND usename::text=ANY($1)",
+    )
+    .bind(vec![original.clone(), r.roles.installer.clone()])
+    .fetch_all(&pool)
+    .await
+    .unwrap();
     installer.close().await;
     pool.close().await;
+    wait_for_closed_backends(&fixture_pids).await;
     let result = upgrade_database(url.as_str(), r.clone()).await.unwrap();
     assert_eq!(result.status, "committed");
     assert_eq!(result.components, target_count());
