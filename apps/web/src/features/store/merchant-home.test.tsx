@@ -340,3 +340,41 @@ test('HTTPS-only shops reject SVG locally and can save or clear their header URL
     }
   )
 })
+
+test('administrators save the store announcement by clicking its submit button', async () => {
+  owner(10)
+  const sent = requests()
+  await mount(<StoreAnnouncementSettings supported />)
+  const input = document.querySelector<HTMLTextAreaElement>(
+    '#store-announcement'
+  )
+  assert.ok(input)
+  await act(async () => {
+    Object.getOwnPropertyDescriptor(
+      dom.HTMLTextAreaElement.prototype,
+      'value'
+    )?.set?.call(input, 'Updated announcement from a button click')
+    input.dispatchEvent(new Event('input', { bubbles: true }))
+  })
+  const saveButton = [...document.querySelectorAll('button')].find(
+    (item) => item.textContent?.trim() === 'Save store announcement'
+  )
+  assert.ok(saveButton)
+  await act(async () => {
+    saveButton.click()
+    await flush()
+  })
+  await act(async () => {
+    await flush()
+  })
+  assert.deepEqual(
+    sent.filter((item) => item.method === 'PUT'),
+    [
+      {
+        method: 'PUT',
+        url: '/api/store/announcement',
+        body: { content: 'Updated announcement from a button click' },
+      },
+    ]
+  )
+})

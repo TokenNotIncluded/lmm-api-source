@@ -363,7 +363,7 @@ function AnnouncementForm({ initial }: { initial: string }) {
           onChange={(event) => setContent(event.target.value)}
         />
         <StoreError error={error} />
-        <Button disabled={busy}>
+        <Button type='submit' disabled={busy}>
           {t(busy ? 'Saving...' : MERCHANT_HOME_COPY.saveAnnouncement)}
         </Button>
       </form>
