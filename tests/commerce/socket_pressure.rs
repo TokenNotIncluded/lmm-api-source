@@ -343,6 +343,38 @@ fn queues(peers: &[Peer], server: SocketAddr) -> Value {
     })).collect::<Vec<_>>())
 }
 
+// Run the existing bounded kernel probe outside the arrival scheduler. Its
+// process creation, pipe joins and child wait must not block this Tokio worker.
+async fn observed_queues(peers: Vec<Peer>, server: SocketAddr, started: Instant) -> (Value, Value) {
+    let scheduled = Instant::now();
+    let caller_thread = format!("{:?}", std::thread::current().id());
+    let (queue, began, finished, worker_thread) = tokio::task::spawn_blocking(move || {
+        let began = Instant::now();
+        let queue = queues(&peers, server);
+        (
+            queue,
+            began,
+            Instant::now(),
+            format!("{:?}", std::thread::current().id()),
+        )
+    })
+    .await
+    .expect("kernel socket observation worker failed");
+    let resumed = Instant::now();
+    let timing = json!({
+        "scheduled_elapsed_ms":scheduled.duration_since(started).as_millis(),
+        "started_elapsed_ms":began.duration_since(started).as_millis(),
+        "finished_elapsed_ms":finished.duration_since(started).as_millis(),
+        "resumed_elapsed_ms":resumed.duration_since(started).as_millis(),
+        "pool_queue_us":began.duration_since(scheduled).as_micros(),
+        "probe_us":finished.duration_since(began).as_micros(),
+        "resume_delay_us":resumed.duration_since(finished).as_micros(),
+        "caller_thread":caller_thread,
+        "worker_thread":worker_thread
+    });
+    (queue, timing)
+}
+
 async fn checkpoint_rows(pool: &PgPool, peers: &[Peer]) -> Vec<Value> {
     let ids = peers.iter().map(|x| x.id.clone()).collect::<Vec<_>>();
     tokio::time::timeout(Duration::from_secs(1),sqlx::query_scalar(
@@ -403,7 +435,7 @@ async fn observe(
     let mut previous = started;
     loop {
         let registered = peers.lock().unwrap().clone();
-        let queue = queues(&registered, server);
+        let (queue, queue_timing) = observed_queues(registered.clone(), server, started).await;
         let checkpoints = checkpoint_rows(&pool, &registered).await;
         let by_id = checkpoints
             .iter()
@@ -449,7 +481,7 @@ async fn observe(
             runtime_snapshot(store.go_pid),
         ];
         let now = Instant::now();
-        evidence.write(json!({"elapsed_ms":started.elapsed().as_millis(),"gap_ms":now.duration_since(previous).as_millis(),"peers":queue,"checkpoints":checkpoints,"proved_ids":proved,"core_connections":core,"go_connections":go,"products":snapshots,"host_sockstat":fs::read_to_string("/proc/net/sockstat").unwrap()}));
+        evidence.write(json!({"elapsed_ms":started.elapsed().as_millis(),"gap_ms":now.duration_since(previous).as_millis(),"queue_timing":queue_timing,"peers":queue,"checkpoints":checkpoints,"proved_ids":proved,"core_connections":core,"go_connections":go,"products":snapshots,"host_sockstat":fs::read_to_string("/proc/net/sockstat").unwrap()}));
         assert!(
             core <= 8 && go <= 2,
             "runtime exceeded existing four Core pools/two Go connections"
@@ -565,7 +597,7 @@ pub(super) async fn run(mixed: &mut Mixed, store: &Store, endpoint: &str, root: 
             };
             json!({"request_id":raw.request_id,"fd":fd,"device":metadata.dev(),"inode":metadata.ino(),"same_open_fd":true,"original_server":raw.server,"original_client":raw.client,"peer_status":peer_status})
         }).collect::<Vec<_>>();
-        let recovery = queues(&peers, server);
+        let (recovery, queue_timing) = observed_queues(peers.clone(), server, started).await;
         let nonzero = recovery
             .as_array()
             .unwrap()
@@ -575,7 +607,7 @@ pub(super) async fn run(mixed: &mut Mixed, store: &Store, endpoint: &str, root: 
         save(
             root,
             "joint-socket-retained-recovery.json",
-            json!({"elapsed_ms":started.elapsed().as_millis(),"retained_clients":retained.len(),"clients_dropped":false,"retention_witnesses":retention_witnesses,"nonzero_send_queue":nonzero,"peers":recovery}),
+            json!({"elapsed_ms":started.elapsed().as_millis(),"retained_clients":retained.len(),"clients_dropped":false,"retention_witnesses":retention_witnesses,"queue_timing":queue_timing,"nonzero_send_queue":nonzero,"peers":recovery}),
         );
         assert_eq!(
             nonzero, 0,
