@@ -401,9 +401,17 @@ async fn observe(
     let mut proved = HashSet::new();
     let mut plateau: HashMap<String, (u64, u64, Instant)> = HashMap::new();
     let mut previous = started;
+    let mut evidence_write_ms = 0;
     loop {
         let registered = peers.lock().unwrap().clone();
-        let queue = queues(&registered, server);
+        let observed = registered.clone();
+        let queue_started = Instant::now();
+        // SQLx runs this test on a current-thread runtime. Kernel diagnostics
+        // must not delay the independent fixed-rate request generators.
+        let queue = tokio::task::spawn_blocking(move || queues(&observed, server))
+            .await
+            .expect("socket queue observer failed");
+        let queues_ms = queue_started.elapsed().as_millis();
         let checkpoints = checkpoint_rows(&pool, &registered).await;
         let by_id = checkpoints
             .iter()
@@ -444,12 +452,30 @@ async fn observe(
             }
         }
         let (core,go):(i64,i64)=tokio::time::timeout(Duration::from_secs(1),sqlx::query_as("SELECT count(*) FILTER(WHERE usename=$1),count(*) FILTER(WHERE usename=$2) FROM pg_stat_activity").bind(&store.core_role).bind(&store.store_role).fetch_one(&pool)).await.expect("runtime connection observer timeout").unwrap();
-        let snapshots = [
-            runtime_snapshot(store.core_pid),
-            runtime_snapshot(store.go_pid),
-        ];
+        let (core_pid, go_pid) = (store.core_pid, store.go_pid);
+        let snapshot_started = Instant::now();
+        let (snapshots, host_sockstat) = tokio::task::spawn_blocking(move || {
+            (
+                [runtime_snapshot(core_pid), runtime_snapshot(go_pid)],
+                fs::read_to_string("/proc/net/sockstat").unwrap(),
+            )
+        })
+        .await
+        .expect("process socket observer failed");
+        let process_snapshot_ms = snapshot_started.elapsed().as_millis();
         let now = Instant::now();
-        evidence.write(json!({"elapsed_ms":started.elapsed().as_millis(),"gap_ms":now.duration_since(previous).as_millis(),"peers":queue,"checkpoints":checkpoints,"proved_ids":proved,"core_connections":core,"go_connections":go,"products":snapshots,"host_sockstat":fs::read_to_string("/proc/net/sockstat").unwrap()}));
+        let elapsed_ms = started.elapsed().as_millis();
+        let gap_ms = now.duration_since(previous).as_millis();
+        let proved_ids = proved.clone();
+        let (next_evidence, write_ms) = tokio::task::spawn_blocking(move || {
+            let write_started = Instant::now();
+            evidence.write(json!({"elapsed_ms":elapsed_ms,"gap_ms":gap_ms,"peers":queue,"checkpoints":checkpoints,"proved_ids":proved_ids,"core_connections":core,"go_connections":go,"products":snapshots,"host_sockstat":host_sockstat,"blocking_observer":{"queues_ms":queues_ms,"process_snapshot_ms":process_snapshot_ms,"previous_evidence_write_ms":evidence_write_ms}}));
+            (evidence, write_started.elapsed().as_millis())
+        })
+        .await
+        .expect("socket evidence writer failed");
+        evidence = next_evidence;
+        evidence_write_ms = write_ms;
         assert!(
             core <= 8 && go <= 2,
             "runtime exceeded existing four Core pools/two Go connections"
