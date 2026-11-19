@@ -411,6 +411,7 @@ func RegisterStore(mux RouteRegistrar, auth *Authenticator, service StoreService
 	}
 
 	routes := []storeWebRoute{
+		{pattern: "GET /api/store/payments/settings", action: "payment_settings"},
 		{pattern: "GET /api/store/my/home", action: "my_home"},
 		{pattern: "PUT /api/store/my/home", action: "save_home", bodyLimit: 128 << 10, requiredBody: true},
 		{pattern: "PUT /api/store/announcement", action: "save_announcement", bodyLimit: 128 << 10, requiredBody: true},

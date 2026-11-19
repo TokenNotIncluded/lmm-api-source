@@ -730,6 +730,106 @@ test('seller category changes send only both master switches and retain a failed
     { platform_enabled: true, external_enabled: true },
   ])
 })
+
+for (const enabled of [false, true]) {
+  test(`native payment capabilities show ${enabled ? 'available' : 'unavailable'} balance without gateway write controls`, async () => {
+    useAuthStore
+      .getState()
+      .auth.setUser({ id: 2, role: 100, username: 'seller' })
+    api.get = (async (url: string) => {
+      if (url === '/api/store/config') return result({})
+      assert.equal(url, '/api/store/payments/settings')
+      return result({
+        read_only: true,
+        items: [
+          {
+            provider: 'balance',
+            enabled,
+            configured: enabled,
+            effective_enabled: enabled,
+            has_key: false,
+            has_private_key: false,
+          },
+        ],
+        categories: { platform_enabled: enabled, external_enabled: false },
+        external_eligible: false,
+      })
+    }) as typeof api.get
+    api.put = (async () =>
+      assert.fail(
+        'Read-only payment capabilities must not write'
+      )) as typeof api.put
+    await mount(<StoreSettingsPage />)
+    const methods = document.querySelector(
+      'section[aria-label="Payment methods"]'
+    )
+    assert.ok(methods)
+    assert.match(methods.textContent || '', /Balance payment/)
+    assert.equal(
+      methods.querySelector('dd')?.textContent,
+      enabled ? 'Available' : 'Unavailable'
+    )
+    assert.match(
+      document.body.textContent || '',
+      /Payment methods are selected for each product\./
+    )
+    assert.match(
+      document.body.textContent || '',
+      /External merchant gateways are not available on this server\./
+    )
+    assert.doesNotMatch(
+      document.body.textContent || '',
+      /Seller balance|Seller fee|All methods are disabled|Save payment method|Save payment categories|Signing key|Private key/
+    )
+    assert.equal(document.querySelector('[role="switch"]'), null)
+    assert.equal(
+      document.querySelector(
+        'a[href="/system-settings/billing/payment#merchant-store"]'
+      ),
+      null
+    )
+  })
+}
+
+test('native payment capabilities feed the seller product balance choice', async () => {
+  owner(9)
+  api.get = (async (url: string) => {
+    if (url === '/api/store/config') {
+      return result({ minimum_unit_price_quota: 0 })
+    }
+    if (url === '/api/store/my/products') {
+      return result({ items: [], has_more: false })
+    }
+    assert.equal(url, '/api/store/payments/settings')
+    return result({
+      read_only: true,
+      items: [
+        {
+          provider: 'balance',
+          enabled: true,
+          configured: true,
+          effective_enabled: true,
+        },
+      ],
+      categories: { platform_enabled: true, external_enabled: false },
+      external_eligible: false,
+    })
+  }) as typeof api.get
+  await mount(<StoreSellerPage />)
+  await click(button('New product'))
+  const balance = document
+    .querySelector('label[for="store-product-payment-balance"]')
+    ?.parentElement?.querySelector<HTMLElement>('[role="switch"]')
+  assert.ok(balance)
+  assert.notEqual(balance.getAttribute('aria-disabled'), 'true')
+  await click(balance)
+  assert.equal(balance.getAttribute('aria-checked'), 'true')
+  assert.doesNotMatch(
+    document.body.textContent || '',
+    /Configure seller payment methods before submitting this product\./
+  )
+})
+
 for (const role of [1, 10, 100]) {
   test(`seller payment settings expose the administration link only to root (role ${role})`, async () => {
     useAuthStore.getState().auth.setUser({ id: 2, role, username: 'seller' })

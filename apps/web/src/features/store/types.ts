@@ -286,11 +286,12 @@ export type StoreGatewayInput = Omit<
   | 'unavailable_code'
 > & { key?: string; private_key?: string }
 export interface StorePaymentSettings {
+  read_only?: boolean
   categories: StorePaymentCategories
   items: StoreGateway[]
   external_eligible: boolean
-  balance_quota: number
-  fee_bps: number
+  balance_quota?: number
+  fee_bps?: number
 }
 export interface StorePaymentCategories {
   platform_enabled: boolean

@@ -487,6 +487,7 @@ type storeLegacyRouteCase struct {
 
 func storeLegacyRouteCases() []storeLegacyRouteCase {
 	return []storeLegacyRouteCase{
+		{method: "GET", path: "/api/store/payments/settings", action: "payment_settings"},
 		{method: "GET", path: "/api/store/cart?offset=2&limit=7", action: "cart", offset: 2, limit: 7},
 		{method: "PUT", path: "/api/store/cart", action: "save_cart", body: `{"product_id":"product-1","variant_id":"variant-1","quantity":5}`},
 		{method: "DELETE", path: "/api/store/cart", action: "clear_cart"},

@@ -258,6 +258,8 @@ func (s *Service) Legacy(ctx context.Context, token string, actor Account, r Leg
 		return nil, err
 	}
 	switch r.Action {
+	case "payment_settings":
+		return s.paymentSettings(), nil
 	case "my_home", "save_home":
 		return s.legacyMerchantHome(ctx, actor, r)
 	case "save_announcement":

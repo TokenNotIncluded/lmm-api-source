@@ -76,7 +76,9 @@ function StorePaymentSettings() {
         </h1>
         <p className='text-muted-foreground mt-1 max-w-prose text-sm'>
           {t(
-            'Choose how customers pay. All methods are disabled until you enable them.'
+            query.data?.read_only === true
+              ? 'Payment methods are selected for each product.'
+              : 'Choose how customers pay. All methods are disabled until you enable them.'
           )}
         </p>
       </div>
@@ -85,16 +87,48 @@ function StorePaymentSettings() {
       {query.isPending ? (
         <StoreLoading />
       ) : (
-        query.data && (
+        query.data &&
+        (query.data.read_only === true ? (
+          <section className='space-y-4' aria-label={t('Payment methods')}>
+            <dl className='divide-y'>
+              {query.data.items.map((gateway) => (
+                <div
+                  key={gateway.provider}
+                  className='flex flex-wrap items-center justify-between gap-3 py-3 text-sm'
+                >
+                  <dt className='font-medium'>
+                    {t(paymentLabel(gateway.provider))}
+                  </dt>
+                  <dd className='text-muted-foreground'>
+                    {t(
+                      gateway.effective_enabled === true
+                        ? 'Available'
+                        : 'Unavailable'
+                    )}
+                  </dd>
+                </div>
+              ))}
+            </dl>
+            <p className='text-muted-foreground max-w-prose text-sm'>
+              {t(
+                'External merchant gateways are not available on this server.'
+              )}
+            </p>
+          </section>
+        ) : (
           <>
             <div className='bg-muted space-y-2 rounded-md p-4 text-sm'>
-              <p>
-                {t('Seller balance')}:{' '}
-                <StoreAmount quota={query.data.balance_quota} />
-              </p>
-              <p>
-                {t('Seller fee')}: {query.data.fee_bps / 100}%
-              </p>
+              {query.data.balance_quota != null && (
+                <p>
+                  {t('Seller balance')}:{' '}
+                  <StoreAmount quota={query.data.balance_quota} />
+                </p>
+              )}
+              {query.data.fee_bps != null && (
+                <p>
+                  {t('Seller fee')}: {query.data.fee_bps / 100}%
+                </p>
+              )}
               <p className='text-muted-foreground text-xs'>
                 {t(
                   'Fees are deducted from the seller for both platform and external payments. Insufficient seller balance automatically pauses trading.'
@@ -165,7 +199,8 @@ function StorePaymentSettings() {
                       }
                       eligible={
                         query.data!.external_eligible &&
-                        query.data!.balance_quota > EXTERNAL_MINIMUM_QUOTA
+                        typeof query.data?.balance_quota === 'number' &&
+                        query.data.balance_quota > EXTERNAL_MINIMUM_QUOTA
                       }
                       onSaved={async () => {
                         await client.invalidateQueries({
@@ -190,12 +225,12 @@ function StorePaymentSettings() {
               </section>
             ))}
           </>
-        )
+        ))
       )}
       {storeTermsSupported(catalog.data) && (
         <StoreMerchantTermsEditor sellerId={user.id} />
       )}
-      {user.role >= 100 && (
+      {user.role >= 100 && query.data?.read_only !== true && (
         <Button
           variant='outline'
           render={<a href='/system-settings/billing/payment#merchant-store' />}
