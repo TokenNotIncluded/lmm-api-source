@@ -5,6 +5,7 @@ import { after, test } from 'node:test'
 import axios from 'axios'
 
 import { login } from '@/features/auth/api'
+import { useAuthStore } from '@/stores/auth-store'
 
 import { api } from './api'
 import {
@@ -81,7 +82,13 @@ test('an already-cancelled unsupported writer remains cancelled without dispatch
   assert.equal(isAuthCookieIdle(), true)
 })
 
-test('public password login cannot dispatch or commit via an unordered fallback', async () => {
+test('an already-blocked password login preserves storage and auth state without dispatch', async () => {
+  assert.equal(getAuthCookieBlockedState(), 'coordination_unavailable')
+  const authBefore = useAuthStore.getState().auth
+  let commits = 0
+  const unsubscribe = useAuthStore.subscribe(() => {
+    commits++
+  })
   const original = api.defaults.adapter
   let requests = 0
   api.defaults.adapter = async () => {
@@ -94,18 +101,11 @@ test('public password login cannot dispatch or commit via an unordered fallback'
       AuthCookieBlockedError
     )
     assert.equal(requests, 0)
-    // The explicit account choice still cancels pending login intents. It
-    // cannot write a Cookie, initialize a native ceremony or commit a bundle.
-    assert.equal(storage.get('existing-session-sentinel'), 'preserve')
-    assert.deepEqual(
-      [...storage.keys()],
-      ['existing-session-sentinel', 'new-api:auth-login-intent']
-    )
-    assert.match(
-      storage.get('new-api:auth-login-intent') ?? '',
-      /^[a-f0-9-]{36}$/i
-    )
+    assert.equal(commits, 0)
+    assert.equal(useAuthStore.getState().auth, authBefore)
+    assert.deepEqual(storage, before)
   } finally {
+    unsubscribe()
     api.defaults.adapter = original
   }
 })

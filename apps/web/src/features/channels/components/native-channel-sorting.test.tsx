@@ -185,7 +185,11 @@ async function mount(
       statusText: 'OK',
       data: {
         success: true,
-        data: { native_secrets: nativeSecrets, ...accounting },
+        data: {
+          native_configuration: true,
+          native_secrets: nativeSecrets,
+          ...accounting,
+        },
       },
     }
   }
@@ -584,11 +588,17 @@ test('an owner switch cancels the old listing and its late response cannot seed 
   }) as typeof api.request
   const container = await mount('channels')
   await until(() => releaseOld !== undefined)
+  assert.equal(button(container, 'Create Channel').disabled, false)
   await act(async () => button(container, 'Create Channel').click())
-  assert.ok(container.querySelector('textarea'))
+  const name = [...container.querySelectorAll('label')]
+    .find((item) => item.querySelector('span')?.textContent === 'Name')
+    ?.querySelector('input')
+  assert.ok(name)
+  assert.ok(container.querySelector('input[type=password]'))
   await act(async () => login('replacement-statistics-owner', 10, 502))
   await until(() => !!container.textContent?.includes('Replacement provider'))
   assert.equal(oldSignal?.aborted, true)
+  assert.equal(name.isConnected, false)
   assert.equal(container.querySelector('textarea'), null)
   assert.equal(container.querySelector('input[type=password]'), null)
   await act(async () => releaseOld?.())
@@ -653,29 +663,27 @@ test('a cancelled search response cannot replace current units or digest and lis
   }) as typeof api.request
   const container = await mount('channels')
   await until(() => !!container.textContent?.includes('Private provider'))
+  assert.equal(button(container, 'Create Channel').disabled, false)
   await act(async () => button(container, 'Create Channel').click())
-  const textarea = container.querySelector('textarea')
-  assert.ok(textarea)
-  const setter = Object.getOwnPropertyDescriptor(
-    dom.HTMLTextAreaElement.prototype,
-    'value'
-  )?.set
-  assert.ok(setter)
-  const draft = JSON.stringify({
-    ...JSON.parse(textarea.value),
-    name: 'Unsaved owner draft',
-  })
-  await act(async () => {
-    setter.call(textarea, draft)
-    textarea.dispatchEvent(new Event('input', { bubbles: true }))
-  })
-  const search = container.querySelector('input[aria-label=Search]')
-  assert.ok(search)
+  const name = [...container.querySelectorAll('label')]
+    .find((item) => item.querySelector('span')?.textContent === 'Name')
+    ?.querySelector('input')
+  assert.ok(name)
   const inputSetter = Object.getOwnPropertyDescriptor(
     dom.HTMLInputElement.prototype,
     'value'
   )?.set
   assert.ok(inputSetter)
+  await act(async () => {
+    inputSetter.call(name, 'Unsaved owner draft')
+    name.dispatchEvent(new Event('input', { bubbles: true }))
+  })
+  const textarea = container.querySelector('textarea')
+  assert.ok(textarea)
+  const draft = textarea.value
+  assert.equal(JSON.parse(draft).name, 'Unsaved owner draft')
+  const search = container.querySelector('input[aria-label=Search]')
+  assert.ok(search)
   async function searchFor(value: string) {
     await act(async () => {
       assert.ok(inputSetter)
@@ -694,6 +702,7 @@ test('a cancelled search response cannot replace current units or digest and lis
   )
   assert.equal(oldSignal?.aborted, true)
   await act(async () => releaseOld?.())
+  assert.equal(name.value, 'Unsaved owner draft')
   assert.equal(textarea.value, draft)
   assert.deepEqual(JSON.parse(textarea.value).expected_version, {
     routing: 1,
@@ -725,5 +734,6 @@ test('a cancelled search response cannot replace current units or digest and lis
     [...unit.options].map((x) => x.value),
     ['', 'EUR']
   )
+  assert.equal(name.value, 'Unsaved owner draft')
   assert.equal(textarea.value, draft)
 })
