@@ -53,7 +53,7 @@ CI/CD 修复已提交为 [`9b9d4234`](https://github.com/TokenNotIncluded/lmm-ap
 
 四个附件均已下载，文件大小和 SHA256 与 GitHub 元数据相符；`SHA256SUMS` 的三条记录、`source.json` 的仓库／版本／提交／workflow 身份，以及归档内本轮 14 个发布准备文件均已核对。源码包为 17,240,419 bytes，SHA256 `f54d7380bc1832ddf93df535c4f34865e6e1a1ecd83e75f8595257a972393d9f`。附件包括源码包、`source.json`、`core-relay-tests.log` 和 `SHA256SUMS`。
 
-源码发布成功没有改变完整后端 CI 的真实状态。[同一提交的完整 CI](https://github.com/TokenNotIncluded/lmm-api-source/actions/runs/44523376933)再次在工具安装步骤失败；截至本记录，该后端 job 仍在执行后续收集，完整日志尚未生成。APT 配置转换的自测通过与远端安装失败分别保留，不能把源码发布资格替代完整 CI 成功。
+源码发布成功没有改变完整后端 CI 的真实状态。[同一提交的完整 CI](https://github.com/TokenNotIncluded/lmm-api-source/actions/runs/44523376933)中，Web 和翻译通过，工具安装退出 100。完整日志确认镜像 URI 替换已经生效，但 runner 访问 Ubuntu 官方 archive 时出现 TLS/select 资源错误，访问 security 仓库时连接失败。后续发布记录提交按既有并发策略取消了后端 job，聚合检查为 failure。失败安装步骤日志已保留，SHA256 为 `1b8753fd6ca08111a537c860f84f12c23846c4c01c81ff3ebd10549c7d796694`；未关闭 TLS、包签名或业务门槛。该环境阻塞与迁移准入缺口均保持未完成，源码发布资格不替代完整 CI 成功。
 
 源码预发布与运行环境部署分别记录。本轮没有触发服务部署、生产数据库迁移或切流。后续部署先由新门禁确认同一源码提交的完整 CI 和聚合检查成功，再使用既有配置、制品验证及环境保护。完整后端、迁移准入和业务验收的剩余问题仍是生产就绪条件。
 

@@ -4,7 +4,6 @@
   "timezone": "Asia/Taipei",
   "project": "LMM API",
   "source_repository": "https://github.com/TokenNotIncluded/lmm-api-source",
-  "published_code_head": "9d50a05465d2680904ebdbb041b3e877a04e1448",
   "status": "SOURCE_PRERELEASE_PUBLISHED_AND_VERIFIED",
   "self_test": true,
   "independent_acceptance": false,
@@ -360,17 +359,25 @@
     "signature_and_suite_settings_preserved": true,
     "patch_sha256": "d33e6baf158c3a189ee76e441a002b9fab7f37a1716f5c52e97a8e8ee84fbf4f",
     "failed_ci_log": "mk01-apt-mirror-fix/mk-44520459099-full.log",
-    "failed_ci_log_sha256": "6b075a394df80bc4060707f648c04015ab01ed07bba5316cc07bc22b8fe5319c"
+    "failed_ci_log_sha256": "6b075a394df80bc4060707f648c04015ab01ed07bba5316cc07bc22b8fe5319c",
+    "observed_after_fix": "Canonical URI replacement took effect; official archive/security connections still failed in GitHub runner. No TLS or package-signature checks were disabled."
   },
   "ci_followup": {
     "run_id": 44523376933,
     "url": "https://github.com/TokenNotIncluded/lmm-api-source/actions/runs/44523376933",
     "source_revision": "0c8844b0ea13b67ca25fa6103b712260e8f4011a",
     "translations": "success",
-    "web": "in_progress_at_last_check",
-    "backend": "in_progress_with_failed_tool_installation",
+    "web": "success",
+    "backend": "cancelled_after_failed_tool_installation",
+    "aggregate_gate": "failure",
     "failed_step": "Install pinned Rust, protobuf compiler, and PostgreSQL 18 tools",
-    "new_failed_step_full_log": "not available until job completion",
+    "failed_step_exit_code": 100,
+    "failure": "Canonical Ubuntu archive TLS/select resource error and security repository connection failure",
+    "canonical_uri_replacement_observed": true,
+    "cancellation": "Existing CI concurrency superseded the run when publication evidence was committed",
+    "log_excerpt": "ci/core-protocol-44523376933-install.log",
+    "log_excerpt_sha256": "1b8753fd6ca08111a537c860f84f12c23846c4c01c81ff3ebd10549c7d796694",
+    "log_normalization": "ANSI CSI and control characters removed; newline/tab retained",
     "final_complete_ci_success": false
   },
   "published_release_preparation": {
@@ -416,5 +423,6 @@
     "community_55_56_to_69_bridge_verified": false,
     "receipt": "rust-owned/keyquota-recheck/diagnosis/prefix-chain-readonly.json",
     "receipt_sha256": "310672b1bf4fa2ca7fab6fc434fcee35d4ab6920610ad61a64e247ee03bc7a5a"
-  }
+  },
+  "core_fix_commit": "9d50a05465d2680904ebdbb041b3e877a04e1448"
 }
