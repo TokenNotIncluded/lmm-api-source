@@ -70,6 +70,20 @@ func (s *Service) WithExtore(redirectURI string, key []byte) error {
 	return nil
 }
 
+// WithExtorePlugin binds only the configured source's catalog reads. Existing
+// OAuth, session checks, encrypted credentials and catalog validation stay in use.
+func (s *Service) WithExtorePlugin(host *extore.PluginHost) error {
+	if !s.ExtoreReady() {
+		return ErrInvalid
+	}
+	client, err := host.WrapHTTP(s.extoreHTTP)
+	if err != nil {
+		return err
+	}
+	s.extoreHTTP = client
+	return nil
+}
+
 func (s *Service) ExtoreReady() bool {
 	return s != nil && s.extore != nil && s.extoreRedirect != ""
 }

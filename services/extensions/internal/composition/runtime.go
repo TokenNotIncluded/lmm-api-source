@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/TokenNotIncluded/lmm-api/extensions/internal/coreclient"
+	"github.com/TokenNotIncluded/lmm-api/extensions/internal/extore"
 	"github.com/TokenNotIncluded/lmm-api/extensions/internal/modules"
 	"github.com/TokenNotIncluded/lmm-api/extensions/internal/modules/acquisition"
 	"github.com/TokenNotIncluded/lmm-api/extensions/internal/modules/assistant"
@@ -63,6 +64,7 @@ type Config struct {
 	Store                         StorageConfig
 	StorePickupMail               store.PickupSMTPConfig
 	StoreStockKeyFile             string
+	StoreExtorePlugin             extore.PluginConfig
 	StoreExtoreKeyFile            string
 	StoreExtoreRedirectURI        string
 	Support                       StorageConfig
@@ -212,6 +214,9 @@ func New(ctx context.Context, cfg Config) (_ *Runtime, resultErr error) {
 		return nil, err
 	}
 	cfg.Selected = selection
+	if err := validateExtorePluginSelection(cfg); err != nil {
+		return nil, err
+	}
 	if err := validateHeroSMSSelection(cfg); err != nil {
 		return nil, err
 	}
@@ -404,6 +409,9 @@ func New(ctx context.Context, cfg Config) (_ *Runtime, resultErr error) {
 			if err := r.Store.WithExtore(cfg.StoreExtoreRedirectURI, key); err != nil {
 				return nil, err
 			}
+		}
+		if err := r.composeExtorePlugin(ctx, cfg); err != nil {
+			return nil, err
 		}
 		if cfg.StorePickupMail.Enabled() {
 			if err := configureStorePickupMail(r.Store, cfg, cfg.HostCredential, token, commerceToken, paymentToken, assistantToken, supportCustomerToken, supportNoteKey); err != nil {
