@@ -75,6 +75,10 @@ REVOKE ALL PRIVILEGES ON ALL FUNCTIONS IN SCHEMA core_oauth, core_events,
     core_assistant_tools, core_assistant, core_market_oauth, core_wallet,
     core_bounties, core_trust_pricing, core_federated_auth FROM :"runtime_role";
 
+-- Community and web identity share read-only display-rate option columns.
+-- Table-level revocation above does not remove explicit column privileges.
+REVOKE SELECT(key,value) ON core_console.options FROM :"runtime_role";
+
 -- Web identity is the only optional feature that uses public. Keep its
 -- projections scoped; never reset unrelated public objects or baseline schema
 -- usage that an operator may have reviewed separately.

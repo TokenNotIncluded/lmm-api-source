@@ -705,6 +705,9 @@ GRANT SELECT,INSERT ON core_bounties.operations TO :"runtime_role";
 \if :enable_community
 -- Community read service: aggregate reads of settled requests; history and
 -- identity profile reads are granted above. No writes.
+-- Display-rate reads need only the option key/value columns.
+GRANT USAGE ON SCHEMA core_console TO :"runtime_role";
+GRANT SELECT(key,value) ON core_console.options TO :"runtime_role";
 GRANT USAGE ON SCHEMA core_charging TO :"runtime_role";
 GRANT SELECT ON core_charging.requests TO :"runtime_role";
 -- Cash projections verify accepted provider evidence; they never settle payments.

@@ -245,6 +245,7 @@ registrations! {
         SUBSCRIPTION_CREEM => subscription_creem, "SUBSCRIPTION_CREEM_", |c,r| Box::pin(subscription_creem::grant_runtime(c, &r.roles.runtime)), owner_receipt, SuffixPolicy::DEFAULT;
         CHECKIN_CHALLENGES => checkin_challenges, "CHECKIN_CHALLENGES_", |c,r| Box::pin(checkin_challenges::grant_runtime(c, &r.roles.runtime)), owner_receipt, SuffixPolicy::DEFAULT;
         NETWORK_ACCESS => network_access, "NETWORK_ACCESS_", |c,r| Box::pin(network_access::grant_runtime(c, &r.roles.runtime)), owner_receipt, SuffixPolicy::DEFAULT;
+        CONNECTION_HISTORY_IMPORT => connection_history_import, "CONNECTION_HISTORY_IMPORT_", no_grants, owner_receipt, SuffixPolicy::DEFAULT;
         OIDC => oidc, "OIDC_", |c,r| Box::pin(oidc::grant_runtime(c, &r.roles.runtime)), owner_receipt, SuffixPolicy::DEFAULT;
     }
 }
@@ -291,6 +292,7 @@ mod tests {
             "core-subscription-creem-v1",
             "core-checkin-challenges-v1",
             "core-network-access-v1",
+            "core-connection-history-import-v1",
         ]
         .into_iter()
         .collect();
@@ -330,6 +332,10 @@ mod tests {
             (subscription_epay::PROCEDURE, subscription_epay::validate),
             (core59_to62::PROCEDURE, core59_to62::validate),
             (network_access::PROCEDURE, network_access::validate),
+            (
+                connection_history_import::PROCEDURE,
+                connection_history_import::validate,
+            ),
             (
                 subscription_pancake_language::PROCEDURE,
                 subscription_pancake_language::validate,
@@ -382,6 +388,10 @@ mod tests {
             ("core-subscription-creem-v1", "SUBSCRIPTION_CREEM_"),
             ("core-checkin-challenges-v1", "CHECKIN_CHALLENGES_"),
             ("core-network-access-v1", "NETWORK_ACCESS_"),
+            (
+                "core-connection-history-import-v1",
+                "CONNECTION_HISTORY_IMPORT_",
+            ),
         ];
         let errors = [
             (
@@ -483,6 +493,9 @@ mod tests {
                         checkin_challenges::authorize_target as fn() -> Result<(), UpgradeError>,
                     "core-network-access-v1" =>
                         network_access::authorize_target as fn() -> Result<(), UpgradeError>,
+                    "core-connection-history-import-v1" =>
+                        connection_history_import::authorize_target
+                            as fn() -> Result<(), UpgradeError>,
                     "core-personal-tokens-v1" =>
                         personal_tokens::authorize_target as fn() -> Result<(), UpgradeError>,
                     "core-oauth2-oidc-v1" =>

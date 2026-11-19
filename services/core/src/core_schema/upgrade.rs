@@ -16,6 +16,7 @@ mod checkin_challenges;
 mod coinbase_payments;
 mod commerce_display_rate;
 mod completion;
+mod connection_history_import;
 mod core59_to62;
 mod finance;
 #[cfg(test)]

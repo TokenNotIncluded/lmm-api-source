@@ -1,4 +1,4 @@
--- Run read-only against the new Core55 target after identity/opening/key imports.
+-- Run read-only against the stopped, reviewed Core55/56/77 target after identity/opening/key imports.
 -- No source PG or existing candidate is contacted by this script.
 BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY;
 SELECT jsonb_build_object(

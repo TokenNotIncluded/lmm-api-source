@@ -232,6 +232,55 @@ async fn retained_snapshot_import_and_runtime_funnel(pool: PgPool) {
             Some("42501")
         );
     }
+    // Community-only provisioning must satisfy the display-rate startup probe
+    // without granting console writes or private option revision reads.
+    CommunityRead::new(runtime.clone()).await.unwrap();
+    for operation in [
+        "SELECT revision FROM core_console.options",
+        "UPDATE core_console.options SET value=value WHERE FALSE",
+    ] {
+        let error = sqlx::query(operation).execute(&runtime).await.unwrap_err();
+        assert_eq!(
+            error.as_database_error().and_then(|e| e.code()).as_deref(),
+            Some("42501")
+        );
+    }
+    for (scope, revoke, grant) in [
+        (
+            "schema",
+            "REVOKE USAGE ON SCHEMA core_console FROM connection_history_runtime",
+            "GRANT USAGE ON SCHEMA core_console TO connection_history_runtime",
+        ),
+        (
+            "key",
+            "REVOKE SELECT(key) ON core_console.options FROM connection_history_runtime",
+            "GRANT SELECT(key) ON core_console.options TO connection_history_runtime",
+        ),
+        (
+            "value",
+            "REVOKE SELECT(value) ON core_console.options FROM connection_history_runtime",
+            "GRANT SELECT(value) ON core_console.options TO connection_history_runtime",
+        ),
+    ] {
+        sqlx::query(revoke).execute(&owner).await.unwrap();
+        assert_eq!(
+            runtime_database::check(
+                &runtime,
+                RequiredCapabilities {
+                    community: true,
+                    ..Default::default()
+                }
+            )
+            .await,
+            Err(runtime_database::RuntimeDatabaseError::MissingPrivileges),
+            "missing display-rate {scope} privilege must block community startup"
+        );
+        assert!(matches!(
+            CommunityRead::new(runtime.clone()).await,
+            Err(lmm_core::community_read::Error::Unavailable)
+        ));
+        sqlx::query(grant).execute(&owner).await.unwrap();
+    }
     for column in [
         "document",
         "mapping",
@@ -295,6 +344,15 @@ async fn retained_snapshot_import_and_runtime_funnel(pool: PgPool) {
     assert!(
         !snapshot_readable,
         "optional reset left snapshot column grants"
+    );
+    let display_options_readable: bool =
+        sqlx::query_scalar("SELECT has_any_column_privilege('connection_history_runtime','core_console.options','SELECT')")
+            .fetch_one(&owner)
+            .await
+            .unwrap();
+    assert!(
+        !display_options_readable,
+        "optional reset left display-rate option column grants"
     );
     let baseline_readable: bool = sqlx::query_scalar(
         "SELECT has_schema_privilege('core_history','USAGE') AND has_table_privilege('core_history.sources','SELECT')",

@@ -216,6 +216,10 @@ const COMPONENTS: &[(&str, &str)] = &[
         "network-access",
         include_str!("../schema/network_access.sql"),
     ),
+    (
+        "connection-history-import",
+        include_str!("../schema/connection_history_import.sql"),
+    ),
 ];
 
 /// Verify the installed managed contract without installing or repairing it.

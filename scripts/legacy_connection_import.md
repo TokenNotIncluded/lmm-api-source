@@ -1,4 +1,4 @@
-# Core55/56 retained connection snapshot import
+# Core55/56/77 retained connection snapshot import
 
 This is a fresh-target, owner-only analytics import. It never creates live keys,
 OAuth grants, login bindings, money, permissions or developer approval authority.
@@ -36,8 +36,19 @@ original archive, opening mapping digest, and the source registration time in th
 original `legacy-cutover-identity.v1` receipt. An identity receipt without these
 per-account registration bindings is unsupported; it must not be forged to pass.
 
-On a **new, stopped Core55 or Core56 target**, complete the existing reviewed identity,
-opening and credential imports first. This reader supports the current cutover
+On a **stopped Core55, Core56 or Core77 target**, complete the existing reviewed
+identity, opening and credential imports first. Core77 adds an explicit current
+import contract; the frozen Core55/56 definitions and catalog fingerprints are
+unchanged.
+
+A Core76 database must first complete the separate owner-controlled
+`core-connection-history-import-v1` upgrade through `lmm-core upgrade-db`.
+The request binds the database name/OID, PostgreSQL system identifier, installer
+and owner roles, and exact predecessor/successor manifests. This 76→77 procedure
+preserves existing rows, sequences and runtime permissions, records one immutable
+receipt, and accepts only an exact replay of that request. Startup never runs it.
+After the upgrade, capture a new target receipt from that same stopped database.
+The history plan rejects an unupgraded Core76 or any unreviewed later assembly. This reader supports the current cutover
 credential importer that preserves token IDs. Each existing API-key credential
 must match its original retained source token's ID, creation time and mapped
 personal owner. A native key created before this history import is rejected rather
@@ -47,7 +58,7 @@ OAuth families are combined with the historical minima.
 
 Run `legacy_connection_target.sql` read-only on that new target to obtain one JSON
 object with `contract=legacy.connection-target.v1`, database name/OID, original
-instance nonce, installed catalog SHA256, explicit `component_count=55` or `56` and current
+instance nonce, installed catalog SHA256, explicit `component_count=55`, `56` or `77` and current
 credential boundary. The planner binds each reviewed component count to its own
 exact catalog fingerprint; mixed versions and unreviewed assemblies are rejected. The instance
 nonce must be the target's existing nonzero

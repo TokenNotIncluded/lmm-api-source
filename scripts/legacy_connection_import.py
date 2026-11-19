@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Produce a new owner-only atomic Core55/56 SQL plan; never connect to a database.
+"""Produce a new owner-only atomic Core55/56/77 SQL plan; never connect to a database.
 
 Uses exact export/mapping bytes. All retained rows include soft deletes and
 revocations. Unknown/missing values remain raw, not fabricated negative facts.
@@ -18,6 +18,7 @@ COVERAGE = 'all_retained_rows_in_frozen_snapshot_including_soft_deleted_and_revo
 TARGET_CATALOGS = {
     55: '5376f90af7a78aeb501c4d976d799033a6a88346f28a57b3e5853a3e0e442207',
     56: '46cbd8e0a9e9bb6c55cb899558b40fa8c8df1affa2e366cbbde733a8527bda43',
+    77: '151c66efa9e5d0af276e1b69a541b432c46d6c1c22d6e7838158595d2e110905',
 }
 TABLES = ('users', 'tokens', 'oauth_server_grants', 'developer_access_requests')
 FIELDS = {
