@@ -325,7 +325,7 @@ def verify(archive: Path, revision: str | None = None) -> dict:
     binaries = {"bin/" + name + suffix for name in component["binaries"]}
     libraries = set(component.get("libraries", []))
     if set(headers) != binaries | libraries:
-        raise ValueError("archive native inventory does not match the component")
+        raise ValueError("archive executable or shared library inventory does not match the component")
     if {name for name, info in files.items() if info["mode"] == 0o755} != binaries:
         raise ValueError("only component binaries may be executable")
     required = set(spec["common"] + component["resources"] + component.get("build_resources", []) + ["README.md"]) | binaries | libraries

@@ -302,7 +302,7 @@
 | 范围 | 证据位置 |
 | --- | --- |
 | 管理员用户原生用量开发自测 | 开发机 /tmp/lmm-architecture-20261116-jpmxei3q/：user-usage-core-final、web-targeted、web-static、core-clippy-final、web-format-final、web-build 的日志与 result.json；截图及 8 组报告位于父仓库 .git/lmm-architecture-user-usage-v3/，仅合成场景，不替代独立整链路验收 |
-| Extore 原生目录开发自测 | `extore-zplugin-development/component-and-go-attempt-3.json`（GNU，Go `a050f041`）；真实 Extore HTTPS/SQLite、共享库、摘要/ABI、授权目录与跨店连接校验通过；Store 为内存测试仓库、Core 为测试替身，不抵扣独立生产验收 |
+| Extore 原生目录开发自测 | `extore-zplugin-development/component-and-go-final-gnu.json`（GNU，Go `9e56134e`）；真实 Extore HTTPS/SQLite、共享库、摘要/ABI、授权目录与跨店连接校验通过；Store 为内存测试仓库、Core 为测试替身，不抵扣独立生产验收 |
 | Core7 制品与准入 | `lmm-core7-release-vh29l59q/admitted-core7.receipt.private.json` |
 | 固定组合 | `lmm-combination-core5-web4-nt6y0hde/core7-go9-web5-combination.receipt.private.json` |
 | release 图片 | `lmm-core7-release-vh29l59q/image-release-r2/result.json` |

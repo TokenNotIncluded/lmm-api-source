@@ -2,7 +2,7 @@
 
 [文档目录](README.md) · [新架构进度](progress.md) · [商店模块](../services/extensions/internal/modules/store/README.md)
 
-本页定义 Extore 授权、目录传输与商品同步合同。两端真实验收及生产配置状态统一记录在 `progress.md` 的 CHECK-06。Extore 的 `main` 会自动部署；继续跨仓库工作前核对实际分支和固定提交，插件依赖只引用已审查的固定版本。
+本页定义 Extore 授权、目录传输与商品同步合同。两端真实验收及生产配置状态统一记录在 `progress.md` 的 CHECK-06。**不得部署，也不得合并或推送会自动部署的 Extore `main`。** 继续跨仓库工作前核对实际分支和固定提交，插件依赖只引用已审查的固定版本。
 
 ## 用户流程
 

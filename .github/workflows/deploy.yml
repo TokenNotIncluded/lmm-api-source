@@ -98,6 +98,11 @@ jobs:
         with:
           ref: ${{ needs.plan.outputs.revision }}
           persist-credentials: false
+      - name: Initialize the pinned Extore plugin dependency
+        if: matrix.component == 'extensions'
+        run: |
+          git submodule update --init --depth 1 -- packages/extore
+          python3 -B scripts/check-extore-plugin-pin.py
       - name: Record the artifact source date
         run: echo "SOURCE_DATE_EPOCH=$(git show -s --format=%ct HEAD)" >> "$GITHUB_ENV"
       - name: Check Core formatting

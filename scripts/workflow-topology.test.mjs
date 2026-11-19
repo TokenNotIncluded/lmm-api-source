@@ -84,6 +84,7 @@ test('workflows initialize only their required pinned submodules', () => {
     'microservice-distribution': ['apps/cli', 'apps/cli', 'packages/extore'],
     'linux-packages': ['apps/cli', 'packages/extore'],
     'core-protocol': ['apps/cli'],
+    deploy: ['packages/extore'],
   };
   for (const [name, paths] of Object.entries(dependencies)) {
     const source = workflow(name);
