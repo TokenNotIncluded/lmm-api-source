@@ -753,6 +753,78 @@ mod writer_contract_tests {
         encoder.terminal().unwrap().concat()
     }
     #[test]
+    fn stream_pending_output_preserves_large_deltas() {
+        for content in ["x".repeat(16 * 1024), "\u{1}".repeat(16 * 1024)] {
+            let mut e = encoder(ClientProtocol::Chat, true);
+            let mut bytes = Vec::new();
+            for event in [
+                Event::Start("up".into()),
+                Event::Block {
+                    index: 0,
+                    kind: BlockKind::Text,
+                },
+                Event::Delta {
+                    index: 0,
+                    text: content.clone(),
+                },
+                Event::Delta {
+                    index: 0,
+                    text: "tail".into(),
+                },
+            ] {
+                bytes.extend(e.consume(event).unwrap().concat());
+            }
+            bytes.extend(finish(&mut e, FinishReason::Stop));
+            let wire = std::str::from_utf8(&bytes).unwrap();
+            let values: Vec<Value> = wire
+                .lines()
+                .filter_map(|line| line.strip_prefix("data: "))
+                .filter(|data| *data != "[DONE]")
+                .map(|data| serde_json::from_str(data).unwrap())
+                .collect();
+            let deltas: Vec<&str> = values
+                .iter()
+                .filter_map(|value| value["choices"][0]["delta"]["content"].as_str())
+                .filter(|text| !text.is_empty())
+                .collect();
+            assert_eq!(deltas, [content.as_str(), "tail"]);
+            assert_eq!(deltas[0].as_bytes(), content.as_bytes());
+            assert_eq!(wire.matches("data: [DONE]").count(), 1);
+        }
+    }
+
+    #[test]
+    fn stream_pending_output_keeps_native_wire_budget() {
+        let mut e = encoder(ClientProtocol::Anthropic, true);
+        let mut published = e.consume(Event::Start("up".into())).unwrap().concat().len();
+        published += e
+            .consume(Event::Block {
+                index: 0,
+                kind: BlockKind::Text,
+            })
+            .unwrap()
+            .concat()
+            .len();
+        let content = "\u{1}".repeat(16 * 1024);
+        let mut error = None;
+        for _ in 0..e.limits.output_bytes / content.len() {
+            match e.consume(Event::Delta {
+                index: 0,
+                text: content.clone(),
+            }) {
+                Ok(packets) => published += packets.concat().len(),
+                Err(value) => {
+                    error = Some(value);
+                    break;
+                }
+            }
+        }
+        assert_eq!(error, Some(RelayError::Limit("encoded output")));
+        assert!(published <= e.limits.output_bytes);
+        assert!(e.bytes < e.limits.output_bytes);
+    }
+
+    #[test]
     fn complete_native_signatures_stay_on_their_original_parts() {
         for client in [ClientProtocol::Anthropic, ClientProtocol::Gemini] {
             let mut e = encoder(client, false);

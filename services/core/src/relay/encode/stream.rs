@@ -147,6 +147,8 @@ impl Writer {
                     grow(&mut output, needed, max, 0)?;
                 }
                 Err(Status::NeedBuffer { buffer, needed, .. }) => match buffer {
+                    // EventEncoderState names its output capacity buffer Pending.
+                    BufferKind::Pending => grow(&mut output, needed, max, 0)?,
                     BufferKind::Tokens => grow(&mut self.tokens, needed, max, Token::EMPTY)?,
                     BufferKind::Items => {
                         grow(
