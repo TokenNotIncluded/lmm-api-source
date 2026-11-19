@@ -32,6 +32,18 @@ var (
 )
 
 func TestMain(m *testing.M) {
+	// This suite owns a private Unix-socket cluster. Inherited libpq settings
+	// from other fixtures must not select its endpoint or reach the production
+	// URL validator, which deliberately rejects connection environment values.
+	for _, entry := range os.Environ() {
+		key, _, _ := strings.Cut(entry, "=")
+		if strings.HasPrefix(key, "PG") {
+			if err := os.Unsetenv(key); err != nil {
+				fmt.Fprintln(os.Stderr, "cannot isolate walletupgrade PostgreSQL test environment")
+				os.Exit(2)
+			}
+		}
+	}
 	if _, err := exec.LookPath("initdb"); err != nil {
 		fmt.Fprintln(os.Stderr, "skipping walletupgrade PostgreSQL tests: initdb not in PATH:", err)
 		os.Exit(0)
