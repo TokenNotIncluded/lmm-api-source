@@ -13,6 +13,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/TokenNotIncluded/lmm-api/extensions/internal/extore"
 	"github.com/TokenNotIncluded/lmm-api/extensions/internal/modules/marketreview"
 )
 
@@ -225,6 +226,7 @@ type Service struct {
 	extore             *extoreCipher
 	extoreRedirect     string
 	extoreHTTP         *http.Client
+	extoreCatalog      extore.CatalogReader
 	repo               Repository
 	auth               Authority
 	funds              Funds

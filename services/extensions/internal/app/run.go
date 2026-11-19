@@ -87,6 +87,7 @@ func Run() error {
 		StoreStockKeyFile:         cfg.Store.StockKeyFile,
 		StoreExtoreKeyFile:        cfg.Store.ExtoreKeyFile,
 		StoreExtoreRedirectURI:    cfg.Store.ExtoreRedirectURI,
+		StoreExtorePlugin:         cfg.Store.ExtorePlugin,
 		Support:                   composition.StorageConfig{Component: "support", URLFile: cfg.Support.DatabaseURLFile, Database: cfg.Support.DatabaseName},
 		Assistant:                 composition.StorageConfig{Component: "assistant", URLFile: cfg.Assistant.DatabaseURLFile, Database: cfg.Assistant.DatabaseName}, AssistantCursorKeyFile: cfg.Assistant.CursorKeyFile,
 		Operations: composition.StorageConfig{Component: "operations", URLFile: cfg.Operations.DatabaseURLFile, Database: cfg.Operations.DatabaseName}, Scripts: scripts, ScriptRepositoryKeyFile: cfg.Scripts.RepositoryKeyFile, IoNetKeyFile: cfg.IoNet.KeyFile,

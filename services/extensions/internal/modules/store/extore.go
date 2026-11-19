@@ -70,6 +70,16 @@ func (s *Service) WithExtore(redirectURI string, key []byte) error {
 	return nil
 }
 
+// WithExtoreCatalogReader binds an already loaded catalog transport before the
+// service starts serving requests. OAuth credentials remain sealed by WithExtore.
+func (s *Service) WithExtoreCatalogReader(reader extore.CatalogReader) error {
+	if !s.ExtoreReady() || Missing(reader) {
+		return ErrInvalid
+	}
+	s.extoreCatalog = reader
+	return nil
+}
+
 func (s *Service) ExtoreReady() bool {
 	return s != nil && s.extore != nil && s.extoreRedirect != ""
 }
@@ -132,7 +142,7 @@ func (s *Service) ExtoreAuthorize(ctx context.Context, token string, userID int6
 	if err != nil {
 		return nil, mapExtoreErr(err)
 	}
-	client := extore.Client{HTTP: s.extoreHTTP}
+	client := extore.Client{HTTP: s.extoreHTTP, Catalog: s.extoreCatalog}
 	if err := client.Discover(ctx, flow.Origin); err != nil {
 		return nil, mapExtoreErr(err)
 	}
@@ -202,7 +212,7 @@ func (s *Service) ExtoreCatalog(ctx context.Context, token string, userID int64,
 	if callbackErr != nil {
 		return nil, mapExtoreErr(callbackErr)
 	}
-	client := extore.Client{HTTP: s.extoreHTTP}
+	client := extore.Client{HTTP: s.extoreHTTP, Catalog: s.extoreCatalog}
 	credentials, err := client.Connect(ctx, flow, code)
 	if err != nil {
 		return nil, mapExtoreErr(err)
@@ -273,7 +283,7 @@ func (s *Service) ExtoreDisconnect(ctx context.Context, token string, userID int
 	if err != nil {
 		return nil, err
 	}
-	client := extore.Client{HTTP: s.extoreHTTP}
+	client := extore.Client{HTTP: s.extoreHTTP, Catalog: s.extoreCatalog}
 	if err := client.RevokeConnection(ctx, row.Origin, row.ClientID, credentials); err != nil {
 		return nil, mapExtoreErr(err)
 	}

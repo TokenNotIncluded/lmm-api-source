@@ -11,6 +11,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/BurntSushi/toml"
+	"github.com/TokenNotIncluded/lmm-api/extensions/internal/extore"
 	"github.com/TokenNotIncluded/lmm-api/extensions/internal/modules"
 	"github.com/TokenNotIncluded/lmm-api/extensions/internal/modules/store"
 )
@@ -73,6 +74,7 @@ type StoreConfig struct {
 	StockKeyFile      string                 `toml:"stock_key_file"`
 	ExtoreKeyFile     string                 `toml:"extore_key_file"`
 	ExtoreRedirectURI string                 `toml:"extore_redirect_uri"`
+	ExtorePlugin      extore.NativeConfig    `toml:"extore_plugin"`
 }
 type LegalConfig struct {
 	ConfigFile string `toml:"config_file"`
@@ -135,7 +137,7 @@ func LoadConfig(path string) (GoConfig, error) {
 	}
 	// The decoder's struct matching also accepts case variants. Only canonical
 	// names belong to this versioned operator contract.
-	allowed := map[string]bool{"store.pickup_mail": true, "store.pickup_mail.smtp_host": true, "store.pickup_mail.smtp_port": true, "store.pickup_mail.tls_mode": true, "store.pickup_mail.from": true, "store.pickup_mail.username": true, "store.pickup_mail.password_file": true, "store.pickup_mail.ca_file": true, "store.pickup_mail.origin": true, "store.pickup_mail.key_file": true, "version": true, "host": true, "host.listen": true, "host.local_http": true, "host.public_origin": true, "host.token_file": true, "host.plugin_state_file": true, "host.modules": true, "host.web_compat": true, "host.max_in_flight": true, "core": true, "core.socket": true, "core.identity_token_file": true, "core.commerce_token_file": true, "store": true, "store.database_name": true, "store.database_url_file": true, "store.stock_key_file": true, "store.extore_key_file": true, "store.extore_redirect_uri": true, "support": true, "support.database_name": true, "support.database_url_file": true, "legal": true, "legal.config_file": true}
+	allowed := map[string]bool{"store.pickup_mail": true, "store.pickup_mail.smtp_host": true, "store.pickup_mail.smtp_port": true, "store.pickup_mail.tls_mode": true, "store.pickup_mail.from": true, "store.pickup_mail.username": true, "store.pickup_mail.password_file": true, "store.pickup_mail.ca_file": true, "store.pickup_mail.origin": true, "store.pickup_mail.key_file": true, "version": true, "host": true, "host.listen": true, "host.local_http": true, "host.public_origin": true, "host.token_file": true, "host.plugin_state_file": true, "host.modules": true, "host.web_compat": true, "host.max_in_flight": true, "core": true, "core.socket": true, "core.identity_token_file": true, "core.commerce_token_file": true, "store": true, "store.database_name": true, "store.database_url_file": true, "store.stock_key_file": true, "store.extore_key_file": true, "store.extore_redirect_uri": true, "store.extore_plugin": true, "store.extore_plugin.host_library": true, "store.extore_plugin.plugin_library": true, "store.extore_plugin.ca_file": true, "support": true, "support.database_name": true, "support.database_url_file": true, "legal": true, "legal.config_file": true}
 	for _, key := range meta.Keys() {
 		if paymentConfigurationKey(key.String()) || toolMarketConfigurationKey(key.String()) || supportCustomersConfigurationKey(key.String()) {
 			continue
@@ -184,6 +186,12 @@ func LoadConfig(path string) (GoConfig, error) {
 	}
 	if cfg.Store.StockKeyFile != "" && (cfg.Store.DatabaseName == "" || cfg.Store.DatabaseURLFile == "") {
 		return cfg, errors.New("store stock_key_file requires configured store database_name and database_url_file")
+	}
+	if err := cfg.Store.ExtorePlugin.Validate(); err != nil {
+		return cfg, err
+	}
+	if cfg.Store.ExtorePlugin.Enabled() && cfg.Store.ExtoreKeyFile == "" {
+		return cfg, errors.New("store extore_plugin requires Extore authorization configuration")
 	}
 	if (cfg.Store.ExtoreKeyFile == "") != (cfg.Store.ExtoreRedirectURI == "") {
 		return cfg, errors.New("configure both store extore_key_file and extore_redirect_uri")
