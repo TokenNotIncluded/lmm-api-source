@@ -266,11 +266,7 @@ rules=[{{id=1,model='local-model',group='allowed',speed='standard',rates={{input
                 .await
                 .unwrap();
             let mut probes = JoinSet::new();
-            let client = Client::builder()
-                .no_proxy()
-                .timeout(Duration::from_secs(5))
-                .build()
-                .unwrap();
+            let client = independent_overload_client().await;
             for index in 0..32 {
                 probes.spawn(complete(
                     client.clone(),
@@ -659,16 +655,29 @@ fn runtime_snapshot(pid: u32) -> Value {
     json!({"pid":pid,"rss_kib":rss,"pss_kib":pss,"fds":fs::read_dir(format!("/proc/{pid}/fd")).unwrap().count(),"tasks":fs::read_dir(format!("/proc/{pid}/task")).unwrap().count()})
 }
 
+// Each overloaded stream still owns a fresh client and connection pool. Building
+// platform TLS verification state is synchronous; keep it off SQLx's single
+// runtime thread so independent fixed-rate commerce can be polled on schedule.
+// Existing CAPACITY bounds concurrent stream builds to 16; the single probe
+// client is constructed only after all 16 stream responses have arrived.
+async fn independent_overload_client() -> Client {
+    tokio::task::spawn_blocking(|| {
+        Client::builder()
+            .no_proxy()
+            .timeout(Duration::from_secs(5))
+            .build()
+            .unwrap()
+    })
+    .await
+    .unwrap()
+}
+
 async fn pause_request(
     endpoint: String,
     key: String,
     label: String,
 ) -> (reqwest::Response, String, usize) {
-    let client = Client::builder()
-        .no_proxy()
-        .timeout(Duration::from_secs(5))
-        .build()
-        .unwrap();
+    let client = independent_overload_client().await;
     let mut response = client
         .post(format!("{endpoint}/v1/chat/completions"))
         .bearer_auth(key)
