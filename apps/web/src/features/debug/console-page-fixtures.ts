@@ -19,6 +19,7 @@ For commercial licensing, please contact support@quantumnous.com
 import type { AxiosAdapter, InternalAxiosRequestConfig } from 'axios'
 
 import type { AdminSiteStatistics } from '@/features/dashboard/site-statistics'
+import type { NativePricingDocument } from '@/features/pricing/catalog-contract'
 import { ROLE } from '@/lib/roles'
 import { useAuthStore } from '@/stores/auth-store'
 
@@ -465,6 +466,31 @@ export function consolePageFixture(
   if (url.origin !== window.location.origin) return undefined
   const user = useAuthStore.getState().auth.user
   const path = url.pathname
+  if (path === '/core/v1/pricing/session') {
+    if (
+      !user ||
+      url.username ||
+      url.password ||
+      config.authMode !== 'session'
+    ) {
+      return undefined
+    }
+    // An intentionally empty native catalog exercises manual model entry
+    // without inventing available providers or granting invocation authority.
+    return {
+      schema_version: 1,
+      visibility: 'session',
+      observed_at: stamp,
+      credits_per_usd: 500_000,
+      rate_basis: 'effective_group_rate',
+      invocation_authorized: false,
+      routing_version: 1,
+      pricing_version: 1,
+      image_pricing_version: null,
+      groups: [],
+      models: [],
+    } satisfies NativePricingDocument
+  }
   if (path === '/api/site/navigation') {
     return { success: true, message: '', data: { value: '{}', revision: 1 } }
   }

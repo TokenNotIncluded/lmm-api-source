@@ -61,7 +61,7 @@ const targets = [
   },
   { path: '/sign-in', ready: '.auth-form-stage form input' },
 ]
-const scenarios = [
+const allScenarios = [
   { id: 'desktop', width: 1440, height: 900 },
   { id: 'phone', width: 390, height: 844 },
   { id: 'compact', width: 320, height: 740 },
@@ -75,6 +75,18 @@ const scenarios = [
     zoom,
   })),
 ]
+const selectedScenarios = process.env.LAYOUT_REVIEW_SCENARIOS?.split(',')
+if (selectedScenarios) {
+  assert.ok(
+    selectedScenarios.every((id) =>
+      allScenarios.some((item) => item.id === id)
+    ),
+    'LAYOUT_REVIEW_SCENARIOS must contain known scenario IDs'
+  )
+}
+const scenarios = selectedScenarios
+  ? allScenarios.filter((item) => selectedScenarios.includes(item.id))
+  : allScenarios
 const revision = execFileSync('git', ['rev-parse', 'HEAD'], {
   encoding: 'utf8',
 }).trim()
@@ -363,11 +375,39 @@ function layoutIssues(metrics) {
   return issues
 }
 
+async function captureScreenshot(page, options) {
+  if (page.viewportSize() !== null) return page.screenshot(options)
+  // At native tab zoom, Playwright clips its full-page screenshot to CSS pixels.
+  // Capture the real browser surface so the evidence includes the whole viewport.
+  const session = await page.context().newCDPSession(page)
+  try {
+    const { data } = await session.send('Page.captureScreenshot', {
+      format: 'png',
+      fromSurface: true,
+      captureBeyondViewport: false,
+    })
+    const png = Buffer.from(data, 'base64')
+    const expected = await page.evaluate(() => ({
+      width: innerWidth * devicePixelRatio,
+      height: innerHeight * devicePixelRatio,
+      tolerance: Math.ceil(devicePixelRatio),
+    }))
+    assert.ok(
+      Math.abs(png.readUInt32BE(16) - expected.width) <= expected.tolerance &&
+        Math.abs(png.readUInt32BE(20) - expected.height) <= expected.tolerance,
+      'Native zoom screenshot must include the full browser viewport'
+    )
+    await writeFile(options.path, png)
+  } finally {
+    await session.detach()
+  }
+}
+
 async function capture(page, entry, state) {
   await settle(page)
   const metrics = await measureLayout(page)
   const screenshot = `${entry.id}-${state}.png`
-  await page.screenshot({
+  await captureScreenshot(page, {
     path: path.join(output, screenshot),
     fullPage: true,
     animations: 'disabled',
@@ -394,8 +434,19 @@ async function checkReachability(page, entry) {
     ],
   ]
   for (const [kind, selector] of groups) {
-    const target = page.locator(selector).last()
-    if (!(await target.count())) continue
+    const candidates = page.locator(selector)
+    const lastRendered = await candidates.evaluateAll((nodes) =>
+      nodes.findLastIndex((node) => {
+        const rect = node.getBoundingClientRect()
+        return (
+          rect.width > 2 &&
+          rect.height > 2 &&
+          !node.closest('[hidden], [inert], [aria-hidden="true"]')
+        )
+      })
+    )
+    if (lastRendered === -1) continue
+    const target = candidates.nth(lastRendered)
     try {
       await target.scrollIntoViewIfNeeded({ timeout: 5000 })
       await target.focus()
@@ -451,7 +502,7 @@ async function checkReachability(page, entry) {
     }
   }
   const screenshot = `${entry.id}-end.png`
-  await page.screenshot({
+  await captureScreenshot(page, {
     path: path.join(output, screenshot),
     animations: 'disabled',
   })
@@ -469,7 +520,9 @@ try {
       context = await chromium.launchPersistentContext(
         path.join(temporary, scenario.id),
         {
-          channel: 'chromium',
+          ...(process.env.PLAYWRIGHT_CHROME_EXECUTABLE
+            ? { executablePath: process.env.PLAYWRIGHT_CHROME_EXECUTABLE }
+            : { channel: 'chromium' }),
           headless: true,
           viewport: scenario.zoom
             ? null
@@ -508,13 +561,28 @@ try {
         if (url.protocol === 'chrome-extension:' && url.host === extensionId) {
           return route.continue()
         }
+        // Analytics is outside this layout fixture. Serve only this known script
+        // locally; all other external requests remain failures and never leave.
+        if (
+          request.method() === 'GET' &&
+          request.resourceType() === 'script' &&
+          url.href === 'https://cdn.agentlane.com/v1/snippet.js'
+        ) {
+          currentEntry?.isolatedScripts.push(url.href)
+          return route.fulfill({
+            contentType: 'text/javascript',
+            body: '/* Analytics disabled in the isolated layout review. */',
+          })
+        }
         if (![consoleOrigin, publicOrigin].includes(url.origin)) {
           currentEntry?.network.push(
             `Blocked external request: ${request.method()} ${url.origin}${url.pathname}`
           )
           return route.abort('blockedbyclient')
         }
-        if (!url.pathname.startsWith('/api/')) return route.continue()
+        if (!/^\/(?:api|core|v1|mj|pg)(?:\/|$)/.test(url.pathname)) {
+          return route.continue()
+        }
         if (url.pathname === '/api/status' && request.method() === 'GET') {
           return route.fulfill({ json: { success: true, data: statusFixture } })
         }
@@ -527,6 +595,7 @@ try {
           }
           const fixtures = {
             '/api/setup': { status: true },
+            '/api/site/navigation': { value: '{}', revision: 1 },
             '/api/notice': '',
             '/api/user-agreement': documentFixture,
             '/api/privacy-policy': documentFixture,
@@ -573,6 +642,10 @@ try {
               : 'viewport',
           issues: [],
           network: [],
+          isolatedScripts: [],
+          screenshotMode: scenario.zoom
+            ? 'browser-surface-viewport'
+            : 'full-page',
           pageErrors: [],
           consoleErrors: [],
           states: [],
@@ -591,7 +664,7 @@ try {
         })
         try {
           const url = new URL(
-            target.path,
+            target.path === '/users' ? '/dashboard/overview' : target.path,
             target.persona ? consoleOrigin : publicOrigin
           )
           if (target.persona) {
@@ -607,6 +680,18 @@ try {
             await page
               .getByTestId('persona-debug-trigger')
               .waitFor({ timeout: 60000 })
+          }
+          // The users route deliberately rejects unknown search parameters.
+          // Initialize the development persona first, then use the real clean
+          // route without weakening the production search contract.
+          if (target.path === '/users') {
+            await page.evaluate((destination) => {
+              history.pushState({}, '', destination)
+              window.dispatchEvent(new PopStateEvent('popstate'))
+            }, target.path)
+            await page
+              .getByRole('heading', { name: '用户', exact: true })
+              .waitFor()
           }
           await page
             .locator(target.ready)
@@ -654,6 +739,7 @@ try {
             .allTextContents()
           const body = await page.locator('body').innerText()
           if (
+            (await page.locator('.error-editorial[data-status]').count()) ||
             /PERSONA_DEBUG_UNMOCKED_REQUEST|Internal Server Error|Something went wrong|糟糕！出错了/.test(
               body
             )
@@ -677,7 +763,7 @@ try {
           entry.issues.push(String(error.stack ?? error))
           try {
             const screenshot = `${entry.id}-failed.png`
-            await page.screenshot({
+            await captureScreenshot(page, {
               path: path.join(output, screenshot),
               fullPage: true,
               animations: 'disabled',
