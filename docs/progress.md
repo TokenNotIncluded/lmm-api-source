@@ -1,8 +1,12 @@
 # 新架构进度
 
-更新于 2026-11-19。此文件只维护当前状态、剩余阻塞和证据入口；执行过程、逐轮测试及历史失败保留在 Git 历史与对应验收收据。
+更新于 2026-11-20。此文件只维护当前状态、剩余阻塞和证据入口；执行过程、逐轮测试及历史失败保留在 Git 历史与对应验收收据。
 
 ## 当前状态
+
+- **数据库升级回归修复（源码已推送，定向自测通过；2026-11-20）**：[e312c77a](https://github.com/TokenNotIncluded/lmm-api-source/commit/e312c77a9e5d128d7aa5e09146e66d321cc2bec2) 隔离钱包升级测试继承的 PostgreSQL 连接环境；[827d0e08](https://github.com/TokenNotIncluded/lmm-api-source/commit/827d0e087650757fa11772eb5cefeface7ecab26) 在历史升级测试关闭连接池后等待本夹具连接进程退出，再请求独占升级。
+  **自测**：Go 在复现原拒绝的环境条件下，四个顶层测试及三个子场景通过 race 检测；Rust 八条历史升级路径分阶段通过真实 PostgreSQL 自测，涵盖数据、账本、权限、序列及重复执行回执。修改范围格式与差异检查通过，临时数据库已清理；构建执行时限和一次保留执行器路径错误的原记录保留。
+  **范围**：本轮修改测试夹具；Core69 历史身份/API Key 导入资格、真实数据与额度对账及独立业务验收继续单列推进。未重跑远程 CI，未发布、部署或切流。见[本轮报告](reports/lmm-upgrade-regression-2026-11-20.md)与[结构化证据](reports/lmm-upgrade-regression-2026-11-20.evidence.json)。**self-tested; independent acceptance not run**。
 
 - **Key quota 验证与 Core77 社区连接历史导入（源码已推送，定向自测通过；2026-11-19）**：[b4414aa5](https://github.com/TokenNotIncluded/lmm-api-source/commit/b4414aa5849f2c1bfc4dd8678c15af1d6d52df48) 修复当前原生 quota 夹具的结构合同发现；[2991afc7](https://github.com/TokenNotIncluded/lmm-api-source/commit/2991afc7eac02f812abed17dbd519f72cf96f6ec) 增加 component77、显式 owner 离线 76→77 升级及精确历史连接导入目标，保留冻结的 55/56 SQL 与 Core69 身份导入审核材料。真实链路还修复 community 单独启用时缺少显示汇率只读权限的问题，补齐启动检查和列权限撤销。
   **定向自测**：Core76 quota 8 项业务加 1 项辅助，共 9/9；Core77 另复验同一条导入→计费业务 1/1，不增加不同用例计数。社区注册表 5、manifest 1、真实升级 1，以及最终历史导入运行链 1，共 8 个不同检查分阶段通过；Go 漏斗用例实际 PASS，Python 计划器 5/5。最终 16 个提交文件与构建输入一致，原始失败、修复和各阶段产物来源分别保留，临时数据库与凭据已清理。

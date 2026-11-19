@@ -1,0 +1,376 @@
+{
+  "schema_version": 1,
+  "date": "2026-11-20",
+  "timezone": "Asia/Taipei",
+  "status": "self-tested; independent acceptance not run",
+  "scope": "Historical database-upgrade test fixtures; no production runtime change",
+  "source": {
+    "repository": "TokenNotIncluded/lmm-api-source",
+    "base": "b948953712978a297a4b49e34beebd7514b52809",
+    "go_commit": "e312c77a9e5d128d7aa5e09146e66d321cc2bec2",
+    "rust_commit": "827d0e087650757fa11772eb5cefeface7ecab26",
+    "rust_source_sha256": "582a2378669c93483cc5dfd9ffd5606e1301ff854ce14c1a37cfc39f9a7fb73f",
+    "go_source_sha256": "da3f5de9b8dcb146f5c018deecd4690836b03c1a02485ee51563422ca5c8e414"
+  },
+  "rust": {
+    "postgres": "postgres (PostgreSQL) 18.6",
+    "distinct_upgrade_paths_passed": 8,
+    "cases": [
+      {
+        "command": [
+          "services/core/target/debug/build/lmm-core/ce14a5a93c67ccc3/out/account_appeals_upgrade-ce14a5a93c67ccc3",
+          "harness::suffix_upgrade_preserves_real_predecessor_and_resolves_exact_replay",
+          "--exact",
+          "--nocapture",
+          "--test-threads=1"
+        ],
+        "counts": {
+          "failed": 0,
+          "ignored": 0,
+          "passed": 1
+        },
+        "exit_code": 0,
+        "name": "account_appeals_upgrade",
+        "seconds": 10.187
+      },
+      {
+        "command": [
+          "services/core/target/debug/build/lmm-core/f54683a99234db2b/out/commerce_display_rate_upgrade-f54683a99234db2b",
+          "harness::suffix_upgrade_preserves_real_predecessor_and_resolves_exact_replay",
+          "--exact",
+          "--nocapture",
+          "--test-threads=1"
+        ],
+        "counts": {
+          "failed": 0,
+          "ignored": 0,
+          "passed": 1
+        },
+        "exit_code": 0,
+        "name": "commerce_display_rate_upgrade",
+        "seconds": 19.805
+      },
+      {
+        "command": [
+          "services/core/target/debug/build/lmm-core/332d5cfd2bb225b3/out/channel_accounting_upgrade-332d5cfd2bb225b3",
+          "harness::suffix_upgrade_preserves_real_predecessor_and_resolves_exact_replay",
+          "--exact",
+          "--nocapture",
+          "--test-threads=1"
+        ],
+        "counts": {
+          "failed": 0,
+          "ignored": 0,
+          "passed": 1
+        },
+        "exit_code": 0,
+        "name": "channel_accounting_upgrade",
+        "seconds": 8.421
+      },
+      {
+        "command": [
+          "services/core/target/debug/build/lmm-core/0e5ee143dba741df/out/channel_observations_upgrade-0e5ee143dba741df",
+          "harness::suffix_upgrade_preserves_real_predecessor_and_resolves_exact_replay",
+          "--exact",
+          "--nocapture",
+          "--test-threads=1"
+        ],
+        "counts": {
+          "failed": 0,
+          "ignored": 0,
+          "passed": 1
+        },
+        "exit_code": 0,
+        "name": "channel_observations_upgrade",
+        "seconds": 7.306
+      },
+      {
+        "command": [
+          "services/core/target/debug/build/lmm-core/a28ed74d55131211/out/channel_projection_upgrade-a28ed74d55131211",
+          "harness::suffix_upgrade_preserves_real_predecessor_and_resolves_exact_replay",
+          "--exact",
+          "--nocapture",
+          "--test-threads=1"
+        ],
+        "counts": {
+          "failed": 0,
+          "ignored": 0,
+          "passed": 1
+        },
+        "exit_code": 0,
+        "name": "channel_projection_upgrade",
+        "seconds": 7.66
+      },
+      {
+        "command": [
+          "services/core/target/debug/build/lmm-core/4200fe095ea28ea3/out/navigation_options_upgrade-4200fe095ea28ea3",
+          "harness::suffix_upgrade_preserves_real_predecessor_and_resolves_exact_replay",
+          "--exact",
+          "--nocapture",
+          "--test-threads=1"
+        ],
+        "counts": {
+          "failed": 0,
+          "ignored": 0,
+          "passed": 1
+        },
+        "exit_code": 0,
+        "name": "navigation_options_upgrade",
+        "seconds": 7.712
+      },
+      {
+        "command": [
+          "services/core/target/debug/build/lmm-core/f22b56e18e25e346/out/subscription_pancake_language_upgrade-f22b56e18e25e346",
+          "harness::suffix_upgrade_preserves_real_predecessor_and_resolves_exact_replay",
+          "--exact",
+          "--nocapture",
+          "--test-threads=1"
+        ],
+        "counts": {
+          "failed": 0,
+          "ignored": 0,
+          "passed": 1
+        },
+        "exit_code": 0,
+        "name": "subscription_pancake_language_upgrade",
+        "seconds": 19.119
+      },
+      {
+        "command": [
+          "services/core/target/debug/build/lmm-core/8931f201c1b5fe42/out/trust_policy_upgrade-8931f201c1b5fe42",
+          "harness::suffix_upgrade_preserves_real_predecessor_and_resolves_exact_replay",
+          "--exact",
+          "--nocapture",
+          "--test-threads=1"
+        ],
+        "counts": {
+          "failed": 0,
+          "ignored": 0,
+          "passed": 1
+        },
+        "exit_code": 0,
+        "name": "trust_policy_upgrade",
+        "seconds": 8.17
+      }
+    ],
+    "first_run_reused_passes": [
+      "account_appeals_upgrade"
+    ],
+    "source_unchanged": true,
+    "build": {
+      "artifacts": [
+        {
+          "name": "account_appeals_upgrade",
+          "path": "services/core/target/debug/build/lmm-core/ce14a5a93c67ccc3/out/account_appeals_upgrade-ce14a5a93c67ccc3"
+        },
+        {
+          "name": "subscription_pancake_language_upgrade",
+          "path": "services/core/target/debug/build/lmm-core/f22b56e18e25e346/out/subscription_pancake_language_upgrade-f22b56e18e25e346"
+        },
+        {
+          "name": "channel_accounting_upgrade",
+          "path": "services/core/target/debug/build/lmm-core/332d5cfd2bb225b3/out/channel_accounting_upgrade-332d5cfd2bb225b3"
+        },
+        {
+          "name": "trust_policy_upgrade",
+          "path": "services/core/target/debug/build/lmm-core/8931f201c1b5fe42/out/trust_policy_upgrade-8931f201c1b5fe42"
+        },
+        {
+          "name": "channel_observations_upgrade",
+          "path": "services/core/target/debug/build/lmm-core/0e5ee143dba741df/out/channel_observations_upgrade-0e5ee143dba741df"
+        },
+        {
+          "name": "channel_projection_upgrade",
+          "path": "services/core/target/debug/build/lmm-core/a28ed74d55131211/out/channel_projection_upgrade-a28ed74d55131211"
+        },
+        {
+          "name": "commerce_display_rate_upgrade",
+          "path": "services/core/target/debug/build/lmm-core/f54683a99234db2b/out/commerce_display_rate_upgrade-f54683a99234db2b"
+        },
+        {
+          "name": "navigation_options_upgrade",
+          "path": "services/core/target/debug/build/lmm-core/4200fe095ea28ea3/out/navigation_options_upgrade-4200fe095ea28ea3"
+        }
+      ],
+      "command": [
+        "mise",
+        "exec",
+        "--",
+        "cargo",
+        "test",
+        "--locked",
+        "--offline",
+        "--manifest-path",
+        "services/core/Cargo.toml",
+        "--test",
+        "account_appeals_upgrade",
+        "--test",
+        "navigation_options_upgrade",
+        "--test",
+        "channel_projection_upgrade",
+        "--test",
+        "channel_observations_upgrade",
+        "--test",
+        "channel_accounting_upgrade",
+        "--test",
+        "commerce_display_rate_upgrade",
+        "--test",
+        "subscription_pancake_language_upgrade",
+        "--test",
+        "trust_policy_upgrade",
+        "--no-run",
+        "--message-format=json"
+      ],
+      "exit_code": 0,
+      "seconds": 170.835,
+      "source_base": "b948953712978a297a4b49e34beebd7514b52809",
+      "source_file": "services/core/tests/common/suffix_upgrade.rs",
+      "source_sha256": "582a2378669c93483cc5dfd9ffd5606e1301ff854ce14c1a37cfc39f9a7fb73f"
+    },
+    "format_checks": [
+      {
+        "command": [
+          "mise",
+          "exec",
+          "--",
+          "rustfmt",
+          "--check",
+          "--edition",
+          "2024",
+          "--config",
+          "skip_children=true",
+          "services/core/tests/common/suffix_upgrade.rs"
+        ],
+        "exit_code": 0,
+        "output": "",
+        "seconds": 0.092
+      },
+      {
+        "command": [
+          "git",
+          "diff",
+          "--check",
+          "--",
+          "services/core/tests/common/suffix_upgrade.rs"
+        ],
+        "exit_code": 0,
+        "output": "",
+        "seconds": 0.016
+      }
+    ],
+    "preserved_executors": {
+      "early58": {
+        "revision": "2a0c7bd380f58a553dc903d399255821c1a65d0f",
+        "sha256": "95d0a26151095f124003435883b8365b6b5f667d8c99d213f66e475754fd4901"
+      },
+      "pancake67": {
+        "revision": "0510c2455dabcb63e33c719ba52ac189d62612bc",
+        "sha256": "b6da2d65b3a8733740937cd3c8144e5c73c10c054951d6ae1d6bacff5af7d8da"
+      }
+    },
+    "first_fixture_execution_failure": {
+      "test": "subscription_pancake_language_upgrade",
+      "reason": "The executor environment pointed at the frozen directory instead of its lmm-core executable.",
+      "exit_code": 101,
+      "error": "running 1 test\ntest harness::suffix_upgrade_preserves_real_predecessor_and_resolves_exact_replay ... FAILED\n\nfailures:\n\nfailures:\n    harness::suffix_upgrade_preserves_real_predecessor_and_resolves_exact_replay\n\ntest result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 1 filtered out; finished in 0.09s\n\n\nthread 'harness::suffix_upgrade_preserves_real_predecessor_and_resolves_exact_replay' (3635663) panicked at tests/common/preserved_upgrade_executor.rs:128:9:\nassertion failed: binary.is_absolute() && binary.is_file()\nnote: run with `RUST_BACKTRACE=1` environment variable to display a backtrace",
+      "resolution": "Selected the existing verified binary; ran the failed path and six not-yet-run paths. Reused the unchanged passing account-appeals path."
+    },
+    "initial_build_execution_limit": {
+      "action": "resume unchanged targeted build with existing cache and no execution deadline",
+      "job_id": "0b2c5adabf0deee6f392fcd5f97a23a1-be",
+      "state": "execution time limit",
+      "timeout_seconds": 900
+    }
+  },
+  "go": {
+    "before": {
+      "command": [
+        "go",
+        "test",
+        "-p",
+        "1",
+        "-race",
+        "./internal/walletupgrade",
+        "-run",
+        "^TestOfflineWalletUpgradeUnixPostgresAndFencedRecovery$",
+        "-count=1",
+        "-v"
+      ],
+      "credentials": "synthetic only",
+      "exit": 1,
+      "injected_environment_keys": [
+        "PGHOST",
+        "PGPORT",
+        "PGUSER",
+        "PGPASSWORD",
+        "PGDATABASE",
+        "PGSSLMODE"
+      ],
+      "seconds": 4.778,
+      "source_sha256": "205ca5164d75a8c12e452cf1f478f8a43b20106ad2e3434d5be21ae863e961d2"
+    },
+    "after": {
+      "command": [
+        "go",
+        "test",
+        "-p",
+        "1",
+        "-race",
+        "./internal/walletupgrade",
+        "-count=1",
+        "-v"
+      ],
+      "credentials": "synthetic only",
+      "exit": 0,
+      "injected_environment_keys": [
+        "PGHOST",
+        "PGPORT",
+        "PGUSER",
+        "PGPASSWORD",
+        "PGDATABASE",
+        "PGSSLMODE"
+      ],
+      "new_cluster_directories_remaining": [],
+      "seconds": 5.475,
+      "source_sha256": "da3f5de9b8dcb146f5c018deecd4690836b03c1a02485ee51563422ca5c8e414",
+      "source_unchanged_during_test": true
+    },
+    "top_level_tests": [
+      "TestOfflineWalletUpgradeUnixPostgresAndFencedRecovery",
+      "TestWalletUpgradeRejectsDriftAndUnprovenStates",
+      "TestWalletUpgradeRejectsUnsafeInputAndRuntimeAuthority",
+      "TestWalletUpgradeRecoversAfterCommitReplyIsDropped"
+    ],
+    "top_level_passed": 4,
+    "subtests_passed": 3,
+    "race_detector": true,
+    "pass_log": "=== RUN   TestOfflineWalletUpgradeUnixPostgresAndFencedRecovery\n--- PASS: TestOfflineWalletUpgradeUnixPostgresAndFencedRecovery (0.27s)\n=== RUN   TestWalletUpgradeRejectsDriftAndUnprovenStates\n=== RUN   TestWalletUpgradeRejectsDriftAndUnprovenStates/runtime_login_not_fenced\n=== RUN   TestWalletUpgradeRejectsDriftAndUnprovenStates/column_grant_drift\n=== RUN   TestWalletUpgradeRejectsDriftAndUnprovenStates/target_schema_without_operation_receipt\n--- PASS: TestWalletUpgradeRejectsDriftAndUnprovenStates (0.42s)\n    --- PASS: TestWalletUpgradeRejectsDriftAndUnprovenStates/runtime_login_not_fenced (0.13s)\n    --- PASS: TestWalletUpgradeRejectsDriftAndUnprovenStates/column_grant_drift (0.15s)\n    --- PASS: TestWalletUpgradeRejectsDriftAndUnprovenStates/target_schema_without_operation_receipt (0.14s)\n=== RUN   TestWalletUpgradeRejectsUnsafeInputAndRuntimeAuthority\n--- PASS: TestWalletUpgradeRejectsUnsafeInputAndRuntimeAuthority (0.13s)\n=== RUN   TestWalletUpgradeRecoversAfterCommitReplyIsDropped\n--- PASS: TestWalletUpgradeRecoversAfterCommitReplyIsDropped (0.18s)\nPASS\nok  \tgithub.com/TokenNotIncluded/lmm-api/extensions/internal/walletupgrade\t2.710s\n",
+    "failure_log": "=== RUN   TestOfflineWalletUpgradeUnixPostgresAndFencedRecovery\n    upgrade_postgres_test.go:237: run real compiled fresh installer for isolated fixture: fresh extension installation rejected\n--- FAIL: TestOfflineWalletUpgradeUnixPostgresAndFencedRecovery (0.04s)\nFAIL\nFAIL\tgithub.com/TokenNotIncluded/lmm-api/extensions/internal/walletupgrade\t0.702s\nFAIL\n",
+    "format_and_diff_checks_exit": 0
+  },
+  "cleanup": {
+    "rust_first_owned_cluster_removed": true,
+    "rust_final_owned_cluster_removed": true,
+    "go_cluster_directories_remaining": []
+  },
+  "origin_failure": {
+    "url": "https://github.com/TokenNotIncluded/lmm-api-source/actions/runs/44527029295",
+    "rust": "UPGRADE_DB_OTHER_CLIENT_OR_PREPARED_TRANSACTION",
+    "go": "fresh extension installation rejected"
+  },
+  "not_run": [
+    "remote CI rerun",
+    "independent business acceptance",
+    "production data migration",
+    "release",
+    "deployment",
+    "traffic cutover",
+    "paid upstream calls"
+  ],
+  "remaining": [
+    "Complete Core69-to-current historical identity/API-key import qualification",
+    "Real data and quota reconciliation",
+    "Full candidate release qualification and independent business acceptance"
+  ],
+  "evidence_directory": "out/lmm-upgrade-closure-20261120"
+}
