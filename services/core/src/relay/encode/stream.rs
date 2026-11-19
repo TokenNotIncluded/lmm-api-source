@@ -147,6 +147,7 @@ impl Writer {
                     grow(&mut output, needed, max, 0)?;
                 }
                 Err(Status::NeedBuffer { buffer, needed, .. }) => match buffer {
+                    BufferKind::Pending => grow(&mut output, needed, max, 0)?,
                     BufferKind::Tokens => grow(&mut self.tokens, needed, max, Token::EMPTY)?,
                     BufferKind::Items => {
                         grow(
@@ -412,5 +413,167 @@ impl Encoder {
                 .and_then(|(i, o)| i.checked_add(o));
         }
         Ok(wire)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn encoder(client: ClientProtocol, limits: &Limits) -> Encoder {
+        let mut request = Request::parse(
+            ClientProtocol::Chat,
+            br#"{"model":"m","messages":[{"role":"user","content":"hello"}],"stream":true}"#,
+            limits,
+        )
+        .unwrap();
+        request.client = client;
+        request.include_usage = true;
+        Encoder::new(&request, "capacity", limits)
+    }
+
+    fn large_delta_round_trip(text: &str) {
+        for client in [ClientProtocol::Chat, ClientProtocol::Responses] {
+            let mut encoder = encoder(client, &Limits::default());
+            let mut bytes = Vec::new();
+            for event in [
+                Event::Start("up".into()),
+                Event::Block {
+                    index: 0,
+                    kind: BlockKind::Text,
+                },
+            ] {
+                bytes.extend(encoder.consume(event).unwrap().concat());
+            }
+            let delta = encoder
+                .consume(Event::Delta {
+                    index: 0,
+                    text: text.into(),
+                })
+                .unwrap();
+            assert_eq!(delta.len(), 1);
+            assert!(delta[0].len() > 4096);
+            bytes.extend(delta.concat());
+            bytes.extend(
+                encoder
+                    .consume(Event::Delta {
+                        index: 0,
+                        text: "-tail".into(),
+                    })
+                    .unwrap()
+                    .concat(),
+            );
+            for event in [
+                Event::EndBlock(0),
+                Event::Usage(Usage {
+                    input_tokens: Some(1),
+                    output_tokens: Some(2),
+                    ..Usage::default()
+                }),
+                Event::Finish(FinishReason::Stop),
+                Event::Done,
+            ] {
+                assert!(encoder.consume(event).unwrap().is_empty());
+            }
+            let terminal = encoder.terminal().unwrap().concat();
+            if client == ClientProtocol::Responses {
+                assert!(terminal.len() > 4096);
+            }
+            // A capacity retry must preserve the settlement preview boundary.
+            assert!(!encoder.writer.as_ref().unwrap().is_finished());
+            bytes.extend(terminal);
+            let wire = String::from_utf8(bytes).unwrap();
+            let packets: Vec<Value> = wire
+                .lines()
+                .filter_map(|line| line.strip_prefix("data: "))
+                .filter(|data| *data != "[DONE]")
+                .map(|data| serde_json::from_str(data).unwrap())
+                .collect();
+            if client == ClientProtocol::Chat {
+                let deltas: Vec<_> = packets
+                    .iter()
+                    .filter_map(|packet| packet["choices"][0]["delta"]["content"].as_str())
+                    .filter(|value| !value.is_empty())
+                    .collect();
+                assert_eq!(deltas, [text, "-tail"]);
+                assert_eq!(
+                    packets
+                        .iter()
+                        .filter(|packet| packet["choices"][0]["delta"]["role"] == "assistant")
+                        .count(),
+                    1
+                );
+                assert_eq!(
+                    packets
+                        .iter()
+                        .filter(|packet| packet["choices"][0]["finish_reason"] == "stop")
+                        .count(),
+                    1
+                );
+                assert_eq!(
+                    wire.lines().filter(|line| *line == "data: [DONE]").count(),
+                    1
+                );
+            } else {
+                let deltas: Vec<_> = packets
+                    .iter()
+                    .filter(|packet| packet["type"] == "response.output_text.delta")
+                    .map(|packet| packet["delta"].as_str().unwrap())
+                    .collect();
+                assert_eq!(deltas, [text, "-tail"]);
+                for (index, packet) in packets.iter().enumerate() {
+                    assert_eq!(packet["sequence_number"].as_u64(), Some(index as u64));
+                }
+                let completed: Vec<_> = packets
+                    .iter()
+                    .filter(|packet| packet["type"] == "response.completed")
+                    .collect();
+                assert_eq!(completed.len(), 1);
+                assert_eq!(
+                    completed[0]["response"]["output"][0]["content"][0]["text"],
+                    format!("{text}-tail")
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn pending_output_grows_for_plain_sixteen_kib_delta() {
+        large_delta_round_trip(&"x".repeat(16 * 1024));
+    }
+
+    #[test]
+    fn pending_output_grows_for_escaped_sixteen_kib_delta() {
+        large_delta_round_trip(&"\u{0001}".repeat(16 * 1024));
+    }
+
+    #[test]
+    fn pending_output_growth_rejects_the_existing_wire_limit() {
+        let limits = Limits {
+            output_bytes: 16 * 1024,
+            ..Limits::default()
+        };
+        let mut encoder = encoder(ClientProtocol::Anthropic, &limits);
+        assert_eq!(encoder.wire_limit(), limits.output_bytes);
+        for event in [
+            Event::Start("up".into()),
+            Event::Block {
+                index: 0,
+                kind: BlockKind::Text,
+            },
+        ] {
+            encoder.consume(event).unwrap();
+        }
+        let before = encoder.writer.as_ref().unwrap().written;
+        // The unescaped content fits the policy; its JSON wire form does not.
+        assert_eq!(
+            encoder.consume(Event::Delta {
+                index: 0,
+                text: "\u{0001}".repeat(4 * 1024),
+            }),
+            Err(RelayError::Limit("response encoder workspace"))
+        );
+        assert_eq!(encoder.writer.as_ref().unwrap().written, before);
+        assert!(!encoder.writer.as_ref().unwrap().is_finished());
     }
 }
