@@ -254,10 +254,15 @@ async fn setup_a03_roles() -> PgPool {
     assert_eq!(identity, (owner.clone(), operator, false, true, false));
     core_schema::init(&pool).await.unwrap();
     core_schema::check(&pool).await.unwrap();
-    // Reuse the reviewed deployment grant matrix; only the test's owner name differs.
-    let grants = include_str!("../../../deployment/postgres/grant-core-runtime.sql")
-        .replace("lmm_core_owner", &owner);
-    let script = format!("\\set runtime_role {runtime}\n\\set enable_models true\n{grants}");
+    // Reuse the reviewed deployment grant matrix and its complete owner check.
+    // psql reads stdin inside the owned container, so expand the sibling include.
+    let grants = include_str!("../../../deployment/postgres/grant-core-runtime.sql").replace(
+        "\\ir verify-channel-observations-owner.sql",
+        include_str!("../../../deployment/postgres/verify-channel-observations-owner.sql"),
+    );
+    let script = format!(
+        "\\set owner_role {owner}\n\\set runtime_role {runtime}\n\\set enable_models true\n{grants}"
+    );
     run_writer_sql(&pool.connect_options(), &script)
         .await
         .expect("explicit production runtime grants");
@@ -469,51 +474,35 @@ async fn get_target_receipt(pool: &PgPool) -> serde_json::Value {
     .await
     .unwrap();
 
-    let contract_script = format!(
-        r#"
-import sys, json
-sys.path.insert(0, "{scripts_dir}")
-import legacy_key_quota_opening as KQ
-print(json.dumps(KQ.IDENTITY.current_contract()))
-"#,
-        scripts_dir = SCRIPTS_DIR
-    );
-    let output = std::process::Command::new("python3")
-        .args(["-B", "-c", &contract_script])
-        .output()
-        .expect("get current contract");
-    assert!(
-        output.status.success(),
-        "Failed to get contract: {}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-    let mut contract: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
-
-    let catalog_hash_script = format!(
-        r#"
-import sys
-sys.path.insert(0, "{scripts_dir}")
-import legacy_key_quota_opening as KQ
-print(KQ.IDENTITY.catalog_hash_sql(KQ.IDENTITY.current_contract()))
-"#,
-        scripts_dir = SCRIPTS_DIR
-    );
-    let hash_output = std::process::Command::new("python3")
-        .args(["-B", "-c", &catalog_hash_script])
-        .output()
-        .expect("get catalog hash sql");
-    assert!(
-        hash_output.status.success(),
-        "Failed to get catalog hash sql: {}",
-        String::from_utf8_lossy(&hash_output.stderr)
-    );
-    let hash_sql = String::from_utf8(hash_output.stdout).unwrap();
-    let catalog_hash: String = sqlx::query_scalar(sqlx::AssertSqlSafe::<&str>(&hash_sql))
-        .fetch_one(pool)
+    core_schema::check(pool)
         .await
-        .unwrap();
-
-    contract["catalog_fingerprint_sha256"] = serde_json::Value::String(catalog_hash);
+        .expect("quota target must match the compiled Core contract");
+    let manifest = core_schema::schema_manifest();
+    let component_fingerprints: serde_json::Map<String, serde_json::Value> = manifest
+        .components
+        .into_iter()
+        .map(|component| {
+            (
+                component.name.to_owned(),
+                serde_json::Value::String(component.raw_schema_sha256),
+            )
+        })
+        .collect();
+    let catalog_hash: String = sqlx::query_scalar(
+        "SELECT encode(catalog_fingerprint, 'hex') FROM core_meta.runtime_contract WHERE singleton",
+    )
+    .fetch_one(pool)
+    .await
+    .unwrap();
+    let contract = serde_json::json!({
+        "identity_version": manifest.identity.version,
+        "identity_fingerprint_sha256": manifest.identity.fingerprint_sha256,
+        "component_fingerprints": component_fingerprints,
+        "catalog_query": manifest.catalog.query_utf8,
+        "catalog_query_sha256": manifest.catalog.query_sha256,
+        "installer_contract_sha256": manifest.installer_contract_sql_sha256,
+        "catalog_fingerprint_sha256": catalog_hash,
+    });
 
     serde_json::json!({
         "connection": {
