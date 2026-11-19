@@ -551,6 +551,8 @@ mod tests {
     fn pending_output_growth_rejects_the_existing_wire_limit() {
         let limits = Limits {
             output_bytes: 16 * 1024,
+            event_bytes: 16 * 1024,
+            tool_argument_bytes: 16 * 1024,
             ..Limits::default()
         };
         let mut encoder = encoder(ClientProtocol::Anthropic, &limits);
