@@ -51,6 +51,9 @@ max_in_flight = 16
 # [store.extore_plugin]
 # host_library = "/usr/lib/lmm/extensions/extore/libextore_plugin_host.so"
 # plugin_library = "/usr/lib/lmm/extensions/extore/libextore_commerce_plugin.so"
+# Copy each SHA-256 from this package's MANIFEST.json, never from user input.
+# host_sha256 = "<64 lowercase hex characters for libextore_plugin_host.so>"
+# plugin_sha256 = "<64 lowercase hex characters for libextore_commerce_plugin.so>"
 # Optional additional CA PEM; TLS certificate verification stays enabled.
 # ca_file = "/etc/lmm.conf.d/extore-ca.pem"
 # [support]

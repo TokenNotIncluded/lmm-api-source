@@ -11,8 +11,9 @@ func TestExtoreNativePluginConfiguration(t *testing.T) {
 	const base = "version=1\n[host]\ntoken_file='/tmp/host-token'\nmodules=['store']\nweb_compat=true\n" +
 		"[store]\ndatabase_name='lmm_store_test'\ndatabase_url_file='/tmp/store.url'\n" +
 		"extore_key_file='/tmp/extore-key'\nextore_redirect_uri='https://shop.example/store/manage'\n"
-	const plugin = "[store.extore_plugin]\nhost_library='/usr/lib/lmm/extensions/extore/libextore_plugin_host.so'\n" +
-		"plugin_library='/usr/lib/lmm/extensions/extore/libextore_commerce_plugin.so'\n"
+	plugin := "[store.extore_plugin]\nhost_library='/usr/lib/lmm/extensions/extore/libextore_plugin_host.so'\n" +
+		"plugin_library='/usr/lib/lmm/extensions/extore/libextore_commerce_plugin.so'\n" +
+		"host_sha256='" + strings.Repeat("a", 64) + "'\nplugin_sha256='" + strings.Repeat("b", 64) + "'\n"
 	write := func(raw string) string {
 		t.Helper()
 		path := filepath.Join(t.TempDir(), "extensions.toml")
@@ -35,6 +36,7 @@ func TestExtoreNativePluginConfiguration(t *testing.T) {
 		base + strings.Replace(plugin, "'/usr/lib/lmm/extensions/extore/libextore_plugin_host.so'", "'relative.so'", 1),
 		base + strings.Replace(plugin, "host_library=", "Host_Library=", 1),
 		strings.Replace(base, "extore_key_file='/tmp/extore-key'\n", "", 1) + plugin,
+		base + strings.Replace(plugin, strings.Repeat("a", 64), "bad-digest", 1),
 		base + plugin + "fallback=true\n",
 	} {
 		if _, err := LoadConfig(write(raw)); err == nil {

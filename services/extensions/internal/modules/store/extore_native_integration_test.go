@@ -6,8 +6,12 @@ import (
 	"crypto/x509"
 	"encoding/json"
 	"errors"
+	"net"
 	"net/http"
+	"net/url"
 	"os"
+	"os/exec"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -38,6 +42,8 @@ func TestNativePluginCatalogStore(t *testing.T) {
 		RootCAFile    string `json:"root_ca_file"`
 		HostLibrary   string `json:"host_library"`
 		PluginLibrary string `json:"plugin_library"`
+		HostSHA256    string `json:"host_sha256"`
+		PluginSHA256  string `json:"plugin_sha256"`
 		ReportPath    string `json:"report_path"`
 		ShopA         shop   `json:"shop_a"`
 		ShopB         shop   `json:"shop_b"`
@@ -54,7 +60,21 @@ func TestNativePluginCatalogStore(t *testing.T) {
 	if !roots.AppendCertsFromPEM(certificate) {
 		t.Fatal("fixture CA is invalid")
 	}
-	transport := &http.Transport{TLSClientConfig: &tls.Config{RootCAs: roots, MinVersion: tls.VersionTLS12}}
+	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+	defer cancel()
+	origin, err := url.Parse(cfg.Origin)
+	must(t, err)
+	transport := &http.Transport{
+		TLSClientConfig: &tls.Config{RootCAs: roots, MinVersion: tls.VersionTLS12},
+		// Both verified TLS listeners belong to this isolated fixture. This
+		// avoids relying on a host's optional localhost.localdomain NSS module.
+		DialContext: func(ctx context.Context, network, address string) (net.Conn, error) {
+			if address != net.JoinHostPort(origin.Hostname(), "443") {
+				return nil, errors.New("unexpected fixture TLS destination")
+			}
+			return (&net.Dialer{Timeout: 5 * time.Second}).DialContext(ctx, network, "127.0.0.1:443")
+		},
+	}
 	defer transport.CloseIdleConnections()
 	var httpCatalogCalls atomic.Int32
 	httpClient := &http.Client{
@@ -68,13 +88,57 @@ func TestNativePluginCatalogStore(t *testing.T) {
 			return transport.RoundTrip(request)
 		}),
 	}
-	reader, err := extore.NewNativeCatalogReader(extore.NativeConfig{
+	nativeConfig := extore.NativeConfig{
 		HostLibrary: cfg.HostLibrary, PluginLibrary: cfg.PluginLibrary, CAFile: cfg.RootCAFile,
-	})
+		HostSHA256: cfg.HostSHA256, PluginSHA256: cfg.PluginSHA256,
+	}
+	if os.Getenv("EXTORE_NATIVE_WRONG_HOST") == "1" {
+		nativeConfig.HostLibrary, nativeConfig.HostSHA256 = cfg.PluginLibrary, cfg.PluginSHA256
+		unexpected, err := extore.NewNativeCatalogReader(nativeConfig)
+		if err == nil {
+			unexpected.Close()
+			t.Fatal("plugin library was accepted as the native host")
+		}
+		if !strings.Contains(err.Error(), "missing extore_host_abi_version") {
+			t.Fatal("wrong native host did not fail its ABI symbol check")
+		}
+		return
+	}
+	// Preserve the existing default Go HTTPS path on both GNU and musl builds,
+	// before any native plugin is configured or loaded.
+	baseline := extore.Client{HTTP: &http.Client{
+		Transport: transport, Timeout: 20 * time.Second,
+		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
+	}}
+	baselineCatalog, err := baseline.ConnectionCatalog(ctx, cfg.Origin, cfg.ShopA.Credentials)
+	must(t, err)
+	if baselineCatalog.Shop.ID != cfg.ShopA.ID || len(baselineCatalog.Products) != 1 {
+		t.Fatal("the default Go HTTPS catalog path changed")
+	}
+	wrongDigest := nativeConfig
+	wrongDigest.HostSHA256 = strings.Repeat("0", 64)
+	if unexpected, err := extore.NewNativeCatalogReader(wrongDigest); err == nil {
+		unexpected.Close()
+		t.Fatal("native host with a wrong configured digest was loaded")
+	}
+	wrongPath := nativeConfig
+	wrongPath.HostLibrary = cfg.PluginLibrary
+	if unexpected, err := extore.NewNativeCatalogReader(wrongPath); err == nil {
+		unexpected.Close()
+		t.Fatal("native library path was not bound to its configured digest")
+	}
+	// A wrong-ABI image is pinned once loaded. Probe it in its own short-lived
+	// process, then use the valid pair in this consumer.
+	executable, err := os.Executable()
+	must(t, err)
+	probe := exec.CommandContext(ctx, executable, "-test.run", "^TestNativePluginCatalogStore$", "-test.v")
+	probe.Env = append(os.Environ(), "EXTORE_NATIVE_WRONG_HOST=1")
+	if output, err := probe.CombinedOutput(); err != nil {
+		t.Fatalf("invalid native host probe failed: %v: %s", err, output)
+	}
+	reader, err := extore.NewNativeCatalogReader(nativeConfig)
 	must(t, err)
 	defer reader.Close()
-	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
-	defer cancel()
 	client := extore.Client{HTTP: httpClient, Catalog: reader}
 	for _, item := range []shop{cfg.ShopA, cfg.ShopB} {
 		catalog, err := client.ConnectionCatalog(ctx, cfg.Origin, item.Credentials)
@@ -187,13 +251,22 @@ func TestNativePluginCatalogStore(t *testing.T) {
 	must(t, reader.Close())
 	_, err = client.ConnectionCatalog(ctx, cfg.Origin, cfg.ShopA.Credentials)
 	wantError(t, err, extore.ErrUnavailable)
+	reopened, err := extore.NewNativeCatalogReader(nativeConfig)
+	must(t, err)
+	_, readErr := reopened.ReadCatalog(ctx, cfg.Origin, cfg.ShopA.Credentials.Access)
+	closeErr := reopened.Close()
+	must(t, readErr)
+	must(t, closeErr)
 	if httpCatalogCalls.Load() != 0 {
 		t.Fatal("explicit native catalog silently fell back to the HTTP client")
 	}
 	report := map[string]any{
 		"status": "passed", "host_abi": 1, "interface": "extore.commerce",
 		"real_extore_https_sqlite": true, "tls_verification": true,
-		"native_thread_affinity": true, "native_repeated_open_call_release_close": true,
+		"default_go_https_without_plugin": true, "native_digest_checked": true,
+		"native_digest_path_binding": true, "invalid_host_abi_rejected": true,
+		"reader_close_and_reopen": true,
+		"native_thread_affinity":  true, "native_repeated_open_call_release_close": true,
 		"approved_products_per_shop": 1, "invalid_token_denied": true,
 		"grant_validation_retained": true, "cross_user_connection_denied": true,
 		"connection_upstream_shop_mismatch_denied": true,
