@@ -4,8 +4,9 @@
 
 ## 当前状态
 
-- **主线 CI 前置检查修复（开发自测通过；2026-11-19）**：Web 62 个格式失败已由 [7ebaf642](https://github.com/TokenNotIncluded/lmm-api-source/commit/7ebaf6422742beb7fcfdd874c2a25c916b0cf00b) 修复；原生用户测试的版权声明已移至文件头。Core 显式分组授权条件作等价合并，共用 abuse 夹具的未使用函数注解限定于锁顺序测试目标。
-  **验证与边界**：Web format、lint、typecheck、copyright 均 exit 0；lint 保留 350 warnings、0 errors。Core 全目标 Clippy（`-D warnings`）最终 exit 0，相关格式检查通过。初始 CI、后续版权检查及首次 Clippy 失败保留在[本轮报告](reports/lmm-ci-repair-2026-11-19.md)与[结构化证据](reports/lmm-ci-repair-2026-11-19.evidence.json)。后续全量 CI 尚需读取实际结果；本轮未执行独立业务验收或部署。
+- **主线 CI 回归修复与真实 Core 进程验证（定向通过；2026-11-19）**：已处理上一轮 3 个 Web、4 个 Core 测试失败。Web [04df4c40](https://github.com/TokenNotIncluded/lmm-api-source/commit/04df4c40574cc0999d9c8b009e54fd778c52f8b0) 的[完整 CI job](https://github.com/TokenNotIncluded/lmm-api-source/actions/runs/44470882275/job/135379764060) 成功：764 个源码测试文件与 6 个脚本测试文件串行通过，格式、版权、lint、类型、生产构建与体积门槛通过。Core 两项合同测试通过后复用，两个测试竞态已修复并精确复验通过；资金、权限与拒绝路径断言保留。CI 有界时限调整为 150 分钟并即时输出失败日志，18 项拓扑检查通过。
+  **独立定向验证**：冻结的真实 Core OS 进程、TOML、TCP HTTP/SSE 和独占 PostgreSQL 完成 7 个业务场景，加 1 个支持用例共 8/8 通过；覆盖预算竞争、权限幂等、团队付款与撤权、流式断开、缺失 usage 和重启恢复、结算重试与唯一结算。837 个产品文件、54 个测试文件及 1 项可选路径前后无漂移，数据库已确认清理。40001 为真实 PG 中注入的序列化失败，未证明实际 SSI 并发冲突。
+  **边界与证据**：完整后端 CI 尚无最终通过结论；全站、容量及生产切流未完成。合成账号、资金和本地上游不抵扣生产验收。见[本轮报告](reports/lmm-ci-core-process-2026-11-19.md)与[结构化证据](reports/lmm-ci-core-process-2026-11-19.evidence.json)；此前格式、版权及 Clippy 失败保留在[前轮报告](reports/lmm-ci-repair-2026-11-19.md)。
 
 - **请求能力路由实机 HTTP 验证（3/3 通过；2026-11-19）**：通过 ssmcp 在开发机发送真实 TCP/HTTP 请求，使用实际 Core 网关、私有 PostgreSQL 和受限运行角色。次数上限 1 时跳过输出不足的 A、由 B 返回 200；B 真实连接拒绝后转向 C 返回 200，发送编号 1、2 且仅一笔预留与结算；全部不兼容返回 503、零发送和零预扣。重复请求 409，无新增上游调用或扣费。测试 [234643a1](https://github.com/TokenNotIncluded/lmm-api-source/commit/234643a101dcd0bc400b01a0c95cb0ad7ed852bd)。
   **证据与边界**：两个成功场景各结算 10 合成 credits，冻结归零；1,091 项输入摘要前后一致。首次执行 3/3 通过，临时数据库已清理。[实测报告](reports/lmm-request-aware-http-2026-11-19.md)与[结构化证据](reports/lmm-request-aware-http-2026-11-19.evidence.json)已记录。上游为本地测试 HTTP 服务；生产主程序配置启动、真实付费供应商、部署与独立业务验收未执行。

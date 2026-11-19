@@ -842,6 +842,8 @@ async fn repeatable_read_agent_writes_fail_instead_of_using_stale_parent_budget(
         .await
         .unwrap();
     let waiting = wait(&agent, &session, &cv, "tools_pending").await;
+    // Finish the status-triggered worker before comparing transaction revisions.
+    assert!(agent.base.drain(Duration::from_secs(5)).await);
     let mut tx = pool.begin().await.unwrap();
     sqlx::query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ")
         .execute(&mut *tx)

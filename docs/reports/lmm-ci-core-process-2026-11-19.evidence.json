@@ -1,0 +1,361 @@
+{
+  "format": "lmm-ci-core-process-evidence-v1",
+  "reported_at": "2026-11-19T14:37:03+08:00",
+  "timezone": "Asia/Taipei",
+  "summary": {
+    "known_ci_test_failures_addressed": 7,
+    "web_failures": 3,
+    "core_failures": 4,
+    "focused_closure": "PASS",
+    "independent_core_business_scenarios": 7,
+    "support_tests": 1,
+    "full_backend_ci": "NO_FINAL_PASS_AT_REPORT_FREEZE",
+    "production_deployment": "NOT_RUN",
+    "production_cutover": "NOT_RUN"
+  },
+  "source": {
+    "repository": "TokenNotIncluded/lmm-api-source",
+    "base_before_web_fix": "3fe29f8b70a34b6ad9af14312bcbd8df39f91763",
+    "web_fix_commit": "04df4c40574cc0999d9c8b009e54fd778c52f8b0",
+    "candidate_description": "04df4c40 plus the four Core test-file contents listed below; workflow and documentation edits are outside the Core build input set.",
+    "changed_file_sha256": {
+      ".github/workflows/core-protocol.yml": "0b66948b8cb373384aa5c62dbf5746e01529704b57e5aad27d692df653053f8b",
+      "services/core/src/assistant_model/agent/registry.rs": "fdc0906d1a6b91eeea7268d8de0ef563ea2b2a44cffd7a826e93193d6ec9549a",
+      "services/core/src/assistant_model/agent/tests.rs": "4de070bcb5860e1d761c2e9c760b8a53f81d981b96b0ea63d07fff3d8a1ad531",
+      "services/core/src/config/managed_recovery_config.rs": "e0faf98b49f3be10b948b2a8dccb783ee21043e240064308e07e837b4709d477",
+      "services/core/src/model_http/responses_continuity_independent.rs": "f9f97dd12204a093ed8d24c03ced4417aa0b1ce57a678cabe1fba25dc341bf0b",
+      "apps/web/src/features/channels/components/native-channel-sorting.test.tsx": "4c6ad77bf70e5546304a209445695fd7b8f35da3bf24138e26ae6b850923fd02",
+      "apps/web/src/lib/auth-cookie-unsupported.test.ts": "152c09f5acc22c1044c8b1db91dcb0682e421416be3d588c71b0fc6043564367"
+    },
+    "runtime_logic_changed": false
+  },
+  "ci": {
+    "initial_failure": {
+      "run_id": 44379426092,
+      "url": "https://github.com/TokenNotIncluded/lmm-api-source/actions/runs/44379426092",
+      "core_timeout_minutes": 60,
+      "core_library_results_before_timeout": 1372,
+      "core_library_selected_tests": 1856,
+      "downstream_payment_go_store_rpc_completed": false
+    },
+    "web_verified": {
+      "head_sha": "04df4c40574cc0999d9c8b009e54fd778c52f8b0",
+      "run_id": 44470882275,
+      "job_id": 135379764060,
+      "conclusion": "success",
+      "url": "https://github.com/TokenNotIncluded/lmm-api-source/actions/runs/44470882275/job/135379764060",
+      "serial_source_test_files": 764,
+      "serial_script_test_files": 6,
+      "format_copyright_lint_types_tests_build_bundle": "PASS",
+      "bundle_gzip_bytes": 499781,
+      "bundle_limit_bytes": 786432
+    },
+    "translation_verified": {
+      "job_id": 135379764884,
+      "conclusion": "success"
+    },
+    "backend_at_report_freeze": {
+      "head_sha": "04df4c40574cc0999d9c8b009e54fd778c52f8b0",
+      "job_id": 135379764864,
+      "status": "in_progress",
+      "contains_final_core_fixes": false
+    },
+    "workflow_change": {
+      "timeout_minutes": 150,
+      "nocapture": true,
+      "serial_test_threads": 1,
+      "existing_test_selection_preserved": true,
+      "topology_tests": {
+        "passed": 18,
+        "failed": 0,
+        "skipped": 0
+      },
+      "actionlint": {
+        "status": "NOT_RUN",
+        "reason": "Existing executable unavailable; no additional environment installed."
+      }
+    }
+  },
+  "developer_verification": {
+    "web": {
+      "channel_sorting": {
+        "passed": 7,
+        "failed": 0
+      },
+      "auth_cookie_unsupported": {
+        "passed": 3,
+        "failed": 0
+      },
+      "modified_file_format": "PASS",
+      "modified_file_lint": "PASS",
+      "full_web_typecheck": "PASS"
+    },
+    "core_initial": {
+      "status": "FAIL",
+      "results": [
+        {
+          "test": "assistant_model::agent::registry::tests::reviewed_installed_subset_has_exact_schemas_and_no_uninstalled_authority",
+          "exit_code": 0,
+          "counts": {
+            "failed": 0,
+            "filtered": 1855,
+            "ignored": 0,
+            "measured": 0,
+            "passed": 1
+          },
+          "seconds": 0.016
+        },
+        {
+          "test": "config::managed_recovery_config::tests::managed_keys_reject_material_shared_with_every_configured_domain_and_retired_key",
+          "exit_code": 0,
+          "counts": {
+            "failed": 0,
+            "filtered": 1855,
+            "ignored": 0,
+            "measured": 0,
+            "passed": 1
+          },
+          "seconds": 0.064
+        },
+        {
+          "test": "assistant_model::agent::tests::repeatable_read_agent_writes_fail_instead_of_using_stale_parent_budget",
+          "exit_code": 101,
+          "counts": {
+            "failed": 1,
+            "filtered": 1855,
+            "ignored": 0,
+            "measured": 0,
+            "passed": 0
+          },
+          "seconds": 1.617
+        },
+        {
+          "test": "model_http::responses_continuity_independent::responses_continuity_independent_store_tristate_and_exact_refusal",
+          "exit_code": 101,
+          "counts": {
+            "failed": 1,
+            "filtered": 1855,
+            "ignored": 0,
+            "measured": 0,
+            "passed": 0
+          },
+          "seconds": 2.821
+        }
+      ]
+    },
+    "core_final_exact_recheck": {
+      "status": "PASS",
+      "results": [
+        {
+          "test": "assistant_model::agent::tests::repeatable_read_agent_writes_fail_instead_of_using_stale_parent_budget",
+          "exit_code": 0,
+          "counts": {
+            "failed": 0,
+            "filtered": 1855,
+            "ignored": 0,
+            "measured": 0,
+            "passed": 1
+          },
+          "seconds": 1.518
+        },
+        {
+          "test": "model_http::responses_continuity_independent::responses_continuity_independent_store_tristate_and_exact_refusal",
+          "exit_code": 0,
+          "counts": {
+            "failed": 0,
+            "filtered": 1855,
+            "ignored": 0,
+            "measured": 0,
+            "passed": 1
+          },
+          "seconds": 3.071
+        }
+      ],
+      "source_drift": false,
+      "artifact_drift": false,
+      "receipt_drift": false
+    },
+    "passing_result_reuse": "The registry contract and configured-domain tests passed before the final two race fixes; their relevant inputs were unchanged, so their passing developer evidence was reused. They were not represented as rerun on the final binary.",
+    "core_format": "PASS",
+    "diff_check": "PASS",
+    "initial_failed_pg_cleanup": "CONFIRMED_REMOVED",
+    "recheck_pg_cleanup": "CONFIRMED_REMOVED"
+  },
+  "build": {
+    "command": [
+      "mise",
+      "exec",
+      "--",
+      "cargo",
+      "test",
+      "--locked",
+      "--offline",
+      "--manifest-path",
+      "services/core/Cargo.toml",
+      "--lib",
+      "--test",
+      "model_process",
+      "--no-run",
+      "--message-format=json"
+    ],
+    "exit_code": 0,
+    "seconds": 291.91,
+    "profile": {
+      "dev_debug": 0,
+      "incremental": false,
+      "jobs": 1,
+      "offline": true,
+      "test_debug": 0
+    },
+    "input_counts": {
+      "optional": 1,
+      "product": 837,
+      "tests": 54
+    },
+    "source_binding_sha256": "8259f9646b1a88c092ca3177b2af3c1938961c19c7f9ba236a119fcb8277f902",
+    "source_drift": [],
+    "artifact_sha256": {
+      "lmm-core": "3213bdc25319b5378a88239efd070e1c7bd06df09da21375ba7ad3ae55e5bb1b",
+      "model_process": "417b3307ed5c581660eac6c35e3b8b2d5a86b1914affb9dca039afe7311efdda",
+      "lib_test": "ce2a4062d641d50bbb68ef0236282f9b71264b0400930041c398d0aac8783457"
+    }
+  },
+  "independent_process": {
+    "status": "PASS",
+    "started_at": "2026-11-19T06:29:08.155779+00:00",
+    "finished_at": "2026-11-19T06:32:13.861241+00:00",
+    "seconds": 183.518,
+    "exit_code": 0,
+    "counts": {
+      "failed": 0,
+      "filtered": 0,
+      "ignored": 0,
+      "measured": 0,
+      "passed": 8
+    },
+    "scope": "Real Core OS processes, runtime TOML, TCP HTTP/SSE and owned PostgreSQL; synthetic accounts, credits and loopback suppliers.",
+    "cases": [
+      {
+        "test": "independent_process_distinct_requests_compete_for_real_budget",
+        "status": "PASS",
+        "http_statuses": [
+          200,
+          402
+        ],
+        "upstream_dispatches": 1,
+        "initial_synthetic_credits": 1000,
+        "settled_synthetic_credits": 49,
+        "available_after": 951,
+        "held_after": 0
+      },
+      {
+        "test": "independent_process_personal_permissions_and_idempotency",
+        "status": "PASS",
+        "refusal_statuses": [
+          401,
+          403,
+          403,
+          402
+        ],
+        "successful_dispatches_for_same_idempotency_key": 1,
+        "held_after": 0
+      },
+      {
+        "test": "independent_process_team_payer_fallback_and_revocation",
+        "status": "PASS",
+        "upstream_dispatch_delta_after_revocation": 0,
+        "personal_balance_after": 0,
+        "team_balance_after": 902
+      },
+      {
+        "test": "stream_cases::independent_process_missing_usage_preserves_hold_through_natural_expiry",
+        "status": "PASS",
+        "upstream_dispatches": 1,
+        "captures": 0,
+        "core_restarts": 2,
+        "final_state": "reconcile",
+        "held_after": 140,
+        "new_ledger_entries": 0
+      },
+      {
+        "test": "stream_cases::independent_process_settlement_retry_without_redispatch",
+        "status": "PASS",
+        "injected_sqlstate": "40001",
+        "injected_failures": 3,
+        "settlement_attempts": 4,
+        "upstream_dispatches": 1,
+        "settled_synthetic_credits": 49,
+        "held_after": 0,
+        "actual_ssi_proven": false,
+        "fault_fixture_removed": true
+      },
+      {
+        "test": "stream_cases::independent_process_sse_paid_and_partial_disconnect_stays_reserved",
+        "status": "PASS",
+        "successful_settlements": 2,
+        "held_after_partial_disconnect": 140,
+        "upstream_close_ms": 57,
+        "close_before_core_stop_and_total_timeout": true,
+        "state_after_natural_expiry": "reconcile"
+      },
+      {
+        "test": "stream_cases::independent_process_terminal_evidence_recovers_final_transaction_once",
+        "status": "PASS",
+        "core_restarts": 2,
+        "upstream_dispatches": 1,
+        "captures": 1,
+        "final_usage_events": 1,
+        "settled_synthetic_credits": 49,
+        "held_after": 0,
+        "checkpoint_unchanged": true
+      }
+    ],
+    "support_test": "hex_codec::tests::preserves_hex_representation_and_input_errors",
+    "source_drift": {
+      "optional": {
+        "added": [],
+        "missing": [],
+        "modified": []
+      },
+      "product": {
+        "added": [],
+        "missing": [],
+        "modified": []
+      },
+      "tests": {
+        "added": [],
+        "missing": [],
+        "modified": []
+      }
+    },
+    "artifact_sha256": {
+      "lmm-core": "3213bdc25319b5378a88239efd070e1c7bd06df09da21375ba7ad3ae55e5bb1b",
+      "model_process": "417b3307ed5c581660eac6c35e3b8b2d5a86b1914affb9dca039afe7311efdda"
+    },
+    "driver_sha256": "6572e06a689efb11ca93f8582f301b2983d32fb3debded095f9d0804b03088b0",
+    "seal_sha256": "893bfcbd5257c761cf1253f6f4a8b9a2c93a5a5b556b3ea13b728a6f1a1e69a2",
+    "result_sha256": "9a2cd7598b2c0b874956ed67391d2103b80c3077280614d0c56593336eb73d8c",
+    "process_evidence_file_count": 72,
+    "database": "PostgreSQL 18.6; independently owned isolated fixture",
+    "cleanup_state": "CONFIRMED_REMOVED",
+    "cluster_removed": true,
+    "actual_ssi_proven": false,
+    "not_run": [
+      "model_http aggregate",
+      "resource acceptance",
+      "full repository acceptance",
+      "production accounts/databases",
+      "real paid providers"
+    ]
+  },
+  "privacy": {
+    "published": "Synthetic scenario outcomes, source and artifact hashes, public CI links.",
+    "private_only": "Raw logs, runtime configuration, fixture credentials, host and process identifiers, database files and full source binding receipts."
+  },
+  "remaining_launch_gates": [
+    "Read the final source candidate's complete backend CI result, including payment, Go, Store and RPC steps.",
+    "Freeze the final stop-write source, migrate all in-scope data and reconcile balances, historical payments and continuing entitlements.",
+    "Verify writer fencing, in-flight obligations, target host identity and candidate-matched backup/restore and cutover evidence.",
+    "Complete same-candidate first-launch business, recovery, capacity and production acceptance; this report does not authorize or claim production cutover."
+  ]
+}

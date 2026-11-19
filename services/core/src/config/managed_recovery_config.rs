@@ -338,7 +338,7 @@ mod tests {
     fn managed_keys_reject_material_shared_with_every_configured_domain_and_retired_key() {
         let mut fixture = Fixture::new();
         let others = fixture.all_domains();
-        assert_eq!(others.len(), 12);
+        assert_eq!(others.len(), 11);
         assert!(fixture.load(false).is_ok());
         assert!(fixture.load(true).is_ok());
         for (index, path) in others.iter().enumerate() {

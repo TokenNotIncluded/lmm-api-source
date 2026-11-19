@@ -1384,6 +1384,25 @@ async fn responses_continuity_independent_store_tristate_and_exact_refusal(pool:
         let (stateless_id,stateless_result,_)=json_reply(call(&core,&lab.fixture.key,"independent-old-opaque",&stateless).await).await;
         assert_eq!(stateless_result["id"],expected_provider);
         assert!(mapping(&lab.fixture.pool,&stateless_id).await.is_none());
+        // Successful replies can precede their asynchronous performance records.
+        // Finish those writes before proving the next refusal changes no data.
+        tokio::time::timeout(Duration::from_secs(5), async {
+            loop {
+                let recorded: i64 = sqlx::query_scalar(
+                    "SELECT count(*) FROM core_charging.usage_events WHERE request_id=ANY($1) AND event_id='performance-v1'",
+                )
+                .bind(vec![id.clone(), stateless_id.clone()])
+                .fetch_one(&lab.fixture.pool)
+                .await
+                .unwrap();
+                if recorded == 2 {
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .expect("successful stateless requests must finish recording performance");
         let before=snapshot(&lab.fixture.pool).await;let calls=lab.s().calls();
         denied(&core,&lab.fixture.key,"independent-no-store-contract",&stored(json!("no reviewed storage guarantee"))).await;
         assert_eq!(snapshot(&lab.fixture.pool).await,before);

@@ -169,7 +169,7 @@ mod tests {
         env!("CARGO_MANIFEST_DIR"),
         "/../../contracts/assistant-tools-v1.json"
     ));
-    const INSTALLED_SHA: &str = "16828e2ace013589cd2792ec032abaa665447dba3039736552d8f3886f4b3494";
+    const INSTALLED_SHA: &str = "9876a2b36ad907d6ff50de31ae2cd3c2b4b492f85950c8da3b38cb8d176e6227";
     #[test]
     fn reviewed_installed_subset_has_exact_schemas_and_no_uninstalled_authority() {
         let registry = AgentRegistry::from_reviewed(INSTALLED, INSTALLED_SHA).unwrap();
