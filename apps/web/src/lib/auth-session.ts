@@ -776,10 +776,10 @@ function runRefresh(
         !auth.pending2FAFlowToken &&
         auth.pending2FAFlowExpiresAt === null
       ) {
-        // An anonymous refresh rejection confirms the existing identity. It must
-        // not invalidate an explicit login queued behind this Cookie operation.
-        // Explicit logout and rejection of an existing identity still reset it.
-        if (authCache) clearSessionCache(authCache)
+        // The identity is still anonymous. Keep its active public queries and
+        // any explicit login queued behind this Cookie operation. Removing a
+        // mounted query here aborts it without giving its observer a new key.
+        // Explicit logout and rejection of an existing identity still clear it.
         refreshCooldown = null
         auth.setBootstrapState(bootstrapState ?? 'complete')
         return

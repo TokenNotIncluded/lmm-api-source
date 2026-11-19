@@ -2,6 +2,7 @@
 import assert from 'node:assert/strict'
 import { after, afterEach, beforeEach, test } from 'node:test'
 
+import { QueryClient, QueryObserver } from '@tanstack/react-query'
 import axios, { type AxiosAdapter } from 'axios'
 
 import { login, logout } from '@/features/auth/api'
@@ -11,6 +12,7 @@ import {
   applyAuthBundle,
   applyAuthRotation,
   applyPending2FAFlow,
+  bindAuthCache,
   bootstrapAuthentication,
   clearAuthentication,
   setDevelopmentAuthRefreshAdapter,
@@ -253,7 +255,55 @@ test('an anonymous bootstrap 401 does not cancel the explicit queued login', asy
   assert.equal(useAuthStore.getState().auth.user?.id, 43)
 })
 
+test('an anonymous bootstrap 401 preserves an active public catalogue read', async () => {
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false, gcTime: Infinity } },
+  })
+  bindAuthCache(client)
+  const entered = deferred(),
+    release = deferred()
+  let signal: AbortSignal | undefined
+  const key = ['store', 'catalogue-support', 'anonymous']
+  const observer = new QueryObserver(client, {
+    queryKey: key,
+    queryFn: async (context) => {
+      signal = context.signal
+      entered.resolve()
+      await release.promise
+      return { store_merchant_home_supported: true }
+    },
+  })
+  const unsubscribe = observer.subscribe(() => {})
+  setDevelopmentAuthRefreshAdapter(async (config) =>
+    response(config, 401, { success: false })
+  )
+  try {
+    await entered.promise
+    const pending = client.getQueryCache().find({ queryKey: key, exact: true })
+    assert.ok(pending)
+    assert.equal((await bootstrapAuthentication()).kind, 'anonymous')
+    assert.equal(useAuthStore.getState().auth.bootstrapState, 'complete')
+    assert.strictEqual(
+      client.getQueryCache().find({ queryKey: key, exact: true }),
+      pending
+    )
+    assert.equal(signal?.aborted, false)
+    release.resolve()
+    const result = await observer.refetch()
+    assert.equal(result.status, 'success')
+    assert.equal(result.data?.store_merchant_home_supported, true)
+  } finally {
+    release.resolve()
+    unsubscribe()
+    observer.destroy()
+    client.clear()
+  }
+})
+
 test('a passive unauthorized clear remains a superseding identity change', async () => {
+  const client = new QueryClient()
+  bindAuthCache(client)
+  client.setQueryData(['account', 42], { private: true })
   applyAuthBundle({ ...bundle('expired-A'), access_expires_at: 1 }, false)
   const scene = await queuedBackground(401)
   scene.release.resolve()
@@ -262,6 +312,7 @@ test('a passive unauthorized clear remains a superseding identity change', async
   assert.ok('error' in result && axios.isCancel(result.error))
   assert.equal(scene.posts(), 0)
   assert.equal(useAuthStore.getState().auth.user, null)
+  assert.equal(client.getQueryData(['account', 42]), undefined)
 })
 
 test('explicit sign-out while already anonymous still supersedes a queued login', async () => {
