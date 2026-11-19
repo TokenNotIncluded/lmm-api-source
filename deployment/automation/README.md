@@ -107,6 +107,18 @@ checks. The workflow is serialized per configured environment and does not
 cancel a running deployment. Servers are updated sequentially; a failed server
 stops later servers, while earlier healthy servers keep their completed update.
 
+Before building, the workflow requires the latest main-branch `CI` run for the
+selected commit in `TokenNotIncluded/lmm-api-source` to have completed
+successfully. The `Implemented component checks` job must also have succeeded
+in that same run attempt. Missing, running, failed or skipped results stop the
+update; an older successful run cannot replace the latest result. This gate
+reads existing CI records and does not launch or repeat the component tests.
+Wait for CI to succeed, then run deployment for that same revision.
+
+Tags created by `Qualified source release` use `GITHUB_TOKEN` and
+[do not trigger another push workflow](https://docs.github.com/en/actions/concepts/security/github_token).
+Publishing a source prerelease therefore leaves deployment as a separate action.
+
 ## Space, verification and recovery
 
 The workflow reuses the existing archive verifier on the runner and on received

@@ -1,0 +1,320 @@
+{
+  "schema_version": 1,
+  "date": "2026-11-19",
+  "timezone": "Asia/Taipei",
+  "project": "LMM API",
+  "source_repository": "https://github.com/TokenNotIncluded/lmm-api-source",
+  "published_code_head": "9d50a05465d2680904ebdbb041b3e877a04e1448",
+  "status": "TARGETED_FIXES_PUBLISHED_RELEASE_CANDIDATE_READY",
+  "self_test": true,
+  "independent_acceptance": false,
+  "production_deployment": false,
+  "published_changes": [
+    {
+      "commit": "f8a2868ebc61fb974eb1e8eb4bd90a0e8b529ee6",
+      "summary": "Isolate inherited PG environment in Go URL tests"
+    },
+    {
+      "commit": "d40e8a21116aeabbff1a3a9c45cda58155010000",
+      "summary": "Provide PostgreSQL 18 host tools for CI financial fixtures"
+    },
+    {
+      "commit": "9d50a05465d2680904ebdbb041b3e877a04e1448",
+      "summary": "Fix optional managed grants and stream cost conversion; align identity/protocol/payment/migration fixtures; repair MK-01 preparation and budget"
+    }
+  ],
+  "ci_baseline": {
+    "run_id": 44473951779,
+    "url": "https://github.com/TokenNotIncluded/lmm-api-source/actions/runs/44473951779",
+    "rust_passed": 2679,
+    "rust_failed": 33,
+    "rust_ignored": 78,
+    "full_test_log_artifact_id": 14511426817,
+    "artifact_sha256": "4c4fdb2af495f9ecaad3f236aa7ae238c622109648c15e571f255a8ad6125a4b",
+    "note": "Original failures preserved. Later targeted counts are not a full CI result."
+  },
+  "checks": {
+    "go_environment": {
+      "status": "PASS",
+      "top_level_tests": 5,
+      "pass_events_including_subtests": 46,
+      "exit_code": 0,
+      "seconds": 47.571,
+      "synthetic_pg_variables": 6,
+      "command": "mise exec -- go test -race -count=1 -run '^(TestUnixURLClosedSocketProfile|TestTCPTransportPolicy|TestUnixURLRejectsConnectionEnvironmentWithoutLeakingValues|TestStorageURLRejectsUnisolatedConfiguration|TestOwnerURLCannotOverrideCheckedDatabaseOrRole)$' -json ./internal/postgresurl ./internal/composition ./internal/freshinstall"
+    },
+    "financial_ci": {
+      "status": "PASS",
+      "tests_passed": 2,
+      "exit_code": 0,
+      "test_seconds": 29.261,
+      "driver_seconds": 29.678,
+      "ubuntu_image": "ubuntu@sha256:73b999393d07f2bf65a40373778a44dc9a6d54ad7718d29247d8ff9413c4d6a8",
+      "postgresql_version": "18.7",
+      "command": "python3 -B scripts/test_legacy_financial_opening_pg.py -v",
+      "network_during_tests": "disconnected",
+      "temporary_container_removed": true
+    },
+    "identity": {
+      "status": "PASS",
+      "passed": 11,
+      "failed": 0,
+      "ignored": 0,
+      "seconds": 267.231,
+      "cleanup_state": "CONFIRMED_REMOVED",
+      "receipt": "rust-owned/identity-recheck/result.json"
+    },
+    "protocol": {
+      "status": "PASS_ACROSS_INITIAL_AND_ONE_CORRECTIVE_EXECUTION",
+      "distinct_passed": 64,
+      "existing_ignored": 1,
+      "lib_cost_passed": 2,
+      "lib_zconv_passed": 8,
+      "model_http_passed": 32,
+      "relay_initial_passed": 21,
+      "relay_corrective_passed": 1,
+      "original_failure_retained": true,
+      "correction": "Provide required bound LMM_RELAY_EXTENSION_BIN to the same exact test",
+      "passing_cases_repeated": false,
+      "cleanup_state": "CONFIRMED_REMOVED",
+      "receipts": [
+        "protocol-recheck/result.json",
+        "relay-go-environment-recheck/result.json"
+      ]
+    },
+    "migration": {
+      "status": "PASS_ACROSS_INITIAL_AND_ONE_CORRECTIVE_EXECUTION",
+      "distinct_passed": 3,
+      "wallet_passed": 1,
+      "referrals_passed": 1,
+      "current_installer_rejection_passed": 1,
+      "historical_29_to_31_success_verified": false,
+      "original_failure": "operations cleanup SQLSTATE 53200 out of shared memory after behavior assertions",
+      "correction": "New owned PG fixture max_locks_per_transaction=256; same frozen ELF, original 32 connections and resource isolation",
+      "passing_cases_repeated": false,
+      "cleanup_state": "CONFIRMED_REMOVED",
+      "receipts": [
+        "migration-selftest/candidate-recovered2/result.json",
+        "migration-selftest/operations-locks256-recheck/result.json"
+      ]
+    },
+    "payment": {
+      "status": "PASS",
+      "passed": 2,
+      "failed": 0,
+      "ignored": 0,
+      "command_seconds": [
+        83.613,
+        77.442
+      ],
+      "driver_case_seconds": [
+        89.247,
+        82.416
+      ],
+      "original_failure": "Go runtime rejected absent payment_subscription_inbox and its SELECT/INSERT/UPDATE grants",
+      "correction": "Load existing subscription_epay_schema.sql and grant the existing fixture login",
+      "original_failure_retained": true,
+      "cleanup_state": "CONFIRMED_REMOVED",
+      "receipt": "payment-fixed-recheck/result.json"
+    },
+    "key_quota": {
+      "status": "BLOCKED",
+      "passed": 0,
+      "failed": 1,
+      "not_run": 7,
+      "reason": "component_rust_source_fingerprint_mismatch",
+      "reviewed_components": 69,
+      "current_components": 76,
+      "existing_component_hash_changes": 0,
+      "added_components": [
+        "managed-applications",
+        "affiliate-registration",
+        "oauth2-oidc",
+        "personal-tokens",
+        "subscription-creem",
+        "checkin-challenges",
+        "network-access"
+      ],
+      "reviewed_source_revision": "8f1b6b837ace7027f2a62f15168843790ce6de28",
+      "pins_or_guards_modified": false,
+      "candidate_patch_published": false,
+      "cleanup_state": "CONFIRMED_REMOVED",
+      "receipt": "rust-owned/keyquota-recheck/result.json"
+    },
+    "community": {
+      "status": "BLOCKED_UNCHANGED",
+      "reason": "Reviewed 55/56-component importer does not define the current 76-component runtime path",
+      "pins_or_guards_modified": false
+    },
+    "mk_workflow": {
+      "self_test_status": "PASS",
+      "actionlint_version": "1.7.12",
+      "topology_tests_passed": 18,
+      "workflow_sha256": "ce60b8404fa7e6a27242ea3da992ca8aaee26910a6cf7cf158e533c8ba501b1b",
+      "published_commit": "9d50a05465d2680904ebdbb041b3e877a04e1448",
+      "remote_run_id": 44520459099,
+      "remote_status": "FAIL_BEFORE_BUSINESS_TESTS",
+      "remote_reason": "Runner Ubuntu mirror returned HTTP 503 during protobuf apt installation",
+      "receipt": "mk01-workflow/result.json"
+    }
+  },
+  "builds": {
+    "core_and_tests": {
+      "base_commit": "d40e8a21116aeabbff1a3a9c45cda58155010000",
+      "receipt": "build-recovered2/build-receipt.json",
+      "source_binding": "build-recovered2/source-binding.json",
+      "source_drift": {},
+      "normal_core_sha256": "0a2d9762dd1e671eed93bb54ba8515685e23484f07e5e10242ef49433a25ce74",
+      "source_group_counts": {
+        "product": 837,
+        "tests": 54,
+        "integration_tests": 255,
+        "support": 1414,
+        "optional": 1
+      },
+      "counts_overlap": true
+    },
+    "payment": {
+      "base_commit": "d40e8a21116aeabbff1a3a9c45cda58155010000",
+      "receipt": "build-payment-fixed/build-receipt.json",
+      "source_binding": "build-payment-fixed/source-binding.json",
+      "source_drift": {},
+      "changed_inputs": [
+        "services/core/tests/payments_process.rs"
+      ],
+      "seconds": 123.585,
+      "normal_core_and_go_reused_with_original_identity": true
+    }
+  },
+  "source_release": {
+    "version": "0.1.21",
+    "zconv": "0.4.0",
+    "status": "PREPARING_EXPLICIT_RELEASE_REQUEST",
+    "published": false,
+    "kind": "source prerelease",
+    "production_readiness_claim": false
+  },
+  "deployment_gate": {
+    "status": "IMPLEMENTED_SELF_TESTED",
+    "required": "Latest exact-SHA canonical main CI and its aggregate quality-gate success",
+    "mock_api_tests": 10,
+    "workflow_topology_tests": 19,
+    "new_job_permissions": [
+      "contents: read",
+      "actions: read"
+    ],
+    "daily_ci_regression_wired": true,
+    "old_green_over_new_red_allowed": false,
+    "deployment_triggered": false,
+    "independent_acceptance": false,
+    "patch_sha256": "c5879b7d41a1064d2b5e3fe3b24f454e7f031f3743449bb50b346b7c943ac0e2",
+    "receipt_sha256": "143d52c7a0fcd7e655523a27ed276e115f733044656edd1e38c2b506bd11d762",
+    "receipt": "deploy-ci-gate/result-final.json"
+  },
+  "evidence_root_relative_to_parent": "out/lmm-ci-followup-20261119",
+  "receipts": {
+    "build-recovered2/build-receipt.json": {
+      "sha256": "c2ec454122ce6aae2883d4d8886905ae322e7a0fc050f9d80a84778d0b01e93a",
+      "bytes": 13494,
+      "status": "PASS"
+    },
+    "build-recovered2/source-binding.json": {
+      "sha256": "af4350eed101e954e89a00017897f0fc655f13d565fa47b166e7c66f19108a24",
+      "bytes": 326128
+    },
+    "build-payment-fixed/build-receipt.json": {
+      "sha256": "63462231e36faefbe1d5aba0643084f11256adea90e06c1f2d6e38d3fcc7f19c",
+      "bytes": 3196,
+      "status": "PASS"
+    },
+    "build-payment-fixed/source-binding.json": {
+      "sha256": "39e763ec7160e8bd2c307178af0c505f72b82da4c3f3372e8365b97ec7e9ffde",
+      "bytes": 326128
+    },
+    "rust-owned/identity-recheck/result.json": {
+      "sha256": "f7a58b0d287b820f253753586e92ce559f6c355afbf4bde17d107e6880cc9c4c",
+      "bytes": 16087,
+      "status": "PASS"
+    },
+    "protocol-recheck/result.json": {
+      "sha256": "389b62a17af7b1129739008f903b8b40c7b4d5dd0ccbfedb8c279a37f772a03c",
+      "bytes": 4629,
+      "status": "FAIL"
+    },
+    "relay-go-environment-recheck/result.json": {
+      "sha256": "370bc6b931ece88180927f79366afe49ae0fadfab7822120ca4fd67672532c9d",
+      "bytes": 1748,
+      "status": "PASS"
+    },
+    "migration-selftest/candidate-recovered2/result.json": {
+      "sha256": "bbd306a9c3b027a30fbece048810599b9eb63a3415f745b6fcc80f340589de19",
+      "bytes": 11366,
+      "status": "FAIL"
+    },
+    "migration-selftest/operations-locks256-recheck/result.json": {
+      "sha256": "94f3cd8aeabdf737732c6a97ecd8302c1df6d3d8c791b59c0f6f09625613141c",
+      "bytes": 4720,
+      "status": "PASS"
+    },
+    "rust-owned/keyquota-recheck/result.json": {
+      "sha256": "a1a7dafa58cd5e561c3d71ec5216b836891e11331f109ff8ded9037153d5ecc0",
+      "bytes": 2739,
+      "status": "FAIL"
+    },
+    "rust-owned/keyquota-recheck/diagnosis/profile-mismatch.json": {
+      "sha256": "86071cbd622f1bf7a2cd9fa1d1e974003cff9f03a6033eb407567519027f4083",
+      "bytes": 4259,
+      "status": "BLOCKED_UNREVIEWED_CURRENT_COMPONENT_CONTRACT"
+    },
+    "rust-owned/keyquota-recheck/diagnosis/cleanup-result.json": {
+      "sha256": "c723ddd5888f5b7e4935fcb9f15c24b7e88c87b7db04092faa58e3056dcd3da0",
+      "bytes": 762,
+      "status": "CONFIRMED_REMOVED"
+    },
+    "mk01-workflow/result.json": {
+      "sha256": "292fa43cb959723871e97f76810e26e669fd13077e2316492ec4d3ec4a1f2199",
+      "bytes": 4153,
+      "status": "PASS"
+    },
+    "payment-reproduction/result.json": {
+      "sha256": "c7ede60bfc52267601134f2b70cfa97613abacfb9f72fb5f72612e28f9b72de7",
+      "bytes": 16689,
+      "status": "FAIL"
+    },
+    "payment-fixed-recheck/result.json": {
+      "sha256": "37cfd23af4e3fe7875c74782c4ff3efee8f49b7194e6f9050f44e124a9628a99",
+      "bytes": 27218,
+      "status": "PASS"
+    }
+  },
+  "limitations": [
+    "Complete backend CI has not passed on the published candidate.",
+    "Key quota and community migration admission remain incomplete.",
+    "Source-release qualification is narrower than full business and production acceptance.",
+    "The 29-to-31 historical successful upgrade is not established by the current-installer rejection test.",
+    "Private synthetic fixtures and local upstreams do not establish real paid-provider behavior or production cutover."
+  ],
+  "apt_mirror_fix": {
+    "status": "IMPLEMENTED_SELF_TESTED",
+    "files": [
+      "scripts/prepare-ci-apt.py",
+      "scripts/test-prepare-ci-apt.py"
+    ],
+    "exact_input_uri": "mirror+file:/etc/apt/apt-mirrors.txt",
+    "replacement_uri": "https://archive.ubuntu.com/ubuntu/",
+    "fixture_tests": 5,
+    "network_recovery_verified": false,
+    "signature_and_suite_settings_preserved": true,
+    "patch_sha256": "d33e6baf158c3a189ee76e441a002b9fab7f37a1716f5c52e97a8e8ee84fbf4f",
+    "failed_ci_log": "mk01-apt-mirror-fix/mk-44520459099-full.log",
+    "failed_ci_log_sha256": "6b075a394df80bc4060707f648c04015ab01ed07bba5316cc07bc22b8fe5319c"
+  },
+  "ci_followup": {
+    "run_id": 44520459078,
+    "source_revision": "9d50a05465d2680904ebdbb041b3e877a04e1448",
+    "web": "success",
+    "translations": "success",
+    "backend": "in_progress_with_failed_apt_preparation",
+    "final_complete_ci_success": false
+  }
+}

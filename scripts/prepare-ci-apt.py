@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # Copyright (C) 2026 LIghtJUNction. AGPL-3.0-or-later.
-"""Exclude the unused Chrome apt source from ephemeral CI dependency installs."""
+"""Prepare Ubuntu and unused Chrome apt sources for ephemeral CI installs."""
 import argparse
 import os
 import re
@@ -8,10 +8,32 @@ from email.parser import Parser
 from pathlib import Path
 from urllib.parse import urlsplit
 
+RUNNER_UBUNTU_MIRRORS = "mirror+file:/etc/apt/apt-mirrors.txt"
+UBUNTU_ARCHIVE = "https://archive.ubuntu.com/ubuntu/"
+
 
 def chrome_source(uri):
     parsed = urlsplit(uri)
     return parsed.scheme in {"http", "https"} and parsed.hostname == "dl.google.com" and parsed.path.rstrip("/") in {"/linux/chrome/deb", "/linux/chrome-stable/deb"}
+
+
+def canonical_ubuntu_uris(block):
+    lines = []
+    in_uris = False
+    for line in block.splitlines(keepends=True):
+        if not line.lstrip().startswith("#"):
+            field = re.match(r"^URIs:", line, re.I)
+            if field:
+                in_uris = True
+            elif not line[:1].isspace():
+                in_uris = False
+            if in_uris:
+                start = field.end() if field else 0
+                line = line[:start] + re.sub(
+                    r"\S+", lambda match: UBUNTU_ARCHIVE if match[0] == RUNNER_UBUNTU_MIRRORS else match[0], line[start:]
+                )
+        lines.append(line)
+    return "".join(lines)
 
 
 def prepare(directory):
@@ -24,7 +46,11 @@ def prepare(directory):
             lines = []
             for line in original.splitlines(keepends=True):
                 match = re.match(r"^\s*deb(?:-src)?\s+(?:\[[^]]*\]\s+)?(\S+)", line)
-                lines.append("# Unused by LMM CI: " + line if match and chrome_source(match[1]) else line)
+                if match and chrome_source(match[1]):
+                    line = "# Unused by LMM CI: " + line
+                elif match and match[1] == RUNNER_UBUNTU_MIRRORS:
+                    line = line[:match.start(1)] + UBUNTU_ARCHIVE + line[match.end(1):]
+                lines.append(line)
             result = "".join(lines)
         else:
             blocks = re.split(r"(\n[ \t]*\n)", original)
@@ -40,7 +66,7 @@ def prepare(directory):
                 else:
                     block = block.rstrip("\n") + "\nEnabled: no\n"
                 blocks[index] = block
-            result = "".join(blocks)
+            result = canonical_ubuntu_uris("".join(blocks))
         if result != original:
             path.write_text(result)
             changed.append(path.name)
@@ -54,4 +80,4 @@ if __name__ == "__main__":
     if os.environ.get("GITHUB_ACTIONS") != "true":
         parser.error("this preparation is limited to GitHub Actions")
     for name in prepare(args.sources_dir):
-        print("Disabled unused Chrome source:", name)
+        print("Prepared CI apt source:", name)

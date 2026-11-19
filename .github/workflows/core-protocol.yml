@@ -87,6 +87,7 @@ jobs:
       - name: Workflow and source boundaries
         run: |
           node --test scripts/workflow-topology.test.mjs
+          python3 -B scripts/test-verify-deployment-ci.py
           python3 -B scripts/test-core-boundaries.py
           python3 -B scripts/test-local-release-tests.py
           python3 -B scripts/check-docs-brand.py

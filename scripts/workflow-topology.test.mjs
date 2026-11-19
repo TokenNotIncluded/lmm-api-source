@@ -137,7 +137,7 @@ test('automatic checks and explicit source-release requests have bounded trigger
       assert.doesNotMatch(block[1], /branches:|pull_request|schedule:/);
       assert.match(source, /DEPLOY_TARGETS: \$\{\{ vars\.DEPLOY_TARGETS \}\}/);
       assert.match(source, /git merge-base --is-ancestor HEAD origin\/main/);
-      assert.match(source, /needs: \[plan, build\]/);
+      assert.match(source, /needs: \[plan, ci-gate, build\]/);
       assert.match(source, /cancel-in-progress: false/);
       assert.match(source, /ANSIBLE_HOST_KEY_CHECKING: 'True'/);
       assert.doesNotMatch(source, /ArchDmit|DmitUbuntu|native\.api\.lmm\.best|contents: write|id-token: write/);
@@ -189,6 +189,24 @@ test('automatic checks and explicit source-release requests have bounded trigger
     }
     assert.doesNotMatch(source, /wip\/|github\.repository == 'TokenNotIncluded\/lmm-api'/);
   }
+});
+
+test('configured deployment reads successful CI for the exact planned source before building', () => {
+  const source = workflow('deploy');
+  const gate = source.split('  ci-gate:\n')[1].split('  build:\n')[0];
+  const build = source.split('  build:\n')[1].split('  deploy:\n')[0];
+  assert.match(gate, /needs: plan/);
+  assert.match(gate, /permissions:\n      contents: read\n      actions: read/);
+  assert.match(gate, /ref: \$\{\{ needs\.plan\.outputs\.revision \}\}/);
+  assert.match(gate, /SOURCE_REVISION: \$\{\{ needs\.plan\.outputs\.revision \}\}/);
+  assert.match(gate, /GH_TOKEN: \$\{\{ github\.token \}\}/);
+  assert.match(gate, /python3 -B scripts\/test-verify-deployment-ci\.py/);
+  assert.match(gate, /python3 -B scripts\/verify-deployment-ci\.py --revision "\$SOURCE_REVISION"/);
+  assert.doesNotMatch(gate, /contents: write|actions: write|continue-on-error|always\(\)|cargo|go test/);
+  assert.match(build, /needs: \[plan, ci-gate\]/);
+  const boundaries = workflow('core-protocol')
+    .match(/name: Workflow and source boundaries\n        run: \|\n([\s\S]*?)(?=      - name:)/)?.[1];
+  assert.match(boundaries ?? '', /python3 -B scripts\/test-verify-deployment-ci\.py/);
 });
 
 test('distribution builds use the checked source and shipped TOML resources', () => {

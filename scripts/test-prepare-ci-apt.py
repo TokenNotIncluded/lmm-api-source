@@ -36,5 +36,67 @@ class PreparationTests(unittest.TestCase):
             with self.assertRaises(ValueError): module.prepare(path.parent)
             self.assertEqual(path.read_text(), content)
 
+    def test_runner_ubuntu_deb822_keeps_suites_components_and_signature(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "ubuntu.sources"
+            content = (
+                "# Ubuntu archive and security sources\n"
+                "Types: deb\n"
+                "URIs: mirror+file:/etc/apt/apt-mirrors.txt\n"
+                "Suites: noble noble-updates noble-backports\n"
+                "Components: main restricted universe multiverse\n"
+                "Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg\n"
+                "\n"
+                "Types: deb\n"
+                "URIs: mirror+file:/etc/apt/apt-mirrors.txt\n"
+                "Suites: noble-security\n"
+                "Components: main restricted universe multiverse\n"
+                "Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg\n"
+            )
+            path.write_text(content)
+            self.assertEqual(module.prepare(path.parent), ["ubuntu.sources"])
+            self.assertEqual(path.read_text(), content.replace(
+                "mirror+file:/etc/apt/apt-mirrors.txt", "https://archive.ubuntu.com/ubuntu/"
+            ))
+            self.assertEqual(module.prepare(path.parent), [])
+
+    def test_only_exact_runner_uri_changes_in_list_entries(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "ubuntu.list"
+            original_uri = "mirror+file:/etc/apt/apt-mirrors.txt"
+            entry = "deb [arch=amd64 signed-by=/keys/ubuntu.gpg] " + original_uri + " noble main\n"
+            unchanged = (
+                "# deb " + original_uri + " noble main\n"
+                "deb mirror+file:/etc/apt/other-mirrors.txt noble main\n"
+                "deb " + original_uri + ".backup noble main\n"
+                "deb https://apt.postgresql.org/pub/repos/apt noble-pgdg main\n"
+            )
+            path.write_text(entry + unchanged)
+            self.assertEqual(module.prepare(path.parent), ["ubuntu.list"])
+            self.assertEqual(path.read_text(), entry.replace(
+                original_uri, "https://archive.ubuntu.com/ubuntu/"
+            ) + unchanged)
+            self.assertEqual(module.prepare(path.parent), [])
+
+    def test_deb822_continuation_preserves_other_fields_and_unknown_uris(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "ubuntu.sources"
+            prefix = (
+                "Types: deb\n"
+                "URIs: mirror+file:/etc/apt/other-mirrors.txt\n"
+                " mirror+file:/etc/apt/apt-mirrors.txt.backup\n"
+            )
+            suffix = (
+                "Suites: noble\n"
+                "Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg\n"
+                "Enabled: no\n"
+                "# mirror+file:/etc/apt/apt-mirrors.txt\n"
+                "X-Comment: mirror+file:/etc/apt/apt-mirrors.txt\n"
+            )
+            path.write_text(prefix + " mirror+file:/etc/apt/apt-mirrors.txt\n" + suffix)
+            self.assertEqual(module.prepare(path.parent), ["ubuntu.sources"])
+            self.assertEqual(path.read_text(), prefix + " https://archive.ubuntu.com/ubuntu/\n" + suffix)
+            self.assertEqual(module.prepare(path.parent), [])
+
 
 if __name__ == "__main__": unittest.main()

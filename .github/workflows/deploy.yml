@@ -61,8 +61,28 @@ jobs:
           python3 -B scripts/test-deployment-plan.py
           node --test scripts/workflow-topology.test.mjs
 
-  build:
+  ci-gate:
     needs: plan
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          ref: ${{ needs.plan.outputs.revision }}
+          persist-credentials: false
+      - name: Check deployment CI admission
+        run: python3 -B scripts/test-verify-deployment-ci.py
+      - name: Require successful CI for this source revision
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_REVISION: ${{ needs.plan.outputs.revision }}
+        run: python3 -B scripts/verify-deployment-ci.py --revision "$SOURCE_REVISION"
+
+  build:
+    needs: [plan, ci-gate]
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
@@ -154,7 +174,7 @@ jobs:
           if-no-files-found: error
 
   deploy:
-    needs: [plan, build]
+    needs: [plan, ci-gate, build]
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     environment: ${{ vars.DEPLOY_ENVIRONMENT || 'shadow' }}

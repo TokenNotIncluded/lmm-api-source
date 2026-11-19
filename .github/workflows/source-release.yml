@@ -150,9 +150,8 @@ jobs:
               raise SystemExit("release already exists; inspect it instead of overwriting immutable assets")
           Path("notes.md").write_text(
               f"Source release {version} at {revision}.\n\n"
-              "Pins zconv 0.4.0 and keeps raw reasoning separate from generated summaries in Core response and request histories. "
-              "Provider-owned Anthropic blocks, citations and usage extensions that Core cannot represent remain explicit unsupported errors; server tools never become local tool calls. "
-              "The resource codecs in zconv do not add new gateway HTTP routes. "
+              f"Implementation status and remaining acceptance gaps: https://github.com/{repo}/blob/{revision}/docs/progress.md.\n\n"
+              "Qualification covers locked Rust formatting, Clippy, Core protocol and affected edge/auth unit tests. "
               "The attached source archive and checksums identify the exact source qualified by the linked workflow.\n\n"
               "Core protocol tests are self-tests. Independent acceptance has not run. "
               "This source prerelease does not install services, publish runtime images or claim production readiness.\n"

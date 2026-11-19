@@ -4,6 +4,11 @@
 
 ## 当前状态
 
+- **后端修复与 0.1.21 源码发布准备（2026-11-19）**：已提交 Go 环境隔离 [f8a2868e](https://github.com/TokenNotIncluded/lmm-api-source/commit/f8a2868ebc61fb974eb1e8eb4bd90a0e8b529ee6)、CI PostgreSQL 18 工具 [d40e8a21](https://github.com/TokenNotIncluded/lmm-api-source/commit/d40e8a21116aeabbff1a3a9c45cda58155010000)，以及 Core、夹具与 MK 工作流 [9d50a054](https://github.com/TokenNotIncluded/lmm-api-source/commit/9d50a05465d2680904ebdbb041b3e877a04e1448)。修复可选 managed 模块读取、流式费用补充字段及支付夹具缺表；保持原费用、资金、权限和进程守卫。
+  **定向自测**：身份 11、协议 64、钱包／奖励／当前安装器拒绝 3、支付进程 2，共 80 个不同 Rust 用例通过，保留 1 个原有 ignored。Go 5 个顶层测试含 46 个 pass 事件，真实 Ubuntu／PG18 财务夹具 2 项通过。一次 Go 环境纠正和一次 PG 锁容量纠正均保留首轮失败，只复验失败项；owned 数据库已确认清理。
+  **剩余阻塞**：Key quota 首项失败、7 项未运行，已审核 Core69 与当前 Core76 不匹配；community 的 55／56 组件历史导入未适配当前运行时。未改审核 pin 或绕过守卫。完整后端 CI 和本候选独立业务验收尚未通过。
+  **CI/CD 与版本**：MK 的 PG18 准备、150 分钟时限和串行测试已提交。针对远端 runner 镜像 HTTP 503 的精确 URI 修复通过 5 项配置测试；部署前同提交完整 CI 门禁通过 10 项模拟 API 测试和 19 项拓扑检查，并接入日常 CI。0.1.21 按既有 Qualified source release 准备。本轮未部署或切流。见[本轮报告](reports/lmm-ci-followup-2026-11-19.md)与[结构化证据](reports/lmm-ci-followup-2026-11-19.evidence.json)。
+
 - **主线 CI 回归修复与真实 Core 进程验证（定向通过；2026-11-19）**：已处理上一轮 3 个 Web、4 个 Core 测试失败。Web [04df4c40](https://github.com/TokenNotIncluded/lmm-api-source/commit/04df4c40574cc0999d9c8b009e54fd778c52f8b0) 的[完整 CI job](https://github.com/TokenNotIncluded/lmm-api-source/actions/runs/44470882275/job/135379764060) 成功：764 个源码测试文件与 6 个脚本测试文件串行通过，格式、版权、lint、类型、生产构建与体积门槛通过。Core 两项合同测试通过后复用，两个测试竞态已修复并精确复验通过；资金、权限与拒绝路径断言保留。CI 有界时限调整为 150 分钟并即时输出失败日志，18 项拓扑检查通过。
   **独立定向验证**：冻结的真实 Core OS 进程、TOML、TCP HTTP/SSE 和独占 PostgreSQL 完成 7 个业务场景，加 1 个支持用例共 8/8 通过；覆盖预算竞争、权限幂等、团队付款与撤权、流式断开、缺失 usage 和重启恢复、结算重试与唯一结算。837 个产品文件、54 个测试文件及 1 项可选路径前后无漂移，数据库已确认清理。40001 为真实 PG 中注入的序列化失败，未证明实际 SSI 并发冲突。
   **边界与证据**：完整后端 CI 尚无最终通过结论；全站、容量及生产切流未完成。合成账号、资金和本地上游不抵扣生产验收。见[本轮报告](reports/lmm-ci-core-process-2026-11-19.md)与[结构化证据](reports/lmm-ci-core-process-2026-11-19.evidence.json)；此前格式、版权及 Clippy 失败保留在[前轮报告](reports/lmm-ci-repair-2026-11-19.md)。
