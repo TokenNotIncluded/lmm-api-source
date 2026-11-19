@@ -4191,6 +4191,7 @@
     "Enter amount in tokens": "Enter amount in tokens",
     "Enter an administrator resolution of at least 10 characters.": "Enter an administrator resolution of at least 10 characters.",
     "Enter an exact non-negative decimal price or fraction.": "Enter an exact non-negative decimal price or fraction.",
+    "Enter an HTTPS image URL, or leave it empty.": "Enter an HTTPS image URL, or leave it empty.",
     "Enter an HTTPS return URL without credentials, or leave it empty.": "Enter an HTTPS return URL without credentials, or leave it empty.",
     "Enter an ordered JSON array of exact group names. An empty array uses all authorized, enabled groups in name order. Inherited API keys follow changes immediately; custom lists stay unchanged.": "Enter an ordered JSON array of exact group names. An empty array uses all authorized, enabled groups in name order. Inherited API keys follow changes immediately; custom lists stay unchanged.",
     "Enter announcement content (supports Markdown & HTML)": "Enter announcement content (supports Markdown & HTML)",

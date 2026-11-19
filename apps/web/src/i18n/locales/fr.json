@@ -4191,6 +4191,7 @@
     "Enter amount in tokens": "Entrez le montant en tokens",
     "Enter an administrator resolution of at least 10 characters.": "Saisissez une résolution d'administrateur d'au moins 10 caractères.",
     "Enter an exact non-negative decimal price or fraction.": "Saisissez un prix exact non négatif, en décimale ou en fraction.",
+    "Enter an HTTPS image URL, or leave it empty.": "Saisissez une URL d’image HTTPS ou laissez ce champ vide.",
     "Enter an HTTPS return URL without credentials, or leave it empty.": "Saisissez une URL de retour HTTPS sans identifiants, ou laissez vide.",
     "Enter an ordered JSON array of exact group names. An empty array uses all authorized, enabled groups in name order. Inherited API keys follow changes immediately; custom lists stay unchanged.": "Saisissez un tableau JSON ordonné contenant les noms exacts des groupes. Un tableau vide utilise tous les groupes autorisés et actifs, triés par nom. Les clés API héritant de la configuration suivent immédiatement les changements ; les listes personnalisées restent inchangées.",
     "Enter announcement content (supports Markdown & HTML)": "Saisir le contenu de l'annonce (prend en charge Markdown et HTML)",

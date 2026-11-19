@@ -4191,6 +4191,7 @@
     "Enter amount in tokens": "トークンで金額を入力",
     "Enter an administrator resolution of at least 10 characters.": "10 文字以上の管理者の裁定を入力してください。",
     "Enter an exact non-negative decimal price or fraction.": "0 以上の価格を正確な小数または分数で入力してください。",
+    "Enter an HTTPS image URL, or leave it empty.": "HTTPS の画像 URL を入力するか、空欄にしてください。",
     "Enter an HTTPS return URL without credentials, or leave it empty.": "認証情報を含まない HTTPS の戻り先 URL を入力するか、空欄にしてください。",
     "Enter an ordered JSON array of exact group names. An empty array uses all authorized, enabled groups in name order. Inherited API keys follow changes immediately; custom lists stay unchanged.": "正確なグループ名を順番に並べた JSON 配列を入力してください。空の配列では、許可されている有効な全グループを名前順で使用します。設定を継承する API Key には変更が即座に反映され、カスタムリストは変更されません。",
     "Enter announcement content (supports Markdown & HTML)": "アナウンス内容を入力（Markdown & HTML対応）",

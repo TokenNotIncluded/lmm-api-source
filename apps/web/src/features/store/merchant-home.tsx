@@ -13,6 +13,7 @@ import { storeApi } from './api'
 import { StoreMerchantIdentity } from './merchant-identity'
 import {
   normalizeStoreImageSource,
+  STORE_SVG_MAX_BYTES,
   safeStoreMediaUrl,
   storeImageEditorText,
 } from './product-media'
@@ -100,7 +101,10 @@ export function StoreMerchantHomeHeader({
             <div className='space-y-4 p-5 sm:p-7'>
               <h1 className='console-page-title text-2xl font-bold break-words'>
                 {t('Shop by {{name}}', {
-                  name: home.seller.display_name || home.seller.username,
+                  name:
+                    home.seller.display_name ||
+                    home.seller.username ||
+                    `${t('User ID')}: ${home.seller.id}`,
                 })}
               </h1>
               <StoreMerchantIdentity seller={home.seller} />
@@ -136,8 +140,10 @@ export function StoreMerchantHomeHeader({
 
 export function StoreMerchantHomeSettings({
   supported,
+  svgMediaSupported = false,
 }: {
   supported: boolean
+  svgMediaSupported?: boolean
 }) {
   const user = useAuthStore((state) => state.auth.user)
   const query = useQuery({
@@ -157,6 +163,7 @@ export function StoreMerchantHomeSettings({
           <MerchantHomeForm
             key={`${user.id}:${query.data.version}`}
             home={query.data}
+            svgMediaSupported={svgMediaSupported}
           />
         )
       )}
@@ -164,7 +171,13 @@ export function StoreMerchantHomeSettings({
   )
 }
 
-function MerchantHomeForm({ home }: { home: StoreMerchantHome }) {
+function MerchantHomeForm({
+  home,
+  svgMediaSupported,
+}: {
+  home: StoreMerchantHome
+  svgMediaSupported: boolean
+}) {
   const { t } = useTranslation()
   const client = useQueryClient()
   const [biography, setBiography] = useState(home.biography)
@@ -174,14 +187,28 @@ function MerchantHomeForm({ home }: { home: StoreMerchantHome }) {
   )
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<unknown>(null)
-  const header = normalizeStoreImageSource(headerImage)
+  const normalizedHeader = normalizeStoreImageSource(headerImage)
+  const header =
+    normalizedHeader &&
+    (svgMediaSupported || normalizedHeader.startsWith('https://'))
+      ? normalizedHeader
+      : undefined
+  const hasPublicAvatar = Boolean(
+    (home.seller.display_name || home.seller.username) &&
+    /^https:\/\/gravatar\.com\/avatar\/[a-f0-9]{64}\?d=404&r=g&s=192$/.test(
+      home.seller.avatar_url ?? ''
+    )
+  )
+  const headerHint = svgMediaSupported
+    ? t(MERCHANT_HOME_COPY.headerHint)
+    : t('Enter an HTTPS image URL, or leave it empty.')
   async function save(event: React.FormEvent) {
     event.preventDefault()
     setBusy(true)
     setError(null)
     try {
       if (headerImage.trim() && (!header || /^http:/i.test(header))) {
-        throw new Error(MERCHANT_HOME_COPY.headerHint)
+        throw new Error(headerHint)
       }
       await storeApi.saveHome({
         biography,
@@ -215,9 +242,11 @@ function MerchantHomeForm({ home }: { home: StoreMerchantHome }) {
         </a>
       </div>
       <StoreMerchantIdentity seller={home.seller} />
-      <p className='text-muted-foreground text-xs'>
-        {t(MERCHANT_HOME_COPY.avatar)}
-      </p>
+      {hasPublicAvatar && (
+        <p className='text-muted-foreground text-xs'>
+          {t(MERCHANT_HOME_COPY.avatar)}
+        </p>
+      )}
       <form onSubmit={(event) => void save(event)} className='space-y-4'>
         <StoreError error={error} />
         <div className='space-y-2'>
@@ -253,11 +282,10 @@ function MerchantHomeForm({ home }: { home: StoreMerchantHome }) {
             value={headerImage}
             onChange={(event) => setHeaderImage(event.target.value)}
             rows={4}
-            placeholder={t(MERCHANT_HOME_COPY.headerHint)}
+            maxLength={svgMediaSupported ? STORE_SVG_MAX_BYTES : 4096}
+            placeholder={headerHint}
           />
-          <p className='text-muted-foreground text-xs'>
-            {t(MERCHANT_HOME_COPY.headerHint)}
-          </p>
+          <p className='text-muted-foreground text-xs'>{headerHint}</p>
           {header && (
             <img
               src={header}

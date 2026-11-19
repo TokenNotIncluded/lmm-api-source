@@ -4191,6 +4191,7 @@
     "Enter amount in tokens": "Введите сумму в токенах",
     "Enter an administrator resolution of at least 10 characters.": "Введите решение администратора длиной не менее 10 символов.",
     "Enter an exact non-negative decimal price or fraction.": "Введите точную неотрицательную цену десятичным числом или дробью.",
+    "Enter an HTTPS image URL, or leave it empty.": "Введите HTTPS-адрес изображения или оставьте поле пустым.",
     "Enter an HTTPS return URL without credentials, or leave it empty.": "Введите HTTPS-адрес возврата без логина и пароля или оставьте поле пустым.",
     "Enter an ordered JSON array of exact group names. An empty array uses all authorized, enabled groups in name order. Inherited API keys follow changes immediately; custom lists stay unchanged.": "Введите упорядоченный JSON-массив точных имён групп. Пустой массив использует все разрешённые и активные группы в порядке имён. Ключи API с наследованием сразу учитывают изменения; пользовательские списки не меняются.",
     "Enter announcement content (supports Markdown & HTML)": "Введите содержимое объявления (поддерживает Markdown и HTML)",

@@ -65,6 +65,7 @@ function StorePaymentSettings() {
     <div className='space-y-7'>
       <StoreMerchantHomeSettings
         supported={catalog.data?.store_merchant_home_supported === true}
+        svgMediaSupported={catalog.data?.store_svg_media_supported === true}
       />
       <StoreAnnouncementSettings
         supported={catalog.data?.store_merchant_home_supported === true}

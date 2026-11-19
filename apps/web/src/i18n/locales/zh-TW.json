@@ -4191,6 +4191,7 @@
     "Enter amount in tokens": "輸入額度（Token）",
     "Enter an administrator resolution of at least 10 characters.": "請輸入至少 10 個字元的管理員裁決。",
     "Enter an exact non-negative decimal price or fraction.": "請輸入非負的精確小數價格或分數。",
+    "Enter an HTTPS image URL, or leave it empty.": "請輸入 HTTPS 圖片網址，也可以留空。",
     "Enter an HTTPS return URL without credentials, or leave it empty.": "請輸入不含帳號密碼的 HTTPS 返回位址，或留空。",
     "Enter an ordered JSON array of exact group names. An empty array uses all authorized, enabled groups in name order. Inherited API keys follow changes immediately; custom lists stay unchanged.": "依序輸入精確分組名稱的 JSON 陣列。空陣列表示依名稱順序使用所有已授權且已啟用的分組。繼承全域設定的 API Key 會立即採用新順序，自訂清單保持不變。",
     "Enter announcement content (supports Markdown & HTML)": "輸入公告內容（支援 Markdown 和 HTML）",

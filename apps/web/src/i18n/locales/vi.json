@@ -4191,6 +4191,7 @@
     "Enter amount in tokens": "Nhập số lượng token",
     "Enter an administrator resolution of at least 10 characters.": "Nhập kết luận quản trị viên có ít nhất 10 ký tự.",
     "Enter an exact non-negative decimal price or fraction.": "Nhập giá không âm bằng số thập phân chính xác hoặc phân số.",
+    "Enter an HTTPS image URL, or leave it empty.": "Nhập URL hình ảnh HTTPS hoặc để trống.",
     "Enter an HTTPS return URL without credentials, or leave it empty.": "Nhập URL quay lại HTTPS không chứa thông tin đăng nhập hoặc để trống.",
     "Enter an ordered JSON array of exact group names. An empty array uses all authorized, enabled groups in name order. Inherited API keys follow changes immediately; custom lists stay unchanged.": "Nhập mảng JSON có thứ tự gồm các tên nhóm chính xác. Mảng rỗng sử dụng tất cả nhóm được cấp quyền và đang bật theo thứ tự tên. API Key kế thừa cấu hình sẽ áp dụng thay đổi ngay; danh sách tùy chỉnh giữ nguyên.",
     "Enter announcement content (supports Markdown & HTML)": "Nhập nội dung thông báo (hỗ trợ Markdown & HTML)",

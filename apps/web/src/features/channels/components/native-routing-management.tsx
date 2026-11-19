@@ -1,5 +1,6 @@
 /* Copyright (C) 2026 LIghtJUNction. SPDX-License-Identifier: AGPL-3.0-or-later */
 import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { KeyRound, Pencil, Play, Plus, RefreshCw } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
@@ -879,35 +880,38 @@ function NativeRoutingWorkspace({
       className='@container/routing min-w-0 space-y-6'
       aria-label={t('Configuration')}
     >
-      <nav
-        className='flex flex-wrap items-center gap-1'
-        aria-label={t('Configuration')}
-      >
-        {sections.map(([value, label]) => (
-          <Button
-            key={value}
-            type='button'
-            variant={section === value ? 'secondary' : 'ghost'}
-            className='min-h-11'
-            disabled={busy}
-            aria-current={section === value ? 'page' : undefined}
-            onClick={() => {
-              if (section !== value) requestEditorChange({ section: value })
-            }}
-          >
-            {t(label)}
-          </Button>
-        ))}
+      <div className='flex min-w-0 flex-wrap items-center justify-between gap-3'>
+        <nav
+          className='flex min-w-0 flex-1 items-center gap-3 overflow-x-auto'
+          aria-label={t('Configuration')}
+        >
+          {sections.map(([value, label]) => (
+            <Button
+              key={value}
+              type='button'
+              variant='ghost'
+              disabled={busy}
+              aria-current={section === value ? 'page' : undefined}
+              className='text-muted-foreground aria-[current=page]:text-foreground aria-[current=page]:after:bg-foreground relative min-h-11 shrink-0 rounded-none bg-transparent px-1 shadow-none after:absolute after:inset-x-0 after:bottom-0 after:h-0.5 hover:bg-transparent'
+              onClick={() => {
+                if (section !== value) requestEditorChange({ section: value })
+              }}
+            >
+              {t(label)}
+            </Button>
+          ))}
+        </nav>
         <Button
           type='button'
           variant='ghost'
-          className='ml-auto min-h-11'
-          disabled={busy}
+          className='min-h-11 shrink-0'
+          disabled={busy || query.isFetching}
           onClick={() => void refresh()}
         >
+          <RefreshCw className='size-4' />
           {t('Refresh')}
         </Button>
-      </nav>
+      </div>
       {editor && (
         <form
           className='min-w-0 space-y-6 p-5 sm:p-7'
@@ -1064,7 +1068,7 @@ function NativeRoutingWorkspace({
         {null}
       </Dialog>
       <div className='flex flex-wrap items-end gap-3'>
-        <label className='min-w-0 flex-1 basis-72 space-y-2'>
+        <label className='min-w-0 flex-1 basis-56 space-y-2'>
           <span className='text-sm'>{t('Search')}</span>
           <Input
             aria-label={t('Search')}
@@ -1092,6 +1096,7 @@ function NativeRoutingWorkspace({
             }
             onClick={() => channelEditor()}
           >
+            <Plus className='size-4' />
             {t('Create Channel')}
           </Button>
         )}
@@ -1328,7 +1333,7 @@ function NativeRoutingWorkspace({
               return (
                 <article
                   key={channel.id}
-                  className='min-w-0 space-y-3 py-5'
+                  className='min-w-0 space-y-3 py-6'
                   aria-label={name}
                 >
                   <div className='flex min-w-0 flex-wrap items-start justify-between gap-4'>
@@ -1375,27 +1380,31 @@ function NativeRoutingWorkspace({
                             {t('{{count}} models', { count: routes.length })}
                           </span>
                           {configuration.bindings.tags?.[channel.id] && (
-                            <span className='bg-muted rounded-md px-2 py-0.5 [overflow-wrap:anywhere]'>
+                            <span
+                              className='text-muted-foreground max-w-full truncate'
+                              title={configuration.bindings.tags[channel.id]}
+                            >
                               {configuration.bindings.tags[channel.id]}
                             </span>
                           )}
                         </div>
                       </div>
                     </div>
-                    <div className='flex flex-wrap items-center gap-2'>
+                    <div className='ml-7 flex flex-wrap items-center gap-1 sm:ml-0'>
                       <Button
                         type='button'
-                        variant='outline'
-                        className='min-h-11'
+                        variant='secondary'
+                        className='min-h-11 px-2'
                         disabled={busy}
                         onClick={() => channelEditor(channel)}
                       >
+                        <Pencil className='size-4' />
                         {t('Edit')}
                       </Button>
                       <Button
                         type='button'
-                        variant='outline'
-                        className='min-h-11'
+                        variant='ghost'
+                        className='min-h-11 px-2'
                         disabled={writeDisabled}
                         onClick={() =>
                           void run(() =>
@@ -1406,12 +1415,13 @@ function NativeRoutingWorkspace({
                           )
                         }
                       >
+                        <Play className='size-4' />
                         {t('Test')}
                       </Button>
                       <Button
                         type='button'
-                        variant='outline'
-                        className='min-h-11'
+                        variant='ghost'
+                        className='min-h-11 px-2'
                         disabled={
                           writeDisabled ||
                           !secretsAllowed ||
@@ -1425,12 +1435,13 @@ function NativeRoutingWorkspace({
                         }
                         onClick={() => setKeyChannel(channel.id)}
                       >
+                        <KeyRound className='size-4' />
                         {t('API Keys')}
                       </Button>
                       <Button
                         type='button'
-                        variant='outline'
-                        className='min-h-11'
+                        variant='ghost'
+                        className='min-h-11 px-2'
                         disabled={writeDisabled}
                         onClick={() =>
                           void run(() =>
@@ -1459,6 +1470,14 @@ function NativeRoutingWorkspace({
                       {t('Details')}
                     </summary>
                     <div className='bg-card mt-3 min-w-0 space-y-5 rounded-xl p-4 sm:p-5'>
+                      {configuration.bindings.tags?.[channel.id] && (
+                        <dl className='space-y-1 text-xs'>
+                          <dt className='text-muted-foreground'>{t('Tag')}</dt>
+                          <dd className='break-words'>
+                            {configuration.bindings.tags[channel.id]}
+                          </dd>
+                        </dl>
+                      )}
                       {serverChannels && (
                         <NativeChannelStatisticsRow
                           value={statisticsById.get(channel.id)}

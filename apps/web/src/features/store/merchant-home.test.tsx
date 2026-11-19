@@ -252,3 +252,91 @@ test('store announcement editor is hidden to ordinary merchants and appears for 
   })
   assert.equal(document.querySelector('#store-announcement'), null)
 })
+
+test('a merchant without public profile data uses its ID and does not promise a missing avatar', async () => {
+  owner()
+  api.get = (async () => ({
+    data: {
+      success: true,
+      data: { ...home, seller: { id: 9, username: '', display_name: '' } },
+    },
+  })) as typeof api.get
+  await mount(
+    <>
+      <StoreMerchantHomeHeader supported sellerId={9} />
+      <StoreMerchantHomeSettings supported />
+    </>
+  )
+  assert.equal(document.querySelector('h1')?.textContent, 'Shop by User ID: 9')
+  assert.doesNotMatch(
+    document.body.textContent ?? '',
+    /same Gravatar as your platform account/
+  )
+  assert.ok(document.querySelector('#merchant-biography'))
+})
+
+test('HTTPS-only shops reject SVG locally and can save or clear their header URL', async () => {
+  owner()
+  const sent = requests()
+  await mount(<StoreMerchantHomeSettings supported svgMediaSupported={false} />)
+  const input = document.querySelector<HTMLTextAreaElement>('#merchant-header')
+  const form = document.querySelector('form')
+  assert.ok(input)
+  assert.ok(form)
+  assert.equal(
+    input.placeholder,
+    'Enter an HTTPS image URL, or leave it empty.'
+  )
+  assert.doesNotMatch(document.body.textContent ?? '', /safe SVG text/)
+  async function submit(value: string) {
+    assert.ok(input)
+    assert.ok(form)
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(
+        dom.HTMLTextAreaElement.prototype,
+        'value'
+      )?.set?.call(input, value)
+      input.dispatchEvent(new Event('input', { bubbles: true }))
+    })
+    await act(async () => {
+      form.dispatchEvent(
+        new Event('submit', { bubbles: true, cancelable: true })
+      )
+      await flush()
+    })
+    await act(async () => {
+      await flush()
+    })
+  }
+  await submit(
+    '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20"><rect width="20" height="20" /></svg>'
+  )
+  assert.equal(sent.filter((item) => item.method === 'PUT').length, 0)
+  assert.match(document.body.textContent ?? '', /Enter an HTTPS image URL/)
+  await submit('https://example.test/shop-header.png')
+  assert.deepEqual(
+    sent
+      .slice()
+      .reverse()
+      .find((item) => item.method === 'PUT')?.body,
+    {
+      biography: home.biography,
+      announcement: home.announcement,
+      header_image: 'https://example.test/shop-header.png',
+      expected_version: home.version,
+    }
+  )
+  await submit('')
+  assert.deepEqual(
+    sent
+      .slice()
+      .reverse()
+      .find((item) => item.method === 'PUT')?.body,
+    {
+      biography: home.biography,
+      announcement: home.announcement,
+      header_image: '',
+      expected_version: home.version,
+    }
+  )
+})
