@@ -29,7 +29,24 @@ func pluginPrivateDirectory(path string) error {
 	if err != nil || actual != path {
 		return errors.New("Extore plugin private directory must not use symlinks")
 	}
-	return nil
+	return pluginDirectoryChain(filepath.Dir(path))
+}
+
+// Sticky ancestors such as /tmp protect the owned child entry from replacement.
+// Every other directory must be owner-controlled; symlink components are rejected.
+func pluginDirectoryChain(path string) error {
+	for {
+		info, err := os.Lstat(path)
+		if err != nil || !info.IsDir() || !pluginOwner(info, true) ||
+			(info.Mode().Perm()&0022 != 0 && info.Mode()&os.ModeSticky == 0) {
+			return errors.New("Extore plugin directories must have owner-controlled ancestors")
+		}
+		parent := filepath.Dir(path)
+		if parent == path {
+			return nil
+		}
+		path = parent
+	}
 }
 
 func checkPluginSocket(path string) error {
@@ -48,11 +65,7 @@ func pluginExecutable(path string) error {
 	if err != nil || !info.Mode().IsRegular() || info.Mode().Perm()&0022 != 0 || !pluginOwner(info, true) {
 		return errors.New("Extore plugin code must be an owner-controlled regular file")
 	}
-	parent, err := os.Stat(filepath.Dir(path))
-	if err != nil || !parent.IsDir() || parent.Mode().Perm()&0022 != 0 || !pluginOwner(parent, true) {
-		return errors.New("Extore plugin code directory must be owner-controlled")
-	}
-	return nil
+	return pluginDirectoryChain(filepath.Dir(path))
 }
 
 // StartPlugin starts one private worker, verifies readiness after actual plugin

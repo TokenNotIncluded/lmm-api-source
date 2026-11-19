@@ -180,3 +180,34 @@ func TestPluginSocketRequiresPrivateOwnerDirectory(t *testing.T) {
 		t.Fatal("public socket directory accepted")
 	}
 }
+
+func TestPluginCodeRequiresControlledAncestors(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.Chmod(dir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	code := filepath.Join(dir, "code")
+	if err := os.Mkdir(code, 0700); err != nil {
+		t.Fatal(err)
+	}
+	artifact := filepath.Join(code, "host")
+	if err := os.WriteFile(artifact, []byte("fixture"), 0500); err != nil {
+		t.Fatal(err)
+	}
+	if err := pluginExecutable(artifact); err != nil {
+		t.Fatal(err)
+	}
+	alias := filepath.Join(dir, "alias")
+	if err := os.Symlink(code, alias); err != nil {
+		t.Fatal(err)
+	}
+	if err := pluginExecutable(filepath.Join(alias, "host")); err == nil {
+		t.Fatal("symlink ancestor accepted")
+	}
+	if err := os.Chmod(dir, 0777); err != nil {
+		t.Fatal(err)
+	}
+	if err := pluginExecutable(artifact); err == nil {
+		t.Fatal("writable non-sticky ancestor accepted")
+	}
+}

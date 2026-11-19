@@ -44,8 +44,25 @@ max_in_flight = 16
 # stock_key_file = "/etc/lmm.conf.d/secrets/extensions/store-stock-key"
 # Optional Extore authorize/catalog. Both fields are required together. The
 # redirect URI must be the public https origin plus /store/manage.
+# The current Web UI uses extore.lmm.best / lmm-best-store. Its built-in client
+# accepts api.lmm.best or native.api.lmm.best callbacks; other origins require
+# an explicitly registered client through the existing API.
 # extore_key_file = "/etc/lmm.conf.d/secrets/extensions/store-extore-key"
-# extore_redirect_uri = "https://api.example/store/manage"
+# extore_redirect_uri = "https://api.lmm.best/store/manage"
+# Optional Linux GNU native catalog plugin. Keep the OAuth fields above.
+# Go owns this private worker; do not run it as a separate public service.
+# Build the reviewed Extore revision described in docs/extore.md, then set its
+# actual library SHA256. Native plugin code is trusted code, not an OS sandbox.
+# [store.extore_plugin]
+# origin = "https://extore.lmm.best"
+# This selects catalog routing only; it does not change the Web OAuth destination.
+# host = "/usr/libexec/lmm-extore-host"
+# library = "/usr/lib/lmm/libextore_zplugin.so"
+# sha256 = "REPLACE_WITH_REVIEWED_LIBRARY_SHA256"
+# socket = "/run/lmm/extore/catalog.sock"
+# data_dir = "/var/lib/extore"
+# socket parent and existing Extore data_dir must be service-owned mode 0700.
+# The socket is mode 0600. Startup never initializes or upgrades Extore state.
 # [support]
 # database_name = "lmm_support"
 # database_url_file = "/etc/lmm.conf.d/secrets/extensions/support-database-url"

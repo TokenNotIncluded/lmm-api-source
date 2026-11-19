@@ -57,3 +57,6 @@
 [submodule ".agents/skills/update-recipkg-in-project"]
 	path = .agents/skills/update-recipkg-in-project
 	url = https://github.com/recipkg/update-recipkg-in-project.git
+[submodule "third_party/extore"]
+	path = third_party/extore
+	url = https://github.com/TokenNotIncluded/extore.git

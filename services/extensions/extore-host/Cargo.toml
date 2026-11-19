@@ -1,0 +1,25 @@
+[package]
+name = "lmm-extore-host"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.100.0"
+license = "AGPL-3.0-or-later"
+publish = false
+
+[dependencies]
+# The API and native plugin share the reviewed third_party/extore gitlink.
+extore-plugin-api = { version = "=0.1.0", path = "../../../third_party/extore/crates/extore-plugin-api" }
+zplugin = { version = "=0.3.1", features = ["std"] }
+zclap = "=0.1.4"
+zhex = "=0.1.3"
+sha2 = "=0.11.1"
+serde_json = "=1.0.154"
+hyper = { version = "=1.12.0", features = ["server", "http1"] }
+hyper-util = { version = "=0.1.21", features = ["tokio"] }
+http-body-util = "=0.1.5"
+tokio = { version = "=1.54.1", features = ["macros", "net", "rt", "signal", "time"] }
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = true
