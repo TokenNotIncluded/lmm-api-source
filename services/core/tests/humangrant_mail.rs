@@ -197,9 +197,17 @@ async fn outbox_dispatches_once_and_recovers_uncertain_attempt_without_resending
             .unwrap(),
         "queued"
     );
+    let queued = tx.list::<MailJob>("mail", "", 10, now).await.unwrap();
+    assert_eq!(queued.len(), 1);
+    let invitation_url = queued[0].url.clone();
+    assert!(invitation_url.starts_with("https://auth.example.test/invite/"));
+    assert!(!invitation_url.contains(&req.link));
     tx.commit().await.unwrap();
     assert!(dispatch_one(&engine, now).await.unwrap());
-    assert!(capture.await.unwrap().contains("secret-link"));
+    // Unfold quoted-printable soft line breaks before comparing the invitation URL.
+    let captured = capture.await.unwrap().replace("=\r\n", "");
+    assert!(captured.contains(&invitation_url));
+    assert!(!captured.contains(&req.link));
     assert!(!dispatch_one(&engine, now).await.unwrap());
     let mut tx = engine.store.begin().await.unwrap();
     let jobs = tx.list::<MailJob>("mail", "", 10, now).await.unwrap();

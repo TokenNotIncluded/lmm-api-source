@@ -21,13 +21,15 @@ defaults:
 jobs:
   identity:
     runs-on: ubuntu-24.04
-    timeout-minutes: 25
+    timeout-minutes: 150
     env:
       DATABASE_URL: postgres://postgres:postgres@127.0.0.1:5432/postgres
       CARGO_BUILD_JOBS: '2'
       CARGO_INCREMENTAL: '0'
       CARGO_PROFILE_DEV_DEBUG: '0'
       CARGO_PROFILE_TEST_DEBUG: '0'
+      # Serialize tests that snapshot cluster-wide roles and memberships.
+      RUST_TEST_THREADS: '1'
     services:
       postgres:
         image: postgres:18-alpine@sha256:77f585114c32fbca283dc835b0596f4e52b51b4c6662d7810b2f4084f60a1873
@@ -42,9 +44,26 @@ jobs:
         id: checkout
         with:
           persist-credentials: false
-      - name: Install pinned Rust
+      - name: Install pinned Rust, protobuf compiler, and PostgreSQL 18 tools
         id: rust
-        run: rustup toolchain install 1.100.0 --profile minimal --component rustfmt --component clippy
+        run: |
+          rustup toolchain install 1.100.0 --profile minimal --component rustfmt --component clippy
+          sudo --preserve-env=GITHUB_ACTIONS python3 scripts/prepare-ci-apt.py
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends --yes protobuf-compiler curl ca-certificates
+          # Private financial fixtures need host PG18 tools, independent of the service container.
+          sudo install -d /usr/share/postgresql-common/pgdg
+          sudo curl --fail --output /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc https://www.postgresql.org/media/keys/ACCC4CF8.asc
+          printf '%s\n' 'Types: deb' 'URIs: https://apt.postgresql.org/pub/repos/apt' \
+            'Suites: noble-pgdg' "Architectures: $(dpkg --print-architecture)" 'Components: main' \
+            'Signed-By: /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc' \
+            | sudo tee /etc/apt/sources.list.d/pgdg.sources > /dev/null
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends --yes postgresql-common
+          # Each test creates its own cluster; package installation must not create a shared one.
+          echo 'create_main_cluster = false' | sudo tee -a /etc/postgresql-common/createcluster.conf > /dev/null
+          sudo apt-get install --no-install-recommends --yes postgresql-18 postgresql-client-18
+          echo '/usr/lib/postgresql/18/bin' >> "$GITHUB_PATH"
       - name: Build disposable extension for relay independence acceptance
         working-directory: services/extensions
         run: |

@@ -954,16 +954,15 @@ async fn tcp_client_revocation_is_session_bound_and_revokes_all_generations(pool
         let access = first["access_token"].as_str().unwrap();
         let refresh = first["refresh_token"].as_str().unwrap();
         let endpoint = f.url("/api/user/auth/oauth2/grants/revoke-client");
-        let list: Value = f
+        let response = f
             .client
             .get(f.url("/api/user/auth/oauth2/grants"))
             .header(header::COOKIE, f.browser_cookie())
             .send()
             .await
-            .unwrap()
-            .json()
-            .await
             .unwrap();
+        security(&response, StatusCode::OK);
+        let list: Value = response.json().await.unwrap();
         assert_eq!(list["data"].as_array().unwrap().len(), 2);
         for request in [
             f.client
@@ -1097,6 +1096,10 @@ async fn managed_client_revocation_blocks_model_calls_and_rotation_recovery(pool
         }.validate(f.issuer.profile()).unwrap();
         let successor = f.issuer.token_managed(rotate()).await.unwrap();
         assert!(f.issuer.token_managed(rotate()).await.is_ok());
+        let grants = f.issuer.browser_grants(&f.refresh).await.unwrap();
+        let grant = grants.iter().find(|grant| grant.client_id == "lmm-magpie").unwrap();
+        assert_eq!(grant.managed_application.as_deref(), Some("magpie"));
+        assert_eq!(grant.installation_id.as_deref(), Some(installation.as_str()));
         let catalog = serde_json::to_value(f.issuer.catalog(&successor.access_token).await.unwrap()).unwrap();
         let model = &catalog["models"][0];
         assert_eq!(model["upstream_model"], "provider-model");
@@ -1122,7 +1125,7 @@ async fn managed_client_revocation_blocks_model_calls_and_rotation_recovery(pool
             assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
         }
         assert_eq!(f.provider.hits.load(std::sync::atomic::Ordering::SeqCst), hits);
-        let settled: i64 = sqlx::query_scalar("SELECT sum(settled_units)::bigint FROM core_charging.requests")
+        let settled: i64 = sqlx::query_scalar("SELECT sum(settled)::bigint FROM core_charging.requests")
             .fetch_one(&f.owner).await.unwrap();
         assert_eq!(settled,49);
     }).await;

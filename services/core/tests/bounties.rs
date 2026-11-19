@@ -572,7 +572,7 @@ async fn original_receipts_keep_project_revision_and_first_publish_time(pool: Pg
     assert_eq!(resumed.published_at, first.published_at);
 }
 // Isolated owner fixture simulates successful fresh primary authentication after
-// the real grant revocation trigger invalidates previous Session generations.
+// the original Session credentials have been revoked.
 async fn synthetic_reauthenticated_session(pool: &PgPool, user: i64) -> String {
     use sha2::{Digest, Sha256};
     let secret = format!("lmms_synthetic_bounty_reauthenticated_{user}_session");
@@ -581,7 +581,7 @@ async fn synthetic_reauthenticated_session(pool: &PgPool, user: i64) -> String {
     secret
 }
 #[sqlx::test(migrations = false)]
-async fn revoked_developer_access_blocks_new_bounty_but_preserves_original_hold_return(
+async fn revoked_sessions_block_bounty_actions_but_preserve_reauthenticated_hold_return(
     pool: PgPool,
 ) {
     let (s, owner, recipient, _, payer, _) = fixture(&pool).await;
@@ -589,13 +589,17 @@ async fn revoked_developer_access_blocks_new_bounty_but_preserves_original_hold_
     let original = s.query(&owner, "publish").await.unwrap();
     assert!(s.authorize(&owner).await.is_ok());
     for id in [7, 9] {
-        sqlx::query("UPDATE core_identity.developer_access SET granted=FALSE,revision=revision+1 WHERE user_id=$1").bind(id).execute(&pool).await.unwrap();
+        let revoked = sqlx::query("UPDATE core_identity.credentials SET revoked_at=clock_timestamp() WHERE user_id=$1 AND kind='session' AND revoked_at IS NULL")
+            .bind(id).execute(&pool).await.unwrap();
+        assert_eq!(revoked.rows_affected(), 1);
     }
     assert!(matches!(s.authorize(&owner).await, Err(Error::Forbidden)));
     assert!(matches!(
         s.session_authorize(&recipient).await,
         Err(Error::Forbidden)
     ));
+    let revoked_owner = owner;
+    let revoked_recipient = recipient;
     let owner = synthetic_reauthenticated_session(&pool, 7).await;
     let recipient = synthetic_reauthenticated_session(&pool, 9).await;
     let ids = IdentityStore::from_pool(pool.clone());
@@ -604,10 +608,10 @@ async fn revoked_developer_access_blocks_new_bounty_but_preserves_original_hold_
     assert!(s.session_authorize(&owner).await.is_ok());
     assert!(s.session_authorize(&recipient).await.is_ok());
     for (token, action) in [
-        (&owner, "publish"),
-        (&recipient, "accept"),
-        (&owner, "tip"),
-        (&owner, "pause"),
+        (&revoked_owner, "publish"),
+        (&revoked_recipient, "accept"),
+        (&revoked_owner, "tip"),
+        (&revoked_owner, "pause"),
     ] {
         assert!(matches!(s.authorize(token).await, Err(Error::Forbidden)));
         let mut c = cmd(&format!("revoked-{action}"), action);

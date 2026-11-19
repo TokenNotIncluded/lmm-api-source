@@ -1923,6 +1923,66 @@ mod upstream_cost_tests {
             }
         }
     }
+
+    #[test]
+    fn upstream_cost_stream_ignores_details_without_weakening_receipts() {
+        fn decode_receipt(
+            protocol: UpstreamProtocol,
+            receipt: Value,
+        ) -> Result<Vec<Event>, RelayError> {
+            let value = match protocol {
+                UpstreamProtocol::Chat => serde_json::json!({
+                    "id":"cost_stream",
+                    "choices":[{"index":0,"delta":{},"finish_reason":"stop"}],
+                    "usage":receipt
+                }),
+                UpstreamProtocol::Responses => serde_json::json!({
+                    "type":"response.completed",
+                    "response":{"id":"cost_stream","status":"completed","output":[],"usage":receipt}
+                }),
+                _ => unreachable!(),
+            };
+            Decoder::new(protocol, &Limits::default()).frame(Frame {
+                event: value["type"].as_str().map(str::to_owned),
+                data: value.to_string(),
+            })
+        }
+        for protocol in [UpstreamProtocol::Chat, UpstreamProtocol::Responses] {
+            for (raw, expected) in [
+                (
+                    r#"{"cost":0.000002000000000001}"#,
+                    Some(2_000_000_000_001_u128),
+                ),
+                (r#"{"cost":0}"#, Some(0)),
+                ("{}", None),
+            ] {
+                let mut receipt: Value = serde_json::from_str(raw).unwrap();
+                receipt["cost_details"] = serde_json::json!({"upstream_inference_cost":99});
+                let events = decode_receipt(protocol, receipt).unwrap();
+                let costs: Vec<_> = events
+                    .iter()
+                    .filter_map(|event| match event {
+                        Event::Usage(usage) => Some(usage.upstream_cost_atto_usd),
+                        _ => None,
+                    })
+                    .collect();
+                assert_eq!(costs, vec![expected]);
+            }
+            for raw in [
+                r#"{"cost":-1}"#,
+                r#"{"cost":"0.1"}"#,
+                r#"{"cost":1e-19}"#,
+                r#"{"cost":0.1,"unsupported_cost":1}"#,
+            ] {
+                let mut receipt: Value = serde_json::from_str(raw).unwrap();
+                receipt["cost_details"] = serde_json::json!({"upstream_inference_cost":99});
+                assert!(matches!(
+                    decode_receipt(protocol, receipt),
+                    Err(RelayError::Protocol(_))
+                ));
+            }
+        }
+    }
 }
 
 #[cfg(test)]

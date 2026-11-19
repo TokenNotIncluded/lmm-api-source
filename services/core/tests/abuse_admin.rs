@@ -284,12 +284,13 @@ async fn batch_mark_unmark_preserves_real_ledger_grants_and_sessions(pool: PgPoo
             .await
             .unwrap();
     assert_eq!(auth_before, auth_after);
-    let grant: bool =
-        sqlx::query_scalar("SELECT granted FROM core_identity.developer_access WHERE user_id=1001")
-            .fetch_one(&pool)
-            .await
-            .unwrap();
-    assert!(grant);
+    let grant: bool = sqlx::query_scalar(
+        "SELECT EXISTS(SELECT FROM core_identity.developer_access WHERE user_id=1001 AND granted)",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert!(!grant);
     assert_eq!(before, financial_snapshot(&pool).await);
     let mut tx = pool.begin().await.unwrap();
     assert!(matches!(

@@ -116,22 +116,32 @@ impl LmmIssuer {
     pub async fn browser_grants(&self, cookie: &str) -> Result<Vec<BrowserGrantSummary>> {
         let mut tx = transaction(&self.identity.pool).await?;
         let identity = BrowserAuth::oauth_identity_in_transaction(&mut tx, cookie).await?;
-        let rows = sqlx::query(
+        // CLI-only installations have no authority over optional managed bindings.
+        let (managed_columns, managed_join) = if self.managed_keys.is_some() {
+            (
+                "b.application AS managed_application,b.installation_id,b.display_label",
+                "LEFT JOIN core_oauth.managed_family_bindings b ON b.family_id=f.id",
+            )
+        } else {
+            (
+                "NULL::text AS managed_application,NULL::text AS installation_id,NULL::text AS display_label",
+                "",
+            )
+        };
+        let rows = sqlx::query(sqlx::AssertSqlSafe(format!(
             "SELECT f.id,f.client_id,f.purpose,f.scopes,f.budget_credits,
                     extract(epoch FROM f.created_at)::bigint AS created_at,
                     extract(epoch FROM f.expires_at)::bigint AS expires_at,
                     extract(epoch FROM f.revoked_at)::bigint AS revoked_at,
                     f.revoked_at IS NULL AND f.expires_at>clock_timestamp() AS active,
-                    b.application AS managed_application,
-                    b.installation_id,
-                    b.display_label
+                    {managed_columns}
              FROM core_oauth.families f
-             LEFT JOIN core_oauth.managed_family_bindings b ON b.family_id=f.id
+             {managed_join}
              WHERE f.user_id=$1 AND f.owner_account_id=$2 AND f.user_version=$3
                AND f.issuance_kind='browser'
              ORDER BY active DESC, f.created_at DESC
-             LIMIT 100",
-        )
+             LIMIT 100"
+        )))
         .bind(identity.user)
         .bind(identity.account)
         .bind(identity.version)

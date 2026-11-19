@@ -1,5 +1,6 @@
 //! Real PostgreSQL payment acceptance with synthetic endpoint signatures only.
-//! SQLx creates a new owned database per test; never point DATABASE_URL at live data.
+//! SQLx creates owned databases; the owner-only CLI lifecycle uses its own Unix PG.
+//! Never point DATABASE_URL at live data.
 #![cfg(unix)]
 use hmac::KeyInit as _;
 use hmac::{Hmac, Mac};
@@ -258,6 +259,168 @@ async fn referral(pool: &PgPool) -> (Fixture, i64) {
 async fn affiliate(f: &Fixture, account: i64) -> i64 {
     f.ledger.balance(account).await.unwrap().affiliate_units
 }
+
+// The moderation CLI deliberately accepts only a local Unix socket. CI's
+// SQLx DATABASE_URL points to a Docker TCP service, so this one lifecycle owns
+// a separate host PostgreSQL18 cluster instead of bypassing that CLI gate.
+struct ModerationPostgres {
+    directory: std::path::PathBuf,
+    started: bool,
+}
+impl ModerationPostgres {
+    fn command(program: &str) -> std::process::Command {
+        let mut command = std::process::Command::new(program);
+        command
+            .env_clear()
+            .env("PATH", std::env::var_os("PATH").unwrap())
+            .env("LANG", "C.UTF-8");
+        command
+    }
+    fn private(path: &std::path::Path, bytes: &[u8]) {
+        use std::{io::Write, os::unix::fs::OpenOptionsExt};
+        std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .mode(0o600)
+            .open(path)
+            .unwrap()
+            .write_all(bytes)
+            .unwrap();
+    }
+    async fn start() -> (Self, PgPool) {
+        use std::os::unix::fs::PermissionsExt;
+        let directory = std::env::temp_dir().join(format!(
+            "lmm-referrals-{}-{:016x}",
+            std::process::id(),
+            rand::random::<u64>()
+        ));
+        std::fs::create_dir(&directory).unwrap();
+        std::fs::set_permissions(&directory, std::fs::Permissions::from_mode(0o700)).unwrap();
+        let mut fixture = Self {
+            directory,
+            started: false,
+        };
+        let data = fixture.directory.join("data");
+        let socket = fixture.directory.join("socket");
+        assert!(
+            socket.as_os_str().len() + 16 < 108,
+            "private Unix socket path too long"
+        );
+        std::fs::create_dir(&socket).unwrap();
+        std::fs::set_permissions(&socket, std::fs::Permissions::from_mode(0o700)).unwrap();
+        let initialized = Self::command("initdb")
+            .args([
+                "--no-locale",
+                "--encoding=UTF8",
+                "--auth-local=trust",
+                "--auth-host=reject",
+            ])
+            .args(["--username", "lmm_referral_owner", "--pgdata"])
+            .arg(&data)
+            .output()
+            .expect("PostgreSQL18 initdb is required for the real Unix-socket moderation fixture");
+        Self::private(
+            &fixture.directory.join("initdb.stdout.log"),
+            &initialized.stdout,
+        );
+        Self::private(
+            &fixture.directory.join("initdb.stderr.log"),
+            &initialized.stderr,
+        );
+        assert!(
+            initialized.status.success(),
+            "private PostgreSQL init failed; inspect {}",
+            fixture.directory.display()
+        );
+        // No TCP listener or ambient PG credential is used. Socket trust is
+        // confined to this process owner's newly created 0700 directory.
+        let socket_config = socket
+            .to_str()
+            .unwrap()
+            .replace('\\', "\\\\")
+            .replace('\'', "\\'");
+        std::fs::write(
+            data.join("postgresql.auto.conf"),
+            format!("listen_addresses = ''\nport = 5432\nunix_socket_directories = '{socket_config}'\nunix_socket_permissions = 0700\nfsync = on\nsynchronous_commit = on\n"),
+        ).unwrap();
+        let log = fixture.directory.join("postgres.log");
+        Self::private(&log, b"");
+        fixture.started = true;
+        let started = Self::command("pg_ctl")
+            .arg("--pgdata")
+            .arg(&data)
+            .args(["--wait", "--timeout=15", "--log"])
+            .arg(&log)
+            .arg("start")
+            .output()
+            .unwrap();
+        Self::private(&fixture.directory.join("start.stdout.log"), &started.stdout);
+        Self::private(&fixture.directory.join("start.stderr.log"), &started.stderr);
+        assert!(
+            started.status.success(),
+            "private PostgreSQL startup failed; inspect {}",
+            fixture.directory.display()
+        );
+        let options = sqlx::postgres::PgConnectOptions::new()
+            .socket(&socket)
+            .port(5432)
+            .username("lmm_referral_owner")
+            .database("postgres")
+            .ssl_mode(sqlx::postgres::PgSslMode::Disable);
+        let pool = sqlx::postgres::PgPoolOptions::new()
+            .max_connections(8)
+            .connect_with(options)
+            .await
+            .unwrap();
+        let (version, owner, address): (i64, String, Option<String>) =
+            sqlx::query_as("SELECT current_setting('server_version_num')::bigint,current_user::text,inet_server_addr()::text")
+                .fetch_one(&pool).await.unwrap();
+        assert_eq!(version / 10_000, 18);
+        assert_eq!(owner, "lmm_referral_owner");
+        assert_eq!(
+            address, None,
+            "moderation fixture must use a real Unix socket"
+        );
+        (fixture, pool)
+    }
+    fn stop(&mut self) -> bool {
+        if !self.started {
+            return true;
+        }
+        let result = Self::command("pg_ctl")
+            .arg("--pgdata")
+            .arg(self.directory.join("data"))
+            .args(["--wait", "--timeout=10", "--mode=fast", "stop"])
+            .output();
+        if result.as_ref().is_ok_and(|output| output.status.success()) {
+            self.started = false;
+            true
+        } else {
+            false
+        }
+    }
+    fn finish(mut self) {
+        assert!(
+            self.stop(),
+            "private PostgreSQL cleanup failed; inspect {}",
+            self.directory.display()
+        );
+        std::fs::remove_dir_all(&self.directory).unwrap();
+    }
+}
+impl Drop for ModerationPostgres {
+    fn drop(&mut self) {
+        if !self.stop() {
+            eprintln!(
+                "private PostgreSQL cleanup failed; inspect {}",
+                self.directory.display()
+            );
+        }
+        // Failed assertions retain their private logs. Successful cleanup is
+        // explicit in finish() after all financial assertions have completed.
+    }
+}
+
 async fn moderation(pool: &PgPool, key: &str, restore: bool) {
     use std::os::unix::fs::PermissionsExt;
     let directory = std::env::temp_dir().join(format!(
@@ -337,8 +500,9 @@ async fn refund(f: &Fixture, intent: &pb::PaymentIntent, key: &str, amount: i64)
         .await
         .unwrap();
 }
-#[sqlx::test]
-async fn payment_tail_claim_debt_ban_refund_restore_and_replay(pool: PgPool) {
+#[tokio::test]
+async fn payment_tail_claim_debt_ban_refund_restore_and_replay() {
+    let (postgres, pool) = ModerationPostgres::start().await;
     let (f, account) = referral(&pool).await;
     let intent = prepare(&f, "referral-prepare-0001", 1000).await;
     credit(&f, &intent, "referral-credit-00001").await;
@@ -394,6 +558,8 @@ async fn payment_tail_claim_debt_ban_refund_restore_and_replay(pool: PgPool) {
     let net: i64 = sqlx::query_scalar("SELECT count(*) FROM (SELECT journal_id FROM core_billing.ledger_entries GROUP BY journal_id HAVING sum(delta_units)<>0) t").fetch_one(&pool).await.unwrap();
     assert_eq!(net, 0);
     lmm_core::core_schema::check(&pool).await.unwrap();
+    pool.close().await;
+    postgres.finish();
 }
 #[sqlx::test]
 async fn low_first_payment_cannot_reopen_on_later_cash(pool: PgPool) {

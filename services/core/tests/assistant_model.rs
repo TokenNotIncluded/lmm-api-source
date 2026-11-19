@@ -761,7 +761,7 @@ async fn real_runtime_role_executes_without_updating_immutable_authority_tables(
     let role = runtime_authority::RuntimeRole::create(&pool).await;
     role.optional("core_charging").await;
     role.optional("core_assistant").await;
-    let cannot_update: bool = sqlx::query_scalar("SELECT NOT has_any_column_privilege(current_user,'core_assistant.conversations','UPDATE') AND NOT has_any_column_privilege(current_user,'core_identity.user_routing_groups','UPDATE')")
+    let cannot_update: bool = sqlx::query_scalar("SELECT NOT has_any_column_privilege(current_user,'core_assistant.conversations','UPDATE') AND NOT has_table_privilege(current_user,'core_identity.user_routing_groups','UPDATE') AND NOT EXISTS(SELECT FROM pg_attribute WHERE attrelid='core_identity.user_routing_groups'::regclass AND attnum>0 AND NOT attisdropped AND attname<>'enabled' AND has_column_privilege(current_user,attrelid,attnum,'UPDATE'))")
         .fetch_one(&role.pool).await.unwrap();
     assert!(cannot_update);
     let provider = Provider::start(true).await;

@@ -728,7 +728,10 @@ async fn web_catalogue_fallback_requires_only_three_readonly_projections(pool: P
     assert_eq!(groups.0, StatusCode::OK);
     assert_eq!(
         groups.1["data"],
-        json!({"default":{"desc":"default","ratio":"model-specific"}})
+        json!({
+            "auto":{"desc":"auto","ratio":"model-specific"},
+            "default":{"desc":"default","ratio":"model-specific"}
+        })
     );
     let auto = request(&app, "GET", paths[1], &session.secret, None).await;
     assert_eq!(auto.0, StatusCode::OK);

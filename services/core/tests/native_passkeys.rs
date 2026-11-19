@@ -209,12 +209,16 @@ async fn request(
 }
 
 #[test]
-fn rp_and_origin_are_exact_and_transport_secure() {
+fn rp_scope_and_exact_origin_require_secure_transport() {
     assert!(PasskeyConfig::new(RP, ORIGIN).is_ok());
+    assert_eq!(
+        PasskeyConfig::new("example.test", ORIGIN).unwrap().origin(),
+        ORIGIN
+    );
     assert!(PasskeyConfig::new("localhost", "http://localhost:3333").is_ok());
     for (rp, origin) in [
         (RP, "http://passkeys.example.test"),
-        ("example.test", ORIGIN),
+        ("unrelated.example.test", ORIGIN),
         (RP, "https://passkeys.example.test/path"),
         (RP, "https://passkeys.example.test?query=1"),
         (RP, "https://name@passkeys.example.test"),

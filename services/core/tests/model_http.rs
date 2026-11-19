@@ -885,14 +885,14 @@ async fn input_budget_refuses_before_reserve_and_supplier_429_keeps_unknown_hold
 #[sqlx::test(migrations = false)]
 async fn dashboard_key_without_host_mapping_obeys_real_peer_policy_and_ledger(pool: PgPool) {
     let (identity, ledger, session, _, native_key_id, account) = fixture(&pool, 1000).await;
-    // The explicit offline bootstrap already installs this synthetic grant.
-    // Assert the prerequisite instead of duplicating its primary key.
-    let developer: bool =
-        sqlx::query_scalar("SELECT granted FROM core_identity.developer_access WHERE user_id=7")
-            .fetch_one(&pool)
-            .await
-            .unwrap();
-    assert!(developer);
+    // Ordinary accounts can issue keys without the retired developer grant.
+    let developer: bool = sqlx::query_scalar(
+        "SELECT EXISTS(SELECT 1 FROM core_identity.developer_access WHERE user_id=7 AND granted)",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert!(!developer);
     sqlx::query("INSERT INTO core_identity.user_routing_groups(user_id,group_name,enabled,source_reference) VALUES (7,'allowed',true,'synthetic:model-key-test')").execute(&pool).await.unwrap();
     let provider = Provider::start(true).await;
     let router = routes(&provider.endpoint, 0, 0, PayloadPolicy::Adapt);

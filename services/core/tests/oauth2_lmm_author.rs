@@ -578,23 +578,26 @@ async fn committed_developer_revocation_denies_pending_code_and_existing_tokens(
 }
 
 #[sqlx::test(migrations = false)]
-async fn normal_runtime_role_uses_select_only_policy_acl_for_full_grant_lifecycle(pool: PgPool) {
+async fn normal_runtime_role_keeps_policy_identity_immutable_for_full_grant_lifecycle(
+    pool: PgPool,
+) {
     let f = fixture(&pool).await;
     let (role, issuer) = runtime_issuer(&pool).await;
     // Clean the role even when the assertions in this author test panic.
     let runtime_pool = role.pool.clone();
     let checks = tokio::spawn(async move {
-        for (table, column) in [
-            ("core_identity.developer_access", "granted"),
-            ("core_identity.user_routing_groups", "enabled"),
-            ("public.routing_active_release", "config_version"),
-            ("public.routing_groups", "enabled"),
-            ("public.routing_routes", "enabled"),
+        for (table, column, membership_update) in [
+            ("core_identity.developer_access", "granted", false),
+            ("core_identity.user_routing_groups", "user_id", true),
+            ("public.routing_active_release", "config_version", false),
+            ("public.routing_groups", "enabled", false),
+            ("public.routing_routes", "enabled", false),
         ] {
-            let acl: (bool, bool, bool) = sqlx::query_as(
-                "SELECT has_table_privilege($1,'SELECT'),has_table_privilege($1,'INSERT,UPDATE,DELETE'),has_any_column_privilege($1,'UPDATE')",
+            let acl: (bool, bool, Vec<String>) = sqlx::query_as(
+                "SELECT has_table_privilege($1,'SELECT'),has_table_privilege($1,'INSERT,UPDATE,DELETE'),ARRAY(SELECT attname::text FROM pg_attribute WHERE attrelid=$1::regclass AND attnum>0 AND NOT attisdropped AND has_column_privilege($1,attname,'UPDATE') ORDER BY attname)",
             ).bind(table).fetch_one(&runtime_pool).await.unwrap();
-            assert_eq!(acl, (true, false, false), "policy ACL expanded for {table}");
+            let writable_columns = if membership_update { vec!["enabled".to_owned()] } else { vec![] };
+            assert_eq!(acl, (true, false, writable_columns), "policy ACL expanded for {table}");
             let result = sqlx::query(sqlx::AssertSqlSafe(format!("UPDATE {table} SET {column}={column} WHERE FALSE")))
                 .execute(&runtime_pool).await;
             assert!(matches!(result, Err(sqlx::Error::Database(ref error))

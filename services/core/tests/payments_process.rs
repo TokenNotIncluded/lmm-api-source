@@ -545,7 +545,13 @@ pub(crate) async fn prepare_payment_fixture(pool: &PgPool) -> PaymentFixture {
     .execute(&go_owner)
     .await
     .unwrap();
-    sqlx::raw_sql(sqlx::AssertSqlSafe(format!("REVOKE ALL ON SCHEMA public FROM PUBLIC;GRANT USAGE ON SCHEMA public TO {login};GRANT SELECT ON payment_storage_guard TO {login};GRANT SELECT,INSERT,UPDATE ON payment_orders,payment_events TO {login};REVOKE CREATE,TEMPORARY ON DATABASE {database} FROM PUBLIC;"))).execute(&go_owner).await.unwrap();
+    sqlx::raw_sql(include_str!(
+        "../../extensions/internal/modules/payments/subscription_epay_schema.sql"
+    ))
+    .execute(&go_owner)
+    .await
+    .unwrap();
+    sqlx::raw_sql(sqlx::AssertSqlSafe(format!("REVOKE ALL ON SCHEMA public FROM PUBLIC;GRANT USAGE ON SCHEMA public TO {login};GRANT SELECT ON payment_storage_guard TO {login};GRANT SELECT,INSERT,UPDATE ON payment_orders,payment_events,payment_subscription_inbox TO {login};REVOKE CREATE,TEMPORARY ON DATABASE {database} FROM PUBLIC;"))).execute(&go_owner).await.unwrap();
     url.set_username(&login).unwrap();
     url.set_password(Some(&password)).unwrap();
     // This URL was allocated above in this fresh owned loopback cluster only.

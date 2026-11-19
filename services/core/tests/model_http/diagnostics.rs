@@ -138,7 +138,7 @@ async fn diagnostics_cover_success_rejection_disconnect_and_failed_telemetry(poo
 
     let mut rejected = chat();
     rejected["messages"][0]["content"] = json!("reject");
-    let (status, _, id) = call_with_request_id(
+    let (status, body, id) = call_with_request_id(
         &gateway,
         Some(&key),
         "/v1/chat/completions",
@@ -146,7 +146,9 @@ async fn diagnostics_cover_success_rejection_disconnect_and_failed_telemetry(poo
         Some("diagnostic-rejected"),
     )
     .await;
-    assert_eq!(status, StatusCode::TOO_MANY_REQUESTS);
+    // Supplier refusal is a gateway failure; diagnostics retain its actual 429.
+    assert_eq!(status, StatusCode::BAD_GATEWAY);
+    assert_eq!(body["error"]["code"], "upstream_error");
     let rejected = sample(&pool, id.as_deref().unwrap()).await;
     assert_eq!(rejected["status_code"], 429);
     assert_eq!(rejected["upstream_request_id"], "req_rejected");

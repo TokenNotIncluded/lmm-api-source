@@ -1,5 +1,5 @@
-//! Real offline 29 -> 31 upgrade through the public Core API. Kept in its own
-//! integration target so this PG fixture does not require the full lib test binary.
+//! The current installer must reject the historical 29 -> 31 procedure unchanged.
+//! Success for that procedure requires its separately preserved 31-component binary.
 use lmm_core::core_schema::{
     UpgradeDatabase, UpgradeError, UpgradeRequest, UpgradeRoles, schema_manifest, upgrade_database,
 };
@@ -38,6 +38,28 @@ fn predecessor_definitions() -> Result<Vec<String>, serde_json::Error> {
     Ok(definitions)
 }
 
+async fn protected_state(connection: &mut PgConnection) -> Vec<(String, String)> {
+    let tables: Vec<(String, String)> = sqlx::query_as(
+        "SELECT n.nspname,c.relname FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE c.relkind='r' AND n.nspname LIKE 'core_%' ORDER BY 1,2",
+    )
+    .fetch_all(&mut *connection)
+    .await
+    .unwrap();
+    let mut state = Vec::new();
+    for (schema, table) in tables {
+        let digest: String = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
+            "SELECT md5(coalesce(string_agg(row_to_json(t)::text,E'\\n' ORDER BY row_to_json(t)::text),'')) FROM {}.{} t",
+            quote(&schema),
+            quote(&table),
+        )))
+        .fetch_one(&mut *connection)
+        .await
+        .unwrap();
+        state.push((format!("{schema}.{table}"), digest));
+    }
+    state
+}
+
 fn request() -> UpgradeRequest {
     UpgradeRequest {
         version: 1,
@@ -61,9 +83,7 @@ fn request() -> UpgradeRequest {
     }
 }
 #[sqlx::test(migrations = false)]
-async fn operations_upgrade_preserves_real_predecessor_and_resolves_exact_replay(
-    pool: sqlx::PgPool,
-) {
+async fn operations_upgrade_rejects_current_installer_without_mutation(pool: sqlx::PgPool) {
     let suffix = format!("{:012x}", rand::random::<u64>());
     let mut r = request();
     r.roles = UpgradeRoles {
@@ -94,49 +114,44 @@ async fn operations_upgrade_preserves_real_predecessor_and_resolves_exact_replay
         .await
         .unwrap();
     lmm_core::core_schema::init(&installer).await.unwrap();
-    // Reconstruct the exact frozen predecessor, then verify every catalog byte.
-    sqlx::raw_sql("DROP SCHEMA core_operations CASCADE; DROP SCHEMA core_request_limits CASCADE; DELETE FROM core_meta.component_contract WHERE name IN ('operations','request-limits')")
-        .execute(&installer).await.unwrap();
-    sqlx::query("UPDATE core_meta.runtime_contract SET catalog_fingerprint=decode($1,'hex')")
-        .bind(PRE_CATALOG)
-        .execute(&installer)
-        .await
-        .unwrap();
-    let mut conn = installer.acquire().await.unwrap();
-    assert_eq!(
-        definitions(&mut conn).await.unwrap(),
-        predecessor_definitions().unwrap()
-    );
-    drop(conn);
     let identity = lmm_core::identity::IdentityStore::from_pool(installer.clone());
     identity.bootstrap_user(7001, 6).await.unwrap();
     let before_users: i64 = sqlx::query_scalar("SELECT count(*) FROM core_identity.users")
         .fetch_one(&installer)
         .await
         .unwrap();
+    let mut conn = installer.acquire().await.unwrap();
+    let before_catalog = definitions(&mut conn).await.unwrap();
+    let before_data = protected_state(&mut conn).await;
+    assert_ne!(before_catalog, predecessor_definitions().unwrap());
+    let current_components = schema_manifest().components.len() as i64;
+    assert_ne!(current_components, 31);
+    drop(conn);
     let mut url = reqwest::Url::parse(&std::env::var("DATABASE_URL").unwrap()).unwrap();
     url.set_path(&format!("/{}", r.database.name));
     url.set_username(&r.roles.installer).unwrap();
     url.set_password(Some(&password)).unwrap();
     installer.close().await;
     pool.close().await;
-    let result = upgrade_database(url.as_str(), r.clone()).await.unwrap();
-    assert_eq!(result.status, "committed");
-    assert_eq!(result.components, 31);
-    let replay = upgrade_database(url.as_str(), r.clone()).await.unwrap();
-    assert_eq!(replay.status, "already_committed");
-    assert_eq!(
-        replay.successor_catalog_sha256,
-        result.successor_catalog_sha256
-    );
-    let mut another = r.clone();
-    another.upgrade_id.push('2');
-    assert!(matches!(
-        upgrade_database(url.as_str(), another).await,
-        Err(UpgradeError::Rejected(
-            "REQUEST_OPERATIONS_ORIGINAL_RECEIPT_ABSENT"
-        ))
-    ));
+
+    // The current installer is not the frozen 31-component executor. Deleting
+    // two schemas cannot reconstruct its 29-component predecessor or authorize
+    // a historical upgrade. Fresh requests and exact retries must fail closed.
+    for upgrade_id in [
+        r.upgrade_id.clone(),
+        r.upgrade_id.clone(),
+        format!("{}2", r.upgrade_id),
+    ] {
+        let mut attempt = r.clone();
+        attempt.upgrade_id = upgrade_id;
+        assert!(matches!(
+            upgrade_database(url.as_str(), attempt).await,
+            Err(UpgradeError::Rejected(
+                "REQUEST_OPERATIONS_COMPILED_COMPONENTS_CHANGED"
+            ))
+        ));
+    }
+
     let mut inspect = PgConnection::connect(url.as_str()).await.unwrap();
     sqlx::query(sqlx::AssertSqlSafe(format!(
         "SET ROLE {}",
@@ -145,6 +160,8 @@ async fn operations_upgrade_preserves_real_predecessor_and_resolves_exact_replay
     .execute(&mut inspect)
     .await
     .unwrap();
+    assert_eq!(definitions(&mut inspect).await.unwrap(), before_catalog);
+    assert_eq!(protected_state(&mut inspect).await, before_data);
     assert_eq!(
         sqlx::query_scalar::<_, i64>("SELECT count(*) FROM core_identity.users")
             .fetch_one(&mut inspect)
@@ -157,47 +174,16 @@ async fn operations_upgrade_preserves_real_predecessor_and_resolves_exact_replay
             .fetch_one(&mut inspect)
             .await
             .unwrap(),
-        31
+        current_components
     );
-    // The successful public replay above already verified the receipt privileges.
-    sqlx::query(sqlx::AssertSqlSafe(format!(
-        "GRANT SELECT ON core_operations.upgrade_receipts TO {}",
-        quote(&r.roles.installer)
-    )))
-    .execute(&mut inspect)
-    .await
-    .unwrap();
-    // The offline API requires an exclusive connection. Validate the same
-    // original receipt through that API, not by exporting private privilege helpers.
-    inspect.close().await.unwrap();
-    assert!(matches!(
-        upgrade_database(url.as_str(), r.clone()).await,
-        Err(UpgradeError::Rejected(
-            "REQUEST_OPERATIONS_PRIVILEGES_INVALID"
-        ))
-    ));
-    let mut inspect = PgConnection::connect(url.as_str()).await.unwrap();
-    sqlx::query(sqlx::AssertSqlSafe(format!(
-        "SET ROLE {}",
-        quote(&r.roles.owner)
-    )))
-    .execute(&mut inspect)
-    .await
-    .unwrap();
-    sqlx::query(sqlx::AssertSqlSafe(format!(
-        "REVOKE SELECT ON core_operations.upgrade_receipts FROM {}",
-        quote(&r.roles.installer)
-    )))
-    .execute(&mut inspect)
-    .await
-    .unwrap();
-    inspect.close().await.unwrap();
-    let restored = upgrade_database(url.as_str(), r.clone()).await.unwrap();
-    assert_eq!(restored.status, "already_committed");
     assert_eq!(
-        restored.successor_catalog_sha256,
-        result.successor_catalog_sha256
+        sqlx::query_scalar::<_, i64>("SELECT count(*) FROM core_operations.upgrade_receipts")
+            .fetch_one(&mut inspect)
+            .await
+            .unwrap(),
+        0
     );
+    inspect.close().await.unwrap();
     // Only these random, synthetic roles and this SQLx-owned database are touched.
     let mut admin_url = reqwest::Url::parse(&std::env::var("DATABASE_URL").unwrap()).unwrap();
     admin_url.set_path(&format!("/{}", r.database.name));

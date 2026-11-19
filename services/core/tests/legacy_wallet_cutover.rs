@@ -18,7 +18,7 @@ mod runtime;
 fn render(data: &Value, phase: &str, archive: &str) -> String {
     let mut child = Command::new("python3")
         .arg("-B").arg("-c")
-        .arg("import json,sys; import legacy_cutover_import as i; import legacy_cutover_money as m; d=json.load(sys.stdin); f=i.plan_opening if sys.argv[1]=='opening' else m.plan_wallet; print('\\n'.join(f(d,sys.argv[2],'wallet-cutover-test',2000000000)[0]))")
+        .arg("import json,sys; import legacy_cutover_import as i; import legacy_cutover_money as m; d=json.load(sys.stdin); d['identity_binding']['accounts']={int(k):v for k,v in d['identity_binding']['accounts'].items()}; f=i.plan_opening if sys.argv[1]=='opening' else m.plan_wallet; print('\\n'.join(f(d,sys.argv[2],'wallet-cutover-test',2000000000)[0]))")
         .arg(phase).arg(archive)
         .current_dir(concat!(env!("CARGO_MANIFEST_DIR"), "/../../scripts"))
         .stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn().unwrap();
@@ -79,12 +79,25 @@ async fn imported_pending_transfers_preserve_balance_and_native_lifecycle(pool: 
         .unwrap();
     let recipient_session = identity.bootstrap_user(2, 0).await.unwrap();
     let recipient = identity.authorize(&recipient_session.secret).await.unwrap();
-    // The cutover contract preserves user IDs as personal account IDs.
-    assert_eq!(sender.user_id, sender.owner_account_id);
-    assert_eq!(recipient.user_id, recipient.owner_account_id);
+    let accounts = std::collections::BTreeMap::from([
+        (sender.user_id, sender.owner_account_id),
+        (recipient.user_id, recipient.owner_account_id),
+    ]);
+    let actual: Vec<(i64, i64)> =
+        sqlx::query_as("SELECT id,personal_account_id FROM core_identity.users ORDER BY id")
+            .fetch_all(&pool)
+            .await
+            .unwrap();
+    assert_eq!(
+        actual,
+        accounts
+            .iter()
+            .map(|(uid, aid)| (*uid, *aid))
+            .collect::<Vec<_>>()
+    );
     let users: Vec<Value> = [(sender.user_id,1000), (recipient.user_id,0)].into_iter().map(|(id,quota)| json!({"id":id,"quota":quota,"used_quota":0,"request_count":0,"aff_quota":0,"aff_history":0})).collect();
     let transfers: Vec<Value> = [(1,300,"a"),(2,200,"b"),(3,100,"c")].into_iter().map(|(id,quota,token)| json!({"id":id,"sender_id":sender.user_id,"quota":quota,"status":"pending","token":token.repeat(64),"request_key":format!("legacy-transfer-{id:04}"),"created_at":1900000000,"recipient_id":0,"claimed_at":0,"cancelled_at":0})).collect();
-    let mut data = json!({"users":users,"wallet_transfers":transfers,"top_ups_pending":[]});
+    let mut data = json!({"users":users,"identity_binding":{"accounts":accounts},"wallet_transfers":transfers,"top_ups_payable":[]});
     data["wallet_transfers"]
         .as_array_mut()
         .unwrap()
@@ -96,6 +109,13 @@ async fn imported_pending_transfers_preserve_balance_and_native_lifecycle(pool: 
     apply(&pool, &render(&data, "opening", &archive))
         .await
         .unwrap();
+    // Bind the wallet phase to the opening actually committed by this fixture.
+    data["opening_binding"] = sqlx::query_scalar::<_, Value>(
+        "SELECT jsonb_build_object('run',to_jsonb(r)) FROM core_billing.opening_import_runs r WHERE migration_id='wallet-cutover-test'",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
     let plan = render(&data, "wallet", &archive);
     // An archive mismatch must not create either a transfer or money.
     assert!(

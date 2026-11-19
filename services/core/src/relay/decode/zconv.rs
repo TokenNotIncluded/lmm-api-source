@@ -224,13 +224,37 @@ impl Decoder {
         value: &Value,
         out: &mut Vec<Event>,
     ) -> Result<(), RelayError> {
-        let payload = if self.legacy_openrouter_usage && value.get("usage").is_some() {
-            // This owner-selected billing DTO is Core business evidence, not a
-            // second content parser or a fallback after library conversion.
-            let mut legacy = value.clone();
-            legacy.as_object_mut().unwrap().remove("usage");
-            serde_json::to_vec(&legacy)
-                .map_err(|_| RelayError::Protocol("invalid legacy receipt"))?
+        let usage_path =
+            if self.protocol == UpstreamProtocol::Responses && value.get("response").is_some() {
+                "/response/usage"
+            } else {
+                "/usage"
+            };
+        let legacy_receipt = self.legacy_openrouter_usage && value.get("usage").is_some();
+        let cost_details = matches!(
+            self.protocol,
+            UpstreamProtocol::Chat | UpstreamProtocol::Responses
+        ) && value
+            .pointer(usage_path)
+            .is_some_and(|usage| usage.get("cost_details").is_some());
+        let payload = if legacy_receipt || cost_details {
+            let mut content = value.clone();
+            if legacy_receipt {
+                // This owner-selected billing DTO is Core business evidence, not a
+                // second content parser or a fallback after library conversion.
+                content.as_object_mut().unwrap().remove("usage");
+            } else {
+                // Only usage.cost is the account charge. Supplemental cost_details
+                // must not block content conversion or become a billing fallback.
+                // receipt() below still reads the untouched authoritative value.
+                content
+                    .pointer_mut(usage_path)
+                    .and_then(Value::as_object_mut)
+                    .unwrap()
+                    .remove("cost_details");
+            }
+            serde_json::to_vec(&content)
+                .map_err(|_| RelayError::Protocol("invalid upstream receipt"))?
         } else {
             frame.data.as_bytes().to_vec()
         };

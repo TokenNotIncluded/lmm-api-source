@@ -98,17 +98,24 @@ async fn real_pi_browser_consent_is_bounded_without_issuing_native_keys(pool: Pg
     .await;
 }
 #[sqlx::test(migrations = false)]
-async fn l0_unmarked_cannot_self_grant_pi_developer_or_spending(pool: PgPool) {
-    with_fixture(pool,false,|f|async move{
-        let first=f.issuer.begin(f.request()).await.unwrap();
-        assert!(matches!(f.issuer.continue_authorization(&first.binding,&first.csrf,Some(&f.refresh)).await,Err(IdentityError::Forbidden)));
-        let count:i64=sqlx::query_scalar("SELECT count(*) FROM core_oauth.families WHERE client_id='lmm-pi'").fetch_one(&f.owner).await.unwrap();assert_eq!(count,0);
-        let granted:bool=sqlx::query_scalar("SELECT EXISTS(SELECT FROM core_identity.developer_access WHERE user_id=$1 AND granted)").bind(f.user).fetch_one(&f.owner).await.unwrap();assert!(!granted);
-        sqlx::query("UPDATE core_identity.users SET platform_role='admin' WHERE id=$1").bind(f.user).execute(&f.owner).await.unwrap();
-        let browser=lmm_core::identity::BrowserAuth::new(lmm_core::identity::IdentityStore::from_pool(f.role.pool.clone()),&[43;32]).unwrap();
-        let admin=browser.login("pi-alice","test passphrase",&Default::default()).await.unwrap();let first=f.issuer.begin(f.request()).await.unwrap();
-        assert!(matches!(f.issuer.continue_authorization(&first.binding,&first.csrf,Some(&admin.refresh_token)).await,Err(IdentityError::Forbidden)));
-        assert_eq!(f.provider.hits.load(Ordering::SeqCst),0);assert_eq!(f.ledger.balance(f.account).await.unwrap().available_units,1000);
+async fn ordinary_account_pi_requires_explicit_consent_without_developer_activation(pool: PgPool) {
+    with_fixture(pool, false, |f| async move {
+        let first = f.issuer.begin(f.request()).await.unwrap();
+        let page = f.issuer.continue_authorization(&first.binding, &first.csrf, Some(&f.refresh)).await.unwrap();
+        assert_eq!(page.groups, vec!["allowed"]);
+        let count: i64 = sqlx::query_scalar("SELECT count(*) FROM core_oauth.families WHERE client_id='lmm-pi'")
+            .fetch_one(&f.owner).await.unwrap();
+        assert_eq!(count, 0, "continuing the browser ceremony must not issue a grant");
+        let token = f.token(100).await;
+        assert!(token.scope.split(' ').any(|scope| scope == "models:invoke"));
+        let count: i64 = sqlx::query_scalar("SELECT count(*) FROM core_oauth.families WHERE client_id='lmm-pi'")
+            .fetch_one(&f.owner).await.unwrap();
+        assert_eq!(count, 1);
+        let granted: bool = sqlx::query_scalar("SELECT EXISTS(SELECT FROM core_identity.developer_access WHERE user_id=$1 AND granted)")
+            .bind(f.user).fetch_one(&f.owner).await.unwrap();
+        assert!(!granted);
+        assert_eq!(f.provider.hits.load(Ordering::SeqCst), 0);
+        assert_eq!(f.ledger.balance(f.account).await.unwrap().available_units, 1000);
     }).await;
 }
 #[sqlx::test(migrations = false)]

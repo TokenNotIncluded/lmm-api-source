@@ -530,7 +530,27 @@ fn packets(s: &str) -> Vec<Value> {
         .map(|s| serde_json::from_str(s).unwrap())
         .collect()
 }
-fn assert_output(client: ClientProtocol, stream: bool, body: &str) {
+fn assert_reasoning_output(provider: UpstreamProtocol, item: &Value) {
+    assert_eq!(item["type"], "reasoning");
+    if matches!(
+        provider,
+        UpstreamProtocol::Responses | UpstreamProtocol::Gemini
+    ) {
+        assert_eq!(
+            item["summary"],
+            json!([{"type":"summary_text","text":"think"}])
+        );
+        assert!(item["content"].is_null() || item["content"] == json!([]));
+    } else {
+        assert_eq!(item["summary"], json!([]));
+        assert_eq!(
+            item["content"],
+            json!([{"type":"reasoning_text","text":"think"}])
+        );
+    }
+}
+
+fn assert_output(provider: UpstreamProtocol, client: ClientProtocol, stream: bool, body: &str) {
     if client == ClientProtocol::Anthropic {
         let response = if stream {
             let events = packets(body);
@@ -639,7 +659,18 @@ fn assert_output(client: ClientProtocol, stream: bool, body: &str) {
                         Some("response.output_text.delta") => {
                             text.push_str(p["delta"].as_str().unwrap())
                         }
+                        Some("response.reasoning_text.delta") => {
+                            assert!(matches!(
+                                provider,
+                                UpstreamProtocol::Chat | UpstreamProtocol::Anthropic
+                            ));
+                            thinking.push_str(p["delta"].as_str().unwrap())
+                        }
                         Some("response.reasoning_summary_text.delta") => {
+                            assert!(matches!(
+                                provider,
+                                UpstreamProtocol::Responses | UpstreamProtocol::Gemini
+                            ));
                             thinking.push_str(p["delta"].as_str().unwrap())
                         }
                         Some("response.function_call_arguments.delta") => {
@@ -652,6 +683,7 @@ fn assert_output(client: ClientProtocol, stream: bool, body: &str) {
                 assert_eq!(last["type"], "response.completed");
                 assert_eq!(last["response"]["usage"]["input_tokens"], 10);
                 assert_eq!(last["response"]["usage"]["output_tokens"], 5);
+                assert_reasoning_output(provider, &last["response"]["output"][0]);
                 assert_eq!(last["response"]["output"][2]["call_id"], "call_1");
                 assert_ne!(last["response"]["output"][2]["id"], "call_1");
             }
@@ -683,7 +715,7 @@ fn assert_output(client: ClientProtocol, stream: bool, body: &str) {
             }
             ClientProtocol::Responses => {
                 assert_eq!(v["status"], "completed");
-                assert_eq!(v["output"][0]["summary"][0]["text"], "think");
+                assert_reasoning_output(provider, &v["output"][0]);
                 assert_eq!(v["output"][1]["content"][0]["text"], "鲸鱼");
                 assert_eq!(v["output"][2]["call_id"], "call_1");
                 assert_eq!(v["usage"]["input_tokens"], 10);
@@ -742,16 +774,32 @@ async fn vision_inputs_reach_four_upstreams_and_preserve_json_sse_usage() {
                 let request =
                     Request::parse(client, &serde_json::to_vec(&body).unwrap(), &limits).unwrap();
                 let (head, output, done) = collect(relay.start(request, context()).unwrap()).await;
-                assert!(head.is_ok(), "{protocol:?} {client:?} {stream}: {head:?}");
-                assert!(
-                    done.error.is_none(),
-                    "{protocol:?} {client:?} {stream}: {:?}",
-                    done.error
-                );
-                assert_output(client, stream, &output);
-                assert_eq!(done.report.usage.input_tokens, Some(10));
-                assert_eq!(done.report.usage.output_tokens, Some(5));
-                assert_eq!(done.settlement, Settlement::Confirmed);
+                if client == ClientProtocol::Chat
+                    && matches!(
+                        protocol,
+                        UpstreamProtocol::Responses | UpstreamProtocol::Gemini
+                    )
+                {
+                    assert_eq!(
+                        done.error,
+                        Some(RelayError::Unsupported(
+                            "reasoning summary requires Responses or Gemini"
+                        ))
+                    );
+                    assert_eq!(done.report.outcome, Outcome::Failed);
+                    assert!(!output.contains("[DONE]"));
+                } else {
+                    assert!(head.is_ok(), "{protocol:?} {client:?} {stream}: {head:?}");
+                    assert!(
+                        done.error.is_none(),
+                        "{protocol:?} {client:?} {stream}: {:?}",
+                        done.error
+                    );
+                    assert_output(protocol, client, stream, &output);
+                    assert_eq!(done.report.usage.input_tokens, Some(10));
+                    assert_eq!(done.report.usage.output_tokens, Some(5));
+                    assert_eq!(done.settlement, Settlement::Confirmed);
+                }
                 assert_eq!(money.reserves.load(Ordering::SeqCst), 1);
                 assert_eq!(money.finals.lock().unwrap().len(), 1);
                 let requests = upstream.observed.requests.lock().unwrap();
@@ -817,17 +865,31 @@ async fn twenty_four_protocol_json_sse_cases_use_real_tcp() {
                 let expected_id = id.request_id.clone();
                 let (head, body, done) =
                     collect(relay.start(request(client, stream, &limits), id).unwrap()).await;
-                // Native thinking requires an Anthropic signature. Other providers'
-                // reasoning cannot be silently relabeled as signed Anthropic content.
-                if client == ClientProtocol::Anthropic && p != UpstreamProtocol::Anthropic {
-                    assert!(
-                        matches!(
+                // Raw thoughts and summaries stay distinct, and native thinking
+                // requires an original Anthropic signature.
+                if (client == ClientProtocol::Anthropic && p != UpstreamProtocol::Anthropic)
+                    || (client == ClientProtocol::Chat
+                        && matches!(p, UpstreamProtocol::Responses | UpstreamProtocol::Gemini))
+                {
+                    if client == ClientProtocol::Chat {
+                        assert_eq!(
                             done.error,
-                            Some(RelayError::Unsupported(_) | RelayError::Protocol(_))
-                        ),
-                        "{p:?} {client:?} {stream}: {:?}",
-                        done.error
-                    );
+                            Some(RelayError::Unsupported(
+                                "reasoning summary requires Responses or Gemini"
+                            ))
+                        );
+                    } else {
+                        assert!(
+                            matches!(
+                                done.error,
+                                Some(RelayError::Unsupported(_) | RelayError::Protocol(_))
+                            ),
+                            "{p:?} {client:?} {stream}: {:?}",
+                            done.error
+                        );
+                    }
+                    assert_eq!(done.report.outcome, Outcome::Failed);
+                    assert!(!body.contains("[DONE]"));
                     assert!(!body.contains("\"type\":\"message_stop\""));
                     assert_eq!(money.finals.lock().unwrap().len(), 1);
                     assert_eq!(upstream.observed.hits.load(Ordering::SeqCst), 1);
@@ -848,7 +910,7 @@ async fn twenty_four_protocol_json_sse_cases_use_real_tcp() {
                 assert_eq!(done.report.usage.output_tokens, Some(5));
                 assert_eq!(done.report.finish_reason, Some(FinishReason::ToolCalls));
                 assert_eq!(done.report.attempts, 1);
-                assert_output(client, stream, &body);
+                assert_output(p, client, stream, &body);
                 assert_eq!(money.finals.lock().unwrap().len(), 1);
                 if !stream {
                     let proof = money.checkpoints.lock().unwrap();
@@ -1081,7 +1143,11 @@ async fn concurrent_protocol_json_sse_load() {
                 let limits = limits.clone();
                 jobs.spawn(async move {
                     let _permit = permit;
-                    let client = if i % 2 == 0 {
+                    let client = if i % 2 == 0
+                        && matches!(
+                            protocol,
+                            UpstreamProtocol::Chat | UpstreamProtocol::Anthropic
+                        ) {
                         ClientProtocol::Chat
                     } else {
                         ClientProtocol::Responses
@@ -1112,7 +1178,7 @@ async fn concurrent_protocol_json_sse_load() {
                     assert_eq!(done.settlement, Settlement::Confirmed);
                     assert_eq!(done.report.usage.input_tokens, Some(10));
                     assert_eq!(done.report.usage.output_tokens, Some(5));
-                    assert_output(client, stream, &body);
+                    assert_output(protocol, client, stream, &body);
                     start.elapsed().as_micros()
                 });
             }
@@ -1956,7 +2022,21 @@ async fn immutable_request_history_is_converted_without_losing_tool_results() {
         UpstreamProtocol::Anthropic,
         UpstreamProtocol::Gemini,
     ] {
-        let upstream = Upstream::start(Script::json(full(p))).await;
+        // This fixture isolates input history from output summaries that the
+        // Chat client cannot represent; the protocol matrix covers their refusal.
+        let mut reply = full(p);
+        match p {
+            UpstreamProtocol::Responses => reply["output"]
+                .as_array_mut()
+                .unwrap()
+                .retain(|item| item["type"] != "reasoning"),
+            UpstreamProtocol::Gemini => reply["candidates"][0]["content"]["parts"]
+                .as_array_mut()
+                .unwrap()
+                .retain(|part| part["thought"] != true),
+            _ => {}
+        }
+        let upstream = Upstream::start(Script::json(reply)).await;
         let l = Limits::default();
         let money = Arc::new(Money::default());
         let relay = relay(&upstream, p, l.clone(), money);

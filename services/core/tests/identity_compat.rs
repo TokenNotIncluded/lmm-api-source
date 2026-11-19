@@ -1728,11 +1728,11 @@ mod marked_key_cases {
             );
         }
         assert!(matches!(
-            store.dashboard_balance_access(&secret, id, true).await,
+            store.dashboard_balance_access(key_secret, id, true).await,
             Err(IdentityError::Forbidden)
         ));
         assert!(matches!(
-            store.set_commerce_key_scope(&secret, id, true).await,
+            store.set_commerce_key_scope(key_secret, id, true).await,
             Err(IdentityError::Forbidden)
         ));
         assert!(matches!(
