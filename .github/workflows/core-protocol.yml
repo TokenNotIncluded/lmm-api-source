@@ -63,12 +63,25 @@ jobs:
         with:
           go-version: '1.27.2'
           cache-dependency-path: services/extensions/go.sum
-      - name: Install pinned Rust and protobuf compiler
+      - name: Install pinned Rust, protobuf compiler, and PostgreSQL 18 tools
         run: |
           rustup toolchain install 1.100.0 --profile minimal --component rustfmt --component clippy
           sudo --preserve-env=GITHUB_ACTIONS python3 scripts/prepare-ci-apt.py
           sudo apt-get update
-          sudo apt-get install --no-install-recommends --yes protobuf-compiler postgresql-client
+          sudo apt-get install --no-install-recommends --yes protobuf-compiler curl ca-certificates
+          # Private financial fixtures need host PG18 tools, independent of the service container.
+          sudo install -d /usr/share/postgresql-common/pgdg
+          sudo curl --fail --output /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc https://www.postgresql.org/media/keys/ACCC4CF8.asc
+          printf '%s\n' 'Types: deb' 'URIs: https://apt.postgresql.org/pub/repos/apt' \
+            'Suites: noble-pgdg' "Architectures: $(dpkg --print-architecture)" 'Components: main' \
+            'Signed-By: /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc' \
+            | sudo tee /etc/apt/sources.list.d/pgdg.sources > /dev/null
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends --yes postgresql-common
+          # Each test creates its own cluster; package installation must not create a shared one.
+          echo 'create_main_cluster = false' | sudo tee -a /etc/postgresql-common/createcluster.conf > /dev/null
+          sudo apt-get install --no-install-recommends --yes postgresql-18 postgresql-client-18
+          echo '/usr/lib/postgresql/18/bin' >> "$GITHUB_PATH"
       - name: Lint workflows
         run: go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.12 -color
       - name: Workflow and source boundaries
