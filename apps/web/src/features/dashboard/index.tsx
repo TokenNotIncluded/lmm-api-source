@@ -315,7 +315,11 @@ export function Dashboard() {
   const sectionActions = modelActions ?? flowActions
 
   return (
-    <SectionPageLayout>
+    <SectionPageLayout
+      className={
+        activeSection === 'overview' ? 'dashboard-overview-page' : undefined
+      }
+    >
       <SectionPageLayout.Title>{t(meta.titleKey)}</SectionPageLayout.Title>
       <SectionPageLayout.Content>
         <div className='dashboard-editorial space-y-3 sm:space-y-4'>

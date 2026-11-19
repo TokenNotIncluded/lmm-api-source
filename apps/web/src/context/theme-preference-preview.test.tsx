@@ -155,16 +155,16 @@ test('manual choices, including the same saved value, win over old preview clean
   }
 })
 
-test('Ant is the default palette before the first paint and after mounting', async () => {
+test('Classic is the default palette before the first paint and after mounting', async () => {
   applyBootstrap(document)
-  assert.equal(document.body.dataset.themePreset, 'ant')
-  assert.equal(document.body.dataset.themeFont, 'serif')
+  assert.equal(document.body.dataset.themePreset, 'default')
+  assert.equal(document.body.dataset.themeFont, 'sans')
   const mounted = await render()
   try {
-    assert.equal(mounted.current().style.customization.preset, 'ant')
-    assert.equal(mounted.current().style.defaults.preset, 'ant')
-    assert.equal(document.body.dataset.themePreset, 'ant')
-    assert.equal(document.body.dataset.themeFont, 'serif')
+    assert.equal(mounted.current().style.customization.preset, 'default')
+    assert.equal(mounted.current().style.defaults.preset, 'default')
+    assert.equal(document.body.dataset.themePreset, 'default')
+    assert.equal(document.body.dataset.themeFont, 'sans')
   } finally {
     await mounted.close()
   }
@@ -195,7 +195,7 @@ test('legacy warm-palette cookies migrate to Ant without losing the saved font',
   assert.equal(document.body.dataset.themeFont, 'sans')
   const mounted = await render()
   assert.equal(mounted.current().style.customization.preset, 'ant')
-  assert.ok(!getCookie('theme_preset'))
+  assert.equal(getCookie('theme_preset'), 'ant')
   await mounted.close()
   const reloaded = await render()
   try {
@@ -208,7 +208,7 @@ test('legacy warm-palette cookies migrate to Ant without losing the saved font',
   }
 })
 
-test('appearance choices survive remount and reset restores Ant and all layout defaults', async () => {
+test('appearance choices survive remount and reset restores Classic and all layout defaults', async () => {
   const mounted = await render()
   await act(async () => {
     const style = mounted.current().style
@@ -236,8 +236,8 @@ test('appearance choices survive remount and reset restores Ant and all layout d
       reloaded.current().style.customization,
       reloaded.current().style.defaults
     )
-    assert.equal(document.body.dataset.themePreset, 'ant')
-    assert.equal(document.body.dataset.themeFont, 'serif')
+    assert.equal(document.body.dataset.themePreset, 'default')
+    assert.equal(document.body.dataset.themeFont, 'sans')
     assert.equal(document.body.getAttribute('data-theme-radius'), null)
     assert.equal(document.body.getAttribute('data-theme-scale'), null)
     assert.equal(document.body.dataset.themeContentLayout, 'full')

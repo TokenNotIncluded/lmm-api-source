@@ -156,7 +156,7 @@ export function ThemeCustomizationProvider(props: {
 
   useEffect(() => {
     if (getCookie(THEME_COOKIE_KEYS.preset) === LEGACY_PRESET) {
-      removeCookie(THEME_COOKIE_KEYS.preset)
+      setCookie(THEME_COOKIE_KEYS.preset, 'ant', COOKIE_MAX_AGE)
     }
     removeCookie('theme_preset_default_migrated_v1')
   }, [])

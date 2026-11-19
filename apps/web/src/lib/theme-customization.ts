@@ -113,7 +113,7 @@ export type ThemeCustomization = {
 }
 
 export const DEFAULT_THEME_CUSTOMIZATION: ThemeCustomization = {
-  preset: 'ant',
+  preset: 'default',
   font: 'default',
   radius: 'default',
   scale: 'default',

@@ -19,6 +19,12 @@ For commercial licensing, please contact support@quantumnous.com
 /*
 Copyright (C) 2026 LIghtJUNction
 */
+import { Link } from '@tanstack/react-router'
+import { ArrowUpRight, BookOpen, KeyRound, ScrollText } from 'lucide-react'
+import { useTranslation } from 'react-i18next'
+
+import { Button } from '@/components/ui/button'
+
 import './overview-dashboard.css'
 import { AccountStatus } from '@/features/onboarding/account-status'
 import { LatestRequestCard } from '@/features/onboarding/latest-request-card'
@@ -38,6 +44,7 @@ import { SummaryCards } from './summary-cards'
 import { UptimePanel } from './uptime-panel'
 
 export function OverviewDashboard() {
+  const { t } = useTranslation()
   const user = useAuthStore((state) => state.auth.user)
   const {
     apiInfo: showApiInfoPanel,
@@ -52,9 +59,43 @@ export function OverviewDashboard() {
 
   return (
     <div className='dashboard-editorial overview-dashboard flex flex-col gap-6 sm:gap-8'>
-      <OverviewGreeting />
-      {!isAdmin && <LatestRequestCard />}
+      <div className='space-y-4'>
+        <OverviewGreeting />
+        <nav
+          className='flex flex-wrap items-center gap-2'
+          aria-label={t('Quick actions')}
+        >
+          <Button
+            variant='outline'
+            className='min-h-11'
+            render={<Link to='/keys' />}
+          >
+            <KeyRound className='size-4' />
+            {t('API Keys')}
+            <ArrowUpRight className='text-muted-foreground size-3.5' />
+          </Button>
+          <Button
+            variant='ghost'
+            className='min-h-11'
+            render={<Link to='/developers' />}
+          >
+            <BookOpen className='size-4' />
+            {t('Developers')}
+          </Button>
+          <Button
+            variant='ghost'
+            className='min-h-11'
+            render={
+              <Link to='/usage-logs/$section' params={{ section: 'common' }} />
+            }
+          >
+            <ScrollText className='size-4' />
+            {t('Usage Logs')}
+          </Button>
+        </nav>
+      </div>
       <SummaryCards />
+      {!isAdmin && <LatestRequestCard />}
       <OverviewUsageCharts />
       {isAdmin && <AdminSiteStatisticsPanel />}
 

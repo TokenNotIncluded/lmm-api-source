@@ -110,13 +110,13 @@
 .auth-form-stage .auth-submit {
   min-height: 3.25rem;
   border-radius: var(--radius);
-  background: var(--foreground);
-  color: var(--background);
+  background: var(--primary);
+  color: var(--primary-foreground);
   font-size: 0.9375rem;
 }
 
 .auth-form-stage .auth-submit:hover:not(:disabled) {
-  background: color-mix(in oklch, var(--foreground) 86%, var(--background));
+  background: color-mix(in oklch, var(--primary) 88%, var(--foreground));
 }
 
 .auth-sign-in-register a {

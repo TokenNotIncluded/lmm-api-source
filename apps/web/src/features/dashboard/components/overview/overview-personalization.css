@@ -1,9 +1,14 @@
 /* Copyright (C) 2026 LIghtJUNction. SPDX-License-Identifier: AGPL-3.0-or-later */
+.console-editorial
+  .console-page.dashboard-overview-page
+  .console-section-header {
+  padding-bottom: 1rem;
+}
 .overview-greeting {
   position: relative;
   min-width: 0;
   overflow: hidden;
-  padding-block: 0.5rem 1rem;
+  padding-block: 0 0.25rem;
   border: 0;
   background: transparent;
   color: var(--foreground);
@@ -21,7 +26,7 @@
 }
 .overview-greeting-quote {
   display: block;
-  padding-block: 0.75rem 1.25rem;
+  padding-block: 0.25rem 0.5rem;
 }
 .overview-greeting-mark {
   display: none;
@@ -30,10 +35,10 @@
   min-width: 0;
   max-width: 36ch;
   margin: 0;
-  font-size: clamp(1.35rem, 2.5cqi, 2rem);
+  font-size: clamp(1.25rem, 2.2cqi, 1.75rem);
   font-weight: 500;
   letter-spacing: -0.04em;
-  line-height: 1.5;
+  line-height: 1.4;
   overflow-wrap: anywhere;
   white-space: pre-wrap;
   text-wrap: balance;
