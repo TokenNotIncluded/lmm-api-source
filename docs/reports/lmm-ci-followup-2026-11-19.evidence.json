@@ -5,7 +5,7 @@
   "project": "LMM API",
   "source_repository": "https://github.com/TokenNotIncluded/lmm-api-source",
   "published_code_head": "9d50a05465d2680904ebdbb041b3e877a04e1448",
-  "status": "TARGETED_FIXES_PUBLISHED_RELEASE_CANDIDATE_READY",
+  "status": "SOURCE_PRERELEASE_PUBLISHED_AND_VERIFIED",
   "self_test": true,
   "independent_acceptance": false,
   "production_deployment": false,
@@ -189,10 +189,54 @@
   "source_release": {
     "version": "0.1.21",
     "zconv": "0.4.0",
-    "status": "PREPARING_EXPLICIT_RELEASE_REQUEST",
-    "published": false,
+    "status": "PUBLISHED_VERIFIED",
+    "published": true,
     "kind": "source prerelease",
-    "production_readiness_claim": false
+    "production_readiness_claim": false,
+    "id": 451322094,
+    "url": "https://github.com/TokenNotIncluded/lmm-api-source/releases/tag/v0.1.21",
+    "tag": "v0.1.21",
+    "revision": "0c8844b0ea13b67ca25fa6103b712260e8f4011a",
+    "published_at_utc": "2026-11-19T12:34:45Z",
+    "published_at_asia_taipei": "2026-11-19T20:34:45+08:00",
+    "workflow_run_id": 44523376980,
+    "workflow_url": "https://github.com/TokenNotIncluded/lmm-api-source/actions/runs/44523376980",
+    "qualify": "success",
+    "publish": "success",
+    "tests": {
+      "relay_passed": 289,
+      "edge_access_passed": 10,
+      "turnstile_passed": 1,
+      "failed": 0,
+      "ignored": 0,
+      "note": "Qualification counts overlap targeted self-tests and are not added to their count."
+    },
+    "assets": {
+      "core-relay-tests.log": {
+        "sha256": "f6cfbd8ae9535fc3a8fe771109618d328458988d00a8c2665e2a31e899586628",
+        "bytes": 65729,
+        "asset_id": 767630084
+      },
+      "lmm-api-source-0.1.21.tar.gz": {
+        "sha256": "f54d7380bc1832ddf93df535c4f34865e6e1a1ecd83e75f8595257a972393d9f",
+        "bytes": 17240419,
+        "asset_id": 767630114
+      },
+      "SHA256SUMS": {
+        "sha256": "107b3bb49b1dda173edba7ee0b5cfeac234a653dd69fa7024105fae6d53550f8",
+        "bytes": 262,
+        "asset_id": 767630089
+      },
+      "source.json": {
+        "sha256": "da378f436ef4b15e1c84f33fa0665856a5448454d1c666ddedc36ca3e530ef37",
+        "bytes": 363,
+        "asset_id": 767630087
+      }
+    },
+    "downloaded_asset_digests_verified": true,
+    "sha256sums_entries_verified": 3,
+    "archive_changed_files_verified": 14,
+    "verification_receipt": "release-v0.1.21/verification.json"
   },
   "deployment_gate": {
     "status": "IMPLEMENTED_SELF_TESTED",
@@ -209,7 +253,16 @@
     "independent_acceptance": false,
     "patch_sha256": "c5879b7d41a1064d2b5e3fe3b24f454e7f031f3743449bb50b346b7c943ac0e2",
     "receipt_sha256": "143d52c7a0fcd7e655523a27ed276e115f733044656edd1e38c2b506bd11d762",
-    "receipt": "deploy-ci-gate/result-final.json"
+    "receipt": "deploy-ci-gate/result-final.json",
+    "live_api_check": {
+      "revision": "0c8844b0ea13b67ca25fa6103b712260e8f4011a",
+      "exit_code": 1,
+      "expected_rejection": true,
+      "ci_run_id": 44523376933,
+      "reason": "Latest CI is in_progress; deployment not allowed",
+      "seconds": 3.057,
+      "read_only": true
+    }
   },
   "evidence_root_relative_to_parent": "out/lmm-ci-followup-20261119",
   "receipts": {
@@ -310,11 +363,58 @@
     "failed_ci_log_sha256": "6b075a394df80bc4060707f648c04015ab01ed07bba5316cc07bc22b8fe5319c"
   },
   "ci_followup": {
-    "run_id": 44520459078,
-    "source_revision": "9d50a05465d2680904ebdbb041b3e877a04e1448",
-    "web": "success",
+    "run_id": 44523376933,
+    "url": "https://github.com/TokenNotIncluded/lmm-api-source/actions/runs/44523376933",
+    "source_revision": "0c8844b0ea13b67ca25fa6103b712260e8f4011a",
     "translations": "success",
-    "backend": "in_progress_with_failed_apt_preparation",
+    "web": "in_progress_at_last_check",
+    "backend": "in_progress_with_failed_tool_installation",
+    "failed_step": "Install pinned Rust, protobuf compiler, and PostgreSQL 18 tools",
+    "new_failed_step_full_log": "not available until job completion",
     "final_complete_ci_success": false
+  },
+  "published_release_preparation": {
+    "commit": "9b9d4234bd4a926ecc557e076a69615943a68c37",
+    "source_request_commit": "0c8844b0ea13b67ca25fa6103b712260e8f4011a",
+    "workflow_run": 44523376980,
+    "workflow_url": "https://github.com/TokenNotIncluded/lmm-api-source/actions/runs/44523376980"
+  },
+  "workspace_preservation": {
+    "original_head": "0c28d059377d0e6bf032137e0d3f2e628122797d",
+    "status": "UNCHANGED",
+    "index_and_worktree_unchanged": true,
+    "untracked_files": 40,
+    "untracked_contents_unchanged": true,
+    "before_and_after_receipt_sha256": "fe515ed4e80884201934719a20c940e08a1b51d16ecd3b8e1115717a6b4d1890"
+  },
+  "preparation_checks": {
+    "actionlint": "PASS",
+    "actionlint_workflows": [
+      "deploy.yml",
+      "source-release.yml",
+      "core-protocol.yml"
+    ],
+    "docs_brand": "PASS",
+    "diff": "PASS",
+    "python_embedded_blocks": 2,
+    "python_syntax_files": 4,
+    "relative_links_checked": 6,
+    "release_metadata": {
+      "version": "0.1.21",
+      "zconv": "0.4.0"
+    },
+    "source_drift": {}
+  },
+  "next_migration_path": {
+    "status": "SOURCE_AND_MANIFEST_PREFIX_REVIEW_ONLY",
+    "keyquota": "Initialize a bound historical69 fixture; perform existing reviewed69 import and replay/rollback checks there; use current76 executor for seven existing suffix upgrades; verify current76 quota behavior afterward.",
+    "current76_executor_prefixes_matching": 7,
+    "intermediate_catalogs_contiguous": true,
+    "new_profile76_whitelisted": false,
+    "preserved69_initializer_and_fixture_wiring": "not implemented",
+    "runtime_chain_verified": false,
+    "community_55_56_to_69_bridge_verified": false,
+    "receipt": "rust-owned/keyquota-recheck/diagnosis/prefix-chain-readonly.json",
+    "receipt_sha256": "310672b1bf4fa2ca7fab6fc434fcee35d4ab6920610ad61a64e247ee03bc7a5a"
   }
 }

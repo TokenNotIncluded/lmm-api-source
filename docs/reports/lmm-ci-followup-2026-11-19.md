@@ -1,6 +1,6 @@
 # LMM API 后端修复、CI/CD 与 0.1.21 发布记录
 
-日期：2026-11-19（Asia/Taipei）。本记录区分开发者自测、GitHub 工作流和实际发布；当前冻结候选的独立业务验收尚未执行。持续状态只维护在[新架构进度](../progress.md)，完整回执摘要见[结构化证据](lmm-ci-followup-2026-11-19.evidence.json)。
+日期：2026-11-19（Asia/Taipei）。**[v0.1.21 源码预发布](https://github.com/TokenNotIncluded/lmm-api-source/releases/tag/v0.1.21)已于 20:34:45 发布并完成附件回读验证。** 本记录区分开发者自测、GitHub 工作流和实际发布；当前冻结候选的独立业务验收尚未执行。持续状态只维护在[新架构进度](../progress.md)，完整回执摘要见[结构化证据](lmm-ci-followup-2026-11-19.evidence.json)。
 
 ## 已提交的修复
 
@@ -35,6 +35,8 @@ Rust 定向集合共取得 **80 个不同用例的通过结果**，另有 1 个�
 
 **Community 历史导入仍受 55／56 组件合同限制。** 当前 76 组件运行时不能直接套用这条历史导入路径。本轮未修改其 catalog 或 SQL 限制，也未将源码存在视为迁移已验收。后续需要绑定受支持的历史执行器、升级路径和实际目标合同。
 
+Key quota 的后续实现路径已收敛。源码与保留的真实 manifest 核对表明，当前 76 二进制允许按前缀执行现有七步 69→76 suffix，七步前后 manifest 和相邻 catalog 均匹配。可以保留 reviewed69：先用绑定的历史 69 初始化执行器导入并验证重放、回滚，再升级到 76 检查配额行为。仍需补初始化执行器及分阶段 fixture 接线；这次只读核对没有执行数据库升级，也没有证明 community 的 55／56→69 桥接路径。
+
 ## CI/CD 与发布范围
 
 MK 工作流已补齐与主 CI 相同的 PostgreSQL 18 准备步骤，时限由 25 分钟调整为 150 分钟，并串行运行会检查全局角色目录的测试。修改范围 actionlint 1.7.12 和 18 项工作流拓扑检查通过。主 CI 的 PG18 安装命令还在干净 Ubuntu 24 容器中实际验证，财务夹具 2 项通过。
@@ -45,7 +47,13 @@ APT 准备脚本现只将精确的 runner `mirror+file:/etc/apt/apt-mirrors.txt`
 
 部署门禁已实现，并接入日常 CI。构建前读取同一源码 SHA 的 canonical main CI，要求最新 run／attempt 及其唯一聚合检查均成功；旧的成功记录不能覆盖新的失败或运行中结果。门禁只读已有结果，构建和部署都依赖它。10 项模拟 API 测试与最终 19 项工作流拓扑检查通过；未触发真实部署。具体行为见[部署说明](../../deployment/automation/README.md)。
 
-本轮发布目标为 **0.1.21 源码预发布**，沿用既有 `Qualified source release`。发布请求会固定版本和源码，执行格式、Clippy、Core 协议及指定 edge/auth 单元检查，再归档源码、来源记录、日志和校验和。发布任务要求 main 仍等于受测提交，已有标签和 Release 资产不可覆盖。发布状态以工作流和 Release 回读为准；本记录不将准备阶段写成已发布。
+CI/CD 修复已提交为 [`9b9d4234`](https://github.com/TokenNotIncluded/lmm-api-source/commit/9b9d4234bd4a926ecc557e076a69615943a68c37)，发布请求为 [`0c8844b0`](https://github.com/TokenNotIncluded/lmm-api-source/commit/0c8844b0ea13b67ca25fa6103b712260e8f4011a)。新门禁还通过真实 GitHub API 只读检查：当前完整 CI 为 in_progress 时，实际返回拒绝，未进入部署。
+
+**[0.1.21 源码预发布](https://github.com/TokenNotIncluded/lmm-api-source/releases/tag/v0.1.21)已发布。** [`Qualified source release` run 44523376980](https://github.com/TokenNotIncluded/lmm-api-source/actions/runs/44523376980)的 qualify 和 publish 均成功；格式、Clippy、289 项 relay、10 项 edge_access、1 项 Turnstile 测试全部通过。这 300 项发布资格自测与前述定向集合有重叠，不将两组相加。标签精确指向 `0c8844b0ea13b67ca25fa6103b712260e8f4011a`；发布期间 main 保持不变。
+
+四个附件均已下载，文件大小和 SHA256 与 GitHub 元数据相符；`SHA256SUMS` 的三条记录、`source.json` 的仓库／版本／提交／workflow 身份，以及归档内本轮 14 个发布准备文件均已核对。源码包为 17,240,419 bytes，SHA256 `f54d7380bc1832ddf93df535c4f34865e6e1a1ecd83e75f8595257a972393d9f`。附件包括源码包、`source.json`、`core-relay-tests.log` 和 `SHA256SUMS`。
+
+源码发布成功没有改变完整后端 CI 的真实状态。[同一提交的完整 CI](https://github.com/TokenNotIncluded/lmm-api-source/actions/runs/44523376933)再次在工具安装步骤失败；截至本记录，该后端 job 仍在执行后续收集，完整日志尚未生成。APT 配置转换的自测通过与远端安装失败分别保留，不能把源码发布资格替代完整 CI 成功。
 
 源码预发布与运行环境部署分别记录。本轮没有触发服务部署、生产数据库迁移或切流。后续部署先由新门禁确认同一源码提交的完整 CI 和聚合检查成功，再使用既有配置、制品验证及环境保护。完整后端、迁移准入和业务验收的剩余问题仍是生产就绪条件。
 
