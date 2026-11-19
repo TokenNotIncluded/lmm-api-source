@@ -26,6 +26,10 @@ type StoreService interface {
 type storeConfigService interface {
 	PublicConfig(context.Context) (map[string]any, error)
 }
+type storeMerchantHomeService interface {
+	PublicMerchantHome(context.Context, int64) (map[string]any, error)
+	PublicAnnouncement(context.Context) (map[string]any, error)
+}
 type storeDisclaimerService interface {
 	PublicDisclaimer(context.Context, int64) (map[string]any, error)
 }
@@ -100,6 +104,37 @@ func RegisterStore(mux RouteRegistrar, auth *Authenticator, service StoreService
 			return
 		}
 		value, err := port.PublicConfig(r.Context())
+		Respond(w, value, err)
+	}))
+	mux.HandleFunc("GET /api/store/merchants/{id}", public(func(w http.ResponseWriter, r *http.Request, _ int64) {
+		if _, err := supportQuery(r); err != nil {
+			Respond(w, nil, err)
+			return
+		}
+		seller, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
+		if err != nil || seller <= 0 {
+			Respond(w, nil, store.ErrInvalid)
+			return
+		}
+		port, ok := service.(storeMerchantHomeService)
+		if !ok {
+			Respond(w, nil, store.ErrUnavailable)
+			return
+		}
+		value, err := port.PublicMerchantHome(r.Context(), seller)
+		Respond(w, value, err)
+	}))
+	mux.HandleFunc("GET /api/store/announcement", public(func(w http.ResponseWriter, r *http.Request, _ int64) {
+		if _, err := supportQuery(r); err != nil {
+			Respond(w, nil, err)
+			return
+		}
+		port, ok := service.(storeMerchantHomeService)
+		if !ok {
+			Respond(w, nil, store.ErrUnavailable)
+			return
+		}
+		value, err := port.PublicAnnouncement(r.Context())
 		Respond(w, value, err)
 	}))
 	mux.HandleFunc("GET /api/store/disclaimer", public(func(w http.ResponseWriter, r *http.Request, actor int64) {
@@ -376,6 +411,9 @@ func RegisterStore(mux RouteRegistrar, auth *Authenticator, service StoreService
 	}
 
 	routes := []storeWebRoute{
+		{pattern: "GET /api/store/my/home", action: "my_home"},
+		{pattern: "PUT /api/store/my/home", action: "save_home", bodyLimit: 128 << 10, requiredBody: true},
+		{pattern: "PUT /api/store/announcement", action: "save_announcement", bodyLimit: 128 << 10, requiredBody: true},
 		{pattern: "GET /api/store/cart", action: "cart", page: true},
 		{pattern: "PUT /api/store/cart", action: "save_cart", bodyLimit: 4 << 10, requiredBody: true},
 		{pattern: "DELETE /api/store/cart", action: "clear_cart", bodyLimit: 1 << 10},

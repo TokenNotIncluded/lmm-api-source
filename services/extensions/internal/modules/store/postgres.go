@@ -228,3 +228,20 @@ func (t *postgresTx) ListPublic(kind, after string, limit int) ([]json.RawMessag
 	}
 	return out, rows.Err()
 }
+
+// HasPersonalShop recognizes an existing native or Web catalogue owner without
+// creating a shop or exposing any of its private records.
+func (p *Postgres) HasPersonalShop(ctx context.Context, sellerID int64) (bool, error) {
+	if sellerID <= 0 {
+		return false, ErrInvalid
+	}
+	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	defer cancel()
+	var exists bool
+	err := p.db.QueryRowContext(ctx, `SELECT EXISTS (
+		SELECT 1 FROM lmm_store.shops
+		WHERE body->'owner'->>'kind'='personal'
+		AND (body->'owner'->>'id')::bigint=$1
+	)`, sellerID).Scan(&exists)
+	return exists, err
+}
