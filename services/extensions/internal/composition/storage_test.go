@@ -6,9 +6,12 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/TokenNotIncluded/lmm-api/extensions/internal/testkit"
 )
 
 func TestStorageURLRejectsUnisolatedConfiguration(t *testing.T) {
+	testkit.ClearPostgresEnv(t)
 	for _, test := range []struct {
 		name, url, database, component string
 		mode                           os.FileMode

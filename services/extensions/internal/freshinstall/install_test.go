@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/TokenNotIncluded/lmm-api/extensions/internal/testkit"
 )
 
 func TestCompiledPlansAreClosedAndTransactionSafe(t *testing.T) {
@@ -32,6 +34,7 @@ func TestCompiledPlansAreClosedAndTransactionSafe(t *testing.T) {
 	}
 }
 func TestOwnerURLCannotOverrideCheckedDatabaseOrRole(t *testing.T) {
+	testkit.ClearPostgresEnv(t)
 	dir := t.TempDir()
 	file := filepath.Join(dir, "owner-url")
 	p, _ := compiled("toolmarket")

@@ -5,10 +5,13 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/TokenNotIncluded/lmm-api/extensions/internal/testkit"
+
 	"github.com/lib/pq"
 )
 
 func TestUnixURLClosedSocketProfile(t *testing.T) {
+	testkit.ClearPostgresEnv(t)
 	base := "postgresql://runtime:synthetic@/lmm_toolmarket?host=%2Frun%2Flmm-postgresql&port=5433&sslmode=disable"
 	for _, raw := range []string{base, strings.Replace(base, "&port=5433", "", 1)} {
 		u, err := url.Parse(raw)
@@ -59,6 +62,7 @@ func TestUnixURLClosedSocketProfile(t *testing.T) {
 }
 
 func TestTCPTransportPolicy(t *testing.T) {
+	testkit.ClearPostgresEnv(t)
 	for _, tc := range []struct {
 		name, raw string
 		ok        bool
@@ -87,6 +91,7 @@ func TestTCPTransportPolicy(t *testing.T) {
 }
 
 func TestUnixURLRejectsConnectionEnvironmentWithoutLeakingValues(t *testing.T) {
+	testkit.ClearPostgresEnv(t)
 	u, _ := url.Parse("postgres://runtime:synthetic@/lmm_toolmarket?host=%2Frun%2Flmm-postgresql&sslmode=disable")
 	for _, name := range []string{"PGHOST", "PGPORT", "PGDATABASE", "PGUSER", "PGPASSWORD", "PGOPTIONS", "PGHOSTADDR", "PGSERVICE", "PGPASSFILE"} {
 		t.Run(name, func(t *testing.T) {
