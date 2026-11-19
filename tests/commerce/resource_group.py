@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
-"""Owned transient user slice for joint product-process acceptance.
+"""Owned transient slices for joint product-process acceptance.
 
 The parent quota applies to the sum of its child services. This helper creates
-no installed unit files, changes no unrelated unit and accepts no system bus.
+no installed unit files and changes no unrelated unit. The default uses the
+user manager; an explicit whole-budget lease permits an owned system hierarchy.
 Uses the installed systemd Manager.StartTransientUnit D-Bus API:
 https://github.com/systemd/systemd/blob/main/docs/TRANSIENT-SETTINGS.md
 This is test infrastructure, not a deployment service or acceptance signoff.
@@ -91,30 +92,45 @@ def record(root, name, value):
         os.close(directory)
 
 
-def bus_environment():
+def manager_command(program, manager="user"):
+    if manager not in {"user", "system"}:
+        raise ResourceError("an explicit local user or system manager is required")
+    if program not in {"/usr/bin/busctl", "/usr/bin/systemctl"}:
+        raise ResourceError("unsupported manager command")
+    if manager == "system":
+        return ["/usr/bin/sudo", "-n", program, "--system"]
+    return [program, "--user"]
+
+
+def bus_environment(manager="user"):
     # No inherited DB, product, proxy or alternate systemd host settings.
-    return {
+    manager_command("/usr/bin/busctl", manager)
+    result = {
         "PATH": "/usr/bin:/bin",
         "LANG": "C.UTF-8",
-        "XDG_RUNTIME_DIR": f"/run/user/{os.geteuid()}",
-        "DBUS_SESSION_BUS_ADDRESS": f"unix:path=/run/user/{os.geteuid()}/bus",
     }
+    if manager == "user":
+        result.update(
+            XDG_RUNTIME_DIR=f"/run/user/{os.geteuid()}",
+            DBUS_SESSION_BUS_ADDRESS=f"unix:path=/run/user/{os.geteuid()}/bus",
+        )
+    return result
 
 
-def control(*arguments):
+def control(*arguments, manager="user"):
     result = subprocess.run(
-        ["/usr/bin/systemctl", "--user", *arguments],
-        env=bus_environment(),
+        [*manager_command("/usr/bin/systemctl", manager), *arguments],
+        env=bus_environment(manager),
         text=True,
         capture_output=True,
         timeout=15,
     )
     if result.returncode:
-        raise ResourceError("user manager command failed; no unconstrained fallback")
+        raise ResourceError(f"{manager} manager command failed; no unconstrained fallback")
     return result.stdout
 
 
-def properties(unit):
+def properties(unit, *, manager="user"):
     fields = [
         "MainPID",
         "ActiveState",
@@ -124,7 +140,7 @@ def properties(unit):
         "Description",
         "Slice",
     ]
-    text = control("show", unit, *["--property=" + name for name in fields])
+    text = control("show", unit, *["--property=" + name for name in fields], manager=manager)
     return dict(line.split("=", 1) for line in text.splitlines() if "=" in line)
 
 
@@ -135,14 +151,170 @@ def limits(group):
     }
 
 
-# @mark runtime.joint-resource role=harness
-class Group:
+WHOLE_LIMITS = {
+    "cpu.max": "100000 100000",
+    "memory.max": str(1024 * 1024**2),
+    "memory.swap.max": "0",
+    "pids.max": "max",
+}
+PRODUCT_LIMITS = {
+    "cpu.max": "100000 100000",
+    "memory.max": str(512 * 1024**2),
+    "memory.swap.max": "0",
+    "pids.max": "256",
+}
+
+
+def metrics(group):
+    def counters(name):
+        return {key: int(value) for key, value in
+                (line.split() for line in (group / name).read_text().splitlines())}
+
+    return {
+        "cpu": counters("cpu.stat"),
+        "memory_current": int((group / "memory.current").read_text()),
+        "memory_peak": int((group / "memory.peak").read_text()),
+        "memory_events": counters("memory.events"),
+        "pids": int((group / "pids.current").read_text()),
+    }
+
+
+def verify_whole_lease(lease):
+    nonce = lease.get("nonce", "")
+    unit = "lmmjoint" + nonce + ".slice"
+    path = Path("/sys/fs/cgroup") / unit
+    if (
+        not re.fullmatch(r"[0-9a-f]{32}", nonce)
+        or lease.get("format") != "lmm-commerce-whole-budget-v1"
+        or lease.get("manager") != "system"
+        or lease.get("unit") != unit
+        or lease.get("uid") != os.geteuid()
+        or lease.get("cgroup") != str(path)
+        or lease.get("limits") != WHOLE_LIMITS
+        or identity(lease["owner"]["pid"]) != lease["owner"]
+    ):
+        raise ResourceError("invalid owned whole-budget lease")
+    observed = properties(unit, manager="system")
+    if (
+        observed.get("Transient") != "yes"
+        or observed.get("ActiveState") != "active"
+        or observed.get("Description") != "Owned whole acceptance " + nonce
+        or observed.get("ControlGroup") != "/" + unit
+        or limits(path) != WHOLE_LIMITS
+    ):
+        raise ResourceError("whole-budget identity or hard limits changed")
+    return path
+
+
+class WholeBudget:
+    """One owned system slice; close only after products and database are removed."""
+
     def __init__(self, root):
         private_root(root)
         self.root = root
         self.owner = identity(os.getpid())
         self.nonce = secrets.token_hex(16)
-        self.unit = "app-lmmjoint" + self.nonce + ".slice"
+        self.unit = "lmmjoint" + self.nonce + ".slice"
+        self.description = "Owned whole acceptance " + self.nonce
+        self.group = Path("/sys/fs/cgroup") / self.unit
+        self.started = False
+        self.ready = False
+        self.closed = False
+        record(root, "whole-budget-allocation.json", self.lease())
+
+    def lease(self):
+        return {
+            "format": "lmm-commerce-whole-budget-v1", "manager": "system",
+            "unit": self.unit, "nonce": self.nonce, "uid": os.geteuid(),
+            "owner": self.owner, "cgroup": str(self.group),
+            "limits": dict(WHOLE_LIMITS),
+        }
+
+    def start(self):
+        if self.started or self.closed:
+            raise ResourceError("whole-budget creation is one-shot")
+        self.started = True
+        settings = [
+            ("Description", "s", self.description),
+            ("CPUAccounting", "b", "true"), ("MemoryAccounting", "b", "true"),
+            ("CPUQuotaPerSecUSec", "t", "1000000"),
+            ("CPUQuotaPeriodUSec", "t", "100000"),
+            ("MemoryMax", "t", str(1024 * 1024**2)),
+            ("MemorySwapMax", "t", "0"),
+            # Keep the original product and PG task limits; add no tighter total.
+            ("TasksMax", "t", "18446744073709551615"),
+        ]
+        command = [*manager_command("/usr/bin/busctl", "system"), "call",
+                   "org.freedesktop.systemd1", "/org/freedesktop/systemd1",
+                   "org.freedesktop.systemd1.Manager", "StartTransientUnit",
+                   "ssa(sv)a(sa(sv))", self.unit, "fail", str(len(settings))]
+        for setting in settings:
+            command.extend(setting)
+        command.append("0")
+        result = subprocess.run(command, env=bus_environment("system"),
+                                text=True, capture_output=True, timeout=15)
+        record(self.root, "whole-budget-start.json", {
+            "exit_code": result.returncode, "stdout": result.stdout, "stderr": result.stderr,
+        })
+        if result.returncode:
+            raise ResourceError("whole-budget creation failed; inspect private receipt")
+        verify_whole_lease(self.lease())
+        self.ready = True
+        record(self.root, "whole-budget-ready.json", self.lease())
+        return self
+
+    def sample(self):
+        if not self.ready or self.closed or limits(self.group) != WHOLE_LIMITS:
+            raise ResourceError("whole-budget hard limits unavailable or changed")
+        return {"cgroup": str(self.group), "limits": dict(WHOLE_LIMITS),
+                **metrics(self.group)}
+
+    def close(self):
+        if self.closed:
+            return
+        if identity(os.getpid()) != self.owner:
+            raise ResourceError("whole-budget cleanup is limited to its controller")
+        observed = properties(self.unit, manager="system")
+        if observed.get("LoadState") != "not-found":
+            if (observed.get("Transient") != "yes"
+                    or observed.get("Description") != self.description
+                    or observed.get("ControlGroup") != "/" + self.unit):
+                raise ResourceError("refuse foreign whole-budget cleanup")
+            if self.group.exists():
+                populated = dict(line.split() for line in
+                                 (self.group / "cgroup.events").read_text().splitlines())
+                if populated.get("populated") != "0" or any(
+                        child.is_dir() for child in self.group.iterdir()):
+                    raise ResourceError("whole-budget still has children; preserve database and evidence")
+            control("stop", self.unit, manager="system")
+        observed = properties(self.unit, manager="system")
+        if observed.get("ActiveState") not in {"inactive", "failed"} or self.group.exists():
+            raise ResourceError("whole-budget removal unconfirmed")
+        self.closed = True
+        record(self.root, "whole-budget-closed.json", {
+            **self.lease(), "processes_and_cgroups_removed": True,
+        })
+
+
+# @mark runtime.joint-resource role=harness
+class Group:
+    def __init__(self, root, *, manager="user", whole_budget=None):
+        private_root(root)
+        manager_command("/usr/bin/busctl", manager)
+        if (manager == "system") != (whole_budget is not None):
+            raise ResourceError("system manager requires an explicit owned whole budget")
+        if whole_budget is not None and (
+            not isinstance(whole_budget, WholeBudget) or not whole_budget.ready
+            or whole_budget.closed or whole_budget.owner != identity(os.getpid())
+        ):
+            raise ResourceError("whole budget must be ready and owned by this controller")
+        self.manager = manager
+        self.whole_budget = whole_budget
+        self.root = root
+        self.owner = identity(os.getpid())
+        self.nonce = whole_budget.nonce if whole_budget else secrets.token_hex(16)
+        self.unit = ("lmmjoint" + self.nonce + "-products.slice" if whole_budget
+                     else "app-lmmjoint" + self.nonce + ".slice")
         self.description = "Owned joint acceptance " + self.nonce
         self.group = None
         self.services = []
@@ -158,12 +330,27 @@ class Group:
                 "nonce": self.nonce,
                 "cpu_quota": 1,
                 "memory_max": 512 * 1024**2,
+                **self._manager_receipt(),
             },
         )
+
+    def _manager_receipt(self):
+        return ({"manager": "system", "whole_budget": self.whole_budget.lease()}
+                if self.whole_budget else {})
+
+    def _properties(self, unit):
+        return (properties(unit, manager="system") if self.manager == "system"
+                else properties(unit))
+
+    def _control(self, *arguments):
+        return (control(*arguments, manager="system") if self.manager == "system"
+                else control(*arguments))
 
     def start(self):
         if self.started or self.closed:
             raise ResourceError("group creation is one-shot")
+        if self.whole_budget:
+            verify_whole_lease(self.whole_budget.lease())
         self.started = True  # intent before uncertain remote acknowledgement
         settings = [
             ("Description", "s", self.description),
@@ -176,8 +363,7 @@ class Group:
             ("TasksMax", "t", "256"),
         ]
         command = [
-            "/usr/bin/busctl",
-            "--user",
+            *manager_command("/usr/bin/busctl", self.manager),
             "call",
             "org.freedesktop.systemd1",
             "/org/freedesktop/systemd1",
@@ -192,7 +378,7 @@ class Group:
             command.extend([key, kind, value])
         command.append("0")
         result = subprocess.run(
-            command, env=bus_environment(), text=True, capture_output=True, timeout=15
+            command, env=bus_environment(self.manager), text=True, capture_output=True, timeout=15
         )
         record(
             self.root,
@@ -205,14 +391,18 @@ class Group:
         )
         if result.returncode:
             raise ResourceError("transient slice creation failed; inspect receipt")
-        observed = properties(self.unit)
+        observed = self._properties(self.unit)
         if (
             observed.get("Transient") != "yes"
             or observed.get("Description") != self.description
         ):
             raise ResourceError("parent slice identity mismatch")
         path = observed.get("ControlGroup", "")
-        if not path.startswith(
+        if self.whole_budget:
+            if (path != "/" + self.whole_budget.unit + "/" + self.unit
+                    or observed.get("Slice") != self.whole_budget.unit):
+                raise ResourceError("product slice is outside its owned whole budget")
+        elif not path.startswith(
             f"/user.slice/user-{os.geteuid()}.slice/"
         ) or ".." in path.split("/"):
             raise ResourceError("parent is not in the owned user hierarchy")
@@ -235,6 +425,7 @@ class Group:
                 "properties": observed,
                 "limits": actual,
                 "cgroup": str(self.group),
+                **self._manager_receipt(),
             },
         )
         return self
@@ -242,6 +433,8 @@ class Group:
     def launch(
         self, role, binary, arguments, expected_sha256, memory_max=256 * 1024**2
     ):
+        if self.manager != "user":
+            raise ResourceError("system products must use the stopped-child scope handoff")
         if self.group is None or self.closed or role not in {"core", "extensions"}:
             raise ResourceError("ready parent and a declared product role required")
         if memory_max != 256 * 1024**2:
@@ -486,6 +679,8 @@ class Group:
 
     def sample(self):
         """A bounded point observation; disappearing child scopes are recorded explicitly."""
+        if self.whole_budget and limits(self.group) != PRODUCT_LIMITS:
+            raise ResourceError("product hard limits changed during observation")
 
         def counters(path):
             return dict(
@@ -557,6 +752,7 @@ class Group:
             nonce = self.nonce
             if (
                 data.get("format") != "lmm-commerce-scope-allocation-v1"
+                or data.get("manager", "user") != self.manager
                 or data.get("owner") != self.owner
                 or data.get("parent") != self.unit
                 or not re.fullmatch(
@@ -592,15 +788,15 @@ class Group:
         foreign = False
         for item in reversed(self.services):
             try:
-                observed = properties(item["unit"])
+                observed = self._properties(item["unit"])
                 if observed.get("Slice") not in {self.unit, ""}:
                     foreign = True
                     raise ResourceError("refuse foreign child cleanup")
                 if observed.get("LoadState") != "not-found":
-                    control("stop", item["unit"])
+                    self._control("stop", item["unit"])
                 if item["launcher"] is not None:
                     item["launcher"].wait(timeout=15)
-                observed = properties(item["unit"])
+                observed = self._properties(item["unit"])
                 if int(observed.get("MainPID", "0")) != 0 or observed.get(
                     "ActiveState"
                 ) not in {"inactive", "failed"}:
@@ -627,15 +823,15 @@ class Group:
                 )
         if self.started:
             try:
-                observed = properties(self.unit)
+                observed = self._properties(self.unit)
                 if foreign or (
                     observed.get("LoadState") != "not-found"
                     and observed.get("Description") != self.description
                 ):
                     raise ResourceError("refuse foreign parent cleanup")
                 if observed.get("LoadState") != "not-found":
-                    control("stop", self.unit)
-                observed = properties(self.unit)
+                    self._control("stop", self.unit)
+                observed = self._properties(self.unit)
                 if observed.get("ActiveState") not in {"inactive", "failed"}:
                     raise ResourceError("parent stop unconfirmed")
                 if self.group is not None and self.group.exists():
@@ -663,5 +859,6 @@ class Group:
                 "owner": self.owner,
                 "child_units": [item["unit"] for item in self.services],
                 "processes_and_cgroups_removed": True,
+                **self._manager_receipt(),
             },
         )

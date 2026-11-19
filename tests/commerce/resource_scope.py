@@ -19,10 +19,13 @@ from resource_group import (
     bus_environment,
     identity,
     limits,
+    manager_command,
+    PRODUCT_LIMITS,
     private_root,
     properties,
     record,
     sha,
+    verify_whole_lease,
 )
 
 
@@ -35,11 +38,24 @@ def attach(ready, pid, role, binary, expected):
     if identity(owner["pid"]) != owner:
         raise ResourceError("parent controller identity changed")
     unit = lease["unit"]
-    match = re.fullmatch(r"app-lmmjoint([0-9a-f]{32})\.slice", unit)
+    manager = lease.get("manager", "user")
+    manager_command("/usr/bin/busctl", manager)
+    if manager == "system":
+        whole = lease.get("whole_budget", {})
+        whole_path = verify_whole_lease(whole)
+        match = re.fullmatch(r"lmmjoint([0-9a-f]{32})-products\.slice", unit)
+        if (not match or match.group(1) != whole["nonce"]
+                or owner != whole["owner"] or lease["limits"] != PRODUCT_LIMITS
+                or Path(lease["cgroup"]) != whole_path / unit):
+            raise ResourceError("product lease is outside its owned whole budget")
+    else:
+        if "whole_budget" in lease:
+            raise ResourceError("whole budget requires the explicit system manager")
+        match = re.fullmatch(r"app-lmmjoint([0-9a-f]{32})\.slice", unit)
     if not match or role not in {"core", "extensions"}:
         raise ResourceError("owned parent and declared product role required")
     nonce = match.group(1)
-    observed = properties(unit)
+    observed = properties(unit, manager=manager)
     group = Path(lease["cgroup"])
     if (
         observed.get("Transient") != "yes"
@@ -81,6 +97,7 @@ def attach(ready, pid, role, binary, expected):
         "role": role,
         "binary_sha256": expected,
         "cgroup": str(group / scope),
+        **({"manager": manager} if manager == "system" else {}),
     }
     stem = f"scope-{pid}-{secrets.token_hex(8)}"
     record(
@@ -101,8 +118,7 @@ def attach(ready, pid, role, binary, expected):
         ("TimeoutStopUSec", "t", "3000000"),
     ]
     command = [
-        "/usr/bin/busctl",
-        "--user",
+        *manager_command("/usr/bin/busctl", manager),
         "call",
         "org.freedesktop.systemd1",
         "/org/freedesktop/systemd1",
@@ -117,7 +133,7 @@ def attach(ready, pid, role, binary, expected):
         command.extend(setting)
     command.append("0")
     result = subprocess.run(
-        command, env=bus_environment(), text=True, capture_output=True, timeout=15
+        command, env=bus_environment(manager), text=True, capture_output=True, timeout=15
     )
     record(
         root,
@@ -132,7 +148,7 @@ def attach(ready, pid, role, binary, expected):
         raise ResourceError("scope creation failed; inspect private receipt")
     deadline = time.monotonic() + 10
     while time.monotonic() < deadline:
-        observed = properties(scope)
+        observed = properties(scope, manager=manager)
         if observed.get("ActiveState") == "active" and observed.get("ControlGroup"):
             break
         time.sleep(0.025)

@@ -148,7 +148,61 @@ def _connect_probe(parameters: dict) -> dict:
         lib.PQfinish(connection)
 
 
-def container_binding(info: dict, nonce: str, container: str) -> dict:
+def host_identity(pid: int) -> dict:
+    fields = Path(f'/proc/{pid}/stat').read_text().rsplit(') ', 1)[1].split()
+    return {'pid': pid, 'start_ticks': int(fields[19]),
+            'boot_id': Path('/proc/sys/kernel/random/boot_id').read_text().strip()}
+
+
+def parent_binding(lease: dict) -> Path:
+    nonce = lease.get('nonce', '')
+    unit = 'lmmjoint' + nonce + '.slice'
+    parent = Path('/sys/fs/cgroup') / unit
+    expected = {'cpu.max': '100000 100000', 'memory.max': str(1024 * 1024**2),
+                'memory.swap.max': '0', 'pids.max': 'max'}
+    if (not re.fullmatch('[0-9a-f]{32}', nonce)
+            or lease.get('format') != 'lmm-commerce-whole-budget-v1'
+            or lease.get('manager') != 'system' or lease.get('unit') != unit
+            or lease.get('uid') != os.geteuid() or lease.get('cgroup') != str(parent)
+            or lease.get('limits') != expected
+            or host_identity(lease['owner']['pid']) != lease['owner']
+            or {key: (parent / key).read_text().strip() for key in expected} != expected):
+        raise FixtureError('owned whole-budget identity or limits changed')
+    return parent
+
+
+def container_resources(info: dict, lease: dict) -> dict:
+    parent = parent_binding(lease)
+    container = info['Id']
+    pid = info['State']['Pid']
+    if (not re.fullmatch('[0-9a-f]{64}', container) or type(pid) is not int or pid <= 0
+            or info['HostConfig'].get('CgroupParent') != lease['unit']):
+        raise FixtureError('container does not declare the owned whole budget')
+    pinned = host_identity(pid)
+    scope = 'docker-' + container + '.scope'
+    group = parent / scope
+    path = '/' + lease['unit'] + '/' + scope
+    expected = {'cpu.max': '100000 100000', 'memory.max': str(512 * 1024**2),
+                'pids.max': '128'}
+    result = subprocess.run(
+        ['/usr/bin/systemctl', '--system', 'show', scope, '--property=Slice',
+         '--property=ControlGroup', '--property=Transient'],
+        env={'PATH': '/usr/bin:/bin', 'LANG': 'C.UTF-8'},
+        text=True, capture_output=True, timeout=15,
+    )
+    observed = dict(line.split('=', 1) for line in result.stdout.splitlines() if '=' in line)
+    if (result.returncode or observed.get('Slice') != lease['unit']
+            or observed.get('ControlGroup') != path or observed.get('Transient') != 'yes'
+            or Path(f'/proc/{pid}/cgroup').read_text().strip() != '0::' + path
+            or str(pid) not in (group / 'cgroup.procs').read_text().split()
+            or {key: (group / key).read_text().strip() for key in expected} != expected
+            or host_identity(pid) != pinned):
+        raise FixtureError('PostgreSQL actual cgroup membership or hard limits differ')
+    return {'cgroup_parent': lease['unit'], 'cgroup': str(group),
+            'pid_identity': pinned, 'resource_limits': expected}
+
+
+def container_binding(info: dict, nonce: str, container: str, *, cgroup_parent=None) -> dict:
     """Inspect immutable ownership and required sandbox settings before use."""
     try:
         host = info['HostConfig']
@@ -166,14 +220,17 @@ def container_binding(info: dict, nonce: str, container: str) -> dict:
         port = int(ports[0]['HostPort'])
         if not 1024 <= port <= 65535 or port in PROTECTED_PORTS:
             raise FixtureError('fixture must use a new unprotected loopback port')
-        return {'container': container, 'image_id': info['Image'],
-                'started_at': state['StartedAt'], 'pid': state['Pid'], 'port': port}
+        binding = {'container': container, 'image_id': info['Image'],
+                   'started_at': state['StartedAt'], 'pid': state['Pid'], 'port': port}
+        if cgroup_parent is not None:
+            binding.update(container_resources(info, cgroup_parent))
+        return binding
     except (KeyError, TypeError, ValueError, AttributeError):
         raise FixtureError('fixture identity is incomplete or UNKNOWN') from None
 
 
 class Fixture:
-    def __init__(self, parent: Path):
+    def __init__(self, parent: Path, *, cgroup_parent=None):
         private_directory(parent)
         self.nonce = secrets.token_hex(12)
         self.root = parent / ('a09-pg-' + self.nonce)
@@ -190,6 +247,39 @@ class Fixture:
         config = self.root / 'docker-config'
         config.mkdir(mode=0o700)
         self.env['DOCKER_CONFIG'] = str(config)
+        self.cgroup_parent = None
+        if cgroup_parent is not None:
+            self.configure_cgroup_parent(cgroup_parent)
+
+    def configure_cgroup_parent(self, lease: dict) -> None:
+        if (self.container is not None or self.cgroup_parent is not None
+                or (self.root / 'create-intent.json').exists()):
+            raise FixtureError('container resource parent is one-shot before creation')
+        parent_binding(lease)
+        self.cgroup_parent = json.loads(json.dumps(lease))
+
+    def resource_sample(self) -> dict:
+        if self.cgroup_parent is None or self.binding is None:
+            raise FixtureError('owned whole-budget container is not ready')
+        parent = parent_binding(self.cgroup_parent)
+        group = Path(self.binding['cgroup'])
+        pid = self.binding['pid']
+        expected = self.binding['resource_limits']
+        if (group.parent != parent or host_identity(pid) != self.binding['pid_identity']
+                or Path(f'/proc/{pid}/cgroup').read_text().strip()
+                != '0::/' + str(group.relative_to('/sys/fs/cgroup'))
+                or {key: (group / key).read_text().strip() for key in expected} != expected):
+            raise FixtureError('PostgreSQL resource identity changed during observation')
+
+        def counters(name):
+            return {key: int(value) for key, value in
+                    (line.split() for line in (group / name).read_text().splitlines())}
+        return {'cgroup': str(group), 'limits': dict(expected),
+                'cpu': counters('cpu.stat'),
+                'memory_current': int((group / 'memory.current').read_text()),
+                'memory_peak': int((group / 'memory.peak').read_text()),
+                'memory_events': counters('memory.events'),
+                'pids': int((group / 'pids.current').read_text())}
 
     def record(self, phase: str, values: dict) -> None:
         write_private(self.root/(phase+'.json'), json.dumps(
@@ -286,7 +376,8 @@ class Fixture:
             info = json.loads(self.docker('inspect', self.container).stdout)
             if len(info) != 1:
                 raise FixtureError('ambiguous container identity')
-            return container_binding(info[0], self.nonce, self.container)
+            return container_binding(info[0], self.nonce, self.container,
+                                     cgroup_parent=self.cgroup_parent)
         except (json.JSONDecodeError, TypeError):
             raise FixtureError('unreadable container identity') from None
 
@@ -310,9 +401,22 @@ class Fixture:
         password = secrets.token_hex(32)
         config = self.root / 'postgres.env'
         write_private(config, f'POSTGRES_USER=a09_admin\nPOSTGRES_DB=postgres\nPOSTGRES_PASSWORD={password}\n')
-        self.record('create-intent', {'name': self.name, 'image': IMAGE, 'host_boot_id': self.boot})
+        resource_args = []
+        if self.cgroup_parent is not None:
+            parent_binding(self.cgroup_parent)
+            details = self.docker('info', '--format',
+                '{{json .CgroupDriver}}\n{{json .CgroupVersion}}\n{{json .SecurityOptions}}')
+            driver, version, security = [json.loads(line) for line in
+                                         details.stdout.decode().splitlines()]
+            if (driver != 'systemd' or str(version) != '2'
+                    or any('rootless' in str(item) for item in security)):
+                raise FixtureError('whole budget requires local rootful systemd cgroup v2 Docker')
+            resource_args = ['--cgroup-parent', self.cgroup_parent['unit']]
+        self.record('create-intent', {'name': self.name, 'image': IMAGE, 'host_boot_id': self.boot,
+                    **({'cgroup_parent': self.cgroup_parent} if self.cgroup_parent else {})})
         self.container = self.docker('create', '--pull=never', '--name', self.name,
             '--label', LABEL+'='+self.nonce, '--memory', '512m', '--cpus', '1',
+            *resource_args,
             '--pids-limit', '128', '--env-file', str(config), '--publish', '127.0.0.1::5432',
             '--tmpfs', '/var/lib/postgresql:rw,size=402653184', IMAGE,
             '-c', 'shared_buffers=16MB', '-c', 'max_connections=32', '-c', 'log_statement=none',
@@ -451,6 +555,14 @@ class Fixture:
                                  '--filter', 'id='+self.container).stdout.strip()
         if remaining:
             raise FixtureError('owned fixture removal is unconfirmed')
+        if self.cgroup_parent is not None:
+            if Path(self.binding['cgroup']).exists():
+                raise FixtureError('owned PostgreSQL cgroup removal is unconfirmed')
+            try:
+                if host_identity(self.binding['pid']) == self.binding['pid_identity']:
+                    raise FixtureError('original PostgreSQL PID remains after removal')
+            except FileNotFoundError:
+                pass
         self.record('removed', {'container': self.container, 'no_client_backends': True})
 
 

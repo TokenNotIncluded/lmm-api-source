@@ -24,7 +24,7 @@ REPO = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO / "tests/architecture_completion"))
 from build_lease import private_directory
 from pg_fixture import Fixture, FixtureError, clean_environment, write_private
-from resource_group import Group, ResourceError
+from resource_group import Group, ResourceError, WholeBudget
 
 
 def digest(path: Path) -> str:
@@ -286,6 +286,10 @@ def main() -> int:
         help="run the two real products under a shared 1CPU/512MiB parent",
     )
     parser.add_argument(
+        "--whole-budget", action="store_true",
+        help="opt in to an owned system 1CPU/1GiB Core+Go+PostgreSQL parent; requires --shared-resources",
+    )
+    parser.add_argument(
         "--mixed-load",
         action="store_true",
         help="run frozen 540s model and complete commerce traffic together",
@@ -295,6 +299,8 @@ def main() -> int:
         help="run separate 240s model/commerce gate with 120 retained unread TCP clients",
     )
     args = parser.parse_args()
+    if args.whole_budget and not args.shared_resources:
+        parser.error("--whole-budget requires --shared-resources")
     try:
         profile = select_profile(
             mixed_load=args.mixed_load, mixed_slow_sockets=args.mixed_slow_sockets,
@@ -350,6 +356,8 @@ def main() -> int:
         env["RUSTUP_TOOLCHAIN"] = args.rust_toolchain
     before = sources()
     fixture = Fixture(output)
+    resources = None
+    whole_budget = None
     try:
         binary = fixture.root / "lmm-extensions"
         if args.extension_binary:
@@ -373,6 +381,15 @@ def main() -> int:
                 fixture.root / "go-build.log",
                 300,
             )
+        if args.whole_budget:
+            resource_root = fixture.root / "resources"
+            resource_root.mkdir(mode=0o700)
+            whole_root = resource_root / "whole"
+            whole_root.mkdir(mode=0o700)
+            whole_budget = WholeBudget(whole_root).start()
+            resources = Group(resource_root, manager="system", whole_budget=whole_budget)
+            resources.start()
+            fixture.configure_cgroup_parent(whole_budget.lease())
         fixture.start()
         # Only this freshly created, identity-checked loopback cluster is passed
         # to SQLx. No externally supplied DATABASE_URL is ever consumed.
@@ -401,26 +418,33 @@ def main() -> int:
             if args.test_binary
             else ["cargo", "test", "--locked", "--test", "commerce_process", "--"]
         )
-        resources = None
         sampler = None
         sampling_stop = threading.Event()
         samples = []
         sampling_errors = []
 
+        def sample_resources():
+            sample = resources.sample()
+            if whole_budget:
+                sample["whole_budget"] = whole_budget.sample()
+                sample["postgres"] = fixture.resource_sample()
+            return sample
+
         def observe():
             try:
                 while not sampling_stop.is_set():
-                    samples.append(resources.sample())
+                    samples.append(sample_resources())
                     sampling_stop.wait(0.25)
             except Exception as error:
                 sampling_errors.append(type(error).__name__ + ": " + str(error))
 
         try:
             if args.shared_resources:
-                resource_root = fixture.root / "resources"
-                resource_root.mkdir(mode=0o700)
-                resources = Group(resource_root)
-                resources.start()
+                if resources is None:
+                    resource_root = fixture.root / "resources"
+                    resource_root.mkdir(mode=0o700)
+                    resources = Group(resource_root)
+                    resources.start()
                 sampler = threading.Thread(
                     target=observe, name="joint-resource-observer"
                 )
@@ -466,12 +490,13 @@ def main() -> int:
                     if sampler and sampler.is_alive():
                         raise FixtureError("resource observer did not stop")
                     if resources.group is not None:
-                        samples.append(resources.sample())
+                        samples.append(sample_resources())
                     write_private(
                         resource_root / "samples.json",
                         json.dumps(
                             {
-                                "scope": "short real commerce regression, not sustained-load acceptance",
+                                "scope": ("Core+Go+PostgreSQL aggregate; generator/upstream/OS/Docker daemon/Web excluded"
+                                          if whole_budget else "short real commerce regression, not sustained-load acceptance"),
                                 "samples": samples,
                                 "errors": sampling_errors,
                             },
@@ -482,7 +507,9 @@ def main() -> int:
                     if sampling_errors:
                         raise FixtureError("resource observations incomplete")
                     if samples and any(
-                        samples[-1]["parent"]["memory_events"].get(key, 0)
+                        samples[-1][layer]["memory_events"].get(key, 0)
+                        for layer in (["parent", "whole_budget", "postgres"]
+                                      if whole_budget else ["parent"])
                         for key in ["oom", "oom_kill", "max"]
                     ):
                         raise FixtureError(
@@ -534,6 +561,8 @@ def main() -> int:
             ):
                 raise FixtureError("mixed sampling missed full frozen interval")
         fixture.cleanup()
+        if whole_budget:
+            whole_budget.close()
         receipt = {
             "format": "lmm-commerce-process-acceptance-v1",
             "result": "PASS",
@@ -552,10 +581,14 @@ def main() -> int:
             "mixed_profile": profile,
             "mixed_result": str(results[0]) if profile else None,
             "shared_resources": args.shared_resources,
+            "whole_budget": args.whole_budget,
+            "whole_budget_receipt": str(whole_budget.root / "whole-budget-closed.json")
+            if whole_budget else None,
             "shared_resource_receipt": str(resource_root / "group-closed.json")
             if resources
             else None,
-            "scope": "synthetic credits; local product processes only",
+            "scope": ("synthetic credits; Core+Go+PostgreSQL aggregate 1CPU/1GiB; generator/upstream/OS/Docker daemon/Web excluded"
+                      if whole_budget else "synthetic credits; local product processes only"),
         }
         write_private(
             fixture.root / "acceptance.json", json.dumps(receipt, sort_keys=True) + "\n"
