@@ -9,7 +9,7 @@ model, payment or database migration paths are ready for production.
 | Selector | Installed program or data | Runtime dependency on another LMM package |
 | --- | --- | --- |
 | `core` | `/usr/bin/lmm-core` and optional service definition | None; PostgreSQL is configured separately |
-| `extensions` | `/usr/bin/lmm-extensions` and external policy templates | None; remote core configured only when needed |
+| `extensions` | `/usr/bin/lmm-extensions`, external policy templates and two Extore native libraries | None; remote core configured only when needed |
 | `cli` | `/usr/bin/lmm` | None |
 | `web` | `/usr/share/lmm/web/` | None; no reverse proxy configuration is installed |
 
@@ -28,7 +28,7 @@ core. Each package is independent; the user CLI is installed only by selecting
 | --- | --- | --- | --- |
 | `deb` | Debian / Ubuntu and compatible derivatives | systemd 247+ | Static, or supported glibc libraries with detected minimum |
 | `rpm` | Fedora / RHEL 9+ / Rocky / AlmaLinux / openSUSE | systemd 247+ | Static, or supported glibc libraries with detected minimum |
-| `apk` | Alpine | OpenRC | Verified static ELF only; ordinary glibc archives are rejected |
+| `apk` | Alpine | OpenRC | Verified static ELF or an explicit musl build with its interpreter and supported shared libraries; glibc archives are rejected |
 | `archlinux` | Arch Linux / compatible derivatives | systemd 247+ | Static, or supported glibc libraries with detected minimum |
 
 Binary architectures are `amd64` and `arm64`; nFPM maps them to the package
@@ -38,11 +38,28 @@ Web packages are architecture-independent. macOS and Windows retain portable CLI
 archives; this builder deliberately refuses them.
 
 The builder uses `readelf`, never `ldd` or execution, to check every packaged
-binary. A binary compiled against glibc 2.36 must declare that minimum; changing
-its filename cannot make it work on a glibc 2.34 system. Unknown libraries and
-loaders are errors. Use an actually compiled and checked Rust musl static binary
-for broad Linux / Alpine coverage, and `CGO_ENABLED=0` for the Go host. Static
-linking is not proof of lower RAM or compatibility with every kernel/CPU.
+program and shared library. A binary compiled against glibc 2.36 must declare
+that minimum; changing its filename cannot make it work on glibc 2.34. Unknown
+libraries, wrong interpreters, or shared libraries with the wrong ELF type are
+errors. Static Rust core and CLI builds retain their existing portable route.
+
+The Go host keeps `CGO_ENABLED=0`; purego still imports a dynamic loader, so this
+setting does not make the host static. Extensions uses `linux-amd64` or
+`linux-arm64` archives for GNU packages and separate `linux-musl-amd64` or
+`linux-musl-arm64` archives for APK. The musl host embeds
+`/lib/ld-musl-x86_64.so.1` or `/lib/ld-musl-aarch64.so.1`. Its two Rust libraries
+are compiled for the same target with dynamic musl, and the APK declares musl
+and libgcc dependencies. The converter refuses a GNU extensions archive for APK
+and a musl archive for the other package families.
+
+The two libraries install under `/usr/lib/lmm/extensions/extore/`. Their
+licenses and the locked native dependency notices install under
+`/usr/share/licenses/lmm-extensions/`; the source pin installs under
+`/usr/share/lmm-extensions/packaging/`. Set both configured library SHA-256
+values from trusted archive metadata or the installed `BUILDINFO.json`.
+Installing these files does not enable Extore authorization. See the
+[Extore configuration contract](../../docs/extore.md) for the dedicated existing
+sealing key, registered callback and optional native configuration.
 
 These are upstream preview packages, not packages accepted into any distribution's
 official repository. Signed publication, vulnerability review, distro lifecycle
@@ -76,8 +93,8 @@ The source archive is copied and verified before use; extra files, missing files
 wrong components, wrong architectures and changed payloads are rejected.
 
 Output contains the package, `.sha256` and `.buildinfo.json`. The package installs
-its own `BUILDINFO.json` with source identity, library requirements and payload
-hashes. Files are staged privately; existing outputs are never overwritten.
+its own `BUILDINFO.json` with source identity, source platform, library requirements
+and payload hashes. Files are staged privately; existing outputs are never overwritten.
 The native formats are built by nFPM, not by a new in-house package encoder.
 Build output is unsigned by default. Sign with the approved distribution/repository
 key before publication. Do not teach production users to bypass signature checks;
@@ -170,9 +187,14 @@ mise exec -- python3 -B packaging/linux/test_native.py -v   # requires reviewed 
 not product runtime behavior. `test_native.py` builds all formats, inspects DEB
 contents and checks repeatability. The read-only `linux-packages.yml` workflow
 builds actual `lmm`, `lmm-core` and `lmm-extensions` binaries for two architectures and tests package
-installation in disposable distro containers. Record the exact run and CPU
-architecture before claiming any installation matrix passed. No release or
-production deployment is part of that workflow.
+installation in disposable distro containers. Its Alpine check also installs
+the actual extensions APK, verifies the installed payload, starts the installed
+host under its service account without native configuration, and invokes the
+installed libraries against real Rust Extore HTTPS/SQLite through the compiled
+Go Store consumer. This consumer uses the Store memory repository and Core test
+double; independent CoreSession, Store PostgreSQL and browser acceptance remain
+separate. Record the exact run and CPU architecture before claiming a matrix
+passed. No release or production deployment is part of that workflow.
 
 Primary references: nFPM's pinned `nfpm.go`/`files` schema, Debian Policy chapter
 10 (configuration preservation and `/usr` paths), systemd.exec (directory and

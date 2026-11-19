@@ -292,7 +292,7 @@
 | CHECK-03 | 部分验收 | API 密钥只读 HTTP 查询已核对；管理员 Session、统计/财务页面、时区展示和 CSV 导出逐项对照仍未完成。 |
 | CHECK-04 | 部分验收 | 固定组合登录、人民币模拟充值、商店购买提货退款和恢复通过；历史未决付款、其他故障场景及生产配置运行待验。 |
 | CHECK-05 | 部分验收 | release 文字与图片、计费及 UNKNOWN 路径通过；助手/MCP/工具/HumanGrant 完整组合与协议全覆盖未完成。 |
-| CHECK-06 | 部分验收 | 固定组合浏览器用例通过；全角色/语言/窄屏、CLI 及 Extore 两端完整覆盖未完成。 |
+| CHECK-06 | 部分验收 | 固定组合浏览器用例通过；Extore 原生目录的 GNU 开发联调通过，APK 实装及真实 CoreSession/Store PG/浏览器独立组合待验；全角色/语言/窄屏与 CLI 完整覆盖未完成。 |
 | CHECK-07 | 部分验收 | 初始化、ACL、原生包校验及旧服务恢复已有证据；最终生产迁移、安装切换与恢复演练待完成。 |
 | CHECK-08 | 待验收 | 同口径新旧版性能、长稳与故障恢复完整验收未完成。 |
 | CHECK-09 | 部分验收 | 固定组合 HTTP、浏览器及 release 图片通过；QD-001 六项资金退出条件已独立复核关闭；实际历史账号、最终生产快照及目标主机验收仍未闭合。 |
@@ -302,6 +302,7 @@
 | 范围 | 证据位置 |
 | --- | --- |
 | 管理员用户原生用量开发自测 | 开发机 /tmp/lmm-architecture-20261116-jpmxei3q/：user-usage-core-final、web-targeted、web-static、core-clippy-final、web-format-final、web-build 的日志与 result.json；截图及 8 组报告位于父仓库 .git/lmm-architecture-user-usage-v3/，仅合成场景，不替代独立整链路验收 |
+| Extore 原生目录开发自测 | `extore-zplugin-development/component-and-go-attempt-3.json`（GNU，Go `a050f041`）；真实 Extore HTTPS/SQLite、共享库、摘要/ABI、授权目录与跨店连接校验通过；Store 为内存测试仓库、Core 为测试替身，不抵扣独立生产验收 |
 | Core7 制品与准入 | `lmm-core7-release-vh29l59q/admitted-core7.receipt.private.json` |
 | 固定组合 | `lmm-combination-core5-web4-nt6y0hde/core7-go9-web5-combination.receipt.private.json` |
 | release 图片 | `lmm-core7-release-vh29l59q/image-release-r2/result.json` |

@@ -76,6 +76,11 @@ jobs:
       - name: Initialize the pinned CLI only
         if: matrix.component == 'cli'
         run: git submodule update --init --depth 1 -- apps/cli
+      - name: Initialize the pinned Extore plugin dependency
+        if: matrix.component == 'extensions'
+        run: |
+          git submodule update --init --depth 1 -- packages/extore
+          python3 -B scripts/check-extore-plugin-pin.py
       - name: Record actual source identity
         run: |
           echo "SOURCE_REVISION=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
@@ -95,6 +100,13 @@ jobs:
           '
           if [[ "$COMPONENT" == extensions ]]; then
             docker run --rm --entrypoint /bin/sh lmm-preview-extensions -ec '
+              test -s /usr/lib/lmm/extensions/extore/libextore_plugin_host.so
+              test -s /usr/lib/lmm/extensions/extore/libextore_commerce_plugin.so
+              test -s /usr/share/licenses/lmm-extensions/extore/LICENSE
+              test -s /usr/share/licenses/lmm-extensions/extore/THIRD-PARTY-NATIVE.txt
+              test -s /usr/share/licenses/lmm-extensions/extore/THIRD-PARTY-NATIVE.json
+              test -s /usr/share/licenses/lmm-extensions/purego/LICENSE
+              test -s /usr/share/licenses/lmm-extensions/purego/GO-LICENSE
               test -s /usr/share/lmm/legal/site.example.toml
               test "$(find /usr/share/lmm/legal/templates -name "*.md" | wc -l)" -eq 6
               test ! -e /usr/share/lmm/legal/site.json

@@ -52,6 +52,15 @@ class PackageTests(unittest.TestCase):
         source_c.write_text('#include <stdio.h>\nint main(void) { puts("synthetic"); return 0; }\n')
         subprocess.run(["cc", str(source_c), "-o", str(cls.base / "dynamic")], check=True, timeout=30)
         cls.dynamic = (cls.base / "dynamic").read_bytes()
+        subprocess.run(["cc", "-shared", "-fPIC", str(source_c), "-o", str(cls.base / "library.so")],
+                       check=True, timeout=30)
+        cls.shared = (cls.base / "library.so").read_bytes()
+        subprocess.run(["musl-gcc", str(source_c), "-o", str(cls.base / "dynamic-musl")],
+                       check=True, timeout=30)
+        subprocess.run(["musl-gcc", "-shared", "-fPIC", str(source_c), "-o", str(cls.base / "library-musl.so")],
+                       check=True, timeout=30)
+        cls.musl_dynamic = (cls.base / "dynamic-musl").read_bytes()
+        cls.musl_shared = (cls.base / "library-musl.so").read_bytes()
 
     @classmethod
     def tearDownClass(cls):
@@ -62,16 +71,26 @@ class PackageTests(unittest.TestCase):
         self.addCleanup(self.temp.cleanup)
         self.work = Path(self.temp.name)
 
-    def archive(self, component="core", arch="amd64", binary=None):
-        src = self.work / (component + "-" + arch)
+    def archive(self, component="core", arch=None, binary=None, libc="glibc"):
+        arch = arch or self.host_arch
+        src = self.work / (component + "-" + arch + "-" + libc)
         src.mkdir()
         for name in self.spec["components"][component]["binaries"]:
-            (src / name).write_bytes(binary if binary is not None else self.static[arch])
+            (src / name).write_bytes(binary if binary is not None else
+                                     self.musl_dynamic if libc == "musl" else self.static[arch])
+        for name in self.spec["components"][component].get("libraries", []):
+            target = src / name
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(self.musl_shared if libc == "musl" else self.shared)
+        for name in self.spec["components"][component].get("build_resources", []):
+            target = src / name
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text("Synthetic native notice fixture.\n")
         if component == "web":
             (src / "index.html").write_text("<!doctype html><title>Synthetic fixture</title>")
         return PKG.DIST.build(self.root, component, "0.1.0-preview.1", REVISION,
-                              "any" if component == "web" else "linux-" + arch,
-                              src, self.work / ("archive-" + component + "-" + arch), 1_700_000_000)
+                              "any" if component == "web" else ("linux-musl-" if libc == "musl" else "linux-") + arch,
+                              src, self.work / ("archive-" + component + "-" + arch + "-" + libc), 1_700_000_000)
 
     def prepare(self, archive, component="core", fmt="deb", **changes):
         args = dict(root=self.root, archive=archive,
@@ -93,6 +112,27 @@ class PackageTests(unittest.TestCase):
                     self.assertEqual(config["contents"][0]["dst"], "/usr/bin/lmm-core")
                     self.assertNotIn("/usr/bin/lmm-core-admin", info["files"])
                     self.assertTrue(info["preview"])
+
+    def test_extension_installs_shared_libraries_and_rejects_apk(self):
+        archive = self.archive("extensions", arch=self.host_arch)
+        config, info = self.prepare(archive, component="extensions")
+        self.assertIn("/usr/lib/lmm/extensions/extore/libextore_plugin_host.so", info["files"])
+        self.assertIn("/usr/lib/lmm/extensions/extore/libextore_commerce_plugin.so", info["files"])
+        self.assertIn("/usr/share/licenses/lmm-extensions/extore/THIRD-PARTY-NATIVE.txt", info["files"])
+        self.assertEqual([report["linkage"] for report in info["elf"]], ["static", "glibc", "glibc"])
+        self.assertTrue(any("libc6" in value for value in config["depends"]))
+        with self.assertRaisesRegex(ValueError, "Alpine APK"):
+            self.prepare(archive, component="extensions", fmt="apk")
+
+    def test_musl_extension_package_keeps_both_libraries_on_alpine(self):
+        archive = self.archive("extensions", libc="musl")
+        config, info = self.prepare(archive, component="extensions", fmt="apk")
+        self.assertEqual([report["linkage"] for report in info["elf"]], ["musl", "musl", "musl"])
+        self.assertIn("musl", config["depends"])
+        self.assertIn("/usr/lib/lmm/extensions/extore/libextore_plugin_host.so", info["files"])
+        self.assertIn("/usr/lib/lmm/extensions/extore/libextore_commerce_plugin.so", info["files"])
+        with self.assertRaisesRegex(ValueError, "musl archives"):
+            self.prepare(archive, component="extensions", fmt="deb")
 
     def test_cli_package_does_not_install_or_require_a_daemon(self):
         config, info = self.prepare(self.archive("cli"), component="cli")
@@ -172,7 +212,8 @@ class PackageTests(unittest.TestCase):
             archive = self.archive(component)
             for fmt in PKG.FORMATS:
                 with self.subTest(component=component, fmt=fmt):
-                    config, info = self.prepare(archive, component=component, fmt=fmt)
+                    selected = self.archive("extensions", libc="musl") if component == "extensions" and fmt == "apk" else archive
+                    config, info = self.prepare(selected, component=component, fmt=fmt)
                     contents = {entry["dst"]: entry for entry in config["contents"]}
                     expected = f"/etc/lmm.conf.d/{component}.toml"
                     entry = contents[expected]

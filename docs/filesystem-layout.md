@@ -12,6 +12,8 @@
 | 可选文件日志 | `/var/log/lmm/core/` | `/var/log/lmm/extensions/` |
 | 默认日志 | systemd journal；OpenRC 由操作者配置日志收集 | systemd journal；OpenRC 由操作者配置日志收集 |
 
+Extensions 的 Extore 原生宿主与插件库安装在 `/usr/lib/lmm/extensions/extore/`，许可证在 `/usr/share/licenses/lmm-extensions/extore/` 和 `purego/`，固定源码记录在 `/usr/share/lmm-extensions/packaging/extore-plugin.json`。这些库由软件包管理，运行账户只读；GNU 与 musl 包使用不同构建，配置中的摘要应对应实际平台。启用及关闭合同见 [Extore 集成](extore.md#可选原生目录插件)。
+
 前端只读文件位于 `/usr/share/lmm/web/`，协议示例和模板位于 `/usr/share/lmm/legal/`。这些文件由软件包管理，不存运行状态、密钥、上传内容或数据库备份。协议站点配置使用 `/etc/lmm.conf.d/legal.toml`；操作者须显式指定模板目录，协议发布仍需独立审核。
 
 `/run` 可以在重启后清空，持久业务记录不能存到这里。PostgreSQL 数据目录由数据库自身管理；`/var/lib/lmm/core` 并不意味着核心可以读取数据库服务的物理文件。扩展不得取得核心数据库的凭据或目录权限。路径约定也不表示每个进程已实现文件日志、PID 文件或本地缓存；仅启用实际实现的功能。

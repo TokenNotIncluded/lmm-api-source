@@ -78,14 +78,17 @@ test('source publication requires the exact qualified main revision and immutabl
   assert.match(guard, /lockfile must resolve the exact registry zconv archive/);
 });
 
-test('CLI consumers initialize only the pinned CLI submodule', () => {
-  for (const name of ['lmm', 'microservice-distribution', 'linux-packages', 'core-protocol']) {
+test('workflows initialize only their required pinned submodules', () => {
+  const dependencies = {
+    lmm: ['apps/cli'],
+    'microservice-distribution': ['apps/cli', 'apps/cli', 'packages/extore'],
+    'linux-packages': ['apps/cli', 'packages/extore'],
+    'core-protocol': ['apps/cli'],
+  };
+  for (const [name, paths] of Object.entries(dependencies)) {
     const source = workflow(name);
     const commands = [...source.matchAll(/git submodule update[^\n]*/g)].map((match) => match[0]);
-    assert.equal(commands.length, name === 'microservice-distribution' ? 2 : 1, name);
-    for (const command of commands) {
-      assert.equal(command, 'git submodule update --init --depth 1 -- apps/cli', name);
-    }
+    assert.deepEqual(commands, paths.map((path) => 'git submodule update --init --depth 1 -- ' + path), name);
     assert.doesNotMatch(source, /submodules:\s*(?:true|recursive)/);
   }
   assert.match(workflow('lmm'), /name: Initialize the pinned CLI only\n        working-directory: \.\n/);

@@ -30,9 +30,12 @@ do not stamp old binaries with a new HEAD. Hashes alone do not prove who built
 an artifact. Relevant source, toolchain, packaging or configuration changes may
 invalidate reuse. Build core alone for core work, not core plus Go plus Web.
 
-`--target binaries` exports programs, not runtime images. APK needs a verified
-static ELF; a glibc archive cannot be reused there by renaming it. Service nodes,
-especially 1C1G nodes, receive qualified artifacts rather than compiling them.
+`--target binaries` exports programs and their declared runtime libraries, not
+runtime images. For APK, use verified static ELF or a separately identified musl
+build with the matching interpreter and declared shared libraries. Verify actual
+Alpine installation and native calls; never rename a glibc archive into a musl
+artifact. Service nodes, especially 1C1G nodes, receive qualified artifacts rather
+than compiling them.
 A packaging-only format conversion needs packaging checks, not every app build.
 
 ## Installation and verification

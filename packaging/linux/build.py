@@ -40,6 +40,13 @@ LIBRARIES = {
 }
 # Inspect, rather than execute, ELF files. Unknown dependencies fail closed.
 INTERPRETERS = {"amd64": "/lib64/ld-linux-x86-64.so.2", "arm64": "/lib/ld-linux-aarch64.so.1"}
+MUSL_INTERPRETERS = {"amd64": "/lib/ld-musl-x86_64.so.1", "arm64": "/lib/ld-musl-aarch64.so.1"}
+# musl resolves these libc family names internally, including the unversioned
+# imports emitted by purego with CGO_ENABLED=0 and an explicit musl interpreter.
+MUSL_LIBRARIES = {
+    "libc.so", "libc.so.6", "libdl.so.2", "libpthread.so.0", "libm.so.6", "librt.so.1",
+    "libc.musl-x86_64.so.1", "libc.musl-aarch64.so.1", "libgcc_s.so.1",
+}
 
 
 def run(*args: str, **kwargs) -> str:
@@ -47,28 +54,38 @@ def run(*args: str, **kwargs) -> str:
                           stderr=subprocess.PIPE, timeout=300, **kwargs).stdout
 
 
-def inspect_elf(path: Path, arch: str) -> dict:
+def inspect_elf(path: Path, arch: str, shared: bool = False, libc: str = "glibc",
+                allow_unversioned: bool = False) -> dict:
     data = path.read_bytes()
     DIST.check_binary(data, "linux-" + arch)
-    if int.from_bytes(data[16:18], "little") not in {2, 3}:
+    if shared:
+        DIST.check_shared_library(data, "linux-" + arch)
+    elif int.from_bytes(data[16:18], "little") not in {2, 3}:
         raise ValueError("ELF input is not an executable")
     text = run("readelf", "--wide", "--program-headers", "--dynamic", "--version-info", str(path),
                env={**os.environ, "LC_ALL": "C"})
     match = re.search(r"Requesting program interpreter:\s*([^\]]+)\]", text)
     interpreter = match[1].strip() if match else None
     needed = sorted(set(re.findall(r"\(NEEDED\).*?\[([^\]]+)\]", text)))
-    loaders = {Path(value).name for value in INTERPRETERS.values()}
-    wrong_loader = set(needed) & (loaders - {Path(INTERPRETERS[arch]).name})
-    unknown = (set(needed) - LIBRARIES.keys()) | wrong_loader
-    if unknown or (interpreter is not None and interpreter != INTERPRETERS[arch]):
-        raise ValueError("unsupported ELF interpreter or shared library; use an inspected static build")
-    if needed and interpreter is None:
+    expected_interpreter = (MUSL_INTERPRETERS if libc == "musl" else INTERPRETERS)[arch]
+    loaders = {Path(value).name for value in INTERPRETERS.values()} | {
+        Path(value).name for value in MUSL_INTERPRETERS.values()}
+    wrong_loader = set(needed) & (loaders - {Path(expected_interpreter).name})
+    allowed_libraries = MUSL_LIBRARIES if libc == "musl" else LIBRARIES.keys()
+    unknown = (set(needed) - allowed_libraries) | wrong_loader
+    if unknown or (interpreter is not None and interpreter != expected_interpreter):
+        raise ValueError("unsupported ELF interpreter or shared library for the selected libc platform")
+    if needed and interpreter is None and not shared:
         raise ValueError("shared ELF input has no executable interpreter")
+    if shared and interpreter is not None:
+        raise ValueError("shared library must not contain an executable interpreter")
     versions = {tuple(map(int, s.split("."))) for s in re.findall(r"\bGLIBC_(\d+\.\d+(?:\.\d+)?)\b", text)}
     openssl_versions = {tuple(map(int, s.split("."))) for s in re.findall(r"\bOPENSSL_(\d+\.\d+\.\d+)\b", text)}
-    if interpreter and not versions:
+    if libc == "musl" and versions:
+        raise ValueError("musl package contains glibc version requirements")
+    if libc == "glibc" and (interpreter or shared) and not versions and not allow_unversioned:
         raise ValueError("cannot determine the glibc minimum")
-    return {"linkage": "glibc" if interpreter else "static", "needed": needed,
+    return {"linkage": libc if interpreter or shared else "static", "needed": needed,
             "glibc_minimum": ".".join(map(str, max(versions))) if versions else None,
             "openssl_minimum": ".".join(map(str, max(openssl_versions))) if openssl_versions else None}
 
@@ -79,9 +96,15 @@ def dependencies(reports: list[dict], fmt: str, service: bool, network: bool) ->
         deps.add("openrc" if fmt == "apk" else
                  {"deb": "systemd (>= 247)", "rpm": "systemd >= 247", "archlinux": "systemd>=247"}[fmt])
     if fmt == "apk":
-        if any(r["linkage"] != "static" for r in reports):
-            raise ValueError("Alpine APK requires a verified static binary, not a glibc archive")
+        if any(r["linkage"] not in {"static", "musl"} for r in reports):
+            raise ValueError("Alpine APK requires verified static or musl payloads, not a glibc archive")
+        if any(r["linkage"] == "musl" for r in reports):
+            deps.add("musl")
+        if any("libgcc_s.so.1" in r["needed"] for r in reports):
+            deps.add("libgcc")
         return sorted(deps)
+    if any(r["linkage"] == "musl" for r in reports):
+        raise ValueError("musl archives are packaged as Alpine APKs")
     column = {"deb": 0, "rpm": 1, "archlinux": 2}[fmt]
     for report in reports:
         for lib in report["needed"]:
@@ -165,7 +188,8 @@ def prepare(root: Path, archive: Path, expected_hash: str, revision: str,
         raise ValueError("archive SHA-256 does not match trusted input")
     manifest = DIST.verify(snapshot, revision)
     platform = manifest["platform"]
-    if manifest["component"] != package["archive"] or platform not in {"linux-amd64", "linux-arm64", "any"}:
+    if manifest["component"] != package["archive"] or platform not in {
+            "linux-amd64", "linux-arm64", "linux-musl-amd64", "linux-musl-arm64", "any"}:
         raise ValueError("archive component or platform mismatch")
     if (component == "web") != (platform == "any"):
         raise ValueError("architecture-independent packages must contain only web assets")
@@ -175,7 +199,11 @@ def prepare(root: Path, archive: Path, expected_hash: str, revision: str,
         raise ValueError("archive package identity mismatch")
     if package["binaries"] != spec["binaries"]:
         raise ValueError("native package binary inventory differs from the component archive")
-    allowed = set(distribution["common"] + spec["resources"] + ["README.md"])
+    if package.get("libraries", {}) != {
+            library: "/usr/lib/lmm/extensions/extore/" + Path(library).name
+            for library in spec.get("libraries", [])}:
+        raise ValueError("native package library inventory differs from the component archive")
+    allowed = set(distribution["common"] + spec["resources"] + spec.get("build_resources", []) + spec.get("libraries", []) + ["README.md"])
     allowed.update("bin/" + b for b in spec["binaries"])
     actual = set(manifest["files"])
     if component == "web":
@@ -186,7 +214,8 @@ def prepare(root: Path, archive: Path, expected_hash: str, revision: str,
     if type(epoch) is not int or not 0 <= epoch <= 0xFFFFFFFF:
         raise ValueError("invalid source timestamp")
     stamp = datetime.fromtimestamp(epoch, timezone.utc).isoformat()
-    arch = "all" if component == "web" else platform.split("-")[1]
+    arch = "all" if component == "web" else platform.split("-")[-1]
+    libc = "musl" if platform.startswith("linux-musl-") else "glibc"
     name = package["name"]
     pkg_version, pkg_release = native_version(manifest["version"], release, fmt)
     contents, reports, installed = [], [], {}
@@ -212,7 +241,17 @@ def prepare(root: Path, archive: Path, expected_hash: str, revision: str,
             return tar.extractfile(path).read()
         for binary in package["binaries"]:
             path = add("/usr/bin/" + binary, get("bin/" + binary), 0o755)
-            reports.append(inspect_elf(path, arch))
+            # purego imports libc symbols without version suffixes. Its bundled
+            # Rust libraries below supply the detected glibc minimum.
+            reports.append(inspect_elf(path, arch, libc=libc,
+                                       allow_unversioned=bool(spec.get("libraries"))))
+        for library, destination in package.get("libraries", {}).items():
+            path = add(destination, get(library))
+            reports.append(inspect_elf(path, arch, shared=True, libc=libc))
+        for resource in spec.get("build_resources", []):
+            if not resource.startswith("licenses/"):
+                raise ValueError("unrecognized native build resource")
+            add(f"/usr/share/licenses/{name}/" + resource.removeprefix("licenses/"), get(resource))
         for path in distribution["common"]:
             add(f"/usr/share/licenses/{name}/{path}", get(path))
         add(f"/usr/share/doc/{name}/README.archive.md", get("README.md"))
@@ -253,7 +292,7 @@ def prepare(root: Path, archive: Path, expected_hash: str, revision: str,
     info = {"schema_version": 1, "package": name, "component": component,
             "version": manifest["version"], "release": release, "format": fmt, "arch": arch,
             "native_version": pkg_version, "native_release": pkg_release,
-            "source_revision": revision, "source_archive_sha256": expected_hash,
+            "source_revision": revision, "source_platform": platform, "source_archive_sha256": expected_hash,
             "preview": True, "source_date_epoch": epoch, "elf": reports,
             "dependencies": deps, "files": dict(installed), "nfpm_version": catalog["nfpm_version"]}
     add(f"/usr/share/doc/{name}/BUILDINFO.json", (json.dumps(info, indent=2, sort_keys=True) + "\n").encode())

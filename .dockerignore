@@ -9,6 +9,7 @@ docs
 .gocache
 /.codegraph/
 !THIRD-PARTY-LICENSES.md
+!packages/extore/plugins/commerce/THIRD_PARTY.md
 
 **/target
 **/node_modules

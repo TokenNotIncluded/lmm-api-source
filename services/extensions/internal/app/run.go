@@ -24,6 +24,9 @@ import (
 )
 
 func Run() error {
+	if len(os.Args) > 1 && os.Args[1] == "--check-extore-plugin" {
+		return checkExtorePlugin(os.Args[2:], os.Stdout)
+	}
 	path, err := configPath(os.Args[1:])
 	if err != nil {
 		return err

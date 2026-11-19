@@ -12,6 +12,7 @@ import (
 	"runtime"
 	"strings"
 	"sync"
+	"time"
 	"unsafe"
 )
 
@@ -193,6 +194,10 @@ func (r *NativeCatalogReader) ReadCatalog(ctx context.Context, origin, token str
 	if err != nil || normalized != origin || token == "" {
 		return nil, ErrInput
 	}
+	// Include worker admission in the existing catalog request budget. A caller
+	// can stop waiting while the worker completes same-thread native cleanup.
+	ctx, cancel := context.WithTimeout(ctx, 20*time.Second)
+	defer cancel()
 	req := nativeRequest{ctx: ctx, origin: origin, token: token, result: make(chan nativeResult, 1)}
 	select {
 	case <-ctx.Done():

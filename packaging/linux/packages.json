@@ -18,7 +18,11 @@
       "binaries": [
         "lmm-extensions"
       ],
-      "service": true
+      "service": true,
+      "libraries": {
+        "lib/extore/libextore_plugin_host.so": "/usr/lib/lmm/extensions/extore/libextore_plugin_host.so",
+        "lib/extore/libextore_commerce_plugin.so": "/usr/lib/lmm/extensions/extore/libextore_commerce_plugin.so"
+      }
     },
     "cli": {
       "name": "lmm",
