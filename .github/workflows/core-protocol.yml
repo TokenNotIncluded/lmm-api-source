@@ -5,7 +5,7 @@ on:
       diagnostic_mode:
         description: Explicit control-branch diagnostic; none retains the complete gate
         type: choice
-        options: [none, candidate, pre_fix, managed70, continuity]
+        options: [none, candidate, pre_fix, managed70, continuity, market]
         default: none
       product_sha:
         description: Immutable 40-hex candidate source (required for diagnostic modes)
@@ -407,3 +407,55 @@ jobs:
           path: ${{ env.EVIDENCE_DIR }}
           if-no-files-found: error
           retention-days: 1
+
+  market-postgres:
+    name: Store and tool-market PostgreSQL diagnostic, not full CI
+    if: ${{ inputs.diagnostic_mode == 'market' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    services:
+      postgres:
+        image: postgres:18-alpine@sha256:77f585114c32fbca283dc835b0596f4e52b51b4c6662d7810b2f4084f60a1873
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U postgres" --health-interval 5s
+          --health-timeout 3s --health-retries 10
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          ref: ${{ github.sha }}
+          path: control
+          persist-credentials: false
+      - name: Require an immutable product input
+        env:
+          PRODUCT_SHA: ${{ inputs.product_sha }}
+        run: '[[ "$PRODUCT_SHA" =~ ^[0-9a-f]{40}$ ]]'
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          ref: ${{ inputs.product_sha }}
+          path: product
+          persist-credentials: false
+      - uses: actions/setup-go@7a3fe6cf4cb3a834922a1244abfce67bcef6a0c5
+        with:
+          go-version: '1.27.2'
+          cache-dependency-path: product/services/extensions/go.sum
+      - name: Run the three original PostgreSQL parent cases
+        env:
+          PRODUCT_SHA: ${{ inputs.product_sha }}
+          POSTGRES_CONTAINER: ${{ job.services.postgres.id }}
+        run: |
+          python3 -B control/scripts/verify-market-postgres.py \
+            --source "$GITHUB_WORKSPACE/product" --product-sha "$PRODUCT_SHA" \
+            --postgres-container "$POSTGRES_CONTAINER" \
+            --output "$RUNNER_TEMP/market-postgres-evidence" \
+            --private-dir "$RUNNER_TEMP/market-postgres-private"
+      - name: Preserve non-secret PostgreSQL evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: market-postgres-${{ inputs.product_sha }}-${{ github.run_id }}
+          path: ${{ runner.temp }}/market-postgres-evidence
+          if-no-files-found: error
+          retention-days: 7
