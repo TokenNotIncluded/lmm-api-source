@@ -1,5 +1,5 @@
 //! Optional production-native library inputs for the unchanged commerce workload.
-use super::{Process, observation, private};
+use super::{Process, hex_codec, observation, private};
 use serde::Deserialize;
 use serde_json::json;
 use sha2::{Digest, Sha256};
