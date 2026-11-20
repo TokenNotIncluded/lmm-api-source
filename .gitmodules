@@ -13,6 +13,9 @@
 [submodule "packages/opencode-lmm-auth"]
 	path = packages/opencode-lmm-auth
 	url = https://github.com/TokenNotIncluded/opencode-lmm-auth.git
+[submodule "packages/extore"]
+	path = packages/extore
+	url = https://github.com/TokenNotIncluded/extore.git
 [submodule "apps/cli"]
 	path = apps/cli
 	url = https://github.com/TokenNotIncluded/lmm.git

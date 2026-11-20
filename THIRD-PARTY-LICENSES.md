@@ -3,16 +3,38 @@
 This file summarizes direct third-party dependencies used by distributed builds of this project.
 Keep this inventory with current component archives, Docker images and frontend bundles. Historical notices remain attributed to their original distributions.
 
-Scope: current Web direct dependencies, selected Go extension and Rust Core dependencies.
+Scope: current Web direct dependencies, selected Go extension and Rust Core dependencies, and the separately bundled Extore native plugin.
 Rows marked historical preserve earlier distribution attribution; they do not describe the current Rust/Go build.
 Rust versions follow `services/core/Cargo.lock`; the complete direct Rust review is in [Rust dependencies](docs/rust-dependencies.md).
 Transitive dependencies should be audited before a final external release.
+
+## Extore native distribution
+
+The exact Extore source revision is recorded in `packaging/extore-plugin.json`
+and the `packages/extore` gitlink. Its standalone commerce workspace is MIT
+licensed. Both GNU and musl extension archives carry the Extore LICENSE,
+`licenses/extore/THIRD-PARTY-NATIVE.txt` with original license/notice texts and
+`THIRD-PARTY-NATIVE.json` with versions, registry checksums and source paths.
+The collector uses the locked Cargo graph filtered to the actual target; this
+short inventory does not replace those files. Native installation places them
+under `/usr/share/licenses/lmm-extensions/extore/`.
+
+The purego bridge is pinned to v0.11.3. Its Apache-2.0 LICENSE is distributed as
+`licenses/purego/LICENSE`; Go-derived bridge code retains the Go Authors'
+BSD-3-Clause license as `licenses/purego/GO-LICENSE`. These notices ship with
+the Go host even when the optional Extore catalog is not enabled.
 
 ## Dependency Inventory
 
 | Area | Scope | Ecosystem | Dependency | Version | License |
 | ------------- | ------------- | ----------- | ------------------------------------------------------- | -------------------------------------- | ---------------------------------------------------- |
 | extensions | production | Go | `github.com/BurntSushi/toml` | `v1.6.0` | MIT |
+| extensions | production | Go | `github.com/ebitengine/purego` | `v0.11.3` | Apache-2.0; Go-derived code BSD-3-Clause |
+| extensions | optional native catalog | Rust | Extore commerce workspace | `1.0.0`, fixed gitlink | MIT |
+| extensions | optional native catalog | Rust | `zplugin` / `zplugin-macros` | `0.3.1` | MIT OR Apache-2.0 |
+| extensions | optional native catalog | Rust | `zsys` | `0.1.1` | MIT OR Apache-2.0 |
+| extensions | optional native catalog | Rust | `reqwest` | `0.12.28` | MIT OR Apache-2.0 |
+| extensions | optional native catalog | Rust | `serde_json` | `1.0.154` | MIT OR Apache-2.0 |
 | core | production | Rust | `toml` | `1.2.1+spec-1.1.0` (manifest `=1.2.1`) | MIT OR Apache-2.0 |
 | core | production | Rust | `webpki-root-certs` | `1.0.12` | CDLA-Permissive-2.0 |
 | core | production | Rust | `tiktoken-rs` | `0.12.1` | MIT |

@@ -33,6 +33,26 @@ def digest(path: Path) -> str:
     return value.hexdigest()
 
 
+def validate_extore_native(path: Path, expected: str) -> dict:
+    if not path.is_absolute() or not path.is_file() or digest(path) != expected:
+        raise ValueError("native Extore input does not match its frozen SHA256")
+    data = json.loads(path.read_text())
+    required = {"format", "host_library", "host_sha256", "plugin_library", "plugin_sha256"}
+    if set(data) != required or data["format"] != "lmm-native-extore-input-v1":
+        raise ValueError("native Extore input has unsupported fields or format")
+    for kind in ("host", "plugin"):
+        library = Path(data[kind + "_library"])
+        checksum = data[kind + "_sha256"]
+        if (not library.is_absolute() or library.resolve() != library
+            or not library.is_file() or not isinstance(checksum, str)
+            or len(checksum) != 64 or any(c not in "0123456789abcdef" for c in checksum)
+            or digest(library) != checksum):
+            raise ValueError("native Extore " + kind + " library differs from frozen input")
+    if data["host_library"] == data["plugin_library"]:
+        raise ValueError("host and plugin libraries must be distinct")
+    return data
+
+
 def sources() -> dict:
     roots = [
         REPO / "services/core/src",
@@ -298,6 +318,8 @@ def main() -> int:
         "--mixed-slow-sockets", action="store_true",
         help="run separate 240s model/commerce gate with 120 retained unread TCP clients",
     )
+    parser.add_argument("--extore-native-input", type=Path)
+    parser.add_argument("--extore-native-sha256")
     args = parser.parse_args()
     if args.whole_budget and not args.shared_resources:
         parser.error("--whole-budget requires --shared-resources")
@@ -335,6 +357,14 @@ def main() -> int:
         or digest(args.extension_binary) != args.extension_sha256
     ):
         parser.error("Go executable does not match the declared frozen input")
+    if bool(args.extore_native_input) != bool(args.extore_native_sha256):
+        parser.error("native Extore input and its SHA256 must be supplied together")
+    native_input = None
+    if args.extore_native_input:
+        try:
+            native_input = validate_extore_native(args.extore_native_input, args.extore_native_sha256)
+        except (OSError, ValueError, TypeError) as error:
+            parser.error(str(error))
     if not args.output_root.is_absolute():
         parser.error("output root must be absolute")
     output = args.output_root.resolve()
@@ -381,6 +411,20 @@ def main() -> int:
                 fixture.root / "go-build.log",
                 300,
             )
+        if native_input is not None:
+            sealed_native = fixture.root / "extore-native-input.json"
+            shutil.copyfile(args.extore_native_input, sealed_native)
+            sealed_native.chmod(0o400)
+            if digest(sealed_native) != args.extore_native_sha256:
+                raise FixtureError("sealed native input copy differs from frozen input")
+            env["LMM_COMMERCE_EXTORE_NATIVE_INPUT"] = str(sealed_native)
+            env["LMM_COMMERCE_EXTORE_NATIVE_SHA256"] = args.extore_native_sha256
+            binding = fixture.root / "extore-native-input-binding.json"
+            with binding.open("x") as stream:
+                json.dump({"input_sha256": args.extore_native_sha256, "libraries": native_input,
+                           "sealed_input": str(sealed_native)}, stream, indent=2)
+                stream.write("\n")
+            binding.chmod(0o600)
         if args.whole_budget:
             resource_root = fixture.root / "resources"
             resource_root.mkdir(mode=0o700)

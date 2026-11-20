@@ -53,7 +53,10 @@ type Catalog struct {
 	Products []json.RawMessage `json:"products"`
 }
 
-type Client struct{ HTTP *http.Client }
+type Client struct {
+	HTTP    *http.Client
+	Catalog CatalogReader
+}
 
 // NormalizeOrigin accepts an HTTPS origin, not an arbitrary API or media URL.
 // Production dialing must additionally resolve and reject private addresses.

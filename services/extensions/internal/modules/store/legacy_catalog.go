@@ -315,7 +315,7 @@ func (s *Service) Legacy(ctx context.Context, token string, actor Account, r Leg
 		}
 		out := []map[string]any{}
 		for _, row := range rows {
-			v, err := s.publicLegacyViewFor(row, false, actor.ID)
+			v, err := s.merchantProductView(row, actor.ID)
 			if err != nil {
 				return nil, err
 			}
@@ -348,7 +348,7 @@ func (s *Service) Legacy(ctx context.Context, token string, actor Account, r Leg
 		return nil, ErrUnavailable
 	}
 	if r.Action == "draft_product" || r.Action == "preview_product" {
-		return s.publicLegacyViewFor(row, false, actor.ID)
+		return s.merchantProductView(row, actor.ID)
 	}
 	if r.Action == "fixed_content" {
 		var content string
@@ -773,7 +773,7 @@ func (s *Service) saveLegacyProduct(ctx context.Context, token string, actor Acc
 	if err != nil {
 		return nil, err
 	}
-	return s.publicLegacyView(row, false)
+	return s.merchantProductView(row, actor.ID)
 }
 
 func (s *Service) saveLegacyVariant(ctx context.Context, actor Account, row LocatedProduct, r LegacyRequest) (any, error) {
@@ -1004,6 +1004,20 @@ func legacyProductViewFor(row LocatedProduct, public, ready, stockReady bool, vi
 	}
 	return map[string]any{"id": p.ID, "seller_id": row.Owner.ID, "category_id": m.CategoryID, "title": p.Title, "description": m.Description, "image_urls": m.ImageURLs, "contact": m.Contact, "links": m.Links, "price_quota": price, "test_mode": m.TestMode, "visibility": effectiveVisibility(m.Visibility, m.TestMode), "purchase_login_required": m.PurchaseLoginRequired, "sale_limit": m.SaleLimit, "max_quantity_per_order": m.MaxQuantityPerOrder, "max_quantity_per_buyer": m.MaxQuantityPerBuyer, "template": m.Template, "delivery_strategy": m.DeliveryStrategy, "payment_methods": methods, "pickup_login_required": m.PickupLoginRequired, "pickup_code_required": m.PickupCodeRequired, "email_pickup_link": m.EmailPickupLink, "status": m.Status, "review_note": reviewNote, "reviewed_by": reviewer, "reviewed_at": m.ReviewedAt, "promotion_expires_at": 0, "created_at": m.CreatedAt, "updated_at": m.UpdatedAt, "official": false, "unlimited_supply": unlimited, "available_stock": stock, "paid_quantity": claimed, "reserved_quantity": reserved, "sale_available": saleAvailable, "trading_paused": paused, "default_variant_id": m.DefaultVariantID, "variants": variants, "inventory_total": inventoryTotal, "inventory_available": stock, "price_min_quota": min, "price_max_quota": max, "display_tags": tags}, nil
 }
+
+// Merchant forms edit stored settings even when a draft, stock or funds gate
+// pauses checkout. Public and saved-product views keep their availability rules.
+func (s *Service) merchantProductView(row LocatedProduct, viewer int64) (map[string]any, error) {
+	view, err := s.publicLegacyViewFor(row, false, viewer)
+	if err != nil {
+		return nil, err
+	}
+	if row.Product.Legacy != nil {
+		view["payment_methods"] = append([]string{}, row.Product.Legacy.PaymentMethods...)
+	}
+	return view, nil
+}
+
 func (s *Service) publicLegacyView(row LocatedProduct, public bool) (map[string]any, error) {
 	return s.publicLegacyViewFor(row, public, 0)
 }

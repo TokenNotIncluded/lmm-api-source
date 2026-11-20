@@ -61,7 +61,7 @@ def read_regular(root: Path, name: str) -> bytes:
 
 
 def _check_binary_headers(header: bytes, pe_header: bytes, size: int, platform: str) -> None:
-    system, arch = platform.split("-")
+    system, arch = platform.split("-")[0], platform.split("-")[-1]
     if system == "linux":
         valid = (len(header) >= 64 and header[:6] == b"\x7fELF\x02\x01"
                  and struct.unpack_from("<H", header, 18)[0] == {"amd64": 62, "arm64": 183}[arch])
@@ -82,6 +82,12 @@ def _check_binary_headers(header: bytes, pe_header: bytes, size: int, platform: 
 def check_binary(data: bytes, platform: str) -> None:
     offset = struct.unpack_from("<I", data, 60)[0] if len(data) >= 64 else 0
     _check_binary_headers(data[:64], data[offset:offset + 6], len(data), platform)
+
+
+def check_shared_library(data: bytes, platform: str) -> None:
+    check_binary(data, platform)
+    if not platform.startswith("linux-") or struct.unpack_from("<H", data, 16)[0] != 3:
+        raise ValueError("native library must be a matching ELF shared object")
 
 
 def build(root: Path, component: str, version: str, revision: str,
@@ -119,6 +125,12 @@ def build(root: Path, component: str, version: str, revision: str,
         data = read_regular(inputs, name)
         check_binary(data, platform)
         add("bin/" + name, data, 0o755)
+    for name in selected.get("libraries", []):
+        data = read_regular(inputs, name)
+        check_shared_library(data, platform)
+        add(name, data)
+    for name in selected.get("build_resources", []):
+        add(name, read_regular(inputs, name))
     if component == "web":
         if not (inputs / "index.html").is_file():
             raise ValueError("web input has no index.html")
@@ -279,7 +291,7 @@ def verify(archive: Path, revision: str | None = None) -> dict:
                     if len(raw_manifest) != entry.size:
                         raise ValueError("truncated manifest")
                     continue
-                is_binary = entry.name.startswith("bin/")
+                is_binary = entry.name.startswith(("bin/", "lib/"))
                 digest, header, pe_header = _inspect_member(source, entry.size, is_binary)
             files[entry.name] = {"sha256": digest, "size": entry.size, "mode": entry.mode}
             if is_binary:
@@ -311,11 +323,12 @@ def verify(archive: Path, revision: str | None = None) -> dict:
         raise ValueError("manifest component or platform does not match")
     suffix = ".exe" if manifest["platform"].startswith("windows-") else ""
     binaries = {"bin/" + name + suffix for name in component["binaries"]}
-    if set(headers) != binaries:
-        raise ValueError("archive executable inventory does not match the component")
+    libraries = set(component.get("libraries", []))
+    if set(headers) != binaries | libraries:
+        raise ValueError("archive executable or shared library inventory does not match the component")
     if {name for name, info in files.items() if info["mode"] == 0o755} != binaries:
         raise ValueError("only component binaries may be executable")
-    required = set(spec["common"] + component["resources"] + ["README.md"]) | binaries
+    required = set(spec["common"] + component["resources"] + component.get("build_resources", []) + ["README.md"]) | binaries | libraries
     allowed = set(required)
     if manifest["component"] == "web":
         required.add("dist/index.html")
@@ -329,6 +342,8 @@ def verify(archive: Path, revision: str | None = None) -> dict:
             raise ValueError("manifest content does not match")
     for name, (header, pe_header) in headers.items():
         _check_binary_headers(header, pe_header, files[name]["size"], manifest["platform"])
+        if name in libraries:
+            check_shared_library(header, manifest["platform"])
     return manifest
 
 

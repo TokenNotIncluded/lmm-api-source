@@ -2,6 +2,7 @@ package extore
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/url"
 	"slices"
@@ -62,7 +63,15 @@ func (c Client) RevokeConnection(ctx context.Context, origin, clientID string, c
 }
 func (c Client) ConnectionCatalog(ctx context.Context, origin string, credentials Credentials) (*Catalog, error) {
 	var catalog Catalog
-	if err := c.request(ctx, http.MethodGet, origin+catalogPath, credentials.Access, nil, &catalog, 16<<20); err != nil {
+	if c.Catalog != nil {
+		raw, err := c.Catalog.ReadCatalog(ctx, origin, credentials.Access)
+		if err != nil {
+			return nil, err
+		}
+		if len(raw) > maxCatalogBytes || json.Unmarshal(raw, &catalog) != nil {
+			return nil, ErrProtocol
+		}
+	} else if err := c.request(ctx, http.MethodGet, origin+catalogPath, credentials.Access, nil, &catalog, maxCatalogBytes); err != nil {
 		return nil, err
 	}
 	if err := ValidateCatalog(&catalog, origin, credentials.GrantID); err != nil {

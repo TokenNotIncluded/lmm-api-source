@@ -211,5 +211,5 @@ func (s *Service) setProductCategory(ctx context.Context, actor Account, r Legac
 	if err != nil {
 		return nil, err
 	}
-	return s.publicLegacyView(row, false)
+	return s.merchantProductView(row, actor.ID)
 }

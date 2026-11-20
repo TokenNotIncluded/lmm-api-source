@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/TokenNotIncluded/lmm-api/extensions/internal/coreclient"
+	"github.com/TokenNotIncluded/lmm-api/extensions/internal/extore"
 	"github.com/TokenNotIncluded/lmm-api/extensions/internal/modules"
 	"github.com/TokenNotIncluded/lmm-api/extensions/internal/modules/acquisition"
 	"github.com/TokenNotIncluded/lmm-api/extensions/internal/modules/assistant"
@@ -65,6 +66,7 @@ type Config struct {
 	StoreStockKeyFile             string
 	StoreExtoreKeyFile            string
 	StoreExtoreRedirectURI        string
+	StoreExtorePlugin             extore.NativeConfig
 	Support                       StorageConfig
 	Assistant                     StorageConfig
 	AssistantCursorKeyFile        string
@@ -212,6 +214,12 @@ func New(ctx context.Context, cfg Config) (_ *Runtime, resultErr error) {
 		return nil, err
 	}
 	cfg.Selected = selection
+	if err := cfg.StoreExtorePlugin.Validate(); err != nil {
+		return nil, err
+	}
+	if cfg.StoreExtorePlugin.Enabled() && (!slices.Contains(cfg.Selected, "store") || cfg.StoreExtoreKeyFile == "" || cfg.StoreExtoreRedirectURI == "") {
+		return nil, errors.New("Extore native catalog requires store selection and Extore authorization configuration")
+	}
 	if err := validateHeroSMSSelection(cfg); err != nil {
 		return nil, err
 	}
@@ -402,6 +410,16 @@ func New(ctx context.Context, cfg Config) (_ *Runtime, resultErr error) {
 				return nil, err
 			}
 			if err := r.Store.WithExtore(cfg.StoreExtoreRedirectURI, key); err != nil {
+				return nil, err
+			}
+		}
+		if cfg.StoreExtorePlugin.Enabled() {
+			reader, err := extore.NewNativeCatalogReader(cfg.StoreExtorePlugin)
+			if err != nil {
+				return nil, err
+			}
+			r.close = append(r.close, reader.Close)
+			if err := r.Store.WithExtoreCatalogReader(reader); err != nil {
 				return nil, err
 			}
 		}

@@ -27,7 +27,9 @@
       ],
       "platforms": [
         "linux-amd64",
-        "linux-arm64"
+        "linux-arm64",
+        "linux-musl-amd64",
+        "linux-musl-arm64"
       ],
       "resources": [
         "config/extensions.example.toml",
@@ -39,7 +41,20 @@
         "config/legal/templates/zh-CN/refund-policy.md",
         "config/legal/templates/en/user-agreement.md",
         "config/legal/templates/en/privacy-policy.md",
-        "config/legal/templates/en/refund-policy.md"
+        "config/legal/templates/en/refund-policy.md",
+        "packaging/extore-plugin.json",
+        "docs/extore.md"
+      ],
+      "libraries": [
+        "lib/extore/libextore_plugin_host.so",
+        "lib/extore/libextore_commerce_plugin.so"
+      ],
+      "build_resources": [
+        "licenses/extore/LICENSE",
+        "licenses/extore/THIRD-PARTY-NATIVE.txt",
+        "licenses/extore/THIRD-PARTY-NATIVE.json",
+        "licenses/purego/LICENSE",
+        "licenses/purego/GO-LICENSE"
       ]
     },
     "cli": {

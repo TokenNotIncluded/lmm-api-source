@@ -63,7 +63,8 @@ Example configuration, with no fixed server count:
 Servers may select any subset of the three components. `arch` is `amd64`
 (default) or `arm64`; Web is built once for all architectures. `port` defaults
 to 22, `user` to root, `python` to `/usr/bin/python3`, and `min_free_bytes` to
-256 MiB. Optional `health_headers` supplies non-secret HTTP headers. The Web
+256 MiB. `allow_rollback` is a JSON boolean and defaults to `true`. Optional
+`health_headers` supplies non-secret HTTP headers. The Web
 probe must return the exact built `index.html`, without HTML rewriting.
 
 ## Provision once
@@ -145,6 +146,20 @@ fails, both fixed slots remain for recovery and the job fails; it does not disca
 the only recovery material. An unreachable server or a terminated runner can
 leave a partial rollout: inspect the affected server before retrying. Database
 changes and production cutover require their own existing procedures.
+
+After an independently reviewed database upgrade that makes the preceding binary
+incompatible, set `"allow_rollback": false` on that target before generating the
+inventory. Direct playbook inventories use the boolean
+`deploy_allow_rollback: false`. The playbook then leaves the actual selected
+links unchanged on failure, does not restart preceding programs, and retains both
+slots and received archives for forward recovery. This setting does not suppress
+the failure or deploy later hosts. Inspect the failed host and preserve its
+evidence before any new run; the ordinary staging step removes an inactive slot.
+
+Configuration remains outside the slots. A rollback-compatible update that
+changes TOML or secret references needs its own matching configuration recovery;
+switching the executable link alone does not restore those files. A committed
+76-to-77 upgrade must not start a Core76 binary against the upgraded database.
 
 The deployment tool is pinned to `ansible-core==2.22.0` on the GitHub controller.
 Archive extraction and link selection use the standard

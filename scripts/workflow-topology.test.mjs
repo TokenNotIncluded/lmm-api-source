@@ -78,14 +78,18 @@ test('source publication requires the exact qualified main revision and immutabl
   assert.match(guard, /lockfile must resolve the exact registry zconv archive/);
 });
 
-test('CLI consumers initialize only the pinned CLI submodule', () => {
-  for (const name of ['lmm', 'microservice-distribution', 'linux-packages', 'core-protocol']) {
+test('workflows initialize only their required pinned submodules', () => {
+  const dependencies = {
+    lmm: ['apps/cli'],
+    'microservice-distribution': ['apps/cli', 'apps/cli', 'packages/extore'],
+    'linux-packages': ['apps/cli', 'packages/extore'],
+    'core-protocol': ['apps/cli'],
+    deploy: ['packages/extore'],
+  };
+  for (const [name, paths] of Object.entries(dependencies)) {
     const source = workflow(name);
     const commands = [...source.matchAll(/git submodule update[^\n]*/g)].map((match) => match[0]);
-    assert.equal(commands.length, name === 'microservice-distribution' ? 2 : 1, name);
-    for (const command of commands) {
-      assert.equal(command, 'git submodule update --init --depth 1 -- apps/cli', name);
-    }
+    assert.deepEqual(commands, paths.map((path) => 'git submodule update --init --depth 1 -- ' + path), name);
     assert.doesNotMatch(source, /submodules:\s*(?:true|recursive)/);
   }
   assert.match(workflow('lmm'), /name: Initialize the pinned CLI only\n        working-directory: \.\n/);
@@ -389,13 +393,24 @@ test('Core CI freezes the process binary and private root before running all Rus
   const source = workflow('core-protocol');
   const block = source.match(/      - name: Rust checks and real database tests\n([\s\S]*?)(?=      - name:)/)?.[1];
   assert.ok(block, 'the Rust database test step must exist');
-  const compile = block.indexOf('cargo test --locked --all-targets --no-run');
+  const compileStep = source.indexOf('id: rust_test_compile');
+  const compile = source.indexOf('cargo test --locked --all-targets --no-run --message-format=json');
+  const upload = source.indexOf('name: Preserve compiled commerce acceptance driver');
+  const executeStep = source.indexOf('name: Rust checks and real database tests');
+  assert.ok(compileStep >= 0 && compile > compileStep && upload > compile && executeStep > upload,
+    'compile once and retain its driver before executing the database tests');
+  assert.equal(source.split('cargo test --locked --all-targets --no-run').length - 1, 1);
+  const driver = source.match(/      - name: Preserve compiled commerce acceptance driver\n([\s\S]*?)(?=      - name:)/)?.[1];
+  assert.ok(driver, 'the compiled acceptance driver must be preserved');
+  for (const guarded of [driver, block]) {
+    assert.match(guarded, /if: \$\{\{ !cancelled\(\) && steps\.rust_test_compile\.outcome == 'success' \}\}/);
+  }
   const binary = block.indexOf('LMM_MODEL_PROCESS_CORE_BIN="$(realpath target/debug/lmm-core)"');
   const hash = block.indexOf('LMM_MODEL_PROCESS_CORE_SHA256="$(sha256sum "$LMM_MODEL_PROCESS_CORE_BIN"');
   const root = block.indexOf('LMM_MODEL_PROCESS_ROOT="$(mktemp -d "$process_evidence_root/model-XXXXXXXX")"');
   const exported = block.indexOf('export LMM_MODEL_PROCESS_CORE_BIN LMM_MODEL_PROCESS_CORE_SHA256 LMM_MODEL_PROCESS_ROOT');
   const execute = block.indexOf('cargo test --locked --all-targets --no-fail-fast');
-  assert.ok(compile >= 0 && binary > compile && hash > binary && root > hash
+  assert.ok(binary >= 0 && hash > binary && root > hash
     && exported > root && execute > exported, 'freeze inputs after compiling, before executing');
   // The separately required owning-runner step covers exactly this one case.
   const routed = ' -- --skip synthetic_live_proof_crosses_core_go_processes_and_posts_once';

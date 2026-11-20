@@ -100,7 +100,7 @@ func (s *Service) refreshExtoreCredentials(ctx context.Context, userID int64, ro
 	if err != nil {
 		return extore.Credentials{}, err
 	}
-	client := extore.Client{HTTP: s.extoreHTTP}
+	client := extore.Client{HTTP: s.extoreHTTP, Catalog: s.extoreCatalog}
 	next, err := client.RefreshConnection(ctx, row.Origin, row.ClientID, credentials)
 	if err != nil {
 		return extore.Credentials{}, ErrExtoreReauthorize
@@ -150,10 +150,13 @@ func (s *Service) connectionCatalog(ctx context.Context, userID int64, id string
 			return nil, extoreConnectionRow{}, err
 		}
 	}
-	client := extore.Client{HTTP: s.extoreHTTP}
+	client := extore.Client{HTTP: s.extoreHTTP, Catalog: s.extoreCatalog}
 	catalog, err := client.ConnectionCatalog(ctx, row.Origin, credentials)
 	if err != nil {
 		return nil, extoreConnectionRow{}, mapExtoreErr(err)
+	}
+	if catalog.Shop.ID != row.ShopID {
+		return nil, extoreConnectionRow{}, ErrForbidden
 	}
 	return catalog, row, nil
 }

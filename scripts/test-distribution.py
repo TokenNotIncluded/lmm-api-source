@@ -18,9 +18,10 @@ SPEC.loader.exec_module(DIST)
 SHA = "a" * 40
 
 
-def elf(machine=62):
+def elf(machine=62, kind=2):
     data = bytearray(64)
     data[:6] = b"\x7fELF\x02\x01"
+    struct.pack_into("<H", data, 16, kind)
     struct.pack_into("<H", data, 18, machine)
     return bytes(data)
 
@@ -35,6 +36,15 @@ class DistributionTests(unittest.TestCase):
         for name in ("lmm-core", "lmm-extensions", "lmm"):
             (self.inputs / name).write_bytes(elf())
         (self.inputs / "index.html").write_text("<!doctype html><title>Test fixture</title>")
+        component = json.loads((ROOT / "packaging/distribution.json").read_text())["components"]["extensions"]
+        for name in component["libraries"]:
+            path = self.inputs / name
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(elf(kind=3))
+        for name in component["build_resources"]:
+            path = self.inputs / name
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text("Synthetic native license fixture.\n")
 
     def build(self, component="extensions", **changes):
         args = dict(root=ROOT, component=component, version="0.1.0-preview", revision=SHA,
@@ -58,6 +68,23 @@ class DistributionTests(unittest.TestCase):
                 self.assertNotIn("lmm-api-web.install", files)
                 checksum = archive.with_name(archive.name + ".sha256").read_text()
                 self.assertEqual(checksum.split()[0], hashlib.sha256(archive.read_bytes()).hexdigest())
+
+    def test_extension_shared_libraries_are_required_and_arch_checked(self):
+        spec = json.loads((ROOT / "packaging/distribution.json").read_text())["components"]["extensions"]
+        archive = self.build()
+        manifest = DIST.verify(archive, SHA)
+        self.assertEqual({name for name in manifest["files"] if name.startswith("lib/")},
+                         set(spec["libraries"]))
+        for name in spec["libraries"]:
+            self.assertEqual(manifest["files"][name]["mode"], 0o644)
+        library = self.inputs / spec["libraries"][0]
+        for payload in (elf(183, 3), elf(kind=2)):
+            library.write_bytes(payload)
+            with self.assertRaises(ValueError):
+                self.build(output=self.root / "invalid-library")
+        library.unlink()
+        with self.assertRaises(OSError):
+            self.build(output=self.root / "missing-library")
 
     def test_reproducible_archive_and_contents(self):
         first = self.build(output=self.root / "first")

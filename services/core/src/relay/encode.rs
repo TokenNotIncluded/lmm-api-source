@@ -771,6 +771,7 @@ mod writer_contract_tests {
                     index: 0,
                     text: "tail".into(),
                 },
+                Event::EndBlock(0),
             ] {
                 bytes.extend(e.consume(event).unwrap().concat());
             }

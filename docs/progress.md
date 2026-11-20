@@ -4,12 +4,13 @@
 
 ## 当前状态
 
-- **控制台、商户与流式转发迭代（已推送阶段修复，新候选验收进行中；2026-11-20）**：商户介绍和公告已接入真实 Go HTTP、Core Session 授权及 PostgreSQL，公告表单提交修复见 [873c34f7](https://github.com/TokenNotIncluded/lmm-api-source/commit/873c34f7e2a8b27276ae70b7c0f7fdbe8bd7f905)。本轮继续修复真实浏览器暴露的阻塞，保留既有版本比较、跨用户拒绝、公告管理员权限、订单与资金断言。
-  **公开页面与支付能力**：[8f646ce0](https://github.com/TokenNotIncluded/lmm-api-source/commit/8f646ce0004d0cff22b530edfeb9bb1304f963e4) 修复匿名会话刷新返回 401 时清除正在加载的公开查询、导致商户页停留在 Loading 的问题；退出、失效身份和账户切换仍清除私有缓存。[3c7037f8](https://github.com/TokenNotIncluded/lmm-api-source/commit/3c7037f88059283ce58b132dfa8b7701752fec9e) 增加经真实 Session 授权的商户支付能力读取，按实际挂载的资金适配器返回只读能力；原生页面不提供未实现的编辑操作，不编造余额、费率或外部支付支持。认证回归 33/33、支付能力与权限的定向 Go race 检查、6 项受影响 Web 交互、七语言同步和完整 Web 类型检查通过。Go 开发测试使用授权替身，不能替代新候选真实进程验收。
-  **布局与浏览器证据**：[4571b477](https://github.com/TokenNotIncluded/lmm-api-source/commit/4571b477d490b86d477f44f1c6768cc5f3b409d1) 修复隔离布局夹具与原生缩放截图。冻结的 873c34f7 加夹具修复完成 66/66 场景，截图采集修正后受影响的 30/30 场景通过；2,701 个输入无漂移，实际查看了手机、窄屏、深色与 400% 缩放截图。这些布局结果不代表合并新 auth/store 后的业务验收。原正式 873 Web 的真实渠道创建、编辑、重载和手机布局通过；匿名商户加载失败证据仍保留，新三端候选将重新在真实浏览器点击、输入、保存和刷新，检查公开访问、支付能力、Key 与渠道。
-  **已通过的容量阶段**：[a093017d](https://github.com/TokenNotIncluded/lmm-api-source/commit/a093017d896866e0278b80a1ad33f8f3f9c77cf8) 将负载驱动中同步 HTTP 客户端构建移出调度线程，保留独立过载连接、32 次探测、200 ms 提交滞后上限与所有资金断言。原冻结正式 Core `7b021be3…5f42` 和 Go `3ffeb7e7…e2bc7` 的两档 540 秒验收均通过：Core＋Go 合计 1 CPU / 512 MiB，以及 Core＋Go＋PostgreSQL 合计 1 CPU / 1 GiB。每档完成 2,100 / 2,100 次模型请求与 480 / 480 笔购买到退款的合成交易；模型稳态 P95/P99 分别为 151/620 ms、144/623 ms，驱动最大提交滞后分别为 18/39 ms。整体 1 GiB 组峰值 520,970,240 bytes（约 496.84 MiB），没有 OOM；记录了 832 次 CPU 限流，不能描述为从未受资源限制。重启后刻意制造的 UNKNOWN 预留仍保留，重放不改变资金或上游调用次数。这些通过仅归属上述原二进制。
-  **慢消费者与新候选边界**：原 240 秒慢消费者两档均失败，保留原始证据。独立最小复现确认 zconv 0.4.0 在输出缓冲不足时返回 `NeedBuffer::Pending`，Core 的流编码器遗漏该扩容分支，将正常大文本误报为协议错误。最小产品补丁和普通/转义大文本、终帧与上限拒绝回归正在定向验证；首次测试库编译触发 600 秒执行期限，保留日志并确认相关进程退出后，以明确的更长期限复跑。尚不将补丁或新 Core 计为验收通过。下一候选会固定源码与三端产物摘要，重新执行既定资源与真实业务门槛。
-  **上线与迁移**：本轮尚未停止线上服务、升级线上数据库、激活新产物或切流。最终候选的正式发布门禁、真实浏览器业务、Core69 历史身份/API Key 导入资格、真实数据和额度对账、写入围栏与最终切换继续单列；外部商户支付和退款闭环尚未完成。既有测试夹具完成使用后按归属清理，失败日志和可恢复数据保留。
+- **统一候选收口（开发修复已推送，最终资格待验；2026-11-20）**：商户管理回显、默认暗色、Extore 原生目录依赖、容量驱动与升级后的前向恢复策略合入同一候选。提交、开发自测、独立业务验收和生产激活分别记录，原失败不覆盖。
+  **官方制品与完整 CI**：旧候选 `629ed4e1` 的[官方分发](https://github.com/TokenNotIncluded/lmm-api-source/actions/runs/44625598740)通过并核对三端归档、manifest 和运行文件；同提交[完整 CI](https://github.com/TokenNotIncluded/lmm-api-source/actions/runs/44625589634)失败。Rust 库测试为 1,828 通过、2 失败、33 ignored，其余后续 Go、真实 Store PG、支付与 RPC 阶段通过。两处失败已定点修复：[782606b1](https://github.com/TokenNotIncluded/lmm-api-source/commit/782606b1a292bc630c2f2dfe90abc624ce78c378) 使 PG 断链夹具原子发布完整端口；[9d94ae3c](https://github.com/TokenNotIncluded/lmm-api-source/commit/9d94ae3caea747c4293980048220f8e4ea96fe0c) 补齐大文本回归的 EndBlock 事件。产品限额、断链、精确回放和权限断言未改；修复后的实际 Rust 回归等待新完整 CI，629 不具备上线资格。
+  **商户和外观**：[4a2477fb](https://github.com/TokenNotIncluded/lmm-api-source/commit/4a2477fb15f61d5299f4679bb56761539494d1e6) 修复已暂停商品在管理列表、草稿、预览和保存响应中丢失已配置付款方式的问题，买家交易规则不变。独立真实 Core、Store PG 与浏览器复验通过旧／新草稿保存刷新、匿名拒绝、他人隔离及 390px 布局；签收只归属该开发修复。原正式629浏览器整体失败继续保留，其他通过范围包括商户资料、公告、匿名恢复、Key 撤销及渠道编辑。[1b9b6fa5](https://github.com/TokenNotIncluded/lmm-api-source/commit/1b9b6fa5901e297fc3932a6e8acb393436ef04a2) 将 React 默认值与既有暗色首屏统一，保留显式主题选择；12 项已有主题测试通过，新正式 Web 的实际暗色画面待独立复验。
+  **Extore 与 Project Z**：[31576e60](https://github.com/TokenNotIncluded/lmm-api-source/commit/31576e6043066cffc827038ba7081e1723c174a1) 接入 zplugin 0.3.1 及 GNU／musl 两类共享库；最终依赖固定到 Extore [c4b8e911](https://github.com/TokenNotIncluded/extore/commit/c4b8e91159496b0b942a13857111ca348187a323)。该提交把既有 Rust 业务抽成根 library，server／worker 通过薄入口复用；插件接口、独立 workspace、Cargo.lock 和业务处理体保持原样。新根库的服务检查等待其独立 CI，不能继承旧 server 的通过结论。Go 的固定 OS 线程调用 Rust 宿主与真实 zplugin，已有 Extore Rust HTTPS／SQLite 服务继续拥有授权及商品数据；LMM 通过同源原生插件使用授权目录接口，不直接打开远端商城 SQLite，也未新增宿主守护进程；Python 处理器 SDK 兼容层仍保留。最终 GNU 开发实连及摘要、ABI、撤销、跨用户／店铺拒绝通过；Store 使用内存仓库与 Core 权限替身，不能抵扣真实 Core Session／Store PG／完整浏览器组合。Alpine 原生库和服务夹具已构建；15 项归档、28 项原生包、19 项工作流合同通过，实际 APK 安装业务和完整官方 GNU／musl exports 尚待验。Extore main 未推送、合并或部署。
+  **容量**：629 的 Core＋Go 合计 1 CPU／512 MiB、540 秒阶段通过，2,100 次模型请求和 480 笔购买至退款完整执行，峰值 86,011,904 bytes、无 OOM；UNKNOWN 预留按原协议保留。其240秒连接压力轮次因单次提交滞后236 ms超过固定200 ms而失败。驱动 [fc9e2391](https://github.com/TokenNotIncluded/lmm-api-source/commit/fc9e23914cf4a5dc858c4790088b63dc0865f4ea) 将原观察器移出异步调度线程；[19a62df6](https://github.com/TokenNotIncluded/lmm-api-source/commit/19a62df66d6b2da3e135311d7b1923ddfef9de3b) 增加正式两库路径／摘要配置及启动、混合负载、重启后的实际进程映射核对。原工作量、节拍、阈值和资金断言保持。19a 仅完成静态检查，新的编译和四档资源实测待最终官方输入；[b4ba2fa9](https://github.com/TokenNotIncluded/lmm-api-source/commit/b4ba2fa9ac6452b8bc3fa9daefc416b0e8bee877) 将保存现有一次 CI 编译的唯一实际测试程序、来源及摘要，避免开发机重复编译，工作流检查通过但实际 artifact 待生成；旧通过不转移给新 Go 或插件组合。
+  **升级后的恢复策略**：[89f57779](https://github.com/TokenNotIncluded/lmm-api-source/commit/89f577799a7409399b4744b9c4ae8cde6e23eb41) 新增目标级 JSON 布尔 `allow_rollback`。已审定的一次性 schema 升级后可禁止自动恢复旧程序，失败时保留实际链接、两个 slots 与上传包并停止后续主机。固定 Ansible2.22 的独立三场景 HTTP 夹具与4项计划测试实际通过；仅临时 Web 目标，不冒充生产 backend/systemd 激活。数据库升至77后禁止启动旧Core76，失败需检查现场后前向恢复。
+  **资源与剩余门槛**：开发机资源清理移除两处确认闲置 Cargo 缓存，目录分配4,644,827,136 bytes，磁盘可用量实测净增1,897,746,432 bytes；PG、源码、封存制品、证据、备份和迁移材料保留。新完整编译转到 GitHub；本地重编及业务夹具暂停，独立Ansible轻量夹具已退出。最终同提交完整CI、正式制品、原生APK、真实Extore授权到导入／撤销的浏览器及装载插件的四档容量仍待完成。资格齐备后再冻结两库、实际恢复验证、原生76→77升级及服务／Web激活。本轮尚未停止生产服务、修改角色或数据库、切换槽位或Nginx路由；服务器仅保留629隔离预检目录。
 
 - **前置完整 CI 与 Core 独立资源测量（已通过；2026-11-20）**：前置提交 c2242c88 的[完整 CI](https://github.com/TokenNotIncluded/lmm-api-source/actions/runs/44577503481) 已通过翻译、Web、Microkernel/protocol 及最终聚合检查，修复了此前条目所记录的候选后端 CI 未完成状态；该结果只适用于 c2242c88，不直接批准上述新候选部署。
   **实际测量**：冻结的正式 Core 二进制在 1 CPU / 256 MiB 下完成 540 秒场景。正常阶段共 2,100 / 2,100 请求成功，稳态 5 RPS 的 P95 为 90 ms、P99 为 209 ms；过载阶段拒绝 5,760 次超额请求，随后恢复阶段 300 / 300 成功。cgroup 峰值 51,359,744 bytes，无 memory high/max/oom/oom_kill；仍记录到 sock_throttled 226，不能表述为所有事件均为零。2,884 笔刻意制造的 UNKNOWN 资金预留在重启后仍保留并进入核对分类，没有误当作已结算或已释放。
@@ -292,7 +293,7 @@
 | CHECK-03 | 部分验收 | API 密钥只读 HTTP 查询已核对；管理员 Session、统计/财务页面、时区展示和 CSV 导出逐项对照仍未完成。 |
 | CHECK-04 | 部分验收 | 固定组合登录、人民币模拟充值、商店购买提货退款和恢复通过；历史未决付款、其他故障场景及生产配置运行待验。 |
 | CHECK-05 | 部分验收 | release 文字与图片、计费及 UNKNOWN 路径通过；助手/MCP/工具/HumanGrant 完整组合与协议全覆盖未完成。 |
-| CHECK-06 | 部分验收 | 固定组合浏览器用例通过；全角色/语言/窄屏、CLI 及 Extore 两端完整覆盖未完成。 |
+| CHECK-06 | 部分验收 | 固定组合浏览器用例通过；Extore 原生目录的 GNU 开发联调通过，APK 实装及真实 CoreSession/Store PG/浏览器独立组合待验；全角色/语言/窄屏与 CLI 完整覆盖未完成。 |
 | CHECK-07 | 部分验收 | 初始化、ACL、原生包校验及旧服务恢复已有证据；最终生产迁移、安装切换与恢复演练待完成。 |
 | CHECK-08 | 待验收 | 同口径新旧版性能、长稳与故障恢复完整验收未完成。 |
 | CHECK-09 | 部分验收 | 固定组合 HTTP、浏览器及 release 图片通过；QD-001 六项资金退出条件已独立复核关闭；实际历史账号、最终生产快照及目标主机验收仍未闭合。 |
@@ -302,6 +303,7 @@
 | 范围 | 证据位置 |
 | --- | --- |
 | 管理员用户原生用量开发自测 | 开发机 /tmp/lmm-architecture-20261116-jpmxei3q/：user-usage-core-final、web-targeted、web-static、core-clippy-final、web-format-final、web-build 的日志与 result.json；截图及 8 组报告位于父仓库 .git/lmm-architecture-user-usage-v3/，仅合成场景，不替代独立整链路验收 |
+| Extore 原生目录开发自测 | `extore-zplugin-development/component-and-go-final-gnu.json`（GNU，Go `9e56134e`）；真实 Extore HTTPS/SQLite、共享库、摘要/ABI、授权目录与跨店连接校验通过；Store 为内存测试仓库、Core 为测试替身，不抵扣独立生产验收 |
 | Core7 制品与准入 | `lmm-core7-release-vh29l59q/admitted-core7.receipt.private.json` |
 | 固定组合 | `lmm-combination-core5-web4-nt6y0hde/core7-go9-web5-combination.receipt.private.json` |
 | release 图片 | `lmm-core7-release-vh29l59q/image-release-r2/result.json` |

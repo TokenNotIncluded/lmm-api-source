@@ -7,6 +7,11 @@ on:
     paths:
       - packaging/linux/**
       - packaging/distribution.json
+      - packaging/extore-plugin.json
+      - packages/extore
+      - deployment/docker/extensions.Dockerfile
+      - services/extensions/internal/extore/**
+      - services/extensions/internal/modules/store/extore_native_integration_test.go
       - scripts/build-distribution.py
       - scripts/workflow-topology.test.mjs
       - .github/workflows/linux-packages.yml
@@ -48,8 +53,11 @@ jobs:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
         with:
           persist-credentials: false
-      - name: Initialize the pinned CLI only
-        run: git submodule update --init --depth 1 -- apps/cli
+      - name: Initialize the required pinned dependencies
+        run: |
+          git submodule update --init --depth 1 -- apps/cli
+          git submodule update --init --depth 1 -- packages/extore
+          python3 -B scripts/check-extore-plugin-pin.py
       - uses: actions/setup-go@7a3fe6cf4cb3a834922a1244abfce67bcef6a0c5
         with:
           go-version: '1.27.2'
@@ -83,11 +91,13 @@ jobs:
           export "CC_${RUST_TARGET//-/_}=musl-gcc"
           AWS_LC_SYS_USE_SYSTEM=0 cargo +1.100.0 build --manifest-path services/core/Cargo.toml --locked --release --target "$RUST_TARGET" --bin lmm-core
           cargo +1.100.0 build --manifest-path apps/cli/Cargo.toml --locked --release --target "$RUST_TARGET" --bin lmm
-          mkdir -p out/core out/extensions out/cli
+          mkdir -p out/core out/cli
           cp "services/core/target/$RUST_TARGET/release/lmm-core" out/core/
           cp "apps/cli/target/$RUST_TARGET/release/lmm" out/cli/
-          (cd services/extensions && CGO_ENABLED=0 GOOS=linux GOARCH="$ARCH" \
-            go build -mod=readonly -trimpath -ldflags='-s -w' -o ../../out/extensions/lmm-extensions ./cmd/extensions)
+          docker buildx build --platform "linux/$ARCH" -f deployment/docker/extensions.Dockerfile \
+            --target binaries --output type=local,dest=out/extensions .
+          docker buildx build --platform "linux/$ARCH" -f deployment/docker/extensions.Dockerfile \
+            --target binaries-musl --output type=local,dest=out/extensions-musl .
       - name: Build verified source archives and native packages
         run: |
           revision=$(git rev-parse HEAD)
@@ -97,12 +107,16 @@ jobs:
             python3 scripts/build-distribution.py build --component "$component" \
               --version 0.1.0-preview --revision "$revision" --platform "linux-$ARCH" --input "out/$component"
           done
+          python3 scripts/build-distribution.py build --component extensions \
+            --version 0.1.0-preview --revision "$revision" --platform "linux-musl-$ARCH" --input out/extensions-musl
           for component in core extensions cli; do
             package="lmm-$component"
             if [[ "$component" == cli ]]; then package=lmm; fi
-            archive="out/distributions/${package}-0.1.0-preview-linux-${ARCH}.tar.gz"
-            digest=$(sha256sum "$archive" | cut -d ' ' -f 1)
             for format in deb rpm apk archlinux; do
+              platform="linux-$ARCH"
+              if [[ "$component" == extensions && "$format" == apk ]]; then platform="linux-musl-$ARCH"; fi
+              archive="out/distributions/${package}-0.1.0-preview-${platform}.tar.gz"
+              digest=$(sha256sum "$archive" | cut -d ' ' -f 1)
               for release in 1 2; do
                 python3 packaging/linux/build.py --archive "$archive" --sha256 "$digest" \
                   --revision "$revision" --component "$component" --format "$format" --release "$release"
@@ -134,6 +148,27 @@ jobs:
             docker image inspect "$image" --format '{{json .RepoDigests}}' >> out/evidence/image-digests.txt || true
           done
           exit "$failed"
+      - name: Exercise the installed Alpine native catalog against real Extore
+        run: |
+          case "$ARCH" in amd64) musl_arch=x86_64 ;; arm64) musl_arch=aarch64 ;; *) exit 1 ;; esac
+          mkdir -p out/native-probe
+          (cd services/extensions && CGO_ENABLED=0 GOOS=linux GOARCH="$ARCH" \
+            go test -mod=readonly -c -ldflags="-I /lib/ld-musl-$musl_arch.so.1" \
+            -o ../../out/native-probe/store-native.test ./internal/modules/store)
+          docker buildx build --platform "linux/$ARCH" --load \
+            -f packages/extore/tests/native_plugin_alpine.Dockerfile --target fixture \
+            --build-arg "EXTORE_RUST_TARGET=$RUST_TARGET" -t lmm-extore-alpine-fixture packages/extore
+          docker image inspect lmm-extore-alpine-fixture --format '{{.Id}}' > out/evidence/extore-fixture-image.txt
+          timeout 300 docker run --rm --network none --add-host localhost.localdomain:127.0.0.1 \
+            --cap-add NET_ADMIN --cpus 1 --memory 768m --pids-limit 256 \
+            --security-opt no-new-privileges:true -e LMM_PACKAGING_ISOLATED=1 \
+            -v "$PWD/out/linux-packages:/packages:ro" -v "$PWD/out/native-probe:/probe:ro" \
+            -v "$PWD/out/evidence:/evidence" \
+            -v "$PWD/packaging/linux/extore-plugin-smoke.py:/package-probe.py:ro" \
+            --entrypoint python3 lmm-extore-alpine-fixture /package-probe.py \
+            --arch "$ARCH" --revision "$(git rev-parse HEAD)" \
+            --parent-netns "$(readlink /proc/self/ns/net)" \
+            --report /evidence/extore-native-alpine.json 2>&1 | tee out/evidence/extore-native-alpine.log
       - name: Preserve preview packages and scoped evidence, never publish
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
