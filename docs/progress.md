@@ -2,9 +2,49 @@
 
 更新于 2026-11-20。此文件只维护当前状态、剩余阻塞和证据入口；执行过程、逐轮测试及历史失败保留在 Git 历史与对应验收收据。
 
-## 当前状态
+## 当前状态（截至 2026-11-20 15:05 UTC）
 
-- **当前候选：22c 完整 CI、四包与 Project Z 登记通过；新增客户端进入隔离验收（2026-11-20）**。Extore 分支 [22c5a510](https://github.com/TokenNotIncluded/lmm-api-source/commit/22c5a510a49d49638806e8a8f8315f5c1c52f1fb) 的[原完整 CI](https://github.com/TokenNotIncluded/lmm-api-source/actions/runs/44710183213) 已于 11:06 UTC 全部成功，五个 job 覆盖 Web、翻译、真实 Native Extore、Core／PG／支付／Go race／Store／RPC 及聚合检查。四个官方包、四项精确定向回归与 Project Z [06e21c33](https://github.com/LIghtJUNction/project-z/commit/06e21c333e9a05ac092b90ea190d02cfd4e8f60a) 的 30 仓库／51 包登记均保留实际通过证据。发布审阅 [PR #10](https://github.com/TokenNotIncluded/lmm-api-source/pull/10) 当前为 [bbf72df7](https://github.com/TokenNotIncluded/lmm-api-source/commit/bbf72df77a6c144462fc17976a586b4ea4d5b51b)：上一份 fe6 的 Core 与 Native 通过，Identity 的三态存储用例出现 usage 32→33；新提交只补已有异步性能写入的完成前提，三个原完整门槛重新绑定新源码运行。Store／Toolmarket 三个真实 PG 父用例已在 b5ee 全部执行并通过；DSH 五宿主与 Codewhale 九个任务通过，Pi 旧宿主依赖图与 OpenCode Windows 私有目录权限仍有真实失败。六个公共客户端及 append78 已提交独立 [67880af3](https://github.com/TokenNotIncluded/lmm-api-source/commit/67880af3a17e5c0efdd7040fcd62d9e5309f42fe)，目前仅为待捕获精确数据库目录的草稿，不能沿用 22c 的运行资格。默认发行仍为 Core、Go Extensions、CLI；原生 Extore 默认关闭，ABI 边界见 [Extore](extore.md)。
+**五个插件版本已公开，Pi npm 发布已通过；安装器正在 PR 中验收，新 Core 候选尚未完成完整 CI。** 已通过的 22c、120／80 浏览器与资源门槛继续保留各自源码身份，不转签给包含新客户端、数据库组件和插件指针的最终组合。本轮尚未部署或切换生产流量。
+
+### 已公开的插件版本
+
+下列五个 GitHub Release 均已公开，所有附件已按实际下载字节核对大小和 SHA256，并与固定源码、原构建产物及发布清单一致。Pi、DSH、Codewhale 为 prerelease；VSCode、Zed 为稳定 GitHub Release。此处记录 GitHub 附件交付，不等同于所有编辑器市场或 npm 渠道均已发布。
+
+| 插件 | 已公开版本 | 固定发布源码 | GitHub Release ID |
+| --- | --- | --- | --- |
+| Pi | [0.1.0-alpha.7](https://github.com/TokenNotIncluded/pi-lmm-provider/releases/tag/v0.1.0-alpha.7) | [b5eb6321](https://github.com/TokenNotIncluded/pi-lmm-provider/commit/b5eb63210611ddb1bc0ca8255b87a13905212e62) | 452761984 |
+| DSH | [0.1.0-alpha.9](https://github.com/TokenNotIncluded/dsh-lmm-provider/releases/tag/v0.1.0-alpha.9) | [19489729](https://github.com/TokenNotIncluded/dsh-lmm-provider/commit/19489729983cbe3c6225816d2594af819ba54b7f) | 452763949 |
+| Codewhale | [0.1.0-alpha.4](https://github.com/TokenNotIncluded/codewhale-lmm-provider/releases/tag/v0.1.0-alpha.4) | [e34e356a](https://github.com/TokenNotIncluded/codewhale-lmm-provider/commit/e34e356ab7e815b24e89bab05688b3404d2cc638) | 452774919 |
+| VSCode | [0.1.6](https://github.com/TokenNotIncluded/vscode-lmm-provider/releases/tag/v0.1.6) | [fc0fed00](https://github.com/TokenNotIncluded/vscode-lmm-provider/commit/fc0fed00fcc2acfd5c347f0c9466a1c5a591bf55) | 452786332 |
+| Zed | [0.1.4](https://github.com/TokenNotIncluded/zed-lmm-provider/releases/tag/v0.1.4) | [5bef2a06](https://github.com/TokenNotIncluded/zed-lmm-provider/commit/5bef2a061f19788bd112718a14d5b587fe867358) | 452787284 |
+
+Pi 的[原 npm OIDC 发布运行](https://github.com/TokenNotIncluded/pi-lmm-provider/actions/runs/44753390279) 已成功，publish 与 registry readback 均实际执行，未被跳过。注册表 `alpha` 已指向 `0.1.0-alpha.7`，`latest` 仍为 `0.1.0-alpha.2`；30 个包内文件、TGZ SHA256 `4fa5601f165277a50d3b8594ad882916ffae6606abb04f60af2628ef560f8e70` 与 SRI 均已核对。实际控制源码为 `198ba195`，发布源码仍为 `b5eb6321`；并发 main 更新涉及五个模型元数据相关文件，原工作流与发布脚本字节不变。attestation 元数据 URL 已存在，本轮未另外执行密码学验证。首个派发前检查因 main 移动而停止，POST 次数为零，不计为 npm 发布失败；后续唯一 POST 已接受并完成。
+
+DSH 保持 prerelease，未把 alpha.9 改称 GitHub `latest`。DSH 的五宿主验证、Codewhale 的四组单元／三宿主／两组 Windows 检查及实际包证据保留；[原 editor-providers 运行](https://github.com/TokenNotIncluded/lmm-api-source/actions/runs/44744756613) 对 VSCode 执行了 42 项测试及真实 VSCode 1.104 激活，对 Zed 执行了 29 项测试和实际打包。Zed 尚无真实编辑器启动验收；这些宿主检查不替代真实 Core OAuth 或付费推理全链。
+
+### 安装入口与剩余插件阻塞
+
+安装器 [19e058e4](https://github.com/TokenNotIncluded/lmm-scripts/commit/19e058e4760e130fb1c42d83ac4e2c8dc731fc4b) 已固定 DSH alpha.9 的真实附件／摘要和 Codewhale alpha.4 源码；后继 [104c0ab8](https://github.com/TokenNotIncluded/lmm-scripts/commit/104c0ab84a65d21d8b909149cc0b89d960d11c50) 只更新两份 bootstrap 的不可变 helper URL／摘要及严格 URL 期望。原下载、截断、错摘要、私有目录保护和执行预算保留。离线原 Node 合同 32／32、PTY 菜单 10／10 通过；PowerShell 和真实安装资格按原 PR 门槛单列。
+
+[安装器 PR #12](https://github.com/TokenNotIncluded/lmm-scripts/pull/12) 的初轮三门槛已独立收齐 14 份原日志：实际 merge `cbd0d815` 的 tree 与 `104c0ab8` 一致。[Codewhale installer](https://github.com/TokenNotIncluded/lmm-scripts/actions/runs/44754451922) 三行与 [OpenCode installer](https://github.com/TokenNotIncluded/lmm-scripts/actions/runs/44754451823) 六行成功；[Installer checks](https://github.com/TokenNotIncluded/lmm-scripts/actions/runs/44754451821) 三成功、两失败，macOS 为 `/var` 与 `/private/var` 的同目录路径期望差异，Windows 为 PS5.1 的 DSH checksum 夹具拒绝。原 PS7 90 项与 Ubuntu 真实 DSH 安装通过，不代替尚未执行的 Windows 安装。后继 [abde4ef2](https://github.com/TokenNotIncluded/lmm-scripts/commit/abde4ef2bdd5f9f42cf5d4397d9109fab49fbcd1) 仅修正测试路径解析，并在注册校验 mock 前加载 Utility 模块、检查实际函数选择；运行时脚本及摘要保护未改。新 merge `03d868f1` 的 tree 精确为 `b6ecea85`；PR 自然触发的新 [Codewhale](https://github.com/TokenNotIncluded/lmm-scripts/actions/runs/44758076810) 与 [OpenCode](https://github.com/TokenNotIncluded/lmm-scripts/actions/runs/44758077025) 已成功，[Installer checks](https://github.com/TokenNotIncluded/lmm-scripts/actions/runs/44758076847) 尚在实际 Windows 安装阶段。本轮 macOS 的 28+9 Python、90 PowerShell 合同及真实安装已有完整日志；其余终态仍以本次实际回执为准，没有手动重复派发。
+
+OpenCode 的 [f2d2386d 原矩阵](https://github.com/TokenNotIncluded/opencode-lmm-auth/actions/runs/44745638973) 保留真实失败：首个 Windows 失败行 51 passed／1 failed／0 skipped，`pending` helper 在原 5,000 ms 预算下于 5,032 ms 被终止。首轮[阶段测量控制](https://github.com/TokenNotIncluded/lmm-api-source/actions/runs/44754554557) 因 Windows 将 PS1 夹具 LF 转为 CRLF，在 prepare 的精确字节守卫失败，未执行产品测试。仅修正该路径行尾声明后的 [95dc75de 测量](https://github.com/TokenNotIncluded/lmm-api-source/actions/runs/44756627648) 实际通过准备、typecheck 与源稳定性检查，原两例 0 passed／2 failed／0 skipped：pending 在 5,068 ms 终止且未见首个脚本阶段，begin 的首标记直到父进程 4,754 ms 才到达，5,013 ms 终止；均未进入 C# 编译或 ACL 存储阶段。这支持优先移除逐次 PowerShell 启动开销，不能推断具体系统调度或扫描原因。固定 Windows helper 正在独立草稿中实现，保留已审 C# 安全逻辑与原 5s／4096 字节边界；实际编译、原 52 项与九行矩阵通过前，0.1.5 不发布。
+
+### Core 新候选与上线前提
+
+公共客户端 component78 已完成实际捕获与冻结目标，随后[普通定向验收](https://github.com/TokenNotIncluded/lmm-api-source/actions/runs/44737269961) 实际执行三项 schema／升级用例和六项 HTTP 用例，均通过；两个测试执行文件来自该次真实编译，1,124 项输入与捕获来源比较仅两个目标 JSON 改变。该结果已取代旧阶段“null target、待捕获”的状态，但仍不替代最终组合的完整 CI。
+
+[a1250080](https://github.com/TokenNotIncluded/lmm-api-source/commit/a125008076b28b0340e926267b23e954d979ab89) 的[原完整 CI](https://github.com/TokenNotIncluded/lmm-api-source/actions/runs/44747762596) 尚未终态：14:59 UTC 的固定快照确认 strict Clippy 与 all-target no-run 已通过，protocol 第 20 步 Rust／真实数据库测试仍在运行；Web、翻译、真实 Native Extore、独立 Store／tool-market PG 四个 job 已 SUCCESS。新增永久市场 PG 任务已进入正常 CI，普通 Go 原入口的 SKIP 不能充当这三个父用例的覆盖证据。旧 66 候选的真实 strict Clippy 失败保留；修复没有放宽 lint、断言或门槛。完整终态与该次原始用例／产物收据尚需收口。
+
+历史 bbf 三个升级用例的原 `UPGRADE_DB_OTHER_CLIENT_OR_PREPARED_TRANSACTION` 仍未证明具体原因。[37649a1a](https://github.com/TokenNotIncluded/lmm-api-source/commit/37649a1a537fa1052e4248786dd949f57c71a497) 只在原测试发生意外拒绝后记录阶段及有界只读维护库快照，保持生产 fence、原断言、预期拒绝列表和成功路径。独立 [三用例控制运行](https://github.com/TokenNotIncluded/lmm-api-source/actions/runs/44759307607) 已接受，control `6c7b7265`、product `37649a1a`；复用原保留执行器与 95 分钟总预算，各原 exact 用例仅运行一次。它不代替 a125 的完整 CI，也不构成生产迁移。
+
+**生产切换仍未获完整证据支持。** 历史 Core69 身份／Key 真实导入、同批 source review 授权与完整财务声明、资金额度对账、writer fencing 的实际执行，以及最终同源码组合的完整 CI／升级失败恢复，仍须由发布 owner 闭合；旧合成浏览器、容量和迁移夹具不能替代这些真实材料。默认 Core／Go Extensions／CLI 路线与可选 native Extore 的 UID、原始数据目录及 ABI 合同分别保留，见 [Extore 接入](extore.md)和[发行架构](release-architecture.md)。本分支未执行生产迁移或切流，不承诺切流日期。
+
+## 历史阶段记录（截至 2026-11-20 11:47 UTC）
+
+以下保留当时的候选、未完成项和证据。这里的“当前”“尚未”等表述均指该阶段的观察时间；其后变化以上方最新状态为准，原失败、原产物身份与历史数字不改写。
+
+- **阶段候选：22c 完整 CI、四包与 Project Z 登记通过；新增客户端进入隔离验收（2026-11-20）**。Extore 分支 [22c5a510](https://github.com/TokenNotIncluded/lmm-api-source/commit/22c5a510a49d49638806e8a8f8315f5c1c52f1fb) 的[原完整 CI](https://github.com/TokenNotIncluded/lmm-api-source/actions/runs/44710183213) 已于 11:06 UTC 全部成功，五个 job 覆盖 Web、翻译、真实 Native Extore、Core／PG／支付／Go race／Store／RPC 及聚合检查。四个官方包、四项精确定向回归与 Project Z [06e21c33](https://github.com/LIghtJUNction/project-z/commit/06e21c333e9a05ac092b90ea190d02cfd4e8f60a) 的 30 仓库／51 包登记均保留实际通过证据。发布审阅 [PR #10](https://github.com/TokenNotIncluded/lmm-api-source/pull/10) 当前为 [bbf72df7](https://github.com/TokenNotIncluded/lmm-api-source/commit/bbf72df77a6c144462fc17976a586b4ea4d5b51b)：上一份 fe6 的 Core 与 Native 通过，Identity 的三态存储用例出现 usage 32→33；新提交只补已有异步性能写入的完成前提，三个原完整门槛重新绑定新源码运行。Store／Toolmarket 三个真实 PG 父用例已在 b5ee 全部执行并通过；DSH 五宿主与 Codewhale 九个任务通过，Pi 旧宿主依赖图与 OpenCode Windows 私有目录权限仍有真实失败。六个公共客户端及 append78 已提交独立 [67880af3](https://github.com/TokenNotIncluded/lmm-api-source/commit/67880af3a17e5c0efdd7040fcd62d9e5309f42fe)，目前仅为待捕获精确数据库目录的草稿，不能沿用 22c 的运行资格。默认发行仍为 Core、Go Extensions、CLI；原生 Extore 默认关闭，ABI 边界见 [Extore](extore.md)。
 
   **已确认并定向修复的 Core 缺陷**：旧 [65 CI](https://github.com/TokenNotIncluded/lmm-api-source/actions/runs/44659896741) 的真实 PostgreSQL 日志确认 Assistant 取消后的 UNKNOWN 分类存在锁顺序倒置。worker PID 10574 先持请求行锁，在 COMMIT 的延迟触发器中等待会话锁；poll PID 10566 先持会话锁，再等待该请求行，形成互相等待。相关 Core 实现和取消用例在 120、65、73 三版逐字相同；下列既有 PASS 只证明原已测范围，不能排除这个并发缺陷，78 的定向对照已验证修复，原 120／80 基线仍含此缺陷；6102 源码已同步补丁，发行与上机须绑定确实包含修复的新产物及对应完整资格。
 
