@@ -56,7 +56,7 @@ type ThemeProviderState = {
 
 const initialState: ThemeProviderState = {
   defaultTheme: DEFAULT_THEME,
-  resolvedTheme: 'light',
+  resolvedTheme: resolveTheme(DEFAULT_THEME, false),
   theme: DEFAULT_THEME,
   setTheme: () => null,
   previewTheme: () => () => {},
