@@ -1018,6 +1018,8 @@ async fn responses_continuity_independent_actual_kill_restart_same_database(pool
                 json_reply(call(&core, &lab.fixture.key, "independent-restart-root", &body).await)
                     .await;
             assert_active(lab, &id, &root).await;
+            // The successful HTTP body can precede its performance observation.
+            native_http::test_support::performance_sample(&lab.fixture.pool, &id).await;
             let before = snapshot(&lab.fixture.pool).await;
             let old_pid = core.child.id();
             core.child.kill().unwrap();
@@ -1337,6 +1339,8 @@ async fn responses_continuity_independent_store_tristate_and_exact_refusal(pool:
                 let label=format!("independent-store-{default}-{explicit:?}");
                 let (id,result,bytes)=json_reply(call(&core,&lab.fixture.key,&label,&body).await).await;
                 assert_packets(&lab.fixture.pool,&id,&[&bytes]).await;
+                // Complete each successful observation before a global refusal snapshot.
+                native_http::test_support::performance_sample(&lab.fixture.pool,&id).await;
                 let last=lab.s().seen().last().unwrap().clone();
                 assert_eq!(last.get("store"),body.get("store"),"wire must preserve omission/false/true");
                 if explicit.unwrap_or(default) {assert_active(lab,&id,&result).await;}

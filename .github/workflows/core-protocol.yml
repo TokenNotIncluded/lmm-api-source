@@ -42,6 +42,10 @@ jobs:
           persist-credentials: false
       - name: Initialize the pinned CLI only for archive contract checks
         run: git submodule update --init --depth 1 -- apps/cli
+      - name: Initialize the pinned Extore native plugin for formal images
+        run: |
+          git submodule update --init --depth 1 -- packages/extore
+          python3 -B scripts/check-extore-plugin-pin.py
       - name: Record exact integration source
         run: |
           git rev-parse HEAD > "$RUNNER_TEMP/core-source-sha.txt"
