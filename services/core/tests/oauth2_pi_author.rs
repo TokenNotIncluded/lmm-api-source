@@ -478,17 +478,79 @@ async fn global_self_budget_still_constrains_oauth_and_native_history(pool: PgPo
 }
 #[sqlx::test(migrations = false)]
 async fn actual_core_tcp_pi_chat_responses_json_stream_and_native_control(pool: PgPool) {
-    with_fixture(pool,true,|f|async move{
-        let token=f.token(1000).await;
-        for (index,(path,stream)) in [("/v1/chat/completions",false),("/v1/responses",false),("/v1/chat/completions",true),("/v1/responses",true)].into_iter().enumerate(){
-            let body=if path.ends_with("responses"){json!({"model":"provider-model","input":"hello","max_output_tokens":20,"stream":stream})}else{json!({"model":"provider-model","messages":[{"role":"user","content":"hello"}],"max_tokens":20,"stream":stream})};
-            let response=f.client.post(format!("{}{path}",f.base)).bearer_auth(&token.access_token).header("x-lmm-group","YWxsb3dlZA").header("idempotency-key",format!("pi-http-{index}")).json(&body).send().await.unwrap();assert_eq!(response.status(),reqwest::StatusCode::OK);let body=response.text().await.unwrap();assert!(body.contains(if stream{"local stream answer"}else{"local synthetic answer"}));
+    with_fixture(pool, true, |f| async move {
+        let token = f.token(1000).await;
+        for (index, (path, stream)) in [
+            ("/v1/chat/completions", false),
+            ("/v1/responses", false),
+            ("/v1/chat/completions", true),
+            ("/v1/responses", true),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let body = if path.ends_with("responses") {
+                json!({"model":"provider-model","input":"hello","max_output_tokens":20,"stream":stream})
+            } else {
+                json!({"model":"provider-model","messages":[{"role":"user","content":"hello"}],"max_tokens":20,"stream":stream})
+            };
+            let response = f.client.post(format!("{}{path}", f.base))
+                .bearer_auth(&token.access_token)
+                .header("x-lmm-group", "YWxsb3dlZA")
+                .header("idempotency-key", format!("pi-http-{index}"))
+                .json(&body).send().await.unwrap();
+            assert_eq!(response.status(), reqwest::StatusCode::OK);
+            let body = response.text().await.unwrap();
+            assert!(body.contains(if stream { "local stream answer" } else { "local synthetic answer" }));
+            if stream {
+                // Partial output and HTTP 200 do not establish successful settlement.
+                let events: Vec<serde_json::Value> = body.lines()
+                    .filter_map(|line| line.strip_prefix("data: "))
+                    .filter(|data| *data != "[DONE]")
+                    .map(|data| serde_json::from_str(data).expect("valid SSE JSON"))
+                    .collect();
+                assert!(!events.is_empty(), "{path}: {body}");
+                for event in &events {
+                    assert!(event["error"].is_null(), "{path}: {body}");
+                    assert!(!matches!(event["type"].as_str(), Some("error" | "response.failed" | "response.incomplete")), "{path}: {body}");
+                }
+                if path.ends_with("responses") {
+                    let terminal = events.last().unwrap();
+                    assert_eq!(terminal["type"], "response.completed", "{path}: {body}");
+                    assert_eq!(terminal["response"]["status"], "completed", "{path}: {body}");
+                    assert_eq!(events.iter().filter(|event| event["type"] == "response.completed").count(), 1);
+                } else {
+                    assert!(body.ends_with("data: [DONE]\n\n"), "{path}: {body}");
+                    assert_eq!(body.lines().filter(|line| *line == "data: [DONE]").count(), 1);
+                }
+            }
         }
-        assert_eq!(f.provider.hits.load(Ordering::SeqCst),4);
-        let rows:Vec<(Option<i64>,Option<serde_json::Value>,i64,i64)>=sqlx::query_as("SELECT key_id,oauth_source,settled,payer_account_id FROM core_charging.requests ORDER BY id").fetch_all(&f.owner).await.unwrap();assert_eq!(rows.len(),4);for(key,source,settled,payer)in rows{assert!(key.is_none());assert!(source.is_some());assert_eq!(settled,49);assert_eq!(payer,f.account);}
-        assert_eq!(f.ledger.balance(f.account).await.unwrap().available_units,804);
-        let response=f.client.post(format!("{}/v1/chat/completions",f.base)).bearer_auth(&token.access_token).header("x-lmm-group","cHJpdmF0ZQ").json(&json!({"model":"provider-model","messages":[{"role":"user","content":"hello"}],"max_tokens":20})).send().await.unwrap();assert_eq!(response.status(),reqwest::StatusCode::FORBIDDEN);assert_eq!(f.provider.hits.load(Ordering::SeqCst),4);
-        let response=f.client.post(format!("{}/v1/chat/completions",f.base)).bearer_auth(&f.native_key).json(&json!({"model":"provider-model","messages":[{"role":"user","content":"hello"}],"max_tokens":20})).send().await.unwrap();assert_eq!(response.status(),reqwest::StatusCode::OK);let _=response.bytes().await.unwrap();assert_eq!(f.provider.hits.load(Ordering::SeqCst),5);assert_eq!(f.ledger.balance(f.account).await.unwrap().available_units,804);
+        assert_eq!(f.provider.hits.load(Ordering::SeqCst), 4);
+        let rows: Vec<(Option<i64>, Option<serde_json::Value>, i64, i64)> =
+            sqlx::query_as("SELECT key_id,oauth_source,settled,payer_account_id FROM core_charging.requests ORDER BY id")
+                .fetch_all(&f.owner).await.unwrap();
+        assert_eq!(rows.len(), 4);
+        for (key, source, settled, payer) in rows {
+            assert!(key.is_none());
+            assert!(source.is_some());
+            assert_eq!(settled, 49);
+            assert_eq!(payer, f.account);
+        }
+        assert_eq!(f.ledger.balance(f.account).await.unwrap().available_units, 804);
+        let response = f.client.post(format!("{}/v1/chat/completions", f.base))
+            .bearer_auth(&token.access_token).header("x-lmm-group", "cHJpdmF0ZQ")
+            .json(&json!({"model":"provider-model","messages":[{"role":"user","content":"hello"}],"max_tokens":20}))
+            .send().await.unwrap();
+        assert_eq!(response.status(), reqwest::StatusCode::FORBIDDEN);
+        assert_eq!(f.provider.hits.load(Ordering::SeqCst), 4);
+        let response = f.client.post(format!("{}/v1/chat/completions", f.base))
+            .bearer_auth(&f.native_key)
+            .json(&json!({"model":"provider-model","messages":[{"role":"user","content":"hello"}],"max_tokens":20}))
+            .send().await.unwrap();
+        assert_eq!(response.status(), reqwest::StatusCode::OK);
+        let _ = response.bytes().await.unwrap();
+        assert_eq!(f.provider.hits.load(Ordering::SeqCst), 5);
+        assert_eq!(f.ledger.balance(f.account).await.unwrap().available_units, 804);
     }).await;
 }
 
