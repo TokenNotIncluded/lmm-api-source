@@ -3,6 +3,7 @@
 use lmm_core::core_schema::{UpgradeError, UpgradeReport, UpgradeRequest};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
+use sqlx::{ConnectOptions, Connection, PgConnection, postgres::PgConnectOptions};
 use std::{
     fs::{self, DirBuilder, OpenOptions},
     io::Write,
@@ -252,9 +253,81 @@ struct Report {
     successor_catalog_sha256: String,
     components: usize,
 }
+async fn maintenance_snapshot(request: &UpgradeRequest) -> Result<serde_json::Value, &'static str> {
+    let maintenance_url = std::env::var("DATABASE_URL").map_err(|_| "maintenance_url_unavailable")?;
+    let options: PgConnectOptions = maintenance_url
+        .parse()
+        .map_err(|_| "maintenance_options_invalid")?;
+    let options = options.disable_statement_logging();
+    // Reject an absent/default or target database before opening any connection.
+    match options.get_database() {
+        Some(database) if !database.is_empty() && database != request.database.name.as_str() => {}
+        _ => return Err("maintenance_database_not_separate"),
+    }
+    let mut connection = PgConnection::connect_with(&options)
+        .await
+        .map_err(|_| "maintenance_connect_failed")?;
+    let snapshot = sqlx::query_scalar::<_, sqlx::types::Json<serde_json::Value>>(
+        r#"SELECT jsonb_build_object(
+            'backends', COALESCE((
+                SELECT jsonb_agg(jsonb_build_object(
+                    'pid', pid, 'backend_type', backend_type, 'state', state
+                ) ORDER BY pid)
+                FROM pg_stat_activity WHERE datid=$1::bigint::oid
+            ), '[]'::jsonb),
+            'prepared_count', (
+                SELECT count(*) FROM pg_prepared_xacts p
+                JOIN pg_database d ON d.datname=p.database
+                WHERE d.oid=$1::bigint::oid
+            )
+        )"#,
+    )
+    .bind(i64::from(request.database.oid))
+    .fetch_one(&mut connection)
+    .await;
+    let closed = connection.close().await;
+    let snapshot = snapshot.map_err(|_| "maintenance_observation_failed")?;
+    closed.map_err(|_| "maintenance_close_failed")?;
+    Ok(snapshot.0)
+}
+
+async fn diagnose_unexpected_refusal(
+    (ordinal, phase): (u8, &'static str),
+    request: &UpgradeRequest,
+) {
+    // The original refusal has already occurred. Never sample before the call,
+    // retry it, or turn a diagnostic failure into a different gate failure.
+    let observation = match tokio::time::timeout(
+        std::time::Duration::from_secs(1),
+        maintenance_snapshot(request),
+    )
+    .await
+    {
+        Ok(Ok(snapshot)) => serde_json::json!({"status": "observed", "snapshot": snapshot}),
+        Ok(Err(status)) => serde_json::json!({"status": status}),
+        Err(_) => serde_json::json!({"status": "observation_timeout"}),
+    };
+    let _ = writeln!(
+        std::io::stderr().lock(),
+        "preserved_upgrade_diagnostic {}",
+        serde_json::json!({"ordinal": ordinal, "phase": phase, "observation": observation})
+    );
+}
+
+// completion_upgrade uses this original entry point; suffix targets use the
+// staged entry below when compiling their own copy of this shared helper.
+#[allow(dead_code)]
 pub(super) async fn upgrade_database(
     url: &str,
     request: UpgradeRequest,
+) -> Result<UpgradeReport, UpgradeError> {
+    upgrade_database_with_stage(url, request, None).await
+}
+
+pub(super) async fn upgrade_database_with_stage(
+    url: &str,
+    request: UpgradeRequest,
+    stage: Option<(u8, &'static str)>,
 ) -> Result<UpgradeReport, UpgradeError> {
     let input = serde_json::to_vec(&request).unwrap();
     let expected_digest = crate::hex_codec::encode(Sha256::digest(&input));
@@ -302,11 +375,16 @@ pub(super) async fn upgrade_database(
             "PANCAKE_LANGUAGE_RECEIPT_OR_CATALOG_CONFLICT",
             "PANCAKE_LANGUAGE_RECEIPT_PRIVILEGES_INVALID",
         ];
-        let code = EXPECTED_REFUSALS
+        let Some(code) = EXPECTED_REFUSALS
             .iter()
             .copied()
             .find(|expected| *expected == code)
-            .unwrap_or_else(|| panic!("unexpected preserved upgrade rejection: {code}"));
+        else {
+            if let Some(stage) = stage {
+                diagnose_unexpected_refusal(stage, &request).await;
+            }
+            panic!("unexpected preserved upgrade rejection: {code}");
+        };
         return Err(UpgradeError::Rejected(code));
     }
     assert!(output.stderr.is_empty());
