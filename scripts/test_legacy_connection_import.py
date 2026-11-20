@@ -59,7 +59,8 @@ class ConnectionImport(unittest.TestCase):
     def test_target_catalog_is_bound_to_exact_reviewed_component_count(self):
         for count, catalog in ((55, 'e' * 64), (56, imp.TARGET_CATALOGS[55]),
                                (76, imp.TARGET_CATALOGS[77]), (77, imp.TARGET_CATALOGS[56]),
-                               (78, imp.TARGET_CATALOGS[77]), (True, imp.TARGET_CATALOGS[55])):
+                               (78, imp.TARGET_CATALOGS[77]), (77, imp.TARGET_CATALOGS[78]),
+                               (79, imp.TARGET_CATALOGS[78]), (True, imp.TARGET_CATALOGS[55])):
             with self.subTest(count=count), self.assertRaises(ValueError):
                 args = list(fixture())
                 args[3].update(component_count=count, catalog_sha256=catalog)
