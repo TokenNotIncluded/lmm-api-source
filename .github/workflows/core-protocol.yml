@@ -5,7 +5,7 @@ on:
       diagnostic_mode:
         description: Explicit control-branch diagnostic; none retains the complete gate
         type: choice
-        options: [none, candidate, pre_fix, managed70, continuity, market, provider78_capture, provider78_acceptance, opencode_windows_journal]
+        options: [none, candidate, pre_fix, managed70, continuity, market, provider78_capture, provider78_acceptance, opencode_windows_journal, opencode_windows_helper]
         default: none
       product_sha:
         description: Immutable 40-hex candidate source (required for diagnostic modes)
@@ -529,5 +529,97 @@ jobs:
         with:
           name: opencode-windows-journal-diagnostic-f2d-${{ github.run_id }}
           path: ${{ runner.temp }}/opencode-windows-journal-evidence
+          if-no-files-found: error
+          retention-days: 1
+
+  opencode-windows-helper:
+    name: OpenCode fixed Windows helper build and original units (candidate only)
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.diagnostic_mode == 'opencode_windows_helper' }}
+    runs-on: windows-latest
+    timeout-minutes: 5
+    defaults:
+      run:
+        shell: pwsh
+    env:
+      DIAGNOSTIC_MODE: ${{ inputs.diagnostic_mode }}
+      PRODUCT_SHA: ${{ inputs.product_sha }}
+      GIT_CONFIG_COUNT: "1"
+      GIT_CONFIG_KEY_0: core.autocrlf
+      GIT_CONFIG_VALUE_0: "false"
+    steps:
+      - name: Check out immutable helper build control
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          ref: ${{ github.sha }}
+          path: control
+          persist-credentials: false
+      - name: Check out exact OpenCode f2d product
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          repository: TokenNotIncluded/opencode-lmm-auth
+          ref: f2d2386da2663d3972f8c4bd71f7f0e7bd6c2490
+          path: opencode-product
+          persist-credentials: false
+      - name: Install the observed Node version
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 22.23.5
+          cache: npm
+          cache-dependency-path: opencode-product/package-lock.json
+      - name: Bind all 53 product blobs and the eight source changes
+        run: >-
+          node ./control/scripts/build-test-opencode-windows-helper.mjs prepare
+          ./opencode-product ./control
+          "$env:RUNNER_TEMP/opencode-windows-helper-evidence"
+      - name: Install the unchanged locked dependencies without scripts
+        working-directory: opencode-product
+        run: |
+          npm ci --ignore-scripts 2>&1 | Tee-Object -FilePath "$env:RUNNER_TEMP/opencode-windows-helper-evidence/npm-ci.log"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Build and typecheck the reviewed TypeScript source
+        run: >-
+          node ./control/scripts/build-test-opencode-windows-helper.mjs build
+          ./opencode-product ./control
+          "$env:RUNNER_TEMP/opencode-windows-helper-evidence"
+      - name: Compile the actual AnyCPU helper with the system Framework compiler
+        run: >-
+          node ./control/scripts/build-test-opencode-windows-helper.mjs compile
+          ./opencode-product ./control
+          "$env:RUNNER_TEMP/opencode-windows-helper-evidence"
+      - name: Cold run all original 52 tests once, including journal and lost-ACK
+        run: >-
+          node ./control/scripts/build-test-opencode-windows-helper.mjs test
+          ./opencode-product ./control
+          "$env:RUNNER_TEMP/opencode-windows-helper-evidence"
+      - name: Check only the new framing boundaries after the original suite
+        run: >-
+          node ./control/scripts/build-test-opencode-windows-helper.mjs framing
+          ./opencode-product ./control
+          "$env:RUNNER_TEMP/opencode-windows-helper-evidence"
+      - name: Execute prepack and verify the real package and helper bytes
+        run: >-
+          node ./control/scripts/build-test-opencode-windows-helper.mjs pack
+          ./opencode-product ./control
+          "$env:RUNNER_TEMP/opencode-windows-helper-evidence"
+      - name: Preserve final source and actual helper process state
+        if: ${{ always() }}
+        run: |
+          $evidence = "$env:RUNNER_TEMP/opencode-windows-helper-evidence"
+          if (Test-Path -LiteralPath $evidence -PathType Container) {
+            $exe = [System.IO.Path]::GetFullPath("$env:GITHUB_WORKSPACE/opencode-product/src/windows-journal/lmm-magpie-journal.exe")
+            $items = @(Get-CimInstance Win32_Process -Filter "Name='lmm-magpie-journal.exe'" -ErrorAction Stop)
+            $owned = @($items | Where-Object { $_.ExecutablePath -and [string]::Equals($_.ExecutablePath, $exe, [System.StringComparison]::OrdinalIgnoreCase) } | ForEach-Object { $_.ProcessId })
+            $unknown = @($items | Where-Object { -not $_.ExecutablePath }).Count
+            @{ owned_helper_pids = $owned; uninspectable_helper_count = $unknown; observed_at = [DateTime]::UtcNow.ToString('o') } |
+              ConvertTo-Json -Compress | Set-Content -LiteralPath "$evidence/helper-process-cleanup.json" -Encoding utf8NoBOM
+          }
+          node ./control/scripts/build-test-opencode-windows-helper.mjs finalize ./opencode-product ./control $evidence
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Preserve actual build and bounded evidence, never publish
+        if: ${{ always() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: opencode-fixed-windows-helper-f2d-${{ github.run_id }}
+          path: ${{ runner.temp }}/opencode-windows-helper-evidence
           if-no-files-found: error
           retention-days: 1
