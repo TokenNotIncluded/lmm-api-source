@@ -15,7 +15,7 @@ mod history;
 mod predecessor;
 #[path = "common/preserved_upgrade_executor.rs"]
 mod preserved_upgrade_executor;
-use preserved_upgrade_executor::upgrade_database;
+use preserved_upgrade_executor::upgrade_database_with_stage as upgrade_database;
 
 fn quote(value: &str) -> String {
     format!("\"{}\"", value.replace('"', "\"\""))
@@ -265,11 +265,15 @@ async fn completion_upgrade_preserves_real_predecessor_and_resolves_exact_replay
     installer.close().await;
     pool.close().await;
     await_offline_boundary(&r, "first upgrade after fixture pool close").await;
-    let result = upgrade_database(url.as_str(), r.clone()).await.unwrap();
+    let result = upgrade_database(url.as_str(), r.clone(), Some((1, "apply")))
+        .await
+        .unwrap();
     assert_eq!(result.status, "committed");
     assert_eq!(result.components, 44);
     await_offline_boundary(&r, "original-id replay").await;
-    let replay = upgrade_database(url.as_str(), r.clone()).await.unwrap();
+    let replay = upgrade_database(url.as_str(), r.clone(), Some((2, "replay")))
+        .await
+        .unwrap();
     assert_eq!(replay.status, "already_committed");
     assert_eq!(
         replay.successor_catalog_sha256,
@@ -278,7 +282,7 @@ async fn completion_upgrade_preserves_real_predecessor_and_resolves_exact_replay
     let mut another = r.clone();
     another.upgrade_id.push('2');
     await_offline_boundary(&r, "different-id receipt check").await;
-    let absent_receipt = upgrade_database(url.as_str(), another).await;
+    let absent_receipt = upgrade_database(url.as_str(), another, Some((3, "different_id"))).await;
     assert!(
         matches!(
             &absent_receipt,
@@ -294,7 +298,7 @@ async fn completion_upgrade_preserves_real_predecessor_and_resolves_exact_replay
     );
     await_offline_boundary(&r, "changed-role receipt check").await;
     assert!(matches!(
-        upgrade_database(url.as_str(), changed_request).await,
+        upgrade_database(url.as_str(), changed_request, Some((4, "changed_request"))).await,
         Err(UpgradeError::Rejected(
             "COMPLETION_RECEIPT_OR_CATALOG_CONFLICT"
         ))
@@ -350,7 +354,12 @@ async fn completion_upgrade_preserves_real_predecessor_and_resolves_exact_replay
     // original receipt through that API, not by exporting private privilege helpers.
     inspect.close().await.unwrap();
     await_offline_boundary(&r, "receipt ACL widened after inspection close").await;
-    let invalid_privileges = upgrade_database(url.as_str(), r.clone()).await;
+    let invalid_privileges = upgrade_database(
+        url.as_str(),
+        r.clone(),
+        Some((5, "receipt_privilege_mismatch")),
+    )
+    .await;
     assert!(
         matches!(
             &invalid_privileges,
@@ -378,7 +387,13 @@ async fn completion_upgrade_preserves_real_predecessor_and_resolves_exact_replay
     .unwrap();
     inspect.close().await.unwrap();
     await_offline_boundary(&r, "receipt ACL restored after inspection close").await;
-    let restored = upgrade_database(url.as_str(), r.clone()).await.unwrap();
+    let restored = upgrade_database(
+        url.as_str(),
+        r.clone(),
+        Some((6, "restored_receipt_privileges")),
+    )
+    .await
+    .unwrap();
     assert_eq!(restored.status, "already_committed");
     assert_eq!(
         restored.successor_catalog_sha256,

@@ -12,7 +12,12 @@ use super::{
 #[path = "preserved_upgrade_executor.rs"]
 pub(super) mod preserved_upgrade_executor;
 
-use preserved_upgrade_executor::upgrade_database;
+use preserved_upgrade_executor::upgrade_database_with_stage as upgrade_database;
+
+// Only this failing suffix case opts in; other historical targets stay unchanged.
+fn navigation_stage(ordinal: u8, phase: &'static str) -> Option<(u8, &'static str)> {
+    (PROCEDURE == "core-navigation-options-v1").then_some((ordinal, phase))
+}
 
 async fn initialize_preserved_target(url: &str, owner: &str) {
     let mut url = reqwest::Url::parse(url).unwrap();
@@ -335,10 +340,14 @@ async fn suffix_upgrade_preserves_real_predecessor_and_resolves_exact_replay(poo
     installer.close().await;
     pool.close().await;
     wait_for_closed_backends(&fixture_pids).await;
-    let result = upgrade_database(url.as_str(), r.clone()).await.unwrap();
+    let result = upgrade_database(url.as_str(), r.clone(), navigation_stage(1, "apply"))
+        .await
+        .unwrap();
     assert_eq!(result.status, "committed");
     assert_eq!(result.components, target_count());
-    let replay = upgrade_database(url.as_str(), r.clone()).await.unwrap();
+    let replay = upgrade_database(url.as_str(), r.clone(), navigation_stage(2, "replay"))
+        .await
+        .unwrap();
     assert_eq!(replay.status, "already_committed");
     assert_eq!(
         replay.successor_catalog_sha256,
@@ -347,7 +356,7 @@ async fn suffix_upgrade_preserves_real_predecessor_and_resolves_exact_replay(poo
     let mut another = r.clone();
     another.upgrade_id.push('2');
     assert!(matches!(
-        upgrade_database(url.as_str(), another).await,
+        upgrade_database(url.as_str(), another, navigation_stage(3, "different_id")).await,
         Err(UpgradeError::Rejected(code)) if code == format!("{ERROR_PREFIX}_ORIGINAL_RECEIPT_ABSENT")
     ));
     let mut changed_request = r.clone();
@@ -355,7 +364,12 @@ async fn suffix_upgrade_preserves_real_predecessor_and_resolves_exact_replay(poo
         &mut changed_request.roles.runtime,
         &mut changed_request.roles.extensions,
     );
-    let changed_result = upgrade_database(url.as_str(), changed_request).await;
+    let changed_result = upgrade_database(
+        url.as_str(),
+        changed_request,
+        navigation_stage(4, "changed_request"),
+    )
+    .await;
     assert!(
         matches!(
             &changed_result,
@@ -451,7 +465,7 @@ async fn suffix_upgrade_preserves_real_predecessor_and_resolves_exact_replay(poo
     // original receipt through that API, not by exporting private privilege helpers.
     close_inspection(inspect).await;
     assert!(matches!(
-        upgrade_database(url.as_str(), r.clone()).await,
+        upgrade_database(url.as_str(), r.clone(), navigation_stage(5, "receipt_privilege_mismatch")).await,
         Err(UpgradeError::Rejected(code)) if code == format!("{ERROR_PREFIX}_RECEIPT_PRIVILEGES_INVALID")
     ));
     let mut inspect = PgConnection::connect(url.as_str()).await.unwrap();
@@ -471,7 +485,13 @@ async fn suffix_upgrade_preserves_real_predecessor_and_resolves_exact_replay(poo
     .await
     .unwrap();
     close_inspection(inspect).await;
-    let restored = upgrade_database(url.as_str(), r.clone()).await.unwrap();
+    let restored = upgrade_database(
+        url.as_str(),
+        r.clone(),
+        navigation_stage(6, "restored_receipt_privileges"),
+    )
+    .await
+    .unwrap();
     assert_eq!(restored.status, "already_committed");
     assert_eq!(
         restored.successor_catalog_sha256,

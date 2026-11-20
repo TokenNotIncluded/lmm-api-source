@@ -24,6 +24,9 @@ use std::{
 use tokio::sync::Semaphore;
 use tokio_util::sync::CancellationToken;
 
+#[path = "../../tests/common/offline_upgrade_diagnostic.rs"]
+mod offline_upgrade_diagnostic;
+
 const MODEL: &str = "gpt-4.1-2025-04-14";
 const PUBLIC: &str = "independent-continuity";
 const HOLD: i64 = 2650; // Reviewed 800 input * 3 + 50 output * 5 Credits.
@@ -1710,15 +1713,29 @@ pub(crate) async fn responses_continuity_independent_upgrade_68_to69(
     );
     inspect.close().await;
     offline(request.database.oid).await;
-    let applied = upgrade_database(installer_url, request.clone())
-        .await
-        .unwrap();
+    let applied = upgrade_database(installer_url, request.clone()).await;
+    if applied.is_err() {
+        offline_upgrade_diagnostic::diagnose_unexpected_refusal(
+            (1, "app07_apply"),
+            &request.database.name,
+            request.database.oid,
+        )
+        .await;
+    }
+    let applied = applied.unwrap();
     assert_eq!(applied.status, "committed");
     assert_eq!(applied.components, 69);
     offline(request.database.oid).await;
-    let replay = upgrade_database(installer_url, request.clone())
-        .await
-        .unwrap();
+    let replay = upgrade_database(installer_url, request.clone()).await;
+    if replay.is_err() {
+        offline_upgrade_diagnostic::diagnose_unexpected_refusal(
+            (2, "app07_replay"),
+            &request.database.name,
+            request.database.oid,
+        )
+        .await;
+    }
+    let replay = replay.unwrap();
     assert_eq!(replay.status, "already_committed");
     assert_eq!(replay.request_sha256, applied.request_sha256);
     assert_eq!(

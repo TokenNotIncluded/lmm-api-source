@@ -12,6 +12,9 @@ use std::{
     sync::OnceLock,
 };
 
+#[path = "offline_upgrade_diagnostic.rs"]
+mod offline_upgrade_diagnostic;
+
 #[derive(Clone, Copy)]
 struct Family {
     revision: &'static str,
@@ -252,9 +255,19 @@ struct Report {
     successor_catalog_sha256: String,
     components: usize,
 }
+// Historical callers without a stage keep their original entry point.
+#[allow(dead_code)]
 pub(super) async fn upgrade_database(
     url: &str,
     request: UpgradeRequest,
+) -> Result<UpgradeReport, UpgradeError> {
+    upgrade_database_with_stage(url, request, None).await
+}
+
+pub(super) async fn upgrade_database_with_stage(
+    url: &str,
+    request: UpgradeRequest,
+    stage: Option<(u8, &'static str)>,
 ) -> Result<UpgradeReport, UpgradeError> {
     let input = serde_json::to_vec(&request).unwrap();
     let expected_digest = crate::hex_codec::encode(Sha256::digest(&input));
@@ -302,11 +315,21 @@ pub(super) async fn upgrade_database(
             "PANCAKE_LANGUAGE_RECEIPT_OR_CATALOG_CONFLICT",
             "PANCAKE_LANGUAGE_RECEIPT_PRIVILEGES_INVALID",
         ];
-        let code = EXPECTED_REFUSALS
+        let Some(code) = EXPECTED_REFUSALS
             .iter()
             .copied()
             .find(|expected| *expected == code)
-            .unwrap_or_else(|| panic!("unexpected preserved upgrade rejection: {code}"));
+        else {
+            if let Some(stage) = stage {
+                offline_upgrade_diagnostic::diagnose_unexpected_refusal(
+                    stage,
+                    &request.database.name,
+                    request.database.oid,
+                )
+                .await;
+            }
+            panic!("unexpected preserved upgrade rejection: {code}");
+        };
         return Err(UpgradeError::Rejected(code));
     }
     assert!(output.stderr.is_empty());
