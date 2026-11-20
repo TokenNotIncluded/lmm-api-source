@@ -1,13 +1,17 @@
 # Tool market extension
 
-This package is for the fresh-install Rust-core / Go-extension branch. It does
-not import a legacy model, open a core database, grant a team role, or edit a
-public protobuf definition. It implements `Name()` / `Handler()` but is **not
-registered or enabled by this change**. Registration belongs to final integration.
+This package is assembled when the Go host explicitly selects `toolmarket`.
+[Composition](../../composition/toolmarket.go) opens the module's dedicated
+encrypted PostgreSQL store and negotiates both native and credit-denominated
+Core capabilities before mounting it. The [Web router](../../webcompat/router.go)
+registers the selected instance at `/api/tool-market` and, when configured,
+`/mcp/market`. Go does not open the Core database or acquire ledger authority.
 
 ## Integration gates
 
-Construct the module with `New(store, authority, Config{...})`.
+The host supplies `New(store, authority, Config{...})` through the composition
+above. Its [configuration checks](../../app/toolmarket_configuration.go) require
+independent database, encryption-key and Core-purpose credentials.
 
 - `Authority` is mandatory. Its integration adapter must call Rust for the live
   user credential, account membership and requested action on **every request**.
@@ -19,17 +23,18 @@ Construct the module with `New(store, authority, Config{...})`.
 - Confirmation additionally requires `ConfirmationAuthority.VerifyToolConfirmation`
   with a server-built immutable `ConfirmationIntent`, verified human-session
   identity and short-lived proof of the exact intent. Missing proof fails
-  closed. It is a local consumer interface, not an implemented Core RPC.
-- `Funds` is an optional adapter interface, not a protobuf proposal. No real
-  adapter is included because the shared money RPC is not yet available.
+  closed. The [Rust bridge](rustbridge/adapter.go) implements this consumer
+  interface through Core's private confirmation endpoint.
+- `Funds` is an optional consumer interface. The same Rust bridge implements
+  the native money contract; the assembled host supplies it after `Ready`.
   With `Funds == nil`, every known paid call fails with HTTP 503
   `funds_interface_unavailable` **before contacting the tool**. Unknown or expired
   prices fail with `price_unavailable`; neither becomes a free call.
-- A future funds adapter must pass the actual user credential to Rust. Rust must
+- Every funds adapter must pass the actual user credential to Rust. Rust must
   independently validate the payer, permission, immutable quote/price source,
   reservation and idempotency key. Never enable paid calls with an adapter that
-  merely returns success. Production money integration and reconciliation remain
-  blocked on tasks 02/03/06 and the final integration stage.
+  merely returns success. Source assembly and synthetic tests do not establish
+  a live provider, historical-data migration or production reconciliation.
 - `CallbackURL` is a fixed HTTPS URL configured by the operator, not a request
   field. The public gateway must route it to this module's `GET /oauth/callback`
   and supply the current user's Rust-verifiable credential. It must also supply
@@ -44,6 +49,11 @@ the **actual metatool permission again**, not just the outer MCP endpoint.
 
 ## Private storage
 
+The assembled host uses [the PostgreSQL backend](postgres.go), with explicit
+installation and a runtime role limited to the existing encrypted snapshot.
+The file-backed constructors below remain available for isolated use and tests;
+their single-writer limits describe that backend.
+
 `InitStore(absolutePath, key)` explicitly creates a new encrypted store and
 refuses an existing file. `OpenStore` only opens the installed version; neither
 startup nor reads migrate, repair or clear data. Use a dedicated directory with
@@ -57,29 +67,30 @@ process-held file lock excludes a second writer. A directory-sync failure after
 rename makes the store refuse later operations until reopen. Audit records and
 execution intent are in the same transaction as the corresponding state changes.
 
-This initial backend is **Linux, single-writer, bounded local storage**, not a
+The file backend is **Linux, single-writer, bounded local storage**, not a
 shared PostgreSQL database or a horizontally scalable backend. Snapshots are
 limited to 63 MiB of plaintext; full storage fails closed. There is no automatic
 pruning of audit records or idempotency keys. Operators must account for capacity
 before enabling the module. Do not delete uncertain execution records to make
-space. A future backend can replace this storage without accessing core tables.
+space. Both storage backends remain separate from Core tables.
 
-## Legacy Web compatibility first package
+## Web compatibility and capability gating
 
 `web.go` and `web_types.go` preserve the service/version/tool DTOs and raw list
 arrays consumed by `apps/web/src/features/tool-market/api.ts`, using main
-`6efcb6fb0f6d` as the source contract. Optional host wiring is
-`webcompat.RegisterToolMarket(mux, authenticator, module)`. This does not mount
-the routes or provide a real Rust action-authority adapter by itself.
+`6efcb6fb0f6d` as the source contract. The assembled host invokes
+`webcompat.RegisterToolMarket(mux, authenticator, module)` after composition has
+supplied the Rust action-authority adapter. Importing the package alone does not
+enable the module.
 
-Construct this package with `Config{WebOnly: true}`. It requires no OAuth
+The original isolated Web package uses `Config{WebOnly: true}`. It requires no OAuth
 callback and refuses a configured callback or funds adapter. The module's native
 `Handler()` then returns 503 for every endpoint, so wiring the Web package cannot
 accidentally enable native OAuth or MCP execution. The separate legacy Web
 registration remains available after real Rust action authorization is supplied.
 
 Implemented domain operations are public config, catalog search and released
-detail; author draft create/read/edit, remote validation, submit, private free
+detail; author draft create/read/edit, remote validation, submit, private
 activation, pause and deletion; administrator review; per-user favorites,
 exact-version installations and the corresponding `mine` lists. A public read
 with a supplied invalid session fails; it does not silently become anonymous.
@@ -92,31 +103,29 @@ authorized account to be that user's personal account. It does not convert a
 team membership into personal ownership. A future team Web contract needs an
 explicit account reference and Rust team/action authorization.
 
-Web records occupy an optional `web_compat` section in the same encrypted,
-single-writer snapshot. Existing stores remain readable without changing their
-native records or requiring a PostgreSQL connection. Editing creates a new
+Web records occupy an optional `web_compat` section in the same encrypted
+snapshot as native records. The storage backend is selected by the host;
+opening a store does not import historical business records. Editing creates a new
 version; released versions and existing installations are never silently
 upgraded. Private/shared visibility is reapplied to catalog, detail and favorites.
 Remote schemas must match before approval or private activation; request input
-cannot set a validation digest. The existing bounded HTTPS/DNS/MCP transport
-and closed schema subset apply. Credentialed remote validation, provider and
-metered pricing, AI review, OAuth, tokens, metatools, call history and business
-record import are not implemented by this Web package.
+cannot set a validation digest. The bounded HTTPS/DNS/MCP transport and closed
+schema subset apply. Current Web actions also use the Core-backed
+[access](legacy_web_access.go), [credit execution](legacy_web_execution.go),
+[lists](legacy_web_lists.go) and [reports](legacy_reports_web.go) adapters.
 
-The public Web config advertises `enabled=false`, `builtin_enabled=false` and
-`execution_ready=false`. Only service deletion is advertised as a supported
-optional capability. `quota_per_unit=500000` and `credits_per_usd="500000"`
+The public Web config reads the enabled policy from Core and derives execution,
+builtin, metatool and OAuth availability from the
+[negotiated capabilities and actual mounts](legacy_readiness.go). Missing
+authority keeps those capabilities unavailable. `quota_per_unit=500000` and `credits_per_usd="500000"`
 describe the project's fixed credit unit, not a current foreign-exchange quote.
 Web tool prices are safe integer ledger credits; the native `Price` API below
 uses USD millionths and is a separate contract.
 
-Web invoke, grant and budget operations always fail with HTTP 503
-`TOOL_MARKET_FUNDS_UNAVAILABLE`, including nominally free Web executions. The
-first package neither reserves funds nor contacts a tool for an invocation.
-Config writes and unimplemented account resource kinds fail explicitly instead
-of returning successful empty lists. Fresh synthetic tests are not a migrated
-real catalog, and this package remains unassembled until Rust action authority
-and host wiring have independent acceptance.
+Web invoke, grant and budget operations require the corresponding Core ports;
+missing ports fail explicitly instead of returning fabricated balances or a
+successful empty result. Current source wiring does not transfer the historical
+isolated test results below into a complete browser, provider or migration pass.
 
 ## API and workflow
 
@@ -428,8 +437,34 @@ mise exec -- go test -mod=readonly -race ./internal/modules/toolmarket ./interna
 mise exec -- go vet ./internal/modules/toolmarket ./internal/webcompat
 ```
 
-These tests use synthetic action authority and local mock MCP transport. They
-do not prove the missing Rust action RPC, real snapshot import, browser journey,
-host admission wiring, live providers or funds integration.
+These tests use synthetic action authority and local mock MCP transport. Their
+results do not prove real Core authority or funds execution, snapshot import,
+the complete browser journey, live providers or production readiness.
 
-Keep the PR as Draft. Do not enable paid calls, merge or deploy from this task.
+### Isolated PostgreSQL checks
+
+The two PostgreSQL tests require separate fresh databases. The persistence test
+reads `LMM_TOOLMARKET_TEST_DSN_FILE` and
+`LMM_TOOLMARKET_TEST_OWNER_DSN_FILE`; the lost-COMMIT-acknowledgement test reads
+`LMM_MARKET_REVIEW_TEST_DSN_FILE` and
+`LMM_MARKET_REVIEW_TEST_OWNER_DSN_FILE`. The latter replaces the old inline
+`LMM_MARKET_REVIEW_TEST_DSN` fixture variable. Keep each DSN in a private file
+outside uploaded evidence. Owner and runtime must be different roles in the
+same isolated database; runtime must not own the database or inherit the owner.
+The owner installs the original schema and grants only schema usage and snapshot
+SELECT/UPDATE. Runtime performs the tested operations, including lost-ACK recovery.
+
+Run the original cases from `services/extensions` after preparing those fixtures:
+
+```sh
+go test -mod=readonly -race -count=1 -json ./internal/modules/toolmarket -run '^(TestPostgresStorePersistenceConcurrentRollbackAndRestart|TestPostgresMarketAIReviewLostCommitACKRestoresPreviousLiveVersion)$'
+go test -mod=readonly -race -count=1 -json ./internal/webcompat -run '^TestPostgresMerchantHomeHTTP$'
+```
+
+The merchant-home case needs a third fresh `*_test` database through its existing
+`LMM_STORE_TEST_DSN` contract. It uses real PostgreSQL and HTTP handlers with
+synthetic Core authorization and disabled funds. The toolmarket persistence case
+owns its child-process restart helper; do not count that helper as a separate
+top-level test. Require all three selected main cases to pass without a skip.
+These checks qualify their storage and recovery contracts, not real Core money
+execution or live provider interoperability.

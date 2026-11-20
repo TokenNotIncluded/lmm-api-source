@@ -19,7 +19,7 @@ import (
 func toolmarketTestDB(t *testing.T) *sql.DB {
 	return toolmarketDatabaseFile(t, "LMM_TOOLMARKET_TEST_DSN_FILE")
 }
-func toolmarketDatabaseFile(t *testing.T, env string) *sql.DB {
+func toolmarketDatabaseURL(t *testing.T, env string) string {
 	t.Helper()
 	path := os.Getenv(env)
 	if path == "" {
@@ -33,12 +33,39 @@ func toolmarketDatabaseFile(t *testing.T, env string) *sql.DB {
 	if err != nil || u.Scheme != "postgres" || (u.Hostname() != "127.0.0.1" && u.Hostname() != "localhost" && u.Hostname() != "::1") {
 		t.Fatal("requires local isolated PostgreSQL fixture")
 	}
-	db, err := sql.Open("postgres", u.String())
+	return u.String()
+}
+func toolmarketDatabaseFile(t *testing.T, env string) *sql.DB {
+	t.Helper()
+	db, err := sql.Open("postgres", toolmarketDatabaseURL(t, env))
 	if err != nil {
 		t.Fatal("cannot open fixture")
 	}
 	t.Cleanup(func() { db.Close() })
 	return db
+}
+
+func toolmarketFixtureRuntimeRole(t *testing.T, ownerDB, runtimeDB *sql.DB) string {
+	t.Helper()
+	var ownerDatabase, ownerRole string
+	if err := ownerDB.QueryRow(`SELECT current_database(), current_user`).Scan(&ownerDatabase, &ownerRole); err != nil {
+		t.Fatal("cannot resolve isolated owner fixture")
+	}
+	var runtimeDatabase, runtimeRole, loginRole string
+	var privileged bool
+	if err := runtimeDB.QueryRow(`SELECT current_database(), current_user, session_user,
+        r.rolsuper OR r.rolcreatedb OR r.rolcreaterole OR r.rolreplication OR r.rolbypassrls OR d.datdba=r.oid
+        FROM pg_roles r JOIN pg_database d ON d.datname=current_database() WHERE r.rolname=current_user`).Scan(&runtimeDatabase, &runtimeRole, &loginRole, &privileged); err != nil {
+		t.Fatal("cannot resolve isolated runtime fixture")
+	}
+	if runtimeDatabase != ownerDatabase || runtimeRole == ownerRole || runtimeRole != loginRole || privileged {
+		t.Fatal("requires independent unprivileged runtime and owner roles in the same fixture database")
+	}
+	var ownerMember bool
+	if err := runtimeDB.QueryRow(`SELECT pg_has_role(current_user, $1, 'MEMBER')`, ownerRole).Scan(&ownerMember); err != nil || ownerMember {
+		t.Fatal("runtime must not inherit or assume the owner role")
+	}
+	return runtimeRole
 }
 
 func TestPostgresStoreChild(t *testing.T) {
@@ -65,6 +92,7 @@ func TestPostgresStoreChild(t *testing.T) {
 func TestPostgresStorePersistenceConcurrentRollbackAndRestart(t *testing.T) {
 	db := toolmarketTestDB(t)
 	ownerDB := toolmarketDatabaseFile(t, "LMM_TOOLMARKET_TEST_OWNER_DSN_FILE")
+	runtimeRole := toolmarketFixtureRuntimeRole(t, ownerDB, db)
 	ctx := context.Background()
 	// Refuse existing schema, even from a previous test run. Never overwrite or
 	// remove a database to make acceptance pass.
@@ -85,10 +113,6 @@ func TestPostgresStorePersistenceConcurrentRollbackAndRestart(t *testing.T) {
 	}
 	if err = ownerStore.Close(); err != nil {
 		t.Fatal(err)
-	}
-	var runtimeRole string
-	if err = db.QueryRowContext(ctx, `SELECT current_user`).Scan(&runtimeRole); err != nil {
-		t.Fatal("cannot resolve synthetic runtime role")
 	}
 	role := `"` + strings.ReplaceAll(runtimeRole, `"`, `""`) + `"`
 	if _, err = ownerDB.ExecContext(ctx, `GRANT USAGE ON SCHEMA lmm_toolmarket TO `+role+`; GRANT SELECT,UPDATE ON lmm_toolmarket.snapshot TO `+role); err != nil {
