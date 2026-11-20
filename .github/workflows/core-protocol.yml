@@ -1,6 +1,12 @@
 name: Microkernel implementation checks
 on:
   workflow_dispatch:
+    inputs:
+      final_runtime_acceptance:
+        description: Run only the frozen293 original runtime acceptance projection
+        type: boolean
+        required: false
+        default: false
   workflow_call:
 # ci.yml owns automatic push/PR runs so this expensive suite runs only once.
 permissions:
@@ -13,6 +19,7 @@ concurrency:
   cancel-in-progress: true
 jobs:
   protocol:
+    if: ${{ !inputs.final_runtime_acceptance }}
     runs-on: ubuntu-24.04
     # Budget for cold builds, serial real PostgreSQL tests, and the following
     # payment, Go, and RPC checks while keeping the complete job bounded.
@@ -320,6 +327,7 @@ jobs:
           retention-days: 7
 
   market-postgres:
+    if: ${{ !inputs.final_runtime_acceptance }}
     name: Store and tool-market real PostgreSQL checks
     runs-on: ubuntu-24.04
     timeout-minutes: 30
@@ -375,4 +383,202 @@ jobs:
             ${{ runner.temp }}/market-postgres-inputs
             ${{ runner.temp }}/market-postgres-evidence
           if-no-files-found: error
+          retention-days: 7
+
+  final-runtime-prepare:
+    name: Prepare original frozen293 runtime acceptance inputs
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.final_runtime_acceptance }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 95
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      artifact_id: ${{ steps.upload.outputs.artifact-id }}
+      artifact_digest: ${{ steps.upload.outputs.artifact-digest }}
+      bundle_sha256: ${{ steps.prepare.outputs.bundle_sha256 }}
+      manifest_sha256: ${{ steps.prepare.outputs.manifest_sha256 }}
+    env:
+      MISE_EXEC_AUTO_INSTALL: "false"
+      MISE_DISABLE_TOOLS: rust
+      GOWORK: "off"
+      GOFLAGS: -mod=readonly
+      CARGO_BUILD_JOBS: "2"
+      CARGO_INCREMENTAL: "0"
+      CARGO_PROFILE_DEV_DEBUG: "0"
+      CARGO_PROFILE_TEST_DEBUG: "0"
+    steps:
+      - name: Checkout separately bound controller
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          ref: ${{ github.sha }}
+          path: control
+          persist-credentials: false
+      - name: Checkout original runtime source
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          ref: 293e53f799b09f187893e9cdf0c3503973916676
+          path: product
+          persist-credentials: false
+      - name: Initialize only fixed Extore fixture source
+        working-directory: product
+        run: git submodule update --init --depth 1 -- third_party/extore
+      - name: Install exact cloud build tools
+        run: |
+          umask 077
+          mkdir "$RUNNER_TEMP/final-runtime-mise"
+          curl --fail --location --output "$RUNNER_TEMP/final-runtime-mise/mise" \
+            https://github.com/jdx/mise/releases/download/v2026.11.10/mise-v2026.11.10-linux-x64
+          echo "b603a4f48563fc379a794d9ea2cf9f709ed276c9141068604cb0c59fa3e674a9  $RUNNER_TEMP/final-runtime-mise/mise" | sha256sum --check
+          chmod 700 "$RUNNER_TEMP/final-runtime-mise/mise"
+          echo "$RUNNER_TEMP/final-runtime-mise" >> "$GITHUB_PATH"
+          rustup toolchain install 1.100.0 --profile minimal
+          sudo --preserve-env=GITHUB_ACTIONS python3 product/scripts/prepare-ci-apt.py
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends --yes build-essential pkg-config libssl-dev protobuf-compiler
+      - name: Prepare locked dependencies without a database
+        working-directory: product
+        run: |
+          mise trust "$GITHUB_WORKSPACE/product/mise.toml"
+          mise install bun go just node aqua:xataio/pgroll
+          rustup run 1.100.0 cargo fetch --locked --manifest-path services/core/Cargo.toml
+          rustup run 1.100.0 cargo fetch --locked --manifest-path third_party/extore/Cargo.toml
+          (cd services/extensions && mise exec -- go mod download)
+      - name: Acquire and verify original official archives and commerce driver once
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python3 -B control/scripts/final-runtime-acceptance.py acquire \
+            --source "$GITHUB_WORKSPACE/product" --output "$RUNNER_TEMP/final-runtime-prepared"
+      - name: Run original model prepare and compile only missing fixture drivers
+        id: prepare
+        run: |
+          python3 -B control/scripts/final-runtime-acceptance.py prepare \
+            --source "$GITHUB_WORKSPACE/product" --output "$RUNNER_TEMP/final-runtime-prepared"
+      - name: Preserve preparation result even on failure
+        if: ${{ always() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: final-runtime-preparation-result-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/final-runtime-prepared/preparation-result.json
+            ${{ runner.temp }}/final-runtime-prepared/controller-failure-*.json
+            ${{ runner.temp }}/final-runtime-prepared/payload/toolchain/*.log
+            ${{ runner.temp }}/final-runtime-prepared/payload/resource-prepare.log
+            ${{ runner.temp }}/final-runtime-prepared/payload/core-prepared/compile.jsonl
+            ${{ runner.temp }}/final-runtime-prepared/payload/payments/compile.jsonl
+            ${{ runner.temp }}/final-runtime-prepared/payload/payments/go-compile.log
+            ${{ runner.temp }}/final-runtime-prepared/payload/fixtures/extore-compile.log
+          if-no-files-found: warn
+          retention-days: 7
+      - name: Preserve verified inputs and original prepared receipts
+        id: upload
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: final-runtime-prepared-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/final-runtime-prepared/runtime-prepared.tar.gz
+            ${{ runner.temp }}/final-runtime-prepared/export-manifest.json
+            ${{ runner.temp }}/final-runtime-prepared/bundle.json
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 7
+
+  final-runtime-acceptance:
+    name: Original five capacities, real302 payment and real16case browser
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.final_runtime_acceptance }}
+    needs: final-runtime-prepare
+    runs-on: ubuntu-24.04
+    timeout-minutes: 150
+    permissions:
+      contents: read
+      actions: read
+    env:
+      MISE_EXEC_AUTO_INSTALL: "false"
+      MISE_DISABLE_TOOLS: rust
+    steps:
+      - name: Checkout the same controller
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          ref: ${{ github.sha }}
+          path: control
+          persist-credentials: false
+      - name: Checkout the same original runtime source
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          ref: 293e53f799b09f187893e9cdf0c3503973916676
+          path: product
+          persist-credentials: false
+      - name: Initialize the same fixed Extore source
+        working-directory: product
+        run: git submodule update --init --depth 1 -- third_party/extore
+      - name: Install cloud runtime tools and private PostgreSQL tools
+        run: |
+          umask 077
+          mkdir "$RUNNER_TEMP/final-runtime-mise"
+          curl --fail --location --output "$RUNNER_TEMP/final-runtime-mise/mise" \
+            https://github.com/jdx/mise/releases/download/v2026.11.10/mise-v2026.11.10-linux-x64
+          echo "b603a4f48563fc379a794d9ea2cf9f709ed276c9141068604cb0c59fa3e674a9  $RUNNER_TEMP/final-runtime-mise/mise" | sha256sum --check
+          chmod 700 "$RUNNER_TEMP/final-runtime-mise/mise"
+          echo "$RUNNER_TEMP/final-runtime-mise" >> "$GITHUB_PATH"
+          sudo --preserve-env=GITHUB_ACTIONS python3 product/scripts/prepare-ci-apt.py
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends --yes curl ca-certificates dbus-user-session openssl
+          sudo install -d /usr/share/postgresql-common/pgdg
+          sudo curl --fail --output /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc https://www.postgresql.org/media/keys/ACCC4CF8.asc
+          printf '%s\n' 'Types: deb' 'URIs: https://apt.postgresql.org/pub/repos/apt' \
+            'Suites: noble-pgdg' "Architectures: $(dpkg --print-architecture)" 'Components: main' \
+            'Signed-By: /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc' \
+            | sudo tee /etc/apt/sources.list.d/pgdg.sources > /dev/null
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends --yes postgresql-common
+          echo 'create_main_cluster = false' | sudo tee -a /etc/postgresql-common/createcluster.conf > /dev/null
+          sudo apt-get install --no-install-recommends --yes postgresql-18 postgresql-client-18
+          echo '/usr/lib/postgresql/18/bin' >> "$GITHUB_PATH"
+          docker pull postgres:18-alpine@sha256:77f585114c32fbca283dc835b0596f4e52b51b4c6662d7810b2f4084f60a1873
+      - name: Prepare the pinned browser tool only
+        working-directory: product
+        run: |
+          mise trust "$GITHUB_WORKSPACE/product/mise.toml"
+          mise install node
+          mise exec -- npm install --prefix "$RUNNER_TEMP/final-runtime-browser-tools" \
+            --ignore-scripts --no-audit --no-fund --save-exact playwright@1.65.1
+          mise exec -- node "$RUNNER_TEMP/final-runtime-browser-tools/node_modules/playwright/cli.js" \
+            install --with-deps chromium
+          {
+            echo "LMM_ACCEPTANCE_NODE=$(mise which node)"
+            echo "LMM_ACCEPTANCE_PLAYWRIGHT=$RUNNER_TEMP/final-runtime-browser-tools/node_modules/playwright/index.mjs"
+            echo 'LMM_ACCEPTANCE_PG_BIN=/usr/lib/postgresql/18/bin'
+          } >> "$GITHUB_ENV"
+      - name: Verify actual cgroup v2 and both original manager routes
+        run: |
+          bash control/tests/final-runtime/host-preflight.sh > "$RUNNER_TEMP/final-runtime-host-preflight.log" 2>&1
+      - name: Import verified original prepared bytes once
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PREPARED_ARTIFACT: ${{ needs.final-runtime-prepare.outputs.artifact_id }}
+          PREPARED_DIGEST: ${{ needs.final-runtime-prepare.outputs.artifact_digest }}
+          BUNDLE_SHA256: ${{ needs.final-runtime-prepare.outputs.bundle_sha256 }}
+          MANIFEST_SHA256: ${{ needs.final-runtime-prepare.outputs.manifest_sha256 }}
+        run: |
+          python3 -B control/scripts/final-runtime-acceptance.py restore \
+            --source "$GITHUB_WORKSPACE/product" --output "$RUNNER_TEMP/final-runtime-prepared" \
+            --artifact-id "$PREPARED_ARTIFACT" --artifact-sha256 "$PREPARED_DIGEST" \
+            --bundle-sha256 "$BUNDLE_SHA256" --manifest-sha256 "$MANIFEST_SHA256"
+      - name: Execute the unchanged original gates serially and stop on first failure
+        run: |
+          python3 -B control/scripts/final-runtime-acceptance.py run \
+            --source "$GITHUB_WORKSPACE/product" --output "$RUNNER_TEMP/final-runtime-prepared" \
+            --evidence "$RUNNER_TEMP/final-runtime-evidence"
+      - name: Preserve only the bounded non-secret evidence export
+        if: ${{ always() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: final-runtime-results-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/final-runtime-evidence/public
+            ${{ runner.temp }}/final-runtime-prepared/restore-result.json
+            ${{ runner.temp }}/final-runtime-prepared/controller-failure-*.json
+            ${{ runner.temp }}/final-runtime-host-preflight.log
+          if-no-files-found: warn
           retention-days: 7

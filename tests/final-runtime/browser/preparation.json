@@ -1,0 +1,27 @@
+{
+  "files": {
+    "browser.mjs": {
+      "bytes": 44018,
+      "sha256": "04ea1ef5a949926224daac1c208717b2dbf9f67dcf2ac00a14689b1065a730e7"
+    },
+    "dark-checks.mjs": {
+      "bytes": 3315,
+      "sha256": "b9d25cfcdcc39142d3f7a74ab553a8722ba0d93ffd9887f220de86f6a49f9a8c"
+    },
+    "fixture.py": {
+      "bytes": 35323,
+      "sha256": "7a83ac13be35e0d2d53e4613cad6bde1b76d087ad2274bf84983bb2ae0270fa6"
+    },
+    "https_fixture_transport.py": {
+      "bytes": 10498,
+      "sha256": "7fe381997f7b89804a0ef2ac63b8afe81807f11b807c7cd4dc978efda3f5fa68"
+    },
+    "run-round.py": {
+      "bytes": 6861,
+      "sha256": "03e2f379b8f8981febc488aa65a4f0fe57ea64c37c50ca9401c7ec8d554bb8fb"
+    }
+  },
+  "origin": "Original accepted 16-case browser; only canonical path/tool/source input projection",
+  "source_commit": "293e53f799b09f187893e9cdf0c3503973916676",
+  "status": "FROZEN_NOT_EXECUTED"
+}
