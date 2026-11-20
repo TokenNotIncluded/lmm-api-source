@@ -49,7 +49,7 @@ Go 商店配置需要 `store.extore_key_file` 和 `store.extore_redirect_uri`。
 
 ### 构建与源码绑定
 
-`third_party/extore` 是固定到 Extore 提交 `1c29a9a0bfa7e64c938581e5c5e5fcb1e6832f04` 的 Git 子模块。该提交在完整实现 `818400958a8660e5e72b1eefb4815dbb34452098` 上仅修正 Python 夹具的店铺 UUID 与网页合同断言，Rust runtime、共享 API 和静态网页输入未变。[宿主 Cargo.toml](../services/extensions/extore-host/Cargo.toml)通过 `version = "=0.1.0"` 和该子模块内的路径依赖使用共享 API，[Cargo.lock](../services/extensions/extore-host/Cargo.lock)锁定其余依赖。接口与实际动态库由同一个 Gitlink 绑定源码，保持 Project Z 对已审阅来源的校验规则。动态库的来源提交、工具链、目标平台和构建产物 SHA256 应一起保存，运行配置中的 `sha256` 使用实际动态库文件的值。
+`third_party/extore` 固定到 Extore 提交 `8e3063690cf5595884b1e639535869fd593e0296`。完整 Rust 实现来自 `818400958a8660e5e72b1eefb4815dbb34452098`；`1c29a9a0` 修正两个 Python 夹具的店铺 UUID 与网页合同断言，当前提交同步了这两项输入摘要。71 项输入均与实际文件匹配，69 项其他条目以及 Rust runtime、共享 API、静态网页输入未变；历史构建和检查回执仍对应原来源。[宿主 Cargo.toml](../services/extensions/extore-host/Cargo.toml)通过 `version = "=0.1.0"` 和该子模块内的路径依赖使用共享 API，[Cargo.lock](../services/extensions/extore-host/Cargo.lock)锁定其余依赖。接口与实际动态库由同一个 Gitlink 绑定源码，保持 Project Z 对已审阅来源的校验规则。动态库的来源提交、工具链、目标平台和构建产物 SHA256 应一起保存，运行配置中的 `sha256` 使用实际动态库文件的值。
 
 以下命令在 LMM 源码根目录执行，初始化仓库已记录的固定子模块，并构建匹配的 Linux GNU 产物；它们不修改 Extore `main`，不安装或启动服务。已有子模块工作区应先保留其改动，不使用强制更新：
 

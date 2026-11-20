@@ -43,7 +43,7 @@ def main():
     for entry in extore_inputs["files"]:
         source = extore_source / entry["path"]
         if source.stat().st_size != entry["bytes"] or sha256(source) != entry["sha256"]:
-            raise RuntimeError("pinned Extore source differs from its verified input closure")
+            raise RuntimeError(f"pinned Extore source differs from its verified input closure: {entry['path']}")
     fixture_path = extore_source / "scripts/native_plugin_fixture.py"
     spec = importlib.util.spec_from_file_location("extore_native_fixture", fixture_path)
     fixture_hash = sha256(fixture_path)
