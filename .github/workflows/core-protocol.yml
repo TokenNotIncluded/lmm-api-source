@@ -5,7 +5,7 @@ on:
       diagnostic_mode:
         description: Explicit control-branch diagnostic; none retains the complete gate
         type: choice
-        options: [none, candidate, pre_fix]
+        options: [none, candidate, pre_fix, managed70]
         default: none
       product_sha:
         description: Immutable 40-hex candidate source (required for diagnostic modes)
@@ -318,7 +318,7 @@ jobs:
 
   targeted-diagnostic:
     name: Targeted Core diagnostic (${{ inputs.diagnostic_mode }}), not full CI
-    if: ${{ inputs.diagnostic_mode == 'candidate' || inputs.diagnostic_mode == 'pre_fix' }}
+    if: ${{ inputs.diagnostic_mode == 'candidate' || inputs.diagnostic_mode == 'pre_fix' || inputs.diagnostic_mode == 'managed70' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 95
     env:

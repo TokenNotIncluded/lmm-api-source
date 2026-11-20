@@ -14,6 +14,7 @@ BASE = "7b0832d37f0a0be0b87cceaf43f7c6a6dfe856bc"
 REGRESSION = "unknown_classification_takes_conversation_lock_before_charge_row"
 LOCK_CYCLE = "Unknown classification reversed the conversation/request lock order"
 APP05 = "core_schema::upgrade::payment_discounts::tests::app05_upgrade_engine_66_to67_exact_replay_and_runtime_denial"
+MANAGED70 = "core_schema::upgrade::managed_applications::tests::managed70_owner_upgrade_preserves_all_other_data_acl_and_commit_recovery"
 ASSISTANT = [
     "answer_settles_once_and_replays_without_dispatch",
     "assistant_request_limits_share_user_budget_before_hold_and_dispatch",
@@ -121,7 +122,7 @@ def test_run(label, executable, names, filters, cwd, negative=False):
 
 
 def main():
-    if mode not in ("candidate", "pre_fix") or not re.fullmatch(r"[0-9a-f]{40}", requested):
+    if mode not in ("candidate", "pre_fix", "managed70") or not re.fullmatch(r"[0-9a-f]{40}", requested):
         raise ValueError("invalid diagnostic inputs")
     if git(candidate, "rev-parse", "HEAD") != requested or git(candidate, "diff", "--name-only"):
         raise ValueError("candidate checkout does not match the immutable source input")
@@ -153,7 +154,10 @@ def main():
     save("source-binding.json", binding)
     execute("rustc-version", ["rustc", "--version", "--verbose"], root / "services/core", 30)
     execute("cargo-version", ["cargo", "--version"], root / "services/core", 30)
-    targets = ["--test", "assistant_model"] if mode == "pre_fix" else ["--lib", "--test", "assistant_model"]
+    if mode == "managed70":
+        targets = ["--lib"]
+    else:
+        targets = ["--test", "assistant_model"] if mode == "pre_fix" else ["--lib", "--test", "assistant_model"]
     command, output = execute("compile",
         ["cargo", "test", "--locked", *targets, "--no-run", "--message-format=json"],
         root / "services/core", 4200)
@@ -169,17 +173,21 @@ def main():
                 executables[item["target"]["name"]] = Path(item["executable"]).resolve()
         save("executables.json", {key: {"path": str(path), "sha256": sha(path)}
                                   for key, path in executables.items()})
-        assistant = executables["assistant_model"]
-        cases = [REGRESSION] if mode == "pre_fix" else ASSISTANT
-        filters = [REGRESSION, "--exact"] if mode == "pre_fix" else []
-        results.append(test_run("assistant", assistant, cases, filters, root / "services/core",
-                                negative=mode == "pre_fix"))
-        if mode == "candidate":
-            results.append(test_run("app05", executables["lmm_core"], [APP05],
-                                    [APP05, "--exact"], root / "services/core"))
+        if mode == "managed70":
+            results.append(test_run("managed70", executables["lmm_core"], [MANAGED70],
+                                    [MANAGED70, "--exact"], root / "services/core"))
+        else:
+            assistant = executables["assistant_model"]
+            cases = [REGRESSION] if mode == "pre_fix" else ASSISTANT
+            filters = [REGRESSION, "--exact"] if mode == "pre_fix" else []
+            results.append(test_run("assistant", assistant, cases, filters, root / "services/core",
+                                    negative=mode == "pre_fix"))
+            if mode == "candidate":
+                results.append(test_run("app05", executables["lmm_core"], [APP05],
+                                        [APP05, "--exact"], root / "services/core"))
     after = source_manifest(root)
     save("source-after.json", after)
-    accepted = (command["exit_code"] == 0 and len(results) == (1 if mode == "pre_fix" else 2)
+    accepted = (command["exit_code"] == 0 and len(results) == (1 if mode in ("pre_fix", "managed70") else 2)
                 and all(result["accepted"] for result in results) and before == after)
     save("result.json", {"scope": "TARGETED_DIAGNOSTIC_ONLY", "mode": mode,
                         "accepted": accepted, "compile_exit_code": command["exit_code"],
