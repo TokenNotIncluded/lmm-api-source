@@ -76,6 +76,17 @@ jobs:
         if: ${{ !cancelled() && steps.rust.outcome == 'success' }}
         working-directory: services/core
         run: cargo clippy --locked --all-targets -- -D warnings 2>&1 | tee "$RUNNER_TEMP/identity-clippy.log"
+      - name: Build the preserved migration executors
+        if: ${{ !cancelled() }}
+        run: |
+          git fetch --no-tags --depth=1 origin 0510c2455dabcb63e33c719ba52ac189d62612bc 2a0c7bd380f58a553dc903d399255821c1a65d0f 8f1b6b837ace7027f2a62f15168843790ce6de28
+          rustup toolchain install 1.99.0 --profile minimal
+          rustup run 1.99.0 python3 scripts/build-preserved-core.py --family pancake67 --output "$RUNNER_TEMP/preserved-pancake67"
+          rustup run 1.99.0 python3 scripts/build-preserved-core.py --family early58 --output "$RUNNER_TEMP/preserved-early58"
+          cat "$RUNNER_TEMP/preserved-pancake67/executor.env" "$RUNNER_TEMP/preserved-early58/executor.env" >> "$GITHUB_ENV"
+      - name: Prepare private acquisition PostgreSQL fixtures
+        if: ${{ !cancelled() }}
+        run: python3 -B scripts/prepare-acquisition-ci.py
       - name: Test against isolated PostgreSQL databases
         if: ${{ !cancelled() && steps.rust.outcome == 'success' }}
         working-directory: services/core
@@ -84,8 +95,20 @@ jobs:
           cargo test --locked --all-targets --no-run
           LMM_MODEL_PROCESS_CORE_BIN="$(realpath target/debug/lmm-core)"
           LMM_MODEL_PROCESS_CORE_SHA256="$(sha256sum "$LMM_MODEL_PROCESS_CORE_BIN" | cut -d ' ' -f1)"
-          LMM_MODEL_PROCESS_ROOT="$(mktemp -d /tmp/lmm-model-XXXXXXXX)"
+          process_evidence_root="$(mktemp -d "$RUNNER_TEMP/core-process-evidence-XXXXXXXX")"
+          LMM_MODEL_PROCESS_ROOT="$(mktemp -d "$process_evidence_root/model-XXXXXXXX")"
           export LMM_MODEL_PROCESS_CORE_BIN LMM_MODEL_PROCESS_CORE_SHA256 LMM_MODEL_PROCESS_ROOT
+          # Independent TCP/process cases require new private evidence roots.
+          # Their child-worker config is created by each owning test.
+          LMM_CONTINUITY_DEV_ARTIFACTS="$(mktemp -d "$process_evidence_root/continuity-dev-XXXXXXXX")"
+          COMPACT_INDEPENDENT_ARTIFACTS="$(mktemp -d "$process_evidence_root/compact-XXXXXXXX")"
+          RESPONSES_CONTINUITY_INDEPENDENT_ARTIFACTS="$(mktemp -d "$process_evidence_root/continuity-independent-XXXXXXXX")"
+          RESPONSES_CONTINUITY_REVIEW_ARTIFACTS="$(mktemp -d "$process_evidence_root/continuity-review-XXXXXXXX")"
+          LMM_WS_ARTIFACTS="$(mktemp -d "$process_evidence_root/websocket-XXXXXXXX")"
+          LMM_WS_CORE_BINARY="$LMM_MODEL_PROCESS_CORE_BIN"
+          export LMM_CONTINUITY_DEV_ARTIFACTS COMPACT_INDEPENDENT_ARTIFACTS
+          export RESPONSES_CONTINUITY_INDEPENDENT_ARTIFACTS RESPONSES_CONTINUITY_REVIEW_ARTIFACTS
+          export LMM_WS_ARTIFACTS LMM_WS_CORE_BINARY
           # The non-ignored payment recovery case requires sealed Core, Go host
           # and bootstrap binaries. The 302-second case stays ignored.
           CGO_ENABLED=0 go test -C ../extensions -mod=readonly -c -o "$RUNNER_TEMP/lmm-payment-bootstrap" ./internal/modules/payments
@@ -96,7 +119,11 @@ jobs:
           LMM_PAYMENT_BOOTSTRAP_BIN="$(realpath "$RUNNER_TEMP/lmm-payment-bootstrap")"
           LMM_PAYMENT_BOOTSTRAP_SHA256="$(sha256sum "$LMM_PAYMENT_BOOTSTRAP_BIN" | cut -d ' ' -f1)"
           export LMM_PAYMENT_CORE_BIN LMM_PAYMENT_CORE_SHA256 LMM_PAYMENT_GO_BIN LMM_PAYMENT_GO_SHA256 LMM_PAYMENT_BOOTSTRAP_BIN LMM_PAYMENT_BOOTSTRAP_SHA256
-          cargo test --locked --all-targets --no-fail-fast 2>&1 | tee "$RUNNER_TEMP/identity-tests.log"
+          # The owning runner below executes this exact case and checks its real parent PID.
+          cargo test --locked --all-targets --no-fail-fast -- --skip synthetic_live_proof_crosses_core_go_processes_and_posts_once --nocapture 2>&1 | tee "$RUNNER_TEMP/identity-tests.log"
+      - name: Synthetic payment live process through owning runner
+        if: ${{ !cancelled() }}
+        run: python3 -B scripts/ci-payment-live.py --output "$(realpath -m "$RUNNER_TEMP/payment-live")" 2>&1 | tee "$RUNNER_TEMP/payment-live-build.log"
       - name: Repeat rejected event acknowledgement regression
         if: ${{ !cancelled() && steps.rust.outcome == 'success' }}
         working-directory: services/core
@@ -118,5 +145,16 @@ jobs:
             ${{ runner.temp }}/identity-*.log
             ${{ runner.temp }}/identity-commit.txt
             ${{ runner.temp }}/identity-source.tar.gz
+            ${{ runner.temp }}/preserved-pancake67/provenance.json
+            ${{ runner.temp }}/preserved-pancake67/source.tar.gz
+            ${{ runner.temp }}/preserved-pancake67/schema-manifest.json
+            ${{ runner.temp }}/preserved-pancake67/build.log
+            ${{ runner.temp }}/preserved-early58/provenance.json
+            ${{ runner.temp }}/preserved-early58/source.tar.gz
+            ${{ runner.temp }}/preserved-early58/schema-manifest.json
+            ${{ runner.temp }}/preserved-early58/build.log
+            ${{ runner.temp }}/core-process-evidence-*
+            ${{ runner.temp }}/payment-live-build.log
+            ${{ runner.temp }}/payment-live/evidence/result.json
           if-no-files-found: warn
           retention-days: 7
