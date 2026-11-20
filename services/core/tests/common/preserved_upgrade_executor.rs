@@ -254,7 +254,8 @@ struct Report {
     components: usize,
 }
 async fn maintenance_snapshot(request: &UpgradeRequest) -> Result<serde_json::Value, &'static str> {
-    let maintenance_url = std::env::var("DATABASE_URL").map_err(|_| "maintenance_url_unavailable")?;
+    let maintenance_url =
+        std::env::var("DATABASE_URL").map_err(|_| "maintenance_url_unavailable")?;
     let options: PgConnectOptions = maintenance_url
         .parse()
         .map_err(|_| "maintenance_options_invalid")?;
