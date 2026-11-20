@@ -18,6 +18,19 @@ LOCK_CYCLE = "Unknown classification reversed the conversation/request lock orde
 APP05 = "core_schema::upgrade::payment_discounts::tests::app05_upgrade_engine_66_to67_exact_replay_and_runtime_denial"
 MANAGED70 = "core_schema::upgrade::managed_applications::tests::managed70_owner_upgrade_preserves_all_other_data_acl_and_commit_recovery"
 PROVIDER78_CAPTURE = "core_schema::upgrade::provider_oauth_clients::tests::capture_provider_oauth_clients78_targets"
+PROVIDER78_UPGRADE = [
+    "core_schema::upgrade::provider_oauth_clients::tests::provider78_singleton_exact_one_field_and_no_repair",
+    "core_schema::upgrade::provider_oauth_clients::tests::provider78_owner_upgrade_preserves_all_other_data_acl_and_commit_recovery",
+    "core_schema::upgrade::provider_oauth_clients::tests::provider78_fresh_persistent_client_boundaries",
+]
+PROVIDER78_HTTP = [
+    "public_provider_metadata_requires_each_explicit_finite_configuration",
+    "public_provider_browser_code_refresh_and_revoke_keep_client_families_separate",
+    "public_provider_real_model_usage_and_finite_budgets_do_not_cross_families",
+    "public_provider_developer_epoch_revocation_preserves_started_settlement",
+    "public_provider_group_withdrawal_preserves_started_settlement",
+    "public_provider_disabled_configuration_preserves_started_settlement",
+]
 ASSISTANT = [
     "answer_settles_once_and_replays_without_dispatch",
     "assistant_request_limits_share_user_budget_before_hold_and_dispatch",
@@ -228,7 +241,7 @@ def capture_provider78(executable, compile_output, cwd, capture_file):
 
 
 def main():
-    if mode not in ("candidate", "pre_fix", "managed70", "continuity", "provider78_capture") or not re.fullmatch(r"[0-9a-f]{40}", requested):
+    if mode not in ("candidate", "pre_fix", "managed70", "continuity", "provider78_capture", "provider78_acceptance") or not re.fullmatch(r"[0-9a-f]{40}", requested):
         raise ValueError("invalid diagnostic inputs")
     if git(candidate, "rev-parse", "HEAD") != requested or git(candidate, "diff", "--name-only"):
         raise ValueError("candidate checkout does not match the immutable source input")
@@ -274,17 +287,27 @@ def main():
         binding.update(scope="CATALOG_MEASUREMENT_ONLY", capture_private_directory=str(private_capture),
                        capture_output_file=str(capture_file), exact_ignored_case=PROVIDER78_CAPTURE,
                        ordinary_provider_upgrade_qualification=False)
+    if mode == "provider78_acceptance":
+        if any(key in os.environ for key in (
+                "LMM_PROVIDER_OAUTH_CAPTURE_FILE", "LMM_PROVIDER_OAUTH_CAPTURE_SOURCE_SHA")):
+            raise ValueError("ordinary provider78 checks must not use capture inputs")
+        binding.update(scope="PROVIDER78_ORDINARY_TARGETS_ONLY",
+                       expected_upgrade_cases=PROVIDER78_UPGRADE,
+                       expected_http_cases=PROVIDER78_HTTP,
+                       capture_requested=False)
     before = source_manifest(root)
     save("source-before.json", before)
     save("source-binding.json", binding)
     rustc_command, rustc_output = execute("rustc-version", ["rustc", "--version", "--verbose"], root / "services/core", 30)
     cargo_command, cargo_output = execute("cargo-version", ["cargo", "--version"], root / "services/core", 30)
-    if mode == "provider78_capture" and (rustc_command["exit_code"] != 0 or cargo_command["exit_code"] != 0
+    if mode in ("provider78_capture", "provider78_acceptance") and (rustc_command["exit_code"] != 0 or cargo_command["exit_code"] != 0
             or re.findall(r"^rustc (\S+)\s", rustc_output, re.MULTILINE) != ["1.100.0"]
             or re.findall(r"^cargo (\S+)\s", cargo_output, re.MULTILINE) != ["1.100.0"]):
-        raise ValueError("provider78 capture requires the original Rust and Cargo1.100.0 toolchain")
+        raise ValueError("provider78 checks require the original Rust and Cargo1.100.0 toolchain")
     if mode in ("managed70", "continuity", "provider78_capture"):
         targets = ["--lib"]
+    elif mode == "provider78_acceptance":
+        targets = ["--lib", "--test", "oauth2_public_providers"]
     else:
         targets = ["--test", "assistant_model"] if mode == "pre_fix" else ["--lib", "--test", "assistant_model"]
     command, output = execute("compile",
@@ -305,6 +328,38 @@ def main():
         if mode == "provider78_capture":
             results.append(capture_provider78(executables["lmm_core"], output,
                                               root / "services/core", capture_file))
+        elif mode == "provider78_acceptance":
+            messages = []
+            for line in output.splitlines():
+                try:
+                    messages.append(json.loads(line))
+                except json.JSONDecodeError:
+                    continue
+            verified = []
+            for name, kind, source in (
+                    ("lmm_core", "lib", "src/lib.rs"),
+                    ("oauth2_public_providers", "test", "tests/oauth2_public_providers.rs")):
+                matches = [item for item in messages
+                           if item.get("reason") == "compiler-artifact"
+                           and item.get("target", {}).get("name") == name
+                           and item.get("profile", {}).get("test")
+                           and item.get("executable")]
+                if len(matches) != 1:
+                    raise ValueError("ordinary provider78 requires one current artifact per target")
+                item = matches[0]
+                if (Path(item["manifest_path"]).resolve() != root / "services/core/Cargo.toml"
+                        or item["target"]["kind"] != [kind]
+                        or Path(item["target"]["src_path"]).resolve() != root / "services/core" / source
+                        or Path(item["executable"]).resolve() != executables[name]):
+                    raise ValueError("ordinary provider78 compiler artifact source mismatch")
+                verified.append(item)
+            save("provider78-ordinary-compiler-artifacts.json", verified)
+            results.append(test_run("provider78-upgrade", executables["lmm_core"],
+                                    PROVIDER78_UPGRADE,
+                                    ["core_schema::upgrade::provider_oauth_clients::tests::provider78_"],
+                                    root / "services/core"))
+            results.append(test_run("provider78-http", executables["oauth2_public_providers"],
+                                    PROVIDER78_HTTP, [], root / "services/core"))
         elif mode == "continuity":
             try:
                 for label, name in CONTINUITY:
@@ -346,7 +401,7 @@ def main():
 try:
     sys.exit(main())
 except Exception as error:
-    if mode == "provider78_capture" and not (evidence / "source-after.json").exists():
+    if mode in ("provider78_capture", "provider78_acceptance") and not (evidence / "source-after.json").exists():
         try:
             save("source-after.json", source_manifest(candidate))
         except Exception as snapshot_error:
