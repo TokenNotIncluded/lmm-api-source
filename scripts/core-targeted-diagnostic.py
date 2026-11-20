@@ -280,8 +280,8 @@ def main():
     rustc_command, rustc_output = execute("rustc-version", ["rustc", "--version", "--verbose"], root / "services/core", 30)
     cargo_command, cargo_output = execute("cargo-version", ["cargo", "--version"], root / "services/core", 30)
     if mode == "provider78_capture" and (rustc_command["exit_code"] != 0 or cargo_command["exit_code"] != 0
-            or not re.search(r"^rustc 1\.100\.0\s", rustc_output)
-            or not re.search(r"^cargo 1\.100\.0\s", cargo_output)):
+            or re.findall(r"^rustc (\S+)\s", rustc_output, re.MULTILINE) != ["1.100.0"]
+            or re.findall(r"^cargo (\S+)\s", cargo_output, re.MULTILINE) != ["1.100.0"]):
         raise ValueError("provider78 capture requires the original Rust and Cargo1.100.0 toolchain")
     if mode in ("managed70", "continuity", "provider78_capture"):
         targets = ["--lib"]
