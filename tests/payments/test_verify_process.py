@@ -80,26 +80,30 @@ class CaseSelectionTests(unittest.TestCase):
         with self.assertRaises(v.FixtureError): v.selected_command("/test", "anything")
 
     def test_exact_discovery(self):
-        full = f"{v.CASE}: test\n{v.EXPIRY_CASE}: test\n\n2 tests, 0 benchmarks\n"
+        full = f"{v.CASE}: test\n{v.EXPIRY_CASE}: test\nhex_codec::tests::preserves_hex_representation_and_input_errors: test\n\n3 tests, 0 benchmarks\n"
         ignored = f"{v.EXPIRY_CASE}: test\n\n1 test, 0 benchmarks\n"
         v.verify_discovery(full, ignored)
         for bad_full, bad_ignored in (
             (full.replace(v.CASE + ": test\n", ""), ignored),
-            (full.replace("2 tests", "3 tests"), ignored),
-            (full.replace("2 tests", "extra: test\n2 tests"), ignored),
+            (full.replace("3 tests", "4 tests"), ignored),
+            (full.replace("3 tests", "extra: test\n3 tests"), ignored),
             (full.replace(v.EXPIRY_CASE, v.CASE), ignored),
+            (full.replace("hex_codec::tests::preserves_hex_representation_and_input_errors: test\n", ""), ignored),
+            (full.replace("hex_codec::tests::preserves_hex_representation_and_input_errors: test\n", "").replace("3 tests", "2 tests"), ignored),
             (full, ignored.replace(v.EXPIRY_CASE, v.CASE)),
             (full, "0 tests, 0 benchmarks\n"),
             (full, ignored + "extra: test\n"),
+            (full, ignored.replace("\n\n1 test", "\nhex_codec::tests::preserves_hex_representation_and_input_errors: test\n\n2 tests")),
         ):
             with self.subTest(full=bad_full, ignored=bad_ignored), self.assertRaises(v.FixtureError):
                 v.verify_discovery(bad_full, bad_ignored)
 
     def test_exact_execution_summary(self):
-        log = "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 1 filtered out; finished in 302.01s\n"
+        log = "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 2 filtered out; finished in 302.01s\n"
         for case in v.CASES: v.verify_execution(log, case)
         for bad in (log.replace("1 passed", "0 passed"), log.replace("0 ignored", "1 ignored"),
-                    log.replace("1 filtered", "0 filtered"), log.replace("0 failed", "1 failed"),
+                    log.replace("2 filtered", "0 filtered"), log.replace("0 failed", "1 failed"),
+                    log.replace("2 filtered", "1 filtered"),
                     log + log, log.replace("ok.", "FAILED."), ""):
             with self.subTest(log=bad), self.assertRaises(v.FixtureError):
                 v.verify_execution(bad, "accepted-proof-expiry")
