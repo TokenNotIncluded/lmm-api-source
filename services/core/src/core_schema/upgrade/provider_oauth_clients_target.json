@@ -1,7 +1,7 @@
 {
-  "manifest_sha256": null,
-  "catalog_sha256": null,
-  "oauth_predecessor_catalog_sha256": null,
-  "oauth_catalog_sha256": null,
-  "raw_schema_sha256": null
+  "manifest_sha256": "6918c46ccbc6f2876afa4147aaf9ddd4827cffab3597e76b10ea1dc0b2b11302",
+  "catalog_sha256": "d5a834987be2f18882d20048bf38615af244acbc4fa735d382d152db348a49a0",
+  "oauth_predecessor_catalog_sha256": "1c573f3c85ed5ce4e924ad700c9d821d072696dcc4ed3b52ba633801839d169a",
+  "oauth_catalog_sha256": "9c5461d03668f0d473ff72fd6dbf8d8e0a464c5e82b7ee7c607e6d71fb0d9bd2",
+  "raw_schema_sha256": "32d1b3fd70c2b517ac62d63e082c2a14c271ac4e50ebaf28d51013549b561150"
 }
