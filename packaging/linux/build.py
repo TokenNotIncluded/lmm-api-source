@@ -69,11 +69,34 @@ def inspect_elf(path: Path, arch: str, *, shared: bool = False) -> dict:
         raise ValueError("shared ELF input has no executable interpreter")
     versions = {tuple(map(int, s.split("."))) for s in re.findall(r"\bGLIBC_(\d+\.\d+(?:\.\d+)?)\b", text)}
     openssl_versions = {tuple(map(int, s.split("."))) for s in re.findall(r"\bOPENSSL_(\d+\.\d+\.\d+)\b", text)}
+    openssl_symbols: dict[str, set[str]] = {}
+    in_needs, version_file = False, None
+    for line in text.splitlines():
+        section = re.match(r"\s*Version (\w+) section\b", line)
+        if section:
+            in_needs, version_file = section[1] == "needs", None
+        if not in_needs:
+            continue
+        file_match = re.search(r"\bFile:\s+(\S+)", line)
+        if file_match:
+            version_file = file_match[1]
+        symbol = re.search(r"\bName:\s+(OPENSSL_\d+\.\d+\.\d+)\b", line)
+        if symbol:
+            if version_file not in {"libssl.so.3", "libcrypto.so.3"} or version_file not in needed:
+                raise ValueError("OpenSSL symbol version has no matching needed library")
+            openssl_symbols.setdefault(version_file, set()).add(symbol[1])
+    attributed = {tuple(map(int, symbol.removeprefix("OPENSSL_").split(".")))
+                  for symbols in openssl_symbols.values() for symbol in symbols}
+    if attributed != openssl_versions:
+        raise ValueError("cannot associate OpenSSL versions with needed libraries")
     if (interpreter or shared) and not versions:
         raise ValueError("cannot determine the glibc minimum")
-    return {"linkage": "glibc" if interpreter or shared else "static", "needed": needed,
-            "glibc_minimum": ".".join(map(str, max(versions))) if versions else None,
-            "openssl_minimum": ".".join(map(str, max(openssl_versions))) if openssl_versions else None}
+    report = {"linkage": "glibc" if interpreter or shared else "static", "needed": needed,
+              "glibc_minimum": ".".join(map(str, max(versions))) if versions else None,
+              "openssl_minimum": ".".join(map(str, max(openssl_versions))) if openssl_versions else None}
+    if openssl_symbols:
+        report["openssl_symbol_versions"] = {lib: sorted(symbols) for lib, symbols in sorted(openssl_symbols.items())}
+    return report
 
 
 def dependencies(reports: list[dict], fmt: str, service: bool, network: bool) -> list[str]:
@@ -89,14 +112,20 @@ def dependencies(reports: list[dict], fmt: str, service: bool, network: bool) ->
     for report in reports:
         for lib in report["needed"]:
             deps.add(LIBRARIES[lib][column])
+        if fmt == "rpm":
+            symbols = report.get("openssl_symbol_versions", {})
+            if report.get("openssl_minimum") and not symbols:
+                raise ValueError("RPM OpenSSL requirements need per-library symbol versions")
+            # Fedora and SUSE expose the same ELF capabilities under different package names.
+            for lib, required in symbols.items():
+                deps.update(f"{lib}({symbol})(64bit)" for symbol in required)
     openssl_versions = [tuple(map(int, r["openssl_minimum"].split(".")))
                        for r in reports if r.get("openssl_minimum")]
-    if openssl_versions:
+    if openssl_versions and fmt != "rpm":
         version = ".".join(map(str, max(openssl_versions)))
-        name = {"deb": "libssl3t64", "rpm": "openssl-libs", "archlinux": "openssl"}[fmt]
+        name = {"deb": "libssl3t64", "archlinux": "openssl"}[fmt]
         deps.discard(name)
         deps.add({"deb": f"libssl3 (>= {version}) | libssl3t64 (>= {version})",
-                  "rpm": f"{name} >= {version}",
                   "archlinux": f"{name}>={version}"}[fmt])
     versions = [tuple(map(int, r["glibc_minimum"].split("."))) for r in reports if r["glibc_minimum"]]
     if versions:
