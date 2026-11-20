@@ -195,21 +195,31 @@ def source_snapshot(source):
     require(git(extore, "rev-parse", "HEAD") == EXTORE
             and git(extore, "status", "--porcelain=v1", "--untracked-files=all") == "",
             "fixed Extore fixture source differs")
-    extore_files = {}
+    extore_files, extore_links = {}, {}
     for item in subprocess.check_output(["git", "-C", str(extore), "ls-tree", "-rz", "HEAD"], timeout=60).split(b"\0"):
         if not item:
             continue
         definition, raw_name = item.split(b"\t", 1)
         mode, kind, blob = definition.decode().split()
         name = raw_name.decode()
+        if kind == "commit":
+            require(mode == "160000" and name == "processors/official"
+                    and blob == "dc45464fe3e9cc496012a9bf21e805f510f5c584",
+                    "unexpected Extore gitlink")
+            extore_links[name] = blob
+            continue
         require(kind == "blob" and mode in {"100644", "100755"}, "unexpected Extore tracked input")
         path = regular(extore / name)
         data = path.read_bytes()
         require(hashlib.sha1(b"blob " + str(len(data)).encode() + b"\0" + data).hexdigest() == blob
                 and bool(path.stat().st_mode & 0o111) == (mode == "100755"), "Extore bytes or Git mode differ: " + name)
         extore_files[name] = {"git_blob": blob, "sha256": hashlib.sha256(data).hexdigest(), "mode": mode}
+    require(len(extore_files) == 480 and extore_links == {
+        "processors/official": "dc45464fe3e9cc496012a9bf21e805f510f5c584"
+    }, "fixed Extore tree inventory differs")
     return {"revision": RUNTIME, "tree": RUNTIME_TREE, "files": files, "gitlinks": links,
-            "extore": {"revision": EXTORE, "tree": git(extore, "rev-parse", "HEAD^{tree}"), "files": extore_files}}
+            "extore": {"revision": EXTORE, "tree": git(extore, "rev-parse", "HEAD^{tree}"),
+                       "files": extore_files, "gitlinks": extore_links}}
 
 
 def fetch_json(endpoint, target):
