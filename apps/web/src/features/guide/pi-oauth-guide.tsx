@@ -47,7 +47,7 @@ export function PiOAuthGuide() {
       />
       <p className='text-muted-foreground text-sm leading-6'>
         {t(
-          'This command uses the current npm release and removes other Pi plugin sources only after installation succeeds.'
+          'This command installs provider 0.1.0-alpha.7 and requires stable Pi 1.0.4 or newer. Other Pi plugin sources are removed only after installation succeeds.'
         )}
       </p>
       <p className='text-muted-foreground text-sm leading-7'>

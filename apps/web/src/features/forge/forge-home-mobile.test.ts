@@ -74,6 +74,46 @@ test('homepage presents all OAuth client options', () => {
   assert.match(providerCommands, /codewhale-lmm-provider\.git/)
 })
 
+test('shared install commands pin released providers and separate DSH Web from Desktop', async () => {
+  const commands = await import(
+    new URL('../guide/provider-install-commands.ts', import.meta.url).href
+  )
+  assert.equal(
+    commands.PI_INSTALL_LATEST_COMMAND,
+    'npm exec --yes --prefer-online --package=@tokennotincluded/pi-lmm-provider@0.1.0-alpha.7 -- lmm-pi-provider npm:@tokennotincluded/pi-lmm-provider@0.1.0-alpha.7'
+  )
+  assert.equal(
+    commands.DSH_PACKAGE_LATEST,
+    '@tokennotincluded/dsh-lmm-provider@0.1.0-alpha.4'
+  )
+  const webArchive =
+    'https://github.com/TokenNotIncluded/dsh-lmm-provider/releases/download/v0.1.0-alpha.9/dsh-lmm-provider.tgz'
+  assert.equal(
+    commands.DSH_WEB_INSTALL_PORTABLE_COMMAND,
+    `dsh plugin --profile web add "${webArchive}" --ignore-scripts`
+  )
+  assert.equal(
+    commands.DSH_WEB_INSTALL_LATEST_COMMAND,
+    commands.DSH_WEB_INSTALL_PORTABLE_COMMAND
+  )
+  assert.equal(
+    commands.DSH_WEB_INSTALL_LATEST_WINDOWS_COMMAND,
+    `dsh.cmd plugin --profile web add "${webArchive}" --ignore-scripts`
+  )
+  assert.equal(
+    commands.DSH_DOWNLOAD_LATEST_COMMAND,
+    `npm pack "${webArchive}" --ignore-scripts`
+  )
+  assert.equal(
+    commands.CODEWHALE_CLONE_COMMAND,
+    'git clone --branch v0.1.0-alpha.4 --depth 1 https://github.com/TokenNotIncluded/codewhale-lmm-provider.git'
+  )
+  assert.equal(
+    commands.CODEWHALE_INSTALL_COMMAND,
+    `${commands.CODEWHALE_CLONE_COMMAND} && cd codewhale-lmm-provider && npm install --global .`
+  )
+})
+
 test('connection controls expose both OAuth and API key choices', () => {
   assert.match(landingSource, /className='lmm-connection-method'/)
   assert.match(landingSource, /aria-pressed=\{connectionMethod === 'oauth'\}/)

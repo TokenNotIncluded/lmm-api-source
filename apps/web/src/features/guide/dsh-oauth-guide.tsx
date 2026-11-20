@@ -36,7 +36,7 @@ export function DshOAuthGuide({ windows = false }: { windows?: boolean }) {
         <h2 className='text-xl font-semibold'>{t('Use LMM in DSH Desktop')}</h2>
         <p className='text-muted-foreground mt-2 text-sm leading-7'>
           {t(
-            'In official DSH Desktop, open Plugins → Add plugin and paste this package name. A terminal command cannot install into the Desktop profile.'
+            'For DSH Desktop 0.1.7-alpha.2, open Plugins → Add plugin and paste this package name. A terminal command cannot install into the Desktop profile.'
           )}
         </p>
       </div>
@@ -56,7 +56,7 @@ export function DshOAuthGuide({ windows = false }: { windows?: boolean }) {
         </p>
         <p className='text-muted-foreground text-sm leading-6'>
           {t(
-            'The current latest plugin is for DSH Desktop 0.1.7-alpha.2. DSH 0.1.5-rc.2 needs plugin 0.1.0-alpha.3 instead.'
+            'This package is for DSH Desktop 0.1.7-alpha.2. DSH 0.1.5-rc.2 needs plugin 0.1.0-alpha.3 instead.'
           )}
         </p>
       </div>
@@ -65,7 +65,7 @@ export function DshOAuthGuide({ windows = false }: { windows?: boolean }) {
         <h3 className='text-sm font-semibold'>{t('DSH Web CLI')}</h3>
         <p className='text-muted-foreground text-sm leading-6'>
           {t(
-            'For dsh web in a terminal, run this command. It installs only into the web profile.'
+            'For DSH Web 0.2.0-rc.2 or newer, this command installs GitHub release 0.1.0-alpha.9 into the web profile. This version is not published to npm.'
           )}
         </p>
         <InstallCommand
@@ -80,11 +80,11 @@ export function DshOAuthGuide({ windows = false }: { windows?: boolean }) {
 
       <div className='space-y-2 border-t pt-5'>
         <h3 className='text-sm font-semibold'>
-          {t('Download latest package')}
+          {t('Download Web release package')}
         </h3>
         <p className='text-muted-foreground text-sm leading-6'>
           {t(
-            'This command downloads the latest .tgz archive to the current folder. Downloading alone does not install the Desktop plugin.'
+            'This command downloads the GitHub release 0.1.0-alpha.9 archive to the current folder. Downloading alone does not install a Desktop plugin.'
           )}
         </p>
         <InstallCommand
@@ -94,7 +94,7 @@ export function DshOAuthGuide({ windows = false }: { windows?: boolean }) {
       </div>
 
       <a
-        href='https://www.npmjs.com/package/@tokennotincluded/dsh-lmm-provider'
+        href='https://github.com/TokenNotIncluded/dsh-lmm-provider/releases/tag/v0.1.0-alpha.9'
         target='_blank'
         rel='noopener noreferrer'
         className='text-sm underline underline-offset-4'

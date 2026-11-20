@@ -18,19 +18,21 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 Copyright (C) 2026 LIghtJUNction
 */
 export const PI_INSTALL_LATEST_COMMAND =
-  'npm exec --yes --prefer-online --package=@tokennotincluded/pi-lmm-provider@latest -- lmm-pi-provider npm:@tokennotincluded/pi-lmm-provider@latest'
+  'npm exec --yes --prefer-online --package=@tokennotincluded/pi-lmm-provider@0.1.0-alpha.7 -- lmm-pi-provider npm:@tokennotincluded/pi-lmm-provider@0.1.0-alpha.7'
 
-export const DSH_PACKAGE_LATEST = '@tokennotincluded/dsh-lmm-provider@latest'
+export const DSH_PACKAGE_LATEST =
+  '@tokennotincluded/dsh-lmm-provider@0.1.0-alpha.4'
 
-export const DSH_WEB_INSTALL_PORTABLE_COMMAND = `dsh plugin --profile web add ${DSH_PACKAGE_LATEST}`
+const DSH_WEB_RELEASE_URL =
+  'https://github.com/TokenNotIncluded/dsh-lmm-provider/releases/download/v0.1.0-alpha.9/dsh-lmm-provider.tgz'
 
-export const DSH_WEB_INSTALL_LATEST_COMMAND =
-  'dsh plugin --profile web add "$(npm view @tokennotincluded/dsh-lmm-provider@latest dist.tarball --prefer-online)" --ignore-scripts'
+export const DSH_WEB_INSTALL_PORTABLE_COMMAND = `dsh plugin --profile web add "${DSH_WEB_RELEASE_URL}" --ignore-scripts`
 
-export const DSH_WEB_INSTALL_LATEST_WINDOWS_COMMAND =
-  'dsh.cmd plugin --profile web add "$(npm.cmd view @tokennotincluded/dsh-lmm-provider@latest dist.tarball --prefer-online)" --ignore-scripts'
+export const DSH_WEB_INSTALL_LATEST_COMMAND = DSH_WEB_INSTALL_PORTABLE_COMMAND
 
-export const DSH_DOWNLOAD_LATEST_COMMAND = `npm pack ${DSH_PACKAGE_LATEST}`
+export const DSH_WEB_INSTALL_LATEST_WINDOWS_COMMAND = `dsh.cmd plugin --profile web add "${DSH_WEB_RELEASE_URL}" --ignore-scripts`
+
+export const DSH_DOWNLOAD_LATEST_COMMAND = `npm pack "${DSH_WEB_RELEASE_URL}" --ignore-scripts`
 
 export const CODEWHALE_UNIX_INSTALL_COMMAND =
   'curl -fsSL https://codewhale.net/install.sh | sh'
@@ -38,7 +40,7 @@ export const CODEWHALE_UNIX_INSTALL_COMMAND =
 export const CODEWHALE_NPM_INSTALL_COMMAND = 'npm install -g codewhale@latest'
 
 export const CODEWHALE_CLONE_COMMAND =
-  'git clone https://github.com/TokenNotIncluded/codewhale-lmm-provider.git'
+  'git clone --branch v0.1.0-alpha.4 --depth 1 https://github.com/TokenNotIncluded/codewhale-lmm-provider.git'
 
 export const CODEWHALE_ADAPTER_INSTALL_COMMAND =
   'cd codewhale-lmm-provider && npm install --global .'
@@ -48,4 +50,4 @@ export const CODEWHALE_MODELS_COMMAND = 'codewhale-lmm models'
 export const CODEWHALE_RUN_COMMAND =
   "codewhale-lmm run --model '<FULL_MODEL_ID>'"
 export const CODEWHALE_INSTALL_COMMAND =
-  'git clone https://github.com/TokenNotIncluded/codewhale-lmm-provider.git && cd codewhale-lmm-provider && npm install --global .'
+  'git clone --branch v0.1.0-alpha.4 --depth 1 https://github.com/TokenNotIncluded/codewhale-lmm-provider.git && cd codewhale-lmm-provider && npm install --global .'
