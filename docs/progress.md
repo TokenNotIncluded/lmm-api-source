@@ -2,7 +2,60 @@
 
 更新于 2026-11-20。此文件维护当前状态、剩余阻塞和证据入口；先前失败、历史候选和各轮实际回执继续保留。
 
-## 当前状态（截至 2026-11-20 19:02 UTC）
+## 当前状态（截至 2026-11-20 19:34 UTC）
+
+**六个客户端插件的新版本均已发布；GNU x64 的 Extore 实际归档与 native-flow 验收已通过。** 服务器最新候选为 [952d21c5](https://github.com/TokenNotIncluded/lmm-api-source/commit/952d21c5d5d849507478d8443f603c47e0126880)，原完整 [CI 44802025200](https://github.com/TokenNotIncluded/lmm-api-source/actions/runs/44802025200) 正在运行。它修复上一轮 Web 测试遗漏的版本预期；上一轮 Core 数据库测试继续保留运行。Windows 持久安装器已提交为独立草稿，体积门槛仍失败。本轮生产连接、查询、写入均为 0，没有切换生产流量。
+
+| 交付项目 | 绑定的源码与原始运行 | 截止时状态 |
+| --- | --- | --- |
+| 六个客户端插件 | 下文六份已公开 Release | 已发布，渠道和宿主资格仍分别记录 |
+| 完整服务器候选 | `952d21c5`；[44802025200](https://github.com/TokenNotIncluded/lmm-api-source/actions/runs/44802025200) | 运行中；翻译已通过，其余按实际终态验收 |
+| 上一轮完整 CI | `293e53f7`；[44797641245](https://github.com/TokenNotIncluded/lmm-api-source/actions/runs/44797641245) | Web 失败，Core 原数据库测试继续；不能记为完整通过 |
+| GNU x64 可选归档 | `293e53f7`；[44798787579](https://github.com/TokenNotIncluded/lmm-api-source/actions/runs/44798787579) | 5/5 jobs 成功，实际归档与 native-flow 数据核对通过 |
+| Linux 原生包 | `293e53f7`；[44798801506](https://github.com/TokenNotIncluded/lmm-api-source/actions/runs/44798801506) | amd64 原默认包安装矩阵 FAIL；arm64 仍运行，完整安装资格未闭合 |
+| Windows 持久安装器 | [ed10f7ec](https://github.com/TokenNotIncluded/lmm-scripts/commit/ed10f7ecf12946824717be84552dc9110b133c7e) | 独立评审草稿；预算 FAIL，Windows 产品实测 NOT_RUN |
+
+### Web 原失败已修复，完整 CI 绑定新候选
+
+原 Web job `136501247834` 的测试步骤实际运行约 668 秒后失败，不是超时。唯一失败文件为 `assistant-setup-tool.test.tsx`，其中 6 项通过、1 项失败。首个失败断言仍期待 Pi helper/provider 使用 `@latest`，实际界面已经输出已发布的 `0.1.0-alpha.7`。同一组合测试后面另有 DSH Unix、DSH Windows 与 Codewhale 三处旧版本预期，一并同步到当前命令。
+
+修复只改这一份测试文件的四处字面预期，原 7 项测试与 106 条断言均保留；新正则匹配实际固定命令并拒绝旧浮动命令。DSH Web 固定 alpha.9 TGZ 并保留 `--profile web`、`--ignore-scripts`，Codewhale 固定 alpha.4 tag 和浅克隆。Desktop 与旧宿主的独立版本映射不变。当前树全部 771 份 Web test/spec 文件已检查来源，另一个相关 Forge 测试已经正确固定版本。没有以静态检查冒充 Bun/DOM 测试成功。
+
+新 head `952d21c5d5d849507478d8443f603c47e0126880` 的 tree 为 `5c54b1576e61963e5baed635a4ccc22e8c9df637`，parent 为 `293e53f799b09f187893e9cdf0c3503973916676`；after blob 为 `1ce374535cd8fd9d8ddc02db4d86f84eedb4c0af`。独立分支 `review/core-public-providers-20261120-web-pin` 避免原 concurrency 取消正在执行的上一轮 Core。原 workflow 399255954 于 19:25:41Z 单次 POST/HTTP204，唯一 run 44802025200、attempt 1、created 19:25:43Z，翻译基础仍为清理后的 `987e4d3b`。原超时、守卫和断言未降低；两轮结果分别绑定各自源码。
+
+原 Web raw 仅下载一次并已保存，SHA256 `17853b58c39799968c7880c4c895bf3c75eaa2ae9cfeff4790f428e2521e3e67`。修复 manifest 为 `bc35db53319252b9ea8ba4e3c452ffcd6d17e9f6b56e0ecafc3fe90a406067c2`，新 CI dispatch 回执为 `03c18fbed6c1074b7bf8b1058ad7b2c16ce6bbb685182547f0534eb5068adc52`。
+
+### Extore 归档已取得真实产物证据
+
+原 distribution run 44798787579 的五个 job 全部成功。实际 Extensions 归档和 native-flow evidence 两份附件各下载一次，均匹配 GitHub digest。归档精确包含 19 个文件，清单、尺寸、模式、摘要和目标架构核对通过；32 项数据绑定检查全部通过。实际 `lmm-extore-host` 与 `libextore_zplugin.so` 的摘要，与真正执行 native-flow 的文件逐项相同。该测试 exit 0、11.9 秒、PASS，无 SKIP；23 份 receipt 源文件还逐项对应冻结完整树的 Git blob，71 份 Extore 源文件已核验。
+
+- 实际归档 SHA256：`38a9c81b0032721f6cf44c4c64b099bd0f8f6f19112fa638948526f383e7f7a2`。
+- host SHA256：`db346ba27cc7bdd121665c06cbaa5ff9099d4f4c6c6085cb6ae2cd1e91a5b125`。
+- plugin SHA256：`25c4928d879472c1f9ff11b9d7679875898a823c6cb042af7e59b510ef07980c`。
+- 产物验收回执 SHA256：`fe5b5fa2f62854b586be8f3aca0dd3f159c5d7833d61333e4004427829ae13cb`。
+
+四个已完成 job 的首次 raw 捕获因 gh CLI 检出终端转义序列而失败，stdout 为 0 字节；原失败回执和 stderr 保留，没有重复下载。这四份 raw 缺口未抹去。上述结论依据原 GitHub job/step 终态以及实际归档和 native-flow 附件，不补造缺失日志。Core raw 的首次捕获成功。归档资格只覆盖原 `293e` 的 GNU x64 交付，不自动成为新 head、Linux 安装矩阵、main-only 镜像发布或生产激活资格。
+
+原 native run 44798801506 保留原 40 分钟限时。amd64 已通过可选 GNU pair 打包、实际 DEB 解出的 pair native-flow，随后在原默认包容器安装/升级/运行/移除矩阵失败；job 136505244352 的唯一 failed step 为该安装矩阵。arm64 仍在相同原步骤运行。截止时具体错误日志待读取，尚未认定根因或重派流水线。自动 archive deploy 入口保持 Go-only；插件版切槽仍需满足受控路径、共同 UID、数据目录与 socket 权限，未绕过 main 祖先发布准入。
+
+### Windows 产品草稿已提交，预算与实测分别记录
+
+持久安装器 v2 已冻结为完整 tree `dc526be6e7b51fd0447867b29e1b3692b8a2ba68`，六个文件通过 GitHub blob 回读，提交 [ed10f7ec](https://github.com/TokenNotIncluded/lmm-scripts/commit/ed10f7ecf12946824717be84552dc9110b133c7e) 的 parent 为 `a705fc74`，位于独立分支 `review/dsh-wheel-persistent-20261120`。提交明确标注 DRAFT；PR12、main 与 release 未更新。
+
+实现使用完整官方 wheel、固定版本 venv、受管 shim 和安装回执；在写入之前检查真实 profile 路径与受管目录关系，在首次删除之前预检所有受管目录与回执。原 v1 的 profile 随卸载删除、遇 junction 前先删除 shim 两个静态发现已在 v2 修复，并经独立静态复核。非 x64 原路径、CW/OC 文件和原 90 项 PowerShell 断言保留。Windows 路径、junction 与删除行为仍待实际 Windows 运行；不把静态审查写成运行通过。
+
+原严格预算用例真实结果仍为 `72900 not less than 50000`，exit 1；满足原 `<50000` 门槛至少需减少 22901 字节。没有提高阈值或把 helper 移出计数。默认远程 menu 路线继续拒绝未固定版本的 DSH 安装，待实际审核版本发布后再固定。下一步是在独立控制工作流中 checkout 精确产品 commit，保留原 15 分钟、PS7/PS5.1 各 90 项、五个 CLI，以及新增受管路径、重复安装和卸载数据保留检查。控制源码尚在准备，截止本节没有派发。
+
+先前官方完整 wheel 临时控制 run 44786638207 的 PASS 继续单独有效，不能转写为此持久产品通过。v2 manifest SHA256 为 `0af9d36166918ca06ae9631d7f282ab3aa9025f3fddb27a18bdffe6af6249617`，独立复核为 `704d333914a21898ed181aacdaaa06a50c1c1b6f8e5a5fe48f30d6beb0fb0f68`。
+
+### 生产承载仍有明确前置条件
+
+工程侧继续完成当前候选的原完整验收、实际原生包安装验收与必要的候选容量验证，现有旧源码成绩不会直接转签。财务只读 readiness 仍为原 5 个 BLOCKED、三个根因：真实 `source_review` 审批、全部计划钱包的 `reservations`、实际建立且正确声明的 financial target。raw/export 证明已解决；identity target 不能仅改名充当 financial target，审批与预留金额不能代填。
+
+当前迁移范围仍是 Core69 导入后原逐项升级、仅 available/debt opening；`all_financial_rights_complete=false`。工程门槛和真实财务材料闭合前，没有可据以承诺的生产切流日期。以下 19:02 及更早快照保留其原结论和证据范围。
+
+
+## 历史快照（截至 2026-11-20 19:02 UTC）
 
 **六个客户端插件的新版本均已公开；服务器正式交付候选 [293e53f7](https://github.com/TokenNotIncluded/lmm-api-source/commit/293e53f799b09f187893e9cdf0c3503973916676) 已推送，并启动原完整 [CI 44797641245](https://github.com/TokenNotIncluded/lmm-api-source/actions/runs/44797641245)。** 原四个失败用例已定向通过，当前完整组合仍须等待实际终态。Windows 官方完整 wheel 路线已在原限时内通过，但持久产品草稿的原体积预算失败，数据保留修复仍在独立审查。服务器候选保留既有 installer 指针，单独推进交付验收。本轮没有迁移生产数据库或切换生产流量。
 
