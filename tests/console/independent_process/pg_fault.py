@@ -85,6 +85,9 @@ class Proxy(socketserver.ThreadingTCPServer):
 class Handler(socketserver.BaseRequestHandler):
     def handle(self):
         client = self.request
+        # Forward each PostgreSQL frame promptly; AF_UNIX has no TCP options.
+        if client.family == socket.AF_INET:
+            client.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
         upstream = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         upstream.connect(self.server.unix_path)
         state = {"writes": False, "drop": False, "complete": False}

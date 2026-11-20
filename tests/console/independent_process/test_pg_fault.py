@@ -17,6 +17,12 @@ def packet(kind, payload):
 
 class InjectorTest(unittest.TestCase):
     def test_passthrough_and_targeted_commit_response_loss(self):
+        self.exercise_transport(unix_transport=False)
+
+    def test_unix_passthrough_and_targeted_commit_response_loss(self):
+        self.exercise_transport(unix_transport=True)
+
+    def exercise_transport(self, unix_transport):
         with tempfile.TemporaryDirectory(prefix="lmm-proxy-self-") as directory:
             unix_path = Path(directory) / "pg"
             backend = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
@@ -53,13 +59,24 @@ class InjectorTest(unittest.TestCase):
 
             worker = threading.Thread(target=fixture, daemon=True)
             worker.start()
-            proxy = Proxy(unix_path, "runtime", "testdb")
-            client = socket.create_connection(proxy.server_address, timeout=5)
+            proxy = Proxy(unix_path, "runtime", "testdb",
+                listen_socket=Path(directory) / "listener" if unix_transport else None)
+            if unix_transport:
+                client = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+                client.settimeout(5)
+                client.connect(proxy.server_address)
+            else:
+                client = socket.create_connection(proxy.server_address, timeout=5)
             try:
                 startup = struct.pack("!I", 196608) + b"user\0runtime\0database\0testdb\0\0"
                 client.sendall(struct.pack("!I", len(startup) + 4) + startup)
                 self.assertEqual(frame(client)[:2], (b"R", struct.pack("!I", 0)))
                 self.assertEqual(frame(client)[:2], (b"Z", b"I"))
+                with proxy.lock:
+                    tcp_clients = [s for s in proxy.connections if s.family == socket.AF_INET]
+                    self.assertEqual(len(tcp_clients), 0 if unix_transport else 1)
+                    for accepted in tcp_clients:
+                        self.assertEqual(accepted.getsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY), 1)
 
                 def query(sql, tag, ready):
                     client.sendall(packet(b"Q", sql + b"\0"))
