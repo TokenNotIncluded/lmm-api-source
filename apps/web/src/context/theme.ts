@@ -19,9 +19,8 @@ For commercial licensing, please contact support@quantumnous.com
 export type Theme = 'dark' | 'light' | 'system'
 export type ResolvedTheme = Exclude<Theme, 'system'>
 
-// The console opens on the warm paper surface. Dark mode remains available
-// through the theme switcher and is preserved for users who already chose it.
-export const DEFAULT_THEME: Theme = 'light'
+// Match the dark first-paint bootstrap while preserving saved preferences.
+export const DEFAULT_THEME: Theme = 'dark'
 export const THEME_COLORS: Record<ResolvedTheme, string> = {
   dark: '#020817',
   light: '#faf9f5',

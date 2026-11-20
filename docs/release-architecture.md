@@ -2,9 +2,13 @@
 
 [部署技能](../.agents/skills/deployment/SKILL.md) · [原生 Linux 包](../packaging/linux/README.md) · [Docker 安装](../deployment/docker/README.md)
 
-只有三个可执行程序：`lmm-core`、`lmm-extensions`、客户端 `lmm`。Web 是独立静态
+默认发行提供三个公开可执行程序：`lmm-core`、`lmm-extensions`、客户端 `lmm`。Web 是独立静态
 产物。组件归档由 `packaging/distribution.json` 定义，构建器为
 `scripts/build-distribution.py`。构建、校验和安装包文件不等于启动服务或部署生产。
+
+启用可选 Extore 原生后端时，还需要 Go 管理的私有子进程 `lmm-extore-host` 和配套动态库。
+它使用 Unix socket，没有公开监听端口；当前默认组件归档与 Linux 包不包含这些可选产物。
+固定来源、平台、独立 Extore 数据目录及部署步骤见 [Extore 原生插件](extore.md)。
 
 ## 先选目标
 

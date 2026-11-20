@@ -47,6 +47,13 @@ class DeploymentPlanTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "unique"):
                 deploy.selected_targets()
 
+    def test_string_false_cannot_enable_rollback_by_coercion(self):
+        configured = {**target("node"), "allow_rollback": "false"}
+        with patch.dict(os.environ, {"DEPLOY_TARGETS": json.dumps([configured]),
+                                    "SELECT_TARGETS": "all", "SELECT_COMPONENTS": "all"}):
+            with self.assertRaisesRegex(ValueError, "JSON boolean"):
+                deploy.selected_targets()
+
     def test_real_archive_is_checked_before_inventory_is_emitted(self):
         revision = "a" * 40
         with tempfile.TemporaryDirectory() as temp:
@@ -61,6 +68,7 @@ class DeploymentPlanTests(unittest.TestCase):
                 host = json.loads((work / "inventory.json").read_text())["all"]["hosts"]["node"]
                 self.assertEqual(host["deploy_components"][0]["archive"], str(archive))
                 self.assertGreater(host["deploy_components"][0]["expanded_bytes"], 0)
+                self.assertIs(host["deploy_allow_rollback"], True)
                 os.environ["DEPLOY_REVISION"] = "b" * 40
                 with self.assertRaises(ValueError):
                     deploy.inventory(work / "artifacts", work / "wrong.json")

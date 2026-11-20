@@ -46,7 +46,7 @@ jobs:
         run: |
           git rev-parse HEAD > "$RUNNER_TEMP/core-source-sha.txt"
           git archive --format=tar.gz --output="$RUNNER_TEMP/core-source.tar.gz" HEAD \
-            services/core services/extensions contracts deployment/docker scripts \
+            services/core services/extensions contracts deployment/docker deployment/postgres scripts tests/commerce \
             .github/workflows config/legal packaging docs/core-migration.md
           sha256sum "$RUNNER_TEMP/core-source.tar.gz" > "$RUNNER_TEMP/core-source.sha256"
       - name: Preserve source before checks
@@ -122,13 +122,65 @@ jobs:
       - name: Prepare private acquisition PostgreSQL fixtures
         if: ${{ !cancelled() }}
         run: python3 -B scripts/prepare-acquisition-ci.py
-      - name: Rust checks and real database tests
+      - name: Compile Rust tests and preserve the commerce driver
+        id: rust_test_compile
         if: ${{ !cancelled() }}
         working-directory: services/core
         run: |
           cargo clippy --locked --all-targets -- -D warnings
-          # Compile once, then bind the real Core child used by all six process tests.
-          cargo test --locked --all-targets --no-run
+          cargo test --locked --all-targets --no-run --message-format=json > "$RUNNER_TEMP/core-test-artifacts.jsonl"
+          python3 - <<'PY'
+          import hashlib, json, os, pathlib, shutil, subprocess
+          root = pathlib.Path(os.environ["GITHUB_WORKSPACE"]).resolve()
+          temp = pathlib.Path(os.environ["RUNNER_TEMP"])
+          messages = [json.loads(line) for line in (temp / "core-test-artifacts.jsonl").read_text().splitlines()]
+          matches = [item for item in messages if item.get("reason") == "compiler-artifact"
+                     and item.get("target", {}).get("name") == "commerce_process"
+                     and item["target"].get("kind") == ["test"] and item.get("executable")]
+          assert len(matches) == 1, "expected exactly one compiled commerce_process executable"
+          artifact = matches[0]
+          binary = pathlib.Path(artifact["executable"]).resolve(strict=True)
+          assert binary.is_file() and os.access(binary, os.X_OK)
+          assert pathlib.Path(artifact["target"]["src_path"]).resolve() == root / "services/core/tests/commerce_process.rs"
+          git = lambda *args: subprocess.check_output(["git", "-C", str(root), *args], text=True).strip()
+          revision = git("rev-parse", "HEAD")
+          assert revision == os.environ["GITHUB_SHA"]
+          assert not git("status", "--porcelain"), "compiled source checkout is not clean"
+          out = temp / "commerce-acceptance-driver"
+          out.mkdir(mode=0o700)
+          shutil.copy2(binary, out / "commerce_process")
+          sha = lambda path: hashlib.sha256(path.read_bytes()).hexdigest()
+          paths = subprocess.check_output(["git", "-C", str(root), "ls-files", "-z", "--",
+              "services/core", "tests/commerce", "deployment/postgres", "contracts/proto",
+              "services/extensions/internal/modules/store/schema.sql"]).decode().split("\0")
+          inputs = {name: sha(root / name) for name in paths if name and (root / name).is_file()}
+          (out / "source-inputs.json").write_text(json.dumps(inputs, sort_keys=True, indent=2) + "\n")
+          (out / "compiler-artifact.json").write_text(json.dumps(artifact, sort_keys=True, indent=2) + "\n")
+          receipt = {"format": "lmm-commerce-ci-driver-v1", "revision": revision,
+              "source_tree": git("rev-parse", "HEAD^{tree}"), "run_id": os.environ["GITHUB_RUN_ID"],
+              "run_attempt": os.environ["GITHUB_RUN_ATTEMPT"],
+              "rustc_verbose": subprocess.check_output(["rustc", "-Vv"], text=True),
+              "build_working_directory": str(pathlib.Path.cwd()), "cargo_profile": artifact["profile"],
+              "compiler_executable": str(binary), "binary": "commerce_process",
+              "binary_sha256": sha(out / "commerce_process"),
+              "source_inputs_sha256": sha(out / "source-inputs.json"),
+              "compiler_artifact_sha256": sha(out / "compiler-artifact.json"),
+              "qualification": "Compilation only; CI result and independent runtime acceptance remain separate"}
+          (out / "receipt.json").write_text(json.dumps(receipt, sort_keys=True, indent=2) + "\n")
+          PY
+      - name: Preserve compiled commerce acceptance driver
+        if: ${{ !cancelled() && steps.rust_test_compile.outcome == 'success' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: commerce-acceptance-driver-${{ github.sha }}-${{ github.run_id }}
+          path: ${{ runner.temp }}/commerce-acceptance-driver
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 7
+      - name: Rust checks and real database tests
+        if: ${{ !cancelled() && steps.rust_test_compile.outcome == 'success' }}
+        working-directory: services/core
+        run: |
           LMM_MODEL_PROCESS_CORE_BIN="$(realpath target/debug/lmm-core)"
           LMM_MODEL_PROCESS_CORE_SHA256="$(sha256sum "$LMM_MODEL_PROCESS_CORE_BIN" | cut -d ' ' -f1)"
           process_evidence_root="$(mktemp -d "$RUNNER_TEMP/core-process-evidence-XXXXXXXX")"

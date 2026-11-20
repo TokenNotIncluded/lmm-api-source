@@ -81,6 +81,17 @@ func TestPostgresLegacyReviewedCatalogueAndOrders(t *testing.T) {
 	input := map[string]any{"title": "Synthetic Alpha", "description": "Unique description needle %_", "image_urls": []string{}, "contact": "Synthetic contact", "links": []any{}, "price_quota": int64(500001), "template": "fixed-content", "fixed_content": "Synthetic private delivery", "delivery_strategy": "sequential", "payment_methods": []string{"balance"}, "pickup_login_required": true, "pickup_code_required": false, "email_pickup_link": false}
 	p := invoke("seller", store.LegacyRequest{Action: "save_product", Body: body(input)})
 	id := p["id"].(string)
+	draft := invoke("seller", store.LegacyRequest{Action: "draft_product", ID: id})
+	listed := invoke("seller", store.LegacyRequest{Action: "my_products", Limit: 24})["items"].([]map[string]any)
+	if len(listed) != 1 {
+		t.Fatalf("saved draft missing from merchant list: %d", len(listed))
+	}
+	for name, view := range map[string]map[string]any{"save": p, "draft": draft, "list": listed[0]} {
+		methods, ok := view["payment_methods"].([]string)
+		if !ok || len(methods) != 1 || methods[0] != "balance" || view["trading_paused"] != true {
+			t.Fatalf("%s lost configured balance or enabled a draft: %#v", name, view)
+		}
+	}
 	if _, e := s.PublicProduct(ctx, id); !errors.Is(e, store.ErrNotFound) {
 		t.Fatalf("draft visible: %v", e)
 	}

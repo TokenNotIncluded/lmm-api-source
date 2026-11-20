@@ -13,7 +13,7 @@ model, payment or database migration paths are ready for production.
 | `cli` | `/usr/bin/lmm` | None |
 | `web` | `/usr/share/lmm/web/` | None; no reverse proxy configuration is installed |
 
-The product has three executable programs: `lmm`, `lmm-core` and `lmm-extensions`.
+The default distribution has three public executable programs: `lmm`, `lmm-core` and `lmm-extensions`.
 Database initialization and the first administrator are explicit `lmm-core init-db`
 and `lmm-core bootstrap-user` subcommands. `init-db` installs the complete core
 schema in one transaction; ordinary startup verifies the complete contract
@@ -21,6 +21,13 @@ and live catalog fingerprint. These subcommands are never run during installatio
 or ordinary service startup. Installing extensions does not install or restart
 core. Each package is independent; the user CLI is installed only by selecting
 `cli`. No package installs a local PostgreSQL server, Docker or a language toolchain.
+
+The optional Extore native backend also needs the Go-owned private
+`lmm-extore-host` child and its matching shared library. These artifacts are not
+included in the default archives or packages. Its current Linux GNU build and
+independent Extore database requirements are documented in
+[Extore](../../docs/extore.md); the package matrix below does not qualify that
+optional backend for other platforms.
 
 ## Distribution and architecture rules
 

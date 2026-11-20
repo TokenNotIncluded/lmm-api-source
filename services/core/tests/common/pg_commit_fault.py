@@ -62,7 +62,11 @@ def record():
     pending.write_text(json.dumps({'events':proxy.events, 'errors':proxy.errors,
                                   'dropped':proxy.dropped.is_set()}))
     pending.replace(path)
-Path(config['ready']).write_text(str(proxy.server_address[1]))
+# The Rust reader polls for existence, so publish only the complete port.
+ready = Path(config['ready'])
+pending = ready.with_suffix('.new')
+pending.write_text(str(proxy.server_address[1]))
+pending.replace(ready)
 try:
     while not Path(config['stop']).exists():
         if proxy.dropped.is_set():

@@ -36,6 +36,8 @@ def selected_targets():
             raise ValueError("each target requires its own absolute deployment root")
         if not target["host"] or not 1 <= int(target.get("port", 22)) <= 65535:
             raise ValueError("invalid SSH destination")
+        if not isinstance(target.get("allow_rollback", True), bool):
+            raise ValueError("allow_rollback must be a JSON boolean")
         configured = target["components"]
         if not configured or not set(configured) <= set(COMPONENTS):
             raise ValueError("unknown or empty target components")
@@ -114,6 +116,7 @@ def inventory(artifacts, output):
             "deploy_root": target["root"], "deploy_components": components,
             "deploy_min_free_bytes": int(target.get("min_free_bytes", 256 * 1024 * 1024)),
             "deploy_revision": revision,
+            "deploy_allow_rollback": target.get("allow_rollback", True),
         }
     output.write_text(json.dumps({"all": {"hosts": hosts}}, indent=2) + "\n")
     print(json.dumps({"inventory": str(output), "targets": list(hosts)}))

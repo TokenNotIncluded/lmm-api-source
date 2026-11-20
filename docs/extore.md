@@ -41,6 +41,10 @@ Go 商店配置需要 `store.extore_key_file` 和 `store.extore_redirect_uri`。
 
 在已有商店与 Extore 授权配置下，按[配置示例](../config/extensions.example.toml)增加 `[store.extore_plugin]`。六个字段分别指定来源 `origin`、宿主可执行文件 `host`、动态库 `library`、该库的 `sha256`、私有 `socket` 和既有 Extore `data_dir`。这些值来自服务端配置，浏览器不能指定。数据目录与 socket 父目录须由服务账户拥有且为 0700；宿主创建 0600 socket。代码文件及祖先目录须由 root 或服务账户控制，拒绝 symlink 和可被其他账户替换的路径。已有目录不得由 LMM 启动流程初始化或迁移。
 
+此处的服务账户是 Go Extensions 的实际 UID，私有宿主继承该身份。这个可选模式要求共同部署的 Extore HTTP/worker 与宿主访问同一份实时 Extore 状态，并事先按共同的受信服务身份配置原始数据目录。远端 Extore 或使用不同 UID 的现有服务，需要先完成明确的部署设计；目录副本不能保持实时撤销语义。启用过程不是修改已有目录所有权、扩大权限或搬迁业务数据库的授权。
+
+未配置 `store.extore_plugin` 时保持原 HTTP 接入，也不启动私有宿主；配套 Core/Go 的稳定 Session 修复同样适用于此默认模式。当前固定共享状态 API 与其他分支同名的 HTTPS 代理 API 不兼容，宿主、共享 API、动态库、数据合同和摘要须来自本节同一固定依赖。
+
 宿主目前支持 Linux GNU 原生库，动态库与宿主须使用匹配的目标平台。原生代码属于受信代码，进程分离不等于 OS 沙箱。Go 只向子进程传入上述参数与最小环境；Rust 宿主在同一 OS 线程上配置、调用和释放插件返回的内存，以 `Pinned` 策略保持库映射。目录请求串行执行，响应上限为 16 MiB，原成功与拒绝响应均保留 `Cache-Control: no-store`。
 
 ### 构建与源码绑定

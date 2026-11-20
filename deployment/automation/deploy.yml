@@ -134,7 +134,7 @@
             state: link
             force: true
             follow: false
-          when: activation_started
+          when: activation_started and (deploy_allow_rollback | default(true) | bool)
           loop: '{{ deploy_states }}'
           loop_control:
             label: '{{ item.name }}'
@@ -142,7 +142,7 @@
           ansible.builtin.systemd_service:
             name: '{{ item.service }}'
             state: restarted
-          when: activation_started and item.name != 'web'
+          when: activation_started and (deploy_allow_rollback | default(true) | bool) and item.name != 'web'
           loop: '{{ deploy_states }}'
           loop_control:
             label: '{{ item.name }}'
@@ -156,21 +156,26 @@
           until: rollback_health.status | default(0) == 200
           retries: 10
           delay: 2
-          when: activation_started
+          when: activation_started and (deploy_allow_rollback | default(true) | bool)
           loop: '{{ deploy_states }}'
           loop_control:
             label: '{{ item.name }}'
         - name: Mark the rollback complete
           ansible.builtin.set_fact:
             rollback_ok: true
+          when: deploy_allow_rollback | default(true) | bool
         - name: Report the failed deployment
           ansible.builtin.fail:
-            msg: Candidate rejected; the preceding component links have been restored. Later hosts were not deployed.
+            msg: >-
+              {{ 'Candidate rejected; the preceding component links have been restored. Later hosts were not deployed.'
+                 if (deploy_allow_rollback | default(true) | bool)
+                 else 'Candidate rejected; automatic rollback is disabled for this host. Slots and uploaded archives are retained for forward recovery. Later hosts were not deployed.' }}
       always:
         - name: Delete uploaded component archives
           ansible.builtin.file:
             path: '{{ deploy_root }}/.incoming-{{ item.name }}.tar.gz'
             state: absent
+          when: deployment_ok or (deploy_allow_rollback | default(true) | bool)
           loop: '{{ deploy_states }}'
           loop_control:
             label: '{{ item.name }}'
@@ -178,7 +183,7 @@
           ansible.builtin.file:
             path: '{{ item.previous if deployment_ok else item.candidate }}'
             state: absent
-          when: deployment_ok or rollback_ok or not activation_started
+          when: deployment_ok or ((deploy_allow_rollback | default(true) | bool) and (rollback_ok or not activation_started))
           loop: '{{ deploy_states }}'
           loop_control:
             label: '{{ item.name }}'
