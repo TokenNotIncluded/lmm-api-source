@@ -4,16 +4,15 @@ import {execFileSync, spawnSync} from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import {pathToFileURL} from 'node:url';
-import {gunzipSync} from 'node:zlib';
 
-// Independent control branch: immutable f2d plus declared source overlays.
+// Independent control branch: immutable e1f plus the four test-oracle source overlays.
 // This does not replace the original nine-row OpenCode qualification matrix.
-const BASE = 'f2d2386da2663d3972f8c4bd71f7f0e7bd6c2490';
-const TREE = '760843d322fb56285ee0e805d11237648f37c076';
+const BASE = 'e1f65f4e4d3dee914b09025697e0530ff6b70188';
+const TREE = '7aed4829a5bb19bd914f889fb1476f8354761246';
 const INPUTS = 'scripts/opencode-windows-helper-inputs.json';
 const SELF = 'scripts/build-test-opencode-windows-helper.mjs';
-const EXE = 'src/windows-journal/lmm-magpie-journal.exe';
-const BUILD = 'src/windows-journal/build.json';
+const EXE = 'test/windows-journal-acl/lmm-test-acl.exe';
+const BUILD = 'test/windows-journal-acl/build.json';
 const selected = [
   'rotation journal recovers the same operation without keeping secrets and rejects symlinks',
   'response loss and plugin restart recover the same rotation; usage reports lifetime reservations',
@@ -25,7 +24,7 @@ const evidence = path.resolve(evidenceArg || '.');
 const hash = b => createHash('sha256').update(b).digest('hex');
 const blob = b => createHash('sha1').update(Buffer.concat([Buffer.from('blob ' + b.length + '\0'), b])).digest('hex');
 const readJSON = p => JSON.parse(fs.readFileSync(p, 'utf8'));
-const qualification = 'WINDOWS_HELPER_BUILD_AND_UNIT_CANDIDATE_ONLY';
+const qualification = 'WINDOWS_INDEPENDENT_ACL_ORACLE_AND_ORIGINAL_UNITS_ONLY';
 function write(name, value) {
   fs.writeFileSync(path.join(evidence, name), JSON.stringify(value, null, 2) + '\n', {flag: 'wx'});
 }
@@ -75,9 +74,9 @@ function checkSource(inputs) {
 }
 function invariants(inputs) {
   assert.equal(inputs.product_sha, BASE); assert.equal(inputs.product_tree, TREE);
-  assert.equal(inputs.baseline.length, 53);
-  assert.equal(new Set(inputs.baseline.map(x => x.path)).size, 53);
-  assert.equal(inputs.overlays.length, 8);
+  assert.equal(inputs.baseline.length, 59);
+  assert.equal(new Set(inputs.baseline.map(x => x.path)).size, 59);
+  assert.equal(inputs.overlays.length, 4);
   assert.equal(process.env.GITHUB_EVENT_NAME, 'workflow_dispatch');
   assert.equal(process.env.DIAGNOSTIC_MODE, 'opencode_windows_helper');
   assert.equal(process.env.PRODUCT_SHA, BASE);
@@ -123,35 +122,7 @@ function counts(text) {
     return [name, rows.length === 1 ? Number(rows[0][1]) : null];
   }));
 }
-function unpackInventory(tgz) {
-  const tar = gunzipSync(tgz, {maxOutputLength: 8 * 1024 * 1024});
-  const output = new Map(); let offset = 0;
-  const decoder = new TextDecoder('utf-8', {fatal: true});
-  const string = b => decoder.decode(b.subarray(0, b.indexOf(0) < 0 ? b.length : b.indexOf(0)));
-  const octal = b => { const s = string(b).trim(); assert(/^[0-7]+$/.test(s)); return parseInt(s, 8); };
-  while (offset + 512 <= tar.length) {
-    const header = tar.subarray(offset, offset + 512);
-    if (header.every(x => x === 0)) { assert(tar.subarray(offset).every(x => x === 0)); return output; }
-    let checksum = 0;
-    for (let i = 0; i < 512; i++) checksum += i >= 148 && i < 156 ? 32 : header[i];
-    assert.equal(checksum, octal(header.subarray(148, 156)));
-    const prefix = string(header.subarray(345, 500));
-    const name = (prefix ? prefix + '/' : '') + string(header.subarray(0, 100));
-    assert(name.startsWith('package/') && !name.includes('\\') && !name.split('/').includes('..'));
-    const type = header[156], size = octal(header.subarray(124, 136));
-    assert([0, 48, 53].includes(type), 'Only regular files and directories are allowed in the package');
-    assert(size <= 2 * 1024 * 1024 && offset + 512 + size <= tar.length);
-    assert((octal(header.subarray(100, 108)) & ~0o777) === 0);
-    if (type === 53) assert.equal(size, 0);
-    else {
-      assert(!name.endsWith('/') && !output.has(name) && output.size < 100);
-      output.set(name, Buffer.from(tar.subarray(offset + 512, offset + 512 + size)));
-    }
-    offset += 512 + Math.ceil(size / 512) * 512;
-  }
-  throw new Error('Missing complete tar terminator');
-}
-let stage = ['prepare','build','compile','test','framing','pack','finalize'].includes(mode) ? mode : 'invalid';
+let stage = ['prepare','build','compile','test','finalize'].includes(mode) ? mode : 'invalid';
 try {
   assert.notEqual(stage, 'invalid'); assert.notEqual(evidence, product); assert.notEqual(evidence, control);
   const inputs = readJSON(path.join(control, INPUTS));
@@ -180,13 +151,14 @@ try {
     assert(!fs.existsSync(path.join(product, EXE)) && !fs.existsSync(path.join(product, BUILD)));
     const core = file(product, inputs.csharp_core.path);
     assert.equal(core.bytes, 12846); assert.equal(core.sha256, inputs.csharp_core.sha256);
+    await verifyBuild(); // Only validates the existing product; never executes or rebuilds its exe.
     write('source-ready.json', sourceRecords(inputs));
     write('preparation.json', {qualification, control_sha: process.env.GITHUB_SHA,
       control_tree: git(control, ['rev-parse', 'HEAD^{tree}']), product_sha: BASE, product_tree: TREE,
       node: process.version, platform: process.platform, arch: process.arch,
       runner_image: process.env.ImageOS || null, runner_image_version: process.env.ImageVersion || null,
-      baseline_files: 53, effective_source_files: expected(inputs, true).length, overlays: inputs.overlays,
-      helper_timeout_ms: 5000, helper_max_buffer: 4096, original_tests: 52,
+      baseline_files: 59, effective_source_files: expected(inputs, true).length, overlays: inputs.overlays,
+      helper_timeout_ms: 5000, helper_max_buffer: 4096, original_tests: 52, original_acl_calls: 7,
       selected_required_tests: selected, prewarm: false, retries: 0});
   } else {
     checkSource(inputs);
@@ -201,14 +173,17 @@ try {
       succeeded(command('typecheck', process.execPath, [npm, 'run', 'typecheck'], 120000));
       write('typescript-result.json', {status: 'PASS', actual_build: true, dist_matches_reviewed_overlay: true});
     } else if (mode === 'compile') {
-      succeeded(command('windows-compile', process.execPath, ['scripts/build-windows-journal.mjs'], 75000));
-      write('windows-build-verification.json', await verifyBuild());
+      succeeded(command('windows-oracle-compile', process.execPath, ['test/build-windows-journal-acl.mjs'], 75000));
+      succeeded(command('windows-oracle-verify', process.execPath, ['test/build-windows-journal-acl.mjs', '--verify'], 15000));
+      write('oracle-generated-inputs.json', [EXE, BUILD].map(p => file(product, p)));
+      write('unchanged-product-build-verification.json', await verifyBuild());
       checkSource(inputs);
     } else if (mode === 'test') {
       await verifyBuild();
+      assert.deepEqual([EXE, BUILD].map(p => file(product, p)), readJSON(path.join(evidence, 'oracle-generated-inputs.json')));
       assert.equal(readJSON(path.join(product, 'package.json')).scripts.test,
         'node --experimental-strip-types --test test/*.test.ts');
-      // First execution of the new exe happens in the unchanged original suite.
+      // First execution of the independent oracle and the unchanged product exe happens in the original suite.
       // No warm-up, altered concurrency, test filters or retries.
       const run = command('unit', process.execPath, ['--experimental-strip-types', '--test', 'test/*.test.ts'], 180000);
       const text = run.stdout.replace(/\r\n/g, '\n');
@@ -223,79 +198,6 @@ try {
       assert.equal(cases.length, 52); assert(cases.every(x => x.passed));
       assert(required.every(x => x.occurrences === 1 && x.passed));
       await verifyBuild();
-    } else if (mode === 'framing') {
-      const unit = readJSON(path.join(evidence, 'unit-result.json'));
-      assert.equal(unit.counts.pass, 52); assert.equal(unit.exit_code, 0); // Always after cold original tests.
-      await verifyBuild();
-      const request = {directory: 'relative-invalid', name: 'a'.repeat(64) + '.json', action: 'pending', content: null};
-      function exactBytes(length) {
-        const fixed = JSON.stringify({...request, directory: ''});
-        const extra = length - Buffer.byteLength(fixed);
-        const directory = 'é'.repeat(Math.floor(extra / 2)) + (extra % 2 ? 'x' : '');
-        const value = Buffer.from(JSON.stringify({...request, directory}));
-        assert.equal(value.length, length); return value;
-      }
-      const probes = [
-        ['duplicate-key', Buffer.from('{"directory":"relative-a",' + JSON.stringify(request).slice(1)), 'input'],
-        ['unexpected-key', Buffer.from(JSON.stringify({...request, other: true})), 'input'],
-        ['unexpected-type-metadata', Buffer.from(JSON.stringify({__type: 'unexpected', ...request})), 'input'],
-        ['missing-key', Buffer.from(JSON.stringify({directory: request.directory, name: request.name, action: request.action})), 'input'],
-        ['wrong-type', Buffer.from(JSON.stringify({...request, directory: 0})), 'input'],
-        ['malformed-utf8', Buffer.concat([Buffer.from('{"directory":"'), Buffer.from([255]), Buffer.from('"}')]), 'input'],
-        ['utf8-exact-byte-boundary', exactBytes(16384), 'storage'],
-        ['utf8-byte-overflow', exactBytes(16385), 'input'],
-        ['trailing-document', Buffer.from(JSON.stringify(request) + '{}'), 'input'],
-        ['string-braces', Buffer.from(JSON.stringify({...request, directory: 'relative-{still-string}'})), 'storage'],
-        ['escaped-quote-and-backslash', Buffer.from(JSON.stringify({...request,
-          directory: 'relative-' + String.fromCharCode(92, 34, 125, 123, 92, 92, 34)})), 'storage'],
-        ['json-whitespace', Buffer.from(' \t\r\n' + JSON.stringify(request) + '\t\r\n '), 'storage'],
-      ];
-      const records = [];
-      for (const [label, input, expectedStage] of probes) {
-        const started = performance.now();
-        const run = spawnSync(path.join(product, EXE), [], {input, encoding: 'utf8', windowsHide: true, timeout: 5000, maxBuffer: 4096});
-        const out = run.stdout || '', err = run.stderr || '';
-        let safe = null;
-        try {
-          const data = JSON.parse(out);
-          if (data && Object.keys(data).sort().join(',') === 'error,nativeCode,stage'
-            && data.error === 'unverified_windows_journal' && ['input','storage','result'].includes(data.stage)
-            && Number.isInteger(data.nativeCode) && data.nativeCode >= 0 && data.nativeCode <= 65535) safe = data;
-        } catch { /* Retain only hashes and bounded safe fields for invalid output. */ }
-        const item = {label, input_bytes: input.length, input_sha256: hash(input), expected_stage: expectedStage,
-          exit_code: run.status, signal: run.signal || null, error_code: run.error?.code || null,
-          pid: run.pid ?? null, process_exited: exited(run.pid), elapsed_ms: Math.floor(performance.now() - started),
-          stdout_bytes: Buffer.byteLength(out), stdout_sha256: hash(out), stderr_bytes: Buffer.byteLength(err),
-          stderr_sha256: hash(err), safe_response: safe, helper_timeout_ms: 5000, max_buffer: 4096};
-        records.push(item); write('framing-' + label + '.json', item);
-        assert.equal(item.error_code, null); assert.equal(item.signal, null); assert.equal(item.exit_code, 1);
-        assert(item.process_exited); assert.equal(item.stderr_bytes, 0);
-        assert(safe && safe.stage === expectedStage && safe.nativeCode === 0);
-      }
-      write('framing-result.json', {status: 'PASS', after_original_52: true, probes: records, retries: 0});
-    } else if (mode === 'pack') {
-      await verifyBuild();
-      assert.equal(readJSON(path.join(evidence, 'framing-result.json')).status, 'PASS');
-      const destination = path.join(evidence, 'package'); fs.mkdirSync(destination);
-      const npm = path.join(path.dirname(process.execPath), 'node_modules/npm/bin/npm-cli.js');
-      succeeded(command('pack', process.execPath, [npm, 'pack', '--json', '--pack-destination', destination], 60000));
-      const files = fs.readdirSync(destination); assert.equal(files.length, 1); assert(files[0].endsWith('.tgz'));
-      const tgz = fs.readFileSync(path.join(destination, files[0]));
-      const contents = unpackInventory(tgz);
-      const packageJSON = readJSON(path.join(product, 'package.json'));
-      const wanted = [...expected(inputs, true).map(x => x.path), EXE, BUILD].filter(p => p === 'package.json'
-        || packageJSON.files.some(name => p === name || p.startsWith(name + '/'))).sort();
-      assert.deepEqual([...contents.keys()].sort(), wanted.map(p => 'package/' + p).sort());
-      const inventory = wanted.map(p => {
-        const actual = file(product, p), packed = contents.get('package/' + p);
-        assert.equal(packed.length, actual.bytes); assert.equal(hash(packed), actual.sha256);
-        return {...actual, archive_path: 'package/' + p};
-      });
-      write('package-verification.json', {status: 'PASS', qualification, package_version: packageJSON.version,
-        archive: file(evidence, 'package/' + files[0]), inventory,
-        helper: file(product, EXE), build_receipt: file(product, BUILD), actual_prepack_executed: true,
-        original_nine_row_matrix: 'STILL_REQUIRED_BEFORE_RELEASE'});
-      await verifyBuild(); checkSource(inputs);
     } else {
       // The workflow obtains an actual OS process inventory before this step.
       const processes = readJSON(path.join(evidence, 'helper-process-cleanup.json'));
@@ -308,15 +210,20 @@ try {
         const entry = file(product, p); generated.push(entry);
         fs.copyFileSync(path.join(product, p), path.join(evidence, 'actual-build', path.basename(p)));
       }
-      const packageVerified = fs.existsSync(path.join(evidence, 'package-verification.json'))
-        && readJSON(path.join(evidence, 'package-verification.json')).status === 'PASS';
-      const clean = processes.owned_helper_pids.length === 0 && processes.uninspectable_helper_count === 0;
+      const unit = fs.existsSync(path.join(evidence, 'unit-result.json')) ? readJSON(path.join(evidence, 'unit-result.json')) : null;
+      const unitVerified = unit?.exit_code === 0 && JSON.stringify(unit.counts) === JSON.stringify({tests: 52, pass: 52, fail: 0, cancelled: 0, skipped: 0, todo: 0});
+      const generatedStable = fs.existsSync(path.join(evidence, 'oracle-generated-inputs.json'))
+        && JSON.stringify(generated) === JSON.stringify(readJSON(path.join(evidence, 'oracle-generated-inputs.json')));
+      const failedStages = ['prepare','build','compile','test','finalize','invalid']
+        .filter(name => fs.existsSync(path.join(evidence, 'control-' + name + '-failure.json')));
+      const clean = processes.owned_helper_pids.length === 0 && processes.uninspectable_helper_count === 0
+        && processes.owned_oracle_pids.length === 0 && processes.uninspectable_oracle_count === 0;
       write('final-receipt.json', {qualification, product_sha: BASE, product_tree: TREE, control_sha: process.env.GITHUB_SHA,
-        source_stable: sourceStable, control_stable: controlStable, generated_files: generated,
-        helper_processes_exited: clean, package_verified: packageVerified,
-        status: sourceStable && controlStable && clean && packageVerified ? 'PASS_PENDING_ORIGINAL_NINE_ROW_MATRIX' : 'FAILED_OR_INCOMPLETE',
+        source_stable: sourceStable, control_stable: controlStable, generated_files: generated, failed_stages: failedStages,
+        helper_and_oracle_processes_exited: clean, generated_oracle_stable: generatedStable, original_units_verified: unitVerified,
+        status: sourceStable && controlStable && clean && unitVerified && generatedStable && failedStages.length === 0 ? 'PASS_PENDING_ORIGINAL_NINE_ROW_MATRIX' : 'FAILED_OR_INCOMPLETE',
         helper_timeout_ms: 5000, helper_max_buffer: 4096, no_retry: true, no_prewarm: true});
-      assert(sourceStable && controlStable && clean && packageVerified);
+      assert(sourceStable && controlStable && clean && unitVerified && generatedStable && failedStages.length === 0);
     }
   }
 } catch {
@@ -324,6 +231,6 @@ try {
     const target = path.join(evidence, 'control-' + stage + '-failure.json');
     if (!fs.existsSync(target)) fs.writeFileSync(target, JSON.stringify({stage, status: 'FAILED', qualification, original_logs_preserved: true}) + '\n');
   }
-  console.error('windows_helper_control_failed', stage);
+  console.error('windows_acl_oracle_control_failed', stage);
   process.exitCode = 1;
 }

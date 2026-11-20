@@ -1,0 +1,7 @@
+# Preserve the exact source and receipt bytes of the Windows helper build.
+src/windows-journal/*.cs text eol=lf
+src/windows-journal/build.json text eol=lf
+
+# Preserve the independent test oracle source and actual build receipt.
+test/windows-journal-acl/*.cs text eol=lf
+test/windows-journal-acl/build.json text eol=lf

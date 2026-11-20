@@ -1,337 +1,553 @@
 {
-  "schema": "opencode-windows-fixed-helper-inputs.v1",
+  "schema": "opencode-windows-test-acl-inputs.v1",
   "product_repo": "TokenNotIncluded/opencode-lmm-auth",
-  "product_sha": "f2d2386da2663d3972f8c4bd71f7f0e7bd6c2490",
-  "product_tree": "760843d322fb56285ee0e805d11237648f37c076",
+  "product_sha": "e1f65f4e4d3dee914b09025697e0530ff6b70188",
+  "product_tree": "7aed4829a5bb19bd914f889fb1476f8354761246",
   "baseline": [
     {
+      "path": ".gitattributes",
+      "bytes": 155,
+      "blob": "750a25647fec250f6687228ade344bcb0fb81ea5",
+      "sha256": "9c27a395dac275076b3b2eb9d03a1f87cb217c0a5fdb99fa72da22b222f0e42e",
+      "mode": "100644"
+    },
+    {
       "path": ".github/workflows/verify.yml",
-      "mode": "100644",
       "bytes": 790,
+      "blob": "7d34b9a1309364f383c1fd9360544fe76fcbfe61",
       "sha256": "5a3955878e602cb38d839ea3a109f9f09e1ada262def6824b84c8c6292bae1c4",
-      "blob": "7d34b9a1309364f383c1fd9360544fe76fcbfe61"
+      "mode": "100644"
     },
     {
       "path": ".gitignore",
-      "mode": "100644",
       "bytes": 40,
+      "blob": "8c49c69162c41dd81e9fab17058b88b6853fb760",
       "sha256": "bd4dfe910462a7735ae04094ce07cdc239e8f32eb9dcfcb058963d82f6e77f2f",
-      "blob": "8c49c69162c41dd81e9fab17058b88b6853fb760"
+      "mode": "100644"
     },
     {
       "path": "DYNAMIC_CATALOG.md",
-      "mode": "100644",
       "bytes": 2239,
+      "blob": "aef09587df0308a7862bf92ded165f27dafcae44",
       "sha256": "e1f5ba167d700e8bc75c845edba6d5e4304d5781538360f2c0eb6c0475e47d86",
-      "blob": "aef09587df0308a7862bf92ded165f27dafcae44"
+      "mode": "100644"
     },
     {
       "path": "LICENSE",
-      "mode": "100644",
       "bytes": 34523,
+      "blob": "0ad25db4bd1d86c452db3f9602ccdbe172438f52",
       "sha256": "8486a10c4393cee1c25392769ddd3b2d6c242d6ec7928e1414efff7dfb2f07ef",
-      "blob": "0ad25db4bd1d86c452db3f9602ccdbe172438f52"
+      "mode": "100644"
     },
     {
       "path": "MAGPIE.md",
-      "mode": "100644",
-      "bytes": 3445,
-      "sha256": "5b7bf17167590e31e1df7b2ecc68d22d53233f88f03df6ee2b812ef04a8f3905",
-      "blob": "63f801a0a8e1c012262fa4a0ca3e8758ed325746"
+      "bytes": 3475,
+      "blob": "26f712b0b8093ac46cee4c48328d270e924a839e",
+      "sha256": "4b8d7c59154954075c261d8587d900b4584a052034135cbbe4b511693a6682ca",
+      "mode": "100644"
     },
     {
       "path": "README.md",
-      "mode": "100644",
       "bytes": 14463,
+      "blob": "a067a12a98b976753f700c37c8d8e9a2f58bc516",
       "sha256": "d0cc9c05944b433dbcd0336aec56b048140a5bceab2cc7589cc6e8b08ce7a26b",
-      "blob": "a067a12a98b976753f700c37c8d8e9a2f58bc516"
+      "mode": "100644"
     },
     {
       "path": "README.zh-CN.md",
-      "mode": "100644",
       "bytes": 10321,
+      "blob": "acb89513dd1d0ed5f3580dd317cb7b090e60e43c",
       "sha256": "6d7d37556cd675d1342a7834db2fb887459c8c53258ffe0340680058471d3824",
-      "blob": "acb89513dd1d0ed5f3580dd317cb7b090e60e43c"
+      "mode": "100644"
     },
     {
       "path": "assets/README.md",
-      "mode": "100644",
       "bytes": 503,
+      "blob": "3bc01cb98dc3403d1554db2ab9ccf48794240102",
       "sha256": "f0b6673911e705dff25e80acdaeae55f374847ed414b805a8cc10626bdc5df04",
-      "blob": "3bc01cb98dc3403d1554db2ab9ccf48794240102"
+      "mode": "100644"
     },
     {
       "path": "assets/icon.svg",
-      "mode": "100644",
       "bytes": 1300,
+      "blob": "96adf589e38a16f9d2f101f3968ff61d8e16231d",
       "sha256": "661e8baff2bd66c94da304ddf2e8cd58bd15d83f225bfb408d1271490e412462",
-      "blob": "96adf589e38a16f9d2f101f3968ff61d8e16231d"
+      "mode": "100644"
     },
     {
       "path": "dist/callback.js",
-      "mode": "100644",
       "bytes": 5162,
+      "blob": "8d9e88883f38c9784b4199c42a295ecf6265cab1",
       "sha256": "d1a5da7f3ac7d398feccefcd1b24f2349dbd36ce1d5d8e84d2b626ac062eae06",
-      "blob": "8d9e88883f38c9784b4199c42a295ecf6265cab1"
+      "mode": "100644"
     },
     {
       "path": "dist/catalog.js",
-      "mode": "100644",
       "bytes": 11432,
+      "blob": "ba11707e848d46144e461216bec31a43a2eda18b",
       "sha256": "2faed5cd60f991b647516a6c8e1071f53a6cb161c5ea8587e6c88784408a8c7a",
-      "blob": "ba11707e848d46144e461216bec31a43a2eda18b"
+      "mode": "100644"
     },
     {
       "path": "dist/http.js",
-      "mode": "100644",
       "bytes": 4228,
+      "blob": "df22e6861c6f92db4b3e2a1a84e8d0c5cf3c6bea",
       "sha256": "44d928184d610f4a76e2873219aa4a640a7508ffb269699d02b42b19096f6d27",
-      "blob": "df22e6861c6f92db4b3e2a1a84e8d0c5cf3c6bea"
+      "mode": "100644"
     },
     {
       "path": "dist/index.js",
-      "mode": "100644",
       "bytes": 16803,
+      "blob": "a211e052c445c8c04d256e579675c979224d6ee6",
       "sha256": "90c89301b3b96ce7d679dab22de07fbfb785b89049eabfc4b593f6a1fd725a64",
-      "blob": "a211e052c445c8c04d256e579675c979224d6ee6"
+      "mode": "100644"
     },
     {
       "path": "dist/magpie-journal.js",
-      "mode": "100644",
       "bytes": 4463,
+      "blob": "eef4b99cf2e33d42f8097b6f5749eec520cf5cb5",
       "sha256": "af01a1b33fe53578f4c873fd1d583c4bb213875476da99f43f673f8d66674014",
-      "blob": "eef4b99cf2e33d42f8097b6f5749eec520cf5cb5"
+      "mode": "100644"
+    },
+    {
+      "path": "dist/magpie-windows-journal.js",
+      "bytes": 4468,
+      "blob": "ed6152fb50c9505eed34c51f5b0bca351f51d99e",
+      "sha256": "9b2d638315bcbe4c683b12cf728627a97a638bd6a516f00ceec8a406c2b016ec",
+      "mode": "100644"
+    },
+    {
+      "path": "dist/magpie.js",
+      "bytes": 12435,
+      "blob": "d07579244242161fd11f929336570ef4ecff0150",
+      "sha256": "61d48c010243618809ffa5b0d29326f6daf90731f3eaaaea4aab851b488fcf5a",
+      "mode": "100644"
+    },
+    {
+      "path": "dist/models-dev-cache.js",
+      "bytes": 17255,
+      "blob": "4102c02353e88e80c8620511d01d79873b082e7b",
+      "sha256": "dcf8d0f2796e8863b2d47e27fd3b298bdf1c5d5c20502bc77ed332edfe71dc6c",
+      "mode": "100644"
+    },
+    {
+      "path": "dist/oauth.js",
+      "bytes": 5331,
+      "blob": "dda19223c4fa3197f4262e563e3d4d14e4d5f91c",
+      "sha256": "8a38db98f5098a835c41380c850d394506734c9b219b95295c1b259b9f7467a5",
+      "mode": "100644"
+    },
+    {
+      "path": "dist/opencode-v2.js",
+      "bytes": 10562,
+      "blob": "7627b732af0d4b5e39ec29c0b58342d195b222e6",
+      "sha256": "31daba6fa470435d9a78cbfab158233e24d378a3a275559a80fd51fce18cfce2",
+      "mode": "100644"
+    },
+    {
+      "path": "dist/protocol.js",
+      "bytes": 3485,
+      "blob": "8eb26eb38cc587107013110978511fcb77910693",
+      "sha256": "ce3c44b77ee092eaa25312ab34537ae95c77bb2f6994e48b27ada9c68be23f22",
+      "mode": "100644"
+    },
+    {
+      "path": "dist/refresh-journal.js",
+      "bytes": 2936,
+      "blob": "86489dbc4ee3e7e7528fcb8d7f68c08b9391727b",
+      "sha256": "50a22008dce940d90320314724234328cea807f3c97b5c230188dbc5e9f559c0",
+      "mode": "100644"
+    },
+    {
+      "path": "dist/server-metadata.js",
+      "bytes": 1946,
+      "blob": "d81d01784b6e1d594af1bd6f971be704344f2c73",
+      "sha256": "1d1b1edee422838dad29763524c388b9bc3a36d18089c3aaa3d4b1fe6bf19673",
+      "mode": "100644"
+    },
+    {
+      "path": "package-lock.json",
+      "bytes": 164567,
+      "blob": "3335b4d2b950e48b14b0f599dea979742d61c6d1",
+      "sha256": "bdf48db4e72304f61533f0319a34ad5f88e215b4c861856192d61b5cb7b07b00",
+      "mode": "100644"
+    },
+    {
+      "path": "package.json",
+      "bytes": 2083,
+      "blob": "87ba4a3690b91008b61e7888ce6f8fe5dfbae6c5",
+      "sha256": "0eada1a54cea05e9118001becadb0149b6afd565fd43c994bce83403de59a94c",
+      "mode": "100644"
+    },
+    {
+      "path": "scripts/build-windows-journal.mjs",
+      "bytes": 3903,
+      "blob": "588774b87d77239d67cf26352168b5883934d298",
+      "sha256": "3a52d85fb0dc9d097f30f4691ec1ae3213835eb210dfcac6bf4a476833fd409a",
+      "mode": "100644"
+    },
+    {
+      "path": "scripts/test-host.mjs",
+      "bytes": 4081,
+      "blob": "82e64af126b4a5c07be3d691f0e6a2efad8aaba0",
+      "sha256": "040e0d9a84c7843fb2d39a8663424cc5de40621f1cf7c1dd7ad94bf6e9e20a71",
+      "mode": "100644"
+    },
+    {
+      "path": "scripts/test-integration.mjs",
+      "bytes": 12097,
+      "blob": "e83a91ec86f69423c7362c7986a2b0eafcc8c6af",
+      "sha256": "3c9687290cfd5117629bd5ce89cd62a60a9f413fa5ba9617bf59427af54f4e6c",
+      "mode": "100644"
+    },
+    {
+      "path": "scripts/test-magpie-host.mjs",
+      "bytes": 1599,
+      "blob": "d99634eb3835764ac74b8deacad8ad0d58167291",
+      "sha256": "c4c72430f8f9cd30ea14f68c53d1d12c435da146ea5de789ac54c52b773b4adc",
+      "mode": "100644"
+    },
+    {
+      "path": "scripts/test-opencode-v2.mjs",
+      "bytes": 23661,
+      "blob": "6f40984ade99fea13068a997f44cb2ee685a18a1",
+      "sha256": "5a5626b002200d4ac7ff0d92ded9efaa950cd366a17dc599672a087918e787b0",
+      "mode": "100644"
+    },
+    {
+      "path": "scripts/verify-windows-journal-build.mjs",
+      "bytes": 4975,
+      "blob": "373f846fcbdba3223294e64c0df3a13eea2c2abb",
+      "sha256": "56833e83af32d7665ba44917dcb72248622de21ace56ad2ea000aa4a05a5443f",
+      "mode": "100644"
+    },
+    {
+      "path": "server.js",
+      "bytes": 126,
+      "blob": "791cf6daa5623a6ca762ad6d68cd43d5a38c9f1a",
+      "sha256": "23fc12cae093a805ee3191d71d016123c6651d352b0cacc0b6fdf40f3c9c0622",
+      "mode": "100644"
+    },
+    {
+      "path": "src/callback.ts",
+      "bytes": 5043,
+      "blob": "872c923d410d767e2412734d9e6de2847e84124c",
+      "sha256": "9211cb5405a804102ed67f35f1105c93dc58116ac1fb4a1547fef911eb6cb8b8",
+      "mode": "100644"
+    },
+    {
+      "path": "src/catalog.ts",
+      "bytes": 12020,
+      "blob": "584f9099877d300f12d66ab75a8985f933690f48",
+      "sha256": "2946b751fbd518076db22e31b28f44954c81e744686e253b659ae8581bf4b418",
+      "mode": "100644"
+    },
+    {
+      "path": "src/http.ts",
+      "bytes": 4461,
+      "blob": "e6180967da4d36bc529e568c11edb313b6e03099",
+      "sha256": "e613d90fd07a54c9c3c30358c7b7d78f6d0ffad5f4e48bcdf7afcf53ece24c12",
+      "mode": "100644"
+    },
+    {
+      "path": "src/index.ts",
+      "bytes": 15469,
+      "blob": "c7dd4aaf6141dc908196823398c09ab3f040216f",
+      "sha256": "3587971bc6ad2e4032f6b43f6fe873f235af812cb03078d33eb65be48856ae29",
+      "mode": "100644"
+    },
+    {
+      "path": "src/magpie-journal.ts",
+      "bytes": 4125,
+      "blob": "719578957ef52f7d32822795889fccb18581c225",
+      "sha256": "dae0667b69ba5abd9c76904055db443b8698b7b7b3b1d93418a00907c580d7dd",
+      "mode": "100644"
+    },
+    {
+      "path": "src/magpie-windows-journal.ts",
+      "bytes": 4028,
+      "blob": "db614c63c66c4366bd953c87f1b036630f91781b",
+      "sha256": "38d59120e3a91032d189bcacacf90bfb33ccd94421f7c7600b347ab3f26acfd8",
+      "mode": "100644"
+    },
+    {
+      "path": "src/magpie.ts",
+      "bytes": 11524,
+      "blob": "e30e572fba074d8910271b0dfc329c04eeae4700",
+      "sha256": "b9db6f99385f4ddbc333f57bb5f45bdbd29bcd513e8c16354ee938a7ff37c398",
+      "mode": "100644"
+    },
+    {
+      "path": "src/models-dev-cache.ts",
+      "bytes": 17952,
+      "blob": "5dc01c0ccc906a01105710d61687997080f71525",
+      "sha256": "9071d0d85aef16a3f9f588bdbb133c50db75e3ee5f853d6e6b627d0e4798c6b0",
+      "mode": "100644"
+    },
+    {
+      "path": "src/oauth.ts",
+      "bytes": 5388,
+      "blob": "12e28adec9632302cd707b415b08f3ad45231166",
+      "sha256": "7c38fabdb2936cca836d31b754fcfdc8a1dce3bc837a7945e80bd65900317026",
+      "mode": "100644"
+    },
+    {
+      "path": "src/opencode-v2.ts",
+      "bytes": 11024,
+      "blob": "718629282c5bdad001d7c0b5ece0c81afe538e6d",
+      "sha256": "56865a592515f839fb7abc767af9506c37fa4e323cad145d5f824635830be2d0",
+      "mode": "100644"
+    },
+    {
+      "path": "src/protocol.ts",
+      "bytes": 4102,
+      "blob": "29d77277633c0bf29112ff5a16357a013fdb8fe3",
+      "sha256": "a31a62b8ce8f9c302e6c0a737c66ee4f7eadaec359af3ce948daa7c01beaca9e",
+      "mode": "100644"
+    },
+    {
+      "path": "src/refresh-journal.ts",
+      "bytes": 2611,
+      "blob": "fbc514b9470104b05476e0290f7f64c77bddb34b",
+      "sha256": "372b167523d5671853d0f425af10921c89bad6d2a34dd265c1e7a853f375ff55",
+      "mode": "100644"
+    },
+    {
+      "path": "src/server-metadata.ts",
+      "bytes": 2336,
+      "blob": "bc942375a2a7d891f72b1eb596a7fcd6ec680599",
+      "sha256": "229d4deb212f3423a019ce606700cc50f2bbf6a9ab450900a9c63926833447f2",
+      "mode": "100644"
+    },
+    {
+      "path": "src/windows-journal/JournalStorage.cs",
+      "bytes": 12846,
+      "blob": "a82eddb54f99d07237e969f0f57c245ae7fe4df7",
+      "sha256": "a979a161b09da99f147e2c8f95ed27190457301a06a7e6e298b0c58e375cd204",
+      "mode": "100644"
+    },
+    {
+      "path": "src/windows-journal/Program.cs",
+      "bytes": 7386,
+      "blob": "350871b6edad55a00377d40d86231621d878b49d",
+      "sha256": "ef5a825e45d5144b185a7c63f401f3347ef98cf84dd025e01621bc69e486a122",
+      "mode": "100644"
+    },
+    {
+      "path": "src/windows-journal/build.json",
+      "bytes": 4087,
+      "blob": "addde86c8f1c6c5231df6685fe50cafebfa474d3",
+      "sha256": "48c7c303cbf8d7a7a3275cc7a5a4f5c576dbc983f3776e47bdca45bf6f979e45",
+      "mode": "100644"
+    },
+    {
+      "path": "src/windows-journal/lmm-magpie-journal.exe",
+      "bytes": 14848,
+      "blob": "48c63a673f404fce161cd65bcf2d4123486d5864",
+      "sha256": "cc9b0438f27ae56bcaa52374298c3c2ef4b86e36452efd9bca972c4a92c5581a",
+      "mode": "100644"
+    },
+    {
+      "path": "test/account-isolation.test.ts",
+      "bytes": 18714,
+      "blob": "50086878bfbc38d3cff7461690219b3400ccedcf",
+      "sha256": "e14768ac160fbc828ec694a195c18fe84969491f03ba46fc4254ad0f49ebe708",
+      "mode": "100644"
+    },
+    {
+      "path": "test/auth.test.ts",
+      "bytes": 7361,
+      "blob": "7cf8c30df47e794557735ff32a9ee30107d0746f",
+      "sha256": "dbea2ea423901906f8d04e423552e312a6ac9c175d1eaeebf82866f0c338f645",
+      "mode": "100644"
+    },
+    {
+      "path": "test/catalog.test.ts",
+      "bytes": 11063,
+      "blob": "4750fe80f4aa30cbfd017b3847902a0027088a7a",
+      "sha256": "220eda9b4dd533814e6938518e7580a2ed9b7d335bc04f8119186b8865a82ee8",
+      "mode": "100644"
+    },
+    {
+      "path": "test/http.test.ts",
+      "bytes": 774,
+      "blob": "bf4e9a9b3e69f39fac22263807f0c3e87a5d3e02",
+      "sha256": "e8df9c36cd01f3feec522f6cb14a1df6bc246e0beb4bd5dbd0795db942e667f7",
+      "mode": "100644"
+    },
+    {
+      "path": "test/magpie.test.ts",
+      "bytes": 12345,
+      "blob": "bb883cb57b015f27ce8d60929330b78000be36c3",
+      "sha256": "b99d3e936dff47bf5d219ccc3ff070eb5eb32e0f754d43ae3cb2989969127e3b",
+      "mode": "100644"
+    },
+    {
+      "path": "test/opencode-v2.test.ts",
+      "bytes": 12284,
+      "blob": "8458cc112d9c441e69b5237a585dbb5239aedf6a",
+      "sha256": "15378645098f5c3f26bbd75b87c7ffdb9dfd593e6319ac81c273f9b321518c48",
+      "mode": "100644"
+    },
+    {
+      "path": "test/plugin.test.ts",
+      "bytes": 12831,
+      "blob": "20536d720338a6befa1b17918fb726e31ba8c259",
+      "sha256": "3b0c1aaa5b660de6fcd699abdb80e0232495b334bf5d1279575fce553fb0eac6",
+      "mode": "100644"
+    },
+    {
+      "path": "test/windows-journal-acl.ts",
+      "bytes": 5593,
+      "blob": "a260a18e535089aa748f605ce8342d2938a84985",
+      "sha256": "46d3fa10e5bebb483f7650686ea53dedefb7543ddb36c9a18966a6f1f52d7d46",
+      "mode": "100644"
+    },
+    {
+      "path": "tsconfig.build.json",
+      "bytes": 250,
+      "blob": "26ff62c234915eb3796baac8a6796ac651388512",
+      "sha256": "a6bfae42666e294d3dc8299fd497e61cfbc01f851989b4c87bf5d8d9c8316e51",
+      "mode": "100644"
+    },
+    {
+      "path": "tsconfig.json",
+      "bytes": 230,
+      "blob": "8720f1cc272366f54ea7ee7cdc0f718d60038e6f",
+      "sha256": "82bca0280d397f6a05caf31d7de263b6cdd40da72b1673a09c6e09192a2ca92b",
+      "mode": "100644"
+    }
+  ],
+  "overlays": [
+    {
+      "product_path": ".gitattributes",
+      "before": {
+        "bytes": 155,
+        "sha256": "9c27a395dac275076b3b2eb9d03a1f87cb217c0a5fdb99fa72da22b222f0e42e",
+        "blob": "750a25647fec250f6687228ade344bcb0fb81ea5"
+      },
+      "after": {
+        "bytes": 318,
+        "sha256": "649daf2141e58c17630cc8a25ef40a6d731231b731df9a7b30a1999f4be27ada",
+        "blob": "27846035b0623266dc5c90d1f987ade5f99ffbf3"
+      },
+      "operation": "update",
+      "control_path": "tests/diagnostics/opencode-windows-acl/overlay/.gitattributes"
+    },
+    {
+      "product_path": "test/build-windows-journal-acl.mjs",
+      "before": null,
+      "after": {
+        "bytes": 6219,
+        "sha256": "80e7b4dc9358e6bc911fe032e33dcac168c4275ebd7ba665efbe89176762c101",
+        "blob": "94c9fd6c31943aaa12793f04b759a51a31d902af"
+      },
+      "operation": "add",
+      "control_path": "tests/diagnostics/opencode-windows-acl/overlay/test/build-windows-journal-acl.mjs"
+    },
+    {
+      "product_path": "test/windows-journal-acl.ts",
+      "before": {
+        "bytes": 5593,
+        "sha256": "46d3fa10e5bebb483f7650686ea53dedefb7543ddb36c9a18966a6f1f52d7d46",
+        "blob": "a260a18e535089aa748f605ce8342d2938a84985"
+      },
+      "after": {
+        "bytes": 3822,
+        "sha256": "7cb1bcaa5a4e526025b2216783d337aa7444f2c2c5836fa83f9c99548796cfba",
+        "blob": "b4b2b810abf8d1d4ed86bd0c6503c7434675dd26"
+      },
+      "operation": "update",
+      "control_path": "tests/diagnostics/opencode-windows-acl/overlay/test/windows-journal-acl.ts"
+    },
+    {
+      "product_path": "test/windows-journal-acl/Program.cs",
+      "before": null,
+      "after": {
+        "bytes": 7951,
+        "sha256": "bfc2ba404c6aa8221a878310f2a33393e42a07374761124cd2fdb3477e667445",
+        "blob": "9178e7bb1f0d13f782b763b4d672d66cc582b486"
+      },
+      "operation": "add",
+      "control_path": "tests/diagnostics/opencode-windows-acl/overlay/test/windows-journal-acl/Program.cs"
+    }
+  ],
+  "expected_effective_source_count": 61,
+  "generated_paths": [
+    "test/windows-journal-acl/lmm-test-acl.exe",
+    "test/windows-journal-acl/build.json"
+  ],
+  "expected_post_compile_file_count": 63,
+  "compile_argv": [
+    "node",
+    "test/build-windows-journal-acl.mjs"
+  ],
+  "readonly_verify_argv": [
+    "node",
+    "test/build-windows-journal-acl.mjs",
+    "--verify"
+  ],
+  "compile_only_CSharp_sources": [
+    "test/windows-journal-acl/Program.cs"
+  ],
+  "executable_main": "LmmWindowsTestAclProgram",
+  "build_schema": "lmm-windows-test-acl-build.v1",
+  "unchanged_product_inputs": [
+    {
+      "path": "src/magpie-windows-journal.ts",
+      "mode": "100644",
+      "bytes": 4028,
+      "sha256": "38d59120e3a91032d189bcacacf90bfb33ccd94421f7c7600b347ab3f26acfd8",
+      "blob": "db614c63c66c4366bd953c87f1b036630f91781b"
     },
     {
       "path": "dist/magpie-windows-journal.js",
       "mode": "100644",
-      "bytes": 4934,
-      "sha256": "5bcdbcd0b7daa454ee37767660e91ad785381239dbf2dae8944bca06e2ad6c97",
-      "blob": "417cec575cd6b178e37d1746be6a2953825b9ba3"
+      "bytes": 4468,
+      "sha256": "9b2d638315bcbe4c683b12cf728627a97a638bd6a516f00ceec8a406c2b016ec",
+      "blob": "ed6152fb50c9505eed34c51f5b0bca351f51d99e"
     },
     {
-      "path": "dist/magpie.js",
+      "path": "src/windows-journal/JournalStorage.cs",
       "mode": "100644",
-      "bytes": 12435,
-      "sha256": "61d48c010243618809ffa5b0d29326f6daf90731f3eaaaea4aab851b488fcf5a",
-      "blob": "d07579244242161fd11f929336570ef4ecff0150"
+      "bytes": 12846,
+      "sha256": "a979a161b09da99f147e2c8f95ed27190457301a06a7e6e298b0c58e375cd204",
+      "blob": "a82eddb54f99d07237e969f0f57c245ae7fe4df7"
     },
     {
-      "path": "dist/models-dev-cache.js",
+      "path": "src/windows-journal/Program.cs",
       "mode": "100644",
-      "bytes": 17255,
-      "sha256": "dcf8d0f2796e8863b2d47e27fd3b298bdf1c5d5c20502bc77ed332edfe71dc6c",
-      "blob": "4102c02353e88e80c8620511d01d79873b082e7b"
+      "bytes": 7386,
+      "sha256": "ef5a825e45d5144b185a7c63f401f3347ef98cf84dd025e01621bc69e486a122",
+      "blob": "350871b6edad55a00377d40d86231621d878b49d"
     },
     {
-      "path": "dist/oauth.js",
+      "path": "src/windows-journal/lmm-magpie-journal.exe",
       "mode": "100644",
-      "bytes": 5331,
-      "sha256": "8a38db98f5098a835c41380c850d394506734c9b219b95295c1b259b9f7467a5",
-      "blob": "dda19223c4fa3197f4262e563e3d4d14e4d5f91c"
+      "bytes": 14848,
+      "sha256": "cc9b0438f27ae56bcaa52374298c3c2ef4b86e36452efd9bca972c4a92c5581a",
+      "blob": "48c63a673f404fce161cd65bcf2d4123486d5864"
     },
     {
-      "path": "dist/opencode-v2.js",
+      "path": "src/windows-journal/build.json",
       "mode": "100644",
-      "bytes": 10562,
-      "sha256": "31daba6fa470435d9a78cbfab158233e24d378a3a275559a80fd51fce18cfce2",
-      "blob": "7627b732af0d4b5e39ec29c0b58342d195b222e6"
+      "bytes": 4087,
+      "sha256": "48c7c303cbf8d7a7a3275cc7a5a4f5c576dbc983f3776e47bdca45bf6f979e45",
+      "blob": "addde86c8f1c6c5231df6685fe50cafebfa474d3"
     },
     {
-      "path": "dist/protocol.js",
+      "path": "scripts/build-windows-journal.mjs",
       "mode": "100644",
-      "bytes": 3485,
-      "sha256": "ce3c44b77ee092eaa25312ab34537ae95c77bb2f6994e48b27ada9c68be23f22",
-      "blob": "8eb26eb38cc587107013110978511fcb77910693"
+      "bytes": 3903,
+      "sha256": "3a52d85fb0dc9d097f30f4691ec1ae3213835eb210dfcac6bf4a476833fd409a",
+      "blob": "588774b87d77239d67cf26352168b5883934d298"
     },
     {
-      "path": "dist/refresh-journal.js",
+      "path": "scripts/verify-windows-journal-build.mjs",
       "mode": "100644",
-      "bytes": 2936,
-      "sha256": "50a22008dce940d90320314724234328cea807f3c97b5c230188dbc5e9f559c0",
-      "blob": "86489dbc4ee3e7e7528fcb8d7f68c08b9391727b"
-    },
-    {
-      "path": "dist/server-metadata.js",
-      "mode": "100644",
-      "bytes": 1946,
-      "sha256": "1d1b1edee422838dad29763524c388b9bc3a36d18089c3aaa3d4b1fe6bf19673",
-      "blob": "d81d01784b6e1d594af1bd6f971be704344f2c73"
-    },
-    {
-      "path": "package-lock.json",
-      "mode": "100644",
-      "bytes": 164567,
-      "sha256": "bdf48db4e72304f61533f0319a34ad5f88e215b4c861856192d61b5cb7b07b00",
-      "blob": "3335b4d2b950e48b14b0f599dea979742d61c6d1"
-    },
-    {
-      "path": "package.json",
-      "mode": "100644",
-      "bytes": 1914,
-      "sha256": "bc59d44a352c786fa2796c3685445a622d4d3213dab53b685d41e124a561b518",
-      "blob": "f9f683c0a9c6cfaa6de283b91c02a191dd16d023"
-    },
-    {
-      "path": "scripts/test-host.mjs",
-      "mode": "100644",
-      "bytes": 4081,
-      "sha256": "040e0d9a84c7843fb2d39a8663424cc5de40621f1cf7c1dd7ad94bf6e9e20a71",
-      "blob": "82e64af126b4a5c07be3d691f0e6a2efad8aaba0"
-    },
-    {
-      "path": "scripts/test-integration.mjs",
-      "mode": "100644",
-      "bytes": 12097,
-      "sha256": "3c9687290cfd5117629bd5ce89cd62a60a9f413fa5ba9617bf59427af54f4e6c",
-      "blob": "e83a91ec86f69423c7362c7986a2b0eafcc8c6af"
-    },
-    {
-      "path": "scripts/test-magpie-host.mjs",
-      "mode": "100644",
-      "bytes": 1599,
-      "sha256": "c4c72430f8f9cd30ea14f68c53d1d12c435da146ea5de789ac54c52b773b4adc",
-      "blob": "d99634eb3835764ac74b8deacad8ad0d58167291"
-    },
-    {
-      "path": "scripts/test-opencode-v2.mjs",
-      "mode": "100644",
-      "bytes": 23661,
-      "sha256": "5a5626b002200d4ac7ff0d92ded9efaa950cd366a17dc599672a087918e787b0",
-      "blob": "6f40984ade99fea13068a997f44cb2ee685a18a1"
-    },
-    {
-      "path": "server.js",
-      "mode": "100644",
-      "bytes": 126,
-      "sha256": "23fc12cae093a805ee3191d71d016123c6651d352b0cacc0b6fdf40f3c9c0622",
-      "blob": "791cf6daa5623a6ca762ad6d68cd43d5a38c9f1a"
-    },
-    {
-      "path": "src/callback.ts",
-      "mode": "100644",
-      "bytes": 5043,
-      "sha256": "9211cb5405a804102ed67f35f1105c93dc58116ac1fb4a1547fef911eb6cb8b8",
-      "blob": "872c923d410d767e2412734d9e6de2847e84124c"
-    },
-    {
-      "path": "src/catalog.ts",
-      "mode": "100644",
-      "bytes": 12020,
-      "sha256": "2946b751fbd518076db22e31b28f44954c81e744686e253b659ae8581bf4b418",
-      "blob": "584f9099877d300f12d66ab75a8985f933690f48"
-    },
-    {
-      "path": "src/http.ts",
-      "mode": "100644",
-      "bytes": 4461,
-      "sha256": "e613d90fd07a54c9c3c30358c7b7d78f6d0ffad5f4e48bcdf7afcf53ece24c12",
-      "blob": "e6180967da4d36bc529e568c11edb313b6e03099"
-    },
-    {
-      "path": "src/index.ts",
-      "mode": "100644",
-      "bytes": 15469,
-      "sha256": "3587971bc6ad2e4032f6b43f6fe873f235af812cb03078d33eb65be48856ae29",
-      "blob": "c7dd4aaf6141dc908196823398c09ab3f040216f"
-    },
-    {
-      "path": "src/magpie-journal.ts",
-      "mode": "100644",
-      "bytes": 4125,
-      "sha256": "dae0667b69ba5abd9c76904055db443b8698b7b7b3b1d93418a00907c580d7dd",
-      "blob": "719578957ef52f7d32822795889fccb18581c225"
-    },
-    {
-      "path": "src/magpie-windows-journal.ps1",
-      "mode": "100644",
-      "bytes": 14108,
-      "sha256": "a838eaf2f6d04aa90009bce9a2c11b3dd166b0dd7e17238af4225202eb51ef30",
-      "blob": "94476d81403152c9a431e3fd6571e1123f00920e"
-    },
-    {
-      "path": "src/magpie-windows-journal.ts",
-      "mode": "100644",
-      "bytes": 4513,
-      "sha256": "543f19373ba91202dc4c24b4bf7307845a72dcbbaab7dba297178cd0b0df28d3",
-      "blob": "b8dcda25e14e63ac497890211c3403bb3740af0b"
-    },
-    {
-      "path": "src/magpie.ts",
-      "mode": "100644",
-      "bytes": 11524,
-      "sha256": "b9db6f99385f4ddbc333f57bb5f45bdbd29bcd513e8c16354ee938a7ff37c398",
-      "blob": "e30e572fba074d8910271b0dfc329c04eeae4700"
-    },
-    {
-      "path": "src/models-dev-cache.ts",
-      "mode": "100644",
-      "bytes": 17952,
-      "sha256": "9071d0d85aef16a3f9f588bdbb133c50db75e3ee5f853d6e6b627d0e4798c6b0",
-      "blob": "5dc01c0ccc906a01105710d61687997080f71525"
-    },
-    {
-      "path": "src/oauth.ts",
-      "mode": "100644",
-      "bytes": 5388,
-      "sha256": "7c38fabdb2936cca836d31b754fcfdc8a1dce3bc837a7945e80bd65900317026",
-      "blob": "12e28adec9632302cd707b415b08f3ad45231166"
-    },
-    {
-      "path": "src/opencode-v2.ts",
-      "mode": "100644",
-      "bytes": 11024,
-      "sha256": "56865a592515f839fb7abc767af9506c37fa4e323cad145d5f824635830be2d0",
-      "blob": "718629282c5bdad001d7c0b5ece0c81afe538e6d"
-    },
-    {
-      "path": "src/protocol.ts",
-      "mode": "100644",
-      "bytes": 4102,
-      "sha256": "a31a62b8ce8f9c302e6c0a737c66ee4f7eadaec359af3ce948daa7c01beaca9e",
-      "blob": "29d77277633c0bf29112ff5a16357a013fdb8fe3"
-    },
-    {
-      "path": "src/refresh-journal.ts",
-      "mode": "100644",
-      "bytes": 2611,
-      "sha256": "372b167523d5671853d0f425af10921c89bad6d2a34dd265c1e7a853f375ff55",
-      "blob": "fbc514b9470104b05476e0290f7f64c77bddb34b"
-    },
-    {
-      "path": "src/server-metadata.ts",
-      "mode": "100644",
-      "bytes": 2336,
-      "sha256": "229d4deb212f3423a019ce606700cc50f2bbf6a9ab450900a9c63926833447f2",
-      "blob": "bc942375a2a7d891f72b1eb596a7fcd6ec680599"
-    },
-    {
-      "path": "test/account-isolation.test.ts",
-      "mode": "100644",
-      "bytes": 18714,
-      "sha256": "e14768ac160fbc828ec694a195c18fe84969491f03ba46fc4254ad0f49ebe708",
-      "blob": "50086878bfbc38d3cff7461690219b3400ccedcf"
-    },
-    {
-      "path": "test/auth.test.ts",
-      "mode": "100644",
-      "bytes": 7361,
-      "sha256": "dbea2ea423901906f8d04e423552e312a6ac9c175d1eaeebf82866f0c338f645",
-      "blob": "7cf8c30df47e794557735ff32a9ee30107d0746f"
-    },
-    {
-      "path": "test/catalog.test.ts",
-      "mode": "100644",
-      "bytes": 11063,
-      "sha256": "220eda9b4dd533814e6938518e7580a2ed9b7d335bc04f8119186b8865a82ee8",
-      "blob": "4750fe80f4aa30cbfd017b3847902a0027088a7a"
-    },
-    {
-      "path": "test/http.test.ts",
-      "mode": "100644",
-      "bytes": 774,
-      "sha256": "e8df9c36cd01f3feec522f6cb14a1df6bc246e0beb4bd5dbd0795db942e667f7",
-      "blob": "bf4e9a9b3e69f39fac22263807f0c3e87a5d3e02"
+      "bytes": 4975,
+      "sha256": "56833e83af32d7665ba44917dcb72248622de21ace56ad2ea000aa4a05a5443f",
+      "blob": "373f846fcbdba3223294e64c0df3a13eea2c2abb"
     },
     {
       "path": "test/magpie.test.ts",
@@ -341,155 +557,77 @@
       "blob": "bb883cb57b015f27ce8d60929330b78000be36c3"
     },
     {
-      "path": "test/opencode-v2.test.ts",
+      "path": ".github/workflows/verify.yml",
       "mode": "100644",
-      "bytes": 12284,
-      "sha256": "15378645098f5c3f26bbd75b87c7ffdb9dfd593e6319ac81c273f9b321518c48",
-      "blob": "8458cc112d9c441e69b5237a585dbb5239aedf6a"
+      "bytes": 790,
+      "sha256": "5a3955878e602cb38d839ea3a109f9f09e1ada262def6824b84c8c6292bae1c4",
+      "blob": "7d34b9a1309364f383c1fd9360544fe76fcbfe61"
     },
     {
-      "path": "test/plugin.test.ts",
+      "path": "package.json",
       "mode": "100644",
-      "bytes": 12831,
-      "sha256": "3b0c1aaa5b660de6fcd699abdb80e0232495b334bf5d1279575fce553fb0eac6",
-      "blob": "20536d720338a6befa1b17918fb726e31ba8c259"
+      "bytes": 2083,
+      "sha256": "0eada1a54cea05e9118001becadb0149b6afd565fd43c994bce83403de59a94c",
+      "blob": "87ba4a3690b91008b61e7888ce6f8fe5dfbae6c5"
     },
     {
-      "path": "test/windows-journal-acl.ts",
+      "path": "package-lock.json",
       "mode": "100644",
-      "bytes": 4444,
-      "sha256": "8dd940154eeb5282dbcd423d3f359f32325406c1d80812a28e4bc5e93802857e",
-      "blob": "2934e402c61947704e9ab6398a1cdd2ee573dd49"
-    },
-    {
-      "path": "tsconfig.build.json",
-      "mode": "100644",
-      "bytes": 250,
-      "sha256": "a6bfae42666e294d3dc8299fd497e61cfbc01f851989b4c87bf5d8d9c8316e51",
-      "blob": "26ff62c234915eb3796baac8a6796ac651388512"
-    },
-    {
-      "path": "tsconfig.json",
-      "mode": "100644",
-      "bytes": 230,
-      "sha256": "82bca0280d397f6a05caf31d7de263b6cdd40da72b1673a09c6e09192a2ca92b",
-      "blob": "8720f1cc272366f54ea7ee7cdc0f718d60038e6f"
+      "bytes": 164567,
+      "sha256": "bdf48db4e72304f61533f0319a34ad5f88e215b4c861856192d61b5cb7b07b00",
+      "blob": "3335b4d2b950e48b14b0f599dea979742d61c6d1"
     }
   ],
-  "overlays": [
-    {
-      "product_path": "dist/magpie-windows-journal.js",
-      "operation": "update",
-      "before": {
-        "bytes": 4934,
-        "sha256": "5bcdbcd0b7daa454ee37767660e91ad785381239dbf2dae8944bca06e2ad6c97",
-        "blob": "417cec575cd6b178e37d1746be6a2953825b9ba3"
-      },
-      "after": {
-        "bytes": 4468,
-        "sha256": "9b2d638315bcbe4c683b12cf728627a97a638bd6a516f00ceec8a406c2b016ec",
-        "blob": "ed6152fb50c9505eed34c51f5b0bca351f51d99e"
-      },
-      "control_path": "tests/diagnostics/opencode-windows-helper/overlay/dist/magpie-windows-journal.js"
-    },
-    {
-      "product_path": "package.json",
-      "operation": "update",
-      "before": {
-        "bytes": 1914,
-        "sha256": "bc59d44a352c786fa2796c3685445a622d4d3213dab53b685d41e124a561b518",
-        "blob": "f9f683c0a9c6cfaa6de283b91c02a191dd16d023"
-      },
-      "after": {
-        "bytes": 2083,
-        "sha256": "0eada1a54cea05e9118001becadb0149b6afd565fd43c994bce83403de59a94c",
-        "blob": "87ba4a3690b91008b61e7888ce6f8fe5dfbae6c5"
-      },
-      "control_path": "tests/diagnostics/opencode-windows-helper/overlay/package.json"
-    },
-    {
-      "product_path": "src/magpie-windows-journal.ps1",
-      "operation": "delete",
-      "before": {
-        "bytes": 14108,
-        "sha256": "a838eaf2f6d04aa90009bce9a2c11b3dd166b0dd7e17238af4225202eb51ef30",
-        "blob": "94476d81403152c9a431e3fd6571e1123f00920e"
-      },
-      "after": null
-    },
-    {
-      "product_path": "src/magpie-windows-journal.ts",
-      "operation": "update",
-      "before": {
-        "bytes": 4513,
-        "sha256": "543f19373ba91202dc4c24b4bf7307845a72dcbbaab7dba297178cd0b0df28d3",
-        "blob": "b8dcda25e14e63ac497890211c3403bb3740af0b"
-      },
-      "after": {
-        "bytes": 4028,
-        "sha256": "38d59120e3a91032d189bcacacf90bfb33ccd94421f7c7600b347ab3f26acfd8",
-        "blob": "db614c63c66c4366bd953c87f1b036630f91781b"
-      },
-      "control_path": "tests/diagnostics/opencode-windows-helper/overlay/src/magpie-windows-journal.ts"
-    },
-    {
-      "product_path": "scripts/build-windows-journal.mjs",
-      "operation": "add",
-      "before": null,
-      "after": {
-        "bytes": 3903,
-        "sha256": "3a52d85fb0dc9d097f30f4691ec1ae3213835eb210dfcac6bf4a476833fd409a",
-        "blob": "588774b87d77239d67cf26352168b5883934d298"
-      },
-      "control_path": "tests/diagnostics/opencode-windows-helper/overlay/scripts/build-windows-journal.mjs"
-    },
-    {
-      "product_path": "scripts/verify-windows-journal-build.mjs",
-      "operation": "add",
-      "before": null,
-      "after": {
-        "bytes": 4975,
-        "sha256": "56833e83af32d7665ba44917dcb72248622de21ace56ad2ea000aa4a05a5443f",
-        "blob": "373f846fcbdba3223294e64c0df3a13eea2c2abb"
-      },
-      "control_path": "tests/diagnostics/opencode-windows-helper/overlay/scripts/verify-windows-journal-build.mjs"
-    },
-    {
-      "product_path": "src/windows-journal/JournalStorage.cs",
-      "operation": "add",
-      "before": null,
-      "after": {
-        "bytes": 12846,
-        "sha256": "a979a161b09da99f147e2c8f95ed27190457301a06a7e6e298b0c58e375cd204",
-        "blob": "a82eddb54f99d07237e969f0f57c245ae7fe4df7"
-      },
-      "control_path": "tests/diagnostics/opencode-windows-helper/overlay/src/windows-journal/JournalStorage.cs"
-    },
-    {
-      "product_path": "src/windows-journal/Program.cs",
-      "operation": "add",
-      "before": null,
-      "after": {
-        "bytes": 7386,
-        "sha256": "ef5a825e45d5144b185a7c63f401f3347ef98cf84dd025e01621bc69e486a122",
-        "blob": "350871b6edad55a00377d40d86231621d878b49d"
-      },
-      "control_path": "tests/diagnostics/opencode-windows-helper/overlay/src/windows-journal/Program.cs"
-    }
+  "original_tests": {
+    "argv": [
+      "npm",
+      "test"
+    ],
+    "expected_count": 52,
+    "expected_failed": 0,
+    "expected_skipped": 0,
+    "expected_cancelled": 0,
+    "expected_todo": 0,
+    "invocations": 1,
+    "test38": "rotation journal recovers the same operation without keeping secrets and rejects symlinks",
+    "test39": "response loss and plugin restart recover the same rotation; usage reports lifetime reservations",
+    "windows_acl_calls": 7
+  },
+  "helper_limits": {
+    "timeout_ms": 5000,
+    "max_buffer_bytes": 4096,
+    "input_max_utf8_bytes": 16384
+  },
+  "source_binding_stages": [
+    "Pin all59 original product Git leaves to e1f65 before applying any overlay.",
+    "Apply only the4 frozen source overlays and verify the61 effective source leaves. The2 generated output paths must not exist.",
+    "Compile only the independent test oracle, retain actual source/tool/reference/binary result and receipt. The61 input leaves must remain unchanged.",
+    "Verify the2 actual generated outputs and include them as additional artifact records for the63-file runtime snapshot. Do not pretend they existed in the initial source snapshot.",
+    "Run the52 original tests once; on Windows a passed unchanged test38 executes all7 awaited ACL calls. Preserve any test/process failure before assertion.",
+    "Readonly verify generated sources/binary/receipt again; check61 source leaves and fixed product runtime unchanged, then owned compiler/test-helper processes exited."
   ],
+  "control_payload_requirement": "All four payloads use their product-relative names. The root control attributes force the exact overlay .gitattributes and Program.cs to LF; product bytes are never normalized by the controller.",
+  "test_oracle_readonly_guard": {
+    "when": "Only on Windows, once before the first actual oracle process via a cached promise.",
+    "paths": [
+      "test/windows-journal-acl/Program.cs",
+      "test/windows-journal-acl/lmm-test-acl.exe",
+      "test/windows-journal-acl/build.json"
+    ],
+    "conditions": [
+      "ordinary nonsymlink bounded files",
+      "successful Windows compiler receipt schema/status",
+      "exact source and executable path/byte-count/SHA256 records"
+    ],
+    "failure": "Fixed Unverified Windows test oracle build. without paths/receipt/error data.",
+    "execution_or_writes": false,
+    "helper_process_timeout_unchanged": 5000,
+    "no_rebuild_or_prewarm": true
+  },
   "csharp_core": {
     "path": "src/windows-journal/JournalStorage.cs",
     "bytes": 12846,
     "sha256": "a979a161b09da99f147e2c8f95ed27190457301a06a7e6e298b0c58e375cd204"
   },
-  "generated_files": [
-    "src/windows-journal/build.json",
-    "src/windows-journal/lmm-magpie-journal.exe"
-  ],
-  "qualification": "WINDOWS_BUILD_AND_UNIT_CANDIDATE_ONLY; original nine-row matrix remains required",
-  "helper_timeout_ms": 5000,
-  "helper_max_buffer": 4096,
-  "unit_test_count": 52,
-  "no_prewarm": true,
-  "no_retries": true
+  "qualification": "WINDOWS_INDEPENDENT_ACL_ORACLE_AND_ORIGINAL_UNITS_ONLY; original nine-row matrix remains required"
 }

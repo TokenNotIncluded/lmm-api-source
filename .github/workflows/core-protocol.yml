@@ -533,7 +533,7 @@ jobs:
           retention-days: 1
 
   opencode-windows-helper:
-    name: OpenCode fixed Windows helper build and original units (candidate only)
+    name: OpenCode independent Windows ACL oracle and original units (candidate only)
     if: ${{ github.event_name == 'workflow_dispatch' && inputs.diagnostic_mode == 'opencode_windows_helper' }}
     runs-on: windows-latest
     timeout-minutes: 5
@@ -553,11 +553,11 @@ jobs:
           ref: ${{ github.sha }}
           path: control
           persist-credentials: false
-      - name: Check out exact OpenCode f2d product
+      - name: Check out exact OpenCode e1f product
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
         with:
           repository: TokenNotIncluded/opencode-lmm-auth
-          ref: f2d2386da2663d3972f8c4bd71f7f0e7bd6c2490
+          ref: e1f65f4e4d3dee914b09025697e0530ff6b70188
           path: opencode-product
           persist-credentials: false
       - name: Install the observed Node version
@@ -566,7 +566,7 @@ jobs:
           node-version: 22.23.5
           cache: npm
           cache-dependency-path: opencode-product/package-lock.json
-      - name: Bind all 53 product blobs and the eight source changes
+      - name: Bind all 59 product blobs and the four test oracle source changes
         run: >-
           node ./control/scripts/build-test-opencode-windows-helper.mjs prepare
           ./opencode-product ./control
@@ -581,7 +581,7 @@ jobs:
           node ./control/scripts/build-test-opencode-windows-helper.mjs build
           ./opencode-product ./control
           "$env:RUNNER_TEMP/opencode-windows-helper-evidence"
-      - name: Compile the actual AnyCPU helper with the system Framework compiler
+      - name: Compile only the independent ACL oracle with the system Framework compiler
         run: >-
           node ./control/scripts/build-test-opencode-windows-helper.mjs compile
           ./opencode-product ./control
@@ -589,16 +589,6 @@ jobs:
       - name: Cold run all original 52 tests once, including journal and lost-ACK
         run: >-
           node ./control/scripts/build-test-opencode-windows-helper.mjs test
-          ./opencode-product ./control
-          "$env:RUNNER_TEMP/opencode-windows-helper-evidence"
-      - name: Check only the new framing boundaries after the original suite
-        run: >-
-          node ./control/scripts/build-test-opencode-windows-helper.mjs framing
-          ./opencode-product ./control
-          "$env:RUNNER_TEMP/opencode-windows-helper-evidence"
-      - name: Execute prepack and verify the real package and helper bytes
-        run: >-
-          node ./control/scripts/build-test-opencode-windows-helper.mjs pack
           ./opencode-product ./control
           "$env:RUNNER_TEMP/opencode-windows-helper-evidence"
       - name: Preserve final source and actual helper process state
@@ -610,7 +600,11 @@ jobs:
             $items = @(Get-CimInstance Win32_Process -Filter "Name='lmm-magpie-journal.exe'" -ErrorAction Stop)
             $owned = @($items | Where-Object { $_.ExecutablePath -and [string]::Equals($_.ExecutablePath, $exe, [System.StringComparison]::OrdinalIgnoreCase) } | ForEach-Object { $_.ProcessId })
             $unknown = @($items | Where-Object { -not $_.ExecutablePath }).Count
-            @{ owned_helper_pids = $owned; uninspectable_helper_count = $unknown; observed_at = [DateTime]::UtcNow.ToString('o') } |
+            $oracle = [System.IO.Path]::GetFullPath("$env:GITHUB_WORKSPACE/opencode-product/test/windows-journal-acl/lmm-test-acl.exe")
+            $oracleItems = @(Get-CimInstance Win32_Process -Filter "Name='lmm-test-acl.exe'" -ErrorAction Stop)
+            $oracleOwned = @($oracleItems | Where-Object { $_.ExecutablePath -and [string]::Equals($_.ExecutablePath, $oracle, [System.StringComparison]::OrdinalIgnoreCase) } | ForEach-Object { $_.ProcessId })
+            $oracleUnknown = @($oracleItems | Where-Object { -not $_.ExecutablePath }).Count
+            @{ owned_helper_pids = $owned; uninspectable_helper_count = $unknown; owned_oracle_pids = $oracleOwned; uninspectable_oracle_count = $oracleUnknown; observed_at = [DateTime]::UtcNow.ToString('o') } |
               ConvertTo-Json -Compress | Set-Content -LiteralPath "$evidence/helper-process-cleanup.json" -Encoding utf8NoBOM
           }
           node ./control/scripts/build-test-opencode-windows-helper.mjs finalize ./opencode-product ./control $evidence
@@ -619,7 +613,7 @@ jobs:
         if: ${{ always() }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
-          name: opencode-fixed-windows-helper-f2d-${{ github.run_id }}
+          name: opencode-windows-acl-oracle-e1f-${{ github.run_id }}
           path: ${{ runner.temp }}/opencode-windows-helper-evidence
           if-no-files-found: error
           retention-days: 1

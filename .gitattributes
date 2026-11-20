@@ -44,3 +44,5 @@ electron/** linguist-vendored
 web/src/routeTree.gen.ts linguist-generated
 tests/diagnostics/opencode-windows-journal/overlay/src/magpie-windows-journal.ps1 text eol=lf
 tests/diagnostics/opencode-windows-helper/overlay/src/windows-journal/*.cs text eol=lf
+tests/diagnostics/opencode-windows-acl/overlay/.gitattributes text eol=lf
+tests/diagnostics/opencode-windows-acl/overlay/test/windows-journal-acl/Program.cs text eol=lf
