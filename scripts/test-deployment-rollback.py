@@ -48,7 +48,12 @@ def main():
                   "min_free_bytes": 1024,
                   "components": {"web": {"health_url": f"http://127.0.0.1:{server.server_port}/index.html"}}}
         try:
-            for number, content, should_pass in [(1, "accepted-candidate", True), (2, "rejected-candidate", False)]:
+            cases = [(1, "accepted-candidate", True, True),
+                     (2, "rejected-candidate", False, True),
+                     (3, "rejected-candidate", False, False)]
+            for number, content, should_pass, allow_rollback in cases:
+                if not allow_rollback:
+                    target["allow_rollback"] = False
                 source = work / f"input-{number}"
                 source.mkdir()
                 (source / "index.html").write_text("<!doctype html>" + content)
@@ -67,6 +72,15 @@ def main():
                                         capture_output=True, text=True)
                 if (result.returncode == 0) != should_pass:
                     raise AssertionError(result.stdout + result.stderr)
+                if not allow_rollback:
+                    assert "automatic rollback is disabled" in result.stdout, result.stdout
+                    assert (root / "web/dist/index.html").read_text() == "<!doctype html>rejected-candidate"
+                    assert (root / "slots/web-b/dist/index.html").read_text() == "<!doctype html>accepted-candidate"
+                    assert (root / "web").resolve() == root / "slots/web-a"
+                    assert len(list((root / "slots").iterdir())) == 2, "forward recovery lost a component slot"
+                    assert (root / ".incoming-web.tar.gz").is_file(), "forward recovery lost the received archive"
+                    print("PASS: HTTP failure retains selected candidate, preceding slot and received archive")
+                    continue
                 if not should_pass:
                     assert "preceding component links have been restored" in result.stdout, result.stdout
                 assert (root / "web/dist/index.html").read_text() == "<!doctype html>accepted-candidate"
