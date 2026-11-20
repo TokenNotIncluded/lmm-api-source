@@ -9,6 +9,7 @@ require (
 
 require (
 	github.com/BurntSushi/toml v1.6.0 // indirect
+	github.com/ebitengine/purego v0.11.3 // indirect
 	golang.org/x/crypto v0.59.0 // indirect
 )
 
