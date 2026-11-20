@@ -495,8 +495,11 @@ def prepare(args):
         binding = payload / "core-source-binding.json"
         record(binding, {"files": resource_inputs["product"]})
         official_jobs = json.loads((payload / "official/jobs.json").read_text())["jobs"]
-        core_jobs = [job for job in official_jobs if job["name"].lower() == "core"]
-        require(len(core_jobs) == 1, "official Core job is not unique")
+        core_jobs = [job for job in official_jobs if job["id"] == 136506051398]
+        require(len(core_jobs) == 1 and core_jobs[0]["name"] == "build (core)"
+                and core_jobs[0]["run_id"] == DISTRIBUTION_RUN and core_jobs[0]["head_sha"] == RUNTIME
+                and core_jobs[0]["run_attempt"] == 1 and core_jobs[0]["status"] == "completed"
+                and core_jobs[0]["conclusion"] == "success", "official Core job binding differs")
         reference = payload / "official-core-build-reference.json"
         record(reference, {"format": "github-release-build-reference-v1",
             "reference_kind": "Verified existing official GitHub release-profile artifact; not a new local product build",
