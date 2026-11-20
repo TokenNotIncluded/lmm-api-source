@@ -404,12 +404,18 @@ async fn app05_upgrade_engine_66_to67_exact_replay_and_runtime_denial(pool: PgPo
         "1".into()
     };
     engine_offline_boundary(&r).await;
-    assert!(matches!(
-        upgrade_database(url.as_str(), wrong_system).await,
-        Err(UpgradeError::Rejected(
-            "UPGRADE_DB_SYSTEM_IDENTIFIER_MISMATCH"
-        ))
-    ));
+    let wrong_system_result = upgrade_database(url.as_str(), wrong_system)
+        .await
+        .map(|report| report.status);
+    assert!(
+        matches!(
+            &wrong_system_result,
+            Err(UpgradeError::Rejected(
+                "UPGRADE_DB_SYSTEM_IDENTIFIER_MISMATCH"
+            ))
+        ),
+        "wrong-system upgrade result: {wrong_system_result:?}"
+    );
 
     engine_offline_boundary(&r).await;
     let committed = upgrade_database(url.as_str(), r.clone()).await.unwrap();
