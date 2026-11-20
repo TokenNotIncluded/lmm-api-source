@@ -2,9 +2,9 @@
 
 更新于 2026-11-20。此文件维护当前状态、剩余阻塞和证据入口；先前失败、历史候选和各轮实际回执继续保留。
 
-## 当前状态（截至 2026-11-20 17:25 UTC）
+## 当前状态（截至 2026-11-20 18:10 UTC）
 
-**六个客户端插件的新版本均已公开；OpenCode 0.1.5 已完成最终主分支九行矩阵和实际发行，Core 上一轮失败的四个原用例已全部通过定向复验。** 安装器 Windows 的 DSH 宿主安装仍未完成，最终 Core 组合尚未取得完整 CI 资格。本轮没有迁移生产数据库或切换生产流量。
+**六个客户端插件的新版本均已公开；OpenCode 0.1.5 已完成最终主分支九行矩阵和实际发行，Core 上一轮失败的四个原用例已全部通过定向复验。** Windows DSH 官方完整 wheel 路线已在保留原限时的控制中实际通过；安装指南及五个已发布插件指针已提交，正式安装器与可选 Extore 交付包仍在收口，最终 Core 组合尚未取得完整 CI 资格。本轮没有迁移生产数据库或切换生产流量。
 
 ### 已公开的插件版本
 
@@ -23,11 +23,27 @@ Pi 的[原 npm OIDC 发布](https://github.com/TokenNotIncluded/pi-lmm-provider/
 
 DSH 五宿主、Codewhale 四组单元／三宿主／两组 Windows 的实际结果保留。[原 editor-providers](https://github.com/TokenNotIncluded/lmm-api-source/actions/runs/44744756613)完成 VSCode 42 项测试和真实 VSCode 1.104 激活，以及 Zed 29 项测试与打包；Zed 尚无真实编辑器启动验收。这些证据不等于生产 Core 端到端验收。
 
-### 安装器 Windows 的实际阻塞
+### Windows DSH：官方完整安装包路线实际通过
 
 [安装器 PR #12](https://github.com/TokenNotIncluded/lmm-scripts/pull/12) 当前源码 [abde4ef2](https://github.com/TokenNotIncluded/lmm-scripts/commit/abde4ef2bdd5f9f42cf5d4397d9109fab49fbcd1) 已修正 macOS 同目录别名及 PS5.1 模块 mock 夹具；产品摘要保护、原断言和预算保留。[Codewhale 三行](https://github.com/TokenNotIncluded/lmm-scripts/actions/runs/44758076810)与 [OpenCode 六行](https://github.com/TokenNotIncluded/lmm-scripts/actions/runs/44758077025)全部成功；[Installer checks](https://github.com/TokenNotIncluded/lmm-scripts/actions/runs/44758076847)四 job 成功、Windows job 取消。Windows 的 PS7、PS5.1 各 90 项实际通过，Pi 安装完成；DSH 未完成，后续 CLI 与最终版本检查未执行，不能把该行记为通过。
 
-仅增加阶段标记的 [DSH 控制](https://github.com/TokenNotIncluded/lmm-scripts/actions/runs/44768274211)保留相同产品字节、npm 参数和 15 分钟 job 预算。实际停在 `npm.cmd install -g @deepseek-ai/dsh@latest pnpm@latest`，host-install 经 636,824 ms 以 exception 结束；附件下载、摘要检查、plugin-add 三阶段均未开始。运行最终取消；没有足够证据把取消归因于具体系统事件。后继 [7417d563](https://github.com/TokenNotIncluded/lmm-scripts/commit/7417d56372dcbe0b90777f8bb1c6bef1fc5529b4)只在该命令作用域打开 npm timing／info，并输出白名单阶段信息，保留原参数、退出码、生命周期脚本、并发行为和预算。[本次观察运行](https://github.com/TokenNotIncluded/lmm-scripts/actions/runs/44774378194)亦最终取消，job 用时 907 秒；PS7、PS5.1 各 90 项仍实际通过。npm 依赖树解析 15.562 秒完成，随后停在取包／物化阶段，未出现 lifecycle 开始或 reify unpack／build 完成记录。白名单匹配到 1,020 条可见 GET 200，其中 340 条计时超过 60 秒、32 条超过 300 秒；实际 DSH 归档为 0.2.2-rc.5，该条计时 652,064 ms，pnpm 版本未观测。取消时读流收到 KeyboardInterrupt，npm 退出码未知。已按 npm-registry-fetch 19.1.1 精确来源确认，这个计时从请求开始到响应体 end，包含消费者／缓存及背压影响；白名单未记录 cache-only 或带 attempt 后缀的全部格式。因此不能把这些记录概括为全程没有重试／错误，也不能断言网络、文件系统或并发为唯一原因。没有重试同一失败运行。Pi 安装入口固定 alpha.7 的四文件草稿已完成原六项 Bash 用例，尚未写入 PR；计划与有证据支持的 DSH 修正一起验收。
+仅增加阶段标记的 [DSH 控制](https://github.com/TokenNotIncluded/lmm-scripts/actions/runs/44768274211)保留相同产品字节、npm 参数和 15 分钟 job 预算。实际停在 `npm.cmd install -g @deepseek-ai/dsh@latest pnpm@latest`，host-install 经 636,824 ms 以 exception 结束；附件下载、摘要检查、plugin-add 三阶段均未开始。运行最终取消；没有足够证据把取消归因于具体系统事件。后继 [7417d563](https://github.com/TokenNotIncluded/lmm-scripts/commit/7417d56372dcbe0b90777f8bb1c6bef1fc5529b4)只在该命令作用域打开 npm timing／info，并输出白名单阶段信息，保留原参数、退出码、生命周期脚本、并发行为和预算。[本次观察运行](https://github.com/TokenNotIncluded/lmm-scripts/actions/runs/44774378194)亦最终取消，job 用时 907 秒；PS7、PS5.1 各 90 项仍实际通过。npm 依赖树解析 15.562 秒完成，随后停在取包／物化阶段，未出现 lifecycle 开始或 reify unpack／build 完成记录。白名单匹配到 1,020 条可见 GET 200，其中 340 条计时超过 60 秒、32 条超过 300 秒；实际 DSH 归档为 0.2.2-rc.5，该条计时 652,064 ms，pnpm 版本未观测。取消时读流收到 KeyboardInterrupt，npm 退出码未知。已按 npm-registry-fetch 19.1.1 精确来源确认，这个计时从请求开始到响应体 end，包含消费者／缓存及背压影响；白名单未记录 cache-only 或带 attempt 后缀的全部格式。因此不能把这些记录概括为全程没有重试／错误，也不能断言网络、文件系统或并发为唯一原因。没有重试同一失败运行。后续 [fe016cd2 官方完整 wheel 控制](https://github.com/TokenNotIncluded/lmm-scripts/actions/runs/44786638207)已实际通过。唯一 job 于 17:47:30–17:54:04 UTC 运行 394 秒，原 15 分钟限时、PS7／PS5.1 各 90 项、五个 CLI 安装顺序及最终版本检查均保留。该控制只改变两份控制文件，原 74 个产品文件不变；不能把它的成功转写为 abde 默认 npm 路径已经通过。
+
+实际下载官方 `deepseek_harness_runtime_bin-0.2.2rc2-py3-none-win_amd64.whl`，86,959,936 B，SHA256 `a791af95a97be205a73354c6819e95b5fe2ff40a57ef8a78d53c188ee33e9aea`。在确认 Python ≥3.10、平台、入口及实际无 Requires-Dist 后，通过独占 venv 正常安装完整 wheel；不解析依赖、不升级 pip，也不抽取孤立 EXE。包内主程序、ripgrep 和下载清单三项安装后的实际摘要均与原 wheel 一致。
+
+| 实际阶段 | 结果与耗时 |
+| --- | --- |
+| 创建 venv | 退出 0，6.450 秒 |
+| 完整 wheel 安装 | 退出 0，1.711 秒 |
+| 原 pnpm 安装 | 退出 0，41.980 秒 |
+| 宿主全流程 | 退出 0，55.252 秒；实际 DSH 0.2.2-rc.2 |
+| 原 provider 安装 | 退出 0，2.957 秒；原 URL、摘要、profile 和 ignore-scripts 参数保留 |
+| 真实 Web 插件 | 未认证 401；认证后 200、signedIn=false；未启动 OAuth 或模型请求 |
+| 自建 Web 清理 | 仅该 PID 树，taskkill 退出 0；被强制停止的 wrapper 退出 1 与清理方式一致 |
+
+最后五个 CLI 均实际执行版本检查：Pi 1.6.0、DSH 0.2.2-rc.2、Codex 0.171.0、Claude Code 2.1.329、LMM 0.1.0。原始日志只下载一次，48,196 B／765 行，SHA256 `d7ecc46872751637ec65a2ca4cf6c4bcdcd79409bb4685c3685b3842c92f60f7`。临时工作区随后重建；已从原先读取的内存载荷将这份日志逐字恢复到开发机，没有再次下载或重跑。丢失前生成的终态收据为 14,079 B，SHA256 `261aafa1a4fe7e6510fd1be3a994173530121e7d0e5db32870ff19c864501c4f`；其原文件的丢失与恢复记录分别注明，未伪称原路径仍存在。
+
+这证明官方完整 wheel 方案可用，持久目录、升级／卸载、既有 npm 命令冲突和父进程 PATH 尚需在正式安装器中实现并验收。既有 50,000 B 体积预算和失败保护保持。Pi alpha.7 四文件稿已提交独立分支 [a705fc74](https://github.com/TokenNotIncluded/lmm-scripts/commit/a705fc742686463a087905a8a21b48900a118c38)，75 个 leaf 中仅四项改变，23 个脚本共 49,971 B；原六项 Bash 已通过，PowerShell 及最终组合仍待。该分支没有创建 PR 或触发 CI，PR12 保持 abde。
 
 ### OpenCode 0.1.5 已正式发布
 
@@ -55,11 +71,31 @@ DSH 五宿主、Codewhale 四组单元／三宿主／两组 Windows 的实际结
 
 独立收据 SHA256 `829e85d0722c0b36124f2248a2018b14ef63fb63f987dae9a1cf09cc37d23102`。原 navigation 的 SQLx Pool 提示和数据库负例 ERROR 保留；GitHub 实际清理了该次 PG 容器与网络。该定向模式明确跳过完整 protocol／market job，不能替代最终组合的 full CI，也不能证明旧拒绝瞬间的唯一原因。历史 bbf 的[另外三个原升级用例](https://github.com/TokenNotIncluded/lmm-api-source/actions/runs/44764024336)亦各实际通过一次，沿用其独立源码与证据身份。
 
+### 安装指南与已发布插件指针已提交
+
+[4706da93](https://github.com/TokenNotIncluded/lmm-api-source/commit/4706da93e280876f8ff9e6a54245fa265a1aef24)在 73711 基线上更新 11 个指南／翻译／测试文件，以及 Pi、Codewhale、VSCode、Zed、OpenCode 五个已发布源码指针。完整 tree 为 `563f21b62fc98725536ea2389ad97e80bafca064`，5,593 个 leaf 核对一致；DSH 保持 19489729，Extore 保持 8e306369，未合格的 installer 指针未提前替换。
+
+Pi helper 与 provider 操作数均固定 alpha.7；Codewhale 固定公开 alpha.4 tag；DSH Web 使用 GitHub alpha.9 包，Desktop 保持 alpha.4 与旧宿主 alpha.3 映射。14 个原导出名称保留。七份 locale 各新增六键，原 13,430 个键及所有旧行逐字保留；原翻译 writer、sync 和原回归函数通过。原 Forge 七项及新增版本入口回归合计 8 PASS、0 skip。实际 formatter、完整 Web format／lint／types／build 仍留原最终 CI，未用局部测试替代。
+
+### 可选 Extore 正式交付包正在补齐
+
+实际 73711 的 [发行清单](https://github.com/TokenNotIncluded/lmm-api-source/blob/73711f0ebc2a6475198355d3cac3e0b43eb41d1b/packaging/distribution.json)与 Extensions 镜像仅携带 Go 程序；现有 native CI 明确使用 debug 产物并只上传日志／收据。新架构需要同源的 `lmm-extore-host` 与单个 `libextore_zplugin.so` 进入正式 GNU 归档、原生包及镜像，不能拿 main/cf 的“两 SO＋HTTPS 代理”资格替代。
+
+正在准备独立可选变体：host／SO 必须成对、绑定 GNU 架构与源 gitlink，归档和镜像使用可区分的名称；原 Go-only 和 APK 路径、默认关闭状态保留。双架构 Linux 原入口将实际把可选变体装入包并验证安装、升级、移除及包内 native-flow，不能仅验证构建目录。真实同 UID、共享实时 data_dir、私有 socket 约束保留，不自动初始化数据库或启用插件。当前仍为草稿及轻量检查阶段，未执行本地重编译、安装或生产激活。
+
 ### 最终组合与生产上线
 
-下一步是完成安装器真实 Windows 验收与精确版本入口，更新 Core 对应 Git 子模块指针，再对同一最终源码执行原完整 CI。OpenCode 指针现可使用已正式发布且最终九行通过的 c32312c8；安装器尚未获得完整资格。页面命令中 Pi `latest`、DSH npm／GitHub 渠道和旧 Desktop 兼容分支正在逐项核对，尚未把未验收指针写入最终组合。历史 22c、浏览器及容量结果只适用于当时源码，不能转移为新组合的生产资格。
+技术侧还需完成正式 Windows 安装器、Extore 可选交付包，再对同一最终源码执行原完整 Core／market、Web、翻译、native integration 以及对应发行和升级恢复门槛。原 CI 的定向成功、旧 22c、旧浏览器和 120e0401 容量结果均只绑定各自输入，不能直接转为当前组合资格。
 
-生产还需要真实 Core69 身份／Key 导入材料、同批 source review 授权、完整财务声明与额度对账、writer fencing 的实际执行，以及同一最终源码的升级与失败恢复证据。现有离线预检因授权材料缺失而拒绝，实际 0 查询／0 连接／0 写入；没有填写或代签缺失声明。默认 Core／Go Extensions／CLI 与可选 native Extore 的 UID、数据目录和 ABI 分别保留，见 [Extore 接入](extore.md)和[发行架构](release-architecture.md)。这些技术与上线材料尚未闭合，因此目前不能给出可信的生产切流日期。
+已完成的只读上线审计将实际财务 readiness 的五个 BLOCKED 收敛到三个根因：
+
+1. **本批 source_review 缺失。** 需要真实审核结论，绑定 source archive、mapping、identity map 与经济证据摘要，保持 500,000 credits/USD 及其他权利暂不启用的原合同；不能由代码生成一次摘要就充当批准。
+2. **完整 reservations 缺失。** 需要覆盖计划中全部钱包用户、无重复且额度合法的预留声明，并绑定已审核计划和证据；部分短信预留事实不能代替完整声明，也不能擅自填全零。
+3. **真实财务目标声明不匹配。** 现有文件仍声明 identity-only 目标和 identity migration_id；须在核实实际目标后提供 `initialized-identity-bound-financial-target`、财务批次 ID、实际角色与尚未启动应用的真实声明，不能只改旧文件标签。
+
+原始 source export proof 与 raw archive 的绑定已经通过，不再列为缺件。已准入的是固定 Core69 导入再逐段升级的路线；直接替换成当前 Core78 不构成导入批准。Opening-only 与已有 available-wallet06 的范围也不代表全部财产权利完成。审计收据 SHA256 `57a36271d94407eb0815668b5ae16d1f2944f7289fc16704b6e6d65ac2509ae1`；真实目标状态在此次离线审计中未连接核查。
+
+生产迁移的实际查询、连接、写入均为 0。代码和验证继续推进；真实审核／声明、额度对账、writer fencing 与最终升级／失败恢复证据完成后，才能确定生产切流窗口。见 [Extore 接入](extore.md)和[发行架构](release-architecture.md)。
 
 ## 历史阶段记录（截至 2026-11-20 11:47 UTC）
 
