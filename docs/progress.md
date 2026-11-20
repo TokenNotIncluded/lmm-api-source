@@ -2,13 +2,13 @@
 
 更新于 2026-11-20。此文件维护当前状态、剩余阻塞和证据入口；先前失败、历史候选和各轮实际回执继续保留。
 
-## 当前状态（截至 2026-11-20 16:52 UTC）
+## 当前状态（截至 2026-11-20 17:25 UTC）
 
-**五个插件新版本已公开，Pi npm 新版已发布；Core 上一轮失败的四个原用例已在修正源码上全部通过定向复验。** 安装器 Windows 的 DSH 宿主安装和 OpenCode 最终九行矩阵仍未完成，最终组合尚未取得完整 CI 资格。本轮没有迁移生产数据库或切换生产流量。
+**六个客户端插件的新版本均已公开；OpenCode 0.1.5 已完成最终主分支九行矩阵和实际发行，Core 上一轮失败的四个原用例已全部通过定向复验。** 安装器 Windows 的 DSH 宿主安装仍未完成，最终 Core 组合尚未取得完整 CI 资格。本轮没有迁移生产数据库或切换生产流量。
 
 ### 已公开的插件版本
 
-五份 GitHub Release 的实际下载附件均已核对字节数与 SHA256，并绑定原构建产物和固定源码。Pi、DSH、Codewhale 为 prerelease；VSCode、Zed 为稳定 GitHub Release。编辑器市场、npm 渠道与真实 Core OAuth／付费推理链分别验收。
+六份 GitHub Release 的实际下载附件均已核对字节数与 SHA256，并绑定原构建产物和固定源码。Pi、DSH、Codewhale 为 prerelease；VSCode、Zed、OpenCode 为稳定 GitHub Release。编辑器市场、npm 渠道与真实 Core OAuth／付费推理链分别验收。
 
 | 插件 | 已公开版本 | 固定发布源码 | GitHub Release ID |
 | --- | --- | --- | --- |
@@ -17,22 +17,31 @@
 | Codewhale | [0.1.0-alpha.4](https://github.com/TokenNotIncluded/codewhale-lmm-provider/releases/tag/v0.1.0-alpha.4) | [e34e356a](https://github.com/TokenNotIncluded/codewhale-lmm-provider/commit/e34e356ab7e815b24e89bab05688b3404d2cc638) | 452774919 |
 | VSCode | [0.1.6](https://github.com/TokenNotIncluded/vscode-lmm-provider/releases/tag/v0.1.6) | [fc0fed00](https://github.com/TokenNotIncluded/vscode-lmm-provider/commit/fc0fed00fcc2acfd5c347f0c9466a1c5a591bf55) | 452786332 |
 | Zed | [0.1.4](https://github.com/TokenNotIncluded/zed-lmm-provider/releases/tag/v0.1.4) | [5bef2a06](https://github.com/TokenNotIncluded/zed-lmm-provider/commit/5bef2a061f19788bd112718a14d5b587fe867358) | 452787284 |
+| OpenCode | [0.1.5](https://github.com/TokenNotIncluded/opencode-lmm-auth/releases/tag/v0.1.5) | [c32312c8](https://github.com/TokenNotIncluded/opencode-lmm-auth/commit/c32312c8d1e03c28e1204d33e7e94d1b312ac832) | 452981260 |
 
 Pi 的[原 npm OIDC 发布](https://github.com/TokenNotIncluded/pi-lmm-provider/actions/runs/44753390279)实际完成 publish 与 registry readback。`alpha` 指向 `0.1.0-alpha.7`，`latest` 仍为 `0.1.0-alpha.2`；30 个包内文件、TGZ 摘要及 SRI 已核对。控制源码 `198ba195` 与发布源码 `b5eb6321` 分别记录；并发 main 更新未改变原发布工作流或脚本。attestation 元数据 URL 已存在，本轮未另外执行密码学验证。DSH alpha.9 已公开 GitHub 附件，尚不能称为 npm 新版或 GitHub `latest`。
 
 DSH 五宿主、Codewhale 四组单元／三宿主／两组 Windows 的实际结果保留。[原 editor-providers](https://github.com/TokenNotIncluded/lmm-api-source/actions/runs/44744756613)完成 VSCode 42 项测试和真实 VSCode 1.104 激活，以及 Zed 29 项测试与打包；Zed 尚无真实编辑器启动验收。这些证据不等于生产 Core 端到端验收。
 
-### 安装器与 OpenCode 的实际阻塞
+### 安装器 Windows 的实际阻塞
 
 [安装器 PR #12](https://github.com/TokenNotIncluded/lmm-scripts/pull/12) 当前源码 [abde4ef2](https://github.com/TokenNotIncluded/lmm-scripts/commit/abde4ef2bdd5f9f42cf5d4397d9109fab49fbcd1) 已修正 macOS 同目录别名及 PS5.1 模块 mock 夹具；产品摘要保护、原断言和预算保留。[Codewhale 三行](https://github.com/TokenNotIncluded/lmm-scripts/actions/runs/44758076810)与 [OpenCode 六行](https://github.com/TokenNotIncluded/lmm-scripts/actions/runs/44758077025)全部成功；[Installer checks](https://github.com/TokenNotIncluded/lmm-scripts/actions/runs/44758076847)四 job 成功、Windows job 取消。Windows 的 PS7、PS5.1 各 90 项实际通过，Pi 安装完成；DSH 未完成，后续 CLI 与最终版本检查未执行，不能把该行记为通过。
 
-仅增加阶段标记的 [DSH 控制](https://github.com/TokenNotIncluded/lmm-scripts/actions/runs/44768274211)保留相同产品字节、npm 参数和 15 分钟 job 预算。实际停在 `npm.cmd install -g @deepseek-ai/dsh@latest pnpm@latest`，host-install 经 636,824 ms 以 exception 结束；附件下载、摘要检查、plugin-add 三阶段均未开始。运行最终取消；没有足够证据把取消归因于具体系统事件。后继 [7417d563](https://github.com/TokenNotIncluded/lmm-scripts/commit/7417d56372dcbe0b90777f8bb1c6bef1fc5529b4)只在该命令作用域打开 npm timing／info，并输出白名单阶段信息，保留原参数、退出码、生命周期脚本、并发行为和预算。[本次观察运行](https://github.com/TokenNotIncluded/lmm-scripts/actions/runs/44774378194)亦最终取消，job 用时 907 秒；PS7、PS5.1 各 90 项仍实际通过。npm 依赖树解析 15.562 秒完成，随后停在取包／物化阶段，未出现 lifecycle 开始或 reify unpack／build 完成记录。观察到 1,020 条 GET 200，其中 340 条计时超过 60 秒、32 条超过 300 秒；实际 DSH 归档为 0.2.2-rc.5，该条计时 652,064 ms，pnpm 版本未观测。取消时读流收到 KeyboardInterrupt，npm 退出码未知。这里的 HTTP 计时仍需按实际 npm 来源界定，不能直接断言网络、文件系统或并发为唯一原因；没有重试同一失败运行。Pi 安装入口固定 alpha.7 的四文件草稿已完成原六项 Bash 用例，尚未写入 PR；计划与有证据支持的 DSH 修正一起验收。
+仅增加阶段标记的 [DSH 控制](https://github.com/TokenNotIncluded/lmm-scripts/actions/runs/44768274211)保留相同产品字节、npm 参数和 15 分钟 job 预算。实际停在 `npm.cmd install -g @deepseek-ai/dsh@latest pnpm@latest`，host-install 经 636,824 ms 以 exception 结束；附件下载、摘要检查、plugin-add 三阶段均未开始。运行最终取消；没有足够证据把取消归因于具体系统事件。后继 [7417d563](https://github.com/TokenNotIncluded/lmm-scripts/commit/7417d56372dcbe0b90777f8bb1c6bef1fc5529b4)只在该命令作用域打开 npm timing／info，并输出白名单阶段信息，保留原参数、退出码、生命周期脚本、并发行为和预算。[本次观察运行](https://github.com/TokenNotIncluded/lmm-scripts/actions/runs/44774378194)亦最终取消，job 用时 907 秒；PS7、PS5.1 各 90 项仍实际通过。npm 依赖树解析 15.562 秒完成，随后停在取包／物化阶段，未出现 lifecycle 开始或 reify unpack／build 完成记录。白名单匹配到 1,020 条可见 GET 200，其中 340 条计时超过 60 秒、32 条超过 300 秒；实际 DSH 归档为 0.2.2-rc.5，该条计时 652,064 ms，pnpm 版本未观测。取消时读流收到 KeyboardInterrupt，npm 退出码未知。已按 npm-registry-fetch 19.1.1 精确来源确认，这个计时从请求开始到响应体 end，包含消费者／缓存及背压影响；白名单未记录 cache-only 或带 attempt 后缀的全部格式。因此不能把这些记录概括为全程没有重试／错误，也不能断言网络、文件系统或并发为唯一原因。没有重试同一失败运行。Pi 安装入口固定 alpha.7 的四文件草稿已完成原六项 Bash 用例，尚未写入 PR；计划与有证据支持的 DSH 修正一起验收。
 
-OpenCode 已将产品 Windows helper 改为从固定 C# 源码编译的程序，保留原 ACL 存储逻辑及 5,000 ms／4,096 字节边界。[实际构建控制](https://github.com/TokenNotIncluded/lmm-api-source/actions/runs/44765614413)通过原 52 项、12 项协议分帧、实际 build／pack 与源及进程清理检查；实际 EXE 14,848 B，SHA256 `cc9b0438f27ae56bcaa52374298c3c2ef4b86e36452efd9bca972c4a92c5581a`，已进入产品源码。最初分帧失败的旧 EXE 保留为失败证据，未发布。
+### OpenCode 0.1.5 已正式发布
 
-产品 [e1f65f4e](https://github.com/TokenNotIncluded/opencode-lmm-auth/commit/e1f65f4e4d3dee914b09025697e0530ff6b70188)的[原九行矩阵](https://github.com/TokenNotIncluded/opencode-lmm-auth/actions/runs/44770952301)仍失败：三个 job 成功，一个失败、五个取消；其中两行 Windows 的测试步骤实际为 51／52，独立测试 oracle 的 `action=read` 在 5,045 ms 以 `SIGTERM`／`killed=true` 结束，产品 lost-ACK 原测试通过。该 PowerShell oracle 没有 `Add-Type`，不能把原因写成动态 C# 编译超时。
+[OpenCode 0.1.5](https://github.com/TokenNotIncluded/opencode-lmm-auth/releases/tag/v0.1.5) 已于 17:21:30 UTC 公开为稳定 GitHub Release，ID 452981260，`latest` 已指向此版。tag、`target_commitish`、发行清单及实际包均绑定最终主分支 [c32312c8](https://github.com/TokenNotIncluded/opencode-lmm-auth/commit/c32312c8d1e03c28e1204d33e7e94d1b312ac832)，tree `03c277a594490eb0a1e0e09070530c1ebc98d8bd`。主分支采用正常双父合并，保留并行的 `DYNAMIC_CATALOG.md` 目录说明更新。
 
-独立测试 oracle 已按原 Framework ACL／SHA 语义实现为固定 C# 程序，保留原七次 ACL 检查、负例与恢复断言，并在第一次调用前验证源码／EXE／构建收据绑定。[ec3e27de 控制](https://github.com/TokenNotIncluded/lmm-api-source/commit/ec3e27de54e45c44c907d10ab822345618c68fd6)已一次派发至 [Windows 验证](https://github.com/TokenNotIncluded/lmm-api-source/actions/runs/44776775599)，仅编译这个独立测试程序、运行原 52 项一次，要求产品与测试程序都无遗留进程。运行 API 已报告成功；实际 EXE、构建收据、原日志与清理证据仍在独立核验，暂不以 API 状态替代完整资格。最终产品九行矩阵及最终源码的真实发行包尚待验收；0.1.5 尚未发布。
+[729 候选九行](https://github.com/TokenNotIncluded/opencode-lmm-auth/actions/runs/44778448175)和[最终主分支九行](https://github.com/TokenNotIncluded/opencode-lmm-auth/actions/runs/44779914524)各自原始运行均通过。最终源码的 Windows／macOS／Ubuntu × OpenCode 1.18.34、1.19.6、latest 九组，每行实际 52 PASS、0 skipped／failed／cancelled，共 468 PASS；原 build、dist 守卫、typecheck、pack 检查、真实 host smoke 和三项 integration 均有完整日志。`latest` 实际解析版本未由原日志输出，未猜测。Windows 原七次 ACL 调用和 lost-ACK 断言完整保留；最终三个 Windows 行的 journal 用例约 1.10–1.14 秒，仍使用原 5 秒预算。
+
+实际 `npm pack` 仅执行一次，原 prepack build 与产品 helper 校验均成功，耗时 3.399 秒。63 项源码前后逐字相同；包内 45 个普通文件、解包 359,563 B 全部匹配固定源码。真实 TGZ 为 107,174 B，SHA256 `32662d8f6e4b5e7c723b5079decb84113305622b773836c5bd8ffb7bbf163e66`。发布同时附带六字段 `release.json` 和单行 `SHA256SUMS`，安装器据此核对 commit-addressed 文件名、固定源码和包摘要。首次后置审计误将 npm lifecycle banner 只查 stdout，而实际 banner 位于 stderr；修正只读取原两条输出与既有 TGZ，未重打包或修改源码、dist、包字节。
+
+发布器实际完成草稿创建、三附件上传、逐附件下载字节核验、正式公开及 tag／target／latest 回读；收据 SHA256 `d3bf8202e86222307aad0ba015d0cd6bdd5eb86c9d070f167e64e3a6658ea74d`。本轮没有执行 OpenCode npm publish。
+
+原产品 helper 来自[真实 Windows 构建](https://github.com/TokenNotIncluded/lmm-api-source/actions/runs/44765614413)，EXE 14,848 B，SHA256 `cc9b0438f27ae56bcaa52374298c3c2ef4b86e36452efd9bca972c4a92c5581a`，已审 C# 存储逻辑及原 5,000 ms／4,096 字节边界保留。[独立测试 oracle 构建](https://github.com/TokenNotIncluded/lmm-api-source/actions/runs/44776775599)实际编译出 9,216 B 程序并通过原 52 项，验证了源码／EXE／收据绑定及两类进程无遗留；测试程序未进入发行包。先前产品分帧失败与 [e1f 独立 PowerShell oracle 超时](https://github.com/TokenNotIncluded/opencode-lmm-auth/actions/runs/44770952301)的原始记录均保留，未把没有 Add-Type 的测试工具误写成动态 C# 编译超时。
+
+上述宿主集成检查使用本地 OAuth 夹具，验证 PKCE 重连与明确协议拒绝；没有执行真实付费模型请求。unsupported legacy inference 仍明确拒绝，不扩大为生产 Core 登录／计费全链资格。
 
 ### Core 四个失败已定向修正
 
@@ -48,7 +57,7 @@ OpenCode 已将产品 Windows helper 改为从固定 C# 源码编译的程序，
 
 ### 最终组合与生产上线
 
-下一步是完成 OpenCode 0.1.5、安装器真实 Windows 验收与精确版本入口，更新 Core 对应 Git 子模块指针，再对同一最终源码执行原完整 CI。页面命令中 Pi `latest`、DSH npm／GitHub 渠道和旧 Desktop 兼容分支正在逐项核对，尚未把未验收指针写入最终组合。历史 22c、浏览器及容量结果只适用于当时源码，不能转移为新组合的生产资格。
+下一步是完成安装器真实 Windows 验收与精确版本入口，更新 Core 对应 Git 子模块指针，再对同一最终源码执行原完整 CI。OpenCode 指针现可使用已正式发布且最终九行通过的 c32312c8；安装器尚未获得完整资格。页面命令中 Pi `latest`、DSH npm／GitHub 渠道和旧 Desktop 兼容分支正在逐项核对，尚未把未验收指针写入最终组合。历史 22c、浏览器及容量结果只适用于当时源码，不能转移为新组合的生产资格。
 
 生产还需要真实 Core69 身份／Key 导入材料、同批 source review 授权、完整财务声明与额度对账、writer fencing 的实际执行，以及同一最终源码的升级与失败恢复证据。现有离线预检因授权材料缺失而拒绝，实际 0 查询／0 连接／0 写入；没有填写或代签缺失声明。默认 Core／Go Extensions／CLI 与可选 native Extore 的 UID、数据目录和 ABI 分别保留，见 [Extore 接入](extore.md)和[发行架构](release-architecture.md)。这些技术与上线材料尚未闭合，因此目前不能给出可信的生产切流日期。
 
