@@ -247,11 +247,39 @@ test('CI and manual qualification reuse the exact core and extension verificatio
   assert.doesNotMatch(source, /continue-on-error:|apps\/extensions-go/);
 });
 
+test('CI exercises the real pinned Extore plugin and preserves only diagnostic evidence', () => {
+  const source = workflow('ci');
+  const job = source.match(/^  extore-native:\n([\s\S]*?)(?=^  [\w-]+:\n)/m)?.[1];
+  assert.ok(job, 'the native plugin requires its own bounded CI job');
+  assert.match(job, /runs-on: ubuntu-24\.04/);
+  assert.match(job, /timeout-minutes: 30/);
+  assert.match(job, /persist-credentials: false/);
+  assert.match(job, /git submodule update --init --depth 1 -- third_party\/extore/);
+  assert.doesNotMatch(job, /submodules:\s*(?:true|recursive)|continue-on-error|secrets\./);
+  assert.match(job, /uses: jdx\/mise-action@[a-f0-9]{40}/);
+  assert.match(job, /install_args: go rust/);
+  assert.match(job, /MISE_EXEC_AUTO_INSTALL: "false"/);
+  assert.match(job, /cargo build --locked --manifest-path third_party\/extore\/Cargo.toml/);
+  assert.match(job, /--package extore --package extore-zplugin/);
+  assert.match(job, /cargo test --locked --manifest-path services\/extensions\/extore-host\/Cargo.toml/);
+  assert.match(job, /python3 -B services\/extensions\/extore-host\/tests\/native-flow\.py/);
+  for (const option of ['--extore-source', '--extore-binary', '--host', '--plugin', '--output']) {
+    assert.ok(job.includes(option), option);
+  }
+  assert.match(job, /LMM_EXTORE_PLUGIN_FIXTURE/);
+  assert.match(job, /--- PASS: TestExtoreNativePlugin/);
+  assert.match(job, /--- SKIP: TestExtoreNativePlugin/);
+  assert.match(job, /name: Preserve native plugin diagnostics\n        if: \$\{\{ always\(\) \}\}/);
+  assert.match(job, /extore-native-evidence\/native\/receipt\.json/);
+  assert.match(job, /extore-native-evidence\/native\/native-flow\.log/);
+  assert.doesNotMatch(job, /path: \|\n\s+.*(?:lmm-fixture\.json|extore\.sqlite3)/);
+});
+
 test('the CI gate cannot pass when an implemented component fails or is skipped', () => {
   const source = workflow('ci');
-  assert.match(source, /needs: \[microkernel, web, translations\]/);
+  assert.match(source, /needs: \[microkernel, web, translations, extore-native\]/);
   assert.match(source, /if: \$\{\{ always\(\) \}\}/);
-  for (const name of ['KERNEL_RESULT', 'WEB_RESULT', 'TRANSLATION_RESULT']) {
+  for (const name of ['KERNEL_RESULT', 'WEB_RESULT', 'TRANSLATION_RESULT', 'EXTORE_NATIVE_RESULT']) {
     assert.ok(source.includes(`test "$${name}" = success`));
   }
   assert.match(source, /name: Translation regression check/);

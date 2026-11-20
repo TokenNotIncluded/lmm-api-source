@@ -99,10 +99,123 @@ jobs:
             node scripts/check-i18n.mjs --base "$BASE_REF"
           fi
 
+  extore-native:
+    name: Extore native plugin integration
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      GOWORK: "off"
+      GOFLAGS: "-mod=readonly"
+      CARGO_BUILD_JOBS: "2"
+      CARGO_INCREMENTAL: "0"
+      CARGO_PROFILE_DEV_DEBUG: "0"
+      CARGO_PROFILE_TEST_DEBUG: "0"
+      MISE_TRUSTED_CONFIG_PATHS: ${{ github.workspace }}
+      # Only Go and Rust are needed; native-flow.py must not install other tools.
+      MISE_EXEC_AUTO_INSTALL: "false"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Record source and initialize only the pinned Extore
+        run: |
+          mkdir -p "$RUNNER_TEMP/extore-native-evidence"
+          echo "CARGO_TARGET_DIR=$RUNNER_TEMP/extore-native-target" >> "$GITHUB_ENV"
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+          import subprocess
+          revision = subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()
+          gitlink = subprocess.check_output(
+              ["git", "ls-files", "--stage", "third_party/extore"], text=True).split()
+          if len(gitlink) < 2 or gitlink[0] != "160000":
+              raise SystemExit("Extore must be a pinned Git submodule")
+          evidence = Path(os.environ["RUNNER_TEMP"]) / "extore-native-evidence"
+          (evidence / "source.json").write_text(json.dumps({
+              "source_revision": revision,
+              "extore_gitlink": gitlink[1],
+              "build_purpose": "debug integration checks, not production distribution",
+          }, indent=2) + "\n")
+          PY
+          git submodule update --init --depth 1 -- third_party/extore
+
+      - name: Install root-pinned Go and Rust
+        uses: jdx/mise-action@5228313ee0372e111a38da051671ca30fc5a96db # v3
+        with:
+          version: "2026.11.10"
+          sha256: b603a4f48563fc379a794d9ea2cf9f709ed276c9141068604cb0c59fa3e674a9
+          install_args: go rust
+
+      - name: Install native build dependencies
+        run: |
+          sudo --preserve-env=GITHUB_ACTIONS python3 scripts/prepare-ci-apt.py
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends --yes build-essential pkg-config libssl-dev
+
+      - name: Build the fixed Extore service, plugin and private host
+        run: |
+          mise exec -- cargo build --locked --manifest-path third_party/extore/Cargo.toml \
+            --package extore --package extore-zplugin 2>&1 | tee "$RUNNER_TEMP/extore-native-evidence/build-extore.log"
+          mise exec -- cargo build --locked --manifest-path services/extensions/extore-host/Cargo.toml \
+            2>&1 | tee "$RUNNER_TEMP/extore-native-evidence/build-host.log"
+
+      - name: Test the private native host
+        run: |
+          mise exec -- cargo test --locked --manifest-path services/extensions/extore-host/Cargo.toml \
+            --all-targets 2>&1 | tee "$RUNNER_TEMP/extore-native-evidence/host-tests.log"
+
+      - name: Exercise real OAuth, native catalog and revocation
+        run: |
+          # The runner creates a private LMM_EXTORE_PLUGIN_FIXTURE and passes it
+          # to Go; neither that credential file nor the synthetic DB is uploaded.
+          python3 -B services/extensions/extore-host/tests/native-flow.py \
+            --extore-source "$GITHUB_WORKSPACE/third_party/extore" \
+            --extore-binary "$CARGO_TARGET_DIR/debug/extore" \
+            --host "$CARGO_TARGET_DIR/debug/lmm-extore-host" \
+            --plugin "$CARGO_TARGET_DIR/debug/libextore_zplugin.so" \
+            --output "$RUNNER_TEMP/extore-native-evidence/native"
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+          import re
+          evidence = Path(os.environ["RUNNER_TEMP"]) / "extore-native-evidence"
+          receipt = json.loads((evidence / "native/receipt.json").read_text())
+          source = json.loads((evidence / "source.json").read_text())
+          log = (evidence / "native/native-flow.log").read_text()
+          if receipt["exit_code"] != 0 or receipt["source_revision"] != source["source_revision"]:
+              raise SystemExit("Native fixture failed or tested another LMM revision")
+          if receipt["extore_revision"] != source["extore_gitlink"] or receipt["extore_gitlink"] != source["extore_gitlink"]:
+              raise SystemExit("Native fixture did not use the pinned Extore revision")
+          if not re.search(r"^--- PASS: TestExtoreNativePlugin \(", log, re.MULTILINE):
+              raise SystemExit("The real native plugin test did not pass")
+          if re.search(r"^--- SKIP: TestExtoreNativePlugin\b", log, re.MULTILINE):
+              raise SystemExit("A skipped native plugin test is not acceptance")
+          print("Real native plugin flow passed with matching source and no skipped test.")
+          PY
+
+      - name: Preserve native plugin diagnostics
+        if: ${{ always() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: extore-native-${{ github.sha }}-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/extore-native-evidence/source.json
+            ${{ runner.temp }}/extore-native-evidence/build-extore.log
+            ${{ runner.temp }}/extore-native-evidence/build-host.log
+            ${{ runner.temp }}/extore-native-evidence/host-tests.log
+            ${{ runner.temp }}/extore-native-evidence/native/receipt.json
+            ${{ runner.temp }}/extore-native-evidence/native/native-flow.log
+          if-no-files-found: warn
+          retention-days: 7
+
   quality-gate:
     name: Implemented component checks
     if: ${{ always() }}
-    needs: [microkernel, web, translations]
+    needs: [microkernel, web, translations, extore-native]
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
@@ -111,8 +224,10 @@ jobs:
           KERNEL_RESULT: ${{ needs.microkernel.result }}
           WEB_RESULT: ${{ needs.web.result }}
           TRANSLATION_RESULT: ${{ needs.translations.result }}
+          EXTORE_NATIVE_RESULT: ${{ needs.extore-native.result }}
         run: |
           test "$KERNEL_RESULT" = success
           test "$WEB_RESULT" = success
           test "$TRANSLATION_RESULT" = success
+          test "$EXTORE_NATIVE_RESULT" = success
           echo 'These checks do not authorize production deployment.'
