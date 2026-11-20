@@ -30,6 +30,7 @@ mod payment_discount_management;
 mod payment_discounts;
 mod payment_gateways;
 mod personal_tokens;
+pub(super) mod provider_oauth_clients;
 mod registry;
 mod request_operations;
 mod responses_continuity;

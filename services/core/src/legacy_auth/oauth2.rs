@@ -100,17 +100,18 @@ fn flow_cookie(
 const CONSENT_STYLE: &str = "*{box-sizing:border-box}html{color-scheme:light dark}body{margin:0;background:#f4f5f7;color:#20242c;font:16px/1.6 system-ui,sans-serif}main{max-width:620px;margin:7vh auto;padding:32px;background:#fff;border:1px solid #dde1e7;border-radius:20px;box-shadow:0 16px 48px #1520350a}header{border-bottom:1px solid #e3e7ed;padding-bottom:20px;margin-bottom:24px}header p{font-size:12px;font-weight:700;letter-spacing:.14em;color:#546277}h1{margin:4px 0;font-size:30px;line-height:1.2}p,li{overflow-wrap:anywhere}ul{display:flex;flex-wrap:wrap;gap:8px;padding:0;list-style:none}li{padding:4px 12px;border-radius:20px;background:#edf1f7;font-size:14px}label{display:block;margin:24px 0;padding:20px;border:1px solid #d9e0ec;border-radius:12px;font-weight:600}input[type=number]{display:block;width:100%;padding:12px;margin-top:12px;border:1px solid #9ba7ba;border-radius:8px;font:inherit;background:transparent;color:inherit}button{padding:12px 18px;margin:8px 8px 0 0;border:1px solid #aab5c5;border-radius:8px;font:600 15px system-ui;cursor:pointer}button[value=allow],button:not([value]){background:#244b8f;color:#fff;border-color:#244b8f}button[value=deny]{background:transparent;color:inherit}a{color:#244b8f}a:focus-visible,button:focus-visible,input:focus-visible{outline:3px solid #6289cc;outline-offset:3px}footer{margin-top:24px;color:#647087;font-size:13px}@media(max-width:640px){main{margin:16px;padding:24px}button{width:100%}}@media(prefers-color-scheme:dark){body{background:#14171c;color:#e5e9f1}main{background:#1c2028;border-color:#343d4c}header{border-color:#343d4c}header p,footer{color:#a8b4c8}li{background:#2c3443}label{border-color:#45516a}a{color:#a9c6ff}}";
 
 fn page(page: ConsentPage, config: &LegacyAuthConfig) -> Response {
-    let pi = page.client_id == "lmm-pi";
     let managed = matches!(page.client_id.as_str(), "lmm-cc-switch" | "lmm-magpie");
-    let model = pi || managed;
-    let client_name = if pi {
-        "LMM Pi"
-    } else if page.client_id == "lmm-magpie" {
-        "LMM Magpie"
-    } else if managed {
-        "LMM CC Switch"
-    } else {
-        "LMM CLI"
+    let model = page.maximum_budget_credits.is_some();
+    let client_name = match page.client_id.as_str() {
+        "lmm-pi" => "LMM Pi",
+        "lmm-dsh" => "LMM DSH",
+        "lmm-codewhale" => "LMM Codewhale",
+        "lmm-opencode" => "LMM OpenCode",
+        "lmm-vscode" => "LMM VS Code",
+        "lmm-zed" => "LMM Zed",
+        "lmm-magpie" => "LMM Magpie",
+        "lmm-cc-switch" => "LMM CC Switch",
+        _ => "LMM CLI",
     };
     let mut body = format!(
         "<!doctype html><html lang=en><meta charset=utf-8><meta name=viewport content=\"width=device-width,initial-scale=1\"><title>LMM authorization</title><style>{CONSENT_STYLE}</style><main><header><p>LMM · CLIENT AUTHORIZATION</p><h1>{client_name}</h1></header>"
@@ -346,18 +347,29 @@ mod tests {
         use crate::identity::grants::LmmProfile;
 
         let config = LegacyAuthConfig::new("https://issuer.example.test", &[3; 32]).unwrap();
-        let profile = LmmProfile::new("https://issuer.example.test", vec!["default".into()])
+        let mut profile = LmmProfile::new("https://issuer.example.test", vec!["default".into()])
             .unwrap()
             .with_pi_budget_limit(100)
             .unwrap();
-        for client in ["lmm", "lmm-pi"] {
+        let model_clients = [
+            "lmm-pi",
+            "lmm-dsh",
+            "lmm-codewhale",
+            "lmm-opencode",
+            "lmm-vscode",
+            "lmm-zed",
+        ];
+        for client in model_clients {
+            profile = profile.with_public_model_budget_limit(client, 100).unwrap();
+        }
+        for client in std::iter::once("lmm").chain(model_clients) {
             for port in [38423, 52917] {
                 let request = profile
                     .validate_authorization(AuthorizationRequest {
                         response_type: "code".into(),
                         client_id: client.into(),
                         redirect_uri: format!("http://127.0.0.1:{port}/oauth/lmm/callback"),
-                        scope: if client == "lmm-pi" {
+                        scope: if client != "lmm" {
                             "catalog:read balance:read usage:read models:invoke"
                         } else {
                             "catalog:read balance:read"
@@ -379,7 +391,7 @@ mod tests {
                             account: signed_in.then(|| "synthetic-user".into()),
                             client_id: request.client_id.clone(),
                             redirect_uri: request.redirect_uri.clone(),
-                            maximum_budget_credits: (client == "lmm-pi").then_some(100),
+                            maximum_budget_credits: (client != "lmm").then_some(100),
                             installation_id: None,
                             display_label: None,
                             groups: vec!["default".into()],
@@ -420,6 +432,11 @@ mod tests {
                     if signed_in {
                         assert!(html.contains("name=decision value=allow"));
                         assert!(html.contains("name=decision value=deny"));
+                        assert_eq!(html.contains("name=budget_credits"), client != "lmm");
+                        assert_eq!(
+                            html.contains("Allow model calls and usage"),
+                            client != "lmm"
+                        );
                     }
                 }
             }

@@ -30,6 +30,7 @@ pub(super) enum DataProjection {
     Exact,
     SubscriptionEpay,
     ManagedApplications,
+    ProviderOauthClients,
 }
 #[derive(Clone, Copy)]
 pub(super) struct SuffixPolicy {
@@ -246,6 +247,7 @@ registrations! {
         CHECKIN_CHALLENGES => checkin_challenges, "CHECKIN_CHALLENGES_", |c,r| Box::pin(checkin_challenges::grant_runtime(c, &r.roles.runtime)), owner_receipt, SuffixPolicy::DEFAULT;
         NETWORK_ACCESS => network_access, "NETWORK_ACCESS_", |c,r| Box::pin(network_access::grant_runtime(c, &r.roles.runtime)), owner_receipt, SuffixPolicy::DEFAULT;
         CONNECTION_HISTORY_IMPORT => connection_history_import, "CONNECTION_HISTORY_IMPORT_", no_grants, owner_receipt, SuffixPolicy::DEFAULT;
+        PROVIDER_OAUTH_CLIENTS => provider_oauth_clients, "PROVIDER_OAUTH_CLIENTS_", no_grants, owner_receipt, SuffixPolicy { target: TargetSource::Captured(provider_oauth_clients::captured_target), projection: DataProjection::ProviderOauthClients, ..SuffixPolicy::DEFAULT };
         OIDC => oidc, "OIDC_", |c,r| Box::pin(oidc::grant_runtime(c, &r.roles.runtime)), owner_receipt, SuffixPolicy::DEFAULT;
     }
 }
@@ -293,6 +295,7 @@ mod tests {
             "core-checkin-challenges-v1",
             "core-network-access-v1",
             "core-connection-history-import-v1",
+            "core-provider-oauth-clients-v1",
         ]
         .into_iter()
         .collect();
@@ -335,6 +338,10 @@ mod tests {
             (
                 connection_history_import::PROCEDURE,
                 connection_history_import::validate,
+            ),
+            (
+                provider_oauth_clients::PROCEDURE,
+                provider_oauth_clients::validate,
             ),
             (
                 subscription_pancake_language::PROCEDURE,
@@ -392,6 +399,7 @@ mod tests {
                 "core-connection-history-import-v1",
                 "CONNECTION_HISTORY_IMPORT_",
             ),
+            ("core-provider-oauth-clients-v1", "PROVIDER_OAUTH_CLIENTS_"),
         ];
         let errors = [
             (
@@ -466,6 +474,8 @@ mod tests {
                     DataProjection::SubscriptionEpay
                 } else if name == "core-managed-applications-v1" {
                     DataProjection::ManagedApplications
+                } else if name == "core-provider-oauth-clients-v1" {
+                    DataProjection::ProviderOauthClients
                 } else {
                     DataProjection::Exact
                 }
@@ -475,6 +485,7 @@ mod tests {
                     let expected = match name {
                         "core-59-to-62-v1" => core59_to62::captured_target,
                         "core-managed-applications-v1" => managed_applications::captured_target,
+                        "core-provider-oauth-clients-v1" => provider_oauth_clients::captured_target,
                         _ => panic!("unexpected captured target {name}"),
                     };
                     assert!(std::ptr::fn_addr_eq(
@@ -496,6 +507,8 @@ mod tests {
                     "core-connection-history-import-v1" =>
                         connection_history_import::authorize_target
                             as fn() -> Result<(), UpgradeError>,
+                    "core-provider-oauth-clients-v1" =>
+                        provider_oauth_clients::authorize_target as fn() -> Result<(), UpgradeError>,
                     "core-personal-tokens-v1" =>
                         personal_tokens::authorize_target as fn() -> Result<(), UpgradeError>,
                     "core-oauth2-oidc-v1" =>

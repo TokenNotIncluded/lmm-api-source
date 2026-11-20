@@ -990,8 +990,8 @@ fn require_oauth_model_gateway(
     available: bool,
 ) -> Result<(), &'static str> {
     if !available {
-        if profile.pi_budget_limit().is_some() {
-            return Err("Pi delegation requires actual model gateway");
+        if profile.public_model_clients().next().is_some() {
+            return Err("public model delegation requires actual model gateway");
         }
         if profile.model_budget_limit("lmm-cc-switch").is_some()
             || profile.model_budget_limit("lmm-magpie").is_some()
@@ -1015,6 +1015,20 @@ mod check_db_parser_tests {
             .unwrap()
         };
         assert!(require_oauth_model_gateway(&profile(), false).is_ok());
+        for client in [
+            "lmm-pi",
+            "lmm-dsh",
+            "lmm-codewhale",
+            "lmm-opencode",
+            "lmm-vscode",
+            "lmm-zed",
+        ] {
+            let enabled = profile()
+                .with_public_model_budget_limit(client, 100)
+                .unwrap();
+            assert!(require_oauth_model_gateway(&enabled, false).is_err());
+            assert!(require_oauth_model_gateway(&enabled, true).is_ok());
+        }
         for profile in [
             profile().with_pi_budget_limit(100).unwrap(),
             profile().with_managed_budget_limit(100).unwrap(),

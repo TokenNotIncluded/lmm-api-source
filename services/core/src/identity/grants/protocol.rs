@@ -5,12 +5,20 @@ use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 use rand::TryRng as _;
 use rand::rngs::SysRng;
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use zeroize::Zeroizing;
 
 pub(super) const CLIENT: &str = "lmm";
 pub(super) const MANAGED_CLIENT: &str = "lmm-cc-switch";
 pub(super) const MAGPIE_CLIENT: &str = "lmm-magpie";
+const PUBLIC_MODEL_CLIENTS: [&str; 6] = [
+    "lmm-pi",
+    "lmm-dsh",
+    "lmm-codewhale",
+    "lmm-opencode",
+    "lmm-vscode",
+    "lmm-zed",
+];
 pub(super) fn managed_application(client: &str) -> Option<&'static str> {
     match client {
         MANAGED_CLIENT => Some("cc-switch"),
@@ -25,7 +33,7 @@ const MAX_GROUPS: usize = 64;
 
 /// Historical model-source identity, independent of current issuance settings.
 pub(super) fn is_model_client(client: &str) -> bool {
-    client == "lmm-pi" || is_managed_client(client)
+    PUBLIC_MODEL_CLIENTS.contains(&client) || is_managed_client(client)
 }
 
 /// Configured at startup; never inferred from a request or forwarding header.
@@ -34,7 +42,7 @@ pub struct LmmProfile {
     issuer: String,
     resource: String,
     groups: BTreeSet<String>,
-    pi_max_credits: Option<i64>,
+    public_model_max_credits: BTreeMap<&'static str, i64>,
     managed_max_credits: Option<i64>,
     magpie_max_credits: Option<i64>,
     isolated_loopback_test: bool,
@@ -84,7 +92,7 @@ impl LmmProfile {
             issuer: issuer.into(),
             resource: format!("{issuer}/api/oauth2"),
             groups: allowed,
-            pi_max_credits: None,
+            public_model_max_credits: BTreeMap::new(),
             managed_max_credits: None,
             magpie_max_credits: None,
             isolated_loopback_test,
@@ -102,15 +110,30 @@ impl LmmProfile {
         }
     }
     /// Explicit server ceiling, never a user privilege or default enabled client.
-    pub fn with_pi_budget_limit(mut self, maximum: i64) -> Result<Self> {
+    pub fn with_pi_budget_limit(self, maximum: i64) -> Result<Self> {
+        self.with_public_model_budget_limit("lmm-pi", maximum)
+    }
+    /// Enable one known public model client with its own finite ceiling.
+    /// Managed applications require their separate installation/recovery contract.
+    pub fn with_public_model_budget_limit(mut self, client: &str, maximum: i64) -> Result<Self> {
+        let client = PUBLIC_MODEL_CLIENTS
+            .into_iter()
+            .find(|known| *known == client)
+            .ok_or(IdentityError::Invalid)?;
         if !(1..=9_007_199_254_740_991).contains(&maximum) {
             return Err(IdentityError::Invalid);
         }
-        self.pi_max_credits = Some(maximum);
+        self.public_model_max_credits.insert(client, maximum);
         Ok(self)
     }
     pub fn pi_budget_limit(&self) -> Option<i64> {
-        self.pi_max_credits
+        self.model_budget_limit("lmm-pi")
+    }
+    /// Only explicitly enabled public clients belong in discovery metadata.
+    pub fn public_model_clients(&self) -> impl Iterator<Item = &'static str> + '_ {
+        PUBLIC_MODEL_CLIENTS
+            .into_iter()
+            .filter(|client| self.public_model_max_credits.contains_key(client))
     }
     pub fn with_managed_budget_limit(mut self, maximum: i64) -> Result<Self> {
         if !(1..=9_007_199_254_740_991).contains(&maximum) {
@@ -129,10 +152,9 @@ impl LmmProfile {
     /// Configured ceiling only; this is not application-backend readiness.
     pub fn model_budget_limit(&self, client: &str) -> Option<i64> {
         match client {
-            "lmm-pi" => self.pi_max_credits,
             MANAGED_CLIENT => self.managed_max_credits,
             MAGPIE_CLIENT => self.magpie_max_credits,
-            _ => None,
+            _ => self.public_model_max_credits.get(client).copied(),
         }
     }
     pub(super) fn validate_model_budget(&self, client: &str, budget: Option<i64>) -> Result<i64> {
@@ -147,7 +169,7 @@ impl LmmProfile {
     pub(super) fn binding(&self, client: &str, resource: &str) -> Result<()> {
         if (client != CLIENT
             && !is_managed_client(client)
-            && !(client == "lmm-pi" && self.pi_max_credits.is_some()))
+            && !self.public_model_max_credits.contains_key(client))
             || resource != self.resource
         {
             return Err(IdentityError::Unauthorized);
@@ -332,13 +354,11 @@ pub struct RevokeForm {
 }
 impl RevokeForm {
     pub fn validate(&self) -> Result<()> {
-        if !matches!(
-            self.client_id.as_str(),
-            CLIENT | "lmm-pi" | MANAGED_CLIENT | MAGPIE_CLIENT
-        ) || self
-            .token_type_hint
-            .as_ref()
-            .is_some_and(|s| s != "access_token" && s != "refresh_token")
+        if (self.client_id != CLIENT && !is_model_client(&self.client_id))
+            || self
+                .token_type_hint
+                .as_ref()
+                .is_some_and(|s| s != "access_token" && s != "refresh_token")
         {
             return Err(IdentityError::Invalid);
         }
@@ -458,6 +478,135 @@ mod tests {
         assert_eq!(profile.model_budget_limit(MANAGED_CLIENT), Some(11));
         assert_eq!(profile.model_budget_limit(CLIENT), None);
         assert!(profile.clone().with_managed_budget_limit(0).is_err());
+    }
+    #[test]
+    fn public_model_clients_need_their_own_finite_ceiling() {
+        let base = LmmProfile::new("https://issuer.example.test", vec!["allowed".into()]).unwrap();
+        assert_eq!(base.public_model_clients().count(), 0);
+        for client in PUBLIC_MODEL_CLIENTS {
+            // Historical identity must survive disabling issuance so admitted
+            // requests retain their original financial source during settlement.
+            assert!(is_model_client(client));
+            assert!(base.binding(client, base.resource()).is_err());
+            let enabled = base
+                .clone()
+                .with_public_model_budget_limit(client, 17)
+                .unwrap();
+            assert_eq!(enabled.public_model_clients().collect::<Vec<_>>(), [client]);
+            assert_eq!(enabled.model_budget_limit(client), Some(17));
+            assert!(enabled.binding(client, enabled.resource()).is_ok());
+            assert_eq!(enabled.validate_model_budget(client, Some(17)).unwrap(), 17);
+            for budget in [None, Some(0), Some(-1), Some(18)] {
+                assert!(enabled.validate_model_budget(client, budget).is_err());
+            }
+            for other in PUBLIC_MODEL_CLIENTS {
+                if other != client {
+                    assert!(enabled.model_budget_limit(other).is_none());
+                    assert!(enabled.binding(other, enabled.resource()).is_err());
+                }
+            }
+            for maximum in [0, -1, 9_007_199_254_740_992, i64::MAX] {
+                assert!(
+                    base.clone()
+                        .with_public_model_budget_limit(client, maximum)
+                        .is_err()
+                );
+            }
+            assert!(
+                base.clone()
+                    .with_public_model_budget_limit(client, 9_007_199_254_740_991)
+                    .is_ok()
+            );
+        }
+        for unknown in [
+            CLIENT,
+            MANAGED_CLIENT,
+            MAGPIE_CLIENT,
+            "lmm-dsh ",
+            "LMM-DSH",
+            "other",
+        ] {
+            assert!(
+                base.clone()
+                    .with_public_model_budget_limit(unknown, 17)
+                    .is_err()
+            );
+        }
+        let combined = base
+            .with_pi_budget_limit(7)
+            .unwrap()
+            .with_public_model_budget_limit("lmm-dsh", 19)
+            .unwrap();
+        assert_eq!(combined.pi_budget_limit(), Some(7));
+        assert_eq!(combined.model_budget_limit("lmm-dsh"), Some(19));
+        assert!(combined.model_budget_limit(MANAGED_CLIENT).is_none());
+    }
+    #[test]
+    fn public_provider_protocol_keeps_pkce_resource_scope_and_client_boundaries() {
+        let request = |client: &str| AuthorizationRequest {
+            response_type: "code".into(),
+            client_id: client.into(),
+            redirect_uri: "http://127.0.0.1:38123/oauth/lmm/callback".into(),
+            scope: "catalog:read balance:read usage:read models:invoke".into(),
+            resource: "https://issuer.example.test/api/oauth2".into(),
+            code_challenge: URL_SAFE_NO_PAD.encode([0u8; 32]),
+            code_challenge_method: "S256".into(),
+            state: "client-specific-state".into(),
+        };
+        for client in PUBLIC_MODEL_CLIENTS {
+            let profile = LmmProfile::new("https://issuer.example.test", vec!["allowed".into()])
+                .unwrap()
+                .with_public_model_budget_limit(client, 17)
+                .unwrap();
+            assert!(profile.validate_authorization(request(client)).is_ok());
+            for mutation in 0..7 {
+                let mut bad = request(client);
+                match mutation {
+                    0 => bad.client_id = "unregistered".into(),
+                    1 => bad.resource = "https://issuer.example.test/other".into(),
+                    2 => bad.redirect_uri = "http://localhost:38123/oauth/lmm/callback".into(),
+                    3 => bad.code_challenge_method = "plain".into(),
+                    4 => bad.scope.push_str(" remote:control"),
+                    5 => bad.scope = "catalog:read balance:read".into(),
+                    _ => bad.scope.push_str(" models:invoke"),
+                }
+                assert!(profile.validate_authorization(bad).is_err());
+            }
+            let form = TokenForm {
+                grant_type: "refresh_token".into(),
+                client_id: client.into(),
+                resource: profile.resource().into(),
+                code: None,
+                redirect_uri: None,
+                code_verifier: None,
+                refresh_token: Some(secret("lmm_rt_").unwrap()),
+                scope: None,
+            };
+            assert!(
+                matches!(form.validate(&profile), Ok(TokenRequest::Refresh { client_id, .. }) if client_id == client)
+            );
+            // Revocation remains available after the server disables new grants.
+            assert!(
+                RevokeForm {
+                    client_id: client.into(),
+                    token: secret("lmm_at_").unwrap(),
+                    token_type_hint: Some("access_token".into())
+                }
+                .validate()
+                .is_ok()
+            );
+        }
+        for client in ["unregistered", "lmm-dsh ", "LMM-DSH"] {
+            assert!(
+                RevokeForm {
+                    client_id: client.into(),
+                    token: secret("lmm_at_").unwrap(),
+                    token_type_hint: None
+                }
+                .validate()
+                .is_err()
+            );
+        }
     }
     #[test]
     fn canonical_cli_tokens_and_group_scopes_reject_aliases() {

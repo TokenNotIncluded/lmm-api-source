@@ -1,8 +1,9 @@
 # Core OAuth issuer and delegated authority boundary
 
 The unissued Pi foundation remains a separate internal adapter. Optional
-LmmIssuer implements native-browser consent for readonly `lmm` and opt-in finite
-normal-model `lmm-pi` grants. Source presence does not prove production, HTTPS clients, Pi compatibility,
+LmmIssuer implements native-browser consent for readonly `lmm` and independently
+enabled, finite normal-model grants for Pi, DSH, Codewhale, OpenCode, VS Code and
+Zed. Source presence does not prove production, HTTPS clients, host compatibility,
 existing-install upgrade, recovery, or independent acceptance.
 Operator guide: [Rust client authorization](../../docs/core-identity.md#客户端-oauth2-授权).
 
@@ -26,15 +27,17 @@ Cookie name is only selection, never identity/consent. Refresh cookie Path remai
 
 ## Persistence and resources
 
-The current formal fresh Core has 44 components, including the earlier abuse
-and oauth-grants components. Startup checks exact DDL/catalog and narrow runtime
+The formal fresh Core component set is declared in `src/core_schema.rs`, including
+the earlier abuse and oauth-grants components. Provider client admission is an
+append-only `provider-oauth-clients` component; historical OAuth/charging DDL stays
+frozen. Startup checks exact DDL/catalog and narrow runtime
 rights, never initializes/upgrades.
 Runtime may SELECT/INSERT issuer records and UPDATE only family scopes/revoked_at
 or one-use consumed_at. No policy/immutable snapshot edits or token deletion.
 Code is one-use with exact issuer/client/resource/redirect/PKCE. Refresh rotates,
 never widens or extends family lifetime; consumed lineage replay commits family
 revocation before refusal. Unknown result is not retry permission. Current
-user/account/developer/group/version/expiry is checked under authority locks.
+user/account/group/version/expiry is checked under authority locks.
 Canonical policy revocation updates the same user epoch; arbitrary owner PK
 moves/TRUNCATE are outside the runtime contract, not claimed covered.
 
@@ -44,15 +47,38 @@ surface. Missing/stale is unavailable; known empty metadata is a true empty
 response, not model-use proof. Balance uses exact integer ledger/opening
 provenance and decimal conversion. Neither dispatches models or posts ledger.
 
-## Pi and market completion remain explicit
+## Public model clients and market authority
 
-Pinned CLI b8eb0f1512855aaf8098c15cbd76201f9acead5c requests two read scopes.
-Pinned Pi 8a533140b0fb4470fc1ae195d52941891836f7d4 requires four application scopes
-catalog:read balance:read usage:read models:invoke, with optional built-in MCP and
-remote scopes. Optional MCP/remote scopes are requested but never issued here. Pi issuance
-requires explicit finite pi_max_credits, actual ModelGateway, real developer
-approval, and user-selected finite credits cap. The readonly CLI slice alone
-does not fulfill Pi. Even platform admin cannot substitute developer approval.
+The readonly CLI requests two read scopes. Public model clients require
+`catalog:read balance:read usage:read models:invoke`; the reviewed Pi and DSH
+adapters additionally request the two known optional MCP scopes, which this
+issuer does not grant. Remote control belongs to ssMCP and its removed scope is
+rejected.
+
+| Public client | Independent TOML ceiling |
+| --- | --- |
+| `lmm-pi` | `pi_max_credits` |
+| `lmm-dsh` | `dsh_max_credits` |
+| `lmm-codewhale` | `codewhale_max_credits` |
+| `lmm-opencode` | `opencode_max_credits` |
+| `lmm-vscode` | `vscode_max_credits` |
+| `lmm-zed` | `zed_max_credits` |
+
+Each client defaults to disabled and accepts only an explicit integer ceiling in
+`1..=9007199254740991`. Discovery lists enabled clients only. Configuration and
+startup require an actual model service; the user separately chooses a finite
+family budget during native browser consent. Calls require current account and
+routing-group authority, the granted scopes and the finite budget under the same
+locks as Pi; ordinary enabled users do not need a developer tier. Consent does
+not activate a historical developer flag or create a native key. Existing Pi configuration remains scoped
+to Pi. Unknown client names, case changes and whitespace aliases are rejected.
+
+These six clients use authorization code plus S256 and ordinary one-shot refresh.
+CC Switch and the OpenCode package's separate `./magpie` export retain their
+managed installation binding, dedicated recovery keyring and rotation protocol.
+Public client registration does not admit managed installation/recovery fields.
+Disabling new public grants preserves recognition of historical financial
+sources and client-bound revocation; settlement keeps the original payer/family.
 
 core_charging.requests now has a disjoint native/OAuth source: native key_id
 remains its integer FK, OAuth has key_id=NULL and immutable OAuthSource containing
@@ -62,7 +88,7 @@ validates Core persistence, never trusted HTTP/Go caller proof. Generated fields
 and composite FKs bind the real immutable browser family and access. Native
 LedgerCommand JSON retains exact old bytes by omitting optional source=None.
 
-Actual access verification and current developer/group/model authority run in the
+Actual access verification and current account/group/model authority run in the
 same SERIALIZABLE financial transaction: request advisory lock, family UPDATE,
 an immutable access read, canonical user/account SHARE NOWAIT, abuse guard,
 policy/budget/ledger locks. Runtime has no UPDATE/DELETE privilege on access tokens.

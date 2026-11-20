@@ -192,7 +192,12 @@ impl Fixture {
         issuer
     }
 
-    async fn new(owner: &PgPool, developer: bool, applications: FixtureApplications) -> Self {
+    async fn new(
+        owner: &PgPool,
+        developer: bool,
+        applications: FixtureApplications,
+        public_profile: Option<LmmProfile>,
+    ) -> Self {
         let (native, ledger, _native_session, native_key, native_id, _native_account) =
             model_fixture::fixture(owner, 1000).await;
         let provider = Provider::start(true).await;
@@ -282,10 +287,12 @@ impl Fixture {
         let gateway =
             gateway_with_routes(&role.pool, router.clone(), native_id).with_local_streaming();
         let store = IdentityStore::from_pool(role.pool.clone()).with_dashboard_routing(router);
-        let mut profile = LmmProfile::new(ISSUER, vec!["allowed".into()])
-            .unwrap()
-            .with_pi_budget_limit(1000)
-            .unwrap();
+        let mut profile = public_profile.unwrap_or_else(|| {
+            LmmProfile::new(ISSUER, vec!["allowed".into()])
+                .unwrap()
+                .with_pi_budget_limit(1000)
+                .unwrap()
+        });
         if !matches!(applications, FixtureApplications::PiOnly) {
             profile = profile.with_managed_budget_limit(1000).unwrap();
             if matches!(applications, FixtureApplications::PiAndAllManaged) {
@@ -350,9 +357,12 @@ impl Fixture {
         }
     }
     pub fn request(&self) -> AuthorizationRequest {
+        self.request_for("lmm-pi")
+    }
+    pub fn request_for(&self, client: &str) -> AuthorizationRequest {
         AuthorizationRequest {
             response_type: "code".into(),
-            client_id: "lmm-pi".into(),
+            client_id: client.into(),
             redirect_uri: REDIRECT.into(),
             scope: "catalog:read balance:read usage:read models:invoke mcp:bounties mcp:drawing"
                 .into(),
@@ -469,7 +479,29 @@ impl Fixture {
             .await
     }
     pub async fn token(&self, cap: i64) -> TokenWire {
-        let request = self.request();
+        self.token_for("lmm-pi", cap).await
+    }
+    pub async fn token_for(&self, client: &str, cap: i64) -> TokenWire {
+        let code = self.code_for(client, cap).await;
+        let response = self.exchange_code_for(client, &code).await;
+        assert_eq!(response.status(), reqwest::StatusCode::OK);
+        let value: serde_json::Value = response.json().await.unwrap();
+        assert_eq!(value["token_type"], "Bearer");
+        assert!((1..=900).contains(&value["expires_in"].as_i64().unwrap()));
+        TokenWire {
+            id_token: value
+                .get("id_token")
+                .and_then(|v| v.as_str())
+                .map(str::to_owned),
+            access_token: value["access_token"].as_str().unwrap().into(),
+            refresh_token: value["refresh_token"].as_str().unwrap().into(),
+            token_type: "Bearer",
+            expires_in: value["expires_in"].as_i64().unwrap(),
+            scope: value["scope"].as_str().unwrap().into(),
+        }
+    }
+    pub async fn code_for(&self, client: &str, cap: i64) -> String {
+        let request = self.request_for(client);
         let mut url = reqwest::Url::parse(&format!("{}/api/oauth2/authorize", self.base)).unwrap();
         url.query_pairs_mut().extend_pairs([
             ("response_type", request.response_type.as_str()),
@@ -521,42 +553,27 @@ impl Fixture {
         assert_eq!(response.status(), reqwest::StatusCode::SEE_OTHER);
         let url = reqwest::Url::parse(response.headers()["location"].to_str().unwrap()).unwrap();
         assert_eq!(url.origin().ascii_serialization(), "http://127.0.0.1:38423");
-        let code = url
-            .query_pairs()
+        url.query_pairs()
             .find(|(k, _)| k == "code")
             .unwrap()
             .1
-            .into_owned();
-        let response = self
-            .client
+            .into_owned()
+    }
+    pub async fn exchange_code_for(&self, client: &str, code: &str) -> reqwest::Response {
+        self.client
             .post(format!("{}/api/oauth2/token", self.base))
             .header("content-type", "application/x-www-form-urlencoded")
             .body(form(&[
                 ("grant_type", "authorization_code"),
-                ("client_id", "lmm-pi"),
+                ("client_id", client),
                 ("resource", &format!("{ISSUER}/api/oauth2")),
-                ("code", &code),
+                ("code", code),
                 ("redirect_uri", REDIRECT),
                 ("code_verifier", VERIFIER),
             ]))
             .send()
             .await
-            .unwrap();
-        assert_eq!(response.status(), reqwest::StatusCode::OK);
-        let value: serde_json::Value = response.json().await.unwrap();
-        assert_eq!(value["token_type"], "Bearer");
-        assert!((1..=900).contains(&value["expires_in"].as_i64().unwrap()));
-        TokenWire {
-            id_token: value
-                .get("id_token")
-                .and_then(|v| v.as_str())
-                .map(str::to_owned),
-            access_token: value["access_token"].as_str().unwrap().into(),
-            refresh_token: value["refresh_token"].as_str().unwrap().into(),
-            token_type: "Bearer",
-            expires_in: value["expires_in"].as_i64().unwrap(),
-            scope: value["scope"].as_str().unwrap().into(),
-        }
+            .unwrap()
     }
     pub async fn refresh(
         &self,
@@ -644,7 +661,26 @@ where
     F: FnOnce(Arc<Fixture>) -> Fut + Send + 'static,
     Fut: Future<Output = ()> + Send + 'static,
 {
-    with_fixture_applications(pool, developer, FixtureApplications::PiOnly, case).await;
+    with_fixture_applications(pool, developer, FixtureApplications::PiOnly, None, case).await;
+}
+
+pub(super) async fn with_public_fixture<F, Fut>(
+    pool: PgPool,
+    developer: bool,
+    profile: LmmProfile,
+    case: F,
+) where
+    F: FnOnce(Arc<Fixture>) -> Fut + Send + 'static,
+    Fut: Future<Output = ()> + Send + 'static,
+{
+    with_fixture_applications(
+        pool,
+        developer,
+        FixtureApplications::PiOnly,
+        Some(profile),
+        case,
+    )
+    .await;
 }
 
 pub(super) async fn with_managed_fixture<F, Fut>(pool: PgPool, developer: bool, case: F)
@@ -652,7 +688,14 @@ where
     F: FnOnce(Arc<Fixture>) -> Fut + Send + 'static,
     Fut: Future<Output = ()> + Send + 'static,
 {
-    with_fixture_applications(pool, developer, FixtureApplications::PiAndManaged, case).await;
+    with_fixture_applications(
+        pool,
+        developer,
+        FixtureApplications::PiAndManaged,
+        None,
+        case,
+    )
+    .await;
 }
 
 pub(super) async fn with_magpie_fixture<F, Fut>(pool: PgPool, developer: bool, case: F)
@@ -660,19 +703,27 @@ where
     F: FnOnce(Arc<Fixture>) -> Fut + Send + 'static,
     Fut: Future<Output = ()> + Send + 'static,
 {
-    with_fixture_applications(pool, developer, FixtureApplications::PiAndAllManaged, case).await;
+    with_fixture_applications(
+        pool,
+        developer,
+        FixtureApplications::PiAndAllManaged,
+        None,
+        case,
+    )
+    .await;
 }
 
 async fn with_fixture_applications<F, Fut>(
     pool: PgPool,
     developer: bool,
     applications: FixtureApplications,
+    public_profile: Option<LmmProfile>,
     case: F,
 ) where
     F: FnOnce(Arc<Fixture>) -> Fut + Send + 'static,
     Fut: Future<Output = ()> + Send + 'static,
 {
-    let fixture = Arc::new(Fixture::new(&pool, developer, applications).await);
+    let fixture = Arc::new(Fixture::new(&pool, developer, applications, public_profile).await);
     let copy = fixture.clone();
     let result = tokio::spawn(async move { case(copy).await }).await;
     let fixture = match Arc::try_unwrap(fixture) {

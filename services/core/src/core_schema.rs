@@ -220,13 +220,17 @@ const COMPONENTS: &[(&str, &str)] = &[
         "connection-history-import",
         include_str!("../schema/connection_history_import.sql"),
     ),
+    (
+        "provider-oauth-clients",
+        include_str!("../schema/provider_oauth_clients.sql"),
+    ),
 ];
 
 /// Verify the installed managed contract without installing or repairing it.
 pub async fn managed_applications_ready(pool: &PgPool) -> Result<(), IdentityError> {
     check(pool).await?;
     let mut connection = pool.acquire().await?;
-    upgrade::managed_applications::check_oauth_contract(&mut connection).await
+    upgrade::provider_oauth_clients::check_oauth_contract(&mut connection).await
 }
 
 /// The compiled fresh-install contract, including explicitly disabled modules.

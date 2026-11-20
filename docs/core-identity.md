@@ -102,12 +102,19 @@ discovery 失败会选中 OIDC 页签，在 URL 字段显示既有本地化错�
 
 ## 客户端 OAuth2 授权
 
-可选 Rust issuer 为 `lmm` CLI 提供只读授权；有限预算 Pi 模型委托另行显式配置。完整协议及来源边界见 [Core OAuth 合同](../services/core/oauth-foundation.md)。
+可选 Rust issuer 为 `lmm` CLI 提供只读授权，并为六个公共模型客户端分别提供显式启用的有限预算委托。`client_id` 标识应用；用户身份、可用 group 和可消费预算仍来自 Core 验证的同意记录。完整协议及来源边界见 [Core OAuth 合同](../services/core/oauth-foundation.md)。
 
 | 客户端 | 必需 scope | 额外条件 |
 | --- | --- | --- |
 | `lmm` | 恰好 `catalog:read balance:read` | 只读目录与个人余额；不签发 Key。 |
 | `lmm-pi` | `catalog:read balance:read usage:read models:invoke` | 已配置有限 `pi_max_credits` 及实际 ModelGateway；已认证用户同意不超过安装上限的整数 credits 预算，并具有所选 group 的资源授权。 |
+| `lmm-dsh` | 同上四个应用 scope | 独立的 `dsh_max_credits`；与 Pi 相同的真实用户同意、group 和财务校验。 |
+| `lmm-codewhale` | 同上四个应用 scope | 独立的 `codewhale_max_credits`。 |
+| `lmm-opencode` | 同上四个应用 scope | 独立的 `opencode_max_credits`，用于普通 OpenCode 与 server 入口。 |
+| `lmm-vscode` | 同上四个应用 scope | 独立的 `vscode_max_credits`。 |
+| `lmm-zed` | 同上四个应用 scope | 独立的 `zed_max_credits`。 |
+
+六个额度字段默认不设置，每个字段只启用对应客户端，范围为 `1..=9007199254740991` 整数 credits。所有模型客户端都要求配置并实际建立 ModelGateway；发现信息只列出已经启用的客户端。CC Switch 和 OpenCode 包的 `./magpie` 入口仍使用独立的 managed application 合同、安装绑定和 refresh 恢复密钥。
 
 真实登录及 MFA 后，用户显式 Continue，核对账号和 group 快照，再 Allow/Deny；签发 scope 另含对应 `group:`。安装的 groups 只是上限，仍检查账号状态和各 group 授权。客户端可申请已知的可选 MCP scope，本 issuer 不发行它们，也不授予团队、管理员、支付、转账或市场权限。远程控制由独立项目 ssmcp 提供，LMM 不再提供远程控制 scope、API 或会话。
 
@@ -123,19 +130,24 @@ issuer = "https://api.example.invalid"
 groups = ["default"]
 access_ttl_seconds = 900
 family_ttl_seconds = 2592000
-# 同时配置 [model] 后，可显式开放 Pi 有限预算同意。
+# 同时配置 [model] 后，按需要分别开放对应客户端。
 # pi_max_credits = 1000000
+# dsh_max_credits = 1000000
+# codewhale_max_credits = 1000000
+# opencode_max_credits = 1000000
+# vscode_max_credits = 1000000
+# zed_max_credits = 1000000
 ```
 
 access TTL 为 1–86400 秒，family TTL 为 1–31536000 秒，refresh 不延长 family。完整安装包含 `oauth-grants`/`abuse`；由 `deployment/postgres/grant-core-runtime.sql` 的 `enable_oauth2=true` 准备最小 DML，缺少或过宽权限拒绝启动，不用 owner 凭证运行。恢复须保留整个 Core 数据库、消费/撤销 lineage 及 Web/MFA 私钥，不能只恢复余额或删除已用 refresh 记录。
 
-发现端点为 `/.well-known/oauth-authorization-server`、`/.well-known/oauth-protected-resource/api/oauth2`；受保护读接口为 `/api/oauth2/catalog`、`/api/oauth2/balance`，Pi 另有 `/api/oauth2/usage`。目录使用实际网关同一 serving/price 快照，缺失/失效返回 unavailable，合法空目录如实返回。余额保留整数 credits、单位和开账来源，无美元换算证明时不可用。
+发现端点为 `/.well-known/oauth-authorization-server`、`/.well-known/oauth-protected-resource/api/oauth2`；受保护读接口为 `/api/oauth2/catalog`、`/api/oauth2/balance`，模型客户端另有 `/api/oauth2/usage`。目录使用实际网关同一 serving/price 快照，缺失/失效返回 unavailable，合法空目录如实返回。余额保留整数 credits、单位和开账来源，无美元换算证明时不可用。
 
 授权码一次消费并精确绑定 client/resource/loopback redirect/S256 verifier。refresh 只保持或缩小权限，旧 refresh 重放持久撤销整个 family；未知提交结果不允许盲重试。Core 重检当前用户、权限、epoch、consent 和到期，普通浏览器 refresh 独立于 OAuth family。`/api/oauth2/revoke` 撤销当前 client 的整个 family，未知合法 token 幂等成功。
 
-### Pi 模型与财务来源
+### 公共客户端模型与财务来源
 
-Pi 使用真实 Bearer access token 进入同一 Chat/Responses JSON/SSE 网关。`X-LMM-Group` 为规范无 padding base64url group 选择器，重复或超出同意范围拒绝。预留、开始及追加预算的同一数据库事务重检 family/access、本人账号、身份版本、group、期限和有限预算。
+六个公共模型客户端使用各自的真实 Bearer access token 进入同一 Chat/Responses JSON/SSE 网关。授权码、refresh 和撤销操作精确绑定原客户端；一个客户端的额度配置不会扩大另一个客户端的授权族。`X-LMM-Group` 为规范无 padding base64url group 选择器，重复或超出同意范围拒绝。预留、开始及追加预算的同一数据库事务重检 family/access、本人账号、身份版本、group、期限和有限预算。
 
 OAuth 财务记录使用 `key_id=null` 及不可变 OAuth 来源；原生 Key 整数与旧 JSON receipt 保持。不创建假 Key、不信任客户端来源 JSON，不使用他人或团队资金。同一 family 的预算覆盖 refresh 前后全部 access、已消费净额及未结算预留，本人/账号/套餐限制继续生效。
 

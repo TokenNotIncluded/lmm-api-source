@@ -91,10 +91,9 @@ async fn metadata(State(issuer): State<LmmIssuer>) -> Response {
     let mut document = json!({"issuer":p.issuer(),"authorization_endpoint":format!("{resource}/authorize"),"token_endpoint":format!("{resource}/token"),"revocation_endpoint":format!("{resource}/revoke"),"response_types_supported":["code"],"grant_types_supported":["authorization_code","refresh_token"],"code_challenge_methods_supported":["S256"],"token_endpoint_auth_methods_supported":["none"],"authorization_response_iss_parameter_supported":true,"scopes_supported":["catalog:read","balance:read"],"lmm_client_ids_supported":["lmm"]});
     document["lmm_deployment_contract"] = json!(p.deployment_contract());
     document["lmm_isolated_loopback_test"] = json!(p.is_isolated_loopback_test());
-    if p.pi_budget_limit().is_some() {
-        document["lmm_client_ids_supported"] = json!(["lmm", "lmm-pi"]);
-    }
-    if p.pi_budget_limit().is_some() || managed {
+    let mut clients = vec!["lmm"];
+    clients.extend(p.public_model_clients());
+    if clients.len() > 1 || managed {
         document["scopes_supported"] = json!([
             "catalog:read",
             "balance:read",
@@ -103,10 +102,6 @@ async fn metadata(State(issuer): State<LmmIssuer>) -> Response {
         ]);
     }
     if managed {
-        let mut clients = vec!["lmm"];
-        if p.pi_budget_limit().is_some() {
-            clients.push("lmm-pi");
-        }
         let mut applications = Vec::new();
         for (client, application) in [("lmm-cc-switch", "cc-switch"), ("lmm-magpie", "magpie")] {
             if p.model_budget_limit(client).is_some() {
@@ -118,9 +113,9 @@ async fn metadata(State(issuer): State<LmmIssuer>) -> Response {
                 }));
             }
         }
-        document["lmm_client_ids_supported"] = json!(clients);
         document["lmm_managed_clients"] = json!(applications);
     }
+    document["lmm_client_ids_supported"] = json!(clients);
     if let Some(oidc) = issuer.oidc_metadata() {
         document["jwks_uri"] = oidc["jwks_uri"].clone();
         document["userinfo_endpoint"] = oidc["userinfo_endpoint"].clone();

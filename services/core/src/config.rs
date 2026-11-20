@@ -14,6 +14,8 @@ pub use market_oauth_config::{market_oauth_configured, market_oauth_issuer, mark
 mod federated_config_tests;
 use serde::Deserialize;
 #[cfg(test)]
+mod public_oauth_tests;
+#[cfg(test)]
 mod reservation_tests;
 #[cfg(test)]
 mod telegram_tests;
@@ -202,6 +204,11 @@ struct OAuth2File {
     isolated_loopback_proxy: Option<bool>,
     isolated_secret_directory: Option<PathBuf>,
     pi_max_credits: Option<i64>,
+    dsh_max_credits: Option<i64>,
+    codewhale_max_credits: Option<i64>,
+    opencode_max_credits: Option<i64>,
+    vscode_max_credits: Option<i64>,
+    zed_max_credits: Option<i64>,
     cc_switch_max_credits: Option<i64>,
     magpie_max_credits: Option<i64>,
     managed_refresh_keyring_file: Option<PathBuf>,
@@ -680,13 +687,30 @@ fn parse_core_file(document: &[u8]) -> io::Result<BTreeMap<&'static str, OsStrin
         if let Some(directory) = oauth2.isolated_secret_directory {
             paths.push(("LMM_CORE_OAUTH2_ISOLATED_SECRET_DIRECTORY", directory));
         }
-        if let Some(maximum) = oauth2.pi_max_credits {
+        for (name, maximum) in [
+            ("LMM_CORE_OAUTH2_PI_MAX_CREDITS", oauth2.pi_max_credits),
+            ("LMM_CORE_OAUTH2_DSH_MAX_CREDITS", oauth2.dsh_max_credits),
+            (
+                "LMM_CORE_OAUTH2_CODEWHALE_MAX_CREDITS",
+                oauth2.codewhale_max_credits,
+            ),
+            (
+                "LMM_CORE_OAUTH2_OPENCODE_MAX_CREDITS",
+                oauth2.opencode_max_credits,
+            ),
+            (
+                "LMM_CORE_OAUTH2_VSCODE_MAX_CREDITS",
+                oauth2.vscode_max_credits,
+            ),
+            ("LMM_CORE_OAUTH2_ZED_MAX_CREDITS", oauth2.zed_max_credits),
+        ] {
+            let Some(maximum) = maximum else { continue };
             if file.model.is_none() || !(1..=9_007_199_254_740_991).contains(&maximum) {
                 return Err(invalid_config(
-                    "Pi delegation requires configured actual model service and finite budget ceiling",
+                    "public model delegation requires configured actual model service and finite budget ceiling",
                 ));
             }
-            put("LMM_CORE_OAUTH2_PI_MAX_CREDITS", maximum.to_string());
+            put(name, maximum.to_string());
         }
         if let Some(maximum) = oauth2.cc_switch_max_credits {
             if file.model.is_none()
@@ -2689,6 +2713,11 @@ pub fn oauth2_configured() -> bool {
     [
         "LMM_CORE_OAUTH2_ISSUER",
         "LMM_CORE_OAUTH2_PI_MAX_CREDITS",
+        "LMM_CORE_OAUTH2_DSH_MAX_CREDITS",
+        "LMM_CORE_OAUTH2_CODEWHALE_MAX_CREDITS",
+        "LMM_CORE_OAUTH2_OPENCODE_MAX_CREDITS",
+        "LMM_CORE_OAUTH2_VSCODE_MAX_CREDITS",
+        "LMM_CORE_OAUTH2_ZED_MAX_CREDITS",
         "LMM_CORE_OAUTH2_CC_SWITCH_MAX_CREDITS",
         "LMM_CORE_OAUTH2_MAGPIE_MAX_CREDITS",
         "LMM_CORE_OAUTH2_MANAGED_REFRESH_KEYRING_FILE",
@@ -2886,19 +2915,29 @@ pub async fn oauth2_issuer(
         crate::identity::grants::LmmProfile::new(&issuer, groups)
     }
     .map_err(|_| invalid_config("invalid OAuth2 issuer or group profile"))?;
-    if let Some(value) = setting_os("LMM_CORE_OAUTH2_PI_MAX_CREDITS") {
+    for (client, name) in [
+        ("lmm-pi", "LMM_CORE_OAUTH2_PI_MAX_CREDITS"),
+        ("lmm-dsh", "LMM_CORE_OAUTH2_DSH_MAX_CREDITS"),
+        ("lmm-codewhale", "LMM_CORE_OAUTH2_CODEWHALE_MAX_CREDITS"),
+        ("lmm-opencode", "LMM_CORE_OAUTH2_OPENCODE_MAX_CREDITS"),
+        ("lmm-vscode", "LMM_CORE_OAUTH2_VSCODE_MAX_CREDITS"),
+        ("lmm-zed", "LMM_CORE_OAUTH2_ZED_MAX_CREDITS"),
+    ] {
+        let Some(value) = setting_os(name) else {
+            continue;
+        };
         if setting_os("LMM_CORE_MODEL_CONFIG_FILE").is_none() {
             return Err(invalid_config(
-                "Pi delegation requires configured model service",
+                "public model delegation requires configured model service",
             ));
         }
         let maximum = value
             .to_str()
             .and_then(|v| v.parse::<i64>().ok())
-            .ok_or_else(|| invalid_config("invalid Pi budget ceiling"))?;
+            .ok_or_else(|| invalid_config("invalid public model budget ceiling"))?;
         profile = profile
-            .with_pi_budget_limit(maximum)
-            .map_err(|_| invalid_config("invalid Pi budget ceiling"))?;
+            .with_public_model_budget_limit(client, maximum)
+            .map_err(|_| invalid_config("invalid public model budget ceiling"))?;
     }
     if let Some(value) = setting_os("LMM_CORE_OAUTH2_CC_SWITCH_MAX_CREDITS") {
         if setting_os("LMM_CORE_MODEL_CONFIG_FILE").is_none()
