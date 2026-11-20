@@ -169,6 +169,38 @@ jobs:
             --arch "$ARCH" --revision "$(git rev-parse HEAD)" \
             --parent-netns "$(readlink /proc/self/ns/net)" \
             --report /evidence/extore-native-alpine.json 2>&1 | tee out/evidence/extore-native-alpine.log
+      - name: Return private native evidence to the runner
+        if: always()
+        run: |
+          runner_uid=$(id -u)
+          runner_gid=$(id -g)
+          for parent in out out/evidence; do
+            if [[ -L "$parent" ]]; then
+              echo "::error::Native evidence parent must not be a symlink: $parent"
+              exit 1
+            fi
+            if [[ ! -e "$parent" ]]; then exit 0; fi
+            if [[ ! -d "$parent" || "$(stat -c '%u' -- "$parent")" != "$runner_uid" ]]; then
+              echo "::error::Expected a runner-owned native evidence directory: $parent"
+              exit 1
+            fi
+          done
+          for evidence in \
+            out/evidence/extore-native-alpine.consumer.log \
+            out/evidence/extore-native-alpine.json \
+            out/evidence/extore-native-alpine.json.package.json; do
+            if [[ -L "$evidence" ]]; then
+              echo "::error::Native evidence must not be a symlink: $evidence"
+              exit 1
+            fi
+            if [[ ! -e "$evidence" ]]; then continue; fi
+            if [[ ! -f "$evidence" ]]; then
+              echo "::error::Native evidence must be a regular file: $evidence"
+              exit 1
+            fi
+            sudo chown --no-dereference -- "$runner_uid:$runner_gid" "$evidence"
+            test -r "$evidence"
+          done
       - name: Preserve preview packages and scoped evidence, never publish
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
