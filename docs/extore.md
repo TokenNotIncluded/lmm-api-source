@@ -16,6 +16,10 @@ Extore 是导入商品配置的权威来源。商城不能绕过上游修改受�
 
 Go 商店配置需要 `store.extore_key_file` 和 `store.extore_redirect_uri`。使用实际服务账户可读取的私密凭据文件，回调地址与授权端注册值一致。
 
+授权开始与回调都由 Core 验证当前 Session。Core 的 `AuthorizeResponse.session_binding` 是带版本的、不含凭据的摘要，由同一只读认证快照中的用户、权限代际和浏览器会话族生成；Go 只接受 Core 返回的绑定，不解析 access token，也不读取 Core 数据库。同一浏览器会话正常刷新 access token 后仍可完成原授权；同一用户另一次登录、权限代际变化、撤销和失效不能接用原流程。原生 Session 没有浏览器会话族时按已验证的凭据绑定，不能退化成只按用户绑定。
+
+此合同需要配套的 Core 和 Go Extensions。旧 Core 未返回绑定时，Go 对 Extore 授权返回服务不可用（503）；其他使用原 `Authority.Check` 的商店操作不受这个新增字段影响。已开始的流程仍受一次性消费、十分钟有效期、加密凭据和版本冲突检查约束；升级前按旧 access token 创建的未完成流程需要重新授权。
+
 当前网页调用授权 API 时传入空的 `base_url` 和 `client_id`，因此使用 `https://extore.lmm.best` 与 `lmm-best-store`。Extore 的这个内置客户端只接受 `https://api.lmm.best/store/manage` 和 `https://native.api.lmm.best/store/manage` 两个回调地址。其他来源或回调需要在 Extore 注册客户端，并通过已有授权 API 显式传入对应的 `base_url`、`client_id`；更改 `store.extore_plugin.origin` 只改变目录路由，不会改变网页的授权目的地。
 
 | 方法与路径 | 用途 |
@@ -41,7 +45,7 @@ Go 商店配置需要 `store.extore_key_file` 和 `store.extore_redirect_uri`。
 
 ### 构建与源码绑定
 
-`third_party/extore` 是固定到完整 Extore 实现 `818400958a8660e5e72b1eefb4815dbb34452098` 的 Git 子模块。[宿主 Cargo.toml](../services/extensions/extore-host/Cargo.toml)通过 `version = "=0.1.0"` 和该子模块内的路径依赖使用共享 API，[Cargo.lock](../services/extensions/extore-host/Cargo.lock)锁定其余依赖。接口与实际动态库由同一个 Gitlink 绑定源码，保持 Project Z 对已审阅来源的校验规则。动态库的来源提交、工具链、目标平台和构建产物 SHA256 应一起保存，运行配置中的 `sha256` 使用实际动态库文件的值。
+`third_party/extore` 是固定到 Extore 提交 `1c29a9a0bfa7e64c938581e5c5e5fcb1e6832f04` 的 Git 子模块。该提交在完整实现 `818400958a8660e5e72b1eefb4815dbb34452098` 上仅修正 Python 夹具的店铺 UUID 与网页合同断言，Rust runtime、共享 API 和静态网页输入未变。[宿主 Cargo.toml](../services/extensions/extore-host/Cargo.toml)通过 `version = "=0.1.0"` 和该子模块内的路径依赖使用共享 API，[Cargo.lock](../services/extensions/extore-host/Cargo.lock)锁定其余依赖。接口与实际动态库由同一个 Gitlink 绑定源码，保持 Project Z 对已审阅来源的校验规则。动态库的来源提交、工具链、目标平台和构建产物 SHA256 应一起保存，运行配置中的 `sha256` 使用实际动态库文件的值。
 
 以下命令在 LMM 源码根目录执行，初始化仓库已记录的固定子模块，并构建匹配的 Linux GNU 产物；它们不修改 Extore `main`，不安装或启动服务。已有子模块工作区应先保留其改动，不使用强制更新：
 

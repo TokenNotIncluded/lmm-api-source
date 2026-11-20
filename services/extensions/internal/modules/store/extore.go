@@ -109,8 +109,31 @@ func (c *extoreCipher) open(aad, value string) ([]byte, error) {
 	return c.aead.Open(nil, nonce, sealed, []byte(aad))
 }
 
-func extoreSessionBinding(token string) string {
-	return ID(extorePurpose, "session", token)
+// SessionAuthority verifies the live personal Session and its acting user in
+// Core. Browser refresh preserves this binding; another login does not.
+type SessionAuthority interface {
+	SessionBinding(context.Context, string, int64) (string, error)
+}
+
+func (s *Service) extoreSessionBinding(ctx context.Context, token string, userID int64) (string, error) {
+	if userID <= 0 || !Text(token, 256) {
+		return "", ErrUnauthorized
+	}
+	if _, err := s.check(ctx, token, Account{Kind: "personal", ID: userID}, Manage); err != nil {
+		return "", err
+	}
+	authority, ok := s.auth.(SessionAuthority)
+	if !ok || Missing(authority) {
+		return "", ErrUnavailable
+	}
+	binding, err := authority.SessionBinding(ctx, token, userID)
+	if err != nil {
+		return "", err
+	}
+	if !Text(binding, 128) {
+		return "", ErrUnavailable
+	}
+	return ID(extorePurpose, "verified-session-v1", userID, binding), nil
 }
 
 func mapExtoreErr(err error) error {
@@ -133,10 +156,8 @@ func (s *Service) ExtoreAuthorize(ctx context.Context, token string, userID int6
 	if !s.ExtoreReady() {
 		return nil, ErrUnavailable
 	}
-	if userID <= 0 || !Text(token, 256) {
-		return nil, ErrUnauthorized
-	}
-	if _, err := s.check(ctx, token, Account{Kind: "personal", ID: userID}, Manage); err != nil {
+	binding, err := s.extoreSessionBinding(ctx, token, userID)
+	if err != nil {
 		return nil, err
 	}
 	if clientID == "" {
@@ -153,7 +174,7 @@ func (s *Service) ExtoreAuthorize(ctx context.Context, token string, userID int6
 	state := ID(extorePurpose, "state", userID, time.Now().UnixNano(), flow.Verifier)
 	row := extoreFlowRow{
 		UserID:    userID,
-		Binding:   extoreSessionBinding(token),
+		Binding:   binding,
 		Flow:      flow,
 		ExpiresAt: time.Now().UTC().Unix() + 10*60,
 	}
@@ -177,10 +198,8 @@ func (s *Service) ExtoreCatalog(ctx context.Context, token string, userID int64,
 	if !s.ExtoreReady() {
 		return nil, ErrUnavailable
 	}
-	if userID <= 0 || !Text(token, 256) {
-		return nil, ErrUnauthorized
-	}
-	if _, err := s.check(ctx, token, Account{Kind: "personal", ID: userID}, Manage); err != nil {
+	binding, err := s.extoreSessionBinding(ctx, token, userID)
+	if err != nil {
 		return nil, err
 	}
 	_, query, err := extore.ParseCallback(callbackURL)
@@ -192,7 +211,6 @@ func (s *Service) ExtoreCatalog(ctx context.Context, token string, userID int64,
 		return nil, ErrInvalid
 	}
 	shop := extoreSellerShop(userID)
-	binding := extoreSessionBinding(token)
 	var flow extore.Flow
 	err = s.repo.Within(ctx, shop, func(tx Tx) error {
 		var row extoreFlowRow

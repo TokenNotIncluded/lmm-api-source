@@ -39,6 +39,11 @@ message AuthorizeResponse {
   Account owner = 5;
   // Ordered candidates only. Billing must recheck authority and reserve funds.
   repeated Account funding_accounts = 6;
+  // Core-verified opaque Session identity, currently "v1:" plus a SHA-256 hex
+  // digest. Stable across access-token refresh in one browser family and one
+  // authority generation; different for another login or generation. Native
+  // Sessions remain credential-bound. Empty for API keys. Not a credential.
+  string session_binding = 7;
 }
 enum TeamRole {
   TEAM_ROLE_UNSPECIFIED = 0;

@@ -364,8 +364,13 @@ type AuthorizeResponse struct {
 	Owner          *Account               `protobuf:"bytes,5,opt,name=owner,proto3" json:"owner,omitempty"`
 	// Ordered candidates only. Billing must recheck authority and reserve funds.
 	FundingAccounts []*Account `protobuf:"bytes,6,rep,name=funding_accounts,json=fundingAccounts,proto3" json:"funding_accounts,omitempty"`
-	unknownFields   protoimpl.UnknownFields
-	sizeCache       protoimpl.SizeCache
+	// Core-verified opaque Session identity, currently "v1:" plus a SHA-256 hex
+	// digest. Stable across access-token refresh in one browser family and one
+	// authority generation; different for another login or generation. Native
+	// Sessions remain credential-bound. Empty for API keys. Not a credential.
+	SessionBinding string `protobuf:"bytes,7,opt,name=session_binding,json=sessionBinding,proto3" json:"session_binding,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
 }
 
 func (x *AuthorizeResponse) Reset() {
@@ -438,6 +443,13 @@ func (x *AuthorizeResponse) GetFundingAccounts() []*Account {
 		return x.FundingAccounts
 	}
 	return nil
+}
+
+func (x *AuthorizeResponse) GetSessionBinding() string {
+	if x != nil {
+		return x.SessionBinding
+	}
+	return ""
 }
 
 type ListTeamsRequest struct {
@@ -619,14 +631,15 @@ const file_lmm_core_v1_control_proto_rawDesc = "" +
 	"\x10AuthorizeRequest\"G\n" +
 	"\aAccount\x12,\n" +
 	"\x04kind\x18\x01 \x01(\x0e2\x18.lmm.core.v1.AccountKindR\x04kind\x12\x0e\n" +
-	"\x02id\x18\x02 \x01(\x03R\x02id\"\xab\x02\n" +
+	"\x02id\x18\x02 \x01(\x03R\x02id\"\xd4\x02\n" +
 	"\x11AuthorizeResponse\x12#\n" +
 	"\rcredential_id\x18\x01 \x01(\x03R\fcredentialId\x12D\n" +
 	"\x0fcredential_kind\x18\x02 \x01(\x0e2\x1b.lmm.core.v1.CredentialKindR\x0ecredentialKind\x12\x17\n" +
 	"\auser_id\x18\x03 \x01(\x03R\x06userId\x12%\n" +
 	"\x0eplatform_level\x18\x04 \x01(\x05R\rplatformLevel\x12*\n" +
 	"\x05owner\x18\x05 \x01(\v2\x14.lmm.core.v1.AccountR\x05owner\x12?\n" +
-	"\x10funding_accounts\x18\x06 \x03(\v2\x14.lmm.core.v1.AccountR\x0ffundingAccounts\"-\n" +
+	"\x10funding_accounts\x18\x06 \x03(\v2\x14.lmm.core.v1.AccountR\x0ffundingAccounts\x12'\n" +
+	"\x0fsession_binding\x18\a \x01(\tR\x0esessionBinding\"-\n" +
 	"\x10ListTeamsRequest\x12\x19\n" +
 	"\bafter_id\x18\x01 \x01(\x03R\aafterId\"\x8d\x01\n" +
 	"\x04Team\x12\x0e\n" +
