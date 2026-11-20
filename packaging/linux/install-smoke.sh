@@ -32,7 +32,7 @@ case "$format" in
     remove_packages() { apk del lmm-core lmm-extensions lmm; }
     ;;
   archlinux)
-    pacman -Syu --noconfirm --needed ca-certificates systemd curl util-linux
+    pacman -Syu --noconfirm --needed ca-certificates systemd curl util-linux diffutils
     install_packages() { pacman -U --noconfirm /packages/*-"$1"-"$arch".pkg.tar.zst; }
     remove_packages() { pacman -R --noconfirm lmm-core lmm-extensions lmm; }
     ;;
