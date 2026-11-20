@@ -54,6 +54,25 @@ def run(*args: str, **kwargs) -> str:
                           stderr=subprocess.PIPE, timeout=300, **kwargs).stdout
 
 
+def glibc_requirements(text: str) -> set[tuple[int, ...]]:
+    """Read version requirements with their providing library, not symbol labels."""
+    versions = set()
+    provider = None
+    for line in text.splitlines():
+        library = re.search(r"\bFile:\s*(\S+)\s+Cnt:", line)
+        if library:
+            provider = library[1]
+        version = re.search(r"\bName:\s+GLIBC_(\d+\.\d+(?:\.\d+)?)\b", line)
+        if version:
+            # GCC's libgcc/config/libgcc-glibc.ver names its frame unwinder
+            # compatibility node GLIBC_2.0, including on aarch64 musl. It is
+            # provided by libgcc_s, not a requirement on glibc itself.
+            if provider == "libgcc_s.so.1" and version[1] == "2.0":
+                continue
+            versions.add(tuple(map(int, version[1].split("."))))
+    return versions
+
+
 def inspect_elf(path: Path, arch: str, shared: bool = False, libc: str = "glibc",
                 allow_unversioned: bool = False) -> dict:
     data = path.read_bytes()
@@ -79,10 +98,10 @@ def inspect_elf(path: Path, arch: str, shared: bool = False, libc: str = "glibc"
         raise ValueError("shared ELF input has no executable interpreter")
     if shared and interpreter is not None:
         raise ValueError("shared library must not contain an executable interpreter")
-    versions = {tuple(map(int, s.split("."))) for s in re.findall(r"\bGLIBC_(\d+\.\d+(?:\.\d+)?)\b", text)}
+    versions = glibc_requirements(text)
     openssl_versions = {tuple(map(int, s.split("."))) for s in re.findall(r"\bOPENSSL_(\d+\.\d+\.\d+)\b", text)}
     if libc == "musl" and versions:
-        raise ValueError("musl package contains glibc version requirements")
+        raise ValueError(f"musl package contains glibc version requirements: {path.name}")
     if libc == "glibc" and (interpreter or shared) and not versions and not allow_unversioned:
         raise ValueError("cannot determine the glibc minimum")
     return {"linkage": libc if interpreter or shared else "static", "needed": needed,

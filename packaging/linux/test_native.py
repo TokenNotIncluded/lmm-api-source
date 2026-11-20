@@ -12,7 +12,7 @@ import test_build as fixtures
 PKG = fixtures.PKG
 
 
-class NativePackageTests(fixtures.PackageTests):
+class NativePackageTests(fixtures.PackageTests, fixtures.LibcVersionTests):
     def native(self, archive, fmt, output, component="core"):
         return PKG.build(SimpleNamespace(archive=archive,
             sha256=hashlib.sha256(archive.read_bytes()).hexdigest(), revision=fixtures.REVISION,

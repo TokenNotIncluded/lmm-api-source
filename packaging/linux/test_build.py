@@ -18,6 +18,36 @@ SPEC.loader.exec_module(PKG)
 REVISION = "a" * 40
 
 
+class LibcVersionTests(unittest.TestCase):
+    # Captured from the exact 586 arm64 musl host/plugin in diagnostic run
+    # 44657143640. The version node is not flagged weak, although the two
+    # __[de]register_frame_info imports are weak; provider identity matters.
+    LIBGCC_VERSIONS = """Version needs section '.gnu.version_r' contains 1 entry:
+  000000: Version: 1  File: libgcc_s.so.1  Cnt: 4
+  0x0010:   Name: GCC_3.3  Flags: none  Version: 5
+  0x0020:   Name: GLIBC_2.0  Flags: none  Version: 4
+  0x0030:   Name: GCC_4.2.0  Flags: none  Version: 3
+  0x0040:   Name: GCC_3.0  Flags: none  Version: 2
+"""
+
+    def test_libgcc_unwinder_node_is_not_a_glibc_requirement(self):
+        self.assertEqual(PKG.glibc_requirements(self.LIBGCC_VERSIONS), set())
+
+    def test_same_node_from_libc_or_loader_remains_a_requirement(self):
+        for provider in ("libc.so.6", "ld-linux-aarch64.so.1", "ld-linux-x86-64.so.2"):
+            for flags in ("none", "WEAK"):
+                with self.subTest(provider=provider, flags=flags):
+                    text = self.LIBGCC_VERSIONS.replace("libgcc_s.so.1", provider)
+                    self.assertEqual(PKG.glibc_requirements(text.replace("Flags: none", "Flags: " + flags)),
+                                     {(2, 0)})
+
+    def test_libgcc_node_does_not_hide_a_libc_requirement(self):
+        libc = "  0x0050: Version: 1  File: libc.so.6  Cnt: 2\n" \
+               "  0x0060:   Name: GLIBC_2.0  Flags: none  Version: 6\n" \
+               "  0x0070:   Name: GLIBC_2.34  Flags: none  Version: 7\n"
+        self.assertEqual(PKG.glibc_requirements(self.LIBGCC_VERSIONS + libc), {(2, 0), (2, 34)})
+
+
 class PackageTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
