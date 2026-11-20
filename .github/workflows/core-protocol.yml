@@ -1,6 +1,12 @@
 name: Microkernel implementation checks
 on:
   workflow_dispatch:
+    inputs:
+      resource_prepare_only:
+        description: "Prepare the original fixed-120 Core resource driver without running acceptance"
+        type: boolean
+        default: false
+        required: false
   workflow_call:
 # ci.yml owns automatic push/PR runs so this expensive suite runs only once.
 permissions:
@@ -13,6 +19,7 @@ concurrency:
   cancel-in-progress: true
 jobs:
   protocol:
+    if: ${{ github.event_name != 'workflow_dispatch' || inputs.resource_prepare_only != true }}
     runs-on: ubuntu-24.04
     # Budget for cold builds, serial real PostgreSQL tests, and the following
     # payment, Go, and RPC checks while keeping the complete job bounded.
@@ -302,5 +309,71 @@ jobs:
             ${{ runner.temp }}/core-rpc-docker-evidence-readable
             ${{ runner.temp }}/store-postgres.jsonl
             ${{ runner.temp }}/events-process.log
+          if-no-files-found: warn
+          retention-days: 7
+
+  resource-prepare:
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.resource_prepare_only == true }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 50
+    permissions:
+      contents: read
+      actions: read
+    env:
+      MISE_DISABLE_TOOLS: rust
+    steps:
+      - name: Checkout the reviewed preparation controller
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          path: control
+          persist-credentials: false
+      - name: Checkout the immutable product and original gate
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          ref: 120e0401555c35b7e42eae89d44bab77b2b38087
+          path: source
+          persist-credentials: false
+      - name: Install the pinned Mise runtime
+        uses: jdx/mise-action@5228313ee0372e111a38da051671ca30fc5a96db
+        with:
+          version: "2026.11.10"
+          sha256: b603a4f48563fc379a794d9ea2cf9f709ed276c9141068604cb0c59fa3e674a9
+          install: false
+          cache: false
+          add_shims_to_path: false
+      - name: Prepare the original pinned tools and native build dependencies
+        working-directory: source
+        run: |
+          rustup toolchain install 1.100.0 --profile minimal
+          mise trust mise.toml
+          mise install bun go just node pgroll
+          sudo --preserve-env=GITHUB_ACTIONS python3 scripts/prepare-ci-apt.py
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends --yes build-essential pkg-config libssl-dev protobuf-compiler
+      - name: Fetch locked dependencies before the original offline preparation
+        working-directory: source
+        run: rustup run 1.100.0 cargo fetch --locked --manifest-path services/core/Cargo.toml
+      - name: Verify official Core and execute the unchanged resource prepare command
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python3 -B control/scripts/prepare-core-resource-cloud.py \
+            --source "$GITHUB_WORKSPACE/source" \
+            --output "$RUNNER_TEMP/core-resource-cloud" \
+            --resource "$RUNNER_TEMP/core-resource-lease/resource" \
+            --requests "$RUNNER_TEMP/core-resource-lease/requests"
+      - name: Preserve original preparation and controller evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: core-resource-prepared-120e0401-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/core-resource-cloud/core-resource-prepared.tar.gz
+            ${{ runner.temp }}/core-resource-cloud/core-resource-prepared.tar.gz.sha256
+            ${{ runner.temp }}/core-resource-cloud/export-manifest.json
+            ${{ runner.temp }}/core-resource-cloud/cloud-preparation-receipt.json
+            ${{ runner.temp }}/core-resource-cloud/prepare.log
+            ${{ runner.temp }}/core-resource-cloud/export-failure.json
+          compression-level: 0
           if-no-files-found: warn
           retention-days: 7
