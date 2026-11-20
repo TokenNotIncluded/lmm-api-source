@@ -2,9 +2,9 @@
 
 更新于 2026-11-20。此文件维护当前状态、剩余阻塞和证据入口；先前失败、历史候选和各轮实际回执继续保留。
 
-## 当前状态（截至 2026-11-20 18:10 UTC）
+## 当前状态（截至 2026-11-20 19:02 UTC）
 
-**六个客户端插件的新版本均已公开；OpenCode 0.1.5 已完成最终主分支九行矩阵和实际发行，Core 上一轮失败的四个原用例已全部通过定向复验。** Windows DSH 官方完整 wheel 路线已在保留原限时的控制中实际通过；安装指南及五个已发布插件指针已提交，正式安装器与可选 Extore 交付包仍在收口，最终 Core 组合尚未取得完整 CI 资格。本轮没有迁移生产数据库或切换生产流量。
+**六个客户端插件的新版本均已公开；服务器正式交付候选 [293e53f7](https://github.com/TokenNotIncluded/lmm-api-source/commit/293e53f799b09f187893e9cdf0c3503973916676) 已推送，并启动原完整 [CI 44797641245](https://github.com/TokenNotIncluded/lmm-api-source/actions/runs/44797641245)。** 原四个失败用例已定向通过，当前完整组合仍须等待实际终态。Windows 官方完整 wheel 路线已在原限时内通过，但持久产品草稿的原体积预算失败，数据保留修复仍在独立审查。服务器候选保留既有 installer 指针，单独推进交付验收。本轮没有迁移生产数据库或切换生产流量。
 
 ### 已公开的插件版本
 
@@ -43,7 +43,13 @@ DSH 五宿主、Codewhale 四组单元／三宿主／两组 Windows 的实际结
 
 最后五个 CLI 均实际执行版本检查：Pi 1.6.0、DSH 0.2.2-rc.2、Codex 0.171.0、Claude Code 2.1.329、LMM 0.1.0。原始日志只下载一次，48,196 B／765 行，SHA256 `d7ecc46872751637ec65a2ca4cf6c4bcdcd79409bb4685c3685b3842c92f60f7`。临时工作区随后重建；已从原先读取的内存载荷将这份日志逐字恢复到开发机，没有再次下载或重跑。丢失前生成的终态收据为 14,079 B，SHA256 `261aafa1a4fe7e6510fd1be3a994173530121e7d0e5db32870ff19c864501c4f`；其原文件的丢失与恢复记录分别注明，未伪称原路径仍存在。
 
-这证明官方完整 wheel 方案可用，持久目录、升级／卸载、既有 npm 命令冲突和父进程 PATH 尚需在正式安装器中实现并验收。既有 50,000 B 体积预算和失败保护保持。Pi alpha.7 四文件稿已提交独立分支 [a705fc74](https://github.com/TokenNotIncluded/lmm-scripts/commit/a705fc742686463a087905a8a21b48900a118c38)，75 个 leaf 中仅四项改变，23 个脚本共 49,971 B；原六项 Bash 已通过，PowerShell 及最终组合仍待。该分支没有创建 PR 或触发 CI，PR12 保持 abde。
+这证明官方完整 wheel 控制方案可用，不能转签持久安装器资格。原临时日志已恢复到开发机只读文件，恢复收据 SHA256 `6091867758683ae5556e6730f9f8d626703fa726755434c56aa4dc40799ce177`；根再次核对原日志 48,196 B 与摘要一致，没有重复下载。
+
+Pi alpha.7 四文件稿已提交独立分支 [a705fc74](https://github.com/TokenNotIncluded/lmm-scripts/commit/a705fc742686463a087905a8a21b48900a118c38)，75 个 leaf 中仅四项改变，23 个脚本共 49,971 B；原六项 Bash 已通过，PowerShell 及最终组合仍待。该分支没有创建 PR 或触发 CI，PR12 保持 abde。
+
+新的持久 Windows v1 草稿包含完整固定 wheel、最终路径 venv、受管 `dsh.cmd`、PATH 归属、重复安装、失败恢复与卸载。已补齐全部 23 份预算源码并逐 Git blob 核对，执行未修改的原 `InstallTests.test_flat_layout_and_size_budget`，实际结果为 **68,563 not less than 50,000，exit 1**。较 a705 增加 18,592 B；满足严格小于 50,000 至少还需减少 18,564 B。未提高预算或把运行 helper 移出统计，CW／OpenCode 及 dsh.sh 保持原字节。
+
+独立静态审查确认 v1 存在两个需要修复的问题：接受位于受管 runtime 内的 DSH_HOME 后，卸载可能一并删除该目录；包含 junction 的 runtime 会在卸载拒绝前先失去命令 shim。修正正在独立 v2 中处理，同时说明硬中断遗留未知目录不由安装器盲目清理。v1 清单摘要 `e398bc1aa996ce3a7175b71c5926efe43c0c7f3a171c690943eaaa83c22ab9d2`，审查回执摘要 `54c2f430b7e9d970d77c3b6a37d06af9f410808b2db696ebf62bc90b0779f03b`。本产品没有执行新 PowerShell／Windows 安装验收，未推送、未修改 PR12。原 90 项断言保留不等于新默认路线已通过。
 
 ### OpenCode 0.1.5 已正式发布
 
@@ -77,15 +83,25 @@ DSH 五宿主、Codewhale 四组单元／三宿主／两组 Windows 的实际结
 
 Pi helper 与 provider 操作数均固定 alpha.7；Codewhale 固定公开 alpha.4 tag；DSH Web 使用 GitHub alpha.9 包，Desktop 保持 alpha.4 与旧宿主 alpha.3 映射。14 个原导出名称保留。七份 locale 各新增六键，原 13,430 个键及所有旧行逐字保留；原翻译 writer、sync 和原回归函数通过。原 Forge 七项及新增版本入口回归合计 8 PASS、0 skip。实际 formatter、完整 Web format／lint／types／build 仍留原最终 CI，未用局部测试替代。
 
-### 可选 Extore 正式交付包正在补齐
+后续清理后的指南基础为 [1aa53b4a](https://github.com/TokenNotIncluded/lmm-api-source/commit/1aa53b4a3e4d0fea0a36d83586f0fef8fdbc20c0)，相对 4706 恰好只删除 12 张生成的审阅 PNG；其它 blob、mode 和全部 20 个 gitlink 一致，清理结果没有回填。对应 translation base 为 `987e4d3bedb4c285ec1b4d4943524d19eb6b9c73`，与 73711 也只相差这些图片，七份 locale 基线完全相同。原固定历史执行器仍可由新历史获取。
 
-实际 73711 的 [发行清单](https://github.com/TokenNotIncluded/lmm-api-source/blob/73711f0ebc2a6475198355d3cac3e0b43eb41d1b/packaging/distribution.json)与 Extensions 镜像仅携带 Go 程序；现有 native CI 明确使用 debug 产物并只上传日志／收据。新架构需要同源的 `lmm-extore-host` 与单个 `libextore_zplugin.so` 进入正式 GNU 归档、原生包及镜像，不能拿 main/cf 的“两 SO＋HTTPS 代理”资格替代。
+### 可选 Extore 正式交付已提交候选
 
-正在准备独立可选变体：host／SO 必须成对、绑定 GNU 架构与源 gitlink，归档和镜像使用可区分的名称；原 Go-only 和 APK 路径、默认关闭状态保留。双架构 Linux 原入口将实际把可选变体装入包并验证安装、升级、移除及包内 native-flow，不能仅验证构建目录。真实同 UID、共享实时 data_dir、私有 socket 约束保留，不自动初始化数据库或启用插件。当前仍为草稿及轻量检查阶段，未执行本地重编译、安装或生产激活。
+原 73711 的归档和 Extensions 镜像只交付 Go 程序；debug native CI 也不构成正式产物资格。现已提交 [293e53f7](https://github.com/TokenNotIncluded/lmm-api-source/commit/293e53f799b09f187893e9cdf0c3503973916676)，parent 为清理后的 1aa，完整 tree `63454c389c91e7a202589bce8a43ff4a170d994b`。完整树由全部 5,581 个 leaf 重建核对，12 个既有文件仅改变内容，20 个 gitlink 和原文件模式均保留；installer 仍为 `452efac0f1698676060605f10a9e4705b487e6ba`，Extore 仍为 `8e3063690cf5595884b1e639535869fd593e0296`。
+
+可选 GNU 归档、原生包、runtime-extore 镜像成对交付 `lmm-extore-host` 与 `libextore_zplugin.so`，绑定实际源码、gitlink、架构和摘要，保留 Go-only 默认及原 APK 路径。原 distribution/native 工作流将对实际归档或 DEB 解出的同一对文件运行 native-flow，并验证运行库及安装／升级／移除后的文件。两处新增 mise 步骤固定 2026.11.10，并分别固定 x64、arm64 实际二进制摘要。
+
+发布工作流中同一步写入 GITHUB_ENV 后立即读取 PREVIEW_TAG 的错误已修正：先显式 export 来源与 tag，再写后续步骤环境。实际提取的旧 Load step 三种组合均复现 KeyError；新版本原 17 项加新增 2 项通过，错误 tag 仍拒绝。这些检查使用 Git／Docker 替身，不是镜像运行验收。归档／原生转换原 19 项、拓扑原检查、固定 actionlint 与 docs-only 的轻量结果分别保留；没有在开发机重编译、安装或启动数据库。
+
+自动 archive `deploy.yml` 完整保持原字节。独立消费者审查发现原 a/b 槽位 symlink 与 Go／Rust 的受控路径要求不兼容，外部 TOML 不随切槽改变，现有 verify 仅检 Go 服务；因此撤下草稿中尚不成立的 Extore 自动部署选项，保留原加载检查。成对代码交付不自动创建实时数据库、调整共同 UID 或启用插件。原生包和镜像也需满足真实安装路径、同源摘要、同 UID、共享实时 data_dir、0700 目录及 0600 socket 等启用合同。
+
+最终 v3 补丁 SHA256 `0c3471ebe82c501d01f7018a4c8aa0aa1820f3ba30093cf45b50f848ba05139e`；完整组合收据 `6296c3492f07f86aef2f8e47123ce3dd9557737b85f952163964f5a915dca873`；部署消费者审查 `015c4055542be4ae6e1df289aed003bad11b2c03bc94f30191e117bee563cb4d`。distribution 和 Linux 包原入口允许 review 候选；GHCR images 原有 main 祖先准入不变，本轮没有将 review 代码绕过该门槛发布。
 
 ### 最终组合与生产上线
 
-技术侧还需完成正式 Windows 安装器、Extore 可选交付包，再对同一最终源码执行原完整 Core／market、Web、翻译、native integration 以及对应发行和升级恢复门槛。原 CI 的定向成功、旧 22c、旧浏览器和 120e0401 容量结果均只绑定各自输入，不能直接转为当前组合资格。
+服务器候选的原完整 [CI 44797641245](https://github.com/TokenNotIncluded/lmm-api-source/actions/runs/44797641245) 于 18:57:34 UTC 创建，唯一 dispatch HTTP 204／POST 1，源码固定 293e53f7，translation base 固定 cleaned 987e。翻译以及 Web 的格式、版权、lint／类型检查已通过；其它阶段及整个 run 的最终结论尚待独立回读。Web 快速门槛完成后，将在同一源码运行原可选 distribution／Linux package 验收，保留原限时和拒绝条件。
+
+正式 Windows 安装器在独立分支草稿中继续审查，其体积门槛不阻塞服务器现有 installer 指针的 CI。当前组合仍需完整 Core／market、Web、native integration、真实交付产物及安装结果。旧 22c、旧浏览器和 120e0401 容量结果只绑定各自输入，不能迁移为当前组合的生产资格。
 
 已完成的只读上线审计将实际财务 readiness 的五个 BLOCKED 收敛到三个根因：
 
