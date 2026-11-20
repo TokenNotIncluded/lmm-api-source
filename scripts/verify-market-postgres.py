@@ -8,6 +8,7 @@ import os
 from pathlib import Path
 import re
 import secrets
+import signal
 import subprocess
 import time
 from urllib.parse import quote
@@ -172,16 +173,68 @@ def main():
         command = ["go", "test", "-mod=readonly", "-race", "-count=1", "-json", package, "-run", pattern]
         began = time.monotonic()
         info = {"label": label, "command": command, "started_at": utc(), "cwd": "services/extensions"}
+        child = subprocess.Popen(command, cwd=root / "services/extensions", env={**env, **variables},
+                                 stdout=subprocess.PIPE, stderr=subprocess.PIPE, start_new_session=True)
+        pgid = child.pid
+        initial = Path(f"/proc/{child.pid}/stat").read_text().rpartition(")")[2].split()
+        identity = {"pid": child.pid, "pgid": os.getpgid(child.pid), "session": os.getsid(child.pid),
+                    "start_ticks": int(initial[19])}
+        if identity["pgid"] != pgid or identity["session"] != pgid:
+            raise RuntimeError("test subprocess did not create its own process group")
+        cleanup = {"identity": identity, "signals": [], "required": False}
+
+        def owned_members():
+            members = []
+            for process in Path("/proc").iterdir():
+                if not process.name.isdecimal():
+                    continue
+                try:
+                    fields = (process / "stat").read_text().rpartition(")")[2].split()
+                except (FileNotFoundError, ProcessLookupError, PermissionError):
+                    continue
+                if int(fields[2]) != pgid:
+                    continue
+                pid, ticks = int(process.name), int(fields[19])
+                if int(fields[3]) != pgid or (pid == pgid and ticks != identity["start_ticks"]):
+                    raise RuntimeError("test process group identity changed")
+                members.append({"pid": pid, "start_ticks": ticks, "state": fields[0]})
+            return members
+
+        def stop_owned(sig):
+            members = owned_members()
+            cleanup["signals"].append({"signal": sig.name, "confirmed_members": members})
+            if members:
+                try:
+                    os.killpg(pgid, sig)
+                except ProcessLookupError:
+                    pass
+
         try:
-            result = subprocess.run(command, cwd=root / "services/extensions", env={**env, **variables},
-                                    capture_output=True, timeout=780)
-            code, timed_out = result.returncode, False
-            raw_stdout, raw_stderr = result.stdout, result.stderr
+            raw_stdout, raw_stderr = child.communicate(timeout=780)
+            code, timed_out = child.returncode, False
         except subprocess.TimeoutExpired as error:
             code, timed_out = None, True
             raw_stdout, raw_stderr = error.stdout or b"", error.stderr or b""
+            cleanup["required"] = True
+            try:
+                stop_owned(signal.SIGTERM)
+                try:
+                    raw_stdout, raw_stderr = child.communicate(timeout=10)
+                except subprocess.TimeoutExpired as error:
+                    raw_stdout, raw_stderr = error.stdout or b"", error.stderr or b""
+                if owned_members():
+                    stop_owned(signal.SIGKILL)
+                    try:
+                        raw_stdout, raw_stderr = child.communicate(timeout=5)
+                    except subprocess.TimeoutExpired as error:
+                        raw_stdout, raw_stderr = error.stdout or b"", error.stderr or b""
+                        cleanup["pipe_drain_timed_out"] = True
+                cleanup["remaining_members"] = owned_members()
+            except Exception as error:
+                cleanup["error_class"] = type(error).__name__
+            cleanup["parent_reaped"] = child.poll() is not None
         info.update(exit_code=code, command_timed_out=timed_out,
-                    elapsed_seconds=time.monotonic() - began, finished_at=utc())
+                    elapsed_seconds=time.monotonic() - began, finished_at=utc(), process_cleanup=cleanup)
         stdout, stderr = raw_stdout.decode(errors="replace"), raw_stderr.decode(errors="replace")
         for secret in hidden:
             stdout, stderr = stdout.replace(secret, "[fixture-secret]"), stderr.replace(secret, "[fixture-secret]")
