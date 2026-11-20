@@ -429,6 +429,7 @@ async fn real_core_and_go_store_replay_refund_and_restart_after_lost_ack(pool: P
         core_url.display(), socket.display(), control.display(), permissions.display(), money.display()
     ).as_bytes());
     let native = native_inputs::Inputs::from_environment(&root);
+    let local_http = native.is_none();
     let public_origin = if native.is_some() {
         "https://api.lmm.best".to_owned()
     } else {
@@ -439,7 +440,7 @@ async fn real_core_and_go_store_replay_refund_and_restart_after_lost_ack(pool: P
         .map(native_inputs::Inputs::store_settings)
         .unwrap_or_default();
     let go_config = private(&root, "go.toml", format!(
-        "version=1\n[host]\nlisten='{extension_address}'\nweb_compat=true\nlocal_http=true\npublic_origin='{public_origin}'\ntoken_file='{}'\nmodules=['identity','store']\n[core]\nsocket='{}'\nidentity_token_file='{}'\ncommerce_token_file='{}'\n[store]\ndatabase_name='{database}'\ndatabase_url_file='{}'\n{native_settings}",
+        "version=1\n[host]\nlisten='{extension_address}'\nweb_compat=true\nlocal_http={local_http}\npublic_origin='{public_origin}'\ntoken_file='{}'\nmodules=['identity','store']\n[core]\nsocket='{}'\nidentity_token_file='{}'\ncommerce_token_file='{}'\n[store]\ndatabase_name='{database}'\ndatabase_url_file='{}'\n{native_settings}",
         host_file.display(), socket.display(), control.display(), money.display(), store_url.display()
     ).as_bytes());
     let client = Client::builder()
