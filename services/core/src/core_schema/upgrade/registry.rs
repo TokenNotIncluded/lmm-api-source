@@ -247,7 +247,7 @@ registrations! {
         CHECKIN_CHALLENGES => checkin_challenges, "CHECKIN_CHALLENGES_", |c,r| Box::pin(checkin_challenges::grant_runtime(c, &r.roles.runtime)), owner_receipt, SuffixPolicy::DEFAULT;
         NETWORK_ACCESS => network_access, "NETWORK_ACCESS_", |c,r| Box::pin(network_access::grant_runtime(c, &r.roles.runtime)), owner_receipt, SuffixPolicy::DEFAULT;
         CONNECTION_HISTORY_IMPORT => connection_history_import, "CONNECTION_HISTORY_IMPORT_", no_grants, owner_receipt, SuffixPolicy::DEFAULT;
-        PROVIDER_OAUTH_CLIENTS => provider_oauth_clients, "PROVIDER_OAUTH_CLIENTS_", no_grants, owner_receipt, SuffixPolicy { target: TargetSource::Captured(provider_oauth_clients::captured_target), projection: DataProjection::ProviderOauthClients, ..SuffixPolicy::DEFAULT };
+        PROVIDER_OAUTH_CLIENTS => provider_oauth_clients, "PROVIDER_OAUTH_CLIENTS_", no_grants, owner_receipt, SuffixPolicy { target: TargetSource::Captured(provider_oauth_clients::captured_target), projection: DataProjection::ProviderOauthClients, #[cfg(test)] after_ddl: SuffixPolicy::DEFAULT.after_ddl };
         OIDC => oidc, "OIDC_", |c,r| Box::pin(oidc::grant_runtime(c, &r.roles.runtime)), owner_receipt, SuffixPolicy::DEFAULT;
     }
 }
