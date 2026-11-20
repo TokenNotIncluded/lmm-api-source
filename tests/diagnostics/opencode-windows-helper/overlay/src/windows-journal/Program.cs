@@ -18,6 +18,38 @@ public static class LmmMagpieJournalProgram {
         if (!condition) throw new InvalidDataException("Invalid journal protocol.");
     }
 
+    static bool JsonWhitespace(byte value) {
+        return value == 0x20 || value == 0x09 || value == 0x0a || value == 0x0d;
+    }
+
+    static void RequireSingleObject(byte[] bytes, int length) {
+        // The framework reader can report EOF after the first JSON value while
+        // ignoring a second document. Only establish the outer byte boundary
+        // here; the framework still validates JSON syntax, types and quotas.
+        int start = 0;
+        while (start < length && JsonWhitespace(bytes[start])) start++;
+        Need(start < length && bytes[start] == (byte)'{');
+        int depth = 0;
+        bool quoted = false, escaped = false;
+        for (int i = start; i < length; i++) {
+            byte value = bytes[i];
+            if (quoted) {
+                if (escaped) escaped = false;
+                else if (value == (byte)'\\') escaped = true;
+                else if (value == (byte)'"') quoted = false;
+            } else if (value == (byte)'"') quoted = true;
+            else if (value == (byte)'{') depth++;
+            else if (value == (byte)'}') {
+                depth--;
+                if (depth == 0) {
+                    for (int rest = i + 1; rest < length; rest++) Need(JsonWhitespace(bytes[rest]));
+                    return;
+                }
+            }
+        }
+        Need(false);
+    }
+
     static Dictionary<string, string> ReadRequest() {
         // Read one extra byte to reject overflow. Reading through EOF, parsing,
         // storage and process exit all remain inside the parent's 5000 ms limit.
@@ -32,6 +64,7 @@ public static class LmmMagpieJournalProgram {
         }
         Need(length > 0 && length <= MaximumInputBytes);
         Utf8.GetCharCount(bytes, 0, length); // Reject malformed UTF-8, not by UTF-16 length.
+        RequireSingleObject(bytes, length);
         XmlDictionaryReaderQuotas quotas = new XmlDictionaryReaderQuotas {
             MaxDepth = 4,
             MaxStringContentLength = MaximumInputBytes,

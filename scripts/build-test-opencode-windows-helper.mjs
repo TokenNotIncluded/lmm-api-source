@@ -245,6 +245,10 @@ try {
         ['utf8-exact-byte-boundary', exactBytes(16384), 'storage'],
         ['utf8-byte-overflow', exactBytes(16385), 'input'],
         ['trailing-document', Buffer.from(JSON.stringify(request) + '{}'), 'input'],
+        ['string-braces', Buffer.from(JSON.stringify({...request, directory: 'relative-{still-string}'})), 'storage'],
+        ['escaped-quote-and-backslash', Buffer.from(JSON.stringify({...request,
+          directory: 'relative-' + String.fromCharCode(92, 34, 125, 123, 92, 92, 34)})), 'storage'],
+        ['json-whitespace', Buffer.from(' \t\r\n' + JSON.stringify(request) + '\t\r\n '), 'storage'],
       ];
       const records = [];
       for (const [label, input, expectedStage] of probes) {

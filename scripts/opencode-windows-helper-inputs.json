@@ -470,9 +470,9 @@
       "operation": "add",
       "before": null,
       "after": {
-        "bytes": 6000,
-        "sha256": "9222d8b2ab5c3f9b19dc7a3c440bc20665289d6285cc590744c7e0dbe77c956d",
-        "blob": "a22cd16d0a8122ad529a94bde026d49558eb55a7"
+        "bytes": 7386,
+        "sha256": "ef5a825e45d5144b185a7c63f401f3347ef98cf84dd025e01621bc69e486a122",
+        "blob": "350871b6edad55a00377d40d86231621d878b49d"
       },
       "control_path": "tests/diagnostics/opencode-windows-helper/overlay/src/windows-journal/Program.cs"
     }
