@@ -641,15 +641,16 @@ impl AssistantModel {
                     .await
                     .is_ok();
             }
-            if !settled
-                && let Ok(mut tx) = service.begin().await
-                && service
+            if !settled {
+                let mut tx = service.begin().await?;
+                // The deferred exclusion trigger takes this lock at COMMIT.
+                // Keep the order identical to operation() and finalize().
+                lock_conversation_id(&mut tx, &binding.core_conversation_id).await?;
+                service
                     .charging
                     .unknown_assistant(&mut tx, &request_id, &worker)
-                    .await
-                    .is_ok()
-            {
-                let _ = tx.commit().await;
+                    .await?;
+                tx.commit().await?;
             }
             service.operation(&original, &binding).await
         });

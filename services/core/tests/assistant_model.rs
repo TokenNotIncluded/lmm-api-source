@@ -415,6 +415,149 @@ async fn cancelled_rpc_does_not_cancel_core_worker_or_replay_dispatch(pool: PgPo
     assert_eq!(p.hits.load(Ordering::SeqCst), 1);
 }
 
+#[sqlx::test]
+async fn unknown_classification_takes_conversation_lock_before_charge_row(pool: PgPool) {
+    let (_, ledger, session, _, _, account) = fixture(&pool, 100000).await;
+    let p = Provider::start(true).await;
+    let s = service(&pool, &p);
+    let b = binding(&s, &session, "unknown-lock-order", "pause").await;
+    let caller = {
+        let s = s.clone();
+        let session = session.clone();
+        let b = b.clone();
+        tokio::spawn(async move { s.reserve_text(&session, &b, "pause").await })
+    };
+    tokio::time::timeout(Duration::from_secs(2), async {
+        while p.hits.load(Ordering::SeqCst) == 0 {
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+    })
+    .await
+    .unwrap();
+    caller.abort();
+    let _ = caller.await;
+
+    let (op, before, held) = tokio::time::timeout(Duration::from_secs(4), async {
+        let mut poll = pool.begin().await.unwrap();
+        for statement in [
+            "SET TRANSACTION ISOLATION LEVEL SERIALIZABLE",
+            "SET LOCAL synchronous_commit=on",
+            "SET LOCAL lock_timeout='2s'",
+            "SET LOCAL statement_timeout='5s'",
+        ] {
+            sqlx::query(statement).execute(&mut *poll).await.unwrap();
+        }
+        let poll_pid: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
+            .fetch_one(&mut *poll)
+            .await
+            .unwrap();
+        // Own the exact lock operation() takes before touching its charge row.
+        sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1,908534117))")
+            .bind(&b.core_conversation_id)
+            .execute(&mut *poll)
+            .await
+            .unwrap();
+        let (request_id, held): (String, i64) = sqlx::query_as(
+            "SELECT o.request_id,r.reserved FROM core_assistant.operations o \
+             JOIN core_charging.requests r ON r.id=o.request_id \
+             WHERE o.grant_id=$1 AND r.state='streaming'",
+        )
+        .bind(&b.delegation_id)
+        .fetch_one(&mut *poll)
+        .await
+        .unwrap();
+        let before = ledger.balance(account).await.unwrap();
+        assert!(held > 0);
+        assert_eq!(before.reserved_units, held);
+
+        // The original worker reached this advisory lock at deferred COMMIT,
+        // after locking r. The corrected worker waits here before locking r.
+        let worker_pid = loop {
+            let waiting: Option<i32> = sqlx::query_scalar(
+                "SELECT pid FROM pg_stat_activity \
+                 WHERE datid=(SELECT oid FROM pg_database WHERE datname=current_database()) \
+                 AND pid<>$1 AND $1=ANY(pg_blocking_pids(pid))",
+            )
+            .bind(poll_pid)
+            .fetch_optional(&pool)
+            .await
+            .unwrap();
+            if let Some(pid) = waiting {
+                break pid;
+            }
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        };
+
+        // Take the row locks used by status lookup to close the old request ->
+        // conversation inversion. Observe both PG wait edges.
+        let poll_lookup = async move {
+            let _: String = sqlx::query_scalar(
+                "SELECT o.request_id FROM core_assistant.operations o \
+                 JOIN core_assistant.grants g ON g.id=o.grant_id \
+                 JOIN core_charging.requests r ON r.id=o.request_id \
+                 WHERE o.request_id=$1 AND r.assistant_grant_id=g.id FOR UPDATE OF o,r",
+            )
+            .bind(&request_id)
+            .fetch_one(&mut *poll)
+            .await?;
+            poll.commit().await
+        };
+        tokio::pin!(poll_lookup);
+        let mut saw_lock_cycle = false;
+        let poll_result = loop {
+            tokio::select! {
+                result = &mut poll_lookup => break result,
+                () = tokio::time::sleep(Duration::from_millis(5)) => {
+                    let cycle: bool = sqlx::query_scalar(
+                        "SELECT $1=ANY(pg_blocking_pids($2)) \
+                         AND $2=ANY(pg_blocking_pids($1))",
+                    )
+                    .bind(poll_pid)
+                    .bind(worker_pid)
+                    .fetch_one(&pool)
+                    .await
+                    .unwrap();
+                    saw_lock_cycle |= cycle;
+                }
+            }
+        };
+        assert!(
+            !saw_lock_cycle,
+            "Unknown classification reversed the conversation/request lock order"
+        );
+        poll_result.unwrap();
+        loop {
+            let op = s.operation(&session, &b).await.unwrap();
+            if op.state == State::Unknown {
+                break (op, before, held);
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await
+    .unwrap();
+
+    assert!(op.answer_text.is_none());
+    assert!(op.settled_credits.is_none());
+    assert_eq!(op.reserved_credits, held);
+    let after = ledger.balance(account).await.unwrap();
+    assert_eq!(
+        (after.available_units, after.reserved_units),
+        (before.available_units, before.reserved_units)
+    );
+    let durable: (String, i64, i64) =
+        sqlx::query_as("SELECT state,reserved,settled FROM core_charging.requests WHERE id=$1")
+            .bind(&op.request_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(durable, ("reconcile".into(), held, 0));
+    let replay = s.reserve_text(&session, &b, "pause").await.unwrap();
+    assert_eq!(replay.state, State::Unknown);
+    assert_eq!(replay.request_id, op.request_id);
+    assert_eq!(p.hits.load(Ordering::SeqCst), 1);
+}
+
 #[cfg(unix)]
 #[sqlx::test]
 async fn rpc_requires_single_host_protocol_and_original_personal_session(pool: PgPool) {
