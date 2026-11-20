@@ -42,3 +42,4 @@ electron/** linguist-vendored
 
 # TanStack Router regenerates this manifest from the route source files.
 web/src/routeTree.gen.ts linguist-generated
+tests/diagnostics/opencode-windows-journal/overlay/src/magpie-windows-journal.ps1 text eol=lf

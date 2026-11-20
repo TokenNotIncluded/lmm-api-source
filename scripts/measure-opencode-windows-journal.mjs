@@ -71,7 +71,7 @@ function invariants(inputs) {
   assert.deepEqual(leaves, inputs.baseline.map(x => ({mode: x.mode, blob: x.blob, path: x.path})));
 }
 function controlRecords(inputs) {
-  return ['.github/workflows/core-protocol.yml', 'scripts/measure-opencode-windows-journal.mjs', INPUTS,
+  return ['.gitattributes', '.github/workflows/core-protocol.yml', 'scripts/measure-opencode-windows-journal.mjs', INPUTS,
     ...inputs.overlays.map(x => x.control_path)].map(p => file(control, p));
 }
 function parseEvents(text) {
