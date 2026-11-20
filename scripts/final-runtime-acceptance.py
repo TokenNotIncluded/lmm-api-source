@@ -348,12 +348,51 @@ def commerce_driver(source, root, snapshot):
     return content / "commerce_process"
 
 
+def payment_projection(source):
+    """Bind the explicit metadata-only runner projection; never edit product293."""
+    original = regular(source / "tests/payments/verify_process.py")
+    canonical = regular(CONTROL / "tests/payments/verify_process.py")
+    projected = regular(CONTROL / "tests/final-runtime/payments/verify_process.py")
+    original_bytes = original.read_bytes()
+    require(sha(original) == "e4afd935ada6c9fe87c9c76acabb1b57a32bd466b75f55657b7ec09a89069c6e",
+            "original293 payment runner differs")
+    expected = original_bytes.decode("utf-8")
+    edits = (('    for text, expected in ((full, [CASE, EXPIRY_CASE]), (ignored, [EXPIRY_CASE])):', '    for text, expected in (\n        (full, [CASE, EXPIRY_CASE, "hex_codec::tests::preserves_hex_representation_and_input_errors"]),\n        (ignored, [EXPIRY_CASE]),\n    ):'), ('0 measured; 1 filtered out; finished', '0 measured; 2 filtered out; finished'))
+    for before, after in edits:
+        require(expected.count(before) == 1, "payment metadata projection is not unique")
+        expected = expected.replace(before, after, 1)
+    require(expected.encode("utf-8") == canonical.read_bytes(),
+            "canonical payment runner contains an unreviewed change")
+    before = 'REPO = Path(__file__).resolve().parents[2]'
+    after = 'REPO = Path(os.environ["GITHUB_WORKSPACE"]) / "product"'
+    require(expected.count(before) == 1, "payment projection root is not unique")
+    require(expected.replace(before, after, 1).encode("utf-8") == projected.read_bytes(),
+            "payment projection differs beyond its explicit runtime root")
+    return projected, {
+        "format": "lmm-payment-metadata-projection-v1",
+        "runtime_revision": RUNTIME,
+        "control_revision": os.environ["GITHUB_SHA"],
+        "original_path": "tests/payments/verify_process.py",
+        "original_sha256": sha(original),
+        "canonical_control_path": "tests/payments/verify_process.py",
+        "canonical_control_sha256": sha(canonical),
+        "projected_control_path": "tests/final-runtime/payments/verify_process.py",
+        "projected_control_sha256": sha(projected),
+        "original_product_bytes_unchanged": True,
+        "compiled_inputs_from_original_product": True,
+        "metadata_only": {"full_test_count": 3, "ignored_test_count": 1,
+                          "selected_passed": 1, "selected_filtered_out": 2},
+        "acceptance_executed": False,
+    }
+
+
 def input_modules(source):
     sys.path.insert(0, str(source / "scripts"))
     sys.path.insert(0, str(source / "tests/commerce"))
     resource = load_module("verify_model_resources", source / "scripts/verify_model_resources.py")
     commerce = load_module("final_commerce", source / "tests/commerce/verify_process.py")
-    payment = load_module("final_payment", source / "tests/payments/verify_process.py")
+    payment_path, _ = payment_projection(source)
+    payment = load_module("final_payment", payment_path)
     lease = load_module("final_build_lease", source / "tests/architecture_completion/build_lease.py")
     return resource, commerce, payment, lease
 
@@ -481,6 +520,9 @@ def prepare(args):
         resource_inputs = resource.inputs()
         runtime_inputs = commerce.sources()
         payment_inputs = payment.sources()
+        _, projection_binding = payment_projection(source)
+        record(payload / "payment-runner-projection.json", projection_binding)
+        receipt["payment_runner_projection"] = projection_binding
         record(payload / "resource-inputs-before.json", resource_inputs)
         record(payload / "commerce-runtime-inputs.json", runtime_inputs)
         record(payload / "payment-compiled-inputs.json", payment_inputs)
@@ -573,6 +615,12 @@ def prepare(args):
         (payments / "bootstrap").chmod(0o500)
         full = command([payments / "payments_process", "--list"], source / "services/core", payments / "test-list.log", 10)
         ignored = command([payments / "payments_process", "--list", "--ignored"], source / "services/core", payments / "ignored-test-list.log", 10)
+        require(len(full.encode("utf-8")) <= 8192 and len(ignored.encode("utf-8")) <= 8192,
+                "payment discovery exceeds the evidence bound")
+        receipt["payment_test_discovery"] = {
+            "full": full, "ignored": ignored,
+            "full_sha256": sha(payments / "test-list.log"),
+            "ignored_sha256": sha(payments / "ignored-test-list.log")}
         payment.verify_discovery(full, ignored)
         bootstrap_list = command([payments / "bootstrap", "-test.list", "^TestRustDurableProofAcrossGoRestart$"],
                                  source / "services/extensions", payments / "bootstrap-list.log", 10)
@@ -779,6 +827,9 @@ def execute_sequence(args):
     require(snapshot == json.loads((payload / "source-before.json").read_text()), "runtime source closure differs")
     components = verified_component_paths(source, payload)
     resource, commerce, payment, _ = input_modules(source)
+    payment_runner, projection_binding = payment_projection(source)
+    require(json.loads((payload / "payment-runner-projection.json").read_text()) == projection_binding,
+            "payment runner projection differs across preparation and execution")
     require(commerce.sources() == json.loads((payload / "commerce-runtime-inputs.json").read_text())
             and payment.sources() == json.loads((payload / "payment-compiled-inputs.json").read_text()),
             "runtime input closure differs from prepared drivers")
@@ -846,7 +897,7 @@ def execute_sequence(args):
         output, proc = private(case_root / "payment302"), short_root("pay302")
         paths.extend([output, proc])
         payments = payload / "payments"
-        argv = [sys.executable, "-B", source / "tests/payments/verify_process.py", "--case", "accepted-proof-expiry",
+        argv = [sys.executable, "-B", payment_runner, "--case", "accepted-proof-expiry",
                 "--output-root", output, "--process-root", proc, "--core-binding", payload / "core-source-binding.json",
                 "--core-build-receipt", payload / "official-core-build-reference.json", "--go-reference", shared_reference,
                 "--compiled-inputs", payload / "payment-compiled-inputs.json"]
