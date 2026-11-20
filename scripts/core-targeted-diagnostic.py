@@ -329,10 +329,17 @@ def main():
         private_artifacts.mkdir(mode=0o700)
         if stat.S_IMODE(private_artifacts.stat().st_mode) != 0o700:
             raise ValueError("upgrade diagnostic artifact directory must have mode0700")
+        private_dev_artifacts = evidence.parent / "core-targeted-upgrade-refusal-dev-private"
+        private_dev_artifacts.mkdir(mode=0o700)
+        if stat.S_IMODE(private_dev_artifacts.stat().st_mode) != 0o700:
+            raise ValueError("upgrade seed artifact directory must have mode0700")
+        os.environ["LMM_CONTINUITY_DEV_ARTIFACTS"] = str(private_dev_artifacts)
         os.environ["RESPONSES_CONTINUITY_INDEPENDENT_ARTIFACTS"] = str(private_artifacts)
         binding.update(scope="UPGRADE_REFUSAL_DIAGNOSTIC_ONLY",
                        expected_cases=[entry[4] for entry in UPGRADE_REFUSALS],
                        private_artifact_directory=str(private_artifacts),
+                       private_dev_artifact_directory=str(private_dev_artifacts),
+                       private_dev_artifacts_uploaded=False,
                        retained_private_artifact="a9-upgrade-68-to69.json only",
                        preserved_executor_revision="2a0c7bd380f58a553dc903d399255821c1a65d0f")
     if mode == "provider78_capture":
