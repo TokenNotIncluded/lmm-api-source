@@ -227,12 +227,13 @@ impl CoreControl for Control {
         self.check(request.metadata())?;
         let credential = Self::user(request.metadata())?;
         self.bounded(async {
-            let actor = self
+            let (actor, session_binding) = self
                 .store()?
-                .authorize(credential)
+                .authorize_with_session_binding(credential)
                 .await
                 .map_err(identity_status)?;
             Ok(pb::AuthorizeResponse {
+                session_binding,
                 credential_id: actor.credential_id,
                 credential_kind: match actor.credential_kind {
                     CredentialKind::Session => pb::CredentialKind::Session as i32,

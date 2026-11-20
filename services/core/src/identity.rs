@@ -557,6 +557,46 @@ impl IdentityStore {
         tx.commit().await?;
         Ok(IssuedCredential { id, secret })
     }
+    /// Read-only control-plane identity for work that survives browser access
+    /// refresh. The binding is derived only after current Core authorization,
+    /// in the same snapshot; callers never supply a browser family identifier.
+    pub async fn authorize_with_session_binding(
+        &self,
+        secret: &str,
+    ) -> Result<(Principal, String)> {
+        let mut tx = self.pool.begin().await?;
+        sqlx::query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY")
+            .execute(&mut *tx)
+            .await?;
+        let actor = authenticate(&mut tx, secret, false).await?;
+        let binding = if actor.credential_kind == CredentialKind::Session {
+            let browser_sid: Option<String> = sqlx::query_scalar(
+                "SELECT sid FROM core_identity.web_sessions WHERE current_credential_id=$1 AND user_id=$2 AND user_version=$3",
+            )
+            .bind(actor.credential_id)
+            .bind(actor.user_id)
+            .bind(actor.credential_generation())
+            .fetch_optional(&mut *tx)
+            .await?;
+            let mut hash = Sha256::new();
+            hash.update(b"lmm-core-session-binding-v1\0");
+            hash.update(actor.user_id.to_be_bytes());
+            hash.update(actor.credential_generation().to_be_bytes());
+            if let Some(sid) = browser_sid {
+                hash.update(b"\0browser\0");
+                hash.update(sid.as_bytes());
+            } else {
+                hash.update(b"\0credential\0");
+                hash.update(actor.credential_id.to_be_bytes());
+            }
+            format!("v1:{}", crate::hex_codec::encode(hash.finalize()))
+        } else {
+            String::new()
+        };
+        tx.commit().await?;
+        Ok((actor, binding))
+    }
+
     pub async fn authorize(&self, secret: &str) -> Result<Principal> {
         let mut tx = self.pool.begin().await?;
         sqlx::query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY")

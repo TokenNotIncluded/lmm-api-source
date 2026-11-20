@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "repository": "https://github.com/TokenNotIncluded/extore",
-  "revision": "c4b8e91159496b0b942a13857111ca348187a323",
+  "revision": "cf3469dbe827afcfb2e3f054a63f7b9b7c40bc2b",
   "path": "packages/extore",
   "workspace": "plugins/commerce",
   "host_abi": 1,

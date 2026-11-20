@@ -18,6 +18,10 @@ Go 商店配置需要 `store.extore_key_file` 和 `store.extore_redirect_uri`，
 
 回调地址必须是规范的 `https://<站点域名>/store/manage`，没有查询或片段，并与浏览器当前 origin、`host.public_origin` 和授权端注册值一致。现有 Web 入口默认使用 `https://extore.lmm.best` 和公开客户端 `lmm-best-store`；PKCE 流程不要求客户端秘密。Extore 的既有内置客户端注册允许 `https://api.lmm.best/store/manage` 和 `https://native.api.lmm.best/store/manage`。其他站点须先完成相应客户端注册，不能只修改回调字符串。
 
+授权开始与回调都由 Core 验证当前 Session。Core 的 `AuthorizeResponse.session_binding` 是带版本的、不含凭据的摘要，由同一只读认证快照中的用户、权限代际和浏览器会话族生成；Go 只接受 Core 返回的绑定，不解析 access token，也不读取 Core 数据库。同一浏览器会话正常刷新 access token 后仍可完成原授权；同一用户另一次登录、权限代际变化、撤销和失效不能接用原流程。原生 Session 没有浏览器会话族时按已验证的凭据绑定，不能退化成只按用户绑定。
+
+此合同需要配套的 Core 和 Go Extensions。旧 Core 未返回绑定时，Go 对 Extore 授权返回服务不可用（503）；其他使用原 `Authority.Check` 的商店操作不受这个新增字段影响。已开始的流程仍受一次性消费、十分钟有效期、加密凭据和版本冲突检查约束；升级前按旧 access token 创建的未完成流程需要重新授权。
+
 | 方法与路径 | 请求与用途 |
 | --- | --- |
 | `POST /api/store/extore/authorize` | `{base_url, client_id}`；创建授权跳转，空值使用默认服务和客户端 |

@@ -4,10 +4,12 @@ package rustauth
 
 import (
 	"context"
+	"encoding/hex"
 	pb "github.com/TokenNotIncluded/lmm-api/extensions/internal/corepb"
 	"github.com/TokenNotIncluded/lmm-api/extensions/internal/modules/store"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"strings"
 	"time"
 )
 
@@ -115,6 +117,40 @@ func (a *Adapter) Check(ctx context.Context, token string, account store.Account
 	}
 	return 0, store.ErrUnavailable
 }
+
+// SessionBinding preserves the verified browser family across access refresh.
+// Old Core versions without this contract leave Extore unavailable, while the
+// existing Authority.Check contract continues to serve other store operations.
+func (a *Adapter) SessionBinding(ctx context.Context, token string, userID int64) (string, error) {
+	if userID <= 0 {
+		return "", store.ErrUnauthorized
+	}
+	ctx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	defer cancel()
+	self, err := a.core.Authorize(ctx, token)
+	if err != nil {
+		return "", translate(err)
+	}
+	if self == nil || self.GetUserId() <= 0 || self.GetCredentialId() <= 0 {
+		return "", store.ErrUnauthorized
+	}
+	if self.GetCredentialKind() != pb.CredentialKind_CREDENTIAL_KIND_SESSION ||
+		self.GetUserId() != userID ||
+		self.GetOwner().GetKind() != pb.AccountKind_ACCOUNT_KIND_PERSONAL ||
+		self.GetOwner().GetId() != self.GetUserId() {
+		return "", store.ErrForbidden
+	}
+	binding := self.GetSessionBinding()
+	encoded, versioned := strings.CutPrefix(binding, "v1:")
+	if !versioned || len(encoded) != 64 {
+		return "", store.ErrUnavailable
+	}
+	if _, err := hex.DecodeString(encoded); err != nil {
+		return "", store.ErrUnavailable
+	}
+	return binding, nil
+}
+
 func translate(err error) error {
 	switch status.Code(err) {
 	case codes.Unauthenticated:
