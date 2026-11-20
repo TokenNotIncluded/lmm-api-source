@@ -59,13 +59,15 @@ export function StoreVariantsManager({
         {product.variants.map((variant) => (
           <div
             key={variant.id}
-            className='flex flex-wrap items-start justify-between gap-3 py-3'
+            className='flex flex-col gap-3 py-3 sm:flex-row sm:items-start sm:justify-between'
           >
-            <div className='min-w-0 flex-1 space-y-2'>
-              <p className='text-sm font-medium break-words'>
-                {variant.name || t('Default variant')}
+            <div className='min-w-0 space-y-2 sm:flex-1'>
+              <p className='flex flex-wrap items-center gap-x-2 gap-y-1 text-sm font-medium'>
+                <span className='min-w-0 break-words'>
+                  {variant.name || t('Default variant')}
+                </span>
                 {variant.is_default && (
-                  <span className='bg-muted ml-2 rounded px-1.5 py-0.5 text-xs'>
+                  <span className='bg-muted inline-flex shrink-0 rounded px-1.5 py-0.5 text-xs whitespace-nowrap'>
                     {t('Default variant')}
                   </span>
                 )}
@@ -76,7 +78,7 @@ export function StoreVariantsManager({
               </p>
               <StoreInventoryTotals product={product} variant={variant} />
             </div>
-            <div className='flex items-center gap-3'>
+            <div className='flex w-full flex-wrap items-center gap-3 sm:w-auto sm:shrink-0'>
               <label className='flex items-center gap-2 text-xs'>
                 {t('Variant enabled')}
                 <Switch
