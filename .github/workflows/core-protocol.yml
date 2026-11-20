@@ -1,6 +1,16 @@
 name: Microkernel implementation checks
 on:
   workflow_dispatch:
+    inputs:
+      diagnostic_mode:
+        description: Explicit control-branch diagnostic; none retains the complete gate
+        type: choice
+        options: [none, candidate, pre_fix]
+        default: none
+      product_sha:
+        description: Immutable 40-hex candidate source (required for diagnostic modes)
+        type: string
+        default: ""
   workflow_call:
 # ci.yml owns automatic push/PR runs so this expensive suite runs only once.
 permissions:
@@ -9,10 +19,11 @@ defaults:
   run:
     shell: bash
 concurrency:
-  group: microkernel-${{ github.workflow }}-${{ github.ref }}
+  group: microkernel-${{ github.workflow }}-${{ github.ref }}${{ inputs.diagnostic_mode != '' && inputs.diagnostic_mode != 'none' && format('-diagnostic-{0}-{1}', inputs.diagnostic_mode, inputs.product_sha) || '' }}
   cancel-in-progress: true
 jobs:
   protocol:
+    if: ${{ inputs.diagnostic_mode == '' || inputs.diagnostic_mode == 'none' }}
     runs-on: ubuntu-24.04
     # Budget for cold builds, serial real PostgreSQL tests, and the following
     # payment, Go, and RPC checks while keeping the complete job bounded.
@@ -304,3 +315,93 @@ jobs:
             ${{ runner.temp }}/events-process.log
           if-no-files-found: warn
           retention-days: 7
+
+  targeted-diagnostic:
+    name: Targeted Core diagnostic (${{ inputs.diagnostic_mode }}), not full CI
+    if: ${{ inputs.diagnostic_mode == 'candidate' || inputs.diagnostic_mode == 'pre_fix' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 95
+    env:
+      DIAGNOSTIC_MODE: ${{ inputs.diagnostic_mode }}
+      PRODUCT_SHA: ${{ inputs.product_sha }}
+      GOWORK: "off"
+      DATABASE_URL: postgres://postgres:postgres@127.0.0.1:5432/postgres
+      CARGO_BUILD_JOBS: "2"
+      CARGO_INCREMENTAL: "0"
+      CARGO_PROFILE_DEV_DEBUG: "0"
+      CARGO_PROFILE_TEST_DEBUG: "0"
+      RUST_TEST_THREADS: "1"
+      CARGO_TARGET_DIR: ${{ runner.temp }}/core-targeted-build
+      EVIDENCE_DIR: ${{ runner.temp }}/core-targeted-evidence
+    services:
+      postgres:
+        image: postgres:18-alpine@sha256:77f585114c32fbca283dc835b0596f4e52b51b4c6662d7810b2f4084f60a1873
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U postgres" --health-interval 5s
+          --health-timeout 3s --health-retries 10
+    steps:
+      - name: Require an immutable product source
+        run: '[[ "$PRODUCT_SHA" =~ ^[0-9a-f]{40}$ ]]'
+      - name: Checkout control scripts
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          ref: ${{ github.sha }}
+          path: control
+          persist-credentials: false
+      - name: Checkout frozen candidate
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          ref: ${{ inputs.product_sha }}
+          path: product
+          persist-credentials: false
+      - name: Checkout unchanged product for the counterexample
+        if: ${{ inputs.diagnostic_mode == 'pre_fix' }}
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          ref: 7b0832d37f0a0be0b87cceaf43f7c6a6dfe856bc
+          path: baseline
+          persist-credentials: false
+      - name: Preserve initial source and actual PostgreSQL identity
+        env:
+          PG_CONTAINER: ${{ job.services.postgres.id }}
+        run: |
+          umask 077
+          mkdir -p "$EVIDENCE_DIR"
+          git -C control rev-parse HEAD > "$EVIDENCE_DIR/control-sha.txt"
+          git -C product rev-parse HEAD > "$EVIDENCE_DIR/product-sha.txt"
+          test "$(cat "$EVIDENCE_DIR/product-sha.txt")" = "$PRODUCT_SHA"
+          git -C product ls-tree -r --full-tree HEAD > "$EVIDENCE_DIR/product-tree.txt"
+          cp control/.github/workflows/core-protocol.yml "$EVIDENCE_DIR/control-workflow.yml"
+          cp control/scripts/core-targeted-diagnostic.py "$EVIDENCE_DIR/control-runner.py"
+          docker exec "$PG_CONTAINER" psql -U postgres -Atqc 'SHOW server_version_num' > "$EVIDENCE_DIR/postgres-version.txt"
+          test "$(cat "$EVIDENCE_DIR/postgres-version.txt")" = 180006
+      - name: Install the original Rust version and native link prerequisites
+        run: |
+          rustup toolchain install 1.100.0 --profile minimal
+          sudo --preserve-env=GITHUB_ACTIONS python3 product/scripts/prepare-ci-apt.py
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends --yes pkg-config libssl-dev
+      - name: Run exactly the selected diagnostic scope once
+        run: |
+          python3 -B control/scripts/core-targeted-diagnostic.py \
+            control product baseline "$EVIDENCE_DIR"
+      - name: Preserve real PostgreSQL logs on every outcome
+        if: always()
+        env:
+          PG_CONTAINER: ${{ job.services.postgres.id }}
+        run: |
+          umask 077
+          mkdir -p "$EVIDENCE_DIR"
+          docker logs --timestamps "$PG_CONTAINER" > "$EVIDENCE_DIR/postgres.log" 2>&1
+          docker inspect --format '{{json .State}}' "$PG_CONTAINER" > "$EVIDENCE_DIR/postgres-state.json"
+      - name: Preserve targeted diagnostic evidence, never release qualification
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: core-targeted-${{ inputs.diagnostic_mode }}-${{ inputs.product_sha }}-${{ github.run_id }}
+          path: ${{ env.EVIDENCE_DIR }}
+          if-no-files-found: error
+          retention-days: 1
