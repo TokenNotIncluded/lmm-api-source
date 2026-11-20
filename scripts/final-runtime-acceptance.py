@@ -429,6 +429,103 @@ def compiler_executable(log, target_name, source, target):
     return path, messages[0]
 
 
+PREPARED_MEMBER_LIMIT = 512 * 1024**2
+MODEL_PROCESS_TRANSPORT_PATH = "core-prepared/artifacts/model_process"
+MODEL_PROCESS_PART_PREFIX = "__model_process_transport__/part-"
+
+
+def prepared_transport_files(files, parts):
+    """Only the sealed model driver may have a physical multipart transport."""
+    require(isinstance(files, dict) and 0 < len(files) <= 10000,
+            "prepared logical inventory differs")
+    for name, definition in files.items():
+        require(isinstance(name, str) and not name.startswith("__model_process_transport__/")
+                and isinstance(definition, dict) and set(definition) == {"sha256", "size", "mode"}
+                and type(definition["size"]) is int and definition["size"] >= 0
+                and type(definition["mode"]) is int
+                and definition["mode"] in {0o400, 0o444, 0o500, 0o555, 0o600, 0o644, 0o700, 0o755}
+                and isinstance(definition["sha256"], str)
+                and re.fullmatch(r"[0-9a-f]{64}", definition["sha256"]) is not None,
+                "prepared logical file definition differs")
+    require(sum(item["size"] for item in files.values()) <= 2 * 1024**3
+            and isinstance(parts, list) and len(parts) <= 4,
+            "prepared transport exceeds original bounds")
+    physical = dict(files)
+    if parts:
+        require(MODEL_PROCESS_TRANSPORT_PATH in files,
+                "model transport lacks its exact logical role")
+        model = files[MODEL_PROCESS_TRANSPORT_PATH]
+        require(model["mode"] == 0o500 and model["size"] > PREPARED_MEMBER_LIMIT
+                and len(parts) == (model["size"] + PREPARED_MEMBER_LIMIT - 1) // PREPARED_MEMBER_LIMIT,
+                "model transport size, mode or part count differs")
+        del physical[MODEL_PROCESS_TRANSPORT_PATH]
+        for index, part in enumerate(parts):
+            offset = index * PREPARED_MEMBER_LIMIT
+            require(isinstance(part, dict) and set(part) == {"name", "offset", "size", "sha256"}
+                    and part["name"] == f"{MODEL_PROCESS_PART_PREFIX}{index:04d}"
+                    and type(part["offset"]) is int and part["offset"] == offset
+                    and type(part["size"]) is int
+                    and part["size"] == min(PREPARED_MEMBER_LIMIT, model["size"] - offset)
+                    and 0 < part["size"] <= PREPARED_MEMBER_LIMIT
+                    and isinstance(part["sha256"], str)
+                    and re.fullmatch(r"[0-9a-f]{64}", part["sha256"]) is not None,
+                    "model transport part definition differs")
+            physical[part["name"]] = {"sha256": part["sha256"], "size": part["size"], "mode": 0o400}
+    require(len(physical) <= 10000
+            and all(item["size"] <= PREPARED_MEMBER_LIMIT for item in physical.values())
+            and sum(item["size"] for item in physical.values()) == sum(item["size"] for item in files.values()),
+            "prepared physical inventory exceeds original bounds")
+    return physical
+
+
+def model_process_parts(payload, files):
+    model = files.get(MODEL_PROCESS_TRANSPORT_PATH)
+    if model is None or model["size"] <= PREPARED_MEMBER_LIMIT:
+        return []
+    require(model["mode"] == 0o500 and model["size"] <= 2 * 1024**3,
+            "only the original sealed model driver may be split")
+    parts, offset, whole = [], 0, hashlib.sha256()
+    with regular(payload / MODEL_PROCESS_TRANSPORT_PATH).open("rb") as source:
+        while offset < model["size"]:
+            size = min(PREPARED_MEMBER_LIMIT, model["size"] - offset)
+            digest, remaining = hashlib.sha256(), size
+            while remaining:
+                block = source.read(min(1024**2, remaining))
+                require(block, "model driver ended while planning transport")
+                digest.update(block)
+                whole.update(block)
+                remaining -= len(block)
+            parts.append({"name": f"{MODEL_PROCESS_PART_PREFIX}{len(parts):04d}",
+                          "offset": offset, "size": size, "sha256": digest.hexdigest()})
+            offset += size
+        require(not source.read(1) and whole.hexdigest() == model["sha256"],
+                "model driver changed while planning transport")
+    return parts
+
+
+def restore_model_process_parts(tar, payload, parts, definition):
+    target = payload / MODEL_PROCESS_TRANSPORT_PATH
+    target.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+    with target.open("xb") as destination:
+        for part in parts:
+            require(destination.tell() == part["offset"], "model restore offset differs")
+            digest, remaining = hashlib.sha256(), part["size"]
+            with tar.extractfile(part["name"]) as source:
+                while remaining:
+                    block = source.read(min(1024**2, remaining))
+                    require(block, "model transport part ended early")
+                    destination.write(block)
+                    digest.update(block)
+                    remaining -= len(block)
+                require(not source.read(1) and digest.hexdigest() == part["sha256"],
+                        "model transport part hash differs")
+    require(target.stat().st_size == definition["size"] and sha(target) == definition["sha256"],
+            "reassembled original model driver differs")
+    target.chmod(0o500)
+    require(stat.S_IMODE(target.stat().st_mode) == definition["mode"] == 0o500,
+            "reassembled model driver mode differs")
+
+
 def package_payload(payload, output, layout):
     files = {}
     for path in sorted(payload.rglob("*")):
@@ -441,16 +538,27 @@ def package_payload(payload, output, layout):
                                     "mode": stat.S_IMODE(path.stat().st_mode)}
     require(len(files) <= 10000 and sum(v["size"] for v in files.values()) <= 2 * 1024**3,
             "prepared payload exceeds the bounded transport envelope")
+    parts = model_process_parts(payload, files)
+    prepared_transport_files(files, parts)
     manifest = output / "export-manifest.json"
-    record(manifest, {"format": "lmm-final-runtime-prepared-export-v1", "runtime_revision": RUNTIME,
+    record(manifest, {"format": "lmm-final-runtime-prepared-export-v2", "runtime_revision": RUNTIME,
            "control_revision": os.environ["GITHUB_SHA"], "cloud_run": os.environ["GITHUB_RUN_ID"],
            "cloud_run_attempt": os.environ["GITHUB_RUN_ATTEMPT"], "acceptance_executed": False,
-           "execution_layout": layout, "files": files})
+           "execution_layout": layout, "files": files, "model_process_chunks": parts})
     bundle = output / "runtime-prepared.tar.gz"
     with tarfile.open(bundle, "w:gz", compresslevel=1) as archive:
         archive.add(manifest, arcname="export-manifest.json", recursive=False)
         for name in files:
-            archive.add(payload / name, arcname=name, recursive=False)
+            if name == MODEL_PROCESS_TRANSPORT_PATH and parts:
+                with regular(payload / name).open("rb") as source:
+                    for part in parts:
+                        require(source.tell() == part["offset"], "model packaging offset differs")
+                        entry = tarfile.TarInfo(part["name"])
+                        entry.size, entry.mode = part["size"], 0o400
+                        archive.addfile(entry, source)
+                    require(not source.read(1), "model driver grew while packaging")
+            else:
+                archive.add(payload / name, arcname=name, recursive=False)
     record(output / "bundle.json", {"sha256": sha(bundle), "size": bundle.stat().st_size,
            "manifest_sha256": sha(manifest), "prepared_result": "PREPARED_NOT_ACCEPTANCE"})
     with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as stream:
@@ -680,7 +788,7 @@ def restore(args):
     require(sha(bundle) == args.bundle_sha256 and sha(manifest_file) == args.manifest_sha256,
             "same-run prepared transport bytes differ from prepare-job outputs")
     manifest = json.loads(manifest_file.read_text())
-    require(manifest["format"] == "lmm-final-runtime-prepared-export-v1"
+    require(manifest["format"] == "lmm-final-runtime-prepared-export-v2"
             and manifest["runtime_revision"] == RUNTIME
             and manifest["control_revision"] == os.environ["GITHUB_SHA"]
             and str(manifest["cloud_run"]) == str(run_id)
@@ -691,12 +799,19 @@ def restore(args):
     require(isinstance(expected, dict) and 0 < len(expected) <= 10000
             and sum(item["size"] for item in expected.values()) <= 2 * 1024**3,
             "prepared export exceeds transport limits")
+    parts = manifest["model_process_chunks"]
+    physical = prepared_transport_files(expected, parts)
+    part_names = [part["name"] for part in parts]
     payload = private(args.output / "payload")
     with tarfile.open(bundle, "r:gz") as tar:
         members = tar.getmembers()
         names = [item.name for item in members]
-        require(len(names) == len(set(names)) and set(names) == set(expected) | {"export-manifest.json"},
+        require(len(names) == len(set(names)) and set(names) == set(physical) | {"export-manifest.json"},
                 "prepared tar inventory differs")
+        if part_names:
+            start = names.index(part_names[0])
+            require(names[start:start + len(part_names)] == part_names,
+                    "model tar parts are not contiguous and ordered")
         for item in members:
             name = PurePosixPath(item.name)
             require(item.isfile() and not item.issym() and not item.islnk() and not name.is_absolute()
@@ -708,17 +823,21 @@ def restore(args):
                         and hashlib.sha256(tar.extractfile(item).read()).hexdigest() == args.manifest_sha256,
                         "inner prepared manifest differs")
                 continue
-            definition = expected[item.name]
+            definition = physical[item.name]
             require(type(definition["size"]) is int and item.size == definition["size"]
                     and 0 <= item.size <= 512 * 1024**2 and item.mode == definition["mode"]
                     and item.mode in {0o400, 0o444, 0o500, 0o555, 0o600, 0o644, 0o700, 0o755},
                     "prepared tar size or mode differs")
+            if item.name in part_names:
+                continue
             target = payload / item.name
             target.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
             with tar.extractfile(item) as src, target.open("xb") as dst:
                 shutil.copyfileobj(src, dst)
             target.chmod(item.mode)
             require(sha(target) == definition["sha256"], "prepared file hash differs")
+        if parts:
+            restore_model_process_parts(tar, payload, parts, expected[MODEL_PROCESS_TRANSPORT_PATH])
     require(source_snapshot(args.source) == json.loads((payload / "source-before.json").read_text()),
             "fresh runner source differs from prepared source closure")
     prepared = json.loads((payload / "core-prepared/prepared.json").read_text())
