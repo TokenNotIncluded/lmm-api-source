@@ -1,181 +1,131 @@
-name: Native Linux package checks
+name: Diagnose Extore musl arm64 linkage
 on:
   workflow_dispatch:
-  workflow_call:
-  pull_request:
-    branches: [main]
-    paths:
-      - packaging/linux/**
-      - packaging/distribution.json
-      - packaging/extore-plugin.json
-      - packages/extore
-      - deployment/docker/extensions.Dockerfile
-      - services/extensions/internal/extore/**
-      - services/extensions/internal/modules/store/extore_native_integration_test.go
-      - scripts/build-distribution.py
-      - scripts/workflow-topology.test.mjs
-      - .github/workflows/linux-packages.yml
 permissions:
   contents: read
 defaults:
   run:
     shell: bash
 concurrency:
-  group: linux-packages-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: true
+  group: extore-musl-arm64-diagnostic-${{ github.ref }}
+  cancel-in-progress: false
 jobs:
-  packages:
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - arch: amd64
-            runner: ubuntu-24.04
-            target: x86_64-unknown-linux-musl
-            nfpm_arch: x86_64
-            nfpm_sha256: 0660ca602b2d2d2ae4781a06c692b3eeb9d437ffea05b831d76e41f4a3188783
-          - arch: arm64
-            runner: ubuntu-24.04-arm
-            target: aarch64-unknown-linux-musl
-            nfpm_arch: arm64
-            nfpm_sha256: 1c0f5f2999b9a974bfb04fdb0cc3306096de530ac5dbb25d739cc5f5219c919c
-    runs-on: ${{ matrix.runner }}
-    timeout-minutes: 40
+  diagnose:
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 20
     env:
-      ARCH: ${{ matrix.arch }}
-      RUST_TARGET: ${{ matrix.target }}
-      NFPM_ARCH: ${{ matrix.nfpm_arch }}
-      NFPM_SHA256: ${{ matrix.nfpm_sha256 }}
-      CARGO_BUILD_JOBS: '2'
-      CARGO_INCREMENTAL: '0'
-      GOWORK: 'off'
+      SOURCE_REVISION: 586f7afe3ed0371cbd9773c383c86282e9731f4f
+      EXTORE_REVISION: cf3469dbe827afcfb2e3f054a63f7b9b7c40bc2b
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
         with:
+          ref: 586f7afe3ed0371cbd9773c383c86282e9731f4f
           persist-credentials: false
-      - name: Initialize the required pinned dependencies
+      - name: Freeze the original source inputs
         run: |
-          git submodule update --init --depth 1 -- apps/cli
+          test "$(git rev-parse HEAD)" = "$SOURCE_REVISION"
           git submodule update --init --depth 1 -- packages/extore
+          test "$(git -C packages/extore rev-parse HEAD)" = "$EXTORE_REVISION"
           python3 -B scripts/check-extore-plugin-pin.py
-      - uses: actions/setup-go@7a3fe6cf4cb3a834922a1244abfce67bcef6a0c5
-        with:
-          go-version: '1.27.2'
-          cache: false
-      - name: Install reviewed build tools, never on runtime nodes
-        run: |
-          sudo --preserve-env=GITHUB_ACTIONS python3 scripts/prepare-ci-apt.py
-          sudo apt-get update
-          # perl/make: openssl vendored (webauthn) when targeting musl
-          sudo apt-get install --no-install-recommends --yes binutils musl-tools gcc zstd rpm perl make
-          rustup toolchain install 1.100.0 --profile minimal --target "$RUST_TARGET"
-          mkdir -p "$RUNNER_TEMP/nfpm"
-          curl --fail --location --retry 2 --max-time 120 \
-            "https://github.com/goreleaser/nfpm/releases/download/v2.47.0/nfpm_2.47.0_Linux_${NFPM_ARCH}.tar.gz" \
-            -o "$RUNNER_TEMP/nfpm.tar.gz"
-          printf '%s  %s\n' "$NFPM_SHA256" "$RUNNER_TEMP/nfpm.tar.gz" | sha256sum --check
-          tar -xzf "$RUNNER_TEMP/nfpm.tar.gz" -C "$RUNNER_TEMP/nfpm" nfpm
-          echo "$RUNNER_TEMP/nfpm" >> "$GITHUB_PATH"
-      - name: Source and native package tests
-        run: |
+          command -v readelf
           mkdir -p out/evidence
-          git rev-parse HEAD | tee out/evidence/revision.txt
-          nfpm --version | tee out/evidence/nfpm-version.txt
-          node --test scripts/workflow-topology.test.mjs
-          python3 -B packaging/linux/test_native.py -v 2>&1 | tee out/evidence/native-tests.log
-          go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.12 -color .github/workflows/linux-packages.yml
-      - name: Build the three product binaries for this architecture
+          python3 - <<'PY'
+          import hashlib, json, os, pathlib, subprocess
+          root = pathlib.Path.cwd()
+          def git(*args, cwd=root):
+              return subprocess.check_output(['git', *args], cwd=cwd)
+          paths = git('ls-files', '-z', '--', '.dockerignore',
+                      'deployment/docker/extensions.Dockerfile',
+                      'packaging/extore-plugin.json', 'services/extensions').decode().split('\0')
+          extore = root / 'packages/extore'
+          paths += ['packages/extore/' + name for name in
+                    git('ls-files', '-z', '--', 'plugins/commerce', 'LICENSE', cwd=extore).decode().split('\0') if name]
+          files = {name: hashlib.sha256((root / name).read_bytes()).hexdigest()
+                   for name in sorted(set(paths)) if name}
+          manifest = (json.dumps(files, sort_keys=True, indent=2) + '\n').encode()
+          (root / 'out/evidence/source-inputs.json').write_bytes(manifest)
+          receipt = {
+              'diagnostic_only': True,
+              'source_revision': git('rev-parse', 'HEAD').decode().strip(),
+              'source_tree': git('rev-parse', 'HEAD^{tree}').decode().strip(),
+              'workflow_revision': os.environ['GITHUB_SHA'],
+              'workflow_ref': os.environ['GITHUB_REF'],
+              'workflow_run': os.environ['GITHUB_RUN_ID'],
+              'extore_revision': git('rev-parse', 'HEAD', cwd=extore).decode().strip(),
+              'extore_plugin_tree': git('rev-parse', 'HEAD:plugins/commerce', cwd=extore).decode().strip(),
+              'source_inputs_sha256': hashlib.sha256(manifest).hexdigest(),
+              'platform': 'linux/arm64',
+              'target': 'binaries-musl',
+              'source_archive_sha256': hashlib.sha256(git('archive', 'HEAD', '.dockerignore',
+                  'deployment/docker/extensions.Dockerfile', 'packaging/extore-plugin.json',
+                  'services/extensions')).hexdigest(),
+              'extore_source_archive_sha256': hashlib.sha256(git('archive', 'HEAD',
+                  'plugins/commerce', 'LICENSE', cwd=extore)).hexdigest(),
+          }
+          (root / 'out/evidence/source-receipt.json').write_text(json.dumps(receipt, indent=2) + '\n')
+          print(json.dumps(receipt, indent=2))
+          PY
+      - name: Build only the original arm64 Extensions musl export
         run: |
-          target_env=$(printf '%s' "$RUST_TARGET" | tr '[:lower:]-' '[:upper:]_')
-          export "CARGO_TARGET_${target_env}_LINKER=musl-gcc"
-          export "CC_${RUST_TARGET//-/_}=musl-gcc"
-          AWS_LC_SYS_USE_SYSTEM=0 cargo +1.100.0 build --manifest-path services/core/Cargo.toml --locked --release --target "$RUST_TARGET" --bin lmm-core
-          cargo +1.100.0 build --manifest-path apps/cli/Cargo.toml --locked --release --target "$RUST_TARGET" --bin lmm
-          mkdir -p out/core out/cli
-          cp "services/core/target/$RUST_TARGET/release/lmm-core" out/core/
-          cp "apps/cli/target/$RUST_TARGET/release/lmm" out/cli/
-          docker buildx build --platform "linux/$ARCH" -f deployment/docker/extensions.Dockerfile \
-            --target binaries --output type=local,dest=out/extensions .
-          docker buildx build --platform "linux/$ARCH" -f deployment/docker/extensions.Dockerfile \
-            --target binaries-musl --output type=local,dest=out/extensions-musl .
-      - name: Build verified source archives and native packages
+          docker buildx build --progress plain --platform linux/arm64 \
+            -f deployment/docker/extensions.Dockerfile --target binaries-musl \
+            --metadata-file out/evidence/buildx-metadata.json \
+            --output type=local,dest=out/diagnostic . 2>&1 | tee out/evidence/build.log
+      - name: Preserve actual ELF metadata and run the unchanged guard
         run: |
-          revision=$(git rev-parse HEAD)
-          SOURCE_DATE_EPOCH=$(git show -s --format=%ct HEAD)
-          export SOURCE_DATE_EPOCH
-          for component in core extensions cli; do
-            python3 scripts/build-distribution.py build --component "$component" \
-              --version 0.1.0-preview --revision "$revision" --platform "linux-$ARCH" --input "out/$component"
-          done
-          python3 scripts/build-distribution.py build --component extensions \
-            --version 0.1.0-preview --revision "$revision" --platform "linux-musl-$ARCH" --input out/extensions-musl
-          for component in core extensions cli; do
-            package="lmm-$component"
-            if [[ "$component" == cli ]]; then package=lmm; fi
-            for format in deb rpm apk archlinux; do
-              platform="linux-$ARCH"
-              if [[ "$component" == extensions && "$format" == apk ]]; then platform="linux-musl-$ARCH"; fi
-              archive="out/distributions/${package}-0.1.0-preview-${platform}.tar.gz"
-              digest=$(sha256sum "$archive" | cut -d ' ' -f 1)
-              for release in 1 2; do
-                python3 packaging/linux/build.py --archive "$archive" --sha256 "$digest" \
-                  --revision "$revision" --component "$component" --format "$format" --release "$release"
-              done
-            done
-          done
-          (cd out/linux-packages && sha256sum --check ./*.sha256)
-      - name: Install, upgrade, run and remove in disposable distribution containers
-        run: |
-          set -o pipefail
-          failed=0
-          cases=('debian:12-slim deb' 'ubuntu:24.04 deb' 'fedora:44 rpm' 'rockylinux:9 rpm' 'alpine:3.22 apk')
-          if [[ "$ARCH" == amd64 ]]; then
-            cases+=('archlinux:base archlinux' 'opensuse/leap:16.0 rpm')
-          fi
-          for item in "${cases[@]}"; do
-            read -r image format <<< "$item"
-            label=$(printf '%s' "$image" | tr ':/' '__')
-            if timeout 240 docker run --rm --cpus 1 --memory 512m --pids-limit 128 \
-              --security-opt no-new-privileges:true -e LMM_PACKAGING_ISOLATED=1 \
-              -v "$PWD/out/linux-packages:/packages:ro" \
-              -v "$PWD/packaging/linux/install-smoke.sh:/test.sh:ro" \
-              "$image" sh /test.sh "$format" "$ARCH" 2>&1 | tee "out/evidence/${label}.log"; then
-              printf '%s %s PASS\n' "$ARCH" "$image" | tee -a out/evidence/install-matrix.txt
-            else
-              printf '%s %s FAIL\n' "$ARCH" "$image" | tee -a out/evidence/install-matrix.txt
-              failed=1
-            fi
-            docker image inspect "$image" --format '{{json .RepoDigests}}' >> out/evidence/image-digests.txt || true
-          done
-          exit "$failed"
-      - name: Exercise the installed Alpine native catalog against real Extore
-        run: |
-          case "$ARCH" in amd64) musl_arch=x86_64 ;; arm64) musl_arch=aarch64 ;; *) exit 1 ;; esac
-          mkdir -p out/native-probe
-          (cd services/extensions && CGO_ENABLED=0 GOOS=linux GOARCH="$ARCH" \
-            go test -mod=readonly -c -ldflags="-I /lib/ld-musl-$musl_arch.so.1" \
-            -o ../../out/native-probe/store-native.test ./internal/modules/store)
-          docker buildx build --platform "linux/$ARCH" --load \
-            -f packages/extore/tests/native_plugin_alpine.Dockerfile --target fixture \
-            --build-arg "EXTORE_RUST_TARGET=$RUST_TARGET" -t lmm-extore-alpine-fixture packages/extore
-          docker image inspect lmm-extore-alpine-fixture --format '{{.Id}}' > out/evidence/extore-fixture-image.txt
-          timeout 300 docker run --rm --network none --add-host localhost.localdomain:127.0.0.1 \
-            --cap-add NET_ADMIN --cpus 1 --memory 768m --pids-limit 256 \
-            --security-opt no-new-privileges:true -e LMM_PACKAGING_ISOLATED=1 \
-            -v "$PWD/out/linux-packages:/packages:ro" -v "$PWD/out/native-probe:/probe:ro" \
-            -v "$PWD/out/evidence:/evidence" \
-            -v "$PWD/packaging/linux/extore-plugin-smoke.py:/package-probe.py:ro" \
-            --entrypoint python3 lmm-extore-alpine-fixture /package-probe.py \
-            --arch "$ARCH" --revision "$(git rev-parse HEAD)" \
-            --parent-netns "$(readlink /proc/self/ns/net)" \
-            --report /evidence/extore-native-alpine.json 2>&1 | tee out/evidence/extore-native-alpine.log
-      - name: Preserve preview packages and scoped evidence, never publish
+          python3 - <<'PY'
+          import hashlib, importlib.util, json, os, pathlib, subprocess, sys
+          root = pathlib.Path.cwd()
+          spec = importlib.util.spec_from_file_location('linux_package', root / 'packaging/linux/build.py')
+          package = importlib.util.module_from_spec(spec)
+          spec.loader.exec_module(package)
+          exports = root / 'out/diagnostic'
+          evidence = root / 'out/evidence'
+          manifest = {
+              'diagnostic_only': True, 'source_revision': os.environ['SOURCE_REVISION'],
+              'workflow_revision': os.environ['GITHUB_SHA'],
+              'extore_revision': os.environ['EXTORE_REVISION'],
+              'platform': 'linux-musl-arm64', 'files': {},
+          }
+          for path in sorted(exports.rglob('*')):
+              if path.is_file():
+                  data = path.read_bytes()
+                  manifest['files'][str(path.relative_to(exports))] = {
+                      'sha256': hashlib.sha256(data).hexdigest(), 'size': len(data),
+                  }
+          (evidence / 'MANIFEST.json').write_text(json.dumps(manifest, indent=2, sort_keys=True) + '\n')
+          results = []
+          for relative, shared in [
+              ('lmm-extensions', False),
+              ('lib/extore/libextore_plugin_host.so', True),
+              ('lib/extore/libextore_commerce_plugin.so', True),
+          ]:
+              path = exports / relative
+              metadata = subprocess.run([
+                  'readelf', '--wide', '--file-header', '--program-headers', '--section-headers',
+                  '--dynamic', '--dyn-syms', '--version-info', str(path),
+              ], text=True, capture_output=True, check=True, env={**os.environ, 'LC_ALL': 'C'})
+              (evidence / (path.name + '.readelf.txt')).write_text(metadata.stdout)
+              item = {'path': relative, **manifest['files'][relative]}
+              try:
+                  item['elf'] = package.inspect_elf(path, 'arm64', shared=shared, libc='musl',
+                                                    allow_unversioned=not shared)
+                  item['guard'] = 'pass'
+              except ValueError as error:
+                  item['guard'] = 'fail'
+                  item['error'] = str(error)
+              results.append(item)
+              print(json.dumps(item))
+          (evidence / 'guard-results.json').write_text(json.dumps(results, indent=2) + '\n')
+          sys.exit(any(item['guard'] != 'pass' for item in results))
+          PY
+      - name: Upload diagnostic bytes and receipts without publishing a package
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
-          name: native-linux-${{ matrix.arch }}-${{ github.sha }}
+          name: diagnostic-extore-musl-arm64-586f7afe-${{ github.run_id }}
           path: |
-            out/linux-packages/
+            out/diagnostic/
             out/evidence/
           if-no-files-found: error
           retention-days: 7
