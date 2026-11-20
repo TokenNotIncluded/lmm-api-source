@@ -5,7 +5,7 @@ on:
       diagnostic_mode:
         description: Explicit control-branch diagnostic; none retains the complete gate
         type: choice
-        options: [none, candidate, pre_fix, managed70, continuity, market, provider78_capture, provider78_acceptance]
+        options: [none, candidate, pre_fix, managed70, continuity, market, provider78_capture, provider78_acceptance, upgrade_refusal]
         default: none
       product_sha:
         description: Immutable 40-hex candidate source (required for diagnostic modes)
@@ -318,7 +318,7 @@ jobs:
 
   targeted-diagnostic:
     name: Targeted Core diagnostic (${{ inputs.diagnostic_mode }}), not full CI
-    if: ${{ inputs.diagnostic_mode == 'candidate' || inputs.diagnostic_mode == 'pre_fix' || inputs.diagnostic_mode == 'managed70' || inputs.diagnostic_mode == 'continuity' || inputs.diagnostic_mode == 'provider78_capture' || inputs.diagnostic_mode == 'provider78_acceptance' }}
+    if: ${{ inputs.diagnostic_mode == 'candidate' || inputs.diagnostic_mode == 'pre_fix' || inputs.diagnostic_mode == 'managed70' || inputs.diagnostic_mode == 'continuity' || inputs.diagnostic_mode == 'provider78_capture' || inputs.diagnostic_mode == 'provider78_acceptance' || inputs.diagnostic_mode == 'upgrade_refusal' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 95
     env:
@@ -344,6 +344,9 @@ jobs:
       - name: Require an immutable product source
         run: |
           [[ "$PRODUCT_SHA" =~ ^[0-9a-f]{40}$ ]]
+          if test "$DIAGNOSTIC_MODE" = upgrade_refusal; then
+            test "$PRODUCT_SHA" = 37649a1a537fa1052e4248786dd949f57c71a497
+          fi
           printf '%s\n' \
             "CARGO_TARGET_DIR=$RUNNER_TEMP/core-targeted-build" \
             "EVIDENCE_DIR=$RUNNER_TEMP/core-targeted-evidence" >> "$GITHUB_ENV"
@@ -386,10 +389,30 @@ jobs:
           sudo --preserve-env=GITHUB_ACTIONS python3 product/scripts/prepare-ci-apt.py
           sudo apt-get update
           sudo apt-get install --no-install-recommends --yes pkg-config libssl-dev
+      - name: Build the original retained executor for the three upgrade cases
+        if: ${{ inputs.diagnostic_mode == 'upgrade_refusal' }}
+        working-directory: product
+        run: |
+          git fetch --no-tags --depth=1 origin 2a0c7bd380f58a553dc903d399255821c1a65d0f
+          rustup toolchain install 1.99.0 --profile minimal
+          rustup run 1.99.0 python3 scripts/build-preserved-core.py \
+            --family early58 --output "$RUNNER_TEMP/core-targeted-preserved-early58"
+          cat "$RUNNER_TEMP/core-targeted-preserved-early58/executor.env" >> "$GITHUB_ENV"
       - name: Run exactly the selected diagnostic scope once
         run: |
           python3 -B control/scripts/core-targeted-diagnostic.py \
             control product baseline "$EVIDENCE_DIR"
+      - name: Preserve the retained executor preparation without its private build tree
+        if: ${{ always() && inputs.diagnostic_mode == 'upgrade_refusal' }}
+        run: |
+          umask 077
+          mkdir -p "$EVIDENCE_DIR/preserved-early58"
+          for file in provenance.json source.tar.gz schema-manifest.json build.log executor.env; do
+            if test -f "$RUNNER_TEMP/core-targeted-preserved-early58/$file"; then
+              cp "$RUNNER_TEMP/core-targeted-preserved-early58/$file" "$EVIDENCE_DIR/preserved-early58/$file"
+            fi
+          done
+          cp product/scripts/build-preserved-core.py "$EVIDENCE_DIR/preserved-early58/builder.py"
       - name: Preserve real PostgreSQL logs on every outcome
         if: always()
         env:

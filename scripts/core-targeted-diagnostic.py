@@ -56,6 +56,16 @@ CONTINUITY = [
     ("native-performance-unknown",
      "model_http::input_api::tests::input_api_pg_unknown_usage_keeps_original_hold_and_never_replays"),
 ]
+UPGRADE_REFUSAL_SOURCE = "37649a1a537fa1052e4248786dd949f57c71a497"
+UPGRADE_REFUSAL_TREE = "a8481c343133506eeeb1b0e0b0ace9055496d5f0"
+UPGRADE_REFUSALS = [
+    ("upgrade-app07", "lmm_core", "lib", "src/lib.rs",
+     "core_schema::upgrade::responses_continuity::tests::app07_independent_http_predecessor_upgrade_adapter"),
+    ("upgrade-completion", "completion_upgrade", "test", "tests/completion_upgrade.rs",
+     "completion_upgrade_preserves_real_predecessor_and_resolves_exact_replay"),
+    ("upgrade-navigation", "navigation_options_upgrade", "test", "tests/navigation_options_upgrade.rs",
+     "harness::suffix_upgrade_preserves_real_predecessor_and_resolves_exact_replay"),
+]
 TEST_FILE = "services/core/tests/assistant_model.rs"
 
 os.umask(0o077)
@@ -240,11 +250,50 @@ def capture_provider78(executable, compile_output, cwd, capture_file):
     return entry
 
 
+def upgrade_refusals(executables, output, root, private_artifacts):
+    messages = []
+    for line in output.splitlines():
+        try:
+            messages.append(json.loads(line))
+        except json.JSONDecodeError:
+            continue
+    verified = []
+    for _, target, kind, source, _ in UPGRADE_REFUSALS:
+        matches = [item for item in messages
+                   if item.get("reason") == "compiler-artifact"
+                   and item.get("target", {}).get("name") == target
+                   and item.get("profile", {}).get("test") and item.get("executable")]
+        if len(matches) != 1:
+            raise ValueError("upgrade diagnostic requires one current artifact per target")
+        item = matches[0]
+        if (Path(item["manifest_path"]).resolve() != root / "services/core/Cargo.toml"
+                or item["target"]["kind"] != [kind]
+                or Path(item["target"]["src_path"]).resolve() != root / "services/core" / source
+                or Path(item["executable"]).resolve() != executables[target]):
+            raise ValueError("upgrade diagnostic compiler artifact source mismatch")
+        verified.append(item)
+    save("upgrade-refusal-compiler-artifacts.json", verified)
+    results = []
+    try:
+        for label, target, _, _, name in UPGRADE_REFUSALS:
+            results.append(test_run(label, executables[target], [name],
+                                    [name, "--exact"], root / "services/core"))
+    finally:
+        # Retain the original non-secret APP07 receipt only, never private config.
+        path = private_artifacts / "a9-upgrade-68-to69.json"
+        if path.is_file():
+            shutil.copyfile(path, evidence / path.name)
+    return results
+
+
 def main():
-    if mode not in ("candidate", "pre_fix", "managed70", "continuity", "provider78_capture", "provider78_acceptance") or not re.fullmatch(r"[0-9a-f]{40}", requested):
+    if mode not in ("candidate", "pre_fix", "managed70", "continuity", "provider78_capture", "provider78_acceptance", "upgrade_refusal") or not re.fullmatch(r"[0-9a-f]{40}", requested):
         raise ValueError("invalid diagnostic inputs")
     if git(candidate, "rev-parse", "HEAD") != requested or git(candidate, "diff", "--name-only"):
         raise ValueError("candidate checkout does not match the immutable source input")
+    if mode == "upgrade_refusal" and (requested != UPGRADE_REFUSAL_SOURCE
+            or git(candidate, "rev-parse", "HEAD^{tree}") != UPGRADE_REFUSAL_TREE):
+        raise ValueError("upgrade diagnostic requires the reviewed immutable five-file candidate")
     root = candidate
     binding = {"scope": "TARGETED_DIAGNOSTIC_ONLY", "mode": mode,
                "candidate_sha": requested, "candidate_tree": git(candidate, "rev-parse", "HEAD^{tree}"),
@@ -275,6 +324,17 @@ def main():
         binding["continuity_artifacts"] = {
             "private_directory": str(private_artifacts),
             "retained_evidence": "worker .log files and a5/a8 result JSON only; no private config or ready files"}
+    if mode == "upgrade_refusal":
+        private_artifacts = evidence.parent / "core-targeted-upgrade-refusal-private"
+        private_artifacts.mkdir(mode=0o700)
+        if stat.S_IMODE(private_artifacts.stat().st_mode) != 0o700:
+            raise ValueError("upgrade diagnostic artifact directory must have mode0700")
+        os.environ["RESPONSES_CONTINUITY_INDEPENDENT_ARTIFACTS"] = str(private_artifacts)
+        binding.update(scope="UPGRADE_REFUSAL_DIAGNOSTIC_ONLY",
+                       expected_cases=[entry[4] for entry in UPGRADE_REFUSALS],
+                       private_artifact_directory=str(private_artifacts),
+                       retained_private_artifact="a9-upgrade-68-to69.json only",
+                       preserved_executor_revision="2a0c7bd380f58a553dc903d399255821c1a65d0f")
     if mode == "provider78_capture":
         private_base = Path.home() / ".local/state/lmm-api"
         private_base.mkdir(mode=0o700, parents=True, exist_ok=True)
@@ -304,10 +364,16 @@ def main():
             or re.findall(r"^rustc (\S+)\s", rustc_output, re.MULTILINE) != ["1.100.0"]
             or re.findall(r"^cargo (\S+)\s", cargo_output, re.MULTILINE) != ["1.100.0"]):
         raise ValueError("provider78 checks require the original Rust and Cargo1.100.0 toolchain")
+    if mode == "upgrade_refusal" and (rustc_command["exit_code"] != 0 or cargo_command["exit_code"] != 0
+            or re.findall(r"^rustc (\S+)\s", rustc_output, re.MULTILINE) != ["1.100.0"]
+            or re.findall(r"^cargo (\S+)\s", cargo_output, re.MULTILINE) != ["1.100.0"]):
+        raise ValueError("upgrade diagnostic requires the original Rust and Cargo1.100.0 toolchain")
     if mode in ("managed70", "continuity", "provider78_capture"):
         targets = ["--lib"]
     elif mode == "provider78_acceptance":
         targets = ["--lib", "--test", "oauth2_public_providers"]
+    elif mode == "upgrade_refusal":
+        targets = ["--lib", "--test", "completion_upgrade", "--test", "navigation_options_upgrade"]
     else:
         targets = ["--test", "assistant_model"] if mode == "pre_fix" else ["--lib", "--test", "assistant_model"]
     command, output = execute("compile",
@@ -377,6 +443,8 @@ def main():
         elif mode == "managed70":
             results.append(test_run("managed70", executables["lmm_core"], [MANAGED70],
                                     [MANAGED70, "--exact"], root / "services/core"))
+        elif mode == "upgrade_refusal":
+            results.extend(upgrade_refusals(executables, output, root, private_artifacts))
         else:
             assistant = executables["assistant_model"]
             cases = [REGRESSION] if mode == "pre_fix" else ASSISTANT
@@ -389,6 +457,8 @@ def main():
     after = source_manifest(root)
     save("source-after.json", after)
     expected_results = 4 if mode == "continuity" else (1 if mode in ("pre_fix", "managed70", "provider78_capture") else 2)
+    if mode == "upgrade_refusal":
+        expected_results = 3
     accepted = (command["exit_code"] == 0 and len(results) == expected_results
                 and all(result["accepted"] for result in results) and before == after)
     save("result.json", {"scope": binding["scope"], "mode": mode,
@@ -401,7 +471,7 @@ def main():
 try:
     sys.exit(main())
 except Exception as error:
-    if mode in ("provider78_capture", "provider78_acceptance") and not (evidence / "source-after.json").exists():
+    if mode in ("provider78_capture", "provider78_acceptance", "upgrade_refusal") and not (evidence / "source-after.json").exists():
         try:
             save("source-after.json", source_manifest(candidate))
         except Exception as snapshot_error:
