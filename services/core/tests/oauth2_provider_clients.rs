@@ -1,0 +1,224 @@
+//! Real PostgreSQL, browser consent, Core HTTP and a bounded synthetic upstream.
+//! Each provider keeps its own client binding and user-confirmed lifetime cap.
+use lmm_core::{
+    billing::charging::{Error, Outcome, Usage},
+    identity::{
+        IdentityError,
+        grants::{LmmProfile, PROVIDER_CLIENTS, TokenForm},
+    },
+};
+use serde_json::{Value, json};
+use sqlx::PgPool;
+use std::{collections::BTreeMap, sync::atomic::Ordering};
+
+#[allow(dead_code)]
+#[path = "common/model_fixture.rs"]
+mod model_fixture;
+#[expect(
+    dead_code,
+    reason = "This provider target uses the shared OAuth fixture's public-client path."
+)]
+#[path = "common/pi_oauth_fixture.rs"]
+mod pi;
+#[allow(dead_code)]
+#[path = "common/runtime.rs"]
+mod runtime;
+
+const ISSUER: &str = "https://pi-issuer.example.test";
+
+async fn refresh_http(f: &pi::Fixture, client: &str, refresh: &str) -> reqwest::Response {
+    f.client
+        .post(format!("{}/api/oauth2/token", f.base))
+        .form(&[
+            ("grant_type", "refresh_token"),
+            ("client_id", client),
+            ("resource", &format!("{ISSUER}/api/oauth2")),
+            ("refresh_token", refresh),
+        ])
+        .send()
+        .await
+        .unwrap()
+}
+
+#[sqlx::test(migrations = false)]
+async fn public_provider_http_lifecycle_preserves_client_and_financial_binding(pool: PgPool) {
+    pi::with_provider_fixture(pool, |f| async move {
+        let metadata: Value = f.client
+            .get(format!("{}/.well-known/oauth-authorization-server", f.base))
+            .send().await.unwrap().error_for_status().unwrap().json().await.unwrap();
+        let supported = metadata["lmm_client_ids_supported"].as_array().unwrap();
+        assert_eq!(supported.len(), PROVIDER_CLIENTS.len() + 2);
+        assert!(metadata.get("lmm_managed_clients").is_none());
+        let before_keys: i64 = sqlx::query_scalar(
+            "SELECT count(*) FROM core_identity.credentials WHERE kind='api_key'",
+        ).fetch_one(&f.owner).await.unwrap();
+
+        for (index, (client, _)) in PROVIDER_CLIENTS.iter().enumerate() {
+            assert!(supported.contains(&json!(client)));
+            let mut request = f.request();
+            request.client_id = (*client).into();
+            let first = f.issuer.begin(request).await.unwrap();
+            let consent = f.issuer.continue_authorization(
+                &first.binding, &first.csrf, Some(&f.refresh),
+            ).await.unwrap();
+            assert_eq!(consent.maximum_budget_credits, Some(1000));
+            assert!(matches!(
+                f.issuer.consent_with_budget(
+                    &consent.binding, &consent.csrf, Some(&f.refresh), true, Some(1001),
+                ).await,
+                Err(IdentityError::Invalid),
+            ));
+
+            let token = f.token_for_client(client, 500).await;
+            assert_eq!(token.scope.split(' ').count(), 5);
+            assert!(token.scope.contains("models:invoke"));
+            assert!(!token.scope.contains("mcp:"));
+            assert!(!token.scope.contains("remote:"));
+            let catalog = f.client.get(format!("{}/api/oauth2/catalog", f.base))
+                .bearer_auth(&token.access_token).send().await.unwrap();
+            assert_eq!(catalog.status(), reqwest::StatusCode::OK);
+
+            let other = PROVIDER_CLIENTS[(index + 1) % PROVIDER_CLIENTS.len()].0;
+            let wrong = refresh_http(&f, other, &token.refresh_token).await;
+            assert_eq!(wrong.status(), reqwest::StatusCode::BAD_REQUEST);
+            let refreshed = refresh_http(&f, client, &token.refresh_token).await;
+            assert_eq!(refreshed.status(), reqwest::StatusCode::OK);
+            let refreshed: Value = refreshed.json().await.unwrap();
+            let access = refreshed["access_token"].as_str().unwrap();
+            let refresh = refreshed["refresh_token"].as_str().unwrap();
+            assert_ne!(access, token.access_token);
+
+            let response = f.client.post(format!("{}/v1/chat/completions", f.base))
+                .bearer_auth(access)
+                .header("x-lmm-group", "YWxsb3dlZA")
+                .header("idempotency-key", format!("provider-http-{index}"))
+                .json(&json!({
+                    "model":"provider-model",
+                    "messages":[{"role":"user","content":"hello"}],
+                    "max_tokens":20
+                }))
+                .send().await.unwrap();
+            assert_eq!(response.status(), reqwest::StatusCode::OK);
+            assert!(response.text().await.unwrap().contains("local synthetic answer"));
+
+            let wrong = f.client.post(format!("{}/api/oauth2/revoke", f.base))
+                .form(&[("client_id", other), ("token", access)])
+                .send().await.unwrap();
+            assert_eq!(wrong.status(), reqwest::StatusCode::BAD_REQUEST);
+            assert!(f.issuer.catalog(access).await.is_ok());
+            let revoked = f.client.post(format!("{}/api/oauth2/revoke", f.base))
+                .form(&[("client_id", *client), ("token", access)])
+                .send().await.unwrap();
+            assert_eq!(revoked.status(), reqwest::StatusCode::OK);
+            assert!(f.issuer.catalog(access).await.is_err());
+            assert_eq!(
+                refresh_http(&f, client, refresh).await.status(),
+                reqwest::StatusCode::BAD_REQUEST,
+            );
+        }
+        assert_eq!(f.provider.hits.load(Ordering::SeqCst), 5);
+        let charges: Vec<(Option<i64>, String, i64, i64)> = sqlx::query_as(
+            "SELECT key_id,oauth_source->>'client_id',settled,payer_account_id FROM core_charging.requests",
+        ).fetch_all(&f.owner).await.unwrap();
+        assert_eq!(charges.len(), 5);
+        let charges: BTreeMap<_, _> = charges.into_iter()
+            .map(|(key, client, settled, payer)| (client, (key, settled, payer)))
+            .collect();
+        assert_eq!(charges.len(), PROVIDER_CLIENTS.len());
+        for (client, _) in PROVIDER_CLIENTS {
+            let (key, settled, payer) = &charges[*client];
+            assert!(key.is_none());
+            assert_eq!(*settled, 49);
+            assert_eq!(*payer, f.account);
+        }
+        let balance = f.ledger.balance(f.account).await.unwrap();
+        assert_eq!(balance.available_units, 755);
+        assert_eq!(balance.reserved_units, 0);
+        let after_keys: i64 = sqlx::query_scalar(
+            "SELECT count(*) FROM core_identity.credentials WHERE kind='api_key'",
+        ).fetch_one(&f.owner).await.unwrap();
+        assert_eq!(after_keys, before_keys);
+    }).await;
+}
+
+#[sqlx::test(migrations = false)]
+async fn provider_cap_is_shared_across_rotation_and_revocation_survives_disable(pool: PgPool) {
+    pi::with_provider_fixture(pool, |f| async move {
+        let client = "lmm-dsh";
+        let token = f.token_for_client(client, 70).await;
+        let refreshed = refresh_http(&f, client, &token.refresh_token).await;
+        assert_eq!(refreshed.status(), reqwest::StatusCode::OK);
+        let refreshed: Value = refreshed.json().await.unwrap();
+        let access = refreshed["access_token"].as_str().unwrap();
+        let a = f.spec("provider-cap-a", 50);
+        let b = f.spec("provider-cap-b", 50);
+        let (a, b) = tokio::join!(
+            f.reserve(&token.access_token, &a, &[1; 32]),
+            f.reserve(access, &b, &[2; 32]),
+        );
+        assert_eq!(usize::from(a.is_ok()) + usize::from(b.is_ok()), 1);
+        let (charge, worker) = if let Ok(a) = a {
+            assert!(matches!(b, Err(Error::BudgetExceeded)));
+            (a, [1; 32])
+        } else {
+            assert!(matches!(a, Err(Error::BudgetExceeded)));
+            (b.unwrap(), [2; 32])
+        };
+        assert_eq!(charge.oauth_source.as_ref().unwrap().client_id(), client);
+        assert_eq!(
+            f.ledger.balance(f.account).await.unwrap().reserved_units,
+            50
+        );
+        assert!(
+            f.charging
+                .start_oauth(&f.issuer, &charge.id, &worker)
+                .await
+                .unwrap()
+        );
+        f.charging
+            .settle(
+                &charge.id,
+                &worker,
+                Usage {
+                    input: 40,
+                    ..Default::default()
+                },
+                Outcome::Completed,
+            )
+            .await
+            .unwrap();
+        assert!(matches!(
+            f.reserve(access, &f.spec("provider-cap-exhausted", 31), &[3; 32])
+                .await,
+            Err(Error::BudgetExceeded),
+        ));
+
+        let disabled = f
+            .issuer_for_profile(
+                LmmProfile::new(ISSUER, vec!["allowed".into()]).unwrap(),
+                pi::ManagedKeyring::Missing,
+            )
+            .await;
+        let mut request = f.request();
+        request.client_id = client.into();
+        assert!(disabled.begin(request).await.is_err());
+        let form = TokenForm {
+            grant_type: "refresh_token".into(),
+            client_id: client.into(),
+            resource: format!("{ISSUER}/api/oauth2"),
+            code: None,
+            redirect_uri: None,
+            code_verifier: None,
+            refresh_token: Some(refreshed["refresh_token"].as_str().unwrap().into()),
+            scope: None,
+        };
+        assert!(form.validate(disabled.profile()).is_err());
+        disabled.revoke_for_client(client, access).await.unwrap();
+        assert!(f.issuer.catalog(access).await.is_err());
+        let balance = f.ledger.balance(f.account).await.unwrap();
+        assert_eq!(balance.available_units, 960);
+        assert_eq!(balance.reserved_units, 0);
+        assert_eq!(f.provider.hits.load(Ordering::SeqCst), 0);
+    })
+    .await;
+}

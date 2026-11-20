@@ -202,6 +202,8 @@ struct OAuth2File {
     isolated_loopback_proxy: Option<bool>,
     isolated_secret_directory: Option<PathBuf>,
     pi_max_credits: Option<i64>,
+    #[serde(default)]
+    provider_max_credits: BTreeMap<String, i64>,
     cc_switch_max_credits: Option<i64>,
     magpie_max_credits: Option<i64>,
     managed_refresh_keyring_file: Option<PathBuf>,
@@ -687,6 +689,25 @@ fn parse_core_file(document: &[u8]) -> io::Result<BTreeMap<&'static str, OsStrin
                 ));
             }
             put("LMM_CORE_OAUTH2_PI_MAX_CREDITS", maximum.to_string());
+        }
+        if !oauth2.provider_max_credits.is_empty() {
+            for (client, maximum) in &oauth2.provider_max_credits {
+                if file.model.is_none()
+                    || !crate::identity::grants::PROVIDER_CLIENTS
+                        .iter()
+                        .any(|(id, _)| *id == client)
+                    || !(1..=9_007_199_254_740_991).contains(maximum)
+                {
+                    return Err(invalid_config(
+                        "public model providers require a known client, model service and finite ceiling",
+                    ));
+                }
+            }
+            put(
+                "LMM_CORE_OAUTH2_PROVIDER_MAX_CREDITS",
+                serde_json::to_string(&oauth2.provider_max_credits)
+                    .map_err(|_| invalid_config("invalid public model provider ceilings"))?,
+            );
         }
         if let Some(maximum) = oauth2.cc_switch_max_credits {
             if file.model.is_none()
@@ -2689,6 +2710,7 @@ pub fn oauth2_configured() -> bool {
     [
         "LMM_CORE_OAUTH2_ISSUER",
         "LMM_CORE_OAUTH2_PI_MAX_CREDITS",
+        "LMM_CORE_OAUTH2_PROVIDER_MAX_CREDITS",
         "LMM_CORE_OAUTH2_CC_SWITCH_MAX_CREDITS",
         "LMM_CORE_OAUTH2_MAGPIE_MAX_CREDITS",
         "LMM_CORE_OAUTH2_MANAGED_REFRESH_KEYRING_FILE",
@@ -2899,6 +2921,24 @@ pub async fn oauth2_issuer(
         profile = profile
             .with_pi_budget_limit(maximum)
             .map_err(|_| invalid_config("invalid Pi budget ceiling"))?;
+    }
+    if let Some(value) = setting_os("LMM_CORE_OAUTH2_PROVIDER_MAX_CREDITS") {
+        if setting_os("LMM_CORE_MODEL_CONFIG_FILE").is_none() {
+            return Err(invalid_config(
+                "public model providers require model service",
+            ));
+        }
+        let ceilings: BTreeMap<String, i64> = serde_json::from_str(
+            value
+                .to_str()
+                .ok_or_else(|| invalid_config("invalid public model provider ceilings"))?,
+        )
+        .map_err(|_| invalid_config("invalid public model provider ceilings"))?;
+        for (client, maximum) in ceilings {
+            profile = profile
+                .with_provider_budget_limit(&client, maximum)
+                .map_err(|_| invalid_config("invalid public model provider ceiling"))?;
+        }
     }
     if let Some(value) = setting_os("LMM_CORE_OAUTH2_CC_SWITCH_MAX_CREDITS") {
         if setting_os("LMM_CORE_MODEL_CONFIG_FILE").is_none()
@@ -3908,6 +3948,55 @@ pub fn checkin_rewards_configured() -> bool {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn provider_toml_ceilings_require_known_clients_and_a_model_service() {
+        let document = |client: &str, ceiling: i64| {
+            format!(
+                r#"version=1
+[database]
+url_file='/private/test-db'
+[identity.web]
+origin='https://providers.example.test'
+refresh_key_file='/private/web-key'
+user_agreement_enabled=false
+privacy_policy_enabled=false
+[identity.oauth2]
+issuer='https://providers.example.test'
+groups=['allowed']
+access_ttl_seconds=900
+family_ttl_seconds=86400
+provider_max_credits={{"{client}"={ceiling}}}
+[model]
+config_file='/private/model'
+"#
+            )
+        };
+        for (client, _) in crate::identity::grants::PROVIDER_CLIENTS {
+            let values = super::parse_core_file(document(client, 90).as_bytes()).unwrap();
+            let ceilings: std::collections::BTreeMap<String, i64> = serde_json::from_str(
+                values["LMM_CORE_OAUTH2_PROVIDER_MAX_CREDITS"]
+                    .to_str()
+                    .unwrap(),
+            )
+            .unwrap();
+            assert_eq!(
+                ceilings,
+                std::collections::BTreeMap::from([((*client).into(), 90)])
+            );
+            assert!(!values.contains_key("LMM_CORE_OAUTH2_PI_MAX_CREDITS"));
+            assert!(!values.contains_key("LMM_CORE_OAUTH2_MANAGED_REFRESH_KEYRING_FILE"));
+        }
+        for text in [
+            document("lmm-dsh", 0),
+            document("lmm-dsh", 9_007_199_254_740_992),
+            document("unknown", 90),
+            document("lmm-pi", 90),
+            document("lmm-dsh", 90).replace("[model]\nconfig_file='/private/model'", ""),
+        ] {
+            assert!(super::parse_core_file(text.as_bytes()).is_err());
+        }
+    }
+
     #[test]
     fn magpie_toml_ceiling_is_independent_and_requires_model_and_keyring() {
         let document = |ceiling: i64| {

@@ -102,13 +102,18 @@ const CONSENT_STYLE: &str = "*{box-sizing:border-box}html{color-scheme:light dar
 fn page(page: ConsentPage, config: &LegacyAuthConfig) -> Response {
     let pi = page.client_id == "lmm-pi";
     let managed = matches!(page.client_id.as_str(), "lmm-cc-switch" | "lmm-magpie");
-    let model = pi || managed;
+    let model = page.maximum_budget_credits.is_some();
     let client_name = if pi {
         "LMM Pi"
     } else if page.client_id == "lmm-magpie" {
         "LMM Magpie"
     } else if managed {
         "LMM CC Switch"
+    } else if let Some((_, name)) = crate::identity::grants::PROVIDER_CLIENTS
+        .iter()
+        .find(|(client, _)| *client == page.client_id)
+    {
+        *name
     } else {
         "LMM CLI"
     };
@@ -350,14 +355,24 @@ mod tests {
             .unwrap()
             .with_pi_budget_limit(100)
             .unwrap();
-        for client in ["lmm", "lmm-pi"] {
+        let profile = crate::identity::grants::PROVIDER_CLIENTS
+            .iter()
+            .fold(profile, |p, (client, _)| {
+                p.with_provider_budget_limit(client, 100).unwrap()
+            });
+        let clients = ["lmm", "lmm-pi"].into_iter().chain(
+            crate::identity::grants::PROVIDER_CLIENTS
+                .iter()
+                .map(|(client, _)| *client),
+        );
+        for client in clients {
             for port in [38423, 52917] {
                 let request = profile
                     .validate_authorization(AuthorizationRequest {
                         response_type: "code".into(),
                         client_id: client.into(),
                         redirect_uri: format!("http://127.0.0.1:{port}/oauth/lmm/callback"),
-                        scope: if client == "lmm-pi" {
+                        scope: if client != "lmm" {
                             "catalog:read balance:read usage:read models:invoke"
                         } else {
                             "catalog:read balance:read"
@@ -379,7 +394,7 @@ mod tests {
                             account: signed_in.then(|| "synthetic-user".into()),
                             client_id: request.client_id.clone(),
                             redirect_uri: request.redirect_uri.clone(),
-                            maximum_budget_credits: (client == "lmm-pi").then_some(100),
+                            maximum_budget_credits: profile.model_budget_limit(client),
                             installation_id: None,
                             display_label: None,
                             groups: vec!["default".into()],

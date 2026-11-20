@@ -30,6 +30,7 @@ pub(super) enum DataProjection {
     Exact,
     SubscriptionEpay,
     ManagedApplications,
+    ProviderClients,
 }
 #[derive(Clone, Copy)]
 pub(super) struct SuffixPolicy {
@@ -246,6 +247,7 @@ registrations! {
         CHECKIN_CHALLENGES => checkin_challenges, "CHECKIN_CHALLENGES_", |c,r| Box::pin(checkin_challenges::grant_runtime(c, &r.roles.runtime)), owner_receipt, SuffixPolicy::DEFAULT;
         NETWORK_ACCESS => network_access, "NETWORK_ACCESS_", |c,r| Box::pin(network_access::grant_runtime(c, &r.roles.runtime)), owner_receipt, SuffixPolicy::DEFAULT;
         CONNECTION_HISTORY_IMPORT => connection_history_import, "CONNECTION_HISTORY_IMPORT_", no_grants, owner_receipt, SuffixPolicy::DEFAULT;
+        PROVIDER_CLIENTS => provider_clients, "PROVIDER_CLIENTS_", no_grants, owner_receipt, SuffixPolicy { target: TargetSource::Captured(provider_clients::captured_target), projection: DataProjection::ProviderClients, #[cfg(test)] after_ddl: SuffixPolicy::DEFAULT.after_ddl };
         OIDC => oidc, "OIDC_", |c,r| Box::pin(oidc::grant_runtime(c, &r.roles.runtime)), owner_receipt, SuffixPolicy::DEFAULT;
     }
 }
@@ -293,6 +295,7 @@ mod tests {
             "core-checkin-challenges-v1",
             "core-network-access-v1",
             "core-connection-history-import-v1",
+            "core-provider-clients-v1",
         ]
         .into_iter()
         .collect();
@@ -332,6 +335,7 @@ mod tests {
             (subscription_epay::PROCEDURE, subscription_epay::validate),
             (core59_to62::PROCEDURE, core59_to62::validate),
             (network_access::PROCEDURE, network_access::validate),
+            (provider_clients::PROCEDURE, provider_clients::validate),
             (
                 connection_history_import::PROCEDURE,
                 connection_history_import::validate,
@@ -382,6 +386,7 @@ mod tests {
             ),
             ("core-responses-continuity-v1", "RESPONSES_CONTINUITY_"),
             ("core-managed-applications-v1", "MANAGED_APPLICATIONS_"),
+            ("core-provider-clients-v1", "PROVIDER_CLIENTS_"),
             ("core-affiliate-registration-v1", "AFFILIATE_REGISTRATION_"),
             ("core-oauth2-oidc-v1", "OIDC_"),
             ("core-personal-tokens-v1", "PERSONAL_TOKENS_"),
@@ -466,6 +471,8 @@ mod tests {
                     DataProjection::SubscriptionEpay
                 } else if name == "core-managed-applications-v1" {
                     DataProjection::ManagedApplications
+                } else if name == "core-provider-clients-v1" {
+                    DataProjection::ProviderClients
                 } else {
                     DataProjection::Exact
                 }
@@ -475,6 +482,7 @@ mod tests {
                     let expected = match name {
                         "core-59-to-62-v1" => core59_to62::captured_target,
                         "core-managed-applications-v1" => managed_applications::captured_target,
+                        "core-provider-clients-v1" => provider_clients::captured_target,
                         _ => panic!("unexpected captured target {name}"),
                     };
                     assert!(std::ptr::fn_addr_eq(
@@ -487,6 +495,8 @@ mod tests {
             assert!(std::ptr::fn_addr_eq(
                 entry.hooks.authorize,
                 match name {
+                    "core-provider-clients-v1" =>
+                        provider_clients::authorize_target as fn() -> Result<(), UpgradeError>,
                     "core-subscription-creem-v1" =>
                         subscription_creem::authorize_target as fn() -> Result<(), UpgradeError>,
                     "core-checkin-challenges-v1" =>

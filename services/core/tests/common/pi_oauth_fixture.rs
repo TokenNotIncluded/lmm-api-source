@@ -159,6 +159,7 @@ enum FixtureApplications {
     PiOnly,
     PiAndManaged,
     PiAndAllManaged,
+    PiAndProviders,
 }
 
 pub(super) enum ManagedKeyring {
@@ -259,7 +260,10 @@ impl Fixture {
             role.optional(scope).await;
         }
         sqlx::raw_sql(sqlx::AssertSqlSafe(format!("GRANT USAGE ON SCHEMA core_oauth TO {0}; GRANT SELECT ON core_oauth.contract TO {0}; GRANT SELECT,INSERT ON core_oauth.families,core_oauth.authorization_requests,core_oauth.authorization_codes,core_oauth.access_tokens,core_oauth.refresh_tokens TO {0}; GRANT UPDATE(scopes,revoked_at) ON core_oauth.families TO {0}; GRANT UPDATE(consumed_at) ON core_oauth.authorization_requests,core_oauth.authorization_codes,core_oauth.refresh_tokens TO {0}; GRANT EXECUTE ON FUNCTION core_oauth.readonly_scope_set(text[]),core_oauth.client_scope_set(text,text[],boolean) TO {0};",role.name))).execute(owner).await.unwrap();
-        if !matches!(applications, FixtureApplications::PiOnly) {
+        if matches!(
+            applications,
+            FixtureApplications::PiAndManaged | FixtureApplications::PiAndAllManaged
+        ) {
             let grants = include_str!("../../schema/managed_applications_grants.sql")
                 .replace(":\"runtime_role\"", &format!("\"{}\"", role.name));
             sqlx::raw_sql(sqlx::AssertSqlSafe(grants))
@@ -272,7 +276,10 @@ impl Fixture {
             RequiredCapabilities {
                 models: true,
                 oauth2: true,
-                managed_applications: !matches!(applications, FixtureApplications::PiOnly),
+                managed_applications: matches!(
+                    applications,
+                    FixtureApplications::PiAndManaged | FixtureApplications::PiAndAllManaged
+                ),
                 web_identity: true,
                 ..Default::default()
             },
@@ -286,17 +293,28 @@ impl Fixture {
             .unwrap()
             .with_pi_budget_limit(1000)
             .unwrap();
-        if !matches!(applications, FixtureApplications::PiOnly) {
+        if matches!(
+            applications,
+            FixtureApplications::PiAndManaged | FixtureApplications::PiAndAllManaged
+        ) {
             profile = profile.with_managed_budget_limit(1000).unwrap();
             if matches!(applications, FixtureApplications::PiAndAllManaged) {
                 profile = profile.with_magpie_budget_limit(1000).unwrap();
+            }
+        }
+        if matches!(applications, FixtureApplications::PiAndProviders) {
+            for (client, _) in lmm_core::identity::grants::PROVIDER_CLIENTS {
+                profile = profile.with_provider_budget_limit(client, 1000).unwrap();
             }
         }
         let mut issuer = LmmIssuer::open(store.clone(), profile, 900, 86400)
             .await
             .unwrap()
             .with_catalog_surface(gateway.oauth_catalog_surface());
-        if !matches!(applications, FixtureApplications::PiOnly) {
+        if matches!(
+            applications,
+            FixtureApplications::PiAndManaged | FixtureApplications::PiAndAllManaged
+        ) {
             let keys = ManagedRecoveryKeys::new(
                 "fixture-managed-v1",
                 vec![("fixture-managed-v1".into(), vec![83; 32])],
@@ -469,7 +487,14 @@ impl Fixture {
             .await
     }
     pub async fn token(&self, cap: i64) -> TokenWire {
-        let request = self.request();
+        self.token_for_client("lmm-pi", cap).await
+    }
+    pub async fn token_for_client(&self, client: &str, cap: i64) -> TokenWire {
+        let mut request = self.request();
+        request.client_id = client.into();
+        if !matches!(client, "lmm-pi" | "lmm-dsh") {
+            request.scope = "catalog:read balance:read usage:read models:invoke".into();
+        }
         let mut url = reqwest::Url::parse(&format!("{}/api/oauth2/authorize", self.base)).unwrap();
         url.query_pairs_mut().extend_pairs([
             ("response_type", request.response_type.as_str()),
@@ -533,7 +558,7 @@ impl Fixture {
             .header("content-type", "application/x-www-form-urlencoded")
             .body(form(&[
                 ("grant_type", "authorization_code"),
-                ("client_id", "lmm-pi"),
+                ("client_id", client),
                 ("resource", &format!("{ISSUER}/api/oauth2")),
                 ("code", &code),
                 ("redirect_uri", REDIRECT),
@@ -645,6 +670,14 @@ where
     Fut: Future<Output = ()> + Send + 'static,
 {
     with_fixture_applications(pool, developer, FixtureApplications::PiOnly, case).await;
+}
+
+pub(super) async fn with_provider_fixture<F, Fut>(pool: PgPool, case: F)
+where
+    F: FnOnce(Arc<Fixture>) -> Fut + Send + 'static,
+    Fut: Future<Output = ()> + Send + 'static,
+{
+    with_fixture_applications(pool, false, FixtureApplications::PiAndProviders, case).await;
 }
 
 pub(super) async fn with_managed_fixture<F, Fut>(pool: PgPool, developer: bool, case: F)

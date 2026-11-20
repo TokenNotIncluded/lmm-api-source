@@ -241,6 +241,9 @@ SELECT NOT EXISTS(SELECT FROM pg_class c CROSS JOIN LATERAL aclexplode(coalesce(
         if self.hooks.suffix().policy.projection == registry::DataProjection::ManagedApplications {
             managed_applications::advance_oauth_contract(&mut tx, &mut expected_data).await?;
         }
+        if self.hooks.suffix().policy.projection == registry::DataProjection::ProviderClients {
+            provider_clients::advance_oauth_contract(&mut tx, &mut expected_data).await?;
+        }
         // One explicit owner-only backfill, inside the existing migration fence
         // and transaction. Failure rolls back the new DDL as well as projection.
         if self.predecessor_count < 44 {
