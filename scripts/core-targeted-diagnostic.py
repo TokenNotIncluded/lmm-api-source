@@ -30,6 +30,16 @@ ASSISTANT = [
     "usage_sources::usage_assistant_paid_and_unknown_sources_preserve_consumption_and_holds",
     "zero_balance_user_uses_bounded_treasury_and_real_gift_ledger"
 ]
+CONTINUITY = [
+    ("continuity-a5",
+     "model_http::responses_continuity_independent::responses_continuity_independent_actual_kill_restart_same_database"),
+    ("continuity-tristate",
+     "model_http::responses_continuity_independent::responses_continuity_independent_store_tristate_and_exact_refusal"),
+    ("native-performance-success",
+     "model_http::input_api::tests::input_api_pg_native_key_restricted_runtime_settles_exact_usage_once"),
+    ("native-performance-unknown",
+     "model_http::input_api::tests::input_api_pg_unknown_usage_keeps_original_hold_and_never_replays"),
+]
 TEST_FILE = "services/core/tests/assistant_model.rs"
 
 os.umask(0o077)
@@ -122,7 +132,7 @@ def test_run(label, executable, names, filters, cwd, negative=False):
 
 
 def main():
-    if mode not in ("candidate", "pre_fix", "managed70") or not re.fullmatch(r"[0-9a-f]{40}", requested):
+    if mode not in ("candidate", "pre_fix", "managed70", "continuity") or not re.fullmatch(r"[0-9a-f]{40}", requested):
         raise ValueError("invalid diagnostic inputs")
     if git(candidate, "rev-parse", "HEAD") != requested or git(candidate, "diff", "--name-only"):
         raise ValueError("candidate checkout does not match the immutable source input")
@@ -149,12 +159,19 @@ def main():
                    environment={k: os.environ[k] for k in (
                        "CARGO_BUILD_JOBS", "CARGO_INCREMENTAL", "CARGO_PROFILE_DEV_DEBUG",
                        "CARGO_PROFILE_TEST_DEBUG", "RUST_TEST_THREADS", "GOWORK")})
+    if mode == "continuity":
+        private_artifacts = evidence.parent / "core-targeted-continuity-private"
+        private_artifacts.mkdir(mode=0o700)
+        os.environ["RESPONSES_CONTINUITY_INDEPENDENT_ARTIFACTS"] = str(private_artifacts)
+        binding["continuity_artifacts"] = {
+            "private_directory": str(private_artifacts),
+            "retained_evidence": "worker .log files and a5/a8 result JSON only; no private config or ready files"}
     before = source_manifest(root)
     save("source-before.json", before)
     save("source-binding.json", binding)
     execute("rustc-version", ["rustc", "--version", "--verbose"], root / "services/core", 30)
     execute("cargo-version", ["cargo", "--version"], root / "services/core", 30)
-    if mode == "managed70":
+    if mode in ("managed70", "continuity"):
         targets = ["--lib"]
     else:
         targets = ["--test", "assistant_model"] if mode == "pre_fix" else ["--lib", "--test", "assistant_model"]
@@ -173,7 +190,21 @@ def main():
                 executables[item["target"]["name"]] = Path(item["executable"]).resolve()
         save("executables.json", {key: {"path": str(path), "sha256": sha(path)}
                                   for key, path in executables.items()})
-        if mode == "managed70":
+        if mode == "continuity":
+            try:
+                for label, name in CONTINUITY:
+                    results.append(test_run(label, executables["lmm_core"], [name],
+                                            [name, "--exact"], root / "services/core"))
+            finally:
+                retained = evidence / "continuity-process"
+                retained.mkdir(mode=0o700)
+                paths = list(private_artifacts.glob("*.log"))
+                paths += [private_artifacts / name for name in
+                          ("a5-process-restart.json", "a8-store-exact.json")]
+                for path in paths:
+                    if path.is_file():
+                        shutil.copyfile(path, retained / path.name)
+        elif mode == "managed70":
             results.append(test_run("managed70", executables["lmm_core"], [MANAGED70],
                                     [MANAGED70, "--exact"], root / "services/core"))
         else:
@@ -187,7 +218,8 @@ def main():
                                         [APP05, "--exact"], root / "services/core"))
     after = source_manifest(root)
     save("source-after.json", after)
-    accepted = (command["exit_code"] == 0 and len(results) == (1 if mode in ("pre_fix", "managed70") else 2)
+    expected_results = 4 if mode == "continuity" else (1 if mode in ("pre_fix", "managed70") else 2)
+    accepted = (command["exit_code"] == 0 and len(results) == expected_results
                 and all(result["accepted"] for result in results) and before == after)
     save("result.json", {"scope": "TARGETED_DIAGNOSTIC_ONLY", "mode": mode,
                         "accepted": accepted, "compile_exit_code": command["exit_code"],
