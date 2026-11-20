@@ -10,6 +10,7 @@ image must contain sh, curl, coreutils and the existing component entrypoint.
 Formal build/publication is exclusively manual microservice-images.yml, on main
 or an exact-SHA preview tag proven to be an ancestor of main.
 """
+import gzip
 import hashlib
 import json
 import os
@@ -36,7 +37,7 @@ class SourceContracts(unittest.TestCase):
         cls.build, cls.publish = cls.workflow.split('  publish:\n', 1)
 
     def test_manual_only_and_source_repository_guard(self):
-        self.assertRegex(self.workflow, r'^name: [^\n]+\non:\n  workflow_dispatch:\npermissions:')
+        self.assertRegex(self.workflow, r'^name: [^\n]+\non:\n  workflow_dispatch:\n    inputs:\n      extore_plugin:')
         for trigger in ('workflow_call:', 'push:', 'pull_request:', 'schedule:'):
             self.assertNotIn(trigger, self.workflow)
         self.assertIn("github.repository == 'TokenNotIncluded/lmm-api-source'", self.build)
@@ -50,9 +51,14 @@ class SourceContracts(unittest.TestCase):
         self.assertIn('cancel-in-progress: false', self.workflow)
 
     def test_two_independent_runtime_components_only(self):
-        self.assertEqual(self.workflow.count('component: [core, extensions]'), 2)
+        matrix = """component: ${{ inputs.extore_plugin && fromJSON('["extensions"]') || fromJSON('["core","extensions"]') }}"""
+        self.assertEqual(self.workflow.count(matrix), 2)
+        self.assertIn("default: false", self.build)
+        self.assertEqual(self.workflow.count("VARIANT_SUFFIX: ${{ matrix.component == 'extensions' && inputs.extore_plugin && '-extore' || '' }}"), 2)
         self.assertIn('ghcr.io/tokennotincluded/lmm-${{ matrix.component }}', self.workflow)
-        self.assertIn('--platform linux/amd64 --target runtime --load', self.build)
+        self.assertIn('--platform linux/amd64 --target "$target" "${build_args[@]}" --load', self.build)
+        self.assertIn('target=runtime\n', self.build)
+        self.assertIn('target=runtime-extore\n', self.build)
         self.assertIn('deployment/docker/${COMPONENT}.Dockerfile', self.build)
         self.assertNotRegex(self.publish, r'docker (?:build\b|buildx build\b)')
         self.assertNotIn(':latest', self.workflow)
@@ -103,7 +109,7 @@ class SourceContracts(unittest.TestCase):
     def test_formal_toolchains_and_bounded_core_build(self):
         core = (ROOT / 'deployment/docker/core.Dockerfile').read_text()
         extensions = (ROOT / 'deployment/docker/extensions.Dockerfile').read_text()
-        self.assertRegex(core, r'(?m)^FROM rust:1\.99\.1-bookworm@sha256:[0-9a-f]{64} AS build$')
+        self.assertRegex(core, r'(?m)^FROM rust:1\.100\.0-bookworm@sha256:[0-9a-f]{64} AS build$')
         self.assertIn('cargo build --locked --release --jobs 2 --bin lmm-core', core)
         self.assertIn('COPY deployment/postgres/grant-core-runtime.sql /src/deployment/postgres/grant-core-runtime.sql', core)
         self.assertRegex(extensions, r'(?m)^FROM golang:1\.27\.2-bookworm@sha256:[0-9a-f]{64} AS build$')
@@ -117,6 +123,25 @@ class SourceContracts(unittest.TestCase):
         self.assertIn('COPY config/legal/site.example.toml', extensions)
         self.assertIn('COPY config/legal/templates/', extensions)
         self.assertEqual(len(list((ROOT / 'config/legal/templates').rglob('*.md'))), 6)
+
+    def test_optional_bundle_runtime_and_tag_binding(self):
+        dockerfile = (ROOT / 'deployment/docker/extensions.Dockerfile').read_text()
+        self.assertTrue(dockerfile.rstrip().endswith('FROM runtime AS default'))
+        self.assertIn('FROM binaries AS binaries-extore', dockerfile)
+        self.assertIn('FROM runtime AS runtime-extore', dockerfile)
+        self.assertIn("""test "$(rustc -vV | sed -n 's/^host: //p')" = "$target" """.strip(), dockerfile)
+        self.assertIn('dpkg-query -W libc6 libssl3', dockerfile)
+        self.assertIn('ldd "$binary"', dockerfile)
+        self.assertIn("! grep -F 'not found'", dockerfile)
+        self.assertIn('/usr/libexec/lmm-extore-host', dockerfile)
+        self.assertIn('/usr/lib/lmm/libextore_zplugin.so', dockerfile)
+        self.assertIn('sha-$SOURCE_REVISION$VARIANT_SUFFIX', self.publish)
+        self.assertIn("record['tags'] == ['sha-' + revision + os.environ['VARIANT_SUFFIX']", self.publish)
+        self.assertIn("HEAD:third_party/extore", self.publish)
+        self.assertIn("assert ('extore_plugin' in record) == bool(os.environ['VARIANT_SUFFIX'])", self.publish)
+        for line in self.workflow.splitlines():
+            if 'name: ghcr-stage-' in line:
+                self.assertIn('${{ env.VARIANT_SUFFIX }}', line)
 
     def test_offline_private_smoke_and_scoped_cleanup(self):
         for arg in ('--network none', '--user 65532:65532', '--read-only', '--cap-drop ALL',
@@ -146,7 +171,7 @@ class SourceContracts(unittest.TestCase):
 
     def test_workflow_shell_blocks_parse(self):
         scripts = re.findall(r'        run: \|\n(.*?)(?=\n      -|\Z)', self.workflow, re.S)
-        self.assertEqual(len(scripts), 8)
+        self.assertEqual(len(scripts), 9)
         for script in scripts:
             script = textwrap.dedent(script)
             result = subprocess.run(['bash', '-n'], input=script, text=True, capture_output=True)
@@ -286,6 +311,100 @@ class MockedOrchestration(unittest.TestCase):
                 self.assertIsNone(record)
                 self.assertIn(['rm', '-f', 'only-mocked-owned-container'], calls)
                 self.assertIn(['logs', 'only-mocked-owned-container'], calls)
+
+
+# Execute the actual publish-load step with no runner-provided source/tag env.
+# Fake Git/Docker keep this a shell/environment regression, never image acceptance.
+PUBLISH_MOCK = r'''#!/usr/bin/env python3
+import json, os, pathlib, sys
+tool = pathlib.Path(sys.argv[0]).name
+args = sys.argv[1:]
+record = json.loads(pathlib.Path(os.environ['MOCK_RECORD']).read_text())
+with open(os.environ['MOCK_CALLS'], 'a') as output:
+    output.write(json.dumps([tool, *args]) + '\n')
+if tool == 'git':
+    values = {('rev-parse', 'HEAD'): 'a' * 40,
+              ('rev-parse', '--short=12', 'HEAD'): 'a' * 12,
+              ('rev-parse', 'HEAD:third_party/extore'): 'e' * 40}
+    print(values[tuple(args)])
+elif args == ['image', 'load']:
+    assert sys.stdin.buffer.read() == b'mocked staged image\n'
+elif args[:2] == ['image', 'inspect']:
+    assert args[2] in [record['image'] + ':' + tag for tag in record['tags']]
+    print(json.dumps([{'Id': record['image_id'], 'Config': {'Labels': {
+        'org.opencontainers.image.revision': 'a' * 40,
+        'org.opencontainers.image.source': record['source']}}}]))
+else:
+    sys.exit('unexpected mocked publication call: ' + repr(args))
+'''
+
+
+class MockedPublishLoadStep(unittest.TestCase):
+    def run_step(self, component='extensions', suffix='', bad_tags=False, workflow=None):
+        source = WORKFLOW.read_text() if workflow is None else workflow
+        match = re.search(r'      - name: Load only the exact tested image, without rebuilding\n'
+                          r'        run: \|\n(.*?)(?=\n      -)', source, re.S)
+        self.assertIsNotNone(match)
+        script = textwrap.dedent(match[1])
+        revision, preview = 'a' * 40, 'preview-' + 'a' * 12 + suffix
+        image_id = 'sha256:' + 'b' * 64
+        record = {'revision': revision, 'component': component,
+                  'image': 'mock-only/lmm-' + component,
+                  'source': 'https://github.com/example/fixture',
+                  'tags': ['sha-' + revision + suffix, preview],
+                  'image_id': image_id,
+                  'smoke': {'smoke': 'passed', 'business_acceptance': False, 'image_id': image_id}}
+        if suffix:
+            record['extore_plugin'] = {'source_revision': revision, 'extore_revision': 'e' * 40,
+                                       'target': 'x86_64-unknown-linux-gnu'}
+        if bad_tags:
+            record['tags'][1] = 'preview-wrong'
+        with tempfile.TemporaryDirectory(prefix='ghcr-publish-env-mock-') as temporary:
+            directory = Path(temporary)
+            artifacts, binaries = directory / 'artifacts', directory / 'bin'
+            artifacts.mkdir()
+            binaries.mkdir()
+            payload = gzip.compress(b'mocked staged image\n')
+            (artifacts / 'image.tar.gz').write_bytes(payload)
+            (artifacts / 'image.tar.gz.sha256').write_text(
+                hashlib.sha256(payload).hexdigest() + '  image.tar.gz\n')
+            record_path = artifacts / 'source-provenance.json'
+            record_path.write_text(json.dumps(record))
+            for tool in ('git', 'docker'):
+                path = binaries / tool
+                path.write_text(PUBLISH_MOCK)
+                path.chmod(0o700)
+            calls, github_env = directory / 'calls.jsonl', directory / 'github-env'
+            env = dict(os.environ, PATH=str(binaries) + os.pathsep + os.environ['PATH'],
+                       MOCK_RECORD=str(record_path), MOCK_CALLS=str(calls),
+                       RUNNER_TEMP=str(directory), GITHUB_ENV=str(github_env), GITHUB_SHA=revision,
+                       COMPONENT=component, IMAGE=record['image'], VARIANT_SUFFIX=suffix,
+                       GITHUB_RUN_ID='1', GITHUB_RUN_ATTEMPT='1')
+            for key in ('SOURCE_REVISION', 'PREVIEW_TAG'):
+                env.pop(key, None)
+            result = subprocess.run(['bash', '-e', '-o', 'pipefail', '-c', script],
+                                    cwd=directory, env=env, capture_output=True, text=True, timeout=10)
+            observed = [json.loads(line) for line in calls.read_text().splitlines()]
+            written = dict(line.split('=', 1) for line in github_env.read_text().splitlines())
+            return result, observed, written
+
+    def test_publish_load_exports_same_step_identity_for_default_and_extore(self):
+        for component, suffix in (('core', ''), ('extensions', ''), ('extensions', '-extore')):
+            with self.subTest(component=component, suffix=suffix):
+                result, calls, written = self.run_step(component, suffix)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(written['SOURCE_REVISION'], 'a' * 40)
+                self.assertEqual(written['PREVIEW_TAG'], 'preview-' + 'a' * 12 + suffix)
+                self.assertEqual(sum(c[:3] == ['docker', 'image', 'load'] for c in calls), 1)
+                self.assertEqual(sum(c[:3] == ['docker', 'image', 'inspect'] for c in calls), 2)
+
+    def test_publish_load_still_rejects_wrong_staged_tags(self):
+        for suffix in ('', '-extore'):
+            with self.subTest(suffix=suffix):
+                result, calls, _ = self.run_step(suffix=suffix, bad_tags=True)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn('AssertionError', result.stderr)
+                self.assertFalse(any(c[:3] == ['docker', 'image', 'inspect'] for c in calls))
 
 
 if __name__ == '__main__':

@@ -40,7 +40,29 @@
         "config/legal/templates/en/user-agreement.md",
         "config/legal/templates/en/privacy-policy.md",
         "config/legal/templates/en/refund-policy.md"
-      ]
+      ],
+      "optional_extore_plugin": {
+        "targets": {
+          "linux-amd64": "x86_64-unknown-linux-gnu",
+          "linux-arm64": "aarch64-unknown-linux-gnu"
+        },
+        "files": {
+          "libexec/lmm-extore-host": {
+            "input": "lmm-extore-host",
+            "mode": 493,
+            "shared": false
+          },
+          "lib/extore/libextore_zplugin.so": {
+            "input": "libextore_zplugin.so",
+            "mode": 420,
+            "shared": true
+          }
+        },
+        "resources": [
+          "third_party/extore/LICENSE",
+          "docs/extore.md"
+        ]
+      }
     },
     "cli": {
       "package": "lmm",

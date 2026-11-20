@@ -10,6 +10,7 @@ import tarfile
 import tempfile
 import tomllib
 import unittest
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 SPEC = importlib.util.spec_from_file_location("distribution", ROOT / "scripts/build-distribution.py")
@@ -202,6 +203,124 @@ class DistributionTests(unittest.TestCase):
                 self.assertFalse((ROOT / name).is_symlink(), name)
         resources = spec["components"]["extensions"]["resources"]
         self.assertEqual(sum(name.startswith("config/legal/templates/") for name in resources), 6)
+
+
+    def extore_fixture(self, arch="amd64"):
+        """Synthetic headers and readelf text test packaging, never native execution."""
+        machine = {"amd64": 62, "arm64": 183}[arch]
+        for name, kind in (("lmm-extensions", 2), ("lmm-extore-host", 2), ("libextore_zplugin.so", 3)):
+            data = bytearray(elf(machine))
+            struct.pack_into("<H", data, 16, kind)
+            (self.inputs / name).write_bytes(data)
+        source = self.root / "repo"
+        spec = json.loads((ROOT / "packaging/distribution.json").read_text())
+        names = spec["common"] + spec["components"]["extensions"]["resources"]
+        names += spec["components"]["extensions"]["optional_extore_plugin"]["resources"]
+        for name in names:
+            path = source / name
+            path.parent.mkdir(parents=True, exist_ok=True)
+            if name == "third_party/extore/LICENSE":
+                path.write_text("Synthetic license fixture, not a distributed product license.\n")
+            else:
+                shutil.copyfile(ROOT / name, path)
+        shutil.copytree(ROOT / "packaging", source / "packaging")
+        record = DIST.record_extore(self.inputs, SHA, "e" * 40,
+                                   spec["components"]["extensions"]["optional_extore_plugin"]["targets"]["linux-" + arch])
+        (self.inputs / "extore-plugin.json").write_text(json.dumps(record))
+        return source, record
+
+    def test_optional_extore_pair_has_exact_provenance_modes_and_distinct_name(self):
+        source, record = self.extore_fixture()
+        archive = self.build(root=source, extore_revision="e" * 40)
+        self.assertTrue(archive.name.endswith("-linux-amd64-extore.tar.gz"))
+        manifest = DIST.verify(archive, SHA)
+        self.assertEqual(manifest["extore_plugin"], record)
+        self.assertEqual(manifest["files"]["libexec/lmm-extore-host"]["mode"], 0o755)
+        self.assertEqual(manifest["files"]["lib/extore/libextore_zplugin.so"]["mode"], 0o644)
+        self.assertEqual({p for p in manifest["files"] if p.startswith("bin/")}, {"bin/lmm-extensions"})
+        self.assertIn("third_party/extore/LICENSE", manifest["files"])
+        self.assertIn("docs/extore.md", manifest["files"])
+        with self.assertRaisesRegex(ValueError, "explicit"):
+            self.build(root=source, output=self.root / "implicit")
+
+    def test_optional_pair_requires_both_files_and_matching_immutable_inputs(self):
+        source, record = self.extore_fixture()
+        record_path = self.inputs / "extore-plugin.json"
+        for field, value in (("source_revision", "b" * 40), ("extore_revision", "c" * 40),
+                             ("target", "aarch64-unknown-linux-gnu"), ("schema_version", True)):
+            with self.subTest(field=field), self.assertRaises(ValueError):
+                changed = dict(record)
+                changed[field] = value
+                record_path.write_text(json.dumps(changed))
+                self.build(root=source, extore_revision="e" * 40)
+        record_path.write_text(json.dumps(record))
+        for filename in ("lmm-extore-host", "libextore_zplugin.so", "extore-plugin.json"):
+            path = self.inputs / filename
+            original = path.read_bytes()
+            path.unlink()
+            with self.subTest(file=filename), self.assertRaises(OSError):
+                self.build(root=source, extore_revision="e" * 40)
+            path.write_bytes(original)
+        library = self.inputs / "libextore_zplugin.so"
+        library.write_bytes(library.read_bytes() + b"changed")
+        with self.assertRaisesRegex(ValueError, "differs"):
+            self.build(root=source, extore_revision="e" * 40)
+
+    def test_optional_pair_rejects_nonshared_library_and_other_components(self):
+        source, _ = self.extore_fixture()
+        with self.assertRaisesRegex(ValueError, "extensions-only"):
+            self.build("core", root=source, extore_revision="e" * 40)
+        data = bytearray((self.inputs / "libextore_zplugin.so").read_bytes())
+        struct.pack_into("<H", data, 16, 2)
+        (self.inputs / "libextore_zplugin.so").write_bytes(data)
+        with self.assertRaisesRegex(ValueError, "shared library"):
+            self.build(root=source, extore_revision="e" * 40)
+
+    def test_optional_arm64_target_is_bound_and_wrong_architecture_fails(self):
+        source, record = self.extore_fixture("arm64")
+        self.assertEqual(record["target"], "aarch64-unknown-linux-gnu")
+        archive = self.build(root=source, platform="linux-arm64", extore_revision="e" * 40)
+        DIST.verify(archive, SHA)
+        with self.assertRaises(ValueError):
+            self.build(root=source, platform="linux-amd64", extore_revision="e" * 40)
+
+    def test_native_conversion_installs_private_pair_with_measured_dependencies(self):
+        source, record = self.extore_fixture()
+        archive = self.build(root=source, extore_revision="e" * 40)
+        spec = importlib.util.spec_from_file_location("native_package", ROOT / "packaging/linux/build.py")
+        native = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(native)
+        def readelf(*args, **kwargs):
+            self.assertEqual(args[0], "readelf")
+            name = Path(args[-1]).name
+            if name == "lmm-extensions":
+                return ""
+            loader = ("[Requesting program interpreter: /lib64/ld-linux-x86-64.so.2]\n"
+                      if name == "lmm-extore-host" else "")
+            return loader + "(NEEDED) [libc.so.6]\n(NEEDED) [libssl.so.3]\nGLIBC_2.36 OPENSSL_3.0.0\n"
+        digest = hashlib.sha256(archive.read_bytes()).hexdigest()
+        with patch.object(native, "run", side_effect=readelf):
+            config, info = native.prepare(source, archive, digest, SHA, "extensions", "deb", 1,
+                                          self.root / "deb-stage")
+        self.assertEqual(info["extore_plugin"], record)
+        self.assertEqual({p for p in info["files"] if p.startswith("/usr/bin/")}, {"/usr/bin/lmm-extensions"})
+        self.assertEqual(info["files"]["/usr/libexec/lmm-extore-host"]["mode"], 0o755)
+        self.assertEqual(info["files"]["/usr/lib/lmm/libextore_zplugin.so"]["mode"], 0o644)
+        self.assertIn("/usr/share/licenses/lmm-extensions/extore/LICENSE", info["files"])
+        self.assertIn("libc6 (>= 2.36)", info["dependencies"])
+        self.assertIn("libssl3 (>= 3.0.0) | libssl3t64 (>= 3.0.0)", info["dependencies"])
+        self.assertEqual(config["scripts"], {})
+        self.assertEqual(config["name"], "lmm-extensions")
+        with self.assertRaisesRegex(ValueError, "GNU Extore pair"):
+            native.prepare(source, archive, digest, SHA, "extensions", "apk", 1, self.root / "apk-stage")
+        library = self.inputs / "libextore_zplugin.so"
+        with patch.object(native, "run", return_value="(NEEDED) [libmystery.so]\nGLIBC_2.36"):
+            with self.assertRaisesRegex(ValueError, "unsupported"):
+                native.inspect_elf(library, "amd64", shared=True)
+        with patch.object(native, "run", return_value="(NEEDED) [libc.so.6]\nGLIBC_2.36"):
+            with self.assertRaisesRegex(ValueError, "no executable interpreter"):
+                native.inspect_elf(library, "amd64")
+            self.assertEqual(native.inspect_elf(library, "amd64", shared=True)["linkage"], "glibc")
 
 
 if __name__ == "__main__":

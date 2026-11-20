@@ -2,6 +2,10 @@ name: Microservice preview distributions
 on:
   workflow_dispatch:
     inputs:
+      extore_plugin:
+        description: Include the optional GNU Extore host/library pair; does not enable it
+        default: false
+        type: boolean
       version:
         description: Preview archive version, not a release tag
         default: 0.1.0-preview
@@ -9,6 +13,10 @@ on:
         type: string
   workflow_call:
     inputs:
+      extore_plugin:
+        description: Include the optional GNU Extore host/library pair; does not enable it
+        default: false
+        type: boolean
       version:
         default: 0.1.0-preview
         type: string
@@ -68,6 +76,7 @@ jobs:
       COMPONENT: ${{ matrix.component }}
       PACKAGE_VERSION: ${{ inputs.version }}
       CARGO_BUILD_JOBS: '2'
+      INCLUDE_EXTORE_PLUGIN: ${{ inputs.extore_plugin && 'true' || 'false' }}
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
         with:
@@ -80,14 +89,38 @@ jobs:
         run: |
           echo "SOURCE_REVISION=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
           echo "SOURCE_DATE_EPOCH=$(git show -s --format=%ct HEAD)" >> "$GITHUB_ENV"
+      - name: Bind the optional Extore bundle to the checked source gitlink
+        if: matrix.component == 'extensions' && inputs.extore_plugin
+        run: |
+          git submodule update --init --depth 1 -- third_party/extore
+          revision=$(git rev-parse HEAD:third_party/extore)
+          test "$revision" = "$(git -C third_party/extore rev-parse HEAD)"
+          test -z "$(git -C third_party/extore status --porcelain)"
+          echo "EXTORE_REVISION=$revision" >> "$GITHUB_ENV"
       - name: Build core or extension binaries using their Docker compiler stage
         if: matrix.component == 'core' || matrix.component == 'extensions'
         run: |
-          docker buildx build -f "deployment/docker/${COMPONENT}.Dockerfile"             --target binaries --output "type=local,dest=out/${COMPONENT}" .
+          target=binaries
+          build_args=()
+          if [[ "$COMPONENT" == extensions && "$INCLUDE_EXTORE_PLUGIN" == true ]]; then
+            target=binaries-extore
+            build_args+=(--build-arg "LMM_SOURCE_REVISION=$SOURCE_REVISION"
+                         --build-arg "EXTORE_SOURCE_REVISION=$EXTORE_REVISION")
+          fi
+          docker buildx build -f "deployment/docker/${COMPONENT}.Dockerfile" \
+            --target "$target" "${build_args[@]}" --output "type=local,dest=out/${COMPONENT}" .
       - name: Build runtime image and inspect shipped resources
         if: matrix.component == 'core' || matrix.component == 'extensions'
         run: |
-          docker buildx build -f "deployment/docker/${COMPONENT}.Dockerfile" --load -t "lmm-preview-${COMPONENT}" .
+          target=runtime
+          build_args=()
+          if [[ "$COMPONENT" == extensions && "$INCLUDE_EXTORE_PLUGIN" == true ]]; then
+            target=runtime-extore
+            build_args+=(--build-arg "LMM_SOURCE_REVISION=$SOURCE_REVISION"
+                         --build-arg "EXTORE_SOURCE_REVISION=$EXTORE_REVISION")
+          fi
+          docker buildx build -f "deployment/docker/${COMPONENT}.Dockerfile" --target "$target" \
+            "${build_args[@]}" --load -t "lmm-preview-${COMPONENT}" .
           docker run --rm --entrypoint /bin/sh "lmm-preview-${COMPONENT}" -ec '
             test -s /usr/share/licenses/lmm/LICENSE
             test -s /usr/share/licenses/lmm/NOTICE
@@ -139,15 +172,55 @@ jobs:
         run: |
           platform=linux-amd64
           if [[ "$COMPONENT" == web ]]; then platform=any; fi
-          python3 scripts/build-distribution.py build --component "$COMPONENT"             --version "$PACKAGE_VERSION" --revision "$SOURCE_REVISION"             --platform "$platform" --input "out/$COMPONENT"
+          bundle_args=()
+          if [[ "$COMPONENT" == extensions && "$INCLUDE_EXTORE_PLUGIN" == true ]]; then
+            bundle_args+=(--extore-revision "$EXTORE_REVISION")
+          fi
+          python3 scripts/build-distribution.py build --component "$COMPONENT" \
+            --version "$PACKAGE_VERSION" --revision "$SOURCE_REVISION" \
+            --platform "$platform" --input "out/$COMPONENT" "${bundle_args[@]}"
           for archive in out/distributions/*.tar.gz; do
             python3 scripts/build-distribution.py verify "$archive" --revision "$SOURCE_REVISION"
           done
           (cd out/distributions && sha256sum --check ./*.sha256)
+      - uses: jdx/mise-action@5228313ee0372e111a38da051671ca30fc5a96db
+        if: matrix.component == 'extensions' && inputs.extore_plugin
+        with:
+          version: 2026.11.10
+          sha256: b603a4f48563fc379a794d9ea2cf9f709ed276c9141068604cb0c59fa3e674a9
+          install_args: go
+      - name: Exercise the actual archived GNU host and library
+        if: matrix.component == 'extensions' && inputs.extore_plugin
+        env:
+          MISE_EXEC_AUTO_INSTALL: "false"
+        run: |
+          docker buildx build -f deployment/docker/extensions.Dockerfile --target extore-test-binaries \
+            --build-arg "LMM_SOURCE_REVISION=$SOURCE_REVISION" --build-arg "EXTORE_SOURCE_REVISION=$EXTORE_REVISION" \
+            --output type=local,dest=out/extore-fixture .
+          archive="out/distributions/lmm-extensions-$PACKAGE_VERSION-linux-amd64-extore.tar.gz"
+          python3 scripts/build-distribution.py verify "$archive" --revision "$SOURCE_REVISION"
+          mkdir out/extore-archive
+          tar -xzf "$archive" -C out/extore-archive
+          python3 -B services/extensions/extore-host/tests/native-flow.py \
+            --extore-source third_party/extore --extore-binary out/extore-fixture/extore \
+            --host out/extore-archive/libexec/lmm-extore-host \
+            --plugin out/extore-archive/lib/extore/libextore_zplugin.so --output out/extore-native
+          grep -F -- '--- PASS: TestExtoreNativePlugin' out/extore-native/native-flow.log
+          ! grep -F -- '--- SKIP: TestExtoreNativePlugin' out/extore-native/native-flow.log
+      - name: Preserve optional archive native-flow evidence
+        if: always() && matrix.component == 'extensions' && inputs.extore_plugin
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: extore-archive-evidence-${{ env.SOURCE_REVISION }}
+          path: |
+            out/extore-native/receipt.json
+            out/extore-native/native-flow.log
+          if-no-files-found: warn
+          retention-days: 7
       - name: Preserve preview archives only
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
-          name: lmm-preview-${{ matrix.component }}-${{ env.SOURCE_REVISION }}
+          name: lmm-preview-${{ matrix.component }}-${{ env.SOURCE_REVISION }}${{ matrix.component == 'extensions' && inputs.extore_plugin && '-extore' || '' }}
           path: out/distributions/*
           if-no-files-found: error
           retention-days: 7

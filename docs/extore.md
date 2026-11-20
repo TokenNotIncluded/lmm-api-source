@@ -63,6 +63,34 @@ sha256sum third_party/extore/target/x86_64-unknown-linux-gnu/release/libextore_z
 
 宿主产物是 `services/extensions/extore-host/target/x86_64-unknown-linux-gnu/release/lmm-extore-host`；动态库路径如最后一条命令所示。安装时按上述权限提供受控文件与运行目录，再填写实际路径和摘要。这个可选宿主由 Go 管理生命周期，Core 继续独立运行。
 
+### 可选交付包
+
+三个可选交付入口用 `extore_plugin` 布尔输入选择成对交付，默认值为 `false`。选择后，`microservice-distribution.yml` 在选中的 Extensions archive 中加入宿主与动态库；`linux-packages.yml` 在原双架构检查之外生成并检查 GNU 变体；`microservice-images.yml` 只构建和发布 Extensions 的 `-extore` 镜像变体，并保留原有 main 来源准入。默认入口继续生成原 Go-only 产物，配置示例仍不启用插件。
+
+自动 archive 部署入口 `deploy.yml` 保持 Go-only，不提供插件选项。现有部署以 symlink 切换 a/b 槽位，配置文件保留在槽位外；插件的受控路径检查拒绝 symlink，外部配置也不会随槽位切换改写。因此自动部署成功只证明原 Go 服务通过检查，不能保证宿主与动态库已更新、来自同一源码或已实际启用。归档中的成对代码须另行按本节合同安装与配置；原生包及镜像也只交付代码，启用仍须核对实际路径、摘要、共同 UID 和同一份实时 Extore 数据目录。
+
+| 交付形式 | 宿主路径 | 动态库路径 |
+| --- | --- | --- |
+| GNU archive 内部 | `libexec/lmm-extore-host` | `lib/extore/libextore_zplugin.so` |
+| DEB、RPM、Arch Linux 包及可选镜像 | `/usr/libexec/lmm-extore-host` | `/usr/lib/lmm/libextore_zplugin.so` |
+
+Archive 文件名为 `lmm-extensions-<version>-linux-<arch>-extore.tar.gz`；原生包附件名为 `lmm-extensions-extore-<version>-<release>-<arch>.<format>`，包管理器中的包名仍是 `lmm-extensions`。同一次安装选择一种变体，不能把两份同组件包一起交给安装器。镜像使用 `sha-<LMM_SHA>-extore` 和 `preview-<short_SHA>-extore` 标签，与 Go-only 标签分开；发布步骤核对同一个已测试 image ID，拒绝覆盖已有标签。
+
+[归档构建器](../scripts/build-distribution.py)的 `--extore-revision <完整 gitlink SHA>` 是显式开关：输入目录须同时含 `lmm-extore-host`、`libextore_zplugin.so` 和 `extore-plugin.json`。构建记录由 `record-extore` 生成，绑定 LMM 提交、Extore gitlink、精确 GNU target、两个文件的 SHA256、大小和模式；归档再次核对实际字节并把记录写入 `MANIFEST.json.extore_plugin`。缺少一项、架构不符或记录不匹配都会拒绝。记录是可核对的构建元数据，不是签名或实际加载验收。
+
+[Dockerfile](../deployment/docker/extensions.Dockerfile)的 `binaries-extore` 与 `runtime-extore` 目标使用同一固定子模块、锁文件和 Bookworm Rust 工具链；默认 `binaries`、`runtime` 及无 target 构建保持 Go-only。调用者须传入已核对的 `LMM_SOURCE_REVISION` 与 `EXTORE_SOURCE_REVISION`。镜像构建先确认编译器实际 host 与目标架构一致，再在最终 runtime 内解析两份 ELF 的 libc、OpenSSL 等运行依赖；结果写入 `/usr/share/lmm/extore-runtime-dependencies.txt`。仅复制 ELF 或检查文件头不代表可运行。
+
+| Archive 平台 | 精确 Rust target | 原生包边界 |
+| --- | --- | --- |
+| `linux-amd64` | `x86_64-unknown-linux-gnu` | DEB、RPM、Arch Linux |
+| `linux-arm64` | `aarch64-unknown-linux-gnu` | DEB、RPM、Arch Linux |
+
+[原生包构建器](../packaging/linux/build.py)从实际 ELF 读取 GLIBC 和 OpenSSL 最低符号版本并声明依赖，不能只凭 CPU 架构认定发行版兼容。APK 拒绝携带这对 GNU 产物；原 static/Go-only APK 流程继续保留。可选 GNU 容器检查覆盖 Debian、Ubuntu、Fedora，以及 amd64 的 Arch Linux、openSUSE；Rocky Linux 9 保留原 static/Go-only 检查。每个目标仍须取得实际安装结果，不能把静态合同检查当作发行资格。
+
+安装包只交付代码、原配置示例和 Extore 许可证，不创建 Extore 数据库、改变已有目录权限或启动服务。启用时把配置中的 `host`、`library` 指向实际受控安装路径，`sha256` 填入同一包内动态库的真实摘要；`data_dir` 仍须是 Extore HTTP/worker 使用的同一份既有实时状态。Go Extensions 与这些 Extore 进程使用同一受信实际 UID，数据目录和 socket 父目录为 0700，socket 为 0600。
+
+可选 `microservice-distribution.yml` 流程对归档解出的宿主与动态库运行下节 `native-flow.py`。原 Linux 包流程对实际 DEB 解出的同一对文件运行该联调，并在原容器安装、升级、移除流程中核对文件摘要、权限和运行库解析。可选交付的发布记录应保留同一源码、gitlink、manifest、包摘要和这些实际结果；它们不替代 Web/Core 验收、生产迁移审批或流量切换签收。
+
 ### 定向自测
 
 [真实联调脚本](../services/extensions/extore-host/tests/native-flow.py)复用 Extore 自己的隔离夹具，以真实 HTTP 注册、PKCE 同意与 token 接口获得两个店铺授权，再通过 Go 客户端、Unix socket 和实际动态库读取目录。它检查连续读取、无授权与跨 grant 拒绝、配置后经原 HTTP 接口撤销、另一店铺仍可读取、私密字段过滤、价格文本保留，以及启动拒绝和 socket 清理。测试凭据只留在临时私密目录中，结束时清理；回执记录源码与产物摘要，不保存凭据。

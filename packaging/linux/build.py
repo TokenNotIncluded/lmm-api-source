@@ -47,11 +47,11 @@ def run(*args: str, **kwargs) -> str:
                           stderr=subprocess.PIPE, timeout=300, **kwargs).stdout
 
 
-def inspect_elf(path: Path, arch: str) -> dict:
+def inspect_elf(path: Path, arch: str, *, shared: bool = False) -> dict:
     data = path.read_bytes()
     DIST.check_binary(data, "linux-" + arch)
-    if int.from_bytes(data[16:18], "little") not in {2, 3}:
-        raise ValueError("ELF input is not an executable")
+    if int.from_bytes(data[16:18], "little") not in ({3} if shared else {2, 3}):
+        raise ValueError("ELF input has the wrong executable/shared-library type")
     text = run("readelf", "--wide", "--program-headers", "--dynamic", "--version-info", str(path),
                env={**os.environ, "LC_ALL": "C"})
     match = re.search(r"Requesting program interpreter:\s*([^\]]+)\]", text)
@@ -62,13 +62,16 @@ def inspect_elf(path: Path, arch: str) -> dict:
     unknown = (set(needed) - LIBRARIES.keys()) | wrong_loader
     if unknown or (interpreter is not None and interpreter != INTERPRETERS[arch]):
         raise ValueError("unsupported ELF interpreter or shared library; use an inspected static build")
-    if needed and interpreter is None:
+    if shared:
+        if interpreter is not None or not needed:
+            raise ValueError("Extore shared library must be a dynamic GNU ELF without an interpreter")
+    elif needed and interpreter is None:
         raise ValueError("shared ELF input has no executable interpreter")
     versions = {tuple(map(int, s.split("."))) for s in re.findall(r"\bGLIBC_(\d+\.\d+(?:\.\d+)?)\b", text)}
     openssl_versions = {tuple(map(int, s.split("."))) for s in re.findall(r"\bOPENSSL_(\d+\.\d+\.\d+)\b", text)}
-    if interpreter and not versions:
+    if (interpreter or shared) and not versions:
         raise ValueError("cannot determine the glibc minimum")
-    return {"linkage": "glibc" if interpreter else "static", "needed": needed,
+    return {"linkage": "glibc" if interpreter or shared else "static", "needed": needed,
             "glibc_minimum": ".".join(map(str, max(versions))) if versions else None,
             "openssl_minimum": ".".join(map(str, max(openssl_versions))) if openssl_versions else None}
 
@@ -177,6 +180,12 @@ def prepare(root: Path, archive: Path, expected_hash: str, revision: str,
         raise ValueError("native package binary inventory differs from the component archive")
     allowed = set(distribution["common"] + spec["resources"] + ["README.md"])
     allowed.update("bin/" + b for b in spec["binaries"])
+    optional = spec.get("optional_extore_plugin") if "extore_plugin" in manifest else None
+    if optional is not None:
+        if fmt == "apk":
+            raise ValueError("the optional GNU Extore pair cannot be packaged as APK")
+        allowed.update(optional["files"])
+        allowed.update(optional["resources"])
     actual = set(manifest["files"])
     if component == "web":
         allowed.update(p for p in actual if p.startswith("dist/"))
@@ -213,6 +222,17 @@ def prepare(root: Path, archive: Path, expected_hash: str, revision: str,
         for binary in package["binaries"]:
             path = add("/usr/bin/" + binary, get("bin/" + binary), 0o755)
             reports.append(inspect_elf(path, arch))
+        if optional is not None:
+            destinations = {
+                "libexec/lmm-extore-host": "/usr/libexec/lmm-extore-host",
+                "lib/extore/libextore_zplugin.so": "/usr/lib/lmm/libextore_zplugin.so",
+            }
+            for member, definition in optional["files"].items():
+                path = add(destinations[member], get(member), definition["mode"])
+                report = inspect_elf(path, arch, shared=definition["shared"])
+                reports.append({**report, "archive_path": member})
+            add(f"/usr/share/licenses/{name}/extore/LICENSE", get("third_party/extore/LICENSE"))
+            add(f"/usr/share/doc/{name}/extore.md", get("docs/extore.md"))
         for path in distribution["common"]:
             add(f"/usr/share/licenses/{name}/{path}", get(path))
         add(f"/usr/share/doc/{name}/README.archive.md", get("README.md"))
@@ -256,6 +276,8 @@ def prepare(root: Path, archive: Path, expected_hash: str, revision: str,
             "source_revision": revision, "source_archive_sha256": expected_hash,
             "preview": True, "source_date_epoch": epoch, "elf": reports,
             "dependencies": deps, "files": dict(installed), "nfpm_version": catalog["nfpm_version"]}
+    if optional is not None:
+        info["extore_plugin"] = manifest["extore_plugin"]
     add(f"/usr/share/doc/{name}/BUILDINFO.json", (json.dumps(info, indent=2, sort_keys=True) + "\n").encode())
     config = {"name": name, "arch": arch, "platform": "linux", "version": pkg_version,
               "release": pkg_release, "version_schema": "none", "mtime": stamp,
@@ -283,7 +305,8 @@ def build(args, root: Path = ROOT) -> Path:
                                args.component, args.format, args.release, stage)
         cfg = stage / "nfpm.json"
         cfg.write_text(json.dumps(config, indent=2) + "\n")
-        name = f'{info["package"]}-{info["version"]}-{info["release"]}-{info["arch"]}{SUFFIXES[args.format]}'
+        variant = "-extore" if "extore_plugin" in info else ""
+        name = f'{info["package"]}{variant}-{info["version"]}-{info["release"]}-{info["arch"]}{SUFFIXES[args.format]}'
         final = output / name
         checksum = output / (name + ".sha256")
         evidence = output / (name + ".buildinfo.json")

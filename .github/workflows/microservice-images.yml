@@ -1,6 +1,11 @@
 name: Manual GHCR microservice previews
 on:
   workflow_dispatch:
+    inputs:
+      extore_plugin:
+        description: Publish only the optional Extensions -extore variant; default builds Core and Go-only Extensions
+        default: false
+        type: boolean
 permissions:
   contents: read
 concurrency:
@@ -17,10 +22,12 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        component: [core, extensions]
+        component: ${{ inputs.extore_plugin && fromJSON('["extensions"]') || fromJSON('["core","extensions"]') }}
     env:
       COMPONENT: ${{ matrix.component }}
       IMAGE: ghcr.io/tokennotincluded/lmm-${{ matrix.component }}
+      INCLUDE_EXTORE_PLUGIN: ${{ inputs.extore_plugin && 'true' || 'false' }}
+      VARIANT_SUFFIX: ${{ matrix.component == 'extensions' && inputs.extore_plugin && '-extore' || '' }}
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
         with:
@@ -38,28 +45,43 @@ jobs:
           fi
           test -z "$(git status --porcelain)"
           echo "SOURCE_REVISION=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
-          echo "PREVIEW_TAG=preview-$(git rev-parse --short=12 HEAD)" >> "$GITHUB_ENV"
+          echo "PREVIEW_TAG=preview-$(git rev-parse --short=12 HEAD)$VARIANT_SUFFIX" >> "$GITHUB_ENV"
           mkdir -p artifacts
           docker version > artifacts/docker-version.txt
           docker buildx version > artifacts/buildx-version.txt
+      - name: Bind the optional Extore bundle to the checked source gitlink
+        if: matrix.component == 'extensions' && inputs.extore_plugin
+        run: |
+          git submodule update --init --depth 1 -- third_party/extore
+          revision=$(git rev-parse HEAD:third_party/extore)
+          test "$revision" = "$(git -C third_party/extore rev-parse HEAD)"
+          test -z "$(git -C third_party/extore status --porcelain)"
+          echo "EXTORE_REVISION=$revision" >> "$GITHUB_ENV"
       - name: Build and load the existing independent runtime image
         run: |
-          docker buildx build --platform linux/amd64 --target runtime --load \
+          target=runtime
+          build_args=()
+          if [[ "$COMPONENT" == extensions && "$INCLUDE_EXTORE_PLUGIN" == true ]]; then
+            target=runtime-extore
+            build_args+=(--build-arg "LMM_SOURCE_REVISION=$SOURCE_REVISION"
+                         --build-arg "EXTORE_SOURCE_REVISION=$EXTORE_REVISION")
+          fi
+          docker buildx build --platform linux/amd64 --target "$target" "${build_args[@]}" --load \
             --provenance=false --metadata-file artifacts/build-metadata.json \
             --file "deployment/docker/${COMPONENT}.Dockerfile" \
             --label "org.opencontainers.image.source=https://github.com/$GITHUB_REPOSITORY" \
             --label "org.opencontainers.image.revision=$SOURCE_REVISION" \
             --label "org.opencontainers.image.title=lmm-$COMPONENT" \
             --label 'org.opencontainers.image.licenses=AGPL-3.0-or-later' \
-            --tag "$IMAGE:sha-$SOURCE_REVISION" --tag "$IMAGE:$PREVIEW_TAG" . \
+            --tag "$IMAGE:sha-$SOURCE_REVISION$VARIANT_SUFFIX" --tag "$IMAGE:$PREVIEW_TAG" . \
             2>&1 | tee artifacts/build.log
       - name: Actual nonroot offline startup and license smoke before publication
         run: |
-          bash scripts/smoke-runtime-image.sh "$COMPONENT" "$IMAGE:sha-$SOURCE_REVISION" artifacts/smoke \
+          bash scripts/smoke-runtime-image.sh "$COMPONENT" "$IMAGE:sha-$SOURCE_REVISION$VARIANT_SUFFIX" artifacts/smoke \
             2>&1 | tee artifacts/smoke.log
       - name: Stage the tested image and honest provenance summary
         run: |
-          docker image save "$IMAGE:sha-$SOURCE_REVISION" "$IMAGE:$PREVIEW_TAG" | gzip -1 > artifacts/image.tar.gz
+          docker image save "$IMAGE:sha-$SOURCE_REVISION$VARIANT_SUFFIX" "$IMAGE:$PREVIEW_TAG" | gzip -1 > artifacts/image.tar.gz
           (cd artifacts && sha256sum image.tar.gz > image.tar.gz.sha256)
           python3 - <<'PY'
           import hashlib, json, os, pathlib, subprocess
@@ -69,6 +91,16 @@ jobs:
                     'scripts/test_docker_image_publication.py', 'scripts/smoke-runtime-image.sh',
                     f'deployment/docker/{component}.Dockerfile', f'services/{component}']
           inputs += ['contracts/proto'] if component == 'core' else ['config/legal']
+          extore = None
+          if os.environ['VARIANT_SUFFIX']:
+              payload = subprocess.check_output(['docker', 'run', '--rm', '--network', 'none',
+                  '--entrypoint', 'cat', os.environ['IMAGE'] + ':sha-' + os.environ['SOURCE_REVISION']
+                  + os.environ['VARIANT_SUFFIX'], '/usr/share/lmm/extore-plugin.json'], text=True)
+              extore = json.loads(payload)
+              assert extore['source_revision'] == os.environ['SOURCE_REVISION']
+              assert extore['extore_revision'] == os.environ['EXTORE_REVISION']
+              assert extore['target'] == 'x86_64-unknown-linux-gnu'
+              inputs += ['scripts/build-distribution.py', 'packaging/distribution.json']
           paths = subprocess.check_output(['git', 'ls-files', '-z', '--', *inputs]).split(b'\0')
           hashes = {os.fsdecode(p): hashlib.sha256(pathlib.Path(os.fsdecode(p)).read_bytes()).hexdigest()
                     for p in paths if p}
@@ -80,7 +112,7 @@ jobs:
           assert labels['org.opencontainers.image.source'] == source
           assert labels['org.opencontainers.image.revision'] == revision
           record = {'component': component, 'image': os.environ['IMAGE'], 'revision': revision,
-                    'source': source, 'tags': ['sha-' + revision, os.environ['PREVIEW_TAG']],
+                    'source': source, 'tags': ['sha-' + revision + os.environ['VARIANT_SUFFIX'], os.environ['PREVIEW_TAG']],
                     'platform': 'linux/amd64', 'image_id': image['Id'], 'smoke': smoke,
                     'input_sha256': hashes, 'publication': 'not yet pushed',
                     'workflow_run': source + '/actions/runs/' + os.environ['GITHUB_RUN_ID'],
@@ -88,12 +120,14 @@ jobs:
                     'provenance_kind': 'unsigned workflow build/source summary; NOT a signed SLSA attestation',
                     'buildkit_attestations': False,
                     'scope': 'preview only; image smoke is NOT full business acceptance or production deployment'}
+          if extore is not None:
+              record['extore_plugin'] = extore
           pathlib.Path('artifacts/source-provenance.json').write_text(json.dumps(record, indent=2) + '\n')
           PY
       - name: Preserve staged image and build evidence
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
-          name: ghcr-stage-${{ matrix.component }}-${{ github.sha }}
+          name: ghcr-stage-${{ matrix.component }}-${{ github.sha }}${{ env.VARIANT_SUFFIX }}
           path: artifacts/
           if-no-files-found: error
           retention-days: 3
@@ -102,13 +136,13 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
-          name: ghcr-failed-${{ matrix.component }}-${{ github.sha }}
+          name: ghcr-failed-${{ matrix.component }}-${{ github.sha }}${{ env.VARIANT_SUFFIX }}
           path: artifacts/
           if-no-files-found: warn
           retention-days: 3
           compression-level: 0
   publish:
-    # Both independent matrix builds and their actual smoke must pass first.
+    # Every selected runtime build and its actual smoke must pass first.
     needs: build
     runs-on: ubuntu-24.04
     timeout-minutes: 20
@@ -118,10 +152,12 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        component: [core, extensions]
+        component: ${{ inputs.extore_plugin && fromJSON('["extensions"]') || fromJSON('["core","extensions"]') }}
     env:
       COMPONENT: ${{ matrix.component }}
       IMAGE: ghcr.io/tokennotincluded/lmm-${{ matrix.component }}
+      INCLUDE_EXTORE_PLUGIN: ${{ inputs.extore_plugin && 'true' || 'false' }}
+      VARIANT_SUFFIX: ${{ matrix.component == 'extensions' && inputs.extore_plugin && '-extore' || '' }}
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
         with:
@@ -130,21 +166,31 @@ jobs:
       # actions/download-artifact v4.3.0, pinned; no moving action tags.
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with:
-          name: ghcr-stage-${{ matrix.component }}-${{ github.sha }}
+          name: ghcr-stage-${{ matrix.component }}-${{ github.sha }}${{ env.VARIANT_SUFFIX }}
           path: artifacts
       - name: Load only the exact tested image, without rebuilding
         run: |
           echo "DOCKER_CONFIG=$RUNNER_TEMP/ghcr-auth-$COMPONENT-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" >> "$GITHUB_ENV"
           (cd artifacts && sha256sum --check image.tar.gz.sha256)
           gzip -dc artifacts/image.tar.gz | docker image load
-          echo "SOURCE_REVISION=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
-          echo "PREVIEW_TAG=preview-$(git rev-parse --short=12 HEAD)" >> "$GITHUB_ENV"
+          SOURCE_REVISION=$(git rev-parse HEAD)
+          PREVIEW_TAG=preview-$(git rev-parse --short=12 HEAD)$VARIANT_SUFFIX
+          export SOURCE_REVISION PREVIEW_TAG
+          echo "SOURCE_REVISION=$SOURCE_REVISION" >> "$GITHUB_ENV"
+          echo "PREVIEW_TAG=$PREVIEW_TAG" >> "$GITHUB_ENV"
           python3 - <<'PY'
           import json, os, pathlib, subprocess
           record = json.loads(pathlib.Path('artifacts/source-provenance.json').read_text())
           revision = subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip()
-          assert revision == os.environ['GITHUB_SHA'] == record['revision']
+          assert revision == os.environ['SOURCE_REVISION'] == os.environ['GITHUB_SHA'] == record['revision']
           assert record['component'] == os.environ['COMPONENT'] and record['image'] == os.environ['IMAGE']
+          assert record['tags'] == ['sha-' + revision + os.environ['VARIANT_SUFFIX'], os.environ['PREVIEW_TAG']]
+          assert ('extore_plugin' in record) == bool(os.environ['VARIANT_SUFFIX'])
+          if os.environ['VARIANT_SUFFIX']:
+              assert record['extore_plugin']['source_revision'] == revision
+              assert record['extore_plugin']['extore_revision'] == subprocess.check_output(
+                  ['git', 'rev-parse', 'HEAD:third_party/extore'], text=True).strip()
+              assert record['extore_plugin']['target'] == 'x86_64-unknown-linux-gnu'
           assert record['smoke']['smoke'] == 'passed' and not record['smoke']['business_acceptance']
           for tag in record['tags']:
               image, = json.loads(subprocess.check_output(['docker', 'image', 'inspect', record['image'] + ':' + tag]))
@@ -162,7 +208,7 @@ jobs:
       - name: Refuse tag replacement, push tested bytes and read back registry digests
         run: |
           # Never treat authentication/network failure as an absent manifest.
-          for tag in "sha-$SOURCE_REVISION" "$PREVIEW_TAG"; do
+          for tag in "sha-$SOURCE_REVISION$VARIANT_SUFFIX" "$PREVIEW_TAG"; do
             if docker buildx imagetools inspect "$IMAGE:$tag" > artifacts/tag-check.txt 2> artifacts/tag-check-error.txt; then
               echo "Refusing to replace existing immutable preview tag: $IMAGE:$tag" >&2
               exit 1
@@ -173,9 +219,9 @@ jobs:
               exit 1
             fi
           done
-          docker push "$IMAGE:sha-$SOURCE_REVISION" 2>&1 | tee artifacts/push-sha.log
+          docker push "$IMAGE:sha-$SOURCE_REVISION$VARIANT_SUFFIX" 2>&1 | tee artifacts/push-sha.log
           docker push "$IMAGE:$PREVIEW_TAG" 2>&1 | tee artifacts/push-preview.log
-          for tag in "sha-$SOURCE_REVISION" "$PREVIEW_TAG"; do
+          for tag in "sha-$SOURCE_REVISION$VARIANT_SUFFIX" "$PREVIEW_TAG"; do
             docker buildx imagetools inspect --raw "$IMAGE:$tag" > "artifacts/manifest-$tag.json"
             docker buildx imagetools inspect --format '{{json .Manifest}}' "$IMAGE:$tag" > "artifacts/descriptor-$tag.json"
           done
@@ -204,7 +250,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
-          name: ghcr-publication-${{ matrix.component }}-${{ github.sha }}-${{ github.run_attempt }}
+          name: ghcr-publication-${{ matrix.component }}-${{ github.sha }}${{ env.VARIANT_SUFFIX }}-${{ github.run_attempt }}
           path: |
             artifacts/*.json
             artifacts/*.txt

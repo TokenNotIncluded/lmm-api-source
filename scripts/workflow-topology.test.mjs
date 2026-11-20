@@ -78,14 +78,17 @@ test('source publication requires the exact qualified main revision and immutabl
   assert.match(guard, /lockfile must resolve the exact registry zconv archive/);
 });
 
-test('CLI consumers initialize only the pinned CLI submodule', () => {
+test('CLI consumers initialize only the pinned CLI and explicitly selected Extore submodules', () => {
   for (const name of ['lmm', 'microservice-distribution', 'linux-packages', 'core-protocol']) {
     const source = workflow(name);
     const commands = [...source.matchAll(/git submodule update[^\n]*/g)].map((match) => match[0]);
-    assert.equal(commands.length, name === 'microservice-distribution' ? 2 : 1, name);
-    for (const command of commands) {
-      assert.equal(command, 'git submodule update --init --depth 1 -- apps/cli', name);
-    }
+    const cli = 'git submodule update --init --depth 1 -- apps/cli';
+    const extore = 'git submodule update --init --depth 1 -- third_party/extore';
+    assert.equal(commands.filter((command) => command === cli).length,
+      name === 'microservice-distribution' ? 2 : 1, name);
+    assert.equal(commands.filter((command) => command === extore).length,
+      ['microservice-distribution', 'linux-packages'].includes(name) ? 1 : 0, name);
+    assert.ok(commands.every((command) => command === cli || command === extore), name);
     assert.doesNotMatch(source, /submodules:\s*(?:true|recursive)/);
   }
   assert.match(workflow('lmm'), /name: Initialize the pinned CLI only\n        working-directory: \.\n/);
@@ -481,4 +484,37 @@ test('externally owned payment live case remains required through its real runne
   assert.match(script, /live.sha\(binary\)/);
   assert.match(script, /return subprocess.run\(command, cwd=ROOT, env=env\).returncode/);
   assert.doesNotMatch(script, /LMM_LIVE_PROCESS_ROOT|owner.json/);
+});
+
+test('optional Extore delivery binds one GNU pair and preserves default package gates', () => {
+  const distribution = workflow('microservice-distribution');
+  const images = workflow('microservice-images');
+  const native = workflow('linux-packages');
+  const deploy = workflow('deploy');
+  for (const source of [distribution, images, native]) {
+    assert.match(source, /extore_plugin:\n\s+description: .+\n\s+default: false\n\s+type: boolean/);
+    assert.match(source, /git submodule update --init --depth 1 -- third_party\/extore/);
+    assert.match(source, /git rev-parse HEAD:third_party\/extore/);
+    assert.match(source, /git -C third_party\/extore status --porcelain/);
+    assert.match(source, /EXTORE_SOURCE_REVISION=\$EXTORE_REVISION/);
+    assert.doesNotMatch(source, /libextore_plugin_host\.so|libextore_commerce_plugin\.so/);
+  }
+  assert.match(distribution, /--extore-revision "\$EXTORE_REVISION"/);
+  assert.match(distribution, /out\/extore-archive\/libexec\/lmm-extore-host/);
+  assert.match(distribution, /out\/extore-archive\/lib\/extore\/libextore_zplugin\.so/);
+  assert.match(native, /--platform "linux\/\$ARCH"/);
+  assert.match(native, /for format in deb rpm apk archlinux/);
+  assert.match(native, /for format in deb rpm archlinux/);
+  assert.match(native, /dpkg-deb --extract "out\/linux-packages-extore\/lmm-extensions-extore-/);
+  assert.match(native, /out\/extore-deb\/usr\/libexec\/lmm-extore-host/);
+  assert.match(native, /-e LMM_EXTORE_PACKAGE=1/);
+  assert.match(native, /packaging\/linux\/install-smoke\.sh:\/test\.sh:ro/);
+  assert.match(native, /timeout-minutes: 40/);
+  assert.match(distribution, /timeout-minutes: 30/);
+  assert.match(deploy, /needs: \[plan, ci-gate\]/);
+  assert.doesNotMatch(deploy, /extore_plugin|binaries-extore|--extore-revision/);
+  assert.match(distribution, /version: 2026\.11\.10\n\s+sha256: b603a4f48563fc379a794d9ea2cf9f709ed276c9141068604cb0c59fa3e674a9\n\s+install_args: go/);
+  assert.match(native, /version: 2026\.11\.10\n\s+sha256: \$\{\{ matrix\.arch == 'amd64' && 'b603a4f48563fc379a794d9ea2cf9f709ed276c9141068604cb0c59fa3e674a9' \|\| '86ef275d541c5243cd20b1c0fcd16810e5f3601113d8db09278d0608617a3833' \}\}\n\s+install_args: go/);
+  assert.match(images, /sha-\$SOURCE_REVISION\$VARIANT_SUFFIX/);
+  assert.doesNotMatch(images, /timeout-minutes: (?:[7-9]\d|\d{3})/);
 });

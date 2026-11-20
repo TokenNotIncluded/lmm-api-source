@@ -1,7 +1,17 @@
 name: Native Linux package checks
 on:
   workflow_dispatch:
+    inputs:
+      extore_plugin:
+        description: Also qualify the optional GNU Extore pair; original Go-only and APK checks remain
+        default: false
+        type: boolean
   workflow_call:
+    inputs:
+      extore_plugin:
+        description: Also qualify the optional GNU Extore pair; original Go-only and APK checks remain
+        default: false
+        type: boolean
   pull_request:
     branches: [main]
     paths:
@@ -54,6 +64,14 @@ jobs:
         with:
           go-version: '1.27.2'
           cache: false
+      - name: Bind the optional Extore bundle to the checked source gitlink
+        if: inputs.extore_plugin
+        run: |
+          git submodule update --init --depth 1 -- third_party/extore
+          revision=$(git rev-parse HEAD:third_party/extore)
+          test "$revision" = "$(git -C third_party/extore rev-parse HEAD)"
+          test -z "$(git -C third_party/extore status --porcelain)"
+          echo "EXTORE_REVISION=$revision" >> "$GITHUB_ENV"
       - name: Install reviewed build tools, never on runtime nodes
         run: |
           sudo --preserve-env=GITHUB_ACTIONS python3 scripts/prepare-ci-apt.py
@@ -110,6 +128,68 @@ jobs:
             done
           done
           (cd out/linux-packages && sha256sum --check ./*.sha256)
+      - name: Build the optional same-source GNU pair and native packages
+        if: inputs.extore_plugin
+        run: |
+          revision=$(git rev-parse HEAD)
+          SOURCE_DATE_EPOCH=$(git show -s --format=%ct HEAD)
+          export SOURCE_DATE_EPOCH
+          docker buildx build -f deployment/docker/extensions.Dockerfile --platform "linux/$ARCH" \
+            --target binaries-extore --build-arg "LMM_SOURCE_REVISION=$revision" \
+            --build-arg "EXTORE_SOURCE_REVISION=$EXTORE_REVISION" \
+            --output type=local,dest=out/extensions-extore .
+          python3 scripts/build-distribution.py build --component extensions \
+            --version 0.1.0-preview --revision "$revision" --platform "linux-$ARCH" \
+            --input out/extensions-extore --extore-revision "$EXTORE_REVISION"
+          archive="out/distributions/lmm-extensions-0.1.0-preview-linux-$ARCH-extore.tar.gz"
+          python3 scripts/build-distribution.py verify "$archive" --revision "$revision"
+          digest=$(sha256sum "$archive" | cut -d ' ' -f 1)
+          for format in deb rpm archlinux; do
+            for release in 1 2; do
+              python3 packaging/linux/build.py --archive "$archive" --sha256 "$digest" \
+                --revision "$revision" --component extensions --format "$format" --release "$release" \
+                --output out/linux-packages-extore
+            done
+          done
+          (cd out/linux-packages-extore && sha256sum --check ./*.sha256)
+          # Keep package sets distinct; the original APK/static matrix is unchanged.
+          mkdir out/extore-install-input
+          cp out/linux-packages/lmm-core-* out/linux-packages/lmm-0.1.0-* out/extore-install-input/
+          cp out/linux-packages-extore/* out/extore-install-input/
+          python3 - <<'PY'
+          import json, os, pathlib, subprocess
+          path = pathlib.Path('out/linux-packages-extore') / (
+              'lmm-extensions-extore-0.1.0-preview-1-' + os.environ['ARCH'] + '.deb.buildinfo.json')
+          info = json.loads(path.read_text())
+          assert info['source_revision'] == subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip()
+          assert info['extore_plugin']['extore_revision'] == os.environ['EXTORE_REVISION']
+          installed = ['/usr/libexec/lmm-extore-host', '/usr/lib/lmm/libextore_zplugin.so',
+                       '/usr/share/licenses/lmm-extensions/extore/LICENSE']
+          pathlib.Path('out/extore-install-input/extore-installed.sha256').write_text(
+              ''.join(info['files'][p]['sha256'] + '  ' + p + '\n' for p in installed))
+          PY
+      - uses: jdx/mise-action@5228313ee0372e111a38da051671ca30fc5a96db
+        if: inputs.extore_plugin
+        with:
+          version: 2026.11.10
+          sha256: ${{ matrix.arch == 'amd64' && 'b603a4f48563fc379a794d9ea2cf9f709ed276c9141068604cb0c59fa3e674a9' || '86ef275d541c5243cd20b1c0fcd16810e5f3601113d8db09278d0608617a3833' }}
+          install_args: go
+      - name: Exercise host and library extracted from the actual GNU DEB
+        if: inputs.extore_plugin
+        env:
+          MISE_EXEC_AUTO_INSTALL: "false"
+        run: |
+          docker buildx build -f deployment/docker/extensions.Dockerfile --platform "linux/$ARCH" \
+            --target extore-test-binaries --build-arg "LMM_SOURCE_REVISION=$(git rev-parse HEAD)" \
+            --build-arg "EXTORE_SOURCE_REVISION=$EXTORE_REVISION" --output type=local,dest=out/extore-fixture .
+          mkdir out/extore-deb
+          dpkg-deb --extract "out/linux-packages-extore/lmm-extensions-extore-0.1.0-preview-1-$ARCH.deb" out/extore-deb
+          python3 -B services/extensions/extore-host/tests/native-flow.py \
+            --extore-source third_party/extore --extore-binary out/extore-fixture/extore \
+            --host out/extore-deb/usr/libexec/lmm-extore-host \
+            --plugin out/extore-deb/usr/lib/lmm/libextore_zplugin.so --output out/evidence/extore-native
+          grep -F -- '--- PASS: TestExtoreNativePlugin' out/evidence/extore-native/native-flow.log
+          ! grep -F -- '--- SKIP: TestExtoreNativePlugin' out/evidence/extore-native/native-flow.log
       - name: Install, upgrade, run and remove in disposable distribution containers
         run: |
           set -o pipefail
@@ -134,6 +214,33 @@ jobs:
             docker image inspect "$image" --format '{{json .RepoDigests}}' >> out/evidence/image-digests.txt || true
           done
           exit "$failed"
+      - name: Install and remove the optional GNU pair using the original smoke flow
+        if: inputs.extore_plugin
+        run: |
+          set -o pipefail
+          failed=0
+          # Bookworm GNU artifacts require their measured GLIBC minimum.
+          # Rocky 9 and Alpine retain the original static/Go-only qualification.
+          cases=('debian:12-slim deb' 'ubuntu:24.04 deb' 'fedora:44 rpm')
+          if [[ "$ARCH" == amd64 ]]; then
+            cases+=('archlinux:base archlinux' 'opensuse/leap:16.0 rpm')
+          fi
+          for item in "${cases[@]}"; do
+            read -r image format <<< "$item"
+            label=$(printf '%s' "$image" | tr ':/' '__')
+            if timeout 240 docker run --rm --cpus 1 --memory 512m --pids-limit 128 \
+              --security-opt no-new-privileges:true -e LMM_PACKAGING_ISOLATED=1 -e LMM_EXTORE_PACKAGE=1 \
+              -v "$PWD/out/extore-install-input:/packages:ro" \
+              -v "$PWD/packaging/linux/install-smoke.sh:/test.sh:ro" \
+              "$image" sh /test.sh "$format" "$ARCH" 2>&1 | tee "out/evidence/extore-${label}.log"; then
+              printf '%s %s EXTORE_PASS\n' "$ARCH" "$image" | tee -a out/evidence/extore-install-matrix.txt
+            else
+              printf '%s %s EXTORE_FAIL\n' "$ARCH" "$image" | tee -a out/evidence/extore-install-matrix.txt
+              failed=1
+            fi
+            docker image inspect "$image" --format '{{json .RepoDigests}}' >> out/evidence/extore-image-digests.txt || true
+          done
+          exit "$failed"
       - name: Preserve preview packages and scoped evidence, never publish
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
@@ -141,6 +248,7 @@ jobs:
           name: native-linux-${{ matrix.arch }}-${{ github.sha }}
           path: |
             out/linux-packages/
+            out/linux-packages-extore/
             out/evidence/
           if-no-files-found: error
           retention-days: 7

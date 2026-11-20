@@ -43,7 +43,24 @@ assert_not_activated() {
         if curl --silent --fail --max-time 1 "http://127.0.0.1:$port/health/live"; then exit 1; fi
     done
 }
+assert_extore_pair() {
+    if [ "${LMM_EXTORE_PACKAGE:-0}" = 1 ]; then
+        [ "$format" != apk ]
+        [ "$(stat -c '%u:%g:%a' /usr/libexec/lmm-extore-host)" = 0:0:755 ]
+        [ "$(stat -c '%u:%g:%a' /usr/lib/lmm/libextore_zplugin.so)" = 0:0:644 ]
+        sha256sum --check /packages/extore-installed.sha256
+        for binary in /usr/libexec/lmm-extore-host /usr/lib/lmm/libextore_zplugin.so; do
+            output=$(ldd "$binary" 2>&1) || { printf '%s\n' "$output"; return 1; }
+            if printf '%s\n' "$output" | grep -F 'not found'; then return 1; fi
+            printf '%s\n' "$output"
+        done
+    else
+        [ ! -e /usr/libexec/lmm-extore-host ]
+        [ ! -e /usr/lib/lmm/libextore_zplugin.so ]
+    fi
+}
 install_packages 1
+assert_extore_pair
 assert_not_activated
 # Provision the shipped static accounts explicitly, not through installation hooks.
 # Alpine's preinstall hook already creates its own non-login accounts.
@@ -131,6 +148,7 @@ assert_operator_files() {
 }
 record_operator_files
 install_packages 2
+assert_extore_pair
 assert_not_activated
 assert_operator_files upgrade
 if [ "$format" != apk ]; then
@@ -268,6 +286,8 @@ for component in core extensions; do
     expect_credential_rejection
 done
 remove_packages
+[ ! -e /usr/libexec/lmm-extore-host ]
+[ ! -e /usr/lib/lmm/libextore_zplugin.so ]
 assert_not_activated
 assert_operator_files removal
 printf 'PASS: %s/%s install, upgrade, preservation, service-UID processes, private credentials, removal (not service-manager acceptance)\n' "$format" "$arch"

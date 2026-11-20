@@ -84,8 +84,63 @@ def check_binary(data: bytes, platform: str) -> None:
     _check_binary_headers(data[:64], data[offset:offset + 6], len(data), platform)
 
 
+def extore_spec(root: Path = ROOT) -> dict:
+    return json.loads((root / "packaging/distribution.json").read_text())[
+        "components"]["extensions"]["optional_extore_plugin"]
+
+
+def check_extore_header(header: bytes, platform: str, shared: bool) -> None:
+    _check_binary_headers(header, b"", len(header), platform)
+    kind = struct.unpack_from("<H", header, 16)[0]
+    if kind not in ({3} if shared else {2, 3}):
+        raise ValueError("Extore input must be a GNU executable and a shared library")
+
+
+def validate_extore_record(record: dict, revision: str, platform: str,
+                           files: dict, expected_extore_revision: str | None = None) -> None:
+    spec = extore_spec()
+    if (not isinstance(record, dict)
+            or set(record) != {"schema_version", "source_revision", "extore_revision", "target", "files"}
+            or type(record["schema_version"]) is not int or record["schema_version"] != 1
+            or record["source_revision"] != revision
+            or not isinstance(record["extore_revision"], str)
+            or not REVISION.fullmatch(record["extore_revision"])
+            or (expected_extore_revision is not None
+                and record["extore_revision"] != expected_extore_revision)
+            or platform not in spec["targets"] or record["target"] != spec["targets"][platform]
+            or not isinstance(record["files"], dict)
+            or set(record["files"]) != set(spec["files"])):
+        raise ValueError("Extore build record does not match the source or GNU target")
+    for name, definition in spec["files"].items():
+        expected = record["files"][name]
+        if (not isinstance(expected, dict)
+                or type(expected.get("size")) is not int
+                or type(expected.get("mode")) is not int
+                or expected.get("mode") != definition["mode"]
+                or expected != files.get(name)):
+            raise ValueError("Extore pair differs from its build record")
+
+
+def record_extore(inputs: Path, revision: str, extore_revision: str, target: str) -> dict:
+    """Record exact build outputs; this unsigned record is not a runtime test."""
+    spec = extore_spec()
+    if (not REVISION.fullmatch(revision) or not REVISION.fullmatch(extore_revision)
+            or target not in spec["targets"].values()):
+        raise ValueError("full source revisions and an exact supported GNU target are required")
+    platform = next(p for p, t in spec["targets"].items() if t == target)
+    files = {}
+    for name, definition in spec["files"].items():
+        data = read_regular(inputs, definition["input"])
+        check_extore_header(data[:64], platform, definition["shared"])
+        files[name] = {"sha256": hashlib.sha256(data).hexdigest(),
+                       "size": len(data), "mode": definition["mode"]}
+    return {"schema_version": 1, "source_revision": revision,
+            "extore_revision": extore_revision, "target": target, "files": files}
+
+
 def build(root: Path, component: str, version: str, revision: str,
-          platform: str, inputs: Path, output: Path, epoch: int = 0) -> Path:
+          platform: str, inputs: Path, output: Path, epoch: int = 0,
+          extore_revision: str | None = None) -> Path:
     if not VERSION.fullmatch(version) or not REVISION.fullmatch(revision):
         raise ValueError("version or full source revision is invalid")
     if not 0 <= epoch <= 0xFFFFFFFF:
@@ -96,6 +151,8 @@ def build(root: Path, component: str, version: str, revision: str,
     selected = spec["components"][component]
     if platform not in selected["platforms"]:
         raise ValueError("unsupported component platform")
+    if extore_revision is not None and (component != "extensions" or not REVISION.fullmatch(extore_revision)):
+        raise ValueError("Extore is an optional extensions-only pair pinned to a full revision")
     package = selected["package"]
     if not re.fullmatch(r"[a-z][a-z0-9-]*", package):
         raise ValueError("invalid package name")
@@ -119,6 +176,27 @@ def build(root: Path, component: str, version: str, revision: str,
         data = read_regular(inputs, name)
         check_binary(data, platform)
         add("bin/" + name, data, 0o755)
+    extore_record = None
+    if extore_revision is not None:
+        optional = selected["optional_extore_plugin"]
+        raw_record = read_regular(inputs, "extore-plugin.json")
+        if len(raw_record) > MAX_METADATA:
+            raise ValueError("Extore build record exceeds the metadata limit")
+        extore_record = json.loads(raw_record, object_pairs_hook=_unique_object)
+        pair = {}
+        for name, definition in optional["files"].items():
+            data = read_regular(inputs, definition["input"])
+            check_extore_header(data[:64], platform, definition["shared"])
+            add(name, data, definition["mode"])
+            pair[name] = {"sha256": hashlib.sha256(data).hexdigest(),
+                          "size": len(data), "mode": definition["mode"]}
+        validate_extore_record(extore_record, revision, platform, pair, extore_revision)
+        for name in optional["resources"]:
+            add(name, read_regular(root, name))
+    elif component == "extensions" and any(
+            (inputs / name).exists()
+            for name in ("lmm-extore-host", "libextore_zplugin.so", "extore-plugin.json")):
+        raise ValueError("Extore inputs require the explicit --extore-revision option")
     if component == "web":
         if not (inputs / "index.html").is_file():
             raise ValueError("web input has no index.html")
@@ -146,6 +224,11 @@ def build(root: Path, component: str, version: str, revision: str,
                    "read-only templates (normally /usr/share/lmm/legal). Never edit "
                    "installed templates in place. See docs/legal/README.md and "
                    "docs/filesystem-layout.md.\n")
+    if extore_record is not None:
+        readme += ("\nThis archive includes the optional Linux GNU Extore host/library pair. "
+                   "It remains disabled until an operator supplies store.extore_plugin. "
+                   "Use the paths and shared-state ownership contract in docs/extore.md. "
+                   "The bundle neither initializes Extore state nor starts its HTTP service.\n")
     add("README.md", readme.encode())
     manifest = {"schema_version": 1, "component": component, "package": package,
                 "version": version, "revision": revision, "platform": platform,
@@ -153,9 +236,12 @@ def build(root: Path, component: str, version: str, revision: str,
                 "files": {name: {"sha256": hashlib.sha256(data).hexdigest(),
                                  "size": len(data), "mode": mode}
                           for name, (data, mode) in sorted(files.items())}}
+    if extore_record is not None:
+        manifest["extore_plugin"] = extore_record
     files["MANIFEST.json"] = ((json.dumps(manifest, sort_keys=True, indent=2) + "\n").encode(), 0o644)
     output.mkdir(parents=True, exist_ok=True)
-    archive = output / f"{package}-{version}-{platform}.tar.gz"
+    variant = "-extore" if extore_record is not None else ""
+    archive = output / f"{package}-{version}-{platform}{variant}.tar.gz"
     checksum = archive.with_name(archive.name + ".sha256")
     if archive.exists() or checksum.exists():
         raise FileExistsError("distribution output already exists; refusing to replace it")
@@ -255,6 +341,7 @@ def verify(archive: Path, revision: str | None = None) -> dict:
     headers: dict[str, tuple[bytes, bytes]] = {}
     seen: set[str] = set()
     total, raw_manifest = 0, None
+    extore_paths = set(extore_spec()["files"])
     # GzipFile bounds decompression reads; tarfile r|gz can inflate an entire
     # compressed chunk into a much larger buffer before our payload limit.
     with gzip.open(archive, "rb") as decoded, tarfile.open(
@@ -279,7 +366,8 @@ def verify(archive: Path, revision: str | None = None) -> dict:
                     if len(raw_manifest) != entry.size:
                         raise ValueError("truncated manifest")
                     continue
-                is_binary = entry.name.startswith("bin/")
+                is_binary = (entry.name.startswith("bin/")
+                             or entry.name in extore_paths)
                 digest, header, pe_header = _inspect_member(source, entry.size, is_binary)
             files[entry.name] = {"sha256": digest, "size": entry.size, "mode": entry.mode}
             if is_binary:
@@ -311,11 +399,27 @@ def verify(archive: Path, revision: str | None = None) -> dict:
         raise ValueError("manifest component or platform does not match")
     suffix = ".exe" if manifest["platform"].startswith("windows-") else ""
     binaries = {"bin/" + name + suffix for name in component["binaries"]}
-    if set(headers) != binaries:
+    binary_headers, executables, optional_resources = set(binaries), set(binaries), set()
+    if "extore_plugin" in manifest:
+        if manifest["component"] != "extensions":
+            raise ValueError("Extore pair is only allowed in the extensions archive")
+        optional = component["optional_extore_plugin"]
+        validate_extore_record(manifest["extore_plugin"], manifest["revision"],
+                               manifest["platform"], files)
+        binary_headers.update(optional["files"])
+        executables.update(name for name, info in optional["files"].items() if info["mode"] == 0o755)
+        optional_resources.update(optional["files"])
+        optional_resources.update(optional["resources"])
+        for name, definition in optional["files"].items():
+            if name not in headers:
+                raise ValueError("missing Extore executable or shared library")
+            check_extore_header(headers[name][0], manifest["platform"], definition["shared"])
+    if set(headers) != binary_headers:
         raise ValueError("archive executable inventory does not match the component")
-    if {name for name, info in files.items() if info["mode"] == 0o755} != binaries:
-        raise ValueError("only component binaries may be executable")
-    required = set(spec["common"] + component["resources"] + ["README.md"]) | binaries
+    if {name for name, info in files.items() if info["mode"] == 0o755} != executables:
+        raise ValueError("only component binaries and the declared private host may be executable")
+    required = (set(spec["common"] + component["resources"] + ["README.md"])
+                | binaries | optional_resources)
     allowed = set(required)
     if manifest["component"] == "web":
         required.add("dist/index.html")
@@ -343,6 +447,12 @@ def main() -> int:
     create.add_argument("--input", required=True, type=Path)
     create.add_argument("--output", default=ROOT / "out/distributions", type=Path)
     create.add_argument("--epoch", type=int, default=os.environ.get("SOURCE_DATE_EPOCH", "0"))
+    create.add_argument("--extore-revision", help="include the complete GNU host/library pair from this gitlink")
+    record = actions.add_parser("record-extore", help="bind a prebuilt GNU pair to the source and Extore gitlink")
+    record.add_argument("--input", required=True, type=Path)
+    record.add_argument("--revision", required=True)
+    record.add_argument("--extore-revision", required=True)
+    record.add_argument("--target", required=True)
     inspect = actions.add_parser("verify")
     inspect.add_argument("archive", type=Path)
     inspect.add_argument("--revision")
@@ -350,7 +460,11 @@ def main() -> int:
     try:
         if args.action == "build":
             print(build(ROOT, args.component, args.version, args.revision,
-                        args.platform, args.input, args.output, args.epoch))
+                        args.platform, args.input, args.output, args.epoch, args.extore_revision))
+        elif args.action == "record-extore":
+            record = record_extore(args.input, args.revision, args.extore_revision, args.target)
+            with (args.input / "extore-plugin.json").open("x", encoding="utf-8") as file:
+                file.write(json.dumps(record, sort_keys=True, indent=2) + "\n")
         else:
             manifest = verify(args.archive, args.revision)
             print(f"Verified {manifest['component']}: {manifest['revision']}")
