@@ -66,6 +66,18 @@ UPGRADE_REFUSALS = [
     ("upgrade-navigation", "navigation_options_upgrade", "test", "tests/navigation_options_upgrade.rs",
      "harness::suffix_upgrade_preserves_real_predecessor_and_resolves_exact_replay"),
 ]
+UPGRADE_READINESS_SOURCE = "73711f0ebc2a6475198355d3cac3e0b43eb41d1b"
+UPGRADE_READINESS_TREE = "d9375e3e1f07f88aeb9ab35f1f69c4416febc06b"
+UPGRADE_READINESS = [
+    ("upgrade-channel-observations", "channel_observations_upgrade",
+     "harness::suffix_upgrade_preserves_real_predecessor_and_resolves_exact_replay"),
+    ("upgrade-navigation-options", "navigation_options_upgrade",
+     "harness::suffix_upgrade_preserves_real_predecessor_and_resolves_exact_replay"),
+    ("upgrade-trust-policy", "trust_policy_upgrade",
+     "harness::suffix_upgrade_preserves_real_predecessor_and_resolves_exact_replay"),
+    ("community-connection-history", "community_connection_history",
+     "retained_snapshot_import_and_runtime_funnel"),
+]
 TEST_FILE = "services/core/tests/assistant_model.rs"
 
 os.umask(0o077)
@@ -106,9 +118,11 @@ def execute(name, argv, cwd, timeout):
 
 
 def source_manifest(root):
+    extra = (["scripts", "services/extensions", ".github/workflows/core-protocol.yml"]
+             if mode == "upgrade_readiness" else [])
     paths = subprocess.check_output(
         ["git", "-C", str(root), "ls-files", "-z", "--", "services/core",
-         "contracts/proto", "deployment/postgres", "config/legal"]).decode().split("\0")
+         "contracts/proto", "deployment/postgres", "config/legal", *extra]).decode().split("\0")
     return [{"path": path, "sha256": sha(root / path),
              "bytes": (root / path).stat().st_size} for path in sorted(filter(None, paths))]
 
@@ -286,14 +300,45 @@ def upgrade_refusals(executables, output, root, private_artifacts):
     return results
 
 
+def upgrade_readiness(executables, output, root):
+    messages = []
+    for line in output.splitlines():
+        try:
+            messages.append(json.loads(line))
+        except json.JSONDecodeError:
+            continue
+    verified = []
+    for _, target, _ in UPGRADE_READINESS:
+        matches = [item for item in messages
+                   if item.get("reason") == "compiler-artifact"
+                   and item.get("target", {}).get("name") == target
+                   and item.get("profile", {}).get("test") and item.get("executable")]
+        if len(matches) != 1:
+            raise ValueError("readiness check requires one current artifact per target")
+        item = matches[0]
+        if (Path(item["manifest_path"]).resolve() != root / "services/core/Cargo.toml"
+                or item["target"]["kind"] != ["test"]
+                or Path(item["target"]["src_path"]).resolve() != root / f"services/core/tests/{target}.rs"
+                or Path(item["executable"]).resolve() != executables[target]):
+            raise ValueError("readiness compiler artifact source mismatch")
+        verified.append(item)
+    save("upgrade-readiness-compiler-artifacts.json", verified)
+    return [test_run(label, executables[target], [name], [name, "--exact"], root / "services/core")
+            for label, target, name in UPGRADE_READINESS]
+
+
 def main():
-    if mode not in ("candidate", "pre_fix", "managed70", "continuity", "provider78_capture", "provider78_acceptance", "upgrade_refusal") or not re.fullmatch(r"[0-9a-f]{40}", requested):
+    if mode not in ("candidate", "pre_fix", "managed70", "continuity", "provider78_capture", "provider78_acceptance", "upgrade_refusal", "upgrade_readiness") or not re.fullmatch(r"[0-9a-f]{40}", requested):
         raise ValueError("invalid diagnostic inputs")
     if git(candidate, "rev-parse", "HEAD") != requested or git(candidate, "diff", "--name-only"):
         raise ValueError("candidate checkout does not match the immutable source input")
     if mode == "upgrade_refusal" and (requested != UPGRADE_REFUSAL_SOURCE
             or git(candidate, "rev-parse", "HEAD^{tree}") != UPGRADE_REFUSAL_TREE):
         raise ValueError("upgrade diagnostic requires the reviewed immutable five-file candidate")
+    if mode == "upgrade_readiness" and (requested != UPGRADE_READINESS_SOURCE
+            or git(candidate, "rev-parse", "HEAD^{tree}") != UPGRADE_READINESS_TREE
+            or git(candidate, "status", "--porcelain", "--untracked-files=no")):
+        raise ValueError("readiness check requires the reviewed clean immutable candidate")
     root = candidate
     binding = {"scope": "TARGETED_DIAGNOSTIC_ONLY", "mode": mode,
                "candidate_sha": requested, "candidate_tree": git(candidate, "rev-parse", "HEAD^{tree}"),
@@ -342,6 +387,28 @@ def main():
                        private_dev_artifacts_uploaded=False,
                        retained_private_artifact="a9-upgrade-68-to69.json only",
                        preserved_executor_revision="2a0c7bd380f58a553dc903d399255821c1a65d0f")
+    if mode == "upgrade_readiness":
+        required = ("PGHOST", "PGPORT", "PGUSER", "PGPASSWORD", "PGDATABASE", "PGSSLMODE",
+                    "ACQUISITION_CONNECTION_DATABASE_URL", "ACQUISITION_CONNECTION_HISTORY_DATABASE_URL",
+                    "CONNECTION55_EVIDENCE")
+        if any(not os.environ.get(key) for key in required):
+            raise ValueError("original acquisition preparation exports are incomplete")
+        private_acquisition = Path(os.environ["CONNECTION55_EVIDENCE"]).resolve(strict=True)
+        private_parent = (Path.home() / ".local/state/lmm-api/connection-filter").resolve(strict=True)
+        if (private_acquisition.parent != private_parent or not private_acquisition.is_dir()
+                or private_acquisition.is_relative_to(evidence)
+                or stat.S_IMODE(private_acquisition.stat().st_mode) != 0o700):
+            raise ValueError("original acquisition evidence must remain private outside uploaded evidence")
+        if (evidence / "postgres-offline-settings.txt").read_text().strip() != "off|f":
+            raise ValueError("private PostgreSQL offline prerequisite was not observed")
+        binding.update(scope="FOUR_ORIGINAL_FAILURES_TARGETED_ONLY",
+                       expected_cases=[{"target": target, "case": name}
+                                       for _, target, name in UPGRADE_READINESS],
+                       source_clean_before=True, acquisition_exports_present=list(required),
+                       acquisition_preparer_sha256=sha(root / "scripts/prepare-acquisition-ci.py"),
+                       private_acquisition_directory=str(private_acquisition),
+                       private_acquisition_artifacts_uploaded=False, private_environment_uploaded=False,
+                       preserved_executor_revision="2a0c7bd380f58a553dc903d399255821c1a65d0f")
     if mode == "provider78_capture":
         private_base = Path.home() / ".local/state/lmm-api"
         private_base.mkdir(mode=0o700, parents=True, exist_ok=True)
@@ -371,16 +438,26 @@ def main():
             or re.findall(r"^rustc (\S+)\s", rustc_output, re.MULTILINE) != ["1.100.0"]
             or re.findall(r"^cargo (\S+)\s", cargo_output, re.MULTILINE) != ["1.100.0"]):
         raise ValueError("provider78 checks require the original Rust and Cargo1.100.0 toolchain")
-    if mode == "upgrade_refusal" and (rustc_command["exit_code"] != 0 or cargo_command["exit_code"] != 0
+    if mode in ("upgrade_refusal", "upgrade_readiness") and (rustc_command["exit_code"] != 0 or cargo_command["exit_code"] != 0
             or re.findall(r"^rustc (\S+)\s", rustc_output, re.MULTILINE) != ["1.100.0"]
             or re.findall(r"^cargo (\S+)\s", cargo_output, re.MULTILINE) != ["1.100.0"]):
         raise ValueError("upgrade diagnostic requires the original Rust and Cargo1.100.0 toolchain")
+    if mode == "upgrade_readiness":
+        go_command, go_output = execute("go-version", ["go", "version"], root / "services/extensions", 30)
+        if go_command["exit_code"] != 0 or re.findall(r"^go version (\S+)\s", go_output, re.MULTILINE) != ["go1.27.2"]:
+            raise ValueError("community history requires the original Go1.27.2 toolchain")
+        for tool in ("psql", "createdb", "dropdb"):
+            tool_command, tool_output = execute(tool + "-version", [tool, "--version"], root, 30)
+            if tool_command["exit_code"] != 0 or not re.match(rf"^{tool} \(PostgreSQL\) 18\.\d+", tool_output):
+                raise ValueError("community history requires the original PostgreSQL18 client tools")
     if mode in ("managed70", "continuity", "provider78_capture"):
         targets = ["--lib"]
     elif mode == "provider78_acceptance":
         targets = ["--lib", "--test", "oauth2_public_providers"]
     elif mode == "upgrade_refusal":
         targets = ["--lib", "--test", "completion_upgrade", "--test", "navigation_options_upgrade"]
+    elif mode == "upgrade_readiness":
+        targets = [part for _, target, _ in UPGRADE_READINESS for part in ("--test", target)]
     else:
         targets = ["--test", "assistant_model"] if mode == "pre_fix" else ["--lib", "--test", "assistant_model"]
     command, output = execute("compile",
@@ -452,6 +529,8 @@ def main():
                                     [MANAGED70, "--exact"], root / "services/core"))
         elif mode == "upgrade_refusal":
             results.extend(upgrade_refusals(executables, output, root, private_artifacts))
+        elif mode == "upgrade_readiness":
+            results.extend(upgrade_readiness(executables, output, root))
         else:
             assistant = executables["assistant_model"]
             cases = [REGRESSION] if mode == "pre_fix" else ASSISTANT
@@ -466,8 +545,15 @@ def main():
     expected_results = 4 if mode == "continuity" else (1 if mode in ("pre_fix", "managed70", "provider78_capture") else 2)
     if mode == "upgrade_refusal":
         expected_results = 3
+    if mode == "upgrade_readiness":
+        expected_results = 4
+        clean_after = (git(root, "rev-parse", "HEAD") == UPGRADE_READINESS_SOURCE
+                       and git(root, "rev-parse", "HEAD^{tree}") == UPGRADE_READINESS_TREE
+                       and not git(root, "status", "--porcelain", "--untracked-files=no"))
+        save("upgrade-readiness-source-clean.json", {"source_clean_after": clean_after})
     accepted = (command["exit_code"] == 0 and len(results) == expected_results
-                and all(result["accepted"] for result in results) and before == after)
+                and all(result["accepted"] for result in results) and before == after
+                and (mode != "upgrade_readiness" or clean_after))
     save("result.json", {"scope": binding["scope"], "mode": mode,
                         "accepted": accepted, "compile_exit_code": command["exit_code"],
                         "source_unchanged": before == after, "results": results,
@@ -478,7 +564,7 @@ def main():
 try:
     sys.exit(main())
 except Exception as error:
-    if mode in ("provider78_capture", "provider78_acceptance", "upgrade_refusal") and not (evidence / "source-after.json").exists():
+    if mode in ("provider78_capture", "provider78_acceptance", "upgrade_refusal", "upgrade_readiness") and not (evidence / "source-after.json").exists():
         try:
             save("source-after.json", source_manifest(candidate))
         except Exception as snapshot_error:

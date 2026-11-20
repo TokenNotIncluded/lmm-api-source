@@ -5,7 +5,7 @@ on:
       diagnostic_mode:
         description: Explicit control-branch diagnostic; none retains the complete gate
         type: choice
-        options: [none, candidate, pre_fix, managed70, continuity, market, provider78_capture, provider78_acceptance, upgrade_refusal]
+        options: [none, candidate, pre_fix, managed70, continuity, market, provider78_capture, provider78_acceptance, upgrade_refusal, upgrade_readiness]
         default: none
       product_sha:
         description: Immutable 40-hex candidate source (required for diagnostic modes)
@@ -318,7 +318,7 @@ jobs:
 
   targeted-diagnostic:
     name: Targeted Core diagnostic (${{ inputs.diagnostic_mode }}), not full CI
-    if: ${{ inputs.diagnostic_mode == 'candidate' || inputs.diagnostic_mode == 'pre_fix' || inputs.diagnostic_mode == 'managed70' || inputs.diagnostic_mode == 'continuity' || inputs.diagnostic_mode == 'provider78_capture' || inputs.diagnostic_mode == 'provider78_acceptance' || inputs.diagnostic_mode == 'upgrade_refusal' }}
+    if: ${{ inputs.diagnostic_mode == 'candidate' || inputs.diagnostic_mode == 'pre_fix' || inputs.diagnostic_mode == 'managed70' || inputs.diagnostic_mode == 'continuity' || inputs.diagnostic_mode == 'provider78_capture' || inputs.diagnostic_mode == 'provider78_acceptance' || inputs.diagnostic_mode == 'upgrade_refusal' || inputs.diagnostic_mode == 'upgrade_readiness' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 95
     env:
@@ -346,6 +346,9 @@ jobs:
           [[ "$PRODUCT_SHA" =~ ^[0-9a-f]{40}$ ]]
           if test "$DIAGNOSTIC_MODE" = upgrade_refusal; then
             test "$PRODUCT_SHA" = 37649a1a537fa1052e4248786dd949f57c71a497
+          fi
+          if test "$DIAGNOSTIC_MODE" = upgrade_readiness; then
+            test "$PRODUCT_SHA" = 73711f0ebc2a6475198355d3cac3e0b43eb41d1b
           fi
           printf '%s\n' \
             "CARGO_TARGET_DIR=$RUNNER_TEMP/core-targeted-build" \
@@ -383,14 +386,47 @@ jobs:
           cp control/scripts/core-targeted-diagnostic.py "$EVIDENCE_DIR/control-runner.py"
           docker exec "$PG_CONTAINER" psql -U postgres -Atqc 'SHOW server_version_num' > "$EVIDENCE_DIR/postgres-version.txt"
           test "$(cat "$EVIDENCE_DIR/postgres-version.txt")" = 180006
+      - name: Configure the private PostgreSQL offline prerequisite
+        if: ${{ inputs.diagnostic_mode == 'upgrade_readiness' }}
+        env:
+          POSTGRES_CONTAINER: ${{ job.services.postgres.id }}
+        run: |
+          docker exec "$POSTGRES_CONTAINER" psql -X -U postgres -d postgres -v ON_ERROR_STOP=1 \
+            -c 'ALTER SYSTEM SET autovacuum = off'
+          test "$(docker exec "$POSTGRES_CONTAINER" psql -X -U postgres -d postgres -v ON_ERROR_STOP=1 \
+            -Atqc 'SELECT pg_reload_conf()')" = t
+          docker exec "$POSTGRES_CONTAINER" psql -X -U postgres -d postgres -v ON_ERROR_STOP=1 \
+            -Atqc "SELECT setting, pending_restart FROM pg_settings WHERE name = 'autovacuum'" \
+            > "$EVIDENCE_DIR/postgres-offline-settings.txt"
+          test "$(cat "$EVIDENCE_DIR/postgres-offline-settings.txt")" = 'off|f'
       - name: Install the original Rust version and native link prerequisites
         run: |
           rustup toolchain install 1.100.0 --profile minimal
           sudo --preserve-env=GITHUB_ACTIONS python3 product/scripts/prepare-ci-apt.py
           sudo apt-get update
           sudo apt-get install --no-install-recommends --yes pkg-config libssl-dev
+      - uses: actions/setup-go@7a3fe6cf4cb3a834922a1244abfce67bcef6a0c5
+        if: ${{ inputs.diagnostic_mode == 'upgrade_readiness' }}
+        with:
+          go-version: '1.27.2'
+          cache-dependency-path: product/services/extensions/go.sum
+      - name: Install the original PostgreSQL 18 fixture tools
+        if: ${{ inputs.diagnostic_mode == 'upgrade_readiness' }}
+        run: |
+          sudo apt-get install --no-install-recommends --yes protobuf-compiler curl ca-certificates
+          sudo install -d /usr/share/postgresql-common/pgdg
+          sudo curl --fail --output /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc https://www.postgresql.org/media/keys/ACCC4CF8.asc
+          printf '%s\n' 'Types: deb' 'URIs: https://apt.postgresql.org/pub/repos/apt' \
+            'Suites: noble-pgdg' "Architectures: $(dpkg --print-architecture)" 'Components: main' \
+            'Signed-By: /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc' \
+            | sudo tee /etc/apt/sources.list.d/pgdg.sources > /dev/null
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends --yes postgresql-common
+          echo 'create_main_cluster = false' | sudo tee -a /etc/postgresql-common/createcluster.conf > /dev/null
+          sudo apt-get install --no-install-recommends --yes postgresql-18 postgresql-client-18
+          echo '/usr/lib/postgresql/18/bin' >> "$GITHUB_PATH"
       - name: Build the original retained executor for the three upgrade cases
-        if: ${{ inputs.diagnostic_mode == 'upgrade_refusal' }}
+        if: ${{ inputs.diagnostic_mode == 'upgrade_refusal' || inputs.diagnostic_mode == 'upgrade_readiness' }}
         working-directory: product
         run: |
           git fetch --no-tags --depth=1 origin 2a0c7bd380f58a553dc903d399255821c1a65d0f
@@ -398,12 +434,18 @@ jobs:
           rustup run 1.99.0 python3 scripts/build-preserved-core.py \
             --family early58 --output "$RUNNER_TEMP/core-targeted-preserved-early58"
           cat "$RUNNER_TEMP/core-targeted-preserved-early58/executor.env" >> "$GITHUB_ENV"
+      - name: Prepare the original private acquisition PostgreSQL fixtures
+        if: ${{ inputs.diagnostic_mode == 'upgrade_readiness' }}
+        working-directory: product
+        run: |
+          umask 077
+          python3 -B scripts/prepare-acquisition-ci.py
       - name: Run exactly the selected diagnostic scope once
         run: |
           python3 -B control/scripts/core-targeted-diagnostic.py \
             control product baseline "$EVIDENCE_DIR"
       - name: Preserve the retained executor preparation without its private build tree
-        if: ${{ always() && inputs.diagnostic_mode == 'upgrade_refusal' }}
+        if: ${{ always() && (inputs.diagnostic_mode == 'upgrade_refusal' || inputs.diagnostic_mode == 'upgrade_readiness') }}
         run: |
           umask 077
           mkdir -p "$EVIDENCE_DIR/preserved-early58"
