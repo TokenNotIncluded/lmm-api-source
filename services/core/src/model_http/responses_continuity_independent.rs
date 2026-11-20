@@ -1018,6 +1018,8 @@ async fn responses_continuity_independent_actual_kill_restart_same_database(pool
                 json_reply(call(&core, &lab.fixture.key, "independent-restart-root", &body).await)
                     .await;
             assert_active(lab, &id, &root).await;
+            // The successful HTTP body can precede its performance observation.
+            native_http::test_support::performance_sample(&lab.fixture.pool, &id).await;
             let before = snapshot(&lab.fixture.pool).await;
             let old_pid = core.child.id();
             core.child.kill().unwrap();
