@@ -2,6 +2,7 @@
 # Proposed GHA ubuntu-24.04 host preparation only. NOT EXECUTED by reviewer.
 # Run on the disposable GitHub runner before the original resource gates.
 set -euo pipefail
+trap 'lmm_preflight_status=$?; printf "Host preflight failed at line %s (exit %s)\n" "$LINENO" "$lmm_preflight_status" >&2; exit "$lmm_preflight_status"' ERR
 test "$(cat /proc/1/comm)" = systemd
 test "$(stat -fc %T /sys/fs/cgroup)" = cgroup2fs
 lmm_runner_uid=$(id -u)
@@ -14,10 +15,16 @@ done
 
 # A running service manager and an actual session-bus socket are both required.
 # dbus-user-session must be installed by the job's normal host-dependency step.
+# Delegate= is unit configuration; v255 only sets it through D-Bus on transient units.
+# This exclusive drop-in affects only the current disposable runner user manager.
+lmm_runner_dropin="/run/systemd/system/user@$lmm_runner_uid.service.d"
+sudo -n install -d -m 0755 "$lmm_runner_dropin"
+printf '[Service]\nDelegate=cpu memory pids\n' |
+  sudo -n sh -c 'set -C; umask 022; cat > "$1"' sh \
+    "$lmm_runner_dropin/90-lmm-final-runtime.conf"
+sudo -n systemctl daemon-reload
 sudo -n loginctl enable-linger "$lmm_runner_user"
 sudo -n systemctl start "user@$lmm_runner_uid.service"
-sudo -n systemctl set-property --runtime "user@$lmm_runner_uid.service" \
-  'Delegate=cpu memory pids'
 export XDG_RUNTIME_DIR="/run/user/$lmm_runner_uid"
 export DBUS_SESSION_BUS_ADDRESS="unix:path=$XDG_RUNTIME_DIR/bus"
 test -S "$XDG_RUNTIME_DIR/bus"
