@@ -291,13 +291,23 @@ class DistributionTests(unittest.TestCase):
         native = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(native)
         def readelf(*args, **kwargs):
-            self.assertEqual(args[0], "readelf")
+            self.assertEqual(args[:-1], ("readelf", "--wide", "--program-headers",
+                                        "--dynamic", "--version-info"))
+            self.assertEqual(kwargs["env"]["LC_ALL"], "C")
             name = Path(args[-1]).name
             if name == "lmm-extensions":
                 return ""
             loader = ("[Requesting program interpreter: /lib64/ld-linux-x86-64.so.2]\n"
                       if name == "lmm-extore-host" else "")
-            return loader + "(NEEDED) [libc.so.6]\n(NEEDED) [libssl.so.3]\nGLIBC_2.36 OPENSSL_3.0.0\n"
+            # readelf associates every symbol version with its needed library.
+            return loader + (
+                "(NEEDED) [libc.so.6]\n(NEEDED) [libssl.so.3]\n"
+                "Version needs section '.gnu.version_r' contains 2 entries:\n"
+                "  0x000000: Version: 1  File: libc.so.6  Cnt: 1\n"
+                "  0x000010: Name: GLIBC_2.36  Flags: none  Version: 3\n"
+                "  0x000020: Version: 1  File: libssl.so.3  Cnt: 1\n"
+                "  0x000030: Name: OPENSSL_3.0.0  Flags: none  Version: 2\n"
+            )
         digest = hashlib.sha256(archive.read_bytes()).hexdigest()
         with patch.object(native, "run", side_effect=readelf):
             config, info = native.prepare(source, archive, digest, SHA, "extensions", "deb", 1,
