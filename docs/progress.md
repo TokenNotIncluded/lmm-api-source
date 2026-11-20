@@ -2,7 +2,76 @@
 
 更新于 2026-11-20。此文件维护当前状态、剩余阻塞和证据入口；先前失败、历史候选和各轮实际回执继续保留。
 
-## 当前状态（截至 2026-11-20 19:34 UTC）
+## 当前状态（截至 2026-11-20 20:22 UTC）
+
+**六个客户端插件的新版本已发布；服务器四种实际分发归档已核验，Web 完整 CI 已通过。** Core 全量数据库测试仍在运行。Linux 的 Arch 安装测试缺失依赖已经修复并进入原矩阵复验。Windows 持久安装器的 Pi 参数问题已修正，新的运行通过原 90 项 PowerShell 7 合同后，在新增受管安装回归中发现文件替换错误；完整 Windows 资格尚未取得。生产流量与数据库没有切换。
+
+| 工作项 | 固定来源与原始运行 | 实际结果 |
+| --- | --- | --- |
+| 六个客户端插件 | 下文六份已公开 Release | Pi 0.1.0-alpha.7、DSH 0.1.0-alpha.9、Codewhale 0.1.0-alpha.4、VSCode 0.1.6、Zed 0.1.4、OpenCode 0.1.5 已交付；完整版本号与各渠道见历史清单 |
+| 当前完整 CI | `952d21c5`；[44802025200](https://github.com/TokenNotIncluded/lmm-api-source/actions/runs/44802025200) | Web、翻译、Market、Extore native 成功；Core 正在原 Rust／真实数据库测试步骤 |
+| 原完整 CI | `293e53f7`；[44797641245](https://github.com/TokenNotIncluded/lmm-api-source/actions/runs/44797641245) | 原 Web 失败保留；Core 继续原运行 |
+| 实际分发归档 | `293e53f7`；[44798787579](https://github.com/TokenNotIncluded/lmm-api-source/actions/runs/44798787579) | 5/5 jobs 成功；Core、Web、CLI、Extensions 的实际归档、清单、模式及摘要核验通过 |
+| Linux 原生安装复验 | `749893fd`；[44807452120](https://github.com/TokenNotIncluded/lmm-api-source/actions/runs/44807452120) | 两种架构均完成三产品构建，正在原生包／可选 GNU pair 构建；安装结果待终态 |
+| Windows 持久产品 | 产品 `40c473f8`，控制 `4f047e02`；[44810237733](https://github.com/TokenNotIncluded/lmm-scripts/actions/runs/44810237733) | 原 PS7 90 项 PASS，随后 managed 回归 FAIL；PS5.1 与真实五 CLI 未执行，体积门槛另为 FAIL |
+| 容量、支付过期、真实浏览器 | 冻结的 `293e53f7` 实际运行组合；独立云端控制准备中 | 原入口与时限已确定，控制尚未派发，不能记作当前组合 PASS |
+
+### Web 完整结果与仍在运行的 Core
+
+[952d21c5](https://github.com/TokenNotIncluded/lmm-api-source/commit/952d21c5d5d849507478d8443f603c47e0126880) 只同步一份测试文件的四处已发布版本预期。新 Web job `136516335031` 已实际完成 format、copyright、lint、types、测试、build、bundle 与上传；原串行测试运行器完成 765 份源码测试和 6 份脚本测试。原 raw 1,656,287 B，SHA256 `0aabeb216590d694c1a4f24738fb1c3978fbe9af93e72b846b6245b4a50b0d6a`。Web 附件已生成，但未为重复验收另下载。
+
+两个 Core job 均继续原运行。952 已通过 strict Clippy、all-target 编译，并导出 commerce 驱动附件；当前仍在 Rust／真实数据库测试，后续支付、Go 与 RPC 等步骤不能提前算成功。293 的旧 Web 失败没有被删除或改写。原时间上限、数据库负例与断言保持，未取消旧 Core 或重复派发相同全量测试。
+
+### 实际运行组合与安装验证分开绑定来源
+
+293 的四种分发归档均已取得真实文件。Core／Web／CLI 三份附件各首次下载一次，原 `build-distribution.verify` 检查通过；Web 全部 621 项文件含清单逐一核对。实际版本为 `0.1.0-preview`、epoch 为 1795200983，不沿用旧候选版本标签。Extensions 归档中的同一对 host／SO 已完成真实 native-flow，exit 0、11.9 秒、无 SKIP。
+
+| 实际文件 | SHA256 |
+| --- | --- |
+| Core 可执行文件 | `ece6e14ff4772f3e6bf83095719c73ee62e3824075c0aefcdd4b79813b2f315d` |
+| CLI 可执行文件 | `4ec8556d140c69eb913b0473ef9bc691b669bae8baf9c1ffa8df31cad01bd756` |
+| Web 原归档 | `bfcef01dc4c480958e1ff34666c0a116e58350fb22a3bc812b0025a571a24968` |
+| Extore host | `db346ba27cc7bdd121665c06cbaa5ff9099d4f4c6c6085cb6ae2cd1e91a5b125` |
+| Extore plugin | `25c4928d879472c1f9ff11b9d7679875898a823c6cb042af7e59b510ef07980c` |
+
+Core／Web／CLI 验收收据为 `a9c34974218de015be1d6e06603b8624c3b60108bc0791ebdeb5dd2d6ee2d9fd`，Extensions 收据为 `fe5b5fa2f62854b586be8f3aca0dd3f159c5d7833d61333e4004427829ae13cb`。原四份分发 job raw 捕获缺口继续保留，未重复下载，也未伪造补齐。
+
+293→952 只修改 Web 测试，952→749 只修改 Arch 测试依赖。完整树及运行来源对应已核对。现有 preview／cutover 合同允许保留真实产物来源，并把独立测试结果绑定各自源码：因此这组运行包仍声明 source/runtime/expected-source 为 293，不会改标签成为 952 或 749。main／tag 的正式源码发行另有精确 revision 准入要求，不能借用该结论直接发布。合同收据 `c1f1c69390dd4679925d5da193caecfef193b988f9b185800083632d25e699ae`；运行来源对应收据 `e0b205e4a1db1d3234b0613f06ae54744aa98fc3b2baa0e7f71f39a422426422`。
+
+### Arch 缺失 cmp 已最小修复，原 Linux 矩阵复验中
+
+旧 [44798801506](https://github.com/TokenNotIncluded/lmm-api-source/actions/runs/44798801506) 的 amd64 失败已经定位：原 Arch 容器 `/test.sh: line 133: cmp: command not found`。默认矩阵 6 项成功、Arch 失败；后续可选 GNU 安装步骤 SKIPPED，不能算 5 项通过。arm64 原 job 成功，实际默认 Debian／Ubuntu／Fedora／Rocky／Alpine 五项与 GNU Debian／Ubuntu／Fedora 三项均核实；实际 30 个包与 DEB 解出的同一对 native 文件核验通过。这不扩展到不存在的 arm64 Arch/openSUSE 或 GNU APK 项。
+
+修复 [749893fd](https://github.com/TokenNotIncluded/lmm-api-source/commit/749893fdd19e90a82b94ab0e5cfba2730574970c) 的 parent 是 952，仅在 Arch 的 pacman 测试依赖中增加提供 cmp 的 `diffutils`，原比较断言保持。blob `83ea8b88225b16ff925a74e0cb45fdf776fcb24c`，文件 SHA256 `a2f816e4ce7d296ff1495094857f5f7d77833c58bdccda24e5fc89d0b19d42dc`。原 workflow 399255968 单次派发新独立分支，run 44807452120、attempt 1、20:00:54Z，保留原 40 分钟和两架构矩阵。此次 fixture 改动不另启动没有变化的 Core 全量 CI。
+
+默认 Go-only／APK、main 祖先镜像准入与自动 archive deploy 的原有边界保持。native 包或归档通过不等于已经调整真实主机的 UID、data_dir、socket 权限并启用生产插件。
+
+### Windows：已修正 Pi 分隔符，继续处理受管安装回归
+
+第一轮控制 [74e0b645](https://github.com/TokenNotIncluded/lmm-scripts/commit/74e0b645ff0ca8a68ccc29f920d50b156f5e634a) 固定产品 ed10，实际 [44805027519](https://github.com/TokenNotIncluded/lmm-scripts/actions/runs/44805027519) 在 Pi 参数合同失败。测试中的 npm.cmd 是 PowerShell 函数，裸 `--` 在函数调用中被解析为参数结束标记；保留原强断言后，产品 [40c473f8](https://github.com/TokenNotIncluded/lmm-scripts/commit/40c473f8c1a14412cbd17c832babf182802fd974) 仅把该操作数写成明确字符串 `'--'`，增加 2 B，其余 75 个产品叶节点不变。
+
+新控制 [4f047e02](https://github.com/TokenNotIncluded/lmm-scripts/commit/4f047e0267bdc13a6fa7fe7a559aa88c80fb8458) 只更新产品 commit／tree、显式 Pi 原始字节绑定与说明；两个 checkout 的 autocrlf=false／eol=lf、原全部 Windows 命令和 15 分钟时限保留。工作流与助手经过原 actionlint 1.7.12，GitHub 两 blob 上传后完整回读，commit／tree／ref 精确核对。20:19:00Z 单次 POST/HTTP204，对应唯一 run 44810237733、job 136544630376。
+
+实际 PS7 原 90 项合同已经 PASS，Pi 分隔符断言通过；随后新增 managed 回归在 `[IO.File]::Replace($temp,$Path,$null)` 报 `The path is empty` 后失败，正在核对 PowerShell 对 .NET 空 backup 参数的绑定。before／after 来源检查均成功。PS5.1、真实五 CLI、重复安装与卸载保留数据步骤仍未执行，不能转签为完整 Windows 通过。旧临时官方 wheel 的 394 秒 PASS 继续只覆盖原控制。
+
+体积仍为 **72,902 B，原严格 <50,000 B 门槛 FAIL**，至少需减少 22,903 B。不提高阈值，也不把运行 helper 移出计数。产品仍在独立评审分支；PR12、main、服务器 installer 指针与正式发行未提前更新。
+
+### 剩余云端验收已固定原入口
+
+原五容量场景将针对上述真实 293 运行组合顺序执行：Core 256 MiB／540 秒；Core+Go 512 MiB／540 秒和 240 秒；含 PostgreSQL 的 1 GiB／540 秒和 240 秒。原速率、并发、慢连接数量、分位延迟、账本断言和 cgroup 读回保持，不另加负载变体。
+
+之后执行普通 full CI 明确忽略的原 accepted-proof-expiry 专项：真实等待至少 302 秒、原 480 秒入口、原 OS 进程重启与账本断言。Go reference 只能来自本轮首个成功 shared540 的真实 acceptance.json，不能先造 PASS。最后重跑原 16 case 浏览器验收，保留真实 900 秒访问令牌过期、原 1800 秒 launcher，以及授权、导入、刷新、撤销、桌面／窄屏／深色路径。旧 120／6102 浏览器成绩不转签。
+
+原 commerce 编译附件的真实 952 源码、编译输入子集和运行验证所需更宽输入集合分别核对；不能混称一个集合。缺失的 resource、payment 和 Extore HTTP fixture 仅在云端构建。控制准备与串行执行分开，单执行 runner 使用原门槛，首次必需失败即停止；当前仅形成计划与控制草稿，没有派发或产生当前组合的 PASS。本机未进行重型构建、依赖安装、PostgreSQL 或生产访问。
+
+### 生产切流仍须真实财务和目标状态
+
+财务只读 readiness 仍有三个材料根因：真实 source_review 审批、覆盖全部计划钱包的 reservations、实际初始化并正确声明的 financial target。raw/export 证明已解决。identity target 不能仅改名成 financial target，审批和预留金额不能代填。迁移范围仍为 Core69 导入后逐项原升级、available/debt opening，`all_financial_rights_complete=false`。
+
+工程验收通过后还需真实备份恢复、写入围栏、在途写入清空、负债核对和目标主机切换条件。当前没有足够证据承诺生产切流日期；这批固定时长的技术验收也不能代替财务授权。本轮生产连接、查询、写入均为 0。下面 19:34 及更早快照保留其原结论。
+
+
+## 历史快照（截至 2026-11-20 19:34 UTC）
 
 **六个客户端插件的新版本均已发布；GNU x64 的 Extore 实际归档与 native-flow 验收已通过。** 服务器最新候选为 [952d21c5](https://github.com/TokenNotIncluded/lmm-api-source/commit/952d21c5d5d849507478d8443f603c47e0126880)，原完整 [CI 44802025200](https://github.com/TokenNotIncluded/lmm-api-source/actions/runs/44802025200) 正在运行。它修复上一轮 Web 测试遗漏的版本预期；上一轮 Core 数据库测试继续保留运行。Windows 持久安装器已提交为独立草稿，体积门槛仍失败。本轮生产连接、查询、写入均为 0，没有切换生产流量。
 
