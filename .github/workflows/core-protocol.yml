@@ -5,7 +5,7 @@ on:
       diagnostic_mode:
         description: Explicit control-branch diagnostic; none retains the complete gate
         type: choice
-        options: [none, candidate, pre_fix, managed70, continuity, market, provider78_capture, provider78_acceptance]
+        options: [none, candidate, pre_fix, managed70, continuity, market, provider78_capture, provider78_acceptance, opencode_windows_journal]
         default: none
       product_sha:
         description: Immutable 40-hex candidate source (required for diagnostic modes)
@@ -459,3 +459,75 @@ jobs:
           path: ${{ runner.temp }}/market-postgres-evidence
           if-no-files-found: error
           retention-days: 7
+
+  opencode-windows-journal:
+    name: OpenCode Windows journal phases (diagnostic only)
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.diagnostic_mode == 'opencode_windows_journal' }}
+    runs-on: windows-latest
+    timeout-minutes: 5
+    defaults:
+      run:
+        shell: pwsh
+    env:
+      DIAGNOSTIC_MODE: ${{ inputs.diagnostic_mode }}
+      PRODUCT_SHA: ${{ inputs.product_sha }}
+      # Keep immutable Git bytes on the Windows diagnostic checkout only.
+      GIT_CONFIG_COUNT: "1"
+      GIT_CONFIG_KEY_0: core.autocrlf
+      GIT_CONFIG_VALUE_0: "false"
+    steps:
+      - name: Check out immutable diagnostic control
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          ref: ${{ github.sha }}
+          path: control
+          persist-credentials: false
+      - name: Check out exact OpenCode f2d product
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          repository: TokenNotIncluded/opencode-lmm-auth
+          ref: f2d2386da2663d3972f8c4bd71f7f0e7bd6c2490
+          path: opencode-product
+          persist-credentials: false
+      - name: Install the observed Node version
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 22.23.5
+          cache: npm
+          cache-dependency-path: opencode-product/package-lock.json
+      - name: Bind every product blob and the three declared overlay files
+        run: >-
+          node ./control/scripts/measure-opencode-windows-journal.mjs prepare
+          ./opencode-product ./control
+          "$env:RUNNER_TEMP/opencode-windows-journal-evidence"
+      - name: Install the unchanged locked dependencies without scripts
+        working-directory: opencode-product
+        run: |
+          npm ci --ignore-scripts 2>&1 | Tee-Object -FilePath "$env:RUNNER_TEMP/opencode-windows-journal-evidence/npm-ci.log"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Typecheck the measurement overlay
+        working-directory: opencode-product
+        run: |
+          npm --version | Tee-Object -FilePath "$env:RUNNER_TEMP/opencode-windows-journal-evidence/npm-version.log"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          npm run typecheck 2>&1 | Tee-Object -FilePath "$env:RUNNER_TEMP/opencode-windows-journal-evidence/typecheck.log"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Run original journal and lost-ACK cases exactly once
+        run: >-
+          node ./control/scripts/measure-opencode-windows-journal.mjs run
+          ./opencode-product ./control
+          "$env:RUNNER_TEMP/opencode-windows-journal-evidence"
+      - name: Record final source stability even after failure
+        if: ${{ always() }}
+        run: >-
+          node ./control/scripts/measure-opencode-windows-journal.mjs finalize
+          ./opencode-product ./control
+          "$env:RUNNER_TEMP/opencode-windows-journal-evidence"
+      - name: Preserve diagnostic evidence without product qualification
+        if: ${{ always() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: opencode-windows-journal-diagnostic-f2d-${{ github.run_id }}
+          path: ${{ runner.temp }}/opencode-windows-journal-evidence
+          if-no-files-found: error
+          retention-days: 1
