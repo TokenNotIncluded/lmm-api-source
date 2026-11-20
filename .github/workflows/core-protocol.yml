@@ -304,3 +304,61 @@ jobs:
             ${{ runner.temp }}/events-process.log
           if-no-files-found: warn
           retention-days: 7
+
+  market-postgres:
+    name: Store and tool-market real PostgreSQL checks
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    services:
+      postgres:
+        image: postgres:18-alpine@sha256:77f585114c32fbca283dc835b0596f4e52b51b4c6662d7810b2f4084f60a1873
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U postgres" --health-interval 5s
+          --health-timeout 3s --health-retries 10
+    steps:
+      - name: Checkout the same immutable integration source
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Record source and require PostgreSQL 18.6
+        env:
+          POSTGRES_CONTAINER: ${{ job.services.postgres.id }}
+        run: |
+          umask 077
+          mkdir "$RUNNER_TEMP/market-postgres-inputs"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test -z "$(git status --porcelain=v1 --untracked-files=all)"
+          git rev-parse HEAD > "$RUNNER_TEMP/market-postgres-inputs/source-sha.txt"
+          git rev-parse 'HEAD^{tree}' > "$RUNNER_TEMP/market-postgres-inputs/source-tree.txt"
+          cp .github/workflows/core-protocol.yml "$RUNNER_TEMP/market-postgres-inputs/workflow.yml"
+          cp scripts/verify-market-postgres.py "$RUNNER_TEMP/market-postgres-inputs/runner.py"
+          docker exec "$POSTGRES_CONTAINER" psql -X -U postgres -Atqc 'SHOW server_version_num' \
+            > "$RUNNER_TEMP/market-postgres-inputs/postgres-version.txt"
+          test "$(cat "$RUNNER_TEMP/market-postgres-inputs/postgres-version.txt")" = 180006
+      - uses: actions/setup-go@7a3fe6cf4cb3a834922a1244abfce67bcef6a0c5
+        with:
+          go-version: '1.27.2'
+          cache-dependency-path: services/extensions/go.sum
+      - name: Require the three original PostgreSQL parent cases without skips
+        env:
+          POSTGRES_CONTAINER: ${{ job.services.postgres.id }}
+        run: |
+          python3 -B scripts/verify-market-postgres.py \
+            --source "$GITHUB_WORKSPACE" --product-sha "$GITHUB_SHA" \
+            --postgres-container "$POSTGRES_CONTAINER" \
+            --output "$RUNNER_TEMP/market-postgres-evidence" \
+            --private-dir "$RUNNER_TEMP/market-postgres-private"
+      - name: Preserve source, raw test results and non-secret PostgreSQL evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: market-postgres-${{ github.sha }}-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/market-postgres-inputs
+            ${{ runner.temp }}/market-postgres-evidence
+          if-no-files-found: error
+          retention-days: 7
