@@ -2,24 +2,24 @@
 
 更新于 2026-11-20。此文件维护当前状态、剩余阻塞和证据入口；先前失败、历史候选和各轮实际回执继续保留。
 
-## 当前状态（截至 2026-11-20 21:51 UTC）
+## 当前状态（截至 2026-11-20 22:24 UTC）
 
-**服务器完整 CI 和 Linux 双架构安装门禁已经通过，六个客户端插件的新版本已发布。** Linux 的 60 个实际包及全部 20 项原安装案例均已核验。当前继续处理最终运行验收的控制入口和 Windows 重复安装：这两项仍未完成，不构成生产切流资格。生产流量与数据库尚未切换。
+**服务器完整 CI、Linux 双架构安装验收及 Windows 真实重复安装／卸载回归均已通过，六个客户端插件的新版本已发布。** Linux 的 60 个实际包与全部 20 项原安装案例已核验。服务器最终容量／支付／浏览器验收尚未通过，支付测试元数据修复已提交，新一轮云端验收已启动；生产切流还需要真实财务材料与目标检查；Windows 安装器另有体积超限待解决。生产流量与数据库尚未切换。
 
 | 工作项 | 固定来源与实际运行 | 当前结论 |
 | --- | --- | --- |
 | 服务器完整 CI | `952d21c5`；[44802025200](https://github.com/TokenNotIncluded/lmm-api-source/actions/runs/44802025200) | 6 个 job 全部 SUCCESS；Core 于 21:09:07 UTC 完成，汇总于 21:09:13 完成 |
 | Linux 安装与实际产物 | `a4437981`；[44816699551](https://github.com/TokenNotIncluded/lmm-api-source/actions/runs/44816699551) | 两架构全部通过；60 包、20 安装案例及实际 DEB native pair 核验 PASS |
 | 原运行组合的分发归档 | `293e53f7`；[44798787579](https://github.com/TokenNotIncluded/lmm-api-source/actions/runs/44798787579) | Core、Web、CLI、Extensions 四种实际归档已核验，来源继续保持 293 |
-| 最终容量／支付／浏览器 | 修复控制 [fb3b1450](https://github.com/TokenNotIncluded/lmm-api-source/commit/fb3b1450aa5316d017e132ae7f02534027e3914c) | [44823761920](https://github.com/TokenNotIncluded/lmm-api-source/actions/runs/44823761920) 已启动云端准备；五容量、302 秒支付、16 项浏览器尚无本轮 PASS |
-| Windows 首次安装 | 产品 `3012a354`、控制 `8e08a4d0`；[44819177500](https://github.com/TokenNotIncluded/lmm-scripts/actions/runs/44819177500) | PS7 和 PS5.1 各 90+33 项 PASS；五 CLI 首次安装、版本及 DSH 插件列表通过；repeat FAIL |
-| Windows 后续修复 | [3bdace68](https://github.com/TokenNotIncluded/lmm-scripts/commit/3bdace680e5fd4607517582104c13cfc95424295) | 两字符 JSON 数组读取修复及真实文件回归已提交；控制 `537c80cb` 的 [44823854144](https://github.com/TokenNotIncluded/lmm-scripts/actions/runs/44823854144) 已启动；完整结果待执行 |
+| 最终容量／支付／浏览器 | 修复控制 [550b2b00](https://github.com/TokenNotIncluded/lmm-api-source/commit/550b2b00e624c322cc292e52eec0eb065ddf52a9) | [44828479106](https://github.com/TokenNotIncluded/lmm-api-source/actions/runs/44828479106) 已启动云端准备；五容量、302 秒支付、16 项浏览器尚无本轮 PASS |
+| Windows 真实安装回归 | 产品 `3bdace68`、控制 `537c80cb`；[44823854144](https://github.com/TokenNotIncluded/lmm-scripts/actions/runs/44823854144) | PS7、PS5.1 各 90+40 项 PASS；五 CLI 安装／版本、DSH 插件列表、repeat／uninstall 与数据保留全部通过 |
+| 安装器体积预算 | 同一产品 `3bdace68`，原 23 脚本／11 类计数 | 72,912 B，原严格 <50,000 B 仍 FAIL；至少需净减 22,913 B |
 | 六个客户端插件 | Pi 0.1.0-alpha.7、DSH 0.1.0-alpha.9、Codewhale 0.1.0-alpha.4、VSCode 0.1.6、Zed 0.1.4、OpenCode 0.1.5 | 完整版本号、Release 资产与渠道边界见下方历史交付清单；未把 GitHub 发布等同于所有商店发布 |
 | 生产切流 | 原财务材料复核至 20:57 UTC | 三项材料根因仍在；实际 live target 未检查，生产连接／查询／写入为 0 |
 
 ### 完整 CI 已通过，原失败记录保留
 
-[952d21c5](https://github.com/TokenNotIncluded/lmm-api-source/commit/952d21c5d5d849507478d8443f603c47e0126880) 修正的是 Web 测试中四处旧版本预期。该源码的原完整 CI 已依次通过 Rust／真实数据库、支付 live、Go contract／race、Store／support PostgreSQL、durable event recovery、原生 protobuf／RPC／边界检查，以及 Web、翻译、Market、Extore native 和汇总门禁。Web 原 765 项源码测试、6 项脚本测试、格式／类型／构建检查保持。
+[952d21c5](https://github.com/TokenNotIncluded/lmm-api-source/commit/952d21c5d5d849507478d8443f603c47e0126880) 修正的是 Web 测试中四处旧版本预期。该源码的原完整 CI 已依次通过 Rust／真实数据库、支付 live、Go contract／race、Store／support PostgreSQL、durable event recovery、原生 protobuf／RPC／边界检查，以及 Web、翻译、Market、Extore native 和汇总门禁。Web 原源码测试、脚本测试、格式／类型／构建检查保持并通过。
 
 952 Core 原 raw 为 5,715,854 B，SHA256 `fcd8825cc6e5937484f4bbc85ffce8f219855203276d6e40507dcaa05daef605`；6 个 job 的原 raw 均已一次取得并核对。独立终态汇总 SHA256 `1c403662dea6e11f484f1a88f7b3bdd1643355e33dc1c4f9607374fcb96a7f3f`。原观察器已自然结束，未重复派发或重取日志。
 
@@ -44,7 +44,7 @@
 
 验收入口 `out/lmm-native-a4437981-20261120/acceptance-index.json`，SHA256 `8e21aa4567fd2b90da3c879ae3b83bedbe35a2e9f44275b253c3ea5c0d94fc3a`；完整 summary SHA256 `5bc63287dafb53e04bc9ed5974dfd3b5e0493fecd5b6cba4427b88cb45089b95`。本结论覆盖原交付与容器安装流程；真实主机的共享 data_dir、UID／权限、service manager 启用与迁移仍需各自检查。
 
-### 最终运行门禁已接入云端，两处入口错误已修复
+### 最终运行门禁已接入云端，控制入口与支付测试清单均已修复
 
 [控制 1c0b7ce9](https://github.com/TokenNotIncluded/lmm-api-source/commit/1c0b7ce95df5cbfc6b3287a933d2012de9c98bbf) 为原 workflow 增加显式选择模式，把准备与串行运行分开。它使用实际 293 分发包，并在核对 1,131 项编译输入及更宽运行输入后使用实际 952 commerce 驱动；缺失的测试和 HTTP fixture 只在云端构建。两台 runner 间核对完整字节、文件模式、来源及路径，原 prepared／编译收据保持，运行阶段采用新的进程与 lease 身份。
 
@@ -54,15 +54,21 @@
 
 [单文件修复 86e3cc09](https://github.com/TokenNotIncluded/lmm-api-source/commit/86e3cc09f05452c043d04b5c55098203974a7936) 精确绑定该唯一引用的 path／mode／commit，保留 480 个普通文件的全部字节与执行位检查，不初始化嵌套仓库。AST 和 11 个纯输入分支检查通过。第二次 [44822233959](https://github.com/TokenNotIncluded/lmm-api-source/actions/runs/44822233959) 已实际通过输入取得与核验：固定 Extore 快照、293 四包和 952 commerce driver 均通过；随后 prepare 因控制器查找错误的官方任务名称而失败，仍未进入原模型准备、编译或运行门禁。其原 raw 为 89,563 B，SHA256 `6c4568fe4d65f162ac5c2f88275dd45c87a1e27db193ee3641425299cb38ee3e`。
 
-[最新单点修复 fb3b1450](https://github.com/TokenNotIncluded/lmm-api-source/commit/fb3b1450aa5316d017e132ae7f02534027e3914c) 使用实际官方 Core job `136506051398`，并核对 `build (core)`、固定 run／head、attempt 1 和成功终态。真实旧 API 输入通过，9 个负例全部拒绝，旧两个失败保留。该修复已推送；新 [44823761920](https://github.com/TokenNotIncluded/lmm-api-source/actions/runs/44823761920) 于 21:49:57 UTC 创建，单次 POST／HTTP 204／attempt 1，已进入云端准备。原准备 95 分钟、运行 150 分钟上限保持。目前尚无这组实际运行包的五容量、长等待支付和浏览器 PASS。
+[第三版单点修复 fb3b1450](https://github.com/TokenNotIncluded/lmm-api-source/commit/fb3b1450aa5316d017e132ae7f02534027e3914c) 使用实际官方 Core job `136506051398`，并核对 `build (core)`、固定 run／head、attempt 1 和成功终态。真实旧 API 输入通过，9 个负例全部拒绝，旧两个失败保留。该修复已推送；新 [44823761920](https://github.com/TokenNotIncluded/lmm-api-source/actions/runs/44823761920) 于 21:49:57 UTC 创建，单次 POST／HTTP 204／attempt 1；现有唯一观察器在 21:59:45 UTC 记录第三轮准备 FAIL，运行 job SKIPPED。原公开 raw 89,378 B，SHA256 `2c391a137cd9e1ce1221fd892d8457de5556927574c2dac918245c54912e3c62`，仅记录 `FAIL: prepare; inspect preserved receipts`。保留产物已明确首错为支付测试 discovery／ignored 集合校验；原 Core resource prepare 已成功生成 prepared 收据，但完整 prepare 与实际运行验收尚未通过。固定 293 的支付测试引入了普通 `hex_codec::tests::preserves_hex_representation_and_input_errors`，旧 runner 的完整清单仍按 2 项、selected 执行仍按 1 filtered 计数；952 已保存的原完整 CI 日志直接证明实际为 3 项，其中 2 项 PASS、expiry 唯一 ignored。需同步精确 full 3／ignored 1／selected 2 filtered，原业务断言及 180／480 秒时限、302 秒真实等待保留。
 
-### Windows：首次安装通过，继续修复 repeat
+[四文件修复 550b2b00](https://github.com/TokenNotIncluded/lmm-api-source/commit/550b2b00e624c322cc292e52eec0eb065ddf52a9) 已提交并推送：原支付 runner 和既有单测同步准确元数据，云端显式副本仅额外重定向到固定 product 根，控制器在 prepare／runtime 两端核对原文件、canonical、副本与跨 VM 绑定。原 293 文件及 952 driver 身份保持；原 4 项 CaseSelection 纯元数据测试全部通过，原负例保留并补充 missing hex、旧清单、错误 ignored 和旧 filtered 数拒绝，独立静态复核通过。下轮会保存两份实际测试清单原文及摘要，避免再缺失首错上下文。新 [44828479106](https://github.com/TokenNotIncluded/lmm-api-source/actions/runs/44828479106) 于 22:22:55 UTC 创建，单次 POST／HTTP 204／attempt 1，当前仍在准备阶段，尚无本轮运行 PASS。
 
-文件原子替换的空 backup 绑定和两条 Python 探针参数已经修复。产品 3012 的原始日志明确记录：PS7 与 PS5.1 各完成 90 项原合同及 33 项 managed 回归；Pi、DSH、Codex、Claude Code、LMM 首次安装全部成功，DSH 列出 alpha.9 插件。随后 repeat 在已有目录识别处失败，uninstall 与卸载后的数据保留检查尚未到达。前后完整源码绑定均 PASS。终态收据 SHA256 `281217125412cf657773baf3f785773cb256a1522e074abfa5be5e875cc72269`。
+原准备 95 分钟、运行 150 分钟上限保持。目前尚无这组实际运行包的五容量、长等待支付和浏览器 PASS。
 
-3bdace 的产品修改只增加两个括号，对 JSON 转换结果分组后再收集目录键。此兼容修正依据 [Microsoft 的 PowerShell 5.1 数组枚举说明](https://learn.microsoft.com/en-us/powershell/module/microsoft.powershell.core/about/about_operators?view=powershell-5.1)。新增回归从生产 AST 提取实际 writer、reader 和未知目录拒绝逻辑，用真实临时文件检查单键／双键往返、未知非空目录及非法 metadata 继续拒绝。原 33 项完整保留，成功时应为 40 项；绑定这两份产品文件的新控制 [537c80cb](https://github.com/TokenNotIncluded/lmm-scripts/commit/537c80cbb66919b4ee6af9667e0a14494e668d33) 已推送；新 [44823854144](https://github.com/TokenNotIncluded/lmm-scripts/actions/runs/44823854144) 于 21:50:34 UTC 创建，单次 POST／HTTP 204／attempt 1，保留原 15 分钟预算和全套真实步骤。完整结果仍待执行，旧运行的 profile JSON 内容也未采集，因此完整故障归因仍待真实 repeat 复验。
+### Windows：原真实重复安装、卸载和数据保留已通过
 
-当前生产脚本合计 **72,912 B，原严格 <50,000 B 门槛仍 FAIL**。Windows 诊断通过某个阶段不等于安装器已取得完整发行资格，PR12、main 和正式 installer 指针没有提前提升。
+产品 [3bdace68](https://github.com/TokenNotIncluded/lmm-scripts/commit/3bdace680e5fd4607517582104c13cfc95424295)、控制 [537c80cb](https://github.com/TokenNotIncluded/lmm-scripts/commit/537c80cbb66919b4ee6af9667e0a14494e668d33) 的原 [run 44823854144](https://github.com/TokenNotIncluded/lmm-scripts/actions/runs/44823854144) 已完整 SUCCESS。原始日志确认 PS7 与 PS5.1 各完成 **90 项原合同 + 40 项 managed 回归**；Pi、DSH、Codex、Claude Code、LMM 的真实首次安装及版本检查全部通过，DSH 插件列表包含 alpha.9。
+
+21:56:53 UTC，第二次受管 DSH 安装成功；21:56:54 UTC，受管 runtime 被移除，并保留 DSH_HOME、profiles、provider packages、pnpm、Python 与共享 PATH。原步骤中的 shim 不变、profile sentinel、provider TGZ 摘要检查均继续执行并成功，随后完整源码后验也通过。原 raw 75,646 B，SHA256 `12ffcd794aad6199f378e245155cb151b4af07f8f746d34d15b71d79ea5abfe1`；13,412 B 源码证明 ZIP 与 API 摘要一致。76 个产品叶节点、77 个控制叶节点的 mode／type／blob 和完整 tree 均核对，7 份显式 raw 绑定相等，前后源码无漂移。raw 与 ZIP 各首次取得一次，独立终态收据 SHA256 `8f5be214dffdad37a8406ff9eadb29a40d09c09329556a963003a57cf06cc927`。
+
+此次产品修复只增加两个括号，对 JSON 转换结果分组后再收集目录键，依据 [Microsoft 的 PowerShell 5.1 数组枚举说明](https://learn.microsoft.com/en-us/powershell/module/microsoft.powershell.core/about/about_operators?view=powershell-5.1)。新增回归从生产 AST 提取实际 writer、reader 和未知目录拒绝逻辑，用真实临时文件覆盖单键／双键往返、未知非空目录及非法 metadata 拒绝；原 33 项完整保留。此前的原子替换空参数与 Python 探针参数修复也在这次完整流程中取得验证。旧 3012／8e08 的 repeat 失败和当时未到达的 uninstall 仍保留原记录。
+
+当前脚本合计 **72,912 B，原严格 <50,000 B 门槛仍 FAIL**，至少需净减 22,913 B。精确 23 路径的只读核算表明，原 a705 至当前的增加来自 DSH 持久安装 22,274 B、menu 665 B、Pi 2 B。尚无能关闭全部缺口的低风险局部方案；体积审核收据 SHA256 `16dbfeeeb014ff83ed3f22a19cbfd3e0f63488e6371244aadb705fd7995b3c45`。Windows 功能回归通过与安装器完整发行资格分别记录，PR12、main 和正式 installer 指针没有提前提升。
 
 ### 生产切流仍受真实材料及最终运行结果约束
 
