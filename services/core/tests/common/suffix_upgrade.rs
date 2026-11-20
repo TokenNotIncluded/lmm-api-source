@@ -2,7 +2,10 @@
 //! Uses real separate installer/owner/runtime identities and preserves financial facts.
 use lmm_core::core_schema::{UpgradeDatabase, UpgradeError, UpgradeRequest, UpgradeRoles};
 use sha2::{Digest, Sha256};
-use sqlx::{Connection, PgConnection, Row, postgres::PgPoolOptions};
+use sqlx::{
+    ConnectOptions, Connection, PgConnection, Row,
+    postgres::{PgConnectOptions, PgPoolOptions},
+};
 
 use super::{
     ERROR_PREFIX, PRE_CATALOG, PRE_MANIFEST, PROCEDURE, RECEIPT, check_history, predecessor,
@@ -133,39 +136,58 @@ SELECT jsonb_build_object(
 }
 
 // SQLx close sends Terminate but does not await PostgreSQL backend exit.
-// Observe only this fixture's closed PIDs from the maintenance database before
-// asking the offline API for exclusivity; never retry or relax that API's guard.
-async fn wait_for_closed_backends(pids: &[i32]) {
-    let mut monitor = PgConnection::connect(&std::env::var("DATABASE_URL").unwrap())
-        .await
-        .unwrap();
-    let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(5);
-    loop {
-        let present: bool =
-            sqlx::query_scalar("SELECT EXISTS(SELECT FROM pg_stat_activity WHERE pid=ANY($1))")
-                .bind(pids)
-                .fetch_one(&mut monitor)
+// Observe the complete target from a separate maintenance database before each
+// offline business check. Never retry the CLI or relax its exclusivity guard.
+async fn wait_for_closed_backends(
+    database: &UpgradeDatabase,
+    pids: &[i32],
+    inspection: Option<PgConnection>,
+) {
+    tokio::time::timeout(std::time::Duration::from_secs(5), async {
+        let mut pids = pids.to_vec();
+        if let Some(mut connection) = inspection {
+            let pid: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
+                .fetch_one(&mut connection)
                 .await
                 .unwrap();
-        if !present {
-            break;
+            connection.close().await.unwrap();
+            pids.push(pid);
         }
-        assert!(
-            tokio::time::Instant::now() < deadline,
-            "closed fixture backends {pids:?} did not exit"
-        );
-        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
-    }
-    monitor.close().await.unwrap();
-}
-
-async fn close_inspection(mut connection: PgConnection) {
-    let pid: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
-        .fetch_one(&mut connection)
-        .await
-        .unwrap();
-    connection.close().await.unwrap();
-    wait_for_closed_backends(&[pid]).await;
+        let options: PgConnectOptions = std::env::var("DATABASE_URL").unwrap().parse().unwrap();
+        let maintenance = options.get_database().expect("explicit maintenance database");
+        assert!(!maintenance.is_empty() && maintenance != database.name.as_str());
+        let options = options.disable_statement_logging();
+        let mut monitor = PgConnection::connect_with(&options).await.unwrap();
+        loop {
+            let row = sqlx::query(
+                "SELECT current_database()::text AS maintenance, d.datname::text AS name, \
+                 current_setting('server_version_num')::bigint AS version, \
+                 (SELECT system_identifier::text FROM pg_control_system()) AS system, \
+                 NOT EXISTS(SELECT FROM pg_stat_activity WHERE datid=d.oid OR pid=ANY($2)) AS no_backends, \
+                 NOT EXISTS(SELECT FROM pg_prepared_xacts WHERE database=d.datname) AS no_prepared \
+                 FROM pg_database d WHERE d.oid::bigint=$1",
+            )
+            .bind(i64::from(database.oid))
+            .bind(&pids)
+            .fetch_one(&mut monitor)
+            .await
+            .unwrap();
+            assert_ne!(row.get::<String, _>("maintenance"), database.name);
+            assert_eq!(row.get::<String, _>("name"), database.name);
+            assert_eq!(row.get::<String, _>("system"), database.system_identifier);
+            assert_eq!(
+                row.get::<i64, _>("version"),
+                i64::from(database.server_version_num)
+            );
+            if row.get::<bool, _>("no_backends") && row.get::<bool, _>("no_prepared") {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+        monitor.close().await.unwrap();
+    })
+    .await
+    .expect("offline fixture target did not become exclusive within 5 seconds");
 }
 
 fn request() -> UpgradeRequest {
@@ -334,12 +356,13 @@ async fn suffix_upgrade_preserves_real_predecessor_and_resolves_exact_replay(poo
     .unwrap();
     installer.close().await;
     pool.close().await;
-    wait_for_closed_backends(&fixture_pids).await;
+    wait_for_closed_backends(&r.database, &fixture_pids, None).await;
     let result = upgrade_database(url.as_str(), r.clone(), Some((1, "apply")))
         .await
         .unwrap();
     assert_eq!(result.status, "committed");
     assert_eq!(result.components, target_count());
+    wait_for_closed_backends(&r.database, &[], None).await;
     let replay = upgrade_database(url.as_str(), r.clone(), Some((2, "replay")))
         .await
         .unwrap();
@@ -350,6 +373,7 @@ async fn suffix_upgrade_preserves_real_predecessor_and_resolves_exact_replay(poo
     );
     let mut another = r.clone();
     another.upgrade_id.push('2');
+    wait_for_closed_backends(&r.database, &[], None).await;
     assert!(matches!(
         upgrade_database(url.as_str(), another, Some((3, "different_id"))).await,
         Err(UpgradeError::Rejected(code)) if code == format!("{ERROR_PREFIX}_ORIGINAL_RECEIPT_ABSENT")
@@ -359,6 +383,7 @@ async fn suffix_upgrade_preserves_real_predecessor_and_resolves_exact_replay(poo
         &mut changed_request.roles.runtime,
         &mut changed_request.roles.extensions,
     );
+    wait_for_closed_backends(&r.database, &[], None).await;
     let changed_result =
         upgrade_database(url.as_str(), changed_request, Some((4, "changed_request"))).await;
     assert!(
@@ -454,7 +479,7 @@ async fn suffix_upgrade_preserves_real_predecessor_and_resolves_exact_replay(poo
     .unwrap();
     // The offline API requires an exclusive connection. Validate the same
     // original receipt through that API, not by exporting private privilege helpers.
-    close_inspection(inspect).await;
+    wait_for_closed_backends(&r.database, &[], Some(inspect)).await;
     assert!(matches!(
         upgrade_database(url.as_str(), r.clone(), Some((5, "receipt_privilege_mismatch"))).await,
         Err(UpgradeError::Rejected(code)) if code == format!("{ERROR_PREFIX}_RECEIPT_PRIVILEGES_INVALID")
@@ -475,7 +500,7 @@ async fn suffix_upgrade_preserves_real_predecessor_and_resolves_exact_replay(poo
     .execute(&mut inspect)
     .await
     .unwrap();
-    close_inspection(inspect).await;
+    wait_for_closed_backends(&r.database, &[], Some(inspect)).await;
     let restored = upgrade_database(
         url.as_str(),
         r.clone(),

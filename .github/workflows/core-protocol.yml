@@ -40,6 +40,19 @@ jobs:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
         with:
           persist-credentials: false
+      - name: Configure private PostgreSQL for offline upgrade tests
+        env:
+          POSTGRES_CONTAINER: ${{ job.services.postgres.id }}
+        run: |
+          # This disposable fixture tests offline upgrades; the production guard is unchanged.
+          docker exec "$POSTGRES_CONTAINER" psql -X -U postgres -d postgres -v ON_ERROR_STOP=1 \
+            -c 'ALTER SYSTEM SET autovacuum = off'
+          test "$(docker exec "$POSTGRES_CONTAINER" psql -X -U postgres -d postgres -v ON_ERROR_STOP=1 \
+            -Atqc 'SELECT pg_reload_conf()')" = t
+          docker exec "$POSTGRES_CONTAINER" psql -X -U postgres -d postgres -v ON_ERROR_STOP=1 \
+            -Atqc "SELECT setting, pending_restart FROM pg_settings WHERE name = 'autovacuum'" \
+            > "$RUNNER_TEMP/core-postgres-offline-settings.txt"
+          test "$(cat "$RUNNER_TEMP/core-postgres-offline-settings.txt")" = 'off|f'
       - name: Initialize the pinned CLI only for archive contract checks
         run: git submodule update --init --depth 1 -- apps/cli
       - name: Record exact integration source
@@ -285,6 +298,7 @@ jobs:
           path: |
             ${{ runner.temp }}/core-source-sha.txt
             ${{ runner.temp }}/core-format.log
+            ${{ runner.temp }}/core-postgres-offline-settings.txt
             ${{ runner.temp }}/preserved-pancake67/provenance.json
             ${{ runner.temp }}/preserved-pancake67/source.tar.gz
             ${{ runner.temp }}/preserved-pancake67/schema-manifest.json
