@@ -4835,14 +4835,12 @@ dependencies = [
 [[package]]
 name = "zclap"
 version = "0.1.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5efb5b25a7eb925fe9943888238d1e261224fa629456f4abe203b1deb34ac102"
+source = "git+https://github.com/LIghtJUNction/zclap.git#4d87f3ae3743e81509d5ac5500909955667c860f"
 
 [[package]]
 name = "zconv"
 version = "0.4.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fb4c2c557b09be10a449b44d4034059837ab1980e8f89b830aedefcc9d0bbc15"
+source = "git+https://github.com/LIghtJUNction/zconv.git#0af1f7eb0766ff0ce9db5cee7c6184eff511a8c1"
 
 [[package]]
 name = "zerocopy"
@@ -4941,8 +4939,7 @@ dependencies = [
 [[package]]
 name = "zhex"
 version = "0.1.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d14ad9f2b67116dddbb199885e512dba8ad5e6c4d1da75b3a9f333811adb99ee"
+source = "git+https://github.com/LIghtJUNction/zhex.git#09dfaa0adee628d0714e2f9e96921555e619b2f6"
 
 [[package]]
 name = "zmij"
