@@ -234,7 +234,7 @@ describe('AssistantSetupTool', () => {
     })
     assert.match(
       container.textContent ?? '',
-      /lmm-pi-provider npm:@tokennotincluded\/pi-lmm-provider@latest/
+      /npm exec --yes --prefer-online --package=@tokennotincluded\/pi-lmm-provider@0\.1\.0-alpha\.7 -- lmm-pi-provider npm:@tokennotincluded\/pi-lmm-provider@0\.1\.0-alpha\.7/
     )
     assert.throws(() => findButton('Create API key'))
     assert.equal(container.querySelector('select[aria-label="Model ID"]'), null)
@@ -245,7 +245,7 @@ describe('AssistantSetupTool', () => {
     })
     assert.match(
       container.textContent ?? '',
-      /dsh plugin --profile web add "\$\(npm view @tokennotincluded\/dsh-lmm-provider@latest dist\.tarball --prefer-online\)"/
+      /dsh plugin --profile web add "https:\/\/github\.com\/TokenNotIncluded\/dsh-lmm-provider\/releases\/download\/v0\.1\.0-alpha\.9\/dsh-lmm-provider\.tgz" --ignore-scripts/
     )
     assert.throws(() => findButton('Create API key'))
     assert.equal(container.querySelector('select[aria-label="Model ID"]'), null)
@@ -256,7 +256,7 @@ describe('AssistantSetupTool', () => {
     })
     assert.match(
       container.textContent ?? '',
-      /dsh\.cmd plugin --profile web add "\$\(npm\.cmd view @tokennotincluded\/dsh-lmm-provider@latest dist\.tarball --prefer-online\)"/
+      /dsh\.cmd plugin --profile web add "https:\/\/github\.com\/TokenNotIncluded\/dsh-lmm-provider\/releases\/download\/v0\.1\.0-alpha\.9\/dsh-lmm-provider\.tgz" --ignore-scripts/
     )
 
     await act(async () => {
@@ -266,7 +266,7 @@ describe('AssistantSetupTool', () => {
     assert.ok(container.querySelector('#codewhale-oauth'))
     assert.match(
       container.textContent ?? '',
-      /git clone https:\/\/github\.com\/TokenNotIncluded\/codewhale-lmm-provider\.git/
+      /git clone --branch v0\.1\.0-alpha\.4 --depth 1 https:\/\/github\.com\/TokenNotIncluded\/codewhale-lmm-provider\.git/
     )
     assert.match(container.textContent ?? '', /codewhale-lmm login/)
     assert.match(container.textContent ?? '', /codewhale-lmm models/)
