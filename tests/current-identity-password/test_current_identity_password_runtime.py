@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import argparse
 from copy import deepcopy
+from datetime import datetime
 import hashlib
 import http.client
 import json
@@ -42,6 +43,8 @@ CASES = (
      "expected_auth_version": 3},
 )
 WRONG_PASSWORD = "WrongPassword#2026"
+HEARTBEAT_TABLE = "core_operations.instances"
+EMPTY_TABLE = {"rows": 0, "sha256": hashlib.sha256(b"").hexdigest()}
 HTTP_MUTABLE_TABLES = frozenset({
     "core_identity.auth_attempts", "core_identity.password_logins",
     "core_identity.user_profiles", "core_identity.credentials",
@@ -83,7 +86,30 @@ def money_state(state, *, include_policy=True):
 
 
 def stable_tables(state):
-    return {k: v for k, v in state["tables"].items() if k not in HTTP_MUTABLE_TABLES}
+    # Core's existing Heartbeat registers its own boot while running and deletes
+    # it on graceful stop. Assert that one row separately, never a whole schema.
+    return {k: v for k, v in state["tables"].items()
+            if k not in HTTP_MUTABLE_TABLES and k != HEARTBEAT_TABLE}
+
+
+def heartbeat_observation(reader, state, started_utc):
+    observed = reader.query("SELECT jsonb_build_object('observed_at',extract(epoch FROM clock_timestamp())::double precision,"
+        "'instances',COALESCE((SELECT jsonb_agg(jsonb_build_object('boot_id',boot_id,'instance_name',instance_name,"
+        "'version',version,'phase',phase,'models_ready',models_ready,'rpc_ready',rpc_ready,"
+        "'started_at',extract(epoch FROM started_at)::double precision,"
+        "'heartbeat_at',extract(epoch FROM heartbeat_at)::double precision) ORDER BY boot_id)"
+        " FROM core_operations.instances),'[]'::jsonb))")
+    check(state["tables"][HEARTBEAT_TABLE]["rows"] == len(observed["instances"]) == 1,
+          "runtime must have exactly its own process heartbeat")
+    row = observed["instances"][0]
+    started = datetime.fromisoformat(started_utc)
+    check(started.tzinfo is not None and re.fullmatch(r"[a-f0-9]{32}", row["boot_id"])
+          and row["instance_name"] == "core-" + row["boot_id"][:12]
+          and row["version"] == "0.1.0" and row["phase"] in ("preparing", "ready")
+          and row["models_ready"] is False and row["rpc_ready"] is False
+          and started.timestamp() <= row["started_at"] <= row["heartbeat_at"] <= observed["observed_at"],
+          "runtime heartbeat is not bound to this Core startup window")
+    return observed
 
 
 def protected_rows_sql(case_user_ids):
@@ -151,6 +177,8 @@ class Preparation(G.Regression):
             case.update({k: mapped[k] for k in ("target_user_id", "target_personal_account_id")})
             cases.append(case)
         after = self.state(migration)
+        check(after["tables"][HEARTBEAT_TABLE] == EMPTY_TABLE,
+              "new password fixture must not already have a runtime instance")
         check(money_state(before, include_policy=False) == money_state(after, include_policy=False),
               "identity completion changed financial state")
         probe = {"format_version": 1, "scope": SCOPE, "synthetic_only": True,
@@ -160,6 +188,7 @@ class Preparation(G.Regression):
                  "inventory": self.inventory, "migration_id": migration,
                  "committed_manifest_sha256": M.digest(receipt), "cases": cases,
                  "before_http_money": money_state(after), "before_http_stable_tables": stable_tables(after),
+                 "before_http_heartbeat": after["tables"][HEARTBEAT_TABLE],
                  "before_http_protected_rows_sha256": M.digest(self.query(protected_rows_sql([c["target_user_id"] for c in cases]))),
                  "before_http_credential_count": self.query(credential_count_sql()),
                  "preexisting_session": {"bearer": self.session_bearers[0], "credential_id": self.session_ids[0],
@@ -219,7 +248,7 @@ def request(origin, method, path, *, body=None, bearer=None):
         connection.close()
 
 
-def verify(fixture_path, probes_path, origin, output, core_pid, expected_core_sha256):
+def verify(fixture_path, probes_path, origin, output, core_pid, expected_core_sha256, core_started_utc):
     fixture, probe = M.private_json(fixture_path), M.private_json(probes_path)
     check(probe.get("format_version") == 1 and probe.get("scope") == SCOPE and probe.get("synthetic_only") is True
           and probe["fixture_file_sha256"] == file_sha(fixture_path)
@@ -289,6 +318,8 @@ def verify(fixture_path, probes_path, origin, output, core_pid, expected_core_sh
         status, _, _ = request(origin, "GET", "/core/v1/identity", bearer=probe["expired_session_bearer"])
         check(status == 401, "expired native Session was revived")
         after = reader.query(M.U.state_sql(probe["inventory"], probe["migration_id"]))
+        check(probe["before_http_heartbeat"] == EMPTY_TABLE, "pre-runtime heartbeat baseline differs")
+        heartbeat = heartbeat_observation(reader, after, core_started_utc)
         check(money_state(after) == probe["before_http_money"], "password runtime changed financial state")
         check(stable_tables(after) == probe["before_http_stable_tables"], "password runtime changed unrelated application state")
         check(M.digest(reader.query(protected_rows_sql([c["target_user_id"] for c in probe["cases"]])))
@@ -298,11 +329,17 @@ def verify(fixture_path, probes_path, origin, output, core_pid, expected_core_sh
         check(M.digest(reader.query(receipt_sql)) == probe["committed_manifest_sha256"], "runtime rewrote identity receipt")
         check(file_sha(process / "exe") == expected_core_sha256
               and (process / "stat").read_text().rsplit(") ", 1)[1].split()[19] == start, "running Core changed during probe")
+        # The controller executes this same read-only state query again after
+        # graceful Core exit: the heartbeat must return to the empty baseline,
+        # and every other row hash, sequence and inventory must remain exact.
+        M.F.write_private(output, "post-http-state.private.json", M.canonical(after) + "\n")
+        M.F.write_private(output, "post-http-state-readback.sql", M.U.state_sql(probe["inventory"], probe["migration_id"]))
         result = {"status": "PASS", "scope": SCOPE, "actual_core_sha256": expected_core_sha256,
                   "password_runtime_login": "PASS", "events": events,
                   "history_session_auth_version": 3, "new_session_auth_version": 1,
                   "bcrypt_verified_then_upgraded_and_argon_relogin_verified": True,
                   "financial_state_unchanged": True, "preexisting_identity_and_sessions_preserved": True,
+                  "observed_process_heartbeat": heartbeat,
                   "production_access": False, "production_authorized": False, "real_google_login": "NOT_RUN",
                   "external_provider_calls": 0, "turnstile_provider_calls": 0,
                   "cleanup_owner": "parent disposable-fixture controller"}
@@ -324,15 +361,16 @@ def main(argv=None):
     parser.add_argument("--origin")
     parser.add_argument("--core-pid", type=int)
     parser.add_argument("--expected-core-sha256")
+    parser.add_argument("--core-started-utc")
     args = parser.parse_args(argv)
     os.umask(0o077)
     check(file_sha(M.__file__) == ADAPTER_SHA256, "frozen identity adapter bytes differ")
     if args.phase == "prepare":
         Preparation(M.private_json(args.fixture), args.output).prepare_once(args.fixture)
     else:
-        check(args.probes is not None and args.origin and args.core_pid and args.expected_core_sha256,
-              "verify needs probes, origin, Core PID and exact executable SHA256")
-        verify(args.fixture, args.probes, args.origin, args.output, args.core_pid, args.expected_core_sha256)
+        check(args.probes is not None and args.origin and args.core_pid and args.expected_core_sha256 and args.core_started_utc,
+              "verify needs probes, origin, Core PID, exact executable SHA256 and startup UTC")
+        verify(args.fixture, args.probes, args.origin, args.output, args.core_pid, args.expected_core_sha256, args.core_started_utc)
 
 
 if __name__ == "__main__":

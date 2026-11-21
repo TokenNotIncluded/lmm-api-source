@@ -239,11 +239,12 @@ privacy_policy_enabled=false
     (work / "runtime.toml").write_text(config)
     log_path = work / "password-runtime-core.log"
     log = log_path.open("xb")
+    started_utc = datetime.now(timezone.utc).isoformat()
     proc = subprocess.Popen([str(output / "lmm-core"), "--config", str(work / "runtime.toml"), "serve"],
                             stdout=log, stderr=subprocess.STDOUT, env=env)
     lifecycle = {"status": "STARTED", "pid": proc.pid, "origin": origin,
                  "expected_core_sha256": CORE_SHA, "forced_termination": False,
-                 "production_access": False, "started_utc": datetime.now(timezone.utc).isoformat()}
+                 "production_access": False, "started_utc": started_utc}
     try:
         for _ in range(200):
             need(proc.poll() is None, "fixed Core exited before password runtime readiness")
@@ -266,6 +267,7 @@ privacy_policy_enabled=false
         run([sys.executable, "-B", driver, "verify", "--fixture", work / "fixture.private.json",
              "--probes", work / "regression/runtime-probes.private.json", "--origin", origin,
              "--core-pid", str(proc.pid), "--expected-core-sha256", CORE_SHA,
+             "--core-started-utc", started_utc,
              "--output", work / "password-runtime"], work, "identity-password-http", env=testenv, timeout=180)
         verified = json.loads((work / "password-runtime/result.public.json").read_text())
         need(verified["status"] == "PASS" and verified["password_runtime_login"] == "PASS"
@@ -286,7 +288,25 @@ privacy_policy_enabled=false
         log.close()
         lifecycle.update(core_exit=proc.returncode, core_process_stopped=proc.poll() is not None,
                          core_log_sha256=sha(log_path), finished_utc=datetime.now(timezone.utc).isoformat())
-        save(work / "password-runtime-lifecycle.public.json", lifecycle)
+        try:
+            state_path = work / "password-runtime/post-http-state.private.json"
+            if state_path.exists():
+                before_stop = json.loads(state_path.read_text())
+                query = (work / "password-runtime/post-http-state-readback.sql").read_text()
+                after_stop = json.loads(sql("BEGIN READ ONLY; " + query.rstrip(";\n") + "; COMMIT;"))
+                probe = json.loads((work / "regression/runtime-probes.private.json").read_text())
+                actual_heartbeat = after_stop["tables"].pop("core_operations.instances")
+                running_heartbeat = before_stop["tables"].pop("core_operations.instances")
+                lifecycle["heartbeat_rows_running"] = running_heartbeat["rows"]
+                lifecycle["heartbeat_rows_after_stop"] = actual_heartbeat["rows"]
+                lifecycle["all_other_application_state_unchanged_after_stop"] = before_stop == after_stop
+                lifecycle["after_stop_non_heartbeat_state_sha256"] = hashlib.sha256(
+                    json.dumps(after_stop, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+                need(running_heartbeat["rows"] == 1 and actual_heartbeat == probe["before_http_heartbeat"]
+                     and actual_heartbeat["rows"] == 0 and before_stop == after_stop,
+                     "Core shutdown did not preserve application state and remove only its heartbeat")
+        finally:
+            save(work / "password-runtime-lifecycle.public.json", lifecycle)
         need(proc.returncode == 0 and lifecycle["forced_termination"] is False,
              "password Core did not stop cleanly")
 
@@ -448,7 +468,7 @@ def execute(source, output, *, regression="keys"):
             tests = CONTROL / "tests/current-identity-next"
             password_tests = CONTROL / "tests/current-identity-password"
             driver = password_tests / "test_current_identity_password_runtime.py"
-            need(sha(driver) == "1213f0b4712ad2dc5647ff81af542329cf4154a4ca2140fe5e41cfed57475cf9",
+            need(sha(driver) == "2787a8c11337348e38a70fb7a30b65de3732b40183920277dd53b0d1e9aaa1a8",
                  "frozen password runtime driver differs")
             testenv = {**env, "PYTHONPATH": os.pathsep.join(map(str, (password_tests, tests, keys, source / "scripts")))}
             run([sys.executable, "-B", driver, "prepare", "--fixture", work / "fixture.private.json",
