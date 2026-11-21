@@ -341,8 +341,11 @@ class Regression:
             proc.stdin.close()
             ready = False
             for _ in range(50):
-                ready = self.query("SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE application_name=" +
-                    M.literal(app) + " AND wait_event='PgSleep')")
+                # The NOLOGIN owner intentionally has no pg_read_all_stats.
+                # Probe the actual lock instead of relying on another login's
+                # restricted wait_event field. This probe's transaction ends
+                # immediately, releasing a lock if the competitor is not ready.
+                ready = self.query(f"SELECT NOT pg_try_advisory_xact_lock({M.FENCE})")
                 if ready:
                     break
                 time.sleep(0.1)

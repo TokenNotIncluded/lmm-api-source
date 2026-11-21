@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Independent real Core/Go/PostgreSQL browser fixture. No business response mocks."""
 from pathlib import Path
-import argparse, hashlib, http.client, http.server, importlib.util, json, os, secrets, shutil, signal, subprocess, sys, tempfile, threading, time, traceback
+import argparse, hashlib, http.client, http.server, importlib.util, json, os, secrets, shutil, signal, socket, subprocess, sys, tempfile, threading, time, traceback
 from unittest.mock import patch
 from urllib.parse import urlparse
 os.umask(0o077)
@@ -123,6 +123,25 @@ requests=[];request_lock=threading.Lock();stop=threading.Event()
 signal.signal(signal.SIGTERM,lambda *_:stop.set())
 signal.signal(signal.SIGINT,lambda *_:stop.set())
 servers=[]
+class BrowserPGProxy(base.Proxy):
+ # The original fault proxy forwards individual PostgreSQL frames. Keep its
+ # exact identity/protocol checks but disable artificial small-frame TCP delay.
+ # Product pool sizes, acquire deadlines, browser assertions and TTL are unchanged.
+ def __init__(self,*args,**kwargs):
+  self.nodelay_connections=0
+  super().__init__(*args,**kwargs)
+ def finish_request(self,request,client_address):
+  assert request.family in (socket.AF_INET,socket.AF_INET6)
+  request.setsockopt(socket.IPPROTO_TCP,socket.TCP_NODELAY,1)
+  assert request.getsockopt(socket.IPPROTO_TCP,socket.TCP_NODELAY)==1
+  with self.lock:self.nodelay_connections+=1
+  return super().finish_request(request,client_address)
+ def transport_observation(self):
+  with self.lock:
+   return {'frontend':'tcp-loopback','backend':'private-postgresql-unix-socket',
+           'tcp_nodelay_connections':self.nodelay_connections,
+           'live_socket_count':len(self.connections),'protocol_errors':list(self.errors),
+           'fault_events':list(self.events),'business_response_mocks':False}
 class RetainedExtore(extore_module.ExtoreFixture):
  def __init__(self,*args,**kwargs):
   super().__init__(*args,**kwargs)
@@ -239,6 +258,9 @@ def capture_resources(label):
   p=Path('/proc/pressure')/name
   if p.exists():pressures[name]=p.read_text().strip()
  value={'label':label,'observed_at_epoch':time.time(),'memory':mem,'loadavg':Path('/proc/loadavg').read_text().strip(),'pressure':pressures,'disk_free_bytes':shutil.disk_usage(ROOT).free,'processes':processes}
+ value['postgres_fixture_transports']={name:proxy.transport_observation() for name,proxy in
+  [('core',f.proxy),('store',store_proxy),('community',community_proxy),('community_installer',community_owner_proxy)]
+  if isinstance(proxy,BrowserPGProxy)}
  save(roundroot/('resources-'+label+'.json'),value)
  return value
 
@@ -324,20 +346,20 @@ failed=None;store_proxy=None;extore_fixture=None;transport=None;host_pid=None;ho
 try:
  original=tempfile.mkdtemp
  def private_temp(*a,**kw):kw['dir']=str(temp_root);return original(*a,**kw)
- with patch.object(base.tempfile,'mkdtemp',private_temp):f.fresh_cli_and_runtime()
+ with patch.object(base.tempfile,'mkdtemp',private_temp), patch.object(base,'Proxy',BrowserPGProxy):f.fresh_cli_and_runtime()
  f.sql('isolate_core_connect','REVOKE CONNECT ON DATABASE console_acceptance FROM PUBLIC; GRANT CONNECT ON DATABASE console_acceptance TO console_runtime,console_installer;')
  f.command('store_roles',['psql','-X','-q','-v','ON_ERROR_STOP=1','-h',f.sockdir,'-U','fixture_admin','-d','postgres'],data=b'CREATE ROLE lmm_store_browser_owner NOLOGIN; CREATE ROLE lmm_store_browser_runtime LOGIN NOINHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS; CREATE DATABASE lmm_store_browser OWNER lmm_store_browser_owner; REVOKE ALL ON DATABASE lmm_store_browser FROM PUBLIC; GRANT CONNECT ON DATABASE lmm_store_browser TO lmm_store_browser_runtime;')
  store_sql="ALTER SCHEMA public OWNER TO lmm_store_browser_owner; REVOKE ALL ON SCHEMA public FROM PUBLIC; SET ROLE lmm_store_browser_owner;\n"+(frozen_source/'services/extensions/internal/modules/store/schema.sql').read_text()+"\nRESET ROLE; GRANT USAGE ON SCHEMA lmm_store TO lmm_store_browser_runtime; GRANT SELECT,INSERT,UPDATE ON ALL TABLES IN SCHEMA lmm_store TO lmm_store_browser_runtime; GRANT DELETE ON lmm_store.traffic_days,lmm_store.traffic_receipts,lmm_store.cart_items,lmm_store.favorites TO lmm_store_browser_runtime;"
  f.command('store_schema',['psql','-X','-q','-v','ON_ERROR_STOP=1','-h',f.sockdir,'-U','fixture_admin','-d','lmm_store_browser'],data=store_sql.encode())
- store_proxy=base.Proxy(f.sockdir/'.s.PGSQL.5432','lmm_store_browser_runtime','lmm_store_browser')
+ store_proxy=BrowserPGProxy(f.sockdir/'.s.PGSQL.5432','lmm_store_browser_runtime','lmm_store_browser')
  dburl=f.file('store.url',f'postgresql://lmm_store_browser_runtime:{f.secret(secrets.token_hex(16))}@127.0.0.1:{store_proxy.server_address[1]}/lmm_store_browser?sslmode=disable')
  f.command('community_roles',['psql','-X','-q','-v','ON_ERROR_STOP=1','-h',f.sockdir,'-U','fixture_admin','-d','postgres'],data=b'CREATE ROLE lmm_community_browser_owner NOLOGIN; CREATE ROLE lmm_community_browser_installer LOGIN NOINHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS; CREATE ROLE lmm_community_browser_runtime LOGIN NOINHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS; GRANT lmm_community_browser_owner TO lmm_community_browser_installer; CREATE DATABASE lmm_community_browser OWNER lmm_community_browser_owner; REVOKE ALL ON DATABASE lmm_community_browser FROM PUBLIC; GRANT CONNECT ON DATABASE lmm_community_browser TO lmm_community_browser_installer,lmm_community_browser_runtime;')
- community_owner_proxy=base.Proxy(f.sockdir/'.s.PGSQL.5432','lmm_community_browser_installer','lmm_community_browser')
+ community_owner_proxy=BrowserPGProxy(f.sockdir/'.s.PGSQL.5432','lmm_community_browser_installer','lmm_community_browser')
  community_owner_url=f.file('community-owner.url',f'postgresql://lmm_community_browser_installer:{f.secret(secrets.token_hex(16))}@127.0.0.1:{community_owner_proxy.server_address[1]}/lmm_community_browser?sslmode=disable')
  installed=f.command('community_install',['%s' % GO,'install-db','--component','community','--owner-url-file',community_owner_url,'--database','lmm_community_browser','--owner-role','lmm_community_browser_owner','--runtime-role','lmm_community_browser_runtime'])
  save(roundroot/'community-install-receipt.json',{'official_go_sha256':GO_SHA,'installer_role':'lmm_community_browser_installer','owner_role':'lmm_community_browser_owner','runtime_role':'lmm_community_browser_runtime','receipt':json.loads(installed)})
  community_owner_proxy.close();community_owner_proxy=None
- community_proxy=base.Proxy(f.sockdir/'.s.PGSQL.5432','lmm_community_browser_runtime','lmm_community_browser')
+ community_proxy=BrowserPGProxy(f.sockdir/'.s.PGSQL.5432','lmm_community_browser_runtime','lmm_community_browser')
  community_url=f.file('community.url',f'postgresql://lmm_community_browser_runtime:{f.secret(secrets.token_hex(16))}@127.0.0.1:{community_proxy.server_address[1]}/lmm_community_browser?sslmode=disable')
  host=f.file('host.token',secrets.token_hex(24))
  extore_fixture=RetainedExtore(EXT,origin=EXTORE_ORIGIN)

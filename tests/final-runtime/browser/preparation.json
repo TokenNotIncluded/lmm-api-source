@@ -32,8 +32,8 @@
       "sha256": "fd44a30f6b8f50f6588098a81549802c19518a8f0f58ad6e5b80c1515571875e"
     },
     "fixture.py": {
-      "bytes": 37551,
-      "sha256": "23ec4ee20dca0b437f7be4f7b8e3b7c47051e56ca366a1808e9c92a3ad5168e6"
+      "bytes": 38944,
+      "sha256": "2701aa33c4daeb61ee247450f7c651a489e68ebbcd0320312bae3fa98c4375f3"
     },
     "https_fixture_transport.py": {
       "bytes": 10498,
@@ -51,6 +51,14 @@
       "bytes": 6969,
       "sha256": "651b9ff0c7c46461b30b8740d342978ceea97bf2036573fb740f3f53ccaf4a9b"
     }
+  },
+  "fixture_transport_revision": {
+    "browser_assertions_changed": false,
+    "change": "Set TCP_NODELAY on the browser-only frame proxy accepted sockets; observe counts and safe protocol status",
+    "parent_controller": "9bd568c7d8929752924a39997850388bee76e385",
+    "parent_fixture_sha256": "23ec4ee20dca0b437f7be4f7b8e3b7c47051e56ca366a1808e9c92a3ad5168e6",
+    "product_files_changed": false,
+    "timing_changed": false
   },
   "format": "lmm-browser-fa57-cf-preparation-v1",
   "helper_origins": {

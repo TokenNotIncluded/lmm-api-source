@@ -804,13 +804,23 @@ def prepare(args):
         record(output / "preparation-result.json", receipt)
 
 
-def restore(args):
+def restore(args, *, origin=None):
     private(args.output)
     for digest in (args.artifact_sha256, args.bundle_sha256, args.manifest_sha256):
         require(re.fullmatch(r"[0-9a-f]{64}", digest) is not None, "missing prepared transport digest")
-    run_id = int(os.environ["GITHUB_RUN_ID"])
+    # A reviewed resume may import an explicitly identified historical prepare.
+    # The caller never changes the current job's GITHUB_* identity.
+    origin = {"run_id": int(os.environ["GITHUB_RUN_ID"]),
+                        "control_revision": os.environ["GITHUB_SHA"],
+                        "run_attempt": int(os.environ["GITHUB_RUN_ATTEMPT"])} if origin is None else origin
+    require(set(origin) == {"run_id", "control_revision", "run_attempt"}
+            and type(origin["run_id"]) is int and origin["run_id"] > 0
+            and type(origin["run_attempt"]) is int and origin["run_attempt"] > 0
+            and re.fullmatch(r"[0-9a-f]{40}", origin["control_revision"]) is not None,
+            "invalid explicit prepared origin")
+    run_id = origin["run_id"]
     archive = download_artifact(args.output / "transport", args.artifact_id, None, args.artifact_sha256,
-                                os.environ["GITHUB_SHA"], run_id, f"final-runtime-prepared-{run_id}")
+                                origin["control_revision"], run_id, f"final-runtime-prepared-{run_id}")
     unpacked = args.output / "transport/files"
     unzip(archive, unpacked, {"runtime-prepared.tar.gz", "export-manifest.json", "bundle.json"}, 1024**3)
     bundle = unpacked / "runtime-prepared.tar.gz"
@@ -820,9 +830,9 @@ def restore(args):
     manifest = json.loads(manifest_file.read_text())
     require(manifest["format"] == "lmm-final-runtime-prepared-export-v2"
             and manifest["runtime_revision"] == RUNTIME
-            and manifest["control_revision"] == os.environ["GITHUB_SHA"]
+            and manifest["control_revision"] == origin["control_revision"]
             and str(manifest["cloud_run"]) == str(run_id)
-            and str(manifest["cloud_run_attempt"]) == os.environ["GITHUB_RUN_ATTEMPT"]
+            and str(manifest["cloud_run_attempt"]) == str(origin["run_attempt"])
             and manifest["execution_layout"] == execution_layout(args.source, args.output)
             and manifest["acceptance_executed"] is False, "prepared source/run binding differs")
     expected = manifest["files"]
@@ -882,6 +892,7 @@ def restore(args):
     verified_component_paths(args.source, payload)
     record(args.output / "restore-result.json", {"result": "VERIFIED_ORIGINAL_PREPARED_NOT_ACCEPTANCE",
            "runtime_revision": RUNTIME, "control_revision": os.environ["GITHUB_SHA"],
+           "prepared_origin": origin,
            "bundle_sha256": args.bundle_sha256, "manifest_sha256": args.manifest_sha256,
            "original_prepared_sha256": original["prepared_sha256"], "file_count": len(expected),
            "prepared_bytes_modified": False, "product_executed": False,

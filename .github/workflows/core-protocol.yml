@@ -2,6 +2,11 @@ name: Microkernel implementation checks
 on:
   workflow_dispatch:
     inputs:
+      final_runtime_browser_resume:
+        description: Run only the full16 browser against fixed prior prepared bytes and six prior receipts
+        type: boolean
+        required: false
+        default: false
       current_runtime_keys_acceptance:
         description: Run only the exact Core78 used-target credential regression
         type: boolean
@@ -20,11 +25,11 @@ defaults:
   run:
     shell: bash
 concurrency:
-  group: ${{ inputs.current_runtime_keys_acceptance && 'current-keys' || 'microkernel' }}-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  group: ${{ inputs.final_runtime_browser_resume && 'browser-resume' || inputs.current_runtime_keys_acceptance && 'current-keys' || 'microkernel' }}-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ !inputs.final_runtime_browser_resume }}
 jobs:
   protocol:
-    if: ${{ !inputs.final_runtime_acceptance && !inputs.current_runtime_keys_acceptance }}
+    if: ${{ !inputs.final_runtime_acceptance && !inputs.current_runtime_keys_acceptance && !inputs.final_runtime_browser_resume }}
     runs-on: ubuntu-24.04
     # Budget for cold builds, serial real PostgreSQL tests, and the following
     # payment, Go, and RPC checks while keeping the complete job bounded.
@@ -332,7 +337,7 @@ jobs:
           retention-days: 7
 
   market-postgres:
-    if: ${{ !inputs.final_runtime_acceptance && !inputs.current_runtime_keys_acceptance }}
+    if: ${{ !inputs.final_runtime_acceptance && !inputs.current_runtime_keys_acceptance && !inputs.final_runtime_browser_resume }}
     name: Store and tool-market real PostgreSQL checks
     runs-on: ubuntu-24.04
     timeout-minutes: 30
@@ -392,7 +397,7 @@ jobs:
 
   final-runtime-prepare:
     name: Prepare original candidate fa57 runtime acceptance inputs
-    if: ${{ github.event_name == 'workflow_dispatch' && inputs.final_runtime_acceptance }}
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.final_runtime_acceptance && !inputs.final_runtime_browser_resume }}
     runs-on: ubuntu-24.04
     timeout-minutes: 95
     permissions:
@@ -490,7 +495,7 @@ jobs:
 
   final-runtime-acceptance:
     name: Candidate five capacities, real302 payment and real16case browser
-    if: ${{ github.event_name == 'workflow_dispatch' && inputs.final_runtime_acceptance }}
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.final_runtime_acceptance && !inputs.final_runtime_browser_resume }}
     needs: final-runtime-prepare
     runs-on: ubuntu-24.04
     timeout-minutes: 150
@@ -588,7 +593,7 @@ jobs:
           retention-days: 7
 
   current-runtime-keys:
-    if: ${{ inputs.current_runtime_keys_acceptance && !inputs.final_runtime_acceptance }}
+    if: ${{ inputs.current_runtime_keys_acceptance && !inputs.final_runtime_acceptance && !inputs.final_runtime_browser_resume }}
     name: Existing Sessions and appended legacy keys on exact Core78
     runs-on: ubuntu-24.04
     timeout-minutes: 25
@@ -647,3 +652,95 @@ jobs:
           if-no-files-found: warn
           retention-days: 3
           include-hidden-files: true
+
+  browser-only-resume:
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.final_runtime_browser_resume && !inputs.final_runtime_acceptance && !inputs.current_runtime_keys_acceptance }}
+    name: Same fa57 full16 browser and six original receipts
+    runs-on: ubuntu-24.04
+    timeout-minutes: 75
+    permissions:
+      contents: read
+      actions: read
+    env:
+      MISE_EXEC_AUTO_INSTALL: "false"
+      MISE_DISABLE_TOOLS: rust
+    steps:
+      - name: Checkout the same controller
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          ref: ${{ github.sha }}
+          path: control
+          persist-credentials: false
+      - name: Checkout the same original runtime source
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          ref: fa57cd2049ccd9138cdc0b4104db36b5b6c53ae5
+          path: product
+          persist-credentials: false
+      - name: Initialize the same fixed Extore source
+        working-directory: product
+        run: git submodule update --init --depth 1 -- packages/extore
+      - name: Install cloud runtime tools and private PostgreSQL tools
+        run: |
+          umask 077
+          mkdir "$RUNNER_TEMP/final-runtime-mise"
+          curl --fail --location --output "$RUNNER_TEMP/final-runtime-mise/mise" \
+            https://github.com/jdx/mise/releases/download/v2026.11.10/mise-v2026.11.10-linux-x64
+          echo "b603a4f48563fc379a794d9ea2cf9f709ed276c9141068604cb0c59fa3e674a9  $RUNNER_TEMP/final-runtime-mise/mise" | sha256sum --check
+          chmod 700 "$RUNNER_TEMP/final-runtime-mise/mise"
+          echo "$RUNNER_TEMP/final-runtime-mise" >> "$GITHUB_PATH"
+          sudo --preserve-env=GITHUB_ACTIONS python3 product/scripts/prepare-ci-apt.py
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends --yes curl ca-certificates dbus-user-session openssl
+          sudo install -d /usr/share/postgresql-common/pgdg
+          sudo curl --fail --output /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc https://www.postgresql.org/media/keys/ACCC4CF8.asc
+          printf '%s\n' 'Types: deb' 'URIs: https://apt.postgresql.org/pub/repos/apt' \
+            'Suites: noble-pgdg' "Architectures: $(dpkg --print-architecture)" 'Components: main' \
+            'Signed-By: /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc' \
+            | sudo tee /etc/apt/sources.list.d/pgdg.sources > /dev/null
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends --yes postgresql-common
+          echo 'create_main_cluster = false' | sudo tee -a /etc/postgresql-common/createcluster.conf > /dev/null
+          sudo apt-get install --no-install-recommends --yes postgresql-18 postgresql-client-18
+          echo '/usr/lib/postgresql/18/bin' >> "$GITHUB_PATH"
+      - name: Prepare the pinned browser tool only
+        working-directory: product
+        run: |
+          mise trust "$GITHUB_WORKSPACE/product/mise.toml"
+          mise install node
+          mise exec -- npm install --prefix "$RUNNER_TEMP/final-runtime-browser-tools" \
+            --ignore-scripts --no-audit --no-fund --save-exact playwright@1.65.1
+          mise exec -- node "$RUNNER_TEMP/final-runtime-browser-tools/node_modules/playwright/cli.js" \
+            install --with-deps chromium
+          {
+            echo "LMM_ACCEPTANCE_NODE=$(mise which node)"
+            echo "LMM_ACCEPTANCE_PLAYWRIGHT=$RUNNER_TEMP/final-runtime-browser-tools/node_modules/playwright/index.mjs"
+            echo 'LMM_ACCEPTANCE_PG_BIN=/usr/lib/postgresql/18/bin'
+          } >> "$GITHUB_ENV"
+      - name: Verify actual cgroup v2 and both original manager routes
+        run: |
+          bash control/tests/final-runtime/host-preflight.sh > "$RUNNER_TEMP/final-runtime-host-preflight.log" 2>&1
+      - name: Restore the fixed historical prepared bytes and six unchanged receipts
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python3 -B control/scripts/final-runtime-browser-resume.py restore \
+            --source "$GITHUB_WORKSPACE/product" --output "$RUNNER_TEMP/final-runtime-prepared"
+      - name: Execute the complete original browser cases with a fresh lease
+        run: |
+          python3 -B control/scripts/final-runtime-browser-resume.py run \
+            --source "$GITHUB_WORKSPACE/product" --output "$RUNNER_TEMP/final-runtime-prepared" \
+            --evidence "$RUNNER_TEMP/final-runtime-evidence"
+      - name: Preserve only the bounded non-secret evidence export
+        if: ${{ always() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: final-runtime-browser-resume-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/final-runtime-evidence/public
+            ${{ runner.temp }}/final-runtime-prepared/restore-result.json
+            ${{ runner.temp }}/final-runtime-prepared/prior-six.result.json
+            ${{ runner.temp }}/final-runtime-prepared/controller-failure-*.json
+            ${{ runner.temp }}/final-runtime-host-preflight.log
+          if-no-files-found: warn
+          retention-days: 7
