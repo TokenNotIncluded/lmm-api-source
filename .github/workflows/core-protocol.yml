@@ -2,6 +2,11 @@ name: Microkernel implementation checks
 on:
   workflow_dispatch:
     inputs:
+      current_identity_diagnostic:
+        description: Collect one rollback-only trace of the rejected synthetic identity writer
+        type: boolean
+        required: false
+        default: false
       current_identity_acceptance:
         description: Run only the used Core78 identity completion regression
         type: boolean
@@ -35,11 +40,11 @@ defaults:
   run:
     shell: bash
 concurrency:
-  group: ${{ inputs.current_identity_acceptance && 'current-identity' || inputs.current_wallet_reconciliation && 'current-wallet' || inputs.final_runtime_browser_resume && 'browser-resume' || inputs.current_runtime_keys_acceptance && 'current-keys' || 'microkernel' }}-${{ github.workflow }}-${{ github.ref }}
+  group: ${{ inputs.current_identity_diagnostic && 'identity-trace' || inputs.current_identity_acceptance && 'current-identity' || inputs.current_wallet_reconciliation && 'current-wallet' || inputs.final_runtime_browser_resume && 'browser-resume' || inputs.current_runtime_keys_acceptance && 'current-keys' || 'microkernel' }}-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: ${{ !inputs.final_runtime_browser_resume }}
 jobs:
   protocol:
-    if: ${{ !inputs.final_runtime_acceptance && !inputs.current_runtime_keys_acceptance && !inputs.final_runtime_browser_resume && !inputs.current_wallet_reconciliation && !inputs.current_identity_acceptance }}
+    if: ${{ !inputs.final_runtime_acceptance && !inputs.current_runtime_keys_acceptance && !inputs.final_runtime_browser_resume && !inputs.current_wallet_reconciliation && !inputs.current_identity_acceptance && !inputs.current_identity_diagnostic }}
     runs-on: ubuntu-24.04
     # Budget for cold builds, serial real PostgreSQL tests, and the following
     # payment, Go, and RPC checks while keeping the complete job bounded.
@@ -137,7 +142,7 @@ jobs:
       - name: Check generated Go bindings
         run: bash scripts/generate-core-protocol.sh --check
       - name: Build actual Go host for Rust stream isolation
-        if: ${{ !cancelled() && !inputs.current_identity_acceptance }}
+        if: ${{ !cancelled() && !inputs.current_identity_acceptance && !inputs.current_identity_diagnostic }}
         working-directory: services/extensions
         run: |
           CGO_ENABLED=0 go build -mod=readonly -trimpath -o "$RUNNER_TEMP/lmm-extensions" ./cmd/extensions
@@ -152,7 +157,7 @@ jobs:
         working-directory: services/core
         run: cargo fmt --all --check 2>&1 | tee "$RUNNER_TEMP/core-format.log"
       - name: Build the preserved migration executors
-        if: ${{ !cancelled() && !inputs.current_identity_acceptance }}
+        if: ${{ !cancelled() && !inputs.current_identity_acceptance && !inputs.current_identity_diagnostic }}
         run: |
           git fetch --no-tags --depth=1 origin 0510c2455dabcb63e33c719ba52ac189d62612bc 2a0c7bd380f58a553dc903d399255821c1a65d0f 8f1b6b837ace7027f2a62f15168843790ce6de28
           rustup toolchain install 1.99.0 --profile minimal
@@ -160,11 +165,11 @@ jobs:
           rustup run 1.99.0 python3 scripts/build-preserved-core.py --family early58 --output "$RUNNER_TEMP/preserved-early58"
           cat "$RUNNER_TEMP/preserved-pancake67/executor.env" "$RUNNER_TEMP/preserved-early58/executor.env" >> "$GITHUB_ENV"
       - name: Prepare private acquisition PostgreSQL fixtures
-        if: ${{ !cancelled() && !inputs.current_identity_acceptance }}
+        if: ${{ !cancelled() && !inputs.current_identity_acceptance && !inputs.current_identity_diagnostic }}
         run: python3 -B scripts/prepare-acquisition-ci.py
       - name: Compile Rust tests and preserve the commerce driver
         id: rust_test_compile
-        if: ${{ !cancelled() && !inputs.current_identity_acceptance }}
+        if: ${{ !cancelled() && !inputs.current_identity_acceptance && !inputs.current_identity_diagnostic }}
         working-directory: services/core
         run: |
           cargo clippy --locked --all-targets -- -D warnings
@@ -209,7 +214,7 @@ jobs:
           (out / "receipt.json").write_text(json.dumps(receipt, sort_keys=True, indent=2) + "\n")
           PY
       - name: Preserve compiled commerce acceptance driver
-        if: ${{ !cancelled() && steps.rust_test_compile.outcome == 'success' && !inputs.current_identity_acceptance }}
+        if: ${{ !cancelled() && steps.rust_test_compile.outcome == 'success' && !inputs.current_identity_acceptance && !inputs.current_identity_diagnostic }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: commerce-acceptance-driver-${{ github.sha }}-${{ github.run_id }}
@@ -218,7 +223,7 @@ jobs:
           compression-level: 0
           retention-days: 7
       - name: Rust checks and real database tests
-        if: ${{ !cancelled() && steps.rust_test_compile.outcome == 'success' && !inputs.current_identity_acceptance }}
+        if: ${{ !cancelled() && steps.rust_test_compile.outcome == 'success' && !inputs.current_identity_acceptance && !inputs.current_identity_diagnostic }}
         working-directory: services/core
         run: |
           LMM_MODEL_PROCESS_CORE_BIN="$(realpath target/debug/lmm-core)"
@@ -250,10 +255,10 @@ jobs:
           # Emit panic diagnostics immediately, including when the job times out.
           cargo test --locked --all-targets --no-fail-fast -- --skip synthetic_live_proof_crosses_core_go_processes_and_posts_once --nocapture 2>&1 | tee "$RUNNER_TEMP/core-tests.log"
       - name: Synthetic payment live process through owning runner
-        if: ${{ !cancelled() && !inputs.current_identity_acceptance }}
+        if: ${{ !cancelled() && !inputs.current_identity_acceptance && !inputs.current_identity_diagnostic }}
         run: python3 -B scripts/ci-payment-live.py --output "$(realpath -m "$RUNNER_TEMP/payment-live")" 2>&1 | tee "$RUNNER_TEMP/payment-live-build.log"
       - name: Go contract and race tests
-        if: ${{ !cancelled() && !inputs.current_identity_acceptance }}
+        if: ${{ !cancelled() && !inputs.current_identity_acceptance && !inputs.current_identity_diagnostic }}
         working-directory: services/extensions
         run: |
           bash ../../scripts/check-go-format.sh .
@@ -262,7 +267,7 @@ jobs:
           go test -race ./... -count=1 -json | tee "$RUNNER_TEMP/extension-tests.jsonl"
           CGO_ENABLED=0 go build -mod=readonly -trimpath -o "$RUNNER_TEMP/lmm-extensions" ./cmd/extensions
       - name: Store and support real PostgreSQL acceptance
-        if: ${{ !cancelled() && !inputs.current_identity_acceptance }}
+        if: ${{ !cancelled() && !inputs.current_identity_acceptance && !inputs.current_identity_diagnostic }}
         env:
           LMM_STORE_TEST_DSN: postgres://postgres:postgres@127.0.0.1:5432/lmm_store_test?sslmode=disable
         run: |
@@ -273,13 +278,13 @@ jobs:
           go vet -mod=readonly ./...
           go test -mod=readonly -race -count=1 -json ./... | tee "$RUNNER_TEMP/store-postgres.jsonl"
       - name: Durable cross-language event process recovery
-        if: ${{ !cancelled() && !inputs.current_identity_acceptance }}
+        if: ${{ !cancelled() && !inputs.current_identity_acceptance && !inputs.current_identity_diagnostic }}
         run: |
           (cd services/core && cargo build --locked --example protocol-events-fixture)
           (cd contracts/proto/tests/go && go vet -mod=readonly ./... && go build -mod=readonly -o "$RUNNER_TEMP/mk06-go-fixture" .)
           MK06_GO_FIXTURE="$RUNNER_TEMP/mk06-go-fixture" python3 contracts/proto/tests/process_recovery.py 2>&1 | tee "$RUNNER_TEMP/events-process.log"
       - name: Native protobuf round trips and failure recovery
-        if: ${{ !cancelled() && !inputs.current_identity_acceptance }}
+        if: ${{ !cancelled() && !inputs.current_identity_acceptance && !inputs.current_identity_diagnostic }}
         run: |
           # Absolute, symlink-free, and absent: the fixture creates a private empty 0700 root.
           evidence="$(realpath -m -- "$RUNNER_TEMP/core-rpc-docker-evidence")"
@@ -289,7 +294,7 @@ jobs:
           fi
           python3 -B scripts/test-core-rpc-docker.py --output-root "$evidence" --build-timeout-seconds 2400 2>&1 | tee "$RUNNER_TEMP/core-rpc-docker.log"
       - name: Stage readable core RPC evidence
-        if: ${{ always() && !inputs.current_identity_acceptance }}
+        if: ${{ always() && !inputs.current_identity_acceptance && !inputs.current_identity_diagnostic }}
         run: |
           # Secret files are chowned to container uid 65532 and mode 0400.
           # upload-artifact fails the whole zip if any selected file is unreadable.
@@ -315,10 +320,10 @@ jobs:
             cp -p -- "$file" "$dest/$rel"
           done < <(find "$src" -type f -readable -print0)
       - name: Service boundary contracts
-        if: ${{ !cancelled() && !inputs.current_identity_acceptance }}
+        if: ${{ !cancelled() && !inputs.current_identity_acceptance && !inputs.current_identity_diagnostic }}
         run: python3 -B scripts/test-core-boundaries.py
       - name: Preserve implementation test evidence
-        if: ${{ always() && !inputs.current_identity_acceptance }}
+        if: ${{ always() && !inputs.current_identity_acceptance && !inputs.current_identity_diagnostic }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: microkernel-checks-${{ github.sha }}-${{ github.run_id }}
@@ -347,7 +352,7 @@ jobs:
           retention-days: 7
 
   market-postgres:
-    if: ${{ !inputs.final_runtime_acceptance && !inputs.current_runtime_keys_acceptance && !inputs.final_runtime_browser_resume && !inputs.current_wallet_reconciliation && !inputs.current_identity_acceptance }}
+    if: ${{ !inputs.final_runtime_acceptance && !inputs.current_runtime_keys_acceptance && !inputs.final_runtime_browser_resume && !inputs.current_wallet_reconciliation && !inputs.current_identity_acceptance && !inputs.current_identity_diagnostic }}
     name: Store and tool-market real PostgreSQL checks
     runs-on: ubuntu-24.04
     timeout-minutes: 30
@@ -395,7 +400,7 @@ jobs:
             --output "$RUNNER_TEMP/market-postgres-evidence" \
             --private-dir "$RUNNER_TEMP/market-postgres-private"
       - name: Preserve source, raw test results and non-secret PostgreSQL evidence
-        if: ${{ always() && !inputs.current_identity_acceptance }}
+        if: ${{ always() && !inputs.current_identity_acceptance && !inputs.current_identity_diagnostic }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: market-postgres-${{ github.sha }}-${{ github.run_id }}
@@ -407,7 +412,7 @@ jobs:
 
   final-runtime-prepare:
     name: Prepare original candidate fa57 runtime acceptance inputs
-    if: ${{ github.event_name == 'workflow_dispatch' && inputs.final_runtime_acceptance && !inputs.final_runtime_browser_resume && !inputs.current_wallet_reconciliation && !inputs.current_identity_acceptance }}
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.final_runtime_acceptance && !inputs.final_runtime_browser_resume && !inputs.current_wallet_reconciliation && !inputs.current_identity_acceptance && !inputs.current_identity_diagnostic }}
     runs-on: ubuntu-24.04
     timeout-minutes: 95
     permissions:
@@ -475,7 +480,7 @@ jobs:
           python3 -B control/scripts/final-runtime-acceptance.py prepare \
             --source "$GITHUB_WORKSPACE/product" --output "$RUNNER_TEMP/final-runtime-prepared"
       - name: Preserve preparation result even on failure
-        if: ${{ always() && !inputs.current_identity_acceptance }}
+        if: ${{ always() && !inputs.current_identity_acceptance && !inputs.current_identity_diagnostic }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: final-runtime-preparation-result-${{ github.run_id }}
@@ -505,7 +510,7 @@ jobs:
 
   final-runtime-acceptance:
     name: Candidate five capacities, real302 payment and real16case browser
-    if: ${{ github.event_name == 'workflow_dispatch' && inputs.final_runtime_acceptance && !inputs.final_runtime_browser_resume && !inputs.current_wallet_reconciliation && !inputs.current_identity_acceptance }}
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.final_runtime_acceptance && !inputs.final_runtime_browser_resume && !inputs.current_wallet_reconciliation && !inputs.current_identity_acceptance && !inputs.current_identity_diagnostic }}
     needs: final-runtime-prepare
     runs-on: ubuntu-24.04
     timeout-minutes: 150
@@ -590,7 +595,7 @@ jobs:
             --source "$GITHUB_WORKSPACE/product" --output "$RUNNER_TEMP/final-runtime-prepared" \
             --evidence "$RUNNER_TEMP/final-runtime-evidence"
       - name: Preserve only the bounded non-secret evidence export
-        if: ${{ always() && !inputs.current_identity_acceptance }}
+        if: ${{ always() && !inputs.current_identity_acceptance && !inputs.current_identity_diagnostic }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: final-runtime-results-${{ github.run_id }}
@@ -603,7 +608,7 @@ jobs:
           retention-days: 7
 
   current-runtime-keys:
-    if: ${{ inputs.current_runtime_keys_acceptance && !inputs.final_runtime_acceptance && !inputs.final_runtime_browser_resume && !inputs.current_wallet_reconciliation && !inputs.current_identity_acceptance }}
+    if: ${{ inputs.current_runtime_keys_acceptance && !inputs.final_runtime_acceptance && !inputs.final_runtime_browser_resume && !inputs.current_wallet_reconciliation && !inputs.current_identity_acceptance && !inputs.current_identity_diagnostic }}
     name: Existing Sessions and appended legacy keys on exact Core78
     runs-on: ubuntu-24.04
     timeout-minutes: 25
@@ -664,7 +669,7 @@ jobs:
           include-hidden-files: true
 
   browser-only-resume:
-    if: ${{ github.event_name == 'workflow_dispatch' && inputs.final_runtime_browser_resume && !inputs.final_runtime_acceptance && !inputs.current_runtime_keys_acceptance && !inputs.current_wallet_reconciliation && !inputs.current_identity_acceptance }}
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.final_runtime_browser_resume && !inputs.final_runtime_acceptance && !inputs.current_runtime_keys_acceptance && !inputs.current_wallet_reconciliation && !inputs.current_identity_acceptance && !inputs.current_identity_diagnostic }}
     name: Same fa57 full16 browser and six original receipts
     runs-on: ubuntu-24.04
     timeout-minutes: 75
@@ -742,7 +747,7 @@ jobs:
             --source "$GITHUB_WORKSPACE/product" --output "$RUNNER_TEMP/final-runtime-prepared" \
             --evidence "$RUNNER_TEMP/final-runtime-evidence"
       - name: Preserve only the bounded non-secret evidence export
-        if: ${{ always() && !inputs.current_identity_acceptance }}
+        if: ${{ always() && !inputs.current_identity_acceptance && !inputs.current_identity_diagnostic }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: final-runtime-browser-resume-${{ github.run_id }}
@@ -756,7 +761,7 @@ jobs:
           retention-days: 7
 
   current-wallet-reconciliation:
-    if: ${{ inputs.current_wallet_reconciliation && !inputs.final_runtime_acceptance && !inputs.final_runtime_browser_resume && !inputs.current_runtime_keys_acceptance && !inputs.current_identity_acceptance }}
+    if: ${{ inputs.current_wallet_reconciliation && !inputs.final_runtime_acceptance && !inputs.final_runtime_browser_resume && !inputs.current_runtime_keys_acceptance && !inputs.current_identity_acceptance && !inputs.current_identity_diagnostic }}
     name: Existing wallet history and current source reconciliation on exact Core78
     runs-on: ubuntu-24.04
     timeout-minutes: 25
@@ -816,7 +821,7 @@ jobs:
           include-hidden-files: true
 
   current-identity-acceptance:
-    if: ${{ inputs.current_identity_acceptance && !inputs.final_runtime_acceptance && !inputs.final_runtime_browser_resume && !inputs.current_runtime_keys_acceptance && !inputs.current_wallet_reconciliation }}
+    if: ${{ inputs.current_identity_acceptance && !inputs.final_runtime_acceptance && !inputs.final_runtime_browser_resume && !inputs.current_runtime_keys_acceptance && !inputs.current_wallet_reconciliation && !inputs.current_identity_diagnostic }}
     name: Existing identities and current source completion on exact Core78
     runs-on: ubuntu-24.04
     timeout-minutes: 25
@@ -871,6 +876,68 @@ jobs:
             ${{ env.LMM_CURRENT_IDENTITY_ROOT }}/fixture/regression/*.stderr.private.txt
             ${{ env.LMM_CURRENT_IDENTITY_ROOT }}/fixture/regression/*.stdout.private.txt
             ${{ env.LMM_CURRENT_IDENTITY_ROOT }}/fixture/regression/result.public.json
+          if-no-files-found: warn
+          retention-days: 3
+          include-hidden-files: true
+
+  current-identity-diagnostic:
+    if: ${{ inputs.current_identity_diagnostic && !inputs.final_runtime_acceptance && !inputs.final_runtime_browser_resume && !inputs.current_runtime_keys_acceptance && !inputs.current_wallet_reconciliation && !inputs.current_identity_acceptance }}
+    name: Rollback-only diagnostic of rejected Core78 identity generation
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - name: Checkout reviewed regression controller
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          path: control
+          persist-credentials: false
+      - name: Checkout exact unmodified candidate source
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          path: product
+          ref: fa57cd2049ccd9138cdc0b4104db36b5b6c53ae5
+          persist-credentials: false
+      - name: Install PostgreSQL18 and the existing Python encryption dependency
+        run: |
+          sudo --preserve-env=GITHUB_ACTIONS python3 product/scripts/prepare-ci-apt.py
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends --yes curl ca-certificates python3-cryptography
+          sudo install -d /usr/share/postgresql-common/pgdg
+          sudo curl --fail --output /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc https://www.postgresql.org/media/keys/ACCC4CF8.asc
+          printf '%s\n' 'Types: deb' 'URIs: https://apt.postgresql.org/pub/repos/apt' \
+            'Suites: noble-pgdg' "Architectures: $(dpkg --print-architecture)" 'Components: main' \
+            'Signed-By: /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc' \
+            | sudo tee /etc/apt/sources.list.d/pgdg.sources > /dev/null
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends --yes postgresql-common
+          echo 'create_main_cluster = false' | sudo tee -a /etc/postgresql-common/createcluster.conf > /dev/null
+          sudo apt-get install --no-install-recommends --yes postgresql-18 postgresql-client-18
+          echo '/usr/lib/postgresql/18/bin' >> "$GITHUB_PATH"
+          echo "LMM_CURRENT_IDENTITY_TRACE_ROOT=$HOME/.local/state/lmm-api/identity-trace" >> "$GITHUB_ENV"
+      - name: Acquire and verify only the exact official Core archive
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 -B control/scripts/check-current-runtime-keys.py acquire --source "$GITHUB_WORKSPACE/product" --output "$LMM_CURRENT_IDENTITY_TRACE_ROOT" --regression identity-diagnostic
+      - name: Trace each synthetic operation and prove all application rows rolled back
+        run: python3 -B control/scripts/check-current-runtime-keys.py run --source "$GITHUB_WORKSPACE/product" --output "$LMM_CURRENT_IDENTITY_TRACE_ROOT" --regression identity-diagnostic
+      - name: Preserve bounded synthetic regression diagnostics
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: current-identity-diagnostic-${{ github.sha }}-${{ github.run_id }}
+          path: |
+            ${{ env.LMM_CURRENT_IDENTITY_TRACE_ROOT }}/result.public.json
+            ${{ env.LMM_CURRENT_IDENTITY_TRACE_ROOT }}/acquisition.json
+            ${{ env.LMM_CURRENT_IDENTITY_TRACE_ROOT }}/fixture/*.log
+            ${{ env.LMM_CURRENT_IDENTITY_TRACE_ROOT }}/fixture/*.command.json
+            ${{ env.LMM_CURRENT_IDENTITY_TRACE_ROOT }}/fixture/regression/*.stderr.private.txt
+            ${{ env.LMM_CURRENT_IDENTITY_TRACE_ROOT }}/fixture/regression/*.stdout.private.txt
+            ${{ env.LMM_CURRENT_IDENTITY_TRACE_ROOT }}/fixture/regression/diagnostic-result.public.json
+            ${{ env.LMM_CURRENT_IDENTITY_TRACE_ROOT }}/fixture/regression/auth-version-trace.public.json
+            ${{ env.LMM_CURRENT_IDENTITY_TRACE_ROOT }}/fixture/regression/trigger-catalog.private.json
           if-no-files-found: warn
           retention-days: 3
           include-hidden-files: true

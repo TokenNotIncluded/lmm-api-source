@@ -218,7 +218,7 @@ def acquire(source, output):
 
 
 def execute(source, output, *, regression="keys"):
-    need(regression in ("keys", "wallet", "identity"), "unknown synthetic regression")
+    need(regression in ("keys", "wallet", "identity", "identity-diagnostic"), "unknown synthetic regression")
     source_check(source)
     need(not os.environ.get("GH_TOKEN") and not os.environ.get("GITHUB_TOKEN"),
          "artifact token reached database regression")
@@ -329,6 +329,23 @@ def execute(source, output, *, regression="keys"):
                  "wallet mechanics did not pass or exceeded their evidence scope")
             result.update(status="PASS", wallet_reconciliation_mechanics=verified,
                           production_approval_created=False, full_financial_import_complete=False)
+        elif regression == "identity-diagnostic":
+            tests = CONTROL / "tests/current-identity"
+            testenv = {**env, "PYTHONPATH": os.pathsep.join(map(str, (tests, keys, source / "scripts")))}
+            run([sys.executable, "-B", tests / "diagnose_current_identity_pg.py",
+                "--fixture", work / "fixture.private.json", "--output", work / "regression"],
+                work, "identity-rollback-diagnostic", env=testenv, timeout=180)
+            verified = json.loads((work / "regression/diagnostic-result.public.json").read_text())
+            need(verified["status"] == "DIAGNOSTIC_COMPLETE_MIGRATION_STILL_REJECTED"
+                 and verified["migration_passed"] is False
+                 and verified["production_access"] is False
+                 and verified["writer_connection_still_active"] is False
+                 and verified["all_application_tables_unchanged"] is True
+                 and verified["current_identity_receipt_absent"] is True,
+                 "rollback-only diagnostic scope or postconditions differ")
+            result.update(status="DIAGNOSTIC_COMPLETE_MIGRATION_STILL_REJECTED",
+                          diagnostic=verified, migration_passed=False,
+                          production_approval_created=False)
         elif regression == "identity":
             tests = CONTROL / "tests/current-identity"
             testenv = {**env, "PYTHONPATH": os.pathsep.join(map(str, (tests, keys, source / "scripts")))}
@@ -389,7 +406,7 @@ if __name__ == "__main__":
     parser.add_argument("phase", choices=("acquire", "run"))
     parser.add_argument("--source", required=True, type=Path)
     parser.add_argument("--output", required=True, type=Path)
-    parser.add_argument("--regression", choices=("keys", "wallet", "identity"), default="keys")
+    parser.add_argument("--regression", choices=("keys", "wallet", "identity", "identity-diagnostic"), default="keys")
     args = parser.parse_args()
     if args.phase == "acquire":
         acquire(args.source.resolve(), args.output.resolve())
