@@ -786,7 +786,7 @@ jobs:
           echo 'create_main_cluster = false' | sudo tee -a /etc/postgresql-common/createcluster.conf > /dev/null
           sudo apt-get install --no-install-recommends --yes postgresql-18 postgresql-client-18
           echo '/usr/lib/postgresql/18/bin' >> "$GITHUB_PATH"
-          echo "LMM_CURRENT_WALLET_ROOT=$HOME/.local/state/lmm-api/current-wallet-reconciliation" >> "$GITHUB_ENV"
+          echo "LMM_CURRENT_WALLET_ROOT=$HOME/.local/state/lmm-api/current-wallet" >> "$GITHUB_ENV"
       - name: Acquire and verify only the exact official Core archive
         env:
           GH_TOKEN: ${{ github.token }}
