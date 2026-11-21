@@ -106,13 +106,10 @@ def main():
                     raise RuntimeError("installed extensions did not start without native configuration")
                 # Procfs checks credentials; container root cannot inspect another UID.
                 identity = subprocess.run(
-                    [sys.executable, "-c",
-                     "import os, sys; print(os.readlink('/proc/' + sys.argv[1] + '/exe'))",
-                     str(process.pid)],
-                    check=True, stdout=subprocess.PIPE,
-                    text=True, timeout=5, user=account.pw_uid,
+                    ["readlink", "-n", f"/proc/{process.pid}/exe"],
+                    check=True, stdout=subprocess.PIPE, timeout=5, user=account.pw_uid,
                     group=account.pw_gid, extra_groups=[])
-                if identity.stdout.strip() != "/usr/bin/lmm-extensions":
+                if identity.stdout != b"/usr/bin/lmm-extensions":
                     raise RuntimeError("default process is not the installed program")
             finally:
                 process.terminate()
