@@ -21,6 +21,9 @@ def run_probe(H, output, work, sock, db, port, runtime, env, sql):
     state_sql = (work / 'regression/http-preservation-readback.sql').read_text()
     H.need(json.loads(sql('BEGIN READ ONLY; ' + state_sql + ' COMMIT;')) == before,
            'state changed between the committed mechanics test and HTTP startup')
+    H.need(before['tables']['core_identity.auth_attempts'] == {
+        'rows': 0, 'sha256': hashlib.sha256(b'').hexdigest()},
+        'synthetic browser peer accounting must start empty')
     sql(f'ALTER ROLE {runtime} LOGIN; GRANT CONNECT ON DATABASE {db} TO {runtime};', admin=True)
     listener = socket.socket()
     listener.bind(('127.0.0.1', 0))
@@ -233,11 +236,34 @@ privacy_policy_enabled=false
             expected['tables']['core_identity.audit'] = after['tables']['core_identity.audit']
             if expected_audit_ids:
                 expected['sequences'][audit_sequence].update(last_value=expected_audit_ids[-1], is_called=True)
+            # The actual browser security middleware accounts for every unsafe
+            # method, including rejected one-time reveals. Verify the complete
+            # row, exact physical-peer hash, count and actual timestamp window.
+            attempts = json.loads(sql("SELECT coalesce(jsonb_agg(jsonb_build_object("
+                                      "'bucket',encode(bucket,'hex'),'attempts',attempts,"
+                                      "'started_at',started_at)),'[]'::jsonb) "
+                                      "FROM core_identity.auth_attempts;"))
+            post_count = sum(method == 'POST' for method, _path in fixture_requests)
+            if post_count:
+                H.need(len(attempts) == 1 and time.time() - started < 60,
+                       'browser peer accounting changed outside its exact one-minute fixture window')
+                attempt = attempts[0]
+                H.need(set(attempt) == {'bucket', 'attempts', 'started_at'}
+                       and attempt['bucket'] == hashlib.sha256(b'browser_peer\0' + b'127.0.0.1').hexdigest()
+                       and attempt['attempts'] == post_count
+                       and started <= datetime.fromisoformat(attempt['started_at']).timestamp() <= time.time(),
+                       'browser peer accounting differs from the actual fixture reveal requests')
+            else:
+                H.need(not attempts, 'unexpected browser peer accounting before any reveal request')
+            if not primary_failed:
+                H.need(post_count == 4, 'expected exactly four native key reveal attempts')
+            expected['tables']['core_identity.auth_attempts'] = after['tables']['core_identity.auth_attempts']
             lifecycle['unrelated_application_state_unchanged'] = after == expected
             lifecycle['expected_reveal_audit_ids'] = expected_audit_ids
+            lifecycle['expected_browser_peer_attempts'] = post_count
             lifecycle['old_audit_rows_preserved'] = True
             lifecycle['after_stop_state_sha256'] = hashlib.sha256(json.dumps(after, sort_keys=True).encode()).hexdigest()
-            H.need(after == expected, 'key auth/admission/recovery changed rows or sequences beyond its exact reveal audit')
+            H.need(after == expected, 'key auth/admission/recovery changed rows or sequences beyond exact reveal audit and browser peer accounting')
         except Exception as error:
             lifecycle['preservation_check_error'] = str(error)
             if not primary_failed:
@@ -248,6 +274,7 @@ privacy_policy_enabled=false
             H.need(proc.returncode == 0 and not lifecycle['forced_termination'], 'key seam Core did not stop cleanly')
     result = {'status': 'PASS', 'events': events, 'actual_core_sha256': H.CORE_SHA,
               'unrelated_application_state_unchanged': True, 'expected_reveal_audit_appended': True,
+              'expected_browser_peer_accounting_checked': True,
               'fixture_model_execution_requests': 0, 'provider_execution_exercised': False,
               'configured_endpoint': 'reserved .invalid synthetic HTTPS provider', 'production_access': False,
               'production_authorized': False, 'production_closure_tested': False,
