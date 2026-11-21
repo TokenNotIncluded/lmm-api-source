@@ -919,17 +919,17 @@ def validate_approval(m, sql, approval, review_ref):
 def resolve_sql(m, original_application):
     validate_preview(m)
     need(re.fullmatch(r"lmm-current-wallet-[0-9a-f]{32}", original_application), "wallet_attempt_identity_invalid")
-    body = f"""DECLARE r core_migration.import_runs%ROWTYPE; BEGIN
+    body = f"""DECLARE v_import_run core_migration.import_runs%ROWTYPE; BEGIN
  IF ({F.instance_sql()}) IS DISTINCT FROM {literal(m['snapshot']['instance'])}::jsonb THEN
   RAISE EXCEPTION 'wallet_resolve_instance_changed'; END IF;
  IF EXISTS(SELECT 1 FROM pg_stat_activity WHERE application_name={literal(original_application)}
   AND datid=(SELECT oid FROM pg_database WHERE datname=current_database()) AND pid<>pg_backend_pid()) THEN
   RAISE EXCEPTION 'wallet_original_attempt_still_active'; END IF;
- SELECT * INTO r FROM core_migration.import_runs WHERE migration_id={literal(m['migration_id'])};
+ SELECT * INTO v_import_run FROM core_migration.import_runs WHERE migration_id={literal(m['migration_id'])};
  IF FOUND THEN
-  IF r.manifest->'material' IS DISTINCT FROM {literal(m)}::jsonb
-   OR r.manifest->>'scope'<>{literal(SCOPE)} OR r.source_archive_sha256<>{literal(m['source_archive_sha256'])}
-   OR r.mapping_sha256<>{literal(m['mapping_sha256'])} THEN RAISE EXCEPTION 'wallet_resolve_receipt_conflict'; END IF;
+  IF v_import_run.manifest->'material' IS DISTINCT FROM {literal(m)}::jsonb
+   OR v_import_run.manifest->>'scope'<>{literal(SCOPE)} OR v_import_run.source_archive_sha256<>{literal(m['source_archive_sha256'])}
+   OR v_import_run.mapping_sha256<>{literal(m['mapping_sha256'])} THEN RAISE EXCEPTION 'wallet_resolve_receipt_conflict'; END IF;
   {_readback_sql(m, current_balances=False)}
   IF ({ledger_facts_sql()})->'global_valid' IS DISTINCT FROM 'true'::jsonb THEN
    RAISE EXCEPTION 'wallet_resolve_ledger_integrity_failed'; END IF;
