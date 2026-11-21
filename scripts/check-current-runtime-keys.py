@@ -217,7 +217,8 @@ def acquire(source, output):
          "archive_sha256": tar_sha, "artifact_id": artifact, "product_rebuilt": False})
 
 
-def execute(source, output):
+def execute(source, output, *, regression="keys"):
+    need(regression in ("keys", "wallet"), "unknown synthetic regression")
     source_check(source)
     need(not os.environ.get("GH_TOKEN") and not os.environ.get("GITHUB_TOKEN"),
          "artifact token reached database regression")
@@ -247,7 +248,7 @@ def execute(source, output):
                    data=statement.encode(), env=settings)
 
     pg = None
-    result = {"status": "FAIL", "product_revision": REVISION, "core_sha256": CORE_SHA,
+    result = {"status": "FAIL", "regression": regression, "product_revision": REVISION, "core_sha256": CORE_SHA,
               "production_access": False, "product_rebuilt": False,
               "started_utc": datetime.now(timezone.utc).isoformat()}
     try:
@@ -310,25 +311,43 @@ def execute(source, output):
             "fixture_nonce": nonce, "core78_manifest": str(work / "core78-manifest.json"),
             "runtime_roles": [runtime], "fixture_user_id": 1, "fixture_group": "default"}
         save(work / "fixture.private.json", fixture)
-        tests = CONTROL / "tests/current-runtime-keys"
-        testenv = {**env, "PYTHONPATH": str(tests) + os.pathsep + str(source / "scripts")}
-        run([sys.executable, "-B", tests / "test_migrate_current_runtime_keys_pg.py",
-            "--fixture", work / "fixture.private.json", "--output", work / "regression"],
-            work, "pg-regression", env=testenv, timeout=600)
-        verified = json.loads((work / "regression/result.public.json").read_text())
-        need(verified["status"] == "MECHANICS_VERIFIED_RUNTIME_PENDING", "regression did not pass")
-        result.update(status="MECHANICS_VERIFIED_RUNTIME_PENDING", mechanics=verified,
-                      runtime_authentication_and_quota="NOT_RUN")
-        financial_readback = """SELECT jsonb_build_object(
+        keys = CONTROL / "tests/current-runtime-keys"
+        if regression == "wallet":
+            # A separate invocation creates a fresh cluster/database/nonce.
+            # No Session/key regression has consumed this fixture or its IDs.
+            tests = CONTROL / "tests/current-wallet-reconciliation"
+            testenv = {**env, "PYTHONPATH": os.pathsep.join(map(str, (tests, keys, source / "scripts")))}
+            run([sys.executable, "-B", tests / "test_migrate_current_wallet_reconciliation.py"],
+                work, "wallet-pure", env=testenv, timeout=120)
+            run([sys.executable, "-B", tests / "test_migrate_current_wallet_reconciliation_pg.py",
+                "--fixture", work / "fixture.private.json", "--output", work / "regression"],
+                work, "wallet-pg-regression", env=testenv, timeout=600)
+            verified = json.loads((work / "regression/wallet-result.public.json").read_text())
+            need(verified["status"] == "SYNTHETIC_PG_MECHANICS_VERIFIED"
+                 and verified["production_approval_created"] is False
+                 and verified["full_financial_import_complete"] is False,
+                 "wallet mechanics did not pass or exceeded their evidence scope")
+            result.update(status="PASS", wallet_reconciliation_mechanics=verified,
+                          production_approval_created=False, full_financial_import_complete=False)
+        else:
+            testenv = {**env, "PYTHONPATH": str(keys) + os.pathsep + str(source / "scripts")}
+            run([sys.executable, "-B", keys / "test_migrate_current_runtime_keys_pg.py",
+                "--fixture", work / "fixture.private.json", "--output", work / "regression"],
+                work, "pg-regression", env=testenv, timeout=600)
+            verified = json.loads((work / "regression/result.public.json").read_text())
+            need(verified["status"] == "MECHANICS_VERIFIED_RUNTIME_PENDING", "regression did not pass")
+            result.update(status="MECHANICS_VERIFIED_RUNTIME_PENDING", mechanics=verified,
+                          runtime_authentication_and_quota="NOT_RUN")
+            financial_readback = """SELECT jsonb_build_object(
  'balances',(SELECT jsonb_agg(to_jsonb(b) ORDER BY ledger_account_id) FROM core_billing.balance_state b),
  'journals',(SELECT count(*) FROM core_billing.ledger_journals),
  'opening_consumption',(SELECT jsonb_agg(to_jsonb(b) ORDER BY key_id) FROM core_charging.budget_opening_consumption b));"""
-        before_http = sql(financial_readback)
-        events = runtime_probe(source, output, work, sock, db, port, runtime, env, sql)
-        need(sql(financial_readback) == before_http, "auth/recovery/projection changed money or historical quota")
-        result.pop("runtime_authentication_and_quota", None)
-        result.update(status="PASS", runtime_authentication_and_quota_projection="PASS",
-                      runtime_events=events, auth_recovery_projection_financial_writes=False)
+            before_http = sql(financial_readback)
+            events = runtime_probe(source, output, work, sock, db, port, runtime, env, sql)
+            need(sql(financial_readback) == before_http, "auth/recovery/projection changed money or historical quota")
+            result.pop("runtime_authentication_and_quota", None)
+            result.update(status="PASS", runtime_authentication_and_quota_projection="PASS",
+                          runtime_events=events, auth_recovery_projection_financial_writes=False)
     except BaseException as error:
         result["error"] = type(error).__name__ + ": " + str(error)
         raise
@@ -353,5 +372,9 @@ if __name__ == "__main__":
     parser.add_argument("phase", choices=("acquire", "run"))
     parser.add_argument("--source", required=True, type=Path)
     parser.add_argument("--output", required=True, type=Path)
+    parser.add_argument("--regression", choices=("keys", "wallet"), default="keys")
     args = parser.parse_args()
-    (acquire if args.phase == "acquire" else execute)(args.source.resolve(), args.output.resolve())
+    if args.phase == "acquire":
+        acquire(args.source.resolve(), args.output.resolve())
+    else:
+        execute(args.source.resolve(), args.output.resolve(), regression=args.regression)
