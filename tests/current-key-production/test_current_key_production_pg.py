@@ -198,7 +198,7 @@ class Regression(IP.Regression):
             'unknown_commit_resolved_readonly_without_automatic_retry', 'exact_replay_does_not_allocate_or_change_state',
             'actual_source_identity_duplicate_rejected_even_when_python_receipts_are_hidden']
         for i, row in enumerate(fresh['records']):
-            actual = self.query('SELECT jsonb_build_object(\'revoked\',revoked,\'version\',user_version,\'kind\',kind) '
+            actual = self.query('SELECT jsonb_build_object(\'revoked\',revoked_at IS NOT NULL,\'version\',user_version,\'kind\',kind) '
                 'FROM core_identity.credentials WHERE id=' + str(row['target_credential_id']))
             check(actual['kind'] == 'api_key' and actual['version'] == row['expected_target_auth_version']
                   and actual['revoked'] == (i == 2), 'actual appended credential did not preserve key authority')
