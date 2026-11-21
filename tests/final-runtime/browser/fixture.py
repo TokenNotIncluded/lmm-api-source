@@ -11,6 +11,15 @@ SOURCE=ROOT.parent/'lmm-api-source-main'
 LMM_ORIGIN='https://native.api.lmm.best'
 EXTORE_ORIGIN='https://extore.lmm.best'
 sha=lambda p:hashlib.sha256(Path(p).read_bytes()).hexdigest()
+def mapped_library(pid,path,digest):
+ assert sha(path)==digest,'native library bytes drifted'
+ metadata=path.stat()
+ found=[]
+ for line in Path(f'/proc/{pid}/maps').read_text().splitlines():
+  fields=line.split()
+  if len(fields)>=6 and fields[4]==str(metadata.st_ino) and ' '.join(fields[5:])==str(path):found.append(line)
+ assert found and any('x' in line.split()[1] for line in found),'exact native library inode lacks an executable mapping'
+ return found
 def save(path,value):
  path.write_text(json.dumps(value,ensure_ascii=False,sort_keys=True,indent=2)+'\n');path.chmod(0o600)
 parser=argparse.ArgumentParser()
@@ -30,15 +39,28 @@ try:
  assert len(SOURCE_COMMIT)==40 and all(c in '0123456789abcdef' for c in SOURCE_COMMIT)
  CORE_COMMIT=candidate['core']['source_commit'];WEB_COMMIT=candidate['web']['source_commit']
  assert CORE_COMMIT==SOURCE_COMMIT,'new Core and Go must share the published session-binding candidate'
- assert CORE_COMMIT==WEB_COMMIT==SOURCE_COMMIT=='293e53f799b09f187893e9cdf0c3503973916676'
+ assert CORE_COMMIT==WEB_COMMIT==SOURCE_COMMIT=='fa57cd2049ccd9138cdc0b4104db36b5b6c53ae5'
  assert candidate['extensions']['source_commit']==SOURCE_COMMIT
  EXTORE_COMMIT=candidate['extore']['source_commit']
- assert EXTORE_COMMIT=='8e3063690cf5595884b1e639535869fd593e0296'
+ assert EXTORE_COMMIT=='cf3469dbe827afcfb2e3f054a63f7b9b7c40bc2b'
  assert len(EXTORE_COMMIT)==40 and candidate['extore_host']['extore_source_commit']==EXTORE_COMMIT
  EXT=Path(candidate['extore']['binary']['path']).resolve(strict=True);EXT_SHA=candidate['extore']['binary']['sha256']
  PLUGIN=Path(candidate['extore']['library']['path']).resolve(strict=True);PLUGIN_SHA=candidate['extore']['library']['sha256']
  HOST=Path(candidate['extore_host']['path']).resolve(strict=True);HOST_SHA=candidate['extore_host']['sha256']
- helper=Path(candidate['extore']['helper']['path']).resolve(strict=True);HELPER_SHA=candidate['extore']['helper']['sha256']
+ helper=Path(__file__).with_name('extore_fixture_compat.py').resolve(strict=True)
+ preparation=json.loads(Path(__file__).with_name('preparation.json').read_text())
+ HELPER_SHA=preparation['files']['extore_fixture_compat.py']['sha256']
+ probe_helper=Path(__file__).with_name('native_plugin_probe_cf.py').resolve(strict=True)
+ PROBE_SHA=preparation['files']['native_plugin_probe_cf.py']['sha256']
+ assert sha(probe_helper)==PROBE_SHA
+ assert os.environ.get('LMM_ACCEPTANCE_ISOLATED')=='1' and os.geteuid()!=0
+ assert os.readlink('/proc/self/ns/net')==os.environ['LMM_ACCEPTANCE_NETNS']
+ assert os.readlink('/proc/self/ns/mnt')==os.environ['LMM_ACCEPTANCE_MOUNTNS']
+ assert candidate['fixture_overlays']=={}
+ assert candidate['official_distribution']['run_id']==44936380440
+ assert candidate['extore_host']['source_commit']==EXTORE_COMMIT
+ assert candidate['extore_host']['compiled_extore_source_commit']==EXTORE_COMMIT
+ assert candidate['extore']['binary']['compiled_source_commit']==EXTORE_COMMIT
  STATIC=Path(candidate['extore']['static']['root']).resolve(strict=True)
  static_manifest=Path(candidate['extore']['static']['binding']).resolve(strict=True);STATIC_MANIFEST_SHA=candidate['extore']['static']['binding_sha256']
  assert sha(static_manifest)==STATIC_MANIFEST_SHA
@@ -47,18 +69,19 @@ try:
  for name,want in static_binding['files'].items():
   target=(STATIC/name).resolve(strict=True);assert target.is_relative_to(STATIC) and sha(target)==want,name
  for p,digest in [(EXT,EXT_SHA),(PLUGIN,PLUGIN_SHA),(HOST,HOST_SHA),(helper,HELPER_SHA)]:assert sha(p)==digest,'feature artifact input changed: '+str(p)
- expected_helper=subprocess.run(['git','-C',candidate['extore']['source_repository'],'show',EXTORE_COMMIT+':scripts/native_plugin_fixture.py'],capture_output=True,check=True).stdout
- assert helper.read_bytes()==expected_helper,'Extore helper differs from frozen source'
+ expected_probe=subprocess.run(['git','-C',candidate['extore']['source_repository'],'show',EXTORE_COMMIT+':tests/native_plugin_probe.py'],capture_output=True,check=True).stdout
+ assert probe_helper.read_bytes()==expected_probe,'cf namespace/TLS helper differs from pinned source'
+ probe_spec=importlib.util.spec_from_file_location('native_plugin_probe_cf',probe_helper)
+ native_probe=importlib.util.module_from_spec(probe_spec);probe_spec.loader.exec_module(native_probe)
  extore_spec=importlib.util.spec_from_file_location('real_extore_fixture',helper)
  extore_module=importlib.util.module_from_spec(extore_spec);extore_spec.loader.exec_module(extore_module)
  from https_fixture_transport import LocalHTTPS, certificates
  transport_source=Path(__file__).with_name('https_fixture_transport.py');TRANSPORT_SHA=sha(transport_source)
- host_manifest=subprocess.run(['git','-C',str(SOURCE_REPOSITORY),'show',SOURCE_COMMIT+':services/extensions/extore-host/Cargo.toml'],capture_output=True,check=True).stdout
- import tomllib
- host_api=tomllib.loads(host_manifest.decode())['dependencies']['extore-plugin-api']
- assert host_api['path']=='../../../third_party/extore/crates/extore-plugin-api'
- gitlink=subprocess.run(['git','-C',str(SOURCE_REPOSITORY),'ls-tree',SOURCE_COMMIT,'third_party/extore'],capture_output=True,check=True,text=True).stdout.strip().split()
- assert gitlink==['160000','commit',EXTORE_COMMIT,'third_party/extore'],'host API gitlink differs from plugin'
+ pin_bytes=subprocess.run(['git','-C',str(SOURCE_REPOSITORY),'show',SOURCE_COMMIT+':packaging/extore-plugin.json'],capture_output=True,check=True).stdout
+ pin=json.loads(pin_bytes)
+ assert pin['revision']==EXTORE_COMMIT and pin['path']=='packages/extore' and pin['host_abi']==1
+ gitlink=subprocess.run(['git','-C',str(SOURCE_REPOSITORY),'ls-tree',SOURCE_COMMIT,pin['path']],capture_output=True,check=True,text=True).stdout.strip().split()
+ assert gitlink==['160000','commit',EXTORE_COMMIT,pin['path']],'native two-SO source gitlink differs'
  CORE=Path(candidate['core']['path']).resolve(strict=True);CORE_SHA=candidate['core']['sha256']
  GO=Path(candidate['extensions']['path']).resolve(strict=True);GO_SHA=candidate['extensions']['sha256']
  DIST=Path(candidate['web']['dist']).resolve(strict=True)
@@ -69,7 +92,7 @@ try:
  assert set(binding['files'])=={str(p.relative_to(DIST)) for p in DIST.rglob('*') if p.is_file()}
  for name,want in binding['files'].items():
   p=(DIST/name).resolve(strict=True);assert p.is_relative_to(DIST) and sha(p)==want,name
- required=['deployment/postgres/grant-core-runtime.sql', 'deployment/postgres/verify-channel-observations-owner.sql', 'services/extensions/internal/modules/store/schema.sql', 'tests/console/independent_process/run.py', 'tests/console/independent_process/pg_fault.py']
+ required=['deployment/postgres/grant-core-runtime.sql', 'deployment/postgres/verify-channel-observations-owner.sql', 'services/extensions/internal/modules/store/schema.sql', 'tests/console/independent_process/run.py', 'tests/console/independent_process/pg_fault.py','services/extensions/internal/extore/native_catalog.go','services/extensions/internal/extore/native_library_linux.go','packaging/extore-plugin.json']
  source_hashes={}
  for rel in required:
   p=(SOURCE/rel).resolve(strict=True);assert p.is_relative_to(SOURCE)
@@ -86,8 +109,8 @@ try:
    assert expected==core_expected,'Core fixture input differs from the matched candidate: '+rel
   source_hashes[rel]=sha(p)
  save(roundroot/'inputs.json',{'core_sha256':CORE_SHA,'go_sha256':GO_SHA,'web_dist_binding_sha256':sha(binding_path),'web_dist_index_sha256':binding['files']['index.html'],'web_source_commit':WEB_COMMIT,'core_source_commit':CORE_COMMIT,'feature_source_commit':SOURCE_COMMIT,'extore_source_commit':EXTORE_COMMIT,'extore_sha256':EXT_SHA,'extore_host_sha256':HOST_SHA,'extore_plugin_sha256':PLUGIN_SHA,'extore_helper_sha256':HELPER_SHA,'extore_static_manifest_sha256':STATIC_MANIFEST_SHA,'extore_static_file_count':len(static_binding['files']),'transport_source_sha256':TRANSPORT_SHA,'web_embedded_revision':binding['embedded_build_revision'],'fixture_runner_sha256':sha(__file__),'candidate_manifest_sha256':sha(candidate_path),'frozen_source_hashes':source_hashes,'artifact_lineage':{'validation_class':candidate['validation_class'],'core_profile':candidate['core']['profile'],'extore_compiled_source_commit':candidate['extore']['binary']['compiled_source_commit'],'extore_host_compiled_source_commit':candidate['extore_host']['source_commit'],'extore_host_compiled_extore_source_commit':candidate['extore_host']['compiled_extore_source_commit']},'community_module':'enabled with official install-db, isolated DB/roles, and real /api/site/ Go routing','business_response_mocks':False})
- assert candidate['fixture_overlays']=={},'293 includes the original approved TCP_NODELAY fixture fix'
- recorded=json.loads((roundroot/'inputs.json').read_text());recorded['fixture_overlays']=candidate['fixture_overlays'];recorded['test_harness_commit']=candidate['test_harness_commit'];save(roundroot/'inputs.json',recorded)
+ assert candidate['fixture_overlays']=={},'fa57 includes the approved fixture fixes; no overlay is applied'
+ recorded=json.loads((roundroot/'inputs.json').read_text());recorded['fixture_overlays']=candidate['fixture_overlays'];recorded['test_harness_commit']=candidate.get('test_harness_commit');recorded['harness_binding_sha256']=sha(Path(__file__).with_name('preparation.json'));recorded['extore_seed_fixture_origin']='Copied original 8e fixture helper, frozen separately; not claimed as cf product source';recorded['native_probe_sha256']=PROBE_SHA;save(roundroot/'inputs.json',recorded)
  fixture_source=SOURCE/'tests/console/independent_process';sys.dont_write_bytecode=True
  sys.path.insert(0,str(fixture_source))
  spec=importlib.util.spec_from_file_location('independent_console_fixture',fixture_source/'run.py')
@@ -200,7 +223,7 @@ def capture_resources(label):
   k,v=line.split(':',1)
   if k in ('MemTotal','MemAvailable','SwapTotal','SwapFree'):mem[k]=v.strip()
  processes=[]
- for label_name,process_pid in [('core',f.main.proc.pid),('go',f.go.proc.pid),('postgres',f.pg.proc.pid),('extore',extore_fixture._server.pid),('host',host_pid)]:
+ for label_name,process_pid in [('core',f.main.proc.pid),('go',f.go.proc.pid),('postgres',f.pg.proc.pid),('extore',extore_fixture._server.pid)]:
   p=Path('/proc')/str(process_pid)
   row={'label':label_name,'pid':process_pid,'alive':p.exists()}
   if p.exists():
@@ -244,8 +267,12 @@ def capture_state(label):
    value=json.loads(raw_config)
    products.append({'id':pid,'shop_id':shop,'name':value['name'],'variants':[{k:v[k] for k in ['id','name','price','currency','enabled']} for v in value['variants']]})
  gateway=[e for e in transport.events if e.get('layer')=='gateway' and e.get('host')=='extore.lmm.best']
- native_maps=[line for line in Path(f'/proc/{host_pid}/maps').read_text().splitlines() if str(plugin_copy) in line]
- save(roundroot/('state-'+label+'.json'),{'label':label,'time':time.time(),'store':store,'extore':{'grants':grants,'token_counts':tokens,'token_expiry_metadata':expiry_metadata,'issuances_count':issuances,'products':products},'native_host':{'pid':host_pid,'exe_sha256':sha(f'/proc/{host_pid}/exe'),'plugin_sha256':sha(plugin_copy),'library_maps':native_maps},'upstream_http':gateway,'catalog_http_requests':sum(e['path']=='/api/integrations/commerce/products' for e in gateway)})
+ gateway += [{'layer':'native-direct-tls','host':'extore.lmm.best','method':method,'path':path,'status':status,'target':['127.0.0.1',extore_fixture.port]} for method,path,status in native_http_observations]
+ native_maps=mapped_library(host_pid,plugin_copy,PLUGIN_SHA)
+ host_maps=mapped_library(host_pid,host_copy,HOST_SHA)
+ assert host_pid==f.go.proc.pid and native_maps and host_maps
+ assert sha(host_copy)==HOST_SHA and sha(plugin_copy)==PLUGIN_SHA
+ save(roundroot/('state-'+label+'.json'),{'label':label,'time':time.time(),'store':store,'extore':{'grants':grants,'token_counts':tokens,'token_expiry_metadata':expiry_metadata,'issuances_count':issuances,'products':products},'native_bridge':{'pid':host_pid,'go_exe_sha256':sha(f'/proc/{host_pid}/exe'),'host_library_sha256':sha(host_copy),'plugin_sha256':sha(plugin_copy),'host_library_maps':host_maps,'library_maps':native_maps},'upstream_http':gateway,'catalog_http_requests':sum(e['path']=='/api/integrations/commerce/products' for e in gateway)})
 
 class Web(http.server.SimpleHTTPRequestHandler):
  def __init__(self,*a,**kw):super().__init__(*a,directory=str(DIST),**kw)
@@ -292,6 +319,7 @@ class Web(http.server.SimpleHTTPRequestHandler):
   self.send_header('Content-Length',str(len(raw)));self.end_headers()
   try:self.wfile.write(raw)
   except (BrokenPipeError,ConnectionResetError):pass
+native_http_observations=[];native_tls_servers=[]
 failed=None;store_proxy=None;extore_fixture=None;transport=None;host_pid=None;host_copy=None;plugin_copy=None;community_owner_proxy=None;community_proxy=None
 try:
  original=tempfile.mkdtemp
@@ -317,13 +345,12 @@ try:
  f.secret(extore_fixture._session)
  assert sha(f'/proc/{extore_fixture._server.pid}/exe')==EXT_SHA
  runtime_bin=temp_root/'plugin-bin';runtime_bin.mkdir(mode=0o700)
- runtime_socket=temp_root/'plugin-socket';runtime_socket.mkdir(mode=0o700)
- host_copy=runtime_bin/'lmm-extore-host';plugin_copy=runtime_bin/'libextore_zplugin.so'
+ host_copy=runtime_bin/'libextore_plugin_host.so';plugin_copy=runtime_bin/'libextore_commerce_plugin.so'
  shutil.copyfile(HOST,host_copy);host_copy.chmod(0o500)
  shutil.copyfile(PLUGIN,plugin_copy);plugin_copy.chmod(0o500)
  assert sha(host_copy)==HOST_SHA and sha(plugin_copy)==PLUGIN_SHA
- plugin_socket=runtime_socket/'extore.sock'
  cert=certificates(temp_root/'tls')
+ native_tls_servers=native_probe.serve_tls(extore_fixture.port,cert['cert'],cert['key'],native_http_observations)
  transport=LocalHTTPS({'extore.lmm.best':('127.0.0.1',extore_fixture.port),'native.api.lmm.best':('127.0.0.1',f.webport)},cert,roundroot/'transport.jsonl')
  for key in ['HTTPS_PROXY','HTTP_PROXY','https_proxy','http_proxy']:f.env[key]=transport.proxy_url
  for key in ['NO_PROXY','no_proxy']:f.env[key]='';os.environ[key]=''
@@ -350,12 +377,11 @@ database_url_file={json.dumps(str(dburl))}
 extore_key_file={json.dumps(str(extore_key))}
 extore_redirect_uri='{LMM_ORIGIN}/store/manage'
 [store.extore_plugin]
-origin='{EXTORE_ORIGIN}'
-host={json.dumps(str(host_copy))}
-library={json.dumps(str(plugin_copy))}
-sha256='{PLUGIN_SHA}'
-socket={json.dumps(str(plugin_socket))}
-data_dir={json.dumps(str(extore_fixture.data_dir))}
+host_library={json.dumps(str(host_copy))}
+host_sha256='{HOST_SHA}'
+plugin_library={json.dumps(str(plugin_copy))}
+plugin_sha256='{PLUGIN_SHA}'
+ca_file={json.dumps(cert['ca'])}
 """)
  f.start_go('browser_go')
  web=http.server.ThreadingHTTPServer(('127.0.0.1',f.webport),Web);servers.append(web);threading.Thread(target=web.serve_forever,daemon=True).start()
@@ -371,20 +397,16 @@ data_dir={json.dumps(str(extore_fixture.data_dir))}
  routed={e['host']:e['target'] for e in transport.events if e.get('layer')=='gateway'}
  assert routed['extore.lmm.best']==['127.0.0.1',extore_fixture.port]
  assert routed['native.api.lmm.best']==['127.0.0.1',f.webport]
- children=set()
- for task in Path(f'/proc/{f.go.proc.pid}/task').iterdir():
-  try:children.update(int(x) for x in (task/'children').read_text().split())
-  except FileNotFoundError:pass
- host_pids=[pid for pid in children if Path(f'/proc/{pid}/exe').exists() and sha(f'/proc/{pid}/exe')==HOST_SHA]
- assert len(host_pids)==1,'actual Go-managed native host missing'
- host_pid=host_pids[0]
- maps=[line for line in Path(f'/proc/{host_pid}/maps').read_text().splitlines() if str(plugin_copy) in line]
- assert maps,'actual native Extore library not mapped'
+ host_pid=f.go.proc.pid
+ maps=mapped_library(host_pid,plugin_copy,PLUGIN_SHA)
+ host_maps=mapped_library(host_pid,host_copy,HOST_SHA)
+ assert maps and host_maps,'both actual native Extore libraries must be mapped inside Go'
+ assert sha(f'/proc/{host_pid}/exe')==GO_SHA
  save(roundroot/'transport-preflight.json',{'checks':checks,'routes':routed,'tls_version_minimum':'TLSv1.2','go_ca_file':cert['ca'],'ca_sha256':cert['ca_sha256'],'certificate_sha256':cert['certificate_sha256'],'chromium_test_trust':'exact leaf certificate SPKI, isolated browser process','hosts_file_changed':False,'public_fallback':False,'business_response_mocks':False})
- save(roundroot/'native-host-start.json',{'go_pid':f.go.proc.pid,'host_pid':host_pid,'host_sha256':HOST_SHA,'library_sha256':PLUGIN_SHA,'library_maps':maps,'socket':str(plugin_socket),'data_dir':str(extore_fixture.data_dir)})
+ save(roundroot/'native-bridge-start.json',{'go_pid':f.go.proc.pid,'host_library_sha256':HOST_SHA,'plugin_library_sha256':PLUGIN_SHA,'host_library_maps':host_maps,'plugin_library_maps':maps,'catalog_transport':'cf real Rust HTTPS on isolated loopback:443','direct_tls_helper_sha256':PROBE_SHA})
  private={'origin':LMM_ORIGIN,'controlOrigin':f'http://127.0.0.1:{f.webport}','extoreOrigin':EXTORE_ORIGIN,'proxy':transport.proxy_url,'spki':cert['spki'],'ca_file':cert['ca'],'adminPassword':f.password,'controlKey':control,'owner_id':f.owner_id,'extoreSession':extore_fixture._session,'extoreShop':extore_fixture.shop_a,'extoreProduct':extore_fixture.products[extore_fixture.shop_a],'playwright':os.environ['LMM_ACCEPTANCE_PLAYWRIGHT'],'chromium':os.environ['LMM_ACCEPTANCE_CHROMIUM'],'tmpdir':str(temp_root/'chromium'),'evidence':str(roundroot)}
  save(roundroot/'browser-private.json',private)
- save(roundroot/'fixture-ready.json',{'ready':True,'started_at_epoch':started_at,'deadline_epoch':hard_deadline,'origin':LMM_ORIGIN,'core_pid':f.main.proc.pid,'go_pid':f.go.proc.pid,'postgres_pid':f.pg.proc.pid,'extore_pid':extore_fixture._server.pid,'host_pid':host_pid,'work':str(f.work),'sockdir':str(f.sockdir),'core_sha256':CORE_SHA,'go_sha256':GO_SHA,'host_sha256':HOST_SHA,'extore_sha256':EXT_SHA,'plugin_sha256':PLUGIN_SHA,'source_hashes':source_hashes,'extore_data_dir':str(extore_fixture.data_dir),'plugin_socket':str(plugin_socket),'extore_sqlite':str(extore_fixture.data_dir/'extore.sqlite3'),'plugin_library':str(plugin_copy),'private_runtime':str(temp_root)})
+ save(roundroot/'fixture-ready.json',{'ready':True,'started_at_epoch':started_at,'deadline_epoch':hard_deadline,'origin':LMM_ORIGIN,'core_pid':f.main.proc.pid,'go_pid':f.go.proc.pid,'postgres_pid':f.pg.proc.pid,'extore_pid':extore_fixture._server.pid,'native_bridge_pid':host_pid,'work':str(f.work),'sockdir':str(f.sockdir),'core_sha256':CORE_SHA,'go_sha256':GO_SHA,'host_sha256':HOST_SHA,'extore_sha256':EXT_SHA,'plugin_sha256':PLUGIN_SHA,'source_hashes':source_hashes,'extore_data_dir':str(extore_fixture.data_dir),'host_library':str(host_copy),'extore_sqlite':str(extore_fixture.data_dir/'extore.sqlite3'),'plugin_library':str(plugin_copy),'private_runtime':str(temp_root)})
  capture_state('fixture-preflight')
  print(json.dumps({'ready':True,'evidence':str(roundroot),'origin':LMM_ORIGIN,'feature_source_commit':SOURCE_COMMIT,'extore_source_commit':EXTORE_COMMIT}),flush=True)
  deadline=time.monotonic()+max(0,hard_deadline-time.time())
@@ -396,6 +418,8 @@ except Exception as e:
  save(roundroot/'fixture-failure.json',{'failure':failed,'traceback':traceback.format_exc()})
  print(json.dumps({'ready':False,'failure_type':type(e).__name__,'evidence':str(roundroot)}),flush=True)
 finally:
+ for server,thread in reversed(native_tls_servers):
+  server.shutdown();server.server_close();thread.join(timeout=3)
  if transport:transport.close()
  for server in reversed(servers):server.shutdown();server.server_close()
  cleanup=[]
@@ -405,7 +429,7 @@ finally:
  if extore_fixture:
   extore_fixture.__exit__(None,None,None)
   cleanup.append({'label':'extore_server','pid':extore_fixture._server.pid if extore_fixture._server else None,'stopped':extore_fixture._server is None or extore_fixture._server.poll() is not None,'exit_code':extore_fixture._server.returncode if extore_fixture._server else None,'retained_root':str(extore_fixture.root)})
- if host_pid:cleanup.append({'label':'native_plugin_host','pid':host_pid,'stopped':not Path(f'/proc/{host_pid}').exists()})
+ if host_pid:cleanup.append({'label':'native_bridge_owner_go','pid':host_pid,'stopped':not Path(f'/proc/{host_pid}').exists()})
  for proxy in [community_proxy,community_owner_proxy,store_proxy,f.proxy]:
   if proxy:proxy.close()
  for label,raw in f.raw_logs+[(p.label,bytes(p.output)) for p in f.processes]:
@@ -414,7 +438,7 @@ finally:
   for secret in sorted(f.sensitive,key=len,reverse=True):text=text.replace(secret,'[PRIVATE]')
   (roundroot/(label+'.log')).write_text(text)
  drift=[]
- for label,target,want in [('core',CORE,CORE_SHA),('extensions',GO,GO_SHA),('extore',EXT,EXT_SHA),('host',HOST,HOST_SHA),('plugin',PLUGIN,PLUGIN_SHA),('extore_fixture_helper',helper,HELPER_SHA),('transport',transport_source,TRANSPORT_SHA),('extore_static_manifest',static_manifest,STATIC_MANIFEST_SHA),*[(('extore-static/'+name),STATIC/name,want) for name,want in static_binding['files'].items()],*[(name,DIST/name,want) for name,want in binding['files'].items()],*[(name,SOURCE/name,want) for name,want in source_hashes.items()]]:
+ for label,target,want in [('core',CORE,CORE_SHA),('extensions',GO,GO_SHA),('extore',EXT,EXT_SHA),('host',HOST,HOST_SHA),('plugin',PLUGIN,PLUGIN_SHA),('extore_fixture_helper',helper,HELPER_SHA),('cf_native_probe_helper',probe_helper,PROBE_SHA),('transport',transport_source,TRANSPORT_SHA),('extore_static_manifest',static_manifest,STATIC_MANIFEST_SHA),*[(('extore-static/'+name),STATIC/name,want) for name,want in static_binding['files'].items()],*[(name,DIST/name,want) for name,want in binding['files'].items()],*[(name,SOURCE/name,want) for name,want in source_hashes.items()]]:
   try:
    if sha(target)!=want:drift.append(label)
   except OSError:drift.append(label)

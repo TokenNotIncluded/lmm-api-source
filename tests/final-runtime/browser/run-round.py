@@ -34,10 +34,11 @@ for name,want in freeze['files'].items():
  p=TESTS/name
  assert hashlib.sha256(p.read_bytes()).hexdigest()==want['sha256'],name+' changed after independent review'
 candidate=args.candidate.resolve(strict=True)
-assert json.loads(candidate.read_text())['source_commit']=='293e53f799b09f187893e9cdf0c3503973916676'
+assert json.loads(candidate.read_text())['source_commit']=='fa57cd2049ccd9138cdc0b4104db36b5b6c53ae5'
 roundroot=ROOT/args.round
 assert not roundroot.exists(),'never overwrite prior round evidence'
 launcher=ROOT/(args.round+'-launcher');launcher.mkdir(mode=0o700)
+assert os.environ.get('LMM_ACCEPTANCE_ISOLATED')=='1', 'use run-isolated.py for the real two-SO HTTPS path'
 started=time.time();deadline=started+1800
 fixture=None;browser=None;cfg=None;ready=None;failure=None;browser_exit=None;cleanup_requests=[]
 save(launcher/'inputs.json',{'started_at':started,'maximum_total_seconds':1800,'minimum_cleanup_reserve_seconds':150,'candidate':str(candidate),'candidate_sha256':hashlib.sha256(candidate.read_bytes()).hexdigest(),'tests_freeze_sha256':hashlib.sha256(freeze_path.read_bytes()).hexdigest(),'tests':freeze['files']})

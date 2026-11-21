@@ -14,15 +14,15 @@ const cfg=JSON.parse(await fs.readFile(path.join(evidence,'browser-private.json'
 const inputs=JSON.parse(await fs.readFile(path.join(evidence,'inputs.json'),'utf8'))
 const ready=JSON.parse(await fs.readFile(path.join(evidence,'fixture-ready.json'),'utf8'))
 assert.equal(cfg.evidence,evidence)
-for(const key of ['feature_source_commit','core_source_commit','web_source_commit'])assert.equal(inputs[key],'293e53f799b09f187893e9cdf0c3503973916676')
-assert.equal(inputs.extore_source_commit,'8e3063690cf5595884b1e639535869fd593e0296')
+for(const key of ['feature_source_commit','core_source_commit','web_source_commit'])assert.equal(inputs[key],'fa57cd2049ccd9138cdc0b4104db36b5b6c53ae5')
+assert.equal(inputs.extore_source_commit,'cf3469dbe827afcfb2e3f054a63f7b9b7c40bc2b')
 assert.equal(cfg.origin,'https://native.api.lmm.best')
 assert.equal(cfg.extoreOrigin,'https://extore.lmm.best')
 const proxy=new URL(cfg.proxy)
 assert.equal(proxy.protocol,'http:');assert.equal(proxy.hostname,'127.0.0.1');assert.ok(proxy.port)
 assert.equal(proxy.username,'');assert.equal(proxy.password,'')
 const sha=bytes=>createHash('sha256').update(bytes).digest('hex')
-for(const [pid,want] of [[ready.core_pid,inputs.core_sha256],[ready.go_pid,inputs.go_sha256],[ready.extore_pid,inputs.extore_sha256],[ready.host_pid,inputs.extore_host_sha256]]){
+for(const [pid,want] of [[ready.core_pid,inputs.core_sha256],[ready.go_pid,inputs.go_sha256],[ready.extore_pid,inputs.extore_sha256]]){
  assert.equal(sha(await fs.readFile('/proc/'+pid+'/exe')),want)
 }
 const out=path.join(evidence,'browser'+suffix);await fs.mkdir(out,{mode:0o700})
@@ -160,7 +160,7 @@ function assertMapping(value,baseline){
  assert.equal(value.store.sources[0].product_id,baseline.store.sources[0].product_id)
  assert.deepEqual(value.store.sources[0].variant_ids,baseline.store.sources[0].variant_ids)
  assert.ok(value.store.sources[0].last_synced_at>=baseline.store.sources[0].last_synced_at)
- assert.equal(value.catalog_http_requests,0);assert.ok(value.native_host.library_maps.length>0)
+ assert.ok(value.catalog_http_requests>baseline.catalog_http_requests);assert.ok(value.native_bridge.library_maps.length>0&&value.native_bridge.host_library_maps.length>0);assert.equal(value.native_bridge.go_exe_sha256,inputs.go_sha256)
  assert.equal(value.extore.issuances_count,0);assert.equal(value.store.orders_count,0);assert.equal(value.store.money_operations_count,0)
 }
 function assertCatalog(body){
@@ -415,8 +415,9 @@ try{
  assert.equal(importedState.store.sources.length,1);assert.equal(importedState.store.products.length,1);assert.equal(importedState.store.variants.length,2)
  assert.deepEqual(Object.keys(importedState.store.sources[0].variant_ids).sort(),['default','professional'])
  assert.equal(importedState.store.connections[0].credential_is_encrypted,true)
- assert.equal(importedState.catalog_http_requests,0)
- assert.ok(importedState.native_host.library_maps.length>0)
+ assert.ok(importedState.catalog_http_requests>0)
+ assert.ok(importedState.native_bridge.library_maps.length>0&&importedState.native_bridge.host_library_maps.length>0)
+ assert.equal(importedState.native_bridge.go_exe_sha256,inputs.go_sha256)
  assert.equal(importedState.extore.issuances_count,0)
  cases.real_native_catalog_and_product_mapping='PASS'
  const catalogPath='/api/store/extore/connections/'+imported.connection.id+'/catalog'
@@ -525,7 +526,7 @@ try{
  assert.equal(newRefreshUsed,oldRefreshUsed+1)
  assert.equal(refreshedState.extore.token_expiry_metadata.filter(row=>row.kind==='access').length,expiredState.extore.token_expiry_metadata.filter(row=>row.kind==='access').length+1)
  assert.ok(Number(refreshedState.store.connections[0].version)>Number(expiredState.store.connections[0].version))
- await save('actual-access-expiry-refresh-proof.json',{before_access:expiredAccess,after_access:newAccess,view_started_at:expiryViewStarted,catalog_status:afterExpiry.status,token_http_200_before:oldTokenExchanges,token_http_200_after:newTokenExchanges,refresh_used_before:oldRefreshUsed,refresh_used_after:newRefreshUsed,connection_version_before:expiredState.store.connections[0].version,connection_version_after:refreshedState.store.connections[0].version,mapping_unchanged:true,catalog_http_requests:refreshedState.catalog_http_requests,native_library_mapped:refreshedState.native_host.library_maps.length>0})
+ await save('actual-access-expiry-refresh-proof.json',{before_access:expiredAccess,after_access:newAccess,view_started_at:expiryViewStarted,catalog_status:afterExpiry.status,token_http_200_before:oldTokenExchanges,token_http_200_after:newTokenExchanges,refresh_used_before:oldRefreshUsed,refresh_used_after:newRefreshUsed,connection_version_before:expiredState.store.connections[0].version,connection_version_after:refreshedState.store.connections[0].version,mapping_unchanged:true,catalog_http_requests:refreshedState.catalog_http_requests,native_library_mapped:refreshedState.native_bridge.library_maps.length>0&&refreshedState.native_bridge.host_library_maps.length>0})
  cases.real_expired_extore_access_token_refresh_preserves_mapping='PASS'
  console.log(JSON.stringify({phase:'real-access-expiry-refresh',overall:'PASS'}))
  await capture('lmm-catalog-after-real-access-refresh')
@@ -548,7 +549,7 @@ try{
  assert.equal(final.store.sources.length,1);assert.equal(final.store.products.length,1);assert.equal(final.store.variants.length,2)
  assert.equal(final.store.sources[0].product_id,importedState.store.sources[0].product_id)
  assert.equal(final.extore.issuances_count,0);assert.equal(final.store.orders_count,0);assert.equal(final.store.money_operations_count,0)
- assert.equal(final.catalog_http_requests,0)
+ assert.equal(final.catalog_http_requests,refreshedState.catalog_http_requests,'revoked local connection must not issue another native HTTPS catalog request')
  assert.ok(final.upstream_http.some(e=>e.path==='/api/integrations/commerce/revoke'&&e.method==='POST'&&e.status===200))
  cases.real_ui_disconnect_and_denial='PASS'
  Object.assign(cases,await verifyDark({page,productID:importedState.store.products[0].id,capture,save}))

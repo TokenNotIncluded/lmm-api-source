@@ -3,7 +3,7 @@ on:
   workflow_dispatch:
     inputs:
       final_runtime_acceptance:
-        description: Run only the frozen293 original runtime acceptance projection
+        description: Run only the candidate fa57 original runtime acceptance projection
         type: boolean
         required: false
         default: false
@@ -386,7 +386,7 @@ jobs:
           retention-days: 7
 
   final-runtime-prepare:
-    name: Prepare original frozen293 runtime acceptance inputs
+    name: Prepare original candidate fa57 runtime acceptance inputs
     if: ${{ github.event_name == 'workflow_dispatch' && inputs.final_runtime_acceptance }}
     runs-on: ubuntu-24.04
     timeout-minutes: 95
@@ -417,12 +417,12 @@ jobs:
       - name: Checkout original runtime source
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
         with:
-          ref: 293e53f799b09f187893e9cdf0c3503973916676
+          ref: fa57cd2049ccd9138cdc0b4104db36b5b6c53ae5
           path: product
           persist-credentials: false
       - name: Initialize only fixed Extore fixture source
         working-directory: product
-        run: git submodule update --init --depth 1 -- third_party/extore
+        run: git submodule update --init --depth 1 -- packages/extore
       - name: Install exact cloud build tools
         run: |
           umask 077
@@ -442,9 +442,8 @@ jobs:
           mise trust "$GITHUB_WORKSPACE/product/mise.toml"
           mise install bun go just node aqua:xataio/pgroll
           rustup run 1.100.0 cargo fetch --locked --manifest-path services/core/Cargo.toml
-          rustup run 1.100.0 cargo fetch --locked --manifest-path third_party/extore/Cargo.toml
           (cd services/extensions && mise exec -- go mod download)
-      - name: Acquire and verify original official archives and commerce driver once
+      - name: Acquire exact candidate archives, commerce driver and Extore fixture once
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -485,7 +484,7 @@ jobs:
           retention-days: 7
 
   final-runtime-acceptance:
-    name: Original five capacities, real302 payment and real16case browser
+    name: Candidate five capacities, real302 payment and real16case browser
     if: ${{ github.event_name == 'workflow_dispatch' && inputs.final_runtime_acceptance }}
     needs: final-runtime-prepare
     runs-on: ubuntu-24.04
@@ -506,12 +505,12 @@ jobs:
       - name: Checkout the same original runtime source
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
         with:
-          ref: 293e53f799b09f187893e9cdf0c3503973916676
+          ref: fa57cd2049ccd9138cdc0b4104db36b5b6c53ae5
           path: product
           persist-credentials: false
       - name: Initialize the same fixed Extore source
         working-directory: product
-        run: git submodule update --init --depth 1 -- third_party/extore
+        run: git submodule update --init --depth 1 -- packages/extore
       - name: Install cloud runtime tools and private PostgreSQL tools
         run: |
           umask 077
@@ -565,7 +564,7 @@ jobs:
             --source "$GITHUB_WORKSPACE/product" --output "$RUNNER_TEMP/final-runtime-prepared" \
             --artifact-id "$PREPARED_ARTIFACT" --artifact-sha256 "$PREPARED_DIGEST" \
             --bundle-sha256 "$BUNDLE_SHA256" --manifest-sha256 "$MANIFEST_SHA256"
-      - name: Execute the unchanged original gates serially and stop on first failure
+      - name: Execute the candidate gates serially and stop on first failure
         run: |
           python3 -B control/scripts/final-runtime-acceptance.py run \
             --source "$GITHUB_WORKSPACE/product" --output "$RUNNER_TEMP/final-runtime-prepared" \

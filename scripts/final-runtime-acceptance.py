@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Explicit cloud projection of the frozen 293 runtime's original local gates.
+"""Explicit cloud projection of the fixed fa57 runtime's original local gates.
 
 This controller does not qualify a source release or authorize deployment. It
 never accepts a production URL. The product/test runners remain unmodified.
@@ -25,40 +25,45 @@ import time
 import zipfile
 
 REPOSITORY = "TokenNotIncluded/lmm-api-source"
-RUNTIME = "293e53f799b09f187893e9cdf0c3503973916676"
-RUNTIME_TREE = "63454c389c91e7a202589bce8a43ff4a170d994b"
-EXTORE = "8e3063690cf5595884b1e639535869fd593e0296"
-DISTRIBUTION_RUN = 44798787579
-COMMERCE_REVISION = "952d21c5d5d849507478d8443f603c47e0126880"
-COMMERCE_TREE = "5c54b1576e61963e5baed635a4ccc22e8c9df637"
-COMMERCE_RUN = 44802025200
-COMMERCE_SHA = "9851d527400ffe97dbeb540cbcc97e10666be9a205e99de760800e5e5f7b5d77"
-CORE_SHA = "ece6e14ff4772f3e6bf83095719c73ee62e3824075c0aefcdd4b79813b2f315d"
-GO_SHA = "b190132c210f694256b3844e47cac0fed0d4640d6f9712fa672d85860c55a957"
-HOST_SHA = "db346ba27cc7bdd121665c06cbaa5ff9099d4f4c6c6085cb6ae2cd1e91a5b125"
-PLUGIN_SHA = "25c4928d879472c1f9ff11b9d7679875898a823c6cb042af7e59b510ef07980c"
-CLI_SHA = "4ec8556d140c69eb913b0473ef9bc691b669bae8baf9c1ffa8df31cad01bd756"
+RUNTIME = "fa57cd2049ccd9138cdc0b4104db36b5b6c53ae5"
+RUNTIME_TREE = "29d895918f934cd4976b36b6de0cc8edde5b47b2"
+EXTORE = "cf3469dbe827afcfb2e3f054a63f7b9b7c40bc2b"
+DISTRIBUTION_RUN = 44936380440
+COMMERCE_REVISION = "fa57cd2049ccd9138cdc0b4104db36b5b6c53ae5"
+COMMERCE_TREE = "29d895918f934cd4976b36b6de0cc8edde5b47b2"
+COMMERCE_RUN = 44936377199
+COMMERCE_SHA = "e9bfabc5a30427e8dd2f00686dcec7a72b5d46226a54fb3aa31262eb260d1cdc"
+CORE_SHA = "62df884eff7e41e8e67aed070a34409d1d4329f8a0f3952c08925d3a83ca9877"
+GO_SHA = "ea2c10c760e35cbc2063b8334d673f15eb04cdaa440a225524c1d96d0561ec8e"
+HOST_SHA = "a8dfe6fc20f4348ce2e2eeadb6f77076ca87c935b23631f05906787f5ccc7bca"
+PLUGIN_SHA = "7da6d3beba2239a0d221cfd06125d22f6503644ff41de5e7629177200ef35224"
+CLI_SHA = "29d7a8899264d08fb6c7dfcc71123cd42dbefd051d74267253f0b86a2297cf59"
 PG_IMAGE = "postgres:18-alpine@sha256:77f585114c32fbca283dc835b0596f4e52b51b4c6662d7810b2f4084f60a1873"
 COMPONENTS = {
-    "core": (14661182046, 24074810,
-             "f27e36a3f7aba0c4aa25244300a216957b90a914fa2faedde9d87a87333215a7",
-             "lmm-core-0.1.0-preview-linux-amd64.tar.gz",
-             "30c2a9edcde93e17670c8b31a76c9fd04c6a87d29ccc1727b8ac229a11ca4186"),
-    "extensions": (14659991533, 13924517,
-                   "1472a0ee530451898f4652f70e939197eeb9fca1d7380cfbebb90ca954112acd",
-                   "lmm-extensions-0.1.0-preview-linux-amd64-extore.tar.gz",
-                   "38a9c81b0032721f6cf44c4c64b099bd0f8f6f19112fa638948526f383e7f7a2"),
-    "web": (14660130923, 19372579,
-            "c2b7503a3c0b8f2f25e8ba4a6c8648de934a9499687620d2721b1a07ecb73881",
-            "lmm-web-0.1.0-preview-any.tar.gz",
-            "bfcef01dc4c480958e1ff34666c0a116e58350fb22a3bc812b0025a571a24968"),
-    "cli": (14659413791, 5458470,
-            "e6359091d4d5b6248417eacb63307768c5904b41dc4780933847a974b1c3c367",
-            "lmm-0.1.0-preview-linux-amd64.tar.gz",
-            "e199e99e833f242217defeb8b2911a9f08b406c96e7333a2101610e777f7b98b"),
+    "core": (14720027701, 24084661,
+             "1d24f3776e6c2a4739445688cbf43f9142499085d31acd38a669d00cd2e5cc5a",
+             "lmm-core-0.1.22-rc.1-linux-amd64.tar.gz",
+             "068427e6050a2415e134748b305f43b1398ac64f540ccd570f4758e508e4ab3f"),
+    "extensions": (14719966852, 11446854,
+                   "bff32adfe7b0b471631e78727ced8f7f02f40e990a559b1c5fa9c69fb3d416f5",
+                   "lmm-extensions-0.1.22-rc.1-linux-amd64.tar.gz",
+                   "9c691ccb5b5bd9af31da9880279ed2bd194ae6c685f079d81184ddddfec97d9a"),
+    "web": (14720045576, 19372187,
+            "72340a4546fedf601c2b5a30683849acb489f18cd9ae70bcae3236c3c615b43b",
+            "lmm-web-0.1.22-rc.1-any.tar.gz",
+            "75a710983aabcd30f82d8e35030b398164c10af8b7f8284d9d98b60b8818007c"),
+    "cli": (14719878392, 5494061,
+            "d6264351e6f43370787db4416539ac5a91d0d9268521e9700567626658c29c81",
+            "lmm-0.1.22-rc.1-linux-amd64.tar.gz",
+            "22d56eabfbf5f75193f27e30d9cc73db21525e7b1f09fa7fa83520305407aaa9"),
 }
-COMMERCE_ARTIFACT = (14662920404, 41001325,
-                     "3ef28d125a95229c35023d02402148ffebf7598686737664681b8a7b237079c0")
+COMMERCE_ARTIFACT = (14720237245, 41156864,
+                     "17a223e22f85c5afe5e44b4104bfff78660fb9b84478bf8ac5237b14d8a20671")
+EXTORE_REPOSITORY = "TokenNotIncluded/extore"
+EXTORE_RUN = 44652492679
+EXTORE_ARTIFACT = (14591767470, 43749992,
+                   "3704d203c9d1f39c4433c7bde657b19d68317a2bf2cb0f2651c3494135b9a932")
+EXTORE_BINARY_SHA = "c7cd52ea2a2ef7cc22c7862f74b4649ffe9201ad9d751a2783c4de95ede9ee39"
 CONTROL = Path(__file__).resolve().parents[1]
 os.umask(0o077)
 sys.dont_write_bytecode = True
@@ -189,9 +194,9 @@ def source_snapshot(source):
                 "checked-out source bytes differ from immutable Git object: " + name)
         require(bool(path.stat().st_mode & 0o111) == (mode == "100755"), "source executable mode differs: " + name)
         files[name] = {"git_blob": blob, "sha256": hashlib.sha256(data).hexdigest(), "mode": mode}
-    require(len(files) + len(links) == 5581 and len(links) == 20
-            and links["third_party/extore"] == EXTORE, "fixed runtime tree inventory differs")
-    extore = source / "third_party/extore"
+    require(len(files) + len(links) == 5578 and len(links) == 20
+            and links["packages/extore"] == EXTORE, "fixed runtime tree inventory differs")
+    extore = source / "packages/extore"
     require(git(extore, "rev-parse", "HEAD") == EXTORE
             and git(extore, "status", "--porcelain=v1", "--untracked-files=all") == "",
             "fixed Extore fixture source differs")
@@ -214,7 +219,7 @@ def source_snapshot(source):
         require(hashlib.sha1(b"blob " + str(len(data)).encode() + b"\0" + data).hexdigest() == blob
                 and bool(path.stat().st_mode & 0o111) == (mode == "100755"), "Extore bytes or Git mode differ: " + name)
         extore_files[name] = {"git_blob": blob, "sha256": hashlib.sha256(data).hexdigest(), "mode": mode}
-    require(len(extore_files) == 480 and extore_links == {
+    require(len(extore_files) == 483 and extore_links == {
         "processors/official": "dc45464fe3e9cc496012a9bf21e805f510f5c584"
     }, "fixed Extore tree inventory differs")
     return {"revision": RUNTIME, "tree": RUNTIME_TREE, "files": files, "gitlinks": links,
@@ -229,13 +234,13 @@ def fetch_json(endpoint, target):
     return json.loads(target.read_text())
 
 
-def download_artifact(root, artifact_id, size, digest, revision, run_id, name=None):
+def download_artifact(root, artifact_id, size, digest, revision, run_id, name=None, repository=REPOSITORY):
     """One metadata request and one binary GET; an existing claim prevents replay."""
     private(root)
     record(root / "download-claim.json", {"artifact_id": artifact_id, "expected_size": size,
            "expected_sha256": digest, "source_revision": revision, "run_id": run_id,
            "created_utc": datetime.now(timezone.utc).isoformat(), "attempts_allowed": 1})
-    meta = fetch_json(f"repos/{REPOSITORY}/actions/artifacts/{artifact_id}", root / "metadata.json")
+    meta = fetch_json(f"repos/{repository}/actions/artifacts/{artifact_id}", root / "metadata.json")
     require(meta["id"] == artifact_id and meta["expired"] is False
             and 0 < meta["size_in_bytes"] <= 1024**3
             and (size is None or meta["size_in_bytes"] == size) and meta["digest"] == "sha256:" + digest
@@ -244,7 +249,7 @@ def download_artifact(root, artifact_id, size, digest, revision, run_id, name=No
             and (name is None or meta["name"] == name), "artifact API binding differs")
     size = meta["size_in_bytes"]
     help_text = subprocess.check_output(["gh", "api", "--help"], text=True, timeout=30)
-    argv = ["gh", "api", "--method", "GET", f"repos/{REPOSITORY}/actions/artifacts/{artifact_id}/zip"]
+    argv = ["gh", "api", "--method", "GET", f"repos/{repository}/actions/artifacts/{artifact_id}/zip"]
     if "--allow-escape-sequences" in help_text:
         argv.append("--allow-escape-sequences")
     archive = root / "artifact.zip"
@@ -281,17 +286,16 @@ def official_components(source, root):
     result = {}
     for component, (artifact, size, digest, archive_name, archive_sha) in COMPONENTS.items():
         d = root / component
-        variant = "-extore" if component == "extensions" else ""
         zipped = download_artifact(d, artifact, size, digest, RUNTIME, DISTRIBUTION_RUN,
-                                  f"lmm-preview-{component}-{RUNTIME}{variant}")
+                                  f"lmm-preview-{component}-{RUNTIME}")
         unzip(zipped, d / "zip-content", {archive_name, archive_name + ".sha256"})
         package = d / "zip-content" / archive_name
         require(sha(package) == archive_sha and
                 (d / "zip-content" / (archive_name + ".sha256")).read_text().split()
                 == [archive_sha, archive_name], "component archive or sidecar differs")
         manifest = distribution.verify(package, RUNTIME)
-        require(manifest["component"] == component and manifest["version"] == "0.1.0-preview"
-                and manifest["preview"] is True and manifest["source_date_epoch"] == 1795200983,
+        require(manifest["component"] == component and manifest["version"] == "0.1.22-rc.1"
+                and manifest["preview"] is True and manifest["source_date_epoch"] == 1795266288,
                 "original component manifest identity differs")
         content = private(d / "content")
         with tarfile.open(package, "r:gz") as tar:
@@ -313,6 +317,69 @@ def official_components(source, root):
     return result
 
 
+def extore_fixture(source, payload, snapshot):
+    """Reuse the successful fixed cf service artifact; no new Extore build."""
+    root = payload / "extore-service-artifact"
+    archive = download_artifact(root, *EXTORE_ARTIFACT, EXTORE, EXTORE_RUN,
+                                name=f"extore-native-review-{EXTORE}", repository=EXTORE_REPOSITORY)
+    run = fetch_json(f"repos/{EXTORE_REPOSITORY}/actions/runs/{EXTORE_RUN}", root / "run.json")
+    require(run["head_sha"] == EXTORE and run["status"] == "completed"
+            and run["conclusion"] == "success" and run["run_attempt"] == 1,
+            "fixed Extore fixture run did not succeed")
+    name = "extore-native-review.tar.gz"
+    expected_tar = "997d4a679e7fd2e5b2935b03f0f9bcc45f533f0a14f811c876965de6945c853d"
+    unzip(archive, root / "zip-content", {name, name + ".sha256"})
+    package = root / "zip-content" / name
+    require(package.stat().st_size == 43749570 and sha(package) == expected_tar
+            and (root / "zip-content" / (name + ".sha256")).read_text().split()
+                == [expected_tar, name], "Extore fixture archive or sidecar differs")
+    fixtures = private(payload / "fixtures")
+    with tarfile.open(package, "r:gz") as tar:
+        members = tar.getmembers()
+        require(len(members) == 2 and {m.name for m in members} == {"extore", "MANIFEST.json"}
+                and all(m.isfile() for m in members), "Extore fixture tar inventory differs")
+        manifest_member = tar.getmember("MANIFEST.json")
+        require(manifest_member.size == 10447 and manifest_member.mode == 0o644,
+                "Extore service manifest member differs")
+        manifest_bytes = tar.extractfile(manifest_member).read()
+        manifest = json.loads(manifest_bytes)
+        require(manifest["kind"] == "extore-native-service-review" and manifest["schema_version"] == 1
+                and manifest["source_revision"] == EXTORE
+                and manifest["binary"] == {"path": "extore", "bytes": 175455584, "sha256": EXTORE_BINARY_SHA}
+                and manifest["build_command"] == ["cargo", "+stable", "build", "--locked"]
+                and "\nrelease: 1.100.0\n" in manifest["rustc"]
+                and len(manifest["source_files"]) == 62, "Extore compiler manifest identity differs")
+        declared = {}
+        for entry in manifest["source_files"]:
+            path = entry["path"]
+            require(path in snapshot["extore"]["files"] and path not in declared
+                    and snapshot["extore"]["files"][path]["sha256"] == entry["sha256"],
+                    "Extore fixture compiler input differs from fixed source")
+            actual = regular(source / "packages/extore" / path)
+            require(actual.stat().st_size == entry["bytes"] and sha(actual) == entry["sha256"],
+                    "Extore service declared source bytes differ")
+            declared[path] = entry["sha256"]
+        binary_member = tar.getmember("extore")
+        require(binary_member.size == 175455584 and binary_member.mode == 0o755,
+                "Extore service binary member differs")
+        with tar.extractfile(binary_member) as src, (fixtures / "extore").open("xb") as dst:
+            shutil.copyfileobj(src, dst)
+        (fixtures / "extore").chmod(0o500)
+        require(sha(fixtures / "extore") == EXTORE_BINARY_SHA, "Extore service bytes differ")
+        (fixtures / "extore-service-manifest.json").write_bytes(manifest_bytes)
+    static = source / "packages/extore/extore/static"
+    static_map = {str(p.relative_to(static)): sha(regular(p)) for p in sorted(static.rglob("*")) if p.is_file()}
+    require(len(static_map) == 57, "fixed Extore static inventory differs")
+    record(fixtures / "extore-static-binding.json", {"source_commit": EXTORE,
+           "source_tree": snapshot["extore"]["tree"], "files": static_map})
+    record(fixtures / "fixture-tools.json", {"extore_source_commit": EXTORE,
+           "extore_binary_sha256": EXTORE_BINARY_SHA, "artifact_id": EXTORE_ARTIFACT[0],
+           "run_id": EXTORE_RUN, "repository": EXTORE_REPOSITORY,
+           "manifest_sha256": sha(fixtures / "extore-service-manifest.json"),
+           "compiler_inputs": declared,
+           "scope": "Reused fixed cf3469 real service fixture artifact; no production deployment"})
+
+
 def commerce_driver(source, root, snapshot):
     archive = download_artifact(root, *COMMERCE_ARTIFACT, COMMERCE_REVISION, COMMERCE_RUN)
     content = root / "content"
@@ -324,7 +391,7 @@ def commerce_driver(source, root, snapshot):
         "services/core", "tests/commerce", "deployment/postgres", "contracts/proto",
         "services/extensions/internal/modules/store/schema.sql"], timeout=60).decode().split("\0")
     expected = {name: snapshot["files"][name]["sha256"] for name in names if name}
-    require(len(inputs) == 1131 and inputs == expected, "952 compiler input closure differs from runtime293")
+    require(len(inputs) == 1132 and inputs == expected, "same-candidate compiler input closure differs from product source")
     require(receipt["format"] == "lmm-commerce-ci-driver-v1" and receipt["revision"] == COMMERCE_REVISION
             and receipt["source_tree"] == COMMERCE_TREE and str(receipt["run_id"]) == str(COMMERCE_RUN)
             and str(receipt["run_attempt"]) == "1" and receipt["binary"] == "commerce_process"
@@ -349,39 +416,16 @@ def commerce_driver(source, root, snapshot):
 
 
 def payment_projection(source):
-    """Bind the explicit metadata-only runner projection; never edit product293."""
+    """Use the candidate's current formal runner without a metadata projection."""
     original = regular(source / "tests/payments/verify_process.py")
-    canonical = regular(CONTROL / "tests/payments/verify_process.py")
-    projected = regular(CONTROL / "tests/final-runtime/payments/verify_process.py")
-    original_bytes = original.read_bytes()
-    require(sha(original) == "e4afd935ada6c9fe87c9c76acabb1b57a32bd466b75f55657b7ec09a89069c6e",
-            "original293 payment runner differs")
-    expected = original_bytes.decode("utf-8")
-    edits = (('    for text, expected in ((full, [CASE, EXPIRY_CASE]), (ignored, [EXPIRY_CASE])):', '    for text, expected in (\n        (full, [CASE, EXPIRY_CASE, "hex_codec::tests::preserves_hex_representation_and_input_errors"]),\n        (ignored, [EXPIRY_CASE]),\n    ):'), ('0 measured; 1 filtered out; finished', '0 measured; 2 filtered out; finished'))
-    for before, after in edits:
-        require(expected.count(before) == 1, "payment metadata projection is not unique")
-        expected = expected.replace(before, after, 1)
-    require(expected.encode("utf-8") == canonical.read_bytes(),
-            "canonical payment runner contains an unreviewed change")
-    before = 'REPO = Path(__file__).resolve().parents[2]'
-    after = 'REPO = Path(os.environ["GITHUB_WORKSPACE"]) / "product"'
-    require(expected.count(before) == 1, "payment projection root is not unique")
-    require(expected.replace(before, after, 1).encode("utf-8") == projected.read_bytes(),
-            "payment projection differs beyond its explicit runtime root")
-    return projected, {
-        "format": "lmm-payment-metadata-projection-v1",
+    return original, {
+        "format": "lmm-payment-original-runner-binding-v1",
         "runtime_revision": RUNTIME,
         "control_revision": os.environ["GITHUB_SHA"],
         "original_path": "tests/payments/verify_process.py",
         "original_sha256": sha(original),
-        "canonical_control_path": "tests/payments/verify_process.py",
-        "canonical_control_sha256": sha(canonical),
-        "projected_control_path": "tests/final-runtime/payments/verify_process.py",
-        "projected_control_sha256": sha(projected),
         "original_product_bytes_unchanged": True,
         "compiled_inputs_from_original_product": True,
-        "metadata_only": {"full_test_count": 3, "ignored_test_count": 1,
-                          "selected_passed": 1, "selected_filtered_out": 2},
         "acceptance_executed": False,
     }
 
@@ -574,6 +618,7 @@ def acquire(args):
     record(payload / "source-before.json", snapshot)
     official_components(args.source, payload / "official")
     commerce_driver(args.source, payload / "commerce", snapshot)
+    extore_fixture(args.source, payload, snapshot)
     require(source_snapshot(args.source) == snapshot, "source drifted while acquiring inputs")
     record(payload / "acquired.json", {"result": "VERIFIED_INPUTS_NOT_ACCEPTANCE", "runtime_revision": RUNTIME,
            "control_revision": os.environ["GITHUB_SHA"], "controller_sha256": sha(Path(__file__).resolve()),
@@ -639,13 +684,13 @@ def prepare(args):
         require(sha(driver) == COMMERCE_SHA, "imported compiled commerce executable drifted")
         core = one_binary(components["core"], "lmm-core", CORE_SHA)
         one_binary(components["extensions"], "lmm-extensions", GO_SHA)
-        one_binary(components["extensions"], "lmm-extore-host", HOST_SHA)
-        one_binary(components["extensions"], "libextore_zplugin.so", PLUGIN_SHA)
+        one_binary(components["extensions"], "libextore_plugin_host.so", HOST_SHA)
+        one_binary(components["extensions"], "libextore_commerce_plugin.so", PLUGIN_SHA)
         one_binary(components["cli"], "lmm", CLI_SHA)
         binding = payload / "core-source-binding.json"
         record(binding, {"files": resource_inputs["product"]})
         official_jobs = json.loads((payload / "official/jobs.json").read_text())["jobs"]
-        core_jobs = [job for job in official_jobs if job["id"] == 136506051398]
+        core_jobs = [job for job in official_jobs if job["id"] == 136944090748]
         require(len(core_jobs) == 1 and core_jobs[0]["name"] == "build (core)"
                 and core_jobs[0]["run_id"] == DISTRIBUTION_RUN and core_jobs[0]["head_sha"] == RUNTIME
                 and core_jobs[0]["run_attempt"] == 1 and core_jobs[0]["status"] == "completed"
@@ -733,25 +778,10 @@ def prepare(args):
         bootstrap_list = command([payments / "bootstrap", "-test.list", "^TestRustDurableProofAcrossGoRestart$"],
                                  source / "services/extensions", payments / "bootstrap-list.log", 10)
         require(bootstrap_list.strip() == "TestRustDurableProofAcrossGoRestart", "bootstrap listing differs")
-        fixtures = private(payload / "fixtures")
-        extore_target = private(output / "extore-build-target")
-        command(["mise", "exec", "--", "cargo", "build", "--locked", "--manifest-path",
-                 source / "third_party/extore/Cargo.toml", "--package", "extore"], source,
-                fixtures / "extore-compile.log", 1800,
-                {**os.environ, "CARGO_TARGET_DIR": str(extore_target), "CARGO_BUILD_JOBS": "2",
-                 "CARGO_INCREMENTAL": "0", "CARGO_PROFILE_DEV_DEBUG": "0"})
-        copy_binary(extore_target / "debug/extore", fixtures / "extore")
-        helper = source / "third_party/extore/scripts/native_plugin_fixture.py"
-        require(sha(helper) == "fd44a30f6b8f50f6588098a81549802c19518a8f0f58ad6e5b80c1515571875e",
-                "fixed8e fixture helper differs")
-        static = source / "third_party/extore/extore/static"
-        static_map = {str(p.relative_to(static)): sha(regular(p)) for p in sorted(static.rglob("*")) if p.is_file()}
-        require(len(static_map) == 57, "fixed Extore static inventory differs")
-        record(fixtures / "extore-static-binding.json", {"source_commit": EXTORE,
-               "source_tree": git(source / "third_party/extore", "rev-parse", "HEAD^{tree}"), "files": static_map})
-        record(fixtures / "fixture-tools.json", {"extore_source_commit": EXTORE,
-               "extore_binary_sha256": sha(fixtures / "extore"), "helper_sha256": sha(helper),
-               "scope": "Fixed8e browser fixture service; not an official Extore release"})
+        fixtures = payload / "fixtures"
+        require(json.loads((fixtures / "fixture-tools.json").read_text())["extore_source_commit"] == EXTORE
+                and sha(fixtures / "extore") == EXTORE_BINARY_SHA,
+                "verified Extore service fixture drifted before preparation")
         require(resource.inputs() == resource_inputs and commerce.sources() == runtime_inputs
                 and payment.sources() == payment_inputs, "original driver/runtime inputs drifted during compilation")
         after = source_snapshot(source)
@@ -913,7 +943,6 @@ def browser_candidate(source, payload, evidence):
            "chromium": {"path": str(chromium), "sha256": sha(chromium), "version": chrome_version},
            "qualification": "Observed cloud browser tools; no acceptance result"})
     binary = fixtures / "extore"
-    helper = source / "third_party/extore/scripts/native_plugin_fixture.py"
     static_binding = fixtures / "extore-static-binding.json"
     candidate = {"source": str(source), "source_repository": str(source), "source_commit": RUNTIME,
         "core": {"path": str(one_binary(components["core"], "lmm-core", CORE_SHA)), "sha256": CORE_SHA,
@@ -921,18 +950,17 @@ def browser_candidate(source, payload, evidence):
         "extensions": {"path": str(one_binary(components["extensions"], "lmm-extensions", GO_SHA)),
                        "sha256": GO_SHA, "source_commit": RUNTIME},
         "web": {"dist": str(dist), "binding": str(web_binding), "binding_sha256": sha(web_binding), "source_commit": RUNTIME},
-        "extore": {"source_commit": EXTORE, "source_repository": str(source / "third_party/extore"),
+        "extore": {"source_commit": EXTORE, "source_repository": str(source / "packages/extore"),
             "binary": {"path": str(binary), "sha256": sha(binary), "compiled_source_commit": EXTORE},
-            "library": {"path": str(one_binary(components["extensions"], "libextore_zplugin.so", PLUGIN_SHA)), "sha256": PLUGIN_SHA},
-            "helper": {"path": str(helper), "sha256": sha(helper)},
-            "static": {"root": str(source / "third_party/extore/extore/static"), "binding": str(static_binding),
+            "library": {"path": str(one_binary(components["extensions"], "libextore_commerce_plugin.so", PLUGIN_SHA)), "sha256": PLUGIN_SHA},
+            "static": {"root": str(source / "packages/extore/extore/static"), "binding": str(static_binding),
                        "binding_sha256": sha(static_binding)}},
-        "extore_host": {"path": str(one_binary(components["extensions"], "lmm-extore-host", HOST_SHA)),
-            "sha256": HOST_SHA, "source_commit": RUNTIME, "extore_source_commit": EXTORE,
+        "extore_host": {"path": str(one_binary(components["extensions"], "libextore_plugin_host.so", HOST_SHA)),
+            "sha256": HOST_SHA, "source_commit": EXTORE, "extore_source_commit": EXTORE,
             "compiled_extore_source_commit": EXTORE},
         "fixture_overlays": {}, "test_harness_commit": os.environ["GITHUB_SHA"],
-        "validation_class": "Official293 Core/Go/Web/native pair; fixed8e real fixture service; original16case browser projection",
-        "official_distribution": {"run_id": DISTRIBUTION_RUN, "attempt": 1, "version": "0.1.0-preview"}}
+        "validation_class": "Official fa57 Core/Go/Web/native pair; fixed cf3469 real fixture service; original16case browser projection",
+        "official_distribution": {"run_id": DISTRIBUTION_RUN, "attempt": 1, "version": "0.1.22-rc.1"}}
     record(evidence / "browser-candidate.json", candidate)
     return evidence / "browser-candidate.json", node, chromium, playwright
 
@@ -954,12 +982,19 @@ def execute_sequence(args):
             "runtime input closure differs from prepared drivers")
     core = one_binary(components["core"], "lmm-core", CORE_SHA)
     go = one_binary(components["extensions"], "lmm-extensions", GO_SHA)
+    native_input = evidence / "extore-native-input.json"
+    record(native_input, {"format": "lmm-native-extore-input-v1",
+           "host_library": str(one_binary(components["extensions"], "libextore_plugin_host.so", HOST_SHA)),
+           "host_sha256": HOST_SHA,
+           "plugin_library": str(one_binary(components["extensions"], "libextore_commerce_plugin.so", PLUGIN_SHA)),
+           "plugin_sha256": PLUGIN_SHA})
+    commerce.validate_extore_native(native_input, sha(native_input))
     driver = payload / "commerce/content/commerce_process"
     require(sha(driver) == COMMERCE_SHA, "commerce executable drifted before execution")
     local = source / ".local-tests"
     if not local.exists():
         private(local)
-    case_root = private(local / "final293-original-gates")
+    case_root = private(local / "launch-fa57-gates")
     result = {"format": "lmm-final-runtime-original-sequence-v1", "result": "NOT_RUN", "runtime_revision": RUNTIME,
               "control_revision": os.environ["GITHUB_SHA"], "commerce_compile_revision": COMMERCE_REVISION,
               "cases": [], "failure": None, "first_failure_stops_sequence": True,
@@ -980,7 +1015,8 @@ def execute_sequence(args):
                     "--output-root", output, "--process-root", proc,
                     "--core-binary", core, "--core-sha256", CORE_SHA,
                     "--extension-binary", go, "--extension-sha256", GO_SHA,
-                    "--test-binary", driver, "--test-sha256", COMMERCE_SHA, *flags]
+                    "--test-binary", driver, "--test-sha256", COMMERCE_SHA,
+                    "--extore-native-input", native_input, "--extore-native-sha256", sha(native_input), *flags]
             record(evidence / (name + "-start.json"), {"case": name, "source_revision": RUNTIME,
                    "postgres_in_budget": pg_in_budget, "original_outer_seconds": limit,
                    "status": "RUNNING", "output_root": str(output), "process_root": str(proc)})
@@ -990,8 +1026,20 @@ def execute_sequence(args):
                     and value["external_core_sha256"] == CORE_SHA and value["external_test_sha256"] == COMMERCE_SHA
                     and value["extension_sha256"] == GO_SHA and value["whole_budget"] is pg_in_budget
                     and value["source_sha256"] == commerce.sources(), "original mixed acceptance or cleanup incomplete")
+            native_observations = sorted(proc.rglob("native-libraries.*.json"))
+            require(len(native_observations) >= 3, "native library observations absent across product lifecycle")
+            for observed in native_observations:
+                native = json.loads(observed.read_text())
+                require(native["format"] == "lmm-native-library-observation-v1"
+                        and native["native_input_sha256"] == sha(native_input)
+                        and {item["kind"]: item["sha256"] for item in native["libraries"]}
+                            == {"host": HOST_SHA, "plugin": PLUGIN_SHA}
+                        and all(item["maps"] for item in native["libraries"]),
+                        "actual Go mapping differs from the frozen pair")
             result["cases"].append({"case": name, "result": "PASS", "receipt": str(path), "sha256": sha(path),
-                                    "postgres_in_budget": pg_in_budget})
+                                    "postgres_in_budget": pg_in_budget,
+                                    "native_input_sha256": sha(native_input),
+                                    "native_observations": {str(p): sha(p) for p in native_observations}})
             if name == "shared540":
                 shared_reference = path
         prepared_root = payload / "core-prepared"
@@ -1035,10 +1083,10 @@ def execute_sequence(args):
         browser_env = {**os.environ, "LMM_ACCEPTANCE_ROOT": str(browser_root), "LMM_ACCEPTANCE_NODE": str(node),
                        "LMM_ACCEPTANCE_CHROMIUM": str(chromium), "LMM_ACCEPTANCE_PLAYWRIGHT": str(playwright)}
         paths.append(browser_root)
-        command([sys.executable, "-B", CONTROL / "tests/final-runtime/browser/run-round.py", "--round", "browser-final-293",
-                 "--candidate", candidate], source, evidence / "browser16.private.log", 1800, browser_env)
-        browser_result = browser_root / "browser-final-293/browser/result.json"
-        launcher_result = browser_root / "browser-final-293-launcher/result.json"
+        command([sys.executable, "-B", CONTROL / "tests/final-runtime/browser/run-isolated.py", "--round", "browser-final-fa57",
+                 "--candidate", candidate], source, evidence / "browser16.private.log", 1860, browser_env)
+        browser_result = browser_root / "browser-final-fa57/browser/result.json"
+        launcher_result = browser_root / "browser-final-fa57-launcher/result.json"
         value = json.loads(browser_result.read_text())
         launcher = json.loads(launcher_result.read_text())
         require(value["overall"] == "PASS" and len(value["cases"]) == 16
@@ -1046,8 +1094,18 @@ def execute_sequence(args):
                 and value["page_errors"] == [] and launcher["overall"] == "PASS"
                 and launcher["surviving_registered_pids"] == [] and launcher["fixture_cleanup"]["all_stopped"] is True,
                 "original full browser gates or cleanup incomplete")
+        namespace_root = browser_root / "browser-final-fa57-namespace"
+        namespace_file, outer_file = namespace_root / "namespace-result.json", namespace_root / "outer-result.json"
+        namespace, outer = json.loads(namespace_file.read_text()), json.loads(outer_file.read_text())
+        require(namespace["status"] == "PASS" and namespace["inner_exit_code"] == 0
+                and namespace["surviving_namespace_processes"] == []
+                and namespace["forced_cleanup_processes"] == []
+                and outer["status"] == "PASS" and outer["candidate_unchanged"] is True
+                and all(outer["parent_resolver_unchanged"].values()),
+                "browser namespace cleanup or host isolation failed")
         result["cases"].append({"case": "browser16", "result": "PASS", "receipt": str(browser_result),
-                                "sha256": sha(browser_result), "launcher_receipt_sha256": sha(launcher_result)})
+                                "sha256": sha(browser_result), "launcher_receipt_sha256": sha(launcher_result),
+                                "namespace_receipt_sha256": sha(namespace_file), "outer_receipt_sha256": sha(outer_file)})
         require(source_snapshot(source) == snapshot, "runtime source drift after gates")
         verified_component_paths(source, payload)
         verify_compiled_inputs(payload)
@@ -1081,7 +1139,7 @@ def export_evidence(args):
     sequence = json.loads(sequence_file.read_text()) if sequence_file.is_file() else {}
     roots = [("controller", evidence), ("prepared", payload / "core-prepared"),
              ("runtime-lease", evidence / "runtime-lease"),
-             ("cases", args.source / ".local-tests/final293-original-gates")]
+             ("cases", args.source / ".local-tests/launch-fa57-gates")]
     for index, raw in enumerate(sequence.get("private_evidence_roots", [])):
         p = Path(raw)
         if p.parent == Path("/tmp") and p.name.startswith("lf-"):
@@ -1097,12 +1155,14 @@ def export_evidence(args):
                "finished.json", "released.json", "interrupted.json", "supervisor-failed.json",
                "artifact-recheck.json", "fixture-cleanup.json", "fixture-ready.json", "native-host-start.json",
                "transport-preflight.json", "community-install-receipt.json", "provenance.json",
+               "extore-native-input.json", "extore-native-input-binding.json", "native-bridge-start.json",
+               "namespace-result.json", "outer-result.json", "fixture-preflight-failure.json",
                "main-recovered.json", "bootstrap-replay-recovered.json", "expiry-before-restart.json",
                "new-products-ready-before-first-credit.json", "mixed-runtime-drain.json",
                "mixed-restart-classification.json", "backlog-classification-plan.json",
                "backlog-classification-result.json"}
     private_parts = {"private", "state-private", "fixture-evidence", "compile-tmp", "artifacts", "public"}
-    safe_prefixes = ("resource-unit-", "resource-identity-", "scope-", "expiry-observation-", "resources-")
+    safe_prefixes = ("resource-unit-", "resource-identity-", "scope-", "expiry-observation-", "resources-", "native-libraries.")
     files, withheld, seen = [], [], set()
     total = 0
     for label, root in roots:
@@ -1123,7 +1183,7 @@ def export_evidence(args):
                 # The original fixture's reviewed state projection contains only
                 # mapping/version/expiry metadata, never token or ciphertext values.
                 browser_state = (label == "controller" and len(relative.parts) == 3
-                                 and relative.parts[:2] == ("browser-rounds", "browser-final-293")
+                                 and relative.parts[:2] == ("browser-rounds", "browser-final-fa57")
                                  and re.fullmatch(r"state-[a-z0-9-]{1,60}\.json", name) is not None)
                 admitted = (name in allowed or name.endswith(".command.json") or name.endswith(".result.json")
                             or (name.startswith(safe_prefixes) and path.suffix == ".json") or browser_json or browser_state)
@@ -1209,7 +1269,7 @@ def run(args):
     lock = lease_parent / "resource/heavy.lock"
     lock_before = (lock.stat().st_dev, lock.stat().st_ino)
     result = {"result": "NOT_RUN", "runtime_revision": RUNTIME, "control_revision": os.environ["GITHUB_SHA"],
-              "native_machine_used": False, "scope": "Frozen293 preview runtime original synthetic gates"}
+              "native_machine_used": False, "scope": "Fixed fa57 preview runtime original synthetic gates"}
     try:
         code = lease.run(lease_parent / "resource", requests, "S11", "frontend", sha(evidence / "runtime-binding.json"),
                          [sys.executable, "-B", str(Path(__file__).resolve()), "execute", "--source", str(args.source),

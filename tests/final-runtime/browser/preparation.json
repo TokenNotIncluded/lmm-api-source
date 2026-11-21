@@ -1,27 +1,93 @@
 {
+  "case_names": [
+    "real_extore_ui_configures_explicit_selling_prices",
+    "synthetic_passkey_real_registration",
+    "fresh_candidate_default_theme_dark",
+    "real_public_navigation_from_enabled_community",
+    "real_core_login",
+    "real_consent_and_passkey_reauthentication",
+    "same_user_different_session_cannot_consume_flow",
+    "same_session_refresh_survives_callback",
+    "real_native_catalog_and_product_mapping",
+    "real_ui_overlapping_sync_and_view",
+    "real_expired_extore_access_token_refresh_preserves_mapping",
+    "real_ui_disconnect_and_denial",
+    "real_ui_native_sync_1_preserves_mapping",
+    "real_ui_native_sync_2_preserves_mapping",
+    "existing_theme_control_and_persistence",
+    "imported_product_manage_and_dialog_390px_no_horizontal_overflow"
+  ],
+  "extore_source_commit": "cf3469dbe827afcfb2e3f054a63f7b9b7c40bc2b",
   "files": {
     "browser.mjs": {
-      "bytes": 44018,
-      "sha256": "04ea1ef5a949926224daac1c208717b2dbf9f67dcf2ac00a14689b1065a730e7"
+      "bytes": 44418,
+      "sha256": "a5fa4dd09be0f32e258f36ef21ee868183524239306d8989e8c92b15b85fcbf8"
     },
     "dark-checks.mjs": {
       "bytes": 3315,
       "sha256": "b9d25cfcdcc39142d3f7a74ab553a8722ba0d93ffd9887f220de86f6a49f9a8c"
     },
+    "extore_fixture_compat.py": {
+      "bytes": 9309,
+      "sha256": "fd44a30f6b8f50f6588098a81549802c19518a8f0f58ad6e5b80c1515571875e"
+    },
     "fixture.py": {
-      "bytes": 35323,
-      "sha256": "7a83ac13be35e0d2d53e4613cad6bde1b76d087ad2274bf84983bb2ae0270fa6"
+      "bytes": 37551,
+      "sha256": "23ec4ee20dca0b437f7be4f7b8e3b7c47051e56ca366a1808e9c92a3ad5168e6"
     },
     "https_fixture_transport.py": {
       "bytes": 10498,
       "sha256": "7fe381997f7b89804a0ef2ac63b8afe81807f11b807c7cd4dc978efda3f5fa68"
     },
+    "native_plugin_probe_cf.py": {
+      "bytes": 37491,
+      "sha256": "c5d4f16b329e8b88f912f19c6a636eebd5ad41298fa4164b27dbc831a6ecf550"
+    },
+    "run-isolated.py": {
+      "bytes": 10107,
+      "sha256": "58ce875bcdcf6520f81d3374719ec2c4e94699e9e9cce12c40676c71b94761e5"
+    },
     "run-round.py": {
-      "bytes": 6861,
-      "sha256": "03e2f379b8f8981febc488aa65a4f0fe57ea64c37c50ca9401c7ec8d554bb8fb"
+      "bytes": 6969,
+      "sha256": "651b9ff0c7c46461b30b8740d342978ceea97bf2036573fb740f3f53ccaf4a9b"
     }
   },
-  "origin": "Original accepted 16-case browser; only canonical path/tool/source input projection",
-  "source_commit": "293e53f799b09f187893e9cdf0c3503973916676",
-  "status": "FROZEN_NOT_EXECUTED"
+  "format": "lmm-browser-fa57-cf-preparation-v1",
+  "helper_origins": {
+    "extore_fixture_compat.py": {
+      "byte_identical": true,
+      "path": "scripts/native_plugin_fixture.py",
+      "repository": "TokenNotIncluded/extore",
+      "revision": "8e3063690cf5595884b1e639535869fd593e0296",
+      "scope": "Synthetic initial shops/products/session fixture only; not cf runtime provenance"
+    },
+    "native_plugin_probe_cf.py": {
+      "byte_identical": true,
+      "full_probe_run_called": false,
+      "path": "tests/native_plugin_probe.py",
+      "repository": "TokenNotIncluded/extore",
+      "revision": "cf3469dbe827afcfb2e3f054a63f7b9b7c40bc2b",
+      "used_functions": [
+        "private_host_mapping",
+        "serve_tls"
+      ]
+    }
+  },
+  "official_distribution_run_id": 44936380440,
+  "origin": "Original 16-case browser; explicit candidate and two-SO HTTPS protocol adaptation; no execution or old PASS reuse",
+  "original_files": {
+    "browser.mjs": "7f839e1f0d1e9caedeb2269ca5382cf0ea6979884c40605d3d1fdd3c2bd0004e",
+    "dark-checks.mjs": "b9d25cfcdcc39142d3f7a74ab553a8722ba0d93ffd9887f220de86f6a49f9a8c",
+    "fixture.py": "2e05c57c5201065da9f21e3b29ae7836d05ed1f93b4c978e12bcba201cd5a14e",
+    "https_fixture_transport.py": "7fe381997f7b89804a0ef2ac63b8afe81807f11b807c7cd4dc978efda3f5fa68",
+    "run-round.py": "a0c994661169065e724990fe72a134fd78ed016928f85da5c0aeb4686162ac50"
+  },
+  "source_commit": "fa57cd2049ccd9138cdc0b4104db36b5b6c53ae5",
+  "status": "FROZEN_NOT_EXECUTED",
+  "timing": {
+    "controller_budget_seconds": 1860,
+    "inner_launcher_seconds": 1800,
+    "outer_child_seconds": 1805,
+    "real_access_token_ttl_seconds": 900
+  }
 }
