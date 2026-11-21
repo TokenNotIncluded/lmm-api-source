@@ -47,7 +47,18 @@ def run_probe(H, output, work, sock, db, port, runtime, env, sql):
         def log_message(self, *_args):
             pass
 
-    upstream = ThreadingHTTPServer(('127.0.0.1', 0), NoCallsExpected)
+    class ConnectionTrap(ThreadingHTTPServer):
+        def get_request(self):
+            connection = super().get_request()
+            # Count the TCP connection even if a TLS handshake never reaches
+            # an HTTP handler. Catalog reads must not contact this endpoint.
+            provider_calls.append('connection')
+            return connection
+
+    provider = json.loads((work / 'key-seam-provider.private.json').read_text())
+    H.need(type(provider['port']) is int and 1024 <= provider['port'] <= 65535,
+           'invalid synthetic provider port')
+    upstream = ConnectionTrap(('127.0.0.1', provider['port']), NoCallsExpected)
     thread = threading.Thread(target=upstream.serve_forever, daemon=True)
     thread.start()
     model = f'''version=1
@@ -61,7 +72,7 @@ key_groups=[]
 [routing]
 version=1
 groups=[{{name='paid',enabled=true}}]
-upstreams=[{{id=1,endpoint='http://127.0.0.1:{upstream.server_port}/custom/v1',protocol='openai_chat',credential={{id=7,revision=1}},enabled=true}}]
+upstreams=[{{id=1,endpoint='https://127.0.0.1:{upstream.server_port}/custom/v1',protocol='openai_chat',credential={{id=7,revision=1}},enabled=true}}]
 routes=[{{id=1,model='synthetic-model',group='paid',enabled=true,speeds=['standard'],targets=[{{id=1,upstream_id=1,upstream_model='provider-model',enabled=true,priority=0,weight=1,speeds=['standard'],payload='adapt',timeout_ms=5000}}],failover={{max_attempts=1,retry_on=[],allow_replay_after_send=false}}}}]
 aliases=[]
 [prices]
@@ -109,6 +120,7 @@ privacy_policy_enabled=false
                  'forced_termination': False}
     events = []
     revealed = []
+    primary_failed = False
 
     def request(method, path, bearer=None):
         headers = {'Origin': origin}
@@ -201,6 +213,10 @@ privacy_policy_enabled=false
         lifecycle['heartbeat_rows_running'] = 1
         H.need(not provider_calls, 'read-only model admission contacted the synthetic provider')
         lifecycle['status'] = 'VERIFIED'
+    except BaseException:
+        primary_failed = True
+        lifecycle['status'] = 'FAILED'
+        raise
     finally:
         if proc.poll() is None:
             proc.terminate()
@@ -226,7 +242,8 @@ privacy_policy_enabled=false
             expected_audit_ids = list(range(next_id, next_id + len(revealed)))
             actual_new = [row for row in audits if row['id'] in expected_audit_ids]
             preserved_audits = [row for row in audits if row['id'] not in expected_audit_ids]
-            H.need(len(revealed) == 1 and original_sequence['increment'] == 1 and original_sequence['cache'] == 1
+            H.need((len(revealed) <= 1 if primary_failed else len(revealed) == 1)
+                   and original_sequence['increment'] == 1 and original_sequence['cache'] == 1
                    and len(actual_new) == len(revealed) and preserved_audits == probe['before_audit'],
                    'native key recovery did not preserve old audit rows and append its one expected event')
             for row, fact, audit_id in zip(actual_new, revealed, expected_audit_ids):
@@ -239,15 +256,22 @@ privacy_policy_enabled=false
             # This one table is accepted only after the complete row-by-row check
             # above proves every original row plus the exact native reveal event.
             expected['tables']['core_identity.audit'] = after['tables']['core_identity.audit']
-            expected['sequences'][audit_sequence].update(last_value=expected_audit_ids[-1], is_called=True)
+            if expected_audit_ids:
+                expected['sequences'][audit_sequence].update(last_value=expected_audit_ids[-1], is_called=True)
             lifecycle['unrelated_application_state_unchanged'] = after == expected
             lifecycle['expected_reveal_audit_ids'] = expected_audit_ids
             lifecycle['old_audit_rows_preserved'] = True
             lifecycle['after_stop_state_sha256'] = hashlib.sha256(json.dumps(after, sort_keys=True).encode()).hexdigest()
             H.need(after == expected, 'key auth/admission/recovery changed rows or sequences beyond its exact reveal audit')
+        except Exception as error:
+            lifecycle['preservation_check_error'] = str(error)
+            if not primary_failed:
+                raise
         finally:
             H.save(work / 'key-seam-runtime-lifecycle.public.json', lifecycle)
-        H.need(proc.returncode == 0 and not lifecycle['forced_termination'], 'key seam Core did not stop cleanly')
+        if not primary_failed:
+            H.need(proc.returncode == 0 and not lifecycle['forced_termination'], 'key seam Core did not stop cleanly')
+            H.need(not provider_calls, 'key seam provider connection during shutdown')
     result = {'status': 'PASS', 'events': events, 'actual_core_sha256': H.CORE_SHA,
               'unrelated_application_state_unchanged': True, 'expected_reveal_audit_appended': True,
               'real_provider_calls': 0,

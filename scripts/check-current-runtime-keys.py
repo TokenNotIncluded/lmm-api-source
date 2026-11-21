@@ -410,7 +410,17 @@ def execute(source, output, *, regression="keys"):
         need(hashlib.sha256(manifest).hexdigest() == MANIFEST_SHA, "compiled Core78 manifest differs")
         (work / "core78-manifest.json").write_bytes(manifest)
         seed = CONTROL / ("tests/current-key-production/seed.sql" if regression == "key-seam" else "tests/current-runtime-keys/seed.sql")
-        sql(seed.read_text())
+        seed_text = seed.read_text()
+        if regression == "key-seam":
+            # Select one numeric loopback destination before the immutable
+            # publication and every migration preservation baseline exist.
+            with socket.socket() as reservation:
+                reservation.bind(("127.0.0.1", 0))
+                provider_port = reservation.getsockname()[1]
+            need(seed_text.count("KEY_SEAM_PROVIDER_PORT") == 1, "missing synthetic provider binding")
+            seed_text = seed_text.replace("KEY_SEAM_PROVIDER_PORT", str(provider_port))
+            save(work / "key-seam-provider.private.json", {"port": provider_port})
+        sql(seed_text)
         run([*base, "-U", installer, "-d", db, "-v", "runtime_role=" + runtime,
              "-v", "enable_console=true", "-v", "enable_web_identity=true",
              "-v", "enable_models=true", "-f", source / "deployment/postgres/grant-core-runtime.sql"],
@@ -466,7 +476,7 @@ def execute(source, output, *, regression="keys"):
                           production_approval_created=False)
         elif regression == "key-seam":
             tests = CONTROL / "tests/current-key-production"
-            expected = {'current_key_production.py': 'b1e157a0db8b22ccc7a41263c54c0c6b6f0c4c2ba49fe825b91fc0e90a0ba8ba', 'current_key_lineage.py': '0835d57cb70a58ed8bdf368d5c25d588aca0139dfdb44389e2550981953c9da7', 'test_current_key_production.py': '58177f6aa0c1dbd9eaa7cc9c06c0d6a901c3cefabd569e914f807ea4a58d7213', 'test_current_key_production_pg.py': '47487389867938867c525cc1b399565abc656c7b229da149b6fcadb86ec46ccc', 'test_current_key_seam_fixture.py': 'dafb1cccd320dcc5070c16399b7affaeea1a4b2364174108861b1d19e7f3409e', 'current_key_seam_http.py': '77685d6e2961267ea7340b299e8c84fdd575afdb48adb4ae38e40de5b8c06a69', 'seed.sql': '7ef9f4a05d2679b48700360cd4c414d76743ebb75cf51a6dbb410da6c8f3e275'}
+            expected = {'current_key_production.py': 'b1e157a0db8b22ccc7a41263c54c0c6b6f0c4c2ba49fe825b91fc0e90a0ba8ba', 'current_key_lineage.py': '0835d57cb70a58ed8bdf368d5c25d588aca0139dfdb44389e2550981953c9da7', 'test_current_key_production.py': '58177f6aa0c1dbd9eaa7cc9c06c0d6a901c3cefabd569e914f807ea4a58d7213', 'test_current_key_production_pg.py': '47487389867938867c525cc1b399565abc656c7b229da149b6fcadb86ec46ccc', 'test_current_key_seam_fixture.py': 'dafb1cccd320dcc5070c16399b7affaeea1a4b2364174108861b1d19e7f3409e', 'current_key_seam_http.py': 'cde79b4513b040813bb9b9cb9ea7c00ba83df6f3be91464644bee9ce7cf60fa9', 'seed.sql': 'c7e52f6b908fb9e0603f3d764cd40a0aee6857938614030f287dbe88cd331fb1'}
             for filename, expected_sha in expected.items():
                 need(sha(tests / filename) == expected_sha, "current key seam frozen input differs: " + filename)
             testenv = {**env, "PYTHONPATH": os.pathsep.join(map(str, (tests,

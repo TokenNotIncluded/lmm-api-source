@@ -8,12 +8,18 @@ VALUES(:fixture_account_id,'user',true,1) RETURNING id AS fixture_user_id \gset
 INSERT INTO core_identity.user_profiles(user_id,username) VALUES(:fixture_user_id,'synthetic-current-runtime-keys');
 INSERT INTO core_identity.developer_access(user_id,granted,source_reference)
 VALUES(:fixture_user_id,true,'synthetic-current-runtime-keys');
-INSERT INTO public.routing_price_versions(version,document) VALUES(1,'{"version":1}');
-INSERT INTO public.routing_config_versions(version,price_version,document) VALUES(1,1,'{"version":1}');
-INSERT INTO public.routing_groups(version,name,enabled) VALUES(1,'paid',true);
-UPDATE public.routing_price_versions SET sealed=true WHERE version=1;
-UPDATE public.routing_config_versions SET sealed=true WHERE version=1;
-UPDATE public.routing_active_release SET config_version=1 WHERE singleton;
+-- Use the same official immutable publication function as channel management.
+-- The endpoint is a synthetic numeric loopback trap; no provider is reachable.
+SELECT public.routing_control_publish(
+  '{"version":1,"groups":[{"name":"paid","enabled":true}],
+    "upstreams":[{"id":1,"endpoint":"https://127.0.0.1:KEY_SEAM_PROVIDER_PORT/custom/v1","protocol":"openai_chat","credential":{"id":7,"revision":1},"enabled":true}],
+    "routes":[{"id":1,"model":"synthetic-model","group":"paid","enabled":true,"speeds":["standard"],
+      "targets":[{"id":1,"upstream_id":1,"upstream_model":"provider-model","enabled":true,"priority":0,"weight":1,"speeds":["standard"],"payload":"adapt","timeout_ms":5000}],
+      "failover":{"max_attempts":1,"retry_on":[],"allow_replay_after_send":false}}],"aliases":[]}',
+  '{"version":1,"rules":[{"id":1,"model":"synthetic-model","group":"paid","speed":"standard",
+    "rates":{"input":2000000,"output":4000000,"cache_read":500000,"cache_write":0,"request":0},
+    "group_multiplier_ppm":1000000,"speed_multiplier_ppm":1000000}]}',
+  NULL, NULL);
 INSERT INTO core_identity.user_routing_groups(user_id,group_name,enabled,source_reference)
 VALUES(:fixture_user_id,'paid',true,'synthetic-current-runtime-keys');
 WITH fact AS (
