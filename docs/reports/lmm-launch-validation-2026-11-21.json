@@ -1,0 +1,802 @@
+{
+  "schema_version": 1,
+  "generated_at_utc": "2026-11-21T13:02:36Z",
+  "status": "self_tested_independent_acceptance_not_run",
+  "source": {
+    "code_commit": "517a0448286eea3b1319dff8502c6512a7ef1a3f",
+    "code_tree": "e0f3bbdc7736f2042943063337ab6d25527649c5",
+    "base_commit": "56ab7f0471ca003c26fa6c62021d576541f1d314",
+    "remote_main_before": "304f49d87df1c2fb83d4145386c569d237af8c90",
+    "assistant_lock_commit": "e7c84681b76f35b349f99f2821917f67b1028ec2",
+    "provider_pr_head": "2505699f0c2503fbebf9adbf6c80e3597583c227",
+    "cli_commit": "260a1eff2400aa64fc697028a406a8017ed6259c",
+    "extore_gitlink": "160000 commit cf3469dbe827afcfb2e3f054a63f7b9b7c40bc2b\tpackages/extore",
+    "committed_utc": "2026-11-21T12:57:13Z",
+    "new_files_binary": false
+  },
+  "validation_environment": {
+    "postgres": {
+      "version": "PostgreSQL 18.7 on x86_64-pc-linux-gnu, compiled by gcc (GCC) 16.2.1 20260810, 64-bit",
+      "fsync": "on",
+      "synchronous_commit": "on"
+    },
+    "cargo": "1.100.0",
+    "rustc": "1.100.0",
+    "synthetic_upstream_and_funds": true,
+    "rust_batches_used_shared_target_and_outer_owner_lock": true
+  },
+  "core_initial_sweep": {
+    "base_commit": "56ab7f0471ca003c26fa6c62021d576541f1d314",
+    "candidate_tree": "5d55d789873b58940fecb08fdb018ac094673f56",
+    "input_files": {
+      "scripts/source-release.py": "af1282030d9e3642edf2000008939893a9351c8623d8082b1b5de0fc8a75953f",
+      "scripts/test-source-release.py": "89bd97ae4d6394f6841c77a303b68f53176533090759c3edfc94c81188d0c510",
+      "services/core/Cargo.toml": "a31c81199b1750e11c589eb8d4373abf30b74a022c09e7c9d7324cb975df4c75",
+      "services/core/src/model_http/checkpoint_timeout_tests.rs": "7266aa86dc6e49df1373a7f0ba7f6a08ce9df133279f6fdf44a3d4e499bd2cc7",
+      "services/core/src/model_http/selected_bound_tests.rs": "885e5a23c0093e97f1436c05d2c4ccddb3b9f655e57cfb08bdd66adc3d7c3435",
+      "services/core/Cargo.lock": "4433042d50d2e58bc1568cbaf238a9f26ddfafcfa13c51c5328267db856ef6c2"
+    },
+    "passed_unique": 8,
+    "ignored_capture_auxiliary": 1,
+    "runs": [
+      {
+        "name": "checkpoint-recovery",
+        "command": [
+          "cargo",
+          "test",
+          "--locked",
+          "--manifest-path",
+          "services/core/Cargo.toml",
+          "--lib",
+          "model_http::selected_bound_tests::checkpoint_timeout_tests::committed_terminal_hook_timeout_recovers_original_charge",
+          "--",
+          "--exact",
+          "--nocapture",
+          "--test-threads=1"
+        ],
+        "exit_code": 0,
+        "elapsed_seconds": 308.399,
+        "log": "checkpoint-recovery.log",
+        "log_sha256": "783b5f467259e565031d048143ebda66be468c751ce1fb47fba1e44de6be5317",
+        "summaries": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0",
+            "0",
+            "1869"
+          ]
+        ],
+        "expected_passed": 1,
+        "expected_ignored": 0,
+        "passed_exact_scope": true,
+        "finished_utc": "2026-11-21T12:27:26Z"
+      },
+      {
+        "name": "provider-schema78-corrected",
+        "command": [
+          "cargo",
+          "test",
+          "--locked",
+          "--manifest-path",
+          "services/core/Cargo.toml",
+          "--lib",
+          "core_schema::upgrade::provider_clients::tests",
+          "--",
+          "--nocapture",
+          "--test-threads=1"
+        ],
+        "exit_code": 0,
+        "elapsed_seconds": 31.743,
+        "log": "provider-schema78-corrected.log",
+        "log_sha256": "ef2ff1b8eeada42bb9b0db2853ea42e5e029ad334ab75330e524e33702e58c0c",
+        "summaries": [
+          [
+            "ok",
+            "3",
+            "0",
+            "1",
+            "0",
+            "1866"
+          ]
+        ],
+        "expected_passed": 3,
+        "expected_ignored": 1,
+        "passed_exact_scope": true,
+        "finished_utc": "2026-11-21T12:37:17Z"
+      },
+      {
+        "name": "assistant-lock-order",
+        "command": [
+          "cargo",
+          "test",
+          "--locked",
+          "--manifest-path",
+          "services/core/Cargo.toml",
+          "--test",
+          "assistant_model",
+          "unknown_classification_takes_conversation_lock_before_charge_row",
+          "--",
+          "--exact",
+          "--nocapture",
+          "--test-threads=1"
+        ],
+        "exit_code": 0,
+        "elapsed_seconds": 202.873,
+        "log": "assistant-lock-order.log",
+        "log_sha256": "0b3b99a95f30d820417828867b2f06bee8c00a37691f6d00712317d52cfad138",
+        "summaries": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0",
+            "0",
+            "12"
+          ]
+        ],
+        "expected_passed": 1,
+        "expected_ignored": 0,
+        "passed_exact_scope": true,
+        "finished_utc": "2026-11-21T12:40:40Z"
+      },
+      {
+        "name": "public-provider-clients",
+        "command": [
+          "cargo",
+          "test",
+          "--locked",
+          "--manifest-path",
+          "services/core/Cargo.toml",
+          "--test",
+          "oauth2_provider_clients",
+          "--",
+          "--nocapture",
+          "--test-threads=1"
+        ],
+        "exit_code": 0,
+        "elapsed_seconds": 31.497,
+        "log": "public-provider-clients.log",
+        "log_sha256": "ef5c9fd89a7d71bfc548c7f386a0f2039a68a0a2d42063d75061b43f071c956e",
+        "summaries": [
+          [
+            "ok",
+            "2",
+            "0",
+            "0",
+            "0",
+            "0"
+          ]
+        ],
+        "expected_passed": 2,
+        "expected_ignored": 0,
+        "passed_exact_scope": true,
+        "finished_utc": "2026-11-21T12:41:11Z"
+      },
+      {
+        "name": "pi-http-stream",
+        "command": [
+          "cargo",
+          "test",
+          "--locked",
+          "--manifest-path",
+          "services/core/Cargo.toml",
+          "--test",
+          "oauth2_pi_author",
+          "actual_core_tcp_pi_chat_responses_json_stream_and_native_control",
+          "--",
+          "--exact",
+          "--nocapture",
+          "--test-threads=1"
+        ],
+        "exit_code": 0,
+        "elapsed_seconds": 9.035,
+        "log": "pi-http-stream.log",
+        "log_sha256": "345c637fa09b33f8032c9ac81de3535564b67410e4c4e199f8ee9488f51b3c96",
+        "summaries": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0",
+            "0",
+            "11"
+          ]
+        ],
+        "expected_passed": 1,
+        "expected_ignored": 0,
+        "passed_exact_scope": true,
+        "finished_utc": "2026-11-21T12:41:20Z"
+      }
+    ]
+  },
+  "retained_zero_test_command_failure": {
+    "name": "provider-schema78",
+    "command": [
+      "cargo",
+      "test",
+      "--locked",
+      "--manifest-path",
+      "services/core/Cargo.toml",
+      "--lib",
+      "core_schema::upgrade::provider_clients_tests",
+      "--",
+      "--nocapture",
+      "--test-threads=1"
+    ],
+    "exit_code": 0,
+    "elapsed_seconds": 0.919,
+    "log": "provider-schema78.log",
+    "log_sha256": "89531011c5b53ca41c08bfe002b8327f0053adc279b6ef77aaa391ee59aac184",
+    "summaries": [
+      [
+        "ok",
+        "0",
+        "0",
+        "0",
+        "0",
+        "1870"
+      ]
+    ],
+    "expected_passed": 3,
+    "expected_ignored": 1,
+    "passed_exact_scope": false,
+    "finished_utc": "2026-11-21T12:27:27Z"
+  },
+  "final_dependency_propagation": {
+    "scope": "fixed zconv release metadata propagation; prior tests retain original source identity; one Pi HTTP consumer repeat",
+    "status": "passed",
+    "started_utc": "2026-11-21T12:48:43Z",
+    "base_commit": "56ab7f0471ca003c26fa6c62021d576541f1d314",
+    "old_zconv_commit": "0af1f7eb0766ff0ce9db5cee7c6184eff511a8c1",
+    "new_zconv_commit": "f78b97b7065bbb7cf9ddfd0914d7f2296bbfe712",
+    "runs": [
+      {
+        "name": "update",
+        "command": [
+          "cargo",
+          "update",
+          "--manifest-path",
+          "services/core/Cargo.toml",
+          "-p",
+          "zconv",
+          "--precise",
+          "f78b97b7065bbb7cf9ddfd0914d7f2296bbfe712"
+        ],
+        "exit_code": 0,
+        "elapsed_seconds": 1.067,
+        "log": "zconv-update.log",
+        "log_sha256": "b3bacd54b8cee07a1f38c0ece0dc95937bf757347705bb90a86388ed34fbb57b"
+      },
+      {
+        "name": "metadata",
+        "command": [
+          "cargo",
+          "metadata",
+          "--manifest-path",
+          "services/core/Cargo.toml",
+          "--locked",
+          "--offline",
+          "--format-version",
+          "1"
+        ],
+        "exit_code": 0,
+        "elapsed_seconds": 0.716,
+        "log": "zconv-metadata.log",
+        "log_sha256": "7e987ef1f4b6153c8115a97052c61f57e1a972d045d9724be8cf50ad31ee1de1"
+      },
+      {
+        "name": "diff-check",
+        "command": [
+          "git",
+          "diff",
+          "--check"
+        ],
+        "exit_code": 0,
+        "elapsed_seconds": 0.033,
+        "log": "zconv-diff-check.log",
+        "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "name": "stage",
+        "command": [
+          "git",
+          "add",
+          "--",
+          "services/core/Cargo.lock",
+          ".github/source-release-request.json"
+        ],
+        "exit_code": 0,
+        "elapsed_seconds": 0.033,
+        "log": "zconv-stage.log",
+        "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "name": "pi-http",
+        "command": [
+          "cargo",
+          "test",
+          "--locked",
+          "--manifest-path",
+          "services/core/Cargo.toml",
+          "--test",
+          "oauth2_pi_author",
+          "actual_core_tcp_pi_chat_responses_json_stream_and_native_control",
+          "--",
+          "--exact",
+          "--nocapture",
+          "--test-threads=1"
+        ],
+        "exit_code": 0,
+        "elapsed_seconds": 256.488,
+        "log": "zconv-pi-http.log",
+        "log_sha256": "eef39b09adb6e46df4dcba090938623f5a06a9599a4e5cfa30ac71d062b130af"
+      }
+    ],
+    "resolved_zconv": {
+      "version": "0.4.1",
+      "source": "git+https://github.com/LIghtJUNction/zconv.git#f78b97b7065bbb7cf9ddfd0914d7f2296bbfe712"
+    },
+    "source_release_validation": {
+      "version": "0.1.21",
+      "zconv": "0.4.1"
+    },
+    "candidate_tree": "e0f3bbdc7736f2042943063337ab6d25527649c5",
+    "input_files": {
+      "scripts/source-release.py": "af1282030d9e3642edf2000008939893a9351c8623d8082b1b5de0fc8a75953f",
+      "scripts/test-source-release.py": "89bd97ae4d6394f6841c77a303b68f53176533090759c3edfc94c81188d0c510",
+      "services/core/Cargo.toml": "a31c81199b1750e11c589eb8d4373abf30b74a022c09e7c9d7324cb975df4c75",
+      "services/core/src/model_http/checkpoint_timeout_tests.rs": "7266aa86dc6e49df1373a7f0ba7f6a08ce9df133279f6fdf44a3d4e499bd2cc7",
+      "services/core/src/model_http/selected_bound_tests.rs": "885e5a23c0093e97f1436c05d2c4ccddb3b9f655e57cfb08bdd66adc3d7c3435",
+      "services/core/Cargo.lock": "7ad8b7b8b84e4c74924208479df25fc6e85304c1112d0f1a77bea2b53dadf9a7",
+      ".github/source-release-request.json": "60daaeb4c94b2d7e00d9810c40b3184d11be7513e09b85f91ae2297ae8866fb3"
+    },
+    "pi_http": {
+      "passed": 1,
+      "failed": 0,
+      "ignored": 0,
+      "repeat_of_existing_case": true
+    },
+    "input_files_unchanged": true,
+    "finished_utc": "2026-11-21T12:53:02Z"
+  },
+  "core_source_equivalence_after_dependency_metadata_update": {
+    "services/core/src": {
+      "tested_initial_tree": "ba6352061a8a989b5404705fe8640dfafb9f2ed0",
+      "final_tree": "ba6352061a8a989b5404705fe8640dfafb9f2ed0",
+      "equal": true
+    },
+    "services/core/tests": {
+      "tested_initial_tree": "34ea09aceeb4cce6d5a0f7246d670f5adbe4b342",
+      "final_tree": "34ea09aceeb4cce6d5a0f7246d670f5adbe4b342",
+      "equal": true
+    },
+    "services/core/schema": {
+      "tested_initial_tree": "383a7806e4636874df3038a6c99acb8a14e049da",
+      "final_tree": "383a7806e4636874df3038a6c99acb8a14e049da",
+      "equal": true
+    }
+  },
+  "zconv_source_parity": {
+    "repository": "LIghtJUNction/zconv",
+    "base": {
+      "commit": "0af1f7eb0766ff0ce9db5cee7c6184eff511a8c1",
+      "package_version": "0.4.0"
+    },
+    "head": {
+      "commit": "f78b97b7065bbb7cf9ddfd0914d7f2296bbfe712",
+      "package_version": "0.4.1"
+    },
+    "comparison_observed_at_utc": "2026-11-21T12:39:18Z",
+    "comparison": {
+      "status": "ahead",
+      "ahead_by": 1,
+      "behind_by": 0,
+      "total_commits": 1,
+      "files": [
+        {
+          "path": "CHANGELOG.md",
+          "status": "modified",
+          "additions": 4,
+          "deletions": 0
+        },
+        {
+          "path": "Cargo.lock",
+          "status": "modified",
+          "additions": 1,
+          "deletions": 1
+        },
+        {
+          "path": "Cargo.toml",
+          "status": "modified",
+          "additions": 1,
+          "deletions": 1
+        },
+        {
+          "path": "comparison/Cargo.lock",
+          "status": "modified",
+          "additions": 1,
+          "deletions": 1
+        },
+        {
+          "path": "fuzz/Cargo.lock",
+          "status": "modified",
+          "additions": 1,
+          "deletions": 1
+        }
+      ],
+      "complete": true
+    },
+    "tree_identity": [
+      {
+        "path": "src",
+        "base_tree": "4c146be19ce42bebd8408d547d5c1bb0333f2333",
+        "head_tree": "4c146be19ce42bebd8408d547d5c1bb0333f2333",
+        "equal": true
+      },
+      {
+        "path": "tests",
+        "base_tree": "0917d1559ae50c7369ec7a9c481115dca2013336",
+        "head_tree": "0917d1559ae50c7369ec7a9c481115dca2013336",
+        "equal": true
+      },
+      {
+        "path": "benches",
+        "base_tree": "7a834d6381d28717ac45fc59c66260d5b74a9baa",
+        "head_tree": "7a834d6381d28717ac45fc59c66260d5b74a9baa",
+        "equal": true
+      },
+      {
+        "path": "examples",
+        "base_tree": "d694a649f7d4dc4cfc5fcc3da3c2ced9ca3c5222",
+        "head_tree": "d694a649f7d4dc4cfc5fcc3da3c2ced9ca3c5222",
+        "equal": true
+      }
+    ],
+    "manifest": {
+      "base_blob": "1fb33ed26785bd5d8523095e64786ef2be96c9b8",
+      "head_blob": "18f05e90407af1a4750e22cfada251edc2646e67",
+      "only_package_version_changed": true,
+      "unchanged": {
+        "edition": "2024",
+        "rust_version": "1.99.1",
+        "default_features": [],
+        "dependencies": {},
+        "dev_dependencies": {},
+        "build_dependencies": {},
+        "workspace": true,
+        "profile": true,
+        "include": true,
+        "lib": true
+      }
+    },
+    "build": {
+      "base_root_build_rs_present": false,
+      "head_root_build_rs_present": false,
+      "explicit_manifest_build_entry_present": false
+    },
+    "source_macro_scan": {
+      "fixed_commit": "f78b97b7065bbb7cf9ddfd0914d7f2296bbfe712",
+      "src_tree": "4c146be19ce42bebd8408d547d5c1bb0333f2333",
+      "expected_files": 18,
+      "read_files": 18,
+      "characters_read": 660308,
+      "all_retrieved_blob_ids_match_src_tree": true,
+      "cargo_environment_references_found": 0,
+      "env_option_env_include_macro_line_matches": 0,
+      "scan_pattern": "CARGO_|(?:option_)?env\\s*!|include(?:_str|_bytes)?\\s*!",
+      "scope": "All 18 files in the fixed src tree, checked line by line; no CARGO_PKG_VERSION reference was found.",
+      "read_errors": []
+    },
+    "scope": {
+      "operation": "Read-only GitHub comparison of the two fixed commits; no moving-head reads after head was fixed.",
+      "conclusion": "Runtime Rust source trees and all non-version Cargo manifest content are identical.",
+      "binary_equivalence_claimed": false,
+      "native_operations": false,
+      "remote_mutations": false,
+      "tests_run": [],
+      "evidence_reuse_boundary": "Existing tests keep their original input identities. New lock and consumer verification are recorded separately; this receipt does not claim tests ran against the new commit."
+    },
+    "sources": [
+      "https://github.com/LIghtJUNction/zconv/compare/0af1f7eb0766ff0ce9db5cee7c6184eff511a8c1...f78b97b7065bbb7cf9ddfd0914d7f2296bbfe712",
+      "https://github.com/LIghtJUNction/zconv/commit/f78b97b7065bbb7cf9ddfd0914d7f2296bbfe712",
+      "https://github.com/LIghtJUNction/zconv/blob/0af1f7eb0766ff0ce9db5cee7c6184eff511a8c1/Cargo.toml",
+      "https://github.com/LIghtJUNction/zconv/blob/f78b97b7065bbb7cf9ddfd0914d7f2296bbfe712/Cargo.toml"
+    ]
+  },
+  "cli": {
+    "repository": "TokenNotIncluded/lmm",
+    "base_commit": "7ba45df9438adb6871fefdf07241285980601c5d",
+    "commit": "260a1eff2400aa64fc697028a406a8017ed6259c",
+    "manifest_sha256": "a7dd274d5d9282ce969bacb53f2ce8bf82f5626a2d4f9b4635461c05a5cb8478",
+    "lock_sha256": "d751968f109e864e4921423532339f310c4891bbab4cf817f8e037c800488101",
+    "resolved_zhex": {
+      "version": "0.1.3",
+      "source": "git+https://github.com/LIghtJUNction/zhex.git#09dfaa0adee628d0714e2f9e96921555e619b2f6",
+      "declaration_req": "*"
+    },
+    "passed": 129,
+    "ignored": 2,
+    "test_summaries": [
+      [
+        "ok",
+        "63",
+        "0",
+        "2"
+      ],
+      [
+        "ok",
+        "0",
+        "0",
+        "0"
+      ],
+      [
+        "ok",
+        "3",
+        "0",
+        "0"
+      ],
+      [
+        "ok",
+        "18",
+        "0",
+        "0"
+      ],
+      [
+        "ok",
+        "13",
+        "0",
+        "0"
+      ],
+      [
+        "ok",
+        "11",
+        "0",
+        "0"
+      ],
+      [
+        "ok",
+        "4",
+        "0",
+        "0"
+      ],
+      [
+        "ok",
+        "17",
+        "0",
+        "0"
+      ],
+      [
+        "ok",
+        "0",
+        "0",
+        "0"
+      ]
+    ],
+    "runs": [
+      {
+        "name": "metadata",
+        "command": [
+          "mise",
+          "exec",
+          "--",
+          "cargo",
+          "metadata",
+          "--locked",
+          "--offline",
+          "--format-version",
+          "1"
+        ],
+        "exit_code": 0,
+        "elapsed_seconds": 0.515,
+        "log": "cli-metadata.log",
+        "log_sha256": "7f6b0ef6c713d3e5bce34c38d683b1943b9d52a9d81ea31f30973c7f2d685e36"
+      },
+      {
+        "name": "fmt",
+        "command": [
+          "mise",
+          "exec",
+          "--",
+          "cargo",
+          "fmt",
+          "--all",
+          "--",
+          "--check"
+        ],
+        "exit_code": 0,
+        "elapsed_seconds": 0.365,
+        "log": "cli-fmt.log",
+        "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "name": "test",
+        "command": [
+          "mise",
+          "exec",
+          "--",
+          "cargo",
+          "test",
+          "--locked"
+        ],
+        "exit_code": 0,
+        "elapsed_seconds": 12.247,
+        "log": "cli-test.log",
+        "log_sha256": "a72f4f847efb10d9cef4145ae8dd9ea1c1a6e04f7eaa33eca25f6bc19d19c842"
+      },
+      {
+        "name": "clippy",
+        "command": [
+          "mise",
+          "exec",
+          "--",
+          "cargo",
+          "clippy",
+          "--locked",
+          "--all-targets",
+          "--all-features",
+          "--",
+          "-D",
+          "warnings"
+        ],
+        "exit_code": 0,
+        "elapsed_seconds": 4.975,
+        "log": "cli-clippy.log",
+        "log_sha256": "85e76765bf48e4e154a8314b2a8b50bc4ae335bbeb614def33e730043cdf9fa8"
+      },
+      {
+        "name": "diff-check",
+        "command": [
+          "git",
+          "diff",
+          "--check"
+        ],
+        "exit_code": 0,
+        "elapsed_seconds": 0.004,
+        "log": "cli-diff-check.log",
+        "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      }
+    ]
+  },
+  "source_release_pure_validation": {
+    "generated_at_utc": "2026-11-21T12:12:09.368594+00:00",
+    "source_release_input_commit": "cebc346c868e7d0c03bd82dab8d8f274ef7ec365",
+    "compatible_target_commit": "7df35ca4185ccc67de70e3f68a7db7a01ca154c6",
+    "target_script_test_and_manifest_blobs_verified_equal": true,
+    "changed_paths": [
+      "services/core/Cargo.toml",
+      "scripts/source-release.py",
+      "scripts/test-source-release.py"
+    ],
+    "patch_sha256": "2afc91ba61c552ea3b85f531b8aa5b62d657cac727372e0dc8df568b5a4c3bc4",
+    "patch_bytes": 4254,
+    "git_apply_check_exit_code": 0,
+    "pure_tests_passed": 13,
+    "pure_tests_failed": 0,
+    "pure_tests_skipped": 0,
+    "pure_tests_elapsed_seconds": 0.117023,
+    "original_four_registry_test_bodies_unchanged": true,
+    "external_dependencies_unchanged": true,
+    "package_metadata_unchanged": true,
+    "cargo_lock_git_blob": "b29244ed078ac8eee2991c3dbb4ed7407fe86c71",
+    "cargo_lock_changed": false,
+    "locked_internal_git_commits": {
+      "zconv": "0af1f7eb0766ff0ce9db5cee7c6184eff511a8c1",
+      "zclap": "4d87f3ae3743e81509d5ac5500909955667c860f",
+      "zhex": "09dfaa0adee628d0714e2f9e96921555e619b2f6"
+    },
+    "actual_candidate_metadata_validation": {
+      "version": "0.1.21",
+      "zconv": "0.4.0"
+    },
+    "old_validator_on_versionless_candidate_rejection": "Core must pin the requested registry or canonical Git zconv without source overrides",
+    "initial_test_attempt": {
+      "log": "pure-tests-initial.log",
+      "failed_subtests": 1,
+      "cause": "The request mutation persisted into the second subtest; reset the request locally for each iteration. No validator or lock constraint was weakened."
+    },
+    "final_test_log": "pure-tests-final.log",
+    "files": {
+      "services/core/Cargo.toml": {
+        "before_git_blob": "16322372cb0572c7ab296b89d7e9a620f43f9bc7",
+        "after_sha256": "a31c81199b1750e11c589eb8d4373abf30b74a022c09e7c9d7324cb975df4c75"
+      },
+      "scripts/source-release.py": {
+        "before_git_blob": "263c092a9811f05283aac1644a3edca907db5f19",
+        "after_sha256": "af1282030d9e3642edf2000008939893a9351c8623d8082b1b5de0fc8a75953f"
+      },
+      "scripts/test-source-release.py": {
+        "before_git_blob": "f1a9ac2d23831ea85a97fd9dc98e514f8118ae2d",
+        "after_sha256": "89bd97ae4d6394f6841c77a303b68f53176533090759c3edfc94c81188d0c510"
+      }
+    },
+    "execution_scope": "Scratch-only Python metadata validation; no Cargo, external process from validate(), network from validate(), ssmcp, remote write, CI, packaging or release execution."
+  },
+  "packaging_payment_reuse": {
+    "commit": "7df35ca4185ccc67de70e3f68a7db7a01ca154c6",
+    "same_git_blobs": [
+      "packaging/linux/build.py",
+      "packaging/linux/test_build.py",
+      "tests/payments/verify_process.py",
+      "tests/payments/test_verify_process.py"
+    ],
+    "prior_pure_methods_passed": 12,
+    "rerun_in_this_batch": false
+  },
+  "component78_contract": {
+    "catalog_sha256": "dbc1df98f792d1484700e36005e900ec97a54a21a56d752bab0863bd84ab7177",
+    "manifest_sha256": "b9d0a472bddc826e0f6bfa0e725e409e67cbaabad6b0ad80cd512de24da74c2b",
+    "oauth_catalog_sha256": "0727dcc3465ede90e1c4fc708ea2b223e7b297d672fb3e7952eda8afcda0ecaa",
+    "oauth_predecessor_catalog_sha256": "1c573f3c85ed5ce4e924ad700c9d821d072696dcc4ed3b52ba633801839d169a",
+    "raw_schema_sha256": "fbf30da1a977cfcfc14fa0f98befc374404850e9ad94a6d5df5943e31b0ba1b4"
+  },
+  "funds_recovery_scope": {
+    "injection": "terminal checkpoint committed; callback confirmation delayed; finalizer request lock contention at frozen-contract read",
+    "admission": "native key, ordinary token contract",
+    "hook_timeout_seconds": 2,
+    "pending_reserved": 140,
+    "pending_settled": 0,
+    "after_expiry_classification": "reconcile; reserved 140; settled 0",
+    "final_settled": 49,
+    "final_available": 951,
+    "final_reserved": 0,
+    "provider_calls": 1,
+    "final_events": 1,
+    "original_payer_and_price_preserved": true,
+    "claims_real_commit_ack_network_loss": false,
+    "claims_unique_root_cause_for_historical_pi_timeout": false
+  },
+  "launch_boundary": {
+    "production_mutations": 0,
+    "real_model_or_payment_calls": 0,
+    "workflow_dispatches": 0,
+    "tags_or_releases_created": 0,
+    "final_main_cf_full_qualification_run": false,
+    "extore_unchanged_commit": "cf3469dbe827afcfb2e3f054a63f7b9b7c40bc2b",
+    "extore_zplugin_registry_dependency": "0.3.1; unchanged pinned Extore scope, outside Core/CLI dependency refresh",
+    "remaining": [
+      "formal artifacts and full qualification for the final main/cf candidate",
+      "actual identity and financial reconciliation and backup/restore evidence bound to that candidate",
+      "writer fence, unresolved-liability disposition and explicit owner migration/activation receipts"
+    ]
+  },
+  "cleanup": {
+    "cleaned_utc": "2026-11-21T13:00:03Z",
+    "tests_finished_before_cleanup": true,
+    "test_units": {
+      "lmm-launch-tests-20261121.service": {
+        "ActiveState": "failed",
+        "SubState": "failed",
+        "MainPID": "0",
+        "ExecMainStatus": "1"
+      },
+      "lmm-launch-remaining-20261121.service": {
+        "ActiveState": "inactive",
+        "SubState": "dead",
+        "MainPID": "0",
+        "ExecMainStatus": "0"
+      },
+      "lmm-launch-zconv-20261121.service": {
+        "ActiveState": "inactive",
+        "SubState": "dead",
+        "MainPID": "0",
+        "ExecMainStatus": "0"
+      }
+    },
+    "private_pg_unit": "lmm-launch-pg-20261121.service",
+    "private_pg_state_after": {
+      "ActiveState": "inactive",
+      "SubState": "dead",
+      "MainPID": "0",
+      "ExecMainStatus": "0"
+    },
+    "private_pg_directory_removed": true,
+    "private_credentials_removed": true,
+    "failed_test_unit_reset_exit_code": 0,
+    "retained": "text logs, runners, patches and validation receipts",
+    "shared_cargo_target_preserved": true,
+    "production_processes_touched": false
+  },
+  "native_evidence_directory": "out/lmm-launch-validation-20261121"
+}

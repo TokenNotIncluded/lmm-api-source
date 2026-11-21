@@ -1,8 +1,16 @@
 # 新架构进度
 
-更新于 2026-11-20。此文件只维护当前状态、剩余阻塞和证据入口；执行过程、逐轮测试及历史失败保留在 Git 历史与对应验收收据。
+更新于 2026-11-21。此文件只维护当前状态、剩余阻塞和证据入口；执行过程、逐轮测试及历史失败保留在 Git 历史与对应验收收据。
 
 ## 当前状态
+
+- **上线主线整合与流式资金恢复（定向自测通过，生产未激活；2026-11-21）**：已将公开客户端 PR11、计费锁顺序修复、源码发行校验、RPM 依赖与支付测试发现修复整合到主线；本轮源码固定为 [517a0448](https://github.com/TokenNotIncluded/lmm-api-source/commit/517a0448286eea3b1319dff8502c6512a7ef1a3f)。
+  **实现**：五个 public client 继续分别默认关闭、分别限制授权族额度；Core 追加组件78及显式 owner 77→78 升级。计费分类现在先取得会话锁，再访问收费记录，消除与状态查询路径相反的取锁顺序；该修复由 [e7c84681](https://github.com/TokenNotIncluded/lmm-api-source/commit/e7c84681b76f35b349f99f2821917f67b1028ec2) 单独移入。主线保留同进程 Extore cf3469db 契约。
+  **实际自测**：隔离 PostgreSQL18.7、fsync 与 synchronous_commit 开启，8个不同 Core 用例通过：超时恢复1、组件78结构/升级3、计费锁顺序1、public-client HTTP财务2、Pi HTTP/JSON/SSE1。原有指纹捕获辅助用例1项 ignored，不计为通过。CLI [260a1eff](https://github.com/TokenNotIncluded/lmm/commit/260a1eff2400aa64fc697028a406a8017ed6259c) 完整测试129项通过、2项隔离凭据库测试保持 ignored；locked/offline依赖解析、fmt、Clippy通过。源码发行校验的13项纯元数据测试通过。
+  **资金恢复证据**：新增用例先真实提交 terminal checkpoint，再延迟回调确认并持有同请求锁，保留原2秒 hook deadline。请求明确返回结算待处理且无成功终态；预留140、结算0保持到真实 recover_expired 分类完成，随后 reconcile_completed_streams 按冻结合同结算49，余额951、预留0；上游调用与最终结算均仅一次。该用例使用 native-key admission 检验普通 token 财务路径，不替代 Pi OAuth 验证，也不证明真实网络 COMMIT ACK 丢失。
+  **依赖与复用**：Core/CLI 的本轮内部 Git 声明已移除版本 selector，锁文件保留精确身份。zconv 固定到主线版本准备提交 f78b97b7（0.4.1），同步发行请求中的依赖版本；其 src、tests、benches、examples tree 与原0af1f7eb相同，manifest仅包版本变化。新锁下的真实 Pi HTTP 用例再通过1次，不增加不同用例数；其余结果保留原输入身份，并以源码等价证据说明复用。7df35ca4 的4个打包/支付文件逐 blob 一致，原12项纯测试记录保留原归属。
+  **失败与剩余边界**：首次 schema 命令因模块筛选名错误运行0项，被执行器判失败；修正筛选后3项实际通过，原日志保留。历史 Pi 间歇锁超时的唯一原因仍未确认；本轮证实特定提交后确认延迟/锁竞争能够恢复结算。最终 main/cf 自身的正式制品与完整资格、真实数据/身份/资金对账、备份恢复、停写与 owner 迁移回执仍须绑定最终候选；其他 Extore 宿主方案的旧通过结果不转移到此组合。Extore 子仓的冻结 zplugin0.3.1 依赖不属于本轮 Core/CLI 依赖刷新。
+  **清理与证据**：本轮私有PG、数据目录与临时凭据已清理，共享构建缓存及原始文本日志/收据保留。本轮未触发远程CI、创建标签/发行版、调用真实付费模型或支付、执行生产迁移或切流。见[结构化验证记录](reports/lmm-launch-validation-2026-11-21.json)。**self-tested; independent acceptance not run**。
 
 - **统一候选资格修复（修复已推送，组合验收与部署待完成；2026-11-20）**：商户管理回显、默认暗色、Extore 原生目录与稳定会话绑定、容量驱动和升级后的前向恢复已合入主线。源码、开发自测、独立业务验收和生产激活分别记录，原失败不覆盖。
   **正式输入**：[586f7afe](https://github.com/TokenNotIncluded/lmm-api-source/commit/586f7afe3ed0371cbd9773c383c86282e9731f4f) 的[正式分发](https://github.com/TokenNotIncluded/lmm-api-source/actions/runs/44652793884)已完整成功。Core、Go、Web 已下载，7／24／620 项运行文件逐项匹配清单，收据 `candidate-586f7afe-artifacts-verified.json` 摘要为 `64332ac2b966d097e169c3ca3947444003790de48951c3c851219b387d6e3acb`；完整 CI 与最终业务资格单列，不能据构建宣布可上线。
