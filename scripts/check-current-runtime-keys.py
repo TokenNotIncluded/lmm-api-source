@@ -347,7 +347,7 @@ def execute(source, output, *, regression="keys"):
                           diagnostic=verified, migration_passed=False,
                           production_approval_created=False)
         elif regression == "identity":
-            tests = CONTROL / "tests/current-identity"
+            tests = CONTROL / "tests/current-identity-next"
             testenv = {**env, "PYTHONPATH": os.pathsep.join(map(str, (tests, keys, source / "scripts")))}
             run([sys.executable, "-B", tests / "test_current_identity.py"],
                 work, "identity-pure", env=testenv, timeout=120)
