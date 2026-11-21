@@ -198,7 +198,7 @@ class Regression:
         self.contract = M.core78_contract(M.C.private_bytes(Path(fixture["core78_manifest"])))
         output.mkdir(mode=0o700, parents=True, exist_ok=False)
         M.F.write_private(output, "fixture.private.json", M.canonical(fixture) + "\n")
-        self.query("SELECT CASE WHEN obj_description((SELECT oid FROM pg_database WHERE datname=current_database()),"
+        self.query("SELECT CASE WHEN shobj_description((SELECT oid FROM pg_database WHERE datname=current_database()),"
                    "'pg_database')=" + M.literal("lmm-runtime-keys-synthetic:" + self.nonce) +
                    " THEN true ELSE false END", expect=True)
         self.inventory = self.query(M.F.inventory_sql())

@@ -475,7 +475,7 @@ def _test_fixture_guard(m, nonce):
          "current_keys_synthetic_database_required")
     return f"""
  IF current_database()<>{literal(instance['database'])}
- OR obj_description((SELECT oid FROM pg_database WHERE datname=current_database()),'pg_database')
+ OR shobj_description((SELECT oid FROM pg_database WHERE datname=current_database()),'pg_database')
   IS DISTINCT FROM {literal('lmm-runtime-keys-synthetic:' + nonce)}
  THEN RAISE EXCEPTION 'current_keys_synthetic_fixture_identity_changed'; END IF;
 """
