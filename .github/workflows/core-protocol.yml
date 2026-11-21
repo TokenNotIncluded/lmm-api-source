@@ -623,25 +623,27 @@ jobs:
           echo 'create_main_cluster = false' | sudo tee -a /etc/postgresql-common/createcluster.conf > /dev/null
           sudo apt-get install --no-install-recommends --yes postgresql-18 postgresql-client-18
           echo '/usr/lib/postgresql/18/bin' >> "$GITHUB_PATH"
+          echo "LMM_CURRENT_KEYS_ROOT=$HOME/.local/state/lmm-api/current-runtime-keys" >> "$GITHUB_ENV"
       - name: Acquire and verify only the exact official Core archive
         env:
           GH_TOKEN: ${{ github.token }}
-        run: python3 -B control/scripts/check-current-runtime-keys.py acquire --source "$GITHUB_WORKSPACE/product" --output "$RUNNER_TEMP/current-runtime-keys"
+        run: python3 -B control/scripts/check-current-runtime-keys.py acquire --source "$GITHUB_WORKSPACE/product" --output "$LMM_CURRENT_KEYS_ROOT"
       - name: Run the real isolated PostgreSQL credential regression
-        run: python3 -B control/scripts/check-current-runtime-keys.py run --source "$GITHUB_WORKSPACE/product" --output "$RUNNER_TEMP/current-runtime-keys"
+        run: python3 -B control/scripts/check-current-runtime-keys.py run --source "$GITHUB_WORKSPACE/product" --output "$LMM_CURRENT_KEYS_ROOT"
       - name: Preserve bounded synthetic regression diagnostics
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: current-runtime-keys-${{ github.sha }}-${{ github.run_id }}
           path: |
-            ${{ runner.temp }}/current-runtime-keys/result.public.json
-            ${{ runner.temp }}/current-runtime-keys/acquisition.json
-            ${{ runner.temp }}/current-runtime-keys/fixture/runtime-result.public.json
-            ${{ runner.temp }}/current-runtime-keys/fixture/*.log
-            ${{ runner.temp }}/current-runtime-keys/fixture/*.command.json
-            ${{ runner.temp }}/current-runtime-keys/fixture/regression/*.stderr.private.txt
-            ${{ runner.temp }}/current-runtime-keys/fixture/regression/*.stdout.private.txt
-            ${{ runner.temp }}/current-runtime-keys/fixture/regression/result.public.json
+            ${{ env.LMM_CURRENT_KEYS_ROOT }}/result.public.json
+            ${{ env.LMM_CURRENT_KEYS_ROOT }}/acquisition.json
+            ${{ env.LMM_CURRENT_KEYS_ROOT }}/fixture/runtime-result.public.json
+            ${{ env.LMM_CURRENT_KEYS_ROOT }}/fixture/*.log
+            ${{ env.LMM_CURRENT_KEYS_ROOT }}/fixture/*.command.json
+            ${{ env.LMM_CURRENT_KEYS_ROOT }}/fixture/regression/*.stderr.private.txt
+            ${{ env.LMM_CURRENT_KEYS_ROOT }}/fixture/regression/*.stdout.private.txt
+            ${{ env.LMM_CURRENT_KEYS_ROOT }}/fixture/regression/result.public.json
           if-no-files-found: warn
           retention-days: 3
+          include-hidden-files: true

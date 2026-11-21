@@ -195,6 +195,7 @@ privacy_policy_enabled=false
 
 def acquire(source, output):
     source_check(source)
+    output.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
     output.mkdir(mode=0o700)
     original = module("original_runtime_controller", CONTROL / "scripts/final-runtime-acceptance.py")
     artifact, size, zip_sha, name, tar_sha = original.COMPONENTS["core"]
