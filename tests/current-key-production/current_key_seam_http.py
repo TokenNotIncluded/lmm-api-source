@@ -3,14 +3,12 @@ from datetime import datetime, timezone
 from copy import deepcopy
 import hashlib
 import http.client
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 from pathlib import Path
 import re
 import secrets
 import socket
 import subprocess
-import threading
 import time
 from urllib.parse import urlencode
 
@@ -33,46 +31,19 @@ def run_probe(H, output, work, sock, db, port, runtime, env, sql):
     (work / 'runtime.url').write_text(runtime_url + '\n')
     (work / 'refresh.key').write_bytes(secrets.token_bytes(32))
     (work / 'api-key.key').write_bytes(bytes.fromhex(probe['encryption_key_hex']))
-    (work / 'upstream.key').write_text('synthetic-loopback-only-' + secrets.token_hex(16) + '\n')
-    provider_calls = []
-
-    class NoCallsExpected(BaseHTTPRequestHandler):
-        def do_GET(self):
-            provider_calls.append(self.command)
-            self.send_response(500)
-            self.end_headers()
-
-        do_POST = do_GET
-
-        def log_message(self, *_args):
-            pass
-
-    class ConnectionTrap(ThreadingHTTPServer):
-        def get_request(self):
-            connection = super().get_request()
-            # Count the TCP connection even if a TLS handshake never reaches
-            # an HTTP handler. Catalog reads must not contact this endpoint.
-            provider_calls.append('connection')
-            return connection
-
-    provider = json.loads((work / 'key-seam-provider.private.json').read_text())
-    H.need(type(provider['port']) is int and 1024 <= provider['port'] <= 65535,
-           'invalid synthetic provider port')
-    upstream = ConnectionTrap(('127.0.0.1', provider['port']), NoCallsExpected)
-    thread = threading.Thread(target=upstream.serve_forever, daemon=True)
-    thread.start()
+    (work / 'upstream.key').write_text('synthetic-invalid-provider-' + secrets.token_hex(16) + '\n')
     model = f'''version=1
 input_token_ceiling=100
 lease_seconds=20
 timeout_seconds=3
 max_output_tokens=20
-local_streaming=true
 credentials=[{{reference={{id=7,revision=1}},secret_file={json.dumps(str(work / 'upstream.key'))}}}]
 key_groups=[]
+external_models=[{{upstream_id=1,upstream_model='provider-model',protocol='openai_chat',endpoint='https://synthetic-current-key-seam.invalid/v1',max_input_tokens=100,max_output_tokens=20,contract_revision='synthetic-catalog-admission-v1'}}]
 [routing]
 version=1
 groups=[{{name='paid',enabled=true}}]
-upstreams=[{{id=1,endpoint='https://127.0.0.1:{upstream.server_port}/custom/v1',protocol='openai_chat',credential={{id=7,revision=1}},enabled=true}}]
+upstreams=[{{id=1,endpoint='https://synthetic-current-key-seam.invalid/v1',protocol='openai_chat',credential={{id=7,revision=1}},enabled=true}}]
 routes=[{{id=1,model='synthetic-model',group='paid',enabled=true,speeds=['standard'],targets=[{{id=1,upstream_id=1,upstream_model='provider-model',enabled=true,priority=0,weight=1,speeds=['standard'],payload='adapt',timeout_ms=5000}}],failover={{max_attempts=1,retry_on=[],allow_replay_after_send=false}}}}]
 aliases=[]
 [prices]
@@ -92,7 +63,7 @@ max_connections=4
 enabled=true
 [model]
 config_file={json.dumps(str(work / 'model.toml'))}
-local_http=true
+local_http=false
 [identity]
 api_key_encryption_key_file={json.dumps(str(work / 'api-key.key'))}
 registration_enabled=false
@@ -121,8 +92,14 @@ privacy_policy_enabled=false
     events = []
     revealed = []
     primary_failed = False
+    fixture_requests = []
 
     def request(method, path, bearer=None):
+        H.need((method == 'GET' and path in ('/health/ready', '/core/v1/identity', '/v1/models'))
+               or (method == 'GET' and re.fullmatch(r'/api/token/[1-9][0-9]*', path))
+               or (method == 'POST' and re.fullmatch(r'/api/token/[1-9][0-9]*/key', path)),
+               'key seam fixture attempted an endpoint outside its read/reveal scope')
+        fixture_requests.append((method, path))
         headers = {'Origin': origin}
         if bearer is not None:
             headers['Authorization'] = 'Bearer ' + bearer
@@ -211,7 +188,6 @@ privacy_policy_enabled=false
             observed = datetime.fromisoformat(instance[field]).timestamp()
             H.need(started <= observed <= heartbeat['now'], 'heartbeat lies outside runtime observation')
         lifecycle['heartbeat_rows_running'] = 1
-        H.need(not provider_calls, 'read-only model admission contacted the synthetic provider')
         lifecycle['status'] = 'VERIFIED'
     except BaseException:
         primary_failed = True
@@ -227,11 +203,10 @@ privacy_policy_enabled=false
                 proc.kill()
                 proc.wait(timeout=10)
         log.close()
-        upstream.shutdown()
-        upstream.server_close()
-        thread.join(timeout=3)
         lifecycle.update(core_exit=proc.returncode, core_log_sha256=H.sha(log_path),
-                         finished_utc=datetime.now(timezone.utc).isoformat(), provider_calls=len(provider_calls))
+                         finished_utc=datetime.now(timezone.utc).isoformat(),
+                         fixture_requests=len(fixture_requests), fixture_model_execution_requests=0,
+                         provider_execution_exercised=False)
         try:
             after = json.loads(sql('BEGIN READ ONLY; ' + state_sql + ' COMMIT;'))
             lifecycle['heartbeat_rows_after_stop'] = after['tables']['core_operations.instances']['rows']
@@ -271,11 +246,10 @@ privacy_policy_enabled=false
             H.save(work / 'key-seam-runtime-lifecycle.public.json', lifecycle)
         if not primary_failed:
             H.need(proc.returncode == 0 and not lifecycle['forced_termination'], 'key seam Core did not stop cleanly')
-            H.need(not provider_calls, 'key seam provider connection during shutdown')
     result = {'status': 'PASS', 'events': events, 'actual_core_sha256': H.CORE_SHA,
               'unrelated_application_state_unchanged': True, 'expected_reveal_audit_appended': True,
-              'real_provider_calls': 0,
-              'synthetic_provider_calls': len(provider_calls), 'production_access': False,
+              'fixture_model_execution_requests': 0, 'provider_execution_exercised': False,
+              'configured_endpoint': 'reserved .invalid synthetic HTTPS provider', 'production_access': False,
               'production_authorized': False, 'production_closure_tested': False,
               'scope': 'current identity generation, dormant group, key auth/recovery/quota and read-only model admission'}
     H.save(work / 'key-seam-runtime-result.public.json', result)

@@ -9,10 +9,11 @@ INSERT INTO core_identity.user_profiles(user_id,username) VALUES(:fixture_user_i
 INSERT INTO core_identity.developer_access(user_id,granted,source_reference)
 VALUES(:fixture_user_id,true,'synthetic-current-runtime-keys');
 -- Use the same official immutable publication function as channel management.
--- The endpoint is a synthetic numeric loopback trap; no provider is reachable.
+-- The reserved .invalid endpoint has no real provider or real credential.
+-- This fixture exercises catalog admission, never model execution.
 SELECT public.routing_control_publish(
   '{"version":1,"groups":[{"name":"paid","enabled":true}],
-    "upstreams":[{"id":1,"endpoint":"https://127.0.0.1:KEY_SEAM_PROVIDER_PORT/custom/v1","protocol":"openai_chat","credential":{"id":7,"revision":1},"enabled":true}],
+    "upstreams":[{"id":1,"endpoint":"https://synthetic-current-key-seam.invalid/v1","protocol":"openai_chat","credential":{"id":7,"revision":1},"enabled":true}],
     "routes":[{"id":1,"model":"synthetic-model","group":"paid","enabled":true,"speeds":["standard"],
       "targets":[{"id":1,"upstream_id":1,"upstream_model":"provider-model","enabled":true,"priority":0,"weight":1,"speeds":["standard"],"payload":"adapt","timeout_ms":5000}],
       "failover":{"max_attempts":1,"retry_on":[],"allow_replay_after_send":false}}],"aliases":[]}',
