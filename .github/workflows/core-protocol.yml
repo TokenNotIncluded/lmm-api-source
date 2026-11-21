@@ -50,7 +50,7 @@ jobs:
           test "$(docker exec "$POSTGRES_CONTAINER" psql -X -U postgres -d postgres -v ON_ERROR_STOP=1 \
             -Atqc 'SELECT pg_reload_conf()')" = t
           # pg_reload_conf sends SIGHUP; read the actual setting until applied.
-          for attempt in {1..50}; do
+          for _ in {1..50}; do
             docker exec "$POSTGRES_CONTAINER" psql -X -U postgres -d postgres -v ON_ERROR_STOP=1 \
               -Atqc "SELECT setting, pending_restart FROM pg_settings WHERE name = 'autovacuum'" \
               > "$RUNNER_TEMP/core-postgres-offline-settings.txt"
