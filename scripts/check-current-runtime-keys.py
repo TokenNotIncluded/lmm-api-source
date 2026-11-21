@@ -336,7 +336,7 @@ def acquire(source, output):
 
 
 def execute(source, output, *, regression="keys"):
-    need(regression in ("keys", "wallet", "identity", "identity-diagnostic", "identity-password"), "unknown synthetic regression")
+    need(regression in ("keys", "wallet", "identity", "identity-diagnostic", "identity-password", "key-seam"), "unknown synthetic regression")
     source_check(source)
     need(not os.environ.get("GH_TOKEN") and not os.environ.get("GITHUB_TOKEN"),
          "artifact token reached database regression")
@@ -409,7 +409,7 @@ def execute(source, output, *, regression="keys"):
         manifest = run([output / "lmm-core", "schema-manifest"], work, "compiled-manifest", env=env)
         need(hashlib.sha256(manifest).hexdigest() == MANIFEST_SHA, "compiled Core78 manifest differs")
         (work / "core78-manifest.json").write_bytes(manifest)
-        seed = CONTROL / "tests/current-runtime-keys/seed.sql"
+        seed = CONTROL / ("tests/current-key-production/seed.sql" if regression == "key-seam" else "tests/current-runtime-keys/seed.sql")
         sql(seed.read_text())
         run([*base, "-U", installer, "-d", db, "-v", "runtime_role=" + runtime,
              "-v", "enable_console=true", "-v", "enable_web_identity=true",
@@ -427,7 +427,7 @@ def execute(source, output, *, regression="keys"):
                 "database": db, "role": owner, "login_role": installer, "set_role": owner,
                 "pgpass_file": str(pgpass)},
             "fixture_nonce": nonce, "core78_manifest": str(work / "core78-manifest.json"),
-            "runtime_roles": [runtime], "fixture_user_id": 1, "fixture_group": "default"}
+            "runtime_roles": [runtime], "fixture_user_id": 1, "fixture_group": "paid" if regression == "key-seam" else "default"}
         save(work / "fixture.private.json", fixture)
         keys = CONTROL / "tests/current-runtime-keys"
         if regression == "wallet":
@@ -464,6 +464,31 @@ def execute(source, output, *, regression="keys"):
             result.update(status="DIAGNOSTIC_COMPLETE_MIGRATION_STILL_REJECTED",
                           diagnostic=verified, migration_passed=False,
                           production_approval_created=False)
+        elif regression == "key-seam":
+            tests = CONTROL / "tests/current-key-production"
+            expected = {'current_key_production.py': 'b1e157a0db8b22ccc7a41263c54c0c6b6f0c4c2ba49fe825b91fc0e90a0ba8ba', 'current_key_lineage.py': '0835d57cb70a58ed8bdf368d5c25d588aca0139dfdb44389e2550981953c9da7', 'test_current_key_production.py': '58177f6aa0c1dbd9eaa7cc9c06c0d6a901c3cefabd569e914f807ea4a58d7213', 'test_current_key_production_pg.py': 'e7dc8e993e287b78ba48766bcd28ff1963b79dcbaecd98fd75b8e99bfcfc8d67', 'test_current_key_seam_fixture.py': 'dafb1cccd320dcc5070c16399b7affaeea1a4b2364174108861b1d19e7f3409e', 'current_key_seam_http.py': '77685d6e2961267ea7340b299e8c84fdd575afdb48adb4ae38e40de5b8c06a69', 'seed.sql': '7ef9f4a05d2679b48700360cd4c414d76743ebb75cf51a6dbb410da6c8f3e275'}
+            for filename, expected_sha in expected.items():
+                need(sha(tests / filename) == expected_sha, "current key seam frozen input differs: " + filename)
+            testenv = {**env, "PYTHONPATH": os.pathsep.join(map(str, (tests,
+                CONTROL / "tests/current-identity-next", CONTROL / "tests/current-wallet-reconciliation",
+                keys, source / "scripts")))}
+            run([sys.executable, "-B", tests / "test_current_key_production.py"],
+                work, "key-seam-pure", env=testenv, timeout=120)
+            run([sys.executable, "-B", tests / "test_current_key_seam_fixture.py",
+                "--fixture", work / "fixture.private.json", "--output", work / "regression"],
+                work, "key-seam-pg", env=testenv, timeout=600)
+            mechanics = json.loads((work / "regression/result.public.json").read_text())
+            need(mechanics["status"] == "MECHANICS_VERIFIED_RUNTIME_PENDING"
+                 and mechanics["production_closure_tested"] is False
+                 and mechanics["production_authorized"] is False
+                 and mechanics["production_access"] is False, "key seam mechanics scope differs")
+            driver = module("current_key_seam_http", tests / "current_key_seam_http.py")
+            verified = driver.run_probe(sys.modules[__name__], output, work, sock, db, port, runtime, env, sql)
+            need(verified["status"] == "PASS" and verified["unrelated_application_state_unchanged"] is True
+                 and verified["expected_reveal_audit_appended"] is True
+                 and verified["production_closure_tested"] is False, "key seam HTTP scope differs")
+            result.update(status="PASS", current_key_mechanics=mechanics, current_key_runtime=verified,
+                          production_approval_created=False, production_closure_tested=False)
         elif regression == "identity-password":
             tests = CONTROL / "tests/current-identity-next"
             password_tests = CONTROL / "tests/current-identity-password"
@@ -536,7 +561,7 @@ if __name__ == "__main__":
     parser.add_argument("phase", choices=("acquire", "run"))
     parser.add_argument("--source", required=True, type=Path)
     parser.add_argument("--output", required=True, type=Path)
-    parser.add_argument("--regression", choices=("keys", "wallet", "identity", "identity-diagnostic", "identity-password"), default="keys")
+    parser.add_argument("--regression", choices=("keys", "wallet", "identity", "identity-diagnostic", "identity-password", "key-seam"), default="keys")
     args = parser.parse_args()
     if args.phase == "acquire":
         acquire(args.source.resolve(), args.output.resolve())
