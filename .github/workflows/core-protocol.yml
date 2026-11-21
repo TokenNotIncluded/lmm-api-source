@@ -2,6 +2,11 @@ name: Microkernel implementation checks
 on:
   workflow_dispatch:
     inputs:
+      current_runtime_keys_acceptance:
+        description: Run only the exact Core78 used-target credential regression
+        type: boolean
+        required: false
+        default: false
       final_runtime_acceptance:
         description: Run only the candidate fa57 original runtime acceptance projection
         type: boolean
@@ -15,11 +20,11 @@ defaults:
   run:
     shell: bash
 concurrency:
-  group: microkernel-${{ github.workflow }}-${{ github.ref }}
+  group: ${{ inputs.current_runtime_keys_acceptance && 'current-keys' || 'microkernel' }}-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 jobs:
   protocol:
-    if: ${{ !inputs.final_runtime_acceptance }}
+    if: ${{ !inputs.final_runtime_acceptance && !inputs.current_runtime_keys_acceptance }}
     runs-on: ubuntu-24.04
     # Budget for cold builds, serial real PostgreSQL tests, and the following
     # payment, Go, and RPC checks while keeping the complete job bounded.
@@ -327,7 +332,7 @@ jobs:
           retention-days: 7
 
   market-postgres:
-    if: ${{ !inputs.final_runtime_acceptance }}
+    if: ${{ !inputs.final_runtime_acceptance && !inputs.current_runtime_keys_acceptance }}
     name: Store and tool-market real PostgreSQL checks
     runs-on: ubuntu-24.04
     timeout-minutes: 30
@@ -581,3 +586,62 @@ jobs:
             ${{ runner.temp }}/final-runtime-host-preflight.log
           if-no-files-found: warn
           retention-days: 7
+
+  current-runtime-keys:
+    if: ${{ inputs.current_runtime_keys_acceptance && !inputs.final_runtime_acceptance }}
+    name: Existing Sessions and appended legacy keys on exact Core78
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - name: Checkout reviewed regression controller
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          path: control
+          persist-credentials: false
+      - name: Checkout exact unmodified candidate source
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          path: product
+          ref: fa57cd2049ccd9138cdc0b4104db36b5b6c53ae5
+          persist-credentials: false
+      - name: Install PostgreSQL18 and the existing Python encryption dependency
+        run: |
+          sudo --preserve-env=GITHUB_ACTIONS python3 product/scripts/prepare-ci-apt.py
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends --yes curl ca-certificates python3-cryptography
+          sudo install -d /usr/share/postgresql-common/pgdg
+          sudo curl --fail --output /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc https://www.postgresql.org/media/keys/ACCC4CF8.asc
+          printf '%s\n' 'Types: deb' 'URIs: https://apt.postgresql.org/pub/repos/apt' \
+            'Suites: noble-pgdg' "Architectures: $(dpkg --print-architecture)" 'Components: main' \
+            'Signed-By: /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc' \
+            | sudo tee /etc/apt/sources.list.d/pgdg.sources > /dev/null
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends --yes postgresql-common
+          echo 'create_main_cluster = false' | sudo tee -a /etc/postgresql-common/createcluster.conf > /dev/null
+          sudo apt-get install --no-install-recommends --yes postgresql-18 postgresql-client-18
+          echo '/usr/lib/postgresql/18/bin' >> "$GITHUB_PATH"
+      - name: Acquire and verify only the exact official Core archive
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 -B control/scripts/check-current-runtime-keys.py acquire --source "$GITHUB_WORKSPACE/product" --output "$RUNNER_TEMP/current-runtime-keys"
+      - name: Run the real isolated PostgreSQL credential regression
+        run: python3 -B control/scripts/check-current-runtime-keys.py run --source "$GITHUB_WORKSPACE/product" --output "$RUNNER_TEMP/current-runtime-keys"
+      - name: Preserve bounded synthetic regression diagnostics
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: current-runtime-keys-${{ github.sha }}-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/current-runtime-keys/result.public.json
+            ${{ runner.temp }}/current-runtime-keys/acquisition.json
+            ${{ runner.temp }}/current-runtime-keys/fixture/runtime-result.public.json
+            ${{ runner.temp }}/current-runtime-keys/fixture/*.log
+            ${{ runner.temp }}/current-runtime-keys/fixture/*.command.json
+            ${{ runner.temp }}/current-runtime-keys/fixture/regression/*.stderr.private.txt
+            ${{ runner.temp }}/current-runtime-keys/fixture/regression/*.stdout.private.txt
+            ${{ runner.temp }}/current-runtime-keys/fixture/regression/result.public.json
+          if-no-files-found: warn
+          retention-days: 3

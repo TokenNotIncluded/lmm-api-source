@@ -1,0 +1,348 @@
+#!/usr/bin/env python3
+"""Run the used-target key regression on an exact, disposable Core78 fixture."""
+from __future__ import annotations
+
+import argparse
+from datetime import datetime, timezone
+import hashlib
+import http.client
+import importlib.util
+import json
+import os
+from pathlib import Path
+import secrets
+import shutil
+import socket
+import subprocess
+import sys
+import tarfile
+import tempfile
+import time
+from urllib.parse import urlencode
+
+REVISION = "fa57cd2049ccd9138cdc0b4104db36b5b6c53ae5"
+CORE_SHA = "62df884eff7e41e8e67aed070a34409d1d4329f8a0f3952c08925d3a83ca9877"
+MANIFEST_SHA = "b9d0a472bddc826e0f6bfa0e725e409e67cbaabad6b0ad80cd512de24da74c2b"
+CONTROL = Path(__file__).resolve().parents[1]
+os.umask(0o077)
+sys.dont_write_bytecode = True
+
+
+def need(ok, message):
+    if not ok:
+        raise RuntimeError(message)
+
+
+def sha(path):
+    with Path(path).open("rb") as f:
+        return hashlib.file_digest(f, "sha256").hexdigest()
+
+
+def save(path, value):
+    with Path(path).open("x") as f:
+        json.dump(value, f, sort_keys=True, indent=2)
+        f.write("\n")
+
+
+def module(name, path):
+    spec = importlib.util.spec_from_file_location(name, path)
+    value = importlib.util.module_from_spec(spec)
+    sys.modules[name] = value
+    spec.loader.exec_module(value)
+    return value
+
+
+def run(argv, output, label, *, data=None, env=None, timeout=120):
+    result = subprocess.run(list(map(str, argv)), input=data, capture_output=True,
+                            env=env, timeout=timeout)
+    (output / (label + ".stdout.log")).write_bytes(result.stdout)
+    (output / (label + ".stderr.log")).write_bytes(result.stderr)
+    save(output / (label + ".command.json"), {
+        "argv": list(map(str, argv)), "exit": result.returncode,
+        "stdout_sha256": hashlib.sha256(result.stdout).hexdigest(),
+        "stderr_sha256": hashlib.sha256(result.stderr).hexdigest()})
+    need(result.returncode == 0, "command failed: " + label)
+    return result.stdout
+
+
+def source_check(source):
+    need(subprocess.check_output(["git", "-C", str(source), "rev-parse", "HEAD"],
+                                 text=True).strip() == REVISION, "wrong product source")
+    need(not subprocess.check_output(["git", "-C", str(source), "status", "--porcelain"],
+                                     text=True).strip(), "product source is dirty")
+
+
+def runtime_probe(source, output, work, sock, db, port, runtime, env, sql):
+    """Exercise native auth, recovery and quota projection with synthetic keys."""
+    probe = json.loads((work / "regression/runtime-probes.private.json").read_text())
+    need(probe["database"] == db and probe["expected_core78_manifest_sha256"] == MANIFEST_SHA,
+         "runtime probe belongs to another fixture")
+    sql(f"ALTER ROLE {runtime} LOGIN; GRANT CONNECT ON DATABASE {db} TO {runtime};", admin=True)
+    listener = socket.socket()
+    listener.bind(("127.0.0.1", 0))
+    http_port = listener.getsockname()[1]
+    listener.close()
+    origin = "http://127.0.0.1:" + str(http_port)
+    runtime_url = f"postgresql://{runtime}@localhost:{port}/{db}?" + urlencode({
+        "host": str(sock), "sslmode": "disable"})
+    (work / "runtime.url").write_text(runtime_url + "\n")
+    (work / "refresh.key").write_bytes(secrets.token_bytes(32))
+    (work / "api-key.key").write_bytes(bytes.fromhex(probe["encryption_key_hex"]))
+    config = f'''version=1
+[server]
+listen="127.0.0.1:{http_port}"
+worker_threads=1
+drain_timeout_seconds=10
+[database]
+url_file={json.dumps(str(work / "runtime.url"))}
+max_connections=4
+[console]
+enabled=true
+[identity]
+api_key_encryption_key_file={json.dumps(str(work / "api-key.key"))}
+registration_enabled=false
+password_register_enabled=false
+oauth_register_enabled=false
+registration_disabled_methods=[]
+email_verification_enabled=false
+email_domain_restriction_enabled=false
+email_domain_whitelist=[]
+[identity.web]
+origin={json.dumps(origin)}
+refresh_key_file={json.dumps(str(work / "refresh.key"))}
+local_http=true
+user_agreement_enabled=false
+privacy_policy_enabled=false
+'''
+    (work / "runtime.toml").write_text(config)
+    log = (work / "runtime.log").open("xb")
+    proc = subprocess.Popen([str(output / "lmm-core"), "--config", str(work / "runtime.toml"), "serve"],
+                            stdout=log, stderr=subprocess.STDOUT, env=env)
+    events = []
+
+    def request(method, path, bearer=None):
+        headers = {"Origin": origin}
+        if bearer is not None:
+            headers["Authorization"] = "Bearer " + bearer
+        client = http.client.HTTPConnection("127.0.0.1", http_port, timeout=5)
+        try:
+            client.request(method, path, headers=headers)
+            response = client.getresponse()
+            raw = response.read(1024 * 1024)
+            value = json.loads(raw)
+            return response.status, dict(response.getheaders()), value
+        finally:
+            client.close()
+
+    try:
+        for _ in range(200):
+            need(proc.poll() is None, "candidate Core exited before readiness")
+            try:
+                status, _, value = request("GET", "/health/ready")
+                if status == 200:
+                    break
+            except (OSError, http.client.HTTPException):
+                pass
+            time.sleep(0.1)
+        else:
+            raise RuntimeError("candidate Core readiness timeout")
+        need(sha(Path(f"/proc/{proc.pid}/exe")) == CORE_SHA, "running candidate executable differs")
+        session = probe["session"]
+        status, _, value = request("GET", "/core/v1/identity", session["bearer"])
+        need(status == 200 and value["credential_id"] == session["credential_id"]
+             and value["user_id"] == probe["user_id"], "preexisting valid Session no longer authenticates")
+        events.append({"case": "preexisting_session_auth", "status": status})
+        for key in probe["keys"]:
+            status, _, value = request("GET", "/core/v1/identity", key["bearer"])
+            expected = 200 if key["expected_auth"] == "allowed" else 401
+            need(status == expected, "imported key auth status differs")
+            if expected == 200:
+                need(value["credential_id"] == key["credential_id"] and value["user_id"] == probe["user_id"],
+                     "imported key authenticated as the wrong identity")
+            events.append({"case": "key_auth", "credential_id": key["credential_id"], "status": status})
+            status, _, value = request("GET", "/api/token/" + str(key["credential_id"]), session["bearer"])
+            need(status == 200 and value.get("success") is True, "native key projection failed")
+            view = value["data"]
+            need(view["used_quota"] == key["used_units"] and view["remain_quota"] == key["remaining_units"]
+                 and view["unlimited_quota"] == key["unlimited"], "historical key quota was reset or re-scaled")
+            status, headers, value = request("POST", "/api/token/" + str(key["credential_id"]) + "/key", session["bearer"])
+            if key["recoverable"]:
+                need(status == 200 and value.get("success") is True and value["data"]["key"] == key["bearer"]
+                     and "no-store" in next((v for k, v in headers.items() if k.lower() == "cache-control"), ""),
+                     "key recovery is not bound to the new native ID or cache policy")
+            else:
+                need(status == 403, "one-time key unexpectedly has a recovery copy")
+            events.append({"case": "quota_and_recovery", "credential_id": key["credential_id"],
+                           "used_units": view["used_quota"], "remaining_units": view["remain_quota"],
+                           "unlimited": view["unlimited_quota"], "recovery_status": status})
+        save(work / "runtime-result.public.json", {"status": "PASS", "events": events,
+             "actual_core_sha256": CORE_SHA, "real_provider_calls": 0,
+             "scope": "preserved Session, imported key auth/recovery and historical quota projection",
+             "model_admission_budget_tests": "owned by the same-candidate full CI and runtime suite"})
+        return events
+    finally:
+        if proc.poll() is None:
+            proc.terminate()
+            try:
+                proc.wait(timeout=15)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+                proc.wait(timeout=10)
+                raise RuntimeError("candidate Core required forced termination")
+        log.close()
+        need(proc.returncode == 0, "candidate Core did not stop cleanly")
+
+
+def acquire(source, output):
+    source_check(source)
+    output.mkdir(mode=0o700)
+    original = module("original_runtime_controller", CONTROL / "scripts/final-runtime-acceptance.py")
+    artifact, size, zip_sha, name, tar_sha = original.COMPONENTS["core"]
+    archive = original.download_artifact(output / "download", artifact, size, zip_sha,
+        REVISION, original.DISTRIBUTION_RUN, "lmm-preview-core-" + REVISION)
+    original.unzip(archive, output / "zip", {name, name + ".sha256"})
+    package = output / "zip" / name
+    need(sha(package) == tar_sha, "Core tar differs")
+    distribution = module("fixed_distribution", source / "scripts/build-distribution.py")
+    manifest = distribution.verify(package, REVISION)
+    need(manifest["component"] == "core", "not a Core distribution")
+    binary = output / "lmm-core"
+    with tarfile.open(package, "r:gz") as tar:
+        with tar.extractfile("bin/lmm-core") as f, binary.open("xb") as out:
+            shutil.copyfileobj(f, out)
+    binary.chmod(0o500)
+    need(sha(binary) == CORE_SHA, "Core executable differs")
+    save(output / "acquisition.json", {"revision": REVISION, "binary_sha256": CORE_SHA,
+         "archive_sha256": tar_sha, "artifact_id": artifact, "product_rebuilt": False})
+
+
+def execute(source, output):
+    source_check(source)
+    need(not os.environ.get("GH_TOKEN") and not os.environ.get("GITHUB_TOKEN"),
+         "artifact token reached database regression")
+    need(os.geteuid() != 0 and sha(output / "lmm-core") == CORE_SHA, "invalid runner or binary")
+    work = output / "fixture"
+    work.mkdir(mode=0o700)
+    sock = Path(tempfile.mkdtemp(prefix="lmm-keys-", dir="/tmp"))
+    data = work / "data"
+    nonce = secrets.token_hex(32)
+    db = "lmm_runtime_keys_test_" + nonce[:12]
+    port = "55474"
+    owner, installer, runtime = "lmm_core_owner", "keys_installer", "keys_runtime"
+    env = {k: v for k, v in os.environ.items() if not k.startswith("PG")}
+    env.update(LC_ALL="C", PYTHONDONTWRITEBYTECODE="1", PGSSLMODE="disable", PGGSSENCMODE="disable")
+    base = ["psql", "-X", "-qAt", "--no-password", "-v", "ON_ERROR_STOP=1",
+            "-h", str(sock), "-p", port]
+    counter = 0
+
+    def sql(statement, *, admin=False, database=None):
+        nonlocal counter
+        counter += 1
+        settings = dict(env)
+        if not admin:
+            settings["PGOPTIONS"] = "-c role=" + owner
+        return run([*base, "-U", "fixture_admin" if admin else installer,
+                    "-d", database or db], work, "sql-" + str(counter),
+                   data=statement.encode(), env=settings)
+
+    pg = None
+    result = {"status": "FAIL", "product_revision": REVISION, "core_sha256": CORE_SHA,
+              "production_access": False, "product_rebuilt": False,
+              "started_utc": datetime.now(timezone.utc).isoformat()}
+    try:
+        version = run(["postgres", "--version"], work, "postgres-version", env=env)
+        need(b" 18." in version, "PostgreSQL18 is required")
+        run(["initdb", "-D", data, "-U", "fixture_admin", "--no-locale", "--encoding=UTF8",
+             "--auth-local=trust", "--auth-host=reject", "--wal-segsize=1"],
+            work, "initdb", env=env)
+        pglog = (work / "postgres.log").open("xb")
+        pg = subprocess.Popen(["postgres", "-D", str(data), "-p", port,
+            "-c", "listen_addresses=", "-c", "unix_socket_directories=" + str(sock),
+            "-c", "unix_socket_permissions=0700", "-c", "shared_buffers=32MB",
+            "-c", "max_connections=24", "-c", "autovacuum=off",
+            "-c", "log_statement=none", "-c", "log_min_error_statement=panic",
+            "-c", "log_parameter_max_length_on_error=0",
+            "-c", "lmm.migration_instance_nonce=" + nonce],
+            stdout=pglog, stderr=subprocess.STDOUT, env=env)
+        for _ in range(100):
+            need(pg.poll() is None, "isolated PostgreSQL exited")
+            if (sock / (".s.PGSQL." + port)).exists() and subprocess.run(
+                ["pg_isready", "-q", "-h", str(sock), "-p", port, "-U", "fixture_admin"],
+                env=env).returncode == 0:
+                break
+            time.sleep(0.1)
+        else:
+            raise RuntimeError("isolated PostgreSQL readiness timeout")
+        sql(f"CREATE ROLE {owner} NOLOGIN; CREATE ROLE {installer} LOGIN NOINHERIT; "
+            f"CREATE ROLE {runtime} NOLOGIN; GRANT {owner} TO {installer} WITH INHERIT FALSE, SET TRUE; "
+            f"CREATE DATABASE {db} OWNER {owner}; REVOKE ALL ON DATABASE {db} FROM PUBLIC; "
+            f"GRANT CONNECT ON DATABASE {db} TO {installer}; "
+            f"COMMENT ON DATABASE {db} IS 'lmm-runtime-keys-synthetic:{nonce}';", admin=True, database="postgres")
+        sql(f"GRANT EXECUTE ON FUNCTION pg_control_system() TO {owner}; "
+            f"GRANT pg_read_all_settings TO {owner}; "
+            "REVOKE CREATE ON SCHEMA public FROM PUBLIC;", admin=True)
+        url = f"postgresql://{installer}@localhost:{port}/{db}?" + urlencode({
+            "host": str(sock), "sslmode": "disable", "options": "-c role=" + owner})
+        (work / "owner.url").write_text(url + "\n")
+        (work / "owner.toml").write_text('version=1\n[database]\nurl_file=' + json.dumps(str(work / "owner.url")) + "\n")
+        run([output / "lmm-core", "--config", work / "owner.toml", "init-db"], work, "core-init", env=env)
+        manifest = run([output / "lmm-core", "schema-manifest"], work, "compiled-manifest", env=env)
+        need(hashlib.sha256(manifest).hexdigest() == MANIFEST_SHA, "compiled Core78 manifest differs")
+        (work / "core78-manifest.json").write_bytes(manifest)
+        seed = CONTROL / "tests/current-runtime-keys/seed.sql"
+        sql(seed.read_text())
+        run([*base, "-U", installer, "-d", db, "-v", "runtime_role=" + runtime,
+             "-v", "enable_console=true", "-v", "enable_web_identity=true",
+             "-v", "enable_models=true", "-f", source / "deployment/postgres/grant-core-runtime.sql"],
+            work, "official-runtime-grants", env={**env, "PGOPTIONS": "-c role=" + owner})
+        fixture = {"format_version": 1, "scope": "current-runtime-keys-synthetic-fixture",
+            "connection": {"transport": "unix", "socket_directory": str(sock), "port": int(port),
+                "database": db, "role": owner, "login_role": installer, "set_role": owner},
+            "fixture_nonce": nonce, "core78_manifest": str(work / "core78-manifest.json"),
+            "runtime_roles": [runtime], "fixture_user_id": 1, "fixture_group": "default"}
+        save(work / "fixture.private.json", fixture)
+        tests = CONTROL / "tests/current-runtime-keys"
+        testenv = {**env, "PYTHONPATH": str(tests) + os.pathsep + str(source / "scripts")}
+        run([sys.executable, "-B", tests / "test_migrate_current_runtime_keys_pg.py",
+            "--fixture", work / "fixture.private.json", "--output", work / "regression"],
+            work, "pg-regression", env=testenv, timeout=600)
+        verified = json.loads((work / "regression/result.public.json").read_text())
+        need(verified["status"] == "MECHANICS_VERIFIED_RUNTIME_PENDING", "regression did not pass")
+        result.update(status="MECHANICS_VERIFIED_RUNTIME_PENDING", mechanics=verified,
+                      runtime_authentication_and_quota="NOT_RUN")
+        financial_readback = """SELECT jsonb_build_object(
+ 'balances',(SELECT jsonb_agg(to_jsonb(b) ORDER BY ledger_account_id) FROM core_billing.balance_state b),
+ 'journals',(SELECT count(*) FROM core_billing.ledger_journals),
+ 'opening_consumption',(SELECT jsonb_agg(to_jsonb(b) ORDER BY key_id) FROM core_charging.budget_opening_consumption b));"""
+        before_http = sql(financial_readback)
+        events = runtime_probe(source, output, work, sock, db, port, runtime, env, sql)
+        need(sql(financial_readback) == before_http, "auth/recovery/projection changed money or historical quota")
+        result.pop("runtime_authentication_and_quota", None)
+        result.update(status="PASS", runtime_authentication_and_quota_projection="PASS",
+                      runtime_events=events, auth_recovery_projection_financial_writes=False)
+    except BaseException as error:
+        result["error"] = type(error).__name__ + ": " + str(error)
+        raise
+    finally:
+        if pg is not None and pg.poll() is None:
+            stop = subprocess.run(["pg_ctl", "-D", str(data), "-m", "fast", "-w", "stop"],
+                                  capture_output=True, env=env, timeout=30)
+            (work / "stop.stdout.log").write_bytes(stop.stdout)
+            (work / "stop.stderr.log").write_bytes(stop.stderr)
+            result["postgres_stop_exit"] = stop.returncode
+            result["postgres_exit"] = pg.wait(timeout=10)
+        result["socket_stopped"] = not (sock / (".s.PGSQL." + port)).exists()
+        result["finished_utc"] = datetime.now(timezone.utc).isoformat()
+        save(output / "result.public.json", result)
+        source_check(source)
+    need(result["socket_stopped"] and result.get("postgres_stop_exit") == 0,
+         "isolated PostgreSQL did not stop cleanly")
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("phase", choices=("acquire", "run"))
+    parser.add_argument("--source", required=True, type=Path)
+    parser.add_argument("--output", required=True, type=Path)
+    args = parser.parse_args()
+    (acquire if args.phase == "acquire" else execute)(args.source.resolve(), args.output.resolve())
