@@ -2,19 +2,20 @@
 
 更新于 2026-11-20。此文件维护当前状态、剩余阻塞和证据入口；先前失败、历史候选和各轮实际回执继续保留。
 
-## 当前状态（截至 2026-11-21 01:08 UTC）
+## 当前状态（截至 2026-11-21 01:55 UTC）
 
-**新架构的基础验证已有明确结果：952 完整 CI、a443 双架构 Linux 安装、Windows 真实安装／重复安装／卸载均通过，六个客户端插件已发布。** 产品候选 `6aeb0198` 与传输控制修复 `8164659d` 的既有步骤结果保留在下文；新产品本轮完整 CI：四个组件 job SUCCESS；Core 正在 Rust／真实数据库步骤，完整 CI 尚未终态；原容量／支付／浏览器验收：原 workflow 与 runtime job SUCCESS；逐项收据及清理结果正在独立核验。本轮新增的只读预检已列清 main304 与 6aeb 的 11 处文本冲突和两种 Extore ABI，并将严格 canonical Git 来源修复 `cebc346c` 推送到独立审查分支。生产尚未取得切流资格。历史修复与派发时间按各收据完整 UTC 日期记录。
+**新候选 `6aeb0198` 的原完整 CI 已由六个 job 全部通过；原产品 293、952 驱动与控制 `8164659d` 的五组容量、真实 302 秒支付专项和 16 项浏览器验收也已完成独立核验。** 这些结果补齐了各自源码范围内的技术证据，952 基础 CI、a443 双架构 Linux 安装、Windows 真实安装／重复安装／卸载及六个客户端插件发行的既有结果继续保留。最终 main 尚未取得自身部署资格：main/cf 与 feature/8e 的运行合同仍须分别处理，真实主机启用及三项财务材料尚未完成，安装器原 50,000 B 体积门槛仍未达到。历史失败和每轮原始收据保留，新的成功不会改写旧运行结论。
 
 | 工作项 | 精确来源与实际运行 | 当前结论 |
 | --- | --- | --- |
 | 基础版本完整 CI | `952d21c5`；[44802025200](https://github.com/TokenNotIncluded/lmm-api-source/actions/runs/44802025200) | 六个 job 全部 SUCCESS |
 | Linux 安装与实物 | `a4437981`；[44816699551](https://github.com/TokenNotIncluded/lmm-api-source/actions/runs/44816699551) | 双架构 60 包、20 项原安装案例全部 PASS |
 | Windows 真实安装回归 | 产品 `3bdace68`、控制 `537c80cb`；[44823854144](https://github.com/TokenNotIncluded/lmm-scripts/actions/runs/44823854144) | PS7／PS5.1 各 90+40 项、五 CLI、repeat／uninstall／数据保留 PASS |
-| 最新产品候选 | [6aeb0198](https://github.com/TokenNotIncluded/lmm-api-source/commit/6aeb01987fc14bc9c51fd7b3803b7b190ddbdd7c)；[44839310512](https://github.com/TokenNotIncluded/lmm-api-source/actions/runs/44839310512) | 四个组件 job SUCCESS；Core 正在 Rust／真实数据库步骤，完整 CI 尚未终态 |
-| 最终容量／支付／浏览器 | 原产品 293、实际 952 commerce 驱动、控制 [8164659d](https://github.com/TokenNotIncluded/lmm-api-source/commit/8164659d4f0d86fd8be9de5b648f1620f37d68a0)；[44839545043](https://github.com/TokenNotIncluded/lmm-api-source/actions/runs/44839545043) | 原 workflow 与 runtime job SUCCESS；逐项收据及清理结果正在独立核验 |
+| 最新产品候选 | [6aeb0198](https://github.com/TokenNotIncluded/lmm-api-source/commit/6aeb01987fc14bc9c51fd7b3803b7b190ddbdd7c)；[44839310512](https://github.com/TokenNotIncluded/lmm-api-source/actions/runs/44839310512) | 六个原 job 全部 SUCCESS；终态 raw、源码身份与原门槛已独立核验 |
+| 最终容量／支付／浏览器 | 原产品 293、实际 952 commerce 驱动、控制 [8164659d](https://github.com/TokenNotIncluded/lmm-api-source/commit/8164659d4f0d86fd8be9de5b648f1620f37d68a0)；[44839545043](https://github.com/TokenNotIncluded/lmm-api-source/actions/runs/44839545043) | 七项原验收通过；来源与清场已独审，full_payment_acceptance=false |
 | main 整合 | 精确 main304 与 6aeb 三方预检 | 11 处文本冲突、Extore cf／8e 合同不同，尚未整合 |
 | 来源校验修复 | [cebc346c](https://github.com/TokenNotIncluded/lmm-api-source/commit/cebc346c868e7d0c03bd82dab8d8f274ef7ec365)，独立 review 分支 | 原 4 项保留，完整 13 项纯元数据测试通过；main 与正式发布条件不变 |
+| main/cf 配套修复 | [7df35ca4](https://github.com/TokenNotIncluded/lmm-api-source/commit/7df35ca4185ccc67de70e3f68a7db7a01ca154c6)，基于 cebc 的独立 review 分支 | RPM OpenSSL 依赖与支付清单已修复；12 项纯测试 PASS，完整字节及目录树已回读 |
 | 安装器体积 | 产品 3bdace，原 23 路径／11 类 | 72,912 B，原严格 <50,000 B 仍 FAIL，需净减 22,913 B |
 | 生产财务与切流 | 原授权材料复核至 2026-11-21 00:54 UTC | 三项真实材料仍缺；live target 为 NOT_CHECKED_OFFLINE，生产连接／查询／写入均 0 |
 
@@ -53,13 +54,17 @@ Core 原 raw 5,704,266 B、25,782 行，SHA256 be0d327bf2d1dfca1f47ba4f8129c0685
 
 旧源码边界失败与后续步骤结果分别记录；后续步骤通过不能抹掉此前失败或改变整轮原结论。
 
+旧 1660 完整终态独审保持 FAILURE，原收据 14,145 B，SHA256 `0978384bba0aeb8eaeac3fbc1319c4499f5cd3bd9fd2ee50fca87bdb0d01132a`；该收据不因后继通过而修改。
+
 在以上整合候选上，[6aeb01987fc14bc9c51fd7b3803b7b190ddbdd7c](https://github.com/TokenNotIncluded/lmm-api-source/commit/6aeb01987fc14bc9c51fd7b3803b7b190ddbdd7c) 只修正 `scripts/test-distribution.py` 的既有 readelf 夹具。RPM 解析器需要把 OpenSSL 符号版本对应到实际依赖库；旧夹具仅给出平坦版本字符串，新夹具补齐真实 `Version needs` 中的 `File`／`Name` 关联，并核对原合并命令参数和 `LC_ALL=C`。解析器、所有外层原断言与负例均保持。原完整 19 项纯分发测试在精确 1660 上为 18 PASS／1 ERROR，修正后同一测试集为 19 PASS／0 SKIP；未执行外部子进程或产品。独立审查 SHA256 `b2f23ee5f3c6ad916552aa51dfedff510a55e104bb7f0f78f106162d2eaa9222`。
 
 6aeb 的 tree 为 `ad53bf2b881926b6bd34231441af0af952ec6edb`，parent 为 1660，其余 5,580 个叶节点及全部 20 gitlink 不变。原 [完整 CI 44839310512](https://github.com/TokenNotIncluded/lmm-api-source/actions/runs/44839310512) 在 2026-11-20 23:47:13 UTC 创建，精确 head／ref、原 workflow 399255954、workflow_dispatch、attempt 1 均已核对。单次 POST 收据 SHA256 `9cca65c426fedc88788603a0040ed62378d01b6fe55d1ebb3766f7737ff57bce`。新 Core job `136643465484` 的原源码边界检查已实际 SUCCESS，工作流、Go bindings、公开法律读取、Compose／RPC fixture 与 Rust 格式检查也已成功。v33 已冻结的 2026-11-21 00:10:23 UTC 原观察器记录显示，Web、Extore native、翻译、Store/tool-market 四个 job 均 SUCCESS，Core 正在执行原 Rust／真实数据库步骤，完整 CI 及最终汇总尚未完成。已终态的四份原 raw 各首次取得一次并独立核验：Extore 实际 host 两项非跳过通过，翻译 9/9，Store 原三项 PostgreSQL parent 通过；Web 的 765 份逐文件摘要合计报告 5,393 PASS／0 FAIL，原 Rsbuild 在 7.62 秒完成，不能把这个汇总冒称为去重测试数。三短 job 独审 SHA256 `ccb1df4b5cbfbf182d99fd840fc5096afa638c2f2c7b979b72411bed861fff7e`，Web 独审 SHA256 `2c815f14844f2dddd2a61e63cdcc10be74dfa208b09d40c47e38e054faa3ed27`。 旧 1660 的源码边界失败和原运行记录继续独立保留；本地旧夹具复现与该轮原 raw 的首错取证分别记录。
 
-6aeb 本轮完整 CI 的最新状态与证据：
+6aeb 本轮原完整 CI 已实际终态 SUCCESS。2026-11-21 01:30:32 UTC 的原观察 seq92 绑定同一 run `44839310512`／head／attempt；Extore native、Web、翻译、Core、Store/tool-market PostgreSQL 与汇总六个 job 全部成功。Core job `136643465484` 于 01:30:00 UTC 完成，Implemented component checks job `136680542162` 于 01:30:05 UTC 完成；Core 全部原步骤均为 SUCCESS，没有 job 步骤跳过。六份原 raw 各由原观察器首次取得一次，观察器于 01:30:36 UTC 自然结束，原 supervisor／watcher 两个 PID 均已退出，未重启、重派或延长预算。
 
-2026-11-21 01:07:47 UTC 的原观察 seq71 继续绑定同一 run／head／attempt。四个组件 job 均 SUCCESS，Core job 136643465484 的 step1–20 均 SUCCESS，当前仍为原 Rust checks and real database tests；后续支付、Go、RPC 和最终汇总尚待本轮执行完成。该时点完整 CI 仍 IN_PROGRESS，不能标为候选完整 PASS。原 jobs 元数据 17,253 B，SHA256 fd2ea231e83d729def4ddd6499956419236f06058605087546625440661f43ca；原观察器继续工作，没有派发第二轮或提前取得进行中 Core 的 raw。
+实际首个主仓库 checkout 精确为 `6aeb01987fc14bc9c51fd7b3803b7b190ddbdd7c`。原 19 项分发测试现为 OK，关闭了旧 1660 的 readelf 夹具首错；Rust lib 为 1,837 PASS／0 FAIL／34 ignored，全部 161 条 Rust 结果摘要的失败数均为 0。原 assistant_model 13 项、公共 provider OAuth 6 项、completion_upgrade 2 项、navigation_options_upgrade 2 项均实际通过且各为 0 ignored。Go contract／race、Store／support PostgreSQL、原支付 live、durable event recovery 和原 protobuf／RPC 步骤也已成功。Go 原 JSON 中仍有 91 个 skip 事件，Rust 原 ignored 用例继续保留，因此这里不声称所有声明用例都执行或全仓库零跳过；Extore 和三项 PostgreSQL parent 的非跳过门槛由其独立 job 证明。
+
+原 RPC 日志实际记录了全新安装／重复初始化拒绝、native teams／protobuf／独立凭据，扩展重启／替换／错误 service token，以及重连／有界数据库失败／持久密钥／立即撤销／关闭模型路由三组检查，随后报告 owned Docker 安装断言与清场通过。durable events 的原范围仍是 fixture events，不扩大为账本验收。Core 原 raw 为 5,717,351 B，SHA256 `23a9faedcccf37bdb6ff51d2d8be1586bd27f29d137bc64c34c86cb69717bff1`；关键摘录 3,968 B，SHA256 `d9001129d6ab89fbf1ae47a0e4d196832f193490b0b5f5de7bb37aabe46fa0f7`。完整终态独审 20,143 B，SHA256 `062459ca57f4f33cf1b97fdb2e85afd3a709f11dd94a5606c5fda6d7ae62ebdc`。本结论是该精确 review 候选的原完整 CI 资格；汇总 job 本身仍明确不授权生产部署。
 
 只读整合预检确认，当前已核对的 main 与 6aeb 不能直接快进合并。[main304](https://github.com/TokenNotIncluded/lmm-api-source/commit/304f49d87df1c2fb83d4145386c569d237af8c90) 的 tree 为 `c1913885075ed5b963793b94cc0b70da8d6c3eea`，共同祖先为 `12db7bad76dc0af5da63ad4cfa8b07fef3c5e7cb`；6aeb 一侧有 28 个独有提交，main 一侧有 24 个。对双方都改动且内容不同的 20 个文件做隔离三方文本预检，11 个出现冲突，其余 9 个文本可合并也尚未通过语义确认。预检只读取精确源码，并把诊断写入独立 out；未合并分支或改动 main。审查 SHA256 `3322c240e5224d440aead22ce0f779b887be24e7a3af9f5e8dc9058f90661b91`。
 
@@ -77,9 +82,17 @@ Core 原 raw 5,704,266 B、25,782 行，SHA256 be0d327bf2d1dfca1f47ba4f8129c0685
 
 原四项测试逐字保留并通过，新增九项后完整纯元数据测试为 13/13 PASS、0 SKIP。使用精确 main304 的原 request、VERSION、manifest 与 lock，旧 `validate()` 实际报原来源限制，修正后返回原 `0.1.21`／`0.4.0`；全部验证仅使用本地元数据与临时夹具，外部进程／网络调用尝试为 0。验证收据 SHA256 `866df49bbcf8b5531fd0900f0ec2e3baf6dd80954ce40707e05f3cf9f1d5f4db`，独审 SHA256 `13a91de250ffbaf84651972a386a85cc0e6a1c43d402055fda3404756f7ff1c8`。2026-11-21 00:43:02 UTC 的发布读回核对了三文件全文、commit／ref 和冻结 tree，main 仍为 304；收据 SHA256 `b11bc62f825f713aa3450aabc121dd29cc40f671f2d6245ea60ff4531c5fdf53`。该独立修复未合入 main，未派发 CI 或运行源码发布器，不授予 main 部署资格，也未解决前述两种 ABI 的整合选择。
 
+本轮在 main/cf 的 `cebc346c868e7d0c03bd82dab8d8f274ef7ec365` 基线上完成四文件修复，范围为 `packaging/linux/build.py`、对应测试及两个 canonical payment runner／test 文件。RPM 依赖按实际 OpenSSL 库及其符号版本声明；支付清单按两项业务测试和一项 hex codec 测试核对。main 原 GLIBC provider、musl／APK、双 SO 和 `allow_unversioned` 条件保持。
+
+修复已提交为 [`7df35ca4185ccc67de70e3f68a7db7a01ca154c6`](https://github.com/TokenNotIncluded/lmm-api-source/commit/7df35ca4185ccc67de70e3f68a7db7a01ca154c6)，tree `4488ca69d1c93ae6a67e5b00733177057bee15e3`，parent 为 cebc，分支为 `review/main-cf-package-payment-cebc346c-20261121`。远端四个改动源文件全文及 5,569 叶整树读回一致，其余 5,565 叶和全部 20 个 gitlink 保持；回读收据 2,219 B，SHA256 `5a1bffc43df826df3e00e062e00ad6504fd0ebcd7c13c74c06a88d3a8b4a42d9`。
+
+Libc 3 项、OpenSSL 5 项及 payment CaseSelection 4 项原方法实际全部通过：12 PASS／0 FAIL／0 ERROR／0 SKIP，外部执行及网络尝试为 0。原收据 38,398 B，SHA256 `ff7cc5e4cc578f375c48d66f013dffbd092eebac6ebf1a3c5d0dd91a8ec331a6`；实际结果的独立只读复核为 14,241 B，SHA256 `02558f0805408db531f4b035405b4615a614e8fdc0a165b3cf46ed577ad943ec`。验证覆盖纯解析与测试元数据，临时合成夹具已清理。
+
+当前 main 指针仍为 304。main/cf 的下一步资格由最终选定源码自身的完整 CI、实际发行安装和目标主机检查取得；6aeb／816 的既有成绩继续绑定各自精确源码与运行组合。
+
 原 `scripts/verify-deployment-ci.py` 要求最终 revision、`head_branch=main`、push／workflow_dispatch、最新 attempt 成功及唯一成功的 Implemented component checks。review 分支的既有或新 CI 均不替代最终 main 的部署准入。源发布还会重新检查当前 main、已验证源码和 tag 一致。main/cf、另一 Extore ABI 与正式发行指针没有自动合并或提升。
 
-### 三、具名分片修复已提交，原运行验收逐项核实
+### 三、原运行容量、支付专项与浏览器已完成独立核验
 
 运行包继续固定 `293e53f799b09f187893e9cdf0c3503973916676`。原 [44798787579](https://github.com/TokenNotIncluded/lmm-api-source/actions/runs/44798787579) 的 Core、Web、CLI、Extensions 四类实际归档已核验。952 commerce 驱动另有独立来源，1,131 项编译输入及更宽运行输入分别检查；缺失 fixture 只在原 GHA 网络构建。原产物和旧失败不会改标成新候选。
 
@@ -94,7 +107,7 @@ Core 原 raw 5,704,266 B、25,782 行，SHA256 be0d327bf2d1dfca1f47ba4f8129c0685
 
 2,084／902／2,096 是从不可变 tracked tree 与原选择器计算的静态范围，不是新取得的运行收据。尤其 `payment.sources()` 包含整个 `tests/payments`，原 1,131 项 commerce 编译清单未包含这两项校正：Rust／Go 业务源码相同，不能据此把原支付输入清单称为与 6aeb 逐字一致。已审 canonical runner 与控制投影只差精确仓库根表达式；最终源码执行仍须产生包含两处元数据的新输入清单，原清单不能转签。控制器要求 `full_payment_acceptance=false`，selected payment302 的成功范围也不得扩大为完整支付验收。
 
-即便 816 原五组容量、支付专项和浏览器全部通过，结果仍属于原 293 归档、952 驱动、816 控制器及该次 cgroup／fixture 环境，只能为已核对相同的产品源码提供组件证据。Browser16 的原 Web 文件图、固定8e fixture、工具及 cleanup 身份亦须保留。最终 main 自己的 canonical CI、选定可执行制品及输入摘要、真实主机 routes／TLS／配置／资源与启用检查仍须取得；相同源码不保证新构建字节相同，也不会生成最终主机的 PASS。
+816 本轮五组容量、支付专项和浏览器已实际通过，结果仍属于原 293 归档、952 驱动、816 控制器及该次 cgroup／fixture 环境，只能为已核对相同的产品源码提供组件证据。Browser16 的原 Web 文件图、固定8e fixture、工具及 cleanup 身份亦须保留。最终 main 自己的 canonical CI、选定可执行制品及输入摘要、真实主机 routes／TLS／配置／资源与启用检查仍须取得；相同源码不保证新构建字节相同，也不会生成最终主机的 PASS。
 
 前三轮控制失败均已保留：[44820906438](https://github.com/TokenNotIncluded/lmm-api-source/actions/runs/44820906438) 的固定 Extore gitlink 输入处理、[44822233959](https://github.com/TokenNotIncluded/lmm-api-source/actions/runs/44822233959) 的官方 Core job 名称、[44823761920](https://github.com/TokenNotIncluded/lmm-api-source/actions/runs/44823761920) 的支付测试旧清单，已分别通过精确来源修复。它们没有取得容量／支付／浏览器 PASS，skipped 不计成功。
 
@@ -118,11 +131,31 @@ Core 原 raw 5,704,266 B、25,782 行，SHA256 be0d327bf2d1dfca1f47ba4f8129c0685
 
 第六轮 [44839545043](https://github.com/TokenNotIncluded/lmm-api-source/actions/runs/44839545043) 于 2026-11-20 23:49:12 UTC 创建，绑定控制 816、原 workflow 399255960、workflow_dispatch、attempt 1。原 runtime293／commerce952 输入保持，单次 POST／HTTP 204 收据 SHA256 `2785c1b3d3c774312c8087797c0195e6a2abe3bbf412f7c153243afbbd9646d8`。prepare job `136644235064` 已 SUCCESS：原准备耗时 549.930 秒、`source_drift=[]`，3,135 B 原 preparation-result SHA256 `30ba4318b6aa807b49156737135e082c35715944239f30407647d6ad087197c9`，prepared 摘要 `98f34b9e5e11b16cf06a4d5e3a52c396519ea980adddda875667f1a366bff690`；结果仍明确为 PREPARED_NOT_ACCEPTANCE。模型与支付驱动的实际 compiler-artifact、full 3／ignored 1 清单及精确来源已核验，独审 SHA256 `048bc25c99d335c0b2c42091da3142b02debd008265d5f72d3c8ee832786efdf`。v33 已冻结的 2026-11-21 00:10:07 UTC 观察中，runtime job `136648321964` 的实际 cgroup／双 manager 预检与原 prepared 恢复步骤均 SUCCESS，原串行容量／支付／浏览器步骤 IN_PROGRESS；这确认真实跨机器恢复已越过旧失败点，但尚无单项运行结果可记 PASS。该快照中 runtime 原 raw 和结果收据尚待终态后首次取得，299,735,492 B 大 prepared artifact 尚未在开发机下载。 显式最终验收模式跳过的普通 protocol／market 不计 PASS；每个新终态 job 的原日志按原协议仅首次取得一次。
 
-816 本轮五组容量、真实长等待支付与 16 case 浏览器的最新观察及证据：
+816 本轮原七项串行验收均已实际执行并通过：shared540、shared240、whole540、whole240、core540、payment302、browser16。原运行于 2026-11-21 01:01:02 UTC 的 seq64 记录 SUCCESS，runtime job `136648321964` 从 00:00:00 执行至 01:00:43 UTC；串行序列实际耗时 3,551.939 秒，failure 为 null，观察器于 01:01:04 UTC 自然结束。该显式验收模式中的普通 protocol／market 两个 SKIPPED job 仍不计 PASS。原 runtime raw 86,902 B、947 行，SHA256 `794721f2f573ec5ed35ac35bc52ae34826ddc95d74216bd6f7e6a234c47e0eef`。
 
-原运行在 2026-11-21 01:01:02 UTC 的 seq64 已记录 SUCCESS。runtime job 136648321964 从 00:00:00 UTC 执行至 01:00:43 UTC，原宿主预检、恢复、串行门禁与结果保存步骤均 SUCCESS；观察器于 01:01:04 UTC 自然结束，没有重启。原 protocol／market 两个显式 SKIPPED job 仍不计 PASS。
+| 原容量门禁 | 实际资源边界 | 本轮原始测量与结论 |
+| --- | --- | --- |
+| core540 | Core 单独 1 CPU／256 MiB，不含 PostgreSQL | 持续测量 540,723 ms，2,100 次模型成功；主负载峰值 18,333,696 B，PASS |
+| shared540 | Core+Go 共 1 CPU／512 MiB，不含 PostgreSQL | 主窗口 541,038 ms，2,100 次模型成功、480 次商城完成并退款；产品组峰值 33,624,064 B，PASS |
+| shared240 | 同上，120 个慢连接 | 压力至少 241,409 ms，120 个连接均有非零发送队列且恢复前未主动丢弃，PASS |
+| whole540 | Core+Go+PostgreSQL 共 1 CPU／1 GiB | 主窗口 541,050 ms，2,100 次模型成功、480 次商城完成并退款；总组峰值 434,102,272 B，PASS |
+| whole240 | 同上，120 个慢连接 | 压力至少 241,444 ms，120 个连接保留到恢复；总组峰值 348,778,496 B，PASS |
 
-原 runtime raw 86,902 B、947 行，SHA256 794721f2f573ec5ed35ac35bc52ae34826ddc95d74216bd6f7e6a234c47e0eef，唯一 GET 的收据 SHA256 cf6325f716ba9e430ae6563fd94254f1b0d0082fe4adaf01947861d8c2ade04e。原日志登记结果 artifact 14683338970，8,380,561 B、397 个文件，上传 SHA256 9f0b852f79dbf55b0aa523945fa5d342a2e585184b2150b893b65f614ee1ecec。五组容量、真实长等待支付、16 case 浏览器以及 finally／清理的逐项收据仍在独立核验；本快照确认原 workflow／job 的成功状态，不提前扩大逐项或最终部署结论。终态 jobs 元数据 SHA256 f6344b42115aac3a50093c8cd163ba64ac022675df710ed592b82b402f93b555。
+原 Unknown 保留计数也属于本轮结果：core540 的 `unknown_holds=2500`，shared540／shared240 为 `1924／120`，whole540／whole240 为 `1412／120`。这些计数没有被改写成已结清或零预留；容量结果保留这些 Unknown；真实财务材料仍待齐备。
+
+这些资源边界由本轮实际 cgroup v2、user/system 两个 manager、`cpu memory pids` 委派和内核配额／采样记录核对。五项原资源记录中均未出现 OOM／OOM kill；whole 总预算覆盖 PostgreSQL，shared 与 Core-only 没有把 PostgreSQL 计入其限额。负载生成器、合成上游、宿主 OS、Docker daemon 与 Web 不在 whole 的 1 GiB 范围内，该预算的适用范围是上述被计量的进程组。Core 原结果还明确未验证真实 provider、旧架构对照和慢消费 socket 背压；后者由两项独立 240 秒组合场景覆盖。
+
+payment302 的真实单调等待为 302,012 ms，62 次观察从 76 ms 到 302,012 ms，等待期间余额／凭证状态除 elapsed 外保持，尚无入账。原 Core 与 Go 均以不同 OS PID 真正重启、就绪后才首次入账；两次旧证明拒绝、一份 journal、一份 credit receipt、恰好一次 credit、原重放后资金不变及 reserved／unbalanced 均为 0 已核验。该 case 共 340.471 秒，原 result 为 PASS，`full_payment_acceptance=false`。验证范围为合成签名 bootstrap 与 Core／Go 恢复专项；完整支付资格、真实对账和财务导入按各自验收条件继续推进。
+
+browser16 实际 16/16 PASS，页面异常和 observed_failures 均为空；536 个已记录响应中无 5xx，跨会话及撤销后的 409 为原预期拒绝。真实 Extore UI 先配置明确卖价，原连接导入 1 商品／2 规格／1 来源；九个导入后状态的映射 ID、商品／店铺／来源／规格及卖价均保持，重复 Sync、明确重叠 View、刷新和断连没有增加映射。访问令牌真实有效期恰为 900 秒，原 UI View 在到期后约 3.023 秒发出，新 access token 在到期后约 3.081 秒生成；原 refresh 使用计数 0→1、连接 version 1→2，未到期前及到期观测时 token 元数据与上游调用记录完全一致。跨会话 409 未消费原 flow，原会话正常刷新后完成导入；实际撤销后仍返回重新授权拒绝。
+
+暗色默认值、现有 Theme 控件与 reload 持久化、桌面和 390 px 的界面边界均由原记录通过；本次独审没有额外做截图视觉批准。原封闭代理阻止了两次外部 snippet 请求，该事实保留。浏览器 launcher 实际 922.780 秒，browser／fixture 退出码均为 0；五个登记的业务运行进程全部停止，无登记残留，五个 driver 输入前后稳定。浏览器窄审 18,348 B，SHA256 `9c14c23ea8a2df82a1cdf065cf37855542b6b80a4aa24a275d0c20ffec31ccd8`。
+
+结果 artifact `14683338970` 实际 ZIP 为 8,380,561 B，SHA256 `9f0b852f79dbf55b0aa523945fa5d342a2e585184b2150b893b65f614ee1ecec`，仅首次取得一次；397 个文件中 export-index 记录的 394 份导出均与原摘要一致，0 redactions，数据库／配置／凭据未上传。该次 299,735,492 B 大 prepared 包没有在开发机重复下载；真实 GHA 恢复了 732 个逻辑文件，原 prepared.json 字节未变，未复用准备 VM 的 PID 或 lease。
+
+来源后验从 5,561 个普通文件及 20 gitlink 重建 tree `63454c389c91e7a202589bce8a43ff4a170d994b`，精确对应原产品 293；Extore 的 480 个普通文件及 1 gitlink 重建 tree `f82822091aa5a6a07eab5396e7af9253956f31b8`，精确对应 8e。四组 commerce 的各 2,084 项及支付 2,096 项实际来源摘要均无缺失、无不符，controller／compiled-inputs 前后稳定。Core 集群、四个 mixed 集群及产品组、两个 whole 组、支付集群均已清理；Core 两个 service unit 为 not-found，云端私有原 lease 于 01:00:33.775 UTC 释放，原 inode 保持、退出码 0。
+
+完整独立汇总 41,381 B，SHA256 `64a4043187cafc3baafa85889ef0b8ab102fd5e423defd687fdfd640219cca39`。最终结论为 `PASS_WITH_EXPLICIT_SYNTHETIC_PREVIEW_SCOPE`，来源继续是 runtime293／commerce952／control816／Extore8e。最终 main/cf、真实财务和生产切流继续按各自来源与验收条件推进。
 
 原运行要求仍是五组串行容量：Core 256 MiB／540 秒，Core+Go 512 MiB／540 与 240 秒，Core+Go+PostgreSQL 1 GiB／540 与 240 秒；原速率、120 个慢连接、P95／P99、账本断言与失败条件保持。之后支付专项必须真实等待至少 302 秒并完成 Core／Go 操作系统进程重启；Go reference 只能来自本轮实际成功的 shared540 收据。浏览器保留 16 case、900 秒真实 token 过期与原 1800 秒 launcher。prepare 95 分钟／runtime 150 分钟限额不变，旧测试成绩不转签本轮。
 
