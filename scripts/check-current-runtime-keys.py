@@ -336,7 +336,7 @@ def acquire(source, output):
 
 
 def execute(source, output, *, regression="keys"):
-    need(regression in ("keys", "wallet", "identity", "identity-diagnostic", "identity-password", "key-seam"), "unknown synthetic regression")
+    need(regression in ("keys", "wallet", "identity", "identity-diagnostic", "identity-password", "key-seam", "quota-redemptions"), "unknown synthetic regression")
     source_check(source)
     need(not os.environ.get("GH_TOKEN") and not os.environ.get("GITHUB_TOKEN"),
          "artifact token reached database regression")
@@ -474,6 +474,29 @@ def execute(source, output, *, regression="keys"):
             result.update(status="DIAGNOSTIC_COMPLETE_MIGRATION_STILL_REJECTED",
                           diagnostic=verified, migration_passed=False,
                           production_approval_created=False)
+        elif regression == "quota-redemptions":
+            tests = CONTROL / "tests/current-quota-redemptions"
+            expected = {'migrate_current_quota_redemptions.py': '7442a32afac38c34b4431daeec8d271646a5c83313b2a49f33b89052ad5eea2d', 'quota_runtime.py': '171be10cfac059f1681548da3fcb8b097021adb6651b38c8b12e6f86e9697a22', 'test_current_quota_redemptions.py': 'd7af62105b28d68957700650f2453e035e147ca096d61160b3301f89d2cad993', 'test_current_quota_redemptions_pg.py': 'f4f03abd24b0e7a35c047e7b2e8909ccd7c7dea8ccc0984dc2b961061d65c784'}
+            for filename, expected_sha in expected.items():
+                need(sha(tests / filename) == expected_sha, "frozen quota input differs: " + filename)
+            testenv = {**env, "PYTHONPATH": os.pathsep.join(map(str, (tests,
+                CONTROL / "tests/current-key-production", CONTROL / "tests/current-identity-next",
+                CONTROL / "tests/current-wallet-reconciliation", keys, source / "scripts")))}
+            run([sys.executable, "-B", tests / "test_current_quota_redemptions.py"],
+                work, "quota-pure", env=testenv, timeout=120)
+            driver = tests / "test_current_quota_redemptions_pg.py"
+            run([sys.executable, "-B", driver, "mechanics", "--fixture", work / "fixture.private.json",
+                 "--output", work / "regression"], work, "quota-pg-regression", env=testenv, timeout=600)
+            mechanics = json.loads((work / "regression/result.public.json").read_text())
+            need(mechanics["status"] == "SYNTHETIC_PG_APPEND_VERIFIED"
+                 and mechanics["production_approval_created"] is False
+                 and mechanics["production_writes"] == 0, "quota append mechanics scope differs")
+            runtime_driver = module("current_quota_http", tests / "quota_runtime.py")
+            verified = runtime_driver.run_probe(sys.modules[__name__], output, work, sock, db, port,
+                                                runtime, env, sql, driver, testenv)
+            result.update(status="PASS", current_quota_append_mechanics=mechanics,
+                          current_quota_redemption_runtime=verified,
+                          production_approval_created=False, production_closure_tested=False)
         elif regression == "key-seam":
             tests = CONTROL / "tests/current-key-production"
             expected = {'current_key_production.py': 'b1e157a0db8b22ccc7a41263c54c0c6b6f0c4c2ba49fe825b91fc0e90a0ba8ba', 'current_key_lineage.py': '0835d57cb70a58ed8bdf368d5c25d588aca0139dfdb44389e2550981953c9da7', 'test_current_key_production.py': '58177f6aa0c1dbd9eaa7cc9c06c0d6a901c3cefabd569e914f807ea4a58d7213', 'test_current_key_production_pg.py': '47487389867938867c525cc1b399565abc656c7b229da149b6fcadb86ec46ccc', 'test_current_key_seam_fixture.py': 'dafb1cccd320dcc5070c16399b7affaeea1a4b2364174108861b1d19e7f3409e', 'current_key_seam_http.py': 'cde79b4513b040813bb9b9cb9ea7c00ba83df6f3be91464644bee9ce7cf60fa9', 'seed.sql': 'c7e52f6b908fb9e0603f3d764cd40a0aee6857938614030f287dbe88cd331fb1'}
@@ -571,7 +594,7 @@ if __name__ == "__main__":
     parser.add_argument("phase", choices=("acquire", "run"))
     parser.add_argument("--source", required=True, type=Path)
     parser.add_argument("--output", required=True, type=Path)
-    parser.add_argument("--regression", choices=("keys", "wallet", "identity", "identity-diagnostic", "identity-password", "key-seam"), default="keys")
+    parser.add_argument("--regression", choices=("keys", "wallet", "identity", "identity-diagnostic", "identity-password", "key-seam", "quota-redemptions"), default="keys")
     args = parser.parse_args()
     if args.phase == "acquire":
         acquire(args.source.resolve(), args.output.resolve())
