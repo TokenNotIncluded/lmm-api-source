@@ -274,7 +274,7 @@ def execute(source, output):
         else:
             raise RuntimeError("isolated PostgreSQL readiness timeout")
         sql(f"CREATE ROLE {owner} NOLOGIN; CREATE ROLE {installer} LOGIN NOINHERIT; "
-            f"CREATE ROLE {runtime} NOLOGIN; GRANT {owner} TO {installer} WITH INHERIT FALSE, SET TRUE; "
+            f"CREATE ROLE {runtime} LOGIN; GRANT {owner} TO {installer} WITH INHERIT FALSE, SET TRUE; "
             f"CREATE DATABASE {db} OWNER {owner}; REVOKE ALL ON DATABASE {db} FROM PUBLIC; "
             f"GRANT CONNECT ON DATABASE {db} TO {installer}; "
             f"COMMENT ON DATABASE {db} IS 'lmm-runtime-keys-synthetic:{nonce}';", admin=True, database="postgres")
@@ -295,6 +295,7 @@ def execute(source, output):
              "-v", "enable_console=true", "-v", "enable_web_identity=true",
              "-v", "enable_models=true", "-f", source / "deployment/postgres/grant-core-runtime.sql"],
             work, "official-runtime-grants", env={**env, "PGOPTIONS": "-c role=" + owner})
+        sql(f"ALTER ROLE {runtime} NOLOGIN;", admin=True)
         fixture = {"format_version": 1, "scope": "current-runtime-keys-synthetic-fixture",
             "connection": {"transport": "unix", "socket_directory": str(sock), "port": int(port),
                 "database": db, "role": owner, "login_role": installer, "set_role": owner},
