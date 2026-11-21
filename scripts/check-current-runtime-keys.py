@@ -297,9 +297,16 @@ def execute(source, output):
              "-v", "enable_models=true", "-f", source / "deployment/postgres/grant-core-runtime.sql"],
             work, "official-runtime-grants", env={**env, "PGOPTIONS": "-c role=" + owner})
         sql(f"ALTER ROLE {runtime} NOLOGIN;", admin=True)
+        # The shared connection contract requires an owned private pgpass file
+        # even for a local trust socket. This file contains no credentials.
+        pgpass = work / "pgpass.private"
+        with pgpass.open("x") as stream:
+            stream.write("# Synthetic Unix-only trust fixture; no password is used.\n")
+        pgpass.chmod(0o600)
         fixture = {"format_version": 1, "scope": "current-runtime-keys-synthetic-fixture",
             "connection": {"transport": "unix", "socket_directory": str(sock), "port": int(port),
-                "database": db, "role": owner, "login_role": installer, "set_role": owner},
+                "database": db, "role": owner, "login_role": installer, "set_role": owner,
+                "pgpass_file": str(pgpass)},
             "fixture_nonce": nonce, "core78_manifest": str(work / "core78-manifest.json"),
             "runtime_roles": [runtime], "fixture_user_id": 1, "fixture_group": "default"}
         save(work / "fixture.private.json", fixture)
