@@ -136,12 +136,17 @@ Docker 更新保持已有完整覆盖文件、项目名、私有凭据和 RPC �
 ### 源码版本
 
 `Qualified source release` 工作流可为已经完成本轮协议回归的源码创建 GitHub
-prerelease。先更新 `VERSION`、Core 的精确 zconv 依赖和真实 crates.io 锁文件，
+prerelease。先更新 `VERSION`、Core 的精确 zconv 依赖和对应的锁文件，
 再单独提交 `.github/source-release-request.json`；它只接受本项目版本与 zconv
 版本两个字段，例如 `{"version":"0.1.20","zconv":"0.4.0"}`。普通源码提交不会
 触发这个发布器，手动运行也必须来自当前 `main` 并使用同一份标记。
 
-发布前检查版本和注册表来源，运行 Core 格式检查、Clippy、`relay::` 单元测试、
+zconv 可使用精确 crates.io 归档及其校验和，或本仓库既定的
+`https://github.com/LIghtJUNction/zconv.git` 来源；后者的锁文件必须绑定完整的
+40 位小写十六进制提交。两条路径都核对请求版本和唯一 zconv 包，并拒绝
+`patch`、`replace` 等来源覆盖；Git 包不能附带 registry checksum。
+
+发布前检查版本和依赖来源，运行 Core 格式检查、Clippy、`relay::` 单元测试、
 工作流边界与文档检查，然后冻结源码归档、源码 SHA、测试日志和 SHA-256 校验和。
 发布任务再次检查 `main` 仍是受测提交，既有 tag 必须指向同一提交；已有 Release
 资产不会被覆盖。写权限只用于这个通过资格检查的源码 Release。
