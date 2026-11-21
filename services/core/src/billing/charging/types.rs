@@ -783,6 +783,47 @@ mod trust_price_tests {
             assert_eq!(restored.cost(usage), Ok(1));
         }
     }
+
+    #[test]
+    fn deepseek_fetch_hold_and_receipt_apply_frozen_discount_before_rounding() {
+        use tool_price::{PersistedToolPrice, ToolKind, ToolUsage};
+
+        let kind = ToolKind::DeepSeekFetch;
+        let price = Price {
+            model: "deepseek-fetch".into(),
+            input_per_million: 0,
+            cached_per_million: 0,
+            output_per_million: 0,
+            tool: Some(PersistedToolPrice {
+                kind,
+                usd_micros_per_request: 7,
+                group_multiplier_ppm: 1_250_000,
+                speed_multiplier_ppm: 1_500_000,
+                credits_per_usd: 500_000,
+                provider_contract_revision: "synthetic-fetch-v1".into(),
+            }),
+            ..base()
+        };
+        let receipt =
+            ToolUsage::from_response(kind, 200, br#"{"content":"fixture page"}"#).unwrap();
+        assert_eq!(receipt.successful_requests, 1);
+        let usage = Usage {
+            tool: Some(receipt),
+            ..Usage::default()
+        };
+
+        // 7 micro-USD × 1.25 × 1.5 × 0.5 credits/micro-USD = 6.5625 credits.
+        assert_eq!(price.reservation_ceiling(ReservationBasis::Tool), Ok(7));
+        assert_eq!(price.cost(usage), Ok(7));
+        // 6.5625 × 3/4 = 4.921875 credits. Discounting a rounded 7 would charge 6.
+        let discounted = frozen(price, 3, 4);
+        assert_eq!(
+            discounted.reservation_ceiling(ReservationBasis::Tool),
+            Ok(5)
+        );
+        assert_eq!(discounted.cost(usage), Ok(5));
+    }
+
     #[test]
     fn discounted_hold_bounds_all_scalar_cache_splits() {
         let price = frozen(base(), 97, 100);
