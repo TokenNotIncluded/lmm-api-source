@@ -466,7 +466,7 @@ def execute(source, output, *, regression="keys"):
                           production_approval_created=False)
         elif regression == "quota-redemptions":
             tests = CONTROL / "tests/current-quota-redemptions"
-            expected = {'migrate_current_quota_redemptions.py': '7442a32afac38c34b4431daeec8d271646a5c83313b2a49f33b89052ad5eea2d', 'quota_runtime.py': '171be10cfac059f1681548da3fcb8b097021adb6651b38c8b12e6f86e9697a22', 'test_current_quota_redemptions.py': 'd7af62105b28d68957700650f2453e035e147ca096d61160b3301f89d2cad993', 'test_current_quota_redemptions_pg.py': 'f4f03abd24b0e7a35c047e7b2e8909ccd7c7dea8ccc0984dc2b961061d65c784'}
+            expected = {'migrate_current_quota_redemptions.py': '7442a32afac38c34b4431daeec8d271646a5c83313b2a49f33b89052ad5eea2d', 'quota_runtime.py': '171be10cfac059f1681548da3fcb8b097021adb6651b38c8b12e6f86e9697a22', 'test_current_quota_redemptions.py': 'd7af62105b28d68957700650f2453e035e147ca096d61160b3301f89d2cad993', 'test_current_quota_redemptions_pg.py': '0adee7bd2832e808f777689c1f41011af39b273a2f563255d2fc88e1bbc5d3b6'}
             for filename, expected_sha in expected.items():
                 need(sha(tests / filename) == expected_sha, "frozen quota input differs: " + filename)
             testenv = {**env, "PYTHONPATH": os.pathsep.join(map(str, (tests,

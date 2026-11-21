@@ -87,7 +87,11 @@ class Regression(KT.Regression):
     def proxy(self, m, before_commit):
         conn = deepcopy(self.connection)
         original = Path(conn["socket_directory"]) / (".s.PGSQL." + str(conn["port"]))
-        directory = self.output / ("quota-proxy-" + uuid.uuid4().hex[:8])
+        # Linux Unix socket names are bounded. Keep the actual private
+        # socket under the unmodified BACKUP_ROOT, outside deep log paths.
+        directory = M.I.BACKUP_ROOT / ("qp-" + uuid.uuid4().hex)
+        check(len(os.fsencode(directory / (".s.PGSQL." + str(conn["port"])))) < 108,
+              "private quota proxy Unix socket path exceeds the platform limit")
         app = "lmm-current-quota-" + uuid.uuid4().hex
         with KT.CommitDropProxy(original, directory, conn["port"], before_commit=before_commit):
             conn["socket_directory"] = str(directory)
