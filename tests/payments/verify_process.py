@@ -38,7 +38,10 @@ def selected_command(binary, case):
 
 
 def verify_discovery(full, ignored):
-    for text, expected in ((full, [CASE, EXPIRY_CASE]), (ignored, [EXPIRY_CASE])):
+    for text, expected in (
+        (full, [CASE, EXPIRY_CASE, "hex_codec::tests::preserves_hex_representation_and_input_errors"]),
+        (ignored, [EXPIRY_CASE]),
+    ):
         lines = [line for line in text.splitlines() if line]
         count = len(expected)
         summary = f"{count} test{'s' if count != 1 else ''}, 0 benchmarks"
@@ -49,7 +52,7 @@ def verify_discovery(full, ignored):
 def verify_execution(log, case):
     selected_command("unused", case)
     summaries = re.findall(r"^test result: .*?$", log, re.MULTILINE)
-    expected = r"test result: ok\. 1 passed; 0 failed; 0 ignored; 0 measured; 1 filtered out; finished in [0-9.]+s"
+    expected = r"test result: ok\. 1 passed; 0 failed; 0 ignored; 0 measured; 2 filtered out; finished in [0-9.]+s"
     if len(summaries) != 1 or not re.fullmatch(expected, summaries[0]):
         raise FixtureError("test execution did not pass exactly the selected real case")
 

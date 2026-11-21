@@ -48,6 +48,92 @@ class LibcVersionTests(unittest.TestCase):
         self.assertEqual(PKG.glibc_requirements(self.LIBGCC_VERSIONS + libc), {(2, 0), (2, 34)})
 
 
+class OpenSSLDependencyTests(unittest.TestCase):
+    """Readelf parsing regressions; no compiler or package installation is used."""
+
+    def report(self, output, arch="amd64"):
+        header = bytearray(64)
+        header[:6] = b"\x7fELF\x02\x01"
+        header[16:18] = (2).to_bytes(2, "little")
+        header[18:20] = {"amd64": 62, "arm64": 183}[arch].to_bytes(2, "little")
+        with tempfile.TemporaryDirectory() as directory:
+            binary = Path(directory) / "elf-header"
+            binary.write_bytes(header)
+            with patch.object(PKG, "run", return_value=output):
+                return PKG.inspect_elf(binary, arch)
+
+    def output(self, arch="amd64", ssl="3.0.0", crypto="3.3.0"):
+        loader = {"amd64": "/lib64/ld-linux-x86-64.so.2",
+                  "arm64": "/lib/ld-linux-aarch64.so.1"}[arch]
+        return f"""[Requesting program interpreter: {loader}]
+(NEEDED) Shared library: [libc.so.6]
+(NEEDED) Shared library: [libssl.so.3]
+(NEEDED) Shared library: [libcrypto.so.3]
+Version needs section '.gnu.version_r' contains 3 entries:
+000000: Version: 1  File: libssl.so.3  Cnt: 1
+0x0010:   Name: OPENSSL_{ssl}  Flags: none  Version: 3
+0x0020: Version: 1  File: libcrypto.so.3  Cnt: 2
+0x0030:   Name: OPENSSL_3.0.0  Flags: none  Version: 4
+0x0040:   Name: OPENSSL_{crypto}  Flags: none  Version: 5
+0x0050: Version: 1  File: libc.so.6  Cnt: 1
+0x0060:   Name: GLIBC_2.39  Flags: none  Version: 6
+"""
+
+    def test_rpm_preserves_each_library_version_on_both_architectures(self):
+        for arch in ("amd64", "arm64"):
+            with self.subTest(arch=arch):
+                report = self.report(self.output(arch), arch)
+                self.assertEqual(report["openssl_symbol_versions"], {
+                    "libssl.so.3": ["OPENSSL_3.0.0"],
+                    "libcrypto.so.3": ["OPENSSL_3.0.0", "OPENSSL_3.3.0"],
+                })
+                self.assertEqual(set(PKG.dependencies([report], "rpm", False, False)), {
+                    "glibc >= 2.39", "libssl.so.3()(64bit)", "libcrypto.so.3()(64bit)",
+                    "libssl.so.3(OPENSSL_3.0.0)(64bit)",
+                    "libcrypto.so.3(OPENSSL_3.0.0)(64bit)",
+                    "libcrypto.so.3(OPENSSL_3.3.0)(64bit)",
+                })
+                self.assertIn("libssl3 (>= 3.3.0) | libssl3t64 (>= 3.3.0)",
+                              PKG.dependencies([report], "deb", False, False))
+                self.assertIn("openssl>=3.3.0", PKG.dependencies([report], "archlinux", False, False))
+                with self.assertRaisesRegex(ValueError, "Alpine APK"):
+                    PKG.dependencies([report], "apk", False, False)
+
+    def test_rpm_unions_actual_versions_across_binaries_without_cross_library_maximum(self):
+        reports = [self.report(self.output()),
+                   self.report(self.output(ssl="3.2.0", crypto="3.0.0"))]
+        requirements = set(PKG.dependencies(reports, "rpm", False, False))
+        self.assertTrue({"libssl.so.3(OPENSSL_3.0.0)(64bit)",
+                         "libssl.so.3(OPENSSL_3.2.0)(64bit)",
+                         "libcrypto.so.3(OPENSSL_3.0.0)(64bit)",
+                         "libcrypto.so.3(OPENSSL_3.3.0)(64bit)"} <= requirements)
+        self.assertNotIn("libssl.so.3(OPENSSL_3.3.0)(64bit)", requirements)
+        self.assertNotIn("libcrypto.so.3(OPENSSL_3.2.0)(64bit)", requirements)
+        self.assertFalse(any(dep.startswith("openssl-libs") for dep in requirements))
+
+    def test_unattributed_or_wrong_library_openssl_versions_are_rejected(self):
+        output = self.output()
+        for changed in (output.replace("File: libssl.so.3", "File: libc.so.6"),
+                        output.replace("File: libssl.so.3", "File: libmissing.so.3"),
+                        output.replace("Version needs section", "Version definition section")):
+            with self.subTest(output=changed), self.assertRaisesRegex(ValueError, "OpenSSL"):
+                self.report(changed)
+        report = self.report(output)
+        report.pop("openssl_symbol_versions")
+        with self.assertRaisesRegex(ValueError, "per-library"):
+            PKG.dependencies([report], "rpm", False, False)
+
+    def test_unknown_openssl_soname_remains_rejected(self):
+        with self.assertRaisesRegex(ValueError, "unsupported ELF"):
+            self.report(self.output().replace(".so.3", ".so.4"))
+
+    def test_static_reports_and_default_dependencies_remain_unchanged(self):
+        report = self.report("")
+        self.assertEqual(report, {"linkage": "static", "needed": [],
+                                  "glibc_minimum": None, "openssl_minimum": None})
+        self.assertEqual(PKG.dependencies([report], "rpm", False, False), [])
+
+
 class PackageTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -360,9 +446,13 @@ Name: GLIBC_2.34"""
 (NEEDED) Shared library: [libc.so.6]
 (NEEDED) Shared library: [libssl.so.3]
 (NEEDED) Shared library: [libcrypto.so.3]
-Name: GLIBC_2.39
-Name: OPENSSL_3.0.0
-Name: OPENSSL_3.3.0"""
+Version needs section '.gnu.version_r' contains 3 entries:
+000000: Version: 1  File: libc.so.6  Cnt: 1
+0x0010: Name: GLIBC_2.39  Flags: none  Version: 3
+0x0020: Version: 1  File: libssl.so.3  Cnt: 1
+0x0030: Name: OPENSSL_3.0.0  Flags: none  Version: 4
+0x0040: Version: 1  File: libcrypto.so.3  Cnt: 1
+0x0050: Name: OPENSSL_3.3.0  Flags: none  Version: 5"""
         with patch.object(PKG, "run", return_value=output):
             report = PKG.inspect_elf(binary, "amd64")
         self.assertEqual(report["openssl_minimum"], "3.3.0")
@@ -370,7 +460,10 @@ Name: OPENSSL_3.3.0"""
         arch = PKG.dependencies([report], "archlinux", False, False)
         self.assertTrue({"libssl.so=3-64", "libcrypto.so=3-64", "openssl>=3.3.0"} <= set(arch))
         rpm = PKG.dependencies([report], "rpm", False, False)
-        self.assertIn("openssl-libs >= 3.3.0", rpm)
+        self.assertTrue({"libssl.so.3()(64bit)", "libcrypto.so.3()(64bit)",
+                         "libssl.so.3(OPENSSL_3.0.0)(64bit)",
+                         "libcrypto.so.3(OPENSSL_3.3.0)(64bit)"} <= set(rpm))
+        self.assertFalse(any(dep.startswith("openssl-libs") for dep in rpm))
         with patch.object(PKG, "run", return_value=output.replace(".so.3]", ".so.4]")):
             with self.assertRaises(ValueError):
                 PKG.inspect_elf(binary, "amd64")
