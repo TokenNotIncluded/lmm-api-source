@@ -63,14 +63,14 @@ class ReleaseTests(unittest.TestCase):
     def git_candidate(self):
         self.manifest.write_text(
             '[dependencies]\n'
-            'zconv = { version = "=0.4.0", git = "https://github.com/LIghtJUNction/zconv.git" }\n'
+            'zconv = { git = "https://github.com/LIghtJUNction/zconv.git" }\n'
         )
         self.lock.write_text(
             'version = 4\n[[package]]\nname = "zconv"\nversion = "0.4.0"\n'
             'source = "git+https://github.com/LIghtJUNction/zconv.git#' + "a" * 40 + '"\n'
         )
 
-    def test_exact_canonical_git_candidate_is_accepted(self):
+    def test_versionless_canonical_git_candidate_is_accepted(self):
         self.git_candidate()
         self.assertEqual(release.validate(self.root), {"version": "0.1.20", "zconv": "0.4.0"})
 
@@ -84,13 +84,14 @@ class ReleaseTests(unittest.TestCase):
             with self.subTest(url=url):
                 self.git_candidate()
                 self.manifest.write_text(
-                    '[dependencies]\nzconv = { version = "=0.4.0", git = ' + json.dumps(url) + ' }\n'
+                    '[dependencies]\nzconv = { git = ' + json.dumps(url) + ' }\n'
                 )
                 with self.assertRaises(ValueError):
                     release.validate(self.root)
 
     def test_git_manifest_rejects_extra_keys(self):
         for extra in (
+            'version = "=0.4.0"', 'version = "0.4.0"',
             'branch = "main"', 'tag = "v0.4.0"', 'rev = "' + "a" * 40 + '"',
             'path = "../local"', 'package = "zconv"', 'features = []',
             'default-features = false',
@@ -130,10 +131,11 @@ class ReleaseTests(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     release.validate(self.root)
 
-    def test_git_manifest_and_lock_versions_must_match_request(self):
-        for path in (self.manifest, self.lock):
+    def test_git_lock_version_must_match_request(self):
+        for path in (self.request, self.lock):
             with self.subTest(path=path.name):
                 self.git_candidate()
+                self.request.write_text(json.dumps({"version": "0.1.20", "zconv": "0.4.0"}))
                 path.write_text(path.read_text().replace("0.4.0", "0.4.1"))
                 with self.assertRaises(ValueError):
                     release.validate(self.root)

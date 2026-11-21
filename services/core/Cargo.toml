@@ -17,12 +17,12 @@ resource-acceptance = []
 
 [dependencies]
 # MIT OR Apache-2.0, dependency-free bounded request conversion.
-zconv = { version = "=0.4.0", git = "https://github.com/LIghtJUNction/zconv.git" }
-zclap = { version = "=0.1.4", git = "https://github.com/LIghtJUNction/zclap.git" }
+zconv = { git = "https://github.com/LIghtJUNction/zconv.git" }
+zclap = { git = "https://github.com/LIghtJUNction/zclap.git" }
 sysinfo = { version = "=0.40.4", default-features = false, features = ["system"] }
 tokio-util = { version = "=0.7.20", features = ["rt"] }
 csv = "=1.4.0"
-zhex = { version = "=0.1.3", git = "https://github.com/LIghtJUNction/zhex.git" }
+zhex = { git = "https://github.com/LIghtJUNction/zhex.git" }
 percent-encoding = "=2.3.2"
 html-escape = "=0.3.1"
 lettre = { version = "=0.11.23", default-features = false, features = ["builder", "smtp-transport", "tokio1-rustls", "ring", "webpki-roots"] }

@@ -31,9 +31,9 @@ def validate(root):
         raise ValueError("request version differs from VERSION")
     manifest = tomllib.loads((root / "services/core/Cargo.toml").read_text())
     dependency = manifest["dependencies"]["zconv"]
-    git_dependency = {"version": "=" + request["zconv"], "git": CANONICAL_GIT}
+    git_dependency = {"git": CANONICAL_GIT}
     if dependency not in ("=" + request["zconv"], git_dependency) or manifest.get("patch") or manifest.get("replace"):
-        raise ValueError("Core must pin the requested registry or canonical Git zconv without source overrides")
+        raise ValueError("Core must declare the requested registry version or canonical Git zconv without source overrides")
     lock = tomllib.loads((root / "services/core/Cargo.lock").read_text())
     packages = [package for package in lock["package"] if package["name"] == "zconv"]
     if len(packages) != 1:

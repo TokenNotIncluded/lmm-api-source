@@ -4839,8 +4839,8 @@ source = "git+https://github.com/LIghtJUNction/zclap.git#4d87f3ae3743e81509d5ac5
 
 [[package]]
 name = "zconv"
-version = "0.4.0"
-source = "git+https://github.com/LIghtJUNction/zconv.git#0af1f7eb0766ff0ce9db5cee7c6184eff511a8c1"
+version = "0.4.1"
+source = "git+https://github.com/LIghtJUNction/zconv.git#f78b97b7065bbb7cf9ddfd0914d7f2296bbfe712"
 
 [[package]]
 name = "zerocopy"
