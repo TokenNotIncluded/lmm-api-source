@@ -257,8 +257,9 @@ class Regression:
                 "factor_revision,factor_level,method,authenticated_at) "
                 f"VALUES({cid},{uid},{version},0,1,'primary',clock_timestamp())")
         # A native budget unrelated to the incoming keys must survive exactly.
-        self.native_budget_id = self.query("INSERT INTO core_charging.budgets(scope,account_id,issuer_user_id,period,limit_credits,seconds) "
-            f"VALUES('account',{aid},{uid},'custom',9999,12345) ON CONFLICT DO NOTHING RETURNING id")
+        self.native_budget_id = self.query("BEGIN ISOLATION LEVEL SERIALIZABLE; "
+            "INSERT INTO core_charging.budgets(scope,account_id,issuer_user_id,period,limit_credits,seconds) "
+            f"VALUES('account',{aid},{uid},'custom',9999,12345) ON CONFLICT DO NOTHING RETURNING id; COMMIT;")
         # A reusable fixture must not already use this synthetic scope identity.
         check(type(self.native_budget_id) is int, "fixture budget identity already in use")
         self.completed.append("seeded_valid_and_expired_sessions_and_native_budget")
@@ -298,7 +299,8 @@ class Regression:
             contract=self.contract, migration_id=migration, source_namespace={"system_identifier": "999000111222",
                 "database": "synthetic_legacy", "schema": "synthetic_source"},
             runtime_roles=self.fixture["runtime_roles"], encryption_key=bytes(range(32)))
-        M.F.write_private(self.output, migration + ".material.private.json", M.canonical(m) + "\n")
+        M.F.write_private(self.output, migration + ".preview-" + str(self.counter) + ".material.private.json",
+                          M.canonical(m) + "\n")
         return m
 
     def reject(self, sql, error):
@@ -365,9 +367,15 @@ class Regression:
         self.concurrent_fence(original)
 
         # A pre-existing budget CAS drift must be noticed before nextval.
-        self.run_sql(f"UPDATE core_charging.budgets SET limit_credits=10000 WHERE id={self.native_budget_id}")
+        self.run_sql("BEGIN ISOLATION LEVEL SERIALIZABLE; "
+            f"UPDATE core_charging.budgets SET limit_credits=10000,revision=revision+1 WHERE id={self.native_budget_id}; COMMIT;")
         self.reject(sql, "current_keys_target_state_changed")
-        self.run_sql(f"UPDATE core_charging.budgets SET limit_credits=9999 WHERE id={self.native_budget_id}")
+        self.run_sql("BEGIN ISOLATION LEVEL SERIALIZABLE; "
+            f"UPDATE core_charging.budgets SET limit_credits=9999,revision=revision+1 WHERE id={self.native_budget_id}; COMMIT;")
+        # Restoring the limit does not reverse its monotone native revision.
+        # Deliberately take a new preview before the separate transport tests.
+        original = self.prepare(source, target, migration)
+        sql = M.build_synthetic_transaction_sql(original, self.nonce)
         self.completed.append("preexisting_budget_drift_rejected_before_nextval")
 
         # Genuine socket loss before COMMIT rolls rows back but leaves normal
