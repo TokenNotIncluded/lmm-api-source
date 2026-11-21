@@ -670,12 +670,27 @@ def untouched_columns_sql(m):
 
 def write_sql(m):
     out = []
-    revocations = {o["key"] for o in m["plan"]["operations"] if o["table"] == "core_identity.developer_access"
-                   and o["before"] is not None and o["before"]["granted"] and not o["after"]["granted"]}
+    # Exact Core78 DDL has two AFTER UPDATE generation triggers. An ordinary
+    # profile password/MFA-policy change increments once; a developer
+    # revocation increments once. Keep the final planned version unchanged,
+    # and let the real triggers supply these increments later in this same
+    # transaction. Never disable them or temporarily lower a native version.
+    trigger_increments = {}
+    for o in m["plan"]["operations"]:
+        before, after = o["before"], o["after"]
+        if before is None:
+            continue
+        profile_change = o["table"] == "core_identity.user_profiles" and any(
+            before[k] != after[k] for k in ("password_login_allowed", "second_factor_required"))
+        developer_revocation = o["table"] == "core_identity.developer_access" and before["granted"] and not after["granted"]
+        if profile_change or developer_revocation:
+            trigger_increments[o["key"]] = trigger_increments.get(o["key"], 0) + 1
     for o in m["plan"]["operations"]:
         table, after = o["table"], deepcopy(o["after"])
-        if table == "core_identity.users" and after["id"] in revocations:
-            after["auth_version"] -= 1
+        if table == "core_identity.users" and after["id"] in trigger_increments:
+            after["auth_version"] -= trigger_increments[after["id"]]
+            need(o["before"] is not None and after["auth_version"] >= o["before"]["auth_version"],
+                 "identity_pretrigger_auth_version_would_regress")
         if o["before"] is None:
             if table in ("core_identity.accounts", "core_identity.users"):
                 seq = SEQUENCES[0] if table.endswith("accounts") else SEQUENCES[1]
