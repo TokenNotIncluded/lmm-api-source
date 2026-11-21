@@ -40,8 +40,32 @@ jobs:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
         with:
           persist-credentials: false
+      - name: Configure private PostgreSQL for offline upgrade tests
+        env:
+          POSTGRES_CONTAINER: ${{ job.services.postgres.id }}
+        run: |
+          # Only this disposable service is quieted; production guards stay strict.
+          docker exec "$POSTGRES_CONTAINER" psql -X -U postgres -d postgres -v ON_ERROR_STOP=1 \
+            -c 'ALTER SYSTEM SET autovacuum = off'
+          test "$(docker exec "$POSTGRES_CONTAINER" psql -X -U postgres -d postgres -v ON_ERROR_STOP=1 \
+            -Atqc 'SELECT pg_reload_conf()')" = t
+          # pg_reload_conf sends SIGHUP; read the actual setting until applied.
+          for attempt in {1..50}; do
+            docker exec "$POSTGRES_CONTAINER" psql -X -U postgres -d postgres -v ON_ERROR_STOP=1 \
+              -Atqc "SELECT setting, pending_restart FROM pg_settings WHERE name = 'autovacuum'" \
+              > "$RUNNER_TEMP/core-postgres-offline-settings.txt"
+            if test "$(cat "$RUNNER_TEMP/core-postgres-offline-settings.txt")" = 'off|f'; then
+              break
+            fi
+            sleep 0.1
+          done
+          test "$(cat "$RUNNER_TEMP/core-postgres-offline-settings.txt")" = 'off|f'
       - name: Initialize the pinned CLI only for archive contract checks
         run: git submodule update --init --depth 1 -- apps/cli
+      - name: Initialize the pinned Extore plugin for the formal RPC image
+        run: |
+          git submodule update --init --depth 1 -- packages/extore
+          python3 -B scripts/check-extore-plugin-pin.py
       - name: Record exact integration source
         run: |
           git rev-parse HEAD > "$RUNNER_TEMP/core-source-sha.txt"
@@ -294,6 +318,7 @@ jobs:
             ${{ runner.temp }}/preserved-early58/schema-manifest.json
             ${{ runner.temp }}/preserved-early58/build.log
             ${{ runner.temp }}/core-tests.log
+            ${{ runner.temp }}/core-postgres-offline-settings.txt
             ${{ runner.temp }}/core-process-evidence-*
             ${{ runner.temp }}/payment-live-build.log
             ${{ runner.temp }}/payment-live/evidence/result.json

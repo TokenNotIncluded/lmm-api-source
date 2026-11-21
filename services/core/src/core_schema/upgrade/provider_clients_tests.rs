@@ -477,3 +477,7 @@ async fn capture_provider_candidate(pool: PgPool) {
     .unwrap();
     tx.rollback().await.unwrap();
 }
+
+// Historical import stays pinned to Core77; retained rows cross the real78 upgrade.
+#[path = "community_connection_history_tests.rs"]
+mod connection_history;

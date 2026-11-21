@@ -1,6 +1,7 @@
 """Only synthetic fixtures in the caller's fresh private PG. No real input path."""
 import json
 import os
+import re
 from pathlib import Path
 import subprocess
 import sys
@@ -12,6 +13,8 @@ import legacy_connection_import as imp
 out = Path(os.environ['CONNECTION55_EVIDENCE'])
 database = sys.argv[1]
 registered = int(sys.argv[2])
+owner_role = sys.argv[3]
+assert re.fullmatch(r"[a-z_][a-z0-9_]{0,62}", owner_role), "synthetic owner identifier required"
 source_db = 'connection_source_' + imp.sha(database.encode())[:16]
 base_env = dict(os.environ)
 
@@ -91,15 +94,15 @@ def apply(sql, role):
                           text=True, capture_output=True, env=env)
 
 for name, sql in variants.items():
-    result = apply(sql, 'lmm_core_owner')
+    result = apply(sql, owner_role)
     (out/(name+'.stderr.log')).write_text(result.stderr)
     assert result.returncode != 0, name+' unexpectedly accepted'
     assert query('SELECT count(*) FROM core_history.connection_snapshot').strip() == '0', name+' partial import'
-result = apply(valid, 'lmm_core_owner')
+result = apply(valid, owner_role)
 (out/'import.stderr.log').write_text(result.stderr)
 assert result.returncode == 0, result.stderr
 before = query("SELECT document_utf8||mapping_utf8 FROM core_history.connection_snapshot")
-result = apply(valid, 'lmm_core_owner')
+result = apply(valid, owner_role)
 (out/'replay.stderr.log').write_text(result.stderr)
 assert result.returncode != 0, 'replay accepted'
 assert before == query("SELECT document_utf8||mapping_utf8 FROM core_history.connection_snapshot"), 'replay changed source'

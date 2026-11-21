@@ -635,6 +635,27 @@ async fn snapshot(pool: &PgPool) -> Value {
     sqlx::query_scalar("SELECT jsonb_build_object('requests',(SELECT coalesce(jsonb_agg(to_jsonb(r) ORDER BY id),'[]'::jsonb) FROM core_charging.requests r),'maps',(SELECT coalesce(jsonb_agg(to_jsonb(c) ORDER BY request_id),'[]'::jsonb) FROM core_model.responses_continuations c),'journals',(SELECT count(*) FROM core_billing.ledger_journals),'usage',(SELECT count(*) FROM core_charging.usage_events),'balances',(SELECT coalesce(jsonb_agg(to_jsonb(b) ORDER BY ledger_account_id),'[]'::jsonb) FROM core_billing.balance_state b))")
         .fetch_one(pool).await.unwrap()
 }
+async fn wait_for_performance(pool: &PgPool, request_ids: &[String]) {
+    // HTTP success can precede this final asynchronous write. Observe its
+    // actual completion before a later refusal must preserve every usage row.
+    tokio::time::timeout(Duration::from_secs(5), async {
+        loop {
+            let recorded: i64 = sqlx::query_scalar(
+                "SELECT count(*) FROM core_charging.usage_events WHERE request_id=ANY($1) AND event_id='performance-v1'",
+            )
+            .bind(request_ids)
+            .fetch_one(pool)
+            .await
+            .unwrap();
+            if recorded == i64::try_from(request_ids.len()).unwrap() {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .expect("successful requests must finish recording performance");
+}
 async fn assert_packets(pool: &PgPool, id: &str, packets: &[&[u8]]) {
     let stored:Vec<(Vec<u8>,i64,bool)>=sqlx::query_as("SELECT packet_sha256,packet_bytes,terminal_observed FROM core_model.output_checkpoints WHERE request_id=$1 ORDER BY sequence")
         .bind(id).fetch_all(pool).await.unwrap();
@@ -1337,6 +1358,7 @@ async fn responses_continuity_independent_store_tristate_and_exact_refusal(pool:
                 let label=format!("independent-store-{default}-{explicit:?}");
                 let (id,result,bytes)=json_reply(call(&core,&lab.fixture.key,&label,&body).await).await;
                 assert_packets(&lab.fixture.pool,&id,&[&bytes]).await;
+                wait_for_performance(&lab.fixture.pool,std::slice::from_ref(&id)).await;
                 let last=lab.s().seen().last().unwrap().clone();
                 assert_eq!(last.get("store"),body.get("store"),"wire must preserve omission/false/true");
                 if explicit.unwrap_or(default) {assert_active(lab,&id,&result).await;}
@@ -1384,25 +1406,7 @@ async fn responses_continuity_independent_store_tristate_and_exact_refusal(pool:
         let (stateless_id,stateless_result,_)=json_reply(call(&core,&lab.fixture.key,"independent-old-opaque",&stateless).await).await;
         assert_eq!(stateless_result["id"],expected_provider);
         assert!(mapping(&lab.fixture.pool,&stateless_id).await.is_none());
-        // Successful replies can precede their asynchronous performance records.
-        // Finish those writes before proving the next refusal changes no data.
-        tokio::time::timeout(Duration::from_secs(5), async {
-            loop {
-                let recorded: i64 = sqlx::query_scalar(
-                    "SELECT count(*) FROM core_charging.usage_events WHERE request_id=ANY($1) AND event_id='performance-v1'",
-                )
-                .bind(vec![id.clone(), stateless_id.clone()])
-                .fetch_one(&lab.fixture.pool)
-                .await
-                .unwrap();
-                if recorded == 2 {
-                    break;
-                }
-                tokio::time::sleep(Duration::from_millis(10)).await;
-            }
-        })
-        .await
-        .expect("successful stateless requests must finish recording performance");
+        wait_for_performance(&lab.fixture.pool,&[id.clone(),stateless_id.clone()]).await;
         let before=snapshot(&lab.fixture.pool).await;let calls=lab.s().calls();
         denied(&core,&lab.fixture.key,"independent-no-store-contract",&stored(json!("no reviewed storage guarantee"))).await;
         assert_eq!(snapshot(&lab.fixture.pool).await,before);

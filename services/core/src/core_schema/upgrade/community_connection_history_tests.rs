@@ -1,12 +1,19 @@
-//! Synthetic retained-snapshot contract tests. No real source artifact is used.
-use lmm_core::{
+//! Synthetic retained history is imported at its reviewed Core77 boundary,
+//! then preserved through the real owner77->78 upgrade before runtime reads.
+//! This module is compiled only by provider_clients cfg(test); no production
+//! historical installer or import authority is exposed.
+use super::{ENGINE, PROCEDURE, prefix77};
+use crate::core_schema::upgrade::payment_discounts::tests::engine_offline_boundary;
+use crate::core_schema::upgrade::quote;
+use crate::{
     community_read::{CommunityRead, UsersInfoRequest},
-    core_schema,
+    core_schema::{self, UpgradeDatabase, UpgradeRequest, UpgradeRoles, upgrade_database},
+    hex_codec,
     identity::IdentityStore,
     runtime_database::{self, RequiredCapabilities},
 };
 use serde_json::json;
-use sqlx::{PgPool, postgres::PgPoolOptions};
+use sqlx::{Connection, PgConnection, PgPool, Row, postgres::PgPoolOptions};
 use std::{
     path::PathBuf,
     process::Command,
@@ -66,19 +73,52 @@ async fn retained_snapshot_import_and_runtime_funnel(pool: PgPool) {
     let out = evidence();
     let db = pool.connect_options().get_database().unwrap().to_owned();
     assert!(db.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_'));
-    sqlx::raw_sql(sqlx::AssertSqlSafe(format!("ALTER DATABASE \"{db}\" OWNER TO lmm_core_owner; ALTER SCHEMA public OWNER TO lmm_core_owner; ALTER DATABASE \"{db}\" SET lmm.migration_instance_nonce='{}'","d".repeat(64)))).execute(&pool).await.unwrap();
+    ENGINE.authorize_target().unwrap();
+    let facts = sqlx::query("SELECT d.oid::bigint AS oid,current_setting('server_version_num')::bigint AS version,(SELECT system_identifier::text FROM pg_control_system()) AS system,session_user::text AS original FROM pg_database d WHERE datname=current_database()")
+        .fetch_one(&pool).await.unwrap();
+    let suffix = format!("{:016x}", rand::random::<u64>());
+    let request = UpgradeRequest {
+        version: 1,
+        procedure: PROCEDURE.into(),
+        upgrade_id: format!("connection-history-provider78-{suffix}"),
+        database: UpgradeDatabase {
+            name: db.clone(),
+            oid: u32::try_from(facts.get::<i64, _>("oid")).unwrap(),
+            system_identifier: facts.get("system"),
+            server_version_num: u32::try_from(facts.get::<i64, _>("version")).unwrap(),
+        },
+        roles: UpgradeRoles {
+            installer: format!("history78_i_{suffix}"),
+            owner: format!("history78_o_{suffix}"),
+            runtime: "connection_history_runtime".into(),
+            extensions: format!("history78_e_{suffix}"),
+        },
+        predecessor_manifest_sha256: ENGINE.predecessor_manifest.into(),
+        predecessor_catalog_sha256: ENGINE.predecessor_catalog.into(),
+        successor_manifest_sha256: ENGINE.target_manifest().unwrap(),
+    };
+    let original: String = facts.get("original");
+    let options = (*pool.connect_options()).clone();
+    let password = format!("synthetic-{:032x}", rand::random::<u128>());
+    sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
+        "CREATE ROLE {owner} NOLOGIN; CREATE ROLE {installer} LOGIN NOINHERIT PASSWORD '{password}'; CREATE ROLE {runtime} NOLOGIN; CREATE ROLE {extensions} NOLOGIN; GRANT {owner} TO {installer} WITH INHERIT FALSE, SET TRUE; ALTER DATABASE {database} OWNER TO {owner}; ALTER SCHEMA public OWNER TO {owner}; REVOKE CONNECT,CREATE,TEMP ON DATABASE {database} FROM PUBLIC; GRANT CONNECT ON DATABASE {database} TO {installer}; REVOKE EXECUTE ON FUNCTION pg_catalog.pg_control_system() FROM PUBLIC; GRANT EXECUTE ON FUNCTION pg_catalog.pg_control_system() TO {owner}; ALTER DATABASE {database} SET lmm.migration_instance_nonce='{nonce}';",
+        owner=quote(&request.roles.owner), installer=quote(&request.roles.installer),
+        runtime=quote(&request.roles.runtime), extensions=quote(&request.roles.extensions),
+        database=quote(&db), nonce="d".repeat(64))))
+        .execute(&pool).await.unwrap();
+    let owner_options = options
+        .clone()
+        .username(&request.roles.installer)
+        .password(&password)
+        .options([("role", request.roles.owner.as_str())]);
     let owner = PgPoolOptions::new()
         .max_connections(3)
-        .after_connect(|c, _| {
-            Box::pin(async move {
-                sqlx::query("SET ROLE lmm_core_owner").execute(c).await?;
-                Ok(())
-            })
-        })
-        .connect_with(pool.connect_options().as_ref().clone())
+        .connect_with(owner_options.clone())
         .await
         .unwrap();
-    core_schema::init(&owner).await.unwrap();
+    // Install the actual pinned predecessor. Changing a fresh78 receipt/count
+    // would hide precisely the historical import contract this test exercises.
+    prefix77(&owner).await;
     let identity = IdentityStore::from_pool(owner.clone());
     let registered = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -140,11 +180,13 @@ async fn retained_snapshot_import_and_runtime_funnel(pool: PgPool) {
     let script = source.join("services/core/tests/community_connection_history_fixture.py");
     let child_db = db.clone();
     let child_out = out.clone();
+    let child_owner = request.roles.owner.clone();
     let output = tokio::task::spawn_blocking(move || {
         Command::new("python3")
             .arg(script)
             .arg(child_db)
             .arg(registered.to_string())
+            .arg(child_owner)
             .env("CONNECTION55_EVIDENCE", child_out)
             .output()
             .unwrap()
@@ -164,8 +206,60 @@ async fn retained_snapshot_import_and_runtime_funnel(pool: PgPool) {
         protected_state(&owner).await,
         "historical import mutated another Core table"
     );
-    sqlx::query("CREATE ROLE connection_history_runtime LOGIN PASSWORD 'synthetic-history-runtime-only' NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS").execute(&pool).await.unwrap();
+    let sealed_snapshot: serde_json::Value =
+        sqlx::query_scalar("SELECT to_jsonb(s) FROM core_history.connection_snapshot s")
+            .fetch_one(&owner)
+            .await
+            .unwrap();
+    let predecessor_components: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM core_meta.component_contract")
+            .fetch_one(&owner)
+            .await
+            .unwrap();
+    assert_eq!(predecessor_components, 77);
+    let mut upgrade_url = reqwest::Url::parse(&std::env::var("DATABASE_URL").unwrap()).unwrap();
+    upgrade_url.set_path(&format!("/{db}"));
+    upgrade_url.set_username(&request.roles.installer).unwrap();
+    upgrade_url.set_password(Some(&password)).unwrap();
+    owner.close().await;
+    pool.close().await;
+    // Observe the target from the separate control database, then call the
+    // shipped upgrade API with the installer/owner/runtime/extensions boundary.
+    engine_offline_boundary(&request).await;
+    let upgraded = upgrade_database(upgrade_url.as_str(), request.clone())
+        .await
+        .unwrap();
+    assert_eq!(upgraded.status, "committed");
+    assert_eq!(upgraded.components, 78);
+    let owner = PgPoolOptions::new()
+        .max_connections(3)
+        .connect_with(owner_options)
+        .await
+        .unwrap();
+    core_schema::check(&owner).await.unwrap();
+    let retained_snapshot: serde_json::Value =
+        sqlx::query_scalar("SELECT to_jsonb(s) FROM core_history.connection_snapshot s")
+            .fetch_one(&owner)
+            .await
+            .unwrap();
+    assert_eq!(
+        sealed_snapshot, retained_snapshot,
+        "owner77->78 must retain the exact historical snapshot and its predecessor binding"
+    );
+    // Upgrade metadata/OAuth contracts legitimately advance. Runtime purity is
+    // measured against the actual successor, keeping every original read test.
+    let before = protected_state(&owner).await;
+    let mut admin = PgConnection::connect_with(&options).await.unwrap();
+    sqlx::query(
+        "ALTER ROLE connection_history_runtime LOGIN PASSWORD 'synthetic-history-runtime-only'",
+    )
+    .execute(&mut admin)
+    .await
+    .unwrap();
+    admin.close().await.unwrap();
     let grant = Command::new("psql")
+        .arg("-v")
+        .arg(format!("owner_role={}", request.roles.owner))
         .args([
             "-X",
             "-q",
@@ -187,9 +281,7 @@ async fn retained_snapshot_import_and_runtime_funnel(pool: PgPool) {
         "runtime grant: {}",
         String::from_utf8_lossy(&grant.stderr)
     );
-    let opts = pool
-        .connect_options()
-        .as_ref()
+    let opts = options
         .clone()
         .username("connection_history_runtime")
         .password("synthetic-history-runtime-only");
@@ -277,7 +369,7 @@ async fn retained_snapshot_import_and_runtime_funnel(pool: PgPool) {
         );
         assert!(matches!(
             CommunityRead::new(runtime.clone()).await,
-            Err(lmm_core::community_read::Error::Unavailable)
+            Err(crate::community_read::Error::Unavailable)
         ));
         sqlx::query(grant).execute(&owner).await.unwrap();
     }
@@ -373,6 +465,8 @@ async fn retained_snapshot_import_and_runtime_funnel(pool: PgPool) {
         Err(runtime_database::RuntimeDatabaseError::MissingPrivileges)
     );
     let regrant = Command::new("psql")
+        .arg("-v")
+        .arg(format!("owner_role={}", request.roles.owner))
         .args([
             "-X",
             "-q",
@@ -462,7 +556,7 @@ async fn retained_snapshot_import_and_runtime_funnel(pool: PgPool) {
     assert_eq!(isolated.users[0].user_id, 12);
     let socket = out.join("core.sock");
     let listener = tokio::net::UnixListener::bind(&socket).unwrap();
-    let router = lmm_core::community_read::http::router(
+    let router = crate::community_read::http::router(
         read.clone(),
         b"synthetic-community-purpose-token-20261104",
     )
@@ -528,7 +622,12 @@ async fn retained_snapshot_import_and_runtime_funnel(pool: PgPool) {
 
     runtime.close().await;
     owner.close().await;
+    let mut admin = PgConnection::connect_with(&options).await.unwrap();
+    sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
+        "REASSIGN OWNED BY {owner} TO {original}; DROP OWNED BY {installer},{owner},{runtime},{extensions} CASCADE; ALTER DATABASE {database} OWNER TO {original}; DROP ROLE {installer},{owner},{runtime},{extensions};",
+        owner=quote(&request.roles.owner), original=quote(&original),
+        installer=quote(&request.roles.installer), runtime=quote(&request.roles.runtime),
+        extensions=quote(&request.roles.extensions), database=quote(&db))))
+        .execute(&mut admin).await.unwrap();
+    admin.close().await.unwrap();
 }
-
-#[path = "../src/hex_codec.rs"]
-mod hex_codec;

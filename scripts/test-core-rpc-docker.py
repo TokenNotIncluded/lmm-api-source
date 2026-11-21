@@ -313,6 +313,7 @@ def source_inputs():
         "deployment/docker",
         "deployment/postgres",
         "config/legal/templates",
+        "packages/extore/plugins/commerce",
     ]
     selected = {
         ROOT / name
@@ -326,6 +327,11 @@ def source_inputs():
             "services/core/build.rs",
             "config/legal/site.example.toml",
             "scripts/test-core-rpc-docker.py",
+            "scripts/check-extore-plugin-pin.py",
+            "packaging/extore-plugin.json",
+            "packages/extore/LICENSE",
+            "packages/extore/plugins/commerce/Cargo.toml",
+            "packages/extore/plugins/commerce/Cargo.lock",
         ]
     }
     excluded = {
@@ -352,6 +358,7 @@ def source_inputs():
                     or (
                         path.suffix == ".md"
                         and not path.is_relative_to(ROOT / "config/legal/templates")
+                        and not path.is_relative_to(ROOT / "packages/extore/plugins/commerce")
                     )
                 ):
                     continue
