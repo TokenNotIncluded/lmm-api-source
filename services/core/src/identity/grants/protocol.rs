@@ -5,10 +5,21 @@ use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 use rand::TryRng as _;
 use rand::rngs::SysRng;
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use zeroize::Zeroizing;
 
 pub(super) const CLIENT: &str = "lmm";
+/// Public model providers use the ordinary PKCE wire format and separate grants.
+pub const PROVIDER_CLIENTS: &[(&str, &str)] = &[
+    ("lmm-dsh", "LMM DSH"),
+    ("lmm-opencode", "LMM OpenCode"),
+    ("lmm-codewhale", "LMM CodeWhale"),
+    ("lmm-vscode", "LMM VS Code"),
+    ("lmm-zed", "LMM Zed"),
+];
+fn is_provider_client(client: &str) -> bool {
+    PROVIDER_CLIENTS.iter().any(|(id, _)| *id == client)
+}
 pub(super) const MANAGED_CLIENT: &str = "lmm-cc-switch";
 pub(super) const MAGPIE_CLIENT: &str = "lmm-magpie";
 pub(super) fn managed_application(client: &str) -> Option<&'static str> {
@@ -25,7 +36,7 @@ const MAX_GROUPS: usize = 64;
 
 /// Historical model-source identity, independent of current issuance settings.
 pub(super) fn is_model_client(client: &str) -> bool {
-    client == "lmm-pi" || is_managed_client(client)
+    client == "lmm-pi" || is_provider_client(client) || is_managed_client(client)
 }
 
 /// Configured at startup; never inferred from a request or forwarding header.
@@ -35,6 +46,7 @@ pub struct LmmProfile {
     resource: String,
     groups: BTreeSet<String>,
     pi_max_credits: Option<i64>,
+    provider_max_credits: BTreeMap<String, i64>,
     managed_max_credits: Option<i64>,
     magpie_max_credits: Option<i64>,
     isolated_loopback_test: bool,
@@ -85,6 +97,7 @@ impl LmmProfile {
             resource: format!("{issuer}/api/oauth2"),
             groups: allowed,
             pi_max_credits: None,
+            provider_max_credits: BTreeMap::new(),
             managed_max_credits: None,
             magpie_max_credits: None,
             isolated_loopback_test,
@@ -112,6 +125,14 @@ impl LmmProfile {
     pub fn pi_budget_limit(&self) -> Option<i64> {
         self.pi_max_credits
     }
+    /// Each public provider is disabled until its own finite ceiling is configured.
+    pub fn with_provider_budget_limit(mut self, client: &str, maximum: i64) -> Result<Self> {
+        if !is_provider_client(client) || !(1..=9_007_199_254_740_991).contains(&maximum) {
+            return Err(IdentityError::Invalid);
+        }
+        self.provider_max_credits.insert(client.to_owned(), maximum);
+        Ok(self)
+    }
     pub fn with_managed_budget_limit(mut self, maximum: i64) -> Result<Self> {
         if !(1..=9_007_199_254_740_991).contains(&maximum) {
             return Err(IdentityError::Invalid);
@@ -132,7 +153,7 @@ impl LmmProfile {
             "lmm-pi" => self.pi_max_credits,
             MANAGED_CLIENT => self.managed_max_credits,
             MAGPIE_CLIENT => self.magpie_max_credits,
-            _ => None,
+            _ => self.provider_max_credits.get(client).copied(),
         }
     }
     pub(super) fn validate_model_budget(&self, client: &str, budget: Option<i64>) -> Result<i64> {
@@ -147,7 +168,7 @@ impl LmmProfile {
     pub(super) fn binding(&self, client: &str, resource: &str) -> Result<()> {
         if (client != CLIENT
             && !is_managed_client(client)
-            && !(client == "lmm-pi" && self.pi_max_credits.is_some()))
+            && !(is_model_client(client) && self.model_budget_limit(client).is_some()))
             || resource != self.resource
         {
             return Err(IdentityError::Unauthorized);
@@ -332,13 +353,11 @@ pub struct RevokeForm {
 }
 impl RevokeForm {
     pub fn validate(&self) -> Result<()> {
-        if !matches!(
-            self.client_id.as_str(),
-            CLIENT | "lmm-pi" | MANAGED_CLIENT | MAGPIE_CLIENT
-        ) || self
-            .token_type_hint
-            .as_ref()
-            .is_some_and(|s| s != "access_token" && s != "refresh_token")
+        if (self.client_id != CLIENT && !is_model_client(&self.client_id))
+            || self
+                .token_type_hint
+                .as_ref()
+                .is_some_and(|s| s != "access_token" && s != "refresh_token")
         {
             return Err(IdentityError::Invalid);
         }
@@ -458,6 +477,36 @@ mod tests {
         assert_eq!(profile.model_budget_limit(MANAGED_CLIENT), Some(11));
         assert_eq!(profile.model_budget_limit(CLIENT), None);
         assert!(profile.clone().with_managed_budget_limit(0).is_err());
+    }
+    #[test]
+    fn public_provider_issuance_requires_its_own_finite_ceiling() {
+        let base = LmmProfile::new("https://issuer.example.test", vec!["allowed".into()]).unwrap();
+        for (client, _) in PROVIDER_CLIENTS {
+            assert!(is_model_client(client));
+            assert!(base.binding(client, base.resource()).is_err());
+            let profile = base.clone().with_provider_budget_limit(client, 70).unwrap();
+            assert_eq!(profile.model_budget_limit(client), Some(70));
+            assert!(profile.binding(client, profile.resource()).is_ok());
+            for (other, _) in PROVIDER_CLIENTS {
+                if other != client {
+                    assert!(profile.binding(other, profile.resource()).is_err());
+                }
+            }
+            for budget in [None, Some(0), Some(71)] {
+                assert!(profile.validate_model_budget(client, budget).is_err());
+            }
+            assert_eq!(profile.validate_model_budget(client, Some(70)).unwrap(), 70);
+            for maximum in [0, 9_007_199_254_740_992] {
+                assert!(
+                    base.clone()
+                        .with_provider_budget_limit(client, maximum)
+                        .is_err()
+                );
+            }
+        }
+        for client in ["unknown", "lmm-pi", "lmm-cc-switch", "lmm-dsh "] {
+            assert!(base.clone().with_provider_budget_limit(client, 70).is_err());
+        }
     }
     #[test]
     fn canonical_cli_tokens_and_group_scopes_reject_aliases() {

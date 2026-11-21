@@ -993,6 +993,12 @@ fn require_oauth_model_gateway(
         if profile.pi_budget_limit().is_some() {
             return Err("Pi delegation requires actual model gateway");
         }
+        if lmm_core::identity::grants::PROVIDER_CLIENTS
+            .iter()
+            .any(|(client, _)| profile.model_budget_limit(client).is_some())
+        {
+            return Err("public model providers require actual model gateway");
+        }
         if profile.model_budget_limit("lmm-cc-switch").is_some()
             || profile.model_budget_limit("lmm-magpie").is_some()
         {
@@ -1015,6 +1021,11 @@ mod check_db_parser_tests {
             .unwrap()
         };
         assert!(require_oauth_model_gateway(&profile(), false).is_ok());
+        for (client, _) in lmm_core::identity::grants::PROVIDER_CLIENTS {
+            let provider = profile().with_provider_budget_limit(client, 100).unwrap();
+            assert!(require_oauth_model_gateway(&provider, false).is_err());
+            assert!(require_oauth_model_gateway(&provider, true).is_ok());
+        }
         for profile in [
             profile().with_pi_budget_limit(100).unwrap(),
             profile().with_managed_budget_limit(100).unwrap(),

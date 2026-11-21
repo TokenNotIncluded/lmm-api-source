@@ -16,8 +16,8 @@ pub use managed::{
 };
 use oxide_auth::code_grant::extensions::Pkce;
 pub use protocol::{
-    AuthorizationRequest, ConsentForm, ContinueForm, LmmProfile, RevokeForm, TokenForm,
-    TokenRequest, TokenWire,
+    AuthorizationRequest, ConsentForm, ContinueForm, LmmProfile, PROVIDER_CLIENTS, RevokeForm,
+    TokenForm, TokenRequest, TokenWire,
 };
 pub use readonly::{BalanceV2, ReadError};
 use sqlx::{Postgres, Transaction};

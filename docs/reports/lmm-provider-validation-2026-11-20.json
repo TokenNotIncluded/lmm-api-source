@@ -1,0 +1,1470 @@
+{
+  "schema": "lmm.provider-validation-index.v1",
+  "generated_at_utc": "2026-11-20T12:27:59.005680+00:00",
+  "path_base": "lmm-api workspace root",
+  "kind": "development_validation_snapshot",
+  "counting_rule": "Summary uses the final result for each unique case. Historical failed attempts remain in their original artifacts. Artifact counts overlap; capture, Core77 control, Store and Pi host cohorts remain separately counted.",
+  "privacy_policy": "This index contains only allowlisted paths, file hashes, counts, states and source attribution. Raw log bodies, connection strings, environment files, credentials and user/account data are not copied.",
+  "sources": {
+    "core_local_candidate": {
+      "repository": "TokenNotIncluded/lmm-api-source",
+      "base_commit": "3d1c09d5e0424b44603686f7419e76f790b2bb5c",
+      "related_published_implementation_commit": "8f523befd7be5491c6e62183049802acedfcaf2d",
+      "execution_basis": "Frozen local candidate input manifests before publication; use each execution receipt and input manifest for exact bytes, rather than assuming every earlier attempt ran on a clean published commit."
+    },
+    "core_compile_diagnostic": {
+      "repository": "TokenNotIncluded/lmm-api-source",
+      "base_commit": "8f523befd7be5491c6e62183049802acedfcaf2d",
+      "assertion_change_later_published_commit": "157b4f0598fd865146d1ce1ea634f0d1c501213c",
+      "execution_basis": "Compilation failed before case execution; production_behavior_changed=false."
+    },
+    "core_setup_only": {
+      "repository": "TokenNotIncluded/lmm-api-source",
+      "intended_final_commit": "157b4f0598fd865146d1ce1ea634f0d1c501213c",
+      "executed_commit": null,
+      "execution_basis": "Setup assertions stopped before cargo; no case or product code execution is claimed."
+    },
+    "core_final_candidate": {
+      "repository": "TokenNotIncluded/lmm-api-source",
+      "commit": "157b4f0598fd865146d1ce1ea634f0d1c501213c",
+      "parent_commit": "8f523befd7be5491c6e62183049802acedfcaf2d",
+      "pull_request": "https://github.com/TokenNotIncluded/lmm-api-source/pull/11",
+      "pull_request_state_at_handoff": "open_draft",
+      "scope": "Strengthens successful SSE terminal-event assertions; production behavior, timeouts and expected settlement 49 remain unchanged. Exact final recheck passed 1/1; original failure remains and its cause is not uniquely confirmed."
+    },
+    "core77_control": {
+      "repository": "TokenNotIncluded/lmm-api-source",
+      "commit": "3d1c09d5e0424b44603686f7419e76f790b2bb5c",
+      "component_count": 77,
+      "source_clean_before_and_after": true,
+      "causal_limit": "One passing control run does not independently prove the cause of the component78 failure."
+    },
+    "store_main_candidate": {
+      "repository": "TokenNotIncluded/lmm-api-source",
+      "receipt_base_commit": "65c7c5c644646535054f82bde2ec291526a53d0b",
+      "mapped_published_commit": "3d1c09d5e0424b44603686f7419e76f790b2bb5c",
+      "source_entries": 945,
+      "source_unchanged": true,
+      "execution_basis": "Main worktree with the five-file change; published afterward as mapped commit."
+    },
+    "toolmarket_b5ee": {
+      "repository": "TokenNotIncluded/lmm-api-source",
+      "commit": "b5ee7158157f48b501da526bca96b39c63b50420",
+      "execution_basis": "Reuse two original Toolmarket PostgreSQL cases; the third original MerchantHome result is not the current main-line MerchantHome proof."
+    },
+    "pi_npm12_fix": {
+      "repository": "TokenNotIncluded/pi-lmm-provider",
+      "base_commit": "1eb82ee84aece10e2be6b1c2474dc19d7c17d82b",
+      "commit": "b78228a17d4b7b883bec9b9b1ca2915674bf8dc6",
+      "source_matches_tested_patch": true,
+      "node": "26.13.1",
+      "npm": "12.2.0",
+      "pi_host": "0.86.1",
+      "pull_request": "https://github.com/TokenNotIncluded/pi-lmm-provider/pull/16",
+      "observed_newer_pr_head": "9598fc94933f5d04bf9382c827b7e228fa6c8a38",
+      "results_transfer_to_newer_head": false
+    },
+    "pi_pre_fix": {
+      "repository": "TokenNotIncluded/pi-lmm-provider",
+      "commit": "1eb82ee84aece10e2be6b1c2474dc19d7c17d82b"
+    }
+  },
+  "summary": {
+    "core_ordinary": {
+      "unique_passed": 22,
+      "unique_runtime_failed": 0,
+      "unique_cases_executed": 22,
+      "unique_skipped": 0,
+      "breakdown_passed": {
+        "schema_postgresql": 6,
+        "upgrade_registry": 5,
+        "protocol_config_csp_startup": 4,
+        "new_provider_http_finance": 2,
+        "pi_browser": 1,
+        "managed_consent_and_discovery": 2,
+        "magpie_discovery": 1,
+        "pi_stream_final_reverification": 1
+      },
+      "historical_runtime_failed_executions": 1,
+      "historical_failure_erased": false,
+      "qualification_note": "The earlier Pi runtime failure is retained. A passing exact recheck does not uniquely identify the cause or establish permanent elimination."
+    },
+    "schema_capture": {
+      "passed": 1,
+      "counted_separately": true,
+      "initial_connection_failure_before_sql_executions": 1
+    },
+    "core77_control": {
+      "passed": 1,
+      "failed": 0,
+      "counted_separately": true,
+      "test_runtime_seconds": 11.93,
+      "total_runtime_seconds": 294.82,
+      "cleanup_completed": true
+    },
+    "core_final_reverification": {
+      "status": "passed",
+      "commit": "157b4f0598fd865146d1ce1ea634f0d1c501213c",
+      "cases_executed": 1,
+      "passed": 1,
+      "failed": 0,
+      "ignored": 0,
+      "counts_included_in_core_ordinary": true,
+      "receipt": "out/lmm-provider-clients-local/core-pi78-final-receipt.json",
+      "test_runtime_seconds": 5.1,
+      "total_runtime_seconds": 287.131,
+      "core_inputs_unchanged": true,
+      "production_behavior_changed": false,
+      "original_financial_assertions_unchanged": true,
+      "successful_sse_terminal_assertion_strengthened": true,
+      "root_cause_uniquely_confirmed": false,
+      "original_runtime_failure_retained": true
+    },
+    "non_case_failures": {
+      "initial_new_http_compile_failures": 1,
+      "diagnostic_compile_failures": 1,
+      "rebuild_setup_failures_before_cargo": 2,
+      "test_cases_executed_by_these_failures": 0
+    },
+    "resolved_schema_fixture_failures": {
+      "failed_executions": 2,
+      "unresolved": 0,
+      "do_not_add_to_unique_failed_cases": true
+    },
+    "store_main_merchant_home": {
+      "passed": 1,
+      "skipped": 0
+    },
+    "toolmarket_reused": {
+      "passed": 2,
+      "rerun": 0,
+      "original_commit": "b5ee7158157f48b501da526bca96b39c63b50420"
+    },
+    "pi_npm12": {
+      "unit_passed": 167,
+      "failed": 0,
+      "skipped": 0,
+      "host_rows_executed": 1,
+      "host_rows_not_rerun": 5
+    }
+  },
+  "core_stream_failure": {
+    "test": "actual_core_tcp_pi_chat_responses_json_stream_and_native_control",
+    "status": "historical_runtime_failure_with_passing_exact_recheck_cause_unconfirmed",
+    "reserved": 140,
+    "settled": 0,
+    "expected_settled_per_request": 49,
+    "charging_transaction_lock_timeout_seconds": 2,
+    "assertion_weakened": false,
+    "source_receipt": "out/lmm-provider-clients-local/core-root-recheck-receipt.json",
+    "diagnosis_receipt": "out/lmm-provider-clients-local/pi-stream-failure-evidence.json",
+    "root_cause_uniquely_confirmed": false,
+    "later_recheck": {
+      "commit": "157b4f0598fd865146d1ce1ea634f0d1c501213c",
+      "passed": 1,
+      "failed": 0,
+      "receipt": "out/lmm-provider-clients-local/core-pi78-final-receipt.json"
+    },
+    "upstream_terminal_checkpoint_observed": true,
+    "provider_terminal_observation_present": true,
+    "charging_model_provider_terminal_event_present": false,
+    "successful_client_terminal_asserted_by_original_test": false
+  },
+  "schema78_target": {
+    "catalog_sha256": "dbc1df98f792d1484700e36005e900ec97a54a21a56d752bab0863bd84ab7177",
+    "manifest_sha256": "b9d0a472bddc826e0f6bfa0e725e409e67cbaabad6b0ad80cd512de24da74c2b",
+    "oauth_catalog_sha256": "0727dcc3465ede90e1c4fc708ea2b223e7b297d672fb3e7952eda8afcda0ecaa",
+    "oauth_predecessor_catalog_sha256": "1c573f3c85ed5ce4e924ad700c9d821d072696dcc4ed3b52ba633801839d169a",
+    "raw_schema_sha256": "fbf30da1a977cfcfc14fa0f98befc374404850e9ad94a6d5df5943e31b0ba1b4"
+  },
+  "control_cleanup": {
+    "owned_control_resources_only": true,
+    "existing_main_pg_or_failure_database_touched": false,
+    "shared_target_touched": false,
+    "receipt": "out/lmm-pi-core77-control-20261120-115438/cleanup-receipt.json"
+  },
+  "store_individual_checks": {
+    "nested-pgtest-vet": {
+      "exit_code": 0
+    },
+    "docs-only": {
+      "exit_code": 0
+    },
+    "gofmt": {
+      "exit_code": 0
+    }
+  },
+  "artifacts": [
+    {
+      "path": "out/lmm-provider-clients-local/provider-schema-verification.json",
+      "kind": "summary_receipt",
+      "source_ref": "core_local_candidate",
+      "status": "passed",
+      "exists": true,
+      "sha256": "13e8cd8c978cf27aad50b80af5d269e362f2fec26dac37fbb598d4a9e553a6bf",
+      "bytes": 13274,
+      "finalized": true,
+      "unchanged_during_read": true,
+      "counts": {
+        "ordinary_unique_passed": 11,
+        "postgresql_unique_passed": 6,
+        "registry_unique_passed": 5,
+        "ordinary_skipped": 0,
+        "capture_passed_separately": 1
+      }
+    },
+    {
+      "path": "out/lmm-provider-clients-local/provider-capture.log",
+      "kind": "log",
+      "source_ref": "core_local_candidate",
+      "status": "environment_failure_before_sql",
+      "exists": true,
+      "sha256": "89d053f1108b206f9887eb8c7fce05b22b0eec6ab2af79455f8b00574959d917",
+      "bytes": 13829,
+      "finalized": true,
+      "unchanged_during_read": true,
+      "counts": {
+        "passed": 0,
+        "failed": 0,
+        "ignored": 0,
+        "cases_executed": 0
+      },
+      "status_source": "out/lmm-provider-clients-local/provider-schema-verification.json"
+    },
+    {
+      "path": "out/lmm-provider-clients-local/provider-capture-tcp.log",
+      "kind": "log",
+      "source_ref": "core_local_candidate",
+      "status": "passed",
+      "exists": true,
+      "sha256": "fa8ebc9da8752cb5f48d38244d1697780c5c6f99561e5c2fb746e0f3adf37d2b",
+      "bytes": 515,
+      "finalized": true,
+      "unchanged_during_read": true,
+      "counts": {
+        "capture_passed": 1,
+        "ordinary_cases_executed": 0
+      },
+      "status_source": "out/lmm-provider-clients-local/provider-schema-verification.json"
+    },
+    {
+      "path": "out/lmm-provider-clients-local/provider-schema.log",
+      "kind": "log",
+      "source_ref": "core_local_candidate",
+      "status": "mixed_initial_run_with_two_resolved_fixture_failures",
+      "exists": true,
+      "sha256": "2767ab56c5bb24eb5dedd67d5963f0c7b96e016aa950c3639aac1391e10ae93a",
+      "bytes": 1751,
+      "finalized": true,
+      "unchanged_during_read": true,
+      "counts": {
+        "passed": 1,
+        "failed": 2,
+        "ignored": 0,
+        "cases_executed": 3
+      },
+      "status_source": "out/lmm-provider-clients-local/provider-schema-verification.json"
+    },
+    {
+      "path": "out/lmm-provider-clients-local/provider-scope-recheck.log",
+      "kind": "log",
+      "source_ref": "core_local_candidate",
+      "status": "passed",
+      "exists": true,
+      "sha256": "5349fee52e6df631dd472d788ddb1ef738b4d12107ae2d76e0bd0adef0f8d483",
+      "bytes": 534,
+      "finalized": true,
+      "unchanged_during_read": true,
+      "counts": {
+        "passed": 1,
+        "failed": 0,
+        "ignored": 0,
+        "cases_executed": 1
+      },
+      "status_source": "out/lmm-provider-clients-local/provider-schema-verification.json"
+    },
+    {
+      "path": "out/lmm-provider-clients-local/provider-owner-recheck.log",
+      "kind": "log",
+      "source_ref": "core_local_candidate",
+      "status": "passed",
+      "exists": true,
+      "sha256": "611ddbab31e20235071e4170ea736bff9498ac3f2fd7f19e4b58d7dcfb59aacc",
+      "bytes": 446,
+      "finalized": true,
+      "unchanged_during_read": true,
+      "counts": {
+        "passed": 1,
+        "failed": 0,
+        "ignored": 0,
+        "cases_executed": 1
+      },
+      "status_source": "out/lmm-provider-clients-local/provider-schema-verification.json"
+    },
+    {
+      "path": "out/lmm-provider-clients-local/managed70-schema.log",
+      "kind": "log",
+      "source_ref": "core_local_candidate",
+      "status": "passed",
+      "exists": true,
+      "sha256": "00fad59dd5583405c4a888515d288bc2843a66604e6c702d9ef08b219be8f649",
+      "bytes": 834,
+      "finalized": true,
+      "unchanged_during_read": true,
+      "counts": {
+        "passed": 3,
+        "failed": 0,
+        "ignored": 0,
+        "cases_executed": 3
+      },
+      "status_source": "out/lmm-provider-clients-local/provider-schema-verification.json"
+    },
+    {
+      "path": "out/lmm-provider-clients-local/provider-registry.log",
+      "kind": "log",
+      "source_ref": "core_local_candidate",
+      "status": "passed",
+      "exists": true,
+      "sha256": "7dd88c44ecafa7b6f9e2facfb96d0d82b9bdc7cc19f9b6bef2703162ba4b3553",
+      "bytes": 827,
+      "finalized": true,
+      "unchanged_during_read": true,
+      "counts": {
+        "passed": 5,
+        "failed": 0,
+        "ignored": 0,
+        "cases_executed": 5
+      },
+      "status_source": "out/lmm-provider-clients-local/provider-schema-verification.json"
+    },
+    {
+      "path": "out/lmm-provider-clients-local/provider-capture-receipt.json",
+      "kind": "receipt",
+      "source_ref": "core_local_candidate",
+      "status": "environment_failure_before_sql",
+      "exists": true,
+      "sha256": "786d19f7d3c1579a564d012a52f4b93cd469c6a9a1be202eb7f90fa08dbcd62b",
+      "bytes": 520,
+      "finalized": true,
+      "unchanged_during_read": true,
+      "counts": {
+        "passed": 0,
+        "failed": 0,
+        "ignored": 0,
+        "cases_executed": 0
+      },
+      "status_source": "out/lmm-provider-clients-local/provider-schema-verification.json"
+    },
+    {
+      "path": "out/lmm-provider-clients-local/provider-capture-tcp-receipt.json",
+      "kind": "receipt",
+      "source_ref": "core_local_candidate",
+      "status": "passed",
+      "exists": true,
+      "sha256": "d8f0c0e920b54df11d16c233ff5ee6e058fd7ebb85ff975bcad55754997a872c",
+      "bytes": 525,
+      "finalized": true,
+      "unchanged_during_read": true,
+      "counts": {
+        "capture_passed": 1,
+        "ordinary_cases_executed": 0
+      },
+      "status_source": "out/lmm-provider-clients-local/provider-schema-verification.json"
+    },
+    {
+      "path": "out/lmm-provider-clients-local/provider-schema-suite-receipt.json",
+      "kind": "receipt",
+      "source_ref": "core_local_candidate",
+      "status": "mixed_initial_run_with_two_resolved_fixture_failures",
+      "exists": true,
+      "sha256": "41c4e99c44aa040c38fa13bbf140a6f20d3dc067a32e447869f9089375cc4aaa",
+      "bytes": 550,
+      "finalized": true,
+      "unchanged_during_read": true,
+      "counts": {
+        "passed": 1,
+        "failed": 2,
+        "ignored": 0,
+        "cases_executed": 3
+      },
+      "status_source": "out/lmm-provider-clients-local/provider-schema-verification.json"
+    },
+    {
+      "path": "out/lmm-provider-clients-local/provider-schema-recheck-receipt.json",
+      "kind": "receipt",
+      "source_ref": "core_local_candidate",
+      "status": "passed",
+      "exists": true,
+      "sha256": "c8fd0d35f0c7accb2ffcc708b7523494c8fe069d8d36da1511d82176af01370a",
+      "bytes": 2316,
+      "finalized": true,
+      "unchanged_during_read": true,
+      "counts": {
+        "passed": 10,
+        "failed": 0,
+        "ignored": 0,
+        "cases_executed": 10
+      },
+      "status_source": "out/lmm-provider-clients-local/provider-schema-verification.json"
+    },
+    {
+      "path": "out/lmm-provider-clients-local/tmp/pg-ack-2b671d407a1d3754/proxy.log",
+      "kind": "log",
+      "source_ref": "core_local_candidate",
+      "status": "recorded",
+      "exists": true,
+      "sha256": "f13f73c0e8968f922de392cd6898f4897c4f68b243dcef30eaeb60863da24466",
+      "bytes": 528,
+      "finalized": true,
+      "unchanged_during_read": true,
+      "status_source": "out/lmm-provider-clients-local/provider-schema-verification.json"
+    },
+    {
+      "path": "out/lmm-provider-clients-local/root-01-protocol.log",
+      "kind": "log",
+      "source_ref": "core_local_candidate",
+      "status": "passed",
+      "exists": true,
+      "sha256": "7fb3439677eca7d798dd73dfa3d80568331e936d07d72c68700b4d163c9fba3a",
+      "bytes": 417,
+      "finalized": true,
+      "unchanged_during_read": true,
+      "counts": {
+        "passed": 1,
+        "failed": 0,
+        "ignored": 0,
+        "cases_executed": 1
+      },
+      "status_source": "out/lmm-provider-clients-local/core-root-tests-receipt.json"
+    },
+    {
+      "path": "out/lmm-provider-clients-local/root-02-config.log",
+      "kind": "log",
+      "source_ref": "core_local_candidate",
+      "status": "passed",
+      "exists": true,
+      "sha256": "4ae92b149722b3bbe16ac7dc0e0b6375acab86836eb139d1b68c4e0a17508a19",
+      "bytes": 405,
+      "finalized": true,
+      "unchanged_during_read": true,
+      "counts": {
+        "passed": 1,
+        "failed": 0,
+        "ignored": 0,
+        "cases_executed": 1
+      },
+      "status_source": "out/lmm-provider-clients-local/core-root-tests-receipt.json"
+    },
+    {
+      "path": "out/lmm-provider-clients-local/root-03-consent_csp.log",
+      "kind": "log",
+      "source_ref": "core_local_candidate",
+      "status": "passed",
+      "exists": true,
+      "sha256": "8c7a75c093d5badc4ecbcc39548ff5ec34ba79ec3f044e1aaaa625b51d50c468",
+      "bytes": 408,
+      "finalized": true,
+      "unchanged_during_read": true,
+      "counts": {
+        "passed": 1,
+        "failed": 0,
+        "ignored": 0,
+        "cases_executed": 1
+      },
+      "status_source": "out/lmm-provider-clients-local/core-root-tests-receipt.json"
+    },
+    {
+      "path": "out/lmm-provider-clients-local/root-04-startup_gateway.log",
+      "kind": "log",
+      "source_ref": "core_local_candidate",
+      "status": "passed",
+      "exists": true,
+      "sha256": "1ae19169c2e7ac11866d131830738cae688b92cff62c82ca178b44ff8432f57d",
+      "bytes": 520,
+      "finalized": true,
+      "unchanged_during_read": true,
+      "counts": {
+        "passed": 1,
+        "failed": 0,
+        "ignored": 0,
+        "cases_executed": 1
+      },
+      "status_source": "out/lmm-provider-clients-local/core-root-tests-receipt.json"
+    },
+    {
+      "path": "out/lmm-provider-clients-local/root-05-providers_http_finance.log",
+      "kind": "log",
+      "source_ref": "core_local_candidate",
+      "status": "compile_failure_no_case_executed",
+      "exists": true,
+      "sha256": "883e3e8e48ac1c9f8532c6aa198ecd9a919a020b5f983f30ff7305f237bf0cd2",
+      "bytes": 803,
+      "finalized": true,
+      "unchanged_during_read": true,
+      "counts": {
+        "passed": 0,
+        "failed": 0,
+        "ignored": 0,
+        "cases_executed": 0
+      },
+      "status_source": "out/lmm-provider-clients-local/core-root-tests-receipt.json"
+    },
+    {
+      "path": "out/lmm-provider-clients-local/core-root-tests-receipt.json",
+      "kind": "execution_receipt",
+      "source_ref": "core_local_candidate",
+      "status": "failed",
+      "exists": true,
+      "sha256": "899ecf9565ef60be81c737782dba0a301d3cdc8e5f581cc4690871827bfe0bd0",
+      "bytes": 3931,
+      "finalized": true,
+      "unchanged_during_read": true,
+      "counts": {
+        "passed": 4,
+        "failed": 0,
+        "ignored": 0,
+        "cases_executed": 4,
+        "failed_steps_without_case_execution": 1
+      }
+    },
+    {
+      "path": "out/lmm-provider-clients-local/root2-01-providers_http_finance.log",
+      "kind": "log",
+      "source_ref": "core_local_candidate",
+      "status": "passed",
+      "exists": true,
+      "sha256": "acb4b681dc8cbaebe6b0cd8da8132b8945f63db4d5c3a5768271ac5b33ee6c52",
+      "bytes": 8473,
+      "finalized": true,
+      "unchanged_during_read": true,
+      "counts": {
+        "passed": 2,
+        "failed": 0,
+        "ignored": 0,
+        "cases_executed": 2
+      },
+      "status_source": "out/lmm-provider-clients-local/core-root-recheck-receipt.json"
+    },
+    {
+      "path": "out/lmm-provider-clients-local/root2-02-pi_browser.log",
+      "kind": "log",
+      "source_ref": "core_local_candidate",
+      "status": "passed",
+      "exists": true,
+      "sha256": "15579a8ec9ce7b2b93c92012b006dfbc17fd00c450724a0446607861350980eb",
+      "bytes": 513,
+      "finalized": true,
+      "unchanged_during_read": true,
+      "counts": {
+        "passed": 1,
+        "failed": 0,
+        "ignored": 0,
+        "cases_executed": 1
+      },
+      "status_source": "out/lmm-provider-clients-local/core-root-recheck-receipt.json"
+    },
+    {
+      "path": "out/lmm-provider-clients-local/root2-03-pi_model_http.log",
+      "kind": "log",
+      "source_ref": "core_local_candidate",
+      "status": "runtime_test_failure",
+      "exists": true,
+      "sha256": "0554550e757987e0a5a0c08f4ed9df8daffd385604fd95de5d271c41ce577ff0",
+      "bytes": 6194,
+      "finalized": true,
+      "unchanged_during_read": true,
+      "counts": {
+        "passed": 0,
+        "failed": 1,
+        "ignored": 0,
+        "cases_executed": 1
+      },
+      "status_source": "out/lmm-provider-clients-local/core-root-recheck-receipt.json"
+    },
+    {
+      "path": "out/lmm-provider-clients-local/core-root-recheck-receipt.json",
+      "kind": "execution_receipt",
+      "source_ref": "core_local_candidate",
+      "status": "failed",
+      "exists": true,
+      "sha256": "5e28bd30efb24b6b70f240f32f0546d16550e2a48e90ba67ddd7cf330512ec0d",
+      "bytes": 2932,
+      "finalized": true,
+      "unchanged_during_read": true,
+      "counts": {
+        "passed": 3,
+        "failed": 1,
+        "ignored": 0,
+        "cases_executed": 4,
+        "failed_steps_without_case_execution": 0
+      }
+    },
+    {
+      "path": "out/lmm-provider-clients-local/root3-01-managed_consent.log",
+      "kind": "log",
+      "source_ref": "core_local_candidate",
+      "status": "passed",
+      "exists": true,
+      "sha256": "564eb068707f85bad1c2a06d188c0b49f4704072f6142b0bccde3406dec6a54f",
+      "bytes": 538,
+      "finalized": true,
+      "unchanged_during_read": true,
+      "counts": {
+        "passed": 1,
+        "failed": 0,
+        "ignored": 0,
+        "cases_executed": 1
+      },
+      "status_source": "out/lmm-provider-clients-local/core-root-remaining-receipt.json"
+    },
+    {
+      "path": "out/lmm-provider-clients-local/root3-02-managed_discovery.log",
+      "kind": "log",
+      "source_ref": "core_local_candidate",
+      "status": "passed",
+      "exists": true,
+      "sha256": "5d3ef22437cc653d3be0aa13fe177806a0481421dd1d92ced2f0f9da5d23c014",
+      "bytes": 438,
+      "finalized": true,
+      "unchanged_during_read": true,
+      "counts": {
+        "passed": 1,
+        "failed": 0,
+        "ignored": 0,
+        "cases_executed": 1
+      },
+      "status_source": "out/lmm-provider-clients-local/core-root-remaining-receipt.json"
+    },
+    {
+      "path": "out/lmm-provider-clients-local/root3-03-magpie_discovery.log",
+      "kind": "log",
+      "source_ref": "core_local_candidate",
+      "status": "passed",
+      "exists": true,
+      "sha256": "5e76db0fa86921d34b0dd463bc0aa8d69bdccbc7e8b91cfd1347fdb6ebafa26a",
+      "bytes": 508,
+      "finalized": true,
+      "unchanged_during_read": true,
+      "counts": {
+        "passed": 1,
+        "failed": 0,
+        "ignored": 0,
+        "cases_executed": 1
+      },
+      "status_source": "out/lmm-provider-clients-local/core-root-remaining-receipt.json"
+    },
+    {
+      "path": "out/lmm-provider-clients-local/core-root-remaining-receipt.json",
+      "kind": "execution_receipt",
+      "source_ref": "core_local_candidate",
+      "status": "passed",
+      "exists": true,
+      "sha256": "989d88e4a062cc3bc57bde4f5a5883c14bdf7960db37f1c8ab9399fee25233ca",
+      "bytes": 2914,
+      "finalized": true,
+      "unchanged_during_read": true,
+      "counts": {
+        "passed": 3,
+        "failed": 0,
+        "ignored": 0,
+        "cases_executed": 3,
+        "failed_steps_without_case_execution": 0
+      }
+    },
+    {
+      "path": "out/lmm-provider-clients-local/core-root-input-manifest.json",
+      "kind": "source_input_manifest",
+      "source_ref": "core_local_candidate",
+      "status": "recorded",
+      "exists": true,
+      "sha256": "9fefe6d23661843855395a51970af056410056ca55b1de9cb51d9725b317ad2d",
+      "bytes": 131106,
+      "finalized": true,
+      "unchanged_during_read": true
+    },
+    {
+      "path": "out/lmm-provider-clients-local/core-root-recheck-input-manifest.json",
+      "kind": "source_input_manifest",
+      "source_ref": "core_local_candidate",
+      "status": "recorded",
+      "exists": true,
+      "sha256": "9382bb2189840393df2ee5b252011ab017911fe2a797349f47a3a2f12ab3d943",
+      "bytes": 131106,
+      "finalized": true,
+      "unchanged_during_read": true
+    },
+    {
+      "path": "out/lmm-provider-clients-local/core-root-remaining-input-manifest.json",
+      "kind": "source_input_manifest",
+      "source_ref": "core_local_candidate",
+      "status": "recorded",
+      "exists": true,
+      "sha256": "9382bb2189840393df2ee5b252011ab017911fe2a797349f47a3a2f12ab3d943",
+      "bytes": 131106,
+      "finalized": true,
+      "unchanged_during_read": true
+    },
+    {
+      "path": "out/lmm-provider-clients-local/pi-stream-failure-evidence.json",
+      "kind": "failure_diagnosis",
+      "source_ref": "core_local_candidate",
+      "status": "unresolved_runtime_failure",
+      "exists": true,
+      "sha256": "166de35031d73d6cf572cba3261364ec702bf27fb2c4af8e29db7fea0a30b27f",
+      "bytes": 8088,
+      "finalized": true,
+      "unchanged_during_read": true,
+      "counts": {
+        "unique_runtime_failed": 1,
+        "additional_cases_executed": 0
+      },
+      "status_source": "out/lmm-provider-clients-local/core-root-recheck-receipt.json"
+    },
+    {
+      "path": "out/lmm-provider-clients-local/core-pi78-diagnostic-receipt.json",
+      "kind": "execution_receipt",
+      "source_ref": "core_compile_diagnostic",
+      "status": "compile_failure_no_case_executed",
+      "exists": true,
+      "sha256": "f5e6aed341a790e328fcd41aeafc9739046c7d2992eccca457b45654c26d4bcc",
+      "bytes": 1267,
+      "finalized": true,
+      "unchanged_during_read": true,
+      "counts": {
+        "passed": 0,
+        "failed": 0,
+        "ignored": 0,
+        "cases_executed": 0
+      }
+    },
+    {
+      "path": "out/lmm-provider-clients-local/core-pi78-diagnostic.log",
+      "kind": "log",
+      "source_ref": "core_compile_diagnostic",
+      "status": "compile_failure_no_case_executed",
+      "exists": true,
+      "sha256": "4452b086823853c69746f5da6ea24ba10bb3bae3f6d21ce54990bee5b913ab9e",
+      "bytes": 1143,
+      "finalized": true,
+      "unchanged_during_read": true,
+      "counts": {
+        "passed": 0,
+        "failed": 0,
+        "ignored": 0,
+        "cases_executed": 0
+      },
+      "status_source": "out/lmm-provider-clients-local/core-pi78-diagnostic-receipt.json"
+    },
+    {
+      "path": "out/lmm-provider-clients-local/core-pi78-lock-trace.jsonl",
+      "kind": "lock_trace",
+      "source_ref": "core_compile_diagnostic",
+      "status": "no_case_executed",
+      "exists": true,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0,
+      "finalized": true,
+      "unchanged_during_read": true,
+      "counts": {
+        "cases_executed": 0,
+        "trace_records": 0
+      },
+      "status_source": "out/lmm-provider-clients-local/core-pi78-diagnostic-receipt.json"
+    },
+    {
+      "path": "out/lmm-provider-clients-local/core-pi78-diagnostic-input-manifest.json",
+      "kind": "source_input_manifest",
+      "source_ref": "core_compile_diagnostic",
+      "status": "recorded",
+      "exists": true,
+      "sha256": "e9be19867aeb5a08ef990b8865c0efef91031274c949022e7900d5e104ad7494",
+      "bytes": 131106,
+      "finalized": true,
+      "unchanged_during_read": true
+    },
+    {
+      "path": "out/lmm-provider-clients-local/pi78-rebuild-service.log",
+      "kind": "setup_log",
+      "source_ref": "core_setup_only",
+      "status": "setup_failure_before_cargo",
+      "exists": true,
+      "sha256": "af44a784e51b4694cc32a4d450d1d07bd7d1d95d7d4c8bbed51a29c4bea38f76",
+      "bytes": 355,
+      "finalized": true,
+      "unchanged_during_read": true,
+      "counts": {
+        "passed": 0,
+        "failed": 0,
+        "ignored": 0,
+        "cases_executed": 0
+      },
+      "status_source": "root task handoff: both setup assertions stopped before cargo"
+    },
+    {
+      "path": "out/lmm-provider-clients-local/pi78-rebuild-v2-service.log",
+      "kind": "setup_log",
+      "source_ref": "core_setup_only",
+      "status": "setup_failure_before_cargo",
+      "exists": true,
+      "sha256": "f8fec1e3ac2b60de0a1b7818031de636cc54101264264c906e54fbe2e06f9e14",
+      "bytes": 342,
+      "finalized": true,
+      "unchanged_during_read": true,
+      "counts": {
+        "passed": 0,
+        "failed": 0,
+        "ignored": 0,
+        "cases_executed": 0
+      },
+      "status_source": "root task handoff: both setup assertions stopped before cargo"
+    },
+    {
+      "path": "out/lmm-provider-clients-local/core-pi78-build-reset.json",
+      "kind": "build_or_source_provenance",
+      "source_ref": "core_final_candidate",
+      "status": "recorded_no_case_execution",
+      "exists": true,
+      "sha256": "4e7329249181813db495d0be16a1e2869065244b3d1e0b739b48ccd3c0b87263",
+      "bytes": 10226,
+      "finalized": true,
+      "unchanged_during_read": true,
+      "counts": {
+        "passed": 0,
+        "failed": 0,
+        "ignored": 0,
+        "cases_executed": 0
+      }
+    },
+    {
+      "path": "out/lmm-provider-clients-local/core-shared-target-path-evidence.json",
+      "kind": "build_or_source_provenance",
+      "source_ref": "core_final_candidate",
+      "status": "recorded_no_case_execution",
+      "exists": true,
+      "sha256": "c169ecc31d285bcc78521e94a8b97ca47b9ee4098af4d2254000035b23580fa4",
+      "bytes": 4081,
+      "finalized": true,
+      "unchanged_during_read": true,
+      "counts": {
+        "passed": 0,
+        "failed": 0,
+        "ignored": 0,
+        "cases_executed": 0
+      }
+    },
+    {
+      "path": "out/lmm-provider-clients-local/pi-stream-assertion-commit.json",
+      "kind": "build_or_source_provenance",
+      "source_ref": "core_final_candidate",
+      "status": "recorded_no_case_execution",
+      "exists": true,
+      "sha256": "03e0da7471b9857123181fe68498e9d3e46d3053a060e201218335a71f81c943",
+      "bytes": 279,
+      "finalized": true,
+      "unchanged_during_read": true,
+      "counts": {
+        "passed": 0,
+        "failed": 0,
+        "ignored": 0,
+        "cases_executed": 0
+      }
+    },
+    {
+      "path": "out/lmm-provider-clients-local/core-pi78-final-receipt.json",
+      "kind": "execution_receipt",
+      "source_ref": "core_final_candidate",
+      "status": "passed",
+      "exists": true,
+      "sha256": "b22191c78f215a0284a627413474dfb15a8ec71f910cf04d44eba6babb807644",
+      "bytes": 1679,
+      "finalized": true,
+      "unchanged_during_read": true,
+      "counts": {
+        "passed": 1,
+        "failed": 0,
+        "ignored": 0,
+        "cases_executed": 1
+      },
+      "status_source": "out/lmm-provider-clients-local/core-pi78-final-receipt.json"
+    },
+    {
+      "path": "out/lmm-provider-clients-local/core-pi78-final.log",
+      "kind": "log",
+      "source_ref": "core_final_candidate",
+      "status": "passed",
+      "exists": true,
+      "sha256": "d65e426e052ed4ae2df0b7666ca7daa569b5edf53014cc3684c031c068731b81",
+      "bytes": 8355,
+      "finalized": true,
+      "unchanged_during_read": true,
+      "counts": {
+        "passed": 1,
+        "failed": 0,
+        "ignored": 0,
+        "cases_executed": 1
+      },
+      "status_source": "out/lmm-provider-clients-local/core-pi78-final-receipt.json"
+    },
+    {
+      "path": "out/lmm-provider-clients-local/core-pi78-final-lock-trace.jsonl",
+      "kind": "lock_trace",
+      "source_ref": "core_final_candidate",
+      "status": "recorded_for_passed_final_recheck",
+      "exists": true,
+      "sha256": "89d8958720debfcfaff5478b8c95aebc8cb578e8a5f615b727431ba36a92b2fb",
+      "bytes": 7274,
+      "finalized": true,
+      "unchanged_during_read": true,
+      "counts": {
+        "trace_records": 6,
+        "additional_cases_executed": 0
+      },
+      "status_source": "out/lmm-provider-clients-local/core-pi78-final-receipt.json"
+    },
+    {
+      "path": "out/lmm-provider-clients-local/core-pi78-final-input-manifest.json",
+      "kind": "source_input_manifest",
+      "source_ref": "core_final_candidate",
+      "status": "verified_against_passed_final_receipt",
+      "exists": true,
+      "sha256": "e9be19867aeb5a08ef990b8865c0efef91031274c949022e7900d5e104ad7494",
+      "bytes": 131106,
+      "finalized": true,
+      "unchanged_during_read": true
+    },
+    {
+      "path": "out/lmm-provider-clients-local/core-pi78-final-running.json",
+      "kind": "execution_start_record",
+      "source_ref": "core_final_candidate",
+      "status": "start_record_for_completed_passed_execution",
+      "exists": true,
+      "sha256": "d04014fc43994d1d39bf5cf93590ff11bd030502e269417cbbfb0e27b4f3b2e7",
+      "bytes": 1269,
+      "finalized": true,
+      "unchanged_during_read": true
+    },
+    {
+      "path": "out/lmm-pi-core77-control-20261120-115438/control-result.json",
+      "kind": "sanitized_control_summary",
+      "source_ref": "core77_control",
+      "status": "passed",
+      "exists": true,
+      "sha256": "2df9abfdcf1601f64d89edbdb59cc7ed6bb804da36d80e8472a095db6259dbc2",
+      "bytes": 6801,
+      "finalized": true,
+      "unchanged_during_read": true,
+      "counts": {
+        "passed": 1,
+        "failed": 0,
+        "ignored": 0,
+        "cases_executed": 1
+      }
+    },
+    {
+      "path": "out/lmm-pi-core77-control-20261120-115438/control-case-receipt.json",
+      "kind": "execution_receipt",
+      "source_ref": "core77_control",
+      "status": "passed",
+      "exists": true,
+      "sha256": "abae6e2f557d101c472ee9b6bf68bbf5748016806516fcc30e51b5f6924f2881",
+      "bytes": 1587,
+      "finalized": true,
+      "unchanged_during_read": true,
+      "counts": {
+        "passed": 1,
+        "failed": 0,
+        "ignored": 0,
+        "cases_executed": 1
+      },
+      "status_source": "out/lmm-pi-core77-control-20261120-115438/control-result.json"
+    },
+    {
+      "path": "out/lmm-pi-core77-control-20261120-115438/control-case.log",
+      "kind": "log",
+      "source_ref": "core77_control",
+      "status": "passed",
+      "exists": true,
+      "sha256": "b5687bf2c38338802cce935fbd93cc15d05e541f7d4aa704856dd3b455dfc5a6",
+      "bytes": 8466,
+      "finalized": true,
+      "unchanged_during_read": true,
+      "counts": {
+        "passed": 1,
+        "failed": 0,
+        "ignored": 0,
+        "cases_executed": 1
+      },
+      "status_source": "out/lmm-pi-core77-control-20261120-115438/control-result.json"
+    },
+    {
+      "path": "out/lmm-pi-core77-control-20261120-115438/cleanup-receipt.json",
+      "kind": "cleanup_receipt",
+      "source_ref": "core77_control",
+      "status": "cleanup_completed",
+      "exists": true,
+      "sha256": "a9c26de538cac619eb7884014f2c9c25b883a26d3452f5161d1accc1ca6e26b3",
+      "bytes": 1617,
+      "finalized": true,
+      "unchanged_during_read": true,
+      "counts": {
+        "additional_cases_executed": 0
+      },
+      "status_source": "out/lmm-pi-core77-control-20261120-115438/control-result.json"
+    },
+    {
+      "path": "out/lmm-pi-core77-control-20261120-115438/control-input.json",
+      "kind": "source_input_manifest",
+      "source_ref": "core77_control",
+      "status": "recorded",
+      "exists": true,
+      "sha256": "60ede269eb3c9130c13a09c7c2e386fccd87c6cbab1686584217923d14974322",
+      "bytes": 3146,
+      "finalized": true,
+      "unchanged_during_read": true
+    },
+    {
+      "path": "out/lmm-market-main65-local/merchant-home-homefs/receipt.json",
+      "kind": "execution_receipt",
+      "source_ref": "store_main_candidate",
+      "status": "passed",
+      "exists": true,
+      "sha256": "6a8996f6fdb1f0fd3c42a17ab12f3ea3a41da8905106b353b42dfe5483ec208e",
+      "bytes": 3062,
+      "finalized": true,
+      "unchanged_during_read": true,
+      "counts": {
+        "passed": 1,
+        "failed": 0,
+        "ignored": 0,
+        "cases_executed": 1,
+        "skipped": 0
+      }
+    },
+    {
+      "path": "out/lmm-market-main65-local/merchant-home-homefs/merchant-home.stdout",
+      "kind": "log",
+      "source_ref": "store_main_candidate",
+      "status": "passed",
+      "exists": true,
+      "sha256": "6bbb5322b2eb6888abb6aa6e7b6360eecffaa744388d0110ecfc012cca96eedb",
+      "bytes": 1605,
+      "finalized": true,
+      "unchanged_during_read": true,
+      "counts": {
+        "passed": 1,
+        "failed": 0,
+        "ignored": 0,
+        "cases_executed": 1,
+        "skipped": 0
+      },
+      "status_source": "out/lmm-market-main65-local/merchant-home-homefs/receipt.json"
+    },
+    {
+      "path": "out/lmm-market-main65-local/nested-pgtest-vet.stdout",
+      "kind": "check_log",
+      "source_ref": "store_main_candidate",
+      "status": "passed",
+      "exists": true,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0,
+      "finalized": true,
+      "unchanged_during_read": true,
+      "counts": {
+        "checks_passed": 1,
+        "test_cases_executed": 0
+      },
+      "status_source": "out/lmm-market-main65-local/receipt.json"
+    },
+    {
+      "path": "out/lmm-market-main65-local/nested-pgtest-vet.stderr",
+      "kind": "check_log",
+      "source_ref": "store_main_candidate",
+      "status": "passed",
+      "exists": true,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0,
+      "finalized": true,
+      "unchanged_during_read": true,
+      "counts": {
+        "checks_passed": 1,
+        "test_cases_executed": 0
+      },
+      "status_source": "out/lmm-market-main65-local/receipt.json"
+    },
+    {
+      "path": "out/lmm-market-main65-local/docs-only.stdout",
+      "kind": "check_log",
+      "source_ref": "store_main_candidate",
+      "status": "passed",
+      "exists": true,
+      "sha256": "79a2c71edcde0c2802d19a027ec7d33da5a840991676f4c346ed7296f52f306e",
+      "bytes": 67,
+      "finalized": true,
+      "unchanged_during_read": true,
+      "counts": {
+        "checks_passed": 1,
+        "test_cases_executed": 0
+      },
+      "status_source": "out/lmm-market-main65-local/receipt.json"
+    },
+    {
+      "path": "out/lmm-market-main65-local/docs-only.stderr",
+      "kind": "check_log",
+      "source_ref": "store_main_candidate",
+      "status": "passed",
+      "exists": true,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0,
+      "finalized": true,
+      "unchanged_during_read": true,
+      "counts": {
+        "checks_passed": 1,
+        "test_cases_executed": 0
+      },
+      "status_source": "out/lmm-market-main65-local/receipt.json"
+    },
+    {
+      "path": "out/lmm-market-main65-local/gofmt.stdout",
+      "kind": "check_log",
+      "source_ref": "store_main_candidate",
+      "status": "passed",
+      "exists": true,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0,
+      "finalized": true,
+      "unchanged_during_read": true,
+      "counts": {
+        "checks_passed": 1,
+        "test_cases_executed": 0
+      },
+      "status_source": "out/lmm-market-main65-local/receipt.json"
+    },
+    {
+      "path": "out/lmm-market-main65-local/gofmt.stderr",
+      "kind": "check_log",
+      "source_ref": "store_main_candidate",
+      "status": "passed",
+      "exists": true,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0,
+      "finalized": true,
+      "unchanged_during_read": true,
+      "counts": {
+        "checks_passed": 1,
+        "test_cases_executed": 0
+      },
+      "status_source": "out/lmm-market-main65-local/receipt.json"
+    },
+    {
+      "path": "out/lmm-market-main65-local/receipt.json",
+      "kind": "execution_receipt",
+      "source_ref": "store_main_candidate",
+      "status": "initial_fixture_setup_failed_with_individual_checks_passed",
+      "exists": true,
+      "sha256": "431a2e4746b64452c1357c89213150eb3f35638971aaca2a3b358d2f734681fa",
+      "bytes": 3537,
+      "finalized": true,
+      "unchanged_during_read": true,
+      "counts": {
+        "ordinary_cases_executed": 0,
+        "individual_checks_passed": 3
+      }
+    },
+    {
+      "path": "out/lmm-market-main65-local/source-before.json",
+      "kind": "source_input_manifest",
+      "source_ref": "store_main_candidate",
+      "status": "recorded",
+      "exists": true,
+      "sha256": "27df59d879d53f0927cf6a2a0a9b1fd3a2fc2ecf5917d56758e7dc327e3b40a9",
+      "bytes": 130694,
+      "finalized": true,
+      "unchanged_during_read": true
+    },
+    {
+      "path": "out/lmm-market-main65-local/source-after.json",
+      "kind": "source_input_manifest",
+      "source_ref": "store_main_candidate",
+      "status": "recorded",
+      "exists": true,
+      "sha256": "27df59d879d53f0927cf6a2a0a9b1fd3a2fc2ecf5917d56758e7dc327e3b40a9",
+      "bytes": 130694,
+      "finalized": true,
+      "unchanged_during_read": true
+    },
+    {
+      "path": "out/lmm-market-pg-b5ee-ci/terminal-review-44719155709.json",
+      "kind": "historical_execution_review",
+      "source_ref": "toolmarket_b5ee",
+      "status": "passed_reused_original_scope",
+      "exists": true,
+      "sha256": "be444344eb4810035242802ca3a6d16d39a705a514db9c8dfb541ae40fb130a5",
+      "bytes": 6594,
+      "finalized": true,
+      "unchanged_during_read": true,
+      "counts": {
+        "original_postgresql_passed": 3,
+        "selected_toolmarket_passed_reused": 2,
+        "cases_rerun_in_this_round": 0
+      }
+    },
+    {
+      "path": "out/lmm-pi-104-cohort-metadata-20261120/local-npm12-fix-node26/receipt.json",
+      "kind": "execution_receipt",
+      "source_ref": "pi_npm12_fix",
+      "status": "passed",
+      "exists": true,
+      "sha256": "7f269b2de419583d3bcbef1048f7f8d2b0569787b3c1f1a570b3959a80888cc8",
+      "bytes": 1854,
+      "finalized": true,
+      "unchanged_during_read": true,
+      "counts": {
+        "unit_tests_passed": 167,
+        "unit_tests_failed": 0,
+        "unit_tests_skipped": 0,
+        "host_rows_executed": 1,
+        "host_rows_not_rerun": 5,
+        "pack_files": 28,
+        "native_commands_registered": 5
+      }
+    },
+    {
+      "path": "out/lmm-pi-104-cohort-metadata-20261120/local-npm12-fix-node26/02-host-selection.log",
+      "kind": "log",
+      "source_ref": "pi_npm12_fix",
+      "status": "passed",
+      "exists": true,
+      "sha256": "4680d45f8fda1620bf1383431a6201e4cc2e76fb0fb8801ce157686acee58c15",
+      "bytes": 93836,
+      "finalized": true,
+      "unchanged_during_read": true,
+      "counts": {
+        "host_rows_executed": 1
+      },
+      "status_source": "out/lmm-pi-104-cohort-metadata-20261120/local-npm12-fix-node26/receipt.json"
+    },
+    {
+      "path": "out/lmm-pi-104-cohort-metadata-20261120/local-npm12-fix-node26/03-typecheck.log",
+      "kind": "log",
+      "source_ref": "pi_npm12_fix",
+      "status": "passed",
+      "exists": true,
+      "sha256": "88a7bca2b11123bdb251b317e874cca0fa48f6532a6d551416c88b03f147598a",
+      "bytes": 102,
+      "finalized": true,
+      "unchanged_during_read": true,
+      "counts": {
+        "checks_passed": 1
+      },
+      "status_source": "out/lmm-pi-104-cohort-metadata-20261120/local-npm12-fix-node26/receipt.json"
+    },
+    {
+      "path": "out/lmm-pi-104-cohort-metadata-20261120/local-npm12-fix-node26/04-test.log",
+      "kind": "log",
+      "source_ref": "pi_npm12_fix",
+      "status": "passed",
+      "exists": true,
+      "sha256": "b78c4b7e688d5cd3416f36e25300663291c684f1063cacf2161fa036cadaa952",
+      "bytes": 14972,
+      "finalized": true,
+      "unchanged_during_read": true,
+      "counts": {
+        "passed": 167,
+        "failed": 0,
+        "ignored": 0,
+        "cases_executed": 167,
+        "skipped": 0
+      },
+      "status_source": "out/lmm-pi-104-cohort-metadata-20261120/local-npm12-fix-node26/receipt.json"
+    },
+    {
+      "path": "out/lmm-pi-104-cohort-metadata-20261120/local-npm12-fix-node26/05-pack.log",
+      "kind": "log",
+      "source_ref": "pi_npm12_fix",
+      "status": "passed",
+      "exists": true,
+      "sha256": "0ec6047014d59890cfa65310984966d13cb036088107af7454a9bcdb76af2114",
+      "bytes": 1649,
+      "finalized": true,
+      "unchanged_during_read": true,
+      "counts": {
+        "pack_files": 28,
+        "npm_published": false
+      },
+      "status_source": "out/lmm-pi-104-cohort-metadata-20261120/local-npm12-fix-node26/receipt.json"
+    },
+    {
+      "path": "out/lmm-pi-104-cohort-metadata-20261120/local-npm12-fix-node26/06-native-host.log",
+      "kind": "log",
+      "source_ref": "pi_npm12_fix",
+      "status": "passed",
+      "exists": true,
+      "sha256": "af96ff2415689b091602b8d5b83cf8013345eb552ed714e5fc9e3d732013c735",
+      "bytes": 271,
+      "finalized": true,
+      "unchanged_during_read": true,
+      "counts": {
+        "native_commands_registered": 5
+      },
+      "status_source": "out/lmm-pi-104-cohort-metadata-20261120/local-npm12-fix-node26/receipt.json"
+    },
+    {
+      "path": "out/lmm-pi-104-cohort-metadata-20261120/local-1eb82ee8-node26/receipt.json",
+      "kind": "execution_receipt",
+      "source_ref": "pi_pre_fix",
+      "status": "host_selection_failed",
+      "exists": true,
+      "sha256": "0d07a4955a7f3e05daad9f1decd483e92cb74b0e6f28795489699e7276b5dd26",
+      "bytes": 938,
+      "finalized": true,
+      "unchanged_during_read": true,
+      "counts": {
+        "unit_test_cases_executed": 0
+      }
+    },
+    {
+      "path": "out/lmm-pi-104-cohort-metadata-20261120/local-1eb82ee8-node26/01-npm-ci.log",
+      "kind": "log",
+      "source_ref": "pi_pre_fix",
+      "status": "dependency_install_passed",
+      "exists": true,
+      "sha256": "634517483a812609f6b94e56e869d504baf83ac568bfcdd3822ee5bf1bb939db",
+      "bytes": 119,
+      "finalized": true,
+      "unchanged_during_read": true,
+      "counts": {
+        "test_cases_executed": 0
+      },
+      "status_source": "out/lmm-pi-104-cohort-metadata-20261120/local-1eb82ee8-node26/receipt.json"
+    },
+    {
+      "path": "out/lmm-pi-104-cohort-metadata-20261120/local-1eb82ee8-node26/02-host-selection.log",
+      "kind": "log",
+      "source_ref": "pi_pre_fix",
+      "status": "host_selection_failed",
+      "exists": true,
+      "sha256": "ac483be7779ea12a201aa3c264bd051e977ed56c179beeb2eb62980f0920d197",
+      "bytes": 711,
+      "finalized": true,
+      "unchanged_during_read": true,
+      "counts": {
+        "unit_test_cases_executed": 0
+      },
+      "status_source": "out/lmm-pi-104-cohort-metadata-20261120/local-1eb82ee8-node26/receipt.json"
+    },
+    {
+      "path": "out/lmm-provider-clients-local/pi-stream-final-observation.json",
+      "kind": "bounded_final_observation",
+      "source_ref": "core_final_candidate",
+      "status": "passed_case_observed_no_request_lock_blocking_in_discrete_samples",
+      "exists": true,
+      "sha256": "eca589750ba7318d5d9ee49449efdb23cddfac41317db3c227e70584e23992f7",
+      "bytes": 4788,
+      "finalized": true,
+      "counts": {
+        "samples": 6,
+        "additional_cases_executed": 0
+      },
+      "scope_limit": "WALWrite and WalSync waits were observed. No request lock blocking/lock timeout was captured in this run; this is not an assertion of no waiting or a uniquely established fix."
+    },
+    {
+      "path": "out/lmm-provider-clients-local/postgres-verify.log",
+      "kind": "postgres_observation_log_snapshot",
+      "source_ref": "core_final_candidate",
+      "status": "observation_snapshot_before_cleanup",
+      "exists": true,
+      "sha256": "aba89c6869ee5e990789cb295cc470011d4ac7c32933a241aa62fc437faae03f",
+      "bytes": 2360,
+      "finalized": false,
+      "hash_scope": "Exact bytes read at index generation before cleanup; this is a retained prefix snapshot if the live log later grows. Do not treat this hash as the post-cleanup full-file hash.",
+      "status_source": "out/lmm-provider-clients-local/pi-stream-final-observation.json"
+    },
+    {
+      "path": "out/lmm-provider-clients-local/final-cleanup-receipt.json",
+      "kind": "cleanup_receipt",
+      "source_ref": "core_final_candidate",
+      "status": "completed",
+      "exists": true,
+      "sha256": "2b393931f1d4dced596bec005cb324ae69ea881a49f329ecfc38ec332bc4f8ef",
+      "bytes": 1004,
+      "finalized": true,
+      "unchanged_during_read": true
+    },
+    {
+      "path": "out/lmm-provider-clients-local/postgres-verify-final.log",
+      "kind": "final_postgresql_log",
+      "source_ref": "core_final_candidate",
+      "status": "completed",
+      "exists": true,
+      "sha256": "e4bf24cbad3f970c7f04dbc15dbc2df74d92fc6cf5eff8ed10e167b34cd4f090",
+      "bytes": 3099,
+      "finalized": true,
+      "unchanged_during_read": true
+    },
+    {
+      "path": "out/lmm-provider-clients-local/final-docs-validation-receipt.json",
+      "kind": "documentation_validation_receipt",
+      "source_ref": "core_final_candidate",
+      "status": "passed",
+      "exists": true,
+      "sha256": "116c38799624a2af6adc204f7b03ad1f0b3e3c9056f895260fab149e06ac5a66",
+      "bytes": 634,
+      "finalized": true,
+      "unchanged_during_read": true
+    },
+    {
+      "path": "out/lmm-provider-clients-local/final-docs-only.log",
+      "kind": "documentation_validation_log",
+      "source_ref": "core_final_candidate",
+      "status": "passed",
+      "exists": true,
+      "sha256": "79a2c71edcde0c2802d19a027ec7d33da5a840991676f4c346ed7296f52f306e",
+      "bytes": 67,
+      "finalized": true,
+      "unchanged_during_read": true
+    }
+  ],
+  "final_observation": {
+    "receipt": "out/lmm-provider-clients-local/pi-stream-final-observation.json",
+    "discrete_samples": 6,
+    "request_lock_wait_samples": 0,
+    "samples_with_nonempty_blockers": 0,
+    "lock_records": 8,
+    "all_recorded_locks_granted": true,
+    "observed_wait_samples": {
+      "WALWrite": 1,
+      "WalSync": 2,
+      "ClientRead": 1,
+      "none": 2
+    },
+    "root_cause_uniquely_confirmed": false,
+    "scope_limit": "One passing run with no captured request lock blocking or lock timeout; not absence of all waits."
+  },
+  "input_reuse_check": {
+    "earlier_manifest": "out/lmm-provider-clients-local/core-root-recheck-input-manifest.json",
+    "final_manifest": "out/lmm-provider-clients-local/core-pi78-final-input-manifest.json",
+    "changed_paths": [
+      "services/core/tests/oauth2_pi_author.rs"
+    ],
+    "production_paths_changed": [],
+    "final_manifest_matches_committed_core_files": true
+  },
+  "final_cleanup": {
+    "status": "completed",
+    "receipt": "out/lmm-provider-clients-local/final-cleanup-receipt.json",
+    "private_postgresql_and_credentials_removed": true,
+    "original_failure_evidence_preserved": true,
+    "core77_control_cleanup_already_completed": true
+  },
+  "documentation_validation": {
+    "command": [
+      "python3",
+      "-B",
+      "scripts/check-docs-brand.py",
+      "--docs-only"
+    ],
+    "exit_code": 0,
+    "receipt": "out/lmm-provider-clients-local/final-docs-validation-receipt.json",
+    "artifact_hashes_verified": 75
+  }
+}

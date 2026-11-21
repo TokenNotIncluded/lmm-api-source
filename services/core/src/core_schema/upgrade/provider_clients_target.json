@@ -1,0 +1,7 @@
+{
+  "catalog_sha256": "dbc1df98f792d1484700e36005e900ec97a54a21a56d752bab0863bd84ab7177",
+  "manifest_sha256": "b9d0a472bddc826e0f6bfa0e725e409e67cbaabad6b0ad80cd512de24da74c2b",
+  "oauth_catalog_sha256": "0727dcc3465ede90e1c4fc708ea2b223e7b297d672fb3e7952eda8afcda0ecaa",
+  "oauth_predecessor_catalog_sha256": "1c573f3c85ed5ce4e924ad700c9d821d072696dcc4ed3b52ba633801839d169a",
+  "raw_schema_sha256": "fbf30da1a977cfcfc14fa0f98befc374404850e9ad94a6d5df5943e31b0ba1b4"
+}
