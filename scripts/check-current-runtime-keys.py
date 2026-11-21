@@ -218,7 +218,7 @@ def acquire(source, output):
 
 
 def execute(source, output, *, regression="keys"):
-    need(regression in ("keys", "wallet"), "unknown synthetic regression")
+    need(regression in ("keys", "wallet", "identity"), "unknown synthetic regression")
     source_check(source)
     need(not os.environ.get("GH_TOKEN") and not os.environ.get("GITHUB_TOKEN"),
          "artifact token reached database regression")
@@ -329,6 +329,23 @@ def execute(source, output, *, regression="keys"):
                  "wallet mechanics did not pass or exceeded their evidence scope")
             result.update(status="PASS", wallet_reconciliation_mechanics=verified,
                           production_approval_created=False, full_financial_import_complete=False)
+        elif regression == "identity":
+            tests = CONTROL / "tests/current-identity"
+            testenv = {**env, "PYTHONPATH": os.pathsep.join(map(str, (tests, keys, source / "scripts")))}
+            run([sys.executable, "-B", tests / "test_current_identity.py"],
+                work, "identity-pure", env=testenv, timeout=120)
+            run([sys.executable, "-B", tests / "test_current_identity_pg.py",
+                "--fixture", work / "fixture.private.json", "--output", work / "regression"],
+                work, "identity-pg-regression", env=testenv, timeout=600)
+            verified = json.loads((work / "regression/result.public.json").read_text())
+            need(verified["status"] == "MECHANICS_VERIFIED_RUNTIME_PENDING"
+                 and verified["production_authorized"] is False
+                 and verified["production_access"] is False
+                 and verified["real_google_login"] == "NOT_RUN"
+                 and verified["password_runtime_login"] == "NOT_RUN",
+                 "identity mechanics did not pass or exceeded their evidence scope")
+            result.update(status="PASS", identity_completion_mechanics=verified,
+                          production_approval_created=False, provider_runtime_login="NOT_RUN")
         else:
             testenv = {**env, "PYTHONPATH": str(keys) + os.pathsep + str(source / "scripts")}
             run([sys.executable, "-B", keys / "test_migrate_current_runtime_keys_pg.py",
@@ -372,7 +389,7 @@ if __name__ == "__main__":
     parser.add_argument("phase", choices=("acquire", "run"))
     parser.add_argument("--source", required=True, type=Path)
     parser.add_argument("--output", required=True, type=Path)
-    parser.add_argument("--regression", choices=("keys", "wallet"), default="keys")
+    parser.add_argument("--regression", choices=("keys", "wallet", "identity"), default="keys")
     args = parser.parse_args()
     if args.phase == "acquire":
         acquire(args.source.resolve(), args.output.resolve())
