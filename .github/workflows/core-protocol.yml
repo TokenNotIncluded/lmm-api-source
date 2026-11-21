@@ -2,6 +2,11 @@ name: Microkernel implementation checks
 on:
   workflow_dispatch:
     inputs:
+      current_identity_password_runtime:
+        description: Verify real username password sessions after one synthetic identity commit
+        type: boolean
+        required: false
+        default: false
       current_identity_diagnostic:
         description: Collect one rollback-only trace of the rejected synthetic identity writer
         type: boolean
@@ -40,11 +45,11 @@ defaults:
   run:
     shell: bash
 concurrency:
-  group: ${{ inputs.current_identity_diagnostic && 'identity-trace' || inputs.current_identity_acceptance && 'current-identity' || inputs.current_wallet_reconciliation && 'current-wallet' || inputs.final_runtime_browser_resume && 'browser-resume' || inputs.current_runtime_keys_acceptance && 'current-keys' || 'microkernel' }}-${{ github.workflow }}-${{ github.ref }}
+  group: ${{ inputs.current_identity_password_runtime && 'identity-password' || inputs.current_identity_diagnostic && 'identity-trace' || inputs.current_identity_acceptance && 'current-identity' || inputs.current_wallet_reconciliation && 'current-wallet' || inputs.final_runtime_browser_resume && 'browser-resume' || inputs.current_runtime_keys_acceptance && 'current-keys' || 'microkernel' }}-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: ${{ !inputs.final_runtime_browser_resume }}
 jobs:
   protocol:
-    if: ${{ !inputs.final_runtime_acceptance && !inputs.current_runtime_keys_acceptance && !inputs.final_runtime_browser_resume && !inputs.current_wallet_reconciliation && !inputs.current_identity_acceptance && !inputs.current_identity_diagnostic }}
+    if: ${{ !inputs.final_runtime_acceptance && !inputs.current_runtime_keys_acceptance && !inputs.final_runtime_browser_resume && !inputs.current_wallet_reconciliation && !inputs.current_identity_acceptance && !inputs.current_identity_diagnostic && !inputs.current_identity_password_runtime }}
     runs-on: ubuntu-24.04
     # Budget for cold builds, serial real PostgreSQL tests, and the following
     # payment, Go, and RPC checks while keeping the complete job bounded.
@@ -352,7 +357,7 @@ jobs:
           retention-days: 7
 
   market-postgres:
-    if: ${{ !inputs.final_runtime_acceptance && !inputs.current_runtime_keys_acceptance && !inputs.final_runtime_browser_resume && !inputs.current_wallet_reconciliation && !inputs.current_identity_acceptance && !inputs.current_identity_diagnostic }}
+    if: ${{ !inputs.final_runtime_acceptance && !inputs.current_runtime_keys_acceptance && !inputs.final_runtime_browser_resume && !inputs.current_wallet_reconciliation && !inputs.current_identity_acceptance && !inputs.current_identity_diagnostic && !inputs.current_identity_password_runtime }}
     name: Store and tool-market real PostgreSQL checks
     runs-on: ubuntu-24.04
     timeout-minutes: 30
@@ -412,7 +417,7 @@ jobs:
 
   final-runtime-prepare:
     name: Prepare original candidate fa57 runtime acceptance inputs
-    if: ${{ github.event_name == 'workflow_dispatch' && inputs.final_runtime_acceptance && !inputs.final_runtime_browser_resume && !inputs.current_wallet_reconciliation && !inputs.current_identity_acceptance && !inputs.current_identity_diagnostic }}
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.final_runtime_acceptance && !inputs.final_runtime_browser_resume && !inputs.current_wallet_reconciliation && !inputs.current_identity_acceptance && !inputs.current_identity_diagnostic && !inputs.current_identity_password_runtime }}
     runs-on: ubuntu-24.04
     timeout-minutes: 95
     permissions:
@@ -510,7 +515,7 @@ jobs:
 
   final-runtime-acceptance:
     name: Candidate five capacities, real302 payment and real16case browser
-    if: ${{ github.event_name == 'workflow_dispatch' && inputs.final_runtime_acceptance && !inputs.final_runtime_browser_resume && !inputs.current_wallet_reconciliation && !inputs.current_identity_acceptance && !inputs.current_identity_diagnostic }}
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.final_runtime_acceptance && !inputs.final_runtime_browser_resume && !inputs.current_wallet_reconciliation && !inputs.current_identity_acceptance && !inputs.current_identity_diagnostic && !inputs.current_identity_password_runtime }}
     needs: final-runtime-prepare
     runs-on: ubuntu-24.04
     timeout-minutes: 150
@@ -608,7 +613,7 @@ jobs:
           retention-days: 7
 
   current-runtime-keys:
-    if: ${{ inputs.current_runtime_keys_acceptance && !inputs.final_runtime_acceptance && !inputs.final_runtime_browser_resume && !inputs.current_wallet_reconciliation && !inputs.current_identity_acceptance && !inputs.current_identity_diagnostic }}
+    if: ${{ inputs.current_runtime_keys_acceptance && !inputs.final_runtime_acceptance && !inputs.final_runtime_browser_resume && !inputs.current_wallet_reconciliation && !inputs.current_identity_acceptance && !inputs.current_identity_diagnostic && !inputs.current_identity_password_runtime }}
     name: Existing Sessions and appended legacy keys on exact Core78
     runs-on: ubuntu-24.04
     timeout-minutes: 25
@@ -669,7 +674,7 @@ jobs:
           include-hidden-files: true
 
   browser-only-resume:
-    if: ${{ github.event_name == 'workflow_dispatch' && inputs.final_runtime_browser_resume && !inputs.final_runtime_acceptance && !inputs.current_runtime_keys_acceptance && !inputs.current_wallet_reconciliation && !inputs.current_identity_acceptance && !inputs.current_identity_diagnostic }}
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.final_runtime_browser_resume && !inputs.final_runtime_acceptance && !inputs.current_runtime_keys_acceptance && !inputs.current_wallet_reconciliation && !inputs.current_identity_acceptance && !inputs.current_identity_diagnostic && !inputs.current_identity_password_runtime }}
     name: Same fa57 full16 browser and six original receipts
     runs-on: ubuntu-24.04
     timeout-minutes: 75
@@ -761,7 +766,7 @@ jobs:
           retention-days: 7
 
   current-wallet-reconciliation:
-    if: ${{ inputs.current_wallet_reconciliation && !inputs.final_runtime_acceptance && !inputs.final_runtime_browser_resume && !inputs.current_runtime_keys_acceptance && !inputs.current_identity_acceptance && !inputs.current_identity_diagnostic }}
+    if: ${{ inputs.current_wallet_reconciliation && !inputs.final_runtime_acceptance && !inputs.final_runtime_browser_resume && !inputs.current_runtime_keys_acceptance && !inputs.current_identity_acceptance && !inputs.current_identity_diagnostic && !inputs.current_identity_password_runtime }}
     name: Existing wallet history and current source reconciliation on exact Core78
     runs-on: ubuntu-24.04
     timeout-minutes: 25
@@ -821,7 +826,7 @@ jobs:
           include-hidden-files: true
 
   current-identity-acceptance:
-    if: ${{ inputs.current_identity_acceptance && !inputs.final_runtime_acceptance && !inputs.final_runtime_browser_resume && !inputs.current_runtime_keys_acceptance && !inputs.current_wallet_reconciliation && !inputs.current_identity_diagnostic }}
+    if: ${{ inputs.current_identity_acceptance && !inputs.final_runtime_acceptance && !inputs.final_runtime_browser_resume && !inputs.current_runtime_keys_acceptance && !inputs.current_wallet_reconciliation && !inputs.current_identity_diagnostic && !inputs.current_identity_password_runtime }}
     name: Existing identities and current source completion on exact Core78
     runs-on: ubuntu-24.04
     timeout-minutes: 25
@@ -881,7 +886,7 @@ jobs:
           include-hidden-files: true
 
   current-identity-diagnostic:
-    if: ${{ inputs.current_identity_diagnostic && !inputs.final_runtime_acceptance && !inputs.final_runtime_browser_resume && !inputs.current_runtime_keys_acceptance && !inputs.current_wallet_reconciliation && !inputs.current_identity_acceptance }}
+    if: ${{ inputs.current_identity_diagnostic && !inputs.final_runtime_acceptance && !inputs.final_runtime_browser_resume && !inputs.current_runtime_keys_acceptance && !inputs.current_wallet_reconciliation && !inputs.current_identity_acceptance && !inputs.current_identity_password_runtime }}
     name: Rollback-only diagnostic of rejected Core78 identity generation
     runs-on: ubuntu-24.04
     timeout-minutes: 25
@@ -938,6 +943,70 @@ jobs:
             ${{ env.LMM_CURRENT_IDENTITY_TRACE_ROOT }}/fixture/regression/diagnostic-result.public.json
             ${{ env.LMM_CURRENT_IDENTITY_TRACE_ROOT }}/fixture/regression/auth-version-trace.public.json
             ${{ env.LMM_CURRENT_IDENTITY_TRACE_ROOT }}/fixture/regression/trigger-catalog.private.json
+          if-no-files-found: warn
+          retention-days: 3
+          include-hidden-files: true
+
+  current-identity-password-runtime:
+    if: ${{ inputs.current_identity_password_runtime && !inputs.final_runtime_acceptance && !inputs.final_runtime_browser_resume && !inputs.current_runtime_keys_acceptance && !inputs.current_wallet_reconciliation && !inputs.current_identity_diagnostic && !inputs.current_identity_acceptance }}
+    name: Real username password sessions after current identity completion
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - name: Checkout reviewed regression controller
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          path: control
+          persist-credentials: false
+      - name: Checkout exact unmodified candidate source
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          path: product
+          ref: fa57cd2049ccd9138cdc0b4104db36b5b6c53ae5
+          persist-credentials: false
+      - name: Install PostgreSQL18 and the existing Python encryption dependency
+        run: |
+          sudo --preserve-env=GITHUB_ACTIONS python3 product/scripts/prepare-ci-apt.py
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends --yes curl ca-certificates python3-cryptography
+          sudo install -d /usr/share/postgresql-common/pgdg
+          sudo curl --fail --output /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc https://www.postgresql.org/media/keys/ACCC4CF8.asc
+          printf '%s\n' 'Types: deb' 'URIs: https://apt.postgresql.org/pub/repos/apt' \
+            'Suites: noble-pgdg' "Architectures: $(dpkg --print-architecture)" 'Components: main' \
+            'Signed-By: /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc' \
+            | sudo tee /etc/apt/sources.list.d/pgdg.sources > /dev/null
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends --yes postgresql-common
+          echo 'create_main_cluster = false' | sudo tee -a /etc/postgresql-common/createcluster.conf > /dev/null
+          sudo apt-get install --no-install-recommends --yes postgresql-18 postgresql-client-18
+          echo '/usr/lib/postgresql/18/bin' >> "$GITHUB_PATH"
+          echo "LMM_CURRENT_IDENTITY_PASSWORD_ROOT=$HOME/.local/state/lmm-api/identity-password" >> "$GITHUB_ENV"
+      - name: Acquire and verify only the exact official Core archive
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 -B control/scripts/check-current-runtime-keys.py acquire --source "$GITHUB_WORKSPACE/product" --output "$LMM_CURRENT_IDENTITY_PASSWORD_ROOT" --regression identity-password
+      - name: Commit one synthetic identity batch and verify actual Core password sessions
+        run: python3 -B control/scripts/check-current-runtime-keys.py run --source "$GITHUB_WORKSPACE/product" --output "$LMM_CURRENT_IDENTITY_PASSWORD_ROOT" --regression identity-password
+      - name: Preserve bounded synthetic regression diagnostics
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: current-identity-password-runtime-${{ github.sha }}-${{ github.run_id }}
+          path: |
+            ${{ env.LMM_CURRENT_IDENTITY_PASSWORD_ROOT }}/result.public.json
+            ${{ env.LMM_CURRENT_IDENTITY_PASSWORD_ROOT }}/acquisition.json
+            ${{ env.LMM_CURRENT_IDENTITY_PASSWORD_ROOT }}/fixture/*.log
+            ${{ env.LMM_CURRENT_IDENTITY_PASSWORD_ROOT }}/fixture/*.command.json
+            ${{ env.LMM_CURRENT_IDENTITY_PASSWORD_ROOT }}/fixture/regression/*.stderr.private.txt
+            ${{ env.LMM_CURRENT_IDENTITY_PASSWORD_ROOT }}/fixture/regression/*.stdout.private.txt
+            ${{ env.LMM_CURRENT_IDENTITY_PASSWORD_ROOT }}/fixture/regression/result.public.json
+            ${{ env.LMM_CURRENT_IDENTITY_PASSWORD_ROOT }}/fixture/password-runtime-lifecycle.public.json
+            ${{ env.LMM_CURRENT_IDENTITY_PASSWORD_ROOT }}/fixture/password-runtime/*.stderr.private.txt
+            ${{ env.LMM_CURRENT_IDENTITY_PASSWORD_ROOT }}/fixture/password-runtime/*.stdout.private.txt
+            ${{ env.LMM_CURRENT_IDENTITY_PASSWORD_ROOT }}/fixture/password-runtime/*.public.json
           if-no-files-found: warn
           retention-days: 3
           include-hidden-files: true

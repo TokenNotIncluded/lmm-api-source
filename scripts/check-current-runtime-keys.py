@@ -193,6 +193,104 @@ privacy_policy_enabled=false
         need(proc.returncode == 0, "candidate Core did not stop cleanly")
 
 
+def password_runtime_probe(output, work, sock, db, port, runtime, env, sql, driver, testenv):
+    """Start the fixed Core only after one acknowledged synthetic identity commit."""
+    prepared = json.loads((work / "regression/result.public.json").read_text())
+    need(prepared["status"] == "PREPARED_RUNTIME_NOT_RUN" and prepared["identity_commits"] == 1
+         and prepared["synthetic_only"] is True and prepared["production_access"] is False,
+         "password runtime cannot start before the isolated identity commit")
+    sql(f"ALTER ROLE {runtime} LOGIN; GRANT CONNECT ON DATABASE {db} TO {runtime};", admin=True)
+    listener = socket.socket()
+    listener.bind(("127.0.0.1", 0))
+    http_port = listener.getsockname()[1]
+    listener.close()
+    origin = "http://127.0.0.1:" + str(http_port)
+    runtime_url = f"postgresql://{runtime}@localhost:{port}/{db}?" + urlencode({
+        "host": str(sock), "sslmode": "disable"})
+    (work / "runtime.url").write_text(runtime_url + "\n")
+    (work / "refresh.key").write_bytes(secrets.token_bytes(32))
+    (work / "api-key.key").write_bytes(secrets.token_bytes(32))
+    config = f'''version=1
+[server]
+listen="127.0.0.1:{http_port}"
+worker_threads=1
+drain_timeout_seconds=10
+[database]
+url_file={json.dumps(str(work / "runtime.url"))}
+max_connections=4
+[console]
+enabled=true
+[identity]
+api_key_encryption_key_file={json.dumps(str(work / "api-key.key"))}
+registration_enabled=false
+password_register_enabled=false
+oauth_register_enabled=false
+registration_disabled_methods=[]
+email_verification_enabled=false
+email_domain_restriction_enabled=false
+email_domain_whitelist=[]
+[identity.web]
+origin={json.dumps(origin)}
+refresh_key_file={json.dumps(str(work / "refresh.key"))}
+local_http=true
+user_agreement_enabled=false
+privacy_policy_enabled=false
+'''
+    (work / "runtime.toml").write_text(config)
+    log_path = work / "password-runtime-core.log"
+    log = log_path.open("xb")
+    proc = subprocess.Popen([str(output / "lmm-core"), "--config", str(work / "runtime.toml"), "serve"],
+                            stdout=log, stderr=subprocess.STDOUT, env=env)
+    lifecycle = {"status": "STARTED", "pid": proc.pid, "origin": origin,
+                 "expected_core_sha256": CORE_SHA, "forced_termination": False,
+                 "production_access": False, "started_utc": datetime.now(timezone.utc).isoformat()}
+    try:
+        for _ in range(200):
+            need(proc.poll() is None, "fixed Core exited before password runtime readiness")
+            connection = http.client.HTTPConnection("127.0.0.1", http_port, timeout=2)
+            try:
+                connection.request("GET", "/health/ready", headers={"Origin": origin})
+                response = connection.getresponse()
+                response.read(65536)
+                if response.status == 200:
+                    break
+            except (OSError, http.client.HTTPException):
+                pass
+            finally:
+                connection.close()
+            time.sleep(0.1)
+        else:
+            raise RuntimeError("fixed Core password runtime readiness timeout")
+        lifecycle["actual_core_sha256"] = sha(Path(f"/proc/{proc.pid}/exe"))
+        need(lifecycle["actual_core_sha256"] == CORE_SHA, "running password Core differs")
+        run([sys.executable, "-B", driver, "verify", "--fixture", work / "fixture.private.json",
+             "--probes", work / "regression/runtime-probes.private.json", "--origin", origin,
+             "--core-pid", str(proc.pid), "--expected-core-sha256", CORE_SHA,
+             "--output", work / "password-runtime"], work, "identity-password-http", env=testenv, timeout=180)
+        verified = json.loads((work / "password-runtime/result.public.json").read_text())
+        need(verified["status"] == "PASS" and verified["password_runtime_login"] == "PASS"
+             and verified["actual_core_sha256"] == CORE_SHA and verified["financial_state_unchanged"] is True
+             and verified["production_authorized"] is False and verified["real_google_login"] == "NOT_RUN",
+             "password runtime result did not establish its bounded scope")
+        lifecycle["status"] = "VERIFIED"
+        return verified
+    finally:
+        if proc.poll() is None:
+            proc.terminate()
+            try:
+                proc.wait(timeout=15)
+            except subprocess.TimeoutExpired:
+                lifecycle["forced_termination"] = True
+                proc.kill()
+                proc.wait(timeout=10)
+        log.close()
+        lifecycle.update(core_exit=proc.returncode, core_process_stopped=proc.poll() is not None,
+                         core_log_sha256=sha(log_path), finished_utc=datetime.now(timezone.utc).isoformat())
+        save(work / "password-runtime-lifecycle.public.json", lifecycle)
+        need(proc.returncode == 0 and lifecycle["forced_termination"] is False,
+             "password Core did not stop cleanly")
+
+
 def acquire(source, output):
     source_check(source)
     output.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
@@ -218,7 +316,7 @@ def acquire(source, output):
 
 
 def execute(source, output, *, regression="keys"):
-    need(regression in ("keys", "wallet", "identity", "identity-diagnostic"), "unknown synthetic regression")
+    need(regression in ("keys", "wallet", "identity", "identity-diagnostic", "identity-password"), "unknown synthetic regression")
     source_check(source)
     need(not os.environ.get("GH_TOKEN") and not os.environ.get("GITHUB_TOKEN"),
          "artifact token reached database regression")
@@ -346,6 +444,18 @@ def execute(source, output, *, regression="keys"):
             result.update(status="DIAGNOSTIC_COMPLETE_MIGRATION_STILL_REJECTED",
                           diagnostic=verified, migration_passed=False,
                           production_approval_created=False)
+        elif regression == "identity-password":
+            tests = CONTROL / "tests/current-identity-next"
+            password_tests = CONTROL / "tests/current-identity-password"
+            driver = password_tests / "test_current_identity_password_runtime.py"
+            need(sha(driver) == "639d15a807cca501835d99b3fdde62588d3555e2a4fa4eba33009c6236b1c25b",
+                 "frozen password runtime driver differs")
+            testenv = {**env, "PYTHONPATH": os.pathsep.join(map(str, (password_tests, tests, keys, source / "scripts")))}
+            run([sys.executable, "-B", driver, "prepare", "--fixture", work / "fixture.private.json",
+                 "--output", work / "regression"], work, "identity-password-prepare", env=testenv, timeout=180)
+            verified = password_runtime_probe(output, work, sock, db, port, runtime, env, sql, driver, testenv)
+            result.update(status="PASS", password_runtime_validation=verified,
+                          production_approval_created=False, provider_runtime_login="NOT_RUN")
         elif regression == "identity":
             tests = CONTROL / "tests/current-identity-next"
             testenv = {**env, "PYTHONPATH": os.pathsep.join(map(str, (tests, keys, source / "scripts")))}
@@ -406,7 +516,7 @@ if __name__ == "__main__":
     parser.add_argument("phase", choices=("acquire", "run"))
     parser.add_argument("--source", required=True, type=Path)
     parser.add_argument("--output", required=True, type=Path)
-    parser.add_argument("--regression", choices=("keys", "wallet", "identity", "identity-diagnostic"), default="keys")
+    parser.add_argument("--regression", choices=("keys", "wallet", "identity", "identity-diagnostic", "identity-password"), default="keys")
     args = parser.parse_args()
     if args.phase == "acquire":
         acquire(args.source.resolve(), args.output.resolve())
