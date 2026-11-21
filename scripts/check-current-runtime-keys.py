@@ -448,7 +448,7 @@ def execute(source, output, *, regression="keys"):
             tests = CONTROL / "tests/current-identity-next"
             password_tests = CONTROL / "tests/current-identity-password"
             driver = password_tests / "test_current_identity_password_runtime.py"
-            need(sha(driver) == "639d15a807cca501835d99b3fdde62588d3555e2a4fa4eba33009c6236b1c25b",
+            need(sha(driver) == "1213f0b4712ad2dc5647ff81af542329cf4154a4ca2140fe5e41cfed57475cf9",
                  "frozen password runtime driver differs")
             testenv = {**env, "PYTHONPATH": os.pathsep.join(map(str, (password_tests, tests, keys, source / "scripts")))}
             run([sys.executable, "-B", driver, "prepare", "--fixture", work / "fixture.private.json",

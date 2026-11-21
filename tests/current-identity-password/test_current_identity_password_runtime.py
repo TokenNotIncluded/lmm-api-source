@@ -288,7 +288,7 @@ def verify(fixture_path, probes_path, origin, output, core_pid, expected_core_sh
               "unrelated native Session changed authority")
         status, _, _ = request(origin, "GET", "/core/v1/identity", bearer=probe["expired_session_bearer"])
         check(status == 401, "expired native Session was revived")
-        after = reader.query(M.state_sql(probe["inventory"], probe["migration_id"]))
+        after = reader.query(M.U.state_sql(probe["inventory"], probe["migration_id"]))
         check(money_state(after) == probe["before_http_money"], "password runtime changed financial state")
         check(stable_tables(after) == probe["before_http_stable_tables"], "password runtime changed unrelated application state")
         check(M.digest(reader.query(protected_rows_sql([c["target_user_id"] for c in probe["cases"]])))
