@@ -108,7 +108,6 @@ import { cn } from '@/lib/utils'
 import { useAuthStore, type AuthUser } from '@/stores/auth-store'
 
 import './assistant-surface.css'
-
 import {
   AssistantTurnContinuationError,
   assistantRunFailureDetails,
@@ -167,6 +166,11 @@ import {
   getExplicitAssistantNavigation,
   getAssistantPresetForIntent,
 } from './assistant-intent'
+import { AssistantInvitationCard } from './assistant-invitation-card'
+import {
+  pendingInvitationError,
+  type InvitationAction,
+} from './assistant-invitation-contract'
 import { AssistantJourneyProgress } from './assistant-journey'
 import { AssistantKeyManagementTool } from './assistant-key-management-tool'
 import { AssistantKeyTool } from './assistant-key-tool'
@@ -232,6 +236,7 @@ type ConversationEntry = {
   tools?: AssistantToolTrace[]
   action?: AssistantAction
   workspaceAction?: AssistantWorkspaceAction
+  invitationAction?: InvitationAction
   adminChange?: AssistantAdminChangeAction
   imageAction?: AssistantImageGenerationAction
   error?: boolean
@@ -1439,10 +1444,12 @@ function AssistantPanelSession(props: AssistantPanelProps) {
         entry.action ||
         entry.adminChange ||
         entry.imageAction ||
-        entry.workspaceAction
+        entry.workspaceAction ||
+        entry.invitationAction
           ? {
               ...entry,
               workspaceAction: undefined,
+              invitationAction: undefined,
               action: undefined,
               adminChange: undefined,
               imageAction: undefined,
@@ -1997,6 +2004,44 @@ function AssistantPanelSession(props: AssistantPanelProps) {
         )
         return
       }
+      const invitation = pendingInvitationError(error, {
+        client_turn_id: clientTurnId,
+        conversation_id: turn?.conversation_id,
+        actor_user_id: requestUserId,
+      })
+      if (
+        invitation &&
+        requestUserId !== undefined &&
+        !abortController.signal.aborted
+      ) {
+        turn = {
+          conversation_id: invitation.data.conversation_id,
+          client_turn_id: invitation.data.client_turn_id,
+        }
+        setConversationId(turn.conversation_id)
+        if (streamFrame !== null) {
+          window.cancelAnimationFrame(streamFrame)
+          streamFrame = null
+        }
+        setEntries((current) =>
+          current.map((entry) =>
+            entry.id === streamingEntryId
+              ? {
+                  ...entry,
+                  content: '',
+                  streaming: false,
+                  interrupted: true,
+                  pending: true,
+                  pendingCreation: false,
+                  pendingTurn: turn,
+                  invitationAction: invitation.lmm_assistant_invitation,
+                  retry: { message, history, presetId, clientTurnId },
+                }
+              : entry
+          )
+        )
+        return
+      }
       if (
         streaming &&
         !(error instanceof AssistantSubmissionRejectedError) &&
@@ -2519,6 +2564,13 @@ function AssistantPanelSession(props: AssistantPanelProps) {
                                     }))
                                 : undefined
                             }
+                          />
+                        ) : null}
+                        {!support.aiPaused && entry.invitationAction ? (
+                          <AssistantInvitationCard
+                            key={entry.invitationAction.confirmation_id}
+                            action={entry.invitationAction}
+                            disabled={sending || conversationRestricted}
                           />
                         ) : null}
                         {!support.aiPaused &&

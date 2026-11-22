@@ -248,6 +248,14 @@ const COMPONENTS: &[(&str, &str)] = &[
         "current-connection-history",
         include_str!("../schema/current_connection_history.sql"),
     ),
+    (
+        "assistant-confirmed-actions",
+        include_str!("../schema/assistant_confirmed_actions.sql"),
+    ),
+    (
+        "legacy-affiliate-aliases",
+        include_str!("../schema/legacy_affiliate_aliases.sql"),
+    ),
 ];
 
 /// Verify the installed managed contract without installing or repairing it.

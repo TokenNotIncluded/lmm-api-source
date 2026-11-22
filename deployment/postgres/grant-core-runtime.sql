@@ -479,6 +479,7 @@ GRANT EXECUTE ON FUNCTION core_charging.subscription_base_window(bigint,bigint),
 \if :enable_web_identity
 -- BEGIN affiliate-claims runtime grants
 GRANT SELECT,INSERT ON core_identity.affiliate_codes, core_identity.affiliate_registrations TO :"runtime_role";
+GRANT SELECT(code,user_id) ON core_identity.legacy_affiliate_aliases TO :"runtime_role";
 -- Administrator detail reads recorded invitees and the reviewed cumulative
 -- reward counter. Original payment facts and policy columns remain private.
 -- BEGIN admin-user-statistics runtime grants
@@ -648,7 +649,10 @@ GRANT USAGE ON SCHEMA core_assistant_tools,core_payments,core_humangrant TO :"ru
 GRANT SELECT,UPDATE(revision) ON core_humangrant.human_grant_gate TO :"runtime_role";
 GRANT SELECT ON core_payments.intents,core_payments.accepted_proofs,core_payments.refund_holds,core_payments.blocked_refunds TO :"runtime_role";
 GRANT SELECT,INSERT ON core_assistant_tools.confirmations TO :"runtime_role";
-GRANT UPDATE(nonce_sha256,state,confirmed_at) ON core_assistant_tools.confirmations TO :"runtime_role";
+GRANT UPDATE(nonce_sha256,state,confirmed_at,execution_receipt,execution_sha256,executed_at) ON core_assistant_tools.confirmations TO :"runtime_role";
+GRANT SELECT,INSERT ON core_assistant_tools.key_creation_cards TO :"runtime_role";
+GRANT UPDATE(nonce_sha256,ciphertext,consumed_at) ON core_assistant_tools.key_creation_cards TO :"runtime_role";
+GRANT EXECUTE ON FUNCTION core_assistant_tools.market_confirmation_bound(TEXT) TO :"runtime_role";
 \endif
 \if :enable_assistant
 GRANT USAGE ON SCHEMA core_assistant TO :"runtime_role";

@@ -67,6 +67,7 @@ import {
   NativeChannelStatisticsSummary,
 } from './native-channel-statistics'
 import { NativeModelFields } from './native-model-fields'
+import { NativePriceRuleList } from './native-price-rule-list'
 
 type Section = 'channels' | 'models' | 'vendors' | 'prices'
 type Editor = {
@@ -782,7 +783,12 @@ function NativeRoutingWorkspace({
     (vendor) => matches(vendor.id, vendor.name)
   )
   const prices = configuration.prices.rules.filter((price) =>
-    matches(String(price.model), String(price.group))
+    matches(
+      String(price.id),
+      String(price.model),
+      String(price.group),
+      String(price.speed)
+    )
   )
   const total =
     section === 'channels'
@@ -1643,16 +1649,16 @@ function NativeRoutingWorkspace({
           <Button
             type='button'
             className='min-h-11'
-            disabled={busy}
+            disabled={writeDisabled}
             onClick={() => modelEditor()}
           >
             {t('Add Model')}
           </Button>
-          <div className='space-y-3'>
+          <div className='divide-border divide-y'>
             {models.slice(start, start + 25).map((route) => (
               <div
                 key={route.id}
-                className='flex min-w-0 flex-wrap items-center justify-between gap-3 border p-3'
+                className='flex min-w-0 flex-wrap items-center justify-between gap-4 py-5'
               >
                 <div className='min-w-0'>
                   <h3 className='font-medium [overflow-wrap:anywhere]'>
@@ -1669,7 +1675,7 @@ function NativeRoutingWorkspace({
                     type='button'
                     variant='outline'
                     className='min-h-11'
-                    disabled={busy}
+                    disabled={writeDisabled}
                     onClick={() => modelEditor(route)}
                   >
                     {t('Edit')}
@@ -1686,16 +1692,16 @@ function NativeRoutingWorkspace({
           <Button
             type='button'
             className='min-h-11'
-            disabled={busy}
+            disabled={writeDisabled}
             onClick={() => vendorEditor()}
           >
             {t('Create')}
           </Button>
-          <div className='space-y-3'>
+          <div className='divide-border divide-y'>
             {vendors.slice(start, start + 25).map((vendor) => (
               <div
                 key={vendor.id}
-                className='flex min-w-0 flex-wrap items-center justify-between gap-3 border p-3'
+                className='flex min-w-0 flex-wrap items-center justify-between gap-4 py-5'
               >
                 <div className='min-w-0'>
                   <h3 className='font-medium [overflow-wrap:anywhere]'>
@@ -1710,7 +1716,7 @@ function NativeRoutingWorkspace({
                     type='button'
                     variant='outline'
                     className='min-h-11'
-                    disabled={busy}
+                    disabled={writeDisabled}
                     onClick={() => vendorEditor(vendor)}
                   >
                     {t('Edit')}
@@ -1722,45 +1728,52 @@ function NativeRoutingWorkspace({
           </div>
         </>
       )}
-      {(section === 'models' || section === 'vendors') && total === 0 && (
-        <div role='status'>
-          <EmptyState
-            className='min-h-48'
-            title={search.trim() ? t('No results found') : t('No Data')}
-            description={
-              search.trim()
-                ? t('Try a different search or clear the current filter.')
-                : section === 'models'
-                  ? t(
-                      'Add a new model to the system by providing the necessary information.'
-                    )
-                  : t('Add a new vendor to the system')
-            }
-            action={
-              search.trim() ? (
-                <Button
-                  type='button'
-                  variant='outline'
-                  className='min-h-11'
-                  onClick={() => {
-                    setSearch('')
-                    setPage(1)
-                  }}
-                >
-                  {t('Clear filters')}
-                </Button>
-              ) : undefined
-            }
-          />
-        </div>
-      )}
+      {(section === 'models' ||
+        section === 'vendors' ||
+        section === 'prices') &&
+        total === 0 && (
+          <div role='status'>
+            <EmptyState
+              className='min-h-48'
+              title={search.trim() ? t('No results found') : t('No Data')}
+              description={
+                search.trim()
+                  ? t('Try a different search or clear the current filter.')
+                  : section === 'models'
+                    ? t(
+                        'Add a new model to the system by providing the necessary information.'
+                      )
+                    : section === 'vendors'
+                      ? t('Add a new vendor to the system')
+                      : t(
+                          'No price rules yet. Add a model price to get started.'
+                        )
+              }
+              action={
+                search.trim() ? (
+                  <Button
+                    type='button'
+                    variant='outline'
+                    className='min-h-11'
+                    onClick={() => {
+                      setSearch('')
+                      setPage(1)
+                    }}
+                  >
+                    {t('Clear filters')}
+                  </Button>
+                ) : undefined
+              }
+            />
+          </div>
+        )}
       {section === 'prices' && (
         <>
           <div className='flex flex-wrap gap-2'>
             <Button
               type='button'
               className='min-h-11'
-              disabled={busy}
+              disabled={writeDisabled}
               onClick={priceEditor}
             >
               {t('Edit')}
@@ -1769,23 +1782,31 @@ function NativeRoutingWorkspace({
               type='button'
               variant='outline'
               className='min-h-11'
-              disabled={busy}
+              disabled={writeDisabled}
               onClick={() => draftEditor()}
             >
               {t('Save draft')}
             </Button>
           </div>
-          <pre className='max-h-80 overflow-auto border p-3 text-xs'>
-            {pretty({
+          <NativePriceRuleList
+            prices={{
               ...configuration.prices,
               rules: prices.slice(start, start + 25),
-            })}
-          </pre>
-          <div className='space-y-3'>
+            }}
+          />
+          <details className='min-w-0'>
+            <summary className='text-muted-foreground focus-visible:ring-ring w-fit cursor-pointer rounded-sm py-2 text-sm focus-visible:ring-2 focus-visible:outline-none'>
+              {t('Raw JSON')}
+            </summary>
+            <pre className='bg-muted/40 mt-2 max-h-80 overflow-auto rounded-lg p-4 text-xs'>
+              {pretty(configuration.prices)}
+            </pre>
+          </details>
+          <div className='divide-border divide-y'>
             {Object.values(configuration.bindings.price_drafts).map((draft) => (
               <div
                 key={draft.id}
-                className='flex min-w-0 flex-wrap items-center justify-between gap-3 border p-3'
+                className='flex min-w-0 flex-wrap items-center justify-between gap-4 py-5'
               >
                 <span className='font-medium [overflow-wrap:anywhere]'>
                   {draft.name}
@@ -1795,7 +1816,7 @@ function NativeRoutingWorkspace({
                     type='button'
                     variant='outline'
                     className='min-h-11'
-                    disabled={busy}
+                    disabled={writeDisabled}
                     onClick={() => draftEditor(draft)}
                   >
                     {t('Edit')}
@@ -1805,7 +1826,7 @@ function NativeRoutingWorkspace({
                     variant='outline'
                     className='min-h-11'
                     disabled={
-                      busy ||
+                      writeDisabled ||
                       draft.base_pricing_version !==
                         configuration.version.pricing
                     }

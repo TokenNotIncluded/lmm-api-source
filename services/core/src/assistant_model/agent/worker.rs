@@ -586,6 +586,25 @@ impl AgentService {
                     sqlx::query("UPDATE core_assistant.agent_turns SET loaded_tools=$2,revision=revision+1 WHERE id=$1").bind(turn_id).bind(serde_json::to_value(loaded).map_err(|_|Error::Unavailable)?).execute(&mut *tx).await?;
                     json!({"ok":true,"loaded":selected})
                 }
+            } else if crate::assistant_tools_core::actions::is_tool(&name) {
+                match crate::assistant_tools_core::actions::prepare(&mut tx, &context, &proposal)
+                    .await
+                {
+                    Ok(prepared) => {
+                        domain_receipt = format!("core-prepared-{operation_id}");
+                        prepared
+                    }
+                    Err(
+                        crate::assistant_tools_core::Error::Invalid
+                        | crate::assistant_tools_core::Error::Forbidden
+                        | crate::assistant_tools_core::Error::NotFound
+                        | crate::assistant_tools_core::Error::Conflict,
+                    ) => {
+                        domain_receipt = format!("core-prepare-denied-{operation_id}");
+                        json!({"ok":false,"status":"not_prepared","executed":false,"error":"tool_authority_denied"})
+                    }
+                    Err(error) => return Err(super::context_error(error)),
+                }
             } else if name == crate::gift::agent::TOOL_NAME {
                 let outcome = crate::gift::agent::execute(&mut tx, &context, &proposal).await?;
                 domain_receipt = outcome.domain_receipt_id;

@@ -186,5 +186,151 @@
       "version": "builtin-free-v1"
     },
     "price_sha256": "5d6fb460c679922a1976e87ef729440d5394187e9b12331f33faf12904a64192"
+  },
+  {
+    "name": "get_user_usage_summary",
+    "description": "Read verified native personal API-key and OAuth usage for the last 1–90 days (default 30), with credit costs and explicit coverage. Historical imported logs and assistant model calls are excluded; this never changes quotas or wallet balances. With no target, read the signed-in user; an administrator may select an exact permitted lower-role user. The current Session and target policy are checked by Core.",
+    "version": "core-usage-v1",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "days": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 90
+        },
+        "user_id": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "identifier": {
+          "type": "string",
+          "maxLength": 200
+        }
+      },
+      "additionalProperties": false
+    },
+    "schema_sha256": "6c9dc320fc9f65426ff90bdf95647a8a609ef41e97db169b6f8034c4f0fe68ec",
+    "effect": "read_only",
+    "access": "user",
+    "domain": "registered_core",
+    "price_version": "builtin-free-v1",
+    "price": {
+      "kind": "free",
+      "unit": "credit_500k_usd",
+      "version": "builtin-free-v1"
+    },
+    "price_sha256": "5d6fb460c679922a1976e87ef729440d5394187e9b12331f33faf12904a64192"
+  },
+  {
+    "name": "get_usage_summary",
+    "description": "Read verified native personal API-key and OAuth usage for the last 1–90 days (default 30), with credit costs and explicit coverage. Historical imported logs and assistant model calls are excluded; this never changes quotas or wallet balances. The target is always the signed-in user; no other user ID is accepted.",
+    "version": "core-usage-v1",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "days": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 90
+        }
+      },
+      "additionalProperties": false
+    },
+    "schema_sha256": "fd7d13ec59351dd593298bb122ccd833ac052d25e0682365f31cb9d282e5cf2a",
+    "effect": "read_only",
+    "access": "user",
+    "domain": "registered_core",
+    "price_version": "builtin-free-v1",
+    "price": {
+      "kind": "free",
+      "unit": "credit_500k_usd",
+      "version": "builtin-free-v1"
+    },
+    "price_sha256": "5d6fb460c679922a1976e87ef729440d5394187e9b12331f33faf12904a64192"
+  },
+  {
+    "name": "get_admin_channels",
+    "description": "Read the current administrative channel catalogue with exact enabled flags, groups and per-target priorities/weights. Core revalidates the current personal Session and ChannelRead policy, including explicit deny. Provider endpoints, credentials and private contexts are omitted; missing labels stay null. A truncated result is not the full inventory. This never probes or changes a channel.",
+    "version": "core-admin-catalog-v1",
+    "parameters": {
+      "type": "object",
+      "properties": {},
+      "additionalProperties": false
+    },
+    "schema_sha256": "99334726611ccf58a148b0814696bfa6fe08c1b2d027e946beccf5a74331c9aa",
+    "effect": "read_only",
+    "access": "admin",
+    "domain": "registered_core",
+    "price_version": "builtin-free-v1",
+    "price": {
+      "kind": "free",
+      "unit": "credit_500k_usd",
+      "version": "builtin-free-v1"
+    },
+    "price_sha256": "5d6fb460c679922a1976e87ef729440d5394187e9b12331f33faf12904a64192"
+  },
+  {
+    "name": "get_admin_model_inventory",
+    "description": "Read model IDs and groups from the current serving price/routing release. Core checks the current personal Session and ChannelRead permission. Missing local metadata is reported only when its exact published binding is available; otherwise the missing-ID result is null. No upstream discovery, synchronization or mutation is performed.",
+    "version": "core-admin-catalog-v1",
+    "parameters": {
+      "type": "object",
+      "properties": {},
+      "additionalProperties": false
+    },
+    "schema_sha256": "99334726611ccf58a148b0814696bfa6fe08c1b2d027e946beccf5a74331c9aa",
+    "effect": "read_only",
+    "access": "admin",
+    "domain": "registered_core",
+    "price_version": "builtin-free-v1",
+    "price": {
+      "kind": "free",
+      "unit": "credit_500k_usd",
+      "version": "builtin-free-v1"
+    },
+    "price_sha256": "5d6fb460c679922a1976e87ef729440d5394187e9b12331f33faf12904a64192"
+  },
+  {
+    "name": "audit_admin_model_pricing",
+    "description": "Audit current published model/group price projections with exact currency units, unavailable scalar dimensions, complete published tier tables and zero-rate review flags. Core checks the current personal Session and ChannelRead permission. Paginate by distinct model until next_offset is absent; output size may reduce a page. Effective group rates are already multiplied. This does not establish supplier cost, profitability, account affordability or a frozen charge.",
+    "version": "core-admin-catalog-v1",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "model_ids": {
+          "type": "array",
+          "maxItems": 100,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          }
+        },
+        "offset": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 2147483647
+        },
+        "limit": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100
+        }
+      },
+      "additionalProperties": false
+    },
+    "schema_sha256": "d64513a593a63a337d29b2fd47de00d6244bb2d84b07c797e054cd08c19fd09b",
+    "effect": "read_only",
+    "access": "admin",
+    "domain": "registered_core",
+    "price_version": "builtin-free-v1",
+    "price": {
+      "kind": "free",
+      "unit": "credit_500k_usd",
+      "version": "builtin-free-v1"
+    },
+    "price_sha256": "5d6fb460c679922a1976e87ef729440d5394187e9b12331f33faf12904a64192"
   }
 ]

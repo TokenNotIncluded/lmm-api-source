@@ -5,7 +5,7 @@ import "testing"
 func TestAvailableBindingsDoNotAdvertiseMissingDependencies(t *testing.T) {
 	service := &Service{}
 	available := service.AvailableBindings()
-	expected := map[string]bool{"recall_memory": true, "remember_memory": true, "remember_profile_skill": true, "forget_profile_skill": true, "get_site_issues": true, "show_chart": true, "show_statistics": true, "show_choices": true, "show_flowchart": true, "calculate_math": true}
+	expected := map[string]bool{"recall_memory": true, "remember_memory": true, "remember_profile_skill": true, "forget_profile_skill": true, "get_site_issues": true, "show_chart": true, "show_statistics": true, "show_choices": true, "show_flowchart": true, "calculate_math": true, "calculate_cost": true, "get_ui_preference_options": true, "set_ui_preferences": true, "restore_ui_preferences": true}
 	if len(available) != len(expected) {
 		t.Fatalf("available count=%d", len(available))
 	}
@@ -21,7 +21,7 @@ func TestAvailableBindingsDoNotAdvertiseMissingDependencies(t *testing.T) {
 	if service.ConfirmationAvailable() {
 		t.Fatal("missing Core proof port advertised")
 	}
-	if len(service.Bindings()) != 22 {
+	if len(service.Bindings()) != 29 {
 		t.Fatalf("full frozen manifest=%d", len(service.Bindings()))
 	}
 }

@@ -13,6 +13,7 @@ import (
 	"github.com/BurntSushi/toml"
 	"github.com/TokenNotIncluded/lmm-api/extensions/internal/extore"
 	"github.com/TokenNotIncluded/lmm-api/extensions/internal/modules"
+	"github.com/TokenNotIncluded/lmm-api/extensions/internal/modules/assistant_services"
 	"github.com/TokenNotIncluded/lmm-api/extensions/internal/modules/store"
 )
 
@@ -80,11 +81,12 @@ type LegalConfig struct {
 	ConfigFile string `toml:"config_file"`
 }
 type AssistantConfig struct {
-	DatabaseName    string                `toml:"database_name"`
-	DatabaseURLFile string                `toml:"database_url_file"`
-	CursorKeyFile   string                `toml:"cursor_key_file"`
-	AgentRequired   bool                  `toml:"agent_required"`
-	Search          AssistantSearchConfig `toml:"search"`
+	DatabaseName    string                                  `toml:"database_name"`
+	DatabaseURLFile string                                  `toml:"database_url_file"`
+	CursorKeyFile   string                                  `toml:"cursor_key_file"`
+	AgentRequired   bool                                    `toml:"agent_required"`
+	Search          AssistantSearchConfig                   `toml:"search"`
+	InvitationMail  assistant_services.InvitationSMTPConfig `toml:"invitation_mail"`
 }
 
 type AssistantSearchConfig struct {
@@ -154,6 +156,7 @@ func LoadConfig(path string) (GoConfig, error) {
 		case "checkins", "checkins.database_name", "checkins.database_url_file", "core.checkin_token_file", "hero_sms", "hero_sms.core_socket", "hero_sms.core_token_file", "market_review", "market_review.core_socket", "market_review.core_token_file", "market_review.settings_file",
 			"core.user_read_socket", "core.user_read_token_file", "core.assistant_token_file", "assistant", "assistant.database_name", "assistant.database_url_file", "assistant.cursor_key_file", "assistant.agent_required",
 			"assistant.search", "assistant.search.provider", "assistant.search.endpoint", "assistant.search.api_key_file", "assistant.search.timeout_ms",
+			"assistant.invitation_mail", "assistant.invitation_mail.smtp_host", "assistant.invitation_mail.smtp_port", "assistant.invitation_mail.tls_mode", "assistant.invitation_mail.from", "assistant.invitation_mail.username", "assistant.invitation_mail.password_file", "assistant.invitation_mail.ca_file",
 			"operations", "operations.database_name", "operations.database_url_file", "ionet", "ionet.key_file",
 			"community", "community.database_name", "community.database_url_file",
 			"acquisition", "acquisition.database_name", "acquisition.database_url_file",

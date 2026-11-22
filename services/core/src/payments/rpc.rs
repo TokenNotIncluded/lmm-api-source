@@ -67,6 +67,13 @@ fn status(error: Error) -> Status {
     }
 }
 impl PaymentsRpc {
+    pub(crate) fn offer_source(&self, subscription_orders: bool) -> super::offers::OfferSource {
+        super::offers::OfferSource {
+            store: self.store.clone(),
+            topup_prepare: self.permissions.prepare,
+            subscription_orders,
+        }
+    }
     /// Advertise only explicitly granted and implemented operations. A mounted
     /// service is not authority; dispatch and release still require a bound hold.
     pub fn features(&self) -> Vec<String> {

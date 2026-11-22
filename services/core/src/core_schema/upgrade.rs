@@ -10,6 +10,7 @@ mod account_appeals;
 mod additive;
 mod affiliate_registration;
 mod assistant_agent_gift;
+mod assistant_confirmed_actions;
 mod assistant_service_funding;
 mod channel_accounting;
 mod channel_observations;
@@ -25,6 +26,7 @@ mod finance;
 #[cfg(test)]
 mod historical_fixture;
 mod ledger;
+mod legacy_affiliate_aliases;
 mod legacy_discount_packet;
 mod legacy_gift;
 pub(super) mod managed_applications;

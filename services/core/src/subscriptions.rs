@@ -7,6 +7,7 @@ pub use reset::{
     RESET_SCHEMA, ResetCodeRequest, ResetExecuteRequest, ResetFilter, ResetPreviewRequest,
     ResetTarget,
 };
+pub(crate) mod assistant_offers;
 mod balance_read;
 mod external_pancake;
 mod pancake_http;

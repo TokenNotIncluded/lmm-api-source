@@ -57,6 +57,9 @@ type Dependencies struct {
 	SupportEligibility SupportEligibility
 	Policies           PolicyReader
 	Public             PublicReader
+	PlanOffers         PlanOffersReader
+	Invitations        InvitationReader
+	InvitationMail     InvitationSender
 	Search             SearchProvider
 	Navigation         NavigationReader
 	PolicyChanges      PolicyChangePreparer
@@ -186,10 +189,27 @@ func (s *Service) readOperation(ctx context.Context, tx *sql.Tx, in assistant.Ag
 			if json.Unmarshal(completed, &value) != nil {
 				return out, access.ErrUnavailable
 			}
-			return result(in.Call.OperationID, assistant.AgentToolSucceeded, value, receipt)
+			state := assistant.AgentToolSucceeded
+			if in.Call.Scope.Name == "send_invitation" {
+				if value["status"] == "unknown" {
+					state = assistant.AgentToolUnknown
+				} else if value["status"] != "accepted_by_smtp" {
+					state = assistant.AgentToolFailed
+				}
+			}
+			return result(in.Call.OperationID, state, value, receipt)
 		}
 		if !errors.Is(err, sql.ErrNoRows) {
 			return out, access.ErrUnavailable
+		}
+		if in.Call.Scope.Name == "send_invitation" {
+			var dispatched bool
+			if tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT FROM lmm_assistant.service_network_dispatch WHERE operation_id=$1 AND user_id=$2 AND session_sha256=$3 AND call_sha256=$4)`, in.Call.OperationID, p.UserID, session[:], call[:]).Scan(&dispatched) != nil {
+				return out, access.ErrUnavailable
+			}
+			if dispatched {
+				return unknownResult(in.Call.OperationID), nil
+			}
 		}
 	}
 	return out, nil

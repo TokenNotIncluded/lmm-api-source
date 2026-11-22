@@ -567,7 +567,7 @@ GRANT USAGE ON SEQUENCE core_abuse.audit_id_seq TO {name};
                 self.name
             ),
             "core_assistant_tools" => format!(
-                "GRANT USAGE ON SCHEMA core_assistant_tools,core_payments,core_humangrant TO {0}; GRANT SELECT,UPDATE(revision) ON core_humangrant.human_grant_gate TO {0}; GRANT SELECT ON core_payments.intents,core_payments.accepted_proofs,core_payments.refund_holds,core_payments.blocked_refunds TO {0}; GRANT SELECT,INSERT ON core_assistant_tools.confirmations TO {0}; GRANT UPDATE(nonce_sha256,state,confirmed_at) ON core_assistant_tools.confirmations TO {0}",
+                "GRANT USAGE ON SCHEMA core_assistant_tools,core_payments,core_humangrant TO {0}; GRANT SELECT,UPDATE(revision) ON core_humangrant.human_grant_gate TO {0}; GRANT SELECT ON core_payments.intents,core_payments.accepted_proofs,core_payments.refund_holds,core_payments.blocked_refunds TO {0}; GRANT SELECT,INSERT ON core_assistant_tools.confirmations TO {0}; GRANT UPDATE(nonce_sha256,state,confirmed_at,execution_receipt,execution_sha256,executed_at) ON core_assistant_tools.confirmations TO {0}; GRANT SELECT,INSERT ON core_assistant_tools.key_creation_cards TO {0}; GRANT UPDATE(nonce_sha256,ciphertext,consumed_at) ON core_assistant_tools.key_creation_cards TO {0}; GRANT EXECUTE ON FUNCTION core_assistant_tools.market_confirmation_bound(TEXT) TO {0}",
                 self.name
             ),
             "core_assistant" => format!(

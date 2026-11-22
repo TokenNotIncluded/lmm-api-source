@@ -59,7 +59,7 @@ async fn read(c: &mut PgConnection, id: &str) -> Result<CreemOrder> {
         latest_grant_id: row.try_get("latest_grant_id")?,
     })
 }
-async fn price(c: &mut PgConnection, plan_id: i64, channel: i64) -> Result<CreemPrice> {
+pub(super) async fn price(c: &mut PgConnection, plan_id: i64, channel: i64) -> Result<CreemPrice> {
     let json:Value=sqlx::query_scalar("SELECT to_jsonb(s)||jsonb_build_object('currency',e.currency,'amount_minor',e.amount_minor::text) FROM core_subscriptions.creem_prices s JOIN core_subscriptions.external_prices e USING(plan_id,plan_revision,channel_id) JOIN core_subscriptions.plans p ON p.id=s.plan_id AND p.revision=s.plan_revision WHERE s.plan_id=$1 AND s.channel_id=$2")
         .bind(plan_id).bind(channel).fetch_optional(c).await?.ok_or(Error::NotFound)?;
     decode(json)

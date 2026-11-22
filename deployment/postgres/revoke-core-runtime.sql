@@ -14,6 +14,10 @@
 \else
 \set runtime_role lmm_core_runtime
 \endif
+\if :{?owner_role}
+\else
+\set owner_role lmm_core_owner
+\endif
 \if :{?confirm_revoke}
 \else
 \set confirm_revoke false
@@ -33,7 +37,11 @@ SELECT EXISTS (
     SELECT FROM pg_roles r WHERE r.rolname = :'runtime_role' AND r.rolcanlogin
       AND NOT (r.rolsuper OR r.rolcreatedb OR r.rolcreaterole OR r.rolreplication OR r.rolbypassrls)
 ) AND EXISTS (
-    SELECT FROM pg_roles r WHERE r.rolname = 'lmm_core_owner' AND NOT r.rolcanlogin
+    SELECT FROM pg_roles r WHERE r.rolname = :'owner_role' AND NOT r.rolcanlogin
+) AND EXISTS (
+    SELECT FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
+    WHERE n.nspname='core_meta' AND c.relname='schema_contract'
+      AND c.relowner=(SELECT oid FROM pg_roles WHERE rolname=:'owner_role')
 ) AND NOT EXISTS (
     SELECT FROM pg_roles r WHERE r.rolname <> :'runtime_role' AND (
       pg_has_role(:'runtime_role', r.oid, 'SET')
@@ -74,6 +82,28 @@ REVOKE ALL PRIVILEGES ON ALL FUNCTIONS IN SCHEMA core_oauth, core_events,
     core_tool_market, core_commerce, core_payments, core_humangrant,
     core_assistant_tools, core_assistant, core_market_oauth, core_wallet,
     core_bounties, core_trust_pricing, core_federated_auth FROM :"runtime_role";
+
+-- Confirmation execution uses column grants; table-level REVOKE above does
+-- not remove them. Reset both the historical and current execution columns.
+REVOKE UPDATE(nonce_sha256,state,confirmed_at,execution_receipt,execution_sha256,executed_at)
+    ON core_assistant_tools.confirmations FROM :"runtime_role";
+
+-- The unpublished component85 successor adds a separate one-time key card.
+-- Reset its explicit column authority too; predecessor databases have no card.
+SELECT to_regclass('core_assistant_tools.key_creation_cards') IS NOT NULL
+    AS assistant_key_cards_present \gset
+\if :assistant_key_cards_present
+REVOKE UPDATE(nonce_sha256,ciphertext,consumed_at)
+    ON core_assistant_tools.key_creation_cards FROM :"runtime_role";
+\endif
+
+-- Invitation aliases expose only their public code and owner to web identity.
+SELECT to_regclass('core_identity.legacy_affiliate_aliases') IS NOT NULL
+    AS legacy_affiliate_aliases_present \gset
+\if :legacy_affiliate_aliases_present
+REVOKE SELECT(code,user_id)
+    ON core_identity.legacy_affiliate_aliases FROM :"runtime_role";
+\endif
 
 -- Community and web identity share read-only display-rate option columns.
 -- Table-level revocation above does not remove explicit column privileges.
@@ -118,6 +148,14 @@ REVOKE ALL PRIVILEGES ON core_history.connection_snapshot FROM :"runtime_role";
 REVOKE SELECT(document,mapping,native_credential_floor,snapshot_observed_at,
     target_database,target_database_oid,target_nonce)
     ON core_history.connection_snapshot FROM :"runtime_role";
+
+-- Current-history readers have a separate immutable snapshot and explicit key
+-- map. Both table and exact column permissions are optional community reads.
+REVOKE ALL PRIVILEGES ON core_history.current_connection_snapshot,
+    core_history.current_connection_credential_map FROM :"runtime_role";
+REVOKE SELECT(document,mapping,snapshot_observed_at,target_database,target_database_oid,target_nonce)
+    ON core_history.current_connection_snapshot FROM :"runtime_role";
+REVOKE SELECT(target_credential_id) ON core_history.current_connection_credential_map FROM :"runtime_role";
 
 REVOKE SELECT(migration_id, manifest) ON core_migration.import_runs FROM :"runtime_role";
 REVOKE ALL PRIVILEGES ON core_migration.import_runs FROM :"runtime_role";

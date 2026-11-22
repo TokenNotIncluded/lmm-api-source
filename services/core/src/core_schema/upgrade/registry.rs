@@ -31,6 +31,7 @@ pub(super) enum DataProjection {
     SubscriptionEpay,
     ManagedApplications,
     ProviderClients,
+    AssistantConfirmedActions,
 }
 #[derive(Clone, Copy)]
 pub(super) struct SuffixPolicy {
@@ -250,6 +251,8 @@ registrations! {
         ASSISTANT_SERVICE_FUNDING => assistant_service_funding, "ASSISTANT_SERVICE_FUNDING_", no_grants, owner_receipt, SuffixPolicy::DEFAULT;
         ASSISTANT_AGENT_GIFT => assistant_agent_gift, "ASSISTANT_AGENT_GIFT_", no_grants, owner_receipt, SuffixPolicy::DEFAULT;
         CURRENT_CONNECTION_HISTORY => current_connection_history, "CURRENT_CONNECTION_HISTORY_", |c,r| Box::pin(current_connection_history::grant_runtime(c, &r.roles.runtime)), owner_receipt, SuffixPolicy::DEFAULT;
+        ASSISTANT_CONFIRMED_ACTIONS => assistant_confirmed_actions, "ASSISTANT_CONFIRMED_ACTIONS_", |c,r| Box::pin(assistant_confirmed_actions::grant_runtime(c, &r.roles.runtime)), owner_receipt, SuffixPolicy { projection: DataProjection::AssistantConfirmedActions, ..SuffixPolicy::DEFAULT };
+        LEGACY_AFFILIATE_ALIASES => legacy_affiliate_aliases, "LEGACY_AFFILIATE_ALIASES_", |c,r| Box::pin(legacy_affiliate_aliases::grant_runtime(c, &r.roles.runtime)), owner_receipt, SuffixPolicy::DEFAULT;
         CHECKIN_CHALLENGES => checkin_challenges, "CHECKIN_CHALLENGES_", |c,r| Box::pin(checkin_challenges::grant_runtime(c, &r.roles.runtime)), owner_receipt, SuffixPolicy::DEFAULT;
         NETWORK_ACCESS => network_access, "NETWORK_ACCESS_", |c,r| Box::pin(network_access::grant_runtime(c, &r.roles.runtime)), owner_receipt, SuffixPolicy::DEFAULT;
         CONNECTION_HISTORY_IMPORT => connection_history_import, "CONNECTION_HISTORY_IMPORT_", no_grants, owner_receipt, SuffixPolicy::DEFAULT;
@@ -308,6 +311,8 @@ mod tests {
             "core-assistant-service-funding-v1",
             "core-assistant-agent-gift-v1",
             "core-current-connection-history-v1",
+            "core-assistant-confirmed-actions-v1",
+            "core-legacy-affiliate-aliases-v1",
         ]
         .into_iter()
         .collect();
@@ -365,6 +370,14 @@ mod tests {
             (
                 current_connection_history::PROCEDURE,
                 current_connection_history::validate,
+            ),
+            (
+                assistant_confirmed_actions::PROCEDURE,
+                assistant_confirmed_actions::validate,
+            ),
+            (
+                legacy_affiliate_aliases::PROCEDURE,
+                legacy_affiliate_aliases::validate,
             ),
             (
                 connection_history_import::PROCEDURE,
@@ -435,6 +448,14 @@ mod tests {
             (
                 "core-current-connection-history-v1",
                 "CURRENT_CONNECTION_HISTORY_",
+            ),
+            (
+                "core-assistant-confirmed-actions-v1",
+                "ASSISTANT_CONFIRMED_ACTIONS_",
+            ),
+            (
+                "core-legacy-affiliate-aliases-v1",
+                "LEGACY_AFFILIATE_ALIASES_",
             ),
             ("core-checkin-challenges-v1", "CHECKIN_CHALLENGES_"),
             ("core-network-access-v1", "NETWORK_ACCESS_"),
@@ -518,6 +539,8 @@ mod tests {
                     DataProjection::ManagedApplications
                 } else if name == "core-provider-clients-v1" {
                     DataProjection::ProviderClients
+                } else if name == "core-assistant-confirmed-actions-v1" {
+                    DataProjection::AssistantConfirmedActions
                 } else {
                     DataProjection::Exact
                 }
@@ -557,6 +580,12 @@ mod tests {
                         assistant_agent_gift::authorize_target as fn() -> Result<(), UpgradeError>,
                     "core-current-connection-history-v1" =>
                         current_connection_history::authorize_target
+                            as fn() -> Result<(), UpgradeError>,
+                    "core-assistant-confirmed-actions-v1" =>
+                        assistant_confirmed_actions::authorize_target
+                            as fn() -> Result<(), UpgradeError>,
+                    "core-legacy-affiliate-aliases-v1" =>
+                        legacy_affiliate_aliases::authorize_target
                             as fn() -> Result<(), UpgradeError>,
                     "core-checkin-challenges-v1" =>
                         checkin_challenges::authorize_target as fn() -> Result<(), UpgradeError>,
@@ -649,6 +678,8 @@ mod tests {
             "core-legacy-gift-continuation-v1",
             "core-legacy-discount-packet-continuation-v1",
             "core-current-connection-history-v1",
+            "core-assistant-confirmed-actions-v1",
+            "core-legacy-affiliate-aliases-v1",
         ];
         for entry in ENTRIES
             .iter()

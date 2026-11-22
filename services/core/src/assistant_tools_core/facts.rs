@@ -13,6 +13,8 @@ use sqlx::PgPool;
 pub struct BusinessFactsStore {
     pool: PgPool,
     models: ModelsProjection,
+    plan_offers: Option<super::plan_offers::PlanOffersStore>,
+    invitation_facts: bool,
 }
 impl BusinessFactsStore {
     /// Startup observes actual required columns with the runtime connection;
@@ -47,7 +49,53 @@ impl BusinessFactsStore {
         Self {
             pool,
             models: ModelsProjection::from_gateway(gateway),
+            plan_offers: None,
+            invitation_facts: false,
         }
+    }
+    pub(crate) async fn enable_invitation_facts(&mut self) -> Result<(), Error> {
+        super::invitations::check_ready(&self.pool).await?;
+        self.invitation_facts = true;
+        Ok(())
+    }
+    pub(crate) fn invitation_facts_available(&self) -> bool {
+        self.invitation_facts
+    }
+    pub(crate) async fn invitation_facts(
+        &self,
+        session: &str,
+    ) -> Result<super::invitations::InvitationFacts, Error> {
+        if !self.invitation_facts {
+            return Err(Error::Unavailable);
+        }
+        super::invitations::read(&self.pool, session).await
+    }
+    pub(crate) async fn enable_plan_offers(
+        &mut self,
+        payments: Option<crate::payments::rpc::PaymentsRpc>,
+        subscription_orders: bool,
+    ) -> Result<(), Error> {
+        self.plan_offers = Some(
+            super::plan_offers::PlanOffersStore::new(
+                self.pool.clone(),
+                payments.map(|p| p.offer_source(subscription_orders)),
+            )
+            .await?,
+        );
+        Ok(())
+    }
+    pub(crate) fn plan_offers_available(&self) -> bool {
+        self.plan_offers.is_some()
+    }
+    pub(crate) async fn plan_offers(
+        &self,
+        session: &str,
+    ) -> Result<super::plan_offers::PlanOffers, Error> {
+        self.plan_offers
+            .as_ref()
+            .ok_or(Error::Unavailable)?
+            .read(session)
+            .await
     }
     pub async fn available_models(&self, original_session: &str) -> Result<AvailableModels, Error> {
         let mut tx = self.pool.begin().await?;

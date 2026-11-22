@@ -279,7 +279,7 @@ func (s *Service) issueTool(ctx context.Context, tx *sql.Tx, in assistant.AgentI
 	return assistant.AgentToolResult{}, false, nil
 }
 func (s *Service) defaultConfirmations() map[string]confirmationAction {
-	return map[string]confirmationAction{"create_site_issue": {minimumLevel: 0, apply: s.createIssue}, "update_site_issue": {minimumLevel: 5, apply: s.updateIssue}, "request_human_support": {minimumLevel: 0, apply: s.confirmHandoff}}
+	return map[string]confirmationAction{"send_invitation": {minimumLevel: 0, apply: rejectInvitationDatabaseApply}, "create_site_issue": {minimumLevel: 0, apply: s.createIssue}, "update_site_issue": {minimumLevel: 5, apply: s.updateIssue}, "request_human_support": {minimumLevel: 0, apply: s.confirmHandoff}}
 }
 
 // Escaped ASCII can use six JSON bytes per rune. Keep a full issue body while

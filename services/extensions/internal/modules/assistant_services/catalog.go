@@ -178,11 +178,12 @@ func serviceDefinitions() []PureDefinition {
 				"target_user_id": map[string]any{"type": "integer", "minimum": 1},
 			}, []string{"message"}),
 		}}
-	for _, group := range [][]assistantOpenAIToolDefinition{assistantSkillTools(), issueDefinitions(), assistantSitePolicyToolDefinitions()} {
+	for _, group := range [][]assistantOpenAIToolDefinition{assistantSkillTools(), issueDefinitions(), assistantSitePolicyToolDefinitions(), planOfferDefinitions(), invitationDefinitions()} {
 		for _, d := range group {
 			out = append(out, d.Function)
 		}
 	}
+	out = append(out, costDefinition())
 	return append(out, PureDefinitions()...)
 }
 func (s *Service) Bindings() []assistant.AgentToolBinding {
@@ -196,7 +197,7 @@ func (s *Service) Bindings() []assistant.AgentToolBinding {
 		metadata := serviceToolMetadata[d.Name]
 		out = append(out, assistant.AgentToolBinding{Name: d.Name, Description: d.Description, Effect: metadata[0], Access: metadata[1], Version: assistant.FixedMainToolVersion, PriceVersion: assistant.BuiltinToolPriceVersion, PriceSHA256: assistant.FreeAgentPriceSHA256(), Parameters: raw, Executor: s})
 	}
-	return out
+	return append(out, assistant.UIPreferenceBindings(s)...)
 }
 
 var serviceToolMetadata = map[string][2]string{

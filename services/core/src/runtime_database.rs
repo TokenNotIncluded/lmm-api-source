@@ -10,6 +10,7 @@ mod channel_projection;
 mod checkin_challenges;
 mod checkins;
 mod federated_auth;
+mod legacy_affiliate_aliases;
 mod legacy_discount_packet;
 mod legacy_gifts;
 mod managed_applications;
@@ -252,7 +253,7 @@ pub(crate) async fn check_connection(
             OR (n.nspname='core_oauth' AND has_table_privilege(c.oid,'DELETE,TRUNCATE,TRIGGER,REFERENCES,MAINTAIN'))
             OR (n.nspname='core_assistant_tools' AND (has_table_privilege(c.oid,'DELETE,TRUNCATE,TRIGGER,REFERENCES,MAINTAIN') OR has_any_column_privilege(c.oid,'REFERENCES')))
             OR (n.nspname='core_market_oauth' AND has_table_privilege(c.oid,'DELETE,TRUNCATE,TRIGGER,REFERENCES,MAINTAIN'))
-            OR (n.nspname='core_meta' AND c.relname IN ('console_revisions','offline_upgrades','site_finance_upgrades','payment_gateway_upgrades','completion_upgrades','payment_discount_upgrades','payment_discount_management_upgrades','responses_continuity_upgrades','assistant_service_funding_upgrades','assistant_agent_gift_upgrades','current_connection_history_upgrades')
+            OR (n.nspname='core_meta' AND c.relname IN ('console_revisions','offline_upgrades','site_finance_upgrades','payment_gateway_upgrades','completion_upgrades','payment_discount_upgrades','payment_discount_management_upgrades','responses_continuity_upgrades','assistant_service_funding_upgrades','assistant_agent_gift_upgrades','current_connection_history_upgrades','assistant_confirmed_actions_upgrades')
               AND (has_table_privilege(c.oid,'SELECT') OR has_any_column_privilege(c.oid,'SELECT')))
             OR (n.nspname='core_history' AND c.relname IN ('current_connection_snapshot','current_connection_credential_map')
               AND EXISTS(SELECT FROM pg_catalog.pg_attribute a WHERE a.attrelid=c.oid AND a.attnum>0 AND NOT a.attisdropped
@@ -288,7 +289,10 @@ pub(crate) async fn check_connection(
             OR (n.nspname='core_charging' AND c.relname='external_consumption' AND a.attname<>'refunded')
             OR (n.nspname='core_tool_market' AND c.relname='approvals' AND a.attname NOT IN ('revoked','used_calls','used_amount'))
             OR (n.nspname='core_tool_market' AND c.relname='calls' AND a.attname NOT IN ('receipt','result_hash'))
-            OR (n.nspname='core_assistant_tools' AND a.attname NOT IN ('nonce_sha256','state','confirmed_at'))
+            OR (n.nspname='core_assistant_tools' AND (
+              (c.relname='confirmations' AND a.attname NOT IN ('nonce_sha256','state','confirmed_at','execution_receipt','execution_sha256','executed_at'))
+              OR (c.relname='key_creation_cards' AND a.attname NOT IN ('nonce_sha256','ciphertext','consumed_at'))
+              OR c.relname NOT IN ('confirmations','key_creation_cards')))
             OR (n.nspname='core_assistant' AND c.relname='grants' AND a.attname<>'revoked')
             OR (n.nspname='core_assistant' AND c.relname='operations' AND a.attname NOT IN ('answer_text','completed_at','gift_receipt','gift_tool_id','gift_response_sha256'))
             OR (n.nspname='core_assistant' AND c.relname='agent_turns' AND a.attname NOT IN ('phase','revision','final_text','loaded_tools'))
@@ -343,6 +347,7 @@ pub(crate) async fn check_connection(
     checkins::check(connection, required.checkins).await?;
     checkin_challenges::check(connection, required.checkin_rewards).await?;
     product_features::check(connection, required.console).await?;
+    legacy_affiliate_aliases::check(connection, required.web_identity).await?;
     legacy_discount_packet::check(connection, required.payments, required.console).await?;
     legacy_gifts::check(
         connection,
@@ -739,13 +744,16 @@ pub(crate) async fn check_connection(
         }
     }
     if required.payments {
+        // Frozen legacy bases/holds are owner-only inputs. Payment runtime
+        // reads them, while the independent negative guards reject write ACLs.
         let complete: bool = sqlx::query_scalar(
             r#"
           SELECT has_schema_privilege('core_payments','USAGE')
             AND NOT EXISTS(SELECT FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
               CROSS JOIN (VALUES ('SELECT'),('INSERT')) AS p(privilege)
               WHERE n.nspname='core_payments' AND c.relkind IN ('r','p')
-                AND NOT (c.relname='legacy_bases' AND p.privilege='INSERT')
+                AND NOT (c.relname IN ('legacy_bases','legacy_discount_bases','legacy_discount_holds')
+                  AND p.privilege='INSERT')
                 AND NOT has_table_privilege(c.oid,p.privilege))
             AND has_table_privilege('core_payments.legacy_discount_consumptions','SELECT')
             AND has_table_privilege('core_payments.intents','UPDATE')
@@ -775,6 +783,30 @@ pub(crate) async fn check_connection(
             AND has_column_privilege('core_assistant_tools.confirmations','nonce_sha256','UPDATE')
             AND has_column_privilege('core_assistant_tools.confirmations','state','UPDATE')
             AND has_column_privilege('core_assistant_tools.confirmations','confirmed_at','UPDATE')
+            AND has_column_privilege('core_assistant_tools.confirmations','execution_receipt','UPDATE')
+            AND has_column_privilege('core_assistant_tools.confirmations','execution_sha256','UPDATE')
+            AND has_column_privilege('core_assistant_tools.confirmations','executed_at','UPDATE')
+            AND has_table_privilege('core_assistant_tools.key_creation_cards','SELECT')
+            AND has_table_privilege('core_assistant_tools.key_creation_cards','INSERT')
+            AND has_column_privilege('core_assistant_tools.key_creation_cards','nonce_sha256','UPDATE')
+            AND has_column_privilege('core_assistant_tools.key_creation_cards','ciphertext','UPDATE')
+            AND has_column_privilege('core_assistant_tools.key_creation_cards','consumed_at','UPDATE')
+            AND EXISTS(SELECT FROM pg_catalog.pg_proc function
+              JOIN pg_catalog.pg_namespace namespace ON namespace.oid=function.pronamespace
+              WHERE namespace.nspname='core_assistant_tools'
+                AND function.proname='market_confirmation_bound' AND function.prokind='f'
+                AND function.pronargs=1 AND function.proargtypes[0]='pg_catalog.text'::regtype
+                AND function.prorettype='pg_catalog.bool'::regtype AND NOT function.proretset
+                AND has_function_privilege(function.oid,'EXECUTE'))
+            AND (SELECT count(*) FROM pg_catalog.pg_trigger trigger JOIN pg_catalog.pg_class relation ON relation.oid=trigger.tgrelid JOIN pg_catalog.pg_namespace namespace ON namespace.oid=relation.relnamespace WHERE namespace.nspname='core_assistant_tools' AND relation.relname='key_creation_cards'
+              AND tgname IN ('assistant_key_card_immutable','assistant_key_card_no_truncate','assistant_key_card_execution_binding')
+              AND NOT tgisinternal AND tgenabled='O')=3
+            AND EXISTS(SELECT FROM pg_catalog.pg_trigger trigger
+              JOIN pg_catalog.pg_class relation ON relation.oid=trigger.tgrelid
+              JOIN pg_catalog.pg_namespace namespace ON namespace.oid=relation.relnamespace
+              WHERE namespace.nspname='core_assistant_tools' AND relation.relname='confirmations'
+                AND trigger.tgname='assistant_confirmation_execution_binding' AND NOT trigger.tgisinternal
+                AND trigger.tgenabled='O' AND trigger.tgdeferrable AND trigger.tginitdeferred)
             AND has_schema_privilege('core_payments','USAGE')
             AND NOT EXISTS(SELECT FROM (VALUES ('intents'),('accepted_proofs'),('refund_holds'),('blocked_refunds')) t(name)
               WHERE NOT has_table_privilege('core_payments.'||t.name,'SELECT'))

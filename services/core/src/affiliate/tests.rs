@@ -397,3 +397,6 @@ async fn affiliate_code_and_registration_are_persistent_and_atomic(pool: PgPool)
     );
     assert_eq!(journals(&pool).await, 0, "binding cannot mint funds");
 }
+
+#[path = "legacy_alias_tests.rs"]
+mod legacy_alias_tests;

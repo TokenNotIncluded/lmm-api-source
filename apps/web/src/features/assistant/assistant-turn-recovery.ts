@@ -20,6 +20,10 @@ import {
   AssistantStreamError,
   assistantAbortReason,
 } from './assistant-ai-stream'
+import {
+  INVITATION_PENDING,
+  parsePendingInvitation,
+} from './assistant-invitation-contract'
 
 const pendingTurn = z
   .object({
@@ -103,12 +107,32 @@ export async function continueAssistantResponse(
   let response = initial
   let conversationId: number | undefined
   for (let attempt = 0; response.status === 202; attempt += 1) {
-    const parsed = pendingTurn.safeParse(
-      await response
-        .clone()
-        .json()
-        .catch(() => null)
-    )
+    const raw: unknown = await response
+      .clone()
+      .json()
+      .catch(() => null)
+    if (
+      raw &&
+      typeof raw === 'object' &&
+      'code' in raw &&
+      raw.code === INVITATION_PENDING
+    ) {
+      const invitation = parsePendingInvitation(raw, {
+        client_turn_id: expectedTurnId ?? '',
+        conversation_id: conversationId,
+      })
+      if (!invitation) {
+        throw new AssistantStreamError(
+          502,
+          {},
+          'Invalid invitation confirmation receipt',
+          false
+        )
+      }
+      // Human approval is explicit. Do not auto-resume a pending mail operation.
+      throw new AssistantStreamError(202, invitation, INVITATION_PENDING, false)
+    }
+    const parsed = pendingTurn.safeParse(raw)
     if (
       !parsed.success ||
       !expectedTurnId ||

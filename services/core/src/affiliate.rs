@@ -129,6 +129,33 @@ impl Store {
         })
     }
 }
+/// Read an existing invitation code without creating one. Legacy aliases retain
+/// their exact case; a previously issued native code remains valid as well.
+pub(crate) async fn existing_invitation_code(
+    connection: &mut sqlx::PgConnection,
+    user: i64,
+) -> Result<Option<String>, sqlx::Error> {
+    sqlx::query_scalar(
+        "SELECT code FROM (
+           SELECT code,0 AS priority FROM core_identity.legacy_affiliate_aliases WHERE user_id=$1
+           UNION ALL SELECT code,1 AS priority FROM core_identity.affiliate_codes WHERE user_id=$1
+         ) c ORDER BY priority LIMIT 1",
+    )
+    .bind(user)
+    .fetch_optional(connection)
+    .await
+}
+
+fn valid_invitation_code(code: &str) -> bool {
+    match code.len() {
+        4 => code.bytes().all(|byte| byte.is_ascii_alphanumeric()),
+        32 => code
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte)),
+        _ => false,
+    }
+}
+
 /// Attach acquisition attribution on the registration transaction, before commit.
 /// Empty codes are allowed; invalid codes fail the whole registration. No funds are minted.
 pub(crate) async fn bind_registration(
@@ -140,15 +167,21 @@ pub(crate) async fn bind_registration(
     if code.is_empty() {
         return Ok(());
     }
-    if code.len() != 32
-        || !code
-            .bytes()
-            .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
-    {
+    if !valid_invitation_code(code) {
         return Err(IdentityError::Invalid);
     }
-    let inviter: i64 = sqlx::query_scalar("SELECT c.user_id FROM core_identity.affiliate_codes c JOIN core_identity.users u ON u.id=c.user_id WHERE c.code=$1 AND u.active")
-        .bind(code).fetch_optional(&mut *connection).await?.ok_or(IdentityError::Invalid)?;
+    let inviter: i64 = sqlx::query_scalar(
+        "SELECT c.user_id FROM (
+           SELECT user_id FROM core_identity.affiliate_codes WHERE code=$1
+           UNION ALL SELECT user_id FROM core_identity.legacy_affiliate_aliases WHERE code=$1 COLLATE \"C\"
+         ) c JOIN core_identity.users u ON u.id=c.user_id
+         JOIN core_identity.accounts a ON a.id=u.personal_account_id
+         WHERE u.active AND a.active AND a.kind='personal'",
+    )
+    .bind(code)
+    .fetch_optional(&mut *connection)
+    .await?
+    .ok_or(IdentityError::Invalid)?;
     if inviter == user {
         return Err(IdentityError::Invalid);
     }
@@ -165,17 +198,22 @@ pub(crate) async fn bind_registration(
 async fn affiliate_code(State(s): State<Browser>, headers: HeaderMap) -> Result<Response, Error> {
     let mut tx = s.store.pool.begin().await?;
     let actor = BrowserAuth::oauth_identity_in_transaction(&mut tx, cookie(&headers)?).await?;
-    let mut bytes = [0u8; 16];
-    SysRng
-        .try_fill_bytes(&mut bytes)
-        .map_err(|_| Error::Unavailable)?;
-    sqlx::query("INSERT INTO core_identity.affiliate_codes(user_id,code) VALUES($1,$2) ON CONFLICT(user_id) DO NOTHING")
-        .bind(actor.user).bind(crate::hex_codec::encode(bytes)).execute(&mut *tx).await?;
-    let code: String =
-        sqlx::query_scalar("SELECT code FROM core_identity.affiliate_codes WHERE user_id=$1")
-            .bind(actor.user)
-            .fetch_one(&mut *tx)
-            .await?;
+    let code = if let Some(code) = existing_invitation_code(&mut tx, actor.user).await? {
+        code
+    } else {
+        let mut bytes = [0u8; 16];
+        SysRng
+            .try_fill_bytes(&mut bytes)
+            .map_err(|_| Error::Unavailable)?;
+        sqlx::query("INSERT INTO core_identity.affiliate_codes(user_id,code) VALUES($1,$2) ON CONFLICT(user_id) DO NOTHING")
+            .bind(actor.user).bind(crate::hex_codec::encode(bytes)).execute(&mut *tx).await?;
+        let code: String =
+            sqlx::query_scalar("SELECT code FROM core_identity.affiliate_codes WHERE user_id=$1")
+                .bind(actor.user)
+                .fetch_one(&mut *tx)
+                .await?;
+        code
+    };
     tx.commit().await?;
     Ok(secure(
         Json(serde_json::json!({"success":true,"message":"","data":code})).into_response(),

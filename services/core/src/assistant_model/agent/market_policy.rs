@@ -72,7 +72,6 @@ pub(crate) async fn authorize_market_policy_context_in_transaction(
     }
     Ok(MarketPolicyPermission { _private: () })
 }
-#[allow(dead_code)] // Built only by the unused market-tool authorizer below.
 pub(crate) struct MarketIntent<'a> {
     pub service_id: &'a str,
     pub tool_id: &'a str,
@@ -81,13 +80,11 @@ pub(crate) struct MarketIntent<'a> {
     pub input_digest: &'a str,
     pub quote_id: &'a str,
 }
-#[allow(dead_code)] // Returned only by the unused market-tool authorizer below.
 pub(crate) struct MarketToolAuthority {
     operation_id: String,
     quote_id: String,
     consent_id: String,
 }
-#[allow(dead_code)] // Returned only by the unused market-tool authorizer below.
 impl MarketToolAuthority {
     pub(crate) fn operation_id(&self) -> &str {
         &self.operation_id
@@ -108,9 +105,7 @@ struct MarketArguments {
     grant_id: String,
     arguments: Value,
 }
-#[allow(dead_code)] // Used only by the unused market-tool authorizer below.
 use crate::hex_codec::encode as hex;
-#[allow(dead_code)] // Used only by the unused market-tool authorizer below.
 fn check_proposal(proposal: &FrozenProposal, intent: &MarketIntent<'_>) -> Result<(), Error> {
     let args: MarketArguments =
         serde_json::from_slice(proposal.arguments_json()).map_err(|_| Error::Invalid)?;
@@ -131,7 +126,6 @@ fn check_proposal(proposal: &FrozenProposal, intent: &MarketIntent<'_>) -> Resul
     }
     Ok(())
 }
-#[allow(dead_code)] // Checked market binding; no production caller yet.
 pub(crate) async fn authorize_market_tool_operation_in_transaction(
     c: &mut PgConnection,
     actor: &Principal,
@@ -155,7 +149,7 @@ pub(crate) async fn authorize_market_tool_operation_in_transaction(
     let quote=sqlx::query("SELECT snapshot,approved,suspended,visibility,seller_user_id FROM core_tool_market.credit_quotes WHERE id=$1 FOR SHARE")
         .bind(intent.quote_id).fetch_optional(&mut *c).await?.ok_or(Error::Forbidden)?;
     let Json(q): Json<crate::tool_market::credits::Quote> = quote.try_get("snapshot")?;
-    let consent=sqlx::query("SELECT actor_user_id,payer_account_id,quote_id,request,revoked_at FROM core_tool_market.credit_consents WHERE id=$1 FOR SHARE")
+    let consent=sqlx::query("SELECT actor_user_id,payer_account_id,quote_id,request,revoked_at FROM core_tool_market.credit_consents WHERE id=$1 FOR UPDATE")
         .bind(intent.grant_id).fetch_optional(&mut *c).await?.ok_or(Error::Forbidden)?;
     let Json(grant): Json<crate::tool_market::credit_access::ConsentRequest> =
         consent.try_get("request")?;

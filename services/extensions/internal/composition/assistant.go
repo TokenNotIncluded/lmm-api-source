@@ -134,6 +134,13 @@ func (r *Runtime) composeAssistantDelegation(ctx context.Context, cfg Config, db
 		if access.Missing(dependencies.Policies) {
 			dependencies.Policies = cfg.AssistantServicesPolicies
 		}
+		if access.Missing(dependencies.Navigation) {
+			dependencies.Navigation = assistantNavigation{authority: authority, store: r.Store, market: r.ToolMarket}
+		}
+		publicSnapshot := cfg.AssistantPublicSnapshot
+		if access.Missing(publicSnapshot) && cfg.HostPublicOrigin != "" {
+			publicSnapshot = assistantPublicSnapshot{origin: cfg.HostPublicOrigin, local: cfg.LocalHTTP, checkins: r.Checkins}
+		}
 		if factsClient, ok := any(client).(assistant_services.BusinessFactsClient); ok {
 			facts, factsErr := assistant_services.NewCoreBusinessFacts(factsClient, authority)
 			if factsErr != nil {
@@ -143,12 +150,34 @@ func (r *Runtime) composeAssistantDelegation(ctx context.Context, cfg Config, db
 				if access.Missing(dependencies.SupportEligibility) {
 					dependencies.SupportEligibility = facts
 				}
-				if access.Missing(dependencies.Public) && !access.Missing(cfg.AssistantPublicSnapshot) {
-					guides, guidesErr := assistant_services.NewPublicGuides(authority, cfg.AssistantPublicSnapshot, facts)
+				if access.Missing(dependencies.Public) && !access.Missing(publicSnapshot) {
+					guides, guidesErr := assistant_services.NewPublicGuides(authority, publicSnapshot, facts)
 					if guidesErr != nil {
 						return guidesErr
 					}
 					dependencies.Public = guides
+				}
+			}
+		}
+		if access.Missing(dependencies.PlanOffers) {
+			if port, ok := any(client).(assistant_services.PlanOffersClient); ok {
+				offers, err := assistant_services.NewCorePlanOffers(port, authority, assistantCheckoutCatalogue{runtime: r})
+				if err != nil {
+					return err
+				}
+				if offers.Ready(ctx) == nil {
+					dependencies.PlanOffers = offers
+				}
+			}
+		}
+		if access.Missing(dependencies.Invitations) {
+			if port, ok := any(client).(assistant_services.InvitationFactsClient); ok {
+				invitations, err := assistant_services.NewCoreInvitations(port, authority)
+				if err != nil {
+					return err
+				}
+				if invitations.Ready(ctx) == nil {
+					dependencies.Invitations = invitations
 				}
 			}
 		}
@@ -161,6 +190,11 @@ func (r *Runtime) composeAssistantDelegation(ctx context.Context, cfg Config, db
 			return personalErr
 		}
 		bindings := append(personal.Domain().AvailableBindings(), personal.AvailableBindings()...)
+		catalogueBindings, catalogueErr := r.assistantCatalogueBindings(authority)
+		if catalogueErr != nil {
+			return catalogueErr
+		}
+		bindings = append(bindings, catalogueBindings...)
 		r.AssistantServices = personal.Domain()
 		if r.ToolMarket != nil {
 			market, marketErr := assistant_market.New(r.ToolMarket)
@@ -188,7 +222,7 @@ func (r *Runtime) composeAssistantDelegation(ctx context.Context, cfg Config, db
 		if chatErr != nil {
 			return chatErr
 		}
-		r.AssistantChat = chat.WithGifts(gifts).WithHumanSupportGuard(personal.Domain())
+		r.AssistantChat = chat.WithGifts(gifts).WithHumanSupportGuard(personal.Domain()).WithUIPreferences(personal.Domain()).WithInvitationConfirmations(personal.Domain())
 		return nil
 	}
 	r.AssistantChat, err = assistant.NewPersonalChat(r.AssistantPending, r.AssistantTurns, r.AssistantHistory, gifts)

@@ -1623,6 +1623,7 @@ pub fn support_projection_configured() -> bool {
 pub async fn tool_market_server(
     url: &str,
     gateway: Option<&crate::model_http::ModelGateway>,
+    assistant: Option<&crate::assistant_model::rpc::AssistantRpc>,
 ) -> io::Result<Option<crate::tool_market::server::ToolMarketServer>> {
     if !tool_market_configured()
         && !support_projection_configured()
@@ -1805,6 +1806,11 @@ pub async fn tool_market_server(
             .map_err(|_| invalid_config("invalid private tool market service"))?,
         );
         let mut credit = crate::tool_market::credit_access::CreditStore::from_pool(pool.clone());
+        if let Some(runtime) =
+            assistant.and_then(crate::assistant_model::rpc::AssistantRpc::market_runtime)
+        {
+            credit = credit.with_assistant_runtime(runtime);
+        }
         if let Some(profile) = market_oauth_profile()? {
             credit = credit.with_market_oauth_profile(Arc::new(profile));
         }
@@ -2053,6 +2059,19 @@ pub async fn assistant_rpc(
         ));
     }
     let tools_enabled = assistant_tools_enabled()?;
+    if config.agent.as_ref().is_some_and(|host| {
+        host.policy.allowed_tools.iter().any(|tool| {
+            matches!(
+                tool.as_str(),
+                "get_connected_market_tools" | "connect_market_tool" | "call_market_tool"
+            )
+        })
+    }) && !tool_market_configured()
+    {
+        return Err(invalid_config(
+            "assistant market tools require the configured Core market service",
+        ));
+    }
     if config.agent.is_some() && !tools_enabled {
         return Err(invalid_config(
             "assistant agent requires enabled tools and Web identity",
@@ -2108,12 +2127,16 @@ pub async fn assistant_rpc(
         // Read-only startup checks: no schema creation and no synthetic Session.
         sqlx::query("SELECT o.id,o.arguments_json,o.resource_schema_sha256,o.resource_price_sha256,t.session_id,t.host_policy,t.source_web_session_sid,r.model_request_id,c.id FROM core_assistant.agent_tool_operations o JOIN core_assistant.agent_turns t ON t.id=o.turn_id JOIN core_assistant.agent_rounds r ON r.id=o.round_id LEFT JOIN core_assistant_tools.confirmations c ON c.operation_id=o.id WHERE FALSE")
             .execute(&pool).await.map_err(|_| invalid_config("assistant tools require installed durable agent schema and runtime read authority"))?;
-        let facts =
+        let mut facts =
             crate::assistant_tools_core::facts::BusinessFactsStore::new(pool.clone(), gateway);
         facts
             .check_readonly()
             .await
             .map_err(|_| invalid_config("assistant business facts read authority unavailable"))?;
+        facts
+            .enable_invitation_facts()
+            .await
+            .map_err(|_| invalid_config("assistant invitation facts read authority unavailable"))?;
         rpc = rpc.with_business_facts(facts).with_confirmations(
             crate::assistant_tools_core::confirmation::ConfirmationStore::new(pool.clone()),
         );
@@ -2126,16 +2149,26 @@ pub async fn assistant_rpc(
     Ok(Some(rpc))
 }
 
-pub fn assistant_tools_browser_router(pool: sqlx::PgPool) -> io::Result<Option<axum::Router>> {
+pub fn assistant_tools_browser_router(
+    pool: sqlx::PgPool,
+    identity: crate::identity::IdentityStore,
+    assistant: Option<&crate::assistant_model::rpc::AssistantRpc>,
+) -> io::Result<Option<axum::Router>> {
     if !assistant_tools_enabled()? {
         return Ok(None);
     }
     let origin = setting("LMM_CORE_WEB_ORIGIN")
         .map_err(|_| invalid_config("assistant confirmation requires Web origin"))?;
     let local = bool_setting("LMM_CORE_WEB_LOCAL_HTTP")?;
-    let state =
+    let mut state =
         crate::assistant_tools_core::confirmation::BrowserConfirmation::new(pool, &origin, local)
-            .map_err(|_| invalid_config("invalid assistant confirmation browser configuration"))?;
+            .map_err(|_| invalid_config("invalid assistant confirmation browser configuration"))?
+            .with_identity_store(identity);
+    if let Some(runtime) =
+        assistant.and_then(crate::assistant_model::rpc::AssistantRpc::market_runtime)
+    {
+        state = state.with_market_runtime(runtime);
+    }
     Ok(Some(crate::assistant_tools_core::confirmation::router(
         state,
     )))

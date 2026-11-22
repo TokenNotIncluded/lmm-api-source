@@ -243,6 +243,16 @@ user_endpoint!(consent_list, ListRequest, consent_list_request);
 user_endpoint!(budget_list, ListRequest, list_budgets);
 user_endpoint!(token_list, ListRequest, list_tokens);
 user_endpoint!(reserve, ReserveRequest, reserve);
+user_endpoint!(
+    assistant_reserve,
+    super::assistant_runtime::AssistantReserveRequest,
+    reserve_assistant
+);
+user_endpoint!(
+    assistant_catalogue,
+    super::assistant_runtime::AssistantCatalogueRequest,
+    assistant_catalogue
+);
 user_endpoint!(dispatch, CallRequest, dispatch_request);
 user_endpoint!(query, CallRequest, query_request);
 user_endpoint!(config_update, ConfigRequest, update_config);
@@ -381,6 +391,14 @@ pub fn router(store: CreditStore, token: &[u8]) -> Result<Router> {
             post(token_list),
         )
         .route("/internal/tool-market/v2/calls/reserve", post(reserve))
+        .route(
+            "/internal/tool-market/v2/assistant/reserve",
+            post(assistant_reserve),
+        )
+        .route(
+            "/internal/tool-market/v2/assistant/catalogue",
+            post(assistant_catalogue),
+        )
         .route("/internal/tool-market/v2/calls/dispatch", post(dispatch))
         .route(
             "/internal/tool-market/v2/calls/settle",

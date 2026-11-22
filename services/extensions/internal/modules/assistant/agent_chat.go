@@ -15,14 +15,16 @@ import (
 // before each outbound start/claim, so an uncertain acknowledgement can only
 // lead to inspection of the original operation, never another execution.
 type AgentChat struct {
-	authority    access.Authority
-	pending      *PendingConversations
-	journal      AgentJournal
-	port         AgentTurnPort
-	registry     *AgentRegistry
-	history      *HistoryService
-	gifts        *Gifts
-	humanSupport HumanSupportGuard
+	authority               access.Authority
+	pending                 *PendingConversations
+	journal                 AgentJournal
+	port                    AgentTurnPort
+	registry                *AgentRegistry
+	history                 *HistoryService
+	gifts                   *Gifts
+	humanSupport            HumanSupportGuard
+	uiPreferences           UIPreferenceActionReader
+	invitationConfirmations InvitationConfirmationReader
 }
 
 type HumanSupportGuard interface {
@@ -302,6 +304,14 @@ func (s *AgentChat) advance(ctx context.Context, credential string, p access.Pri
 			}
 			reply.State = "settled"
 			reply.Text = RedactAssistantHistoryContent(snap.FinalText)
+			// Recovery and history may display a settled answer, but never replay
+			// a browser effect after reload or uncertain response delivery.
+			if !recoverOnly {
+				reply.UIPreferenceAction, err = s.completedUIPreferenceAction(ctx, credential, stored)
+				if err != nil {
+					return reply, err
+				}
+			}
 			return reply, nil
 		}
 		if consume != nil && snap.Phase == AgentTurnRunning {
@@ -348,6 +358,12 @@ func (s *AgentChat) advance(ctx context.Context, credential string, p access.Pri
 			progressed = progressed || done
 		}
 		if !progressed {
+			if !recoverOnly {
+				reply.InvitationConfirmation, err = s.pendingInvitationConfirmation(ctx, credential, p, conversation, turn)
+				if err != nil {
+					return reply, err
+				}
+			}
 			return reply, nil
 		}
 		next, err := s.getAgentTurn(ctx, credential, snap.Key, deadline)

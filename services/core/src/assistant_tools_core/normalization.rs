@@ -106,6 +106,9 @@ pub(crate) async fn validate(
     draft: &Value,
 ) -> Result<(), Error> {
     match proof.tool_name() {
+        "send_invitation" => {
+            super::invitations::validate_draft(c, context, original, draft).await?
+        }
         "create_site_issue" => {
             let source: CreateSource = decode(original)?;
             let actual: CreateDraft = decode(draft)?;

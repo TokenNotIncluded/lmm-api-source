@@ -395,6 +395,7 @@ async fn run_core() -> Result<(), Box<dyn Error>> {
     let mut capabilities = lmm_core::http::Capabilities::default();
     let mut public_status = lmm_core::http::PublicStatus::default();
     let mut database_pool = None;
+    let mut assistant_browser_identity = None;
     let mut model_gateway = None;
     let mut humangrant_engine = None;
     let mut email_runtime = None;
@@ -497,6 +498,7 @@ async fn run_core() -> Result<(), Box<dyn Error>> {
         if let Some(issuer) = config::market_oauth_issuer(pool.clone()).await? {
             routes = routes.merge(lmm_core::market_oauth::http::router(issuer));
         }
+        assistant_browser_identity = Some(store.clone());
         let oauth2 = config::oauth2_issuer(store.clone()).await?;
         let oauth2 = oauth2.map(|issuer| {
             if let Some(gateway) = &model_gateway {
@@ -634,9 +636,6 @@ async fn run_core() -> Result<(), Box<dyn Error>> {
                 .map_err(|_| "bounty schema or runtime authority unavailable")?;
             routes = routes.merge(config::bounties_browser_router(store)?);
         }
-        if let Some(confirmations) = config::assistant_tools_browser_router(pool.clone())? {
-            routes = routes.merge(confirmations);
-        }
         // The final readiness router is assembled after the optional RPC checks.
         app = routes;
         database_pool = Some(pool);
@@ -690,13 +689,26 @@ async fn run_core() -> Result<(), Box<dyn Error>> {
                 let events = lmm_core::events::EventStore::connect(url).await?;
                 server = server.with_events(events, "extensions")?;
                 capabilities.events = true;
+                let financial = config::financial_rpcs(url, &token).await?;
                 if let Some(assistant) =
                     config::assistant_rpc(url, model_gateway.as_ref(), &token).await?
                 {
+                    let assistant = if console_enabled {
+                        let subscription_orders =
+                            financial.epay_subscriptions.as_ref().is_some_and(|s| {
+                                s.features()
+                                    .iter()
+                                    .any(|f| f == "subscriptions.epay.orders")
+                            });
+                        assistant
+                            .with_plan_offers(financial.payments.clone(), subscription_orders)
+                            .await?
+                    } else {
+                        assistant
+                    };
                     assistant_drain = Some(assistant.clone());
                     server = server.with_assistant(assistant);
                 }
-                let financial = config::financial_rpcs(url, &token).await?;
                 if let Some(subscriptions) = financial.epay_subscriptions {
                     if console_enabled {
                         app = app.merge(subscriptions.price_router());
@@ -753,7 +765,10 @@ async fn run_core() -> Result<(), Box<dyn Error>> {
     }
     #[cfg(unix)]
     let tool_market_server = match database_url.as_deref() {
-        Some(url) => config::tool_market_server(url, model_gateway.as_ref()).await?,
+        Some(url) => {
+            config::tool_market_server(url, model_gateway.as_ref(), assistant_drain.as_ref())
+                .await?
+        }
         None if config::tool_market_configured()
             || config::support_projection_configured()
             || config::wallet_configured()
@@ -766,6 +781,16 @@ async fn run_core() -> Result<(), Box<dyn Error>> {
         }
         None => None,
     };
+    #[cfg(unix)]
+    let browser_assistant = assistant_drain.as_ref();
+    #[cfg(not(unix))]
+    let browser_assistant = None;
+    if let (Some(pool), Some(identity)) = (&database_pool, assistant_browser_identity)
+        && let Some(confirmations) =
+            config::assistant_tools_browser_router(pool.clone(), identity, browser_assistant)?
+    {
+        app = app.merge(confirmations);
+    }
     let rpc_running = Arc::new(AtomicBool::new(false));
     let models_healthy = Arc::new(AtomicBool::new(true));
     if let Some(pool) = &database_pool {

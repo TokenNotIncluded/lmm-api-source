@@ -14,18 +14,22 @@ export type UIPreferences = {
   ]: (typeof UI_PREFERENCE_OPTIONS)[K][number]
 }
 export type UIPreferencePatch = Partial<UIPreferences>
-export type AssistantUIPreferenceAction = {
+type UIPreferenceActionFields = {
   type: 'workspace_action'
   tool: 'set_ui_preferences' | 'restore_ui_preferences'
   requires_confirmation: false
   confirmation_token?: never
   action_id: string
   actor_user_id: number
-  actor_session_id: string
   expires_at: number
   temporary: boolean
   preview: UIPreferencePatch
 }
+export type AssistantUIPreferenceAction = UIPreferenceActionFields &
+  (
+    | { actor_session_id: string; actor_credential_sha256?: never }
+    | { actor_credential_sha256: string; actor_session_id?: never }
+  )
 
 function record(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
@@ -62,12 +66,13 @@ export function parseAssistantUIPreferenceAction(
     'action_id',
     'actor_user_id',
     'actor_session_id',
+    'actor_credential_sha256',
     'expires_at',
     'temporary',
     'preview',
   ]
   if (
-    Object.keys(value).length !== keys.length ||
+    Object.keys(value).length !== keys.length - 1 ||
     Object.keys(value).some((key) => !keys.includes(key))
   ) {
     return undefined
@@ -82,9 +87,6 @@ export function parseAssistantUIPreferenceAction(
     typeof value.actor_user_id !== 'number' ||
     !Number.isSafeInteger(value.actor_user_id) ||
     value.actor_user_id <= 0 ||
-    typeof value.actor_session_id !== 'string' ||
-    value.actor_session_id.length === 0 ||
-    value.actor_session_id.length > 256 ||
     typeof value.expires_at !== 'number' ||
     !Number.isSafeInteger(value.expires_at) ||
     value.expires_at <= 0 ||
@@ -92,6 +94,16 @@ export function parseAssistantUIPreferenceAction(
   ) {
     return undefined
   }
+  const legacySession =
+    !Object.hasOwn(value, 'actor_credential_sha256') &&
+    typeof value.actor_session_id === 'string' &&
+    value.actor_session_id.length > 0 &&
+    value.actor_session_id.length <= 256
+  const nativeCredential =
+    !Object.hasOwn(value, 'actor_session_id') &&
+    typeof value.actor_credential_sha256 === 'string' &&
+    /^[a-f0-9]{64}$/.test(value.actor_credential_sha256)
+  if (!legacySession && !nativeCredential) return undefined
   const preview = parseUIPreferencePatch(value.preview)
   if (!preview) return undefined
   if (value.tool === 'restore_ui_preferences') {

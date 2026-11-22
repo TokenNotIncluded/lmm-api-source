@@ -28,7 +28,11 @@ export function useAssistantUIPreferenceAdapter(): UIPreferenceAdapter {
     const owner = () => {
       const auth = useAuthStore.getState().auth
       return auth.user && auth.session?.sid
-        ? { userID: auth.user.id, sessionID: auth.session.sid }
+        ? {
+            userID: auth.user.id,
+            sessionID: auth.session.sid,
+            accessToken: auth.accessToken ?? undefined,
+          }
         : undefined
     }
     const read = (): UIPreferences => {

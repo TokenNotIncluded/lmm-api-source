@@ -53,7 +53,16 @@ impl AgentPolicy {
                         | "end_conversation"
                         | "get_account_access"
                         | "get_user_overview"
+                        | "get_user_usage_summary"
+                        | "get_usage_summary"
+                        | "get_admin_channels"
+                        | "get_admin_model_inventory"
+                        | "audit_admin_model_pricing"
                         | "list_my_api_keys"
+                        | "prepare_api_key_action"
+                        | "prepare_user_action"
+                        | "request_create_key"
+                        | "connect_market_tool"
                         | "get_new_user_gift_status"
                         | "prepare_new_user_gift"
                         | "get_registration_risk"
@@ -69,7 +78,14 @@ impl AgentPolicy {
                 }
                 crate::gift::agent::validate_installed_tool(tool)?;
             }
-            if name == "call_market_tool" && self.market.is_none() {
+            if crate::assistant_tools_core::actions::is_tool(name) {
+                crate::assistant_tools_core::actions::validate_installed_tool(tool)?;
+            }
+            if matches!(
+                name.as_str(),
+                "connect_market_tool" | "call_market_tool" | "get_connected_market_tools"
+            ) && self.market.is_none()
+            {
                 return Err(Error::Forbidden);
             }
         }
@@ -89,6 +105,62 @@ pub(crate) struct AgentService {
     pub(super) base: AssistantModel,
     pub(super) policy: Arc<AgentPolicy>,
     pub(super) registry: AgentRegistry,
+}
+
+#[cfg(test)]
+mod reviewed_usage_policy_tests {
+    use super::*;
+
+    #[test]
+    fn reviewed_usage_tools_preserve_the_closed_core_authority() {
+        let raw = include_bytes!("../../../../../contracts/assistant-tools-v2.json");
+        let digest = crate::hex_codec::encode(Sha256::digest(raw));
+        let registry = AgentRegistry::from_reviewed(raw, &digest).unwrap();
+        let mut policy: AgentPolicy = serde_json::from_value(serde_json::json!({
+            "model": {"model":"synthetic-model","group":"synthetic-group","budget_credits":100,"max_output_tokens":16,"ttl_seconds":60},
+            "max_rounds":2,"budget_credits":200,"max_tool_calls":2,"ttl_seconds":60,
+            "allowed_tools":["get_user_usage_summary","get_usage_summary"],
+            "initial_tools":["get_usage_summary"],"system_prompt":"Read verified current usage.","market":null
+        })).unwrap();
+        policy.validate(&registry).unwrap();
+        for name in ["get_user_usage_summary", "get_usage_summary"] {
+            let tool = registry.get(name).unwrap();
+            assert!(tool.validate_arguments(br#"{"days":90}"#).is_ok());
+            assert!(tool.validate_arguments(br#"{"days":91}"#).is_err());
+            assert!(
+                tool.validate_arguments(br#"{"days":1,"grant":true}"#)
+                    .is_err()
+            );
+            assert!(
+                crate::assistant_tools_core::TypedReadArgs::parse(name, br#"{"days":1}"#).is_ok()
+            );
+        }
+        assert!(
+            crate::assistant_tools_core::TypedReadArgs::parse(
+                "get_usage_summary",
+                br#"{"user_id":2}"#
+            )
+            .is_err()
+        );
+        let mut artifact: serde_json::Value = serde_json::from_slice(raw).unwrap();
+        let mut other = artifact["tools"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|row| row["name"] == "get_usage_summary")
+            .unwrap()
+            .clone();
+        other["name"] = serde_json::json!("arbitrary_admin_action");
+        artifact["tools"].as_array_mut().unwrap().push(other);
+        let bytes = serde_json::to_vec(&artifact).unwrap();
+        let hash = crate::hex_codec::encode(Sha256::digest(&bytes));
+        let arbitrary = AgentRegistry::from_reviewed(&bytes, &hash).unwrap();
+        policy.allowed_tools.insert("arbitrary_admin_action".into());
+        assert!(matches!(
+            policy.validate(&arbitrary),
+            Err(Error::Unavailable)
+        ));
+    }
 }
 #[derive(Clone, Debug)]
 pub(crate) struct ToolScope {
@@ -215,6 +287,13 @@ fn accepted(row: &PgRow) -> Result<AcceptedResult, Error> {
     })
 }
 impl AgentService {
+    pub(crate) fn market_runtime(
+        &self,
+    ) -> Option<crate::tool_market::assistant_runtime::AssistantMarketRuntime> {
+        crate::tool_market::assistant_runtime::AssistantMarketRuntime::from_policy(
+            self.policy.clone(),
+        )
+    }
     pub(crate) fn from_host(base: AssistantModel, config: AgentHostConfig) -> Result<Self, Error> {
         let artifact = crate::config::private_file(&config.registry_file, 2_097_152)
             .map_err(|_| Error::Unavailable)?;
@@ -287,6 +366,22 @@ impl AgentService {
             .contains(crate::gift::agent::TOOL_NAME)
         {
             crate::gift::agent::check_ready(&mut tx).await?;
+        }
+        if self
+            .policy
+            .allowed_tools
+            .iter()
+            .any(|name| crate::assistant_tools_core::actions::is_tool(name))
+        {
+            crate::assistant_tools_core::actions::check_ready(&mut tx).await?;
+        }
+        if self
+            .policy
+            .allowed_tools
+            .iter()
+            .any(|name| name == "connect_market_tool")
+        {
+            crate::assistant_tools_core::actions::check_market_ready(&mut tx).await?;
         }
         tx.commit().await?;
         Ok(())
@@ -659,7 +754,7 @@ impl AgentService {
             return Ok(());
         }
         if row.try_get::<String, _>("tool_name")? == "call_market_tool" {
-            let valid:bool=sqlx::query_scalar("SELECT EXISTS(SELECT FROM core_tool_market.credit_calls WHERE id=$1 AND actor_user_id=$2 AND payer_account_id=$3 AND state IN ('settled','released') AND (snapshot#>>'{request,assistant_tool_operation_id}')=$4)")
+            let valid:bool=sqlx::query_scalar("SELECT EXISTS(SELECT FROM core_tool_market.credit_calls WHERE id=$1 AND actor_user_id=$2 AND payer_account_id=$3 AND state IN ('settled','released') AND (snapshot->>'assistant_tool_operation_id')=$4)")
                 .bind(input.domain_receipt_id).bind(actor.user_id).bind(actor.owner_account_id).bind(input.operation_id).fetch_one(&mut *c).await?;
             if !valid {
                 return Err(Error::Forbidden);

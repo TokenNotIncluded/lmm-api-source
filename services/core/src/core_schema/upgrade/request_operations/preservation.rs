@@ -50,6 +50,26 @@ pub(in crate::core_schema::upgrade) async fn data_projected(
     sequences: &[String],
     subscription_subject: bool,
 ) -> Result<BTreeMap<String, Vec<u8>>, UpgradeError> {
+    data_projected_columns(c, tables, sequences, subscription_subject, false).await
+}
+
+// Only the Core84 -> Core85 owner upgrade uses this projection. The new
+// execution fields must all be NULL on every predecessor confirmation row.
+pub(in crate::core_schema::upgrade) async fn data_confirmed_actions(
+    c: &mut PgConnection,
+    tables: &[String],
+    sequences: &[String],
+) -> Result<BTreeMap<String, Vec<u8>>, UpgradeError> {
+    data_projected_columns(c, tables, sequences, false, true).await
+}
+
+async fn data_projected_columns(
+    c: &mut PgConnection,
+    tables: &[String],
+    sequences: &[String],
+    subscription_subject: bool,
+    confirmed_actions: bool,
+) -> Result<BTreeMap<String, Vec<u8>>, UpgradeError> {
     let mut result = BTreeMap::new();
     for table in tables {
         if matches!(
@@ -61,6 +81,21 @@ pub(in crate::core_schema::upgrade) async fn data_projected(
         // Table identifiers came from the pinned catalog, formatted by %I.
         let row = if subscription_subject && table == "core_payments.provider_identifiers" {
             "(to_jsonb(t)-'subscription_order_id')"
+        } else if confirmed_actions && table == "core_assistant_tools.confirmations" {
+            let populated: bool = sqlx::query_scalar(
+                "SELECT EXISTS(SELECT FROM core_assistant_tools.confirmations t
+                 WHERE coalesce(to_jsonb(t)->'execution_receipt','null'::jsonb)<>'null'::jsonb
+                    OR coalesce(to_jsonb(t)->'execution_sha256','null'::jsonb)<>'null'::jsonb
+                    OR coalesce(to_jsonb(t)->'executed_at','null'::jsonb)<>'null'::jsonb)",
+            )
+            .fetch_one(&mut *c)
+            .await?;
+            if populated {
+                return Err(reject(
+                    "ASSISTANT_CONFIRMED_ACTIONS_PREDECESSOR_EXECUTION_NOT_EMPTY",
+                ));
+            }
+            "(to_jsonb(t)-ARRAY['execution_receipt','execution_sha256','executed_at'])"
         } else {
             "to_jsonb(t)"
         };

@@ -14,6 +14,9 @@ func validateAssistantConfiguration(cfg GoConfig) error {
 	if err := validateAssistantSearchConfiguration(cfg); err != nil {
 		return err
 	}
+	if err := validateAssistantInvitationConfiguration(cfg); err != nil {
+		return err
+	}
 	if key == "" {
 		return nil
 	}

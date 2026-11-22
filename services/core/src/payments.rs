@@ -8,6 +8,7 @@ pub(crate) mod identifiers;
 mod legacy;
 mod legacy_pancake;
 mod legacy_store;
+pub(crate) mod offers;
 mod providers;
 pub mod rpc;
 mod stripe;

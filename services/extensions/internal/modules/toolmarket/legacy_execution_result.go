@@ -202,7 +202,7 @@ func (m *Module) legacyRecoverExecution(ctx context.Context, port CoreLegacyCred
 		return r, ErrConflict
 	}
 	if r.Core.ID == "" {
-		receipt, e := port.ReserveLegacyCredits(ctx, credential, LegacyCreditReserve{Owner: r.Owner, ClientID: r.Input.ClientID, RequestKey: r.Input.RequestKey, QuoteID: r.QuoteID, GrantID: r.Input.GrantID, ToolID: r.Input.ToolID, VersionID: r.Input.VersionID, InputDigest: r.InputDigest, ResolveBy: r.ResolveBy})
+		receipt, e := reserveLegacyExecution(ctx, port, credential, r)
 		if e != nil {
 			return r, ErrPending
 		}

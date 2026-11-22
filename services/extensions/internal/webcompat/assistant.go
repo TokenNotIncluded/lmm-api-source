@@ -373,7 +373,12 @@ func assistantChatRespond(w http.ResponseWriter, reply assistant.PersonalChatRep
 			code = "ASSISTANT_HUMAN_SUPPORT_PENDING"
 		}
 		w.WriteHeader(status)
-		_ = json.NewEncoder(w).Encode(map[string]any{"success": false, "code": code, "data": reply})
+		body := map[string]any{"success": false, "code": code, "data": reply}
+		if reply.State == "tools_pending" && reply.InvitationConfirmation != nil {
+			body["code"] = "ASSISTANT_INVITATION_CONFIRMATION_PENDING"
+			body["lmm_assistant_invitation"] = reply.InvitationConfirmation
+		}
+		_ = json.NewEncoder(w).Encode(body)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
@@ -391,6 +396,9 @@ func assistantChatSuccessBody(reply assistant.PersonalChatReply) map[string]any 
 	}
 	if reply.Gift != nil {
 		body["lmm_assistant_gift"] = reply.Gift
+	}
+	if reply.UIPreferenceAction != nil {
+		body["lmm_assistant_action"] = reply.UIPreferenceAction
 	}
 	return body
 }

@@ -12,6 +12,9 @@ import (
 	"google.golang.org/grpc/status"
 )
 
+const assistantMarketCatalogueFeature = "assistant.market.catalogue.v1"
+const assistantMarketExecutionFeature = "assistant.market.execute.v1"
+
 type AssistantExtensionBinding struct{ Name, Version, SchemaSHA256, PriceVersion, PriceSHA256 string }
 
 func extensionTuple(b AssistantExtensionBinding) [5]string {
@@ -92,6 +95,11 @@ func validateAgentExtensions(features []string, available []AssistantExtensionBi
 	tuples := make([][5]string, 0, len(names))
 	for _, name := range names {
 		tuples = append(tuples, extensionTuple(expected[name]))
+	}
+	for _, name := range names {
+		if (name == "get_connected_market_tools" && !seen[assistantMarketCatalogueFeature]) || (name == "call_market_tool" && !seen[assistantMarketExecutionFeature]) {
+			return agentExtensionsUnavailable()
+		}
 	}
 	if extensionDigest(tuples) != aggregate {
 		return agentExtensionsUnavailable()

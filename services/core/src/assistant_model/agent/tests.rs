@@ -991,3 +991,6 @@ mod stream_tests;
 
 #[path = "gift_tests.rs"]
 mod gift_tests;
+
+#[path = "confirmed_actions_tests.rs"]
+mod confirmed_actions_tests;

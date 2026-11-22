@@ -7,7 +7,12 @@ import {
   type UIPreferences,
 } from './assistant-ui-preferences-contract'
 
-export type UIPreferenceOwner = { userID: number; sessionID: string }
+export type UIPreferenceOwner = {
+  userID: number
+  sessionID: string
+  // In-memory only. Never persisted, logged or returned in a receipt.
+  accessToken?: string
+}
 export type UIPreferenceAdapter = {
   owner: () => UIPreferenceOwner | undefined
   read: () => UIPreferences
@@ -33,8 +38,38 @@ type Undo = {
   patch: UIPreferencePatch
   stop?: () => void
 }
-const sameOwner = (a: UIPreferenceOwner | undefined, b: UIPreferenceOwner) =>
-  a?.userID === b.userID && a.sessionID === b.sessionID
+export const sameUIPreferenceOwner = (
+  a: UIPreferenceOwner | undefined,
+  b: UIPreferenceOwner | undefined
+) =>
+  !!a &&
+  !!b &&
+  a.userID === b.userID &&
+  a.sessionID === b.sessionID &&
+  a.accessToken === b.accessToken
+
+async function actionMatchesOwner(
+  action: AssistantUIPreferenceAction,
+  owner: UIPreferenceOwner
+): Promise<boolean> {
+  if (action.actor_user_id !== owner.userID) return false
+  if (action.actor_session_id !== undefined) {
+    return action.actor_session_id === owner.sessionID
+  }
+  if (!owner.accessToken) return false
+  try {
+    const digest = await globalThis.crypto.subtle.digest(
+      'SHA-256',
+      new TextEncoder().encode(owner.accessToken)
+    )
+    const encoded = Array.from(new Uint8Array(digest), (byte) =>
+      byte.toString(16).padStart(2, '0')
+    ).join('')
+    return encoded === action.actor_credential_sha256
+  } catch {
+    return false
+  }
+}
 
 export function createUIPreferenceRuntime(
   now = () => Date.now(),
@@ -45,7 +80,7 @@ export function createUIPreferenceRuntime(
 ) {
   const records = new Map<
     string,
-    { expires: number; receipt: UIPreferenceReceipt }
+    { expires: number; owner: UIPreferenceOwner; receipt: UIPreferenceReceipt }
   >()
   const listeners = new Set<() => void>()
   let lastUndo: Undo | undefined
@@ -81,7 +116,7 @@ export function createUIPreferenceRuntime(
       signal.aborted ||
       !saved ||
       (expectedID !== undefined && saved.id !== expectedID) ||
-      !sameOwner(adapter.owner(), saved.owner)
+      !sameUIPreferenceOwner(adapter.owner(), saved.owner)
     ) {
       return { status: 'unchanged', canUndo: false }
     }
@@ -102,7 +137,10 @@ export function createUIPreferenceRuntime(
     publish(saved.id, { status: 'applying', canUndo: false })
     try {
       await adapter.save(patch, signal)
-      if (signal.aborted || !sameOwner(adapter.owner(), saved.owner)) {
+      if (
+        signal.aborted ||
+        !sameUIPreferenceOwner(adapter.owner(), saved.owner)
+      ) {
         throw new Error('session changed')
       }
       return publish(saved.id, { status: 'restored', canUndo: false })
@@ -129,23 +167,35 @@ export function createUIPreferenceRuntime(
     for (const [id, entry] of records) {
       if (entry.expires < now()) records.delete(id)
     }
-    const owner = {
-      userID: action.actor_user_id,
-      sessionID: action.actor_session_id,
-    }
+    const currentOwner = adapter.owner()
+    const owner = currentOwner ? { ...currentOwner } : undefined
     if (
       signal.aborted ||
-      !sameOwner(adapter.owner(), owner) ||
+      !owner ||
       action.expires_at * 1000 <= now() ||
       action.expires_at * 1000 > now() + 135_000
     ) {
       return unavailable
     }
+    // Hash only the captured credential. Recheck after this asynchronous step
+    // so account switches and token refresh cannot bind a late response anew.
+    if (
+      !(await actionMatchesOwner(action, owner)) ||
+      signal.aborted ||
+      action.expires_at * 1000 <= now() ||
+      !sameUIPreferenceOwner(adapter.owner(), owner)
+    )
+      return unavailable
     const existing = records.get(action.action_id)
-    if (existing) return existing.receipt
+    if (existing) {
+      return sameUIPreferenceOwner(existing.owner, owner)
+        ? existing.receipt
+        : unavailable
+    }
     if (busy || records.size >= 128) return unavailable
     records.set(action.action_id, {
       expires: action.expires_at * 1000,
+      owner,
       receipt: unavailable,
     })
     if (action.tool === 'restore_ui_preferences') {
@@ -197,7 +247,7 @@ export function createUIPreferenceRuntime(
         })
       }
       await adapter.save(patch, signal)
-      if (signal.aborted || !sameOwner(adapter.owner(), owner)) {
+      if (signal.aborted || !sameUIPreferenceOwner(adapter.owner(), owner)) {
         throw new Error('session changed')
       }
       lastUndo = { id: action.action_id, owner, before, patch }
@@ -212,7 +262,12 @@ export function createUIPreferenceRuntime(
   return {
     run,
     undo,
-    receipt: (id: string) => records.get(id)?.receipt,
+    receipt: (id: string, owner?: UIPreferenceOwner) => {
+      const entry = records.get(id)
+      return entry && (!owner || sameUIPreferenceOwner(entry.owner, owner))
+        ? entry.receipt
+        : undefined
+    },
     subscribe: (listener: () => void) => {
       listeners.add(listener)
       return () => {

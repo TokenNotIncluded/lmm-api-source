@@ -90,6 +90,103 @@ async fn legacy_discount_guard_preserves_optional_namespace_and_rejects_latent_w
 }
 
 #[sqlx::test(migrations = false)]
+async fn payment_events_runtime_keeps_legacy_authority_read_only(pool: PgPool) {
+    core_schema::init(&pool).await.unwrap();
+    let role = runtime::RuntimeRole::create(&pool).await;
+    role.optional("core_payments").await;
+    role.optional("core_events").await;
+    let required = RequiredCapabilities {
+        payments: true,
+        events: true,
+        ..RequiredCapabilities::default()
+    };
+    // These are the unmodified production payment grants used by the separate
+    // Core/Go live-process fixture. No grant is added to make startup succeed.
+    let missing: Vec<String> = sqlx::query_scalar(
+        "SELECT c.relname FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
+         WHERE n.nspname='core_payments' AND c.relkind IN ('r','p')
+           AND c.relname<>'legacy_bases' AND NOT has_table_privilege(c.oid,'INSERT')
+         ORDER BY c.relname",
+    )
+    .fetch_all(&role.pool)
+    .await
+    .unwrap();
+    assert_eq!(missing, ["legacy_discount_bases", "legacy_discount_holds"]);
+    runtime_database::check(&role.pool, required).await.unwrap();
+    for (table, column) in [
+        ("legacy_bases", "id"),
+        ("legacy_discount_bases", "code_id"),
+        ("legacy_discount_holds", "code_id"),
+    ] {
+        let privileges: (bool, bool, bool) = sqlx::query_as(
+            "SELECT has_table_privilege('core_payments.'||$1,'SELECT'),
+                has_table_privilege('core_payments.'||$1,'INSERT'),
+                has_any_column_privilege('core_payments.'||$1,'INSERT')",
+        )
+        .bind(table)
+        .fetch_one(&role.pool)
+        .await
+        .unwrap();
+        assert_eq!(privileges, (true, false, false));
+        for permission in ["INSERT".to_owned(), format!("INSERT({column})")] {
+            sqlx::query(sqlx::AssertSqlSafe(format!(
+                "GRANT {permission} ON core_payments.{table} TO {}",
+                role.name
+            )))
+            .execute(&pool)
+            .await
+            .unwrap();
+            assert_eq!(
+                runtime_database::check(&role.pool, required).await,
+                Err(Error::UnsafePrivileges),
+                "owner-only legacy input gained {permission}: {table}"
+            );
+            sqlx::query(sqlx::AssertSqlSafe(format!(
+                "REVOKE {permission} ON core_payments.{table} FROM {}",
+                role.name
+            )))
+            .execute(&pool)
+            .await
+            .unwrap();
+            runtime_database::check(&role.pool, required).await.unwrap();
+        }
+        // Read access remains required even though INSERT is correctly absent.
+        sqlx::query(sqlx::AssertSqlSafe(format!(
+            "REVOKE SELECT ON core_payments.{table} FROM {}",
+            role.name
+        )))
+        .execute(&pool)
+        .await
+        .unwrap();
+        assert_eq!(
+            runtime_database::check(&role.pool, required).await,
+            Err(Error::MissingPrivileges)
+        );
+        sqlx::query(sqlx::AssertSqlSafe(format!(
+            "GRANT SELECT ON core_payments.{table} TO {}",
+            role.name
+        )))
+        .execute(&pool)
+        .await
+        .unwrap();
+        runtime_database::check(&role.pool, required).await.unwrap();
+    }
+    sqlx::query(sqlx::AssertSqlSafe(format!(
+        "REVOKE INSERT ON core_payments.intents FROM {}",
+        role.name
+    )))
+    .execute(&pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        runtime_database::check(&role.pool, required).await,
+        Err(Error::MissingPrivileges),
+        "ordinary payment writes must remain required"
+    );
+    role.cleanup().await;
+}
+
+#[sqlx::test(migrations = false)]
 async fn identity_usage_reads_require_complete_evidence_without_charging_writes(pool: PgPool) {
     core_schema::init(&pool).await.unwrap();
     let role = runtime::RuntimeRole::create(&pool).await;

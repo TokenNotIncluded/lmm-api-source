@@ -37,8 +37,17 @@ func validateAssistantSearchConfiguration(cfg GoConfig) error {
 // Only this host-selected dependency carries the private provider credential;
 // model arguments still pass through the existing scoped durable search tool.
 func assistantServiceDependencies(cfg GoConfig) (func(context.Context, *coreclient.AssistantClient) (assistant_services.Dependencies, error), error) {
+	mail, err := assistantInvitationSender(cfg)
+	if err != nil {
+		return nil, err
+	}
 	if cfg.Assistant.Search.Provider == "" || cfg.Assistant.Search.Provider == "none" {
-		return nil, nil
+		if mail == nil {
+			return nil, nil
+		}
+		return func(context.Context, *coreclient.AssistantClient) (assistant_services.Dependencies, error) {
+			return assistant_services.Dependencies{InvitationMail: mail}, nil
+		}, nil
 	}
 	raw, err := coreclient.ReadPrivateFile(cfg.Assistant.Search.APIKeyFile, 4096)
 	if err != nil {
@@ -55,6 +64,6 @@ func assistantServiceDependencies(cfg GoConfig) (func(context.Context, *coreclie
 		return nil, err
 	}
 	return func(context.Context, *coreclient.AssistantClient) (assistant_services.Dependencies, error) {
-		return assistant_services.Dependencies{Search: provider}, nil
+		return assistant_services.Dependencies{Search: provider, InvitationMail: mail}, nil
 	}, nil
 }

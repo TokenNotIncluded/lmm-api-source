@@ -885,3 +885,43 @@ pub(super) async fn apply_regenerate(
         .await?;
     make_factor_proof(c, actor.user_id, "totp").await
 }
+
+pub(super) async fn assistant_policy(c: &mut PgConnection, user: i64) -> Result<(i64, bool, i64)> {
+    policy(c, user, AssuranceRead::Locked).await
+}
+impl IdentityStore {
+    pub(crate) async fn verify_assistant_action_mfa(
+        &self,
+        c: &mut PgConnection,
+        user: i64,
+        expected_required: bool,
+        expected_revision: i64,
+        code: Option<&str>,
+    ) -> MfaResult<()> {
+        let (_, required, revision) = policy(c, user, AssuranceRead::Locked).await?;
+        if required != expected_required || revision != expected_revision {
+            return Err(IdentityError::Conflict.into());
+        }
+        if !required {
+            return if code.is_none() {
+                Ok(())
+            } else {
+                Err(IdentityError::Invalid.into())
+            };
+        }
+        let factor = locked_factor(c, user).await?;
+        check_lock(&factor)?;
+        let Some(code) = code else {
+            return Err(MfaError::CodeInvalid);
+        };
+        if code.len() == 6
+            && code.bytes().all(|b| b.is_ascii_digit())
+            && verify_code(self, c, user, &factor, code, None)
+                .await?
+                .is_some()
+        {
+            return Ok(());
+        }
+        failed(c, user).await.map(|_| ())
+    }
+}

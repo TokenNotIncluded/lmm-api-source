@@ -119,6 +119,7 @@ pub struct CreditStore {
     pub(super) base: ToolMarketStore,
     pub(super) market_profile: Option<std::sync::Arc<crate::market_oauth::MarketProfile>>,
     pub(super) verifier: Option<std::sync::Arc<super::receipt_verifier::ReceiptVerifier>>,
+    pub(super) assistant_runtime: Option<super::assistant_runtime::AssistantMarketRuntime>,
 }
 fn client(v: &str) -> bool {
     !v.is_empty() && v.len() <= 128 && v.trim() == v
@@ -132,6 +133,7 @@ impl CreditStore {
             base: ToolMarketStore::from_pool(pool),
             verifier: None,
             market_profile: None,
+            assistant_runtime: None,
         }
     }
     pub fn with_market_oauth_profile(
@@ -183,7 +185,16 @@ impl CreditStore {
         kind: &str,
         req: &T,
     ) -> Result<Option<PgRow>> {
-        let row=sqlx::query("SELECT * FROM core_tool_market.credit_access_operations WHERE actor_user_id=$1 AND operation_id=$2").bind(actor).bind(op).fetch_optional(&mut **tx).await?;
+        Self::prior_in_connection(&mut **tx, actor, op, kind, req).await
+    }
+    pub(super) async fn prior_in_connection<T: Serialize>(
+        c: &mut sqlx::PgConnection,
+        actor: i64,
+        op: &str,
+        kind: &str,
+        req: &T,
+    ) -> Result<Option<PgRow>> {
+        let row=sqlx::query("SELECT * FROM core_tool_market.credit_access_operations WHERE actor_user_id=$1 AND operation_id=$2").bind(actor).bind(op).fetch_optional(&mut *c).await?;
         if let Some(r) = &row
             && (r.try_get::<String, _>("kind")? != kind
                 || r.try_get::<String, _>("request_hash")? != hash(req)?)
@@ -204,7 +215,20 @@ impl CreditStore {
         now: i64,
         details: Option<serde_json::Value>,
     ) -> Result<()> {
-        sqlx::query("INSERT INTO core_tool_market.credit_access_operations(actor_user_id,operation_id,kind,request_hash,target_id,created_at,details) VALUES($1,$2,$3,$4,$5,$6,$7)").bind(actor).bind(op).bind(kind).bind(hash(req)?).bind(target).bind(now).bind(details).execute(&mut **tx).await?;
+        Self::record_in_connection(&mut **tx, actor, op, kind, req, target, now, details).await
+    }
+    #[allow(clippy::too_many_arguments)]
+    pub(super) async fn record_in_connection<T: Serialize>(
+        c: &mut sqlx::PgConnection,
+        actor: i64,
+        op: &str,
+        kind: &str,
+        req: &T,
+        target: &str,
+        now: i64,
+        details: Option<serde_json::Value>,
+    ) -> Result<()> {
+        sqlx::query("INSERT INTO core_tool_market.credit_access_operations(actor_user_id,operation_id,kind,request_hash,target_id,created_at,details) VALUES($1,$2,$3,$4,$5,$6,$7)").bind(actor).bind(op).bind(kind).bind(hash(req)?).bind(target).bind(now).bind(details).execute(&mut *c).await?;
         Ok(())
     }
     pub async fn register_quote(&self, secret: &str, q: &credits::Quote) -> Result<credits::Quote> {
@@ -438,7 +462,14 @@ impl CreditStore {
         id: &str,
         user: i64,
     ) -> Result<ConsentReceipt> {
-        let row=sqlx::query("SELECT c.*,q.snapshot,q.ceiling_credits FROM core_tool_market.credit_consents c JOIN core_tool_market.credit_quotes q ON q.id=c.quote_id WHERE c.id=$1 AND c.actor_user_id=$2").bind(id).bind(user).fetch_optional(&mut **tx).await?.ok_or(Error::Missing)?;
+        Self::consent_in_connection(&mut **tx, id, user).await
+    }
+    pub(super) async fn consent_in_connection(
+        c: &mut sqlx::PgConnection,
+        id: &str,
+        user: i64,
+    ) -> Result<ConsentReceipt> {
+        let row=sqlx::query("SELECT c.*,q.snapshot,q.ceiling_credits FROM core_tool_market.credit_consents c JOIN core_tool_market.credit_quotes q ON q.id=c.quote_id WHERE c.id=$1 AND c.actor_user_id=$2").bind(id).bind(user).fetch_optional(&mut *c).await?.ok_or(Error::Missing)?;
         let Json(q): Json<credits::Quote> = row.try_get("snapshot")?;
         let Json(request) = row.try_get("request")?;
         Ok(ConsentReceipt {

@@ -38,6 +38,27 @@ async fn assistant_confirmation_permissions_are_explicit_and_column_limited(pool
         .await
         .unwrap();
     runtime_database::check(&role.pool, required).await.unwrap();
+    // This function is explicitly revoked from PUBLIC and granted by the
+    // official assistant-tools contract. Missing EXECUTE is a startup error.
+    sqlx::query(sqlx::AssertSqlSafe(format!(
+        "REVOKE EXECUTE ON FUNCTION core_assistant_tools.market_confirmation_bound(TEXT) FROM {}",
+        role.name
+    )))
+    .execute(&pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        runtime_database::check(&role.pool, required).await,
+        Err(Error::MissingPrivileges)
+    );
+    sqlx::query(sqlx::AssertSqlSafe(format!(
+        "GRANT EXECUTE ON FUNCTION core_assistant_tools.market_confirmation_bound(TEXT) TO {}",
+        role.name
+    )))
+    .execute(&pool)
+    .await
+    .unwrap();
+    runtime_database::check(&role.pool, required).await.unwrap();
     sqlx::query("SELECT o.id,o.arguments_json,o.resource_schema_sha256,o.resource_price_sha256,t.session_id,t.host_policy,t.source_web_session_sid,r.model_request_id,c.id FROM core_assistant.agent_tool_operations o JOIN core_assistant.agent_turns t ON t.id=o.turn_id JOIN core_assistant.agent_rounds r ON r.id=o.round_id LEFT JOIN core_assistant_tools.confirmations c ON c.operation_id=o.id WHERE FALSE")
         .execute(&role.pool)
         .await
@@ -65,7 +86,14 @@ async fn assistant_confirmation_permissions_are_explicit_and_column_limited(pool
         .fetch_all(&role.pool)
         .await
         .unwrap();
-    for column in ["nonce_sha256", "state", "confirmed_at"] {
+    for column in [
+        "nonce_sha256",
+        "state",
+        "confirmed_at",
+        "execution_receipt",
+        "execution_sha256",
+        "executed_at",
+    ] {
         sqlx::query(sqlx::AssertSqlSafe(format!(
             "UPDATE core_assistant_tools.confirmations SET {column}={column} WHERE FALSE"
         )))
@@ -128,7 +156,7 @@ async fn assistant_confirmation_permissions_are_explicit_and_column_limited(pool
         .await
         .unwrap();
     }
-    let columns:Vec<String>=sqlx::query_scalar("SELECT column_name::text FROM information_schema.columns WHERE table_schema='core_assistant_tools' AND table_name='confirmations' AND column_name NOT IN ('nonce_sha256','state','confirmed_at') ORDER BY ordinal_position").fetch_all(&pool).await.unwrap();
+    let columns:Vec<String>=sqlx::query_scalar("SELECT column_name::text FROM information_schema.columns WHERE table_schema='core_assistant_tools' AND table_name='confirmations' AND column_name NOT IN ('nonce_sha256','state','confirmed_at','execution_receipt','execution_sha256','executed_at') ORDER BY ordinal_position").fetch_all(&pool).await.unwrap();
     for column in columns {
         let e = sqlx::query(sqlx::AssertSqlSafe(format!(
             "UPDATE core_assistant_tools.confirmations SET {column}={column} WHERE FALSE"
@@ -222,6 +250,90 @@ async fn assistant_confirmation_permissions_are_explicit_and_column_limited(pool
         .execute(&pool)
         .await
         .unwrap();
+    runtime_database::check(&role.pool, required).await.unwrap();
+    for column in ["nonce_sha256", "ciphertext", "consumed_at"] {
+        sqlx::query(sqlx::AssertSqlSafe(format!(
+            "UPDATE core_assistant_tools.key_creation_cards SET {column}={column} WHERE FALSE"
+        )))
+        .execute(&role.pool)
+        .await
+        .unwrap();
+        sqlx::query(sqlx::AssertSqlSafe(format!(
+            "REVOKE UPDATE({column}) ON core_assistant_tools.key_creation_cards FROM {}",
+            role.name
+        )))
+        .execute(&pool)
+        .await
+        .unwrap();
+        assert_eq!(
+            runtime_database::check(&role.pool, required).await,
+            Err(Error::MissingPrivileges)
+        );
+        role.optional("core_assistant_tools").await;
+    }
+    for column in [
+        "confirmation_id",
+        "credential_id",
+        "created_at",
+        "expires_at",
+    ] {
+        let error = sqlx::query(sqlx::AssertSqlSafe(format!(
+            "UPDATE core_assistant_tools.key_creation_cards SET {column}={column} WHERE FALSE"
+        )))
+        .execute(&role.pool)
+        .await
+        .unwrap_err();
+        assert_eq!(
+            error.as_database_error().and_then(|e| e.code()).as_deref(),
+            Some("42501")
+        );
+        sqlx::query(sqlx::AssertSqlSafe(format!(
+            "GRANT UPDATE({column}) ON core_assistant_tools.key_creation_cards TO {}",
+            role.name
+        )))
+        .execute(&pool)
+        .await
+        .unwrap();
+        assert_eq!(
+            runtime_database::check(&role.pool, required).await,
+            Err(Error::UnsafePrivileges)
+        );
+        sqlx::query(sqlx::AssertSqlSafe(format!(
+            "REVOKE UPDATE({column}) ON core_assistant_tools.key_creation_cards FROM {}",
+            role.name
+        )))
+        .execute(&pool)
+        .await
+        .unwrap();
+    }
+    for privilege in [
+        "UPDATE",
+        "DELETE",
+        "TRUNCATE",
+        "TRIGGER",
+        "REFERENCES",
+        "MAINTAIN",
+    ] {
+        sqlx::query(sqlx::AssertSqlSafe(format!(
+            "GRANT {privilege} ON core_assistant_tools.key_creation_cards TO {}",
+            role.name
+        )))
+        .execute(&pool)
+        .await
+        .unwrap();
+        assert_eq!(
+            runtime_database::check(&role.pool, required).await,
+            Err(Error::UnsafePrivileges)
+        );
+        sqlx::query(sqlx::AssertSqlSafe(format!(
+            "REVOKE {privilege} ON core_assistant_tools.key_creation_cards FROM {}",
+            role.name
+        )))
+        .execute(&pool)
+        .await
+        .unwrap();
+        role.optional("core_assistant_tools").await;
+    }
     runtime_database::check(&role.pool, required).await.unwrap();
     role.cleanup().await;
 }

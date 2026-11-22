@@ -2,7 +2,7 @@
 //! Original rows, sequence states, ownership and ACLs must survive unchanged.
 use super::{
     finance::{data_hash, object_ids, permissions},
-    request_operations::preservation::data_projected,
+    request_operations::preservation::{data_confirmed_actions, data_projected},
     *,
 };
 use std::collections::BTreeSet;
@@ -152,6 +152,27 @@ SELECT NOT EXISTS(SELECT FROM pg_class c CROSS JOIN LATERAL aclexplode(coalesce(
         }
         Ok(())
     }
+    async fn preserved_data(
+        &self,
+        c: &mut PgConnection,
+        tables: &[String],
+        sequences: &[String],
+    ) -> Result<BTreeMap<String, Vec<u8>>, UpgradeError> {
+        match self.hooks.suffix().policy.projection {
+            registry::DataProjection::AssistantConfirmedActions => {
+                data_confirmed_actions(c, tables, sequences).await
+            }
+            projection => {
+                data_projected(
+                    c,
+                    tables,
+                    sequences,
+                    projection == registry::DataProjection::SubscriptionEpay,
+                )
+                .await
+            }
+        }
+    }
     pub(super) async fn connected(
         &self,
         c: &mut PgConnection,
@@ -222,7 +243,7 @@ SELECT NOT EXISTS(SELECT FROM pg_class c CROSS JOIN LATERAL aclexplode(coalesce(
         let sequences:Vec<String>=sqlx::query_scalar("SELECT format('%I.%I',n.nspname,c.relname) FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname NOT IN ('pg_catalog','information_schema') AND left(n.nspname,3)<>'pg_' AND c.relkind='S' ORDER BY n.nspname COLLATE \"C\",c.relname COLLATE \"C\"").fetch_all(&mut *tx).await?;
         let subscription =
             self.hooks.suffix().policy.projection == registry::DataProjection::SubscriptionEpay;
-        let old_data = data_projected(&mut tx, &tables, &sequences, subscription).await?;
+        let old_data = self.preserved_data(&mut tx, &tables, &sequences).await?;
         let mut expected_data = old_data.clone();
         for (name, ddl) in &COMPONENTS[self.predecessor_count..self.target_count] {
             sqlx::raw_sql(*ddl).execute(&mut *tx).await?;
@@ -251,9 +272,19 @@ SELECT NOT EXISTS(SELECT FROM pg_class c CROSS JOIN LATERAL aclexplode(coalesce(
         }
         let catalog = fingerprint(&definitions(&mut tx).await?);
         if hex(&catalog) != target.catalog_sha256
-            || preserved_permissions(&mut tx, &rels, &types, &keys, subscription).await?
+            || preserved_permissions(
+                &mut tx,
+                &rels,
+                &types,
+                &keys,
+                subscription,
+                self.hooks.suffix().policy.projection
+                    == registry::DataProjection::AssistantConfirmedActions,
+                &r.roles.runtime,
+            )
+            .await?
                 != old_permissions
-            || data_projected(&mut tx, &tables, &sequences, subscription).await? != expected_data
+            || self.preserved_data(&mut tx, &tables, &sequences).await? != expected_data
         {
             return Err(self.error(registry::SuffixError::PreservationOrTargetMismatch));
         }
@@ -306,6 +337,8 @@ async fn preserved_permissions(
     types: &[i64],
     keys: &BTreeSet<String>,
     subscription: bool,
+    confirmed_actions: bool,
+    runtime: &str,
 ) -> Result<Vec<String>, UpgradeError> {
     let added_column: Option<i16> = if subscription {
         Some(sqlx::query_scalar("SELECT attnum FROM pg_attribute WHERE attrelid='core_payments.provider_identifiers'::regclass AND attname='subscription_order_id' AND NOT attisdropped AND attacl IS NULL")
@@ -313,8 +346,44 @@ async fn preserved_permissions(
     } else {
         None
     };
+    let confirmation_columns: Vec<i16> = if confirmed_actions {
+        let rows: Vec<(i16, bool)> = sqlx::query_as(
+            "SELECT a.attnum, NOT EXISTS(
+              SELECT FROM aclexplode(a.attacl) x
+              WHERE x.grantee<>(SELECT oid FROM pg_roles WHERE rolname=$1)
+                 OR x.privilege_type<>'UPDATE' OR x.is_grantable OR x.grantor<>t.relowner)
+             FROM pg_attribute a JOIN pg_class t ON t.oid=a.attrelid
+             WHERE a.attrelid='core_assistant_tools.confirmations'::regclass
+               AND a.attname=ANY(ARRAY['execution_receipt','execution_sha256','executed_at'])
+               AND NOT a.attisdropped AND NOT a.attnotnull ORDER BY a.attnum",
+        )
+        .bind(runtime)
+        .fetch_all(&mut *c)
+        .await?;
+        if rows.len() != 3 || rows.iter().any(|(_, allowed)| !allowed) {
+            return Err(reject("ASSISTANT_CONFIRMED_ACTIONS_COLUMN_ACL_CHANGED"));
+        }
+        rows.into_iter().map(|(number, _)| number).collect()
+    } else {
+        Vec::new()
+    };
     let mut result = Vec::new();
     for fact in permissions(c, rels, types).await? {
+        if !confirmation_columns.is_empty() {
+            let v: serde_json::Value =
+                serde_json::from_str(&fact).map_err(|_| UpgradeError::Storage)?;
+            if v[0] == "column"
+                && v[1] == "core_assistant_tools"
+                && v[2] == "confirmations"
+                && v[3].as_i64().is_some_and(|number| {
+                    confirmation_columns
+                        .iter()
+                        .any(|old| i64::from(*old) == number)
+                })
+            {
+                continue;
+            }
+        }
         if let Some(number) = added_column {
             let v: serde_json::Value =
                 serde_json::from_str(&fact).map_err(|_| UpgradeError::Storage)?;

@@ -1,5 +1,5 @@
 //! Synthetic retained history is imported at its reviewed Core77 boundary,
-//! then preserved through the real owner77->78 upgrade before runtime reads.
+//! then preserved through every real owner suffix to the current runtime schema.
 //! This module is compiled only by provider_clients cfg(test); no production
 //! historical installer or import authority is exposed.
 use super::{ENGINE, PROCEDURE, prefix77};
@@ -231,6 +231,91 @@ async fn retained_snapshot_import_and_runtime_funnel(pool: PgPool) {
         .unwrap();
     assert_eq!(upgraded.status, "committed");
     assert_eq!(upgraded.components, 78);
+    // The historical importer stays pinned to 77. A current runtime cannot
+    // validate a 78 database, so exercise each shipped exact successor in order.
+    // This deliberately fails if a later component is added without its real
+    // public upgrade here; it never relabels a partial schema as current.
+    let stages = [
+        (
+            crate::core_schema::upgrade::subscription_reset::PROCEDURE,
+            include_str!("subscription_reset_target.json"),
+        ),
+        (
+            crate::core_schema::upgrade::legacy_gift::PROCEDURE,
+            include_str!("legacy_gift_target.json"),
+        ),
+        (
+            crate::core_schema::upgrade::legacy_discount_packet::PROCEDURE,
+            include_str!("legacy_discount_packet_target.json"),
+        ),
+        (
+            crate::core_schema::upgrade::assistant_service_funding::PROCEDURE,
+            include_str!("assistant_service_funding_target.json"),
+        ),
+        (
+            crate::core_schema::upgrade::assistant_agent_gift::PROCEDURE,
+            include_str!("assistant_agent_gift_target.json"),
+        ),
+        (
+            crate::core_schema::upgrade::current_connection_history::PROCEDURE,
+            include_str!("current_connection_history_target.json"),
+        ),
+        (
+            crate::core_schema::upgrade::assistant_confirmed_actions::PROCEDURE,
+            include_str!("assistant_confirmed_actions_target.json"),
+        ),
+    ];
+    assert_eq!(core_schema::component_count(), 78 + stages.len());
+    let replay = upgrade_database(upgrade_url.as_str(), request.clone())
+        .await
+        .unwrap();
+    assert_eq!(replay.status, "already_committed");
+    assert_eq!(
+        replay.successor_catalog_sha256,
+        upgraded.successor_catalog_sha256
+    );
+    let mut predecessor_manifest = request.successor_manifest_sha256.clone();
+    let mut predecessor_catalog = upgraded.successor_catalog_sha256;
+    let mut reports = vec![];
+    for (index, (procedure, target_json)) in stages.into_iter().enumerate() {
+        let target: serde_json::Value = serde_json::from_str(target_json).unwrap();
+        let successor = 79 + index;
+        let stage = UpgradeRequest {
+            procedure: procedure.into(),
+            upgrade_id: format!("connection-history-forward-{successor}-{suffix}"),
+            predecessor_manifest_sha256: predecessor_manifest,
+            predecessor_catalog_sha256: predecessor_catalog,
+            successor_manifest_sha256: target["manifest_sha256"].as_str().unwrap().to_owned(),
+            ..request.clone()
+        };
+        engine_offline_boundary(&stage).await;
+        let report = upgrade_database(upgrade_url.as_str(), stage.clone())
+            .await
+            .unwrap();
+        assert_eq!(report.status, "committed");
+        assert_eq!(report.components, successor);
+        assert_eq!(
+            report.successor_catalog_sha256,
+            target["catalog_sha256"].as_str().unwrap()
+        );
+        let replay = upgrade_database(upgrade_url.as_str(), stage.clone())
+            .await
+            .unwrap();
+        assert_eq!(replay.status, "already_committed");
+        assert_eq!(replay.request_sha256, report.request_sha256);
+        assert_eq!(
+            replay.successor_catalog_sha256,
+            report.successor_catalog_sha256
+        );
+        predecessor_manifest = stage.successor_manifest_sha256;
+        predecessor_catalog = report.successor_catalog_sha256.clone();
+        reports.push(report);
+    }
+    std::fs::write(
+        out.join("forward-upgrades.json"),
+        serde_json::to_vec_pretty(&reports).unwrap(),
+    )
+    .unwrap();
     let owner = PgPoolOptions::new()
         .max_connections(3)
         .connect_with(owner_options)
@@ -244,7 +329,7 @@ async fn retained_snapshot_import_and_runtime_funnel(pool: PgPool) {
             .unwrap();
     assert_eq!(
         sealed_snapshot, retained_snapshot,
-        "owner77->78 must retain the exact historical snapshot and its predecessor binding"
+        "owner77->current must retain the exact historical snapshot and its predecessor binding"
     );
     // Upgrade metadata/OAuth contracts legitimately advance. Runtime purity is
     // measured against the actual successor, keeping every original read test.
@@ -406,6 +491,8 @@ async fn retained_snapshot_import_and_runtime_funnel(pool: PgPool) {
     }
     // Reset optional grants with the shipped script, preserving baseline history.
     let revoke = Command::new("psql")
+        .arg("-v")
+        .arg(format!("owner_role={}", request.roles.owner))
         .args([
             "-X",
             "-q",
@@ -437,6 +524,22 @@ async fn retained_snapshot_import_and_runtime_funnel(pool: PgPool) {
         !snapshot_readable,
         "optional reset left snapshot column grants"
     );
+    for table in [
+        "current_connection_snapshot",
+        "current_connection_credential_map",
+    ] {
+        let readable: bool =
+            sqlx::query_scalar("SELECT has_any_column_privilege($1,'core_history.'||$2,'SELECT')")
+                .bind(&request.roles.runtime)
+                .bind(table)
+                .fetch_one(&owner)
+                .await
+                .unwrap();
+        assert!(
+            !readable,
+            "optional reset left current-history reads: {table}"
+        );
+    }
     let display_options_readable: bool =
         sqlx::query_scalar("SELECT has_any_column_privilege('connection_history_runtime','core_console.options','SELECT')")
             .fetch_one(&owner)

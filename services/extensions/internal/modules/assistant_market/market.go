@@ -20,6 +20,7 @@ import (
 )
 
 const ClientID = "builtin-assistant"
+const MarketToolVersion = "core-market-authority-v1"
 
 //go:embed definition.json
 var definitionJSON []byte
@@ -38,7 +39,8 @@ type marketPort interface {
 	PublicWebCatalogue(context.Context, string, string, toolmarket.WebQuery) ([]toolmarket.WebSummary, error)
 	PublicWebDetail(context.Context, string, string, string) (toolmarket.WebDetail, error)
 	LegacyReadToolQuote(context.Context, string, string, string, string, string) (toolmarket.LegacyCreditQuote, error)
-	LegacyExecuteRemote(context.Context, string, string, toolmarket.LegacyExecuteInput) (toolmarket.LegacyExecution, error)
+	ExecuteAssistantRemote(context.Context, string, string, string, toolmarket.LegacyExecuteInput) (toolmarket.LegacyExecution, error)
+	AssistantCatalogue(context.Context, string, string, toolmarket.AssistantMarketCatalogueRequest) (toolmarket.AssistantMarketCatalogueReceipt, error)
 	LegacyGetExecutionByRequestKey(context.Context, string, string, string, string) (toolmarket.LegacyExecution, error)
 }
 type Executor struct {
@@ -54,7 +56,7 @@ func New(module *toolmarket.Module) (*Executor, error) {
 		return nil, access.ErrInvalid
 	}
 	var d definition
-	if json.Unmarshal(definitionJSON, &d) != nil || d.Name != "call_market_tool" || d.Version != assistant.FixedMainToolVersion || d.Effect != "server_guarded" || d.Access != "user" || digest([]byte(d.SchemaJSON)) != d.SchemaSHA256 {
+	if json.Unmarshal(definitionJSON, &d) != nil || d.Name != "call_market_tool" || d.Version != MarketToolVersion || d.Effect != "server_guarded" || d.Access != "user" || digest([]byte(d.SchemaJSON)) != d.SchemaSHA256 {
 		return nil, access.ErrUnavailable
 	}
 	return &Executor{market: module, definition: d}, nil
@@ -162,7 +164,7 @@ func (e *Executor) Execute(ctx context.Context, in assistant.AgentInvocation) (a
 	if err = e.catalogue(ctx, in, a, account); err != nil {
 		return assistant.AgentToolResult{}, err
 	}
-	record, err := e.market.LegacyExecuteRemote(ctx, in.Credential, account, toolmarket.LegacyExecuteInput{ClientID: ClientID, RequestKey: in.Call.OperationID, ToolID: a.tool, VersionID: a.version, GrantID: a.grant, Arguments: a.input})
+	record, err := e.market.ExecuteAssistantRemote(ctx, in.Credential, account, in.Call.OperationID, toolmarket.LegacyExecuteInput{ClientID: ClientID, RequestKey: in.Call.OperationID, ToolID: a.tool, VersionID: a.version, GrantID: a.grant, Arguments: a.input})
 	return e.outcome(in, a, account, record, err)
 }
 func (e *Executor) Inspect(ctx context.Context, in assistant.AgentInvocation) (assistant.AgentToolResult, error) {
@@ -185,7 +187,7 @@ func (e *Executor) outcome(in assistant.AgentInvocation, a arguments, account st
 		}
 		return assistant.AgentToolResult{}, access.ErrUnavailable
 	}
-	if r.Owner.User != strconv.FormatInt(in.Actor.UserID, 10) || r.Owner.Account != account || r.Input.ClientID != ClientID || r.Input.RequestKey != in.Call.OperationID || r.Input.ToolID != a.tool || r.Input.VersionID != a.version || r.Input.GrantID != a.grant || !bytes.Equal(r.Input.Arguments, a.input) || r.MeteringBinding.ServiceID != a.service || r.MeteringBinding.VersionID != a.version || r.MeteringBinding.ToolID != a.tool || r.MeteringBinding.RemoteDigest != in.Call.Scope.ResourceSchemaSHA256 || r.SettlementPricingDigest != in.Call.Scope.ResourcePriceSHA256 {
+	if r.AssistantToolOperationID != in.Call.OperationID || r.Owner.User != strconv.FormatInt(in.Actor.UserID, 10) || r.Owner.Account != account || r.Input.ClientID != ClientID || r.Input.RequestKey != in.Call.OperationID || r.Input.ToolID != a.tool || r.Input.VersionID != a.version || r.Input.GrantID != a.grant || !bytes.Equal(r.Input.Arguments, a.input) || r.MeteringBinding.ServiceID != a.service || r.MeteringBinding.VersionID != a.version || r.MeteringBinding.ToolID != a.tool || r.MeteringBinding.RemoteDigest != in.Call.Scope.ResourceSchemaSHA256 || r.SettlementPricingDigest != in.Call.Scope.ResourcePriceSHA256 {
 		return assistant.AgentToolResult{}, access.ErrConflict
 	}
 	// Inspect relies on the original immutable input/economics and Core receipt;

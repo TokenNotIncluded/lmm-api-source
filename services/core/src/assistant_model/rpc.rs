@@ -134,6 +134,31 @@ impl AssistantRpc {
         self.confirmations = Some(confirmations);
         self
     }
+    /// The host supplies the same live payment source used by mounted RPCs.
+    /// This only enables an original-Session read on console installations.
+    pub async fn with_plan_offers(
+        mut self,
+        payments: Option<crate::payments::rpc::PaymentsRpc>,
+        subscription_orders: bool,
+    ) -> Result<Self, Status> {
+        if let Some(facts) = self.facts.as_mut() {
+            facts
+                .enable_plan_offers(payments, subscription_orders)
+                .await
+                .map_err(tools_status)?;
+        }
+        Ok(self)
+    }
+    pub(crate) fn market_runtime(
+        &self,
+    ) -> Option<crate::tool_market::assistant_runtime::AssistantMarketRuntime> {
+        if !self.enabled {
+            return None;
+        }
+        self.agent
+            .as_ref()
+            .and_then(crate::assistant_model::agent::store::AgentService::market_runtime)
+    }
     pub fn close_admission(&self) {
         self.service.close_admission();
     }
@@ -153,6 +178,20 @@ impl AssistantRpc {
         }
         if self.facts.is_some() {
             features.push("assistant.business_facts.v1".into());
+            if self
+                .facts
+                .as_ref()
+                .is_some_and(|f| f.invitation_facts_available())
+            {
+                features.push(crate::assistant_tools_core::invitations::FEATURE.into());
+            }
+            if self
+                .facts
+                .as_ref()
+                .is_some_and(|f| f.plan_offers_available())
+            {
+                features.push("assistant.plan_offers.v1".into());
+            }
         }
         if self.confirmations.is_some() {
             features.push("assistant.tool_confirmation.v1".into());
@@ -161,6 +200,14 @@ impl AssistantRpc {
             features.push("assistant.agent_turn.execute.v1".into());
             features.push("assistant.agent_turn.stream.v1".into());
             features.extend(self.agent_features.clone());
+            if let Some(market) = self.market_runtime() {
+                if market.require("get_connected_market_tools").is_ok() {
+                    features.push("assistant.market.catalogue.v1".into());
+                }
+                if market.require("call_market_tool").is_ok() {
+                    features.push("assistant.market.execute.v1".into());
+                }
+            }
         }
         features
     }
@@ -602,7 +649,13 @@ impl pb::core_assistant_model_server::CoreAssistantModel for AssistantRpc {
             .facts
             .as_ref()
             .ok_or_else(|| Status::unimplemented("assistant business facts unavailable"))?;
-        let value = match r.into_inner().kind {
+        let input = r.into_inner();
+        if input.target_user_id != 0 {
+            return Err(Status::invalid_argument(
+                "this assistant fact kind is self-scoped",
+            ));
+        }
+        let value = match input.kind {
             1 => serde_json::to_value(
                 facts
                     .available_models(&session)
@@ -614,6 +667,15 @@ impl pb::core_assistant_model_server::CoreAssistantModel for AssistantRpc {
                 .support_eligibility(&session)
                 .await
                 .map_err(tools_status)?,
+            3 => serde_json::to_value(facts.plan_offers(&session).await.map_err(tools_status)?)
+                .map_err(|_| Status::unavailable("assistant plan offers unavailable"))?,
+            4 => serde_json::to_value(
+                facts
+                    .invitation_facts(&session)
+                    .await
+                    .map_err(tools_status)?,
+            )
+            .map_err(|_| Status::unavailable("assistant invitation facts unavailable"))?,
             _ => return Err(Status::invalid_argument("unsupported assistant fact kind")),
         };
         let bytes = serde_json::to_vec(&value)
