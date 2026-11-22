@@ -21,6 +21,8 @@ mod runtime_authority;
 #[path = "usage/assistant_sources.rs"]
 mod usage_sources;
 use model_fixture::Provider;
+#[path = "assistant_model/service_funding.rs"]
+mod service_funding;
 async fn fixture(
     pool: &PgPool,
     amount: i64,
@@ -138,6 +140,7 @@ fn service(pool: &PgPool, p: &Provider) -> AssistantModel {
             max_output_tokens: 32,
             ttl_seconds: 300,
             gift_tools: false,
+            service_funding: None,
             sponsor: None,
         },
     )
@@ -316,6 +319,7 @@ async fn budget_and_expiry_reject_without_leaving_a_charge(pool: PgPool) {
             max_output_tokens: 32,
             ttl_seconds: 300,
             gift_tools: false,
+            service_funding: None,
             sponsor: None,
         },
     )
@@ -340,6 +344,7 @@ async fn budget_and_expiry_reject_without_leaving_a_charge(pool: PgPool) {
             max_output_tokens: 32,
             ttl_seconds: 1,
             gift_tools: false,
+            service_funding: None,
             sponsor: None,
         },
     )
@@ -664,6 +669,7 @@ async fn token_limit_answer_settles_and_core_builds_ordered_context(pool: PgPool
             max_output_tokens: 32,
             ttl_seconds: 300,
             gift_tools: false,
+            service_funding: None,
             sponsor: None,
         },
     )
@@ -819,6 +825,7 @@ async fn zero_balance_user_uses_bounded_treasury_and_real_gift_ledger(pool: PgPo
             max_output_tokens: 32,
             ttl_seconds: 300,
             gift_tools: true,
+            service_funding: None,
             sponsor: Some(SponsorPolicy {
                 policy_id: "synthetic-new-user-v1".into(),
                 treasury_account_id: treasury,

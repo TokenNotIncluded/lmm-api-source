@@ -408,6 +408,21 @@ impl TokenWire {
     }
 }
 
+/// Persisted grant/access handles use lowercase hex, independently of bearer codecs.
+pub(super) fn stored_handle(value: &str, prefix: &str) -> Result<()> {
+    let raw = value
+        .strip_prefix(prefix)
+        .ok_or(IdentityError::Unauthorized)?;
+    if raw.len() != 64
+        || !raw
+            .bytes()
+            .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+    {
+        return Err(IdentityError::Unauthorized);
+    }
+    Ok(())
+}
+
 pub(super) fn canonical(value: &str, prefix: &str) -> Result<Vec<u8>> {
     let raw = value
         .strip_prefix(prefix)
@@ -506,6 +521,34 @@ mod tests {
         }
         for client in ["unknown", "lmm-pi", "lmm-cc-switch", "lmm-dsh "] {
             assert!(base.clone().with_provider_budget_limit(client, 70).is_err());
+        }
+    }
+    #[test]
+    fn stored_handles_preserve_hex_contract_without_accepting_bearer_aliases() {
+        for prefix in ["lmm_gr_", "lmm_ac_"] {
+            let handle = format!("{prefix}{}", "ab09".repeat(16));
+            assert!(stored_handle(&handle, prefix).is_ok());
+            assert!(canonical(&handle, prefix).is_err());
+            for invalid in [
+                format!("{prefix}{}", "a".repeat(63)),
+                format!("{prefix}{}", "a".repeat(65)),
+                format!("{prefix}{}", "A".repeat(64)),
+                format!("{prefix}{}g", "a".repeat(63)),
+                format!("{prefix}{}", "é".repeat(32)),
+                handle.replacen(prefix, "lmm_at_", 1),
+                secret(prefix).unwrap(),
+            ] {
+                assert_eq!(
+                    stored_handle(&invalid, prefix),
+                    Err(IdentityError::Unauthorized)
+                );
+            }
+        }
+        for prefix in ["lmm_at_", "lmm_rt_"] {
+            let bearer = secret(prefix).unwrap();
+            assert_eq!(canonical(&bearer, prefix).unwrap().len(), 32);
+            assert!(stored_handle(&bearer, prefix).is_err());
+            assert!(canonical(&format!("{prefix}{}", "a".repeat(64)), prefix).is_err());
         }
     }
     #[test]

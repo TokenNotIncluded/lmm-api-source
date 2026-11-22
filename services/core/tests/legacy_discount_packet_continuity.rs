@@ -37,6 +37,13 @@ struct Fixture {
     accounts: Vec<i64>,
     now: i64,
 }
+impl Fixture {
+    async fn cleanup(self) {
+        drop(self.promotions);
+        drop(self.payments);
+        self.runtime.cleanup().await;
+    }
+}
 async fn fixture(pool: &PgPool) -> Fixture {
     lmm_core::core_schema::init(pool).await.unwrap();
     let identity = IdentityStore::from_pool(pool.clone());
@@ -301,6 +308,7 @@ async fn private_discount_and_actual_pending_receipts_preserve_capacity(pool: Pg
             .await
             .is_err()
     );
+    f.cleanup().await;
 }
 
 #[sqlx::test]
@@ -403,6 +411,7 @@ async fn quota_distribution_does_not_credit_and_keeps_old_claim_limit(pool: PgPo
         free, 0,
         "deleting a packet does not erase a claimed source binding"
     );
+    f.cleanup().await;
 }
 
 #[sqlx::test]
@@ -467,6 +476,7 @@ async fn discount_packet_assigns_original_code_to_one_owner_and_preserves_histor
             .await
             .is_err()
     );
+    f.cleanup().await;
 }
 
 #[sqlx::test]
@@ -520,6 +530,7 @@ async fn imported_historical_claims_count_and_unclaimed_deletion_releases_only_b
         1
     );
     assert_eq!(money_counts(&pool).await, (0, 0, 0, 0));
+    f.cleanup().await;
 }
 
 #[sqlx::test]
@@ -647,6 +658,8 @@ async fn reset_packet_uses_the_real_code_authority_without_converting_to_wallet_
             .available_units,
         0
     );
+    drop(subscriptions);
+    f.cleanup().await;
 }
 
 #[sqlx::test]
@@ -709,4 +722,5 @@ async fn actual_code_lock_wait_rechecks_code_and_packet_expiry(pool: PgPool) {
         .unwrap();
     assert_eq!(claims, 0);
     assert_eq!(money_counts(&pool).await, (0, 0, 0, 0));
+    f.cleanup().await;
 }

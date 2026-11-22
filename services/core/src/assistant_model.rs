@@ -7,6 +7,8 @@ pub(crate) mod live;
 pub mod rpc;
 pub mod sponsor;
 pub use sponsor::SponsorPolicy;
+pub mod service_funding;
+pub use service_funding::ServiceFundingPolicy;
 
 use crate::{
     billing::{
@@ -36,9 +38,17 @@ pub struct PersonalTextPolicy {
     pub gift_tools: bool,
     #[serde(default)]
     pub sponsor: Option<SponsorPolicy>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub service_funding: Option<ServiceFundingPolicy>,
 }
 impl PersonalTextPolicy {
     pub fn validate(&self) -> Result<(), Error> {
+        if let Some(service) = &self.service_funding {
+            service.validate()?;
+            if self.sponsor.is_some() {
+                return Err(Error::Invalid);
+            }
+        }
         if let Some(sponsor) = &self.sponsor {
             sponsor.validate()?;
             if !self.gift_tools || self.budget_credits > sponsor.max_credits_per_user {
@@ -393,7 +403,7 @@ impl AssistantModel {
         if active {
             return Err(Error::Conflict);
         }
-        if self.policy.sponsor.is_none() {
+        if self.policy.sponsor.is_none() && self.policy.service_funding.is_none() {
             identity::authorize_assistant_model_in_transaction(
                 &mut tx,
                 session,
@@ -405,6 +415,9 @@ impl AssistantModel {
             sponsor
                 .admit(&mut tx, a.user_id, a.owner_account_id, 0)
                 .await?;
+        }
+        if let Some(service) = &self.policy.service_funding {
+            service.admit(&mut tx).await?;
         }
         let price = self.configured_price()?;
         let now = at(&mut tx).await?;

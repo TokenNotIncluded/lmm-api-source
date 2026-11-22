@@ -1,6 +1,4 @@
 //! Management behavior tests share the real provider/ledger fixture in payments.rs.
-#[path = "payment_discount_continuity.rs"]
-mod continuity_fixture;
 use super::*;
 use axum::{
     body::{Body, to_bytes},

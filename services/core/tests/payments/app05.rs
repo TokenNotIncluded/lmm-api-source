@@ -1,5 +1,3 @@
-#[path = "../common/payment_discount_continuity.rs"]
-mod continuity_fixture;
 use super::*;
 use lmm_core::payments::discounts::{self, Definition};
 

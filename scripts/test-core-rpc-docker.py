@@ -1292,6 +1292,7 @@ def execute(temp, projects, context, *, build_timeout_seconds=1800):
     assert psql(RUNTIME_PRIVILEGES_SQL).strip() == "t", (
         "runtime must read usage evidence without schema creation or financial writes"
     )
+    context.phase = "core-runtime-startup"
     compose("core", "up", "-d", "core")
     wait(lambda: core_call("/health/live"))
     assert core_call("/health/ready")[0] == 200

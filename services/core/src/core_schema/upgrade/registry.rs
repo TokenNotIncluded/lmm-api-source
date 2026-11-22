@@ -247,6 +247,9 @@ registrations! {
         SUBSCRIPTION_RESET => subscription_reset, "SUBSCRIPTION_RESET_", |c,r| Box::pin(subscription_reset::grant_runtime(c, &r.roles.runtime)), owner_receipt, SuffixPolicy::DEFAULT;
         LEGACY_GIFT => legacy_gift, "LEGACY_GIFT_", |c,r| Box::pin(legacy_gift::grant_runtime(c, &r.roles.runtime)), owner_receipt, SuffixPolicy::DEFAULT;
         LEGACY_DISCOUNT_PACKET => legacy_discount_packet, "LEGACY_DISCOUNT_PACKET_", |c,r| Box::pin(legacy_discount_packet::grant_runtime(c, &r.roles.runtime)), owner_receipt, SuffixPolicy::DEFAULT;
+        ASSISTANT_SERVICE_FUNDING => assistant_service_funding, "ASSISTANT_SERVICE_FUNDING_", no_grants, owner_receipt, SuffixPolicy::DEFAULT;
+        ASSISTANT_AGENT_GIFT => assistant_agent_gift, "ASSISTANT_AGENT_GIFT_", no_grants, owner_receipt, SuffixPolicy::DEFAULT;
+        CURRENT_CONNECTION_HISTORY => current_connection_history, "CURRENT_CONNECTION_HISTORY_", |c,r| Box::pin(current_connection_history::grant_runtime(c, &r.roles.runtime)), owner_receipt, SuffixPolicy::DEFAULT;
         CHECKIN_CHALLENGES => checkin_challenges, "CHECKIN_CHALLENGES_", |c,r| Box::pin(checkin_challenges::grant_runtime(c, &r.roles.runtime)), owner_receipt, SuffixPolicy::DEFAULT;
         NETWORK_ACCESS => network_access, "NETWORK_ACCESS_", |c,r| Box::pin(network_access::grant_runtime(c, &r.roles.runtime)), owner_receipt, SuffixPolicy::DEFAULT;
         CONNECTION_HISTORY_IMPORT => connection_history_import, "CONNECTION_HISTORY_IMPORT_", no_grants, owner_receipt, SuffixPolicy::DEFAULT;
@@ -302,6 +305,9 @@ mod tests {
             "core-subscription-reset-v1",
             "core-legacy-gift-continuation-v1",
             "core-legacy-discount-packet-continuation-v1",
+            "core-assistant-service-funding-v1",
+            "core-assistant-agent-gift-v1",
+            "core-current-connection-history-v1",
         ]
         .into_iter()
         .collect();
@@ -347,6 +353,18 @@ mod tests {
             (
                 legacy_discount_packet::PROCEDURE,
                 legacy_discount_packet::validate,
+            ),
+            (
+                assistant_service_funding::PROCEDURE,
+                assistant_service_funding::validate,
+            ),
+            (
+                assistant_agent_gift::PROCEDURE,
+                assistant_agent_gift::validate,
+            ),
+            (
+                current_connection_history::PROCEDURE,
+                current_connection_history::validate,
             ),
             (
                 connection_history_import::PROCEDURE,
@@ -408,6 +426,15 @@ mod tests {
             (
                 "core-legacy-discount-packet-continuation-v1",
                 "LEGACY_DISCOUNT_PACKET_",
+            ),
+            (
+                "core-assistant-service-funding-v1",
+                "ASSISTANT_SERVICE_FUNDING_",
+            ),
+            ("core-assistant-agent-gift-v1", "ASSISTANT_AGENT_GIFT_"),
+            (
+                "core-current-connection-history-v1",
+                "CURRENT_CONNECTION_HISTORY_",
             ),
             ("core-checkin-challenges-v1", "CHECKIN_CHALLENGES_"),
             ("core-network-access-v1", "NETWORK_ACCESS_"),
@@ -523,6 +550,14 @@ mod tests {
                         legacy_gift::authorize_target as fn() -> Result<(), UpgradeError>,
                     "core-legacy-discount-packet-continuation-v1" =>
                         legacy_discount_packet::authorize_target as fn() -> Result<(), UpgradeError>,
+                    "core-assistant-service-funding-v1" =>
+                        assistant_service_funding::authorize_target
+                            as fn() -> Result<(), UpgradeError>,
+                    "core-assistant-agent-gift-v1" =>
+                        assistant_agent_gift::authorize_target as fn() -> Result<(), UpgradeError>,
+                    "core-current-connection-history-v1" =>
+                        current_connection_history::authorize_target
+                            as fn() -> Result<(), UpgradeError>,
                     "core-checkin-challenges-v1" =>
                         checkin_challenges::authorize_target as fn() -> Result<(), UpgradeError>,
                     "core-network-access-v1" =>
@@ -613,6 +648,7 @@ mod tests {
             "core-subscription-reset-v1",
             "core-legacy-gift-continuation-v1",
             "core-legacy-discount-packet-continuation-v1",
+            "core-current-connection-history-v1",
         ];
         for entry in ENTRIES
             .iter()

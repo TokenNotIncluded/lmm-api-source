@@ -418,6 +418,20 @@ async function capture(page, entry, state) {
   )
 }
 
+// Persona controls belong to the development fixture, not the shipped page.
+// Keep startup/identity checks above, then remove only that floating launcher
+// from the measured surface. Its own behavior has a separate debug blackbox.
+async function isolateFixtureControls(page, entry) {
+  if (!entry.persona) return
+  const trigger = page.getByTestId('persona-debug-trigger')
+  assert.equal(await trigger.count(), 1, 'Expected one local persona launcher')
+  await trigger.evaluate((node) => {
+    node.style.setProperty('display', 'none', 'important')
+  })
+  assert.equal(await trigger.isVisible(), false)
+  entry.isolatedFixtureControls.push('persona-debug-trigger')
+}
+
 async function checkReachability(page, entry) {
   const groups = [
     [
@@ -643,6 +657,7 @@ try {
           issues: [],
           network: [],
           isolatedScripts: [],
+          isolatedFixtureControls: [],
           screenshotMode: scenario.zoom
             ? 'browser-surface-viewport'
             : 'full-page',
@@ -698,6 +713,7 @@ try {
             .first()
             .waitFor({ state: 'visible', timeout: 60000 })
           await settle(page)
+          await isolateFixtureControls(page, entry)
           assert.equal(
             new URL(page.url()).pathname.replace(/\/$/, ''),
             target.path

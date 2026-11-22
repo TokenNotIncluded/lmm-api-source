@@ -17,6 +17,79 @@ use tower::ServiceExt;
 mod runtime;
 
 #[sqlx::test(migrations = false)]
+async fn legacy_discount_guard_preserves_optional_namespace_and_rejects_latent_writes(
+    pool: PgPool,
+) {
+    core_schema::init(&pool).await.unwrap();
+    let role = runtime::RuntimeRole::create(&pool).await;
+    role.optional("core_events").await;
+    let required = RequiredCapabilities {
+        events: true,
+        ..RequiredCapabilities::default()
+    };
+    let usage: bool = sqlx::query_scalar("SELECT has_schema_privilege('core_payments','USAGE')")
+        .fetch_one(&role.pool)
+        .await
+        .unwrap();
+    assert!(
+        !usage,
+        "the identity/events-only runtime must have no payments namespace access"
+    );
+    runtime_database::check(&role.pool, required).await.unwrap();
+    for table in [
+        "legacy_discount_bases",
+        "legacy_discount_holds",
+        "legacy_discount_owners",
+        "legacy_discount_hold_state",
+        "discount_code_usage",
+    ] {
+        for permission in ["UPDATE", "UPDATE(code_id)"] {
+            sqlx::query(sqlx::AssertSqlSafe(format!(
+                "GRANT {permission} ON core_payments.{table} TO {}",
+                role.name
+            )))
+            .execute(&pool)
+            .await
+            .unwrap();
+            // An absent schema grant must not hide an unsafe table/column grant.
+            assert_eq!(
+                runtime_database::check(&role.pool, required).await,
+                Err(Error::UnsafePrivileges),
+                "latent privilege accepted: {permission} ON {table}"
+            );
+            sqlx::query(sqlx::AssertSqlSafe(format!(
+                "REVOKE {permission} ON core_payments.{table} FROM {}",
+                role.name
+            )))
+            .execute(&pool)
+            .await
+            .unwrap();
+            runtime_database::check(&role.pool, required).await.unwrap();
+        }
+    }
+    // Enabling payments requires real namespace and relation permissions; the
+    // checker must report missing privileges without repairing any grants.
+    assert_eq!(
+        runtime_database::check(
+            &role.pool,
+            RequiredCapabilities {
+                payments: true,
+                events: true,
+                ..RequiredCapabilities::default()
+            }
+        )
+        .await,
+        Err(Error::MissingPrivileges)
+    );
+    let usage: bool = sqlx::query_scalar("SELECT has_schema_privilege('core_payments','USAGE')")
+        .fetch_one(&role.pool)
+        .await
+        .unwrap();
+    assert!(!usage);
+    role.cleanup().await;
+}
+
+#[sqlx::test(migrations = false)]
 async fn identity_usage_reads_require_complete_evidence_without_charging_writes(pool: PgPool) {
     core_schema::init(&pool).await.unwrap();
     let role = runtime::RuntimeRole::create(&pool).await;
@@ -83,6 +156,10 @@ async fn community_reads_require_charging_and_payment_evidence_grants(pool: PgPo
     .execute(&pool)
     .await
     .unwrap();
+    sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
+        "GRANT SELECT(document,mapping,snapshot_observed_at,target_database,target_database_oid,target_nonce) ON core_history.current_connection_snapshot TO {role}; GRANT SELECT(target_credential_id) ON core_history.current_connection_credential_map TO {role}",
+        role=role.name
+    ))).execute(&pool).await.unwrap();
     runtime_database::check(&role.pool, required).await.unwrap();
     for table in [
         "core_charging.requests",
@@ -176,6 +253,87 @@ async fn community_reads_require_charging_and_payment_evidence_grants(pool: PgPo
         .await
         .unwrap();
     }
+
+    // The current reader needs these exact columns; startup does not repair ACLs.
+    for (relation, column) in [
+        ("core_history.current_connection_snapshot", "document"),
+        ("core_history.current_connection_snapshot", "mapping"),
+        (
+            "core_history.current_connection_snapshot",
+            "snapshot_observed_at",
+        ),
+        (
+            "core_history.current_connection_snapshot",
+            "target_database",
+        ),
+        (
+            "core_history.current_connection_snapshot",
+            "target_database_oid",
+        ),
+        ("core_history.current_connection_snapshot", "target_nonce"),
+        (
+            "core_history.current_connection_credential_map",
+            "target_credential_id",
+        ),
+    ] {
+        sqlx::query(sqlx::AssertSqlSafe(format!(
+            "REVOKE SELECT({column}) ON {relation} FROM {}",
+            role.name
+        )))
+        .execute(&pool)
+        .await
+        .unwrap();
+        assert_eq!(
+            runtime_database::check(&role.pool, required).await,
+            Err(Error::MissingPrivileges)
+        );
+        sqlx::query(sqlx::AssertSqlSafe(format!(
+            "GRANT SELECT({column}) ON {relation} TO {}",
+            role.name
+        )))
+        .execute(&pool)
+        .await
+        .unwrap();
+        runtime_database::check(&role.pool, required).await.unwrap();
+    }
+    // Owner import material and immutable upgrade receipts never become runtime reads.
+    for (relation, permission) in [
+        (
+            "core_history.current_connection_snapshot",
+            "SELECT(metadata)",
+        ),
+        (
+            "core_history.current_connection_snapshot",
+            "SELECT(native_credential_floor)",
+        ),
+        (
+            "core_history.current_connection_credential_map",
+            "SELECT(source_key_id)",
+        ),
+        ("core_meta.assistant_agent_gift_upgrades", "SELECT"),
+        ("core_meta.current_connection_history_upgrades", "SELECT"),
+    ] {
+        sqlx::query(sqlx::AssertSqlSafe(format!(
+            "GRANT {permission} ON {relation} TO {}",
+            role.name
+        )))
+        .execute(&pool)
+        .await
+        .unwrap();
+        assert_eq!(
+            runtime_database::check(&role.pool, required).await,
+            Err(Error::UnsafePrivileges)
+        );
+        sqlx::query(sqlx::AssertSqlSafe(format!(
+            "REVOKE {permission} ON {relation} FROM {}",
+            role.name
+        )))
+        .execute(&pool)
+        .await
+        .unwrap();
+        runtime_database::check(&role.pool, required).await.unwrap();
+    }
+    drop(reader);
     role.cleanup().await;
 }
 

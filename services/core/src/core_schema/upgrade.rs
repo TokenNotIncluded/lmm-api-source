@@ -9,6 +9,8 @@ use std::{collections::BTreeMap, fmt, io::Read};
 mod account_appeals;
 mod additive;
 mod affiliate_registration;
+mod assistant_agent_gift;
+mod assistant_service_funding;
 mod channel_accounting;
 mod channel_observations;
 mod channel_projection;
@@ -18,6 +20,7 @@ mod commerce_display_rate;
 mod completion;
 mod connection_history_import;
 mod core59_to62;
+mod current_connection_history;
 mod finance;
 #[cfg(test)]
 mod historical_fixture;
