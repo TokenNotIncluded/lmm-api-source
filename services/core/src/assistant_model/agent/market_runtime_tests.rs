@@ -197,7 +197,7 @@ async fn assistant_market_reserve_requires_paid_claim_exact_inputs_and_single_di
     );
     claim(&f, &request).await;
     assert!(
-        CreditStore::from_pool(pool.clone())
+        CreditStore::from_pool(f.agent.base.pool.clone())
             .reserve_assistant(f.access(), &request)
             .await
             .is_err()
@@ -270,7 +270,7 @@ async fn assistant_market_reserve_requires_paid_claim_exact_inputs_and_single_di
 
     let mut policy = (*f.agent.policy).clone();
     policy.market.as_mut().unwrap().revision = "withdrawn-policy-revision".into();
-    let changed_runtime = CreditStore::from_pool(pool.clone())
+    let changed_runtime = CreditStore::from_pool(f.agent.base.pool.clone())
         .with_assistant_runtime(AssistantMarketRuntime::from_policy(Arc::new(policy)).unwrap());
     assert!(
         changed_runtime
@@ -411,7 +411,7 @@ async fn assistant_market_catalogue_reads_only_live_owned_exact_version_consents
     assert!(store.assistant_catalogue(f.access(), &wrong).await.is_err());
     let mut policy = (*f.agent.policy).clone();
     policy.allowed_tools.remove("get_connected_market_tools");
-    let disabled = CreditStore::from_pool(pool.clone())
+    let disabled = CreditStore::from_pool(f.agent.base.pool.clone())
         .with_assistant_runtime(AssistantMarketRuntime::from_policy(Arc::new(policy)).unwrap());
     assert!(
         disabled

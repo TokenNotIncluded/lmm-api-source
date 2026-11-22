@@ -1,11 +1,14 @@
 //! Actual binary tests; no PostgreSQL fixture or runtime configuration is used.
+#[path = "common/core_binary.rs"]
+mod core_binary_input;
+
 use std::{
     process::{Command, Output, Stdio},
     time::{Duration, Instant},
 };
 
 fn invoke(args: &[&str], variables: &[(&str, &str)]) -> Output {
-    let mut child = Command::new(env!("CARGO_BIN_EXE_lmm-core"))
+    let mut child = Command::new(core_binary_input::path())
         .args(args)
         .env_clear()
         .envs(variables.iter().copied())

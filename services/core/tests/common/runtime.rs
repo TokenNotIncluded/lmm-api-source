@@ -677,6 +677,30 @@ GRANT USAGE ON SEQUENCE core_abuse.audit_id_seq TO {name};
             .execute(&self.owner)
             .await
             .unwrap();
+        if schema == "core_assistant_tools" {
+            let weekly_installed: bool = sqlx::query_scalar(
+                "SELECT to_regclass('core_weekly.weekly_discounts') IS NOT NULL",
+            )
+            .fetch_one(&self.owner)
+            .await
+            .unwrap();
+            if weekly_installed {
+                // Browser readiness requires these grants whenever assistant
+                // tools are enabled on a schema that includes weekly decisions.
+                let grants = include_str!("../../../../deployment/postgres/grant-core-runtime.sql")
+                    .split_once("-- BEGIN assistant-weekly browser runtime grants\n")
+                    .unwrap()
+                    .1
+                    .split_once("-- END assistant-weekly browser runtime grants")
+                    .unwrap()
+                    .0
+                    .replace(":\"runtime_role\"", &self.name);
+                sqlx::raw_sql(sqlx::AssertSqlSafe::<&str>(&grants))
+                    .execute(&self.owner)
+                    .await
+                    .unwrap();
+            }
+        }
     }
     pub async fn cleanup(self) {
         self.pool.close().await;

@@ -15,6 +15,7 @@ pub struct BusinessFactsStore {
     models: ModelsProjection,
     plan_offers: Option<super::plan_offers::PlanOffersStore>,
     invitation_facts: bool,
+    admin_skill_facts: bool,
 }
 impl BusinessFactsStore {
     /// Startup observes actual required columns with the runtime connection;
@@ -51,7 +52,26 @@ impl BusinessFactsStore {
             models: ModelsProjection::from_gateway(gateway),
             plan_offers: None,
             invitation_facts: false,
+            admin_skill_facts: false,
         }
+    }
+    pub(crate) async fn enable_admin_skill_facts(&mut self) -> Result<(), Error> {
+        super::admin_skills::check_ready(&self.pool).await?;
+        self.admin_skill_facts = true;
+        Ok(())
+    }
+    pub(crate) fn admin_skill_facts_available(&self) -> bool {
+        self.admin_skill_facts
+    }
+    pub(crate) async fn admin_user_skills_authorization(
+        &self,
+        session: &str,
+        target: i64,
+    ) -> Result<super::admin_skills::Authorization, Error> {
+        if !self.admin_skill_facts {
+            return Err(Error::Unavailable);
+        }
+        super::admin_skills::read(&self.pool, session, target).await
     }
     pub(crate) async fn enable_invitation_facts(&mut self) -> Result<(), Error> {
         super::invitations::check_ready(&self.pool).await?;

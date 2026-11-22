@@ -21,6 +21,7 @@ mod subscription_resets;
 mod telegram;
 mod tool_market_credit;
 mod trust_policy;
+mod weekly_discounts;
 
 #[derive(Clone, Copy, Default)]
 pub struct RequiredCapabilities {
@@ -348,6 +349,7 @@ pub(crate) async fn check_connection(
     checkin_challenges::check(connection, required.checkin_rewards).await?;
     product_features::check(connection, required.console).await?;
     legacy_affiliate_aliases::check(connection, required.web_identity).await?;
+    weekly_discounts::check(connection, required).await?;
     legacy_discount_packet::check(connection, required.payments, required.console).await?;
     legacy_gifts::check(
         connection,

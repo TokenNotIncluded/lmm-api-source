@@ -170,6 +170,17 @@ func (r *Runtime) composeAssistantDelegation(ctx context.Context, cfg Config, db
 				}
 			}
 		}
+		if access.Missing(dependencies.AdminSkills) {
+			if port, ok := any(client).(assistant_services.AdminSkillFactsClient); ok {
+				reader, err := assistant_services.NewCoreAdminSkills(port)
+				if err != nil {
+					return err
+				}
+				if reader.Ready(ctx) == nil {
+					dependencies.AdminSkills = reader
+				}
+			}
+		}
 		if access.Missing(dependencies.Invitations) {
 			if port, ok := any(client).(assistant_services.InvitationFactsClient); ok {
 				invitations, err := assistant_services.NewCoreInvitations(port, authority)

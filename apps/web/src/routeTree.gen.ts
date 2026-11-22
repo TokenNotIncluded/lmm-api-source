@@ -98,6 +98,7 @@ import { Route as AuthenticatedUsageLogsIndexRouteImport } from './routes/_authe
 import { Route as AuthenticatedUsageLogsSectionRouteImport } from './routes/_authenticated/usage-logs/$section'
 import { Route as AuthenticatedUsersIndexRouteImport } from './routes/_authenticated/users/index'
 import { Route as AuthenticatedWalletIndexRouteImport } from './routes/_authenticated/wallet/index'
+import { Route as AuthenticatedWeeklyDiscountsIndexRouteImport } from './routes/_authenticated/weekly-discounts/index'
 import { Route as AuthenticatedWorkspaceIndexRouteImport } from './routes/_authenticated/workspace/index'
 import { Route as GamesSignalIndexRouteImport } from './routes/games/signal/index'
 import { Route as PricingModelIdIndexRouteImport } from './routes/pricing/$modelId/index'
@@ -597,6 +598,12 @@ const AuthenticatedWalletIndexRoute =
     path: '/wallet/',
     getParentRoute: () => AuthenticatedRouteRoute,
   } as any)
+const AuthenticatedWeeklyDiscountsIndexRoute =
+  AuthenticatedWeeklyDiscountsIndexRouteImport.update({
+    id: '/weekly-discounts/',
+    path: '/weekly-discounts/',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
 const AuthenticatedWorkspaceIndexRoute =
   AuthenticatedWorkspaceIndexRouteImport.update({
     id: '/workspace/',
@@ -810,6 +817,7 @@ export interface FileRoutesByFullPath {
   '/usage-logs/': typeof AuthenticatedUsageLogsIndexRoute
   '/users/': typeof AuthenticatedUsersIndexRoute
   '/wallet/': typeof AuthenticatedWalletIndexRoute
+  '/weekly-discounts/': typeof AuthenticatedWeeklyDiscountsIndexRoute
   '/workspace/': typeof AuthenticatedWorkspaceIndexRoute
   '/games/signal/': typeof GamesSignalIndexRoute
   '/pricing/$modelId/': typeof PricingModelIdIndexRoute
@@ -918,6 +926,7 @@ export interface FileRoutesByTo {
   '/usage-logs': typeof AuthenticatedUsageLogsIndexRoute
   '/users': typeof AuthenticatedUsersIndexRoute
   '/wallet': typeof AuthenticatedWalletIndexRoute
+  '/weekly-discounts': typeof AuthenticatedWeeklyDiscountsIndexRoute
   '/workspace': typeof AuthenticatedWorkspaceIndexRoute
   '/games/signal': typeof GamesSignalIndexRoute
   '/pricing/$modelId': typeof PricingModelIdIndexRoute
@@ -1031,6 +1040,7 @@ export interface FileRoutesById {
   '/_authenticated/usage-logs/': typeof AuthenticatedUsageLogsIndexRoute
   '/_authenticated/users/': typeof AuthenticatedUsersIndexRoute
   '/_authenticated/wallet/': typeof AuthenticatedWalletIndexRoute
+  '/_authenticated/weekly-discounts/': typeof AuthenticatedWeeklyDiscountsIndexRoute
   '/_authenticated/workspace/': typeof AuthenticatedWorkspaceIndexRoute
   '/games/signal/': typeof GamesSignalIndexRoute
   '/pricing/$modelId/': typeof PricingModelIdIndexRoute
@@ -1143,6 +1153,7 @@ export interface FileRouteTypes {
     | '/usage-logs/'
     | '/users/'
     | '/wallet/'
+    | '/weekly-discounts/'
     | '/workspace/'
     | '/games/signal/'
     | '/pricing/$modelId/'
@@ -1251,6 +1262,7 @@ export interface FileRouteTypes {
     | '/usage-logs'
     | '/users'
     | '/wallet'
+    | '/weekly-discounts'
     | '/workspace'
     | '/games/signal'
     | '/pricing/$modelId'
@@ -1363,6 +1375,7 @@ export interface FileRouteTypes {
     | '/_authenticated/usage-logs/'
     | '/_authenticated/users/'
     | '/_authenticated/wallet/'
+    | '/_authenticated/weekly-discounts/'
     | '/_authenticated/workspace/'
     | '/games/signal/'
     | '/pricing/$modelId/'
@@ -2045,6 +2058,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedWalletIndexRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
+    '/_authenticated/weekly-discounts/': {
+      id: '/_authenticated/weekly-discounts/'
+      path: '/weekly-discounts'
+      fullPath: '/weekly-discounts/'
+      preLoaderRoute: typeof AuthenticatedWeeklyDiscountsIndexRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
     '/_authenticated/workspace/': {
       id: '/_authenticated/workspace/'
       path: '/workspace'
@@ -2320,6 +2340,7 @@ interface AuthenticatedRouteRouteChildren {
   AuthenticatedUsageLogsIndexRoute: typeof AuthenticatedUsageLogsIndexRoute
   AuthenticatedUsersIndexRoute: typeof AuthenticatedUsersIndexRoute
   AuthenticatedWalletIndexRoute: typeof AuthenticatedWalletIndexRoute
+  AuthenticatedWeeklyDiscountsIndexRoute: typeof AuthenticatedWeeklyDiscountsIndexRoute
   AuthenticatedWorkspaceIndexRoute: typeof AuthenticatedWorkspaceIndexRoute
   AuthenticatedExtensionsPluginsIndexRoute: typeof AuthenticatedExtensionsPluginsIndexRoute
 }
@@ -2369,6 +2390,8 @@ const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedUsageLogsIndexRoute: AuthenticatedUsageLogsIndexRoute,
   AuthenticatedUsersIndexRoute: AuthenticatedUsersIndexRoute,
   AuthenticatedWalletIndexRoute: AuthenticatedWalletIndexRoute,
+  AuthenticatedWeeklyDiscountsIndexRoute:
+    AuthenticatedWeeklyDiscountsIndexRoute,
   AuthenticatedWorkspaceIndexRoute: AuthenticatedWorkspaceIndexRoute,
   AuthenticatedExtensionsPluginsIndexRoute:
     AuthenticatedExtensionsPluginsIndexRoute,

@@ -65,6 +65,8 @@ impl AgentPolicy {
                         | "connect_market_tool"
                         | "get_new_user_gift_status"
                         | "prepare_new_user_gift"
+                        | "get_weekly_discount_status"
+                        | "prepare_weekly_discount"
                         | "get_registration_risk"
                         | "get_available_models"
                         | "get_model_pricing"
@@ -77,6 +79,9 @@ impl AgentPolicy {
                     return Err(Error::Forbidden);
                 }
                 crate::gift::agent::validate_installed_tool(tool)?;
+            }
+            if name == crate::assistant_tools_core::weekly::agent::TOOL_NAME {
+                crate::assistant_tools_core::weekly::agent::validate_installed_tool(tool)?;
             }
             if crate::assistant_tools_core::actions::is_tool(name) {
                 crate::assistant_tools_core::actions::validate_installed_tool(tool)?;
@@ -367,6 +372,16 @@ impl AgentService {
         {
             crate::gift::agent::check_ready(&mut tx).await?;
         }
+        if self.policy.allowed_tools.iter().any(|name| {
+            matches!(
+                name.as_str(),
+                "prepare_weekly_discount" | "get_weekly_discount_status"
+            )
+        }) {
+            crate::assistant_tools_core::weekly::check_ready(&mut tx)
+                .await
+                .map_err(super::context_error)?;
+        }
         if self
             .policy
             .allowed_tools
@@ -459,19 +474,30 @@ impl AgentService {
         // Terminal states are original receipts. Cancellation never manufactures
         // a second settlement or changes an already completed answer.
         if matches!(phase.as_str(), "new" | "model_running" | "tools_pending") {
-            if turn.try_get::<i64, _>("session_id")? != principal.credential_id {
+            if turn.try_get::<i64, _>("session_id")? != principal.credential_id
+                || turn.try_get::<i64, _>("owner_user_id")? != principal.user_id
+                || turn.try_get::<i64, _>("owner_account_id")? != principal.owner_account_id
+            {
                 return Err(Error::Forbidden);
             }
             sqlx::query("UPDATE core_assistant.grants g SET revoked=TRUE FROM core_charging.requests q JOIN core_assistant.agent_rounds r ON r.model_request_id=q.id WHERE r.turn_id=$1 AND g.id=q.assistant_grant_id AND NOT g.revoked")
                 .bind(&turn_id).execute(&mut *tx).await?;
             sqlx::query("UPDATE core_assistant.agent_tool_operations SET state='cancelled' WHERE turn_id=$1 AND state='pending'")
                 .bind(&turn_id).execute(&mut *tx).await?;
-            // Preserve claimed/unknown tool recovery. Acknowledging the original
-            // domain receipt remains possible, but revoked grants prevent any
-            // new tool claim or model round afterwards.
+            // Preserve claimed/unknown tool recovery and all original receipts.
+            // Only the exact reviewed read-only admin getter can be abandoned;
+            // its claims/results stay intact and late new completion is refused.
             let active: bool = sqlx::query_scalar("SELECT EXISTS(SELECT FROM core_assistant.agent_rounds r JOIN core_charging.requests q ON q.id=r.model_request_id WHERE r.turn_id=$1 AND q.state NOT IN ('settled','released')) OR EXISTS(SELECT FROM core_assistant.agent_tool_operations WHERE turn_id=$1 AND state IN ('claimed','unknown'))")
                 .bind(&turn_id).fetch_one(&mut *tx).await?;
-            if !active && matches!(phase.as_str(), "new" | "tools_pending") {
+            let abandon_read_only = active
+                && phase == "tools_pending"
+                && super::admin_skill_replay::can_abandon_read_only_tools(
+                    &mut tx,
+                    &turn_id,
+                    &self.registry,
+                )
+                .await?;
+            if (!active || abandon_read_only) && matches!(phase.as_str(), "new" | "tools_pending") {
                 sqlx::query("UPDATE core_assistant.agent_turns SET phase='expired',revision=revision+1 WHERE id=$1")
                     .bind(&turn_id).execute(&mut *tx).await?;
             }
@@ -485,14 +511,22 @@ impl AgentService {
     }
     async fn snapshot(&self, c: &mut PgConnection, turn_id: &str) -> Result<TurnSnapshot, Error> {
         let t=sqlx::query("SELECT t.*,coalesce((SELECT max(round) FROM core_assistant.agent_rounds WHERE turn_id=t.id),0) AS current_round,coalesce((SELECT sum(CASE WHEN q.state IN ('reserved','streaming','reconcile') THEN q.reserved ELSE 0 END) FROM core_assistant.agent_rounds r JOIN core_charging.requests q ON q.id=r.model_request_id WHERE r.turn_id=t.id),0)::bigint AS model_held,coalesce((SELECT sum(q.settled) FROM core_assistant.agent_rounds r JOIN core_charging.requests q ON q.id=r.model_request_id WHERE r.turn_id=t.id AND q.state='settled'),0)::bigint AS model_settled FROM core_assistant.agent_turns t WHERE t.id=$1").bind(turn_id).fetch_optional(&mut *c).await?.ok_or(Error::NotFound)?;
-        let calls=sqlx::query("SELECT o.*,r.model_request_id,r.round FROM core_assistant.agent_tool_operations o JOIN core_assistant.agent_rounds r ON r.id=o.round_id WHERE o.turn_id=$1 AND o.state IN ('pending','claimed','unknown') AND o.domain='extension' AND NOT EXISTS(SELECT FROM core_assistant.agent_tool_operations earlier WHERE earlier.round_id=o.round_id AND earlier.ordinal<o.ordinal AND earlier.domain='registered_core' AND earlier.state IN ('pending','claimed','unknown')) ORDER BY r.round,o.ordinal").bind(turn_id).fetch_all(&mut *c).await?;
+        let phase: String = t.try_get("phase")?;
+        let calls = if phase == "expired" {
+            // The host accepts pending actions only for an active tools turn.
+            // Expiry keeps the durable claims/results available as receipts,
+            // but never projects those abandoned reads as executable work.
+            Vec::new()
+        } else {
+            sqlx::query("SELECT o.*,r.model_request_id,r.round FROM core_assistant.agent_tool_operations o JOIN core_assistant.agent_rounds r ON r.id=o.round_id WHERE o.turn_id=$1 AND o.state IN ('pending','claimed','unknown') AND o.domain='extension' AND NOT EXISTS(SELECT FROM core_assistant.agent_tool_operations earlier WHERE earlier.round_id=o.round_id AND earlier.ordinal<o.ordinal AND earlier.domain='registered_core' AND earlier.state IN ('pending','claimed','unknown')) ORDER BY r.round,o.ordinal").bind(turn_id).fetch_all(&mut *c).await?
+        };
         Ok(TurnSnapshot {
             conversation_id: t.try_get("conversation_id")?,
             client_turn_id: t.try_get("client_turn_id")?,
             owner_user_id: t.try_get("owner_user_id")?,
             owner_account_id: t.try_get("owner_account_id")?,
             text_sha256: t.try_get("text_sha256")?,
-            phase: t.try_get("phase")?,
+            phase,
             revision: u64::try_from(t.try_get::<i64, _>("revision")?)
                 .map_err(|_| Error::Unavailable)?,
             round: u32::try_from(t.try_get::<i32, _>("current_round")?)
@@ -696,7 +730,7 @@ impl AgentService {
         let conversation: String = sqlx::query_scalar("SELECT t.conversation_id FROM core_assistant.agent_tool_operations o JOIN core_assistant.agent_turns t ON t.id=o.turn_id WHERE o.id=$1 AND t.owner_user_id=$2")
             .bind(input.operation_id).bind(principal.user_id).fetch_optional(&mut *tx).await?.ok_or(Error::NotFound)?;
         super::super::lock_conversation_id(&mut tx, &conversation).await?;
-        let row=sqlx::query("SELECT o.*,t.owner_user_id,t.conversation_id FROM core_assistant.agent_tool_operations o JOIN core_assistant.agent_turns t ON t.id=o.turn_id WHERE o.id=$1 FOR UPDATE OF o,t").bind(input.operation_id).fetch_optional(&mut *tx).await?.ok_or(Error::NotFound)?;
+        let row=sqlx::query("SELECT o.*,t.owner_user_id,t.conversation_id,t.phase AS turn_phase FROM core_assistant.agent_tool_operations o JOIN core_assistant.agent_turns t ON t.id=o.turn_id WHERE o.id=$1 FOR UPDATE OF o,t").bind(input.operation_id).fetch_optional(&mut *tx).await?.ok_or(Error::NotFound)?;
         if row.try_get::<i64, _>("owner_user_id")? != principal.user_id
             || row.try_get::<String, _>("domain")? != "extension"
             || row.try_get::<Option<String>, _>("claim_key")?.as_deref() != Some(input.claim_key)
@@ -704,6 +738,42 @@ impl AgentService {
             return Err(Error::Forbidden);
         }
         let old: String = row.try_get("state")?;
+        let abandoned_private = row.try_get::<String, _>("tool_name")?
+            == super::admin_skill_replay::TOOL_NAME
+            && row.try_get::<String, _>("turn_phase")? == "expired"
+            && old != "completed"
+            && !(old == "unknown" && input.state == "unknown");
+        if input.state == "completed"
+            && row.try_get::<String, _>("tool_name")? == super::admin_skill_replay::TOOL_NAME
+        {
+            let turn = sqlx::query("SELECT * FROM core_assistant.agent_turns WHERE id=$1")
+                .bind(row.try_get::<String, _>("turn_id")?)
+                .fetch_one(&mut *tx)
+                .await?;
+            // Completion acknowledges this original operation; it must not
+            // convert another Session into its owner. Cancellation/history
+            // receipts retain their existing recovery semantics.
+            if turn.try_get::<i64, _>("session_id")? != principal.credential_id
+                || turn.try_get::<i64, _>("owner_account_id")? != principal.owner_account_id
+            {
+                return Err(Error::Forbidden);
+            }
+            if abandoned_private {
+                return Err(Error::Conflict);
+            }
+            super::admin_skill_replay::validate_completion(
+                &mut tx,
+                session,
+                input.operation_id,
+                &row.try_get::<Vec<u8>, _>("arguments_json")?,
+                input.result_json,
+                input.domain_receipt_id,
+            )
+            .await?;
+        }
+        if abandoned_private {
+            return Err(Error::Conflict);
+        }
         if old == "completed" || (old == "unknown" && input.state == "unknown") {
             let result = accepted(&row)?;
             if result.state != input.state

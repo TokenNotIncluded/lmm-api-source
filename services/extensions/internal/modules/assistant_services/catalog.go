@@ -178,7 +178,7 @@ func serviceDefinitions() []PureDefinition {
 				"target_user_id": map[string]any{"type": "integer", "minimum": 1},
 			}, []string{"message"}),
 		}}
-	for _, group := range [][]assistantOpenAIToolDefinition{assistantSkillTools(), issueDefinitions(), assistantSitePolicyToolDefinitions(), planOfferDefinitions(), invitationDefinitions()} {
+	for _, group := range [][]assistantOpenAIToolDefinition{assistantSkillTools(), issueDefinitions(), assistantSitePolicyToolDefinitions(), planOfferDefinitions(), invitationDefinitions(), adminSkillDefinitions()} {
 		for _, d := range group {
 			out = append(out, d.Function)
 		}

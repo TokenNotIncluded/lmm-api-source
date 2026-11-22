@@ -36,7 +36,7 @@ func TestReviewedSearchRegistryMatchesAvailableBinding(t *testing.T) {
 		return out
 	}
 	before, after := read("assistant-tools-v1.json"), read("assistant-tools-v2.json")
-	if len(before) != 19 || len(after) != 58 {
+	if len(before) != 19 || len(after) != 61 {
 		t.Fatal("unexpected reviewed registry scope")
 	}
 	for name, row := range before {
@@ -87,7 +87,7 @@ func TestReviewedCoreControlRegistryHasBoundedExactSchemas(t *testing.T) {
 	var artifact struct {
 		Tools []map[string]any `json:"tools"`
 	}
-	if json.Unmarshal(raw, &artifact) != nil || len(artifact.Tools) != 58 {
+	if json.Unmarshal(raw, &artifact) != nil || len(artifact.Tools) != 61 {
 		t.Fatal("unexpected registry scope")
 	}
 	var expected []map[string]any

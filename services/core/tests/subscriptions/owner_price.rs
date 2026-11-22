@@ -1,3 +1,6 @@
+#[path = "../common/core_binary.rs"]
+mod core_binary_input;
+
 use super::*;
 use lmm_core::payments::{Channel, PaymentsStore};
 use lmm_core::subscriptions::PublishPancakePrice;
@@ -210,7 +213,7 @@ async fn owner_price_cli_uses_real_set_role_and_exact_existing_plan(pool: PgPool
     );
     let cfgfile = write("owner.toml", config.as_bytes());
     let command = || {
-        let mut child = Command::new(env!("CARGO_BIN_EXE_lmm-core"))
+        let mut child = Command::new(core_binary_input::path())
             .args([
                 "--config",
                 cfgfile.to_str().unwrap(),

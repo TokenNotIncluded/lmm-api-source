@@ -97,6 +97,19 @@ REVOKE UPDATE(nonce_sha256,ciphertext,consumed_at)
     ON core_assistant_tools.key_creation_cards FROM :"runtime_role";
 \endif
 
+-- Weekly decisions use explicit column grants. Reset them with the table ACL.
+SELECT to_regclass('core_weekly.weekly_discounts') IS NOT NULL
+    AS assistant_weekly_discounts_present \gset
+\if :assistant_weekly_discounts_present
+REVOKE ALL PRIVILEGES ON SCHEMA core_weekly FROM :"runtime_role";
+REVOKE ALL PRIVILEGES ON ALL TABLES IN SCHEMA core_weekly FROM :"runtime_role";
+REVOKE ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA core_weekly FROM :"runtime_role";
+REVOKE ALL PRIVILEGES ON ALL FUNCTIONS IN SCHEMA core_weekly FROM :"runtime_role";
+REVOKE SELECT(code_id,user_id),INSERT(id,user_id,account_id,week_start,status,discount_percent,reason,conversation_id,operation_id,credential_id,auth_version,web_session_sid,created_at),
+    UPDATE(claim_nonce_sha256,claim_nonce_expires_at)
+    ON core_weekly.weekly_discounts FROM :"runtime_role";
+\endif
+
 -- Invitation aliases expose only their public code and owner to web identity.
 SELECT to_regclass('core_identity.legacy_affiliate_aliases') IS NOT NULL
     AS legacy_affiliate_aliases_present \gset

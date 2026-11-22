@@ -1,10 +1,13 @@
 //! Real CLI argument/input checks. No configuration or database is opened.
+#[path = "common/core_binary.rs"]
+mod core_binary_input;
+
 use std::{
     io::Write,
     process::{Command, Output, Stdio},
 };
 fn invoke(args: &[&str], input: &[u8]) -> Output {
-    let mut child = Command::new(env!("CARGO_BIN_EXE_lmm-core"))
+    let mut child = Command::new(core_binary_input::path())
         .args(args)
         .env_clear()
         .stdin(Stdio::piped())

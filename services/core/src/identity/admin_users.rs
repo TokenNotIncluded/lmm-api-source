@@ -362,6 +362,18 @@ impl AdminUsersStore {
     }
     pub(super) async fn authorize(c: &mut PgConnection, secret: &str) -> ReadResult<Principal> {
         let actor = super::authenticate(c, secret, false).await?;
+        Self::admit_current(c, actor).await
+    }
+    /// The same admission in a caller-owned write transaction, retaining native
+    /// credential/user/account and MFA locks in the existing authentication order.
+    pub(super) async fn authorize_locked(
+        c: &mut PgConnection,
+        secret: &str,
+    ) -> ReadResult<Principal> {
+        let actor = super::authorize_in_transaction(c, secret).await?;
+        Self::admit_current(c, actor).await
+    }
+    async fn admit_current(c: &mut PgConnection, actor: Principal) -> ReadResult<Principal> {
         if actor.credential_kind != CredentialKind::Session
             || actor.owner.kind != AccountKind::Personal
             || actor.owner.id != actor.user_id

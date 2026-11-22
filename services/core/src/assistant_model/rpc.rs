@@ -181,6 +181,13 @@ impl AssistantRpc {
             if self
                 .facts
                 .as_ref()
+                .is_some_and(|f| f.admin_skill_facts_available())
+            {
+                features.push(crate::assistant_tools_core::admin_skills::FEATURE.into());
+            }
+            if self
+                .facts
+                .as_ref()
                 .is_some_and(|f| f.invitation_facts_available())
             {
                 features.push(crate::assistant_tools_core::invitations::FEATURE.into());
@@ -650,7 +657,7 @@ impl pb::core_assistant_model_server::CoreAssistantModel for AssistantRpc {
             .as_ref()
             .ok_or_else(|| Status::unimplemented("assistant business facts unavailable"))?;
         let input = r.into_inner();
-        if input.target_user_id != 0 {
+        if input.target_user_id != 0 && input.kind != 5 {
             return Err(Status::invalid_argument(
                 "this assistant fact kind is self-scoped",
             ));
@@ -676,6 +683,15 @@ impl pb::core_assistant_model_server::CoreAssistantModel for AssistantRpc {
                     .map_err(tools_status)?,
             )
             .map_err(|_| Status::unavailable("assistant invitation facts unavailable"))?,
+            5 => serde_json::to_value(
+                facts
+                    .admin_user_skills_authorization(&session, input.target_user_id)
+                    .await
+                    .map_err(tools_status)?,
+            )
+            .map_err(|_| {
+                Status::unavailable("assistant administrator authorization unavailable")
+            })?,
             _ => return Err(Status::invalid_argument("unsupported assistant fact kind")),
         };
         let bytes = serde_json::to_vec(&value)

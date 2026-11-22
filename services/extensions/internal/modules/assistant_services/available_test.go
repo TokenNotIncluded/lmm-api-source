@@ -21,7 +21,7 @@ func TestAvailableBindingsDoNotAdvertiseMissingDependencies(t *testing.T) {
 	if service.ConfirmationAvailable() {
 		t.Fatal("missing Core proof port advertised")
 	}
-	if len(service.Bindings()) != 29 {
+	if len(service.Bindings()) != 30 {
 		t.Fatalf("full frozen manifest=%d", len(service.Bindings()))
 	}
 }

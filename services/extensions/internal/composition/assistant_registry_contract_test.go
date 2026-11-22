@@ -30,7 +30,7 @@ func TestReviewedRestoredToolsMatchRealDomainBindings(t *testing.T) {
 	var artifact struct {
 		Tools []map[string]any `json:"tools"`
 	}
-	if json.Unmarshal(raw, &artifact) != nil || len(artifact.Tools) != 58 {
+	if json.Unmarshal(raw, &artifact) != nil || len(artifact.Tools) != 61 {
 		t.Fatal("unexpected reviewed scope")
 	}
 	rows := map[string]map[string]any{}
@@ -90,7 +90,7 @@ func TestReviewedRestoredToolsMatchRealDomainBindings(t *testing.T) {
 	}
 }
 
-func TestReviewedUsageRegistryMatchesTypedCoreManifest(t *testing.T) {
+func TestReviewedTypedReadRegistryMatchesCoreManifest(t *testing.T) {
 	read := func(path string) []map[string]any {
 		t.Helper()
 		raw, err := os.ReadFile(path)
@@ -114,7 +114,7 @@ func TestReviewedUsageRegistryMatchesTypedCoreManifest(t *testing.T) {
 	if json.Unmarshal(raw, &artifact) != nil {
 		t.Fatal("invalid installed registry")
 	}
-	for _, name := range []string{"get_user_usage_summary", "get_usage_summary"} {
+	for _, name := range []string{"get_user_usage_summary", "get_usage_summary", "get_weekly_discount_status"} {
 		var core, installed map[string]any
 		for _, row := range manifest {
 			if row["name"] == name {

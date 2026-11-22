@@ -26,7 +26,7 @@ fn gateway_endpoint(pool: &PgPool, endpoint: &str) -> ModelGateway {
 fn gateway_endpoint_group(pool: &PgPool, endpoint: &str, group: &str) -> ModelGateway {
     gateway_endpoint_group_input_ceiling(pool, endpoint, group, 4096)
 }
-fn gateway_endpoint_group_input_ceiling(
+pub(super) fn gateway_endpoint_group_input_ceiling(
     pool: &PgPool,
     endpoint: &str,
     group: &str,
@@ -163,7 +163,7 @@ async fn provider(tool: &str, missing_usage: bool) -> Provider {
         task,
     }
 }
-fn response_sse(response: &Value) -> String {
+pub(super) fn response_sse(response: &Value) -> String {
     let mut message = response["choices"][0]["message"].clone();
     if let Some(calls) = message["tool_calls"].as_array_mut() {
         for (index, call) in calls.iter_mut().enumerate() {
@@ -998,3 +998,6 @@ mod gift_tests;
 
 #[path = "confirmed_actions_tests.rs"]
 mod confirmed_actions_tests;
+
+#[path = "admin_skill_replay_pg_tests.rs"]
+mod admin_skill_replay_tests;

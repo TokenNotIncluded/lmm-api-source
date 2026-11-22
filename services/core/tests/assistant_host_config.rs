@@ -1,5 +1,8 @@
 //! Actual public assistant configuration against a restricted disposable PG role.
 #![cfg(unix)]
+#[path = "common/core_binary.rs"]
+mod core_binary_input;
+
 use lmm_core::{
     model_http::{ChargePolicy, ModelGateway, UpstreamCredential},
     relay::Limits,
@@ -345,7 +348,7 @@ impl Drop for CoreProcess {
 
 fn core_process(directory: &std::path::Path) -> CoreProcess {
     CoreProcess(
-        std::process::Command::new(env!("CARGO_BIN_EXE_lmm-core"))
+        std::process::Command::new(core_binary_input::path())
             .args(["--config", directory.join("core.toml").to_str().unwrap()])
             .env_clear()
             .stdin(std::process::Stdio::null())

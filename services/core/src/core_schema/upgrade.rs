@@ -13,6 +13,7 @@ mod assistant_agent_gift;
 mod assistant_confirmed_actions;
 mod assistant_invitation_confirmation;
 mod assistant_service_funding;
+mod assistant_weekly_discounts;
 mod channel_accounting;
 mod channel_observations;
 mod channel_projection;

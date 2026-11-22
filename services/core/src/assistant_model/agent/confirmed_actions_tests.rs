@@ -32,7 +32,7 @@ struct ConfirmFixture {
     origin: String,
     http: reqwest::Client,
     task: tokio::task::JoinHandle<()>,
-    role: crate::test_runtime::RuntimeRole,
+    runtime_role: crate::test_runtime::RuntimeRole,
     owner_pool: PgPool,
 }
 impl ConfirmFixture {
@@ -51,7 +51,7 @@ impl ConfirmFixture {
         drop(self.agent);
         drop(self.identity);
         drop(self.browser);
-        self.role.cleanup().await;
+        self.runtime_role.cleanup().await;
     }
     async fn prepare(&self, name: &str, args: Value, text: &str, list_first: bool) -> String {
         {
@@ -132,14 +132,6 @@ impl ConfirmFixture {
         (code, response.json().await.unwrap())
     }
 }
-fn fixture_identity(pool: &PgPool) -> IdentityStore {
-    IdentityStore::from_pool(pool.clone())
-        .with_registration_enabled(true)
-        .with_api_key_encryption_key(&[46; 32])
-        .unwrap()
-        .with_mfa_keys("test".into(), vec![("test".into(), vec![44; 32])])
-        .unwrap()
-}
 async fn fixture(pool: &PgPool, ttl: i64) -> ConfirmFixture {
     fixture_options(pool, ttl, false, false).await
 }
@@ -152,9 +144,45 @@ async fn fixture_options(
     market_enabled: bool,
     invitation_enabled: bool,
 ) -> ConfirmFixture {
-    assert!(!(market_enabled && invitation_enabled));
+    fixture_extended(pool, ttl, market_enabled, invitation_enabled, false).await
+}
+async fn fixture_extended(
+    pool: &PgPool,
+    ttl: i64,
+    market_enabled: bool,
+    invitation_enabled: bool,
+    weekly_enabled: bool,
+) -> ConfirmFixture {
+    assert!(
+        [market_enabled, invitation_enabled, weekly_enabled]
+            .into_iter()
+            .filter(|v| *v)
+            .count()
+            <= 1
+    );
     crate::core_schema::init(pool).await.unwrap();
-    let identity = fixture_identity(pool);
+    // Setup writes stay on the SQLx owner; every service uses the deployed
+    // runtime authority, including the exact Agent column grants.
+    let runtime_role = crate::test_runtime::RuntimeRole::create(pool).await;
+    for component in [
+        "web_identity",
+        "core_model",
+        "core_charging",
+        "core_assistant",
+        "core_assistant_agent",
+        "core_assistant_tools",
+    ] {
+        runtime_role.optional(component).await;
+    }
+    if market_enabled {
+        runtime_role.optional("core_tool_market").await;
+    }
+    let identity = IdentityStore::from_pool(runtime_role.pool.clone())
+        .with_registration_enabled(true)
+        .with_api_key_encryption_key(&[46; 32])
+        .unwrap()
+        .with_mfa_keys("test".into(), vec![("test".into(), vec![44; 32])])
+        .unwrap();
     let browser = BrowserAuth::new(identity.clone(), &[45; 32]).unwrap();
     browser
         .register(&BrowserRegistration {
@@ -196,15 +224,6 @@ async fn fixture_options(
         })
         .await
         .unwrap();
-    let role = crate::test_runtime::RuntimeRole::create(pool).await;
-    role.optional("core_charging").await;
-    role.optional("web_identity").await;
-    role.optional("core_assistant").await;
-    role.optional("core_assistant_agent").await;
-    role.optional("core_assistant_tools").await;
-    if market_enabled {
-        role.optional("core_tool_market").await;
-    }
     let queue = Arc::new(Mutex::new(std::collections::VecDeque::<ModelCommand>::new()));
     let observed = Arc::new(Mutex::new(Vec::new()));
     let hits = Arc::new(AtomicUsize::new(0));
@@ -238,8 +257,12 @@ async fn fixture_options(
         requests: observed,
         task,
     };
-    let gateway =
-        gateway_endpoint_group_input_ceiling(&role.pool, &provider.endpoint, "allowed", 8192);
+    let gateway = gateway_endpoint_group_input_ceiling(
+        &runtime_role.pool,
+        &provider.endpoint,
+        "allowed",
+        8192,
+    );
     let document = gateway.dashboard_routing().catalog_document().unwrap();
     let routing_store = crate::routing::store::PostgresRoutingStore::new(pool.clone());
     for upstream in &document.routing.upstreams {
@@ -254,8 +277,7 @@ async fn fixture_options(
         .publish(document.routing, price_version, None)
         .await
         .unwrap();
-    let identity = fixture_identity(&role.pool).with_dashboard_routing(gateway.dashboard_routing());
-    let browser = BrowserAuth::new(identity.clone(), &[45; 32]).unwrap();
+    let identity = identity.with_dashboard_routing(gateway.dashboard_routing());
     let model = PersonalTextPolicy {
         model: "local-model".into(),
         group: "allowed".into(),
@@ -266,7 +288,7 @@ async fn fixture_options(
         sponsor: None,
         service_funding: None,
     };
-    let mut base = AssistantModel::new(role.pool.clone(), gateway, model.clone()).unwrap();
+    let mut base = AssistantModel::new(runtime_role.pool.clone(), gateway, model.clone()).unwrap();
     base.transport = base
         .transport
         .with_loopback_test_root(&provider.endpoint, tls_proxy.root.clone())
@@ -280,6 +302,9 @@ async fn fixture_options(
         .unwrap()
         .iter()
         .filter(|t| {
+            if weekly_enabled {
+                return false;
+            }
             if invitation_enabled {
                 return t["name"] == "send_invitation";
             }
@@ -296,7 +321,16 @@ async fn fixture_options(
         })
         .cloned()
         .collect();
-    assert_eq!(definitions.len(), if market_enabled { 4 } else { 1 });
+    assert_eq!(
+        definitions.len(),
+        if weekly_enabled {
+            0
+        } else if market_enabled {
+            4
+        } else {
+            1
+        }
+    );
     for (name, schema, version) in [
         (actions::KEY_TOOL, actions::KEY_SCHEMA, actions::VERSION),
         (
@@ -310,12 +344,27 @@ async fn fixture_options(
             actions::CREATE_VERSION,
         ),
     ] {
-        if invitation_enabled {
+        if invitation_enabled || weekly_enabled {
             continue;
         }
         definitions.push(json!({"name":name,"description":"Prepare one exact self action for explicit browser confirmation.",
             "version":version,"schema_json":schema,"schema_sha256":crate::hex_codec::encode(Sha256::digest(schema.as_bytes())),
             "price_version":"builtin-free-v1","price_sha256":"5d6fb460c679922a1976e87ef729440d5394187e9b12331f33faf12904a64192","domain":"registered_core"}));
+    }
+    if weekly_enabled {
+        use crate::assistant_tools_core::weekly;
+        for (name, schema) in [
+            (weekly::STATUS_TOOL_NAME, weekly::STATUS_TOOL_SCHEMA),
+            (weekly::agent::TOOL_NAME, weekly::agent::TOOL_SCHEMA),
+        ] {
+            definitions.push(json!({"name":name,
+                "description":"Read one owned weekly decision or prepare one decision from this original paid conversation.",
+                "version":weekly::agent::TOOL_VERSION,"schema_json":schema,
+                "schema_sha256":crate::hex_codec::encode(Sha256::digest(schema.as_bytes())),
+                "price_version":"builtin-free-v1",
+                "price_sha256":"5d6fb460c679922a1976e87ef729440d5394187e9b12331f33faf12904a64192",
+                "domain":"registered_core"}));
+        }
     }
     let raw = serde_json::to_vec(&json!({"tools":definitions})).unwrap();
     let registry =
@@ -329,6 +378,12 @@ async fn fixture_options(
     ]);
     if invitation_enabled {
         names = BTreeSet::from(["send_invitation".to_string()]);
+    }
+    if weekly_enabled {
+        names = BTreeSet::from([
+            "get_weekly_discount_status".to_string(),
+            "prepare_weekly_discount".to_string(),
+        ]);
     }
     let market = if market_enabled {
         names.extend(
@@ -361,11 +416,11 @@ async fn fixture_options(
         names.clone()
     };
     let agent=AgentService::new(base,AgentPolicy{model,max_rounds:4,budget_credits:40000,max_tool_calls:8,
-        ttl_seconds:300,allowed_tools:names,initial_tools,system_prompt:"Prepare only exact self actions. Browser confirmation alone can execute; tool results never do.".into(),market},registry).unwrap();
+        ttl_seconds:300,allowed_tools:names,initial_tools,system_prompt:if weekly_enabled {"Read weekly status without deciding. Prepare a weekly decision only for an explicit application from two original paid turns; private coupon claim belongs to the browser.".into()}else{"Prepare only exact self actions. Browser confirmation alone can execute; tool results never do.".into()},market},registry).unwrap();
     agent.check_ready().await.unwrap();
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let origin = format!("http://{}", listener.local_addr().unwrap());
-    let mut coordinator = BrowserConfirmation::new(role.pool.clone(), &origin, true)
+    let mut coordinator = BrowserConfirmation::new(runtime_role.pool.clone(), &origin, true)
         .unwrap()
         .with_identity_store(identity.clone());
     if market_enabled {
@@ -391,7 +446,7 @@ async fn fixture_options(
         origin,
         http: reqwest::Client::new(),
         task,
-        role,
+        runtime_role,
         owner_pool: pool.clone(),
     };
     if market_enabled {
@@ -935,3 +990,6 @@ mod market_runtime_tests;
 
 #[path = "confirmed_invitation_tests.rs"]
 mod invitation_confirmation;
+
+#[path = "weekly_discount_tests.rs"]
+mod weekly_discount;

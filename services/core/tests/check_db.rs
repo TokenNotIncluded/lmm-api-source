@@ -1,4 +1,7 @@
 //! Formal one-shot check-db behavior against real SQLx-owned PostgreSQL.
+#[path = "common/core_binary.rs"]
+mod core_binary_input;
+
 use lmm_core::{
     accounts::{Account, AccountKind},
     billing::{
@@ -26,7 +29,7 @@ use std::{
 #[path = "common/runtime.rs"]
 mod runtime;
 fn command(args: &[&str]) -> Command {
-    let mut c = Command::new(env!("CARGO_BIN_EXE_lmm-core"));
+    let mut c = Command::new(core_binary_input::path());
     c.args(args)
         .env_clear()
         .stdin(Stdio::null())
@@ -246,7 +249,7 @@ async fn funded_fixture(pool: &PgPool, role: &runtime::RuntimeRole) {
     charging.start(&request.id, &[31; 32]).await.unwrap();
 }
 fn executable_hash() -> String {
-    let mut f = File::open(env!("CARGO_BIN_EXE_lmm-core")).unwrap();
+    let mut f = File::open(core_binary_input::path()).unwrap();
     let mut h = Sha256::new();
     let mut buf = [0; 65536];
     loop {
