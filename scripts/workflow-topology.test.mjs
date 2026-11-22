@@ -390,6 +390,24 @@ test('Core CI uses the same pinned PostgreSQL catalog as the RPC fixture', () =>
 });
 
 
+test('native package uploads keep raw Alpine fixture output private', () => {
+  const source = workflow('linux-packages');
+  const upload = source.split('      - name: Preserve preview packages and scoped evidence, never publish\n')[1];
+  const paths = upload?.match(/          path: \|\n((?:            .+\n)+)/)?.[1];
+  assert.ok(paths, 'the native package artifact must enumerate reviewed paths');
+  assert.deepEqual(paths.trim().split('\n').map((path) => path.trim()), [
+    '${{ steps.packages.outputs.paths }}',
+    'out/evidence/revision.txt',
+    'out/evidence/nfpm-version.txt',
+    'out/evidence/install-matrix.txt',
+    'out/evidence/image-digests.txt',
+    'out/evidence/extore-fixture-image.txt',
+    'out/evidence/extore-native-alpine.json',
+    'out/evidence/extore-native-alpine.json.package.json',
+  ]);
+  assert.ok(source.includes('--report "/receipts/$report" > "$staging/fixture.log" 2>&1'));
+});
+
 test('automatic Core checks run both Cargo target groups on independent runners', () => {
   const source = workflow('core-protocol');
   for (const caller of ['ci', 'mk-01-identity']) {
