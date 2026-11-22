@@ -241,13 +241,13 @@ class StaticWeb:
             ("CPUAccounting", "b", "true"), ("MemoryAccounting", "b", "true"),
             ("WorkingDirectory", "s", str(self.root)),
             ("Environment", "as", "2", "PATH=/usr/bin:/bin", "LANG=C.UTF-8"),
-            ("StandardOutput", "s", "append:" + str(log)),
-            ("StandardError", "s", "append:" + str(log)),
+            ("StandardOutputFileToAppend", "s", str(log)),
+            ("StandardErrorFileToAppend", "s", str(log)),
             ("RuntimeMaxUSec", "t", "900000000"), ("TimeoutStopUSec", "t", "10000000"),
             ("KillMode", "s", "control-group"), ("Restart", "s", "no"),
             ("ExecStart", "a(sasb)", "1", str(self.nginx), str(len(argv)), *argv, "false"),
         ]
-        command = [*rg.manager_command("/usr/bin/busctl", "system"), "call",
+        command = [*rg.manager_command("/usr/bin/busctl", "system"), "--", "call",
                    "org.freedesktop.systemd1", "/org/freedesktop/systemd1",
                    "org.freedesktop.systemd1.Manager", "StartTransientUnit",
                    "ssa(sv)a(sa(sv))", self.unit, "fail", str(len(settings))]

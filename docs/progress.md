@@ -4,19 +4,19 @@
 
 ## 当前状态
 
-- **87版确认与上线验证（API Key 事务修复待复验；2026-11-22）**：候选 [18e40455](https://github.com/TokenNotIncluded/lmm-api-source/commit/18e404553582247849d1eb2f2b03803ee3ad151c) 的真实定向回归为 **13通过、2失败、0忽略**，源码与二进制均无漂移，隔离PG已停止。市场确认7项、模型TTL、真实Go历史导入、邀请锁竞争、取消恢复和Key绑定等所列范围通过；两项创建Key确认均返回503，PG日志明确报错 `charging writes require serializable`。这些结果属于18e，不代表后续候选或完整上线资格。
+- **87版确认与上线验证（a9制品与三档资源门禁通过，切流条件仍待闭合；2026-11-22）**：本轮产品候选 [a9fab477](https://github.com/TokenNotIncluded/lmm-api-source/commit/a9fab477a601124266de87b828bf97257389cc74) 的 [CI](https://github.com/TokenNotIncluded/lmm-api-source/actions/runs/45046929044) 与 [MK-01](https://github.com/TokenNotIncluded/lmm-api-source/actions/runs/45046929082) 均已成功，结论仅归属该候选。此前API Key事务修复在fc0取得独立HTTP／真实PG定向回归 **15通过、0失败、0忽略**，源码与二进制无漂移，自有PG已清理；该15项证据保留fc0归属。
 
-  **当前修复**：确认决定使用独立的可串行化事务入口，以现有 `UPDATE(revision)` 列权限对HumanGrant门闩做原值更新。同nonce的并发决定若在门闩处收到明确的 `40001`／`40P01`，最多重开两次空事务；身份、MFA、业务动作和COMMIT均不在重试范围。原始浏览器、Session、CSRF、已付费原操作和摘要检查保留，工作区限流仍按每个HTTP请求计一次，错误MFA的计数仍独立提交。本次源码变更尚待实际编译与独立HTTP复验，不扩大数据库权限，不放宽预算或一次领取规则。
+  **优化制品**：a9的Core、Extensions与Web已生成并通过官方验证的 `0.1.22-rc.3` 预览包，Extore两库及许可证一并核验。[新Core构建证明](https://github.com/TokenNotIncluded/lmm-api-source/actions/runs/45055737151) 记录真实release构建、退出码0及完整932项产品输入的构建前后快照；独立核对与当前a9完全一致、无漂移。新回执的二进制SHA与旧封存Core再次实测一致，明确按字节相等复用，原构建来源保持不变。
 
-  **构建与失败证据**：18e真实main和lib-test已重新编译，lib-test用时1127.791秒且Cargo报告 `fresh=false`，独立核对了18e专属内容。此前1800秒编译超时、连接中断，以及另一工作区lib-test被Cargo误判为Fresh的记录均保留；误用旧产物的回归已明确作废，没有覆盖或改绿旧回执。私有Btrfs缓存复用不下载依赖，不清理其他任务的共享缓存。Go runner通过真实驱动核对独立数据库、Unix socket与实例，真实历史导入随后通过。
+  **资源验收**：两个资源驱动构建、私有原生目录stage和原规范prepare均已通过。Core 1CPU／256MiB持续负载的原门禁与独立审核均通过；Core＋Go 1CPU／512MiB混合负载原门禁与独立审核均通过。Core＋Go＋PostgreSQL＋静态Web合计1CPU／1GiB聚合门禁第三轮及独立审核均通过；产品绑定a9，observer版本为07ed7822，原负载、成功率、延迟、财务一致性和清理门槛不变。前两轮在Web启动时失败，均未进入负载；后续仅修正busctl选项分隔符与systemd瞬态日志追加属性，完成真实Web启动／探针／清理短验证后才复跑完整门禁，原失败保留。实际负载持续540.913秒，聚合内存峰值约508.67MiB。Web部分验证静态资源可用性和全区间驻留，不构成并发Web负载验收；聚合预算不含OS、Docker daemon、负载生成器、外部上游和浏览器。
 
-  **已有证据与尚未完成的资格**：固定旧输入的Clippy、Web lint／类型检查、43项Web定向检查与生产bundle，以及10项Go顶层／24项含子项检查，保留原版本和范围。HTML／JS的19项Node与8项Chromium汇总检查不替代真实Core、PG或SMTP。18e最新已读CI中Web与翻译成功，Rust与真实数据库任务失败；另一MK01状态查询发生EOF，尚不能给出完整结论。正式优化制品、Core 1CPU／256MiB、Core＋Go 1CPU／512MiB及包含静态Web的1CPU／1GiB聚合实测仍待执行。原Core＋Go＋PG模式未包含Web；负载器、上游、宿主OS和Docker daemon的边界须在各自回执中说明。
+  **私有迁移演练**：fc0开发二进制的76→78升级功能验证，以及完整身份→钱包预览已完成；原钱包CLI预览覆盖1263／1263名源用户、阻塞为空，原12名缺少目标owner的用户集合与身份计划精确匹配。本轮私有克隆中的唯一一次钱包SQL及原只读resolver均确认COMMITTED；其后附加审计因遗漏UTC会话设置而失败，原失败保留。新私有副本仅作只读续验，已确认原收据材料、后置状态、目标bucket、旧行保持与全局账本，取得Core78后置snapshot；没有再次apply，自有PG已停止并清除socket。随后使用a9已证明来源的release二进制，在新的私有副本中按原CLI完成78→79→80→81；三步各一次COMMITTED，完整catalog／组件与原保全收据均核验，钱包、旧账本、全部旧迁移收据和序列保持不变，PG及socket清理完成。76→78证据仍归属fc0，后段78→81才归属a9；该升级未执行Key写入，也未再次执行钱包apply。Core81目标schema条件已补齐，原合同要求的统一Key目标快照、停写证明和OAuth等先决仍待完成；完整金融迁移、正式恢复与生产目标基线资格仍未取得。
 
-  **迁移准备**：普通Key分区适配器进入源码，继续调用原owner执行器并验证固定来源、身份、钱包、停写与恢复证据。其20项纯检查及显式驱动验证已通过，实际完整PG执行尚未取得资格，不据此批准或运行生产迁移。当前生产Core与Extensions仍在运行，实际Core目录登记76个组件；新87版候选未替换生产服务或公开流量。已核对实际原生数据库身份，但指定旧原生备份及恢复回执在原路径缺失，仍需补齐实际恢复证明。
+  **Key源预览**：已恢复并独立核定既有真实CLI的exit3结果，实际943条源Key分为922条普通Key与21条内部托管行，保留3个未决OAuth刷新族、0个待消费授权及17个终止族。原输入、输出摘要与实际已提交身份材料的源收据绑定一致，因此复用原证据，没有重复执行；该结果为 `BLOCKED_OAUTH_CONTINUATION_REQUIRED`。2026-11-22 20:10:07 UTC的只读刷新仍观察到原3个live刷新族；这次刷新仅更新观测事实，旧分区预览的资格与阻塞状态不变。原20项纯检查、合成数据PG机械测试与真实源预览各有独立范围，均不扩大为922条实际Key的完整PG导入资格，未决权限与内部托管行保持保留。
 
-  **生产数据阻塞**：三笔合计USD4.44的旧付款在最早留存备份中仍无对应用户；本地失败状态和当前商户的空查询均不证明支付方终态，不自动恢复账号、映射归属或核销。三个有效旧refresh仍需合法续接或实际重新授权。原始备份任务日志已经按文件名、大小和SHA256绑定到既有来源备份，可证明实际执行区间；是否足以补全钱包计划要求的捕获起始证明，仍按原合同核验。最终停写、同源预览、身份／Key提交、原生新增余额差额保留、目标对账和正式恢复演练均未完成。周优惠88及其他独立暂存功能不计作已交付；Extore main未推送、合并或部署。
+  **切流阻塞**：严格备份／恢复证明与三个未决旧refresh的终态及合法处置仍待闭合。预期金额合计USD4.44的三笔旧订单，归属及支付方终态仍待核实。最终停写、同源预览、生产身份／Key提交、新增余额差额保留与目标对账仍待完成。生产Core、Extensions和公开流量保持原状；周优惠88等独立暂存功能不计入本条已交付范围。
 
-  **证据入口**：私有验收根目录中的 `confirmation-runtime-fixes-r1/` 保存18e构建、产物作废说明、真实15项回归、PG诊断与CI结果；`confirmation-serializable-fix-r1/` 保存当前最小修复和静态检查。`current-key-source-partition-r1/execution81-r3/` 保存适配器证据，`native-target-observation-20261122-r1/` 保存当前实例与备份来源核对。原有 `current-final87-integration/`、`web-final-gates-r2/`、`web-final-gates-r3/` 与 `assistant-confirmation-readable-next-r2/` 的版本范围保持不变。私有身份映射、凭据和逐人财务记录不进入公开仓库。
+  **证据与历史**：私有验收根目录的 `confirmation-serializable-fix-r1/` 保存fc0功能结果，`remote-preview-a9fab477-r1/` 与 `preview-core-proof-dispatch-r1/` 保存a9制品及真实源码绑定，`a9-runtime-gates-r1/` 保存本轮资源入口，`resource-a9-preflight-readonly-r1/` 保存三档独立审核，`whole-web-start-fix-r1/` 保留两轮启动失败、真实解析对照、Web启动／清理短验证及独立observer修复，`wallet-preview-readiness-r1/` 保存私有身份／钱包各阶段及78→81原CLI升级，`ordinary-key-rehearsal-plan-r1/` 保存真实源预览复用与identity源绑定核验。18e的13通过／2失败、构建超时与断连、误用Fresh旧产物及其他失败继续保留在 `confirmation-runtime-fixes-r1/`、原构建回执和Git历史中；既有Clippy、Web、Go及浏览器证据保持各自版本与范围。私有身份映射、凭据和逐人财务记录不进入公开仓库。
 
 - **旧权益承接与新界面整合（定向自测通过，完整上线验收进行中；2026-11-22）**：基于 [f19b97de](https://github.com/TokenNotIncluded/lmm-api-source/commit/f19b97de14e908c0057667abdb9f38c7e84e8127) 整合订阅重置、历史赠金、优惠券与红包承接、签到历史去重和可信入口传递。登录、概览与设置页调整留白、内容层级和移动端布局，钱包与红包页面接入真实重置码合同；七种语言同步更新。生产数据库、活动配置和公开流量尚未切换。
   **权益实现**：新增组件79、80、81及逐级显式 owner 升级。重置券只作用于有权重置的有效订阅，不改钱包；旧赠金保留原决策、额度依据、身份及风险记录，已领取记录重放原回执，未领取记录经真实 Session 和可信入口校验后最多新增一次规范账本入账。优惠券保留原使用次数、待付占用和归属，红包分配原有权益，不在领取阶段重复发放额度。历史导入只由离线 owner 执行；运行时不能改写原始决策、金额依据和导入回执，启动不执行 DDL。
