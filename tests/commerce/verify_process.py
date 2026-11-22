@@ -25,6 +25,7 @@ sys.path.insert(0, str(REPO / "tests/architecture_completion"))
 from build_lease import private_directory
 from pg_fixture import Fixture, FixtureError, clean_environment, write_private
 from resource_group import Group, ResourceError, WholeBudget
+from whole_budget_web import StaticWeb, load_input as load_web_input
 
 
 def digest(path: Path) -> str:
@@ -320,6 +321,9 @@ def main() -> int:
     )
     parser.add_argument("--extore-native-input", type=Path)
     parser.add_argument("--extore-native-sha256")
+    parser.add_argument("--web-input", type=Path,
+                        help="reviewed static Web input; requires --whole-budget --mixed-load")
+    parser.add_argument("--web-sha256", help="expected SHA256 of --web-input")
     args = parser.parse_args()
     if args.whole_budget and not args.shared_resources:
         parser.error("--whole-budget requires --shared-resources")
@@ -365,6 +369,16 @@ def main() -> int:
             native_input = validate_extore_native(args.extore_native_input, args.extore_native_sha256)
         except (OSError, ValueError, TypeError) as error:
             parser.error(str(error))
+    if bool(args.web_input) != bool(args.web_sha256):
+        parser.error("static Web input and its SHA256 must be supplied together")
+    web_input = None
+    if args.web_input:
+        if not (args.whole_budget and args.mixed_load):
+            parser.error("static Web input requires --whole-budget --mixed-load")
+        try:
+            web_input = load_web_input(args.web_input, args.web_sha256)
+        except (OSError, ValueError, TypeError, KeyError, ResourceError) as error:
+            parser.error(str(error))
     if not args.output_root.is_absolute():
         parser.error("output root must be absolute")
     output = args.output_root.resolve()
@@ -388,6 +402,7 @@ def main() -> int:
     fixture = Fixture(output)
     resources = None
     whole_budget = None
+    web = None
     try:
         binary = fixture.root / "lmm-extensions"
         if args.extension_binary:
@@ -472,6 +487,8 @@ def main() -> int:
             if whole_budget:
                 sample["whole_budget"] = whole_budget.sample()
                 sample["postgres"] = fixture.resource_sample()
+            if web:
+                sample["web"] = web.sample()
             return sample
 
         def observe():
@@ -489,6 +506,11 @@ def main() -> int:
                     resource_root.mkdir(mode=0o700)
                     resources = Group(resource_root)
                     resources.start()
+                if web_input is not None:
+                    web_root = resource_root / "web"
+                    web_root.mkdir(mode=0o700)
+                    web = StaticWeb(web_root, whole_budget, **web_input)
+                    web.start()
                 sampler = threading.Thread(
                     target=observe, name="joint-resource-observer"
                 )
@@ -525,6 +547,9 @@ def main() -> int:
                     raise FixtureError(
                         "shared resource test must bind all four product starts"
                     )
+            if web:
+                # The original 60s idle drain has finished before these probes.
+                web.probe("web-final-probes.json")
         finally:
             if resources:
                 sampling_stop.set()
@@ -533,13 +558,14 @@ def main() -> int:
                 try:
                     if sampler and sampler.is_alive():
                         raise FixtureError("resource observer did not stop")
-                    if resources.group is not None:
+                    if resources.group is not None and (web is None or web.ready):
                         samples.append(sample_resources())
                     write_private(
                         resource_root / "samples.json",
                         json.dumps(
                             {
-                                "scope": ("Core+Go+PostgreSQL aggregate; generator/upstream/OS/Docker daemon/Web excluded"
+                                "scope": ("Core+Go+PostgreSQL+static Web aggregate; generator/upstream/OS/Docker daemon/browser excluded"
+                                          if web else "Core+Go+PostgreSQL aggregate; generator/upstream/OS/Docker daemon/Web excluded"
                                           if whole_budget else "short real commerce regression, not sustained-load acceptance"),
                                 "samples": samples,
                                 "errors": sampling_errors,
@@ -552,15 +578,19 @@ def main() -> int:
                         raise FixtureError("resource observations incomplete")
                     if samples and any(
                         samples[-1][layer]["memory_events"].get(key, 0)
-                        for layer in (["parent", "whole_budget", "postgres"]
-                                      if whole_budget else ["parent"])
+                        for layer in ((["parent", "whole_budget", "postgres"]
+                                       if whole_budget else ["parent"]) + (["web"] if web else []))
                         for key in ["oom", "oom_kill", "max"]
                     ):
                         raise FixtureError(
                             "memory hard-limit event during commerce regression"
                         )
                 finally:
-                    resources.close()
+                    try:
+                        if web:
+                            web.close()
+                    finally:
+                        resources.close()
         if (
             "test result: ok. 1 passed; 0 failed; 0 ignored;"
             not in (fixture.root / "commerce-test.log").read_text()
@@ -631,9 +661,18 @@ def main() -> int:
             "shared_resource_receipt": str(resource_root / "group-closed.json")
             if resources
             else None,
-            "scope": ("synthetic credits; Core+Go+PostgreSQL aggregate 1CPU/1GiB; generator/upstream/OS/Docker daemon/Web excluded"
+            "scope": ("synthetic credits; Core+Go+PostgreSQL+static Web aggregate 1CPU/1GiB; Web availability and full-interval residence, not sustained Web concurrency; generator/upstream/OS/Docker daemon/browser excluded"
+                      if web else "synthetic credits; Core+Go+PostgreSQL aggregate 1CPU/1GiB; generator/upstream/OS/Docker daemon/Web excluded"
                       if whole_budget else "synthetic credits; local product processes only"),
         }
+        if web:
+            receipt["static_web"] = {
+                "input_sha256": args.web_sha256, "unit": web.unit,
+                "allocation": str(web.root / "web-allocation.json"),
+                "ready_probes": str(web.root / "web-ready-probes.json"),
+                "final_probes": str(web.root / "web-final-probes.json"),
+                "closed": str(web.root / "web-closed.json"),
+            }
         write_private(
             fixture.root / "acceptance.json", json.dumps(receipt, sort_keys=True) + "\n"
         )
