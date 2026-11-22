@@ -26,6 +26,48 @@ impl HumanGrantStore {
         Ok(())
     }
 
+    /// Start a serializable confirmation before identity, MFA or action work.
+    ///
+    /// Updating the gate's existing value creates a new row version with the
+    /// existing column grant. Racing confirmations retry only this empty
+    /// transaction, never a transaction that has executed business logic.
+    pub(crate) async fn begin_serializable(&self) -> Result<HumanGrantTx, ProtocolError> {
+        let mut retries = 2;
+        loop {
+            let mut tx = self.pool.begin().await.map_err(|e| {
+                eprintln!("store begin transaction error: {:?}", e);
+                failure(500, "internal_error")
+            })?;
+            sqlx::query("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE")
+                .execute(&mut *tx)
+                .await
+                .map_err(|_| failure(500, "internal_error"))?;
+            let gate = sqlx::query_scalar::<_, i32>(
+                "UPDATE core_humangrant.human_grant_gate SET revision = revision WHERE id = 1 RETURNING id",
+            )
+            .fetch_optional(&mut *tx)
+            .await;
+            match gate {
+                Ok(Some(1)) => return Ok(HumanGrantTx { tx }),
+                Ok(_) => return Err(failure(503, "not_ready")),
+                Err(error) => {
+                    let retryable = matches!(&error, sqlx::Error::Database(db)
+                        if matches!(db.code().as_deref(), Some("40001" | "40P01")));
+                    tx.rollback().await.map_err(|rollback| {
+                        eprintln!("store gate rollback error: {:?}", rollback);
+                        failure(500, "internal_error")
+                    })?;
+                    if retryable && retries > 0 {
+                        retries -= 1;
+                        continue;
+                    }
+                    eprintln!("store serializable gate error: {:?}", error);
+                    return Err(failure(500, "internal_error"));
+                }
+            }
+        }
+    }
+
     pub async fn begin(&self) -> Result<HumanGrantTx, ProtocolError> {
         let mut tx = self.pool.begin().await.map_err(|e| {
             eprintln!("store begin transaction error: {:?}", e);
