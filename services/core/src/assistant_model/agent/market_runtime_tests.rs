@@ -26,7 +26,7 @@ async fn reviewed_fixed_policy(f: &ConfirmFixture) {
     f.browser
         .register(&BrowserRegistration {
             username: "market-platform",
-            password: "synthetic-platform-password123",
+            password: "test-password123",
             email: "",
         })
         .await
@@ -35,7 +35,7 @@ async fn reviewed_fixed_policy(f: &ConfirmFixture) {
         .browser
         .login(
             "market-platform",
-            "synthetic-platform-password123",
+            "test-password123",
             &BrowserSessionMetadata::default(),
         )
         .await

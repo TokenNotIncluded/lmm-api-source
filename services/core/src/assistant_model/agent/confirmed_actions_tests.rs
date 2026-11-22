@@ -198,6 +198,7 @@ async fn fixture_options(
         .unwrap();
     let role = crate::test_runtime::RuntimeRole::create(pool).await;
     role.optional("core_charging").await;
+    role.optional("web_identity").await;
     role.optional("core_assistant").await;
     role.optional("core_assistant_agent").await;
     role.optional("core_assistant_tools").await;

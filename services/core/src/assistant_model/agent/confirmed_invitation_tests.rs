@@ -129,6 +129,110 @@ async fn invitation_confirmation_requires_original_pending_paid_operation_and_br
         Err(ToolError::Forbidden)
     ));
 
+    // Reproduce the worker's lock order with two real transactions. The runtime
+    // prepare must wait on this exact conversation before taking operation rows.
+    // Reserve its connection first so the two-connection runtime pool cannot be
+    // exhausted by a background wakeup waiting behind the gate.
+    let operation_before: Value = sqlx::query_scalar(
+        "SELECT to_jsonb(o) FROM core_assistant.agent_tool_operations o WHERE id=$1",
+    )
+    .bind(&call.id)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    let finances_before = financial_state(&pool).await;
+    let mut preparing = f.agent.base.pool.begin().await.unwrap();
+    let preparing_pid: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
+        .fetch_one(&mut *preparing)
+        .await
+        .unwrap();
+    let context = crate::assistant_tools_core::context::from_session(&mut preparing, f.access())
+        .await
+        .unwrap();
+    let mut gate = pool.begin().await.unwrap();
+    crate::identity::authorize_in_transaction(&mut gate, f.access())
+        .await
+        .unwrap();
+    crate::assistant_model::lock_conversation_id(&mut gate, &conversation)
+        .await
+        .unwrap();
+    sqlx::query("SELECT id FROM core_assistant.agent_turns WHERE conversation_id=$1 AND client_turn_id='turn1' FOR UPDATE")
+        .bind(&conversation)
+        .fetch_one(&mut *gate)
+        .await
+        .unwrap();
+    let gate_pid: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
+        .fetch_one(&mut *gate)
+        .await
+        .unwrap();
+    let prepare_id = call.id.clone();
+    let prepare_draft = draft.clone();
+    let prepare = async move {
+        let challenge =
+            crate::assistant_tools_core::confirmation::prepare_from_operation_in_transaction(
+                &mut preparing,
+                &context,
+                &prepare_id,
+                &prepare_draft,
+            )
+            .await
+            .unwrap();
+        preparing.commit().await.unwrap();
+        challenge
+    };
+    let observe_pool = pool.clone();
+    let gate_operation = call.id.clone();
+    let release_gate = async move {
+        loop {
+            let waiting: bool = sqlx::query_scalar(
+                "SELECT EXISTS(
+                 SELECT FROM pg_locks waiting JOIN pg_locks held
+                   USING (locktype,database,classid,objid,objsubid)
+                 WHERE waiting.pid=$1 AND held.pid=$2
+                   AND waiting.locktype='advisory' AND NOT waiting.granted AND held.granted)",
+            )
+            .bind(preparing_pid)
+            .bind(gate_pid)
+            .fetch_one(&observe_pool)
+            .await
+            .unwrap();
+            if waiting {
+                break;
+            }
+            tokio::task::yield_now().await;
+        }
+        // While prepare waits, a worker holding the turn must still be able to
+        // lock its operation immediately: there is no operation -> turn cycle.
+        let locked: String = sqlx::query_scalar(
+            "SELECT id FROM core_assistant.agent_tool_operations WHERE id=$1 FOR UPDATE NOWAIT",
+        )
+        .bind(&gate_operation)
+        .fetch_one(&mut *gate)
+        .await
+        .unwrap();
+        assert_eq!(locked, gate_operation);
+        gate.rollback().await.unwrap();
+    };
+    // No detached task survives timeout/panic: dropping these futures drops
+    // both SQLx transactions and rolls back their locks.
+    let (replayed, ()) = tokio::time::timeout(Duration::from_secs(5), async {
+        tokio::join!(prepare, release_gate)
+    })
+    .await
+    .expect("prepare must wait on the conversation gate and complete after its release");
+    assert_eq!(replayed.challenge_id, prepared.challenge_id);
+    assert_eq!(replayed.state, "pending");
+    assert_eq!(replayed.preview, draft);
+    let operation_after: Value = sqlx::query_scalar(
+        "SELECT to_jsonb(o) FROM core_assistant.agent_tool_operations o WHERE id=$1",
+    )
+    .bind(&call.id)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(operation_after, operation_before);
+    assert_eq!(financial_state(&pool).await, finances_before);
+
     // Match the real Go Pending behavior: it saves awaiting_confirmation in its
     // own journal and deliberately does NOT call Core CompleteAgentTool. Polling,
     // duplicate claims and a repeated prepare cannot advance the paid turn.

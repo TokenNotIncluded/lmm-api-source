@@ -20,7 +20,7 @@ pub(super) async fn seed(f: &ConfirmFixture, pool: &PgPool) {
     f.browser
         .register(&BrowserRegistration {
             username: "confirmation-seller",
-            password: "synthetic-seller-password123",
+            password: "test-password123",
             email: "",
         })
         .await
@@ -29,7 +29,7 @@ pub(super) async fn seed(f: &ConfirmFixture, pool: &PgPool) {
         .browser
         .login(
             "confirmation-seller",
-            "synthetic-seller-password123",
+            "test-password123",
             &BrowserSessionMetadata::default(),
         )
         .await
