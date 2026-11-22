@@ -10,6 +10,8 @@ pub mod http;
 pub use admin::{Batch, CodeView, CodesPage, CodesQuery};
 pub const MANAGEMENT_SCHEMA: &str = include_str!("../../schema/payment_discount_management.sql");
 pub const SCHEMA: &str = include_str!("../../schema/payment_discounts.sql");
+pub const CONTINUITY_SCHEMA: &str =
+    include_str!("../../schema/legacy_discount_packet_continuity.sql");
 
 #[derive(Clone, Debug, Serialize, sqlx::FromRow)]
 pub struct Code {
@@ -102,7 +104,21 @@ pub(super) async fn session(
     Ok(actor)
 }
 
-pub(super) async fn eligible(c: &mut PgConnection, code: &str, credits: i64) -> Result<Code> {
+pub(super) async fn usage(c: &mut PgConnection, code_id: i64) -> Result<(i64, i64)> {
+    Ok(sqlx::query_as(
+        "SELECT used_count,reserved_count FROM core_payments.discount_code_usage WHERE code_id=$1",
+    )
+    .bind(code_id)
+    .fetch_one(c)
+    .await?)
+}
+
+pub(super) async fn eligible(
+    c: &mut PgConnection,
+    code: &str,
+    credits: i64,
+    user_id: i64,
+) -> Result<Code> {
     let row: Code = sqlx::query_as("SELECT id,code,name,discount_percent,min_credit_units,max_uses,enabled,starts_at,ends_at FROM core_payments.discount_codes WHERE code=$1 FOR UPDATE")
         .bind(code).fetch_optional(&mut *c).await?.ok_or(Error::NotFound)?;
     let deleted: bool = sqlx::query_scalar(
@@ -112,6 +128,16 @@ pub(super) async fn eligible(c: &mut PgConnection, code: &str, credits: i64) -> 
     .fetch_one(&mut *c)
     .await?;
     if deleted {
+        return Err(Error::NotFound);
+    }
+    let another_owner: bool = sqlx::query_scalar(
+        "SELECT EXISTS(SELECT FROM core_payments.legacy_discount_owners WHERE code_id=$1 AND owner_user_id IS NOT NULL AND owner_user_id<>$2)",
+    )
+    .bind(row.id)
+    .bind(user_id)
+    .fetch_one(&mut *c)
+    .await?;
+    if another_owner {
         return Err(Error::NotFound);
     }
     let timestamp: i64 = sqlx::query_scalar("SELECT extract(epoch FROM clock_timestamp())::bigint")
@@ -125,12 +151,8 @@ pub(super) async fn eligible(c: &mut PgConnection, code: &str, credits: i64) -> 
         return Err(Error::Denied);
     }
     if row.max_uses > 0 {
-        let count: i64 = sqlx::query_scalar(
-            "SELECT count(*) FROM core_payments.discount_reservations WHERE code_id=$1",
-        )
-        .bind(row.id)
-        .fetch_one(c)
-        .await?;
+        let (used, reserved) = usage(c, row.id).await?;
+        let count = used.checked_add(reserved).ok_or(Error::Unavailable)?;
         if count >= row.max_uses {
             return Err(Error::Conflict);
         }
@@ -178,12 +200,12 @@ impl PaymentsStore {
         }
         let policy = channel.credit_quote.as_ref().ok_or(Error::Invalid)?;
         let mut tx = self.begin().await?;
-        session(&mut tx, credential, false).await?;
+        let actor = session(&mut tx, credential, false).await?;
         let mut quote = policy.freeze(credits)?;
         let percent = if code.is_empty() {
             0
         } else {
-            let row = eligible(&mut tx, &code, credits).await?;
+            let row = eligible(&mut tx, &code, credits, actor.user_id).await?;
             quote.apply_code_percent(row.discount_percent)?;
             row.discount_percent
         };
@@ -257,12 +279,8 @@ async fn save_in_transaction(
         if locked.is_none() {
             return Err(Error::NotFound);
         }
-        let count: i64 = sqlx::query_scalar(
-            "SELECT count(*) FROM core_payments.discount_reservations WHERE code_id=$1",
-        )
-        .bind(id)
-        .fetch_one(&mut *c)
-        .await?;
+        let (used, reserved) = usage(c, id).await?;
+        let count = used.checked_add(reserved).ok_or(Error::Unavailable)?;
         if input.max_uses != 0 && input.max_uses < count {
             return Err(Error::Conflict);
         }

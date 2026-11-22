@@ -22,6 +22,7 @@ use serde_json::{Value, json};
 use sqlx::{PgConnection, Postgres, Row, Transaction};
 
 pub const SCHEMA: &str = include_str!("../../schema/red_packets.sql");
+mod legacy;
 const MAX_COVER_BYTES: usize = 3 << 20;
 const MAX_ITEMS: usize = 1000;
 
@@ -199,6 +200,9 @@ fn parse_digest(value: &str) -> RpResult<Vec<u8>> {
 }
 
 async fn counts(c: &mut PgConnection, packet: i64, time: i64) -> RpResult<(i64, i64, i64)> {
+    if let Some(counts) = legacy::counts(c, packet, time).await? {
+        return Ok(counts);
+    }
     let (total, claims): (i64, i64) = sqlx::query_as(
         "SELECT (SELECT count(*) FROM core_promotions.red_packet_items WHERE packet_id=$1 AND released_at IS NULL)
               + (SELECT count(*) FROM core_promotions.red_packet_claims WHERE packet_id=$1 AND item_id IS NULL),
@@ -237,7 +241,8 @@ async fn insert_items(
     let mut seen = std::collections::HashSet::new();
     for item in items {
         if !item.item_type.trim().eq_ignore_ascii_case("redemption") {
-            // Core has no discount-code authority; reject rather than drop.
+            // Ordinary native packets bind quota promotions. Imported source
+            // packets have their separate typed continuation and owner rules.
             return Err(RedPacketError::InvalidItem);
         }
         let Some(code_id) = item.code_id.as_deref() else {
@@ -262,7 +267,8 @@ async fn insert_items(
             return Err(RedPacketError::InvalidItem);
         }
         let taken: bool = sqlx::query_scalar(
-            "SELECT EXISTS(SELECT 1 FROM core_promotions.red_packet_items WHERE code_digest=$1 AND released_at IS NULL)",
+            "SELECT EXISTS(SELECT 1 FROM core_promotions.red_packet_items WHERE code_digest=$1 AND released_at IS NULL)
+                 OR EXISTS(SELECT FROM core_promotions.legacy_red_packet_items WHERE reward_kind='quota' AND code_digest=$1 AND released_at IS NULL)",
         )
         .bind(&digest)
         .fetch_one(&mut *c)
@@ -348,8 +354,14 @@ impl PromotionStore {
             .bind(a.user_id)
             .fetch_all(&mut *tx)
             .await?;
+        let mut values = Vec::with_capacity(rows.len());
+        for row in &rows {
+            let mut value = reward(row)?;
+            legacy::history_reward(&mut tx, row.try_get("id")?, &mut value).await?;
+            values.push(value);
+        }
         tx.commit().await?;
-        rows.iter().map(reward).collect()
+        Ok(values)
     }
 
     pub async fn red_packet_claim(&self, secret: &str, slug: &str) -> RpResult<Value> {
@@ -375,6 +387,11 @@ impl PromotionStore {
         .await?;
         if count >= p.per_user_limit {
             return Err(RedPacketError::ClaimLimit);
+        }
+        if let Some(value) = legacy::claim(&mut tx, &a, p.id, &p.draw_mode, count + 1, time).await?
+        {
+            tx.commit().await?;
+            return Ok(value);
         }
         let items = sqlx::query(AVAILABLE)
             .bind(p.id)
@@ -518,6 +535,11 @@ impl PromotionStore {
         if deleted.is_some() {
             return Err(RedPacketError::NotFound);
         }
+        if input.items.is_some() && legacy::contains(&mut tx, id).await? {
+            // Replacing source bindings with native code IDs would discard
+            // reset/discount authority and historical source identity.
+            return Err(RedPacketError::Invalid("导入红包的原始奖励绑定不可替换"));
+        }
         sqlx::query("UPDATE core_promotions.red_packets SET title=$2,description=$3,cover_image=$4,cover_prompt=$5,draw_mode=$6,per_user_limit=$7,start_at=$8,end_at=$9,enabled=$10,updated_at=$11 WHERE id=$1")
             .bind(id).bind(&input.title).bind(&input.description).bind(&input.cover_image).bind(&input.cover_prompt)
             .bind(&input.draw_mode).bind(input.per_user_limit as i32).bind(input.start_at).bind(input.end_at)
@@ -573,6 +595,7 @@ impl PromotionStore {
                 .execute(&mut *tx)
                 .await?
                 .rows_affected();
+            let released = released + legacy::release_unclaimed(&mut tx, id, time).await?;
             sqlx::query("UPDATE core_promotions.red_packets SET enabled=false,updated_at=$2,deleted_at=$2 WHERE id=$1")
                 .bind(id)
                 .bind(time)

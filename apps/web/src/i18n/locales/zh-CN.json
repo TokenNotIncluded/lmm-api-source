@@ -9643,6 +9643,7 @@
     "Reset used quota": "重置已用额度",
     "Reset used quota for all current active subscriptions on {{plan}}? Expiry and reset schedule will not change.": "要重置 {{plan}} 下所有当前有效订阅的已用额度吗？到期时间和重置计划不会更改。",
     "Reset voucher expiration": "重置券到期时间",
+    "Reset voucher received": "已领取重置券",
     "Resets {{date}}": "{{date}} 重置",
     "Resets at {{time}} UTC": "重置时间：{{time}} UTC",
     "Resets in:": "将于以下时间重置：",

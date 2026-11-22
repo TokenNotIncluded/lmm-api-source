@@ -339,6 +339,19 @@ GRANT UPDATE(provider_subscription_id,provider_customer_id,status,event_created,
 GRANT SELECT,INSERT ON core_subscriptions.pancake_prices,core_subscriptions.pancake_orders,core_subscriptions.pancake_events,core_subscriptions.pancake_cycles TO :"runtime_role";
 GRANT UPDATE(provider_order_id,status,event_created,event_id,paid_period_start,paid_period_end) ON core_subscriptions.pancake_orders TO :"runtime_role";
 -- END subscription-pancake runtime grants
+-- BEGIN subscription-reset runtime grants
+-- Only the explicit owner installer/upgrader invokes this file. Reset codes and
+-- imported grant/plan assertions remain owner-written migration facts.
+GRANT SELECT ON core_subscriptions.reset_codes,core_subscriptions.reset_imported_grant_plans TO :"runtime_role";
+GRANT SELECT,INSERT ON core_subscriptions.reset_vouchers,core_subscriptions.reset_voucher_redemptions,
+    core_subscriptions.reset_previews,core_subscriptions.reset_operations,core_subscriptions.reset_events TO :"runtime_role";
+GRANT USAGE ON SEQUENCE core_subscriptions.reset_vouchers_id_seq,core_subscriptions.reset_events_id_seq TO :"runtime_role";
+GRANT SELECT,INSERT ON core_charging.subscription_request_resets TO :"runtime_role";
+GRANT EXECUTE ON FUNCTION core_charging.subscription_plan(bigint),
+    core_charging.subscription_base_window(bigint,bigint),
+    core_charging.subscription_consumption(bigint,bigint,text) TO :"runtime_role";
+GRANT EXECUTE ON FUNCTION core_charging.period_window(text,bigint,bigint,bigint),core_charging.subscription_window(bigint,bigint) TO :"runtime_role";
+-- END subscription-reset runtime grants
 -- END subscriptions runtime grants
 -- BEGIN promotions runtime grants
 GRANT USAGE ON SCHEMA core_promotions TO :"runtime_role";
@@ -355,6 +368,24 @@ GRANT UPDATE(title,description,cover_image,cover_prompt,draw_mode,per_user_limit
 GRANT UPDATE(released_at) ON core_promotions.red_packet_items TO :"runtime_role";
 GRANT USAGE ON SEQUENCE core_promotions.red_packets_id_seq,core_promotions.red_packet_items_id_seq,
     core_promotions.red_packet_claims_id_seq TO :"runtime_role";
+-- BEGIN legacy-packet-continuity runtime grants
+-- Source bases and old claims stay owner-only. Runtime may distribute exactly
+-- one bound item or release an unclaimed one; redemption keeps its own authority.
+GRANT SELECT ON core_promotions.legacy_red_packet_bases,core_promotions.legacy_red_packet_items,
+    core_promotions.legacy_red_packet_claim_links TO :"runtime_role";
+GRANT INSERT(claim_id,item_id) ON core_promotions.legacy_red_packet_claim_links TO :"runtime_role";
+GRANT UPDATE(released_at) ON core_promotions.legacy_red_packet_items TO :"runtime_role";
+GRANT USAGE ON SCHEMA core_payments,core_subscriptions TO :"runtime_role";
+GRANT SELECT ON core_subscriptions.reset_codes,core_subscriptions.reset_vouchers,
+    core_payments.discount_codes,core_payments.discount_code_tombstones,
+    core_payments.discount_reservations,core_payments.legacy_discount_bases,
+    core_payments.legacy_discount_holds,core_payments.legacy_discount_owners,
+    core_payments.legacy_discount_hold_state,core_payments.discount_code_usage,
+    core_payments.legacy_bases,core_payments.legacy_applications,
+    core_payments.legacy_discount_consumptions,core_billing.legacy_pending_liabilities,
+    core_billing.legacy_pending_liability_receipts TO :"runtime_role";
+GRANT EXECUTE ON FUNCTION core_payments.lock_legacy_discount_code(BIGINT) TO :"runtime_role";
+-- END legacy-packet-continuity runtime grants
 -- END promotions runtime grants
 \endif
 
@@ -435,6 +466,14 @@ GRANT USAGE ON SEQUENCE core_charging.budgets_id_seq,
 GRANT EXECUTE ON FUNCTION core_charging.period_window(text,bigint,bigint,bigint),
     core_charging.subscription_window(bigint,bigint),
     core_charging.committed_credits(text,bigint,bigint,bigint) TO :"runtime_role";
+-- BEGIN subscription-reset charging runtime grants
+GRANT USAGE ON SCHEMA core_subscriptions TO :"runtime_role";
+GRANT SELECT ON core_subscriptions.reset_events TO :"runtime_role";
+GRANT SELECT,INSERT ON core_charging.subscription_request_resets TO :"runtime_role";
+GRANT EXECUTE ON FUNCTION core_charging.subscription_base_window(bigint,bigint),
+    core_charging.subscription_consumption(bigint,bigint,text) TO :"runtime_role";
+-- END subscription-reset charging runtime grants
+
 \endif
 
 \if :enable_web_identity
@@ -587,6 +626,12 @@ GRANT USAGE, SELECT ON SEQUENCE core_payments.intents_id_seq TO :"runtime_role";
 -- BEGIN payment-discounts runtime grants
 GRANT SELECT,INSERT,UPDATE ON core_payments.discount_codes,core_payments.discount_reservations TO :"runtime_role";
 GRANT USAGE,SELECT ON SEQUENCE core_payments.discount_codes_id_seq TO :"runtime_role";
+GRANT USAGE ON SCHEMA core_promotions TO :"runtime_role";
+GRANT SELECT ON core_payments.legacy_discount_bases,core_payments.legacy_discount_holds,
+    core_payments.legacy_discount_owners,core_payments.legacy_discount_hold_state,
+    core_payments.discount_code_usage,core_billing.legacy_pending_liabilities,
+    core_billing.legacy_pending_liability_receipts,core_promotions.legacy_red_packet_items,
+    core_promotions.legacy_red_packet_claim_links,core_promotions.red_packet_claims TO :"runtime_role";
 -- END payment-discounts runtime grants
 -- BEGIN payment-discount-management runtime grants
 -- Runtime appends management facts; no deletion, rewriting or extension access.
@@ -663,6 +708,14 @@ GRANT INSERT ON core_charging.budget_checks TO :"runtime_role";
 GRANT EXECUTE ON FUNCTION core_charging.period_window(text,bigint,bigint,bigint),
     core_charging.subscription_window(bigint,bigint),
     core_charging.committed_credits(text,bigint,bigint,bigint) TO :"runtime_role";
+-- BEGIN subscription-reset charging runtime grants
+GRANT USAGE ON SCHEMA core_subscriptions TO :"runtime_role";
+GRANT SELECT ON core_subscriptions.reset_events TO :"runtime_role";
+GRANT SELECT,INSERT ON core_charging.subscription_request_resets TO :"runtime_role";
+GRANT EXECUTE ON FUNCTION core_charging.subscription_base_window(bigint,bigint),
+    core_charging.subscription_consumption(bigint,bigint,text) TO :"runtime_role";
+-- END subscription-reset charging runtime grants
+
 \endif
 \if :enable_market_oauth
 -- Explicit opt-in; this grant authorizes only the market resource issuer.
@@ -767,4 +820,14 @@ GRANT USAGE ON SCHEMA core_oidc TO :"runtime_role";
 GRANT SELECT,INSERT ON core_oidc.authorization_requests,core_oidc.families,core_oidc.tokens TO :"runtime_role";
 \endif
 -- END oidc runtime grants
+-- BEGIN legacy-gift continuation runtime grants
+-- Immutable source authority is installed only by the fenced owner procedure.
+GRANT SELECT ON core_gift.legacy_installations,core_gift.legacy_bindings,
+ core_gift.legacy_decisions,core_gift.legacy_risk_memories,core_gift.legacy_imports TO :"runtime_role";
+GRANT SELECT,INSERT ON core_gift.legacy_profiles,core_gift.legacy_fingerprints,core_gift.legacy_claims TO :"runtime_role";
+GRANT UPDATE(identity_hash,network_hash,observed_at) ON core_gift.legacy_profiles TO :"runtime_role";
+GRANT DELETE ON core_gift.legacy_fingerprints TO :"runtime_role";
+GRANT USAGE ON SEQUENCE core_gift.legacy_fingerprints_id_seq TO :"runtime_role";
+GRANT EXECUTE ON FUNCTION core_gift.legacy_oauth_subject(bigint,text) TO :"runtime_role";
+-- END legacy-gift continuation runtime grants
 COMMIT;

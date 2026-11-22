@@ -244,6 +244,9 @@ registrations! {
         PERSONAL_TOKENS => personal_tokens, "PERSONAL_TOKENS_", |c,r| Box::pin(personal_tokens::grant_runtime(c, &r.roles.runtime)), owner_receipt, SuffixPolicy::DEFAULT;
         MANAGED_APPLICATIONS => managed_applications, "MANAGED_APPLICATIONS_", |c,r| Box::pin(managed_applications::grant_runtime(c, &r.roles.runtime)), owner_receipt, SuffixPolicy { target: TargetSource::Captured(managed_applications::captured_target), projection: DataProjection::ManagedApplications, #[cfg(test)] after_ddl: SuffixPolicy::DEFAULT.after_ddl };
         SUBSCRIPTION_CREEM => subscription_creem, "SUBSCRIPTION_CREEM_", |c,r| Box::pin(subscription_creem::grant_runtime(c, &r.roles.runtime)), owner_receipt, SuffixPolicy::DEFAULT;
+        SUBSCRIPTION_RESET => subscription_reset, "SUBSCRIPTION_RESET_", |c,r| Box::pin(subscription_reset::grant_runtime(c, &r.roles.runtime)), owner_receipt, SuffixPolicy::DEFAULT;
+        LEGACY_GIFT => legacy_gift, "LEGACY_GIFT_", |c,r| Box::pin(legacy_gift::grant_runtime(c, &r.roles.runtime)), owner_receipt, SuffixPolicy::DEFAULT;
+        LEGACY_DISCOUNT_PACKET => legacy_discount_packet, "LEGACY_DISCOUNT_PACKET_", |c,r| Box::pin(legacy_discount_packet::grant_runtime(c, &r.roles.runtime)), owner_receipt, SuffixPolicy::DEFAULT;
         CHECKIN_CHALLENGES => checkin_challenges, "CHECKIN_CHALLENGES_", |c,r| Box::pin(checkin_challenges::grant_runtime(c, &r.roles.runtime)), owner_receipt, SuffixPolicy::DEFAULT;
         NETWORK_ACCESS => network_access, "NETWORK_ACCESS_", |c,r| Box::pin(network_access::grant_runtime(c, &r.roles.runtime)), owner_receipt, SuffixPolicy::DEFAULT;
         CONNECTION_HISTORY_IMPORT => connection_history_import, "CONNECTION_HISTORY_IMPORT_", no_grants, owner_receipt, SuffixPolicy::DEFAULT;
@@ -296,6 +299,9 @@ mod tests {
             "core-network-access-v1",
             "core-connection-history-import-v1",
             "core-provider-clients-v1",
+            "core-subscription-reset-v1",
+            "core-legacy-gift-continuation-v1",
+            "core-legacy-discount-packet-continuation-v1",
         ]
         .into_iter()
         .collect();
@@ -336,6 +342,12 @@ mod tests {
             (core59_to62::PROCEDURE, core59_to62::validate),
             (network_access::PROCEDURE, network_access::validate),
             (provider_clients::PROCEDURE, provider_clients::validate),
+            (subscription_reset::PROCEDURE, subscription_reset::validate),
+            (legacy_gift::PROCEDURE, legacy_gift::validate),
+            (
+                legacy_discount_packet::PROCEDURE,
+                legacy_discount_packet::validate,
+            ),
             (
                 connection_history_import::PROCEDURE,
                 connection_history_import::validate,
@@ -391,6 +403,12 @@ mod tests {
             ("core-oauth2-oidc-v1", "OIDC_"),
             ("core-personal-tokens-v1", "PERSONAL_TOKENS_"),
             ("core-subscription-creem-v1", "SUBSCRIPTION_CREEM_"),
+            ("core-subscription-reset-v1", "SUBSCRIPTION_RESET_"),
+            ("core-legacy-gift-continuation-v1", "LEGACY_GIFT_"),
+            (
+                "core-legacy-discount-packet-continuation-v1",
+                "LEGACY_DISCOUNT_PACKET_",
+            ),
             ("core-checkin-challenges-v1", "CHECKIN_CHALLENGES_"),
             ("core-network-access-v1", "NETWORK_ACCESS_"),
             (
@@ -499,6 +517,12 @@ mod tests {
                         provider_clients::authorize_target as fn() -> Result<(), UpgradeError>,
                     "core-subscription-creem-v1" =>
                         subscription_creem::authorize_target as fn() -> Result<(), UpgradeError>,
+                    "core-subscription-reset-v1" =>
+                        subscription_reset::authorize_target as fn() -> Result<(), UpgradeError>,
+                    "core-legacy-gift-continuation-v1" =>
+                        legacy_gift::authorize_target as fn() -> Result<(), UpgradeError>,
+                    "core-legacy-discount-packet-continuation-v1" =>
+                        legacy_discount_packet::authorize_target as fn() -> Result<(), UpgradeError>,
                     "core-checkin-challenges-v1" =>
                         checkin_challenges::authorize_target as fn() -> Result<(), UpgradeError>,
                     "core-network-access-v1" =>
@@ -586,6 +610,9 @@ mod tests {
             "core-subscription-creem-v1",
             "core-checkin-challenges-v1",
             "core-network-access-v1",
+            "core-subscription-reset-v1",
+            "core-legacy-gift-continuation-v1",
+            "core-legacy-discount-packet-continuation-v1",
         ];
         for entry in ENTRIES
             .iter()

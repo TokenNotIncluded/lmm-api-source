@@ -1,4 +1,6 @@
 //! Management behavior tests share the real provider/ledger fixture in payments.rs.
+#[path = "payment_discount_continuity.rs"]
+mod continuity_fixture;
 use super::*;
 use axum::{
     body::{Body, to_bytes},
@@ -12,6 +14,7 @@ async fn management(pool: &PgPool) -> Fixture {
     for ddl in [discounts::SCHEMA, discounts::MANAGEMENT_SCHEMA] {
         sqlx::raw_sql(ddl).execute(pool).await.unwrap();
     }
+    continuity_fixture::install(pool).await;
     f.store = IngressStore(
         PaymentsStore::new(
             pool.clone(),

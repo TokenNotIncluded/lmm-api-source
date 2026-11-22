@@ -380,10 +380,8 @@ pub(super) async fn entitlement(
     let limit: i64 = grant.try_get("limit_credits")?;
     let unlimited: bool = grant.try_get("unlimited")?;
     let fits: bool = sqlx::query_scalar(
-        "SELECT $6::boolean OR ((SELECT coalesce(sum(core_charging.committed_credits(state,reserved,settled,refunded)),0) \
-         FROM core_charging.requests WHERE source_subscription_id=$1 AND source_start=$2 AND id<>$3) \
-         + coalesce((SELECT consumed_credits FROM core_charging.subscription_opening_consumption \
-                     WHERE subscription_id=$1 AND start_at=$2),0) + $4::bigint <= $5::bigint)",
+        "SELECT $6::boolean OR (used_credits+reserved_credits+$4::bigint<=$5::bigint) \
+         FROM core_charging.subscription_consumption($1,$2,$3)",
     )
     .bind(id)
     .bind(start)

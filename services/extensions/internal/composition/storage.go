@@ -283,7 +283,7 @@ func storageTables(component string) []storageTable {
 	add := func(name string, privs ...string) { tables = append(tables, storageTable{name, privs}) }
 	switch component {
 	case "checkins":
-		for _, name := range []string{"contract", "policy_revisions", "active_policy", "intentions", "claim_commands"} {
+		for _, name := range []string{"contract", "policy_revisions", "active_policy", "intentions", "claim_commands", "legacy_history_contract", "legacy_history"} {
 			add("lmm_checkins."+name, "SELECT")
 		}
 		add("lmm_checkins.intentions", "INSERT")

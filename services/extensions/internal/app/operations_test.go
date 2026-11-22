@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/TokenNotIncluded/lmm-api/extensions/internal/edgecontext"
 	"github.com/TokenNotIncluded/lmm-api/extensions/internal/legal"
 )
 
@@ -34,4 +35,22 @@ func TestListenerGuardsScriptsBeforeOutermostSharedMux(t *testing.T) {
 			t.Fatal("unguarded redirect/dispatch", path, w.Code, w.Header(), forwarded)
 		}
 	}
+}
+
+func TestListenerCapturesPrivateEdgeHeadersBeforeApplicationHandlers(t *testing.T) {
+	policies, err := legal.Load("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	handler := listenerHandler(policies, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, client, ok := edgecontext.Assertion(r.Context())
+		if !ok || client != "203.0.113.7" || r.Header.Get(edgecontext.ProofHeader) != "" || r.Header.Get(edgecontext.ClientHeader) != "" {
+			t.Fatal("listener did not isolate private edge headers")
+		}
+	}))
+	r := httptest.NewRequest("GET", "/api/assistant/new-user-gift", nil)
+	r.RemoteAddr = "127.0.0.1:1000"
+	r.Header.Set(edgecontext.ProofHeader, "synthetic-edge-proof-for-private-uds-1111111111")
+	r.Header.Set(edgecontext.ClientHeader, "203.0.113.7")
+	handler.ServeHTTP(httptest.NewRecorder(), r)
 }

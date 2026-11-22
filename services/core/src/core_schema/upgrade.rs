@@ -22,6 +22,8 @@ mod finance;
 #[cfg(test)]
 mod historical_fixture;
 mod ledger;
+mod legacy_discount_packet;
+mod legacy_gift;
 pub(super) mod managed_applications;
 mod navigation_options;
 mod network_access;
@@ -37,6 +39,7 @@ mod responses_continuity;
 mod subscription_creem;
 mod subscription_epay;
 mod subscription_pancake_language;
+mod subscription_reset;
 mod suffix;
 mod trust_policy;
 

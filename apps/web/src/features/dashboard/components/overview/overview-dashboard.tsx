@@ -59,12 +59,9 @@ export function OverviewDashboard() {
 
   return (
     <div className='dashboard-editorial overview-dashboard flex flex-col gap-6 sm:gap-8'>
-      <div className='space-y-4'>
+      <div className='overview-intro'>
         <OverviewGreeting />
-        <nav
-          className='flex flex-wrap items-center gap-2'
-          aria-label={t('Quick actions')}
-        >
+        <nav className='overview-quick-actions' aria-label={t('Quick actions')}>
           <Button
             variant='outline'
             className='min-h-11'

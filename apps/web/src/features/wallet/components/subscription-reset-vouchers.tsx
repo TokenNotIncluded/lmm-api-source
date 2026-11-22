@@ -22,15 +22,23 @@ import {
 } from '@/components/ui/collapsible'
 import { Skeleton } from '@/components/ui/skeleton'
 import {
+  currentCommerceScope,
+  type CommerceScope,
+} from '@/features/commerce/native-client'
+import {
   getSubscriptionResetVouchers,
   redeemSubscriptionResetVoucher,
+  resetVoucherQueryKey,
 } from '@/features/subscriptions/api'
 import { formatTimestamp } from '@/features/subscriptions/lib'
 import type { SubscriptionResetVoucher } from '@/features/subscriptions/types'
 import { useDeadlineClock } from '@/hooks/use-deadline-clock'
 import { useWalletCurrency } from '@/hooks/use-wallet-currency'
 
-export function SubscriptionResetVouchers(props: { onRedeemed?: () => void }) {
+export function SubscriptionResetVouchers(props: {
+  onRedeemed?: () => void
+  scope?: CommerceScope
+}) {
   const { t } = useTranslation()
   const { formatQuota } = useWalletCurrency()
   const [selected, setSelected] = useState<SubscriptionResetVoucher | null>(
@@ -43,8 +51,8 @@ export function SubscriptionResetVouchers(props: { onRedeemed?: () => void }) {
   const [historyOpen, setHistoryOpen] = useState(false)
   const [historyPage, setHistoryPage] = useState(0)
   const vouchersQuery = useQuery({
-    queryKey: ['subscription-reset-vouchers'],
-    queryFn: getSubscriptionResetVouchers,
+    queryKey: resetVoucherQueryKey(props.scope),
+    queryFn: () => getSubscriptionResetVouchers(props.scope),
     staleTime: 15_000,
   })
   const vouchers = vouchersQuery.data?.data ?? []
@@ -127,13 +135,18 @@ export function SubscriptionResetVouchers(props: { onRedeemed?: () => void }) {
       selected.status !== 'available' ||
       selected.expired === true ||
       selected.expires_at <= Date.now() / 1000 ||
-      redeemedVoucherIds.has(selected.id)
+      redeemedVoucherIds.has(selected.id) ||
+      (props.scope && !currentCommerceScope(props.scope))
     ) {
       return
     }
     setRedeeming(true)
     try {
-      const response = await redeemSubscriptionResetVoucher(selected.id)
+      const response = await redeemSubscriptionResetVoucher(
+        selected.id,
+        props.scope
+      )
+      if (props.scope && !currentCommerceScope(props.scope)) return
       if (!response.success || !response.data) {
         throw new Error(response.message || t('Voucher redemption failed'))
       }
@@ -152,6 +165,7 @@ export function SubscriptionResetVouchers(props: { onRedeemed?: () => void }) {
       props.onRedeemed?.()
       void vouchersQuery.refetch()
     } catch (error) {
+      if (props.scope && !currentCommerceScope(props.scope)) return
       toast.error(
         error instanceof Error ? error.message : t('Voucher redemption failed')
       )

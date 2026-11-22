@@ -224,6 +224,18 @@ const COMPONENTS: &[(&str, &str)] = &[
         "provider-clients",
         include_str!("../schema/provider_clients.sql"),
     ),
+    (
+        "subscription-reset-vouchers",
+        crate::subscriptions::RESET_SCHEMA,
+    ),
+    (
+        "legacy-gift-continuation",
+        crate::gift::LEGACY_CONTINUATION_SCHEMA,
+    ),
+    (
+        "legacy-discount-packet-continuation",
+        crate::payments::discounts::CONTINUITY_SCHEMA,
+    ),
 ];
 
 /// Verify the installed managed contract without installing or repairing it.

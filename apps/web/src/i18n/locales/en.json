@@ -9643,6 +9643,7 @@
     "Reset used quota": "Reset used quota",
     "Reset used quota for all current active subscriptions on {{plan}}? Expiry and reset schedule will not change.": "Reset used quota for all current active subscriptions on {{plan}}? Expiry and reset schedule will not change.",
     "Reset voucher expiration": "Reset voucher expiration",
+    "Reset voucher received": "Reset voucher received",
     "Resets {{date}}": "Resets {{date}}",
     "Resets at {{time}} UTC": "Resets at {{time}} UTC",
     "Resets in:": "Resets in:",

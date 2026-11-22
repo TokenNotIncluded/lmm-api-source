@@ -111,7 +111,7 @@ impl Batch {
         }
     }
 }
-const SELECT: &str = "SELECT c.id,c.code,c.name,c.discount_percent,c.min_credit_units,c.max_uses,c.enabled,c.starts_at,c.ends_at,(SELECT count(*) FROM core_payments.discount_reservations r WHERE r.code_id=c.id AND r.consumed) AS used_count,(SELECT count(*) FROM core_payments.discount_reservations r WHERE r.code_id=c.id AND NOT r.consumed) AS reserved_count FROM core_payments.discount_codes c";
+const SELECT: &str = "SELECT c.id,c.code,c.name,c.discount_percent,c.min_credit_units,c.max_uses,c.enabled,c.starts_at,c.ends_at,(SELECT used_count FROM core_payments.discount_code_usage u WHERE u.code_id=c.id) AS used_count,(SELECT reserved_count FROM core_payments.discount_code_usage u WHERE u.code_id=c.id) AS reserved_count FROM core_payments.discount_codes c";
 fn view(row: sqlx::postgres::PgRow) -> Result<CodeView> {
     use sqlx::FromRow;
     Ok(CodeView::new(
@@ -288,7 +288,7 @@ impl PaymentsStore {
     pub async fn delete_exhausted_discount_codes(&self, credential: &str) -> Result<i64> {
         let mut tx = self.begin().await?;
         let actor = session(&mut tx, credential, true).await?;
-        let count:i64=sqlx::query_scalar("WITH selected AS MATERIALIZED (SELECT c.id FROM core_payments.discount_codes c WHERE c.max_uses>0 AND (SELECT count(*) FROM core_payments.discount_reservations r WHERE r.code_id=c.id AND r.consumed)>=c.max_uses AND NOT EXISTS(SELECT FROM core_payments.discount_code_tombstones t WHERE t.code_id=c.id) ORDER BY c.id FOR UPDATE), inserted AS (INSERT INTO core_payments.discount_code_tombstones(code_id,deleted_by) SELECT id,$1 FROM selected ON CONFLICT DO NOTHING RETURNING code_id) SELECT count(*) FROM inserted")
+        let count:i64=sqlx::query_scalar("WITH selected AS MATERIALIZED (SELECT c.id FROM core_payments.discount_codes c WHERE c.max_uses>0 AND (SELECT used_count FROM core_payments.discount_code_usage u WHERE u.code_id=c.id)>=c.max_uses AND NOT EXISTS(SELECT FROM core_payments.discount_code_tombstones t WHERE t.code_id=c.id) ORDER BY c.id FOR UPDATE), inserted AS (INSERT INTO core_payments.discount_code_tombstones(code_id,deleted_by) SELECT id,$1 FROM selected ON CONFLICT DO NOTHING RETURNING code_id) SELECT count(*) FROM inserted")
             .bind(actor.user_id).fetch_one(&mut *tx).await?;
         identity::audit(
             &mut tx,

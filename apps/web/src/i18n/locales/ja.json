@@ -9643,6 +9643,7 @@
     "Reset used quota": "使用済みクォータをリセット",
     "Reset used quota for all current active subscriptions on {{plan}}? Expiry and reset schedule will not change.": "{{plan}} の現在有効なすべてのサブスクリプションについて、使用済みクォータをリセットしますか？有効期限とリセット予定は変更されません。",
     "Reset voucher expiration": "リセット券の有効期限",
+    "Reset voucher received": "リセット券を受け取りました",
     "Resets {{date}}": "{{date}} にリセット",
     "Resets at {{time}} UTC": "リセット日時：{{time}} UTC",
     "Resets in:": "リセットまで：",

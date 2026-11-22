@@ -16,6 +16,8 @@ use sha2::{Digest, Sha256};
 use sqlx::{PgConnection, PgPool, Row, types::Json};
 
 pub const SCHEMA: &str = include_str!("../schema/gift.sql");
+mod legacy;
+pub const LEGACY_CONTINUATION_SCHEMA: &str = legacy::SCHEMA;
 #[cfg(test)]
 mod tests;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -76,16 +78,53 @@ impl GiftStore {
         Self { pool }
     }
     pub async fn get(&self, session: &str) -> Result<Option<Receipt>, Error> {
+        self.get_with_peer(session, None).await
+    }
+    pub async fn get_with_peer(
+        &self,
+        session: &str,
+        peer: Option<std::net::IpAddr>,
+    ) -> Result<Option<Receipt>, Error> {
         let mut tx = self.pool.begin().await?;
         let a = actor(&mut tx, session).await?;
-        let receipt = read(&mut tx, a.user_id).await?;
+        let receipt = read_with_peer(&mut tx, a.user_id, peer).await?;
         tx.commit().await?;
         Ok(receipt)
     }
     pub async fn claim_stored(&self, session: &str) -> Result<(Receipt, bool), Error> {
+        self.claim_stored_with_peer(session, None).await
+    }
+    pub async fn observe_peer(&self, session: &str, peer: std::net::IpAddr) -> Result<(), Error> {
+        let mut tx = self.pool.begin().await?;
+        let a = actor(&mut tx, session).await?;
+        legacy::observe(&mut tx, a.user_id, peer).await?;
+        tx.commit().await?;
+        Ok(())
+    }
+    pub async fn claim_stored_with_peer(
+        &self,
+        session: &str,
+        peer: Option<std::net::IpAddr>,
+    ) -> Result<(Receipt, bool), Error> {
         let mut tx = self.pool.begin().await?;
         let a = actor(&mut tx, session).await?;
         lock(&mut tx).await?;
+        if legacy::has_decision(&mut tx, a.user_id).await? {
+            let native: bool = sqlx::query_scalar(
+                "SELECT EXISTS(SELECT 1 FROM core_gift.decisions WHERE user_id=$1)",
+            )
+            .bind(a.user_id)
+            .fetch_one(&mut *tx)
+            .await?;
+            if native {
+                return Err(Error::Conflict);
+            }
+            let receipt = legacy::claim(&mut tx, a.user_id, a.owner_account_id, peer)
+                .await?
+                .ok_or(Error::NotFound)?;
+            tx.commit().await?;
+            return Ok(receipt);
+        }
         let old = read(&mut tx, a.user_id).await?.ok_or(Error::NotFound)?;
         if old.claimed_at_unix.is_some() {
             tx.commit().await?;
@@ -148,6 +187,10 @@ async fn eligibility(
     if amount <= 0 || amount >= cap {
         return Ok((cap, "cap_changed".into()));
     }
+    let (legacy_blocked, legacy_network_count) = legacy::native_admission(c, user).await?;
+    if !legacy_blocked.is_empty() {
+        return Ok((cap, legacy_blocked));
+    }
     let q=sqlx::query("SELECT q.* FROM core_gift.qualifications q JOIN core_identity.users u ON u.id=q.user_id JOIN core_identity.accounts a ON a.id=u.personal_account_id WHERE q.user_id=$1 AND u.active AND a.active AND u.platform_role='user' FOR SHARE OF u,a").bind(user).fetch_optional(&mut *c).await?;
     let Some(q) = q else {
         return Ok((cap, "qualification_missing".into()));
@@ -207,7 +250,7 @@ async fn eligibility(
         return Ok((cap, "identity_used".into()));
     }
     let n:i64=sqlx::query_scalar("SELECT count(*) FROM core_gift.decisions WHERE network_hash=$1 AND user_id<>$2 AND created_at>extract(epoch FROM clock_timestamp()-interval '30 days')::bigint").bind(net).bind(user).fetch_one(&mut *c).await?;
-    if n >= 3 {
+    if n >= 3 || legacy_network_count >= 3 - n {
         return Ok((cap, "network_limit".into()));
     }
     Ok((cap, String::new()))
@@ -239,6 +282,7 @@ pub(crate) async fn record_user_turn_in_transaction(
     let Some(text) = text else {
         return Err(Error::Forbidden);
     };
+    legacy::record_text(c, user, &text).await?;
     let key: Vec<u8> = sqlx::query_scalar("SELECT secret FROM core_gift.risk_key WHERE singleton")
         .fetch_one(&mut *c)
         .await?;
@@ -349,7 +393,8 @@ pub(crate) async fn observe_google_identity(
             .map_err(|_| Error::Unavailable)?,
     )
     .to_vec();
-    sqlx::query("INSERT INTO core_gift.qualifications(user_id,email_hash,network_hash,evidence_digest,evidence_kind,verified_at,registration_hold,reward_used) VALUES($1,$2,$3,$4,'google_verified_email_v1',clock_timestamp(),FALSE,FALSE) ON CONFLICT(user_id) DO NOTHING").bind(user).bind(hash("identity",&email)?).bind(hash("network",&ip.to_string())?).bind(evidence).execute(c).await?;
+    sqlx::query("INSERT INTO core_gift.qualifications(user_id,email_hash,network_hash,evidence_digest,evidence_kind,verified_at,registration_hold,reward_used) VALUES($1,$2,$3,$4,'google_verified_email_v1',clock_timestamp(),FALSE,FALSE) ON CONFLICT(user_id) DO NOTHING").bind(user).bind(hash("identity",&email)?).bind(hash("network",&ip.to_string())?).bind(evidence).execute(&mut *c).await?;
+    legacy::observe(c, user, ip).await?;
     Ok(true)
 }
 fn canonical_email(email: &str) -> Option<String> {
@@ -401,11 +446,23 @@ fn canonical_email(email: &str) -> Option<String> {
     }
 }
 async fn read(c: &mut PgConnection, user: i64) -> Result<Option<Receipt>, Error> {
+    read_with_peer(c, user, None).await
+}
+async fn read_with_peer(
+    c: &mut PgConnection,
+    user: i64,
+    peer: Option<std::net::IpAddr>,
+) -> Result<Option<Receipt>, Error> {
     let row = sqlx::query("SELECT * FROM core_gift.decisions WHERE user_id=$1 FOR SHARE")
         .bind(user)
         .fetch_optional(&mut *c)
         .await?;
-    let Some(r) = row else { return Ok(None) };
+    let Some(r) = row else {
+        return legacy::read(c, user, peer).await;
+    };
+    if legacy::has_decision(c, user).await? {
+        return Err(Error::Conflict);
+    }
     let amount = r.try_get("amount_credits")?;
     let claimed: Option<i64> = r.try_get("claimed_at")?;
     let (cap, mut code) = eligibility(c, user, amount, true).await?;

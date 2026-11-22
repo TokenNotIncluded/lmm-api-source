@@ -16,6 +16,7 @@ import (
 
 	"github.com/TokenNotIncluded/lmm-api/extensions/internal/composition"
 	"github.com/TokenNotIncluded/lmm-api/extensions/internal/coreclient"
+	"github.com/TokenNotIncluded/lmm-api/extensions/internal/edgecontext"
 	"github.com/TokenNotIncluded/lmm-api/extensions/internal/legal"
 	"github.com/TokenNotIncluded/lmm-api/extensions/internal/modules"
 	"github.com/TokenNotIncluded/lmm-api/extensions/internal/modules/assistant_services"
@@ -251,7 +252,7 @@ func serveAndDrain(ctx context.Context, server *http.Server, listener net.Listen
 // listenerHandler guards the actual listener entry before either the legal or
 // host mux can canonicalize a script path, even without Web compatibility.
 func listenerHandler(policies *legal.Handler, api http.Handler) http.Handler {
-	return webcompat.OperationsGuard(policies.Mount(api))
+	return edgecontext.Capture(webcompat.OperationsGuard(policies.Mount(api)))
 }
 
 func readHostCredential(path string) ([]byte, error) {

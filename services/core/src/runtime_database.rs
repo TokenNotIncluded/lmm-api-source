@@ -10,10 +10,13 @@ mod channel_projection;
 mod checkin_challenges;
 mod checkins;
 mod federated_auth;
+mod legacy_discount_packet;
+mod legacy_gifts;
 mod managed_applications;
 mod operations;
 mod personal_tokens;
 mod product_features;
+mod subscription_resets;
 mod telegram;
 mod tool_market_credit;
 mod trust_policy;
@@ -211,7 +214,7 @@ pub(crate) async fn check_connection(
             OR (n.nspname='core_assistant' AND has_any_column_privilege(c.oid,'REFERENCES'))
             OR (n.nspname='core_gift' AND (has_table_privilege(c.oid,'TRUNCATE,TRIGGER,REFERENCES,MAINTAIN')
               OR has_any_column_privilege(c.oid,'REFERENCES')
-              OR (c.relname<>'fingerprints' AND has_table_privilege(c.oid,'DELETE'))
+              OR (c.relname NOT IN ('fingerprints','legacy_fingerprints') AND has_table_privilege(c.oid,'DELETE'))
               OR (c.relname='fingerprints' AND (has_table_privilege(c.oid,'UPDATE') OR has_any_column_privilege(c.oid,'UPDATE')))))
             OR (n.nspname='core_abuse' AND (has_table_privilege(c.oid,'TRUNCATE,TRIGGER,REFERENCES,MAINTAIN')
               OR (c.relname NOT IN ('model_counters','model_leases') AND has_table_privilege(c.oid,'DELETE'))
@@ -305,6 +308,24 @@ pub(crate) async fn check_connection(
     checkins::check(connection, required.checkins).await?;
     checkin_challenges::check(connection, required.checkin_rewards).await?;
     product_features::check(connection, required.console).await?;
+    legacy_discount_packet::check(connection, required.payments, required.console).await?;
+    legacy_gifts::check(
+        connection,
+        required.assistant || required.assistant_agent || required.web_identity,
+    )
+    .await?;
+    subscription_resets::check(
+        connection,
+        required.console
+            || required.models
+            || required.images
+            || required.commerce
+            || required.directory_ads
+            || required.assistant
+            || required.assistant_agent
+            || required.tool_market,
+    )
+    .await?;
     account_security::check(connection, required.web_identity).await?;
     personal_tokens::check(connection, required.web_identity).await?;
     channel_accounting::check(connection, required.models).await?;

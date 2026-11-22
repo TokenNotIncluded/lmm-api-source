@@ -9643,6 +9643,7 @@
     "Reset used quota": "Réinitialiser le quota utilisé",
     "Reset used quota for all current active subscriptions on {{plan}}? Expiry and reset schedule will not change.": "Réinitialiser le quota utilisé de tous les abonnements actifs actuels au forfait {{plan}} ? L’expiration et le calendrier resteront inchangés.",
     "Reset voucher expiration": "Expiration du bon de réinitialisation",
+    "Reset voucher received": "Bon de réinitialisation reçu",
     "Resets {{date}}": "Réinitialisation le {{date}}",
     "Resets at {{time}} UTC": "Réinitialisation le {{time}} UTC",
     "Resets in:": "Réinitialise dans :",

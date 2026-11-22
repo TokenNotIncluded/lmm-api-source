@@ -222,7 +222,7 @@ func (c *AssistantClient) AssistantReserveText(ctx context.Context, user string,
 	if err := c.assistantReady(ctx, user); err != nil {
 		return nil, err
 	}
-	reply, err := pb.NewCoreAssistantModelClient(c.rpc.connection).ReserveText(c.rpc.context(ctx, user), r)
+	reply, err := pb.NewCoreAssistantModelClient(c.rpc.connection).ReserveText(c.edgeContext(ctx, user), r)
 	return reply, assistantReply(reply, err)
 }
 func (c *AssistantClient) AssistantGetOperation(ctx context.Context, user string, r *pb.AssistantOperationBinding) (*pb.AssistantOperationReceipt, error) {

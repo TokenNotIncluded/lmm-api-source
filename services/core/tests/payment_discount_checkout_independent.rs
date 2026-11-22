@@ -1,5 +1,7 @@
 //! Independent synthetic HTTP -> Go -> Tonic -> real PostgreSQL acceptance.
 #![cfg(unix)]
+#[path = "common/payment_discount_continuity.rs"]
+mod continuity_fixture;
 use lmm_core::{
     billing::ledger,
     identity::IdentityStore,
@@ -29,6 +31,7 @@ async fn real_discount_checkout_http(pool: PgPool) {
     ] {
         sqlx::raw_sql(schema).execute(&pool).await.unwrap();
     }
+    continuity_fixture::install(&pool).await;
     let owner = identity.bootstrap_user(7191, 6).await.unwrap();
     let core_config = out.join("discount-core.toml");
     fs::write(&core_config, "version=1\n").unwrap();

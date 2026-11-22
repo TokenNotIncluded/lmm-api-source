@@ -49,7 +49,7 @@ type plan struct {
 func compiled(component string) (plan, error) {
 	switch component {
 	case "checkins":
-		return plan{prefix: "lmm_checkins", schema: checkins.Schema + "\n" + checkins.SettingsSchema, namespaces: []string{"lmm_checkins"}, grants: []string{"GRANT SELECT ON ALL TABLES IN SCHEMA lmm_checkins TO ", "GRANT INSERT ON lmm_checkins.intentions,lmm_checkins.claim_commands TO ", "GRANT UPDATE(state,record) ON lmm_checkins.intentions TO ", "GRANT UPDATE(result) ON lmm_checkins.claim_commands TO ", "GRANT EXECUTE ON FUNCTION lmm_checkins.save_settings(bigint,text,boolean,text,text) TO "}}, nil
+		return plan{prefix: "lmm_checkins", schema: checkins.Schema + "\n" + checkins.SettingsSchema + "\n" + checkins.LegacyHistorySchema, namespaces: []string{"lmm_checkins"}, grants: []string{"GRANT SELECT ON lmm_checkins.contract,lmm_checkins.policy_revisions,lmm_checkins.active_policy,lmm_checkins.intentions,lmm_checkins.claim_commands,lmm_checkins.legacy_history_contract,lmm_checkins.legacy_history TO ", "GRANT INSERT ON lmm_checkins.intentions,lmm_checkins.claim_commands TO ", "GRANT UPDATE(state,record) ON lmm_checkins.intentions TO ", "GRANT UPDATE(result) ON lmm_checkins.claim_commands TO ", "GRANT EXECUTE ON FUNCTION lmm_checkins.save_settings(bigint,text,boolean,text,text) TO "}}, nil
 	case "store", "support":
 		return compiledCommerce(component)
 	case "operations":

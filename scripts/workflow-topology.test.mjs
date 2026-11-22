@@ -83,7 +83,7 @@ test('workflows initialize only their required pinned submodules', () => {
     lmm: ['apps/cli'],
     'microservice-distribution': ['apps/cli', 'apps/cli', 'packages/extore'],
     'linux-packages': ['apps/cli', 'packages/extore'],
-    'core-protocol': ['apps/cli'],
+    'core-protocol': ['apps/cli', 'packages/extore'],
     deploy: ['packages/extore'],
   };
   for (const [name, paths] of Object.entries(dependencies)) {
@@ -93,6 +93,7 @@ test('workflows initialize only their required pinned submodules', () => {
     assert.doesNotMatch(source, /submodules:\s*(?:true|recursive)/);
   }
   assert.match(workflow('lmm'), /name: Initialize the pinned CLI only\n        working-directory: \.\n/);
+  assert.match(workflow('core-protocol'), /python3 -B scripts\/check-extore-plugin-pin\.py/);
 });
 
 

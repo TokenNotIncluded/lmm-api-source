@@ -1,3 +1,5 @@
+#[path = "../common/payment_discount_continuity.rs"]
+mod continuity_fixture;
 use super::*;
 use lmm_core::payments::discounts::{self, Definition};
 
@@ -11,6 +13,7 @@ async fn fixture(pool: &PgPool) -> Fixture {
         .execute(pool)
         .await
         .unwrap();
+    continuity_fixture::install(pool).await;
     f.store = quantity_store(pool, quantity_policy(7, 1));
     f
 }
