@@ -727,6 +727,7 @@ CORE_SCHEMAS = (
     "core_market_oauth.",
     "core_tool_market.",
     "core_wallet.",
+    "core_weekly.",
     "core_billing.",
     "core_charging.",
     "core_commerce.",
