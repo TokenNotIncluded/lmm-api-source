@@ -125,5 +125,68 @@ class ResourceSelectionTests(unittest.TestCase):
                 runner.require_selected_success(text, self.discovered)
 
 
+class ResourceTargetDirectoryTests(unittest.TestCase):
+    def test_default_and_explicit_owned_directories(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            default = root / "services/core/target"
+            default.mkdir(parents=True, mode=0o700)
+            cache = root / "shared-cache"
+            cache.mkdir(mode=0o700)
+            with patch.object(runner.v, "REPO", root):
+                self.assertEqual(runner.target_directory(None), default)
+                self.assertEqual(runner.target_directory(cache), cache)
+
+    def test_relative_missing_and_non_directory_rejected(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            with self.assertRaises(runner.FixtureError):
+                runner.target_directory(Path("relative-cache"))
+            with self.assertRaises(FileNotFoundError):
+                runner.target_directory(root / "missing")
+            regular = root / "regular-file"
+            regular.write_text("not a directory")
+            with self.assertRaises(runner.FixtureError):
+                runner.target_directory(regular)
+
+    def test_direct_and_parent_symlinks_rejected(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            real = root / "real"
+            real.mkdir(mode=0o700)
+            cache = real / "cache"
+            cache.mkdir(mode=0o700)
+            direct = root / "direct-link"
+            direct.symlink_to(cache, target_is_directory=True)
+            parent = root / "parent-link"
+            parent.symlink_to(real, target_is_directory=True)
+            for target in (direct, parent / "cache"):
+                with self.subTest(target=target), self.assertRaises(runner.FixtureError):
+                    runner.target_directory(target)
+
+    def test_other_owner_and_group_or_other_write_rejected(self):
+        with tempfile.TemporaryDirectory() as directory:
+            cache = Path(directory).resolve()
+            cache.chmod(0o700)
+            with patch.object(runner.os, "geteuid", return_value=cache.stat().st_uid + 1):
+                with self.assertRaises(runner.FixtureError):
+                    runner.target_directory(cache)
+            for mode in (0o720, 0o702):
+                cache.chmod(mode)
+                with self.subTest(mode=oct(mode)), self.assertRaises(runner.FixtureError):
+                    runner.target_directory(cache)
+            cache.chmod(0o700)
+
+    def test_cli_preserves_default_and_explicit_target(self):
+        required = ["verify_model_resources", "prepare"]
+        for name in ("output", "resource", "requests", "core-binary", "source-binding", "build-receipt"):
+            required.extend(["--" + name, "/not-executed"])
+        for extra, expected in (([], None), (["--target-dir", "/reviewed/cache"], Path("/reviewed/cache"))):
+            with self.subTest(extra=extra), patch.object(sys, "argv", required + extra):
+                with patch.object(runner, "prepare", return_value=0) as prepare:
+                    self.assertEqual(runner.main(), 0)
+                    self.assertEqual(prepare.call_args.args[0].target_dir, expected)
+
+
 if __name__ == "__main__":
     unittest.main()

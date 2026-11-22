@@ -605,11 +605,9 @@ impl AgentService {
         }
         let result = self.snapshot(&mut tx, &turn_id).await?;
         tx.commit().await?;
-        // A visible extension call is waiting for its domain. Polling must not
-        // start a Core worker that can only lock the turn and exit.
-        if result.phase == "new"
-            || (result.phase == "tools_pending" && result.pending_calls.is_empty())
-        {
+        // Wake only still-unclaimed work. A durable dispatched/unknown model
+        // operation is never sent again by this wakeup.
+        if result.phase == "new" || result.phase == "tools_pending" {
             self.kick(session, &turn_id);
         }
         Ok(result)

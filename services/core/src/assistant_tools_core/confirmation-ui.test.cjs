@@ -12,17 +12,18 @@ function confirmation(state = "pending") {
   return { tool_name: evil, tool_version: "main-3948a0a1", preview: { title: evil, body: "exact\nmessage" }, expires_at_unix: 2000000000, state, executed: false };
 }
 async function flush() { for (let i = 0; i < 4; i++) await new Promise(resolve => setImmediate(resolve)); }
-function ui(replies, location = path) {
+function ui(replies, location = path, storage = new Map()) {
   const nodes = {};
-  for (const name of ["status", "details", "preview", "approve", "reject", "two-factor-field", "two-factor-code","key-card","key-status","key-secret","key-reveal","key-refresh","market-limits","market-price","market-price-limit","market-total-limit","market-call-limit","market-lifetime"]) {
+  for (const name of ["heading","instructions","invitation-preview","invitation-recipient","invitation-code","invitation-expiry","invitation-fallback","confirmation-refresh","status", "details", "preview", "approve", "reject", "two-factor-field", "two-factor-code","key-card","key-status","key-secret","key-reveal","key-refresh","market-limits","market-price","market-price-limit","market-total-limit","market-call-limit","market-lifetime"]) {
     nodes[name] = { disabled: true, hidden: true, value: "", textContent: "", listeners: {}, addEventListener(name, callback) { this.listeners[name] = callback; } };
     Object.defineProperty(nodes[name], "innerHTML", { set() { throw new Error("unsafe HTML sink"); } });
   }
   const requests = [];
   const windowListeners = {};
   const context = {
-    document: { getElementById(name) { assert.ok(nodes[name]); return nodes[name]; } },
-    window: { location: { pathname: location }, addEventListener(name,callback) { windowListeners[name]=callback; } },
+    document: { body: { classList: { toggle() {} } }, getElementById(name) { assert.ok(nodes[name]); return nodes[name]; } },
+    window: { location: { pathname: location }, addEventListener(name,callback) { windowListeners[name]=callback; },
+      sessionStorage: { getItem(key) { return storage.get(key) ?? null; }, setItem(key,value) { storage.set(key,value); }, removeItem(key) { storage.delete(key); } } },
     async fetch(url, options) {
       assert.ok(url === path || url === path + "/key");
       assert.equal(options.mode, "same-origin");
@@ -37,7 +38,7 @@ function ui(replies, location = path) {
     },
   };
   vm.runInNewContext(code, context);
-  return { nodes, requests, pagehide() { windowListeners.pagehide(); }, click(name) { nodes[name].listeners.click(); } };
+  return { nodes, requests, storage, pagehide() { windowListeners.pagehide(); }, click(name) { nodes[name].listeners.click(); } };
 }
 test("malicious preview remains exact inert text; load never approves; double click submits once", async () => {
   const view = ui([{ body: { ok: true, confirmation: confirmation(), csrf: nonce } }, { body: { ok: true, receipt: confirmation("approved"), executed: false } }]);
@@ -221,4 +222,167 @@ test("Market invalid limits cannot POST, and rejection never submits financial l
   }
   view.click("reject");await flush();
   assert.deepEqual(JSON.parse(view.requests[1].body),{decision:"reject"});
+});
+
+function invitation(state = "pending", preview) {
+  return { tool_name: "send_invitation", tool_version: "main-3948a0a1",
+    challenge_id: id, operation_id: "invitation-operation",
+    preview: preview ?? { kind: "invitation_email_v1", email: "recipient@example.invalid", invitation_code: "Ab12" },
+    expires_at_unix: 2000000000, state, executed: false };
+}
+test("invitation shows all actual fields and local expiry without implementation metadata", async () => {
+  const value = invitation();
+  const view = ui([{ body: { ok: true, confirmation: value, csrf: nonce } },
+    { body: { ok: true, receipt: invitation("approved") } }]);
+  await flush();
+  assert.equal(view.nodes.heading.textContent, "发送邀请");
+  assert.equal(view.nodes["invitation-recipient"].textContent, value.preview.email);
+  assert.equal(view.nodes["invitation-code"].textContent, value.preview.invitation_code);
+  assert.equal(view.nodes["invitation-preview"].hidden, false);
+  assert.equal(view.nodes.details.hidden, true);
+  assert.equal(view.nodes.preview.hidden, true);
+  const local = new Intl.DateTimeFormat(undefined, {
+    year:"numeric",month:"short",day:"numeric",hour:"numeric",minute:"2-digit",second:"2-digit",timeZoneName:"short",
+  }).format(new Date(value.expires_at_unix * 1000));
+  assert.equal(view.nodes["invitation-expiry"].textContent, local);
+  assert.equal(view.nodes["invitation-expiry"].dateTime, new Date(value.expires_at_unix * 1000).toISOString());
+  assert.equal(view.nodes.approve.textContent, "同意发送");
+  assert.equal(view.nodes.reject.textContent, "取消邀请");
+  assert.equal(view.requests.length, 1);
+  view.click("approve"); view.click("approve"); await flush();
+  assert.equal(view.requests.length, 2);
+  assert.deepEqual(JSON.parse(view.requests[1].body), { decision: "approve" });
+  assert.equal(view.requests[1].headers["x-lmm-assistant-csrf"], nonce);
+  assert.ok(view.nodes.status.textContent.includes("查看发送结果"));
+  assert.equal(view.nodes.status.textContent.includes("邮件已发送"), false);
+  assert.equal(view.nodes.approve.hidden, true);
+  assert.equal(view.storage.size, 0);
+});
+test("an added invitation field or new kind falls back to the entire inert preview", async () => {
+  for (const draft of [
+    { ...invitation().preview, message: evil },
+    { kind:"invitation_email_v2", email:"recipient@example.invalid", invitation_code:"Ab12", extra:evil },
+  ]) {
+    const view = ui([{ body:{ok:true,confirmation:invitation("pending",draft),csrf:nonce} }]);
+    await flush();
+    assert.equal(view.nodes["invitation-preview"].hidden,true);
+    assert.equal(view.nodes["invitation-fallback"].hidden,false);
+    assert.equal(view.nodes.preview.hidden,false);
+    assert.deepEqual(JSON.parse(view.nodes.preview.textContent),draft);
+    assert.equal(view.nodes.approve.disabled,false);
+    assert.equal(view.requests.length,1);
+  }
+});
+test("bad invitation fields, a changed operation and an impossible execution receipt cannot approve", async () => {
+  for (const value of [
+    invitation("pending", {kind:"invitation_email_v1",email:4,invitation_code:"Ab12"}),
+    invitation("pending", {kind:"invitation_email_v1",email:"recipient@example.invalid",invitation_code:""}),
+    {...invitation(),challenge_id:"d".repeat(64)},
+    {...invitation(),executed:true},
+    {...invitation(),expires_at_unix:"2000000000"},
+  ]) {
+    const view=ui([{body:{ok:true,confirmation:value,csrf:nonce}}]);
+    await flush();view.click("approve");await flush();
+    assert.equal(view.nodes.approve.disabled,true);
+    assert.equal(view.requests.length,1);
+  }
+  for (const changed of [
+    {...invitation("approved"),operation_id:"another"},
+    {...invitation("approved"),preview:{...invitation().preview,email:"another@example.invalid"}},
+    {...invitation("approved"),expires_at_unix:2000000001},
+    {...invitation("approved"),tool_name:"request_create_key"},
+  ]) {
+    const view=ui([{body:{ok:true,confirmation:invitation(),csrf:nonce}},new Error("lost ACK"),
+      {body:{ok:true,confirmation:changed,csrf:nonce}}]);
+    await flush();view.click("approve");await flush();view.click("confirmation-refresh");await flush();
+    assert.equal(view.nodes.approve.disabled,true);
+    assert.equal(view.requests.filter(x=>x.method==="POST").length,1);
+    assert.equal(view.storage.size,1);
+  }
+});
+test("unknown invitation first queries the original operation, then a new explicit decision uses the fresh nonce", async () => {
+  const fresh = "c".repeat(64);
+  const view=ui([{body:{ok:true,confirmation:invitation(),csrf:nonce}},new Error("lost ACK"),
+    {body:{ok:true,confirmation:invitation(),csrf:fresh}},
+    {body:{ok:true,receipt:invitation("approved")}}]);
+  await flush();view.click("approve");await flush();
+  view.click("approve");view.click("reject");await flush();
+  assert.equal(view.requests.length,2);
+  assert.equal(view.nodes["confirmation-refresh"].hidden,false);
+  const [key, raw] = [...view.storage.entries()][0];
+  assert.equal(key, "lmm.invitation.uncertain:" + path);
+  assert.deepEqual(JSON.parse(raw), {version:1,expires_at_unix:invitation().expires_at_unix});
+  assert.equal(raw.includes(nonce),false);
+  assert.equal(raw.includes(invitation().preview.email),false);
+  view.click("confirmation-refresh");await flush();
+  assert.equal(view.requests.length,3);
+  assert.equal(view.requests[2].method,"GET");
+  assert.equal(view.storage.size,0);
+  assert.equal(view.nodes.approve.disabled,false);
+  assert.ok(view.nodes.status.textContent.includes("仍待你决定"));
+  assert.equal(view.requests.filter(x=>x.method==="POST").length,1);
+  view.click("approve");await flush();
+  assert.equal(view.requests.length,4);
+  assert.equal(view.requests[3].headers["x-lmm-assistant-csrf"],fresh);
+  assert.deepEqual(JSON.parse(view.requests[3].body),{decision:"approve"});
+  assert.equal(view.requests.every(x=>x.url===path),true);
+  assert.ok(view.nodes.status.textContent.includes("查看发送结果"));
+  assert.equal(view.storage.size,0);
+});
+test("a remounted unknown invitation stays read-only until original Core read succeeds", async () => {
+  const marker = new Map([["lmm.invitation.uncertain:" + path, JSON.stringify({
+    version:1,expires_at_unix:invitation().expires_at_unix,
+  })]]);
+  const view=ui([new Error("read unavailable"),new Error("still unavailable"),
+    {body:{ok:true,confirmation:invitation("approved")}}],path,marker);
+  await flush();view.click("approve");view.click("reject");await flush();
+  assert.equal(view.requests.length,1);
+  assert.equal(view.nodes.approve.disabled,true);
+  assert.equal(view.nodes["confirmation-refresh"].hidden,false);
+  view.click("confirmation-refresh");await flush();
+  assert.equal(view.requests.length,2);
+  assert.equal(view.storage.size,1);
+  assert.equal(view.nodes.approve.disabled,true);
+  view.click("confirmation-refresh");await flush();
+  assert.equal(view.requests.length,3);
+  assert.deepEqual(view.requests.map(x=>x.method),["GET","GET","GET"]);
+  assert.equal(view.requests.every(x=>x.url===path),true);
+  assert.equal(view.storage.size,0);
+  assert.ok(view.nodes.status.textContent.includes("查看发送结果"));
+});
+test("expired, malformed or mismatched local markers never act as approval or permanently lock a fresh nonce", async () => {
+  for (const raw of [
+    "not json", "1", JSON.stringify({version:1,expires_at_unix:1}),
+    JSON.stringify({version:1,expires_at_unix:2000000001}),
+    JSON.stringify({version:1,expires_at_unix:2000000000,approved:true}),
+    JSON.stringify({version:2,expires_at_unix:2000000000}),
+  ]) {
+    const marker=new Map([["lmm.invitation.uncertain:" + path,raw]]);
+    const view=ui([{body:{ok:true,confirmation:invitation(),csrf:nonce}}],path,marker);
+    await flush();
+    assert.equal(view.requests.length,1);
+    assert.equal(view.requests[0].method,"GET");
+    assert.equal(view.storage.size,0);
+    assert.equal(view.nodes.approve.disabled,false);
+    assert.equal(view.nodes.status.textContent.includes("已同意发送"),false);
+  }
+});
+test("cancel invitation uses the original nonce and never includes mutable recipient fields", async () => {
+  const view=ui([{body:{ok:true,confirmation:invitation(),csrf:nonce}},
+    {body:{ok:true,receipt:invitation("rejected")}}]);
+  await flush();view.click("reject");await flush();
+  assert.deepEqual(JSON.parse(view.requests[1].body),{decision:"reject"});
+  assert.equal(view.requests[1].headers["x-lmm-assistant-csrf"],nonce);
+  assert.equal(view.nodes.status.textContent,"已取消这项邀请。");
+  assert.equal(view.storage.size,0);
+});
+test("expired invitation remains readable but cannot submit a new decision", async () => {
+  const value={...invitation(),expires_at_unix:1};
+  const view=ui([{body:{ok:true,confirmation:value,csrf:nonce}}]);
+  await flush();view.click("approve");view.click("reject");await flush();
+  assert.equal(view.nodes["invitation-recipient"].textContent,value.preview.email);
+  assert.equal(view.nodes.approve.disabled,true);
+  assert.equal(view.nodes.reject.disabled,true);
+  assert.ok(view.nodes.status.textContent.includes("已过期"));
+  assert.equal(view.requests.length,1);
 });
