@@ -89,8 +89,14 @@ impl ModelGateway {
         }
         inner.payload["stream"] = json!(true);
         inner.payload["stream_options"] = json!({"include_usage":true});
-        let bytes =
-            serde_json::to_vec(&inner.payload).map_err(|_| RelayError::Invalid("agent payload"))?;
+        inner.wire_payload = assistant_wire_payload(
+            &inner.payload,
+            inner.route.protocol,
+            &inner.route.model,
+            &self.limits,
+        )?;
+        let bytes = serde_json::to_vec(&inner.wire_payload)
+            .map_err(|_| RelayError::Invalid("agent payload"))?;
         let local = inner
             .route
             .endpoint

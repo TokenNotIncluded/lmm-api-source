@@ -171,7 +171,7 @@ impl LmmIssuer {
     /// Revoke one browser grant family after re-binding the handle to the
     /// caller's current personal session and account version.
     pub async fn revoke_browser_grant(&self, cookie: &str, family_id: &str) -> Result<()> {
-        protocol::canonical(family_id, "lmm_gr_")?;
+        protocol::stored_handle(family_id, "lmm_gr_")?;
         let mut tx = transaction(&self.identity.pool).await?;
         let identity = BrowserAuth::oauth_identity_in_transaction(&mut tx, cookie).await?;
         let family = sqlx::query(

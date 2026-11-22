@@ -35,7 +35,7 @@ fn contains(table: &[(u32, u32, u32)], c: u32) -> bool {
     let i = table.partition_point(|(_, high, _)| *high < c);
     table
         .get(i)
-        .is_some_and(|(low, high, step)| c >= *low && c <= *high && (c - low) % step == 0)
+        .is_some_and(|(low, high, step)| c >= *low && c <= *high && (c - low).is_multiple_of(*step))
 }
 pub(super) fn letter_or_digit(c: char) -> bool {
     contains(LETTER, c as u32) || contains(DIGIT, c as u32)

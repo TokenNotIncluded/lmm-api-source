@@ -55,12 +55,19 @@ impl AgentPolicy {
                         | "get_user_overview"
                         | "list_my_api_keys"
                         | "get_new_user_gift_status"
+                        | "prepare_new_user_gift"
                         | "get_registration_risk"
                         | "get_available_models"
                         | "get_model_pricing"
                 )
             {
                 return Err(Error::Unavailable);
+            }
+            if name == crate::gift::agent::TOOL_NAME {
+                if !self.model.gift_tools {
+                    return Err(Error::Forbidden);
+                }
+                crate::gift::agent::validate_installed_tool(tool)?;
             }
             if name == "call_market_tool" && self.market.is_none() {
                 return Err(Error::Forbidden);
@@ -273,6 +280,13 @@ impl AgentService {
           .bind(vec!["agent_turn_immutable","agent_round_immutable","agent_tool_immutable","agent_observation_immutable","agent_turn_binding","agent_round_binding","agent_tool_binding","agent_observation_binding","agent_charge_binding","agent_legacy_exclusion"]).fetch_one(&mut *tx).await?;
         if guards != 10 {
             return Err(Error::Unavailable);
+        }
+        if self
+            .policy
+            .allowed_tools
+            .contains(crate::gift::agent::TOOL_NAME)
+        {
+            crate::gift::agent::check_ready(&mut tx).await?;
         }
         tx.commit().await?;
         Ok(())

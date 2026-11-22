@@ -7,16 +7,23 @@ pub(super) async fn check(
     payments: bool,
     packets: bool,
 ) -> Result<(), RuntimeDatabaseError> {
+    // Optional runtimes have no USAGE on core_payments. Resolve the fixed
+    // relation OIDs through catalogs so the negative write check still runs
+    // without requiring or granting access to that disabled module.
     let (unsafe_writes, readable): (bool, bool) = sqlx::query_as(
         r#"WITH expected(name) AS (VALUES
-            ('core_payments.legacy_discount_bases'),('core_payments.legacy_discount_holds'),
-            ('core_payments.legacy_discount_owners'),('core_payments.legacy_discount_hold_state'),
-            ('core_payments.discount_code_usage')),
-        relations AS (SELECT to_regclass(name) AS id FROM expected)
+            ('legacy_discount_bases'),('legacy_discount_holds'),
+            ('legacy_discount_owners'),('legacy_discount_hold_state'),
+            ('discount_code_usage')),
+        relations AS (SELECT c.oid AS id,n.oid AS schema_id FROM expected e
+            LEFT JOIN pg_catalog.pg_namespace n ON n.nspname='core_payments'
+            LEFT JOIN pg_catalog.pg_class c ON c.relnamespace=n.oid AND c.relname=e.name)
         SELECT EXISTS(SELECT FROM relations WHERE
             has_table_privilege(id,'INSERT,UPDATE,DELETE,TRUNCATE,TRIGGER,REFERENCES,MAINTAIN')
             OR has_any_column_privilege(id,'INSERT,UPDATE,REFERENCES')),
-            NOT EXISTS(SELECT FROM relations WHERE id IS NULL OR NOT has_table_privilege(id,'SELECT'))"#,
+            NOT EXISTS(SELECT FROM relations WHERE id IS NULL
+                OR NOT has_schema_privilege(schema_id,'USAGE')
+                OR NOT has_table_privilege(id,'SELECT'))"#,
     )
     .fetch_one(&mut *c)
     .await?;

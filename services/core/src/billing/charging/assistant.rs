@@ -66,7 +66,14 @@ impl Charging {
         if request.reserve > policy.budget_credits {
             return Err(Error::BudgetExceeded);
         }
-        let (payer_id, sponsor_id, preference) = if let Some(sponsor) = &policy.sponsor {
+        let (payer_id, sponsor_id, preference) = if let Some(service) = &policy.service_funding {
+            service.admit(c).await.map_err(assistant_error)?;
+            (
+                service.payer_account_id,
+                Some(service.payer_account_id),
+                "wallet_only".to_owned(),
+            )
+        } else if let Some(sponsor) = &policy.sponsor {
             sponsor
                 .admit(c, actor.user_id, owner, request.reserve)
                 .await

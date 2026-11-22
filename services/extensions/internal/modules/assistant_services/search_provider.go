@@ -119,7 +119,8 @@ func (p *httpSearchProvider) request(ctx context.Context, query string) (*http.R
 	switch p.config.Provider {
 	case "exa":
 		method = http.MethodPost
-		b, _ := json.Marshal(map[string]any{"query": query, "contents": map[string]any{"highlights": true}})
+		// Fix the reviewed search mode and result count instead of relying on provider defaults.
+		b, _ := json.Marshal(map[string]any{"query": query, "type": "auto", "numResults": 10, "contents": map[string]any{"highlights": true}})
 		body = bytes.NewReader(b)
 	case "tavily":
 		method = http.MethodPost

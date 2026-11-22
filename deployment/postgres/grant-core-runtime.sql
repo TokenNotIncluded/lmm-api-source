@@ -776,6 +776,12 @@ GRANT SELECT(user_id,created_at) ON core_market_oauth.families TO :"runtime_role
 GRANT SELECT(document,mapping,native_credential_floor,snapshot_observed_at,
     target_database,target_database_oid,target_nonce)
     ON core_history.connection_snapshot TO :"runtime_role";
+-- Current cutover classification reads committed IDs, never private receipts.
+GRANT SELECT(document,mapping,snapshot_observed_at,
+    target_database,target_database_oid,target_nonce)
+    ON core_history.current_connection_snapshot TO :"runtime_role";
+GRANT SELECT(target_credential_id)
+    ON core_history.current_connection_credential_map TO :"runtime_role";
 \endif
 \if :enable_federated_auth
 -- Federated login state and provider secrets remain Core-only.

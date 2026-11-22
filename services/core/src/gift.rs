@@ -16,7 +16,9 @@ use sha2::{Digest, Sha256};
 use sqlx::{PgConnection, PgPool, Row, types::Json};
 
 pub const SCHEMA: &str = include_str!("../schema/gift.sql");
+pub(crate) mod agent;
 mod legacy;
+pub const ASSISTANT_AGENT_GIFT_SCHEMA: &str = agent::SCHEMA;
 pub const LEGACY_CONTINUATION_SCHEMA: &str = legacy::SCHEMA;
 #[cfg(test)]
 mod tests;
@@ -509,10 +511,22 @@ pub(crate) async fn execute_in_transaction(
     if decision.amount_credits == 0 {
         return Ok(None);
     }
-    let belongs:bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM core_assistant.conversations c JOIN core_assistant.grants g ON g.conversation_id=c.id JOIN core_assistant.operations o ON o.grant_id=g.id JOIN core_charging.requests q ON q.id=o.request_id WHERE c.id=$1 AND c.owner_user_id=$2 AND q.id=$3 AND q.assistant_grant_id=g.id AND q.actor_user_id=$2 AND (q.payer_account_id=c.owner_account_id OR q.payer_account_id=(g.policy->'sponsor'->>'treasury_account_id')::bigint) AND q.state='streaming')").bind(conversation).bind(user).bind(model_request_id).fetch_one(&mut *c).await?;
+    let belongs:bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM core_assistant.conversations c JOIN core_assistant.grants g ON g.conversation_id=c.id JOIN core_assistant.operations o ON o.grant_id=g.id JOIN core_charging.requests q ON q.id=o.request_id WHERE c.id=$1 AND c.owner_user_id=$2 AND q.id=$3 AND q.assistant_grant_id=g.id AND q.actor_user_id=$2 AND (q.payer_account_id=c.owner_account_id OR q.payer_account_id=(g.policy->'sponsor'->>'treasury_account_id')::bigint OR (q.payer_account_id=(g.policy->'service_funding'->>'payer_account_id')::bigint AND EXISTS(SELECT FROM core_identity.users payer JOIN core_identity.accounts account ON account.id=payer.personal_account_id WHERE payer.id=(g.policy->'service_funding'->>'payer_user_id')::bigint AND account.id=q.payer_account_id AND account.kind='personal'))) AND q.state='streaming')").bind(conversation).bind(user).bind(model_request_id).fetch_one(&mut *c).await?;
     if !belongs {
         return Err(Error::Forbidden);
     }
+    issue_locked(c, user, conversation, model_request_id, decision).await
+}
+
+// Both private entrances establish their distinct model authority before this
+// shared eligibility and canonical ledger operation. The gift lock is held.
+async fn issue_locked(
+    c: &mut PgConnection,
+    user: i64,
+    conversation: &str,
+    model_request_id: &str,
+    decision: GiftDecision,
+) -> Result<Option<Receipt>, Error> {
     let (_, blocked) = eligibility(c, user, decision.amount_credits, true).await?;
     if !blocked.is_empty() {
         return Err(Error::Forbidden);

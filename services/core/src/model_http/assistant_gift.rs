@@ -3,7 +3,7 @@
 //! never deserializes a decision from an extension or a public request.
 use crate::relay::RelayError;
 use serde::Deserialize;
-use serde_json::{Value, json};
+use serde_json::{Value, json, value::RawValue};
 use sha2::{Digest, Sha256};
 
 #[derive(Deserialize)]
@@ -44,6 +44,19 @@ pub(super) fn tool_schemas(exclusive_cap: i64) -> Value {
      {"type":"function","function":{"name":"get_new_user_gift_status","description":"Read this conversation owner's persisted Core gift status without creating or changing a gift.","strict":true,"parameters":{"type":"object","properties":{},"required":[],"additionalProperties":false}}}
     ])
 }
+/// Anthropic receives ordinary native tools. Core still applies the same strict
+/// argument decoder and gift policy to every result; no public relay request is
+/// downgraded and no model-supplied field gains funding authority.
+pub(super) fn anthropic_tool_schemas(exclusive_cap: i64) -> Value {
+    let mut schemas = tool_schemas(exclusive_cap);
+    for tool in schemas.as_array_mut().expect("fixed Core gift schemas") {
+        tool["function"]
+            .as_object_mut()
+            .expect("fixed Core gift function")
+            .remove("strict");
+    }
+    schemas
+}
 /// The caller enables the fixed schemas using a Core-owned grant policy. This
 /// decoder is called only after reading the original bounded response bytes.
 pub(super) fn parse(
@@ -81,20 +94,90 @@ pub(super) fn parse(
     let id = call
         .get("id")
         .and_then(Value::as_str)
-        .filter(|id| {
-            !id.is_empty()
-                && id.len() <= 128
-                && !id.chars().any(|c| c.is_control() || c.is_whitespace())
-        })
-        .ok_or(RelayError::SettlementPending)?
-        .to_owned();
+        .ok_or(RelayError::SettlementPending)?;
     let args = call
         .pointer("/function/arguments")
         .and_then(Value::as_str)
-        .filter(|s| s.len() <= 4096)
         .ok_or(RelayError::SettlementPending)?;
-    let action = match call.pointer("/function/name").and_then(Value::as_str) {
-        Some("prepare_new_user_gift") => {
+    let name = call
+        .pointer("/function/name")
+        .and_then(Value::as_str)
+        .ok_or(RelayError::SettlementPending)?;
+    decode_call(id, name, args, raw_response).map(Some)
+}
+
+// RawValue retains the exact input object: decoding through Value first would
+// erase duplicate argument keys before the strict gift argument parser sees it.
+#[derive(Deserialize)]
+struct AnthropicMessage {
+    #[serde(rename = "type")]
+    kind: String,
+    role: String,
+    content: Vec<AnthropicBlock>,
+    stop_reason: String,
+}
+#[derive(Deserialize)]
+struct AnthropicBlock {
+    #[serde(rename = "type")]
+    kind: String,
+    text: Option<String>,
+    id: Option<String>,
+    name: Option<String>,
+    input: Option<Box<RawValue>>,
+}
+
+pub(super) fn parse_anthropic(raw_response: &[u8]) -> Result<Option<GiftToolCall>, RelayError> {
+    let message: AnthropicMessage =
+        serde_json::from_slice(raw_response).map_err(|_| RelayError::SettlementPending)?;
+    if message.kind != "message" || message.role != "assistant" {
+        return Err(RelayError::SettlementPending);
+    }
+    let mut call = None;
+    for block in message.content {
+        match block.kind.as_str() {
+            "text"
+                if block.text.is_some()
+                    && block.id.is_none()
+                    && block.name.is_none()
+                    && block.input.is_none() => {}
+            "tool_use"
+                if block.text.is_none() && call.is_none() && message.stop_reason == "tool_use" =>
+            {
+                call = Some(decode_call(
+                    block.id.as_deref().ok_or(RelayError::SettlementPending)?,
+                    block.name.as_deref().ok_or(RelayError::SettlementPending)?,
+                    block
+                        .input
+                        .as_deref()
+                        .ok_or(RelayError::SettlementPending)?
+                        .get(),
+                    raw_response,
+                )?);
+            }
+            _ => return Err(RelayError::SettlementPending),
+        }
+    }
+    if message.stop_reason == "tool_use" && call.is_none() {
+        return Err(RelayError::SettlementPending);
+    }
+    Ok(call)
+}
+
+fn decode_call(
+    id: &str,
+    name: &str,
+    args: &str,
+    raw_response: &[u8],
+) -> Result<GiftToolCall, RelayError> {
+    if id.is_empty()
+        || id.len() > 128
+        || id.chars().any(|c| c.is_control() || c.is_whitespace())
+        || args.len() > 4096
+    {
+        return Err(RelayError::SettlementPending);
+    }
+    let action = match name {
+        "prepare_new_user_gift" => {
             let a: GiftArguments =
                 serde_json::from_str(args).map_err(|_| RelayError::SettlementPending)?;
             if a.amount_credits < 0
@@ -106,18 +189,18 @@ pub(super) fn parse(
             }
             GiftAction::Prepare(a)
         }
-        Some("get_new_user_gift_status") => {
+        "get_new_user_gift_status" => {
             let _: EmptyArguments =
                 serde_json::from_str(args).map_err(|_| RelayError::SettlementPending)?;
             GiftAction::Status
         }
         _ => return Err(RelayError::SettlementPending),
     };
-    Ok(Some(GiftToolCall {
-        id,
+    Ok(GiftToolCall {
+        id: id.to_owned(),
         response_sha256: Sha256::digest(raw_response).into(),
         action,
-    }))
+    })
 }
 #[cfg(test)]
 mod tests {
@@ -185,5 +268,80 @@ mod tests {
         let mut value = response("get_new_user_gift_status", "{}");
         value["choices"][0]["message"]["function_call"] = json!({"name":"legacy"});
         assert!(parse(&value, b"x").is_err());
+    }
+
+    fn anthropic(name: &str, args: &str) -> Vec<u8> {
+        format!(r#"{{"id":"msg_original","type":"message","role":"assistant","content":[{{"type":"text","text":"Checking eligibility."}},{{"type":"tool_use","id":"toolu_original","name":"{name}","input":{args}}}],"stop_reason":"tool_use","usage":{{"input_tokens":10,"output_tokens":4}}}}"#).into_bytes()
+    }
+
+    #[test]
+    fn anthropic_decision_keeps_original_id_raw_bytes_and_zero_amount() {
+        let raw = anthropic(
+            "prepare_new_user_gift",
+            r#"{"amount_credits":0,"reason":"not eligible"}"#,
+        );
+        let call = parse_anthropic(&raw).unwrap().unwrap();
+        assert_eq!(call.id(), "toolu_original");
+        assert_eq!(
+            call.response_sha256(),
+            <[u8; 32]>::from(Sha256::digest(&raw))
+        );
+        assert!(matches!(
+            call.action(),
+            GiftAction::Prepare(GiftArguments {
+                amount_credits: 0,
+                ..
+            })
+        ));
+        let status = parse_anthropic(&anthropic("get_new_user_gift_status", "{}"))
+            .unwrap()
+            .unwrap();
+        assert!(matches!(status.action(), GiftAction::Status));
+        assert!(parse_anthropic(br#"{"type":"message","role":"assistant","content":[{"type":"text","text":"Hello"}],"stop_reason":"end_turn"}"#).unwrap().is_none());
+    }
+
+    #[test]
+    fn anthropic_rejects_raw_duplicate_arguments_injected_owners_and_parallel_calls() {
+        for (name, args) in [
+            (
+                "prepare_new_user_gift",
+                r#"{"amount_credits":1,"amount_credits":2,"reason":"x"}"#,
+            ),
+            (
+                "prepare_new_user_gift",
+                r#"{"amount_credits":1,"reason":"x","payer":99}"#,
+            ),
+            (
+                "prepare_new_user_gift",
+                r#"{"amount_credits":-1,"reason":"x"}"#,
+            ),
+            (
+                "prepare_new_user_gift",
+                r#"{"amount_credits":1.5,"reason":"x"}"#,
+            ),
+            ("get_new_user_gift_status", r#"{"user_id":9}"#),
+            ("arbitrary_tool", "{}"),
+        ] {
+            assert!(parse_anthropic(&anthropic(name, args)).is_err());
+        }
+        let original: Value =
+            serde_json::from_slice(&anthropic("get_new_user_gift_status", "{}")).unwrap();
+        for stop in ["max_tokens", "end_turn", "refusal"] {
+            let mut value = original.clone();
+            value["stop_reason"] = json!(stop);
+            assert!(parse_anthropic(&serde_json::to_vec(&value).unwrap()).is_err());
+        }
+        let mut value = original.clone();
+        let second = value["content"][1].clone();
+        value["content"].as_array_mut().unwrap().push(second);
+        assert!(parse_anthropic(&serde_json::to_vec(&value).unwrap()).is_err());
+        for kind in ["thinking", "server_tool_use", "redacted_thinking"] {
+            let mut value = original.clone();
+            value["content"][0]["type"] = json!(kind);
+            assert!(parse_anthropic(&serde_json::to_vec(&value).unwrap()).is_err());
+        }
+        let mut value = original;
+        value["content"] = json!([]);
+        assert!(parse_anthropic(&serde_json::to_vec(&value).unwrap()).is_err());
     }
 }

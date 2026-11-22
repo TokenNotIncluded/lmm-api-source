@@ -30,7 +30,7 @@ func TestSearchProviderMainWireProtocols(t *testing.T) {
 						t.Error("bad Exa auth/method")
 					}
 					var body map[string]any
-					if json.NewDecoder(r.Body).Decode(&body) != nil || body["query"] != "bounded query" || body["contents"].(map[string]any)["highlights"] != true {
+					if json.NewDecoder(r.Body).Decode(&body) != nil || body["query"] != "bounded query" || body["type"] != "auto" || body["numResults"] != float64(10) || body["contents"].(map[string]any)["highlights"] != true {
 						t.Error(body)
 					}
 				case "tavily":

@@ -236,6 +236,18 @@ const COMPONENTS: &[(&str, &str)] = &[
         "legacy-discount-packet-continuation",
         crate::payments::discounts::CONTINUITY_SCHEMA,
     ),
+    (
+        "assistant-service-funding",
+        include_str!("../schema/assistant_service_funding.sql"),
+    ),
+    (
+        "assistant-agent-gift",
+        include_str!("../schema/assistant_agent_gift.sql"),
+    ),
+    (
+        "current-connection-history",
+        include_str!("../schema/current_connection_history.sql"),
+    ),
 ];
 
 /// Verify the installed managed contract without installing or repairing it.
