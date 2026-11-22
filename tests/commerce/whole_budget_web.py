@@ -247,7 +247,7 @@ class StaticWeb:
             ("KillMode", "s", "control-group"), ("Restart", "s", "no"),
             ("ExecStart", "a(sasb)", "1", str(self.nginx), str(len(argv)), *argv, "false"),
         ]
-        command = [*rg.manager_command("/usr/bin/busctl", "system"), "call",
+        command = [*rg.manager_command("/usr/bin/busctl", "system"), "--", "call",
                    "org.freedesktop.systemd1", "/org/freedesktop/systemd1",
                    "org.freedesktop.systemd1.Manager", "StartTransientUnit",
                    "ssa(sv)a(sa(sv))", self.unit, "fail", str(len(settings))]
