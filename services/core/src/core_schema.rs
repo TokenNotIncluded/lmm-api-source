@@ -378,7 +378,19 @@ pub async fn init(pool: &PgPool) -> Result<(), IdentityError> {
     // Same installation lock as the isolated identity component initializer.
     sqlx::query("SELECT pg_advisory_xact_lock(741803120)")
         .execute(&mut *tx)
-        .await?;
+        .await
+        .map_err(|error| {
+            if error
+                .as_database_error()
+                .and_then(|db| db.code())
+                .as_deref()
+                == Some("55P03")
+            {
+                IdentityError::Conflict
+            } else {
+                error.into()
+            }
+        })?;
     let occupied: bool = sqlx::query_scalar(
         r#"SELECT EXISTS (
         SELECT 1 FROM pg_namespace n WHERE n.nspname NOT IN ('pg_catalog','information_schema')

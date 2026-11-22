@@ -186,6 +186,22 @@ async fn assert_balanced(pool: &PgPool) {
 }
 
 #[sqlx::test(migrations = false)]
+async fn busy_installation_lock_reports_conflict_before_schema_creation(pool: PgPool) {
+    let mut owner = pool.begin().await.unwrap();
+    sqlx::query("SELECT pg_advisory_xact_lock(741803120)")
+        .execute(&mut *owner)
+        .await
+        .unwrap();
+    assert_eq!(core_schema::init(&pool).await, Err(IdentityError::Conflict));
+    let empty: bool = sqlx::query_scalar("SELECT to_regnamespace('core_meta') IS NULL")
+        .fetch_one(&mut *owner)
+        .await
+        .unwrap();
+    assert!(empty);
+    owner.rollback().await.unwrap();
+}
+
+#[sqlx::test(migrations = false)]
 async fn complete_installation_is_atomic_and_drift_is_rejected(pool: PgPool) {
     let (a, b) = tokio::join!(core_schema::init(&pool), core_schema::init(&pool));
     assert_eq!(usize::from(a.is_ok()) + usize::from(b.is_ok()), 1);
