@@ -3,10 +3,13 @@
 Only discovery and validation execute; no database or payment process is created.
 """
 import ast
+import hashlib
+import json
 import os
 import re
 from pathlib import Path
 import subprocess
+import tempfile
 from types import SimpleNamespace
 import unittest
 from unittest import mock
@@ -48,6 +51,43 @@ class FailureDiagnosticsTests(unittest.TestCase):
         for raw in ("postgresql://user:secret@localhost/db", "panicked at /private/credential:1:2:", "panicked at tests/payments_live_process.rs:0:2:"):
             with self.subTest(raw=raw):
                 self.assertIsNone(self.location(raw))
+
+
+    def diagnostics(self):
+        names = {"sha", "redacted_log_diagnostics", "product_startup_diagnostics"}
+        helpers = [node for node in TREE.body if isinstance(node, ast.FunctionDef) and node.name in names]
+        namespace = {"re": re, "hashlib": hashlib}
+        exec(compile(ast.Module(body=helpers, type_ignores=[]), str(SOURCE), "exec"), namespace)
+        return namespace
+
+    def test_startup_failure_categories_do_not_publish_private_logs(self):
+        raw = b"Error: Unavailable\nERROR: permission denied for schema core_payments\n" \
+              b"STATEMENT:  SELECT 'private-dsn-and-token';\nunknown secret text"
+        result = self.diagnostics()["redacted_log_diagnostics"](raw)
+        self.assertEqual(result["categories"], ["core_unavailable", "database_permission_denied", "database_schema_permission_denied:core_payments"])
+        self.assertEqual(result["observed_sha256"], hashlib.sha256(raw).hexdigest())
+        self.assertEqual(len(result["statement_sha256"]), 1)
+        self.assertNotIn("private-dsn-and-token", json.dumps(result))
+        self.assertNotIn("unknown secret text", json.dumps(result))
+
+    def test_actual_product_logs_distinguish_early_exit_from_ready_product(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            product = root / "pay-synthetic"
+            product.mkdir()
+            (product / "core-initial.log").write_bytes(b"Core startup completed\n")
+            (product / "core-initial.log.identity.ready.json").write_text('{"stage":"ready"}')
+            (product / "go-main.log").write_bytes(b"payment storage contract unavailable\n")
+            result = self.diagnostics()["product_startup_diagnostics"](root)
+        self.assertIn("ready", result["core-initial.log"]["saved_identity_stages"])
+        self.assertEqual(result["go-main.log"]["saved_identity_stages"], {})
+        self.assertEqual(result["go-main.log"]["categories"], ["payment_storage_contract_unavailable"])
+
+    def test_unknown_error_contents_remain_only_a_digest(self):
+        raw = b"Error: arbitrary private configuration and password"
+        result = self.diagnostics()["redacted_log_diagnostics"](raw)
+        self.assertEqual(result["categories"], [])
+        self.assertNotIn("password", json.dumps(result))
 
 
 class DiscoveryTests(unittest.TestCase):

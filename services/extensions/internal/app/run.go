@@ -16,6 +16,7 @@ import (
 
 	"github.com/TokenNotIncluded/lmm-api/extensions/internal/composition"
 	"github.com/TokenNotIncluded/lmm-api/extensions/internal/coreclient"
+	"github.com/TokenNotIncluded/lmm-api/extensions/internal/edgecontext"
 	"github.com/TokenNotIncluded/lmm-api/extensions/internal/legal"
 	"github.com/TokenNotIncluded/lmm-api/extensions/internal/modules"
 	"github.com/TokenNotIncluded/lmm-api/extensions/internal/modules/assistant_services"
@@ -66,6 +67,10 @@ func Run() error {
 	if err != nil {
 		return err
 	}
+	assistantDependencies, err := assistantServiceDependencies(cfg)
+	if err != nil {
+		return err
+	}
 	runtime, err := composition.New(context.Background(), composition.Config{
 		Checkins: composition.StorageConfig{Component: "checkins", URLFile: cfg.Checkins.DatabaseURLFile, Database: cfg.Checkins.DatabaseName}, CheckinTokenFile: cfg.Core.CheckinTokenFile,
 		HeroSMSSocket: cfg.HeroSMS.CoreSocket, HeroSMSTokenFile: cfg.HeroSMS.CoreTokenFile,
@@ -77,22 +82,23 @@ func Run() error {
 		ToolMarketBuiltins:         cfg.ToolMarket.Builtins.composition(),
 		ToolMarketWitnessSocket:    cfg.ToolMarket.FixedWitnessSocket, ToolMarketWitnessTokenFile: cfg.ToolMarket.FixedWitnessTokenFile,
 		ToolMarket: composition.StorageConfig{Component: "toolmarket", URLFile: cfg.ToolMarket.DatabaseURLFile, Database: cfg.ToolMarket.DatabaseName}, ToolMarketKeyFile: cfg.ToolMarket.EncryptionKeyFile, ToolMarketMeteringFile: cfg.ToolMarket.MeteringConfigFile, ToolMarketCallbackURL: cfg.ToolMarket.CallbackURL, ToolMarketSocket: cfg.ToolMarket.CoreSocket, ToolMarketTokenFile: cfg.ToolMarket.CoreTokenFile,
-		CommerceTokenFile:         cfg.Core.CommerceTokenFile,
-		DirectoryAdTokenFile:      cfg.Core.DirectoryAdTokenFile,
-		AssistantTokenFile:        cfg.Core.AssistantTokenFile,
-		AssistantAgentRequired:    cfg.Assistant.AgentRequired,
-		AssistantServicesPolicies: assistant_services.PublishedLegalReader{Handler: policies},
-		PaymentTokenFile:          cfg.Core.PaymentTokenFile,
-		PaymentConfigFile:         cfg.Payments.ConfigFile,
-		Payments:                  composition.StorageConfig{Component: "payments", URLFile: cfg.Payments.DatabaseURLFile, Database: cfg.Payments.DatabaseName},
-		Store:                     composition.StorageConfig{Component: "store", URLFile: cfg.Store.DatabaseURLFile, Database: cfg.Store.DatabaseName},
-		StorePickupMail:           cfg.Store.PickupMail,
-		StoreStockKeyFile:         cfg.Store.StockKeyFile,
-		StoreExtoreKeyFile:        cfg.Store.ExtoreKeyFile,
-		StoreExtoreRedirectURI:    cfg.Store.ExtoreRedirectURI,
-		StoreExtorePlugin:         cfg.Store.ExtorePlugin,
-		Support:                   composition.StorageConfig{Component: "support", URLFile: cfg.Support.DatabaseURLFile, Database: cfg.Support.DatabaseName},
-		Assistant:                 composition.StorageConfig{Component: "assistant", URLFile: cfg.Assistant.DatabaseURLFile, Database: cfg.Assistant.DatabaseName}, AssistantCursorKeyFile: cfg.Assistant.CursorKeyFile,
+		CommerceTokenFile:             cfg.Core.CommerceTokenFile,
+		DirectoryAdTokenFile:          cfg.Core.DirectoryAdTokenFile,
+		AssistantTokenFile:            cfg.Core.AssistantTokenFile,
+		AssistantAgentRequired:        cfg.Assistant.AgentRequired,
+		AssistantServicesPolicies:     assistant_services.PublishedLegalReader{Handler: policies},
+		AssistantServicesDependencies: assistantDependencies,
+		PaymentTokenFile:              cfg.Core.PaymentTokenFile,
+		PaymentConfigFile:             cfg.Payments.ConfigFile,
+		Payments:                      composition.StorageConfig{Component: "payments", URLFile: cfg.Payments.DatabaseURLFile, Database: cfg.Payments.DatabaseName},
+		Store:                         composition.StorageConfig{Component: "store", URLFile: cfg.Store.DatabaseURLFile, Database: cfg.Store.DatabaseName},
+		StorePickupMail:               cfg.Store.PickupMail,
+		StoreStockKeyFile:             cfg.Store.StockKeyFile,
+		StoreExtoreKeyFile:            cfg.Store.ExtoreKeyFile,
+		StoreExtoreRedirectURI:        cfg.Store.ExtoreRedirectURI,
+		StoreExtorePlugin:             cfg.Store.ExtorePlugin,
+		Support:                       composition.StorageConfig{Component: "support", URLFile: cfg.Support.DatabaseURLFile, Database: cfg.Support.DatabaseName},
+		Assistant:                     composition.StorageConfig{Component: "assistant", URLFile: cfg.Assistant.DatabaseURLFile, Database: cfg.Assistant.DatabaseName}, AssistantCursorKeyFile: cfg.Assistant.CursorKeyFile,
 		Operations: composition.StorageConfig{Component: "operations", URLFile: cfg.Operations.DatabaseURLFile, Database: cfg.Operations.DatabaseName}, Scripts: scripts, ScriptRepositoryKeyFile: cfg.Scripts.RepositoryKeyFile, IoNetKeyFile: cfg.IoNet.KeyFile,
 		UserReadTokenFile: cfg.Core.UserReadTokenFile,
 		UserReadSocket:    cfg.Core.UserReadSocket,
@@ -251,7 +257,7 @@ func serveAndDrain(ctx context.Context, server *http.Server, listener net.Listen
 // listenerHandler guards the actual listener entry before either the legal or
 // host mux can canonicalize a script path, even without Web compatibility.
 func listenerHandler(policies *legal.Handler, api http.Handler) http.Handler {
-	return webcompat.OperationsGuard(policies.Mount(api))
+	return edgecontext.Capture(webcompat.OperationsGuard(policies.Mount(api)))
 }
 
 func readHostCredential(path string) ([]byte, error) {

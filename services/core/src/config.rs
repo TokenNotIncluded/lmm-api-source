@@ -2099,6 +2099,11 @@ pub async fn assistant_rpc(
     if gift_enabled {
         rpc = rpc.with_gifts(crate::gift::GiftStore::new(pool.clone()));
     }
+    if let Some(edge) = edge_access_config()? {
+        let proof = crate::internal_rpc::read_service_token(&edge.proof_file)
+            .map_err(|_| invalid_config("assistant edge proof unavailable"))?;
+        rpc = rpc.with_edge_proof(proof);
+    }
     if tools_enabled {
         // Read-only startup checks: no schema creation and no synthetic Session.
         sqlx::query("SELECT o.id,o.arguments_json,o.resource_schema_sha256,o.resource_price_sha256,t.session_id,t.host_policy,t.source_web_session_sid,r.model_request_id,c.id FROM core_assistant.agent_tool_operations o JOIN core_assistant.agent_turns t ON t.id=o.turn_id JOIN core_assistant.agent_rounds r ON r.id=o.round_id LEFT JOIN core_assistant_tools.confirmations c ON c.operation_id=o.id WHERE FALSE")
@@ -2521,11 +2526,9 @@ pub async fn financial_rpcs(url: &str, control_token: &[u8]) -> io::Result<Finan
         if config.version != 1 {
             return Err(invalid_config("unsupported reward funding configuration"));
         }
-        let turnstile = turnstile_config::load()?.ok_or_else(|| {
-            invalid_config("check-in rewards require Turnstile site and secret keys")
-        })?;
         let origin = setting("LMM_CORE_WEB_ORIGIN")
             .map_err(|_| invalid_config("check-in rewards require a Web origin"))?;
+        let turnstile = config.load_turnstile(&origin)?;
         let rp_id = setting("LMM_CORE_WEB_PASSKEY_RP_ID").ok();
         let passkeys = web_passkeys(&origin, rp_id.as_deref())?;
         let challenges = crate::checkin_challenge::ChallengeConfig::new(
@@ -3021,6 +3024,19 @@ struct RewardFundingConfig {
     version: u32,
     max_daily_units: i64,
     require_passkey: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    turnstile: Option<turnstile_config::TurnstileFile>,
+}
+
+impl RewardFundingConfig {
+    fn load_turnstile(&self, origin: &str) -> io::Result<turnstile_config::Turnstile> {
+        match &self.turnstile {
+            Some(config) => config.load(origin),
+            None => turnstile_config::load()?.ok_or_else(|| {
+                invalid_config("check-in rewards require Turnstile site and secret keys")
+            }),
+        }
+    }
 }
 
 impl<'de> Deserialize<'de> for RewardFundingConfig {
@@ -3032,6 +3048,7 @@ impl<'de> Deserialize<'de> for RewardFundingConfig {
             max_daily_units: crate::billing::Credits,
             #[serde(default = "require_checkin_passkey")]
             require_passkey: bool,
+            turnstile: Option<turnstile_config::TurnstileFile>,
         }
         #[derive(Deserialize)]
         #[serde(deny_unknown_fields)]
@@ -3040,6 +3057,7 @@ impl<'de> Deserialize<'de> for RewardFundingConfig {
             max_daily_units_by_trust: [crate::billing::Credits; 5],
             #[serde(default = "require_checkin_passkey")]
             require_passkey: bool,
+            turnstile: Option<turnstile_config::TurnstileFile>,
         }
         #[derive(Deserialize)]
         #[serde(untagged)]
@@ -3056,11 +3074,13 @@ impl<'de> Deserialize<'de> for RewardFundingConfig {
                 version: input.version,
                 max_daily_units: input.max_daily_units.into(),
                 require_passkey: input.require_passkey,
+                turnstile: input.turnstile,
             },
             Input::Legacy(input) => Self {
                 version: input.version,
                 max_daily_units: input.max_daily_units_by_trust[4].into(),
                 require_passkey: input.require_passkey,
+                turnstile: input.turnstile,
             },
         })
     }

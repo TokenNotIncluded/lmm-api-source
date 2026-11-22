@@ -35,7 +35,7 @@ func TestSettingsAmountsAndUniformRewardsRemainExact(t *testing.T) {
 func TestSettingsPostgresUpgradePersistenceAndConflicts(t *testing.T) {
 	owner := testDB(t, "OWNER")
 	ctx := context.Background()
-	if _, e := owner.Exec(Schema); e != nil {
+	if _, e := owner.Exec(Schema + "\n" + LegacyHistorySchema); e != nil {
 		t.Fatal(e)
 	}
 	const role = "checkins_test_runtime"
@@ -86,7 +86,7 @@ func TestSettingsPostgresUpgradePersistenceAndConflicts(t *testing.T) {
 	}
 	admin.Close()
 	if _, e = owner.Exec(`GRANT USAGE ON SCHEMA lmm_checkins TO checkins_test_runtime;
- GRANT SELECT ON lmm_checkins.contract,lmm_checkins.policy_revisions,lmm_checkins.active_policy,lmm_checkins.intentions,lmm_checkins.claim_commands TO checkins_test_runtime;
+ GRANT SELECT ON lmm_checkins.contract,lmm_checkins.policy_revisions,lmm_checkins.active_policy,lmm_checkins.intentions,lmm_checkins.claim_commands,lmm_checkins.legacy_history_contract,lmm_checkins.legacy_history TO checkins_test_runtime;
  GRANT INSERT ON lmm_checkins.intentions,lmm_checkins.claim_commands TO checkins_test_runtime;
  GRANT UPDATE(state,record) ON lmm_checkins.intentions TO checkins_test_runtime;
  GRANT UPDATE(result) ON lmm_checkins.claim_commands TO checkins_test_runtime;`); e != nil {

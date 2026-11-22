@@ -9643,6 +9643,7 @@
     "Reset used quota": "Сбросить использованную квоту",
     "Reset used quota for all current active subscriptions on {{plan}}? Expiry and reset schedule will not change.": "Сбросить использованную квоту для всех текущих активных подписок плана {{plan}}? Срок действия и расписание сброса не изменятся.",
     "Reset voucher expiration": "Срок действия ваучера сброса",
+    "Reset voucher received": "Ваучер сброса получен",
     "Resets {{date}}": "Сброс: {{date}}",
     "Resets at {{time}} UTC": "Обновление: {{time}} UTC",
     "Resets in:": "Сброс через:",

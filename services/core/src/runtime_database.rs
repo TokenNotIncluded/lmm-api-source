@@ -10,10 +10,13 @@ mod channel_projection;
 mod checkin_challenges;
 mod checkins;
 mod federated_auth;
+mod legacy_discount_packet;
+mod legacy_gifts;
 mod managed_applications;
 mod operations;
 mod personal_tokens;
 mod product_features;
+mod subscription_resets;
 mod telegram;
 mod tool_market_credit;
 mod trust_policy;
@@ -122,6 +125,36 @@ pub(crate) async fn check_connection(
         if !connections {
             return Err(RuntimeDatabaseError::MissingPrivileges);
         }
+        let current_tables: i64 = sqlx::query_scalar(
+            "SELECT count(*)::bigint FROM pg_catalog.pg_class c
+             JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace
+             WHERE n.nspname='core_history'
+               AND c.relname IN ('current_connection_snapshot','current_connection_credential_map')",
+        )
+        .fetch_one(&mut *connection)
+        .await?;
+        if current_tables != 0 {
+            if current_tables != 2 {
+                return Err(RuntimeDatabaseError::MissingPrivileges);
+            }
+            let current_readable: bool = sqlx::query_scalar(
+                "SELECT NOT EXISTS(SELECT FROM (VALUES
+                 ('core_history.current_connection_snapshot','document'),
+                 ('core_history.current_connection_snapshot','mapping'),
+                 ('core_history.current_connection_snapshot','snapshot_observed_at'),
+                 ('core_history.current_connection_snapshot','target_database'),
+                 ('core_history.current_connection_snapshot','target_database_oid'),
+                 ('core_history.current_connection_snapshot','target_nonce'),
+                 ('core_history.current_connection_credential_map','target_credential_id'))
+                 needed(relation,column_name)
+                 WHERE NOT has_column_privilege(relation,column_name,'SELECT'))",
+            )
+            .fetch_one(&mut *connection)
+            .await?;
+            if !current_readable {
+                return Err(RuntimeDatabaseError::MissingPrivileges);
+            }
+        }
     }
     let unsafe_role: bool = sqlx::query_scalar(r#"
         SELECT current_user<>session_user
@@ -211,7 +244,7 @@ pub(crate) async fn check_connection(
             OR (n.nspname='core_assistant' AND has_any_column_privilege(c.oid,'REFERENCES'))
             OR (n.nspname='core_gift' AND (has_table_privilege(c.oid,'TRUNCATE,TRIGGER,REFERENCES,MAINTAIN')
               OR has_any_column_privilege(c.oid,'REFERENCES')
-              OR (c.relname<>'fingerprints' AND has_table_privilege(c.oid,'DELETE'))
+              OR (c.relname NOT IN ('fingerprints','legacy_fingerprints') AND has_table_privilege(c.oid,'DELETE'))
               OR (c.relname='fingerprints' AND (has_table_privilege(c.oid,'UPDATE') OR has_any_column_privilege(c.oid,'UPDATE')))))
             OR (n.nspname='core_abuse' AND (has_table_privilege(c.oid,'TRUNCATE,TRIGGER,REFERENCES,MAINTAIN')
               OR (c.relname NOT IN ('model_counters','model_leases') AND has_table_privilege(c.oid,'DELETE'))
@@ -219,8 +252,13 @@ pub(crate) async fn check_connection(
             OR (n.nspname='core_oauth' AND has_table_privilege(c.oid,'DELETE,TRUNCATE,TRIGGER,REFERENCES,MAINTAIN'))
             OR (n.nspname='core_assistant_tools' AND (has_table_privilege(c.oid,'DELETE,TRUNCATE,TRIGGER,REFERENCES,MAINTAIN') OR has_any_column_privilege(c.oid,'REFERENCES')))
             OR (n.nspname='core_market_oauth' AND has_table_privilege(c.oid,'DELETE,TRUNCATE,TRIGGER,REFERENCES,MAINTAIN'))
-            OR (n.nspname='core_meta' AND c.relname IN ('console_revisions','offline_upgrades','site_finance_upgrades','payment_gateway_upgrades','completion_upgrades','payment_discount_upgrades','payment_discount_management_upgrades','responses_continuity_upgrades')
+            OR (n.nspname='core_meta' AND c.relname IN ('console_revisions','offline_upgrades','site_finance_upgrades','payment_gateway_upgrades','completion_upgrades','payment_discount_upgrades','payment_discount_management_upgrades','responses_continuity_upgrades','assistant_service_funding_upgrades','assistant_agent_gift_upgrades','current_connection_history_upgrades')
               AND (has_table_privilege(c.oid,'SELECT') OR has_any_column_privilege(c.oid,'SELECT')))
+            OR (n.nspname='core_history' AND c.relname IN ('current_connection_snapshot','current_connection_credential_map')
+              AND EXISTS(SELECT FROM pg_catalog.pg_attribute a WHERE a.attrelid=c.oid AND a.attnum>0 AND NOT a.attisdropped
+                AND NOT ((c.relname='current_connection_snapshot' AND a.attname IN ('document','mapping','snapshot_observed_at','target_database','target_database_oid','target_nonce'))
+                  OR (c.relname='current_connection_credential_map' AND a.attname='target_credential_id'))
+                AND has_column_privilege(c.oid,a.attnum,'SELECT')))
             OR (n.nspname='public' AND c.relname IN ('channel_release_bindings','channel_secret_revisions')
               AND (has_table_privilege(c.oid,'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,TRIGGER,REFERENCES,MAINTAIN')
                 OR has_any_column_privilege(c.oid,'SELECT,INSERT,UPDATE,REFERENCES')))
@@ -305,6 +343,24 @@ pub(crate) async fn check_connection(
     checkins::check(connection, required.checkins).await?;
     checkin_challenges::check(connection, required.checkin_rewards).await?;
     product_features::check(connection, required.console).await?;
+    legacy_discount_packet::check(connection, required.payments, required.console).await?;
+    legacy_gifts::check(
+        connection,
+        required.assistant || required.assistant_agent || required.web_identity,
+    )
+    .await?;
+    subscription_resets::check(
+        connection,
+        required.console
+            || required.models
+            || required.images
+            || required.commerce
+            || required.directory_ads
+            || required.assistant
+            || required.assistant_agent
+            || required.tool_market,
+    )
+    .await?;
     account_security::check(connection, required.web_identity).await?;
     personal_tokens::check(connection, required.web_identity).await?;
     channel_accounting::check(connection, required.models).await?;

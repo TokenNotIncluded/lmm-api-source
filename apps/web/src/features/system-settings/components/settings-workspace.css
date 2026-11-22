@@ -112,12 +112,20 @@
     button[role='combobox'],
     textarea
   ) {
+  border-color: color-mix(in oklch, var(--input) 75%, var(--background));
   border-radius: 0.5rem;
   background: var(--background);
-  box-shadow: none;
   transition:
     border-color 0.15s,
     box-shadow 0.15s;
+}
+.settings-workspace
+  :is(
+    input:not([type='checkbox']):not([type='radio']):not([type='hidden']),
+    button[role='combobox'],
+    textarea
+  ):hover:not(:disabled):not(:focus-visible):not([aria-invalid='true']) {
+  border-color: var(--muted-foreground);
 }
 .settings-workspace
   :is(
@@ -135,8 +143,17 @@
     input:not([type='checkbox']):not([type='radio']):not([type='hidden']),
     button[role='combobox'],
     textarea
-  ):focus-visible {
+  ):focus-visible:not([aria-invalid='true']) {
+  border-color: var(--ring);
   box-shadow: 0 0 0 3px color-mix(in oklch, var(--ring) 16%, transparent);
+}
+.settings-workspace
+  :is(
+    input:not([type='checkbox']):not([type='radio']):not([type='hidden']),
+    button[role='combobox'],
+    textarea
+  )[aria-invalid='true'] {
+  border-color: var(--destructive);
 }
 .settings-workspace .settings-switch-row {
   padding-block: 1.25rem;

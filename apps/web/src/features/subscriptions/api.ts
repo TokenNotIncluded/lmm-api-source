@@ -21,6 +21,8 @@ import { isAxiosError } from 'axios'
 import {
   CommerceFailure,
   commerceScope,
+  currentCommerceScope,
+  type CommerceScope,
 } from '@/features/commerce/native-client'
 import { api } from '@/lib/api'
 import type { WaffoPancakeCheckoutLanguage } from '@/lib/waffo-pancake-checkout'
@@ -229,19 +231,46 @@ export async function getSelfSubscriptionFull(): Promise<
   }
 }
 
-export async function getSubscriptionResetVouchers(): Promise<
-  ApiResponse<SubscriptionResetVoucher[]>
-> {
-  const res = await api.get('/api/subscription/self/reset-vouchers')
+export const resetVoucherQueryKey = (scope?: CommerceScope) =>
+  scope
+    ? ['subscription-reset-vouchers', scope.userId, scope.sessionId]
+    : ['subscription-reset-vouchers']
+
+export async function getSubscriptionResetVouchers(
+  scope?: CommerceScope
+): Promise<ApiResponse<SubscriptionResetVoucher[]>> {
+  if (scope && !currentCommerceScope(scope)) {
+    throw new CommerceFailure('SESSION_CHANGED')
+  }
+  const res = scope
+    ? await api.get('/api/subscription/self/reset-vouchers', {
+        authScope: scope,
+        skipAuthRefresh: true,
+      })
+    : await api.get('/api/subscription/self/reset-vouchers')
+  if (scope && !currentCommerceScope(scope)) {
+    throw new CommerceFailure('SESSION_CHANGED')
+  }
   return res.data
 }
 
 export async function redeemSubscriptionResetVoucher(
-  voucherId: number
+  voucherId: number,
+  scope?: CommerceScope
 ): Promise<ApiResponse<SubscriptionResetResult>> {
-  const res = await api.post(
-    `/api/subscription/self/reset-vouchers/${voucherId}/redeem`
-  )
+  if (scope && !currentCommerceScope(scope)) {
+    throw new CommerceFailure('SESSION_CHANGED')
+  }
+  const path = `/api/subscription/self/reset-vouchers/${voucherId}/redeem`
+  const res = scope
+    ? await api.post(path, undefined, {
+        authScope: scope,
+        skipAuthRefresh: true,
+      })
+    : await api.post(path)
+  if (scope && !currentCommerceScope(scope)) {
+    throw new CommerceFailure('SESSION_CHANGED')
+  }
   return res.data
 }
 

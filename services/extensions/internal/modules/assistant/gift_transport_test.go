@@ -36,6 +36,10 @@ func (s *assistantRPCFixture) GetNewUserGift(ctx context.Context, _ *pb.Assistan
 		return &pb.AssistantGiftStatus{}, nil
 	}
 	r := &pb.AssistantGiftStatus{Gift: giftRPCReceiptFixture()}
+	if s.giftMode == "legacy" {
+		r.Gift.LedgerTransactionId = ""
+		r.Gift.ClaimBlockedCode = "already_claimed_legacy"
+	}
 	if s.giftMode == "unknown-field" {
 		r.ProtoReflect().SetUnknown([]byte{0x98, 0x06, 0x01})
 	}
@@ -53,6 +57,11 @@ func (s *assistantRPCFixture) ClaimStoredNewUserGift(ctx context.Context, _ *pb.
 		return nil, status.Error(codes.Unavailable, "private storage or credential detail")
 	}
 	r := &pb.AssistantGiftClaim{Gift: giftRPCReceiptFixture(), AlreadyClaimed: true}
+	if s.giftMode == "legacy" || s.giftMode == "legacy-new-claim" {
+		r.Gift.LedgerTransactionId = ""
+		r.Gift.ClaimBlockedCode = "already_claimed_legacy"
+		r.AlreadyClaimed = s.giftMode == "legacy"
+	}
 	if s.giftMode == "unknown-enum" {
 		r.Gift.State = pb.AssistantGiftState(99)
 	}
@@ -86,7 +95,7 @@ func TestGiftUDSNeedsIndependentCapabilityAndCarriesOriginalSession(t *testing.T
 }
 
 func TestGiftUDSMalformedOrUnknownACKNeverRetries(t *testing.T) {
-	for _, mode := range []string{"lost-ack", "unknown-enum", "no-ledger"} {
+	for _, mode := range []string{"lost-ack", "unknown-enum", "no-ledger", "legacy-new-claim"} {
 		t.Run(mode, func(t *testing.T) {
 			peer := &assistantRPCFixture{giftFeature: true, major: 1, giftMode: mode}
 			_, client := newAssistantRPCFixture(t, peer)
@@ -107,5 +116,22 @@ func TestGiftUDSMalformedOrUnknownACKNeverRetries(t *testing.T) {
 	port, _ = NewPersonalGiftPort(client)
 	if value, err := port.GetNewUserGift(context.Background(), assistantSessionFixture); err != nil || value != nil || peer.giftCalls().claims != 0 {
 		t.Fatal(value, err)
+	}
+}
+
+func TestLegacyGiftUDSRetainsHistoricalClaimWithoutNativeJournal(t *testing.T) {
+	peer := &assistantRPCFixture{giftFeature: true, major: 1, giftMode: "legacy"}
+	_, client := newAssistantRPCFixture(t, peer)
+	port, _ := NewPersonalGiftPort(client)
+	r, err := port.GetNewUserGift(context.Background(), assistantSessionFixture)
+	if err != nil || r == nil || r.State != "claimed" || r.LedgerTransactionID != "" || r.ClaimBlockedCode != "already_claimed_legacy" {
+		t.Fatal("historical read was not preserved", err)
+	}
+	claim, already, err := port.ClaimStoredNewUserGift(context.Background(), assistantSessionFixture)
+	if err != nil || !already || claim.LedgerTransactionID != "" || claim.ClaimBlockedCode != "already_claimed_legacy" {
+		t.Fatal("historical replay became a new ledger claim", err)
+	}
+	if peer.giftCalls().reads != 1 || peer.giftCalls().claims != 1 {
+		t.Fatal("unexpected replay count")
 	}
 }

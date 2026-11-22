@@ -3078,6 +3078,9 @@ async fn credit_quantity_signed_credit_and_controlled_remaining_hold(pool: PgPoo
     balance(&f, 0, 498_507).await;
 }
 
+#[path = "common/payment_discount_continuity.rs"]
+mod continuity_fixture;
+
 #[path = "payments/app05.rs"]
 mod app05;
 

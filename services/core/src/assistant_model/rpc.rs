@@ -3,6 +3,7 @@
 use super::{AssistantModel, Binding, Error, Operation, State};
 use crate::internal_rpc::pb;
 use sha2::{Digest, Sha256};
+use std::{net::IpAddr, sync::Arc};
 use subtle::ConstantTimeEq;
 use tonic::{Request, Response, Status, metadata::MetadataMap};
 
@@ -12,6 +13,7 @@ pub struct AssistantRpc {
     token_digest: [u8; 32],
     enabled: bool,
     gifts: Option<crate::gift::GiftStore>,
+    edge_proof: Option<Arc<[u8]>>,
     agent: Option<super::agent::store::AgentService>,
     agent_features: Vec<String>,
     facts: Option<crate::assistant_tools_core::facts::BusinessFactsStore>,
@@ -83,6 +85,7 @@ impl AssistantRpc {
             token_digest: Sha256::digest(token).into(),
             enabled,
             gifts: None,
+            edge_proof: None,
             agent: None,
             agent_features: Vec::new(),
             facts: None,
@@ -101,6 +104,21 @@ impl AssistantRpc {
     pub(crate) fn with_gifts(mut self, gifts: crate::gift::GiftStore) -> Self {
         self.gifts = Some(gifts);
         self
+    }
+    pub(crate) fn with_edge_proof(mut self, proof: Vec<u8>) -> Self {
+        self.edge_proof = Some(proof.into());
+        self
+    }
+    async fn observe_gift_peer(&self, session: &str, peer: Option<IpAddr>) -> Result<(), Status> {
+        if let (Some(gifts), Some(peer)) = (&self.gifts, peer) {
+            // GiftStore authenticates the original Session inside its transaction
+            // before recording a server observation. It never accepts a user ID.
+            gifts
+                .observe_peer(session, peer)
+                .await
+                .map_err(gift_status)?;
+        }
+        Ok(())
     }
     pub(crate) fn with_business_facts(
         mut self,
@@ -397,8 +415,10 @@ impl pb::core_assistant_model_server::CoreAssistantModel for AssistantRpc {
         r: Request<pb::AssistantTextReservation>,
     ) -> Result<Response<pb::AssistantOperationReceipt>, Status> {
         let session = self.session(r.metadata())?;
+        let peer = verified_edge_peer(self.edge_proof.as_deref(), r.metadata())?;
         let r = r.into_inner();
         let b = binding(r.binding)?;
+        self.observe_gift_peer(&session, peer).await?;
         Ok(Response::new(operation(
             self.service
                 .reserve_text(&session, &b, &r.text)
@@ -437,11 +457,13 @@ impl pb::core_assistant_model_server::CoreAssistantModel for AssistantRpc {
     ) -> Result<Response<pb::AssistantAgentTurn>, Status> {
         self.verify_agent_session(r.metadata()).await?;
         let session = self.session(r.metadata())?;
+        let peer = verified_edge_peer(self.edge_proof.as_deref(), r.metadata())?;
         let agent = self
             .agent
             .as_ref()
             .ok_or_else(|| Status::unimplemented("agent execution unavailable"))?;
         let input = r.into_inner();
+        self.observe_gift_peer(&session, peer).await?;
         let turn = agent
             .start(
                 &session,
@@ -610,11 +632,15 @@ impl pb::core_assistant_model_server::CoreAssistantModel for AssistantRpc {
         r: Request<pb::AssistantGiftRequest>,
     ) -> Result<Response<pb::AssistantGiftStatus>, Status> {
         let session = self.session(r.metadata())?;
+        let peer = verified_edge_peer(self.edge_proof.as_deref(), r.metadata())?;
         let gifts = self
             .gifts
             .as_ref()
             .ok_or_else(|| Status::unimplemented("gift model hook unavailable"))?;
-        let gift = gifts.get(&session).await.map_err(gift_status)?;
+        let gift = gifts
+            .get_with_peer(&session, peer)
+            .await
+            .map_err(gift_status)?;
         Ok(Response::new(pb::AssistantGiftStatus {
             gift: gift.map(wire_gift),
         }))
@@ -624,17 +650,50 @@ impl pb::core_assistant_model_server::CoreAssistantModel for AssistantRpc {
         r: Request<pb::AssistantGiftRequest>,
     ) -> Result<Response<pb::AssistantGiftClaim>, Status> {
         let session = self.session(r.metadata())?;
+        let peer = verified_edge_peer(self.edge_proof.as_deref(), r.metadata())?;
         let gifts = self
             .gifts
             .as_ref()
             .ok_or_else(|| Status::unimplemented("gift model hook unavailable"))?;
-        let (gift, already_claimed) = gifts.claim_stored(&session).await.map_err(gift_status)?;
+        let (gift, already_claimed) = gifts
+            .claim_stored_with_peer(&session, peer)
+            .await
+            .map_err(gift_status)?;
         Ok(Response::new(pb::AssistantGiftClaim {
             gift: Some(wire_gift(gift)),
             already_claimed,
         }))
     }
 }
+
+// Called only after Assistant service credential/protocol checks on the private
+// UDS. Absence is compatible with standalone use; partial or forged assertions
+// are rejected and never become a client address.
+fn verified_edge_peer(
+    expected: Option<&[u8]>,
+    metadata: &MetadataMap,
+) -> Result<Option<IpAddr>, Status> {
+    let proofs = metadata.get_all(crate::edge_access::PROOF_HEADER);
+    let clients = metadata.get_all(crate::edge_access::CLIENT_HEADER);
+    let mut proofs = proofs.iter();
+    let mut clients = clients.iter();
+    let (proof, client) = (proofs.next(), clients.next());
+    if proof.is_none() && client.is_none() {
+        return Ok(None);
+    }
+    let denied = || Status::permission_denied("invalid assistant edge assertion");
+    if proofs.next().is_some() || clients.next().is_some() {
+        return Err(denied());
+    }
+    let proof = proof.ok_or_else(denied)?.to_str().map_err(|_| denied())?;
+    let client = client.ok_or_else(denied)?.to_str().map_err(|_| denied())?;
+    crate::edge_access::assertion_peer(expected.ok_or_else(denied)?, proof, client)
+        .map(Some)
+        .ok_or_else(denied)
+}
+
+#[cfg(test)]
+mod edge_tests;
 
 fn gift_status(error: crate::gift::Error) -> Status {
     match error {

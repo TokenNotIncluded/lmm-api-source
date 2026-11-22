@@ -40,6 +40,13 @@ WITH expected_schemas(name) AS (
       ('core_subscriptions','creem_state',true),
       ('core_subscriptions','creem_events',true),
       ('core_subscriptions','creem_cycles',true),
+      ('core_subscriptions','reset_codes',false),
+      ('core_subscriptions','reset_imported_grant_plans',false),
+      ('core_subscriptions','reset_vouchers',true),
+      ('core_subscriptions','reset_voucher_redemptions',true),
+      ('core_subscriptions','reset_previews',true),
+      ('core_subscriptions','reset_operations',true),
+      ('core_subscriptions','reset_events',true),
       ('core_promotions','secrets',false),
       ('core_promotions','campaigns',true),
       ('core_promotions','commands',true),
@@ -49,9 +56,15 @@ WITH expected_schemas(name) AS (
       ('core_promotions','red_packets',true),
       ('core_promotions','red_packet_items',true),
       ('core_promotions','red_packet_claims',true),
+      ('core_promotions','legacy_red_packet_bases',false),
+      ('core_promotions','legacy_red_packet_items',false),
+      ('core_promotions','legacy_red_packet_claim_links',false),
       ('core_notifications','preferences',true),
       ('core_notifications','inbox',true),
       ('core_notifications','price_events',false)
+), allowed_inserts(schema_name,table_name,column_name) AS (
+    VALUES ('core_promotions','legacy_red_packet_claim_links','claim_id'),
+           ('core_promotions','legacy_red_packet_claim_links','item_id')
 ), allowed_updates(schema_name,table_name,column_name) AS (
     VALUES
       ('core_subscriptions','plans','revision'),
@@ -108,6 +121,7 @@ WITH expected_schemas(name) AS (
       ('core_promotions','red_packets','updated_at'),
       ('core_promotions','red_packets','deleted_at'),
       ('core_promotions','red_packet_items','released_at'),
+      ('core_promotions','legacy_red_packet_items','released_at'),
       ('core_notifications','preferences','enabled'),
       ('core_notifications','preferences','low_balance_units'),
       ('core_notifications','preferences','below_threshold'),
@@ -117,6 +131,8 @@ WITH expected_schemas(name) AS (
 ), expected_sequences(schema_name,name) AS (
     VALUES ('core_subscriptions','plans_id_seq'),
            ('core_subscriptions','purchases_id_seq'),
+           ('core_subscriptions','reset_vouchers_id_seq'),
+           ('core_subscriptions','reset_events_id_seq'),
            ('core_promotions','red_packets_id_seq'),
            ('core_promotions','red_packet_items_id_seq'),
            ('core_promotions','red_packet_claims_id_seq'),
@@ -141,7 +157,12 @@ SELECT (
             'SELECT WITH GRANT OPTION,INSERT WITH GRANT OPTION,UPDATE WITH GRANT OPTION')
         OR (r.can_insert IS DISTINCT FROM true AND (
             pg_catalog.has_table_privilege(r.oid,'INSERT')
-            OR pg_catalog.has_any_column_privilege(r.oid,'INSERT')))
+            OR EXISTS(SELECT FROM pg_catalog.pg_attribute a
+                WHERE a.attrelid=r.oid AND a.attnum>0 AND NOT a.attisdropped
+                  AND pg_catalog.has_column_privilege(r.oid,a.attnum,'INSERT')
+                  AND NOT EXISTS(SELECT FROM allowed_inserts permitted
+                    WHERE permitted.schema_name=r.nspname AND permitted.table_name=r.relname
+                      AND permitted.column_name=a.attname))))
         OR (r.expected_name IS NULL AND (
             pg_catalog.has_table_privilege(r.oid,'SELECT')
             OR pg_catalog.has_any_column_privilege(r.oid,'SELECT'))))
@@ -183,6 +204,15 @@ SELECT (
         WHERE NOT COALESCE(pg_catalog.has_table_privilege(c.oid,'SELECT'),false)
             OR (e.can_insert
                 AND NOT COALESCE(pg_catalog.has_table_privilege(c.oid,'INSERT'),false)))
+    AND NOT EXISTS(
+        SELECT FROM allowed_inserts permitted
+        LEFT JOIN namespaces n ON n.nspname=permitted.schema_name
+        LEFT JOIN pg_catalog.pg_class c ON c.relnamespace=n.oid
+            AND c.relname=permitted.table_name AND c.relkind='r'
+        LEFT JOIN pg_catalog.pg_attribute a ON a.attrelid=c.oid
+            AND a.attname=permitted.column_name AND a.attnum>0 AND NOT a.attisdropped
+        WHERE a.attgenerated IS DISTINCT FROM ''
+            OR NOT COALESCE(pg_catalog.has_column_privilege(c.oid,a.attnum,'INSERT'),false))
     AND NOT EXISTS(
         SELECT FROM allowed_updates permitted
         LEFT JOIN namespaces n ON n.nspname=permitted.schema_name

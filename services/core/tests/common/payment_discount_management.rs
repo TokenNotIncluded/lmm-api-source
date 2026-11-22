@@ -12,6 +12,7 @@ async fn management(pool: &PgPool) -> Fixture {
     for ddl in [discounts::SCHEMA, discounts::MANAGEMENT_SCHEMA] {
         sqlx::raw_sql(ddl).execute(pool).await.unwrap();
     }
+    continuity_fixture::install(pool).await;
     f.store = IngressStore(
         PaymentsStore::new(
             pool.clone(),

@@ -9643,6 +9643,7 @@
     "Reset used quota": "Đặt lại mức sử dụng",
     "Reset used quota for all current active subscriptions on {{plan}}? Expiry and reset schedule will not change.": "Đặt lại mức sử dụng cho tất cả gói đăng ký hiện đang hoạt động trong {{plan}}? Ngày hết hạn và lịch đặt lại sẽ không thay đổi.",
     "Reset voucher expiration": "Hạn phiếu đặt lại",
+    "Reset voucher received": "Đã nhận phiếu đặt lại",
     "Resets {{date}}": "Đặt lại vào {{date}}",
     "Resets at {{time}} UTC": "Đặt lại lúc {{time}} UTC",
     "Resets in:": "Đặt lại sau:",

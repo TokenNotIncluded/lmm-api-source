@@ -99,14 +99,28 @@ func checkedGift(owner int64, r GiftReceipt) (NewUserGift, error) {
 			}
 		}
 	case "claimed":
-		journal, err := strconv.ParseInt(r.LedgerTransactionID, 10, 64)
-		if err != nil || journal <= 0 || strconv.FormatInt(journal, 10) != r.LedgerTransactionID || r.ClaimedAt < r.CreatedAt || r.ClaimAvailable || r.ClaimBlockedCode != "already_claimed" {
+		if r.ClaimedAt < r.CreatedAt || r.ClaimAvailable {
 			return NewUserGift{}, ErrGiftUnknown
+		}
+		if r.ClaimBlockedCode == "already_claimed_legacy" {
+			// This is an archived source receipt, never a fabricated Core journal.
+			if r.LedgerTransactionID != "" {
+				return NewUserGift{}, ErrGiftUnknown
+			}
+		} else {
+			journal, err := strconv.ParseInt(r.LedgerTransactionID, 10, 64)
+			if err != nil || journal <= 0 || strconv.FormatInt(journal, 10) != r.LedgerTransactionID || r.ClaimBlockedCode != "already_claimed" {
+				return NewUserGift{}, ErrGiftUnknown
+			}
 		}
 	default:
 		return NewUserGift{}, ErrGiftUnknown
 	}
-	return NewUserGift{ID: r.ID, Status: r.State, CreditAmount: r.CreditAmount, Quota: r.CreditAmount, CreatedAt: r.CreatedAt, ClaimedAt: r.ClaimedAt, Reason: "Welcome gift", AmountUnit: "LEGACY_CENTS", Currency: "USD", MaxCreditAmount: r.MaxCreditAmount, ClaimAvailable: r.ClaimAvailable, ClaimBlockedCode: r.ClaimBlockedCode}, nil
+	blocked := r.ClaimBlockedCode
+	if blocked == "already_claimed_legacy" {
+		blocked = "already_claimed"
+	}
+	return NewUserGift{ID: r.ID, Status: r.State, CreditAmount: r.CreditAmount, Quota: r.CreditAmount, CreatedAt: r.CreatedAt, ClaimedAt: r.ClaimedAt, Reason: "Welcome gift", AmountUnit: "LEGACY_CENTS", Currency: "USD", MaxCreditAmount: r.MaxCreditAmount, ClaimAvailable: r.ClaimAvailable, ClaimBlockedCode: blocked}, nil
 }
 
 func (s *Gifts) GetNewUserGift(ctx context.Context, credential string) (*NewUserGift, error) {
@@ -138,7 +152,7 @@ func (s *Gifts) ClaimStoredNewUserGift(ctx context.Context, credential string) (
 		return GiftClaim{}, err
 	}
 	value, err := checkedGift(owner, r)
-	if err != nil || value.Status != "claimed" {
+	if err != nil || value.Status != "claimed" || (r.ClaimBlockedCode == "already_claimed_legacy" && !already) {
 		return GiftClaim{}, ErrGiftUnknown
 	}
 	return GiftClaim{Gift: value, AlreadyClaimed: already}, nil

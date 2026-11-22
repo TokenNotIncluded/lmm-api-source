@@ -53,14 +53,7 @@ impl OAuthSource {
             return Err(IdentityError::Storage);
         }
         for (value, prefix) in [(&self.grant_id, "lmm_gr_"), (&self.access_id, "lmm_ac_")] {
-            if value.len() != prefix.len() + 64
-                || !value.starts_with(prefix)
-                || !value[prefix.len()..]
-                    .bytes()
-                    .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
-            {
-                return Err(IdentityError::Storage);
-            }
+            protocol::stored_handle(value, prefix).map_err(|_| IdentityError::Storage)?;
         }
         issuer::scope_groups(&self.scopes)?;
         Ok(())

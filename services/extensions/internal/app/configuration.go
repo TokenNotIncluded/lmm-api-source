@@ -80,10 +80,18 @@ type LegalConfig struct {
 	ConfigFile string `toml:"config_file"`
 }
 type AssistantConfig struct {
-	DatabaseName    string `toml:"database_name"`
-	DatabaseURLFile string `toml:"database_url_file"`
-	CursorKeyFile   string `toml:"cursor_key_file"`
-	AgentRequired   bool   `toml:"agent_required"`
+	DatabaseName    string                `toml:"database_name"`
+	DatabaseURLFile string                `toml:"database_url_file"`
+	CursorKeyFile   string                `toml:"cursor_key_file"`
+	AgentRequired   bool                  `toml:"agent_required"`
+	Search          AssistantSearchConfig `toml:"search"`
+}
+
+type AssistantSearchConfig struct {
+	Provider   string `toml:"provider"`
+	Endpoint   string `toml:"endpoint"`
+	APIKeyFile string `toml:"api_key_file"`
+	TimeoutMS  int64  `toml:"timeout_ms"`
 }
 
 type IoNetConfig struct {
@@ -145,6 +153,7 @@ func LoadConfig(path string) (GoConfig, error) {
 		switch key.String() {
 		case "checkins", "checkins.database_name", "checkins.database_url_file", "core.checkin_token_file", "hero_sms", "hero_sms.core_socket", "hero_sms.core_token_file", "market_review", "market_review.core_socket", "market_review.core_token_file", "market_review.settings_file",
 			"core.user_read_socket", "core.user_read_token_file", "core.assistant_token_file", "assistant", "assistant.database_name", "assistant.database_url_file", "assistant.cursor_key_file", "assistant.agent_required",
+			"assistant.search", "assistant.search.provider", "assistant.search.endpoint", "assistant.search.api_key_file", "assistant.search.timeout_ms",
 			"operations", "operations.database_name", "operations.database_url_file", "ionet", "ionet.key_file",
 			"community", "community.database_name", "community.database_url_file",
 			"acquisition", "acquisition.database_name", "acquisition.database_url_file",

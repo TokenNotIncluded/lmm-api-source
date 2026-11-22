@@ -25,3 +25,30 @@ func TestAvailableBindingsDoNotAdvertiseMissingDependencies(t *testing.T) {
 		t.Fatalf("full frozen manifest=%d", len(service.Bindings()))
 	}
 }
+
+func TestAvailableBindingsRegisterConfiguredSearchWithoutOtherAuthority(t *testing.T) {
+	provider, err := NewSearchProvider(SearchConfig{Provider: "exa", Endpoint: "http://127.0.0.1:1", APIKey: "synthetic-exa-key", LocalHTTP: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	before := (&Service{}).AvailableBindings()
+	after := (&Service{dependencies: Dependencies{Search: provider}}).AvailableBindings()
+	if len(after) != len(before)+1 {
+		t.Fatal("search injection changed unrelated tool availability")
+	}
+	previous := map[string]bool{}
+	for _, binding := range before {
+		previous[binding.Name] = true
+	}
+	search := 0
+	for _, binding := range after {
+		if binding.Name == "search_web" {
+			search++
+		} else if !previous[binding.Name] {
+			t.Fatal("search injection granted another remote tool")
+		}
+	}
+	if search != 1 {
+		t.Fatal("configured search was not registered exactly once")
+	}
+}

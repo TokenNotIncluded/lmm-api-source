@@ -36,19 +36,13 @@ WITH records AS MATERIALIZED (
 ), projected AS (
     SELECT page.*,quota.start_at AS window_start,quota.end_at AS window_end,
            quota.limit_credits::text AS limit_units,quota.unlimited,
-           (coalesce(opening.consumed_credits,0)+coalesce(usage.used,0))::text AS used_units,
-           coalesce(usage.reserved,0)::text AS reserved_units
+           coalesce(usage.used_credits,0)::text AS used_units,
+           coalesce(usage.reserved_credits,0)::text AS reserved_units
     FROM page
     LEFT JOIN core_charging.subscription_opening_consumption imported ON imported.subscription_id=page.id
     LEFT JOIN LATERAL core_charging.subscription_window(
         page.id,greatest(page.starts_at,coalesce(imported.start_at,page.starts_at),least($1,page.ends_at-1))) quota ON true
-    LEFT JOIN core_charging.subscription_opening_consumption opening
-           ON opening.subscription_id=page.id AND opening.start_at=quota.start_at
-    LEFT JOIN LATERAL (
-        SELECT sum(CASE WHEN r.state='settled' THEN r.settled-r.refunded ELSE 0 END) AS used,
-               sum(CASE WHEN r.state IN ('reserved','streaming','reconcile') THEN r.reserved ELSE 0 END) AS reserved
-        FROM core_charging.requests r WHERE r.source_subscription_id=page.id AND r.source_start=quota.start_at
-    ) usage ON true
+    LEFT JOIN LATERAL core_charging.subscription_consumption(page.id,quota.start_at,NULL) usage ON true
 )
 SELECT jsonb_build_object(
     'contract','core.subscriptions.v1',
