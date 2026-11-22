@@ -7,6 +7,16 @@ on:
         default: 0.1.0-preview
         required: true
         type: string
+      source_ref:
+        description: Exact product source commit, recorded separately from the workflow
+        default: ''
+        required: false
+        type: string
+      component:
+        description: Components to build
+        default: all
+        type: choice
+        options: [all, core]
   workflow_call:
     inputs:
       version:
@@ -15,6 +25,10 @@ on:
       source_ref:
         description: Exact source commit for isolated review
         default: ''
+        type: string
+      component:
+        description: Build all components or only core
+        default: all
         type: string
 permissions:
   contents: read
@@ -62,12 +76,16 @@ jobs:
       fail-fast: false
       matrix:
         component: [core, extensions, cli, web]
+        exclude: ${{ inputs.component == 'core' && fromJSON('[{"component":"extensions"},{"component":"cli"},{"component":"web"}]') || fromJSON('[]') }}
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     env:
       COMPONENT: ${{ matrix.component }}
       PACKAGE_VERSION: ${{ inputs.version }}
       CARGO_BUILD_JOBS: '2'
+      EXPECTED_SOURCE_REVISION: ${{ needs.contracts.outputs.source_revision }}
+      WORKFLOW_COMMIT_SHA: ${{ github.workflow_sha }}
+      WORKFLOW_SOURCE_REF: ${{ github.workflow_ref }}
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
         with:
@@ -85,10 +103,94 @@ jobs:
         run: |
           echo "SOURCE_REVISION=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
           echo "SOURCE_DATE_EPOCH=$(git show -s --format=%ct HEAD)" >> "$GITHUB_ENV"
+      - name: Record complete Core product inputs before building
+        if: matrix.component == 'core'
+        run: |
+          python3 -B - <<'PY'
+          import os, shutil, subprocess, sys
+          from pathlib import Path
+          sys.path.insert(0, "scripts")
+          import verify_model_process as v
+          os.umask(0o077)
+          out = Path(os.environ["RUNNER_TEMP"]) / "core-build-evidence"
+          out.mkdir(mode=0o700)
+          revision = subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()
+          status = subprocess.check_output(["git", "status", "--porcelain", "--untracked-files=no"], text=True)
+          provenance = {
+              "workflow_commit_sha": os.environ["WORKFLOW_COMMIT_SHA"],
+              "workflow_ref": os.environ["WORKFLOW_SOURCE_REF"],
+              "product_source_revision": revision,
+              "expected_source_revision": os.environ["EXPECTED_SOURCE_REVISION"],
+              "tracked_status_before": status,
+              "run_id": os.environ["GITHUB_RUN_ID"],
+              "run_attempt": os.environ["GITHUB_RUN_ATTEMPT"],
+              "dockerfile_sha256": v.sha(v.REPO / "deployment/docker/core.Dockerfile"),
+              "dockerignore_sha256": v.sha(v.REPO / ".dockerignore"),
+          }
+          v.record(out / "provenance.json", provenance)
+          if revision != provenance["expected_source_revision"] or status:
+              raise RuntimeError("product checkout differs from the frozen source revision")
+          v.record(out / "source-before.json", {"files": v.snapshot(v.PRODUCT_TREES, v.PRODUCT_FILES)})
+          shutil.copyfile(out / "source-before.json", out / "source-binding.json")
+          PY
       - name: Build core or extension binaries using their Docker compiler stage
         if: matrix.component == 'core' || matrix.component == 'extensions'
         run: |
+          if [[ "$COMPONENT" == core ]]; then
+            set +e
+            docker buildx build -f "deployment/docker/${COMPONENT}.Dockerfile"             --target binaries --output "type=local,dest=out/${COMPONENT}" . 2>&1 | tee "$RUNNER_TEMP/core-build-evidence/docker-build.log"
+            codes=("${PIPESTATUS[@]}")
+            printf '{"docker_exit_code":%s,"log_exit_code":%s}\n' "${codes[0]}" "${codes[1]}" > "$RUNNER_TEMP/core-build-evidence/command-result.json"
+            if (( codes[0] != 0 )); then exit "${codes[0]}"; fi
+            exit "${codes[1]}"
+          fi
           docker buildx build -f "deployment/docker/${COMPONENT}.Dockerfile"             --target binaries --output "type=local,dest=out/${COMPONENT}" .
+      - name: Record the actual Core build and source comparison
+        if: ${{ always() && matrix.component == 'core' }}
+        run: |
+          python3 -B - <<'PY'
+          import json, os, subprocess, sys
+          from pathlib import Path
+          os.umask(0o077)
+          out = Path(os.environ["RUNNER_TEMP"]) / "core-build-evidence"
+          out.mkdir(mode=0o700, exist_ok=True)
+          receipt = {"format": "lmm-core-docker-build-v1", "status": "FAIL",
+                     "exit_code": None, "source_drift": None,
+                     "source_binding_sha256": None, "binary_sha256": None}
+          try:
+              command = json.loads((out / "command-result.json").read_text())
+              receipt["exit_code"] = command["docker_exit_code"]
+              receipt["log_exit_code"] = command["log_exit_code"]
+              sys.path.insert(0, "scripts")
+              import verify_model_process as v
+              before = v.read_json(out / "source-before.json")["files"]
+              after = v.snapshot(v.PRODUCT_TREES, v.PRODUCT_FILES)
+              v.record(out / "source-after.json", {"files": after})
+              receipt["source_drift"] = sorted(name for name in before.keys() | after.keys()
+                                               if before.get(name) != after.get(name))
+              receipt["provenance"] = v.read_json(out / "provenance.json")
+              receipt["product_source_revision_after"] = subprocess.check_output(
+                  ["git", "rev-parse", "HEAD"], text=True).strip()
+              receipt["tracked_status_after"] = subprocess.check_output(
+                  ["git", "status", "--porcelain", "--untracked-files=no"], text=True)
+              receipt["source_before_sha256"] = v.sha(out / "source-before.json")
+              receipt["source_after_sha256"] = v.sha(out / "source-after.json")
+              receipt["binary_sha256"] = v.sha(v.regular(v.REPO / "out/core/lmm-core"))
+              if (receipt["exit_code"] != 0 or receipt["log_exit_code"] != 0
+                      or receipt["source_drift"] or receipt["tracked_status_after"]
+                      or receipt["provenance"]["tracked_status_before"]
+                      or receipt["product_source_revision_after"] != os.environ["EXPECTED_SOURCE_REVISION"]
+                      or receipt["provenance"]["product_source_revision"] != os.environ["EXPECTED_SOURCE_REVISION"]
+                      or v.read_json(out / "source-binding.json")["files"] != before):
+                  raise RuntimeError("Core build or frozen product inputs did not qualify")
+              receipt["source_binding_sha256"] = v.sha(v.regular(out / "source-binding.json"))
+              receipt["status"] = "PASS_SOURCE_BOUND_RELEASE_BUILD"
+          except Exception as error:
+              receipt["error"] = type(error).__name__ + ": " + str(error)
+          (out / "build-receipt.json").write_text(json.dumps(receipt, indent=2, sort_keys=True) + "\n")
+          print(json.dumps(receipt, sort_keys=True))
+          raise SystemExit(0 if receipt["status"] == "PASS_SOURCE_BOUND_RELEASE_BUILD" else 1)
+          PY
       - name: Build runtime image and inspect shipped resources
         if: matrix.component == 'core' || matrix.component == 'extensions'
         run: |
@@ -161,5 +263,13 @@ jobs:
         with:
           name: lmm-preview-${{ matrix.component }}-${{ env.SOURCE_REVISION }}
           path: out/distributions/*
+          if-no-files-found: error
+          retention-days: 7
+      - name: Preserve actual Core build evidence
+        if: ${{ always() && matrix.component == 'core' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: lmm-core-build-evidence-${{ needs.contracts.outputs.source_revision }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/core-build-evidence/*
           if-no-files-found: error
           retention-days: 7
