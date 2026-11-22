@@ -17,10 +17,11 @@ pub(super) fn limits() -> Value {
     json!({"max_price_quota":7,"max_total_quota":21,"max_calls":3,"lifetime_seconds":600})
 }
 pub(super) async fn seed(f: &ConfirmFixture, pool: &PgPool) {
+    let password = "synthetic-seller123";
     f.browser
         .register(&BrowserRegistration {
             username: "confirmation-seller",
-            password: "synthetic-seller-password123",
+            password,
             email: "",
         })
         .await
@@ -29,7 +30,7 @@ pub(super) async fn seed(f: &ConfirmFixture, pool: &PgPool) {
         .browser
         .login(
             "confirmation-seller",
-            "synthetic-seller-password123",
+            password,
             &BrowserSessionMetadata::default(),
         )
         .await

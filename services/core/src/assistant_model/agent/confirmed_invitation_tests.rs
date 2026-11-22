@@ -96,7 +96,7 @@ async fn invitation_confirmation_requires_original_pending_paid_operation_and_br
         "email":"recipient+tag@example.invalid",
         "invitation_code":code,
     });
-    let store = ConfirmationStore::new(pool.clone());
+    let store = ConfirmationStore::new(f.role.pool.clone());
     let mut changed = draft.clone();
     changed["email"] = json!("different@example.invalid");
     assert!(matches!(

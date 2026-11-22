@@ -21,12 +21,12 @@ fn credits(f: &ConfirmFixture) -> CreditStore {
         AssistantMarketRuntime::from_policy(f.agent.policy.clone()).unwrap(),
     )
 }
-async fn reviewed_fixed_policy(f: &ConfirmFixture) {
-    let pool = &f.agent.base.pool;
+async fn reviewed_fixed_policy(f: &ConfirmFixture, pool: &PgPool) {
+    let password = "synthetic-platform";
     f.browser
         .register(&BrowserRegistration {
             username: "market-platform",
-            password: "synthetic-platform-password123",
+            password,
             email: "",
         })
         .await
@@ -35,7 +35,7 @@ async fn reviewed_fixed_policy(f: &ConfirmFixture) {
         .browser
         .login(
             "market-platform",
-            "synthetic-platform-password123",
+            password,
             &BrowserSessionMetadata::default(),
         )
         .await
@@ -134,8 +134,11 @@ async fn paid_call(f: &ConfirmFixture, grant: &str) -> (String, AssistantReserve
         },
     )
 }
-async fn approved_call(f: &ConfirmFixture) -> (String, String, AssistantReserveRequest) {
-    reviewed_fixed_policy(f).await;
+async fn approved_call(
+    f: &ConfirmFixture,
+    owner_pool: &PgPool,
+) -> (String, String, AssistantReserveRequest) {
+    reviewed_fixed_policy(f, owner_pool).await;
     let approved = market_confirmation::approve(f).await;
     let grant = approved["receipt"]["execution_receipt"]["resource_id"]
         .as_str()
@@ -185,7 +188,7 @@ async fn assistant_market_reserve_requires_paid_claim_exact_inputs_and_single_di
     pool: PgPool,
 ) {
     let f = fixture_market(&pool, 60).await;
-    let (confirmation, grant, request) = approved_call(&f).await;
+    let (confirmation, grant, request) = approved_call(&f, &pool).await;
     let store = credits(&f);
     assert!(
         store.reserve_assistant(f.access(), &request).await.is_err(),
@@ -306,7 +309,7 @@ async fn assistant_market_revocation_after_hold_blocks_dispatch_without_rewritin
     pool: PgPool,
 ) {
     let f = fixture_market(&pool, 60).await;
-    let (confirmation, grant, request) = approved_call(&f).await;
+    let (confirmation, grant, request) = approved_call(&f, &pool).await;
     claim(&f, &request).await;
     let store = credits(&f);
     let reserved = store.reserve_assistant(f.access(), &request).await.unwrap();
@@ -347,7 +350,7 @@ async fn assistant_market_changed_auth_generation_cannot_redeem_or_dispatch_orig
     pool: PgPool,
 ) {
     let f = fixture_market(&pool, 60).await;
-    let (confirmation, _, request) = approved_call(&f).await;
+    let (confirmation, _, request) = approved_call(&f, &pool).await;
     claim(&f, &request).await;
     let store = credits(&f);
     let reserved = store.reserve_assistant(f.access(), &request).await.unwrap();
