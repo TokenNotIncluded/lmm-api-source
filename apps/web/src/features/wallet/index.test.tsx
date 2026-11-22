@@ -156,6 +156,14 @@ async function setSectionOpen(section: HTMLDetailsElement, open: boolean) {
   })
 }
 
+async function waitForText(element: Element, expected: RegExp) {
+  const deadline = Date.now() + 2000
+  while (!expected.test(element.textContent ?? '') && Date.now() < deadline) {
+    await act(() => new Promise<void>((resolve) => setTimeout(resolve, 10)))
+  }
+  assert.match(element.textContent ?? '', expected)
+}
+
 async function renderWallet(
   activated = false,
   options: {
@@ -168,7 +176,7 @@ async function renderWallet(
     selfQuota?: number
     paymentReturn?: 'return' | 'cancel'
     nativeChannels?: unknown
-    resetVouchers?: unknown[]
+    resetVouchers?: unknown[] | Promise<unknown[]>
     unavailableTransferReads?: boolean
     nativeResponse?: (
       url: string,
@@ -249,7 +257,9 @@ async function renderWallet(
   api.get = (async (url) => {
     reads.push(String(url))
     if (url === '/api/subscription/self/reset-vouchers') {
-      return { data: { success: true, data: options.resetVouchers ?? [] } }
+      return {
+        data: { success: true, data: (await options.resetVouchers) ?? [] },
+      }
     }
     // Retired subscription routes and explicitly unavailable transfer reads
     // return a migration error, never a successful empty collection.
@@ -742,6 +752,10 @@ test('native wallet exposes credit subscriptions and rewards without fiat conver
 
 test('native subscription failures stay local and distinct from confirmed empty results, with explicit retry', async () => {
   let failed = true
+  let finishVouchers!: (vouchers: unknown[]) => void
+  const resetVouchers = new Promise<unknown[]>((resolve) => {
+    finishVouchers = resolve
+  })
   const beforeToasts = toast.getHistory().length
   const { container, queryClient, reads } = await renderWallet(true, {
     quota: 500000,
@@ -752,6 +766,7 @@ test('native subscription failures stay local and distinct from confirmed empty 
       wallet_money_available: false,
     },
     openSections: false,
+    resetVouchers,
     nativeResponse: (url, method, _data, config) => {
       assert.equal(method, 'get')
       if (url.startsWith('/core/v1/subscriptions/')) {
@@ -800,12 +815,24 @@ test('native subscription failures stay local and distinct from confirmed empty 
     )
   )
   await setSectionOpen(section, true)
-  assert.match(section.textContent ?? '', /Unable to load subscriptions/)
+  const plans = [...section.querySelectorAll('[data-slot="card-title"]')]
+    .find((title) => title.textContent === 'Subscriptions')
+    ?.closest('[data-slot="card"]')
+  const vouchers = section.querySelector(
+    '[aria-labelledby="banked-reset-heading"]'
+  )
+  assert.ok(plans)
+  assert.ok(vouchers)
+  const voucherStatus = vouchers.querySelector('#banked-reset-query-status')
+  assert.ok(voucherStatus)
+  await waitForText(plans, /Unable to load subscriptions/)
   assert.doesNotMatch(
-    section.textContent ?? '',
+    plans.textContent ?? '',
     /No subscription plans yet|No data|Loading\.\.\./
   )
-  assert.match(section.textContent ?? '', /Banked subscription resets/)
+  assert.match(vouchers.textContent ?? '', /Banked subscription resets/)
+  await waitForText(voucherStatus, /Loading\.\.\./)
+  assert.doesNotMatch(vouchers.textContent ?? '', /No banked reset vouchers/)
   assert.equal(
     reads.filter((url) => url === '/core/v1/subscriptions/plans').length,
     1
@@ -824,20 +851,18 @@ test('native subscription failures stay local and distinct from confirmed empty 
   )
   assert.equal(toast.getHistory().length, beforeToasts)
 
-  const retry = [...section.querySelectorAll('button')].find(
+  const retry = [...plans.querySelectorAll('button')].find(
     (button) => button.textContent?.trim() === 'Retry'
   )
   assert.ok(retry)
   failed = false
   await act(async () => {
-    section.open = true
     retry.click()
-    await new Promise((resolve) => setTimeout(resolve, 25))
   })
-  assert.match(section.textContent ?? '', /No subscription plans yet/)
-  assert.match(section.textContent ?? '', /No data/)
+  await waitForText(plans, /No subscription plans yet/)
+  assert.match(plans.textContent ?? '', /No data/)
   assert.doesNotMatch(
-    section.textContent ?? '',
+    plans.textContent ?? '',
     /Unable to load subscriptions|Loading\.\.\./
   )
   assert.equal(
@@ -849,6 +874,15 @@ test('native subscription failures stay local and distinct from confirmed empty 
     2
   )
   assert.equal(toast.getHistory().length, beforeToasts)
+  assert.match(voucherStatus.textContent ?? '', /Loading\.\.\./)
+  await act(async () => finishVouchers([]))
+  await waitForText(vouchers, /No banked reset vouchers/)
+  assert.doesNotMatch(voucherStatus.textContent ?? '', /Loading\.\.\./)
+  assert.equal(
+    reads.filter((url) => url === '/api/subscription/self/reset-vouchers')
+      .length,
+    1
+  )
   queryClient.clear()
 })
 
