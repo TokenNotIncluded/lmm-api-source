@@ -56,7 +56,6 @@ async fn channel_read_uses_current_policy_and_preserves_read_only_state(pool: Pg
     imported(&pool, 113, "superadmin").await;
     policy(&pool, 101, "allow", true, true).await;
     policy(&pool, 102, "deny", true, true).await;
-    policy(&pool, 103, "deny", true, true).await;
     policy(&pool, 108, "allow", false, true).await;
     policy(&pool, 109, "allow", true, false).await;
     policy(&pool, 113, "allow", true, false).await;
@@ -117,12 +116,14 @@ async fn channel_read_uses_current_policy_and_preserves_read_only_state(pool: Pg
         "channel reads changed database rows or sequences"
     );
 
-    // A native admin begins with the existing default; the first installed
-    // immutable policy denies it on the next request, without changing Session.
+    // A matching explicit deny takes effect on the next request for both
+    // native admin and root, using their original sessions.
+    policy(&pool, 103, "deny", true, true).await;
     policy(&pool, 106, "deny", true, true).await;
     policy(&pool, 107, "allow", true, true).await;
     let before = state(&pool).await;
     check_reads(&app, &changed.secret, StatusCode::FORBIDDEN).await;
+    check_reads(&app, &root.secret, StatusCode::FORBIDDEN).await;
     check_reads(&app, &missing.secret, StatusCode::OK).await;
     for (path, method) in [
         ("/api/channel", "POST"),
