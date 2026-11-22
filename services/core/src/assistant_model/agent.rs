@@ -1,6 +1,8 @@
 //! Private proof of an already persisted provider tool proposal.
 //! Construction never accepts a caller-supplied tool name, draft, actor or scope.
 mod admin_skill_replay;
+#[cfg(test)]
+mod confirmed_actions_tls_fixture;
 pub(crate) mod market_policy;
 pub(crate) mod registry;
 pub(crate) mod store;

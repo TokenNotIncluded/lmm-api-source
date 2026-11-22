@@ -671,7 +671,10 @@ async fn admin_skill_binding_uses_original_browser_credential_and_current_real_m
         first_principal.credential_id,
         second_principal.credential_id
     );
-    assert_eq!(first_principal.user_version, second_principal.user_version);
+    assert_eq!(
+        first_principal.credential_generation(),
+        second_principal.credential_generation()
+    );
     let first_bound = observe(&owner, &f, first_secret, 10).await.unwrap();
     let second_bound = observe(&owner, &f, second_secret, 10).await.unwrap();
     assert_eq!(first_bound.actor_user_id, actor);

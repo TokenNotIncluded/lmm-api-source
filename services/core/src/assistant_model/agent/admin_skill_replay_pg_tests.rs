@@ -27,8 +27,7 @@ use std::{
     time::Duration,
 };
 
-#[path = "confirmed_actions_tls_fixture.rs"]
-mod tls_fixture;
+use crate::assistant_model::agent::confirmed_actions_tls_fixture as tls_fixture;
 
 const TARGET: i64 = 901;
 const MARKER: &str = "synthetic-private-target-strategy";

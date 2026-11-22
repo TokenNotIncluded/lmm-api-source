@@ -998,6 +998,3 @@ mod gift_tests;
 
 #[path = "confirmed_actions_tests.rs"]
 mod confirmed_actions_tests;
-
-#[path = "admin_skill_replay_pg_tests.rs"]
-mod admin_skill_replay_tests;

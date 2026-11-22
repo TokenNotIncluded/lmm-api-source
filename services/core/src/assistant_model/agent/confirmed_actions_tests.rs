@@ -12,8 +12,7 @@ use crate::{
 };
 use sqlx::Row;
 
-#[path = "confirmed_actions_tls_fixture.rs"]
-mod tls_fixture;
+use crate::assistant_model::agent::confirmed_actions_tls_fixture as tls_fixture;
 
 // One counted provider round; None produces its final text completion.
 type ModelCommand = Option<(String, String)>;

@@ -561,8 +561,8 @@ async fn read_cancellation_requires_the_original_browser_session(pool: PgPool) {
     let actor = identity.authorize(session).await.unwrap();
     let other = identity.authorize(replacement).await.unwrap();
     assert_eq!(
-        (actor.user_id, actor.user_version),
-        (other.user_id, other.user_version)
+        (actor.user_id, actor.credential_generation()),
+        (other.user_id, other.credential_generation())
     );
     assert_ne!(actor.credential_id, other.credential_id);
     sqlx::query("INSERT INTO core_identity.user_routing_groups(user_id,group_name,enabled,source_reference) VALUES($1,'allowed',TRUE,'synthetic-cancel-browser')")
