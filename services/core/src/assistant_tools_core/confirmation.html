@@ -5,12 +5,43 @@
 <title>确认操作 · LMM</title>
 <style>
 body{font:16px/1.6 system-ui,sans-serif;max-width:780px;margin:3rem auto;padding:0 1.25rem;color:#17202a;background:#fafafa}main{background:white;border:1px solid #ddd;border-radius:12px;padding:1.5rem}h1{font-size:1.6rem}pre{white-space:pre-wrap;overflow-wrap:anywhere;background:#f3f4f6;padding:1rem;border-radius:8px}button{font:inherit;padding:.65rem 1rem;border-radius:6px;border:1px solid #555;cursor:pointer;margin-right:.5rem}button:disabled{opacity:.5;cursor:default}#approve{background:#173f35;color:white}#status{font-weight:600}#details{overflow-wrap:anywhere}noscript{border:2px solid #8b2e20;padding:1rem}
+
+body.invitation-mode{max-width:620px;margin:clamp(1.5rem,7vh,4.5rem) auto}
+.invitation-mode main{padding:clamp(1.25rem,4vw,2.25rem)}
+.invitation-mode h1{margin:0 0 1rem;font-size:1.7rem;letter-spacing:-.03em}
+.invitation-mode #instructions{color:#525961;margin:0 0 1.75rem}
+.invitation-details{display:grid;gap:1.5rem;margin:1.75rem 0}
+.invitation-details div{min-width:0}
+.invitation-details dt{color:#626971;font-size:.85rem;margin-bottom:.35rem}
+.invitation-details dd{margin:0;white-space:pre-wrap;overflow-wrap:anywhere}
+#invitation-code{font:1.2rem/1.5 ui-monospace,monospace;letter-spacing:.04em}
+#invitation-expiry{font-size:.95rem}
+#invitation-fallback{border-left:3px solid #ad7a24;padding-left:1rem}
+.invitation-mode .confirmation-actions{display:flex;gap:.75rem;flex-wrap:wrap;margin-top:1.75rem}
+.invitation-mode .confirmation-actions button{min-height:48px;margin:0}
+@media(prefers-color-scheme:dark){
+ body.invitation-mode{background:#101112;color:#eceeef}
+ .invitation-mode main{background:#18191b;border-color:#36383b}
+ .invitation-mode #instructions,.invitation-mode .invitation-details dt{color:#aeb3b8}
+ .invitation-mode pre{background:#242629;color:#eceeef}
+ .invitation-mode button{background:#282b2e;color:#eceeef;border-color:#6a7076}
+ .invitation-mode #approve{background:#dce8e1;color:#14241b;border-color:#dce8e1}
+ .invitation-mode button:focus-visible{outline:3px solid #b3c9ff;outline-offset:3px}
+}
 </style>
 <main>
-<h1>确认操作</h1>
-<p>请先核对下面的完整预览。只对这份预览作出决定。实际完成的操作会显示独立执行回执。</p>
+<h1 id="heading">确认操作</h1>
+<p id="instructions">请先核对下面的完整预览。只对这份预览作出决定。实际完成的操作会显示独立执行回执。</p>
 <p id="status" role="status" aria-live="polite">正在读取你的会话和操作预览…</p>
 <p id="details"></p>
+<section id="invitation-preview" hidden aria-label="邀请详情">
+<dl class="invitation-details">
+<div><dt>收件人</dt><dd id="invitation-recipient"></dd></div>
+<div><dt>邀请码</dt><dd id="invitation-code"></dd></div>
+<div><dt>有效期至</dt><dd><time id="invitation-expiry"></time></dd></div>
+</dl>
+</section>
+<p id="invitation-fallback" hidden>这份邀请预览包含当前页面尚未识别的字段。请核对下面的完整预览后再作决定。</p>
 <pre id="preview" aria-label="操作预览"></pre>
 <p id="two-factor-field" hidden><label for="two-factor-code">当前双因素验证码</label><br><input id="two-factor-code" type="password" inputmode="numeric" autocomplete="one-time-code" maxlength="6" aria-label="当前双因素验证码"><br><small>只发送到本页确认接口，不会进入助手对话。</small></p>
 <fieldset id="market-limits" hidden>
@@ -28,8 +59,11 @@ body{font:16px/1.6 system-ui,sans-serif;max-width:780px;margin:3rem auto;padding
 <button id="key-reveal" type="button" disabled>一次性显示 Key</button>
 <button id="key-refresh" type="button" hidden>查询显示状态</button>
 </section>
+<div class="confirmation-actions">
 <button id="approve" type="button" disabled>批准这项操作</button>
 <button id="reject" type="button" disabled>拒绝</button>
+<button id="confirmation-refresh" type="button" hidden>查询确认状态</button>
+</div>
 <noscript>此页需要 JavaScript 才能读取精确预览并安全提交。未启用时不会批准任何操作。请启用后重新打开此页。</noscript>
 </main>
 <script src="/api/user/auth/assistant/confirmations/ui.js" defer></script>

@@ -5,6 +5,14 @@
   const preview = document.getElementById("preview");
   const approve = document.getElementById("approve");
   const reject = document.getElementById("reject");
+  const heading = document.getElementById("heading");
+  const instructions = document.getElementById("instructions");
+  const invitationPreview = document.getElementById("invitation-preview");
+  const invitationRecipient = document.getElementById("invitation-recipient");
+  const invitationCode = document.getElementById("invitation-code");
+  const invitationExpiry = document.getElementById("invitation-expiry");
+  const invitationFallback = document.getElementById("invitation-fallback");
+  const confirmationRefresh = document.getElementById("confirmation-refresh");
   const factorField = document.getElementById("two-factor-field");
   const factorCode = document.getElementById("two-factor-code");
   const marketField = document.getElementById("market-limits");
@@ -25,6 +33,11 @@
   }
   function enableDecision() {
     if (!pending || busy || typeof csrf !== "string") return;
+    if (invitationMode && (invitationUnknown || Date.now() >= invitationExpires)) {
+      disable();
+      if (!invitationUnknown) status.textContent = "这项邀请确认已过期。请返回原会话查看状态。";
+      return;
+    }
     approve.disabled = marketRequired && marketLimits() === null;
     reject.disabled = false;
   }
@@ -33,6 +46,104 @@
   let csrf = null;
   let busy = false;
   let needsFactor = false;
+  let invitationMode = false, invitationUnknown = false, invitationExpires = 0;
+  let invitationOperation = null, invitationFrozen = null;
+  const invitationMarker = "lmm.invitation.uncertain:" + path;
+  // This marker only prevents another browser submit. It grants no authority:
+  // Core still owns the original draft, Session, nonce, expiry and decision.
+  function rememberedInvitation() {
+    try {
+      const raw = window.sessionStorage.getItem(invitationMarker);
+      if (raw === null) return false;
+      const saved = JSON.parse(raw);
+      if (!saved || typeof saved !== "object" || Array.isArray(saved) ||
+          Object.keys(saved).length !== 2 || saved.version !== 1 ||
+          !Number.isSafeInteger(saved.expires_at_unix) ||
+          saved.expires_at_unix * 1000 <= Date.now() ||
+          (invitationExpires > 0 && saved.expires_at_unix * 1000 !== invitationExpires)) {
+        window.sessionStorage.removeItem(invitationMarker);
+        return false;
+      }
+      return true;
+    } catch (_) {
+      try { window.sessionStorage.removeItem(invitationMarker); } catch (_) {}
+      return false;
+    }
+  }
+  function markInvitationUnknown() {
+    invitationUnknown = true;
+    try {
+      window.sessionStorage.setItem(invitationMarker, JSON.stringify({
+        version: 1, expires_at_unix: invitationExpires / 1000,
+      }));
+    } catch (_) {}
+    approve.hidden = true; reject.hidden = true;
+    confirmationRefresh.hidden = false;
+    confirmationRefresh.disabled = true;
+  }
+  function clearInvitationUnknown() {
+    invitationUnknown = false;
+    try { window.sessionStorage.removeItem(invitationMarker); } catch (_) {}
+    confirmationRefresh.hidden = true;
+  }
+  function renderInvitation(confirmation) {
+    if (invitationFrozen !== null && confirmation.tool_name !== "send_invitation") throw new Error("changed invitation tool");
+    invitationMode = confirmation.tool_name === "send_invitation";
+    document.body.classList.toggle("invitation-mode", invitationMode);
+    invitationPreview.hidden = true; invitationFallback.hidden = true;
+    invitationRecipient.textContent = ""; invitationCode.textContent = "";
+    invitationExpiry.textContent = ""; invitationExpiry.dateTime = "";
+    preview.hidden = false; details.hidden = false;
+    approve.hidden = false; reject.hidden = false; confirmationRefresh.hidden = true;
+    if (!invitationMode) return;
+    if (confirmation.challenge_id !== path.slice(path.lastIndexOf("/") + 1) ||
+        typeof confirmation.operation_id !== "string" || !confirmation.operation_id ||
+        (invitationOperation !== null && invitationOperation !== confirmation.operation_id) ||
+        confirmation.executed !== false || !Number.isSafeInteger(confirmation.expires_at_unix)) {
+      throw new Error("invalid invitation binding");
+    }
+    const frozen = JSON.stringify({ operation_id: confirmation.operation_id, expires_at_unix: confirmation.expires_at_unix, preview: confirmation.preview });
+    if (invitationFrozen !== null && invitationFrozen !== frozen) throw new Error("changed invitation draft");
+    invitationOperation = confirmation.operation_id; invitationFrozen = frozen;
+    invitationExpires = confirmation.expires_at_unix * 1000;
+    const date = new Date(invitationExpires);
+    if (!Number.isFinite(date.getTime())) throw new Error("invalid invitation expiry");
+    const localTime = new Intl.DateTimeFormat(undefined, {
+      year: "numeric", month: "short", day: "numeric", hour: "numeric",
+      minute: "2-digit", second: "2-digit", timeZoneName: "short",
+    }).format(date);
+    heading.textContent = "发送邀请";
+    instructions.textContent = "此页只确认收件人和邀请码。邮件需在原会话中单独发送。";
+    approve.textContent = "同意发送";
+    reject.textContent = "取消邀请";
+    details.textContent = "有效期至：" + localTime + "（你的本地时间）";
+    const draft = confirmation.preview;
+    const keys = Object.keys(draft);
+    if (draft.kind === "invitation_email_v1") {
+      if (typeof draft.email !== "string" || !draft.email ||
+          typeof draft.invitation_code !== "string" || !draft.invitation_code) {
+        throw new Error("invalid invitation fields");
+      }
+      if (keys.length === 3 && keys.every(key => ["kind", "email", "invitation_code"].includes(key))) {
+        invitationRecipient.textContent = draft.email;
+        invitationCode.textContent = draft.invitation_code;
+        invitationExpiry.textContent = localTime;
+        invitationExpiry.dateTime = date.toISOString();
+        invitationPreview.hidden = false;
+        preview.hidden = true; details.hidden = true;
+      } else { invitationFallback.hidden = false; }
+    } else { invitationFallback.hidden = false; }
+    if (confirmation.state === "approved" || confirmation.state === "rejected") {
+      clearInvitationUnknown();
+      approve.hidden = true; reject.hidden = true;
+    } else {
+      invitationUnknown = invitationUnknown || rememberedInvitation();
+      if (invitationUnknown) {
+        approve.hidden = true; reject.hidden = true;
+        confirmationRefresh.hidden = false; confirmationRefresh.disabled = false;
+      }
+    }
+  }
   const keySection = document.getElementById("key-card");
   const keyStatus = document.getElementById("key-status");
   const keySecret = document.getElementById("key-secret");
@@ -118,6 +229,10 @@
     csrf = null;
     factorCode.value = "";
     status.textContent = "无法读取或提交这项操作。会话、权限或预览可能已失效，请返回原会话重新发起。没有收到成功回执时，请先查询原操作状态。";
+    if (invitationMode || rememberedInvitation()) {
+      confirmationRefresh.hidden = false; confirmationRefresh.disabled = false;
+      status.textContent = "尚未查明这项邀请的确认结果。请查询原操作状态；本页不会重复提交或重新发送邮件。";
+    }
   }
   function show(confirmation) {
     if (!confirmation || typeof confirmation !== "object" || !confirmation.preview ||
@@ -125,6 +240,7 @@
     details.textContent = "操作：" + confirmation.tool_name + " · 版本：" + confirmation.tool_version +
       " · 有效期至：" + new Date(confirmation.expires_at_unix * 1000).toISOString();
     preview.textContent = JSON.stringify(confirmation.preview, null, 2);
+    renderInvitation(confirmation);
     pending = confirmation.state === "pending";
     marketRequired = confirmation.tool_name === "connect_market_tool";
     marketField.hidden = !marketRequired || !pending;
@@ -138,8 +254,17 @@
     factorCode.value = "";
     disable();
     switch (confirmation.state) {
-      case "pending": status.textContent = "请核对预览后选择批准或拒绝。"; break;
+      case "pending":
+        status.textContent = invitationMode
+          ? (invitationUnknown ? "尚未查明这项邀请的确认结果。请查询原操作状态；本页不会重复提交或重新发送邮件。" : "核对收件人和邀请码后，选择同意发送或取消邀请。")
+          : "请核对预览后选择批准或拒绝。";
+        break;
       case "approved":
+        if (invitationMode) {
+          instructions.textContent = "你的同意已记录。邮件发送和发送结果仍由原会话处理。";
+          status.textContent = "已同意发送。请回到原会话继续并查看发送结果。";
+          break;
+        }
         if (confirmation.executed === true) {
           const receipt = confirmation.execution_receipt;
           if (!receipt || receipt.version !== 1 || receipt.executed !== true ||
@@ -163,7 +288,9 @@
           status.textContent = "已批准。这里只记录同意，尚不代表业务已执行；请回到原会话查看处理结果。";
         }
         break;
-      case "rejected": status.textContent = "已拒绝。"; break;
+      case "rejected":
+        status.textContent = invitationMode ? "已取消这项邀请。" : "已拒绝。";
+        break;
       default: throw new Error("invalid confirmation state");
     }
   }
@@ -193,16 +320,25 @@
   }
   async function decide(decision) {
     if (busy || typeof csrf !== "string" || !/^[a-f0-9]{64}$/.test(csrf)) return;
+    if (invitationMode && (invitationUnknown || Date.now() >= invitationExpires)) {
+      enableDecision(); return;
+    }
     if (decision === "approve" && marketRequired && marketLimits() === null) return;
     busy = true;
     disable();
+    if (invitationMode) {
+      markInvitationUnknown();
+      status.textContent = "正在记录你的决定，请稍候。";
+    }
     try { const data = await request("POST", decision); show(data.receipt); csrf = null; }
     catch (error) {
       factorCode.value = "";
       if (error.factor === "two_factor_code_invalid") {
+        if (invitationMode) { clearInvitationUnknown(); approve.hidden = false; reject.hidden = false; }
         status.textContent = "验证码不正确或已使用。操作尚未执行，请输入当前验证码后重新批准。";
         approve.disabled = false; reject.disabled = false;
       } else if (error.factor === "two_factor_locked") {
+        if (invitationMode) clearInvitationUnknown();
         status.textContent = "双因素验证暂时锁定，操作尚未执行。请稍后重新打开本页。";
         csrf = null;
       } else { failure(); }
@@ -218,8 +354,23 @@
     if (data.confirmation.state === "pending") {
       if (typeof data.csrf !== "string" || !/^[a-f0-9]{64}$/.test(data.csrf)) throw new Error("invalid browser nonce");
       csrf = data.csrf;
+      if (invitationMode && invitationUnknown) {
+        // Core's successful GET locks the original row and rotates its nonce.
+        // Pending plus this new nonce resolves the old browser uncertainty.
+        // It permits only another explicit decision on this same operation;
+        // the page never submits or sends mail as a result of a status read.
+        clearInvitationUnknown();
+        approve.hidden = false; reject.hidden = false;
+        status.textContent = "已查询原操作，确认仍待你决定。请核对后选择同意发送或取消邀请。";
+      }
       enableDecision();
     }
   }
+  confirmationRefresh.addEventListener("click", async () => {
+    if (busy) return;
+    busy = true; confirmationRefresh.disabled = true;
+    try { await load(); } catch (_) { failure(); }
+    finally { busy = false; confirmationRefresh.disabled = false; enableDecision(); }
+  });
   void load().catch(failure);
 })();

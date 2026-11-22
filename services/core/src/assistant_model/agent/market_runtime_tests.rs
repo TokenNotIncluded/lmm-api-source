@@ -22,7 +22,7 @@ fn credits(f: &ConfirmFixture) -> CreditStore {
     )
 }
 async fn reviewed_fixed_policy(f: &ConfirmFixture) {
-    let pool = &f.agent.base.pool;
+    let pool = &f.owner_pool;
     f.browser
         .register(&BrowserRegistration {
             username: "market-platform",
