@@ -185,7 +185,7 @@ impl CreditStore {
         kind: &str,
         req: &T,
     ) -> Result<Option<PgRow>> {
-        Self::prior_in_connection(&mut **tx, actor, op, kind, req).await
+        Self::prior_in_connection(tx, actor, op, kind, req).await
     }
     pub(super) async fn prior_in_connection<T: Serialize>(
         c: &mut sqlx::PgConnection,
@@ -215,7 +215,7 @@ impl CreditStore {
         now: i64,
         details: Option<serde_json::Value>,
     ) -> Result<()> {
-        Self::record_in_connection(&mut **tx, actor, op, kind, req, target, now, details).await
+        Self::record_in_connection(tx, actor, op, kind, req, target, now, details).await
     }
     #[allow(clippy::too_many_arguments)]
     pub(super) async fn record_in_connection<T: Serialize>(
@@ -462,7 +462,7 @@ impl CreditStore {
         id: &str,
         user: i64,
     ) -> Result<ConsentReceipt> {
-        Self::consent_in_connection(&mut **tx, id, user).await
+        Self::consent_in_connection(tx, id, user).await
     }
     pub(super) async fn consent_in_connection(
         c: &mut sqlx::PgConnection,

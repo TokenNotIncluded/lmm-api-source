@@ -54,11 +54,11 @@ async fn workspace_rate_shares_sessions_counts_failures_and_persists_window(pool
     let browser = BrowserAuth::new(identity.clone(), &[46; 32]).unwrap();
     let first = LoginRequest {
         login_name: "workspace-rate-first".into(),
-        password: "synthetic workspace password 123".into(),
+        password: "workspace-rate-123".into(),
     };
     let second = LoginRequest {
         login_name: "workspace-rate-second".into(),
-        password: "synthetic workspace password 456".into(),
+        password: "workspace-rate-456".into(),
     };
     let original = identity.register(&first).await.unwrap();
     let original_other = identity.register(&second).await.unwrap();

@@ -212,7 +212,7 @@
   approve.addEventListener("click", () => { void decide("approve"); });
   reject.addEventListener("click", () => { void decide("reject"); });
   async function load() {
-    if (!/^\/api\/user\/assistant\/confirmations\/[a-f0-9]{64}$/.test(path)) throw new Error("invalid path");
+    if (!/^\/api\/user\/auth\/assistant\/confirmations\/[a-f0-9]{64}$/.test(path)) throw new Error("invalid path");
     const data = await request("GET");
     show(data.confirmation);
     if (data.confirmation.state === "pending") {

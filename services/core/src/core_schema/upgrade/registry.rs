@@ -253,6 +253,7 @@ registrations! {
         CURRENT_CONNECTION_HISTORY => current_connection_history, "CURRENT_CONNECTION_HISTORY_", |c,r| Box::pin(current_connection_history::grant_runtime(c, &r.roles.runtime)), owner_receipt, SuffixPolicy::DEFAULT;
         ASSISTANT_CONFIRMED_ACTIONS => assistant_confirmed_actions, "ASSISTANT_CONFIRMED_ACTIONS_", |c,r| Box::pin(assistant_confirmed_actions::grant_runtime(c, &r.roles.runtime)), owner_receipt, SuffixPolicy { projection: DataProjection::AssistantConfirmedActions, ..SuffixPolicy::DEFAULT };
         LEGACY_AFFILIATE_ALIASES => legacy_affiliate_aliases, "LEGACY_AFFILIATE_ALIASES_", |c,r| Box::pin(legacy_affiliate_aliases::grant_runtime(c, &r.roles.runtime)), owner_receipt, SuffixPolicy::DEFAULT;
+        ASSISTANT_INVITATION_CONFIRMATION => assistant_invitation_confirmation, "ASSISTANT_INVITATION_CONFIRMATION_", no_grants, owner_receipt, SuffixPolicy::DEFAULT;
         CHECKIN_CHALLENGES => checkin_challenges, "CHECKIN_CHALLENGES_", |c,r| Box::pin(checkin_challenges::grant_runtime(c, &r.roles.runtime)), owner_receipt, SuffixPolicy::DEFAULT;
         NETWORK_ACCESS => network_access, "NETWORK_ACCESS_", |c,r| Box::pin(network_access::grant_runtime(c, &r.roles.runtime)), owner_receipt, SuffixPolicy::DEFAULT;
         CONNECTION_HISTORY_IMPORT => connection_history_import, "CONNECTION_HISTORY_IMPORT_", no_grants, owner_receipt, SuffixPolicy::DEFAULT;
@@ -313,6 +314,7 @@ mod tests {
             "core-current-connection-history-v1",
             "core-assistant-confirmed-actions-v1",
             "core-legacy-affiliate-aliases-v1",
+            "core-assistant-invitation-confirmation-v1",
         ]
         .into_iter()
         .collect();
@@ -378,6 +380,10 @@ mod tests {
             (
                 legacy_affiliate_aliases::PROCEDURE,
                 legacy_affiliate_aliases::validate,
+            ),
+            (
+                assistant_invitation_confirmation::PROCEDURE,
+                assistant_invitation_confirmation::validate,
             ),
             (
                 connection_history_import::PROCEDURE,
@@ -456,6 +462,10 @@ mod tests {
             (
                 "core-legacy-affiliate-aliases-v1",
                 "LEGACY_AFFILIATE_ALIASES_",
+            ),
+            (
+                "core-assistant-invitation-confirmation-v1",
+                "ASSISTANT_INVITATION_CONFIRMATION_",
             ),
             ("core-checkin-challenges-v1", "CHECKIN_CHALLENGES_"),
             ("core-network-access-v1", "NETWORK_ACCESS_"),
@@ -586,6 +596,9 @@ mod tests {
                             as fn() -> Result<(), UpgradeError>,
                     "core-legacy-affiliate-aliases-v1" =>
                         legacy_affiliate_aliases::authorize_target
+                            as fn() -> Result<(), UpgradeError>,
+                    "core-assistant-invitation-confirmation-v1" =>
+                        assistant_invitation_confirmation::authorize_target
                             as fn() -> Result<(), UpgradeError>,
                     "core-checkin-challenges-v1" =>
                         checkin_challenges::authorize_target as fn() -> Result<(), UpgradeError>,

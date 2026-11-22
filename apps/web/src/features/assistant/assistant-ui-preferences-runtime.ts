@@ -184,8 +184,9 @@ export function createUIPreferenceRuntime(
       signal.aborted ||
       action.expires_at * 1000 <= now() ||
       !sameUIPreferenceOwner(adapter.owner(), owner)
-    )
+    ) {
       return unavailable
+    }
     const existing = records.get(action.action_id)
     if (existing) {
       return sameUIPreferenceOwner(existing.owner, owner)

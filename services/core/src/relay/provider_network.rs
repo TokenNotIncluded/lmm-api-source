@@ -14,6 +14,8 @@ use tokio_tungstenite::{WebSocketStream, tungstenite::Message};
 #[derive(Clone)]
 pub(crate) struct ProviderTransport {
     dns_slots: Arc<Semaphore>,
+    #[cfg(test)]
+    loopback_test_root: Option<(String, reqwest::Certificate)>,
 }
 
 pub(crate) struct ProviderConnection(PreparedConnection);
@@ -91,7 +93,29 @@ impl ProviderTransport {
     pub(crate) fn new(max_in_flight: usize) -> Self {
         Self {
             dns_slots: honeypot_network::dns_slots(max_in_flight),
+            #[cfg(test)]
+            loopback_test_root: None,
         }
+    }
+
+    /// Isolated test certificates remain bound to one numeric HTTPS loopback origin.
+    /// This constructor and its state are absent from production builds.
+    #[cfg(test)]
+    pub(crate) fn with_loopback_test_root(
+        mut self,
+        endpoint: &str,
+        root: reqwest::Certificate,
+    ) -> Result<Self, RelayError> {
+        let endpoint = honeypot_network::validate_base_url(endpoint, true)?;
+        if endpoint.scheme() != "https"
+            || !honeypot_network::literal_ip(&endpoint).is_some_and(|ip| ip.is_loopback())
+        {
+            return Err(RelayError::Invalid(
+                "TLS fixture must be HTTPS numeric loopback",
+            ));
+        }
+        self.loopback_test_root = Some((honeypot_network::canonical_origin(&endpoint), root));
+        Ok(self)
     }
 
     /// The URL comes only from an authorized immutable route. DNS resolution
@@ -113,6 +137,15 @@ impl ProviderTransport {
             additional_root: None,
             local_http: true,
             allowed_origins: [honeypot_network::canonical_origin(&base)].into(),
+        };
+        #[cfg(test)]
+        let target = NetworkTarget {
+            additional_root: self
+                .loopback_test_root
+                .as_ref()
+                .filter(|(origin, _)| origin == &honeypot_network::canonical_origin(&base))
+                .map(|(_, root)| root.clone()),
+            ..target
         };
         target
             .prepare(endpoint, limits, self.dns_slots.clone())

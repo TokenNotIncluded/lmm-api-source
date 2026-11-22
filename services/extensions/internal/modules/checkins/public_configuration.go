@@ -1,10 +1,6 @@
 package checkins
 
-import (
-	"context"
-	"database/sql"
-	"strconv"
-)
+import "strconv"
 
 // PublishedConfiguration contains only the currently published public reward
 // policy. It is not a user's eligibility, verification, or funding authority.
@@ -32,26 +28,4 @@ func publicConfiguration(p *Policy, revision *int64) (PublishedConfiguration, er
 		return PublishedConfiguration{}, ErrUnavailable
 	}
 	return PublishedConfiguration{Revision: *revision, Enabled: p.Enabled, MinCredits: low, MaxCredits: high}, nil
-}
-
-// PublicConfiguration reads the same validated policy used by Status. It does
-// not touch intentions, challenges, historical rewards, or the Core ledger.
-func (s *Service) PublicConfiguration(ctx context.Context) (PublishedConfiguration, error) {
-	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
-	if err != nil {
-		return PublishedConfiguration{}, ErrUnavailable
-	}
-	defer tx.Rollback()
-	p, revision, err := loadPolicy(ctx, tx)
-	if err != nil {
-		return PublishedConfiguration{}, err
-	}
-	result, err := publicConfiguration(p, revision)
-	if err != nil {
-		return PublishedConfiguration{}, err
-	}
-	if tx.Commit() != nil {
-		return PublishedConfiguration{}, ErrUnavailable
-	}
-	return result, nil
 }

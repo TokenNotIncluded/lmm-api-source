@@ -140,7 +140,7 @@ const viewSchema = z
     tool: z.literal('send_invitation'),
     browser_url: z
       .string()
-      .regex(/^\/api\/user\/assistant\/confirmations\/[a-f0-9]{64}$/),
+      .regex(/^\/api\/user\/auth\/assistant\/confirmations\/[a-f0-9]{64}$/),
     payload: z
       .object({
         kind: z.literal('invitation_email_v1'),

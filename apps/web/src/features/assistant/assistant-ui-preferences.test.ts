@@ -413,8 +413,9 @@ test('native display actions require one exact credential binding', async () => 
       actor_credential_sha256: action.actor_credential_sha256.toUpperCase(),
     },
     { ...action, url: 'https://example.invalid/' },
-  ])
+  ]) {
     assert.equal(parseAssistantUIPreferenceAction(invalid), undefined)
+  }
   assert.equal(
     (await f.runtime.run(action, f.adapter, f.signal.signal)).status,
     'applied'
@@ -449,14 +450,16 @@ test('a late credential digest cannot rebind after refresh, account switch or ex
       f.adapter,
       f.signal.signal
     )
-    if (scenario === 'refresh')
+    if (scenario === 'refresh') {
       f.setOwner({
         userID: 7,
         sessionID: 'session-a',
         accessToken: 'synthetic-refreshed',
       })
-    if (scenario === 'switch')
+    }
+    if (scenario === 'switch') {
       f.setOwner({ userID: 8, sessionID: 'session-b', accessToken: token })
+    }
     if (scenario === 'expiry') f.advance(120_000)
     if (scenario === 'abort') f.signal.abort()
     assert.equal((await pending).status, 'unavailable')

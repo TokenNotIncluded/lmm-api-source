@@ -19,6 +19,8 @@ pub async fn install(pool: &sqlx::PgPool) {
     );
     for ddl in [
         include_str!("../../schema/migration.sql"),
+        // Component 81 replaces the history guard; its schema is a real prerequisite.
+        include_str!("../../schema/history.sql"),
         lmm_core::promotions::SCHEMA,
         lmm_core::promotions::red_packets::SCHEMA,
         lmm_core::payments::discounts::CONTINUITY_SCHEMA,

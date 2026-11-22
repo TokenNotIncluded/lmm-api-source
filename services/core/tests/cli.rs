@@ -498,10 +498,10 @@ async fn financial_runtime_configuration_uses_independent_private_credentials(po
     }
     let alias = alias.wait_with_output().unwrap();
     assert!(!alias.status.success());
+    let alias_stderr = String::from_utf8(alias.stderr).unwrap();
     assert!(
-        String::from_utf8(alias.stderr)
-            .unwrap()
-            .contains("must be distinct")
+        alias_stderr.contains("must be distinct"),
+        "aliased principal failed before the credential check: {alias_stderr}"
     );
     let mut service = Service(configured(&payment).spawn().unwrap());
     let client = reqwest::Client::builder()

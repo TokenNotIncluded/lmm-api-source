@@ -5,7 +5,7 @@ async fn cards(f: &ConfirmFixture, id: &str) -> (reqwest::StatusCode, Value, Opt
     let r = f
         .http
         .get(format!(
-            "{}/api/user/assistant/confirmations/{id}/key",
+            "{}/api/user/auth/assistant/confirmations/{id}/key",
             f.origin
         ))
         .header("cookie", f.cookie())
@@ -29,7 +29,7 @@ async fn reveal(
     let r = f
         .http
         .post(format!(
-            "{}/api/user/assistant/confirmations/{id}/key",
+            "{}/api/user/auth/assistant/confirmations/{id}/key",
             f.origin
         ))
         .header("origin", &f.origin)
@@ -117,7 +117,7 @@ async fn confirmed_key_creation_issues_once_and_original_browser_consumes_secret
     let unauthorized = f
         .http
         .post(format!(
-            "{}/api/user/assistant/confirmations/{id}/key",
+            "{}/api/user/auth/assistant/confirmations/{id}/key",
             f.origin
         ))
         .bearer_auth(f.access())

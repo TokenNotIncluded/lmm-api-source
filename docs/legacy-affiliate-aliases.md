@@ -17,6 +17,12 @@ Core86 为旧站四位邀请码增加只读别名，保留原大小写及所属�
 
 结构升级只建立表、约束和升级回执，不导入邀请码或移动资金。它只向原有注册 reader 追加 `SELECT(code,user_id)`，不启用原先关闭的业务。新安装时，这两列读取随 `enable_web_identity=true` 授权。完整源行、导入材料及 owner 回执不向 runtime 开放；Core 和 Go runtime 均无别名写权限。
 
+## 已有站点与全新安装的执行顺序
+
+需要迁入旧邀请码的已有站点，应先完成精确 Core85 → Core86 结构升级，在 Core86 上按下文的 owner 导入条件完成别名导入，并读回原回执及全部别名。提交结果不明时先完成只读恢复。确认导入已提交后，再通过 [`core-assistant-invitation-confirmation-v1`](../services/core/src/core_schema/upgrade/assistant_invitation_confirmation.rs) 显式从 Core86 升到 Core87；这一步保留已有别名和导入回执。
+
+全新 Core87 安装没有旧源导入，别名表初始为空。固定的 Core86 导入器只接受上表的 Core86 合同，不能直接用于 Core87。已经存在数据的 Core87 库若需要补入旧别名，需要另行审阅与该目标匹配的导入程序；不能靠回退结构或改写旧导入器的目标摘要继续执行。
+
 ## 源预览及冻结依赖
 
 `current_affiliate_aliases.py source-preview` 读取已经导出的完整源凭据和证明，生成私有预览及不含邀请码的数量摘要。它不连接数据库，不生成源停写证明、身份提交回执或批准文件。

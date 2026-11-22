@@ -22,7 +22,7 @@ pub(super) async fn check(
               OR EXISTS(SELECT FROM pg_catalog.pg_attribute a
                 WHERE a.attrelid=r.oid AND a.attnum>0 AND NOT a.attisdropped
                   AND NOT (r.table_name='legacy_affiliate_aliases' AND a.attname IN ('code','user_id'))
-                  AND has_column_privilege(r.oid,a.attnum,'SELECT')))
+                  AND has_column_privilege(a.attrelid,a.attnum,'SELECT')))
               OR EXISTS(SELECT FROM pg_catalog.pg_proc p JOIN pg_catalog.pg_namespace n ON n.oid=p.pronamespace
                 WHERE (n.nspname='core_meta' AND p.proname IN ('legacy_affiliate_alias_authority',
                    'guard_legacy_affiliate_alias_import','guard_legacy_affiliate_alias_row',
@@ -31,8 +31,10 @@ pub(super) async fn check(
                 AND has_function_privilege(p.oid,'EXECUTE')),
              EXISTS(SELECT FROM relations r WHERE r.table_name='legacy_affiliate_aliases'
                 AND r.oid IS NOT NULL AND has_schema_privilege(r.schema_oid,'USAGE')
-                AND has_column_privilege(r.oid,'code','SELECT')
-                AND has_column_privilege(r.oid,'user_id','SELECT'))"#,
+                AND (SELECT count(*)=2 FROM pg_catalog.pg_attribute a
+                  WHERE a.attrelid=r.oid AND a.attnum>0 AND NOT a.attisdropped
+                    AND a.attname IN ('code','user_id')
+                    AND has_column_privilege(a.attrelid,a.attnum,'SELECT')))"#,
     )
     .fetch_one(&mut *connection)
     .await?;

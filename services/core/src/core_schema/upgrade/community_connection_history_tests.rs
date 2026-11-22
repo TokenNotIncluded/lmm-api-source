@@ -264,6 +264,14 @@ async fn retained_snapshot_import_and_runtime_funnel(pool: PgPool) {
             crate::core_schema::upgrade::assistant_confirmed_actions::PROCEDURE,
             include_str!("assistant_confirmed_actions_target.json"),
         ),
+        (
+            crate::core_schema::upgrade::legacy_affiliate_aliases::PROCEDURE,
+            include_str!("legacy_affiliate_aliases_target.json"),
+        ),
+        (
+            crate::core_schema::upgrade::assistant_invitation_confirmation::PROCEDURE,
+            include_str!("assistant_invitation_confirmation_target.json"),
+        ),
     ];
     assert_eq!(core_schema::component_count(), 78 + stages.len());
     let replay = upgrade_database(upgrade_url.as_str(), request.clone())

@@ -180,10 +180,21 @@ export function marketConfirmationURL(
         /^\/core\/v1\/wallet\/confirm\/(create|claim|cancel)\/[1-9][0-9]*$/.test(
           url.pathname
         ) ||
-        /^\/api\/user\/assistant\/confirmations\/[a-f0-9]{64}$/.test(
+        (/^\/api\/user\/(?:auth\/)?assistant\/confirmations\/[a-f0-9]{64}$/.test(
           url.pathname
-        ))
+        ) &&
+          /^(?:https?:\/\/[^/?#\\\s@]+)?\/api\/user\/(?:auth\/)?assistant\/confirmations\/[a-f0-9]{64}$/.test(
+            value
+          )))
     ) {
+      // Historical immutable receipts may keep the old exact path. Navigate
+      // directly into the refresh-cookie scope before the page loads its data.
+      if (url.pathname.startsWith('/api/user/assistant/confirmations/')) {
+        url.pathname = url.pathname.replace(
+          '/api/user/assistant/confirmations/',
+          '/api/user/auth/assistant/confirmations/'
+        )
+      }
       return url.href
     }
   } catch {

@@ -6,7 +6,7 @@ const fs = require("node:fs");
 const vm = require("node:vm");
 const code = fs.readFileSync(__dirname + "/confirmation.js", "utf8");
 const id = "a".repeat(64), nonce = "b".repeat(64);
-const path = "/api/user/assistant/confirmations/" + id;
+const path = "/api/user/auth/assistant/confirmations/" + id;
 const evil = "</pre><img src=x onerror=alert(1)><script>alert(2)</script>\u2028'\"&";
 function confirmation(state = "pending") {
   return { tool_name: evil, tool_version: "main-3948a0a1", preview: { title: evil, body: "exact\nmessage" }, expires_at_unix: 2000000000, state, executed: false };
@@ -66,7 +66,7 @@ test("missing nonce, unauthenticated response and invalid path never enable appr
     assert.equal(view.requests.length, 1);
     assert.equal(view.nodes.approve.disabled, true);
   }
-  const view = ui([], "/api/user/assistant/confirmations/../../other"); await flush();
+  const view = ui([], "/api/user/auth/assistant/confirmations/../../other"); await flush();
   assert.equal(view.requests.length, 0);
   assert.equal(view.nodes.approve.disabled, true);
 });

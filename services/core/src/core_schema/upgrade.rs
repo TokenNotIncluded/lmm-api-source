@@ -11,6 +11,7 @@ mod additive;
 mod affiliate_registration;
 mod assistant_agent_gift;
 mod assistant_confirmed_actions;
+mod assistant_invitation_confirmation;
 mod assistant_service_funding;
 mod channel_accounting;
 mod channel_observations;

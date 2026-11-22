@@ -35,7 +35,7 @@ func (p *confirmationPeer) Capabilities(ctx context.Context, _ *pb.CapabilitiesR
 func confirmationFixture(operation string) *pb.AssistantToolConfirmation {
 	preview := []byte(`{"amount":9007199254740993,"text":"<hello>"}`)
 	hash := sha256.Sum256(preview)
-	return &pb.AssistantToolConfirmation{ChallengeId: strings.Repeat("a", 64), ToolOperationId: operation, ToolName: "create_site_issue", ToolVersion: "v1", SourceArgumentsSha256: make([]byte, 32), NormalizedDraftSha256: hash[:], PreviewJson: preview, ExpiresAtUnix: 123456, State: "pending", BrowserPath: "/api/user/assistant/confirmations/" + strings.Repeat("a", 64)}
+	return &pb.AssistantToolConfirmation{ChallengeId: strings.Repeat("a", 64), ToolOperationId: operation, ToolName: "create_site_issue", ToolVersion: "v1", SourceArgumentsSha256: make([]byte, 32), NormalizedDraftSha256: hash[:], PreviewJson: preview, ExpiresAtUnix: 123456, State: "pending", BrowserPath: "/api/user/auth/assistant/confirmations/" + strings.Repeat("a", 64)}
 }
 func (p *confirmationPeer) reply(operation string, receipt bool) (*pb.AssistantToolConfirmation, error) {
 	r := confirmationFixture(operation)
@@ -167,5 +167,16 @@ func TestConfirmationRejectsNonObjectsDuplicateKeysAndAuthorityFields(t *testing
 	r.ProtoReflect().SetUnknown([]byte{0x98, 0x06, 1})
 	if _, err := c.PrepareAssistantToolConfirmation(context.Background(), agentSession, r); status.Code(err) != codes.InvalidArgument || p.calls != 0 {
 		t.Fatal(err, p.calls)
+	}
+}
+
+func TestConfirmationResponseRequiresCookieScopedCurrentPath(t *testing.T) {
+	r := confirmationFixture("operation")
+	if _, ok := confirmationResponse(r, "operation"); !ok {
+		t.Fatal("current cookie-scoped response rejected")
+	}
+	r.BrowserPath = "/api/user/assistant/confirmations/" + r.ChallengeId
+	if _, ok := confirmationResponse(r, "operation"); ok {
+		t.Fatal("fresh RPC response accepted a retired browser path")
 	}
 }

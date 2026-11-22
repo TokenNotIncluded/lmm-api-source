@@ -497,9 +497,10 @@ REVIEWED_BORROWED_SQL = {
             "QueryRowContext",
             "ExecContext",
             "ExecContext",
-            "ExecContext"
+            "ExecContext",
+            "BeginTx"
         ],
-        "sha256": "cf2eee6e55062c8a7635b4fbc9662a103690a4c3e503f93371203cda43f45868"
+        "sha256": "999945066024d8e6ef77aa05d258d4fef2083ff43460032d073693e89da44dea"
     }
 }
 
@@ -1271,6 +1272,8 @@ class CoreBoundaryTests(unittest.TestCase):
             "services/extensions/internal/modules/assistant_services/search.go": "lmm_assistant.",
             "services/extensions/internal/modules/assistant_services/support_messages.go": "lmm_assistant.",
             "services/extensions/internal/modules/assistant_services/web_support.go": "lmm_assistant.",
+            "services/extensions/internal/modules/assistant_services/invitation_action.go": "lmm_assistant.",
+            "services/extensions/internal/modules/assistant_services/invitation_dispatch.go": "lmm_assistant.",
             "services/extensions/internal/modules/payments/postgres.go": "payment_",
             "services/extensions/internal/modules/payments/subscription_upgrade_helpers.go": "payment_",
             OPERATIONS_POSTGRES: "lmm_operations.",
@@ -1331,6 +1334,7 @@ class CoreBoundaryTests(unittest.TestCase):
             "services/extensions/internal/modules/toolmarket/store.go",
             "services/extensions/internal/modules/assistant_services/actions.go",
             "services/extensions/internal/modules/assistant_services/dispatch.go",
+            "services/extensions/internal/modules/assistant_services/invitations.go",
         }
         if '"database/sql"' in text:
             tokens = self.assert_named_go_import(text, "database/sql")

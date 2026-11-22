@@ -253,7 +253,7 @@ pub(crate) async fn check_connection(
             OR (n.nspname='core_oauth' AND has_table_privilege(c.oid,'DELETE,TRUNCATE,TRIGGER,REFERENCES,MAINTAIN'))
             OR (n.nspname='core_assistant_tools' AND (has_table_privilege(c.oid,'DELETE,TRUNCATE,TRIGGER,REFERENCES,MAINTAIN') OR has_any_column_privilege(c.oid,'REFERENCES')))
             OR (n.nspname='core_market_oauth' AND has_table_privilege(c.oid,'DELETE,TRUNCATE,TRIGGER,REFERENCES,MAINTAIN'))
-            OR (n.nspname='core_meta' AND c.relname IN ('console_revisions','offline_upgrades','site_finance_upgrades','payment_gateway_upgrades','completion_upgrades','payment_discount_upgrades','payment_discount_management_upgrades','responses_continuity_upgrades','assistant_service_funding_upgrades','assistant_agent_gift_upgrades','current_connection_history_upgrades','assistant_confirmed_actions_upgrades')
+            OR (n.nspname='core_meta' AND c.relname IN ('console_revisions','offline_upgrades','site_finance_upgrades','payment_gateway_upgrades','completion_upgrades','payment_discount_upgrades','payment_discount_management_upgrades','responses_continuity_upgrades','assistant_service_funding_upgrades','assistant_agent_gift_upgrades','current_connection_history_upgrades','assistant_confirmed_actions_upgrades','assistant_invitation_confirmation_upgrades')
               AND (has_table_privilege(c.oid,'SELECT') OR has_any_column_privilege(c.oid,'SELECT')))
             OR (n.nspname='core_history' AND c.relname IN ('current_connection_snapshot','current_connection_credential_map')
               AND EXISTS(SELECT FROM pg_catalog.pg_attribute a WHERE a.attrelid=c.oid AND a.attnum>0 AND NOT a.attisdropped

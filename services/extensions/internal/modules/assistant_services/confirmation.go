@@ -124,6 +124,10 @@ func (s *Service) Confirmation(ctx context.Context, credential, id string) (Conf
 	if !bytes.Equal(session, current[:]) {
 		return view, access.ErrForbidden
 	}
+	view.BrowserURL, err = currentConfirmationBrowserPath(view.BrowserURL, challenge)
+	if err != nil {
+		return ConfirmationView{}, err
+	}
 	if view.Tool == "send_invitation" && view.ConsumedAt == nil && !view.DispatchStarted && view.ExpiresAt > s.now().Unix() {
 		if access.Missing(s.dependencies.Confirmations) {
 			return view, access.ErrUnavailable

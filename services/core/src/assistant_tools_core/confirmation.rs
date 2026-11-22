@@ -6,7 +6,7 @@ use axum::{
     Json, Router,
     extract::{Path, State},
     http::{HeaderMap, StatusCode, header},
-    response::{IntoResponse, Response},
+    response::{IntoResponse, Redirect, Response},
     routing::get,
 };
 use rand::Rng;
@@ -20,6 +20,7 @@ mod key_card;
 #[path = "confirmation_market.rs"]
 pub(super) mod market;
 pub const SCHEMA: &str = include_str!("../../schema/assistant_tools.sql");
+const BROWSER_PREFIX: &str = "/api/user/auth/assistant/confirmations";
 fn random() -> String {
     let mut b = [0u8; 32];
     rand::rng().fill_bytes(&mut b);
@@ -81,7 +82,7 @@ use crate::hex_codec::encode as hex;
 pub(super) fn projection(r: &PgRow) -> Result<Challenge, Error> {
     let id: String = r.try_get("id")?;
     Ok(Challenge {
-        browser_path: format!("/api/user/assistant/confirmations/{id}"),
+        browser_path: format!("{BROWSER_PREFIX}/{id}"),
         challenge_id: id,
         operation_id: r.try_get("operation_id")?,
         tool_name: r.try_get("tool_name")?,
@@ -283,19 +284,58 @@ impl BrowserConfirmation {
 }
 pub fn router(state: BrowserConfirmation) -> Router {
     Router::new()
+        .route(&format!("{BROWSER_PREFIX}/ui.js"), get(browser_script))
         .route(
-            "/api/user/assistant/confirmations/ui.js",
-            get(browser_script),
-        )
-        .route(
-            "/api/user/assistant/confirmations/{id}",
+            &format!("{BROWSER_PREFIX}/{{id}}"),
             get(inspect).post(decide),
         )
         .route(
-            "/api/user/assistant/confirmations/{id}/key",
+            &format!("{BROWSER_PREFIX}/{{id}}/key"),
             get(key_card::inspect).post(key_card::consume),
         )
+        // Existing immutable operation receipts may contain the earlier path.
+        // Only navigation is retained there; every decision/reveal POST remains
+        // under the native HttpOnly cookie scope and its original CSRF checks.
+        .route(
+            "/api/user/assistant/confirmations/ui.js",
+            get(legacy_browser_script),
+        )
+        .route(
+            "/api/user/assistant/confirmations/{id}",
+            get(legacy_browser_page),
+        )
+        .route(
+            "/api/user/assistant/confirmations/{id}/key",
+            get(legacy_browser_key),
+        )
         .with_state(state)
+}
+fn redirect_current(suffix: &str) -> Response {
+    let mut response = Redirect::temporary(&format!("{BROWSER_PREFIX}/{suffix}")).into_response();
+    for (name, value) in [
+        (header::CACHE_CONTROL, "no-store"),
+        (header::REFERRER_POLICY, "no-referrer"),
+    ] {
+        response
+            .headers_mut()
+            .insert(name, value.parse().expect("constant redirect header"));
+    }
+    response
+}
+async fn legacy_browser_script() -> Response {
+    redirect_current("ui.js")
+}
+async fn legacy_browser_page(Path(id): Path<String>) -> Response {
+    if !valid_id(&id) {
+        return response(Err(Error::Invalid));
+    }
+    redirect_current(&id)
+}
+async fn legacy_browser_key(Path(id): Path<String>) -> Response {
+    if !valid_id(&id) {
+        return response(Err(Error::Invalid));
+    }
+    redirect_current(&format!("{id}/key"))
 }
 const HTML: &str = include_str!("confirmation.html");
 const SCRIPT: &str = include_str!("confirmation.js");
@@ -781,6 +821,48 @@ mod tests {
                 .unwrap()
                 .contains("form-action 'none'")
         );
+    }
+    #[tokio::test]
+    async fn historical_browser_paths_only_redirect_gets_into_the_cookie_scope() {
+        use axum::{body::Body, http::Request};
+        use tower::ServiceExt;
+
+        let pool = sqlx::postgres::PgPoolOptions::new()
+            .connect_lazy("postgresql://fixture@localhost:1/unused")
+            .unwrap();
+        let app = router(BrowserConfirmation::new(pool, "http://127.0.0.1", true).unwrap());
+        let id = "a".repeat(64);
+        for suffix in [id.clone(), format!("{id}/key"), "ui.js".into()] {
+            let old = format!("/api/user/assistant/confirmations/{suffix}");
+            let response = app
+                .clone()
+                .oneshot(Request::get(&old).body(Body::empty()).unwrap())
+                .await
+                .unwrap();
+            assert_eq!(response.status(), StatusCode::TEMPORARY_REDIRECT);
+            assert_eq!(
+                response.headers()[header::LOCATION],
+                format!("{BROWSER_PREFIX}/{suffix}")
+            );
+            assert_eq!(response.headers()[header::CACHE_CONTROL], "no-store");
+            assert_eq!(response.headers()[header::REFERRER_POLICY], "no-referrer");
+            let response = app
+                .clone()
+                .oneshot(Request::post(&old).body(Body::empty()).unwrap())
+                .await
+                .unwrap();
+            assert_eq!(response.status(), StatusCode::METHOD_NOT_ALLOWED);
+            assert!(!response.headers().contains_key(header::LOCATION));
+        }
+        let response = app
+            .oneshot(
+                Request::get("/api/user/assistant/confirmations/not-a-proof")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
     }
     #[test]
     fn browser_inputs_do_not_accept_ambiguous_credentials_or_origins() {

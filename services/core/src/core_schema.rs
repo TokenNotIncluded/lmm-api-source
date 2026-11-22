@@ -256,6 +256,10 @@ const COMPONENTS: &[(&str, &str)] = &[
         "legacy-affiliate-aliases",
         include_str!("../schema/legacy_affiliate_aliases.sql"),
     ),
+    (
+        "assistant-invitation-confirmation",
+        include_str!("../schema/assistant_invitation_confirmation.sql"),
+    ),
 ];
 
 /// Verify the installed managed contract without installing or repairing it.

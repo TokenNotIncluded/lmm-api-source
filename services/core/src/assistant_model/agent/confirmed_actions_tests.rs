@@ -12,6 +12,13 @@ use crate::{
 };
 use sqlx::Row;
 
+#[path = "confirmed_actions_tls_fixture.rs"]
+mod tls_fixture;
+
+// One counted provider round; None produces its final text completion.
+type ModelCommand = Option<(String, String)>;
+type ModelCommandQueue = Arc<Mutex<std::collections::VecDeque<ModelCommand>>>;
+
 struct ConfirmFixture {
     agent: AgentService,
     identity: IdentityStore,
@@ -20,7 +27,8 @@ struct ConfirmFixture {
     user: i64,
     account: i64,
     provider: Provider,
-    queue: Arc<Mutex<std::collections::VecDeque<Option<(String, String)>>>>,
+    tls_proxy: tls_fixture::TlsProxy,
+    queue: ModelCommandQueue,
     origin: String,
     http: reqwest::Client,
     task: tokio::task::JoinHandle<()>,
@@ -37,6 +45,7 @@ impl ConfirmFixture {
         self.task.abort();
         assert!(self.task.await.unwrap_err().is_cancelled());
         drop(self.provider);
+        drop(self.tls_proxy);
     }
     async fn prepare(&self, name: &str, args: Value, text: &str, list_first: bool) -> String {
         {
@@ -77,7 +86,7 @@ impl ConfirmFixture {
         let response = self
             .http
             .get(format!(
-                "{}/api/user/assistant/confirmations/{id}",
+                "{}/api/user/auth/assistant/confirmations/{id}",
                 self.origin
             ))
             .header("cookie", self.cookie())
@@ -103,7 +112,7 @@ impl ConfirmFixture {
         let response = self
             .http
             .post(format!(
-                "{}/api/user/assistant/confirmations/{id}",
+                "{}/api/user/auth/assistant/confirmations/{id}",
                 self.origin
             ))
             .header("origin", &self.origin)
@@ -118,12 +127,18 @@ impl ConfirmFixture {
     }
 }
 async fn fixture(pool: &PgPool, ttl: i64) -> ConfirmFixture {
-    fixture_options(pool, ttl, false).await
+    fixture_options(pool, ttl, false, false).await
 }
 async fn fixture_market(pool: &PgPool, ttl: i64) -> ConfirmFixture {
-    fixture_options(pool, ttl, true).await
+    fixture_options(pool, ttl, true, false).await
 }
-async fn fixture_options(pool: &PgPool, ttl: i64, market_enabled: bool) -> ConfirmFixture {
+async fn fixture_options(
+    pool: &PgPool,
+    ttl: i64,
+    market_enabled: bool,
+    invitation_enabled: bool,
+) -> ConfirmFixture {
+    assert!(!(market_enabled && invitation_enabled));
     crate::core_schema::init(pool).await.unwrap();
     let identity = IdentityStore::from_pool(pool.clone())
         .with_registration_enabled(true)
@@ -172,9 +187,7 @@ async fn fixture_options(pool: &PgPool, ttl: i64, market_enabled: bool) -> Confi
         })
         .await
         .unwrap();
-    let queue = Arc::new(Mutex::new(std::collections::VecDeque::<
-        Option<(String, String)>,
-    >::new()));
+    let queue = Arc::new(Mutex::new(std::collections::VecDeque::<ModelCommand>::new()));
     let observed = Arc::new(Mutex::new(Vec::new()));
     let hits = Arc::new(AtomicUsize::new(0));
     let (commands, requests, counter) = (queue.clone(), observed.clone(), hits.clone());
@@ -200,8 +213,9 @@ async fn fixture_options(pool: &PgPool, ttl: i64, market_enabled: bool) -> Confi
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let endpoint = format!("http://{}/v1", listener.local_addr().unwrap());
     let task = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+    let tls_proxy = tls_fixture::TlsProxy::start(&endpoint);
     let provider = Provider {
-        endpoint,
+        endpoint: tls_proxy.endpoint.clone(),
         hits,
         requests: observed,
         task,
@@ -232,7 +246,11 @@ async fn fixture_options(pool: &PgPool, ttl: i64, market_enabled: bool) -> Confi
         sponsor: None,
         service_funding: None,
     };
-    let base = AssistantModel::new(pool.clone(), gateway, model.clone()).unwrap();
+    let mut base = AssistantModel::new(pool.clone(), gateway, model.clone()).unwrap();
+    base.transport = base
+        .transport
+        .with_loopback_test_root(&provider.endpoint, tls_proxy.root.clone())
+        .unwrap();
     let existing: Value = serde_json::from_slice(include_bytes!(
         "../../../../../contracts/assistant-tools-v2.json"
     ))
@@ -242,6 +260,9 @@ async fn fixture_options(pool: &PgPool, ttl: i64, market_enabled: bool) -> Confi
         .unwrap()
         .iter()
         .filter(|t| {
+            if invitation_enabled {
+                return t["name"] == "send_invitation";
+            }
             t["name"] == "list_my_api_keys"
                 || (market_enabled
                     && matches!(
@@ -269,6 +290,9 @@ async fn fixture_options(pool: &PgPool, ttl: i64, market_enabled: bool) -> Confi
             actions::CREATE_VERSION,
         ),
     ] {
+        if invitation_enabled {
+            continue;
+        }
         definitions.push(json!({"name":name,"description":"Prepare one exact self action for explicit browser confirmation.",
             "version":version,"schema_json":schema,"schema_sha256":crate::hex_codec::encode(Sha256::digest(schema.as_bytes())),
             "price_version":"builtin-free-v1","price_sha256":"5d6fb460c679922a1976e87ef729440d5394187e9b12331f33faf12904a64192","domain":"registered_core"}));
@@ -283,6 +307,9 @@ async fn fixture_options(pool: &PgPool, ttl: i64, market_enabled: bool) -> Confi
         actions::PROFILE_TOOL.into(),
         actions::CREATE_TOOL.into(),
     ]);
+    if invitation_enabled {
+        names = BTreeSet::from(["send_invitation".to_string()]);
+    }
     let market = if market_enabled {
         names.extend(
             [
@@ -339,6 +366,7 @@ async fn fixture_options(pool: &PgPool, ttl: i64, market_enabled: bool) -> Confi
         user,
         account,
         provider,
+        tls_proxy,
         queue,
         origin,
         http: reqwest::Client::new(),
@@ -565,7 +593,7 @@ async fn confirmed_actions_reject_missing_selection_stale_resources_and_revocati
     let (_, view, nonce) = f.inspect(&stale).await;
     let nonce = nonce.unwrap();
     let csrf = view["csrf"].as_str().unwrap();
-    let url = format!("{}/api/user/assistant/confirmations/{stale}", f.origin);
+    let url = format!("{}/api/user/auth/assistant/confirmations/{stale}", f.origin);
     let missing = f
         .http
         .post(&url)
@@ -882,3 +910,6 @@ mod market_confirmation;
 
 #[path = "market_runtime_tests.rs"]
 mod market_runtime_tests;
+
+#[path = "confirmed_invitation_tests.rs"]
+mod invitation_confirmation;

@@ -64,7 +64,11 @@ fn gateway_endpoint_group_input_ceiling(
                 }],
                 upstreams: vec![UpstreamConfig {
                     id: 1,
-                    endpoint: Endpoint::local_loopback(endpoint.to_owned()).unwrap(),
+                    endpoint: if endpoint.starts_with("https://") {
+                        Endpoint::try_from(endpoint.to_owned()).unwrap()
+                    } else {
+                        Endpoint::local_loopback(endpoint.to_owned()).unwrap()
+                    },
                     protocol: Protocol::OpenAiChat,
                     credential: CredentialRef { id: 7, revision: 1 },
                     enabled: true,

@@ -41,7 +41,7 @@ function fixture() {
     id: action.confirmation_id,
     operation_id: action.operation_id,
     tool: 'send_invitation',
-    browser_url: `/api/user/assistant/confirmations/${'b'.repeat(64)}`,
+    browser_url: `/api/user/auth/assistant/confirmations/${'b'.repeat(64)}`,
     payload: {
       kind: 'invitation_email_v1',
       email: action.recipient,
@@ -186,7 +186,10 @@ test('confirmation readback rejects foreign references, URLs and invented delive
     { operation_id: 'another-operation-id' },
     { browser_url: '//outside.invalid' },
     {
-      browser_url: `/api/user/assistant/confirmations/${'b'.repeat(64)}?next=/`,
+      browser_url: `/api/user/assistant/confirmations/${'b'.repeat(64)}`,
+    },
+    {
+      browser_url: `/api/user/auth/assistant/confirmations/${'b'.repeat(64)}?next=/`,
     },
     { payload: { ...f.view().payload, email: 'other@example.invalid' } },
     { payload: { ...f.view().payload, invitation_code: 'a'.repeat(5) } },

@@ -78,7 +78,7 @@ pub(crate) async fn verify(
     }
     let stored: Value = serde_json::from_slice(&result).map_err(|_| Error::Unavailable)?;
     let challenge = confirmation::projection(confirmation)?;
-    if stored != prepared_result(&challenge) {
+    if !matches_prepared_result(&stored, &challenge) {
         return Err(Error::Forbidden);
     }
     let response: Value = serde_json::from_slice(&provider).map_err(|_| Error::Unavailable)?;
@@ -147,4 +147,83 @@ pub(crate) async fn verify(
         _ => return Err(Error::Forbidden),
     }
     Ok(())
+}
+
+fn matches_prepared_result(stored: &Value, challenge: &confirmation::Challenge) -> bool {
+    let mut expected = prepared_result(challenge);
+    if stored == &expected {
+        return true;
+    }
+    // Historical operations are immutable. Accept their exact original path
+    // without changing any receipt field or authorizing another challenge.
+    expected["browser_path"] = Value::String(format!(
+        "/api/user/assistant/confirmations/{}",
+        challenge.challenge_id
+    ));
+    stored == &expected
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn legacy_prepared_result_only_accepts_exact_historical_navigation() {
+        let id = "a".repeat(64);
+        let challenge = confirmation::Challenge {
+            challenge_id: id.clone(),
+            operation_id: "original-operation".into(),
+            tool_name: CREATE_TOOL.into(),
+            preview: json!({}),
+            draft_sha256: "b".repeat(64),
+            arguments_sha256: "c".repeat(64),
+            tool_version: "v1".into(),
+            resource_kind: "api_key".into(),
+            resource_id: String::new(),
+            resource_version: String::new(),
+            expires_at_unix: 1_795_400_000,
+            state: "pending".into(),
+            browser_path: format!("/api/user/auth/assistant/confirmations/{id}"),
+            executed: false,
+            execution_receipt: None,
+            requires_two_factor: false,
+        };
+        let current = prepared_result(&challenge);
+        assert!(matches_prepared_result(&current, &challenge));
+        let mut legacy = current.clone();
+        legacy["browser_path"] = json!(format!("/api/user/assistant/confirmations/{id}"));
+        let original_legacy = legacy.clone();
+        assert!(matches_prepared_result(&legacy, &challenge));
+        assert_eq!(legacy, original_legacy);
+
+        for path in [
+            format!("/api/user/assistant/confirmations/{}", "d".repeat(64)),
+            format!("/api/user/auth/assistant/confirmations/{}", "d".repeat(64)),
+            format!("https://example.invalid/api/user/assistant/confirmations/{id}"),
+            format!("/api/user/assistant/confirmations/{id}?confirmed=true"),
+            format!("/api/user/assistant/confirmations/{id}#confirm"),
+            format!("/api/user/assistant/confirmations/../confirmations/{id}"),
+            format!("/api/user/assistant/confirmations/%61{}", &id[1..]),
+            format!("/api/user/assistant/confirmations/{id}/"),
+        ] {
+            let mut altered = legacy.clone();
+            altered["browser_path"] = json!(path);
+            assert!(!matches_prepared_result(&altered, &challenge), "{path}");
+        }
+        for (key, value) in [
+            ("confirmation_id", json!("d".repeat(64))),
+            ("draft_sha256", json!("e".repeat(64))),
+            ("expires_at_unix", json!(1_795_400_001)),
+            ("status", json!("approved")),
+            ("executed", json!(true)),
+            ("ok", json!(false)),
+            ("extra", json!(true)),
+        ] {
+            for original in [&current, &legacy] {
+                let mut altered = original.clone();
+                altered[key] = value.clone();
+                assert!(!matches_prepared_result(&altered, &challenge), "{key}");
+            }
+        }
+    }
 }

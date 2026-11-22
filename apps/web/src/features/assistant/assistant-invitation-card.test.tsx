@@ -108,7 +108,7 @@ function fixture() {
     id: action.confirmation_id,
     operation_id: action.operation_id,
     tool: 'send_invitation',
-    browser_url: `/api/user/assistant/confirmations/${'c'.repeat(64)}`,
+    browser_url: `/api/user/auth/assistant/confirmations/${'c'.repeat(64)}`,
     payload: {
       kind: 'invitation_email_v1',
       email: action.recipient,

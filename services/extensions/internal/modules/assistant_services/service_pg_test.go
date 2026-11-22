@@ -54,7 +54,8 @@ func (p *pgServiceConfirm) Prepare(_ context.Context, _ string, operation, tool 
 		p.calls = map[string]bool{}
 	}
 	p.calls[operation] = true
-	return Challenge{ID: operation, URL: "/test-browser/" + operation, PayloadSHA256: digest(payload), ExpiresAt: time.Now().Unix() + 300}, nil
+	id := digest([]byte("core-test-confirmation:" + operation))
+	return Challenge{ID: id, URL: "/api/user/auth/assistant/confirmations/" + id, PayloadSHA256: digest(payload), ExpiresAt: time.Now().Unix() + 300}, nil
 }
 func (p *pgServiceConfirm) Verify(_ context.Context, credential, challenge, operation, sha string) (BrowserProof, error) {
 	p.mu.Lock()
@@ -63,7 +64,7 @@ func (p *pgServiceConfirm) Verify(_ context.Context, credential, challenge, oper
 	if e != nil {
 		return BrowserProof{}, e
 	}
-	return BrowserProof{Confirmed: p.approved && p.calls[operation] && challenge == operation, UserID: principal.UserID, OperationID: operation, PayloadSHA256: sha, ReceiptID: "synthetic-browser-proof", ExpiresAt: time.Now().Unix() + 300}, nil
+	return BrowserProof{Confirmed: p.approved && p.calls[operation] && challenge == digest([]byte("core-test-confirmation:"+operation)), UserID: principal.UserID, OperationID: operation, PayloadSHA256: sha, ReceiptID: "synthetic-browser-proof", ExpiresAt: time.Now().Unix() + 300}, nil
 }
 
 var pgServiceOperation atomic.Uint64

@@ -8,6 +8,8 @@ use crate::{
     subscriptions::{ExternalPrice, PlanTerms, SavePlan, SubscriptionStore},
     test_runtime::RuntimeRole,
 };
+use rand::{SeedableRng, rngs::StdRng};
+use rsa::{PrivateKey, pkcs8::EncodePublicKey};
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
 
@@ -21,17 +23,7 @@ fn channel() -> Channel {
         webhook_secrets: vec!["synthetic-plan-offers-private-key".into()],
         credits_per_minor: 1,
         max_amount_minor: 10000,
-        credit_quote: Some(CreditQuotePolicy {
-            settlement_per_usd_numerator: 7,
-            settlement_per_usd_denominator: 1,
-            discounts: BTreeMap::from([(
-                500000,
-                CreditQuoteRatio {
-                    numerator: 9,
-                    denominator: 10,
-                },
-            )]),
-        }),
+        credit_quote: None,
         verification: ProviderVerification {
             payment_type: "alipay".into(),
             endpoint: "https://epay.example.test".into(),
@@ -40,6 +32,34 @@ fn channel() -> Channel {
             ..Default::default()
         },
     }
+}
+fn quantity_channel() -> Channel {
+    let key = PrivateKey::new(&mut StdRng::seed_from_u64(93602), 2048).unwrap();
+    let mut channel = Channel::pancake_isolated_test(
+        8,
+        "merchant_plan_offers_fixture".into(),
+        key.to_public_key()
+            .to_public_key_pem(Default::default())
+            .unwrap(),
+        "STO_plan_offers".into(),
+        "PROD_plan_offers".into(),
+        "CNY".into(),
+        10000,
+    )
+    .unwrap();
+    channel.credits_per_minor = 0;
+    channel.credit_quote = Some(CreditQuotePolicy {
+        settlement_per_usd_numerator: 7,
+        settlement_per_usd_denominator: 1,
+        discounts: BTreeMap::from([(
+            500000,
+            CreditQuoteRatio {
+                numerator: 9,
+                denominator: 10,
+            },
+        )]),
+    });
+    channel
 }
 fn terms() -> PlanTerms {
     PlanTerms {
@@ -112,7 +132,7 @@ async fn plan_offers_use_runtime_current_terms_and_never_prepare_payment(pool: P
         )
         .await
         .unwrap();
-    let payments = PaymentsStore::new(pool.clone(), vec![channel()]).unwrap();
+    let payments = PaymentsStore::new(pool.clone(), vec![channel(), quantity_channel()]).unwrap();
     subscriptions
         .save_epay_price(
             &payments,
@@ -152,9 +172,16 @@ async fn plan_offers_use_runtime_current_terms_and_never_prepare_payment(pool: P
         "125"
     );
     assert_eq!(facts["plans"][0]["external_prices"][0]["configured"], true);
+    assert_eq!(facts["topup_channels"].as_array().unwrap().len(), 2);
+    assert_eq!(facts["topup_channels"][0]["channel_id"], 7);
+    assert_eq!(facts["topup_channels"][0]["provider"], "epay");
     assert_eq!(facts["topup_channels"][0]["configured"], true);
+    assert_eq!(facts["topup_channels"][0]["credit_quote"], Value::Null);
+    assert_eq!(facts["topup_channels"][1]["channel_id"], 8);
+    assert_eq!(facts["topup_channels"][1]["provider"], "waffo_pancake");
+    assert_eq!(facts["topup_channels"][1]["configured"], true);
     assert_eq!(
-        facts["topup_channels"][0]["credit_quote"]["discounts"]["500000"],
+        facts["topup_channels"][1]["credit_quote"]["discounts"]["500000"],
         json!({"numerator":9,"denominator":10})
     );
     assert_eq!(unchanged_state(&pool).await, before);
