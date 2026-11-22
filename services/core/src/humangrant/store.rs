@@ -26,6 +26,34 @@ impl HumanGrantStore {
         Ok(())
     }
 
+    /// Browser decisions that issue a metered key also write its charging budget.
+    pub(crate) async fn begin_serializable_decision(&self) -> Result<HumanGrantTx, sqlx::Error> {
+        let mut retries = 3;
+        loop {
+            let mut tx = self
+                .pool
+                .begin_with("BEGIN ISOLATION LEVEL SERIALIZABLE")
+                .await?;
+            // Write the existing gate without changing its revision. A concurrent
+            // decision must obtain a fresh snapshot after the first commits.
+            let gate = sqlx::query_scalar::<_, i32>(
+                "UPDATE core_humangrant.human_grant_gate SET revision=revision WHERE id=1 RETURNING id",
+            ).fetch_one(&mut *tx).await;
+            match gate {
+                Err(sqlx::Error::Database(error))
+                    if retries > 0 && error.code().as_deref() == Some("40001") =>
+                {
+                    tx.rollback().await?;
+                    retries -= 1;
+                }
+                result => {
+                    result?;
+                    return Ok(HumanGrantTx { tx });
+                }
+            }
+        }
+    }
+
     pub async fn begin(&self) -> Result<HumanGrantTx, ProtocolError> {
         let mut tx = self.pool.begin().await.map_err(|e| {
             eprintln!("store begin transaction error: {:?}", e);

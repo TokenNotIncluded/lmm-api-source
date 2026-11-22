@@ -641,7 +641,7 @@ async fn decide(
             }));
         }
         let mut tx = crate::humangrant::HumanGrantStore::new(s.pool.clone())
-            .begin().await.map_err(|_| Error::Unavailable)?;
+            .begin_serializable_decision().await?;
         let (r, context) = browser_row(&mut tx, &h, &id).await?;
         let expected: Option<Vec<u8>> = r.try_get("nonce_sha256")?;
         if !expected.is_some_and(|expected| bool::from(expected.as_slice().ct_eq(&sha(nonce.as_bytes())))) {
