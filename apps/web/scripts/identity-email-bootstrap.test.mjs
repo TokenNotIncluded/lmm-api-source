@@ -43,8 +43,9 @@ function page(path, runBootstrap = true) {
     URLSearchParams,
   })
   for (const [, attributes, code] of scripts) {
-    if (!runBootstrap && attributes.includes('id="identity-email-bootstrap"'))
+    if (!runBootstrap && attributes.includes('id="identity-email-bootstrap"')) {
       continue
+    }
     const source = attributes.match(
       /\bsrc\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'=<>`]+))/i
     )
