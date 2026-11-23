@@ -557,6 +557,12 @@ impl ModelGateway {
     }
 }
 
+#[cfg(test)]
+#[path = "channel_balance_sub2api_tests.rs"]
+mod channel_balance_sub2api_tests;
+#[path = "channel_balance_sub2api.rs"]
+mod sub2api;
+
 /// A frozen provider GET. The credential never leaves the gateway or enters a URL.
 pub(crate) struct BalanceRequest {
     url: reqwest::Url,
@@ -568,6 +574,7 @@ pub(crate) struct BalanceRequest {
     cny_per_usd: Option<f64>,
     deepseek_currency_array: bool,
     openai_subscription: bool,
+    sub2api_usage: bool,
     api_key_auth: bool,
 }
 
@@ -679,13 +686,19 @@ fn deepseek_balance(value: &Value, rate: Option<f64>, secret: &str) -> Option<f6
     (result.is_finite() && result >= 0.0 && !result.to_string().contains(secret)).then_some(result)
 }
 
+enum BalanceFormat {
+    Scalar,
+    DeepSeek,
+    Sub2Api,
+}
+
 fn parse_balance(
     bytes: &[u8],
     pointer: &str,
     subtract_pointer: Option<&str>,
     requirements: &[(String, Value)],
     cny_per_usd: Option<f64>,
-    deepseek_currency_array: bool,
+    format: BalanceFormat,
     secret: &str,
 ) -> Result<f64, RelayError> {
     // Do not return even a numeric-looking credential reflected by a provider.
@@ -699,8 +712,15 @@ fn parse_balance(
     {
         return Err(RelayError::RouteUnavailable);
     }
-    if deepseek_currency_array {
-        return deepseek_balance(&value, cny_per_usd, secret).ok_or(RelayError::RouteUnavailable);
+    match format {
+        BalanceFormat::Sub2Api => {
+            return sub2api::balance(&value, secret).ok_or(RelayError::RouteUnavailable);
+        }
+        BalanceFormat::DeepSeek => {
+            return deepseek_balance(&value, cny_per_usd, secret)
+                .ok_or(RelayError::RouteUnavailable);
+        }
+        BalanceFormat::Scalar => {}
     }
     let number = |pointer: &str| -> Result<f64, RelayError> {
         let selected = value.pointer(pointer).ok_or(RelayError::RouteUnavailable)?;
@@ -734,6 +754,7 @@ pub(crate) struct BalanceProbeInput<'a> {
     pub(crate) cny_per_usd: Option<&'a str>,
     pub(crate) deepseek_currency_array: bool,
     pub(crate) openai_subscription: bool,
+    pub(crate) sub2api_usage: bool,
     pub(crate) unit_label: Option<&'a str>,
     pub(crate) api_key_auth: bool,
 }
@@ -751,6 +772,7 @@ impl ModelGateway {
             cny_per_usd,
             deepseek_currency_array,
             openai_subscription,
+            sub2api_usage,
             unit_label,
             api_key_auth,
         } = input;
@@ -800,6 +822,7 @@ impl ModelGateway {
                 .map_err(|_| RelayError::RouteUnavailable)?,
             deepseek_currency_array,
             openai_subscription,
+            sub2api_usage,
             api_key_auth,
         })
     }
@@ -851,7 +874,7 @@ impl ModelGateway {
                     .get(url)
                     .header(header::ACCEPT, "application/json");
                 let get = match (
-                    request.openai_subscription,
+                    request.openai_subscription || request.sub2api_usage,
                     request.api_key_auth,
                     request.protocol,
                 ) {
@@ -929,7 +952,13 @@ impl ModelGateway {
                 request.subtract_pointer.as_deref(),
                 &request.requirements,
                 request.cny_per_usd,
-                request.deepseek_currency_array,
+                if request.sub2api_usage {
+                    BalanceFormat::Sub2Api
+                } else if request.deepseek_currency_array {
+                    BalanceFormat::DeepSeek
+                } else {
+                    BalanceFormat::Scalar
+                },
                 &request.credential,
             )
         })

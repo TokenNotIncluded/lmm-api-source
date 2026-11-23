@@ -43,9 +43,11 @@ pub(super) fn resolve(
         return Ok(None);
     };
     legacy.validate()?;
-    // The existing transport binds authentication to protocol. These two use
-    // different headers; do not accidentally send them for a Bearer adapter.
-    if matches!(protocol, Protocol::AnthropicMessages | Protocol::Gemini) {
+    // Keep the protocol-default adapters restricted. Sub2API has an explicit
+    // Bearer override independent of the model protocol.
+    if matches!(protocol, Protocol::AnthropicMessages | Protocol::Gemini)
+        && legacy.channel_type != 59
+    {
         return Ok(None);
     }
     let (path, pointer, unit) = match legacy.channel_type {
@@ -74,6 +76,7 @@ pub(super) fn resolve(
         // The frozen adapter does not establish a currency for this scalar.
         40 => ("/v1/user/info", "/data/totalBalance", None),
         43 => ("/user/balance", "/balance_infos", Some("USD")),
+        59 => ("/v1/usage", "/remaining", Some("USD")),
         _ => return Ok(None),
     };
     let mut probe = BalanceProbe {
@@ -86,6 +89,7 @@ pub(super) fn resolve(
         cny_per_usd: legacy.cny_per_usd.clone(),
         deepseek_currency_array: None,
         openai_subscription: None,
+        sub2api_usage: None,
         auth: None,
     };
     let requirement = |pointer: &str, equals| BalanceRequirement {
@@ -107,6 +111,7 @@ pub(super) fn resolve(
         }
         40 => probe.require = Some(requirement("/code", json!(20000))),
         43 => probe.deepseek_currency_array = Some(true),
+        59 => probe.sub2api_usage = Some(true),
         _ => {}
     }
     probe.validate()?;

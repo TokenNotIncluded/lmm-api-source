@@ -64,9 +64,10 @@ const adapter = api.defaults.adapter
 const request = api.request
 const previous = useAuthStore.getState().auth
 const i18n = createInstance()
+const en = await import('@/i18n/locales/en.json')
 await i18n
   .use(initReactI18next)
-  .init({ lng: 'en', resources: { en: { translation: {} } } })
+  .init({ lng: 'en', resources: { en: en.default } })
 let dispose: (() => Promise<void>) | undefined
 afterEach(async () => {
   await dispose?.()
@@ -1157,8 +1158,6 @@ const usageFixture = {
 }
 
 test('native channel card opens confirmed consumption with exact values and explicit coverage', async () => {
-  const en = await import('@/i18n/locales/en.json')
-  i18n.addResourceBundle('en', 'translation', en.default.translation)
   const reads: string[] = []
   api.request = (async (options: { url: string; method: string }) => {
     reads.push(options.url)
@@ -1296,6 +1295,101 @@ test('a confirmed zero native window displays zero instead of an unavailable sta
     assert.match(value.textContent ?? '', /^0(?: Credits)?$/)
   }
   assert.equal(document.querySelector('[role=dialog] [role=alert]'), null)
+})
+
+test('Sub2API automatic balances refresh individually and in a batch without clearing failed observations', async () => {
+  const { AxiosError, AxiosHeaders } = await import('axios')
+  const config = {
+    ...fixture(),
+    bindings: {
+      ...fixture().bindings,
+      legacy_balance: { 1: { channel_type: 59 }, 2: { channel_type: 59 } },
+    },
+  }
+  config.routing.upstreams.push({ ...config.routing.upstreams[0], id: 2 })
+  config.bindings.names[2] = 'Quota provider'
+  const observation = {
+    balance: '42.5',
+    unit_label: 'USD',
+    balance_updated_time: 1_700_000_000,
+    recorded_at: 1_700_000_000,
+    kind: 'provider',
+    source_channel_id: null,
+  }
+  const calls: number[] = []
+  let failAll = false
+  api.request = (async (options: { url: string; method: string }) => {
+    if (options.url.endsWith('/counters')) {
+      return {
+        data: {
+          success: true,
+          data: { ...countersFixture, balance: observation },
+        },
+      }
+    }
+    if (!options.url.endsWith('/balance')) {
+      return { data: { success: true, data: config } }
+    }
+    assert.equal(options.method, 'GET')
+    const id = Number(options.url.split('/').at(-2))
+    calls.push(id)
+    if (id === 2 || failAll) {
+      throw new AxiosError(
+        'private provider detail',
+        'ERR_BAD_RESPONSE',
+        undefined,
+        undefined,
+        {
+          status: 502,
+          statusText: 'unavailable',
+          headers: {},
+          config: { headers: new AxiosHeaders() },
+          data: {},
+        }
+      )
+    }
+    return { data: { success: true, data: observation } }
+  }) as typeof api.request
+  const container = await mount('channels')
+  await until(() => !!container.textContent?.includes('Quota provider'))
+  await act(async () => button(container, 'Provider balance').click())
+  await until(() => !!document.querySelector('[role=dialog] dl'))
+  let dialog = required(document.querySelector('[role=dialog]'))
+  assert.equal(button(dialog, 'Update Balance').disabled, false)
+  await act(async () => button(dialog, 'Update Balance').click())
+  await until(() => calls.length === 1)
+  assert.equal(dialog.querySelector('.text-2xl')?.textContent, '42.5 USD')
+  await act(async () => button(dialog, 'Close').click())
+  await act(async () => {
+    ;(container.querySelector('[role=checkbox]') as HTMLButtonElement).click()
+  })
+  const toolbar = required(
+    container.querySelector('[data-slot=channel-batch-actions]')
+  )
+  await act(async () => button(toolbar, 'Refresh selected balances').click())
+  dialog = required(document.querySelector('[role=dialog]'))
+  await act(async () => button(dialog, 'Update Balance').click())
+  await until(
+    () =>
+      calls.length === 3 &&
+      !!dialog.textContent?.includes('Current balance unknown')
+  )
+  assert.deepEqual(calls, [1, 1, 2])
+  assert.ok(dialog.textContent?.includes('42.5 USD'))
+  assert.equal(dialog.textContent?.includes('private provider detail'), false)
+  assert.equal(dialog.textContent?.includes('0 USD'), false)
+  failAll = true
+  await act(async () => button(dialog, 'Update Balance').click())
+  await until(
+    () =>
+      calls.length === 5 &&
+      dialog.querySelectorAll('[role=status]').length === 2
+  )
+  assert.ok(dialog.textContent?.includes('42.5 USD'))
+  assert.ok(
+    dialog.textContent?.includes('last recorded balance has not changed')
+  )
+  await act(async () => button(dialog, 'Close').click())
 })
 
 const balanceFixture = {
