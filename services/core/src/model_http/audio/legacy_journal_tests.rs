@@ -49,6 +49,7 @@ async fn legacy_fixture(pool: PgPool, corrupt: bool) {
             model_snapshot: "synthetic-audio-upstream".into(),
             generation_url: format!("{}/chat/completions", supplier.endpoint),
             credential_ref: CredentialRef { id: 7, revision: 1 },
+            credential_selection: None,
             payload_policy_sha256: "06".repeat(32),
             provider_contract_revision: audio.provider_contract_revision.clone(),
             projection_revision: "audio-chat-stream-raw-v1".into(),
