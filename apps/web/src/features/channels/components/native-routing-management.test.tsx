@@ -1318,6 +1318,7 @@ test('Sub2API automatic balances refresh individually and in a batch without cle
   }
   const calls: number[] = []
   let failAll = false
+  let finishSingle: (() => void) | undefined
   api.request = (async (options: { url: string; method: string }) => {
     if (options.url.endsWith('/counters')) {
       return {
@@ -1333,6 +1334,11 @@ test('Sub2API automatic balances refresh individually and in a batch without cle
     assert.equal(options.method, 'GET')
     const id = Number(options.url.split('/').at(-2))
     calls.push(id)
+    if (calls.length === 1) {
+      await new Promise<void>((resolve) => {
+        finishSingle = resolve
+      })
+    }
     if (id === 2 || failAll) {
       throw new AxiosError(
         'private provider detail',
@@ -1356,8 +1362,17 @@ test('Sub2API automatic balances refresh individually and in a batch without cle
   await until(() => !!document.querySelector('[role=dialog] dl'))
   let dialog = required(document.querySelector('[role=dialog]'))
   assert.equal(button(dialog, 'Update Balance').disabled, false)
-  await act(async () => button(dialog, 'Update Balance').click())
-  await until(() => calls.length === 1)
+  const singleUpdate = button(dialog, 'Update Balance')
+  await act(async () => {
+    singleUpdate.click()
+    singleUpdate.click()
+  })
+  await until(() => !!finishSingle)
+  assert.deepEqual(calls, [1])
+  assert.equal(singleUpdate.disabled, true)
+  await act(async () => required(finishSingle)())
+  await until(() => !singleUpdate.disabled)
+  assert.deepEqual(calls, [1])
   assert.equal(dialog.querySelector('.text-2xl')?.textContent, '42.5 USD')
   await act(async () => button(dialog, 'Close').click())
   await act(async () => {
@@ -1389,6 +1404,111 @@ test('Sub2API automatic balances refresh individually and in a batch without cle
   assert.ok(
     dialog.textContent?.includes('last recorded balance has not changed')
   )
+  await act(async () => button(dialog, 'Close').click())
+})
+
+test('Sub2API batch late responses do not enter a filtered replacement selection', async () => {
+  const config = {
+    ...fixture(),
+    bindings: {
+      ...fixture().bindings,
+      legacy_balance: {
+        1: { channel_type: 59 },
+        2: { channel_type: 59 },
+        3: { channel_type: 59 },
+      },
+    },
+  }
+  config.routing.upstreams.push(
+    { ...config.routing.upstreams[0], id: 2 },
+    { ...config.routing.upstreams[0], id: 3 }
+  )
+  config.bindings.names[2] = 'Quota provider'
+  config.bindings.names[3] = 'Filtered provider'
+  const calls: number[] = []
+  let finishOld: (() => void) | undefined
+  let oldSignal: AbortSignal | undefined
+  api.request = (async (options: {
+    url: string
+    method: string
+    signal?: AbortSignal
+  }) => {
+    if (!options.url.endsWith('/balance')) {
+      return { data: { success: true, data: config } }
+    }
+    assert.equal(options.method, 'GET')
+    const id = Number(options.url.split('/').at(-2))
+    calls.push(id)
+    if (id === 1) {
+      oldSignal = options.signal
+      // Deliberately return even after abort, like an already received response.
+      await new Promise<void>((resolve) => {
+        finishOld = resolve
+      })
+    }
+    return {
+      data: {
+        success: true,
+        data: {
+          balance: id === 3 ? '0' : '999.5',
+          unit_label: 'USD',
+          balance_updated_time: 1_700_000_000,
+          recorded_at: 1_700_000_000,
+          kind: 'provider',
+          source_channel_id: null,
+        },
+      },
+    }
+  }) as typeof api.request
+  const container = await mount('channels')
+  await until(() => !!container.textContent?.includes('Filtered provider'))
+  await act(async () =>
+    required(
+      container.querySelector<HTMLButtonElement>('[role=checkbox]')
+    ).click()
+  )
+  let toolbar = required(
+    container.querySelector('[data-slot=channel-batch-actions]')
+  )
+  await act(async () => button(toolbar, 'Refresh selected balances').click())
+  let dialog = required(document.querySelector('[role=dialog]'))
+  assert.equal(dialog.querySelectorAll('li').length, 3)
+  await act(async () => button(dialog, 'Update Balance').click())
+  await until(() => !!finishOld)
+  assert.deepEqual(calls, [1])
+  await act(async () => button(dialog, 'Close').click())
+  assert.equal(oldSignal?.aborted, true)
+  await changeInput(
+    required(
+      container.querySelector<HTMLInputElement>('input[aria-label="Search"]')
+    ),
+    'Filtered provider'
+  )
+  await until(() => !container.textContent?.includes('Quota provider'))
+  assert.equal(
+    container.querySelector('[data-slot=channel-batch-actions]'),
+    null
+  )
+  await act(async () =>
+    required(
+      container.querySelector<HTMLButtonElement>('[role=checkbox]')
+    ).click()
+  )
+  toolbar = required(
+    container.querySelector('[data-slot=channel-batch-actions]')
+  )
+  await act(async () => button(toolbar, 'Refresh selected balances').click())
+  dialog = required(document.querySelector('[role=dialog]'))
+  await act(async () => button(dialog, 'Update Balance').click())
+  await until(() => !!dialog.textContent?.includes('0 USD'))
+  await act(async () => required(finishOld)())
+  assert.deepEqual(calls, [1, 3])
+  assert.equal(dialog.querySelectorAll('li').length, 1)
+  assert.ok(dialog.textContent?.includes('Filtered provider'))
+  assert.ok(dialog.textContent?.includes('0 USD'))
+  assert.equal(dialog.textContent?.includes('999.5 USD'), false)
+  assert.equal(dialog.textContent?.includes('Private provider'), false)
+  assert.equal(dialog.textContent?.includes('Quota provider'), false)
   await act(async () => button(dialog, 'Close').click())
 })
 
