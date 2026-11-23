@@ -254,13 +254,15 @@ async fn pricing_pg_header_nav_policy_bounds_and_public_runtime_unknown(pool: Pg
 
 #[sqlx::test(migrations = false)]
 async fn pricing_pg_empty_session_metadata_uses_only_visible_permissions(pool: PgPool) {
-    let (_, session, surface) = setup(&pool).await;
-    let router = PricingHttp::new(pool.clone(), surface).router();
-    // The default group remains valid, but this catalogue has no default routes.
-    sqlx::query("DELETE FROM core_identity.user_routing_groups WHERE user_id=7")
-        .execute(&pool)
+    crate::core_schema::init(&pool).await.unwrap();
+    let session = IdentityStore::from_pool(pool.clone())
+        .bootstrap_user(7, 1)
         .await
         .unwrap();
+    let surface = Arc::new(PricingSurface::from_gateway(&gateway(pool.clone())).unwrap());
+    let router = PricingHttp::new(pool.clone(), surface).router();
+    // Start without assignments: deleting an existing grant revokes the session.
+    // The default group remains valid, but this catalogue has no default routes.
     let before = counts(&pool).await;
     for (raw, public_available) in [
         (r#"{"pricing":true}"#, true),

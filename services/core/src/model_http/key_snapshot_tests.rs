@@ -85,7 +85,7 @@ async fn accept(g: &ModelGateway, f: &Fixture, id: &str) -> [u8; 32] {
 #[sqlx::test(migrations = false)]
 async fn key_snapshot_survives_settlement_refund_and_is_admin_only(pool: PgPool) {
     let f = fixture(pool, 10_000_000).await;
-    let g = gateway(&f, EXTERNAL_BASE, vec![]);
+    let g = gateway(&f, EXTERNAL_BASE, contexts(SMALL_INPUT));
     let primary = CredentialRef { id: 7, revision: 1 };
     let secondary = CredentialRef { id: 8, revision: 2 };
     g.bridge
