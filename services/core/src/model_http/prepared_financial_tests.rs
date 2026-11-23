@@ -57,6 +57,7 @@ fn preparation(
             model_snapshot: "synthetic-model-2026-10-01".into(),
             generation_url: "https://synthetic.invalid/v1/responses".into(),
             credential_ref: CredentialRef { id: 7, revision: 1 },
+            credential_selection: None,
             payload_policy_sha256: digest(b"adapt"),
             provider_contract_revision: "synthetic-financial-fixture-v1".into(),
             projection_revision: "context-max-v1".into(),
@@ -1276,3 +1277,6 @@ async fn prepared_contract_damaged_live_proof_keeps_raw_terminal_audit_without_c
     }
     assert_balance(&f, 936, 64).await;
 }
+
+#[path = "key_snapshot_tests.rs"]
+mod key_snapshot_tests;

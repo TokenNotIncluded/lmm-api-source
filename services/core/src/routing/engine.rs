@@ -1179,6 +1179,15 @@ impl Attempt {
     pub fn credential_ref(&self) -> CredentialRef {
         self.credential
     }
+    /// Zero-based ordinal in this attempt's original pool, never the live release.
+    pub(crate) fn credential_selection(&self) -> (bool, u32) {
+        let references = &self.target.upstream.credentials.references;
+        let index = references
+            .iter()
+            .position(|reference| *reference == self.credential)
+            .expect("selected credential belongs to the frozen pool");
+        (references.len() > 1, index as u32)
+    }
     pub fn timeout_ms(&self) -> u32 {
         self.target.config.timeout_ms
     }

@@ -1,6 +1,8 @@
 //! Synthetic-provider business acceptance: real loopback HTTP, disposable PG,
 //! restricted runtime roles and real router handlers. This is not full TLS proof;
 //! published routing stays HTTPS and only the cfg(test) transport is mapped.
+#[path = "sub2api_tests.rs"]
+mod sub2api_tests;
 use crate::test_runtime as runtime;
 use crate::{
     channel_http::{ManagedChannels, managed_router},
@@ -56,10 +58,25 @@ fn gateway_fixture(
     loopback: Option<&str>,
     missing_binding: Option<bool>,
 ) -> ModelGateway {
+    gateway_for_protocol(
+        pool,
+        loopback,
+        missing_binding,
+        crate::routing::Protocol::OpenAiChat,
+    )
+}
+fn gateway_for_protocol(
+    pool: &PgPool,
+    loopback: Option<&str>,
+    missing_binding: Option<bool>,
+    protocol: crate::routing::Protocol,
+) -> ModelGateway {
     let document = fixture();
     let mut config = document.routing;
+    config.upstreams[0].protocol = protocol;
     let prices = document.pricing;
     let mut contexts:Vec<crate::model_http::ExternalModelContext>=serde_json::from_value(json!([{"upstream_id":1,"upstream_model":"model-a","protocol":"openai_chat","endpoint":"https://provider.example/v1/","max_input_tokens":1000,"max_output_tokens":100,"contract_revision":"synthetic-v1","missing_cached_tokens_is_zero":true,"missing_cache_creation_tokens_is_zero":true}])).unwrap();
+    contexts[0].protocol = protocol;
     if let Some(missing_secret) = missing_binding {
         config.upstreams[0].enabled = false;
         config.routes[0].enabled = false;

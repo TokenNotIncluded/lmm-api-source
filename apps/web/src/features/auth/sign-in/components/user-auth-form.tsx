@@ -83,7 +83,9 @@ export function UserAuthForm({
   )
   const [isLoading, setIsLoading] = useState(false)
   const [appealRefreshKey, setAppealRefreshKey] = useState(0)
-  const [passkeySupported, setPasskeySupported] = useState(false)
+  const [passkeySupport, setPasskeySupport] = useState<
+    'checking' | 'supported' | 'unsupported'
+  >('checking')
   const [isPasskeyLoading, setIsPasskeyLoading] = useState(false)
   const [turnstileWidgetKey, setTurnstileWidgetKey] = useState(0)
   const legalConsentErrorMessage = t('Please agree to the legal terms first')
@@ -117,7 +119,7 @@ export function UserAuthForm({
     cookieBlocked ||
     isLoading ||
     isPasskeyLoading ||
-    !passkeySupported ||
+    passkeySupport !== 'supported' ||
     (requiresLegalConsent && !agreedToLegal)
   const hasWeChatLogin = federatedProviders(status).some(
     (provider) => provider.kind === 'wechat'
@@ -132,8 +134,10 @@ export function UserAuthForm({
 
   useEffect(() => {
     detectPasskeySupport()
-      .then(setPasskeySupported)
-      .catch(() => setPasskeySupported(false))
+      .then((supported) =>
+        setPasskeySupport(supported ? 'supported' : 'unsupported')
+      )
+      .catch(() => setPasskeySupport('unsupported'))
   }, [])
 
   const form = useForm<z.infer<typeof loginFormSchema>>({
@@ -236,8 +240,10 @@ export function UserAuthForm({
       return
     }
 
-    if (!passkeySupported) {
-      toast.error(t('Passkey is not supported on this device'))
+    if (passkeySupport !== 'supported') {
+      if (passkeySupport === 'unsupported') {
+        toast.error(t('Passkey is not supported on this device'))
+      }
       return
     }
 
@@ -370,28 +376,33 @@ export function UserAuthForm({
             type='button'
             variant='ghost'
             disabled={passkeyButtonDisabled}
+            aria-busy={passkeySupport === 'checking' || isPasskeyLoading}
             onClick={handlePasskeyLogin}
             className='text-muted-foreground hover:text-foreground h-10 w-full justify-center gap-2 rounded-xl'
           >
-            {isPasskeyLoading ? (
-              <Loader2 className='h-4 w-4 animate-spin' />
+            {passkeySupport === 'checking' || isPasskeyLoading ? (
+              <Loader2
+                aria-hidden='true'
+                className='h-4 w-4 animate-spin motion-reduce:animate-none'
+              />
             ) : (
-              <KeyRound className='h-4 w-4' />
+              <KeyRound aria-hidden='true' className='h-4 w-4' />
             )}
             {t('Sign in with Passkey')}
           </Button>
-          {passkeySupported && (
-            <p className='text-muted-foreground text-xs'>
-              {t(
-                'Enter your username if your security key does not support account discovery.'
-              )}
-            </p>
-          )}
-          {!passkeySupported && (
-            <p className='text-muted-foreground text-xs'>
-              {t('Passkey is not supported on this device.')}
-            </p>
-          )}
+          <p
+            role='status'
+            aria-live='polite'
+            className='text-muted-foreground text-xs'
+          >
+            {passkeySupport === 'checking'
+              ? t('Checking Passkey availability...')
+              : passkeySupport === 'supported'
+                ? t(
+                    'Enter your username if your security key does not support account discovery.'
+                  )
+                : t('Passkey is not supported on this device.')}
+          </p>
         </div>
       )}
     </>

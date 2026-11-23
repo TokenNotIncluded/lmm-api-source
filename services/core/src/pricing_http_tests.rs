@@ -69,6 +69,8 @@ async fn pricing_pg_readonly_role_public_session_mark_and_revocation(pool: PgPoo
     let (status, public) = call(&router, "/core/v1/pricing/public", None, None).await;
     assert_eq!(status, StatusCode::OK, "{public}");
     assert_eq!(public["visibility"], "public");
+    assert_eq!(public["empty_reason"], Value::Null);
+    assert_eq!(public["public_view_available"], true);
     assert_eq!(public["groups"], json!(["allowed", "private"]));
     assert_eq!(public["routing_version"], 9);
     assert_eq!(public["pricing_version"], 11);
@@ -82,6 +84,8 @@ async fn pricing_pg_readonly_role_public_session_mark_and_revocation(pool: PgPoo
     .await;
     assert_eq!(status, StatusCode::OK, "{own}");
     assert_eq!(own["visibility"], "session");
+    assert_eq!(own["empty_reason"], Value::Null);
+    assert_eq!(own["public_view_available"], true);
     assert_eq!(own["groups"], json!(["allowed"]));
     assert!(!own.to_string().contains("provider-model"));
     let key = identity
@@ -245,6 +249,143 @@ async fn pricing_pg_header_nav_policy_bounds_and_public_runtime_unknown(pool: Pg
         .0,
         StatusCode::BAD_REQUEST
     );
+    assert_eq!(counts(&pool).await, before);
+}
+
+#[sqlx::test(migrations = false)]
+async fn pricing_pg_empty_session_metadata_uses_only_visible_permissions(pool: PgPool) {
+    let (_, session, surface) = setup(&pool).await;
+    let router = PricingHttp::new(pool.clone(), surface).router();
+    // The default group remains valid, but this catalogue has no default routes.
+    sqlx::query("DELETE FROM core_identity.user_routing_groups WHERE user_id=7")
+        .execute(&pool)
+        .await
+        .unwrap();
+    let before = counts(&pool).await;
+    for (raw, public_available) in [
+        (r#"{"pricing":true}"#, true),
+        (r#"{"pricing":{"enabled":true,"requireAuth":true}}"#, false),
+    ] {
+        sqlx::query("INSERT INTO core_console.options(key,value) VALUES('HeaderNavModules',$1) ON CONFLICT(key) DO UPDATE SET value=EXCLUDED.value")
+            .bind(raw).execute(&pool).await.unwrap();
+        let (status, empty) = call(
+            &router,
+            "/core/v1/pricing/session",
+            Some(&session.secret),
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{empty}");
+        assert_eq!(empty["visibility"], "session");
+        assert_eq!(empty["empty_reason"], "no_visible_models");
+        assert_eq!(empty["public_view_available"], public_available);
+        assert_eq!(empty["invocation_authorized"], false);
+        assert_eq!(empty["models"], json!([]));
+        assert_eq!(empty["groups"], json!([]));
+        assert!(!empty.to_string().contains("private"));
+        assert!(!empty.to_string().contains("claude"));
+        let (status, public) = call(&router, "/core/v1/pricing/public", None, None).await;
+        assert_eq!(
+            status,
+            if public_available {
+                StatusCode::OK
+            } else {
+                StatusCode::FORBIDDEN
+            }
+        );
+        if public_available {
+            assert_eq!(public["empty_reason"], Value::Null);
+            assert_eq!(public["public_view_available"], true);
+            assert!(!public["models"].as_array().unwrap().is_empty());
+        } else {
+            assert!(public.get("empty_reason").is_none());
+            assert!(public.get("public_view_available").is_none());
+        }
+    }
+    // A valid group can still have no visible models after the model restriction.
+    sqlx::query("INSERT INTO core_identity.user_routing_groups(user_id,group_name,enabled,source_reference) VALUES(7,'allowed',TRUE,'pricing-empty-model-test')")
+        .execute(&pool).await.unwrap();
+    let policy = json!({"version":1,"policies":[{"id":"marked","name":"pricing policy","mode":"fixed_text","fixed_text":"bounded","public_models":["synthetic-not-listed"],"clients":{},"limits":{"requests_per_minute_per_user":10,"requests_per_minute_global":10,"max_concurrent_per_user":1,"max_concurrent_global":1,"max_input_bytes":4096,"max_output_bytes":4096,"max_output_tokens":1024,"output_bytes_per_second":0,"total_timeout_seconds":5}}]});
+    sqlx::query("UPDATE core_abuse.settings SET revision=1,document=$1 WHERE singleton")
+        .bind(policy)
+        .execute(&pool)
+        .await
+        .unwrap();
+    sqlx::query("INSERT INTO core_abuse.user_marks(user_id,marked,policy_id,revision) VALUES(7,TRUE,'marked',1)")
+        .execute(&pool).await.unwrap();
+    let (status, empty) = call(
+        &router,
+        "/core/v1/pricing/session",
+        Some(&session.secret),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{empty}");
+    assert_eq!(empty["empty_reason"], "no_visible_models");
+    assert_eq!(empty["models"], json!([]));
+    assert_eq!(empty["groups"], json!([]));
+    assert!(!empty.to_string().contains("synthetic-not-listed"));
+    let (status, error) = call(
+        &router,
+        "/core/v1/pricing/session",
+        Some("lmms_not_a_real_session"),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED, "{error}");
+    assert!(error.get("empty_reason").is_none());
+    assert!(error.get("public_view_available").is_none());
+    assert_eq!(counts(&pool).await, before);
+}
+
+#[sqlx::test(migrations = false)]
+async fn pricing_pg_empty_public_catalog_is_distinct_from_an_empty_account(pool: PgPool) {
+    use crate::routing::{PriceConfig, PriceSnapshot, RoutingConfig};
+    crate::core_schema::init(&pool).await.unwrap();
+    let routing = crate::routing::Router::new(
+        RoutingConfig {
+            version: 1,
+            groups: vec![],
+            upstreams: vec![],
+            routes: vec![],
+            aliases: vec![],
+        },
+        Arc::new(
+            PriceSnapshot::compile(PriceConfig {
+                version: 1,
+                rules: vec![],
+            })
+            .unwrap(),
+        ),
+    )
+    .unwrap();
+    let gateway = crate::model_http::ModelGateway::new(
+        pool.clone(),
+        Arc::new(routing),
+        vec![],
+        std::collections::BTreeMap::new(),
+        crate::relay::Limits {
+            total_timeout: std::time::Duration::from_secs(1),
+            hook_timeout: std::time::Duration::from_millis(100),
+            ..Default::default()
+        },
+        crate::model_http::ChargePolicy {
+            input_token_ceiling: 65536,
+            lease_seconds: 10,
+        },
+    )
+    .unwrap();
+    let surface = Arc::new(PricingSurface::from_gateway(&gateway).unwrap());
+    let router = PricingHttp::new(pool.clone(), surface).router();
+    let before = counts(&pool).await;
+    let (status, public) = call(&router, "/core/v1/pricing/public", None, None).await;
+    assert_eq!(status, StatusCode::OK, "{public}");
+    assert_eq!(public["visibility"], "public");
+    assert_eq!(public["empty_reason"], "catalog_empty");
+    assert_eq!(public["public_view_available"], true);
+    assert_eq!(public["invocation_authorized"], false);
+    assert_eq!(public["models"], json!([]));
+    assert_eq!(public["groups"], json!([]));
     assert_eq!(counts(&pool).await, before);
 }
 
@@ -463,6 +604,7 @@ async fn pricing_pg_disabled_module_allows_only_root_session(pool: PgPool) {
         .await;
         assert_eq!(status, StatusCode::OK, "{raw} {own}");
         assert_eq!(own["visibility"], "session");
+        assert_eq!(own["public_view_available"], false);
         assert_eq!(own["invocation_authorized"], false);
         assert_eq!(own["groups"], json!(["allowed"]));
         let (status, runtime) = call(

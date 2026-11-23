@@ -28,6 +28,14 @@ struct AdmissionMarker {
 }
 
 // @context-fold begin reservation-contract-types
+/// Non-secret diagnostic facts captured alongside the admitted credential reference.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct CredentialSelection {
+    pub is_multi_key: bool,
+    pub multi_key_index: u32,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct ReservationBinding {
@@ -38,6 +46,9 @@ pub(crate) struct ReservationBinding {
     pub model_snapshot: String,
     pub generation_url: String,
     pub credential_ref: crate::routing::CredentialRef,
+    /// Absent on historical contracts; omission preserves their original digest.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub credential_selection: Option<CredentialSelection>,
     pub payload_policy_sha256: String,
     pub provider_contract_revision: String,
     pub projection_revision: String,
@@ -55,6 +66,7 @@ impl ReservationBinding {
         projection_revision: String,
         quote_version: u64,
     ) -> Result<Self, Error> {
+        let (is_multi_key, multi_key_index) = attempt.credential_selection();
         Ok(Self {
             route_id: attempt.route_key(),
             target_id: attempt.target_id(),
@@ -63,6 +75,10 @@ impl ReservationBinding {
             model_snapshot,
             generation_url,
             credential_ref: attempt.credential_ref(),
+            credential_selection: Some(CredentialSelection {
+                is_multi_key,
+                multi_key_index,
+            }),
             payload_policy_sha256: typed_digest(&attempt.payload_policy())?,
             provider_contract_revision,
             projection_revision,
@@ -765,6 +781,9 @@ impl PreparedReservation {
             || binding.upstream_id > i64::MAX as u64
             || binding.credential_ref.id == 0
             || binding.credential_ref.revision == 0
+            || binding
+                .credential_selection
+                .is_some_and(|selection| !selection.is_multi_key && selection.multi_key_index != 0)
             || binding.quote_version == 0
             || !matches!(
                 binding.protocol.as_str(),
@@ -1157,15 +1176,24 @@ impl ReservationContract {
     }
 
     /// Both the route and dispatched wire body must match the frozen candidate.
-    pub(crate) fn dispatched_channel(&self, route_id: &str, wire_sha256: &str) -> Option<u64> {
+    pub(crate) fn dispatched_binding(
+        &self,
+        route_id: &str,
+        wire_sha256: &str,
+    ) -> Option<&ReservationBinding> {
         if self.fields.binding.route_id == route_id && self.fields.wire_sha256 == wire_sha256 {
-            return Some(self.fields.binding.upstream_id);
+            return Some(&self.fields.binding);
         }
         self.fields
             .fallbacks
             .iter()
             .find(|f| f.binding.route_id == route_id && f.wire_sha256 == wire_sha256)
-            .map(|f| f.binding.upstream_id)
+            .map(|f| &f.binding)
+    }
+
+    pub(crate) fn dispatched_channel(&self, route_id: &str, wire_sha256: &str) -> Option<u64> {
+        self.dispatched_binding(route_id, wire_sha256)
+            .map(|binding| binding.upstream_id)
     }
 }
 
@@ -1249,6 +1277,7 @@ mod tests {
                 model_snapshot: "synthetic-model".into(),
                 generation_url: "https://synthetic.invalid/v1/responses".into(),
                 credential_ref: crate::routing::CredentialRef { id: 3, revision: 4 },
+                credential_selection: None,
                 payload_policy_sha256: "02".repeat(32),
                 provider_contract_revision: "synthetic-v1".into(),
                 projection_revision: "context_max_v1".into(),
@@ -1269,6 +1298,53 @@ mod tests {
             },
         )
         .unwrap()
+    }
+
+    #[test]
+    fn key_snapshot_preserves_old_wire_and_binds_new_metadata_to_digest() {
+        let legacy = prepared();
+        let mut wire = serde_json::to_value(&legacy.fields).unwrap();
+        assert!(wire["binding"].get("credential_selection").is_none());
+        wire["prepared_sha256"] = legacy.digest().into();
+        wire["admission_spec_sha256"] = "04".repeat(32).into();
+        wire["frozen_price_sha256"] = "05".repeat(32).into();
+        let old = ReservationContract::from_value(wire.clone()).unwrap();
+        assert_eq!(old.fields.binding.credential_selection, None);
+        assert_eq!(old.to_value().unwrap(), wire);
+
+        let mut current = legacy.clone();
+        current.fields.binding.credential_selection = Some(CredentialSelection {
+            is_multi_key: true,
+            multi_key_index: 1,
+        });
+        assert!(current.validate().is_err());
+        current.prepared_sha256 = typed_digest(&current.fields).unwrap();
+        current.validate().unwrap();
+        assert_ne!(current.digest(), legacy.digest());
+
+        current
+            .fields
+            .binding
+            .credential_selection
+            .as_mut()
+            .unwrap()
+            .multi_key_index = 0;
+        assert!(
+            current.validate().is_err(),
+            "ordinal is part of the accepted contract"
+        );
+        current.prepared_sha256 = typed_digest(&current.fields).unwrap();
+        current.validate().unwrap();
+
+        current.fields.binding.credential_selection = Some(CredentialSelection {
+            is_multi_key: false,
+            multi_key_index: 1,
+        });
+        current.prepared_sha256 = typed_digest(&current.fields).unwrap();
+        assert!(
+            current.validate().is_err(),
+            "a single key cannot have a nonzero ordinal"
+        );
     }
 
     #[test]

@@ -19,3 +19,5 @@ jobs:
   identity:
     # All merged modules use the same preserved executors and private fixtures.
     uses: ./.github/workflows/core-protocol.yml
+    with:
+      split_rust_targets: true
