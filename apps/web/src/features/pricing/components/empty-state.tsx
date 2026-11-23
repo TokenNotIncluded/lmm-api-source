@@ -31,6 +31,8 @@ export interface EmptyStateProps {
   searchQuery?: string
   hasActiveFilters: boolean
   onClearFilters: () => void
+  emptyReason?: 'no_visible_models' | 'catalog_empty' | null
+  onViewPublic?: () => void
   error?: unknown
   onRetry?: () => void | Promise<unknown>
 }
@@ -63,29 +65,66 @@ export function EmptyState(props: EmptyStateProps) {
   }
 
   const hasSearch = Boolean(props.searchQuery?.trim())
+  const noVisibleModels = props.emptyReason === 'no_visible_models'
+  const emptyPublicCatalog = props.emptyReason === 'catalog_empty'
+  const catalogEmpty = noVisibleModels || emptyPublicCatalog
 
   return (
-    <div className='flex min-h-[320px] flex-col items-center justify-center rounded-lg border border-dashed px-6 py-12 text-center'>
+    <div className='flex min-h-[320px] flex-col items-center justify-center px-6 py-12 text-center'>
       <Search className='text-muted-foreground/40 mb-3 size-10' />
 
       <h3 className='text-foreground mb-1 text-base font-semibold'>
-        {t('No models found')}
+        {noVisibleModels
+          ? t('No models available to your account')
+          : emptyPublicCatalog
+            ? t('No public models listed')
+            : t('No models found')}
       </h3>
 
-      <p className='text-muted-foreground mb-5 max-w-xs text-sm'>
-        {hasSearch
+      <p className='text-muted-foreground mb-5 max-w-sm text-sm'>
+        {noVisibleModels
           ? t(
-              'No results for "{{query}}". Try adjusting your search or filters.',
-              { query: props.searchQuery }
+              'Your account currently has no available models. Contact an administrator to request access.'
             )
-          : t('No models match your current filters.')}
+          : emptyPublicCatalog
+            ? t(
+                'No models are currently listed in the public catalog. Please check again later.'
+              )
+            : hasSearch
+              ? t(
+                  'No results for "{{query}}". Try adjusting your search or filters.',
+                  { query: props.searchQuery }
+                )
+              : t('No models match your current filters.')}
       </p>
 
-      {(props.hasActiveFilters || hasSearch) && (
-        <Button variant='outline' size='sm' onClick={props.onClearFilters}>
-          {t('Clear all filters')}
-        </Button>
-      )}
+      <div className='flex flex-wrap justify-center gap-2'>
+        {noVisibleModels && props.onViewPublic ? (
+          <Button type='button' size='sm' onClick={props.onViewPublic}>
+            {t('View public catalog')}
+          </Button>
+        ) : null}
+        {catalogEmpty && props.onRetry ? (
+          <Button
+            type='button'
+            variant='outline'
+            size='sm'
+            onClick={() => void props.onRetry?.()}
+          >
+            {t('Refresh')}
+          </Button>
+        ) : null}
+        {!catalogEmpty && (props.hasActiveFilters || hasSearch) ? (
+          <Button
+            type='button'
+            variant='outline'
+            size='sm'
+            onClick={props.onClearFilters}
+          >
+            {t('Clear all filters')}
+          </Button>
+        ) : null}
+      </div>
     </div>
   )
 }

@@ -222,6 +222,93 @@ test('a public response cannot become account pricing after sign-in', async () =
   await rejected
 })
 
+test('explicit public viewing uses anonymous transport and a separate account-scoped cache', async () => {
+  setSession(7, 'session-a')
+  const requests: string[] = []
+  api.defaults.adapter = async (config) => {
+    requests.push(config.url ?? '')
+    assert.equal(config.url, '/core/v1/pricing/public')
+    assert.equal(config.authMode, 'anonymous')
+    assert.equal(config.skipAuthRefresh, true)
+    assert.equal(config.withCredentials, false)
+    assert.equal(config.headers.get('Authorization'), undefined)
+    assert.deepEqual(config.authScope, { userId: 7, sessionId: 'session-a' })
+    return {
+      data: document('public'),
+      status: 200,
+      statusText: 'OK',
+      headers: {},
+      config,
+    }
+  }
+  const pricing = await getPricing(
+    undefined,
+    { userId: 7, sessionId: 'session-a' },
+    'public'
+  )
+  assert.equal(pricing.catalog_visibility, 'public')
+  assert.deepEqual(requests, ['/core/v1/pricing/public'])
+  assert.notDeepEqual(
+    pricingQueryKey(7, 'session-a', 'public'),
+    pricingQueryKey(7, 'session-a')
+  )
+  assert.notDeepEqual(
+    pricingQueryKey(7, 'session-a', 'public'),
+    pricingQueryKey()
+  )
+})
+
+test('a late explicit public response is still rejected after account switching', async () => {
+  setSession(7, 'old-session')
+  const sent = deferred()
+  const release = deferred()
+  api.defaults.adapter = async (config) => {
+    sent.resolve()
+    await release.promise
+    return {
+      data: document('public'),
+      status: 200,
+      statusText: 'OK',
+      headers: {},
+      config,
+    }
+  }
+  const result = getPricing(
+    undefined,
+    { userId: 7, sessionId: 'old-session' },
+    'public'
+  )
+  const rejected = assert.rejects(
+    result,
+    /Authentication changed before request could be sent/
+  )
+  await sent.promise
+  setSession(8, 'new-session')
+  release.resolve()
+  await rejected
+})
+
+test('forbidden account pricing never falls back to the public endpoint', async () => {
+  setSession(7, 'session-a')
+  const requests: string[] = []
+  api.defaults.adapter = async (config) => {
+    requests.push(config.url ?? '')
+    throw new AxiosError('Forbidden', undefined, config, undefined, {
+      data: { error: { code: 'pricing_forbidden' } },
+      status: 403,
+      statusText: 'Forbidden',
+      headers: {},
+      config,
+    })
+  }
+  await assert.rejects(
+    getPricing(),
+    (error: unknown) =>
+      error instanceof AxiosError && error.response?.status === 403
+  )
+  assert.deepEqual(requests, ['/core/v1/pricing/session'])
+})
+
 test('unavailable account pricing is an error without an anonymous fallback', async () => {
   setSession(7, 'session')
   const requests: string[] = []

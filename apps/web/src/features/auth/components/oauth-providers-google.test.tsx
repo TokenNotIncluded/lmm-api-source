@@ -32,6 +32,8 @@ for (const key of [
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true })
 const clicks: string[] = []
 const consent: boolean[] = []
+let oauthPending = false
+let telegramPending = false
 mock.module('react-i18next', () => ({
   useTranslation: () => ({
     t: (key: string, options?: { name?: string }) =>
@@ -42,7 +44,7 @@ mock.module('../hooks/use-oauth-login', () => ({
   useOAuthLogin: (_: unknown, __: unknown, acceptedLegal: boolean) => {
     consent.push(acceptedLegal)
     return {
-      isLoading: false,
+      isLoading: oauthPending,
       githubButtonText: '',
       githubButtonDisabled: false,
       handleGoogleLogin: () => clicks.push('builtin:google'),
@@ -53,7 +55,7 @@ mock.module('../hooks/use-oauth-login', () => ({
       handleLinuxDOLogin: () => {},
       handleTelegramLogin: () => {},
       isTelegramDialogOpen: false,
-      isTelegramPending: false,
+      isTelegramPending: telegramPending,
       handleTelegramAuthorization: () => {},
       handleTelegramDialogChange: () => {},
     }
@@ -97,6 +99,7 @@ async function render(
   props: {
     registrationOnly?: boolean
     disabled?: boolean
+    isWeChatLoading?: boolean
     acceptedLegal?: boolean
     registrationCapabilitiesReady?: boolean
   } = {}
@@ -134,9 +137,62 @@ afterEach(async () => {
   await unmount()
   document.body.replaceChildren()
   clicks.length = 0
+  oauthPending = false
+  telegramPending = false
   consent.length = 0
 })
 after(() => dom.close())
+
+test('browser OAuth pending is announced and clears when the attempt settles', async () => {
+  oauthPending = true
+  const host = await render(supported, { acceptedLegal: true })
+  const button = getButton(host)
+  assert.equal(button.disabled, true)
+  assert.equal(button.getAttribute('aria-busy'), 'true')
+  assert.equal(
+    host.querySelector('[role="status"]')?.textContent,
+    'Signing in...'
+  )
+  assert.equal(
+    host.querySelector('[role="status"]')?.getAttribute('aria-live'),
+    'polite'
+  )
+  await act(async () => button.click())
+  assert.deepEqual(clicks, [])
+  oauthPending = false
+  await act(async () =>
+    root?.render(
+      <OAuthProviders
+        status={supported}
+        registrationCapabilitiesReady
+        featureGoogle
+        acceptedLegal
+      />
+    )
+  )
+  assert.equal(getButton(host).disabled, false)
+  assert.equal(getButton(host).getAttribute('aria-busy'), 'false')
+  assert.equal(host.querySelector('[role="status"]'), null)
+  await act(async () => getButton(host).click())
+  assert.deepEqual(clicks, ['builtin:google'])
+})
+
+for (const provider of ['Telegram', 'WeChat'] as const) {
+  test(`${provider} pending has visible accessible progress`, async () => {
+    telegramPending = provider === 'Telegram'
+    const host = await render(supported, {
+      isWeChatLoading: provider === 'WeChat',
+    })
+    assert.equal(
+      host.querySelector('[role="status"]')?.textContent,
+      'Signing in...'
+    )
+    assert.equal(
+      host.querySelector('[role="status"]')?.getAttribute('aria-live'),
+      'polite'
+    )
+  })
+}
 
 describe('Google provider buttons', () => {
   test('native supported browser Google wins, custom duplicate is not invoked', async () => {
