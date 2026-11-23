@@ -27,7 +27,17 @@ const PRIMARY_URLS = [
   '/wallet',
 ] as const
 
-export function organizeConsoleNavigation(groups: NavGroup[], title: string) {
+const MANAGEMENT_URLS = [
+  '/channels',
+  '/users',
+  '/system-settings/site',
+] as const
+
+export function organizeConsoleNavigation(
+  groups: NavGroup[],
+  title: string,
+  moreAdminTitle?: string
+) {
   // First-run navigation is intentionally separate from the activated console.
   if (groups.some((group) => group.id === 'onboarding')) return groups
 
@@ -43,16 +53,36 @@ export function organizeConsoleNavigation(groups: NavGroup[], title: string) {
     }
   }
 
+  const admin = groups.find((group) => group.id === 'admin')
+  const management: NavItem[] = []
+  for (const url of MANAGEMENT_URLS) {
+    const item = admin?.items.find((entry) => entry.url === url)
+    if (item) {
+      management.push(item)
+      promoted.add(item)
+    }
+  }
+
   const remaining = groups
     .map((group) => ({
       ...group,
+      title:
+        group.id === 'admin' && management.length && moreAdminTitle
+          ? moreAdminTitle
+          : group.title,
       items: group.items.filter((item) => !promoted.has(item)),
     }))
     .filter((group) => group.items.length > 0)
 
-  return primary.length
-    ? [{ id: 'console-primary', title, items: primary }, ...remaining]
-    : remaining
+  return [
+    ...(primary.length
+      ? [{ id: 'console-primary', title, items: primary }]
+      : []),
+    ...(management.length && admin
+      ? [{ id: 'console-management', title: admin.title, items: management }]
+      : []),
+    ...remaining,
+  ]
 }
 
 function leafItems(groups: NavGroup[]) {

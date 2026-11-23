@@ -79,7 +79,7 @@ function TableRow({ className, ...props }: React.ComponentProps<'tr'>) {
     <tr
       data-slot='table-row'
       className={cn(
-        'group hover:[background-color:color-mix(in_oklch,var(--muted)_50%,var(--background))] has-aria-expanded:[background-color:color-mix(in_oklch,var(--muted)_50%,var(--background))] hover:bg-muted/50 data-[state=selected]:bg-muted border-b border-border/40 transition-colors motion-reduce:transition-none',
+        'group hover:[background-color:color-mix(in_oklch,var(--muted)_50%,var(--background))] has-[[aria-expanded=true]]:[background-color:color-mix(in_oklch,var(--muted)_50%,var(--background))] hover:bg-muted/50 data-[state=selected]:bg-muted border-b border-border/40 transition-colors motion-reduce:transition-none',
         className
       )}
       {...props}

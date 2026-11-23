@@ -53,6 +53,7 @@ test('channel capabilities reject failed reads and preserve read-only unknown me
       native_channel_lifetime: false,
       native_balance_probe: false,
       copy_preserve_counters: false,
+      bulk_key_import: false,
     },
   })
 })
@@ -123,13 +124,38 @@ test('updateAllChannelsBalance rethrows HTTP errors without a valid summary', as
   await assert.rejects(updateAllChannelsBalance(), invalidError)
 })
 
-test('channel accounting capabilities accept only explicit booleans', async () => {
+test('bulk key import is enabled only when the server explicitly advertises it', async () => {
+  try {
+    for (const capability of [undefined, false, true]) {
+      api.get = (async () => ({
+        data: {
+          success: true,
+          data: {
+            retry_times: null,
+            ...(capability === undefined
+              ? {}
+              : { bulk_key_import: capability }),
+          },
+        },
+      })) as typeof api.get
+      assert.equal(
+        (await getChannelOps()).data?.bulk_key_import,
+        capability === true
+      )
+    }
+  } finally {
+    api.get = originalGet
+  }
+})
+
+test('channel capabilities accept only explicit booleans', async () => {
   const capabilities = {
     native_channel_usage: true,
     native_channel_counters: false,
     native_channel_lifetime: true,
     native_balance_probe: true,
     copy_preserve_counters: false,
+    bulk_key_import: true,
   }
   try {
     const payload = {

@@ -38,6 +38,8 @@ const logTypeSearchSchema = z
   .catch([])
 
 const usageLogsSearchSchema = z.object({
+  source: z.enum(['native', 'historical']).optional().catch(undefined),
+  scope: z.enum(['all', 'self']).optional().catch(undefined),
   page: z.number().optional().catch(1),
   pageSize: z.number().optional().catch(undefined),
   type: logTypeSearchSchema.optional(),

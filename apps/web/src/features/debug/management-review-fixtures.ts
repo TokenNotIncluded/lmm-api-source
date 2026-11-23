@@ -266,7 +266,11 @@ export function withManagementReviewFixtures(next: AxiosAdapter): AxiosAdapter {
       return respond(data)
     }
     if (method === 'GET' && url.pathname === '/api/channel/ops') {
-      return respond({ native_configuration: true, native_secrets: true })
+      return respond({
+        native_configuration: true,
+        native_secrets: true,
+        bulk_key_import: true,
+      })
     }
     if (
       method === 'GET' &&

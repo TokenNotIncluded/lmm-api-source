@@ -45,6 +45,7 @@ const bindingSchema = z.object({
 const configurationSchema = z.union([
   z.object({
     contract: z.literal('extensions.pancake-configuration.v1'),
+    callbacks_enabled: z.boolean().optional(),
     bindings: z
       .array(
         bindingSchema.extend({
@@ -56,9 +57,11 @@ const configurationSchema = z.union([
   bindingSchema
     .extend({
       contract: z.literal('extensions.pancake-configuration.v1'),
+      callbacks_enabled: z.boolean().optional(),
     })
     .transform((binding) => ({
       contract: binding.contract,
+      callbacks_enabled: binding.callbacks_enabled,
       bindings: [binding],
     })),
 ])
@@ -92,7 +95,7 @@ type Configuration = z.infer<typeof configurationSchema>
 type PaymentBinding = z.infer<typeof bindingSchema>
 type Catalog = z.infer<typeof catalogSchema>
 type Pair = z.infer<typeof pairSchema>
-type Action = 'catalog' | 'pair' | 'save'
+type Action = 'catalog' | 'pair' | 'save' | 'reload'
 
 function bindingID(binding: PaymentBinding): number {
   return binding.channel_id ?? binding.channels[0].id
@@ -386,6 +389,11 @@ function PaymentEditor({
   const [catalog, setCatalog] = useState<Catalog | null>(null)
   const [pair, setPair] = useState<Pair | null>(null)
   const [confirmPair, setConfirmPair] = useState(false)
+  const [confirmReload, setConfirmReload] = useState(false)
+  const [copiedWebhook, setCopiedWebhook] = useState('')
+  const siteOrigin =
+    window.location.protocol === 'https:' ? window.location.origin : ''
+  const webhookURL = `${siteOrigin}/api/waffo-pancake/webhook/${current.environment === 'live' ? 'prod' : 'test'}`
   const inFlight = useRef<AbortController | null>(null)
   useEffect(
     () => () => {
@@ -418,7 +426,44 @@ function PaymentEditor({
     return true
   }
 
-  async function run(action: Action) {
+  async function reload() {
+    if (inFlight.current || !isCurrentNativeUsersScope(scope)) return
+    const controller = new AbortController()
+    inFlight.current = controller
+    const active = () =>
+      !controller.signal.aborted && isCurrentNativeUsersScope(scope)
+    setBusy('reload')
+    setConfirmReload(false)
+    setSaved(false)
+    setMessage('')
+    try {
+      const refreshed = await readConfiguration(scope, controller.signal)
+      if (!active()) return
+      const next =
+        refreshed.bindings.find(
+          (binding) =>
+            bindingID(binding) === selectedID ||
+            binding.channels.some((channel) => channel.id === selectedID)
+        ) ?? refreshed.bindings[0]
+      setSelectedID(bindingID(next))
+      setReturnURL(next.return_url)
+      setPrivateKey('')
+      setCatalog(null)
+      setPair(null)
+      client.setQueryData(queryKey, refreshed)
+    } catch (error) {
+      if (active() && !rejectAccess(error)) {
+        setMessage(
+          t('The current payment configuration could not be reloaded.')
+        )
+      }
+    } finally {
+      if (inFlight.current === controller) inFlight.current = null
+      if (active()) setBusy(null)
+    }
+  }
+
+  async function run(action: Exclude<Action, 'reload'>) {
     if (inFlight.current || !isCurrentNativeUsersScope(scope)) return
     if (action !== 'catalog' && !validReturnURL()) {
       setMessage(
@@ -666,24 +711,135 @@ function PaymentEditor({
                 : t('Not configured')}
             </dd>
           </div>
-          <div className='space-y-1'>
-            <dt className='text-muted-foreground text-xs'>
-              {t('Payment channels')}
-            </dt>
-            <dd className='text-sm'>
-              {current.channels
-                .map(
-                  (channel) =>
-                    `${channel.currency} #${channel.id} · ${channel.enabled ? t('Enabled') : t('Disabled')}`
-                )
-                .join(' / ')}
-            </dd>
-          </div>
         </dl>
+        <div className='space-y-3'>
+          <h3 className='text-sm font-medium'>{t('Payment channels')}</h3>
+          <div className='space-y-4'>
+            {current.channels.map((channel) => (
+              <dl
+                key={channel.id}
+                className='grid gap-3 sm:grid-cols-3'
+                aria-label={t('{{currency}} · Channel #{{id}}', {
+                  currency: channel.currency,
+                  id: channel.id,
+                })}
+              >
+                <div>
+                  <dt className='text-muted-foreground text-xs'>
+                    {t('Channel')}
+                  </dt>
+                  <dd className='mt-1 text-sm font-medium'>
+                    {channel.currency}{' '}
+                    <span className='text-muted-foreground'>#{channel.id}</span>
+                  </dd>
+                </div>
+                <div>
+                  <dt className='text-muted-foreground text-xs'>
+                    {t('Wallet top-ups')}
+                  </dt>
+                  <dd className='mt-1 text-sm'>
+                    {channel.enabled ? t('Enabled') : t('Disabled')}
+                  </dd>
+                </div>
+                <div>
+                  <dt className='text-muted-foreground text-xs'>
+                    {t('Subscription checkout')}
+                  </dt>
+                  <dd className='mt-1 text-sm'>
+                    {channel.subscription_enabled
+                      ? t('Enabled')
+                      : t('Disabled')}
+                  </dd>
+                </div>
+              </dl>
+            ))}
+          </div>
+        </div>
         <p className='text-muted-foreground max-w-3xl text-sm'>
           {t(
             'Merchant, store and product IDs are bound to the Core payment policy. Changing that binding requires a coordinated host configuration update.'
           )}
+        </p>
+      </section>
+
+      <section
+        className='max-w-3xl space-y-3'
+        aria-labelledby='payment-webhook-heading'
+      >
+        <h2 id='payment-webhook-heading' className='text-base font-semibold'>
+          {t('Payment notifications')}
+        </h2>
+        <dl className='flex flex-wrap items-center gap-x-4 gap-y-1 text-sm'>
+          <dt className='text-muted-foreground'>{t('Callback processing')}</dt>
+          <dd>
+            {configuration.callbacks_enabled === undefined
+              ? t('Not reported')
+              : configuration.callbacks_enabled
+                ? t('Enabled')
+                : t('Disabled')}
+          </dd>
+        </dl>
+        <dl className='flex flex-wrap items-center gap-x-4 gap-y-1 text-sm'>
+          <dt className='text-muted-foreground'>{t('Core payment policy')}</dt>
+          <dd>{t('Not reported')}</dd>
+        </dl>
+        <p className='text-muted-foreground text-xs'>
+          {t(
+            'Core payment permissions and the provider’s registered webhook are checked separately before activation.'
+          )}
+        </p>
+        {configuration.callbacks_enabled === false && (
+          <p role='status' className='text-sm'>
+            {t(
+              'Payment notifications are disabled on this server. Enable callback processing in the host configuration before accepting payments.'
+            )}
+          </p>
+        )}
+        <Label htmlFor='native-payment-webhook'>
+          {t('Webhook endpoint for this site')}
+        </Label>
+        <div className='flex min-w-0 flex-col gap-2 sm:flex-row'>
+          <Input
+            id='native-payment-webhook'
+            value={webhookURL}
+            readOnly
+            className='min-w-0 font-mono text-xs'
+          />
+          <Button
+            type='button'
+            variant='outline'
+            className='shrink-0'
+            onClick={async () => {
+              try {
+                await navigator.clipboard.writeText(webhookURL)
+                setCopiedWebhook(webhookURL)
+              } catch {
+                setCopiedWebhook('')
+                setMessage(t('Failed to copy'))
+              }
+            }}
+          >
+            {copiedWebhook === webhookURL ? (
+              <Check className='size-4' />
+            ) : (
+              <Copy className='size-4' />
+            )}
+            {copiedWebhook === webhookURL ? t('Copied') : t('Copy webhook URL')}
+          </Button>
+        </div>
+        <p className='text-muted-foreground text-sm'>
+          {t(
+            'Register this endpoint for the selected store at the payment provider. The return URL only brings the customer back; wallet credit requires a verified payment notification.'
+          )}
+        </p>
+        <p className='text-muted-foreground text-xs'>
+          {siteOrigin
+            ? t(
+                'When reusing a merchant on another domain, check which site receives this store’s notifications before changing its registered webhook.'
+              )
+            : t(
+                'Use your public HTTPS domain with this endpoint when configuring the provider.'
+              )}
         </p>
       </section>
 
@@ -716,6 +872,20 @@ function PaymentEditor({
               'Customers return here after checkout. Leave empty to use the provider default.'
             )}
           </p>
+          {siteOrigin && (
+            <Button
+              type='button'
+              variant='ghost'
+              size='sm'
+              disabled={busy !== null || returnURL === `${siteOrigin}/wallet`}
+              onClick={() => {
+                setReturnURL(`${siteOrigin}/wallet`)
+                setSaved(false)
+              }}
+            >
+              {t('Use this site’s wallet URL')}
+            </Button>
+          )}
         </div>
         <div className='space-y-2'>
           <Label htmlFor='native-payment-private-key'>
@@ -772,6 +942,20 @@ function PaymentEditor({
             }}
           >
             {t('Discard changes')}
+          </Button>
+          <Button
+            type='button'
+            variant='ghost'
+            disabled={busy !== null}
+            onClick={() => {
+              if (dirty) setConfirmReload(true)
+              else void reload()
+            }}
+          >
+            <RefreshCw
+              className={`size-4 ${busy === 'reload' ? 'animate-spin' : ''}`}
+            />
+            {t('Reload configuration')}
           </Button>
         </div>
       </form>
@@ -900,6 +1084,20 @@ function PaymentEditor({
           </div>
         </details>
       </section>
+      <HostSetup />
+      <ConfirmDialog
+        open={confirmReload}
+        onOpenChange={setConfirmReload}
+        title={t('Discard changes and reload')}
+        desc={t(
+          'Reloading replaces your unsaved payment settings with the current server configuration.'
+        )}
+        confirmText={t('Discard changes and reload')}
+        isLoading={busy === 'reload'}
+        handleConfirm={() => {
+          void reload()
+        }}
+      />
       <ConfirmDialog
         open={confirmPair}
         onOpenChange={setConfirmPair}

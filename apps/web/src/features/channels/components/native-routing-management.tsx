@@ -52,6 +52,7 @@ import {
   isChannelSnapshotChanged,
   getNativeChannelPage,
   type NativeChannelSortInput,
+  type NativeChannelFilters,
 } from '../native-channel-statistics'
 import { useChannelOps } from '../use-channel-ops'
 import { NativeBalanceConfigDialog } from './dialogs/native-balance-config-dialog'
@@ -60,6 +61,7 @@ import { NativeChannelUsageDialog } from './dialogs/native-channel-usage-dialog'
 import { NativeKeyManageDialog } from './dialogs/native-key-manage-dialog'
 import { NativeChannelBatchEditor } from './native-channel-batch-editor'
 import { NativeChannelFields } from './native-channel-fields'
+import { NativeChannelFilterFields } from './native-channel-filter-fields'
 import {
   NativeChannelOperationsSummary,
   NativeChannelSortFields,
@@ -133,6 +135,9 @@ export function NativeRoutingManagement({
         capabilities.data?.data?.native_configuration === true
       }
       secretsAllowed={secretsAllowed}
+      bulkKeyImportAllowed={
+        secretsAllowed && capabilities.data?.data?.bulk_key_import === true
+      }
       accounting={{
         observations:
           capabilityPhase === 'fresh' &&
@@ -159,12 +164,14 @@ function NativeRoutingWorkspace({
   scope,
   configurationWritable,
   secretsAllowed,
+  bulkKeyImportAllowed,
   accounting,
 }: {
   initialSection: Section
   scope: NativeRoutingScope
   configurationWritable: boolean
   secretsAllowed: boolean
+  bulkKeyImportAllowed: boolean
   accounting: {
     observations: boolean
     usage: boolean
@@ -205,6 +212,10 @@ function NativeRoutingWorkspace({
   const [section, setSection] = useState<Section>(initialSection)
   const [page, setPage] = useState(1)
   const [search, setSearch] = useState('')
+  const [channelFilters, setChannelFilters] = useState<NativeChannelFilters>({
+    status: 'all',
+    group: '',
+  })
   const [channelSelection, setChannelSelection] = useState<{
     snapshot: string
     ids: number[]
@@ -294,6 +305,7 @@ function NativeRoutingWorkspace({
   )
   const channelSelectionSnapshot = JSON.stringify([
     channelSort,
+    channelFilters,
     configuration?.version,
     page,
     scope.sessionId,
@@ -313,6 +325,7 @@ function NativeRoutingWorkspace({
     scope,
     query.data?.version,
     channelSort,
+    channelFilters,
     search,
     listingRevision,
   ])
@@ -327,6 +340,7 @@ function NativeRoutingWorkspace({
       scope.role,
       query.data?.version,
       channelSort,
+      channelFilters,
       page,
       search,
       listingRevision,
@@ -349,7 +363,7 @@ function NativeRoutingWorkspace({
       const result = await getNativeChannelPage(
         scope,
         current.version,
-        { ...channelSort, page, search, snapshotDigest },
+        { ...channelSort, ...channelFilters, page, search, snapshotDigest },
         signal
       )
       if (!signal.aborted) {
@@ -750,14 +764,51 @@ function NativeRoutingWorkspace({
     values.some((value) =>
       String(value).toLowerCase().includes(search.trim().toLowerCase())
     )
-  const localUpstreams = configuration.routing.upstreams.filter((channel) =>
-    matches(
-      channel.id,
-      configuration.bindings.names[channel.id] ?? '',
-      configuration.bindings.tags?.[channel.id] ?? '',
-      channel.endpoint
-    )
+  const enabledGroups = new Set(
+    configuration.routing.groups
+      .filter((group) => group.enabled)
+      .map((group) => group.name)
   )
+  const activeRoutes = configuration.routing.routes.filter(
+    (route) => route.enabled && enabledGroups.has(route.group)
+  )
+  const localUpstreams = serverChannels
+    ? []
+    : configuration.routing.upstreams.filter((channel) => {
+        if (
+          channelFilters.status !== 'all' &&
+          channel.enabled !== (channelFilters.status === 'enabled')
+        ) {
+          return false
+        }
+        const routes = activeRoutes.filter((route) =>
+          route.targets.some(
+            (target) => target.upstream_id === channel.id && target.enabled
+          )
+        )
+        return (
+          (!channelFilters.group ||
+            routes.some((route) => route.group === channelFilters.group)) &&
+          matches(
+            channel.id,
+            configuration.bindings.names[channel.id] ?? '',
+            configuration.bindings.tags?.[channel.id] ?? '',
+            channel.endpoint,
+            ...routes.map((route) => route.model)
+          )
+        )
+      })
+  const channelFiltersActive =
+    channelFilters.status !== 'all' ||
+    channelFilters.group !== '' ||
+    search.trim() !== ''
+  function clearChannelFilters() {
+    updateChannelSelection([])
+    setBatchTagEditor(null)
+    setChannelFilters({ status: 'all', group: '' })
+    setSearch('')
+    setPage(1)
+  }
   const upstreamById = new Map(
     configuration.routing.upstreams.map((channel) => [channel.id, channel])
   )
@@ -1073,7 +1124,7 @@ function NativeRoutingWorkspace({
       >
         {null}
       </Dialog>
-      <div className='flex flex-wrap items-end gap-3'>
+      <div className='flex min-w-0 flex-wrap items-end gap-3'>
         <label className='min-w-0 flex-1 basis-56 space-y-2'>
           <span className='text-sm'>{t('Search')}</span>
           <Input
@@ -1092,19 +1143,45 @@ function NativeRoutingWorkspace({
           />
         </label>
         {section === 'channels' && (
-          <Button
-            type='button'
-            className='min-h-11'
-            disabled={
-              writeDisabled ||
-              !secretsAllowed ||
-              !configuration.secret_storage_enabled
-            }
-            onClick={() => channelEditor()}
-          >
-            <Plus className='size-4' />
-            {t('Create Channel')}
-          </Button>
+          <>
+            <div className='min-w-0 flex-1 basis-64 @min-[40rem]/routing:w-80 @min-[40rem]/routing:flex-none'>
+              <NativeChannelFilterFields
+                value={channelFilters}
+                groups={[...enabledGroups]}
+                disabled={busy}
+                onChange={(value) => {
+                  updateChannelSelection([])
+                  setBatchTagEditor(null)
+                  setChannelFilters(value)
+                  setPage(1)
+                }}
+              />
+            </div>
+            <Button
+              type='button'
+              className='min-h-11 shrink-0'
+              disabled={
+                writeDisabled ||
+                !secretsAllowed ||
+                !configuration.secret_storage_enabled
+              }
+              onClick={() => channelEditor()}
+            >
+              <Plus className='size-4' />
+              {t('Create Channel')}
+            </Button>
+            {channelFiltersActive && (
+              <Button
+                type='button'
+                variant='ghost'
+                className='min-h-11 shrink-0'
+                disabled={busy}
+                onClick={clearChannelFilters}
+              >
+                {t('Clear filters')}
+              </Button>
+            )}
+          </>
         )}
       </div>
       {error && (
@@ -1302,23 +1379,20 @@ function NativeRoutingWorkspace({
                 role='status'
               >
                 <h3 className='font-medium'>
-                  {search.trim()
+                  {channelFiltersActive
                     ? t('No results found')
                     : t('No channels found')}
                 </h3>
                 <p className='text-muted-foreground text-sm'>
-                  {search.trim()
+                  {channelFiltersActive
                     ? t('Try a different search or clear the current filter.')
                     : t('Connect a provider to start routing model requests.')}
                 </p>
-                {search.trim() && (
+                {channelFiltersActive && (
                   <Button
                     type='button'
                     variant='outline'
-                    onClick={() => {
-                      setSearch('')
-                      setPage(1)
-                    }}
+                    onClick={clearChannelFilters}
                   >
                     {t('Clear')}
                   </Button>
@@ -2021,6 +2095,7 @@ function NativeRoutingWorkspace({
           }}
           scope={scope}
           channelId={keyChannel}
+          bulkImportAllowed={bulkKeyImportAllowed}
           writable={
             configurationWritable &&
             secretsAllowed &&

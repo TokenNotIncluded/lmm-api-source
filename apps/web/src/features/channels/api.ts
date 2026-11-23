@@ -149,16 +149,17 @@ export async function getChannelOps(
   if (res.data?.success !== true || !res.data.data) {
     throw new Error(getServerErrorMessage(res.data) ?? 'Failed to load data')
   }
-  const accounting = z
+  const capabilityFlags = z
     .object({
       native_channel_usage: z.boolean().default(false),
       native_channel_counters: z.boolean().default(false),
       native_channel_lifetime: z.boolean().default(false),
       native_balance_probe: z.boolean().default(false),
       copy_preserve_counters: z.boolean().default(false),
+      bulk_key_import: z.boolean().default(false),
     })
     .parse(res.data.data)
-  return { ...res.data, data: { ...res.data.data, ...accounting } }
+  return { ...res.data, data: { ...res.data.data, ...capabilityFlags } }
 }
 
 /**

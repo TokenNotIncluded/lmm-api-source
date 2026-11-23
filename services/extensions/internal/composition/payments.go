@@ -301,7 +301,7 @@ func (r *Runtime) composePayments(ctx context.Context, cfg Config, paymentToken 
 		r.CreemSubscriptionPayments, err = payments.NewCreemSubscriptions(r.PaymentClient, db, creem, stripeAdmission)
 	}
 	if err == nil && len(pancake) > 0 {
-		r.PancakeAdmin, err = newPancakeAdministration(cfg.PaymentConfigFile, r.Payments, r.PancakeSubscriptionPayments)
+		r.PancakeAdmin, err = newPancakeAdministration(cfg.PaymentConfigFile, r.Payments, r.PancakeSubscriptionPayments, cfg.PaymentCallbacksEnabled)
 	}
 	if err == nil {
 		r.EPayAdmin, err = payments.NewEPayAdministration(r.PaymentClient, r.Payments, stripeAdmission)

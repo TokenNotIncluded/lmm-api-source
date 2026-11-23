@@ -60,6 +60,7 @@ afterEach(async () => {
   api.defaults.adapter = previousAdapter
   useAuthStore.setState({ auth: previousAuth })
   document.body.replaceChildren()
+  dom.happyDOM.setURL('http://localhost/system-settings/billing/payment')
 })
 after(() => dom.close())
 
@@ -561,7 +562,11 @@ test('multiple disabled payment bindings can be selected without admitting payme
     /Test environment · USD · Channel #52/
   )
   assert.match(container.querySelector('dl')?.textContent ?? '', /MER_live/)
-  assert.match(container.querySelector('dl')?.textContent ?? '', /Disabled/)
+  assert.match(
+    container.querySelector('dl[aria-label="USD · Channel #51"]')
+      ?.textContent ?? '',
+    /Disabled/
+  )
   await chooseBinding(52)
   assert.equal(requests.length, 1)
   assert.match(container.querySelector('dl')?.textContent ?? '', /MER_test/)
@@ -746,10 +751,126 @@ test('readback keeps the selected currency when equivalent bindings regroup afte
       ) === true
   )
   assert.equal(document.getElementById('native-payment-binding'), null)
-  assert.match(container.querySelector('dl')?.textContent ?? '', /USD #51/)
-  assert.match(container.querySelector('dl')?.textContent ?? '', /CNY #53/)
+  assert.match(
+    container.querySelector('dl[aria-label="USD · Channel #51"]')
+      ?.textContent ?? '',
+    /USD #51/
+  )
+  assert.match(
+    container.querySelector('dl[aria-label="CNY · Channel #53"]')
+      ?.textContent ?? '',
+    /CNY #53/
+  )
   assert.equal(
     requests.filter((request) => request.method === 'post').length,
     1
   )
+})
+
+test('payment callbacks follow the selected environment and current site without saving automatically', async () => {
+  dom.happyDOM.setURL(
+    'https://native.example.test/system-settings/billing/payment'
+  )
+  const { container, requests } = await mount(() =>
+    success(bindingsConfiguration())
+  )
+  await until(() => Boolean(container.querySelector('form')))
+  const webhook = () =>
+    (document.getElementById('native-payment-webhook') as HTMLInputElement)
+      .value
+  assert.equal(
+    webhook(),
+    'https://native.example.test/api/waffo-pancake/webhook/prod'
+  )
+  await click('Copy webhook URL')
+  assert.equal(await navigator.clipboard.readText(), webhook())
+  await chooseBinding(52)
+  assert.equal(
+    webhook(),
+    'https://native.example.test/api/waffo-pancake/webhook/test'
+  )
+  await click('Use this site’s wallet URL')
+  assert.equal(
+    (document.getElementById('native-payment-return-url') as HTMLInputElement)
+      .value,
+    'https://native.example.test/wallet'
+  )
+  assert.equal(requests.length, 1)
+  assert.ok(requests.every((request) => request.method === 'get'))
+})
+
+for (const callbacksEnabled of [undefined, false, true]) {
+  test(`payment callback admission remains explicit when the host reports ${callbacksEnabled}`, async () => {
+    const { container } = await mount(() =>
+      success({
+        ...configuration(),
+        ...(callbacksEnabled === undefined
+          ? {}
+          : { callbacks_enabled: callbacksEnabled }),
+      })
+    )
+    await until(() => Boolean(container.querySelector('form')))
+    const section = container.querySelector(
+      'section[aria-labelledby="payment-webhook-heading"]'
+    )
+    assert.ok(section)
+    const callbackState = [...section.querySelectorAll('dt')].find(
+      (label) => label.textContent === 'Callback processing'
+    )?.nextElementSibling?.textContent
+    assert.equal(
+      callbackState,
+      callbacksEnabled === undefined
+        ? 'Not reported'
+        : callbacksEnabled
+          ? 'Enabled'
+          : 'Disabled'
+    )
+    assert.equal(
+      section.textContent?.includes(
+        'Payment notifications are disabled on this server.'
+      ),
+      callbacksEnabled === false
+    )
+  })
+}
+
+test('Pancake reload keeps unsaved credentials until explicit confirmation and sends no writes', async () => {
+  let current = configuration()
+  const { container, requests } = await mount((request) => {
+    assert.equal(request.method, 'get')
+    return success(current)
+  })
+  await until(() => Boolean(container.querySelector('form')))
+  await edit('native-payment-return-url', 'https://example.com/unsaved')
+  await edit('native-payment-private-key', 'unsaved-secret')
+  current = { ...current, return_url: 'https://example.com/updated' }
+  await click('Reload configuration')
+  assert.equal(requests.length, 1)
+  assert.equal(
+    (
+      document.getElementById(
+        'native-payment-private-key'
+      ) as HTMLTextAreaElement
+    ).value,
+    'unsaved-secret'
+  )
+  await click('Cancel')
+  assert.equal(requests.length, 1)
+  await click('Reload configuration')
+  await click('Discard changes and reload')
+  await until(
+    () =>
+      (document.getElementById('native-payment-return-url') as HTMLInputElement)
+        .value === current.return_url
+  )
+  assert.equal(requests.length, 2)
+  assert.equal(
+    (
+      document.getElementById(
+        'native-payment-private-key'
+      ) as HTMLTextAreaElement
+    ).value,
+    ''
+  )
+  assert.ok(requests.every((request) => request.method === 'get'))
 })

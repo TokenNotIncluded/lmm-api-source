@@ -106,6 +106,11 @@ export function Channels() {
                     !channelOpsQuery.isError &&
                     channelOpsQuery.data?.data?.native_secrets === true
                   }
+                  bulkKeyImportEnabled={
+                    phase === 'fresh' &&
+                    !channelOpsQuery.isError &&
+                    channelOpsQuery.data?.data?.bulk_key_import === true
+                  }
                 />
               </>
             )}

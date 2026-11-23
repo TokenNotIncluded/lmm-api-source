@@ -27,6 +27,7 @@ export function NativeKeyManageDialog({
   channelId,
   channelName,
   writable = true,
+  bulkImportAllowed = false,
   onChanged,
 }: {
   open: boolean
@@ -35,6 +36,7 @@ export function NativeKeyManageDialog({
   channelId: number
   channelName: string
   writable?: boolean
+  bulkImportAllowed?: boolean
   onChanged?: () => void
 }) {
   const { t } = useTranslation()
@@ -75,9 +77,23 @@ export function NativeKeyManageDialog({
     // The parent keys this dialog by channel and administrative session.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, channelId])
+  useEffect(() => {
+    if (!bulkImportAllowed) {
+      setBatch(false)
+      setBatchSecrets('')
+      setImported(null)
+    }
+  }, [bulkImportAllowed])
 
   async function change(operation: NativeKeyOperation) {
-    if (!writable || !keys || pending.current) return
+    if (
+      !writable ||
+      !keys ||
+      pending.current ||
+      (operation.operation === 'add_many' && !bulkImportAllowed)
+    ) {
+      return
+    }
     pending.current = true
     setBusy(true)
     setError(null)
@@ -278,20 +294,22 @@ export function NativeKeyManageDialog({
               >
                 {t('Single key')}
               </Button>
-              <Button
-                type='button'
-                variant={batch ? 'secondary' : 'ghost'}
-                className='min-h-11'
-                aria-pressed={batch}
-                disabled={busy}
-                onClick={() => {
-                  setBatch(true)
-                  setSecret('')
-                  setImported(null)
-                }}
-              >
-                {t('Batch import')}
-              </Button>
+              {bulkImportAllowed && (
+                <Button
+                  type='button'
+                  variant={batch ? 'secondary' : 'ghost'}
+                  className='min-h-11'
+                  aria-pressed={batch}
+                  disabled={busy || !writable}
+                  onClick={() => {
+                    setBatch(true)
+                    setSecret('')
+                    setImported(null)
+                  }}
+                >
+                  {t('Batch import')}
+                </Button>
+              )}
             </div>
             {imported !== null && (
               <p role='status' className='text-sm'>
@@ -304,6 +322,7 @@ export function NativeKeyManageDialog({
                 event.preventDefault()
                 if (!writable || !label.trim()) return
                 if (batch) {
+                  if (!bulkImportAllowed) return
                   const values = batchSecrets
                     .split(/\r?\n/)
                     .map((value) => value.trim())
@@ -325,6 +344,7 @@ export function NativeKeyManageDialog({
                     polling: keys.polling,
                   })
                 } else {
+                  if (!secret) return
                   void change({
                     operation: 'add',
                     label: label.trim(),

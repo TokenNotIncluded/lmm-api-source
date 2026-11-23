@@ -88,6 +88,56 @@ describe('console navigation organization', () => {
     assert.deepEqual(organizeConsoleNavigation([admin], 'Console'), [admin])
   })
 
+  test('keeps daily administration visible without restoring filtered links', () => {
+    const channels: NavLink = { title: 'Channels', url: '/channels' }
+    const users: NavLink = { title: 'Users', url: '/users', badge: '3' }
+    const settings: NavLink = {
+      title: 'System Settings',
+      url: '/system-settings/site',
+      activeUrls: ['/system-settings'],
+      requiredRole: 100,
+    }
+    const plugins: NavLink = {
+      title: 'Plugin management',
+      url: '/extensions/plugins',
+    }
+    const admin: NavGroup = {
+      id: 'admin',
+      title: 'Admin',
+      items: [plugins, settings, users, channels],
+    }
+    const result = organizeConsoleNavigation(
+      [...groups, admin],
+      'Console',
+      'More admin tools'
+    )
+    const visible = result.find((group) => group.id === 'console-management')
+    assert.deepEqual(visible?.items, [channels, users, settings])
+    assert.equal(visible?.items[1], users)
+    assert.equal(
+      result.find((group) => group.id === 'admin')?.title,
+      'More admin tools'
+    )
+    assert.deepEqual(result.find((group) => group.id === 'admin')?.items, [
+      plugins,
+    ])
+    assert.equal(result.flatMap((group) => group.items).length, 9)
+    const filtered = organizeConsoleNavigation(
+      [{ ...admin, items: [channels] }],
+      'Console',
+      'More admin tools'
+    )
+    assert.deepEqual(
+      filtered.flatMap((group) => group.items),
+      [channels]
+    )
+    assert.equal(
+      filtered.some((group) => group.id === 'admin'),
+      false
+    )
+    assert.deepEqual(admin.items, [plugins, settings, users, channels])
+  })
+
   test('leaves onboarding untouched and omits empty groups', () => {
     const onboarding = [{ ...groups[0], id: 'onboarding' }]
     assert.equal(organizeConsoleNavigation(onboarding, 'Console'), onboarding)

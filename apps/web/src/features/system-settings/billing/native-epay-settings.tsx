@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { z } from 'zod'
 
+import { ConfirmDialog } from '@/components/confirm-dialog'
 import { ErrorState } from '@/components/error-state'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -225,6 +226,7 @@ function EPayEditor({
   const [busy, setBusy] = useState<'save' | 'reload' | null>(null)
   const [message, setMessage] = useState('')
   const [saved, setSaved] = useState(false)
+  const [confirmReload, setConfirmReload] = useState(false)
   const flight = useRef<AbortController | null>(null)
   useEffect(
     () => () => {
@@ -273,6 +275,7 @@ function EPayEditor({
     const controller = new AbortController()
     flight.current = controller
     setBusy('reload')
+    setConfirmReload(false)
     setSaved(false)
     setMessage('')
     try {
@@ -302,6 +305,38 @@ function EPayEditor({
       flight.current ||
       !isCurrentNativeUsersScope(scope)
     ) {
+      return
+    }
+    if (
+      values.endpoint.replace(/\/+$/, '') !== 'https://credit.linux.do/epay'
+    ) {
+      setMessage(
+        t(
+          'Linux DO Credit uses https://credit.linux.do/epay as its gateway endpoint.'
+        )
+      )
+      return
+    }
+    const validAddress = (value: string) => {
+      try {
+        const url = new URL(value)
+        return (
+          url.protocol === 'https:' &&
+          !url.username &&
+          !url.password &&
+          !value.includes('#') &&
+          new TextEncoder().encode(value).length <= 100
+        )
+      } catch {
+        return false
+      }
+    }
+    if (!validAddress(values.notify_url) || !validAddress(values.return_url)) {
+      setMessage(
+        t(
+          'Payment notification and return addresses must use HTTPS, contain no credentials or fragment, and fit within 100 bytes.'
+        )
+      )
       return
     }
     const controller = new AbortController()
@@ -427,11 +462,9 @@ function EPayEditor({
             </p>
           </div>
           <Badge variant='secondary'>
-            {current.enabled ||
-            current.wallet_enabled ||
-            current.subscription_enabled
-              ? t('Enabled')
-              : t('Disabled')}
+            {current.environment === 'live'
+              ? t('Production')
+              : t('Test environment')}
           </Badge>
         </div>
         <dl className='grid gap-x-8 gap-y-5 sm:grid-cols-2'>
@@ -442,6 +475,10 @@ function EPayEditor({
             [
               t('Minimum wallet top-up'),
               `${minorAmount(current.min_amount_minor)} ${current.currency}`,
+            ],
+            [
+              t('Maximum wallet top-up'),
+              `${minorAmount(current.max_amount_minor)} ${current.currency}`,
             ],
             [
               t('Base conversion'),
@@ -464,6 +501,35 @@ function EPayEditor({
             <div key={label} className='min-w-0 space-y-1'>
               <dt className='text-muted-foreground text-xs'>{label}</dt>
               <dd className='font-mono text-sm break-all'>{value}</dd>
+            </div>
+          ))}
+        </dl>
+        <dl className='grid gap-4 sm:grid-cols-2'>
+          {[
+            [
+              t('Core payment policy'),
+              current.enabled ? t('Enabled') : t('Disabled'),
+            ],
+            [
+              t('Payment adapter'),
+              !current.adapter_configured
+                ? t('Not configured')
+                : current.adapter_matches
+                  ? t('Configured')
+                  : t('Configuration mismatch'),
+            ],
+            [
+              t('Wallet top-ups'),
+              current.wallet_enabled ? t('Enabled') : t('Disabled'),
+            ],
+            [
+              t('Subscription checkout'),
+              current.subscription_enabled ? t('Enabled') : t('Disabled'),
+            ],
+          ].map(([label, value]) => (
+            <div key={label} className='space-y-1'>
+              <dt className='text-muted-foreground text-xs'>{label}</dt>
+              <dd className='text-sm'>{value}</dd>
             </div>
           ))}
         </dl>
@@ -513,6 +579,8 @@ function EPayEditor({
               required
               disabled={!editable || busy !== null}
               autoComplete='off'
+              maxLength={field === 'endpoint' ? 512 : 100}
+              aria-describedby={`epay-${field}-help`}
               onChange={(event) => {
                 setDraft((previous) => ({
                   ...previous,
@@ -521,6 +589,22 @@ function EPayEditor({
                 setSaved(false)
               }}
             />
+            <p
+              id={`epay-${field}-help`}
+              className='text-muted-foreground text-xs'
+            >
+              {field === 'endpoint'
+                ? t(
+                    'Linux DO Credit uses https://credit.linux.do/epay as its gateway endpoint.'
+                  )
+                : field === 'notify_url'
+                  ? t(
+                      'The provider sends signed payment notifications here. Use the public HTTPS callback address for this channel.'
+                    )
+                  : t(
+                      'Customers return here after checkout. This address does not confirm payment.'
+                    )}
+            </p>
           </div>
         ))}
         <div className='space-y-2'>
@@ -581,13 +665,27 @@ function EPayEditor({
             variant='ghost'
             disabled={busy !== null}
             onClick={() => {
-              void reload()
+              if (dirty) setConfirmReload(true)
+              else void reload()
             }}
           >
             {t('Reload configuration')}
           </Button>
         </div>
       </form>
+      <ConfirmDialog
+        open={confirmReload}
+        onOpenChange={setConfirmReload}
+        title={t('Discard changes and reload')}
+        desc={t(
+          'Reloading replaces your unsaved payment settings with the current server configuration.'
+        )}
+        confirmText={t('Discard changes and reload')}
+        isLoading={busy === 'reload'}
+        handleConfirm={() => {
+          void reload()
+        }}
+      />
     </div>
   )
 }

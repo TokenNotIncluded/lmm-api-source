@@ -298,6 +298,12 @@ test('stale EPay configuration never replays the write and requires an explicit 
     !container.textContent?.includes('EPay settings saved and verified')
   )
   await click('Reload configuration')
+  assert.equal(requests.length, 2)
+  assert.equal(
+    (document.getElementById('epay-secret-key') as HTMLInputElement).value,
+    'stale-secret'
+  )
+  await click('Discard changes and reload')
   await until(
     () =>
       (document.getElementById('epay-return_url') as HTMLInputElement).value ===
@@ -401,4 +407,56 @@ test('changing sessions aborts an EPay save and discards its late acknowledgemen
     !container.textContent?.includes('EPay settings saved and verified')
   )
   assert.equal(requests.filter((request) => request.method === 'get').length, 2)
+})
+
+test('EPay rejects incompatible gateway and unsafe callback addresses before sending a configuration write', async () => {
+  const { container, requests } = await mount((request) => {
+    assert.equal(request.method, 'get')
+    return success(configuration())
+  })
+  await until(() => Boolean(container.querySelector('form')))
+  await edit('epay-endpoint', 'https://other.example/epay')
+  await click('Save EPay settings')
+  assert.match(
+    container.textContent ?? '',
+    /Linux DO Credit uses https:\/\/credit.linux.do\/epay/
+  )
+  assert.equal(requests.length, 1)
+  await edit('epay-endpoint', configuration().bindings[0].endpoint)
+  for (const invalid of [
+    'http://example.com/callback',
+    'https://user:password@example.com/callback',
+    'https://example.com/callback#fragment',
+    `https://example.com/${'字'.repeat(30)}`,
+  ]) {
+    await edit('epay-notify_url', invalid)
+    await click('Save EPay settings')
+    assert.match(
+      container.textContent ?? '',
+      /must use HTTPS, contain no credentials or fragment, and fit within 100 bytes/
+    )
+    assert.equal(requests.length, 1)
+  }
+})
+
+test('EPay shows distinct Core and adapter states when only one layer is enabled', async () => {
+  const current = configuration()
+  current.bindings[0].wallet_enabled = true
+  const { container, requests } = await mount(() => success(current))
+  await until(() => Boolean(container.querySelector('form')))
+  const values = new Map(
+    [...container.querySelectorAll('dt')].map((label) => [
+      label.textContent,
+      label.parentElement?.querySelector('dd')?.textContent,
+    ])
+  )
+  assert.equal(values.get('Core payment policy'), 'Disabled')
+  assert.equal(values.get('Wallet top-ups'), 'Enabled')
+  assert.equal(values.get('Subscription checkout'), 'Disabled')
+  assert.equal(values.get('Maximum wallet top-up'), '90000000000.00 LDC')
+  assert.equal(
+    (document.getElementById('epay-return_url') as HTMLInputElement).disabled,
+    true
+  )
+  assert.equal(requests.length, 1)
 })

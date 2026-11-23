@@ -29,7 +29,7 @@ const { act } = await import('react')
 const { createRoot } = await import('react-dom/client')
 const { QueryClient, QueryClientProvider } =
   await import('@tanstack/react-query')
-const { UsageLogsProvider, useUsageLogsContext } =
+const { UsageLogsProvider, useUsageLogsContext, useLogsViewScope } =
   await import('../usage-logs-provider')
 const { useInitialUsageSource } =
   await import('../../lib/use-initial-usage-source')
@@ -50,6 +50,8 @@ type FixtureProps = {
   nativeTotal?: number
   nativeReady?: boolean
   isAdmin?: boolean
+  source?: 'native' | 'historical'
+  viewScope?: 'all' | 'self'
 }
 
 function Fixture({
@@ -59,6 +61,7 @@ function Fixture({
 }: FixtureProps) {
   const { usageSource, setUsageSource, initialUsageSourcePending } =
     useUsageLogsContext()
+  const { isAdminView } = useLogsViewScope()
   useInitialUsageSource(
     { kind: 'common', total: nativeTotal, items: [], page: 1, page_size: 20 },
     nativeReady,
@@ -75,7 +78,9 @@ function Fixture({
   )
   return (
     <>
-      <output data-pending={initialUsageSourcePending}>{usageSource}</output>
+      <output data-pending={initialUsageSourcePending} data-admin={isAdminView}>
+        {usageSource}
+      </output>
       <button type='button' onClick={() => setUsageSource('native')}>
         Native
       </button>
@@ -162,7 +167,7 @@ async function mount(props: FixtureProps = {}) {
     await act(async () => {
       root.render(
         <QueryClientProvider client={client}>
-          <UsageLogsProvider>
+          <UsageLogsProvider source={next.source} scope={next.viewScope}>
             <Fixture {...next} />
           </UsageLogsProvider>
         </QueryClientProvider>
@@ -184,7 +189,9 @@ async function mount(props: FixtureProps = {}) {
       await pause()
     })
   }
-  return { render, source, resolved, select }
+  const adminView = () =>
+    container.querySelector('output')?.getAttribute('data-admin') === 'true'
+  return { render, source, resolved, select, adminView }
 }
 
 afterEach(async () => {
@@ -313,5 +320,39 @@ test('a late history response never overrides a manual native selection', async 
     await pause()
   })
   assert.equal(view.source(), 'native')
+  assert.ok(view.resolved())
+})
+
+test('saved log sources and scopes restore directly without probing or overriding the chosen source', async () => {
+  let requests = 0
+  api.defaults.adapter = async () => {
+    requests += 1
+    throw new Error('An explicit source must not start automatic detection')
+  }
+  const view = await mount({
+    isAdmin: true,
+    source: 'historical',
+    viewScope: 'self',
+  })
+  assert.equal(view.source(), 'historical')
+  assert.ok(view.resolved())
+  assert.equal(view.adminView(), false)
+  await view.render({ isAdmin: true, source: 'native', viewScope: 'all' })
+  assert.equal(view.source(), 'native')
+  assert.equal(view.adminView(), true)
+  assert.ok(view.resolved())
+  await view.render({ isAdmin: true, source: 'historical', viewScope: 'self' })
+  assert.equal(view.source(), 'historical')
+  assert.equal(view.adminView(), false)
+  assert.equal(requests, 0)
+})
+
+test('an all-users scope in a saved link never grants an ordinary user administrator reads', async () => {
+  const view = await mount({
+    isAdmin: false,
+    source: 'native',
+    viewScope: 'all',
+  })
+  assert.equal(view.adminView(), false)
   assert.ok(view.resolved())
 })

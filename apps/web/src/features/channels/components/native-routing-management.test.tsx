@@ -207,6 +207,7 @@ async function mount(
         success: true,
         data: {
           native_secrets: nativeSecrets,
+          bulk_key_import: nativeSecrets,
           native_configuration: true,
           ...accounting,
         },
