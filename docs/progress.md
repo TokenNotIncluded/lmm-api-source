@@ -6,7 +6,9 @@
 
 - **原生多 Key 日志快照（[#853](https://github.com/TokenNotIncluded/lmm-api/issues/853) 局部实现，定向验证待完成；2026-11-23）**：原生模型请求在受理合同中保存当时的多 Key 标记与零基序号，并沿用已有的非秘密凭据 ID／版本。路由池重排、删除或改版后，管理员日志从持久化合同及实际发送记录读取原快照；结算差额与退款继续引用同一请求合同。普通用户日志不投影序号或凭据标识；无快照的旧合同和图片请求明确返回管理员状态 `unknown`，不按当前 Key 池推算。未新增 schema 或修改计费金额。
 
-  **范围与验证**：已加入 `key_snapshot` 定向回归，覆盖重排、删除、单 Key、旧合同摘要兼容、真实 PostgreSQL 的结算／退款与权限投影。格式及差异检查通过；Rust 编译与 PostgreSQL 自测尚未执行，等待协调窗口。当前 `/api/task`、`/api/mj` 仍为历史读取入口，`usage/task_log.rs` 没有运行期调用；本轮没有新增供应商异步任务执行器，因此不能据此关闭 #853 或宣称完整异步链路已交付。证据保存在本工作树私有 `out/task-key-logs-validation/`。
+  **兼容方向与发布边界**：新 reader 可读取省略 `credential_selection` 的 D 旧合同，并保留旧字节与摘要；D 的 `deny_unknown_fields` 会拒绝含该字段的新合同。未改 schema 不等于可回退 D 二进制。当前候选会直接写入新字段，只能按严格 forward-only 评审；如必须保留回退窗口，需另行交付 E reader-only 版本，先升级全部合同读取方，再单独批准启用 writer。写入首份新合同后，回退下限是兼容的新 reader，不能删除字段、重算既有摘要或仅更换回 D 二进制。本轮未实现或启用分阶段发布开关。
+
+  **范围与验证**：`key_snapshot` 定向回归已补充两次本地 HTTP 实际派发、首候选拒绝后最终 Key 绑定的管理员投影，以及旧／新合同固定字节、摘要和旧 D 严格解析边界。golden 由冻结 D 源码与合成值构造，未由真实 D 二进制执行产生；Rust 编译、这些测试和 PostgreSQL 自测仍未执行。修订的隔离库脚本与新报告位于私有 `out/task-key-logs-validation/r3/`，旧报告与完成收据保留。当前 `/api/task`、`/api/mj` 仍为历史读取入口，`usage/task_log.rs` 没有运行期调用；本轮没有新增供应商异步任务执行器，因此不能据此关闭 #853 或宣称完整异步链路已交付。
 
 - **native 管理台与支付接入（界面候选完整 CI 已通过；配套支付后端已定向自测，等待发布及数据库升级资格；2026-11-23）**：界面候选 [fdbd9bc6](https://github.com/TokenNotIncluded/lmm-api-source/commit/fdbd9bc628545a5c33ea0f2bc5e79fa532948ba7) 的 [完整 CI](https://github.com/TokenNotIncluded/lmm-api-source/actions/runs/45130451839) 已成功，包括 Web、翻译、Rust／真实数据库、Go 和最终汇总。Web 单独按固定候选发布；这项资格不自动覆盖后续支付后端提交。
 
