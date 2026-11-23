@@ -217,3 +217,44 @@ test('the batch accepts at most one page of valid channel identities before any 
   }
   assert.equal(calls, 0)
 })
+
+test('a batch freezes selected identities before delayed responses and keeps a zero observation', async () => {
+  const scope = login()
+  const ids = [1, 2]
+  const calls: number[] = []
+  const results: NativeBalanceRefreshResult[] = []
+  let release: (() => void) | undefined
+  api.defaults.adapter = async (config) => {
+    const id = Number(config.url?.split('/').at(-2))
+    calls.push(id)
+    if (id === 1) {
+      await new Promise<void>((resolve) => {
+        release = resolve
+      })
+    }
+    return {
+      config,
+      status: 200,
+      statusText: 'OK',
+      headers: {},
+      data: { success: true, data: observation(id === 1 ? '42.5' : '0') },
+    }
+  }
+  const pending = refreshNativeChannelBalances(
+    scope,
+    ids,
+    new AbortController().signal,
+    (result) => results.push(result)
+  )
+  await new Promise((resolve) => setTimeout(resolve, 0))
+  assert.deepEqual(calls, [1])
+  assert.ok(release)
+  ids.splice(0, ids.length, 3)
+  release()
+  await pending
+  assert.deepEqual(calls, [1, 2])
+  assert.deepEqual(results, [
+    { channelId: 1, status: 'ready', observation: observation('42.5') },
+    { channelId: 2, status: 'ready', observation: observation('0') },
+  ])
+})
