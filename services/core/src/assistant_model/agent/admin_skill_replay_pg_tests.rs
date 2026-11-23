@@ -52,6 +52,20 @@ struct Fixture {
 }
 
 impl Fixture {
+    async fn idle(&self) {
+        tokio::time::timeout(Duration::from_secs(5), async {
+            loop {
+                let changed = self.agent.base.changed.notified();
+                if self.agent.base.permits.available_permits() == self.agent.base.capacity {
+                    break;
+                }
+                changed.await;
+            }
+        })
+        .await
+        .expect("original model worker did not become idle");
+    }
+
     async fn close(self) {
         assert!(self.agent.base.drain(Duration::from_secs(5)).await);
         drop(self.provider);
@@ -375,7 +389,7 @@ async fn accepted_private_skills_cannot_start_another_round_after_target_authori
         let (cv, turn, private, math) = start(&f, &format!("target-change-{index}")).await;
         let result = body(&f).await;
         accept(&f, &private, &result).await.unwrap();
-        assert!(f.agent.base.drain(Duration::from_secs(5)).await);
+        f.idle().await;
         let before = f
             .agent
             .get(&f.session.secret, &cv, "turn1")
@@ -404,7 +418,7 @@ async fn accepted_private_skills_cannot_start_another_round_after_target_authori
         .await
         .unwrap();
         assert_eq!(saved, result);
-        assert!(f.agent.base.drain(Duration::from_secs(5)).await);
+        f.idle().await;
     }
 
     // Current authority permits an older immutable observation; its timestamp
@@ -468,7 +482,7 @@ async fn private_skill_authority_is_rechecked_after_reservation_before_network(p
     let f = fixture(&pool).await;
     let (cv, turn, private, math) = start(&f, "network-authority").await;
     accept(&f, &private, &body(&f).await).await.unwrap();
-    assert!(f.agent.base.drain(Duration::from_secs(5)).await);
+    f.idle().await;
     let permits = f
         .agent
         .base

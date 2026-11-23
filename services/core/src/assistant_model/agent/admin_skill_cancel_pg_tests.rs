@@ -189,7 +189,7 @@ async fn prepare(
     let ready = wait_turn(f, session, &cv, "turn1", "tools_pending").await;
     assert!(ready.settled_credits > 0);
     assert_eq!(ready.held_credits, 0);
-    assert!(f.agent.base.drain(Duration::from_secs(5)).await);
+    f.idle().await;
     let turn = sqlx::query_scalar("SELECT id FROM core_assistant.agent_turns WHERE conversation_id=$1 AND client_turn_id='turn1'")
         .bind(&cv).fetch_one(&f.agent.base.pool).await.unwrap();
     (cv, turn, ready.pending_calls)
@@ -256,7 +256,7 @@ async fn new_turn_without_old_private_data(f: &Fixture, session: &str, cv: &str)
             .as_deref(),
         Some("Fresh turn without cancelled private data.")
     );
-    assert!(f.agent.base.drain(Duration::from_secs(5)).await);
+    f.idle().await;
     assert_eq!(f.provider.hits.load(Ordering::SeqCst), hits + 1);
     let request = f.provider.requests.lock().unwrap().last().unwrap().clone();
     assert!(!request["messages"].to_string().contains(MARKER));
@@ -377,7 +377,7 @@ async fn cancelled_unknown_read_does_not_replay_old_private_results_into_the_new
     )
     .await
     .unwrap();
-    assert!(f.agent.base.drain(Duration::from_secs(5)).await);
+    f.idle().await;
     claim(&f, &f.session.secret, &calls[1], "unknown-private").await;
     let unknown =
         serde_json::to_vec(&json!({"status":"unknown","unaccepted_private_data":MARKER})).unwrap();
@@ -482,7 +482,7 @@ async fn private_read_with_an_unknown_invitation_still_blocks_the_next_turn(pool
     assert_eq!(calls.len(), 2);
     claim(&f, &f.session.secret, &calls[0], "original-private-claim").await;
     accept(&f, &calls[0], &body(&f).await).await.unwrap();
-    assert!(f.agent.base.drain(Duration::from_secs(5)).await);
+    f.idle().await;
     claim(&f, &f.session.secret, &calls[1], "invitation-claim").await;
     finish(
         &f,

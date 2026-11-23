@@ -8,9 +8,11 @@ const html = readFileSync(new URL('../index.html', import.meta.url), 'utf8')
 const bootstrap = html.match(
   /<script id="identity-email-bootstrap">([\s\S]*?)<\/script>/
 )[1]
-const tracker = html
-  .match(/<script>\s*\/\/ Also fail closed[\s\S]*?<\/script>/)[0]
-  .replaceAll(/<\/?script>/g, '')
+const callback = readFileSync(
+  new URL('../public/extore-callback.js', import.meta.url),
+  'utf8'
+)
+const scripts = [...html.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script>/gi)]
 const token = '0123456789abcdef0123456789abcdef'
 const email = 'synthetic+reset@example.test'
 const query = new URLSearchParams({ email, token }).toString()
@@ -25,8 +27,12 @@ function page(path, runBootstrap = true) {
       location.href = new URL(value, location).href
     },
   }
-  const window = { location, history }
+  const window = { location, history, matchMedia: () => ({ matches: false }) }
   const document = {
+    cookie: '',
+    documentElement: { classList: { add: () => {} } },
+    body: { dataset: {}, setAttribute: () => {} },
+    querySelector: () => null,
     createElement: (tag) => ({ tag, dataset: {} }),
     head: { appendChild: (element) => elements.push(element) },
   }
@@ -36,8 +42,24 @@ function page(path, runBootstrap = true) {
     location,
     URLSearchParams,
   })
-  if (runBootstrap) vm.runInContext(bootstrap, context)
-  vm.runInContext(tracker, context)
+  for (const [, attributes, code] of scripts) {
+    if (!runBootstrap && attributes.includes('id="identity-email-bootstrap"'))
+      continue
+    const source = attributes.match(
+      /\bsrc\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'=<>`]+))/i
+    )
+    if (source) {
+      assert.equal(
+        source[1] ?? source[2] ?? source[3],
+        '/extore-callback.js',
+        'the page must not introduce an unreviewed script source'
+      )
+      vm.runInContext(callback, context)
+    } else {
+      assert.doesNotMatch(attributes, /\bsrc\b/i)
+      vm.runInContext(code, context)
+    }
+  }
   return { window, elements }
 }
 
@@ -136,11 +158,11 @@ test('bootstrap failure still excludes tracking on both reset routes', () => {
   }
 })
 
-test('ordinary non-auth pages retain their URL and analytics without reset CSP', () => {
+test('ordinary non-auth pages retain their URL without analytics or reset CSP', () => {
   for (const path of ['/', '/pricing?tab=models', '/store', '/games/signal']) {
     const { window, elements } = page(path)
     assert.equal(window.location.href, `https://console.example.test${path}`)
-    assert.equal(elements.filter((el) => el.tag === 'script').length, 1)
+    assert.equal(elements.filter((el) => el.tag === 'script').length, 0)
     assert.equal(
       elements.some((el) => el.httpEquiv === 'Content-Security-Policy'),
       false

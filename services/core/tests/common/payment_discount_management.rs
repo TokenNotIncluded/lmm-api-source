@@ -8,11 +8,9 @@ use lmm_core::payments::discounts::{self, Batch, CodesQuery, Definition};
 use tower::ServiceExt;
 
 async fn management(pool: &PgPool) -> Fixture {
-    let mut f = fresh_with_level(pool, 6).await;
-    for ddl in [discounts::SCHEMA, discounts::MANAGEMENT_SCHEMA] {
-        sqlx::raw_sql(ddl).execute(pool).await.unwrap();
-    }
-    continuity_fixture::install(pool).await;
+    // Exercise coupon management with its complete real schema dependencies.
+    lmm_core::core_schema::init(pool).await.unwrap();
+    let mut f = fixture_with_initialized_schema(pool, 6).await;
     f.store = IngressStore(
         PaymentsStore::new(
             pool.clone(),

@@ -209,6 +209,7 @@ fn payments(pool: &PgPool) -> PaymentsStore {
     .unwrap();
     channel.credits_per_minor = 0;
     channel.credit_quote = Some(CreditQuotePolicy {
+        min_credit_units: 1,
         settlement_per_usd_numerator: 1,
         settlement_per_usd_denominator: 1,
         discounts: BTreeMap::new(),
@@ -254,8 +255,9 @@ async fn weekly_native_prepare_requires_two_paid_original_turns_and_preserves_st
     )
     .await
     .unwrap();
-    assert_eq!(read["read_only"], true);
-    assert_eq!(read["decision_used"], false);
+    assert_eq!(read["tool_name"], "get_weekly_discount_status");
+    assert_eq!(read["output"]["read_only"], true);
+    assert_eq!(read["output"]["decision_used"], false);
     assert_eq!(decision_count(&pool).await, 0);
     let status_only = prepare(&f, &cv, "status", "Did you evaluate my weekly discount?", 5).await;
     assert_eq!(status_only["read_only"], true, "{status_only}");
@@ -311,8 +313,9 @@ async fn weekly_zero_decision_consumes_the_week_and_is_readable_with_policy_disa
     )
     .await
     .unwrap();
-    assert_eq!(read["status"], "declined");
-    assert_eq!(read["decision_used"], true);
+    assert_eq!(read["tool_name"], "get_weekly_discount_status");
+    assert_eq!(read["output"]["status"], "declined");
+    assert_eq!(read["output"]["decision_used"], true);
     let repeated = prepare(&f, &cv, "apply", APPLY, 10).await;
     assert_eq!(repeated["created"], false, "{repeated}");
     assert_eq!(repeated["decision"], original["decision"]);
@@ -439,7 +442,11 @@ async fn weekly_browser_claim_is_private_exactly_once_and_reserves_one_owner_cou
         ),
         (190, 1_000_000, 5)
     );
-    let outsider = f.identity.bootstrap_user(88002, 0).await.unwrap().secret;
+    let outsider = IdentityStore::from_pool(pool.clone())
+        .bootstrap_user(88002, 0)
+        .await
+        .unwrap()
+        .secret;
     assert_eq!(
         store
             .quote_discount(&outsider, 88001, 1_000_000, code)
@@ -459,6 +466,14 @@ async fn weekly_browser_claim_is_private_exactly_once_and_reserves_one_owner_cou
             .unwrap(),
         intent
     );
+    // Quote reports exhaustion; intent creation keeps the existing masked error.
+    assert_eq!(
+        store
+            .quote_discount(f.access(), 88001, 1_000_000, code)
+            .await
+            .unwrap_err(),
+        PaymentError::Conflict
+    );
     assert_eq!(
         store
             .prepare_with_discount(
@@ -468,7 +483,7 @@ async fn weekly_browser_claim_is_private_exactly_once_and_reserves_one_owner_cou
             )
             .await
             .unwrap_err(),
-        PaymentError::Conflict
+        PaymentError::Invalid
     );
     let usage: (i64, i64) = sqlx::query_as(
         "SELECT used_count,reserved_count FROM core_payments.discount_code_usage WHERE code_id=$1",
