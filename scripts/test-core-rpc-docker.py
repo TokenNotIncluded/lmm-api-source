@@ -314,6 +314,7 @@ def source_inputs():
         "deployment/docker",
         "deployment/postgres",
         "config/legal/templates",
+        "packages/extore/plugins/commerce",
     ]
     selected = {
         ROOT / name
@@ -330,6 +331,11 @@ def source_inputs():
             "services/core/build.rs",
             "config/legal/site.example.toml",
             "scripts/test-core-rpc-docker.py",
+            "scripts/check-extore-plugin-pin.py",
+            "packaging/extore-plugin.json",
+            "packages/extore/LICENSE",
+            "packages/extore/plugins/commerce/Cargo.toml",
+            "packages/extore/plugins/commerce/Cargo.lock",
         ]
     }
     excluded = {
@@ -356,6 +362,7 @@ def source_inputs():
                     or (
                         path.suffix == ".md"
                         and not path.is_relative_to(ROOT / "config/legal/templates")
+                        and not path.is_relative_to(ROOT / "packages/extore/plugins/commerce")
                     )
                 ):
                     continue
@@ -1289,6 +1296,7 @@ def execute(temp, projects, context, *, build_timeout_seconds=1800):
     assert psql(RUNTIME_PRIVILEGES_SQL).strip() == "t", (
         "runtime must read usage evidence without schema creation or financial writes"
     )
+    context.phase = "core-runtime-startup"
     compose("core", "up", "-d", "core")
     wait(lambda: core_call("/health/live"))
     assert core_call("/health/ready")[0] == 200

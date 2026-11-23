@@ -180,10 +180,15 @@ export function marketConfirmationURL(
         /^\/core\/v1\/wallet\/confirm\/(create|claim|cancel)\/[1-9][0-9]*$/.test(
           url.pathname
         ) ||
-        /^\/api\/user\/assistant\/confirmations\/[a-f0-9]{64}$/.test(
+        (/^\/api\/user\/(?:auth\/)?assistant\/confirmations\/[a-f0-9]{64}$/.test(
           url.pathname
-        ))
+        ) &&
+          /^(?:https?:\/\/[^/?#\\\s@]+)?\/api\/user\/(?:auth\/)?assistant\/confirmations\/[a-f0-9]{64}$/.test(
+            value
+          )))
     ) {
+      // Core owns its confirmation route. Older installations serve the
+      // original path; newer Core redirects old receipts into its cookie scope.
       return url.href
     }
   } catch {

@@ -29,6 +29,9 @@ type PersonalChatReply struct {
 	State          string       `json:"state"`
 	Text           string       `json:"text,omitempty"`
 	Gift           *NewUserGift `json:"gift,omitempty"`
+	// Browser side channel only; not a model result, stored history or pending DTO.
+	UIPreferenceAction     *UIPreferenceAction           `json:"-"`
+	InvitationConfirmation *InvitationConfirmationAction `json:"-"`
 }
 
 func NewPersonalChat(pending *PendingConversations, turns *DelegatedTurns, history *HistoryService, gifts ...*Gifts) (*PersonalChat, error) {

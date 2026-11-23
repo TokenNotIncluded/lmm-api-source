@@ -137,6 +137,7 @@ mise exec -- docker --host unix:///var/run/docker.sock inspect --format '{{.Stat
 实际写入绑定来源、目标和结构凭据，验证原子事务、原键重放及冲突拒绝；生产数据、
 映射、预览和连接信息不进仓库。`--source-rights-preview` 只核对冻结经济权利，
 不生成导入授权或代表资金迁移完成，见[历史余额导入](legacy-financial-opening.md#先定位待处理的经济权利)。
+旧邀请码的精确86升级、源预览及离线导入条件见[旧邀请码保留](legacy-affiliate-aliases.md)。
 
 早期身份、公告、HTTP 和 Web 批次见[固定历史版本](https://github.com/TokenNotIncluded/lmm-api-source/blob/0eae39f10ce8a1d80744ad44e88807e01facfda5/docs/core-migration.md)。
 新候选绑定自己的源码、命令、退出码和日志，区分单元、模拟渠道、数据库、进程、

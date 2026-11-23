@@ -23,19 +23,23 @@ type catalogueExecutor struct {
 	definition definition
 }
 
-// Bindings advertises only real implemented adapters. Connected-tool discovery
-// requires a separate authoritative assistant allowlist and is not advertised.
+// Bindings advertises the implemented adapters; Core capabilities and the
+// current operator policy independently gate assistant market access.
 func (e *Executor) Bindings() ([]assistant.AgentToolBinding, error) {
 	if e == nil || access.Missing(e.market) {
 		return nil, access.ErrInvalid
 	}
 	var definitions []definition
-	if json.Unmarshal(readDefinitionsJSON, &definitions) != nil || len(definitions) != 2 {
+	if json.Unmarshal(readDefinitionsJSON, &definitions) != nil || len(definitions) != 3 {
 		return nil, access.ErrUnavailable
 	}
 	out := []assistant.AgentToolBinding{e.Binding()}
 	for _, d := range definitions {
-		if (d.Name != "get_tool_market_services" && d.Name != "get_tool_market_service") || d.Version != assistant.FixedMainToolVersion || d.Effect != "read_only" || digest([]byte(d.SchemaJSON)) != d.SchemaSHA256 {
+		expectedVersion := assistant.FixedMainToolVersion
+		if d.Name == "get_connected_market_tools" {
+			expectedVersion = MarketToolVersion
+		}
+		if (d.Name != "get_tool_market_services" && d.Name != "get_tool_market_service" && d.Name != "get_connected_market_tools") || d.Version != expectedVersion || d.Effect != "read_only" || digest([]byte(d.SchemaJSON)) != d.SchemaSHA256 {
 			return nil, access.ErrUnavailable
 		}
 		out = append(out, assistant.AgentToolBinding{Name: d.Name, Description: d.Description, Version: d.Version, Effect: d.Effect, Access: d.Access, PriceVersion: assistant.BuiltinToolPriceVersion, PriceSHA256: assistant.FreeAgentPriceSHA256(), Parameters: json.RawMessage(d.SchemaJSON), Executor: &catalogueExecutor{parent: e, definition: d}})
@@ -70,7 +74,12 @@ func (c *catalogueExecutor) read(ctx context.Context, in assistant.AgentInvocati
 		return assistant.AgentToolResult{}, access.ErrForbidden
 	}
 	var value any
-	if d.Name == "get_tool_market_service" {
+	if d.Name == "get_connected_market_tools" {
+		value, err = c.connected(ctx, in, account, values)
+		if err != nil {
+			return assistant.AgentToolResult{}, err
+		}
+	} else if d.Name == "get_tool_market_service" {
 		id := values["service_id"].(string)
 		detail, err := c.parent.market.PublicWebDetail(ctx, in.Credential, account, id)
 		if err != nil {
@@ -137,6 +146,15 @@ func (c *catalogueExecutor) read(ctx context.Context, in assistant.AgentInvocati
 	if err != nil {
 		return assistant.AgentToolResult{}, access.ErrUnavailable
 	}
+	if d.Name == "get_connected_market_tools" {
+		current, authErr := c.parent.market.WebAuthorize(ctx, in.Credential, account, "toolmarket.read")
+		if authErr != nil {
+			return assistant.AgentToolResult{}, translate(authErr)
+		}
+		if current != user {
+			return assistant.AgentToolResult{}, access.ErrForbidden
+		}
+	}
 	return assistant.AgentToolResult{OperationID: in.Call.OperationID, State: assistant.AgentToolSucceeded, ResultJSON: clean, ResultSHA256: digest(clean), DomainReceiptID: in.Call.OperationID}, nil
 }
 func clipped(value string, max int) (string, bool) {
@@ -201,6 +219,7 @@ func pruneChangedSchemas(value any) {
 				delete(v, "input_schema_json")
 				delete(v, "input_schema_sha256")
 				v["schema_omitted"] = true
+				v["schema_unavailable_reason"] = "redaction_changed_schema"
 			}
 		}
 		for _, child := range v {

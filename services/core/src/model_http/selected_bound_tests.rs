@@ -51,17 +51,22 @@ impl Drop for CompatibilityProvider {
 
 impl CompatibilityProvider {
     async fn start() -> Self {
+        Self::start_with_usage(2, 3, 0).await
+    }
+
+    async fn start_with_usage(input: u64, output: u64, cached: u64) -> Self {
         use axum::{Json, Router, extract::State, response::IntoResponse, routing::post};
+        type StateData = (Arc<std::sync::Mutex<Vec<serde_json::Value>>>, u64, u64, u64);
         async fn reply(
-            State(bodies): State<Arc<std::sync::Mutex<Vec<serde_json::Value>>>>,
+            State((bodies, input, output, cached)): State<StateData>,
             Json(body): Json<serde_json::Value>,
         ) -> axum::response::Response {
             bodies.lock().unwrap().push(body.clone());
             let chat = body.get("messages").is_some();
             let full = if chat {
-                json!({"id":"synthetic-chat","object":"chat.completion","choices":[{"index":0,"message":{"role":"assistant","content":"synthetic answer"},"finish_reason":"stop"}],"usage":{"prompt_tokens":2,"completion_tokens":3,"prompt_tokens_details":{"cached_tokens":0}}})
+                json!({"id":"synthetic-chat","object":"chat.completion","choices":[{"index":0,"message":{"role":"assistant","content":"synthetic answer"},"finish_reason":"stop"}],"usage":{"prompt_tokens":input,"completion_tokens":output,"prompt_tokens_details":{"cached_tokens":cached}}})
             } else {
-                json!({"id":"synthetic-resp","object":"response","status":"completed","output":[{"id":"item1","type":"message","role":"assistant","status":"completed","content":[{"type":"output_text","text":"synthetic answer","annotations":[]}]}],"usage":{"input_tokens":2,"output_tokens":3,"input_tokens_details":{"cached_tokens":0}}})
+                json!({"id":"synthetic-resp","object":"response","status":"completed","output":[{"id":"item1","type":"message","role":"assistant","status":"completed","content":[{"type":"output_text","text":"synthetic answer","annotations":[]}]}],"usage":{"input_tokens":input,"output_tokens":output,"input_tokens_details":{"cached_tokens":cached}}})
             };
             if body["stream"] != true {
                 return Json(full).into_response();
@@ -100,7 +105,7 @@ impl CompatibilityProvider {
         let app = Router::new()
             .route("/v1/chat/completions", post(reply))
             .route("/v1/responses", post(reply))
-            .with_state(bodies.clone());
+            .with_state((bodies.clone(), input, output, cached));
         let task = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
         Self {
             endpoint,
@@ -2263,3 +2268,6 @@ mod route_failover_tests;
 
 #[path = "legacy_recovery_tests.rs"]
 mod legacy_recovery_tests;
+
+#[path = "checkpoint_timeout_tests.rs"]
+mod checkpoint_timeout_tests;

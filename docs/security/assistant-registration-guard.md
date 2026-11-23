@@ -1,5 +1,9 @@
 # Built-in assistant registration guard
 
+> **Historical reference — go-v0.2.118 (`cc52aa195c6f2a01d703a1a407be73c31b89867d`).** This page describes the retired L0/L1 admission workflow. Current deployments follow [Rust-native identity and permissions](../core-identity.md).
+>
+> The current architecture has no developer admission, paid activation or platform trust levels. `grant_l1_access`, `notify_registration_risk`, `end_registration_conversation` and `ban_l0_user` are retired with that workflow. Enabled accounts use configured user features subject to current account, resource, abuse and budget checks. General registration-risk observation, authorized account disablement and appeal, and historical financial, permission and audit evidence remain required. The historical sections below do not authorize restoring the retired admission gates.
+
 L0 admission is performed through the built-in assistant, not a second reviewer
 model or a user-submitted recommendation letter. The legacy application,
 review and archive HTTP endpoints return 410 without reading or changing records.

@@ -1,5 +1,6 @@
 //! Existing dashboard key contracts backed by durable identity and charging.
 //! No session, key, routing grant or financial balance is supplied by a client.
+pub(crate) mod assistant;
 use super::*;
 use aes_gcm::{
     Aes256Gcm, KeyInit, Nonce,
@@ -161,6 +162,11 @@ fn decrypt(key: &[u8], id: i64, user: i64, encrypted: &[u8]) -> Result<String> {
         )
         .map_err(|_| IdentityError::Storage)?;
     String::from_utf8(bytes).map_err(|_| IdentityError::Storage)
+}
+struct IssuedDashboardKey {
+    credential_id: i64,
+    secret: zeroize::Zeroizing<String>,
+    projection: Value,
 }
 struct ValidInput {
     name: String,
@@ -441,33 +447,31 @@ impl IdentityStore {
         self.dashboard_routing = Some(routing);
         self
     }
-    pub async fn dashboard_create_key(
+    // The caller owns the transaction. The same validated implementation backs
+    // dashboard creation and a browser-confirmed, operation-bound creation.
+    async fn create_dashboard_key_in_transaction(
         &self,
-        secret: &str,
+        c: &mut PgConnection,
+        actor: &Principal,
         input: &DashboardKeyInput,
-    ) -> Result<Value> {
+    ) -> Result<IssuedDashboardKey> {
         if input.id.is_some() || input.status.is_some() {
             return Err(IdentityError::Invalid);
         }
-        let mut tx = self.pool.begin().await?;
-        sqlx::query("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE")
-            .execute(&mut *tx)
-            .await?;
-        let actor = session(&mut tx, secret).await?;
-        let marked = key_management(&mut tx, &actor).await?;
+        let marked = key_management(&mut *c, actor).await?;
         let valid = validate(
-            &mut tx,
+            &mut *c,
             actor.user_id,
             input,
             self.dashboard_routing.as_deref(),
             marked,
         )
         .await?;
-        let issued = new_secret("lmmk_")?;
+        let issued = zeroize::Zeroizing::new(new_secret("lmmk_")?);
         let id:i64=sqlx::query_scalar("INSERT INTO core_identity.credentials(digest,kind,user_id,user_version,owner_account_id,personal_billing_preference,expires_at) VALUES ($1,'api_key',$2,$3,$4,'subscription_first',to_timestamp($5)) RETURNING id")
-            .bind(digest(&issued)?).bind(actor.user_id).bind(actor.user_version).bind(actor.owner_account_id).bind(valid.expires as f64).fetch_one(&mut *tx).await?;
+            .bind(digest(issued.as_str())?).bind(actor.user_id).bind(actor.user_version).bind(actor.owner_account_id).bind(valid.expires as f64).fetch_one(&mut *c).await?;
         sqlx::query("INSERT INTO core_identity.key_funding_rules(credential_id,position,payer_account_id) VALUES ($1,0,$2)")
-            .bind(id).bind(actor.owner_account_id).execute(&mut *tx).await?;
+            .bind(id).bind(actor.owner_account_id).execute(&mut *c).await?;
         let once = input.one_time_reveal.unwrap_or(true);
         let encrypted = if once {
             None
@@ -483,18 +487,41 @@ impl IdentityStore {
         };
         sqlx::query("INSERT INTO core_identity.api_key_settings(credential_id,name,one_time_reveal,encrypted_secret,model_limits_enabled,model_limits,allow_ips,group_name,auto_groups,cross_group_retry) VALUES ($1,$2,$3,$4,$5,$6,$7::text[]::inet[],$8,$9,$10)")
             .bind(id).bind(&valid.name).bind(once).bind(encrypted).bind(valid.models_enabled).bind(&valid.models)
-            .bind(&valid.ips).bind(&valid.group).bind(&valid.auto).bind(valid.retry).execute(&mut *tx).await?;
-        set_quota(&mut tx, &actor, id, valid.remaining, valid.unlimited).await?;
+            .bind(&valid.ips).bind(&valid.group).bind(&valid.auto).bind(valid.retry).execute(&mut *c).await?;
+        set_quota(&mut *c, actor, id, valid.remaining, valid.unlimited).await?;
         audit(
-            &mut tx,
-            &actor,
+            &mut *c,
+            actor,
             "dashboard.key.create",
             json!({"credential_id":id,"one_time_reveal":once}),
         )
         .await?;
-        let row = owned_key(&mut tx, actor.user_id, id, false).await?;
-        let mut result = projection(&mut tx, &row).await?;
-        result["key"] = json!(issued);
+        let row = owned_key(&mut *c, actor.user_id, id, false).await?;
+        let result = projection(&mut *c, &row).await?;
+        Ok(IssuedDashboardKey {
+            credential_id: id,
+            secret: issued,
+            projection: result,
+        })
+    }
+    pub async fn dashboard_create_key(
+        &self,
+        secret: &str,
+        input: &DashboardKeyInput,
+    ) -> Result<Value> {
+        if input.id.is_some() || input.status.is_some() {
+            return Err(IdentityError::Invalid);
+        }
+        let mut tx = self.pool.begin().await?;
+        sqlx::query("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE")
+            .execute(&mut *tx)
+            .await?;
+        let actor = session(&mut tx, secret).await?;
+        let issued = self
+            .create_dashboard_key_in_transaction(&mut tx, &actor, input)
+            .await?;
+        let mut result = issued.projection;
+        result["key"] = json!(issued.secret.as_str());
         tx.commit().await?;
         Ok(result)
     }

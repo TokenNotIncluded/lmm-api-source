@@ -40,6 +40,10 @@ import {
   isRetryableAssistantStatus,
 } from './assistant-ai-stream'
 import {
+  INVITATION_PENDING,
+  parsePendingInvitation,
+} from './assistant-invitation-contract'
+import {
   parseAssistantKeyManagementAction,
   parseAssistantKeyManagementReceipt,
   type AssistantKeyManagementAction,
@@ -1630,6 +1634,27 @@ function throwAssistantPendingResponse(
 ): never {
   const turn = parseAssistantTurnIdentity(payload.data)
   verifyAssistantTurnReply({ lmm_assistant_history: turn }, expected)
+  if (payload.code === INVITATION_PENDING) {
+    const invitation = parsePendingInvitation(payload, {
+      client_turn_id:
+        typeof expected.client_turn_id === 'string'
+          ? expected.client_turn_id
+          : '',
+      conversation_id:
+        typeof expected.conversation_id === 'number'
+          ? expected.conversation_id
+          : undefined,
+    })
+    if (!invitation) {
+      throw new AssistantStreamError(
+        502,
+        {},
+        'Invalid invitation confirmation receipt',
+        false
+      )
+    }
+    throw new AssistantStreamError(202, invitation, INVITATION_PENDING, false)
+  }
   throw new AssistantTurnContinuationError(
     turn.conversation_id,
     turn.client_turn_id,

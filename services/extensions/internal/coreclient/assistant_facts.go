@@ -8,6 +8,8 @@ import (
 	"strings"
 
 	pb "github.com/TokenNotIncluded/lmm-api/extensions/internal/corepb"
+	"github.com/TokenNotIncluded/lmm-api/extensions/internal/invitationfacts"
+	"github.com/TokenNotIncluded/lmm-api/extensions/internal/planoffers"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -32,6 +34,12 @@ func decodeBusinessFacts(raw []byte, out any) bool {
 }
 func validBusinessFacts(raw []byte, kind pb.AssistantBusinessFactKind, user int64) bool {
 	switch kind {
+	case pb.AssistantBusinessFactKind_ASSISTANT_BUSINESS_FACT_KIND_INVITATION_REWARDS:
+		var r invitationfacts.Facts
+		return decodeBusinessFacts(raw, &r) && r.Valid(user)
+	case pb.AssistantBusinessFactKind_ASSISTANT_BUSINESS_FACT_KIND_PLAN_OFFERS:
+		var r planoffers.Facts
+		return decodeBusinessFacts(raw, &r) && r.Valid(user)
 	case pb.AssistantBusinessFactKind_ASSISTANT_BUSINESS_FACT_KIND_AVAILABLE_MODELS:
 		var r struct {
 			Actor     int64           `json:"actor_user_id"`
@@ -97,13 +105,25 @@ func (c *AssistantClient) GetAssistantBusinessFacts(ctx context.Context, user, k
 		selection = pb.AssistantBusinessFactKind_ASSISTANT_BUSINESS_FACT_KIND_AVAILABLE_MODELS
 	case "support_eligibility":
 		selection = pb.AssistantBusinessFactKind_ASSISTANT_BUSINESS_FACT_KIND_SUPPORT_ELIGIBILITY
+	case "invitation_rewards":
+		selection = pb.AssistantBusinessFactKind_ASSISTANT_BUSINESS_FACT_KIND_INVITATION_REWARDS
+	case "plan_offers":
+		selection = pb.AssistantBusinessFactKind_ASSISTANT_BUSINESS_FACT_KIND_PLAN_OFFERS
 	default:
 		return nil, status.Error(codes.InvalidArgument, "invalid business facts kind")
 	}
 	if !validUserCredential(user) {
 		return nil, status.Error(codes.Unauthenticated, "invalid user credential")
 	}
-	if err := c.BusinessFactsReady(ctx); err != nil {
+	if kind == "invitation_rewards" {
+		if err := c.InvitationFactsReady(ctx); err != nil {
+			return nil, err
+		}
+	} else if kind == "plan_offers" {
+		if err := c.PlanOffersReady(ctx); err != nil {
+			return nil, err
+		}
+	} else if err := c.BusinessFactsReady(ctx); err != nil {
 		return nil, err
 	}
 	actor, err := c.control.Authorize(ctx, user)

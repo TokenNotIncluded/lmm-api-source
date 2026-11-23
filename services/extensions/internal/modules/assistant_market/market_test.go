@@ -25,6 +25,10 @@ type marketFixture struct {
 	user                           int64
 	authErr                        error
 	client, key                    string
+	assistantOperation             string
+	marketScope                    toolmarket.AssistantMarketCatalogueReceipt
+	marketScopeErr                 error
+	scopeRequests                  []toolmarket.AssistantMarketCatalogueRequest
 }
 
 func (f *marketFixture) WebAuthorize(context.Context, string, string, string) (int64, error) {
@@ -41,10 +45,19 @@ func (f *marketFixture) LegacyReadToolQuote(context.Context, string, string, str
 	f.quotes++
 	return f.quote, f.quoteErr
 }
-func (f *marketFixture) LegacyExecuteRemote(_ context.Context, _ string, _ string, input toolmarket.LegacyExecuteInput) (toolmarket.LegacyExecution, error) {
+func (f *marketFixture) ExecuteAssistantRemote(_ context.Context, _ string, _ string, operation string, input toolmarket.LegacyExecuteInput) (toolmarket.LegacyExecution, error) {
+	f.assistantOperation = operation
 	f.executes++
 	f.input = input
 	return f.record, f.executeErr
+}
+func (f *marketFixture) AssistantCatalogue(_ context.Context, _ string, _ string, in toolmarket.AssistantMarketCatalogueRequest) (toolmarket.AssistantMarketCatalogueReceipt, error) {
+	f.scopeRequests = append(f.scopeRequests, in)
+	out := f.marketScope
+	if in.ServiceID == "" {
+		out.Consents = []toolmarket.CoreLegacyConsentReceipt{}
+	}
+	return out, f.marketScopeErr
 }
 func (f *marketFixture) LegacyGetExecutionByRequestKey(_ context.Context, _ string, _ string, client, key string) (toolmarket.LegacyExecution, error) {
 	f.inspects++
@@ -67,16 +80,16 @@ func setup(t *testing.T) (*Executor, *marketFixture, assistant.AgentInvocation) 
 	raw := json.RawMessage(`{"service_id":"service-one","tool_id":"remote-tool","version_id":"version-one","grant_id":"grant-one","arguments":{"message":"hello"}}`)
 	in := assistant.AgentInvocation{Credential: "private-browser-credential", Actor: access.Principal{UserID: 7, Account: access.Account{Kind: "personal", ID: 7}}, Call: assistant.AgentToolCall{OperationID: "core-tool-operation-one", Scope: assistant.AgentToolScope{Name: b.Name, Version: b.Version, SchemaSHA256: e.definition.SchemaSHA256, PriceVersion: b.PriceVersion, PriceSHA256: b.PriceSHA256, Domain: "extension", ResourceKind: "toolmarket", ResourceID: tool.ToolID, ResourceVersion: tool.VersionID, ResourceSchemaSHA256: strings.Repeat("d", 64), ResourcePriceSHA256: price, GrantID: "grant-one"}, Arguments: raw, ArgumentsSHA256: digest(raw)}}
 	owner := toolmarket.Principal{User: "7", Account: "7"}
-	record := toolmarket.LegacyExecution{ID: "module-operation", Owner: owner, Input: toolmarket.LegacyExecuteInput{ClientID: ClientID, RequestKey: in.Call.OperationID, ToolID: tool.ToolID, VersionID: tool.VersionID, GrantID: "grant-one", Arguments: json.RawMessage(`{"message":"hello"}`)}, MeteringBinding: toolmarket.LegacyMeteringBinding{ServiceID: "service-one", VersionID: tool.VersionID, ToolID: tool.ToolID, RemoteDigest: in.Call.Scope.ResourceSchemaSHA256}, SettlementPricingDigest: price, State: "done", Success: true, Result: json.RawMessage(`{"content":[{"type":"text","text":"safe answer"}]}`), Core: toolmarket.LegacyCreditCall{ID: "original-core-call", Owner: owner, ClientID: ClientID, RequestKey: in.Call.OperationID, ToolID: tool.ToolID, VersionID: tool.VersionID, GrantID: "grant-one", PricingDigest: price, State: "settled"}}
+	record := toolmarket.LegacyExecution{AssistantToolOperationID: in.Call.OperationID, ID: "module-operation", Owner: owner, Input: toolmarket.LegacyExecuteInput{ClientID: ClientID, RequestKey: in.Call.OperationID, ToolID: tool.ToolID, VersionID: tool.VersionID, GrantID: "grant-one", Arguments: json.RawMessage(`{"message":"hello"}`)}, MeteringBinding: toolmarket.LegacyMeteringBinding{ServiceID: "service-one", VersionID: tool.VersionID, ToolID: tool.ToolID, RemoteDigest: in.Call.Scope.ResourceSchemaSHA256}, SettlementPricingDigest: price, State: "done", Success: true, Result: json.RawMessage(`{"content":[{"type":"text","text":"safe answer"}]}`), Core: toolmarket.LegacyCreditCall{ID: "original-core-call", Owner: owner, ClientID: ClientID, RequestKey: in.Call.OperationID, ToolID: tool.ToolID, VersionID: tool.VersionID, GrantID: "grant-one", PricingDigest: price, State: "settled"}}
 	record.ResultDigest = digest(record.Result)
 	f := &marketFixture{quote: toolmarket.LegacyCreditQuote{ID: "frozen-quote", ServiceID: "service-one", ToolID: tool.ToolID, VersionID: tool.VersionID, RemoteDigest: in.Call.Scope.ResourceSchemaSHA256, PricingDigest: price}, user: 7, record: record, detail: toolmarket.WebDetail{Service: toolmarket.WebServiceRecord{ID: "service-one", LiveVersionID: tool.VersionID, OwnerID: 88}, Version: toolmarket.WebVersion{ID: tool.VersionID, ServiceID: "service-one", ExecutionType: "remote", Endpoint: "https://private.invalid"}, Tools: []toolmarket.WebTool{tool}, Validated: true}}
 	e.market = f
 	return e, f, in
 }
-func TestBindingUsesExactFixedMainSchemaAndFreeOuterPrice(t *testing.T) {
+func TestBindingUsesVersionedCoreAuthorityAndFreeOuterPrice(t *testing.T) {
 	e, _, _ := setup(t)
 	b := e.Binding()
-	if b.Name != "call_market_tool" || b.Effect != "server_guarded" || b.Access != "user" || b.Version != assistant.FixedMainToolVersion || b.PriceSHA256 != assistant.FreeAgentPriceSHA256() || digest(b.Parameters) != e.definition.SchemaSHA256 {
+	if b.Name != "call_market_tool" || b.Effect != "server_guarded" || b.Access != "user" || b.Version != MarketToolVersion || b.PriceSHA256 != assistant.FreeAgentPriceSHA256() || digest(b.Parameters) != e.definition.SchemaSHA256 {
 		t.Fatalf("wrong binding: %+v", b)
 	}
 	if _, err := assistant.NewAgentRegistry([]assistant.AgentToolBinding{b}); err != nil {
@@ -95,7 +108,7 @@ func TestExecuteUsesOriginalOperationAndProjectsOnlyPublicResult(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.State != assistant.AgentToolSucceeded || got.DomainReceiptID != "original-core-call" || f.executes != 1 || f.input.ClientID != ClientID || f.input.RequestKey != in.Call.OperationID {
+	if got.State != assistant.AgentToolSucceeded || got.DomainReceiptID != "original-core-call" || f.executes != 1 || f.input.ClientID != ClientID || f.input.RequestKey != in.Call.OperationID || f.assistantOperation != in.Call.OperationID {
 		t.Fatalf("unexpected outcome: %+v %+v", got, f.input)
 	}
 	for _, private := range []string{"PRIVATE_RAW", "provider_owner", "\"owner\"", "private.invalid", in.Credential} {
@@ -235,7 +248,7 @@ func readInvocation(t *testing.T, e *Executor, in assistant.AgentInvocation, nam
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(bindings) != 3 {
+	if len(bindings) != 4 {
 		t.Fatal("unexpected advertised tools", len(bindings))
 	}
 	for _, b := range bindings {
@@ -296,15 +309,15 @@ func TestPublicCatalogueReadsRealVersionsAndHidesPrivateMetadata(t *testing.T) {
 		})
 	}
 }
-func TestCatalogueReadRejectsSnapshotMismatchAndCannotAdvertiseConnections(t *testing.T) {
+func TestCatalogueReadRejectsSnapshotMismatchAndKeepsCoreConsentSeparate(t *testing.T) {
 	e, f, in := setup(t)
 	bindings, err := e.Bindings()
 	if err != nil {
 		t.Fatal(err)
 	}
 	for _, b := range bindings {
-		if b.Name == "connect_market_tool" || b.Name == "get_connected_market_tools" {
-			t.Fatal("unimplemented capability advertised")
+		if b.Name == "connect_market_tool" {
+			t.Fatal("Go advertised the Core-owned browser consent mutation")
 		}
 	}
 	executor, in := readInvocation(t, e, in, "get_tool_market_services", `{}`)

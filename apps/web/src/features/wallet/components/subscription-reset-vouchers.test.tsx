@@ -9,6 +9,7 @@ the Free Software Foundation, either version 3 of the License, or
 import assert from 'node:assert/strict'
 import { after, afterEach, describe, test } from 'node:test'
 
+import { AxiosError, AxiosHeaders } from 'axios'
 import { Window } from 'happy-dom'
 import type React from 'react'
 
@@ -407,5 +408,137 @@ test('an open voucher confirmation expires without a query, and a click before t
   } finally {
     await unmount(rendered)
     Date.now = realNow
+  }
+})
+
+function unavailableVoucherRoute() {
+  const config = {
+    headers: new AxiosHeaders(),
+    url: '/api/subscription/self/reset-vouchers',
+    method: 'get',
+  }
+  return new AxiosError(
+    'Route not found',
+    'ERR_BAD_REQUEST',
+    config,
+    undefined,
+    {
+      config,
+      status: 404,
+      statusText: 'Not Found',
+      headers: {},
+      data: '',
+    }
+  )
+}
+
+test('an older Core shows unsupported resets without retries or empty-wallet claims and refresh can discover support', async () => {
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: 3, retryDelay: 0 } },
+  })
+  let reads = 0
+  let writes = 0
+  api.get = (async (url, config) => {
+    assert.equal(url, '/api/subscription/self/reset-vouchers')
+    assert.equal(config?.skipErrorHandler, true)
+    reads++
+    if (reads === 1) throw unavailableVoucherRoute()
+    return { data: { success: true, data: [voucher] } }
+  }) as typeof api.get
+  api.post = (async () => {
+    writes++
+    throw new Error('Availability detection must not redeem a voucher')
+  }) as typeof api.post
+  const rendered = await renderWithQuery(
+    <SubscriptionResetVouchers />,
+    queryClient
+  )
+  const unsupported =
+    'Banked subscription resets are not available on this server.'
+  try {
+    await waitFor(
+      () => rendered.container.textContent?.includes(unsupported) === true,
+      'missing route did not show unsupported availability'
+    )
+    await act(flushQueries)
+    assert.equal(
+      reads,
+      1,
+      'an absent endpoint must not be automatically retried'
+    )
+    assert.equal(rendered.container.querySelector('[role="alert"]'), null)
+    assert.equal(
+      rendered.container.textContent?.includes('No banked reset vouchers'),
+      false
+    )
+    assert.equal(buttonNamed(rendered.container, 'Redeem reset'), undefined)
+    assert.equal(writes, 0)
+    await act(async () => buttonNamed(rendered.container, 'Refresh')?.click())
+    await waitFor(
+      () => buttonNamed(rendered.container, 'Redeem reset') != null,
+      'a supported server response did not restore the voucher list'
+    )
+    assert.equal(reads, 2)
+    assert.equal(rendered.container.textContent?.includes(unsupported), false)
+    assert.ok(rendered.container.querySelector('[data-voucher-id="11"]'))
+    assert.equal(writes, 0)
+  } finally {
+    await unmount(rendered)
+  }
+})
+
+test('a missing voucher route clears cached redemption controls and closes an open confirmation', async () => {
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false, staleTime: Infinity } },
+  })
+  queryClient.setQueryData(['subscription-reset-vouchers'], {
+    success: true,
+    data: [voucher],
+  })
+  let reads = 0
+  let writes = 0
+  api.get = (async () => {
+    reads++
+    if (reads === 1) throw unavailableVoucherRoute()
+    return { data: { success: true, data: [voucher] } }
+  }) as typeof api.get
+  api.post = (async () => {
+    writes++
+    throw new Error('Unsupported voucher actions must not be sent')
+  }) as typeof api.post
+  const rendered = await renderWithQuery(
+    <SubscriptionResetVouchers />,
+    queryClient
+  )
+  try {
+    await act(async () =>
+      buttonNamed(rendered.container, 'Redeem reset')?.click()
+    )
+    assert.ok(document.querySelector('[role="alertdialog"]'))
+    await act(async () =>
+      queryClient.refetchQueries({ queryKey: ['subscription-reset-vouchers'] })
+    )
+    await waitFor(
+      () => document.querySelector('[role="alertdialog"]') === null,
+      'unsupported server retained a stale redemption dialog'
+    )
+    assert.equal(rendered.container.querySelector('[data-voucher-id]'), null)
+    assert.equal(buttonNamed(rendered.container, 'Redeem reset'), undefined)
+    assert.equal(reads, 1)
+    assert.equal(writes, 0)
+    await act(async () => buttonNamed(rendered.container, 'Refresh')?.click())
+    await waitFor(
+      () => rendered.container.querySelector('[data-voucher-id="11"]') != null,
+      'supported refresh did not restore the voucher'
+    )
+    assert.equal(reads, 2)
+    assert.equal(document.querySelector('[role="alertdialog"]'), null)
+    assert.equal(
+      writes,
+      0,
+      'restoring support must not reopen or redeem an old confirmation'
+    )
+  } finally {
+    await unmount(rendered)
   }
 })

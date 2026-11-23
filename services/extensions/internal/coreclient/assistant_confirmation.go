@@ -15,6 +15,9 @@ import (
 )
 
 const AssistantToolConfirmationFeature = "assistant.tool_confirmation.v1"
+
+// Browser confirmations live within the native refresh-cookie path.
+const AssistantToolConfirmationPathPrefix = "/api/user/auth/assistant/confirmations/"
 const maxConfirmationDraft = 16 << 10
 
 func (c *AssistantClient) ConfirmationReady(ctx context.Context) error {
@@ -101,7 +104,7 @@ func boundedAssistantObject(data []byte, maximum int) (any, bool) {
 	return out, err == io.EOF
 }
 func confirmationResponse(r *pb.AssistantToolConfirmation, operation string) (any, bool) {
-	if !assistantMessage(r) || !assistantDigest(r.GetChallengeId(), "") || r.GetToolOperationId() != operation || !agentIdentifier.MatchString(operation) || !assistantLabel(r.GetToolName(), 80) || !assistantLabel(r.GetToolVersion(), 128) || len(r.GetSourceArgumentsSha256()) != sha256.Size || len(r.GetNormalizedDraftSha256()) != sha256.Size || r.GetExpiresAtUnix() <= 0 || r.GetExecuted() || r.GetBrowserPath() != "/api/user/assistant/confirmations/"+r.GetChallengeId() {
+	if !assistantMessage(r) || !assistantDigest(r.GetChallengeId(), "") || r.GetToolOperationId() != operation || !agentIdentifier.MatchString(operation) || !assistantLabel(r.GetToolName(), 80) || !assistantLabel(r.GetToolVersion(), 128) || len(r.GetSourceArgumentsSha256()) != sha256.Size || len(r.GetNormalizedDraftSha256()) != sha256.Size || r.GetExpiresAtUnix() <= 0 || r.GetExecuted() || r.GetBrowserPath() != AssistantToolConfirmationPathPrefix+r.GetChallengeId() {
 		return nil, false
 	}
 	switch r.GetState() {

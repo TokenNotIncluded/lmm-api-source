@@ -40,7 +40,7 @@
 
 .auth-form-stage h2 {
   font-size: clamp(1.75rem, 3vw, 2.25rem);
-  font-weight: 550;
+  font-weight: 600;
   line-height: 1.25;
   letter-spacing: -0.04em;
   text-wrap: balance;
@@ -57,7 +57,33 @@
   border-radius: var(--radius);
   padding-inline: 1rem;
   font-size: 1rem;
-  background: color-mix(in oklch, var(--muted) 55%, var(--background));
+  border-color: var(--input);
+  background: var(--background);
+}
+
+.auth-form-stage
+  input:not([type='checkbox'], [type='radio'], [type='hidden']):hover:not(
+    :disabled
+  ):not(:focus-visible):not([aria-invalid='true']) {
+  border-color: var(--muted-foreground);
+}
+
+.auth-form-stage
+  input:not(
+    [type='checkbox'],
+    [type='radio'],
+    [type='hidden']
+  ):focus-visible:not([aria-invalid='true']) {
+  border-color: var(--ring);
+}
+
+.auth-form-stage input[aria-invalid='true'] {
+  border-color: var(--destructive);
+}
+
+.auth-form-stage [data-slot='form-label'] {
+  font-size: 0.875rem;
+  line-height: 1.5;
 }
 
 .auth-form-stage

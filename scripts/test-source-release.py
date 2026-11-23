@@ -60,6 +60,111 @@ class ReleaseTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 release.validate(self.root)
 
+    def git_candidate(self):
+        self.manifest.write_text(
+            '[dependencies]\n'
+            'zconv = { git = "https://github.com/LIghtJUNction/zconv.git" }\n'
+        )
+        self.lock.write_text(
+            'version = 4\n[[package]]\nname = "zconv"\nversion = "0.4.0"\n'
+            'source = "git+https://github.com/LIghtJUNction/zconv.git#' + "a" * 40 + '"\n'
+        )
+
+    def test_versionless_canonical_git_candidate_is_accepted(self):
+        self.git_candidate()
+        self.assertEqual(release.validate(self.root), {"version": "0.1.20", "zconv": "0.4.0"})
+
+    def test_git_manifest_requires_exact_canonical_url(self):
+        for url in (
+            "https://github.com/other/zconv.git",
+            "http://github.com/LIghtJUNction/zconv.git",
+            "https://github.com/LIghtJUNction/zconv.git/",
+            "https://github.com/LIghtJUNction/zconv",
+        ):
+            with self.subTest(url=url):
+                self.git_candidate()
+                self.manifest.write_text(
+                    '[dependencies]\nzconv = { git = ' + json.dumps(url) + ' }\n'
+                )
+                with self.assertRaises(ValueError):
+                    release.validate(self.root)
+
+    def test_git_manifest_rejects_extra_keys(self):
+        for extra in (
+            'version = "=0.4.0"', 'version = "0.4.0"',
+            'branch = "main"', 'tag = "v0.4.0"', 'rev = "' + "a" * 40 + '"',
+            'path = "../local"', 'package = "zconv"', 'features = []',
+            'default-features = false',
+        ):
+            with self.subTest(extra=extra):
+                self.git_candidate()
+                self.manifest.write_text(
+                    self.manifest.read_text().replace(" }\n", ", " + extra + " }\n")
+                )
+                with self.assertRaises(ValueError):
+                    release.validate(self.root)
+
+    def test_git_lock_requires_exact_canonical_source(self):
+        for source in (
+            "registry+https://github.com/rust-lang/crates.io-index",
+            "git+https://github.com/other/zconv.git#" + "a" * 40,
+            "git+http://github.com/LIghtJUNction/zconv.git#" + "a" * 40,
+            "git+https://github.com/LIghtJUNction/zconv.git?branch=main#" + "a" * 40,
+            "git+https://github.com/LIghtJUNction/zconv.git?tag=v0.4.0#" + "a" * 40,
+            "git+https://github.com/LIghtJUNction/zconv.git?rev=" + "a" * 40 + "#" + "a" * 40,
+            0,
+        ):
+            with self.subTest(source=source):
+                self.git_candidate()
+                self.lock.write_text(
+                    'version = 4\n[[package]]\nname = "zconv"\nversion = "0.4.0"\n'
+                    'source = ' + json.dumps(source) + '\n'
+                )
+                with self.assertRaises(ValueError):
+                    release.validate(self.root)
+
+    def test_git_lock_requires_full_lowercase_commit(self):
+        for revision in ("", "a" * 7, "a" * 39, "a" * 41, "A" * 40, "g" * 40, "a" * 40 + "/"):
+            with self.subTest(revision=revision):
+                self.git_candidate()
+                self.lock.write_text(self.lock.read_text().replace("a" * 40, revision))
+                with self.assertRaises(ValueError):
+                    release.validate(self.root)
+
+    def test_git_lock_version_must_match_request(self):
+        for path in (self.request, self.lock):
+            with self.subTest(path=path.name):
+                self.git_candidate()
+                self.request.write_text(json.dumps({"version": "0.1.20", "zconv": "0.4.0"}))
+                path.write_text(path.read_text().replace("0.4.0", "0.4.1"))
+                with self.assertRaises(ValueError):
+                    release.validate(self.root)
+
+    def test_git_lock_requires_one_zconv_package(self):
+        self.git_candidate()
+        self.lock.write_text(self.lock.read_text() + self.lock.read_text().split("\n", 1)[1])
+        with self.assertRaises(ValueError):
+            release.validate(self.root)
+
+    def test_git_lock_rejects_any_checksum_field(self):
+        for checksum in ("a" * 64, "", 0, False):
+            with self.subTest(checksum=checksum):
+                self.git_candidate()
+                self.lock.write_text(self.lock.read_text() + "checksum = " + json.dumps(checksum) + "\n")
+                with self.assertRaises(ValueError):
+                    release.validate(self.root)
+
+    def test_git_dependency_rejects_source_overrides(self):
+        for override in (
+            '\n[patch.crates-io]\nzconv = { path = "../local" }\n',
+            '\n[replace]\n"zconv:0.4.0" = { path = "../local" }\n',
+        ):
+            with self.subTest(override=override):
+                self.git_candidate()
+                self.manifest.write_text(self.manifest.read_text() + override)
+                with self.assertRaises(ValueError):
+                    release.validate(self.root)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -91,14 +91,16 @@ func (s *Service) prepareInTx(ctx context.Context, tx *sql.Tx, in assistant.Agen
 }
 
 type ConfirmationView struct {
-	ID          string          `json:"id"`
-	OperationID string          `json:"operation_id"`
-	Tool        string          `json:"tool"`
-	BrowserURL  string          `json:"browser_url"`
-	Payload     json.RawMessage `json:"payload"`
-	ExpiresAt   int64           `json:"expires_at"`
-	ConsumedAt  *int64          `json:"consumed_at"`
-	Result      json.RawMessage `json:"result,omitempty"`
+	ID              string          `json:"id"`
+	OperationID     string          `json:"operation_id"`
+	Tool            string          `json:"tool"`
+	BrowserURL      string          `json:"browser_url"`
+	Payload         json.RawMessage `json:"payload"`
+	ExpiresAt       int64           `json:"expires_at"`
+	ConsumedAt      *int64          `json:"consumed_at"`
+	Result          json.RawMessage `json:"result,omitempty"`
+	HumanConfirmed  bool            `json:"human_confirmed"`
+	DispatchStarted bool            `json:"dispatch_started"`
 }
 
 func (s *Service) Confirmation(ctx context.Context, credential, id string) (ConfirmationView, error) {
@@ -107,17 +109,41 @@ func (s *Service) Confirmation(ctx context.Context, credential, id string) (Conf
 		return ConfirmationView{}, err
 	}
 	var view ConfirmationView
-	var session []byte
-	err = s.db.QueryRowContext(ctx, `SELECT id,operation_id,tool_name,challenge_url,payload,expires_at,consumed_at,result,session_sha256 FROM lmm_assistant.service_confirmations WHERE id=$1 AND user_id=$2`, id, p.UserID).Scan(&view.ID, &view.OperationID, &view.Tool, &view.BrowserURL, &view.Payload, &view.ExpiresAt, &view.ConsumedAt, &view.Result, &session)
+	var session, pendingResult []byte
+	var challenge, coreDraftSHA string
+	err = s.db.QueryRowContext(ctx, `SELECT id,operation_id,tool_name,challenge_url,payload,expires_at,consumed_at,result,session_sha256,challenge_id,core_draft_sha256,EXISTS(SELECT FROM lmm_assistant.service_network_dispatch d WHERE d.operation_id=c.operation_id) FROM lmm_assistant.service_confirmations c WHERE id=$1 AND user_id=$2`, id, p.UserID).Scan(&view.ID, &view.OperationID, &view.Tool, &view.BrowserURL, &view.Payload, &view.ExpiresAt, &view.ConsumedAt, &pendingResult, &session, &challenge, &coreDraftSHA, &view.DispatchStarted)
 	if errors.Is(err, sql.ErrNoRows) {
 		return view, access.ErrNotFound
 	}
 	if err != nil {
 		return view, access.ErrUnavailable
 	}
+	// Pending confirmations have a real SQL NULL result, not an empty receipt.
+	view.Result = append(json.RawMessage(nil), pendingResult...)
 	current := sha256.Sum256([]byte(credential))
 	if !bytes.Equal(session, current[:]) {
 		return view, access.ErrForbidden
+	}
+	view.BrowserURL, err = currentConfirmationBrowserPath(view.BrowserURL, challenge)
+	if err != nil {
+		return ConfirmationView{}, err
+	}
+	if view.Tool == "send_invitation" && view.ConsumedAt == nil && !view.DispatchStarted && view.ExpiresAt > s.now().Unix() {
+		if access.Missing(s.dependencies.Confirmations) {
+			return view, access.ErrUnavailable
+		}
+		proof, proofErr := s.dependencies.Confirmations.Verify(ctx, credential, challenge, view.OperationID, coreDraftSHA)
+		if proofErr != nil && !errors.Is(proofErr, access.ErrForbidden) && !errors.Is(proofErr, access.ErrConflict) && !errors.Is(proofErr, access.ErrNotFound) {
+			return view, proofErr
+		}
+		view.HumanConfirmed = proofErr == nil && proof.Confirmed && proof.UserID == p.UserID && proof.OperationID == view.OperationID && proof.PayloadSHA256 == coreDraftSHA && proof.ReceiptID != "" && proof.ExpiresAt > s.now().Unix()
+		currentActor, authErr := s.principal(ctx, credential)
+		if authErr != nil {
+			return view, authErr
+		}
+		if currentActor.UserID != p.UserID || currentActor.Account != p.Account {
+			return view, access.ErrForbidden
+		}
 	}
 	return view, nil
 }
@@ -156,6 +182,14 @@ func (s *Service) ConfirmAfterProof(ctx context.Context, credential, id string) 
 	current := sha256.Sum256([]byte(credential))
 	if user != p.UserID || !bytes.Equal(session, current[:]) || p.Level < level {
 		return nil, access.ErrForbidden
+	}
+	if tool == "send_invitation" {
+		return s.confirmInvitationLocked(ctx, tx, p, credential, invitationConfirmation{
+			id: id, operation: operation, version: version, challenge: challenge,
+			payloadSHA: payloadSHA, coreDraftSHA: coreDraftSHA, level: level,
+			user: user, expires: expires, session: session, payload: payload,
+			savedResult: savedResult, consumed: consumed,
+		})
 	}
 	if consumed.Valid {
 		return append(json.RawMessage(nil), savedResult...), nil

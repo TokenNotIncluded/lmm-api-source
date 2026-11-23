@@ -127,10 +127,34 @@ async fn redeem(
     State(s): State<PromotionStore>,
     h: HeaderMap,
     j: std::result::Result<Json<RedeemRequest>, JsonRejection>,
-) -> Result<Json<Receipt>> {
+) -> Result<Json<Value>> {
     let secret = bearer(&h)?;
     let Json(input) = j.map_err(|_| Error::Invalid)?;
-    Ok(Json(s.redeem(secret, input).await?))
+    let reset = crate::subscriptions::SubscriptionStore::new(s.pool.clone())
+        .try_redeem_reset_code(
+            secret,
+            crate::subscriptions::ResetCodeRequest {
+                operation_key: input.operation_key.clone(),
+                code: input.code.clone(),
+            },
+        )
+        .await
+        .map_err(|e| match e {
+            crate::subscriptions::Error::Invalid => Error::Invalid,
+            crate::subscriptions::Error::Unauthorized => Error::Unauthorized,
+            crate::subscriptions::Error::Forbidden => Error::Forbidden,
+            crate::subscriptions::Error::NotFound => Error::NotFound,
+            crate::subscriptions::Error::Conflict | crate::subscriptions::Error::Used => {
+                Error::Conflict
+            }
+            crate::subscriptions::Error::Unavailable => Error::Unavailable,
+        })?;
+    if let Some(receipt) = reset {
+        return Ok(Json(receipt));
+    }
+    Ok(Json(
+        serde_json::to_value(s.redeem(secret, input).await?).map_err(|_| Error::Unavailable)?,
+    ))
 }
 async fn checkin(
     State(s): State<PromotionStore>,

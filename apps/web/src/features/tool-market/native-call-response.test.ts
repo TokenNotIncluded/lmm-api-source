@@ -224,6 +224,57 @@ test('confirmation links are same-origin exact Core confirmation paths', () => {
   }
 })
 
+test('assistant confirmation navigation preserves the exact route supplied by older and current Core', () => {
+  const origin = 'https://console.example.test'
+  const id = 'f'.repeat(64)
+  const current = `/api/user/auth/assistant/confirmations/${id}`
+  const historical = `/api/user/assistant/confirmations/${id}`
+  for (const [confirmation_url, expected] of [
+    [current, `${origin}${current}`],
+    [`${origin}${current}`, `${origin}${current}`],
+    [historical, `${origin}${historical}`],
+    [`${origin}${historical}`, `${origin}${historical}`],
+  ]) {
+    for (const structuredContent of [
+      { confirmation_url },
+      { receipt: { confirmation_url } },
+    ]) {
+      assert.equal(
+        marketConfirmationURL({ structuredContent }, origin),
+        expected
+      )
+    }
+  }
+  for (const confirmation_url of [
+    `${current}?approve=true`,
+    `${historical}#approve`,
+    `${current}/key`,
+    `${current}/`,
+    current.replace(id, id.toUpperCase()),
+    current.replace('/assistant/', '/%61ssistant/'),
+    current.replace('/assistant/', '/./assistant/'),
+    current.replace('/assistant/', '/other/../assistant/'),
+    historical.replace('/assistant/', '/%2e%2e/user/assistant/'),
+    current.replace('/confirmations/', '/confirmations%2f'),
+    current.replace('/confirmations/', '/confirmations%5c'),
+    `https://attacker.test${current}`,
+    `//console.example.test${current}`,
+    `https://user@console.example.test${current}`,
+    `https://console.example.test\t${current}`,
+    `https://console.example.test\\junk\\..${current}`,
+    current.replace('/assistant/', '\\assistant/'),
+  ]) {
+    assert.equal(
+      marketConfirmationURL(
+        { structuredContent: { confirmation_url } },
+        origin
+      ),
+      undefined,
+      confirmation_url
+    )
+  }
+})
+
 test('shared HTTP methods keep pending data and only resume uses POST', async () => {
   const oldAdapter = api.defaults.adapter
   const requests: { method?: string; url?: string; body: unknown }[] = []

@@ -82,3 +82,9 @@ func (c *Client) GetLegacyProviderProof(ctx context.Context, r *pb.GetLegacyProv
 func (c *Client) CreditLegacyTopup(ctx context.Context, r *pb.CreditLegacyTopupRequest) (*pb.LegacyPaymentReceipt, error) {
 	return pb.NewCorePaymentsClient(c.connection).CreditLegacyTopup(c.context(ctx, ""), r)
 }
+
+// PaymentTopupConfiguration reads only sanitized Core admission policy through
+// the dedicated payment-service credential; it never creates a user intent.
+func (c *Client) PaymentTopupConfiguration(ctx context.Context) (*pb.TopupConfiguration, error) {
+	return pb.NewCorePaymentsClient(c.connection).GetTopupConfiguration(c.context(ctx, ""), &pb.GetTopupConfigurationRequest{})
+}

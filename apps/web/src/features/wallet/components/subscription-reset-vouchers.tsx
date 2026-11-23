@@ -22,15 +22,23 @@ import {
 } from '@/components/ui/collapsible'
 import { Skeleton } from '@/components/ui/skeleton'
 import {
+  currentCommerceScope,
+  type CommerceScope,
+} from '@/features/commerce/native-client'
+import {
   getSubscriptionResetVouchers,
   redeemSubscriptionResetVoucher,
+  resetVoucherQueryKey,
 } from '@/features/subscriptions/api'
 import { formatTimestamp } from '@/features/subscriptions/lib'
 import type { SubscriptionResetVoucher } from '@/features/subscriptions/types'
 import { useDeadlineClock } from '@/hooks/use-deadline-clock'
 import { useWalletCurrency } from '@/hooks/use-wallet-currency'
 
-export function SubscriptionResetVouchers(props: { onRedeemed?: () => void }) {
+export function SubscriptionResetVouchers(props: {
+  onRedeemed?: () => void
+  scope?: CommerceScope
+}) {
   const { t } = useTranslation()
   const { formatQuota } = useWalletCurrency()
   const [selected, setSelected] = useState<SubscriptionResetVoucher | null>(
@@ -43,15 +51,20 @@ export function SubscriptionResetVouchers(props: { onRedeemed?: () => void }) {
   const [historyOpen, setHistoryOpen] = useState(false)
   const [historyPage, setHistoryPage] = useState(0)
   const vouchersQuery = useQuery({
-    queryKey: ['subscription-reset-vouchers'],
-    queryFn: getSubscriptionResetVouchers,
+    queryKey: resetVoucherQueryKey(props.scope),
+    queryFn: () => getSubscriptionResetVouchers(props.scope),
     staleTime: 15_000,
   })
-  const vouchers = vouchersQuery.data?.data ?? []
+  const unsupported = vouchersQuery.data?.supported === false
+  if (unsupported && selected !== null) {
+    // A later successful refresh must require a new explicit confirmation.
+    setSelected(null)
+  }
+  const vouchers = unsupported ? [] : (vouchersQuery.data?.data ?? [])
   const now = useDeadlineClock(
     vouchers.map((voucher) => voucher.expires_at * 1000)
   )
-  const hasVoucherData = vouchersQuery.data != null
+  const hasVoucherData = vouchersQuery.data != null && !unsupported
   const voucherStatus = (voucher: SubscriptionResetVoucher) =>
     redeemedVoucherIds.has(voucher.id)
       ? 'redeemed'
@@ -123,17 +136,23 @@ export function SubscriptionResetVouchers(props: { onRedeemed?: () => void }) {
   const redeem = async () => {
     if (
       !selected ||
+      unsupported ||
       redeeming ||
       selected.status !== 'available' ||
       selected.expired === true ||
       selected.expires_at <= Date.now() / 1000 ||
-      redeemedVoucherIds.has(selected.id)
+      redeemedVoucherIds.has(selected.id) ||
+      (props.scope && !currentCommerceScope(props.scope))
     ) {
       return
     }
     setRedeeming(true)
     try {
-      const response = await redeemSubscriptionResetVoucher(selected.id)
+      const response = await redeemSubscriptionResetVoucher(
+        selected.id,
+        props.scope
+      )
+      if (props.scope && !currentCommerceScope(props.scope)) return
       if (!response.success || !response.data) {
         throw new Error(response.message || t('Voucher redemption failed'))
       }
@@ -152,6 +171,7 @@ export function SubscriptionResetVouchers(props: { onRedeemed?: () => void }) {
       props.onRedeemed?.()
       void vouchersQuery.refetch()
     } catch (error) {
+      if (props.scope && !currentCommerceScope(props.scope)) return
       toast.error(
         error instanceof Error ? error.message : t('Voucher redemption failed')
       )
@@ -234,7 +254,11 @@ export function SubscriptionResetVouchers(props: { onRedeemed?: () => void }) {
           </div>
         )}
 
-        {vouchersQuery.isPending && !hasVoucherData ? (
+        {unsupported && !vouchersQuery.isError ? (
+          <p className='text-muted-foreground mt-3 text-sm' role='status'>
+            {t('Banked subscription resets are not available on this server.')}
+          </p>
+        ) : vouchersQuery.isPending && !hasVoucherData ? (
           <div className='mt-3 space-y-2' aria-hidden='true'>
             <Skeleton className='h-14 w-full' />
             <Skeleton className='h-14 w-full' />
@@ -331,7 +355,7 @@ export function SubscriptionResetVouchers(props: { onRedeemed?: () => void }) {
         )}
       </div>
 
-      {selected && (
+      {selected && !unsupported && (
         <ConfirmDialog
           open
           onOpenChange={(open) => !open && setSelected(null)}

@@ -41,6 +41,55 @@ def failure_location(text):
     return {"file": match[1], "line": int(match[2]), "column": int(match[3])}
 
 
+def redacted_log_diagnostics(data):
+    """Preserve fixed error categories and hashes, never raw process/SQL text."""
+    text = data.decode("utf-8", errors="replace")
+    markers = {
+        "core_missing_privileges": "Error: MissingPrivileges",
+        "core_unsafe_privileges": "Error: UnsafePrivileges",
+        "core_unavailable": "Error: Unavailable",
+        "payment_storage_contract_unavailable": "payment storage contract unavailable",
+        "database_permission_denied": "permission denied for ",
+    }
+    categories = [name for name, marker in markers.items() if marker in text]
+    for schema in ("core_payments", "core_subscriptions", "core_checkins", "core_gift"):
+        if re.search(r"permission denied for schema " + schema + r"(?:\s|$)", text):
+            categories.append("database_schema_permission_denied:" + schema)
+    statements = re.findall(r"STATEMENT:  ([^\n]*(?:\n\t[^\n]*)*)", text)
+    return {
+        "observed_bytes": len(data),
+        "observed_sha256": hashlib.sha256(data).hexdigest(),
+        "categories": sorted(categories),
+        "statement_sha256": sorted({hashlib.sha256(value.encode()).hexdigest() for value in statements}),
+    }
+
+
+def product_startup_diagnostics(root):
+    result = {}
+    for name in ("core-initial.log", "go-main.log"):
+        matches = list(root.glob("pay-*/" + name))
+        if len(matches) > 1:
+            raise RuntimeError("ambiguous product log")
+        if not matches:
+            continue
+        path = matches[0]
+        if path.parent.is_symlink() or path.is_symlink() or not path.is_file():
+            raise RuntimeError("unexpected product log type")
+        with path.open("rb") as stream:
+            stream.seek(max(0, path.stat().st_size - 65536))
+            item = redacted_log_diagnostics(stream.read())
+        item.update(log_bytes=path.stat().st_size, log_sha256=sha(path))
+        item["saved_identity_stages"] = {}
+        for stage in ("spawn", "before-ready", "ready", "final"):
+            receipt = path.with_name(name + ".identity." + stage + ".json")
+            if receipt.exists():
+                if receipt.is_symlink() or not receipt.is_file():
+                    raise RuntimeError("unexpected identity receipt type")
+                item["saved_identity_stages"][stage] = sha(receipt)
+        result[name] = item
+    return result
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", type=Path, required=True)
@@ -152,6 +201,8 @@ def main():
                 log = root / "test.log"
                 if log.is_file() and not log.is_symlink():
                     status["log_sha256"] = sha(log)
+                if status["result"] != "PASS":
+                    status["product_startup_diagnostics"] = product_startup_diagnostics(root)
                 for pattern in ("pay-*/result.json", "pay-*/main-live-credit.json", "pay-*/*.identity.*.json", "pay-*/bootstrap-*-exit.json"):
                     for path in root.glob(pattern):
                         if path.is_symlink() or not path.is_file():
@@ -164,6 +215,13 @@ def main():
             if fixture is not None and fixture.container is not None:
                 # UNKNOWN provisioning is retained; never infer missing identity.
                 fixture.verify()
+                if status["result"] != "PASS":
+                    try:
+                        logs = fixture.docker("logs", "--tail", "100", fixture.container, timeout=15)
+                        status["postgres_failure_diagnostics"] = redacted_log_diagnostics(logs.stdout + logs.stderr)
+                    except Exception as error:
+                        # Optional diagnostics must not block verified fixture cleanup.
+                        status["postgres_diagnostics_error_type"] = type(error).__name__
                 fixture.cleanup()
                 cluster_gone = True
             status["cluster_removed_or_not_created"] = cluster_gone

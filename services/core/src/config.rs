@@ -202,6 +202,8 @@ struct OAuth2File {
     isolated_loopback_proxy: Option<bool>,
     isolated_secret_directory: Option<PathBuf>,
     pi_max_credits: Option<i64>,
+    #[serde(default)]
+    provider_max_credits: BTreeMap<String, i64>,
     cc_switch_max_credits: Option<i64>,
     magpie_max_credits: Option<i64>,
     managed_refresh_keyring_file: Option<PathBuf>,
@@ -687,6 +689,25 @@ fn parse_core_file(document: &[u8]) -> io::Result<BTreeMap<&'static str, OsStrin
                 ));
             }
             put("LMM_CORE_OAUTH2_PI_MAX_CREDITS", maximum.to_string());
+        }
+        if !oauth2.provider_max_credits.is_empty() {
+            for (client, maximum) in &oauth2.provider_max_credits {
+                if file.model.is_none()
+                    || !crate::identity::grants::PROVIDER_CLIENTS
+                        .iter()
+                        .any(|(id, _)| *id == client)
+                    || !(1..=9_007_199_254_740_991).contains(maximum)
+                {
+                    return Err(invalid_config(
+                        "public model providers require a known client, model service and finite ceiling",
+                    ));
+                }
+            }
+            put(
+                "LMM_CORE_OAUTH2_PROVIDER_MAX_CREDITS",
+                serde_json::to_string(&oauth2.provider_max_credits)
+                    .map_err(|_| invalid_config("invalid public model provider ceilings"))?,
+            );
         }
         if let Some(maximum) = oauth2.cc_switch_max_credits {
             if file.model.is_none()
@@ -1602,6 +1623,7 @@ pub fn support_projection_configured() -> bool {
 pub async fn tool_market_server(
     url: &str,
     gateway: Option<&crate::model_http::ModelGateway>,
+    assistant: Option<&crate::assistant_model::rpc::AssistantRpc>,
 ) -> io::Result<Option<crate::tool_market::server::ToolMarketServer>> {
     if !tool_market_configured()
         && !support_projection_configured()
@@ -1784,6 +1806,11 @@ pub async fn tool_market_server(
             .map_err(|_| invalid_config("invalid private tool market service"))?,
         );
         let mut credit = crate::tool_market::credit_access::CreditStore::from_pool(pool.clone());
+        if let Some(runtime) =
+            assistant.and_then(crate::assistant_model::rpc::AssistantRpc::market_runtime)
+        {
+            credit = credit.with_assistant_runtime(runtime);
+        }
         if let Some(profile) = market_oauth_profile()? {
             credit = credit.with_market_oauth_profile(Arc::new(profile));
         }
@@ -2032,6 +2059,19 @@ pub async fn assistant_rpc(
         ));
     }
     let tools_enabled = assistant_tools_enabled()?;
+    if config.agent.as_ref().is_some_and(|host| {
+        host.policy.allowed_tools.iter().any(|tool| {
+            matches!(
+                tool.as_str(),
+                "get_connected_market_tools" | "connect_market_tool" | "call_market_tool"
+            )
+        })
+    }) && !tool_market_configured()
+    {
+        return Err(invalid_config(
+            "assistant market tools require the configured Core market service",
+        ));
+    }
     if config.agent.is_some() && !tools_enabled {
         return Err(invalid_config(
             "assistant agent requires enabled tools and Web identity",
@@ -2078,16 +2118,25 @@ pub async fn assistant_rpc(
     if gift_enabled {
         rpc = rpc.with_gifts(crate::gift::GiftStore::new(pool.clone()));
     }
+    if let Some(edge) = edge_access_config()? {
+        let proof = crate::internal_rpc::read_service_token(&edge.proof_file)
+            .map_err(|_| invalid_config("assistant edge proof unavailable"))?;
+        rpc = rpc.with_edge_proof(proof);
+    }
     if tools_enabled {
         // Read-only startup checks: no schema creation and no synthetic Session.
         sqlx::query("SELECT o.id,o.arguments_json,o.resource_schema_sha256,o.resource_price_sha256,t.session_id,t.host_policy,t.source_web_session_sid,r.model_request_id,c.id FROM core_assistant.agent_tool_operations o JOIN core_assistant.agent_turns t ON t.id=o.turn_id JOIN core_assistant.agent_rounds r ON r.id=o.round_id LEFT JOIN core_assistant_tools.confirmations c ON c.operation_id=o.id WHERE FALSE")
             .execute(&pool).await.map_err(|_| invalid_config("assistant tools require installed durable agent schema and runtime read authority"))?;
-        let facts =
+        let mut facts =
             crate::assistant_tools_core::facts::BusinessFactsStore::new(pool.clone(), gateway);
         facts
             .check_readonly()
             .await
             .map_err(|_| invalid_config("assistant business facts read authority unavailable"))?;
+        facts
+            .enable_invitation_facts()
+            .await
+            .map_err(|_| invalid_config("assistant invitation facts read authority unavailable"))?;
         rpc = rpc.with_business_facts(facts).with_confirmations(
             crate::assistant_tools_core::confirmation::ConfirmationStore::new(pool.clone()),
         );
@@ -2100,16 +2149,26 @@ pub async fn assistant_rpc(
     Ok(Some(rpc))
 }
 
-pub fn assistant_tools_browser_router(pool: sqlx::PgPool) -> io::Result<Option<axum::Router>> {
+pub fn assistant_tools_browser_router(
+    pool: sqlx::PgPool,
+    identity: crate::identity::IdentityStore,
+    assistant: Option<&crate::assistant_model::rpc::AssistantRpc>,
+) -> io::Result<Option<axum::Router>> {
     if !assistant_tools_enabled()? {
         return Ok(None);
     }
     let origin = setting("LMM_CORE_WEB_ORIGIN")
         .map_err(|_| invalid_config("assistant confirmation requires Web origin"))?;
     let local = bool_setting("LMM_CORE_WEB_LOCAL_HTTP")?;
-    let state =
+    let mut state =
         crate::assistant_tools_core::confirmation::BrowserConfirmation::new(pool, &origin, local)
-            .map_err(|_| invalid_config("invalid assistant confirmation browser configuration"))?;
+            .map_err(|_| invalid_config("invalid assistant confirmation browser configuration"))?
+            .with_identity_store(identity);
+    if let Some(runtime) =
+        assistant.and_then(crate::assistant_model::rpc::AssistantRpc::market_runtime)
+    {
+        state = state.with_market_runtime(runtime);
+    }
     Ok(Some(crate::assistant_tools_core::confirmation::router(
         state,
     )))
@@ -2500,11 +2559,9 @@ pub async fn financial_rpcs(url: &str, control_token: &[u8]) -> io::Result<Finan
         if config.version != 1 {
             return Err(invalid_config("unsupported reward funding configuration"));
         }
-        let turnstile = turnstile_config::load()?.ok_or_else(|| {
-            invalid_config("check-in rewards require Turnstile site and secret keys")
-        })?;
         let origin = setting("LMM_CORE_WEB_ORIGIN")
             .map_err(|_| invalid_config("check-in rewards require a Web origin"))?;
+        let turnstile = config.load_turnstile(&origin)?;
         let rp_id = setting("LMM_CORE_WEB_PASSKEY_RP_ID").ok();
         let passkeys = web_passkeys(&origin, rp_id.as_deref())?;
         let challenges = crate::checkin_challenge::ChallengeConfig::new(
@@ -2689,6 +2746,7 @@ pub fn oauth2_configured() -> bool {
     [
         "LMM_CORE_OAUTH2_ISSUER",
         "LMM_CORE_OAUTH2_PI_MAX_CREDITS",
+        "LMM_CORE_OAUTH2_PROVIDER_MAX_CREDITS",
         "LMM_CORE_OAUTH2_CC_SWITCH_MAX_CREDITS",
         "LMM_CORE_OAUTH2_MAGPIE_MAX_CREDITS",
         "LMM_CORE_OAUTH2_MANAGED_REFRESH_KEYRING_FILE",
@@ -2900,6 +2958,24 @@ pub async fn oauth2_issuer(
             .with_pi_budget_limit(maximum)
             .map_err(|_| invalid_config("invalid Pi budget ceiling"))?;
     }
+    if let Some(value) = setting_os("LMM_CORE_OAUTH2_PROVIDER_MAX_CREDITS") {
+        if setting_os("LMM_CORE_MODEL_CONFIG_FILE").is_none() {
+            return Err(invalid_config(
+                "public model providers require model service",
+            ));
+        }
+        let ceilings: BTreeMap<String, i64> = serde_json::from_str(
+            value
+                .to_str()
+                .ok_or_else(|| invalid_config("invalid public model provider ceilings"))?,
+        )
+        .map_err(|_| invalid_config("invalid public model provider ceilings"))?;
+        for (client, maximum) in ceilings {
+            profile = profile
+                .with_provider_budget_limit(&client, maximum)
+                .map_err(|_| invalid_config("invalid public model provider ceiling"))?;
+        }
+    }
     if let Some(value) = setting_os("LMM_CORE_OAUTH2_CC_SWITCH_MAX_CREDITS") {
         if setting_os("LMM_CORE_MODEL_CONFIG_FILE").is_none()
             || setting_os("LMM_CORE_OAUTH2_MANAGED_REFRESH_KEYRING_FILE").is_none()
@@ -2981,6 +3057,19 @@ struct RewardFundingConfig {
     version: u32,
     max_daily_units: i64,
     require_passkey: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    turnstile: Option<turnstile_config::TurnstileFile>,
+}
+
+impl RewardFundingConfig {
+    fn load_turnstile(&self, origin: &str) -> io::Result<turnstile_config::Turnstile> {
+        match &self.turnstile {
+            Some(config) => config.load(origin),
+            None => turnstile_config::load()?.ok_or_else(|| {
+                invalid_config("check-in rewards require Turnstile site and secret keys")
+            }),
+        }
+    }
 }
 
 impl<'de> Deserialize<'de> for RewardFundingConfig {
@@ -2992,6 +3081,7 @@ impl<'de> Deserialize<'de> for RewardFundingConfig {
             max_daily_units: crate::billing::Credits,
             #[serde(default = "require_checkin_passkey")]
             require_passkey: bool,
+            turnstile: Option<turnstile_config::TurnstileFile>,
         }
         #[derive(Deserialize)]
         #[serde(deny_unknown_fields)]
@@ -3000,6 +3090,7 @@ impl<'de> Deserialize<'de> for RewardFundingConfig {
             max_daily_units_by_trust: [crate::billing::Credits; 5],
             #[serde(default = "require_checkin_passkey")]
             require_passkey: bool,
+            turnstile: Option<turnstile_config::TurnstileFile>,
         }
         #[derive(Deserialize)]
         #[serde(untagged)]
@@ -3016,11 +3107,13 @@ impl<'de> Deserialize<'de> for RewardFundingConfig {
                 version: input.version,
                 max_daily_units: input.max_daily_units.into(),
                 require_passkey: input.require_passkey,
+                turnstile: input.turnstile,
             },
             Input::Legacy(input) => Self {
                 version: input.version,
                 max_daily_units: input.max_daily_units_by_trust[4].into(),
                 require_passkey: input.require_passkey,
+                turnstile: input.turnstile,
             },
         })
     }
@@ -3908,6 +4001,55 @@ pub fn checkin_rewards_configured() -> bool {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn provider_toml_ceilings_require_known_clients_and_a_model_service() {
+        let document = |client: &str, ceiling: i64| {
+            format!(
+                r#"version=1
+[database]
+url_file='/private/test-db'
+[identity.web]
+origin='https://providers.example.test'
+refresh_key_file='/private/web-key'
+user_agreement_enabled=false
+privacy_policy_enabled=false
+[identity.oauth2]
+issuer='https://providers.example.test'
+groups=['allowed']
+access_ttl_seconds=900
+family_ttl_seconds=86400
+provider_max_credits={{"{client}"={ceiling}}}
+[model]
+config_file='/private/model'
+"#
+            )
+        };
+        for (client, _) in crate::identity::grants::PROVIDER_CLIENTS {
+            let values = super::parse_core_file(document(client, 90).as_bytes()).unwrap();
+            let ceilings: std::collections::BTreeMap<String, i64> = serde_json::from_str(
+                values["LMM_CORE_OAUTH2_PROVIDER_MAX_CREDITS"]
+                    .to_str()
+                    .unwrap(),
+            )
+            .unwrap();
+            assert_eq!(
+                ceilings,
+                std::collections::BTreeMap::from([((*client).into(), 90)])
+            );
+            assert!(!values.contains_key("LMM_CORE_OAUTH2_PI_MAX_CREDITS"));
+            assert!(!values.contains_key("LMM_CORE_OAUTH2_MANAGED_REFRESH_KEYRING_FILE"));
+        }
+        for text in [
+            document("lmm-dsh", 0),
+            document("lmm-dsh", 9_007_199_254_740_992),
+            document("unknown", 90),
+            document("lmm-pi", 90),
+            document("lmm-dsh", 90).replace("[model]\nconfig_file='/private/model'", ""),
+        ] {
+            assert!(super::parse_core_file(text.as_bytes()).is_err());
+        }
+    }
+
     #[test]
     fn magpie_toml_ceiling_is_independent_and_requires_model_and_keyring() {
         let document = |ceiling: i64| {

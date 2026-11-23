@@ -57,6 +57,9 @@ type Dependencies struct {
 	SupportEligibility SupportEligibility
 	Policies           PolicyReader
 	Public             PublicReader
+	PlanOffers         PlanOffersReader
+	Invitations        InvitationReader
+	InvitationMail     InvitationSender
 	Search             SearchProvider
 	Navigation         NavigationReader
 	PolicyChanges      PolicyChangePreparer
@@ -186,10 +189,27 @@ func (s *Service) readOperation(ctx context.Context, tx *sql.Tx, in assistant.Ag
 			if json.Unmarshal(completed, &value) != nil {
 				return out, access.ErrUnavailable
 			}
-			return result(in.Call.OperationID, assistant.AgentToolSucceeded, value, receipt)
+			state := assistant.AgentToolSucceeded
+			if in.Call.Scope.Name == "send_invitation" {
+				if value["status"] == "unknown" {
+					state = assistant.AgentToolUnknown
+				} else if value["status"] != "accepted_by_smtp" {
+					state = assistant.AgentToolFailed
+				}
+			}
+			return result(in.Call.OperationID, state, value, receipt)
 		}
 		if !errors.Is(err, sql.ErrNoRows) {
 			return out, access.ErrUnavailable
+		}
+		if in.Call.Scope.Name == "send_invitation" {
+			var dispatched bool
+			if tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT FROM lmm_assistant.service_network_dispatch WHERE operation_id=$1 AND user_id=$2 AND session_sha256=$3 AND call_sha256=$4)`, in.Call.OperationID, p.UserID, session[:], call[:]).Scan(&dispatched) != nil {
+				return out, access.ErrUnavailable
+			}
+			if dispatched {
+				return unknownResult(in.Call.OperationID), nil
+			}
 		}
 	}
 	return out, nil
@@ -285,4 +305,61 @@ func safeText(value string, max int) string {
 		value = string(runes[:max])
 	}
 	return value
+}
+
+func (s *Service) CompletedUIPreferenceAction(ctx context.Context, credential string, call assistant.AgentToolCall, receipt assistant.AgentToolReceipt) (*assistant.UIPreferenceAction, error) {
+	if !assistant.IsUIPreferenceAction(call.Scope.Name) {
+		return nil, access.ErrInvalid
+	}
+	registry, err := assistant.NewAgentRegistry(assistant.UIPreferenceBindings(s))
+	if err != nil {
+		return nil, err
+	}
+	expected, err := registry.Scope(call.Scope.Name)
+	if err != nil || call.Scope != expected {
+		return nil, access.ErrConflict
+	}
+	p, err := s.principal(ctx, credential)
+	if err != nil {
+		return nil, err
+	}
+	in := assistant.AgentInvocation{Credential: credential, Actor: p, Call: call}
+	_, session, callHash, err := s.validate(ctx, in)
+	if err != nil {
+		return nil, err
+	}
+	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+	if err != nil {
+		return nil, access.ErrUnavailable
+	}
+	defer tx.Rollback()
+	saved, err := s.readOperation(ctx, tx, in, p, session, callHash)
+	// A refresh or another login cannot rebind an old action. The settled chat
+	// can still be shown, but it carries no executable display envelope.
+	if errors.Is(err, access.ErrConflict) || errors.Is(err, access.ErrNotFound) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	if saved.State != assistant.AgentToolSucceeded || receipt.OperationID != call.OperationID || receipt.State != assistant.AgentToolSucceeded || receipt.ResultSHA256 != saved.ResultSHA256 || receipt.DomainReceiptID != saved.DomainReceiptID || saved.DomainReceiptID != "service:"+call.OperationID {
+		return nil, access.ErrConflict
+	}
+	var prepared uiPreparation
+	var keys map[string]json.RawMessage
+	if decode(saved.ResultJSON, &prepared) != nil || decode(saved.ResultJSON, &keys) != nil || len(keys) != 4 || !prepared.OK || prepared.Applied || prepared.Status != "browser_action_prepared" {
+		return nil, access.ErrUnavailable
+	}
+	now := s.now().Unix()
+	if prepared.ExpiresAt <= now {
+		return nil, nil
+	}
+	if prepared.ExpiresAt > now+120 {
+		return nil, access.ErrUnavailable
+	}
+	patch, temporary, err := assistant.ParseUIPreferenceArguments(call.Scope.Name, call.Arguments)
+	if err != nil {
+		return nil, err
+	}
+	return &assistant.UIPreferenceAction{Type: "workspace_action", Tool: call.Scope.Name, ActionID: digest([]byte("assistant.ui-preference.v1\x00" + call.OperationID + "\x00" + saved.ResultSHA256))[:32], ActorUserID: p.UserID, ActorCredentialSHA256: digest([]byte(credential)), ExpiresAt: prepared.ExpiresAt, Temporary: temporary, Preview: patch}, nil
 }

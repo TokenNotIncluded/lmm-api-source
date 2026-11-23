@@ -61,7 +61,7 @@ func storagePolicyFor(component string, bundle storageBundle) (storagePolicy, er
 	}
 	policy := storagePolicy{namespaces: []string{"lmm_" + component}, tables: storageTables(component)}
 	if component == "checkins" {
-		policy.contracts = []storageContract{{"lmm_checkins.contract", 1}}
+		policy.contracts = []storageContract{{"lmm_checkins.contract", 1}, {"lmm_checkins.legacy_history_contract", 1}}
 		policy.updateColumns = []storageColumnGrant{{"lmm_checkins.intentions", []string{"state", "record"}}, {"lmm_checkins.claim_commands", []string{"result"}}}
 	}
 	if component == "acquisition" || component == "checkins" {

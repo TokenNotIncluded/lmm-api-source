@@ -20,7 +20,7 @@ func (c *AssistantClient) AssistantGetNewUserGift(ctx context.Context, user stri
 	if err := c.assistantGiftReady(ctx, user); err != nil {
 		return nil, err
 	}
-	r, err := pb.NewCoreAssistantModelClient(c.rpc.connection).GetNewUserGift(c.rpc.context(ctx, user), &pb.AssistantGiftRequest{})
+	r, err := pb.NewCoreAssistantModelClient(c.rpc.connection).GetNewUserGift(c.edgeContext(ctx, user), &pb.AssistantGiftRequest{})
 	return r, assistantReply(r, err)
 }
 
@@ -28,6 +28,6 @@ func (c *AssistantClient) AssistantClaimStoredNewUserGift(ctx context.Context, u
 	if err := c.assistantGiftReady(ctx, user); err != nil {
 		return nil, err
 	}
-	r, err := pb.NewCoreAssistantModelClient(c.rpc.connection).ClaimStoredNewUserGift(c.rpc.context(ctx, user), &pb.AssistantGiftRequest{})
+	r, err := pb.NewCoreAssistantModelClient(c.rpc.connection).ClaimStoredNewUserGift(c.edgeContext(ctx, user), &pb.AssistantGiftRequest{})
 	return r, assistantReply(r, err)
 }

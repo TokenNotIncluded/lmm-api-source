@@ -23,49 +23,53 @@ type LegacyExecuteInput struct {
 }
 
 type LegacyExecution struct {
-	SupplierReceiptAdmitted bool                    `json:"supplier_receipt_admitted"`
-	Builtin                 *LegacyBuiltinExecution `json:"builtin_private,omitempty"`
-	RawResult               []byte                  `json:"raw_result_private,omitempty"`
-	AuthorityResultDigest   string                  `json:"authority_result_digest,omitempty"`
-	ProviderPricing         *LegacyProviderPricing  `json:"provider_pricing,omitempty"`
-	ProviderQuote           *LegacyProviderQuote    `json:"provider_quote,omitempty"`
-	ProviderOwnerID         int64                   `json:"provider_owner_id,omitempty"`
-	ProviderRunID           string                  `json:"provider_run_id,omitempty"`
-	ProviderNextPollAt      int64                   `json:"provider_next_poll_at,omitempty"`
-	ProviderPollLeaseUntil  int64                   `json:"provider_poll_lease_until,omitempty"`
-	Pricing                 LegacyPricing           `json:"pricing"`
-	SupplierPricingDigest   string                  `json:"supplier_pricing_digest,omitempty"`
-	SettlementPricingDigest string                  `json:"settlement_pricing_digest"`
-	MeteringBinding         LegacyMeteringBinding   `json:"metering_binding"`
-	ID                      string                  `json:"id"`
-	Owner                   Principal               `json:"owner"`
-	Input                   LegacyExecuteInput      `json:"input"`
-	RequestHash             string                  `json:"request_hash"`
-	InputDigest             string                  `json:"input_digest"`
-	QuoteID                 string                  `json:"quote_id"`
-	ResolveBy               int64                   `json:"resolve_by"`
-	State                   string                  `json:"state"`
-	Core                    LegacyCreditCall        `json:"core"`
-	Result                  json.RawMessage         `json:"result,omitempty"`
-	Success                 bool                    `json:"success"`
-	Usage                   *LegacyCreditUsage      `json:"usage,omitempty"`
-	ResultDigest            string                  `json:"result_digest,omitempty"`
-	ResultExpires           int64                   `json:"result_expires,omitempty"`
-	CreatedAt               int64                   `json:"created_at"`
+	AssistantToolOperationID string                  `json:"assistant_tool_operation_id_private,omitempty"`
+	SupplierReceiptAdmitted  bool                    `json:"supplier_receipt_admitted"`
+	Builtin                  *LegacyBuiltinExecution `json:"builtin_private,omitempty"`
+	RawResult                []byte                  `json:"raw_result_private,omitempty"`
+	AuthorityResultDigest    string                  `json:"authority_result_digest,omitempty"`
+	ProviderPricing          *LegacyProviderPricing  `json:"provider_pricing,omitempty"`
+	ProviderQuote            *LegacyProviderQuote    `json:"provider_quote,omitempty"`
+	ProviderOwnerID          int64                   `json:"provider_owner_id,omitempty"`
+	ProviderRunID            string                  `json:"provider_run_id,omitempty"`
+	ProviderNextPollAt       int64                   `json:"provider_next_poll_at,omitempty"`
+	ProviderPollLeaseUntil   int64                   `json:"provider_poll_lease_until,omitempty"`
+	Pricing                  LegacyPricing           `json:"pricing"`
+	SupplierPricingDigest    string                  `json:"supplier_pricing_digest,omitempty"`
+	SettlementPricingDigest  string                  `json:"settlement_pricing_digest"`
+	MeteringBinding          LegacyMeteringBinding   `json:"metering_binding"`
+	ID                       string                  `json:"id"`
+	Owner                    Principal               `json:"owner"`
+	Input                    LegacyExecuteInput      `json:"input"`
+	RequestHash              string                  `json:"request_hash"`
+	InputDigest              string                  `json:"input_digest"`
+	QuoteID                  string                  `json:"quote_id"`
+	ResolveBy                int64                   `json:"resolve_by"`
+	State                    string                  `json:"state"`
+	Core                     LegacyCreditCall        `json:"core"`
+	Result                   json.RawMessage         `json:"result,omitempty"`
+	Success                  bool                    `json:"success"`
+	Usage                    *LegacyCreditUsage      `json:"usage,omitempty"`
+	ResultDigest             string                  `json:"result_digest,omitempty"`
+	ResultExpires            int64                   `json:"result_expires,omitempty"`
+	CreatedAt                int64                   `json:"created_at"`
 }
 
 // LegacyExecuteRemote persists an operation before attempting Core reserve. A
 // replay can reconcile that same reserve but can never execute tools/call twice.
 func (m *Module) LegacyExecuteRemote(ctx context.Context, credential, account string, in LegacyExecuteInput) (LegacyExecution, error) {
-	return m.legacyExecute(ctx, credential, account, in, false)
+	return m.legacyExecute(ctx, credential, account, in, false, "")
 }
 
 // LegacyExecute selects remote or an exact compiled builtin while sharing the
 // same Core consent/reserve/dispatch and durable operation protocol.
 func (m *Module) LegacyExecute(ctx context.Context, credential, account string, in LegacyExecuteInput) (LegacyExecution, error) {
-	return m.legacyExecute(ctx, credential, account, in, true)
+	return m.legacyExecute(ctx, credential, account, in, true, "")
 }
-func (m *Module) legacyExecute(ctx context.Context, credential, account string, in LegacyExecuteInput, allowBuiltin bool) (LegacyExecution, error) {
+func (m *Module) legacyExecute(ctx context.Context, credential, account string, in LegacyExecuteInput, allowBuiltin bool, assistantOperation string) (LegacyExecution, error) {
+	if in.ClientID == "assistant" || (in.ClientID == "builtin-assistant") != (assistantOperation != "") || (assistantOperation != "" && (assistantOperation != in.RequestKey || len(assistantOperation) > 128 || allowBuiltin)) {
+		return LegacyExecution{}, ErrDenied
+	}
 	user, e := m.WebAuthorize(ctx, credential, account, "toolmarket.execute")
 	if e != nil {
 		return LegacyExecution{}, e
@@ -89,7 +93,7 @@ func (m *Module) legacyExecute(ctx context.Context, credential, account string, 
 	found := false
 	e = m.store.view(func(d database) error {
 		if r, ok := d.LegacyExecutions[id]; ok {
-			if r.Owner != owner || r.RequestHash != hash {
+			if r.Owner != owner || r.RequestHash != hash || r.AssistantToolOperationID != assistantOperation {
 				return ErrConflict
 			}
 			prior = r
@@ -102,6 +106,11 @@ func (m *Module) legacyExecute(ctx context.Context, credential, account string, 
 	}
 	if found {
 		return m.legacyRecoverExecution(ctx, port, credential, prior)
+	}
+	if assistantOperation != "" {
+		if err := m.mirrorAssistantConsent(ctx, credential, account, user, in); err != nil {
+			return LegacyExecution{}, err
+		}
 	}
 	select {
 	case m.active <- struct{}{}:
@@ -220,7 +229,7 @@ func (m *Module) legacyExecute(ctx context.Context, credential, account string, 
 			connection.close(callctx)
 		}
 	}()
-	if builtin == nil && !paidMetered {
+	if builtin == nil && !paidMetered && assistantOperation == "" {
 		if err := discover(); err != nil {
 			return LegacyExecution{}, err
 		}
@@ -240,14 +249,14 @@ func (m *Module) legacyExecute(ctx context.Context, credential, account string, 
 			return LegacyExecution{}, err
 		}
 	}
-	record := LegacyExecution{Builtin: builtin, Pricing: tool.LegacyPricing(), SupplierPricingDigest: supplierPricingDigest, SettlementPricingDigest: settlementPricingDigest, MeteringBinding: LegacyMeteringBinding{ServiceID: snapshot.Version.ServiceID, VersionID: in.VersionID, Endpoint: snapshot.Version.Endpoint, ToolID: in.ToolID, RemoteDigest: snapshot.RemoteDigests[in.ToolID]}, ID: id, Owner: owner, Input: in, RequestHash: hash, InputDigest: digest(args), QuoteID: grant.QuoteID, State: "prepared", ResolveBy: resolveBy, CreatedAt: m.now().Unix()}
+	record := LegacyExecution{AssistantToolOperationID: assistantOperation, Builtin: builtin, Pricing: tool.LegacyPricing(), SupplierPricingDigest: supplierPricingDigest, SettlementPricingDigest: settlementPricingDigest, MeteringBinding: LegacyMeteringBinding{ServiceID: snapshot.Version.ServiceID, VersionID: in.VersionID, Endpoint: snapshot.Version.Endpoint, ToolID: in.ToolID, RemoteDigest: snapshot.RemoteDigests[in.ToolID]}, ID: id, Owner: owner, Input: in, RequestHash: hash, InputDigest: digest(args), QuoteID: grant.QuoteID, State: "prepared", ResolveBy: resolveBy, CreatedAt: m.now().Unix()}
 	created := false
 	e = m.store.update(func(d *database) error {
 		if d.LegacyExecutions == nil {
 			d.LegacyExecutions = map[string]LegacyExecution{}
 		}
 		if r, ok := d.LegacyExecutions[id]; ok {
-			if r.Owner != owner || r.RequestHash != hash {
+			if r.Owner != owner || r.RequestHash != hash || r.AssistantToolOperationID != assistantOperation {
 				return ErrConflict
 			}
 			record = r
@@ -270,7 +279,7 @@ func (m *Module) legacyExecute(ctx context.Context, credential, account string, 
 	if !created {
 		return m.legacyRecoverExecution(ctx, port, credential, record)
 	}
-	receipt, e := port.ReserveLegacyCredits(ctx, credential, LegacyCreditReserve{Owner: owner, ClientID: in.ClientID, RequestKey: in.RequestKey, QuoteID: record.QuoteID, GrantID: in.GrantID, ToolID: in.ToolID, VersionID: in.VersionID, InputDigest: record.InputDigest, ResolveBy: record.ResolveBy})
+	receipt, e := reserveLegacyExecution(ctx, port, credential, record)
 	if e != nil {
 		return record, ErrPending
 	}
@@ -290,9 +299,9 @@ func (m *Module) legacyExecute(ctx context.Context, credential, account string, 
 	if e = m.legacySave(record); e != nil {
 		return record, ErrPending
 	}
-	// Core commits the immutable supplier receipt contract and verifier admission
-	// before even MCP discovery is permitted for a paid metered execution.
-	if builtin == nil && paidMetered {
+	// Core commits the supplier contract before paid metered discovery. Every
+	// assistant call also requires the original Core tool proof before ANY MCP IO.
+	if builtin == nil && (paidMetered || assistantOperation != "") {
 		if err := discover(); err != nil {
 			return record, err
 		}
@@ -386,7 +395,7 @@ func (m *Module) legacySave(r LegacyExecution) error {
 	r.Core.DispatchClaimed = false
 	return m.store.update(func(d *database) error {
 		old, ok := d.LegacyExecutions[r.ID]
-		if !ok || old.Owner != r.Owner || old.RequestHash != r.RequestHash {
+		if !ok || old.Owner != r.Owner || old.RequestHash != r.RequestHash || old.AssistantToolOperationID != r.AssistantToolOperationID {
 			return ErrConflict
 		}
 		if old.ResultDigest != "" && old.ResultDigest != r.ResultDigest {

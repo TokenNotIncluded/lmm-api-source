@@ -27,6 +27,8 @@ const (
 	AssistantBusinessFactKind_ASSISTANT_BUSINESS_FACT_KIND_UNSPECIFIED         AssistantBusinessFactKind = 0
 	AssistantBusinessFactKind_ASSISTANT_BUSINESS_FACT_KIND_AVAILABLE_MODELS    AssistantBusinessFactKind = 1
 	AssistantBusinessFactKind_ASSISTANT_BUSINESS_FACT_KIND_SUPPORT_ELIGIBILITY AssistantBusinessFactKind = 2
+	AssistantBusinessFactKind_ASSISTANT_BUSINESS_FACT_KIND_PLAN_OFFERS         AssistantBusinessFactKind = 3
+	AssistantBusinessFactKind_ASSISTANT_BUSINESS_FACT_KIND_INVITATION_REWARDS  AssistantBusinessFactKind = 4
 )
 
 // Enum value maps for AssistantBusinessFactKind.
@@ -35,11 +37,15 @@ var (
 		0: "ASSISTANT_BUSINESS_FACT_KIND_UNSPECIFIED",
 		1: "ASSISTANT_BUSINESS_FACT_KIND_AVAILABLE_MODELS",
 		2: "ASSISTANT_BUSINESS_FACT_KIND_SUPPORT_ELIGIBILITY",
+		3: "ASSISTANT_BUSINESS_FACT_KIND_PLAN_OFFERS",
+		4: "ASSISTANT_BUSINESS_FACT_KIND_INVITATION_REWARDS",
 	}
 	AssistantBusinessFactKind_value = map[string]int32{
 		"ASSISTANT_BUSINESS_FACT_KIND_UNSPECIFIED":         0,
 		"ASSISTANT_BUSINESS_FACT_KIND_AVAILABLE_MODELS":    1,
 		"ASSISTANT_BUSINESS_FACT_KIND_SUPPORT_ELIGIBILITY": 2,
+		"ASSISTANT_BUSINESS_FACT_KIND_PLAN_OFFERS":         3,
+		"ASSISTANT_BUSINESS_FACT_KIND_INVITATION_REWARDS":  4,
 	}
 )
 
@@ -443,6 +449,7 @@ func (AssistantAgentResultState) EnumDescriptor() ([]byte, []int) {
 type GetAssistantBusinessFactsRequest struct {
 	state         protoimpl.MessageState    `protogen:"open.v1"`
 	Kind          AssistantBusinessFactKind `protobuf:"varint,1,opt,name=kind,proto3,enum=lmm.core.v1.AssistantBusinessFactKind" json:"kind,omitempty"`
+	TargetUserId  int64                     `protobuf:"varint,2,opt,name=target_user_id,json=targetUserId,proto3" json:"target_user_id,omitempty"` // Zero for self-scoped facts; nonzero is never an actor.
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -482,6 +489,13 @@ func (x *GetAssistantBusinessFactsRequest) GetKind() AssistantBusinessFactKind {
 		return x.Kind
 	}
 	return AssistantBusinessFactKind_ASSISTANT_BUSINESS_FACT_KIND_UNSPECIFIED
+}
+
+func (x *GetAssistantBusinessFactsRequest) GetTargetUserId() int64 {
+	if x != nil {
+		return x.TargetUserId
+	}
+	return 0
 }
 
 type GetAssistantBusinessFactsResponse struct {
@@ -2538,9 +2552,10 @@ var File_lmm_core_v1_assistant_proto protoreflect.FileDescriptor
 
 const file_lmm_core_v1_assistant_proto_rawDesc = "" +
 	"\n" +
-	"\x1blmm/core/v1/assistant.proto\x12\vlmm.core.v1\"^\n" +
+	"\x1blmm/core/v1/assistant.proto\x12\vlmm.core.v1\"\x84\x01\n" +
 	" GetAssistantBusinessFactsRequest\x12:\n" +
-	"\x04kind\x18\x01 \x01(\x0e2&.lmm.core.v1.AssistantBusinessFactKindR\x04kind\"B\n" +
+	"\x04kind\x18\x01 \x01(\x0e2&.lmm.core.v1.AssistantBusinessFactKindR\x04kind\x12$\n" +
+	"\x0etarget_user_id\x18\x02 \x01(\x03R\ftargetUserId\"B\n" +
 	"!GetAssistantBusinessFactsResponse\x12\x1d\n" +
 	"\n" +
 	"facts_json\x18\x01 \x01(\fR\tfactsJson\"=\n" +
@@ -2713,11 +2728,13 @@ const file_lmm_core_v1_assistant_proto_rawDesc = "" +
 	"\x0fexpires_at_unix\x18\v \x01(\x03R\rexpiresAtUnix\x12\x14\n" +
 	"\x05state\x18\f \x01(\tR\x05state\x12!\n" +
 	"\fbrowser_path\x18\r \x01(\tR\vbrowserPath\x12\x1a\n" +
-	"\bexecuted\x18\x0e \x01(\bR\bexecuted*\xb2\x01\n" +
+	"\bexecuted\x18\x0e \x01(\bR\bexecuted*\x95\x02\n" +
 	"\x19AssistantBusinessFactKind\x12,\n" +
 	"(ASSISTANT_BUSINESS_FACT_KIND_UNSPECIFIED\x10\x00\x121\n" +
 	"-ASSISTANT_BUSINESS_FACT_KIND_AVAILABLE_MODELS\x10\x01\x124\n" +
-	"0ASSISTANT_BUSINESS_FACT_KIND_SUPPORT_ELIGIBILITY\x10\x02*\x8b\x02\n" +
+	"0ASSISTANT_BUSINESS_FACT_KIND_SUPPORT_ELIGIBILITY\x10\x02\x12,\n" +
+	"(ASSISTANT_BUSINESS_FACT_KIND_PLAN_OFFERS\x10\x03\x123\n" +
+	"/ASSISTANT_BUSINESS_FACT_KIND_INVITATION_REWARDS\x10\x04*\x8b\x02\n" +
 	"\x17AssistantOperationState\x12)\n" +
 	"%ASSISTANT_OPERATION_STATE_UNSPECIFIED\x10\x00\x12&\n" +
 	"\"ASSISTANT_OPERATION_STATE_RESERVED\x10\x01\x12'\n" +

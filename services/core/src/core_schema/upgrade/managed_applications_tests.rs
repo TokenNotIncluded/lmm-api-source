@@ -454,12 +454,19 @@ async fn capture_managed_candidate(pool: PgPool) {
     bytes.push(b'\n');
     let manifest70_sha = hex(Sha256::digest(bytes));
     let mut suffixes = serde_json::Map::new();
+    let provider: serde_json::Value =
+        serde_json::from_str(include_str!("provider_clients_target.json")).unwrap();
     for (index, (_, ddl)) in COMPONENTS.iter().enumerate().skip(70) {
         sqlx::raw_sql(*ddl).execute(&mut *tx).await.unwrap();
+        let expected_oauth = if index < 77 {
+            oauth70.as_str()
+        } else {
+            provider["oauth_catalog_sha256"].as_str().unwrap()
+        };
         assert_eq!(
             hex(crate::identity::grants::catalog(&mut tx).await.unwrap()),
-            oauth70,
-            "later components must preserve the managed OAuth contract"
+            expected_oauth,
+            "later components must preserve the latest frozen OAuth contract"
         );
         let mut manifest = schema_manifest();
         manifest.components.truncate(index + 1);

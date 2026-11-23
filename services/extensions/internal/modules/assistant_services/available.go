@@ -16,6 +16,12 @@ func (s *Service) AvailableBindings() []assistant.AgentToolBinding {
 	for _, binding := range s.Bindings() {
 		enabled := true
 		switch binding.Name {
+		case "get_invitation_rewards":
+			enabled = !access.Missing(s.dependencies.Invitations)
+		case "send_invitation":
+			enabled = !access.Missing(s.dependencies.Invitations) && !access.Missing(s.dependencies.InvitationMail) && s.ConfirmationAvailable()
+		case "get_plan_offers":
+			enabled = !access.Missing(s.dependencies.PlanOffers)
 		case "search_web":
 			enabled = !access.Missing(s.dependencies.Search)
 		case "get_service_facts", "get_setup_guide":

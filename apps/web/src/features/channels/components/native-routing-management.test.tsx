@@ -184,7 +184,8 @@ async function mount(
   nativeSecrets = true,
   accounting: Partial<typeof accountingCapabilities> = accountingCapabilities,
   client = new QueryClient({ defaultOptions: { queries: { retry: false } } }),
-  channelPage = false
+  channelPage = false,
+  configurationWritable = true
 ) {
   api.defaults.adapter = async (config) => {
     if (config.url === '/api/channel') {
@@ -206,6 +207,7 @@ async function mount(
         success: true,
         data: {
           native_secrets: nativeSecrets,
+          bulk_key_import: nativeSecrets,
           native_configuration: true,
           ...accounting,
         },
@@ -244,7 +246,10 @@ async function mount(
             {channelPage ? (
               <RouterProvider router={router} />
             ) : (
-              <NativeRoutingManagement initialSection={initialSection} />
+              <NativeRoutingManagement
+                initialSection={initialSection}
+                configurationWritable={configurationWritable}
+              />
             )}
           </>
         </I18nextProvider>
@@ -3543,4 +3548,71 @@ test('open balance views preserve observations and configuration drafts while ca
       unit_label: 'points',
     },
   })
+})
+
+test('read-only configuration leaves browsing available and disables new model, vendor and price edits', async () => {
+  const configuration: NativeConfiguration = fixture()
+  configuration.bindings.vendors = {
+    '1': { id: 1, name: 'Synthetic vendor', description: 'Fixture' },
+  }
+  configuration.bindings.price_drafts = {
+    '1': {
+      id: 1,
+      name: 'Synthetic draft',
+      base_pricing_version: 1,
+      prices: configuration.prices,
+      updated_by: 501,
+      updated_at: 1,
+    },
+  }
+  api.request = (async () => ({
+    data: { success: true, data: configuration },
+  })) as typeof api.request
+  for (const section of ['models', 'vendors', 'prices'] as const) {
+    const container = await mount(
+      section,
+      true,
+      accountingCapabilities,
+      new QueryClient({ defaultOptions: { queries: { retry: false } } }),
+      false,
+      false
+    )
+    await until(() => !!container.querySelector('input[aria-label="Search"]'))
+    for (const element of container.querySelectorAll<HTMLButtonElement>(
+      'button'
+    )) {
+      if (
+        [
+          'Add Model',
+          'Create',
+          'Edit',
+          'Delete',
+          'Save draft',
+          'Preview',
+        ].includes(element.textContent ?? '')
+      ) {
+        assert.equal(
+          element.disabled,
+          true,
+          `${section}: ${element.textContent}`
+        )
+      }
+    }
+    assert.equal(button(container, 'Refresh').disabled, false)
+    assert.equal(button(container, 'Channels').disabled, false)
+    if (section === 'prices') {
+      assert.ok(container.querySelector('[data-slot="native-price-rule-list"]'))
+      const raw = [...container.querySelectorAll('details')].find(
+        (item) => item.querySelector('summary')?.textContent === 'Raw JSON'
+      )
+      assert.ok(raw)
+      assert.equal(raw.open, false)
+      const rawDocument = raw.querySelector('pre')?.textContent
+      assert.ok(rawDocument)
+      assert.equal(parseNativeDocument(rawDocument).version, 1)
+    }
+    await dispose?.()
+    dispose = undefined
+    document.body.replaceChildren()
+  }
 })

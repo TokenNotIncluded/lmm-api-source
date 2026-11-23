@@ -6,7 +6,7 @@ use axum::{
     Json, Router,
     extract::{Path, State},
     http::{HeaderMap, StatusCode, header},
-    response::{IntoResponse, Response},
+    response::{IntoResponse, Redirect, Response},
     routing::get,
 };
 use rand::Rng;
@@ -15,7 +15,12 @@ use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use sqlx::{PgConnection, PgPool, Row, postgres::PgRow};
 use subtle::ConstantTimeEq;
+#[path = "confirmation_key_card.rs"]
+mod key_card;
+#[path = "confirmation_market.rs"]
+pub(super) mod market;
 pub const SCHEMA: &str = include_str!("../../schema/assistant_tools.sql");
+const BROWSER_PREFIX: &str = "/api/user/auth/assistant/confirmations";
 fn random() -> String {
     let mut b = [0u8; 32];
     rand::rng().fill_bytes(&mut b);
@@ -26,7 +31,14 @@ fn sha(bytes: &[u8]) -> Vec<u8> {
 }
 fn allowed(name: &str, role: &str) -> bool {
     match name {
-        "set_overview_greeting" | "create_site_issue" | "request_human_support" => true,
+        "set_overview_greeting"
+        | "create_site_issue"
+        | "request_human_support"
+        | "send_invitation"
+        | "prepare_api_key_action"
+        | "prepare_user_action"
+        | "request_create_key"
+        | "connect_market_tool" => true,
         "update_site_issue" => matches!(role, "admin" | "superadmin"),
         "prepare_admin_site_policy_change" => role == "superadmin",
         _ => false,
@@ -58,12 +70,19 @@ pub struct Challenge {
     pub state: String,
     pub browser_path: String,
     pub executed: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub execution_receipt: Option<Value>,
+    #[serde(skip_serializing_if = "no_factor")]
+    pub requires_two_factor: bool,
+}
+fn no_factor(required: &bool) -> bool {
+    !required
 }
 use crate::hex_codec::encode as hex;
-fn projection(r: &PgRow) -> Result<Challenge, Error> {
+pub(super) fn projection(r: &PgRow) -> Result<Challenge, Error> {
     let id: String = r.try_get("id")?;
     Ok(Challenge {
-        browser_path: format!("/api/user/assistant/confirmations/{id}"),
+        browser_path: format!("{BROWSER_PREFIX}/{id}"),
         challenge_id: id,
         operation_id: r.try_get("operation_id")?,
         tool_name: r.try_get("tool_name")?,
@@ -76,7 +95,16 @@ fn projection(r: &PgRow) -> Result<Challenge, Error> {
         resource_version: r.try_get("resource_version")?,
         expires_at_unix: r.try_get("expires_at")?,
         state: r.try_get("state")?,
-        executed: false,
+        executed: r
+            .try_get::<Option<Value>, _>("execution_receipt")?
+            .is_some(),
+        execution_receipt: r.try_get("execution_receipt")?,
+        requires_two_factor: r
+            .try_get::<Value, _>("preview")?
+            .get("before")
+            .and_then(|v| v.get("requires_two_factor"))
+            .and_then(Value::as_bool)
+            .unwrap_or(false),
     })
 }
 /// The private proof comes from the Core's actual persisted provider operation.
@@ -95,12 +123,21 @@ pub(crate) async fn prepare_in_transaction(
     let original: Value =
         serde_json::from_slice(proof.arguments_json()).map_err(|_| Error::Unavailable)?;
     let bytes = canonical(draft)?;
-    super::normalization::validate(c, context, proof, &original, draft).await?;
+    if super::actions::is_tool(proof.tool_name()) {
+        super::actions::validate_draft(c, context, proof, draft).await?;
+    } else {
+        super::normalization::validate(c, context, proof, &original, draft).await?;
+    }
     let digest = sha(&bytes);
     let id = random();
-    let expiry = proof
-        .expires_at_unix()
-        .min(chrono::Utc::now().timestamp() + 300);
+    let now: i64 = sqlx::query_scalar("SELECT extract(epoch FROM clock_timestamp())::bigint")
+        .fetch_one(&mut *c)
+        .await?;
+    let expiry = if super::actions::is_tool(proof.tool_name()) {
+        now + 300
+    } else {
+        proof.expires_at_unix().min(now + 300)
+    };
     if expiry <= chrono::Utc::now().timestamp() {
         return Err(Error::Forbidden);
     }
@@ -195,13 +232,44 @@ impl ConfirmationStore {
         Ok(receipt)
     }
 }
+/// This authority can only be created inside the validated browser coordinator.
+/// It is not deserializable, and exposes no constructor to a domain or RPC caller.
+pub(crate) struct BrowserActionProof {
+    confirmation_id: String,
+    operation_id: String,
+    confirmed_at_unix: i64,
+}
+impl BrowserActionProof {
+    pub(crate) fn confirmation_id(&self) -> &str {
+        &self.confirmation_id
+    }
+    pub(crate) fn operation_id(&self) -> &str {
+        &self.operation_id
+    }
+    pub(crate) fn confirmed_at_unix(&self) -> i64 {
+        self.confirmed_at_unix
+    }
+}
 #[derive(Clone)]
 pub struct BrowserConfirmation {
     pool: PgPool,
     origin: String,
     local: bool,
+    identity: Option<crate::identity::IdentityStore>,
+    market_runtime: Option<crate::tool_market::assistant_runtime::AssistantMarketRuntime>,
 }
 impl BrowserConfirmation {
+    pub(crate) fn with_market_runtime(
+        mut self,
+        runtime: crate::tool_market::assistant_runtime::AssistantMarketRuntime,
+    ) -> Self {
+        self.market_runtime = Some(runtime);
+        self
+    }
+    pub fn with_identity_store(mut self, store: crate::identity::IdentityStore) -> Self {
+        self.identity = Some(store);
+        self
+    }
     pub fn new(pool: PgPool, origin: &str, local: bool) -> Result<Self, Error> {
         let origin =
             crate::humangrant::signature::origin(origin, local).map_err(|_| Error::Invalid)?;
@@ -209,20 +277,65 @@ impl BrowserConfirmation {
             pool,
             origin,
             local,
+            identity: None,
+            market_runtime: None,
         })
     }
 }
 pub fn router(state: BrowserConfirmation) -> Router {
     Router::new()
+        .route(&format!("{BROWSER_PREFIX}/ui.js"), get(browser_script))
+        .route(
+            &format!("{BROWSER_PREFIX}/{{id}}"),
+            get(inspect).post(decide),
+        )
+        .route(
+            &format!("{BROWSER_PREFIX}/{{id}}/key"),
+            get(key_card::inspect).post(key_card::consume),
+        )
+        // Existing immutable operation receipts may contain the earlier path.
+        // Only navigation is retained there; every decision/reveal POST remains
+        // under the native HttpOnly cookie scope and its original CSRF checks.
         .route(
             "/api/user/assistant/confirmations/ui.js",
-            get(browser_script),
+            get(legacy_browser_script),
         )
         .route(
             "/api/user/assistant/confirmations/{id}",
-            get(inspect).post(decide),
+            get(legacy_browser_page),
+        )
+        .route(
+            "/api/user/assistant/confirmations/{id}/key",
+            get(legacy_browser_key),
         )
         .with_state(state)
+}
+fn redirect_current(suffix: &str) -> Response {
+    let mut response = Redirect::temporary(&format!("{BROWSER_PREFIX}/{suffix}")).into_response();
+    for (name, value) in [
+        (header::CACHE_CONTROL, "no-store"),
+        (header::REFERRER_POLICY, "no-referrer"),
+    ] {
+        response
+            .headers_mut()
+            .insert(name, value.parse().expect("constant redirect header"));
+    }
+    response
+}
+async fn legacy_browser_script() -> Response {
+    redirect_current("ui.js")
+}
+async fn legacy_browser_page(Path(id): Path<String>) -> Response {
+    if !valid_id(&id) {
+        return response(Err(Error::Invalid));
+    }
+    redirect_current(&id)
+}
+async fn legacy_browser_key(Path(id): Path<String>) -> Response {
+    if !valid_id(&id) {
+        return response(Err(Error::Invalid));
+    }
+    redirect_current(&format!("{id}/key"))
 }
 const HTML: &str = include_str!("confirmation.html");
 const SCRIPT: &str = include_str!("confirmation.js");
@@ -382,35 +495,40 @@ async fn browser_row(
     tx: &mut crate::humangrant::HumanGrantTx,
     h: &HeaderMap,
     id: &str,
-) -> Result<PgRow, Error> {
+) -> Result<(PgRow, VerifiedToolContext), Error> {
     let (human, _) = tx
         .authenticate_human(cookie(h, "new_api_refresh"), chrono::Utc::now().timestamp())
         .await
         .map_err(|_| Error::Unavailable)?
         .ok_or(Error::Unauthorized)?;
     let context = VerifiedToolContext::from_authenticated_browser(&mut tx.tx, &human).await?;
-    let row=sqlx::query("SELECT q.*,u.platform_role FROM core_assistant_tools.confirmations q JOIN core_identity.users u ON u.id=q.actor_user_id JOIN core_identity.web_sessions s ON s.sid=q.web_session_sid WHERE q.id=$1 AND q.actor_user_id=$2 AND q.web_session_sid=$3 AND q.auth_version=$4 AND q.credential_id=s.current_credential_id AND q.expires_at>extract(epoch FROM clock_timestamp())::bigint FOR UPDATE OF q")
+    let row=sqlx::query("SELECT q.*,u.platform_role FROM core_assistant_tools.confirmations q JOIN core_identity.users u ON u.id=q.actor_user_id JOIN core_identity.web_sessions s ON s.sid=q.web_session_sid WHERE q.id=$1 AND q.actor_user_id=$2 AND q.web_session_sid=$3 AND q.auth_version=$4 AND q.credential_id=s.current_credential_id AND (q.expires_at>extract(epoch FROM clock_timestamp())::bigint OR (q.tool_name IN ('prepare_api_key_action','prepare_user_action','request_create_key','connect_market_tool') AND q.state='approved' AND q.execution_receipt IS NOT NULL)) FOR UPDATE OF q")
   .bind(id).bind(human.id.parse::<i64>().map_err(|_|Error::Unauthorized)?).bind(&human.session_id).bind(human.auth_version).fetch_optional(&mut *tx.tx).await?.ok_or(Error::Forbidden)?;
-    // Recheck the real original provider proposal at the human decision, not
-    // merely at prepare: a cancelled/expired/replaced operation cannot approve.
-    let operation: String = row.try_get("operation_id")?;
-    let proof = crate::assistant_model::agent::verify_confirmation_proposal_in_transaction(
-        &mut tx.tx, &operation, &context,
-    )
-    .await
-    .map_err(|error| match error {
-        crate::assistant_model::Error::Invalid => Error::Invalid,
-        crate::assistant_model::Error::Unauthorized => Error::Unauthorized,
-        crate::assistant_model::Error::Forbidden => Error::Forbidden,
-        crate::assistant_model::Error::Conflict => Error::Conflict,
-        _ => Error::Unavailable,
-    })?;
-    if proof.tool_name() != row.try_get::<String, _>("tool_name")?
-        || proof.arguments_sha256().as_slice()
-            != row.try_get::<Vec<u8>, _>("arguments_sha256")?.as_slice()
-        || proof.source_web_session_sid() != Some(human.session_id.as_str())
-    {
-        return Err(Error::Forbidden);
+    let name: String = row.try_get("tool_name")?;
+    if super::actions::is_tool(&name) {
+        super::actions::verify_prepared(&mut tx.tx, &context, &row).await?;
+    } else {
+        // Recheck the real original provider proposal at the human decision, not
+        // merely at prepare: a cancelled/expired/replaced operation cannot approve.
+        let operation: String = row.try_get("operation_id")?;
+        let proof = crate::assistant_model::agent::verify_confirmation_proposal_in_transaction(
+            &mut tx.tx, &operation, &context,
+        )
+        .await
+        .map_err(|error| match error {
+            crate::assistant_model::Error::Invalid => Error::Invalid,
+            crate::assistant_model::Error::Unauthorized => Error::Unauthorized,
+            crate::assistant_model::Error::Forbidden => Error::Forbidden,
+            crate::assistant_model::Error::Conflict => Error::Conflict,
+            _ => Error::Unavailable,
+        })?;
+        if proof.tool_name() != row.try_get::<String, _>("tool_name")?
+            || proof.arguments_sha256().as_slice()
+                != row.try_get::<Vec<u8>, _>("arguments_sha256")?.as_slice()
+            || proof.source_web_session_sid() != Some(human.session_id.as_str())
+        {
+            return Err(Error::Forbidden);
+        }
     }
     if !allowed(
         &row.try_get::<String, _>("tool_name")?,
@@ -418,7 +536,7 @@ async fn browser_row(
     ) {
         return Err(Error::Forbidden);
     }
-    Ok(row)
+    Ok((row, context))
 }
 async fn inspect(
     State(s): State<BrowserConfirmation>,
@@ -435,7 +553,7 @@ async fn inspect(
             .begin()
             .await
             .map_err(|_| Error::Unavailable)?;
-        let row = browser_row(&mut tx, &h, &id).await?;
+        let (row, _) = browser_row(&mut tx, &h, &id).await?;
         if html {
             tx.commit().await.map_err(|_| Error::Unavailable)?;
             return Ok(Value::Null);
@@ -481,6 +599,8 @@ async fn inspect(
 #[serde(deny_unknown_fields)]
 struct Decision {
     decision: Choice,
+    two_factor_code: Option<String>,
+    market_limits: Option<crate::tool_market::assistant_connect::BrowserLimits>,
 }
 #[derive(Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -497,14 +617,158 @@ async fn decide(
     if !valid_id(&id) || single_header(&h, "origin") != Some(s.origin.as_str()) {
         return response(Err(Error::Forbidden));
     }
-    let result=async{let name=cookie_name(&s,&id);let nonce=cookie(&h,&name).ok_or(Error::Forbidden)?;let csrf=single_header(&h,"x-lmm-assistant-csrf").ok_or(Error::Forbidden)?;if nonce.len()!=64 || !bool::from(nonce.as_bytes().ct_eq(csrf.as_bytes())){return Err(Error::Forbidden)}
- let mut tx=crate::humangrant::HumanGrantStore::new(s.pool.clone()).begin().await.map_err(|_|Error::Unavailable)?;let r=browser_row(&mut tx,&h,&id).await?;let expected:Option<Vec<u8>>=r.try_get("nonce_sha256")?;if !expected.is_some_and(|expected|bool::from(expected.as_slice().ct_eq(&sha(nonce.as_bytes())))){return Err(Error::Forbidden)}
- let state=match input.decision{Choice::Approve=>"approved",Choice::Reject=>"rejected"};let old:String=r.try_get("state")?;if old!="pending"&&old!=state{return Err(Error::Conflict)}
- if old=="pending"{sqlx::query("UPDATE core_assistant_tools.confirmations SET state=$2,confirmed_at=extract(epoch FROM clock_timestamp())::bigint WHERE id=$1 AND state='pending'").bind(&id).bind(state).execute(&mut *tx.tx).await?;}
- let row=sqlx::query("SELECT * FROM core_assistant_tools.confirmations WHERE id=$1").bind(id).fetch_one(&mut *tx.tx).await?;let receipt=projection(&row)?;tx.commit().await.map_err(|_|Error::Unavailable)?;Ok(json!({"ok":true,"receipt":receipt,"executed":false}))}.await;
-    response(result)
+    let code = input.two_factor_code.map(zeroize::Zeroizing::new);
+    let result = async {
+        let name = cookie_name(&s, &id);
+        let nonce = cookie(&h, &name).ok_or(Error::Forbidden)?;
+        let csrf = single_header(&h, "x-lmm-assistant-csrf").ok_or(Error::Forbidden)?;
+        if nonce.len() != 64 || !bool::from(nonce.as_bytes().ct_eq(csrf.as_bytes())) {
+            return Err(Error::Forbidden);
+        }
+        // Fixed shared workspace budget. This separately committed transaction
+        // counts later rejected actions and cannot approve or execute anything.
+        let rate = crate::identity::assistant_workspace_rate::take(
+            &s.pool,
+            cookie(&h, "new_api_refresh").ok_or(Error::Unauthorized)?,
+        )
+        .await?;
+        if !rate.allowed {
+            return Ok(json!({
+                "ok": false,
+                "error": "confirmation_rate_limited",
+                "retry_after": rate.retry_after_seconds,
+                "executed": false
+            }));
+        }
+        let mut tx = crate::humangrant::HumanGrantStore::new(s.pool.clone())
+            .begin_serializable().await.map_err(|_| Error::Unavailable)?;
+        let (r, context) = browser_row(&mut tx, &h, &id).await?;
+        let expected: Option<Vec<u8>> = r.try_get("nonce_sha256")?;
+        if !expected.is_some_and(|expected| bool::from(expected.as_slice().ct_eq(&sha(nonce.as_bytes())))) {
+            return Err(Error::Forbidden);
+        }
+        let state = match input.decision { Choice::Approve => "approved", Choice::Reject => "rejected" };
+        let old: String = r.try_get("state")?;
+        if old != "pending" && old != state { return Err(Error::Conflict); }
+        let tool: String = r.try_get("tool_name")?;
+        if tool != crate::tool_market::assistant_connect::TOOL && input.market_limits.is_some() {
+            return Err(Error::Invalid);
+        }
+        if old == "approved" && tool == crate::tool_market::assistant_connect::TOOL {
+            if code.is_some() { return Err(Error::Invalid); }
+            let limits = input.market_limits.as_ref().ok_or(Error::Invalid)?;
+            let original: Value = r.try_get("execution_receipt")?;
+            if serde_json::to_value(limits).map_err(|_| Error::Unavailable)?
+                != original["after"]["browser_limits"] {
+                return Err(Error::Conflict);
+            }
+        }
+        if old == "pending" && state == "approved"
+            && tool == crate::tool_market::assistant_connect::TOOL {
+            if code.is_some() { return Err(Error::Invalid); }
+            let limits = input.market_limits.as_ref().ok_or(Error::Invalid)?;
+            let runtime = s.market_runtime.as_ref().ok_or(Error::Unavailable)?;
+            let draft = market::draft(&r.try_get("preview")?)?;
+            // The original HttpOnly browser, CSRF nonce, immutable completed
+            // preparation, Session/actor, expiry and revocation checks above
+            // are the only construction path for this proof.
+            let stamp: i64 = sqlx::query_scalar("SELECT extract(epoch FROM clock_timestamp())::bigint")
+                .fetch_one(&mut *tx.tx).await?;
+            let authority = BrowserActionProof {
+                confirmation_id: id.clone(),
+                operation_id: r.try_get("operation_id")?,
+                confirmed_at_unix: stamp,
+            };
+            let execution = market::apply(
+                &mut tx.tx, &context, &authority, &draft, limits, runtime,
+            ).await?;
+            sqlx::query(
+                "UPDATE core_assistant_tools.confirmations SET state='approved',
+                  confirmed_at=$3,executed_at=$3,execution_receipt=$2,
+                  execution_sha256=sha256(convert_to(($2::jsonb)::text,'UTF8'))
+                 WHERE id=$1 AND state='pending'"
+            ).bind(&id).bind(execution).bind(stamp).execute(&mut *tx.tx).await?;
+        } else if old == "pending" && state == "approved" && super::actions::is_tool(&tool) {
+            let store = s.identity.as_ref().ok_or(Error::Unavailable)?;
+            let draft: crate::identity::assistant_actions::Draft =
+                serde_json::from_value(r.try_get("preview")?).map_err(|_| Error::Unavailable)?;
+            let operation: String = r.try_get("operation_id")?;
+            let outcome = crate::identity::assistant_actions::apply(
+                &mut tx.tx, store, &context, &draft, &id, &operation,
+                code.as_ref().map(|value| value.as_str()),
+            ).await;
+            let execution = match outcome {
+                Ok(receipt) => receipt,
+                Err(crate::identity::MfaError::CodeInvalid) => {
+                    // Persist only the factor's original attempt counter. No
+                    // action, approval, or receipt has been written at this point.
+                    tx.commit().await.map_err(|_| Error::Unavailable)?;
+                    return Ok(json!({"ok":false,"error":"two_factor_code_invalid","executed":false}));
+                }
+                Err(crate::identity::MfaError::Locked(retry)) => {
+                    tx.commit().await.map_err(|_| Error::Unavailable)?;
+                    return Ok(json!({"ok":false,"error":"two_factor_locked","retry_after":retry,"executed":false}));
+                }
+                Err(crate::identity::MfaError::Identity(error)) => return Err(error.into()),
+                Err(_) => return Err(Error::Unavailable),
+            };
+            sqlx::query(
+                "WITH stamp AS MATERIALIZED (SELECT extract(epoch FROM clock_timestamp())::bigint AS now)
+                 UPDATE core_assistant_tools.confirmations SET state='approved',
+                  confirmed_at=stamp.now,executed_at=stamp.now,execution_receipt=$2,
+                  execution_sha256=sha256(convert_to(($2::jsonb)::text,'UTF8'))
+                 FROM stamp WHERE id=$1 AND state='pending'"
+            ).bind(&id).bind(execution).execute(&mut *tx.tx).await?;
+        } else if old == "pending" {
+            if code.is_some() || input.market_limits.is_some() { return Err(Error::Invalid); }
+            sqlx::query(
+                "UPDATE core_assistant_tools.confirmations SET state=$2,confirmed_at=extract(epoch FROM clock_timestamp())::bigint WHERE id=$1 AND state='pending'"
+            ).bind(&id).bind(state).execute(&mut *tx.tx).await?;
+        }
+        let row = sqlx::query("SELECT * FROM core_assistant_tools.confirmations WHERE id=$1")
+            .bind(&id).fetch_one(&mut *tx.tx).await?;
+        let receipt = projection(&row)?;
+        let executed = receipt.executed;
+        tx.commit().await.map_err(|_| Error::Unavailable)?;
+        Ok(json!({"ok":true,"receipt":receipt,"executed":executed}))
+    }.await;
+    let factor_status = result
+        .as_ref()
+        .ok()
+        .and_then(|value| value.get("error"))
+        .and_then(Value::as_str)
+        .map(|error| match error {
+            "two_factor_code_invalid" => StatusCode::UNPROCESSABLE_ENTITY,
+            "two_factor_locked" | "confirmation_rate_limited" => StatusCode::TOO_MANY_REQUESTS,
+            _ => StatusCode::OK,
+        });
+    let rate_retry = result
+        .as_ref()
+        .ok()
+        .filter(|value| {
+            value.get("error").and_then(Value::as_str) == Some("confirmation_rate_limited")
+        })
+        .and_then(|value| value.get("retry_after"))
+        .and_then(Value::as_i64);
+    let mut reply = response(result);
+    if let Some(retry) = rate_retry {
+        reply
+            .headers_mut()
+            .insert(header::RETRY_AFTER, retry.to_string().parse().unwrap());
+    }
+    if let Some(status) = factor_status {
+        *reply.status_mut() = status;
+    }
+    // MFA outcomes are fixed codes only; neither submitted code nor factor
+    // material is included in the response, stored preview, or model result.
+    if reply.status().is_success() {
+        // The JSON ok flag remains authoritative for retryable factor failures.
+        reply
+            .headers_mut()
+            .insert(header::CACHE_CONTROL, "no-store".parse().unwrap());
+    }
+    reply
 }
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -557,6 +821,48 @@ mod tests {
                 .unwrap()
                 .contains("form-action 'none'")
         );
+    }
+    #[tokio::test]
+    async fn historical_browser_paths_only_redirect_gets_into_the_cookie_scope() {
+        use axum::{body::Body, http::Request};
+        use tower::ServiceExt;
+
+        let pool = sqlx::postgres::PgPoolOptions::new()
+            .connect_lazy("postgresql://fixture@localhost:1/unused")
+            .unwrap();
+        let app = router(BrowserConfirmation::new(pool, "http://127.0.0.1", true).unwrap());
+        let id = "a".repeat(64);
+        for suffix in [id.clone(), format!("{id}/key"), "ui.js".into()] {
+            let old = format!("/api/user/assistant/confirmations/{suffix}");
+            let response = app
+                .clone()
+                .oneshot(Request::get(&old).body(Body::empty()).unwrap())
+                .await
+                .unwrap();
+            assert_eq!(response.status(), StatusCode::TEMPORARY_REDIRECT);
+            assert_eq!(
+                response.headers()[header::LOCATION],
+                format!("{BROWSER_PREFIX}/{suffix}")
+            );
+            assert_eq!(response.headers()[header::CACHE_CONTROL], "no-store");
+            assert_eq!(response.headers()[header::REFERRER_POLICY], "no-referrer");
+            let response = app
+                .clone()
+                .oneshot(Request::post(&old).body(Body::empty()).unwrap())
+                .await
+                .unwrap();
+            assert_eq!(response.status(), StatusCode::METHOD_NOT_ALLOWED);
+            assert!(!response.headers().contains_key(header::LOCATION));
+        }
+        let response = app
+            .oneshot(
+                Request::get("/api/user/assistant/confirmations/not-a-proof")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
     }
     #[test]
     fn browser_inputs_do_not_accept_ambiguous_credentials_or_origins() {

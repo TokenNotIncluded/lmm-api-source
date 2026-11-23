@@ -1,5 +1,7 @@
 //! Opt-in independent browser fixture; synthetic local identities and provider proof only.
 //! Run only after the coordinator freezes Core/UI and hands over the Cargo target.
+#[path = "common/payment_discount_continuity.rs"]
+mod continuity_fixture;
 use base64::{Engine, engine::general_purpose::STANDARD};
 use lmm_core::{
     billing::ledger,
@@ -55,6 +57,7 @@ async fn payment_discount_admin_browser(pool: PgPool) {
     ] {
         sqlx::raw_sql(ddl).execute(&pool).await.unwrap();
     }
+    continuity_fixture::install(&pool).await;
     let issued = identity.bootstrap_user(1099, 6).await.unwrap();
     let actor = identity.authorize(&issued.secret).await.unwrap();
     assert!(matches!(actor.credential_kind, CredentialKind::Session));
@@ -74,6 +77,7 @@ async fn payment_discount_admin_browser(pool: PgPool) {
     .unwrap();
     channel.credits_per_minor = 0;
     channel.credit_quote = Some(CreditQuotePolicy {
+        min_credit_units: 1,
         settlement_per_usd_numerator: 1,
         settlement_per_usd_denominator: 1,
         discounts: BTreeMap::new(),

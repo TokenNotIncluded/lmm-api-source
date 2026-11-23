@@ -384,7 +384,16 @@ mod tests {
         assert!(!admin["channel"]["read"]);
         assert!(admin["acquisition"]["export"]);
         let root = capability_matrix(PlatformRole::Root, &rows);
-        assert!(root.values().flat_map(|r| r.values()).all(|v| *v));
+        assert!(!root["channel"]["read"]);
+        assert!(root["channel"]["operate"]);
+        assert!(root["acquisition"]["export"]);
+        assert_eq!(
+            root.values()
+                .flat_map(|r| r.values())
+                .filter(|v| **v)
+                .count(),
+            8
+        );
         let user = capability_matrix(PlatformRole::User, &rows);
         assert!(user.values().flat_map(|r| r.values()).all(|v| !v));
     }

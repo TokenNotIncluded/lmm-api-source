@@ -23,10 +23,18 @@ impl CreditQuoteRatio {
 #[derive(Clone, Debug, Deserialize, Serialize, Eq, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct CreditQuotePolicy {
+    /// Admission minimum for new quotes/intents, in exact credit_500k_usd units.
+    /// It is not part of a frozen intent's settlement or refund calculation.
+    #[serde(default = "default_min_credit_units")]
+    pub min_credit_units: i64,
     pub settlement_per_usd_numerator: i64,
     pub settlement_per_usd_denominator: i64,
     #[serde(default, deserialize_with = "deserialize_discounts")]
     pub discounts: BTreeMap<i64, CreditQuoteRatio>,
+}
+
+const fn default_min_credit_units() -> i64 {
+    1
 }
 
 fn deserialize_discounts<'de, D>(
@@ -52,7 +60,8 @@ where
 
 impl CreditQuotePolicy {
     pub(crate) fn valid(&self) -> bool {
-        (1..=MAX_RATIO_PART).contains(&self.settlement_per_usd_numerator)
+        self.min_credit_units > 0
+            && (1..=MAX_RATIO_PART).contains(&self.settlement_per_usd_numerator)
             && (1..=MAX_RATIO_PART).contains(&self.settlement_per_usd_denominator)
             && i128::from(self.settlement_per_usd_numerator)
                 <= CREDITS_PER_USD_MINOR * i128::from(self.settlement_per_usd_denominator)
@@ -63,7 +72,7 @@ impl CreditQuotePolicy {
     }
 
     pub(super) fn freeze(&self, credits: i64) -> Result<CreditQuote> {
-        if !self.valid() || credits <= 0 {
+        if !self.valid() || credits < self.min_credit_units {
             return Err(Error::Invalid);
         }
         let discount = self
@@ -218,6 +227,7 @@ mod tests {
 
     fn policy() -> CreditQuotePolicy {
         CreditQuotePolicy {
+            min_credit_units: 1,
             settlement_per_usd_numerator: 418769,
             settlement_per_usd_denominator: 62500,
             discounts: BTreeMap::from([(
@@ -249,6 +259,51 @@ mod tests {
                 .unwrap(),
             700
         );
+    }
+
+    #[test]
+    fn minimum_defaults_to_one_and_rejects_nonpositive_configuration() {
+        let document = "settlement_per_usd_numerator=1\nsettlement_per_usd_denominator=1";
+        let old: CreditQuotePolicy = toml::from_str(document).unwrap();
+        assert_eq!(old.min_credit_units, 1);
+        assert!(old.valid());
+        for minimum in [0, -1] {
+            let invalid: CreditQuotePolicy =
+                toml::from_str(&format!("{document}\nmin_credit_units={minimum}")).unwrap();
+            assert!(!invalid.valid());
+        }
+        let explicit: CreditQuotePolicy =
+            toml::from_str(&format!("{document}\nmin_credit_units=500000")).unwrap();
+        assert_eq!(explicit.min_credit_units, 500_000);
+        assert!(explicit.valid());
+    }
+
+    #[test]
+    fn credit_minimum_is_exact_before_fiat_rounding_and_does_not_change_frozen_quotes() {
+        let mut configured = policy();
+        configured.settlement_per_usd_numerator = 1;
+        configured.settlement_per_usd_denominator = 1;
+        let original = configured.freeze(499_999).unwrap();
+        assert_eq!(original.amount_minor(499_999).unwrap(), 100);
+        configured.min_credit_units = 500_000;
+        assert_eq!(configured.freeze(499_999).unwrap_err(), Error::Invalid);
+        assert_eq!(
+            configured
+                .freeze(500_000)
+                .unwrap()
+                .amount_minor(500_000)
+                .unwrap(),
+            100
+        );
+        assert_eq!(original.amount_minor(499_999).unwrap(), 100);
+        configured.min_credit_units = 9_007_199_254_740_993;
+        assert_eq!(
+            configured.freeze(9_007_199_254_740_992).unwrap_err(),
+            Error::Invalid
+        );
+        assert!(configured.freeze(9_007_199_254_740_993).is_ok());
+        configured.min_credit_units = i64::MAX;
+        assert!(configured.freeze(i64::MAX).is_ok());
     }
 
     #[test]

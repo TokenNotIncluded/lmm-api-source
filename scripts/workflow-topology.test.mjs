@@ -93,6 +93,7 @@ test('workflows initialize only their required pinned submodules', () => {
     assert.doesNotMatch(source, /submodules:\s*(?:true|recursive)/);
   }
   assert.match(workflow('lmm'), /name: Initialize the pinned CLI only\n        working-directory: \.\n/);
+  assert.match(workflow('core-protocol'), /python3 -B scripts\/check-extore-plugin-pin\.py/);
 });
 
 

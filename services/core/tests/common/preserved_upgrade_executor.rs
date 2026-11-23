@@ -252,10 +252,44 @@ struct Report {
     successor_catalog_sha256: String,
     components: usize,
 }
+async fn wait_for_offline_fixture(request: &UpgradeRequest) {
+    use sqlx::Connection;
+    let mut control = sqlx::PgConnection::connect(&std::env::var("DATABASE_URL").unwrap())
+        .await
+        .unwrap();
+    let database: String = sqlx::query_scalar("SELECT current_database()::text")
+        .fetch_one(&mut control)
+        .await
+        .unwrap();
+    assert_ne!(database, request.database.name);
+    let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(5);
+    loop {
+        let remaining: Vec<(i32, String)> = sqlx::query_as(
+            "SELECT pid,backend_type FROM pg_stat_activity WHERE datid::bigint=$1 ORDER BY pid",
+        )
+        .bind(i64::from(request.database.oid))
+        .fetch_all(&mut control)
+        .await
+        .unwrap();
+        if remaining.is_empty() {
+            break;
+        }
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "previous fixture backends have not exited: {remaining:?}"
+        );
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+    }
+    control.close().await.unwrap();
+}
 pub(super) async fn upgrade_database(
     url: &str,
     request: UpgradeRequest,
 ) -> Result<UpgradeReport, UpgradeError> {
+    // A prior CLI can exit before PostgreSQL removes its backend. Observe the
+    // private fixture becoming offline before each single attempt; do not retry
+    // a rejected upgrade or relax the retained executable's exclusivity guard.
+    wait_for_offline_fixture(&request).await;
     let input = serde_json::to_vec(&request).unwrap();
     let expected_digest = crate::hex_codec::encode(Sha256::digest(&input));
     let url = url.to_owned();

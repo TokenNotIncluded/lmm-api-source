@@ -1,5 +1,6 @@
 /* Copyright (C) 2026 LIghtJUNction. SPDX-License-Identifier: AGPL-3.0-or-later */
 import assert from 'node:assert/strict'
+import { createHash } from 'node:crypto'
 import { test } from 'node:test'
 
 import {
@@ -386,4 +387,143 @@ test('undo is not a factory reset and leaves unmodified values alone', () => {
     ),
     {}
   )
+})
+
+function nativeAction(f: ReturnType<typeof fixture>, token: string) {
+  const { actor_session_id: _legacy, ...rest } = f.action()
+  return {
+    ...rest,
+    actor_credential_sha256: createHash('sha256').update(token).digest('hex'),
+  } satisfies AssistantUIPreferenceAction
+}
+
+test('native display actions require one exact credential binding', async () => {
+  const f = fixture()
+  const token = 'synthetic-display-session-a'
+  const owner = { userID: 7, sessionID: 'session-a', accessToken: token }
+  f.setOwner(owner)
+  const action = nativeAction(f, token)
+  assert.deepEqual(parseAssistantUIPreferenceAction(action), action)
+  for (const invalid of [
+    { ...action, actor_session_id: 'session-a' },
+    { ...action, actor_credential_sha256: 'invalid' },
+    { ...action, actor_credential_sha256: null },
+    {
+      ...action,
+      actor_credential_sha256: action.actor_credential_sha256.toUpperCase(),
+    },
+    { ...action, url: 'https://example.invalid/' },
+  ]) {
+    assert.equal(parseAssistantUIPreferenceAction(invalid), undefined)
+  }
+  assert.equal(
+    (await f.runtime.run(action, f.adapter, f.signal.signal)).status,
+    'applied'
+  )
+  await f.runtime.run(action, f.adapter, f.signal.signal)
+  assert.deepEqual(f.writes, [{ mode: 'dark' }])
+  assert.equal(f.runtime.receipt(action.action_id, owner)?.canUndo, true)
+  const refreshed = {
+    ...owner,
+    accessToken: 'synthetic-display-session-refreshed',
+  }
+  f.setOwner(refreshed)
+  assert.equal(f.runtime.receipt(action.action_id, refreshed), undefined)
+  assert.equal(
+    (await f.runtime.run(action, f.adapter, f.signal.signal)).status,
+    'unavailable'
+  )
+  assert.equal(
+    (await f.runtime.undo(f.adapter, f.signal.signal)).status,
+    'unchanged'
+  )
+  assert.equal(f.writes.length, 1)
+})
+
+test('a late credential digest cannot rebind after refresh, account switch or expiry', async () => {
+  for (const scenario of ['refresh', 'switch', 'expiry', 'abort']) {
+    const f = fixture()
+    const token = 'synthetic-display-session-a'
+    f.setOwner({ userID: 7, sessionID: 'session-a', accessToken: token })
+    const pending = f.runtime.run(
+      nativeAction(f, token),
+      f.adapter,
+      f.signal.signal
+    )
+    if (scenario === 'refresh') {
+      f.setOwner({
+        userID: 7,
+        sessionID: 'session-a',
+        accessToken: 'synthetic-refreshed',
+      })
+    }
+    if (scenario === 'switch') {
+      f.setOwner({ userID: 8, sessionID: 'session-b', accessToken: token })
+    }
+    if (scenario === 'expiry') f.advance(120_000)
+    if (scenario === 'abort') f.signal.abort()
+    assert.equal((await pending).status, 'unavailable')
+    assert.equal(f.writes.length, 0)
+    assert.equal(f.previews.length, 0)
+  }
+})
+
+test('same user and sid with a different bearer cannot consume an action', async () => {
+  const f = fixture()
+  const action = nativeAction(f, 'synthetic-original')
+  f.setOwner({
+    userID: 7,
+    sessionID: 'session-a',
+    accessToken: 'synthetic-refreshed',
+  })
+  assert.equal(
+    (await f.runtime.run(action, f.adapter, f.signal.signal)).status,
+    'unavailable'
+  )
+  f.setOwner({ userID: 7, sessionID: 'session-a' })
+  assert.equal(
+    (await f.runtime.run(action, f.adapter, f.signal.signal)).status,
+    'unavailable'
+  )
+  assert.equal(f.writes.length, 0)
+})
+
+test('native preview keeps the original eight-second timer and exact undo', async () => {
+  const f = fixture()
+  const token = 'synthetic-preview-session'
+  f.setOwner({ userID: 7, sessionID: 'session-a', accessToken: token })
+  const action = { ...nativeAction(f, token), temporary: true }
+  assert.equal(
+    (await f.runtime.run(action, f.adapter, f.signal.signal)).status,
+    'previewing'
+  )
+  await f.runtime.run(action, f.adapter, f.signal.signal)
+  assert.equal(f.timers.length, 1)
+  assert.equal(f.timers[0].delay, 8000)
+  assert.equal(f.writes.length, 0)
+  assert.equal(
+    (await f.runtime.undo(f.adapter, f.signal.signal, action.action_id)).status,
+    'restored'
+  )
+  f.timers[0].run()
+  assert.equal(f.releases(), 1)
+})
+
+test('refresh during a save cannot report a successful action or retain Undo', async () => {
+  const f = fixture()
+  const token = 'synthetic-display-session-a'
+  f.setOwner({ userID: 7, sessionID: 'session-a', accessToken: token })
+  f.adapter.save = async () => {
+    f.setOwner({
+      userID: 7,
+      sessionID: 'session-a',
+      accessToken: 'synthetic-refreshed',
+    })
+  }
+  const action = nativeAction(f, token)
+  assert.equal(
+    (await f.runtime.run(action, f.adapter, f.signal.signal)).status,
+    'failed'
+  )
+  assert.equal(f.runtime.receipt(action.action_id)?.canUndo, false)
 })

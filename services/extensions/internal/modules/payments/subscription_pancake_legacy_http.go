@@ -7,13 +7,19 @@ import (
 	"net/http"
 	"sort"
 	"strings"
+
+	pancake "github.com/waffo-com/waffo-pancake-sdk-go"
 )
 
 // The app mounts this at the original go-v0.2.118 webhook URL with the SAME
 // body, deadline, rate, header and shared-host admission guards as new callbacks.
-func (s *PancakeSubscriptions) LegacyWebhookHandler(wallet *Service) http.Handler {
+func (s *PancakeSubscriptions) LegacyWebhookHandler(wallet *Service, externalOwners ...ExternalLegacyPancakeOwner) http.Handler {
+	return s.legacyWebhookHandler(wallet, nil, externalOwners...)
+}
+
+func (s *PancakeSubscriptions) legacyWebhookHandler(wallet *Service, keys *pancake.WebhookPublicKeys, externalOwners ...ExternalLegacyPancakeOwner) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		raw, _, err := callbackBytes(r, "X-Waffo-Signature")
+		raw, signature, err := callbackBytes(r, "X-Waffo-Signature")
 		if err != nil {
 			paymentError(w, err)
 			return
@@ -30,6 +36,18 @@ func (s *PancakeSubscriptions) LegacyWebhookHandler(wallet *Service) http.Handle
 		if jsonObject(raw, &event) != nil || event.Mode != r.PathValue("environment") {
 			paymentError(w, ErrInvalid)
 			return
+		}
+		// Only explicitly external old Go namespaces may finish before the durable
+		// inbox. Native top_/sub_ orders retain their existing frozen-binding path.
+		for _, owner := range externalOwners {
+			if owner.matches(event.Store, event.Mode, event.EventType, event.Data.Reference) {
+				if err = owner.verify(raw, signature, keys); err != nil {
+					paymentError(w, err)
+					return
+				}
+				acknowledgePancakeWebhook(w)
+				return
+			}
 		}
 		r.Body = http.NoBody
 		request := func() *http.Request {
@@ -95,8 +113,12 @@ func (s *PancakeSubscriptions) LegacyWebhookHandler(wallet *Service) http.Handle
 				return
 			}
 		}
-		w.Header().Set("Cache-Control", "no-store")
-		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-		_, _ = w.Write([]byte("OK"))
+		acknowledgePancakeWebhook(w)
 	})
+}
+
+func acknowledgePancakeWebhook(w http.ResponseWriter) {
+	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	_, _ = w.Write([]byte("OK"))
 }

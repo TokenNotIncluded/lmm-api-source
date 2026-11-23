@@ -30,6 +30,8 @@ pub(super) enum DataProjection {
     Exact,
     SubscriptionEpay,
     ManagedApplications,
+    ProviderClients,
+    AssistantConfirmedActions,
 }
 #[derive(Clone, Copy)]
 pub(super) struct SuffixPolicy {
@@ -243,9 +245,19 @@ registrations! {
         PERSONAL_TOKENS => personal_tokens, "PERSONAL_TOKENS_", |c,r| Box::pin(personal_tokens::grant_runtime(c, &r.roles.runtime)), owner_receipt, SuffixPolicy::DEFAULT;
         MANAGED_APPLICATIONS => managed_applications, "MANAGED_APPLICATIONS_", |c,r| Box::pin(managed_applications::grant_runtime(c, &r.roles.runtime)), owner_receipt, SuffixPolicy { target: TargetSource::Captured(managed_applications::captured_target), projection: DataProjection::ManagedApplications, #[cfg(test)] after_ddl: SuffixPolicy::DEFAULT.after_ddl };
         SUBSCRIPTION_CREEM => subscription_creem, "SUBSCRIPTION_CREEM_", |c,r| Box::pin(subscription_creem::grant_runtime(c, &r.roles.runtime)), owner_receipt, SuffixPolicy::DEFAULT;
+        SUBSCRIPTION_RESET => subscription_reset, "SUBSCRIPTION_RESET_", |c,r| Box::pin(subscription_reset::grant_runtime(c, &r.roles.runtime)), owner_receipt, SuffixPolicy::DEFAULT;
+        LEGACY_GIFT => legacy_gift, "LEGACY_GIFT_", |c,r| Box::pin(legacy_gift::grant_runtime(c, &r.roles.runtime)), owner_receipt, SuffixPolicy::DEFAULT;
+        LEGACY_DISCOUNT_PACKET => legacy_discount_packet, "LEGACY_DISCOUNT_PACKET_", |c,r| Box::pin(legacy_discount_packet::grant_runtime(c, &r.roles.runtime)), owner_receipt, SuffixPolicy::DEFAULT;
+        ASSISTANT_SERVICE_FUNDING => assistant_service_funding, "ASSISTANT_SERVICE_FUNDING_", no_grants, owner_receipt, SuffixPolicy::DEFAULT;
+        ASSISTANT_AGENT_GIFT => assistant_agent_gift, "ASSISTANT_AGENT_GIFT_", no_grants, owner_receipt, SuffixPolicy::DEFAULT;
+        CURRENT_CONNECTION_HISTORY => current_connection_history, "CURRENT_CONNECTION_HISTORY_", |c,r| Box::pin(current_connection_history::grant_runtime(c, &r.roles.runtime)), owner_receipt, SuffixPolicy::DEFAULT;
+        ASSISTANT_CONFIRMED_ACTIONS => assistant_confirmed_actions, "ASSISTANT_CONFIRMED_ACTIONS_", |c,r| Box::pin(assistant_confirmed_actions::grant_runtime(c, &r.roles.runtime)), owner_receipt, SuffixPolicy { projection: DataProjection::AssistantConfirmedActions, ..SuffixPolicy::DEFAULT };
+        LEGACY_AFFILIATE_ALIASES => legacy_affiliate_aliases, "LEGACY_AFFILIATE_ALIASES_", |c,r| Box::pin(legacy_affiliate_aliases::grant_runtime(c, &r.roles.runtime)), owner_receipt, SuffixPolicy::DEFAULT;
+        ASSISTANT_INVITATION_CONFIRMATION => assistant_invitation_confirmation, "ASSISTANT_INVITATION_CONFIRMATION_", no_grants, owner_receipt, SuffixPolicy::DEFAULT;
         CHECKIN_CHALLENGES => checkin_challenges, "CHECKIN_CHALLENGES_", |c,r| Box::pin(checkin_challenges::grant_runtime(c, &r.roles.runtime)), owner_receipt, SuffixPolicy::DEFAULT;
         NETWORK_ACCESS => network_access, "NETWORK_ACCESS_", |c,r| Box::pin(network_access::grant_runtime(c, &r.roles.runtime)), owner_receipt, SuffixPolicy::DEFAULT;
         CONNECTION_HISTORY_IMPORT => connection_history_import, "CONNECTION_HISTORY_IMPORT_", no_grants, owner_receipt, SuffixPolicy::DEFAULT;
+        PROVIDER_CLIENTS => provider_clients, "PROVIDER_CLIENTS_", no_grants, owner_receipt, SuffixPolicy { target: TargetSource::Captured(provider_clients::captured_target), projection: DataProjection::ProviderClients, #[cfg(test)] after_ddl: SuffixPolicy::DEFAULT.after_ddl };
         OIDC => oidc, "OIDC_", |c,r| Box::pin(oidc::grant_runtime(c, &r.roles.runtime)), owner_receipt, SuffixPolicy::DEFAULT;
     }
 }
@@ -293,6 +305,16 @@ mod tests {
             "core-checkin-challenges-v1",
             "core-network-access-v1",
             "core-connection-history-import-v1",
+            "core-provider-clients-v1",
+            "core-subscription-reset-v1",
+            "core-legacy-gift-continuation-v1",
+            "core-legacy-discount-packet-continuation-v1",
+            "core-assistant-service-funding-v1",
+            "core-assistant-agent-gift-v1",
+            "core-current-connection-history-v1",
+            "core-assistant-confirmed-actions-v1",
+            "core-legacy-affiliate-aliases-v1",
+            "core-assistant-invitation-confirmation-v1",
         ]
         .into_iter()
         .collect();
@@ -332,6 +354,37 @@ mod tests {
             (subscription_epay::PROCEDURE, subscription_epay::validate),
             (core59_to62::PROCEDURE, core59_to62::validate),
             (network_access::PROCEDURE, network_access::validate),
+            (provider_clients::PROCEDURE, provider_clients::validate),
+            (subscription_reset::PROCEDURE, subscription_reset::validate),
+            (legacy_gift::PROCEDURE, legacy_gift::validate),
+            (
+                legacy_discount_packet::PROCEDURE,
+                legacy_discount_packet::validate,
+            ),
+            (
+                assistant_service_funding::PROCEDURE,
+                assistant_service_funding::validate,
+            ),
+            (
+                assistant_agent_gift::PROCEDURE,
+                assistant_agent_gift::validate,
+            ),
+            (
+                current_connection_history::PROCEDURE,
+                current_connection_history::validate,
+            ),
+            (
+                assistant_confirmed_actions::PROCEDURE,
+                assistant_confirmed_actions::validate,
+            ),
+            (
+                legacy_affiliate_aliases::PROCEDURE,
+                legacy_affiliate_aliases::validate,
+            ),
+            (
+                assistant_invitation_confirmation::PROCEDURE,
+                assistant_invitation_confirmation::validate,
+            ),
             (
                 connection_history_import::PROCEDURE,
                 connection_history_import::validate,
@@ -382,10 +435,38 @@ mod tests {
             ),
             ("core-responses-continuity-v1", "RESPONSES_CONTINUITY_"),
             ("core-managed-applications-v1", "MANAGED_APPLICATIONS_"),
+            ("core-provider-clients-v1", "PROVIDER_CLIENTS_"),
             ("core-affiliate-registration-v1", "AFFILIATE_REGISTRATION_"),
             ("core-oauth2-oidc-v1", "OIDC_"),
             ("core-personal-tokens-v1", "PERSONAL_TOKENS_"),
             ("core-subscription-creem-v1", "SUBSCRIPTION_CREEM_"),
+            ("core-subscription-reset-v1", "SUBSCRIPTION_RESET_"),
+            ("core-legacy-gift-continuation-v1", "LEGACY_GIFT_"),
+            (
+                "core-legacy-discount-packet-continuation-v1",
+                "LEGACY_DISCOUNT_PACKET_",
+            ),
+            (
+                "core-assistant-service-funding-v1",
+                "ASSISTANT_SERVICE_FUNDING_",
+            ),
+            ("core-assistant-agent-gift-v1", "ASSISTANT_AGENT_GIFT_"),
+            (
+                "core-current-connection-history-v1",
+                "CURRENT_CONNECTION_HISTORY_",
+            ),
+            (
+                "core-assistant-confirmed-actions-v1",
+                "ASSISTANT_CONFIRMED_ACTIONS_",
+            ),
+            (
+                "core-legacy-affiliate-aliases-v1",
+                "LEGACY_AFFILIATE_ALIASES_",
+            ),
+            (
+                "core-assistant-invitation-confirmation-v1",
+                "ASSISTANT_INVITATION_CONFIRMATION_",
+            ),
             ("core-checkin-challenges-v1", "CHECKIN_CHALLENGES_"),
             ("core-network-access-v1", "NETWORK_ACCESS_"),
             (
@@ -466,6 +547,10 @@ mod tests {
                     DataProjection::SubscriptionEpay
                 } else if name == "core-managed-applications-v1" {
                     DataProjection::ManagedApplications
+                } else if name == "core-provider-clients-v1" {
+                    DataProjection::ProviderClients
+                } else if name == "core-assistant-confirmed-actions-v1" {
+                    DataProjection::AssistantConfirmedActions
                 } else {
                     DataProjection::Exact
                 }
@@ -475,6 +560,7 @@ mod tests {
                     let expected = match name {
                         "core-59-to-62-v1" => core59_to62::captured_target,
                         "core-managed-applications-v1" => managed_applications::captured_target,
+                        "core-provider-clients-v1" => provider_clients::captured_target,
                         _ => panic!("unexpected captured target {name}"),
                     };
                     assert!(std::ptr::fn_addr_eq(
@@ -487,8 +573,33 @@ mod tests {
             assert!(std::ptr::fn_addr_eq(
                 entry.hooks.authorize,
                 match name {
+                    "core-provider-clients-v1" =>
+                        provider_clients::authorize_target as fn() -> Result<(), UpgradeError>,
                     "core-subscription-creem-v1" =>
                         subscription_creem::authorize_target as fn() -> Result<(), UpgradeError>,
+                    "core-subscription-reset-v1" =>
+                        subscription_reset::authorize_target as fn() -> Result<(), UpgradeError>,
+                    "core-legacy-gift-continuation-v1" =>
+                        legacy_gift::authorize_target as fn() -> Result<(), UpgradeError>,
+                    "core-legacy-discount-packet-continuation-v1" =>
+                        legacy_discount_packet::authorize_target as fn() -> Result<(), UpgradeError>,
+                    "core-assistant-service-funding-v1" =>
+                        assistant_service_funding::authorize_target
+                            as fn() -> Result<(), UpgradeError>,
+                    "core-assistant-agent-gift-v1" =>
+                        assistant_agent_gift::authorize_target as fn() -> Result<(), UpgradeError>,
+                    "core-current-connection-history-v1" =>
+                        current_connection_history::authorize_target
+                            as fn() -> Result<(), UpgradeError>,
+                    "core-assistant-confirmed-actions-v1" =>
+                        assistant_confirmed_actions::authorize_target
+                            as fn() -> Result<(), UpgradeError>,
+                    "core-legacy-affiliate-aliases-v1" =>
+                        legacy_affiliate_aliases::authorize_target
+                            as fn() -> Result<(), UpgradeError>,
+                    "core-assistant-invitation-confirmation-v1" =>
+                        assistant_invitation_confirmation::authorize_target
+                            as fn() -> Result<(), UpgradeError>,
                     "core-checkin-challenges-v1" =>
                         checkin_challenges::authorize_target as fn() -> Result<(), UpgradeError>,
                     "core-network-access-v1" =>
@@ -576,6 +687,12 @@ mod tests {
             "core-subscription-creem-v1",
             "core-checkin-challenges-v1",
             "core-network-access-v1",
+            "core-subscription-reset-v1",
+            "core-legacy-gift-continuation-v1",
+            "core-legacy-discount-packet-continuation-v1",
+            "core-current-connection-history-v1",
+            "core-assistant-confirmed-actions-v1",
+            "core-legacy-affiliate-aliases-v1",
         ];
         for entry in ENTRIES
             .iter()

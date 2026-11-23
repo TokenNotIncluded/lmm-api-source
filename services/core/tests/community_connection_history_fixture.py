@@ -1,6 +1,7 @@
 """Only synthetic fixtures in the caller's fresh private PG. No real input path."""
 import json
 import os
+import re
 from pathlib import Path
 import subprocess
 import sys
@@ -12,8 +13,25 @@ import legacy_connection_import as imp
 out = Path(os.environ['CONNECTION55_EVIDENCE'])
 database = sys.argv[1]
 registered = int(sys.argv[2])
+owner_role = sys.argv[3]
+assert re.fullmatch(r"[a-z_][a-z0-9_]{0,62}", owner_role), "synthetic owner identifier required"
+# libpq subprocesses do not read DATABASE_URL. Require the caller to bind the
+# synthetic cluster explicitly, so createdb can never fall back to a host DB.
+# SQLx creates quoted database names, which may contain uppercase ASCII.
+assert re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]{0,62}", database), "synthetic database required"
+required_pg = {name: os.environ.get(name, '')
+               for name in ('PGHOST', 'PGPORT', 'PGUSER', 'PGDATABASE')}
+assert all(required_pg.values()), "explicit synthetic PGHOST/PGPORT/PGUSER/PGDATABASE required"
+assert required_pg['PGHOST'] in {'127.0.0.1', '::1', 'localhost'} or Path(required_pg['PGHOST']).is_absolute(), "local synthetic PostgreSQL required"
+assert required_pg['PGPORT'].isdigit() and 1 <= int(required_pg['PGPORT']) <= 65535
+assert re.fullmatch(r"[a-z_][a-z0-9_]{0,62}", required_pg['PGUSER'])
+assert re.fullmatch(r"[a-z_][a-z0-9_]{0,62}", required_pg['PGDATABASE'])
 source_db = 'connection_source_' + imp.sha(database.encode())[:16]
-base_env = dict(os.environ)
+base_env = {name: value for name, value in os.environ.items() if not name.startswith('PG')}
+base_env.update(required_pg, PGSSLMODE='disable', PGCONNECT_TIMEOUT='5',
+                PGPASSFILE=os.devnull, PGSERVICEFILE=os.devnull)
+if 'PGPASSWORD' in os.environ:
+    base_env['PGPASSWORD'] = os.environ['PGPASSWORD']
 
 
 def query(sql, db=database, role=None):
@@ -91,15 +109,15 @@ def apply(sql, role):
                           text=True, capture_output=True, env=env)
 
 for name, sql in variants.items():
-    result = apply(sql, 'lmm_core_owner')
+    result = apply(sql, owner_role)
     (out/(name+'.stderr.log')).write_text(result.stderr)
     assert result.returncode != 0, name+' unexpectedly accepted'
     assert query('SELECT count(*) FROM core_history.connection_snapshot').strip() == '0', name+' partial import'
-result = apply(valid, 'lmm_core_owner')
+result = apply(valid, owner_role)
 (out/'import.stderr.log').write_text(result.stderr)
 assert result.returncode == 0, result.stderr
 before = query("SELECT document_utf8||mapping_utf8 FROM core_history.connection_snapshot")
-result = apply(valid, 'lmm_core_owner')
+result = apply(valid, owner_role)
 (out/'replay.stderr.log').write_text(result.stderr)
 assert result.returncode != 0, 'replay accepted'
 assert before == query("SELECT document_utf8||mapping_utf8 FROM core_history.connection_snapshot"), 'replay changed source'

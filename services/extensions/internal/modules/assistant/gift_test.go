@@ -92,3 +92,26 @@ func TestGiftOfferCapIsExclusiveAndBlockedPolicyCannotPromiseClaim(t *testing.T)
 		t.Fatal("offer presented as claimed", err)
 	}
 }
+
+func TestLegacyGiftReceiptRequiresExplicitHistoryMarkerAndNoJournal(t *testing.T) {
+	r := claimedGiftFixture()
+	r.LedgerTransactionID = ""
+	r.ClaimBlockedCode = "already_claimed_legacy"
+	value, err := checkedGift(1, r)
+	if err != nil || value.Status != "claimed" || value.ClaimBlockedCode != "already_claimed" || value.ClaimAvailable || value.CreditAmount != r.CreditAmount {
+		t.Fatal("archived receipt projection failed", err)
+	}
+	for _, change := range []func(*GiftReceipt){
+		func(r *GiftReceipt) { r.LedgerTransactionID = "7" },
+		func(r *GiftReceipt) { r.ClaimBlockedCode = "already_claimed" },
+		func(r *GiftReceipt) { r.ClaimedAt = 0 },
+		func(r *GiftReceipt) { r.ClaimAvailable = true },
+		func(r *GiftReceipt) { r.State = "offered" },
+	} {
+		bad := r
+		change(&bad)
+		if _, err := checkedGift(1, bad); !errors.Is(err, ErrGiftUnknown) {
+			t.Fatal("ambiguous archived/native receipt accepted")
+		}
+	}
+}

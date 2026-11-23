@@ -11,7 +11,7 @@ use zeroize::Zeroizing;
 
 const SITEVERIFY: &str = "https://challenges.cloudflare.com/turnstile/v0/siteverify";
 
-#[derive(Deserialize)]
+#[derive(Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields)]
 pub(super) struct TurnstileFile {
     pub site_key: String,
@@ -21,6 +21,37 @@ impl TurnstileFile {
     pub(super) fn validate(&self) -> io::Result<()> {
         validate_site_key(&self.site_key)?;
         absolute_path(&self.secret_key_file)
+    }
+
+    /// Load this verifier without changing the authentication-wide configuration.
+    pub(super) fn load(&self, origin: &str) -> io::Result<Turnstile> {
+        self.validate()?;
+        let secret = Zeroizing::new(
+            String::from_utf8(private_file(&self.secret_key_file, 4096)?)
+                .map_err(|_| invalid_config("invalid Turnstile secret file"))?,
+        );
+        let secret = Zeroizing::new(secret.trim().to_owned());
+        if secret.is_empty() || secret.chars().any(char::is_whitespace) {
+            return Err(invalid_config("invalid Turnstile secret file"));
+        }
+        let url = reqwest::Url::parse(origin).map_err(|_| invalid_config("invalid Web origin"))?;
+        let hostname = url
+            .host_str()
+            .ok_or_else(|| invalid_config("invalid Web origin"))?
+            .to_owned();
+        let client = reqwest::Client::builder()
+            .redirect(reqwest::redirect::Policy::none())
+            .timeout(Duration::from_secs(10))
+            .build()
+            .map_err(|_| invalid_config("unable to configure Turnstile HTTP client"))?;
+        Ok(Turnstile {
+            client,
+            secret: Arc::new(secret),
+            hostname,
+            site_key: self.site_key.clone(),
+            #[cfg(test)]
+            test_endpoint: None,
+        })
     }
 }
 fn validate_site_key(key: &str) -> io::Result<()> {
@@ -72,36 +103,14 @@ pub(super) fn load() -> io::Result<Option<Turnstile>> {
     ) {
         (Err(std::env::VarError::NotPresent), None) => Ok(None),
         (Ok(site_key), Some(path)) => {
-            validate_site_key(&site_key)?;
-            let secret = Zeroizing::new(
-                String::from_utf8(private_file(std::path::Path::new(&path), 4096)?)
-                    .map_err(|_| invalid_config("invalid Turnstile secret file"))?,
-            );
-            let secret = Zeroizing::new(secret.trim().to_owned());
-            if secret.is_empty() || secret.chars().any(char::is_whitespace) {
-                return Err(invalid_config("invalid Turnstile secret file"));
-            }
             let origin = setting("LMM_CORE_WEB_ORIGIN")
                 .map_err(|_| invalid_config("Turnstile requires Web origin"))?;
-            let url =
-                reqwest::Url::parse(&origin).map_err(|_| invalid_config("invalid Web origin"))?;
-            let hostname = url
-                .host_str()
-                .ok_or_else(|| invalid_config("invalid Web origin"))?
-                .to_owned();
-            let client = reqwest::Client::builder()
-                .redirect(reqwest::redirect::Policy::none())
-                .timeout(Duration::from_secs(10))
-                .build()
-                .map_err(|_| invalid_config("unable to configure Turnstile HTTP client"))?;
-            Ok(Some(Turnstile {
-                client,
-                secret: Arc::new(secret),
-                hostname,
+            TurnstileFile {
                 site_key,
-                #[cfg(test)]
-                test_endpoint: None,
-            }))
+                secret_key_file: path.into(),
+            }
+            .load(&origin)
+            .map(Some)
         }
         _ => Err(invalid_config(
             "configure both Turnstile site key and secret key file",

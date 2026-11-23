@@ -87,10 +87,10 @@ func TestPolicyBoundsAndRootChanges(t *testing.T) {
 		t.Fatal("stale revision accepted", e)
 	}
 }
-func TestServiceCatalogHasExactTwentyTwoBindings(t *testing.T) {
+func TestServiceCatalogHasReviewedBindings(t *testing.T) {
 	s := &Service{}
 	bindings := s.Bindings()
-	if len(bindings) != 22 {
+	if len(bindings) != 29 {
 		t.Fatalf("bindings %d", len(bindings))
 	}
 	seen := map[string]bool{}

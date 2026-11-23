@@ -17,15 +17,15 @@ resource-acceptance = []
 
 [dependencies]
 # MIT OR Apache-2.0, dependency-free bounded request conversion.
-zconv = "=0.4.0"
-zclap = "=0.1.4"
+zconv = { git = "https://github.com/LIghtJUNction/zconv.git" }
+zclap = { git = "https://github.com/LIghtJUNction/zclap.git" }
 sysinfo = { version = "=0.40.4", default-features = false, features = ["system"] }
 tokio-util = { version = "=0.7.20", features = ["rt"] }
 csv = "=1.4.0"
-zhex = "=0.1.3"
+zhex = { git = "https://github.com/LIghtJUNction/zhex.git" }
 percent-encoding = "=2.3.2"
 html-escape = "=0.3.1"
-lettre = { version = "=0.11.23", default-features = false, features = ["builder", "smtp-transport", "tokio1-rustls", "ring", "webpki-roots"] }
+lettre = { version = "=0.11.24", default-features = false, features = ["builder", "smtp-transport", "tokio1-rustls", "ring", "webpki-roots"] }
 aes-gcm = { version = "=0.11.1", default-features = false, features = ["aes", "alloc"] }
 argon2 = "=0.6.0"
 base64 = "=0.23.1"
@@ -35,7 +35,7 @@ hkdf = "=0.13.0"
 hmac = "=0.13.0"
 # Legacy EPay signing and provider RSA verification reuse locked primitives.
 md-5 = "=0.11.0"
-form_urlencoded = "=1.2.2"
+form_urlencoded = "=1.2.3"
 rsa = { version = "=0.10.0", features = ["pkcs1v15"] }
 jsonwebtoken = { version = "=12.0.0", default-features = false, features = ["aws_lc_rs"] }
 jsonschema = { version = "=0.61.2", default-features = false, features = ["arbitrary-precision"] }
@@ -58,7 +58,7 @@ ipnet = "=2.12.2"
 # ISC, focused in-process GeoIP2/GeoLite2 country lookup.
 maxminddb = "=0.33.0"
 rand = "=0.10.4"
-regex = "=1.13.1"
+regex = "=1.13.2"
 # Fixed legacy OpenAI precharge estimates use the original split pattern and BPE ranks.
 tiktoken-rs = "=0.12.1"
 fancy-regex = "=0.20.2"
@@ -69,20 +69,20 @@ webpki-root-certs = "=1.0.12"
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = { version = "1.0.154", features = ["arbitrary_precision", "raw_value"] }
 sha2 = { version = "=0.11.1", features = ["oid"] }
-sqlx = { version = "=0.9.0", default-features = false, features = ["runtime-tokio", "tls-rustls-ring-webpki", "postgres", "json", "macros", "chrono"] }
+sqlx = { version = "=0.9.1", default-features = false, features = ["runtime-tokio", "tls-rustls-ring-webpki", "postgres", "json", "macros", "chrono"] }
 tokio = { version = "1.54.1", features = ["macros", "net", "rt-multi-thread", "signal", "time", "sync", "io-util"] }
 flate2 = { version = "=1.1.11", default-features = false, features = ["rust_backend"] }
 zstd = { version = "=0.14.4", default-features = false }
 prost = "=0.14.6"
 subtle = "=2.6.1"
 totp-rs = { version = "=6.0.0", default-features = false, features = ["std", "otpauth", "zeroize"] }
-zeroize = { version = "=1.9.1", default-features = false, features = ["alloc"] }
+zeroize = { version = "=1.9.2", default-features = false, features = ["alloc"] }
 webauthn-rs = { version = "=0.5.5", default-features = false, features = ["danger-allow-state-serialisation", "conditional-ui"] }
 webauthn-rs-core = "=0.5.5"
 # Static Mozilla PSL (ICANN and private suffixes); no runtime network updates.
-psl = "=2.1.256"
+psl = "=2.1.261"
 tokio-stream = { version = "=0.1.19", features = ["net"] }
-toml = { version = "=1.2.1", default-features = false, features = ["std", "serde", "parse"] }
+toml = { version = "=1.2.2", default-features = false, features = ["std", "serde", "parse"] }
 tonic = "=0.14.9"
 tonic-prost = "=0.14.9"
 tower = { version = "=0.5.3", features = ["util"] }
@@ -98,10 +98,10 @@ protoc-bin-vendored = "=3.3.0"
 
 [dev-dependencies]
 # Test fixtures use the real TOML writer; production keeps parse-only features.
-toml = { version = "=1.2.1", default-features = false, features = ["display"] }
+toml = { version = "=1.2.2", default-features = false, features = ["display"] }
 webauthn-authenticator-rs = { version = "=0.5.5", default-features = false, features = ["softpasskey"] }
 # SQLx uses this feature to create isolated test databases, not to upgrade them.
-sqlx = { version = "=0.9.0", default-features = false, features = ["migrate"] }
+sqlx = { version = "=0.9.1", default-features = false, features = ["migrate"] }
 
 [lints.rust]
 unsafe_code = "forbid"

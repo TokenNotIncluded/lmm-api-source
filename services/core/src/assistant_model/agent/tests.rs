@@ -24,6 +24,14 @@ fn gateway_endpoint(pool: &PgPool, endpoint: &str) -> ModelGateway {
     gateway_endpoint_group(pool, endpoint, "allowed")
 }
 fn gateway_endpoint_group(pool: &PgPool, endpoint: &str, group: &str) -> ModelGateway {
+    gateway_endpoint_group_input_ceiling(pool, endpoint, group, 4096)
+}
+fn gateway_endpoint_group_input_ceiling(
+    pool: &PgPool,
+    endpoint: &str,
+    group: &str,
+    input_token_ceiling: i64,
+) -> ModelGateway {
     let prices = PriceSnapshot::compile(PriceConfig {
         version: 1,
         rules: vec![PriceRule {
@@ -56,7 +64,11 @@ fn gateway_endpoint_group(pool: &PgPool, endpoint: &str, group: &str) -> ModelGa
                 }],
                 upstreams: vec![UpstreamConfig {
                     id: 1,
-                    endpoint: Endpoint::local_loopback(endpoint.to_owned()).unwrap(),
+                    endpoint: if endpoint.starts_with("https://") {
+                        Endpoint::try_from(endpoint.to_owned()).unwrap()
+                    } else {
+                        Endpoint::local_loopback(endpoint.to_owned()).unwrap()
+                    },
                     protocol: Protocol::OpenAiChat,
                     credential: CredentialRef { id: 7, revision: 1 },
                     enabled: true,
@@ -105,7 +117,7 @@ fn gateway_endpoint_group(pool: &PgPool, endpoint: &str, group: &str) -> ModelGa
             ..Limits::default()
         },
         ChargePolicy {
-            input_token_ceiling: 4096,
+            input_token_ceiling,
             lease_seconds: 30,
         },
     )
@@ -223,6 +235,7 @@ async fn setup(pool: &PgPool, tool: &str) -> (AgentService, String, i64, Provide
         max_output_tokens: 32,
         ttl_seconds: 300,
         gift_tools: false,
+        service_funding: None,
         sponsor: None,
     };
     let base = AssistantModel::new(pool.clone(), gateway, model.clone()).unwrap();
@@ -979,3 +992,9 @@ mod frozen_provenance_tests {
 
 #[path = "stream_tests.rs"]
 mod stream_tests;
+
+#[path = "gift_tests.rs"]
+mod gift_tests;
+
+#[path = "confirmed_actions_tests.rs"]
+mod confirmed_actions_tests;

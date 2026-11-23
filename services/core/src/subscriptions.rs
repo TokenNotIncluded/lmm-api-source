@@ -1,6 +1,13 @@
 //! Core subscription sales. A wallet charge and its immutable consumption grant
 //! commit together; renewals create new grants and never extend old streams.
 mod admin;
+mod reset;
+mod reset_http;
+pub use reset::{
+    RESET_SCHEMA, ResetCodeRequest, ResetExecuteRequest, ResetFilter, ResetPreviewRequest,
+    ResetTarget,
+};
+pub(crate) mod assistant_offers;
 mod balance_read;
 mod external_pancake;
 mod pancake_http;
@@ -215,8 +222,8 @@ fn purchase_row(r: &sqlx::postgres::PgRow) -> Result<Purchase> {
 }
 const PURCHASE_SELECT:&str="SELECT p.id,p.subscription_id,p.canceled_at,p.refund_journal_id,q.plan_id,q.plan_revision AS revision,false AS archived,r.terms,q.starts_at,q.ends_at,
     (s.active AND s.anchor<=floor(extract(epoch FROM clock_timestamp()))::bigint AND s.ends_at>floor(extract(epoch FROM clock_timestamp()))::bigint) AS entitlement_active,
-    coalesce((SELECT sum(t.settled-t.refunded)::text FROM core_charging.requests t WHERE t.source_subscription_id=s.id AND t.state='settled'),'0') AS used,
-    coalesce((SELECT sum(t.reserved)::text FROM core_charging.requests t WHERE t.source_subscription_id=s.id AND t.state IN ('reserved','streaming','reconcile')),'0') AS reserved
+    coalesce((SELECT c.used_credits::text FROM core_charging.subscription_window(s.id,greatest(s.anchor,least(floor(extract(epoch FROM clock_timestamp()))::bigint,s.ends_at-1))) w CROSS JOIN LATERAL core_charging.subscription_consumption(s.id,w.start_at,NULL) c),'0') AS used,
+    coalesce((SELECT c.reserved_credits::text FROM core_charging.subscription_window(s.id,greatest(s.anchor,least(floor(extract(epoch FROM clock_timestamp()))::bigint,s.ends_at-1))) w CROSS JOIN LATERAL core_charging.subscription_consumption(s.id,w.start_at,NULL) c),'0') AS reserved
     FROM core_subscriptions.purchases p JOIN core_subscriptions.quotes q ON q.id=p.quote_id
     JOIN core_subscriptions.plan_revisions r ON r.plan_id=q.plan_id AND r.revision=q.plan_revision
     JOIN core_charging.subscriptions s ON s.id=p.subscription_id";

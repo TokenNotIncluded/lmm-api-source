@@ -21,6 +21,8 @@ import { isAxiosError } from 'axios'
 import {
   CommerceFailure,
   commerceScope,
+  currentCommerceScope,
+  type CommerceScope,
 } from '@/features/commerce/native-client'
 import { api } from '@/lib/api'
 import type { WaffoPancakeCheckoutLanguage } from '@/lib/waffo-pancake-checkout'
@@ -229,19 +231,56 @@ export async function getSelfSubscriptionFull(): Promise<
   }
 }
 
-export async function getSubscriptionResetVouchers(): Promise<
-  ApiResponse<SubscriptionResetVoucher[]>
-> {
-  const res = await api.get('/api/subscription/self/reset-vouchers')
-  return res.data
+export const resetVoucherQueryKey = (scope?: CommerceScope) =>
+  scope
+    ? ['subscription-reset-vouchers', scope.userId, scope.sessionId]
+    : ['subscription-reset-vouchers']
+
+export async function getSubscriptionResetVouchers(
+  scope?: CommerceScope
+): Promise<ApiResponse<SubscriptionResetVoucher[]> & { supported?: false }> {
+  if (scope && !currentCommerceScope(scope)) {
+    throw new CommerceFailure('SESSION_CHANGED')
+  }
+  try {
+    const res = await api.get('/api/subscription/self/reset-vouchers', {
+      skipErrorHandler: true,
+      ...(scope ? { authScope: scope, skipAuthRefresh: true } : {}),
+    })
+    if (scope && !currentCommerceScope(scope)) {
+      throw new CommerceFailure('SESSION_CHANGED')
+    }
+    return res.data
+  } catch (error) {
+    if (scope && !currentCommerceScope(scope)) {
+      throw new CommerceFailure('SESSION_CHANGED')
+    }
+    // Earlier Core versions do not register this optional collection route.
+    // Authentication failures and service errors remain errors, not empty data.
+    if (isAxiosError(error) && error.response?.status === 404) {
+      return { success: false, supported: false, data: [] }
+    }
+    throw error
+  }
 }
 
 export async function redeemSubscriptionResetVoucher(
-  voucherId: number
+  voucherId: number,
+  scope?: CommerceScope
 ): Promise<ApiResponse<SubscriptionResetResult>> {
-  const res = await api.post(
-    `/api/subscription/self/reset-vouchers/${voucherId}/redeem`
-  )
+  if (scope && !currentCommerceScope(scope)) {
+    throw new CommerceFailure('SESSION_CHANGED')
+  }
+  const path = `/api/subscription/self/reset-vouchers/${voucherId}/redeem`
+  const res = scope
+    ? await api.post(path, undefined, {
+        authScope: scope,
+        skipAuthRefresh: true,
+      })
+    : await api.post(path)
+  if (scope && !currentCommerceScope(scope)) {
+    throw new CommerceFailure('SESSION_CHANGED')
+  }
   return res.data
 }
 

@@ -16,17 +16,25 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { useLocation } from '@tanstack/react-router'
+import { useLocation, useNavigate } from '@tanstack/react-router'
 
 import { NativeAdminUsersEntry } from '@/features/native-users/entry'
 import { NativeUsersPage } from '@/features/native-users/page'
 
 export function Users() {
   const search = useLocation({ select: (location) => location.searchStr })
+  const navigate = useNavigate()
   return (
     <NativeAdminUsersEntry>
       {(scope, recheck) => (
-        <NativeUsersPage scope={scope} recheck={recheck} search={search} />
+        <NativeUsersPage
+          scope={scope}
+          recheck={recheck}
+          search={search}
+          onQueryChange={(query) => {
+            void navigate({ to: '/users', search: query })
+          }}
+        />
       )}
     </NativeAdminUsersEntry>
   )

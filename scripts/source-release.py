@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate a source-release request against the checked-out registry dependency."""
+"""Validate a source-release request against the checked-out dependency source."""
 
 import argparse
 import json
@@ -10,6 +10,7 @@ import tomllib
 
 ROOT = Path(__file__).resolve().parents[1]
 REGISTRY = "registry+https://github.com/rust-lang/crates.io-index"
+CANONICAL_GIT = "https://github.com/LIghtJUNction/zconv.git"
 
 
 def unique(pairs):
@@ -30,14 +31,21 @@ def validate(root):
         raise ValueError("request version differs from VERSION")
     manifest = tomllib.loads((root / "services/core/Cargo.toml").read_text())
     dependency = manifest["dependencies"]["zconv"]
-    if dependency != "=" + request["zconv"] or manifest.get("patch") or manifest.get("replace"):
-        raise ValueError("Core must pin the requested registry zconv without source overrides")
+    git_dependency = {"git": CANONICAL_GIT}
+    if dependency not in ("=" + request["zconv"], git_dependency) or manifest.get("patch") or manifest.get("replace"):
+        raise ValueError("Core must declare the requested registry version or canonical Git zconv without source overrides")
     lock = tomllib.loads((root / "services/core/Cargo.lock").read_text())
     packages = [package for package in lock["package"] if package["name"] == "zconv"]
     if len(packages) != 1:
         raise ValueError("expected one resolved zconv package")
     package = packages[0]
-    if package["version"] != request["zconv"] or package.get("source") != REGISTRY or not re.fullmatch(r"[a-f0-9]{64}", package.get("checksum", "")):
+    if dependency == git_dependency:
+        source = package.get("source")
+        if (package["version"] != request["zconv"] or "checksum" in package
+                or not isinstance(source, str)
+                or not re.fullmatch(r"git\+" + re.escape(CANONICAL_GIT) + r"#[0-9a-f]{40}", source)):
+            raise ValueError("lockfile must resolve an exact canonical Git zconv commit without checksum")
+    elif package["version"] != request["zconv"] or package.get("source") != REGISTRY or not re.fullmatch(r"[a-f0-9]{64}", package.get("checksum", "")):
         raise ValueError("lockfile must resolve the exact registry zconv archive")
     return request
 

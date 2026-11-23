@@ -164,8 +164,33 @@ pub(super) async fn budgets(c: &mut PgConnection, charge: &Charge, total: i64) -
             return Err(Error::Storage);
         }
     } else if charge.key_id.is_none() {
-        let allowed: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM core_charging.requests r JOIN core_assistant.grants g ON g.id=r.assistant_grant_id JOIN core_assistant.conversations v ON v.id=g.conversation_id WHERE r.id=$1 AND r.actor_user_id=$2 AND r.owner_account_id=$3 AND ((r.payer_account_id=$3 AND r.assistant_sponsor_account_id IS NULL AND (g.policy->'sponsor') IS NOT DISTINCT FROM 'null'::jsonb) OR (r.payer_account_id=r.assistant_sponsor_account_id AND r.payer_account_id=(g.policy#>>'{sponsor,treasury_account_id}')::bigint)) AND v.owner_user_id=$2 AND v.owner_account_id=$3 AND r.price=g.price AND $4::bigint <= (g.policy->>'budget_credits')::bigint)")
-            .bind(&charge.id).bind(charge.actor_user_id).bind(charge.owner_account_id).bind(total).fetch_one(&mut *c).await?;
+        let allowed: bool = sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM core_charging.requests r
+             JOIN core_assistant.grants g ON g.id=r.assistant_grant_id
+             JOIN core_assistant.conversations v ON v.id=g.conversation_id
+             WHERE r.id=$1 AND r.actor_user_id=$2 AND r.owner_account_id=$3 AND (
+               (r.payer_account_id=$3 AND r.assistant_sponsor_account_id IS NULL
+                AND coalesce(g.policy->'sponsor','null'::jsonb)='null'::jsonb
+                AND coalesce(g.policy->'service_funding','null'::jsonb)='null'::jsonb)
+               OR (r.payer_account_id=r.assistant_sponsor_account_id
+                AND coalesce(g.policy->'service_funding','null'::jsonb)='null'::jsonb
+                AND r.payer_account_id=(g.policy#>>'{sponsor,treasury_account_id}')::bigint)
+               OR (r.payer_account_id=r.assistant_sponsor_account_id
+                AND coalesce(g.policy->'sponsor','null'::jsonb)='null'::jsonb
+                AND r.payer_account_id=(g.policy#>>'{service_funding,payer_account_id}')::bigint
+                AND EXISTS(SELECT 1 FROM core_identity.users u
+                    JOIN core_identity.accounts a ON a.id=u.personal_account_id
+                    WHERE u.id=(g.policy#>>'{service_funding,payer_user_id}')::bigint
+                      AND a.id=r.payer_account_id AND a.kind='personal')))
+               AND v.owner_user_id=$2 AND v.owner_account_id=$3 AND r.price=g.price
+               AND $4::bigint <= (g.policy->>'budget_credits')::bigint)",
+        )
+        .bind(&charge.id)
+        .bind(charge.actor_user_id)
+        .bind(charge.owner_account_id)
+        .bind(total)
+        .fetch_one(&mut *c)
+        .await?;
         if !allowed {
             return Err(Error::Storage);
         }
@@ -380,10 +405,8 @@ pub(super) async fn entitlement(
     let limit: i64 = grant.try_get("limit_credits")?;
     let unlimited: bool = grant.try_get("unlimited")?;
     let fits: bool = sqlx::query_scalar(
-        "SELECT $6::boolean OR ((SELECT coalesce(sum(core_charging.committed_credits(state,reserved,settled,refunded)),0) \
-         FROM core_charging.requests WHERE source_subscription_id=$1 AND source_start=$2 AND id<>$3) \
-         + coalesce((SELECT consumed_credits FROM core_charging.subscription_opening_consumption \
-                     WHERE subscription_id=$1 AND start_at=$2),0) + $4::bigint <= $5::bigint)",
+        "SELECT $6::boolean OR (used_credits+reserved_credits+$4::bigint<=$5::bigint) \
+         FROM core_charging.subscription_consumption($1,$2,$3)",
     )
     .bind(id)
     .bind(start)

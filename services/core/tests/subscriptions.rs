@@ -20,6 +20,8 @@ use std::sync::Arc;
 mod admin;
 #[path = "subscriptions/owner_price.rs"]
 mod owner_price;
+#[path = "subscriptions/reset.rs"]
+mod reset;
 #[path = "common/runtime.rs"]
 mod runtime;
 

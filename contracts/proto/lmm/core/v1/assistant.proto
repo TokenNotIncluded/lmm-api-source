@@ -30,11 +30,14 @@ service CoreAssistantModel {
 }
 message GetAssistantBusinessFactsRequest {
   AssistantBusinessFactKind kind = 1;
+  int64 target_user_id = 2; // Zero for self-scoped facts; nonzero is never an actor.
 }
 enum AssistantBusinessFactKind {
   ASSISTANT_BUSINESS_FACT_KIND_UNSPECIFIED = 0;
   ASSISTANT_BUSINESS_FACT_KIND_AVAILABLE_MODELS = 1;
   ASSISTANT_BUSINESS_FACT_KIND_SUPPORT_ELIGIBILITY = 2;
+  ASSISTANT_BUSINESS_FACT_KIND_PLAN_OFFERS = 3;
+  ASSISTANT_BUSINESS_FACT_KIND_INVITATION_REWARDS = 4;
 }
 message GetAssistantBusinessFactsResponse {
   bytes facts_json = 1; // Closed Core-owned projection, never financial authority.

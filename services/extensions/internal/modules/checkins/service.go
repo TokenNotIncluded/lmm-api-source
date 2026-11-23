@@ -32,6 +32,9 @@ func New(ctx context.Context, db *sql.DB, ledger Ledger) (*Service, error) {
 	if e := db.QueryRowContext(ctx, "SELECT version FROM lmm_checkins.contract WHERE singleton").Scan(&version); e != nil || version != 1 {
 		return nil, ErrUnavailable
 	}
+	if e := db.QueryRowContext(ctx, "SELECT version FROM lmm_checkins.legacy_history_contract WHERE singleton").Scan(&version); e != nil || version != 1 {
+		return nil, ErrUnavailable
+	}
 	return &Service{db, ledger}, nil
 }
 func (s *Service) begin(ctx context.Context) (*sql.Tx, error) {
@@ -108,7 +111,16 @@ func (s *Service) Status(ctx context.Context, user, month string) (Status, error
 		result.Enabled = !a.Blocked
 		result.RewardRange = &r
 	}
-	rows, e := tx.QueryContext(ctx, "SELECT record FROM lmm_checkins.intentions WHERE account_id=$1 AND left(day::text,7)=$2 AND state='settled' ORDER BY day DESC", a.AccountID, month)
+	var ownerMismatch bool
+	if tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT FROM lmm_checkins.legacy_history
+ WHERE (target_user_id=$1 OR target_personal_account_id=$2)
+ AND (target_user_id<>$1 OR target_personal_account_id<>$2))`, a.UserID, a.AccountID).Scan(&ownerMismatch) != nil || ownerMismatch {
+		return Status{}, ErrUnavailable
+	}
+	rows, e := tx.QueryContext(ctx, `SELECT record FROM (
+ SELECT day,record FROM lmm_checkins.intentions WHERE account_id=$1 AND state='settled'
+ UNION ALL SELECT day,`+legacyDailyRecordSQL+` FROM lmm_checkins.legacy_history WHERE target_personal_account_id=$1 AND target_user_id=$3
+ ) records WHERE left(day::text,7)=$2 ORDER BY day DESC`, a.AccountID, month, a.UserID)
 	if e != nil {
 		return Status{}, ErrUnavailable
 	}
@@ -140,7 +152,18 @@ func (s *Service) Status(ctx context.Context, user, month string) (Status, error
 	} else if !errors.Is(e, sql.ErrNoRows) {
 		return Status{}, ErrUnavailable
 	}
-	if tx.QueryRowContext(ctx, "SELECT count(*)::bigint,coalesce(sum(amount_units::numeric),0)::text FROM lmm_checkins.intentions WHERE account_id=$1 AND state='settled'", a.AccountID).Scan(&result.TotalCheckins, &result.TotalQuotaAwarded) != nil {
+	historical, historyError := loadLegacyHistory(ctx, tx, a.UserID, a.AccountID, a.Day)
+	if historyError != nil || historical != nil && e == nil {
+		return Status{}, ErrUnavailable
+	}
+	if historical != nil {
+		result.TodayRecord = historical
+		result.CheckedInToday = true
+	}
+	if tx.QueryRowContext(ctx, `SELECT count(*)::bigint,coalesce(sum(amount_units::numeric),0)::text FROM (
+ SELECT amount_units FROM lmm_checkins.intentions WHERE account_id=$1 AND state='settled'
+ UNION ALL SELECT amount_units FROM lmm_checkins.legacy_history WHERE target_personal_account_id=$1 AND target_user_id=$2
+ ) records`, a.AccountID, a.UserID).Scan(&result.TotalCheckins, &result.TotalQuotaAwarded) != nil {
 		return Status{}, ErrUnavailable
 	}
 	if tx.Commit() != nil {
@@ -170,6 +193,13 @@ func (s *Service) Challenge(ctx context.Context, user, key string) (Challenge, e
 		return Challenge{}, e
 	}
 	defer tx.Rollback()
+	historical, e := loadLegacyHistory(ctx, tx, a.UserID, a.AccountID, a.Day)
+	if e != nil {
+		return Challenge{}, e
+	}
+	if historical != nil {
+		return Challenge{}, ErrConflict
+	}
 	var commandDay string
 	e = tx.QueryRowContext(ctx, "SELECT day::text FROM lmm_checkins.claim_commands WHERE user_id=$1 AND operation_key=$2", a.UserID, key).Scan(&commandDay)
 	if e == nil && commandDay != a.Day {
@@ -351,6 +381,19 @@ func (s *Service) prepareClaim(ctx context.Context, a Authority, key string, aut
 		return intention{}, nil, ErrUnavailable
 	}
 	commandExists := e == nil
+	historical, e := loadLegacyHistory(ctx, tx, a.UserID, a.AccountID, date)
+	if e != nil {
+		return intention{}, nil, e
+	}
+	if historical != nil {
+		if commandExists {
+			return intention{}, nil, ErrConflict
+		}
+		if tx.Commit() != nil {
+			return intention{}, nil, ErrUnavailable
+		}
+		return intention{}, &ClaimResult{AlreadyClaimed: true, Record: *historical}, nil
+	}
 	i, e := loadIntention(ctx, tx, a.AccountID, date)
 	if errors.Is(e, sql.ErrNoRows) {
 		if commandExists {
@@ -432,4 +475,26 @@ func storedClaimResult(result ClaimResult, record json.RawMessage) ([]byte, erro
 		AlreadyClaimed bool            `json:"already_claimed"`
 		Record         json.RawMessage `json:"record"`
 	}{result.AlreadyClaimed, record})
+}
+
+// PublicConfiguration reads the same validated policy used by Status. It does
+// not touch intentions, challenges, historical rewards, or the Core ledger.
+func (s *Service) PublicConfiguration(ctx context.Context) (PublishedConfiguration, error) {
+	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+	if err != nil {
+		return PublishedConfiguration{}, ErrUnavailable
+	}
+	defer tx.Rollback()
+	p, revision, err := loadPolicy(ctx, tx)
+	if err != nil {
+		return PublishedConfiguration{}, err
+	}
+	result, err := publicConfiguration(p, revision)
+	if err != nil {
+		return PublishedConfiguration{}, err
+	}
+	if tx.Commit() != nil {
+		return PublishedConfiguration{}, ErrUnavailable
+	}
+	return result, nil
 }

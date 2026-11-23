@@ -35,6 +35,7 @@ const (
 	CorePayments_ApplyExternalRefund_FullMethodName       = "/lmm.core.v1.CorePayments/ApplyExternalRefund"
 	CorePayments_GetPaymentReceipt_FullMethodName         = "/lmm.core.v1.CorePayments/GetPaymentReceipt"
 	CorePayments_GetEPayConfiguration_FullMethodName      = "/lmm.core.v1.CorePayments/GetEPayConfiguration"
+	CorePayments_GetTopupConfiguration_FullMethodName     = "/lmm.core.v1.CorePayments/GetTopupConfiguration"
 )
 
 // CorePaymentsClient is the client API for CorePayments service.
@@ -66,6 +67,9 @@ type CorePaymentsClient interface {
 	ApplyExternalRefund(ctx context.Context, in *ExternalRefundRequest, opts ...grpc.CallOption) (*PaymentReceipt, error)
 	GetPaymentReceipt(ctx context.Context, in *GetPaymentReceiptRequest, opts ...grpc.CallOption) (*PaymentReceipt, error)
 	GetEPayConfiguration(ctx context.Context, in *GetEPayConfigurationRequest, opts ...grpc.CallOption) (*EPayConfiguration, error)
+	// Read-only admission policy; requires the service's read_user grant.
+	// No user order is created and no provider health or payment is asserted.
+	GetTopupConfiguration(ctx context.Context, in *GetTopupConfigurationRequest, opts ...grpc.CallOption) (*TopupConfiguration, error)
 }
 
 type corePaymentsClient struct {
@@ -236,6 +240,16 @@ func (c *corePaymentsClient) GetEPayConfiguration(ctx context.Context, in *GetEP
 	return out, nil
 }
 
+func (c *corePaymentsClient) GetTopupConfiguration(ctx context.Context, in *GetTopupConfigurationRequest, opts ...grpc.CallOption) (*TopupConfiguration, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(TopupConfiguration)
+	err := c.cc.Invoke(ctx, CorePayments_GetTopupConfiguration_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // CorePaymentsServer is the server API for CorePayments service.
 // All implementations must embed UnimplementedCorePaymentsServer
 // for forward compatibility.
@@ -265,6 +279,9 @@ type CorePaymentsServer interface {
 	ApplyExternalRefund(context.Context, *ExternalRefundRequest) (*PaymentReceipt, error)
 	GetPaymentReceipt(context.Context, *GetPaymentReceiptRequest) (*PaymentReceipt, error)
 	GetEPayConfiguration(context.Context, *GetEPayConfigurationRequest) (*EPayConfiguration, error)
+	// Read-only admission policy; requires the service's read_user grant.
+	// No user order is created and no provider health or payment is asserted.
+	GetTopupConfiguration(context.Context, *GetTopupConfigurationRequest) (*TopupConfiguration, error)
 	mustEmbedUnimplementedCorePaymentsServer()
 }
 
@@ -322,6 +339,9 @@ func (UnimplementedCorePaymentsServer) GetPaymentReceipt(context.Context, *GetPa
 }
 func (UnimplementedCorePaymentsServer) GetEPayConfiguration(context.Context, *GetEPayConfigurationRequest) (*EPayConfiguration, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetEPayConfiguration not implemented")
+}
+func (UnimplementedCorePaymentsServer) GetTopupConfiguration(context.Context, *GetTopupConfigurationRequest) (*TopupConfiguration, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetTopupConfiguration not implemented")
 }
 func (UnimplementedCorePaymentsServer) mustEmbedUnimplementedCorePaymentsServer() {}
 func (UnimplementedCorePaymentsServer) testEmbeddedByValue()                      {}
@@ -632,6 +652,24 @@ func _CorePayments_GetEPayConfiguration_Handler(srv interface{}, ctx context.Con
 	return interceptor(ctx, in, info, handler)
 }
 
+func _CorePayments_GetTopupConfiguration_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetTopupConfigurationRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(CorePaymentsServer).GetTopupConfiguration(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: CorePayments_GetTopupConfiguration_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(CorePaymentsServer).GetTopupConfiguration(ctx, req.(*GetTopupConfigurationRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // CorePayments_ServiceDesc is the grpc.ServiceDesc for CorePayments service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -702,6 +740,10 @@ var CorePayments_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "GetEPayConfiguration",
 			Handler:    _CorePayments_GetEPayConfiguration_Handler,
+		},
+		{
+			MethodName: "GetTopupConfiguration",
+			Handler:    _CorePayments_GetTopupConfiguration_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

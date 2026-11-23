@@ -9,7 +9,10 @@ the Free Software Foundation, either version 3 of the License, or
 import assert from 'node:assert/strict'
 import { afterEach, describe, test } from 'node:test'
 
+import { AxiosError, AxiosHeaders } from 'axios'
+
 import { api } from '@/lib/api'
+import { useAuthStore } from '@/stores/auth-store'
 
 import {
   executeSubscriptionReset,
@@ -133,4 +136,119 @@ test('EPay returns only the response payload and never recovers a wrapper checko
     (await paySubscriptionEpay({ plan_id: 7, payment_method: 'alipay' })).url,
     undefined
   )
+})
+
+test('native reset voucher reads and writes retain the original account and session scope', async () => {
+  const originalAuth = useAuthStore.getState().auth
+  const login = (id: number, sid: string) =>
+    useAuthStore.getState().auth.setBundle({
+      user: { id, role: 1, username: 'synthetic-voucher-user' },
+      access_token: 'synthetic-voucher-session',
+      token_type: 'Bearer',
+      access_expires_at: 9999999999,
+      session: {
+        sid,
+        current: true,
+        login_method: 'password',
+        ip: null,
+        user_agent: null,
+        created_at: 1,
+        last_active_at: 1,
+        expires_at: 9999999999,
+      },
+    })
+  let release!: () => void
+  const delayed = new Promise<void>((resolve) => {
+    release = resolve
+  })
+  const scope = { userId: 7, sessionId: 'voucher-session-a' }
+  let posts = 0
+  try {
+    login(scope.userId, scope.sessionId)
+    api.get = (async (_url, config) => {
+      assert.deepEqual(config?.authScope, scope)
+      assert.equal(config?.skipAuthRefresh, true)
+      await delayed
+      return { data: { success: true, data: [] } }
+    }) as typeof api.get
+    const pending = getSubscriptionResetVouchers(scope)
+    login(8, 'voucher-session-b')
+    release()
+    await assert.rejects(pending, /SESSION_CHANGED/)
+    api.post = (async (_url, _body, config) => {
+      posts++
+      assert.deepEqual(config?.authScope, {
+        userId: 8,
+        sessionId: 'voucher-session-b',
+      })
+      assert.equal(config?.skipAuthRefresh, true)
+      return {
+        data: { success: true, data: { reset_count: 1, restored_quota: 100 } },
+      }
+    }) as typeof api.post
+    await assert.rejects(
+      redeemSubscriptionResetVoucher(81, scope),
+      /SESSION_CHANGED/
+    )
+    assert.equal(posts, 0, 'a stale confirmation must not send a mutation')
+    await redeemSubscriptionResetVoucher(82, {
+      userId: 8,
+      sessionId: 'voucher-session-b',
+    })
+    assert.equal(posts, 1)
+  } finally {
+    release()
+    useAuthStore.setState({ auth: originalAuth })
+  }
+})
+
+function voucherReadFailure(status: number) {
+  const config = {
+    headers: new AxiosHeaders(),
+    url: '/api/subscription/self/reset-vouchers',
+    method: 'get',
+  }
+  return new AxiosError(
+    'Synthetic voucher response',
+    'ERR_BAD_RESPONSE',
+    config,
+    undefined,
+    {
+      config,
+      status,
+      statusText: String(status),
+      headers: {},
+      data: '',
+    }
+  )
+}
+
+test('a missing reset voucher collection is explicitly unsupported and suppresses the global request error', async () => {
+  const calls: unknown[][] = []
+  api.get = (async (...args: unknown[]) => {
+    calls.push(args)
+    throw voucherReadFailure(404)
+  }) as typeof api.get
+
+  assert.deepEqual(await getSubscriptionResetVouchers(), {
+    success: false,
+    supported: false,
+    data: [],
+  })
+  assert.deepEqual(calls, [
+    ['/api/subscription/self/reset-vouchers', { skipErrorHandler: true }],
+  ])
+})
+
+test('voucher authentication and service errors are never converted to unsupported or empty data', async () => {
+  for (const status of [401, 403, 429, 500]) {
+    const failure = voucherReadFailure(status)
+    api.get = (async () => {
+      throw failure
+    }) as typeof api.get
+    await assert.rejects(
+      getSubscriptionResetVouchers(),
+      (error) => error === failure
+    )
+  }
 })

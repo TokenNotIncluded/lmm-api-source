@@ -947,6 +947,127 @@ async fn tcp_parallel_flow_responses_do_not_replace_or_clear_another_tabs_cookie
 }
 
 #[sqlx::test(migrations = false)]
+async fn tcp_single_family_revocation_preserves_other_family_and_rejects_all_own_tokens(
+    pool: PgPool,
+) {
+    with_http(pool, |f| async move {
+        let first = tokens(&f).await;
+        let other = tokens(&f).await;
+        let first_access = first["access_token"].as_str().unwrap();
+        let first_refresh = first["refresh_token"].as_str().unwrap();
+        let other_access = other["access_token"].as_str().unwrap();
+        let family: String =
+            sqlx::query_scalar("SELECT family_id FROM core_oauth.access_tokens WHERE digest=$1")
+                .bind(Sha256::digest(first_access.as_bytes()).to_vec())
+                .fetch_one(&f.owner)
+                .await
+                .unwrap();
+        let other_family: String =
+            sqlx::query_scalar("SELECT family_id FROM core_oauth.access_tokens WHERE digest=$1")
+                .bind(Sha256::digest(other_access.as_bytes()).to_vec())
+                .fetch_one(&f.owner)
+                .await
+                .unwrap();
+        assert_ne!(family, other_family);
+        assert_eq!(family.len(), "lmm_gr_".len() + 64);
+        assert!(
+            family["lmm_gr_".len()..]
+                .bytes()
+                .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+        );
+        let rotated = token_request(&f, refresh_body(first_refresh)).await;
+        security(&rotated, StatusCode::OK);
+        let rotated: Value = rotated.json().await.unwrap();
+        let state_sql = "SELECT jsonb_build_object(
+            'family',(SELECT to_jsonb(g) FROM core_oauth.families g WHERE g.id=$1),
+            'access',(SELECT coalesce(jsonb_agg(to_jsonb(a) ORDER BY a.id),'[]'::jsonb)
+                FROM core_oauth.access_tokens a WHERE a.family_id=$1),
+            'refresh',(SELECT coalesce(jsonb_agg(to_jsonb(r) ORDER BY r.digest),'[]'::jsonb)
+                FROM core_oauth.refresh_tokens r WHERE r.family_id=$1))";
+        let other_before: Value = sqlx::query_scalar(state_sql)
+            .bind(&other_family)
+            .fetch_one(&f.owner)
+            .await
+            .unwrap();
+        let endpoint = f.url(&format!("/api/user/auth/oauth2/grants/{family}"));
+        for request in [
+            f.client
+                .delete(&endpoint)
+                .bearer_auth(first_access)
+                .header(header::ORIGIN, ISSUER),
+            f.client
+                .delete(&endpoint)
+                .header(header::COOKIE, f.browser_cookie())
+                .header(header::ORIGIN, "https://wrong.example.test"),
+        ] {
+            assert!(!request.send().await.unwrap().status().is_success());
+        }
+        let active: i64 =
+            sqlx::query_scalar("SELECT count(*) FROM core_oauth.families WHERE revoked_at IS NULL")
+                .fetch_one(&f.owner)
+                .await
+                .unwrap();
+        assert_eq!(active, 2);
+        let response = f
+            .client
+            .delete(&endpoint)
+            .header(header::COOKIE, f.browser_cookie())
+            .header(header::ORIGIN, ISSUER)
+            .send()
+            .await
+            .unwrap();
+        security(&response, StatusCode::OK);
+        let response: Value = response.json().await.unwrap();
+        assert_eq!(response["success"], true);
+        let revoked: bool = sqlx::query_scalar(
+            "SELECT revoked_at IS NOT NULL FROM core_oauth.families WHERE id=$1",
+        )
+        .bind(&family)
+        .fetch_one(&f.owner)
+        .await
+        .unwrap();
+        assert!(revoked);
+        for token in [&first, &rotated] {
+            let response = f
+                .client
+                .get(f.url("/api/oauth2/balance"))
+                .bearer_auth(token["access_token"].as_str().unwrap())
+                .send()
+                .await
+                .unwrap();
+            security(&response, StatusCode::UNAUTHORIZED);
+            let response =
+                token_request(&f, refresh_body(token["refresh_token"].as_str().unwrap())).await;
+            security(&response, StatusCode::BAD_REQUEST);
+        }
+        let other_after: Value = sqlx::query_scalar(state_sql)
+            .bind(&other_family)
+            .fetch_one(&f.owner)
+            .await
+            .unwrap();
+        assert_eq!(other_after, other_before);
+        let response = f
+            .client
+            .get(f.url("/api/oauth2/balance"))
+            .bearer_auth(other_access)
+            .send()
+            .await
+            .unwrap();
+        security(&response, StatusCode::OK);
+        let response =
+            token_request(&f, refresh_body(other["refresh_token"].as_str().unwrap())).await;
+        security(&response, StatusCode::OK);
+        let active: i64 =
+            sqlx::query_scalar("SELECT count(*) FROM core_oauth.families WHERE revoked_at IS NULL")
+                .fetch_one(&f.owner)
+                .await
+                .unwrap();
+        assert_eq!(active, 1);
+    })
+    .await;
+}
+
+#[sqlx::test(migrations = false)]
 async fn tcp_client_revocation_is_session_bound_and_revokes_all_generations(pool: PgPool) {
     with_http(pool, |f| async move {
         let first = tokens(&f).await;

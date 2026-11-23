@@ -267,6 +267,19 @@ GRANT USAGE ON SEQUENCE core_abuse.audit_id_seq TO {name};
             sqlx::raw_sql(sqlx::AssertSqlSafe(format!("GRANT USAGE ON SCHEMA core_gift TO {0}; GRANT SELECT ON core_gift.risk_key,core_gift.policy,core_gift.qualifications TO {0}; GRANT INSERT ON core_gift.qualifications TO {0}; GRANT EXECUTE ON FUNCTION core_gift.lock_eligibility(bigint) TO {0}",name)))
                 .execute(owner).await.unwrap();
         }
+        let legacy_gift_installed: bool =
+            sqlx::query_scalar("SELECT to_regclass('core_gift.legacy_installations') IS NOT NULL")
+                .fetch_one(owner)
+                .await
+                .unwrap();
+        if legacy_gift_installed {
+            let sql = include_str!("../../schema/gift_legacy_continuation_grants.sql")
+                .replace(":\"runtime_role\"", &name);
+            sqlx::raw_sql(sqlx::AssertSqlSafe(sql))
+                .execute(owner)
+                .await
+                .unwrap();
+        }
         let telegram_installed: bool = sqlx::query_scalar(
             "SELECT count(*)=3 FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='core_telegram_auth' AND c.relkind='r' AND c.relname IN ('bindings','flows','assertions')",
         ).fetch_one(owner).await.unwrap();
@@ -323,6 +336,28 @@ GRANT USAGE ON SEQUENCE core_abuse.audit_id_seq TO {name};
     }
     #[allow(dead_code)] // Importers with only the base grants do not call this.
     pub async fn optional(&self, schema: &str) {
+        if matches!(schema, "core_charging" | "core_tool_market") {
+            let installed: bool = sqlx::query_scalar(
+                "SELECT to_regclass('core_charging.subscription_request_resets') IS NOT NULL",
+            )
+            .fetch_one(&self.owner)
+            .await
+            .unwrap();
+            if installed {
+                let sql = include_str!("../../../../deployment/postgres/grant-core-runtime.sql")
+                    .split_once("-- BEGIN subscription-reset charging runtime grants\n")
+                    .unwrap()
+                    .1
+                    .split_once("-- END subscription-reset charging runtime grants")
+                    .unwrap()
+                    .0
+                    .replace(":\"runtime_role\"", &self.name);
+                sqlx::raw_sql(sqlx::AssertSqlSafe(sql))
+                    .execute(&self.owner)
+                    .await
+                    .unwrap();
+            }
+        }
         let fragments: &[&str] = match schema {
             "core_subscriptions" => &["subscriptions"],
             "core_promotions" => &["promotions"],
@@ -358,7 +393,7 @@ GRANT USAGE ON SEQUENCE core_abuse.audit_id_seq TO {name};
                 let script = include_str!("../../../../deployment/postgres/grant-core-runtime.sql");
                 let begin = format!("-- BEGIN {fragment} runtime grants\n");
                 let end = format!("-- END {fragment} runtime grants");
-                let sql = script
+                let mut sql = script
                     .split_once(&begin)
                     .unwrap()
                     .1
@@ -366,6 +401,26 @@ GRANT USAGE ON SEQUENCE core_abuse.audit_id_seq TO {name};
                     .unwrap()
                     .0
                     .replace(":\"runtime_role\"", &self.name);
+                // Some tests deliberately install the older, partial
+                // promotions component. Current full installs require all
+                // continuation grants; only those historical fixtures omit it.
+                if *fragment == "promotions" {
+                    let continuation: bool = sqlx::query_scalar(
+                        "SELECT to_regclass('core_promotions.legacy_red_packet_bases') IS NOT NULL",
+                    )
+                    .fetch_one(&self.owner)
+                    .await
+                    .unwrap();
+                    if !continuation {
+                        let (before, rest) = sql
+                            .split_once("-- BEGIN legacy-packet-continuity runtime grants\n")
+                            .unwrap();
+                        let (_, after) = rest
+                            .split_once("-- END legacy-packet-continuity runtime grants\n")
+                            .unwrap();
+                        sql = format!("{before}{after}");
+                    }
+                }
                 sqlx::raw_sql(sqlx::AssertSqlSafe::<&str>(&sql))
                     .execute(&self.owner)
                     .await
@@ -512,7 +567,7 @@ GRANT USAGE ON SEQUENCE core_abuse.audit_id_seq TO {name};
                 self.name
             ),
             "core_assistant_tools" => format!(
-                "GRANT USAGE ON SCHEMA core_assistant_tools,core_payments,core_humangrant TO {0}; GRANT SELECT,UPDATE(revision) ON core_humangrant.human_grant_gate TO {0}; GRANT SELECT ON core_payments.intents,core_payments.accepted_proofs,core_payments.refund_holds,core_payments.blocked_refunds TO {0}; GRANT SELECT,INSERT ON core_assistant_tools.confirmations TO {0}; GRANT UPDATE(nonce_sha256,state,confirmed_at) ON core_assistant_tools.confirmations TO {0}",
+                "GRANT USAGE ON SCHEMA core_assistant_tools,core_payments,core_humangrant TO {0}; GRANT SELECT,UPDATE(revision) ON core_humangrant.human_grant_gate TO {0}; GRANT SELECT ON core_payments.intents,core_payments.accepted_proofs,core_payments.refund_holds,core_payments.blocked_refunds TO {0}; GRANT SELECT,INSERT ON core_assistant_tools.confirmations TO {0}; GRANT UPDATE(nonce_sha256,state,confirmed_at,execution_receipt,execution_sha256,executed_at) ON core_assistant_tools.confirmations TO {0}; GRANT SELECT,INSERT ON core_assistant_tools.key_creation_cards TO {0}; GRANT UPDATE(nonce_sha256,ciphertext,consumed_at) ON core_assistant_tools.key_creation_cards TO {0}; GRANT EXECUTE ON FUNCTION core_assistant_tools.market_confirmation_bound(TEXT) TO {0}",
                 self.name
             ),
             "core_assistant" => format!(

@@ -129,7 +129,12 @@ func assistantSSE(w http.ResponseWriter, r *http.Request, run func(func(assistan
 			assistantChatRespond(w, reply, nil)
 			return
 		}
-		_ = send("error", map[string]any{"status": 202, "message": "Assistant operation is pending; inspect the original turn.", "retryable": false, "data": reply})
+		body := map[string]any{"status": 202, "success": false, "code": "ASSISTANT_OPERATION_PENDING", "message": "Assistant operation is pending; inspect the original turn.", "retryable": false, "data": reply}
+		if reply.State == "tools_pending" && reply.InvitationConfirmation != nil {
+			body["code"] = "ASSISTANT_INVITATION_CONFIRMATION_PENDING"
+			body["lmm_assistant_invitation"] = reply.InvitationConfirmation
+		}
+		_ = send("error", body)
 		return
 	}
 	_ = send("done", assistantChatSuccessBody(reply))

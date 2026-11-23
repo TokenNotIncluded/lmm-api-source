@@ -21,6 +21,9 @@ func (s *Service) dispatch(ctx context.Context, tx *sql.Tx, in assistant.AgentIn
 		}
 		return result(in.Call.OperationID, state, value, "service:"+in.Call.OperationID)
 	}
+	if out, handled, err := s.invitationTool(ctx, tx, in, p, session); handled {
+		return out, err
+	}
 	if out, handled, err := s.issueTool(ctx, tx, in, p, session); handled {
 		return out, err
 	}
@@ -45,6 +48,31 @@ func (s *Service) dispatch(ctx context.Context, tx *sql.Tx, in assistant.AgentIn
 		}
 	}
 	switch in.Call.Scope.Name {
+	case "get_plan_offers":
+		var input struct{}
+		if decode(in.Call.Arguments, &input) != nil {
+			return assistant.AgentToolResult{}, access.ErrInvalid
+		}
+		if access.Missing(s.dependencies.PlanOffers) {
+			return assistant.AgentToolResult{}, access.ErrUnavailable
+		}
+		raw, err := s.dependencies.PlanOffers.PlanOffers(ctx, in.Credential)
+		if err != nil {
+			return assistant.AgentToolResult{}, err
+		}
+		var value map[string]any
+		if decodeFacts(raw, &value) != nil {
+			return assistant.AgentToolResult{}, access.ErrUnavailable
+		}
+		return result(in.Call.OperationID, assistant.AgentToolSucceeded, value, "service:"+in.Call.OperationID)
+	case "calculate_cost":
+		value, err := calculateCost(in.Call.Arguments)
+		if err != nil {
+			return assistant.AgentToolResult{}, err
+		}
+		return result(in.Call.OperationID, assistant.AgentToolSucceeded, value, "service:"+in.Call.OperationID)
+	case "get_ui_preference_options", "set_ui_preferences", "restore_ui_preferences":
+		return s.uiPreferenceTool(in)
 	case "get_service_facts":
 		var input struct{}
 		if decode(in.Call.Arguments, &input) != nil {

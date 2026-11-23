@@ -78,7 +78,7 @@ func pancakeManagementDocumentFixture(t *testing.T, document multiPaymentDocumen
 	if err != nil {
 		t.Fatal(err)
 	}
-	admin, err := newPancakeAdministration(path, wallet, nil)
+	admin, err := newPancakeAdministration(path, wallet, nil, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -152,6 +152,14 @@ func TestPancakeManagementReadbackOmitsSecretsAndDetectsExternalEdits(t *testing
 		t.Fatal(err)
 	}
 	view := value.(pancakeConfiguration)
+	if view.CallbacksEnabled {
+		t.Fatal("disabled callback ingress reported as enabled")
+	}
+	admin.callbacksEnabled = true
+	enabled, err := admin.Configuration(context.Background())
+	if err != nil || !enabled.(pancakeConfiguration).CallbacksEnabled {
+		t.Fatal("enabled callback ingress missing from configuration", err)
+	}
 	if view.Contract != "extensions.pancake-configuration.v1" || !view.PrivateKeyConfigured || view.MerchantID != admin.document.Channels[0].Merchant || view.ReturnURL != "https://example.test/old" || len(view.Channels) != 2 || quotes.next != 0 {
 		t.Fatal("incomplete or mutating configuration projection")
 	}

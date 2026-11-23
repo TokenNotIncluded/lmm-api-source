@@ -15,6 +15,7 @@ from pathlib import Path
 import re
 import secrets
 import signal
+import stat
 import subprocess
 import sys
 import time
@@ -70,6 +71,17 @@ def env():
     return result
 
 
+def target_directory(candidate):
+    target = candidate if candidate is not None else v.REPO / "services/core/target"
+    if not target.is_absolute():
+        raise FixtureError("unsafe Core target directory")
+    info = target.lstat()
+    if (target.resolve() != target or not stat.S_ISDIR(info.st_mode)
+            or info.st_uid != os.geteuid() or info.st_mode & 0o022):
+        raise FixtureError("unsafe Core target directory")
+    return target
+
+
 # @mark model.resource-acceptance role=runner
 def prepare(args):
     private_directory(args.output)
@@ -87,10 +99,7 @@ def prepare(args):
         raise FixtureError("release build/source binding does not match current product")
     if (args.output / "prepared.json").exists():
         raise FixtureError("prepare is one-shot; preserve the previous output")
-    target = v.REPO / "services/core/target"
-    info = target.lstat()
-    if target.resolve() != target or info.st_uid != os.geteuid() or info.st_mode & 0o022:
-        raise FixtureError("unsafe standard Core target")
+    target = target_directory(args.target_dir)
     pin = v.tomllib.loads((v.REPO / "services/core/rust-toolchain.toml").read_text())["toolchain"]["channel"]
     mise_pin = v.tomllib.loads((v.REPO / "mise.toml").read_text())["tools"]["rust"]["version"]
     if pin != "1.100.0" or mise_pin != pin:
@@ -316,6 +325,8 @@ def main():
     prep = modes.add_parser("prepare")
     for name in ("output","resource","requests","core-binary","source-binding","build-receipt"):
         prep.add_argument("--"+name, type=Path, required=True)
+    prep.add_argument("--target-dir", type=Path,
+                      help="existing absolute owned target directory without symlinks; defaults to services/core/target")
     execute = modes.add_parser("run")
     execute.add_argument("--output", type=Path, required=True)
     execute.add_argument("--process-root", type=Path, required=True)

@@ -67,5 +67,19 @@ func validCoreConfirmation(r *pb.AssistantToolConfirmation, operation string) bo
 	if r == nil || r.GetToolOperationId() != operation || r.GetToolVersion() != assistant.FixedMainToolVersion || r.GetExecuted() || len(r.GetSourceArgumentsSha256()) != 32 || len(r.GetNormalizedDraftSha256()) != 32 || r.GetChallengeId() == "" || len(r.GetChallengeId()) > 256 || r.GetExpiresAtUnix() <= 0 {
 		return false
 	}
-	return r.GetBrowserPath() == "/api/user/assistant/confirmations/"+r.GetChallengeId() && !strings.ContainsAny(r.GetChallengeId(), "/\\\x00\r\n")
+	return r.GetBrowserPath() == coreclient.AssistantToolConfirmationPathPrefix+r.GetChallengeId() && !strings.ContainsAny(r.GetChallengeId(), "/\\\x00\r\n")
+}
+
+// currentConfirmationBrowserPath only projects historical navigation. It does
+// not change the stored draft, create proof, or execute the confirmation.
+// New RPC acknowledgements are accepted only with the current cookie-scoped path.
+func currentConfirmationBrowserPath(stored, challenge string) (string, error) {
+	if !validSHA(challenge) {
+		return "", access.ErrUnavailable
+	}
+	current := coreclient.AssistantToolConfirmationPathPrefix + challenge
+	if stored != current && stored != "/api/user/assistant/confirmations/"+challenge {
+		return "", access.ErrUnavailable
+	}
+	return current, nil
 }

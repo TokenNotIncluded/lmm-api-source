@@ -182,7 +182,12 @@ fn every_catalog_action_uses_main_role_defaults_and_deny_precedence() {
                 },
             ];
             let result = decide(&actor(role), &policy(&conflicting), action, scope, None);
-            assert_eq!(result.allowed(), role == PlatformRole::Root);
+            let expected = if role == PlatformRole::User {
+                PermissionDecision::Deny(Denial::RoleDenied)
+            } else {
+                PermissionDecision::Deny(Denial::ExplicitDeny)
+            };
+            assert_eq!(result, expected, "role={role:?}, action={action:?}");
         }
     }
 }
@@ -258,4 +263,85 @@ fn unrelated_or_unknown_policy_rows_fail_closed_for_root_too() {
         ),
         PermissionDecision::Deny(Denial::PolicyUnavailable)
     );
+}
+
+#[test]
+fn matching_catalog_deny_precedes_defaults_without_cross_action_effects() {
+    for denied_action in Action::CATALOG {
+        let rows = [Override {
+            subject_user_id: 7,
+            action: denied_action,
+            effect: Effect::Deny,
+        }];
+        for requested_action in Action::CATALOG {
+            let scope = Scope::Platform(platform_kind(requested_action).unwrap());
+            for role in [PlatformRole::User, PlatformRole::Admin, PlatformRole::Root] {
+                let baseline = decide(&actor(role), &policy(&[]), requested_action, scope, None);
+                let expected = if role != PlatformRole::User && requested_action == denied_action {
+                    PermissionDecision::Deny(Denial::ExplicitDeny)
+                } else {
+                    baseline
+                };
+                assert_eq!(
+                    decide(&actor(role), &policy(&rows), requested_action, scope, None),
+                    expected,
+                    "role={role:?}, denied={denied_action:?}, requested={requested_action:?}"
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn catalog_deny_preserves_session_policy_and_resource_validation() {
+    for role in [PlatformRole::Admin, PlatformRole::Root] {
+        for action in Action::CATALOG {
+            let rows = [Override {
+                subject_user_id: 7,
+                action,
+                effect: Effect::Deny,
+            }];
+            let scope = Scope::Platform(platform_kind(action).unwrap());
+            let current = actor(role);
+            assert_eq!(
+                decide(&current, &policy(&rows), Action::Unknown, scope, None),
+                PermissionDecision::Deny(Denial::UnknownAction)
+            );
+            for wrong in [
+                Scope::Empty,
+                Scope::Platform(PlatformResource::PermissionCatalog),
+            ] {
+                assert_eq!(
+                    decide(&current, &policy(&rows), action, wrong, None),
+                    PermissionDecision::Deny(Denial::InvalidScope)
+                );
+            }
+            for credential in [Credential::ApiKey, Credential::Host] {
+                let mut invalid = actor(role);
+                invalid.credential = credential;
+                assert_eq!(
+                    decide(&invalid, &policy(&rows), action, scope, None),
+                    PermissionDecision::Deny(Denial::CredentialKind)
+                );
+            }
+            let mut stale = actor(role);
+            stale.credential_auth_version -= 1;
+            assert_eq!(
+                decide(&stale, &policy(&rows), action, scope, None),
+                PermissionDecision::Deny(Denial::StaleAuthority)
+            );
+            let mut incomplete = policy(&rows);
+            incomplete.verified_complete = false;
+            assert_eq!(
+                decide(&current, &incomplete, action, scope, None),
+                PermissionDecision::Deny(Denial::PolicyUnavailable)
+            );
+            let mut another_subject = policy(&rows);
+            another_subject.subject_user_id += 1;
+            assert_eq!(
+                decide(&current, &another_subject, action, scope, None),
+                PermissionDecision::Deny(Denial::PolicyUnavailable)
+            );
+        }
+    }
 }

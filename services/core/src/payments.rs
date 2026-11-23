@@ -8,6 +8,7 @@ pub(crate) mod identifiers;
 mod legacy;
 mod legacy_pancake;
 mod legacy_store;
+pub(crate) mod offers;
 mod providers;
 pub mod rpc;
 mod stripe;
@@ -1045,12 +1046,17 @@ impl PaymentsStore {
                 return Err(Error::Invalid);
             }
             Some(
-                discounts::eligible(&mut tx, &discount_code, request.requested_credit_units)
-                    .await
-                    .map_err(|error| match error {
-                        Error::NotFound | Error::Denied | Error::Conflict => Error::Invalid,
-                        other => other,
-                    })?,
+                discounts::eligible(
+                    &mut tx,
+                    &discount_code,
+                    request.requested_credit_units,
+                    actor,
+                )
+                .await
+                .map_err(|error| match error {
+                    Error::NotFound | Error::Denied | Error::Conflict => Error::Invalid,
+                    other => other,
+                })?,
             )
         };
         let (amount_minor, credit_units, quote) = match &channel.credit_quote {

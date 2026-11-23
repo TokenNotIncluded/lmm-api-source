@@ -212,12 +212,15 @@ impl AgentService {
             return Err(Error::NoFunds);
         }
         let now = at(&mut tx).await?;
+        let expires_at = turn
+            .try_get::<i64, _>("expires_at")?
+            .min(now + self.policy.model.ttl_seconds);
         let request_id = random("");
         let round_id = random("");
         let grant_id = random("lmm_ad_");
         let round_turn_id = format!("agent-{}-{next}", turn_id);
         sqlx::query("INSERT INTO core_assistant.grants(id,conversation_id,turn_id,session_id,auth_version,price,policy,issued_at,expires_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)")
-            .bind(&grant_id).bind(&conversation).bind(round_turn_id).bind(principal.credential_id).bind(turn.try_get::<i64,_>("auth_version")?).bind(turn.try_get::<Value,_>("price")?).bind(serde_json::to_value(&self.policy.model).map_err(|_|Error::Unavailable)?).bind(now).bind(turn.try_get::<i64,_>("expires_at")?).execute(&mut *tx).await?;
+            .bind(&grant_id).bind(&conversation).bind(round_turn_id).bind(principal.credential_id).bind(turn.try_get::<i64,_>("auth_version")?).bind(turn.try_get::<Value,_>("price")?).bind(serde_json::to_value(&self.policy.model).map_err(|_|Error::Unavailable)?).bind(now).bind(expires_at).execute(&mut *tx).await?;
         let mut worker = [0u8; 32];
         rand::rand_core::UnwrapErr(rand::rngs::SysRng).fill_bytes(&mut worker);
         let request = charging::Request {
@@ -564,6 +567,7 @@ impl AgentService {
                 super::verify_proposal_in_transaction(&mut tx, &operation_id, &context).await?;
             let bytes = proposal.arguments_json();
             let mut end_message: Option<String> = None;
+            let mut domain_receipt = format!("core-read-{operation_id}");
             let result = if name == "discover_tools" {
                 #[derive(Deserialize)]
                 #[serde(deny_unknown_fields)]
@@ -585,6 +589,29 @@ impl AgentService {
                     sqlx::query("UPDATE core_assistant.agent_turns SET loaded_tools=$2,revision=revision+1 WHERE id=$1").bind(turn_id).bind(serde_json::to_value(loaded).map_err(|_|Error::Unavailable)?).execute(&mut *tx).await?;
                     json!({"ok":true,"loaded":selected})
                 }
+            } else if crate::assistant_tools_core::actions::is_tool(&name) {
+                match crate::assistant_tools_core::actions::prepare(&mut tx, &context, &proposal)
+                    .await
+                {
+                    Ok(prepared) => {
+                        domain_receipt = format!("core-prepared-{operation_id}");
+                        prepared
+                    }
+                    Err(
+                        crate::assistant_tools_core::Error::Invalid
+                        | crate::assistant_tools_core::Error::Forbidden
+                        | crate::assistant_tools_core::Error::NotFound
+                        | crate::assistant_tools_core::Error::Conflict,
+                    ) => {
+                        domain_receipt = format!("core-prepare-denied-{operation_id}");
+                        json!({"ok":false,"status":"not_prepared","executed":false,"error":"tool_authority_denied"})
+                    }
+                    Err(error) => return Err(super::context_error(error)),
+                }
+            } else if name == crate::gift::agent::TOOL_NAME {
+                let outcome = crate::gift::agent::execute(&mut tx, &context, &proposal).await?;
+                domain_receipt = outcome.domain_receipt_id;
+                outcome.result
             } else if name == "end_conversation" {
                 let value: Value = serde_json::from_slice(bytes).map_err(|_| Error::Invalid)?;
                 let message = value
@@ -620,7 +647,7 @@ impl AgentService {
                 return Err(Error::Unavailable);
             }
             sqlx::query("UPDATE core_assistant.agent_tool_operations SET state='completed',claim_key=$2,result_json=$3,result_sha256=$4,domain_receipt_id=$5 WHERE id=$1")
-                .bind(&operation_id).bind(format!("core-{operation_id}")).bind(&result).bind(Sha256::digest(&result).to_vec()).bind(format!("core-read-{operation_id}")).execute(&mut *tx).await?;
+                .bind(&operation_id).bind(format!("core-{operation_id}")).bind(&result).bind(Sha256::digest(&result).to_vec()).bind(domain_receipt).execute(&mut *tx).await?;
             if let Some(message) = &end_message {
                 sqlx::query("UPDATE core_assistant.agent_tool_operations SET state='cancelled' WHERE turn_id=$1 AND state='pending'").bind(turn_id).execute(&mut *tx).await?;
                 sqlx::query("UPDATE core_assistant.agent_turns SET phase='completed',final_text=$2,revision=revision+1 WHERE id=$1").bind(turn_id).bind(message).execute(&mut *tx).await?;

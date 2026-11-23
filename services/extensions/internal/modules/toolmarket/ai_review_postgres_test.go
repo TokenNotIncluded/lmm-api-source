@@ -70,10 +70,7 @@ func (tx reviewLostACKTransaction) Commit() error {
 }
 
 func TestPostgresMarketAIReviewLostCommitACKRestoresPreviousLiveVersion(t *testing.T) {
-	raw := os.Getenv("LMM_MARKET_REVIEW_TEST_DSN")
-	if raw == "" {
-		t.Skip("requires a fresh isolated PostgreSQL database")
-	}
+	raw := toolmarketDatabaseURL(t, "LMM_MARKET_REVIEW_TEST_DSN_FILE")
 	u, err := url.Parse(raw)
 	if err != nil || (u.Scheme != "postgres" && u.Scheme != "postgresql") || u.Hostname() != "127.0.0.1" || !strings.HasSuffix(u.Path, "_test") {
 		t.Fatal("requires a local isolated test database")
@@ -85,20 +82,45 @@ func TestPostgresMarketAIReviewLostCommitACKRestoresPreviousLiveVersion(t *testi
 	var lose atomic.Bool
 	db := sql.OpenDB(reviewLostACKConnector{Connector: connector, lose: &lose})
 	defer db.Close()
+	ownerDB := toolmarketDatabaseFile(t, "LMM_MARKET_REVIEW_TEST_OWNER_DSN_FILE")
+	runtimeRole := toolmarketFixtureRuntimeRole(t, ownerDB, db)
 	ctx := context.Background()
 	var exists bool
 	if err = db.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM pg_namespace WHERE nspname='lmm_toolmarket')`).Scan(&exists); err != nil || exists {
 		t.Fatal("toolmarket fixture is not fresh")
 	}
-	if _, err = db.ExecContext(ctx, PostgresSchema); err != nil {
+	if _, err = ownerDB.ExecContext(ctx, PostgresSchema); err != nil {
 		t.Fatal(err)
 	}
 	key := bytes.Repeat([]byte{73}, 32)
-	storage, err := InitPostgresStore(ctx, db, key)
+	installed, err := InitPostgresStore(ctx, ownerDB, key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = installed.Close(); err != nil {
+		t.Fatal(err)
+	}
+	role := pq.QuoteIdentifier(runtimeRole)
+	if _, err = ownerDB.ExecContext(ctx, `GRANT USAGE ON SCHEMA lmm_toolmarket TO `+role+`; GRANT SELECT,UPDATE ON lmm_toolmarket.snapshot TO `+role); err != nil {
+		t.Fatal("cannot grant isolated runtime access")
+	}
+	if err = ownerDB.Close(); err != nil {
+		t.Fatal("cannot close isolated owner fixture")
+	}
+	storage, err := OpenPostgresStore(ctx, db, key)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer storage.Close()
+	for _, statement := range []string{
+		`CREATE TABLE lmm_toolmarket.runtime_must_not_install(id int)`,
+		`INSERT INTO lmm_toolmarket.snapshot(id,version,ciphertext) SELECT 1,1,ciphertext FROM lmm_toolmarket.snapshot`,
+	} {
+		var denied *pq.Error
+		if _, err = db.ExecContext(ctx, statement); !errors.As(err, &denied) || denied.Code != "42501" {
+			t.Fatal("runtime must receive permission denied for schema and initialization writes")
+		}
+	}
 	mock := newMock(t)
 	auth := &webTestAuthority{}
 	m, err := New(storage, auth, Config{WebOnly: true, CallsPerMinute: 600})

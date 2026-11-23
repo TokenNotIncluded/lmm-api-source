@@ -1,5 +1,7 @@
 //! Credential creation facts, never login-provider bindings or current key state.
 use super::*;
+#[path = "connections_current.rs"]
+mod current_history;
 
 /// Source-scoped historical observations. Runtime never restores old authority.
 pub(super) const CONNECTION_HISTORY_SQL: &str = r#"WITH users AS MATERIALIZED (
@@ -97,7 +99,31 @@ impl CommunityRead {
             return Err(Error::Invalid);
         }
         let mut tx = self.snapshot().await?;
-        let rows = sqlx::query(CONNECTION_HISTORY_SQL)
+        // Historical assembly checks retain the original reader. A current
+        // snapshot is a separate owner contract; a partial install is rejected.
+        let tables: i64 = sqlx::query_scalar(
+            "SELECT count(*)::bigint FROM pg_catalog.pg_class c
+             JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace
+             WHERE n.nspname='core_history'
+               AND c.relname IN ('current_connection_snapshot','current_connection_credential_map')",
+        )
+        .fetch_one(&mut *tx)
+        .await?;
+        let current = match tables {
+            0 => false,
+            2 => sqlx::query_scalar(
+                "SELECT EXISTS(SELECT snapshot_observed_at FROM core_history.current_connection_snapshot)",
+            )
+            .fetch_one(&mut *tx)
+            .await?,
+            _ => return Err(Error::Unavailable),
+        };
+        let statement = if current {
+            current_history::SQL
+        } else {
+            CONNECTION_HISTORY_SQL
+        };
+        let rows = sqlx::query(statement)
             .bind(&r.user_ids)
             .fetch_all(&mut *tx)
             .await?;

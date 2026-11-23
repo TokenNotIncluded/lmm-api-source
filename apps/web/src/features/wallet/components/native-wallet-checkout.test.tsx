@@ -75,6 +75,21 @@ async function click(label: string) {
   })
 }
 
+async function enterAmount(value: string) {
+  const input = document.querySelector('#native-payment-amount')
+  assert.ok(input instanceof HTMLInputElement)
+  const setter = Object.getOwnPropertyDescriptor(
+    HTMLInputElement.prototype,
+    'value'
+  )?.set
+  assert.ok(setter)
+  await act(async () => {
+    setter.call(input, value)
+    input.dispatchEvent(new Event('input', { bubbles: true }))
+    await flush()
+  })
+}
+
 test('unavailable native payment channels cannot start a quote, including after refresh', async () => {
   const oldGet = api.get
   const oldPost = api.post
@@ -404,6 +419,7 @@ test('Creem fixed amount is read-only and a missing quote is recovered with its 
             currency: 'USD',
             product_id: 'product_3',
             fixed_amount_minor: '1499',
+            min_credit_units: '9223372036854775807',
           },
         ],
       },
@@ -442,6 +458,7 @@ test('Creem fixed amount is read-only and a missing quote is recovered with its 
     ) as HTMLInputElement
     assert.equal(input.readOnly, true)
     assert.equal(input.value, '14.99')
+    assert.equal(container.querySelector('#native-payment-minimum'), null)
     await click('Review payment')
     assert.equal(requests[0].amount_minor, '1499')
     assert.equal(
@@ -874,6 +891,254 @@ test('a shared discount link only prefills one valid code and never starts a pay
     container.remove()
     dom.location.href = previousURL
     api.defaults.adapter = adapter
+    dom.sessionStorage.clear()
+  }
+})
+
+test('credit minimums block a new quote exactly and explain the required USD value', async () => {
+  for (const [min, below, exact] of [
+    ['500001', '1', '1.000002'],
+    ['9007199254740993', '18014398509.481984', '18014398509.481986'],
+  ]) {
+    const oldGet = api.get
+    const oldPost = api.post
+    dom.sessionStorage.clear()
+    login(9910, 'minimum-credit')
+    const container = document.body.appendChild(document.createElement('div'))
+    const root = createRoot(container)
+    const requests: Record<string, string>[] = []
+    api.get = (async () => ({
+      data: {
+        success: true,
+        data: {
+          available: true,
+          channels: [
+            {
+              id: '7',
+              provider: 'waffo_pancake',
+              environment: 'test',
+              currency: 'CNY',
+              credit_quantity: true,
+              min_credit_units: min,
+            },
+          ],
+        },
+      },
+    })) as typeof api.get
+    api.post = (async (url: string, data: Record<string, string>) => {
+      assert.equal(url, '/api/user/payments/quote')
+      requests.push({ ...data })
+      return {
+        data: {
+          success: true,
+          data: {
+            ...data,
+            amount_minor: '700',
+            order_id: 'top_9910',
+            account_id: '9910',
+            provider: 'waffo_pancake',
+            environment: 'test',
+            credit_units: data.requested_credit_units,
+            credit_unit: 'credit_500k_usd',
+          },
+        },
+      }
+    }) as typeof api.post
+    try {
+      await act(async () => {
+        root.render(
+          <I18nextProvider i18n={i18n}>
+            <NativeWalletCheckout />
+          </I18nextProvider>
+        )
+        await flush()
+      })
+      const input = container.querySelector('#native-payment-amount')
+      assert.ok(input instanceof HTMLInputElement)
+      const review = Array.from(container.querySelectorAll('button')).find(
+        (button) => button.textContent?.trim() === 'Review payment'
+      )
+      assert.ok(review)
+      const hint = container.querySelector('#native-payment-minimum')
+      assert.equal(
+        hint?.textContent,
+        'Minimum wallet credit is USD ' + exact + '.'
+      )
+      assert.equal(input.getAttribute('aria-describedby'), hint?.id)
+      await enterAmount(below)
+      assert.equal(input.getAttribute('aria-invalid'), 'true')
+      assert.equal(hint?.getAttribute('role'), 'alert')
+      assert.equal(review.disabled, true)
+      const form = container.querySelector('form')
+      assert.ok(form)
+      await act(async () => {
+        form.dispatchEvent(
+          new Event('submit', { bubbles: true, cancelable: true })
+        )
+        await flush()
+      })
+      assert.equal(requests.length, 0)
+      assert.equal(
+        readNativeCheckout('[9910,"minimum-credit"]', dom.sessionStorage),
+        null
+      )
+      await enterAmount(exact)
+      assert.equal(input.getAttribute('aria-invalid'), null)
+      assert.equal(review.disabled, false)
+      await click('Review payment')
+      assert.equal(requests.length, 1)
+      assert.equal(requests[0].requested_credit_units, min)
+      assert.equal(requests[0].amount_minor, '0')
+    } finally {
+      await act(async () => root.unmount())
+      container.remove()
+      api.get = oldGet
+      api.post = oldPost
+      dom.sessionStorage.clear()
+    }
+  }
+})
+
+test('minimum increases preserve explicit recovery and retries of the original order', async () => {
+  const oldGet = api.get
+  const oldPost = api.post
+  dom.sessionStorage.clear()
+  login(9911, 'minimum-recovery')
+  const container = document.body.appendChild(document.createElement('div'))
+  let root = createRoot(container)
+  let minimum = '25000000'
+  let loseQuote = true
+  let loseCheckout = true
+  const writes: Array<{ url: string; data: Record<string, string> }> = []
+  api.get = (async (url: string) => {
+    assert.equal(url, '/api/user/payments/channels')
+    return {
+      data: {
+        success: true,
+        data: {
+          available: true,
+          channels: [
+            {
+              id: '1',
+              provider: 'stripe',
+              environment: 'test',
+              currency: 'USD',
+              credit_quantity: true,
+              min_credit_units: minimum,
+            },
+          ],
+        },
+      },
+    }
+  }) as typeof api.get
+  api.post = (async (url: string, data: Record<string, string>) => {
+    writes.push({ url, data: { ...data } })
+    if (url === '/api/user/payments/quote') {
+      if (loseQuote) {
+        loseQuote = false
+        throw new Error('lost original quote response')
+      }
+      return {
+        data: {
+          success: true,
+          data: {
+            ...data,
+            amount_minor: '5000',
+            order_id: 'top_9911',
+            account_id: '9911',
+            provider: 'stripe',
+            environment: 'test',
+            credit_units: '25000000',
+            credit_unit: 'credit_500k_usd',
+          },
+        },
+      }
+    }
+    assert.equal(url, '/api/user/payments/checkout')
+    if (loseCheckout) {
+      loseCheckout = false
+      throw new Error('lost original checkout response')
+    }
+    return {
+      data: {
+        success: true,
+        data: {
+          order_id: 'top_9911',
+          state: 'awaiting_payment',
+          currency: 'USD',
+          amount_minor: '5000',
+          credit_units: '25000000',
+          credit_unit: 'credit_500k_usd',
+          provider_paid: false,
+          core_credit_confirmed: false,
+        },
+      },
+    }
+  }) as typeof api.post
+  const render = async () => {
+    await act(async () => {
+      root.render(
+        <I18nextProvider i18n={i18n}>
+          <NativeWalletCheckout />
+        </I18nextProvider>
+      )
+      await flush()
+    })
+  }
+  const remount = async () => {
+    await act(async () => root.unmount())
+    root = createRoot(container)
+    await render()
+  }
+  try {
+    await render()
+    await enterAmount('50')
+    await click('Review payment')
+    assert.equal(writes.length, 1)
+    const original = writes[0].data
+    assert.equal(original.requested_credit_units, '25000000')
+    assert.equal(
+      readNativeCheckout('[9911,"minimum-recovery"]', dom.sessionStorage)
+        ?.quote,
+      undefined
+    )
+
+    minimum = '50000000'
+    await remount()
+    assert.equal(writes.length, 1)
+    assert.equal(container.querySelector('#native-payment-amount'), null)
+    await click('Recover the same quote')
+    assert.equal(writes.length, 2)
+    assert.deepEqual(writes[1].data, original)
+
+    minimum = '75000000'
+    await remount()
+    assert.equal(writes.length, 2)
+    await click('Confirm payment')
+    assert.equal(writes.length, 3)
+    assert.deepEqual(writes[2].data, {
+      ...original,
+      order_id: 'top_9911',
+      expected_credit_units: '25000000',
+      expected_amount_minor: '5000',
+    })
+
+    minimum = '100000000'
+    await remount()
+    assert.equal(writes.length, 3)
+    await click('Retry the same order')
+    assert.equal(writes.length, 4)
+    assert.deepEqual(writes[3], writes[2])
+    assert.equal(
+      readNativeCheckout('[9911,"minimum-recovery"]', dom.sessionStorage)
+        ?.request.request_key,
+      original.request_key
+    )
+  } finally {
+    await act(async () => root.unmount())
+    container.remove()
+    api.get = oldGet
+    api.post = oldPost
     dom.sessionStorage.clear()
   }
 })

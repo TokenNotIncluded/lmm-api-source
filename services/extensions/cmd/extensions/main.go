@@ -11,6 +11,12 @@ import (
 )
 
 func main() {
+	if len(os.Args) > 1 && os.Args[1] == "import-checkin-history" {
+		if err := freshinstall.RunCheckinHistoryCLI(context.Background(), os.Args[2:], os.Stdout); err != nil {
+			log.Fatal(err)
+		}
+		return
+	}
 	if len(os.Args) > 1 && os.Args[1] == "upgrade-checkin-settings" {
 		if err := freshinstall.RunCheckinSettingsUpgradeCLI(context.Background(), os.Args[2:], os.Stdout); err != nil {
 			log.Fatal(err)

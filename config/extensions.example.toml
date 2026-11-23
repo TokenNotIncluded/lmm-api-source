@@ -36,6 +36,12 @@ max_in_flight = 16
 # database_url_file = "/etc/lmm.conf.d/secrets/extensions/payment-database-url"
 # config_file = "/etc/lmm.conf.d/extensions-payments.toml"
 # callbacks_enabled = true
+# Optional: old Go namespaces are still settled by another deployment for this
+# exact store/environment. Omit all rules to keep local legacy ingestion.
+# [[payments.external_legacy_pancake_owners]]
+# store_id = "STO_REVIEWED_SHARED_STORE"
+# environment = "live"
+# native_product_ids = [] # Shared SKUs stay out; list only exclusive native SKUs.
 # [store]
 # database_name = "lmm_store"
 # database_url_file = "/etc/lmm.conf.d/secrets/extensions/store-database-url"

@@ -1,0 +1,1379 @@
+{
+  "corpus_sha256": "56e01cb956d87551606cd2df543d5e2008ac1d4a0ae5462145fd5d897dcab391",
+  "database_calls": 0,
+  "go_runtime": "go1.27.4-X:nodwarf5",
+  "identity_cases": [
+    {
+      "accepted": true,
+      "canonical_email": "ab@gmail.com",
+      "canonical_ip": "192.0.2.1",
+      "email_input": " A.B+c@Googlemail.Com ",
+      "id": "gmail_alias",
+      "identity_hmac": "23084387665f8cdc49a5d265c695bb41e4d40e09071c4fec5f00128cd5c55987",
+      "ip_input": "192.0.2.1",
+      "network_hmac": "f890dbeb2715a6d253fe9daf8a8b4233306e93683bdde93cf3c95f80d7c1c9d9",
+      "normalized_email": "a.b+c@googlemail.com"
+    },
+    {
+      "accepted": true,
+      "canonical_email": "ab@gmail.com",
+      "canonical_ip": "192.0.2.1",
+      "email_input": "A..B+two@gmail.com",
+      "id": "gmail_plus",
+      "identity_hmac": "23084387665f8cdc49a5d265c695bb41e4d40e09071c4fec5f00128cd5c55987",
+      "ip_input": "::ffff:192.0.2.1",
+      "network_hmac": "f890dbeb2715a6d253fe9daf8a8b4233306e93683bdde93cf3c95f80d7c1c9d9",
+      "normalized_email": "a..b+two@gmail.com"
+    },
+    {
+      "accepted": true,
+      "canonical_email": "first.last@outlook.com",
+      "canonical_ip": "2001:db8::1",
+      "email_input": " First.Last+tag@Outlook.Com ",
+      "id": "outlook_plus",
+      "identity_hmac": "5a98d9a028b3544e0afac168d0602fda2b70ad264553da9522863c3d21b4439d",
+      "ip_input": "2001:0DB8:0000:0000:0000:0000:0000:0001",
+      "network_hmac": "de6933486bf96e6f916b0fa7191889848a6a4da0c2cbea618b06ca43453d9a86",
+      "normalized_email": "first.last+tag@outlook.com"
+    },
+    {
+      "accepted": true,
+      "canonical_email": "ab@hotmail.com",
+      "canonical_ip": "2001:db8::1",
+      "email_input": "AB+tag@hotmail.com",
+      "id": "hotmail_plus",
+      "identity_hmac": "bd3af55ef7000b38bfaac8b5614a5c8922cfd5ba55c3a206744c0b8101c4f4eb",
+      "ip_input": "2001:db8::1",
+      "network_hmac": "de6933486bf96e6f916b0fa7191889848a6a4da0c2cbea618b06ca43453d9a86",
+      "normalized_email": "ab+tag@hotmail.com"
+    },
+    {
+      "accepted": true,
+      "canonical_email": "ab@live.com",
+      "canonical_ip": "2001:db8:1::1:0:1",
+      "email_input": "AB+tag@live.com",
+      "id": "live_plus",
+      "identity_hmac": "730e25c5a7ac2c060a790f2cc388791eb6fd08348e73fcebde61aeeda61ed01f",
+      "ip_input": "2001:db8:1:0:0:1:0:1",
+      "network_hmac": "7ffa8fbc52c6c13f5f7a7071707ab74fb90858a4e58b2064aa5f2c112468fa45",
+      "normalized_email": "ab+tag@live.com"
+    },
+    {
+      "accepted": true,
+      "canonical_email": "a.b+tag@example.test",
+      "canonical_ip": "198.51.100.9",
+      "email_input": " A.B+tag@example.test ",
+      "id": "ordinary_plus",
+      "identity_hmac": "086de3d7d80feb35e0b938a2ba4412ef46645e11c80135c44bb37c1aae92ad3e",
+      "ip_input": " 198.51.100.9 ",
+      "network_hmac": "35ae0a9cbb5f31ca8cfc94a82d37670b3b7ebe9fe3f6e4be89f608a84229e339",
+      "normalized_email": "a.b+tag@example.test"
+    },
+    {
+      "accepted": true,
+      "canonical_email": "a b@example.test",
+      "canonical_ip": "::1",
+      "email_input": "a b@example.test",
+      "id": "internal_space",
+      "identity_hmac": "c3faf33b949e077d3aa52af1ba48b2330caecf58bda72588cc3eacbcd1a7d38e",
+      "ip_input": "::1",
+      "network_hmac": "cd125a2bbf8ed74c644ccd08b31331cc8fc233432bc538823b57ee115fd72ca6",
+      "normalized_email": "a b@example.test"
+    },
+    {
+      "accepted": true,
+      "canonical_email": "ik@gmail.com",
+      "canonical_ip": "::",
+      "email_input": "İ.K+tag@Googlemail.Com",
+      "id": "unicode_lower",
+      "identity_hmac": "fc3676adcf9e25c9edf9991a06695ed11543ee506478d783259976ceb003fc09",
+      "ip_input": "::",
+      "network_hmac": "23eab5029638c831cbafbafa28656069e41f8d4e6898be44487d3f79ab4bb117",
+      "normalized_email": "i.k+tag@googlemail.com"
+    },
+    {
+      "accepted": true,
+      "canonical_email": "Ᲊ@example.test",
+      "canonical_ip": "2001:db8::c000:201",
+      "email_input": "Ᲊ@example.test",
+      "id": "post_unicode15_email",
+      "identity_hmac": "f20a6b257cc7ef2f88c0b6124394db1af9b07f1b0f6242d8855c5497903604db",
+      "ip_input": "2001:db8::192.0.2.1",
+      "network_hmac": "d7151cee1c34845810f34dcb1afb9ed015abc996ef10f253a7dd4048c400d70f",
+      "normalized_email": "Ᲊ@example.test"
+    },
+    {
+      "accepted": true,
+      "canonical_email": "a@example.test",
+      "canonical_ip": "192.0.2.3",
+      "email_input": "　A@EXAMPLE.TEST ",
+      "id": "unicode_whitespace",
+      "identity_hmac": "d3355455273f398c13482feae37a0e4897613a1f0f320a49cc55b51f61fb24be",
+      "ip_input": " 192.0.2.3",
+      "network_hmac": "db2a440e414715d095048a341b6cbeb7f6e9d9fd4e06cebfd1145ecd12dd14cd",
+      "normalized_email": "a@example.test"
+    },
+    {
+      "accepted": true,
+      "canonical_email": "​a@example.test​",
+      "canonical_ip": "0.0.0.0",
+      "email_input": "​A@example.test​",
+      "id": "zero_width_email",
+      "identity_hmac": "30c546434b7326e6665b6d5c92deef46b5f2558fa9a6354e1ede08238e118663",
+      "ip_input": "0.0.0.0",
+      "network_hmac": "f27dc871bcbc42dd96e0682ed5a5d6b7a60e8ef8d7b9062ee0f99475d6fe7445",
+      "normalized_email": "​a@example.test​"
+    },
+    {
+      "accepted": false,
+      "canonical_email": "",
+      "canonical_ip": "192.0.2.1",
+      "email_input": "",
+      "id": "empty_email",
+      "identity_hmac": "",
+      "ip_input": "192.0.2.1",
+      "network_hmac": "",
+      "normalized_email": ""
+    },
+    {
+      "accepted": false,
+      "canonical_email": "",
+      "canonical_ip": "192.0.2.1",
+      "email_input": "not-an-email",
+      "id": "missing_at",
+      "identity_hmac": "",
+      "ip_input": "192.0.2.1",
+      "network_hmac": "",
+      "normalized_email": "not-an-email"
+    },
+    {
+      "accepted": false,
+      "canonical_email": "",
+      "canonical_ip": "192.0.2.1",
+      "email_input": "a@b@c",
+      "id": "duplicate_at",
+      "identity_hmac": "",
+      "ip_input": "192.0.2.1",
+      "network_hmac": "",
+      "normalized_email": "a@b@c"
+    },
+    {
+      "accepted": false,
+      "canonical_email": "",
+      "canonical_ip": "192.0.2.1",
+      "email_input": "@example.test",
+      "id": "empty_local",
+      "identity_hmac": "",
+      "ip_input": "192.0.2.1",
+      "network_hmac": "",
+      "normalized_email": "@example.test"
+    },
+    {
+      "accepted": false,
+      "canonical_email": "",
+      "canonical_ip": "192.0.2.1",
+      "email_input": "a@",
+      "id": "empty_domain",
+      "identity_hmac": "",
+      "ip_input": "192.0.2.1",
+      "network_hmac": "",
+      "normalized_email": "a@"
+    },
+    {
+      "accepted": false,
+      "canonical_email": "",
+      "canonical_ip": "192.0.2.1",
+      "email_input": ".+tag@gmail.com",
+      "id": "empty_gmail_local",
+      "identity_hmac": "",
+      "ip_input": "192.0.2.1",
+      "network_hmac": "",
+      "normalized_email": ".+tag@gmail.com"
+    },
+    {
+      "accepted": false,
+      "canonical_email": "",
+      "canonical_ip": "192.0.2.1",
+      "email_input": "+tag@outlook.com",
+      "id": "empty_outlook_local",
+      "identity_hmac": "",
+      "ip_input": "192.0.2.1",
+      "network_hmac": "",
+      "normalized_email": "+tag@outlook.com"
+    },
+    {
+      "accepted": false,
+      "canonical_email": "a@example.test",
+      "canonical_ip": "",
+      "email_input": "a@example.test",
+      "id": "invalid_ipv4",
+      "identity_hmac": "",
+      "ip_input": "192.000.2.1",
+      "network_hmac": "",
+      "normalized_email": "a@example.test"
+    },
+    {
+      "accepted": false,
+      "canonical_email": "a@example.test",
+      "canonical_ip": "",
+      "email_input": "a@example.test",
+      "id": "invalid_ipv6",
+      "identity_hmac": "",
+      "ip_input": "2001:::db8",
+      "network_hmac": "",
+      "normalized_email": "a@example.test"
+    },
+    {
+      "accepted": false,
+      "canonical_email": "a@example.test",
+      "canonical_ip": "",
+      "email_input": "a@example.test",
+      "id": "ipv6_zone",
+      "identity_hmac": "",
+      "ip_input": "fe80::1%eth0",
+      "network_hmac": "",
+      "normalized_email": "a@example.test"
+    },
+    {
+      "accepted": false,
+      "canonical_email": "a@example.test",
+      "canonical_ip": "",
+      "email_input": "a@example.test",
+      "id": "ip_port",
+      "identity_hmac": "",
+      "ip_input": "192.0.2.1:443",
+      "network_hmac": "",
+      "normalized_email": "a@example.test"
+    },
+    {
+      "accepted": false,
+      "canonical_email": "a@example.test",
+      "canonical_ip": "",
+      "email_input": "a@example.test",
+      "id": "ip_chain",
+      "identity_hmac": "",
+      "ip_input": "192.0.2.1, 198.51.100.1",
+      "network_hmac": "",
+      "normalized_email": "a@example.test"
+    },
+    {
+      "accepted": true,
+      "canonical_email": "a@example.test",
+      "canonical_ip": "192.0.2.1",
+      "email_input": "a@example.test",
+      "id": "ipv4_mapped_hex",
+      "identity_hmac": "d3355455273f398c13482feae37a0e4897613a1f0f320a49cc55b51f61fb24be",
+      "ip_input": "::ffff:c000:0201",
+      "network_hmac": "f890dbeb2715a6d253fe9daf8a8b4233306e93683bdde93cf3c95f80d7c1c9d9",
+      "normalized_email": "a@example.test"
+    },
+    {
+      "accepted": true,
+      "canonical_email": "a@example.test",
+      "canonical_ip": "64:ff9b::c000:201",
+      "email_input": "a@example.test",
+      "id": "ipv4_embedded",
+      "identity_hmac": "d3355455273f398c13482feae37a0e4897613a1f0f320a49cc55b51f61fb24be",
+      "ip_input": "64:ff9b::c000:201",
+      "network_hmac": "52aae0296a2143811e256f6d318b333f93e371d7bff61a68553d299e4831b7a5",
+      "normalized_email": "a@example.test"
+    },
+    {
+      "accepted": true,
+      "canonical_email": "a@example.test",
+      "canonical_ip": "2001::1:0:0:1:1",
+      "email_input": "a@example.test",
+      "id": "ipv6_tie",
+      "identity_hmac": "d3355455273f398c13482feae37a0e4897613a1f0f320a49cc55b51f61fb24be",
+      "ip_input": "2001:0:0:1:0:0:1:1",
+      "network_hmac": "8808c09e04e138660e12ebf686be60f2162c6ca2cc54e497ef93bec7315cda9d",
+      "normalized_email": "a@example.test"
+    },
+    {
+      "accepted": true,
+      "canonical_email": "a@example.test",
+      "canonical_ip": "2001:db8:0:1:2:3:4:5",
+      "email_input": "a@example.test",
+      "id": "ipv6_single_zero",
+      "identity_hmac": "d3355455273f398c13482feae37a0e4897613a1f0f320a49cc55b51f61fb24be",
+      "ip_input": "2001:db8:0:1:2:3:4:5",
+      "network_hmac": "3a5dc417440380370bdfb55c653d67697009e25fb8017d89cc45cf827593468f",
+      "normalized_email": "a@example.test"
+    },
+    {
+      "accepted": false,
+      "canonical_email": "a@example.test",
+      "canonical_ip": "",
+      "email_input": "a@example.test",
+      "id": "ip_empty",
+      "identity_hmac": "",
+      "ip_input": "",
+      "network_hmac": "",
+      "normalized_email": "a@example.test"
+    }
+  ],
+  "network_calls": 0,
+  "production_data_used": false,
+  "redaction_cases": [
+    {
+      "digest": "",
+      "id": "empty",
+      "input": "",
+      "redacted": "",
+      "redacted_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "tokens": []
+    },
+    {
+      "digest": "",
+      "id": "only_whitespace",
+      "input": " \t\r\n 　",
+      "redacted": "",
+      "redacted_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "tokens": []
+    },
+    {
+      "digest": "",
+      "id": "short",
+      "input": "short message",
+      "redacted": "short message",
+      "redacted_sha256": "62de148e99d879fccf68e8fa0e9189d8fb8f87afe8cd9b349580c24d54a7f7f2",
+      "tokens": []
+    },
+    {
+      "digest": "254eefc9d9da577c585dc6e0aae794e68d457e10cb9a146f957876c8ae894c22",
+      "id": "ordinary",
+      "input": "Please help configure a desktop application with the documented endpoint and an ordinary request. ",
+      "redacted": "Please help configure a desktop application with the documented endpoint and an ordinary request.",
+      "redacted_sha256": "e915328cb9b953f182045df4c364e06e3e1e441c8476324bbb237d47d9e0657c",
+      "tokens": [
+        "1d53bb6192691eee5ec6ce67e018b817752cd7cc318a55671e261604437c4b3c",
+        "2f6a39fd0f9a007a1c8678acb5ec85a4bdaf98c0935bf7a00d07e5e2b104a69e",
+        "35b6c1084805c7429bfef37d6211c78eff1e8da1f5c5360b5303c8efd83659c6",
+        "56f713a5abe68b3b50f6fb527ad796b549e1518f5151817cb4381ee752c79207",
+        "5b9d5c920d7f1130948cfdbbb272ffdab1c5816aa59d84a158186723ff15372f",
+        "5cde91c43e964eeb173b1bd79272f3c3222c29041a5ac20419afa196b5760839",
+        "6e400d8ba9231f9ab4bce8a610c6b5a519aaf118785843350d6cadda27475fc6",
+        "8b7e35ac17052ca6cb401f960e5db53d23d604bf0875298a647cd8e4bdb4784e"
+      ]
+    },
+    {
+      "digest": "ddc59d0a87d9b364ae42a80d0a0095db1d42001a7dccda9bd7c1a2d96d767a4a",
+      "id": "api_key",
+      "input": "Please help configure a desktop application with the documented endpoint and an ordinary request. sk-synthetic1234567890ABCDE",
+      "redacted": "Please help configure a desktop application with the documented endpoint and an ordinary request. [REDACTED_API_KEY]",
+      "redacted_sha256": "f38affe5548edb496db1bdf0383fe7c9b23c47dd135cb172cd69784339b16aeb",
+      "tokens": [
+        "0824593b65ac3ac2a01df88deb182609eb824e1d60dc6200944cf942b41a5316",
+        "1d53bb6192691eee5ec6ce67e018b817752cd7cc318a55671e261604437c4b3c",
+        "2f6a39fd0f9a007a1c8678acb5ec85a4bdaf98c0935bf7a00d07e5e2b104a69e",
+        "35b6c1084805c7429bfef37d6211c78eff1e8da1f5c5360b5303c8efd83659c6",
+        "3695b5cc7b1a837ef8b69ba148b9c3cfb32b5c355804e3b5b3ba001654d3e22f",
+        "56f713a5abe68b3b50f6fb527ad796b549e1518f5151817cb4381ee752c79207",
+        "5b9d5c920d7f1130948cfdbbb272ffdab1c5816aa59d84a158186723ff15372f",
+        "5cde91c43e964eeb173b1bd79272f3c3222c29041a5ac20419afa196b5760839"
+      ]
+    },
+    {
+      "digest": "f4e150aac7709262ec0c5d2f5b2503fe96342937b4ccaa342ebfc65143033fa3",
+      "id": "api_key_boundaries",
+      "input": "Please help configure a desktop application with the documented endpoint and an ordinary request. xsk-123456789012 sk_12345678 key-x1234567 token.ordinary",
+      "redacted": "Please help configure a desktop application with the documented endpoint and an ordinary request. xsk-123456789012 [REDACTED_API_KEY] [REDACTED_API_KEY] token.ordinary",
+      "redacted_sha256": "7bc2cf1bb8978cc7a5f82d55c4ed725b52e876d2940b57e7cf4f121a758a2eee",
+      "tokens": [
+        "02206a981765c040e69bb1e56ad71f50562d8b0fd75d0c790c882fc2f6f4e2d5",
+        "1d53bb6192691eee5ec6ce67e018b817752cd7cc318a55671e261604437c4b3c",
+        "2235b579dac6757ec4d2b3ea92301e016e1229677d922b166e5d1f3d93b63b66",
+        "27e586aaa45bd8b8e62bbf01ab053429fff6ea5d048d46bc66fd21b01206827a",
+        "2f6a39fd0f9a007a1c8678acb5ec85a4bdaf98c0935bf7a00d07e5e2b104a69e",
+        "35b6c1084805c7429bfef37d6211c78eff1e8da1f5c5360b5303c8efd83659c6",
+        "56f713a5abe68b3b50f6fb527ad796b549e1518f5151817cb4381ee752c79207",
+        "5980761076aa2a405ae7db4f16d595ad2cdac37091e7f1547a7ce541c700b257"
+      ]
+    },
+    {
+      "digest": "50bb0770ab83013cb762632ee38278672876fc9f00bb06d5e0c3120698ed917e",
+      "id": "toml_provider",
+      "input": "Please help configure a desktop application with the documented endpoint and an ordinary request. [model_providers.malformedsk_12345678901234567890123456789]",
+      "redacted": "Please help configure a desktop application with the documented endpoint and an ordinary request. [model_providers.REDACTED_API_KEY]",
+      "redacted_sha256": "914db49896f2a70329ed70f7db3da773b0e71e38617b709bbc9f26c97060d8d7",
+      "tokens": [
+        "1d53bb6192691eee5ec6ce67e018b817752cd7cc318a55671e261604437c4b3c",
+        "247aa382f091ad18f1e682e9efd275136257c658cbaf7b30bf801fc485f7122f",
+        "29de21a4afb228651c02dacf637da071a853aeac8c052ba0f5a271a6e6a85173",
+        "2f6a39fd0f9a007a1c8678acb5ec85a4bdaf98c0935bf7a00d07e5e2b104a69e",
+        "35b6c1084805c7429bfef37d6211c78eff1e8da1f5c5360b5303c8efd83659c6",
+        "56f713a5abe68b3b50f6fb527ad796b549e1518f5151817cb4381ee752c79207",
+        "5b9d5c920d7f1130948cfdbbb272ffdab1c5816aa59d84a158186723ff15372f",
+        "5c81284f4733f6b29d22cbcafbd4ddf91e426fb8b8e91bcda28fd1a82e7cfb9e"
+      ]
+    },
+    {
+      "digest": "2901b83e9791b03ddde23bc915f073c822e8b8bf14ad5afadbd2ddf666ff8f19",
+      "id": "toml_provider_unicode",
+      "input": "Please help configure a desktop application with the documented endpoint and an ordinary request. [providers.中文rk_12345678901234567890123456789]",
+      "redacted": "Please help configure a desktop application with the documented endpoint and an ordinary request. [providers.REDACTED_API_KEY]",
+      "redacted_sha256": "5bb4dd9aba3612fc204b95840ceaec9c41cc9144ab33688ed4f8d00a172cd459",
+      "tokens": [
+        "1d53bb6192691eee5ec6ce67e018b817752cd7cc318a55671e261604437c4b3c",
+        "2f6a39fd0f9a007a1c8678acb5ec85a4bdaf98c0935bf7a00d07e5e2b104a69e",
+        "35b6c1084805c7429bfef37d6211c78eff1e8da1f5c5360b5303c8efd83659c6",
+        "4ade80cf5806bc3109a2434f82c64016454d20c89f6315e00487a2ad164275b5",
+        "5327c07c0d9e862f721143187b2997a11469ae869b0dd80258dc169b75a62c23",
+        "56f713a5abe68b3b50f6fb527ad796b549e1518f5151817cb4381ee752c79207",
+        "5b9d5c920d7f1130948cfdbbb272ffdab1c5816aa59d84a158186723ff15372f",
+        "5cde91c43e964eeb173b1bd79272f3c3222c29041a5ac20419afa196b5760839"
+      ]
+    },
+    {
+      "digest": "1db1b7fe33934463a27de38577fa717d500f31c535b0b5b1202b64be6cc26ddf",
+      "id": "jwt",
+      "input": "Please help configure a desktop application with the documented endpoint and an ordinary request. eyJ1234567890AB.abcdefghij12345.abcdefghij67890",
+      "redacted": "Please help configure a desktop application with the documented endpoint and an ordinary request. [REDACTED_TOKEN]",
+      "redacted_sha256": "7d6c16d07300c5e274a500f03183ab7a21ca9cce80bc4561073084ba88e2b32b",
+      "tokens": [
+        "0824593b65ac3ac2a01df88deb182609eb824e1d60dc6200944cf942b41a5316",
+        "1d53bb6192691eee5ec6ce67e018b817752cd7cc318a55671e261604437c4b3c",
+        "2f6a39fd0f9a007a1c8678acb5ec85a4bdaf98c0935bf7a00d07e5e2b104a69e",
+        "35b6c1084805c7429bfef37d6211c78eff1e8da1f5c5360b5303c8efd83659c6",
+        "56f713a5abe68b3b50f6fb527ad796b549e1518f5151817cb4381ee752c79207",
+        "5b9d5c920d7f1130948cfdbbb272ffdab1c5816aa59d84a158186723ff15372f",
+        "5cde91c43e964eeb173b1bd79272f3c3222c29041a5ac20419afa196b5760839",
+        "6e400d8ba9231f9ab4bce8a610c6b5a519aaf118785843350d6cadda27475fc6"
+      ]
+    },
+    {
+      "digest": "e79e703c183788fddc97673579c257d80da3fa5014044069e35969261dae3485",
+      "id": "email",
+      "input": "Please help configure a desktop application with the documented endpoint and an ordinary request. Person.Name+tag@example.test",
+      "redacted": "Please help configure a desktop application with the documented endpoint and an ordinary request. [REDACTED_EMAIL]",
+      "redacted_sha256": "7b64b67bae57649d5bcff37da3deeac11a7d3d2a5365edf9492fa87e50ece424",
+      "tokens": [
+        "0824593b65ac3ac2a01df88deb182609eb824e1d60dc6200944cf942b41a5316",
+        "1d53bb6192691eee5ec6ce67e018b817752cd7cc318a55671e261604437c4b3c",
+        "2f6a39fd0f9a007a1c8678acb5ec85a4bdaf98c0935bf7a00d07e5e2b104a69e",
+        "35b6c1084805c7429bfef37d6211c78eff1e8da1f5c5360b5303c8efd83659c6",
+        "56f713a5abe68b3b50f6fb527ad796b549e1518f5151817cb4381ee752c79207",
+        "5b9d5c920d7f1130948cfdbbb272ffdab1c5816aa59d84a158186723ff15372f",
+        "5cde91c43e964eeb173b1bd79272f3c3222c29041a5ac20419afa196b5760839",
+        "6e400d8ba9231f9ab4bce8a610c6b5a519aaf118785843350d6cadda27475fc6"
+      ]
+    },
+    {
+      "digest": "5d7dff222f5db34791bc3911b43cc3e6a63c8a7791ba14efd88fec355f8bbb3c",
+      "id": "email_unicode_fold",
+      "input": "Please help configure a desktop application with the documented endpoint and an ordinary request. Kſ.Name+tag@EXAMPLE.TEST",
+      "redacted": "Please help configure a desktop application with the documented endpoint and an ordinary request. Kſ.[REDACTED_EMAIL]",
+      "redacted_sha256": "3843df8dc7998027343ef07cf89430dafa34fc2df424d338632dd692883d22b6",
+      "tokens": [
+        "1d53bb6192691eee5ec6ce67e018b817752cd7cc318a55671e261604437c4b3c",
+        "2cfc82a5d6c811e7c67e08899345be6c11872d44545b127945686e31bfeb51e2",
+        "2f3c9fc3f1f23927d89d0144e556dc13938a0af3dc76d635d0b5ab7e60c913b9",
+        "2f6a39fd0f9a007a1c8678acb5ec85a4bdaf98c0935bf7a00d07e5e2b104a69e",
+        "35b6c1084805c7429bfef37d6211c78eff1e8da1f5c5360b5303c8efd83659c6",
+        "399161bfcb8e53a63f5939805dcdf113343292f6652fb2917bef1d85237e6a36",
+        "56f713a5abe68b3b50f6fb527ad796b549e1518f5151817cb4381ee752c79207",
+        "5b9d5c920d7f1130948cfdbbb272ffdab1c5816aa59d84a158186723ff15372f"
+      ]
+    },
+    {
+      "digest": "603a5f3f5414b07bc065930c38dd6f7263c3a8ed290cc7c505f61219deb060a5",
+      "id": "cookies",
+      "input": "Please help configure a desktop application with the documented endpoint and an ordinary request. Cookie: session-cookie-value; Set-Cookie=second-cookie; csrf_token: csrf-value",
+      "redacted": "Please help configure a desktop application with the documented endpoint and an ordinary request. Cookie: [REDACTED]; Set-Cookie: [REDACTED]; csrf_token: [REDACTED]",
+      "redacted_sha256": "89044a466b515bab766d94bb38a9554fa604ee7f8b2f95e84424d738f7069ff3",
+      "tokens": [
+        "030f83041d440c9e91acaa9da697e8e12612ef7aa17d383d1ebe40aff05f9696",
+        "1cb12f5c78b5d79b3f96178a0685184534e139cdecb147ebab7b84020a672eef",
+        "1d53bb6192691eee5ec6ce67e018b817752cd7cc318a55671e261604437c4b3c",
+        "227dc81bde22aec311e30abce7d9b4190e6a0145b32da40ba4c664b3ff9bb992",
+        "2434b526fbead72523ac272f36eadb16bb105de1cfe32c2930ae77e20e85088d",
+        "2f6a39fd0f9a007a1c8678acb5ec85a4bdaf98c0935bf7a00d07e5e2b104a69e",
+        "35a2e08e75b824c4cdc91c758bf406652e55b4129491a6121bc38fa32191d10f",
+        "35b6c1084805c7429bfef37d6211c78eff1e8da1f5c5360b5303c8efd83659c6"
+      ]
+    },
+    {
+      "digest": "6b4d6e980d9c6eb1d3c7dd96890149c058dd77eda9fafc67f847636874f8f450",
+      "id": "bearer",
+      "input": "Please help configure a desktop application with the documented endpoint and an ordinary request. Bearer abcdef1234== Authorization: synthetic-credential",
+      "redacted": "Please help configure a desktop application with the documented endpoint and an ordinary request. Bearer [REDACTED_TOKEN] Authorization: [REDACTED]",
+      "redacted_sha256": "e414f757ee971543889745d76d13139e538ad638e4d294f84ceaa382940a9763",
+      "tokens": [
+        "1d53bb6192691eee5ec6ce67e018b817752cd7cc318a55671e261604437c4b3c",
+        "2f6a39fd0f9a007a1c8678acb5ec85a4bdaf98c0935bf7a00d07e5e2b104a69e",
+        "35b6c1084805c7429bfef37d6211c78eff1e8da1f5c5360b5303c8efd83659c6",
+        "4d5e77296ede1c2b6d9363642ccff550b4f58c638a023d7a1766017cdbde5e08",
+        "56f713a5abe68b3b50f6fb527ad796b549e1518f5151817cb4381ee752c79207",
+        "5b9d5c920d7f1130948cfdbbb272ffdab1c5816aa59d84a158186723ff15372f",
+        "5cde91c43e964eeb173b1bd79272f3c3222c29041a5ac20419afa196b5760839",
+        "5f38d16b62d0e474f684e0dca62ac65f0232c99f7c274d78ee949e484a3abd4b"
+      ]
+    },
+    {
+      "digest": "b8ebfef3b98b3087abdd26c9c356f200dc36ebba7f4e9f9279a9641c793edb9a",
+      "id": "password",
+      "input": "Please help configure a desktop application with the documented endpoint and an ordinary request. password=one-synthetic-value, pwd: second-synthetic-value",
+      "redacted": "Please help configure a desktop application with the documented endpoint and an ordinary request. password: [REDACTED], pwd: [REDACTED]",
+      "redacted_sha256": "3c45597e965696f4dc6ccdc164e79532076a4ca2feffe771e063581ded456eeb",
+      "tokens": [
+        "1d53bb6192691eee5ec6ce67e018b817752cd7cc318a55671e261604437c4b3c",
+        "2f6a39fd0f9a007a1c8678acb5ec85a4bdaf98c0935bf7a00d07e5e2b104a69e",
+        "35b6c1084805c7429bfef37d6211c78eff1e8da1f5c5360b5303c8efd83659c6",
+        "3b9be8e16adf22b8ed1b5bb97af0e28c753630b6048ad04db19922d44fb4b385",
+        "412093baa655e7ff350e23abaa4e78a889819a108c7407564cf78c1a0ea7cd1b",
+        "56f713a5abe68b3b50f6fb527ad796b549e1518f5151817cb4381ee752c79207",
+        "5a0e200b9e37f8b31c45dfc50a49659d1ea6e0627a1d4be0ece99de7e20fb6c1",
+        "5b9d5c920d7f1130948cfdbbb272ffdab1c5816aa59d84a158186723ff15372f"
+      ]
+    },
+    {
+      "digest": "2e20e75a78baecb3a4c5eb697e495ffc73a5ef824eb324e6df8bb7cc25534d2b",
+      "id": "chinese_boundary",
+      "input": "Please help configure a desktop application with the documented endpoint and an ordinary request. x密码： synthetic-value 密码： boundary-at-space",
+      "redacted": "Please help configure a desktop application with the documented endpoint and an ordinary request. x密码: [REDACTED] 密码： boundary-at-space",
+      "redacted_sha256": "0e402a014e57f1b2be339226d4a17f0d846f4f83cfdfce0461c1790f513d24d1",
+      "tokens": [
+        "02206a981765c040e69bb1e56ad71f50562d8b0fd75d0c790c882fc2f6f4e2d5",
+        "1d53bb6192691eee5ec6ce67e018b817752cd7cc318a55671e261604437c4b3c",
+        "2f6a39fd0f9a007a1c8678acb5ec85a4bdaf98c0935bf7a00d07e5e2b104a69e",
+        "35b6c1084805c7429bfef37d6211c78eff1e8da1f5c5360b5303c8efd83659c6",
+        "4663c0762758b5d9120930524a6ebda781a880f1328e970662a990b9c2a70941",
+        "56f713a5abe68b3b50f6fb527ad796b549e1518f5151817cb4381ee752c79207",
+        "5b9d5c920d7f1130948cfdbbb272ffdab1c5816aa59d84a158186723ff15372f",
+        "5cde91c43e964eeb173b1bd79272f3c3222c29041a5ac20419afa196b5760839"
+      ]
+    },
+    {
+      "digest": "4ee738ca3b3151fdda46fcb1b3f0a4874fa5f9e8e7caba5861619e2433d541ca",
+      "id": "url",
+      "input": "Please help configure a desktop application with the documented endpoint and an ordinary request. https://example.test/path?token=synthetic&api_key=second#fragment",
+      "redacted": "Please help configure a desktop application with the documented endpoint and an ordinary request. https://example.test/path?token=[REDACTED]&api_key: [REDACTED]",
+      "redacted_sha256": "1dbf210cde36aadd9030cac737569a228313087cb56d6dcea02b289a5fd43b9b",
+      "tokens": [
+        "0a16a79fc917bdf9a0155e1839f7a30113cb5c52cc0eaa7e9d68f97ff5af3a02",
+        "0f2dd29a94eefb47a24cb2ad187eabb33b5a737f095ca40c36cdbbc6371a995e",
+        "1d53bb6192691eee5ec6ce67e018b817752cd7cc318a55671e261604437c4b3c",
+        "22f8511664acce1f1c23068a1bab5eac55776700ad6268d1507e5bcc5c882a73",
+        "24cf50a73e233940bf735dc423ac4df622e3e3dd1693cc9f44aa98315e1b8231",
+        "2e65d956935d0510c8668efcf39bbf7d160f3e26f25957c163cd176f077458a8",
+        "2f6a39fd0f9a007a1c8678acb5ec85a4bdaf98c0935bf7a00d07e5e2b104a69e",
+        "35b6c1084805c7429bfef37d6211c78eff1e8da1f5c5360b5303c8efd83659c6"
+      ]
+    },
+    {
+      "digest": "c935746b87613f9c243759e9624b2be1c3b59ed63c77df87520c60f41a7fa063",
+      "id": "pem",
+      "input": "Please help configure a desktop application with the documented endpoint and an ordinary request. -----BEGIN RSA PRIVATE KEY-----\nSYNTHETIC-NOT-A-KEY\n-----END RSA PRIVATE KEY-----",
+      "redacted": "Please help configure a desktop application with the documented endpoint and an ordinary request. [REDACTED_PRIVATE_KEY]",
+      "redacted_sha256": "4a764dfeb9a738b1d58a884eff40923f618c4159a16f2faa3695aab2184e7496",
+      "tokens": [
+        "0824593b65ac3ac2a01df88deb182609eb824e1d60dc6200944cf942b41a5316",
+        "1d53bb6192691eee5ec6ce67e018b817752cd7cc318a55671e261604437c4b3c",
+        "2f6a39fd0f9a007a1c8678acb5ec85a4bdaf98c0935bf7a00d07e5e2b104a69e",
+        "35b6c1084805c7429bfef37d6211c78eff1e8da1f5c5360b5303c8efd83659c6",
+        "56f713a5abe68b3b50f6fb527ad796b549e1518f5151817cb4381ee752c79207",
+        "59ed9256bc491a289afc9d4b021a37883254584cbe262080bf15626ac9dbe523",
+        "5b9d5c920d7f1130948cfdbbb272ffdab1c5816aa59d84a158186723ff15372f",
+        "5cde91c43e964eeb173b1bd79272f3c3222c29041a5ac20419afa196b5760839"
+      ]
+    },
+    {
+      "digest": "5f761ef98bacfe1ff64d5227b22908d14a64e24cefe71768177b7898bdf951b6",
+      "id": "ipv4",
+      "input": "Please help configure a desktop application with the documented endpoint and an ordinary request. 192.0.2.1 and 198.51.100.22 plus invalid 999.1.2.3 and 192.000.2.1",
+      "redacted": "Please help configure a desktop application with the documented endpoint and an ordinary request. [REDACTED_IP] and [REDACTED_IP] plus invalid 999.1.2.3 and 192.000.2.1",
+      "redacted_sha256": "00566ff5298531335b3380215ae288c25e1bd05ae9297cfb3a1bc118a792eb88",
+      "tokens": [
+        "0824593b65ac3ac2a01df88deb182609eb824e1d60dc6200944cf942b41a5316",
+        "1d53bb6192691eee5ec6ce67e018b817752cd7cc318a55671e261604437c4b3c",
+        "20db666ae65581cd85bcf6bf2afcf668b06f6a902a77127a498d011434c962b7",
+        "297a45d1d91bafe433f1fb237cca936bb4ad0a97a6264e7944c10df79a85710d",
+        "2f6a39fd0f9a007a1c8678acb5ec85a4bdaf98c0935bf7a00d07e5e2b104a69e",
+        "35b6c1084805c7429bfef37d6211c78eff1e8da1f5c5360b5303c8efd83659c6",
+        "406b3cef9b6a60d33442c6d723ec3dbc028a02f7a128aef5f739539e2ff263b6",
+        "56f713a5abe68b3b50f6fb527ad796b549e1518f5151817cb4381ee752c79207"
+      ]
+    },
+    {
+      "digest": "4131e01fb3c41ec72f81de562c83befdceae67e373e984c86db875f022b05ba8",
+      "id": "ipv6",
+      "input": "Please help configure a desktop application with the documented endpoint and an ordinary request. ::1 and 2001:db8::1 and ::ffff:192.0.2.1 plus 2001:::db8",
+      "redacted": "Please help configure a desktop application with the documented endpoint and an ordinary request. [REDACTED_IP] and [REDACTED_IP] and ::ffff:[REDACTED_IP] plus 2001:::db8",
+      "redacted_sha256": "23cc9f8d943df5c9ae6a99f46e6cf68fa59243612d346205dce442a2b59d8b10",
+      "tokens": [
+        "0824593b65ac3ac2a01df88deb182609eb824e1d60dc6200944cf942b41a5316",
+        "1d53bb6192691eee5ec6ce67e018b817752cd7cc318a55671e261604437c4b3c",
+        "20db666ae65581cd85bcf6bf2afcf668b06f6a902a77127a498d011434c962b7",
+        "23c801436551c36dcb0d12847e3e637219ad402f147d354d7f070b274a18fc19",
+        "2f6a39fd0f9a007a1c8678acb5ec85a4bdaf98c0935bf7a00d07e5e2b104a69e",
+        "35b6c1084805c7429bfef37d6211c78eff1e8da1f5c5360b5303c8efd83659c6",
+        "36d198fbfa4d98eeeee309112b13bf9bc918e074d77e4186fa0f3e5b037e50fc",
+        "391b8514b7c023f93ef63dedf442a02ab29d7bc94bba1b9cc266208ea5ee297c"
+      ]
+    },
+    {
+      "digest": "8d55ab2cdae3ec0017f6e5aa2b05b5dd6febf134680acd77a521d0c9b141e618",
+      "id": "phone",
+      "input": "Please help configure a desktop application with the documented endpoint and an ordinary request. +86 13812345678 / +1 202 555 0100",
+      "redacted": "Please help configure a desktop application with the documented endpoint and an ordinary request. [REDACTED_PHONE] / [REDACTED_PHONE]",
+      "redacted_sha256": "06ae75c51024f9d108e2dee4d6ea1f936fde35d37a36bc5270b5846d12695087",
+      "tokens": [
+        "0824593b65ac3ac2a01df88deb182609eb824e1d60dc6200944cf942b41a5316",
+        "09d487bd7cc2950058e33372e523913e8d1fd49e7a8714a3c553ecaacb4b3092",
+        "1d53bb6192691eee5ec6ce67e018b817752cd7cc318a55671e261604437c4b3c",
+        "2b226690b7af2712700f8063f94c7d17bd57346d7e254a0ae96fb088962249ac",
+        "2f6a39fd0f9a007a1c8678acb5ec85a4bdaf98c0935bf7a00d07e5e2b104a69e",
+        "35b6c1084805c7429bfef37d6211c78eff1e8da1f5c5360b5303c8efd83659c6",
+        "3f55b9e5307166a51a89f180472cc2625cd1a65f34ee167f0e63e29c80593b0e",
+        "54d99912c060c14cb8c36097de0799a945bbb96c1ee246938f3df35302ec6cb6"
+      ]
+    },
+    {
+      "digest": "20f2ea00e3191cbe730c9789ee1699a195470188c8b9830253b1fba18475b06d",
+      "id": "phone_boundaries",
+      "input": "Please help configure a desktop application with the documented endpoint and an ordinary request. x13812345678x 中13812345678文",
+      "redacted": "Please help configure a desktop application with the documented endpoint and an ordinary request. x13812345678x 中[REDACTED_PHONE]文",
+      "redacted_sha256": "735c297fcc7d15e63ab6f48e595ed3b42891fe4df8fcedff02b4d223afe65682",
+      "tokens": [
+        "02206a981765c040e69bb1e56ad71f50562d8b0fd75d0c790c882fc2f6f4e2d5",
+        "1d53bb6192691eee5ec6ce67e018b817752cd7cc318a55671e261604437c4b3c",
+        "2f6a39fd0f9a007a1c8678acb5ec85a4bdaf98c0935bf7a00d07e5e2b104a69e",
+        "346efe91fb156f30670bf67a54de891be1f8eb816cca03f2eacd2449600bf535",
+        "35b6c1084805c7429bfef37d6211c78eff1e8da1f5c5360b5303c8efd83659c6",
+        "48a584279de21269579a5c53557a7658465b35d0cba7cac30e745e31f1436319",
+        "56f713a5abe68b3b50f6fb527ad796b549e1518f5151817cb4381ee752c79207",
+        "590b17c003c61081f3e51d70269db51d480e2a8a5accc1ffb2ea9706219611b1"
+      ]
+    },
+    {
+      "digest": "c55435018daad4c30d424f64d7d1dc62dd55263b509bede11afc1ad1e127b4c0",
+      "id": "card",
+      "input": "Please help configure a desktop application with the documented endpoint and an ordinary request. 4111 1111 1111 1111 and 4111 1111 1111 1112",
+      "redacted": "Please help configure a desktop application with the documented endpoint and an ordinary request. [REDACTED_CARD] and 4111 1111 1111 1112",
+      "redacted_sha256": "4d814b35c60ffe4aa7c20ac8ad63d7b90adf09b1a87cddd8da201dbaa220ad7c",
+      "tokens": [
+        "065aba9bffda459125d912e904ae9a869b7edc63a4dcc3b6d5d2ae1e270193d4",
+        "06cc2998edd4f4dcfc56c01b84645da9b85c96b185edbf59a4e67eee13208436",
+        "0824593b65ac3ac2a01df88deb182609eb824e1d60dc6200944cf942b41a5316",
+        "1d53bb6192691eee5ec6ce67e018b817752cd7cc318a55671e261604437c4b3c",
+        "2f6a39fd0f9a007a1c8678acb5ec85a4bdaf98c0935bf7a00d07e5e2b104a69e",
+        "35b6c1084805c7429bfef37d6211c78eff1e8da1f5c5360b5303c8efd83659c6",
+        "487f481c901e47ae3c7b7e9cdd0f35c10bd3597980549b43f6d09d19c6905699",
+        "56f713a5abe68b3b50f6fb527ad796b549e1518f5151817cb4381ee752c79207"
+      ]
+    },
+    {
+      "digest": "9b59f012c6bceb844027db92b597b90c925d464028222dd2d9086beb0e0db242",
+      "id": "card_amex",
+      "input": "Please help configure a desktop application with the documented endpoint and an ordinary request. 378282246310005",
+      "redacted": "Please help configure a desktop application with the documented endpoint and an ordinary request. [REDACTED_CARD]",
+      "redacted_sha256": "7df90dcdfc9dedec0b2266049b3789ca78f59d26f1526570b7a9b039afdae766",
+      "tokens": [
+        "06cc2998edd4f4dcfc56c01b84645da9b85c96b185edbf59a4e67eee13208436",
+        "0824593b65ac3ac2a01df88deb182609eb824e1d60dc6200944cf942b41a5316",
+        "1d53bb6192691eee5ec6ce67e018b817752cd7cc318a55671e261604437c4b3c",
+        "2f6a39fd0f9a007a1c8678acb5ec85a4bdaf98c0935bf7a00d07e5e2b104a69e",
+        "35b6c1084805c7429bfef37d6211c78eff1e8da1f5c5360b5303c8efd83659c6",
+        "56f713a5abe68b3b50f6fb527ad796b549e1518f5151817cb4381ee752c79207",
+        "5b9d5c920d7f1130948cfdbbb272ffdab1c5816aa59d84a158186723ff15372f",
+        "5cde91c43e964eeb173b1bd79272f3c3222c29041a5ac20419afa196b5760839"
+      ]
+    },
+    {
+      "digest": "d16e6ff573768931e6345c8b75d76380ae90c40a13fae4faf383681f76963b01",
+      "id": "card_separators",
+      "input": "Please help configure a desktop application with the documented endpoint and an ordinary request. (4111-1111-1111-1111) then 4000 0000 0000 0002",
+      "redacted": "Please help configure a desktop application with the documented endpoint and an ordinary request. ([REDACTED_CARD]) then [REDACTED_CARD]",
+      "redacted_sha256": "8502d5236e354a13a70778d54e71a1f3f8e889346e93c66031fb3c2d620925ed",
+      "tokens": [
+        "06cc2998edd4f4dcfc56c01b84645da9b85c96b185edbf59a4e67eee13208436",
+        "0824593b65ac3ac2a01df88deb182609eb824e1d60dc6200944cf942b41a5316",
+        "1d53bb6192691eee5ec6ce67e018b817752cd7cc318a55671e261604437c4b3c",
+        "20dc31ecc7e736e8a897b5b757cf975131ca7343724ba144c93dcfa376a08127",
+        "2f6a39fd0f9a007a1c8678acb5ec85a4bdaf98c0935bf7a00d07e5e2b104a69e",
+        "35b6c1084805c7429bfef37d6211c78eff1e8da1f5c5360b5303c8efd83659c6",
+        "56f713a5abe68b3b50f6fb527ad796b549e1518f5151817cb4381ee752c79207",
+        "5b9d5c920d7f1130948cfdbbb272ffdab1c5816aa59d84a158186723ff15372f"
+      ]
+    },
+    {
+      "digest": "8bf02886f99470df195cfa7226fcf9b11878d6b07f568efd031576f2931ee266",
+      "id": "interacting",
+      "input": "Please help configure a desktop application with the documented endpoint and an ordinary request. email=test@example.test cookie=abc; url=https://example.test/?secret=hidden password=hidden bearer abcdef1234",
+      "redacted": "Please help configure a desktop application with the documented endpoint and an ordinary request. [REDACTED_EMAIL] cookie: [REDACTED]; url=https://example.test/?secret=[REDACTED] password: [REDACTED] Bearer [REDACTED_TOKEN]",
+      "redacted_sha256": "c074079267a898f6750485a1c9d449ee0be6c0d795b28f4b69e65e0a3212878b",
+      "tokens": [
+        "01e2194d0d81e4c5d0eec97383ba2cc9a53a10faea5930a61c88be2379febdd1",
+        "0824593b65ac3ac2a01df88deb182609eb824e1d60dc6200944cf942b41a5316",
+        "18a49a21fcf32ea1d3e08e3db37c711eccadc927d5535ca42f775a0539651fd0",
+        "1d53bb6192691eee5ec6ce67e018b817752cd7cc318a55671e261604437c4b3c",
+        "29235f461a401be9846cf8798bc257140d327eb45a4a480a0115f497415be732",
+        "2f6a39fd0f9a007a1c8678acb5ec85a4bdaf98c0935bf7a00d07e5e2b104a69e",
+        "313eae12a4dfc0af57a13c91c44c1f1fbca4b461b562caba747492aebc2aac11",
+        "34a8c0500b08facf51993711181b373598a5d34df85b84b6ed32175539c58087"
+      ]
+    },
+    {
+      "digest": "04f70cc4f38eef409985ddacd29a543b2b0e6ea3149a591109bff2c6e10c94e0",
+      "id": "redaction_stability_a",
+      "input": "Please help configure a desktop application with the documented endpoint and an ordinary request. email=a@example.test password=one-synthetic-value",
+      "redacted": "Please help configure a desktop application with the documented endpoint and an ordinary request. [REDACTED_EMAIL] password: [REDACTED]",
+      "redacted_sha256": "5cd8234e7e6268958445a277d4255c6935e1a73da196e846c61c10ee3e29db46",
+      "tokens": [
+        "0824593b65ac3ac2a01df88deb182609eb824e1d60dc6200944cf942b41a5316",
+        "1d53bb6192691eee5ec6ce67e018b817752cd7cc318a55671e261604437c4b3c",
+        "21b3123fae0aabdcda08b9561ed24a4f8c4cadcad4fb41d3b0e42f417e8ded6c",
+        "2f6a39fd0f9a007a1c8678acb5ec85a4bdaf98c0935bf7a00d07e5e2b104a69e",
+        "35b6c1084805c7429bfef37d6211c78eff1e8da1f5c5360b5303c8efd83659c6",
+        "361a427cd4b11f645d42aa39d851e3b9fa558fb08126b589009b590e4f75308d",
+        "56f713a5abe68b3b50f6fb527ad796b549e1518f5151817cb4381ee752c79207",
+        "5b9d5c920d7f1130948cfdbbb272ffdab1c5816aa59d84a158186723ff15372f"
+      ]
+    },
+    {
+      "digest": "04f70cc4f38eef409985ddacd29a543b2b0e6ea3149a591109bff2c6e10c94e0",
+      "id": "redaction_stability_b",
+      "input": "Please help configure a desktop application with the documented endpoint and an ordinary request. email=b@example.test password=other-synthetic-value",
+      "redacted": "Please help configure a desktop application with the documented endpoint and an ordinary request. [REDACTED_EMAIL] password: [REDACTED]",
+      "redacted_sha256": "5cd8234e7e6268958445a277d4255c6935e1a73da196e846c61c10ee3e29db46",
+      "tokens": [
+        "0824593b65ac3ac2a01df88deb182609eb824e1d60dc6200944cf942b41a5316",
+        "1d53bb6192691eee5ec6ce67e018b817752cd7cc318a55671e261604437c4b3c",
+        "21b3123fae0aabdcda08b9561ed24a4f8c4cadcad4fb41d3b0e42f417e8ded6c",
+        "2f6a39fd0f9a007a1c8678acb5ec85a4bdaf98c0935bf7a00d07e5e2b104a69e",
+        "35b6c1084805c7429bfef37d6211c78eff1e8da1f5c5360b5303c8efd83659c6",
+        "361a427cd4b11f645d42aa39d851e3b9fa558fb08126b589009b590e4f75308d",
+        "56f713a5abe68b3b50f6fb527ad796b549e1518f5151817cb4381ee752c79207",
+        "5b9d5c920d7f1130948cfdbbb272ffdab1c5816aa59d84a158186723ff15372f"
+      ]
+    },
+    {
+      "digest": "d3de096ca851c1b29861c68d1026ab1489917078636e3e8cf6c7260dd8fd19fd",
+      "id": "ascii_spaces",
+      "input": "Please help configure a desktop application with the documented endpoint and an ordinary request. \t\n\r\f password=hidden\u000bnext synthetic",
+      "redacted": "Please help configure a desktop application with the documented endpoint and an ordinary request. \t\n\r\f password: [REDACTED] synthetic",
+      "redacted_sha256": "a3810e3a36d25802f87d5162fea0ec1149ed5e7af6d26d5064da8a63af94b2c0",
+      "tokens": [
+        "1d53bb6192691eee5ec6ce67e018b817752cd7cc318a55671e261604437c4b3c",
+        "2f6a39fd0f9a007a1c8678acb5ec85a4bdaf98c0935bf7a00d07e5e2b104a69e",
+        "35b6c1084805c7429bfef37d6211c78eff1e8da1f5c5360b5303c8efd83659c6",
+        "40c5de0e24fdc0f6afd3e8983380519bdf637ce37bec25a5b70c282254ea9bd2",
+        "412093baa655e7ff350e23abaa4e78a889819a108c7407564cf78c1a0ea7cd1b",
+        "56f713a5abe68b3b50f6fb527ad796b549e1518f5151817cb4381ee752c79207",
+        "5a0e200b9e37f8b31c45dfc50a49659d1ea6e0627a1d4be0ece99de7e20fb6c1",
+        "5b9d5c920d7f1130948cfdbbb272ffdab1c5816aa59d84a158186723ff15372f"
+      ]
+    },
+    {
+      "digest": "254eefc9d9da577c585dc6e0aae794e68d457e10cb9a146f957876c8ae894c22",
+      "id": "unicode_spaces",
+      "input": "    Please help configure a desktop application with the documented endpoint and an ordinary request. \u2028\u2029  　",
+      "redacted": "Please help configure a desktop application with the documented endpoint and an ordinary request.",
+      "redacted_sha256": "e915328cb9b953f182045df4c364e06e3e1e441c8476324bbb237d47d9e0657c",
+      "tokens": [
+        "1d53bb6192691eee5ec6ce67e018b817752cd7cc318a55671e261604437c4b3c",
+        "2f6a39fd0f9a007a1c8678acb5ec85a4bdaf98c0935bf7a00d07e5e2b104a69e",
+        "35b6c1084805c7429bfef37d6211c78eff1e8da1f5c5360b5303c8efd83659c6",
+        "56f713a5abe68b3b50f6fb527ad796b549e1518f5151817cb4381ee752c79207",
+        "5b9d5c920d7f1130948cfdbbb272ffdab1c5816aa59d84a158186723ff15372f",
+        "5cde91c43e964eeb173b1bd79272f3c3222c29041a5ac20419afa196b5760839",
+        "6e400d8ba9231f9ab4bce8a610c6b5a519aaf118785843350d6cadda27475fc6",
+        "8b7e35ac17052ca6cb401f960e5db53d23d604bf0875298a647cd8e4bdb4784e"
+      ]
+    },
+    {
+      "digest": "254eefc9d9da577c585dc6e0aae794e68d457e10cb9a146f957876c8ae894c22",
+      "id": "nonspace_bom",
+      "input": "﻿​Please help configure a desktop application with the documented endpoint and an ordinary request. ​﻿",
+      "redacted": "﻿​Please help configure a desktop application with the documented endpoint and an ordinary request. ​﻿",
+      "redacted_sha256": "20c4ed3f7552ee56873a747909097c9848109e0edf1a31b47ee77c1085a507c1",
+      "tokens": [
+        "1d53bb6192691eee5ec6ce67e018b817752cd7cc318a55671e261604437c4b3c",
+        "2f6a39fd0f9a007a1c8678acb5ec85a4bdaf98c0935bf7a00d07e5e2b104a69e",
+        "35b6c1084805c7429bfef37d6211c78eff1e8da1f5c5360b5303c8efd83659c6",
+        "56f713a5abe68b3b50f6fb527ad796b549e1518f5151817cb4381ee752c79207",
+        "5b9d5c920d7f1130948cfdbbb272ffdab1c5816aa59d84a158186723ff15372f",
+        "5cde91c43e964eeb173b1bd79272f3c3222c29041a5ac20419afa196b5760839",
+        "6e400d8ba9231f9ab4bce8a610c6b5a519aaf118785843350d6cadda27475fc6",
+        "8b7e35ac17052ca6cb401f960e5db53d23d604bf0875298a647cd8e4bdb4784e"
+      ]
+    },
+    {
+      "digest": "31dcfddfabb0c7d77f494583836dc080c8e21cc2b2e22eec889c0534681001d0",
+      "id": "unicode_case",
+      "input": "Please help configure a desktop application with the documented endpoint and an ordinary request. İ ı ẞ ß Σ σ ς K ſ Ж 中文 ９",
+      "redacted": "Please help configure a desktop application with the documented endpoint and an ordinary request. İ ı ẞ ß Σ σ ς K ſ Ж 中文 ９",
+      "redacted_sha256": "80f1e83c2745921cd666344fa22bf20d924a203959ad9852a5fc174de0504393",
+      "tokens": [
+        "0644c3f5c06bac55aebc293d509d7e3f6edf5e294b4a0ba501e04908f1e5f128",
+        "1d53bb6192691eee5ec6ce67e018b817752cd7cc318a55671e261604437c4b3c",
+        "2f6a39fd0f9a007a1c8678acb5ec85a4bdaf98c0935bf7a00d07e5e2b104a69e",
+        "35b6c1084805c7429bfef37d6211c78eff1e8da1f5c5360b5303c8efd83659c6",
+        "547664b75a4aaee27e2f27984a4120c5adac0f4158c342f224e05019ca75d2c1",
+        "56f713a5abe68b3b50f6fb527ad796b549e1518f5151817cb4381ee752c79207",
+        "5b9d5c920d7f1130948cfdbbb272ffdab1c5816aa59d84a158186723ff15372f",
+        "5cde91c43e964eeb173b1bd79272f3c3222c29041a5ac20419afa196b5760839"
+      ]
+    },
+    {
+      "digest": "d4efc4ff582b2b14e48043cb9bf96f29341fae05642d893bf9ee2aa47084c5a9",
+      "id": "unicode_categories",
+      "input": "Please help configure a desktop application with the documented endpoint and an ordinary request. Ⅳ ² ٤ ۵ 𝟙 ́ é é",
+      "redacted": "Please help configure a desktop application with the documented endpoint and an ordinary request. Ⅳ ² ٤ ۵ 𝟙 ́ é é",
+      "redacted_sha256": "e432dafd13340645b3a210530f61b12acc6cb04c88e8f97d52d2803b55bb2225",
+      "tokens": [
+        "1bf94ba68dd3cca1ca6b3f6104bd670c464517a19664283ead309bbd206fd393",
+        "1d53bb6192691eee5ec6ce67e018b817752cd7cc318a55671e261604437c4b3c",
+        "2f6a39fd0f9a007a1c8678acb5ec85a4bdaf98c0935bf7a00d07e5e2b104a69e",
+        "35b6c1084805c7429bfef37d6211c78eff1e8da1f5c5360b5303c8efd83659c6",
+        "56f713a5abe68b3b50f6fb527ad796b549e1518f5151817cb4381ee752c79207",
+        "5b9d5c920d7f1130948cfdbbb272ffdab1c5816aa59d84a158186723ff15372f",
+        "5cde91c43e964eeb173b1bd79272f3c3222c29041a5ac20419afa196b5760839",
+        "6e400d8ba9231f9ab4bce8a610c6b5a519aaf118785843350d6cadda27475fc6"
+      ]
+    },
+    {
+      "digest": "254eefc9d9da577c585dc6e0aae794e68d457e10cb9a146f957876c8ae894c22",
+      "id": "post_unicode15",
+      "input": "Please help configure a desktop application with the documented endpoint and an ordinary request. ᲉᲊꟋꟌꟍ𜳠𞗐",
+      "redacted": "Please help configure a desktop application with the documented endpoint and an ordinary request. ᲉᲊꟋꟌꟍ𜳠𞗐",
+      "redacted_sha256": "d23f374134d7575b501650ec35c3bb2d193f41c6945b267af0874d3c46d66b26",
+      "tokens": [
+        "1d53bb6192691eee5ec6ce67e018b817752cd7cc318a55671e261604437c4b3c",
+        "2f6a39fd0f9a007a1c8678acb5ec85a4bdaf98c0935bf7a00d07e5e2b104a69e",
+        "35b6c1084805c7429bfef37d6211c78eff1e8da1f5c5360b5303c8efd83659c6",
+        "56f713a5abe68b3b50f6fb527ad796b549e1518f5151817cb4381ee752c79207",
+        "5b9d5c920d7f1130948cfdbbb272ffdab1c5816aa59d84a158186723ff15372f",
+        "5cde91c43e964eeb173b1bd79272f3c3222c29041a5ac20419afa196b5760839",
+        "6e400d8ba9231f9ab4bce8a610c6b5a519aaf118785843350d6cadda27475fc6",
+        "8b7e35ac17052ca6cb401f960e5db53d23d604bf0875298a647cd8e4bdb4784e"
+      ]
+    },
+    {
+      "digest": "bad834d08f1529ecfd8e58cd64599e241a2d013048034c7d772e1257fef58a07",
+      "id": "supplementary",
+      "input": "Please help configure a desktop application with the documented endpoint and an ordinary request. 𐐀𐐨𝐀𝐚𠀀",
+      "redacted": "Please help configure a desktop application with the documented endpoint and an ordinary request. 𐐀𐐨𝐀𝐚𠀀",
+      "redacted_sha256": "d07621cced332df8fe253cf1da9e1b945eb47259aafa57a6354874cef41c517e",
+      "tokens": [
+        "1d53bb6192691eee5ec6ce67e018b817752cd7cc318a55671e261604437c4b3c",
+        "2c827abc54507afb2287530ae700e19e7b42d0616a19d9244f87ce90d3857f48",
+        "2f6a39fd0f9a007a1c8678acb5ec85a4bdaf98c0935bf7a00d07e5e2b104a69e",
+        "35b6c1084805c7429bfef37d6211c78eff1e8da1f5c5360b5303c8efd83659c6",
+        "414b644f7d068e0803ce086bd74a086716d357971ba902dd1e8cc435b57fce01",
+        "56f713a5abe68b3b50f6fb527ad796b549e1518f5151817cb4381ee752c79207",
+        "5b9d5c920d7f1130948cfdbbb272ffdab1c5816aa59d84a158186723ff15372f",
+        "5cde91c43e964eeb173b1bd79272f3c3222c29041a5ac20419afa196b5760839"
+      ]
+    },
+    {
+      "digest": "c8d404ae9bcc6adafda825eb8aaeb7ad285ee56ac6b2d556bfeb88a56761ac12",
+      "id": "nul_controls",
+      "input": "Please help configure a desktop application with the documented endpoint and an ordinary request. \u0000\u0001 END",
+      "redacted": "Please help configure a desktop application with the documented endpoint and an ordinary request. \u0000\u0001 END",
+      "redacted_sha256": "ca5d385a729ba84638feeba059b50b092dd4fbf897ce99a27c7f5941a0fc75ac",
+      "tokens": [
+        "1d53bb6192691eee5ec6ce67e018b817752cd7cc318a55671e261604437c4b3c",
+        "2f6a39fd0f9a007a1c8678acb5ec85a4bdaf98c0935bf7a00d07e5e2b104a69e",
+        "35b6c1084805c7429bfef37d6211c78eff1e8da1f5c5360b5303c8efd83659c6",
+        "56f713a5abe68b3b50f6fb527ad796b549e1518f5151817cb4381ee752c79207",
+        "5b9d5c920d7f1130948cfdbbb272ffdab1c5816aa59d84a158186723ff15372f",
+        "5cde91c43e964eeb173b1bd79272f3c3222c29041a5ac20419afa196b5760839",
+        "6e400d8ba9231f9ab4bce8a610c6b5a519aaf118785843350d6cadda27475fc6",
+        "8b7e35ac17052ca6cb401f960e5db53d23d604bf0875298a647cd8e4bdb4784e"
+      ]
+    },
+    {
+      "digest": "",
+      "id": "boundary_39",
+      "input": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "redacted": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "redacted_sha256": "b4d5e56e929ba4cda349e9274e3603d0be246b82016bca20f363963c5f2d6845",
+      "tokens": []
+    },
+    {
+      "digest": "eab8636ab2efe0f0adfb23cc4995759e7cb5cc10d0af8af2e0f73aafebe0f39a",
+      "id": "boundary_40",
+      "input": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "redacted": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "redacted_sha256": "e33cdf9c7f7120b98e8c78408953e07f2ecd183006b5606df349b4c212acf43e",
+      "tokens": [
+        "610ea771ce99bf994c74cb81b2e2bbcca0ebad3bc8f170e9e8e9f18626ef85ba"
+      ]
+    },
+    {
+      "digest": "c9b2e5ce5f2d2a3770a4b6f317efb6097f56b8e4c226af53f33540efd853a092",
+      "id": "boundary_43",
+      "input": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "redacted": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "redacted_sha256": "66d34fba71f8f450f7e45598853e53bfc23bbd129027cbb131a2f4ffd7878cd0",
+      "tokens": [
+        "610ea771ce99bf994c74cb81b2e2bbcca0ebad3bc8f170e9e8e9f18626ef85ba"
+      ]
+    },
+    {
+      "digest": "30b292ba1eb7f39d582fbd1021768492c31c943709e10b0adbb401d9712cdc34",
+      "id": "boundary_44",
+      "input": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "redacted": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "redacted_sha256": "16849877c6c21ef0bfa68e4f6747300ddb171b170b9f00e189edc4c2fc4db93e",
+      "tokens": [
+        "610ea771ce99bf994c74cb81b2e2bbcca0ebad3bc8f170e9e8e9f18626ef85ba"
+      ]
+    },
+    {
+      "digest": "04165ac9ce9105ad4dffcafb9216e8111e96c5d8d6d87f63976441ddf45cae3e",
+      "id": "length_2048",
+      "input": "AbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrSt",
+      "redacted": "AbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrSt",
+      "redacted_sha256": "c5a13263d88fe07940096889e821cbf15243cf9295bb025e896d73734d235a24",
+      "tokens": [
+        "023308f4e7d376b280622d8723242b863da88d7e4ee20fa5fb0617c87a9b140a",
+        "2ababff02afb007be810f1b83d6418cfaa947a111834b16ae72715ab3b315f06",
+        "2ea7bcc6363efb93940272519cf91d29d811cc1087db5675ceca59566da5fc0e",
+        "3629728801897c844cc3cf87b10dba4bb45b16e85c0d1263fad8079cfd9bb2ef",
+        "6416b035cc5da5adfe161a35ae852d3f07d343a598b6f6bcfdf60b87f2327405",
+        "7a19c6302557d1cfa9f9741f8730dcb4853761920ddfc55b6d4e9bdfd0e7134b",
+        "9e5d40a517d464e33d2d503adf07b58283b51427873b7e643f95bb8f2398dfaa",
+        "af1603162b909faf6dbfe8913a5e17e46b45f644d3b1d264db9ea5184f28838b"
+      ]
+    },
+    {
+      "digest": "04165ac9ce9105ad4dffcafb9216e8111e96c5d8d6d87f63976441ddf45cae3e",
+      "id": "length_2049",
+      "input": "AbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStU",
+      "redacted": "AbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStU",
+      "redacted_sha256": "4aa0347d61a8fce8373ef5047553eaff15918fc5ed86bf41a93a1f5971d881f0",
+      "tokens": [
+        "023308f4e7d376b280622d8723242b863da88d7e4ee20fa5fb0617c87a9b140a",
+        "2ababff02afb007be810f1b83d6418cfaa947a111834b16ae72715ab3b315f06",
+        "2ea7bcc6363efb93940272519cf91d29d811cc1087db5675ceca59566da5fc0e",
+        "3629728801897c844cc3cf87b10dba4bb45b16e85c0d1263fad8079cfd9bb2ef",
+        "6416b035cc5da5adfe161a35ae852d3f07d343a598b6f6bcfdf60b87f2327405",
+        "7a19c6302557d1cfa9f9741f8730dcb4853761920ddfc55b6d4e9bdfd0e7134b",
+        "9e5d40a517d464e33d2d503adf07b58283b51427873b7e643f95bb8f2398dfaa",
+        "af1603162b909faf6dbfe8913a5e17e46b45f644d3b1d264db9ea5184f28838b"
+      ]
+    },
+    {
+      "digest": "04165ac9ce9105ad4dffcafb9216e8111e96c5d8d6d87f63976441ddf45cae3e",
+      "id": "long_filtered",
+      "input": "A-b-C-d-E-f-G-h-I-j-K-l-M-n-O-p-Q-r-S-t-U-v-W-x-Y-z-A-b-C-d-E-f-G-h-I-j-K-l-M-n-O-p-Q-r-S-t-U-v-W-x-Y-z-A-b-C-d-E-f-G-h-I-j-K-l-M-n-O-p-Q-r-S-t-U-v-W-x-Y-z-A-b-C-d-E-f-G-h-I-j-K-l-M-n-O-p-Q-r-S-t-U-v-W-x-Y-z-A-b-C-d-E-f-G-h-I-j-K-l-M-n-O-p-Q-r-S-t-U-v-W-x-Y-z-A-b-C-d-E-f-G-h-I-j-K-l-M-n-O-p-Q-r-S-t-U-v-W-x-Y-z-A-b-C-d-E-f-G-h-I-j-K-l-M-n-O-p-Q-r-S-t-U-v-W-x-Y-z-A-b-C-d-E-f-G-h-I-j-K-l-M-n-O-p-Q-r-S-t-U-v-W-x-Y-z-A-b-C-d-E-f-G-h-I-j-K-l-M-n-O-p-Q-r-S-t-U-v-W-x-Y-z-A-b-C-d-E-f-G-h-I-j-K-l-M-n-O-p-Q-r-S-t-U-v-W-x-Y-z-A-b-C-d-E-f-G-h-I-j-K-l-M-n-O-p-Q-r-S-t-U-v-W-x-Y-z-A-b-C-d-E-f-G-h-I-j-K-l-M-n-O-p-Q-r-S-t-U-v-W-x-Y-z-A-b-C-d-E-f-G-h-I-j-K-l-M-n-O-p-Q-r-S-t-U-v-W-x-Y-z-A-b-C-d-E-f-G-h-I-j-K-l-M-n-O-p-Q-r-S-t-U-v-W-x-Y-z-A-b-C-d-E-f-G-h-I-j-K-l-M-n-O-p-Q-r-S-t-U-v-W-x-Y-z-A-b-C-d-E-f-G-h-I-j-K-l-M-n-O-p-Q-r-S-t-U-v-W-x-Y-z-A-b-C-d-E-f-G-h-I-j-K-l-M-n-O-p-Q-r-S-t-U-v-W-x-Y-z-A-b-C-d-E-f-G-h-I-j-K-l-M-n-O-p-Q-r-S-t-U-v-W-x-Y-z-A-b-C-d-E-f-G-h-I-j-K-l-M-n-O-p-Q-r-S-t-U-v-W-x-Y-z-A-b-C-d-E-f-G-h-I-j-K-l-M-n-O-p-Q-r-S-t-U-v-W-x-Y-z-A-b-C-d-E-f-G-h-I-j-K-l-M-n-O-p-Q-r-S-t-U-v-W-x-Y-z-A-b-C-d-E-f-G-h-I-j-K-l-M-n-O-p-Q-r-S-t-U-v-W-x-Y-z-A-b-C-d-E-f-G-h-I-j-K-l-M-n-O-p-Q-r-S-t-U-v-W-x-Y-z-A-b-C-d-E-f-G-h-I-j-K-l-M-n-O-p-Q-r-S-t-U-v-W-x-Y-z-A-b-C-d-E-f-G-h-I-j-K-l-M-n-O-p-Q-r-S-t-U-v-W-x-Y-z-A-b-C-d-E-f-G-h-I-j-K-l-M-n-O-p-Q-r-S-t-U-v-W-x-Y-z-A-b-C-d-E-f-G-h-I-j-K-l-M-n-O-p-Q-r-S-t-U-v-W-x-Y-z-A-b-C-d-E-f-G-h-I-j-K-l-M-n-O-p-Q-r-S-t-U-v-W-x-Y-z-A-b-C-d-E-f-G-h-I-j-K-l-M-n-O-p-Q-r-S-t-U-v-W-x-Y-z-A-b-C-d-E-f-G-h-I-j-K-l-M-n-O-p-Q-r-S-t-U-v-W-x-Y-z-A-b-C-d-E-f-G-h-I-j-K-l-M-n-O-p-Q-r-S-t-U-v-W-x-Y-z-A-b-C-d-E-f-G-h-I-j-K-l-M-n-O-p-Q-r-S-t-U-v-W-x-Y-z-A-b-C-d-E-f-G-h-I-j-K-l-M-n-O-p-Q-r-S-t-U-v-W-x-Y-z-A-b-C-d-E-f-G-h-I-j-K-l-M-n-O-p-Q-r-S-t-U-v-W-x-Y-z-A-b-C-d-E-f-G-h-I-j-K-l-M-n-O-p-Q-r-S-t-U-v-W-x-Y-z-A-b-C-d-E-f-G-h-I-j-K-l-M-n-O-p-Q-r-S-t-U-v-W-x-Y-z-A-b-C-d-E-f-G-h-I-j-K-l-M-n-O-p-Q-r-S-t-U-v-W-x-Y-z-A-b-C-d-E-f-G-h-I-j-K-l-M-n-O-p-Q-r-S-t-U-v-W-x-Y-z-A-b-C-d-E-f-G-h-I-j-K-l-M-n-O-p-Q-r-S-t-U-v-W-x-Y-z-A-b-C-d-E-f-G-h-I-j-K-l-M-n-O-p-Q-r-S-t-U-v-W-x-Y-z-A-b-C-d-E-f-G-h-I-j-K-l-M-n-O-p-Q-r-S-t-U-v-W-x-Y-z-A-b-C-d-E-f-G-h-I-j-K-l-M-n-O-p-Q-r-S-t-U-v-W-x-Y-z-A-b-C-d-E-f-G-h-I-j-K-l-M-n-O-p-Q-r-S-t-U-v-W-x-Y-z-A-b-C-d-E-f-G-h-I-j-K-l-M-n-O-p-Q-r-S-t-U-v-W-x-Y-z-A-b-C-d-E-f-G-h-I-j-K-l-M-n-O-p-Q-r-S-t-U-v-W-x-Y-z-A-b-C-d-E-f-G-h-I-j-K-l-M-n-O-p-Q-r-S-t-U-v-W-x-Y-z-A-b-C-d-E-f-G-h-I-j-K-l-M-n-O-p-Q-r-S-t-U-v-W-x-Y-z-A-b-C-d-E-f-G-h-I-j-K-l-M-n-O-p-Q-r-S-t-U-v-W-x-Y-z-A-b-C-d-E-f-G-h-I-j-K-l-M-n-O-p-Q-r-S-t-U-v-W-x-Y-z-A-b-C-d-E-f-G-h-I-j-K-l-M-n-O-p-Q-r-S-t-U-v-W-x-Y-z-A-b-C-d-E-f-G-h-I-j-K-l-M-n-O-p-Q-r-S-t-U-v-W-x-Y-z-A-b-C-d-E-f-G-h-I-j-K-l-M-n-O-p-Q-r-S-t-U-v-W-x-Y-z-A-b-C-d-E-f-G-h-I-j-K-l-M-n-O-p-Q-r-S-t-U-v-W-x-Y-z-A-b-C-d-E-f-G-h-I-j-K-l-M-n-O-p-Q-r-S-t-U-v-W-x-Y-z-A-b-C-d-E-f-G-h-I-j-K-l-M-n-O-p-Q-r-S-t-U-v-W-x-Y-z-A-b-C-d-E-f-G-h-I-j-K-l-M-n-O-p-Q-r-S-t-U-v-W-x-Y-z-A-b-C-d-E-f-G-h-I-j-K-l-M-n-O-p-Q-r-S-t-U-v-W-x-Y-z-A-b-C-d-E-f-G-h-I-j-K-l-M-n-O-p-Q-r-S-t-U-v-W-x-Y-z-A-b-C-d-E-f-G-h-I-j-K-l-M-n-O-p-Q-r-S-t-U-v-W-x-Y-z-A-b-C-d-E-f-G-h-I-j-K-l-M-n-O-p-Q-r-S-t-U-v-W-x-Y-z-A-b-C-d-E-f-G-h-I-j-K-l-M-n-O-p-Q-r-S-t-U-v-W-x-Y-z-A-b-C-d-E-f-G-h-I-j-K-l-M-n-O-p-Q-r-S-t-U-v-W-x-Y-z-A-b-C-d-E-f-G-h-I-j-K-l-M-n-O-p-Q-r-S-t-U-v-W-x-Y-z-A-b-C-d-E-f-G-h-I-j-K-l-M-n-O-p-Q-r-S-t-U-v-W-x-Y-z-A-b-C-d-E-f-G-h-I-j-K-l-M-n-O-p-Q-r-S-t-U-v-W-x-Y-z-A-b-C-d-E-f-G-h-I-j-K-l-M-n-O-p-Q-r-S-t-U-v-W-x-Y-z-A-b-C-d-E-f-G-h-I-j-K-l-M-n-O-p-Q-r-S-t-U-v-W-x-Y-z-A-b-C-d-E-f-G-h-I-j-K-l-M-n-O-p-Q-r-S-t-U-v-W-x-Y-z-A-b-C-d-E-f-G-h-I-j-K-l-M-n-O-p-Q-r-S-t-U-v-W-x-Y-z-A-b-C-d-E-f-G-h-I-j-K-l-M-n-O-p-Q-r-S-t-U-v-W-x-Y-z-A-b-C-d-E-f-G-h-I-j-K-l-M-n-O-p-Q-r-S-t-U-v-W-x-Y-z-A-b-C-d-E-f-G-h-I-j-K-l-M-n-O-p-Q-r-S-t-U-v-W-x-Y-z-A-b-C-d-E-f-G-h-I-j-K-l-M-n-O-p-Q-r-S-t-U-v-W-x-Y-z-A-b-C-d-E-f-G-h-I-j-K-l-M-n-O-p-Q-r-S-t-U-v-W-x-Y-z-A-b-C-d-E-f-G-h-I-j-K-l-M-n-O-p-Q-r-S-t-U-v-W-x-Y-z-A-b-C-d-E-f-G-h-I-j-K-l-M-n-O-p-Q-r-S-t-U-v-W-x-Y-z-A-b-C-d-E-f-G-h-I-j-K-l-M-n-O-p-Q-r-S-t-U-v-W-x-Y-z-A-b-C-d-E-f-G-h-I-j-K-l-M-n-O-p-Q-r-S-t-U-v-W-x-Y-z-A-b-C-d-E-f-G-h-I-j-K-l-M-n-O-p-Q-r-S-t-U-v-W-x-Y-z-A-b-C-d-E-f-G-h-I-j-K-l-M-n-O-p-Q-r-S-t-U-v-W-x-Y-z-A-b-C-d-E-f-G-h-I-j-K-l-M-n-O-p-Q-r-S-t-U-v-W-x-Y-z-A-b-C-d-E-f-G-h-I-j-K-l-M-n-O-p-Q-r-S-t-U-v-W-x-Y-z-A-b-C-d-E-f-G-h-I-j-K-l-M-n-O-p-Q-r-S-t-U-v-W-x-Y-z-A-b-C-d-E-f-G-h-I-j-K-l-M-n-O-p-Q-r-S-t-U-v-W-x-Y-z-A-b-C-d-E-f-G-h-I-j-K-l-M-n-O-p-Q-r-S-t-U-v-W-x-Y-z-A-b-C-d-E-f-G-h-I-j-K-l-M-n-O-p-Q-r-S-t-U-v-W-x-Y-z-A-b-C-d-E-f-G-h-I-j-K-l-M-n-O-p-Q-r-S-t-U-v-W-x-Y-z-A-b-C-d-E-f-G-h-I-j-K-l-M-n-O-p-Q-r-S-t-U-v-W-x-Y-z-A-b-C-d-E-f-G-h-I-j-K-l-M-n-O-p-Q-r-S-t-U-v-W-x-Y-z-A-b-C-d-E-f-G-h-I-j-K-l-M-n-O-p-Q-r-S-t-U-v-W-x-Y-z",
+      "redacted": "A-b-C-d-E-f-G-h-I-j-K-l-M-n-O-p-Q-r-S-t-U-v-W-x-Y-z-A-b-C-d-E-f-G-h-I-j-K-l-M-n-O-p-Q-r-S-t-U-v-W-x-Y-z-A-b-C-d-E-f-G-h-I-j-K-l-M-n-O-p-Q-r-S-t-U-v-W-x-Y-z-A-b-C-d-E-f-G-h-I-j-K-l-M-n-O-p-Q-r-S-t-U-v-W-x-Y-z-A-b-C-d-E-f-G-h-I-j-K-l-M-n-O-p-Q-r-S-t-U-v-W-x-Y-z-A-b-C-d-E-f-G-h-I-j-K-l-M-n-O-p-Q-r-S-t-U-v-W-x-Y-z-A-b-C-d-E-f-G-h-I-j-K-l-M-n-O-p-Q-r-S-t-U-v-W-x-Y-z-A-b-C-d-E-f-G-h-I-j-K-l-M-n-O-p-Q-r-S-t-U-v-W-x-Y-z-A-b-C-d-E-f-G-h-I-j-K-l-M-n-O-p-Q-r-S-t-U-v-W-x-Y-z-A-b-C-d-E-f-G-h-I-j-K-l-M-n-O-p-Q-r-S-t-U-v-W-x-Y-z-A-b-C-d-E-f-G-h-I-j-K-l-M-n-O-p-Q-r-S-t-U-v-W-x-Y-z-A-b-C-d-E-f-G-h-I-j-K-l-M-n-O-p-Q-r-S-t-U-v-W-x-Y-z-A-b-C-d-E-f-G-h-I-j-K-l-M-n-O-p-Q-r-S-t-U-v-W-x-Y-z-A-b-C-d-E-f-G-h-I-j-K-l-M-n-O-p-Q-r-S-t-U-v-W-x-Y-z-A-b-C-d-E-f-G-h-I-j-K-l-M-n-O-p-Q-r-S-t-U-v-W-x-Y-z-A-b-C-d-E-f-G-h-I-j-K-l-M-n-O-p-Q-r-S-t-U-v-W-x-Y-z-A-b-C-d-E-f-G-h-I-j-K-l-M-n-O-p-Q-r-S-t-U-v-W-x-Y-z-A-b-C-d-E-f-G-h-I-j-K-l-M-n-O-p-Q-r-S-t-U-v-W-x-Y-z-A-b-C-d-E-f-G-h-I-j-K-l-M-n-O-p-Q-r-S-t-U-v-W-x-Y-z-A-b-C-d-E-f-G-h-I-j-K-l-M-n-O-p-Q-r-S-t-U-v-W-x-Y-z-A-b-C-d-E-f-G-h-I-j-K-l-M-n-O-p-Q-r-S-t-U-v-W-x-Y-z-A-b-C-d-E-f-G-h-I-j-K-l-M-n-O-p-Q-r-S-t-U-v-W-x-Y-z-A-b-C-d-E-f-G-h-I-j-K-l-M-n-O-p-Q-r-S-t-U-v-W-x-Y-z-A-b-C-d-E-f-G-h-I-j-K-l-M-n-O-p-Q-r-S-t-U-v-W-x-Y-z-A-b-C-d-E-f-G-h-I-j-K-l-M-n-O-p-Q-r-S-t-U-v-W-x-Y-z-A-b-C-d-E-f-G-h-I-j-K-l-M-n-O-p-Q-r-S-t-U-v-W-x-Y-z-A-b-C-d-E-f-G-h-I-j-K-l-M-n-O-p-Q-r-S-t-U-v-W-x-Y-z-A-b-C-d-E-f-G-h-I-j-K-l-M-n-O-p-Q-r-S-t-U-v-W-x-Y-z-A-b-C-d-E-f-G-h-I-j-K-l-M-n-O-p-Q-r-S-t-U-v-W-x-Y-z-A-b-C-d-E-f-G-h-I-j-K-l-M-n-O-p-Q-r-S-t-U-v-W-x-Y-z-A-b-C-d-E-f-G-h-I-j-K-l-M-n-O-p-Q-r-S-t-U-v-W-x-Y-z-A-b-C-d-E-f-G-h-I-j-K-l-M-n-O-p-Q-r-S-t-U-v-W-x-Y-z-A-b-C-d-E-f-G-h-I-j-K-l-M-n-O-p-Q-r-S-t-U-v-W-x-Y-z-A-b-C-d-E-f-G-h-I-j-K-l-M-n-O-p-Q-r-S-t-U-v-W-x-Y-z-A-b-C-d-E-f-G-h-I-j-K-l-M-n-O-p-Q-r-S-t-U-v-W-x-Y-z-A-b-C-d-E-f-G-h-I-j-K-l-M-n-O-p-Q-r-S-t-U-v-W-x-Y-z-A-b-C-d-E-f-G-h-I-j-K-l-M-n-O-p-Q-r-S-t-U-v-W-x-Y-z-A-b-C-d-E-f-G-h-I-j-K-l-M-n-O-p-Q-r-S-t-U-v-W-x-Y-z-A-b-C-d-E-f-G-h-I-j-K-l-M-n-O-p-Q-r-S-t-U-v-W-x-Y-z-A-b-C-d-E-f-G-h-I-j-K-l-M-n-O-p-Q-r-S-t-U-v-W-x-Y-z-A-b-C-d-E-f-G-h-I-j-K-l-M-n-O-p-Q-r-S-t-U-v-W-x-Y-z-A-b-C-d-E-f-G-h-I-j-K-l-M-n-O-p-Q-r-S-t-U-v-W-x-Y-z-A-b-C-d-E-f-G-h-I-j-K-l-M-n-O-p-Q-r-S-t-U-v-W-x-Y-z-A-b-C-d-E-f-G-h-I-j-K-l-M-n-O-p-Q-r-S-t-U-v-W-x-Y-z-A-b-C-d-E-f-G-h-I-j-K-l-M-n-O-p-Q-r-S-t-U-v-W-x-Y-z-A-b-C-d-E-f-G-h-I-j-K-l-M-n-O-p-Q-r-S-t-U-v-W-x-Y-z-A-b-C-d-E-f-G-h-I-j-K-l-M-n-O-p-Q-r-S-t-U-v-W-x-Y-z-A-b-C-d-E-f-G-h-I-j-K-l-M-n-O-p-Q-r-S-t-U-v-W-x-Y-z-A-b-C-d-E-f-G-h-I-j-K-l-M-n-O-p-Q-r-S-t-U-v-W-x-Y-z-A-b-C-d-E-f-G-h-I-j-K-l-M-n-O-p-Q-r-S-t-U-v-W-x-Y-z-A-b-C-d-E-f-G-h-I-j-K-l-M-n-O-p-Q-r-S-t-U-v-W-x-Y-z-A-b-C-d-E-f-G-h-I-j-K-l-M-n-O-p-Q-r-S-t-U-v-W-x-Y-z-A-b-C-d-E-f-G-h-I-j-K-l-M-n-O-p-Q-r-S-t-U-v-W-x-Y-z-A-b-C-d-E-f-G-h-I-j-K-l-M-n-O-p-Q-r-S-t-U-v-W-x-Y-z-A-b-C-d-E-f-G-h-I-j-K-l-M-n-O-p-Q-r-S-t-U-v-W-x-Y-z-A-b-C-d-E-f-G-h-I-j-K-l-M-n-O-p-Q-r-S-t-U-v-W-x-Y-z-A-b-C-d-E-f-G-h-I-j-K-l-M-n-O-p-Q-r-S-t-U-v-W-x-Y-z-A-b-C-d-E-f-G-h-I-j-K-l-M-n-O-p-Q-r-S-t-U-v-W-x-Y-z-A-b-C-d-E-f-G-h-I-j-K-l-M-n-O-p-Q-r-S-t-U-v-W-x-Y-z-A-b-C-d-E-f-G-h-I-j-K-l-M-n-O-p-Q-r-S-t-U-v-W-x-Y-z-A-b-C-d-E-f-G-h-I-j-K-l-M-n-O-p-Q-r-S-t-U-v-W-x-Y-z-A-b-C-d-E-f-G-h-I-j-K-l-M-n-O-p-Q-r-S-t-U-v-W-x-Y-z-A-b-C-d-E-f-G-h-I-j-K-l-M-n-O-p-Q-r-S-t-U-v-W-x-Y-z-A-b-C-d-E-f-G-h-I-j-K-l-M-n-O-p-Q-r-S-t-U-v-W-x-Y-z-A-b-C-d-E-f-G-h-I-j-K-l-M-n-O-p-Q-r-S-t-U-v-W-x-Y-z-A-b-C-d-E-f-G-h-I-j-K-l-M-n-O-p-Q-r-S-t-U-v-W-x-Y-z-A-b-C-d-E-f-G-h-I-j-K-l-M-n-O-p-Q-r-S-t-U-v-W-x-Y-z-A-b-C-d-E-f-G-h-I-j-K-l-M-n-O-p-Q-r-S-t-U-v-W-x-Y-z-A-b-C-d-E-f-G-h-I-j-K-l-M-n-O-p-Q-r-S-t-U-v-W-x-Y-z-A-b-C-d-E-f-G-h-I-j-K-l-M-n-O-p-Q-r-S-t-U-v-W-x-Y-z-A-b-C-d-E-f-G-h-I-j-K-l-M-n-O-p-Q-r-S-t-U-v-W-x-Y-z-A-b-C-d-E-f-G-h-I-j-K-l-M-n-O-p-Q-r-S-t-U-v-W-x-Y-z-A-b-C-d-E-f-G-h-I-j-K-l-M-n-O-p-Q-r-S-t-U-v-W-x-Y-z-A-b-C-d-E-f-G-h-I-j-K-l-M-n-O-p-Q-r-S-t-U-v-W-x-Y-z-A-b-C-d-E-f-G-h-I-j-K-l-M-n-O-p-Q-r-S-t-U-v-W-x-Y-z-A-b-C-d-E-f-G-h-I-j-K-l-M-n-O-p-Q-r-S-t-U-v-W-x-Y-z-A-b-C-d-E-f-G-h-I-j-K-l-M-n-O-p-Q-r-S-t-U-v-W-x-Y-z-A-b-C-d-E-f-G-h-I-j-K-l-M-n-O-p-Q-r-S-t-U-v-W-x-Y-z-A-b-C-d-E-f-G-h-I-j-K-l-M-n-O-p-Q-r-S-t-U-v-W-x-Y-z-A-b-C-d-E-f-G-h-I-j-K-l-M-n-O-p-Q-r-S-t-U-v-W-x-Y-z-A-b-C-d-E-f-G-h-I-j-K-l-M-n-O-p-Q-r-S-t-U-v-W-x-Y-z-A-b-C-d-E-f-G-h-I-j-K-l-M-n-O-p-Q-r-S-t-U-v-W-x-Y-z-A-b-C-d-E-f-G-h-I-j-K-l-M-n-O-p-Q-r-S-t-U-v-W-x-Y-z-A-b-C-d-E-f-G-h-I-j-K-l-M-n-O-p-Q-r-S-t-U-v-W-x-Y-z-A-b-C-d-E-f-G-h-I-j-K-l-M-n-O-p-Q-r-S-t-U-v-W-x-Y-z-A-b-C-d-E-f-G-h-I-j-K-l-M-n-O-p-Q-r-S-t-U-v-W-x-Y-z-A-b-C-d-E-f-G-h-I-j-K-l-M-n-O-p-Q-r-S-t-U-v-W-x-Y-z-A-b-C-d-E-f-G-h-I-j-K-l-M-n-O-p-Q-r-S-t-U-v-W-x-Y-z-A-b-C-d-E-f-G-h-I-j-K-l-M-n-O-p-Q-r-S-t-U-v-W-x-Y-z-A-b-C-d-E-f-G-h-I-j-K-l-M-n-O-p-Q-r-S-t-U-v-W-x-Y-z",
+      "redacted_sha256": "e91d7e682ba712d4e37730e2eb95603984cba384ac8f3936f3a5238a37e8c9ad",
+      "tokens": [
+        "023308f4e7d376b280622d8723242b863da88d7e4ee20fa5fb0617c87a9b140a",
+        "2ababff02afb007be810f1b83d6418cfaa947a111834b16ae72715ab3b315f06",
+        "2ea7bcc6363efb93940272519cf91d29d811cc1087db5675ceca59566da5fc0e",
+        "3629728801897c844cc3cf87b10dba4bb45b16e85c0d1263fad8079cfd9bb2ef",
+        "6416b035cc5da5adfe161a35ae852d3f07d343a598b6f6bcfdf60b87f2327405",
+        "7a19c6302557d1cfa9f9741f8730dcb4853761920ddfc55b6d4e9bdfd0e7134b",
+        "9e5d40a517d464e33d2d503adf07b58283b51427873b7e643f95bb8f2398dfaa",
+        "af1603162b909faf6dbfe8913a5e17e46b45f644d3b1d264db9ea5184f28838b"
+      ]
+    },
+    {
+      "digest": "2e6d96216ec5e4d5b60c583c838418f0d4b1d9a196f2c2f956014f80715054c5",
+      "id": "repeated_shingle",
+      "input": "TheQuickBrownFoxJumpsOverTheLazyDogTheQuickBrownFoxJumpsOverTheLazyDogTheQuickBrownFoxJumpsOverTheLazyDogTheQuickBrownFoxJumpsOverTheLazyDogTheQuickBrownFoxJumpsOverTheLazyDogTheQuickBrownFoxJumpsOverTheLazyDogTheQuickBrownFoxJumpsOverTheLazyDogTheQuickBrownFoxJumpsOverTheLazyDogTheQuickBrownFoxJumpsOverTheLazyDogTheQuickBrownFoxJumpsOverTheLazyDog",
+      "redacted": "TheQuickBrownFoxJumpsOverTheLazyDogTheQuickBrownFoxJumpsOverTheLazyDogTheQuickBrownFoxJumpsOverTheLazyDogTheQuickBrownFoxJumpsOverTheLazyDogTheQuickBrownFoxJumpsOverTheLazyDogTheQuickBrownFoxJumpsOverTheLazyDogTheQuickBrownFoxJumpsOverTheLazyDogTheQuickBrownFoxJumpsOverTheLazyDogTheQuickBrownFoxJumpsOverTheLazyDogTheQuickBrownFoxJumpsOverTheLazyDog",
+      "redacted_sha256": "dc7f9e8f6ff4ff174f4d5d8bb2fd6a0e6fb9364d2146c88e5e0deea1ad2744ec",
+      "tokens": [
+        "01bda15d97c928ebbe1941736da968196a1640e7c43efd207e6007e54972272b",
+        "05809d90ab27f274b32c3c0594fd98a212745500f878db84a25db34d53fd7834",
+        "05b88f8bbc2c2c4fcab913adb4730c4fb0c23f8644262e218a9ab8bdfba86fa5",
+        "0bff851ff9f97419890ef1306bd5c275893bb86394ecc512ecd86d2db4cf534a",
+        "19bd8ebc9b939b7ab41fb63df4bb1b8feb3eb8f02c8e9998c8123634244bfdc5",
+        "1cf32cf9735b6d90902ae215829048e8b3425331782084d1cdefcd0160b1702c",
+        "3d21a66e8ce914cd4cf8e89d5bfa57b08e1ac2c37108216ca74030c8bd6541d9",
+        "41f67374d5dc0bb790abeb5feb68facd60080a564ac92ea106fb4938a79adeb8"
+      ]
+    },
+    {
+      "digest": "c39cbc6bfcb027100e756d7ea6ffeda3196422774bd7bbb527f50b0a731bc6eb",
+      "id": "fingerprint_redacted_min",
+      "input": "aaaaaaaaaaaaaaaaaaaa test@example.test bbbbbbbbbb",
+      "redacted": "aaaaaaaaaaaaaaaaaaaa [REDACTED_EMAIL] bbbbbbbbbb",
+      "redacted_sha256": "e0cd21e1c33b728af3f4c8f2e7b3137225c9ce685d6e2f0c49676c3bcf863498",
+      "tokens": [
+        "158ace0680f46b39e0bd3a3f65bdd7fae1d2b91fa812bbf85bdc81f6cc968bc9",
+        "4c686e97ebd0502675f26e931144f63d5168dd7d958962a4fe96a1967b7841c9",
+        "610ea771ce99bf994c74cb81b2e2bbcca0ebad3bc8f170e9e8e9f18626ef85ba",
+        "72d3c125b312e82507c5a2f041016aa4a1a39ae92d01c75af5fd4631f25b6f3a",
+        "8a852f5b44046b664b5d5aff49d6d4e49394db90705e6ef1e1c5be1bf93f9b7f",
+        "8fdca47c67738f9f15b509cf267d60e69af577d67cdd972268329a44364279e3"
+      ]
+    },
+    {
+      "digest": "0307f5cc049c42dd99c2a22b39cea786f6257b7ee7613e90a548380a16b3213f",
+      "id": "deterministic_mix_0",
+      "input": "ADЖ,d𐐀İ-９KcBaBcK９-İ𐐀d,ЖDA_.._ADЖ,d𐐀İ-９KcBaBcK９-İ𐐀d,ЖDA_.._ADЖ,d𐐀İ",
+      "redacted": "ADЖ,d𐐀İ-９KcBaBcK９-İ𐐀d,ЖDA_.._ADЖ,d𐐀İ-９KcBaBcK９-İ𐐀d,ЖDA_.._ADЖ,d𐐀İ",
+      "redacted_sha256": "fa715c3555baa0b983350567683c193ac3b95928235f032d959c6f3109ef26c6",
+      "tokens": [
+        "098510a7140820ceb8a5324629d19b15a1ca5335363c13285f1941cbe4d40125",
+        "439fa91de5d85bc5e5b1cd3d196b8944069fee1b5dc6b75a226dced1ecada62e",
+        "49245a1e18b55db28ce2e130b362b20b2467a71623bf0acb177c76f14e9d21bd",
+        "5f3e24f599b19673f3f8ad2f1e3286cada7e280082b60cb2c36c5a6198512b9f",
+        "7cc519c78d619a7fec3b51aec48b95cc9c3ba0b088e0abc9db52d2bec95ad0bf",
+        "a1375103e756c8cfae6afc62b9d9fe8418760836b19bef101d36f898e7247340",
+        "babf535df3cf4840ad4efe7b810526277711a2322f979714a2ca7c980ef38f24",
+        "cbabbbedeee491b664eccb94df8c94304b4819eed0b2a061f823fc68d320df60"
+      ]
+    },
+    {
+      "digest": "b8b121cb658781888b39b9800a2c0703a427463f6d9f6faff126ad4c3af1349e",
+      "id": "deterministic_mix_1",
+      "input": "９.B中,ẞ_Жc! ́Ⅳ́ !cЖ_ẞ,中B.９文ſſ文９.B中,ẞ_Жc! ́Ⅳ́ !cЖ_ẞ,中B.９文ſſ文９.B中,ẞ_Жc! ́Ⅳ́ !cЖ",
+      "redacted": "９.B中,ẞ_Жc! ́Ⅳ́ !cЖ_ẞ,中B.９文ſſ文９.B中,ẞ_Жc! ́Ⅳ́ !cЖ_ẞ,中B.９文ſſ文９.B中,ẞ_Жc! ́Ⅳ́ !cЖ",
+      "redacted_sha256": "2b41acce5e2972539bfc6de928549d7ffb58478ef80e48ce1e309f8d2049f86e",
+      "tokens": [
+        "5b3486140d4d7ed8d58111fc63c5a4cd960ecfa3b4c4b438c87716237cd943f7",
+        "d63b9b3d9f938c0206b3ebb4da289d64ae98cabe506968332fccd407a2f477ce",
+        "ddb9f8e262c047e25fa9178afddcb512d090fc094189386ce20b62f91a366a71",
+        "e4eeda3dd702d544c71a390b64e05311133229b1c7949bfea698a71719bf5e65"
+      ]
+    },
+    {
+      "digest": "e0416b16c9febd69fd98a4f71f1360ddb860816042fa5de60bf47592cbb2f568",
+      "id": "deterministic_mix_2",
+      "input": "cſ́A中-文B ΣKdDdKΣ B文-中Áſca\t\tacſ́A中-文B ΣKdDdKΣ B文-中Áſca\t\tacſ́A中-文B ΣKdDdKΣ B文-中Áſca\t\ta",
+      "redacted": "cſ́A中-文B ΣKdDdKΣ B文-中Áſca\t\tacſ́A中-文B ΣKdDdKΣ B文-中Áſca\t\tacſ́A中-文B ΣKdDdKΣ B文-中Áſca\t\ta",
+      "redacted_sha256": "1553eaebeb099a5e075876c5147446c6950e232ca9d32b4248dac14bdd49febd",
+      "tokens": [
+        "23a4032256d052a215a5e09790c3a14c71f4ec856f6a269314b61bc63b04847d",
+        "3d7b232d372938b9419491711c93faea339e0dc58ca47da762dae3c50b1aa47a",
+        "5077045b4fc0366f1be8fc18dbe5bca675d2c6a18daf9d59293369e67f00b004",
+        "51414374149d4c238ba35af017652bf116bf52039070528b1713334f91b6dffe",
+        "785a58282b9695ee9b37f21543341c90ed738c3a29d07a0c8385edaa224ce1ff",
+        "873693f0b1ed4d7d374a6fa32a40635b676fadead28504535fb8fc7a1f785873",
+        "8ebff71918194f6b42a3b04633ce1998871ac90907ab170e57a7707f2e4df5d8",
+        "8f8e430c4f04fa8462cc4a5cd88251edc679c81e72625bb6b3f5b44abcb97603"
+      ]
+    },
+    {
+      "digest": "bce165c8e3fc0d081989bee32b389013ea716a1d41642c28165a240f4da0f7c0",
+      "id": "deterministic_mix_3",
+      "input": " \td９AЖáKb!,.,!bḰaЖA９d\t Ⅳ٤٤Ⅳ \td９AЖáKb!,.,!bḰaЖA９d\t Ⅳ٤٤Ⅳ \td９AЖáKb!,.,!bḰaЖA９d\t Ⅳ٤٤Ⅳ \td９AЖáKb!",
+      "redacted": "d９AЖáKb!,.,!bḰaЖA９d\t Ⅳ٤٤Ⅳ \td９AЖáKb!,.,!bḰaЖA９d\t Ⅳ٤٤Ⅳ \td９AЖáKb!,.,!bḰaЖA９d\t Ⅳ٤٤Ⅳ \td９AЖáKb!",
+      "redacted_sha256": "b464a5ecce508dc543a0b6f2375faaf36ee703c1d90880ddb7529e8a0c6a8910",
+      "tokens": [
+        "5bad7d94423477e17138b1148bae7b6be0f2df4418206db856921cbea7679232",
+        "6692234fe7681dfc02633d867545fa25e2fa0ce1c5423b8d9f8b23eb6ee52e91",
+        "c6aa2f22613fee4cc3d19009913827686124856ac92813ce37f9a7ab9ff42555",
+        "cd979b337cb2b35b4d5c465569c103ed343603b49fc1682e0107bda4931dbb32"
+      ]
+    },
+    {
+      "digest": "c5711fe62f2bcf09aa74fd15fa8358fea24bf0f2d3a51a3354dc448526b91656",
+      "id": "deterministic_mix_4",
+      "input": "K٤,c９BⅣd!ᲉΣ中ſ中ΣᲉ!dⅣB９c,٤KDCCDK٤,c９BⅣd!ᲉΣ中ſ中ΣᲉ!dⅣB９c,٤KDCCDK٤,c９BⅣd!ᲉΣ中ſ中ΣᲉ!dⅣB９c,٤KDCCDK٤,c９BⅣd!ᲉΣ中ſ中ΣᲉ!dⅣB９c",
+      "redacted": "K٤,c９BⅣd!ᲉΣ中ſ中ΣᲉ!dⅣB９c,٤KDCCDK٤,c９BⅣd!ᲉΣ中ſ中ΣᲉ!dⅣB９c,٤KDCCDK٤,c９BⅣd!ᲉΣ中ſ中ΣᲉ!dⅣB９c,٤KDCCDK٤,c９BⅣd!ᲉΣ中ſ中ΣᲉ!dⅣB９c",
+      "redacted_sha256": "51ce40c98121d9ccc166e1948f10c2bac6344d2ecf2bf8960bcb00bd56435709",
+      "tokens": [
+        "07fe5f55888b03f54d7a9358b2eb682119f59c07bf5e96f3cb36e0f03691dc6c",
+        "090721a6368405578719448c34bd5aed7a8c9888a71c81b5bae22b12d7331b60",
+        "1bd34300f45418bec7fec4567e3cda8de9a0a27fb75192f9a4fd548a06442428",
+        "1efd7dcb32fa6bb0c83e261e0b11581aa4def105d9bff353400588c5277dcffc",
+        "25e8797caecbe4f6fe2b3f217c42aa3da0ca0cf6c245332fcbcfb2d901c35393",
+        "38d6ca9c469365b144abc6fdfbf6946fcdd4849490b9d4215cbd7efcd79586db",
+        "452cc742518be5aae8d30dbaca723d82d5ab1b43b1f8cd4284e241230a11b35b",
+        "9c0f3ec863388f48a95ad317c3a157002726c1c9cfc244843c23d6912475fc10"
+      ]
+    },
+    {
+      "digest": "b75601a88593d3f18cb1524678969ffbf46e87b15da9ad3c6c6225783303cfa9",
+      "id": "deterministic_mix_5",
+      "input": "!C中 ćD,ΣİbA\tAbİΣ,D́c 中C!.𐐀𐐀.!C中 ćD,ΣİbA\tAbİΣ,D́c 中C!.𐐀𐐀.!C中 ćD,ΣİbA\tAbİΣ,D́c 中C!.𐐀𐐀.!C中 ćD,ΣİbA\tAbİΣ,D́c 中C!.𐐀𐐀.!C中 ",
+      "redacted": "!C中 ćD,ΣİbA\tAbİΣ,D́c 中C!.𐐀𐐀.!C中 ćD,ΣİbA\tAbİΣ,D́c 中C!.𐐀𐐀.!C中 ćD,ΣİbA\tAbİΣ,D́c 中C!.𐐀𐐀.!C中 ćD,ΣİbA\tAbİΣ,D́c 中C!.𐐀𐐀.!C中",
+      "redacted_sha256": "b9f6e1a9cacead161d3673ccd0d549cbe28700ab8f996891ab14133fb1133381",
+      "tokens": [
+        "14df8b6913a3d57fc276c997e70cd2c190f6bc99048493e02611ef1f23596b2a",
+        "1e2bd5b303922aaca4184597309d28c75f946484263ceff45382a67b96a90cfc",
+        "22f71c84065853b626eb0b5e666803b831df5d75ff7225945f386a1168a356ed",
+        "4eef34dc66e11d02464f932e942416c854f448489877401db4b7fe6fc18468af",
+        "50926e694b57c02278dd0cf1d8adb424ecf8907b3db3570ba2c93ca9003cee9a",
+        "cb6b293ecd16c0650368e76931c93ad6c2132fbbcbd791574a0bd8ab5dc23c8c",
+        "cf87f2cfea34cb850a3df6df91153dabdd0cda468b50ac6f64449af070183c22",
+        "e3ca0a745260f6b7e08133343f2d74f33b668734650cfc3178e3f5baa1e13965"
+      ]
+    },
+    {
+      "digest": "0a5d802ce30cb8245620574451b1ebeec7bf01fc894429dae2ef08ccd06d5de3",
+      "id": "deterministic_mix_6",
+      "input": "Σ𐐀AK d.中b_Ᲊ９٤９Ᲊ_b中.d KA𐐀ΣſẞẞſΣ𐐀AK d.中b_Ᲊ９٤９Ᲊ_b中.d KA𐐀ΣſẞẞſΣ𐐀AK d.中b_Ᲊ９٤９Ᲊ_b中.d KA𐐀ΣſẞẞſΣ𐐀AK d.中b_Ᲊ９٤９Ᲊ_b中.d KA𐐀ΣſẞẞſΣ𐐀AK d.中b_Ᲊ９٤９Ᲊ",
+      "redacted": "Σ𐐀AK d.中b_Ᲊ９٤９Ᲊ_b中.d KA𐐀ΣſẞẞſΣ𐐀AK d.中b_Ᲊ９٤９Ᲊ_b中.d KA𐐀ΣſẞẞſΣ𐐀AK d.中b_Ᲊ９٤９Ᲊ_b中.d KA𐐀ΣſẞẞſΣ𐐀AK d.中b_Ᲊ９٤９Ᲊ_b中.d KA𐐀ΣſẞẞſΣ𐐀AK d.中b_Ᲊ９٤９Ᲊ",
+      "redacted_sha256": "59a7960e4f8bd27e3a17e88cb254f839d30d84ea3691929694e6f52f8b4059d1",
+      "tokens": [
+        "07a8ff43484d382b18949c0c1dcfea6fb3dc9507c41da2f84522fadcaeb863cf",
+        "2f19110e025aa459e2d1673e81832070aa7aa9fe8469ce9226b63b6c5b4fb9f2",
+        "4b858c925a4183e23bd671c9f25c96143e58d071ab2344b180dab26ba5372a1e",
+        "56205bd2e02c100177613bd3c3629dd010ed5c004a5bb7f9132d86038e5da922",
+        "6255606beec1b94385740d55cf0a8c8d2326b7129c8437decb7f786ae7b25731",
+        "6295aa06c86eeb5c6cb5df58dbfadce408e357684d6f2a58279910f50c316ee0",
+        "66f95e1fcc4185c33a549946f7f82a34d9d6950be8e64695219e186532faf0fb",
+        "6fd9ecb465bad4ac4d57a84582ca10ab20c999f0504a6f04ec5291f60d232322"
+      ]
+    },
+    {
+      "digest": "3447a606f98c02a296c1a463207a48823b9ee2afebd85109a9de53c037248795",
+      "id": "deterministic_mix_7",
+      "input": "bẞ９!K,ſAᲉ文İcCcİ文ᲉAſ,K!９ẞb\t--\tbẞ９!K,ſAᲉ文İcCcİ文ᲉAſ,K!９ẞb\t--\tbẞ９!K,ſAᲉ文İcCcİ文ᲉAſ,K!９ẞb\t--\tbẞ９!K,ſAᲉ文İcCcİ文ᲉAſ,K!９ẞb\t--\tbẞ９!K,ſAᲉ文İcCcİ文ᲉAſ,K!９ẞb\t",
+      "redacted": "bẞ９!K,ſAᲉ文İcCcİ文ᲉAſ,K!９ẞb\t--\tbẞ９!K,ſAᲉ文İcCcİ文ᲉAſ,K!９ẞb\t--\tbẞ９!K,ſAᲉ文İcCcİ文ᲉAſ,K!９ẞb\t--\tbẞ９!K,ſAᲉ文İcCcİ文ᲉAſ,K!９ẞb\t--\tbẞ９!K,ſAᲉ文İcCcİ文ᲉAſ,K!９ẞb",
+      "redacted_sha256": "d1c1216819746a2dc6df49d3714b38d89319380defc59e122ed251306526e39f",
+      "tokens": [
+        "339d73a8a0baa7c0352482693c8485b9b6ed85775d94922a95da582e3d54d208",
+        "540dd301dc5489b24c809873146019fc9f1d0e83555f7b5fc04699db26fdad97",
+        "586b38ba4480b6b8f670c907e6ee643a6aa1d46882f8bb954e11191fe9414be8",
+        "5ec42084cb898074aaf15ba924393b4a559e6ecd6cc64a422cdbf3f032e0c3c1",
+        "6772e87e1d6a94397849c20af58d7dc9ea82af7782c34c5afd51bc9f1d0a736a",
+        "79566d20e77eab099a4004b448ce4438acda5a53e6ee7f295299daa43cb9c2b8",
+        "8b93c7e44a0b122ec3ce039df8751ffb65b1a06ada1e154c6535b6c764b80809",
+        "94c623e34edee7f6d8afc48a5c7a63ff851644926934cdce8359ba7c82973bd8"
+      ]
+    },
+    {
+      "digest": "f834c9a2654b8a89a7645213372e38885e9b4a667685bb9fbf48ec98e126bdb2",
+      "id": "deterministic_mix_8",
+      "input": "Ᲊ-cΣ!中\t９İa_ 𐐀 _aİ９\t中!Σc-Ᲊ٤ЖЖ٤Ᲊ-cΣ!中\t９İa_ 𐐀 _aİ９\t中!Σc-Ᲊ٤ЖЖ٤Ᲊ-cΣ!中\t９İa_ 𐐀 _aİ９\t中!Σc-Ᲊ٤ЖЖ٤Ᲊ-cΣ!中\t９İa_ 𐐀 _aİ９\t中!Σc-Ᲊ٤ЖЖ٤Ᲊ-cΣ!中\t９İa_ 𐐀 _aİ９\t中!Σc-Ᲊ٤ЖЖ٤Ᲊ-cΣ!中\t９",
+      "redacted": "Ᲊ-cΣ!中\t９İa_ 𐐀 _aİ９\t中!Σc-Ᲊ٤ЖЖ٤Ᲊ-cΣ!中\t９İa_ 𐐀 _aİ９\t中!Σc-Ᲊ٤ЖЖ٤Ᲊ-cΣ!中\t９İa_ 𐐀 _aİ９\t中!Σc-Ᲊ٤ЖЖ٤Ᲊ-cΣ!中\t９İa_ 𐐀 _aİ９\t中!Σc-Ᲊ٤ЖЖ٤Ᲊ-cΣ!中\t９İa_ 𐐀 _aİ９\t中!Σc-Ᲊ٤ЖЖ٤Ᲊ-cΣ!中\t９",
+      "redacted_sha256": "0a7b1b66750610045e06be2da61f2d7fc3db04e216248e54c91079e6e82fa958",
+      "tokens": [
+        "07710a23b0babe59bd237569c327c59185851114171548e822d47f694b3d64ca",
+        "12138ae44501d26f773fe248202eeefebd907132d7e88c5c63bd00af5a8c662e",
+        "24d8a3f2cd7f754efc5644c3f43459f012d70da1b4065e558221ddcd90ca8957",
+        "3313684db793652a20e1835bab51dfc8736d455262af64a9df1b1b6f41ca5a6f",
+        "4437d952cb0e06b727d39527f2b284b0d2d3294ab37d6bf80634db06986275e4",
+        "467547196931cdb8be2c930cc3b96a901c64565c8b42e99d3b7f4c5bda59bc8b",
+        "6a6e45d1b7ffd21d23e889b4db72260424b21612d19f630432ff40f8f947b5ac",
+        "6ad4b403241af98d2c8c90f89663954a63d2b0b1888c5056e38048435e6b3d8d"
+      ]
+    },
+    {
+      "digest": "00c846fdb6919d6ef4963a33d3b3c15e9989beb6c103229fd33fc3935d064e04",
+      "id": "deterministic_mix_9",
+      "input": "İЖ bΣA٤c_Ⅳ文KẞK文Ⅳ_c٤AΣb ЖİCBBCİЖ bΣA٤c_Ⅳ文KẞK文Ⅳ_c٤AΣb ЖİCBBCİЖ bΣA٤c_Ⅳ文KẞK文Ⅳ_c٤AΣb ЖİCBBCİЖ bΣA٤c_Ⅳ文KẞK文Ⅳ_c٤AΣb ЖİCBBCİЖ bΣA٤c_Ⅳ文KẞK文Ⅳ_c٤AΣb ЖİCBBCİЖ bΣA٤c_Ⅳ文KẞK文Ⅳ_c٤",
+      "redacted": "İЖ bΣA٤c_Ⅳ文KẞK文Ⅳ_c٤AΣb ЖİCBBCİЖ bΣA٤c_Ⅳ文KẞK文Ⅳ_c٤AΣb ЖİCBBCİЖ bΣA٤c_Ⅳ文KẞK文Ⅳ_c٤AΣb ЖİCBBCİЖ bΣA٤c_Ⅳ文KẞK文Ⅳ_c٤AΣb ЖİCBBCİЖ bΣA٤c_Ⅳ文KẞK文Ⅳ_c٤AΣb ЖİCBBCİЖ bΣA٤c_Ⅳ文KẞK文Ⅳ_c٤",
+      "redacted_sha256": "c48a28ffde639406f0f3e0ea18bb9977d5c9a0bc3f93405ad8fe424b93a016ed",
+      "tokens": [
+        "016cfeda403c9165b1a092ab5c0226b7c8d72e9e213e4432231cb4cd928d12ac",
+        "0b7191cf444dad5833fe2f041c576d67e4cb5f164081d909d0a3ba7219a0f26d",
+        "0f6316dd7dc9e19660427dfc85d1b26d3bce11f12bede9f9592e2f1dd5793ba1",
+        "11d44df56875cad31c65d2fe83929ecbb3880560537c9b19f4af063d244b89c8",
+        "13911fcc043b0673052bc57bb20c3eeb074a8ad515f06af2fe85e9368264fcbb",
+        "194dacc3cf3890470db164cb36870faabbebaded586e6087bb0b65190229d535",
+        "380203d026e8353012445a53c00e38832ae1286441cc5ae0f90cbfafe13c4d9b",
+        "42117250c773e9850840a64ee78d815ee869c1ac898ccf94b50f341b64453f7f"
+      ]
+    },
+    {
+      "digest": "0decf5254d10bbfd17e98c7472ab5b0fa86e8b66256566503ce7e5513d0e0c18",
+      "id": "deterministic_mix_10",
+      "input": "_BKᲉb９C 文Da!-!aD文 C９bᲉKB_𐐀́́𐐀_BKᲉb９C 文Da!-!aD文 C９bᲉKB_𐐀́́𐐀_BKᲉb９C 文Da!-!aD文 C９bᲉKB_𐐀́́𐐀_BKᲉb９C 文Da!-!aD文 C９bᲉKB_𐐀́́𐐀_BKᲉb９C 文Da!-!aD文 C９bᲉKB_𐐀́́𐐀_BKᲉb９C 文Da!-!aD文 C９bᲉKB_𐐀́́𐐀_",
+      "redacted": "_BKᲉb９C 文Da!-!aD文 C９bᲉKB_𐐀́́𐐀_BKᲉb９C 文Da!-!aD文 C９bᲉKB_𐐀́́𐐀_BKᲉb９C 文Da!-!aD文 C９bᲉKB_𐐀́́𐐀_BKᲉb９C 文Da!-!aD文 C９bᲉKB_𐐀́́𐐀_BKᲉb９C 文Da!-!aD文 C９bᲉKB_𐐀́́𐐀_BKᲉb９C 文Da!-!aD文 C９bᲉKB_𐐀́́𐐀_",
+      "redacted_sha256": "dc39646fb6efda0574e2b2a4a3d47d45244466a0d83d607692f4dda5aaea7052",
+      "tokens": [
+        "089d0ebfccfe282143eecad3b9a7b2823895315df606163973f5f698d801266c",
+        "19e6fed53a1c94e86cb97fee7cd86e205b8fc7921fb7116d67e5613775323f64",
+        "2794a654bd52905e1db3644d2f4d0f5e9b3b6a99ca55e7cf4af6576718d8c0e3",
+        "63884db30543a08e30bb129b67941716dd75aee2e8fb8466677e61a6fbaf0756",
+        "6c6042f65313e3b6a3f0fb17b285ecbc43369d685903fea1a1fdb9e1be87b394",
+        "78bf33cccddc330553c002f97b1a3baee69d55911c621ce1fae3b1de369636cb",
+        "a7c932d893e249d22625feb26dadf7a4b3bc69bb3b019c3f6d2e7f64b487689c",
+        "bfa6988a1fb17b23fb5dea05873f4643147681591a06d2bdf06290d692d28b34"
+      ]
+    },
+    {
+      "digest": "f6ea2bf8d86e56b66a319574678e6e76457bb636c1ad886f7de74a9e7128a9ba",
+      "id": "deterministic_mix_11",
+      "input": "文́!İᲉc𐐀Ka.ⅣΣЖΣⅣ.aK𐐀cᲉİ!́文ẞddẞ文́!İᲉc𐐀Ka.ⅣΣЖΣⅣ.aK𐐀cᲉİ!́文ẞddẞ文́!İᲉc𐐀Ka.ⅣΣЖΣⅣ.aK𐐀cᲉİ!́文ẞddẞ文́!İᲉc𐐀Ka.ⅣΣЖΣⅣ.aK𐐀cᲉİ!́文ẞddẞ文́!İᲉc𐐀Ka.ⅣΣЖΣⅣ.aK𐐀cᲉİ!́文ẞddẞ文́!İᲉc𐐀Ka.ⅣΣЖΣⅣ.aK𐐀cᲉİ!́文ẞddẞ文́!İᲉc𐐀Ka.ⅣΣ",
+      "redacted": "文́!İᲉc𐐀Ka.ⅣΣЖΣⅣ.aK𐐀cᲉİ!́文ẞddẞ文́!İᲉc𐐀Ka.ⅣΣЖΣⅣ.aK𐐀cᲉİ!́文ẞddẞ文́!İᲉc𐐀Ka.ⅣΣЖΣⅣ.aK𐐀cᲉİ!́文ẞddẞ文́!İᲉc𐐀Ka.ⅣΣЖΣⅣ.aK𐐀cᲉİ!́文ẞddẞ文́!İᲉc𐐀Ka.ⅣΣЖΣⅣ.aK𐐀cᲉİ!́文ẞddẞ文́!İᲉc𐐀Ka.ⅣΣЖΣⅣ.aK𐐀cᲉİ!́文ẞddẞ文́!İᲉc𐐀Ka.ⅣΣ",
+      "redacted_sha256": "8ee6b1d859506eabd980e7032d161089d902313838545407adc41719c7963c1d",
+      "tokens": [
+        "11d0127a86886b10c7dd88d29157ca9cbcb3dd0a9df4f68c49ed886f44e0ae79",
+        "1d8921cd453117fd9e122772484b9d974d0cbc60d501f774d6723b6d7bdce885",
+        "2014d1fa6eb13d476f022d31e0b6bb7993c819af1b3dc2f31d181e299f6dd240",
+        "4bc3b638c83a754f5a9fc1064c12a00e0494d704666999bed72cf2df53c24c90",
+        "4d5216c09f3df63aad09823ce93308370a7272c5c85bef66bb9bf57233959961",
+        "5540b423bfaf3d4f3467cc015b54a5772bceac9840eb1add02b866adfb25fc41",
+        "5da4e5576af6037f6b22b6de4e87e1aeed3820e4ebfe91b6cb4c0a20812ea559",
+        "7119707b93f5b2a7e240cdd9bbee3ad572af1b6035d81ce4849a0ebd32284303"
+      ]
+    },
+    {
+      "digest": "2a0435ff6ad3206737f4db52ea770c075886f9d497e7b26d84280bba4c94e82e",
+      "id": "deterministic_mix_12",
+      "input": "adΣ_İ ẞ!ⅣſDbBbDſⅣ!ẞ İ_Σda-,,-adΣ_İ ẞ!ⅣſDbBbDſⅣ!ẞ İ_Σda-,,-adΣ_İ ẞ!ⅣſDbBbDſⅣ!ẞ İ_Σda-,,-adΣ_İ ẞ!ⅣſDbBbDſⅣ!ẞ İ_Σda-,,-adΣ_İ ẞ!ⅣſDbBbDſⅣ!ẞ İ_Σda-,,-adΣ_İ ẞ!ⅣſDbBbDſⅣ!ẞ İ_Σda-,,-adΣ_İ ẞ!ⅣſDbBbDſⅣ!ẞ İ_Σ",
+      "redacted": "adΣ_İ ẞ!ⅣſDbBbDſⅣ!ẞ İ_Σda-,,-adΣ_İ ẞ!ⅣſDbBbDſⅣ!ẞ İ_Σda-,,-adΣ_İ ẞ!ⅣſDbBbDſⅣ!ẞ İ_Σda-,,-adΣ_İ ẞ!ⅣſDbBbDſⅣ!ẞ İ_Σda-,,-adΣ_İ ẞ!ⅣſDbBbDſⅣ!ẞ İ_Σda-,,-adΣ_İ ẞ!ⅣſDbBbDſⅣ!ẞ İ_Σda-,,-adΣ_İ ẞ!ⅣſDbBbDſⅣ!ẞ İ_Σ",
+      "redacted_sha256": "3cfc4ac8f1d0b5568ba82f0e93cb196d93bc6b8ddfe452e366c50427c659413a",
+      "tokens": [
+        "064d1c2543eda41415580782762b215dd8d80e36c5c044bce2bbe808f4052100",
+        "07bf21349020a50db7280a8ce5923cc7d82c2b6ed596b5ca0c2659ebbb259ee0",
+        "0a9fffa9329103f254793a6b99965ee7c01ec6646ec287b5ea4437cde3b85752",
+        "3d91b4039162824609518512fee1fb5cb742a19ae92b06ebb08a01b9c9c16997",
+        "53123374d3594cae3be5f54236b661acd0cb840edddf90c6b60281eb2529efeb",
+        "5894d6e28e372bb5adc1030c9e770eb11f2b3dc71f3412b70b40ca2ff113100f",
+        "6db04768c887926e81ad49de99983404decf3a8e506154bc58079ee3a5a2b10a",
+        "85e0ff47ca8dfd75edd6b89925ea791927822fd34efbee12813c6fa9ca247646"
+      ]
+    },
+    {
+      "digest": "c3674e04adc6dde775eaf0c791faec6d745ecec4c4630c7badff580552ea904c",
+      "id": "deterministic_mix_13",
+      "input": "Ⅳ,b文_K-ΣD\t.Ᲊ́Ᲊ.\tDΣ-K_文b,ⅣЖ中中ЖⅣ,b文_K-ΣD\t.Ᲊ́Ᲊ.\tDΣ-K_文b,ⅣЖ中中ЖⅣ,b文_K-ΣD\t.Ᲊ́Ᲊ.\tDΣ-K_文b,ⅣЖ中中ЖⅣ,b文_K-ΣD\t.Ᲊ́Ᲊ.\tDΣ-K_文b,ⅣЖ中中ЖⅣ,b文_K-ΣD\t.Ᲊ́Ᲊ.\tDΣ-K_文b,ⅣЖ中中ЖⅣ,b文_K-ΣD\t.Ᲊ́Ᲊ.\tDΣ-K_文b,ⅣЖ中中ЖⅣ,b文_K-ΣD\t.Ᲊ́Ᲊ.\tDΣ-K_文b,ⅣЖ中中ЖⅣ,b文_",
+      "redacted": "Ⅳ,b文_K-ΣD\t.Ᲊ́Ᲊ.\tDΣ-K_文b,ⅣЖ中中ЖⅣ,b文_K-ΣD\t.Ᲊ́Ᲊ.\tDΣ-K_文b,ⅣЖ中中ЖⅣ,b文_K-ΣD\t.Ᲊ́Ᲊ.\tDΣ-K_文b,ⅣЖ中中ЖⅣ,b文_K-ΣD\t.Ᲊ́Ᲊ.\tDΣ-K_文b,ⅣЖ中中ЖⅣ,b文_K-ΣD\t.Ᲊ́Ᲊ.\tDΣ-K_文b,ⅣЖ中中ЖⅣ,b文_K-ΣD\t.Ᲊ́Ᲊ.\tDΣ-K_文b,ⅣЖ中中ЖⅣ,b文_K-ΣD\t.Ᲊ́Ᲊ.\tDΣ-K_文b,ⅣЖ中中ЖⅣ,b文_",
+      "redacted_sha256": "723077d554a3672dbbf396498653315ac0b1755ee278437bf19ea6ca22fd44ee",
+      "tokens": [
+        "15f63e1ebba1aa8d632fa84b6319081ff775912214a0c47652a7baa01f3246ae",
+        "282f8a2c9d555d83ccb67e48e40328e1f7578ea069fe0f64b0a1ccbc7c93640d",
+        "476a527e6dfa88fa7d52c9557c23d29882a87013cd24d111d6239ee5ae644099",
+        "a73d8037f5abf8ae57c68e8789e63086eb02ee27d074b8d7ba2a3b52b5b2d35d",
+        "b02bb41af103c3481225b17b39ef0c9f2c0eb23552bf26405d231ec6f553eff6",
+        "d2ba56e55cbc3d72576fbec3123b2860ae4d5fd30d53e687578bc62b0f485741",
+        "e4d49229575a451f742222247163295d7c7010275db1b2c763197718782ec490"
+      ]
+    },
+    {
+      "digest": "9c80978e38cc03091c7451bc38fe619f9865041456d80d5ee75714b78de75758",
+      "id": "deterministic_mix_14",
+      "input": "D中Ᲊa文!Жb.٤ſİdİſ٤.bЖ!文aᲉ中DBAABD中Ᲊa文!Жb.٤ſİdİſ٤.bЖ!文aᲉ中DBAABD中Ᲊa文!Жb.٤ſİdİſ٤.bЖ!文aᲉ中DBAABD中Ᲊa文!Жb.٤ſİdİſ٤.bЖ!文aᲉ中DBAABD中Ᲊa文!Жb.٤ſİdİſ٤.bЖ!文aᲉ中DBAABD中Ᲊa文!Жb.٤ſİdİſ٤.bЖ!文aᲉ中DBAABD中Ᲊa文!Жb.٤ſİdİſ٤.bЖ!文aᲉ中DBAABD中Ᲊa文!Жb.٤ſİdİſ٤",
+      "redacted": "D中Ᲊa文!Жb.٤ſİdİſ٤.bЖ!文aᲉ中DBAABD中Ᲊa文!Жb.٤ſİdİſ٤.bЖ!文aᲉ中DBAABD中Ᲊa文!Жb.٤ſİdİſ٤.bЖ!文aᲉ中DBAABD中Ᲊa文!Жb.٤ſİdİſ٤.bЖ!文aᲉ中DBAABD中Ᲊa文!Жb.٤ſİdİſ٤.bЖ!文aᲉ中DBAABD中Ᲊa文!Жb.٤ſİdİſ٤.bЖ!文aᲉ中DBAABD中Ᲊa文!Жb.٤ſİdİſ٤.bЖ!文aᲉ中DBAABD中Ᲊa文!Жb.٤ſİdİſ٤",
+      "redacted_sha256": "9eb9698faf34d63ecbcc8fae2a278fafc35e63194cc07a33ae12c3c314b90bec",
+      "tokens": [
+        "08eab586c05abd17f051843eeae9162eb158529e1a26ab801847fdec3ca33f1b",
+        "17976542b1b1792ff08e545c1be668a301525f2157e3eb53307fcede82b69487",
+        "19128c4e7969667aa4590d155230f7c7ff09be17f3fb12ffc4526675096fd32f",
+        "1d04be89648e1fcb10928f63c9e1fd0e3a8dad0dd414c5538d5d9b5dab1f0415",
+        "2eff4eacd6796a88b3ba2994eca440ec65cd4622027b472d28df61e11d746efa",
+        "4414a77eba27aceb803398385100442f234ff2b12bf506d4e8a95b4f1536a299",
+        "4ec3890167454eff4d5c5e2bdb20bd736d2077bd0f4f5744690ee888db7d53b5",
+        "5e0ee12b7196484b2a5bb60477f6d026658a7f7bf3eeffe5866da37026f40396"
+      ]
+    },
+    {
+      "digest": "70c9285475a9c84b2d84cebbb4d0dca02623ebe8f8bc63ff23d25f191b0ab5d4",
+      "id": "deterministic_mix_15",
+      "input": ".AİⅣaΣBᲉſC\t_,_\tCſᲉBΣaⅣİA.́９９́.AİⅣaΣBᲉſC\t_,_\tCſᲉBΣaⅣİA.́９９́.AİⅣaΣBᲉſC\t_,_\tCſᲉBΣaⅣİA.́９９́.AİⅣaΣBᲉſC\t_,_\tCſᲉBΣaⅣİA.́９９́.AİⅣaΣBᲉſC\t_,_\tCſᲉBΣaⅣİA.́９９́.AİⅣaΣBᲉſC\t_,_\tCſᲉBΣaⅣİA.́９９́.AİⅣaΣBᲉſC\t_,_\tCſᲉBΣaⅣİA.́９９́.AİⅣaΣBᲉſC\t_,_\tCſᲉBΣaⅣİA.́９",
+      "redacted": ".AİⅣaΣBᲉſC\t_,_\tCſᲉBΣaⅣİA.́９９́.AİⅣaΣBᲉſC\t_,_\tCſᲉBΣaⅣİA.́９９́.AİⅣaΣBᲉſC\t_,_\tCſᲉBΣaⅣİA.́９９́.AİⅣaΣBᲉſC\t_,_\tCſᲉBΣaⅣİA.́９９́.AİⅣaΣBᲉſC\t_,_\tCſᲉBΣaⅣİA.́９９́.AİⅣaΣBᲉſC\t_,_\tCſᲉBΣaⅣİA.́９９́.AİⅣaΣBᲉſC\t_,_\tCſᲉBΣaⅣİA.́９９́.AİⅣaΣBᲉſC\t_,_\tCſᲉBΣaⅣİA.́９",
+      "redacted_sha256": "e1fa416b0338c5b457125f48ed13e0c757597404f0593d869696b3a579cdeeb2",
+      "tokens": [
+        "5072157d66bcb18e90a3c68543ec8d6e3b9901136f9efe6ef1eeb9f15422cae7",
+        "837dfd0bd7e4789d3e50c55a3569dcda7b6696cd1427f7fdc46b94d96e5a4f22",
+        "a0b246dd1494a7b473429b18198fbb4a428a0de9d204fc0db7c80488668cf9c6",
+        "c66bb47ae984dee06bc8c28e08c80cd7c0140e6cffec1d2863d1dd0d98722fdf"
+      ]
+    }
+  ],
+  "scope": "legacy-gift-synthetic-go-goldens-v1",
+  "secret_encoding": "literal UTF-8 bytes, not hex decoding",
+  "source_revision": "cc52aa195c6f2a01d703a1a407be73c31b89867d",
+  "stdlib_net_note": "net.ParseIP and IP.String are from the reported host Go runtime; examples include IPv4, IPv6 and mapped addresses, invalid forms and compression ties.",
+  "synthetic_secret": "00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff",
+  "toolchain_note": "Host Go toolchain is retained and reported. Source Go1.25.1 Unicode15 tables are compiled as a local unmodified package; relevant host regexp folding and whitespace are checked exhaustively, not claimed as a Go1.25 runtime execution.",
+  "unicode": {
+    "ascii_fold_sha256": "a4706f327d64be001c24c294bc4c0050e568dc10712f9e8f1cb0b8c318ab2779",
+    "counts": {
+      "digit": 680,
+      "letter": 136104,
+      "lower_changed": 1433,
+      "space": 25,
+      "valid_scalars": 1112064
+    },
+    "encoding": {
+      "ascii_fold_stream": "for each ASCII cp in ascending order: u32be(cp) || u32be(cycle_size) || sorted u32be(cycle_member)*",
+      "boolean_stream": "u32be(codepoint) || u8(0_or_1), repeated",
+      "combined_stream": "u32be(codepoint) || u8(letter) || u8(digit) || u8(space) || u32be(source_simple_lower), repeated; 11 bytes per scalar",
+      "iteration": "ascending U+0000..U+10FFFF excluding U+D800..U+DFFF",
+      "lower_stream": "u32be(codepoint) || u32be(source_simple_lower), repeated"
+    },
+    "host_ascii_regex_fold_sets_match": true,
+    "host_differences": {
+      "digit": 90,
+      "letter": 9568,
+      "lower": 55,
+      "space": 0
+    },
+    "host_first_differences": {
+      "digit": [
+        "U+10D40",
+        "U+10D41",
+        "U+10D42",
+        "U+10D43",
+        "U+10D44",
+        "U+10D45",
+        "U+10D46",
+        "U+10D47",
+        "U+10D48",
+        "U+10D49",
+        "U+116D0",
+        "U+116D1",
+        "U+116D2",
+        "U+116D3",
+        "U+116D4",
+        "U+116D5",
+        "U+116D6",
+        "U+116D7",
+        "U+116D8",
+        "U+116D9"
+      ],
+      "letter": [
+        "U+088F",
+        "U+0C5C",
+        "U+0CDC",
+        "U+1C89",
+        "U+1C8A",
+        "U+A7CB",
+        "U+A7CC",
+        "U+A7CD",
+        "U+A7CE",
+        "U+A7CF",
+        "U+A7D2",
+        "U+A7D4",
+        "U+A7DA",
+        "U+A7DB",
+        "U+A7DC",
+        "U+A7F1",
+        "U+105C0",
+        "U+105C1",
+        "U+105C2",
+        "U+105C3"
+      ],
+      "lower": [
+        "U+1C89",
+        "U+A7CB",
+        "U+A7CC",
+        "U+A7CE",
+        "U+A7D2",
+        "U+A7D4",
+        "U+A7DA",
+        "U+A7DC",
+        "U+10D50",
+        "U+10D51",
+        "U+10D52",
+        "U+10D53",
+        "U+10D54",
+        "U+10D55",
+        "U+10D56",
+        "U+10D57",
+        "U+10D58",
+        "U+10D59",
+        "U+10D5A",
+        "U+10D5B"
+      ]
+    },
+    "host_non_ascii_pattern_literal_fold_sets_match": true,
+    "host_space_matches_all_scalars": true,
+    "host_unicode_version": "17.0.0",
+    "non_ascii_pattern_literal_count": 7,
+    "pattern_count": 13,
+    "sha256": {
+      "combined": "a674faec9f9c6c63730481b102295266b9faa8d2a8948f7e38a787d470571e73",
+      "digit": "0a45f9543f63ff9cb10dac4e24022eccebfa8fe1ebfb5ba446d9c1c401283197",
+      "letter": "7637086593de9fa1c46b409df19985540a27fa49c55c2a1524dd4a9235aa843d",
+      "letter_or_digit": "0c3f41c0dd08ea95a4b577638d138b97bb95c847911c8bc074d38f123de483a5",
+      "lower": "fe1114e9f5bdbed13dd3a3ebd16f22e2705cd6c5be35ca19b585b33af12fa650",
+      "space": "a345a57ca282e1f454c7924c044a656155913e4cd65f745f02c6b8564d3b7462"
+    },
+    "source_unicode_version": "15.0.0"
+  }
+}

@@ -220,13 +220,53 @@ const COMPONENTS: &[(&str, &str)] = &[
         "connection-history-import",
         include_str!("../schema/connection_history_import.sql"),
     ),
+    (
+        "provider-clients",
+        include_str!("../schema/provider_clients.sql"),
+    ),
+    (
+        "subscription-reset-vouchers",
+        crate::subscriptions::RESET_SCHEMA,
+    ),
+    (
+        "legacy-gift-continuation",
+        crate::gift::LEGACY_CONTINUATION_SCHEMA,
+    ),
+    (
+        "legacy-discount-packet-continuation",
+        crate::payments::discounts::CONTINUITY_SCHEMA,
+    ),
+    (
+        "assistant-service-funding",
+        include_str!("../schema/assistant_service_funding.sql"),
+    ),
+    (
+        "assistant-agent-gift",
+        include_str!("../schema/assistant_agent_gift.sql"),
+    ),
+    (
+        "current-connection-history",
+        include_str!("../schema/current_connection_history.sql"),
+    ),
+    (
+        "assistant-confirmed-actions",
+        include_str!("../schema/assistant_confirmed_actions.sql"),
+    ),
+    (
+        "legacy-affiliate-aliases",
+        include_str!("../schema/legacy_affiliate_aliases.sql"),
+    ),
+    (
+        "assistant-invitation-confirmation",
+        include_str!("../schema/assistant_invitation_confirmation.sql"),
+    ),
 ];
 
 /// Verify the installed managed contract without installing or repairing it.
 pub async fn managed_applications_ready(pool: &PgPool) -> Result<(), IdentityError> {
     check(pool).await?;
     let mut connection = pool.acquire().await?;
-    upgrade::managed_applications::check_oauth_contract(&mut connection).await
+    upgrade::provider_clients::check_oauth_contract(&mut connection).await
 }
 
 /// The compiled fresh-install contract, including explicitly disabled modules.
@@ -338,7 +378,19 @@ pub async fn init(pool: &PgPool) -> Result<(), IdentityError> {
     // Same installation lock as the isolated identity component initializer.
     sqlx::query("SELECT pg_advisory_xact_lock(741803120)")
         .execute(&mut *tx)
-        .await?;
+        .await
+        .map_err(|error| {
+            if error
+                .as_database_error()
+                .and_then(|db| db.code())
+                .as_deref()
+                == Some("55P03")
+            {
+                IdentityError::Conflict
+            } else {
+                error.into()
+            }
+        })?;
     let occupied: bool = sqlx::query_scalar(
         r#"SELECT EXISTS (
         SELECT 1 FROM pg_namespace n WHERE n.nspname NOT IN ('pg_catalog','information_schema')

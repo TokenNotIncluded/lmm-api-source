@@ -171,7 +171,7 @@ impl LmmIssuer {
     /// Revoke one browser grant family after re-binding the handle to the
     /// caller's current personal session and account version.
     pub async fn revoke_browser_grant(&self, cookie: &str, family_id: &str) -> Result<()> {
-        protocol::canonical(family_id, "lmm_gr_")?;
+        protocol::stored_handle(family_id, "lmm_gr_")?;
         let mut tx = transaction(&self.identity.pool).await?;
         let identity = BrowserAuth::oauth_identity_in_transaction(&mut tx, cookie).await?;
         let family = sqlx::query(
@@ -795,12 +795,9 @@ impl LmmIssuer {
         self.revoke_for_client(protocol::CLIENT, token).await
     }
     pub async fn revoke_for_client(&self, client: &str, token: &str) -> Result<()> {
-        // Revocation stays available if the operator disables new Pi issuance.
+        // Revocation stays available if the operator disables new model issuance.
         // Exact configured issuer/resource/client binding is checked below.
-        if !matches!(
-            client,
-            protocol::CLIENT | "lmm-pi" | protocol::MANAGED_CLIENT | protocol::MAGPIE_CLIENT
-        ) {
+        if client != protocol::CLIENT && !protocol::is_model_client(client) {
             return Err(IdentityError::Invalid);
         }
         let table = if token.starts_with("lmm_at_") {

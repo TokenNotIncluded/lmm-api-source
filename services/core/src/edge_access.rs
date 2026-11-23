@@ -165,11 +165,25 @@ fn edge_peer(state: &EdgeAccess, headers: &HeaderMap, physical: SocketAddr) -> O
     if !physical.ip().is_loopback() {
         return None;
     }
-    let proof = single(headers, PROOF_HEADER)?.as_bytes();
-    if proof.len() != state.proof.len() || !bool::from(proof.ct_eq(state.proof.as_slice())) {
+    assertion_peer(
+        state.proof.as_slice(),
+        single(headers, PROOF_HEADER)?,
+        single(headers, CLIENT_HEADER)?,
+    )
+}
+/// Shared verification for the physical-loopback HTTP boundary and the already
+/// service-authenticated private Assistant UDS boundary. Neither trusts XFF.
+pub(crate) fn assertion_peer(expected: &[u8], supplied: &str, client: &str) -> Option<IpAddr> {
+    if supplied.is_empty()
+        || supplied != supplied.trim()
+        || client.is_empty()
+        || client != client.trim()
+        || supplied.len() != expected.len()
+        || !bool::from(supplied.as_bytes().ct_eq(expected))
+    {
         return None;
     }
-    canonical_ip(single(headers, CLIENT_HEADER)?)
+    canonical_ip(client)
 }
 async fn trusted_edge(
     State(state): State<EdgeAccess>,

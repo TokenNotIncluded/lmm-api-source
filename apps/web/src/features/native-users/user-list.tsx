@@ -1,4 +1,5 @@
 /* Copyright (C) 2026 LIghtJUNction. SPDX-License-Identifier: AGPL-3.0-or-later */
+import { defaultStringifySearch } from '@tanstack/react-router'
 import {
   ArrowDown,
   ArrowUp,
@@ -336,6 +337,24 @@ function UserRecord({
                 </p>
               </div>
               <div className='flex flex-wrap gap-2 [&_button]:min-h-11 sm:[&_button]:min-h-9'>
+                {user.username && (
+                  <Button
+                    variant='ghost'
+                    size='sm'
+                    className='min-h-11 sm:min-h-9'
+                    render={
+                      <a
+                        href={`/usage-logs/common${defaultStringifySearch({
+                          username: user.username,
+                          source: 'native',
+                          scope: 'all',
+                        })}`}
+                      />
+                    }
+                  >
+                    {t('View logs')}
+                  </Button>
+                )}
                 {user.platform_role === 'user' && (
                   <>
                     <NativeDisplayNameEditor

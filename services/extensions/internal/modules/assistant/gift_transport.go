@@ -89,7 +89,7 @@ func (p *PersonalGiftPort) ClaimStoredNewUserGift(ctx context.Context, credentia
 		return GiftReceipt{}, false, ErrGiftUnknown
 	}
 	value, err := decodeGiftReceipt(r.GetGift())
-	if err != nil || value.State != "claimed" {
+	if err != nil || value.State != "claimed" || (value.ClaimBlockedCode == "already_claimed_legacy" && !r.GetAlreadyClaimed()) {
 		return GiftReceipt{}, false, ErrGiftUnknown
 	}
 	return value, r.GetAlreadyClaimed(), nil

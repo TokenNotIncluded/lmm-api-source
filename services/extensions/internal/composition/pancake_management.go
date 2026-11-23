@@ -14,18 +14,20 @@ import (
 )
 
 type PancakeAdministration struct {
-	mu       sync.Mutex
-	path     string
-	expected []byte
-	document multiPaymentDocument
-	runtime  *payments.PancakeConfiguration
-	replace  func(string, []byte, []byte) error
+	mu               sync.Mutex
+	path             string
+	expected         []byte
+	document         multiPaymentDocument
+	runtime          *payments.PancakeConfiguration
+	callbacksEnabled bool
+	replace          func(string, []byte, []byte) error
 }
 
 // This projection deliberately excludes secret bytes and private file paths.
 // A configured key is not a claim that the provider has accepted it.
 type pancakeConfiguration struct {
-	Contract string `json:"contract"`
+	Contract         string `json:"contract"`
+	CallbacksEnabled bool   `json:"callbacks_enabled"`
 	*pancakeConfigurationBinding
 	Bindings []pancakeConfigurationBinding `json:"bindings"`
 }
@@ -59,8 +61,9 @@ func (a *PancakeAdministration) Configuration(ctx context.Context) (any, error) 
 		return nil, err
 	}
 	view := pancakeConfiguration{
-		Contract: "extensions.pancake-configuration.v1",
-		Bindings: make([]pancakeConfigurationBinding, 0, len(groups)),
+		Contract:         "extensions.pancake-configuration.v1",
+		CallbacksEnabled: a.callbacksEnabled,
+		Bindings:         make([]pancakeConfigurationBinding, 0, len(groups)),
 	}
 	for _, group := range groups {
 		first := a.document.Channels[group[0]]
@@ -87,7 +90,7 @@ func (a *PancakeAdministration) Configuration(ctx context.Context) (any, error) 
 	return view, nil
 }
 
-func newPancakeAdministration(path string, wallet *payments.Service, subscriptions *payments.PancakeSubscriptions) (*PancakeAdministration, error) {
+func newPancakeAdministration(path string, wallet *payments.Service, subscriptions *payments.PancakeSubscriptions, callbacksEnabled bool) (*PancakeAdministration, error) {
 	raw, err := coreclient.ReadPrivateFile(path, 64<<10)
 	if err != nil {
 		return nil, payments.ErrUnavailable
@@ -97,7 +100,7 @@ func newPancakeAdministration(path string, wallet *payments.Service, subscriptio
 	if err != nil || len(meta.Undecoded()) != 0 || document.Version != 2 {
 		return nil, payments.ErrInvalid
 	}
-	return &PancakeAdministration{path: path, expected: raw, document: document, runtime: payments.AttachPancakeConfiguration(wallet, subscriptions), replace: replacePancakeConfiguration}, nil
+	return &PancakeAdministration{path: path, expected: raw, document: document, callbacksEnabled: callbacksEnabled, runtime: payments.AttachPancakeConfiguration(wallet, subscriptions), replace: replacePancakeConfiguration}, nil
 }
 
 // Currency aliases share a binding even when checkout admission is disabled.

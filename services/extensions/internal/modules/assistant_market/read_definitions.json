@@ -16,5 +16,14 @@
     "access": "user",
     "schema_json": "{\"additionalProperties\":false,\"properties\":{\"service_id\":{\"maxLength\":36,\"minLength\":36,\"type\":\"string\"}},\"required\":[\"service_id\"],\"type\":\"object\"}",
     "schema_sha256": "53f3e4812715abcf543f7b47b99fcce6ec1e49b9c9ae182bfced293e654213e6"
+  },
+  {
+    "name": "get_connected_market_tools",
+    "description": "Read the current host-allowed remote services and this user's exact-version grants. Without service_id, return up to ten visible services; select one service for two exact tool schemas and up to ten active grants per tool. Use offset or tool_offset for later pages. Missing or omitted schemas never authorize a call. Creating a grant requires the original browser's confirmation.",
+    "version": "core-market-authority-v1",
+    "effect": "read_only",
+    "access": "user",
+    "schema_json": "{\"additionalProperties\":false,\"properties\":{\"offset\":{\"maximum\":128,\"minimum\":0,\"type\":\"integer\"},\"service_id\":{\"maxLength\":80,\"minLength\":1,\"type\":\"string\"},\"tool_offset\":{\"maximum\":10000,\"minimum\":0,\"type\":\"integer\"}},\"type\":\"object\"}",
+    "schema_sha256": "c2ceb1dc5d837b8e5755a8c30251123766c06598360246fc4c899c488d7eb575"
   }
 ]

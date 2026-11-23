@@ -93,7 +93,7 @@ async fn event(
         _ => Err(Error::Conflict),
     }
 }
-async fn price(c: &mut PgConnection, plan: i64, channel: i64) -> Result<PancakePrice> {
+pub(super) async fn price(c: &mut PgConnection, plan: i64, channel: i64) -> Result<PancakePrice> {
     let v:Value=sqlx::query_scalar("SELECT to_jsonb(p)||jsonb_build_object('currency',e.currency,'amount_minor',e.amount_minor::text) FROM core_subscriptions.pancake_prices p JOIN core_subscriptions.external_prices e USING(plan_id,plan_revision,channel_id) JOIN core_subscriptions.plans r ON r.id=p.plan_id AND r.revision=p.plan_revision WHERE p.plan_id=$1 AND p.channel_id=$2").bind(plan).bind(channel).fetch_optional(c).await?.ok_or(Error::NotFound)?;
     decode(v)
 }

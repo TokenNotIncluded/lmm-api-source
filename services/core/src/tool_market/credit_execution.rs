@@ -78,6 +78,8 @@ pub struct Receipt {
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 struct Snapshot {
     request: ReserveRequest,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    assistant_tool_operation_id: Option<String>,
     quote: credits::Quote,
     seller_account_id: Option<i64>,
     platform_account_id: Option<i64>,
@@ -196,7 +198,19 @@ impl CreditStore {
         Ok(())
     }
     pub async fn reserve(&self, secret: &str, r: &ReserveRequest) -> Result<Receipt> {
-        if matches!(r.client_id.as_str(), "assistant" | "builtin-assistant")
+        if matches!(r.client_id.as_str(), "assistant" | "builtin-assistant") {
+            return Err(Error::Invalid);
+        }
+        self.reserve_from_source(secret, r, None).await
+    }
+    pub(super) async fn reserve_from_source(
+        &self,
+        secret: &str,
+        r: &ReserveRequest,
+        assistant_operation: Option<&str>,
+    ) -> Result<Receipt> {
+        if r.client_id == "assistant"
+            || (assistant_operation.is_some() != (r.client_id == "builtin-assistant"))
             || r.client_id.is_empty()
             || r.client_id.len() > 128
             || r.client_id.trim() != r.client_id
@@ -233,7 +247,7 @@ impl CreditStore {
                 .await?
         {
             let Json(s): Json<Snapshot> = old.try_get("snapshot")?;
-            if s.request != *r {
+            if s.request != *r || s.assistant_tool_operation_id.as_deref() != assistant_operation {
                 return Err(Error::Conflict);
             }
             let Json(receipt) = old.try_get("receipt")?;
@@ -268,6 +282,10 @@ impl CreditStore {
                 && q.try_get::<Option<i64>, _>("seller_user_id")? != Some(actor.user_id()))
         {
             return Err(Error::Forbidden);
+        }
+        if let Some(operation_id) = assistant_operation {
+            self.authorize_assistant_call(&mut tx, secret, operation_id, r, &quote)
+                .await?;
         }
         let grant=sqlx::query("SELECT * FROM core_tool_market.credit_consents WHERE id=$1 AND actor_user_id=$2 FOR UPDATE").bind(&r.grant_id).bind(actor.user_id()).fetch_optional(&mut *tx).await?.ok_or(Error::Forbidden)?;
         let Json(consent): Json<ConsentRequest> = grant.try_get("request")?;
@@ -397,6 +415,7 @@ impl CreditStore {
         };
         let snap = Snapshot {
             request: r.clone(),
+            assistant_tool_operation_id: assistant_operation.map(str::to_owned),
             quote: quote.clone(),
             seller_account_id: seller,
             platform_account_id: platform,
@@ -491,6 +510,21 @@ impl CreditStore {
         let now = ToolMarketStore::now(&mut tx).await?;
         let grant = Self::consent(&mut tx, &out.grant_id, actor.user_id()).await?;
         let Json(snapshot): Json<Snapshot> = row.try_get("snapshot")?;
+        if let Some(operation_id) = snapshot.assistant_tool_operation_id.as_deref() {
+            self.authorize_assistant_call(
+                &mut tx,
+                secret,
+                operation_id,
+                &snapshot.request,
+                &snapshot.quote,
+            )
+            .await?;
+        } else if matches!(
+            snapshot.request.client_id.as_str(),
+            "assistant" | "builtin-assistant"
+        ) {
+            return Err(Error::Forbidden);
+        }
         self.financial_admission(&mut tx, &snapshot.quote, out.held_quota)
             .await?;
         if snapshot.seller_user_id.is_some() {

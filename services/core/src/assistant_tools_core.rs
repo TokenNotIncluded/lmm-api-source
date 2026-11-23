@@ -1,12 +1,16 @@
 //! Core assistant business reads. Model/Go input never supplies authority.
 //! The worker authenticates its original Session and delegates only a typed call.
 pub mod account;
+pub(crate) mod actions;
+pub mod admin_catalog;
 pub mod confirmation;
 pub mod context;
 pub mod facts;
+pub(crate) mod invitations;
 pub mod keys;
 pub mod models;
 mod normalization;
+mod plan_offers;
 pub mod redaction;
 pub mod registration {
     use super::{Error, context::VerifiedToolContext};
@@ -106,6 +110,9 @@ pub enum TypedReadArgs {
     UserOverview(account::UserTarget),
     UserUsage(account::UsageSummaryArgs),
     OwnUsage(account::OwnUsageArgs),
+    AdminChannels,
+    AdminModelInventory,
+    AdminPricingAudit(admin_catalog::PricingAuditArgs),
     ListMyApiKeys(keys::ListMyApiKeys),
     NewUserGiftStatus,
     RegistrationRisk,
@@ -142,6 +149,17 @@ impl TypedReadArgs {
             "get_usage_summary" => {
                 Self::OwnUsage(serde_json::from_slice(bytes).map_err(|_| Error::Invalid)?)
             }
+            "get_admin_channels" => {
+                empty(bytes)?;
+                Self::AdminChannels
+            }
+            "get_admin_model_inventory" => {
+                empty(bytes)?;
+                Self::AdminModelInventory
+            }
+            "audit_admin_model_pricing" => {
+                Self::AdminPricingAudit(serde_json::from_slice(bytes).map_err(|_| Error::Invalid)?)
+            }
             "list_my_api_keys" => {
                 Self::ListMyApiKeys(serde_json::from_slice(bytes).map_err(|_| Error::Invalid)?)
             }
@@ -164,6 +182,9 @@ impl TypedReadArgs {
             Self::UserOverview(_) => "get_user_overview",
             Self::UserUsage(_) => "get_user_usage_summary",
             Self::OwnUsage(_) => "get_usage_summary",
+            Self::AdminChannels => "get_admin_channels",
+            Self::AdminModelInventory => "get_admin_model_inventory",
+            Self::AdminPricingAudit(_) => "audit_admin_model_pricing",
             Self::ListMyApiKeys(_) => "list_my_api_keys",
             Self::NewUserGiftStatus => "get_new_user_gift_status",
             Self::RegistrationRisk => "get_registration_risk",
@@ -182,7 +203,11 @@ pub async fn read_in_transaction(
     args: &TypedReadArgs,
 ) -> Result<TypedReadResult, Error> {
     let output = match args {
-        TypedReadArgs::AvailableModels | TypedReadArgs::ModelPricing(_) => {
+        TypedReadArgs::AvailableModels
+        | TypedReadArgs::ModelPricing(_)
+        | TypedReadArgs::AdminChannels
+        | TypedReadArgs::AdminModelInventory
+        | TypedReadArgs::AdminPricingAudit(_) => {
             return Err(Error::Unavailable);
         }
         TypedReadArgs::AccountAccess => account::access_in_transaction(c, context).await?,
@@ -239,6 +264,15 @@ pub async fn read_with_gateway_in_transaction(
         TypedReadArgs::AvailableModels => surface.available_tool_in_transaction(c, context).await?,
         TypedReadArgs::ModelPricing(input) => {
             surface.pricing_in_transaction(c, context, input).await?
+        }
+        TypedReadArgs::AdminChannels => {
+            admin_catalog::channels_in_transaction(c, context, gateway).await?
+        }
+        TypedReadArgs::AdminModelInventory => {
+            admin_catalog::inventory_in_transaction(c, context, gateway).await?
+        }
+        TypedReadArgs::AdminPricingAudit(input) => {
+            admin_catalog::pricing_in_transaction(c, context, gateway, input).await?
         }
         _ => return read_in_transaction(c, context, args).await,
     };

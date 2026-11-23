@@ -16,6 +16,7 @@ import type { AssistantUIPreferenceAction } from './assistant-ui-preferences-con
 import { getUIPreferenceCopy } from './assistant-ui-preferences-copy'
 import {
   assistantUIPreferenceRuntime as runtime,
+  sameUIPreferenceOwner,
   type UIPreferenceReceipt,
 } from './assistant-ui-preferences-runtime'
 import { useAssistantUIPreferenceAdapter } from './use-assistant-ui-preferences'
@@ -42,17 +43,20 @@ export function AssistantUIPreferencesCard({
     if (disabled) return
     const controller = new AbortController()
     lifetime.current = controller
+    const originalOwner = current.current.adapter.owner()
     const sameOwner = () => {
       const owner = current.current.adapter.owner()
       return (
+        sameUIPreferenceOwner(owner, originalOwner) &&
         owner?.userID === current.current.action.actor_user_id &&
-        owner.sessionID === current.current.action.actor_session_id
+        (current.current.action.actor_session_id === undefined ||
+          owner.sessionID === current.current.action.actor_session_id)
       )
     }
     const syncReceipt = () =>
       setReceipt(
         sameOwner()
-          ? runtime.receipt(action.action_id)
+          ? runtime.receipt(action.action_id, originalOwner)
           : { status: 'unavailable', canUndo: false }
       )
     const unsubscribe = runtime.subscribe(syncReceipt)

@@ -11,6 +11,12 @@ func validateAssistantConfiguration(cfg GoConfig) error {
 	if cfg.Assistant.AgentRequired && (!selected || key == "" || cfg.Core.Socket == "" || cfg.Core.IdentityTokenFile == "" || cfg.Assistant.DatabaseName == "" || cfg.Assistant.DatabaseURLFile == "" || cfg.Assistant.CursorKeyFile == "") {
 		return errors.New("required assistant agent needs the selected module, core credentials, database and cursor key")
 	}
+	if err := validateAssistantSearchConfiguration(cfg); err != nil {
+		return err
+	}
+	if err := validateAssistantInvitationConfiguration(cfg); err != nil {
+		return err
+	}
 	if key == "" {
 		return nil
 	}

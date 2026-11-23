@@ -40,9 +40,29 @@ jobs:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
         with:
           persist-credentials: false
+      - name: Configure private PostgreSQL for offline upgrade tests
+        env:
+          POSTGRES_CONTAINER: ${{ job.services.postgres.id }}
+        run: |
+          # Only this disposable service is quieted; production guards stay strict.
+          docker exec "$POSTGRES_CONTAINER" psql -X -U postgres -d postgres -v ON_ERROR_STOP=1 \
+            -c 'ALTER SYSTEM SET autovacuum = off'
+          test "$(docker exec "$POSTGRES_CONTAINER" psql -X -U postgres -d postgres -v ON_ERROR_STOP=1 \
+            -Atqc 'SELECT pg_reload_conf()')" = t
+          # pg_reload_conf sends SIGHUP; read the actual setting until applied.
+          for _ in {1..50}; do
+            docker exec "$POSTGRES_CONTAINER" psql -X -U postgres -d postgres -v ON_ERROR_STOP=1 \
+              -Atqc "SELECT setting, pending_restart FROM pg_settings WHERE name = 'autovacuum'" \
+              > "$RUNNER_TEMP/core-postgres-offline-settings.txt"
+            if test "$(cat "$RUNNER_TEMP/core-postgres-offline-settings.txt")" = 'off|f'; then
+              break
+            fi
+            sleep 0.1
+          done
+          test "$(cat "$RUNNER_TEMP/core-postgres-offline-settings.txt")" = 'off|f'
       - name: Initialize the pinned CLI only for archive contract checks
         run: git submodule update --init --depth 1 -- apps/cli
-      - name: Initialize the pinned Extore native plugin for formal images
+      - name: Initialize the pinned Extore plugin for the formal RPC image
         run: |
           git submodule update --init --depth 1 -- packages/extore
           python3 -B scripts/check-extore-plugin-pin.py
@@ -213,6 +233,14 @@ jobs:
           export LMM_PAYMENT_CORE_BIN LMM_PAYMENT_CORE_SHA256 LMM_PAYMENT_GO_BIN LMM_PAYMENT_GO_SHA256 LMM_PAYMENT_BOOTSTRAP_BIN LMM_PAYMENT_BOOTSTRAP_SHA256
           # Emit panic diagnostics immediately, including when the job times out.
           cargo test --locked --all-targets --no-fail-fast -- --skip synthetic_live_proof_crosses_core_go_processes_and_posts_once --nocapture 2>&1 | tee "$RUNNER_TEMP/core-tests.log"
+      - name: Repeat rejected event acknowledgement regression
+        if: ${{ !cancelled() && steps.rust_test_compile.outcome == 'success' }}
+        working-directory: services/core
+        run: |
+          for attempt in {1..10}; do
+            echo "Regression run $attempt/10" | tee -a "$RUNNER_TEMP/core-events-repeated.log"
+            cargo test --locked --lib events::tests::service_scope_and_consumer_backlog_limit_cannot_be_bypassed -- --exact 2>&1 | tee -a "$RUNNER_TEMP/core-events-repeated.log"
+          done
       - name: Synthetic payment live process through owning runner
         if: ${{ !cancelled() }}
         run: python3 -B scripts/ci-payment-live.py --output "$(realpath -m "$RUNNER_TEMP/payment-live")" 2>&1 | tee "$RUNNER_TEMP/payment-live-build.log"
@@ -298,6 +326,7 @@ jobs:
             ${{ runner.temp }}/preserved-early58/schema-manifest.json
             ${{ runner.temp }}/preserved-early58/build.log
             ${{ runner.temp }}/core-tests.log
+            ${{ runner.temp }}/core-postgres-offline-settings.txt
             ${{ runner.temp }}/core-process-evidence-*
             ${{ runner.temp }}/payment-live-build.log
             ${{ runner.temp }}/payment-live/evidence/result.json

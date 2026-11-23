@@ -512,13 +512,11 @@ pub(crate) fn catalog_decision(
     if !action.is_catalog() {
         return deny(Denial::UnknownAction);
     }
-    // Main root precedes overrides; deny wins among conflicting user rows.
-    if role == PlatformRole::Root {
-        return PermissionDecision::Allow;
-    }
-    if role != PlatformRole::Admin {
+    if !matches!(role, PlatformRole::Admin | PlatformRole::Root) {
         return deny(Denial::RoleDenied);
     }
+    // A matching explicit deny precedes either role's default grants. The
+    // caller has already validated the current subject, policy and resource.
     let mut allow = false;
     for row in overrides.iter().filter(|r| r.action == action) {
         if row.effect == Effect::Deny {
@@ -526,7 +524,7 @@ pub(crate) fn catalog_decision(
         }
         allow = true;
     }
-    if allow || action.admin_default() {
+    if role == PlatformRole::Root || allow || action.admin_default() {
         PermissionDecision::Allow
     } else {
         deny(Denial::RoleDenied)

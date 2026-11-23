@@ -12,6 +12,7 @@ pub use permissions::{
     complete_policy_snapshot, has_privileged_import_facts, load_complete_policy,
     permission_read_router, policy_sha256,
 };
+pub(crate) mod assistant_workspace_rate;
 mod auth;
 mod browser;
 pub(crate) mod network_policy;
@@ -31,6 +32,7 @@ pub use browser::{
     AccountUnlinkRequest,
 };
 mod compat;
+pub(crate) use compat::assistant as assistant_actions;
 pub(crate) use compat::quota as assistant_key_quota;
 mod credentials;
 pub mod email;

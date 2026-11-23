@@ -126,7 +126,7 @@ func (c *AssistantClient) AssistantStartAgentTurn(ctx context.Context, user stri
 	if err := c.agentReady(ctx, user); err != nil {
 		return nil, err
 	}
-	out, err := pb.NewCoreAssistantModelClient(c.rpc.connection).StartAgentTurn(c.rpc.context(ctx, user), r)
+	out, err := pb.NewCoreAssistantModelClient(c.rpc.connection).StartAgentTurn(c.edgeContext(ctx, user), r)
 	if err != nil {
 		return nil, err
 	}
