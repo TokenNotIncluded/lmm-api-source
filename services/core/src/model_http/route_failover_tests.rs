@@ -363,9 +363,10 @@ async fn route_failover_pg_safe_failures_keep_one_frozen_bill(pool: PgPool) {
 #[sqlx::test(migrations = false)]
 async fn key_snapshot_failover_admin_uses_last_dispatched_binding(pool: PgPool) {
     use axum::extract::OriginalUri;
+    type Dispatches = Arc<std::sync::Mutex<Vec<(String, String)>>>;
 
     async fn reply(
-        State(keys): State<Arc<std::sync::Mutex<Vec<(String, String)>>>>,
+        State(keys): State<Dispatches>,
         OriginalUri(uri): OriginalUri,
         headers: HeaderMap,
         Json(_): Json<serde_json::Value>,
