@@ -100,6 +100,25 @@ for both paths; recovering an already admitted legacy proof still requires
 `legacy_credit_evidence` to credit it. See the
 [legacy settlement contract](legacy-payment-obligations.md#内部-rpc-与旧订单回调).
 
+### Exact minimum for credit-quantity wallet payments
+
+Core's `credit_quote.min_credit_units` is an optional positive int64 admission
+limit in `credit_500k_usd` units. It defaults to 1 for existing configurations;
+500000 requires at least USD 1 of wallet credit. Core checks the exact quantity
+before fiat rounding and discount calculation. A fiat `min_amount_minor` cannot
+substitute for this rule. The field is not added to the immutable quote stored
+with an admitted intent, so a later minimum increase does not reprice or reject
+recovery of that intent.
+
+The service-authenticated `GetTopupConfiguration` RPC uses `read_user` and reads
+the current Core policy without a database operation. Extensions matches each
+result against its actual provider binding and quantity mode before advertising
+a wallet channel. It forwards the exact minimum as a decimal string; it does not
+copy the pricing policy. Deploy a matching Core before enabling the new
+Extensions wallet catalogue: an unavailable policy RPC fails closed. Saved
+browser requests and existing order recovery remain independent of that new
+catalogue admission.
+
 ### Shared-store Pancake callbacks during native rollout
 
 A provider store can deliver `order.completed` to both the old Go deployment and
