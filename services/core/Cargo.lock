@@ -4840,7 +4840,7 @@ source = "git+https://github.com/LIghtJUNction/zclap.git#a4c7e6f3e0ff860de701573
 [[package]]
 name = "zconv"
 version = "0.4.1"
-source = "git+https://github.com/LIghtJUNction/zconv.git#f78b97b7065bbb7cf9ddfd0914d7f2296bbfe712"
+source = "git+https://github.com/LIghtJUNction/zconv.git#11df5d00117ed87a7f5aebc5a2677f59fccff9b1"
 
 [[package]]
 name = "zerocopy"
@@ -4939,7 +4939,7 @@ dependencies = [
 [[package]]
 name = "zhex"
 version = "0.1.3"
-source = "git+https://github.com/LIghtJUNction/zhex.git#9fc8de3901b2726e650537f4a6330355e8a965e7"
+source = "git+https://github.com/LIghtJUNction/zhex.git#52515207f9d97a2580182169b611b4763366b328"
 
 [[package]]
 name = "zmij"
