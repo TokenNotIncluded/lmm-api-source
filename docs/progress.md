@@ -6,13 +6,17 @@
 
 - **本地整合候选 E（未推送、未部署；2026-11-23）**：从精确 D `15bc9d989dfa67930ecf501f0e593794f16d672d` 建立隔离工作树，完整合并 Sub2API 余额 `5d5674c8bc41562ab0bb27a6aae0ec963e7547d5`、原生多 Key 日志快照 `cbc3bffcac4470354f8510a531ea4974748eaa64`、登录等待与定价空状态 `726c580c84b83ef46a18fa8a6f8a8320de5c32c3`，以及 PR17 的确切 head `7566aadbd93e17a5004284e104eeaf89f211d59c`。PR17 按完整 Git 祖先链合并，共同祖先为 `25a0fc4654465ade661178c68ff082e0a3f9d3df`；未只摘取最后一次提交，也未削减 canonical gate。七种语言分别保留两条功能分支的全部 14 个变更键，未增加 schema88 变更。
 
-  **组合自测**：7 个前端测试文件串行执行，173 项通过、0 失败；范围内 22 个 Web 文件格式检查通过，lint 为 0 error／16 warnings；20 个 Rust 文件的格式检查通过，七语言同步的 missing／extras 均为 0。类型检查曾在 `GOMAXPROCS=2`、`GOMEMLIMIT=512MiB` 下启动，但实际峰值 RSS 约 2.16 GiB，宿主可用内存降至约 569 MiB；为让 D 切换优先，已取消该检查，未取得成功退出码，须在明确资源窗口重新验证。Rust 格式不代表编译或测试通过。输入核对、逐命令退出码、原始日志及取消收据保存在 E 工作树的 `out/integration-e-validation/`。
+  **B 追加（本地整合）**：纳入 `240f08a1fa9353ca1e438eda78eaf78c7980758f` 的故障转移与 reader 边界测试、合成 golden 和发布说明。两份 Rust 文件格式检查及 golden 的静态源码／摘要核对通过；这些检查没有执行真实 D、Rust 测试或 PostgreSQL。后文严格 forward-only 的当前 writer 边界完整保留，未引入或批准 reader-only 过渡版本。Web 输入未变，原 173 项自测沿用其原输入身份，不增加新通过计数。原功能工位的隔离库脚本仍是其私有 out 材料，不在本提交中。
+
+  **初始组合自测**：7 个前端测试文件串行执行，173 项通过、0 失败；范围内 22 个 Web 文件格式检查通过，lint 为 0 error／16 warnings；20 个 Rust 文件的格式检查通过，七语言同步的 missing／extras 均为 0。类型检查曾在 `GOMAXPROCS=2`、`GOMEMLIMIT=512MiB` 下启动，但实际峰值 RSS 约 2.16 GiB，宿主可用内存降至约 569 MiB；为让 D 切换优先，已取消该检查，未取得成功退出码，须在明确资源窗口重新验证。Rust 格式不代表编译或测试通过。输入核对、逐命令退出码、原始日志及取消收据保存在 E 工作树的 `out/integration-e-validation/`。
 
   **发布边界**：此处仅完成本地源码整合和已列出的开发自测，独立验收未执行。最终 E 仍须取得自身精确提交的完整 main CI；既有分支或 PR17 的旧 green 不转移给新组合。Rust 编译／测试、真实 PostgreSQL、完整 Web 构建及浏览器检查本轮未运行。**CBC 回退约束仍是发布前待决事项，本次整合没有解除或验证该约束。**未改动冻结 D、主线或其他工位工作树，未推送、部署或执行生产／真实支付操作。
 
 - **原生多 Key 日志快照（[#853](https://github.com/TokenNotIncluded/lmm-api/issues/853) 局部实现，定向验证待完成；2026-11-23）**：原生模型请求在受理合同中保存当时的多 Key 标记与零基序号，并沿用已有的非秘密凭据 ID／版本。路由池重排、删除或改版后，管理员日志从持久化合同及实际发送记录读取原快照；结算差额与退款继续引用同一请求合同。普通用户日志不投影序号或凭据标识；无快照的旧合同和图片请求明确返回管理员状态 `unknown`，不按当前 Key 池推算。未新增 schema 或修改计费金额。
 
-  **范围与验证**：已加入 `key_snapshot` 定向回归，覆盖重排、删除、单 Key、旧合同摘要兼容、真实 PostgreSQL 的结算／退款与权限投影。格式及差异检查通过；Rust 编译与 PostgreSQL 自测尚未执行，等待协调窗口。当前 `/api/task`、`/api/mj` 仍为历史读取入口，`usage/task_log.rs` 没有运行期调用；本轮没有新增供应商异步任务执行器，因此不能据此关闭 #853 或宣称完整异步链路已交付。证据保存在该功能原开发工作树的私有 `out/task-key-logs-validation/`。
+  **兼容方向与发布边界**：新 reader 可读取省略 `credential_selection` 的 D 旧合同，并保留旧字节与摘要；D 的 `deny_unknown_fields` 会拒绝含该字段的新合同。未改 schema 不等于可回退 D 二进制。当前候选会直接写入新字段，只能按严格 forward-only 评审；如必须保留回退窗口，需另行交付 E reader-only 版本，先升级全部合同读取方，再单独批准启用 writer。写入首份新合同后，回退下限是兼容的新 reader，不能删除字段、重算既有摘要或仅更换回 D 二进制。本轮未实现或启用分阶段发布开关。
+
+  **范围与验证**：`key_snapshot` 定向回归已补充两次本地 HTTP 实际派发、首候选拒绝后最终 Key 绑定的管理员投影，以及旧／新合同固定字节、摘要和旧 D 严格解析边界。golden 由冻结 D 源码与合成值构造，未由真实 D 二进制执行产生；Rust 编译、这些测试和 PostgreSQL 自测仍未执行。修订的隔离库脚本与新报告位于私有 `out/task-key-logs-validation/r3/`，旧报告与完成收据保留。当前 `/api/task`、`/api/mj` 仍为历史读取入口，`usage/task_log.rs` 没有运行期调用；本轮没有新增供应商异步任务执行器，因此不能据此关闭 #853 或宣称完整异步链路已交付。
 
 - **native 管理台与支付接入（界面候选完整 CI 已通过；配套支付后端已定向自测，等待发布及数据库升级资格；2026-11-23）**：界面候选 [fdbd9bc6](https://github.com/TokenNotIncluded/lmm-api-source/commit/fdbd9bc628545a5c33ea0f2bc5e79fa532948ba7) 的 [完整 CI](https://github.com/TokenNotIncluded/lmm-api-source/actions/runs/45130451839) 已成功，包括 Web、翻译、Rust／真实数据库、Go 和最终汇总。Web 单独按固定候选发布；这项资格不自动覆盖后续支付后端提交。
 
