@@ -22,8 +22,12 @@ import {
   useQuery,
   useInfiniteQuery,
 } from '@tanstack/react-query'
-import { useNavigate, getRouteApi } from '@tanstack/react-router'
-import { Download, Eye, EyeOff } from 'lucide-react'
+import {
+  defaultStringifySearch,
+  useNavigate,
+  getRouteApi,
+} from '@tanstack/react-router'
+import { Copy, Download, Eye, EyeOff } from 'lucide-react'
 import {
   useState,
   useCallback,
@@ -33,6 +37,7 @@ import {
   type ReactNode,
 } from 'react'
 import { useTranslation } from 'react-i18next'
+import { toast } from 'sonner'
 
 import { Button } from '@/components/ui/button'
 import { Combobox } from '@/components/ui/combobox'
@@ -55,6 +60,7 @@ import {
 } from '@/features/native-users/access'
 import { readNativeUserGroups } from '@/features/native-users/api'
 import { getUserGroups } from '@/lib/api'
+import { copyToClipboard } from '@/lib/copy-to-clipboard'
 import type { RowData, Table } from '@/lib/table'
 import { useAuthStore } from '@/stores/auth-store'
 
@@ -148,7 +154,7 @@ export function CommonLogsFilterBar<TData extends RowData>(
   const navigate = useNavigate()
   const queryClient = useQueryClient()
   const searchParams = route.useSearch()
-  const { isAdminView: isAdmin, historical } = useLogsViewScope()
+  const { isAdminView: isAdmin, historical, usageSource } = useLogsViewScope()
   const { sensitiveVisible, setSensitiveVisible } = useUsageLogsContext()
   const fetchingLogs = useIsFetching({ queryKey: ['logs'] })
   const auth = useAuthStore((state) => state.auth)
@@ -340,6 +346,9 @@ export function CommonLogsFilterBar<TData extends RowData>(
       params: { section: 'common' },
       search: {
         ...filterParams,
+        source: usageSource,
+        scope: isAdmin ? 'all' : 'self',
+        pageSize: searchParams.pageSize,
         type: [logType],
         page: 1,
       },
@@ -361,6 +370,8 @@ export function CommonLogsFilterBar<TData extends RowData>(
     navigate,
     queryClient,
     searchState.sourceKey,
+    searchParams.pageSize,
+    usageSource,
   ])
 
   const handleReset = useCallback(() => {
@@ -382,10 +393,13 @@ export function CommonLogsFilterBar<TData extends RowData>(
       params: { section: 'common' },
       search: {
         page: 1,
+        pageSize: searchParams.pageSize,
+        source: usageSource,
+        scope: isAdmin ? 'all' : 'self',
         ...resetSearch,
       },
     })
-  }, [navigate])
+  }, [isAdmin, navigate, searchParams.pageSize, usageSource])
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
@@ -706,6 +720,28 @@ export function CommonLogsFilterBar<TData extends RowData>(
         actionStart={
           <>
             {sensitiveToggle}
+            <Button
+              type='button'
+              variant='ghost'
+              size='sm'
+              onClick={async () => {
+                const search = defaultStringifySearch({
+                  ...searchParams,
+                  source: usageSource,
+                  scope: isAdmin ? 'all' : 'self',
+                  username: isAdmin ? searchParams.username : undefined,
+                  channel: isAdmin ? searchParams.channel : undefined,
+                })
+                const copied = await copyToClipboard(
+                  `${window.location.origin}/usage-logs/common${search}`
+                )
+                if (copied) toast.success(t('Filter link copied.'))
+                else toast.error(t('Could not copy the filter link.'))
+              }}
+            >
+              <Copy aria-hidden='true' />
+              {t('Copy filter link')}
+            </Button>
             {(!historical || isAdmin) && (
               <Button
                 type='button'

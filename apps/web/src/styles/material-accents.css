@@ -19,14 +19,6 @@
   --badge-tone: var(--warning);
 }
 
-.native-user-record {
-  background: var(--card);
-  box-shadow: none;
-  border-color: transparent;
-}
-.native-user-record:focus-within {
-  border-color: var(--ring);
-}
 .native-user-avatar {
   display: inline-flex;
   align-items: center;
@@ -36,11 +28,6 @@
   border-radius: var(--radius);
   color: var(--primary);
   background: color-mix(in oklch, var(--primary) 10%, var(--card));
-}
-.native-user-wallet {
-  padding: 1rem;
-  border-radius: var(--radius);
-  background: color-mix(in oklch, var(--primary) 4%, var(--card));
 }
 .overview-dashboard .overview-metric {
   --metric-tone: var(--primary);

@@ -224,16 +224,16 @@ test('confirmation links are same-origin exact Core confirmation paths', () => {
   }
 })
 
-test('assistant confirmation navigation enters the cookie scope for current and immutable historical receipts', () => {
+test('assistant confirmation navigation preserves the exact route supplied by older and current Core', () => {
   const origin = 'https://console.example.test'
   const id = 'f'.repeat(64)
   const current = `/api/user/auth/assistant/confirmations/${id}`
   const historical = `/api/user/assistant/confirmations/${id}`
-  for (const confirmation_url of [
-    current,
-    `${origin}${current}`,
-    historical,
-    `${origin}${historical}`,
+  for (const [confirmation_url, expected] of [
+    [current, `${origin}${current}`],
+    [`${origin}${current}`, `${origin}${current}`],
+    [historical, `${origin}${historical}`],
+    [`${origin}${historical}`, `${origin}${historical}`],
   ]) {
     for (const structuredContent of [
       { confirmation_url },
@@ -241,7 +241,7 @@ test('assistant confirmation navigation enters the cookie scope for current and 
     ]) {
       assert.equal(
         marketConfirmationURL({ structuredContent }, origin),
-        `${origin}${current}`
+        expected
       )
     }
   }

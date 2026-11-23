@@ -55,11 +55,16 @@ export function SubscriptionResetVouchers(props: {
     queryFn: () => getSubscriptionResetVouchers(props.scope),
     staleTime: 15_000,
   })
-  const vouchers = vouchersQuery.data?.data ?? []
+  const unsupported = vouchersQuery.data?.supported === false
+  if (unsupported && selected !== null) {
+    // A later successful refresh must require a new explicit confirmation.
+    setSelected(null)
+  }
+  const vouchers = unsupported ? [] : (vouchersQuery.data?.data ?? [])
   const now = useDeadlineClock(
     vouchers.map((voucher) => voucher.expires_at * 1000)
   )
-  const hasVoucherData = vouchersQuery.data != null
+  const hasVoucherData = vouchersQuery.data != null && !unsupported
   const voucherStatus = (voucher: SubscriptionResetVoucher) =>
     redeemedVoucherIds.has(voucher.id)
       ? 'redeemed'
@@ -131,6 +136,7 @@ export function SubscriptionResetVouchers(props: {
   const redeem = async () => {
     if (
       !selected ||
+      unsupported ||
       redeeming ||
       selected.status !== 'available' ||
       selected.expired === true ||
@@ -248,7 +254,11 @@ export function SubscriptionResetVouchers(props: {
           </div>
         )}
 
-        {vouchersQuery.isPending && !hasVoucherData ? (
+        {unsupported && !vouchersQuery.isError ? (
+          <p className='text-muted-foreground mt-3 text-sm' role='status'>
+            {t('Banked subscription resets are not available on this server.')}
+          </p>
+        ) : vouchersQuery.isPending && !hasVoucherData ? (
           <div className='mt-3 space-y-2' aria-hidden='true'>
             <Skeleton className='h-14 w-full' />
             <Skeleton className='h-14 w-full' />
@@ -345,7 +355,7 @@ export function SubscriptionResetVouchers(props: {
         )}
       </div>
 
-      {selected && (
+      {selected && !unsupported && (
         <ConfirmDialog
           open
           onOpenChange={(open) => !open && setSelected(null)}

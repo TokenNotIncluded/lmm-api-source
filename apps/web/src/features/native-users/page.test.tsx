@@ -5,6 +5,8 @@ import assert from 'node:assert/strict'
 
 import { Window } from 'happy-dom'
 
+import type { NativeUsersQuery } from './contract'
+
 const dom = new Window({ url: 'https://console.example.invalid/users' })
 for (const key of [
   'window',
@@ -81,7 +83,13 @@ function login(role = 100, sid = 'synthetic-native-page-session') {
     },
   })
 }
-async function mount(search = '') {
+async function mount(
+  search = '',
+  options: {
+    onQueryChange?: (query: NativeUsersQuery) => void
+    captureRender?: (render: (search: string) => Promise<void>) => void
+  } = {}
+) {
   const container = document.createElement('div')
   document.body.append(container)
   const root = createRoot(container)
@@ -93,27 +101,30 @@ async function mount(search = '') {
     client.clear()
     container.remove()
   })
-  await act(async () => {
-    root.render(
-      <QueryClientProvider client={client}>
-        <I18nextProvider i18n={i18n}>
-          <NativeAdminUsersEntry>
-            {(scope, recheck) => (
-              <NativeUsersPage
-                scope={scope}
-                recheck={recheck}
-                search={search}
-              />
-            )}
-          </NativeAdminUsersEntry>
-        </I18nextProvider>
-      </QueryClientProvider>
-    )
-    await pause()
-  })
-  await act(async () => {
-    await pause()
-  })
+  const render = async (nextSearch: string) => {
+    await act(async () => {
+      root.render(
+        <QueryClientProvider client={client}>
+          <I18nextProvider i18n={i18n}>
+            <NativeAdminUsersEntry>
+              {(scope, recheck) => (
+                <NativeUsersPage
+                  scope={scope}
+                  recheck={recheck}
+                  search={nextSearch}
+                  onQueryChange={options.onQueryChange}
+                />
+              )}
+            </NativeAdminUsersEntry>
+          </I18nextProvider>
+        </QueryClientProvider>
+      )
+      await pause()
+    })
+    await act(pause)
+  }
+  options.captureRender?.(render)
+  await render(search)
   return container
 }
 function button(container: HTMLElement, label: string) {
@@ -1247,4 +1258,78 @@ test('page jump validates the requested range, preserves filters and clears page
   expect(container.textContent).not.toContain('Selected:')
   expect(page.value).toBe('7')
   expect(button(container, 'Go').disabled).toBe(true)
+})
+
+test('user filters notify navigation and restore browser history without losing column choices', async () => {
+  login()
+  const reads: Record<string, unknown>[] = []
+  const navigated: NativeUsersQuery[] = []
+  const { nativeUsersSearch } = await import('./search')
+  const user = nativeUserFixture({ username: '9007199254740993' })
+  api.defaults.adapter = async (config) => {
+    if (config.url !== '/api/status') reads.push(config.params)
+    return {
+      config,
+      data:
+        config.url === '/api/status'
+          ? nativeStatusFixture
+          : nativeListFixture([user], config.params.page, 60),
+      headers: {},
+      status: 200,
+      statusText: 'OK',
+    }
+  }
+  let render!: (search: string) => Promise<void>
+  const original = '?keyword=alice&team_id=%229007199254740993%22'
+  const container = await mount(original, {
+    onQueryChange: (query) => navigated.push(query),
+    captureRender: (next) => {
+      render = next
+    },
+  })
+  await act(async () => {
+    button(container, 'Columns').click()
+    await pause()
+  })
+  const email = Array.from(
+    document.querySelectorAll<HTMLElement>('[role="menuitemcheckbox"]')
+  ).find((item) => item.textContent === 'Email')
+  assert.ok(email)
+  await act(async () => {
+    email.click()
+    await pause()
+  })
+  await act(async () => {
+    button(container, 'Next user page').click()
+    await pause()
+  })
+  expect(navigated).toHaveLength(1)
+  expect(navigated[0]).toMatchObject({
+    keyword: 'alice',
+    team_id: '9007199254740993',
+    page: 2,
+  })
+  const beforeNavigation = reads.length
+  await render(nativeUsersSearch(navigated[0]))
+  expect(reads).toHaveLength(beforeNavigation)
+  expect(container.querySelector('.native-user-email')).toBeNull()
+  await render(original)
+  expect(reads.at(-1)).toMatchObject({
+    keyword: 'alice',
+    team_id: '9007199254740993',
+    page: 1,
+  })
+  expect(container.querySelector('.native-user-email')).toBeNull()
+  expect(container.textContent).toContain('Page 1 of 3')
+  expect(navigated).toHaveLength(1)
+  const link = container.querySelector<HTMLAnchorElement>(
+    '.native-user-expanded-row a[href^="/usage-logs/common"]'
+  )
+  assert.ok(link)
+  const { defaultParseSearch } = await import('@tanstack/react-router')
+  expect(defaultParseSearch(new URL(link.href).search)).toEqual({
+    username: '9007199254740993',
+    source: 'native',
+    scope: 'all',
+  })
 })

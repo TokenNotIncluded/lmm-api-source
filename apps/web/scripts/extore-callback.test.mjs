@@ -10,7 +10,10 @@ const bootstrap = readFileSync(
 )
 const html = readFileSync(new URL('../index.html', import.meta.url), 'utf8')
 const scripts = [...html.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script>/gi)]
-assert.ok(scripts.length > 0, 'the actual page bootstrap scripts must be present')
+assert.ok(
+  scripts.length > 0,
+  'the actual page bootstrap scripts must be present'
+)
 function page(path, runBootstrap = true) {
   const location = new URL('https://shop.example' + path)
   const elements = []

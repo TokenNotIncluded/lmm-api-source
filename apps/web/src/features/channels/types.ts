@@ -218,6 +218,7 @@ export interface ChannelOpsResponse {
     native_configuration?: boolean
     native_catalog?: boolean
     native_secrets?: boolean
+    bulk_key_import?: boolean
     native_channel_usage?: boolean
     native_channel_counters?: boolean
     native_channel_lifetime?: boolean

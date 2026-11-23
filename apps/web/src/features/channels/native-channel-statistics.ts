@@ -16,7 +16,11 @@ export type NativeChannelSort =
   | 'balance'
   | 'response_time'
   | 'test_time'
-export type NativeChannelSortInput = {
+export type NativeChannelFilters = {
+  status: 'all' | 'enabled' | 'disabled'
+  group: string
+}
+export type NativeChannelSortInput = Partial<NativeChannelFilters> & {
   sort: NativeChannelSort
   order: 'asc' | 'desc'
   unit: string
@@ -145,11 +149,13 @@ export async function getNativeChannelPage(
     statistics: 'true',
     p: String(input.page),
     page_size: '25',
-    keyword: input.search,
+    keyword: input.search.trim(),
     sort_by: input.sort,
     sort_order: input.order,
   })
   if (input.sort === 'balance') params.set('sort_unit', input.unit)
+  if (input.status && input.status !== 'all') params.set('status', input.status)
+  if (input.group) params.set('group', input.group)
   if (input.snapshotDigest !== undefined) {
     params.set(
       'snapshot_digest',

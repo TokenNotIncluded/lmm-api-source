@@ -19,6 +19,7 @@ For commercial licensing, please contact support@quantumnous.com
 import { withConsolePageFixtures } from '@/features/debug/console-page-fixtures'
 import { withConsoleQueryFixtures } from '@/features/debug/console-query-fixtures'
 import { withManagementReviewFixtures } from '@/features/debug/management-review-fixtures'
+import { withPaymentSettingsReviewFixtures } from '@/features/debug/payment-settings-review-fixtures'
 import { installPersonaDebugRuntime } from '@/features/debug/persona-runtime'
 import { withUsageLogsReviewFixtures } from '@/features/debug/usage-logs-review-fixtures'
 import { api } from '@/lib/http-client'
@@ -59,6 +60,10 @@ if (
   new URLSearchParams(window.location.search).get('management_review') === '1'
 ) {
   api.defaults.adapter = withManagementReviewFixtures(api.defaults.adapter)
+}
+
+if (new URLSearchParams(window.location.search).get('payment_review') === '1') {
+  api.defaults.adapter = withPaymentSettingsReviewFixtures(api.defaults.adapter)
 }
 
 if (new URLSearchParams(window.location.search).get('logs_review') === '1') {

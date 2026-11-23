@@ -776,6 +776,7 @@ async fn ops(State(state): State<ChannelState>, headers: HeaderMap) -> Response 
             "native_configuration": state.management.is_some(),
             "native_catalog": state.management.is_some(),
             "native_secrets": state.management.as_ref().is_some_and(|management| management.secret_storage_enabled()),
+            "bulk_key_import": state.management.as_ref().is_some_and(|management| management.secret_storage_enabled()),
             "status": state.management.is_some(),
             "remove": state.management.is_some(),
             "price_publish": state.management.is_some(),

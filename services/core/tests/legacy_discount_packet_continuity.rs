@@ -83,6 +83,7 @@ async fn fixture(pool: &PgPool) -> Fixture {
     .unwrap();
     channel.credits_per_minor = 0;
     channel.credit_quote = Some(CreditQuotePolicy {
+        min_credit_units: 1,
         settlement_per_usd_numerator: 1,
         settlement_per_usd_denominator: 1,
         discounts: BTreeMap::new(),

@@ -53,7 +53,7 @@ export function AppSidebar() {
   const shouldReduce = useReducedMotion()
   const groups = view
     ? navGroups
-    : organizeConsoleNavigation(navGroups, t('Console'))
+    : organizeConsoleNavigation(navGroups, t('Console'), t('More admin tools'))
 
   if (view?.id === 'system-settings') return <FloatingSettingsNavigation />
 
@@ -101,6 +101,7 @@ export function AppSidebar() {
               {groups.map((group) =>
                 view ||
                 group.id === 'console-primary' ||
+                group.id === 'console-management' ||
                 group.id === 'onboarding' ? (
                   <NavGroup key={group.id || group.title} {...group} />
                 ) : (

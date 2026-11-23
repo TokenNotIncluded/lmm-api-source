@@ -28,6 +28,9 @@ service CorePayments {
   rpc ApplyExternalRefund(ExternalRefundRequest) returns (PaymentReceipt);
   rpc GetPaymentReceipt(GetPaymentReceiptRequest) returns (PaymentReceipt);
   rpc GetEPayConfiguration(GetEPayConfigurationRequest) returns (EPayConfiguration);
+  // Read-only admission policy; requires the service's read_user grant.
+  // No user order is created and no provider health or payment is asserted.
+  rpc GetTopupConfiguration(GetTopupConfigurationRequest) returns (TopupConfiguration);
 }
 message ExternalPaymentReference {
   string provider = 1;
@@ -426,4 +429,20 @@ message EPayConfigurationBinding {
   string max_amount_minor = 13;
   // Wallet admission only; existing obligations and subscription prices are unchanged.
   string min_amount_minor = 14;
+}
+
+
+// Sanitized, current Core policy for matching an extension's wallet adapters.
+message GetTopupConfigurationRequest {}
+message TopupConfiguration {
+  repeated TopupConfigurationBinding bindings = 1;
+}
+message TopupConfigurationBinding {
+  int64 channel_id = 1;
+  // The existing checkout binding digest compares provider/merchant/product
+  // identity internally. It is not authority and must not reach the browser.
+  string binding_sha256 = 2;
+  bool configured = 3; // Core prepare permission and channel admission only.
+  bool credit_quantity = 4;
+  int64 min_credit_units = 5; // Positive for quantity channels; zero otherwise.
 }

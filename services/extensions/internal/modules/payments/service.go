@@ -48,6 +48,7 @@ func (s *Service) Name() string { return "payments" }
 
 type PublicChannel struct {
 	Channel
+	MinCreditUnits   int64  `json:"min_credit_units,omitempty"`
 	FixedAmountMinor int64  `json:"fixed_amount_minor,omitempty"`
 	PaymentType      string `json:"payment_type,omitempty"`
 	ProductID        string `json:"product_id,omitempty"`
@@ -73,6 +74,53 @@ func (s *Service) Catalog() []PublicChannel {
 	}
 	sort.Slice(channels, func(i, j int) bool { return channels[i].ID < channels[j].ID })
 	return channels
+}
+
+// TopupChannelPolicy is read from Core, never configured or calculated in Go.
+type TopupChannelPolicy struct {
+	ChannelID      int64
+	Binding        string
+	Configured     bool
+	CreditQuantity bool
+	MinCreditUnits int64
+}
+
+// CheckoutCatalog joins current Core admission with the actual wallet adapter.
+// An unavailable policy read cannot advertise a payable channel. Existing order
+// recovery does not call this method or reapply current admission minimums.
+func (s *Service) CheckoutCatalog(ctx context.Context) ([]PublicChannel, error) {
+	configured := s.Catalog()
+	channels := make([]PublicChannel, 0, len(configured))
+	if len(configured) == 0 {
+		return channels, nil
+	}
+	reader, ok := s.core.(interface {
+		TopupConfiguration(context.Context) ([]TopupChannelPolicy, error)
+	})
+	if !ok {
+		return nil, ErrUnavailable
+	}
+	policies, err := reader.TopupConfiguration(ctx)
+	if err != nil {
+		return nil, err
+	}
+	byID := make(map[int64]TopupChannelPolicy, len(policies))
+	for _, policy := range policies {
+		if _, duplicate := byID[policy.ChannelID]; duplicate {
+			return nil, ErrConflict
+		}
+		byID[policy.ChannelID] = policy
+	}
+	for _, channel := range configured {
+		policy, found := byID[channel.ID]
+		if !found || !policy.Configured || policy.CreditQuantity != channel.CreditQuantity ||
+			policy.Binding != checkoutBinding(channel.Channel, false, channel.PaymentType, channel.StoreID, channel.ProductID) {
+			continue
+		}
+		channel.MinCreditUnits = policy.MinCreditUnits
+		channels = append(channels, channel)
+	}
+	return channels, nil
 }
 
 func (s *Service) requestedAdapter(req PrepareRequest) (Adapter, error) {

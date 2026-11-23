@@ -9,6 +9,8 @@ the Free Software Foundation, either version 3 of the License, or
 import assert from 'node:assert/strict'
 import { afterEach, describe, test } from 'node:test'
 
+import { AxiosError, AxiosHeaders } from 'axios'
+
 import { api } from '@/lib/api'
 import { useAuthStore } from '@/stores/auth-store'
 
@@ -197,5 +199,56 @@ test('native reset voucher reads and writes retain the original account and sess
   } finally {
     release()
     useAuthStore.setState({ auth: originalAuth })
+  }
+})
+
+function voucherReadFailure(status: number) {
+  const config = {
+    headers: new AxiosHeaders(),
+    url: '/api/subscription/self/reset-vouchers',
+    method: 'get',
+  }
+  return new AxiosError(
+    'Synthetic voucher response',
+    'ERR_BAD_RESPONSE',
+    config,
+    undefined,
+    {
+      config,
+      status,
+      statusText: String(status),
+      headers: {},
+      data: '',
+    }
+  )
+}
+
+test('a missing reset voucher collection is explicitly unsupported and suppresses the global request error', async () => {
+  const calls: unknown[][] = []
+  api.get = (async (...args: unknown[]) => {
+    calls.push(args)
+    throw voucherReadFailure(404)
+  }) as typeof api.get
+
+  assert.deepEqual(await getSubscriptionResetVouchers(), {
+    success: false,
+    supported: false,
+    data: [],
+  })
+  assert.deepEqual(calls, [
+    ['/api/subscription/self/reset-vouchers', { skipErrorHandler: true }],
+  ])
+})
+
+test('voucher authentication and service errors are never converted to unsupported or empty data', async () => {
+  for (const status of [401, 403, 429, 500]) {
+    const failure = voucherReadFailure(status)
+    api.get = (async () => {
+      throw failure
+    }) as typeof api.get
+    await assert.rejects(
+      getSubscriptionResetVouchers(),
+      (error) => error === failure
+    )
   }
 })

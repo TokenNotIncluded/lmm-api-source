@@ -875,3 +875,90 @@ for (const admin of [false, true]) {
     }
   })
 }
+
+test('applying and resetting log filters retain the selected source, scope and page size', async () => {
+  const fixture = await renderFilter(true)
+  try {
+    await clickButton('History test')
+    await clickButton('Personal test')
+    await act(async () => {
+      await fixture.router.navigate({
+        to: '/usage-logs/$section',
+        params: { section: 'common' },
+        search: {
+          ...fixture.router.state.location.search,
+          pageSize: 50,
+          token: 'selected-key',
+        },
+      })
+    })
+    await clickButton('Search')
+    assert.equal(fixture.router.state.location.search.source, 'historical')
+    assert.equal(fixture.router.state.location.search.scope, 'self')
+    assert.equal(fixture.router.state.location.search.pageSize, 50)
+    await clickButton('Reset')
+    assert.equal(fixture.router.state.location.search.source, 'historical')
+    assert.equal(fixture.router.state.location.search.scope, 'self')
+    assert.equal(fixture.router.state.location.search.pageSize, 50)
+    assert.equal(fixture.router.state.location.search.token, undefined)
+  } finally {
+    await fixture.cleanup()
+  }
+})
+
+test('copied log links retain applied diagnostics and exact strings without administrator-only filters in personal scope', async () => {
+  const fixture = await renderFilter(true)
+  const clipboard = Object.getOwnPropertyDescriptor(navigator, 'clipboard')
+  const copied: string[] = []
+  Object.defineProperty(navigator, 'clipboard', {
+    configurable: true,
+    value: {
+      writeText: async (value: string) => {
+        copied.push(value)
+      },
+    },
+  })
+  try {
+    await clickButton('History test')
+    await clickButton('Personal test')
+    await act(async () => {
+      await fixture.router.navigate({
+        to: '/usage-logs/$section',
+        params: { section: 'common' },
+        search: {
+          ...fixture.router.state.location.search,
+          model: '9007199254740993',
+          requestId: 'applied-request',
+          username: 'another-user',
+          channel: '42',
+          page: 3,
+          pageSize: 50,
+        },
+      })
+    })
+    await clickButton('Copy filter link')
+    assert.equal(copied.length, 1)
+    const { defaultParseSearch } = await import('@tanstack/react-router')
+    const url = new URL(copied[0])
+    const search = defaultParseSearch(url.search)
+    assert.equal(url.pathname, '/usage-logs/common')
+    const expected = Object.fromEntries(
+      Object.entries(fixture.router.state.location.search).filter(
+        ([key]) => key !== 'username' && key !== 'channel'
+      )
+    )
+    assert.deepEqual(search, {
+      ...expected,
+      model: '9007199254740993',
+      requestId: 'applied-request',
+      source: 'historical',
+      scope: 'self',
+      page: 3,
+      pageSize: 50,
+    })
+  } finally {
+    if (clipboard) Object.defineProperty(navigator, 'clipboard', clipboard)
+    else Reflect.deleteProperty(navigator, 'clipboard')
+    await fixture.cleanup()
+  }
+})

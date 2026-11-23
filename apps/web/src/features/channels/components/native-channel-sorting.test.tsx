@@ -232,6 +232,11 @@ function button(container: Element, text: string) {
   return value as HTMLButtonElement
 }
 
+function selectByLabel(container: Element, label: string) {
+  return [...container.querySelectorAll('label')]
+    .find((item) => item.querySelector('span')?.textContent === label)
+    ?.querySelector('select')
+}
 function statistics(id: number) {
   return {
     id,
@@ -359,6 +364,223 @@ test('native pagination carries a digest and a 409 requires a visible return to 
   assert.equal(requests.at(-1)?.searchParams.get('p'), '1')
   assert.equal(requests.at(-1)?.searchParams.has('snapshot_digest'), false)
 })
+
+test('channel filters start a new first-page snapshot and discard old batch selection and drafts', async () => {
+  const config = paginatedConfiguration()
+  config.routing.groups.push({ name: 'team', enabled: true })
+  config.routing.upstreams[1].enabled = false
+  const requests: URL[] = []
+  api.request = (async (options: { url: string; method: string }) => {
+    assert.equal(options.method, 'GET')
+    if (options.url.endsWith('/configuration')) {
+      return { data: { success: true, data: config } }
+    }
+    const url = new URL(options.url, 'http://localhost')
+    requests.push(url)
+    const page = Number(url.searchParams.get('p'))
+    const filtered =
+      url.searchParams.has('status') || url.searchParams.has('group')
+    return {
+      data: {
+        success: true,
+        data: {
+          ...sortedPage(page),
+          ...(filtered ? { items: [statistics(2)], total: 1 } : {}),
+          snapshot_digest: (filtered ? 'b' : 'a').repeat(64),
+          pagination_consistency: url.searchParams.has('snapshot_digest')
+            ? 'digest_checked'
+            : 'single_request',
+        },
+      },
+    }
+  }) as typeof api.request
+  const container = await mount('channels')
+  await until(
+    () => !!container.querySelector('article[aria-label="Private provider"]')
+  )
+  await act(async () => button(container, 'Next').click())
+  await until(
+    () => !!container.querySelector('article[aria-label="Provider 26"]')
+  )
+  assert.equal(
+    requests.at(-1)?.searchParams.get('snapshot_digest'),
+    'a'.repeat(64)
+  )
+  const selection =
+    container.querySelector<HTMLButtonElement>('[role=checkbox]')
+  assert.ok(selection)
+  await act(async () => selection.click())
+  const batch = required(
+    container.querySelector('[data-slot=channel-batch-actions]')
+  )
+  await act(async () => button(batch, 'Tag').click())
+  const tagForm = required(
+    container.querySelector('form[aria-label="Set tag for selected channels"]')
+  )
+  await changeInput(
+    required(tagForm.querySelector('input')),
+    'Previous page tag'
+  )
+  const status = selectByLabel(container, 'Status')
+  assert.ok(status)
+  await act(async () => {
+    status.value = 'disabled'
+    status.dispatchEvent(new Event('change', { bubbles: true }))
+  })
+  await until(
+    () => !!container.querySelector('article[aria-label="Provider 2"]')
+  )
+  assert.equal(requests.at(-1)?.searchParams.get('status'), 'disabled')
+  assert.equal(requests.at(-1)?.searchParams.get('p'), '1')
+  assert.equal(requests.at(-1)?.searchParams.has('snapshot_digest'), false)
+  assert.equal(
+    container.querySelector('[data-slot=channel-batch-actions]'),
+    null
+  )
+  assert.equal(
+    container.querySelector('form[aria-label="Set tag for selected channels"]'),
+    null
+  )
+  const group = selectByLabel(container, 'Group')
+  assert.ok(group)
+  await act(async () => {
+    group.value = 'team'
+    group.dispatchEvent(new Event('change', { bubbles: true }))
+  })
+  await until(
+    () =>
+      requests.at(-1)?.searchParams.get('group') === 'team' &&
+      !button(container, 'Refresh').disabled
+  )
+  assert.equal(requests.at(-1)?.searchParams.get('status'), 'disabled')
+  assert.equal(requests.at(-1)?.searchParams.get('p'), '1')
+  assert.equal(requests.at(-1)?.searchParams.has('snapshot_digest'), false)
+  await act(async () => button(container, 'Clear filters').click())
+  await until(
+    () => !!container.querySelector('article[aria-label="Private provider"]')
+  )
+  assert.equal(requests.at(-1)?.searchParams.has('status'), false)
+  assert.equal(requests.at(-1)?.searchParams.has('group'), false)
+  assert.equal(requests.at(-1)?.searchParams.has('snapshot_digest'), false)
+  await act(async () => button(container, 'Next').click())
+  await until(
+    () => !!container.querySelector('article[aria-label="Provider 26"]')
+  )
+  assert.equal(
+    container.querySelector('[data-slot=channel-batch-actions]'),
+    null
+  )
+  const restoredSelection = required(
+    container.querySelector<HTMLButtonElement>('[role=checkbox]')
+  )
+  assert.equal(restoredSelection.getAttribute('aria-checked'), 'false')
+  await act(async () => restoredSelection.click())
+  const newBatch = required(
+    container.querySelector('[data-slot=channel-batch-actions]')
+  )
+  assert.equal(
+    container.querySelector('form[aria-label="Set tag for selected channels"]'),
+    null
+  )
+  await act(async () => button(newBatch, 'Tag').click())
+  const newTagForm = required(
+    container.querySelector('form[aria-label="Set tag for selected channels"]')
+  )
+  assert.equal(required(newTagForm.querySelector('input')).value, '')
+})
+
+function required<T>(value: T | null | undefined): T {
+  assert.ok(value)
+  return value
+}
+async function changeInput(input: HTMLInputElement, value: string) {
+  const setter = Object.getOwnPropertyDescriptor(
+    dom.HTMLInputElement.prototype,
+    'value'
+  )?.set
+  assert.ok(setter)
+  await act(async () => {
+    setter.call(input, value)
+    input.dispatchEvent(new Event('input', { bubbles: true }))
+  })
+}
+
+test('channel search includes active models and status and group filters work without statistics', async () => {
+  const config: NativeConfiguration = fixture()
+  config.routing.upstreams.push({
+    ...config.routing.upstreams[0],
+    id: 2,
+    enabled: false,
+  })
+  config.bindings.names[2] = 'Team provider'
+  config.routing.groups.push(
+    { name: 'team', enabled: true },
+    { name: 'retired', enabled: false }
+  )
+  config.routing.routes.push(
+    {
+      ...config.routing.routes[0],
+      id: 2,
+      model: 'team-model',
+      group: 'team',
+      targets: [
+        { ...config.routing.routes[0].targets[0], id: 2, upstream_id: 2 },
+      ],
+    },
+    {
+      ...config.routing.routes[0],
+      id: 3,
+      model: 'retired-model',
+      group: 'retired',
+    }
+  )
+  api.request = (async (options: { method: string }) => {
+    assert.equal(options.method, 'GET')
+    return { data: { success: true, data: config } }
+  }) as typeof api.request
+  const container = await mount('channels', true, {
+    native_channel_observations: false,
+  })
+  await until(() => container.querySelectorAll('article').length === 2)
+  const search = required(
+    container.querySelector<HTMLInputElement>('input[aria-label="Search"]')
+  )
+  await changeInput(search, '  model-a  ')
+  assert.equal(container.querySelectorAll('article').length, 1)
+  assert.ok(container.querySelector('article[aria-label="Private provider"]'))
+  await changeInput(search, 'retired-model')
+  assert.equal(container.querySelector('article'), null)
+  await act(async () => button(container, 'Clear filters').click())
+  const select = (label: string) =>
+    required(
+      [...container.querySelectorAll('label')]
+        .find((item) => item.querySelector('span')?.textContent === label)
+        ?.querySelector('select')
+    )
+  const group = select('Group')
+  assert.deepEqual(
+    [...group.options].map((option) => option.value),
+    ['', 'default', 'team']
+  )
+  await act(async () => {
+    group.value = 'team'
+    group.dispatchEvent(new Event('change', { bubbles: true }))
+  })
+  assert.equal(container.querySelectorAll('article').length, 1)
+  assert.ok(container.querySelector('article[aria-label="Team provider"]'))
+  const status = select('Status')
+  await act(async () => {
+    status.value = 'enabled'
+    status.dispatchEvent(new Event('change', { bubbles: true }))
+  })
+  assert.equal(container.querySelector('article'), null)
+  assert.ok(container.textContent?.includes('No results found'))
+  await act(async () => button(container, 'Clear').click())
+  assert.equal(status.value, 'all')
+  assert.equal(group.value, '')
+  assert.equal(container.querySelectorAll('article').length, 2)
+})
+
 test('balance unit choices are explicit and never silently select or convert a currency', async () => {
   const requests: URL[] = []
   api.request = (async (options: { url: string }) => {
@@ -379,16 +601,17 @@ test('balance unit choices are explicit and never silently select or convert a c
     () =>
       !!container.textContent?.includes('channelSorting.balanceObservedAt') ||
       (!!container.textContent?.includes('Private provider') &&
-        container.querySelector('select')?.disabled === false)
+        selectByLabel(container, 'Sort by')?.disabled === false)
   )
-  const sort = container.querySelector('select')
+  const sort = selectByLabel(container, 'Sort by')
   assert.ok(sort)
   await act(async () => {
     sort.value = 'balance'
     sort.dispatchEvent(new Event('change', { bubbles: true }))
   })
-  await until(() => container.querySelectorAll('select').length === 3)
-  const unit = container.querySelectorAll('select')[2]
+  await until(() => !!selectByLabel(container, 'channelSorting.balanceUnit'))
+  const unit = selectByLabel(container, 'channelSorting.balanceUnit')
+  assert.ok(unit)
   assert.equal(unit.value, '')
   assert.deepEqual(
     [...unit.options].map((option) => option.value),
@@ -405,7 +628,7 @@ test('balance unit choices are explicit and never silently select or convert a c
 })
 
 async function chooseSort(container: Element, value: string) {
-  const sort = container.querySelector('select')
+  const sort = selectByLabel(container, 'Sort by')
   assert.ok(sort)
   assert.equal(sort.disabled, false)
   await act(async () => {
@@ -609,16 +832,18 @@ test('an owner switch cancels the old listing and its late response cannot seed 
     requests.at(-1)?.searchParams.get('snapshot_digest'),
     'b'.repeat(64)
   )
-  const sort = container.querySelector('select')
+  const sort = selectByLabel(container, 'Sort by')
   assert.ok(sort)
   assert.equal(sort.disabled, false)
   await act(async () => {
     sort.value = 'balance'
     sort.dispatchEvent(new Event('change', { bubbles: true }))
   })
-  await until(() => container.querySelectorAll('select').length === 3)
+  await until(() => !!selectByLabel(container, 'channelSorting.balanceUnit'))
+  const unit = selectByLabel(container, 'channelSorting.balanceUnit')
+  assert.ok(unit)
   assert.deepEqual(
-    [...container.querySelectorAll('select')[2].options].map((x) => x.value),
+    [...unit.options].map((x) => x.value),
     ['', 'EUR']
   )
 })

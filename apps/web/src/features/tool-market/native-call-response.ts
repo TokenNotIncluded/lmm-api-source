@@ -187,14 +187,8 @@ export function marketConfirmationURL(
             value
           )))
     ) {
-      // Historical immutable receipts may keep the old exact path. Navigate
-      // directly into the refresh-cookie scope before the page loads its data.
-      if (url.pathname.startsWith('/api/user/assistant/confirmations/')) {
-        url.pathname = url.pathname.replace(
-          '/api/user/assistant/confirmations/',
-          '/api/user/auth/assistant/confirmations/'
-        )
-      }
+      // Core owns its confirmation route. Older installations serve the
+      // original path; newer Core redirects old receipts into its cookie scope.
       return url.href
     }
   } catch {

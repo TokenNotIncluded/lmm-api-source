@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"encoding/hex"
 	"strconv"
 
 	"github.com/TokenNotIncluded/lmm-api/extensions/internal/coreclient"
@@ -27,6 +28,32 @@ func New(client *coreclient.Client) (*Bridge, error) {
 var _ p.Core = (*Bridge)(nil)
 
 var _ p.EPayCheckoutSigner = (*Bridge)(nil)
+
+func (b *Bridge) TopupConfiguration(ctx context.Context) ([]p.TopupChannelPolicy, error) {
+	value, err := b.client.PaymentTopupConfiguration(ctx)
+	if err != nil {
+		return nil, mapError(err)
+	}
+	if value == nil {
+		return nil, p.ErrUnavailable
+	}
+	policies := make([]p.TopupChannelPolicy, 0, len(value.Bindings))
+	for _, binding := range value.Bindings {
+		if binding == nil || binding.ChannelId <= 0 ||
+			(binding.CreditQuantity && binding.MinCreditUnits <= 0) ||
+			(!binding.CreditQuantity && binding.MinCreditUnits != 0) {
+			return nil, p.ErrUnavailable
+		}
+		digest, err := hex.DecodeString(binding.BindingSha256)
+		if err != nil || len(digest) != 32 || hex.EncodeToString(digest) != binding.BindingSha256 {
+			return nil, p.ErrUnavailable
+		}
+		policies = append(policies, p.TopupChannelPolicy{ChannelID: binding.ChannelId,
+			Binding: binding.BindingSha256, Configured: binding.Configured,
+			CreditQuantity: binding.CreditQuantity, MinCreditUnits: binding.MinCreditUnits})
+	}
+	return policies, nil
+}
 
 func (b *Bridge) EPayCheckout(ctx context.Context, intentID int64) (p.Checkout, error) {
 	v, err := b.client.PaymentEPayCheckout(ctx, intentID)

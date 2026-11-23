@@ -50,22 +50,17 @@ function UsageLogsContent() {
     affinityDialogOpen,
     setAffinityDialogOpen,
   } = useUsageLogsContext()
-  const {
-    canManageScope,
-    viewScope,
-    setViewScope,
-    usageSource,
-    setUsageSource,
-  } = useLogsViewScope()
+  const { canManageScope, viewScope, usageSource } = useLogsViewScope()
   const handleViewScopeChange = useCallback(
     (scope: string) => {
       if (scope === 'all' || scope === 'self') {
-        setViewScope(scope as LogsViewScope)
         void navigate({
           to: '/usage-logs/$section',
           params: { section: 'common' },
           search: (previous) => ({
             ...previous,
+            source: usageSource,
+            scope: scope as LogsViewScope,
             page: 1,
             username: undefined,
             channel: undefined,
@@ -73,7 +68,7 @@ function UsageLogsContent() {
         })
       }
     },
-    [setViewScope, navigate]
+    [usageSource, navigate]
   )
 
   return (
@@ -85,12 +80,13 @@ function UsageLogsContent() {
             value={usageSource}
             onValueChange={(value) => {
               if (value !== 'native' && value !== 'historical') return
-              setUsageSource(value)
               void navigate({
                 to: '/usage-logs/$section',
                 params: { section: 'common' },
                 search: (previous) => ({
                   ...previous,
+                  source: value,
+                  scope: viewScope,
                   page: 1,
                   channel: undefined,
                   upstreamRequestId: undefined,
@@ -157,12 +153,17 @@ function UsageLogsContent() {
 }
 
 export function UsageLogs() {
+  const search = route.useSearch()
   const auth = useAuthStore((state) => state.auth)
   const accountKey = [auth.user?.id, auth.session?.sid, auth.user?.role].join(
     ':'
   )
   return (
-    <UsageLogsProvider key={accountKey}>
+    <UsageLogsProvider
+      key={accountKey}
+      source={search.source}
+      scope={search.scope}
+    >
       <UsageLogsContent />
     </UsageLogsProvider>
   )

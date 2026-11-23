@@ -34,9 +34,11 @@ const PAGE_SIZE = 10
 export function ReadOnlyChannels({
   controlsEnabled = false,
   keysEnabled = false,
+  bulkKeyImportEnabled = false,
 }: {
   controlsEnabled?: boolean
   keysEnabled?: boolean
+  bulkKeyImportEnabled?: boolean
 }) {
   const { t } = useTranslation()
   const auth = useAuthStore((state) => state.auth)
@@ -375,6 +377,7 @@ export function ReadOnlyChannels({
           }}
           scope={scope}
           writable={canManageKeys}
+          bulkImportAllowed={bulkKeyImportEnabled}
           channelId={keyChannel.id}
           channelName={keyChannel.name}
           onChanged={() => void query.refetch()}

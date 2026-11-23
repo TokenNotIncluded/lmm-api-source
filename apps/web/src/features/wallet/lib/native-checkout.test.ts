@@ -4,6 +4,7 @@ import { test } from 'node:test'
 
 import {
   nativeAmountMinor,
+  nativeCreditUSDDisplay,
   nativeRequestedCreditUnits,
   nativeDiscountCode,
   nativeAmountDisplay,
@@ -82,6 +83,56 @@ test('native payment decimal conversion remains exact beyond Number safe integer
     false
   )
 })
+test('credit quantity minimums are optional positive int64 strings', () => {
+  const channel = { ...pending.channel, credit_quantity: true }
+  assert.equal(nativeChannelSchema.parse(channel).min_credit_units, undefined)
+  for (const min of [
+    '1',
+    '500000',
+    '9007199254740993',
+    '9223372036854775807',
+  ]) {
+    assert.equal(
+      nativeChannelSchema.parse({ ...channel, min_credit_units: min })
+        .min_credit_units,
+      min
+    )
+  }
+  for (const min of [
+    500000,
+    null,
+    '',
+    '0',
+    '-1',
+    '+1',
+    '01',
+    '1.0',
+    '1e5',
+    ' 1',
+    '1 ',
+    '9223372036854775808',
+  ]) {
+    assert.equal(
+      nativeChannelSchema.safeParse({ ...channel, min_credit_units: min })
+        .success,
+      false
+    )
+  }
+})
+
+test('credit minimum USD values retain every digit through the int64 limit', () => {
+  for (const [credits, expected] of [
+    ['1', '0.000002'],
+    ['500000', '1'],
+    ['500001', '1.000002'],
+    ['9007199254740993', '18014398509.481986'],
+    ['9223372036854775807', '18446744073709.551614'],
+  ]) {
+    assert.equal(nativeCreditUSDDisplay(credits), expected)
+    assert.equal(nativeRequestedCreditUnits(expected), credits)
+  }
+})
+
 test('quotes and statuses bind to the reviewed request and Core alone confirms credit', () => {
   assert.equal(validateNativeQuote(quote, pending), quote)
   assert.throws(() =>

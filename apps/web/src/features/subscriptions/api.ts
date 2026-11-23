@@ -238,20 +238,30 @@ export const resetVoucherQueryKey = (scope?: CommerceScope) =>
 
 export async function getSubscriptionResetVouchers(
   scope?: CommerceScope
-): Promise<ApiResponse<SubscriptionResetVoucher[]>> {
+): Promise<ApiResponse<SubscriptionResetVoucher[]> & { supported?: false }> {
   if (scope && !currentCommerceScope(scope)) {
     throw new CommerceFailure('SESSION_CHANGED')
   }
-  const res = scope
-    ? await api.get('/api/subscription/self/reset-vouchers', {
-        authScope: scope,
-        skipAuthRefresh: true,
-      })
-    : await api.get('/api/subscription/self/reset-vouchers')
-  if (scope && !currentCommerceScope(scope)) {
-    throw new CommerceFailure('SESSION_CHANGED')
+  try {
+    const res = await api.get('/api/subscription/self/reset-vouchers', {
+      skipErrorHandler: true,
+      ...(scope ? { authScope: scope, skipAuthRefresh: true } : {}),
+    })
+    if (scope && !currentCommerceScope(scope)) {
+      throw new CommerceFailure('SESSION_CHANGED')
+    }
+    return res.data
+  } catch (error) {
+    if (scope && !currentCommerceScope(scope)) {
+      throw new CommerceFailure('SESSION_CHANGED')
+    }
+    // Earlier Core versions do not register this optional collection route.
+    // Authentication failures and service errors remain errors, not empty data.
+    if (isAxiosError(error) && error.response?.status === 404) {
+      return { success: false, supported: false, data: [] }
+    }
+    throw error
   }
-  return res.data
 }
 
 export async function redeemSubscriptionResetVoucher(

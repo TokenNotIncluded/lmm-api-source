@@ -39,7 +39,12 @@ import {
   type NativeUserColumn,
 } from './user-list'
 
-type Props = { scope: NativeUsersScope; recheck: () => void; search: string }
+type Props = {
+  scope: NativeUsersScope
+  recheck: () => void
+  search: string
+  onQueryChange?: (query: NativeUsersQuery) => void
+}
 type Load<T> =
   | { status: 'loading' }
   | { status: 'ready'; data: T }
@@ -229,9 +234,11 @@ function GroupsBrowser({
 function UsersWorkspace({
   scope,
   recheck,
+  search,
   initial,
+  onQueryChange,
   onAccessDenied,
-}: Omit<Props, 'search'> & {
+}: Props & {
   initial: NativeUsersQuery
   onAccessDenied: () => void
 }) {
@@ -255,12 +262,28 @@ function UsersWorkspace({
     'none' | 'copied' | 'copy_failed' | 'exported' | 'export_failed'
   >('none')
   const [reload, setReload] = useState(0)
+  const previousSearch = useRef(search)
   const request = useRef({
     alive: true,
     generation: 0,
     controller: undefined as AbortController | undefined,
   })
   const { userId, sessionId, role } = scope
+  useEffect(() => {
+    if (previousSearch.current === search) return
+    previousSearch.current = search
+    if (nativeUsersSearch(initial) === nativeUsersSearch(query)) return
+    request.current.generation++
+    request.current.controller?.abort()
+    setSelected(new Set())
+    setFeedback('none')
+    setState({ status: 'loading' })
+    setInvalidQuery(false)
+    setQuery(initial)
+    setDraft(initial)
+    setPageDraft(String(initial.page))
+    if (initial.group || initial.team_id) setFiltersOpen(true)
+  }, [initial, query, search])
   useEffect(() => {
     const holder = request.current
     holder.alive = true
@@ -319,6 +342,7 @@ function UsersWorkspace({
       setQuery(validated)
       setDraft(validated)
       setPageDraft(String(validated.page))
+      onQueryChange?.(validated)
     } catch {
       setInvalidQuery(true)
     }
@@ -999,7 +1023,12 @@ function UsersWorkspace({
   )
 }
 
-export function NativeUsersPage({ scope, recheck, search }: Props) {
+export function NativeUsersPage({
+  scope,
+  recheck,
+  search,
+  onQueryChange,
+}: Props) {
   const { t } = useTranslation()
   const onAccessDenied = useContext(NativeUsersAccessBoundary)
   if (!onAccessDenied) {
@@ -1034,10 +1063,12 @@ export function NativeUsersPage({ scope, recheck, search }: Props) {
   }
   return (
     <UsersWorkspace
-      key={search}
+      key={`${scope.userId}:${scope.sessionId}`}
       scope={scope}
       recheck={recheck}
+      search={search}
       initial={initial}
+      onQueryChange={onQueryChange}
       onAccessDenied={onAccessDenied}
     />
   )

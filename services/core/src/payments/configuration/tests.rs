@@ -508,6 +508,7 @@ async fn epay_configuration_wallet_minimum_keeps_existing_intents_and_final_quot
     .unwrap();
     quantity.credits_per_minor = 0;
     quantity.credit_quote = Some(CreditQuotePolicy {
+        min_credit_units: 1,
         settlement_per_usd_numerator: 1,
         settlement_per_usd_denominator: 1,
         discounts: BTreeMap::from([(

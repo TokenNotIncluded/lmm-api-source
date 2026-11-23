@@ -90,6 +90,7 @@ func Run() error {
 		AssistantServicesDependencies: assistantDependencies,
 		PaymentTokenFile:              cfg.Core.PaymentTokenFile,
 		PaymentConfigFile:             cfg.Payments.ConfigFile,
+		PaymentCallbacksEnabled:       cfg.Payments.CallbacksEnabled,
 		Payments:                      composition.StorageConfig{Component: "payments", URLFile: cfg.Payments.DatabaseURLFile, Database: cfg.Payments.DatabaseName},
 		Store:                         composition.StorageConfig{Component: "store", URLFile: cfg.Store.DatabaseURLFile, Database: cfg.Store.DatabaseName},
 		StorePickupMail:               cfg.Store.PickupMail,
@@ -156,7 +157,7 @@ func Run() error {
 			handler = mountPaymentCallbacksAt(host, "/callbacks/subscriptions/", runtime.SubscriptionPayments.Handler(), handler)
 		}
 		if runtime.PancakeSubscriptionPayments != nil {
-			handler = mountLegacyPancakeCallbacks(host, runtime.PancakeSubscriptionPayments.LegacyWebhookHandler(runtime.Payments), handler)
+			handler = mountLegacyPancakeCallbacks(host, runtime.PancakeSubscriptionPayments.LegacyWebhookHandler(runtime.Payments, cfg.Payments.ExternalLegacyPancakeOwners...), handler)
 			handler = mountPaymentCallbacksAt(host, "/callbacks/subscriptions/pancake/", runtime.PancakeSubscriptionPayments.Handler(), handler)
 		}
 		if runtime.StripeSubscriptionPayments != nil {

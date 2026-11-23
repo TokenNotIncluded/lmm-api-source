@@ -58,6 +58,7 @@ type Config struct {
 	TokenFile                     string
 	PaymentTokenFile              string
 	PaymentConfigFile             string
+	PaymentCallbacksEnabled       bool
 	Payments                      StorageConfig
 	CommerceTokenFile             string
 	DirectoryAdTokenFile          string

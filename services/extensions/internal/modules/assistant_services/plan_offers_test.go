@@ -205,3 +205,30 @@ func TestPlanOffersUnverifiedPaymentAndFixedProductAmountAreUnavailable(t *testi
 		}
 	}
 }
+
+func TestPlanOffersCarryCoreCreditMinimumAndExcludeIneligibleDiscounts(t *testing.T) {
+	facts := offersFixture()
+	quote := facts.TopupChannels[0].CreditQuote
+	if quote.MinimumCreditUnits() != 1 || !facts.Valid(7) {
+		t.Fatal("older Core quote did not retain positive-quantity default")
+	}
+	for _, invalid := range []int64{0, -1} {
+		quote.MinCreditUnits = offersInt(invalid)
+		if facts.Valid(7) {
+			t.Fatal("invalid minimum accepted", invalid)
+		}
+	}
+	quote.MinCreditUnits = offersInt(9007199254740993)
+	if !facts.Valid(7) {
+		t.Fatal("exact positive int64 minimum rejected")
+	}
+	catalogue := offersCatalogue{{ChannelID: 7, Binding: strings.Repeat("b", 64)}}
+	value := readOffers(t, facts, catalogue)
+	channel := value["topup_channels"].([]any)[0].(map[string]any)
+	discount := value["topup_discounts"].([]any)[0].(map[string]any)
+	if channel["min_credit_units"] != "9007199254740993" ||
+		discount["min_credit_units"] != "9007199254740993" ||
+		len(discount["discounts"].(map[string]any)) != 0 {
+		t.Fatal(channel, discount)
+	}
+}

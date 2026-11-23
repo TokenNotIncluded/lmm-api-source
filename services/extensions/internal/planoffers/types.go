@@ -59,10 +59,21 @@ type Ratio struct {
 	Denominator int64 `json:"denominator"`
 }
 type CreditQuote struct {
+	MinCreditUnits        *int64           `json:"min_credit_units,omitempty"`
 	SettlementNumerator   int64            `json:"settlement_per_usd_numerator"`
 	SettlementDenominator int64            `json:"settlement_per_usd_denominator"`
 	Discounts             map[string]Ratio `json:"discounts"`
 }
+
+// Older Core facts omitted the optional policy and admitted any positive credit
+// quantity. This is a wire default, not an extension-owned payment policy.
+func (q CreditQuote) MinimumCreditUnits() int64 {
+	if q.MinCreditUnits == nil {
+		return 1
+	}
+	return *q.MinCreditUnits
+}
+
 type Channel struct {
 	ChannelID       int64        `json:"channel_id"`
 	Provider        string       `json:"provider"`
@@ -150,7 +161,7 @@ func (f Facts) Valid(user int64) bool {
 			}
 		} else {
 			q := c.CreditQuote
-			if q.SettlementNumerator <= 0 || q.SettlementNumerator > 1000000000 || q.SettlementDenominator <= 0 ||
+			if q.MinimumCreditUnits() <= 0 || q.SettlementNumerator <= 0 || q.SettlementNumerator > 1000000000 || q.SettlementDenominator <= 0 ||
 				q.SettlementDenominator > 1000000000 || q.Discounts == nil || len(q.Discounts) > 1000 ||
 				q.SettlementNumerator > 5000*q.SettlementDenominator {
 				return false
