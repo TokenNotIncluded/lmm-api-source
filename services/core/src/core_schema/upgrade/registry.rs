@@ -316,6 +316,7 @@ mod tests {
             "core-assistant-confirmed-actions-v1",
             "core-legacy-affiliate-aliases-v1",
             "core-assistant-invitation-confirmation-v1",
+            "core-assistant-weekly-discounts-v1",
         ]
         .into_iter()
         .collect();
@@ -705,6 +706,7 @@ mod tests {
             "core-current-connection-history-v1",
             "core-assistant-confirmed-actions-v1",
             "core-legacy-affiliate-aliases-v1",
+            "core-assistant-weekly-discounts-v1",
         ];
         for entry in ENTRIES
             .iter()

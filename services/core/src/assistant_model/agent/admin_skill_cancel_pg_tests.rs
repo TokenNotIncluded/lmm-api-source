@@ -48,9 +48,14 @@ async fn core_state(owner: &PgPool) -> CoreState {
             .unwrap();
             state.mutable.insert(name, rows.as_array().unwrap().clone());
         } else {
+            let row = if kind == "S" {
+                "jsonb_build_object('last_value',t.last_value,'log_cnt',t.log_cnt,'is_called',t.is_called)"
+            } else {
+                "to_jsonb(t)"
+            };
             let hash: String = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
                 "SELECT encode(sha256(convert_to(
-                   COALESCE(jsonb_agg(to_jsonb(t) ORDER BY to_jsonb(t)::text),'[]'::jsonb)::text,
+                   COALESCE(jsonb_agg({row} ORDER BY {row}::text),'[]'::jsonb)::text,
                    'UTF8')),'hex') FROM \"{schema}\".\"{relation}\" t"
             )))
             .fetch_one(owner)
