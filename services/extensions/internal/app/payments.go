@@ -16,15 +16,18 @@ import (
 )
 
 type PaymentsConfig struct {
-	DatabaseName     string `toml:"database_name"`
-	DatabaseURLFile  string `toml:"database_url_file"`
-	ConfigFile       string `toml:"config_file"`
-	CallbacksEnabled bool   `toml:"callbacks_enabled"`
+	DatabaseName                string                                `toml:"database_name"`
+	DatabaseURLFile             string                                `toml:"database_url_file"`
+	ConfigFile                  string                                `toml:"config_file"`
+	CallbacksEnabled            bool                                  `toml:"callbacks_enabled"`
+	ExternalLegacyPancakeOwners []payments.ExternalLegacyPancakeOwner `toml:"external_legacy_pancake_owners"`
 }
 
 func paymentConfigurationKey(key string) bool {
 	switch key {
-	case "core.payment_token_file", "payments", "payments.database_name", "payments.database_url_file", "payments.config_file", "payments.callbacks_enabled":
+	case "core.payment_token_file", "payments", "payments.database_name", "payments.database_url_file", "payments.config_file", "payments.callbacks_enabled",
+		"payments.external_legacy_pancake_owners", "payments.external_legacy_pancake_owners.store_id",
+		"payments.external_legacy_pancake_owners.environment", "payments.external_legacy_pancake_owners.native_product_ids":
 		return true
 	}
 	return false
@@ -34,7 +37,7 @@ func validatePaymentsConfiguration(cfg GoConfig) error {
 	for _, name := range cfg.Host.Modules {
 		selected = selected || name == "payments"
 	}
-	configured := cfg.Core.PaymentTokenFile != "" || cfg.Payments.DatabaseName != "" || cfg.Payments.DatabaseURLFile != "" || cfg.Payments.ConfigFile != "" || cfg.Payments.CallbacksEnabled
+	configured := cfg.Core.PaymentTokenFile != "" || cfg.Payments.DatabaseName != "" || cfg.Payments.DatabaseURLFile != "" || cfg.Payments.ConfigFile != "" || cfg.Payments.CallbacksEnabled || len(cfg.Payments.ExternalLegacyPancakeOwners) != 0
 	if !selected {
 		if configured {
 			return errors.New("payments configuration requires explicit module selection")
@@ -48,6 +51,9 @@ func validatePaymentsConfiguration(cfg GoConfig) error {
 		if !absolutePath(path) {
 			return errors.New("payment configuration paths must be absolute")
 		}
+	}
+	if err := payments.ValidateExternalLegacyPancakeOwners(cfg.Payments.ExternalLegacyPancakeOwners); err != nil {
+		return errors.New("invalid external legacy Pancake ownership configuration")
 	}
 	for _, path := range []string{cfg.Core.IdentityTokenFile, cfg.Core.CommerceTokenFile, cfg.Host.TokenFile} {
 		if path == cfg.Core.PaymentTokenFile {

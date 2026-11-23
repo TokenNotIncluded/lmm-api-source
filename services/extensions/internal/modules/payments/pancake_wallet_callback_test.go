@@ -43,7 +43,10 @@ func TestPancakeOriginalWebhookRoutesFrozenNativeOrder(t *testing.T) {
 					t.Fatal(err)
 				}
 				mux := http.NewServeMux()
-				mux.Handle("POST /api/waffo-pancake/webhook/{environment}", subscriptions.LegacyWebhookHandler(wallet))
+				mux.Handle("POST /api/waffo-pancake/webhook/{environment}", subscriptions.LegacyWebhookHandler(wallet, ExternalLegacyPancakeOwner{
+					StoreID: "STO_0123456789abcdefghijkl", Environment: "test",
+					NativeProductIDs: []string{"PROD_0123456789abcdefghijkl", "replacement_product"},
+				}))
 				req := httptest.NewRequest(http.MethodPost, "/api/waffo-pancake/webhook/test", strings.NewReader(tc.payload))
 				req.Header.Set("X-Waffo-Signature", "original-provider-signature")
 				response := httptest.NewRecorder()

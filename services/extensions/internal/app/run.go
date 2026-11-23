@@ -157,7 +157,7 @@ func Run() error {
 			handler = mountPaymentCallbacksAt(host, "/callbacks/subscriptions/", runtime.SubscriptionPayments.Handler(), handler)
 		}
 		if runtime.PancakeSubscriptionPayments != nil {
-			handler = mountLegacyPancakeCallbacks(host, runtime.PancakeSubscriptionPayments.LegacyWebhookHandler(runtime.Payments), handler)
+			handler = mountLegacyPancakeCallbacks(host, runtime.PancakeSubscriptionPayments.LegacyWebhookHandler(runtime.Payments, cfg.Payments.ExternalLegacyPancakeOwners...), handler)
 			handler = mountPaymentCallbacksAt(host, "/callbacks/subscriptions/pancake/", runtime.PancakeSubscriptionPayments.Handler(), handler)
 		}
 		if runtime.StripeSubscriptionPayments != nil {

@@ -100,6 +100,39 @@ for both paths; recovering an already admitted legacy proof still requires
 `legacy_credit_evidence` to credit it. See the
 [legacy settlement contract](legacy-payment-obligations.md#内部-rpc-与旧订单回调).
 
+### Shared-store Pancake callbacks during native rollout
+
+A provider store can deliver `order.completed` to both the old Go deployment and
+native while each keeps its own order namespace. Configure optional
+`[[payments.external_legacy_pancake_owners]]` entries in the private Extensions
+runtime TOML with exact `store_id` and `environment` (`test` or `live`). No entries
+means the existing local legacy ingestion and Core permission checks remain.
+
+An entry declares that `WAFFO_PANCAKE-` and `WAFFO_PANCAKE_SUB-` orders in that
+store/environment are still owned by the other deployment. The original
+`/api/waffo-pancake/webhook/{test|prod}` handler uses the SDK's fixed environment
+public key and timestamp window before acknowledging those completed events.
+The signed store, mode and nonempty old reference must match. This acknowledgement
+happens before any durable inbox or Core call and conveys no payment settlement.
+Other events and namespaces retain their original processing and retry behavior.
+
+`native_product_ids` is an optional list of **exclusive** native SKUs: a signed
+`lmm_product_id` in that list with an old reference is a conflict (HTTP 409).
+Omit the list or use `[]` for shared products; putting a shared SKU in the list
+would also reject the old deployment's legitimate callbacks. Older callbacks
+without product metadata can be acknowledged only under the explicit old
+namespace ownership entry. Signing keys, namespace overrides and broad unknown
+order acknowledgements are not configurable.
+
+Native `top_` and `sub_` references always follow their existing Core/frozen-order
+paths, including after product rotation; unknown native references stay retryable.
+The same merchant/store/product can therefore be reused without publishing a new
+SKU. Wallet checkout uses its frozen Core amount and provider binding, and
+subscription checkout uses its frozen price and return URL. Set a nonempty native
+wallet `return_url` for new orders to override the product's default success URL;
+existing orders retain their own frozen values. This routing configuration does
+not enable legacy settlement grants, subscriptions or refunds.
+
 See [Core runtime configuration](../config/core.example.toml),
 [Extensions runtime configuration](../config/extensions.example.toml) and
 [database provisioning](../deployment/postgres/README.md). Ordinary startup performs no DDL.
