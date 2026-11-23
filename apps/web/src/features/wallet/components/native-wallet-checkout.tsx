@@ -16,6 +16,7 @@ import { useCheckoutOwnerKey } from '../hooks/use-checkout-scope'
 import {
   nativeAmountDisplay,
   nativeAmountMinor,
+  nativeCreditUSDDisplay,
   nativeRequestedCreditUnits,
   nativeDiscountCode,
   nativeCheckoutFinished,
@@ -107,6 +108,17 @@ function NativeWalletCheckoutForm({
     pending?.channel ??
     channels.find((item) => item.id === selectedID) ??
     channels[0]
+  const requestedCreditUnits = selected?.credit_quantity
+    ? nativeRequestedCreditUnits(amount)
+    : null
+  const minimumCreditUnits = selected?.credit_quantity
+    ? selected.min_credit_units
+    : undefined
+  const belowMinimum =
+    !pending &&
+    requestedCreditUnits !== null &&
+    minimumCreditUnits !== undefined &&
+    BigInt(requestedCreditUnits) < BigInt(minimumCreditUnits)
   const finished = nativeCheckoutFinished(result)
   const checkoutURL = nativeCheckoutURL(result?.checkout_url)
   const postCheckoutURL =
@@ -199,29 +211,30 @@ function NativeWalletCheckoutForm({
   }
   const review = () =>
     run(async () => {
-      if (!selected) return
-      const code = selected.credit_quantity
-        ? nativeDiscountCode(discountCode)
-        : ''
-      if (code === null) return
-      const credits = selected.credit_quantity
-        ? nativeRequestedCreditUnits(amount)
-        : undefined
-      const minor = selected.credit_quantity
-        ? credits && '0'
-        : (selected.fixed_amount_minor ?? nativeAmountMinor(amount))
-      if (!minor) return
-      const next = pending ?? {
-        channel: selected,
-        request: {
-          channel_id: selected.id,
-          currency: selected.currency,
-          amount_minor: minor,
-          ...(credits ? { requested_credit_units: credits } : {}),
-          ...(code ? { discount_code: code } : {}),
-          request_key: crypto.randomUUID(),
-        },
-        submitted: false,
+      let next = pending
+      if (!next) {
+        if (!selected) return
+        const code = selected.credit_quantity
+          ? nativeDiscountCode(discountCode)
+          : ''
+        if (code === null) return
+        const credits = requestedCreditUnits
+        const minor = selected.credit_quantity
+          ? credits && '0'
+          : (selected.fixed_amount_minor ?? nativeAmountMinor(amount))
+        if (!minor || belowMinimum) return
+        next = {
+          channel: selected,
+          request: {
+            channel_id: selected.id,
+            currency: selected.currency,
+            amount_minor: minor,
+            ...(credits ? { requested_credit_units: credits } : {}),
+            ...(code ? { discount_code: code } : {}),
+            request_key: crypto.randomUUID(),
+          },
+          submitted: false,
+        }
       }
       // Preserve identity before the first POST, including a lost quote response.
       if (!remember(next)) return
@@ -391,6 +404,10 @@ function NativeWalletCheckoutForm({
                   className='h-12 text-lg font-medium tabular-nums md:text-lg'
                   inputMode='decimal'
                   autoComplete='off'
+                  aria-invalid={belowMinimum || undefined}
+                  aria-describedby={
+                    minimumCreditUnits ? 'native-payment-minimum' : undefined
+                  }
                   value={
                     selected?.fixed_amount_minor
                       ? nativeAmountDisplay(selected.fixed_amount_minor)
@@ -400,6 +417,21 @@ function NativeWalletCheckoutForm({
                   disabled={busy}
                   onChange={(event) => setAmount(event.target.value)}
                 />
+                {minimumCreditUnits ? (
+                  <p
+                    id='native-payment-minimum'
+                    role={belowMinimum ? 'alert' : undefined}
+                    className={
+                      belowMinimum
+                        ? 'text-destructive text-sm'
+                        : 'text-muted-foreground text-sm'
+                    }
+                  >
+                    {t('Minimum wallet credit is USD {{amount}}.', {
+                      amount: nativeCreditUSDDisplay(minimumCreditUnits),
+                    })}
+                  </p>
+                ) : null}
                 {!selected?.fixed_amount_minor ? (
                   <div
                     role='group'
@@ -456,6 +488,7 @@ function NativeWalletCheckoutForm({
               className='min-h-11 w-full sm:w-auto'
               disabled={
                 busy ||
+                belowMinimum ||
                 !selected ||
                 (selected.credit_quantity &&
                   nativeDiscountCode(discountCode) === null) ||

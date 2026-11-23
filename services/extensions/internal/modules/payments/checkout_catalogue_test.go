@@ -1,6 +1,8 @@
 package payments
 
 import (
+	"context"
+	"errors"
 	"testing"
 )
 
@@ -57,5 +59,54 @@ func TestCheckoutCatalogueBindingMatchesCoreGolden(t *testing.T) {
 	}
 	if v := checkoutBinding(c, true, "alipay", "", ""); v != "3725b08cc80a10a1d13d3427ce505106a408133638600318d38097e32f52aebb" {
 		t.Fatal(v)
+	}
+}
+
+type topupPolicyCore struct {
+	Core
+	policies []TopupChannelPolicy
+	err      error
+	reads    int
+}
+
+func (c *topupPolicyCore) TopupConfiguration(context.Context) ([]TopupChannelPolicy, error) {
+	c.reads++
+	return c.policies, c.err
+}
+func TestCheckoutCatalogUsesExactCoreMinimumAndMatchingAdmission(t *testing.T) {
+	adapter := &Pancake{cfg: PancakeConfig{Channel: Channel{ID: 5005, Provider: "waffo_pancake",
+		Merchant: "merchant_fixture", Environment: "test", Currency: "USD", Enabled: true, CreditQuantity: true},
+		StoreID: "STO_native", ProductID: "PROD_native"}}
+	policy := TopupChannelPolicy{ChannelID: 5005, Configured: true, CreditQuantity: true,
+		MinCreditUnits: 9007199254740993,
+		Binding:        checkoutBinding(adapter.Channel(), false, "", adapter.cfg.StoreID, adapter.cfg.ProductID)}
+	core := &topupPolicyCore{policies: []TopupChannelPolicy{policy}}
+	wallet := &Service{core: core, adapters: map[int64]Adapter{5005: adapter}}
+	channels, err := wallet.CheckoutCatalog(context.Background())
+	if err != nil || len(channels) != 1 || channels[0].MinCreditUnits != 9007199254740993 {
+		t.Fatal(channels, err)
+	}
+	for _, change := range []func(*TopupChannelPolicy){
+		func(p *TopupChannelPolicy) { p.Configured = false },
+		func(p *TopupChannelPolicy) { p.Binding = "different_core_product" },
+		func(p *TopupChannelPolicy) { p.CreditQuantity = false; p.MinCreditUnits = 0 },
+	} {
+		next := policy
+		change(&next)
+		core.policies = []TopupChannelPolicy{next}
+		channels, err = wallet.CheckoutCatalog(context.Background())
+		if err != nil || len(channels) != 0 {
+			t.Fatal("mismatched Core policy advertised", channels, err)
+		}
+	}
+	core.err = ErrUnavailable
+	if _, err = wallet.CheckoutCatalog(context.Background()); !errors.Is(err, ErrUnavailable) {
+		t.Fatal("unavailable Core policy became payable", err)
+	}
+	reads := core.reads
+	adapter.cfg.Channel.Enabled = false
+	channels, err = wallet.CheckoutCatalog(context.Background())
+	if err != nil || len(channels) != 0 || core.reads != reads {
+		t.Fatal(channels, err, core.reads)
 	}
 }

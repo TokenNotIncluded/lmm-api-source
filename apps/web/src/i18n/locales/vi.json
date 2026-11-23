@@ -6506,6 +6506,7 @@
     "Minimum Trust Level": "Mức độ tin cậy tối thiểu",
     "Minimum unit price": "Giá tối thiểu mỗi đơn vị",
     "Minimum unit price: {{amount}}": "Giá tối thiểu mỗi đơn vị: {{amount}}",
+    "Minimum wallet credit is USD {{amount}}.": "Số tiền ghi có tối thiểu vào ví là {{amount}} USD.",
     "Minimum wallet top-up": "Số tiền nạp ví tối thiểu",
     "Minimum:": "Tối thiểu:",
     "Minor blips in the last 30 days": "Vài gián đoạn nhỏ trong 30 ngày qua",

@@ -2684,6 +2684,7 @@ fn quantity_fixture_rsa() -> &'static PrivateKey {
 }
 fn quantity_policy(numerator: i64, denominator: i64) -> CreditQuotePolicy {
     CreditQuotePolicy {
+        min_credit_units: 1,
         settlement_per_usd_numerator: numerator,
         settlement_per_usd_denominator: denominator,
         discounts: BTreeMap::from([(
@@ -2801,6 +2802,94 @@ async fn credit_quantity_prepare_freezes_cny_discount_and_prior_policy(pool: PgP
         f.ledger.balance(f.account).await,
         Err(ledger::Error::NotFound)
     ));
+    assert_eq!(journals(&pool).await, 0);
+}
+
+#[sqlx::test]
+async fn credit_quantity_minimum_is_exact_for_new_quotes_and_preserves_existing_intents(
+    pool: PgPool,
+) {
+    let mut f = fresh(&pool).await;
+    let old_policy = quantity_policy(1, 1);
+    f.store = IngressStore(
+        PaymentsStore::new(
+            pool.clone(),
+            vec![quantity_channel(5001, "USD", old_policy.clone())],
+        )
+        .unwrap(),
+    );
+    let request = |key: &str, credits| pb::PreparePersonalTopupRequest {
+        discount_code: String::new(),
+        mutation: mutation(key),
+        payment_channel_id: 5001,
+        currency: "USD".into(),
+        amount_minor: 0,
+        requested_credit_units: credits,
+    };
+    let original_request = request("minimum_original_intent_01", 499_999);
+    let original = f
+        .store
+        .prepare_personal(&f.secret, original_request.clone())
+        .await
+        .unwrap();
+    assert_eq!(
+        (original.amount_minor, original.credit_units),
+        (100, 499_999)
+    );
+
+    let mut new_policy = old_policy;
+    new_policy.min_credit_units = 500_000;
+    f.store = IngressStore(
+        PaymentsStore::new(
+            pool.clone(),
+            vec![quantity_channel(5001, "USD", new_policy)],
+        )
+        .unwrap(),
+    );
+    assert_eq!(
+        f.store
+            .quote_discount(&f.secret, 5001, 499_999, "")
+            .await
+            .unwrap_err(),
+        Error::Invalid
+    );
+    assert_eq!(
+        f.store
+            .prepare_personal(&f.secret, request("minimum_new_below_01", 499_999))
+            .await
+            .unwrap_err(),
+        Error::Invalid
+    );
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>("SELECT count(*) FROM core_payments.intents")
+            .fetch_one(&pool)
+            .await
+            .unwrap(),
+        1
+    );
+
+    // The same fiat charge (100 cents) cannot substitute for 500,000 credits.
+    let quote = f
+        .store
+        .quote_discount(&f.secret, 5001, 500_000, "")
+        .await
+        .unwrap();
+    assert_eq!((quote.amount_minor, quote.credit_units), (100, 500_000));
+    let allowed = f
+        .store
+        .prepare_personal(&f.secret, request("minimum_new_at_boundary_01", 500_000))
+        .await
+        .unwrap();
+    assert_eq!((allowed.amount_minor, allowed.credit_units), (100, 500_000));
+
+    // Replaying a prior key returns its original intent without applying today's minimum.
+    assert_eq!(
+        f.store
+            .prepare_personal(&f.secret, original_request)
+            .await
+            .unwrap(),
+        original
+    );
     assert_eq!(journals(&pool).await, 0);
 }
 

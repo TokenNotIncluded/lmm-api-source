@@ -6506,6 +6506,7 @@
     "Minimum Trust Level": "Минимальный уровень доверия",
     "Minimum unit price": "Минимальная цена за единицу",
     "Minimum unit price: {{amount}}": "Минимальная цена за единицу: {{amount}}",
+    "Minimum wallet credit is USD {{amount}}.": "Минимальное зачисление в кошелёк — {{amount}} USD.",
     "Minimum wallet top-up": "Минимальная сумма пополнения кошелька",
     "Minimum:": "Минимум:",
     "Minor blips in the last 30 days": "Небольшие сбои за последние 30 дней",

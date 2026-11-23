@@ -114,13 +114,24 @@ func (r *CorePlanOffers) PlanOffers(ctx context.Context, credential string) (jso
 		if matched && host.FixedAmountMinor > 0 {
 			channel["fixed_amount_minor"] = host.FixedAmountMinor
 		}
+		if c.CreditQuote != nil {
+			channel["min_credit_units"] = strconv.FormatInt(c.CreditQuote.MinimumCreditUnits(), 10)
+		}
 		channels = append(channels, channel)
 		if usable && c.CreditQuote != nil {
+			eligibleDiscounts := make(map[string]planoffers.Ratio)
+			for quantity, ratio := range c.CreditQuote.Discounts {
+				credits, _ := strconv.ParseInt(quantity, 10, 64)
+				if credits >= c.CreditQuote.MinimumCreditUnits() {
+					eligibleDiscounts[quantity] = ratio
+				}
+			}
 			discounts = append(discounts, map[string]any{"channel_id": c.ChannelID, "currency": c.Currency,
 				"match": "exact_credit_quantity", "credit_unit": "native_credit_500k_per_usd",
 				"settlement_per_usd_numerator":   c.CreditQuote.SettlementNumerator,
 				"settlement_per_usd_denominator": c.CreditQuote.SettlementDenominator,
-				"discounts":                      c.CreditQuote.Discounts})
+				"min_credit_units":               strconv.FormatInt(c.CreditQuote.MinimumCreditUnits(), 10),
+				"discounts":                      eligibleDiscounts})
 		}
 	}
 	current, err := r.auth.Check(ctx, credential, access.Account{}, access.Read)

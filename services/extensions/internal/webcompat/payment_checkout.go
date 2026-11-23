@@ -15,7 +15,7 @@ import (
 // Browser checkout derives the personal payer inside Core. A browser never
 // supplies a storage account ID, credit conversion, provider URL or merchant.
 type PaymentCheckoutService interface {
-	Catalog() []payments.PublicChannel
+	CheckoutCatalog(context.Context) ([]payments.PublicChannel, error)
 	Preview(context.Context, string, payments.PrepareRequest) (payments.Intent, error)
 	Create(context.Context, string, payments.PrepareRequest) (payments.Order, error)
 	Get(context.Context, string, string) (payments.Order, error)
@@ -101,6 +101,7 @@ func RegisterPaymentCheckout(mux RouteRegistrar, auth *Authenticator, service Pa
 		}
 		type channelView struct {
 			CreditQuantity   bool   `json:"credit_quantity,omitempty"`
+			MinCreditUnits   string `json:"min_credit_units,omitempty"`
 			ID               string `json:"id"`
 			Provider         string `json:"provider"`
 			Environment      string `json:"environment"`
@@ -110,8 +111,16 @@ func RegisterPaymentCheckout(mux RouteRegistrar, auth *Authenticator, service Pa
 			FixedAmountMinor string `json:"fixed_amount_minor,omitempty"`
 		}
 		channels := make([]channelView, 0)
-		for _, c := range service.Catalog() {
+		catalog, err := service.CheckoutCatalog(r.Context())
+		if err != nil {
+			writePaymentError(w, err)
+			return
+		}
+		for _, c := range catalog {
 			view := channelView{CreditQuantity: c.CreditQuantity, ID: strconv.FormatInt(c.ID, 10), Provider: c.Provider, Environment: c.Environment, Currency: c.Currency, PaymentType: c.PaymentType, ProductID: c.ProductID}
+			if c.CreditQuantity {
+				view.MinCreditUnits = strconv.FormatInt(c.MinCreditUnits, 10)
+			}
 			if c.FixedAmountMinor > 0 {
 				view.FixedAmountMinor = strconv.FormatInt(c.FixedAmountMinor, 10)
 			}

@@ -6506,6 +6506,7 @@
     "Minimum Trust Level": "最小トラストレベル",
     "Minimum unit price": "最低単価",
     "Minimum unit price: {{amount}}": "最低単価：{{amount}}",
+    "Minimum wallet credit is USD {{amount}}.": "ウォレットへの最低入金額は {{amount}} USD です。",
     "Minimum wallet top-up": "ウォレットの最低チャージ額",
     "Minimum:": "最小:",
     "Minor blips in the last 30 days": "直近 30 日で軽微な障害あり",

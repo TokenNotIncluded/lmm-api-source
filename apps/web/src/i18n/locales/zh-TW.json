@@ -6506,6 +6506,7 @@
     "Minimum Trust Level": "最低信任級別",
     "Minimum unit price": "最低單價",
     "Minimum unit price: {{amount}}": "最低單價：{{amount}}",
+    "Minimum wallet credit is USD {{amount}}.": "錢包最低入帳額度為 {{amount}} USD。",
     "Minimum wallet top-up": "最低錢包儲值額",
     "Minimum:": "最低：",
     "Minor blips in the last 30 days": "近 30 天內有輕微抖動",

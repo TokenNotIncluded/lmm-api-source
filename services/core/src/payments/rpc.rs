@@ -94,6 +94,7 @@ impl PaymentsRpc {
             (p.refund_evidence, "payments.refund.commit"),
             (p.refund_evidence, "payments.refund.external"),
             (p.read_user, "payments.receipt.read"),
+            (p.read_user, "payments.topup.configuration.read"),
             (p.reconcile, "payments.receipt.reconcile"),
         ]
         .into_iter()
@@ -168,6 +169,28 @@ impl PaymentsRpc {
 }
 #[tonic::async_trait]
 impl pb::core_payments_server::CorePayments for PaymentsRpc {
+    async fn get_topup_configuration(
+        &self,
+        request: Request<pb::GetTopupConfigurationRequest>,
+    ) -> Result<Response<pb::TopupConfiguration>, Status> {
+        self.check(request.metadata(), self.permissions.read_user)?;
+        let offers = self.offer_source(false).freeze().map_err(status)?;
+        Ok(Response::new(pb::TopupConfiguration {
+            bindings: offers
+                .topups()
+                .into_iter()
+                .map(|channel| pb::TopupConfigurationBinding {
+                    channel_id: channel.channel_id,
+                    binding_sha256: channel.binding_sha256,
+                    configured: channel.configured,
+                    credit_quantity: channel.credit_quote.is_some(),
+                    min_credit_units: channel
+                        .credit_quote
+                        .map_or(0, |quote| quote.min_credit_units),
+                })
+                .collect(),
+        }))
+    }
     async fn get_e_pay_configuration(
         &self,
         request: Request<pb::GetEPayConfigurationRequest>,
@@ -482,6 +505,81 @@ mod tests {
             .metadata_mut()
             .insert("x-lmm-protocol", "1".parse().unwrap());
         request
+    }
+
+    #[tokio::test]
+    async fn topup_configuration_is_read_only_and_uses_core_admission() {
+        let mut rpc = service(false);
+        assert_eq!(
+            rpc.get_topup_configuration(auth(pb::GetTopupConfigurationRequest {}))
+                .await
+                .unwrap_err()
+                .code(),
+            tonic::Code::PermissionDenied
+        );
+        rpc.permissions.read_user = true;
+        assert_eq!(
+            rpc.get_topup_configuration(Request::new(pb::GetTopupConfigurationRequest {}))
+                .await
+                .unwrap_err()
+                .code(),
+            tonic::Code::Unauthenticated
+        );
+        let channel = super::super::Channel::stripe_test(
+            7,
+            "acct_fixture".into(),
+            "whsec_synthetic_fixture".into(),
+            100_000,
+        );
+        use rand::SeedableRng;
+        use rsa::pkcs8::EncodePublicKey;
+        let key = rsa::PrivateKey::new(&mut rand::rngs::StdRng::seed_from_u64(42), 2048).unwrap();
+        let mut quantity = super::super::Channel::pancake_isolated_test(
+            8,
+            "merchant_quantity".into(),
+            key.to_public_key()
+                .to_public_key_pem(Default::default())
+                .unwrap(),
+            "STO_quantity".into(),
+            "PROD_quantity".into(),
+            "USD".into(),
+            100_000,
+        )
+        .unwrap();
+        quantity.credits_per_minor = 0;
+        quantity.credit_quote = Some(super::super::CreditQuotePolicy {
+            min_credit_units: 500_000,
+            settlement_per_usd_numerator: 1,
+            settlement_per_usd_denominator: 1,
+            discounts: Default::default(),
+        });
+        rpc.store = PaymentsStore::new(rpc.store.pool.clone(), vec![channel, quantity]).unwrap();
+        // A closed synthetic pool proves that this projection neither queries nor writes a database.
+        rpc.store.pool.close().await;
+        let disabled = rpc
+            .get_topup_configuration(auth(pb::GetTopupConfigurationRequest {}))
+            .await
+            .unwrap()
+            .into_inner();
+        assert_eq!(disabled.bindings.len(), 2);
+        assert!(!disabled.bindings[0].configured);
+        assert!(!disabled.bindings[0].credit_quantity);
+        assert_eq!(disabled.bindings[0].min_credit_units, 0);
+        assert_eq!(disabled.bindings[0].binding_sha256.len(), 64);
+        assert!(!disabled.bindings[1].configured);
+        assert!(disabled.bindings[1].credit_quantity);
+        assert_eq!(disabled.bindings[1].min_credit_units, 500_000);
+        rpc.permissions.prepare = true;
+        let enabled = rpc
+            .get_topup_configuration(auth(pb::GetTopupConfigurationRequest {}))
+            .await
+            .unwrap()
+            .into_inner();
+        assert!(enabled.bindings[0].configured);
+        assert_eq!(
+            enabled.bindings[0].binding_sha256,
+            disabled.bindings[0].binding_sha256
+        );
     }
 
     #[tokio::test]

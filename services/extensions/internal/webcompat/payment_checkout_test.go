@@ -18,10 +18,15 @@ type checkoutPort struct {
 	request    payments.PrepareRequest
 	deny       bool
 	checkout   payments.Checkout
+	catalog    []payments.PublicChannel
+	catalogErr error
 }
 
-func (*checkoutPort) Catalog() []payments.PublicChannel {
-	return []payments.PublicChannel{{Channel: payments.Channel{ID: 3, Provider: "creem", Merchant: "private_configured_merchant", Environment: "test", Currency: "USD", Enabled: true}, FixedAmountMinor: 100, ProductID: "prod_test"}}
+func (p *checkoutPort) CheckoutCatalog(context.Context) ([]payments.PublicChannel, error) {
+	if p.catalog != nil || p.catalogErr != nil {
+		return p.catalog, p.catalogErr
+	}
+	return []payments.PublicChannel{{Channel: payments.Channel{ID: 3, Provider: "creem", Merchant: "private_configured_merchant", Environment: "test", Currency: "USD", Enabled: true}, FixedAmountMinor: 100, ProductID: "prod_test"}}, nil
 }
 func (p *checkoutPort) Preview(_ context.Context, user string, r payments.PrepareRequest) (payments.Intent, error) {
 	p.previews++
@@ -172,5 +177,24 @@ func TestBrowserPaymentPortalCapabilityRequiresMountedUnambiguousScope(t *testin
 				t.Fatal("portal capability did not follow mounted service or minted a token", w.Code, w.Body.String())
 			}
 		})
+	}
+}
+
+func TestBrowserPaymentChannelsPreserveCoreMinimumAsDecimalString(t *testing.T) {
+	p := &checkoutPort{catalog: []payments.PublicChannel{{
+		Channel: payments.Channel{ID: 5005, Provider: "waffo_pancake", Merchant: "private_merchant",
+			Environment: "test", Currency: "USD", Enabled: true, CreditQuantity: true},
+		MinCreditUnits: 9007199254740993,
+	}}}
+	mux := checkoutMux(t, p)
+	response := checkoutCall(mux, "GET", "/api/user/payments/channels", webToken, "")
+	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), `"min_credit_units":"9007199254740993"`) ||
+		strings.Contains(response.Body.String(), "private_merchant") || p.previews != 0 || p.creates != 0 {
+		t.Fatal(response.Code, response.Body.String())
+	}
+	p.catalogErr = payments.ErrUnavailable
+	response = checkoutCall(mux, "GET", "/api/user/payments/channels", webToken, "")
+	if response.Code != http.StatusServiceUnavailable {
+		t.Fatal("missing Core admission became available", response.Code, response.Body.String())
 	}
 }

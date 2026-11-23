@@ -193,3 +193,73 @@ func TestProviderProofReceiptRejectsWrongBinding(t *testing.T) {
 		})
 	}
 }
+
+type topupConfigurationServer struct {
+	pb.UnimplementedCorePaymentsServer
+	t       *testing.T
+	mu      sync.Mutex
+	binding *pb.TopupConfigurationBinding
+	err     error
+}
+
+func (s *topupConfigurationServer) GetTopupConfiguration(ctx context.Context, _ *pb.GetTopupConfigurationRequest) (*pb.TopupConfiguration, error) {
+	md, _ := metadata.FromIncomingContext(ctx)
+	if len(md.Get("x-lmm-user-credential")) != 0 || len(md.Get("attacker")) != 0 ||
+		len(md.Get("authorization")) != 1 || md.Get("authorization")[0] != "Bearer "+strings.Repeat("s", 32) ||
+		len(md.Get("x-lmm-protocol")) != 1 || md.Get("x-lmm-protocol")[0] != "1" {
+		s.t.Error("configuration read forwarded caller metadata or lost service identity")
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.err != nil {
+		return nil, s.err
+	}
+	return &pb.TopupConfiguration{Bindings: []*pb.TopupConfigurationBinding{s.binding}}, nil
+}
+func TestTopupConfigurationPreservesCoreMinimumAndFailsClosed(t *testing.T) {
+	socket := filepath.Join(t.TempDir(), "core.sock")
+	listener, err := net.Listen("unix", socket)
+	if err != nil {
+		t.Fatal(err)
+	}
+	binding := &pb.TopupConfigurationBinding{ChannelId: 5005, BindingSha256: strings.Repeat("a", 64),
+		Configured: true, CreditQuantity: true, MinCreditUnits: 9007199254740993}
+	wire := &topupConfigurationServer{t: t, binding: binding}
+	server := grpc.NewServer()
+	pb.RegisterCorePaymentsServer(server, wire)
+	go func() { _ = server.Serve(listener) }()
+	defer server.Stop()
+	client, err := coreclient.New(socket, []byte(strings.Repeat("s", 32)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer client.Close()
+	bridge, err := New(client)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := metadata.NewOutgoingContext(context.Background(), metadata.Pairs("authorization", "Bearer forged", "attacker", "data"))
+	policies, err := bridge.TopupConfiguration(ctx)
+	if err != nil || len(policies) != 1 || policies[0].MinCreditUnits != 9007199254740993 ||
+		!policies[0].Configured || !policies[0].CreditQuantity {
+		t.Fatal(policies, err)
+	}
+	for _, invalid := range []*pb.TopupConfigurationBinding{
+		{ChannelId: 5005, BindingSha256: strings.Repeat("a", 64), CreditQuantity: true, MinCreditUnits: 0},
+		{ChannelId: 5005, BindingSha256: strings.Repeat("a", 64), CreditQuantity: false, MinCreditUnits: 500000},
+		{ChannelId: 5005, BindingSha256: "invalid", CreditQuantity: true, MinCreditUnits: 500000},
+	} {
+		wire.mu.Lock()
+		wire.binding = invalid
+		wire.mu.Unlock()
+		if _, err = bridge.TopupConfiguration(ctx); !errors.Is(err, p.ErrUnavailable) {
+			t.Fatal("invalid Core minimum admitted", err)
+		}
+	}
+	wire.mu.Lock()
+	wire.err = status.Error(codes.Unimplemented, "older Core")
+	wire.mu.Unlock()
+	if _, err = bridge.TopupConfiguration(ctx); !errors.Is(err, p.ErrUnavailable) {
+		t.Fatal("missing Core policy became available", err)
+	}
+}

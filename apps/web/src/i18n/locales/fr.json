@@ -6506,6 +6506,7 @@
     "Minimum Trust Level": "Niveau de confiance minimum",
     "Minimum unit price": "Prix unitaire minimum",
     "Minimum unit price: {{amount}}": "Prix unitaire minimum : {{amount}}",
+    "Minimum wallet credit is USD {{amount}}.": "Le crédit minimum du portefeuille est de {{amount}} USD.",
     "Minimum wallet top-up": "Recharge minimale du portefeuille",
     "Minimum:": "Minimum :",
     "Minor blips in the last 30 days": "Légères perturbations sur les 30 derniers jours",

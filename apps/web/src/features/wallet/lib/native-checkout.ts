@@ -25,6 +25,7 @@ export const nativeChannelSchema = z
     product_id: z.string().optional(),
     fixed_amount_minor: integer.optional(),
     credit_quantity: z.boolean().optional(),
+    min_credit_units: integer.optional(),
   })
   .refine(
     (channel) =>
@@ -109,6 +110,17 @@ export function nativeRequestedCreditUnits(value: string): string | null {
   const micros = BigInt(`${match[1]}${(match[2] ?? '').padEnd(6, '0')}`)
   const credits = ((micros * 500000n) / 1000000n).toString()
   return integer.safeParse(credits).success ? credits : null
+}
+
+// A credit is exactly two USD micro-units. Keep every digit of Core's limit.
+export function nativeCreditUSDDisplay(value: string): string {
+  const credits = BigInt(value)
+  const whole = credits / 500000n
+  const fraction = ((credits % 500000n) * 2n)
+    .toString()
+    .padStart(6, '0')
+    .replace(/0+$/, '')
+  return fraction ? `${whole}.${fraction}` : whole.toString()
 }
 
 export function nativeAmountDisplay(minor: string): string {
