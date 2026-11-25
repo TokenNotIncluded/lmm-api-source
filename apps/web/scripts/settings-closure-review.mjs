@@ -7,11 +7,11 @@ import { readFile, writeFile, mkdir, stat } from 'node:fs/promises'
 import { createServer } from 'node:http'
 import path from 'node:path'
 
-import { heroSmsTranslations } from '../src/features/email-activations/i18n.ts'
-
 const { chromium } = await import(process.env.PLAYWRIGHT_MODULE ?? 'playwright')
 const web = path.resolve(import.meta.dirname, '..')
-const dist = path.join(web, 'dist')
+const dist = path.resolve(
+  process.env.SETTINGS_REVIEW_DIST ?? path.join(web, 'dist')
+)
 const output = process.env.SETTINGS_REVIEW_OUTPUT
 assert.ok(output, 'SETTINGS_REVIEW_OUTPUT is required')
 await mkdir(output, { recursive: true })
@@ -19,7 +19,6 @@ const translations = JSON.parse(
   await readFile(path.join(web, 'src/i18n/locales/zh-CN.json'), 'utf8')
 ).translation
 const t = (key) => translations[key] ?? key
-const heroT = (key) => heroSmsTranslations['zh-CN'][key] ?? t(key)
 const mime = {
   '.html': 'text/html',
   '.js': 'text/javascript',
@@ -62,17 +61,13 @@ const report = {
   script_sha256: createHash('sha256')
     .update(await readFile(import.meta.filename))
     .digest('hex'),
-  feature_translations_sha256: createHash('sha256')
-    .update(
-      await readFile(path.join(web, 'src/features/email-activations/i18n.ts'))
-    )
-    .digest('hex'),
   index_sha256: createHash('sha256')
     .update(await readFile(path.join(dist, 'index.html')))
     .digest('hex'),
   scope: 'Built Web and synthetic API fixtures, no production services.',
   checks: [],
   screenshots: [],
+  redirects: [],
   page_errors: [],
   unexpected_requests: [],
   writes: [],
@@ -115,99 +110,78 @@ const bundle = {
     expires_at: now + 86400,
   },
 }
-function configuration() {
-  return {
-    version: { routing: 3, pricing: 2 },
-    secret_storage_enabled: false,
-    routing: {
-      version: 3,
-      upstreams: [],
-      routes: [],
-      aliases: [],
-      groups: [
-        { name: 'default', enabled: true },
-        { name: 'team', enabled: true },
-      ],
-    },
-    prices: {
-      version: 2,
-      rules: Array.from({ length: 24 }, (_, i) => ({
-        id: i + 1,
-        model: `gpt-test-${String(i + 1).padStart(2, '0')}`,
-        group: i % 2 ? 'team' : 'default',
-        speed: 'standard',
-        rates: {
-          input: 2000000,
-          output: 6000000,
-          cache_read: 500000,
-          cache_write: 1000000,
-          request: 0,
-        },
-        group_multiplier_ppm: 1000000,
-        speed_multiplier_ppm: 1000000,
-      })),
-    },
-    bindings: {
-      names: {},
-      contexts: [],
-      vendors: {},
-      models: {},
-      discoveries: {},
-      price_drafts: {},
-    },
-  }
-}
-function fixture() {
-  return {
-    configuration: configuration(),
-    rejectHero: false,
-    rejectCheckin: false,
-    hero: {
-      revision: '2',
-      enabled: false,
-      email_enabled: false,
-      sms_enabled: false,
-      api_key_configured: true,
-      credential_managed_by_file: true,
-      pending_work: false,
-      purchases_available: false,
-      currency: 'USD',
-      currency_code: 840,
-      price_multiplier: '1',
-    },
-    checkin: {
-      revision: 1,
-      enabled: true,
-      min_quota: '100000',
-      max_quota: '200000',
-      writable: true,
-      funding_available: true,
-      module_enabled: true,
-      funding_limit: '500000',
-    },
-
-    rejectPricing: false,
-    announcementStatus: 0,
-    requests: [],
-    payment: {
-      contract: 'extensions.pancake-configuration.v1',
-      merchant_id: 'MER_fixture',
-      store_id: 'STO_fixture',
-      product_id: 'PROD_fixture',
-      return_url: 'https://example.test/wallet',
-      environment: 'test',
-      private_key_configured: true,
-      channels: [
-        { id: 7, currency: 'USD', enabled: true, subscription_enabled: false },
-      ],
-    },
-    scripts: {
-      revision: 1,
-      repository_url: 'https://github.com/example/scripts.git',
-      branch: 'main',
-      github_key_set: true,
-    },
-  }
+// Keep bookmarked addresses independent of the retired editor implementation.
+const legacySections = {
+  site: [
+    'system-info',
+    'notice',
+    'header-navigation',
+    'sidebar-modules',
+    'ai-directory',
+    'rss',
+    'ai-directory-ads',
+  ],
+  auth: [
+    'humangrant',
+    'basic-auth',
+    'oauth',
+    'passkey',
+    'bot-protection',
+    'custom-oauth',
+  ],
+  billing: [
+    'quota',
+    'currency',
+    'model-pricing',
+    'router-pricing',
+    'group-pricing',
+    'payment',
+    'checkin',
+  ],
+  models: [
+    'service-tier-pricing',
+    'global',
+    'routing-reliability',
+    'gemini',
+    'claude',
+    'grok',
+    'channel-affinity',
+    'model-deployment',
+  ],
+  security: [
+    'honeypot',
+    'market-ai-review',
+    'moderation',
+    'rate-limit',
+    'sensitive-words',
+    'advanced-security',
+    'ip-access-routing',
+    'anti-relay',
+    'ssrf',
+    'token-limits',
+  ],
+  content: [
+    'dashboard',
+    'announcements',
+    'api-info',
+    'faq',
+    'uptime-kuma',
+    'assistant',
+    'chat',
+    'drawing',
+  ],
+  operations: [
+    'behavior',
+    'alerts',
+    'email',
+    'worker',
+    'hero-sms',
+    'logs',
+    'performance',
+    'raw-json',
+    'update-checker',
+    'scripts',
+  ],
 }
 const json = (data, extra = {}) => ({
   success: true,
@@ -237,7 +211,14 @@ async function install(context, state, theme) {
     }
     const method = req.method()
     state.requests.push({ method, path: p })
-    const body = req.postDataJSON()
+    if (
+      !['GET', 'HEAD'].includes(method) &&
+      !(method === 'POST' && p === '/api/user/auth/refresh')
+    ) {
+      report.writes.push({ method, path: p })
+      await route.fulfill({ status: 405, json: { success: false } })
+      return
+    }
     let result
     let status = 200
     if (p === '/api/user/auth/refresh') result = json(bundle)
@@ -251,7 +232,7 @@ async function install(context, state, theme) {
         system_name: 'LMM',
         version: 'visual-fixture',
         quota_per_unit: 500000,
-        registration_enabled: false,
+        register_enabled: false,
         assistant: { enabled: false },
         announcements_enabled: false,
       })
@@ -270,132 +251,6 @@ async function install(context, state, theme) {
         status === 200
           ? json([])
           : { success: false, message: 'Synthetic announcement failure' }
-    } else if (p === '/core/v1/admin/routing/pricing-source-snapshot') {
-      result = json(null)
-    } else if (p === '/core/v1/admin/routing/configuration') {
-      result = json(state.configuration)
-    } else if (p === '/core/v1/admin/routing/prices/preview') {
-      assert.equal(method, 'POST')
-      assert.deepEqual(body.expected_version, state.configuration.version)
-      result = json({
-        confirmation_digest: 'a'.repeat(64),
-        before: state.configuration.prices,
-        after: body.prices,
-      })
-    } else if (p === '/core/v1/admin/routing/prices') {
-      assert.equal(method, 'PUT')
-      assert.equal(body.confirmation_digest, 'a'.repeat(64))
-      assert.deepEqual(body.expected_version, state.configuration.version)
-      report.writes.push({ path: p, body })
-      if (state.rejectPricing) {
-        status = 409
-        result = { success: false, message: 'Synthetic version conflict' }
-      } else {
-        state.configuration = {
-          ...state.configuration,
-          version: {
-            routing: state.configuration.version.routing + 1,
-            pricing: body.prices.version,
-          },
-          routing: {
-            ...state.configuration.routing,
-            version: state.configuration.routing.version + 1,
-          },
-          prices: body.prices,
-        }
-        result = json({ version: state.configuration.version })
-      }
-    } else if (p === '/api/option/waffo-pancake/config') {
-      result = json(state.payment)
-    } else if (p === '/api/option/waffo-pancake/save') {
-      assert.equal(method, 'POST')
-      assert.equal(body.private_key ?? '', '')
-      state.payment.return_url = body.return_url
-      report.writes.push({ path: p, body })
-      result = json({
-        store_id: state.payment.store_id,
-        product_id: state.payment.product_id,
-      })
-    } else if (p === '/api/option/waffo-pancake/catalog') {
-      result = json({
-        stores: [
-          {
-            id: 'STO_fixture',
-            name: 'Synthetic store',
-            status: 'active',
-            prodEnabled: false,
-            onetimeProducts: [
-              { id: 'PROD_fixture', name: 'Wallet credits', status: 'active' },
-            ],
-            subscriptionProducts: [],
-          },
-        ],
-      })
-    } else if (p === '/api/scripts') {
-      result = json([
-        { name: 'setup.sh', size: 128, updated: '2026-11-17T00:00:00Z' },
-      ])
-    } else if (p === '/api/option/hero-sms') {
-      if (method === 'PUT') {
-        assert.equal(body.expected_revision, state.hero.revision)
-        if (state.rejectHero) {
-          status = 409
-          result = {
-            success: false,
-            code: 'STATE_CONFLICT',
-            message: 'Synthetic conflict',
-          }
-        } else {
-          state.hero = {
-            ...state.hero,
-            enabled: body.enabled,
-            sms_enabled: body.sms_enabled,
-            email_enabled: body.email_enabled,
-            price_multiplier: body.price_multiplier,
-            revision: String(BigInt(state.hero.revision) + 1n),
-          }
-          report.writes.push({ path: p, body })
-          result = json(state.hero)
-        }
-      } else result = json(state.hero)
-    } else if (p === '/api/option/hero-sms/test') {
-      assert.equal(method, 'POST')
-      result = json({ ok: true })
-    } else if (p === '/api/option/checkin') {
-      if (method === 'PUT') {
-        assert.equal(body.revision, state.checkin.revision)
-        assert.ok(body.operation_key)
-        if (state.rejectCheckin) {
-          status = 409
-          result = {
-            success: false,
-            code: 'STATE_CONFLICT',
-            message: 'Synthetic conflict',
-          }
-        } else {
-          state.checkin = {
-            ...state.checkin,
-            enabled: body.enabled,
-            min_quota: body.min_quota,
-            max_quota: body.max_quota,
-            revision: state.checkin.revision + 1,
-          }
-          report.writes.push({ path: p, body })
-          result = json(state.checkin)
-        }
-      } else result = json(state.checkin)
-    } else if (p === '/api/scripts/repository') {
-      if (method === 'PUT') {
-        assert.equal(body.revision, state.scripts.revision)
-        state.scripts = {
-          ...state.scripts,
-          branch: body.branch,
-          repository_url: body.repository_url,
-          revision: state.scripts.revision + 1,
-        }
-        report.writes.push({ path: p, body })
-      }
-      result = json(state.scripts)
     } else if (
       ['/api/release-notes/latest', '/api/assistant/handoff/latest'].includes(p)
     ) {
@@ -487,10 +342,12 @@ try {
         locale: 'zh-CN',
         colorScheme: theme,
         reducedMotion: 'reduce',
+        serviceWorkers: 'block',
       })
-      const state = fixture()
+      const state = { requests: [], announcementStatus: 0 }
       await install(context, state, theme)
       const page = await context.newPage()
+      page.setDefaultTimeout(10000)
       activePage = page
       page.on('pageerror', (error) =>
         report.page_errors.push({ label, error: String(error) })
@@ -498,150 +355,81 @@ try {
       const go = (route) => page.goto(origin + route)
       const btn = (key) =>
         page.getByRole('button', { name: t(key), exact: true })
-      const priceAction = async (key) => {
-        await btn('Actions').first().click()
-        await page.getByRole('menuitem', { name: t(key), exact: true }).click()
-      }
-      await check(`${label}-pricing`, async () => {
-        await go('/system-settings/billing/model-pricing')
-        await page
-          .getByRole('cell', { name: 'gpt-test-01', exact: false })
-          .waitFor()
-        assert.equal(await page.locator('tbody tr').count(), 20)
-        await capture(page, `${label}-pricing`)
-        const table = page.locator('[data-slot="table-container"]').first()
-        const actionButton = btn('Actions').first()
-        const tableBox = await table.boundingBox()
-        const actionBox = await actionButton.boundingBox()
-        assert.ok(tableBox && actionBox)
-        assert.ok(actionBox.x >= tableBox.x - 1)
-        assert.ok(
-          actionBox.x + actionBox.width <= tableBox.x + tableBox.width + 1
+      const overview = async () => {
+        await page.waitForURL(
+          (url) => url.pathname.replace(/\/$/, '') === '/system-settings/site'
         )
-        assert.equal(await table.evaluate((element) => element.scrollLeft), 0)
-        await actionButton.click()
-        for (const action of ['Edit', 'Copy', 'Remove']) {
-          await page
-            .getByRole('menuitem', { name: t(action), exact: true })
-            .waitFor()
+        await page.getByText('visual-fixture', { exact: true }).waitFor()
+        const content = page.locator(
+          '[data-section-page] .console-section-content'
+        )
+        await content
+          .getByText('/etc/lmm.conf.d/core.toml', { exact: true })
+          .waitFor()
+        for (const [field, value] of [
+          ['System Name', 'LMM'],
+          ['API version', 'visual-fixture'],
+          ['Registration Enabled', t('Disabled')],
+        ]) {
+          const term = content.getByText(t(field), { exact: true })
+          assert.equal(await term.locator('+ dd').innerText(), value)
         }
-        assert.equal(await table.evaluate((element) => element.scrollLeft), 0)
-        await capture(page, `${label}-price-actions`)
-        await page.keyboard.press('Escape')
-        await page.getByRole('menu').waitFor({ state: 'hidden' })
+        await content
+          .getByRole('link', { name: t('Plugin management') })
+          .waitFor()
         assert.equal(
-          await actionButton.evaluate(
-            (element) => element === document.activeElement
-          ),
-          true
+          await content
+            .locator(
+              'input:not([type=hidden]), textarea, select, button, [role=switch], [contenteditable=true]'
+            )
+            .count(),
+          0
         )
-        await btn('Next').click()
-        await page
-          .getByRole('cell', { name: 'gpt-test-24', exact: false })
-          .waitFor()
-        assert.equal(await page.locator('tbody tr').count(), 4)
-        await page
-          .getByRole('textbox', { name: t('Search models'), exact: true })
-          .fill('gpt-test-01')
-        await page
-          .getByRole('cell', { name: 'gpt-test-01', exact: false })
-          .waitFor()
-        assert.equal(await page.locator('tbody tr').count(), 1)
-        await priceAction('Edit')
-        await page.getByRole('dialog').waitFor()
-        await capture(page, `${label}-price-editor`)
-        assert.equal(
-          await page
-            .getByRole('dialog')
-            .evaluate((element) => getComputedStyle(element).opacity),
-          '1'
+      }
+      await check(`${label}-settings-overview`, async () => {
+        await go('/system-settings')
+        await overview()
+        await capture(page, `${label}-settings-overview`)
+        const plugins = page
+          .locator('[data-section-page] .console-section-content')
+          .getByRole('link', { name: t('Plugin management') })
+        assert.equal(await plugins.getAttribute('href'), '/extensions/plugins')
+        await plugins.click()
+        await page.waitForURL(
+          (url) => url.pathname.replace(/\/$/, '') === '/extensions/plugins'
         )
         await page
-          .getByRole('dialog')
-          .getByRole('textbox', {
-            name: t('Input price (USD / 1M tokens)'),
-            exact: true,
-          })
-          .fill('2.000001')
-        await btn('Apply to draft').click()
-        await btn('Preview changes').click()
-        await page.getByRole('dialog').waitFor()
-        await capture(page, `${label}-price-preview`)
-        await btn('Confirm and publish').click()
-        await page.getByRole('dialog').waitFor({ state: 'hidden' })
-        assert.equal(state.configuration.prices.rules[0].rates.input, 2000001)
-        await priceAction('Edit')
-        await page
-          .getByRole('dialog')
-          .getByRole('textbox', {
-            name: t('Input price (USD / 1M tokens)'),
-            exact: true,
-          })
-          .fill('4.5')
-        await btn('Apply to draft').click()
-        state.rejectPricing = true
-        await btn('Preview changes').click()
-        await btn('Confirm and publish').click()
-        await page.getByRole('dialog').getByRole('alert').waitFor()
-        await capture(page, `${label}-price-failed-publish`)
-        await page
-          .getByRole('dialog')
-          .getByRole('button', { name: t('Cancel'), exact: true })
-          .click()
-        await priceAction('Edit')
-        assert.equal(
-          await page
-            .getByRole('dialog')
-            .getByRole('textbox', {
-              name: t('Input price (USD / 1M tokens)'),
-              exact: true,
+          .getByRole('heading', { name: t('Plugin management'), exact: true })
+          .waitFor()
+      })
+      await check(`${label}-bookmarked-settings`, async () => {
+        for (const [category, sections] of Object.entries(legacySections)) {
+          const sample =
+            width === 1440 && theme === 'light'
+              ? sections
+              : sections.slice(0, 1)
+          for (const section of sample) {
+            const oldPath = `/system-settings/${category}/${section}`
+            await go(oldPath)
+            try {
+              await overview()
+            } catch (cause) {
+              throw new Error(
+                `Failed legacy route ${oldPath}: ${cause.message}`,
+                { cause }
+              )
+            }
+            report.redirects.push({
+              label,
+              from: oldPath,
+              to: new URL(page.url()).pathname,
             })
-            .inputValue(),
-          '4.5'
-        )
-        await page
-          .getByRole('dialog')
-          .getByRole('button', { name: t('Cancel'), exact: true })
-          .click()
-      })
-      await check(`${label}-payment`, async () => {
-        await go('/system-settings/billing/payment')
-        const url = page.locator('#native-payment-return-url')
-        await url.waitFor()
-        assert.equal(await url.isEnabled(), true)
-        await capture(page, `${label}-payment`)
-        await url.fill('https://example.test/updated-wallet')
-        await btn('Save payment settings').click()
-        await page
-          .getByText(
-            t('Payment settings saved and read back from the server.'),
-            { exact: true }
-          )
-          .waitFor()
-        assert.equal(
-          state.payment.return_url,
-          'https://example.test/updated-wallet'
-        )
-        await btn('Load provider catalog').click()
-        await page.getByText('Synthetic store', { exact: true }).waitFor()
-        await capture(page, `${label}-payment-saved`)
-      })
-      await check(`${label}-independent-scripts`, async () => {
-        await go('/system-settings/operations/scripts')
-        const branch = page.locator('#scripts-repository-branch')
-        await branch.waitFor()
-        assert.equal(await branch.isEnabled(), true)
-        await branch.fill('preview')
-        await btn('Save repository').click()
-        await page
-          .getByText(t('Script repository settings saved'), { exact: true })
-          .waitFor()
-        assert.equal(state.scripts.branch, 'preview')
-        await capture(page, `${label}-scripts`)
+          }
+        }
       })
       await check(`${label}-announcement-retry`, async () => {
         state.announcementStatus = 503
-        await go('/system-settings/billing/model-pricing')
+        await go('/system-settings/site')
         await page
           .getByText(
             t('The announcement service is temporarily unavailable.'),
@@ -652,11 +440,15 @@ try {
         state.announcementStatus = 0
         await btn('Retry').click()
         await page
-          .getByRole('textbox', { name: t('Search models'), exact: true })
-          .waitFor()
+          .getByText(
+            t('The announcement service is temporarily unavailable.'),
+            { exact: true }
+          )
+          .waitFor({ state: 'hidden' })
+        await overview()
       })
 
-      await check(`${label}-hero-settings`, async () => {
+      await check(`${label}-hero-purchases-unavailable`, async () => {
         await go('/temporary-activations')
         await page
           .getByText(t('Purchases unavailable'), { exact: true })
@@ -674,87 +466,11 @@ try {
           false
         )
         await capture(page, `${label}-hero-purchases-unavailable`)
-        await go('/system-settings/operations/hero-sms')
-        const heroTitle = page.locator('h1 .settings-page-title')
-        await heroTitle.waitFor()
-        assert.equal(
-          await heroTitle.innerText(),
-          t('HeroSMS temporary activations')
-        )
-        const multiplier = page.locator('input[type="number"]')
-        await multiplier.waitFor()
-        assert.equal(await multiplier.isEnabled(), true)
-        await capture(page, `${label}-hero-settings`)
-        await multiplier.fill('2.000001')
-        const saved = page.waitForResponse(
-          (response) =>
-            response.url().endsWith('/api/option/hero-sms') &&
-            response.request().method() === 'PUT'
-        )
-        await btn('Save Changes').click()
-        await saved
-        await btn('Save Changes').waitFor({ state: 'visible' })
-        assert.equal(state.hero.price_multiplier, '2.000001')
-        await go('/system-settings/operations/hero-sms')
-        await multiplier.waitFor()
-        assert.equal(await multiplier.inputValue(), '2.000001')
-        await page
-          .getByRole('button', { name: heroT('Test connection'), exact: true })
-          .click()
-        await page
-          .getByText(heroT('Connection test succeeded'), { exact: true })
-          .waitFor()
-        state.rejectHero = true
-        await multiplier.fill('3.000001')
-        await btn('Save Changes').click()
-        await page
-          .getByText(heroT('Unable to save HeroSMS settings'), { exact: true })
-          .first()
-          .waitFor()
-        assert.equal(await multiplier.inputValue(), '3.000001')
-        await capture(page, `${label}-hero-conflict`)
-        await btn('Reload').click()
-        await page.waitForFunction(
-          () =>
-            document.querySelector('input[type="number"]')?.value === '2.000001'
-        )
-      })
-      await check(`${label}-checkin-settings`, async () => {
-        await go('/system-settings/billing/checkin')
-        const minimum = page.locator('#checkin-minimum')
-        const maximum = page.locator('#checkin-maximum')
-        await minimum.waitFor()
-        assert.equal(await minimum.isEnabled(), true)
-        await minimum.fill('100001')
-        await btn('Save check-in settings').click()
-        await page.getByText(t('Setting saved'), { exact: true }).waitFor()
-        assert.equal(state.checkin.min_quota, '100001')
-        await go('/system-settings/billing/checkin')
-        await minimum.waitFor()
-        assert.equal(await minimum.inputValue(), '100001')
-        await maximum.fill('500001')
-        assert.equal(await btn('Save check-in settings').isDisabled(), true)
-        await page.getByRole('alert').first().waitFor()
-        await capture(page, `${label}-checkin-ceiling`)
-        await maximum.fill('200001')
-        state.rejectCheckin = true
-        await btn('Save check-in settings').click()
-        await page
-          .getByText(
-            t('Settings changed on the server. Reload before saving.'),
-            { exact: true }
-          )
-          .waitFor()
-        assert.equal(await maximum.inputValue(), '200001')
-        await capture(page, `${label}-checkin-conflict`)
-        await btn('Discard changes and reload').click()
-        await page.waitForFunction(
-          () => document.querySelector('#checkin-maximum')?.value === '200000'
-        )
       })
       await context.close()
     }
   }
+  assert.deepEqual(report.writes, [], 'Unexpected API mutations')
   assert.equal(report.page_errors.length, 0, 'Browser runtime errors')
   assert.equal(
     report.unexpected_requests.length,

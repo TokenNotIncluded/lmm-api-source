@@ -15,7 +15,7 @@ You should have received a copy of the GNU Affero General Public License
 along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
 import assert from 'node:assert/strict'
-import { mkdir, readFile, writeFile } from 'node:fs/promises'
+import { mkdir, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 
 const { chromium } = await import(process.env.PLAYWRIGHT_MODULE ?? 'playwright')
@@ -74,29 +74,11 @@ const adminRoutes = [
   '/subscriptions',
   '/subscriptions/reset',
   '/system-info',
+  '/system-settings',
+  '/extensions/plugins',
   '/operations/sources',
   '/dashboard/users',
 ]
-for (const category of [
-  'site',
-  'auth',
-  'billing',
-  'models',
-  'security',
-  'content',
-  'operations',
-]) {
-  const source = await readFile(
-    new URL(
-      `../src/features/system-settings/${category}/section-registry.tsx`,
-      import.meta.url
-    ),
-    'utf8'
-  )
-  for (const match of source.matchAll(/\bid: '([^']+)'/g)) {
-    adminRoutes.push(`/system-settings/${category}/${match[1]}`)
-  }
-}
 const report = []
 const browser = await chromium.launch({
   headless: true,
@@ -220,7 +202,10 @@ try {
           },
         })
       }
-      if (url.pathname.startsWith('/api/')) {
+      if (
+        url.pathname.startsWith('/api/') ||
+        url.pathname.startsWith('/core/')
+      ) {
         errors.push(`NETWORK: ${route.request().method()} ${url.pathname}`)
         return route.abort('blockedbyclient')
       }
@@ -251,6 +236,17 @@ try {
           window.dispatchEvent(new PopStateEvent('popstate'))
         }, `${destination}?debug_persona=${persona}&console_review=1`)
         await settle(page)
+        if (destination === '/system-settings') {
+          await page
+            .locator(
+              '[data-section-page] .console-section-content a[href="/extensions/plugins"]'
+            )
+            .waitFor()
+        } else if (destination === '/extensions/plugins') {
+          await page
+            .getByRole('heading', { name: /^(Plugin management|插件管理)$/ })
+            .waitFor()
+        }
         await snapshot(page, persona, destination, errors)
         await page.evaluate(() =>
           document.documentElement.classList.add('dark')

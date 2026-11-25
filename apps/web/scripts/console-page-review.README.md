@@ -4,9 +4,8 @@
 
 ## Coverage
 
-- 28 user-facing entry routes, including the temporary-activation page.
-- 12 administrative routes.
-- Every registered section in the seven system-settings categories (47 sections at this revision).
+- User-facing entry routes include the temporary-activation page.
+- Administrative routes include the read-only system-settings overview. Plugin management remains a separate administrative page. The dedicated settings-closure review checks all 56 historical section bookmarks and records their resolved destinations.
 - Additional 390px mobile, profile tabs, SMS order/history/email, wallet disclosure, expanded filter, and dark-theme views.
 - `/workspace` and `/playground` are compatibility redirects; the report records the resolved URL rather than inventing separate screens.
 
