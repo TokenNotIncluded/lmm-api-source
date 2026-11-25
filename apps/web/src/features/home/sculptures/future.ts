@@ -13,71 +13,51 @@ import {
 export function pelicanBicycle(): Sculpture {
   const s = new Shape(),
     ride = bicycle(s, C.gold, C.gold, 0.023)
-  s.ellipsoid([-0.3, 0.2, 0], [0.37, 0.34, 0.24], C.cream, 20, 4200)
-  for (let feather = 0; feather < 6; feather++) {
+  s.ellipsoid([-0.32, 0.17, 0], [0.39, 0.32, 0.23], C.cream, 20, 1950)
+  for (let feather = 0; feather < 5; feather++) {
     s.tube(
       (t) => [
-        -0.48 - t * (0.23 + feather * 0.017),
-        0.19 + t * (0.17 - feather * 0.035),
-        -0.06 + feather * 0.021,
+        -0.51 - t * (0.26 + feather * 0.016),
+        0.17 + t * (0.13 - feather * 0.045),
+        -0.055 + feather * 0.025,
       ],
-      0.027,
-      tint(C.cream, 0.7 + feather * 0.04),
-      20,
-      28,
-      6
+      0.023,
+      tint(C.ink, 1.15 + feather * 0.09),
+      20, 23, 5
     )
   }
-  // Neck, throat pouch and a long, slim upper bill give a clear pelican profile.
+  // The recurved white neck leaves clear space between the chest and bill.
   s.tube(
-    (t) => [-0.035 + Math.sin(t * Math.PI * 0.8) * 0.11, 0.35 + t * 0.48, 0],
-    0.077,
-    C.cream,
-    21,
-    65,
-    14
+    (t) => [-0.08 + 0.18 * t - Math.sin(t * TAU) * 0.064, 0.32 + t * 0.53, 0],
+    0.084, C.cream, 21, 60, 12
   )
-  s.ellipsoid([0.1, 0.88, 0.01], [0.163, 0.151, 0.125], C.cream, 21, 1400)
-  s.surface(
-    75,
-    27,
-    (u, v) => [
-      0.19 + u * 0.86,
-      0.865 -
-        u * 0.072 -
-        Math.sin(v * Math.PI) *
-          Math.sin((u * 0.8 + 0.17) * Math.PI) *
-          (1 - u) *
-          0.28,
-      (v - 0.5) * (1 - u) * 0.19,
-    ],
-    (_u, v) => tint(C.gold, 0.7 + Math.sin(v * Math.PI) * 0.27),
-    21
-  )
-  s.tube(
-    (t) => [0.18 + t * 0.88, 0.883 - t * 0.086, 0],
-    0.014,
-    C.gold,
-    21,
-    80,
-    6
-  )
-  s.line([0.23, 0.872, 0.085], [1.05, 0.795, 0.003], 0.007, C.rust, 21, 55)
-  s.ellipsoid([0.125, 0.925, 0.123], [0.032, 0.034, 0.018], C.ink, 21, 180)
-  s.ellipsoid([0.133, 0.936, 0.138], [0.01, 0.011, 0.006], C.cream, 21, 65)
-  for (let feather = 0; feather < 8; feather++) {
-    s.tube(
-      (t) => [
-        -0.49 + t * 0.43 + feather * 0.022,
-        0.32 - t * 0.2 - Math.sin(t * Math.PI) * feather * 0.014,
-        0.195 + Math.sin(t * Math.PI) * 0.049,
-      ],
-      0.022,
-      tint(C.cream, 0.67 + feather * 0.036),
-      20,
-      38,
-      6
-    )
+  s.ellipsoid([0.12, 0.89, 0], [0.18, 0.147, 0.13], C.cream, 21, 950)
+  // A broad upper bill, hanging pouch and hooked tip share the same gape.
+  const bill = (u: number) => 0.887 - 0.068 * u
+  const width = (u: number) => (1 - u) ** 0.67 * 0.112
+  s.surface(49, 18, (u, v) => [
+    0.20 + 0.86 * u,
+    bill(u) + Math.sin(Math.PI * v) * (1 - u) * 0.038,
+    (v * 2 - 1) * width(u),
+  ], C.gold, 21)
+  s.surface(56, 22, (u, v) => [
+    0.20 + 0.86 * u,
+    bill(u) - (1 - u) * (0.018 + 0.37 * Math.sin(Math.PI * (0.09 + 0.91 * u))) * Math.sin(Math.PI * v),
+    -Math.cos(Math.PI * v) * width(u),
+  ], (u, v) => tint(C.rust, 0.7 + 0.23 * Math.cos(v * Math.PI) ** 2 + 0.18 * u), 21)
+  s.tube((t) => [1.042 + 0.033 * Math.sin(t * Math.PI * 0.8), 0.82 - t * 0.056, 0], 0.012, C.gold, 21, 15, 6)
+  for (const side of [-1, 1]) {
+    s.tube((t) => [0.20 + 0.86 * t, bill(t), side * width(t)], 0.008, C.ink, 21, 45, 5)
+    s.ellipsoid([0.155, 0.927, side * 0.116], [0.028, 0.029, 0.019], C.ink, 21, 110)
+    s.ellipsoid([0.163, 0.936, side * 0.132], [0.008, 0.009, 0.005], C.cream, 21, 30)
+    // Layer the flight feathers against the flank, dark tips to the rear.
+    for (let feather = 0; feather < 4; feather++) {
+      s.tube((t) => [
+        -0.19 - t * (0.45 + 0.025 * feather),
+        0.28 - Math.sin(t * Math.PI) * 0.055 - feather * 0.044 + t * 0.03,
+        side * (0.19 + 0.045 * Math.sin(t * Math.PI) - 0.15 * t * t),
+      ], 0.024, tint(feather === 3 ? C.ink : C.cream, 0.6 + feather * 0.07), 20, 27, 6)
+    }
   }
   s.tube(
     (t) => [
@@ -94,7 +74,7 @@ export function pelicanBicycle(): Sculpture {
   return s.model(
     (t) => {
       const motion = ride(t),
-        nod = rotate(2, Math.sin(t * 1.1) * 0.025, [-0.035, 0.35, 0])
+        nod = rotate(2, Math.sin(t * 3) * 0.031, [-0.08, 0.32, 0])
       return (p, v) => {
         if (p.part === 21) {
           nod(p, v)
@@ -102,7 +82,7 @@ export function pelicanBicycle(): Sculpture {
         motion(p, v)
       }
     },
-    [-0.08, 0.06]
+    [0.17, -0.065]
   )
 }
 

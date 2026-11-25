@@ -1,7 +1,6 @@
 /* Copyright (C) 2026 LIghtJUNction; SPDX-License-Identifier: AGPL-3.0-or-later */
 import {
   TAU,
-  mix,
   palette as C,
   rotate,
   type Deform,
@@ -12,9 +11,12 @@ import {
 export const CRANK: Vec3 = [-0.03, -0.64, 0]
 
 export const PEDAL_RADIUS = 0.145
+const crankSpeed = 3
+const chainring = 0.096
+const sprocket = 0.06
 
 export const pedalAt = (seconds: number, side: number): Vec3 => {
-  const angle = -seconds * 3 + (side < 0 ? Math.PI : 0)
+  const angle = -seconds * crankSpeed + (side < 0 ? Math.PI : 0)
   return [
     CRANK[0] + Math.cos(angle) * PEDAL_RADIUS,
     CRANK[1] + Math.sin(angle) * PEDAL_RADIUS,
@@ -65,19 +67,39 @@ export function bicycle(
     front: Vec3 = [0.74, -0.78, 0]
   for (const [index, center] of [rear, front].entries()) {
     s.ring(center, 0.365, 0.028, C.ink, index + 1)
-    s.ring(center, 0.334, 0.009, C.cream, index + 1)
+    s.tube(
+      (t) => [
+        center[0] + 0.334 * Math.cos(t * TAU),
+        center[1] + 0.334 * Math.sin(t * TAU),
+        0,
+      ],
+      0.008,
+      C.cream,
+      index + 1,
+      120,
+      5
+    )
     s.ellipsoid(center, [0.035, 0.035, 0.045], C.gold, index + 1, 150)
-    for (let spoke = 0; spoke < 12; spoke++) {
-      const a = (spoke / 12) * TAU
+    for (let spoke = 0; spoke < 10; spoke++) {
+      const a = (spoke / 10) * TAU
       s.line(
         center,
         [center[0] + Math.cos(a) * 0.332, center[1] + Math.sin(a) * 0.332, 0],
         0.006,
         C.cream,
         index + 1,
-        15
+        12
       )
     }
+    // The asymmetric reflector makes the turning wheel readable at phone size.
+    s.line(
+      [center[0] + 0.18, center[1], 0],
+      [center[0] + 0.29, center[1], 0],
+      0.016,
+      C.gold,
+      index + 1,
+      12
+    )
   }
   const seat: Vec3 = [-0.32, -0.22, 0],
     stem: Vec3 = [0.51, -0.2, 0]
@@ -89,35 +111,46 @@ export function bicycle(
     [stem, CRANK],
     [stem, front],
   ] as [Vec3, Vec3][]) {
-    s.line(a, b, 0.024, C.teal)
+    s.line(a, b, 0.024, C.teal, 0, 21)
   }
   s.line(seat, [-0.31, -0.16, 0], 0.016, C.gold)
-  s.ellipsoid([-0.31, -0.15, 0], [0.18, 0.035, 0.095], C.ink, 0, 550)
+  s.ellipsoid([-0.31, -0.15, 0], [0.18, 0.035, 0.095], C.ink, 0, 400)
   s.line(stem, [0.48, -0.015, 0], 0.017, C.gold)
   s.line([0.48, -0.015, -0.17], [0.48, -0.015, 0.17], 0.021, C.ink)
-  s.ring(CRANK, 0.095, 0.017, C.gold, 3)
-  s.line(
-    [CRANK[0] - PEDAL_RADIUS, CRANK[1], -0.08],
-    [CRANK[0] + PEDAL_RADIUS, CRANK[1], 0.08],
-    0.015,
-    C.gold,
-    3
-  )
-  s.tube(
-    (t) => {
-      const a = t * TAU
-      return [
-        mix(rear[0], CRANK[0], (1 + Math.cos(a)) / 2),
-        mix(rear[1], CRANK[1], (1 + Math.cos(a)) / 2) + Math.sin(a) * 0.077,
-        0.06,
-      ]
-    },
-    0.006,
-    C.gold,
-    0,
-    95,
-    4
-  )
+  // Chainring and rear sprocket define the wheel-to-crank speed ratio.
+  for (const [center, radius, part] of [
+    [CRANK, chainring, 3],
+    [rear, sprocket, 1],
+  ] as const) {
+    s.tube(
+      (t) => [
+        center[0] + radius * Math.cos(t * TAU),
+        center[1] + radius * Math.sin(t * TAU),
+        0.07,
+      ],
+      0.012,
+      C.gold,
+      part,
+      60,
+      6
+    )
+  }
+  const dx = CRANK[0] - rear[0],
+    dy = CRANK[1] - rear[1]
+  const tilt = Math.atan2(dy, dx)
+  const tangent = Math.acos((sprocket - chainring) / Math.hypot(dx, dy))
+  for (const side of [-1, 1]) {
+    const angle = tilt + side * tangent
+    const x = Math.cos(angle), y = Math.sin(angle)
+    s.line(
+      [rear[0] + x * sprocket, rear[1] + y * sprocket, 0.07],
+      [CRANK[0] + x * chainring, CRANK[1] + y * chainring, 0.07],
+      0.006, C.gold, 0, 55
+    )
+    const xPedal = CRANK[0] + side * PEDAL_RADIUS
+    s.line([CRANK[0], CRANK[1], side * 0.09], [xPedal, CRANK[1], side * 0.09], 0.016, C.gold, 3)
+    s.line([xPedal, CRANK[1], side * 0.09], [xPedal, CRANK[1], side * 0.18], 0.014, C.gold, 3, 12)
+  }
   const legs = [-1, 1].map((side, index) => {
     const hip: Vec3 = [-0.3, -0.1, side * 0.18],
       foot = pedalAt(0, side),
@@ -130,13 +163,14 @@ export function bicycle(
       [0.12, 0.035, 0.065],
       footColor,
       14 + index,
-      360
+      250
     )
     return { hip, knee, foot, side }
   })
   return (t: number): Deform => {
-    const wheels = [rotate(2, -t * 1.85, rear), rotate(2, -t * 1.85, front)]
-    const crank = rotate(2, -t * 3, CRANK),
+    const wheelAngle = -t * crankSpeed * (chainring / sprocket)
+    const wheels = [rotate(2, wheelAngle, rear), rotate(2, wheelAngle, front)]
+    const crank = rotate(2, -t * crankSpeed, CRANK),
       bob = Math.sin(t * 6) * 0.012
     const posed = legs.map(({ hip, knee, foot, side }) => {
       const nextHip: Vec3 = [hip[0], hip[1] + bob, hip[2]],

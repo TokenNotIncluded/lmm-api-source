@@ -79,6 +79,8 @@ export function createHomePoster(
     { length: count * 2 },
     (_, i) => hash(i) - 0.5
   )
+  let lookYaw = 0,
+    lookPitch = 0
   const ages = new Float64Array(5)
   const position: Vec3 = [0, 0, 0]
   let bitmap: ImageData | undefined,
@@ -198,6 +200,17 @@ export function createHomePoster(
         ? 0
         : Math.min(0.08, Math.max(0, Number.isFinite(delta) ? delta : 0))
       if (!still) {
+        // A few degrees of tilt reveal the relief of the marks and shop fronts.
+        // Returning to center uses the same clock as the existing brush.
+        const follow = 1 - Math.exp(-6 * seconds)
+        const aimX = pointer.active
+          ? Math.max(-1, Math.min(1, (pointer.x * 2) / w - 1))
+          : 0
+        const aimY = pointer.active
+          ? Math.max(-1, Math.min(1, 1 - (pointer.y * 2) / h))
+          : 0
+        lookYaw = lerp(lookYaw, aimX * 0.065, follow)
+        lookPitch = lerp(lookPitch, aimY * 0.04, follow)
         ages[from] += seconds
         if (to !== from && pageMix > 0) ages[to] += seconds
       }
@@ -211,18 +224,36 @@ export function createHomePoster(
       const inputs = [
         {
           id: left.from,
+          chapter: from,
           weight: (1 - pageMix) * (1 - left.mix),
           age: left.age,
         },
-        { id: left.to, weight: (1 - pageMix) * left.mix, age: left.nextAge },
-        { id: right.from, weight: pageMix * (1 - right.mix), age: right.age },
-        { id: right.to, weight: pageMix * right.mix, age: right.nextAge },
+        {
+          chapter: from,
+          id: left.to,
+          weight: (1 - pageMix) * left.mix,
+          age: left.nextAge,
+        },
+        {
+          chapter: to,
+          id: right.from,
+          weight: pageMix * (1 - right.mix),
+          age: right.age,
+        },
+        {
+          chapter: to,
+          id: right.to,
+          weight: pageMix * right.mix,
+          age: right.nextAge,
+        },
       ]
       const layers = inputs
         .filter((l) => l.weight > 0)
         .map((layer) => {
-          const model = getSculpture(layer.id),
-            [yaw, pitch] = model.view ?? [0, 0]
+          const model = getSculpture(layer.id)
+          const [baseYaw, basePitch] = model.view ?? [0, 0]
+          const yaw = baseYaw + (layer.chapter <= 1 ? lookYaw : 0)
+          const pitch = basePitch + (layer.chapter <= 1 ? lookPitch : 0)
           return {
             ...layer,
             model,

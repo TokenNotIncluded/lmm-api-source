@@ -17,6 +17,8 @@ The five chapters, page content, scrolling, controls and point brush stay in pla
 
 There are 30 registered scenes. Portrait, whale, nature and Moon-far-side factories remain outside the active carousel. The local Claude mark is the loading/no-canvas fallback. Preserve the source attribution in `ai-brand-outlines.LICENSE` when updating the outlines.
 
+The market chapter uses scalloped cloth awnings, stocked window shelves and a produce cart with spoked wheels. The canopy moves at its free edge, the shop door pivots on its hinge and the vending machine dispenses into its tray before restocking behind the cabinet. The marks and market scenes tilt slightly towards an active pointer or touch. Releasing it recentres the view.
+
 The abstract chapter uses ivory, stone and clay materials. The gyroscope has three independently tilting gimbals around a solid rotor and spindle. Mobius and wave ribbons use continuous surfaces with fine edges; the helix and trefoil retain their connected structures with fewer decorative details.
 
 Rings distribute their existing 1,680 samples over the torus surface instead of stacking circular cross sections. This removes the repeated hollow-loop pattern without increasing point or cache budgets. The shared brush is finer and the background grid is lighter; provider mark colours and the five chapter sequences remain unchanged.

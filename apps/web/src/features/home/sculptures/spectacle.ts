@@ -162,69 +162,102 @@ export function spacexRocket(): Sculpture {
   )
 }
 
-/** A stylized fireball, rising mushroom cloud and expanding shock ring. */
+/** A terracotta plume with a fluted stem, scalloped canopy and two ripple rings. */
 export function atomicExplosion(): Sculpture {
   const s = new Shape()
-  s.ellipsoid([0, -0.68, 0], [0.27, 0.24, 0.27], C.gold, 1, 2500)
+  const clay: Vec3 = [201, 125, 97]
+  const shadow: Vec3 = [128, 90, 99]
+  s.ellipsoid([0, -0.75, 0], [0.32, 0.14, 0.31], C.gold, 1, 950)
   s.surface(
-    85,
-    45,
+    65,
+    52,
     (u, v) => {
-      const a = v * TAU,
-        r = 0.15 + Math.sin(u * Math.PI) * 0.05 + u ** 3 * 0.23
-      return [Math.cos(a) * r, -0.73 + u * 1.26, Math.sin(a) * r]
+      const a = v * TAU
+      const profile = 0.105 + 0.14 * (1 - u) ** 3 + 0.26 * u ** 3
+      const r = profile * (1 + 0.18 * Math.cos(5 * a - 4 * u))
+      return [Math.cos(a) * r, -0.77 + 1.26 * u, Math.sin(a) * r]
     },
-    (u, v) =>
-      tint(u < 0.5 ? C.rust : C.gold, 0.66 + Math.sin(v * TAU) ** 2 * 0.28),
+    (u, v) => tint(u < 0.28 ? C.gold : clay, 0.76 + 0.22 * Math.cos(5 * TAU * v - 4 * u)),
     2
   )
-  s.ellipsoid([0, 0.6, 0], [0.78, 0.32, 0.7], [222, 139, 78], 3, 7000)
-  for (let i = 0; i < 18; i++) {
-    const a = (i / 18) * TAU,
-      r = 0.14 + hash(i + 300) * 0.075
+  s.surface(
+    58,
+    91,
+    (u, v) => {
+      const latitude = (u - 0.5) * Math.PI
+      const a = v * TAU
+      const edge = Math.cos(latitude)
+      const r = edge * (0.74 + 0.055 * edge * Math.cos(10 * a))
+      return [r * Math.cos(a), 0.57 + 0.29 * Math.sin(latitude) + 0.03 * edge * Math.sin(3 * a), r * Math.sin(a) * 0.9]
+    },
+    (u, v) => tint(u < 0.36 ? shadow : u < 0.65 ? clay : C.gold, 0.82 + 0.16 * Math.cos(v * TAU - 1)),
+    3
+  )
+  for (let i = 0; i < 10; i++) {
+    const a = (i / 10) * TAU
+    const r = 0.16 + hash(i + 300) * 0.055
     s.ellipsoid(
-      [Math.cos(a) * 0.59, 0.49 + Math.sin(a * 3) * 0.075, Math.sin(a) * 0.53],
+      [Math.cos(a) * 0.59, 0.51 + Math.sin(a * 3) * 0.052, Math.sin(a) * 0.54],
       [r * 1.2, r, r],
-      i % 3 ? [196, 157, 120] : C.gold,
+      i % 3 === 0 ? C.gold : clay,
       3,
-      700
+      410
     )
   }
-  s.ring([0, -0.8, 0], 0.83, 0.022, C.gold, 4, 1)
-  for (let i = 0; i < 160; i++) {
-    const a = hash(i + 1) * TAU,
-      r = 0.5 + hash(i + 2) * 0.3
-    s.add(
-      [Math.cos(a) * r, -0.72 + hash(i + 3) * 0.12, Math.sin(a) * r],
-      C.rust,
-      5
+  // Overlapping billows break the otherwise even upper silhouette.
+  for (let i = 0; i < 6; i++) {
+    const a = (i / 6) * TAU
+    const lift = 0.055 * Math.sin(2 * a + 0.6)
+    s.ellipsoid(
+      [0.34 * Math.cos(a), 0.75 + lift, 0.26 * Math.sin(a)],
+      [0.24, 0.145 + lift * 0.4, 0.21],
+      i % 2 ? C.gold : clay,
+      3,
+      330
     )
   }
+  s.ellipsoid([0.02, 0.84, -0.04], [0.26, 0.16, 0.22], C.gold, 3, 420)
+  for (let i = 0; i < 12; i++) {
+    const a = (i / 12) * TAU
+    const spread = 0.12 + hash(i + 22) * 0.18
+    s.tube(
+      (t) => [
+        Math.cos(a) * (0.38 + spread * t),
+        -0.68 + (0.05 + spread) * Math.sin(t * Math.PI * 0.7),
+        Math.sin(a) * (0.38 + spread * t),
+      ],
+      0.007, C.rust, 5, 14, 4
+    )
+  }
+  s.ring([0, -0.80, 0], 0.94, 0.015, C.gold, 4, 1)
+  s.ring([0, -0.76, 0], 0.78, 0.010, clay, 5, 1)
   return s.model(
     (t) => {
-      const phase = ((t % 12) + 12) % 12
-      const bloom = smooth(Math.min(1, phase / 3.4))
-      const rise = smooth(Math.min(1, phase / 5.2))
-      const swirl = rotate(1, t * 0.1)
+      const angle = (t / 7.2) * TAU
+      const rise = (1 - Math.cos(angle)) * 0.5
+      const height = 0.67 + 0.33 * rise
+      const bloom = 0.72 + 0.28 * (1 - Math.cos(angle - 0.48)) * 0.5
+      const drift = 0.075 * Math.sin(angle)
+      const turn = rotate(1, 0.18 * Math.sin(angle - 0.3))
+      const outer = 0.79 - 0.21 * Math.cos(angle - 0.8)
+      const inner = 0.74 - 0.25 * Math.cos(angle - 2.4)
       return (p, v) => {
-        if (p.part === 1) {
-          const size = 0.8 + Math.sin(t * 1.7) * 0.12
-          v[0] *= size
-          v[2] *= size
-        } else if (p.part === 2 || p.part === 3) {
-          v[0] *= 0.22 + bloom * 0.78
-          v[2] *= 0.22 + bloom * 0.78
-          v[1] = -0.68 + (p.y + 0.68) * (0.12 + rise * 0.88)
-          v[0] += Math.sin(p.y * 7 + t * 1.3) * 0.02 * bloom
-          swirl(p, v)
-        } else {
-          const expansion = 0.2 + 0.8 * ((phase % 4) / 4)
-          v[0] *= expansion
-          v[2] *= expansion
+        if (p.part === 2 || p.part === 3) {
+          const aboveBase = p.y + 0.77
+          const spread = p.part === 2 ? 0.87 + 0.13 * rise : bloom
+          v[0] *= spread
+          v[2] *= spread
+          turn(p, v)
+          v[0] += drift * aboveBase
+          v[1] = -0.77 + aboveBase * height
+        } else if (p.part === 4 || p.part === 5) {
+          const radius = p.part === 4 ? outer : inner
+          v[0] *= radius
+          v[2] *= radius
         }
       }
     },
-    [0.13, -0.16]
+    [0.2, -0.26]
   )
 }
 

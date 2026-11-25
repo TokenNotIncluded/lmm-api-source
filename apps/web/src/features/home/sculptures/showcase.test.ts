@@ -2,6 +2,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 
+import { pelicanBicycle } from './future'
 import type { Vec3 } from './geometry'
 import { claudeMark, openaiMark } from './marks'
 import { moonFarSide } from './moon-far-side'
@@ -86,4 +87,28 @@ test('OpenAI keeps its central opening and six surrounding lobes', () => {
 test('far-side craters change the surface, not only its color', () => {
   const radii = moonFarSide().points.map((p) => Math.hypot(p.x, p.y, p.z))
   assert.ok(Math.max(...radii) - Math.min(...radii) > 0.04)
+})
+
+test('cycling and plume scenes retain their complete silhouettes on phones', () => {
+  for (const build of [pelicanBicycle, atomicExplosion]) {
+    assert.ok(build().points.length <= 22000)
+  }
+})
+
+test('the plume returns its canopy and both ripples to their starting pose', () => {
+  const model = atomicExplosion()
+  const start = model.animate(0)
+  const end = model.animate(7.2)
+  const middle = model.animate(3.6)
+  for (const part of [3, 4, 5]) {
+    const p = model.points.find((p) => p.part === part && p.x > 0.3)!
+    const a: Vec3 = [p.x, p.y, p.z]
+    const b: Vec3 = [...a]
+    const c: Vec3 = [...a]
+    start(p, a)
+    end(p, b)
+    middle(p, c)
+    assert.ok(Math.hypot(b[0] - a[0], b[1] - a[1], b[2] - a[2]) < 1e-9)
+    assert.ok(Math.hypot(c[0] - a[0], c[1] - a[1], c[2] - a[2]) > 0.04)
+  }
 })

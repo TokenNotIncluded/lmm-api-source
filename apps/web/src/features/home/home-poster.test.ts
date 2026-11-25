@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 
 import { createHomePoster } from './home-poster'
+
 const pointer = {
   x: 32,
   y: 32,
@@ -150,6 +151,41 @@ test('ready fires once after the first real frame, not at construction or after 
     second.poster.dispose()
     await Promise.resolve()
     assert.equal(calls, 1)
+  } finally {
+    view.close()
+  }
+})
+
+test('pointer tilt follows the marks and market, freezes when paused and leaves later chapters alone', () => {
+  const view = fixture()
+  try {
+    // Outside the canvas the brush touches no particle, isolating camera tilt.
+    const point = {
+      ...pointer,
+      x: 1000,
+      y: 1000,
+      previousX: 1000,
+      previousY: 1000,
+      active: true,
+    }
+    for (const chapter of [0, 1, 2]) {
+      const tracked = view.canvas(),
+        resting = view.canvas()
+      for (let frame = 0; frame < 10; frame++) {
+        tracked.poster.draw(chapter, point, 0.08)
+        resting.poster.draw(chapter, pointer, 0.08)
+      }
+      if (chapter === 2) assert.deepEqual(tracked.pixels(), resting.pixels())
+      else assert.notDeepEqual(tracked.pixels(), resting.pixels())
+      const frozen = tracked.pixels()
+      tracked.poster.draw(chapter, pointer, 0.08, true)
+      assert.deepEqual(tracked.pixels(), frozen)
+      for (let frame = 0; frame < 90; frame++) {
+        tracked.poster.draw(chapter, pointer, 0.08)
+        resting.poster.draw(chapter, pointer, 0.08)
+      }
+      assert.deepEqual(tracked.pixels(), resting.pixels())
+    }
   } finally {
     view.close()
   }
