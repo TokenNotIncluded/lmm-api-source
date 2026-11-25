@@ -42,15 +42,12 @@ export function WalletStatsCard(props: WalletStatsCardProps) {
   const projection = walletProjection(props.user)
   const financialAvailable = projection.available !== null
   const { currency, config } = useWalletCurrency()
-  const reference =
-    currency === 'CREDIT'
-      ? null
-      : walletReferenceValue(
-          projection.available,
-          currency,
-          config,
-          toIntlLocale(i18n.resolvedLanguage || i18n.language)
-        )
+  const reference = walletReferenceValue(
+    projection.available,
+    currency,
+    config,
+    toIntlLocale(i18n.resolvedLanguage || i18n.language)
+  )
   if (props.loading) {
     return (
       <div className='wallet-stats bg-card grid overflow-hidden rounded-2xl'>

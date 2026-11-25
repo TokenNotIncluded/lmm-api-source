@@ -189,7 +189,7 @@ export function ConsoleBalanceEntry() {
   const walletAction = projection.native ? t('Wallet') : t('Top up')
   const reference = walletReferenceValue(
     projection.available,
-    currency === 'CNY' ? 'CNY' : 'USD',
+    currency,
     config,
     toIntlLocale(i18n.resolvedLanguage || i18n.language)
   )
