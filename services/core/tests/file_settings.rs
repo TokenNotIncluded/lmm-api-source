@@ -1,4 +1,6 @@
 #![cfg(unix)]
+#[path = "../src/hex_codec.rs"]
+mod hex_codec;
 use lmm_core::config;
 use std::{
     fs,
@@ -68,7 +70,10 @@ fn toml_load_drop_ins_before_installing_the_effective_startup_configuration() {
     }
     assert_eq!(
         config::configuration_revision().unwrap(),
-        format!("core-toml-sha256:{:x}", sha2::Digest::finalize(digest))
+        format!(
+            "core-toml-sha256:{}",
+            hex_codec::encode(sha2::Digest::finalize(digest))
+        )
     );
     assert_eq!(
         config::setting("LMM_CORE_LISTEN").unwrap(),
