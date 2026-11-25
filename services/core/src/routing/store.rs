@@ -49,6 +49,25 @@ impl ReleaseDocument {
         Ok(())
     }
 
+    /// Enabled upstreams must cover the gateway's complete dispatch timeout.
+    pub(crate) fn target_timeouts_cover(&self, min_timeout_ms: u64) -> bool {
+        let enabled: std::collections::BTreeSet<_> = self
+            .routing
+            .upstreams
+            .iter()
+            .filter(|upstream| upstream.enabled)
+            .map(|upstream| upstream.id)
+            .collect();
+        self.routing
+            .routes
+            .iter()
+            .flat_map(|route| &route.targets)
+            .all(|target| {
+                !enabled.contains(&target.upstream_id)
+                    || u64::from(target.timeout_ms) >= min_timeout_ms
+            })
+    }
+
     pub fn into_router(self) -> Result<Router, StoreError> {
         self.check_contract()?;
         let prices = Arc::new(PriceSnapshot::compile(self.pricing)?);
