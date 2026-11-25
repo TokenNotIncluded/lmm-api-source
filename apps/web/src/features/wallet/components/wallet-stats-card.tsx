@@ -50,7 +50,7 @@ export function WalletStatsCard(props: WalletStatsCardProps) {
   )
   if (props.loading) {
     return (
-      <div className='wallet-stats bg-card grid overflow-hidden rounded-xl'>
+      <div className='wallet-stats bg-card grid overflow-hidden rounded-2xl'>
         {['balance', 'usage', 'requests'].map((key, index) => (
           <div
             key={key}
@@ -115,7 +115,7 @@ export function WalletStatsCard(props: WalletStatsCardProps) {
     <div
       id='wallet-balance'
       tabIndex={-1}
-      className='wallet-stats bg-card grid overflow-hidden rounded-xl'
+      className='wallet-stats bg-card grid overflow-hidden rounded-2xl'
     >
       {stats.map((item, index) => (
         <div
@@ -124,20 +124,17 @@ export function WalletStatsCard(props: WalletStatsCardProps) {
             'min-w-0 p-4 sm:p-5',
             index === 0
               ? 'relative isolate col-span-full overflow-hidden p-5 sm:p-6'
-              : 'border-border/60 border-t'
+              : 'wallet-secondary-stat border-border/60 border-t'
           )}
         >
           <div
-            className={cn(
-              'relative z-10 flex min-w-0 flex-wrap gap-2',
-              index === 0 ? 'items-center' : 'flex-col items-start'
-            )}
+            className='relative z-10 flex min-w-0 flex-wrap items-center gap-2'
           >
             <item.icon
               className='text-muted-foreground size-4 shrink-0'
               aria-hidden='true'
             />
-            <div className='text-muted-foreground min-h-8 text-xs leading-4 font-medium sm:min-h-0'>
+            <div className='text-muted-foreground text-sm leading-5 font-medium'>
               {index === 0 && reference ? t('Reference value') : item.label}
             </div>
             {index === 0 && props.balanceAction && (

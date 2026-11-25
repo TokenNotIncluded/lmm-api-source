@@ -13,6 +13,8 @@ export type WalletProjectionUser = Pick<
   | 'quota'
   | 'financial_projection_available'
   | 'usage_projection_available'
+  | 'normalized_used_quota'
+  | 'used_quota'
   | 'request_count'
   | 'wallet_unit'
   | 'wallet_spendable_quota'
@@ -37,8 +39,14 @@ export function walletProjection(
     const exact = exactCredit(value)
     return financial && exact !== null && exact >= 0 ? exact : null
   }
-  const history = financial && user?.usage_projection_available === true
-  const requests = history ? bucket(user?.request_count) : null
+  // Core omits raw counters when the personal historical opening is unknown.
+  // The usage flag only describes the separate normalized credit amount.
+  const history =
+    typeof user?.usage_projection_available === 'boolean' &&
+    (bucket(user.used_quota) !== null ||
+      (user.usage_projection_available && bucket(user.normalized_used_quota) !== null))
+  const requests =
+    typeof user?.usage_projection_available === 'boolean' ? bucket(user.request_count) : null
   return {
     native: true as const,
     available,

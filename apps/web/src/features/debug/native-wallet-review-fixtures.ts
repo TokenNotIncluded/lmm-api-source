@@ -386,6 +386,13 @@ export function nativeWalletReviewFixture(
             environment: 'test',
             currency: 'USD',
           },
+          {
+            id: '702',
+            provider: 'waffo_pancake',
+            environment: 'test',
+            currency: 'USD',
+            credit_quantity: true,
+          },
         ],
       },
     }
