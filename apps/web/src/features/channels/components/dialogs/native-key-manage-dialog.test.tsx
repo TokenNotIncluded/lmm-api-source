@@ -143,7 +143,7 @@ function keyResponses() {
   }) as typeof api.request
   return writes
 }
-async function mount(bulkImportAllowed?: boolean) {
+async function mount(bulkImportAllowed?: boolean, rotationVersion?: number) {
   useAuthStore.getState().auth.setBundle({
     access_token: 'synthetic-key-session-token',
     token_type: 'Bearer',
@@ -178,6 +178,15 @@ async function mount(bulkImportAllowed?: boolean) {
             channelId={1}
             channelName='Synthetic provider'
             bulkImportAllowed={allowed}
+            rotationVersion={rotationVersion}
+            draftKeyProbeAllowed
+            rotationChannel={{
+              id: 1,
+              protocol: 'openai_chat',
+              endpoint: 'https://example.test/v1',
+              credential: { id: 7, revision: 1 },
+              enabled: true,
+            }}
           />
         </I18nextProvider>
       )
@@ -282,4 +291,59 @@ test('revoking bulk capability discards the draft without turning it into a sing
   await act(async () => button(dialog, 'Batch import').click())
   assert.equal(required(form.querySelector('textarea')).value, '')
   assert.equal(writes.length, 0)
+})
+
+test('replacement probes the saved destination before a single versioned active-key switch', async () => {
+  const writes = keyResponses()
+  const baseRequest = api.request
+  const probes: unknown[] = []
+  api.request = (async (options: Parameters<typeof api.request>[0]) => {
+    if (options.url?.endsWith('/channels/models/discover')) {
+      probes.push(options.data)
+      return {
+        data: {
+          success: true,
+          data: ['model'],
+          validation_scope: 'model_catalog',
+          inference_tested: false,
+        },
+      }
+    }
+    return baseRequest(options)
+  }) as typeof api.request
+  await mount(false, 1)
+  const section = required(
+    document.querySelector('[aria-label="Replace active key"]')
+  )
+  const inputs = section.querySelectorAll('input')
+  await changeInput(inputs[0], 'Rotated')
+  await changeInput(inputs[1], 'synthetic-candidate')
+  await act(async () => button(section, 'Verify replacement key').click())
+  await until(() => !button(section, 'Confirm key switch').disabled)
+  assert.deepEqual(probes, [
+    {
+      endpoint: 'https://example.test/v1',
+      protocol: 'openai_chat',
+      secret: 'synthetic-candidate',
+    },
+  ])
+  assert.deepEqual(writes, [])
+  await act(async () => button(section, 'Confirm key switch').click())
+  await until(() => writes.length === 1)
+  assert.deepEqual(writes[0], {
+    expected_version: { routing: 1, pricing: 1 },
+    operation: 'add',
+    label: 'Rotated',
+    secret: 'synthetic-candidate',
+    activate: true,
+  })
+})
+
+test('a channel without the matching API-managed version cannot switch a credential', async () => {
+  keyResponses()
+  await mount(false, 2)
+  assert.equal(
+    document.querySelector('[aria-label="Replace active key"]'),
+    null
+  )
 })

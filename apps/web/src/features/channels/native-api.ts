@@ -68,6 +68,7 @@ export type NativePrices = {
   rules: Array<Record<string, unknown>>
 }
 export type NativeConfiguration = {
+  authority?: { mode: 'api' | 'file'; version: NativeVersion }
   version: NativeVersion
   channel_id_high_water?: number
   model_limits?: { total_timeout_ms: number } | null
@@ -308,7 +309,11 @@ export async function nativeRequest<T>(
     )
   }
   assertNativeIntegers(response.data.data)
-  if (method !== 'GET' && !path.endsWith('/preview')) {
+  if (
+    method !== 'GET' &&
+    !path.endsWith('/preview') &&
+    path !== `${NATIVE_ROOT}/channels/models/discover`
+  ) {
     const input = data as { expected_version?: unknown }
     const result = response.data.data as { version?: unknown }
     const expected = versionSchema.parse(input?.expected_version)
@@ -480,6 +485,9 @@ export async function saveNativeLegacyBalance(
 }
 
 const configurationSchema = z.object({
+  authority: z
+    .object({ mode: z.enum(['api', 'file']), version: versionSchema })
+    .optional(),
   version: versionSchema,
   channel_id_high_water: z.number().int().nonnegative().safe().optional(),
   model_limits: z
@@ -635,6 +643,21 @@ const keyListSchema = z.object({
   ),
   plaintext_available: z.literal(false),
 })
+export async function verifyReplacementCredential(
+  scope: NativeRoutingScope,
+  candidate: { endpoint: string; protocol: string; secret: string },
+  signal: AbortSignal
+): Promise<void> {
+  const models = await nativeRequest<unknown>(
+    scope,
+    'POST',
+    `${NATIVE_ROOT}/channels/models/discover`,
+    candidate,
+    { signal }
+  )
+  z.array(z.string()).parse(models)
+}
+
 export async function getNativeKeys(
   scope: NativeRoutingScope,
   id: number

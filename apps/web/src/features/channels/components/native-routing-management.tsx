@@ -56,6 +56,7 @@ import {
   type NativeVendor,
   type NativeVersion,
 } from '../native-api'
+import { verifyReplacementCredential } from '../native-api'
 import {
   isChannelSnapshotChanged,
   getNativeChannelPage,
@@ -67,6 +68,7 @@ import { NativeBalanceConfigDialog } from './dialogs/native-balance-config-dialo
 import { NativeBalanceDialog } from './dialogs/native-balance-dialog'
 import { NativeChannelUsageDialog } from './dialogs/native-channel-usage-dialog'
 import { NativeKeyManageDialog } from './dialogs/native-key-manage-dialog'
+import { NativeKeyRotation } from './dialogs/native-key-rotation'
 import { NativeChannelBatchEditor } from './native-channel-batch-editor'
 import { NativeChannelFields } from './native-channel-fields'
 import { NativeChannelFilterFields } from './native-channel-filter-fields'
@@ -143,6 +145,10 @@ export function NativeRoutingManagement({
         capabilities.data?.data?.native_configuration === true
       }
       secretsAllowed={secretsAllowed}
+      draftKeyProbeAllowed={
+        capabilityPhase === 'fresh' &&
+        capabilities.data?.data?.native_draft_model_discovery === true
+      }
       bulkKeyImportAllowed={
         secretsAllowed && capabilities.data?.data?.bulk_key_import === true
       }
@@ -173,6 +179,7 @@ function NativeRoutingWorkspace({
   configurationWritable,
   secretsAllowed,
   bulkKeyImportAllowed,
+  draftKeyProbeAllowed,
   accounting,
 }: {
   initialSection: Section
@@ -180,6 +187,7 @@ function NativeRoutingWorkspace({
   configurationWritable: boolean
   secretsAllowed: boolean
   bulkKeyImportAllowed: boolean
+  draftKeyProbeAllowed: boolean
   accounting: {
     observations: boolean
     usage: boolean
@@ -769,6 +777,15 @@ function NativeRoutingWorkspace({
     )
   }
 
+  const fileManaged = configuration.authority?.mode === 'file'
+  const keyUpstream = configuration.routing.upstreams.find(
+    (channel) => channel.id === keyChannel
+  )
+  const fileKeyProbe =
+    fileManaged &&
+    draftKeyProbeAllowed &&
+    configuration.authority?.version.routing === configuration.version.routing
+
   const matches = (...values: Array<string | number>) =>
     values.some((value) =>
       String(value).toLowerCase().includes(search.trim().toLowerCase())
@@ -1202,7 +1219,12 @@ function NativeRoutingWorkspace({
         <>
           {(!secretsAllowed || !configuration.secret_storage_enabled) && (
             <p className='text-muted-foreground text-sm' role='status'>
-              {t('API Keys')}: {t('Capability unavailable')}
+              {t('API Keys')}:{' '}
+              {configuration.authority?.mode === 'file'
+                ? t(
+                    'Edit the credential reference in the Core configuration file.'
+                  )
+                : t('Capability unavailable')}
             </p>
           )}
           {serverChannels && (
@@ -1588,15 +1610,21 @@ function NativeRoutingWorkspace({
                         variant='ghost'
                         className='min-h-11 px-2'
                         disabled={
-                          writeDisabled ||
-                          !secretsAllowed ||
-                          !configuration.secret_storage_enabled
+                          fileManaged
+                            ? !fileKeyProbe
+                            : writeDisabled ||
+                              !secretsAllowed ||
+                              !configuration.secret_storage_enabled
                         }
                         title={
-                          !secretsAllowed ||
-                          !configuration.secret_storage_enabled
-                            ? t('Capability unavailable')
-                            : undefined
+                          configuration.authority?.mode === 'file'
+                            ? t(
+                                'Edit the credential reference in the Core configuration file.'
+                              )
+                            : !secretsAllowed ||
+                                !configuration.secret_storage_enabled
+                              ? t('Capability unavailable')
+                              : undefined
                         }
                         onClick={() => setKeyChannel(channel.id)}
                       >
@@ -2171,7 +2199,38 @@ function NativeRoutingWorkspace({
           </Alert>
         )}
       </Dialog>
-      {keyChannel !== null && (
+      {fileKeyProbe && keyUpstream && (
+        <Dialog
+          open
+          onOpenChange={(open) => {
+            if (!open) setKeyChannel(null)
+          }}
+          title={
+            configuration.bindings.names[keyUpstream.id] ??
+            t('Channel {{id}}', { id: keyUpstream.id })
+          }
+          description={t(
+            'Edit the credential reference in the Core configuration file.'
+          )}
+        >
+          <p className='text-muted-foreground mb-4 text-sm'>
+            {t('Active')}: {keyUpstream.credential.id} /{' '}
+            {keyUpstream.credential.revision}
+          </p>
+          <NativeKeyRotation
+            key={configuration.version.routing}
+            channelId={keyUpstream.id}
+            endpoint={keyUpstream.endpoint}
+            protocol={keyUpstream.protocol}
+            activeReference={keyUpstream.credential}
+            disabled={false}
+            onVerify={(candidate, signal) =>
+              verifyReplacementCredential(scope, candidate, signal)
+            }
+          />
+        </Dialog>
+      )}
+      {keyChannel !== null && !fileManaged && (
         <NativeKeyManageDialog
           key={`${scope.userId}:${scope.sessionId}:${keyChannel}`}
           open
@@ -2180,10 +2239,20 @@ function NativeRoutingWorkspace({
           }}
           scope={scope}
           channelId={keyChannel}
+          rotationChannel={keyUpstream}
+          rotationVersion={
+            configuration.authority?.mode === 'api' &&
+            configuration.authority.version.routing ===
+              configuration.version.routing
+              ? configuration.version.routing
+              : undefined
+          }
+          draftKeyProbeAllowed={draftKeyProbeAllowed}
           bulkImportAllowed={bulkKeyImportAllowed}
           writable={
             configurationWritable &&
             secretsAllowed &&
+            configuration.authority?.mode !== 'file' &&
             configuration.secret_storage_enabled
           }
           channelName={

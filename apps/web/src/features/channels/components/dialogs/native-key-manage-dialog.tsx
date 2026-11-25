@@ -15,10 +15,13 @@ import { getServerErrorMessage } from '@/lib/server-error-message'
 import {
   changeNativeKey,
   getNativeKeys,
+  verifyReplacementCredential,
+  type NativeUpstream,
   type NativeKeyList,
   type NativeKeyOperation,
   type NativeRoutingScope,
 } from '../../native-api'
+import { NativeKeyRotation } from './native-key-rotation'
 
 export function NativeKeyManageDialog({
   open,
@@ -28,6 +31,9 @@ export function NativeKeyManageDialog({
   channelName,
   writable = true,
   bulkImportAllowed = false,
+  rotationChannel,
+  rotationVersion,
+  draftKeyProbeAllowed = false,
   onChanged,
 }: {
   open: boolean
@@ -37,6 +43,9 @@ export function NativeKeyManageDialog({
   channelName: string
   writable?: boolean
   bulkImportAllowed?: boolean
+  rotationChannel?: NativeUpstream
+  rotationVersion?: number
+  draftKeyProbeAllowed?: boolean
   onChanged?: () => void
 }) {
   const { t } = useTranslation()
@@ -135,6 +144,49 @@ export function NativeKeyManageDialog({
     }
   }
 
+  const canRotate =
+    open &&
+    writable &&
+    draftKeyProbeAllowed &&
+    rotationChannel?.id === channelId &&
+    !!keys &&
+    keys.version.routing === rotationVersion &&
+    !keys.polling &&
+    keys.active_reference.id === rotationChannel.credential.id &&
+    keys.active_reference.revision === rotationChannel.credential.revision
+
+  async function switchCredential(candidate: {
+    label: string
+    secret: string
+  }) {
+    if (!canRotate || !keys || pending.current) throw new Error('Unavailable')
+    pending.current = true
+    setBusy(true)
+    setError(null)
+    try {
+      await changeNativeKey(scope, channelId, keys.version, {
+        operation: 'add',
+        ...candidate,
+        activate: true,
+      })
+    } catch (error) {
+      setError(t('Check the active key before trying another switch.'))
+      throw error
+    } finally {
+      try {
+        setKeys(await getNativeKeys(scope, channelId))
+      } catch (error) {
+        setKeys(null)
+        setError(t('Check the active key before trying another switch.'))
+        throw error
+      } finally {
+        pending.current = false
+        setBusy(false)
+        onChanged?.()
+      }
+    }
+  }
+
   return (
     <Dialog
       open={open}
@@ -202,6 +254,27 @@ export function NativeKeyManageDialog({
             {t('Active')}: {keys.active_reference.id} /{' '}
             {keys.active_reference.revision}
           </p>
+          {canRotate && rotationChannel ? (
+            <NativeKeyRotation
+              channelId={channelId}
+              endpoint={rotationChannel.endpoint}
+              protocol={rotationChannel.protocol}
+              activeReference={keys.active_reference}
+              disabled={!writable}
+              onVerify={(candidate, signal) =>
+                verifyReplacementCredential(scope, candidate, signal)
+              }
+              onSwitch={switchCredential}
+            />
+          ) : rotationChannel ? (
+            <p role='status' className='text-muted-foreground text-sm'>
+              {keys.polling
+                ? t('Turn off key polling to replace the active key.')
+                : t(
+                    'Refresh channel capabilities to verify a replacement key.'
+                  )}
+            </p>
+          ) : null}
           <div className='space-y-2'>
             {keys.keys.map((key) => {
               const active =
