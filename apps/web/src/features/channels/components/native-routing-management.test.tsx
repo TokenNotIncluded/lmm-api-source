@@ -2714,6 +2714,40 @@ test('the channel page exposes editing immediately without a configuration toggl
   assert.equal(container.querySelector('input[type=password]'), null)
 })
 
+test('cancelling the channel editor restores its opener and keeps the filtered card expanded', async () => {
+  api.request = (async (options: { method: string }) => {
+    assert.equal(options.method, 'GET', 'Cancelling must not publish the draft')
+    return { data: { success: true, data: fixture() } }
+  }) as typeof api.request
+  const container = await mount('channels')
+  await until(() => !!container.querySelector('article'))
+  const search = required(
+    container.querySelector<HTMLInputElement>('input[aria-label="Search"]')
+  )
+  await changeInput(search, 'Private')
+  const create = button(container, 'Create Channel')
+  await act(async () => create.click())
+  await act(async () =>
+    button(required(container.querySelector('form')), 'Cancel').click()
+  )
+  assert.ok(document.activeElement === create, 'Return to Create Channel')
+
+  const card = required(container.querySelector('article'))
+  const details = required(card.querySelector('details'))
+  details.open = true
+  const edit = button(card, 'Edit')
+  await act(async () => edit.click())
+  const form = required(container.querySelector('form'))
+  await changeInput(required(form.querySelector('input')), 'Unsaved name')
+  await act(async () => button(form, 'Cancel').click())
+  const dialog = required(document.querySelector('[role=dialog]'))
+  await act(async () => button(dialog, 'Leave').click())
+  await until(() => document.activeElement === edit)
+  assert.equal(container.querySelector('form'), null)
+  assert.equal(details.open, true)
+  assert.equal(search.value, 'Private')
+})
+
 test('channel drafts survive current-section clicks and require confirmation before switching or replacing the editor', async () => {
   api.request = (async (options: { method: string }) => {
     assert.equal(options.method, 'GET', 'Discarding a draft must not write')
