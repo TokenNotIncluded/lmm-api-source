@@ -17,6 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { CheckCircle2 } from 'lucide-react'
+import { type Control, useWatch } from 'react-hook-form'
 import { useTranslation } from 'react-i18next'
 
 import { StatusBadge } from '@/components/status-badge'
@@ -26,7 +27,7 @@ import type { SetupFormValues, SetupStatus } from '../types'
 
 interface CompleteStepProps {
   status?: SetupStatus
-  values: SetupFormValues
+  control: Control<SetupFormValues>
 }
 
 const USAGE_MODE_LABEL_KEYS: Record<SetupFormValues['usageMode'], string> = {
@@ -44,9 +45,13 @@ const DATABASE_VARIANT: Record<
   postgres: 'success',
 }
 
-export function CompleteStep({ status, values }: CompleteStepProps) {
+export function CompleteStep({ status, control }: CompleteStepProps) {
   const { t } = useTranslation()
-  const usageLabelKey = USAGE_MODE_LABEL_KEYS[values.usageMode]
+  const [username, usageMode] = useWatch({
+    control,
+    name: ['username', 'usageMode'],
+  })
+  const usageLabelKey = USAGE_MODE_LABEL_KEYS[usageMode]
   const dbType = status?.database_type ?? 'Unknown'
   const databaseVariant = DATABASE_VARIANT[dbType.toLowerCase()] ?? 'neutral'
 
@@ -90,8 +95,8 @@ export function CompleteStep({ status, values }: CompleteStepProps) {
             </dt>
             <dd className='text-sm font-semibold'>
               {status?.root_init
-                ? values.username || t('Existing account will be reused')
-                : values.username || t('Not set yet')}
+                ? username || t('Existing account will be reused')
+                : username || t('Not set yet')}
             </dd>
           </div>
 

@@ -96,8 +96,6 @@ export function SetupWizard() {
     mode: 'onBlur',
   })
 
-  const watchedValues = form.watch()
-
   const {
     data: statusResponse,
     isLoading,
@@ -206,8 +204,8 @@ export function SetupWizard() {
     if (currentStep === 2) {
       return <UsageModeStep form={form} />
     }
-    return <CompleteStep status={setupStatus} values={watchedValues} />
-  }, [currentStep, setupStatus, form, watchedValues])
+    return <CompleteStep status={setupStatus} control={form.control} />
+  }, [currentStep, setupStatus, form])
 
   const validateAdminStep = () => {
     const username = form.getValues('username')?.trim()
