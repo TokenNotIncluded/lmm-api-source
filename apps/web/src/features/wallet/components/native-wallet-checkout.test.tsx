@@ -228,8 +228,10 @@ test('native checkout reviews exact Core quote, preserves a lost checkout and re
   const container = document.body.appendChild(document.createElement('div'))
   let root = createRoot(container)
   const writes: Array<{ url: string; data: Record<string, string> }> = []
+  let statusFailure: { status: number; code: string } | null = null
   let coreCredit = false
-  let refunded = false
+  let refundState: 'refund_pending' | 'partially_refunded' | 'refunded' | null =
+    null
   let accountRefreshes = 0
   const order = {
     order_id: 'top_42',
@@ -242,33 +244,41 @@ test('native checkout reviews exact Core quote, preserves a lost checkout and re
     provider_paid: true,
     core_credit_confirmed: false,
   }
-  api.get = (async (url: string) => ({
-    data: {
-      success: true,
-      data:
-        url === '/api/user/payments/channels'
-          ? {
-              available: true,
-              channels: [
-                {
-                  id: '1',
-                  provider: 'stripe',
-                  environment: 'test',
-                  currency: 'USD',
-                },
-              ],
-            }
-          : {
-              ...order,
-              state: refunded
-                ? 'refunded'
-                : coreCredit
-                  ? 'credited'
-                  : 'credit_pending',
-              core_credit_confirmed: coreCredit,
-            },
-    },
-  })) as typeof api.get
+  api.get = (async (url: string) => {
+    if (!url.endsWith('/channels') && statusFailure) {
+      throw Object.assign(new Error('Status read rejected'), {
+        isAxiosError: true,
+        response: {
+          status: statusFailure.status,
+          data: { code: statusFailure.code },
+        },
+      })
+    }
+    return {
+      data: {
+        success: true,
+        data:
+          url === '/api/user/payments/channels'
+            ? {
+                available: true,
+                channels: [
+                  {
+                    id: '1',
+                    provider: 'stripe',
+                    environment: 'test',
+                    currency: 'USD',
+                  },
+                ],
+              }
+            : {
+                ...order,
+                state:
+                  refundState ?? (coreCredit ? 'credited' : 'credit_pending'),
+                core_credit_confirmed: coreCredit,
+              },
+      },
+    }
+  }) as typeof api.get
   api.post = (async (
     url: string,
     data: Record<string, string>,
@@ -347,6 +357,50 @@ test('native checkout reviews exact Core quote, preserves a lost checkout and re
     root = createRoot(container)
     await render()
     assert.equal(writes.length, 2, 'mount must not replay a financial write')
+    for (const [status, code, expected] of [
+      [
+        403,
+        'PAYMENT_ACCESS_DENIED',
+        'This account cannot access this payment. Check which account you are signed in to.',
+      ],
+      [
+        409,
+        'PAYMENT_CONFLICT',
+        'This request conflicts with an existing payment. Check your payment history before retrying.',
+      ],
+      [
+        422,
+        'PAYMENT_UNSUPPORTED',
+        'This payment method does not support this request. Contact support before retrying.',
+      ],
+      [409, 'UNRECOGNIZED', 'The result is uncertain.'],
+      [503, 'PAYMENT_CONFLICT', 'The result is uncertain.'],
+    ] as const) {
+      statusFailure = { status, code }
+      await click('Refresh payment status')
+      assert.ok(
+        container
+          .querySelector('[role="alert"]')
+          ?.textContent?.includes(expected)
+      )
+      assert.equal(
+        container.textContent?.includes(
+          'Preparing your payment. You can refresh this order later.'
+        ),
+        false
+      )
+      assert.equal(
+        readNativeCheckout('[19,"checkout-session"]', dom.sessionStorage)
+          ?.request.request_key,
+        writes[0].data.request_key
+      )
+      assert.equal(
+        writes.length,
+        2,
+        'reading a rejected order must not issue a payment write'
+      )
+    }
+    statusFailure = null
     await click('Refresh payment status')
     assert.ok(
       document.body.textContent?.includes(
@@ -371,14 +425,43 @@ test('native checkout reviews exact Core quote, preserves a lost checkout and re
     assert.equal(accountRefreshes, 1, 'confirmed credit refreshes the balance')
     await click('Refresh payment status')
     assert.equal(accountRefreshes, 1, 'repeated status does not refresh again')
-    refunded = true
+    refundState = 'refund_pending'
+    await click('Refresh payment status')
+    assert.ok(
+      container.textContent?.includes(
+        'A refund is being processed for this order.'
+      )
+    )
+    assert.equal(
+      container.textContent?.includes('Start another payment'),
+      false
+    )
+    assert.equal(accountRefreshes, 1)
+    refundState = 'partially_refunded'
+    await click('Refresh payment status')
+    assert.ok(
+      container.textContent?.includes('Part of this payment has been refunded.')
+    )
+    assert.ok(container.textContent?.includes('Start another payment'))
+    assert.equal(
+      accountRefreshes,
+      2,
+      'committed partial refund refreshes the balance'
+    )
+    await click('Refresh payment status')
+    assert.equal(
+      accountRefreshes,
+      3,
+      'a later partial refund can keep the same state'
+    )
+    refundState = 'refunded'
     await click('Refresh payment status')
     assert.ok(
       document.body.textContent?.includes('This payment has been refunded.')
     )
-    assert.equal(accountRefreshes, 2, 'completed refund refreshes the balance')
+    assert.equal(accountRefreshes, 4, 'completed refund refreshes the balance')
     await click('Refresh payment status')
-    assert.equal(accountRefreshes, 2)
+    assert.equal(accountRefreshes, 4)
     assert.equal(writes.length, 2)
     await act(async () => {
       login(20, 'another-session')

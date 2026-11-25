@@ -63,10 +63,11 @@ const {
 const adapter = api.defaults.adapter
 const request = api.request
 const previous = useAuthStore.getState().auth
+const en = await import('@/i18n/locales/en.json')
 const i18n = createInstance()
 await i18n
   .use(initReactI18next)
-  .init({ lng: 'en', resources: { en: { translation: {} } } })
+  .init({ lng: 'en', resources: { en: en.default } })
 let dispose: (() => Promise<void>) | undefined
 afterEach(async () => {
   await dispose?.()
@@ -273,6 +274,16 @@ async function until(check: () => boolean) {
     check(),
     'The native management view did not reach the expected state'
   )
+}
+async function openConsumption(container: Element) {
+  const action = button(container, 'Consumption')
+  const details = required(action.closest('details'))
+  if (!details.open) {
+    const disclosure = required(details.querySelector('summary'))
+    await act(async () => disclosure.click())
+  }
+  assert.equal(details.open, true)
+  await act(async () => action.click())
 }
 function button(container: Element, text: string) {
   const value = [...container.querySelectorAll('button')].find(
@@ -1157,8 +1168,6 @@ const usageFixture = {
 }
 
 test('native channel card opens confirmed consumption with exact values and explicit coverage', async () => {
-  const en = await import('@/i18n/locales/en.json')
-  i18n.addResourceBundle('en', 'translation', en.default.translation)
   const reads: string[] = []
   api.request = (async (options: { url: string; method: string }) => {
     reads.push(options.url)
@@ -1173,8 +1182,8 @@ test('native channel card opens confirmed consumption with exact values and expl
   const container = await mount('channels', false)
   await until(() => !!container.textContent?.includes('Private provider'))
   assert.equal(button(container, 'Consumption').disabled, false)
-  await act(async () => button(container, 'Consumption').click())
-  await until(() => !!document.querySelector('dl'))
+  await openConsumption(container)
+  await until(() => !!document.querySelector('[role=dialog] dl'))
   const dialog = required(document.querySelector('[role=dialog]'))
   const text = dialog.textContent ?? ''
   assert.ok(text.includes('Confirmed native consumption'))
@@ -1222,7 +1231,7 @@ test('native usage errors and reused channel identities never turn into zero con
     }) as typeof api.request
     const container = await mount('channels')
     await until(() => !!container.textContent?.includes('Private provider'))
-    await act(async () => button(container, 'Consumption').click())
+    await openConsumption(container)
     await until(() => !!document.querySelector('[role=dialog] [role=alert]'))
     const dialog = required(document.querySelector('[role=dialog]'))
     const text = dialog.textContent ?? ''
@@ -1252,15 +1261,15 @@ test('closing usage or switching sessions aborts the read and discards delayed r
   }) as typeof api.request
   const container = await mount('channels')
   await until(() => !!container.textContent?.includes('Private provider'))
-  await act(async () => button(container, 'Consumption').click())
+  await openConsumption(container)
   await until(() => signals.length === 1)
   await act(async () =>
     button(required(document.querySelector('[role=dialog]')), 'Close').click()
   )
   assert.equal(signals[0]?.aborted, true)
   await act(async () => finish?.())
-  assert.equal(document.querySelector('dl'), null)
-  await act(async () => button(container, 'Consumption').click())
+  assert.equal(document.querySelector('[role=dialog]'), null)
+  await openConsumption(container)
   await until(() => signals.length === 2)
   await act(async () => {
     login('replacement-usage-session', 10)
@@ -1290,9 +1299,9 @@ test('a confirmed zero native window displays zero instead of an unavailable sta
   })) as typeof api.request
   const container = await mount('channels')
   await until(() => !!container.textContent?.includes('Private provider'))
-  await act(async () => button(container, 'Consumption').click())
-  await until(() => document.querySelectorAll('dd').length === 6)
-  for (const value of document.querySelectorAll('dd')) {
+  await openConsumption(container)
+  await until(() => document.querySelectorAll('[role=dialog] dd').length === 6)
+  for (const value of document.querySelectorAll('[role=dialog] dd')) {
     assert.match(value.textContent ?? '', /^0(?: Credits)?$/)
   }
   assert.equal(document.querySelector('[role=dialog] [role=alert]'), null)
@@ -1583,7 +1592,7 @@ test('display subtotals keep copied inheritance separate from native consumption
   })) as typeof api.request
   const container = await mount('channels')
   await until(() => !!container.textContent?.includes('Private provider'))
-  await act(async () => button(container, 'Consumption').click())
+  await openConsumption(container)
   await until(
     () =>
       document.querySelectorAll('[aria-label="Display usage"] dd').length === 3
@@ -1636,7 +1645,7 @@ test('reviewed legacy lifetime keeps the original unit and an exact repeating am
   })
   const container = await mount('channels')
   await until(() => !!container.textContent?.includes('Private provider'))
-  await act(async () => button(container, 'Consumption').click())
+  await openConsumption(container)
   await until(
     () =>
       document.querySelectorAll('[aria-label="Display usage"] dd').length === 5
@@ -1690,7 +1699,7 @@ test('an absent inherited display baseline remains unknown rather than displayin
   })) as typeof api.request
   const container = await mount('channels')
   await until(() => !!container.textContent?.includes('Private provider'))
-  await act(async () => button(container, 'Consumption').click())
+  await openConsumption(container)
   await until(
     () =>
       document.querySelectorAll('[aria-label="Display usage"] dd').length === 3
@@ -1862,7 +1871,7 @@ test('accounting capabilities gate window reads, display counters and provider r
         i18n.t(windowEnabled ? 'channelUsage.open' : 'channelBalance.title')
       ).click()
     )
-    await until(() => !!document.querySelector('dl'))
+    await until(() => !!document.querySelector('[role=dialog] dl'))
     const dialog = required(document.querySelector('[role=dialog]'))
     if (windowEnabled) {
       assert.equal(

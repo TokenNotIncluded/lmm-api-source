@@ -3,6 +3,7 @@ package app
 import (
 	"bytes"
 	"errors"
+	"github.com/TokenNotIncluded/lmm-api/extensions/internal/modules/assistant_channel_git"
 	"io"
 	"net"
 	"os"
@@ -83,6 +84,7 @@ type LegalConfig struct {
 	ConfigFile string `toml:"config_file"`
 }
 type AssistantConfig struct {
+	ChannelGit      *assistant_channel_git.Config           `toml:"channel_git"`
 	DatabaseName    string                                  `toml:"database_name"`
 	DatabaseURLFile string                                  `toml:"database_url_file"`
 	CursorKeyFile   string                                  `toml:"cursor_key_file"`

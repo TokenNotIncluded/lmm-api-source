@@ -140,7 +140,6 @@ const reads: Record<string, unknown> = {
     subscriptions: [],
     all_subscriptions: [],
   },
-  '/api/subscription/self/reset-vouchers': [],
   '/api/subscription/plans': [],
   '/api/subscription/admin/plans': [],
   '/api/subscription/admin/reset/eligible': page,

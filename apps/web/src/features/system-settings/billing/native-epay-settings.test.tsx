@@ -269,6 +269,55 @@ test('EPay owner saves one Core revision and verifies the effective Go projectio
   }
 })
 
+test('read-only EPay rate and limits identify the selected Core channel and state the conditional minimum', async () => {
+  const current = configuration()
+  const first = current.bindings[0]
+  current.bindings.push({
+    ...first,
+    channel_id: 81,
+    currency: 'CNY',
+    credits_per_minor: '1750',
+    min_amount_minor: '1',
+    max_amount_minor: '12345',
+  })
+  const { container, requests } = await mount(() => success(current))
+  await until(() => !!container.querySelector('#epay-connection'))
+  const source = () => container.textContent ?? ''
+  assert.match(
+    source(),
+    /\[payments\]\.config_file.*\[\[channels\]\] entry with id = 55/
+  )
+  assert.match(source(), /100\.00 LDC/)
+  assert.match(
+    source(),
+    /If min_amount_minor is omitted, Core uses one minor unit \(0\.01 LDC\)/
+  )
+  const select = container.querySelector<HTMLSelectElement>('#epay-connection')!
+  await act(async () => {
+    select.value = '81'
+    select.dispatchEvent(new Event('change', { bubbles: true }))
+  })
+  assert.match(source(), /\[\[channels\]\] entry with id = 81/)
+  assert.match(
+    source(),
+    /If min_amount_minor is omitted, Core uses one minor unit \(0\.01 CNY\)/
+  )
+  for (const [key, value] of [
+    ['credits_per_minor', '1750 CREDIT per 0.01 CNY'],
+    ['min_amount_minor', '0.01 CNY'],
+    ['max_amount_minor', '123.45 CNY'],
+  ]) {
+    const code = [...container.querySelectorAll('code')].find(
+      (element) => element.textContent === key
+    )
+    assert.equal(code?.closest('div')?.querySelector('dd')?.textContent, value)
+  }
+  assert.deepEqual(
+    requests.map((request) => request.method),
+    ['get']
+  )
+})
+
 test('stale EPay configuration never replays the write and requires an explicit fresh read', async () => {
   let current = configuration()
   const { container, requests } = await mount((request) => {

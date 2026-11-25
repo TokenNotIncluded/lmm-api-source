@@ -182,6 +182,7 @@ export function nativeCheckoutURL(value: string | undefined): string | null {
 export function nativeCheckoutFinished(result: NativeCheckout | null) {
   return (
     result?.state === 'refunded' ||
+    result?.state === 'partially_refunded' ||
     (result?.state === 'credited' && result.core_credit_confirmed)
   )
 }

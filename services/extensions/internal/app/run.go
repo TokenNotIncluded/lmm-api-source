@@ -98,6 +98,7 @@ func Run() error {
 		DirectoryAdTokenFile:          cfg.Core.DirectoryAdTokenFile,
 		AssistantTokenFile:            cfg.Core.AssistantTokenFile,
 		AssistantAgentRequired:        cfg.Assistant.AgentRequired,
+		ChannelGit:                    cfg.Assistant.ChannelGit,
 		AssistantServicesPolicies:     assistant_services.PublishedLegalReader{Handler: policies},
 		AssistantServicesDependencies: assistantDependencies,
 		PaymentTokenFile:              cfg.Core.PaymentTokenFile,

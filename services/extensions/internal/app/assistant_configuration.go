@@ -3,6 +3,14 @@ package app
 import "errors"
 
 func validateAssistantConfiguration(cfg GoConfig) error {
+	if cfg.Assistant.ChannelGit != nil {
+		if !cfg.Assistant.AgentRequired {
+			return errors.New("channel Git proposals require the authenticated assistant agent")
+		}
+		if err := cfg.Assistant.ChannelGit.Validate(); err != nil {
+			return err
+		}
+	}
 	key := cfg.Core.AssistantTokenFile
 	selected := false
 	for _, name := range cfg.Host.Modules {

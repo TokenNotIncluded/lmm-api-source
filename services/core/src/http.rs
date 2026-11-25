@@ -293,7 +293,7 @@ async fn public_status_response(State(state): State<Readiness>, headers: HeaderM
             "wechat_login":false,"passkey_login":status.passkey_login_enabled,"email_verification":status.email_verification_enabled,
             "native_account_bindings":status.native_account_bindings,
             "turnstile_check":turnstile_site_key.is_some(),"turnstile_site_key":turnstile_site_key.unwrap_or_default(),"two_factor_enabled":status.two_factor_enabled,"payments_enabled":false,
-            "compensation_gifts_enabled":false,
+            "compensation_gifts_enabled":state.capabilities.console,
             "payments_test_rpc_enabled":state.capabilities.payments,
             "commerce_rpc_enabled":state.capabilities.commerce,
             "assistant":{"enabled":false},"custom_oauth_providers":[],

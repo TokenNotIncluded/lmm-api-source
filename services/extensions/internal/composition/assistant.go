@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"github.com/TokenNotIncluded/lmm-api/extensions/internal/modules/assistant_channel_git"
 
 	"github.com/TokenNotIncluded/lmm-api/extensions/internal/coreclient"
 	"github.com/TokenNotIncluded/lmm-api/extensions/internal/modules/assistant"
@@ -195,6 +196,13 @@ func (r *Runtime) composeAssistantDelegation(ctx context.Context, cfg Config, db
 			return catalogueErr
 		}
 		bindings = append(bindings, catalogueBindings...)
+		if cfg.ChannelGit != nil {
+			staged, err := assistant_channel_git.Binding(*cfg.ChannelGit, authority)
+			if err != nil {
+				return err
+			}
+			bindings = append(bindings, staged)
+		}
 		r.AssistantServices = personal.Domain()
 		if r.ToolMarket != nil {
 			market, marketErr := assistant_market.New(r.ToolMarket)

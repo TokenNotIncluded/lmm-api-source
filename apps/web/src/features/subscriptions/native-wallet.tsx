@@ -54,10 +54,8 @@ import { NativeStripeSubscriptions } from './native-stripe'
 
 export function NativeWalletSubscriptions({
   onUpdated,
-  refreshKey = 0,
 }: {
   onUpdated?: () => void
-  refreshKey?: number
 }) {
   const auth = useAuthStore((state) => state.auth)
   const scope = commerceScope()
@@ -66,18 +64,15 @@ export function NativeWalletSubscriptions({
       key={`${auth.user?.id}:${auth.session?.sid}`}
       scope={scope}
       onUpdated={onUpdated}
-      refreshKey={refreshKey}
     />
   ) : null
 }
 function SubscriptionWallet({
   scope,
   onUpdated,
-  refreshKey,
 }: {
   scope: CommerceScope
   onUpdated?: () => void
-  refreshKey: number
 }) {
   const { t, i18n } = useTranslation()
   const locale = toIntlLocale(i18n.language)
@@ -137,11 +132,6 @@ function SubscriptionWallet({
     // Account/session changes remount this workspace.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
-  useEffect(() => {
-    if (refreshKey > 0) void load()
-    // A successful reset changes entitlement usage in this same session.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [refreshKey])
   function remember(value: SubscriptionPending | null) {
     try {
       savePending(scope, 'subscription', value)

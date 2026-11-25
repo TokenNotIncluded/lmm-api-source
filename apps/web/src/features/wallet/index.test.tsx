@@ -176,7 +176,6 @@ async function renderWallet(
     selfQuota?: number
     paymentReturn?: 'return' | 'cancel'
     nativeChannels?: unknown
-    resetVouchers?: unknown[] | Promise<unknown[]>
     unavailableTransferReads?: boolean
     nativeResponse?: (
       url: string,
@@ -256,11 +255,6 @@ async function renderWallet(
   }
   api.get = (async (url) => {
     reads.push(String(url))
-    if (url === '/api/subscription/self/reset-vouchers') {
-      return {
-        data: { success: true, data: (await options.resetVouchers) ?? [] },
-      }
-    }
     // Retired subscription routes and explicitly unavailable transfer reads
     // return a migration error, never a successful empty collection.
     if (
@@ -752,10 +746,6 @@ test('native wallet exposes credit subscriptions and rewards without fiat conver
 
 test('native subscription failures stay local and distinct from confirmed empty results, with explicit retry', async () => {
   let failed = true
-  let finishVouchers!: (vouchers: unknown[]) => void
-  const resetVouchers = new Promise<unknown[]>((resolve) => {
-    finishVouchers = resolve
-  })
   const beforeToasts = toast.getHistory().length
   const { container, queryClient, reads } = await renderWallet(true, {
     quota: 500000,
@@ -766,7 +756,6 @@ test('native subscription failures stay local and distinct from confirmed empty 
       wallet_money_available: false,
     },
     openSections: false,
-    resetVouchers,
     nativeResponse: (url, method, _data, config) => {
       assert.equal(method, 'get')
       if (url.startsWith('/core/v1/subscriptions/')) {
@@ -818,21 +807,12 @@ test('native subscription failures stay local and distinct from confirmed empty 
   const plans = [...section.querySelectorAll('[data-slot="card-title"]')]
     .find((title) => title.textContent === 'Subscriptions')
     ?.closest('[data-slot="card"]')
-  const vouchers = section.querySelector(
-    '[aria-labelledby="banked-reset-heading"]'
-  )
   assert.ok(plans)
-  assert.ok(vouchers)
-  const voucherStatus = vouchers.querySelector('#banked-reset-query-status')
-  assert.ok(voucherStatus)
   await waitForText(plans, /Unable to load subscriptions/)
   assert.doesNotMatch(
     plans.textContent ?? '',
     /No subscription plans yet|No data|Loading\.\.\./
   )
-  assert.match(vouchers.textContent ?? '', /Banked subscription resets/)
-  await waitForText(voucherStatus, /Loading\.\.\./)
-  assert.doesNotMatch(vouchers.textContent ?? '', /No banked reset vouchers/)
   assert.equal(
     reads.filter((url) => url === '/core/v1/subscriptions/plans').length,
     1
@@ -844,9 +824,7 @@ test('native subscription failures stay local and distinct from confirmed empty 
   assert.ok(
     !reads.some(
       (url) =>
-        (url.startsWith('/api/subscription/') &&
-          url !== '/api/subscription/self/reset-vouchers') ||
-        url === '/api/user/topup/info'
+        url.startsWith('/api/subscription/') || url === '/api/user/topup/info'
     )
   )
   assert.equal(toast.getHistory().length, beforeToasts)
@@ -874,15 +852,6 @@ test('native subscription failures stay local and distinct from confirmed empty 
     2
   )
   assert.equal(toast.getHistory().length, beforeToasts)
-  assert.match(voucherStatus.textContent ?? '', /Loading\.\.\./)
-  await act(async () => finishVouchers([]))
-  await waitForText(vouchers, /No banked reset vouchers/)
-  assert.doesNotMatch(voucherStatus.textContent ?? '', /Loading\.\.\./)
-  assert.equal(
-    reads.filter((url) => url === '/api/subscription/self/reset-vouchers')
-      .length,
-    1
-  )
   queryClient.clear()
 })
 
@@ -939,13 +908,9 @@ test('native wallet uses declared current rates without legacy display flags and
   assert.ok(
     !reads.some(
       (url) =>
-        (url.startsWith('/api/subscription/') &&
-          url !== '/api/subscription/self/reset-vouchers') ||
-        url === '/api/user/topup/info'
+        url.startsWith('/api/subscription/') || url === '/api/user/topup/info'
     )
   )
-  assert.ok(container.querySelector('#banked-reset-heading'))
-  assert.ok(reads.includes('/api/subscription/self/reset-vouchers'))
   queryClient.clear()
 })
 
@@ -1174,100 +1139,5 @@ test('personal billing dialog shows a retryable error instead of an empty histor
     /Failed to load billing history/
   )
   assert.ok(urls.every((url) => url.startsWith('/api/user/topup/self?')))
-  queryClient.clear()
-})
-
-test('reset code redemption refreshes the scoped voucher list in the native subscription workspace', async () => {
-  const vouchers: unknown[] = []
-  const { container, queryClient, reads } = await renderWallet(true, {
-    quota: 500000,
-    user: {
-      financial_projection_available: true,
-      wallet_unit: 'core_credit',
-      wallet_money_basis: 'unknown',
-      wallet_money_available: false,
-    },
-    resetVouchers: vouchers,
-    nativeResponse: (url, method) => {
-      if (url.endsWith('/plans')) {
-        return { contract: 'core.subscriptions.v1', plans: [] }
-      }
-      if (url.endsWith('/purchases')) {
-        return { contract: 'core.subscriptions.v1', purchases: [] }
-      }
-      if (url.endsWith('/campaigns')) {
-        return { contract: 'core.promotions.v1', campaigns: [] }
-      }
-      if (url.endsWith('/history')) {
-        return { contract: 'core.promotions.v1', claims: [] }
-      }
-      assert.equal(method, 'post')
-      assert.equal(url, '/core/v1/promotions/redemptions')
-      vouchers.push({
-        id: 81,
-        user_id: 7,
-        plan_id: 37,
-        plan_title: 'Synthetic reset plan',
-        operation_id: 'synthetic-reset-operation',
-        status: 'available',
-        expires_at: 1900000000,
-        redeemed_at: 0,
-        created_at: 1800000000,
-      })
-      return {
-        reward_type: 'reset_voucher',
-        reset_voucher_id: 81,
-        reset_plan_id: 37,
-        reset_voucher_expires_at: 1900000000,
-      }
-    },
-  })
-  const before = reads.filter(
-    (url) => url === '/api/subscription/self/reset-vouchers'
-  ).length
-  const input = container.querySelector<HTMLInputElement>('#native-redeem-code')
-  assert.ok(input)
-  const setValue = Object.getOwnPropertyDescriptor(
-    window.HTMLInputElement.prototype,
-    'value'
-  )?.set
-  assert.ok(setValue)
-  await act(async () => {
-    setValue.call(input, 'a'.repeat(32))
-    input.dispatchEvent(new window.Event('input', { bubbles: true }))
-  })
-  const form = input.closest('form')
-  assert.ok(form)
-  await act(async () => {
-    form.dispatchEvent(
-      new window.Event('submit', { bubbles: true, cancelable: true })
-    )
-    await new Promise((resolve) => setTimeout(resolve, 70))
-  })
-  assert.match(
-    container.textContent ?? '',
-    /Reset voucher received.*#81.*Plan #37/
-  )
-  assert.ok(container.querySelector('[data-voucher-id="81"]'))
-  assert.ok(
-    reads.filter((url) => url === '/api/subscription/self/reset-vouchers')
-      .length > before
-  )
-  assert.equal(
-    queryClient.getQueryState([
-      'subscription-reset-vouchers',
-      7,
-      'native-wallet-scope',
-    ])?.status,
-    'success'
-  )
-  assert.equal(
-    queryClient.getQueryData(['subscription-reset-vouchers']),
-    undefined
-  )
-  const status =
-    container.querySelector('#wallet-rewards [role="status"]')?.textContent ??
-    ''
-  assert.ok(!status.includes('Core credits'))
   queryClient.clear()
 })

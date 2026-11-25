@@ -309,7 +309,11 @@ export async function nativeRequest<T>(
     )
   }
   assertNativeIntegers(response.data.data)
-  if (method !== 'GET' && !path.endsWith('/preview')) {
+  if (
+    method !== 'GET' &&
+    !path.endsWith('/preview') &&
+    path !== `${NATIVE_ROOT}/channels/models/discover`
+  ) {
     const input = data as { expected_version?: unknown }
     const result = response.data.data as { version?: unknown }
     const expected = versionSchema.parse(input?.expected_version)
@@ -650,6 +654,21 @@ const keyListSchema = z.object({
   ),
   plaintext_available: z.literal(false),
 })
+export async function verifyReplacementCredential(
+  scope: NativeRoutingScope,
+  candidate: { endpoint: string; protocol: string; secret: string },
+  signal: AbortSignal
+): Promise<void> {
+  const models = await nativeRequest<unknown>(
+    scope,
+    'POST',
+    `${NATIVE_ROOT}/channels/models/discover`,
+    candidate,
+    { signal }
+  )
+  z.array(z.string()).parse(models)
+}
+
 export async function getNativeKeys(
   scope: NativeRoutingScope,
   id: number

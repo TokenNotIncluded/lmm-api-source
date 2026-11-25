@@ -2,14 +2,12 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { createInstance } from 'i18next'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { I18nextProvider, initReactI18next } from 'react-i18next'
 
 import { StoreBadges } from '@/features/store/shared'
 import type { StoreProduct } from '@/features/store/types'
-import { SubscriptionResetVouchers } from '@/features/wallet/components/subscription-reset-vouchers'
 
 import { useCurrentMinute, useLocalDay } from './use-deadline-clock'
 
@@ -39,48 +37,6 @@ for (const state of ['expired', 'live', 'zero'] as const) {
       markup.includes('aria-label="Promoted product"'),
       state === 'live'
     )
-  })
-
-  test(`static voucher actions cannot default to available for ${state} deadline`, () => {
-    const expiresAt =
-      state === 'zero'
-        ? 0
-        : Math.floor(Date.now() / 1000) + (state === 'live' ? 60 : -60)
-    const client = new QueryClient({
-      defaultOptions: { queries: { staleTime: Infinity, retry: false } },
-    })
-    client.setQueryData(['subscription-reset-vouchers'], {
-      success: true,
-      data: [
-        {
-          id: 1,
-          user_id: 7,
-          plan_id: 3,
-          plan_title: 'Synthetic plan',
-          operation_id: 'synthetic-reset',
-          status: 'available',
-          expired: false,
-          expires_at: expiresAt,
-          redeemed_at: 0,
-          created_at: 1,
-        },
-      ],
-    })
-    try {
-      const markup = renderToStaticMarkup(
-        <QueryClientProvider client={client}>
-          <I18nextProvider i18n={i18n}>
-            <SubscriptionResetVouchers />
-          </I18nextProvider>
-        </QueryClientProvider>
-      )
-      assert.equal(/>Redeem reset<\/button>/.test(markup), state === 'live')
-      if (state !== 'live') {
-        assert.match(markup, /Show used or expired vouchers/)
-      }
-    } finally {
-      client.clear()
-    }
   })
 }
 

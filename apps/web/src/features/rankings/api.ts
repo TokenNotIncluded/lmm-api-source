@@ -33,7 +33,11 @@ type RankingsResponse = {
 export async function getRankings(
   period: RankingPeriod
 ): Promise<RankingsResponse> {
-  const res = await api.get('/api/rankings', { params: { period } })
+  const res = await api.get('/api/rankings', {
+    params: { period },
+    skipErrorHandler: true,
+    skipBusinessError: true,
+  })
   return res.data
 }
 
@@ -42,6 +46,10 @@ export async function getUserUsageRankings(period: RankingPeriod): Promise<{
   message?: string
   data: UserUsageRankingsSnapshot
 }> {
-  const res = await api.get('/api/rankings/users', { params: { period } })
+  const res = await api.get('/api/rankings/users', {
+    params: { period },
+    skipErrorHandler: true,
+    skipBusinessError: true,
+  })
   return res.data
 }

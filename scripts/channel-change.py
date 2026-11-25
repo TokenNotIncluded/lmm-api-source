@@ -120,10 +120,13 @@ def propose(args):
     proposal_ref = branch(args, args.branch)
     base = resolve(args, current_ref)
     raw = config_file(args, base, args.config)
-    with args.plan.open("rb") as handle:
-        selection_bytes = handle.read(LIMIT + 1)
-    require(len(selection_bytes) <= LIMIT, "Plan exceeds the Core input limit")
-    selection = json.loads(selection_bytes)
+    if hasattr(args, "selection"):
+        selection = args.selection
+    else:
+        with args.plan.open("rb") as handle:
+            data = handle.read(LIMIT + 1)
+        require(len(data) <= LIMIT, "Plan exceeds the Core input limit")
+        selection = json.loads(data)
     result = plan(args, raw, selection, args.local_http)
     before, after = native_state(result, False), native_state(result, True)
     require(observed(args) == before, "Core has diverged from the Git base; recompute against its current source")
@@ -265,10 +268,64 @@ def status(args):
     return result
 
 
+def assistant(args):
+    data = sys.stdin.buffer.read(65537)
+    require(len(data) <= 65536, "Assistant tool arguments exceed limit")
+    request = json.loads(data)
+    require(isinstance(request, dict), "Invalid assistant tool arguments")
+    require(re.fullmatch(r"ai/channel/[0-9a-f]{32}/", args.namespace), "Invalid journal namespace")
+    if args.command == "assistant-status":
+        require(set(request) == {"channel_id", "commit"} and type(request.get("channel_id")) is int
+                and request["channel_id"] > 0 and isinstance(request["commit"], str)
+                and re.fullmatch("[0-9a-f]{40}|[0-9a-f]{64}", request["commit"]), "Invalid proposal commit")
+        observed(args)
+        args.commit = request["commit"]
+        refs = git(args, "for-each-ref", "--format=%(refname)", "--points-at=" + args.commit,
+                   "refs/heads/" + args.namespace).decode().splitlines()
+        require(bool(refs), "Unknown channel proposal for this operator")
+        card, _, _ = proposal(args)
+        require(card["preview"]["channel_id"] == request["channel_id"], "Channel does not match the proposal")
+        return {**status(args), "channel_id": request["channel_id"], "candidate_file_sha256": card["candidate_file_sha256"]}
+    require(re.fullmatch("[0-9a-f]{64}", args.operation), "Invalid assistant journal operation")
+    args.branch = args.namespace + args.operation
+    ref = branch(args, args.branch)
+    args.selection = request
+
+    def recover():
+        names = git(args, "for-each-ref", "--format=%(refname)", ref).decode().splitlines()
+        if ref not in names:
+            return None
+        args.commit = resolve(args, ref)
+        card, _, _ = proposal(args)
+        require(card["selection"] == request and card["config"] == args.config
+                and card["local_http"] == args.local_http, "Operation already belongs to another selection")
+        preview = card["preview"]
+        return {"state": "staged", "branch": args.branch, "commit": args.commit, "channel_id": preview["channel_id"],
+                "candidate_file_sha256": card["candidate_file_sha256"],
+                "priced_bindings": len(preview["candidates"]), "draft_binding_count": len(preview["draft_bindings"]),
+                "before": card["before"], "expected": card["after"]}
+
+    # Both fresh execution and post-crash readback require the original operator's live Session.
+    observed(args)
+    receipt = recover()
+    if receipt:
+        return receipt
+    if args.command == "assistant-inspect":
+        return {"state": "unknown"}
+    try:
+        propose(args)
+    except Error:
+        receipt = recover()
+        return receipt if receipt is not None else {"state": "rejected"}
+    receipt = recover()
+    require(receipt is not None, "Staged Git receipt unavailable")
+    return receipt
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     subs = parser.add_subparsers(dest="command", required=True)
-    for name in ("propose", "install", "status"):
+    for name in ("propose", "install", "status", "assistant-stage", "assistant-inspect", "assistant-status"):
         sub = subs.add_parser(name)
         sub.add_argument("--repo", required=True, type=Path, help="Local configuration Git repository")
         sub.add_argument("--release-branch", required=True, help="Git branch accepting reviewed proposals")
@@ -276,6 +333,16 @@ def main():
         sub.add_argument("--allow-insecure-loopback", action="store_true")
         sub.add_argument("--credential-file", help="Private operator Session bearer file; otherwise reads LMM_ADMIN_SESSION")
         sub.set_defaults(token_stdin=False)
+        if name.startswith("assistant-"):
+            sub.add_argument("--namespace", required=True)
+            if name == "assistant-status":
+                sub.add_argument("--installed", required=True, type=Path)
+            else:
+                sub.add_argument("--core", required=True)
+                sub.add_argument("--config", required=True)
+                sub.add_argument("--operation", required=True)
+                sub.add_argument("--local-http", action="store_true")
+            continue
         if name != "status":
             sub.add_argument("--core", default="lmm-core", help="Installed native Core binary")
         if name == "propose":
@@ -287,9 +354,10 @@ def main():
             sub.add_argument("--commit", required=True, help="Full reviewed proposal SHA")
             sub.add_argument("--installed", required=True, type=Path, help="Existing installed model sidecar")
     args = parser.parse_args()
-    result = {"propose": propose, "install": install, "status": status}[args.command](args)
+    action = assistant if args.command.startswith("assistant-") else {"propose": propose, "install": install, "status": status}[args.command]
+    result = action(args)
     sys.stdout.buffer.write(pretty(result))
-    return int(result["state"] in ("unknown", "stale"))
+    return int(not args.command.startswith("assistant-") and result["state"] in ("unknown", "stale"))
 
 
 if __name__ == "__main__":

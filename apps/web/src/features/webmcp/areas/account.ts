@@ -23,7 +23,6 @@ import { UsageHistoryUnavailableError } from '@/features/usage-logs/lib/history-
 import { isUsageCostIncomplete } from '@/features/usage-logs/lib/money'
 import { readUsageStatisticsScope } from '@/features/usage-logs/lib/statistics'
 import { api } from '@/lib/api'
-import { ROLE } from '@/lib/roles'
 
 import {
   clip,
@@ -120,12 +119,6 @@ const NAVIGATION = [
   ['wallet', 'Open wallet', '/wallet', 'signed-in'],
   ['common_logs', 'Open usage logs', '/usage-logs/common', 'signed-in'],
   ['subscriptions', 'Open subscription plans', '/subscriptions', 'admin'],
-  [
-    'subscription_reset',
-    'Open subscription reset',
-    '/subscriptions/reset',
-    'root',
-  ],
 ] as const
 
 export const accountTools: WebMcpToolFactory = ({ router }) => [
@@ -181,7 +174,7 @@ export const accountTools: WebMcpToolFactory = ({ router }) => [
     name: 'lmm_account_get_subscriptions',
     title: 'Read my subscriptions',
     description:
-      'Read the signed-in account subscription periods, quota and status. Billing preference is reported without changing it. No purchase, reset or redemption is performed.',
+      'Read the signed-in account subscription periods, quota and status. Billing preference is reported without changing it. No purchase or redemption is performed.',
     inputSchema: EMPTY_INPUT_SCHEMA,
     annotations: { readOnlyHint: true },
     execute: async (_, { signal }) => {
@@ -433,15 +426,12 @@ export const accountTools: WebMcpToolFactory = ({ router }) => [
   ...NAVIGATION.map(([name, title, path, permission]): ModelContextTool => ({
     name: `lmm_account_open_${name}`,
     title,
-    description: `Open ${path}. ${permission === 'root' ? 'Requires a root administrator.' : permission === 'admin' ? 'Requires an administrator.' : 'Requires a signed-in account.'} Navigation only; no account, payment or subscription changes.`,
+    description: `Open ${path}. ${permission === 'admin' ? 'Requires an administrator.' : 'Requires a signed-in account.'} Navigation only; no account, payment or subscription changes.`,
     inputSchema: EMPTY_INPUT_SCHEMA,
     annotations: { readOnlyHint: true },
     execute: async (_, { signal }) => {
-      const user =
-        permission === 'signed-in' ? requireSignedIn() : requireAdmin()
-      if (permission === 'root' && user.role < ROLE.SUPER_ADMIN) {
-        throw new Error('This page requires a root administrator account')
-      }
+      if (permission === 'admin') requireAdmin()
+      else requireSignedIn()
       ensureNotAborted(signal)
       await router.navigate({ to: path })
       return { path }

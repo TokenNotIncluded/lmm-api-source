@@ -6,7 +6,7 @@ use axum::{
     response::{IntoResponse, Response},
     routing::{get, post, put},
 };
-fn bearer(h: &HeaderMap) -> Result<&str> {
+pub(super) fn bearer(h: &HeaderMap) -> Result<&str> {
     if h.get_all(header::AUTHORIZATION).iter().count() != 1 {
         return Err(Error::Unauthorized);
     }
@@ -37,6 +37,8 @@ impl IntoResponse for Error {
 }
 pub fn router(pool: PgPool) -> Router {
     Router::new()
+        .route("/api/user/gift", get(compensation::list))
+        .route("/api/user/gift/{id}/claim", post(compensation::claim))
         .route("/core/v1/promotions/campaigns", get(campaigns))
         .route(
             "/core/v1/promotions/admin/campaigns",

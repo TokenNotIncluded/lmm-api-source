@@ -1,5 +1,6 @@
 //! Bounded Core promotional grants. No request selects an amount or recipient;
 //! budget reservation, claim uniqueness and canonical Gift commit together.
+mod compensation;
 mod http;
 pub mod red_packets;
 mod types;

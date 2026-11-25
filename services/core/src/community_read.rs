@@ -9,7 +9,7 @@ mod payments;
 mod user_usage;
 pub use payment_totals::{CashCurrency, CashPaymentTotals, CashPaymentUser, CashPeriodRequest};
 pub use payments::{FirstCashPayment, FirstCashPayments};
-pub(crate) use user_usage::{UserUsageSummary, read_user_usage_summary};
+pub(crate) use user_usage::{UserUsageSummary, personal_spending, read_user_usage_summary};
 
 use serde::{Deserialize, Serialize};
 use sqlx::{PgPool, Postgres, Row, Transaction};

@@ -506,6 +506,18 @@ async fn prepare_freezes_policy_credit_receipt_and_replay_are_atomic(pool: PgPoo
         .await
         .unwrap();
     assert_eq!((prepared.state, prepared.journal_id), (7, 0));
+    let mut declined = event(&intent, "evt_atomic_declined", None);
+    declined["type"] = json!("payment_intent.payment_failed");
+    declined["data"]["object"]["status"] = json!("requires_payment_method");
+    declined["data"]["object"]["amount_received"] = json!(0);
+    let mut evidence = Some(proof(declined));
+    f.store
+        .receive(intent.intent_id, &mut evidence)
+        .await
+        .unwrap();
+    let declined_credit = credit_request(&intent, "credit_atomic_declined", evidence.unwrap());
+    assert_eq!(f.store.0.credit(declined_credit).await, Err(Error::Invalid));
+    assert_eq!(journals(&pool).await, 0);
     let evidence = proof(event(&intent, "evt_atomic_1", None));
     let request = credit_request(&intent, "credit_atomic_0001", evidence);
     let receipt = f.store.credit(request.clone()).await.unwrap();

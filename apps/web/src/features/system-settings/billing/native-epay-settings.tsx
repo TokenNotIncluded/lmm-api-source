@@ -501,10 +501,12 @@ function EPayEditor({
             [
               t('Minimum wallet top-up'),
               `${minorAmount(current.min_amount_minor)} ${current.currency}`,
+              'min_amount_minor',
             ],
             [
               t('Maximum wallet top-up'),
               `${minorAmount(current.max_amount_minor)} ${current.currency}`,
+              'max_amount_minor',
             ],
             [
               t('Base conversion'),
@@ -512,6 +514,7 @@ function EPayEditor({
                 credits: current.credits_per_minor,
                 currency: current.currency,
               }),
+              'credits_per_minor',
             ],
             [
               t('Environment'),
@@ -523,13 +526,28 @@ function EPayEditor({
               t('Signing key'),
               current.key_configured ? t('Configured') : t('Not configured'),
             ],
-          ].map(([label, value]) => (
+          ].map(([label, value, field]) => (
             <div key={label} className='min-w-0 space-y-1'>
               <dt className='text-muted-foreground text-xs'>{label}</dt>
               <dd className='font-mono text-sm break-all'>{value}</dd>
+              {field && (
+                <dd className='text-muted-foreground text-xs'>
+                  <code>{field}</code>
+                </dd>
+              )}
             </div>
           ))}
         </dl>
+        <p className='text-muted-foreground text-sm text-pretty'>
+          {t(
+            'The rate and limits are read-only here. In the file selected by Core’s [payments].config_file, find the [[channels]] entry with id = {{id}}.',
+            { id: current.channel_id }
+          )}{' '}
+          {t(
+            'If min_amount_minor is omitted, Core uses one minor unit (0.01 {{currency}}) as the minimum.',
+            { currency: current.currency }
+          )}
+        </p>
         <dl className='grid gap-4 sm:grid-cols-2'>
           {[
             [

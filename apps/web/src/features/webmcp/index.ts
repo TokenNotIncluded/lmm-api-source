@@ -133,7 +133,6 @@ export const SITE_PAGES = {
   '/system-settings': 'Admin: system settings',
   '/system-settings/site': 'Admin: read-only system settings',
   '/extensions/plugins': 'Admin: plugin management',
-  '/subscriptions/reset': 'Subscription reset options',
   '/usage-logs/common': 'API usage logs',
   '/setup': 'Initial site setup',
   '/401': 'Sign-in required',

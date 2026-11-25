@@ -56,11 +56,10 @@ test('all account tools require sign-in and expose no mutations', async () => {
   assert.equal(calls.length, 0)
 })
 
-test('subscription administration and root reset navigation enforce roles', async () => {
+test('subscription administration requires an administrator', async () => {
   signIn()
   for (const name of [
     'lmm_account_open_subscriptions',
-    'lmm_account_open_subscription_reset',
     'lmm_account_list_subscription_plans',
   ]) {
     await assert.rejects(
@@ -69,13 +68,8 @@ test('subscription administration and root reset navigation enforce roles', asyn
     )
   }
   signIn(ROLE.ADMIN)
-  await assert.rejects(
-    find('lmm_account_open_subscription_reset').execute({}, options()),
-    /root administrator/
-  )
-  signIn(ROLE.SUPER_ADMIN)
-  await find('lmm_account_open_subscription_reset').execute({}, options())
-  assert.deepEqual(calls, [{ to: '/subscriptions/reset' }])
+  await find('lmm_account_open_subscriptions').execute({}, options())
+  assert.deepEqual(calls, [{ to: '/subscriptions' }])
 })
 
 test('profile and share responses never expose credentials or share tokens', async () => {

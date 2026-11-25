@@ -3,6 +3,7 @@ package composition
 import (
 	"context"
 	"errors"
+	"github.com/TokenNotIncluded/lmm-api/extensions/internal/modules/assistant_channel_git"
 	"net/http"
 	"slices"
 	"sync"
@@ -29,6 +30,7 @@ import (
 )
 
 type Config struct {
+	ChannelGit                    *assistant_channel_git.Config
 	Checkins                      StorageConfig
 	CheckinTokenFile              string
 	HeroSMSSocket                 string

@@ -43,13 +43,7 @@ test('only the named local read queries are handled; every mutation stays blocke
   })
   const runtime = await wrapped(config('/api/pricing/runtime', 'post'))
   assert.deepEqual(runtime.data, { success: true, data: {} })
-  const targets = await wrapped(
-    config('/api/subscription/root/reset-targets', 'get')
-  )
-  assert.deepEqual(targets.data.data.items, [])
   for (const url of [
-    '/api/subscription/root/reset',
-    '/api/subscription/root/reset/preview',
     '/api/hero-sms/sms/orders',
     '/api/user/topup',
     '/api/user/pay',
@@ -63,7 +57,6 @@ test('only the named local read queries are handled; every mutation stays blocke
     '/api/user/topup/currency/v2/waffo-pancake/pay',
     '/api/user/amount',
     '/api/subscription/balance/pay',
-    '/api/subscription/root/reset-targets',
     'https://example.invalid/api/pricing/runtime',
   ]) {
     await assert.rejects(wrapped(config(url, 'post')), /unmocked/, url)

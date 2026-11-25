@@ -54,6 +54,26 @@ function restore(owner: string) {
   }
 }
 
+type CheckoutError =
+  | 'auth'
+  | 'invalid'
+  | 'denied'
+  | 'conflict'
+  | 'unsupported'
+  | 'unknown'
+
+function checkoutError(failure: unknown): CheckoutError {
+  if (!axios.isAxiosError(failure)) return 'unknown'
+  const status = failure.response?.status
+  const code = failure.response?.data?.code
+  if (status === 401) return 'auth'
+  if (status === 400) return 'invalid'
+  if (status === 403 && code === 'PAYMENT_ACCESS_DENIED') return 'denied'
+  if (status === 409 && code === 'PAYMENT_CONFLICT') return 'conflict'
+  if (status === 422 && code === 'PAYMENT_UNSUPPORTED') return 'unsupported'
+  return 'unknown'
+}
+
 interface NativeWalletCheckoutProps {
   onUpdated?: () => void
 }
@@ -90,9 +110,7 @@ function NativeWalletCheckoutForm({
     return codes.length === 1 ? (nativeDiscountCode(codes[0]) ?? '') : ''
   })
   const [result, setResult] = useState<NativeCheckout | null>(null)
-  const [error, setError] = useState<'unknown' | 'auth' | 'invalid' | null>(
-    null
-  )
+  const [error, setError] = useState<CheckoutError | null>(null)
   const [busy, setBusy] = useState(false)
   const running = useRef(false)
   const mounted = useRef(true)
@@ -180,13 +198,7 @@ function NativeWalletCheckoutForm({
     }
   }
   const fail = useCallback((failure: unknown) => {
-    setError(
-      axios.isAxiosError(failure) && failure.response?.status === 401
-        ? 'auth'
-        : axios.isAxiosError(failure) && failure.response?.status === 400
-          ? 'invalid'
-          : 'unknown'
-    )
+    setError(checkoutError(failure))
   }, [])
   const run = async (action: () => Promise<void>) => {
     if (running.current || !isCurrent()) return
@@ -246,7 +258,15 @@ function NativeWalletCheckoutForm({
     run(async () => {
       if (!quote) return
       const response = await getNativePaymentStatus(quote)
-      if (isCurrent()) setResult(response)
+      if (!isCurrent()) return
+      setResult(response)
+      // A second committed partial refund can keep the same public state.
+      if (
+        result?.state === 'partially_refunded' &&
+        response.state === 'partially_refunded'
+      ) {
+        onUpdated?.()
+      }
     })
 
   useEffect(() => {
@@ -274,6 +294,30 @@ function NativeWalletCheckoutForm({
     }
   }, [pending?.submitted, quote, finished, busy, isCurrent, fail])
 
+  const errorMessage = () => {
+    switch (error) {
+      case 'auth':
+        return t('Restore your session, then explicitly retry this order.')
+      case 'invalid':
+        return t('Payment request failed')
+      case 'denied':
+        return t(
+          'This account cannot access this payment. Check which account you are signed in to.'
+        )
+      case 'conflict':
+        return t(
+          'This request conflicts with an existing payment. Check your payment history before retrying.'
+        )
+      case 'unsupported':
+        return t(
+          'This payment method does not support this request. Contact support before retrying.'
+        )
+      default:
+        return t(
+          'The result is uncertain. Your original payment request is saved; refresh or retry the same order.'
+        )
+    }
+  }
   const statusMessage = () => {
     if (result?.state === 'refunded') {
       return t('This payment has been refunded.')
@@ -284,10 +328,10 @@ function NativeWalletCheckoutForm({
     if (result?.state === 'review') {
       return t('This order needs review. Keep its order ID for support.')
     }
-    if (
-      result?.state === 'refund_pending' ||
-      result?.state === 'partially_refunded'
-    ) {
+    if (result?.state === 'partially_refunded') {
+      return t('Part of this payment has been refunded.')
+    }
+    if (result?.state === 'refund_pending') {
       return t('A refund is being processed for this order.')
     }
     if (result?.provider_paid && !result.core_credit_confirmed) {
@@ -557,7 +601,7 @@ function NativeWalletCheckoutForm({
               {t('Order ID')}: {quote.order_id}
             </p>
           ) : null}
-          {pending.submitted ? (
+          {pending.submitted && (result || !error) ? (
             <p role='status' className='text-sm leading-7'>
               {statusMessage()}
             </p>
@@ -656,15 +700,7 @@ function NativeWalletCheckoutForm({
       ) : null}
       {error ? (
         <div role='alert' className='space-y-3 text-sm'>
-          <p>
-            {error === 'auth'
-              ? t('Restore your session, then explicitly retry this order.')
-              : error === 'invalid'
-                ? t('Payment request failed')
-                : t(
-                    'The result is uncertain. Your original payment request is saved; refresh or retry the same order.'
-                  )}
-          </p>
+          <p>{errorMessage()}</p>
           {error === 'auth' ? (
             <Button
               variant='outline'

@@ -43,8 +43,7 @@ const { createInstance } = await import('i18next')
 const { I18nextProvider, initReactI18next } = await import('react-i18next')
 const { api } = await import('@/lib/api')
 const { useAuthStore } = await import('@/stores/auth-store')
-const { redemptionDigest, redemptionResultSchema } =
-  await import('./native-api')
+const { redemptionDigest, rewardSchema } = await import('./native-api')
 const { NativeWalletPromotions } = await import('./native-wallet')
 const i18n = createInstance()
 await i18n
@@ -95,16 +94,17 @@ async function submit() {
   })
 }
 
-for (const rewardType of ['quota', 'reset_voucher'] as const) {
-  test(`redemption recovery stores only a digest, requires the same code and original key, and never replays on mount (${rewardType})`, async () => {
+for (const [format, code] of [
+  ['native', `lmmr_${'A'.repeat(43)}`],
+  ['legacy', 'a'.repeat(32)],
+]) {
+  test(`redemption recovery stores only a digest, requires the same code and original key, and never replays on mount (${format})`, async () => {
     const adapter = api.defaults.adapter
     const auth = useAuthStore.getState().auth
     dom.sessionStorage.clear()
     login()
     const container = document.body.appendChild(document.createElement('div'))
     let root = createRoot(container)
-    const code =
-      rewardType === 'reset_voucher' ? 'a'.repeat(32) : `lmmr_${'A'.repeat(43)}`
     const digest = await redemptionDigest(code)
     const writes: { operation_key: string; code: string }[] = []
     let updated = 0
@@ -131,21 +131,13 @@ for (const rewardType of ['quota', 'reset_voucher'] as const) {
         assert.equal(request.code, code)
         writes.push(request)
         if (writes.length === 1) throw new Error('reward acknowledgement lost')
-        data =
-          rewardType === 'reset_voucher'
-            ? {
-                reward_type: 'reset_voucher',
-                reset_voucher_id: 81,
-                reset_plan_id: 37,
-                reset_voucher_expires_at: 0,
-              }
-            : {
-                id: 'a'.repeat(64),
-                campaign_id: 'b'.repeat(64),
-                amount_units: '100',
-                journal_id: 11,
-                claimed_at: 1700000000,
-              }
+        data = {
+          id: 'a'.repeat(64),
+          campaign_id: 'b'.repeat(64),
+          amount_units: '100',
+          journal_id: 11,
+          claimed_at: 1700000000,
+        }
       }
       return { config, data, headers: {}, status: 200, statusText: 'OK' }
     }
@@ -198,21 +190,12 @@ for (const rewardType of ['quota', 'reset_voucher'] as const) {
       assert.equal(updated, 1)
       const notice =
         document.querySelector('[role="status"]')?.textContent ?? ''
-      if (rewardType === 'reset_voucher') {
-        assert.match(
-          notice,
-          /Reset voucher received.*#81.*Plan #37.*Never expires/
-        )
-        assert.ok(!notice.includes('Core credits'))
-      } else {
-        assert.match(notice, /Reward received.*Core credits.*#11/)
-      }
+      assert.match(notice, /Reward received.*Core credits.*#11/)
       await act(async () => {
         login(55, 'replacement-rewards-session')
         await flush()
       })
       assert.ok(!document.body.textContent?.includes('Reward received'))
-      assert.ok(!document.body.textContent?.includes('Reset voucher received'))
     } finally {
       await act(async () => root.unmount())
       container.remove()
@@ -222,22 +205,14 @@ for (const rewardType of ['quota', 'reset_voucher'] as const) {
   })
 }
 
-test('redemption responses keep quota journals and reset vouchers distinct', () => {
-  const voucher = {
-    reward_type: 'reset_voucher',
-    reset_voucher_id: 81,
-    reset_plan_id: 37,
-    reset_voucher_expires_at: 1800000000,
-  }
-  assert.ok(redemptionResultSchema.safeParse(voucher).success)
-  for (const invalid of [
-    { ...voucher, reset_voucher_id: 0 },
-    { ...voucher, reset_plan_id: Number.MAX_SAFE_INTEGER + 1 },
-    { ...voucher, reset_voucher_expires_at: -1 },
-    { ...voucher, reset_voucher_expires_at: Number.MAX_SAFE_INTEGER + 1 },
-    { ...voucher, amount_units: '0', journal_id: 11 },
-    { ...voucher, reward_type: 'quota' },
-  ]) {
-    assert.equal(redemptionResultSchema.safeParse(invalid).success, false)
-  }
+test('a retired reset voucher receipt cannot confirm a wallet credit', () => {
+  assert.equal(
+    rewardSchema.safeParse({
+      reward_type: 'reset_voucher',
+      reset_voucher_id: 81,
+      reset_plan_id: 37,
+      reset_voucher_expires_at: 1800000000,
+    }).success,
+    false
+  )
 })
