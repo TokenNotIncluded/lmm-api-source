@@ -252,5 +252,31 @@ test('declared current rates make compact reference values while keeping exact c
       /8,065,639 Credits/
     )
   }
+  const user = useAuthStore.getState().auth.user
+  assert.ok(user)
+  for (const [currency, expected] of [
+    ['CREDIT', '8,065,639 Credits'],
+    ['USD', '≈ 16.13 USD'],
+  ] as const) {
+    await act(async () => {
+      useAuthStore.getState().auth.setUser({
+        ...user,
+        setting: JSON.stringify({ wallet_display_currency: currency }),
+      })
+    })
+    for (const testid of [
+      'mobile-account-balance',
+      'account-balance-badge',
+      'console-balance',
+    ]) {
+      const element = container.querySelector(`[data-testid="${testid}"]`)
+      assert.ok(element)
+      const balanceText = element.textContent ?? ''
+      assert.ok(balanceText.includes(expected))
+      if (currency === 'CREDIT') {
+        assert.doesNotMatch(balanceText, /≈|USD|CNY|Reference value/)
+      }
+    }
+  }
   assert.equal(useAuthStore.getState().auth.user?.wallet_money_available, false)
 })

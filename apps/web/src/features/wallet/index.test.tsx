@@ -905,6 +905,10 @@ test('native wallet uses declared current rates without legacy display flags and
     openSections: false,
     user: {
       financial_projection_available: true,
+      usage_projection_available: true,
+      normalized_used_quota: 1250000,
+      used_quota: 2000000,
+      request_count: 37,
       wallet_unit: 'core_credit',
       wallet_money_basis: 'unknown',
       wallet_money_available: false,
@@ -919,6 +923,30 @@ test('native wallet uses declared current rates without legacy display flags and
       ?.open,
     false
   )
+  const account = useAuthStore.getState().auth.user
+  assert.ok(account)
+  for (const [currency, reference] of [
+    ['CNY', '≈ 108.08 CNY'],
+    ['USD', '≈ 16.13 USD'],
+    ['CREDIT', null],
+  ] as const) {
+    await act(async () => {
+      useAuthStore.getState().auth.setUser({
+        ...account,
+        setting: JSON.stringify({ wallet_display_currency: currency }),
+      })
+    })
+    const text: string = balance?.textContent ?? ''
+    assert.match(text, /8,065,639 Credits/)
+    assert.match(text, /Total Usage1,250,000 Credits/)
+    assert.match(text, /API Requests37/)
+    if (reference) {
+      assert.ok(text.includes(reference))
+    } else {
+      assert.match(text, /Current Balance/)
+      assert.doesNotMatch(text, /≈|Reference value unavailable/)
+    }
+  }
   assert.equal(useAuthStore.getState().auth.user?.quota, 8065639)
   assert.equal(useAuthStore.getState().auth.user?.wallet_money_available, false)
   assert.equal(useAuthStore.getState().auth.user?.wallet_money_basis, 'unknown')
