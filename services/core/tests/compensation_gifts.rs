@@ -138,6 +138,30 @@ async fn compensation_gifts_require_real_funding_and_return_the_same_receipt(poo
     );
     let effects:i64=sqlx::query_scalar("SELECT count(*) FROM core_billing.ledger_journals WHERE scope='core-compensation-gift' AND kind='transfer'").fetch_one(&pool).await.unwrap();
     assert_eq!(effects, 1);
+    // Incomplete imported pricing for another payer cannot change personal eligibility.
+    // An unpriced personal row suspends only the spend-gated award.
+    let source:i64=sqlx::query_scalar(
+      "INSERT INTO core_history.sources(contract_version,source_archive_sha256,mapping_sha256,source_namespace,observed_at,complete) VALUES ('core.history-source.v1',repeat('a',64),repeat('b',64),'synthetic-compensation',1,true) RETURNING source_id"
+    ).fetch_one(&pool).await.unwrap();
+    for (idx, owner) in [(1, treasury), (2, recipient)] {
+        sqlx::query("INSERT INTO core_history.log_records(source_id,source_log_id,canonical_event_key,source_row_sha256,user_id,owner_account_id,created_at,log_type,quota) VALUES ($1,$2,$3,repeat('c',64),8401,$4,$5,2,100)")
+        .bind(source).bind(i64::from(idx)).bind(format!("synthetic-compensation/{idx}")).bind(owner).bind(t).execute(&pool).await.unwrap();
+        let (status, page) = http(web, "GET", "/api/user/gift", Some(&one)).await;
+        assert_eq!(status, 200);
+        let gated = page["data"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|g| g["id"] == 36)
+            .unwrap();
+        assert_eq!(gated["eligible"], false);
+        assert_eq!(
+            http(web, "POST", "/api/user/gift/36/claim", Some(&one))
+                .await
+                .0,
+            if idx == 1 { 403 } else { 503 }
+        );
+    }
     sqlx::query(
         "UPDATE core_console.options SET value='malformed' WHERE key='compensation_gifts.v1'",
     )
@@ -149,5 +173,7 @@ async fn compensation_gifts_require_real_funding_and_return_the_same_receipt(poo
         http(web, "POST", path, Some(&one)).await.1["data"]["claim"],
         a.1["data"]["claim"]
     );
+    identity.logout(&one).await.unwrap();
+    assert_eq!(http(web, "POST", path, Some(&one)).await.0, 401);
     runtime.cleanup().await;
 }

@@ -159,7 +159,7 @@ async fn available_awards(
 
 struct Eligibility {
     age_days: i64,
-    spent: u128,
+    spent: Option<u128>,
 }
 impl Eligibility {
     async fn read(
@@ -182,9 +182,8 @@ impl Eligibility {
             personal_spending(c, a.user_id, a.owner_account_id, time)
                 .await
                 .map_err(|_| Error::Unavailable)?
-                .ok_or(Error::Unavailable)?
         } else {
-            0
+            Some(0)
         };
         Ok(Self { age_days, spent })
     }
@@ -195,7 +194,12 @@ impl Eligibility {
             Some("This gift has expired.")
         } else if self.age_days < g.min_account_age_days {
             Some("Account age requirement not met.")
-        } else if self.spent < g.min_used_quota as u128 {
+        } else if g.min_used_quota > 0 && self.spent.is_none() {
+            Some("Personal spending could not be verified.")
+        } else if self
+            .spent
+            .is_some_and(|spent| spent < g.min_used_quota as u128)
+        {
             Some("Usage requirement not met.")
         } else {
             None
@@ -290,12 +294,14 @@ pub(super) async fn claim(
         .find(|g| g.id == id && g.enabled)
         .ok_or(Error::NotFound)?;
     let time = now(&mut tx).await?;
-    if !(g.start_at..g.end_at).contains(&time)
-        || Eligibility::read(&mut tx, &a, time, &[g])
-            .await?
-            .reason(g, time)
-            .is_some()
-    {
+    if !(g.start_at..g.end_at).contains(&time) {
+        return Err(Error::Forbidden);
+    }
+    let eligibility = Eligibility::read(&mut tx, &a, time, &[g]).await?;
+    if g.min_used_quota > 0 && eligibility.spent.is_none() {
+        return Err(Error::Unavailable);
+    }
+    if eligibility.reason(g, time).is_some() {
         return Err(Error::Forbidden);
     }
     if a.owner_account_id == p.treasury_account_id {
