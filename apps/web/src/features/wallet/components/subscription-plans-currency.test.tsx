@@ -111,8 +111,7 @@ describe('subscription list price currency', () => {
             },
           }
         }
-        assert.equal(url, '/api/subscription/self/reset-vouchers')
-        return { data: { success: true, data: [] } }
+        throw new Error(`Unexpected subscription URL: ${url}`)
       }) as typeof api.get
 
       const container = document.createElement('div')

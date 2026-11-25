@@ -83,22 +83,6 @@ export const rewardSchema = z
   })
   .strict()
 export type NativeReward = z.infer<typeof rewardSchema>
-export const resetVoucherRewardSchema = z
-  .object({
-    reward_type: z.literal('reset_voucher'),
-    reset_voucher_id: nativeId,
-    reset_plan_id: nativeId,
-    reset_voucher_expires_at: z
-      .number()
-      .int()
-      .nonnegative()
-      .max(Number.MAX_SAFE_INTEGER),
-  })
-  .strict()
-export const redemptionResultSchema = z.union([
-  rewardSchema,
-  resetVoucherRewardSchema,
-])
 const base = '/core/v1/promotions'
 export async function listCampaigns(scope: CommerceScope, admin = false) {
   return (
@@ -178,13 +162,10 @@ export async function redeemCode(
   if (!/^(lmmr_[A-Za-z0-9_-]{43}|[0-9a-f]{32})$/.test(code)) {
     throw new CommerceFailure('PROMOTION_INVALID', false)
   }
-  return commerceRequest(
-    scope,
-    'post',
-    `${base}/redemptions`,
-    redemptionResultSchema,
-    { operation_key, code }
-  )
+  return commerceRequest(scope, 'post', `${base}/redemptions`, rewardSchema, {
+    operation_key,
+    code,
+  })
 }
 export async function claimCampaign(
   scope: CommerceScope,

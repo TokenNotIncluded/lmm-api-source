@@ -26,7 +26,6 @@ import {
   savePending,
   type CommerceScope,
 } from '@/features/commerce/native-client'
-import { toIntlLocale } from '@/i18n/languages'
 import { useAuthStore } from '@/stores/auth-store'
 
 import {
@@ -152,17 +151,7 @@ function Rewards({
         remember(null)
         setCode('')
         setNotice(
-          'reward_type' in result
-            ? `${t('Reset voucher received')} · #${result.reset_voucher_id} · ${t('Plan')} #${result.reset_plan_id} · ${
-                result.reset_voucher_expires_at === 0
-                  ? t('Never expires')
-                  : t('Expires at {{time}}', {
-                      time: new Date(
-                        result.reset_voucher_expires_at * 1000
-                      ).toLocaleString(toIntlLocale(i18n.language)),
-                    })
-              }`
-            : `${t('Reward received')} · ${formatCredits(result.amount_units, i18n.language)} ${t('Core credits')} · #${result.journal_id}`
+          `${t('Reward received')} · ${formatCredits(result.amount_units, i18n.language)} ${t('Core credits')} · #${result.journal_id}`
         )
         onUpdated?.()
         await load()

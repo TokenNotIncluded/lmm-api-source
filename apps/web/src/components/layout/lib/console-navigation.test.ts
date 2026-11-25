@@ -164,8 +164,8 @@ describe('current location and secondary site links', () => {
       {
         title: 'Admin',
         items: [
-          { title: 'Subscriptions', url: '/subscriptions' },
-          { title: 'Reset', url: '/subscriptions/reset' },
+          { title: 'Settings', url: '/system-settings' },
+          { title: 'Site', url: '/system-settings/site' },
           {
             title: 'Logs',
             items: [
@@ -179,7 +179,7 @@ describe('current location and secondary site links', () => {
         ],
       },
     ]
-    assert.equal(getConsolePageTitle(nested, '/subscriptions/reset'), 'Reset')
+    assert.equal(getConsolePageTitle(nested, '/system-settings/site'), 'Site')
     assert.equal(
       getConsolePageTitle(nested, '/usage-logs/drawing'),
       'Task Logs'

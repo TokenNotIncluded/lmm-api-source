@@ -146,7 +146,7 @@ function RedPacketSeal({
   )
 }
 
-function RewardCard({
+export function RedPacketRewardCard({
   reward,
   index,
 }: {
@@ -194,13 +194,17 @@ function RewardCard({
         <div className='min-w-0 flex-1'>
           <div className='font-medium'>{description}</div>
           <div className='text-muted-foreground mt-1 text-xs'>
-            {isDiscount
-              ? t('This discount code is bound to your account after claiming.')
-              : reward.credited
-                ? t('Added to your wallet balance.')
-                : t('Redeem this code in Wallet when you are ready.')}
+            {isResetVoucher
+              ? t('Read-only')
+              : isDiscount
+                ? t(
+                    'This discount code is bound to your account after claiming.'
+                  )
+                : reward.credited
+                  ? t('Added to your wallet balance.')
+                  : t('Redeem this code in Wallet when you are ready.')}
           </div>
-          {!reward.credited && (
+          {!isResetVoucher && !reward.credited && (
             <div className='mt-3 flex items-stretch gap-2'>
               <code className='bg-muted min-w-0 flex-1 truncate rounded-md px-3 py-2 text-xs leading-6'>
                 {reward.code}
@@ -224,16 +228,11 @@ function UnwrappedReward({ reward }: { reward: RedPacketReward }) {
   const { t } = useTranslation()
   const shouldReduce = useReducedMotion()
   const isDiscount = reward.item_type === 'discount'
-  const isResetVoucher = reward.reward_type === 'reset_voucher'
   const headline = isDiscount
     ? t('{{percent}}% discount code', { percent: reward.discount_percent ?? 0 })
-    : isResetVoucher
-      ? t('Banked reset voucher for plan #{{plan}}', {
-          plan: reward.reset_plan_id ?? 0,
-        })
-      : reward.quota !== undefined
-        ? formatQuota(reward.quota)
-        : reward.name
+    : reward.quota !== undefined
+      ? formatQuota(reward.quota)
+      : reward.name
 
   return (
     <motion.section
@@ -300,8 +299,13 @@ export function RedPacketPublicPage({ slug }: { slug: string }) {
         setClaimError(response.message || t('Unable to claim red packet'))
         return
       }
-      setUnwrapped(response.data)
-      toast.success(t('Claimed successfully'))
+      if (response.data.reward_type === 'reset_voucher') {
+        // An older server may still return a legacy claim. Show it only in history.
+        setUnwrapped(null)
+      } else {
+        setUnwrapped(response.data)
+        toast.success(t('Claimed successfully'))
+      }
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ['red-packet', slug] }),
         queryClient.invalidateQueries({
@@ -533,7 +537,7 @@ export function RedPacketPublicPage({ slug }: { slug: string }) {
                 <Check className='size-4' /> {t('Your rewards')}
               </div>
               {claims.map((reward, index) => (
-                <RewardCard
+                <RedPacketRewardCard
                   key={reward.claim_id}
                   reward={reward}
                   index={index}

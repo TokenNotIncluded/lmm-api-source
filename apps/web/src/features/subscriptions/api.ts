@@ -21,8 +21,6 @@ import { isAxiosError } from 'axios'
 import {
   CommerceFailure,
   commerceScope,
-  currentCommerceScope,
-  type CommerceScope,
 } from '@/features/commerce/native-client'
 import { api } from '@/lib/api'
 import type { WaffoPancakeCheckoutLanguage } from '@/lib/waffo-pancake-checkout'
@@ -37,13 +35,6 @@ import type {
   ApiResponse,
   PlanRecord,
   UserSubscriptionRecord,
-  AdminSubscriptionResetEligiblePage,
-  SubscriptionResetPreviewRequest,
-  SubscriptionResetPreviewResult,
-  SubscriptionResetExecuteRequest,
-  SubscriptionResetBatchResult,
-  SubscriptionResetVoucher,
-  SubscriptionResetResult,
   SubscriptionPayResponse,
   SubscriptionPayRequest,
   WaffoPancakeSubscriptionPayRequest,
@@ -81,56 +72,6 @@ function requireSubscriptionOwner(owner: ReturnType<typeof subscriptionOwner>) {
 // non-404 failures still reject without switching financial protocols.
 function isMissingSubscriptionRoute(error: unknown) {
   return isAxiosError(error) && error.response?.status === 404
-}
-
-// ============================================================================
-// Admin Plan Management
-// ============================================================================
-
-export async function getAdminPlans(
-  includeArchived = false
-): Promise<ApiResponse<PlanRecord[]>> {
-  const res = await api.get('/api/subscription/admin/plans', {
-    params: includeArchived ? { include_archived: '1' } : undefined,
-  })
-  return res.data
-}
-
-export async function getSubscriptionResetEligible(
-  params: {
-    page: number
-    pageSize: number
-    query?: string
-    planIds?: number[]
-    userIds?: number[]
-  },
-  signal?: AbortSignal
-): Promise<ApiResponse<AdminSubscriptionResetEligiblePage>> {
-  const res = await api.get('/api/subscription/root/reset-targets', {
-    params: {
-      page: params.page,
-      page_size: params.pageSize,
-      query: params.query || undefined,
-      plan_ids: params.planIds?.join(',') || undefined,
-      user_ids: params.userIds?.join(',') || undefined,
-    },
-    signal,
-  })
-  return res.data
-}
-
-export async function previewSubscriptionReset(
-  data: SubscriptionResetPreviewRequest
-): Promise<ApiResponse<SubscriptionResetPreviewResult>> {
-  const res = await api.post('/api/subscription/root/reset/preview', data)
-  return res.data
-}
-
-export async function executeSubscriptionReset(
-  data: SubscriptionResetExecuteRequest
-): Promise<ApiResponse<SubscriptionResetBatchResult>> {
-  const res = await api.post('/api/subscription/root/reset', data)
-  return res.data
 }
 
 // ============================================================================
@@ -229,59 +170,6 @@ export async function getSelfSubscriptionFull(): Promise<
     success: true,
     data: nativePurchasesToSelfData(purchases, scope.userId),
   }
-}
-
-export const resetVoucherQueryKey = (scope?: CommerceScope) =>
-  scope
-    ? ['subscription-reset-vouchers', scope.userId, scope.sessionId]
-    : ['subscription-reset-vouchers']
-
-export async function getSubscriptionResetVouchers(
-  scope?: CommerceScope
-): Promise<ApiResponse<SubscriptionResetVoucher[]> & { supported?: false }> {
-  if (scope && !currentCommerceScope(scope)) {
-    throw new CommerceFailure('SESSION_CHANGED')
-  }
-  try {
-    const res = await api.get('/api/subscription/self/reset-vouchers', {
-      skipErrorHandler: true,
-      ...(scope ? { authScope: scope, skipAuthRefresh: true } : {}),
-    })
-    if (scope && !currentCommerceScope(scope)) {
-      throw new CommerceFailure('SESSION_CHANGED')
-    }
-    return res.data
-  } catch (error) {
-    if (scope && !currentCommerceScope(scope)) {
-      throw new CommerceFailure('SESSION_CHANGED')
-    }
-    // Earlier Core versions do not register this optional collection route.
-    // Authentication failures and service errors remain errors, not empty data.
-    if (isAxiosError(error) && error.response?.status === 404) {
-      return { success: false, supported: false, data: [] }
-    }
-    throw error
-  }
-}
-
-export async function redeemSubscriptionResetVoucher(
-  voucherId: number,
-  scope?: CommerceScope
-): Promise<ApiResponse<SubscriptionResetResult>> {
-  if (scope && !currentCommerceScope(scope)) {
-    throw new CommerceFailure('SESSION_CHANGED')
-  }
-  const path = `/api/subscription/self/reset-vouchers/${voucherId}/redeem`
-  const res = scope
-    ? await api.post(path, undefined, {
-        authScope: scope,
-        skipAuthRefresh: true,
-      })
-    : await api.post(path)
-  if (scope && !currentCommerceScope(scope)) {
-    throw new CommerceFailure('SESSION_CHANGED')
-  }
-  return res.data
 }
 
 // The quote must use the same locale hint as the later checkout request.

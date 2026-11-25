@@ -149,20 +149,13 @@ function readImageErrorMessage(error: unknown, t: TFunction): string {
   return t('Unable to read image')
 }
 
-function candidateFromRedemption(row: Redemption, t: TFunction): Candidate {
-  const rewardType = row.reward_type ?? 'quota'
-  const detail =
-    rewardType === 'reset_voucher'
-      ? t('Banked reset voucher for plan #{{plan}}', {
-          plan: row.reset_plan_id,
-        })
-      : formatQuota(row.quota)
+function candidateFromRedemption(row: Redemption): Candidate {
   return {
     key: `redemption:${row.id}`,
     itemType: 'redemption',
     sourceId: row.id,
     title: row.name || `#${row.id}`,
-    detail,
+    detail: formatQuota(row.quota),
   }
 }
 
@@ -249,9 +242,11 @@ export function RedPackets() {
     const redemptions = (redemptionsQuery.data ?? [])
       .filter(
         (row) =>
-          row.status === 1 && (!row.expired_time || row.expired_time >= now)
+          (row.reward_type ?? 'quota') === 'quota' &&
+          row.status === 1 &&
+          (!row.expired_time || row.expired_time >= now)
       )
-      .map((row) => candidateFromRedemption(row, t))
+      .map(candidateFromRedemption)
     const discounts = (discountsQuery.data ?? [])
       .filter(
         (row) =>

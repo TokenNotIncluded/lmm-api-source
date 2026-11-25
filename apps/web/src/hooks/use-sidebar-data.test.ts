@@ -34,16 +34,6 @@ describe('authenticated sidebar discovery', () => {
     assert.doesNotMatch(source, /remote-control|Remote control/)
   })
 
-  test('exposes the reset workspace only as a root navigation item', () => {
-    const resetStart = source.indexOf("title: t('Subscription reset')")
-    const resetSection =
-      resetStart >= 0 ? source.slice(resetStart, resetStart + 180) : ''
-
-    assert.ok(resetSection)
-    assert.match(resetSection, /url: '\/subscriptions\/reset'/)
-    assert.match(resetSection, /requiredRole: ROLE\.SUPER_ADMIN/)
-  })
-
   test('keeps the model square visible without making it navigable', () => {
     const generalStart = source.indexOf("id: 'general'")
     const personalStart = source.indexOf("id: 'personal'", generalStart)

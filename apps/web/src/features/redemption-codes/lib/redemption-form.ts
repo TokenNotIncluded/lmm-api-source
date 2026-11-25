@@ -25,63 +25,36 @@ import {
   REDEMPTION_VALIDATION,
   getRedemptionFormErrorMessages,
 } from '../constants'
-import type {
-  RedemptionFormData,
-  Redemption,
-  RedemptionRewardType,
-} from '../types'
+import type { RedemptionFormData, Redemption } from '../types'
 
 // ============================================================================
 // Form Schema (use getRedemptionFormSchema(t) in components for i18n messages)
 // ============================================================================
 
+const quotaRewardType = z.literal('quota')
+
 export function getRedemptionFormSchema(t: TFunction) {
   const msg = getRedemptionFormErrorMessages(t)
-  return z
-    .object({
-      name: z
-        .string()
-        .min(REDEMPTION_VALIDATION.NAME_MIN_LENGTH, msg.NAME_LENGTH_INVALID)
-        .max(REDEMPTION_VALIDATION.NAME_MAX_LENGTH, msg.NAME_LENGTH_INVALID),
-      quota_credits: creditAmountSchema,
-      reward_type: z.enum(['quota', 'reset_voucher']),
-      reset_plan_id: z.number().min(0),
-      reset_voucher_expires_at: z.date().optional(),
-      expired_time: z.date().optional(),
-      count: z
-        .number()
-        .min(REDEMPTION_VALIDATION.COUNT_MIN, msg.COUNT_INVALID)
-        .max(REDEMPTION_VALIDATION.COUNT_MAX, msg.COUNT_INVALID)
-        .optional(),
-    })
-    .superRefine((data, ctx) => {
-      if (data.reward_type === 'reset_voucher' && data.reset_plan_id <= 0) {
-        ctx.addIssue({
-          code: 'custom',
-          path: ['reset_plan_id'],
-          message: t('Choose a subscription plan for the banked reset voucher'),
-        })
-      }
-      if (
-        data.reward_type === 'reset_voucher' &&
-        data.reset_voucher_expires_at &&
-        data.reset_voucher_expires_at.getTime() <= Date.now()
-      ) {
-        ctx.addIssue({
-          code: 'custom',
-          path: ['reset_voucher_expires_at'],
-          message: t('Voucher expiration must be in the future'),
-        })
-      }
-    })
+  return z.object({
+    name: z
+      .string()
+      .min(REDEMPTION_VALIDATION.NAME_MIN_LENGTH, msg.NAME_LENGTH_INVALID)
+      .max(REDEMPTION_VALIDATION.NAME_MAX_LENGTH, msg.NAME_LENGTH_INVALID),
+    quota_credits: creditAmountSchema,
+    reward_type: quotaRewardType,
+    expired_time: z.date().optional(),
+    count: z
+      .number()
+      .min(REDEMPTION_VALIDATION.COUNT_MIN, msg.COUNT_INVALID)
+      .max(REDEMPTION_VALIDATION.COUNT_MAX, msg.COUNT_INVALID)
+      .optional(),
+  })
 }
 
 export type RedemptionFormValues = {
   name: string
   quota_credits: number
-  reward_type: RedemptionRewardType
-  reset_plan_id: number
-  reset_voucher_expires_at?: Date
+  reward_type: 'quota'
   expired_time?: Date
   count?: number
 }
@@ -94,8 +67,6 @@ export const REDEMPTION_FORM_DEFAULT_VALUES: RedemptionFormValues = {
   name: '',
   quota_credits: 5_000_000,
   reward_type: 'quota',
-  reset_plan_id: 0,
-  reset_voucher_expires_at: undefined,
   expired_time: undefined,
   count: 1,
 }
@@ -107,16 +78,10 @@ export const REDEMPTION_FORM_DEFAULT_VALUES: RedemptionFormValues = {
 export function transformFormDataToPayload(
   data: RedemptionFormValues
 ): RedemptionFormData {
-  const isResetVoucher = data.reward_type === 'reset_voucher'
   return {
     name: data.name,
-    quota: isResetVoucher ? 0 : assertCreditAmount(data.quota_credits),
-    reward_type: data.reward_type,
-    reset_plan_id: isResetVoucher ? data.reset_plan_id : 0,
-    reset_voucher_expires_at:
-      isResetVoucher && data.reset_voucher_expires_at
-        ? Math.floor(data.reset_voucher_expires_at.getTime() / 1000)
-        : 0,
+    quota: assertCreditAmount(data.quota_credits),
+    reward_type: quotaRewardType.parse(data.reward_type),
     expired_time: data.expired_time
       ? Math.floor(data.expired_time.getTime() / 1000)
       : 0,
@@ -130,12 +95,7 @@ export function transformRedemptionToFormDefaults(
   return {
     name: redemption.name,
     quota_credits: assertCreditAmount(redemption.quota),
-    reward_type: redemption.reward_type ?? 'quota',
-    reset_plan_id: redemption.reset_plan_id ?? 0,
-    reset_voucher_expires_at:
-      (redemption.reset_voucher_expires_at ?? 0) > 0
-        ? new Date((redemption.reset_voucher_expires_at ?? 0) * 1000)
-        : undefined,
+    reward_type: quotaRewardType.parse(redemption.reward_type ?? 'quota'),
     expired_time:
       redemption.expired_time > 0
         ? new Date(redemption.expired_time * 1000)

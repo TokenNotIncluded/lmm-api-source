@@ -185,14 +185,6 @@ export function withConsoleQueryFixtures(fallback: AxiosAdapter): AxiosAdapter {
               },
             }
           : { success: false, message: 'Invalid code' }
-    } else if (
-      method === 'GET' &&
-      url.pathname === '/api/subscription/root/reset-targets'
-    ) {
-      data = {
-        success: true,
-        data: { items: [], total: 0, page: 1, page_size: 20 },
-      }
     } else {
       return fallback(config)
     }

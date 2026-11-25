@@ -73,7 +73,30 @@ test('create button opens the actual dialog outside the layout slots', async () 
   api.get = (async (url: string) => ({
     data: {
       success: true,
-      data: url === '/api/red-packet/admin' ? [] : { items: [] },
+      data:
+        url === '/api/red-packet/admin'
+          ? []
+          : url.startsWith('/api/redemption/?')
+            ? {
+                items: [
+                  {
+                    id: 1,
+                    name: 'Current quota code',
+                    reward_type: 'quota',
+                    status: 1,
+                    quota: 200,
+                  },
+                  { id: 2, name: 'Imported quota code', status: 1, quota: 100 },
+                  {
+                    id: 3,
+                    name: 'Retired reset inventory',
+                    reward_type: 'reset_voucher',
+                    status: 1,
+                    quota: 0,
+                  },
+                ],
+              }
+            : { items: [] },
     },
   })) as typeof api.get
   try {
@@ -102,6 +125,12 @@ test('create button opens the actual dialog outside the layout slots', async () 
       'clicking Create must render a dialog, not only update hidden state'
     )
     assert.match(dialog.textContent ?? '', /Choose existing codes/)
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 20))
+    })
+    assert.match(dialog.textContent ?? '', /Current quota code/)
+    assert.match(dialog.textContent ?? '', /Imported quota code/)
+    assert.doesNotMatch(dialog.textContent ?? '', /Retired reset inventory/)
     assert.ok(dialog.querySelector('input'))
   } finally {
     await act(async () => root.unmount())
@@ -110,4 +139,35 @@ test('create button opens the actual dialog outside the layout slots', async () 
     container.remove()
     await dom.happyDOM.abort()
   }
+})
+
+test('old reset prizes remain readable without offering their code or wallet redemption', async () => {
+  const { renderToStaticMarkup } = await import('react-dom/server')
+  const { RedPacketRewardCard } = await import('./public')
+  const i18n = createInstance()
+  await i18n
+    .use(initReactI18next)
+    .init({ lng: 'en', resources: { en: { translation: {} } } })
+  const html = renderToStaticMarkup(
+    <I18nextProvider i18n={i18n}>
+      <RedPacketRewardCard
+        index={0}
+        reward={{
+          claim_id: 1,
+          claimed_at: 100,
+          item_type: 'redemption',
+          reward_type: 'reset_voucher',
+          reset_plan_id: 42,
+          name: 'Old reset prize',
+          code: 'retired-synthetic-code',
+        }}
+      />
+    </I18nextProvider>
+  )
+  assert.match(html, /Banked reset voucher for plan #42/)
+  assert.match(html, /Read-only/)
+  assert.doesNotMatch(
+    html,
+    /retired-synthetic-code|Redeem this code|Added to your wallet|<button/
+  )
 })

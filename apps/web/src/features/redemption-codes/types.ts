@@ -19,7 +19,6 @@ For commercial licensing, please contact support@quantumnous.com
 import { z } from 'zod'
 
 export const redemptionRewardTypeSchema = z.enum(['quota', 'reset_voucher'])
-export type RedemptionRewardType = z.infer<typeof redemptionRewardTypeSchema>
 
 // ============================================================================
 // Redemption Schema & Types
@@ -80,9 +79,7 @@ export interface RedemptionFormData {
   id?: number
   name: string
   quota: number
-  reward_type: RedemptionRewardType
-  reset_plan_id: number
-  reset_voucher_expires_at: number
+  reward_type: 'quota'
   expired_time: number
   count?: number // Only for create
   status?: number // Only for status update

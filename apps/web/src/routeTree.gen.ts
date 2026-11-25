@@ -88,7 +88,6 @@ import { Route as AuthenticatedRedPacketsIndexRouteImport } from './routes/_auth
 import { Route as AuthenticatedRedemptionCodesIndexRouteImport } from './routes/_authenticated/redemption-codes/index'
 import { Route as AuthenticatedRssIndexRouteImport } from './routes/_authenticated/rss/index'
 import { Route as AuthenticatedSubscriptionsIndexRouteImport } from './routes/_authenticated/subscriptions/index'
-import { Route as AuthenticatedSubscriptionsResetRouteImport } from './routes/_authenticated/subscriptions/reset'
 import { Route as AuthenticatedSupportIndexRouteImport } from './routes/_authenticated/support/index'
 import { Route as AuthenticatedSystemInfoIndexRouteImport } from './routes/_authenticated/system-info/index'
 import { Route as AuthenticatedSystemSettingsIndexRouteImport } from './routes/_authenticated/system-settings/index'
@@ -540,12 +539,6 @@ const AuthenticatedSubscriptionsIndexRoute =
     path: '/subscriptions/',
     getParentRoute: () => AuthenticatedRouteRoute,
   } as any)
-const AuthenticatedSubscriptionsResetRoute =
-  AuthenticatedSubscriptionsResetRouteImport.update({
-    id: '/subscriptions/reset',
-    path: '/subscriptions/reset',
-    getParentRoute: () => AuthenticatedRouteRoute,
-  } as any)
 const AuthenticatedSupportIndexRoute =
   AuthenticatedSupportIndexRouteImport.update({
     id: '/support/',
@@ -784,7 +777,6 @@ export interface FileRoutesByFullPath {
   '/operations/releases': typeof AuthenticatedOperationsReleasesRoute
   '/operations/sources': typeof AuthenticatedOperationsSourcesRoute
   '/profile/share': typeof AuthenticatedProfileShareRoute
-  '/subscriptions/reset': typeof AuthenticatedSubscriptionsResetRoute
   '/usage-logs/$section': typeof AuthenticatedUsageLogsSectionRoute
   '/store/claim/$token': typeof StoreClaimTokenRoute
   '/store/preview/$productId': typeof StorePreviewProductIdRoute
@@ -893,7 +885,6 @@ export interface FileRoutesByTo {
   '/operations/releases': typeof AuthenticatedOperationsReleasesRoute
   '/operations/sources': typeof AuthenticatedOperationsSourcesRoute
   '/profile/share': typeof AuthenticatedProfileShareRoute
-  '/subscriptions/reset': typeof AuthenticatedSubscriptionsResetRoute
   '/usage-logs/$section': typeof AuthenticatedUsageLogsSectionRoute
   '/store/claim/$token': typeof StoreClaimTokenRoute
   '/store/preview/$productId': typeof StorePreviewProductIdRoute
@@ -1007,7 +998,6 @@ export interface FileRoutesById {
   '/_authenticated/operations/releases': typeof AuthenticatedOperationsReleasesRoute
   '/_authenticated/operations/sources': typeof AuthenticatedOperationsSourcesRoute
   '/_authenticated/profile/share': typeof AuthenticatedProfileShareRoute
-  '/_authenticated/subscriptions/reset': typeof AuthenticatedSubscriptionsResetRoute
   '/_authenticated/usage-logs/$section': typeof AuthenticatedUsageLogsSectionRoute
   '/store/claim/$token': typeof StoreClaimTokenRoute
   '/store/preview/$productId': typeof StorePreviewProductIdRoute
@@ -1120,7 +1110,6 @@ export interface FileRouteTypes {
     | '/operations/releases'
     | '/operations/sources'
     | '/profile/share'
-    | '/subscriptions/reset'
     | '/usage-logs/$section'
     | '/store/claim/$token'
     | '/store/preview/$productId'
@@ -1229,7 +1218,6 @@ export interface FileRouteTypes {
     | '/operations/releases'
     | '/operations/sources'
     | '/profile/share'
-    | '/subscriptions/reset'
     | '/usage-logs/$section'
     | '/store/claim/$token'
     | '/store/preview/$productId'
@@ -1342,7 +1330,6 @@ export interface FileRouteTypes {
     | '/_authenticated/operations/releases'
     | '/_authenticated/operations/sources'
     | '/_authenticated/profile/share'
-    | '/_authenticated/subscriptions/reset'
     | '/_authenticated/usage-logs/$section'
     | '/store/claim/$token'
     | '/store/preview/$productId'
@@ -1988,13 +1975,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedSubscriptionsIndexRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
-    '/_authenticated/subscriptions/reset': {
-      id: '/_authenticated/subscriptions/reset'
-      path: '/subscriptions/reset'
-      fullPath: '/subscriptions/reset'
-      preLoaderRoute: typeof AuthenticatedSubscriptionsResetRouteImport
-      parentRoute: typeof AuthenticatedRouteRoute
-    }
     '/_authenticated/support/': {
       id: '/_authenticated/support/'
       path: '/support'
@@ -2311,7 +2291,6 @@ interface AuthenticatedRouteRouteChildren {
   AuthenticatedOperationsReleasesRoute: typeof AuthenticatedOperationsReleasesRoute
   AuthenticatedOperationsSourcesRoute: typeof AuthenticatedOperationsSourcesRoute
   AuthenticatedProfileShareRoute: typeof AuthenticatedProfileShareRoute
-  AuthenticatedSubscriptionsResetRoute: typeof AuthenticatedSubscriptionsResetRoute
   AuthenticatedUsageLogsSectionRoute: typeof AuthenticatedUsageLogsSectionRoute
   AuthenticatedAiDirectoryIndexRoute: typeof AuthenticatedAiDirectoryIndexRoute
   AuthenticatedBountiesIndexRoute: typeof AuthenticatedBountiesIndexRoute
@@ -2357,7 +2336,6 @@ const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedOperationsReleasesRoute: AuthenticatedOperationsReleasesRoute,
   AuthenticatedOperationsSourcesRoute: AuthenticatedOperationsSourcesRoute,
   AuthenticatedProfileShareRoute: AuthenticatedProfileShareRoute,
-  AuthenticatedSubscriptionsResetRoute: AuthenticatedSubscriptionsResetRoute,
   AuthenticatedUsageLogsSectionRoute: AuthenticatedUsageLogsSectionRoute,
   AuthenticatedAiDirectoryIndexRoute: AuthenticatedAiDirectoryIndexRoute,
   AuthenticatedBountiesIndexRoute: AuthenticatedBountiesIndexRoute,

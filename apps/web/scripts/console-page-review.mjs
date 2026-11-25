@@ -72,7 +72,6 @@ const adminRoutes = [
   '/discount-codes',
   '/red-packets',
   '/subscriptions',
-  '/subscriptions/reset',
   '/system-info',
   '/system-settings',
   '/extensions/plugins',

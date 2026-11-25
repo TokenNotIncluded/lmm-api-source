@@ -16,7 +16,6 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { useQueryClient } from '@tanstack/react-query'
 import { History, RefreshCw } from 'lucide-react'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -27,14 +26,12 @@ import { Button } from '@/components/ui/button'
 import { commerceScope, hasPending } from '@/features/commerce/native-client'
 import { useAuthUserRefresh } from '@/features/onboarding'
 import { NativeWalletPromotions } from '@/features/promotions/native-wallet'
-import { resetVoucherQueryKey } from '@/features/subscriptions/api'
 import { NativeWalletSubscriptions } from '@/features/subscriptions/native-wallet'
 import { useAuthStore } from '@/stores/auth-store'
 
 import { AffiliateRewardsCard } from './components/affiliate-rewards-card'
 import { BillingHistoryDialog } from './components/dialogs/billing-history-dialog'
 import { NativeWalletCheckout } from './components/native-wallet-checkout'
-import { SubscriptionResetVouchers } from './components/subscription-reset-vouchers'
 import { WalletStatsCard } from './components/wallet-stats-card'
 import { useCheckoutOwnerKey } from './hooks/use-checkout-scope'
 import { walletProjection } from './lib/wallet-projection'
@@ -60,8 +57,6 @@ function NativeWallet({
   preview = false,
 }: WalletProps) {
   const { t } = useTranslation()
-  const queryClient = useQueryClient()
-  const scope = commerceScope()
   const account = useAuthStore((state) => state.auth.user)
   const user = preview ? null : (account as UserWalletData | null)
   const projection = walletProjection(user)
@@ -96,17 +91,10 @@ function NativeWallet({
   const [transferOpen, setTransferOpen] = useState(false)
   const [refreshing, setRefreshing] = useState(false)
   const [refreshFailed, setRefreshFailed] = useState(false)
-  const [subscriptionRefresh, setSubscriptionRefresh] = useState(0)
   const refresh = async () => {
     setRefreshing(true)
     setRefreshFailed(!(await refreshUser()))
     setRefreshing(false)
-    if (scope) {
-      void queryClient.invalidateQueries({
-        queryKey: resetVoucherQueryKey(scope),
-        exact: true,
-      })
-    }
   }
 
   return (
@@ -191,18 +179,8 @@ function NativeWallet({
                     title={t('Subscriptions')}
                   >
                     <NativeWalletSubscriptions
-                      refreshKey={subscriptionRefresh}
                       onUpdated={() => void refresh()}
                     />
-                    {scope && (
-                      <SubscriptionResetVouchers
-                        scope={scope}
-                        onRedeemed={() => {
-                          setSubscriptionRefresh((version) => version + 1)
-                          void refresh()
-                        }}
-                      />
-                    )}
                   </ConsoleDisclosure>
                   <ConsoleDisclosure
                     id='wallet-rewards'
