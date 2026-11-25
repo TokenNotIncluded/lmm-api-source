@@ -241,6 +241,9 @@ async fn restricted_console_over_tcp() {
         IdentityStore::from_pool(runtime.clone()),
         RuntimeOptions {
             server_address: "https://console.example.test".into(),
+            password_login_enabled: false,
+            email_verification_enabled: false,
+            passkey_login_enabled: false,
             registration_enabled: false,
             password_register_enabled: false,
             oauth_register_enabled: false,

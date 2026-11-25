@@ -28,6 +28,9 @@ fn settings(pool: &PgPool) -> Router {
         IdentityStore::from_pool(pool.clone()),
         RuntimeOptions {
             server_address: "https://console.example.test".into(),
+            password_login_enabled: false,
+            email_verification_enabled: false,
+            passkey_login_enabled: false,
             registration_enabled: false,
             password_register_enabled: false,
             oauth_register_enabled: false,

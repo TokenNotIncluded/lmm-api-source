@@ -25,6 +25,9 @@ mod ip_access;
 #[derive(Clone)]
 pub struct RuntimeOptions {
     pub server_address: String,
+    pub password_login_enabled: bool,
+    pub email_verification_enabled: bool,
+    pub passkey_login_enabled: bool,
     pub registration_enabled: bool,
     pub password_register_enabled: bool,
     pub oauth_register_enabled: bool,
@@ -122,6 +125,15 @@ fn runtime_options(runtime: &RuntimeOptions) -> Vec<SystemOption> {
                 .map(|url| url.origin().ascii_serialization())
                 .unwrap_or_default(),
         ),
+        (
+            "PasswordLoginEnabled",
+            runtime.password_login_enabled.to_string(),
+        ),
+        (
+            "EmailVerificationEnabled",
+            runtime.email_verification_enabled.to_string(),
+        ),
+        ("passkey.enabled", runtime.passkey_login_enabled.to_string()),
         ("RegisterEnabled", runtime.registration_enabled.to_string()),
         (
             "PasswordRegisterEnabled",
@@ -163,7 +175,8 @@ async fn read(State(state): State<OptionsHttp>, headers: HeaderMap) -> Response 
     // @context-fold begin runtime-settings-projection
     let stored = sqlx::query_as::<_, (String, String)>(
         "SELECT key,value FROM core_console.options
-         WHERE key IN ('Notice','Announcements','console_setting.announcements','USDExchangeRate','IPAccessRoutingRules')
+         WHERE key IN ('Notice','Announcements','console_setting.announcements','USDExchangeRate','IPAccessRoutingRules',
+                       'payment_setting.compliance_confirmed','payment_setting.compliance_terms_version')
          ORDER BY key",
     )
     .fetch_all(&state.pool)
@@ -206,7 +219,23 @@ async fn read(State(state): State<OptionsHttp>, headers: HeaderMap) -> Response 
         .or_else(|| stored.get("Announcements"))
         .cloned()
         .unwrap_or_else(|| "[]".into());
+    // Legacy affiliate settlement requires both an explicit confirmation and the current terms.
+    // Keep the recorded version visible even when settlement rejects it.
     data.extend([
+        SystemOption {
+            key: "payment_setting.compliance_confirmed".into(),
+            value: stored
+                .get("payment_setting.compliance_confirmed")
+                .is_some_and(|value| value == "true")
+                .to_string(),
+        },
+        SystemOption {
+            key: "payment_setting.compliance_terms_version".into(),
+            value: stored
+                .get("payment_setting.compliance_terms_version")
+                .cloned()
+                .unwrap_or_default(),
+        },
         SystemOption {
             key: "IPAccessRoutingRules".into(),
             value: stored
@@ -292,6 +321,9 @@ mod tests {
     fn runtime() -> RuntimeOptions {
         RuntimeOptions {
             server_address: "https://console.example.test".into(),
+            password_login_enabled: true,
+            email_verification_enabled: true,
+            passkey_login_enabled: true,
             registration_enabled: false,
             password_register_enabled: false,
             oauth_register_enabled: true,
@@ -391,7 +423,7 @@ mod tests {
         let identity = IdentityStore::from_pool(pool.clone());
         let root = identity.bootstrap_user(1, 6).await.unwrap();
         let admin = identity.bootstrap_user(2, 5).await.unwrap();
-        sqlx::query("INSERT INTO core_console.options(key,value) VALUES ('Notice','Existing notice'),('OAuthSecret','never expose'),('RegisterEnabled','true')")
+        sqlx::query("INSERT INTO core_console.options(key,value) VALUES ('Notice','Existing notice'),('OAuthSecret','never expose'),('RegisterEnabled','true'),('EmailVerificationEnabled','false'),('passkey.enabled','false'),('payment_setting.compliance_confirmed','true'),('payment_setting.compliance_terms_version','old'),('payment_setting.compliance_confirmed_ip','192.0.2.1')")
             .execute(&pool).await.unwrap();
         let app = router(OptionsHttp::new(pool.clone(), identity, runtime()));
         let (status, _) = call(&app, "GET", "/api/option/", Some(&admin.secret)).await;
@@ -418,6 +450,12 @@ mod tests {
                 .collect();
         assert_eq!(options["Notice"], "Existing notice");
         assert_eq!(options["RegisterEnabled"], "false");
+        assert_eq!(options["PasswordLoginEnabled"], "true");
+        assert_eq!(options["EmailVerificationEnabled"], "true");
+        assert_eq!(options["passkey.enabled"], "true");
+        assert_eq!(options["payment_setting.compliance_confirmed"], "true");
+        assert_eq!(options["payment_setting.compliance_terms_version"], "old");
+        assert!(!options.contains_key("payment_setting.compliance_confirmed_ip"));
         assert_eq!(options["PasswordRegisterEnabled"], "false");
         assert_eq!(options["OAuthRegisterEnabled"], "true");
         assert_eq!(options["RegistrationDisabledMethods"], "github,linuxdo");

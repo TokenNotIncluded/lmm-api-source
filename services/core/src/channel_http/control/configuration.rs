@@ -301,7 +301,17 @@ pub(in crate::channel_http) struct Attachment {
     speeds: Vec<Speed>,
     timeout_ms: u32,
     payload: PayloadPolicy,
+    // Omitted on older channel edits. An explicit null clears the previous filter.
+    #[serde(default, deserialize_with = "attachment_protocols")]
+    client_protocols: Option<Option<Vec<Protocol>>>,
 }
+
+fn attachment_protocols<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<Option<Option<Vec<Protocol>>>, D::Error> {
+    Option::<Vec<Protocol>>::deserialize(deserializer).map(Some)
+}
+
 fn attach(
     document: &mut ReleaseDocument,
     id: u64,
@@ -356,7 +366,7 @@ fn attach(
             priority: attachment.priority,
             weight: attachment.weight,
             speeds: attachment.speeds,
-            client_protocols,
+            client_protocols: attachment.client_protocols.unwrap_or(client_protocols),
             payload: attachment.payload,
             timeout_ms: attachment.timeout_ms,
         });
@@ -395,6 +405,7 @@ fn channel_attachment_edit_preserves_target_policy() {
             speeds: vec![Speed::Standard],
             timeout_ms: 5000,
             payload: PayloadPolicy::Adapt,
+            client_protocols: None,
         }];
         attach(&mut document, 2, attachments).unwrap();
 
@@ -416,11 +427,31 @@ fn channel_attachment_edit_preserves_target_policy() {
                 speeds: vec![Speed::Standard],
                 timeout_ms: 5000,
                 payload: PayloadPolicy::Adapt,
+                client_protocols: None,
             }],
         )
         .unwrap();
         assert_eq!(document.routing.routes[0].targets[0].enabled, enabled);
         assert!(document.routing.routes[0].targets[1].enabled);
+
+        // Exercise the same JSON attachment shape accepted by channel create and update.
+        let mut edit = json!({
+            "route_id": 1, "upstream_model": "gemini-test", "priority": 1,
+            "weight": 1, "speeds": ["standard"], "payload":"adapt", "timeout_ms": 5000
+        });
+        for (protocols, allow_chat) in [(json!(["gemini"]), false), (Value::Null, true)] {
+            edit["client_protocols"] = protocols;
+            let input: Attachment = serde_json::from_value(edit.clone()).unwrap();
+            attach(&mut document, 2, vec![input]).unwrap();
+            let target = document.routing.routes[0]
+                .targets
+                .iter()
+                .find(|t| t.upstream_id == 2)
+                .unwrap();
+            assert_eq!(target.enabled, enabled);
+            assert!(target.allows_client(Protocol::Gemini));
+            assert_eq!(target.allows_client(Protocol::OpenAiChat), allow_chat);
+        }
     }
 }
 
