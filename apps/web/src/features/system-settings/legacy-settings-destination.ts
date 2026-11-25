@@ -18,6 +18,7 @@ type Sections = {
 }
 
 const identity = '/system-settings/site?domain=identity'
+const consoleSettings = '/system-settings/site?domain=console'
 const billing = '/system-settings/site?domain=billing'
 const routing = '/system-settings/site?domain=routing'
 const groupPrices = '/channels?view=group-pricing'
@@ -30,6 +31,11 @@ export type LegacySettingsDestination =
       action: 'redirect'
       coverage: 'supported' | 'partial' | 'read-only'
       href: string
+      detail: string
+    }
+  | {
+      action: 'page'
+      coverage: 'supported' | 'partial' | 'read-only'
       detail: string
     }
   | {
@@ -105,10 +111,7 @@ const sections = {
         { href: `${plugin}checkins`, label: 'Check-in rewards' },
       ],
     },
-    currency: missing(
-      'The display exchange rate is a distinct Core option (USDExchangeRate). A dedicated display-rate control must be attached.',
-      'pending'
-    ),
+    currency: destination(billing, 'USD Exchange Rate', 'read-only'),
     'model-pricing': destination(
       modelPrices,
       'Published model and group-specific tariff rules; unsupported legacy expressions require explicit conversion.',
@@ -137,10 +140,7 @@ const sections = {
     dashboard: missing(
       'Dashboard export schedule, interval and default period have no native settings contract.'
     ),
-    announcements: missing(
-      'Core supports console announcements with expected-value validation. The editor must receive the actual stored announcements.',
-      'pending'
-    ),
+    announcements: destination(consoleSettings, 'Announcements', 'read-only'),
     'api-info': missing(
       'The console API address list has no native settings contract.'
     ),
@@ -172,9 +172,7 @@ const sections = {
       'Core routes have a maximum attempt count and retry causes. Automatic test schedules and legacy disable/status-code rules have no equivalent controls.',
       'partial'
     ),
-    gemini: missing(
-      'The legacy Gemini safety/version and thinking adapter policy has no native management contract.'
-    ),
+    gemini: { action: 'page', coverage: 'partial', detail: 'Gemini' },
     claude: missing(
       'The legacy Claude header, default token, refusal and thinking adapter policy has no native management contract.'
     ),
@@ -204,10 +202,7 @@ const sections = {
     worker: missing(
       'The legacy image fetch worker URL and key have no native settings contract.'
     ),
-    'hero-sms': missing(
-      'HeroSMS has authenticated settings and Core policy-file support. A destination for its own policy must be attached.',
-      'pending'
-    ),
+    'hero-sms': { action: 'page', coverage: 'read-only', detail: 'HeroSMS' },
     logs: missing(
       'The legacy LogConsumeEnabled switch and log cleanup control have no corresponding settings endpoint.'
     ),
@@ -237,10 +232,7 @@ const sections = {
     ),
   },
   security: {
-    honeypot: missing(
-      'Core exposes the dedicated honeypot policy, users, previews and audit APIs. The existing HoneypotPage needs an administrative destination.',
-      'pending'
-    ),
+    honeypot: { action: 'page', coverage: 'supported', detail: 'Honeypot' },
     'market-ai-review': destination(
       `${plugin}toolmarket`,
       'The shared store/tool-market first-review policy has its own settings API.'
@@ -274,20 +266,19 @@ const sections = {
     ),
   },
   site: {
-    'system-info': missing(
-      'Core projects ServerAddress and has separate deployment legal files. The legacy branding, content and policy editor has no matching administrative destination.',
-      'pending'
+    'system-info': destination(
+      consoleSettings,
+      'System Information',
+      'partial'
     ),
-    notice: missing(
-      'Core supports the site Notice option. Its editor needs the current stored value and write authorization.',
-      'pending'
-    ),
+    notice: destination(consoleSettings, 'System Notice', 'read-only'),
     'header-navigation': destination(
       `${plugin}community`,
       'The community header-navigation editor manages the public navigation.'
     ),
-    'sidebar-modules': missing(
-      'SidebarModulesAdmin has no native administrative contract.'
+    'sidebar-modules': destination(
+      '/extensions/plugins?configure=community&section=sidebar',
+      'Sidebar modules'
     ),
     'ai-directory': destination(
       '/extensions/plugins?configure=community&section=links',

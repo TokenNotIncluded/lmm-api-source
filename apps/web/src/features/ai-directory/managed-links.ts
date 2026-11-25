@@ -40,6 +40,8 @@ const envelope = z.object({
   data: z.object({ links: links.nullable() }),
 })
 
+const managementPath = '/api/ai-directory/links'
+
 function current(scope: NativeUsersScope) {
   if (!isCurrentNativeUsersScope(scope)) throw new Error('Session changed')
 }
@@ -50,7 +52,7 @@ export async function readManagedDirectory(
 ) {
   current(scope)
   const { data } = await api.get<unknown>(
-    '/api/ai-directory',
+    managementPath,
     nativeUsersOptions(scope, signal)
   )
   current(scope)
@@ -72,7 +74,7 @@ export async function saveManagedDirectory(
   }
   current(scope)
   const { data } = await api.put<unknown>(
-    '/api/ai-directory/links',
+    managementPath,
     { links: next },
     nativeUsersOptions(scope)
   )

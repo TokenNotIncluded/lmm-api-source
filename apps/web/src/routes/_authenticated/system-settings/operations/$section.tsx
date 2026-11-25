@@ -17,10 +17,18 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { createFileRoute } from '@tanstack/react-router'
+import { Suspense } from 'react'
 
+import { LoadingState } from '@/components/loading-state'
 import { resolveLegacySettingsBookmark } from '@/features/system-settings/legacy-settings-bookmark'
 import { LegacySettingsOutcome } from '@/features/system-settings/legacy-settings-outcome'
 import { getOperationsSectionMeta } from '@/features/system-settings/operations/section-registry'
+import { lazyNamedSection } from '@/features/system-settings/utils/lazy-section'
+
+const OperationsSettings = lazyNamedSection(
+  () => import('@/features/system-settings/operations'),
+  'OperationsSettings'
+)
 
 export const Route = createFileRoute(
   '/_authenticated/system-settings/operations/$section'
@@ -35,5 +43,16 @@ export const Route = createFileRoute(
 })
 
 function LegacySectionPage() {
-  return <LegacySettingsOutcome {...Route.useLoaderData()} />
+  const bookmark = Route.useLoaderData()
+  if (
+    bookmark.section === 'hero-sms' &&
+    bookmark.destination?.action === 'page'
+  ) {
+    return (
+      <Suspense fallback={<LoadingState />}>
+        <OperationsSettings />
+      </Suspense>
+    )
+  }
+  return <LegacySettingsOutcome {...bookmark} />
 }

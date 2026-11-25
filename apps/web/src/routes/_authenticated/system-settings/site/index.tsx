@@ -16,10 +16,36 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { createFileRoute } from '@tanstack/react-router'
+import { createFileRoute, redirect } from '@tanstack/react-router'
 
 import { SystemSettingsOverview } from '@/features/system-settings'
+import type { CoreConfigurationDomain } from '@/features/system-settings/core-configuration-section'
 
 export const Route = createFileRoute('/_authenticated/system-settings/site/')({
-  component: SystemSettingsOverview,
+  validateSearch: (
+    search: Record<string, unknown>
+  ): { domain?: CoreConfigurationDomain; section?: string } => ({
+    domain:
+      search.domain === 'identity' ||
+      search.domain === 'billing' ||
+      search.domain === 'routing' ||
+      search.domain === 'console'
+        ? search.domain
+        : undefined,
+    section: typeof search.section === 'string' ? search.section : undefined,
+  }),
+  beforeLoad: ({ search }) => {
+    if (search.section) {
+      throw redirect({
+        to: '/system-settings/site/$section',
+        params: { section: search.section },
+        search: {},
+        replace: true,
+      })
+    }
+  },
+  component: function SiteSettingsRoute() {
+    const { domain } = Route.useSearch()
+    return <SystemSettingsOverview domain={domain} />
+  },
 })

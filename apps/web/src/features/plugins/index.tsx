@@ -173,7 +173,7 @@ function PluginInventory({
   }
 
   if (query.isPending) return <p>{t('Loading...')}</p>
-  if (!query.data) {
+  if (!query.data || (configure && query.isError)) {
     return (
       <ErrorState
         description={errorMessage}
@@ -184,7 +184,36 @@ function PluginInventory({
 
   if (configure) {
     const plugin = registry.find((entry) => entry.name === configure)
-    const editor = renderPluginEditor(configure, section)
+    const current = phase === 'fresh'
+    const enabled = plugin?.available && plugin.installed && plugin.enabled
+    // The check-in policy is a host administration route. Market review is
+    // shared by Store and Tool Market; either enabled owner serves it.
+    const sharedReview =
+      configure === 'toolmarket' &&
+      !section &&
+      registry.some(
+        (entry) =>
+          entry.name === 'store' &&
+          entry.available &&
+          entry.installed &&
+          entry.enabled
+      )
+    const checkinPolicy =
+      configure === 'checkins' && plugin?.available && plugin.installed
+    const routeAvailable = current && (enabled || checkinPolicy || sharedReview)
+    const editor = routeAvailable && renderPluginEditor(configure, section)
+    let state: string | undefined
+    if (!current) {
+      state = t('Plugin status is not current. Refresh before relying on it.')
+    } else if (!plugin) {
+      if (!sharedReview) state = t('Page not found')
+    } else if (!plugin.available) {
+      state = t('This module has not been configured on the server.')
+    } else if (!plugin.installed) {
+      state = t('Not installed')
+    } else if (!plugin.enabled) {
+      state = t('Disabled')
+    }
     return (
       <div className='space-y-6'>
         <div className='flex flex-wrap items-center justify-between gap-4'>
@@ -193,25 +222,37 @@ function PluginInventory({
           </Button>
           <div ref={setActions} />
         </div>
-        {plugin?.available && pluginNavigation[configure] && (
-          <nav aria-label={t('Settings')} className='flex flex-wrap gap-2'>
-            {pluginNavigation[configure].map((item) => (
-              <Button
-                key={item.label}
-                variant={section === item.id ? 'secondary' : 'ghost'}
-                render={
-                  <a
-                    href={`/extensions/plugins?configure=${encodeURIComponent(configure)}${item.id ? '&section=' + item.id : ''}`}
-                    aria-current={section === item.id ? 'page' : undefined}
-                  />
-                }
-              >
-                {t(item.label)}
-              </Button>
-            ))}
-          </nav>
+        {state && (
+          <p role='status' className='text-muted-foreground text-sm'>
+            {state}
+          </p>
         )}
-        {editor && plugin?.available && phase === 'fresh' ? (
+        {current && sharedReview && !enabled && (
+          <p className='text-muted-foreground text-sm'>
+            {t('Store')} · {t('Enabled')}
+          </p>
+        )}
+        {routeAvailable &&
+          pluginEditor(configure) &&
+          pluginNavigation[configure] && (
+            <nav aria-label={t('Settings')} className='flex flex-wrap gap-2'>
+              {pluginNavigation[configure].map((item) => (
+                <Button
+                  key={item.label}
+                  variant={section === item.id ? 'secondary' : 'ghost'}
+                  render={
+                    <a
+                      href={`/extensions/plugins?configure=${encodeURIComponent(configure)}${item.id ? `&section=${item.id}` : ''}`}
+                      aria-current={section === item.id ? 'page' : undefined}
+                    />
+                  }
+                >
+                  {t(item.label)}
+                </Button>
+              ))}
+            </nav>
+          )}
+        {editor ? (
           <SettingsPageProvider
             actionsContainer={actions}
             suppressSectionHeader={false}
@@ -222,12 +263,18 @@ function PluginInventory({
               {editor}
             </Suspense>
           </SettingsPageProvider>
-        ) : (
-          <ErrorState
-            title={t('Unable to load settings')}
-            onRetry={() => void query.refetch()}
-          />
-        )}
+        ) : !current ? (
+          <Button
+            size='sm'
+            variant='outline'
+            disabled={query.isFetching}
+            onClick={() => void query.refetch()}
+          >
+            {t('Refresh')}
+          </Button>
+        ) : routeAvailable ? (
+          <p role='status'>{t('No settings found')}</p>
+        ) : null}
       </div>
     )
   }
@@ -551,19 +598,24 @@ function PluginInventory({
                     {actionLabel(action)}
                   </Button>
                 )}
-                {(plugin.name === 'ssmcpd' || pluginEditor(plugin.name)) && plugin.available && (
-                  <Button
-                    variant={plugin.available ? 'ghost' : 'outline'}
-                    className='min-h-11'
-                    render={
-                      <a
-                        href={plugin.name === 'ssmcpd' ? '/extensions/ssmcpd' : `/extensions/plugins?configure=${encodeURIComponent(plugin.name)}`}
-                      />
-                    }
-                  >
-                    {t('Settings')}
-                  </Button>
-                )}
+                {(plugin.name === 'ssmcpd' || pluginEditor(plugin.name)) &&
+                  plugin.available && (
+                    <Button
+                      variant={plugin.available ? 'ghost' : 'outline'}
+                      className='min-h-11'
+                      render={
+                        <a
+                          href={
+                            plugin.name === 'ssmcpd'
+                              ? '/extensions/ssmcpd'
+                              : `/extensions/plugins?configure=${encodeURIComponent(plugin.name)}`
+                          }
+                        />
+                      }
+                    >
+                      {t('Settings')}
+                    </Button>
+                  )}
                 {plugin.installed && !plugin.enabled && (
                   <Button
                     variant='ghost'

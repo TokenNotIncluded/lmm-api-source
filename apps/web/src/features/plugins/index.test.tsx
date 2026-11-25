@@ -82,13 +82,14 @@ function login(role: number, sessionId = 'synthetic-session') {
   })
 }
 
-async function mount(configure?: string, section?: string) {
+async function mount(
+  configure?: string,
+  section?: string,
+  client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+) {
   const container = document.createElement('div')
   document.body.append(container)
   const root = createRoot(container)
-  const client = new QueryClient({
-    defaultOptions: { queries: { retry: false } },
-  })
   await act(async () =>
     root.render(
       <QueryClientProvider client={client}>
@@ -512,6 +513,97 @@ test('switching sessions prevents a lifecycle write and discards a previous sess
     /Session changed|Authentication changed/
   )
   assert.equal(calls, 1)
+})
+
+for (const { label, registry, section } of [
+  { label: 'Page not found', registry: [] },
+  {
+    label: 'This module has not been configured on the server.',
+    registry: [
+      { ...plugin, available: false, installed: false, enabled: false },
+    ],
+  },
+  {
+    label: 'Not installed',
+    registry: [{ ...plugin, installed: false, enabled: false }],
+  },
+  { label: 'Disabled', registry: [{ ...plugin, enabled: false }] },
+  { label: 'No settings found', registry: [plugin], section: 'unknown' },
+]) {
+  test(`plugin configuration reports ${label} without querying the editor`, async () => {
+    login(100)
+    const requests: string[] = []
+    api.defaults.adapter = async (config) => {
+      requests.push(`${config.method} ${config.url}`)
+      return response(config, registry)
+    }
+    const container = await mount('store', section)
+    await until(() => container.textContent?.includes(label) === true)
+    assert.deepEqual(requests, ['get /api/extensions/plugins'])
+    assert.equal(container.querySelector('form'), null)
+  })
+}
+
+test('configuration suppresses cached editor requests while refreshing stale permissions and on denial', async () => {
+  login(100)
+  const client = new QueryClient()
+  client.setQueryData(
+    ['extension-plugins', 901, 'synthetic-session', 100],
+    [plugin],
+    { updatedAt: Date.now() - 120_000 }
+  )
+  const requests: string[] = []
+  let rejectRefresh!: () => void
+  api.defaults.adapter = (config) => {
+    requests.push(`${config.method} ${config.url}`)
+    return new Promise((_, reject) => {
+      rejectRefresh = () =>
+        reject(
+          new AxiosError('Forbidden', 'ERR_BAD_RESPONSE', config, undefined, {
+            config,
+            headers: {},
+            status: 403,
+            statusText: 'Forbidden',
+            data: {},
+          })
+        )
+    })
+  }
+  const container = await mount('store', undefined, client)
+  await until(
+    () =>
+      container.textContent?.includes('Plugin status is not current') === true
+  )
+  await act(async () => rejectRefresh())
+  await until(
+    () =>
+      container.textContent?.includes(
+        'You do not have permission to read the plugin registry.'
+      ) === true
+  )
+  assert.equal(container.querySelector('form'), null)
+  assert.deepEqual(requests, ['get /api/extensions/plugins'])
+})
+
+test('market review is reachable through an enabled Store when Tool Market is disabled', async () => {
+  login(100)
+  const requests: string[] = []
+  api.defaults.adapter = async (config) => {
+    requests.push(`${config.method} ${config.url}`)
+    if (config.url === '/api/extensions/plugins') {
+      return response(config, [
+        plugin,
+        { ...plugin, name: 'toolmarket', enabled: false },
+      ])
+    }
+    throw new AxiosError('Synthetic settings outage', 'ERR_NETWORK', config)
+  }
+  const container = await mount('toolmarket')
+  await until(() =>
+    requests.includes('get /api/security/market-ai-review/settings')
+  )
+  assert.match(container.textContent ?? '', /Store · Enabled/)
+  assert.match(container.textContent ?? '', /Disabled/)
 })
 
 test('plugin configuration saves through the checkins service with its observed revision', async () => {

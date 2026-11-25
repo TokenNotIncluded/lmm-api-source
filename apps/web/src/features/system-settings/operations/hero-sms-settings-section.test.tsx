@@ -245,3 +245,41 @@ test('an unconfigured host credential cannot be tested from the browser', async 
   await mount()
   assert.equal(button('Test connection').disabled, true)
 })
+
+test('Core file policy shows the returned settings and tests only the host credential', async () => {
+  const calls: [string | undefined, string | undefined][] = []
+  api.defaults.adapter = async (config) => {
+    calls.push([config.method, config.url])
+    if (config.method === 'post') assert.deepEqual(JSON.parse(config.data), {})
+    return {
+      config,
+      headers: {},
+      status: 200,
+      statusText: 'OK',
+      data: {
+        success: true,
+        data:
+          config.method === 'post'
+            ? { ok: true }
+            : {
+                ...settings,
+                policy_managed_by_file: true,
+                price_multiplier: '12.500000',
+              },
+      },
+    }
+  }
+  const { container } = await mount()
+  assert.ok(container.textContent?.includes('hero_sms.policy_file'))
+  assert.ok(container.textContent?.includes('12.500000'))
+  assert.equal(document.querySelector('form, [role="switch"], input'), null)
+  assert.equal(document.body.textContent?.includes('Save Changes'), false)
+  await act(async () => button('Test connection').click())
+  await until(
+    () => container.textContent?.includes('Connection test succeeded') === true
+  )
+  assert.deepEqual(calls, [
+    ['get', '/api/option/hero-sms'],
+    ['post', '/api/option/hero-sms/test'],
+  ])
+})

@@ -62,7 +62,7 @@ test('settings and system tools retain root-only access and distinguish draft mu
   }
 })
 
-test('the settings catalog lists the overview and plugin management and only opens catalog destinations', async () => {
+test('the settings catalog exposes each backed section alongside the overview and plugin management', async () => {
   signIn(ROLE.SUPER_ADMIN)
   const result = (await tool('lmm_settings_search').execute(
     {},
@@ -70,10 +70,22 @@ test('the settings catalog lists the overview and plugin management and only ope
   )) as {
     sections: Array<{ group: string; title: string; path: string }>
   }
-  assert.deepEqual(
-    result.sections.map((entry) => entry.path),
-    ['/system-settings/site', '/extensions/plugins']
-  )
+  const paths = result.sections.map((entry) => entry.path)
+  assert.equal(new Set(paths).size, paths.length)
+  for (const path of [
+    '/system-settings/site',
+    '/extensions/plugins',
+    '/system-settings/site/sidebar-modules',
+    '/system-settings/security/honeypot',
+    '/system-settings/site/notice',
+    '/system-settings/billing/currency',
+    '/system-settings/content/announcements',
+    '/system-settings/operations/hero-sms',
+    '/system-settings/models/gemini',
+  ]) {
+    assert.ok(paths.includes(path), path)
+  }
+  assert.ok(!paths.includes('/system-settings/models/service-tier-pricing'))
   const first = result.sections[0]
   assert.notEqual(first.title, first.group)
   await tool('lmm_settings_open').execute(
@@ -98,7 +110,7 @@ test('the settings catalog lists the overview and plugin management and only ope
   assert.equal(calls.length, 1)
 })
 
-test('retired settings are absent from search', async () => {
+test('SMTP search finds Core identity email settings', async () => {
   signIn(ROLE.SUPER_ADMIN)
   const result = (await tool('lmm_settings_search').execute(
     { query: 'smtp' },
@@ -108,7 +120,7 @@ test('retired settings are absent from search', async () => {
   }
   assert.deepEqual(
     result.sections.map((item) => item.path),
-    []
+    ['/system-settings/operations/email']
   )
 })
 
