@@ -160,6 +160,15 @@ test('multiple key import checks its atomic receipt and never accepts duplicate 
 
 test('native configuration retains channel tags and target protocol admission on readback', async () => {
   const scope = login()
+  const authority = {
+    mode: 'file',
+    source: 'model.config_file',
+    version: { routing: 4, pricing: 3 },
+    routing_sha256: 'a'.repeat(64),
+    pricing_sha256: 'b'.repeat(64),
+    git_revision: null,
+    observed_at_unix: 123,
+  }
   const target = {
     id: 1,
     upstream_id: 1,
@@ -180,6 +189,7 @@ test('native configuration retains channel tags and target protocol admission on
     data: {
       success: true,
       data: {
+        authority,
         version: { routing: 4, pricing: 3 },
         model_limits: { total_timeout_ms: 120_000 },
         routing: {
@@ -232,6 +242,9 @@ test('native configuration retains channel tags and target protocol admission on
     },
   })
   const configuration = await getNativeConfiguration(scope)
+  assert.deepEqual(configuration.authority, authority)
+  authority.version.routing = 3
+  await assert.rejects(getNativeConfiguration(scope), /snapshot changed/)
   assert.deepEqual(configuration.model_limits, { total_timeout_ms: 120_000 })
   assert.deepEqual(configuration.bindings.tags, { '1': 'Vision' })
   assert.deepEqual(configuration.bindings.key_pools, {

@@ -44,13 +44,16 @@ function renewHumanGrantScope(
   return createHumanGrantSessionScope(identity, currentIdentity)
 }
 
-export function HumanGrantSection() {
+export function HumanGrantSection({
+  readOnly = false,
+}: { readOnly?: boolean } = {}) {
   const userId = useAuthStore((state) => state.auth.user?.id)
   const sessionId = useAuthStore((state) => state.auth.session?.sid)
   // A new session gets new drafts, proofs, pending requests and save guards.
   return (
     <HumanGrantSettingsForm
       key={JSON.stringify([userId, sessionId])}
+      readOnly={readOnly}
       userId={userId}
       sessionId={sessionId}
     />
@@ -58,9 +61,11 @@ export function HumanGrantSection() {
 }
 
 function HumanGrantSettingsForm({
+  readOnly,
   userId,
   sessionId,
 }: {
+  readOnly: boolean
   userId: number | undefined
   sessionId: string | undefined
 }) {
@@ -178,6 +183,37 @@ function HumanGrantSettingsForm({
         setBusy(false)
       }
     }
+  }
+
+  if (readOnly) {
+    return (
+      <section className='space-y-3' aria-busy={busy}>
+        <p>
+          {t('Enable HumanGrant')} ·{' '}
+          {settings
+            ? settings.enabled
+              ? t('Enabled')
+              : t('Disabled')
+            : t('Unavailable')}
+        </p>
+        <p className='text-muted-foreground text-sm'>
+          {t('Source')} · <code>/api/user/auth/humangrant/settings</code> ·{' '}
+          {t('Revision')} · {t('Unavailable')}
+        </p>
+        {message && <p role='status'>{t(message)}</p>}
+        <Button
+          type='button'
+          variant='outline'
+          disabled={busy}
+          onClick={() => void reload()}
+        >
+          {t('Reload HumanGrant settings')}
+        </Button>
+        <a className='block underline' href='/human/grants'>
+          {t('Manage my AI grants')}
+        </a>
+      </section>
+    )
   }
 
   return (

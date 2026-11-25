@@ -28,6 +28,7 @@ const heroSmsSettingsResponseSchema = z.object({
   sms_enabled: z.boolean(),
   api_key_configured: z.boolean(),
   credential_managed_by_file: z.literal(true),
+  policy_managed_by_file: z.boolean().optional(),
   pending_work: z.boolean(),
   purchases_available: z.boolean(),
   currency: z.literal('USD'),

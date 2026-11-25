@@ -99,11 +99,9 @@ test('plugins and home-page controls stay distinct from unrelated features', () 
   for (const [cat, id] of [
     ['content', 'drawing'],
     ['operations', 'worker'],
-    ['models', 'gemini'],
     ['models', 'channel-affinity'],
     ['models', 'service-tier-pricing'],
     ['content', 'faq'],
-    ['site', 'sidebar-modules'],
     ['security', 'advanced-security'],
   ]) {
     assert.equal(resolve(cat, id).coverage, 'unsupported')
@@ -114,6 +112,27 @@ test('plugins and home-page controls stay distinct from unrelated features', () 
       assert.doesNotMatch(item.href, /manage=ads|configure=store(?:&|$)/)
     }
   }
+})
+
+test('supported bookmarks reach the matching configuration or independent page', () => {
+  assert.equal(
+    href('site', 'sidebar-modules'),
+    '/extensions/plugins?configure=community&section=sidebar'
+  )
+  for (const [category, section, domain] of [
+    ['site', 'system-info', 'console'],
+    ['site', 'notice', 'console'],
+    ['content', 'announcements', 'console'],
+    ['billing', 'currency', 'billing'],
+  ]) {
+    assert.equal(
+      href(category, section),
+      `/system-settings/site?domain=${domain}`
+    )
+  }
+  assert.equal(resolve('operations', 'hero-sms').action, 'page')
+  assert.equal(resolve('security', 'honeypot').action, 'page')
+  assert.equal(resolve('models', 'gemini').action, 'page')
 })
 
 test('unknown paths and inherited object properties do not create destinations', () => {

@@ -19,6 +19,14 @@ For commercial licensing, please contact support@quantumnous.com
 import type { TFunction } from 'i18next'
 import { Box, Settings } from 'lucide-react'
 
+import { getAuthSectionNavItems } from '@/features/system-settings/auth/section-registry'
+import { getBillingSectionNavItems } from '@/features/system-settings/billing/section-registry'
+import { getContentSectionNavItems } from '@/features/system-settings/content/section-registry'
+import { legacySettingsDestination } from '@/features/system-settings/legacy-settings-destination'
+import { getModelsSectionNavItems } from '@/features/system-settings/models/section-registry'
+import { getOperationsSectionNavItems } from '@/features/system-settings/operations/section-registry'
+import { getSecuritySectionNavItems } from '@/features/system-settings/security/section-registry'
+import { getSiteSectionNavItems } from '@/features/system-settings/site/section-registry'
 import { ROLE } from '@/lib/roles'
 import { useAuthStore } from '@/stores/auth-store'
 
@@ -29,7 +37,7 @@ export function getSystemSettingsNavGroups(
   role: number = ROLE.SUPER_ADMIN
 ): NavGroup[] {
   if (role < ROLE.ADMIN) return []
-  return [
+  const groups: NavGroup[] = [
     {
       id: 'system-administration',
       title: t('System Administration'),
@@ -51,6 +59,26 @@ export function getSystemSettingsNavGroups(
       ],
     },
   ]
+  if (role !== ROLE.SUPER_ADMIN) return groups
+
+  const categories = [
+    ['site', t('Site & Branding'), getSiteSectionNavItems],
+    ['auth', t('Authentication'), getAuthSectionNavItems],
+    ['billing', t('Billing & Payment'), getBillingSectionNavItems],
+    ['models', t('Models & Routing'), getModelsSectionNavItems],
+    ['security', t('Security & Limits'), getSecuritySectionNavItems],
+    ['content', t('Console Content'), getContentSectionNavItems],
+    ['operations', t('Operations'), getOperationsSectionNavItems],
+  ] as const
+  for (const [category, title, getItems] of categories) {
+    const items = getItems(t).filter(({ url }) => {
+      const section = url.slice(url.lastIndexOf('/') + 1)
+      const destination = legacySettingsDestination(category, section)
+      return destination && destination.action !== 'unavailable'
+    })
+    if (items.length) groups.push({ id: category, title, items })
+  }
+  return groups
 }
 
 export const SYSTEM_SETTINGS_VIEW: SidebarView = {

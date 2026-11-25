@@ -97,29 +97,35 @@ const fixture = {
   description: '',
   enabled: true,
 }
-test('admin edits a curated link using its community endpoint and verifies the persisted list after remount', async () => {
+test('admin disables a link and preserves it in order when editing another link after remount', async () => {
   const host = document.body.appendChild(document.createElement('div'))
   let root = createRoot(host)
   const client = new QueryClient()
   const old = api.defaults.adapter
-  let saved = [fixture]
+  const hidden = { ...fixture, id: 'private', name: 'Private website' }
+  let saved = [hidden, fixture]
   const calls: string[] = []
   api.defaults.adapter = async (cfg) => {
     calls.push([cfg.method, cfg.url].join(' '))
+    assert.equal(cfg.url, '/api/ai-directory/links')
+    assert.equal(cfg.headers.get('Authorization'), 'Bearer synthetic')
+    assert.deepEqual(cfg.authScope, {
+      userId: 41,
+      sessionId: 'fixture-session',
+    })
     if (cfg.method === 'put') {
-      assert.equal(cfg.url, '/api/ai-directory/links')
       const body = JSON.parse(cfg.data)
       assert.deepEqual(Object.keys(body), ['links'])
       saved = body.links
     } else {
-      assert.equal(cfg.url, '/api/ai-directory')
+      assert.equal(cfg.method, 'get')
     }
     return {
       config: cfg,
       status: 200,
       statusText: 'OK',
       headers: {},
-      data: { success: true, data: { links: saved } },
+      data: { success: true, message: '', data: { links: saved } },
     }
   }
   const render = async () => {
@@ -144,7 +150,30 @@ test('admin edits a curated link using its community endpoint and verifies the p
   try {
     signIn(ROLE.ADMIN)
     await render()
-    await waitFor(() => Boolean(button('Original website')))
+    await waitFor(() => Boolean(button('Private website')))
+    const privateWebsite = button('Private website')
+    assert.ok(privateWebsite)
+    await act(async () => privateWebsite.click())
+    const visible = host.querySelector<HTMLElement>(
+      '#directory-visible-private'
+    )
+    assert.ok(visible)
+    await act(async () => visible.click())
+    const saveWebsites = button('Save websites')
+    assert.ok(saveWebsites)
+    await act(async () => saveWebsites.click())
+    await waitFor(
+      () => calls.length === 4 && button('Save websites')?.disabled === true
+    )
+    const expectedHidden = { ...hidden, enabled: false }
+    assert.deepEqual(saved, [expectedHidden, fixture])
+
+    await act(async () => root.unmount())
+    client.clear()
+    root = createRoot(host)
+    await render()
+    await waitFor(() => Boolean(button('Private website')))
+    assert.match(host.textContent ?? '', /Hidden from directory/)
     await act(async () => {
       const edit = button('Original website')
       assert.ok(edit)
@@ -168,21 +197,22 @@ test('admin edits a curated link using its community endpoint and verifies the p
       save.click()
     })
     await waitFor(
-      () => calls.length === 4 && button('Save websites')?.disabled === true
+      () => calls.length === 8 && button('Save websites')?.disabled === true
     )
     assert.deepEqual(calls, [
-      'get /api/ai-directory',
-      'get /api/ai-directory',
+      'get /api/ai-directory/links',
+      'get /api/ai-directory/links',
       'put /api/ai-directory/links',
-      'get /api/ai-directory',
+      'get /api/ai-directory/links',
+      'get /api/ai-directory/links',
+      'get /api/ai-directory/links',
+      'put /api/ai-directory/links',
+      'get /api/ai-directory/links',
     ])
-    assert.equal(saved[0].name, 'Saved website')
-    await act(async () => root.unmount())
-    client.clear()
-    root = createRoot(host)
-    await render()
-    await waitFor(() => Boolean(button('Saved website')))
-    assert.equal(calls.length, 5)
+    assert.deepEqual(saved, [
+      expectedHidden,
+      { ...fixture, name: 'Saved website' },
+    ])
   } finally {
     await act(async () => root.unmount())
     host.remove()

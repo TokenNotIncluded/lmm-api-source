@@ -64,6 +64,7 @@ import {
   SettingsPageTitleStatusPortal,
 } from '../components/settings-page-context'
 import { SettingsSection } from '../components/settings-section'
+import { ConfigurationAssistant } from '../configuration-assistant'
 import { useResetForm } from '../hooks/use-reset-form'
 import {
   getHeroSmsPreviewCustomerPrice,
@@ -158,7 +159,9 @@ export function HeroSmsSettingsSection() {
   const pendingWork = settingsQuery.data?.pending_work ?? false
   const purchasesAvailable = settingsQuery.data?.purchases_available ?? false
   const enabled = serviceEnabled
+  const fileManaged = settingsQuery.data?.policy_managed_by_file === true
   const handleSubmit = async (values: HeroSmsSettingsFormValues) => {
+    if (fileManaged) return
     if (values.enabled && !configured) {
       setSaveError(
         t(
@@ -206,15 +209,97 @@ export function HeroSmsSettingsSection() {
     return <LoadingState message={t('Loading HeroSMS settings...')} />
   }
 
-  if (settingsQuery.isError && !settingsQuery.data) {
+  const failure = parseHeroSmsSettingsError(settingsQuery.error)
+  if (
+    settingsQuery.isError &&
+    (!settingsQuery.data || failure.status === 401 || failure.status === 403)
+  ) {
     return (
       <ErrorState
         title={t('Unable to load HeroSMS settings')}
-        description={t(
-          'Retry to fetch the latest provider configuration before editing this section.'
-        )}
+        description={
+          failure.status === 401 || failure.status === 403
+            ? t('Access Forbidden')
+            : failure.status === 404
+              ? t('Capability unavailable')
+              : failure.status === 503
+                ? t('The extension service is unavailable (503).')
+                : t('Failed to load data')
+        }
         onRetry={() => void settingsQuery.refetch()}
       />
+    )
+  }
+
+  if (fileManaged && settingsQuery.data) {
+    const settings = settingsQuery.data
+    const state = (active: boolean) => (active ? t('Enabled') : t('Disabled'))
+    const values = [
+      [t('Enable temporary activations'), state(settings.enabled)],
+      [t('Enable phone-number activations'), state(settings.sms_enabled)],
+      [t('Enable email activations'), state(settings.email_enabled)],
+      [t('Price multiplier'), settings.price_multiplier],
+      [
+        t('HeroSMS API key is managed on the host'),
+        configured ? t('Configured') : t('Not configured'),
+      ],
+    ]
+    return (
+      <section className='space-y-5'>
+        <ConfigurationAssistant
+          domain='hero-sms'
+          revision={settings.revision}
+        />
+        <p className='text-muted-foreground text-sm'>
+          {t('Read only')} · {t('Configuration File')}{' '}
+          <code>hero_sms.policy_file</code>
+        </p>
+        <dl className='divide-y'>
+          {values.map(([label, value]) => (
+            <div
+              key={label}
+              className='flex flex-wrap justify-between gap-3 py-2'
+            >
+              <dt>{label}</dt>
+              <dd className='font-medium'>{value}</dd>
+            </div>
+          ))}
+        </dl>
+        {!purchasesAvailable && (
+          <p role='status'>{t('Purchases unavailable')}</p>
+        )}
+        {pendingWork && (
+          <p role='status'>{t('Active orders are still being reconciled')}</p>
+        )}
+        {settingsQuery.isError && (
+          <p role='alert'>{t('Using last loaded HeroSMS settings')}</p>
+        )}
+        <div className='flex flex-wrap gap-2'>
+          <Button
+            type='button'
+            variant='outline'
+            disabled={
+              !configured ||
+              settingsQuery.isError ||
+              settingsQuery.isFetching ||
+              testState.loading
+            }
+            onClick={() => void handleTestConnection()}
+          >
+            {t('Test connection')}
+          </Button>
+          <Button
+            type='button'
+            variant='ghost'
+            disabled={settingsQuery.isFetching}
+            onClick={() => void reloadSettings()}
+          >
+            {t('Reload')}
+          </Button>
+        </div>
+        {testState.ok && <p role='status'>{t('Connection test succeeded')}</p>}
+        {testState.error && <p role='alert'>{testState.error}</p>}
+      </section>
     )
   }
 

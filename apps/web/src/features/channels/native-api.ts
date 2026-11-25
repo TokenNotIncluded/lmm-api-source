@@ -68,6 +68,7 @@ export type NativePrices = {
   rules: Array<Record<string, unknown>>
 }
 export type NativeConfiguration = {
+  authority?: z.infer<typeof nativeRoutingAuthoritySchema>
   version: NativeVersion
   channel_id_high_water?: number
   model_limits?: { total_timeout_ms: number } | null
@@ -479,7 +480,18 @@ export async function saveNativeLegacyBalance(
   return saved
 }
 
+const nativeRoutingAuthoritySchema = z.object({
+  mode: z.enum(['file', 'api']),
+  source: z.enum(['model.config_file', 'api_managed_runtime']),
+  version: versionSchema,
+  routing_sha256: z.string().regex(/^[a-f0-9]{64}$/),
+  pricing_sha256: z.string().regex(/^[a-f0-9]{64}$/),
+  git_revision: z.string().min(1).nullable(),
+  observed_at_unix: z.number().int().nonnegative().safe(),
+})
+
 const configurationSchema = z.object({
+  authority: nativeRoutingAuthoritySchema.optional(),
   version: versionSchema,
   channel_id_high_water: z.number().int().nonnegative().safe().optional(),
   model_limits: z
@@ -610,7 +622,10 @@ export async function getNativeConfiguration(
   const parsed = configurationSchema.parse(data)
   if (
     parsed.version.routing !== parsed.routing.version ||
-    parsed.version.pricing !== parsed.prices.version
+    parsed.version.pricing !== parsed.prices.version ||
+    (parsed.authority &&
+      (parsed.authority.version.routing !== parsed.version.routing ||
+        parsed.authority.version.pricing !== parsed.version.pricing))
   ) {
     throw new Error('The routing snapshot changed. Reload before continuing.')
   }

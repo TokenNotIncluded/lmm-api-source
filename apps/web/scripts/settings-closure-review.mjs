@@ -110,78 +110,61 @@ const bundle = {
     expires_at: now + 86400,
   },
 }
-// Keep bookmarked addresses independent of the retired editor implementation.
-const legacySections = {
-  site: [
-    'system-info',
-    'notice',
-    'header-navigation',
-    'sidebar-modules',
-    'ai-directory',
-    'rss',
-    'ai-directory-ads',
-  ],
-  auth: [
-    'humangrant',
-    'basic-auth',
-    'oauth',
-    'passkey',
-    'bot-protection',
-    'custom-oauth',
-  ],
-  billing: [
-    'quota',
-    'currency',
-    'model-pricing',
-    'router-pricing',
-    'group-pricing',
-    'payment',
-    'checkin',
-  ],
-  models: [
-    'service-tier-pricing',
-    'global',
-    'routing-reliability',
-    'gemini',
-    'claude',
-    'grok',
-    'channel-affinity',
-    'model-deployment',
-  ],
-  security: [
-    'honeypot',
-    'market-ai-review',
-    'moderation',
-    'rate-limit',
-    'sensitive-words',
-    'advanced-security',
-    'ip-access-routing',
-    'anti-relay',
-    'ssrf',
-    'token-limits',
-  ],
-  content: [
-    'dashboard',
-    'announcements',
-    'api-info',
-    'faq',
-    'uptime-kuma',
-    'assistant',
-    'chat',
-    'drawing',
-  ],
-  operations: [
-    'behavior',
-    'alerts',
-    'email',
-    'worker',
-    'hero-sms',
-    'logs',
-    'performance',
-    'raw-json',
-    'update-checker',
-    'scripts',
-  ],
+const options = [
+  { key: 'ServerAddress', value: 'https://settings.example.test' },
+  { key: 'RegisterEnabled', value: 'false' },
+  { key: 'PasswordRegisterEnabled', value: 'true' },
+  { key: 'OAuthRegisterEnabled', value: 'false' },
+  { key: 'RegistrationDisabledMethods', value: 'fixture-provider' },
+  { key: 'USDExchangeRate', value: '7.125' },
+  { key: 'Notice', value: 'Fixture site notice' },
+  { key: 'Announcements', value: '[]' },
+  {
+    key: 'console_setting.announcements',
+    value: JSON.stringify([
+      { id: 1, content: 'Fixture publication', publishDate: '2026-11-25' },
+    ]),
+  },
+]
+const plugin = (name, enabled) => ({
+  name,
+  version: '1.0',
+  api_version: 1,
+  available: true,
+  installed: true,
+  enabled,
+  registration_sha256: 'a'.repeat(64),
+})
+const heroSettings = {
+  revision: '23',
+  enabled: true,
+  email_enabled: false,
+  sms_enabled: true,
+  policy_managed_by_file: true,
+  api_key_configured: true,
+  credential_managed_by_file: true,
+  pending_work: false,
+  purchases_available: false,
+  price_multiplier: '12.500000',
+  currency: 'USD',
+  currency_code: 840,
+}
+const honeypot = {
+  version: 1,
+  revision: 4,
+  config: { version: 1, policies: [] },
+  capabilities: {
+    client_protocols: ['openai_chat', 'openai_responses'],
+    upstream_protocols: [
+      'openai_chat',
+      'openai_responses',
+      'anthropic_messages',
+      'gemini',
+    ],
+    modes: ['fixed_text', 'custom_upstream'],
+    numeric_loopback_only: true,
+    credential_references: [],
+  },
 }
 const json = (data, extra = {}) => ({
   success: true,
@@ -238,12 +221,100 @@ async function install(context, state, theme) {
       })
     } else if (p === '/api/site/navigation') {
       result = json({ value: '{}', revision: 1 })
-    } else if (p === '/api/extensions/plugins') result = json([])
-    else if (p === '/api/channel/ops') {
+    } else if (p === '/api/extensions/plugins') {
+      result = json([plugin('hero-sms', true), plugin('operations', false)])
+    } else if (p === '/api/channel/ops') {
       result = json({ native_configuration: true, native_secrets: false })
+    } else if (p === '/api/plugins/ssmcpd/admin/capabilities') {
+      status = 404
+      result = { success: false, message: 'SSMCP plugin is not installed' }
     } else if (p === '/api/option/') {
-      result = json([], {
-        capabilities: { read_only: true, writable_keys: [] },
+      result = json(options, {
+        capabilities: { read_only: true, partial: true, writable_keys: [] },
+      })
+    } else if (p === '/api/option/hero-sms') {
+      result = json(heroSettings)
+    } else if (p === '/core/v1/admin/request-limits') {
+      result = {
+        version: 1,
+        revision: 7,
+        policy: {
+          enabled: true,
+          window_seconds: 43,
+          user_limit: 17,
+          group_limits: {},
+        },
+      }
+    } else if (p === '/core/v1/admin/routing/auto-groups') {
+      result = { version: 1, revision: 3, groups: ['fixture-group', 'default'] }
+    } else if (p === '/core/v1/admin/abuse/policies') {
+      result = honeypot
+    } else if (p === '/core/v2/admin/abuse/users') {
+      result = { version: 2, users: [], next_after: null }
+    } else if (p === '/core/v1/admin/routing/configuration') {
+      result = json({
+        authority: {
+          mode: 'file',
+          source: 'model.config_file',
+          version: { routing: 1, pricing: 1 },
+          routing_sha256: 'a'.repeat(64),
+          pricing_sha256: 'b'.repeat(64),
+          git_revision: null,
+          observed_at_unix: now,
+        },
+        version: { routing: 1, pricing: 1 },
+        routing: {
+          version: 1,
+          upstreams: [
+            {
+              id: 7,
+              protocol: 'gemini',
+              endpoint: 'https://gemini.example.test/v1beta',
+              credential: { id: 12, revision: 1 },
+              enabled: true,
+            },
+          ],
+          routes: [
+            {
+              id: 9,
+              model: 'gemini-demo',
+              group: 'fixture-group',
+              enabled: true,
+              speeds: ['standard'],
+              targets: [
+                {
+                  id: 17,
+                  upstream_id: 7,
+                  upstream_model: 'gemini-flash-fixture',
+                  enabled: true,
+                  priority: 1,
+                  weight: 1,
+                  speeds: ['standard'],
+                  client_protocols: ['gemini', 'openai_chat'],
+                  payload: {},
+                  timeout_ms: 30000,
+                },
+              ],
+              failover: {
+                max_attempts: 1,
+                retry_on: [],
+                allow_replay_after_send: false,
+              },
+            },
+          ],
+          aliases: [],
+          groups: [{ name: 'fixture-group', enabled: true }],
+        },
+        prices: { version: 1, rules: [] },
+        bindings: {
+          names: {},
+          contexts: [],
+          vendors: {},
+          models: {},
+          discoveries: {},
+          price_drafts: {},
+        },
+        secret_storage_enabled: false,
       })
     } else if (p === '/api/user/self/announcements') {
       status = state.announcementStatus || 200
@@ -334,141 +405,232 @@ const browser = await chromium.launch({
 })
 report.browser = browser.version()
 try {
-  for (const width of [1440, 390]) {
-    for (const theme of ['light', 'dark']) {
-      const label = `${width === 1440 ? 'desktop' : 'mobile'}-${theme}`
-      const context = await browser.newContext({
-        viewport: { width, height: width === 1440 ? 1000 : 844 },
-        locale: 'zh-CN',
-        colorScheme: theme,
-        reducedMotion: 'reduce',
-        serviceWorkers: 'block',
-      })
-      const state = { requests: [], announcementStatus: 0 }
-      await install(context, state, theme)
-      const page = await context.newPage()
-      page.setDefaultTimeout(10000)
-      activePage = page
-      page.on('pageerror', (error) =>
-        report.page_errors.push({ label, error: String(error) })
+  for (const [width, theme] of [
+    [1440, 'light'],
+    [390, 'dark'],
+  ]) {
+    const label = `${width === 1440 ? 'desktop' : 'mobile'}-${theme}`
+    const context = await browser.newContext({
+      viewport: { width, height: width === 1440 ? 1000 : 844 },
+      locale: 'zh-CN',
+      colorScheme: theme,
+      reducedMotion: 'reduce',
+      serviceWorkers: 'block',
+    })
+    const state = { requests: [], announcementStatus: 0 }
+    await install(context, state, theme)
+    const page = await context.newPage()
+    page.setDefaultTimeout(5000)
+    page.setDefaultNavigationTimeout(10000)
+    activePage = page
+    page.on('pageerror', (error) =>
+      report.page_errors.push({ label, error: String(error) })
+    )
+    const go = (route) => page.goto(origin + route)
+    const btn = (key) => page.getByRole('button', { name: t(key), exact: true })
+    const content = page.locator('[data-section-page] .console-section-content')
+    const catalog = content.getByRole('navigation', {
+      name: t('System Settings'),
+    })
+    const entry = (suffix) =>
+      catalog.locator(`a[href="/system-settings/${suffix}"]`)
+    const at = async (expected) => {
+      const target = new URL(expected, origin)
+      await page.waitForURL(
+        (url) =>
+          url.pathname.replace(/\/$/, '') ===
+            target.pathname.replace(/\/$/, '') &&
+          [...target.searchParams].every(
+            ([key, value]) => url.searchParams.get(key) === value
+          )
       )
-      const go = (route) => page.goto(origin + route)
-      const btn = (key) =>
-        page.getByRole('button', { name: t(key), exact: true })
-      const overview = async () => {
-        await page.waitForURL(
-          (url) => url.pathname.replace(/\/$/, '') === '/system-settings/site'
-        )
-        await page.getByText('visual-fixture', { exact: true }).waitFor()
-        const content = page.locator(
-          '[data-section-page] .console-section-content'
-        )
-        await content
-          .getByText('/etc/lmm.conf.d/core.toml', { exact: true })
-          .waitFor()
-        for (const [field, value] of [
-          ['System Name', 'LMM'],
-          ['API version', 'visual-fixture'],
-          ['Registration Enabled', t('Disabled')],
-        ]) {
-          const term = content.getByText(t(field), { exact: true })
-          assert.equal(await term.locator('+ dd').innerText(), value)
-        }
-        await content
-          .getByRole('link', { name: t('Plugin management') })
-          .waitFor()
-        assert.equal(
-          await content
-            .locator(
-              'input:not([type=hidden]), textarea, select, button, [role=switch], [contenteditable=true]'
-            )
-            .count(),
-          0
-        )
-      }
-      await check(`${label}-settings-overview`, async () => {
-        await go('/system-settings')
-        await overview()
-        await capture(page, `${label}-settings-overview`)
-        const plugins = page
-          .locator('[data-section-page] .console-section-content')
-          .getByRole('link', { name: t('Plugin management') })
-        assert.equal(await plugins.getAttribute('href'), '/extensions/plugins')
-        await plugins.click()
-        await page.waitForURL(
-          (url) => url.pathname.replace(/\/$/, '') === '/extensions/plugins'
-        )
-        await page
-          .getByRole('heading', { name: t('Plugin management'), exact: true })
-          .waitFor()
-      })
-      await check(`${label}-bookmarked-settings`, async () => {
-        for (const [category, sections] of Object.entries(legacySections)) {
-          const sample =
-            width === 1440 && theme === 'light'
-              ? sections
-              : sections.slice(0, 1)
-          for (const section of sample) {
-            const oldPath = `/system-settings/${category}/${section}`
-            await go(oldPath)
-            try {
-              await overview()
-            } catch (cause) {
-              throw new Error(
-                `Failed legacy route ${oldPath}: ${cause.message}`,
-                { cause }
-              )
-            }
-            report.redirects.push({
-              label,
-              from: oldPath,
-              to: new URL(page.url()).pathname,
-            })
-          }
-        }
-      })
-      await check(`${label}-announcement-retry`, async () => {
-        state.announcementStatus = 503
-        await go('/system-settings/site')
-        await page
-          .getByText(
-            t('The announcement service is temporarily unavailable.'),
-            { exact: true }
-          )
-          .waitFor()
-        await capture(page, `${label}-announcements-unavailable`)
-        state.announcementStatus = 0
-        await btn('Retry').click()
-        await page
-          .getByText(
-            t('The announcement service is temporarily unavailable.'),
-            { exact: true }
-          )
-          .waitFor({ state: 'hidden' })
-        await overview()
-      })
-
-      await check(`${label}-hero-purchases-unavailable`, async () => {
-        await go('/temporary-activations')
-        await page
-          .getByText(t('Purchases unavailable'), { exact: true })
-          .waitFor()
-        assert.equal(
-          await page.locator('a[href="/temporary-activations"]').count(),
-          0
-        )
-        assert.equal(
-          state.requests.some(
-            (request) =>
-              request.path.startsWith('/api/hero-sms') &&
-              request.path !== '/api/hero-sms/capabilities'
-          ),
-          false
-        )
-        await capture(page, `${label}-hero-purchases-unavailable`)
-      })
-      await context.close()
     }
+    const record = async (from, expected) => {
+      await at(expected)
+      const current = new URL(page.url())
+      report.redirects.push({
+        label,
+        from,
+        to: current.pathname + current.search,
+      })
+    }
+    const overview = async () => {
+      await at('/system-settings/site')
+      await content.getByText('visual-fixture', { exact: true }).waitFor()
+      await catalog.waitFor()
+    }
+    await check(`${label}-settings-overview`, async () => {
+      await go('/system-settings')
+      await overview()
+      for (const suffix of [
+        'site/notice',
+        'billing/group-pricing',
+        'operations/hero-sms',
+        'models/gemini',
+        'security/honeypot',
+        'operations/scripts',
+      ]) {
+        assert.equal(await entry(suffix).count(), 1, suffix)
+      }
+      assert.equal(await entry('content/faq').count(), 0)
+      await capture(page, `${label}-settings-overview`)
+      await entry('site/notice').click()
+      await record(
+        '/system-settings/site/notice',
+        '/system-settings/site?domain=console'
+      )
+      await content.getByText('Fixture site notice', { exact: true }).waitFor()
+      await content.getByText('Fixture publication', { exact: true }).waitFor()
+      assert.equal(
+        await content
+          .locator(
+            'input, textarea, select, [role=switch], [contenteditable=true]'
+          )
+          .count(),
+        0
+      )
+      await capture(page, `${label}-console-settings`)
+    })
+    await check(`${label}-gemini-routing`, async () => {
+      await go('/system-settings/models?section=gemini')
+      await at('/system-settings/models/gemini')
+      await content
+        .getByText('https://gemini.example.test/v1beta', { exact: true })
+        .waitFor()
+      await content.getByText('gemini-demo → gemini-flash-fixture').waitFor()
+      await content.getByText(/gemini, openai_chat/).waitFor()
+      await content.getByText('model.config_file', { exact: true }).waitFor()
+      assert.ok(await content.locator('a[href="/channels?edit=7"]').isVisible())
+      assert.ok(
+        await page
+          .getByRole('link', { name: t('Channel Management'), exact: true })
+          .first()
+          .isVisible()
+      )
+      await capture(page, `${label}-gemini-routing`)
+    })
+    await check(`${label}-native-hero-settings`, async () => {
+      const from = '/system-settings/operations?section=hero-sms'
+      await go(from)
+      await record(from, '/system-settings/operations/hero-sms')
+      await content.getByText('hero_sms.policy_file', { exact: true }).waitFor()
+      await content
+        .getByText(heroSettings.price_multiplier, { exact: true })
+        .waitFor()
+      assert.equal(
+        await content.locator('input, form, [role=switch]').count(),
+        0
+      )
+      assert.ok(await btn('Test Connection').isEnabled())
+      await capture(page, `${label}-hero-policy`)
+    })
+    if (width === 1440) {
+      await check('core-domain-bookmarks', async () => {
+        for (const [from, domain, value] of [
+          [
+            '/system-settings/auth?section=basic-auth',
+            'identity',
+            'fixture-provider',
+          ],
+          ['/system-settings/billing/currency', 'billing', '7.125'],
+          ['/system-settings/security/rate-limit', 'routing', 'fixture-group'],
+          [
+            '/system-settings/site?section=notice',
+            'console',
+            'Fixture site notice',
+          ],
+        ]) {
+          await go(from)
+          await record(from, `/system-settings/site?domain=${domain}`)
+          await content.getByText(value, { exact: true }).waitFor()
+        }
+      })
+      await check('honeypot-bookmark', async () => {
+        const from = '/system-settings/security?section=honeypot'
+        await go(from)
+        await record(from, '/system-settings/security/honeypot')
+        await content
+          .getByRole('tab', { name: t('Policies'), exact: true })
+          .waitFor()
+        await content
+          .getByText(t('No policies configured.'), { exact: true })
+          .waitFor()
+        assert.equal(
+          await content.getByRole('button', { name: t('Add policy') }).count(),
+          0
+        )
+        await capture(page, 'desktop-honeypot')
+      })
+      await check('unavailable-bookmark', async () => {
+        const dest = '/system-settings/content/faq'
+        await go(dest)
+        await at(dest)
+        await page
+          .getByText(
+            t('The console FAQ list has no native settings contract.'),
+            { exact: true }
+          )
+          .waitFor()
+      })
+      await check('plugin-owner-redirect', async () => {
+        const from = '/system-settings/operations/scripts'
+        await go(from)
+        await record(from, '/extensions/plugins?configure=operations')
+        await page
+          .getByRole('status')
+          .filter({ hasText: t('Disabled') })
+          .first()
+          .waitFor()
+      })
+      await check('group-pricing-owner-redirect', async () => {
+        const from = '/system-settings/billing/group-pricing'
+        await go(from)
+        await record(from, '/channels?view=group-pricing')
+        await page
+          .getByRole('heading', { name: t('Channels'), exact: true })
+          .first()
+          .waitFor()
+      })
+    }
+    await check(`${label}-announcement-retry`, async () => {
+      state.announcementStatus = 503
+      await go('/system-settings/site')
+      await page
+        .getByText(t('The announcement service is temporarily unavailable.'), {
+          exact: true,
+        })
+        .waitFor()
+      await capture(page, `${label}-announcements-unavailable`)
+      state.announcementStatus = 0
+      await btn('Retry').click()
+      await page
+        .getByText(t('The announcement service is temporarily unavailable.'), {
+          exact: true,
+        })
+        .waitFor({ state: 'hidden' })
+      await overview()
+    })
+
+    await check(`${label}-hero-purchases-unavailable`, async () => {
+      await go('/temporary-activations')
+      await page
+        .getByText(t('Purchases unavailable'), { exact: true })
+        .waitFor()
+      assert.equal(
+        await page.locator('a[href="/temporary-activations"]').count(),
+        0
+      )
+      assert.equal(
+        state.requests.some(
+          (request) =>
+            request.path.startsWith('/api/hero-sms') &&
+            request.path !== '/api/hero-sms/capabilities'
+        ),
+        false
+      )
+      await capture(page, `${label}-hero-purchases-unavailable`)
+    })
+    await context.close()
   }
   assert.deepEqual(report.writes, [], 'Unexpected API mutations')
   assert.equal(report.page_errors.length, 0, 'Browser runtime errors')
