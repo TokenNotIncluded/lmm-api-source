@@ -36,16 +36,48 @@ const USER_HISTORY_LOGS: &str = r#"SELECT l.user_id, l.created_at AS at,
  WHERE s.complete AND s.contract_version='core.history-source.v1' AND l.log_type=2
  AND l.user_id=$3 AND l.created_at BETWEEN $1 AND $2"#;
 
-fn scoped_usage(history_source: &str) -> String {
+fn scoped_usage(history_source: &str, personal: bool) -> String {
     // Each UNION branch has its own user predicate. Existing indexes begin with
     // actor_user_id or user_id (history indexes then include owner_account_id).
     // No all-user scan/window is introduced for a lifetime profile request.
-    let history = if history_source == "quota_aggregates" {
-        format!("{HISTORY_AGGREGATES} AND q.user_id=$3")
+    let (history, owned) = if history_source == "quota_aggregates" {
+        (
+            format!("{HISTORY_AGGREGATES} AND q.user_id=$3"),
+            " AND q.owner_account_id=$4",
+        )
     } else {
-        USER_HISTORY_LOGS.to_owned()
+        (USER_HISTORY_LOGS.to_owned(), " AND l.owner_account_id=$4")
     };
-    format!("({NATIVE} AND r.actor_user_id=$3) UNION ALL ({history})")
+    if personal {
+        format!(
+            "({NATIVE} AND r.actor_user_id=$3 AND r.payer_account_id=$4) UNION ALL ({history}{owned})"
+        )
+    } else {
+        format!("({NATIVE} AND r.actor_user_id=$3) UNION ALL ({history})")
+    }
+}
+
+/// Personal spending qualification excludes team- or sponsor-paid requests and
+/// uses only complete imported history with the account's frozen conversion.
+pub(crate) async fn personal_spending(
+    c: &mut sqlx::PgConnection,
+    user: i64,
+    account: i64,
+    end: i64,
+) -> Result<Option<u128>> {
+    let history_source = selected_history_source(c).await?;
+    let scoped = scoped_usage(history_source, true);
+    let amount: Option<String> = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
+        "SELECT CASE WHEN coalesce(bool_and(credits IS NOT NULL),true)
+                THEN coalesce(sum(credits),0)::text END FROM ({scoped}) s"
+    )))
+    .bind(0_i64)
+    .bind(end)
+    .bind(user)
+    .bind(account)
+    .fetch_one(c)
+    .await?;
+    amount.map(exact_total).transpose()
 }
 
 pub(crate) struct UserUsageTotals {
@@ -77,7 +109,7 @@ pub(crate) async fn read_user_usage_summary(
     history_source: &str,
 ) -> Result<UserUsageSummary> {
     request.validate()?;
-    let scoped = scoped_usage(history_source);
+    let scoped = scoped_usage(history_source, false);
     let row = sqlx::query(sqlx::AssertSqlSafe(format!(
         "SELECT coalesce(sum(tokens),0)::text AS tokens,
          coalesce(sum(requests),0)::text AS requests,
@@ -123,7 +155,7 @@ impl CommunityRead {
             ),
             None => (false, String::new(), String::new(), String::new()),
         };
-        let scoped = scoped_usage(self.history_source);
+        let scoped = scoped_usage(self.history_source, false);
         let summary = read_user_usage_summary(&mut tx, r, self.history_source).await?;
         // Preserve the existing numeric community contract's JS-safe bounds.
         // The administrator detail has a separate exact-string contract.
