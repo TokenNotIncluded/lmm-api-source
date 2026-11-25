@@ -87,7 +87,7 @@ func (s *Service) Records(ctx context.Context, session string, in RecordRequest)
 	if s == nil || s.Store == nil || s.Funds == nil {
 		return out, ErrUnavailable
 	}
-	actor, e := s.Funds.Authorize(ctx, session)
+	actor, e := s.sessionActor(ctx, session)
 	if e != nil {
 		return out, e
 	}
@@ -113,23 +113,6 @@ func (s *Service) Records(ctx context.Context, session string, in RecordRequest)
 			return e
 		case "notifications_read", "tips_read":
 			return view.MarkRead(actor.UserID, in.Action == "tips_read", now)
-		case "thank_tip":
-			var n Notification
-			if e := tx.Get("notifications", in.NotificationID, &n); e != nil {
-				return e
-			}
-			if n.RecipientUserID != actor.UserID || n.Kind != "tip_transfer" {
-				return ErrForbidden
-			}
-			if n.ThankedAt == 0 {
-				n.ThankedAt = now
-				n.RecipientReadAt = now
-				if e := tx.Put("notifications", n.ID, n); e != nil {
-					return e
-				}
-			}
-			out.Notification = &n
-			return nil
 		case "accepted":
 			items, e := view.All("challenges", Query{ParticipantUserID: actor.UserID})
 			out.Items = items
@@ -140,55 +123,7 @@ func (s *Service) Records(ctx context.Context, session string, in RecordRequest)
 			out.Items, e = view.All("projects", q)
 			return e
 		}
-		var p Project
-		if !validID(in.ProjectID) {
-			return ErrInvalid
-		}
-		if e := tx.Get("projects", in.ProjectID, &p); e != nil {
-			return e
-		}
-		switch in.Action {
-		case "archive", "unarchive":
-			if p.OwnerUserID != actor.UserID {
-				return ErrForbidden
-			}
-			if p.Status != "completed" && p.Status != "closed" {
-				return ErrConflict
-			}
-			if in.Action == "archive" {
-				if p.ArchivedAt == 0 {
-					p.ArchivedAt = now
-				}
-			} else {
-				p.ArchivedAt = 0
-			}
-		case "content":
-			if p.OwnerUserID != actor.UserID && !actor.Admin {
-				return ErrForbidden
-			}
-			if p.Status != "published" && p.Status != "paused" {
-				return ErrConflict
-			}
-			d := in.Draft
-			d.RepositoryURL = p.RepositoryURL
-			d.RewardCredit = p.RewardCredit
-			d.RewardSlots = p.RewardSlots
-			d, e := normalize(d)
-			if e != nil {
-				return e
-			}
-			p.Title = d.Title
-			p.Description = d.Description
-			p.Rules = d.Rules
-		default:
-			return ErrInvalid
-		}
-		p.UpdatedAt = now
-		if e := tx.Put("projects", p.ID, p); e != nil {
-			return e
-		}
-		out.Project = &p
-		return nil
+		return ErrRetired
 	})
 	return out, e
 }

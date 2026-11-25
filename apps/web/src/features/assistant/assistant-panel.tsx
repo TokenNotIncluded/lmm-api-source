@@ -211,7 +211,6 @@ type AssistantActionPath =
   | '/keys'
   | '/drawing'
   | '/profile'
-  | '/open-source-bounties'
   | '/support'
   | '/users'
 
@@ -678,8 +677,8 @@ function getAssistantActionForTarget(
     case 'bounty':
       return {
         kind: 'route',
-        label: translate('Explore open-source bounties'),
-        to: '/open-source-bounties',
+        label: translate('Support'),
+        to: '/support',
       }
     case 'cost':
       return {

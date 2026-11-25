@@ -19,7 +19,7 @@
   },
   {
     "name": "get_bounty_guide",
-    "description": "Read the installed bounty service fee and current workflow for publishing, funding, review, tips and disputes. Amounts and funding require a separate explicit UI confirmation. This tool performs no bounty action.",
+    "description": "Read historical bounty terms and the settlement support path. New work is closed.",
     "version": "main-3948a0a1",
     "effect": "read_only",
     "access": "user",
@@ -28,7 +28,7 @@
   },
   {
     "name": "get_bounty_data",
-    "description": "Read the public bounty board or a visible project, the signed-in user's accepted/owned projects, or disputes. disputes is always limited to the current user as a party; admin_disputes requires live Core administrator policy authorization. status and limit apply only to disputes; page/page_size apply only to board/accepted/owned. Read-only; no actor, settlement or mutation input. Uses original Session and exact live/frozen monetary facts. Project IDs may be native strings or preserved positive legacy integers.",
+    "description": "Read your own historical projects, accepted work and disputes. The public board and project lookup are retired.",
     "version": "main-3948a0a1",
     "effect": "read_only",
     "access": "user",

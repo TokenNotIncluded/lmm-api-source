@@ -84,12 +84,6 @@ function buildSectionDefs(t: (key: string) => string): SectionDef[] {
       description: t('Explore available features'),
       modules: [
         {
-          id: '/bounties',
-          key: 'open-source-bounties',
-          title: t('Bounties'),
-          description: t('Browse bounties'),
-        },
-        {
           id: '/public-relay',
           key: 'public-relay',
           title: t('Channel marketplace'),
@@ -105,27 +99,15 @@ function buildSectionDefs(t: (key: string) => string): SectionDef[] {
     },
     {
       id: 'forge',
-      title: t('Bounties'),
-      description: t('Challenges and community work'),
+      title: t('Community'),
+      description: t('Channel marketplace'),
       requiresConsole: true,
       modules: [
-        {
-          id: '/bounties',
-          key: 'open-source-bounties',
-          title: t('Bounties'),
-          description: t('Browse bounties'),
-        },
         {
           id: '/public-relay',
           key: 'public-relay',
           title: t('Channel marketplace'),
           description: t('Browse shared channels'),
-        },
-        {
-          id: '/challenges',
-          key: 'challenges',
-          title: t('Challenges'),
-          description: t('Open challenges'),
         },
         {
           id: '/rankings',
@@ -383,18 +365,12 @@ const DEFAULT_ROUTES: DefaultRouteDef[] = [
   { route: '/todos', title: 'To-dos', requiresConsole: true },
   { route: '/profile', title: 'Profile', requiresConsole: true },
   {
-    route: '/bounties',
-    title: 'Bounties',
-    requiresConsole: true,
-  },
-  {
     route: '/public-relay',
     title: 'Channel marketplace',
     requiresConsole: true,
   },
   { route: '/ai-directory', title: 'AI directory', requiresConsole: true },
   { route: '/rss', title: 'RSS', requiresConsole: true },
-  { route: '/challenges', title: 'Challenges', requiresConsole: true },
   { route: '/rankings', title: 'Rankings', requiresConsole: true },
   { route: '/usage-logs/common', title: 'Usage Logs', requiresConsole: true },
   { route: '/support', title: 'Submit a ticket', requiresConsole: true },

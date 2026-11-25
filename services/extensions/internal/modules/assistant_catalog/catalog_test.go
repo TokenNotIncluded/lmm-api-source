@@ -366,7 +366,7 @@ func TestCatalogueBountyGuideUsesExactLiveFee(t *testing.T) {
 		t.Fatal(err)
 	}
 	var v bountyGuide
-	if json.Unmarshal(out.ResultJSON, &v) != nil || v.PlatformFeeBasisPoints != 375 || v.PlatformFeePercent != "3.75" || !v.ReadOnly || !v.Enabled {
+	if json.Unmarshal(out.ResultJSON, &v) != nil || v.PlatformFeeBasisPoints != 375 || v.PlatformFeePercent != "3.75" || !v.ReadOnly || v.Enabled || v.Code != "retired" {
 		t.Fatal(string(out.ResultJSON))
 	}
 	b.fee.RatePercent = "3.76"
@@ -388,17 +388,12 @@ func TestCatalogueBountyReadsUseOriginalSessionAndLiteralOwnerScope(t *testing.T
 	b.board = map[string]any{"items": []any{project("51")}, "page": 2, "page_size": 3, "total": 8}
 	target, in := invocation(t, e, "get_bounty_data", `{"view":"board","page":2,"page_size":3}`)
 	out, err := target.Execute(context.Background(), in)
-	if err != nil || b.token != catalogueSession || b.page != 2 || b.size != 3 {
-		t.Fatal(err, b)
+	if err == nil {
+		t.Fatal("retired board exposed", string(out.ResultJSON))
 	}
-	var result bountyResult
-	if json.Unmarshal(out.ResultJSON, &result) != nil || !result.HasMore || result.Board.Items[0].RewardQuota != 500000 {
-		t.Fatal(string(out.ResultJSON))
-	}
-	b.detail = map[string]any{"project": project("51"), "challenges": []any{}, "ledger": []any{}}
 	target, in = invocation(t, e, "get_bounty_data", `{"view":"detail","project_id":51}`)
-	if _, err = target.Execute(context.Background(), in); err != nil || b.project != "51" {
-		t.Fatal(err, b.project)
+	if _, err = target.Execute(context.Background(), in); err == nil {
+		t.Fatal("retired detail exposed")
 	}
 	for _, view := range []string{"owned", "accepted"} {
 		if view == "owned" {
@@ -438,14 +433,14 @@ func TestCatalogueBountyPrivateRowsCannotBelongToOtherUser(t *testing.T) {
 	}
 	b.detail = map[string]any{"project": wrong, "challenges": []any{map[string]any{"id": "c", "project_id": "p", "participant_user_id": 8, "reward_credit": 0, "tip_credit": 0}}, "ledger": []any{}}
 	target, in = invocation(t, e, "get_bounty_data", `{"view":"detail","project_id":"p"}`)
-	if _, err := target.Execute(context.Background(), in); !errors.Is(err, access.ErrForbidden) {
+	if _, err := target.Execute(context.Background(), in); err == nil {
 		t.Fatal(err)
 	}
 	otherViewer := project("p")
 	otherViewer["viewer_challenge"] = map[string]any{"id": "c", "project_id": "p", "participant_user_id": 8, "reward_credit": 0, "tip_credit": 0}
 	b.board = map[string]any{"items": []any{otherViewer}, "page": 1, "page_size": 20, "total": 1}
 	target, in = invocation(t, e, "get_bounty_data", `{"view":"board"}`)
-	if _, err := target.Execute(context.Background(), in); !errors.Is(err, access.ErrForbidden) {
+	if _, err := target.Execute(context.Background(), in); err == nil {
 		t.Fatal(err)
 	}
 }

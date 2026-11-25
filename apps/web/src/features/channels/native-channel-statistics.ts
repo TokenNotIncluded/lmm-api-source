@@ -19,6 +19,7 @@ export type NativeChannelSort =
 export type NativeChannelFilters = {
   status: 'all' | 'enabled' | 'disabled'
   group: string
+  protocol: string
 }
 export type NativeChannelSortInput = Partial<NativeChannelFilters> & {
   sort: NativeChannelSort
@@ -156,6 +157,7 @@ export async function getNativeChannelPage(
   if (input.sort === 'balance') params.set('sort_unit', input.unit)
   if (input.status && input.status !== 'all') params.set('status', input.status)
   if (input.group) params.set('group', input.group)
+  if (input.protocol) params.set('protocol', input.protocol)
   if (input.snapshotDigest !== undefined) {
     params.set(
       'snapshot_digest',

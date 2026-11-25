@@ -25,20 +25,17 @@ func randomID() (string, error) {
 	}
 	return hex.EncodeToString(b[:]), nil
 }
-func digestID(raw string) string { b := sha256.Sum256([]byte(raw)); return hex.EncodeToString(b[:]) }
-func (s *Service) webActor(ctx context.Context, session, action string) (Actor, error) {
-	if protectedAction(action) {
-		return s.sessionActor(ctx, session)
-	}
-	return s.Funds.Authorize(ctx, session)
-}
+func digestID(raw string) string     { b := sha256.Sum256([]byte(raw)); return hex.EncodeToString(b[:]) }
 func localAction(action string) bool { return action == "create_draft" || action == "update_draft" }
 
 // PrepareWeb stores the original command before any Core preview. The session
 // credential is never retained. A restarted financial preparation queries only.
 func (s *Service) PrepareWeb(ctx context.Context, session, key string, in Invocation) (WebOperation, error) {
 	var out WebOperation
-	actor, e := s.webActor(ctx, session, in.Command.Action)
+	if !protectedAction(in.Command.Action) {
+		return out, ErrRetired
+	}
+	actor, e := s.sessionActor(ctx, session)
 	if e != nil {
 		return out, e
 	}
@@ -159,6 +156,21 @@ func (s *Service) ApplyWeb(ctx context.Context, session, id string, recoverOnly 
 	}
 	if op.State == "settled" {
 		return op, nil
+	}
+	// Original operations may still have receipts, but cannot initiate a new dispatch.
+	if !protectedAction(op.Invocation.Command.Action) {
+		proof, err := s.RecoverOperation(ctx, session, op.Invocation)
+		if err != nil {
+			return op, err
+		}
+		localReceipt := localAction(op.Invocation.Command.Action) && proof.Project != nil
+		if !localReceipt && (proof.Receipt == nil || pendingReceipt(*proof.Receipt)) {
+			return op, ErrRetired
+		}
+		// A terminal Core receipt can repair a previously interrupted local projection.
+		op.Result, op.State = proof, "settled"
+		err = s.Store.Within(ctx, func(tx Tx) error { return tx.Put("web_operations", id, op) })
+		return op, err
 	}
 	// The Core-confirmed request is checked before winning the unique dispatch
 	// slot. A caller cannot bypass browser proof by posting apply directly.

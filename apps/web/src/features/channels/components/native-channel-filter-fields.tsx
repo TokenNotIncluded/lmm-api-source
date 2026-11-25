@@ -2,6 +2,10 @@
 import { useId } from 'react'
 import { useTranslation } from 'react-i18next'
 
+import {
+  nativeProtocolLabel,
+  nativeProtocols,
+} from '../lib/native-routing-form'
 import type { NativeChannelFilters } from '../native-channel-statistics'
 
 export function NativeChannelFilterFields({
@@ -20,7 +24,7 @@ export function NativeChannelFilterFields({
   const selectClass =
     'border-input bg-background block min-h-11 w-full min-w-0 rounded-md border px-3 text-sm'
   return (
-    <div className='grid w-full min-w-0 grid-cols-2 gap-3'>
+    <div className='grid w-full min-w-0 grid-cols-2 gap-3 @min-[40rem]/routing:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(14rem,1.4fr)]'>
       <label htmlFor={`${id}-status`} className='min-w-0 space-y-2 text-sm'>
         <span>{t('Status')}</span>
         <select
@@ -59,6 +63,28 @@ export function NativeChannelFilterFields({
               </option>
             )
           )}
+        </select>
+      </label>
+      <label
+        htmlFor={`${id}-protocol`}
+        className='col-span-2 min-w-0 space-y-2 text-sm @min-[40rem]/routing:col-span-1'
+      >
+        <span>{t('Protocol')}</span>
+        <select
+          id={`${id}-protocol`}
+          className={selectClass}
+          value={value.protocol}
+          disabled={disabled}
+          onChange={(event) =>
+            onChange({ ...value, protocol: event.target.value })
+          }
+        >
+          <option value=''>{t('All')}</option>
+          {nativeProtocols.map((protocol) => (
+            <option key={protocol} value={protocol}>
+              {nativeProtocolLabel(protocol, t)}
+            </option>
+          ))}
         </select>
       </label>
     </div>

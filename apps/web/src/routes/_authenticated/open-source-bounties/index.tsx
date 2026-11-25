@@ -17,21 +17,9 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { createFileRoute, redirect } from '@tanstack/react-router'
-import { z } from 'zod'
-
-const bountyId = z.union([
-  z.number().int().positive(),
-  z.string().regex(/^[A-Za-z0-9_.:-]{1,128}$/),
-])
-
-const bountySearchSchema = z.object({
-  projectId: bountyId.optional(),
-  challengeId: bountyId.optional(),
-})
 
 export const Route = createFileRoute('/_authenticated/open-source-bounties/')({
-  validateSearch: bountySearchSchema,
-  beforeLoad: ({ search }) => {
-    throw redirect({ to: '/bounties', search, replace: true })
+  beforeLoad: () => {
+    throw redirect({ to: '/support', replace: true })
   },
 })

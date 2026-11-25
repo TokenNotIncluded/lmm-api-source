@@ -379,7 +379,9 @@ test('channel filters start a new first-page snapshot and discard old batch sele
     requests.push(url)
     const page = Number(url.searchParams.get('p'))
     const filtered =
-      url.searchParams.has('status') || url.searchParams.has('group')
+      url.searchParams.has('status') ||
+      url.searchParams.has('group') ||
+      url.searchParams.has('protocol')
     return {
       data: {
         success: true,
@@ -441,6 +443,16 @@ test('channel filters start a new first-page snapshot and discard old batch sele
     container.querySelector('form[aria-label="Set tag for selected channels"]'),
     null
   )
+  const protocol = required(selectByLabel(container, 'Protocol'))
+  await act(async () => {
+    protocol.value = 'anthropic_messages'
+    protocol.dispatchEvent(new Event('change', { bubbles: true }))
+  })
+  await until(
+    () => requests.at(-1)?.searchParams.get('protocol') === 'anthropic_messages'
+  )
+  assert.equal(requests.at(-1)?.searchParams.get('status'), 'disabled')
+  assert.equal(requests.at(-1)?.searchParams.has('snapshot_digest'), false)
   const group = selectByLabel(container, 'Group')
   assert.ok(group)
   await act(async () => {
@@ -461,6 +473,7 @@ test('channel filters start a new first-page snapshot and discard old batch sele
   )
   assert.equal(requests.at(-1)?.searchParams.has('status'), false)
   assert.equal(requests.at(-1)?.searchParams.has('group'), false)
+  assert.equal(requests.at(-1)?.searchParams.has('protocol'), false)
   assert.equal(requests.at(-1)?.searchParams.has('snapshot_digest'), false)
   await act(async () => button(container, 'Next').click())
   await until(
@@ -510,6 +523,7 @@ test('channel search includes active models and status and group filters work wi
   config.routing.upstreams.push({
     ...config.routing.upstreams[0],
     id: 2,
+    protocol: 'anthropic_messages',
     enabled: false,
   })
   config.bindings.names[2] = 'Team provider'
@@ -557,6 +571,13 @@ test('channel search includes active models and status and group filters work wi
         .find((item) => item.querySelector('span')?.textContent === label)
         ?.querySelector('select')
     )
+  const protocol = select('Protocol')
+  await act(async () => {
+    protocol.value = 'anthropic_messages'
+    protocol.dispatchEvent(new Event('change', { bubbles: true }))
+  })
+  assert.equal(container.querySelectorAll('article').length, 1)
+  assert.ok(container.querySelector('article[aria-label="Team provider"]'))
   const group = select('Group')
   assert.deepEqual(
     [...group.options].map((option) => option.value),
@@ -578,6 +599,7 @@ test('channel search includes active models and status and group filters work wi
   await act(async () => button(container, 'Clear').click())
   assert.equal(status.value, 'all')
   assert.equal(group.value, '')
+  assert.equal(protocol.value, '')
   assert.equal(container.querySelectorAll('article').length, 2)
 })
 

@@ -328,6 +328,29 @@ async fn actual_team_settlement_and_refund_count_the_actor_without_spending_pers
     let other = profile(&pool, 8).await.unwrap();
     assert_eq!((other.used_quota, other.request_count), (0, 0));
     assert_eq!(profile(&pool, 7).await.unwrap(), result);
+
+    // The optional normalization lists this already settled team request.
+    // Its unresolved overlap affects neither this actor's verified opening
+    // counters nor the personal balance read from the native ledger.
+    let personal_account: i64 =
+        sqlx::query_scalar("SELECT personal_account_id FROM core_identity.users WHERE id=7")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    import(&pool, 7, personal_account, 200, 0, Some((300, 9, 0))).await;
+    finance_source(
+        &pool,
+        &[(7, personal_account, 'c', 300, 125)],
+        &[request.id],
+    )
+    .await;
+    let overlap = profile(&pool, 7).await.unwrap();
+    assert_eq!(
+        (overlap.quota, overlap.used_quota, overlap.request_count),
+        (200, 340, 10)
+    );
+    assert!(!overlap.usage_projection_available);
+    assert_eq!(overlap.normalized_used_quota, None);
 }
 
 #[sqlx::test(migrations = false)]
@@ -348,4 +371,74 @@ async fn restricted_runtime_can_read_without_opening_or_counter_write_authority(
     assert!(!allowed);
     runtime_pool.close().await;
     role.cleanup().await;
+}
+
+#[sqlx::test(migrations = false)]
+async fn reviewed_personal_history_normalizes_only_matching_openings(pool: PgPool) {
+    core_schema::init(&pool).await.unwrap();
+    let own = imported_person(&pool, 1001).await;
+    let other = imported_person(&pool, 1002).await;
+    import(&pool, 1001, own, 100, 0, Some((300, 9, 0))).await;
+    import(&pool, 1002, other, 100, 0, Some((300, 71, 0))).await;
+    // Only the first normalized row binds to this user's opening receipt.
+    finance_source(
+        &pool,
+        &[(1001, own, 'c', 300, 125), (1002, other, 'f', 300, 650)],
+        &[],
+    )
+    .await;
+    let first = profile(&pool, 1001).await.unwrap();
+    assert_eq!(
+        (
+            first.used_quota,
+            first.normalized_used_quota,
+            first.request_count
+        ),
+        (300, Some(125), 9)
+    );
+    let second = profile(&pool, 1002).await.unwrap();
+    assert_eq!(
+        (
+            second.used_quota,
+            second.normalized_used_quota,
+            second.request_count
+        ),
+        (300, None, 71)
+    );
+}
+
+async fn finance_source(
+    pool: &PgPool,
+    users: &[(i64, i64, char, i64, i64)],
+    native_request_ids: &[String],
+) {
+    let mut tx = pool.begin().await.unwrap();
+    sqlx::query(
+        r#"INSERT INTO core_history.finance_sources(source_key,contract,source_archive_sha256,
+ mapping_sha256,tables_sha256,normalization_sha256,rows_sha256,observed_at,user_count,
+ topup_count,credits_per_usd,complete,native_request_ids)
+VALUES(repeat('d',64),'core.site-finance-source.v1',repeat('a',64),repeat('b',64),
+ repeat('5',64),repeat('6',64),repeat('7',64),1700000000,$1,0,500000,true,$2)"#,
+    )
+    .bind(i64::try_from(users.len()).unwrap())
+    .bind(native_request_ids)
+    .execute(&mut *tx)
+    .await
+    .unwrap();
+    for &(user, account, hash_char, raw, normalized) in users {
+        sqlx::query(
+            r#"INSERT INTO core_history.finance_users(user_id,account_id,source_key,
+ source_row_sha256,raw_used_quota,normalized_used_credits)
+VALUES($1,$2,repeat('d',64),$3,$4,$5)"#,
+        )
+        .bind(user)
+        .bind(account)
+        .bind(hash_char.to_string().repeat(64))
+        .bind(raw)
+        .bind(normalized)
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    }
+    tx.commit().await.unwrap();
 }

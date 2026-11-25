@@ -11,47 +11,21 @@ func TestRecordsArchiveContentAndAnonymousPrivacy(t *testing.T) {
 	s, _ := setup(t)
 	ctx := context.Background()
 	invoke(t, s, "owner-token", "create_draft", "create")
-	if _, e := s.Detail(ctx, "", "p"); e != ErrNotFound {
-		t.Fatal("anonymous draft exposed", e)
-	}
-	invoke(t, s, "owner-token", "publish", "publish")
-	content := draft()
-	content.Title = "Updated title"
-	content.RewardCredit = 999
-	content.RepositoryURL = "https://github.com/attacker/repo"
-	out, e := s.Records(ctx, "owner-token", RecordRequest{Action: "content", ProjectID: "p", Draft: content})
-	if e != nil || out.Project.RewardCredit != 100 || out.Project.RepositoryURL != "https://github.com/owner/repo" || out.Project.Title != "Updated title" {
-		t.Fatal(out, e)
-	}
-	if _, e = s.Records(ctx, "worker-token", RecordRequest{Action: "content", ProjectID: "p", Draft: content}); e != ErrForbidden {
+	if _, e := s.Detail(ctx, "", "p"); e != ErrRetired {
 		t.Fatal(e)
 	}
-	if _, e = s.Records(ctx, "owner-token", RecordRequest{Action: "archive", ProjectID: "p"}); e != ErrConflict {
-		t.Fatal(e)
+	for _, action := range []string{"content", "archive", "unarchive"} {
+		if _, e := s.Records(ctx, "owner-token", RecordRequest{Action: action, ProjectID: "p", Draft: draft()}); e != ErrRetired {
+			t.Fatal(action, e)
+		}
 	}
-	s.Store.Within(ctx, func(tx Tx) error {
-		var p Project
-		tx.Get("projects", "p", &p)
-		p.Status = "closed"
-		return tx.Put("projects", "p", p)
-	})
-	if _, e = s.Records(ctx, "owner-token", RecordRequest{Action: "archive", ProjectID: "p"}); e != nil {
-		t.Fatal(e)
+	if _, e := s.Detail(ctx, "worker-token", "p"); e != ErrNotFound {
+		t.Fatal("foreign detail", e)
 	}
-	out, e = s.Records(ctx, "owner-token", RecordRequest{Action: "mine"})
-	if e != nil || len(out.Items) != 0 {
-		t.Fatal(out, e)
+	if _, e := s.Detail(ctx, "owner-token", "p"); e != nil {
+		t.Fatal("historical owner detail", e)
 	}
-	out, e = s.Records(ctx, "owner-token", RecordRequest{Action: "mine", Archived: true})
-	if e != nil || len(out.Items) != 1 {
-		t.Fatal(out, e)
-	}
-	if _, e = s.Detail(ctx, "", "p"); e != ErrNotFound {
-		t.Fatal("archived project exposed", e)
-	}
-	if _, e = s.Records(ctx, "owner-token", RecordRequest{Action: "unarchive", ProjectID: "p"}); e != nil {
-		t.Fatal(e)
-	}
+
 }
 func TestReceiptNotificationsOwnershipReadThankAndLedger(t *testing.T) {
 	s, _ := setup(t)
@@ -72,12 +46,10 @@ func TestReceiptNotificationsOwnershipReadThankAndLedger(t *testing.T) {
 	if e != nil || len(out.Items) != 1 {
 		t.Fatal(out, e)
 	}
-	if _, e = s.Records(ctx, "owner-token", RecordRequest{Action: "thank_tip", NotificationID: "tip-op"}); e != ErrForbidden {
-		t.Fatal(e)
-	}
-	out, e = s.Records(ctx, "worker-token", RecordRequest{Action: "thank_tip", NotificationID: "tip-op"})
-	if e != nil || out.Notification.ThankedAt == 0 || out.Notification.RecipientReadAt == 0 || out.Notification.Quota != 7 {
-		t.Fatal(out, e)
+	for _, token := range []string{"owner-token", "worker-token"} {
+		if _, e = s.Records(ctx, token, RecordRequest{Action: "thank_tip", NotificationID: "tip-op"}); e != ErrRetired {
+			t.Fatal(e)
+		}
 	}
 	var ledger []json.RawMessage
 	s.Store.Within(ctx, func(tx Tx) error { ledger, _ = tx.(ViewTx).All("ledger", Query{ProjectID: "p"}); return nil })

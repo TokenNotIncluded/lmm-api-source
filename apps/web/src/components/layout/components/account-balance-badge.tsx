@@ -45,7 +45,7 @@ export function AccountBalanceBadge({
   const walletAction = projection.native ? t('Wallet') : t('Top up')
   const reference = walletReferenceValue(
     projection.available,
-    currency === 'CNY' ? 'CNY' : 'USD',
+    currency,
     config,
     toIntlLocale(i18n.resolvedLanguage || i18n.language)
   )
@@ -113,6 +113,8 @@ export function AccountBalanceBadge({
                     'Reference values use the current pricing rate. Your balance is recorded in credits.'
                   )}
                 </>
+              ) : currency === 'CREDIT' ? (
+                description
               ) : (
                 t('Reference value unavailable')
               )

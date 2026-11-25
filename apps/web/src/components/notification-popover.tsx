@@ -17,9 +17,8 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { HugeiconsIcon } from '@hugeicons/react'
-import { Link } from '@tanstack/react-router'
 import type { TFunction } from 'i18next'
-import { Bell, Gift, Heart, Megaphone } from 'lucide-react'
+import { Bell, Gift, Megaphone } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 
 import { RichContent } from '@/components/rich-content'
@@ -44,10 +43,8 @@ import { Separator } from '@/components/ui/separator'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import {
   bountyNotificationPresentation,
-  bountyNotificationSearch,
 } from '@/features/open-source-bounties/notification-target'
 import type {
-  BountyId,
   BountyNotification,
 } from '@/features/open-source-bounties/types'
 import { getAnnouncementColorClass } from '@/lib/colors'
@@ -82,8 +79,6 @@ interface NotificationPopoverProps {
   notice: string
   announcements: AnnouncementItem[]
   bountyTips: BountyNotification[]
-  thankingTipId: BountyId
-  onThankTip: (tipId: BountyId) => void
   loading: boolean
   className?: string
 }
@@ -324,14 +319,10 @@ function AnnouncementsContent({
 function BountyNotificationsContent({
   items,
   loading,
-  thankingTipId,
-  onThankTip,
   t,
 }: {
   items: BountyNotification[]
   loading: boolean
-  thankingTipId: BountyId
-  onThankTip: (tipId: BountyId) => void
   t: TFunction
 }) {
   if (loading) {
@@ -364,19 +355,7 @@ function BountyNotificationsContent({
                       {formatQuota(item.quota)}
                     </span>
                   </p>
-                  <Button
-                    size='sm'
-                    variant='link'
-                    className='h-auto w-fit justify-start p-0 text-xs'
-                    render={
-                      <Link
-                        to='/bounties'
-                        search={bountyNotificationSearch(item)}
-                      />
-                    }
-                  >
-                    {t('View bounty')}: {item.project_title}
-                  </Button>
+                  <p className='text-muted-foreground text-xs'>{item.project_title}</p>
                   {presentation.showNoteAndThank && item.note ? (
                     <p className='text-muted-foreground text-sm'>{item.note}</p>
                   ) : null}
@@ -385,26 +364,6 @@ function BountyNotificationsContent({
                       {getRelativeTime(createdAt, t)} ·{' '}
                       {formatDateTimeObject(createdAt)}
                     </span>
-                    {presentation.showNoteAndThank ? (
-                      <Button
-                        size='sm'
-                        variant={item.thanked_at > 0 ? 'secondary' : 'outline'}
-                        disabled={
-                          item.thanked_at > 0 || thankingTipId === item.id
-                        }
-                        onClick={() => onThankTip(item.id)}
-                      >
-                        <Heart
-                          data-icon='inline-start'
-                          className={
-                            item.thanked_at > 0
-                              ? 'text-destructive fill-current'
-                              : undefined
-                          }
-                        />
-                        {item.thanked_at > 0 ? t('Thanked') : t('Send thanks')}
-                      </Button>
-                    ) : null}
                   </div>
                 </div>
               </div>
@@ -429,8 +388,6 @@ export function NotificationPopover({
   notice,
   announcements,
   bountyTips,
-  thankingTipId,
-  onThankTip,
   loading,
   className,
   ratioFeed,
@@ -527,8 +484,6 @@ export function NotificationPopover({
             <BountyNotificationsContent
               items={bountyTips}
               loading={loading}
-              thankingTipId={thankingTipId}
-              onThankTip={onThankTip}
               t={t}
             />
           </TabsContent>

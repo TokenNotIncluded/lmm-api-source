@@ -37,7 +37,7 @@ func (tx *observedReadTx) List(kind string, q Query) ([]json.RawMessage, error) 
 func TestAssistantBountyLiteralPrivateReadsUseCurrentSessionOwnerAndNoWrites(t *testing.T) {
 	var revoked atomic.Bool
 	c, calls := clientFixture(t, func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/internal/bounties/v1/authorize" {
+		if r.URL.Path != "/internal/bounties/v1/session-authorize" {
 			t.Error("read invoked money or a different authority", r.URL.Path)
 			w.WriteHeader(500)
 			return

@@ -317,16 +317,16 @@ function NativeWalletCheckoutForm({
   return (
     <section
       aria-labelledby='native-checkout-title'
-      className='wallet-checkout bg-card space-y-8 rounded-2xl p-6 sm:p-8'
+      className='wallet-checkout bg-card space-y-5 rounded-2xl p-5 sm:p-6'
     >
-      <div className='space-y-3'>
+      <div className='space-y-1.5'>
         <h2
           id='native-checkout-title'
           className='text-xl font-semibold tracking-tight'
         >
           {t('Add funds')}
         </h2>
-        <p className='text-muted-foreground max-w-prose text-sm leading-7'>
+        <p className='text-muted-foreground max-w-prose text-sm leading-6'>
           {t('Review the exact charge and wallet credit before paying.')}
         </p>
       </div>
@@ -364,14 +364,14 @@ function NativeWalletCheckoutForm({
           </div>
         ) : (
           <form
-            className='space-y-6'
+            className='space-y-4'
             onSubmit={(event) => {
               event.preventDefault()
               void review()
             }}
           >
-            <div className='wallet-checkout-fields grid gap-6'>
-              <div className='space-y-3'>
+            <div className='wallet-checkout-fields grid gap-4'>
+              <div className='space-y-2'>
                 <Label htmlFor='native-payment-channel'>
                   {t('Payment method')}
                 </Label>
@@ -392,7 +392,7 @@ function NativeWalletCheckoutForm({
                   <Badge variant='outline'>{t('Test payment')}</Badge>
                 ) : null}
               </div>
-              <div className='space-y-3'>
+              <div className='space-y-2'>
                 <Label htmlFor='native-payment-amount'>
                   {t(selected?.credit_quantity ? 'Wallet credit' : 'Amount')} ·{' '}
                   {selected?.credit_quantity
@@ -460,13 +460,19 @@ function NativeWalletCheckoutForm({
               </div>
             </div>
             {selected?.credit_quantity ? (
-              <div className='space-y-3'>
-                <Label htmlFor='native-payment-discount'>
+              <details
+                className='wallet-coupon'
+                open={discountCode ? true : undefined}
+              >
+                <summary className='text-muted-foreground hover:text-foreground w-fit cursor-pointer py-2 text-sm font-medium'>
+                  {t('Discount code')}
+                </summary>
+                <Label className='sr-only' htmlFor='native-payment-discount'>
                   {t('Discount code')}
                 </Label>
                 <Input
                   id='native-payment-discount'
-                  className='h-12'
+                  className='h-11'
                   autoComplete='off'
                   spellCheck={false}
                   maxLength={64}
@@ -474,7 +480,7 @@ function NativeWalletCheckoutForm({
                   disabled={busy}
                   onChange={(event) => setDiscountCode(event.target.value)}
                 />
-              </div>
+              </details>
             ) : null}
             {selected?.provider === 'coinbase' ? (
               <p className='text-muted-foreground text-sm'>
@@ -485,7 +491,7 @@ function NativeWalletCheckoutForm({
             ) : null}
             <Button
               type='submit'
-              className='min-h-11 w-full sm:w-auto'
+              className='min-h-11 w-full'
               disabled={
                 busy ||
                 belowMinimum ||
