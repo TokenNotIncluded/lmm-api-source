@@ -50,6 +50,8 @@ const { useAuthStore } = await import('@/stores/auth-store')
 const { ProfileTwoFactorCapability, ProfileCheckinCapability } =
   await import('./profile-feature-capabilities')
 const { GiftCard } = await import('./gift-card')
+const { claimGift } = await import('../api')
+const { toast } = await import('sonner')
 const i18n = createInstance()
 await i18n
   .use(initReactI18next)
@@ -314,4 +316,133 @@ test('an unadvertised gift endpoint distinguishes the old native fallback, trans
   })
   assert.equal(host.textContent, '')
   assert.equal(calls, 3)
+})
+
+test('compensation claims require the initiating account, gift, positive receipt and explicit duplicate status', async () => {
+  const original = api.post
+  const input = { giftId: 31, userId: 7, sessionId: 'gift-test' }
+  const claim = {
+    id: 71,
+    gift_id: 31,
+    user_id: 7,
+    quota: 10,
+    created_at: 1700000000,
+  }
+  let payload: unknown
+  api.post = (async (url, body, config) => {
+    assert.equal(url, '/api/user/gift/31/claim')
+    assert.equal(body, undefined)
+    assert.deepEqual(config?.authScope, { userId: 7, sessionId: 'gift-test' })
+    return { data: payload }
+  }) as typeof api.post
+  try {
+    for (const already_claimed of [false, true]) {
+      payload = { success: true, data: { claim, already_claimed } }
+      assert.deepEqual(await claimGift(input), payload)
+    }
+    for (const data of [
+      undefined,
+      { claim },
+      { claim, already_claimed: 'false' },
+      ...[{ gift_id: 99 }, { user_id: 63 }, { id: 0 }, { quota: 0 }].map(
+        (change) => ({ claim: { ...claim, ...change }, already_claimed: false })
+      ),
+    ]) {
+      payload = { success: true, data }
+      await assert.rejects(claimGift(input))
+    }
+    payload = { success: false, message: 'Gift expired' }
+    assert.deepEqual(await claimGift(input), payload)
+  } finally {
+    api.post = original
+  }
+})
+
+test('a listed gift posts once on click and an ambiguous response refreshes its actual claimed state', async () => {
+  useAuthStore.setState({
+    auth: {
+      ...previousAuth,
+      user: { id: 7, role: 1 },
+      session: { sid: 'gift-test' },
+    } as never,
+  })
+  const previous = {
+    post: api.post,
+    success: toast.success,
+    error: toast.error,
+  }
+  const now = Math.floor(Date.now() / 1000)
+  let writes = 0,
+    reads = 0,
+    successes = 0,
+    unknown = 0
+  api.get = (async (url) => {
+    assert.equal(url, '/api/user/gift')
+    reads++
+    return {
+      data: {
+        success: true,
+        data: [
+          {
+            id: 31,
+            title: 'Maintenance compensation',
+            description: '',
+            quota: 10,
+            start_at: now - 300,
+            end_at: now + 300,
+            min_used_quota: 0,
+            min_account_age_days: 0,
+            enabled: true,
+            claimed: writes > 0,
+            eligible: writes === 0,
+            created_at: now - 600,
+          },
+        ],
+      },
+    }
+  }) as typeof api.get
+  api.post = (async () => {
+    writes++
+    return { data: { success: true } }
+  }) as typeof api.post
+  toast.success = (() => {
+    successes++
+    return 1
+  }) as typeof toast.success
+  toast.error = ((message) => {
+    assert.match(String(message), /could not be confirmed/)
+    unknown++
+    return 2
+  }) as typeof toast.error
+  const settle = () => new Promise((resolve) => setTimeout(resolve, 35))
+  try {
+    const host = await render(
+      <GiftCard capabilitiesReady onRefresh={() => {}} />
+    )
+    await act(async () => {
+      await settle()
+    })
+    assert.match(host.textContent ?? '', /Maintenance compensation/)
+    assert.equal(reads, 1)
+    assert.equal(writes, 0)
+    const claim = [...host.querySelectorAll('button')].find(
+      (b) => b.textContent === 'Claim'
+    )
+    assert.ok(claim)
+    assert.equal(claim.disabled, false)
+    await act(async () => {
+      claim.click()
+      await settle()
+    })
+    assert.equal(writes, 1)
+    assert.equal(reads, 2)
+    assert.equal(successes, 0)
+    assert.equal(unknown, 1)
+    assert.match(host.textContent ?? '', /Claimed/)
+    assert.equal(host.querySelector('button')?.disabled, true)
+  } finally {
+    api.post = previous.post
+    toast.success = previous.success
+    toast.error = previous.error
+  }
 })

@@ -34,8 +34,13 @@ import { useWalletCurrency } from '@/hooks/use-wallet-currency'
 import dayjs from '@/lib/dayjs'
 import { useAuthStore } from '@/stores/auth-store'
 
-import { claimGift, getAvailableGifts } from '../api'
+import { claimGift, getAvailableGifts, type GiftClaimInput } from '../api'
 import type { GiftItem } from '../types'
+
+function currentClaim({ userId, sessionId }: GiftClaimInput) {
+  const { user, session } = useAuthStore.getState().auth
+  return user?.id === userId && session?.sid === sessionId
+}
 
 /**
  * Compensation gift card shown on the profile page when the operator has
@@ -83,20 +88,36 @@ export function GiftCard({
   })
 
   const claimMutation = useMutation({
-    mutationFn: (giftId: number) => claimGift(giftId),
-    onSuccess: (res) => {
+    mutationFn: claimGift,
+    onSuccess: (res, input) => {
+      if (!currentClaim(input)) return
       if (res.success) {
-        if (res.data?.already_claimed) {
+        if (res.data.already_claimed) {
           toast.info(t('You have already claimed this gift'))
         } else {
           toast.success(t('Gift claimed successfully'))
         }
-        queryClient.invalidateQueries({ queryKey: ['available-gifts'] })
       } else {
         toast.error(res.message || t('Failed to claim gift'))
       }
     },
-    onError: () => toast.error(t('Failed to claim gift')),
+    onError: (_error, input) => {
+      if (currentClaim(input)) {
+        toast.error(
+          t(
+            'The change could not be confirmed. Review the latest status before trying again.'
+          )
+        )
+      }
+    },
+    onSettled: (_result, _error, input) => {
+      if (currentClaim(input)) {
+        void queryClient.invalidateQueries({
+          queryKey: ['available-gifts', input.userId, input.sessionId],
+          exact: true,
+        })
+      }
+    },
   })
 
   if (!capabilitiesReady || enabled === false || (data === null && !isError)) {
@@ -182,7 +203,10 @@ export function GiftCard({
             key={gift.id}
             gift={gift}
             claiming={claimMutation.isPending}
-            onClaim={() => claimMutation.mutate(gift.id)}
+            onClaim={() => {
+              if (userId && sessionId)
+                claimMutation.mutate({ giftId: gift.id, userId, sessionId })
+            }}
           />
         ))}
       </div>
