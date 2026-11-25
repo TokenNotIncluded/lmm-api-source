@@ -2830,14 +2830,20 @@ test('channel drafts survive current-section clicks and require confirmation bef
     'page'
   )
 
-  await act(async () => button(container, 'Create Channel').click())
+  const create = button(container, 'Create Channel')
+  await act(async () => {
+    create.focus()
+    create.click()
+  })
   dialog = required(document.querySelector('[role=dialog]'))
   await act(async () => button(dialog, 'Leave').click())
   assert.ok(container.querySelector('form[aria-label="Create Channel"]'))
-  assert.equal(
-    (container.querySelector('form input') as HTMLInputElement).value,
-    ''
+  const replacementName = required(
+    container.querySelector<HTMLInputElement>('form input')
   )
+  assert.equal(replacementName.value, '')
+  await until(() => !document.querySelector('[role=dialog]'))
+  assert.ok(document.activeElement === replacementName, 'Focus the new editor')
   // An untouched replacement may close without another confirmation.
   await act(async () =>
     button(required(container.querySelector('form')), 'Cancel').click()

@@ -261,7 +261,7 @@ function NativeRoutingWorkspace({
   const [editorDestination, setEditorDestination] =
     useState<EditorDestination | null>(null)
   const editorRef = useRef<HTMLFormElement>(null)
-  const discardFocus = useRef<HTMLButtonElement | null>(null)
+  const discardFocus = useRef<HTMLButtonElement | false | null>(null)
   useEffect(() => {
     editorRef.current?.scrollIntoView?.({ block: 'start' })
     editorRef.current
@@ -412,6 +412,10 @@ function NativeRoutingWorkspace({
     )
   }
   function changeEditor(destination: EditorDestination) {
+    if (editorDestination && 'editor' in destination) {
+      // The replacement form focuses its first field when it opens.
+      discardFocus.current = false
+    }
     if ('close' in destination && editor?.trigger) {
       if (editorDestination) discardFocus.current = editor.trigger
       else editor.trigger.focus()
