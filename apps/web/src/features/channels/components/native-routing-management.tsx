@@ -1,6 +1,14 @@
 /* Copyright (C) 2026 LIghtJUNction. SPDX-License-Identifier: AGPL-3.0-or-later */
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { KeyRound, Pencil, Play, Plus, RefreshCw } from 'lucide-react'
+import {
+  KeyRound,
+  LayoutGrid,
+  List,
+  Pencil,
+  Play,
+  Plus,
+  RefreshCw,
+} from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
@@ -212,6 +220,7 @@ function NativeRoutingWorkspace({
   const [section, setSection] = useState<Section>(initialSection)
   const [page, setPage] = useState(1)
   const [search, setSearch] = useState('')
+  const [channelLayout, setChannelLayout] = useState<'cards' | 'list'>('cards')
   const [channelFilters, setChannelFilters] = useState<NativeChannelFilters>({
     status: 'all',
     group: '',
@@ -1306,6 +1315,28 @@ function NativeRoutingWorkspace({
                 </Button>
               </div>
             )}
+            <div className='bg-muted ms-auto flex shrink-0 items-center rounded-lg p-0.5'>
+              {(
+                [
+                  ['cards', LayoutGrid, t('Card view')],
+                  ['list', List, t('List view')],
+                ] as const
+              ).map(([layout, Icon, label]) => (
+                <Button
+                  key={layout}
+                  type='button'
+                  size='icon'
+                  variant={channelLayout === layout ? 'secondary' : 'ghost'}
+                  className='aria-pressed:bg-background aria-pressed:text-foreground size-11 sm:size-9'
+                  aria-label={label}
+                  aria-pressed={channelLayout === layout}
+                  title={label}
+                  onClick={() => setChannelLayout(layout)}
+                >
+                  <Icon className='size-4' />
+                </Button>
+              ))}
+            </div>
           </div>
           {batchRoutingOpen && (
             <NativeChannelBatchEditor
@@ -1399,7 +1430,14 @@ function NativeRoutingWorkspace({
                 )}
               </div>
             )}
-          <div className='divide-border/50 divide-y'>
+          <div
+            data-layout={channelLayout}
+            className={
+              channelLayout === 'cards'
+                ? 'grid grid-cols-1 items-start gap-3 @min-[40rem]/routing:grid-cols-2 @min-[61rem]/routing:grid-cols-3'
+                : 'divide-border/60 divide-y'
+            }
+          >
             {visibleChannels.map((channel) => {
               const name =
                 configuration.bindings.names[channel.id] ??
@@ -1409,15 +1447,32 @@ function NativeRoutingWorkspace({
                   (target) => target.upstream_id === channel.id
                 )
               )
+              const targets = routes.flatMap((route) =>
+                route.targets.filter(
+                  (target) => target.upstream_id === channel.id
+                )
+              )
+              const routingMetrics = (['priority', 'weight'] as const).map(
+                (key) => ({
+                  label: key === 'priority' ? t('Priority') : t('Weight'),
+                  value: [...new Set(targets.map((target) => target[key]))]
+                    .sort((a, b) => a - b)
+                    .join(', '),
+                })
+              )
               const discovery = configuration.bindings.discoveries[channel.id]
               return (
                 <article
                   key={channel.id}
-                  className='min-w-0 space-y-3 py-6'
+                  className={
+                    channelLayout === 'cards'
+                      ? 'bg-card min-w-0 space-y-3 rounded-xl p-4'
+                      : 'min-w-0 space-y-2 py-3'
+                  }
                   aria-label={name}
                 >
-                  <div className='flex min-w-0 flex-wrap items-start justify-between gap-4'>
-                    <div className='flex min-w-0 flex-1 basis-72 items-start gap-3'>
+                  <div className='flex min-w-0 flex-wrap items-start justify-between gap-x-4 gap-y-2'>
+                    <div className='flex min-w-0 flex-1 basis-60 items-start gap-2.5'>
                       <Checkbox
                         className='mt-1'
                         aria-label={name}
@@ -1433,9 +1488,9 @@ function NativeRoutingWorkspace({
                           )
                         }
                       />
-                      <div className='min-w-0 space-y-1.5'>
+                      <div className='min-w-0 flex-1 space-y-1.5'>
                         <div className='flex flex-wrap items-baseline gap-x-3 gap-y-1'>
-                          <h3 className='font-medium [overflow-wrap:anywhere]'>
+                          <h3 className='text-base leading-snug font-semibold tracking-tight [overflow-wrap:anywhere]'>
                             {name}
                           </h3>
                           <p className='text-muted-foreground text-xs tabular-nums'>
@@ -1449,7 +1504,10 @@ function NativeRoutingWorkspace({
                             </span>
                           </p>
                         </div>
-                        <p className='text-muted-foreground font-mono text-xs break-all'>
+                        <p
+                          className='text-muted-foreground truncate font-mono text-xs'
+                          title={channel.endpoint}
+                        >
                           {channel.endpoint}
                         </p>
                         <div className='text-muted-foreground flex flex-wrap items-center gap-x-3 gap-y-1 text-xs'>
@@ -1457,11 +1515,14 @@ function NativeRoutingWorkspace({
                             {nativeProtocolLabel(channel.protocol, t)}
                           </span>
                           <span>
-                            {t('{{count}} models', { count: routes.length })}
+                            {t('{{count}} models', {
+                              count: new Set(routes.map((route) => route.model))
+                                .size,
+                            })}
                           </span>
                           {configuration.bindings.tags?.[channel.id] && (
                             <span
-                              className='text-muted-foreground max-w-full truncate'
+                              className='bg-muted text-foreground max-w-full truncate rounded px-1.5 py-0.5'
                               title={configuration.bindings.tags[channel.id]}
                             >
                               {configuration.bindings.tags[channel.id]}
@@ -1470,7 +1531,31 @@ function NativeRoutingWorkspace({
                         </div>
                       </div>
                     </div>
-                    <div className='ml-7 flex flex-wrap items-center gap-1 sm:ml-0'>
+                    {targets.length > 0 && (
+                      <dl
+                        className={
+                          channelLayout === 'cards'
+                            ? 'text-muted-foreground flex min-w-0 basis-full flex-wrap gap-x-4 gap-y-1 text-xs'
+                            : 'text-muted-foreground flex min-w-0 flex-wrap items-baseline gap-x-4 gap-y-1 self-center text-xs'
+                        }
+                      >
+                        {routingMetrics.map(({ label, value }) => (
+                          <div
+                            key={label}
+                            className='flex max-w-full min-w-0 items-baseline gap-1.5'
+                          >
+                            <dt>{label}</dt>
+                            <dd
+                              className='text-foreground truncate font-medium tabular-nums'
+                              title={value}
+                            >
+                              {value}
+                            </dd>
+                          </div>
+                        ))}
+                      </dl>
+                    )}
+                    <div className='flex flex-wrap items-center gap-1'>
                       <Button
                         type='button'
                         variant='secondary'
@@ -1539,17 +1624,17 @@ function NativeRoutingWorkspace({
                     </div>
                   </div>
                   {serverChannels && (
-                    <div className='ml-7'>
+                    <div>
                       <NativeChannelStatisticsSummary
                         value={statisticsById.get(channel.id)}
                       />
                     </div>
                   )}
-                  <details className='group ml-7 min-w-0'>
+                  <details className='group min-w-0'>
                     <summary className='text-muted-foreground hover:text-foreground w-fit cursor-pointer py-1.5 text-xs font-medium focus-visible:outline-2 focus-visible:outline-offset-4'>
                       {t('Details')}
                     </summary>
-                    <div className='bg-card mt-3 min-w-0 space-y-5 rounded-xl p-4 sm:p-5'>
+                    <div className='border-border/60 mt-2 min-w-0 space-y-4 border-t pt-3'>
                       {configuration.bindings.tags?.[channel.id] && (
                         <dl className='space-y-1 text-xs'>
                           <dt className='text-muted-foreground'>{t('Tag')}</dt>

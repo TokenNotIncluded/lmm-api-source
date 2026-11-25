@@ -2890,6 +2890,17 @@ test('channel search explains an empty result and clearing restores the compact 
   assert.equal(required(row.querySelector('details')).open, false)
   assert.equal(button(row, 'Edit').closest('details'), null)
   assert.equal(button(row, 'Test').closest('details'), null)
+  const layout = required(row.parentElement)
+  assert.equal(layout.dataset.layout, 'cards')
+  assert.equal(row.querySelector('dd[title="0"]')?.textContent, '0')
+  assert.equal(row.querySelector('dd[title="1"]')?.textContent, '1')
+  const chooseList = required(
+    container.querySelector<HTMLButtonElement>('button[aria-label="List view"]')
+  )
+  await act(async () => chooseList.click())
+  assert.equal(layout.dataset.layout, 'list')
+  assert.equal(chooseList.getAttribute('aria-pressed'), 'true')
+  assert.equal(container.querySelector('article'), row)
   const search = required(
     container.querySelector<HTMLInputElement>('input[aria-label="Search"]')
   )
