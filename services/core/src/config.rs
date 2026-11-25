@@ -1,5 +1,7 @@
 #[cfg(test)]
 mod checkin_rewards_tests;
+mod channel_change;
+pub use channel_change::plan_file_channel_models;
 mod console_options;
 mod email_config;
 mod hero_sms_config;
@@ -3459,6 +3461,91 @@ pub fn images_configured() -> io::Result<bool> {
         )),
     }
 }
+impl ModelRouting {
+    fn resolve(self, local_http: bool) -> io::Result<crate::routing::RoutingConfig> {
+        let upstreams = self
+            .upstreams
+            .into_iter()
+            .map(|upstream| {
+                let endpoint = if local_http {
+                    // Local mode cannot accidentally contact an actual paid provider.
+                    crate::routing::Endpoint::local_loopback(upstream.endpoint)
+                } else {
+                    crate::routing::Endpoint::try_from(upstream.endpoint)
+                }
+                .map_err(|_| invalid_config("invalid model upstream endpoint"))?;
+                Ok(crate::routing::UpstreamConfig {
+                    id: upstream.id,
+                    endpoint,
+                    protocol: upstream.protocol,
+                    credential: upstream.credential,
+                    enabled: upstream.enabled,
+                })
+            })
+            .collect::<io::Result<Vec<_>>>()?;
+        Ok(crate::routing::RoutingConfig {
+            version: self.version,
+            groups: self.groups,
+            upstreams,
+            routes: self.routes,
+            aliases: self.aliases,
+        })
+    }
+}
+
+fn validate_provider_routes(
+    routing: &crate::routing::RoutingConfig,
+    provider_policy: &crate::model_http::ProviderPolicy,
+    input_token_ceiling: i64,
+) -> io::Result<()> {
+    // Reject unusable weighted targets at startup, before reading credentials.
+    // Dispatch repeats this validation against its frozen selected attempt.
+    let upstream_by_id: BTreeMap<_, _> = routing.upstreams.iter().map(|u| (u.id, u)).collect();
+    for route in routing.routes.iter().filter(|route| route.enabled) {
+        for target in route
+            .targets
+            .iter()
+            .filter(|target| target.enabled && target.weight > 0)
+        {
+            let upstream = upstream_by_id
+                .get(&target.upstream_id)
+                .filter(|upstream| upstream.enabled)
+                .ok_or_else(|| invalid_config("model target has no enabled upstream"))?;
+            provider_policy
+                .validate_binding(
+                    upstream.id,
+                    &target.upstream_model,
+                    upstream.protocol,
+                    upstream.endpoint.as_str(),
+                    if matches!(
+                        upstream.protocol,
+                        crate::routing::Protocol::DeepSeekSearch
+                            | crate::routing::Protocol::DeepSeekFetch
+                    ) {
+                        0
+                    } else {
+                        input_token_ceiling
+                    },
+                    // Input-only and native tool contracts have no output
+                    // tokens. Text requests check their actual output ceiling.
+                    if upstream.protocol.input_only()
+                        || matches!(
+                            upstream.protocol,
+                            crate::routing::Protocol::DeepSeekSearch
+                                | crate::routing::Protocol::DeepSeekFetch
+                        )
+                    {
+                        0
+                    } else {
+                        1
+                    },
+                )
+                .map_err(|_| invalid_config("invalid model provider context binding"))?;
+        }
+    }
+    Ok(())
+}
+
 fn model_gateway_with_origins(
     pool: sqlx::PgPool,
     document: &[u8],
@@ -3486,73 +3573,9 @@ fn model_gateway_with_origins(
             "model configuration has no usable grants or exceeds limits",
         ));
     }
-    let upstreams = config
-        .routing
-        .upstreams
-        .into_iter()
-        .map(|upstream| {
-            let endpoint = if local_http {
-                // Local mode cannot accidentally contact an actual paid provider.
-                crate::routing::Endpoint::local_loopback(upstream.endpoint)
-            } else {
-                crate::routing::Endpoint::try_from(upstream.endpoint)
-            }
-            .map_err(|_| invalid_config("invalid model upstream endpoint"))?;
-            Ok(crate::routing::UpstreamConfig {
-                id: upstream.id,
-                endpoint,
-                protocol: upstream.protocol,
-                credential: upstream.credential,
-                enabled: upstream.enabled,
-            })
-        })
-        .collect::<io::Result<Vec<_>>>()?;
-    // Reject unusable weighted targets at startup, before reading credentials.
-    // Dispatch repeats this validation against its frozen selected attempt.
-    let upstream_by_id: BTreeMap<_, _> = upstreams.iter().map(|u| (u.id, u)).collect();
-    for route in config.routing.routes.iter().filter(|route| route.enabled) {
-        for target in route
-            .targets
-            .iter()
-            .filter(|target| target.enabled && target.weight > 0)
-        {
-            let upstream = upstream_by_id
-                .get(&target.upstream_id)
-                .filter(|upstream| upstream.enabled)
-                .ok_or_else(|| invalid_config("model target has no enabled upstream"))?;
-            provider_policy
-                .validate_binding(
-                    upstream.id,
-                    &target.upstream_model,
-                    upstream.protocol,
-                    upstream.endpoint.as_str(),
-                    if matches!(
-                        upstream.protocol,
-                        crate::routing::Protocol::DeepSeekSearch
-                            | crate::routing::Protocol::DeepSeekFetch
-                    ) {
-                        0
-                    } else {
-                        config.input_token_ceiling
-                    },
-                    // Input-only and native tool contracts have no output
-                    // tokens. Text requests check their actual output ceiling.
-                    if upstream.protocol.input_only()
-                        || matches!(
-                            upstream.protocol,
-                            crate::routing::Protocol::DeepSeekSearch
-                                | crate::routing::Protocol::DeepSeekFetch
-                        )
-                    {
-                        0
-                    } else {
-                        1
-                    },
-                )
-                .map_err(|_| invalid_config("invalid model provider context binding"))?;
-        }
-    }
-    let required: BTreeSet<_> = upstreams
+    let routing = config.routing.resolve(local_http)?;
+    validate_provider_routes(&routing, &provider_policy, config.input_token_ceiling)?;
+    let required: BTreeSet<_> = routing.upstreams
         .iter()
         .filter(|u| u.enabled)
         .map(|u| (u.credential.id, u.credential.revision))
@@ -3581,13 +3604,6 @@ fn model_gateway_with_origins(
             return Err(invalid_config("duplicate model key grant"));
         }
     }
-    let routing = crate::routing::RoutingConfig {
-        version: config.routing.version,
-        groups: config.routing.groups,
-        upstreams,
-        routes: config.routing.routes,
-        aliases: config.routing.aliases,
-    };
     let prices = crate::routing::PriceSnapshot::compile(config.prices)
         .map_err(|_| invalid_config("invalid model prices"))?;
     let routing = crate::routing::Router::new(routing, Arc::new(prices))
