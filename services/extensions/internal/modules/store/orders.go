@@ -22,6 +22,10 @@ type Purchase struct {
 }
 
 func (s *Service) Purchase(ctx context.Context, token string, p Purchase) (Order, error) {
+	return s.purchase(ctx, token, p, nil)
+}
+
+func (s *Service) purchase(ctx context.Context, token string, p Purchase, terms *ServiceTerms) (Order, error) {
 	if !Key(p.Key) || p.Quantity <= 0 || !p.Buyer.Valid() {
 		return Order{}, ErrInvalid
 	}
@@ -35,6 +39,9 @@ func (s *Service) Purchase(ctx context.Context, token string, p Purchase) (Order
 	}
 	id := ID("order", p.Buyer, actor, p.Key)
 	hash := ID(p)
+	if terms != nil {
+		hash = ID("service-purchase-v1", p, *terms)
+	}
 	var out Order
 	err = s.repo.Within(ctx, p.ShopID, func(tx Tx) error {
 		if err := tx.Get("orders", id, &out); err == nil {
@@ -165,6 +172,9 @@ func (s *Service) Purchase(ctx context.Context, token string, p Purchase) (Order
 			return ErrInvalid
 		}
 		total := Price{Amount: unitPrice.Amount * p.Quantity, Currency: unitPrice.Currency, Unit: unitPrice.Unit}
+		if terms != nil && (product.Legacy != nil || unitPrice != terms.UnitPrice || shop.Owner == p.Buyer || !s.ServiceDeliveryAvailable()) {
+			return ErrConflict
+		}
 		if p.RequireFree && total.Amount != 0 {
 			return ErrConflict
 		}
@@ -202,6 +212,9 @@ func (s *Service) Purchase(ctx context.Context, token string, p Purchase) (Order
 			}
 		}
 		out = Order{ID: id, Buyer: p.Buyer, Seller: shop.Owner, CreatedBy: actor, VariantID: v.ID, Title: v.Title, ProductTitle: product.Title, Quantity: p.Quantity, UnitPrice: unitPrice, Total: total, State: AwaitingPayment, RequestHash: hash, StockItems: stockIDs}
+		if terms != nil {
+			out.Entitlement = &ServiceEntitlement{Terms: *terms}
+		}
 		if product.Legacy != nil {
 			out.Legacy = &LegacyOrderMetadata{ProductID: product.ID, PaymentMethod: "balance", CreatedAt: time.Now().Unix(), DeliveryTemplate: v.Legacy.Template}
 			out.Legacy.SellerTermsVersion = frozenTerms.Version
@@ -311,6 +324,9 @@ func (s *Service) ChangeOrder(ctx context.Context, token string, c OrderChange) 
 				return ErrInvalid
 			}
 			delivery := c.Text
+			if out.Entitlement != nil && delivery != servicePassReference(c.ShopID, out) {
+				return ErrConflict
+			}
 			if stockOrder(out) {
 				delivery = stockDeliverySummary(remainingStockItems(out))
 			}

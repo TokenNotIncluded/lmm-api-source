@@ -32,6 +32,8 @@ mod native_inputs;
 mod resources;
 #[path = "common/runtime.rs"]
 mod runtime;
+#[path = "../../../tests/commerce/ssmcpd_case.rs"]
+mod ssmcpd_case;
 
 // The child remains the direct product PID; Drop still injects real SIGKILL.
 struct Process(Child, Value, PathBuf, String);
@@ -439,8 +441,11 @@ async fn real_core_and_go_store_replay_refund_and_restart_after_lost_ack(pool: P
         .as_ref()
         .map(native_inputs::Inputs::store_settings)
         .unwrap_or_default();
+    let traffic = ssmcpd_case::Relay::start(&root, buyer_id).await;
+    let plugin_modules = if traffic.is_some() { ",'ssmcpd'" } else { "" };
+    let traffic_settings = traffic.as_ref().map_or("", |r| r.settings.as_str());
     let go_config = private(&root, "go.toml", format!(
-        "version=1\n[host]\nlisten='{extension_address}'\nweb_compat=true\nlocal_http={local_http}\npublic_origin='{public_origin}'\ntoken_file='{}'\nmodules=['identity','store']\n[core]\nsocket='{}'\nidentity_token_file='{}'\ncommerce_token_file='{}'\n[store]\ndatabase_name='{database}'\ndatabase_url_file='{}'\n{native_settings}",
+        "version=1\n[host]\nlisten='{extension_address}'\nweb_compat=true\nlocal_http={local_http}\npublic_origin='{public_origin}'\ntoken_file='{}'\nmodules=['identity','store'{plugin_modules}]\n[core]\nsocket='{}'\nidentity_token_file='{}'\ncommerce_token_file='{}'\n[store]\ndatabase_name='{database}'\ndatabase_url_file='{}'\n{native_settings}\n{traffic_settings}",
         host_file.display(), socket.display(), control.display(), money.display(), store_url.display()
     ).as_bytes());
     let client = Client::builder()
@@ -524,6 +529,21 @@ async fn real_core_and_go_store_replay_refund_and_restart_after_lost_ack(pool: P
         "merchant-before-restart.json",
         &serde_json::to_vec(&merchant_evidence).unwrap(),
     );
+    if traffic.is_some() {
+        ssmcpd_case::exercise(
+            &client,
+            &endpoint,
+            host,
+            &buyer,
+            &seller,
+            &outsider,
+            shop_id,
+            &product,
+            &store_owner,
+            &pool,
+        )
+        .await;
+    }
     let commerce_baseline: i64 =
         sqlx::query_scalar("SELECT count(*) FROM core_commerce.operations")
             .fetch_one(&pool)

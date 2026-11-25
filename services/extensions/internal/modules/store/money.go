@@ -108,6 +108,9 @@ func (s *Service) money(ctx context.Context, token string, c OrderChange) (Order
 			if len(out.PartialRefunds) > 0 {
 				return ErrConflict
 			}
+			if out.Entitlement != nil && out.Entitlement.Dispatch == "unknown" {
+				return ErrPending
+			}
 			if out.RefundState != "requested" || (out.State != Paid && out.State != Fulfilled && out.State != Settled) {
 				return ErrConflict
 			}
