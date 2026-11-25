@@ -330,13 +330,17 @@ async fn managed70_owner_upgrade_preserves_all_other_data_acl_and_commit_recover
     engine_offline_boundary(&request).await;
     let rollback = FAIL_AFTER_OAUTH_CAS
         .scope(true, upgrade_database(url.as_str(), request.clone()))
-        .await;
-    assert!(matches!(
-        rollback,
-        Err(UpgradeError::Rejected(
-            "MANAGED_APPLICATIONS_INJECTED_AFTER_OAUTH_CAS"
-        ))
-    ));
+        .await
+        .map(|report| report.status);
+    assert!(
+        matches!(
+            &rollback,
+            Err(UpgradeError::Rejected(
+                "MANAGED_APPLICATIONS_INJECTED_AFTER_OAUTH_CAS"
+            ))
+        ),
+        "managed70 injected rollback result: {rollback:?}"
+    );
     let mut inspect = PgConnection::connect_with(&options).await.unwrap();
     assert_eq!(
         snapshot_data(&mut inspect, &tables, &sequences)

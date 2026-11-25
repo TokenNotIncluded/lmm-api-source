@@ -206,6 +206,15 @@ export function adaptNativePricing(
     })
   }
   return {
+    catalog_visibility: document.visibility,
+    empty_reason:
+      document.empty_reason ??
+      (document.models.length === 0
+        ? document.visibility === 'session'
+          ? 'no_visible_models'
+          : 'catalog_empty'
+        : null),
+    public_view_available: document.public_view_available === true,
     pricing_context: pricingContext,
     success: true,
     pricing_schema_version: 2,

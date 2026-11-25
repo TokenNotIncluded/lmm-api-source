@@ -51,7 +51,7 @@ import {
   useCallback,
   useRef,
 } from 'react'
-import { type SubmitErrorHandler, useForm } from 'react-hook-form'
+import { type SubmitErrorHandler, useForm, useWatch } from 'react-hook-form'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 
@@ -759,62 +759,125 @@ export function ChannelMutateDrawer({
     })
   }, [form, open, submission?.fixedGroup])
 
-  // Watch form values for conditional rendering
-  const multiKeyMode = form.watch('multi_key_mode')
-  const multiKeyType = form.watch('multi_key_type')
-  const keyMode = form.watch('key_mode')
-  const currentGroups = form.watch('group')
-  const currentType = form.watch('type')
-  const currentStatus = form.watch('status')
-  const currentBaseUrl = form.watch('base_url')
-  const currentKey = form.watch('key')
-  const currentOther = form.watch('other')
-  const currentModels = form.watch('models')
-  const currentName = form.watch('name')
-  const currentModelMapping = form.watch('model_mapping')
-  const awsKeyType = form.watch('aws_key_type')
-  const vertexKeyType = form.watch('vertex_key_type')
-  const upstreamModelUpdateCheckEnabled = form.watch(
-    'upstream_model_update_check_enabled'
-  )
-  const currentSettings = form.watch('settings')
-  const currentAdvancedCustom = form.watch('advanced_custom')
-  const currentPriority = form.watch('priority')
-  const currentWeight = form.watch('weight')
-  const currentTestModel = form.watch('test_model')
-  const currentAutoBan = form.watch('auto_ban')
-  const currentTag = form.watch('tag')
-  const currentRemark = form.watch('remark')
-  const currentStatusCodeMapping = form.watch('status_code_mapping')
-  const currentParamOverride = form.watch('param_override')
-  const currentHeaderOverride = form.watch('header_override')
-  const currentForceFormat = form.watch('force_format')
-  const currentResponsesWebSocketEnabled = form.watch(
-    'responses_websocket_enabled'
-  )
-  const currentThinkingToContent = form.watch('thinking_to_content')
-  const currentPassThroughBodyEnabled = form.watch('pass_through_body_enabled')
-  const currentDisableTaskPollingSleep = form.watch(
-    'disable_task_polling_sleep'
-  )
-  const currentProxy = form.watch('proxy')
-  const currentHttpProtocol = form.watch('http_protocol')
-  const currentHttp2ConnectionShards = form.watch('http2_connection_shards')
-  const currentSystemPrompt = form.watch('system_prompt')
-  const currentSystemPromptOverride = form.watch('system_prompt_override')
-  const currentAllowServiceTier = form.watch('allow_service_tier')
-  const currentDisableStore = form.watch('disable_store')
-  const currentAllowSafetyIdentifier = form.watch('allow_safety_identifier')
-  const currentAllowIncludeObfuscation = form.watch('allow_include_obfuscation')
-  const currentAllowInferenceGeo = form.watch('allow_inference_geo')
-  const currentAllowSpeed = form.watch('allow_speed')
-  const currentClaudeBetaQuery = form.watch('claude_beta_query')
-  const currentUpstreamModelUpdateAutoSyncEnabled = form.watch(
-    'upstream_model_update_auto_sync_enabled'
-  )
-  const currentUpstreamModelUpdateIgnoredModels = form.watch(
-    'upstream_model_update_ignored_models'
-  )
+  const [
+    multiKeyMode,
+    multiKeyType,
+    keyMode,
+    currentGroups,
+    currentType,
+    currentStatus,
+  ] = useWatch({
+    control: form.control,
+    name: [
+      'multi_key_mode',
+      'multi_key_type',
+      'key_mode',
+      'group',
+      'type',
+      'status',
+    ],
+  })
+  const [
+    currentBaseUrl,
+    currentKey,
+    currentOther,
+    currentModels,
+    currentName,
+    currentModelMapping,
+  ] = useWatch({
+    control: form.control,
+    name: ['base_url', 'key', 'other', 'models', 'name', 'model_mapping'],
+  })
+  const [
+    awsKeyType,
+    vertexKeyType,
+    upstreamModelUpdateCheckEnabled,
+    currentSettings,
+    currentAdvancedCustom,
+  ] = useWatch({
+    control: form.control,
+    name: [
+      'aws_key_type',
+      'vertex_key_type',
+      'upstream_model_update_check_enabled',
+      'settings',
+      'advanced_custom',
+    ],
+  })
+  const [
+    currentPriority,
+    currentWeight,
+    currentTestModel,
+    currentAutoBan,
+    currentTag,
+    currentRemark,
+    currentStatusCodeMapping,
+    currentParamOverride,
+  ] = useWatch({
+    control: form.control,
+    name: [
+      'priority',
+      'weight',
+      'test_model',
+      'auto_ban',
+      'tag',
+      'remark',
+      'status_code_mapping',
+      'param_override',
+    ],
+  })
+  const [
+    currentHeaderOverride,
+    currentForceFormat,
+    currentResponsesWebSocketEnabled,
+    currentThinkingToContent,
+    currentPassThroughBodyEnabled,
+    currentDisableTaskPollingSleep,
+    currentProxy,
+    currentHttpProtocol,
+  ] = useWatch({
+    control: form.control,
+    name: [
+      'header_override',
+      'force_format',
+      'responses_websocket_enabled',
+      'thinking_to_content',
+      'pass_through_body_enabled',
+      'disable_task_polling_sleep',
+      'proxy',
+      'http_protocol',
+    ],
+  })
+  const [
+    currentHttp2ConnectionShards,
+    currentSystemPrompt,
+    currentSystemPromptOverride,
+    currentAllowServiceTier,
+    currentDisableStore,
+    currentAllowSafetyIdentifier,
+    currentAllowIncludeObfuscation,
+    currentAllowInferenceGeo,
+    currentAllowSpeed,
+    currentClaudeBetaQuery,
+    currentUpstreamModelUpdateAutoSyncEnabled,
+    currentUpstreamModelUpdateIgnoredModels,
+  ] = useWatch({
+    control: form.control,
+    name: [
+      'http2_connection_shards',
+      'system_prompt',
+      'system_prompt_override',
+      'allow_service_tier',
+      'disable_store',
+      'allow_safety_identifier',
+      'allow_include_obfuscation',
+      'allow_inference_geo',
+      'allow_speed',
+      'claude_beta_query',
+      'upstream_model_update_auto_sync_enabled',
+      'upstream_model_update_ignored_models',
+    ],
+  })
   const shouldPreviewUnsavedModels =
     !isEditing ||
     (currentType === CHANNEL_TYPE_ADVANCED_CUSTOM && canEditSensitive)
@@ -4937,7 +5000,7 @@ export function ChannelMutateDrawer({
       {paramOverrideEditorOpen && !sensitiveLocked && (
         <ParamOverrideEditorDialog
           open={paramOverrideEditorOpen}
-          value={form.watch('param_override') || ''}
+          value={currentParamOverride || ''}
           onOpenChange={setParamOverrideEditorOpen}
           onSave={(nextValue) => {
             form.setValue('param_override', nextValue, {
@@ -4951,7 +5014,7 @@ export function ChannelMutateDrawer({
       {advancedCustomEditorOpen && !sensitiveLocked && (
         <AdvancedCustomEditorDialog
           open={advancedCustomEditorOpen}
-          value={form.watch('advanced_custom') || ''}
+          value={currentAdvancedCustom || ''}
           onOpenChange={setAdvancedCustomEditorOpen}
           onSave={(nextValue) => {
             form.setValue('advanced_custom', nextValue, {

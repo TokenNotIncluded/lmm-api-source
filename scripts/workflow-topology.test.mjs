@@ -390,6 +390,49 @@ test('Core CI uses the same pinned PostgreSQL catalog as the RPC fixture', () =>
 });
 
 
+test('native package uploads keep raw Alpine fixture output private', () => {
+  const source = workflow('linux-packages');
+  const upload = source.split('      - name: Preserve preview packages and scoped evidence, never publish\n')[1];
+  const paths = upload?.match(/          path: \|\n((?:            .+\n)+)/)?.[1];
+  assert.ok(paths, 'the native package artifact must enumerate reviewed paths');
+  assert.deepEqual(paths.trim().split('\n').map((path) => path.trim()), [
+    '${{ steps.packages.outputs.paths }}',
+    'out/evidence/revision.txt',
+    'out/evidence/nfpm-version.txt',
+    'out/evidence/install-matrix.txt',
+    'out/evidence/image-digests.txt',
+    'out/evidence/extore-fixture-image.txt',
+    'out/evidence/extore-native-alpine.json',
+    'out/evidence/extore-native-alpine.json.package.json',
+  ]);
+  assert.ok(source.includes('--report "/receipts/$report" > "$staging/fixture.log" 2>&1'));
+});
+
+test('automatic Core checks run both Cargo target groups on independent runners', () => {
+  const source = workflow('core-protocol');
+  for (const caller of ['ci', 'mk-01-identity']) {
+    assert.match(workflow(caller), /uses: \.\/\.github\/workflows\/core-protocol\.yml\n    with:\n      split_rust_targets: true/);
+  }
+  assert.match(source, /split_rust_targets:[\s\S]*?type: boolean\n        default: false/);
+  assert.match(source, /fail-fast: false\n      matrix:\n        targets: .*inputs\.split_rust_targets && '\["unit","integration"\]' \|\| '\["all"\]'/);
+  assert.ok(source.includes('RUST_TARGET_GROUP: ${{ matrix.targets }}'));
+  assert.match(source, /timeout-minutes: 150/);
+  assert.doesNotMatch(source, /continue-on-error:/);
+  const selector = source.match(/case "\$RUST_TARGET_GROUP" in[\s\S]*?\besac\b/)?.[0];
+  assert.ok(selector);
+  function flags(group) {
+    return execFileSync('bash', ['-c', selector + '\nprintf "%s\\n" "${targets[@]}"'], {
+      env: { ...process.env, RUST_TARGET_GROUP: group },
+      stdio: ['ignore', 'pipe', 'pipe'],
+      encoding: 'utf8',
+    }).trim().split('\n');
+  }
+  assert.deepEqual(flags('all'), ['--all-targets']);
+  assert.deepEqual(flags('unit'), ['--lib', '--bins', '--examples', '--benches']);
+  assert.deepEqual(flags('integration'), ['--test', '*']);
+  assert.throws(() => flags('unknown'), { status: 1 });
+});
+
 test('Core CI freezes the process binary and private root before running all Rust tests', () => {
   const source = workflow('core-protocol');
   const block = source.match(/      - name: Rust checks and real database tests\n([\s\S]*?)(?=      - name:)/)?.[1];
@@ -410,7 +453,7 @@ test('Core CI freezes the process binary and private root before running all Rus
   const hash = block.indexOf('LMM_MODEL_PROCESS_CORE_SHA256="$(sha256sum "$LMM_MODEL_PROCESS_CORE_BIN"');
   const root = block.indexOf('LMM_MODEL_PROCESS_ROOT="$(mktemp -d "$process_evidence_root/model-XXXXXXXX")"');
   const exported = block.indexOf('export LMM_MODEL_PROCESS_CORE_BIN LMM_MODEL_PROCESS_CORE_SHA256 LMM_MODEL_PROCESS_ROOT');
-  const execute = block.indexOf('cargo test --locked --all-targets --no-fail-fast');
+  const execute = block.indexOf('cargo test --locked "${targets[@]}" --no-fail-fast');
   assert.ok(binary >= 0 && hash > binary && root > hash
     && exported > root && execute > exported, 'freeze inputs after compiling, before executing');
   // The separately required owning-runner step covers exactly this one case.
@@ -424,7 +467,7 @@ test('Core CI isolates independent process evidence and cluster-wide role snapsh
   assert.match(source, /RUST_TEST_THREADS: "1"/);
   const block = source.match(/      - name: Rust checks and real database tests\n([\s\S]*?)(?=      - name:)/)?.[1];
   assert.ok(block);
-  const execute = block.indexOf('cargo test --locked --all-targets --no-fail-fast');
+  const execute = block.indexOf('cargo test --locked "${targets[@]}" --no-fail-fast');
   for (const name of [
     'LMM_CONTINUITY_DEV_ARTIFACTS',
     'COMPACT_INDEPENDENT_ARTIFACTS',

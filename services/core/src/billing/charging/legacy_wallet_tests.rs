@@ -41,6 +41,7 @@ fn prepared_legacy(id: &str, max: i64) -> (Request, ReservationBasis, PreparedRe
             model_snapshot: spec.price.model.clone(),
             generation_url: "https://example.test/v1/responses".into(),
             credential_ref: crate::routing::CredentialRef { id: 1, revision: 1 },
+            credential_selection: None,
             payload_policy_sha256: "02".repeat(32),
             provider_contract_revision: "responses-v1".into(),
             projection_revision: "responses-v1".into(),

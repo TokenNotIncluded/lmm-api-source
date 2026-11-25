@@ -361,6 +361,186 @@ async fn route_failover_pg_safe_failures_keep_one_frozen_bill(pool: PgPool) {
 }
 
 #[sqlx::test(migrations = false)]
+async fn key_snapshot_failover_admin_uses_last_dispatched_binding(pool: PgPool) {
+    use axum::extract::OriginalUri;
+    type Dispatches = Arc<std::sync::Mutex<Vec<(String, String)>>>;
+
+    async fn reply(
+        State(keys): State<Dispatches>,
+        OriginalUri(uri): OriginalUri,
+        headers: HeaderMap,
+        Json(_): Json<serde_json::Value>,
+    ) -> axum::response::Response {
+        keys.lock().unwrap().push((
+            uri.path().to_owned(),
+            headers[header::AUTHORIZATION].to_str().unwrap().to_owned(),
+        ));
+        if uri.path() == "/first/chat/completions" {
+            return (
+                axum::http::StatusCode::SERVICE_UNAVAILABLE,
+                Json(json!({"error":{"message":"synthetic pre-acceptance rejection"}})),
+            )
+                .into_response();
+        }
+        Json(json!({
+            "id":"synthetic-key-failover","object":"chat.completion",
+            "choices":[{"index":0,"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}],
+            "usage":{"prompt_tokens":2,"completion_tokens":3,"prompt_tokens_details":{"cached_tokens":0}}
+        }))
+        .into_response()
+    }
+
+    let f = fixture(pool, 10_000_000).await;
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let base = format!("http://{}", listener.local_addr().unwrap());
+    let keys = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let app = Router::new()
+        .route("/first/chat/completions", post(reply))
+        .route("/second/chat/completions", post(reply))
+        .with_state(keys.clone());
+    let supplier = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+    let g = failover_gateway(
+        &f,
+        &format!("{base}/first"),
+        &format!("{base}/second"),
+        true,
+        false,
+        false,
+    );
+    let primary = CredentialRef { id: 7, revision: 1 };
+    let secondary = CredentialRef { id: 8, revision: 2 };
+    g.bridge
+        .credentials
+        .append(vec![UpstreamCredential {
+            reference: secondary,
+            secret: "synthetic-secondary-provider-key".into(),
+        }])
+        .unwrap();
+    g.bridge
+        .routing
+        .install_credential_pools(
+            g.bridge.routing.version().unwrap(),
+            &BTreeMap::from([(1, vec![primary, secondary]), (2, vec![primary])]),
+        )
+        .unwrap();
+    // The large-model route only visits upstream 1. Advance its pool so the
+    // failing primary uses index 1; the actual fallback uses a single key at 0.
+    let _first = g
+        .bridge
+        .routing
+        .route(routing::RouteRequest {
+            model: "large-model",
+            group: "allowed",
+            speed: None,
+            protocol: Protocol::OpenAiChat,
+            replay: routing::ReplayPermission::Denied,
+        })
+        .unwrap();
+
+    let (status, body, id) = call(&g, &f, "key-snapshot-two-dispatches", false, None).await;
+    assert_eq!(status, 200, "{body}");
+    assert_eq!(
+        *keys.lock().unwrap(),
+        [
+            (
+                "/first/chat/completions".to_owned(),
+                "Bearer synthetic-secondary-provider-key".to_owned(),
+            ),
+            (
+                "/second/chat/completions".to_owned(),
+                "Bearer synthetic-selected-bound-provider-key".to_owned(),
+            ),
+        ],
+        "both attempts must actually reach the local supplier with different credentials"
+    );
+    supplier.abort();
+
+    let events = evidence(&f, &id).await;
+    let contract = events
+        .iter()
+        .find(|event| event["kind"] == "model_reservation_contract")
+        .unwrap();
+    let first = &contract["binding"];
+    let last = &contract["fallbacks"][0]["binding"];
+    assert_eq!(first["credential_ref"], json!(secondary));
+    assert_eq!(
+        first["credential_selection"],
+        json!({"is_multi_key":true,"multi_key_index":1})
+    );
+    assert_eq!(last["credential_ref"], json!(primary));
+    assert_eq!(
+        last["credential_selection"],
+        json!({"is_multi_key":false,"multi_key_index":0})
+    );
+    let dispatches: Vec<_> = events
+        .iter()
+        .filter(|event| event["kind"] == "model_route_dispatch")
+        .collect();
+    assert_eq!(dispatches.len(), 2);
+    assert_eq!(dispatches[0]["number"], 1);
+    assert_eq!(dispatches[0]["route_id"], first["route_id"]);
+    assert_eq!(dispatches[0]["wire_sha256"], contract["wire_sha256"]);
+    assert_eq!(dispatches[1]["number"], 2);
+    assert_eq!(dispatches[1]["route_id"], last["route_id"]);
+    assert_eq!(
+        dispatches[1]["wire_sha256"],
+        contract["fallbacks"][0]["wire_sha256"]
+    );
+    let failure = events
+        .iter()
+        .find(|event| event["kind"] == "model_route_failure")
+        .unwrap();
+    assert_eq!(failure["number"], 1);
+    assert_eq!(failure["route_id"], first["route_id"]);
+    assert_eq!(failure["failure"]["http_status"], 503);
+    assert_eq!(failure["failure"]["failure"]["delivery"], "rejected");
+
+    let admin = IdentityStore::from_pool(f.pool.clone())
+        .bootstrap_user(9, 5)
+        .await
+        .unwrap();
+    let response = crate::usage::router(crate::usage::UsageStore::new(f.pool.clone()))
+        .oneshot(
+            axum::http::Request::get(format!("/core/v1/usage/admin/request?request_id={id}"))
+                .header("authorization", format!("Bearer {}", admin.secret))
+                .body(axum::body::Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), axum::http::StatusCode::OK);
+    let bytes = axum::body::to_bytes(response.into_body(), 1 << 20)
+        .await
+        .unwrap();
+    let response: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+    let other: serde_json::Value =
+        serde_json::from_str(response["data"]["other"].as_str().unwrap()).unwrap();
+    let summary = &other["admin_info"];
+    assert_eq!(response["data"]["channel"], 2);
+    assert_eq!(summary["key_snapshot_status"], "recorded");
+    assert_eq!(summary["is_multi_key"], false);
+    assert_eq!(summary["multi_key_index"], 0);
+    assert_eq!(summary["route_attempts"].as_array().unwrap().len(), 2);
+    assert_eq!(summary["route_attempts"][0]["is_multi_key"], true);
+    assert_eq!(summary["route_attempts"][0]["multi_key_index"], 1);
+    assert_eq!(summary["route_attempts"][1]["is_multi_key"], false);
+    assert_eq!(summary["route_attempts"][1]["multi_key_index"], 0);
+    let encoded = response.to_string();
+    for forbidden in [
+        "credential_ref",
+        "credential_selection",
+        "synthetic-secondary-provider-key",
+        "synthetic-selected-bound-provider-key",
+    ] {
+        assert!(!encoded.contains(forbidden), "{forbidden}");
+    }
+    let charge = receipt(&g, &id).await;
+    assert_eq!((charge.state.as_str(), charge.settled), ("settled", 2));
+    assert_eq!(requests(&f.pool).await, 1);
+    assert_balance(&f, 9_999_998, 0).await;
+}
+
+#[sqlx::test(migrations = false)]
 async fn route_failover_pg_unknown_and_partial_tool_results_never_replay(pool: PgPool) {
     let f = fixture(pool, 10_000_000).await;
     let good = CompatibilityProvider::start().await;

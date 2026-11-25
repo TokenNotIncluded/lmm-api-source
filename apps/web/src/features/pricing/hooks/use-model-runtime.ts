@@ -7,8 +7,14 @@ import { useAuthStore } from '@/stores/auth-store'
 import { nativeRuntimeSchema } from '../catalog-contract'
 import type { ModelRuntimeState } from '../types'
 
-export function useModelRuntime(names: string[], enabled = true) {
+export function useModelRuntime(
+  names: string[],
+  enabled = true,
+  view?: 'public'
+) {
   const { user, session } = useAuthStore((state) => state.auth)
+  const authenticated = Boolean(user) && view !== 'public'
+  const visibility = authenticated ? 'session' : 'public'
   const sorted = [...new Set(names)].sort()
   const batches: string[][] = []
   for (let i = 0; i < sorted.length; i += 200) {
@@ -22,6 +28,7 @@ export function useModelRuntime(names: string[], enabled = true) {
         session?.sid ?? null,
         user?.group ?? '',
         models,
+        ...(view ? [view] : []),
       ],
       queryFn: async ({ signal }) => {
         const response = await api.post<unknown>(
@@ -32,13 +39,13 @@ export function useModelRuntime(names: string[], enabled = true) {
             timeout: 10_000,
             skipErrorHandler: true,
             skipBusinessError: true,
-            skipAuthRefresh: !user,
+            skipAuthRefresh: !authenticated,
             authScope: { userId: user?.id, sessionId: session?.sid },
-            authMode: user ? 'session' : 'anonymous',
+            authMode: authenticated ? 'session' : 'anonymous',
           }
         )
         const document = nativeRuntimeSchema.parse(response.data)
-        if (document.visibility !== (user ? 'session' : 'public')) {
+        if (document.visibility !== visibility) {
           throw new Error('Model runtime visibility did not match the request')
         }
         return document.data

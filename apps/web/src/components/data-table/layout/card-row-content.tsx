@@ -16,8 +16,6 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import * as React from 'react'
-
 import { StatusBadgeTypeContext } from '@/components/status-badge'
 import type { RowData, Cell, Row } from '@/lib/table'
 
@@ -67,11 +65,7 @@ function CompactContent<TData extends RowData>({ row }: { row: Row<TData> }) {
     .filter((cell) => cell.column.id !== 'select')
 
   // Read each cell's meta once, then reuse for all categorisation checks.
-  const cellMetas = React.useMemo(
-    () => allCells.map((c) => c.column.columnDef.meta),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [allCells.map((c) => c.id).join(',')]
-  )
+  const cellMetas = allCells.map((cell) => cell.column.columnDef.meta)
 
   const titleCell = allCells.find((_, i) => cellMetas[i]?.mobileTitle)
   const badgeCell = allCells.find((_, i) => cellMetas[i]?.mobileBadge)
@@ -144,11 +138,7 @@ function FallbackContent<TData extends RowData>({ row }: { row: Row<TData> }) {
     .getVisibleCells()
     .filter((cell) => cell.column.id !== 'select')
 
-  const cellMetas = React.useMemo(
-    () => allCells.map((c) => c.column.columnDef.meta),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [allCells.map((c) => c.id).join(',')]
-  )
+  const cellMetas = allCells.map((cell) => cell.column.columnDef.meta)
 
   const actionsCell = allCells.find((c) => c.column.id === 'actions')
   const contentCells = orderCardCells(

@@ -461,6 +461,7 @@ async fn recovery_with_format(pool: PgPool, format: AudioUsageFormat) {
             model_snapshot: "synthetic-audio-upstream".into(),
             generation_url: format!("{}/chat/completions", supplier.endpoint),
             credential_ref: CredentialRef { id: 7, revision: 1 },
+            credential_selection: None,
             payload_policy_sha256: "06".repeat(32),
             provider_contract_revision: audio.provider_contract_revision.clone(),
             projection_revision: if format == AudioUsageFormat::OpenAiChatV2 {

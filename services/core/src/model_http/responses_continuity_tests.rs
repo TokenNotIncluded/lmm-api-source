@@ -256,11 +256,13 @@ async fn continuity_dev_worker() {
             .unwrap();
     }
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let pending_ready = PathBuf::from(&c.ready).with_extension("new");
     fs::write(
-        &c.ready,
+        &pending_ready,
         format!("http://{}", listener.local_addr().unwrap()),
     )
     .unwrap();
+    fs::rename(pending_ready, &c.ready).unwrap();
     axum::serve(
         listener,
         g.router()
@@ -356,6 +358,7 @@ impl Drop for Core {
         let _ = self.child.wait();
         let _ = fs::remove_file(&self.config);
         let _ = fs::remove_file(&self.ready);
+        let _ = fs::remove_file(self.ready.with_extension("new"));
     }
 }
 async fn request(

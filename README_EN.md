@@ -6,48 +6,32 @@
   <p><a href="README.md">简体中文</a> · <a href="README_EN.md">English</a></p>
 </div>
 
-**LMM (Language Model Mesh) is a model gateway and business extension platform.** Core owns accounts, permissions, balances and model requests. Extensions provide the store, tools, assistant and payment adapters.
-
-> The new architecture remains under development and acceptance. [Architecture progress](docs/progress.md) is the only current tracker. Source implementation, module checks, packaging and production cutover require separate evidence.
+**LMM (Language Model Mesh) is a model gateway and business extension platform.** The new architecture is under evaluation. [Architecture progress](docs/progress.md) tracks acceptance results and remaining work. Verify the version of the [hosted service](https://api.lmm.best) separately.
 
 ## Three programs
 
-| Program | Source | Responsibility |
-| --- | --- | --- |
-| `lmm-core` | [services/core](services/core) | Identity, permissions, billing, ledger and model routing; runs independently of Go |
-| `lmm-extensions` | [services/extensions](services/extensions) | Store, tools, assistant, operations and payment adapters; accesses only its own business database |
-| `lmm` | [apps/cli](apps/cli) | Separately maintained client, pinned as a submodule |
+| Program | Responsibility |
+| --- | --- |
+| [`lmm-core`](services/core) | Owns identity, permissions, the financial ledger and model routing. Runs independently of Go. |
+| [`lmm-extensions`](services/extensions) | Runs the store, tools, assistant and payment adapters with its own database. Calls Core over authorized RPC. |
+| [`lmm`](apps/cli) | Separately maintained command-line client, pinned as a submodule. |
 
-Core is the sole authority for funds and permissions. Extensions request core operations through authorized RPC. `apps/web` builds static files for a Web server to serve. See the [architecture guide](docs/core-migration.md) for ownership and database contracts.
+A Web server serves the static [Web console](apps/web). See the [architecture guide](docs/core-migration.md) for data ownership.
 
 ## Development and installation
 
-[mise.toml](mise.toml) pins tool versions. Prepare dependencies for the task and run tools with `mise exec --`. See [Development](docs/development.md) for commands and the [Docker development stack](deployment/docker/README.md) for an isolated environment.
-
-A separate installation owner explicitly initializes a new core database. Runtime credentials cannot create tables:
-
-```sh
-lmm-core --config /absolute/private/core-owner.toml init-db
-lmm-core --config /absolute/private/core.toml check-db
-```
-
-Default configuration paths are `/etc/lmm.conf.d/core.toml` and `extensions.toml`. Secret, persistent-state and runtime-directory ownership are defined in the [filesystem guide](docs/filesystem-layout.md) and [PostgreSQL guide](deployment/postgres/README.md). Existing-site migration requires its own accepted procedure.
+| Task | Start here |
+| --- | --- |
+| Develop or start an isolated environment | [Tools by component](docs/development.md#只准备所需工具) · [Docker development stack](deployment/docker/README.md) |
+| Install a fresh Core database | [Run `init-db` as the installation owner and `check-db` as the runtime role](docs/development.md#核心与数据库) · [Roles and grants](deployment/postgres/README.md) · [Configuration paths](docs/filesystem-layout.md) |
+| Package a release, upgrade an existing site or recover from a failed cutover | [Release architecture](docs/release-architecture.md) · [Native cutover and recovery](deployment/native/README.md#cutover-after-migration-is-qualified) |
 
 ## Documentation
 
-| Topic | Entry |
-| --- | --- |
-| Remaining work, closure criteria and acceptance status | [Architecture progress](docs/progress.md) |
-| Stable design, configuration and business guides | [Documentation index](docs/README.md) |
-| Development checks and independent acceptance | [Working guide](docs/agent-workflows.md), [Quality guide](docs/quality.md) |
-| Packaging, artifacts and upgrade boundaries | [Release architecture](docs/release-architecture.md) |
-| User, privacy and refund policies | [Policy templates](docs/legal/README.md) |
-| Historical records, failure evidence and provenance | [Archive](docs/archive.md) |
+[Business and API guides](docs/README.md) · [Quality and independent acceptance](docs/quality.md) · [User, privacy and refund policies](docs/legal/README.md) · [Archive and failure evidence](docs/archive.md)
 
 ## Contributing and provenance
 
-Implementation work uses this repository's `main`. The [recipe repository](https://github.com/TokenNotIncluded/lmm-api) pins source through a gitlink. The [branch policy](docs/development.md#仓库与主线) distinguishes the active mainline from the legacy stable release. The automatic-deployment restriction for [Extore integration](docs/extore.md) remains in effect.
+Development uses `main`. The [recipe repository](https://github.com/TokenNotIncluded/lmm-api) pins the source commit. See the [branch policy](docs/development.md#仓库与主线), [contribution guide](docs/agent-workflows.md#贡献与交付) and [Extore deployment restrictions](docs/extore.md). Report vulnerabilities privately under the [security policy](.github/SECURITY.md).
 
-Read the [contribution guide](docs/agent-workflows.md#贡献与交付) before making changes. Report vulnerabilities through the [security policy](.github/SECURITY.md); never publish keys or user data.
-
-This project derives from [QuantumNous/new-api](https://github.com/QuantumNous/new-api) and is released under [AGPL-3.0](LICENSE). Preserve [NOTICE](NOTICE), [fork provenance](docs/core-migration.md#来源与许可) and [third-party notices](THIRD-PARTY-LICENSES.md). The version of the [hosted service](https://api.lmm.best) must be verified separately.
+This project derives from [QuantumNous/new-api](https://github.com/QuantumNous/new-api) and is licensed under [AGPL-3.0](LICENSE). See [NOTICE](NOTICE), [provenance](docs/core-migration.md#来源与许可) and [third-party licenses](THIRD-PARTY-LICENSES.md).

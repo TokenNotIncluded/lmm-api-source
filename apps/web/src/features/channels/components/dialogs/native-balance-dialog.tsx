@@ -1,5 +1,4 @@
 /* Copyright (C) 2026 LIghtJUNction. SPDX-License-Identifier: AGPL-3.0-or-later */
-import { isAxiosError } from 'axios'
 import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
@@ -10,6 +9,7 @@ import { Button } from '@/components/ui/button'
 import { formatTimestampToDate } from '@/lib/format'
 
 import { formatObservedBalance } from '../../lib/channel-utils'
+import { nativeBalanceFailureKey } from '../../lib/native-balance'
 import {
   getNativeChannelBalance,
   getNativeChannelCounters,
@@ -21,16 +21,6 @@ type BalanceState =
   | { status: 'loading' }
   | { status: 'ready'; observation: BalanceObservation }
   | { status: 'error'; message: string }
-function failureMessage(error: unknown, probe = false) {
-  const status = isAxiosError(error) ? error.response?.status : undefined
-  return status === 501 && probe
-    ? 'channelBalance.disabled'
-    : status === 403
-      ? 'channelBalance.denied'
-      : status === 409
-        ? 'channelUsage.identity'
-        : 'channelBalance.error'
-}
 export function NativeBalanceDialog({
   scope,
   channelId,
@@ -67,7 +57,7 @@ export function NativeBalanceDialog({
       },
       (error: unknown) => {
         if (!controller.signal.aborted) {
-          setState({ status: 'error', message: failureMessage(error) })
+          setState({ status: 'error', message: nativeBalanceFailureKey(error) })
         }
       }
     )
@@ -99,7 +89,7 @@ export function NativeBalanceDialog({
       if (!controller.signal.aborted) setState({ status: 'ready', observation })
     } catch (error: unknown) {
       if (controller.signal.aborted) return
-      const message = failureMessage(error, true)
+      const message = nativeBalanceFailureKey(error, true)
       if (message === 'channelBalance.disabled') setDisabled(true)
       if (state.status === 'ready') setNotice(message)
       else setState({ status: 'error', message })

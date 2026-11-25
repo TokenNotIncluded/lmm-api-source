@@ -58,18 +58,9 @@ Core 独立于 Go，身份和账户功能依赖 PostgreSQL。安装与升级合�
 [架构说明](core-migration.md#安装权限与结构升级)和 [schema](../services/core/schema/README.md)。
 普通启动只检查结构、catalog 指纹和运行权限，不创建角色、授权、执行 DDL 或升级库。
 
-当前源码的新装合同为 **75 个组件**，以 `lmm-core schema-manifest` 和
-`services/core/src/core_schema/upgrade/fresh70_target.json` 为准。
-`fresh_target.json` 保留冻结的历史 69 组件目标，不随当前新装目标改写。已声明的精确后缀升级为
-66→67（付款折扣）、67→68（折扣管理）、68→69（Responses 连续性）和 69→70（托管应用，`core-managed-applications-v1`）；每一步仍须满足
-其独立的前置版本、冻结指纹、owner 授权和升级回执，不能用组件数代替验证。
-日签验证另有精确的 74→75 升级 `core-checkin-challenges-v1`，不替代先前版本的
-升级链；配置、权限和验证边界见[签到防自动化](checkin-anti-automation.md)。
-旧站升级、历史签到导入及其策略发布仍使用与旧站匹配的保留执行器；不得以当前组件
-前缀重建或更新冻结历史指纹。新装合同不等于旧站离线迁移已经验收，后者见
-[当前迁移状态](progress.md)。
-已有库不得通过清空、重复初始化或修改契约记录绕过检查。
-连续性映射的保留期限与恢复性能验收见[存储与恢复合同](responses-continuity.md)。
+用 `lmm-core schema-manifest` 查看当前二进制编译的组件和 SQL 摘要。源码中的[组件清单](../services/core/src/core_schema.rs)和[新装指纹](../services/core/src/core_schema/upgrade/fresh70_target.json)用于核对该版本。
+
+已有站点选用与前置版本和指纹匹配的离线升级流程，保留 owner 授权、升级回执和旧数据。[Schema 指南](../services/core/schema/README.md)说明新装与历史升级的合同，[签到升级](checkin-anti-automation.md)和[连续性存储与恢复](responses-continuity.md)记录各自的条件。旧站迁移的验收状态见[进度表](progress.md)。
 
 初始化 owner 与受限 runtime 使用分开的凭据，按[离线角色说明](../deployment/postgres/README.md)
 准备授权；owner URL 不挂载给运行服务。配置采用 TOML 和受控的绝对路径文件，
