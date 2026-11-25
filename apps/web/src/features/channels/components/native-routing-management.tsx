@@ -325,6 +325,7 @@ function NativeRoutingWorkspace({
   function updateChannelSelection(ids: number[]) {
     setBatchRoutingEditor(null)
     setChannelSelection({ snapshot: channelSelectionSnapshot, ids })
+    if (ids.length === 0) setBatchTagEditor(null)
   }
   const selection = JSON.stringify([
     scope,
@@ -809,7 +810,6 @@ function NativeRoutingWorkspace({
     search.trim() !== ''
   function clearChannelFilters() {
     updateChannelSelection([])
-    setBatchTagEditor(null)
     setChannelFilters({ status: 'all', group: '' })
     setSearch('')
     setPage(1)
@@ -904,10 +904,7 @@ function NativeRoutingWorkspace({
         scope
       )
     )
-    if (saved) {
-      updateChannelSelection([])
-      setBatchTagEditor(null)
-    }
+    if (saved) updateChannelSelection([])
   }
   async function saveSelectedRouting(patch: NativeChannelBatchPatch) {
     if (!configuration || selectedVisibleIds.length === 0) return
@@ -1156,7 +1153,6 @@ function NativeRoutingWorkspace({
                 disabled={busy}
                 onChange={(value) => {
                   updateChannelSelection([])
-                  setBatchTagEditor(null)
                   setChannelFilters(value)
                   setPage(1)
                 }}

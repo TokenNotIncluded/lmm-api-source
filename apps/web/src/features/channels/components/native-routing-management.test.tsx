@@ -817,6 +817,36 @@ test('native batch routing rejects a stale version without replaying against the
   ])
 })
 
+test('a new channel selection starts without the previous batch tag draft', async () => {
+  const config = fixture()
+  config.routing.upstreams.push({ ...config.routing.upstreams[0], id: 2 })
+  config.bindings.names[2] = 'Secondary provider'
+  api.request = (async (options: { method: string }) => {
+    assert.equal(options.method, 'GET')
+    return { data: { success: true, data: config } }
+  }) as typeof api.request
+
+  const container = await mount('channels')
+  const checkbox = (name: string) =>
+    required(
+      container.querySelector<HTMLElement>(
+        `[role=checkbox][aria-label="${name}"]`
+      )
+    )
+  const tagForm = () =>
+    container.querySelector('form[aria-label="Set tag for selected channels"]')
+  await until(() => container.querySelectorAll('[role=checkbox]').length === 3)
+  await act(async () => checkbox('Private provider').click())
+  await act(async () => button(container, 'Tag').click())
+  await changeInput(required(tagForm()?.querySelector('input')), 'Primary only')
+
+  await act(async () => checkbox('Private provider').click())
+  await act(async () => checkbox('Secondary provider').click())
+  assert.ok(!tagForm(), 'The old tag editor reopened for another channel')
+  await act(async () => button(container, 'Tag').click())
+  assert.equal(required(tagForm()?.querySelector('input')).value, '')
+})
+
 test('native batch tags preserve drafts on failure and clear only selected channels', async () => {
   const base = fixture()
   let config = {
