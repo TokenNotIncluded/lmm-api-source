@@ -218,6 +218,11 @@ export const nativePricingSchema = z
     credits_per_usd: z.literal(500_000),
     rate_basis: rateBasis,
     invocation_authorized: z.literal(false),
+    empty_reason: z
+      .enum(['no_visible_models', 'catalog_empty'])
+      .nullable()
+      .optional(),
+    public_view_available: z.boolean().optional(),
     routing_version: safeInteger,
     pricing_version: safeInteger,
     image_pricing_version: safeInteger.nullable(),
@@ -257,6 +262,21 @@ export const nativePricingSchema = z
         path: ['rate_basis'],
         message: 'Price basis and visibility disagree',
       })
+    }
+    if (document.empty_reason !== undefined) {
+      const expectedEmptyReason =
+        document.models.length === 0
+          ? document.visibility === 'session'
+            ? 'no_visible_models'
+            : 'catalog_empty'
+          : null
+      if (document.empty_reason !== expectedEmptyReason) {
+        context.addIssue({
+          code: 'custom',
+          path: ['empty_reason'],
+          message: 'Empty reason and catalog visibility disagree',
+        })
+      }
     }
     const groups = new Set(document.groups)
     const models = new Set<string>()

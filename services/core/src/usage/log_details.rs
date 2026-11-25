@@ -11,6 +11,7 @@ pub(super) struct LogDetails {
     pub(super) username: Option<String>,
     pub(super) channel: Option<i64>,
     pub(super) attempts: Vec<Value>,
+    pub(super) credential_selection: Option<contract::CredentialSelection>,
 }
 
 impl LogDetails {
@@ -60,7 +61,12 @@ impl LogDetails {
             item["channel"] = json!(self.channel);
             item["channel_name"] = Value::Null;
             item["route_attempts"] = json!(self.attempts);
-            other["admin_info"] = json!({"route_attempts":self.attempts});
+            other["admin_info"] = json!({
+                "route_attempts":self.attempts,
+                "key_snapshot_status":if self.credential_selection.is_some() {"recorded"} else {"unknown"},
+                "is_multi_key":self.credential_selection.map(|selection| selection.is_multi_key),
+                "multi_key_index":self.credential_selection.map(|selection| selection.multi_key_index),
+            });
         }
         item["other"] = json!(other.to_string());
         item
@@ -140,8 +146,10 @@ pub(super) async fn load(
                         .upstream_id as i64,
                 );
             } else if let Some(proof) = &proof {
-                details.channel =
-                    channel_projection::final_channel(proof, &events).map(|id| id as i64);
+                let binding = channel_projection::final_binding(proof, &events);
+                details.channel = binding.map(|binding| binding.upstream_id as i64);
+                details.credential_selection =
+                    binding.and_then(|binding| binding.credential_selection);
                 let failures: BTreeMap<_, _> = events
                     .iter()
                     .filter(|event| event.event_id.starts_with("route-failure:"))
@@ -170,12 +178,16 @@ pub(super) async fn load(
                     ) else {
                         continue;
                     };
-                    let Some(channel) = proof.dispatched_channel(route, wire) else {
+                    let Some(binding) = proof.dispatched_binding(route, wire) else {
                         continue;
                     };
+                    let channel = binding.upstream_id;
                     let failure = failures.get(&number);
                     details.attempts.push(json!({
                         "attempt":number,"channel_id":channel,"route_id":route,
+                        "key_snapshot_status":if binding.credential_selection.is_some() {"recorded"} else {"unknown"},
+                        "is_multi_key":binding.credential_selection.map(|selection| selection.is_multi_key),
+                        "multi_key_index":binding.credential_selection.map(|selection| selection.multi_key_index),
                         "status_code":failure.and_then(|failure| failure.http_status),
                         "error_kind":failure.map(|failure| failure.failure.kind),
                         "delivery":failure.map(|failure| failure.failure.delivery),

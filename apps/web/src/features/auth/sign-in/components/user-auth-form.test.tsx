@@ -197,6 +197,7 @@ mock.module('@/hooks/use-status', () => ({
   useStatus: () => ({ status: activeStatus }),
 }))
 
+let detectPasskeySupportImpl: () => Promise<boolean> = async () => true
 let beginPasskeyImpl: () => Promise<unknown> = async () => ({
   success: false,
   message: 'unused',
@@ -247,7 +248,7 @@ mock.module('@/features/auth/passkey', () => ({
 mock.module('@/lib/passkey', () => ({
   buildAssertionResult: () => ({}),
   prepareCredentialRequestOptions: (options: unknown) => options,
-  isPasskeySupported: async () => true,
+  isPasskeySupported: () => detectPasskeySupportImpl(),
   requestPasskeyAuthentication: () => requestPasskeyImpl(),
 }))
 
@@ -389,6 +390,7 @@ async function submitPassword(host: HTMLElement) {
 }
 
 beforeEach(() => {
+  detectPasskeySupportImpl = async () => true
   requestPasskeyImpl = async () => ({})
   otpRedirects.length = 0
   useAuthStore.getState().auth.reset('complete')
@@ -442,6 +444,40 @@ after(() => {
     else Reflect.deleteProperty(globalThis, key)
   }
 })
+
+for (const supported of [true, false]) {
+  test(`Passkey detection stays pending before reporting support=${supported}`, async () => {
+    let resolveSupport: ((supported: boolean) => void) | undefined
+    detectPasskeySupportImpl = () =>
+      new Promise<boolean>((resolve) => {
+        resolveSupport = resolve
+      })
+    const host = await render({ passkey_login: true })
+    const button = buttonByName(host, 'Sign in with Passkey')
+    assert.equal(button.disabled, true)
+    assert.equal(button.getAttribute('aria-busy'), 'true')
+    const status = host.querySelector('[role="status"]')
+    assert.equal(status?.getAttribute('aria-live'), 'polite')
+    assert.equal(status?.textContent, 'Checking Passkey availability...')
+    assert.doesNotMatch(host.textContent ?? '', /Passkey is not supported/)
+    await click(button)
+    assert.deepEqual(passkeyUsernames, [])
+    await act(async () => {
+      assert.ok(resolveSupport)
+      resolveSupport(supported)
+      await flush()
+    })
+    assert.equal(button.getAttribute('aria-busy'), 'false')
+    assert.equal(button.disabled, !supported)
+    assert.equal(
+      status?.textContent,
+      supported
+        ? 'Enter your username if your security key does not support account discovery.'
+        : 'Passkey is not supported on this device.'
+    )
+    assert.deepEqual(toastErrors, [])
+  })
+}
 
 test('missing legal consent leaves password submit clickable and uses existing toast gate', async () => {
   const host = await render({

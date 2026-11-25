@@ -238,3 +238,87 @@ fn key_pool_group_alternatives_advance_each_channel_once_per_request() {
         }
     }
 }
+
+#[test]
+fn key_snapshot_keeps_admission_ordinal_after_reorder_and_removal() {
+    use crate::billing::charging::contract::{CredentialSelection, ReservationBinding};
+
+    fn binding(attempt: &Attempt) -> ReservationBinding {
+        ReservationBinding::for_attempt(
+            attempt,
+            "chat".into(),
+            attempt.upstream_model().into(),
+            attempt.endpoint().into(),
+            "synthetic-key-snapshot-v1".into(),
+            "context-max-v1".into(),
+            attempt.quote().version(),
+        )
+        .unwrap()
+    }
+
+    let (mut config, prices) = fixture(1);
+    config.routes[0].targets.truncate(1);
+    let primary = config.upstreams[0].credential;
+    let secondary = CredentialRef {
+        id: 101,
+        revision: 2,
+    };
+    let router = build(config.clone(), prices.clone());
+    router
+        .install_credential_pools(
+            router.version().unwrap(),
+            &BTreeMap::from([(1, vec![primary, secondary])]),
+        )
+        .unwrap();
+    let _first = router.route(request()).unwrap();
+    let mut accepted = router.route(request()).unwrap();
+    let original = binding(&accepted.planned_attempts()[0]);
+    assert_eq!(original.credential_ref, secondary);
+    assert_eq!(
+        original.credential_selection,
+        Some(CredentialSelection {
+            is_multi_key: true,
+            multi_key_index: 1,
+        })
+    );
+
+    config.version += 1;
+    config.upstreams[0].credential = secondary;
+    router
+        .publish_with_credential_pools(
+            router.version().unwrap(),
+            config.clone(),
+            Arc::new(PriceSnapshot::compile(prices.clone()).unwrap()),
+            &BTreeMap::from([(1, vec![secondary, primary])]),
+        )
+        .unwrap();
+    let reordered = binding(&router.route(request()).unwrap().start().unwrap());
+    assert_eq!(reordered.credential_ref, secondary);
+    assert_eq!(reordered.credential_selection.unwrap().multi_key_index, 0);
+
+    config.version += 1;
+    config.upstreams[0].credential = primary;
+    router
+        .publish_with_credential_pools(
+            router.version().unwrap(),
+            config,
+            Arc::new(PriceSnapshot::compile(prices).unwrap()),
+            &BTreeMap::new(),
+        )
+        .unwrap();
+    let single = binding(&router.route(request()).unwrap().start().unwrap());
+    assert_eq!(
+        single.credential_selection,
+        Some(CredentialSelection {
+            is_multi_key: false,
+            multi_key_index: 0,
+        })
+    );
+    // Dispatch can happen after both releases; its source is the accepted plan.
+    assert_eq!(binding(&accepted.start().unwrap()), original);
+    let persisted = serde_json::to_value(&original).unwrap();
+    assert_eq!(
+        serde_json::from_value::<ReservationBinding>(persisted).unwrap(),
+        original,
+    );
+}

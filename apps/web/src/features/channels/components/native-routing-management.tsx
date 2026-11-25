@@ -55,6 +55,7 @@ import {
   type NativeChannelFilters,
 } from '../native-channel-statistics'
 import { useChannelOps } from '../use-channel-ops'
+import { NativeBalanceBatchDialog } from './dialogs/native-balance-batch-dialog'
 import { NativeBalanceConfigDialog } from './dialogs/native-balance-config-dialog'
 import { NativeBalanceDialog } from './dialogs/native-balance-dialog'
 import { NativeChannelUsageDialog } from './dialogs/native-channel-usage-dialog'
@@ -202,6 +203,10 @@ function NativeRoutingWorkspace({
   const [balanceChannel, setBalanceChannel] = useState<NativeUpstream | null>(
     null
   )
+  const [balanceBatchChannels, setBalanceBatchChannels] = useState<Array<{
+    id: number
+    name: string
+  }> | null>(null)
   const [balanceConfigChannel, setBalanceConfigChannel] =
     useState<NativeUpstream | null>(null)
   const [copySuffix, setCopySuffix] = useState('_copy')
@@ -1263,6 +1268,24 @@ function NativeRoutingWorkspace({
                   type='button'
                   variant='outline'
                   className='min-h-11'
+                  disabled={writeDisabled || !accounting.balanceProbe}
+                  onClick={() =>
+                    setBalanceBatchChannels(
+                      selectedVisibleIds.map((id) => ({
+                        id,
+                        name:
+                          configuration.bindings.names[id] ??
+                          t('Channel {{id}}', { id }),
+                      }))
+                    )
+                  }
+                >
+                  {t('Refresh selected balances')}
+                </Button>
+                <Button
+                  type='button'
+                  variant='outline'
+                  className='min-h-11'
                   disabled={writeDisabled}
                   onClick={() => void changeSelectedStatus(true)}
                 >
@@ -1969,13 +1992,27 @@ function NativeRoutingWorkspace({
           probeConfigured={
             configurationWritable &&
             accounting.balanceProbe &&
-            !!configuration.bindings.balance_probes?.[balanceChannel.id]
+            !!(
+              configuration.bindings.balance_probes?.[balanceChannel.id] ||
+              configuration.bindings.legacy_balance?.[balanceChannel.id]
+            )
           }
           channelName={
             configuration.bindings.names[balanceChannel.id] ??
             t('Channel {{id}}', { id: balanceChannel.id })
           }
           onClose={() => setBalanceChannel(null)}
+        />
+      )}
+      {balanceBatchChannels && (
+        <NativeBalanceBatchDialog
+          scope={scope}
+          channels={balanceBatchChannels}
+          canProbe={configurationWritable && accounting.balanceProbe}
+          onClose={() => {
+            setBalanceBatchChannels(null)
+            void refresh()
+          }}
         />
       )}
       {balanceConfigChannel && (
@@ -2007,7 +2044,10 @@ function NativeRoutingWorkspace({
             configuration.bindings.names[usageChannel.id] ??
             t('Channel {{id}}', { id: usageChannel.id })
           }
-          onClose={() => setUsageChannel(null)}
+          onClose={() => {
+            setUsageChannel(null)
+            void refresh()
+          }}
         />
       )}
       <Dialog

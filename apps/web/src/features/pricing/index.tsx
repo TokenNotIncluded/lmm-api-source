@@ -71,6 +71,12 @@ export function Pricing() {
     endpointMap,
     autoGroups,
     catalogAvailable,
+    catalogVisibility,
+    emptyReason,
+    publicViewAvailable,
+    isPublicView,
+    viewPublicCatalog,
+    viewAccountCatalog,
     isLoading,
     error,
     refetch,
@@ -161,6 +167,16 @@ export function Pricing() {
           searchQuery={searchInput}
           hasActiveFilters={hasActiveFilters}
           onClearFilters={handleClearAll}
+          emptyReason={emptyReason}
+          onViewPublic={
+            publicViewAvailable
+              ? () => {
+                  handleClearAll()
+                  setVisibleCount(PAGE_SIZE)
+                  viewPublicCatalog()
+                }
+              : undefined
+          }
           error={error}
           onRetry={refetch}
         />
@@ -237,7 +253,7 @@ export function Pricing() {
                 </h1>
                 {catalogAvailable && (
                   <p className='text-muted-foreground mt-3 max-w-2xl text-sm leading-6 sm:text-base'>
-                    {t('This site currently has {{count}} models enabled', {
+                    {t('Models in this view: {{count}}', {
                       count: models.length,
                     })}
                   </p>
@@ -264,6 +280,25 @@ export function Pricing() {
               </Button>
             </div>
           </div>
+
+          {(catalogVisibility === 'public' || isPublicView) && (
+            <div className='mb-6 flex flex-wrap items-center justify-between gap-3'>
+              <p className='text-muted-foreground max-w-2xl text-sm'>
+                {t(
+                  'Public catalog prices do not grant permission to use a model.'
+                )}
+              </p>
+              {isPublicView ? (
+                <Button
+                  type='button'
+                  variant='outline'
+                  onClick={viewAccountCatalog}
+                >
+                  {t('Back to my catalog')}
+                </Button>
+              ) : null}
+            </div>
+          )}
 
           {catalogAvailable && (
             <>

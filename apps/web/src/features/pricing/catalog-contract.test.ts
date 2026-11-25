@@ -185,6 +185,59 @@ function fixture(): NativePricingDocument {
   }
 }
 
+test('empty metadata is bounded to the current view and public viewing is opt-in', () => {
+  for (const visibility of ['session', 'public'] as const) {
+    const empty = {
+      ...fixture(),
+      visibility,
+      rate_basis:
+        visibility === 'session' ? 'effective_group_rate' : 'base_group_rate',
+      groups: [],
+      models: [],
+    }
+    const reason =
+      visibility === 'session' ? 'no_visible_models' : 'catalog_empty'
+    const legacy = adaptNativePricing(nativePricingSchema.parse(empty))
+    assert.equal(legacy.catalog_visibility, visibility)
+    assert.equal(legacy.empty_reason, reason)
+    assert.equal(legacy.public_view_available, false)
+    const explicit = adaptNativePricing(
+      nativePricingSchema.parse({
+        ...empty,
+        empty_reason: reason,
+        public_view_available: true,
+      })
+    )
+    assert.equal(explicit.empty_reason, reason)
+    assert.equal(explicit.public_view_available, true)
+    for (const empty_reason of [
+      null,
+      'hidden-private-model',
+      visibility === 'session' ? 'catalog_empty' : 'no_visible_models',
+    ]) {
+      assert.equal(
+        nativePricingSchema.safeParse({ ...empty, empty_reason }).success,
+        false
+      )
+    }
+  }
+  assert.equal(
+    nativePricingSchema.safeParse({
+      ...fixture(),
+      empty_reason: 'no_visible_models',
+    }).success,
+    false
+  )
+  assert.equal(
+    nativePricingSchema.safeParse({
+      ...fixture(),
+      empty_reason: null,
+      public_view_available: false,
+    }).success,
+    true
+  )
+})
+
 test('native pricing parses the direct versioned document and keeps group rates separate', () => {
   const pricing = adaptNativePricing(nativePricingSchema.parse(fixture()))
   assert.equal(pricing.data.length, 1)

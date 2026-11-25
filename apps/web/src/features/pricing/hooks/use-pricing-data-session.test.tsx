@@ -182,9 +182,11 @@ function response(config: InternalAxiosRequestConfig, data: unknown) {
 function installAdapter(
   pricing: (
     config: InternalAxiosRequestConfig
-  ) => Promise<NativePricingDocument>
+  ) => Promise<NativePricingDocument>,
+  observe?: (config: InternalAxiosRequestConfig) => void
 ) {
   api.defaults.adapter = async (config) => {
+    observe?.(config)
     if (config.url === '/api/status') {
       return response(config, { success: true, data: {} })
     }
@@ -407,7 +409,7 @@ test('the pricing page keeps unknown counts hidden and restores a verified empty
   const { container } = await render(Pricing)
   assert.doesNotMatch(
     container.textContent ?? '',
-    /This site currently has|0 models/
+    /Models in this view|0 models/
   )
   await act(async () => initial.resolve(pricingDocument('public', 1)))
   await waitFor(
@@ -417,7 +419,7 @@ test('the pricing page keeps unknown counts hidden and restores a verified empty
   )
   assert.doesNotMatch(
     container.textContent ?? '',
-    /This site currently has|0 models|No models found|Prices always use the base price/
+    /Models in this view|0 models|No models found|Prices always use the base price/
   )
   assert.equal(container.querySelector('input'), null)
   const retry = [...container.querySelectorAll('button')].find(
@@ -426,19 +428,246 @@ test('the pricing page keeps unknown counts hidden and restores a verified empty
   assert.ok(retry)
   await act(async () => retry.click())
   await waitFor(
-    () =>
-      container.textContent?.includes(
-        'This site currently has 0 models enabled'
-      ) === true,
+    () => container.textContent?.includes('Models in this view: 0') === true,
     'successful empty catalogue count missing'
   )
-  assert.match(container.textContent ?? '', /No models found/)
+  assert.match(container.textContent ?? '', /No public models listed/)
   assert.doesNotMatch(
     container.textContent ?? '',
     /Failed to load enabled models/
   )
   assert.ok(container.querySelector('input'))
   assert.equal(requests, 2)
+})
+
+function buttonWithText(container: HTMLElement, label: string) {
+  const button = [...container.querySelectorAll('button')].find(
+    (candidate) => candidate.textContent?.trim() === label
+  )
+  assert.ok(button, `Missing button: ${label}`)
+  return button
+}
+
+function emptyAccount(publicViewAvailable?: boolean): NativePricingDocument {
+  return {
+    ...pricingDocument('session', 1),
+    groups: [],
+    models: [],
+    empty_reason: 'no_visible_models',
+    public_view_available: publicViewAvailable,
+  }
+}
+
+test('an empty account offers an explicit public view with anonymous runtime and a return path', async () => {
+  setSession(7, 'session-a')
+  const requests: InternalAxiosRequestConfig[] = []
+  installAdapter(
+    async (config) =>
+      config.authMode === 'anonymous'
+        ? pricingDocument('public', 93)
+        : emptyAccount(true),
+    (config) => requests.push(config)
+  )
+  const { container } = await render(Pricing)
+  await waitFor(
+    () =>
+      container.textContent?.includes('No models available to your account') ===
+      true,
+    'account empty guidance missing'
+  )
+  assert.match(container.textContent ?? '', /Contact an administrator/)
+  assert.doesNotMatch(
+    container.textContent ?? '',
+    /No models match your current filters|No public models listed/
+  )
+  assert.equal(
+    requests.some((config) => config.url === '/core/v1/pricing/public'),
+    false
+  )
+  await act(async () =>
+    buttonWithText(container, 'View public catalog').click()
+  )
+  await waitFor(
+    () => container.textContent?.includes('shared-model') === true,
+    'explicit public catalogue missing'
+  )
+  assert.match(
+    container.textContent ?? '',
+    /Public catalog prices do not grant permission to use a model/
+  )
+  await waitFor(
+    () =>
+      requests.some(
+        (config) =>
+          config.url === '/core/v1/pricing/runtime' &&
+          config.authMode === 'anonymous'
+      ),
+    'public runtime did not use anonymous scope'
+  )
+  for (const config of requests.filter(
+    (config) => config.authMode === 'anonymous'
+  )) {
+    assert.equal(config.headers.get('Authorization'), undefined)
+    assert.deepEqual(config.authScope, { userId: 7, sessionId: 'session-a' })
+  }
+  await act(async () => buttonWithText(container, 'Back to my catalog').click())
+  await waitFor(
+    () =>
+      container.textContent?.includes('No models available to your account') ===
+      true,
+    'account view did not return'
+  )
+  assert.doesNotMatch(
+    container.textContent ?? '',
+    /shared-model|Back to my catalog/
+  )
+})
+
+for (const capability of [false, undefined]) {
+  test(`an empty account without public capability=${capability} has no public action`, async () => {
+    setSession(7, 'session-a')
+    const requests: string[] = []
+    installAdapter(async (config) => {
+      requests.push(config.url ?? '')
+      return emptyAccount(capability)
+    })
+    const { container } = await render(Pricing)
+    await waitFor(
+      () =>
+        container.textContent?.includes(
+          'No models available to your account'
+        ) === true,
+      'account empty guidance missing'
+    )
+    assert.doesNotMatch(
+      container.textContent ?? '',
+      /View public catalog|No models match your current filters/
+    )
+    assert.ok(buttonWithText(container, 'Refresh'))
+    assert.deepEqual(requests, ['/core/v1/pricing/session'])
+  })
+}
+
+for (const [name, nextUser, nextSession] of [
+  ['account', 8, 'session-b'],
+  ['same-account session', 7, 'session-b'],
+] as const) {
+  test(`explicit public selection is scoped to the current ${name}`, async () => {
+    setSession(7, 'session-a')
+    const next = deferred<NativePricingDocument>()
+    const requests: InternalAxiosRequestConfig[] = []
+    installAdapter(async (config) => {
+      requests.push(config)
+      if (config.authScope?.sessionId !== 'session-a') return next.promise
+      return config.authMode === 'anonymous'
+        ? pricingDocument('public', 93)
+        : emptyAccount(true)
+    })
+    let latest: ReturnType<typeof usePricingData> | undefined
+    function Probe() {
+      latest = usePricingData()
+      return <output>{latest.models[0]?.input_price ?? 'empty'}</output>
+    }
+    await render(Probe)
+    await waitFor(
+      () => latest?.publicViewAvailable === true,
+      'public capability missing'
+    )
+    await act(async () => latest?.viewPublicCatalog())
+    await waitFor(
+      () => latest?.models[0]?.input_price === 93,
+      'public rate missing'
+    )
+    await act(async () => setSession(nextUser, nextSession))
+    assert.equal(latest?.isPublicView, false)
+    assert.equal(latest?.models.length, 0)
+    await act(async () => next.resolve(pricingDocument('session', 82)))
+    await waitFor(
+      () => latest?.models[0]?.input_price === 82,
+      'new account rate missing'
+    )
+    assert.equal(requests.at(-1)?.authMode, 'session')
+    assert.equal(latest?.catalogVisibility, 'session')
+  })
+}
+
+test('public policy changes produce an error with a return path and no further fallback', async () => {
+  setSession(7, 'session-a')
+  const requests: string[] = []
+  installAdapter(async (config) => {
+    requests.push(config.url ?? '')
+    if (config.authMode !== 'anonymous') return emptyAccount(true)
+    throw new AxiosError('Forbidden', undefined, config, undefined, {
+      data: { error: { code: 'pricing_forbidden' } },
+      status: 403,
+      statusText: 'Forbidden',
+      headers: {},
+      config,
+    })
+  })
+  const { container } = await render(Pricing)
+  await waitFor(
+    () => container.textContent?.includes('View public catalog') === true,
+    'public action missing'
+  )
+  await act(async () =>
+    buttonWithText(container, 'View public catalog').click()
+  )
+  await waitFor(
+    () =>
+      container.textContent?.includes('Failed to load enabled models') === true,
+    'public failure missing'
+  )
+  assert.doesNotMatch(
+    container.textContent ?? '',
+    /No public models listed|No models available to your account/
+  )
+  assert.deepEqual(requests, [
+    '/core/v1/pricing/session',
+    '/core/v1/pricing/public',
+  ])
+  await act(async () => buttonWithText(container, 'Back to my catalog').click())
+  await waitFor(
+    () =>
+      container.textContent?.includes('No models available to your account') ===
+      true,
+    'account return missing'
+  )
+})
+
+test('searching a nonempty catalogue keeps filter-specific guidance and clearing restores models', async () => {
+  useAuthStore.getState().auth.reset('complete')
+  installAdapter(async () => pricingDocument('public', 1))
+  const { container } = await render(Pricing)
+  await waitFor(
+    () => container.textContent?.includes('shared-model') === true,
+    'catalogue missing'
+  )
+  const input = container.querySelector('input')
+  assert.ok(input)
+  const setValue = Object.getOwnPropertyDescriptor(
+    domWindow.HTMLInputElement.prototype,
+    'value'
+  )?.set
+  assert.ok(setValue)
+  await act(async () => {
+    setValue.call(input, 'no-such-model')
+    input.dispatchEvent(new Event('input', { bubbles: true }))
+  })
+  await waitFor(
+    () => container.textContent?.includes('No models found') === true,
+    'search empty state missing'
+  )
+  assert.match(container.textContent ?? '', /No results for "no-such-model"/)
+  assert.doesNotMatch(
+    container.textContent ?? '',
+    /No public models listed|No models available to your account/
+  )
+  await act(async () => buttonWithText(container, 'Clear all filters').click())
+  await waitFor(
+    () => container.textContent?.includes('shared-model') === true,
+    'cleared search did not restore model'
+  )
 })
 
 test('the model panel shows counts only after the catalogue is available', async () => {

@@ -37,10 +37,11 @@ function currentPricingScope(): PricingAuthScope {
 // Get model pricing data
 export async function getPricing(
   signal?: AbortSignal,
-  scope: PricingAuthScope = currentPricingScope()
+  scope: PricingAuthScope = currentPricingScope(),
+  view?: 'public'
 ): Promise<PricingData> {
-  const authenticated = scope.userId !== undefined
-  const visibility = authenticated ? 'session' : 'public'
+  const visibility = view ?? (scope.userId !== undefined ? 'session' : 'public')
+  const authenticated = visibility === 'session'
   const res = await api.get<unknown>(`/core/v1/pricing/${visibility}`, {
     signal,
     timeout: 10_000,
@@ -57,6 +58,11 @@ export async function getPricing(
   return adaptNativePricing(document)
 }
 
-export function pricingQueryKey(userId?: number, sessionId?: string) {
-  return ['pricing', userId ?? null, sessionId ?? null]
+export function pricingQueryKey(
+  userId?: number,
+  sessionId?: string,
+  view?: 'public'
+) {
+  const key = ['pricing', userId ?? null, sessionId ?? null]
+  return view ? [...key, view] : key
 }
