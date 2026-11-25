@@ -1,5 +1,6 @@
 //! Administrator-requested, non-generating provider catalogue probes.
-//! Destinations and credentials come from the published server configuration.
+//! Saved channels use their published destination and credential. Draft probes
+//! use a public HTTPS endpoint and the credential supplied with that request.
 use super::*;
 use crate::billing::tool_price;
 use serde::Serialize;
@@ -87,7 +88,11 @@ pub(crate) fn validate_publication_prices(
     }
     Ok(())
 }
-fn endpoint(base: &str, protocol: crate::routing::Protocol) -> Result<reqwest::Url, RelayError> {
+fn endpoint(
+    base: &str,
+    protocol: crate::routing::Protocol,
+    allow_local: bool,
+) -> Result<reqwest::Url, RelayError> {
     if !matches!(
         protocol,
         crate::routing::Protocol::OpenAiChat
@@ -100,7 +105,7 @@ fn endpoint(base: &str, protocol: crate::routing::Protocol) -> Result<reqwest::U
             "This provider protocol has no model-catalogue probe",
         ));
     }
-    let mut url = crate::relay::honeypot_network::validate_base_url(base, true)?;
+    let mut url = crate::relay::honeypot_network::validate_base_url(base, allow_local)?;
     url.path_segments_mut()
         .map_err(|_| RelayError::RouteUnavailable)?
         .pop_if_empty()
@@ -310,7 +315,26 @@ impl ModelGateway {
             .credentials
             .get(&(upstream.credential.id, upstream.credential.revision))
             .ok_or(RelayError::RouteUnavailable)?;
-        let url = endpoint(upstream.endpoint.as_str(), upstream.protocol)?;
+        let url = endpoint(upstream.endpoint.as_str(), upstream.protocol, true)?;
+        self.probe_catalog(url, upstream.protocol, &credential).await
+    }
+
+    pub(crate) async fn probe_channel_draft(
+        &self,
+        base: &str,
+        protocol: crate::routing::Protocol,
+        credential: &str,
+    ) -> Result<ChannelProbe, RelayError> {
+        let url = endpoint(base, protocol, false)?;
+        self.probe_catalog(url, protocol, credential).await
+    }
+
+    async fn probe_catalog(
+        &self,
+        url: reqwest::Url,
+        protocol: crate::routing::Protocol,
+        credential: &str,
+    ) -> Result<ChannelProbe, RelayError> {
         #[cfg(test)]
         let url = if let Some(mapping) = &self.balance_probe_loopback {
             if url.origin().ascii_serialization() != mapping.origin {
@@ -349,14 +373,14 @@ impl ModelGateway {
                     .client()
                     .get(url.clone())
                     .header(header::ACCEPT, "application/json");
-                let request = match upstream.protocol {
+                let request = match protocol {
                     crate::routing::Protocol::AnthropicMessages => request
-                        .header("x-api-key", &credential)
+                        .header("x-api-key", credential)
                         .header("anthropic-version", "2023-06-01"),
                     crate::routing::Protocol::Gemini => {
-                        request.header("x-goog-api-key", &credential)
+                        request.header("x-goog-api-key", credential)
                     }
-                    _ => request.bearer_auth(&credential),
+                    _ => request.bearer_auth(credential),
                 };
                 let response = request
                     .send()
@@ -367,7 +391,7 @@ impl ModelGateway {
                 }
                 let bytes =
                     native_http::read_response_bytes(&connection, response, &self.limits).await?;
-                let page = parse_models(&bytes, upstream.protocol, &credential)?;
+                let page = parse_models(&bytes, protocol, credential)?;
                 models.extend(page.models);
                 if models.len() > 10_000 {
                     return Err(RelayError::RouteUnavailable);
@@ -378,7 +402,7 @@ impl ModelGateway {
                 if !cursors.insert(cursor.clone()) {
                     return Err(RelayError::RouteUnavailable);
                 }
-                let parameter = if upstream.protocol == crate::routing::Protocol::Gemini {
+                let parameter = if protocol == crate::routing::Protocol::Gemini {
                     "pageToken"
                 } else {
                     "after_id"
@@ -424,13 +448,15 @@ mod tests {
             assert!(parse_models(invalid, Protocol::OpenAiChat, "synthetic-secret").is_err());
         }
         assert_eq!(
-            endpoint("https://api.example/v1/", Protocol::OpenAiResponses)
+            endpoint("https://api.example/v1/", Protocol::OpenAiResponses, false)
                 .unwrap()
                 .as_str(),
             "https://api.example/v1/models"
         );
-        assert!(endpoint("https://127.0.0.2/path?key=secret", Protocol::OpenAiChat).is_err());
-        assert!(endpoint("https://api.example/v1", Protocol::DeepSeekFetch).is_err());
+        assert!(
+            endpoint("https://127.0.0.2/path?key=secret", Protocol::OpenAiChat, false).is_err()
+        );
+        assert!(endpoint("https://api.example/v1", Protocol::DeepSeekFetch, false).is_err());
     }
 
     #[test]

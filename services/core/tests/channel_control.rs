@@ -508,6 +508,18 @@ async fn channel_catalogue_probe_authenticates_and_exposes_only_model_identifier
     assert_eq!(body["data"]["validation_scope"], "model_catalog");
     assert_eq!(body["data"]["inference_tested"], false);
     assert!(!body.to_string().contains("synthetic-channel-only"));
+    let draft_path = "/core/v1/admin/routing/channels/models/discover";
+    let draft = json!({
+        "endpoint": "https://127.0.0.1/v1",
+        "protocol": "openai_chat",
+        "secret": "synthetic-unsaved-key"
+    });
+    let (status, _) = request(app.clone(), "POST", draft_path, &ordinary, draft.clone()).await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    let (status, body) = request(app.clone(), "POST", draft_path, &admin, draft).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+    assert!(!body.to_string().contains("synthetic-unsaved-key"));
+    assert_eq!(calls.load(Ordering::SeqCst), 1);
     let (status, body) = request(
         app,
         "GET",
