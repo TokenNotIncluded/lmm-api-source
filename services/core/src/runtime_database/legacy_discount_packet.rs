@@ -35,9 +35,7 @@ pub(super) async fn check(
     }
     if packets {
         let complete: bool = sqlx::query_scalar(
-            "SELECT has_function_privilege('core_payments.lock_legacy_discount_code(bigint)','EXECUTE')
-             AND has_table_privilege('core_subscriptions.reset_codes','SELECT')
-             AND has_table_privilege('core_subscriptions.reset_vouchers','SELECT')",
+            "SELECT has_function_privilege('core_payments.lock_legacy_discount_code(bigint)','EXECUTE')",
         )
         .fetch_one(&mut *c)
         .await?;

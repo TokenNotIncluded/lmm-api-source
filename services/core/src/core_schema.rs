@@ -226,7 +226,7 @@ const COMPONENTS: &[(&str, &str)] = &[
     ),
     (
         "subscription-reset-vouchers",
-        crate::subscriptions::RESET_SCHEMA,
+        include_str!("../schema/subscription_reset.sql"),
     ),
     (
         "legacy-gift-continuation",

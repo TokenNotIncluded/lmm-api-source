@@ -1,12 +1,6 @@
 //! Core subscription sales. A wallet charge and its immutable consumption grant
 //! commit together; renewals create new grants and never extend old streams.
 mod admin;
-mod reset;
-mod reset_http;
-pub use reset::{
-    RESET_SCHEMA, ResetCodeRequest, ResetExecuteRequest, ResetFilter, ResetPreviewRequest,
-    ResetTarget,
-};
 pub(crate) mod assistant_offers;
 mod balance_read;
 mod external_pancake;

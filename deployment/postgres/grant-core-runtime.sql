@@ -1,5 +1,5 @@
 -- Explicit offline GRANTs after the complete fresh lmm-core init-db transaction.
--- This script is additive by default. To remove old optional ACLs, run the
+-- This script retires the former manual-reset ACLs. To remove other optional ACLs, run the
 -- reviewed deployment/postgres/revoke-core-runtime.sql reset with
 -- confirm_revoke=true, then re-run this script with the final feature flags.
 -- No role passwords, automatic startup hook, wildcard grants or default ACLs.
@@ -134,6 +134,16 @@ DO $$ BEGIN
     RAISE EXCEPTION 'Refusing unsafe runtime role or login-enabled installation owner.';
 END $$;
 \endif
+
+-- Retire manual subscription resets, including on installations with old console
+-- grants. This owner-only ACL change preserves historical rows and does not
+-- affect the per-request binding written by normal subscription charging.
+REVOKE SELECT,INSERT ON core_subscriptions.reset_vouchers,core_subscriptions.reset_voucher_redemptions,
+    core_subscriptions.reset_previews,core_subscriptions.reset_operations FROM :"runtime_role";
+REVOKE SELECT ON core_subscriptions.reset_codes,core_subscriptions.reset_imported_grant_plans FROM :"runtime_role";
+REVOKE INSERT ON core_subscriptions.reset_events FROM :"runtime_role";
+REVOKE EXECUTE ON FUNCTION core_charging.subscription_plan(bigint) FROM :"runtime_role";
+REVOKE USAGE ON SEQUENCE core_subscriptions.reset_vouchers_id_seq,core_subscriptions.reset_events_id_seq FROM :"runtime_role";
 
 REVOKE CREATE, TEMPORARY ON DATABASE :"core_database" FROM PUBLIC;
 REVOKE CREATE ON SCHEMA public FROM PUBLIC;
@@ -340,15 +350,10 @@ GRANT SELECT,INSERT ON core_subscriptions.pancake_prices,core_subscriptions.panc
 GRANT UPDATE(provider_order_id,status,event_created,event_id,paid_period_start,paid_period_end) ON core_subscriptions.pancake_orders TO :"runtime_role";
 -- END subscription-pancake runtime grants
 -- BEGIN subscription-reset runtime grants
--- Only the explicit owner installer/upgrader invokes this file. Reset codes and
--- imported grant/plan assertions remain owner-written migration facts.
-GRANT SELECT ON core_subscriptions.reset_codes,core_subscriptions.reset_imported_grant_plans TO :"runtime_role";
-GRANT SELECT,INSERT ON core_subscriptions.reset_vouchers,core_subscriptions.reset_voucher_redemptions,
-    core_subscriptions.reset_previews,core_subscriptions.reset_operations,core_subscriptions.reset_events TO :"runtime_role";
-GRANT USAGE ON SEQUENCE core_subscriptions.reset_vouchers_id_seq,core_subscriptions.reset_events_id_seq TO :"runtime_role";
+-- Keep the original grants and consumption generations readable for billing.
+GRANT SELECT ON core_subscriptions.reset_events TO :"runtime_role";
 GRANT SELECT,INSERT ON core_charging.subscription_request_resets TO :"runtime_role";
-GRANT EXECUTE ON FUNCTION core_charging.subscription_plan(bigint),
-    core_charging.subscription_base_window(bigint,bigint),
+GRANT EXECUTE ON FUNCTION core_charging.subscription_base_window(bigint,bigint),
     core_charging.subscription_consumption(bigint,bigint,text) TO :"runtime_role";
 GRANT EXECUTE ON FUNCTION core_charging.period_window(text,bigint,bigint,bigint),core_charging.subscription_window(bigint,bigint) TO :"runtime_role";
 -- END subscription-reset runtime grants
@@ -376,8 +381,7 @@ GRANT SELECT ON core_promotions.legacy_red_packet_bases,core_promotions.legacy_r
 GRANT INSERT(claim_id,item_id) ON core_promotions.legacy_red_packet_claim_links TO :"runtime_role";
 GRANT UPDATE(released_at) ON core_promotions.legacy_red_packet_items TO :"runtime_role";
 GRANT USAGE ON SCHEMA core_payments,core_subscriptions TO :"runtime_role";
-GRANT SELECT ON core_subscriptions.reset_codes,core_subscriptions.reset_vouchers,
-    core_payments.discount_codes,core_payments.discount_code_tombstones,
+GRANT SELECT ON core_payments.discount_codes,core_payments.discount_code_tombstones,
     core_payments.discount_reservations,core_payments.legacy_discount_bases,
     core_payments.legacy_discount_holds,core_payments.legacy_discount_owners,
     core_payments.legacy_discount_hold_state,core_payments.discount_code_usage,

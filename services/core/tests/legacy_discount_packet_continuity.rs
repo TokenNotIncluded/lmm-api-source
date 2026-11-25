@@ -8,7 +8,7 @@ use lmm_core::{
         CampaignSpec, IssueRequest, PromotionStore, RedeemRequest, SaveCampaign,
         red_packets::{ItemInput, Mutation, RedPacketError},
     },
-    subscriptions::{PlanTerms, ResetCodeRequest, SavePlan, SubscriptionStore},
+    subscriptions::{PlanTerms, SavePlan, SubscriptionStore},
 };
 use rand::{SeedableRng, rngs::StdRng};
 use rsa::{PrivateKey, pkcs8::EncodePublicKey};
@@ -535,9 +535,7 @@ async fn imported_historical_claims_count_and_unclaimed_deletion_releases_only_b
 }
 
 #[sqlx::test]
-async fn reset_packet_uses_the_real_code_authority_without_converting_to_wallet_credit(
-    pool: PgPool,
-) {
+async fn retired_reset_codes_are_not_distributed_or_converted_to_wallet_credit(pool: PgPool) {
     let f = fixture(&pool).await;
     f.runtime.optional("core_subscriptions").await;
     let subscriptions = SubscriptionStore::new(f.runtime.pool.clone());
@@ -589,53 +587,21 @@ async fn reset_packet_uses_the_real_code_authority_without_converting_to_wallet_
         item(&pool, &f, packet, source, code, "reset_voucher", None).await;
     }
     let public = f.promotions.red_packet_public(&slug).await.unwrap();
-    assert_eq!(public["remaining_items"], 1);
-    let reward = f
-        .promotions
-        .red_packet_claim(&f.users[0], &slug)
-        .await
+    assert_eq!(public["remaining_items"], 0);
+    let app = lmm_core::promotions::router(f.runtime.pool.clone());
+    let req = axum::http::Request::post("/core/v1/promotions/redemptions")
+        .header("Authorization", format!("Bearer {}", f.users[0]))
+        .header("Content-Type", "application/json")
+        .body(axum::body::Body::from(
+            json!({"operation_key":"retired_packet_code","code":live}).to_string(),
+        ))
         .unwrap();
-    assert_eq!(reward["code"], live);
-    assert_eq!(reward["reward_type"], "reset_voucher");
+    use tower::ServiceExt;
+    assert_eq!(
+        app.oneshot(req).await.unwrap().status(),
+        axum::http::StatusCode::NOT_FOUND
+    );
     assert_eq!(money_counts(&pool).await, (0, 0, 0, 0));
-    assert_eq!(
-        subscriptions
-            .try_redeem_reset_code(
-                &f.users[0],
-                ResetCodeRequest {
-                    operation_key: "packet_reset_expired_voucher_0001".into(),
-                    code: expired_voucher.into(),
-                }
-            )
-            .await,
-        Err(lmm_core::subscriptions::Error::Conflict)
-    );
-    let claimed = subscriptions
-        .try_redeem_reset_code(
-            &f.users[0],
-            ResetCodeRequest {
-                operation_key: "packet_reset_real_claim_0001".into(),
-                code: live.into(),
-            },
-        )
-        .await
-        .unwrap()
-        .unwrap();
-    assert_eq!(claimed["reset_plan_id"], plan.id);
-    assert!(claimed.get("amount_units").is_none() && claimed.get("journal_id").is_none());
-    assert_eq!(money_counts(&pool).await, (0, 0, 1, 0));
-    assert_eq!(
-        subscriptions
-            .try_redeem_reset_code(
-                &f.users[1],
-                ResetCodeRequest {
-                    operation_key: "packet_reset_other_claim_0001".into(),
-                    code: live.into(),
-                }
-            )
-            .await,
-        Err(lmm_core::subscriptions::Error::Conflict)
-    );
     assert_eq!(
         f.promotions
             .red_packet_claim(&f.users[1], &slug)
@@ -649,7 +615,7 @@ async fn reset_packet_uses_the_real_code_authority_without_converting_to_wallet_
         .unwrap();
     assert_eq!(
         resets, 0,
-        "a code claim issues a voucher, never resets grants by itself"
+        "retired packet rights must leave subscription usage untouched"
     );
     assert_eq!(
         f.ledger

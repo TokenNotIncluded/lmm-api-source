@@ -100,8 +100,7 @@ pub fn router(pool: PgPool) -> Router {
                 response
             },
         ))
-        .with_state(SubscriptionStore::new(pool.clone()))
-        .merge(super::reset_http::router(pool))
+        .with_state(SubscriptionStore::new(pool))
 }
 pub(super) fn plans_response(plans: &[Plan]) -> Value {
     let wallet_available = plans.iter().any(|plan| plan.terms.allow_balance_pay);
