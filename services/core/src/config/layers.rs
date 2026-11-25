@@ -1,4 +1,5 @@
 use super::{CoreFile, absolute_path, configuration_file, invalid_config, parse_document};
+use sha2::{Digest, Sha256};
 use std::{
     ffi::OsStr,
     fs, io,
@@ -7,7 +8,15 @@ use std::{
 
 const MAX_BYTES: usize = 256 * 1024;
 
-pub(super) fn load(path: &Path) -> io::Result<CoreFile> {
+pub(super) fn load(path: &Path) -> io::Result<(CoreFile, String)> {
+    // Frame the bytes of each loaded TOML layer in the exact overlay order.
+    let mut digest = Sha256::new();
+    let mut read_layer = |file: &Path, limit| -> io::Result<Vec<u8>> {
+        let bytes = configuration_file(file, limit)?;
+        digest.update((bytes.len() as u64).to_be_bytes());
+        digest.update(&bytes);
+        Ok(bytes)
+    };
     absolute_path(path)?;
     let meta =
         fs::symlink_metadata(path).map_err(|_| invalid_config("core configuration unavailable"))?;
@@ -22,7 +31,8 @@ pub(super) fn load(path: &Path) -> io::Result<CoreFile> {
     };
     match fs::symlink_metadata(&directory) {
         Err(error) if error.kind() == io::ErrorKind::NotFound && !files.is_empty() => {
-            return parse_document(&configuration_file(path, MAX_BYTES)?);
+            let file = parse_document(&read_layer(path, MAX_BYTES)?)?;
+            return Ok((file, revision(digest)));
         }
         Ok(meta) if meta.is_dir() => {
             #[cfg(unix)]
@@ -53,14 +63,22 @@ pub(super) fn load(path: &Path) -> io::Result<CoreFile> {
     let mut merged = toml::Value::Table(toml::Table::new());
     let mut remaining = MAX_BYTES;
     for file in files {
-        let bytes = configuration_file(&file, remaining)?;
+        let bytes = read_layer(&file, remaining)?;
         remaining -= bytes.len();
         let table: toml::Table = parse_document(&bytes)?;
         overlay(&mut merged, toml::Value::Table(table));
     }
-    merged
+    let file = merged
         .try_into()
-        .map_err(|_| invalid_config("invalid merged core TOML configuration"))
+        .map_err(|_| invalid_config("invalid merged core TOML configuration"))?;
+    Ok((file, revision(digest)))
+}
+
+fn revision(digest: Sha256) -> String {
+    format!(
+        "core-toml-sha256:{}",
+        crate::hex_codec::encode(digest.finalize())
+    )
 }
 
 fn overlay(base: &mut toml::Value, later: toml::Value) {

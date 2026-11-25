@@ -19,6 +19,74 @@ mod support;
 use support::*;
 
 #[sqlx::test(migrations = false)]
+async fn file_routing_survives_a_different_durable_release_and_refuses_publication(pool: PgPool) {
+    let (api, _, admin, ordinary) = vault_app(&pool).await;
+    let path = "/core/v1/admin/routing/configuration";
+    let preview_path = "/core/v1/admin/routing/configuration/preview";
+    let first = success(&api, "GET", path, &admin, Value::Null).await;
+    assert_eq!(first["authority"]["mode"], "api");
+    let mut change = json!({
+        "expected_version": first["version"], "routing": first["routing"],
+        "prices": first["prices"], "bindings": first["bindings"],
+    });
+    change["routing"]["version"] = json!(2);
+    change["routing"]["upstreams"][0]["enabled"] = json!(false);
+    change["prices"]["version"] = json!(2);
+    change["prices"]["rules"][0]["group_multiplier_ppm"] = json!(2_000_000);
+    let preview = success(&api, "POST", preview_path, &admin, change.clone()).await;
+    change["confirmation_digest"] = preview["confirmation_digest"].clone();
+    success(&api, "PUT", path, &admin, change.clone()).await;
+
+    let file_gateway = gateway(&pool);
+    let management = ManagedChannels::with_authority(
+        pool.clone(),
+        file_gateway.clone(),
+        lmm_core::config::RoutingAuthority::File,
+    )
+    .await
+    .unwrap();
+    management.synchronize().await.unwrap();
+    assert!(
+        file_gateway
+            .dashboard_routing()
+            .route(route_request())
+            .is_ok()
+    );
+    let file = managed_router(pool.clone(), management);
+    let snapshot = success(&file, "GET", path, &admin, Value::Null).await;
+    assert_eq!(snapshot["routing"], first["routing"]);
+    assert_eq!(snapshot["prices"], first["prices"]);
+    assert_eq!(snapshot["authority"]["mode"], "file");
+    assert_eq!(snapshot["authority"]["source"], "model.config_file");
+    assert_eq!(snapshot["authority"]["version"], first["version"]);
+    assert_eq!(
+        snapshot["authority"]["routing_sha256"],
+        first["authority"]["routing_sha256"]
+    );
+    assert_eq!(
+        snapshot["authority"]["pricing_sha256"],
+        first["authority"]["pricing_sha256"]
+    );
+    assert_eq!(snapshot["authority"]["git_revision"], Value::Null);
+    assert_eq!(
+        request(file.clone(), "GET", path, &ordinary, Value::Null)
+            .await
+            .0,
+        StatusCode::FORBIDDEN
+    );
+    let preview = success(&file, "POST", preview_path, &admin, change.clone()).await;
+    assert_eq!(preview["saved"], false);
+    change["confirmation_digest"] = preview["confirmation_digest"].clone();
+    let (status, refused) = request(file, "PUT", path, &admin, change).await;
+    assert_eq!(status, StatusCode::CONFLICT);
+    assert_eq!(refused["code"], "ROUTING_FILE_MANAGED");
+    let durable = active(&pool).await;
+    assert_eq!(durable.routing.version, 2);
+    assert!(!durable.routing.upstreams[0].enabled);
+    assert_eq!(durable.pricing.version, 2);
+}
+
+#[sqlx::test(migrations = false)]
 async fn vault_keys_persist_encrypt_rotate_retire_and_recover_into_real_transport(pool: PgPool) {
     use std::sync::atomic::{AtomicUsize, Ordering};
     let (_, _, admin, ordinary) = vault_app(&pool).await;

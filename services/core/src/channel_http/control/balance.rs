@@ -331,6 +331,19 @@ async fn observe(
     let (mut tx, _) = management
         .begin(secret, Action::ChannelOperate, super::ReadView::Current)
         .await?;
+    // File-managed models have no database-published probe binding.
+    if !management.api_managed() {
+        if management
+            .bootstrap
+            .routing
+            .upstreams
+            .iter()
+            .any(|upstream| upstream.id == id)
+        {
+            return Err(ObserveError::MissingProbe);
+        }
+        return Err(Failure::NotFound.into());
+    }
     // Missing publication also means there cannot be a published balance probe.
     let active: Option<Value> = sqlx::query_scalar("SELECT public.routing_control_read()")
         .fetch_one(&mut *tx)

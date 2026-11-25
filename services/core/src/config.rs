@@ -36,7 +36,17 @@ fn invalid_config(message: &'static str) -> io::Error {
 
 pub const DEFAULT_CONFIG: &str = "/etc/lmm.conf.d/core.toml";
 
-static SOURCE: OnceLock<BTreeMap<&'static str, OsString>> = OnceLock::new();
+struct LoadedConfig {
+    values: BTreeMap<&'static str, OsString>,
+    revision: String,
+}
+
+static SOURCE: OnceLock<LoadedConfig> = OnceLock::new();
+
+/// Content revision of the loaded Core TOML layers, excluding referenced credentials and data files.
+pub fn configuration_revision() -> Option<&'static str> {
+    SOURCE.get().map(|source| source.revision.as_str())
+}
 
 /// Loads the selected TOML configuration once, without an environment fallback.
 pub fn initialize(path: Option<&Path>) -> io::Result<()> {
@@ -45,7 +55,8 @@ pub fn initialize(path: Option<&Path>) -> io::Result<()> {
             "TOML configuration cannot be mixed with LMM_CORE environment settings",
         ));
     }
-    let values = settings_from_file(layers::load(path.unwrap_or(Path::new(DEFAULT_CONFIG)))?)?;
+    let (file, revision) = layers::load(path.unwrap_or(Path::new(DEFAULT_CONFIG)))?;
+    let values = settings_from_file(file)?;
     // Offline commands enforce the same file permissions as service startup.
     for (name, path) in &values {
         if name.ends_with("_FILE") {
@@ -57,7 +68,7 @@ pub fn initialize(path: Option<&Path>) -> io::Result<()> {
         }
     }
     SOURCE
-        .set(values)
+        .set(LoadedConfig { values, revision })
         .map_err(|_| invalid_config("core configuration was already initialized"))
 }
 
@@ -85,7 +96,7 @@ fn initialize_test_document(document: &str) -> io::Result<()> {
 }
 
 pub fn setting_os(name: &str) -> Option<OsString> {
-    SOURCE.get()?.get(name).cloned()
+    SOURCE.get()?.values.get(name).cloned()
 }
 
 /// Only the public console options may be projected through the compatibility API.
@@ -324,10 +335,47 @@ struct SupportProjectionFile {
     shared_group_id: Option<u32>,
 }
 
+/// Host-owned routing publication policy, selected at Core startup.
+#[derive(Clone, Copy, Debug, Default, Deserialize, serde::Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum RoutingAuthority {
+    #[default]
+    File,
+    Api,
+}
+
+#[cfg(test)]
+#[test]
+fn model_routing_authority_defaults_to_file_and_requires_an_explicit_api_value() {
+    for (suffix, expected) in [
+        ("", RoutingAuthority::File),
+        ("routing_authority='file'", RoutingAuthority::File),
+        ("routing_authority='api'", RoutingAuthority::Api),
+    ] {
+        let model: ModelFile =
+            toml::from_str(&format!("config_file='/local/models'\n{suffix}")).unwrap();
+        assert_eq!(model.routing_authority, expected);
+    }
+    assert!(
+        toml::from_str::<ModelFile>("config_file='/local/models'\nrouting_authority='typo'")
+            .is_err()
+    );
+}
+
+pub fn routing_authority() -> RoutingAuthority {
+    if setting("LMM_CORE_ROUTING_AUTHORITY").as_deref() == Ok("api") {
+        RoutingAuthority::Api
+    } else {
+        RoutingAuthority::File
+    }
+}
+
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct ModelFile {
     config_file: PathBuf,
+    #[serde(default)]
+    routing_authority: RoutingAuthority,
     #[serde(default)]
     local_http: bool,
 }
@@ -1000,6 +1048,11 @@ fn settings_from_file(file: CoreFile) -> io::Result<BTreeMap<&'static str, OsStr
         }
     }
     if let Some(model) = file.model {
+        let authority = match model.routing_authority {
+            RoutingAuthority::File => "file",
+            RoutingAuthority::Api => "api",
+        };
+        put("LMM_CORE_ROUTING_AUTHORITY", authority.to_owned());
         put("LMM_CORE_MODEL_LOCAL_HTTP", model.local_http.to_string());
         paths.push(("LMM_CORE_MODEL_CONFIG_FILE", model.config_file));
     }

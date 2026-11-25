@@ -217,6 +217,9 @@ async fn snapshot(
     c: &mut PgConnection,
     management: &ManagedChannels,
 ) -> Result<(ReleaseDocument, Bindings), Failure> {
+    if !management.api_managed() {
+        return Ok((management.bootstrap.clone(), management.current_bindings()?));
+    }
     let value: Option<Value> = sqlx::query_scalar("SELECT public.routing_control_read()")
         .fetch_one(&mut *c)
         .await

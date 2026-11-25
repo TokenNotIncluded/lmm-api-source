@@ -81,7 +81,13 @@ impl Version {
     }
 }
 
+fn document_digest(document: &Value) -> Result<String, ManagementError> {
+    let bytes = serde_json::to_vec(document).map_err(|_| ManagementError::Invalid)?;
+    Ok(crate::hex_codec::encode(Sha256::digest(bytes)))
+}
+
 pub struct ManagedChannels {
+    authority: crate::config::RoutingAuthority,
     pool: PgPool,
     routing: Arc<ServingRouter>,
     bootstrap: ReleaseDocument,
@@ -148,17 +154,14 @@ impl ManagedChannels {
         let prices = serde_json::to_value(&management.bootstrap.pricing)
             .map_err(|_| ManagementError::Invalid)?;
         let bindings = serde_json::to_value(&bindings).map_err(|_| ManagementError::Invalid)?;
-        let digest = |document: &Value| -> Result<String, ManagementError> {
-            let bytes = serde_json::to_vec(document).map_err(|_| ManagementError::Invalid)?;
-            Ok(crate::hex_codec::encode(Sha256::digest(bytes)))
-        };
+
         Ok(json!({
             "format_version": 1,
             "scope": "validated-bootstrap-publication-v1",
             "document_sha256": {
-                "routing": digest(&routing)?,
-                "prices": digest(&prices)?,
-                "bindings": digest(&bindings)?,
+                "routing": document_digest(&routing)?,
+                "prices": document_digest(&prices)?,
+                "bindings": document_digest(&bindings)?,
             },
             "routing": routing,
             "prices": prices,
@@ -170,6 +173,14 @@ impl ManagedChannels {
     /// Called by the host before it exposes routes. This reads existing state;
     /// it never initializes a database or creates a publication at startup.
     pub async fn recover(pool: PgPool, gateway: ModelGateway) -> Result<Self, ManagementError> {
+        Self::with_authority(pool, gateway, crate::config::RoutingAuthority::Api).await
+    }
+
+    pub async fn with_authority(
+        pool: PgPool,
+        gateway: ModelGateway,
+        authority: crate::config::RoutingAuthority,
+    ) -> Result<Self, ManagementError> {
         let mut state = Self::from_router(pool, gateway.dashboard_routing())?;
         state.bindings = std::sync::RwLock::new((
             state.bootstrap.routing.version,
@@ -179,9 +190,8 @@ impl ManagedChannels {
             },
         ));
         state.gateway = Some(gateway);
-        if let Some(document) = state.load_active().await? {
-            state.install(document).await?;
-        }
+        state.authority = authority;
+        state.synchronize().await?;
         Ok(state)
     }
     fn from_router(pool: PgPool, routing: Arc<ServingRouter>) -> Result<Self, ManagementError> {
@@ -190,6 +200,7 @@ impl ManagedChannels {
             .map_err(|_| ManagementError::Invalid)?;
         let version = bootstrap.routing.version;
         Ok(Self {
+            authority: crate::config::RoutingAuthority::Api,
             pool,
             routing,
             bootstrap,
@@ -211,6 +222,9 @@ impl ManagedChannels {
             .transpose()
     }
     pub async fn synchronize(&self) -> Result<(), ManagementError> {
+        if !self.api_managed() {
+            return Ok(());
+        }
         let _guard = self.publication.lock().await;
         if let Some(document) = self.load_active().await? {
             self.install(document).await?;
@@ -235,6 +249,10 @@ impl ManagedChannels {
 
     pub(super) fn draft_catalog_enabled(&self) -> bool {
         self.gateway.is_some()
+    }
+
+    pub(super) fn api_managed(&self) -> bool {
+        self.authority == crate::config::RoutingAuthority::Api
     }
 
     pub(super) fn secret_storage_enabled(&self) -> bool {
@@ -520,6 +538,9 @@ impl ManagedChannels {
         incoming_keys: Vec<crate::model_http::UpstreamCredential>,
         change: PublicationChange,
     ) -> Result<Version, Failure> {
+        if !self.api_managed() {
+            return Err(Failure::FileManaged);
+        }
         if let Some(gateway) = &self.gateway {
             gateway
                 .validate_channel_credentials(&incoming_keys)
@@ -576,6 +597,7 @@ impl ManagedChannels {
 }
 
 pub(super) enum Failure {
+    FileManaged,
     Auth(HistoryError),
     Management(ManagementError),
     NotFound,
@@ -630,6 +652,11 @@ impl IntoResponse for Failure {
                 StatusCode::CONFLICT,
                 "CHANNEL_USAGE_IDENTITY_AMBIGUOUS",
                 "This channel ID was reused; its historical accounting requires review",
+            ),
+            Self::FileManaged => (
+                StatusCode::CONFLICT,
+                "ROUTING_FILE_MANAGED",
+                "The active routing and pricing configuration is managed by the Core configuration file.",
             ),
             Self::Disabled => (
                 StatusCode::NOT_IMPLEMENTED,

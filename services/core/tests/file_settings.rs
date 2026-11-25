@@ -60,6 +60,16 @@ fn toml_load_drop_ins_before_installing_the_effective_startup_configuration() {
     assert!(config::initialize(Some(&base)).is_err());
     fs::remove_file(invalid).unwrap();
     config::initialize(Some(&base)).unwrap();
+    let mut digest = <sha2::Sha256 as sha2::Digest>::new();
+    for path in [&base, &dir.join("10-site.toml"), &dir.join("90-local.toml")] {
+        let bytes = fs::read(path).unwrap();
+        sha2::Digest::update(&mut digest, (bytes.len() as u64).to_be_bytes());
+        sha2::Digest::update(&mut digest, bytes);
+    }
+    assert_eq!(
+        config::configuration_revision().unwrap(),
+        format!("core-toml-sha256:{:x}", sha2::Digest::finalize(digest))
+    );
     assert_eq!(
         config::setting("LMM_CORE_LISTEN").unwrap(),
         "127.0.0.1:9021"

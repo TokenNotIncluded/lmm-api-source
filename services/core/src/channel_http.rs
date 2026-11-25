@@ -771,34 +771,38 @@ async fn ops(State(state): State<ChannelState>, headers: HeaderMap) -> Response 
     if let Err(error) = admit(&state, &headers).await {
         return auth_error(error);
     }
+    let api_managed = state
+        .management
+        .as_ref()
+        .is_some_and(|management| management.api_managed());
     Json(json!({
         "success": true,
         "data": {
             "read_only": true,
-            "native_control": state.management.is_some(),
-            "native_tags": state.management.is_some(),
+            "native_control": api_managed,
+            "native_tags": api_managed,
             "native_configuration": state.management.is_some(),
             "native_catalog": state.management.is_some(),
-            "native_secrets": state.management.as_ref().is_some_and(|management| management.secret_storage_enabled()),
-            "bulk_key_import": state.management.as_ref().is_some_and(|management| management.secret_storage_enabled()),
-            "status": state.management.is_some(),
-            "remove": state.management.is_some(),
-            "price_publish": state.management.is_some(),
+            "native_secrets": api_managed && state.management.as_ref().is_some_and(|management| management.secret_storage_enabled()),
+            "bulk_key_import": api_managed && state.management.as_ref().is_some_and(|management| management.secret_storage_enabled()),
+            "status": api_managed,
+            "remove": api_managed,
+            "price_publish": api_managed,
             "catalog_probe": state.management.is_some(),
             "native_draft_model_discovery": state.management.as_ref().is_some_and(|management| management.draft_catalog_enabled()),
             "native_channel_usage": state.management.is_some(),
             "native_channel_counters": state.management.is_some(),
             "native_channel_lifetime": state.management.is_some(),
             "native_channel_observations": state.management.is_some(),
-            "native_balance_probe": state.management.as_ref().is_some_and(|management| management.secret_storage_enabled()),
-            "copy_preserve_counters": state.management.as_ref().is_some_and(|management| management.secret_storage_enabled()),
+            "native_balance_probe": api_managed && state.management.as_ref().is_some_and(|management| management.secret_storage_enabled()),
+            "copy_preserve_counters": api_managed && state.management.as_ref().is_some_and(|management| management.secret_storage_enabled()),
             "source": "active_routing_snapshot",
             "retry_times": null,
             "capabilities": {
                 "list": true, "search": true, "read": true,
                 "create": false, "update": false, "delete": false,
                 "test": false, "balance": false, "fetch_models": false,
-                "copy": state.management.as_ref().is_some_and(|management| management.secret_storage_enabled()), "key": false
+                "copy": api_managed && state.management.as_ref().is_some_and(|management| management.secret_storage_enabled()), "key": false
             },
             "reason": "Channel writes require durable Core configuration publication"
         }

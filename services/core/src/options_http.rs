@@ -88,6 +88,38 @@ fn file_managed(allow: &'static str) -> Response {
 struct SystemOption {
     key: String,
     value: String,
+    source: &'static str,
+    revision: Option<String>,
+}
+
+fn effective_option(
+    key: &'static str,
+    default: &str,
+    rows: &BTreeMap<String, (String, i64)>,
+) -> SystemOption {
+    let stored = match key {
+        "Announcements" | "console_setting.announcements" => rows
+            .get("console_setting.announcements")
+            .or_else(|| rows.get("Announcements")),
+        _ => rows.get(key),
+    };
+    let (value, source, revision) = if let Some(value) = crate::config::console_option(key) {
+        (
+            value,
+            "core_file",
+            crate::config::configuration_revision().map(str::to_owned),
+        )
+    } else if let Some((value, revision)) = stored {
+        (value.clone(), "legacy_database", Some(revision.to_string()))
+    } else {
+        (default.to_owned(), "default", None)
+    };
+    SystemOption {
+        key: key.into(),
+        value,
+        source,
+        revision,
+    }
 }
 
 fn bearer(headers: &HeaderMap) -> Result<&str, IdentityError> {
@@ -152,6 +184,8 @@ fn runtime_options(runtime: &RuntimeOptions) -> Vec<SystemOption> {
     .map(|(key, value)| SystemOption {
         key: key.into(),
         value,
+        source: "core_runtime",
+        revision: crate::config::configuration_revision().map(str::to_owned),
     })
     .collect()
     // @context-fold end effective-public-runtime-options
@@ -173,8 +207,8 @@ async fn read(State(state): State<OptionsHttp>, headers: HeaderMap) -> Response 
     }
     // Only these persisted options are consumed by the current Core console.
     // @context-fold begin runtime-settings-projection
-    let stored = sqlx::query_as::<_, (String, String)>(
-        "SELECT key,value FROM core_console.options
+    let stored = sqlx::query_as::<_, (String, String, i64)>(
+        "SELECT key,value,revision FROM core_console.options
          WHERE key IN ('Notice','Announcements','console_setting.announcements','USDExchangeRate','IPAccessRoutingRules',
                        'payment_setting.compliance_confirmed','payment_setting.compliance_terms_version')
          ORDER BY key",
@@ -192,73 +226,28 @@ async fn read(State(state): State<OptionsHttp>, headers: HeaderMap) -> Response 
         }
     };
     let mut data = runtime_options(&state.runtime);
-    let mut stored: BTreeMap<_, _> = stored.into_iter().collect();
-    for key in [
-        "Notice",
-        "console_setting.announcements",
-        "USDExchangeRate",
-        "IPAccessRoutingRules",
-    ] {
-        if let Some(value) = crate::config::console_option(key) {
-            stored.insert(key.to_owned(), value);
-        }
-    }
-    if stored
-        .get("USDExchangeRate")
-        .is_some_and(|value| display_exchange_rate(value).is_none())
-    {
+    let rows = stored
+        .into_iter()
+        .map(|(key, value, revision)| (key, (value, revision)))
+        .collect();
+    let rate = effective_option("USDExchangeRate", "", &rows);
+    if rate.source != "default" && display_exchange_rate(&rate.value).is_none() {
         return response(
             StatusCode::SERVICE_UNAVAILABLE,
             json!({"success":false,"code":"SYSTEM_OPTIONS_INVALID_STORED_RATE",
                 "message":"The stored display exchange rate is invalid"}),
         );
     }
-    let notice = stored.get("Notice").cloned().unwrap_or_default();
-    let announcements = stored
-        .get("console_setting.announcements")
-        .or_else(|| stored.get("Announcements"))
-        .cloned()
-        .unwrap_or_else(|| "[]".into());
-    // Legacy affiliate settlement requires both an explicit confirmation and the current terms.
-    // Keep the recorded version visible even when settlement rejects it.
+    let mut confirmed = effective_option("payment_setting.compliance_confirmed", "false", &rows);
+    confirmed.value = (confirmed.value == "true").to_string();
     data.extend([
-        SystemOption {
-            key: "payment_setting.compliance_confirmed".into(),
-            value: stored
-                .get("payment_setting.compliance_confirmed")
-                .is_some_and(|value| value == "true")
-                .to_string(),
-        },
-        SystemOption {
-            key: "payment_setting.compliance_terms_version".into(),
-            value: stored
-                .get("payment_setting.compliance_terms_version")
-                .cloned()
-                .unwrap_or_default(),
-        },
-        SystemOption {
-            key: "IPAccessRoutingRules".into(),
-            value: stored
-                .get("IPAccessRoutingRules")
-                .cloned()
-                .unwrap_or_default(),
-        },
-        SystemOption {
-            key: "USDExchangeRate".into(),
-            value: stored.get("USDExchangeRate").cloned().unwrap_or_default(),
-        },
-        SystemOption {
-            key: "Notice".into(),
-            value: notice,
-        },
-        SystemOption {
-            key: "Announcements".into(),
-            value: announcements.clone(),
-        },
-        SystemOption {
-            key: "console_setting.announcements".into(),
-            value: announcements,
-        },
+        confirmed,
+        effective_option("payment_setting.compliance_terms_version", "", &rows),
+        effective_option("IPAccessRoutingRules", "", &rows),
+        rate,
+        effective_option("Notice", "", &rows),
+        effective_option("Announcements", "[]", &rows),
+        effective_option("console_setting.announcements", "[]", &rows),
     ]);
     response(
         StatusCode::OK,
@@ -448,6 +437,19 @@ mod tests {
                     )
                 })
                 .collect();
+        let item = |key: &str| {
+            body["data"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|row| row["key"] == key)
+                .unwrap()
+        };
+        assert_eq!(item("Notice")["source"], "legacy_database");
+        assert_eq!(item("Notice")["revision"], "1");
+        assert_eq!(item("USDExchangeRate")["source"], "default");
+        assert_eq!(item("USDExchangeRate")["revision"], serde_json::Value::Null);
+        assert_eq!(item("EmailVerificationEnabled")["source"], "core_runtime");
         assert_eq!(options["Notice"], "Existing notice");
         assert_eq!(options["RegisterEnabled"], "false");
         assert_eq!(options["PasswordLoginEnabled"], "true");

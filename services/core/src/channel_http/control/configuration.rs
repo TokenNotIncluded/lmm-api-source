@@ -215,8 +215,20 @@ pub(in crate::channel_http) async fn read(
         .gateway
         .as_ref()
         .map(|gateway| json!({ "total_timeout_ms": gateway.channel_total_timeout_ms() }));
+    let routing = serde_json::to_value(&document.routing).map_err(|_| ManagementError::Invalid)?;
+    let prices = serde_json::to_value(&document.pricing).map_err(|_| ManagementError::Invalid)?;
+
+    let authority = json!({
+        "mode": management.authority,
+        "source": if management.api_managed() { "api_managed_runtime" } else { "model.config_file" },
+        "version": Version::of(&document),
+        "routing_sha256": document_digest(&routing)?,
+        "pricing_sha256": document_digest(&prices)?,
+        "git_revision": null,
+        "observed_at_unix": chrono::Utc::now().timestamp(),
+    });
     Ok(Json(
-        json!({"success":true,"data":{"version":Version::of(&document),"routing":document.routing,"prices":document.pricing,"bindings":bindings,"channel_id_high_water":channel_id_high_water,"model_limits":model_limits,"secret_storage_enabled":management.gateway.as_ref().and_then(|g|g.channel_secret_key()).is_some()}}),
+        json!({"success":true,"data":{"version":Version::of(&document),"authority":authority,"routing":routing,"prices":prices,"bindings":bindings,"channel_id_high_water":channel_id_high_water,"model_limits":model_limits,"secret_storage_enabled":management.api_managed() && management.secret_storage_enabled()}}),
     ))
 }
 pub(in crate::channel_http) async fn preview(
@@ -528,6 +540,9 @@ pub(super) async fn store_secret(
     label: &str,
     secret: String,
 ) -> Result<crate::model_http::UpstreamCredential, Failure> {
+    if !management.api_managed() {
+        return Err(Failure::FileManaged);
+    }
     if !valid_label(label) {
         return Err(ManagementError::Invalid.into());
     }
@@ -681,11 +696,16 @@ pub(in crate::channel_http) async fn keys(
     let bindings = management.current_bindings()?;
     let pool = bindings.key_pools.get(&id);
     let polling = pool.is_some_and(|pool| pool.polling);
-    let mut list: Value = sqlx::query_scalar("SELECT public.routing_control_secret_list($1)")
-        .bind(id as i64)
-        .fetch_one(&mut *tx)
-        .await
-        .map_err(ManagementError::from)?;
+    let mut list: Value = if management.api_managed() {
+        sqlx::query_scalar("SELECT public.routing_control_secret_list($1)")
+            .bind(id as i64)
+            .fetch_one(&mut *tx)
+            .await
+            .map_err(ManagementError::from)?
+    } else {
+        // The file reference is reported as active_reference below, outside the API vault.
+        json!([])
+    };
     for key in list.as_array_mut().into_iter().flatten() {
         let reference = serde_json::from_value::<CredentialRef>(key["reference"].clone())
             .map_err(|_| ManagementError::Invalid)?;
@@ -755,6 +775,9 @@ pub(in crate::channel_http) async fn change_key(
             super::ReadView::Current,
         )
         .await?;
+    if !management.api_managed() {
+        return Err(Failure::FileManaged);
+    }
     let expected = match &input {
         KeyOperation::Add {
             expected_version, ..
