@@ -790,6 +790,7 @@ async fn run_core() -> Result<(), Box<dyn Error>> {
             config::assistant_tools_browser_router(pool.clone(), identity, browser_assistant)?
     {
         app = app.merge(confirmations);
+        capabilities.weekly_discounts = true;
     }
     let rpc_running = Arc::new(AtomicBool::new(false));
     let models_healthy = Arc::new(AtomicBool::new(true));

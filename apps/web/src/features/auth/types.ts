@@ -98,6 +98,7 @@ export interface BackendCapabilities {
   bounty_public_read: boolean
   self_oauth_unbind: boolean
   responses_websocket: boolean
+  weekly_discounts: boolean
 }
 
 export interface AssistantStatus {

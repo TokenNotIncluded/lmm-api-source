@@ -11,6 +11,7 @@ import { useTranslation } from 'react-i18next'
 
 import { SectionPageLayout } from '@/components/layout'
 import { Button } from '@/components/ui/button'
+import { useStatus } from '@/hooks/use-status'
 import { toIntlLocale } from '@/i18n/languages'
 import { useAuthStore } from '@/stores/auth-store'
 
@@ -80,13 +81,12 @@ export function WeeklyDiscounts({ selectedID }: { selectedID?: string }) {
       </SectionPageLayout.Actions>
       <SectionPageLayout.Content>
         <div className='mx-auto w-full max-w-4xl space-y-10 pb-12 sm:space-y-12'>
-          <p className='text-muted-foreground max-w-2xl text-sm leading-7'>
-            {t(
-              'Review your weekly decision, claim an offered code, and see past weeks.'
-            )}
-          </p>
           {scope ? (
-            <OwnerDiscounts key={scope} scope={scope} selectedID={selectedID} />
+            <WeeklyDiscountAccess
+              key={scope}
+              scope={scope}
+              selectedID={selectedID}
+            />
           ) : (
             <p
               role='status'
@@ -98,6 +98,47 @@ export function WeeklyDiscounts({ selectedID }: { selectedID?: string }) {
         </div>
       </SectionPageLayout.Content>
     </SectionPageLayout>
+  )
+}
+
+function WeeklyDiscountAccess({
+  scope,
+  selectedID,
+}: {
+  scope: string
+  selectedID?: string
+}) {
+  const { status, capabilitiesReady, error, refetch } = useStatus()
+  const { t } = useTranslation()
+  if (error) {
+    return (
+      <div className='space-y-3'>
+        <p role='alert'>{t('Could not refresh. Try again.')}</p>
+        <Button variant='outline' onClick={() => void refetch()}>
+          {t('Retry')}
+        </Button>
+      </div>
+    )
+  }
+  if (
+    !capabilitiesReady ||
+    status?.backend_capabilities?.weekly_discounts !== true
+  ) {
+    return (
+      <p role='status' className='text-muted-foreground text-sm leading-7'>
+        {capabilitiesReady ? t('Capability unavailable') : t('Loading…')}
+      </p>
+    )
+  }
+  return (
+    <>
+      <p className='text-muted-foreground max-w-2xl text-sm leading-7'>
+        {t(
+          'Review your weekly decision, claim an offered code, and see past weeks.'
+        )}
+      </p>
+      <OwnerDiscounts scope={scope} selectedID={selectedID} />
+    </>
   )
 }
 
