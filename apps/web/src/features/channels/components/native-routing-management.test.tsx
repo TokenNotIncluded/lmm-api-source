@@ -498,7 +498,20 @@ test('native channel cards toggle status once with CAS and refresh the published
       (element) => element.textContent === 'Disable'
     )
   )
-  assert.ok(container.textContent?.includes('#1 · Enabled'))
+  const assertChannelStatus = (expected: 'Enabled' | 'Disabled') => {
+    const row = required(
+      container.querySelector('article[aria-label="Private provider"]')
+    )
+    assert.ok(
+      [...row.querySelectorAll('p')].some((p) => p.textContent === '#1')
+    )
+    assert.ok(
+      [...row.querySelectorAll('span')].some(
+        (span) => span.textContent === expected
+      )
+    )
+  }
+  assertChannelStatus('Enabled')
   assert.equal(button(container, 'Disable').closest('details'), null)
   assert.equal(button(container, 'API Keys').closest('details'), null)
   await act(async () => {
@@ -512,7 +525,7 @@ test('native channel cards toggle status once with CAS and refresh the published
         (element) => element.textContent === 'Enable'
       )
   )
-  assert.ok(container.textContent?.includes('#1 · Disabled'))
+  assertChannelStatus('Disabled')
   await act(async () => button(container, 'Enable').click())
   await until(
     () =>
@@ -521,7 +534,7 @@ test('native channel cards toggle status once with CAS and refresh the published
         (element) => element.textContent === 'Disable'
       )
   )
-  assert.ok(container.textContent?.includes('#1 · Enabled'))
+  assertChannelStatus('Enabled')
 })
 
 test('native channel selection batches status changes and expires with the published snapshot', async () => {
@@ -3121,9 +3134,17 @@ for (const unknown of [false, true]) {
 }
 
 test('channel search explains an empty result and clearing restores the compact channel list', async () => {
+  const config = fixture()
+  const route = config.routing.routes[0]
+  config.routing.routes.push({
+    ...route,
+    id: 2,
+    group: 'team',
+    targets: [{ ...route.targets[0], id: 2, priority: 5 }],
+  })
   api.request = (async (options: { method: string }) => {
     assert.equal(options.method, 'GET')
-    return { data: { success: true, data: fixture() } }
+    return { data: { success: true, data: config } }
   }) as typeof api.request
   const container = await mount('channels')
   await until(
@@ -3134,6 +3155,22 @@ test('channel search explains an empty result and clearing restores the compact 
   assert.equal(required(row.querySelector('details')).open, false)
   assert.equal(button(row, 'Edit').closest('details'), null)
   assert.equal(button(row, 'Test').closest('details'), null)
+  assert.equal(button(row, 'API Keys').closest('details'), null)
+  assert.ok(row.textContent?.includes(i18n.t('{{count}} models', { count: 1 })))
+  const layout = required(row.parentElement)
+  assert.equal(layout.dataset.layout, 'list')
+  assert.equal(row.querySelector('dd[title="0, 5"]')?.textContent, '0, 5')
+  assert.equal(row.querySelector('dd[title="1"]')?.textContent, '1')
+  const checkbox = required(row.querySelector<HTMLElement>('[role=checkbox]'))
+  await act(async () => checkbox.click())
+  const chooseCards = required(
+    container.querySelector<HTMLButtonElement>('button[aria-label="Card view"]')
+  )
+  await act(async () => chooseCards.click())
+  assert.equal(layout.dataset.layout, 'cards')
+  assert.equal(chooseCards.getAttribute('aria-pressed'), 'true')
+  assert.equal(container.querySelector('article'), row)
+  assert.equal(checkbox.getAttribute('aria-checked'), 'true')
   const search = required(
     container.querySelector<HTMLInputElement>('input[aria-label="Search"]')
   )
