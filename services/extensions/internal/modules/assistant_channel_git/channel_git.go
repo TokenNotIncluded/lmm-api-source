@@ -104,13 +104,13 @@ func Binding(cfg Config, auth access.Authority) (assistant.AgentToolBinding, err
 		Access: "root", PriceVersion: d.PriceVersion, PriceSHA256: d.PriceSHA, Parameters: json.RawMessage(d.Schema), Executor: &tool{cfg, auth, d, invoke}}, nil
 }
 
-type boundedOutput struct{ bytes.Buffer }
+type boundedOutput struct{ data bytes.Buffer }
 
 func (b *boundedOutput) Write(p []byte) (int, error) {
-	if len(p) > 64<<10-b.Len() {
+	if len(p) > (64<<10)-b.data.Len() {
 		return 0, errors.New("channel proposal output exceeds limit")
 	}
-	return b.Buffer.Write(p)
+	return b.data.Write(p)
 }
 
 func invoke(ctx context.Context, c Config, action, namespace, operation, token string, input []byte) ([]byte, error) {
@@ -135,7 +135,7 @@ func invoke(ctx context.Context, c Config, action, namespace, operation, token s
 	if err := cmd.Run(); err != nil {
 		return nil, assistant.ErrDelegationUnknown
 	}
-	return output.Bytes(), nil
+	return output.data.Bytes(), nil
 }
 
 func (t *tool) authorize(ctx context.Context, in assistant.AgentInvocation) error {

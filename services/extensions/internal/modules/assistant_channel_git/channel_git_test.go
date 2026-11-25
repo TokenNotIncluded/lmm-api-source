@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -150,5 +151,13 @@ print(json.dumps({"model_config":"version=2\n","before":evidence(1),"after":evid
 	auth.actor.Level = 5
 	if _, e = registry.Execute(ctx, in); !errors.Is(e, access.ErrForbidden) {
 		t.Fatalf("nonroot accepted: %v", e)
+	}
+}
+
+func TestAdapterOutputLimit(t *testing.T) {
+	var out boundedOutput
+	_, err := io.Copy(&out, strings.NewReader(strings.Repeat("x", 65537)))
+	if err == nil || out.data.Len() > 65536 {
+		t.Fatal("subprocess output exceeded bounded receipt")
 	}
 }
