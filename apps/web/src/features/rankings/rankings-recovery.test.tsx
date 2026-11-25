@@ -32,7 +32,7 @@ for (const key of [
   'matchMedia',
 ] as const) {
   priorGlobals.set(key, Object.getOwnPropertyDescriptor(globalThis, key))
-  const value = dom[key]
+  const value: unknown = dom[key]
   Object.defineProperty(globalThis, key, {
     configurable: true,
     writable: true,
@@ -96,7 +96,7 @@ test('model and user rankings recover independently; outage responses never appe
   api.get = (async (url, config) => {
     assert.equal(config?.skipErrorHandler, true)
     assert.equal(config?.skipBusinessError, true)
-    assert.equal(config?.params?.period, 'week')
+    assert.deepEqual(config?.params, { period: 'week' })
     if (url === '/api/rankings') {
       modelCalls++
       throw Object.assign(new Error('Request failed with status code 503'), {
