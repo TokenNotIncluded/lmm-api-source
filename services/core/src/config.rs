@@ -1,7 +1,9 @@
 #[cfg(test)]
 mod checkin_rewards_tests;
+mod console_options;
 mod email_config;
 mod hero_sms_config;
+mod layers;
 pub use hero_sms_config::hero_sms_configured;
 mod managed_recovery_config;
 mod oidc_config;
@@ -43,8 +45,7 @@ pub fn initialize(path: Option<&Path>) -> io::Result<()> {
             "TOML configuration cannot be mixed with LMM_CORE environment settings",
         ));
     }
-    let document = configuration_file(path.unwrap_or(Path::new(DEFAULT_CONFIG)), 256 * 1024)?;
-    let values = parse_core_file(&document)?;
+    let values = settings_from_file(layers::load(path.unwrap_or(Path::new(DEFAULT_CONFIG)))?)?;
     // Offline commands enforce the same file permissions as service startup.
     for (name, path) in &values {
         if name.ends_with("_FILE") {
@@ -85,6 +86,18 @@ fn initialize_test_document(document: &str) -> io::Result<()> {
 
 pub fn setting_os(name: &str) -> Option<OsString> {
     SOURCE.get()?.get(name).cloned()
+}
+
+/// Only the public console options may be projected through the compatibility API.
+pub fn console_option(key: &str) -> Option<String> {
+    let canonical = match key {
+        "Announcements" => "console_setting.announcements",
+        "console_setting.announcements" | "Notice" | "USDExchangeRate" | "IPAccessRoutingRules" => {
+            key
+        }
+        _ => return None,
+    };
+    setting(canonical).ok()
 }
 
 pub fn setting(name: &str) -> Result<String, env::VarError> {
@@ -288,6 +301,10 @@ struct RpcFile {
 #[serde(default, deny_unknown_fields)]
 struct ConsoleFile {
     enabled: bool,
+    notice: Option<String>,
+    announcements: Option<String>,
+    usd_exchange_rate: Option<String>,
+    ip_access_routing_rules: Option<String>,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -412,8 +429,12 @@ fn absolute_path(path: &Path) -> io::Result<()> {
     Ok(())
 }
 
+#[cfg(test)]
 fn parse_core_file(document: &[u8]) -> io::Result<BTreeMap<&'static str, OsString>> {
-    let file: CoreFile = parse_document(document)?;
+    settings_from_file(parse_document(document)?)
+}
+
+fn settings_from_file(file: CoreFile) -> io::Result<BTreeMap<&'static str, OsString>> {
     if file.version != 1 {
         return Err(invalid_config("unsupported core configuration version"));
     }
@@ -567,6 +588,11 @@ fn parse_core_file(document: &[u8]) -> io::Result<BTreeMap<&'static str, OsStrin
         );
     }
     put("LMM_CORE_CONSOLE_ENABLED", file.console.enabled.to_string());
+    for (key, value) in file.console.options()? {
+        if let Some(value) = value {
+            put(key, value);
+        }
+    }
     let mut paths = Vec::new();
     if let Some(path) = file.identity.email_config_file {
         paths.push(("LMM_CORE_EMAIL_CONFIG_FILE", path));

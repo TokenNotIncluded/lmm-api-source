@@ -1,4 +1,9 @@
 # Non-secret runtime configuration; install as /etc/lmm.conf.d/core.toml.
+# For overrides, add FILE.toml entries in /etc/lmm.conf.d/core.toml.d/.
+# Core reads the main file first and then visible *.toml files in filename order.
+# Tables merge recursively. Later values and arrays replace earlier ones.
+# Alternatively, pass a directory containing the complete configuration with --config.
+# Restart Core to apply edits. Keep the directory and files owner-controlled.
 # Provision the restricted runtime database credential separately (0600).
 # Use a separate private owner TOML for explicit init-db; never run as owner.
 version = 1
@@ -37,6 +42,11 @@ password_slots = 1
 
 [console]
 enabled = false
+# With console enabled these optional public settings override legacy database values.
+# notice = "Scheduled maintenance on Saturday."
+# announcements = '[]'
+# usd_exchange_rate = "7.1"  # CNY display only
+# ip_access_routing_rules = "fallback: direct"
 
 # Optional browser authentication; supply an exact trusted origin and a private key.
 # [identity.web]

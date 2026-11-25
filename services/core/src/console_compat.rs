@@ -168,14 +168,34 @@ impl ConsoleCompat {
         })
     }
     pub async fn notice(&self) -> Result<String, ConsoleError> {
-        Ok(
-            sqlx::query_scalar("SELECT value FROM core_console.options WHERE key='Notice'")
-                .fetch_optional(&self.pool)
-                .await?
-                .unwrap_or_default(),
-        )
+        Ok(effective_option(&self.pool, "Notice")
+            .await?
+            .unwrap_or_default())
     }
 }
+/// Explicit host values take precedence over settings retained from an existing site.
+pub(crate) async fn effective_option<'e>(
+    database: impl sqlx::Executor<'e, Database = sqlx::Postgres>,
+    key: &'static str,
+) -> Result<Option<String>, sqlx::Error> {
+    if let Some(value) = crate::config::console_option(key) {
+        return Ok(Some(value));
+    }
+    if key == "console_setting.announcements" {
+        return sqlx::query_scalar(
+            "SELECT value FROM core_console.options
+            WHERE key IN ('console_setting.announcements','Announcements')
+            ORDER BY (key='console_setting.announcements') DESC LIMIT 1",
+        )
+        .fetch_optional(database)
+        .await;
+    }
+    sqlx::query_scalar("SELECT value FROM core_console.options WHERE key=$1")
+        .bind(key)
+        .fetch_optional(database)
+        .await
+}
+
 fn session(actor: Principal) -> Result<Principal, ConsoleError> {
     if actor.credential_kind != CredentialKind::Session {
         return Err(IdentityError::Forbidden.into());
@@ -430,27 +450,12 @@ async fn status_on_connection(
     connection: &mut PgConnection,
     user: i64,
 ) -> Result<Vec<MandatoryAnnouncement>, ConsoleError> {
-    let rows = sqlx::query(
-        "SELECT key,value FROM core_console.options
-         WHERE key IN ('console_setting.announcements','Announcements') ORDER BY key",
-    )
-    .fetch_all(&mut *connection)
-    .await?;
-    let options: HashMap<String, String> = rows
-        .into_iter()
-        .map(|row| Ok((row.try_get("key")?, row.try_get("value")?)))
-        .collect::<Result<_, sqlx::Error>>()?;
+    let source = effective_option(&mut *connection, "console_setting.announcements").await?;
     let now: i64 =
         sqlx::query_scalar("SELECT floor(extract(epoch FROM clock_timestamp())*1000000)::BIGINT")
             .fetch_one(&mut *connection)
             .await?;
-    let mut items = current_announcements(
-        options
-            .get("console_setting.announcements")
-            .or_else(|| options.get("Announcements"))
-            .map_or("", String::as_str),
-        now,
-    )?;
+    let mut items = current_announcements(source.as_deref().unwrap_or(""), now)?;
     let rows = sqlx::query(
         "SELECT announcement_id,revision,read_at FROM core_console.announcement_reads WHERE user_id=$1",
     )

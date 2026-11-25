@@ -180,11 +180,7 @@ impl CommunityRead {
                 });
             }
         }
-        let rate: Option<String> = sqlx::query_scalar(
-            "SELECT value FROM core_console.options WHERE key='USDExchangeRate'",
-        )
-        .fetch_optional(&mut *tx)
-        .await?;
+        let rate = crate::console_compat::effective_option(&mut *tx, "USDExchangeRate").await?;
         let cny_per_usd =
             rate.filter(|raw| crate::options_http::display_exchange_rate(raw).is_some());
         tx.commit().await?;

@@ -94,10 +94,7 @@ impl NetworkAccess {
         };
         let source = tokio::time::timeout(
             Duration::from_secs(2),
-            sqlx::query_scalar::<_, String>(
-                "SELECT value FROM core_console.options WHERE key='IPAccessRoutingRules'",
-            )
-            .fetch_optional(pool),
+            crate::console_compat::effective_option(pool, "IPAccessRoutingRules"),
         )
         .await
         .map_err(|_| crate::edge_access::SetupError)?

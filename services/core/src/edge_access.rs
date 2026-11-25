@@ -72,12 +72,9 @@ impl EdgeAccess {
             proof: Arc::new(proof),
             limiter: Arc::new(Mutex::new(Limiter::default())),
         };
-        let source: Option<String> =
-            sqlx::query_scalar("SELECT value FROM core_console.options WHERE key=$1")
-                .bind(RULE_KEY)
-                .fetch_optional(&state.pool)
-                .await
-                .map_err(|_| SetupError)?;
+        let source: Option<String> = crate::console_compat::effective_option(&state.pool, RULE_KEY)
+            .await
+            .map_err(|_| SetupError)?;
         Policy::parse(&source.ok_or(SetupError)?)?;
         Ok(state)
     }
@@ -237,12 +234,9 @@ async fn check(State(state): State<EdgeAccess>, request: Request) -> Response {
         .get::<TrustedCountry>()
         .and_then(|country| country.0.clone());
     let policy = tokio::time::timeout(LOOKUP_TIMEOUT, async {
-        let source: Option<String> =
-            sqlx::query_scalar("SELECT value FROM core_console.options WHERE key=$1")
-                .bind(RULE_KEY)
-                .fetch_optional(&state.pool)
-                .await
-                .map_err(|_| SetupError)?;
+        let source: Option<String> = crate::console_compat::effective_option(&state.pool, RULE_KEY)
+            .await
+            .map_err(|_| SetupError)?;
         Policy::parse(&source.ok_or(SetupError)?)
     })
     .await;

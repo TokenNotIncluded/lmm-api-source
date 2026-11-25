@@ -347,17 +347,13 @@ async fn public_status_response(State(state): State<Readiness>, headers: HeaderM
         }
     }
     if state.capabilities.console {
-        let options: Result<Vec<(String, String)>, _> = sqlx::query_as(
-            "SELECT key,value FROM core_console.options WHERE key='USDExchangeRate'",
-        )
-        .fetch_all(&state.pool)
-        .await;
-        let options = match options {
-            Ok(options) => options,
-            Err(_) => return public_configuration_unavailable(),
-        };
-        if let Some((_, raw)) = options.iter().find(|(key, _)| key == "USDExchangeRate") {
-            let Some(rate) = crate::options_http::display_exchange_rate(raw) else {
+        let rate =
+            match crate::console_compat::effective_option(&state.pool, "USDExchangeRate").await {
+                Ok(value) => value,
+                Err(_) => return public_configuration_unavailable(),
+            };
+        if let Some(raw) = rate {
+            let Some(rate) = crate::options_http::display_exchange_rate(&raw) else {
                 return public_configuration_unavailable();
             };
             data["usd_exchange_rate"] = json!(rate);
