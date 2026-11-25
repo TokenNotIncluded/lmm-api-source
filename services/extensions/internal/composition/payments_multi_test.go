@@ -140,6 +140,10 @@ tax_category='saas'
 	if err != nil || len(adapters) != 5 {
 		t.Fatal("configured provider rejected", err)
 	}
+	templated := strings.ReplaceAll(raw, "https://example.test/", "${PUBLIC_ORIGIN}/")
+	if _, err := loadMultiPaymentAdaptersForOrigin([]byte(templated), coreCheckoutSigner{}, nil, "https://checkout.example.test"); err != nil {
+		t.Fatal("site template failed normal adapter validation", err)
+	}
 	for i, provider := range []string{"stripe", "epay", "creem", "waffo", "waffo_pancake"} {
 		if adapters[i].Channel().Provider != provider {
 			t.Fatal(adapters[i].Channel())
@@ -163,6 +167,26 @@ tax_category='saas'
 	}
 	if _, err := loadMultiPaymentAdapters([]byte(raw), nil); err == nil {
 		t.Fatal("EPay configured without Core signing")
+	}
+}
+
+func TestPaymentSiteURLsResolveOnlyTheLeadingOrigin(t *testing.T) {
+	const origin = "https://site.example:8443"
+	templated := "${PUBLIC_ORIGIN}/callbacks/6"
+	literal := "https://production.example/console/wallet"
+	if err := resolvePaymentSiteURLs(origin, &templated, &literal); err != nil || templated != origin+"/callbacks/6" || literal != "https://production.example/console/wallet" {
+		t.Fatal("payment URL resolution", templated, literal, err)
+	}
+	for _, site := range []string{"", "http://site.example", "https://user@site.example", origin+"/wrong", origin+"?query"} {
+		field := "${PUBLIC_ORIGIN}/wallet"
+		if resolvePaymentSiteURLs(site, &field) == nil {
+			t.Fatal("accepted invalid origin", site)
+		}
+	}
+	for _, field := range []string{"${PUBLIC_ORIGIN}.other.example/path", "${PUBLIC_ORIGIN}//other.example", "https://other.example/${PUBLIC_ORIGIN}", "${PUBLIC_ORIGIN}/${UNKNOWN}"} {
+		if resolvePaymentSiteURLs(origin, &field) == nil {
+			t.Fatal("accepted invalid template", field)
+		}
 	}
 }
 

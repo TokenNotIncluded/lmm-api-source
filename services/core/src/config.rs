@@ -2286,6 +2286,38 @@ enum PaymentConfig {
     Legacy(LegacyPaymentConfig),
     Gateways(GatewayPaymentConfig),
 }
+pub(crate) fn payment_site_url(value: &str) -> io::Result<String> {
+    let origin = setting("LMM_CORE_WEB_ORIGIN").ok();
+    resolve_payment_site_url(value, origin.as_deref())
+}
+
+fn resolve_payment_site_url(value: &str, site: Option<&str>) -> io::Result<String> {
+    if !value.contains("${") {
+        return Ok(value.to_owned());
+    }
+    let invalid = || invalid_config("invalid payment URL template or HTTPS identity.web.origin");
+    let path = value.strip_prefix("${PUBLIC_ORIGIN}").ok_or_else(invalid)?;
+    if !path.starts_with('/')
+        || path.starts_with("//")
+        || path.contains('\\')
+        || path.contains("${")
+    {
+        return Err(invalid());
+    }
+    let origin = reqwest::Url::parse(site.ok_or_else(invalid)?).map_err(|_| invalid())?;
+    if origin.scheme() != "https"
+        || origin.host_str().is_none()
+        || !origin.username().is_empty()
+        || origin.password().is_some()
+        || origin.path() != "/"
+        || origin.query().is_some()
+        || origin.fragment().is_some()
+    {
+        return Err(invalid());
+    }
+    Ok(format!("{}{path}", origin.origin().ascii_serialization()))
+}
+
 impl PaymentConfig {
     fn validate(&self) -> io::Result<()> {
         let valid = match self {
@@ -2416,8 +2448,8 @@ impl PaymentConfig {
                                 store_id: channel.store_id,
                                 product_id: channel.product_id,
                                 endpoint: channel.endpoint,
-                                notify_url: channel.notify_url,
-                                return_url: channel.return_url,
+                                notify_url: payment_site_url(&channel.notify_url)?,
+                                return_url: payment_site_url(&channel.return_url)?,
                                 waffo_inquiry,
                             },
                         })
@@ -4702,6 +4734,34 @@ email_domain_whitelist = ["gmail.com", "outlook.com"]
             assert!(parse_document::<PaymentConfig>(raw.as_bytes()).is_err());
         }
     }
+    #[test]
+    fn payment_site_urls_use_the_configured_origin_and_keep_literal_overrides() {
+        let path = "${PUBLIC_ORIGIN}/callbacks/7";
+        let site = Some("https://wallet.example:8443");
+        assert_eq!(
+            resolve_payment_site_url(path, site).unwrap(),
+            "https://wallet.example:8443/callbacks/7"
+        );
+        let remote = "https://other.example/console/wallet";
+        assert_eq!(resolve_payment_site_url(remote, None).unwrap(), remote);
+        for origin in [
+            None,
+            Some("http://wallet.example"),
+            Some("https://user@wallet.example"),
+            Some("https://wallet.example/pay"),
+        ] {
+            assert!(resolve_payment_site_url(path, origin).is_err());
+        }
+        for malformed in [
+            "${PUBLIC_ORIGIN}.other.example/path",
+            "${PUBLIC_ORIGIN}//other.example",
+            "https://other.example/${PUBLIC_ORIGIN}",
+            "${PUBLIC_ORIGIN}/${UNKNOWN}",
+        ] {
+            assert!(resolve_payment_site_url(malformed, site).is_err());
+        }
+    }
+
     #[test]
     fn payment_configuration_v2_uses_explicit_channel_provider_and_integer_quote() {
         for currency in ["USD", "CNY", "EUR"] {

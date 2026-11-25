@@ -109,8 +109,14 @@ impl Runtime {
                 return Err(ConfigurationError::Denied);
             }
             channel.verification.endpoint = value.endpoint.clone();
-            channel.verification.notify_url = value.notify_url.clone();
-            channel.verification.return_url = value.return_url.clone();
+            if let Some(notify_url) = &value.notify_url {
+                channel.verification.notify_url = crate::config::payment_site_url(notify_url)
+                    .map_err(|_| ConfigurationError::Invalid)?;
+            }
+            if let Some(return_url) = &value.return_url {
+                channel.verification.return_url = crate::config::payment_site_url(return_url)
+                    .map_err(|_| ConfigurationError::Invalid)?;
+            }
             if let Some(name) = &value.secret_file {
                 if !valid_key_name(name, *id) {
                     return Err(ConfigurationError::Invalid);
@@ -162,18 +168,34 @@ impl Runtime {
         let mut channels = (*current.channels).clone();
         let channel = channels.get_mut(&id).ok_or(ConfigurationError::NotFound)?;
         channel.verification.endpoint = input.endpoint.trim().to_owned();
-        channel.verification.notify_url = input.notify_url.trim().to_owned();
-        channel.verification.return_url = input.return_url.trim().to_owned();
         let mut overlay = current.overlay.clone();
         let mut value = overlay.bindings.get(&id).cloned().unwrap_or(Override {
             endpoint: String::new(),
-            notify_url: String::new(),
-            return_url: String::new(),
+            notify_url: None,
+            return_url: None,
             secret_file: None,
         });
         value.endpoint = channel.verification.endpoint.clone();
-        value.notify_url = channel.verification.notify_url.clone();
-        value.return_url = channel.verification.return_url.clone();
+        // A key-only edit echoes the effective URLs. Preserve their underlying
+        // templates (or inheritance from the base file) across site changes.
+        for (input, saved, effective) in [
+            (
+                input.notify_url.trim(),
+                &mut value.notify_url,
+                &mut channel.verification.notify_url,
+            ),
+            (
+                input.return_url.trim(),
+                &mut value.return_url,
+                &mut channel.verification.return_url,
+            ),
+        ] {
+            if input != effective.as_str() {
+                *effective = crate::config::payment_site_url(input)
+                    .map_err(|_| ConfigurationError::Invalid)?;
+                *saved = Some(input.to_owned());
+            }
+        }
         let secret = if input.secret_key.trim().is_empty() {
             None
         } else {

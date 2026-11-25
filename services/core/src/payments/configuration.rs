@@ -82,8 +82,10 @@ struct Overlay {
 #[serde(deny_unknown_fields)]
 struct Override {
     endpoint: String,
-    notify_url: String,
-    return_url: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    notify_url: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    return_url: Option<String>,
     secret_file: Option<String>,
 }
 struct Snapshot {

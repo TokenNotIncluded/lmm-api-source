@@ -209,14 +209,14 @@ test('EPay owner saves one Core revision and verifies the effective Go projectio
       expected_revision: 'a'.repeat(64),
       endpoint: 'https://credit.linux.do/epay',
       notify_url: 'https://example.com/callbacks/55',
-      return_url: 'https://example.com/saved',
+      return_url: '${PUBLIC_ORIGIN}/saved',
       secret_key: 'synthetic-replacement-signing-key',
     })
     current = {
       ...current,
       revision: 'b'.repeat(64),
       bindings: [
-        { ...current.bindings[0], return_url: body(request).return_url },
+        { ...current.bindings[0], return_url: 'https://payments.production.example/saved' },
       ],
     }
     return success(current)
@@ -230,7 +230,7 @@ test('EPay owner saves one Core revision and verifies the effective Go projectio
   assert.match(container.textContent ?? '', /Minimum wallet top-up/)
   assert.match(container.textContent ?? '', /100\.00 LDC/)
   assert.equal(document.getElementById('epay-min_amount_minor'), null)
-  await edit('epay-return_url', 'https://example.com/saved')
+  await edit('epay-return_url', '${PUBLIC_ORIGIN}/saved')
   await edit('epay-secret-key', 'synthetic-replacement-signing-key')
   const form = container.querySelector('form')
   assert.ok(form)
@@ -424,6 +424,8 @@ test('EPay rejects incompatible gateway and unsafe callback addresses before sen
   assert.equal(requests.length, 1)
   await edit('epay-endpoint', configuration().bindings[0].endpoint)
   for (const invalid of [
+    '${PUBLIC_ORIGIN}//other.example/wallet',
+    '${UNKNOWN}/callbacks/55',
     'http://example.com/callback',
     'https://user:password@example.com/callback',
     'https://example.com/callback#fragment',

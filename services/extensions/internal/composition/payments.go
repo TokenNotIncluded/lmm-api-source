@@ -97,7 +97,7 @@ func loadPaymentAdaptersWithAdmission(ctx context.Context, path, hostOrigin stri
 		return nil, errors.New("invalid private payment configuration")
 	}
 	if version.Version == 2 {
-		return loadMultiPaymentAdaptersWithAdmission(raw, signer, admission)
+		return loadMultiPaymentAdaptersForOrigin(raw, signer, admission, hostOrigin)
 	}
 	var cfg paymentDocument
 	meta, err := toml.NewDecoder(bytes.NewReader(raw)).Decode(&cfg)
@@ -142,6 +142,9 @@ func loadPaymentAdaptersWithAdmission(ctx context.Context, path, hostOrigin stri
 		environment := "test"
 		if cfg.Provider == "stripe-live" {
 			environment = "live"
+		}
+		if err := resolvePaymentSiteURLs(hostOrigin, &c.SuccessURL, &c.CancelURL); err != nil {
+			return nil, err
 		}
 		stripeCfg := payments.StripeConfig{Channel: payments.Channel{ID: c.ID, Provider: "stripe", Merchant: c.Merchant, Environment: environment, Currency: "USD", Enabled: c.Enabled}, APIKey: key, APIVersion: c.APIVersion, SuccessURL: c.SuccessURL, CancelURL: c.CancelURL}
 		var adapter *payments.Stripe

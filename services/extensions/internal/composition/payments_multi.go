@@ -4,6 +4,7 @@ package composition
 import (
 	"bytes"
 	"errors"
+	"net/url"
 	"strings"
 	"unicode/utf8"
 
@@ -82,10 +83,34 @@ func outboundPaymentSecret(path string, pem bool) (string, error) {
 	return secret, nil
 }
 
+// Only first-party URL fields reach this function; provider endpoints and secrets remain untouched.
+func resolvePaymentSiteURLs(origin string, fields ...*string) error {
+	const marker = "${PUBLIC_ORIGIN}"
+	for _, field := range fields {
+		if !strings.Contains(*field, "${") {
+			continue
+		}
+		path, ok := strings.CutPrefix(*field, marker)
+		if !ok || !strings.HasPrefix(path, "/") || strings.HasPrefix(path, "//") || strings.Contains(path, "\\") || strings.Contains(path, "${") {
+			return errors.New("invalid public-origin payment URL template")
+		}
+		u, err := url.Parse(origin)
+		if err != nil || u.Scheme != "https" || u.Hostname() == "" || u.User != nil || (u.Path != "" && u.Path != "/") || u.RawQuery != "" || u.ForceQuery || u.Fragment != "" {
+			return errors.New("payment URL template requires an HTTPS host.public_origin")
+		}
+		*field = u.Scheme + "://" + u.Host + path
+	}
+	return nil
+}
+
 func loadMultiPaymentAdapters(raw []byte, signer payments.EPayCheckoutSigner) ([]payments.Adapter, error) {
 	return loadMultiPaymentAdaptersWithAdmission(raw, signer, nil)
 }
 func loadMultiPaymentAdaptersWithAdmission(raw []byte, signer payments.EPayCheckoutSigner, admission map[int64]bool) ([]payments.Adapter, error) {
+	return loadMultiPaymentAdaptersForOrigin(raw, signer, admission, "")
+}
+
+func loadMultiPaymentAdaptersForOrigin(raw []byte, signer payments.EPayCheckoutSigner, admission map[int64]bool, hostOrigin string) ([]payments.Adapter, error) {
 	var cfg multiPaymentDocument
 	meta, err := toml.NewDecoder(bytes.NewReader(raw)).Decode(&cfg)
 	if err != nil || len(meta.Undecoded()) != 0 || cfg.Version != 2 || !meta.IsDefined("channels") || len(cfg.Channels) > 16 {
@@ -108,6 +133,9 @@ func loadMultiPaymentAdaptersWithAdmission(raw []byte, signer payments.EPayCheck
 			return nil, errors.New("invalid or duplicate payment channel")
 		}
 		ids[c.ID] = true
+		if err := resolvePaymentSiteURLs(hostOrigin, &c.SuccessURL, &c.CancelURL, &c.NotifyURL, &c.ReturnURL); err != nil {
+			return nil, err
+		}
 		if c.SubscriptionEnabled && c.Provider != "stripe" && c.Provider != "waffo_pancake" && c.Provider != "creem" && c.Provider != "epay" {
 			return nil, errors.New("subscription_enabled requires Stripe, Creem, EPay or Pancake")
 		}

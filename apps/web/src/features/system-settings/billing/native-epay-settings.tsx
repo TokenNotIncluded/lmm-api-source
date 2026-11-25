@@ -22,6 +22,7 @@ import { useAuthStore } from '@/stores/auth-store'
 
 const readEndpoint = '/api/option/epay/config'
 const writeEndpoint = '/core/v1/payment-gateways/epay'
+const siteMarker = '${PUBLIC_ORIGIN}'
 const revisionSchema = z.string().regex(/^[a-f0-9]{64}$/)
 const bindingSchema = z.object({
   channel_id: z.number().int().positive(),
@@ -319,8 +320,19 @@ function EPayEditor({
     }
     const validAddress = (value: string) => {
       try {
+        const path = value.startsWith(siteMarker) ? value.slice(siteMarker.length) : null
+        if (path !== null) {
+          return (
+            path.startsWith('/') &&
+            !path.startsWith('//') &&
+            !/[\\#\s]/.test(path) &&
+            !path.includes('${') &&
+            new TextEncoder().encode(value).length <= 100
+          )
+        }
         const url = new URL(value)
         return (
+          !value.includes('${') &&
           url.protocol === 'https:' &&
           !url.username &&
           !url.password &&
@@ -357,17 +369,31 @@ function EPayEditor({
       )
       if (!active()) return
       const receipt = responseData(
-        z.object({ revision: revisionSchema }),
+        z.object({
+          revision: revisionSchema,
+          bindings: z.array(bindingSchema.pick({
+            channel_id: true,
+            notify_url: true,
+            return_url: true,
+          })).optional(),
+        }),
         response.data
       )
       const actual = await readConfiguration(scope, controller.signal)
       if (!active()) return
       const selected = applyReadback(actual)
+      const committed = receipt.bindings?.find((binding) => binding.channel_id === current.channel_id)
+      const matchesAddress = (field: 'notify_url' | 'return_url') => {
+        const submitted = values[field]
+        if (!submitted.startsWith(siteMarker)) return selected[field] === submitted
+        return selected[field] === committed?.[field] &&
+          selected[field] === new URL(selected[field]).origin + submitted.slice(siteMarker.length)
+      }
       if (
         actual.revision !== receipt.revision ||
         selected.endpoint !== values.endpoint ||
-        selected.notify_url !== values.notify_url ||
-        selected.return_url !== values.return_url
+        !matchesAddress('notify_url') ||
+        !matchesAddress('return_url')
       ) {
         setMessage(
           t(
@@ -574,7 +600,9 @@ function EPayEditor({
             <Label htmlFor={`epay-${field}`}>{label}</Label>
             <Input
               id={`epay-${field}`}
-              type='url'
+              type={field === 'endpoint' ? 'url' : 'text'}
+              inputMode='url'
+              placeholder={field === 'notify_url' ? `${siteMarker}/callbacks/${current.channel_id}` : field === 'return_url' ? `${siteMarker}/console/wallet` : undefined}
               value={draft[field]}
               required
               disabled={!editable || busy !== null}

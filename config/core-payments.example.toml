@@ -3,6 +3,7 @@
 # not enabled installation defaults. Replace IDs, paths and policy deliberately.
 # USD uses the existing 500000-credit/USD unit. Non-USD conversion below is
 # illustrative administrator policy, NOT an exchange rate or recommended price.
+# First-party URL templates use identity.web.origin; full HTTPS URLs override the site origin.
 version = 2
 
 [permissions]
@@ -47,8 +48,8 @@ max_amount_minor = 100000
 webhook_secret_file = "/etc/lmm.conf.d/secrets/core/epay-merchant-key"
 payment_type = "alipay"
 endpoint = "https://pay.example.invalid"
-notify_url = "https://api.example.invalid/callbacks/2"
-return_url = "https://api.example.invalid/console/wallet"
+notify_url = "${PUBLIC_ORIGIN}/callbacks/2"
+return_url = "${PUBLIC_ORIGIN}/console/wallet"
 
 [[channels]]
 id = 3
@@ -61,8 +62,8 @@ max_amount_minor = 100000
 webhook_secret_file = "/etc/lmm.conf.d/secrets/core/epay-merchant-key"
 payment_type = "wxpay"
 endpoint = "https://pay.example.invalid"
-notify_url = "https://api.example.invalid/callbacks/3"
-return_url = "https://api.example.invalid/console/wallet"
+notify_url = "${PUBLIC_ORIGIN}/callbacks/3"
+return_url = "${PUBLIC_ORIGIN}/console/wallet"
 
 [[channels]]
 id = 4
@@ -75,8 +76,8 @@ max_amount_minor = 100000
 webhook_secret_file = "/etc/lmm.conf.d/secrets/core/linuxdo-credit-merchant-key"
 payment_type = "epay"
 endpoint = "https://credit.linux.do/epay"
-notify_url = "https://api.example.invalid/callbacks/4"
-return_url = "https://api.example.invalid/console/wallet"
+notify_url = "${PUBLIC_ORIGIN}/callbacks/4"
+return_url = "${PUBLIC_ORIGIN}/console/wallet"
 
 [[channels]]
 id = 5

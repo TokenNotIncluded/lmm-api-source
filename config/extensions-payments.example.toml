@@ -4,6 +4,7 @@
 # Core holds all webhook verification secrets and the EPay merchant key.
 # Wallet enabled and subscription_enabled are independent. Omitted subscription
 # admission is false; callbacks and existing confirmed orders remain recoverable.
+# First-party URL templates use host.public_origin; full HTTPS URLs override the site origin.
 version = 2
 
 [[channels]]
@@ -16,8 +17,8 @@ enabled = false
 subscription_enabled = false
 api_key_file = "/etc/lmm.conf.d/secrets/extensions/stripe-api-key"
 api_version = "2025-02-24.acacia"
-success_url = "https://api.example.invalid/console/wallet"
-cancel_url = "https://api.example.invalid/console/wallet"
+success_url = "${PUBLIC_ORIGIN}/console/wallet"
+cancel_url = "${PUBLIC_ORIGIN}/console/wallet"
 
 [[channels]]
 id = 2
@@ -60,7 +61,7 @@ subscription_enabled = false
 api_key_file = "/etc/lmm.conf.d/secrets/extensions/creem-api-key"
 product_id = "prod_REPLACE"
 product_amount_minor = 1000
-success_url = "https://api.example.invalid/console/wallet"
+success_url = "${PUBLIC_ORIGIN}/console/wallet"
 
 [[channels]]
 id = 6
@@ -71,8 +72,8 @@ currency = "USD"
 enabled = false
 api_key_file = "/etc/lmm.conf.d/secrets/extensions/waffo-api-key"
 private_key_file = "/etc/lmm.conf.d/secrets/extensions/waffo-private-key.pem"
-notify_url = "https://api.example.invalid/callbacks/6"
-return_url = "https://api.example.invalid/console/wallet"
+notify_url = "${PUBLIC_ORIGIN}/callbacks/6"
+return_url = "${PUBLIC_ORIGIN}/console/wallet"
 # Optional contracted method, or omit both to use the provider's selector.
 # pay_method_type = "CREDITCARD"
 # pay_method_name = "CC_VISA"
@@ -88,7 +89,7 @@ subscription_enabled = false
 private_key_file = "/etc/lmm.conf.d/secrets/extensions/pancake-private-key.pem"
 store_id = "STO_0123456789abcdefghijkl"
 product_id = "PROD_0123456789abcdefghijkl"
-return_url = "https://api.example.invalid/console/wallet"
+return_url = "${PUBLIC_ORIGIN}/console/wallet"
 checkout_region = "global"
 checkout_language = "en"
 tax_category = "saas"
@@ -106,5 +107,5 @@ currency = "USD"
 enabled = false
 api_key_file = "/etc/lmm.conf.d/secrets/extensions/coinbase-api-key"
 private_key_file = "/etc/lmm.conf.d/secrets/extensions/coinbase-private-key.pem"
-success_url = "https://api.example.invalid/console/wallet"
-cancel_url = "https://api.example.invalid/console/wallet"
+success_url = "${PUBLIC_ORIGIN}/console/wallet"
+cancel_url = "${PUBLIC_ORIGIN}/console/wallet"
