@@ -173,7 +173,11 @@ export function Profile() {
               value='rewards'
               className='grid items-start gap-5 lg:grid-cols-2'
             >
-              <GiftCard />
+              <GiftCard
+                capabilitiesReady={capabilitiesReady}
+                enabled={status?.compensation_gifts_enabled}
+                onRefresh={() => void refreshStatus()}
+              />
               <ReferralOverviewCard />
               <CheckinHistoryCard />
               <ProfileCheckinCapability

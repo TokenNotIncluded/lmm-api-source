@@ -55,6 +55,31 @@ const serverErrorMessageKeys = {
   TELEGRAM_BIND_INTERNAL_ERROR: 'Telegram binding failed. Please try again.',
 } as const
 
+// Older market adapters give distinct outcomes the same English placeholder.
+const marketErrorMessageKeys = {
+  TOOL_MARKET_UNAVAILABLE:
+    'The service is temporarily unavailable. Please try again later.',
+  TOOL_MARKET_INVALID_INPUT: 'Check the tool parameters and try again.',
+  TOOL_MARKET_DENIED: 'No permission to perform this action',
+  TOOL_MARKET_LOGIN_REQUIRED: 'Sign in to continue.',
+  TOOL_MARKET_NOT_FOUND:
+    'This tool or authorization is no longer available. Refresh access.',
+  TOOL_MARKET_CONFLICT:
+    'The tool or request has changed. Refresh its details before trying again.',
+  TOOL_MARKET_EXECUTION_PENDING: 'Check the original request',
+  TOOL_MARKET_CONSENT_REQUIRED: 'Authorize tool access',
+  TOOL_MARKET_PROVIDER_PRICE: 'Provider price changed',
+  TOOL_MARKET_FUNDS_UNAVAILABLE: 'Wallet unavailable',
+  TOOL_MARKET_BUSY: 'The tool is busy. Wait briefly and retry.',
+  TOOL_MARKET_REMOTE_CONNECTION:
+    'The provider could not be connected. Check its endpoint and credentials.',
+  TOOL_MARKET_REMOTE_UNAUTHORIZED:
+    'The provider rejected its credentials. Update the service authentication.',
+  TOOL_MARKET_REMOTE_FORBIDDEN: 'Access denied',
+  TOOL_MARKET_REMOTE_TIMEOUT:
+    'The tool provider timed out. Check the original request before retrying.',
+} as const
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === 'object'
 }
@@ -127,7 +152,15 @@ export function getServerErrorMessageKey(value: unknown): string | null {
       : isRecord(payload.error) && typeof payload.error.code === 'string'
         ? payload.error.code
         : null
-  if (!code || !Object.hasOwn(serverErrorMessageKeys, code)) return null
+  if (!code) return null
+  if (
+    Object.hasOwn(marketErrorMessageKeys, code) &&
+    (!payload.message ||
+      payload.message === 'Tool market operation could not be completed.')
+  ) {
+    return marketErrorMessageKeys[code as keyof typeof marketErrorMessageKeys]
+  }
+  if (!Object.hasOwn(serverErrorMessageKeys, code)) return null
 
   return (
     serverErrorMessageKeys[code as keyof typeof serverErrorMessageKeys] ?? null

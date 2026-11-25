@@ -19,6 +19,8 @@ For commercial licensing, please contact support@quantumnous.com
 // Static translation keys that don't get picked up by the t('...') regex.
 // These cover dynamic labels (e.g. constants, configs) that are passed into t at runtime.
 export const STATIC_I18N_KEYS = [
+  'The tool provider timed out. Check the original request before retrying.',
+  'The tool or request has changed. Refresh its details before trying again.',
   'Unable to load plugin configuration.',
   'Connection command',
   'No SSMCP account is linked.',

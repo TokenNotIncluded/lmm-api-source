@@ -17,6 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { isAxiosError } from 'axios'
 import { Gift, CheckCircle2, Clock, Lock } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
@@ -27,6 +28,7 @@ import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { IconBadge } from '@/components/ui/icon-badge'
 import { Skeleton } from '@/components/ui/skeleton'
+import { TitledCard } from '@/components/ui/titled-card'
 import { useDeadlineClock } from '@/hooks/use-deadline-clock'
 import { useWalletCurrency } from '@/hooks/use-wallet-currency'
 import dayjs from '@/lib/dayjs'
@@ -39,7 +41,15 @@ import type { GiftItem } from '../types'
  * Compensation gift card shown on the profile page when the operator has
  * published time-boxed gifts. Users proactively claim within the window.
  */
-export function GiftCard() {
+export function GiftCard({
+  capabilitiesReady,
+  enabled,
+  onRefresh,
+}: {
+  capabilitiesReady: boolean
+  enabled?: boolean
+  onRefresh: () => void
+}) {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
   const userId = useAuthStore((state) => state.auth.user?.id)
@@ -48,13 +58,24 @@ export function GiftCard() {
   const { data, isLoading, isError, error, refetch } = useQuery({
     queryKey: ['available-gifts', userId, sessionId],
     queryFn: async ({ signal }) => {
-      const res = await getAvailableGifts(signal)
+      const res = await getAvailableGifts(signal).catch((error: unknown) => {
+        if (
+          isAxiosError<{ error?: { code?: string } }>(error) &&
+          error.response?.status === 503 &&
+          error.response.data?.error?.code === 'core_migration_incomplete'
+        ) {
+          return null
+        }
+        throw error
+      })
+      // Older Core versions identify an unimplemented route in the response.
+      if (res === null) return null
       if (!res.success || !Array.isArray(res.data)) {
         throw new Error(res.message || t('Unable to load compensation gifts'))
       }
       return res.data
     },
-    enabled: !!userId && !!sessionId,
+    enabled: capabilitiesReady && enabled !== false && !!userId && !!sessionId,
     retry: false,
     refetchOnWindowFocus: false,
     staleTime: 30_000,
@@ -78,6 +99,30 @@ export function GiftCard() {
     onError: () => toast.error(t('Failed to claim gift')),
   })
 
+  if (!capabilitiesReady || enabled === false || (data === null && !isError)) {
+    return (
+      <TitledCard
+        title={t('Compensation Gifts')}
+        description={
+          capabilitiesReady
+            ? t('This server does not support compensation gifts.')
+            : t('Server capabilities have not been loaded.')
+        }
+      >
+        <Button
+          variant='outline'
+          onClick={
+            data === null && enabled !== false && capabilitiesReady
+              ? () => void refetch()
+              : onRefresh
+          }
+        >
+          {t('Retry')}
+        </Button>
+      </TitledCard>
+    )
+  }
+
   if (isLoading) {
     return (
       <Card className='p-4 sm:p-6'>
@@ -96,7 +141,15 @@ export function GiftCard() {
     return (
       <ErrorState
         title={t('Unable to load compensation gifts')}
-        description={error instanceof Error ? error.message : undefined}
+        description={
+          isAxiosError(error) && error.response?.status === 503
+            ? t(
+                'The service is temporarily unavailable. Please try again later.'
+              )
+            : error instanceof Error
+              ? error.message
+              : undefined
+        }
         onRetry={() => void refetch()}
       />
     )
