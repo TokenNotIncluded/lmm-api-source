@@ -498,7 +498,20 @@ test('native channel cards toggle status once with CAS and refresh the published
       (element) => element.textContent === 'Disable'
     )
   )
-  assert.ok(container.textContent?.includes('#1 · Enabled'))
+  const assertChannelStatus = (expected: 'Enabled' | 'Disabled') => {
+    const row = required(
+      container.querySelector('article[aria-label="Private provider"]')
+    )
+    assert.ok(
+      [...row.querySelectorAll('p')].some((p) => p.textContent === '#1')
+    )
+    assert.ok(
+      [...row.querySelectorAll('span')].some(
+        (span) => span.textContent === expected
+      )
+    )
+  }
+  assertChannelStatus('Enabled')
   assert.equal(button(container, 'Disable').closest('details'), null)
   assert.equal(button(container, 'API Keys').closest('details'), null)
   await act(async () => {
@@ -512,7 +525,7 @@ test('native channel cards toggle status once with CAS and refresh the published
         (element) => element.textContent === 'Enable'
       )
   )
-  assert.ok(container.textContent?.includes('#1 · Disabled'))
+  assertChannelStatus('Disabled')
   await act(async () => button(container, 'Enable').click())
   await until(
     () =>
@@ -521,7 +534,7 @@ test('native channel cards toggle status once with CAS and refresh the published
         (element) => element.textContent === 'Disable'
       )
   )
-  assert.ok(container.textContent?.includes('#1 · Enabled'))
+  assertChannelStatus('Enabled')
 })
 
 test('native channel selection batches status changes and expires with the published snapshot', async () => {
@@ -815,6 +828,36 @@ test('native batch routing rejects a stale version without replaying against the
       patch: { priority: 10 },
     },
   ])
+})
+
+test('a new channel selection starts without the previous batch tag draft', async () => {
+  const config = fixture()
+  config.routing.upstreams.push({ ...config.routing.upstreams[0], id: 2 })
+  config.bindings.names[2] = 'Secondary provider'
+  api.request = (async (options: { method: string }) => {
+    assert.equal(options.method, 'GET')
+    return { data: { success: true, data: config } }
+  }) as typeof api.request
+
+  const container = await mount('channels')
+  const checkbox = (name: string) =>
+    required(
+      container.querySelector<HTMLElement>(
+        `[role=checkbox][aria-label="${name}"]`
+      )
+    )
+  const tagForm = () =>
+    container.querySelector('form[aria-label="Set tag for selected channels"]')
+  await until(() => container.querySelectorAll('[role=checkbox]').length === 3)
+  await act(async () => checkbox('Private provider').click())
+  await act(async () => button(container, 'Tag').click())
+  await changeInput(required(tagForm()?.querySelector('input')), 'Primary only')
+
+  await act(async () => checkbox('Private provider').click())
+  await act(async () => checkbox('Secondary provider').click())
+  assert.ok(!tagForm(), 'The old tag editor reopened for another channel')
+  await act(async () => button(container, 'Tag').click())
+  assert.equal(required(tagForm()?.querySelector('input')).value, '')
 })
 
 test('native batch tags preserve drafts on failure and clear only selected channels', async () => {
@@ -1173,7 +1216,7 @@ test('native channel card opens confirmed consumption with exact values and expl
   await until(() => !!container.textContent?.includes('Private provider'))
   assert.equal(button(container, 'Consumption').disabled, false)
   await act(async () => button(container, 'Consumption').click())
-  await until(() => !!document.querySelector('dl'))
+  await until(() => !!document.querySelector('[role=dialog] dl'))
   const dialog = required(document.querySelector('[role=dialog]'))
   const text = dialog.textContent ?? ''
   assert.ok(text.includes('Confirmed native consumption'))
@@ -1258,7 +1301,8 @@ test('closing usage or switching sessions aborts the read and discards delayed r
   )
   assert.equal(signals[0]?.aborted, true)
   await act(async () => finish?.())
-  assert.equal(document.querySelector('dl'), null)
+  assert.equal(document.querySelector('[role=dialog]'), null)
+  assert.equal(container.textContent?.includes('9,007,199,254,740,993'), false)
   await act(async () => button(container, 'Consumption').click())
   await until(() => signals.length === 2)
   await act(async () => {
@@ -1290,11 +1334,12 @@ test('a confirmed zero native window displays zero instead of an unavailable sta
   const container = await mount('channels')
   await until(() => !!container.textContent?.includes('Private provider'))
   await act(async () => button(container, 'Consumption').click())
-  await until(() => document.querySelectorAll('dd').length === 6)
-  for (const value of document.querySelectorAll('dd')) {
+  const dialog = required(document.querySelector('[role=dialog]'))
+  await until(() => dialog.querySelectorAll('dd').length === 6)
+  for (const value of dialog.querySelectorAll('dd')) {
     assert.match(value.textContent ?? '', /^0(?: Credits)?$/)
   }
-  assert.equal(document.querySelector('[role=dialog] [role=alert]'), null)
+  assert.equal(dialog.querySelector('[role=alert]'), null)
 })
 
 test('Sub2API automatic balances refresh individually and in a batch without clearing failed observations', async () => {
@@ -2076,7 +2121,7 @@ test('accounting capabilities gate window reads, display counters and provider r
         i18n.t(windowEnabled ? 'channelUsage.open' : 'channelBalance.title')
       ).click()
     )
-    await until(() => !!document.querySelector('dl'))
+    await until(() => !!document.querySelector('[role=dialog] dl'))
     const dialog = required(document.querySelector('[role=dialog]'))
     if (windowEnabled) {
       assert.equal(
@@ -3125,9 +3170,17 @@ for (const unknown of [false, true]) {
 }
 
 test('channel search explains an empty result and clearing restores the compact channel list', async () => {
+  const config = fixture()
+  const route = config.routing.routes[0]
+  config.routing.routes.push({
+    ...route,
+    id: 2,
+    group: 'team',
+    targets: [{ ...route.targets[0], id: 2, priority: 5 }],
+  })
   api.request = (async (options: { method: string }) => {
     assert.equal(options.method, 'GET')
-    return { data: { success: true, data: fixture() } }
+    return { data: { success: true, data: config } }
   }) as typeof api.request
   const container = await mount('channels')
   await until(
@@ -3138,6 +3191,22 @@ test('channel search explains an empty result and clearing restores the compact 
   assert.equal(required(row.querySelector('details')).open, false)
   assert.equal(button(row, 'Edit').closest('details'), null)
   assert.equal(button(row, 'Test').closest('details'), null)
+  assert.equal(button(row, 'API Keys').closest('details'), null)
+  assert.ok(row.textContent?.includes(i18n.t('{{count}} models', { count: 1 })))
+  const layout = required(row.parentElement)
+  assert.equal(layout.dataset.layout, 'list')
+  assert.equal(row.querySelector('dd[title="0, 5"]')?.textContent, '0, 5')
+  assert.equal(row.querySelector('dd[title="1"]')?.textContent, '1')
+  const checkbox = required(row.querySelector<HTMLElement>('[role=checkbox]'))
+  await act(async () => checkbox.click())
+  const chooseCards = required(
+    container.querySelector<HTMLButtonElement>('button[aria-label="Card view"]')
+  )
+  await act(async () => chooseCards.click())
+  assert.equal(layout.dataset.layout, 'cards')
+  assert.equal(chooseCards.getAttribute('aria-pressed'), 'true')
+  assert.equal(container.querySelector('article'), row)
+  assert.equal(checkbox.getAttribute('aria-checked'), 'true')
   const search = required(
     container.querySelector<HTMLInputElement>('input[aria-label="Search"]')
   )
