@@ -26,6 +26,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Textarea } from '@/components/ui/textarea'
 import {
   microsToUsd,
@@ -45,6 +46,11 @@ import {
 import { getServerErrorMessage } from '@/lib/server-error-message'
 import { useAuthStore } from '@/stores/auth-store'
 
+import {
+  routingPriceCoverage,
+  type PriceSelector,
+} from './native-price-coverage'
+import { NativePriceCoveragePanel } from './native-price-coverage-panel'
 import { NativePriceRuleDialog } from './native-price-rule-dialog'
 import {
   nextPriceRuleId,
@@ -192,30 +198,56 @@ function PricingWorkspace({
       throw cause
     }
   }
-  function addRule() {
-    if (!configuration || !prices) return
-    const selectedGroup =
-      group || configuration.routing.groups[0]?.name || 'default'
-    setEditing({
-      rule: {
-        id: nextPriceRuleId(prices),
-        model: '',
-        group: selectedGroup,
-        speed: 'standard',
-        rates: {
-          input: 0,
-          output: 0,
-          cache_read: 0,
-          cache_write: 0,
-          request: 0,
-        },
-        group_multiplier_ppm: 1_000_000,
-        speed_multiplier_ppm: 1_000_000,
-        ...(mode === 'upstream_cost'
-          ? { billing_mode: 'upstream_cost' as const }
-          : {}),
+  function newRule(
+    selector: PriceSelector,
+    source: NativePrices
+  ): NativePriceRule {
+    return {
+      id: nextPriceRuleId(source),
+      ...selector,
+      rates: {
+        input: 0,
+        output: 0,
+        cache_read: 0,
+        cache_write: 0,
+        request: 0,
       },
-    })
+      group_multiplier_ppm: 1_000_000,
+      speed_multiplier_ppm: 1_000_000,
+    }
+  }
+  function addRule(selector?: PriceSelector) {
+    if (!configuration || !prices) return
+    const rule = newRule(
+      selector ?? {
+        model: '',
+        group: group || configuration.routing.groups[0]?.name || 'default',
+        speed: 'standard',
+      },
+      prices
+    )
+    if (!selector && mode === 'upstream_cost') {
+      rule.billing_mode = 'upstream_cost'
+    }
+    setEditing({ rule })
+  }
+  function saveToolFee(
+    row: { selector: PriceSelector; rule?: NativePriceRule },
+    micros: number
+  ) {
+    if (!prices) return
+    try {
+      const rule = row.rule ?? newRule(row.selector, prices)
+      const next = { ...rule, rates: { ...rule.rates, request: micros } }
+      updatePrices({
+        ...prices,
+        rules: row.rule
+          ? prices.rules.map((item) => (item.id === rule.id ? next : item))
+          : [...prices.rules, next],
+      })
+    } catch (cause) {
+      fail(cause)
+    }
   }
   async function previewChanges(saved?: NativePriceDraft) {
     if (!configuration) return
@@ -337,6 +369,7 @@ function PricingWorkspace({
       ...rules.map((rule) => rule.group),
     ]),
   ].sort()
+  const coverage = routingPriceCoverage(configuration.routing, rules)
   const matching = rules.filter(
     (rule) =>
       (!group || rule.group === group) &&
@@ -374,11 +407,8 @@ function PricingWorkspace({
     anchor.click()
     URL.revokeObjectURL(url)
   }
-  return (
-    <section
-      className='@container/prices min-w-0 space-y-7'
-      aria-label={t('Model Pricing')}
-    >
+  const modelPrices = (
+    <>
       <div className='flex flex-wrap items-start justify-between gap-5'>
         <div className='space-y-2'>
           <p className='text-muted-foreground max-w-2xl text-sm leading-6'>
@@ -418,32 +448,11 @@ function PricingWorkspace({
           >
             {t('Export JSON')}
           </Button>
-          <Button type='button' disabled={busy} onClick={addRule}>
+          <Button type='button' disabled={busy} onClick={() => addRule()}>
             {t('Add price rule')}
           </Button>
         </div>
       </div>
-      {error && (
-        <Alert variant='destructive' role='alert'>
-          <AlertDescription>{error}</AlertDescription>
-        </Alert>
-      )}
-      {query.isError && configuration && (
-        <Alert variant='destructive'>
-          <AlertDescription>
-            {t('Failed to refresh prices. Your draft has been kept.')}
-          </AlertDescription>
-        </Alert>
-      )}
-      {stale && (
-        <Alert role='status'>
-          <AlertDescription>
-            {t(
-              'Published configuration changed. Keep your draft for reference, reload the latest prices and review your changes again.'
-            )}
-          </AlertDescription>
-        </Alert>
-      )}
       <div className='flex min-w-0 flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center'>
         <Input
           className='min-w-0 sm:max-w-sm'
@@ -716,6 +725,69 @@ function PricingWorkspace({
           </Button>
         </div>
       </div>
+    </>
+  )
+  return (
+    <section
+      className='@container/prices min-w-0 space-y-7'
+      aria-label={t('Model Pricing')}
+    >
+      {error && (
+        <Alert variant='destructive' role='alert'>
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
+      )}
+      {query.isError && configuration && (
+        <Alert variant='destructive'>
+          <AlertDescription>
+            {t('Failed to refresh prices. Your draft has been kept.')}
+          </AlertDescription>
+        </Alert>
+      )}
+      {stale && (
+        <Alert role='status'>
+          <AlertDescription>
+            {t(
+              'Published configuration changed. Keep your draft for reference, reload the latest prices and review your changes again.'
+            )}
+          </AlertDescription>
+        </Alert>
+      )}
+      <Tabs defaultValue='models'>
+        {!initialMode && (
+          <TabsList variant='navigation' aria-label={t('Model Pricing')}>
+            <TabsTrigger value='models'>{t('Model prices')}</TabsTrigger>
+            <TabsTrigger value='missing'>{t('Unset price models')}</TabsTrigger>
+            <TabsTrigger value='tools'>{t('Tool prices')}</TabsTrigger>
+            <TabsTrigger value='sync'>{t('Upstream price sync')}</TabsTrigger>
+          </TabsList>
+        )}
+        <TabsContent value='models' className='space-y-7'>
+          {modelPrices}
+        </TabsContent>
+        <TabsContent value='missing'>
+          <NativePriceCoveragePanel
+            rows={coverage.missing.map((selector) => ({ selector }))}
+            disabled={busy || stale || query.isError}
+            addRule={addRule}
+            saveFee={saveToolFee}
+          />
+        </TabsContent>
+        <TabsContent value='tools'>
+          <NativePriceCoveragePanel
+            rows={coverage.tools}
+            tools
+            disabled={busy || stale || query.isError}
+            addRule={addRule}
+            saveFee={saveToolFee}
+          />
+        </TabsContent>
+        <TabsContent value='sync'>
+          <p role='status' className='text-muted-foreground py-4 text-sm'>
+            {t('This server does not provide live upstream price feeds.')}
+          </p>
+        </TabsContent>
+      </Tabs>
       {draft && (
         <section
           className='bg-muted/50 space-y-4 rounded-xl p-5'

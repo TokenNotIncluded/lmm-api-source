@@ -11849,6 +11849,7 @@
     "This sends one invitation with your referral link. The recipient is not enrolled automatically.": "This sends one invitation with your referral link. The recipient is not enrolled automatically.",
     "This server did not return a valid Extore commerce import v1 response.": "This server did not return a valid Extore commerce import v1 response.",
     "This server does not expose controls for this section.": "This server does not expose controls for this section.",
+    "This server does not provide live upstream price feeds.": "This server does not provide live upstream price feeds.",
     "This server does not support registration with these options. No account was created.": "This server does not support registration with these options. No account was created.",
     "This server does not support tool-level rules yet. Tool switches and provider settings remain available.": "This server does not support tool-level rules yet. Tool switches and provider settings remain available.",
     "This server does not support tool-level rules yet. Tool switches and provider settings remain available. Update the server, then reload this page to edit level rules.": "This server does not support tool-level rules yet. Tool switches and provider settings remain available. Update the server, then reload this page to edit level rules.",

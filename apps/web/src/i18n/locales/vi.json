@@ -11849,6 +11849,7 @@
     "This sends one invitation with your referral link. The recipient is not enrolled automatically.": "Gửi một thư mời với liên kết giới thiệu của bạn. Không tự động đăng ký tài khoản cho người nhận.",
     "This server did not return a valid Extore commerce import v1 response.": "This server did not return a valid Extore commerce import v1 response.",
     "This server does not expose controls for this section.": "Máy chủ này chưa cung cấp tùy chọn cài đặt cho mục này.",
+    "This server does not provide live upstream price feeds.": "Máy chủ này không cung cấp giá theo thời gian thực từ nhà cung cấp.",
     "This server does not support registration with these options. No account was created.": "Máy chủ này không hỗ trợ các tùy chọn đăng ký này. Tài khoản chưa được tạo.",
     "This server does not support tool-level rules yet. Tool switches and provider settings remain available.": "Máy chủ này chưa hỗ trợ quy tắc cho từng công cụ. Bạn vẫn có thể bật, tắt công cụ và thiết lập nhà cung cấp.",
     "This server does not support tool-level rules yet. Tool switches and provider settings remain available. Update the server, then reload this page to edit level rules.": "This server does not support tool-level rules yet. Tool switches and provider settings remain available. Update the server, then reload this page to edit level rules.",

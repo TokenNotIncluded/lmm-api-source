@@ -11849,6 +11849,7 @@
     "This sends one invitation with your referral link. The recipient is not enrolled automatically.": "Отправляет одно приглашение с вашей реферальной ссылкой. Получатель не регистрируется автоматически.",
     "This server did not return a valid Extore commerce import v1 response.": "This server did not return a valid Extore commerce import v1 response.",
     "This server does not expose controls for this section.": "Этот сервер не предоставляет настроек для данного раздела.",
+    "This server does not provide live upstream price feeds.": "Этот сервер не предоставляет цены поставщиков в реальном времени.",
     "This server does not support registration with these options. No account was created.": "Этот сервер не поддерживает выбранные параметры регистрации. Учётная запись не создана.",
     "This server does not support tool-level rules yet. Tool switches and provider settings remain available.": "Этот сервер пока не поддерживает правила для отдельных инструментов. Переключатели инструментов и настройки провайдеров доступны.",
     "This server does not support tool-level rules yet. Tool switches and provider settings remain available. Update the server, then reload this page to edit level rules.": "This server does not support tool-level rules yet. Tool switches and provider settings remain available. Update the server, then reload this page to edit level rules.",

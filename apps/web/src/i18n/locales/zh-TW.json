@@ -11849,6 +11849,7 @@
     "This sends one invitation with your referral link. The recipient is not enrolled automatically.": "傳送一封包含你推薦連結的邀請郵件，不會自動為收件人註冊帳號。",
     "This server did not return a valid Extore commerce import v1 response.": "This server did not return a valid Extore commerce import v1 response.",
     "This server does not expose controls for this section.": "目前伺服器尚未提供此區段的設定操作。",
+    "This server does not provide live upstream price feeds.": "目前的伺服器未提供即時上游價格。",
     "This server does not support registration with these options. No account was created.": "此伺服器不支援這些註冊選項，未建立帳戶。",
     "This server does not support tool-level rules yet. Tool switches and provider settings remain available.": "此伺服器尚不支援個別工具的規則設定，仍可使用工具開關與供應商設定。",
     "This server does not support tool-level rules yet. Tool switches and provider settings remain available. Update the server, then reload this page to edit level rules.": "This server does not support tool-level rules yet. Tool switches and provider settings remain available. Update the server, then reload this page to edit level rules.",

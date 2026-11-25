@@ -80,10 +80,44 @@ function configuration() {
     secret_storage_enabled: false,
     routing: {
       version: 3,
-      upstreams: [],
+      upstreams: [
+        {
+          id: 3,
+          endpoint: 'https://supplier.example/v1',
+          credential: { id: 9, revision: 1 },
+          protocol: 'deepseek_search',
+          enabled: true,
+        },
+      ],
       groups: [{ name: 'default', enabled: true }],
       aliases: [],
-      routes: [],
+      routes: [
+        {
+          id: 7,
+          model: 'deepseek-search',
+          group: 'default',
+          enabled: true,
+          speeds: ['standard'],
+          targets: [
+            {
+              id: 5,
+              upstream_id: 3,
+              upstream_model: 'deepseek-search',
+              enabled: true,
+              priority: 0,
+              weight: 1,
+              speeds: ['standard'],
+              payload: 'exact',
+              timeout_ms: 30000,
+            },
+          ],
+          failover: {
+            max_attempts: 1,
+            retry_on: [],
+            allow_replay_after_send: false,
+          },
+        },
+      ],
     },
     prices: {
       version: 2,
@@ -401,4 +435,74 @@ test('an ordinary session cannot read native administrative prices', async () =>
       container.textContent?.includes('Administrator access required') === true
   )
   assert.ok(!requests.includes('/core/v1/admin/routing/configuration'))
+})
+
+test('a missing routed tool price is drafted in exact request units and requires confirmation', async () => {
+  section = 'model-pricing'
+  const { container, requests, writes } = await mount()
+  await until(() => container.querySelector('[role="tab"]') !== null)
+  await clickButton('Unset price models')
+  await until(
+    () =>
+      container
+        .querySelector('[role="tabpanel"]:not([hidden])')
+        ?.textContent?.includes('deepseek-search') === true
+  )
+  await clickButton('Tool prices')
+  await clickButton('Add price rule')
+  const field = [...container.querySelectorAll('label')]
+    .find((label) => label.textContent?.includes('Request fee (USD / request)'))
+    ?.querySelector('input')
+  assert.ok(field)
+  const setValue = Object.getOwnPropertyDescriptor(
+    dom.HTMLInputElement.prototype,
+    'value'
+  )?.set
+  assert.ok(setValue)
+  await act(async () => {
+    setValue.call(field, '0.003001')
+    field.dispatchEvent(new Event('input', { bubbles: true }))
+  })
+  await act(async () =>
+    field.form?.dispatchEvent(
+      new Event('submit', { bubbles: true, cancelable: true })
+    )
+  )
+  assert.equal(writes.length, 0)
+  await clickButton('Preview changes')
+  await until(
+    () => document.body.textContent?.includes('Confirm and publish') === true
+  )
+  const rules = (
+    writes[0].body.prices as ReturnType<typeof configuration>['prices']
+  ).rules
+  assert.deepEqual(
+    rules.find((rule) => rule.model === 'deepseek-search')?.rates,
+    {
+      input: 0,
+      output: 0,
+      cache_read: 0,
+      cache_write: 0,
+      request: 3001,
+    }
+  )
+  assert.deepEqual(rules[0], configuration().prices.rules[0])
+  await clickButton('Confirm and publish')
+  await until(
+    () =>
+      writes.length === 2 &&
+      !container.textContent?.includes('Pending price changes')
+  )
+  assert.deepEqual(writes[1].body.prices, writes[0].body.prices)
+  await clickButton('Upstream price sync')
+  await until(
+    () =>
+      container.textContent?.includes(
+        'does not provide live upstream price feeds'
+      ) === true
+  )
+  assert.equal(
+    requests.some((path) => path.includes('ratio_sync')),
+    false
+  )
 })
