@@ -228,7 +228,7 @@ func TestMissingBuiltinDomainRejectedBeforeAnyCallOrCredit(t *testing.T) {
 		name := "wallet.balance"
 		args := json.RawMessage(`{}`)
 		if key == "open_source_bounties" {
-			name = "open_source_bounties.list"
+			name = "open_source_bounties.list_owned"
 		}
 		m, port, runtime, input := builtinNamedExecutionFixture(t, key, name, args)
 		runtime.unavailable = key

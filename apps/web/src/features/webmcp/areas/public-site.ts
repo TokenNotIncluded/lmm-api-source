@@ -21,8 +21,6 @@ import {
   type LegalHeading,
   type LegalSection,
 } from '@/features/legal/legal-reader'
-import { listBounties } from '@/features/open-source-bounties/api'
-import type { BountyProject } from '@/features/open-source-bounties/types'
 import {
   getLatestUnreadReleaseNote,
   isCurrentReleaseNoteScope,
@@ -43,7 +41,7 @@ import {
 
 /**
  * Public-site area tools: the read-only, marketing-facing surfaces an agent
- * may explore without an account — home, about, developers, release notes, the legal documents and the open challenges.
+ * may explore without an account — home, about, developers, release notes, the legal documents.
  *
  * Every tool here is read-only. Nothing in this module writes, spends credit
  * or opens a private page; anything that needs an account or moves money
@@ -110,20 +108,6 @@ function siteOrigin() {
   return typeof window === 'undefined' ? LMM_ISSUER : window.location.origin
 }
 
-/** Public challenges arrive from a probe that may legitimately be absent. */
-function challengeSummary(project: BountyProject) {
-  return {
-    id: project.id,
-    title: clip(project.title, 200),
-    repository: clip(project.repository_url, 200),
-    owner: project.owner_username,
-    status: project.status,
-    reward_credit: project.net_reward_quota || project.reward_quota,
-    reward_slots: project.reward_slots,
-    approved_slots: project.approved_challenge_count,
-    open: project.status === 'published',
-  }
-}
 
 async function readLegalDocument(
   document: LegalDocumentKey,
@@ -169,7 +153,7 @@ function legalSectionOutline(
   }
 }
 
-export const publicSiteTools: WebMcpToolFactory = ({ router }) => [
+export const publicSiteTools: WebMcpToolFactory = () => [
   {
     name: 'lmm_home_read',
     title: 'Read the LMM home page summary',
@@ -512,74 +496,6 @@ export const publicSiteTools: WebMcpToolFactory = ({ router }) => [
         anchor: `#${match.heading.id}`,
         body: clip(match.section.body, 2000),
         body_was_clipped: match.section.body.length > 2000,
-      }
-    },
-  },
-  {
-    name: 'lmm_challenges_list',
-    title: 'List the open challenges',
-    description:
-      'List the public open-source bounty challenges: reward credit, funded slots, repository and owner, plus the detail path for each. Read-only.',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        open_only: { type: 'boolean' },
-        limit: { type: 'integer', minimum: 1, maximum: 50 },
-      },
-      additionalProperties: false,
-    },
-    annotations: { readOnlyHint: true, untrustedContentHint: true },
-    execute: async (rawInput, options) => {
-      const input = ensureObject(rawInput)
-      const limit = typeof input.limit === 'number' ? input.limit : 20
-      if (!Number.isInteger(limit) || limit < 1 || limit > 50) {
-        throw new TypeError('limit must be an integer from 1 to 50')
-      }
-      const openOnly = input.open_only === true
-      ensureNotAborted(options.signal)
-      const result = await listBounties()
-      ensureNotAborted(options.signal)
-      const items = result.items
-        .filter((project) => !openOnly || project.status === 'published')
-        .slice(0, limit)
-        .map(challengeSummary)
-      return {
-        page: '/challenges',
-        total_published: result.total,
-        returned: items.length,
-        items: items.map((item) => ({
-          ...item,
-          detail_path: `/challenges/${item.id}`,
-        })),
-      }
-    },
-  },
-  {
-    name: 'lmm_challenge_open',
-    title: 'Open a challenge detail page',
-    description:
-      'Open the public detail page for one open-source bounty challenge by its id. Navigates the current tab. Read-only.',
-    inputSchema: {
-      type: 'object',
-      properties: { challenge_id: { type: 'integer', minimum: 1 } },
-      required: ['challenge_id'],
-      additionalProperties: false,
-    },
-    annotations: { readOnlyHint: true },
-    execute: async (rawInput, options) => {
-      const input = ensureObject(rawInput)
-      const id = input.challenge_id
-      if (typeof id !== 'number' || !Number.isInteger(id) || id < 1) {
-        throw new TypeError('challenge_id must be a positive integer')
-      }
-      ensureNotAborted(options.signal)
-      // `WebMcpRouter.navigate` only models `to` + `search`; the concrete path
-      // is fully interpolated here, so no `params` bag is needed.
-      await router.navigate({ to: `/challenges/${id}` })
-      return {
-        page: `/challenges/${id}`,
-        challenge_id: id,
-        navigated: true,
       }
     },
   },

@@ -516,8 +516,6 @@ export function PublicHeader(props: PublicHeaderProps) {
                   announcements={notifications.announcements}
                   ratioFeed={notifications.ratioFeed}
                   bountyTips={notifications.bountyTips}
-                  thankingTipId={notifications.thankingTipId}
-                  onThankTip={notifications.thankTip}
                   loading={notifications.loading}
                 />
               )}

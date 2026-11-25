@@ -42,7 +42,7 @@ describe('assistant retention actions', () => {
     )
     assert.equal(
       getExplicitAssistantNavigation('请进入排行榜看看', 'bounty'),
-      '/bounties'
+      '/support'
     )
     assert.equal(
       getExplicitAssistantNavigation('How do I create a key?', 'api_key'),

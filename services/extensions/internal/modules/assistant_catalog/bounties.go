@@ -224,10 +224,9 @@ func (t *tool) bounty(ctx context.Context, in assistant.AgentInvocation, p acces
 		if !ok || fee.RateBasisPoints < 0 || fee.RateBasisPoints > 10000 || ratio.Cmp(new(big.Rat).SetFrac64(fee.RateBasisPoints, 100)) != 0 {
 			return nil, access.ErrUnavailable
 		}
-		return bountyGuide{OK: true, ReadOnly: true, Enabled: fee.Enabled, Code: fee.Code, PlatformFeePercent: fee.RatePercent, PlatformFeeBasisPoints: fee.RateBasisPoints, Limits: fee.Limits, Page: "/open-source-bounties",
-			EligibleDeliverables: []string{"Code changes, bug fixes and tests tied to an open-source repository.", "Documentation, translation and design with concrete reviewable acceptance criteria."},
-			Steps:                []string{"Open the bounty page and prepare the project.", "Provide the repository, evidence links, acceptance criteria, gross reward and slots.", "Review the actual platform fee, net escrow and total debit before confirming funding.", "Review submitted evidence and use the existing UI for settlement or a separate tip.", "Use the dispute flow for disagreements; never fabricate evidence."},
-			Message:              "This is a live read of the installed service policy, not a funding or settlement instruction. Every write remains a separate authenticated UI action."}, nil
+		return bountyGuide{OK: true, ReadOnly: true, Enabled: false, Code: "retired", PlatformFeePercent: fee.RatePercent, PlatformFeeBasisPoints: fee.RateBasisPoints, Limits: fee.Limits, Page: "/support",
+			Steps:   []string{"Use the original account to review existing obligations or open a settlement dispute."},
+			Message: "The bounty program is closed to new work. Existing escrow, receipts and disputes remain available to their parties."}, nil
 	}
 	var a bountyArguments
 	if access.Decode(in.Call.Arguments, &a) != nil {
@@ -265,67 +264,8 @@ func (t *tool) bounty(ctx context.Context, in assistant.AgentInvocation, p acces
 	out := bountyResult{OK: true, View: a.View, ReadOnly: true, WriteActionsRequireUIConfirmation: true, CreditsPerUSD: 500000, UnsupportedViews: []string{}}
 	actor := identifier(strconv.FormatInt(p.UserID, 10))
 	switch a.View {
-	case "board":
-		rows, err := t.executor.bounties.BoardFor(ctx, in.Credential, page, size)
-		if err != nil {
-			return nil, err
-		}
-		var b bountyBoard
-		if domainProjection(rows, &b) != nil || b.Page != page || b.PageSize != size || len(b.Items) > size || b.Total < 0 {
-			return nil, access.ErrUnavailable
-		}
-		for i := range b.Items {
-			if err = projectProjection(&b.Items[i], false); err != nil {
-				return nil, err
-			}
-			if ch := b.Items[i].ViewerChallenge; ch != nil && (ch.ParticipantUserID != actor || ch.ProjectID != b.Items[i].ID) {
-				return nil, access.ErrForbidden
-			}
-		}
-		out.Board = &b
-		out.MCPEquivalent = "open_source_bounties.list"
-		out.HasMore = int64(page)*int64(size) < b.Total
-	case "detail":
-		rows, err := t.executor.bounties.Detail(ctx, in.Credential, string(a.ProjectID))
-		if err != nil {
-			return nil, err
-		}
-		var b bountyDetail
-		if domainProjection(rows, &b) != nil || b.Project.ID != string(a.ProjectID) {
-			return nil, access.ErrConflict
-		}
-		if err = projectProjection(&b.Project, true); err != nil {
-			return nil, err
-		}
-		if ch := b.Project.ViewerChallenge; ch != nil && (ch.ParticipantUserID != actor || ch.ProjectID != b.Project.ID) {
-			return nil, access.ErrForbidden
-		}
-		if b.Project.OwnerUserID != actor && (len(b.Challenges) > 0 || len(b.Ledger) > 0) {
-			return nil, access.ErrForbidden
-		}
-		if len(b.Challenges) > 50 {
-			b.Challenges = b.Challenges[:50]
-			out.Truncated = true
-		}
-		if len(b.Ledger) > 50 {
-			b.Ledger = b.Ledger[:50]
-			out.Truncated = true
-		}
-		for i := range b.Challenges {
-			if err = challengeProjection(&b.Challenges[i]); err != nil {
-				return nil, err
-			}
-			if b.Challenges[i].ProjectID != b.Project.ID {
-				return nil, access.ErrConflict
-			}
-		}
-		for _, entry := range b.Ledger {
-			if entry.ProjectID != b.Project.ID {
-				return nil, access.ErrConflict
-			}
-		}
-		out.Detail = &b
-		out.MCPEquivalent = "open_source_bounties.get"
+	case "board", "detail":
+		return nil, bounties.ErrRetired
 	case "accepted", "owned":
 		action := "list_accepted"
 		if a.View == "owned" {

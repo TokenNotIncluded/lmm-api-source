@@ -200,7 +200,6 @@ describe('backend capability query safety', () => {
 
     await act(async () => {
       latestNotifications?.openPopover('bounty-tips')
-      await latestNotifications?.thankTip(1)
       await flushQueries()
     })
     assert.equal(posts.includes('/api/bounties/tips/received/read'), false)

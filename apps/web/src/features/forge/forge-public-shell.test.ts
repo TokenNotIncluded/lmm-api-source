@@ -44,7 +44,6 @@ describe('Forge public navigation', () => {
       ['Tool market', '/'],
       ['Models and pricing', '/pricing'],
       ['Developers', '/developers'],
-      ['Challenges', '/challenges'],
       ['Security', '/security'],
     ]) {
       assert.ok(

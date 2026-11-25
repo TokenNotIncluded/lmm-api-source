@@ -35,6 +35,8 @@ func respond(w http.ResponseWriter, data any, e error, status int) {
 	if e != nil {
 		status = 503
 		switch e {
+		case ErrRetired:
+			status = http.StatusGone
 		case ErrInvalid:
 			status = 400
 		case ErrForbidden:
@@ -124,34 +126,20 @@ func (h *HTTP) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	parts := strings.Split(path, "/")
 	ctx := r.Context()
-	if r.Method == http.MethodGet && path == "" {
-		page, e := numberQuery(r, "page", 1)
-		if e != nil {
-			respond(w, nil, e, 0)
-			return
-		}
-		size, e := numberQuery(r, "page_size", 20)
-		if e != nil {
-			respond(w, nil, e, 0)
-			return
-		}
-		session, _ := h.sessions.Session(r)
-		out, e := h.service.BoardFor(ctx, session, page, size)
-		respond(w, out, e, 0)
-		return
-	}
-	if r.Method == http.MethodGet && path == "config" {
-		out, e := h.service.Config(ctx)
-		respond(w, out, e, 0)
-		return
-	}
-	if r.Method == http.MethodGet && len(parts) == 2 && parts[0] == "projects" {
-		session, _ := h.sessions.Session(r)
-		out, e := h.service.Detail(ctx, session, parts[1])
-		respond(w, out, e, 0)
+	if path == "" || path == "config" || (r.Method != http.MethodGet && len(parts) == 2 && parts[0] == "projects") {
+		respond(w, nil, ErrRetired, 0)
 		return
 	}
 	session, e := h.sessions.Session(r)
+	if r.Method == http.MethodGet && len(parts) == 2 && parts[0] == "projects" {
+		if e != nil || session == "" {
+			respond(w, nil, ErrRetired, 0)
+			return
+		}
+		detail, err := h.service.Detail(ctx, session, parts[1])
+		respond(w, detail, err, 0)
+		return
+	}
 	if e != nil || session == "" {
 		respond(w, nil, ErrForbidden, 0)
 		return
@@ -237,6 +225,11 @@ func (h *HTTP) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		records.ProjectID = parts[1]
 	}
 	if records.Action != "" {
+		switch records.Action {
+		case "thank_tip", "archive", "unarchive":
+			respond(w, nil, ErrRetired, 0)
+			return
+		}
 		if r.Method != http.MethodGet {
 			if _, e := body(w, r); e != nil {
 				respond(w, nil, e, 0)
@@ -274,7 +267,7 @@ func (h *HTTP) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			action = "list_disputes"
 		}
 		if path == "disputes/admin" {
-			a, e := h.service.Funds.Authorize(ctx, session)
+			a, e := h.service.sessionActor(ctx, session)
 			if e != nil || !a.Admin {
 				respond(w, nil, ErrForbidden, 0)
 				return
@@ -357,6 +350,10 @@ func (h *HTTP) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		cmd.DisputeID = parts[1]
 	default:
 		http.NotFound(w, r)
+		return
+	}
+	if !protectedAction(cmd.Action) {
+		respond(w, nil, ErrRetired, 0)
 		return
 	}
 	keys := r.Header.Values("Idempotency-Key")

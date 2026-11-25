@@ -750,3 +750,74 @@ async fn confirmation_http_override_accepts_only_explicit_canonical_numeric_loop
 
 #[path = "../src/hex_codec.rs"]
 mod hex_codec;
+
+/// Seed a hold through the historical engine, then exercise the deployed UDS
+/// router. A pre-approved new claim cannot debit escrow after retirement.
+#[sqlx::test(migrations = false)]
+async fn retired_port_preserves_receipts_and_refunds_pending_escrow(pool: PgPool) {
+    use axum::{
+        body::{Body, to_bytes},
+        http::{Request as HttpRequest, StatusCode},
+    };
+    use tower::ServiceExt;
+    const TOKEN: &str = "synthetic-retirement-internal-host-token";
+    let (store, owner, recipient, _, _, _) = fixture(&pool).await;
+    publish(&pool, &store, &owner).await;
+    let mut accept = cmd("pre-approved-accept", "accept");
+    accept.github_handle = "existing-user".into();
+    approved(&pool, &store, &recipient, &mut accept).await;
+    let mut close = cmd("return-original-escrow", "close");
+    approved(&pool, &store, &owner, &mut close).await;
+    let app = bounties::http::internal_router(store, TOKEN).unwrap();
+    let execute = |secret: &str, command: &Command| {
+        HttpRequest::builder()
+            .method("POST")
+            .uri("/internal/bounties/v1/execute")
+            .header("authorization", format!("Bearer {TOKEN}"))
+            .header("x-lmm-protocol", "1")
+            .header("x-lmm-user-credential", secret)
+            .header("content-type", "application/json")
+            .body(Body::from(serde_json::to_vec(command).unwrap()))
+            .unwrap()
+    };
+    let response = app
+        .clone()
+        .oneshot(execute(&recipient, &accept))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::GONE);
+    let claims: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM core_bounties.operations WHERE id='pre-approved-accept'",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(claims, 0);
+    // A committed pre-retirement publication returns its original journal IDs.
+    let mut original = cmd("publish", "publish");
+    original.reward_credit = 10001;
+    original.reward_slots = 2;
+    original.repository_url = "https://github.com/synthetic/bounty".into();
+    let response = app
+        .clone()
+        .oneshot(execute(&owner, &original))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let receipt: bounties::Receipt =
+        serde_json::from_slice(&to_bytes(response.into_body(), 32768).await.unwrap()).unwrap();
+    assert_eq!(receipt.escrow_credit, 19800);
+    assert_eq!(receipt.journal_ids.len(), 3);
+    let response = app.clone().oneshot(execute(&owner, &close)).await.unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let refund: bounties::Receipt =
+        serde_json::from_slice(&to_bytes(response.into_body(), 32768).await.unwrap()).unwrap();
+    assert_eq!(refund.state, "closed");
+    assert_eq!(refund.credit, 19800);
+    assert_eq!(refund.escrow_credit, 0);
+    let replay = app.oneshot(execute(&owner, &close)).await.unwrap();
+    assert_eq!(replay.status(), StatusCode::OK);
+    let replay: bounties::Receipt =
+        serde_json::from_slice(&to_bytes(replay.into_body(), 32768).await.unwrap()).unwrap();
+    assert_eq!(refund, replay);
+}

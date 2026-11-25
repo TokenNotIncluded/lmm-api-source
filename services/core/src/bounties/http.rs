@@ -49,6 +49,7 @@ impl IntoResponse for Error {
             Self::Invalid => (StatusCode::BAD_REQUEST, "invalid"),
             Self::Forbidden => (StatusCode::FORBIDDEN, "forbidden"),
             Self::Missing => (StatusCode::NOT_FOUND, "missing"),
+            Self::Retired => (StatusCode::GONE, "bounty_retired"),
             Self::Conflict => (StatusCode::CONFLICT, "conflict"),
             Self::Storage => (StatusCode::SERVICE_UNAVAILABLE, "unknown"),
         };
@@ -123,6 +124,28 @@ async fn internal(
     }
     let cmd: Command = serde_json::from_value(input).map_err(|_| Error::Invalid)?;
 
+    if requires_bounty_admission(&cmd.action) {
+        match action.as_str() {
+            "preview" => return Err(Error::Retired),
+            // A retry may read its own committed receipt. A pending confirmation
+            // never authorizes new work after retirement.
+            "execute" => {
+                let receipt = match s.store.query_for_command(secret, &cmd).await {
+                    Ok(receipt) => receipt,
+                    Err(Error::Missing) => return Err(Error::Retired),
+                    Err(error) => return Err(error),
+                };
+                if matches!(
+                    receipt.state.as_str(),
+                    "awaiting_confirmation" | "confirmed" | "confirmation_expired"
+                ) {
+                    return Err(Error::Retired);
+                }
+                return Ok(secure(Json(receipt).into_response()));
+            }
+            _ => {}
+        }
+    }
     let out = match action.as_str() {
         "authorize" => serde_json::to_value(s.store.authorize(secret).await?),
         "session-authorize" => serde_json::to_value(s.store.session_authorize(secret).await?),
@@ -170,6 +193,13 @@ fn cookie(h: &HeaderMap) -> Result<&str> {
     }
     found.ok_or(Error::Forbidden)
 }
+fn ensure_wind_down(cmd: &Command) -> Result<()> {
+    if requires_bounty_admission(&cmd.action) {
+        return Err(Error::Retired);
+    }
+    Ok(())
+}
+
 async fn page(State(s): State<Browser>, Path(id): Path<String>, h: HeaderMap) -> Result<Response> {
     let mut tx = s.store.pool.begin().await?;
     let a = identity::BrowserAuth::oauth_identity_in_transaction(&mut tx, cookie(&h)?)
@@ -177,6 +207,7 @@ async fn page(State(s): State<Browser>, Path(id): Path<String>, h: HeaderMap) ->
         .map_err(|_| Error::Forbidden)?;
     let row=sqlx::query("SELECT request,policy FROM core_bounties.confirmations WHERE id=$1 AND actor=$2 AND expires>=extract(epoch FROM clock_timestamp()) FOR UPDATE").bind(&id).bind(a.user).fetch_optional(&mut *tx).await?.ok_or(Error::Missing)?;
     let sqlx::types::Json(cmd): sqlx::types::Json<Command> = row.try_get("request")?;
+    ensure_wind_down(&cmd)?;
     let sqlx::types::Json(policy): sqlx::types::Json<Option<(i64, i64)>> = row.try_get("policy")?;
     let details = escaped(&serde_json::to_string_pretty(&cmd).map_err(|_| Error::Storage)?);
     let economics = if let Some((bps, account)) = policy {
@@ -219,7 +250,9 @@ async fn confirm(
     let a = identity::BrowserAuth::oauth_identity_in_transaction(&mut tx, cookie(&h)?)
         .await
         .map_err(|_| Error::Forbidden)?;
-    let r=sqlx::query("SELECT csrf,browser_sid FROM core_bounties.confirmations WHERE id=$1 AND actor=$2 AND expires>=extract(epoch FROM clock_timestamp()) FOR UPDATE").bind(&id).bind(a.user).fetch_optional(&mut *tx).await?.ok_or(Error::Missing)?;
+    let r=sqlx::query("SELECT request,csrf,browser_sid FROM core_bounties.confirmations WHERE id=$1 AND actor=$2 AND expires>=extract(epoch FROM clock_timestamp()) FOR UPDATE").bind(&id).bind(a.user).fetch_optional(&mut *tx).await?.ok_or(Error::Missing)?;
+    let sqlx::types::Json(cmd): sqlx::types::Json<Command> = r.try_get("request")?;
+    ensure_wind_down(&cmd)?;
     if r.try_get::<Option<String>, _>("browser_sid")? != Some(a.sid)
         || r.try_get::<Option<Vec<u8>>, _>("csrf")?
             != Some(Sha256::digest(input.csrf.as_bytes()).to_vec())
@@ -259,6 +292,26 @@ mod tests {
             .body(Body::from(body.to_string()))
             .unwrap()
     }
+    #[tokio::test]
+    async fn retired_previews_are_gone_without_opening_database() {
+        let app = closed_router().await;
+        for action in ["publish", "accept", "tip", "resume", "future_action"] {
+            let req = Request::builder()
+                .method("POST")
+                .uri("/internal/bounties/v1/preview")
+                .header("content-type", "application/json")
+                .header("authorization", format!("Bearer {TOKEN}"))
+                .header("x-lmm-protocol", "1")
+                .header("x-lmm-user-credential", "synthetic_session")
+                .body(Body::from(serde_json::json!({"action":action}).to_string()))
+                .unwrap();
+            assert_eq!(
+                app.clone().oneshot(req).await.unwrap().status(),
+                StatusCode::GONE
+            );
+        }
+    }
+
     #[tokio::test]
     async fn ready_internal_port_requires_exact_purpose_host_and_protocol() {
         let app = closed_router().await;

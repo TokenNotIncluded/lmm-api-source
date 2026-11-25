@@ -92,3 +92,12 @@ func protectedAction(action string) bool {
 	}
 	return false
 }
+
+// AvailableAction is the live tool catalogue for existing obligations.
+func AvailableAction(action string) bool {
+	switch action {
+	case "list_owned", "list_accepted", "list_disputes":
+		return true
+	}
+	return protectedAction(action)
+}

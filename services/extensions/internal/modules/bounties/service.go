@@ -72,6 +72,9 @@ type operation struct {
 }
 
 func (s *Service) BuiltinInvoke(ctx context.Context, in Invocation) (Result, error) {
+	if !AvailableAction(in.Command.Action) {
+		return Result{}, ErrRetired
+	}
 	return s.invoke(ctx, in, false)
 }
 
@@ -90,7 +93,7 @@ func (s *Service) invoke(ctx context.Context, in Invocation, recovering bool) (R
 	token := in.Actor.Token
 	var actor Actor
 	var authErr error
-	if recovering || protectedAction(in.Command.Action) {
+	if recovering || protectedAction(in.Command.Action) || in.Command.Action == "list_owned" || in.Command.Action == "list_accepted" || in.Command.Action == "list_disputes" {
 		actor, authErr = s.sessionActor(ctx, token)
 	} else {
 		actor, authErr = s.Funds.Authorize(ctx, token)
