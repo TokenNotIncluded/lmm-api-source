@@ -23,7 +23,7 @@
 | 要做的事 | 从这里开始 |
 | --- | --- |
 | 开发或启动隔离环境 | [按组件准备工具](docs/development.md#只准备所需工具) · [Docker 开发栈](deployment/docker/README.md) |
-| 安装全新 Core 数据库 | [用安装 owner 初始化、用运行账号检查](docs/development.md#核心与数据库) · [角色与授权](deployment/postgres/README.md) · [配置路径](docs/filesystem-layout.md) |
+| 安装全新 Core 数据库 | [安装 owner 执行 `init-db`，运行账号执行 `check-db`](docs/development.md#核心与数据库) · [角色与授权](deployment/postgres/README.md) · [配置路径](docs/filesystem-layout.md) |
 | 打包、升级已有站点或处理切换失败 | [发布架构](docs/release-architecture.md) · [原生切换与恢复](deployment/native/README.md#cutover-after-migration-is-qualified) |
 
 ## 文档入口

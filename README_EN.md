@@ -23,7 +23,7 @@ A Web server serves the static [Web console](apps/web). See the [architecture gu
 | Task | Start here |
 | --- | --- |
 | Develop or start an isolated environment | [Tools by component](docs/development.md#只准备所需工具) · [Docker development stack](deployment/docker/README.md) |
-| Install a fresh Core database | [Initialize as the installation owner and check as the runtime role](docs/development.md#核心与数据库) · [Roles and grants](deployment/postgres/README.md) · [Configuration paths](docs/filesystem-layout.md) |
+| Install a fresh Core database | [Run `init-db` as the installation owner and `check-db` as the runtime role](docs/development.md#核心与数据库) · [Roles and grants](deployment/postgres/README.md) · [Configuration paths](docs/filesystem-layout.md) |
 | Package a release, upgrade an existing site or recover from a failed cutover | [Release architecture](docs/release-architecture.md) · [Native cutover and recovery](deployment/native/README.md#cutover-after-migration-is-qualified) |
 
 ## Documentation
