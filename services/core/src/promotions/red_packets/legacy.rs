@@ -1,5 +1,5 @@
 //! Imported packet rights distribute the original code, as the source did.
-//! The quota, reset and discount stores remain the only redemption authority.
+//! Only quota and discount codes can still be distributed.
 use super::{
     Error, PACKET_COLUMNS, Principal, RedPacketError, RpResult, active, audit, now, packet_row,
     pick, reward,
@@ -26,10 +26,6 @@ const AVAILABLE: &str = "SELECT i.id,i.weight,i.reward_kind,i.code_digest,i.disc
        WHERE d.digest=i.code_digest AND NOT d.revoked AND c.kind='redemption' AND c.enabled
          AND c.starts_at<=$2 AND c.ends_at>$2
          AND NOT EXISTS(SELECT FROM core_promotions.claims a WHERE a.code_digest=d.digest))
-     WHEN 'reset_voucher' THEN EXISTS(SELECT FROM core_subscriptions.reset_codes c
-       WHERE c.digest=i.code_digest AND c.enabled AND (c.expires_at=0 OR c.expires_at>=$2)
-         AND c.voucher_expires_at>$2
-         AND NOT EXISTS(SELECT FROM core_subscriptions.reset_vouchers v WHERE v.code_digest=c.digest))
      WHEN 'discount' THEN EXISTS(SELECT FROM core_payments.discount_codes d
        JOIN core_payments.discount_code_usage u ON u.code_id=d.id
        WHERE d.id=i.discount_code_id AND d.enabled AND d.starts_at<=$2
@@ -74,14 +70,6 @@ async fn lock_authority(c: &mut PgConnection, row: &sqlx::postgres::PgRow) -> Rp
             sqlx::query("SELECT c.id FROM core_promotions.codes d JOIN core_promotions.campaigns c ON c.id=d.campaign_id WHERE d.digest=$1 FOR UPDATE OF c")
                 .bind(row.try_get::<Vec<u8>, _>("code_digest")?)
                 .fetch_optional(c)
-                .await?;
-        }
-        "reset_voucher" => {
-            // Match the reset redemption transaction's exact advisory key.
-            // This needs no UPDATE permission on immutable reset-code terms.
-            sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended('core-reset-code:'||encode($1::bytea,'hex'),0))")
-                .bind(row.try_get::<Vec<u8>, _>("code_digest")?)
-                .execute(c)
                 .await?;
         }
         "discount" => {
