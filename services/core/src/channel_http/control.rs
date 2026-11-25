@@ -610,7 +610,7 @@ pub(super) enum Failure {
     RetiredIdentity,
     InvalidUsageWindow,
     AccountingIdentityAmbiguous,
-    Catalog(crate::relay::RelayError),
+    Catalog(crate::model_http::channel_operations::CatalogError),
 }
 impl From<HistoryError> for Failure {
     fn from(v: HistoryError) -> Self {
@@ -626,13 +626,7 @@ impl IntoResponse for Failure {
     fn into_response(self) -> Response {
         let (status, code, message) = match self {
             Self::Auth(error) => return auth_error(error),
-            Self::Catalog(error) => {
-                return error_response(
-                    StatusCode::from_u16(error.status()).unwrap_or(StatusCode::BAD_GATEWAY),
-                    error.code(),
-                    &error.to_string(),
-                );
-            }
+            Self::Catalog(error) => error.public(),
             Self::BalanceUnitRequired(units) => return (StatusCode::BAD_REQUEST, Json(json!({"success":false,"code":"CHANNEL_BALANCE_UNIT_REQUIRED","message":"Select a balance unit","data":{"balance_units":units}}))).into_response(),
             Self::SnapshotChanged => (StatusCode::CONFLICT, "CHANNEL_SNAPSHOT_CHANGED", "Channel observations changed; refresh from the first page"),
             Self::AccountingUnavailable => (

@@ -138,7 +138,7 @@ impl Fixture {
             task,
         }
     }
-    async fn probe(&self) -> Result<ChannelProbe, crate::relay::RelayError> {
+    async fn probe(&self) -> Result<ChannelProbe, super::CatalogError> {
         self.gateway.probe_channel_snapshot(&self.upstream).await
     }
 }
@@ -320,5 +320,36 @@ fn catalogue_rejects_invalid_continuations_and_empty_normalized_model_names() {
             )
             .is_err()
         );
+    }
+}
+
+#[tokio::test]
+async fn saved_and_draft_catalogues_return_only_sanitized_failure_categories() {
+    use super::CatalogError;
+    const PRIVATE_BODY: &str = "private-provider-failure-details";
+    for (status, expected) in [
+        (StatusCode::UNAUTHORIZED, CatalogError::Authentication),
+        (StatusCode::FORBIDDEN, CatalogError::Permission),
+        (StatusCode::NOT_FOUND, CatalogError::PathUnavailable),
+        (StatusCode::METHOD_NOT_ALLOWED, CatalogError::PathUnavailable),
+        (StatusCode::TOO_MANY_REQUESTS, CatalogError::RateLimited),
+        (StatusCode::GATEWAY_TIMEOUT, CatalogError::Timeout),
+        (StatusCode::BAD_GATEWAY, CatalogError::Upstream),
+        (StatusCode::OK, CatalogError::InvalidResponse),
+    ] {
+        let body = json!({"private":PRIVATE_BODY,"credential":SECRET});
+        let fixture = Fixture::new(Protocol::OpenAiChat, vec![(status,body.clone()),(status,body)]).await;
+        let saved = fixture.probe().await.err().expect("saved probe must fail");
+        let draft = fixture.gateway.probe_channel_draft(
+            "https://catalogue.example/v1", Protocol::OpenAiChat, "synthetic-unsaved-key",
+        ).await.err().expect("draft probe must fail");
+        for error in [saved,draft] {
+            assert_eq!(error,expected);
+            let (_,code,message) = error.public();
+            assert!(code.starts_with("CHANNEL_CATALOG_"));
+            for private in [PRIVATE_BODY,SECRET,"synthetic-unsaved-key","catalogue.example"] {
+                assert!(!message.contains(private));
+            }
+        }
     }
 }

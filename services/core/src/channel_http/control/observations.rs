@@ -388,7 +388,7 @@ pub(super) async fn probe(
     tx.commit()
         .await
         .map_err(|_| ManagementError::CommitUnknown)?;
-    outcome.map_err(|_| ManagementError::Storage.into())
+    outcome.map_err(Failure::Catalog)
 }
 
 async fn record(

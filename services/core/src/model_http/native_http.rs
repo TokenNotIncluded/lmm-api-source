@@ -66,7 +66,7 @@ pub(super) async fn read_response_bytes(
     response: reqwest::Response,
     limits: &Limits,
 ) -> Result<Vec<u8>, RelayError> {
-    read_body(connection, response, limits, true).await
+    read_body(connection, response, limits, true).await.map_err(|_| RelayError::SettlementPending)
 }
 
 /// Some native tool providers document a complete HTTP error as zero usage;
@@ -76,7 +76,22 @@ pub(super) async fn read_error_response_bytes(
     response: reqwest::Response,
     limits: &Limits,
 ) -> Result<Vec<u8>, RelayError> {
-    read_body(connection, response, limits, false).await
+    read_body(connection, response, limits, false).await.map_err(|_| RelayError::SettlementPending)
+}
+
+#[derive(Debug)]
+pub(super) enum BodyReadError {
+    InvalidResponse,
+    Timeout,
+    Connection,
+}
+
+pub(super) async fn read_catalogue_bytes(
+    connection: &ProviderConnection,
+    response: reqwest::Response,
+    limits: &Limits,
+) -> Result<Vec<u8>, BodyReadError> {
+    read_body(connection, response, limits, true).await
 }
 
 async fn read_body(
@@ -84,7 +99,7 @@ async fn read_body(
     mut response: reqwest::Response,
     limits: &Limits,
     require_json: bool,
-) -> Result<Vec<u8>, RelayError> {
+) -> Result<Vec<u8>, BodyReadError> {
     if !connection.matches_peer(response.remote_addr())
         || response.headers().contains_key(header::CONTENT_ENCODING)
         || (require_json
@@ -98,22 +113,22 @@ async fn read_body(
                         .is_some_and(|v| v.trim().eq_ignore_ascii_case("application/json"))
                 }))
     {
-        return Err(RelayError::SettlementPending);
+        return Err(BodyReadError::InvalidResponse);
     }
     let cap = limits.upstream_bytes.min(limits.output_bytes);
     if response.content_length().is_some_and(|n| n > cap as u64) {
-        return Err(RelayError::SettlementPending);
+        return Err(BodyReadError::InvalidResponse);
     }
     let mut bytes = Vec::new();
     while let Some(chunk) = tokio::time::timeout(limits.read_timeout, response.chunk())
         .await
-        .map_err(|_| RelayError::SettlementPending)?
-        .map_err(|_| RelayError::SettlementPending)?
+        .map_err(|_| BodyReadError::Timeout)?
+        .map_err(|error| if error.is_timeout() { BodyReadError::Timeout } else { BodyReadError::Connection })?
     {
         if chunk.len() > limits.transport_chunk_bytes
             || bytes.len().checked_add(chunk.len()).is_none_or(|n| n > cap)
         {
-            return Err(RelayError::SettlementPending);
+            return Err(BodyReadError::InvalidResponse);
         }
         bytes.extend_from_slice(&chunk);
     }
