@@ -2,8 +2,12 @@ use super::*;
 use axum::{Router, extract::Query, routing::get};
 use std::{
     collections::HashMap,
+    fs,
     os::unix::fs::PermissionsExt,
-    sync::atomic::{AtomicUsize, Ordering},
+    sync::{
+        Arc,
+        atomic::{AtomicUsize, Ordering},
+    },
 };
 
 struct Fixture(PathBuf);
@@ -30,16 +34,6 @@ impl Drop for Fixture {
         let _ = fs::remove_dir_all(&self.0);
     }
 }
-fn save(revision: i64, value: &str) -> SavePolicy {
-    SavePolicy {
-        revision,
-        enabled: false,
-        sms_enabled: true,
-        email_enabled: false,
-        price_multiplier: value.into(),
-    }
-}
-
 #[test]
 fn multiplier_retains_six_decimal_places_and_rejects_invalid_input() {
     for value in ["0.000001", "2.000001", "1000", "1000.000000", "1"] {
@@ -62,46 +56,26 @@ fn multiplier_retains_six_decimal_places_and_rejects_invalid_input() {
 }
 
 #[tokio::test]
-async fn policy_save_survives_restart_and_conflicting_writers_preserve_exact_value() {
+async fn policy_follows_operator_file_changes_and_rejects_invalid_content() {
     let fixture = Fixture::new();
     let path = fixture.policy();
     let file = PolicyFile::open(path.clone()).unwrap();
-    let (a, b) = tokio::join!(
-        file.save(save(0, "2.000001"), 7),
-        file.save(save(0, "4.5"), 8)
-    );
-    assert_eq!(usize::from(a.is_ok()) + usize::from(b.is_ok()), 1);
+    assert_eq!(file.read().await.unwrap().revision, 0);
+    // Older files with writer metadata remain readable after an operator edit.
+    fs::write(&path, r#"{"revision":1,"enabled":false,"sms_enabled":true,"email_enabled":false,"price_multiplier":"2.000001","updated_by":7,"updated_at":100}"#).unwrap();
+    let updated = file.read().await.unwrap();
+    assert_eq!(updated.price_multiplier, "2.000001");
+    assert_eq!(updated.updated_by, Some(7));
     assert_eq!(
-        a.as_ref().err().or(b.as_ref().err()),
-        Some(&Error::StateConflict)
+        PolicyFile::open(path.clone())
+            .unwrap()
+            .read()
+            .await
+            .unwrap(),
+        updated
     );
-    let expected = a.or(b).unwrap();
-    let reopened = PolicyFile::open(path.clone()).unwrap();
-    assert_eq!(reopened.read().await.unwrap(), expected);
-    assert_eq!(expected.revision, 1);
-    assert!(expected.updated_at.unwrap() > 0);
-    assert!(matches!(
-        expected.price_multiplier.as_str(),
-        "2.000001" | "4.5"
-    ));
-    assert_eq!(
-        fs::metadata(path).unwrap().permissions().mode() & 0o777,
-        0o600
-    );
-    assert_eq!(
-        file.save(save(1, "1000.000001"), 7).await,
-        Err(Error::Invalid)
-    );
-    assert_eq!(reopened.read().await.unwrap(), expected);
-}
-
-#[tokio::test]
-async fn invalid_or_unwritable_policy_never_reports_saved() {
-    let fixture = Fixture::new();
-    let path = fixture.policy();
-    let file = PolicyFile::open(path.clone()).unwrap();
     fs::write(&path, "invalid").unwrap();
-    assert_eq!(file.save(save(0, "2"), 7).await, Err(Error::Unavailable));
+    assert_eq!(file.read().await, Err(Error::Unavailable));
     assert_eq!(fs::read_to_string(path).unwrap(), "invalid");
 }
 

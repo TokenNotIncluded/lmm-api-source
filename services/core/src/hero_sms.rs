@@ -3,10 +3,7 @@
 //! their reservation/receipt implementation is installed.
 use serde::{Deserialize, Serialize};
 use std::{
-    fs::{self, File, OpenOptions},
-    io::Write,
     path::{Path, PathBuf},
-    sync::{Arc, Mutex},
     time::Duration,
 };
 
@@ -19,9 +16,8 @@ pub enum Error {
     Invalid,
     Unauthorized,
     Forbidden,
-    StateConflict,
+    FileManaged,
     Unavailable,
-    CommitUnknown,
     CredentialMissing,
     CredentialRejected,
     Disabled,
@@ -41,16 +37,6 @@ pub struct Policy {
     pub updated_by: Option<i64>,
     #[serde(default)]
     pub updated_at: Option<i64>,
-}
-
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct SavePolicy {
-    pub revision: i64,
-    pub enabled: bool,
-    pub sms_enabled: bool,
-    pub email_enabled: bool,
-    pub price_multiplier: String,
 }
 
 fn multiplier_valid(value: &str) -> bool {
@@ -88,7 +74,6 @@ fn read_policy(path: &Path) -> Result<Policy> {
 #[derive(Clone)]
 pub struct PolicyFile {
     path: PathBuf,
-    writer: Arc<Mutex<()>>,
 }
 
 impl PolicyFile {
@@ -97,10 +82,7 @@ impl PolicyFile {
             return Err(Error::Invalid);
         }
         read_policy(&path)?;
-        Ok(Self {
-            path,
-            writer: Arc::new(Mutex::new(())),
-        })
+        Ok(Self { path })
     }
 
     pub async fn read(&self) -> Result<Policy> {
@@ -108,60 +90,6 @@ impl PolicyFile {
         tokio::task::spawn_blocking(move || read_policy(&path))
             .await
             .map_err(|_| Error::Unavailable)?
-    }
-
-    pub async fn save(&self, request: SavePolicy, actor: i64) -> Result<Policy> {
-        if request.revision < 0 || actor <= 0 || !multiplier_valid(&request.price_multiplier) {
-            return Err(Error::Invalid);
-        }
-        let this = self.clone();
-        // Once accepted, the blocking writer completes its durable rename even
-        // if the HTTP connection closes. The caller recovers by reading revision.
-        tokio::task::spawn_blocking(move || {
-            let _guard = this.writer.lock().map_err(|_| Error::Unavailable)?;
-            let old = read_policy(&this.path)?;
-            if old.revision != request.revision {
-                return Err(Error::StateConflict);
-            }
-            let policy = Policy {
-                revision: old.revision.checked_add(1).ok_or(Error::StateConflict)?,
-                enabled: request.enabled,
-                sms_enabled: request.sms_enabled,
-                email_enabled: request.email_enabled,
-                price_multiplier: request.price_multiplier,
-                updated_by: Some(actor),
-                updated_at: Some(chrono::Utc::now().timestamp()),
-            };
-            let parent = this.path.parent().ok_or(Error::Invalid)?;
-            let temporary = parent.join(format!(
-                ".hero-sms-policy-{:016x}.tmp",
-                rand::random::<u64>()
-            ));
-            let mut options = OpenOptions::new();
-            options.write(true).create_new(true);
-            #[cfg(unix)]
-            {
-                use std::os::unix::fs::OpenOptionsExt;
-                options.mode(0o600);
-            }
-            let written = (|| {
-                let mut file = options.open(&temporary).map_err(|_| Error::Unavailable)?;
-                let bytes = serde_json::to_vec(&policy).map_err(|_| Error::Invalid)?;
-                file.write_all(&bytes).map_err(|_| Error::Unavailable)?;
-                file.sync_all().map_err(|_| Error::Unavailable)?;
-                fs::rename(&temporary, &this.path).map_err(|_| Error::Unavailable)?;
-                File::open(parent)
-                    .and_then(|file| file.sync_all())
-                    .map_err(|_| Error::CommitUnknown)?;
-                Ok(policy)
-            })();
-            if written.is_err() {
-                let _ = fs::remove_file(&temporary);
-            }
-            written
-        })
-        .await
-        .map_err(|_| Error::CommitUnknown)?
     }
 }
 

@@ -81,8 +81,9 @@ const { Route: ContentRoute } =
 const { useSidebarView } = await import('@/hooks/use-sidebar-view')
 const { buildSettingsSearchIndex } =
   await import('../utils/settings-search-index')
-const { getSystemSettingsNavGroups, SYSTEM_SETTINGS_VIEW } =
-  await import('@/components/layout/config/system-settings.config')
+const { pluginEditor } = await import('@/features/plugins/configuration')
+const { Route: PluginsRoute } =
+  await import('@/routes/_authenticated/extensions/plugins')
 const { api } = await import('@/lib/api')
 const { useAuthStore } = await import('@/stores/auth-store')
 const { validPresetConfiguration } =
@@ -229,7 +230,7 @@ function SidebarProbe() {
 }
 
 async function renderRoute(
-  path = '/system-settings/content/assistant',
+  path = '/extensions/plugins?configure=assistant',
   menu = false
 ) {
   const container = document.createElement('div')
@@ -275,7 +276,15 @@ async function renderRoute(
   })
   const router = createRouter({
     routeTree: rootRoute.addChildren([
-      authenticated.addChildren([settings.addChildren([content])]),
+      authenticated.addChildren([
+        settings.addChildren([content]),
+        createRoute({
+          getParentRoute: () => authenticated,
+          path: '/extensions/plugins',
+          beforeLoad: () => PluginsRoute.options.beforeLoad?.({} as never),
+          component: () => pluginEditor('assistant'),
+        }),
+      ]),
       createRoute({
         getParentRoute: () => rootRoute,
         path: '/403',
@@ -359,7 +368,7 @@ async function click(container: HTMLElement, label: string) {
   })
 }
 
-test('real assistant settings route saves presets independently of partial legacy options', async () => {
+test('registered assistant plugin editor saves presets independently of partial legacy options', async () => {
   const page = await renderRoute()
   try {
     await until(
@@ -503,7 +512,7 @@ test('actual parent guard rejects other L5 settings and revoked sessions', async
   try {
     await until(
       () => !!page.container.querySelector('input[aria-label="Button label"]'),
-      'L5 canonical assistant route'
+      'L5 assistant plugin editor'
     )
     await act(async () => {
       const auth = useAuthStore.getState().auth
@@ -535,53 +544,29 @@ test('actual parent guard rejects other L5 settings and revoked sessions', async
   }
 })
 
-test('L5 discovers only the assistant settings destination while L6 retains the full directory', async () => {
+test('L5 discovers plugin management and L6 also discovers the read-only overview', async () => {
   useAuthStore.getState().auth.setBundle(bundle(10))
   const page = await renderRoute('/dashboard/overview', true)
   try {
-    const target = '/system-settings/content/assistant'
-    await until(
-      () =>
-        page.container
-          .querySelector('[data-testid="sidebar-routes"]')
-          ?.textContent?.includes(target) === true,
-      'L5 sidebar starter link'
-    )
-    const routeText = page.container.querySelector(
-      '[data-testid="sidebar-routes"]'
-    )?.textContent
-    assert.ok(routeText)
-    const rootRoutes = JSON.parse(routeText) as string[]
-    assert.deepEqual(
-      rootRoutes.filter((route) => route.startsWith('/system-settings')),
-      [target]
-    )
-    const t = i18n.getFixedT('en')
-    assert.deepEqual(
-      buildSettingsSearchIndex(t, undefined, 10).flatMap((group) =>
-        group.entries.map((entry) => entry.url)
-      ),
-      [target]
-    )
-    assert.deepEqual(
-      SYSTEM_SETTINGS_VIEW.getNavGroups(t).flatMap((group) =>
-        group.items.flatMap(
-          (section) => section.items?.map((entry) => entry.url) ?? []
-        )
-      ),
-      [target]
-    )
-    const full = buildSettingsSearchIndex(t, undefined, 100).flatMap(
-      (group) => group.entries
-    )
-    assert.ok(full.length > 20)
+    const routes = JSON.parse(
+      page.container.querySelector('[data-testid="sidebar-routes"]')!
+        .textContent!
+    ) as string[]
+    assert.ok(routes.includes('/extensions/plugins'))
     assert.equal(
-      full.length,
-      buildSettingsSearchIndex(t, getSystemSettingsNavGroups(t, 100)).flatMap(
-        (group) => group.entries
-      ).length
+      routes.some((path) => path.startsWith('/system-settings')),
+      false
     )
-    assert.equal(buildSettingsSearchIndex(t, undefined, 1).length, 0)
+    const paths = (role: number) =>
+      buildSettingsSearchIndex(i18n.getFixedT('en'), undefined, role).flatMap(
+        (group) => group.entries.map((entry) => entry.url)
+      )
+    assert.deepEqual(paths(10), ['/extensions/plugins'])
+    assert.deepEqual(paths(100), [
+      '/system-settings/site',
+      '/extensions/plugins',
+    ])
+    assert.deepEqual(paths(1), [])
   } finally {
     await page.cleanup()
   }

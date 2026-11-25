@@ -102,6 +102,10 @@ class NativeManagementRoutes(unittest.TestCase):
 
     def test_exact_routes_preserve_method_uri_session_and_body(self):
         for method, path, target in (
+            ('GET', '/api/option', 'core'),
+            ('GET', '/api/option/?view=current', 'core'),
+            ('GET', '/core/v1/admin/request-limits', 'core'),
+            ('GET', '/core/v1/admin/routing/auto-groups', 'core'),
             ('GET', '/api/option/epay/config', 'go'),
             ('GET', '/core/v1/admin/user-access/17?view=current', 'core'),
             ('PATCH', '/core/v1/admin/user-access/17', 'core'),
@@ -121,6 +125,13 @@ class NativeManagementRoutes(unittest.TestCase):
 
     def test_unrelated_methods_ids_and_paths_are_not_forwarded(self):
         for method, path, expected in (
+            ('PUT', '/api/option', 405),
+            ('PUT', '/api/option/', 405),
+            ('POST', '/api/option/bulk?source=admin', 405),
+            ('POST', '/api/option/bulk/', 405),
+            ('POST', '/api/option/validate', 405),
+            ('PUT', '/core/v1/admin/request-limits', 405),
+            ('PUT', '/core/v1/admin/routing/auto-groups', 405),
             ('PATCH', '/api/option/epay/config', 405),
             ('GET', '/core/v1/admin/user-access', 404),
             ('POST', '/core/v1/admin/user-access/17', 405),

@@ -111,8 +111,7 @@ function DeploymentAccessState({
 
   const handleGoToSettings = () => {
     navigate({
-      to: '/system-settings/models/$section',
-      params: { section: 'model-deployment' },
+      to: '/system-settings/site',
     })
   }
 
@@ -158,7 +157,7 @@ function DeploymentAccessState({
             <AlertTitle>{t('Configuration required')}</AlertTitle>
             <AlertDescription>
               {t(
-                'Please enable io.net model deployment service and configure an API key in System Settings.'
+                'Edit Core settings in the configuration files on the server.'
               )}
             </AlertDescription>
           </Alert>

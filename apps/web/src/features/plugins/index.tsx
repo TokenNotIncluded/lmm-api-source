@@ -1,7 +1,7 @@
 /* Copyright (C) 2026 LIghtJUNction. SPDX-License-Identifier: AGPL-3.0-or-later */
 import { useQueryClient } from '@tanstack/react-query'
 import { isAxiosError } from 'axios'
-import { useEffect, useRef, useState } from 'react'
+import { Suspense, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { ZodError } from 'zod'
 
@@ -18,6 +18,7 @@ import {
   readNativeUsersScope,
   type NativeUsersScope,
 } from '@/features/native-users/access'
+import { SettingsPageProvider } from '@/features/system-settings/components/settings-page-context'
 import { useCapabilityFreshness } from '@/hooks/use-capability-freshness'
 import { getServerErrorMessage } from '@/lib/server-error-message'
 import { useAuthStore } from '@/stores/auth-store'
@@ -28,7 +29,12 @@ import {
   type PluginAction,
   type PluginInfo,
 } from './api'
-import { pluginConfiguration } from './configuration'
+import {
+  pluginEditor,
+  pluginHostFields,
+  pluginNavigation,
+  renderPluginEditor,
+} from './configuration'
 import {
   canChangePlugin,
   pluginDependencies,
@@ -42,13 +48,22 @@ type Selection =
   | { action: PluginAction; plugin: PluginInfo }
 
 // @context-fold begin plugin-inventory
-function PluginInventory({ scope }: { scope: NativeUsersScope }) {
+function PluginInventory({
+  scope,
+  configure,
+  section,
+}: {
+  scope: NativeUsersScope
+  configure?: string
+  section?: string
+}) {
   const { t } = useTranslation()
   const client = useQueryClient()
   const runtime = useRuntimeCapabilities()
   const localQuery = usePlugins(runtime ? undefined : scope)
   const query = runtime?.plugins ?? localQuery
   const phase = useCapabilityFreshness(query)
+  const [actions, setActions] = useState<HTMLDivElement | null>(null)
   const [search, setSearch] = useState('')
   const [filter, setFilter] = useState('all')
   const [selection, setSelection] = useState<Selection | null>(null)
@@ -164,6 +179,56 @@ function PluginInventory({ scope }: { scope: NativeUsersScope }) {
         description={errorMessage}
         onRetry={() => void query.refetch()}
       />
+    )
+  }
+
+  if (configure) {
+    const plugin = registry.find((entry) => entry.name === configure)
+    const editor = renderPluginEditor(configure, section)
+    return (
+      <div className='space-y-6'>
+        <div className='flex flex-wrap items-center justify-between gap-4'>
+          <Button variant='ghost' render={<a href='/extensions/plugins' />}>
+            {t('Back')}
+          </Button>
+          <div ref={setActions} />
+        </div>
+        {plugin?.available && pluginNavigation[configure] && (
+          <nav aria-label={t('Settings')} className='flex flex-wrap gap-2'>
+            {pluginNavigation[configure].map((item) => (
+              <Button
+                key={item.label}
+                variant={section === item.id ? 'secondary' : 'ghost'}
+                render={
+                  <a
+                    href={`/extensions/plugins?configure=${encodeURIComponent(configure)}${item.id ? '&section=' + item.id : ''}`}
+                    aria-current={section === item.id ? 'page' : undefined}
+                  />
+                }
+              >
+                {t(item.label)}
+              </Button>
+            ))}
+          </nav>
+        )}
+        {editor && plugin?.available && phase === 'fresh' ? (
+          <SettingsPageProvider
+            actionsContainer={actions}
+            suppressSectionHeader={false}
+          >
+            <Suspense
+              fallback={<p role='status'>{t('Loading settings...')}</p>}
+            >
+              {editor}
+            </Suspense>
+          </SettingsPageProvider>
+        ) : (
+          <ErrorState
+            title={t('Unable to load settings')}
+            onRetry={() => void query.refetch()}
+          />
+        )}
+      </div>
     )
   }
 
@@ -350,7 +415,6 @@ function PluginInventory({ scope }: { scope: NativeUsersScope }) {
           const dependencies = pluginDependencies(plugin, registry)
           const dependents = pluginDependents(plugin, registry)
           const presentation = pluginPresentation(plugin.name, t)
-          const configuration = pluginConfiguration(plugin.name)
           return (
             <article
               key={plugin.name}
@@ -461,7 +525,7 @@ function PluginInventory({ scope }: { scope: NativeUsersScope }) {
                           'host.web_compat',
                           'core.socket',
                           'core.identity_token_file',
-                          ...(configuration?.fields ?? []),
+                          ...pluginHostFields(plugin.name),
                         ].map((field) => (
                           <li key={field}>
                             <code className='[overflow-wrap:anywhere]'>
@@ -487,11 +551,15 @@ function PluginInventory({ scope }: { scope: NativeUsersScope }) {
                     {actionLabel(action)}
                   </Button>
                 )}
-                {configuration?.href && (
+                {pluginEditor(plugin.name) && plugin.available && (
                   <Button
                     variant={plugin.available ? 'ghost' : 'outline'}
                     className='min-h-11'
-                    render={<a href={configuration.href} />}
+                    render={
+                      <a
+                        href={`/extensions/plugins?configure=${encodeURIComponent(plugin.name)}`}
+                      />
+                    }
                   >
                     {t('Settings')}
                   </Button>
@@ -551,20 +619,27 @@ function PluginInventory({ scope }: { scope: NativeUsersScope }) {
 }
 // @context-fold end plugin-inventory
 
-export function PluginsPage() {
+export function PluginsPage({
+  configure,
+  section,
+}: { configure?: string; section?: string } = {}) {
   const { t } = useTranslation()
   const auth = useAuthStore((state) => state.auth)
   const scope = readNativeUsersScope(auth)
   return (
     <SectionPageLayout>
       <SectionPageLayout.Title>
-        {t('Plugin management')}
+        {configure && pluginEditor(configure)
+          ? pluginPresentation(configure, t).title
+          : t('Plugin management')}
       </SectionPageLayout.Title>
       <SectionPageLayout.Content>
         {scope ? (
           <PluginInventory
             key={[scope.userId, scope.sessionId, scope.role].join(':')}
             scope={scope}
+            configure={configure}
+            section={section}
           />
         ) : (
           <Alert role='alert'>

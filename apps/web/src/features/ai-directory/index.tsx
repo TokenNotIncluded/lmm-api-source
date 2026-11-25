@@ -1,13 +1,7 @@
 /* Copyright (C) 2026 LIghtJUNction. AGPL-3.0-or-later. */
 import { useQuery } from '@tanstack/react-query'
 import { Link } from '@tanstack/react-router'
-import {
-  ArrowUpRight,
-  Globe2,
-  Search,
-  Settings2,
-  ShieldCheck,
-} from 'lucide-react'
+import { ArrowUpRight, Globe2, Search, ShieldCheck } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
@@ -147,29 +141,9 @@ export function AIDirectory() {
           <Button
             variant='outline'
             size='sm'
-            aria-label={t('Manage websites')}
-            title={t('Manage websites')}
-            render={
-              <Link
-                to='/system-settings/site/$section'
-                params={{ section: 'ai-directory' }}
-              />
-            }
-          >
-            <Settings2 data-icon='inline-start' />
-            <span className='hidden sm:inline'>{t('Manage websites')}</span>
-          </Button>
-          <Button
-            variant='outline'
-            size='sm'
             aria-label={t('Manage ads')}
             title={t('Manage ads')}
-            render={
-              <Link
-                to='/system-settings/site/$section'
-                params={{ section: 'ai-directory-ads' }}
-              />
-            }
+            render={<Link to='/ai-directory' search={{ manage: 'ads' }} />}
           >
             <ShieldCheck data-icon='inline-start' />
             <span className='hidden sm:inline'>{t('Manage ads')}</span>

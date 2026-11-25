@@ -27,6 +27,7 @@ import {
   type NativeCheckout,
   type PendingNativeCheckout,
 } from '../lib/native-checkout'
+import { paymentProviderNames } from '../lib/payment-providers'
 import {
   checkoutNativePayment,
   getNativePaymentChannels,
@@ -35,14 +36,6 @@ import {
 } from '../native-checkout-api'
 import { PancakeCustomerPortal } from './pancake-customer-portal'
 
-const providerNames: Record<NativeChannel['provider'], string> = {
-  epay: 'EPay',
-  stripe: 'Stripe',
-  creem: 'Creem',
-  waffo: 'Waffo',
-  waffo_pancake: 'Waffo Pancake',
-  coinbase: 'Coinbase',
-}
 const paymentCurrency = (channel: NativeChannel) =>
   channel.provider === 'coinbase' ? 'USDC' : channel.currency
 const quickAmounts = ['5.00', '10.00', '25.00', '50.00', '100.00'] as const
@@ -306,7 +299,7 @@ function NativeWalletCheckoutForm({
     return t('Preparing your payment. You can refresh this order later.')
   }
   const channelLabel = (channel: NativeChannel) =>
-    `${providerNames[channel.provider]}${channel.payment_type ? ` · ${channel.payment_type}` : ''} · ${paymentCurrency(channel)}${channel.environment === 'test' ? ` · ${t('Test payment')}` : ''}`
+    `${paymentProviderNames[channel.provider]}${channel.payment_type ? ` · ${channel.payment_type}` : ''} · ${paymentCurrency(channel)}${channel.environment === 'test' ? ` · ${t('Test payment')}` : ''}`
   const startAgain = () => {
     if (remember(null)) {
       setResult(null)

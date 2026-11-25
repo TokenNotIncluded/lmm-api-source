@@ -19,14 +19,21 @@ For commercial licensing, please contact support@quantumnous.com
 import { createFileRoute, redirect } from '@tanstack/react-router'
 
 import { CONTENT_DEFAULT_SECTION } from '@/features/system-settings/content/section-registry.tsx'
+import { legacyBookmarkSection } from '@/features/system-settings/legacy-settings-bookmark'
 
 export const Route = createFileRoute(
   '/_authenticated/system-settings/content/'
 )({
-  beforeLoad: () => {
+  beforeLoad: ({ location }) => {
     throw redirect({
       to: '/system-settings/content/$section',
-      params: { section: CONTENT_DEFAULT_SECTION },
+      params: {
+        section: legacyBookmarkSection(
+          location.search,
+          CONTENT_DEFAULT_SECTION
+        ),
+      },
+      replace: true,
     })
   },
 })

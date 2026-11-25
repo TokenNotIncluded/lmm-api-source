@@ -19,10 +19,11 @@ use std::{
 mod admin;
 mod hex_codec;
 
-const USAGE: &str = "Usage: lmm-core [--config /absolute/core.toml] [serve | init-db | upgrade-db | upgrade-history | upgrade-offline | create-first-owner | bootstrap-user | complete-setup | install-tool-market-builtins | install-usage-receipt-index | rebuild-channel-usage | plan-admin-activation | apply-admin-activation | plan-admin-key-continuity | apply-admin-key-continuity | publish-subscription-pancake-price | schema-manifest | check-db]\n\n\
+const USAGE: &str = "Usage: lmm-core [--config /absolute/core.toml] [serve | init-db | upgrade-db | upgrade-history | upgrade-offline | create-first-owner | bootstrap-user | complete-setup | install-tool-market-builtins | install-usage-receipt-index | rebuild-channel-usage | plan-admin-activation | apply-admin-activation | plan-admin-key-continuity | apply-admin-key-continuity | apply-federated-provider | apply-routing-policy | publish-subscription-pancake-price | schema-manifest | check-db]\n\n\
 Commands:\n\
   serve           Start the core service (the default without arguments).\n\
   schema-manifest Print the compiled schema contract as JSON; accepts no config options and performs no I/O except stdout.\n\
+  apply-federated-provider  Apply one local provider definition from stdin TOML using a recent root session and explicit runtime --config.\n\
   check-db        Read-only schema/runtime authority JSON; requires explicit --config.\n\
   init-db         Initialize a new, empty core database.\n\
   upgrade-offline Explicit native v3 schema upgrade/recovery with independent history and persistent fencing.\n\
@@ -40,6 +41,7 @@ Commands:\n\
                   core-trust-policy-edit-v1 upgrades the fixed 44-component PostgreSQL 18 predecessor to 45 components.\n\
                   core-channel-observations-v1 upgrades the fixed 45-component PostgreSQL 18 predecessor to 46 components.\n\
   rebuild-channel-usage  Rebuild derived channel statistics offline as owner; requires explicit --config and preserves money receipts.\n\
+  apply-routing-policy  Apply request limits or global Auto group order from stdin TOML with an explicit runtime --config and a private superadministrator session file.\n\
   create-first-owner  Create the first production owner offline from private stdin JSON; requires explicit --config and a fresh store.\n\
   bootstrap-user  Read a user_id and platform_level JSON object from stdin.\n\n\
   install-tool-market-builtins  Install the compiled tool catalog offline as installation owner.\n\n\
@@ -49,7 +51,7 @@ Commands:\n\
   apply-admin-activation Owner-only apply of one human-confirmed activation; requires explicit --config.\n\n\
   publish-subscription-pancake-price  Publish one price for an existing exact plan revision as offline owner; reads private stdin JSON.\n\
 Options:\n\
-  --config PATH  Read one absolute TOML file (default /etc/lmm.conf.d/core.toml).\n\
+  --config PATH  Read an absolute TOML file plus its optional PATH.d/*.toml, or a TOML directory (default /etc/lmm.conf.d/core.toml).\n\
   -h, --help      Show this help without reading database configuration.\n\
   -V, --version   Show the core version.\n\n\
 bootstrap-user accepts at most 4096 bytes and writes a one-time credential to\n\
@@ -70,9 +72,11 @@ enum Command {
     CreateFirstOwner,
     BootstrapUser,
     CompleteSetup,
+    ApplyFederatedProvider,
     InstallToolMarketBuiltins,
     InstallUsageReceiptIndex,
     RebuildChannelUsage,
+    ApplyRoutingPolicy,
     PlanAdminActivation,
     ApplyAdminActivation,
     PlanAdminKeyContinuity,
@@ -98,6 +102,7 @@ const OPERATIONS: &[(&str, Command)] = &[
     ("create-first-owner", Command::CreateFirstOwner),
     ("bootstrap-user", Command::BootstrapUser),
     ("complete-setup", Command::CompleteSetup),
+    ("apply-federated-provider", Command::ApplyFederatedProvider),
     (
         "install-tool-market-builtins",
         Command::InstallToolMarketBuiltins,
@@ -107,6 +112,7 @@ const OPERATIONS: &[(&str, Command)] = &[
         Command::InstallUsageReceiptIndex,
     ),
     ("rebuild-channel-usage", Command::RebuildChannelUsage),
+    ("apply-routing-policy", Command::ApplyRoutingPolicy),
     ("plan-admin-activation", Command::PlanAdminActivation),
     ("apply-admin-activation", Command::ApplyAdminActivation),
     ("plan-admin-key-continuity", Command::PlanAdminKeyContinuity),
@@ -240,6 +246,17 @@ fn main() -> Result<(), Box<dyn Error>> {
         }
         Command::CheckDb => std::process::exit(admin::check_database(arguments.config.as_deref())),
         Command::Serve => None,
+        Command::ApplyFederatedProvider => {
+            if arguments.config.is_none() {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    "apply-federated-provider requires an explicit runtime --config",
+                )
+                .into());
+            }
+            let input = lmm_core::legacy_auth::FederatedProviderFile::read(io::stdin().lock())?;
+            Some(admin::Operation::ApplyFederatedProvider(Box::new(input)))
+        }
         Command::InitDb => Some(admin::Operation::InitDb),
         Command::UpgradeDb => {
             if arguments.config.is_none() {
@@ -303,6 +320,17 @@ fn main() -> Result<(), Box<dyn Error>> {
                 .into());
             }
             Some(operation)
+        }
+        Command::ApplyRoutingPolicy => {
+            if arguments.config.is_none() {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    "apply-routing-policy requires an explicit runtime --config",
+                )
+                .into());
+            }
+            let input = lmm_core::request_limits::RoutingPolicyFile::read(io::stdin().lock())?;
+            Some(admin::Operation::ApplyRoutingPolicy(Box::new(input)))
         }
         Command::RebuildChannelUsage => {
             if arguments.config.is_none() {

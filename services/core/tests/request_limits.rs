@@ -89,90 +89,35 @@ async fn request_limits_admin_policy_revision_and_role_boundaries(pool: PgPool) 
     let app = request_limits::router(pool.clone());
     let path = "/core/v1/admin/request-limits";
     let body = json!({"expected_revision":1,"policy":{"enabled":true,"window_seconds":60,"user_limit":2,"group_limits":{"default":5}}});
-    for secret in [
-        Some(admin.as_str()),
-        Some(paid.as_str()),
-        Some(key.as_str()),
-        None,
-    ] {
-        let expected = if secret.is_some() {
-            StatusCode::FORBIDDEN
-        } else {
-            StatusCode::UNAUTHORIZED
-        };
-        assert_eq!(call(&app, "GET", path, secret, None).await.0, expected);
-        assert_eq!(
-            call(&app, "PUT", path, secret, Some(body.clone())).await.0,
-            expected
-        );
-    }
-    let before = call(&app, "GET", path, Some(&root), None).await;
-    assert_eq!(before.0, StatusCode::OK);
-    assert_eq!(before.1["policy"]["enabled"], false);
-    let saved = call(&app, "PUT", path, Some(&root), Some(body.clone())).await;
-    assert_eq!(saved.0, StatusCode::OK);
-    assert_eq!(saved.1["revision"], 2);
-    assert_eq!(saved.1["policy"], body["policy"]);
-    assert_eq!(
-        call(&app, "PUT", path, Some(&root), Some(body.clone()))
-            .await
-            .0,
-        StatusCode::CONFLICT
-    );
-    let mut invalid = body;
-    invalid["expected_revision"] = json!(2);
-    invalid["policy"]["window_seconds"] = json!(0);
-    assert_eq!(
-        call(&app, "PUT", path, Some(&root), Some(invalid)).await.0,
-        StatusCode::BAD_REQUEST
-    );
-
     let auto = "/core/v1/admin/routing/auto-groups";
     let order = json!({"expected_revision":1,"groups":["private","default","国产"]});
-    assert_eq!(
-        call(&app, "PUT", auto, Some(&admin), Some(order.clone()))
-            .await
-            .0,
-        StatusCode::FORBIDDEN
-    );
-    let saved = call(&app, "PUT", auto, Some(&root), Some(order.clone())).await;
-    assert_eq!(saved.0, StatusCode::OK);
-    assert_eq!(saved.1["groups"], order["groups"]);
-    assert_eq!(
-        call(&app, "PUT", auto, Some(&root), Some(order)).await.0,
-        StatusCode::CONFLICT
-    );
-    assert_eq!(
-        call(
-            &app,
-            "PUT",
-            auto,
-            Some(&root),
-            Some(json!({"expected_revision":2,"groups":["default","default"]}))
-        )
-        .await
-        .0,
-        StatusCode::BAD_REQUEST
-    );
-    assert_eq!(
-        call(
-            &app,
-            "PUT",
-            auto,
-            Some(&root),
-            Some(json!({"expected_revision":2,"groups":[]}))
-        )
-        .await
-        .0,
-        StatusCode::OK
-    );
+    for (route, update) in [(path, body), (auto, order)] {
+        let (status, before) = call(&app, "GET", route, Some(&root), None).await;
+        assert_eq!(status, StatusCode::OK);
+        for (token, expected) in [
+            (None, StatusCode::UNAUTHORIZED),
+            (Some(admin.as_str()), StatusCode::FORBIDDEN),
+            (Some(paid.as_str()), StatusCode::FORBIDDEN),
+            (Some(key.as_str()), StatusCode::FORBIDDEN),
+            (Some(root.as_str()), StatusCode::OK),
+        ] {
+            assert_eq!(call(&app, "GET", route, token, None).await.0, expected);
+            assert_eq!(
+                call(&app, "PUT", route, token, Some(update.clone()))
+                    .await
+                    .0,
+                StatusCode::METHOD_NOT_ALLOWED
+            );
+        }
+        assert_eq!(call(&app, "GET", route, Some(&root), None).await.1, before);
+    }
     let events: i64 = sqlx::query_scalar(
         "SELECT count(*) FROM core_request_limits.policy_events WHERE actor_user_id=1",
     )
     .fetch_one(&pool)
     .await
     .unwrap();
-    assert_eq!(events, 3);
+    assert_eq!(events, 0);
 }
 
 #[sqlx::test(migrations = false)]

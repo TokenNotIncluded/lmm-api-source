@@ -80,9 +80,9 @@ export function BountyPageHeader({
             <Button
               variant='outline'
               size='sm'
-              render={<a href='/system-settings/billing/quota' />}
+              render={<a href='/system-settings/site' />}
             >
-              {t('Fee settings')}
+              {t('System Settings')}
             </Button>
           )}
         </div>

@@ -2,7 +2,7 @@
 use crate::identity::{self, CredentialKind, IdentityError};
 use axum::{
     Json, Router,
-    extract::{DefaultBodyLimit, State},
+    extract::State,
     http::{HeaderMap, StatusCode, header},
     response::{IntoResponse, Response},
     routing::get,
@@ -10,7 +10,7 @@ use axum::{
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use sqlx::{PgConnection, PgPool, Row};
-use std::collections::{BTreeMap, HashSet};
+use std::collections::BTreeMap;
 
 pub const SCHEMA: &str = include_str!("../schema/request_limits.sql");
 
@@ -26,6 +26,9 @@ impl std::fmt::Display for AdmissionError {
     }
 }
 impl std::error::Error for AdmissionError {}
+
+mod file;
+pub use file::RoutingPolicyFile;
 
 /// Call before precharge/upstream, and again before switching to another actual
 /// routing group. The same user/request ID is charged once per scope/window.
@@ -87,43 +90,10 @@ pub struct Policy {
     pub user_limit: Option<u32>,
     pub group_limits: BTreeMap<String, u32>,
 }
-impl Policy {
-    fn validate(&self) -> Result<(), SettingsError> {
-        if !(1..=86400).contains(&self.window_seconds)
-            || self
-                .user_limit
-                .is_some_and(|n| !(1..=100_000_000).contains(&n))
-            || self.group_limits.len() > 1024
-            || self.group_limits.iter().any(|(group, n)| {
-                !crate::routing::valid_group_name(group) || !(1..=100_000_000).contains(n)
-            })
-            || (self.enabled && self.user_limit.is_none() && self.group_limits.is_empty())
-        {
-            return Err(SettingsError::Invalid);
-        }
-        Ok(())
-    }
-}
-
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct PolicyUpdate {
-    expected_revision: i64,
-    policy: Policy,
-}
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct AutoUpdate {
-    expected_revision: i64,
-    groups: Vec<String>,
-}
-
 #[derive(Debug)]
 enum SettingsError {
     Unauthorized,
     Forbidden,
-    Invalid,
-    Conflict,
     Storage,
 }
 impl From<sqlx::Error> for SettingsError {
@@ -145,8 +115,6 @@ impl IntoResponse for SettingsError {
         let (status, code) = match self {
             Self::Unauthorized => (StatusCode::UNAUTHORIZED, "REQUEST_LIMITS_UNAUTHORIZED"),
             Self::Forbidden => (StatusCode::FORBIDDEN, "REQUEST_LIMITS_FORBIDDEN"),
-            Self::Invalid => (StatusCode::BAD_REQUEST, "REQUEST_LIMITS_INVALID"),
-            Self::Conflict => (StatusCode::CONFLICT, "REQUEST_LIMITS_CONFLICT"),
             Self::Storage => (
                 StatusCode::SERVICE_UNAVAILABLE,
                 "REQUEST_LIMITS_UNAVAILABLE",
@@ -224,34 +192,6 @@ async fn get_policy(
     tx.commit().await?;
     Ok(Json(snapshot))
 }
-async fn put_policy(
-    State(pool): State<PgPool>,
-    headers: HeaderMap,
-    Json(body): Json<PolicyUpdate>,
-) -> Result<Json<Value>, SettingsError> {
-    body.policy.validate()?;
-    if body.expected_revision < 1 {
-        return Err(SettingsError::Invalid);
-    }
-    let mut tx = pool.begin().await?;
-    let actor = administrator(&mut tx, bearer(&headers)?).await?;
-    let revision: Option<i64> =
-        sqlx::query_scalar("SELECT core_request_limits.write_policy($1,$2,$3,$4,$5,$6)")
-            .bind(body.expected_revision)
-            .bind(body.policy.enabled)
-            .bind(body.policy.window_seconds as i32)
-            .bind(body.policy.user_limit.map(|n| n as i32))
-            .bind(json!(body.policy.group_limits))
-            .bind(actor)
-            .fetch_one(&mut *tx)
-            .await?;
-    if revision.is_none() {
-        return Err(SettingsError::Conflict);
-    }
-    let snapshot = policy_snapshot(&mut tx).await?;
-    tx.commit().await?;
-    Ok(Json(snapshot))
-}
 async fn get_auto(
     State(pool): State<PgPool>,
     headers: HeaderMap,
@@ -262,49 +202,11 @@ async fn get_auto(
     tx.commit().await?;
     Ok(Json(snapshot))
 }
-async fn put_auto(
-    State(pool): State<PgPool>,
-    headers: HeaderMap,
-    Json(body): Json<AutoUpdate>,
-) -> Result<Json<Value>, SettingsError> {
-    if body.expected_revision < 1
-        || body.groups.len() > 1024
-        || body
-            .groups
-            .iter()
-            .any(|g| !crate::routing::valid_group_name(g))
-        || body.groups.iter().collect::<HashSet<_>>().len() != body.groups.len()
-    {
-        return Err(SettingsError::Invalid);
-    }
-    let mut tx = pool.begin().await?;
-    let actor = administrator(&mut tx, bearer(&headers)?).await?;
-    let revision: Option<i64> =
-        sqlx::query_scalar("SELECT core_request_limits.write_auto_groups($1,$2,$3)")
-            .bind(body.expected_revision)
-            .bind(body.groups)
-            .bind(actor)
-            .fetch_one(&mut *tx)
-            .await?;
-    if revision.is_none() {
-        return Err(SettingsError::Conflict);
-    }
-    let snapshot = auto_snapshot(&mut tx).await?;
-    tx.commit().await?;
-    Ok(Json(snapshot))
-}
 pub fn router(pool: PgPool) -> Router {
     Router::new()
-        .route(
-            "/core/v1/admin/request-limits",
-            get(get_policy).put(put_policy),
-        )
-        .route(
-            "/core/v1/admin/routing/auto-groups",
-            get(get_auto).put(put_auto),
-        )
+        .route("/core/v1/admin/request-limits", get(get_policy))
+        .route("/core/v1/admin/routing/auto-groups", get(get_auto))
         .with_state(pool)
-        .layer(DefaultBodyLimit::max(65536))
         .layer(axum::middleware::from_fn(
             |request: axum::extract::Request, next: axum::middleware::Next| async move {
                 let mut response = next.run(request).await;

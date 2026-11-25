@@ -16,32 +16,24 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { createFileRoute, redirect } from '@tanstack/react-router'
+import { createFileRoute } from '@tanstack/react-router'
 
-import { OperationsSettings } from '@/features/system-settings/operations'
-import {
-  OPERATIONS_DEFAULT_SECTION,
-  OPERATIONS_SECTION_IDS,
-} from '@/features/system-settings/operations/section-registry.tsx'
+import { resolveLegacySettingsBookmark } from '@/features/system-settings/legacy-settings-bookmark'
+import { LegacySettingsOutcome } from '@/features/system-settings/legacy-settings-outcome'
+import { getOperationsSectionMeta } from '@/features/system-settings/operations/section-registry'
 
 export const Route = createFileRoute(
   '/_authenticated/system-settings/operations/$section'
 )({
-  beforeLoad: ({ params }) => {
-    if (params.section === 'monitoring') {
-      throw redirect({
-        to: '/system-settings/models/$section',
-        params: { section: 'routing-reliability' },
-      })
-    }
-
-    const validSections = OPERATIONS_SECTION_IDS as unknown as string[]
-    if (!validSections.includes(params.section)) {
-      throw redirect({
-        to: '/system-settings/operations/$section',
-        params: { section: OPERATIONS_DEFAULT_SECTION },
-      })
-    }
-  },
-  component: OperationsSettings,
+  loader: ({ params }) =>
+    resolveLegacySettingsBookmark(
+      'operations',
+      params.section,
+      getOperationsSectionMeta
+    ),
+  component: LegacySectionPage,
 })
+
+function LegacySectionPage() {
+  return <LegacySettingsOutcome {...Route.useLoaderData()} />
+}

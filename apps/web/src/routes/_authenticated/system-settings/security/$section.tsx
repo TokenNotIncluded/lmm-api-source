@@ -16,25 +16,24 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { createFileRoute, redirect } from '@tanstack/react-router'
+import { createFileRoute } from '@tanstack/react-router'
 
-import { SecuritySettings } from '@/features/system-settings/security'
-import {
-  SECURITY_DEFAULT_SECTION,
-  SECURITY_SECTION_IDS,
-} from '@/features/system-settings/security/section-registry.tsx'
+import { resolveLegacySettingsBookmark } from '@/features/system-settings/legacy-settings-bookmark'
+import { LegacySettingsOutcome } from '@/features/system-settings/legacy-settings-outcome'
+import { getSecuritySectionMeta } from '@/features/system-settings/security/section-registry'
 
 export const Route = createFileRoute(
   '/_authenticated/system-settings/security/$section'
 )({
-  beforeLoad: ({ params }) => {
-    const validSections = SECURITY_SECTION_IDS as unknown as string[]
-    if (!validSections.includes(params.section)) {
-      throw redirect({
-        to: '/system-settings/security/$section',
-        params: { section: SECURITY_DEFAULT_SECTION },
-      })
-    }
-  },
-  component: SecuritySettings,
+  loader: ({ params }) =>
+    resolveLegacySettingsBookmark(
+      'security',
+      params.section,
+      getSecuritySectionMeta
+    ),
+  component: LegacySectionPage,
 })
+
+function LegacySectionPage() {
+  return <LegacySettingsOutcome {...Route.useLoaderData()} />
+}

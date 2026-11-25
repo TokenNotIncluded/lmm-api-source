@@ -79,8 +79,33 @@ export function HeaderNavigationSection({
   config,
   initialSerialized,
 }: HeaderNavigationSectionProps) {
-  const { t } = useTranslation()
   const updateOption = useUpdateOption()
+  return (
+    <HeaderNavigationForm
+      config={config}
+      initialSerialized={initialSerialized}
+      saving={updateOption.isPending}
+      onSave={(value) =>
+        updateOption
+          .mutateAsync({ key: 'HeaderNavModules', value })
+          .then(() => undefined)
+      }
+    />
+  )
+}
+
+export function HeaderNavigationForm({
+  config,
+  initialSerialized,
+  onSave,
+  saving,
+  disabled = false,
+}: HeaderNavigationSectionProps & {
+  onSave: (value: string) => void | Promise<void>
+  saving: boolean
+  disabled?: boolean
+}) {
+  const { t } = useTranslation()
   const formDefaults = useMemo(() => toHeaderNavFormValues(config), [config])
 
   const form = useForm<HeaderNavFormValues>({
@@ -102,10 +127,7 @@ export function HeaderNavigationSection({
       return
     }
 
-    await updateOption.mutateAsync({
-      key: 'HeaderNavModules',
-      value: serialized,
-    })
+    if (!disabled && !saving) await onSave(serialized)
   }
 
   const resetToDefault = () => {
@@ -199,7 +221,9 @@ export function HeaderNavigationSection({
           <SettingsPageFormActions
             onSave={form.handleSubmit(onSubmit)}
             onReset={resetToDefault}
-            isSaving={updateOption.isPending}
+            isSaving={saving}
+            isSaveDisabled={disabled}
+            isResetDisabled={disabled || saving}
             resetLabel='Reset to default'
             saveLabel='Save navigation'
           />

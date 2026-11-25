@@ -831,7 +831,7 @@ test('native payment capabilities feed the seller product balance choice', async
 })
 
 for (const role of [1, 10, 100]) {
-  test(`seller payment settings expose the administration link only to root (role ${role})`, async () => {
+  test(`seller payment settings omit unsupported platform fee administration (role ${role})`, async () => {
     useAuthStore.getState().auth.setUser({ id: 2, role, username: 'seller' })
     api.get = (async (url: string) => {
       if (url === '/api/store/config') {
@@ -860,10 +860,10 @@ for (const role of [1, 10, 100]) {
     }) as typeof api.get
     await mount(<StoreSettingsPage />)
     assert.equal(
-      !!document.querySelector(
+      document.querySelector(
         'a[href="/system-settings/billing/payment#merchant-store"]'
       ),
-      role === 100
+      null
     )
     assert.equal(document.querySelector('#store-fee'), null)
     assert.equal(document.querySelector('#store-linuxdo-rate'), null)

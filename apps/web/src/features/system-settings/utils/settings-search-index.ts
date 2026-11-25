@@ -11,7 +11,6 @@ import type { TFunction } from 'i18next'
 import { getSystemSettingsNavGroups } from '@/components/layout/config/system-settings.config'
 import type { NavGroup } from '@/components/layout/types'
 import { ROLE } from '@/lib/roles'
-import { canReadSystemSettingsPath } from '@/lib/system-settings-access'
 
 /**
  * One jumpable destination inside `/system-settings/*`.
@@ -33,113 +32,6 @@ export type SettingsSearchableGroup = SettingsSearchEntry & {
   entries: SettingsSearchEntry[]
 }
 
-/**
- * Alternate terms an administrator is likely to type instead of the exact
- * label. Keyed by the stable `group/section` ids rather than the translated
- * titles so the index survives copy and translation changes.
- */
-const SETTINGS_SYNONYMS: Record<string, readonly string[]> = {
-  // Site & Branding
-  'site/system-info': ['version', 'build', 'about', 'license'],
-  'site/notice': ['banner', 'alert bar', 'maintenance notice'],
-  'site/header-navigation': ['top nav', 'menu', 'links'],
-  'site/sidebar-modules': ['modules', 'feature toggle', 'console modules'],
-  'site/ai-directory': ['directory', 'listing', 'catalog'],
-  'site/rss': ['rss', 'atom', 'feed', 'subscription', 'news'],
-  'site/ai-directory-ads': ['ads', 'sponsored', 'advertising'],
-  // Authentication
-  'auth/basic-auth': ['login', 'signup', 'register', 'email verification'],
-  'auth/oauth': ['github', 'google', 'sso', 'oidc', 'third party login'],
-  'auth/passkey': ['webauthn', 'biometric', 'security key'],
-  'auth/bot-protection': ['captcha', 'turnstile', 'spam', 'abuse'],
-  'auth/custom-oauth': ['oidc', 'openid', 'identity provider', 'idp'],
-  // Billing & Payment
-  'billing/quota': ['credit', 'balance', 'new user gift', 'initial quota'],
-  'billing/currency': [
-    'exchange rate',
-    'usd',
-    'price display',
-    'quota per unit',
-  ],
-  'billing/model-pricing': ['price', 'cost', 'per token', 'pricing'],
-  'billing/group-pricing': ['rate', 'multiplier', 'group discount'],
-  'billing/payment': [
-    'stripe',
-    'epay',
-    'alipay',
-    'wechat',
-    'top up',
-    'recharge',
-  ],
-  'billing/checkin': ['daily reward', 'check in', 'bonus'],
-  // Models & Routing
-  'models/global': ['model list', 'default model', 'global config'],
-  'models/routing-reliability': ['failover', 'retry', 'fallback', 'timeout'],
-  'models/gemini': ['google', 'vertex'],
-  'models/claude': ['anthropic'],
-  'models/grok': ['xai'],
-  'models/channel-affinity': ['sticky', 'session', 'load balance'],
-  'models/model-deployment': ['deploy', 'publish', 'endpoint'],
-  // Security & Limits
-  'security/rate-limit': ['throttle', 'rpm', 'tpm', 'request limit', 'burst'],
-  'security/sensitive-words': [
-    'blocklist',
-    'filter',
-    'moderation',
-    'banned words',
-  ],
-  'security/moderation': [
-    'openai',
-    'moderation',
-    'audit',
-    'safety',
-    'fine',
-    'risk',
-    'async',
-  ],
-  'security/advanced-security': [
-    'audit',
-    'moderation',
-    'appeals',
-    'deductions',
-  ],
-  'security/ip-access-routing': ['geo', 'country', 'allowlist', 'denylist'],
-  'security/anti-relay': ['proxy', 'relay', 'referer', 'origin check'],
-  'security/ssrf': [
-    'internal network',
-    'url validation',
-    'server side request forgery',
-  ],
-  'security/token-limits': ['max tokens', 'context window', 'output limit'],
-  // Console Content
-  'content/dashboard': ['stats', 'charts', 'metrics'],
-  'content/announcements': ['broadcast', 'message', 'release notes'],
-  'content/api-info': ['base url', 'endpoint', 'api url'],
-  'content/faq': ['help', 'questions', 'docs'],
-  'content/uptime-kuma': ['status page', 'monitoring status'],
-  'content/assistant': ['ai', 'copilot', 'chatbot'],
-  'content/chat': ['presets', 'chat models', 'playground'],
-  'content/drawing': ['image', 'midjourney', 'generation'],
-  // Operations
-  'operations/behavior': ['system settings', 'general', 'defaults'],
-  'operations/alerts': ['monitoring', 'notification', 'webhook', 'incident'],
-  'operations/email': ['smtp', 'mailer', 'email delivery'],
-  'operations/worker': ['worker proxy', 'egress proxy'],
-  'operations/hero-sms': ['sms', 'activation', 'phone verification'],
-  'operations/logs': ['log retention', 'cleanup', 'purge'],
-  'operations/performance': ['cache', 'tuning', 'throughput'],
-  'operations/raw-json': ['json', 'advanced', 'raw config'],
-  'operations/update-checker': ['upgrade', 'version check', 'self update'],
-  'operations/scripts': ['automation', 'custom code', 'tasks'],
-}
-
-function sectionIdFromUrl(url: string): string | null {
-  const query = url.split('?')[1]
-  if (query) return new URLSearchParams(query).get('section')
-  const segments = url.split('/').filter(Boolean)
-  return segments.length > 2 ? (segments.at(-1) ?? null) : null
-}
-
 function normalize(value: string) {
   return value.trim().toLowerCase()
 }
@@ -150,40 +42,27 @@ export function buildSettingsSearchIndex(
   groups: NavGroup[] | undefined = undefined,
   role: number = ROLE.SUPER_ADMIN
 ): SettingsSearchableGroup[] {
-  return (groups ?? getSystemSettingsNavGroups(t, role))
-    .flatMap((group) =>
-      group.items.map((section) => {
-        const entries: SettingsSearchEntry[] = (section.items ?? []).flatMap(
-          (item) => {
-            if (!item.url || !canReadSystemSettingsPath(role, item.url)) {
-              return []
-            }
-            const id = sectionIdFromUrl(item.url)
-            const category = item.url.split('/')[2]?.split('?')[0]
-            const synonyms =
-              (id ? SETTINGS_SYNONYMS[`${category}/${id}`] : undefined) ?? []
-            return [
-              {
-                group: section.title,
-                section: item.title,
-                url: item.url,
-                keywords: [section.title, item.title, ...synonyms].map(
-                  normalize
-                ),
-              },
-            ]
-          }
-        )
-        return {
-          group: section.title,
-          section: section.title,
-          url: entries[0]?.url ?? '',
-          keywords: [section.title].map(normalize),
-          entries,
-        }
-      })
+  return (groups ?? getSystemSettingsNavGroups(t, role)).map((group) => {
+    const entries = group.items.flatMap((item) =>
+      item.url
+        ? [
+            {
+              group: group.title,
+              section: item.title,
+              url: item.url,
+              keywords: [group.title, item.title].map(normalize),
+            },
+          ]
+        : []
     )
-    .filter((group) => group.entries.length > 0)
+    return {
+      group: group.title,
+      section: group.title,
+      url: entries[0]?.url ?? '',
+      keywords: [normalize(group.title)],
+      entries,
+    }
+  })
 }
 
 function scoreEntry(entry: SettingsSearchEntry, query: string): number {

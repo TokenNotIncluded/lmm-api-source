@@ -62,7 +62,7 @@ test('settings and system tools retain root-only access and distinguish draft mu
   }
 })
 
-test('the settings catalog covers every category and only opens catalog destinations', async () => {
+test('the settings catalog lists the overview and plugin management and only opens catalog destinations', async () => {
   signIn(ROLE.SUPER_ADMIN)
   const result = (await tool('lmm_settings_search').execute(
     {},
@@ -70,21 +70,10 @@ test('the settings catalog covers every category and only opens catalog destinat
   )) as {
     sections: Array<{ group: string; title: string; path: string }>
   }
-  for (const category of [
-    'site',
-    'auth',
-    'billing',
-    'models',
-    'security',
-    'content',
-    'operations',
-  ]) {
-    assert.ok(
-      result.sections.some((entry) =>
-        entry.path.startsWith(`/system-settings/${category}/`)
-      )
-    )
-  }
+  assert.deepEqual(
+    result.sections.map((entry) => entry.path),
+    ['/system-settings/site', '/extensions/plugins']
+  )
   const first = result.sections[0]
   assert.notEqual(first.title, first.group)
   await tool('lmm_settings_open').execute(
@@ -109,7 +98,7 @@ test('the settings catalog covers every category and only opens catalog destinat
   assert.equal(calls.length, 1)
 })
 
-test('settings synonyms find the specific section', async () => {
+test('retired settings are absent from search', async () => {
   signIn(ROLE.SUPER_ADMIN)
   const result = (await tool('lmm_settings_search').execute(
     { query: 'smtp' },
@@ -119,7 +108,7 @@ test('settings synonyms find the specific section', async () => {
   }
   assert.deepEqual(
     result.sections.map((item) => item.path),
-    ['/system-settings/operations/email']
+    []
   )
 })
 

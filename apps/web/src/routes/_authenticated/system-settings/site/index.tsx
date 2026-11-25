@@ -16,15 +16,10 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { createFileRoute, redirect } from '@tanstack/react-router'
+import { createFileRoute } from '@tanstack/react-router'
 
-import { SITE_DEFAULT_SECTION } from '@/features/system-settings/site/section-registry.tsx'
+import { SystemSettingsOverview } from '@/features/system-settings'
 
 export const Route = createFileRoute('/_authenticated/system-settings/site/')({
-  beforeLoad: () => {
-    throw redirect({
-      to: '/system-settings/site/$section',
-      params: { section: SITE_DEFAULT_SECTION },
-    })
-  },
+  component: SystemSettingsOverview,
 })

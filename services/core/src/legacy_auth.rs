@@ -9,6 +9,8 @@ mod external_login;
 mod federated;
 mod federated_admin;
 mod network_policy;
+mod provider_file;
+pub use provider_file::FederatedProviderFile;
 mod oauth2;
 mod passkeys;
 mod reconcile;

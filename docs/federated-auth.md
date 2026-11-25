@@ -54,6 +54,45 @@ claims to expire. Never use active encryption-key rotation to reset replay
 protection. Neither keys nor plaintext provider secrets are persisted in
 public configuration, provider responses, URLs or operation receipts.
 
+## Manage a provider on the host
+
+Use a separate TOML operation file to change one provider. The management HTTP
+collections and detail routes are read-only. Their descriptors omit secrets;
+the discovery endpoints, callbacks, account binding and unlinking still use
+the existing authorization rules. The provider ID, revision, linked identities
+and operation receipts remain in PostgreSQL.
+
+For example, replace the ID and revision below with the provider's current
+descriptor values. Give each distinct operation a unique `operation_key`.
+The session file contains the access credential from a recent superadministrator
+session. Credentials must be separate private files at absolute paths.
+
+```toml
+action = "update"
+session_file = "/run/secrets/provider-admin-session"
+
+[provider]
+operation_key = "disable-provider-17-r3"
+id = "17"
+expected_revision = "3"
+enabled = false
+```
+
+Apply the file with the configured Core runtime role and Web/federated keys:
+
+```sh
+lmm-core apply-federated-provider --config /etc/lmm.conf.d/core.toml < provider.toml
+```
+
+For `create`, omit `id` and `expected_revision` and supply the provider's kind,
+name, slug and configuration under `[provider]`. To set or rotate its secret,
+set top-level `client_secret_file`. An update that omits this reference keeps
+the existing secret. For `delete`, specify the ID, expected revision and
+operation key. The local command uses the same revision check, authorization,
+audit and transactional receipt as the provider store. If the outcome is unknown,
+read the current provider and reconcile the original operation key before retrying.
+An identical replay requires the original session and operation content.
+
 Provider enable/disable is separate from the host capability. Disabling a
 provider blocks new login/binding and invalidates outstanding flows through its
 monotonic configuration revision. It does not silently revoke every existing

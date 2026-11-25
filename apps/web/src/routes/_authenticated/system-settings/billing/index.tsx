@@ -19,14 +19,21 @@ For commercial licensing, please contact support@quantumnous.com
 import { createFileRoute, redirect } from '@tanstack/react-router'
 
 import { BILLING_DEFAULT_SECTION } from '@/features/system-settings/billing/section-registry.tsx'
+import { legacyBookmarkSection } from '@/features/system-settings/legacy-settings-bookmark'
 
 export const Route = createFileRoute(
   '/_authenticated/system-settings/billing/'
 )({
-  beforeLoad: () => {
+  beforeLoad: ({ location }) => {
     throw redirect({
       to: '/system-settings/billing/$section',
-      params: { section: BILLING_DEFAULT_SECTION },
+      params: {
+        section: legacyBookmarkSection(
+          location.search,
+          BILLING_DEFAULT_SECTION
+        ),
+      },
+      replace: true,
     })
   },
 })

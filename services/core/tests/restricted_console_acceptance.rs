@@ -92,6 +92,16 @@ async fn denied_sql(pool: &PgPool, sql: &'static str, expected: &str) {
 async fn restricted_console_over_tcp() {
     let fixture = PathBuf::from(env::var("ACCEPT_FIXTURE").expect("ACCEPT_FIXTURE"));
     let fixture = fixture.canonicalize().expect("fixture directory");
+    // Exercise the real file reader and its HTTP projection, including precedence
+    // over an invalid legacy database rate. This fixture never opens the file URL.
+    let db_reference = fixture.join("unused-database-url");
+    std::fs::write(&db_reference, "postgres://127.0.0.1:1/unused").unwrap();
+    let config_path = fixture.join("core.toml");
+    std::fs::write(&config_path, format!(
+        "version=1\n[database]\nurl_file='{}'\n[console]\nenabled=true\nnotice='From file'\nusd_exchange_rate='7.2'\n",
+        db_reference.display()
+    )).unwrap();
+    lmm_core::config::initialize(Some(&config_path)).unwrap();
     let socket = fixture.join("socket");
     let socket = socket.to_str().expect("UTF-8 socket path");
     let port: u16 = env::var("ACCEPT_PORT").unwrap().parse().unwrap();
@@ -141,7 +151,7 @@ async fn restricted_console_over_tcp() {
         .await
         .unwrap();
     sqlx::query(
-        "INSERT INTO core_console.options(key,value) VALUES ('OAuthSecret','synthetic-hidden')",
+        "INSERT INTO core_console.options(key,value) VALUES ('OAuthSecret','synthetic-hidden'),('Notice','Legacy notice'),('USDExchangeRate','invalid')",
     )
     .execute(&owner)
     .await
@@ -202,12 +212,22 @@ async fn restricted_console_over_tcp() {
         "22023",
     )
     .await;
-    denied_sql(
-        &runtime,
-        "SELECT core_console.write_navigation_option('OAuthSecret','denied')",
-        "22023",
+    // Navigation was an optional predecessor component; fresh installations may
+    // omit its setter. If installed, it must still refuse unrelated options.
+    let navigation_setter: bool = sqlx::query_scalar(
+        "SELECT to_regprocedure('core_console.write_navigation_option(text,text)') IS NOT NULL",
     )
-    .await;
+    .fetch_one(&runtime)
+    .await
+    .unwrap();
+    if navigation_setter {
+        denied_sql(
+            &runtime,
+            "SELECT core_console.write_navigation_option('OAuthSecret','denied')",
+            "22023",
+        )
+        .await;
+    }
     denied_sql(
         &runtime,
         "SELECT core_console.write_public_option('HeaderNavModules','{}')",
@@ -231,298 +251,72 @@ async fn restricted_console_over_tcp() {
     let base = format!("http://{}", listener.local_addr().unwrap());
     let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
     let client = reqwest::Client::builder().no_proxy().build().unwrap();
-    for token in [&admin_user.secret, &api_key.secret] {
-        let (status, _) = request(
-            &client,
-            &base,
-            reqwest::Method::PUT,
-            "/api/option",
-            Some(token),
-            json!({"key":"Notice","value":"denied"}),
-        )
-        .await;
-        assert_eq!(status, 403);
-    }
-    assert_eq!(
-        request(
-            &client,
-            &base,
-            reqwest::Method::GET,
-            "/api/option",
-            None,
-            json!(null)
-        )
-        .await
-        .0,
-        401
-    );
-    assert_eq!(
-        request(
-            &client,
-            &base,
-            reqwest::Method::PUT,
-            "/api/option",
-            Some(&root.secret),
-            json!({"key":"OAuthSecret","value":"denied"})
-        )
-        .await
-        .0,
-        409
-    );
-    assert_eq!(snapshot(&owner).await, before);
-
-    let (status, result) = request(
-        &client,
-        &base,
-        reqwest::Method::PUT,
-        "/api/option/",
-        Some(&root.secret),
-        json!({"key":"Notice","value":"hello"}),
-    )
-    .await;
-    assert_eq!(status, 200);
-    assert_eq!(result["saved"], true);
-    let saved = snapshot(&owner).await;
-    assert!(
-        saved
-            .0
-            .iter()
-            .any(|r| r.0 == "Notice" && r.1 == "hello" && r.2 == 1)
-    );
-    assert_eq!(saved.1.len(), 1);
-    assert_eq!(saved.1[0].1, 1);
-    assert_eq!(saved.1[0].2, Some(root.id));
-    assert_eq!(saved.1[0].3["changes"][0]["key"], "Notice");
-    assert_eq!(saved.1[0].3["changes"][0]["after"], json!(["hello", 1]));
-    assert_eq!(
-        request(
-            &client,
-            &base,
-            reqwest::Method::PUT,
-            "/api/option",
-            Some(&root.secret),
-            json!({"key":"Notice","value":"hello"})
-        )
-        .await
-        .0,
-        200
-    );
-    assert_eq!(
-        snapshot(&owner).await,
-        saved,
-        "no-op changed revision, timestamp or audit"
-    );
-    let announcements =
-        json!([{"id":1,"content":"synthetic","publishDate":"2026-10-27T00:00:00Z"}]).to_string();
-    assert_eq!(
-        request(
-            &client,
-            &base,
-            reqwest::Method::PUT,
-            "/api/option",
-            Some(&root.secret),
-            json!({"key":"Announcements","value":announcements})
-        )
-        .await
-        .0,
-        200
-    );
-    let aliases = snapshot(&owner).await;
-    for key in ["Announcements", "console_setting.announcements"] {
-        assert!(
-            aliases
-                .0
-                .iter()
-                .any(|r| r.0 == key && r.1 == announcements && r.2 == 1)
-        );
-    }
-    for path in ["/api/option", "/api/option/"] {
-        let (status, body) = request(
-            &client,
-            &base,
-            reqwest::Method::GET,
-            path,
-            Some(&root.secret),
-            json!(null),
-        )
-        .await;
-        assert_eq!(status, 200);
-        assert_eq!(body["capabilities"]["read_only"], false);
-        let data = body["data"].as_array().unwrap();
-        assert!(
-            data.iter()
-                .any(|v| v["key"] == "Notice" && v["value"] == "hello")
-        );
-        for key in ["Announcements", "console_setting.announcements"] {
-            assert!(
-                data.iter()
-                    .any(|v| v["key"] == key && v["value"] == announcements)
-            );
-        }
-        assert!(!body.to_string().contains("synthetic-hidden"));
-    }
-    assert_eq!(
-        request(
-            &client,
-            &base,
-            reqwest::Method::POST,
-            "/api/option/validate",
-            Some(&root.secret),
-            json!({"values":{"Notice":"validate-only"}})
-        )
-        .await
-        .0,
-        200
-    );
-    assert_eq!(snapshot(&owner).await, aliases);
-    assert_eq!(
-        request(
-            &client,
-            &base,
-            reqwest::Method::POST,
-            "/api/option/bulk",
-            Some(&root.secret),
-            json!({"values":{"Notice":"partial","OAuthSecret":"forbidden"}})
-        )
-        .await
-        .0,
-        409
-    );
-    assert_eq!(snapshot(&owner).await, aliases);
-    assert_eq!(
-        request(
-            &client,
-            &base,
-            reqwest::Method::POST,
-            "/api/option/bulk",
-            Some(&root.secret),
-            json!({"values":{"Notice":"stale"},"expected_values":{"Notice":"wrong"}})
-        )
-        .await
-        .0,
-        409
-    );
-    assert_eq!(snapshot(&owner).await, aliases);
-
-    // Competing compare-and-save requests start from the same observed value.
-    let attempt_a = request(
-        &client,
-        &base,
-        reqwest::Method::POST,
-        "/api/option/bulk",
-        Some(&root.secret),
-        json!({"values":{"Notice":"race-a"},"expected_values":{"Notice":"hello"}}),
-    );
-    let attempt_b = request(
-        &client,
-        &base,
-        reqwest::Method::POST,
-        "/api/option/bulk",
-        Some(&root.secret),
-        json!({"values":{"Notice":"race-b"},"expected_values":{"Notice":"hello"}}),
-    );
-    let (a, b) = tokio::join!(attempt_a, attempt_b);
-    let mut statuses = [a.0, b.0];
-    statuses.sort();
-    assert_eq!(statuses, [200, 409]);
-    let after_race = snapshot(&owner).await;
-    assert_eq!(after_race.1.len(), aliases.1.len() + 1);
-    assert!(
-        after_race
-            .0
-            .iter()
-            .any(|r| r.0 == "Notice" && (r.1 == "race-a" || r.1 == "race-b") && r.2 == 2)
-    );
-
-    let nav_a = json!({"home":false,"pricing":{"enabled":true,"requireAuth":true},"extra":{"x":1}})
-        .to_string();
-    let nav_b = json!({"home":true}).to_string();
-    let a = request(
-        &client,
-        &base,
-        reqwest::Method::POST,
-        "/api/option/bulk",
-        Some(&root.secret),
-        json!({"values":{"HeaderNavModules":nav_a},"expected_values":{"HeaderNavModules":"{}"}}),
-    );
-    let b = request(
-        &client,
-        &base,
-        reqwest::Method::POST,
-        "/api/option/bulk",
-        Some(&root.secret),
-        json!({"values":{"HeaderNavModules":nav_b},"expected_values":{"HeaderNavModules":"{}"}}),
-    );
-    let (a, b) = tokio::join!(a, b);
-    let mut statuses = [a.0, b.0];
-    statuses.sort();
-    assert_eq!(statuses, [200, 409]);
-    let after_nav = snapshot(&owner).await;
-    assert_eq!(after_nav.1.len(), after_race.1.len() + 1);
-    let saved_nav = after_nav
-        .0
-        .iter()
-        .find(|row| row.0 == "HeaderNavModules")
-        .unwrap();
-    assert_eq!(saved_nav.2, 1);
-    assert!(saved_nav.1 == nav_a || saved_nav.1 == nav_b);
-    let (_, body) = request(
-        &client,
-        &base,
-        reqwest::Method::GET,
-        "/api/option",
-        Some(&root.secret),
-        json!(null),
-    )
-    .await;
-    assert!(
-        body["data"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .any(|v| v["key"] == "HeaderNavModules" && v["value"] == saved_nav.1)
-    );
-    for token in [&admin_user.secret, &api_key.secret] {
-        assert_eq!(
-            request(
-                &client,
-                &base,
+    for token in [
+        None,
+        Some(admin_user.secret.as_str()),
+        Some(api_key.secret.as_str()),
+        Some(root.secret.as_str()),
+    ] {
+        for (method, path, payload) in [
+            (
                 reqwest::Method::PUT,
                 "/api/option",
-                Some(token),
-                json!({"key":"HeaderNavModules","value":"{}"})
-            )
-            .await
-            .0,
-            403
-        );
+                json!({"key":"Notice","value":"changed"}),
+            ),
+            (
+                reqwest::Method::PUT,
+                "/api/option/",
+                json!({"key":"OAuthSecret","value":"changed"}),
+            ),
+            (
+                reqwest::Method::POST,
+                "/api/option/bulk",
+                json!({"values":{"Notice":"changed","HeaderNavModules":"{}","USDExchangeRate":"7.2"}}),
+            ),
+            (
+                reqwest::Method::POST,
+                "/api/option/validate",
+                json!({"values":{"Notice":"changed"}}),
+            ),
+        ] {
+            let (status, body) = request(&client, &base, method, path, token, payload).await;
+            assert_eq!(status, 405, "{path}");
+            assert_eq!(body["code"], "SYSTEM_OPTIONS_READ_ONLY");
+        }
     }
-
-    // Inject failure at the audit boundary after option writes. Revoke is fixture-only.
-    sqlx::query("REVOKE INSERT ON core_identity.audit FROM lmm_core_runtime")
-        .execute(&owner)
-        .await
-        .unwrap();
-    let status = request(
-        &client,
-        &base,
-        reqwest::Method::POST,
-        "/api/option/bulk",
-        Some(&root.secret),
-        json!({"values":{"Notice":"rollback", "Announcements":"[]", "HeaderNavModules":"{}"}}),
-    )
-    .await
-    .0;
-    assert_eq!(status, 503);
-    assert_eq!(
-        snapshot(&owner).await,
-        after_nav,
-        "failed audit must roll back all option rows"
-    );
-    sqlx::query("GRANT INSERT ON core_identity.audit TO lmm_core_runtime")
-        .execute(&owner)
-        .await
-        .unwrap();
+    for (token, expected) in [
+        (None, 401),
+        (Some(admin_user.secret.as_str()), 403),
+        (Some(api_key.secret.as_str()), 403),
+        (Some(root.secret.as_str()), 200),
+    ] {
+        for path in ["/api/option", "/api/option/"] {
+            let (status, body) = request(
+                &client,
+                &base,
+                reqwest::Method::GET,
+                path,
+                token,
+                json!(null),
+            )
+            .await;
+            assert_eq!(status, expected);
+            if status == 200 {
+                assert_eq!(body["capabilities"]["read_only"], true);
+                assert_eq!(body["capabilities"]["writable_keys"], json!([]));
+                let data = body["data"].as_array().unwrap();
+                for (key, value) in [("Notice", "From file"), ("USDExchangeRate", "7.2")] {
+                    assert!(
+                        data.iter()
+                            .any(|item| item["key"] == key && item["value"] == value)
+                    );
+                }
+                assert!(!body.to_string().contains("synthetic-hidden"));
+                assert!(!body.to_string().contains("unused-database-url"));
+            }
+        }
+    }
+    assert_eq!(snapshot(&owner).await, before);
     runtime_database::check(
         &runtime,
         RequiredCapabilities {

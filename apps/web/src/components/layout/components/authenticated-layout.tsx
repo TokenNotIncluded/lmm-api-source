@@ -63,7 +63,6 @@ export function AuthenticatedLayout(props: AuthenticatedLayoutProps) {
   const pathname = useRouterState({
     select: (state) => state.location.pathname,
   })
-  const settingsPage = pathname.startsWith('/system-settings/')
 
   return (
     <RuntimeCapabilitiesProvider>
@@ -74,8 +73,7 @@ export function AuthenticatedLayout(props: AuthenticatedLayoutProps) {
               <SearchProvider>
                 <QuickSwitchProvider>
                   <SidebarProvider
-                    defaultOpen={settingsPage ? false : defaultOpen}
-                    persistState={!settingsPage}
+                    defaultOpen={defaultOpen}
                     className='console-editorial h-dvh min-h-0 flex-col overflow-hidden'
                   >
                     <SkipToMain />

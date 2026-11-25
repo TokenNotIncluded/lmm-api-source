@@ -1,7 +1,7 @@
 //! Compatibility for the console settings API.
 //!
 //! Runtime flags must come from the same parsed configuration used at startup.
-//! Persisting an option does not change host-owned TOML or model configuration.
+//! The console exposes an authenticated projection of the effective settings.
 
 use axum::{
     Json, Router,
@@ -9,18 +9,17 @@ use axum::{
     extract::State,
     http::{HeaderMap, StatusCode, header},
     response::{IntoResponse, Response},
-    routing::{get, post},
+    routing::{any, get, post},
 };
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use sqlx::PgPool;
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 
 use crate::identity::{CredentialKind, IdentityError, IdentityStore};
 
 mod exchange_rate;
 mod ip_access;
-mod writes;
 
 /// Public, effective configuration; never pass raw TOML or secret references.
 #[derive(Clone)]
@@ -53,13 +52,33 @@ impl OptionsHttp {
 
 pub fn router(state: OptionsHttp) -> Router {
     Router::new()
-        .route("/api/option/", get(read).put(writes::write))
-        .route("/api/option", get(read).put(writes::write))
-        .route("/api/option/bulk", post(writes::bulk))
-        .route("/api/option/validate", post(writes::validate))
+        .route(
+            "/api/option/",
+            get(read).fallback(|| async { file_managed("GET, HEAD") }),
+        )
+        .route(
+            "/api/option",
+            get(read).fallback(|| async { file_managed("GET, HEAD") }),
+        )
+        .route("/api/option/bulk", any(|| async { file_managed("") }))
+        .route("/api/option/validate", any(|| async { file_managed("") }))
         .route("/api/option/exchange-rate", get(exchange_rate::read))
         .route("/api/option/ip-access/preview", post(ip_access::preview))
         .with_state(state)
+}
+
+// Reject legacy mutations at the HTTP boundary, before parsing a body or opening
+// a database transaction. No identity, including a root session, can write here.
+fn file_managed(allow: &'static str) -> Response {
+    let mut denied = response(
+        StatusCode::METHOD_NOT_ALLOWED,
+        json!({"success":false,"code":"SYSTEM_OPTIONS_READ_ONLY",
+               "message":"Core system settings are managed by configuration files."}),
+    );
+    denied
+        .headers_mut()
+        .insert(header::ALLOW, header::HeaderValue::from_static(allow));
+    denied
 }
 
 #[derive(Serialize)]
@@ -95,7 +114,14 @@ async fn authorize(state: &OptionsHttp, headers: &HeaderMap) -> Result<(), Ident
 fn runtime_options(runtime: &RuntimeOptions) -> Vec<SystemOption> {
     // @context-fold begin effective-public-runtime-options
     [
-        ("ServerAddress", runtime.server_address.clone()),
+        (
+            "ServerAddress",
+            reqwest::Url::parse(&runtime.server_address)
+                .ok()
+                .filter(|url| matches!(url.scheme(), "http" | "https"))
+                .map(|url| url.origin().ascii_serialization())
+                .unwrap_or_default(),
+        ),
         ("RegisterEnabled", runtime.registration_enabled.to_string()),
         (
             "PasswordRegisterEnabled",
@@ -153,7 +179,17 @@ async fn read(State(state): State<OptionsHttp>, headers: HeaderMap) -> Response 
         }
     };
     let mut data = runtime_options(&state.runtime);
-    let stored: BTreeMap<_, _> = stored.into_iter().collect();
+    let mut stored: BTreeMap<_, _> = stored.into_iter().collect();
+    for key in [
+        "Notice",
+        "console_setting.announcements",
+        "USDExchangeRate",
+        "IPAccessRoutingRules",
+    ] {
+        if let Some(value) = crate::config::console_option(key) {
+            stored.insert(key.to_owned(), value);
+        }
+    }
     if stored
         .get("USDExchangeRate")
         .is_some_and(|value| display_exchange_rate(value).is_none())
@@ -199,12 +235,12 @@ async fn read(State(state): State<OptionsHttp>, headers: HeaderMap) -> Response 
         StatusCode::OK,
         json!({
             "success":true,
-            "message":"Notices, announcements, the display exchange rate and IP access rules can be changed here.",
+            "message":"Core system settings are read-only in the console.",
             "data":data,
             "capabilities":{
-                "read_only":false,
+                "read_only":true,
                 "partial":true,
-                "writable_keys":["Notice","Announcements","console_setting.announcements","USDExchangeRate","IPAccessRoutingRules"],
+                "writable_keys":[],
                 "model_price_locks":false
             }
         }),
@@ -284,6 +320,19 @@ mod tests {
         (status, serde_json::from_slice(&bytes).unwrap())
     }
 
+    #[test]
+    fn server_address_projects_only_the_public_origin() {
+        let mut configured = runtime();
+        configured.server_address =
+            "https://user:credential@console.example.test:8443/path?token=private#fragment".into();
+        let projected = runtime_options(&configured);
+        let origin = projected
+            .iter()
+            .find(|item| item.key == "ServerAddress")
+            .unwrap();
+        assert_eq!(origin.value, "https://console.example.test:8443");
+    }
+
     #[tokio::test]
     async fn missing_authentication_does_not_touch_storage() {
         let pool = sqlx::postgres::PgPoolOptions::new()
@@ -296,8 +345,6 @@ mod tests {
         ));
         for (method, path) in [
             ("GET", "/api/option/"),
-            ("PUT", "/api/option/"),
-            ("POST", "/api/option/bulk"),
             ("GET", "/api/option/exchange-rate?currency=CNY"),
             ("POST", "/api/option/ip-access/preview"),
         ] {
@@ -353,19 +400,11 @@ mod tests {
         assert_eq!(status, StatusCode::OK);
         assert_eq!(body["capabilities"]["partial"], true);
         assert!(body["capabilities"].get("trust_level_benefits").is_none());
-        assert_eq!(body["capabilities"]["read_only"], false);
-        assert_eq!(
-            body["capabilities"]["writable_keys"],
-            json!([
-                "Notice",
-                "Announcements",
-                "console_setting.announcements",
-                "USDExchangeRate",
-                "IPAccessRoutingRules"
-            ])
-        );
-        let (status, _) = call(&app, "PUT", "/api/option/", Some(&root.secret)).await;
-        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert_eq!(body["capabilities"]["read_only"], true);
+        assert_eq!(body["capabilities"]["writable_keys"], json!([]));
+        let (status, denied) = call(&app, "PUT", "/api/option/", Some(&root.secret)).await;
+        assert_eq!(status, StatusCode::METHOD_NOT_ALLOWED);
+        assert_eq!(denied["code"], "SYSTEM_OPTIONS_READ_ONLY");
         let options: std::collections::BTreeMap<String, String> =
             serde_json::from_value::<Vec<serde_json::Value>>(body["data"].clone())
                 .unwrap()

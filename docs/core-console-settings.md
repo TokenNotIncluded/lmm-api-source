@@ -1,53 +1,25 @@
-# Console public content settings
+# Core console configuration
 
-Core exposes the effective settings through `GET /api/option/`. Its
-`capabilities.writable_keys` is the write contract: currently `Notice`,
-`Announcements`, `console_setting.announcements`, `USDExchangeRate` and
-`IPAccessRoutingRules`. The two announcement keys refer to the same content.
-The exchange rate is display-only. Network rules use the shared native validator;
-see [region and IP access control](network-access.md) for their scope and exact
-75-to-76 upgrade. `partial=true` remains explicit; host TOML, credentials,
-financial policy and unsupported settings are not writable through this API.
+Core reads its host configuration at startup. The default main file is `/etc/lmm.conf.d/core.toml`. Keep secrets in the existing private credential files referenced by that configuration.
 
-`PUT /api/option/` accepts one string value. `POST /api/option/bulk` accepts a
-`values` string map and optional `expected_values` for compare-and-save;
-`POST /api/option/validate` checks the same input without saving. Announcement
-content is validated as structured JSON before storage. Unsupported keys return
-`SYSTEM_OPTION_NOT_WRITABLE`; they are never silently accepted.
+## Change the effective configuration
 
-Writes require a current superadmin Session. API Keys, lower platform levels,
-expired or revoked credentials cannot save content. Authorization remains locked
-through the transaction. Changes to both announcement aliases, their revisions
-and `console.options.update` audit records commit together. A failed audit rolls
-back all content changes. Saving an identical value changes neither its revision
-nor its audit history. A conflicting expected value returns
-`SYSTEM_OPTIONS_CONFLICT` without a partial update.
+For a main file named `core.toml`, put optional overrides in the adjacent `core.toml.d/` directory. Core loads the main file first, then the visible `*.toml` fragments in filename order. Later scalar values and arrays replace earlier ones. Nested tables merge by key. An existing main file works without a drop-in directory. An explicit `--config /absolute/directory` uses the TOML fragments in that directory as the complete configuration.
 
-A failed COMMIT acknowledgement returns HTTP 503 / `SYSTEM_OPTIONS_COMMIT_UNKNOWN`.
-This does not prove rollback. Read the current content before explicitly deciding
-whether to save again; do not automatically replay a changed request. A read of
-matching content does not identify which request committed it.
+For example, on a host with the console already enabled, `/etc/lmm.conf.d/core.toml.d/50-console.toml` can contain:
 
-The database runtime role is the trusted Core application identity. It has no
-direct write privilege on `core_console.options`; it executes owner-controlled,
-fixed-search-path functions restricted to their supported keys. Network rules
-have a separate fixed-key writer, `core_console.write_ip_access_rules(text)`.
-HTTP authorization,
-content validation and actor audit are enforced by Core's transaction. These
-functions do not independently authenticate a browser actor or guarantee actor
-audit for a direct SQL call by that trusted role. Browser callers receive no
-database credential. Neither the functions nor this trust boundary authorize
-host configuration or financial mutations.
+```toml
+[console]
+notice = "Scheduled maintenance on Sunday, 02:00–02:15 UTC."
+usd_exchange_rate = "7.25"
+```
 
-Fresh installation creates the functions and immutable owner-only Console
-revision metadata. Ordinary startup performs no DDL and rejects mismatched
-schema or runtime privileges. A new installation is not an upgrade procedure
-for existing data. The historical v1 receipt retains its original predecessor
-contract; do not change its identity v5 / 26-component contract to manufacture
-an identity v6 / 27-component upgrade. Existing-site migration, continuous
-write fencing and recovery need their own verified procedure.
+Restart Core through the site's usual service manager to load startup configuration changes. The exchange rate controls display conversion. The running service reads the configured notice for the public console. For settings with existing database records, an explicit file value takes precedence. Omitting it preserves the existing read-only fallback. Use an explicit empty notice to clear a notice inherited from an earlier installation.
 
-Historical source, input hashes, failed attempts and acceptance scope remain in
-the [fixed parent record](https://github.com/TokenNotIncluded/lmm-api/blob/8f11ef82ac3a20e33406f2cc7478b419e74bfbe6/STATUS.md).
-Current work is tracked only in [architecture progress](progress.md). Router tests,
-actual Core HTTP tests, browser acceptance and existing-site upgrades are separate results.
+## Inspect settings in the browser
+
+Open **System Settings** to inspect the running site. Root sessions can also read the bounded projection at `GET /api/option/`. Its capabilities include `read_only: true` and an empty `writable_keys` list. The former single and bulk write routes reject changes with HTTP 405. Host credentials and private file references stay on the server.
+
+Open **Plugin management** to change settings owned by an installed plugin. The plugin's own authorization and validation apply. For HeroSMS, Core owns the enabled flags and price multiplier in the `[hero_sms].policy_file` JSON file. For login provider administration, see [Federated authentication](federated-auth.md).
+
+Existing database rows, revision metadata and historical audit records retain their migration and recovery contracts. See the [network access guide](network-access.md) for IP policy semantics.

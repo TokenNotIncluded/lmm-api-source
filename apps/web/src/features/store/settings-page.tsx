@@ -18,7 +18,6 @@ import {
 } from './merchant-home'
 import { StoreMerchantTermsEditor } from './merchant-terms'
 import { StorePaymentCategoriesForm } from './payment-categories'
-import { STORE_PAYMENT_CATEGORY_COPY as copy } from './payment-category-copy'
 import {
   CopyStoreValue,
   StoreAmount,
@@ -229,14 +228,6 @@ function StorePaymentSettings() {
       )}
       {storeTermsSupported(catalog.data) && (
         <StoreMerchantTermsEditor sellerId={user.id} />
-      )}
-      {user.role >= 100 && query.data?.read_only !== true && (
-        <Button
-          variant='outline'
-          render={<a href='/system-settings/billing/payment#merchant-store' />}
-        >
-          {t(copy.adminLink)}
-        </Button>
       )}
     </div>
   )

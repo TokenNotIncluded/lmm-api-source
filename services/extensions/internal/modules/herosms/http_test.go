@@ -214,37 +214,11 @@ func TestHeroSMSUnknownStaysReservedAndComplaintsDoNotClaimRefund(t *testing.T) 
 }
 
 func TestHeroSMSCoreFailuresAndCredentialAdministrationFailClosed(t *testing.T) {
-	var mu sync.Mutex
-	mutations := 0
 	s := serviceFixture(t, func(w http.ResponseWriter, r *http.Request) {
-		switch r.URL.Path {
-		case "/internal/hero-sms/v1/settings":
-			writeJSON(w, map[string]any{"revision": 4, "enabled": true, "price_multiplier": "10", "credential_managed_by_file": true})
-		case "/internal/hero-sms/v1/save-policy":
-			mu.Lock()
-			mutations++
-			mu.Unlock()
-			w.WriteHeader(409)
-			_, _ = io.WriteString(w, `{"error":"STATE_CONFLICT"}`)
-		default:
-			w.WriteHeader(503)
-			_, _ = io.WriteString(w, `{"error":"UNKNOWN"}`)
-		}
+		w.WriteHeader(503)
+		_, _ = io.WriteString(w, `{"error":"UNKNOWN"}`)
 	})
-	code, out := webRequest(t, s, "PUT", "/api/option/hero-sms", `{"enabled":true,"sms_enabled":true,"email_enabled":true,"price_multiplier":"10","api_key":"caller-new-key"}`, "")
-	if code != 409 || out["code"] != "CREDENTIAL_MANAGED_BY_FILE" {
-		t.Fatal(out)
-	}
-	mu.Lock()
-	if mutations != 0 {
-		t.Error("key replacement mutated policy")
-	}
-	mu.Unlock()
-	code, out = webRequest(t, s, "PUT", "/api/option/hero-sms", `{"expected_revision":"4","enabled":true,"sms_enabled":true,"email_enabled":true,"price_multiplier":"10"}`, "")
-	if code != 409 || out["code"] != "STATE_CONFLICT" {
-		t.Fatal(out)
-	}
-	code, out = webRequest(t, s, "GET", "/api/hero-sms/sms/offer?country=6&service=tg", "", "")
+	code, out := webRequest(t, s, "GET", "/api/hero-sms/sms/offer?country=6&service=tg", "", "")
 	if code != 503 || out["success"] != false {
 		t.Fatal(out)
 	}
@@ -274,7 +248,7 @@ func TestHeroSMSSettingsExposeOnlyPublicFileManagedConfiguration(t *testing.T) {
 	})
 	code, out := webRequest(t, s, "GET", "/api/option/hero-sms", "", "")
 	data := out["data"].(map[string]any)
-	if code != 200 || data["revision"] != "9007199254740993" || data["credential_managed_by_file"] != true || data["api_key_configured"] != true || data["sms_enabled"] != true || data["email_enabled"] != false || data["price_multiplier"] != "12.500000" {
+	if code != 200 || data["revision"] != "9007199254740993" || data["policy_managed_by_file"] != true || data["credential_managed_by_file"] != true || data["api_key_configured"] != true || data["sms_enabled"] != true || data["email_enabled"] != false || data["price_multiplier"] != "12.500000" {
 		t.Fatal(out)
 	}
 	if data["currency"] != "USD" || data["currency_code"] != float64(840) || data["pending_work"] != true || data["purchases_available"] != false {
@@ -287,46 +261,21 @@ func TestHeroSMSSettingsExposeOnlyPublicFileManagedConfiguration(t *testing.T) {
 	}
 }
 
-func TestHeroSMSPolicyWritesKeepTheBrowsersExpectedRevision(t *testing.T) {
-	var settingsReads, policyWrites atomic.Int32
+func TestHeroSMSBrowserCannotChangeFileManagedPolicy(t *testing.T) {
 	s := serviceFixture(t, func(w http.ResponseWriter, r *http.Request) {
-		switch r.URL.Path {
-		case "/internal/hero-sms/v1/settings":
-			settingsReads.Add(1)
-			writeJSON(w, map[string]any{"revision": 5, "enabled": true, "sms_enabled": true, "email_enabled": false, "price_multiplier": "12"})
-		case "/internal/hero-sms/v1/save-policy":
-			policyWrites.Add(1)
-			var in struct {
-				Revision   int64  `json:"revision"`
-				Multiplier string `json:"price_multiplier"`
-			}
-			if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
-				t.Error(err)
-			}
-			if in.Revision != 4 {
-				w.WriteHeader(409)
-				_, _ = io.WriteString(w, `{"error":"STATE_CONFLICT"}`)
-				return
-			}
-			if in.Multiplier != "12" {
-				t.Error("multiplier was not forwarded")
-			}
-			writeJSON(w, map[string]any{"ok": true})
-		default:
+		if r.URL.Path != "/internal/hero-sms/v1/settings" {
 			t.Errorf("unexpected RPC %s", r.URL.Path)
 		}
+		writeJSON(w, map[string]any{"revision": 4, "enabled": true, "price_multiplier": "10"})
 	})
-	code, out := webRequest(t, s, "PUT", "/api/option/hero-sms", `{"expected_revision":"3","enabled":true,"sms_enabled":true,"email_enabled":false,"price_multiplier":"12"}`, "")
-	if code != 409 || out["code"] != "STATE_CONFLICT" || policyWrites.Load() != 1 || settingsReads.Load() != 0 {
-		t.Fatal("stale browser revision must be rejected without loading a newer revision", out)
-	}
-	code, out = webRequest(t, s, "PUT", "/api/option/hero-sms", `{"expected_revision":"4","enabled":true,"sms_enabled":true,"email_enabled":false,"price_multiplier":"12"}`, "")
-	if code != 200 || out["data"].(map[string]any)["revision"] != "5" || policyWrites.Load() != 2 || settingsReads.Load() != 1 {
-		t.Fatal("successful policy update must return a new public snapshot", out)
-	}
-	code, out = webRequest(t, s, "PUT", "/api/option/hero-sms", `{"enabled":true,"sms_enabled":true,"email_enabled":false,"price_multiplier":"12"}`, "")
-	if code != 400 || policyWrites.Load() != 2 || settingsReads.Load() != 1 {
-		t.Fatal("missing revision must not issue a policy write", out)
+	for _, body := range []string{
+		`{"expected_revision":"4","enabled":true,"sms_enabled":true,"email_enabled":false,"price_multiplier":"12"}`,
+		`{"api_key":"caller-new-key"}`,
+	} {
+		code, out := webRequest(t, s, "PUT", "/api/option/hero-sms", body, "")
+		if code != http.StatusConflict || out["code"] != "POLICY_MANAGED_BY_FILE" {
+			t.Fatal(code, out)
+		}
 	}
 }
 

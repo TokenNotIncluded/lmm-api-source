@@ -29,7 +29,6 @@ import {
   useSidebar,
 } from '@/components/ui/sidebar'
 import { useLayout } from '@/context/layout-provider'
-import { FloatingSettingsNavigation } from '@/features/system-settings/components/floating-settings-navigation'
 import { useSidebarDensity } from '@/hooks/use-sidebar-config'
 import { useSidebarView } from '@/hooks/use-sidebar-view'
 import { MOTION_TRANSITION, MOTION_VARIANTS } from '@/lib/motion'
@@ -54,8 +53,6 @@ export function AppSidebar() {
   const groups = view
     ? navGroups
     : organizeConsoleNavigation(navGroups, t('Console'), t('More admin tools'))
-
-  if (view?.id === 'system-settings') return <FloatingSettingsNavigation />
 
   return (
     <Sidebar

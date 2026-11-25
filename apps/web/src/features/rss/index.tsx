@@ -109,12 +109,7 @@ export function RSSReader() {
             size='sm'
             aria-label={t('Manage feeds')}
             title={t('Manage feeds')}
-            render={
-              <Link
-                to='/system-settings/site/$section'
-                params={{ section: 'rss' }}
-              />
-            }
+            render={<Link to='/rss' search={{ manage: 'feeds' }} />}
           >
             <Settings2 data-icon='inline-start' />
             <span className='hidden sm:inline'>{t('Manage feeds')}</span>
@@ -223,12 +218,7 @@ export function RSSReader() {
                   className='mt-4'
                   variant='outline'
                   size='sm'
-                  render={
-                    <Link
-                      to='/system-settings/site/$section'
-                      params={{ section: 'rss' }}
-                    />
-                  }
+                  render={<Link to='/rss' search={{ manage: 'feeds' }} />}
                 >
                   {t('Manage feeds')}
                 </Button>

@@ -32,11 +32,13 @@ pub enum Operation {
     UpgradeHistory(Box<lmm_core::upgrade_history::Command>),
     InitDb,
     CompleteSetup,
+    ApplyFederatedProvider(Box<lmm_core::legacy_auth::FederatedProviderFile>),
     InstallToolMarketBuiltins,
     BootstrapUser(Bootstrap),
     CreateFirstOwner(first_owner::Request),
     InstallUsageReceiptIndex([u8; 32]),
     RebuildChannelUsage,
+    ApplyRoutingPolicy(Box<lmm_core::request_limits::RoutingPolicyFile>),
     UpgradeDatabase(Box<lmm_core::core_schema::UpgradeRequest>),
     PlanAdminActivation(PlanAdminActivationRequest),
     ApplyAdminActivation(Box<ApplyAdminActivationRequest>),
@@ -223,6 +225,14 @@ pub async fn run(operation: Operation) -> Result<(), Box<dyn Error>> {
     let pool = config::database_pool(&url).await?;
     let store = IdentityStore::from_pool(pool.clone());
     match operation {
+        Operation::ApplyFederatedProvider(request) => {
+            let web = config::legacy_auth()?.ok_or("native Web authentication is required")?;
+            let store = config::identity_auth(store)?;
+            store.check_federated_auth_ready().await?;
+            let receipt = request.apply(store, &web.auth).await?;
+            serde_json::to_writer(io::stdout().lock(), &receipt)?;
+            println!();
+        }
         Operation::UpgradeOffline(_) => unreachable!("dedicated offline command returned above"),
         Operation::UpgradeHistory(_) => unreachable!("dedicated authority command returned above"),
         Operation::UpgradeDatabase(_) => unreachable!("dedicated schema upgrade returned above"),
@@ -261,6 +271,11 @@ pub async fn run(operation: Operation) -> Result<(), Box<dyn Error>> {
         }
         Operation::CreateFirstOwner(request) => {
             let receipt = first_owner::run(&pool, request).await?;
+            serde_json::to_writer(io::stdout().lock(), &receipt)?;
+            println!();
+        }
+        Operation::ApplyRoutingPolicy(request) => {
+            let receipt = request.apply(&pool).await?;
             serde_json::to_writer(io::stdout().lock(), &receipt)?;
             println!();
         }

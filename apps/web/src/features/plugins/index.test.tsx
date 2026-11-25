@@ -82,7 +82,7 @@ function login(role: number, sessionId = 'synthetic-session') {
   })
 }
 
-async function mount() {
+async function mount(configure?: string) {
   const container = document.createElement('div')
   document.body.append(container)
   const root = createRoot(container)
@@ -93,7 +93,7 @@ async function mount() {
     root.render(
       <QueryClientProvider client={client}>
         <I18nextProvider i18n={i18n}>
-          <PluginsPage />
+          <PluginsPage configure={configure} />
         </I18nextProvider>
       </QueryClientProvider>
     )
@@ -391,13 +391,14 @@ test('dependencies prevent disabling an active requirement and unconfigured modu
   assert.ok(support)
   const unconfigured = container.querySelector('[data-plugin="hero-sms"]')
   assert.ok(unconfigured)
+  assert.equal(
+    store.querySelector('a')?.getAttribute('href'),
+    '/extensions/plugins?configure=store'
+  )
   assert.equal(button('Disable', store).disabled, true)
   assert.equal(button('Disable', support).disabled, false)
   assert.equal(unconfigured.querySelector('button'), null)
-  assert.equal(
-    unconfigured.querySelector('a')?.getAttribute('href'),
-    '/system-settings/operations/hero-sms'
-  )
+  assert.equal(unconfigured.querySelector('a'), null)
   assert.match(unconfigured.textContent ?? '', /Setup required/)
   assert.match(unconfigured.textContent ?? '', /hero_sms.core_token_file/)
   assert.match(unconfigured.textContent ?? '', /host.modules/)
@@ -488,10 +489,7 @@ test('plugin search matches its purpose and unavailable filter keeps lifecycle g
   const unconfigured = container.querySelector('[data-plugin="checkins"]')
   assert.ok(unconfigured)
   assert.equal(unconfigured.querySelector('button'), null)
-  assert.equal(
-    unconfigured.querySelector('a')?.getAttribute('href'),
-    '/system-settings/billing/checkin'
-  )
+  assert.equal(unconfigured.querySelector('a'), null)
 })
 
 test('switching sessions prevents a lifecycle write and discards a previous session response', async () => {
@@ -514,4 +512,102 @@ test('switching sessions prevents a lifecycle write and discards a previous sess
     /Session changed|Authentication changed/
   )
   assert.equal(calls, 1)
+})
+
+test('plugin configuration saves through the checkins service with its observed revision', async () => {
+  login(100)
+  let writes = 0
+  const settings = {
+    revision: 7,
+    enabled: false,
+    min_quota: '1',
+    max_quota: '2',
+    writable: true,
+    module_enabled: false,
+    funding_available: true,
+    funding_limit: '10',
+  }
+  api.defaults.adapter = async (config) => {
+    if (config.url === '/api/extensions/plugins') {
+      return response(config, [{ ...plugin, name: 'checkins', enabled: false }])
+    }
+    assert.equal(config.url, '/api/option/checkin')
+    if (config.method === 'put') {
+      const input = JSON.parse(config.data)
+      assert.equal(input.revision, 7)
+      assert.equal(input.enabled, true)
+      assert.ok(input.operation_key)
+      writes++
+      return response(config, { ...settings, enabled: true, revision: 8 })
+    }
+    return response(config, settings)
+  }
+  const container = await mount('checkins')
+  await until(() => !!container.querySelector('#checkin-enabled'))
+  await act(async () =>
+    container.querySelector<HTMLElement>('#checkin-enabled')?.click()
+  )
+  const form = container.querySelector('form')
+  assert.ok(form)
+  await act(async () => {
+    form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))
+  })
+  await until(
+    () => writes === 1 && button('Save check-in settings', container).disabled
+  )
+})
+
+test('plugin configuration retains owner permission and excludes Core-owned HeroSMS settings', async () => {
+  login(10)
+  api.defaults.adapter = async (config) => {
+    assert.equal(config.url, '/api/extensions/plugins')
+    return response(config, [
+      { ...plugin, name: 'checkins' },
+      { ...plugin, name: 'hero-sms' },
+    ])
+  }
+  const container = await mount('checkins')
+  await until(
+    () => container.textContent?.includes('Owner access required') === true
+  )
+  await dispose?.()
+  const inventory = await mount()
+  await until(() => !!inventory.querySelector('[data-plugin="hero-sms"]'))
+  assert.equal(inventory.querySelector('[data-plugin="hero-sms"] a'), null)
+})
+
+test('community navigation submits the observed value and preserves extension fields', async () => {
+  login(100)
+  const original = '{ "home": true, "custom": "retained" }'
+  let writes = 0
+  api.defaults.adapter = async (config) => {
+    if (config.url === '/api/extensions/plugins') {
+      return response(config, [{ ...plugin, name: 'community' }])
+    }
+    assert.equal(config.url, '/api/site/navigation')
+    let value = original
+    if (config.method === 'put') {
+      const input = JSON.parse(config.data)
+      assert.equal(input.expected_value, original)
+      value = input.value
+      assert.equal(JSON.parse(value).home, false)
+      assert.equal(JSON.parse(value).custom, 'retained')
+      writes++
+    }
+    return {
+      ...response(config, { value, revision: writes + 1 }),
+      data: {
+        success: true,
+        message: '',
+        data: { value, revision: writes + 1 },
+      },
+    }
+  }
+  const container = await mount('community')
+  await until(() => !!container.querySelector('[role="switch"]'))
+  const control = container.querySelector<HTMLElement>('[role="switch"]')
+  assert.ok(control)
+  await act(async () => control.click())
+  await act(async () => button('Save navigation', container).click())
+  await until(() => writes === 1)
 })

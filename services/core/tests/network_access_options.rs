@@ -107,7 +107,7 @@ async fn probe(app: &Router) -> StatusCode {
 }
 
 #[sqlx::test(migrations = false)]
-async fn network_access_restricted_runtime_validates_saves_and_roundtrips(owner: PgPool) {
+async fn network_access_is_preview_only_over_http(owner: PgPool) {
     let (runtime, identity, secret) = setup(&owner).await;
     let app = settings(&runtime.pool);
     let ingress = NetworkAccess::new(Some(runtime.pool.clone()), TypedConfig::default())
@@ -128,21 +128,8 @@ async fn network_access_restricted_runtime_validates_saves_and_roundtrips(owner:
     let rules = "unknown-country: reject\nip(geoip:CN) -> reject\nfallback: direct";
     let before = snapshot(&owner).await;
     let (_, initial) = call(&app, "GET", "/api/option/", &secret, json!(null)).await;
-    assert!(
-        initial["capabilities"]["writable_keys"]
-            .as_array()
-            .unwrap()
-            .contains(&json!("IPAccessRoutingRules"))
-    );
-    assert!(
-        initial["data"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .any(|item| item["key"] == "IPAccessRoutingRules" && item["value"] == "")
-    );
-
-    for denied in [&key.secret, &admin.secret] {
+    assert_eq!(initial["capabilities"]["writable_keys"], json!([]));
+    for token in [&key.secret, &admin.secret, &secret] {
         for (method, path, payload) in [
             (
                 "PUT",
@@ -151,71 +138,21 @@ async fn network_access_restricted_runtime_validates_saves_and_roundtrips(owner:
             ),
             (
                 "POST",
-                "/api/option/validate",
-                json!({"values":{"IPAccessRoutingRules":rules}}),
+                "/api/option/bulk",
+                json!({"values":{"IPAccessRoutingRules":rules,"Notice":"changed"}}),
             ),
             (
                 "POST",
-                "/api/option/bulk",
+                "/api/option/validate",
                 json!({"values":{"IPAccessRoutingRules":rules}}),
             ),
         ] {
-            assert_eq!(
-                call(&app, method, path, denied, payload).await.0,
-                StatusCode::FORBIDDEN
-            );
+            let (status, body) = call(&app, method, path, token, payload).await;
+            assert_eq!(status, StatusCode::METHOD_NOT_ALLOWED);
+            assert_eq!(body["code"], "SYSTEM_OPTIONS_READ_ONLY");
         }
     }
-    for invalid in [
-        "".to_owned(),
-        "fallback: proxy".to_owned(),
-        "ip(geoip:USA) -> reject\nfallback: direct".to_owned(),
-        format!("#{}\nfallback: direct", "x".repeat(1025)),
-        "fallback: direct\n".repeat(1025),
-    ] {
-        let (status, body) = call(
-            &app,
-            "POST",
-            "/api/option/bulk",
-            &secret,
-            json!({"values":{"IPAccessRoutingRules":invalid,"Notice":"must not save"}}),
-        )
-        .await;
-        assert_eq!(status, StatusCode::BAD_REQUEST);
-        assert_eq!(body["code"], "SYSTEM_OPTIONS_INVALID");
-    }
-    let (status,valid) = call(&app,"POST","/api/option/validate",&secret,
-        json!({"values":{"IPAccessRoutingRules":rules},"expected_values":{"IPAccessRoutingRules":""}})).await;
-    assert_eq!(status, StatusCode::OK);
-    assert_eq!(valid["saved"], false);
-    assert_eq!(snapshot(&owner).await, before);
-
-    let payload = json!({"key":"IPAccessRoutingRules","value":rules});
-    for path in ["/api/option", "/api/option/"] {
-        assert_eq!(
-            call(&app, "PUT", path, &secret, payload.clone()).await.0,
-            StatusCode::OK
-        );
-    }
-    let saved = snapshot(&owner).await;
-    assert_eq!(
-        saved.0,
-        vec![("IPAccessRoutingRules".into(), rules.into(), 1)]
-    );
-    assert_eq!(saved.1.len(), 1);
-    assert_eq!(saved.1[0]["changes"][0]["key"], "IPAccessRoutingRules");
-    assert_eq!(saved.1[0]["changes"][0]["after"], json!([rules, 1]));
-    // The already-created public ingress sees the committed rules on its next request.
-    assert_eq!(probe(&ingress).await, StatusCode::FORBIDDEN);
-    let reloaded = settings(&runtime.pool);
-    let (_, options) = call(&reloaded, "GET", "/api/option/", &secret, json!(null)).await;
-    assert!(
-        options["data"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .any(|item| item["key"] == "IPAccessRoutingRules" && item["value"] == rules)
-    );
+    assert_eq!(probe(&ingress).await, StatusCode::NO_CONTENT);
     for (country, action) in [
         (Some("CN"), "reject"),
         (Some("US"), "direct"),
@@ -263,7 +200,7 @@ async fn network_access_restricted_runtime_validates_saves_and_roundtrips(owner:
             Some("22023")
         );
     }
-    assert_eq!(snapshot(&owner).await, saved);
+    assert_eq!(snapshot(&owner).await, before);
     sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
         "REVOKE EXECUTE ON FUNCTION core_console.write_ip_access_rules(text) FROM {}",
         runtime.name
@@ -282,79 +219,5 @@ async fn network_access_restricted_runtime_validates_saves_and_roundtrips(owner:
         .await,
         Err(RuntimeDatabaseError::MissingPrivileges)
     ));
-    runtime.cleanup().await;
-}
-
-#[sqlx::test(migrations = false)]
-async fn network_access_bulk_cas_is_atomic_and_audit_failure_rolls_back(owner: PgPool) {
-    let (runtime, identity, secret) = setup(&owner).await;
-    let second = identity.bootstrap_user(2, 6).await.unwrap();
-    let app = settings(&runtime.pool);
-    let attempt_a = call(
-        &app,
-        "POST",
-        "/api/option/bulk",
-        &secret,
-        json!({"values":{"IPAccessRoutingRules":"fallback: reject","Notice":"first"},
-            "expected_values":{"IPAccessRoutingRules":"","Notice":""}}),
-    );
-    let attempt_b = call(
-        &app,
-        "POST",
-        "/api/option/bulk",
-        &second.secret,
-        json!({"values":{"IPAccessRoutingRules":"fallback: direct","Notice":"second"},
-            "expected_values":{"IPAccessRoutingRules":"","Notice":""}}),
-    );
-    let (a, b) = tokio::join!(attempt_a, attempt_b);
-    let mut statuses = [a.0.as_u16(), b.0.as_u16()];
-    statuses.sort();
-    assert_eq!(statuses, [200, 409]);
-    let saved = snapshot(&owner).await;
-    assert_eq!(saved.0.len(), 2);
-    assert!(saved.0.iter().all(|row| row.2 == 1));
-    assert_eq!(saved.1.len(), 1);
-    assert_eq!(saved.1[0]["changes"].as_array().unwrap().len(), 2);
-    let policy = &saved
-        .0
-        .iter()
-        .find(|row| row.0 == "IPAccessRoutingRules")
-        .unwrap()
-        .1;
-    let notice = &saved.0.iter().find(|row| row.0 == "Notice").unwrap().1;
-    assert!(
-        policy == "fallback: reject" && notice == "first"
-            || policy == "fallback: direct" && notice == "second"
-    );
-    let (status, body) = call(
-        &app,
-        "POST",
-        "/api/option/bulk",
-        &secret,
-        json!({"values":{"IPAccessRoutingRules":"fallback: direct","Notice":"stale"},
-            "expected_values":{"IPAccessRoutingRules":""}}),
-    )
-    .await;
-    assert_eq!(status, StatusCode::CONFLICT);
-    assert_eq!(body["code"], "SYSTEM_OPTIONS_CONFLICT");
-    assert_eq!(snapshot(&owner).await, saved);
-
-    sqlx::query("ALTER TABLE core_identity.audit ADD CONSTRAINT reject_network_audit CHECK (action <> 'console.options.update') NOT VALID")
-        .execute(&owner).await.unwrap();
-    let changed = "ip(192.0.2.0/24) -> direct\nfallback: reject";
-    assert_eq!(
-        call(
-            &app,
-            "POST",
-            "/api/option/bulk",
-            &secret,
-            json!({"values":{"IPAccessRoutingRules":changed,"Notice":"roll back"},
-            "expected_values":{"IPAccessRoutingRules":policy,"Notice":notice}})
-        )
-        .await
-        .0,
-        StatusCode::SERVICE_UNAVAILABLE
-    );
-    assert_eq!(snapshot(&owner).await, saved);
     runtime.cleanup().await;
 }

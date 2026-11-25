@@ -71,9 +71,7 @@ async fn stored(pool: &PgPool) -> Option<(String, i64)> {
 }
 
 #[sqlx::test(migrations = false)]
-async fn display_rate_persists_with_root_authority_atomic_audit_and_unchanged_ledger(
-    owner: PgPool,
-) {
+async fn display_rate_is_read_only_and_ledger_is_unchanged(owner: PgPool) {
     core_schema::init(&owner).await.unwrap();
     let identity = IdentityStore::from_pool(owner.clone());
     let root = identity.bootstrap_user(1, 6).await.unwrap();
@@ -127,101 +125,37 @@ async fn display_rate_persists_with_root_authority_atomic_audit_and_unchanged_le
             .iter()
             .any(|option| option["key"] == "USDExchangeRate" && option["value"] == "")
     );
-    assert!(
-        initial["capabilities"]["writable_keys"]
-            .as_array()
-            .unwrap()
-            .contains(&json!("USDExchangeRate"))
-    );
-    assert_eq!(
-        call(
-            &app,
-            "PUT",
-            "/api/option/",
-            &admin.secret,
-            json!({"key":"USDExchangeRate","value":"7.2"})
-        )
-        .await
-        .0,
-        StatusCode::FORBIDDEN
-    );
-    for invalid in [
-        "", "0", "-1", "NaN", "Infinity", "1e309", "1e10", "0.00009", " 7", "+7", "07",
-    ] {
-        assert_eq!(
-            call(
-                &app,
+    assert_eq!(initial["capabilities"]["writable_keys"], json!([]));
+    for token in [&admin.secret, &root.secret] {
+        for (method, path, payload) in [
+            (
+                "PUT",
+                "/api/option/",
+                json!({"key":"USDExchangeRate","value":"7.2"}),
+            ),
+            (
                 "POST",
                 "/api/option/bulk",
-                &root.secret,
-                json!({"values":{"USDExchangeRate":invalid,"Notice":"must roll back"}})
-            )
-            .await
-            .0,
-            StatusCode::BAD_REQUEST,
-            "{invalid}"
-        );
+                json!({"values":{"USDExchangeRate":"7.2","Notice":"changed"}}),
+            ),
+            (
+                "POST",
+                "/api/option/validate",
+                json!({"values":{"USDExchangeRate":"7.2"}}),
+            ),
+        ] {
+            let (status, body) = call(&app, method, path, token, payload).await;
+            assert_eq!(status, StatusCode::METHOD_NOT_ALLOWED);
+            assert_eq!(body["code"], "SYSTEM_OPTIONS_READ_ONLY");
+        }
     }
-    assert_eq!(
-        call(
-            &app,
-            "POST",
-            "/api/option/bulk",
-            &root.secret,
-            json!({"values":{"USDExchangeRate":"7.2","QuotaPerUnit":"1"}})
-        )
-        .await
-        .0,
-        StatusCode::CONFLICT
-    );
     assert!(stored(&owner).await.is_none());
-    assert_eq!(
-        call(
-            &app,
-            "POST",
-            "/api/option/validate",
-            &root.secret,
-            json!({"values":{"USDExchangeRate":"7.2"},"expected_values":{"USDExchangeRate":""}})
-        )
+    // Seed a pre-existing display rate with the isolated fixture owner.
+    sqlx::query("INSERT INTO core_console.options(key,value) VALUES ('USDExchangeRate','7.2')")
+        .execute(&owner)
         .await
-        .0,
-        StatusCode::OK
-    );
-    assert!(stored(&owner).await.is_none());
-    let first = call(
-        &app,
-        "POST",
-        "/api/option/bulk",
-        &root.secret,
-        json!({"values":{"USDExchangeRate":"7.2"},"expected_values":{"USDExchangeRate":""}}),
-    );
-    let second = call(
-        &app,
-        "POST",
-        "/api/option/bulk",
-        &root.secret,
-        json!({"values":{"USDExchangeRate":"7.3"},"expected_values":{"USDExchangeRate":""}}),
-    );
-    let (first, second) = tokio::join!(first, second);
-    let mut statuses = [first.0.as_u16(), second.0.as_u16()];
-    statuses.sort();
-    assert_eq!(statuses, [200, 409]);
+        .unwrap();
     let saved = stored(&owner).await.unwrap();
-    assert_eq!(saved.1, 1);
-    assert_eq!(
-        call(
-            &app,
-            "PUT",
-            "/api/option/",
-            &root.secret,
-            json!({"key":"USDExchangeRate","value":saved.0})
-        )
-        .await
-        .0,
-        StatusCode::OK
-    );
-    assert_eq!(stored(&owner).await.as_ref(), Some(&saved));
-
     let reloaded = settings(&runtime.pool);
     let (_, options) = call(&reloaded, "GET", "/api/option/", &root.secret, json!(null)).await;
     assert!(
@@ -251,10 +185,7 @@ async fn display_rate_persists_with_root_authority_atomic_audit_and_unchanged_le
     .fetch_all(&owner)
     .await
     .unwrap();
-    assert_eq!(audit.len(), 1);
-    assert_eq!(audit[0]["changes"][0]["key"], "USDExchangeRate");
-    assert_eq!(audit[0]["changes"][0]["after"], json!([saved.0, 1]));
-
+    assert!(audit.is_empty());
     for statement in [
         "UPDATE core_console.options SET value='8' WHERE key='USDExchangeRate'",
         "INSERT INTO core_console.options(key,value) VALUES ('OAuthSecret','denied')",
@@ -284,20 +215,6 @@ async fn display_rate_persists_with_root_authority_atomic_audit_and_unchanged_le
             Some("22023")
         );
     }
-    sqlx::query("ALTER TABLE core_identity.audit ADD CONSTRAINT reject_rate_audit CHECK (action <> 'console.options.update') NOT VALID")
-        .execute(&owner).await.unwrap();
-    assert_eq!(
-        call(
-            &app,
-            "PUT",
-            "/api/option/",
-            &root.secret,
-            json!({"key":"USDExchangeRate","value":"8"})
-        )
-        .await
-        .0,
-        StatusCode::SERVICE_UNAVAILABLE
-    );
     assert_eq!(stored(&owner).await.as_ref(), Some(&saved));
     assert_eq!(ledger.balance(account).await.unwrap(), balance_before);
     let journals_after: Vec<String> = sqlx::query_scalar(

@@ -12,6 +12,7 @@ use axum::{
 };
 use sha2::{Digest, Sha256};
 use sqlx::{Postgres, Transaction};
+use std::sync::Arc;
 use subtle::ConstantTimeEq;
 use tokio::sync::Semaphore;
 
@@ -59,7 +60,7 @@ fn identity_error(error: identity::IdentityError) -> Error {
 async fn administrator<'a>(
     service: &'a Service,
     secret: &str,
-) -> Result<(Transaction<'a, Postgres>, identity::Principal)> {
+) -> Result<Transaction<'a, Postgres>> {
     let mut tx = service.pool.begin().await.map_err(|_| Error::Unavailable)?;
     sqlx::query("SET LOCAL statement_timeout='3s'")
         .execute(&mut *tx)
@@ -122,7 +123,7 @@ async fn administrator<'a>(
             return Err(Error::Forbidden);
         }
     }
-    Ok((tx, actor))
+    Ok(tx)
 }
 
 fn snapshot(policy: &Policy, configured: bool) -> serde_json::Value {
@@ -156,7 +157,7 @@ async fn handle(
             state.service.policy.read().await?;
             return Ok(serde_json::json!({
                 "protocol": 1, "service": "hero-sms", "ready": true,
-                "features": ["settings.read.v1", "settings.write.v1", "connection-test.v1"],
+                "features": ["settings.read.v1", "connection-test.v1"],
                 "purchases_available": false,
             }));
         }
@@ -175,23 +176,14 @@ async fn handle(
                 Error::Disabled
             });
         }
-        let (tx, actor) = administrator(&state.service, secret).await?;
+        let tx = administrator(&state.service, secret).await?;
         let result = match action.as_str() {
             "settings" => {
                 let _: Empty = serde_json::from_slice(&body).map_err(|_| Error::Invalid)?;
                 let policy = state.service.policy.read().await?;
                 Ok(snapshot(&policy, state.service.credential_configured()?))
             }
-            "save-policy" => {
-                let request: SavePolicy =
-                    serde_json::from_slice(&body).map_err(|_| Error::Invalid)?;
-                let configured = state.service.credential_configured()?;
-                if request.enabled && !configured {
-                    return Err(Error::CredentialMissing);
-                }
-                let policy = state.service.policy.save(request, actor.user_id).await?;
-                Ok(snapshot(&policy, configured))
-            }
+            "save-policy" => Err(Error::FileManaged),
             "test" => {
                 let _: Empty = serde_json::from_slice(&body).map_err(|_| Error::Invalid)?;
                 // Release authority locks before an external read. No financial
@@ -213,12 +205,11 @@ async fn handle(
                 Error::Invalid => (StatusCode::BAD_REQUEST, "INVALID_REQUEST"),
                 Error::Unauthorized => (StatusCode::UNAUTHORIZED, "UNAUTHORIZED"),
                 Error::Forbidden => (StatusCode::FORBIDDEN, "FORBIDDEN"),
-                Error::StateConflict => (StatusCode::CONFLICT, "STATE_CONFLICT"),
+                Error::FileManaged => (StatusCode::CONFLICT, "POLICY_MANAGED_BY_FILE"),
                 Error::CredentialMissing => (StatusCode::CONFLICT, "CREDENTIAL_NOT_CONFIGURED"),
                 Error::CredentialRejected => {
                     (StatusCode::BAD_GATEWAY, "PROVIDER_CREDENTIAL_REJECTED")
                 }
-                Error::CommitUnknown => (StatusCode::SERVICE_UNAVAILABLE, "POLICY_WRITE_UNKNOWN"),
                 Error::Disabled => (StatusCode::SERVICE_UNAVAILABLE, "SERVICE_DISABLED"),
                 Error::PurchasesUnavailable => {
                     (StatusCode::SERVICE_UNAVAILABLE, "PURCHASES_UNAVAILABLE")

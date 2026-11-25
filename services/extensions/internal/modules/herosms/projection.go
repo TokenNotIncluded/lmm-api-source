@@ -59,6 +59,7 @@ type settingsProjection struct {
 	SMS                     bool   `json:"sms_enabled"`
 	Email                   bool   `json:"email_enabled"`
 	APIKeyConfigured        bool   `json:"api_key_configured"`
+	PolicyManagedByFile     bool   `json:"policy_managed_by_file"`
 	CredentialManagedByFile bool   `json:"credential_managed_by_file"`
 	PendingWork             bool   `json:"pending_work"`
 	PurchasesAvailable      bool   `json:"purchases_available"`
@@ -84,7 +85,7 @@ func (s *Service) settingsSnapshot(ctx context.Context, user string) (settingsPr
 	return settingsProjection{
 		Revision: strconv.FormatInt(current.Revision, 10), Enabled: current.Enabled,
 		SMS: current.SMS, Email: current.Email, APIKeyConfigured: current.APIKeyConfigured,
-		CredentialManagedByFile: true, PendingWork: current.PendingWork,
+		PolicyManagedByFile: true, CredentialManagedByFile: true, PendingWork: current.PendingWork,
 		PurchasesAvailable: current.PurchasesAvailable,
 		Currency:           "USD", CurrencyCode: 840, Multiplier: current.Multiplier,
 	}, nil
@@ -97,36 +98,9 @@ func (s *Service) settings(w http.ResponseWriter, r *http.Request, user string) 
 	case r.Method == http.MethodGet && r.URL.Path == "/api/option/hero-sms":
 		out, err = s.settingsSnapshot(r.Context(), user)
 	case r.Method == http.MethodPut && r.URL.Path == "/api/option/hero-sms":
-		var in struct {
-			ExpectedRevision string `json:"expected_revision"`
-			Enabled          *bool  `json:"enabled"`
-			SMS              *bool  `json:"sms_enabled"`
-			Email            *bool  `json:"email_enabled"`
-			Multiplier       string `json:"price_multiplier"`
-			Key              string `json:"api_key"`
-		}
-		if err = decode(r, &in); err == nil {
-			if in.Enabled == nil || in.SMS == nil || in.Email == nil {
-				respond(w, nil, ErrInvalid)
-				return
-			}
-			if in.Key != "" {
-				_, err = s.settingsSnapshot(r.Context(), user)
-				if err == nil {
-					err = &Failure{409, "CREDENTIAL_MANAGED_BY_FILE"}
-				}
-				respond(w, nil, err)
-				return
-			}
-			revision, parseErr := strconv.ParseInt(in.ExpectedRevision, 10, 64)
-			if parseErr != nil || revision < 0 || strconv.FormatInt(revision, 10) != in.ExpectedRevision {
-				respond(w, nil, ErrInvalid)
-				return
-			}
-			err = s.Core.Call(r.Context(), "save-policy", user, map[string]any{"revision": revision, "enabled": in.Enabled, "sms_enabled": in.SMS, "email_enabled": in.Email, "price_multiplier": in.Multiplier}, &out)
-			if err == nil {
-				out, err = s.settingsSnapshot(r.Context(), user)
-			}
+		_, err = s.settingsSnapshot(r.Context(), user)
+		if err == nil {
+			err = &Failure{http.StatusConflict, "POLICY_MANAGED_BY_FILE"}
 		}
 	case r.Method == http.MethodPost && r.URL.Path == "/api/option/hero-sms/test":
 		var in struct {

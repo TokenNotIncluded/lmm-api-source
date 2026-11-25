@@ -1,9 +1,12 @@
 /* Copyright (C) 2026 LIghtJUNction. AGPL-3.0-or-later. */
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { ArrowDown, ArrowUp, Plus, Trash2 } from 'lucide-react'
-import { useEffect, useMemo, useState } from 'react'
+import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 
+import { ErrorState } from '@/components/error-state'
+import { LoadingState } from '@/components/loading-state'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -12,17 +15,23 @@ import { Switch } from '@/components/ui/switch'
 import { Textarea } from '@/components/ui/textarea'
 import {
   AI_DIRECTORY_CATEGORIES,
-  DEFAULT_AI_DIRECTORY_LINKS,
-  parseDirectoryLinks,
   safeDirectoryUrl,
   type AIDirectoryCategory,
   type AIDirectoryLink,
 } from '@/features/ai-directory/api'
+import {
+  readManagedDirectory,
+  saveManagedDirectory,
+} from '@/features/ai-directory/managed-links'
+import {
+  isCurrentNativeUsersScope,
+  readNativeUsersScope,
+  type NativeUsersScope,
+} from '@/features/native-users/access'
+import { useAuthStore } from '@/stores/auth-store'
 
 import { FormNavigationGuard } from '../components/form-navigation-guard'
-import { SettingsPageFormActions } from '../components/settings-page-context'
 import { SettingsSection } from '../components/settings-section'
-import { useUpdateOption } from '../hooks/use-update-option'
 
 const categoryLabels: Record<AIDirectoryCategory, string> = {
   chat: 'Chat assistants',
@@ -36,33 +45,109 @@ const categoryLabels: Record<AIDirectoryCategory, string> = {
 function validateLinks(links: AIDirectoryLink[]): Record<string, string> {
   const errors: Record<string, string> = {}
   for (const link of links) {
-    if (!link.name.trim() || link.name.length > 80) {
+    if (!link.name.trim() || [...link.name].length > 80) {
       errors[link.id] = 'Enter a website name (up to 80 characters).'
     } else if (!safeDirectoryUrl(link.url) || link.url.length > 2048) {
       errors[link.id] = 'Enter a valid HTTP or HTTPS website address.'
-    } else if (link.summary.length > 180 || link.description.length > 1200) {
+    } else if (
+      [...link.summary].length > 180 ||
+      [...link.description].length > 1200
+    ) {
       errors[link.id] = 'The summary or description is too long.'
     }
   }
   return errors
 }
 
-export function AIDirectorySection({ initialValue }: { initialValue: string }) {
+// The former registry still passes initialValue from the limited options API.
+export function AIDirectorySection(_props: { initialValue?: string } = {}) {
   const { t } = useTranslation()
-  const updateOption = useUpdateOption()
-  const initialLinks = useMemo(
-    () => parseDirectoryLinks(initialValue),
-    [initialValue]
+  const scope = readNativeUsersScope(useAuthStore((state) => state.auth))
+  if (!scope) return <ErrorState title={t('Access Forbidden')} />
+  return <DirectoryQuery key={JSON.stringify(scope)} scope={scope} />
+}
+
+function DirectoryQuery({ scope }: { scope: NativeUsersScope }) {
+  const { t } = useTranslation()
+  const key = [
+    'managed-ai-directory',
+    scope.userId,
+    scope.sessionId,
+    scope.role,
+  ]
+  const cache = useQueryClient()
+  const query = useQuery({
+    queryKey: key,
+    queryFn: ({ signal }) => readManagedDirectory(scope, signal),
+    retry: false,
+    refetchOnWindowFocus: false,
+    gcTime: 0,
+  })
+  if (query.isPending) {
+    return <LoadingState message={t('Loading settings...')} />
+  }
+  if (!query.data) {
+    return (
+      <ErrorState
+        title={t('Unable to load settings')}
+        onRetry={() => void query.refetch()}
+      />
+    )
+  }
+  return (
+    <DirectoryEditor
+      initialLinks={query.data}
+      onSave={async (before, draft) => {
+        const confirmed = await saveManagedDirectory(scope, before, draft)
+        if (!isCurrentNativeUsersScope(scope)) {
+          throw new Error('Session changed')
+        }
+        cache.setQueryData(key, confirmed)
+        void cache.invalidateQueries({ queryKey: ['ai-directory'] })
+        return confirmed
+      }}
+      onReload={async () => {
+        const { data } = await query.refetch({ throwOnError: true })
+        if (!data) throw new Error('Directory unavailable')
+        return data
+      }}
+    />
   )
-  const [links, setLinks] = useState<AIDirectoryLink[]>(initialLinks ?? [])
+}
+
+function DirectoryEditor({
+  initialLinks,
+  onSave,
+  onReload,
+}: {
+  initialLinks: AIDirectoryLink[]
+  onSave: (
+    before: AIDirectoryLink[],
+    draft: AIDirectoryLink[]
+  ) => Promise<AIDirectoryLink[]>
+  onReload: () => Promise<AIDirectoryLink[]>
+}) {
+  const { t } = useTranslation()
+  const [baseline, setBaseline] = useState(initialLinks)
+  const [links, setLinks] = useState(initialLinks)
   const [activeID, setActiveID] = useState<string | null>(null)
   const [errors, setErrors] = useState<Record<string, string>>({})
-  const dirty = JSON.stringify(links) !== JSON.stringify(initialLinks ?? [])
-
-  useEffect(() => {
-    setLinks(initialLinks ?? [])
+  const dirty = JSON.stringify(links) !== JSON.stringify(baseline)
+  const apply = (rows: AIDirectoryLink[]) => {
+    setLinks(rows)
+    setBaseline(rows)
     setErrors({})
-  }, [initialLinks])
+    setActiveID(null)
+  }
+  const mutation = useMutation({
+    mutationFn: async (next: AIDirectoryLink[] | null) =>
+      next === null ? onReload() : onSave(baseline, next),
+    retry: false,
+    onSuccess: (rows, next) => {
+      apply(rows)
+      if (next !== null) toast.success(t('Settings saved'))
+    },
+  })
 
   const updateLink = (id: string, patch: Partial<AIDirectoryLink>) => {
     setLinks((current) =>
@@ -104,7 +189,7 @@ export function AIDirectorySection({ initialValue }: { initialValue: string }) {
     setActiveID(id)
   }
 
-  const save = async () => {
+  const save = () => {
     const next = links.map((link) => ({
       ...link,
       name: link.name.trim(),
@@ -120,27 +205,35 @@ export function AIDirectorySection({ initialValue }: { initialValue: string }) {
       return
     }
     if (next.length > 60) return
-    await updateOption.mutateAsync({
-      key: 'AIDirectoryLinks',
-      value: JSON.stringify(next),
-    })
+    mutation.mutate(next)
   }
 
   return (
     <SettingsSection title={t('AI directory')}>
       <FormNavigationGuard when={dirty} />
-      <SettingsPageFormActions
-        onSave={() => void save()}
-        onReset={() => {
-          setLinks(initialLinks ?? [])
-          setErrors({})
-          setActiveID(null)
-        }}
-        isSaving={updateOption.isPending}
-        isSaveDisabled={!dirty}
-        isResetDisabled={!dirty}
-        saveLabel='Save websites'
-      />
+
+      {mutation.isError && (
+        <p role='alert'>
+          {t('The save result is unknown. Reload before continuing.')}
+        </p>
+      )}
+      <div className='flex flex-wrap items-center gap-2'>
+        <Button
+          type='button'
+          disabled={mutation.isPending || !dirty || mutation.isError}
+          onClick={save}
+        >
+          {t('Save websites')}
+        </Button>
+        <Button
+          type='button'
+          variant='outline'
+          disabled={mutation.isPending || (!dirty && !mutation.isError)}
+          onClick={() => mutation.mutate(null)}
+        >
+          {t('Discard changes and reload')}
+        </Button>
+      </div>
       <div className='flex flex-wrap items-start justify-between gap-4'>
         <p className='text-muted-foreground max-w-2xl text-sm leading-relaxed'>
           {t(
@@ -152,38 +245,21 @@ export function AIDirectorySection({ initialValue }: { initialValue: string }) {
           variant='outline'
           size='sm'
           onClick={addLink}
-          disabled={links.length >= 60}
+          disabled={mutation.isPending || links.length >= 60}
         >
           <Plus data-icon='inline-start' />
           {t('Add website')}
         </Button>
       </div>
-      {!initialLinks && (
-        <div className='bg-destructive/10 rounded-xl p-4 text-sm'>
-          <p>
-            {t(
-              'The saved directory could not be read. Load the preset websites to start again.'
-            )}
-          </p>
-          <Button
-            type='button'
-            variant='outline'
-            size='sm'
-            className='mt-3'
-            onClick={() =>
-              setLinks(DEFAULT_AI_DIRECTORY_LINKS.map((link) => ({ ...link })))
-            }
-          >
-            {t('Load preset websites')}
-          </Button>
-        </div>
-      )}
-      {links.length === 0 && initialLinks && (
+      {links.length === 0 && (
         <p className='text-muted-foreground rounded-xl border border-dashed p-8 text-center text-sm'>
           {t('No websites are configured. Add one to start the directory.')}
         </p>
       )}
-      <div className='divide-border overflow-hidden rounded-xl border'>
+      <div
+        inert={mutation.isPending}
+        className='divide-border overflow-hidden rounded-xl border'
+      >
         {links.map((link, index) => (
           <div key={link.id} className='border-border border-b last:border-b-0'>
             <div className='flex min-w-0 flex-wrap items-center gap-3 px-4 py-3'>

@@ -45,7 +45,7 @@ async fn call(
 }
 
 #[sqlx::test(migrations = false)]
-async fn settings_require_current_root_session_and_persist_without_database_writes(pool: PgPool) {
+async fn settings_require_current_root_session_and_reject_rpc_file_writes(pool: PgPool) {
     core_schema::init(&pool).await.unwrap();
     let identity = IdentityStore::from_pool(pool.clone());
     let root = identity.bootstrap_user(1, 6).await.unwrap();
@@ -96,6 +96,10 @@ async fn settings_require_current_root_session_and_persist_without_database_writ
     assert_eq!(status, StatusCode::OK);
     assert_eq!(ready["purchases_available"], false);
     assert_eq!(
+        ready["features"],
+        json!(["settings.read.v1", "connection-test.v1"])
+    );
+    assert_eq!(
         call(&app, "settings", host, None, json!({})).await.0,
         StatusCode::UNAUTHORIZED
     );
@@ -107,47 +111,24 @@ async fn settings_require_current_root_session_and_persist_without_database_writ
             StatusCode::FORBIDDEN
         );
     }
+    let original = fs::read(&path).unwrap();
     let update = json!({"revision":0,"enabled":false,"sms_enabled":true,"email_enabled":false,"price_multiplier":"2.000001"});
-    let (status, saved) = call(
-        &app,
-        "save-policy",
-        host,
-        Some(&root.secret),
-        update.clone(),
-    )
-    .await;
+    let (status, denied) = call(&app, "save-policy", host, Some(&root.secret), update).await;
+    assert_eq!(status, StatusCode::CONFLICT);
+    assert_eq!(denied["error"], "POLICY_MANAGED_BY_FILE");
+    assert_eq!(fs::read(&path).unwrap(), original);
+    let (status, current) = call(&app, "settings", host, Some(&root.secret), json!({})).await;
     assert_eq!(status, StatusCode::OK);
-    assert_eq!(saved["revision"], 1);
-    assert_eq!(saved["price_multiplier"], "2.000001");
-    assert_eq!(saved["purchases_available"], false);
+    assert_eq!(current["revision"], 0);
+    assert_eq!(current["price_multiplier"], "1");
     assert_eq!(
-        call(&app, "save-policy", host, Some(&root.secret), update)
-            .await
-            .0,
-        StatusCode::CONFLICT
-    );
-    let reopened = hero_sms::http::router(
-        Service::new(
-            role.pool.clone(),
-            PolicyFile::open(path.clone()).unwrap(),
-            None,
-        )
-        .unwrap(),
-        host.as_bytes(),
-    )
-    .unwrap();
-    let (status, current) = call(&reopened, "settings", host, Some(&root.secret), json!({})).await;
-    assert_eq!(status, StatusCode::OK);
-    assert_eq!(current, saved);
-    assert_eq!(
-        call(&reopened, "test", host, Some(&root.secret), json!({}))
+        call(&app, "test", host, Some(&root.secret), json!({}))
             .await
             .1["error"],
         "CREDENTIAL_NOT_CONFIGURED"
     );
-    assert_eq!(call(&reopened, "save-policy", host, Some(&root.secret), json!({"revision":1,"enabled":true,"sms_enabled":true,"email_enabled":true,"price_multiplier":"1"})).await.1["error"], "CREDENTIAL_NOT_CONFIGURED");
     assert_eq!(
-        call(&reopened, "buy", host, Some(&user.secret), json!({}))
+        call(&app, "buy", host, Some(&user.secret), json!({}))
             .await
             .1["error"],
         "SERVICE_DISABLED"
@@ -155,12 +136,11 @@ async fn settings_require_current_root_session_and_persist_without_database_writ
     sqlx::query("UPDATE core_identity.users SET platform_role='admin',auth_version=auth_version+1 WHERE id=1")
         .execute(&pool).await.unwrap();
     assert_eq!(
-        call(&reopened, "settings", host, Some(&root.secret), json!({}))
+        call(&app, "settings", host, Some(&root.secret), json!({}))
             .await
             .0,
         StatusCode::UNAUTHORIZED
     );
-    drop(reopened);
     drop(app);
     role.cleanup().await;
     fs::remove_dir_all(directory).unwrap();

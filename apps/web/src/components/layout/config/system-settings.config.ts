@@ -17,112 +17,46 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import type { TFunction } from 'i18next'
-import {
-  Box,
-  CreditCard,
-  Layout,
-  Settings,
-  Shield,
-  ShieldAlert,
-  Wrench,
-} from 'lucide-react'
+import { Box, Settings } from 'lucide-react'
 
-import { getAuthSectionNavItems } from '@/features/system-settings/auth/section-registry.tsx'
-import { getBillingSectionNavItems } from '@/features/system-settings/billing/section-registry.tsx'
-import { getContentSectionNavItems } from '@/features/system-settings/content/section-registry.tsx'
-import { getModelsSectionNavItems } from '@/features/system-settings/models/section-registry.tsx'
-import { getOperationsSectionNavItems } from '@/features/system-settings/operations/section-registry.tsx'
-import { getSecuritySectionNavItems } from '@/features/system-settings/security/section-registry.tsx'
-import { getSiteSectionNavItems } from '@/features/system-settings/site/section-registry.tsx'
 import { ROLE } from '@/lib/roles'
-import { canReadSystemSettingsPath } from '@/lib/system-settings-access'
 import { useAuthStore } from '@/stores/auth-store'
 
 import type { NavGroup, SidebarView } from '../types'
 
-/**
- * Sidebar nav groups for the System Settings nested view.
- *
- * Kept as a single group because the workspace title in the sidebar
- * header already provides top-level context — the inner group label
- * scopes the items as "administration" actions.
- */
 export function getSystemSettingsNavGroups(
   t: TFunction,
   role: number = ROLE.SUPER_ADMIN
 ): NavGroup[] {
-  const groups: NavGroup[] = [
+  if (role < ROLE.ADMIN) return []
+  return [
     {
       id: 'system-administration',
       title: t('System Administration'),
       items: [
+        ...(role === ROLE.SUPER_ADMIN
+          ? [
+              {
+                title: t('System Settings'),
+                url: '/system-settings/site',
+                icon: Settings,
+              },
+            ]
+          : []),
         {
-          title: t('Site & Branding'),
-          icon: Settings,
-          items: getSiteSectionNavItems(t),
-        },
-        {
-          title: t('Authentication'),
-          icon: Shield,
-          items: getAuthSectionNavItems(t),
-        },
-        {
-          title: t('Billing & Payment'),
-          icon: CreditCard,
-          items: getBillingSectionNavItems(t),
-        },
-        {
-          title: t('Models & Routing'),
+          title: t('Plugin management'),
+          url: '/extensions/plugins',
           icon: Box,
-          items: getModelsSectionNavItems(t),
-        },
-        {
-          title: t('Security & Limits'),
-          icon: ShieldAlert,
-          items: getSecuritySectionNavItems(t),
-        },
-        {
-          title: t('Console Content'),
-          icon: Layout,
-          items: getContentSectionNavItems(t),
-        },
-        {
-          title: t('Operations'),
-          icon: Wrench,
-          items: getOperationsSectionNavItems(t),
         },
       ],
     },
   ]
-  if (role === ROLE.SUPER_ADMIN) return groups
-  return groups
-    .map((group) => ({
-      ...group,
-      items: group.items.flatMap((section) => {
-        if (!section.items) return []
-        const items = section.items.filter(
-          (entry) => entry.url && canReadSystemSettingsPath(role, entry.url)
-        )
-        return items.length ? [{ ...section, items }] : []
-      }),
-    }))
-    .filter((group) => group.items.length)
 }
 
-/**
- * Nested sidebar view for `/system-settings/*`.
- *
- * Activates the Vercel / Cloudflare-style drill-in sidebar:
- * the root navigation is replaced by the system administration
- * groups, with a "Back to Dashboard" affordance in the header.
- */
 export const SYSTEM_SETTINGS_VIEW: SidebarView = {
   id: 'system-settings',
   pathPattern: /^\/system-settings(\/|$)/,
-  parent: {
-    to: '/dashboard/overview',
-    label: 'Back to Dashboard',
-  },
+  parent: { to: '/dashboard/overview', label: 'Back to Dashboard' },
   getNavGroups: (t) =>
     getSystemSettingsNavGroups(
       t,

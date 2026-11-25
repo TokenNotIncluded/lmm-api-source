@@ -7,7 +7,6 @@ import { getSettingsErrorMessage } from '@/features/system-settings/utils/settin
 import { useAuthStore } from '@/stores/auth-store'
 
 import { marketAIReviewAPI } from './api'
-import { MARKET_AI_REVIEW_COPY as copy } from './copy'
 import { MarketAIReviewModeFields } from './mode-fields'
 import { MarketAIReviewSettingsForm } from './settings-form'
 
@@ -60,12 +59,14 @@ export function MarketAIReviewSettingsSection() {
       ) : (
         <MarketAIReviewModeFields value={modes} onChange={() => {}} disabled />
       )}
-      <a
-        className='text-primary text-sm underline'
-        href='/system-settings/security/moderation'
-      >
-        {t(copy.routing)}
-      </a>
+      {user?.role === 100 && (
+        <a
+          className='text-primary text-sm underline'
+          href='/system-settings/site'
+        >
+          {t('System Settings')}
+        </a>
+      )}
     </div>
   )
 }
