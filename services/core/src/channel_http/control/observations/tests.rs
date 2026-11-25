@@ -204,6 +204,17 @@ async fn batch_exact_sort_units_digest_and_repeatable_read(pool: PgPool) {
     assert_eq!(status, StatusCode::OK, "{second}");
     assert_eq!(second["data"]["items"][0]["id"], 1);
     assert_eq!(second["data"]["pagination_consistency"], "digest_checked");
+    let changed_protocol = format!("{next}&protocol=anthropic_messages");
+    let (status, conflict) = request(
+        app.clone(),
+        "GET",
+        &changed_protocol,
+        &admin.secret,
+        Value::Null,
+    )
+    .await;
+    assert_eq!(status, StatusCode::CONFLICT, "{conflict}");
+    assert_eq!(conflict["code"], "CHANNEL_SNAPSHOT_CHANGED");
     let (_, missing) = request(
         app.clone(),
         "GET",

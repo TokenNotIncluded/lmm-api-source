@@ -220,6 +220,7 @@ function NativeRoutingWorkspace({
   const [channelFilters, setChannelFilters] = useState<NativeChannelFilters>({
     status: 'all',
     group: '',
+    protocol: '',
   })
   const [channelSelection, setChannelSelection] = useState<{
     snapshot: string
@@ -786,6 +787,12 @@ function NativeRoutingWorkspace({
         ) {
           return false
         }
+        if (
+          channelFilters.protocol &&
+          channel.protocol !== channelFilters.protocol
+        ) {
+          return false
+        }
         const routes = activeRoutes.filter((route) =>
           route.targets.some(
             (target) => target.upstream_id === channel.id && target.enabled
@@ -806,11 +813,12 @@ function NativeRoutingWorkspace({
   const channelFiltersActive =
     channelFilters.status !== 'all' ||
     channelFilters.group !== '' ||
+    channelFilters.protocol !== '' ||
     search.trim() !== ''
   function clearChannelFilters() {
     updateChannelSelection([])
     setBatchTagEditor(null)
-    setChannelFilters({ status: 'all', group: '' })
+    setChannelFilters({ status: 'all', group: '', protocol: '' })
     setSearch('')
     setPage(1)
   }
@@ -1149,7 +1157,7 @@ function NativeRoutingWorkspace({
         </label>
         {section === 'channels' && (
           <>
-            <div className='min-w-0 flex-1 basis-64 @min-[40rem]/routing:w-80 @min-[40rem]/routing:flex-none'>
+            <div className='min-w-0 flex-1 basis-64 @min-[40rem]/routing:basis-[32rem]'>
               <NativeChannelFilterFields
                 value={channelFilters}
                 groups={[...enabledGroups]}
