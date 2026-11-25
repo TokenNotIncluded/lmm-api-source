@@ -102,6 +102,7 @@ export function renderPluginEditor(name: string, section?: string) {
 }
 
 const fields: Record<string, readonly string[]> = {
+  ssmcpd: ['ssmcpd.public_origin', 'ssmcpd.mode', 'ssmcpd.metering.origin', 'ssmcpd.metering.token_file'],
   acquisition: ['host.public_origin', 'acquisition.database_url_file'],
   assistant: ['core.assistant_token_file', 'assistant.database_url_file'],
   checkins: ['core.checkin_token_file', 'checkins.database_url_file'],

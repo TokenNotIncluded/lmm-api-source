@@ -160,7 +160,7 @@ func (p *Postgres) PendingDeliveries(ctx context.Context, after string, limit in
 	}
 	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()
-	rows, err := p.db.QueryContext(ctx, `SELECT shop_id,body FROM lmm_store.orders WHERE id>$1 AND (body->'legacy'->>'delivery_template'='fixed-content' OR jsonb_array_length(COALESCE(body->'stock_items','[]'::jsonb))>0) AND body->>'state' IN ('payment_pending','paid','fulfilled','settlement_pending') AND COALESCE(body->>'refund_state','')<>'requested' ORDER BY id LIMIT $2`, after, limit)
+	rows, err := p.db.QueryContext(ctx, `SELECT shop_id,body FROM lmm_store.orders WHERE id>$1 AND (body ? 'service_entitlement' OR body->'legacy'->>'delivery_template'='fixed-content' OR jsonb_array_length(COALESCE(body->'stock_items','[]'::jsonb))>0) AND body->>'state' IN ('payment_pending','paid','fulfilled','settlement_pending') AND COALESCE(body->>'refund_state','')<>'requested' ORDER BY id LIMIT $2`, after, limit)
 	if err != nil {
 		return nil, err
 	}

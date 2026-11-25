@@ -72,6 +72,8 @@ func (s *Service) FinalizeDelivery(ctx context.Context, shopID, orderID string) 
 					return err
 				}
 				private.Content = stockDeliverySummary(selection.StockItems)
+			} else if out.Entitlement != nil {
+				private.Content = servicePassReference(shopID, out)
 			} else if err := tx.Get("commands", ID("legacy-order-delivery-v1", out.ID), &private); err != nil {
 				return err
 			}
@@ -140,7 +142,7 @@ func (s *Service) FinalizeDelivery(ctx context.Context, shopID, orderID string) 
 // Fixed content and allocated per-unit stock are delivered by
 // the store itself before the Core capture of the accepted payment.
 func deliverable(o Order) bool {
-	return o.Legacy != nil && (o.Legacy.DeliveryTemplate == "fixed-content" || stockOrder(o))
+	return o.Entitlement != nil || (o.Legacy != nil && (o.Legacy.DeliveryTemplate == "fixed-content" || stockOrder(o)))
 }
 
 type deliveryIndex interface {

@@ -551,13 +551,13 @@ function PluginInventory({
                     {actionLabel(action)}
                   </Button>
                 )}
-                {pluginEditor(plugin.name) && plugin.available && (
+                {(plugin.name === 'ssmcpd' || pluginEditor(plugin.name)) && plugin.available && (
                   <Button
                     variant={plugin.available ? 'ghost' : 'outline'}
                     className='min-h-11'
                     render={
                       <a
-                        href={`/extensions/plugins?configure=${encodeURIComponent(plugin.name)}`}
+                        href={plugin.name === 'ssmcpd' ? '/extensions/ssmcpd' : `/extensions/plugins?configure=${encodeURIComponent(plugin.name)}`}
                       />
                     }
                   >

@@ -75,3 +75,15 @@ max_in_flight = 16
 # [acquisition]
 # database_name = "lmm_acquisition"
 # database_url_file = "/etc/lmm.conf.d/secrets/extensions/acquisition-database-url"
+
+# Select "ssmcpd" in host.modules and enable host.web_compat to expose the
+# account page at /extensions/ssmcpd. Configure the Core identity socket above.
+# [ssmcpd]
+# mode = "relay"
+# public_origin = "https://api.lmm.best"
+# In standard mode, set traffic_portal = true to link to /account/traffic.
+# Headless relay metering requires a daemon with [relay.accounting] enabled.
+# Bind each relay username to its stable numeric LMM user ID on that daemon.
+# [ssmcpd.metering]
+# origin = "http://127.0.0.1:8091"
+# token_file = "/etc/lmm.conf.d/secrets/extensions/ssmcpd-accounting-token"

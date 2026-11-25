@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"slices"
 	"strings"
 	"syscall"
 	"time"
@@ -21,6 +22,7 @@ import (
 	"github.com/TokenNotIncluded/lmm-api/extensions/internal/modules"
 	"github.com/TokenNotIncluded/lmm-api/extensions/internal/modules/assistant_services"
 	"github.com/TokenNotIncluded/lmm-api/extensions/internal/modules/operations"
+	"github.com/TokenNotIncluded/lmm-api/extensions/internal/modules/ssmcpd"
 	"github.com/TokenNotIncluded/lmm-api/extensions/internal/webcompat"
 )
 
@@ -54,6 +56,16 @@ func Run() error {
 	selected, err := composition.SelectModules(strings.Join(cfg.Host.Modules, ","), defaults)
 	if err != nil {
 		return err
+	}
+	if slices.Contains(selected, "ssmcpd") != (cfg.SSMCPD != nil) {
+		return errors.New("ssmcpd requires explicit module selection and [ssmcpd] configuration")
+	}
+	var relay *ssmcpd.Service
+	if cfg.SSMCPD != nil {
+		relay, err = ssmcpd.New(*cfg.SSMCPD)
+		if err != nil {
+			return err
+		}
 	}
 	var scripts *operations.ScriptConfig
 	if cfg.Scripts.Root != "" || cfg.Scripts.Manifest != nil {
@@ -110,12 +122,42 @@ func Run() error {
 		return err
 	}
 	defer runtime.Close()
+	if relay != nil {
+		if err = relay.ConfigureCommerce(cfg.SSMCPD.Commerce, runtime.Store); err != nil {
+			return err
+		}
+		if relay.MeteringConfigured() || relay.CommerceConfigured() {
+			if err := relay.CheckCredentials(credential); err != nil {
+				return err
+			}
+			for _, path := range []string{
+				cfg.Core.IdentityTokenFile, cfg.Core.CommerceTokenFile, cfg.Core.PaymentTokenFile,
+				cfg.Core.UserReadTokenFile, cfg.Core.CheckinTokenFile, cfg.Core.AssistantTokenFile,
+				cfg.Core.DirectoryAdTokenFile, cfg.HeroSMS.CoreTokenFile, cfg.MarketReview.CoreTokenFile,
+				cfg.ToolMarket.CoreTokenFile, cfg.SupportCustomers.CoreTokenFile,
+			} {
+				if path == "" {
+					continue
+				}
+				token, err := coreclient.ReadTokenFile(path)
+				if err != nil {
+					return err
+				}
+				if err := relay.CheckCredentials(token); err != nil {
+					return err
+				}
+			}
+		}
+	}
 	var auth *webcompat.Authenticator
-	if cfg.Host.WebCompat || runtime.Operations != nil || runtime.Community != nil || runtime.Acquisition != nil {
+	if cfg.Host.WebCompat || relay != nil || runtime.Operations != nil || runtime.Community != nil || runtime.Acquisition != nil {
 		auth, err = webcompat.NewAuthenticator(runtime.Client, credential)
 		if err != nil {
 			return err
 		}
+	}
+	if relay != nil {
+		runtime.Modules = append(runtime.Modules, webcompat.NewSSMCPDModule(auth, relay))
 	}
 	if runtime.Operations != nil {
 		runtime.Modules = append(runtime.Modules, webcompat.NewOperationsModule(auth, runtime.Operations))
@@ -145,10 +187,10 @@ func Run() error {
 	}
 	subscriptionPayments := runtime.SubscriptionPaymentHandler()
 	if cfg.Host.WebCompat {
-		if runtime.Store == nil && runtime.AssistantHistory == nil && runtime.Operations == nil && runtime.Payments == nil && runtime.ToolMarket == nil && runtime.Community == nil && runtime.Acquisition == nil && runtime.Checkins == nil && runtime.HeroSMS == nil && runtime.MarketReview == nil {
+		if runtime.Store == nil && runtime.AssistantHistory == nil && runtime.Operations == nil && runtime.Payments == nil && runtime.ToolMarket == nil && runtime.Community == nil && runtime.Acquisition == nil && runtime.Checkins == nil && runtime.HeroSMS == nil && runtime.MarketReview == nil && relay == nil {
 			return errors.New("Web compatibility requires an assembled Web module")
 		}
-		api = webcompat.Mount(host, auth, runtime.Store, runtime.Support, webcompat.AdditionalServices{Checkins: runtime.Checkins, HeroSMS: runtime.HeroSMS, MarketReview: runtime.MarketReview, Builtins: builtinHTTP, ToolMarket: runtime.ToolMarket, ToolMarketMCP: runtime.ToolMarketMCP, Assistant: runtime.AssistantHistory, AssistantChat: runtime.AssistantChat, AssistantServices: runtime.AssistantServices, Operations: runtime.Operations, Payments: webcompat.NewPaymentStatusReader(runtime.Payments), PaymentCheckout: runtime.Payments, PaymentPortal: runtime.Payments, PancakeAdmin: runtime.PancakeAdmin, EPayAdmin: runtime.EPayAdmin, SubscriptionPayments: subscriptionPayments, Plugins: pluginManager, Community: runtime.Community, Acquisition: runtime.Acquisition})
+		api = webcompat.Mount(host, auth, runtime.Store, runtime.Support, webcompat.AdditionalServices{SSMCPD: relay, Checkins: runtime.Checkins, HeroSMS: runtime.HeroSMS, MarketReview: runtime.MarketReview, Builtins: builtinHTTP, ToolMarket: runtime.ToolMarket, ToolMarketMCP: runtime.ToolMarketMCP, Assistant: runtime.AssistantHistory, AssistantChat: runtime.AssistantChat, AssistantServices: runtime.AssistantServices, Operations: runtime.Operations, Payments: webcompat.NewPaymentStatusReader(runtime.Payments), PaymentCheckout: runtime.Payments, PaymentPortal: runtime.Payments, PancakeAdmin: runtime.PancakeAdmin, EPayAdmin: runtime.EPayAdmin, SubscriptionPayments: subscriptionPayments, Plugins: pluginManager, Community: runtime.Community, Acquisition: runtime.Acquisition})
 	}
 	handler := listenerHandler(policies, api)
 	if cfg.Payments.CallbacksEnabled {

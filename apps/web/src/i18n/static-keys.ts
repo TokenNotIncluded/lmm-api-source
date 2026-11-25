@@ -19,6 +19,13 @@ For commercial licensing, please contact support@quantumnous.com
 // Static translation keys that don't get picked up by the t('...') regex.
 // These cover dynamic labels (e.g. constants, configs) that are passed into t at runtime.
 export const STATIC_I18N_KEYS = [
+  'Unable to load plugin configuration.',
+  'Connection command',
+  'No SSMCP account is linked.',
+  'SSMCP usage could not be loaded.',
+  'SSMCP metering is not configured.',
+  'Open traffic portal',
+
   'Super administrator',
   'Administrator',
   'Returning user',

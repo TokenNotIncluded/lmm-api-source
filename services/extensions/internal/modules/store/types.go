@@ -147,6 +147,7 @@ func (v *Variant) release(n int64) error {
 }
 
 type Order struct {
+	Entitlement    *ServiceEntitlement  `json:"service_entitlement,omitempty"`
 	ID             string               `json:"id"`
 	Buyer          Account              `json:"buyer"`
 	Seller         Account              `json:"seller"`
