@@ -7,6 +7,7 @@ pub(super) mod catalog;
 pub(super) mod configuration;
 pub(super) mod copy;
 pub(super) mod observations;
+pub(in crate::channel_http) mod model_plan;
 mod opening;
 pub(super) mod price_drafts;
 pub(super) mod tags;
@@ -601,6 +602,7 @@ pub(super) enum Failure {
     Auth(HistoryError),
     Management(ManagementError),
     NotFound,
+    ModelPlan(model_plan::ChannelModelPlanError),
     Disabled,
     AccountingUnavailable,
     SnapshotChanged,
@@ -663,6 +665,16 @@ impl IntoResponse for Failure {
                 "CHANNEL_CONTROL_DISABLED",
                 "Channel control is not configured",
             ),
+            Self::ModelPlan(error) => {
+                let status = if error.code == "CHANNEL_CONTROL_INVALID" {
+                    StatusCode::BAD_REQUEST
+                } else {
+                    StatusCode::CONFLICT
+                };
+                return (status, Json(json!({
+                    "success":false, "code":error.code, "message":error.message, "data":error.data
+                }))).into_response();
+            }
             Self::NotFound => (
                 StatusCode::NOT_FOUND,
                 "CHANNEL_NOT_FOUND",

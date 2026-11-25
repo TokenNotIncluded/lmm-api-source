@@ -6,6 +6,7 @@
 mod control;
 mod pricing_snapshot;
 mod sorting;
+pub use control::model_plan::{ChannelModelPlanError, preview_channel_model_plan};
 pub use control::{ManagedChannels, ManagementError};
 pub const SCHEMA: &str = include_str!("../schema/channel_control.sql");
 pub const VAULT_SCHEMA: &str = include_str!("../schema/channel_vault.sql");
@@ -145,6 +146,10 @@ fn routes(state: ChannelState) -> Router {
         .route(
             "/core/v1/admin/routing/configuration/preview",
             axum::routing::post(control::configuration::preview),
+        )
+        .route(
+            "/core/v1/admin/routing/channels/models/preview",
+            axum::routing::post(control::model_plan::preview),
         )
         .route(
             "/core/v1/admin/routing/channels",
@@ -780,6 +785,7 @@ async fn ops(State(state): State<ChannelState>, headers: HeaderMap) -> Response 
         "data": {
             "read_only": true,
             "native_control": api_managed,
+            "native_channel_model_plan": state.management.is_some(),
             "native_tags": api_managed,
             "native_configuration": state.management.is_some(),
             "native_catalog": state.management.is_some(),
