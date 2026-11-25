@@ -26,11 +26,14 @@ import { Skeleton } from '@/components/ui/skeleton'
 
 import { formatShare, formatTokens } from '../lib/format'
 import type { UserUsageRankingsSnapshot } from '../types'
+import { RankingLoadError } from './ranking-load-error'
 
 type UserUsageLeaderboardProps = {
   data?: UserUsageRankingsSnapshot
   isLoading: boolean
   error?: unknown
+  retrying: boolean
+  onRetry: () => void
   open: boolean
   onOpenChange: (open: boolean) => void
 }
@@ -85,9 +88,12 @@ export function UserUsageLeaderboard(props: UserUsageLeaderboardProps) {
             ))}
           </div>
         ) : props.error || !data ? (
-          <p className='text-muted-foreground py-8 text-center text-sm'>
-            {t('User usage rankings are unavailable right now.')}
-          </p>
+          <RankingLoadError
+            title={t('User usage rankings are unavailable right now.')}
+            error={props.error}
+            retrying={props.retrying}
+            onRetry={props.onRetry}
+          />
         ) : data.users.length === 0 ? (
           <p className='text-muted-foreground py-8 text-center text-sm'>
             {t('No public usage data yet.')}
