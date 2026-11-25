@@ -203,7 +203,7 @@ pub fn plan_file_channel_models(reader: impl Read, mut writer: impl Write) -> io
     }
     let evidence = |doc: &ReleaseDocument| -> io::Result<Value> {
         let digest = |value: &Value| -> io::Result<String> {
-            Ok(format!("{:x}", Sha256::digest(serde_json::to_vec(value)?)))
+            Ok(crate::hex_codec::encode(Sha256::digest(serde_json::to_vec(value)?)))
         };
         Ok(json!({
             "version":{"routing":doc.routing.version,"pricing":doc.pricing.version},
