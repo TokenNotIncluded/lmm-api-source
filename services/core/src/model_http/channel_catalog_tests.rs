@@ -144,6 +144,39 @@ impl Fixture {
 }
 
 #[tokio::test]
+async fn draft_catalogue_uses_the_supplied_key_and_rejects_local_destinations() {
+    let fixture = Fixture::new(
+        Protocol::Gemini,
+        vec![(
+            StatusCode::OK,
+            json!({"models":[{"name":"models/draft-model"}]}),
+        )],
+    )
+    .await;
+    let draft_key = "synthetic-unsaved-key";
+    assert!(
+        fixture
+            .gateway
+            .probe_channel_draft("https://127.0.0.1/v1", Protocol::Gemini, draft_key)
+            .await
+            .is_err()
+    );
+    assert!(fixture.requests.lock().unwrap().is_empty());
+
+    let result = fixture
+        .gateway
+        .probe_channel_draft("https://catalogue.example/v1", Protocol::Gemini, draft_key)
+        .await
+        .unwrap();
+    assert_eq!(result.models, ["draft-model"]);
+    assert!(!result.inference_tested);
+    let observed = fixture.requests.lock().unwrap();
+    assert_eq!(observed.len(), 1);
+    assert_eq!(observed[0].path, "/v1/models");
+    assert_eq!(observed[0].key.as_deref(), Some(draft_key));
+}
+
+#[tokio::test]
 async fn gemini_catalogue_follows_pages_and_encodes_the_cursor() {
     let cursor = "next+/=&?page";
     let fixture = Fixture::new(

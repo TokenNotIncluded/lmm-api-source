@@ -233,6 +233,10 @@ impl ManagedChannels {
         Ok(bindings.clone())
     }
 
+    pub(super) fn draft_catalog_enabled(&self) -> bool {
+        self.gateway.is_some()
+    }
+
     pub(super) fn secret_storage_enabled(&self) -> bool {
         self.gateway
             .as_ref()
@@ -582,6 +586,7 @@ pub(super) enum Failure {
     RetiredIdentity,
     InvalidUsageWindow,
     AccountingIdentityAmbiguous,
+    Catalog(crate::relay::RelayError),
 }
 impl From<HistoryError> for Failure {
     fn from(v: HistoryError) -> Self {
@@ -597,6 +602,13 @@ impl IntoResponse for Failure {
     fn into_response(self) -> Response {
         let (status, code, message) = match self {
             Self::Auth(error) => return auth_error(error),
+            Self::Catalog(error) => {
+                return error_response(
+                    StatusCode::from_u16(error.status()).unwrap_or(StatusCode::BAD_GATEWAY),
+                    error.code(),
+                    &error.to_string(),
+                );
+            }
             Self::BalanceUnitRequired(units) => return (StatusCode::BAD_REQUEST, Json(json!({"success":false,"code":"CHANNEL_BALANCE_UNIT_REQUIRED","message":"Select a balance unit","data":{"balance_units":units}}))).into_response(),
             Self::SnapshotChanged => (StatusCode::CONFLICT, "CHANNEL_SNAPSHOT_CHANGED", "Channel observations changed; refresh from the first page"),
             Self::AccountingUnavailable => (
@@ -965,6 +977,40 @@ pub(super) async fn probe(
         json!({"success":true,"time":result.response_time_ms as f64/1000.0,"data":result}),
     ))
 }
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct DraftCatalogInput {
+    endpoint: crate::routing::Endpoint,
+    protocol: crate::routing::Protocol,
+    secret: String,
+}
+
+pub(super) async fn discover_draft_models(
+    State(state): State<ChannelState>,
+    headers: HeaderMap,
+    Json(input): Json<DraftCatalogInput>,
+) -> Result<Json<Value>, Failure> {
+    super::admit(&state, &headers).await?;
+    let management = state.management.as_ref().ok_or(Failure::Disabled)?;
+    let gateway = management.gateway.as_ref().ok_or(Failure::Disabled)?;
+    let (tx, _) = management
+        .begin(
+            bearer(&headers)?,
+            Action::ChannelSensitiveWrite,
+            ReadView::Current,
+        )
+        .await?;
+    tx.commit().await.map_err(ManagementError::from)?;
+    vault::validate_secret(&input.secret)?;
+    let result = gateway
+        .probe_channel_draft(input.endpoint.as_str(), input.protocol, &input.secret)
+        .await
+        .map_err(Failure::Catalog)?;
+    Ok(Json(
+        json!({"success":true,"data":result.models,"validation_scope":result.validation_scope,"inference_tested":false}),
+    ))
+}
+
 pub(super) async fn fetch_models(
     State(state): State<ChannelState>,
     headers: HeaderMap,

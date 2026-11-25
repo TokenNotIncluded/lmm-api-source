@@ -97,6 +97,10 @@ fn routes(state: ChannelState) -> Router {
         )
         .route("/api/channel/fetch_models/{id}", get(control::fetch_models))
         .route(
+            "/core/v1/admin/routing/channels/models/discover",
+            axum::routing::post(control::discover_draft_models),
+        )
+        .route(
             "/api/channel/copy/{id}",
             axum::routing::post(control::copy::legacy),
         )
@@ -781,6 +785,7 @@ async fn ops(State(state): State<ChannelState>, headers: HeaderMap) -> Response 
             "remove": state.management.is_some(),
             "price_publish": state.management.is_some(),
             "catalog_probe": state.management.is_some(),
+            "native_draft_model_discovery": state.management.as_ref().is_some_and(|management| management.draft_catalog_enabled()),
             "native_channel_usage": state.management.is_some(),
             "native_channel_counters": state.management.is_some(),
             "native_channel_lifetime": state.management.is_some(),
