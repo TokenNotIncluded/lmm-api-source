@@ -175,6 +175,11 @@ func (s *Service) purchase(ctx context.Context, token string, p Purchase, terms 
 		if terms != nil && (product.Legacy != nil || unitPrice != terms.UnitPrice || shop.Owner == p.Buyer || !s.ServiceDeliveryAvailable()) {
 			return ErrConflict
 		}
+		if terms != nil {
+			if err := checkServiceSaleLimit(tx, *terms, p.Quantity); err != nil {
+				return err
+			}
+		}
 		if p.RequireFree && total.Amount != 0 {
 			return ErrConflict
 		}
@@ -371,6 +376,9 @@ func (s *Service) ChangeOrder(ctx context.Context, token string, c OrderChange) 
 			out.Delivery = delivery
 			out.State = Fulfilled
 		case "request_refund":
+			if out.Entitlement != nil && out.Entitlement.Terms.NonRefundable {
+				return ErrConflict
+			}
 			if !Text(c.Text, 2000) {
 				return ErrInvalid
 			}

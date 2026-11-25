@@ -122,6 +122,9 @@ func partialRefundTotals(o Order) (partialRefundUsage, error) {
 // the financial/quantity checks in its own original-order transaction.
 func planPartialRefund(shop string, o Order, actor Account, role string, in legacyRefundInput) (PartialRefund, error) {
 	var out PartialRefund
+	if o.Entitlement != nil && o.Entitlement.Terms.NonRefundable {
+		return out, ErrConflict
+	}
 	if !legacyRefundKey(in.RequestKey) || !legacyRefundText(in.Reason, true) ||
 		in.Quantity < 0 || in.AmountQuota < 0 || in.AmountMinor < 0 || len(in.StockIDs) > 1000 ||
 		o.Imported != nil || o.State == Refunded || o.State == Cancelled ||

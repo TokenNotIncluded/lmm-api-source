@@ -103,6 +103,9 @@ func (s *Service) money(ctx context.Context, token string, c OrderChange) (Order
 			}
 			out.State = PaymentPending
 		case "refund":
+			if out.Entitlement != nil && out.Entitlement.Terms.NonRefundable {
+				return ErrConflict
+			}
 			// New refund identities own their own caps and saved commands. The
 			// original one-shot refund must never bypass those reservations.
 			if len(out.PartialRefunds) > 0 {

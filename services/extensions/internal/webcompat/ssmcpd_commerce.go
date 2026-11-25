@@ -8,6 +8,34 @@ import (
 )
 
 func registerSSMCPDCommerce(mux RouteRegistrar, auth *Authenticator, s *ssmcpd.Service) {
+	policy := func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Cache-Control", "no-store")
+		self, err := auth.Verify(r.Context(), r)
+		if err != nil {
+			Respond(w, nil, err)
+			return
+		}
+		if self.GetPlatformLevel() < 5 {
+			Respond(w, nil, store.ErrForbidden)
+			return
+		}
+		if r.URL.RawQuery != "" {
+			Respond(w, nil, store.ErrInvalid)
+			return
+		}
+		var in *ssmcpd.SalesPolicyInput
+		if r.Method == http.MethodPut {
+			in = new(ssmcpd.SalesPolicyInput)
+			if err := store.Decode(w, r, in); err != nil {
+				Respond(w, nil, err)
+				return
+			}
+		}
+		result, err := s.SalesPolicy(r.Context(), in)
+		Respond(w, result, err)
+	}
+	mux.HandleFunc("GET /api/plugins/ssmcpd/admin/sales-policy", policy)
+	mux.HandleFunc("PUT /api/plugins/ssmcpd/admin/sales-policy", policy)
 	run := func(fn func(http.ResponseWriter, *http.Request, string, int64) (any, error)) http.HandlerFunc {
 		return func(w http.ResponseWriter, r *http.Request) {
 			self, err := auth.Verify(r.Context(), r)

@@ -10,11 +10,12 @@ import (
 // ServiceTerms are supplied by the configured service, never by the ordinary
 // store checkout. The shop transaction freezes these terms beside the sale.
 type ServiceTerms struct {
-	Audience     string `json:"audience"`
-	Service      string `json:"service"`
-	Period       string `json:"period"`
-	UnitsPerItem int64  `json:"units_per_item"`
-	UnitPrice    Price  `json:"unit_price"`
+	NonRefundable bool   `json:"non_refundable,omitempty"`
+	Audience      string `json:"audience"`
+	Service       string `json:"service"`
+	Period        string `json:"period"`
+	UnitsPerItem  int64  `json:"units_per_item"`
+	UnitPrice     Price  `json:"unit_price"`
 }
 type ServiceEntitlement struct {
 	Terms    ServiceTerms `json:"terms"`

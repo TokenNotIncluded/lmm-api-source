@@ -53,6 +53,7 @@ type PurchaseRequest struct {
 	Offer
 }
 type OrderStatus struct {
+	Refundable  bool   `json:"refundable"`
 	OrderID     string `json:"order_id"`
 	MoneyState  string `json:"money_state"`
 	GrantState  string `json:"grant_state"`
@@ -92,7 +93,7 @@ func projection(o store.Order) OrderStatus {
 			state = "redeemable"
 		}
 	}
-	return OrderStatus{o.ID, o.State, state, o.RefundState, t.Period, strconv.FormatInt(t.UnitsPerItem*o.Quantity, 10), strconv.FormatInt(o.Total.Amount, 10)}
+	return OrderStatus{!t.NonRefundable, o.ID, o.State, state, o.RefundState, t.Period, strconv.FormatInt(t.UnitsPerItem*o.Quantity, 10), strconv.FormatInt(o.Total.Amount, 10)}
 }
 func (c *trafficCommerce) lookup(ctx context.Context, token string, user int64, id string) (string, store.Order, error) {
 	row, err := c.shop.LocateOrder(ctx, id)
@@ -151,7 +152,11 @@ func (s *Service) Buy(ctx context.Context, token string, user int64, request Pur
 		return OrderStatus{}, store.ErrConflict
 	}
 	amount, _ := strconv.ParseInt(offer.UnitCredits, 10, 64)
-	t := store.ServiceTerms{Service: trafficService, Audience: store.ID("ssmcpd-origin", c.grants.origin), Period: offer.Period, UnitsPerItem: c.cfg.BytesPerUnit, UnitPrice: store.Price{Unit: "credits", Amount: amount}}
+	t := store.ServiceTerms{NonRefundable: true, Service: trafficService, Audience: store.ID("ssmcpd-origin", c.grants.origin), Period: offer.Period, UnitsPerItem: c.cfg.BytesPerUnit, UnitPrice: store.Price{Unit: "credits", Amount: amount}}
+	if existing.Entitlement != nil {
+		// Retain the terms of an unpaid order originally created under an older policy.
+		t.NonRefundable = existing.Entitlement.Terms.NonRefundable
+	}
 	o, err := c.shop.PurchaseServiceEntitlement(ctx, token, store.Purchase{ShopID: c.cfg.ShopID, VariantID: c.cfg.VariantID, Buyer: buyer, Quantity: request.Quantity, Key: key}, t)
 	if err != nil {
 		return OrderStatus{}, err
