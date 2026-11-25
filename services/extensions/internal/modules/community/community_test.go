@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -140,9 +141,11 @@ func TestQuoteAdRetired(t *testing.T) {
 	}
 }
 
-// TestPostgresHTTP needs COMMUNITY_TEST_DSN: a fresh database with schema.sql
-// installed. It is skipped otherwise and is not persistence evidence then.
-func TestPostgresHTTP(t *testing.T) {
+type communityRequest func(method, path, token, body string) (int, map[string]any)
+
+// The HTTP fixture needs COMMUNITY_TEST_DSN pointing at a fresh database with schema.sql installed.
+func postgresHTTPFixture(t *testing.T) (*Service, *http.ServeMux, communityRequest) {
+	t.Helper()
 	dsn := os.Getenv("COMMUNITY_TEST_DSN")
 	if dsn == "" {
 		t.Skip("COMMUNITY_TEST_DSN not set")
@@ -151,7 +154,7 @@ func TestPostgresHTTP(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer db.Close()
+	t.Cleanup(func() { _ = db.Close() })
 	svc, err := New(context.Background(), db, "https://example.test")
 	if err != nil {
 		t.Fatal(err)
@@ -181,15 +184,62 @@ func TestPostgresHTTP(t *testing.T) {
 			_, _ = db.Exec(q)
 		}
 	})
+	return svc, mux, call
+}
+
+func TestDirectorySettingsPostgresHTTP(t *testing.T) {
+	_, _, call := postgresHTTPFixture(t)
 	if code, _ := call("PUT", "/api/ai-directory/links", "user", `{"links":[]}`); code != 403 {
 		t.Fatalf("non-admin link update: %d", code)
 	}
-	if code, out := call("PUT", "/api/ai-directory/links", "admin", `{"links":[{"id":"x","name":"X","url":"https://x.com","category":"chat","summary":"","description":"","enabled":true}]}`); code != 200 {
-		t.Fatalf("admin link update: %d %v", code, out)
+	const publicDirectory = "/api/ai-directory"
+	const managedDirectory = "/api/ai-directory/links"
+	for token, want := range map[string]int{"": 401, "user": 403, "key": 403} {
+		if code, _ := call("GET", managedDirectory, token, ""); code != want {
+			t.Fatalf("read managed directory as %q: got %d, want %d", token, code, want)
+		}
 	}
-	if _, out := call("GET", "/api/ai-directory", "", ""); len(out["data"].(map[string]any)["links"].([]any)) != 1 {
-		t.Fatalf("links: %v", out)
+	readLinks := func(path, token string) any {
+		t.Helper()
+		code, out := call("GET", path, token, "")
+		if code != 200 {
+			t.Fatalf("read %s: %d %v", path, code, out)
+		}
+		return out["data"].(map[string]any)["links"]
 	}
+	if readLinks(publicDirectory, "") != nil || readLinks(managedDirectory, "admin") != nil {
+		t.Fatal("unconfigured directory should use the built-in defaults")
+	}
+	first := DirectoryLink{ID: "z", Name: "First in directory", URL: "https://z.example", Category: "chat", Enabled: true}
+	draft := DirectoryLink{ID: "draft", Name: "Draft", URL: "https://draft.example", Category: "other"}
+	last := DirectoryLink{ID: "a", Name: "Last in directory", URL: "https://a.example", Category: "chat", Enabled: true}
+	for _, tc := range []struct {
+		name             string
+		links, published []DirectoryLink
+	}{
+		{"mixed", []DirectoryLink{first, draft, last}, []DirectoryLink{first, last}},
+		{"all disabled", []DirectoryLink{draft}, []DirectoryLink{}},
+		{"empty", []DirectoryLink{}, []DirectoryLink{}},
+	} {
+		body, _ := json.Marshal(map[string]any{"links": tc.links})
+		if code, out := call("PUT", managedDirectory, "admin", string(body)); code != 200 {
+			t.Fatalf("save %s directory: %d %v", tc.name, code, out)
+		}
+		for _, view := range []struct {
+			path, token string
+			want        []DirectoryLink
+		}{{managedDirectory, "admin", tc.links}, {publicDirectory, "", tc.published}} {
+			raw, _ := json.Marshal(readLinks(view.path, view.token))
+			var got []DirectoryLink
+			if err := json.Unmarshal(raw, &got); err != nil || !reflect.DeepEqual(got, view.want) {
+				t.Fatalf("%s %s: got %s, want %+v", tc.name, view.path, raw, view.want)
+			}
+		}
+	}
+}
+
+func TestPostgresHTTP(t *testing.T) {
+	svc, mux, call := postgresHTTPFixture(t)
 	if code, out := call("POST", "/api/ai-directory/ads", "user", `{"name":"n","url":"https://x.com","summary":"","description":"","bid_cents":100,"expected_quota":1,"request_id":"aaaaaaaaaaaaaaaaaaaa"}`); code != 503 || out["code"] != "AI_DIRECTORY_AD_CURRENCY_UNAVAILABLE" {
 		t.Fatalf("new paid ad without DirectoryAd Core must stay disabled: %d %v", code, out)
 	}

@@ -70,8 +70,23 @@ func ValidateDirectoryLinks(raw []byte) ([]DirectoryLink, error) {
 
 // GET /api/ai-directory: null links means the Web client uses its defaults.
 func (h *handlers) directoryLinks(w http.ResponseWriter, r *http.Request) {
+	h.readDirectoryLinks(w, r, false)
+}
+
+// The editor needs unpublished links to preserve them when it saves the list.
+func (h *handlers) manageDirectoryLinks(w http.ResponseWriter, r *http.Request) {
+	if _, err := h.admin(r); err != nil {
+		respond(w, nil, err)
+		return
+	}
+	h.readDirectoryLinks(w, r, true)
+}
+
+func (h *handlers) readDirectoryLinks(w http.ResponseWriter, r *http.Request, includeDisabled bool) {
 	var raw []byte
-	err := h.s.db.QueryRowContext(r.Context(), `SELECT links FROM lmm_community.directory_settings WHERE singleton`).Scan(&raw)
+	err := h.s.db.QueryRowContext(r.Context(), `SELECT CASE WHEN $1 THEN links
+ ELSE jsonb_path_query_array(links, '$[*] ? (@.enabled == true)') END
+ FROM lmm_community.directory_settings WHERE singleton`, includeDisabled).Scan(&raw)
 	if errors.Is(err, sql.ErrNoRows) {
 		respond(w, map[string]any{"links": nil}, nil)
 		return

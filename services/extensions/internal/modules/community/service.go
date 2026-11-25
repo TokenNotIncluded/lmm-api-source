@@ -87,6 +87,7 @@ func (s *Service) Register(mux modules.RouteRegistrar, auth Verifier) {
 	mux.HandleFunc("PUT /api/site/navigation", h.updateNavigation)
 	mux.HandleFunc("POST /api/site/navigation/validate", h.updateNavigation)
 	mux.HandleFunc("GET /api/ai-directory", h.directoryLinks)
+	mux.HandleFunc("GET /api/ai-directory/links", h.manageDirectoryLinks)
 	mux.HandleFunc("PUT /api/ai-directory/links", h.updateDirectoryLinks)
 	mux.HandleFunc("GET /api/ai-directory/ads", h.listAds)
 	mux.HandleFunc("GET /api/ai-directory/ads/quote", h.quoteAd)
