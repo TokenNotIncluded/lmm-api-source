@@ -41,13 +41,16 @@ export function WalletStatsCard(props: WalletStatsCardProps) {
   const { t, i18n } = useTranslation()
   const projection = walletProjection(props.user)
   const financialAvailable = projection.available !== null
-  const walletCurrency = useWalletCurrency()
-  const reference = walletReferenceValue(
-    projection.available,
-    walletCurrency.currency === 'CNY' ? 'CNY' : 'USD',
-    walletCurrency.config,
-    toIntlLocale(i18n.resolvedLanguage || i18n.language)
-  )
+  const { currency, config } = useWalletCurrency()
+  const reference =
+    currency === 'CREDIT'
+      ? null
+      : walletReferenceValue(
+          projection.available,
+          currency,
+          config,
+          toIntlLocale(i18n.resolvedLanguage || i18n.language)
+        )
   if (props.loading) {
     return (
       <div className='wallet-stats bg-card grid overflow-hidden rounded-2xl'>
@@ -150,14 +153,15 @@ export function WalletStatsCard(props: WalletStatsCardProps) {
           >
             {index === 0 && reference ? `≈ ${reference}` : item.value}
           </div>
-          {index === 0 ? (
+          {index === 0 && currency !== 'CREDIT' && (
             <p
               className='text-muted-foreground relative z-10 mt-2 text-sm tabular-nums'
               data-wallet-credit-balance
             >
               {reference ? item.value : t('Reference value unavailable')}
             </p>
-          ) : (
+          )}
+          {index !== 0 && (
             <div className='text-muted-foreground pointer-events-none relative z-10 mt-2 hidden text-xs leading-5 sm:block'>
               {item.description}
             </div>
