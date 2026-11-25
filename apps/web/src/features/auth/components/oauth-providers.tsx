@@ -209,6 +209,7 @@ export function OAuthProviders({
     (provider) => !provider.featured
   )
   const showProviderDivider = !featuredProvider || otherProviders.length > 0
+  const pending = isLoading || isWeChatLoading || isTelegramPending
 
   const renderProviderButton = (provider: ProviderButton, compact: boolean) => (
     <Button
@@ -222,6 +223,7 @@ export function OAuthProviders({
           : undefined
       }
       disabled={disabled || isLoading || provider.disabled}
+      aria-busy={isLoading}
       onClick={provider.onClick}
       className={cn(
         'h-auto w-full min-w-0 flex-col justify-center gap-1 rounded-xl py-2.5 shadow-none',
@@ -276,6 +278,15 @@ export function OAuthProviders({
               renderProviderButton(provider, featureGoogle)
             )}
           </div>
+        ) : null}
+        {pending ? (
+          <p
+            role='status'
+            aria-live='polite'
+            className='text-muted-foreground text-center text-xs'
+          >
+            {t('Signing in...')}
+          </p>
         ) : null}
         {hasLoginOnlyProvider ? (
           <p id={policyDescriptionId} className='text-muted-foreground text-xs'>

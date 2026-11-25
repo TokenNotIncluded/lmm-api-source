@@ -23,6 +23,8 @@ env:
 jobs:
   microkernel:
     uses: ./.github/workflows/core-protocol.yml
+    with:
+      split_rust_targets: true
   web:
     name: Web checks and production build
     runs-on: ubuntu-24.04

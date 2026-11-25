@@ -333,6 +333,7 @@ const legacyProviders = [
   [25, 'Moonshot'],
   [40, 'SiliconFlow'],
   [43, 'DeepSeek'],
+  [59, 'Sub2API'],
 ] as const
 
 export function NativeLegacyBalanceSettings({
@@ -429,7 +430,8 @@ export function NativeLegacyBalanceSettings({
     }
   }
   const unit =
-    ['1', '8', '20', '43'].includes(kind) || (kind === '25' && rate !== '')
+    ['1', '8', '20', '43', '59'].includes(kind) ||
+    (kind === '25' && rate !== '')
       ? 'USD'
       : kind === '25'
         ? 'CNY'
@@ -463,6 +465,13 @@ export function NativeLegacyBalanceSettings({
             <p className='text-sm' role='status'>
               {t('Manual')}: <code>{snapshot.probe.path}</code> →{' '}
               {t('Automatic')}
+            </p>
+          )}
+          {kind === '59' && (
+            <p className='text-muted-foreground text-sm'>
+              {t(
+                'Reads Sub2API wallet or key quota in USD. Unlimited or unrecognized balances remain unknown.'
+              )}
             </p>
           )}
           <Label htmlFor={`${formId}-provider`}>{t('Provider')}</Label>

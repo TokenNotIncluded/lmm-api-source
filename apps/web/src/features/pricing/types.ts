@@ -164,6 +164,9 @@ export type ModelCapability =
   | 'embeddings'
 
 export type PricingData = {
+  catalog_visibility?: 'public' | 'session'
+  empty_reason?: 'no_visible_models' | 'catalog_empty' | null
+  public_view_available?: boolean
   pricing_context?: NativePricingContext
   runtime_available?: boolean
   performance_available?: boolean

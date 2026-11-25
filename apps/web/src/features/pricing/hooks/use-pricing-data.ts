@@ -17,7 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { useQuery } from '@tanstack/react-query'
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 
 import { useStatus } from '@/hooks/use-status'
 import { useWalletCurrency } from '@/hooks/use-wallet-currency'
@@ -29,6 +29,16 @@ import { useModelRuntime } from './use-model-runtime'
 export function usePricingData(options?: { enabled?: boolean }) {
   useStatus()
   const { user, session } = useAuthStore((state) => state.auth)
+  const [publicViewScope, setPublicViewScope] = useState<{
+    userId: number
+    sessionId: string | undefined
+  } | null>(null)
+  const isPublicView = Boolean(
+    user &&
+    publicViewScope?.userId === user.id &&
+    publicViewScope?.sessionId === session?.sid
+  )
+  const view = isPublicView ? 'public' : undefined
   const {
     currency: displayCurrency,
     setPreference: setDisplayCurrency,
@@ -41,9 +51,9 @@ export function usePricingData(options?: { enabled?: boolean }) {
     error,
     refetch,
   } = useQuery({
-    queryKey: pricingQueryKey(user?.id, session?.sid),
+    queryKey: pricingQueryKey(user?.id, session?.sid, view),
     queryFn: ({ signal }) =>
-      getPricing(signal, { userId: user?.id, sessionId: session?.sid }),
+      getPricing(signal, { userId: user?.id, sessionId: session?.sid }, view),
     enabled: options?.enabled ?? true,
     staleTime: 5 * 60 * 1000,
     retry: false,
@@ -72,7 +82,8 @@ export function usePricingData(options?: { enabled?: boolean }) {
 
   const runtime = useModelRuntime(
     models.map((model) => model.model_name),
-    (options?.enabled ?? true) && data?.runtime_available === true
+    (options?.enabled ?? true) && data?.runtime_available === true,
+    view
   )
   const liveModels = useMemo(
     () =>
@@ -92,6 +103,22 @@ export function usePricingData(options?: { enabled?: boolean }) {
     performanceAvailable: data?.performance_available === true,
     runtimeAvailable: data?.runtime_available === true,
     catalogAvailable: data !== undefined,
+    catalogVisibility: data?.catalog_visibility,
+    emptyReason: data?.empty_reason ?? null,
+    publicViewAvailable:
+      data?.catalog_visibility === 'session' &&
+      data?.public_view_available === true,
+    isPublicView,
+    viewPublicCatalog: () => {
+      if (
+        user &&
+        data?.catalog_visibility === 'session' &&
+        data.public_view_available === true
+      ) {
+        setPublicViewScope({ userId: user.id, sessionId: session?.sid })
+      }
+    },
+    viewAccountCatalog: () => setPublicViewScope(null),
     isLoading,
     error,
     refetch,
