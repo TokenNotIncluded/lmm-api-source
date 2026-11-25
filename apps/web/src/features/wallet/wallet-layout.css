@@ -65,7 +65,12 @@
 .wallet-secondary-stat + .wallet-secondary-stat {
   border-inline-start: 1px solid var(--border);
 }
-.wallet-checkout :is(#native-payment-channel, #native-payment-amount, #native-payment-discount) {
+.wallet-checkout
+  :is(
+    #native-payment-channel,
+    #native-payment-amount,
+    #native-payment-discount
+  ) {
   width: 100%;
   min-height: 2.875rem;
   border: 1px solid var(--input);

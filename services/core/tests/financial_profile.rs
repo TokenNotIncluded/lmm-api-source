@@ -345,7 +345,10 @@ async fn actual_team_settlement_and_refund_count_the_actor_without_spending_pers
     )
     .await;
     let overlap = profile(&pool, 7).await.unwrap();
-    assert_eq!((overlap.quota, overlap.used_quota, overlap.request_count), (200, 340, 10));
+    assert_eq!(
+        (overlap.quota, overlap.used_quota, overlap.request_count),
+        (200, 340, 10)
+    );
     assert!(!overlap.usage_projection_available);
     assert_eq!(overlap.normalized_used_quota, None);
 }
@@ -386,12 +389,20 @@ async fn reviewed_personal_history_normalizes_only_matching_openings(pool: PgPoo
     .await;
     let first = profile(&pool, 1001).await.unwrap();
     assert_eq!(
-        (first.used_quota, first.normalized_used_quota, first.request_count),
+        (
+            first.used_quota,
+            first.normalized_used_quota,
+            first.request_count
+        ),
         (300, Some(125), 9)
     );
     let second = profile(&pool, 1002).await.unwrap();
     assert_eq!(
-        (second.used_quota, second.normalized_used_quota, second.request_count),
+        (
+            second.used_quota,
+            second.normalized_used_quota,
+            second.request_count
+        ),
         (300, None, 71)
     );
 }

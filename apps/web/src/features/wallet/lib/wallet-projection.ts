@@ -44,9 +44,12 @@ export function walletProjection(
   const history =
     typeof user?.usage_projection_available === 'boolean' &&
     (bucket(user.used_quota) !== null ||
-      (user.usage_projection_available && bucket(user.normalized_used_quota) !== null))
+      (user.usage_projection_available &&
+        bucket(user.normalized_used_quota) !== null))
   const requests =
-    typeof user?.usage_projection_available === 'boolean' ? bucket(user.request_count) : null
+    typeof user?.usage_projection_available === 'boolean'
+      ? bucket(user.request_count)
+      : null
   return {
     native: true as const,
     available,

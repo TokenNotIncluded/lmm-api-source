@@ -139,12 +139,33 @@ test('missing native contract never restores legacy quota or default history', (
 })
 
 test('historical raw usage and request counts survive missing currency normalization', () => {
-  const imported = { ...native, used_quota: 300, normalized_used_quota: null, request_count: 9 }
+  const imported = {
+    ...native,
+    used_quota: 300,
+    normalized_used_quota: null,
+    request_count: 9,
+  }
   assert.equal(walletProjection(imported).history, true)
   assert.equal(walletProjection(imported).requests, 9)
   assert.equal(walletProjection({ ...imported, used_quota: -1 }).history, false)
-  assert.equal(walletProjection({ ...imported, used_quota: undefined }).requests, 9)
-  assert.equal(walletProjection({ ...imported, request_count: undefined }).requests, null)
-  assert.equal(walletProjection({ ...imported, used_quota: Number.MAX_SAFE_INTEGER + 1 }).history, false)
-  assert.equal(walletProjection({ ...imported, request_count: Number.MAX_SAFE_INTEGER + 1 }).requests, null)
+  assert.equal(
+    walletProjection({ ...imported, used_quota: undefined }).requests,
+    9
+  )
+  assert.equal(
+    walletProjection({ ...imported, request_count: undefined }).requests,
+    null
+  )
+  assert.equal(
+    walletProjection({ ...imported, used_quota: Number.MAX_SAFE_INTEGER + 1 })
+      .history,
+    false
+  )
+  assert.equal(
+    walletProjection({
+      ...imported,
+      request_count: Number.MAX_SAFE_INTEGER + 1,
+    }).requests,
+    null
+  )
 })

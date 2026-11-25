@@ -127,9 +127,7 @@ export function WalletStatsCard(props: WalletStatsCardProps) {
               : 'wallet-secondary-stat border-border/60 border-t'
           )}
         >
-          <div
-            className='relative z-10 flex min-w-0 flex-wrap items-center gap-2'
-          >
+          <div className='relative z-10 flex min-w-0 flex-wrap items-center gap-2'>
             <item.icon
               className='text-muted-foreground size-4 shrink-0'
               aria-hidden='true'

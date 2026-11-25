@@ -460,7 +460,10 @@ function NativeWalletCheckoutForm({
               </div>
             </div>
             {selected?.credit_quantity ? (
-              <details className='wallet-coupon' open={discountCode ? true : undefined}>
+              <details
+                className='wallet-coupon'
+                open={discountCode ? true : undefined}
+              >
                 <summary className='text-muted-foreground hover:text-foreground w-fit cursor-pointer py-2 text-sm font-medium'>
                   {t('Discount code')}
                 </summary>

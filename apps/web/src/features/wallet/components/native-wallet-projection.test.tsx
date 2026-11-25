@@ -124,7 +124,12 @@ test('native preview preserves the compliance gate', () => {
 })
 
 test('wallet displays verified raw historical usage and independent request count', () => {
-  const html = stats({ ...user, normalized_used_quota: null, used_quota: 300, request_count: 912345 })
+  const html = stats({
+    ...user,
+    normalized_used_quota: null,
+    used_quota: 300,
+    request_count: 912345,
+  })
   assert.match(html, /300 Credits/)
   assert.match(html, /912,345/)
 })
