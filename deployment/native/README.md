@@ -26,6 +26,21 @@ See [distribution identity](../../docs/release-architecture.md),
 is an alternative to installing package-owned `/usr/bin` files, not a change to
 the native package layout. Do not mix package and version-store activation.
 
+## Protect the public edge from hidden-file requests
+
+`templates/web-location.conf` places a 404 guard at server scope before the SPA
+fallback. On a host using an existing, separately managed public TLS server
+block, apply only that server-level guard to each public service entry point
+that serves or proxies this web application, ahead of server-level redirects.
+Keep the existing root, upstreams, and routing blocks. Do not place the guard
+inside `location /`: an explicit prefix route would not be covered there.
+
+The guard covers nested `.git` and `.env` path segments and common
+`.env` suffixes. It does not block `/.well-known/acme-challenge/`, normal
+asset paths, or an argument containing a dotted filename. Test a candidate
+configuration with `nginx -t` and check the actual HTTP status and normal
+routes before activation. A source change does not alter a running host.
+
 ## Files and ownership
 
 | Path | Purpose |
