@@ -29,10 +29,9 @@ Coinbase Business Checkout is an additional protocol. FastPay is retired.
 | Waffo Pancake | USD cents / CNY fen | Official SDK checkout. Core verifies timestamped RSA, environment, merchant, store, product, original order and actual paid amount. |
 | Coinbase Business Checkout | USDC, quoted as USD cents at 1:1 | CDP-signed checkout request; Core admits a signed completed payment bound to the frozen intent and exact amount. |
 
-Only a Core ledger receipt confirms wallet credit. A provider API response, return
-page or Go order status cannot supply that authority. Site finance includes native
-payments backed by a Core credit journal, reports cash currencies separately and
-LDC as a virtual unit, and does not add unlike units.
+Confirm wallet credit against the Core credit journal for the original intent.
+Provider responses and browser returns can help locate the order. Site finance
+counts journal-backed payments and reports each cash currency and LDC separately.
 
 ## Configuration and ownership
 
@@ -48,11 +47,13 @@ and Global do not accept this subscription switch. Creem subscriptions can omit
 the wallet product when wallet checkout is disabled; their product and exact
 price come from the published plan revision instead.
 
-The two sides must agree on channel ID, provider, merchant, environment, currency
-and product/store/payment-type binding. A channel ID identifies an immutable policy.
-When changing that policy, allocate a new ID and retain the old channel's verification
-material for outstanding callbacks. Setting the old Go channel's `enabled = false`
-removes it from new checkout selection while allowing recovery.
+Keep the channel ID, provider, merchant identifier, environment, currency and
+product, store or payment type consistent in Core and Extensions. To change a
+binding, create a new channel ID, disable new wallet checkouts on the old Go
+channel and retain its verification material for outstanding callbacks.
+Set EPay's `notify_url` in Core and Waffo Global's `notify_url` in Extensions
+to the intended public callback for that channel. The separate `return_url`
+takes the buyer back to the site.
 
 Core owns `credits_per_minor`, `min_amount_minor` and `max_amount_minor`. It freezes the checked integer
 quote `amount_minor × credits_per_minor` on the intent. The ledger unit is
@@ -268,17 +269,14 @@ refund cannot release another operation's hold. The implementation is in
 [`payments/rpc.rs`](../services/core/src/payments/rpc.rs) and
 [`payments.rs`](../services/core/src/payments.rs).
 
-The worker records `UNKNOWN` before refund provider I/O. After a crash, lost response
-or timeout, it retains the original order, refund, hold, dispatch and request key.
-An ambiguous refund is reconciled by its original provider identity, without sending
-a second refund POST. API observations alone cannot commit or release Core funds.
-After a submitted or ambiguous refund, a durable worker task queries the original
-order at bounded intervals. It survives a Go service restart and stops after the
-original refund reaches a Core-confirmed terminal state. An unsupported lookup
-requires review; a missing signed proof keeps the hold and query task pending.
-Checkout retries also respect the adapter's replay window; no assumed retention period
-authorizes a new operation. Recovery behavior is defined in
-[`worker.go`](../services/extensions/internal/modules/payments/worker.go).
+The [worker](../services/extensions/internal/modules/payments/worker.go) records
+`UNKNOWN` before sending a refund. After a timeout or restart, it reuses the
+original order, refund, hold, dispatch and request key. A durable job queries
+the original provider operation at bounded intervals. Never send a second
+refund POST to resolve an unknown outcome. Missing signed proof leaves the
+hold and query pending. An unsupported lookup requires review. Core commits
+or releases funds on trusted evidence and confirms the terminal state.
+Checkout recovery respects the provider adapter's own replay window.
 
 ## Coinbase Business Checkout
 
@@ -363,5 +361,6 @@ Protocol references include [Linux DO Credit](https://credit.linux.do/docs/api),
 [Waffo Go v2.3.0](https://github.com/waffo-com/waffo-go/tree/v2.3.0) and
 [Pancake v0.19.0](https://github.com/waffo-com/waffo-pancake-sdk-go/tree/v0.19.0).
 Dependency attribution remains in [THIRD-PARTY-LICENSES.md](../THIRD-PARTY-LICENSES.md).
-Source capability and synthetic tests do not establish real merchant or production
-acceptance; candidate-specific evidence and remaining work are tracked in [project progress](progress.md).
+[Project progress](progress.md) records candidate checks and real merchant or
+production acceptance separately. Match each receipt to the tested revision,
+channel and environment before using it for cutover.
