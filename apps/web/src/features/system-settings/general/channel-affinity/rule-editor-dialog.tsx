@@ -18,7 +18,7 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { Plus, Trash2 } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
-import { useForm } from 'react-hook-form'
+import { useForm, useWatch } from 'react-hook-form'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 
@@ -134,6 +134,22 @@ export function RuleEditorDialog(props: Props) {
       include_rule_name: true,
       param_override_template_json: '',
     },
+  })
+  const [
+    skipRetryOnFailure,
+    paramOverrideTemplate,
+    includeUsingGroup,
+    includeModelName,
+    includeRuleName,
+  ] = useWatch({
+    control: form.control,
+    name: [
+      'skip_retry_on_failure',
+      'param_override_template_json',
+      'include_using_group',
+      'include_model_name',
+      'include_rule_name',
+    ],
   })
   const paramOverrideTemplateField = form.register(
     'param_override_template_json'
@@ -300,7 +316,7 @@ export function RuleEditorDialog(props: Props) {
         </div>
 
         <SettingsSwitchField
-          checked={form.watch('skip_retry_on_failure')}
+          checked={skipRetryOnFailure}
           onCheckedChange={(v) => form.setValue('skip_retry_on_failure', v)}
           label={t('Skip retry on failure')}
         />
@@ -444,7 +460,7 @@ export function RuleEditorDialog(props: Props) {
               <SystemJsonCodeEditor
                 configurationKey='channel_affinity_setting.param_override_template'
                 id='channel-affinity-param-override-template'
-                value={form.watch('param_override_template_json') || ''}
+                value={paramOverrideTemplate || ''}
                 onChange={(value) =>
                   form.setValue('param_override_template_json', value, {
                     shouldDirty: true,
@@ -468,19 +484,19 @@ export function RuleEditorDialog(props: Props) {
 
             <div className='grid gap-3 sm:grid-cols-3'>
               <SettingsSwitchField
-                checked={form.watch('include_using_group')}
+                checked={includeUsingGroup}
                 onCheckedChange={(v) => form.setValue('include_using_group', v)}
                 label={t('Include Group')}
                 className='py-0'
               />
               <SettingsSwitchField
-                checked={form.watch('include_model_name')}
+                checked={includeModelName}
                 onCheckedChange={(v) => form.setValue('include_model_name', v)}
                 label={t('Include Model')}
                 className='py-0'
               />
               <SettingsSwitchField
-                checked={form.watch('include_rule_name')}
+                checked={includeRuleName}
                 onCheckedChange={(v) => form.setValue('include_rule_name', v)}
                 label={t('Include Rule Name')}
                 className='py-0'

@@ -498,7 +498,20 @@ test('native channel cards toggle status once with CAS and refresh the published
       (element) => element.textContent === 'Disable'
     )
   )
-  assert.ok(container.textContent?.includes('#1 · Enabled'))
+  const assertChannelStatus = (expected: 'Enabled' | 'Disabled') => {
+    const row = required(
+      container.querySelector('article[aria-label="Private provider"]')
+    )
+    assert.ok(
+      [...row.querySelectorAll('p')].some((p) => p.textContent === '#1')
+    )
+    assert.ok(
+      [...row.querySelectorAll('span')].some(
+        (span) => span.textContent === expected
+      )
+    )
+  }
+  assertChannelStatus('Enabled')
   assert.equal(button(container, 'Disable').closest('details'), null)
   assert.equal(button(container, 'API Keys').closest('details'), null)
   await act(async () => {
@@ -512,7 +525,7 @@ test('native channel cards toggle status once with CAS and refresh the published
         (element) => element.textContent === 'Enable'
       )
   )
-  assert.ok(container.textContent?.includes('#1 · Disabled'))
+  assertChannelStatus('Disabled')
   await act(async () => button(container, 'Enable').click())
   await until(
     () =>
@@ -521,7 +534,7 @@ test('native channel cards toggle status once with CAS and refresh the published
         (element) => element.textContent === 'Disable'
       )
   )
-  assert.ok(container.textContent?.includes('#1 · Enabled'))
+  assertChannelStatus('Enabled')
 })
 
 test('native channel selection batches status changes and expires with the published snapshot', async () => {
@@ -1203,7 +1216,7 @@ test('native channel card opens confirmed consumption with exact values and expl
   await until(() => !!container.textContent?.includes('Private provider'))
   assert.equal(button(container, 'Consumption').disabled, false)
   await act(async () => button(container, 'Consumption').click())
-  await until(() => !!document.querySelector('dl'))
+  await until(() => !!document.querySelector('[role=dialog] dl'))
   const dialog = required(document.querySelector('[role=dialog]'))
   const text = dialog.textContent ?? ''
   assert.ok(text.includes('Confirmed native consumption'))
@@ -1288,7 +1301,8 @@ test('closing usage or switching sessions aborts the read and discards delayed r
   )
   assert.equal(signals[0]?.aborted, true)
   await act(async () => finish?.())
-  assert.equal(document.querySelector('dl'), null)
+  assert.equal(document.querySelector('[role=dialog]'), null)
+  assert.equal(container.textContent?.includes('9,007,199,254,740,993'), false)
   await act(async () => button(container, 'Consumption').click())
   await until(() => signals.length === 2)
   await act(async () => {
@@ -1320,11 +1334,12 @@ test('a confirmed zero native window displays zero instead of an unavailable sta
   const container = await mount('channels')
   await until(() => !!container.textContent?.includes('Private provider'))
   await act(async () => button(container, 'Consumption').click())
-  await until(() => document.querySelectorAll('dd').length === 6)
-  for (const value of document.querySelectorAll('dd')) {
+  const dialog = required(document.querySelector('[role=dialog]'))
+  await until(() => dialog.querySelectorAll('dd').length === 6)
+  for (const value of dialog.querySelectorAll('dd')) {
     assert.match(value.textContent ?? '', /^0(?: Credits)?$/)
   }
-  assert.equal(document.querySelector('[role=dialog] [role=alert]'), null)
+  assert.equal(dialog.querySelector('[role=alert]'), null)
 })
 
 test('Sub2API automatic balances refresh individually and in a batch without clearing failed observations', async () => {
@@ -2106,7 +2121,7 @@ test('accounting capabilities gate window reads, display counters and provider r
         i18n.t(windowEnabled ? 'channelUsage.open' : 'channelBalance.title')
       ).click()
     )
-    await until(() => !!document.querySelector('dl'))
+    await until(() => !!document.querySelector('[role=dialog] dl'))
     const dialog = required(document.querySelector('[role=dialog]'))
     if (windowEnabled) {
       assert.equal(
@@ -2744,6 +2759,40 @@ test('the channel page exposes editing immediately without a configuration toggl
   assert.equal(container.querySelector('input[type=password]'), null)
 })
 
+test('cancelling the channel editor restores its opener and keeps the filtered card expanded', async () => {
+  api.request = (async (options: { method: string }) => {
+    assert.equal(options.method, 'GET', 'Cancelling must not publish the draft')
+    return { data: { success: true, data: fixture() } }
+  }) as typeof api.request
+  const container = await mount('channels')
+  await until(() => !!container.querySelector('article'))
+  const search = required(
+    container.querySelector<HTMLInputElement>('input[aria-label="Search"]')
+  )
+  await changeInput(search, 'Private')
+  const create = button(container, 'Create Channel')
+  await act(async () => create.click())
+  await act(async () =>
+    button(required(container.querySelector('form')), 'Cancel').click()
+  )
+  assert.ok(document.activeElement === create, 'Return to Create Channel')
+
+  const card = required(container.querySelector('article'))
+  const details = required(card.querySelector('details'))
+  details.open = true
+  const edit = button(card, 'Edit')
+  await act(async () => edit.click())
+  const form = required(container.querySelector('form'))
+  await changeInput(required(form.querySelector('input')), 'Unsaved name')
+  await act(async () => button(form, 'Cancel').click())
+  const dialog = required(document.querySelector('[role=dialog]'))
+  await act(async () => button(dialog, 'Leave').click())
+  await until(() => document.activeElement === edit)
+  assert.equal(container.querySelector('form'), null)
+  assert.equal(details.open, true)
+  assert.equal(search.value, 'Private')
+})
+
 test('channel drafts survive current-section clicks and require confirmation before switching or replacing the editor', async () => {
   api.request = (async (options: { method: string }) => {
     assert.equal(options.method, 'GET', 'Discarding a draft must not write')
@@ -2781,14 +2830,20 @@ test('channel drafts survive current-section clicks and require confirmation bef
     'page'
   )
 
-  await act(async () => button(container, 'Create Channel').click())
+  const create = button(container, 'Create Channel')
+  await act(async () => {
+    create.focus()
+    create.click()
+  })
   dialog = required(document.querySelector('[role=dialog]'))
   await act(async () => button(dialog, 'Leave').click())
   assert.ok(container.querySelector('form[aria-label="Create Channel"]'))
-  assert.equal(
-    (container.querySelector('form input') as HTMLInputElement).value,
-    ''
+  const replacementName = required(
+    container.querySelector<HTMLInputElement>('form input')
   )
+  assert.equal(replacementName.value, '')
+  await until(() => !document.querySelector('[role=dialog]'))
+  assert.ok(document.activeElement === replacementName, 'Focus the new editor')
   // An untouched replacement may close without another confirmation.
   await act(async () =>
     button(required(container.querySelector('form')), 'Cancel').click()
@@ -3121,9 +3176,17 @@ for (const unknown of [false, true]) {
 }
 
 test('channel search explains an empty result and clearing restores the compact channel list', async () => {
+  const config = fixture()
+  const route = config.routing.routes[0]
+  config.routing.routes.push({
+    ...route,
+    id: 2,
+    group: 'team',
+    targets: [{ ...route.targets[0], id: 2, priority: 5 }],
+  })
   api.request = (async (options: { method: string }) => {
     assert.equal(options.method, 'GET')
-    return { data: { success: true, data: fixture() } }
+    return { data: { success: true, data: config } }
   }) as typeof api.request
   const container = await mount('channels')
   await until(
@@ -3134,6 +3197,22 @@ test('channel search explains an empty result and clearing restores the compact 
   assert.equal(required(row.querySelector('details')).open, false)
   assert.equal(button(row, 'Edit').closest('details'), null)
   assert.equal(button(row, 'Test').closest('details'), null)
+  assert.equal(button(row, 'API Keys').closest('details'), null)
+  assert.ok(row.textContent?.includes(i18n.t('{{count}} models', { count: 1 })))
+  const layout = required(row.parentElement)
+  assert.equal(layout.dataset.layout, 'list')
+  assert.equal(row.querySelector('dd[title="0, 5"]')?.textContent, '0, 5')
+  assert.equal(row.querySelector('dd[title="1"]')?.textContent, '1')
+  const checkbox = required(row.querySelector<HTMLElement>('[role=checkbox]'))
+  await act(async () => checkbox.click())
+  const chooseCards = required(
+    container.querySelector<HTMLButtonElement>('button[aria-label="Card view"]')
+  )
+  await act(async () => chooseCards.click())
+  assert.equal(layout.dataset.layout, 'cards')
+  assert.equal(chooseCards.getAttribute('aria-pressed'), 'true')
+  assert.equal(container.querySelector('article'), row)
+  assert.equal(checkbox.getAttribute('aria-checked'), 'true')
   const search = required(
     container.querySelector<HTMLInputElement>('input[aria-label="Search"]')
   )
