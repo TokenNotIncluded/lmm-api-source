@@ -287,7 +287,7 @@ export const Route = createRootRouteWithContext<{
       isRestrictedPublicRoute(pathname) &&
       !isConsoleActivated(useAuthStore.getState().auth.user)
     ) {
-      throw redirect({ to: '/challenges' })
+      throw redirect({ to: '/' })
     }
   },
   component: RootComponent,

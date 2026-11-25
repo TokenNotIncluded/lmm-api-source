@@ -15,6 +15,7 @@ pub const SCHEMA: &str = include_str!("../schema/bounties.sql");
 pub type Result<T> = std::result::Result<T, Error>;
 #[derive(Debug)]
 pub enum Error {
+    Retired,
     Invalid,
     Forbidden,
     Missing,

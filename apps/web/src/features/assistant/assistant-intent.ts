@@ -26,7 +26,6 @@ export type AssistantNavigationPath =
   | '/keys'
   | '/drawing'
   | '/models'
-  | '/bounties'
   | '/support'
   | '/guide'
 
@@ -73,7 +72,7 @@ export function getExplicitAssistantNavigation(
     case 'models':
       return '/models'
     case 'bounty':
-      return '/bounties'
+      return '/support'
     case 'invitation':
       return '/wallet'
     case 'human_support':

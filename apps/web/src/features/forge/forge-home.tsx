@@ -97,12 +97,6 @@ const EXPLORE_DESTINATIONS = [
     description: 'Compare model capabilities and account pricing.',
   },
   {
-    id: 'challenges',
-    href: '/challenges',
-    label: 'Bounties',
-    description: 'Find focused work with funded reward slots.',
-  },
-  {
     id: 'scripts',
     href: '/scripts',
     label: 'Public scripts',

@@ -159,7 +159,7 @@ func (a *authority) Execute(ctx context.Context, token string, c Command) (Recei
 		return Receipt{}, ErrUnavailable
 	}
 	actor, _ := a.Authorize(ctx, token)
-	state := map[string]string{"publish": "published", "pause": "paused", "resume": "published", "accept": "accepted", "submit": "submitted", "approve": "approved", "open_dispute": "open", "resolve_dispute": "resolved_denied"}[c.Action]
+	state := map[string]string{"close": "closed", "publish": "published", "pause": "paused", "resume": "published", "accept": "accepted", "submit": "submitted", "approve": "approved", "open_dispute": "open", "resolve_dispute": "resolved_denied"}[c.Action]
 	if state == "" {
 		state = "approved"
 	}
@@ -179,11 +179,11 @@ func draft() Draft {
 }
 func invoke(t *testing.T, s *Service, token, action, op string) (Result, error) {
 	t.Helper()
-	return s.BuiltinInvoke(context.Background(), Invocation{Actor: Actor{Token: token}, Command: Command{Action: action, OperationID: op, ProjectID: "p"}, Draft: draft()})
+	return historicalInvoke(s, context.Background(), Invocation{Actor: Actor{Token: token}, Command: Command{Action: action, OperationID: op, ProjectID: "p"}, Draft: draft()})
 }
 func TestDraftOwnershipComesFromLiveSession(t *testing.T) {
 	s, _ := setup(t)
-	_, e := s.BuiltinInvoke(context.Background(), Invocation{Actor: Actor{Token: "owner-token", UserID: "attacker", Admin: true}, Command: Command{Action: "create_draft", OperationID: "create", ProjectID: "p"}, Draft: draft()})
+	_, e := historicalInvoke(s, context.Background(), Invocation{Actor: Actor{Token: "owner-token", UserID: "attacker", Admin: true}, Command: Command{Action: "create_draft", OperationID: "create", ProjectID: "p"}, Draft: draft()})
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -202,16 +202,16 @@ func TestPublishUsesFrozenDraftAndIdempotentReceipt(t *testing.T) {
 	s, a := setup(t)
 	invoke(t, s, "owner-token", "create_draft", "create")
 	in := Invocation{Actor: Actor{Token: "owner-token"}, Command: Command{Action: "publish", ProjectID: "p", OperationID: "publish", RewardCredit: 999, Confirmation: "c"}}
-	out, e := s.BuiltinInvoke(context.Background(), in)
+	out, e := historicalInvoke(s, context.Background(), in)
 	if e != nil || out.Project.Status != "published" || a.seen.RewardCredit != 100 {
 		t.Fatalf("%+v %v %v", out, e, a.seen)
 	}
-	_, e = s.BuiltinInvoke(context.Background(), in)
+	_, e = historicalInvoke(s, context.Background(), in)
 	if e != nil || a.calls != 1 {
 		t.Fatalf("retry %v calls %d", e, a.calls)
 	}
 	in.Command.Credit = 1
-	if _, e = s.BuiltinInvoke(context.Background(), in); e != ErrConflict {
+	if _, e = historicalInvoke(s, context.Background(), in); e != ErrConflict {
 		t.Fatalf("operation substitution %v", e)
 	}
 }
@@ -237,26 +237,26 @@ func TestCrossRepositoryEvidenceAndOwnerSelfAccept(t *testing.T) {
 	invoke(t, s, "owner-token", "create_draft", "create")
 	invoke(t, s, "owner-token", "publish", "publish")
 	in := Invocation{Actor: Actor{Token: "owner-token"}, Command: Command{Action: "accept", ProjectID: "p", ChallengeID: "ch", OperationID: "accept", GithubHandle: "dev"}}
-	if _, e := s.BuiltinInvoke(context.Background(), in); e != ErrForbidden {
+	if _, e := historicalInvoke(s, context.Background(), in); e != ErrForbidden {
 		t.Fatal(e)
 	}
 	in.Actor.Token = "worker-token"
-	if _, e := s.BuiltinInvoke(context.Background(), in); e != nil {
+	if _, e := historicalInvoke(s, context.Background(), in); e != nil {
 		t.Fatal(e)
 	}
 	in.Command = Command{Action: "submit", ProjectID: "p", ChallengeID: "ch", OperationID: "submit", PullRequestURL: "https://github.com/other/repo/pull/1"}
-	if _, e := s.BuiltinInvoke(context.Background(), in); e != ErrInvalid {
+	if _, e := historicalInvoke(s, context.Background(), in); e != ErrInvalid {
 		t.Fatal(e)
 	}
 	in.Command.PullRequestURL = "https://github.com/owner/repo/pull/1"
-	if _, e := s.BuiltinInvoke(context.Background(), in); e != nil {
+	if _, e := historicalInvoke(s, context.Background(), in); e != nil {
 		t.Fatal(e)
 	}
 }
 func TestPreviewDoesNotMutateAndTokenNeverSerializes(t *testing.T) {
 	s, a := setup(t)
 	invoke(t, s, "owner-token", "create_draft", "create")
-	out, e := s.BuiltinInvoke(context.Background(), Invocation{Actor: Actor{Token: "owner-token"}, Command: Command{Action: "publish", ProjectID: "p", OperationID: "pub"}, Preview: true})
+	out, e := historicalInvoke(s, context.Background(), Invocation{Actor: Actor{Token: "owner-token"}, Command: Command{Action: "publish", ProjectID: "p", OperationID: "pub"}, Preview: true})
 	if e != nil || out.Receipt.Confirmation == "" || a.calls != 0 {
 		t.Fatalf("%+v %v", out, e)
 	}
@@ -285,25 +285,25 @@ func TestChallengeAndDisputeOnlyCallsResolvePersistedProject(t *testing.T) {
 	invoke(t, s, "owner-token", "publish", "pub")
 	ctx := context.Background()
 	in := Invocation{Actor: Actor{Token: "worker-token"}, Command: Command{Action: "accept", OperationID: "accept", ProjectID: "p", ChallengeID: "ch", GithubHandle: "dev"}}
-	if _, e := s.BuiltinInvoke(ctx, in); e != nil {
+	if _, e := historicalInvoke(s, ctx, in); e != nil {
 		t.Fatal(e)
 	}
 	in.Command = Command{Action: "submit", OperationID: "submit", ChallengeID: "ch", PullRequestURL: "https://github.com/owner/repo/pull/1"}
-	if _, e := s.BuiltinInvoke(ctx, in); e != nil {
+	if _, e := historicalInvoke(s, ctx, in); e != nil {
 		t.Fatal(e)
 	}
 	in.Command = Command{Action: "open_dispute", OperationID: "open", ChallengeID: "ch", DisputeID: "d", Reason: "other", Statement: strings.Repeat("s", 20)}
-	if _, e := s.BuiltinInvoke(ctx, in); e != nil {
+	if _, e := historicalInvoke(s, ctx, in); e != nil {
 		t.Fatal(e)
 	}
 	in.Actor.Token = "admin-token"
 	in.Command = Command{Action: "resolve_dispute", OperationID: "resolve", DisputeID: "d", ResolveAction: "deny", Resolution: strings.Repeat("r", 20)}
-	out, e := s.BuiltinInvoke(ctx, in)
+	out, e := historicalInvoke(s, ctx, in)
 	if e != nil || out.Receipt.ProjectID != "p" || out.Receipt.ChallengeID != "ch" {
 		t.Fatalf("%+v %v", out, e)
 	}
 	in.Command = Command{Action: "approve", OperationID: "substitute", ProjectID: "other", ChallengeID: "ch"}
-	if _, e := s.BuiltinInvoke(ctx, in); e != ErrConflict {
+	if _, e := historicalInvoke(s, ctx, in); e != ErrConflict {
 		t.Fatal(e)
 	}
 }
@@ -313,16 +313,16 @@ func TestBoardSecondPageUsesPublishedTimeNotRandomID(t *testing.T) {
 	for n, id := range []string{"zzz", "aaa", "mmm"} {
 		s.Now = func() time.Time { return time.Unix(int64(100+n), 0) }
 		in := Invocation{Actor: Actor{Token: "owner-token"}, Draft: draft(), Command: Command{Action: "create_draft", OperationID: "draft-" + id, ProjectID: id}}
-		if _, e := s.BuiltinInvoke(ctx, in); e != nil {
+		if _, e := historicalInvoke(s, ctx, in); e != nil {
 			t.Fatal(e)
 		}
 		in.Command.Action = "publish"
 		in.Command.OperationID = "publish-" + id
-		if _, e := s.BuiltinInvoke(ctx, in); e != nil {
+		if _, e := historicalInvoke(s, ctx, in); e != nil {
 			t.Fatal(e)
 		}
 	}
-	out, e := s.BuiltinInvoke(ctx, Invocation{Actor: Actor{Token: "worker-token"}, Command: Command{Action: "list"}, Page: 2, PageSize: 1})
+	out, e := historicalInvoke(s, ctx, Invocation{Actor: Actor{Token: "worker-token"}, Command: Command{Action: "list"}, Page: 2, PageSize: 1})
 	if e != nil || len(out.Items) != 1 {
 		t.Fatalf("%+v %v", out, e)
 	}
@@ -331,17 +331,17 @@ func TestBoardSecondPageUsesPublishedTimeNotRandomID(t *testing.T) {
 	if p.ID != "aaa" || p.PublishedAt != 101 {
 		t.Fatalf("wrong second page %+v", p)
 	}
-	out, e = s.BuiltinInvoke(ctx, Invocation{Actor: Actor{Token: "owner-token"}, Command: Command{Action: "list_owned"}, Page: 2, PageSize: 1})
+	out, e = historicalInvoke(s, ctx, Invocation{Actor: Actor{Token: "owner-token"}, Command: Command{Action: "list_owned"}, Page: 2, PageSize: 1})
 	if e != nil || len(out.Items) != 1 {
 		t.Fatalf("%+v %v", out, e)
 	}
 }
 func TestDisputeListAllowsHundredAndOrdinaryListRejectsIt(t *testing.T) {
 	s, _ := setup(t)
-	if _, e := s.BuiltinInvoke(context.Background(), Invocation{Actor: Actor{Token: "owner-token"}, Command: Command{Action: "list_disputes"}, Limit: 100}); e != nil {
+	if _, e := historicalInvoke(s, context.Background(), Invocation{Actor: Actor{Token: "owner-token"}, Command: Command{Action: "list_disputes"}, Limit: 100}); e != nil {
 		t.Fatal(e)
 	}
-	if _, e := s.BuiltinInvoke(context.Background(), Invocation{Actor: Actor{Token: "owner-token"}, Command: Command{Action: "list"}, Limit: 100}); e != ErrInvalid {
+	if _, e := historicalInvoke(s, context.Background(), Invocation{Actor: Actor{Token: "owner-token"}, Command: Command{Action: "list"}, Limit: 100}); e != ErrInvalid {
 		t.Fatal(e)
 	}
 }
@@ -358,7 +358,7 @@ func TestDisputeStatusFilterRunsBeforePagination(t *testing.T) {
 		return nil
 	})
 	in := Invocation{Actor: Actor{Token: "owner-token"}, Command: Command{Action: "list_disputes"}, Status: " resolved_paid ", Page: 2, PageSize: 1}
-	out, e := s.BuiltinInvoke(ctx, in)
+	out, e := historicalInvoke(s, ctx, in)
 	if e != nil || len(out.Items) != 1 {
 		t.Fatalf("%+v %v", out, e)
 	}
@@ -368,7 +368,7 @@ func TestDisputeStatusFilterRunsBeforePagination(t *testing.T) {
 		t.Fatalf("%+v", d)
 	}
 	in.Status = "closed"
-	if _, e = s.BuiltinInvoke(ctx, in); e != ErrInvalid {
+	if _, e = historicalInvoke(s, ctx, in); e != ErrInvalid {
 		t.Fatal(e)
 	}
 }
@@ -377,21 +377,21 @@ func TestTipNoteBoundedAndRatingFieldsPreserved(t *testing.T) {
 	invoke(t, s, "owner-token", "create_draft", "create")
 	invoke(t, s, "owner-token", "publish", "publish")
 	in := Invocation{Actor: Actor{Token: "worker-token"}, Command: Command{Action: "accept", OperationID: "accept", ProjectID: "p", ChallengeID: "ch", GithubHandle: "dev"}}
-	if _, e := s.BuiltinInvoke(context.Background(), in); e != nil {
+	if _, e := historicalInvoke(s, context.Background(), in); e != nil {
 		t.Fatal(e)
 	}
 	in.Actor.Token = "owner-token"
 	in.Command = Command{Action: "tip", OperationID: "tip", ChallengeID: "ch", Credit: 5, ReviewNote: strings.Repeat("x", 501)}
-	if _, e := s.BuiltinInvoke(context.Background(), in); e != ErrInvalid {
+	if _, e := historicalInvoke(s, context.Background(), in); e != ErrInvalid {
 		t.Fatal(e)
 	}
 	in.Command.ReviewNote = " thank you "
-	if _, e := s.BuiltinInvoke(context.Background(), in); e != nil || a.seen.ReviewNote != "thank you" {
+	if _, e := historicalInvoke(s, context.Background(), in); e != nil || a.seen.ReviewNote != "thank you" {
 		t.Fatal(e, a.seen.ReviewNote)
 	}
 	in.Actor.Token = "worker-token"
 	in.Command = Command{Action: "rate_owner", OperationID: "rate", ChallengeID: "ch", RatingScore: 4, RatingComment: "clear requirements"}
-	out, e := s.BuiltinInvoke(context.Background(), in)
+	out, e := historicalInvoke(s, context.Background(), in)
 	if e != nil || out.Challenge.ContributorRatingScore != 4 || out.Challenge.ContributorRatingComment != "clear requirements" {
 		t.Fatalf("%+v %v", out, e)
 	}
@@ -504,4 +504,12 @@ func (m *memoryTx) Appeals(project string, now int64) (int64, int64, error) {
 		}
 	}
 	return n, ends, e
+}
+
+// historicalInvoke constructs and checks pre-retirement records in test stores.
+func historicalInvoke(s *Service, ctx context.Context, in Invocation) (Result, error) {
+	if AvailableAction(in.Command.Action) {
+		return s.BuiltinInvoke(ctx, in)
+	}
+	return s.invoke(ctx, in, false)
 }
