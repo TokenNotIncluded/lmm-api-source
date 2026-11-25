@@ -33,6 +33,16 @@ pub(crate) async fn authorize_admin_read_snapshot(
     crate::identity::admin_users::AdminUsersStore::authorize(connection, secret).await
 }
 
+/// Administrator read admission inside a caller-owned serializable transaction.
+/// Reuses the complete current-role/imported-policy checks and native authority
+/// lock order. This does not grant a business mutation or spending permission.
+pub(crate) async fn authorize_admin_read_locked(
+    connection: &mut PgConnection,
+    secret: &str,
+) -> Result<crate::identity::Principal, crate::identity::admin_users::AdminUsersError> {
+    crate::identity::admin_users::AdminUsersStore::authorize_locked(connection, secret).await
+}
+
 pub const CONTRACT_VERSION: &str = "core.permissions.v1";
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

@@ -114,6 +114,52 @@ Do not echo secret contents or place URLs/tokens in process arguments.
    reload, then compare the public management responses with their intended
    Core/Go backends. The isolated source check is
    `python3 -B deployment/native/test_management_routes.py`.
+
+   The same native console server needs the
+   [assistant browser snippet](templates/native-assistant-browser-locations.conf)
+   for owner pages and confirmation links:
+
+   ```nginx
+   include /etc/nginx/lmm/native-assistant-browser-locations.conf;
+   ```
+
+   | Browser surface | Allowed methods | Core behavior |
+   | --- | --- | --- |
+   | `/api/user/auth/assistant/weekly-discounts` | GET, HEAD | Owner history; `before_week` is validated by Core. |
+   | `/api/user/auth/assistant/weekly-discounts/{id}` | GET, HEAD, POST | Read the original decision or explicitly claim it. Document navigation opens `/weekly-discounts?id={id}`. |
+   | `/api/user/auth/assistant/confirmations/ui.js` | GET, HEAD | Current confirmation script. |
+   | `/api/user/auth/assistant/confirmations/{id}` and `/{id}/key` | GET, HEAD, POST | Original browser confirmation and private key reveal. |
+   | `/api/user/assistant/confirmations/ui.js`, `/{id}`, and `/{id}/key` | GET, HEAD | Same-origin redirect to the current prefix. POST returns 405. |
+
+   Every `{id}` is exactly 64 lowercase hexadecimal characters. The snippet
+   checks the raw URI before forwarding, so encoded IDs, dot segments, extra
+   suffixes and query parameters on individual decisions cannot become different
+   requests through Nginx normalization. Adjacent authentication and Core paths
+   retain the site's existing policy. The selected Core listener, `Host`,
+   forwarded HTTPS scheme and client IP conventions match the management
+   snippet. The original browser `Origin`, cookie and CSRF header pass through
+   unchanged; Nginx never creates a user credential. Upstream retries and proxy
+   caching are disabled for these private responses.
+
+   The [Core browser router](../../services/core/src/assistant_tools_core/confirmation.rs)
+   and [weekly browser handlers](../../services/core/src/assistant_tools_core/weekly/browser.rs)
+   remain the authorization boundary. The weekly page uses same-origin JSON
+   requests under the existing refresh-cookie path, and displays the server's
+   `current_utc_week` when separating current and historical decisions. A page
+   redirect cannot approve an action or issue a discount code. After an unknown
+   claim outcome, the [owner page](../../apps/web/src/features/weekly-discounts)
+   queries the same decision; it never automatically submits another claim.
+   Private codes are held in page memory and cleared on page departure or a
+   user/session change.
+
+   Keep `/weekly-discounts` in the site's reviewed SPA fallback. Install both the
+   matching Web route and Core handlers before exposing this include. Validate
+   the merged server configuration with `nginx -t`. The isolated source check,
+   `python3 -B deployment/native/test_assistant_browser_routes.py`, runs a local
+   Nginx instance against synthetic HTTP stubs and checks URI, method and header
+   forwarding. It does not verify the deployed network, browser cookie jar,
+   PostgreSQL permissions or real Core authorization; those require the same
+   reviewed deployment's end-to-end checks.
 6. Explicitly initialize the **new, verified empty** database once using the
    separate offline owner TOML and `lmm-core --config /absolute/owner.toml init-db`.
    Provision exact reviewed runtime grants. Normal start/update never initializes

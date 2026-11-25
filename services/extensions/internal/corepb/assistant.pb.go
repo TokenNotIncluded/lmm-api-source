@@ -24,11 +24,12 @@ const (
 type AssistantBusinessFactKind int32
 
 const (
-	AssistantBusinessFactKind_ASSISTANT_BUSINESS_FACT_KIND_UNSPECIFIED         AssistantBusinessFactKind = 0
-	AssistantBusinessFactKind_ASSISTANT_BUSINESS_FACT_KIND_AVAILABLE_MODELS    AssistantBusinessFactKind = 1
-	AssistantBusinessFactKind_ASSISTANT_BUSINESS_FACT_KIND_SUPPORT_ELIGIBILITY AssistantBusinessFactKind = 2
-	AssistantBusinessFactKind_ASSISTANT_BUSINESS_FACT_KIND_PLAN_OFFERS         AssistantBusinessFactKind = 3
-	AssistantBusinessFactKind_ASSISTANT_BUSINESS_FACT_KIND_INVITATION_REWARDS  AssistantBusinessFactKind = 4
+	AssistantBusinessFactKind_ASSISTANT_BUSINESS_FACT_KIND_UNSPECIFIED                     AssistantBusinessFactKind = 0
+	AssistantBusinessFactKind_ASSISTANT_BUSINESS_FACT_KIND_AVAILABLE_MODELS                AssistantBusinessFactKind = 1
+	AssistantBusinessFactKind_ASSISTANT_BUSINESS_FACT_KIND_SUPPORT_ELIGIBILITY             AssistantBusinessFactKind = 2
+	AssistantBusinessFactKind_ASSISTANT_BUSINESS_FACT_KIND_PLAN_OFFERS                     AssistantBusinessFactKind = 3
+	AssistantBusinessFactKind_ASSISTANT_BUSINESS_FACT_KIND_INVITATION_REWARDS              AssistantBusinessFactKind = 4
+	AssistantBusinessFactKind_ASSISTANT_BUSINESS_FACT_KIND_ADMIN_USER_SKILLS_AUTHORIZATION AssistantBusinessFactKind = 5
 )
 
 // Enum value maps for AssistantBusinessFactKind.
@@ -39,13 +40,15 @@ var (
 		2: "ASSISTANT_BUSINESS_FACT_KIND_SUPPORT_ELIGIBILITY",
 		3: "ASSISTANT_BUSINESS_FACT_KIND_PLAN_OFFERS",
 		4: "ASSISTANT_BUSINESS_FACT_KIND_INVITATION_REWARDS",
+		5: "ASSISTANT_BUSINESS_FACT_KIND_ADMIN_USER_SKILLS_AUTHORIZATION",
 	}
 	AssistantBusinessFactKind_value = map[string]int32{
-		"ASSISTANT_BUSINESS_FACT_KIND_UNSPECIFIED":         0,
-		"ASSISTANT_BUSINESS_FACT_KIND_AVAILABLE_MODELS":    1,
-		"ASSISTANT_BUSINESS_FACT_KIND_SUPPORT_ELIGIBILITY": 2,
-		"ASSISTANT_BUSINESS_FACT_KIND_PLAN_OFFERS":         3,
-		"ASSISTANT_BUSINESS_FACT_KIND_INVITATION_REWARDS":  4,
+		"ASSISTANT_BUSINESS_FACT_KIND_UNSPECIFIED":                     0,
+		"ASSISTANT_BUSINESS_FACT_KIND_AVAILABLE_MODELS":                1,
+		"ASSISTANT_BUSINESS_FACT_KIND_SUPPORT_ELIGIBILITY":             2,
+		"ASSISTANT_BUSINESS_FACT_KIND_PLAN_OFFERS":                     3,
+		"ASSISTANT_BUSINESS_FACT_KIND_INVITATION_REWARDS":              4,
+		"ASSISTANT_BUSINESS_FACT_KIND_ADMIN_USER_SKILLS_AUTHORIZATION": 5,
 	}
 )
 
@@ -2728,13 +2731,14 @@ const file_lmm_core_v1_assistant_proto_rawDesc = "" +
 	"\x0fexpires_at_unix\x18\v \x01(\x03R\rexpiresAtUnix\x12\x14\n" +
 	"\x05state\x18\f \x01(\tR\x05state\x12!\n" +
 	"\fbrowser_path\x18\r \x01(\tR\vbrowserPath\x12\x1a\n" +
-	"\bexecuted\x18\x0e \x01(\bR\bexecuted*\x95\x02\n" +
+	"\bexecuted\x18\x0e \x01(\bR\bexecuted*\xd7\x02\n" +
 	"\x19AssistantBusinessFactKind\x12,\n" +
 	"(ASSISTANT_BUSINESS_FACT_KIND_UNSPECIFIED\x10\x00\x121\n" +
 	"-ASSISTANT_BUSINESS_FACT_KIND_AVAILABLE_MODELS\x10\x01\x124\n" +
 	"0ASSISTANT_BUSINESS_FACT_KIND_SUPPORT_ELIGIBILITY\x10\x02\x12,\n" +
 	"(ASSISTANT_BUSINESS_FACT_KIND_PLAN_OFFERS\x10\x03\x123\n" +
-	"/ASSISTANT_BUSINESS_FACT_KIND_INVITATION_REWARDS\x10\x04*\x8b\x02\n" +
+	"/ASSISTANT_BUSINESS_FACT_KIND_INVITATION_REWARDS\x10\x04\x12@\n" +
+	"<ASSISTANT_BUSINESS_FACT_KIND_ADMIN_USER_SKILLS_AUTHORIZATION\x10\x05*\x8b\x02\n" +
 	"\x17AssistantOperationState\x12)\n" +
 	"%ASSISTANT_OPERATION_STATE_UNSPECIFIED\x10\x00\x12&\n" +
 	"\"ASSISTANT_OPERATION_STATE_RESERVED\x10\x01\x12'\n" +

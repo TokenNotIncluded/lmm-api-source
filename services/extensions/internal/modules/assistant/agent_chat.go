@@ -1,6 +1,7 @@
 package assistant
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -518,6 +519,27 @@ func (s *AgentChat) consumeTool(ctx context.Context, credential string, p access
 	}
 	if tool.Result == nil || tool.Result.State == AgentToolPending {
 		return false, nil
+	}
+	if call.Scope.Name == "get_admin_user_skills" && terminalAgentResult(tool.Result.State) {
+		// A terminal journal result is not current cross-user authority. Recheck
+		// before every active submission, including retries after a lost ACK.
+		// Inspect returns the same immutable result; it never executes again.
+		actor, err := s.actor(ctx, credential)
+		if err != nil {
+			return false, err
+		}
+		if actor.UserID != p.UserID || actor.Account != p.Account {
+			return false, access.ErrForbidden
+		}
+		observed, err := s.registry.Inspect(ctx, AgentInvocation{
+			Credential: credential, Actor: actor, Call: call, OriginalUserText: input,
+		})
+		if err != nil {
+			return false, agentRecoveryError(err)
+		}
+		if !sameAgentJSON(*tool.Result, observed) || !bytes.Equal(tool.Result.ResultJSON, observed.ResultJSON) {
+			return false, ErrDelegationUnknown
+		}
 	}
 	receipt, err := s.port.CompleteAgentTool(ctx, credential, AgentToolCompletion{Claim: claimInput, Result: *tool.Result})
 	if err != nil {

@@ -1,3 +1,6 @@
+#[path = "common/core_binary.rs"]
+mod core_binary_input;
+
 use lmm_core::identity::IdentityStore;
 use sqlx::PgPool;
 use std::{
@@ -9,7 +12,7 @@ use std::{
 mod runtime;
 
 fn file_core(args: &[&str]) -> Command {
-    let mut command = Command::new(env!("CARGO_BIN_EXE_lmm-core"));
+    let mut command = Command::new(core_binary_input::path());
     command
         .args(args)
         .env_clear()

@@ -9,13 +9,19 @@ const bootstrap = readFileSync(
   'utf8'
 )
 const html = readFileSync(new URL('../index.html', import.meta.url), 'utf8')
-const tracker = html
-  .match(/<script>\s*\/\/ Also fail closed[\s\S]*?<\/script>/)[0]
-  .replace(/<\/?script>/g, '')
+const scripts = [...html.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script>/gi)]
+assert.ok(
+  scripts.length > 0,
+  'the actual page bootstrap scripts must be present'
+)
 function page(path, runBootstrap = true) {
   const location = new URL('https://shop.example' + path)
   const elements = []
   const document = {
+    cookie: '',
+    documentElement: { classList: { add: () => {} } },
+    body: { dataset: {}, setAttribute: () => {} },
+    querySelector: () => null,
     createElement: (tag) => ({ tag, dataset: {} }),
     head: { appendChild: (el) => elements.push(el) },
   }
@@ -25,18 +31,32 @@ function page(path, runBootstrap = true) {
       location.href = new URL(value, location).href
     },
   }
-  const window = { location, history }
+  const window = { location, history, matchMedia: () => ({ matches: false }) }
   const context = vm.createContext({
     window,
     location,
     document,
     URLSearchParams,
   })
-  if (runBootstrap) vm.runInContext(bootstrap, context)
-  vm.runInContext(tracker, context)
+  for (const [, attributes, code] of scripts) {
+    const source = attributes.match(
+      /\bsrc\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'=<>`]+))/i
+    )
+    if (source) {
+      assert.equal(
+        source[1] ?? source[2] ?? source[3],
+        '/extore-callback.js',
+        'the page must not introduce an unreviewed script source'
+      )
+      if (runBootstrap) vm.runInContext(bootstrap, context)
+    } else {
+      assert.doesNotMatch(attributes, /\bsrc\b/i)
+      vm.runInContext(code, context)
+    }
+  }
   return { window, elements }
 }
-test('captures callbacks before trackers, strips history, and blocks external connections', () => {
+test('captures callbacks, strips history, and blocks external connections', () => {
   for (const query of [
     'code=fixture&state=fixture&iss=fixture',
     'error=access_denied&state=fixture',
@@ -64,8 +84,8 @@ test('captures callbacks before trackers, strips history, and blocks external co
     )
   }
 })
-test('ordinary pages keep analytics; a missing bootstrap never enables callback tracking', () => {
-  assert.equal(page('/').elements.filter((el) => el.tag === 'script').length, 1)
+test('ordinary pages and callbacks never inject tracking, including a missing bootstrap', () => {
+  assert.equal(page('/').elements.filter((el) => el.tag === 'script').length, 0)
   assert.equal(
     page('/store/manage?code=fixture', false).elements.filter(
       (el) => el.tag === 'script'

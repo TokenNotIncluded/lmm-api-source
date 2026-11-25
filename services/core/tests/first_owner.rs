@@ -1,4 +1,7 @@
 //! Actual offline command and BrowserAuth against SQLx-owned fresh PostgreSQL.
+#[path = "common/core_binary.rs"]
+mod core_binary_input;
+
 use lmm_core::{
     console_compat::ConsoleCompat,
     core_schema,
@@ -78,7 +81,7 @@ impl Drop for PrivateConfig {
     }
 }
 fn invoke(arguments: &[&str], input: &str) -> Output {
-    let mut child = Command::new(env!("CARGO_BIN_EXE_lmm-core"))
+    let mut child = Command::new(core_binary_input::path())
         .args(arguments)
         .env_clear()
         .stdin(Stdio::piped())

@@ -11,6 +11,13 @@ import (
 )
 
 func (s *Service) dispatch(ctx context.Context, tx *sql.Tx, in assistant.AgentInvocation, p access.Principal, session [32]byte) (assistant.AgentToolResult, error) {
+	if in.Call.Scope.Name == adminSkillsTool {
+		value, err := s.adminSkillsRead(ctx, tx, in, p)
+		if err != nil {
+			return assistant.AgentToolResult{}, err
+		}
+		return result(in.Call.OperationID, assistant.AgentToolSucceeded, value, "service:"+in.Call.OperationID)
+	}
 	if value, handled, err := s.memoryTool(ctx, tx, in, p); handled {
 		if err != nil {
 			return assistant.AgentToolResult{}, err

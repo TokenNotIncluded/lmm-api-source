@@ -17,8 +17,9 @@ owner_role = sys.argv[3]
 assert re.fullmatch(r"[a-z_][a-z0-9_]{0,62}", owner_role), "synthetic owner identifier required"
 # libpq subprocesses do not read DATABASE_URL. Require the caller to bind the
 # synthetic cluster explicitly, so createdb can never fall back to a host DB.
-# SQLx creates quoted database names, which may contain uppercase ASCII.
-assert re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]{0,62}", database), "synthetic database required"
+# SQLx 0.9 uses a 52-character Base64 hash after this fixed namespace.
+# The hash preserves ASCII case and replaces hyphens with underscores.
+assert re.fullmatch(r"_sqlx_test_[A-Za-z0-9_]{52}", database), "synthetic database required"
 required_pg = {name: os.environ.get(name, '')
                for name in ('PGHOST', 'PGPORT', 'PGUSER', 'PGDATABASE')}
 assert all(required_pg.values()), "explicit synthetic PGHOST/PGPORT/PGUSER/PGDATABASE required"

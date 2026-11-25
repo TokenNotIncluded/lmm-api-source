@@ -381,4 +381,3 @@ class StaticWeb:
         rg.record(self.root, "web-closed.json", {
             "unit": self.unit, "owner": self.owner, "processes_and_cgroups_removed": True,
         })
-

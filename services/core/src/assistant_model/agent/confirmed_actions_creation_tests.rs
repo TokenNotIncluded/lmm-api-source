@@ -81,10 +81,50 @@ async fn confirmed_key_creation_issues_once_and_original_browser_consumes_secret
         .fetch_one(&pool)
         .await
         .unwrap();
-    let (a, b) = tokio::join!(
-        f.post(&id, csrf, &nonce, json!({"decision":"approve"})),
-        f.post(&id, csrf, &nonce, json!({"decision":"approve"}))
-    );
+    // Make both real browser transactions wait at the versioned gate before
+    // either can approve. The second rebuilds only its empty gate transaction,
+    // then reads and returns the exact same already committed receipt.
+    let mut gate = pool.begin().await.unwrap();
+    sqlx::query("SELECT id FROM core_humangrant.human_grant_gate WHERE id = 1 FOR UPDATE")
+        .fetch_one(&mut *gate)
+        .await
+        .unwrap();
+    let gate_pid: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
+        .fetch_one(&mut *gate)
+        .await
+        .unwrap();
+    let posts = async {
+        tokio::join!(
+            f.post(&id, csrf, &nonce, json!({"decision":"approve"})),
+            f.post(&id, csrf, &nonce, json!({"decision":"approve"}))
+        )
+    };
+    let observe = pool.clone();
+    let release = async move {
+        loop {
+            let waiting: i64 = sqlx::query_scalar(
+                "SELECT count(*) FROM pg_stat_activity
+                 WHERE datname=current_database() AND pid<>$1
+                   AND state='active' AND wait_event_type='Lock'
+                   AND query='UPDATE core_humangrant.human_grant_gate SET revision = revision WHERE id = 1 RETURNING id'",
+            )
+            .bind(gate_pid)
+            .fetch_one(&observe)
+            .await
+            .unwrap();
+            if waiting == 2 {
+                break;
+            }
+            tokio::task::yield_now().await;
+        }
+        gate.rollback().await.unwrap();
+    };
+    // These are owned futures, so a failure drops the held transaction too.
+    let ((a, b), ()) = tokio::time::timeout(std::time::Duration::from_secs(5), async {
+        tokio::join!(posts, release)
+    })
+    .await
+    .expect("both browser approvals must wait at the gate and finish after release");
     assert_eq!(a.0, reqwest::StatusCode::OK);
     assert_eq!(b.0, reqwest::StatusCode::OK);
     assert_eq!(a.1["receipt"], b.1["receipt"]);

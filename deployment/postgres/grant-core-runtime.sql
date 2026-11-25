@@ -385,6 +385,10 @@ GRANT SELECT ON core_subscriptions.reset_codes,core_subscriptions.reset_vouchers
     core_payments.legacy_discount_consumptions,core_billing.legacy_pending_liabilities,
     core_billing.legacy_pending_liability_receipts TO :"runtime_role";
 GRANT EXECUTE ON FUNCTION core_payments.lock_legacy_discount_code(BIGINT) TO :"runtime_role";
+-- Read only the owner restriction needed by coupon consumption.
+GRANT USAGE ON SCHEMA core_weekly,core_payments TO :"runtime_role";
+GRANT SELECT(code_id,user_id) ON core_weekly.weekly_discounts TO :"runtime_role";
+GRANT SELECT ON core_payments.weekly_discount_owners TO :"runtime_role";
 -- END legacy-packet-continuity runtime grants
 -- END promotions runtime grants
 \endif
@@ -637,6 +641,10 @@ GRANT SELECT ON core_payments.legacy_discount_bases,core_payments.legacy_discoun
 -- BEGIN payment-discount-management runtime grants
 -- Runtime appends management facts; no deletion, rewriting or extension access.
 GRANT SELECT,INSERT ON core_payments.discount_code_tombstones,core_payments.discount_management_batches TO :"runtime_role";
+-- Read only the owner restriction needed by coupon consumption.
+GRANT USAGE ON SCHEMA core_weekly,core_payments TO :"runtime_role";
+GRANT SELECT(code_id,user_id) ON core_weekly.weekly_discounts TO :"runtime_role";
+GRANT SELECT ON core_payments.weekly_discount_owners TO :"runtime_role";
 -- END payment-discount-management runtime grants
 \endif
 \if :enable_humangrant
@@ -653,6 +661,20 @@ GRANT UPDATE(nonce_sha256,state,confirmed_at,execution_receipt,execution_sha256,
 GRANT SELECT,INSERT ON core_assistant_tools.key_creation_cards TO :"runtime_role";
 GRANT UPDATE(nonce_sha256,ciphertext,consumed_at) ON core_assistant_tools.key_creation_cards TO :"runtime_role";
 GRANT EXECUTE ON FUNCTION core_assistant_tools.market_confirmation_bound(TEXT) TO :"runtime_role";
+-- BEGIN assistant-weekly browser runtime grants
+-- Read only the owner restriction needed by coupon consumption.
+GRANT USAGE ON SCHEMA core_weekly,core_payments TO :"runtime_role";
+GRANT SELECT(code_id,user_id) ON core_weekly.weekly_discounts TO :"runtime_role";
+GRANT SELECT ON core_payments.weekly_discount_owners TO :"runtime_role";
+-- Browser claim can refresh a nonce and invoke bounded coupon issuance.
+GRANT USAGE ON SCHEMA core_weekly,core_payments TO :"runtime_role";
+GRANT SELECT ON core_weekly.weekly_discounts,core_weekly.weekly_discount_policy TO :"runtime_role";
+GRANT UPDATE(claim_nonce_sha256,claim_nonce_expires_at)
+    ON core_weekly.weekly_discounts TO :"runtime_role";
+GRANT EXECUTE ON FUNCTION core_weekly.lock_weekly_discount_policy(),
+    core_weekly.claim_weekly_discount_code(TEXT,TEXT),
+    core_weekly.claimed_weekly_discount_code(TEXT,BIGINT,BIGINT) TO :"runtime_role";
+-- END assistant-weekly browser runtime grants
 \endif
 \if :enable_assistant
 GRANT USAGE ON SCHEMA core_assistant TO :"runtime_role";
@@ -681,6 +703,12 @@ GRANT UPDATE(state,claim_key,result_json,result_sha256,domain_receipt_id)
     ON core_assistant.agent_tool_operations TO :"runtime_role";
 GRANT USAGE,SELECT ON SEQUENCE core_assistant.operations_position_seq,
     core_assistant.agent_tool_observations_position_seq TO :"runtime_role";
+-- The worker may insert native decisions; origin and claim columns are excluded.
+GRANT USAGE ON SCHEMA core_weekly TO :"runtime_role";
+GRANT SELECT ON core_weekly.weekly_discounts,core_weekly.weekly_discount_policy TO :"runtime_role";
+GRANT INSERT(id,user_id,account_id,week_start,status,discount_percent,reason,conversation_id,operation_id,credential_id,auth_version,web_session_sid,created_at)
+    ON core_weekly.weekly_discounts TO :"runtime_role";
+GRANT EXECUTE ON FUNCTION core_weekly.lock_weekly_discount_policy() TO :"runtime_role";
 -- END assistant-agent runtime grants
 \endif
 \if :enable_tool_market

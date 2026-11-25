@@ -3,6 +3,7 @@
 pub mod account;
 pub(crate) mod actions;
 pub mod admin_catalog;
+pub(crate) mod admin_skills;
 pub mod confirmation;
 pub mod context;
 pub mod facts;
@@ -12,6 +13,7 @@ pub mod models;
 mod normalization;
 mod plan_offers;
 pub mod redaction;
+pub(crate) mod weekly;
 pub mod registration {
     use super::{Error, context::VerifiedToolContext};
     use serde_json::{Value, json};
@@ -115,6 +117,7 @@ pub enum TypedReadArgs {
     AdminPricingAudit(admin_catalog::PricingAuditArgs),
     ListMyApiKeys(keys::ListMyApiKeys),
     NewUserGiftStatus,
+    WeeklyDiscountStatus,
     RegistrationRisk,
     TechnicalSupportEligibility,
 }
@@ -167,6 +170,10 @@ impl TypedReadArgs {
                 empty(bytes)?;
                 Self::NewUserGiftStatus
             }
+            "get_weekly_discount_status" => {
+                empty(bytes)?;
+                Self::WeeklyDiscountStatus
+            }
             "get_registration_risk" => {
                 empty(bytes)?;
                 Self::RegistrationRisk
@@ -187,6 +194,7 @@ impl TypedReadArgs {
             Self::AdminPricingAudit(_) => "audit_admin_model_pricing",
             Self::ListMyApiKeys(_) => "list_my_api_keys",
             Self::NewUserGiftStatus => "get_new_user_gift_status",
+            Self::WeeklyDiscountStatus => "get_weekly_discount_status",
             Self::RegistrationRisk => "get_registration_risk",
             Self::TechnicalSupportEligibility => "core_technical_support_eligibility",
         }
@@ -231,6 +239,7 @@ pub async fn read_in_transaction(
         }
         TypedReadArgs::ListMyApiKeys(input) => keys::list_in_transaction(c, context, input).await?,
         TypedReadArgs::NewUserGiftStatus => account::gift_status_in_transaction(c, context).await?,
+        TypedReadArgs::WeeklyDiscountStatus => weekly::status_in_transaction(c, context).await?,
         TypedReadArgs::RegistrationRisk => registration::risk_in_transaction(c, context).await?,
         TypedReadArgs::TechnicalSupportEligibility => {
             support::eligibility_in_transaction(c, context).await?

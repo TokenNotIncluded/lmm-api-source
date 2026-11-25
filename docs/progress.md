@@ -51,6 +51,8 @@ Core 固定付款方、报价与请求合同，负责预留和最终记账。隔
 
 [PR #16 的冻结提交 eb1cdcf6](https://github.com/TokenNotIncluded/lmm-api-source/tree/eb1cdcf6acce9a5d32ae83d3bde7ff69b9e6371d) 纳入每周优惠的持久决定、领取和 owner 历史导入，导入关联原券。管理确认绑定会话、权限及原草稿，结果未知时查询原操作。候选修复了首位 owner 种子检查、支付测试 schema/运行角色、私有技能取消和重置链接脚本的回归。已记录的隔离 PostgreSQL、Web 和合成浏览器检查各自绑定候选输入。专用支付长流程仍被忽略，最终制品与完整 CI、真实支付恢复、全域迁移和资源验收仍待核对。正式安装版本的组件数由目标二进制的 `lmm-core schema-manifest` 读回。安装与升级说明见[开发指南](development.md)。[候选原始记录](https://github.com/TokenNotIncluded/lmm-api-source/blob/eb1cdcf6acce9a5d32ae83d3bde7ff69b9e6371d/docs/progress.md#core-88-整合候选2026-11-23开发验收中)
 
+冻结提交 `eb1cdcf6` 的身份协议检查有一项失败。升级测试的父进程在子进程写完监听地址前读到了空文件。修复改为写完后再原子重命名。两个 Rust 进程的复现验证了修复后的回环请求，真实 PostgreSQL 升级用例仍需在包含修复的提交上通过。[此前的回归修复记录](https://github.com/TokenNotIncluded/lmm-api-source/blob/eb1cdcf6acce9a5d32ae83d3bde7ff69b9e6371d/docs/progress.md#L5-L11) · [失败的数据库检查](https://github.com/TokenNotIncluded/lmm-api-source/actions/runs/45656486910/job/139354444972) · [就绪文件修复](https://github.com/TokenNotIncluded/lmm-api-source/pull/28)
+
 ## 证据入口
 
 | 需要追查的事实 | 从哪里查 |

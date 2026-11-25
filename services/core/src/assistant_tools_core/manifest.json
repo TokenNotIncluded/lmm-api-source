@@ -332,5 +332,26 @@
       "version": "builtin-free-v1"
     },
     "price_sha256": "5d6fb460c679922a1976e87ef729440d5394187e9b12331f33faf12904a64192"
+  },
+  {
+    "name": "get_weekly_discount_status",
+    "description": "Read the signed-in user's existing decision for the current UTC week, including no decision, declined, offered, or claimed. Use before answering whether this week was already decided. This read leaves the weekly opportunity unchanged and returns a browser link without a private coupon code.",
+    "version": "core-weekly-discount-v1",
+    "schema_sha256": "99334726611ccf58a148b0814696bfa6fe08c1b2d027e946beccf5a74331c9aa",
+    "domain": "registered_core",
+    "price_version": "builtin-free-v1",
+    "price_sha256": "5d6fb460c679922a1976e87ef729440d5394187e9b12331f33faf12904a64192",
+    "parameters": {
+      "additionalProperties": false,
+      "properties": {},
+      "type": "object"
+    },
+    "effect": "read_only",
+    "access": "user",
+    "price": {
+      "kind": "free",
+      "unit": "credit_500k_usd",
+      "version": "builtin-free-v1"
+    }
   }
 ]

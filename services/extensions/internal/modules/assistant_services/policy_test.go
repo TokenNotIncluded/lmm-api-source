@@ -90,7 +90,7 @@ func TestPolicyBoundsAndRootChanges(t *testing.T) {
 func TestServiceCatalogHasReviewedBindings(t *testing.T) {
 	s := &Service{}
 	bindings := s.Bindings()
-	if len(bindings) != 29 {
+	if len(bindings) != 30 {
 		t.Fatalf("bindings %d", len(bindings))
 	}
 	seen := map[string]bool{}

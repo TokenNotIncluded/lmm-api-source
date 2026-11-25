@@ -131,7 +131,7 @@ pub(super) async fn eligible(
         return Err(Error::NotFound);
     }
     let another_owner: bool = sqlx::query_scalar(
-        "SELECT EXISTS(SELECT FROM core_payments.legacy_discount_owners WHERE code_id=$1 AND owner_user_id IS NOT NULL AND owner_user_id<>$2)",
+        "SELECT EXISTS(SELECT FROM core_payments.legacy_discount_owners WHERE code_id=$1 AND owner_user_id IS NOT NULL AND owner_user_id<>$2) OR EXISTS(SELECT FROM core_payments.weekly_discount_owners WHERE code_id=$1 AND owner_user_id<>$2)",
     )
     .bind(row.id)
     .bind(user_id)

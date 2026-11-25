@@ -2137,6 +2137,9 @@ pub async fn assistant_rpc(
             .enable_invitation_facts()
             .await
             .map_err(|_| invalid_config("assistant invitation facts read authority unavailable"))?;
+        facts.enable_admin_skill_facts().await.map_err(|_| {
+            invalid_config("assistant administrator skill read authority unavailable")
+        })?;
         rpc = rpc.with_business_facts(facts).with_confirmations(
             crate::assistant_tools_core::confirmation::ConfirmationStore::new(pool.clone()),
         );

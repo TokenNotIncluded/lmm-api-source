@@ -1002,7 +1002,12 @@ async fn reject_expired_proof(
             tonic_prost::ProstCodec::default(),
         )
         .await;
-    assert_eq!(reply.unwrap_err().code(), tonic::Code::PermissionDenied);
+    let status = reply.unwrap_err();
+    assert_eq!(
+        status.code(),
+        tonic::Code::PermissionDenied,
+        "expired proof rejection returned unexpected gRPC status: {status:?}; display: {status}"
+    );
 }
 // First credit can commit between two queries. Observe its complete atomic
 // money state in one statement, rather than mixing a precommit count and a

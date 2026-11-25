@@ -2,16 +2,9 @@ use super::*;
 use lmm_core::payments::discounts::{self, Definition};
 
 async fn fixture(pool: &PgPool) -> Fixture {
-    let mut f = fresh_with_level(pool, 6).await;
-    sqlx::raw_sql(sqlx::AssertSqlSafe(discounts::SCHEMA))
-        .execute(pool)
-        .await
-        .unwrap();
-    sqlx::raw_sql(sqlx::AssertSqlSafe(discounts::MANAGEMENT_SCHEMA))
-        .execute(pool)
-        .await
-        .unwrap();
-    continuity_fixture::install(pool).await;
+    // Coupon admission also reads the real weekly owner restriction.
+    lmm_core::core_schema::init(pool).await.unwrap();
+    let mut f = fixture_with_initialized_schema(pool, 6).await;
     f.store = quantity_store(pool, quantity_policy(7, 1));
     f
 }

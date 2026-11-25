@@ -74,21 +74,6 @@
           ?.setAttribute('content', theme === 'dark' ? '#020817' : '#fff')
       })()
     </script>
-    <script>
-      // Also fail closed if the local callback bootstrap could not load.
-      if (
-        !window.__lmmEmailResetPage &&
-        !/^\/(?:reset|user\/reset)\/?$/.test(decodeURI(location.pathname)) &&
-        !window.__lmmExtoreCallbackPage &&
-        !(location.pathname === '/store/manage' && location.search)
-      ) {
-        const tracker = document.createElement('script')
-        tracker.async = true
-        tracker.src = 'https://cdn.agentlane.com/v1/snippet.js'
-        tracker.dataset.domain = 'dom-plf25ce17li9'
-        document.head.appendChild(tracker)
-      }
-    </script>
     <!--umami-->
     <!--Google Analytics-->
   </head>

@@ -130,6 +130,7 @@ impl AgentService {
             .fetch_one(&mut *tx)
             .await?;
         self.check_live_turn(&mut tx, session, &turn).await?;
+        super::admin_skill_replay::validate_active_results(&mut tx, session, turn_id).await?;
         tx.commit().await?;
         Ok(())
     }
@@ -172,7 +173,7 @@ impl AgentService {
             return Err(Error::NoFunds);
         }
         let held:i64=sqlx::query_scalar("SELECT coalesce(sum(CASE WHEN q.state='settled' THEN q.settled WHEN q.state IN ('reserved','streaming','reconcile') THEN q.reserved ELSE 0 END),0)::bigint FROM core_assistant.agent_rounds r JOIN core_charging.requests q ON q.id=r.model_request_id WHERE r.turn_id=$1").bind(turn_id).fetch_one(&mut *tx).await?;
-        let messages = self.context_messages(&mut tx, &turn).await?;
+        let messages = self.context_messages(&mut tx, session, &turn).await?;
         let loaded: BTreeSet<String> = serde_json::from_value(turn.try_get("loaded_tools")?)
             .map_err(|_| Error::Unavailable)?;
         if !loaded.is_subset(&self.policy.allowed_tools) {
@@ -268,9 +269,11 @@ impl AgentService {
     async fn context_messages(
         &self,
         c: &mut PgConnection,
+        session: &str,
         turn: &PgRow,
     ) -> Result<Vec<Value>, Error> {
         let turn_id: String = turn.try_get("id")?;
+        super::admin_skill_replay::validate_active_results(c, session, &turn_id).await?;
         let conversation: String = turn.try_get("conversation_id")?;
         let mut directory = String::from(
             "Available installed tools (load exact names with discover_tools before calling them):\n",
@@ -612,6 +615,13 @@ impl AgentService {
                 let outcome = crate::gift::agent::execute(&mut tx, &context, &proposal).await?;
                 domain_receipt = outcome.domain_receipt_id;
                 outcome.result
+            } else if name == crate::assistant_tools_core::weekly::agent::TOOL_NAME {
+                let outcome = crate::assistant_tools_core::weekly::agent::execute(
+                    &mut tx, &context, &proposal,
+                )
+                .await?;
+                domain_receipt = outcome.domain_receipt_id;
+                outcome.result
             } else if name == "end_conversation" {
                 let value: Value = serde_json::from_slice(bytes).map_err(|_| Error::Invalid)?;
                 let message = value
@@ -668,3 +678,7 @@ impl AgentService {
         Ok(false)
     }
 }
+
+#[cfg(test)]
+#[path = "admin_skill_replay_pg_tests.rs"]
+mod admin_skill_replay_pg_tests;

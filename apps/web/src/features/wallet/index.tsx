@@ -17,6 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { useQueryClient } from '@tanstack/react-query'
+import { Link } from '@tanstack/react-router'
 import { History, RefreshCw } from 'lucide-react'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -117,6 +118,11 @@ function NativeWallet({
         </SectionPageLayout.Title>
         <SectionPageLayout.Actions>
           <div className='flex flex-wrap justify-end gap-2'>
+            {!preview && (
+              <Button variant='ghost' render={<Link to='/weekly-discounts' />}>
+                {t('Weekly discounts')}
+              </Button>
+            )}
             <Button
               variant='outline'
               disabled={preview}

@@ -112,6 +112,10 @@ async fn fresh_with_level(pool: &PgPool, level: i16) -> Fixture {
         .await
         .unwrap();
     tx.commit().await.unwrap();
+    fixture_with_initialized_schema(pool, level).await
+}
+async fn fixture_with_initialized_schema(pool: &PgPool, level: i16) -> Fixture {
+    let identity = IdentityStore::from_pool(pool.clone());
     let issued = identity.bootstrap_user(101, level).await.unwrap();
     let account = identity
         .authorize(&issued.secret)

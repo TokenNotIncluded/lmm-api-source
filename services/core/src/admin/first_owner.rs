@@ -96,6 +96,7 @@ const SEEDED: &[(&str, &str)] = &[
     ("core_billing", "ledger_accounts"),
     ("core_billing", "balance_state"),
     ("public", "routing_active_release"),
+    ("core_weekly", "weekly_discount_policy"),
 ];
 
 async fn lock_fresh_database(connection: &mut PgConnection) -> io::Result<()> {
@@ -200,6 +201,7 @@ async fn lock_fresh_database(connection: &mut PgConnection) -> io::Result<()> {
             AND native_since>=to_timestamp(source_cutoff)
             AND native_since<=statement_timestamp()) FROM core_trust_pricing.policies)
         AND (SELECT count(*)=1 AND bool_and(singleton AND config_version IS NULL) FROM public.routing_active_release)
+        AND (SELECT count(*)=1 AND bool_and(singleton AND NOT enabled AND maximum_percent=10) FROM core_weekly.weekly_discount_policy)
         AND (SELECT count(*)=2 AND count(DISTINCT bucket)=2 AND bool_and(owner_account_id IS NULL AND bucket IN ('clearing','revenue') AND unit='credit_500k_usd') FROM core_billing.ledger_accounts)
         AND (SELECT count(*)=2 AND bool_and(balance_units=0 AND revision=0) FROM core_billing.balance_state)"#,
     )
@@ -456,6 +458,10 @@ mod tests {
                 ],
             ),
             ("core_channels.projection_state", vec!["ready=false"]),
+            (
+                "core_weekly.weekly_discount_policy",
+                vec!["enabled=true", "maximum_percent=11"],
+            ),
         ] {
             let original: serde_json::Value = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
                 "SELECT to_jsonb(t) FROM {table} t"
@@ -498,7 +504,7 @@ mod tests {
                 restore.commit().await.unwrap();
             }
         }
-        // All four original seed rows restored: the same guard must now pass.
+        // All original seed rows restored: the same guard must now pass.
         let mut tx = pool.begin().await.unwrap();
         lock_fresh_database(&mut tx).await.unwrap();
         tx.rollback().await.unwrap();

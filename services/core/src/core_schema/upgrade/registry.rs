@@ -254,6 +254,7 @@ registrations! {
         ASSISTANT_CONFIRMED_ACTIONS => assistant_confirmed_actions, "ASSISTANT_CONFIRMED_ACTIONS_", |c,r| Box::pin(assistant_confirmed_actions::grant_runtime(c, &r.roles.runtime)), owner_receipt, SuffixPolicy { projection: DataProjection::AssistantConfirmedActions, ..SuffixPolicy::DEFAULT };
         LEGACY_AFFILIATE_ALIASES => legacy_affiliate_aliases, "LEGACY_AFFILIATE_ALIASES_", |c,r| Box::pin(legacy_affiliate_aliases::grant_runtime(c, &r.roles.runtime)), owner_receipt, SuffixPolicy::DEFAULT;
         ASSISTANT_INVITATION_CONFIRMATION => assistant_invitation_confirmation, "ASSISTANT_INVITATION_CONFIRMATION_", no_grants, owner_receipt, SuffixPolicy::DEFAULT;
+        ASSISTANT_WEEKLY_DISCOUNTS => assistant_weekly_discounts, "ASSISTANT_WEEKLY_DISCOUNTS_", |c,r| Box::pin(assistant_weekly_discounts::grant_runtime(c, &r.roles.runtime)), owner_receipt, SuffixPolicy::DEFAULT;
         CHECKIN_CHALLENGES => checkin_challenges, "CHECKIN_CHALLENGES_", |c,r| Box::pin(checkin_challenges::grant_runtime(c, &r.roles.runtime)), owner_receipt, SuffixPolicy::DEFAULT;
         NETWORK_ACCESS => network_access, "NETWORK_ACCESS_", |c,r| Box::pin(network_access::grant_runtime(c, &r.roles.runtime)), owner_receipt, SuffixPolicy::DEFAULT;
         CONNECTION_HISTORY_IMPORT => connection_history_import, "CONNECTION_HISTORY_IMPORT_", no_grants, owner_receipt, SuffixPolicy::DEFAULT;
@@ -315,6 +316,7 @@ mod tests {
             "core-assistant-confirmed-actions-v1",
             "core-legacy-affiliate-aliases-v1",
             "core-assistant-invitation-confirmation-v1",
+            "core-assistant-weekly-discounts-v1",
         ]
         .into_iter()
         .collect();
@@ -384,6 +386,10 @@ mod tests {
             (
                 assistant_invitation_confirmation::PROCEDURE,
                 assistant_invitation_confirmation::validate,
+            ),
+            (
+                assistant_weekly_discounts::PROCEDURE,
+                assistant_weekly_discounts::validate,
             ),
             (
                 connection_history_import::PROCEDURE,
@@ -466,6 +472,10 @@ mod tests {
             (
                 "core-assistant-invitation-confirmation-v1",
                 "ASSISTANT_INVITATION_CONFIRMATION_",
+            ),
+            (
+                "core-assistant-weekly-discounts-v1",
+                "ASSISTANT_WEEKLY_DISCOUNTS_",
             ),
             ("core-checkin-challenges-v1", "CHECKIN_CHALLENGES_"),
             ("core-network-access-v1", "NETWORK_ACCESS_"),
@@ -600,6 +610,9 @@ mod tests {
                     "core-assistant-invitation-confirmation-v1" =>
                         assistant_invitation_confirmation::authorize_target
                             as fn() -> Result<(), UpgradeError>,
+                    "core-assistant-weekly-discounts-v1" =>
+                        assistant_weekly_discounts::authorize_target
+                            as fn() -> Result<(), UpgradeError>,
                     "core-checkin-challenges-v1" =>
                         checkin_challenges::authorize_target as fn() -> Result<(), UpgradeError>,
                     "core-network-access-v1" =>
@@ -693,6 +706,7 @@ mod tests {
             "core-current-connection-history-v1",
             "core-assistant-confirmed-actions-v1",
             "core-legacy-affiliate-aliases-v1",
+            "core-assistant-weekly-discounts-v1",
         ];
         for entry in ENTRIES
             .iter()

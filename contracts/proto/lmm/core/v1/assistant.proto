@@ -38,6 +38,7 @@ enum AssistantBusinessFactKind {
   ASSISTANT_BUSINESS_FACT_KIND_SUPPORT_ELIGIBILITY = 2;
   ASSISTANT_BUSINESS_FACT_KIND_PLAN_OFFERS = 3;
   ASSISTANT_BUSINESS_FACT_KIND_INVITATION_REWARDS = 4;
+  ASSISTANT_BUSINESS_FACT_KIND_ADMIN_USER_SKILLS_AUTHORIZATION = 5;
 }
 message GetAssistantBusinessFactsResponse {
   bytes facts_json = 1; // Closed Core-owned projection, never financial authority.

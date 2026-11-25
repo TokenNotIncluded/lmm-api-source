@@ -260,6 +260,10 @@ const COMPONENTS: &[(&str, &str)] = &[
         "assistant-invitation-confirmation",
         include_str!("../schema/assistant_invitation_confirmation.sql"),
     ),
+    (
+        "assistant-weekly-discounts",
+        include_str!("../schema/assistant_weekly_discounts.sql"),
+    ),
 ];
 
 /// Verify the installed managed contract without installing or repairing it.

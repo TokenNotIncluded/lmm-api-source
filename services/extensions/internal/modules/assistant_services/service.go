@@ -59,6 +59,7 @@ type Dependencies struct {
 	Public             PublicReader
 	PlanOffers         PlanOffersReader
 	Invitations        InvitationReader
+	AdminSkills        AdminSkillReader
 	InvitationMail     InvitationSender
 	Search             SearchProvider
 	Navigation         NavigationReader
@@ -214,7 +215,7 @@ func (s *Service) readOperation(ctx context.Context, tx *sql.Tx, in assistant.Ag
 	}
 	return out, nil
 }
-func (s *Service) Inspect(ctx context.Context, in assistant.AgentInvocation) (assistant.AgentToolResult, error) {
+func (s *Service) inspect(ctx context.Context, in assistant.AgentInvocation) (assistant.AgentToolResult, error) {
 	p, session, call, err := s.validate(ctx, in)
 	if err != nil {
 		return assistant.AgentToolResult{}, err
@@ -240,6 +241,11 @@ func (s *Service) Inspect(ctx context.Context, in assistant.AgentInvocation) (as
 	return out, err
 }
 func (s *Service) Execute(ctx context.Context, in assistant.AgentInvocation) (assistant.AgentToolResult, error) {
+	if in.Call.Scope.Name == adminSkillsTool {
+		return s.guardAdminSkillRead(ctx, in, func(ctx context.Context, invocation assistant.AgentInvocation) (assistant.AgentToolResult, error) {
+			return s.execute(ctx, invocation, nil)
+		})
+	}
 	if in.Call.Scope.Name == "search_web" {
 		return s.search(ctx, in)
 	}
