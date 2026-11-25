@@ -192,12 +192,12 @@ func testRecoverAfterActualPostgresCommitFailure(t *testing.T, db *sql.DB, name 
 	a := &recoveryAuthority{authority: &authority{}}
 	s := &Service{Store: p, Funds: a}
 	draftIn := Invocation{Actor: Actor{Token: "owner-token"}, Command: Command{Action: "create_draft", ProjectID: "recover", OperationID: "recover-draft"}, Draft: draft()}
-	if _, e := s.BuiltinInvoke(ctx, draftIn); e != nil {
+	if _, e := historicalInvoke(s, ctx, draftIn); e != nil {
 		t.Fatal(e)
 	}
 	in := Invocation{Actor: Actor{Token: "owner-token"}, Command: Command{Action: "publish", ProjectID: "recover", OperationID: "recover-publish", Confirmation: "browser-confirmed"}}
 	s.Store = deferredCommitFailure{p}
-	if _, e := s.BuiltinInvoke(ctx, in); e == nil {
+	if _, e := historicalInvoke(s, ctx, in); e == nil {
 		t.Fatal("deferred LOCAL COMMIT unexpectedly succeeded")
 	}
 	if a.calls != 1 {
@@ -233,12 +233,12 @@ func testRecoverAfterActualPostgresCommitFailure(t *testing.T, db *sql.DB, name 
 	}
 	in = Invocation{Actor: Actor{Token: "worker-token"}, Command: Command{Action: "accept", ProjectID: "recover", ChallengeID: "recover-ch", OperationID: "recover-accept", GithubHandle: "contributor", Confirmation: "browser-confirmed"}}
 	s.Store = deferredCommitFailure{reopened}
-	if _, e = s.BuiltinInvoke(ctx, in); e == nil {
+	if _, e = historicalInvoke(s, ctx, in); e == nil {
 		t.Fatal("accept LOCAL COMMIT unexpectedly succeeded")
 	}
 	s.Store = reopened
 	pause := Invocation{Actor: Actor{Token: "owner-token"}, Command: Command{Action: "pause", ProjectID: "recover", OperationID: "recover-pause", Confirmation: "browser-confirmed"}}
-	if _, e = s.BuiltinInvoke(ctx, pause); e != nil {
+	if _, e = historicalInvoke(s, ctx, pause); e != nil {
 		t.Fatal(e)
 	}
 	altered := in
@@ -279,7 +279,7 @@ func testRecoverAfterActualPostgresCommitFailure(t *testing.T, db *sql.DB, name 
 		t.Fatal("older accept reverted newer project", e)
 	}
 	submit := Invocation{Actor: Actor{Token: "worker-token"}, Command: Command{Action: "submit", ProjectID: "recover", ChallengeID: "recover-ch", OperationID: "recover-submit", PullRequestURL: "https://github.com/owner/repo/pull/42", Confirmation: "browser-confirmed"}}
-	if _, e = s.BuiltinInvoke(ctx, submit); e != nil {
+	if _, e = historicalInvoke(s, ctx, submit); e != nil {
 		t.Fatal(e)
 	}
 	if _, e = db.ExecContext(ctx, `DELETE FROM lmm_bounties.records WHERE bucket='operations' AND id='recover-accept'`); e != nil {
@@ -300,40 +300,30 @@ func testPostgresRESTRecordsAndHTTP(t *testing.T, p *Postgres) {
 	s, a, h := webSetup(t)
 	s.Store = p
 	ctx := context.Background()
-	payload := `{"title":"REST integration","description":"a sufficiently detailed description","rules":"a sufficiently detailed set of rules","repository_url":"https://github.com/owner/repo","reward_quota":100,"reward_slots":2}`
-	w := webRequest(h, "POST", "/api/open-source-bounties", "owner-token", payload, "rest-pg-draft")
-	if w.Code != 200 {
-		t.Fatal("REST draft", w.Code, w.Body.String())
+	id := "historical-rest-project"
+	projectSeed := Project{ID: id, OwnerUserID: "owner", Draft: draft(), Status: "published"}
+	if e := s.Store.Within(ctx, func(tx Tx) error { return tx.Put("projects", id, projectSeed) }); e != nil {
+		t.Fatal(e)
 	}
-	id := dataMap(t, w)["id"].(string)
-	w = webRequest(h, "POST", "/api/open-source-bounties/projects/"+id+"/publish", "owner-token", "", "rest-pg-publish")
-	if w.Code != 202 {
-		t.Fatal(w.Code, w.Body.String())
-	}
-	op := dataMap(t, w)["operation_id"].(string)
-	a.approved[op] = true
-	w = webRequest(h, "POST", "/api/open-source-bounties/operations/"+op+"/apply", "owner-token", "", "")
-	if w.Code != 200 {
-		t.Fatal("REST publish apply", w.Code, w.Body.String())
+	w := webRequest(h, "POST", "/api/open-source-bounties", "owner-token", "{}", "rest-pg-draft")
+	if w.Code != 410 {
+		t.Fatal("retired REST draft", w.Code)
 	}
 	w = webRequest(h, "GET", "/api/open-source-bounties/projects/"+id, "", "", "")
-	if w.Code != 200 {
-		t.Fatal(w.Code, w.Body.String())
+	if w.Code != 410 {
+		t.Fatal("anonymous detail", w.Code)
 	}
-	detail := dataMap(t, w)
-	if len(detail["challenges"].([]any)) != 0 || len(detail["ledger"].([]any)) != 0 {
-		t.Fatal("public detail private rows exposed")
+	w = webRequest(h, "GET", "/api/open-source-bounties/projects/"+id, "worker-token", "", "")
+	if w.Code != 404 {
+		t.Fatal("foreign detail", w.Code)
 	}
 	w = webRequest(h, "GET", "/api/open-source-bounties/projects/"+id, "owner-token", "", "")
 	if w.Code != 200 {
-		t.Fatal(w.Code, w.Body.String())
+		t.Fatal("owner detail", w.Code, w.Body.String())
 	}
-	if len(dataMap(t, w)["ledger"].([]any)) != 2 {
-		t.Fatal("missing real receipt ledger projection", w.Body.String())
-	}
-	w = webRequest(h, "PUT", "/api/open-source-bounties/projects/"+id, "owner-token", `{"title":"Changed content","description":"a sufficiently detailed updated description","rules":"a sufficiently detailed updated set of rules"}`, "")
-	if w.Code != 200 || dataMap(t, w)["reward_quota"] != float64(100) {
-		t.Fatal("content altered economics", w.Code, w.Body.String())
+	w = webRequest(h, "PUT", "/api/open-source-bounties/projects/"+id, "owner-token", "{}", "")
+	if w.Code != 410 || a.calls != 0 || a.previews != 0 {
+		t.Fatal("retired edit reached service", w.Code)
 	}
 	var project Project
 	s.Store.Within(ctx, func(tx Tx) error { return tx.Get("projects", id, &project) })
@@ -354,7 +344,7 @@ func testPostgresRESTRecordsAndHTTP(t *testing.T, p *Postgres) {
 		t.Fatal(e)
 	}
 	out, e = s.Records(ctx, "worker-token", RecordRequest{Action: "thank_tip", NotificationID: "rest-pg-tip"})
-	if e != nil || out.Notification.ThankedAt == 0 {
+	if e != ErrRetired {
 		t.Fatal(out, e)
 	}
 	if e = s.Store.Within(ctx, func(tx Tx) error {
@@ -364,15 +354,16 @@ func testPostgresRESTRecordsAndHTTP(t *testing.T, p *Postgres) {
 			t.Fatal("native SQL tip sum", sum, e)
 		}
 		hearts, e := v.Thanks("owner")
-		if e != nil || hearts != 1 {
+		if e != nil || hearts != 0 {
 			t.Fatal("native SQL thanks", hearts, e)
 		}
 		project.Status = "closed"
+		project.ArchivedAt = 123
 		return tx.Put("projects", id, project)
 	}); e != nil {
 		t.Fatal(e)
 	}
-	if _, e = s.Records(ctx, "owner-token", RecordRequest{Action: "archive", ProjectID: id}); e != nil {
+	if _, e = s.Records(ctx, "owner-token", RecordRequest{Action: "archive", ProjectID: id}); e != ErrRetired {
 		t.Fatal(e)
 	}
 	out, e = s.Records(ctx, "owner-token", RecordRequest{Action: "mine", Archived: true})

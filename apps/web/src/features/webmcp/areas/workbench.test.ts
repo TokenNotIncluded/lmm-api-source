@@ -83,13 +83,11 @@ test('every navigation tool starts with lmm_workbench_open_', () => {
   const { tools } = buildTools()
   const opening = tools.filter((tool) => tool.name.includes('_open_'))
   assert.deepEqual(opening.map((tool) => tool.name).sort(), [
-    'lmm_workbench_open_bounty',
     'lmm_workbench_open_drawing',
     'lmm_workbench_open_models_section',
     'lmm_workbench_open_playground',
     'lmm_workbench_open_support_tickets',
     'lmm_workbench_open_tool_market',
-    'lmm_workbench_open_workspace',
   ])
 })
 
@@ -121,13 +119,11 @@ test('read tools declare readOnlyHint and never consequentialHint', () => {
       'lmm_workbench_list_todos',
       'lmm_workbench_list_tool_market',
       'lmm_workbench_list_public_relays',
-      'lmm_workbench_list_bounties',
       'lmm_workbench_image_prompt_ideas',
       'lmm_workbench_public_relay_routing',
-      'lmm_workbench_bounty_detail',
     ].includes(tool.name)
   )
-  assert.equal(reads.length, 10)
+  assert.equal(reads.length, 8)
   for (const tool of reads) {
     assert.equal(tool.annotations?.readOnlyHint, true, tool.name)
     assert.equal(tool.annotations?.consequentialHint, undefined, tool.name)
@@ -140,9 +136,7 @@ test('user-generated content tools carry untrustedContentHint', () => {
     'lmm_workbench_list_todos',
     'lmm_workbench_list_tool_market',
     'lmm_workbench_list_public_relays',
-    'lmm_workbench_list_bounties',
     'lmm_workbench_public_relay_routing',
-    'lmm_workbench_bounty_detail',
   ]) {
     assert.equal(
       byName(tools, name).annotations?.untrustedContentHint,
@@ -314,7 +308,7 @@ test('the key list never echoes a full key, only a mask', async () => {
   }
 })
 
-test('relay routing and bounty detail are GET-only and drop contributor emails', async () => {
+test('relay routing is GET-only and drops contributor emails', async () => {
   signIn()
   const { tools } = buildTools()
   const email = 'contributor@example.com'
@@ -368,36 +362,15 @@ test('relay routing and bounty detail are GET-only and drop contributor emails',
     assert.equal(routing.count, 2)
     assert.equal(routing.enabled_count, 1)
 
-    const detail = (await byName(tools, 'lmm_workbench_bounty_detail').execute(
-      { project_id: 4 },
-      { signal: signal() }
-    )) as Record<string, unknown>
-    assert.equal(detail.challenge_count, 1)
-    assert.equal(detail.ledger_entries, 2)
-    assert.deepEqual(requested, [
-      '/api/public-relays/routing',
-      '/api/bounties/projects/4',
-    ])
+    assert.deepEqual(requested, ['/api/public-relays/routing'])
   } finally {
     api.get = original
   }
 })
 
-test('bounty navigation passes numeric search params the route schema accepts', async () => {
-  signIn()
-  const { tools, calls } = buildTools()
-  const tool = byName(tools, 'lmm_workbench_open_bounty')
-  await assert.rejects(
-    tool.execute({}, { signal: signal() }),
-    /project_id is required/
-  )
-  await tool.execute({ project_id: 12, challenge_id: 7 }, { signal: signal() })
-  const call = calls.at(-1)
-  assert.ok(call)
-  assert.equal(call.to, '/bounties')
-  assert.deepEqual(call.search, { projectId: 12, challengeId: 7 })
-  // The route schema is z.number(), so these must not be strings.
-  assert.equal(typeof call.search?.projectId, 'number')
+test('retired bounties are absent from workbench discovery', () => {
+  const { tools } = buildTools()
+  assert.ok(!tools.some(tool => /bount|open_workspace/.test(tool.name)))
 })
 
 test('support navigation only forwards a known category and a reference id', async () => {
@@ -425,7 +398,7 @@ test('aborted signals stop a tool before it navigates', async () => {
   const controller = new AbortController()
   controller.abort()
   await assert.rejects(
-    byName(tools, 'lmm_workbench_open_workspace').execute(
+    byName(tools, 'lmm_workbench_open_drawing').execute(
       {},
       { signal: controller.signal }
     )

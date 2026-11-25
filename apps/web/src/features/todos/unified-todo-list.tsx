@@ -117,8 +117,7 @@ function UnifiedTodoListContent() {
       const projectId = todoDetailNumber(item, 'project_id')
       if (projectId) {
         await navigate({
-          to: '/challenges/$challengeId',
-          params: { challengeId: String(projectId) },
+          to: '/support',
         })
       }
     }

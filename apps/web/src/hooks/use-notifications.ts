@@ -23,18 +23,13 @@ import {
 } from '@tanstack/react-query'
 import { useState, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
-import { toast } from 'sonner'
 
 import type { NotificationTab } from '@/components/notification-popover'
 import {
   listBountyNotifications,
   markBountyNotificationsRead,
-  thankBountyTip,
 } from '@/features/open-source-bounties/api'
-import type {
-  BountyId,
-  BountyNotification,
-} from '@/features/open-source-bounties/types'
+import type { BountyNotification } from '@/features/open-source-bounties/types'
 import {
   listRatioNotifications,
   ratioAnnouncement,
@@ -92,7 +87,6 @@ export function useNotifications() {
   const userId = authUser?.id ?? 0
   const [popoverOpen, setPopoverOpen] = useState(false)
   const [activeTab, setActiveTab] = useState<NotificationTab>('notice')
-  const [thankingTipId, setThankingTipId] = useState<BountyId>(0)
 
   // Fetch Notice from API
   const {
@@ -276,30 +270,6 @@ export function useNotifications() {
     }
   }
 
-  const handleThankTip = async (tipId: BountyId) => {
-    if (!bountyNotificationsEnabled) return
-
-    setThankingTipId(tipId)
-    try {
-      const updated = await thankBountyTip(tipId)
-      queryClient.setQueryData<BountyNotification[]>(
-        bountyNotificationsQueryKey,
-        (items = []) =>
-          items.map((item) =>
-            item.id === tipId ? { ...item, ...updated } : item
-          )
-      )
-      await queryClient.invalidateQueries({
-        queryKey: ['open-source-bounties'],
-      })
-      toast.success(t('Thanks sent'))
-    } catch {
-      toast.error(t('Unable to send thanks'))
-    } finally {
-      setThankingTipId(0)
-    }
-  }
-
   return {
     // Data
     notice: noticeContent,
@@ -334,12 +304,10 @@ export function useNotifications() {
     setPopoverOpen: handlePopoverOpenChange,
     activeTab,
     setActiveTab: handleTabChange,
-    thankingTipId,
 
     // Actions
     openPopover: handleOpenPopover,
     closePopover: () => setPopoverOpen(false),
     refetchNotice,
-    thankTip: handleThankTip,
   }
 }

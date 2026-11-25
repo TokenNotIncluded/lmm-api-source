@@ -18,15 +18,8 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { createFileRoute, redirect } from '@tanstack/react-router'
 
-import { ContributorWorkspace } from '@/features/forge/contributor-workspace'
-import { isConsoleActivated } from '@/lib/console-activation'
-import { useAuthStore } from '@/stores/auth-store'
-
 export const Route = createFileRoute('/_authenticated/workspace/')({
   beforeLoad: () => {
-    if (isConsoleActivated(useAuthStore.getState().auth.user)) {
-      throw redirect({ to: '/bounties' })
-    }
+    throw redirect({ to: '/support', replace: true })
   },
-  component: ContributorWorkspace,
 })
