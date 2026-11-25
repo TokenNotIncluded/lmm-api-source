@@ -333,7 +333,7 @@ pub(super) fn valid_group(value: &str) -> bool {
     super::valid_group_name(value)
 }
 
-pub(super) fn valid_model(value: &str) -> bool {
+pub(crate) fn valid_model(value: &str) -> bool {
     !value.is_empty()
         && value.len() <= 200
         && value

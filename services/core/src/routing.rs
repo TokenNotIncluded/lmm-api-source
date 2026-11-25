@@ -16,6 +16,8 @@ pub use config::{
     CredentialRef, Endpoint, FailoverPolicy, ModelAlias, ModelGroup, ModelRoute, PayloadPolicy,
     Protocol, RetryCause, RouteTarget, RoutingConfig, Speed, UpstreamConfig,
 };
+#[allow(unused_imports)]
+pub(crate) use config::{MAX_ATTEMPTS, MAX_TARGETS_PER_ROUTE, valid_model};
 pub use engine::{
     Attempt, AttemptKey, DeliveryState, Failure, FailureKind, HealthStatus, PublicModel,
     ReleaseVersion, ReplayPermission, RoutePlan, RouteRequest, Router, route_key,
