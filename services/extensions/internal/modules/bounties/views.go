@@ -188,20 +188,29 @@ func (s *Service) Board(ctx context.Context, page, size int) (map[string]any, er
 	return map[string]any{"items": items, "total": r.Total, "page": r.Page, "page_size": r.PageSize}, e
 }
 func (s *Service) Detail(ctx context.Context, session, projectID string) (map[string]any, error) {
-	viewer := ""
-	if session != "" {
-		a, e := s.Funds.Authorize(ctx, session)
-		if e == nil {
-			viewer = a.UserID
-		}
+	if session == "" {
+		return nil, ErrRetired
 	}
+	actor, err := s.sessionActor(ctx, session)
+	if err != nil {
+		return nil, err
+	}
+	viewer := actor.UserID
 	var out map[string]any
 	e := s.Store.Within(ctx, func(tx Tx) error {
 		var p Project
 		if e := tx.Get("projects", projectID, &p); e != nil {
 			return e
 		}
-		if p.Status == "deleted" || ((p.Status == "draft" || p.Status == "closed" || p.ArchivedAt > 0) && p.OwnerUserID != viewer) {
+		if p.Status == "deleted" {
+			return ErrNotFound
+		}
+		v := tx.(ViewTx)
+		mine, e := v.All("challenges", Query{ProjectID: p.ID, ParticipantUserID: viewer})
+		if e != nil {
+			return e
+		}
+		if viewer != p.OwnerUserID && len(mine) == 0 {
 			return ErrNotFound
 		}
 		pv, e := projectView(tx, p)
@@ -210,12 +219,7 @@ func (s *Service) Detail(ctx context.Context, session, projectID string) (map[st
 		}
 		challenges := []map[string]any{}
 		ledger := []json.RawMessage{}
-		v := tx.(ViewTx)
-		if viewer != "" {
-			mine, e := v.All("challenges", Query{ProjectID: p.ID, ParticipantUserID: viewer})
-			if e != nil {
-				return e
-			}
+		if len(mine) > 0 {
 			best := -1
 			priority := map[string]int{"approved": 5, "submitted": 4, "accepted": 3, "rejected": 2}
 			for _, raw := range mine {

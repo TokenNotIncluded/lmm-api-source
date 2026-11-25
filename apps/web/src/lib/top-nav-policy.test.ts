@@ -20,7 +20,6 @@ const extraKeys = [
   'scripts',
   'webmcp',
   'signal',
-  'challenges',
 ] as const
 const extraRoutes = [
   '/ai-directory',
@@ -28,7 +27,6 @@ const extraRoutes = [
   '/scripts',
   '/webmcp',
   '/games/signal',
-  '/challenges',
 ]
 const makeLinks = (
   raw: unknown,
@@ -76,7 +74,6 @@ test('both surfaces retain their established route order with legacy/missing con
       '/scripts',
       '/webmcp',
       '/games/signal',
-      '/challenges',
       '/security',
     ])
   }

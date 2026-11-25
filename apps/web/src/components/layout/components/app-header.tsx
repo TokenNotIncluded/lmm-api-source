@@ -147,8 +147,6 @@ export function AppHeader({
           announcements={notifications.announcements}
           ratioFeed={notifications.ratioFeed}
           bountyTips={notifications.bountyTips}
-          thankingTipId={notifications.thankingTipId}
-          onThankTip={notifications.thankTip}
           loading={notifications.loading}
         />
       ),

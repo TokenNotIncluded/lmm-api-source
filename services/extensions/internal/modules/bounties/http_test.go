@@ -107,47 +107,64 @@ func dataMap(t *testing.T, w *httptest.ResponseRecorder) map[string]any {
 	}
 	return out.Data
 }
-func TestHTTPAnonymousBoardDetailConfigAndBodyIdentityRejected(t *testing.T) {
-	_, a, h := webSetup(t)
-	w := webRequest(h, "GET", "/api/bounties", "", "", "")
-	if w.Code != 200 || dataMap(t, w)["total"] != float64(0) {
-		t.Fatal(w.Code, w.Body.String())
+func TestRetiredBountiesRejectNewBusiness(t *testing.T) {
+	s, a, h := webSetup(t)
+	for _, prefix := range []string{"/api/bounties", "/api/open-source-bounties"} {
+		if w := webRequest(h, "GET", prefix+"/projects/p", "", "", ""); w.Code != 410 {
+			t.Fatal("anonymous detail", w.Code)
+		}
+		for _, route := range [][2]string{
+			{"GET", ""}, {"GET", "/config"}, {"POST", ""},
+			{"PUT", "/projects/p"}, {"DELETE", "/projects/p"}, {"POST", "/projects/p/publish"},
+			{"POST", "/projects/p/accept"}, {"POST", "/projects/p/resume"}, {"POST", "/projects/p/pause"},
+			{"POST", "/projects/p/archive"}, {"POST", "/projects/p/unarchive"},
+			{"POST", "/challenges/c/tip"}, {"POST", "/challenges/c/rate-owner"}, {"POST", "/tips/n/thank"},
+		} {
+			w := webRequest(h, route[0], prefix+route[1], "owner-token", "{}", "test")
+			if w.Code != http.StatusGone {
+				t.Fatalf("%v: %d %s", route, w.Code, w.Body.String())
+			}
+		}
 	}
-	w = webRequest(h, "GET", "/api/open-source-bounties", "", "", "")
-	if w.Code != 200 || dataMap(t, w)["total"] != float64(0) {
-		t.Fatal(w.Code, w.Body.String())
+	for _, action := range Actions {
+		switch action {
+		case "list_accepted", "list_owned", "list_disputes":
+			continue
+		}
+		if protectedAction(action) {
+			continue
+		}
+		_, err := s.BuiltinInvoke(context.Background(), Invocation{Actor: Actor{Token: "owner-token"}, Command: Command{Action: action}})
+		if err != ErrRetired {
+			t.Fatalf("%s: %v", action, err)
+		}
 	}
-	w = webRequest(h, "GET", "/api/bounties/config", "", "", "")
-	if w.Code != 200 || dataMap(t, w)["rate_basis_points"] != float64(100) {
-		t.Fatal(w.Code, w.Body.String())
+	if a.previews != 0 || a.calls != 0 || len(s.Store.(*memory).records) != 0 {
+		t.Fatal("retired action changed state")
 	}
-	draftJSON := `{"title":"Native test","description":"a sufficiently detailed description","rules":"a sufficiently detailed set of rules","repository_url":"https://github.com/owner/repo","reward_quota":100,"reward_slots":2}`
-	w = webRequest(h, "POST", "/api/open-source-bounties", "owner-token", draftJSON, "draft")
-	if w.Code != 200 {
-		t.Fatal(w.Code, w.Body.String())
+}
+
+func seedPublished(t *testing.T, s *Service) {
+	t.Helper()
+	if _, err := invoke(t, s, "owner-token", "create_draft", "draft"); err != nil {
+		t.Fatal(err)
 	}
-	id := dataMap(t, w)["id"].(string)
-	if _, ok := dataMap(t, w)["reward_quota"]; !ok {
-		t.Fatal("legacy quota alias absent")
-	}
-	w = webRequest(h, "GET", "/api/open-source-bounties/projects/"+id, "", "", "")
-	if w.Code != 404 {
-		t.Fatal("anonymous draft leak", w.Code)
-	}
-	w = webRequest(h, "POST", "/api/open-source-bounties", "owner-token", `{"user_id":"attacker"}`, "")
-	if w.Code != 400 {
-		t.Fatal("body identity accepted")
-	}
-	a.denyDeveloper = true
-	w = webRequest(h, "GET", "/api/open-source-bounties/mine", "owner-token", "", "")
-	if w.Code != 200 || !strings.Contains(w.Body.String(), `"data":[]`) {
-		t.Fatal("private downgrade was not redacted", w.Code, w.Body.String())
+	err := s.Store.Within(context.Background(), func(tx Tx) error {
+		var p Project
+		if e := tx.Get("projects", "p", &p); e != nil {
+			return e
+		}
+		p.Status = "published"
+		return tx.Put("projects", "p", p)
+	})
+	if err != nil {
+		t.Fatal(err)
 	}
 }
 func TestHTTPFinancialPreviewRequiresBrowserAndUnknownUsesQueryRecovery(t *testing.T) {
 	s, a, h := webSetup(t)
-	invoke(t, s, "owner-token", "create_draft", "draft")
-	w := webRequest(h, "POST", "/api/open-source-bounties/projects/p/publish", "owner-token", "", "publish")
+	seedPublished(t, s)
+	w := webRequest(h, "POST", "/api/open-source-bounties/projects/p/close", "owner-token", "", "publish")
 	if w.Code != 202 || a.calls != 0 || a.previews != 1 {
 		t.Fatal(w.Code, w.Body.String(), a.calls, a.previews)
 	}
@@ -174,7 +191,7 @@ func TestHTTPFinancialPreviewRequiresBrowserAndUnknownUsesQueryRecovery(t *testi
 	}
 	response := dataMap(t, w)
 	project := response["project"].(map[string]any)
-	if project["status"] != "published" || project["reward_quota"] != float64(100) {
+	if project["status"] != "closed" || project["reward_quota"] != float64(100) {
 		t.Fatal(project)
 	}
 	w = webRequest(h, "POST", "/api/open-source-bounties/operations/"+id+"/apply", "worker-token", "", "")
@@ -194,8 +211,8 @@ func TestHTTPFinancialPreviewRequiresBrowserAndUnknownUsesQueryRecovery(t *testi
 
 func TestHTTPPreservesClientOperationIDAndResultReadIsReadOnly(t *testing.T) {
 	s, a, h := webSetup(t)
-	invoke(t, s, "owner-token", "create_draft", "draft")
-	r := httptest.NewRequest("POST", "/api/open-source-bounties/projects/p/publish", nil)
+	seedPublished(t, s)
+	r := httptest.NewRequest("POST", "/api/open-source-bounties/projects/p/close", nil)
 	r.Header.Set("X-Test-Session", "owner-token")
 	r.Header.Set("X-Lmm-Operation-ID", "original-browser-operation")
 	r.Header.Set("Idempotency-Key", "original-browser-operation")
@@ -214,7 +231,7 @@ func TestHTTPPreservesClientOperationIDAndResultReadIsReadOnly(t *testing.T) {
 		t.Fatal("result read executed operation", w.Code, w.Body.String())
 	}
 }
-func TestUndispatchedPreparationRecoveryNeverExecutesUntilExplicitApply(t *testing.T) {
+func TestRetiredConfirmedPublicationCannotDispatch(t *testing.T) {
 	s, a, _ := webSetup(t)
 	ctx := context.Background()
 	invoke(t, s, "owner-token", "create_draft", "draft")
@@ -224,14 +241,14 @@ func TestUndispatchedPreparationRecoveryNeverExecutesUntilExplicitApply(t *testi
 	s.Store.Within(ctx, func(tx Tx) error {
 		return tx.Put("web_operations", "prepared-only", WebOperation{ID: "prepared-only", ActorUserID: "owner", Invocation: in, State: "preparing"})
 	})
-	op, e := s.ApplyWeb(ctx, "owner-token", "prepared-only", true)
-	if e != nil || op.State != "awaiting_confirmation" || op.Invocation.Command.Confirmation == "" || a.calls != 0 {
-		t.Fatal(op, e, a.calls)
-	}
-	a.approved["prepared-only"] = true
-	op, e = s.ApplyWeb(ctx, "owner-token", "prepared-only", false)
-	if e != nil || op.State != "settled" || a.calls != 1 {
-		t.Fatal(op, e, a.calls)
+	for _, approved := range []bool{false, true} {
+		a.approved["prepared-only"] = approved
+		for _, recoverOnly := range []bool{true, false} {
+			op, e := s.ApplyWeb(ctx, "owner-token", "prepared-only", recoverOnly)
+			if e != ErrRetired || op.State != "preparing" || a.calls != 0 {
+				t.Fatal(op, e, a.calls)
+			}
+		}
 	}
 }
 

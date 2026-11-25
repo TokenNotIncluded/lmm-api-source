@@ -39,8 +39,6 @@ const GROUP_ALIASES: Record<string, string> = {
   guide: 'site',
   release: 'site',
   legal: 'site',
-  challenges: 'site',
-  challenge: 'site',
   page: 'site',
   navigate: 'site',
   source: 'site',

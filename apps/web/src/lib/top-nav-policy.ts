@@ -42,7 +42,6 @@ const ROUTES = {
   scripts: { title: 'Scripts', href: '/scripts' },
   webmcp: { title: 'WebMCP', href: '/webmcp' },
   signal: { title: 'Signal path', href: '/games/signal' },
-  challenges: { title: 'Challenges', href: '/challenges' },
   rankings: { title: 'Rankings', href: '/rankings' },
   security: { title: 'Security', href: '/security' },
   docs: { title: 'Docs', href: '' },
@@ -71,7 +70,6 @@ const SURFACE_ORDER: Record<TopNavSurface, readonly (keyof typeof ROUTES)[]> = {
     'scripts',
     'webmcp',
     'signal',
-    'challenges',
     'security',
   ],
 }

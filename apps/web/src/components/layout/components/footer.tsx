@@ -160,10 +160,9 @@ function ProjectAttribution(props: {
   name: string
   inline?: boolean
 }) {
-  const { t } = useTranslation()
   const content = (
     <span className='text-muted-foreground/45'>
-      &copy; {props.currentYear} {props.name}. {t('Bounty collaboration')}
+      &copy; {props.currentYear} {props.name}.
     </span>
   )
   if (props.inline) {
@@ -190,7 +189,6 @@ export function Footer(props: FooterProps) {
   const isHomeSurface = pathname === '/'
   const isForgeSurface =
     isHomeSurface ||
-    pathname.startsWith('/challenges') ||
     pathname.startsWith('/pricing') ||
     pathname.startsWith('/rankings') ||
     pathname.startsWith('/about') ||
@@ -223,23 +221,6 @@ export function Footer(props: FooterProps) {
 
   const fallbackColumns = useMemo<FooterColumnProps[]>(
     () => [
-      {
-        title: t('Challenges'),
-        links: [
-          {
-            text: t('Browse challenges'),
-            href: '/challenges',
-          },
-          {
-            text: t('Open work'),
-            href: '/challenges',
-          },
-          {
-            text: t('How it works'),
-            href: '/#workflow',
-          },
-        ],
-      },
       {
         title: t('Terms'),
         links: [
@@ -349,12 +330,6 @@ export function Footer(props: FooterProps) {
                     to='/pricing'
                   >
                     {t('Models and pricing')}
-                  </Link>
-                  <Link
-                    className='text-muted-foreground hover:text-primary block transition-colors duration-150'
-                    to='/challenges'
-                  >
-                    {t('Challenges')}
                   </Link>
                 </div>
               </div>
@@ -486,9 +461,6 @@ export function Footer(props: FooterProps) {
                 </>
               )}
             </Link>
-            <p className='text-muted-foreground mt-3 max-w-[15rem] text-xs leading-relaxed'>
-              {t('Bounty collaboration')}
-            </p>
           </div>
 
           {/* Links columns */}

@@ -36,7 +36,7 @@ import { getAboutContent } from './api'
 const ABOUT_FACTS = [
   ['AGPL-3.0', 'Open-source code'],
   ['1', 'One gateway for supported models'],
-  ['Community', 'Tools, store, and open-source challenges'],
+  ['Community', 'Tool market'],
 ] as const
 
 function EmptyAboutState() {
@@ -52,11 +52,11 @@ function EmptyAboutState() {
         {t('About')} · {systemName}
       </p>
       <h1 className='max-w-3xl font-serif text-5xl leading-[1.02] font-normal md:text-7xl'>
-        {t('Open-source work, made accountable.')}
+        {t('One gateway for supported models')}
       </h1>
       <p className='text-muted-foreground mt-6 max-w-2xl text-base leading-7 md:text-lg'>
         {t(
-          'Access supported AI models through one API, manage keys and usage, and explore tools, the store, and open-source challenges.'
+          'Access supported AI models through one API, manage keys and usage, and explore the tool market.'
         )}
       </p>
 
@@ -86,12 +86,6 @@ function EmptyAboutState() {
           className='text-sm font-medium underline underline-offset-4'
         >
           {t('Read the guide')}
-        </Link>
-        <Link
-          to='/challenges'
-          className='text-sm font-medium underline underline-offset-4'
-        >
-          {t('Browse challenges')}
         </Link>
       </div>
 

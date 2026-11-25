@@ -12,6 +12,7 @@ import (
 )
 
 var (
+	ErrRetired     = errors.New("bounty program retired")
 	ErrInvalid     = errors.New("invalid bounty request")
 	ErrForbidden   = errors.New("bounty access forbidden")
 	ErrNotFound    = errors.New("bounty not found")

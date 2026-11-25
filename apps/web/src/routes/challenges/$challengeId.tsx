@@ -16,15 +16,10 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { createFileRoute } from '@tanstack/react-router'
-
-import { ChallengeDetailPage } from '@/features/forge/challenge-detail-page'
+import { createFileRoute, redirect } from '@tanstack/react-router'
 
 export const Route = createFileRoute('/challenges/$challengeId')({
-  component: ChallengeRoute,
+  beforeLoad: () => {
+    throw redirect({ to: '/', replace: true })
+  },
 })
-
-function ChallengeRoute() {
-  const params = Route.useParams()
-  return <ChallengeDetailPage challengeId={Number(params.challengeId)} />
-}
