@@ -247,7 +247,7 @@ fn digest(
 ) -> Result<String, Failure> {
     let selection = json!({
         "page_size":params.page_size.unwrap_or(10), "keyword":params.keyword, "group":params.group,
-        "model":params.model, "status":params.status, "type":params.channel_type,
+        "model":params.model, "status":params.status, "type":params.channel_type, "protocol":params.protocol,
         "sort_by":params.sort_by.as_deref().unwrap_or("id"), "sort_order":params.sort_order,
         "id_sort":params.id_sort, "tag_mode":params.tag_mode, "sort_unit":params.sort_unit,
     });
