@@ -47,11 +47,15 @@ Core 固定付款方、报价与请求合同，负责预留和最终记账。隔
 3. **数据兼容与回退。** 新 reader 可读旧 D 的请求合同。D 的严格 reader 会拒绝带 `credential_selection` 的新合同。第一份新合同写入后，回退下限是能读该字段的版本。若须保留 D 的窗口，先交付 reader-only 版本、升级所有读取方，再批准新 writer。CBC 回退另有未决约束。保留原始合同字节与摘要。[旧候选的兼容性说明](https://github.com/TokenNotIncluded/lmm-api-source/blob/04eb2fce5fc549e53b5ddd5933ba10db63feb0d7/docs/progress.md#当前状态)
 4. **发布与目标主机验收。** 对同一组 Core、Extensions、CLI 和静态 Web 固定源码、依赖、制品、签名及安装清单，核验 CI、目标主机安装、启动、路由与恢复。候选 `a9fab477` 已有自身的 CI 和三档资源记录。新组合还须验证长稳、容量、故障恢复、各角色与窄屏浏览器、CLI 授权续接和多平台分发。[打包与分发](release-architecture.md) · [独立业务与资源验收](quality.md#独立业务与资源验收)
 
-### Core 88 候选
+<a id="core-88-候选"></a>
+
+### Core 88 的合并与验收
+
+Core 88 已于 2026-11-26 合入源码主线。真实 PostgreSQL 检查覆盖每周优惠只发一次、导入领取历史时关联原券，以及撤回管理员权限后停止执行。最终制品验收和生产切流仍按上面的门槛单独核验。[合并提交](https://github.com/TokenNotIncluded/lmm-api-source/commit/afd4ddabfa457ecd3ce9c0e5fa562d3ad6b07a83) · [优惠与权限检查](https://github.com/TokenNotIncluded/lmm-api-source/actions/runs/45656487085/job/139354447415) · [导入与账本检查](https://github.com/TokenNotIncluded/lmm-api-source/actions/runs/45656487085/job/139354447020)
 
 [PR #16 的冻结提交 eb1cdcf6](https://github.com/TokenNotIncluded/lmm-api-source/tree/eb1cdcf6acce9a5d32ae83d3bde7ff69b9e6371d) 纳入每周优惠的持久决定、领取和 owner 历史导入，导入关联原券。管理确认绑定会话、权限及原草稿，结果未知时查询原操作。候选修复了首位 owner 种子检查、支付测试 schema/运行角色、私有技能取消和重置链接脚本的回归。已记录的隔离 PostgreSQL、Web 和合成浏览器检查各自绑定候选输入。专用支付长流程仍被忽略，最终制品与完整 CI、真实支付恢复、全域迁移和资源验收仍待核对。正式安装版本的组件数由目标二进制的 `lmm-core schema-manifest` 读回。安装与升级说明见[开发指南](development.md)。[候选原始记录](https://github.com/TokenNotIncluded/lmm-api-source/blob/eb1cdcf6acce9a5d32ae83d3bde7ff69b9e6371d/docs/progress.md#core-88-整合候选2026-11-23开发验收中)
 
-冻结提交 `eb1cdcf6` 的身份协议检查有一项失败。升级测试的父进程在子进程写完监听地址前读到了空文件。修复改为写完后再原子重命名。两个 Rust 进程的复现验证了修复后的回环请求，真实 PostgreSQL 升级用例仍需在包含修复的提交上通过。[此前的回归修复记录](https://github.com/TokenNotIncluded/lmm-api-source/blob/eb1cdcf6acce9a5d32ae83d3bde7ff69b9e6371d/docs/progress.md#L5-L11) · [失败的数据库检查](https://github.com/TokenNotIncluded/lmm-api-source/actions/runs/45656486910/job/139354444972) · [就绪文件修复](https://github.com/TokenNotIncluded/lmm-api-source/pull/28)
+冻结提交 `eb1cdcf6` 的身份协议检查有一项失败。升级测试的父进程在子进程写完监听地址前读到了空文件。修复改为写完后再原子重命名。两个 Rust 进程的复现验证了回环请求。随后，包含修复的真实 PostgreSQL 任务通过了原先失败的升级用例。[此前的回归修复记录](https://github.com/TokenNotIncluded/lmm-api-source/blob/eb1cdcf6acce9a5d32ae83d3bde7ff69b9e6371d/docs/progress.md#L5-L11) · [失败的数据库检查](https://github.com/TokenNotIncluded/lmm-api-source/actions/runs/45656486910/job/139354444972) · [就绪文件修复](https://github.com/TokenNotIncluded/lmm-api-source/pull/28) · [修复后的数据库检查](https://github.com/TokenNotIncluded/lmm-api-source/actions/runs/45668322996/job/139396434667)
 
 ## 证据入口
 
