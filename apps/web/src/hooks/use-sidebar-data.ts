@@ -54,6 +54,7 @@ import { useTranslation } from 'react-i18next'
 import { StoreIcon } from '@/components/layout/components/store-icon'
 import type { SidebarData } from '@/components/layout/types'
 import { useHeroSmsPurchaseCapability } from '@/features/email-activations/purchase-capabilities'
+import { useSSMCPDCapabilities } from '@/features/plugins/ssmcpd-capabilities'
 import { getTodos } from '@/features/todos/api'
 /*
 Copyright (C) 2023-2026 QuantumNous
@@ -91,6 +92,7 @@ export function useSidebarData(): SidebarData {
   const heroSmsCapability = useHeroSmsPurchaseCapability(
     Boolean(user) && consoleActivated
   )
+  const ssmcpd = useSSMCPDCapabilities(Boolean(user) && consoleActivated)
   const todosQuery = useQuery({
     queryKey: ['todos', 'all'],
     queryFn: () => getTodos('all'),
@@ -144,6 +146,9 @@ export function useSidebarData(): SidebarData {
         title: t('Ecosystem'),
         items: [
           { title: t('Shop'), url: '/store', icon: StoreIcon },
+          ...(ssmcpd.isSuccess
+            ? [{ title: 'SSMCP', url: '/extensions/ssmcpd', icon: Server }]
+            : []),
           { title: t('AI directory'), url: '/ai-directory', icon: Globe2 },
           { title: 'RSS', url: '/rss', icon: Rss },
           {

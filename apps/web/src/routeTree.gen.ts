@@ -72,6 +72,7 @@ import { Route as AuthenticatedDiscountCodesIndexRouteImport } from './routes/_a
 import { Route as AuthenticatedDrawingIndexRouteImport } from './routes/_authenticated/drawing/index'
 import { Route as AuthenticatedEmailActivationsIndexRouteImport } from './routes/_authenticated/email-activations/index'
 import { Route as AuthenticatedErrorsErrorRouteImport } from './routes/_authenticated/errors/$error'
+import { Route as AuthenticatedExtensionsSsmcpdRouteImport } from './routes/_authenticated/extensions/ssmcpd'
 import { Route as AuthenticatedGettingStartedIndexRouteImport } from './routes/_authenticated/getting-started/index'
 import { Route as AuthenticatedKeysIndexRouteImport } from './routes/_authenticated/keys/index'
 import { Route as AuthenticatedModelsIndexRouteImport } from './routes/_authenticated/models/index'
@@ -445,6 +446,12 @@ const AuthenticatedErrorsErrorRoute =
     path: '/errors/$error',
     getParentRoute: () => AuthenticatedRouteRoute,
   } as any)
+const AuthenticatedExtensionsSsmcpdRoute =
+  AuthenticatedExtensionsSsmcpdRouteImport.update({
+    id: '/extensions/ssmcpd',
+    path: '/extensions/ssmcpd',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
 const AuthenticatedGettingStartedIndexRoute =
   AuthenticatedGettingStartedIndexRouteImport.update({
     id: '/getting-started/',
@@ -772,6 +779,7 @@ export interface FileRoutesByFullPath {
   '/chat/$chatId': typeof AuthenticatedChatChatIdRoute
   '/dashboard/$section': typeof AuthenticatedDashboardSectionRoute
   '/errors/$error': typeof AuthenticatedErrorsErrorRoute
+  '/extensions/ssmcpd': typeof AuthenticatedExtensionsSsmcpdRoute
   '/models/$section': typeof AuthenticatedModelsSectionRoute
   '/operations/releases': typeof AuthenticatedOperationsReleasesRoute
   '/operations/sources': typeof AuthenticatedOperationsSourcesRoute
@@ -880,6 +888,7 @@ export interface FileRoutesByTo {
   '/chat/$chatId': typeof AuthenticatedChatChatIdRoute
   '/dashboard/$section': typeof AuthenticatedDashboardSectionRoute
   '/errors/$error': typeof AuthenticatedErrorsErrorRoute
+  '/extensions/ssmcpd': typeof AuthenticatedExtensionsSsmcpdRoute
   '/models/$section': typeof AuthenticatedModelsSectionRoute
   '/operations/releases': typeof AuthenticatedOperationsReleasesRoute
   '/operations/sources': typeof AuthenticatedOperationsSourcesRoute
@@ -993,6 +1002,7 @@ export interface FileRoutesById {
   '/_authenticated/chat/$chatId': typeof AuthenticatedChatChatIdRoute
   '/_authenticated/dashboard/$section': typeof AuthenticatedDashboardSectionRoute
   '/_authenticated/errors/$error': typeof AuthenticatedErrorsErrorRoute
+  '/_authenticated/extensions/ssmcpd': typeof AuthenticatedExtensionsSsmcpdRoute
   '/_authenticated/models/$section': typeof AuthenticatedModelsSectionRoute
   '/_authenticated/operations/releases': typeof AuthenticatedOperationsReleasesRoute
   '/_authenticated/operations/sources': typeof AuthenticatedOperationsSourcesRoute
@@ -1105,6 +1115,7 @@ export interface FileRouteTypes {
     | '/chat/$chatId'
     | '/dashboard/$section'
     | '/errors/$error'
+    | '/extensions/ssmcpd'
     | '/models/$section'
     | '/operations/releases'
     | '/operations/sources'
@@ -1213,6 +1224,7 @@ export interface FileRouteTypes {
     | '/chat/$chatId'
     | '/dashboard/$section'
     | '/errors/$error'
+    | '/extensions/ssmcpd'
     | '/models/$section'
     | '/operations/releases'
     | '/operations/sources'
@@ -1325,6 +1337,7 @@ export interface FileRouteTypes {
     | '/_authenticated/chat/$chatId'
     | '/_authenticated/dashboard/$section'
     | '/_authenticated/errors/$error'
+    | '/_authenticated/extensions/ssmcpd'
     | '/_authenticated/models/$section'
     | '/_authenticated/operations/releases'
     | '/_authenticated/operations/sources'
@@ -1863,6 +1876,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedErrorsErrorRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
+    '/_authenticated/extensions/ssmcpd': {
+      id: '/_authenticated/extensions/ssmcpd'
+      path: '/extensions/ssmcpd'
+      fullPath: '/extensions/ssmcpd'
+      preLoaderRoute: typeof AuthenticatedExtensionsSsmcpdRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
     '/_authenticated/getting-started/': {
       id: '/_authenticated/getting-started/'
       path: '/getting-started'
@@ -2286,6 +2306,7 @@ interface AuthenticatedRouteRouteChildren {
   AuthenticatedChatChatIdRoute: typeof AuthenticatedChatChatIdRoute
   AuthenticatedDashboardSectionRoute: typeof AuthenticatedDashboardSectionRoute
   AuthenticatedErrorsErrorRoute: typeof AuthenticatedErrorsErrorRoute
+  AuthenticatedExtensionsSsmcpdRoute: typeof AuthenticatedExtensionsSsmcpdRoute
   AuthenticatedModelsSectionRoute: typeof AuthenticatedModelsSectionRoute
   AuthenticatedOperationsReleasesRoute: typeof AuthenticatedOperationsReleasesRoute
   AuthenticatedOperationsSourcesRoute: typeof AuthenticatedOperationsSourcesRoute
@@ -2331,6 +2352,7 @@ const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedChatChatIdRoute: AuthenticatedChatChatIdRoute,
   AuthenticatedDashboardSectionRoute: AuthenticatedDashboardSectionRoute,
   AuthenticatedErrorsErrorRoute: AuthenticatedErrorsErrorRoute,
+  AuthenticatedExtensionsSsmcpdRoute: AuthenticatedExtensionsSsmcpdRoute,
   AuthenticatedModelsSectionRoute: AuthenticatedModelsSectionRoute,
   AuthenticatedOperationsReleasesRoute: AuthenticatedOperationsReleasesRoute,
   AuthenticatedOperationsSourcesRoute: AuthenticatedOperationsSourcesRoute,

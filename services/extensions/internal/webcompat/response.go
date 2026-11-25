@@ -8,6 +8,7 @@ import (
 	"strconv"
 
 	"github.com/TokenNotIncluded/lmm-api/extensions/internal/modules"
+	"github.com/TokenNotIncluded/lmm-api/extensions/internal/modules/ssmcpd"
 	"github.com/TokenNotIncluded/lmm-api/extensions/internal/modules/store"
 )
 
@@ -47,6 +48,10 @@ func Respond(w http.ResponseWriter, value any, err error) {
 func responseError(err error) (int, string, string) {
 	var terms *store.TermsUpdatedError
 	switch {
+	case errors.Is(err, ssmcpd.ErrUnbound):
+		return http.StatusNotFound, "SSMCPD_ACCOUNT_UNBOUND", "No SSMCP account is linked to this user."
+	case errors.Is(err, ssmcpd.ErrMeterUnavailable):
+		return http.StatusServiceUnavailable, "SSMCPD_METER_UNAVAILABLE", "SSMCP traffic usage is unavailable."
 	case errors.Is(err, modules.ErrSaturated):
 		return http.StatusServiceUnavailable, "EXTENSION_BUSY", "The extension service is busy. Retry shortly."
 	case errors.Is(err, modules.ErrNotAccepting):

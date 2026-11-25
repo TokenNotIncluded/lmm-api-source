@@ -14,12 +14,14 @@ import (
 	"github.com/TokenNotIncluded/lmm-api/extensions/internal/extore"
 	"github.com/TokenNotIncluded/lmm-api/extensions/internal/modules"
 	"github.com/TokenNotIncluded/lmm-api/extensions/internal/modules/assistant_services"
+	"github.com/TokenNotIncluded/lmm-api/extensions/internal/modules/ssmcpd"
 	"github.com/TokenNotIncluded/lmm-api/extensions/internal/modules/store"
 )
 
 const defaultConfigPath = "/etc/lmm.conf.d/extensions.toml"
 
 type GoConfig struct {
+	SSMCPD           *ssmcpd.Config         `toml:"ssmcpd"`
 	Checkins         DatabaseConfig         `toml:"checkins"`
 	HeroSMS          HeroSMSConfig          `toml:"hero_sms"`
 	MarketReview     MarketReviewConfig     `toml:"market_review"`
@@ -153,6 +155,11 @@ func LoadConfig(path string) (GoConfig, error) {
 			continue
 		}
 		switch key.String() {
+		case "ssmcpd", "ssmcpd.mode", "ssmcpd.public_origin", "ssmcpd.traffic_portal",
+			"ssmcpd.metering", "ssmcpd.metering.origin", "ssmcpd.metering.token_file",
+			"ssmcpd.commerce", "ssmcpd.commerce.shop_id", "ssmcpd.commerce.variant_id", "ssmcpd.commerce.bytes_per_unit",
+			"ssmcpd.commerce.grants", "ssmcpd.commerce.grants.origin", "ssmcpd.commerce.grants.token_file":
+			continue
 		case "checkins", "checkins.database_name", "checkins.database_url_file", "core.checkin_token_file", "hero_sms", "hero_sms.core_socket", "hero_sms.core_token_file", "market_review", "market_review.core_socket", "market_review.core_token_file", "market_review.settings_file",
 			"core.user_read_socket", "core.user_read_token_file", "core.assistant_token_file", "assistant", "assistant.database_name", "assistant.database_url_file", "assistant.cursor_key_file", "assistant.agent_required",
 			"assistant.search", "assistant.search.provider", "assistant.search.endpoint", "assistant.search.api_key_file", "assistant.search.timeout_ms",

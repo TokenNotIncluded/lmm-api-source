@@ -12,6 +12,7 @@ import (
 	"github.com/TokenNotIncluded/lmm-api/extensions/internal/modules/herosms"
 	"github.com/TokenNotIncluded/lmm-api/extensions/internal/modules/marketreview"
 	"github.com/TokenNotIncluded/lmm-api/extensions/internal/modules/operations"
+	"github.com/TokenNotIncluded/lmm-api/extensions/internal/modules/ssmcpd"
 	"github.com/TokenNotIncluded/lmm-api/extensions/internal/modules/store"
 )
 
@@ -19,6 +20,7 @@ import (
 // API while sharing its admission/drain lifecycle. It never upgrades the host
 // credential into user authority.
 type AdditionalServices struct {
+	SSMCPD               *ssmcpd.Service
 	Checkins             *checkins.Service
 	HeroSMS              *herosms.Service
 	MarketReview         *marketreview.Engine
@@ -55,6 +57,7 @@ func Mount(host *modules.Host, auth *Authenticator, catalogue StoreService, supp
 	var paymentCheckout PaymentCheckoutService
 	var paymentPortal PaymentPortal
 	if len(optional) == 1 {
+		registerSSMCPD(routes.forPlugins("ssmcpd"), auth, additional.SSMCPD)
 		RegisterHeroSMS(routes.forPlugins("hero-sms"), auth, additional.HeroSMS)
 		RegisterMarketAIReview(routes.forPlugins("store", "toolmarket"), auth, additional.MarketReview)
 		registerProductAIReviews(routes.forPlugins("store"), auth, catalogue)

@@ -6,6 +6,15 @@ const configuration: Record<
   string,
   { href?: string; fields: readonly string[] }
 > = {
+  ssmcpd: {
+    href: '/extensions/ssmcpd',
+    fields: [
+      'ssmcpd.public_origin',
+      'ssmcpd.mode',
+      'ssmcpd.metering.origin',
+      'ssmcpd.metering.token_file',
+    ],
+  },
   acquisition: {
     href: '/system-settings/billing/quota',
     fields: ['host.public_origin', 'acquisition.database_url_file'],
