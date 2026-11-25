@@ -605,7 +605,7 @@ function NativeWalletCheckoutForm({
               {t('Order ID')}: {quote.order_id}
             </p>
           ) : null}
-          {pending.submitted ? (
+          {pending.submitted && (result || !error) ? (
             <p role='status' className='text-sm leading-7'>
               {statusMessage()}
             </p>

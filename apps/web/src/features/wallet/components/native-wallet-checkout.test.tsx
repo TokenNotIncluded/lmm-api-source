@@ -384,6 +384,12 @@ test('native checkout reviews exact Core quote, preserves a lost checkout and re
           ?.textContent?.includes(expected)
       )
       assert.equal(
+        container.textContent?.includes(
+          'Preparing your payment. You can refresh this order later.'
+        ),
+        false
+      )
+      assert.equal(
         readNativeCheckout('[19,"checkout-session"]', dom.sessionStorage)
           ?.request.request_key,
         writes[0].data.request_key
