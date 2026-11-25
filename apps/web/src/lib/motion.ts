@@ -27,6 +27,8 @@ const DURATION = {
   slow: 0.35,
 } as const
 
+export const FADE_TRANSITION_CSS = `opacity ${DURATION.normal}s cubic-bezier(${EASE_OUT_CUBIC.join(', ')})`
+
 export const MOTION_TRANSITION: Record<string, Transition> = {
   default: { duration: DURATION.normal, ease: EASE_OUT_CUBIC },
   fast: { duration: DURATION.fast, ease: EASE_OUT_CUBIC },

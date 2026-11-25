@@ -180,6 +180,7 @@ describe('email activation page motion', () => {
         requestAnimationFrame(() => resolve())
       )
       assert.equal(wrapper.style.opacity, '1')
+      assert.equal(wrapper.style.transition, 'none')
       assert.ok(document.activeElement === input)
       assert.equal(container.querySelector('input')?.value, 'draft')
       await Promise.all(pending)
