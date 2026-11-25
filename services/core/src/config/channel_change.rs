@@ -34,7 +34,10 @@ fn sidecar(text: &str) -> io::Result<ModelConfig> {
 }
 
 fn release(model: ModelConfig, local_http: bool) -> io::Result<ReleaseDocument> {
-    if model.version != 1 || local_http != model.external_models.is_empty() {
+    if model.version != 1
+        || !(1..=240).contains(&model.timeout_seconds)
+        || local_http != model.external_models.is_empty()
+    {
         return Err(invalid_config(
             "model sidecar version or provider mode mismatch",
         ));
@@ -185,7 +188,14 @@ pub fn plan_file_channel_models(reader: impl Read, mut writer: impl Write) -> io
             routing.version,
         )?
     };
-    let checked = release(sidecar(&text)?, input.local_http)?;
+    let model = sidecar(&text)?;
+    let min_timeout_ms = model.timeout_seconds.checked_mul(1000).ok_or_else(invalid)?;
+    let checked = release(model, input.local_http)?;
+    if !checked.target_timeouts_cover(min_timeout_ms) {
+        return Err(invalid_config(
+            "target timeout is shorter than the gateway total timeout",
+        ));
+    }
     if checked.routing != routing || checked.pricing != document.pricing {
         return Err(invalid_config(
             "rendered model sidecar differs from reviewed route plan",

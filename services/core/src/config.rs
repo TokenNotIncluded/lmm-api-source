@@ -1,6 +1,6 @@
+mod channel_change;
 #[cfg(test)]
 mod checkin_rewards_tests;
-mod channel_change;
 pub use channel_change::plan_file_channel_models;
 mod console_options;
 mod email_config;
@@ -3490,7 +3490,8 @@ fn model_gateway_with_origins(
     }
     let routing = config.routing.resolve(local_http)?;
     validate_provider_routes(&routing, &provider_policy, config.input_token_ceiling)?;
-    let required: BTreeSet<_> = routing.upstreams
+    let required: BTreeSet<_> = routing
+        .upstreams
         .iter()
         .filter(|u| u.enabled)
         .map(|u| (u.credential.id, u.credential.revision))

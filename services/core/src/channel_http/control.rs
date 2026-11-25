@@ -259,23 +259,7 @@ impl ManagedChannels {
             .map_err(|_| ManagementError::Invalid)?;
         if let Some(gateway) = &self.gateway {
             let required_min_timeout_ms = gateway.channel_total_timeout_ms();
-            let enabled_upstreams: BTreeSet<_> = document
-                .routing
-                .upstreams
-                .iter()
-                .filter(|upstream| upstream.enabled)
-                .map(|upstream| upstream.id)
-                .collect();
-            if document
-                .routing
-                .routes
-                .iter()
-                .flat_map(|route| &route.targets)
-                .any(|target| {
-                    enabled_upstreams.contains(&target.upstream_id)
-                        && u64::from(target.timeout_ms) < required_min_timeout_ms
-                })
-            {
+            if !document.target_timeouts_cover(required_min_timeout_ms) {
                 return Err(ManagementError::TargetTimeoutTooShort {
                     required_min_timeout_ms,
                 });

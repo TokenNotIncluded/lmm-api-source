@@ -21,13 +21,13 @@ change = importlib.util.module_from_spec(spec)
 loader.exec_module(change)
 
 
-def model_inputs():
-    """Seven IDs have priced primary routes in both groups; two have no price or route."""
+def model_inputs(priced=7):
+    """Priced IDs have active primaries in both groups. The remainder have neither a route nor a price."""
     names = ["Enterprise", "国产"]
     source = """# Preserve this operator comment and reference-only credential inventory.
 version=1
 input_token_ceiling=100
-lease_seconds=20
+lease_seconds=120
 timeout_seconds=30
 max_output_tokens=20
 credentials=[{reference={id=1,revision=1},secret_file='/run/secrets/channel-a'},{reference={id=2,revision=1},secret_file='/run/secrets/channel-b'}]
@@ -48,7 +48,7 @@ aliases=[]
             selection["attachments"].append({"route_id": route, "upstream_model": model,
                 "placement": "backup", "speeds": ["standard"], "priority": 0, "weight": 1,
                 "timeout_ms": 30000, "payload": "adapt"})
-            if model_no > 7:
+            if model_no > priced:
                 selection["new_routes"].append({"id": route, "model": model, "group": group, "speeds": ["standard"]})
                 continue
             source += f"""
@@ -169,6 +169,26 @@ class Flow(unittest.TestCase):
             self.lifecycle(result)
 
     @unittest.skipUnless(os.environ.get("LMM_CHANNEL_CORE_BIN"), "Set LMM_CHANNEL_CORE_BIN to a built Core")
+    def test_all_nine_priced_become_backups(self):
+        self.raw, self.intent = model_inputs(priced=9)
+        self.path.write_bytes(self.raw)
+        self.installed.write_bytes(self.raw)
+        self.selection.write_text(json.dumps(self.intent))
+        self.git("add", "models.toml")
+        self.git("commit", "-qm", "Install all nine exact prices")
+        self.base = self.git("rev-parse", "HEAD")
+        result = change.plan(self.args, self.raw, self.intent, True)
+        self.assertTrue(result["preview"]["ready"])
+        receipt = self.lifecycle(result)
+        self.assertEqual(receipt["priced_bindings"], 18)
+        self.assertEqual(receipt["draft_bindings"], [])
+        rows = tomllib.loads(self.installed.read_text())["routing"]["routes"]
+        self.assertEqual(len(rows), 18)
+        for row in rows:
+            self.assertEqual([t["upstream_id"] for t in row["targets"]], [1, 2])
+            self.assertGreater(row["targets"][1]["priority"], row["targets"][0]["priority"])
+
+    @unittest.skipUnless(os.environ.get("LMM_CHANNEL_CORE_BIN"), "Set LMM_CHANNEL_CORE_BIN to a built Core")
     def test_real_native_nine_models_two_groups(self):
         result = change.plan(self.args, self.raw, self.intent, True)
         receipt = self.lifecycle(result)
@@ -188,6 +208,10 @@ class Flow(unittest.TestCase):
             self.assertEqual(row["targets"][1]["upstream_id"], 2)
             self.assertGreater(row["targets"][1]["priority"], row["targets"][0]["priority"])
             self.assertEqual(row["failover"]["max_attempts"], 2)
+        short = copy.deepcopy(self.intent)
+        short["attachments"][0]["timeout_ms"] = 100
+        with self.assertRaisesRegex(change.Error, "timeout"):
+            change.plan(self.args, self.raw, short, True)
         stale = copy.deepcopy(self.intent)
         stale["expected_version"]["pricing"] += 1
         with self.assertRaisesRegex(change.Error, "CHANNEL_VERSION_CONFLICT"):

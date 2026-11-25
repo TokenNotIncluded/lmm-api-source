@@ -82,7 +82,7 @@ def observed(args):
     origin = admin["origin_url"](args.instance, args.allow_insecure_loopback)
     token = admin["session_token"](args)
     opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), admin["NoRedirect"]())
-    request = urllib.request.Request(origin + CONFIG, headers={"Authorization": "Bearer " + token, "Accept": "application/json"})
+    request = urllib.request.Request(origin + CONFIG, headers={"Authorization": "Bearer " + token, "Accept": "application/json", "Cache-Control": "no-cache"})
     try:
         with opener.open(request, timeout=10) as response:
             require(response.headers.get_content_type() == "application/json", "Unexpected Core response")
@@ -240,7 +240,8 @@ def status(args):
     card, source, candidate = proposal(args)
     head = resolve(args, branch(args, args.release_branch))
     reviewed = head == args.commit
-    published = reviewed and source != candidate and current_file(args.installed)[1] == candidate
+    installed = current_file(args.installed)[1]
+    published = reviewed and source != candidate and installed == candidate
     result = {"commit": args.commit, "instance": args.instance, "reviewed": reviewed,
               "published": published, "effective": None, "expected": card["after"]}
     try:
@@ -250,14 +251,13 @@ def status(args):
         return result
     result["observed"] = actual
     result["effective"] = published and actual == card["after"]
-    if head not in (args.commit, card["base_commit"]):
+    if (head not in (args.commit, card["base_commit"]) or installed not in (source, candidate)
+            or (not reviewed and actual != card["before"]) or actual not in (card["before"], card["after"])):
         result["state"] = "stale"
     elif not reviewed:
         result["state"] = "awaiting_review"
     elif candidate == source:
         result["state"] = "draft"
-    elif actual not in (card["before"], card["after"]):
-        result["state"] = "stale"
     elif result["effective"]:
         result["state"] = "effective"
     else:
