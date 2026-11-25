@@ -70,6 +70,8 @@ pub struct PricingResponse {
     pub credits_per_usd: i64,
     pub rate_basis: &'static str,
     pub invocation_authorized: bool,
+    pub empty_reason: Option<&'static str>,
+    pub public_view_available: bool,
     #[serde(flatten)]
     pub catalog: PricingProjection,
 }
@@ -204,9 +206,10 @@ impl PricingHttp {
             Some(None) => return Err(Error::Unavailable),
         };
         let policy = visibility(raw.as_deref());
+        let public_view_available = policy.enabled && !policy.require_auth;
         // Closed square: no Authorization is forbidden before any credential lookup.
         // A presented secret is authenticated first, so an unknown token is 401.
-        if secret.is_none() && (!policy.enabled || policy.require_auth) {
+        if secret.is_none() && !public_view_available {
             return Err(Error::Forbidden);
         }
         let (allowed, model_filter) = if let Some(secret) = secret {
@@ -258,6 +261,12 @@ impl PricingHttp {
             credits_per_usd: crate::billing::CREDITS_PER_USD,
             rate_basis,
             invocation_authorized: false,
+            empty_reason: catalog.models.is_empty().then_some(if secret.is_some() {
+                "no_visible_models"
+            } else {
+                "catalog_empty"
+            }),
+            public_view_available,
             catalog,
         })
     }

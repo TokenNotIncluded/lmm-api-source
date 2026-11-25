@@ -462,6 +462,13 @@ pub(super) fn final_channel(
     proof: &contract::ReservationContract,
     events: &[AttemptEvent],
 ) -> Option<u64> {
+    final_binding(proof, events).map(|binding| binding.upstream_id)
+}
+
+pub(super) fn final_binding<'a>(
+    proof: &'a contract::ReservationContract,
+    events: &[AttemptEvent],
+) -> Option<&'a contract::ReservationBinding> {
     let mut dispatches = BTreeMap::new();
     let mut failures = BTreeMap::new();
     for event in events {
@@ -507,5 +514,5 @@ pub(super) fn final_channel(
         }
     }
     let d = dispatches.get(&last)?;
-    proof.dispatched_channel(&d.route_id, &d.wire_sha256)
+    proof.dispatched_binding(&d.route_id, &d.wire_sha256)
 }

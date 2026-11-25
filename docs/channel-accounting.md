@@ -39,7 +39,7 @@ opening import, provider-cost accounting or complete legacy statistics parity.
 
 `PUT /core/v1/admin/routing/channels/{id}/balance-config` takes
 `{expected_version,probe}` under the existing sensitive-write permission.
-`probe` is null or `{path,json_pointer,unit_label,subtract_json_pointer?,require?,require_all?,auth?,cny_per_usd?,deepseek_currency_array?,openai_subscription?}`: a
+`probe` is null or `{path,json_pointer,unit_label,subtract_json_pointer?,require?,require_all?,auth?,cny_per_usd?,deepseek_currency_array?,openai_subscription?,sub2api_usage?}`: a
 same-origin relative GET path, an RFC 6901 JSON pointer, an optional unit label,
 and optionally a second RFC 6901 pointer. When the second pointer is present,
 the observed finite number is the first selected numeric value minus the second;
@@ -60,6 +60,46 @@ configured same-origin endpoint, but is not automatic provider-specific balance
 discovery or complete legacy adapter parity. A publication containing these new
 fields requires a Core version that understands them; older Core versions must not
 be used to recover that publication.
+
+### Sub2API wallet and key quota
+
+Select **Sub2API** in the automatic provider settings, or publish
+`legacy: {"channel_type":59}` with `probe:null` and the current
+`expected_version`. An explicit manual probe takes precedence. The equivalent
+fixed probe is `{"path":"/v1/usage","json_pointer":"/remaining","unit_label":"USD","sub2api_usage":true}`.
+This plan cannot be combined with other selectors, conversions or auth overrides.
+
+Core sends one same-origin `GET /v1/usage` with Bearer authentication, including
+when the channel's model protocol is Anthropic or Gemini. It uses the existing
+endpoint validation, DNS/SSRF checks, response-size limit, timeout and admission
+gate. Both supported response contracts use numeric USD amounts:
+
+| Response                           | Accepted amount                                                    | Unit                                   |
+| ---------------------------------- | ------------------------------------------------------------------ | -------------------------------------- |
+| Wallet, `mode: "unrestricted"`     | Top-level `remaining`; older wallet responses may supply `balance` | Explicit `unit: "USD"`                 |
+| Key quota, `mode: "quota_limited"` | Top-level `remaining`, alongside the `quota` object                | Both top-level and quota `unit: "USD"` |
+
+A present `remaining` takes precedence, including zero. A negative wallet
+balance remains a negative balance. Invalid keys, malformed amounts, missing
+amounts or units, unknown modes, provider errors and unlimited subscriptions
+produce an unavailable result. Rate-limit-only responses do not establish a
+wallet balance. None of these results replaces the previous amount or observation
+time. Reflected credentials in any response field, including escaped JSON strings
+and object keys, are rejected.
+
+The contract follows the upstream
+[Sub2API usage handler](https://github.com/Wei-Shaw/sub2api/blob/main/backend/internal/handler/gateway_handler.go)
+and the
+[New API adapter](https://github.com/QuantumNous/new-api/blob/63cecab824bad1a421d19950004c309bb2054c09/controller/channel-billing.go).
+The synthetic wallet and quota fixtures under `services/core/tests/fixtures`
+contain no production account data.
+
+**Refresh selected balances** operates on the selected current page, up to 25
+channels, one request at a time. It calls the same native single-channel endpoint
+and uses the same error messages. A failed channel is marked unknown while its
+last stored observation is preserved; other channels can finish. Closing the
+dialog or changing sessions cancels remaining browser work. Denied access stops
+the batch, and there is no background polling or automatic retry.
 
 `GET /core/v1/admin/routing/channels/{id}/balance` requires ChannelOperate and
 uses the channel's existing server-side credential. The request uses the normal

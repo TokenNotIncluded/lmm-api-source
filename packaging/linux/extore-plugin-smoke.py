@@ -14,6 +14,34 @@ import time
 import urllib.request
 
 
+def probe_receipt(report, host_sha256, plugin_sha256):
+    """Export only reviewed acceptance facts from the private probe report."""
+    def confirmed(actual, expected):
+        for key, value in expected.items():
+            if type(actual.get(key)) is not type(value) or actual[key] != value:
+                raise ValueError(f"unconfirmed native acceptance field: {key}")
+        return {key: actual[key] for key in expected}
+
+    receipt = confirmed(report, {
+        "status": "passed", "consumer_exit_code": 0,
+        "host_library_sha256": host_sha256, "plugin_library_sha256": plugin_sha256,
+        "actual_rust_health": True, "isolated_network_namespace": True,
+        "tls_certificate_verification": True, "authorized_catalog": True,
+        "cross_shop_http_detail_denied": True, "revoked_token_denied": True,
+        "catalog_calls_did_not_issue_cards": True, "actual_sqlite_grant_usage_recorded": True,
+    })
+    receipt["consumer"] = confirmed(report["consumer"], {
+        "status": "passed", "host_abi": 1, "interface": "extore.commerce",
+        "real_extore_https_sqlite": True, "native_digest_path_binding": True,
+        "native_repeated_open_call_release_close": True, "store_sync_persisted": True,
+        "http_catalog_fallback_calls": 0, "secret_values_logged": False,
+        "production_accounts_created": False,
+        "store_repository": "transactional memory test repository",
+        "core_authority": "existing Store test double; independent CoreSession acceptance not run",
+    })
+    return receipt
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--arch", choices=("amd64", "arm64"), required=True)
@@ -104,7 +132,12 @@ def main():
                     time.sleep(0.1)
                 if not ready:
                     raise RuntimeError("installed extensions did not start without native configuration")
-                if os.readlink(f"/proc/{process.pid}/exe") != "/usr/bin/lmm-extensions":
+                # Procfs checks credentials; container root cannot inspect another UID.
+                identity = subprocess.run(
+                    ["readlink", "-n", f"/proc/{process.pid}/exe"],
+                    check=True, stdout=subprocess.PIPE, timeout=5, user=account.pw_uid,
+                    group=account.pw_gid, extra_groups=[])
+                if identity.stdout != b"/usr/bin/lmm-extensions":
                     raise RuntimeError("default process is not the installed program")
             finally:
                 process.terminate()
@@ -127,15 +160,19 @@ def main():
         "service_uid": account.pw_uid, "service_gid": account.pw_gid,
         "default_process_stopped": True,
     }
+    with tempfile.TemporaryDirectory(prefix="extore-private-probe-") as directory:
+        private_report = Path(directory) / "probe.json"
+        command = [sys.executable, "/work/tests/native_plugin_probe.py",
+                   "--inside-netns", "--parent-netns", args.parent_netns,
+                   "--binary", "/opt/extore/extore-server",
+                   "--host-library", host, "--plugin-library", plugin,
+                   "--report", str(private_report), "--consumer", str(args.consumer),
+                   "-test.run", "^TestNativePluginCatalogStore$", "-test.v"]
+        subprocess.run(command, check=True)
+        accepted = probe_receipt(json.loads(private_report.read_text()),
+                                 info["files"][host]["sha256"], info["files"][plugin]["sha256"])
+    args.report.write_text(json.dumps(accepted, indent=2) + "\n")
     Path(str(args.report) + ".package.json").write_text(json.dumps(receipt, indent=2) + "\n")
-    command = [sys.executable, "/work/tests/native_plugin_probe.py",
-               "--inside-netns", "--parent-netns", args.parent_netns,
-               "--binary", "/opt/extore/extore-server",
-               "--host-library", "/usr/lib/lmm/extensions/extore/libextore_plugin_host.so",
-               "--plugin-library", "/usr/lib/lmm/extensions/extore/libextore_commerce_plugin.so",
-               "--report", str(args.report), "--consumer", str(args.consumer),
-               "-test.run", "^TestNativePluginCatalogStore$", "-test.v"]
-    subprocess.run(command, check=True)
 
 
 if __name__ == "__main__":

@@ -23,6 +23,8 @@ pub(crate) struct BalanceProbe {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub openai_subscription: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sub2api_usage: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub auth: Option<BalanceAuth>,
 }
 
@@ -66,6 +68,18 @@ impl BalanceProbe {
                     || self.require_all.is_some()
                     || self.cny_per_usd.is_some()
                     || self.deepseek_currency_array == Some(true)
+                    || self.sub2api_usage == Some(true)
+                    || self.auth.is_some()))
+            || (self.sub2api_usage == Some(true)
+                && (self.path != "/v1/usage"
+                    || self.json_pointer != "/remaining"
+                    || self.unit_label.as_deref() != Some("USD")
+                    || self.subtract_json_pointer.is_some()
+                    || self.require.is_some()
+                    || self.require_all.is_some()
+                    || self.cny_per_usd.is_some()
+                    || self.deepseek_currency_array == Some(true)
+                    || self.openai_subscription == Some(true)
                     || self.auth.is_some()))
             || (self.deepseek_currency_array == Some(true)
                 && (self.json_pointer != "/balance_infos"
@@ -228,6 +242,7 @@ pub(in crate::channel_http) async fn configure(
                     cny_per_usd: probe.cny_per_usd.as_deref(),
                     deepseek_currency_array: probe.deepseek_currency_array == Some(true),
                     openai_subscription: probe.openai_subscription == Some(true),
+                    sub2api_usage: probe.sub2api_usage == Some(true),
                     unit_label: probe.unit_label.as_deref(),
                     api_key_auth: matches!(probe.auth, Some(BalanceAuth::ApiKey)),
                 },
@@ -377,6 +392,7 @@ async fn observe(
                 cny_per_usd: probe.cny_per_usd.as_deref(),
                 deepseek_currency_array: probe.deepseek_currency_array == Some(true),
                 openai_subscription: probe.openai_subscription == Some(true),
+                sub2api_usage: probe.sub2api_usage == Some(true),
                 unit_label: probe.unit_label.as_deref(),
                 api_key_auth: matches!(probe.auth, Some(BalanceAuth::ApiKey)),
             },

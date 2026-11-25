@@ -1,0 +1,8 @@
+{
+  "mode": "quota_limited",
+  "isValid": true,
+  "status": "active",
+  "quota": { "limit": 1000, "used": 13.82805112, "remaining": 986.17194888, "unit": "USD" },
+  "remaining": 986.17194888,
+  "unit": "USD"
+}
