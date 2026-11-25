@@ -9,7 +9,7 @@ const REVIEWED: &[u8] = include_bytes!(concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/../../contracts/assistant-tools-v2.json"
 ));
-const REVIEWED_SHA: &str = "3253406c6cc5fcc97b8e003a985e206fd8ef7c32f73e705362a4223738f2e48d";
+const REVIEWED_SHA: &str = "97e6f6c91308e6d8d8ec42380ecfc2df6cbada21651c9fcc9ea5d2f7db6b652e";
 
 #[test]
 fn reviewed_weekly_registry_matches_core_read_and_paid_executor() {
