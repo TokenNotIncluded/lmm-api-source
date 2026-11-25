@@ -57,12 +57,31 @@ const toTitleCase = (value: string) =>
     .replaceAll(/[_-]+/g, ' ')
     .replaceAll(/\b\w/g, (char) => char.toUpperCase())
 
-export function SidebarModulesSection({
+export function SidebarModulesSection(props: SidebarModulesSectionProps) {
+  const updateOption = useUpdateOption()
+  return (
+    <SidebarModulesForm
+      {...props}
+      saving={updateOption.isPending}
+      onSave={(value) =>
+        updateOption.mutate({ key: 'SidebarModulesAdmin', value })
+      }
+    />
+  )
+}
+
+export function SidebarModulesForm({
   config,
   initialSerialized,
-}: SidebarModulesSectionProps) {
+  saving,
+  disabled = false,
+  onSave,
+}: SidebarModulesSectionProps & {
+  saving: boolean
+  disabled?: boolean
+  onSave: (value: string) => void
+}) {
   const { t } = useTranslation()
-  const updateOption = useUpdateOption()
 
   const sectionMeta: Record<string, { title: string; description: string }> = {
     chat: {
@@ -85,7 +104,7 @@ export function SidebarModulesSection({
 
   const moduleMeta: Record<
     string,
-    Record<string, { title: string; description: string }>
+    Record<string, { title: string; description?: string }>
   > = {
     chat: {
       chat: {
@@ -120,6 +139,7 @@ export function SidebarModulesSection({
         title: t('Wallet'),
         description: t('Top up balance and view billing history.'),
       },
+      company: { title: t('Company') },
       personal: {
         title: t('Profile'),
         description: t('Personal settings and profile management.'),
@@ -164,16 +184,10 @@ export function SidebarModulesSection({
     form.reset(formDefaults)
   }, [formDefaults, form])
 
-  const onSubmit = async (values: SidebarFormValues) => {
+  const onSubmit = (values: SidebarFormValues) => {
     const serialized = serializeSidebarModulesAdmin(values)
-    if (serialized === initialSerialized) {
-      return
-    }
-
-    await updateOption.mutateAsync({
-      key: 'SidebarModulesAdmin',
-      value: serialized,
-    })
+    if (!disabled && !saving && serialized !== initialSerialized)
+      onSave(serialized)
   }
 
   const resetToDefault = () => {
@@ -189,7 +203,9 @@ export function SidebarModulesSection({
           <SettingsPageFormActions
             onSave={form.handleSubmit(onSubmit)}
             onReset={resetToDefault}
-            isSaving={updateOption.isPending}
+            isSaving={saving}
+            isSaveDisabled={disabled}
+            isResetDisabled={disabled || saving}
             resetLabel='Reset to default'
             saveLabel='Save sidebar modules'
           />
@@ -242,9 +258,11 @@ export function SidebarModulesSection({
                           <SettingsSwitchItem className='py-2'>
                             <SettingsSwitchContent>
                               <FormLabel>{moduleInfo.title}</FormLabel>
-                              <FormDescription>
-                                {moduleInfo.description}
-                              </FormDescription>
+                              {moduleInfo.description && (
+                                <FormDescription>
+                                  {moduleInfo.description}
+                                </FormDescription>
+                              )}
                             </SettingsSwitchContent>
                             <FormControl>
                               <Switch

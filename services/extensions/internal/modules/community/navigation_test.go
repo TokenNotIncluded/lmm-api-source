@@ -27,7 +27,7 @@ func TestNavigationValidation(t *testing.T) {
 	}
 }
 func navigationHandlers(db *sql.DB) *handlers {
-	return &handlers{s: &Service{db: db}, auth: fakeAuth{
+	return &handlers{s: &Service{db: db, sidebarNavigation: true}, auth: fakeAuth{
 		"user":  {UserId: 1, PlatformLevel: 1, CredentialKind: pb.CredentialKind_CREDENTIAL_KIND_SESSION},
 		"admin": {UserId: 2, PlatformLevel: 5, CredentialKind: pb.CredentialKind_CREDENTIAL_KIND_SESSION},
 		"root":  {UserId: 3, PlatformLevel: 6, CredentialKind: pb.CredentialKind_CREDENTIAL_KIND_SESSION},
@@ -35,16 +35,18 @@ func navigationHandlers(db *sql.DB) *handlers {
 	}}
 }
 func navigationRequest(h *handlers, method, token, body string) *httptest.ResponseRecorder {
-	r := httptest.NewRequest(method, "/api/site/navigation", strings.NewReader(body))
+	path := "/api/site/navigation"
+	if method == http.MethodPost {
+		path += "/validate"
+	}
+	r := httptest.NewRequest(method, path, strings.NewReader(body))
 	if token != "" {
 		r.Header.Set("Authorization", "Bearer "+token)
 	}
 	w := httptest.NewRecorder()
-	if method == http.MethodGet {
-		h.navigation(w, r)
-	} else {
-		h.updateNavigation(w, r)
-	}
+	mux := http.NewServeMux()
+	h.s.Register(mux, h.auth)
+	mux.ServeHTTP(w, r)
 	return w
 }
 func TestNavigationWriteRequiresLiveRootSession(t *testing.T) {
@@ -79,7 +81,7 @@ func TestNavigationPostgresPersistenceAndCAS(t *testing.T) {
 	if err = db.QueryRow(`SELECT current_database(),current_setting('lmm.synthetic',true)`).Scan(&name, &marker); err != nil || !strings.HasPrefix(name, "lmm_navigation_") || marker != "navigation-extension-test" {
 		t.Fatalf("not an isolated navigation database: %v", err)
 	}
-	if _, err = db.Exec(`UPDATE lmm_community.navigation SET value='{}',revision=1,updated_by=NULL,updated_at=0 WHERE singleton`); err != nil {
+	if _, err = db.Exec(`UPDATE lmm_community.navigation SET value='{}',revision=1,updated_by=NULL,updated_at=0,sidebar_value='{}',sidebar_revision=1,sidebar_updated_by=NULL,sidebar_updated_at=0 WHERE singleton`); err != nil {
 		t.Fatal(err)
 	}
 	h := navigationHandlers(db)
@@ -105,9 +107,88 @@ func TestNavigationPostgresPersistenceAndCAS(t *testing.T) {
 	if err = db.QueryRow(`SELECT updated_by FROM lmm_community.navigation WHERE singleton`).Scan(&actor); err != nil || actor != 3 {
 		t.Fatalf("actor=%d err=%v", actor, err)
 	}
+	// Saving sidebar display preferences must not alter the independent header
+	// document, revision, or original actor.
+	sidebar := `{"console":{"log":false},"personal":{"company":true}}`
+	sidebarBody, _ := json.Marshal(map[string]string{"key": "SidebarModulesAdmin", "value": sidebar, "expected_value": "{}"})
+	w = navigationRequest(h, http.MethodPut, "root", string(sidebarBody))
+	if w.Code != http.StatusOK {
+		t.Fatalf("sidebar save: %d %s", w.Code, w.Body.String())
+	}
+	w = navigationRequest(h, http.MethodPut, "root", string(sidebarBody))
+	if w.Code != http.StatusConflict {
+		t.Fatalf("stale sidebar write: %d", w.Code)
+	}
+	var updated struct {
+		Data struct {
+			navigationConfig
+			Sidebar navigationConfig `json:"sidebar"`
+		} `json:"data"`
+	}
+	w = navigationRequest(navigationHandlers(db), http.MethodGet, "", "")
+	if w.Code != http.StatusOK || json.Unmarshal(w.Body.Bytes(), &updated) != nil ||
+		updated.Data.Value != raw || updated.Data.Revision != 2 ||
+		updated.Data.Sidebar.Value != sidebar || updated.Data.Sidebar.Revision != 2 {
+		t.Fatalf("independent sidebar readback: %d %s", w.Code, w.Body.String())
+	}
+	if err = db.QueryRow(`SELECT sidebar_updated_by FROM lmm_community.navigation WHERE singleton`).Scan(&actor); err != nil || actor != 3 {
+		t.Fatalf("sidebar actor=%d err=%v", actor, err)
+	}
 	// The normal runtime role has no Core schema or account/ledger privileges.
 	var core bool
 	if err = db.QueryRowContext(context.Background(), `SELECT EXISTS(SELECT FROM pg_namespace WHERE nspname LIKE 'core\_%' ESCAPE '\')`).Scan(&core); err != nil || core {
 		t.Fatalf("Core schema present: %v %v", core, err)
+	}
+}
+
+func TestLegacySidebarNavigation(t *testing.T) {
+	raw := `{"console":{"log":" FALSE ","requests":1e0},"custom":{"show":0.0}}`
+	if !validSidebarNavigation(raw, true) || validSidebarNavigation(raw, false) {
+		t.Fatal("legacy boolean and numeric spellings are accepted only on imported reads")
+	}
+	for _, invalid := range []string{`{"custom":{"show":null}}`, `{"custom":{"show":2}}`, `{"custom":true}`} {
+		if validSidebarNavigation(invalid, true) {
+			t.Fatalf("invalid imported flags accepted: %s", invalid)
+		}
+	}
+}
+
+func TestSidebarNavigationValidationAndRootSession(t *testing.T) {
+	h := navigationHandlers(nil)
+	raw := func(value string) string {
+		body, err := json.Marshal(map[string]string{"key": "SidebarModulesAdmin", "value": value})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return string(body)
+	}
+	for _, token := range []string{"", "user", "admin", "key"} {
+		w := navigationRequest(h, http.MethodPost, token, raw(`{"admin":{"setting":false}}`))
+		if w.Code != http.StatusUnauthorized && w.Code != http.StatusForbidden {
+			t.Fatalf("sidebar validation allowed %q: %d", token, w.Code)
+		}
+	}
+	for _, value := range []string{`{}`, `{"personal":{"company":true},"custom":{"enabled":false}}`} {
+		if w := navigationRequest(h, http.MethodPost, "root", raw(value)); w.Code != http.StatusOK {
+			t.Fatalf("valid sidebar input rejected: %d %s", w.Code, w.Body.String())
+		}
+	}
+	for _, value := range []string{`[]`, `null`, `{"chat":true}`, `{"console":{"log":"false"}}`, `{"console":{"log":null}}`, `{"admin":{"setting":{"role":6}}}`, `{} {}`} {
+		if w := navigationRequest(h, http.MethodPost, "root", raw(value)); w.Code != http.StatusBadRequest {
+			t.Fatalf("invalid sidebar input accepted: %s: %d", value, w.Code)
+		}
+	}
+	if w := navigationRequest(h, http.MethodPost, "root", `{"key":"OtherOption","value":"{}"}`); w.Code != http.StatusBadRequest {
+		t.Fatalf("unexpected navigation option accepted: %d", w.Code)
+	}
+	if w := navigationRequest(h, http.MethodPut, "root", raw(`{}`)); w.Code != http.StatusBadRequest {
+		t.Fatalf("unconditional sidebar write accepted: %d", w.Code)
+	}
+	h.s.sidebarNavigation = false
+	if w := navigationRequest(h, http.MethodPost, "root", raw(`{}`)); w.Code != http.StatusServiceUnavailable {
+		t.Fatalf("sidebar advertised on version 3: %d", w.Code)
+	}
+	if w := navigationRequest(h, http.MethodPost, "root", `{"value":"{}"}`); w.Code != http.StatusOK {
+		t.Fatalf("version 3 header preview failed: %d", w.Code)
 	}
 }

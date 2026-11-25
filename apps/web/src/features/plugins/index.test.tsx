@@ -82,7 +82,7 @@ function login(role: number, sessionId = 'synthetic-session') {
   })
 }
 
-async function mount(configure?: string) {
+async function mount(configure?: string, section?: string) {
   const container = document.createElement('div')
   document.body.append(container)
   const root = createRoot(container)
@@ -93,7 +93,7 @@ async function mount(configure?: string) {
     root.render(
       <QueryClientProvider client={client}>
         <I18nextProvider i18n={i18n}>
-          <PluginsPage configure={configure} />
+          <PluginsPage configure={configure} section={section} />
         </I18nextProvider>
       </QueryClientProvider>
     )
@@ -610,4 +610,73 @@ test('community navigation submits the observed value and preserves extension fi
   await act(async () => control.click())
   await act(async () => button('Save navigation', container).click())
   await until(() => writes === 1)
+})
+
+test('community sidebar saves the observed sidebar independently and reads it on remount', async () => {
+  login(100)
+  const header = '{ "home": false }'
+  let sidebar = '{ "chat": { "enabled": "0" } }'
+  let revision = 7
+  api.defaults.adapter = async (config) => {
+    if (config.url === '/api/extensions/plugins') {
+      return response(config, [{ ...plugin, name: 'community' }])
+    }
+    assert.equal(config.url, '/api/site/navigation')
+    let data
+    if (config.method === 'put') {
+      const input = JSON.parse(config.data)
+      assert.equal(input.key, 'SidebarModulesAdmin')
+      assert.equal(input.expected_value, sidebar)
+      assert.equal(JSON.parse(input.value).chat.enabled, true)
+      sidebar = input.value
+      data = { value: sidebar, revision: ++revision }
+    } else {
+      data = {
+        value: header,
+        revision: 5,
+        sidebar: { value: sidebar, revision },
+      }
+    }
+    return {
+      ...response(config, data),
+      data: { success: true, message: '', data },
+    }
+  }
+  const container = await mount('community', 'sidebar')
+  await until(() => !!container.querySelector('[role="switch"]'))
+  const control = container.querySelector<HTMLElement>('[role="switch"]')!
+  assert.equal(control.getAttribute('aria-checked'), 'false')
+  await act(async () => control.click())
+  await act(async () => button('Save sidebar modules', container).click())
+  await until(() => revision === 8)
+  await dispose?.()
+  const refreshed = await mount('community', 'sidebar')
+  await until(
+    () =>
+      refreshed
+        .querySelector('[role="switch"]')
+        ?.getAttribute('aria-checked') === 'true'
+  )
+})
+
+test('a header-only community server cannot overwrite site sidebar defaults', async () => {
+  login(100)
+  api.defaults.adapter = async (config) => {
+    if (config.url === '/api/extensions/plugins')
+      return response(config, [{ ...plugin, name: 'community' }])
+    assert.equal(config.method, 'get')
+    assert.equal(config.url, '/api/site/navigation')
+    return {
+      ...response(config, {}),
+      data: { success: true, message: '', data: { value: '{}', revision: 1 } },
+    }
+  }
+  const container = await mount('community', 'sidebar')
+  await until(
+    () =>
+      container.textContent?.includes(
+        'This server does not expose controls for this section.'
+      ) === true
+  )
+  assert.equal(container.querySelector('[role="switch"]'), null)
 })

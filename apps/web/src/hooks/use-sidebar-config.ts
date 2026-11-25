@@ -19,6 +19,10 @@ For commercial licensing, please contact support@quantumnous.com
 import { useMemo } from 'react'
 
 import type { NavGroup, NavItem } from '@/components/layout/types'
+import {
+  parseSidebarModulesAdmin,
+  type SidebarModulesAdminConfig,
+} from '@/features/system-settings/maintenance/config'
 import { useStatus } from '@/hooks/use-status'
 import {
   parseSidebarUserSettings,
@@ -29,74 +33,9 @@ import {
 } from '@/lib/sidebar-preferences'
 import { useAuthStore } from '@/stores/auth-store'
 
-type SidebarSectionConfig = {
-  enabled: boolean
-  [key: string]: boolean
-}
-
-type SidebarModulesAdminConfig = Record<string, SidebarSectionConfig>
-
 // User-layer config is a narrower overlay. Legacy section-only JSON is
 // normalized by parseSidebarUserConfig so existing accounts keep working.
 type SidebarModulesUserConfig = SidebarUserSettings | null
-
-/**
- * Default sidebar modules configuration
- */
-const DEFAULT_SIDEBAR_MODULES: SidebarModulesAdminConfig = {
-  chat: {
-    enabled: true,
-    chat: true,
-  },
-  console: {
-    enabled: true,
-    detail: true,
-    token: true,
-    log: true,
-    midjourney: true,
-    task: true,
-  },
-  personal: {
-    enabled: true,
-    topup: true,
-    company: true,
-    personal: true,
-  },
-  admin: {
-    enabled: true,
-    channel: true,
-    models: true,
-    redemption: true,
-    user: true,
-    setting: true,
-    subscription: true,
-  },
-}
-
-const mergeWithDefaultSidebarModules = (
-  config: SidebarModulesAdminConfig
-): SidebarModulesAdminConfig => {
-  const merged: SidebarModulesAdminConfig = { ...config }
-
-  Object.entries(DEFAULT_SIDEBAR_MODULES).forEach(
-    ([sectionKey, defaultSection]) => {
-      const existingSection = merged[sectionKey]
-      if (!existingSection) {
-        merged[sectionKey] = { ...defaultSection }
-        return
-      }
-
-      merged[sectionKey] = { ...defaultSection, ...existingSection }
-      Object.keys(defaultSection).forEach((moduleKey) => {
-        if (merged[sectionKey][moduleKey] === undefined) {
-          merged[sectionKey][moduleKey] = defaultSection[moduleKey]
-        }
-      })
-    }
-  )
-
-  return merged
-}
 
 /**
  * Mapping from URL to configuration keys
@@ -128,27 +67,6 @@ const URL_TO_CONFIG_MAP: Record<string, { section: string; module: string }> = {
   '/system-settings': { section: 'admin', module: 'setting' },
   '/system-settings/site': { section: 'admin', module: 'setting' },
   '/system-settings/content/assistant': { section: 'admin', module: 'setting' },
-}
-
-/**
- * Parse backend SidebarModulesAdmin configuration
- */
-function parseSidebarConfig(
-  value: string | null | undefined
-): SidebarModulesAdminConfig {
-  // If empty string, null, or undefined, use default config
-  if (!value || value.trim() === '') {
-    return DEFAULT_SIDEBAR_MODULES
-  }
-
-  try {
-    const parsed = JSON.parse(value) as SidebarModulesAdminConfig
-    return mergeWithDefaultSidebarModules(parsed)
-  } catch {
-    // eslint-disable-next-line no-console
-    console.error('Failed to parse sidebar modules configuration')
-    return DEFAULT_SIDEBAR_MODULES
-  }
 }
 
 /**
@@ -323,7 +241,7 @@ function orderNavGroups(
  *
  * Two layers, AND-combined:
  *   1. Admin (status.SidebarModulesAdmin) — authoritative, falls back to
- *      DEFAULT_SIDEBAR_MODULES when empty/invalid. Disabling here hides the
+ *      standard modules when empty/invalid. Disabling here hides the
  *      item for everyone regardless of user preference.
  *   2. User (auth.user.sidebar_modules) — narrower overlay, null sentinel
  *      means "don't narrow". A section/module is only hidden if the user
@@ -340,7 +258,7 @@ export function useSidebarConfig(navGroups: NavGroup[]): NavGroup[] {
 
   const adminConfig = useMemo(
     () =>
-      parseSidebarConfig(
+      parseSidebarModulesAdmin(
         status?.SidebarModulesAdmin as string | null | undefined
       ),
     [status?.SidebarModulesAdmin]
@@ -403,7 +321,7 @@ export function useIsSidebarModuleVisible(url: string): boolean {
   const { status } = useStatus()
   const { auth } = useAuthStore()
 
-  const adminConfig = parseSidebarConfig(
+  const adminConfig = parseSidebarModulesAdmin(
     status?.SidebarModulesAdmin as string | null | undefined
   )
   const userConfig =

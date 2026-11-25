@@ -19,18 +19,34 @@ import {
 } from '@/features/native-users/access'
 import {
   parseHeaderNavModules,
+  readSupportedSidebarModules,
+  serializeSidebarModulesAdmin,
   serializeHeaderNavModules,
 } from '@/features/system-settings/maintenance/config'
 import { HeaderNavigationForm } from '@/features/system-settings/maintenance/header-navigation-section'
+import { SidebarModulesForm } from '@/features/system-settings/maintenance/sidebar-modules-section'
 import { ROLE } from '@/lib/roles'
 import {
   getSiteNavigation,
   saveSiteNavigation,
+  saveSiteSidebar,
   siteNavigationQueryKey,
 } from '@/lib/site-navigation'
 import { useAuthStore } from '@/stores/auth-store'
 
+export function CommunitySidebarConfiguration() {
+  return <CommunityNavigationEditor section='sidebar' />
+}
+
 export function CommunityConfiguration() {
+  return <CommunityNavigationEditor section='header' />
+}
+
+function CommunityNavigationEditor({
+  section,
+}: {
+  section: 'header' | 'sidebar'
+}) {
   const { t } = useTranslation()
   const client = useQueryClient()
   const [reload, setReload] = useState(0)
@@ -55,6 +71,10 @@ export function CommunityConfiguration() {
     () => parseHeaderNavModules(query.data?.value),
     [query.data?.value]
   )
+  const sidebar = useMemo(
+    () => readSupportedSidebarModules(query.data?.sidebar?.value),
+    [query.data?.sidebar?.value]
+  )
   const save = useMutation({
     retry: false,
     mutationFn: async (value: string) => {
@@ -66,6 +86,15 @@ export function CommunityConfiguration() {
       ) {
         throw new Error('Session changed')
       }
+      if (section === 'sidebar') {
+        if (!sidebar || !query.data.sidebar)
+          throw new Error('Sidebar unavailable')
+        return saveSiteSidebar(
+          value,
+          query.data.sidebar.value,
+          nativeUsersOptions(scope)
+        )
+      }
       return saveSiteNavigation(
         value,
         nativeUsersOptions(scope),
@@ -74,8 +103,17 @@ export function CommunityConfiguration() {
     },
     onSuccess: (saved) => {
       if (!scope || !isCurrentNativeUsersScope(scope)) return
-      client.setQueryData(queryKey, saved.data)
-      client.setQueryData(siteNavigationQueryKey, saved.data)
+      // A PUT returns only the part that changed. Keep the other navigation
+      // settings in both caches until the fresh public projection arrives.
+      const merge = (old?: Awaited<ReturnType<typeof getSiteNavigation>>) => {
+        if (!old) return old
+        return section === 'sidebar'
+          ? { ...old, sidebar: saved.data }
+          : { ...old, value: saved.data.value, revision: saved.data.revision }
+      }
+      client.setQueryData(queryKey, merge)
+      client.setQueryData(siteNavigationQueryKey, merge)
+      void client.invalidateQueries({ queryKey: siteNavigationQueryKey })
       toast.success(t('Settings saved'))
     },
   })
@@ -87,6 +125,13 @@ export function CommunityConfiguration() {
         title={t('Failed to load settings')}
         onRetry={() => void query.refetch()}
       />
+    )
+  }
+  if (section === 'sidebar' && !sidebar) {
+    return (
+      <p role='status'>
+        {t('This server does not expose controls for this section.')}
+      </p>
     )
   }
   const conflict =
@@ -118,14 +163,25 @@ export function CommunityConfiguration() {
         </div>
       )}
       <fieldset disabled={save.isPending || query.isFetching || conflict}>
-        <HeaderNavigationForm
-          key={`${query.data.revision}:${reload}`}
-          config={config}
-          initialSerialized={serializeHeaderNavModules(config)}
-          onSave={(value) => save.mutate(value)}
-          saving={save.isPending}
-          disabled={query.isFetching || conflict}
-        />
+        {section === 'sidebar' && sidebar ? (
+          <SidebarModulesForm
+            key={`sidebar:${query.data.sidebar?.revision}:${reload}`}
+            config={sidebar}
+            initialSerialized={serializeSidebarModulesAdmin(sidebar)}
+            onSave={(value) => save.mutate(value)}
+            saving={save.isPending}
+            disabled={query.isFetching || conflict}
+          />
+        ) : (
+          <HeaderNavigationForm
+            key={`${query.data.revision}:${reload}`}
+            config={config}
+            initialSerialized={serializeHeaderNavModules(config)}
+            onSave={(value) => save.mutate(value)}
+            saving={save.isPending}
+            disabled={query.isFetching || conflict}
+          />
+        )}
       </fieldset>
     </div>
   )

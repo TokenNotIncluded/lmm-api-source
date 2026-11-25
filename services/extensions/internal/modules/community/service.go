@@ -27,7 +27,7 @@ import (
 //go:embed schema.sql
 var Schema string
 
-const contractVersion = 3
+const contractVersion = 4
 
 // Verifier is satisfied by webcompat.Authenticator. Both methods validate the
 // live credential through Core on every request.
@@ -43,6 +43,8 @@ type Service struct {
 	core         *CoreRead
 	adCore       DirectoryAdCore
 	rankingCache rankingCache
+
+	sidebarNavigation bool
 }
 
 // Options supplies the optional Core read port. Without it, usage-backed pages
@@ -62,10 +64,15 @@ func New(ctx context.Context, db *sql.DB, publicOrigin string, opts ...Options) 
 	defer cancel()
 	var version int
 	var err error
-	if err = db.QueryRowContext(ctx, `SELECT version FROM lmm_community.contract WHERE singleton`).Scan(&version); err != nil || version != contractVersion {
+	if err = db.QueryRowContext(ctx, `SELECT version FROM lmm_community.contract WHERE singleton`).Scan(&version); err != nil || (version != 3 && version != contractVersion) {
 		return nil, errors.New("community storage contract unavailable")
 	}
-	s := &Service{db: db, origin: strings.TrimRight(publicOrigin, "/"), now: time.Now}
+	// Version 4 only adds sidebar columns; a version 3 installation keeps its
+	// existing header and other community routes until its owner upgrades it.
+	s := &Service{
+		db: db, origin: strings.TrimRight(publicOrigin, "/"), now: time.Now,
+		sidebarNavigation: version == contractVersion,
+	}
 	if len(opts) == 1 {
 		s.core = opts[0].Core
 		s.adCore = opts[0].AdCore

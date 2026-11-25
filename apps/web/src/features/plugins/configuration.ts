@@ -70,6 +70,13 @@ const sectionEditors = new Map<string, ComponentType>([
     ),
   ],
   [
+    'community/sidebar',
+    lazyNamedSection(
+      () => import('./community-configuration'),
+      'CommunitySidebarConfiguration'
+    ),
+  ],
+  [
     'community/links',
     lazyNamedSection(
       () => import('@/features/system-settings/site/ai-directory-section'),
@@ -88,6 +95,7 @@ export const pluginNavigation: Record<
   ],
   community: [
     { label: 'Header navigation' },
+    { id: 'sidebar', label: 'Sidebar modules' },
     { id: 'links', label: 'AI directory' },
   ],
 }

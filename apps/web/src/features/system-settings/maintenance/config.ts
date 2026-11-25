@@ -54,6 +54,7 @@ export const SIDEBAR_MODULES_DEFAULT: SidebarModulesAdminConfig = {
   personal: {
     enabled: true,
     topup: true,
+    company: true,
     personal: true,
   },
   admin: {
@@ -146,6 +147,48 @@ export function parseSidebarModulesAdmin(
     return result
   } catch {
     return defaults
+  }
+}
+
+// Native returns a map of known boolean switches. Never turn malformed or
+// newer server data into an editable set of client-side defaults.
+export function readSupportedSidebarModules(
+  value: unknown
+): SidebarModulesAdminConfig | undefined {
+  if (typeof value !== 'string') return undefined
+  if (!value.trim()) return parseSidebarModulesAdmin(value)
+  try {
+    const parsed: unknown = JSON.parse(value)
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed))
+      return undefined
+    for (const [section, modules] of Object.entries(parsed)) {
+      if (
+        !Object.hasOwn(SIDEBAR_MODULES_DEFAULT, section) ||
+        !modules ||
+        typeof modules !== 'object' ||
+        Array.isArray(modules)
+      )
+        return undefined
+      if (
+        Object.entries(modules).some(
+          ([key, enabled]) =>
+            !Object.hasOwn(SIDEBAR_MODULES_DEFAULT[section], key) ||
+            !(
+              typeof enabled === 'boolean' ||
+              enabled === 0 ||
+              enabled === 1 ||
+              (typeof enabled === 'string' &&
+                ['0', '1', 'true', 'false'].includes(
+                  enabled.trim().toLowerCase()
+                ))
+            )
+        )
+      )
+        return undefined
+    }
+    return parseSidebarModulesAdmin(value)
+  } catch {
+    return undefined
   }
 }
 

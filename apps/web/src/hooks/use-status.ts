@@ -147,7 +147,12 @@ export function useStatus() {
 
   const status = getCapabilitySafeStatus(data, capabilitiesReady)
   const mergedStatus: SystemStatus | null = status
-    ? { ...status, HeaderNavModules: navigation.data?.value }
+    ? {
+        ...status,
+        HeaderNavModules: navigation.data?.value,
+        SidebarModulesAdmin:
+          navigation.data?.sidebar?.value ?? status.SidebarModulesAdmin,
+      }
     : status
   return {
     status: mergedStatus,
