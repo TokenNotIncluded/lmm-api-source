@@ -163,27 +163,27 @@ export function NativeKeyManageDialog({
     pending.current = true
     setBusy(true)
     setError(null)
+    const failure = t('Check the active key before trying another switch.')
+    let writeFailed = false
     try {
-      await changeNativeKey(scope, channelId, keys.version, {
-        operation: 'add',
-        ...candidate,
-        activate: true,
-      })
-    } catch (error) {
-      setError(t('Check the active key before trying another switch.'))
-      throw error
-    } finally {
       try {
-        setKeys(await getNativeKeys(scope, channelId))
-      } catch (error) {
-        setKeys(null)
-        setError(t('Check the active key before trying another switch.'))
-        throw error
-      } finally {
-        pending.current = false
-        setBusy(false)
-        onChanged?.()
+        await changeNativeKey(scope, channelId, keys.version, {
+          operation: 'add',
+          ...candidate,
+          activate: true,
+        })
+      } catch {
+        writeFailed = true
       }
+      setKeys(await getNativeKeys(scope, channelId))
+      if (writeFailed) throw new Error(failure)
+    } catch {
+      setError(failure)
+      throw new Error(failure)
+    } finally {
+      pending.current = false
+      setBusy(false)
+      onChanged?.()
     }
   }
 

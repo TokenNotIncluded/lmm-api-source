@@ -49,6 +49,7 @@ import {
   parseNativeDocument,
   stringifyNativeDocument,
   updateNativeChannels,
+  verifyReplacementCredential,
   type NativeChannelBatchPatch,
   type NativeModelRoute,
   type NativePriceDraft,
@@ -56,7 +57,6 @@ import {
   type NativeVendor,
   type NativeVersion,
 } from '../native-api'
-import { verifyReplacementCredential } from '../native-api'
 import {
   isChannelSnapshotChanged,
   getNativeChannelPage,
