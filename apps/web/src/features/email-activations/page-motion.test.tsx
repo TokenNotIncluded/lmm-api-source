@@ -25,16 +25,9 @@ import { join } from 'node:path'
 import { after, describe, test } from 'node:test'
 
 import { Window } from 'happy-dom'
-import { hasReducedMotionListener, prefersReducedMotion } from 'motion-dom'
 import type { ReactNode } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 
-import {
-  CardStaggerContainer,
-  CardStaggerItem,
-  FadeIn,
-} from '@/components/page-transition'
-import { Button, buttonVariants } from '@/components/ui/button'
 import {
   CARD_ITEM_VARIANTS,
   CARD_STAGGER_VARIANTS,
@@ -42,18 +35,15 @@ import {
   MOTION_VARIANTS,
 } from '@/lib/motion'
 
-import { HeroSmsStatusBadge } from './status'
-
 const identityT = (value: string) => value
 
-// happy-dom global so `useReducedMotion` (motion/react) can query
-// window.matchMedia during the render phase.
 const domWindow = new Window()
 for (const key of [
   'window',
   'document',
   'navigator',
   'HTMLElement',
+  'SVGElement',
   'Node',
   'Element',
 ] as const) {
@@ -63,32 +53,66 @@ for (const key of [
   })
 }
 
-/**
- * Renders the page-motion wrappers the way the email-activations page uses
- * them. FadeIn/CardStaggerContainer must short-circuit to plain containers
- * when the user prefers reduced motion, so the final state is visible
- * immediately and no animation can run.
- *
- * `useReducedMotion` (hook layer) reads `motion-dom`'s module-level
- * `prefersReducedMotion.current` on the first render and locks its listener;
- * `MotionConfig` does not affect it (that only configures visualElements).
- * So the test drives reduced motion by writing that module state directly.
- */
-function setReducedMotion(reduce: boolean) {
-  hasReducedMotionListener.current = true
-  prefersReducedMotion.current = reduce
+for (const timer of [
+  'requestAnimationFrame',
+  'cancelAnimationFrame',
+] as const) {
+  Object.defineProperty(globalThis, timer, {
+    configurable: true,
+    value: domWindow[timer].bind(domWindow),
+  })
 }
 
-function renderWithMotion(reduce: boolean, children: ReactNode) {
-  setReducedMotion(reduce)
-  return renderToStaticMarkup(children)
+// Load browser-dependent modules after installing the test window.
+const { flushSync } = await import('react-dom')
+const { createRoot } = await import('react-dom/client')
+const { CardStaggerContainer, CardStaggerItem, FadeIn } =
+  await import('@/components/page-transition')
+const { Button, buttonVariants } = await import('@/components/ui/button')
+const { HeroSmsStatusBadge } = await import('./status')
+
+function setMotionPreference(reduce: boolean) {
+  domWindow.happyDOM.settings.device.prefersReducedMotion = reduce
+    ? 'reduce'
+    : 'no-preference'
+  domWindow.dispatchEvent(new domWindow.Event('resize'))
+}
+
+async function renderWithMotion(reduce: boolean, children: ReactNode) {
+  setMotionPreference(reduce)
+  const container = document.createElement('div')
+  const root = createRoot(container)
+  try {
+    flushSync(() => root.render(children))
+    // happy-dom evaluates media-query change events on resize.
+    domWindow.dispatchEvent(new domWindow.Event('resize'))
+    const initialMarkup = container.innerHTML
+    const animations = [...container.querySelectorAll('*')].flatMap((node) =>
+      node.getAnimations()
+    )
+    await Promise.all(animations.map((animation) => animation.finished))
+    return initialMarkup
+  } finally {
+    flushSync(() => root.unmount())
+  }
 }
 
 describe('email activation page motion', () => {
   after(() => domWindow.close())
 
-  test('FadeIn renders the final state directly under reduced motion', () => {
-    const markup = renderWithMotion(
+  test('server-rendered feedback stays visible before a motion preference is known', () => {
+    const markup = renderToStaticMarkup(
+      <FadeIn className='feedback-wrap'>
+        <span>Purchase failed</span>
+      </FadeIn>
+    )
+    assert.match(markup, /^<div class="feedback-wrap">/)
+    assert.doesNotMatch(markup, /opacity/)
+    assert.match(markup, /Purchase failed/)
+  })
+
+  test('FadeIn renders the final state directly under reduced motion', async () => {
+    const markup = await renderWithMotion(
       true,
       <FadeIn className='feedback-wrap'>
         <span>Purchase failed</span>
@@ -99,8 +123,8 @@ describe('email activation page motion', () => {
     assert.match(markup, /Purchase failed/)
   })
 
-  test('CardStaggerContainer renders a plain container under reduced motion', () => {
-    const markup = renderWithMotion(
+  test('CardStaggerContainer renders a plain container under reduced motion', async () => {
+    const markup = await renderWithMotion(
       true,
       <CardStaggerContainer className='history-list'>
         <span>item</span>
@@ -110,8 +134,8 @@ describe('email activation page motion', () => {
     assert.doesNotMatch(markup, /opacity/)
   })
 
-  test('FadeIn animates opacity 0 -> 1 when motion is allowed', () => {
-    const markup = renderWithMotion(
+  test('FadeIn animates opacity 0 -> 1 when motion is allowed', async () => {
+    const markup = await renderWithMotion(
       false,
       <FadeIn className='feedback-wrap'>
         <span>Purchase reconciling</span>
@@ -125,8 +149,48 @@ describe('email activation page motion', () => {
     assert.ok((MOTION_TRANSITION.fast.duration ?? 0) <= 0.25)
   })
 
-  test('stagger wrappers render list content with compliant variants', () => {
-    const markup = renderWithMotion(
+  test('changing to reduced motion reveals a delayed feedback message without remounting it', async () => {
+    setMotionPreference(false)
+    const container = document.body.appendChild(document.createElement('div'))
+    const root = createRoot(container)
+    try {
+      flushSync(() =>
+        root.render(
+          <FadeIn delay={2}>
+            <input />
+          </FadeIn>
+        )
+      )
+      domWindow.dispatchEvent(new domWindow.Event('resize'))
+      const wrapper = container.querySelector('div')
+      const input = container.querySelector('input')
+      assert.ok(wrapper && input)
+      assert.equal(wrapper.style.opacity, '0')
+      input.focus()
+      input.value = 'draft'
+      const pending = wrapper
+        .getAnimations()
+        .map((animation) =>
+          animation.finished.catch((error: Error) =>
+            assert.equal(error.name, 'AbortError')
+          )
+        )
+      flushSync(() => setMotionPreference(true))
+      await new Promise<void>((resolve) =>
+        requestAnimationFrame(() => resolve())
+      )
+      assert.equal(wrapper.style.opacity, '1')
+      assert.ok(document.activeElement === input)
+      assert.equal(container.querySelector('input')?.value, 'draft')
+      await Promise.all(pending)
+    } finally {
+      flushSync(() => root.unmount())
+      container.remove()
+    }
+  })
+
+  test('stagger wrappers render list content with compliant variants', async () => {
+    const markup = await renderWithMotion(
       false,
       <CardStaggerContainer className='history-list'>
         <CardStaggerItem>

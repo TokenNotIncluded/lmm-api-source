@@ -17,9 +17,15 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { Outlet, useRouterState } from '@tanstack/react-router'
-import { motion, useReducedMotion, type Variants } from 'motion/react'
-import type { ReactNode } from 'react'
+import {
+  motion,
+  useAnimationControls,
+  useReducedMotion,
+  type Variants,
+} from 'motion/react'
+import { useLayoutEffect, useRef, type ReactNode } from 'react'
 
+import { useMediaQuery } from '@/hooks/use-media-query'
 import {
   CARD_ITEM_VARIANTS,
   CARD_STAGGER_VARIANTS,
@@ -189,20 +195,25 @@ interface FadeInProps {
 }
 
 export function FadeIn(props: FadeInProps) {
-  const shouldReduce = useReducedMotion()
-
-  if (shouldReduce) {
-    return <div className={props.className}>{props.children}</div>
-  }
+  // The server cannot know the viewer's preference. Keep feedback visible until the browser opts into motion.
+  const canAnimate = useMediaQuery('(prefers-reduced-motion: no-preference)')
+  const controls = useAnimationControls()
+  const motionWasAllowed = useRef(false)
+  useLayoutEffect(() => {
+    if (canAnimate) {
+      void controls.start(MOTION_VARIANTS.fadeIn.animate)
+    } else if (motionWasAllowed.current) {
+      controls.stop()
+      controls.set(MOTION_VARIANTS.fadeIn.animate)
+    }
+    motionWasAllowed.current = canAnimate
+  }, [canAnimate, controls])
 
   return (
     <motion.div
-      initial={MOTION_VARIANTS.fadeIn.initial}
-      animate={MOTION_VARIANTS.fadeIn.animate}
-      transition={{
-        ...MOTION_TRANSITION.default,
-        delay: props.delay,
-      }}
+      initial={canAnimate ? MOTION_VARIANTS.fadeIn.initial : false}
+      animate={controls}
+      transition={{ ...MOTION_TRANSITION.default, delay: props.delay }}
       className={props.className}
     >
       {props.children}
