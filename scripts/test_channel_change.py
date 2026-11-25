@@ -169,6 +169,27 @@ class Flow(unittest.TestCase):
             self.lifecycle(result)
 
     @unittest.skipUnless(os.environ.get("LMM_CHANNEL_CORE_BIN"), "Set LMM_CHANNEL_CORE_BIN to a built Core")
+    def test_secret_fields_rejected_before_proposal_or_readback(self):
+        marker = "private-test-value-must-not-be-printed"
+        for location in ("request", "attachment", "adapter", "unknown-adapter"):
+            with self.subTest(location=location):
+                selection = copy.deepcopy(self.intent)
+                if location == "request":
+                    selection["authorization"] = marker
+                elif location == "attachment":
+                    selection["attachments"][0]["headers"] = {"Authorization": marker}
+                elif location == "adapter":
+                    selection["attachments"][0]["payload"] = {"legacy_openai": {"token": marker}}
+                else:
+                    selection["attachments"][0]["payload"] = {"custom": {"headers": {"Authorization": marker}}}
+                self.selection.write_text(json.dumps(selection))
+                with patch.object(change, "observed", side_effect=AssertionError("unexpected Core GET")):
+                    with self.assertRaisesRegex(change.Error, "Core rejected proposal") as raised:
+                        change.propose(self.args)
+                self.assertNotIn(marker, str(raised.exception))
+                self.assertEqual(self.git("for-each-ref", "--format=%(refname)", "refs/heads"), "refs/heads/reviewed")
+
+    @unittest.skipUnless(os.environ.get("LMM_CHANNEL_CORE_BIN"), "Set LMM_CHANNEL_CORE_BIN to a built Core")
     def test_all_nine_priced_become_backups(self):
         self.raw, self.intent = model_inputs(priced=9)
         self.path.write_bytes(self.raw)
