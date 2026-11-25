@@ -1216,7 +1216,7 @@ test('native channel card opens confirmed consumption with exact values and expl
   await until(() => !!container.textContent?.includes('Private provider'))
   assert.equal(button(container, 'Consumption').disabled, false)
   await act(async () => button(container, 'Consumption').click())
-  await until(() => !!document.querySelector('dl'))
+  await until(() => !!document.querySelector('[role=dialog] dl'))
   const dialog = required(document.querySelector('[role=dialog]'))
   const text = dialog.textContent ?? ''
   assert.ok(text.includes('Confirmed native consumption'))
@@ -1301,7 +1301,8 @@ test('closing usage or switching sessions aborts the read and discards delayed r
   )
   assert.equal(signals[0]?.aborted, true)
   await act(async () => finish?.())
-  assert.equal(document.querySelector('dl'), null)
+  assert.equal(document.querySelector('[role=dialog]'), null)
+  assert.equal(container.textContent?.includes('9,007,199,254,740,993'), false)
   await act(async () => button(container, 'Consumption').click())
   await until(() => signals.length === 2)
   await act(async () => {
@@ -1333,11 +1334,12 @@ test('a confirmed zero native window displays zero instead of an unavailable sta
   const container = await mount('channels')
   await until(() => !!container.textContent?.includes('Private provider'))
   await act(async () => button(container, 'Consumption').click())
-  await until(() => document.querySelectorAll('dd').length === 6)
-  for (const value of document.querySelectorAll('dd')) {
+  const dialog = required(document.querySelector('[role=dialog]'))
+  await until(() => dialog.querySelectorAll('dd').length === 6)
+  for (const value of dialog.querySelectorAll('dd')) {
     assert.match(value.textContent ?? '', /^0(?: Credits)?$/)
   }
-  assert.equal(document.querySelector('[role=dialog] [role=alert]'), null)
+  assert.equal(dialog.querySelector('[role=alert]'), null)
 })
 
 test('Sub2API automatic balances refresh individually and in a batch without clearing failed observations', async () => {
@@ -2119,7 +2121,7 @@ test('accounting capabilities gate window reads, display counters and provider r
         i18n.t(windowEnabled ? 'channelUsage.open' : 'channelBalance.title')
       ).click()
     )
-    await until(() => !!document.querySelector('dl'))
+    await until(() => !!document.querySelector('[role=dialog] dl'))
     const dialog = required(document.querySelector('[role=dialog]'))
     if (windowEnabled) {
       assert.equal(
