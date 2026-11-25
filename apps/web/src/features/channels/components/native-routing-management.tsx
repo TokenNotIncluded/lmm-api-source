@@ -84,6 +84,7 @@ type Editor = {
   secret?: boolean
   readOnly?: boolean
   channel?: boolean
+  trigger?: HTMLButtonElement
 }
 type EditorDestination =
   | { editor: Editor }
@@ -249,6 +250,7 @@ function NativeRoutingWorkspace({
   const [editorDestination, setEditorDestination] =
     useState<EditorDestination | null>(null)
   const editorRef = useRef<HTMLFormElement>(null)
+  const discardFocus = useRef<HTMLButtonElement | null>(null)
   useEffect(() => {
     editorRef.current?.scrollIntoView?.({ block: 'start' })
     editorRef.current
@@ -398,6 +400,10 @@ function NativeRoutingWorkspace({
     )
   }
   function changeEditor(destination: EditorDestination) {
+    if ('close' in destination && editor?.trigger) {
+      if (editorDestination) discardFocus.current = editor.trigger
+      else editor.trigger.focus()
+    }
     const next = 'editor' in destination ? destination.editor : null
     setEditor(next)
     editorBaseline.current = next?.document ?? ''
@@ -413,6 +419,7 @@ function NativeRoutingWorkspace({
     setResult(null)
   }
   function requestEditorChange(destination: EditorDestination) {
+    discardFocus.current = null
     if (editor && (editor.document !== editorBaseline.current || secret)) {
       setEditorDestination(destination)
     } else {
@@ -516,7 +523,10 @@ function NativeRoutingWorkspace({
       setBusy(false)
     }
   }
-  function channelEditor(channel?: NativeUpstream) {
+  function channelEditor(
+    channel?: NativeUpstream,
+    trigger?: HTMLButtonElement
+  ) {
     if (!configuration) return
     const id =
       channel?.id ??
@@ -543,6 +553,7 @@ function NativeRoutingWorkspace({
       path: `${NATIVE_ROOT}/channels${channel ? `/${id}` : ''}`,
       secret: !channel,
       channel: true,
+      trigger,
       document: pretty({
         expected_version: configuration.version,
         id,
@@ -690,7 +701,7 @@ function NativeRoutingWorkspace({
         (item) => item.id === id
       )
       if (editor.method === 'POST' || channel) {
-        channelEditor(channel)
+        channelEditor(channel, editor.trigger)
         return
       }
     } else if (editor.modelEditing !== undefined) {
@@ -1097,6 +1108,7 @@ function NativeRoutingWorkspace({
       )}
       <Dialog
         open={editorDestination !== null}
+        finalFocus={() => discardFocus.current}
         onOpenChange={(open) => {
           if (!open) setEditorDestination(null)
         }}
@@ -1170,7 +1182,7 @@ function NativeRoutingWorkspace({
                 !secretsAllowed ||
                 !configuration.secret_storage_enabled
               }
-              onClick={() => channelEditor()}
+              onClick={(event) => channelEditor(undefined, event.currentTarget)}
             >
               <Plus className='size-4' />
               {t('Create Channel')}
@@ -1499,7 +1511,9 @@ function NativeRoutingWorkspace({
                         variant='secondary'
                         className='min-h-11 px-2'
                         disabled={busy}
-                        onClick={() => channelEditor(channel)}
+                        onClick={(event) =>
+                          channelEditor(channel, event.currentTarget)
+                        }
                       >
                         <Pencil className='size-4' />
                         {t('Edit')}
