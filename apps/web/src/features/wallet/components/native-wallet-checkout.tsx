@@ -253,7 +253,15 @@ function NativeWalletCheckoutForm({
     run(async () => {
       if (!quote) return
       const response = await getNativePaymentStatus(quote)
-      if (isCurrent()) setResult(response)
+      if (!isCurrent()) return
+      setResult(response)
+      // A second committed partial refund can keep the same public state.
+      if (
+        result?.state === 'partially_refunded' &&
+        response.state === 'partially_refunded'
+      ) {
+        onUpdated?.()
+      }
     })
 
   useEffect(() => {
@@ -291,10 +299,10 @@ function NativeWalletCheckoutForm({
     if (result?.state === 'review') {
       return t('This order needs review. Keep its order ID for support.')
     }
-    if (
-      result?.state === 'refund_pending' ||
-      result?.state === 'partially_refunded'
-    ) {
+    if (result?.state === 'partially_refunded') {
+      return t('Part of this payment has been refunded.')
+    }
+    if (result?.state === 'refund_pending') {
       return t('A refund is being processed for this order.')
     }
     if (result?.provider_paid && !result.core_credit_confirmed) {

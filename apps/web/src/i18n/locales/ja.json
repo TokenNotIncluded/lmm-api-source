@@ -7902,6 +7902,7 @@
     "parameter.": "パラメーター。",
     "Parameters": "パラメータ",
     "Parsed {{count}} service account file(s)": "サービスアカウントファイルを{{count}}件解析しました",
+    "Part of this payment has been refunded.": "この支払いの一部は返金されました。",
     "Partial coverage: {{sampled}} sampled requests; {{missing}} missing samples. Native relay only; historical imports excluded.": "一部のみ集計：サンプル取得済みリクエスト {{sampled}} 件、欠落サンプル {{missing}} 件。ネイティブ転送のみ対象で、過去のインポートは含みません。",
     "Partial performance coverage": "パフォーマンスの集計範囲は一部のみ",
     "Partial Submission": "部分送信",

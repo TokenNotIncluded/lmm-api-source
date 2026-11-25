@@ -7902,6 +7902,7 @@
     "parameter.": "параметр.",
     "Parameters": "Параметры",
     "Parsed {{count}} service account file(s)": "Проанализировано файлов сервисного аккаунта {{count}}",
+    "Part of this payment has been refunded.": "Часть суммы платежа возвращена.",
     "Partial coverage: {{sampled}} sampled requests; {{missing}} missing samples. Native relay only; historical imports excluded.": "Неполное покрытие: {{sampled}} запросов с замерами; {{missing}} отсутствующих замеров. Только нативная ретрансляция, без исторического импорта.",
     "Partial performance coverage": "Неполное покрытие метрик",
     "Partial Submission": "Частичная отправка",

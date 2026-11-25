@@ -7902,6 +7902,7 @@
     "parameter.": "tham số",
     "Parameters": "Tham số",
     "Parsed {{count}} service account file(s)": "Đã phân tích {{count}} tệp tài khoản dịch vụ",
+    "Part of this payment has been refunded.": "Một phần khoản thanh toán này đã được hoàn lại.",
     "Partial coverage: {{sampled}} sampled requests; {{missing}} missing samples. Native relay only; historical imports excluded.": "Phạm vi chưa đầy đủ: {{sampled}} yêu cầu đã lấy mẫu; {{missing}} mẫu bị thiếu. Chỉ tính chuyển tiếp gốc; không gồm dữ liệu lịch sử nhập vào.",
     "Partial performance coverage": "Phạm vi đo hiệu năng chưa đầy đủ",
     "Partial Submission": "Gửi một phần",

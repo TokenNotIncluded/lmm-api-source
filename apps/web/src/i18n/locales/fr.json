@@ -7902,6 +7902,7 @@
     "parameter.": "paramètre.",
     "Parameters": "Paramètres",
     "Parsed {{count}} service account file(s)": "{{count}} fichier(s) de compte de service analysé(s)",
+    "Part of this payment has been refunded.": "Une partie de ce paiement a été remboursée.",
     "Partial coverage: {{sampled}} sampled requests; {{missing}} missing samples. Native relay only; historical imports excluded.": "Couverture partielle : {{sampled}} requêtes échantillonnées ; {{missing}} échantillons manquants. Relais natif uniquement ; imports historiques exclus.",
     "Partial performance coverage": "Couverture des performances partielle",
     "Partial Submission": "Soumission partielle",
