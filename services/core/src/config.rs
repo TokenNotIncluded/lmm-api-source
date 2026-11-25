@@ -1488,7 +1488,7 @@ pub fn edge_access_config() -> io::Result<Option<crate::edge_access::TypedConfig
     let tokens = SOURCE
         .get()
         .into_iter()
-        .flat_map(|values| values.iter())
+        .flat_map(|source| source.values.iter())
         .filter(|(name, _)| edge_service_token_setting(name))
         .map(|(_, path)| PathBuf::from(path))
         .collect::<Vec<_>>();
