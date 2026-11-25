@@ -16,6 +16,7 @@ for (const [name, value] of Object.entries({
   Element: dom.Element,
   Node: dom.Node,
   Event: dom.Event,
+  CustomEvent: dom.CustomEvent,
   MouseEvent: dom.MouseEvent,
   MutationObserver: dom.MutationObserver,
   ResizeObserver: dom.ResizeObserver,
@@ -152,7 +153,8 @@ function configuration() {
 async function mount(
   nativeConfiguration = true,
   role = 100,
-  rejectPublication = false
+  rejectPublication = false,
+  fileOwned = false
 ) {
   useAuthStore.getState().auth.setBundle({
     access_token: 'synthetic-pricing-session',
@@ -210,9 +212,26 @@ async function mount(
     }
     const data =
       config.url === '/api/channel/ops'
-        ? { native_configuration: nativeConfiguration, native_secrets: false }
+        ? {
+            native_configuration: nativeConfiguration,
+            native_secrets: false,
+            price_publish: true,
+          }
         : config.url === '/core/v1/admin/routing/configuration'
-          ? current
+          ? fileOwned
+            ? {
+                ...current,
+                authority: {
+                  mode: 'file',
+                  source: 'model.config_file',
+                  version: current.version,
+                  routing_sha256: 'b'.repeat(64),
+                  pricing_sha256: 'a'.repeat(64),
+                  git_revision: null,
+                  observed_at_unix: 100,
+                },
+              }
+            : current
           : assert.fail(`Unexpected request: ${config.url}`)
     return {
       config,
@@ -505,4 +524,38 @@ test('a missing routed tool price is drafted in exact request units and requires
     requests.some((path) => path.includes('ratio_sync')),
     false
   )
+})
+
+test('file-owned prices expose live source and an unsent scoped AI proposal even when capabilities disagree', async () => {
+  section = 'model-pricing'
+  const { container, writes } = await mount(true, 100, false, true)
+  await until(() =>
+    Boolean(container.textContent?.includes('model.config_file'))
+  )
+  assert.match(container.textContent ?? '', /imported-model/)
+  assert.match(container.textContent ?? '', new RegExp('a'.repeat(64)))
+  const buttons = () => Array.from(container.querySelectorAll('button'))
+  assert.ok(
+    !buttons().some((button) =>
+      ['Add price rule', 'Edit JSON', 'Confirm and publish'].includes(
+        button.textContent?.trim() ?? ''
+      )
+    )
+  )
+  const request = buttons().find(
+    (button) => button.textContent?.trim() === 'Ask AI to edit'
+  )
+  assert.ok(request)
+  await act(async () => request.click())
+  const { consumeQueuedAssistantRequest } =
+    await import('@/features/assistant/assistant-events')
+  const queued = consumeQueuedAssistantRequest()
+  assert.ok(queued?.message)
+  assert.equal(queued.autoSend, false)
+  const intent = JSON.parse(queued.message)
+  assert.equal(intent.intent, 'propose_git_price_change')
+  assert.deepEqual(intent.version, { routing: 3, pricing: 2 })
+  assert.equal(intent.pricing_sha256, 'a'.repeat(64))
+  assert.ok(!queued.message.includes('synthetic-pricing-session'))
+  assert.equal(writes.length, 0)
 })

@@ -60,7 +60,16 @@ function NativePricingEditor({ initialMode }: { initialMode?: string }) {
       </p>
     )
   }
-  return <NativePricingManagement initialMode={initialMode} />
+  return (
+    <NativePricingManagement
+      initialMode={initialMode}
+      canPublish={query.data.data.price_publish === true}
+      requiresAuthority={
+        'native_channel_model_plan' in query.data.data &&
+        query.data.data.native_channel_model_plan === true
+      }
+    />
+  )
 }
 
 export function NativePricingSection({

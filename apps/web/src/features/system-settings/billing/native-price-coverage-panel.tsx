@@ -18,12 +18,16 @@ export function NativePriceCoveragePanel({
   rows,
   tools,
   disabled,
+  writable,
+  requestChange,
   addRule,
   saveFee,
 }: {
   rows: Row[]
   tools?: boolean
   disabled: boolean
+  writable: boolean
+  requestChange?: (selector: PriceSelector) => void
   addRule: (selector: PriceSelector) => void
   saveFee: (row: Row, micros: number) => void
 }) {
@@ -69,7 +73,7 @@ export function NativePriceCoveragePanel({
                 {selector.group} · {selector.speed}
               </p>
             </div>
-            {tools && active ? (
+            {writable && tools && active ? (
               <form
                 className='flex flex-wrap items-end gap-2'
                 onSubmit={(event) => {
@@ -111,21 +115,33 @@ export function NativePriceCoveragePanel({
                       : t('Unset price')}
                   </span>
                 )}
-                <Button
-                  type='button'
-                  variant='outline'
-                  disabled={disabled}
-                  onClick={() => {
-                    if (tools) {
-                      setEditing({
-                        key,
-                        usd: rule ? microsToUsd(rule.rates.request) : '',
-                      })
-                    } else addRule(selector)
-                  }}
-                >
-                  {rule ? t('Edit') : t('Add price rule')}
-                </Button>
+                {writable ? (
+                  <Button
+                    type='button'
+                    variant='outline'
+                    disabled={disabled}
+                    onClick={() => {
+                      if (tools) {
+                        setEditing({
+                          key,
+                          usd: rule ? microsToUsd(rule.rates.request) : '',
+                        })
+                      } else addRule(selector)
+                    }}
+                  >
+                    {rule ? t('Edit') : t('Add price rule')}
+                  </Button>
+                ) : (
+                  requestChange && (
+                    <Button
+                      type='button'
+                      variant='outline'
+                      onClick={() => requestChange(selector)}
+                    >
+                      {t('Ask AI to edit')}
+                    </Button>
+                  )
+                )}
               </div>
             )}
           </div>

@@ -28,6 +28,7 @@ import {
 } from '@/components/ui/table'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Textarea } from '@/components/ui/textarea'
+import { requestAssistantOpen } from '@/features/assistant/assistant-events'
 import {
   microsToUsd,
   usdToMicros,
@@ -79,7 +80,11 @@ type Preview = {
 
 export function NativePricingManagement({
   initialMode = '',
+  canPublish,
+  requiresAuthority,
 }: {
+  canPublish: boolean
+  requiresAuthority: boolean
   initialMode?: string
 }) {
   const { t } = useTranslation()
@@ -98,6 +103,8 @@ export function NativePricingManagement({
     <PricingWorkspace
       key={`${scope.userId}:${scope.sessionId}:${scope.role}`}
       scope={scope}
+      canPublish={canPublish}
+      requiresAuthority={requiresAuthority}
       initialMode={initialMode}
     />
   )
@@ -106,7 +113,11 @@ export function NativePricingManagement({
 function PricingWorkspace({
   scope,
   initialMode,
+  canPublish,
+  requiresAuthority,
 }: {
+  canPublish: boolean
+  requiresAuthority: boolean
   scope: NativeRoutingScope
   initialMode: string
 }) {
@@ -142,7 +153,11 @@ function PricingWorkspace({
   const [deleteDraft, setDeleteDraft] = useState<number | null>(null)
   const pending = useRef(false)
   const configuration = query.data
-  const prices = draft?.prices ?? configuration?.prices
+  const authority = configuration?.authority
+  const fileOwned = authority?.mode === 'file'
+  const writable =
+    canPublish && (authority ? authority.mode === 'api' : !requiresAuthority)
+  const prices = (writable ? draft?.prices : undefined) ?? configuration?.prices
   const fail = (cause: unknown) =>
     setError(
       getServerErrorMessage(cause) ??
@@ -150,7 +165,7 @@ function PricingWorkspace({
     )
 
   async function run(operation: () => Promise<void>) {
-    if (pending.current) return
+    if (!writable || pending.current) return
     pending.current = true
     setBusy(true)
     setError(null)
@@ -362,6 +377,17 @@ function PricingWorkspace({
       />
     )
   }
+  function askForPriceChange(selector?: PriceSelector) {
+    if (!authority || authority.mode !== 'file') return
+    const request = {
+      intent: 'propose_git_price_change',
+      source: authority.source,
+      version: authority.version,
+      pricing_sha256: authority.pricing_sha256,
+      ...(selector ? { selector } : {}),
+    }
+    requestAssistantOpen('service', JSON.stringify(request, null, 2))
+  }
   const needle = search.trim().toLowerCase()
   const groups = [
     ...new Set([
@@ -448,9 +474,11 @@ function PricingWorkspace({
           >
             {t('Export JSON')}
           </Button>
-          <Button type='button' disabled={busy} onClick={() => addRule()}>
-            {t('Add price rule')}
-          </Button>
+          {writable && (
+            <Button type='button' disabled={busy} onClick={() => addRule()}>
+              {t('Add price rule')}
+            </Button>
+          )}
         </div>
       </div>
       <div className='flex min-w-0 flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center'>
@@ -502,17 +530,19 @@ function PricingWorkspace({
             {t('Upstream cost')}
           </NativeSelectOption>
         </NativeSelect>
-        <Button
-          type='button'
-          variant='ghost'
-          className='sm:ml-auto'
-          disabled={busy}
-          onClick={() => setJson(stringifyNativeDocument(prices, 2))}
-        >
-          {t('Edit JSON')}
-        </Button>
+        {writable && (
+          <Button
+            type='button'
+            variant='ghost'
+            className='sm:ml-auto'
+            disabled={busy}
+            onClick={() => setJson(stringifyNativeDocument(prices, 2))}
+          >
+            {t('Edit JSON')}
+          </Button>
+        )}
       </div>
-      {group && (
+      {writable && group && (
         <div className='bg-muted/40 flex flex-wrap items-end gap-3 rounded-lg p-4'>
           <label className='min-w-0 space-y-2 text-sm'>
             <span>{t('Group multiplier')}</span>
@@ -577,9 +607,11 @@ function PricingWorkspace({
               <TableHead>{t('Cache write')}</TableHead>
               <TableHead>{t('Request fee')}</TableHead>
               <TableHead>{t('Multiplier')}</TableHead>
-              <TableHead className='bg-background sticky right-0 z-10 w-24 text-right'>
-                {t('Actions')}
-              </TableHead>
+              {(writable || fileOwned) && (
+                <TableHead className='bg-background sticky right-0 z-10 w-24 text-right'>
+                  {t('Actions')}
+                </TableHead>
+              )}
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -621,64 +653,83 @@ function PricingWorkspace({
                     {t('Group')} × {t('Speed')}
                   </div>
                 </TableCell>
-                <TableCell className='bg-background sticky right-0 z-10 w-24 text-right'>
-                  <DropdownMenu>
-                    <DropdownMenuTrigger
-                      disabled={busy}
-                      render={
-                        <Button
-                          type='button'
-                          variant='ghost'
-                          size='sm'
-                          className='min-h-11 sm:min-h-8'
-                        />
-                      }
-                    >
-                      {t('Actions')}
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent
-                      align='end'
-                      className='bg-background min-w-40'
-                    >
-                      <DropdownMenuItem
-                        disabled={busy}
+                {(writable || fileOwned) && (
+                  <TableCell className='bg-background sticky right-0 z-10 w-24 text-right'>
+                    {fileOwned ? (
+                      <Button
+                        type='button'
+                        variant='ghost'
+                        size='sm'
                         onClick={() =>
-                          setEditing({ rule, previousId: rule.id })
-                        }
-                      >
-                        {t('Edit')}
-                      </DropdownMenuItem>
-                      <DropdownMenuItem
-                        disabled={busy}
-                        onClick={() =>
-                          setEditing({
-                            rule: {
-                              ...rule,
-                              id: nextPriceRuleId(prices),
-                              model: `${rule.model}-copy`,
-                            },
+                          askForPriceChange({
+                            model: rule.model,
+                            group: rule.group,
+                            speed: rule.speed,
                           })
                         }
                       >
-                        {t('Copy')}
-                      </DropdownMenuItem>
-                      <DropdownMenuItem
-                        disabled={busy}
-                        variant='destructive'
-                        onClick={() =>
-                          updatePrices({
-                            ...prices,
-                            rules: prices.rules.filter(
-                              (item) => item.id !== rule.id
-                            ),
-                          })
-                        }
-                      >
-                        {t('Remove')}
-                      </DropdownMenuItem>
-                    </DropdownMenuContent>
-                  </DropdownMenu>
-                </TableCell>
+                        {t('Ask AI to edit')}
+                      </Button>
+                    ) : (
+                      <DropdownMenu>
+                        <DropdownMenuTrigger
+                          disabled={busy}
+                          render={
+                            <Button
+                              type='button'
+                              variant='ghost'
+                              size='sm'
+                              className='min-h-11 sm:min-h-8'
+                            />
+                          }
+                        >
+                          {t('Actions')}
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent
+                          align='end'
+                          className='bg-background min-w-40'
+                        >
+                          <DropdownMenuItem
+                            disabled={busy}
+                            onClick={() =>
+                              setEditing({ rule, previousId: rule.id })
+                            }
+                          >
+                            {t('Edit')}
+                          </DropdownMenuItem>
+                          <DropdownMenuItem
+                            disabled={busy}
+                            onClick={() =>
+                              setEditing({
+                                rule: {
+                                  ...rule,
+                                  id: nextPriceRuleId(prices),
+                                  model: `${rule.model}-copy`,
+                                },
+                              })
+                            }
+                          >
+                            {t('Copy')}
+                          </DropdownMenuItem>
+                          <DropdownMenuItem
+                            disabled={busy}
+                            variant='destructive'
+                            onClick={() =>
+                              updatePrices({
+                                ...prices,
+                                rules: prices.rules.filter(
+                                  (item) => item.id !== rule.id
+                                ),
+                              })
+                            }
+                          >
+                            {t('Remove')}
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    )}
+                  </TableCell>
+                )}
               </TableRow>
             ))}
           </TableBody>
@@ -732,6 +783,28 @@ function PricingWorkspace({
       className='@container/prices min-w-0 space-y-7'
       aria-label={t('Model Pricing')}
     >
+      {fileOwned && authority && (
+        <div className='flex flex-wrap items-center justify-between gap-3'>
+          <div className='min-w-0 space-y-1 text-sm'>
+            <div>
+              {t('Source')} · <code>{authority.source}</code> ·{' '}
+              {t('Revision {{revision}}', {
+                revision: authority.version.pricing,
+              })}
+            </div>
+            <div className='text-muted-foreground font-mono text-xs break-all'>
+              SHA-256 · {authority.pricing_sha256}
+            </div>
+          </div>
+          <Button
+            type='button'
+            variant='outline'
+            onClick={() => askForPriceChange()}
+          >
+            {t('Ask AI to edit')}
+          </Button>
+        </div>
+      )}
       {error && (
         <Alert variant='destructive' role='alert'>
           <AlertDescription>{error}</AlertDescription>
@@ -744,7 +817,7 @@ function PricingWorkspace({
           </AlertDescription>
         </Alert>
       )}
-      {stale && (
+      {writable && stale && (
         <Alert role='status'>
           <AlertDescription>
             {t(
@@ -769,6 +842,8 @@ function PricingWorkspace({
           <NativePriceCoveragePanel
             rows={coverage.missing.map((selector) => ({ selector }))}
             disabled={busy || stale || query.isError}
+            writable={writable}
+            requestChange={fileOwned ? askForPriceChange : undefined}
             addRule={addRule}
             saveFee={saveToolFee}
           />
@@ -778,6 +853,8 @@ function PricingWorkspace({
             rows={coverage.tools}
             tools
             disabled={busy || stale || query.isError}
+            writable={writable}
+            requestChange={fileOwned ? askForPriceChange : undefined}
             addRule={addRule}
             saveFee={saveToolFee}
           />
@@ -788,7 +865,7 @@ function PricingWorkspace({
           </p>
         </TabsContent>
       </Tabs>
-      {draft && (
+      {writable && draft && (
         <section
           className='bg-muted/50 space-y-4 rounded-xl p-5'
           aria-label={t('Pending price changes')}
@@ -843,7 +920,7 @@ function PricingWorkspace({
           </div>
         </section>
       )}
-      {drafts.length > 0 && (
+      {writable && drafts.length > 0 && (
         <section
           className='space-y-4 border-t pt-6'
           aria-label={t('Saved price drafts')}
@@ -904,7 +981,7 @@ function PricingWorkspace({
           </div>
         </section>
       )}
-      {editing && (
+      {writable && editing && (
         <NativePriceRuleDialog
           initial={editing.rule}
           groups={groups}
@@ -918,7 +995,7 @@ function PricingWorkspace({
         />
       )}
       <Dialog
-        open={json !== null}
+        open={writable && json !== null}
         onOpenChange={(open) => {
           if (!open) setJson(null)
         }}
@@ -965,7 +1042,7 @@ function PricingWorkspace({
         )}
       </Dialog>
       <Dialog
-        open={preview !== null}
+        open={writable && preview !== null}
         onOpenChange={(open) => {
           if (!open && !busy) setPreview(null)
         }}
@@ -1002,7 +1079,7 @@ function PricingWorkspace({
         )}
       </Dialog>
       <Dialog
-        open={discard || deleteDraft !== null}
+        open={writable && (discard || deleteDraft !== null)}
         onOpenChange={(open) => {
           if (!open && !busy) {
             setDiscard(false)
