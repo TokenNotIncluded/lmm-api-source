@@ -122,3 +122,9 @@ test('native preview preserves the compliance gate', () => {
   assert.match(html, /disabled=""/)
   assert.match(html, /administrator confirms compliance terms/)
 })
+
+test('wallet displays verified raw historical usage and independent request count', () => {
+  const html = stats({ ...user, normalized_used_quota: null, used_quota: 300, request_count: 912345 })
+  assert.match(html, /300 Credits/)
+  assert.match(html, /912,345/)
+})

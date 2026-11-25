@@ -143,6 +143,54 @@ FROM person p CROSS JOIN balances b
     })
 }
 
+/// Resolve an imported lifetime counter only against this actor's reviewed,
+/// frozen normalization. Old deployments can serve a wallet without granting
+/// the optional site-finance read surface.
+async fn normalized_opening(
+    c: &mut PgConnection,
+    user: i64,
+    opening_used: i64,
+) -> Result<Option<i64>, ProfileError> {
+    let readable: bool = sqlx::query_scalar(
+        "SELECT count(*)=2 AND coalesce(bool_and(
+          has_schema_privilege(n.oid,'USAGE') AND has_table_privilege(t.oid,'SELECT')),false)
+         FROM pg_catalog.pg_class t JOIN pg_catalog.pg_namespace n ON n.oid=t.relnamespace
+         WHERE n.nspname='core_history' AND t.relname IN ('finance_sources','finance_users')
+           AND t.relkind IN ('r','p')",
+    )
+    .fetch_one(&mut *c)
+    .await?;
+    if !readable {
+        return Ok((opening_used == 0).then_some(0));
+    }
+    // finance_sources admits one archive. finance_users has a user primary key
+    // and unique account. The source seal and this single user's opening are
+    // sufficient for a personal total, independently of other users' amounts.
+    let opening: Option<i64> = sqlx::query_scalar(
+        r#"SELECT CASE
+ WHEN f.user_id IS NULL AND o.used_quota=0 THEN 0
+ WHEN f.account_id=o.account_id AND f.source_row_sha256=o.source_row_sha256
+   AND f.raw_used_quota=o.used_quota AND s.complete AND s.user_count>0
+   AND s.contract='core.site-finance-source.v1' AND s.credits_per_usd=500000
+   AND s.source_archive_sha256=o.source_archive_sha256 AND s.mapping_sha256=o.mapping_sha256
+   AND s.observed_at=o.observed_at AND NOT EXISTS (
+     SELECT 1 FROM unnest(s.native_request_ids) sealed(id)
+     LEFT JOIN core_charging.requests r ON r.id=sealed.id
+     WHERE r.id IS NULL OR (r.actor_user_id=u.id AND r.state='settled')
+   ) THEN f.normalized_used_credits END
+FROM core_identity.users u
+JOIN core_billing.account_opening_counters o ON o.user_id=u.id AND o.account_id=u.personal_account_id
+LEFT JOIN core_history.finance_users f ON f.user_id=u.id
+LEFT JOIN core_history.finance_sources s ON s.source_key=f.source_key
+WHERE u.id=$1 AND o.used_quota=$2"#,
+    )
+    .bind(user)
+    .bind(opening_used)
+    .fetch_one(c)
+    .await?;
+    Ok(opening)
+}
+
 /// Read one MVCC snapshot with no ledger creation, mutation or inferred grant.
 pub async fn read(
     connection: &mut PgConnection,
@@ -200,7 +248,7 @@ FROM person p CROSS JOIN balances b CROSS JOIN usage u LEFT JOIN opening o ON TR
 "#,
     )
     .bind(user_id)
-    .fetch_optional(connection)
+    .fetch_optional(&mut *connection)
     .await?
     .ok_or(ProfileError::Unavailable)?;
     let imported: bool = row.try_get("opening_present")?;
@@ -239,7 +287,15 @@ FROM person p CROSS JOIN balances b CROSS JOIN usage u LEFT JOIN opening o ON TR
     if wallet < 0 || reserved < 0 || debt < 0 || new_used < 0 {
         return Err(ProfileError::Storage);
     }
-    let normalized = (amount("opening_used")? == 0).then_some(new_used);
+    let opening_used = amount("opening_used")?;
+    let normalized = if !imported {
+        Some(new_used)
+    } else {
+        normalized_opening(connection, user_id, opening_used)
+            .await?
+            .and_then(|credits| credits.checked_add(new_used))
+            .filter(|total| i128::from(*total) <= JS_SAFE_INTEGER)
+    };
     Ok(FinancialProfile {
         financial_projection_available: true,
         quota: amount("quota")?,
