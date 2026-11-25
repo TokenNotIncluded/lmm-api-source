@@ -195,3 +195,30 @@ test('only an explicit server OAuth denial exposes short plain text, never gener
     null
   )
 })
+
+test('market adapter placeholder translates its domain outcome and preserves specific server errors', () => {
+  const message = 'Tool market operation could not be completed.'
+  for (const [code, key] of Object.entries({
+    TOOL_MARKET_EXECUTION_PENDING: 'Check the original request',
+    TOOL_MARKET_INVALID_INPUT: 'Check the tool parameters and try again.',
+    TOOL_MARKET_DENIED: 'No permission to perform this action',
+    TOOL_MARKET_REMOTE_TIMEOUT:
+      'The tool provider timed out. Check the original request before retrying.',
+    TOOL_MARKET_FUNDS_UNAVAILABLE: 'Wallet unavailable',
+  })) {
+    assert.equal(
+      getServerErrorMessageKey({
+        response: { data: { success: false, code, message } },
+      }),
+      key
+    )
+  }
+  assert.equal(
+    getServerErrorMessageKey({
+      code: 'TOOL_MARKET_CONFLICT',
+      message: 'Draft changed; reload and retry',
+    }),
+    null
+  )
+  assert.equal(getServerErrorMessageKey({ code: 'unknown', message }), null)
+})

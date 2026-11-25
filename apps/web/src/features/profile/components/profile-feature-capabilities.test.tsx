@@ -213,7 +213,7 @@ test('gift read failures are not an empty gift list or repeated automatic claims
       data: { success: false, message: 'Compensation service unavailable' },
     }
   }) as typeof api.get
-  const host = await render(<GiftCard />)
+  const host = await render(<GiftCard capabilitiesReady onRefresh={() => {}} />)
   await act(async () => {
     await new Promise((resolve) => setTimeout(resolve, 30))
   })
@@ -229,4 +229,89 @@ test('gift read failures are not an empty gift list or repeated automatic claims
     await new Promise((resolve) => setTimeout(resolve, 30))
   })
   assert.equal(calls, 2)
+})
+
+test('unverified or unavailable compensation support reads only live capabilities on retry', async () => {
+  let refreshed = 0
+  let reads = 0
+  api.get = (async () => {
+    reads++
+    throw new Error('unexpected gift discovery')
+  }) as typeof api.get
+  useAuthStore.setState({
+    auth: {
+      ...previousAuth,
+      user: { id: 7 },
+      session: { sid: 'gift-test' },
+    } as never,
+  })
+  for (const ready of [false, true]) {
+    const host = await render(
+      <GiftCard
+        capabilitiesReady={ready}
+        enabled={!ready}
+        onRefresh={() => {
+          refreshed++
+        }}
+      />
+    )
+    assert.match(
+      host.textContent ?? '',
+      ready
+        ? /does not support compensation gifts/
+        : /capabilities have not been loaded/
+    )
+    await act(async () => host.querySelector('button')?.click())
+  }
+  assert.equal(reads, 0)
+  assert.equal(refreshed, 2)
+})
+
+test('an unadvertised gift endpoint distinguishes the old native fallback, transient 503 and a real list', async () => {
+  useAuthStore.setState({
+    auth: {
+      ...previousAuth,
+      user: { id: 7 },
+      session: { sid: 'gift-test' },
+    } as never,
+  })
+  let calls = 0
+  api.get = (async () => {
+    calls++
+    if (calls <= 2)
+      throw Object.assign(new Error('Request failed with status code 503'), {
+        isAxiosError: true,
+        response: {
+          status: 503,
+          data: {
+            error: {
+              code:
+                calls === 1
+                  ? 'core_migration_incomplete'
+                  : 'service_temporarily_unavailable',
+            },
+          },
+        },
+      })
+    return { data: { success: true, data: [] } }
+  }) as typeof api.get
+  const host = await render(<GiftCard capabilitiesReady onRefresh={() => {}} />)
+  const settle = () => new Promise((resolve) => setTimeout(resolve, 30))
+  await act(async () => {
+    await settle()
+  })
+  assert.match(host.textContent ?? '', /does not support compensation gifts/)
+  await act(async () => {
+    host.querySelector('button')?.click()
+    await settle()
+  })
+  assert.match(host.textContent ?? '', /Unable to load compensation gifts/)
+  assert.match(host.textContent ?? '', /temporarily unavailable/)
+  assert.doesNotMatch(host.textContent ?? '', /Request failed with status/)
+  await act(async () => {
+    host.querySelector('button')?.click()
+    await settle()
+  })
+  assert.equal(host.textContent, '')
+  assert.equal(calls, 3)
 })

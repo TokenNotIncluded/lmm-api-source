@@ -293,6 +293,7 @@ async fn public_status_response(State(state): State<Readiness>, headers: HeaderM
             "wechat_login":false,"passkey_login":status.passkey_login_enabled,"email_verification":status.email_verification_enabled,
             "native_account_bindings":status.native_account_bindings,
             "turnstile_check":turnstile_site_key.is_some(),"turnstile_site_key":turnstile_site_key.unwrap_or_default(),"two_factor_enabled":status.two_factor_enabled,"payments_enabled":false,
+            "compensation_gifts_enabled":false,
             "payments_test_rpc_enabled":state.capabilities.payments,
             "commerce_rpc_enabled":state.capabilities.commerce,
             "assistant":{"enabled":false},"custom_oauth_providers":[],
@@ -516,6 +517,7 @@ mod tests {
             .unwrap();
         let body: Value = serde_json::from_slice(&bytes).unwrap();
         let data = &body["data"];
+        assert_eq!(data["compensation_gifts_enabled"], false);
         assert_eq!(data["currency_unit"], "credit");
         assert_eq!(data["credit_unit_schema_version"], 2);
         assert_eq!(data["quota_unit"], "LEDGER_QUOTA");

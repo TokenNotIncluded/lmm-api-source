@@ -121,6 +121,7 @@ interface SystemStatusData {
   native_federated_auth?: boolean
   native_account_bindings?: boolean
   two_factor_enabled?: boolean
+  compensation_gifts_enabled?: boolean
   federated_oauth_providers?: FederatedProvider[]
   oidc_enabled?: boolean
   oidc_authorization_endpoint?: string

@@ -367,6 +367,11 @@ export const marketAPI = {
     collectMarketPages<T>((offset, limit) =>
       unwrap<T[]>(
         api.get(`${base}/mine/${encodeURIComponent(kind)}`, {
+          // The client picker owns the retry for this optional discovery read.
+          ...(kind === 'oauth-clients' && {
+            skipBusinessError: true,
+            skipErrorHandler: true,
+          }),
           params: { offset, limit },
           signal,
         })

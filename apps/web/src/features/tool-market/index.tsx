@@ -363,11 +363,27 @@ function ToolMarketWorkspace({
       ...eligibleOAuthIDs,
     ]),
   ]
+  const requiresOAuthClient = client.startsWith('oauth:')
   const accessReady =
     installs.isSuccess &&
     grants.isSuccess &&
-    (!client.startsWith('oauth:') ||
+    (!requiresOAuthClient ||
       (oauthClients.isSuccess && eligibleOAuthIDs.includes(client)))
+  const oauthClientNotice = oauthClients.isError && (
+    <div
+      className='text-muted-foreground flex items-center gap-2 text-sm'
+      role='status'
+    >
+      {t('Could not load available OAuth clients.')}
+      <Button
+        variant='link'
+        size='sm'
+        onClick={() => void oauthClients.refetch()}
+      >
+        {t('Retry')}
+      </Button>
+    </div>
+  )
   const openPublisher = () => {
     setEditorTregSurface(undefined)
     setSelected(null)
@@ -729,6 +745,7 @@ function ToolMarketWorkspace({
                                 </option>
                               ))}
                             </select>
+                            {oauthClientNotice}
                             <p className='text-muted-foreground text-xs'>
                               {t(
                                 'Choose this browser to try a tool, or a connected client to give it access.'
@@ -942,7 +959,7 @@ function ToolMarketWorkspace({
                       {selected.mode === 'published' &&
                         (installs.isPending ||
                           grants.isPending ||
-                          oauthClients.isPending) && (
+                          (requiresOAuthClient && oauthClients.isPending)) && (
                           <p
                             role='status'
                             className='text-muted-foreground text-sm'
@@ -953,7 +970,7 @@ function ToolMarketWorkspace({
                       {selected.mode === 'published' &&
                         (installs.isError ||
                           grants.isError ||
-                          oauthClients.isError) && (
+                          (requiresOAuthClient && oauthClients.isError)) && (
                           <div role='alert' className='space-y-2 text-sm'>
                             <p className='text-destructive'>
                               {t(
@@ -1258,6 +1275,7 @@ function ToolMarketWorkspace({
                             </option>
                           ))}
                         </select>
+                        {oauthClientNotice}
                       </Field>
                     </div>
                     <div

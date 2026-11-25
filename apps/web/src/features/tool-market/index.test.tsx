@@ -816,6 +816,35 @@ test('an access read failure does not invent a missing-authorization instruction
   assert.equal(button('Run free tool', container).disabled, true)
 })
 
+test('optional OAuth client discovery cannot block browser tool access', async () => {
+  stubNavigation([builtin])
+  marketAPI.mine = (async (kind: string) => {
+    if (kind === 'oauth-clients') throw new Error('discovery unavailable')
+    return []
+  }) as typeof marketAPI.mine
+  const { container } = await mount()
+  await waitFor(
+    () => container.textContent?.includes(builtin.version.name) === true
+  )
+  assert.match(
+    container.textContent ?? '',
+    /Could not load available OAuth clients/
+  )
+  const card = [...container.querySelectorAll('button')].find(
+    (row) => row.querySelector('strong')?.textContent === builtin.version.name
+  )
+  assert.ok(card)
+  await click(card)
+  await waitFor(() => !!findButton('Add and authorize tool', container))
+  assert.match(
+    container.textContent ?? '',
+    /Could not load available OAuth clients/
+  )
+  assert.doesNotMatch(container.textContent ?? '', /Could not load tool access/)
+  assert.equal(button('Add and authorize tool', container).disabled, false)
+  assert.equal(button('Run free tool', container).disabled, true)
+})
+
 test('an authorized unloaded tool points to Load without granting again or calling', async () => {
   stubNavigation([builtin])
   const mine = marketAPI.mine
