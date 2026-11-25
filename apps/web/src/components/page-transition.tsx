@@ -17,18 +17,14 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { Outlet, useRouterState } from '@tanstack/react-router'
-import {
-  motion,
-  useAnimationControls,
-  useReducedMotion,
-  type Variants,
-} from 'motion/react'
-import { useLayoutEffect, useRef, type ReactNode } from 'react'
+import { motion, useReducedMotion, type Variants } from 'motion/react'
+import { useEffect, useState, type ReactNode } from 'react'
 
 import { useMediaQuery } from '@/hooks/use-media-query'
 import {
   CARD_ITEM_VARIANTS,
   CARD_STAGGER_VARIANTS,
+  FADE_TRANSITION_CSS,
   MOTION_TRANSITION,
   MOTION_VARIANTS,
   STAGGER_ITEM_VARIANTS,
@@ -195,28 +191,33 @@ interface FadeInProps {
 }
 
 export function FadeIn(props: FadeInProps) {
-  // The server cannot know the viewer's preference. Keep feedback visible until the browser opts into motion.
   const canAnimate = useMediaQuery('(prefers-reduced-motion: no-preference)')
-  const controls = useAnimationControls()
-  const motionWasAllowed = useRef(false)
-  useLayoutEffect(() => {
-    if (canAnimate) {
-      void controls.start(MOTION_VARIANTS.fadeIn.animate)
-    } else if (motionWasAllowed.current) {
-      controls.stop()
-      controls.set(MOTION_VARIANTS.fadeIn.animate)
-    }
-    motionWasAllowed.current = canAnimate
-  }, [canAnimate, controls])
+  // Server-rendered or reduced-motion content is already visible. Animate only a new client-side entrance.
+  const [opacity, setOpacity] = useState<0 | 1 | null>(canAnimate ? 0 : null)
+  useEffect(() => {
+    if (opacity !== 0) return
+    // Give the starting opacity one paint before applying its CSS transition.
+    let frame = window.requestAnimationFrame(() => {
+      frame = window.requestAnimationFrame(() => setOpacity(1))
+    })
+    return () => window.cancelAnimationFrame(frame)
+  }, [opacity])
 
   return (
-    <motion.div
-      initial={canAnimate ? MOTION_VARIANTS.fadeIn.initial : false}
-      animate={controls}
-      transition={{ ...MOTION_TRANSITION.default, delay: props.delay }}
+    <div
       className={props.className}
+      style={
+        opacity === null
+          ? undefined
+          : {
+              opacity: canAnimate ? opacity : 1,
+              transition: canAnimate
+                ? `${FADE_TRANSITION_CSS} ${props.delay ?? 0}s`
+                : 'none',
+            }
+      }
     >
       {props.children}
-    </motion.div>
+    </div>
   )
 }
