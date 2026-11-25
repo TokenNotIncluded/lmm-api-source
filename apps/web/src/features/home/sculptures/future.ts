@@ -23,40 +23,94 @@ export function pelicanBicycle(): Sculpture {
       ],
       0.023,
       tint(C.ink, 1.15 + feather * 0.09),
-      20, 23, 5
+      20,
+      23,
+      5
     )
   }
   // The recurved white neck leaves clear space between the chest and bill.
   s.tube(
     (t) => [-0.08 + 0.18 * t - Math.sin(t * TAU) * 0.064, 0.32 + t * 0.53, 0],
-    0.084, C.cream, 21, 60, 12
+    0.084,
+    C.cream,
+    21,
+    60,
+    12
   )
   s.ellipsoid([0.12, 0.89, 0], [0.18, 0.147, 0.13], C.cream, 21, 950)
   // A broad upper bill, hanging pouch and hooked tip share the same gape.
   const bill = (u: number) => 0.887 - 0.068 * u
   const width = (u: number) => (1 - u) ** 0.67 * 0.112
-  s.surface(49, 18, (u, v) => [
-    0.20 + 0.86 * u,
-    bill(u) + Math.sin(Math.PI * v) * (1 - u) * 0.038,
-    (v * 2 - 1) * width(u),
-  ], C.gold, 21)
-  s.surface(56, 22, (u, v) => [
-    0.20 + 0.86 * u,
-    bill(u) - (1 - u) * (0.018 + 0.37 * Math.sin(Math.PI * (0.09 + 0.91 * u))) * Math.sin(Math.PI * v),
-    -Math.cos(Math.PI * v) * width(u),
-  ], (u, v) => tint(C.rust, 0.7 + 0.23 * Math.cos(v * Math.PI) ** 2 + 0.18 * u), 21)
-  s.tube((t) => [1.042 + 0.033 * Math.sin(t * Math.PI * 0.8), 0.82 - t * 0.056, 0], 0.012, C.gold, 21, 15, 6)
+  s.surface(
+    49,
+    18,
+    (u, v) => [
+      0.2 + 0.86 * u,
+      bill(u) + Math.sin(Math.PI * v) * (1 - u) * 0.038,
+      (v * 2 - 1) * width(u),
+    ],
+    C.gold,
+    21
+  )
+  s.surface(
+    56,
+    22,
+    (u, v) => [
+      0.2 + 0.86 * u,
+      bill(u) -
+        (1 - u) *
+          (0.018 + 0.37 * Math.sin(Math.PI * (0.09 + 0.91 * u))) *
+          Math.sin(Math.PI * v),
+      -Math.cos(Math.PI * v) * width(u),
+    ],
+    (u, v) => tint(C.rust, 0.7 + 0.23 * Math.cos(v * Math.PI) ** 2 + 0.18 * u),
+    21
+  )
+  s.tube(
+    (t) => [1.042 + 0.033 * Math.sin(t * Math.PI * 0.8), 0.82 - t * 0.056, 0],
+    0.012,
+    C.gold,
+    21,
+    15,
+    6
+  )
   for (const side of [-1, 1]) {
-    s.tube((t) => [0.20 + 0.86 * t, bill(t), side * width(t)], 0.008, C.ink, 21, 45, 5)
-    s.ellipsoid([0.155, 0.927, side * 0.116], [0.028, 0.029, 0.019], C.ink, 21, 110)
-    s.ellipsoid([0.163, 0.936, side * 0.132], [0.008, 0.009, 0.005], C.cream, 21, 30)
+    s.tube(
+      (t) => [0.2 + 0.86 * t, bill(t), side * width(t)],
+      0.008,
+      C.ink,
+      21,
+      45,
+      5
+    )
+    s.ellipsoid(
+      [0.155, 0.927, side * 0.116],
+      [0.028, 0.029, 0.019],
+      C.ink,
+      21,
+      110
+    )
+    s.ellipsoid(
+      [0.163, 0.936, side * 0.132],
+      [0.008, 0.009, 0.005],
+      C.cream,
+      21,
+      30
+    )
     // Layer the flight feathers against the flank, dark tips to the rear.
     for (let feather = 0; feather < 4; feather++) {
-      s.tube((t) => [
-        -0.19 - t * (0.45 + 0.025 * feather),
-        0.28 - Math.sin(t * Math.PI) * 0.055 - feather * 0.044 + t * 0.03,
-        side * (0.19 + 0.045 * Math.sin(t * Math.PI) - 0.15 * t * t),
-      ], 0.024, tint(feather === 3 ? C.ink : C.cream, 0.6 + feather * 0.07), 20, 27, 6)
+      s.tube(
+        (t) => [
+          -0.19 - t * (0.45 + 0.025 * feather),
+          0.28 - Math.sin(t * Math.PI) * 0.055 - feather * 0.044 + t * 0.03,
+          side * (0.19 + 0.045 * Math.sin(t * Math.PI) - 0.15 * t * t),
+        ],
+        0.024,
+        tint(feather === 3 ? C.ink : C.cream, 0.6 + feather * 0.07),
+        20,
+        27,
+        6
+      )
     }
   }
   s.tube(

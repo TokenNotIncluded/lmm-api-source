@@ -177,7 +177,11 @@ export function atomicExplosion(): Sculpture {
       const r = profile * (1 + 0.18 * Math.cos(5 * a - 4 * u))
       return [Math.cos(a) * r, -0.77 + 1.26 * u, Math.sin(a) * r]
     },
-    (u, v) => tint(u < 0.28 ? C.gold : clay, 0.76 + 0.22 * Math.cos(5 * TAU * v - 4 * u)),
+    (u, v) =>
+      tint(
+        u < 0.28 ? C.gold : clay,
+        0.76 + 0.22 * Math.cos(5 * TAU * v - 4 * u)
+      ),
     2
   )
   s.surface(
@@ -188,9 +192,17 @@ export function atomicExplosion(): Sculpture {
       const a = v * TAU
       const edge = Math.cos(latitude)
       const r = edge * (0.74 + 0.055 * edge * Math.cos(10 * a))
-      return [r * Math.cos(a), 0.57 + 0.29 * Math.sin(latitude) + 0.03 * edge * Math.sin(3 * a), r * Math.sin(a) * 0.9]
+      return [
+        r * Math.cos(a),
+        0.57 + 0.29 * Math.sin(latitude) + 0.03 * edge * Math.sin(3 * a),
+        r * Math.sin(a) * 0.9,
+      ]
     },
-    (u, v) => tint(u < 0.36 ? shadow : u < 0.65 ? clay : C.gold, 0.82 + 0.16 * Math.cos(v * TAU - 1)),
+    (u, v) =>
+      tint(
+        u < 0.36 ? shadow : u < 0.65 ? clay : C.gold,
+        0.82 + 0.16 * Math.cos(v * TAU - 1)
+      ),
     3
   )
   for (let i = 0; i < 10; i++) {
@@ -226,11 +238,15 @@ export function atomicExplosion(): Sculpture {
         -0.68 + (0.05 + spread) * Math.sin(t * Math.PI * 0.7),
         Math.sin(a) * (0.38 + spread * t),
       ],
-      0.007, C.rust, 5, 14, 4
+      0.007,
+      C.rust,
+      5,
+      14,
+      4
     )
   }
-  s.ring([0, -0.80, 0], 0.94, 0.015, C.gold, 4, 1)
-  s.ring([0, -0.76, 0], 0.78, 0.010, clay, 5, 1)
+  s.ring([0, -0.8, 0], 0.94, 0.015, C.gold, 4, 1)
+  s.ring([0, -0.76, 0], 0.78, 0.01, clay, 5, 1)
   return s.model(
     (t) => {
       const angle = (t / 7.2) * TAU

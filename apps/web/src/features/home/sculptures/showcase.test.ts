@@ -101,7 +101,8 @@ test('the plume returns its canopy and both ripples to their starting pose', () 
   const end = model.animate(7.2)
   const middle = model.animate(3.6)
   for (const part of [3, 4, 5]) {
-    const p = model.points.find((p) => p.part === part && p.x > 0.3)!
+    const p = model.points.find((p) => p.part === part && p.x > 0.3)
+    assert.ok(p)
     const a: Vec3 = [p.x, p.y, p.z]
     const b: Vec3 = [...a]
     const c: Vec3 = [...a]

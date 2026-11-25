@@ -141,15 +141,32 @@ export function bicycle(
   const tangent = Math.acos((sprocket - chainring) / Math.hypot(dx, dy))
   for (const side of [-1, 1]) {
     const angle = tilt + side * tangent
-    const x = Math.cos(angle), y = Math.sin(angle)
+    const x = Math.cos(angle),
+      y = Math.sin(angle)
     s.line(
       [rear[0] + x * sprocket, rear[1] + y * sprocket, 0.07],
       [CRANK[0] + x * chainring, CRANK[1] + y * chainring, 0.07],
-      0.006, C.gold, 0, 55
+      0.006,
+      C.gold,
+      0,
+      55
     )
     const xPedal = CRANK[0] + side * PEDAL_RADIUS
-    s.line([CRANK[0], CRANK[1], side * 0.09], [xPedal, CRANK[1], side * 0.09], 0.016, C.gold, 3)
-    s.line([xPedal, CRANK[1], side * 0.09], [xPedal, CRANK[1], side * 0.18], 0.014, C.gold, 3, 12)
+    s.line(
+      [CRANK[0], CRANK[1], side * 0.09],
+      [xPedal, CRANK[1], side * 0.09],
+      0.016,
+      C.gold,
+      3
+    )
+    s.line(
+      [xPedal, CRANK[1], side * 0.09],
+      [xPedal, CRANK[1], side * 0.18],
+      0.014,
+      C.gold,
+      3,
+      12
+    )
   }
   const legs = [-1, 1].map((side, index) => {
     const hip: Vec3 = [-0.3, -0.1, side * 0.18],
