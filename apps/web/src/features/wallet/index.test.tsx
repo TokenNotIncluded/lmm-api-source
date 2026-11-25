@@ -99,7 +99,6 @@ const { useWalletCurrencyPreferenceStore } =
 const i18n = createInstance()
 await i18n.use(initReactI18next).init({ lng: 'en', resources: {} })
 const { useSystemConfigStore } = await import('@/stores/system-config-store')
-const { mapStatusDataToConfig } = await import('@/hooks/use-system-config')
 const originalConfig = useSystemConfigStore.getState().config
 const originalGet = api.get
 const originalPost = api.post
@@ -171,6 +170,7 @@ async function renderWallet(
     quota?: number
     preview?: boolean
     openSections?: boolean
+    publicStatus?: () => Promise<Record<string, unknown>>
     pendingSubscription?: unknown
     pendingPancakeSubscription?: unknown
     selfQuota?: number
@@ -256,6 +256,20 @@ async function renderWallet(
   }
   api.get = (async (url) => {
     reads.push(String(url))
+    if (url === '/api/status') {
+      return {
+        data: { success: true, data: (await options.publicStatus?.()) ?? {} },
+      }
+    }
+    if (url === '/api/site/navigation') {
+      return {
+        data: {
+          success: true,
+          message: '',
+          data: { value: '{}', revision: 1 },
+        },
+      }
+    }
     if (url === '/api/subscription/self/reset-vouchers') {
       return {
         data: { success: true, data: (await options.resetVouchers) ?? [] },
@@ -887,8 +901,8 @@ test('native subscription failures stay local and distinct from confirmed empty 
 })
 
 test('native wallet uses declared current rates without legacy display flags and keeps the exact credit balance', async () => {
-  useSystemConfigStore.getState().setConfig(
-    mapStatusDataToConfig({
+  const { container, queryClient, reads } = await renderWallet(true, {
+    publicStatus: async () => ({
       currency_unit: 'credit',
       credit_unit_schema_version: 2,
       credits_per_usd: 500000,
@@ -897,9 +911,7 @@ test('native wallet uses declared current rates without legacy display flags and
       ledger_quota_per_usd_exact: '500000',
       quota_unit: 'LEDGER_QUOTA',
       cny_per_usd: '6.700304',
-    })
-  )
-  const { container, queryClient, reads } = await renderWallet(true, {
+    }),
     quota: 8065639,
     setting: JSON.stringify({ wallet_display_currency: 'CNY' }),
     openSections: false,
@@ -912,7 +924,8 @@ test('native wallet uses declared current rates without legacy display flags and
   })
   const balance = container.querySelector('#wallet-balance')
   assert.match(balance?.textContent ?? '', /Reference value/)
-  assert.match(balance?.textContent ?? '', /≈ 108\.08 CNY/)
+  assert.ok(balance)
+  await waitForText(balance, /≈ 108\.08 CNY/)
   assert.match(balance?.textContent ?? '', /8,065,639 Credits/)
   assert.equal(
     balance?.querySelector<HTMLDetailsElement>('[data-native-wallet-details]')
@@ -1107,6 +1120,77 @@ test('a saved Pancake subscription intent opens recovery and only reads the orig
   assert.ok(saved)
   assert.deepEqual(JSON.parse(saved), pending)
   queryClient.clear()
+})
+
+test('wallet and private weekly bookmark wait for a live, supported weekly route', async () => {
+  const advertised = { backend_capabilities: { weekly_discounts: true } }
+  window.localStorage.setItem('status', JSON.stringify(advertised))
+  let rejectStatus!: (error: Error) => void
+  let response = new Promise<Record<string, unknown>>((_, reject) => {
+    rejectStatus = reject
+  })
+  const { container, queryClient } = await renderWallet(true, {
+    user: { wallet_unit: 'core_credit' },
+    openSections: false,
+    publicStatus: () => response,
+  })
+  const originalFetch = globalThis.fetch
+  const requests: string[] = []
+  let send = (async (url, init) => {
+    requests.push(`${init?.method} ${url}`)
+    return Response.json({
+      ok: true,
+      current_utc_week: 345600,
+      decisions: [],
+      next_before_week: null,
+    })
+  }) as typeof fetch
+  // The weekly client captures its transport at module initialization.
+  globalThis.fetch = ((url, init) => send(url, init)) as typeof fetch
+  try {
+    const { WeeklyDiscounts } = await import('@/features/weekly-discounts')
+    globalThis.fetch = originalFetch
+    const id = 'a'.repeat(64)
+    const bookmark = await render(
+      <QueryClientProvider client={queryClient}>
+        <WeeklyDiscounts selectedID={id} />
+      </QueryClientProvider>
+    )
+    const link = () => container.querySelector('a[href="/weekly-discounts"]')
+    await waitForText(bookmark, /Loading…/)
+    assert.equal(link(), null)
+    assert.deepEqual(requests, [])
+
+    rejectStatus(new Error('Public status unavailable'))
+    await waitForText(bookmark, /Could not refresh/)
+    assert.equal(link(), null)
+    assert.deepEqual(requests, [])
+    response = Promise.resolve({})
+    await act(async () => {
+      bookmark.querySelector<HTMLButtonElement>('button')?.click()
+    })
+    await waitForText(bookmark, /Capability unavailable/)
+    assert.equal(link(), null)
+    assert.deepEqual(requests, [])
+
+    response = Promise.resolve(advertised)
+    await act(async () => {
+      await queryClient.invalidateQueries({ queryKey: ['status'] })
+    })
+    await waitForText(container, /Weekly discounts/)
+    await waitForText(bookmark, /No request this week/)
+    assert.ok(link())
+    const endpoint = '/api/user/auth/assistant/weekly-discounts'
+    assert.deepEqual(requests.sort(), [
+      `GET ${endpoint}`,
+      `GET ${endpoint}/${id}`,
+    ])
+  } finally {
+    send = originalFetch
+    globalThis.fetch = originalFetch
+    window.localStorage.removeItem('status')
+    queryClient.clear()
+  }
 })
 
 test('Wallet layout preview preserves the signed-in account and mounts no financial clients', async () => {

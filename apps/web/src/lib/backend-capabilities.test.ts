@@ -33,6 +33,7 @@ describe('native backend capabilities', () => {
       bounty_public_read: false,
       self_oauth_unbind: false,
       responses_websocket: false,
+      weekly_discounts: false,
     })
   })
 
@@ -45,6 +46,7 @@ describe('native backend capabilities', () => {
           bounty_public_read: true,
           self_oauth_unbind: true,
           responses_websocket: true,
+          weekly_discounts: true,
         },
       },
     }
@@ -70,6 +72,7 @@ describe('native backend capabilities', () => {
           bounty_public_read: true,
           self_oauth_unbind: true,
           responses_websocket: true,
+          weekly_discounts: true,
         },
       }),
       {
@@ -78,6 +81,7 @@ describe('native backend capabilities', () => {
         bounty_public_read: true,
         self_oauth_unbind: true,
         responses_websocket: true,
+        weekly_discounts: true,
       }
     )
   })
@@ -101,6 +105,7 @@ describe('native backend capabilities', () => {
         bounty_public_read: true,
         self_oauth_unbind: true,
         responses_websocket: true,
+        weekly_discounts: true,
       },
     }
 
@@ -112,6 +117,7 @@ describe('native backend capabilities', () => {
         bounty_public_read: false,
         self_oauth_unbind: false,
         responses_websocket: false,
+        weekly_discounts: false,
       }
     )
     assert.deepEqual(

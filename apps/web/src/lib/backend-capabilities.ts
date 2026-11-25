@@ -24,6 +24,7 @@ const NO_BACKEND_CAPABILITIES: Readonly<BackendCapabilities> = Object.freeze({
   bounty_public_read: false,
   self_oauth_unbind: false,
   responses_websocket: false,
+  weekly_discounts: false,
 })
 
 export function getBackendCapabilities(
@@ -38,6 +39,7 @@ export function getBackendCapabilities(
     bounty_public_read: reported?.bounty_public_read === true,
     self_oauth_unbind: reported?.self_oauth_unbind === true,
     responses_websocket: reported?.responses_websocket === true,
+    weekly_discounts: reported?.weekly_discounts === true,
   }
 }
 

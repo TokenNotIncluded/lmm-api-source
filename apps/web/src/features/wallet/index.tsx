@@ -30,6 +30,7 @@ import { useAuthUserRefresh } from '@/features/onboarding'
 import { NativeWalletPromotions } from '@/features/promotions/native-wallet'
 import { resetVoucherQueryKey } from '@/features/subscriptions/api'
 import { NativeWalletSubscriptions } from '@/features/subscriptions/native-wallet'
+import { useStatus } from '@/hooks/use-status'
 import { useAuthStore } from '@/stores/auth-store'
 
 import { AffiliateRewardsCard } from './components/affiliate-rewards-card'
@@ -54,6 +55,17 @@ interface WalletProps {
 export function Wallet(props: WalletProps) {
   const ownerKey = useCheckoutOwnerKey()
   return <NativeWallet key={ownerKey} {...props} />
+}
+
+function WeeklyDiscountLink() {
+  const { status } = useStatus()
+  const { t } = useTranslation()
+  if (status?.backend_capabilities?.weekly_discounts !== true) return null
+  return (
+    <Button variant='ghost' render={<Link to='/weekly-discounts' />}>
+      {t('Weekly discounts')}
+    </Button>
+  )
 }
 
 function NativeWallet({
@@ -118,11 +130,7 @@ function NativeWallet({
         </SectionPageLayout.Title>
         <SectionPageLayout.Actions>
           <div className='flex flex-wrap justify-end gap-2'>
-            {!preview && (
-              <Button variant='ghost' render={<Link to='/weekly-discounts' />}>
-                {t('Weekly discounts')}
-              </Button>
-            )}
+            {!preview && <WeeklyDiscountLink />}
             <Button
               variant='outline'
               disabled={preview}

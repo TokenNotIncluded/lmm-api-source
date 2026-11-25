@@ -106,6 +106,8 @@ pub struct Capabilities {
     pub admin_users_read: bool,
     /// Native session-backed check-in handlers are assembled for this runtime.
     pub checkins: bool,
+    /// The browser router for weekly discounts is mounted.
+    pub weekly_discounts: bool,
 }
 
 #[derive(Clone, Default)]
@@ -297,7 +299,8 @@ async fn public_status_response(State(state): State<Readiness>, headers: HeaderM
             "commerce_rpc_enabled":state.capabilities.commerce,
             "assistant":{"enabled":false},"custom_oauth_providers":[],
             "backend_capabilities":{"bounty_notifications":false,"bounty_challenge_cancel":false,
-                "bounty_public_read":false,"self_oauth_unbind":false,"responses_websocket":false},
+                "bounty_public_read":false,"self_oauth_unbind":false,"responses_websocket":false,
+                "weekly_discounts":state.capabilities.weekly_discounts},
             "admin_users_protocol":crate::identity::admin_users::PROTOCOL,
             "capabilities":{"admin_users_read":state.capabilities.admin_users_read},
             "configured_components":state.capabilities,
@@ -544,6 +547,37 @@ mod tests {
         // Missing operator exchange-rate configuration must not invent a CNY rate.
         assert!(data.get("cny_per_usd").is_none());
         assert!(data.get("usd_exchange_rate").is_none());
+    }
+
+    #[tokio::test]
+    async fn public_status_reports_weekly_discount_browser_capability() {
+        let pool = sqlx::postgres::PgPoolOptions::new()
+            .connect_lazy("postgres://unused@127.0.0.1:1/unused")
+            .unwrap();
+        for weekly_discounts in [false, true] {
+            let capabilities = Capabilities {
+                weekly_discounts,
+                ..Capabilities::default()
+            };
+            let response = configured_router(pool.clone(), capabilities)
+                .oneshot(
+                    Request::builder()
+                        .uri("/api/status")
+                        .body(Body::empty())
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+            assert_eq!(response.status(), StatusCode::OK);
+            let bytes = axum::body::to_bytes(response.into_body(), 65_536)
+                .await
+                .unwrap();
+            let body: Value = serde_json::from_slice(&bytes).unwrap();
+            assert_eq!(
+                body["data"]["backend_capabilities"]["weekly_discounts"],
+                weekly_discounts
+            );
+        }
     }
 
     #[tokio::test]
