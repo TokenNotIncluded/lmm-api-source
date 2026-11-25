@@ -326,6 +326,7 @@ function NativeRoutingWorkspace({
   function updateChannelSelection(ids: number[]) {
     setBatchRoutingEditor(null)
     setChannelSelection({ snapshot: channelSelectionSnapshot, ids })
+    if (ids.length === 0) setBatchTagEditor(null)
   }
   const selection = JSON.stringify([
     scope,
@@ -817,7 +818,6 @@ function NativeRoutingWorkspace({
     search.trim() !== ''
   function clearChannelFilters() {
     updateChannelSelection([])
-    setBatchTagEditor(null)
     setChannelFilters({ status: 'all', group: '', protocol: '' })
     setSearch('')
     setPage(1)
@@ -912,10 +912,7 @@ function NativeRoutingWorkspace({
         scope
       )
     )
-    if (saved) {
-      updateChannelSelection([])
-      setBatchTagEditor(null)
-    }
+    if (saved) updateChannelSelection([])
   }
   async function saveSelectedRouting(patch: NativeChannelBatchPatch) {
     if (!configuration || selectedVisibleIds.length === 0) return
@@ -1164,7 +1161,6 @@ function NativeRoutingWorkspace({
                 disabled={busy}
                 onChange={(value) => {
                   updateChannelSelection([])
-                  setBatchTagEditor(null)
                   setChannelFilters(value)
                   setPage(1)
                 }}
@@ -1353,17 +1349,17 @@ function NativeRoutingWorkspace({
           )}
           {batchTagValue !== null && (
             <form
-              className='bg-card flex flex-wrap items-end gap-3 rounded-lg p-4'
+              className='bg-card grid grid-cols-3 items-end gap-2 rounded-lg p-4 sm:grid-cols-[minmax(0,1fr)_repeat(3,auto)] sm:gap-3'
               aria-label={t('Set tag for selected channels')}
               onSubmit={(event) => {
                 event.preventDefault()
                 if (batchTagValue.trim()) void saveSelectedTag(batchTagValue)
               }}
             >
-              <label className='min-w-0 flex-1 basis-56 space-y-2 text-sm'>
+              <label className='col-span-3 grid min-w-0 gap-2 text-sm sm:col-span-1'>
                 <span>{t('Set tag for selected channels')}</span>
                 <Input
-                  className='min-h-11'
+                  className='border-muted-foreground/60 bg-background! min-h-11'
                   value={batchTagValue}
                   maxLength={128}
                   required
