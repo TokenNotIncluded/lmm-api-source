@@ -60,14 +60,25 @@ async fn manual_reset_routes_are_absent() {
     let app = subscriptions::router(pool);
     for (method, path) in [
         (Method::GET, "/api/subscription/self/reset-vouchers"),
-        (Method::POST, "/api/subscription/self/reset-vouchers/1/redeem"),
+        (
+            Method::POST,
+            "/api/subscription/self/reset-vouchers/1/redeem",
+        ),
         (Method::GET, "/api/subscription/root/reset-targets"),
         (Method::POST, "/api/subscription/root/reset/preview"),
         (Method::POST, "/api/subscription/root/reset"),
         (Method::POST, "/core/v1/subscriptions/reset-codes/redeem"),
     ] {
-        let request = HttpRequest::builder().method(method).uri(path).body(Body::empty()).unwrap();
-        assert_eq!(app.clone().oneshot(request).await.unwrap().status(), StatusCode::NOT_FOUND, "{path}");
+        let request = HttpRequest::builder()
+            .method(method)
+            .uri(path)
+            .body(Body::empty())
+            .unwrap();
+        assert_eq!(
+            app.clone().oneshot(request).await.unwrap().status(),
+            StatusCode::NOT_FOUND,
+            "{path}"
+        );
     }
 }
 
@@ -78,9 +89,23 @@ async fn historical_generation_keeps_late_refunds_and_new_usage_separate(pool: P
     role.optional("core_charging").await;
     role.optional("core_subscriptions").await;
     f.store = SubscriptionStore::new(role.pool.clone());
-    let plan = f.store.save_plan(&f.admin, None, create("historical_generation_plan")).await.unwrap();
-    let quote = f.store.quote(&f.user, quote(plan.id, "historical_generation_quote", None)).await.unwrap();
-    let grant = f.store.confirm(&f.user, &quote.id).await.unwrap().subscription_id.unwrap();
+    let plan = f
+        .store
+        .save_plan(&f.admin, None, create("historical_generation_plan"))
+        .await
+        .unwrap();
+    let quote = f
+        .store
+        .quote(&f.user, quote(plan.id, "historical_generation_quote", None))
+        .await
+        .unwrap();
+    let grant = f
+        .store
+        .confirm(&f.user, &quote.id)
+        .await
+        .unwrap()
+        .subscription_id
+        .unwrap();
     let key = f
         .identity
         .issue_key(
@@ -101,7 +126,10 @@ async fn historical_generation_keeps_late_refunds_and_new_usage_separate(pool: P
     sqlx::query("INSERT INTO core_identity.user_routing_groups(user_id,group_name,enabled,source_reference) VALUES(8302,'default',true,'synthetic-reset')").execute(&pool).await.unwrap();
     let charging = Charging::new(role.pool.clone(), Arc::new(TransactionalLedger));
     let first = request("before-historical-reset", 40);
-    charging.reserve(&key.secret, &first, &[11; 32]).await.unwrap();
+    charging
+        .reserve(&key.secret, &first, &[11; 32])
+        .await
+        .unwrap();
     settle(&charging, &first.id, 5).await;
     assert_eq!(consumed(&pool, grant).await, (5, 0, None));
 
@@ -118,9 +146,15 @@ async fn historical_generation_keeps_late_refunds_and_new_usage_separate(pool: P
     assert_eq!(consumed(&pool, grant).await, (0, 0, Some(event)));
 
     let second = request("after-historical-reset", 40);
-    charging.reserve(&key.secret, &second, &[11; 32]).await.unwrap();
+    charging
+        .reserve(&key.secret, &second, &[11; 32])
+        .await
+        .unwrap();
     settle(&charging, &second.id, 6).await;
-    charging.refund(&first.id, "historical-refund", 5, "provider refund").await.unwrap();
+    charging
+        .refund(&first.id, "historical-refund", 5, "provider refund")
+        .await
+        .unwrap();
     assert_eq!(consumed(&pool, grant).await, (6, 0, Some(event)));
     assert_eq!(f.store.purchases(&f.user).await.unwrap()[0].used_units, "6");
 
