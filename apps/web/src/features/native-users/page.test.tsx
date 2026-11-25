@@ -276,7 +276,7 @@ test('collapsed memberships stay compact and opening Manage loads exact usage wi
   expect(row.textContent).toContain('-17')
   expect(row.textContent).toContain('Disabled user')
   expect(row.textContent).toContain(
-    'Viewing its history does not enable sign-in or spending.'
+    'Check the account audit or import record for the reason for this status.'
   )
   expect(row.querySelector('.native-user-wallet')?.textContent).toContain('—')
   expect(row.querySelector('.native-user-wallet')?.textContent).not.toContain(

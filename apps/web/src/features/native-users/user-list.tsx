@@ -192,7 +192,7 @@ function UserRecord({
           </p>
           {!user.account_active && (
             <p className='text-muted-foreground mt-1 text-xs'>
-              {t('Inactive account')}
+              {t('Inactive personal account')}
             </p>
           )}
         </TableCell>
@@ -387,10 +387,10 @@ function UserRecord({
                 )}
               </div>
             </header>
-            {!user.active && (
+            {(!user.active || !user.account_active) && (
               <p className='text-muted-foreground text-sm'>
                 {t(
-                  'This account is inactive. Viewing its history does not enable sign-in or spending.'
+                  'Viewing history does not change access. Check the account audit or import record for the reason for this status.'
                 )}
               </p>
             )}

@@ -41,7 +41,7 @@ export function NativeUserSecurity({
   const auth = useAuthStore((state) => state.auth)
   const [open, setOpen] = useState(false)
   const [snapshot, setSnapshot] = useState<SecuritySnapshot>()
-  const [action, setAction] = useState<SecurityAction>('revoke_credentials')
+  const [action, setAction] = useState<SecurityAction | ''>('')
   const [reason, setReason] = useState('')
   const [publicReason, setPublicReason] = useState('')
   const [notice, setNotice] = useState('')
@@ -78,7 +78,9 @@ export function NativeUserSecurity({
           !controller.signal.aborted
         ) {
           setSnapshot(value)
-          setAction(value.active ? 'disable' : 'enable')
+          setAction(
+            value.active ? 'disable' : value.account_active ? 'enable' : ''
+          )
         }
       },
       (error: unknown) => {
@@ -103,10 +105,14 @@ export function NativeUserSecurity({
     }
   }, [open, actor, sessionId, role, userId, onAccessDenied, t])
 
+  const enableBlocked = snapshot?.active === false && !snapshot.account_active
+
   async function save(event: FormEvent) {
     event.preventDefault()
     if (
       !snapshot ||
+      !action ||
+      (action === 'enable' && enableBlocked) ||
       !reason.trim() ||
       operation.current.busy ||
       !isCurrentNativeUsersScope(scope)
@@ -211,8 +217,19 @@ export function NativeUserSecurity({
                   }
                 }}
                 disabled={!snapshot || saving}
+                aria-describedby={
+                  enableBlocked ? `security-enable-help-${userId}` : undefined
+                }
               >
-                <option value={snapshot?.active ? 'disable' : 'enable'}>
+                {(!snapshot || enableBlocked) && (
+                  <option value='' disabled>
+                    {t('Select')}
+                  </option>
+                )}
+                <option
+                  value={snapshot?.active ? 'disable' : 'enable'}
+                  disabled={enableBlocked}
+                >
                   {t(snapshot?.active ? 'Disable user' : 'Enable user')}
                 </option>
                 <option value='reset_mfa'>
@@ -222,6 +239,14 @@ export function NativeUserSecurity({
                   {t('Revoke all sessions and API keys')}
                 </option>
               </select>
+              {enableBlocked && (
+                <p
+                  id={`security-enable-help-${userId}`}
+                  className='text-muted-foreground text-xs'
+                >
+                  {t('Enabling this user requires an active personal account.')}
+                </p>
+              )}
             </div>
             <div className='space-y-2'>
               <Label htmlFor={`security-reason-${userId}`}>
@@ -272,9 +297,10 @@ export function NativeUserSecurity({
                 type='submit'
                 disabled={
                   !snapshot ||
+                  !action ||
                   !reason.trim() ||
                   saving ||
-                  (action === 'enable' && !snapshot.account_active)
+                  (action === 'enable' && enableBlocked)
                 }
               >
                 {t('Confirm')}

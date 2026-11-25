@@ -112,7 +112,7 @@ async function choose(action: string) {
     await pause()
   })
 }
-async function mount() {
+async function mount(state = snapshot) {
   useAuthStore.getState().auth.setBundle({
     access_token: 'synthetic-native-security',
     token_type: 'Bearer',
@@ -143,7 +143,7 @@ async function mount() {
       data:
         config.method === 'post'
           ? { changed: true, user: { ...snapshot, active: false } }
-          : snapshot,
+          : state,
       status: 200,
       statusText: 'OK',
       headers: {},
@@ -256,3 +256,39 @@ test('changing security action clears and hides the public explanation and does 
     },
   ])
 })
+
+for (const active of [true, false]) {
+  for (const accountActive of [true, false]) {
+    test(`security actions follow user active=${active} and personal account active=${accountActive}`, async () => {
+      await mount({ ...snapshot, active, account_active: accountActive })
+      const select = document.querySelector('select')
+      const confirm = document.querySelector<HTMLButtonElement>(
+        'button[type=submit]'
+      )
+      assert.ok(select && confirm)
+      const blocked = !active && !accountActive
+      const statusAction = select.querySelector<HTMLOptionElement>(
+        active ? 'option[value=disable]' : 'option[value=enable]'
+      )
+      assert.ok(statusAction)
+      assert.equal(statusAction.disabled, blocked)
+      assert.equal(
+        select.value,
+        active ? 'disable' : accountActive ? 'enable' : ''
+      )
+      assert.equal(
+        document.body.textContent?.includes(
+          'Enabling this user requires an active personal account.'
+        ),
+        blocked
+      )
+      await fill(`security-reason-${userId}`, 'Synthetic audit reason')
+      assert.equal(confirm.disabled, blocked)
+      if (blocked) {
+        await choose('revoke_credentials')
+        assert.equal(confirm.disabled, false)
+      }
+      assert.deepEqual(writes, [])
+    })
+  }
+}
