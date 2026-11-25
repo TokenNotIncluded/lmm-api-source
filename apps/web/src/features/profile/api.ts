@@ -42,7 +42,6 @@ import type {
   UpdateUserSettingsRequest,
   DeleteAccountRequest,
   GiftItem,
-  GiftClaimResponse,
   SettlementCurrencyPreference,
 } from './types'
 
@@ -621,13 +620,46 @@ export async function getAvailableGifts(
   return res.data
 }
 
-/**
- * Claim a compensation gift. Idempotent: repeated claims return 200 with
- * `already_claimed=true` and quota is credited exactly once.
- */
-export async function claimGift(
+export type GiftClaimInput = {
   giftId: number
-): Promise<ApiResponse<GiftClaimResponse>> {
-  const res = await api.post(`/api/user/gift/${giftId}/claim`)
-  return res.data
+  userId: number
+  sessionId: string
+}
+
+const giftClaimReceipt = z.discriminatedUnion('success', [
+  z.object({ success: z.literal(false), message: z.string().optional() }),
+  z.object({
+    success: z.literal(true),
+    data: z.object({
+      already_claimed: z.boolean(),
+      claim: z.object({
+        id: z.int().positive(),
+        gift_id: z.int().positive(),
+        user_id: z.int().positive(),
+        quota: z.int().positive(),
+        created_at: z.int().positive(),
+      }),
+    }),
+  }),
+])
+
+export async function claimGift({ giftId, userId, sessionId }: GiftClaimInput) {
+  const res = await api.post<unknown>(
+    `/api/user/gift/${giftId}/claim`,
+    undefined,
+    {
+      authScope: { userId, sessionId },
+      skipBusinessError: true,
+      skipErrorHandler: true,
+    }
+  )
+  const result = giftClaimReceipt.parse(res.data)
+  if (
+    result.success &&
+    (result.data.claim.gift_id !== giftId ||
+      result.data.claim.user_id !== userId)
+  ) {
+    throw new Error('Mismatched compensation gift claim receipt')
+  }
+  return result
 }
