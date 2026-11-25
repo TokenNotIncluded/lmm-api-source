@@ -370,7 +370,7 @@ test('relay routing is GET-only and drops contributor emails', async () => {
 
 test('retired bounties are absent from workbench discovery', () => {
   const { tools } = buildTools()
-  assert.ok(!tools.some(tool => /bount|open_workspace/.test(tool.name)))
+  assert.ok(!tools.some((tool) => /bount|open_workspace/.test(tool.name)))
 })
 
 test('support navigation only forwards a known category and a reference id', async () => {
