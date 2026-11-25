@@ -175,11 +175,12 @@ export function NativeKeyManageDialog({
       } catch {
         writeFailed = true
       }
-      setKeys(await getNativeKeys(scope, channelId))
-      if (writeFailed) throw new Error(failure)
-    } catch {
-      setError(failure)
-      throw new Error(failure)
+      const current = await getNativeKeys(scope, channelId).catch(() => null)
+      setKeys(current)
+      if (writeFailed || !current) {
+        setError(failure)
+        throw new Error(failure)
+      }
     } finally {
       pending.current = false
       setBusy(false)
