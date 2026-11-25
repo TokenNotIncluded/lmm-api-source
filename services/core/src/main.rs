@@ -19,9 +19,10 @@ use std::{
 mod admin;
 mod hex_codec;
 
-const USAGE: &str = "Usage: lmm-core [--config /absolute/core.toml] [serve | init-db | upgrade-db | upgrade-history | upgrade-offline | create-first-owner | bootstrap-user | complete-setup | install-tool-market-builtins | install-usage-receipt-index | rebuild-channel-usage | plan-admin-activation | apply-admin-activation | plan-admin-key-continuity | apply-admin-key-continuity | apply-federated-provider | apply-routing-policy | publish-subscription-pancake-price | schema-manifest | check-db]\n\n\
+const USAGE: &str = "Usage: lmm-core [--config /absolute/core.toml] [serve | init-db | upgrade-db | upgrade-history | upgrade-offline | create-first-owner | bootstrap-user | complete-setup | install-tool-market-builtins | install-usage-receipt-index | rebuild-channel-usage | plan-admin-activation | apply-admin-activation | plan-admin-key-continuity | apply-admin-key-continuity | apply-federated-provider | apply-routing-policy | publish-subscription-pancake-price | plan-channel-model-change | schema-manifest | check-db]\n\n\
 Commands:\n\
   serve           Start the core service (the default without arguments).\n\
+  plan-channel-model-change  Preview one existing channel against model TOML and plan JSON from stdin; no database or network.\n\
   schema-manifest Print the compiled schema contract as JSON; accepts no config options and performs no I/O except stdout.\n\
   apply-federated-provider  Apply one local provider definition from stdin TOML using a recent root session and explicit runtime --config.\n\
   check-db        Read-only schema/runtime authority JSON; requires explicit --config.\n\
@@ -82,6 +83,7 @@ enum Command {
     PlanAdminKeyContinuity,
     ApplyAdminKeyContinuity,
     PublishSubscriptionPancakePrice,
+    PlanChannelModelChange,
     SchemaManifest,
     CheckDb,
     Help,
@@ -124,6 +126,7 @@ const OPERATIONS: &[(&str, Command)] = &[
         "publish-subscription-pancake-price",
         Command::PublishSubscriptionPancakePrice,
     ),
+    ("plan-channel-model-change", Command::PlanChannelModelChange),
     ("schema-manifest", Command::SchemaManifest),
     ("check-db", Command::CheckDb),
 ];
@@ -232,6 +235,13 @@ fn main() -> Result<(), Box<dyn Error>> {
         }
         Command::Version => {
             println!("lmm-core {}", env!("CARGO_PKG_VERSION"));
+            return Ok(());
+        }
+        Command::PlanChannelModelChange => {
+            if arguments.config.is_some() {
+                return Err(io::Error::new(io::ErrorKind::InvalidInput, USAGE).into());
+            }
+            config::plan_file_channel_models(io::stdin().lock(), io::stdout().lock())?;
             return Ok(());
         }
         Command::SchemaManifest => {
