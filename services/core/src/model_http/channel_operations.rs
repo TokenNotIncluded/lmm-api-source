@@ -22,6 +22,67 @@ pub(crate) struct ChannelProbe {
     pub validation_scope: &'static str,
     pub inference_tested: bool,
 }
+/// Public-safe catalogue failure. A provider body, URL or credential may never
+/// be attached to this value or surfaced through the channel observation API.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum CatalogError {
+    UnsupportedProtocol,
+    InvalidEndpoint,
+    MissingCredential,
+    Busy,
+    Connection,
+    Timeout,
+    Authentication,
+    Permission,
+    PathUnavailable,
+    RateLimited,
+    Upstream,
+    InvalidResponse,
+}
+
+impl CatalogError {
+    pub(crate) fn public(self) -> (reqwest::StatusCode, &'static str, &'static str) {
+        use reqwest::StatusCode;
+        match self {
+            Self::UnsupportedProtocol => (StatusCode::BAD_REQUEST, "CHANNEL_CATALOG_UNSUPPORTED_PROTOCOL",
+                "This upstream protocol has no supported model catalogue"),
+            Self::InvalidEndpoint => (StatusCode::BAD_REQUEST, "CHANNEL_CATALOG_INVALID_ENDPOINT",
+                "The catalogue endpoint does not meet Core's outbound URL requirements"),
+            Self::MissingCredential => (StatusCode::CONFLICT, "CHANNEL_CATALOG_CREDENTIAL_MISSING",
+                "The saved credential reference is unavailable"),
+            Self::Busy => (StatusCode::SERVICE_UNAVAILABLE, "CHANNEL_CATALOG_BUSY",
+                "Core is at its outbound request limit"),
+            Self::Connection => (StatusCode::BAD_GATEWAY, "CHANNEL_CATALOG_CONNECTION_FAILED",
+                "Core could not establish a permitted connection to the catalogue endpoint"),
+            Self::Timeout => (StatusCode::GATEWAY_TIMEOUT, "CHANNEL_CATALOG_TIMEOUT",
+                "The upstream catalogue request timed out"),
+            Self::Authentication => (StatusCode::BAD_GATEWAY, "CHANNEL_CATALOG_UPSTREAM_UNAUTHENTICATED",
+                "The upstream rejected the catalogue credential (HTTP 401)"),
+            Self::Permission => (StatusCode::BAD_GATEWAY, "CHANNEL_CATALOG_UPSTREAM_FORBIDDEN",
+                "The upstream denied permission to list models (HTTP 403)"),
+            Self::PathUnavailable => (StatusCode::BAD_GATEWAY, "CHANNEL_CATALOG_PATH_UNAVAILABLE",
+                "The upstream does not serve GET on the configured model-list path (HTTP 404 or 405)"),
+            Self::RateLimited => (StatusCode::TOO_MANY_REQUESTS, "CHANNEL_CATALOG_UPSTREAM_RATE_LIMIT",
+                "The upstream rate-limited the catalogue request (HTTP 429)"),
+            Self::Upstream => (StatusCode::BAD_GATEWAY, "CHANNEL_CATALOG_UPSTREAM_ERROR",
+                "The upstream returned an unsuccessful catalogue response"),
+            Self::InvalidResponse => (StatusCode::BAD_GATEWAY, "CHANNEL_CATALOG_INVALID_RESPONSE",
+                "Core could not verify a complete model catalogue within its response limits"),
+        }
+    }
+
+    fn upstream_status(status: reqwest::StatusCode) -> Self {
+        match status.as_u16() {
+            401 => Self::Authentication,
+            403 => Self::Permission,
+            404 | 405 => Self::PathUnavailable,
+            408 | 504 => Self::Timeout,
+            429 => Self::RateLimited,
+            _ => Self::Upstream,
+        }
+    }
+}
+
 /// A price publication must remain executable by every configured target.
 /// The ledger accepts exact integer credits or its existing typed tariffs;
 /// the looser routing-document parser alone cannot establish that contract.
@@ -92,7 +153,7 @@ fn endpoint(
     base: &str,
     protocol: crate::routing::Protocol,
     allow_local: bool,
-) -> Result<reqwest::Url, RelayError> {
+) -> Result<reqwest::Url, CatalogError> {
     if !matches!(
         protocol,
         crate::routing::Protocol::OpenAiChat
@@ -101,13 +162,12 @@ fn endpoint(
             | crate::routing::Protocol::Gemini
             | crate::routing::Protocol::OpenAiEmbeddings
     ) {
-        return Err(RelayError::Unsupported(
-            "This provider protocol has no model-catalogue probe",
-        ));
+        return Err(CatalogError::UnsupportedProtocol);
     }
-    let mut url = crate::relay::honeypot_network::validate_base_url(base, allow_local)?;
+    let mut url = crate::relay::honeypot_network::validate_base_url(base, allow_local)
+        .map_err(|_| CatalogError::InvalidEndpoint)?;
     url.path_segments_mut()
-        .map_err(|_| RelayError::RouteUnavailable)?
+        .map_err(|_| CatalogError::InvalidEndpoint)?
         .pop_if_empty()
         .push("models");
     Ok(url)
@@ -309,12 +369,12 @@ impl ModelGateway {
     pub(crate) async fn probe_channel_snapshot(
         &self,
         upstream: &crate::routing::UpstreamConfig,
-    ) -> Result<ChannelProbe, RelayError> {
+    ) -> Result<ChannelProbe, CatalogError> {
         let credential = self
             .bridge
             .credentials
             .get(&(upstream.credential.id, upstream.credential.revision))
-            .ok_or(RelayError::RouteUnavailable)?;
+            .ok_or(CatalogError::MissingCredential)?;
         let url = endpoint(upstream.endpoint.as_str(), upstream.protocol, true)?;
         self.probe_catalog(url, upstream.protocol, &credential).await
     }
@@ -324,7 +384,7 @@ impl ModelGateway {
         base: &str,
         protocol: crate::routing::Protocol,
         credential: &str,
-    ) -> Result<ChannelProbe, RelayError> {
+    ) -> Result<ChannelProbe, CatalogError> {
         let url = endpoint(base, protocol, false)?;
         self.probe_catalog(url, protocol, credential).await
     }
@@ -334,11 +394,11 @@ impl ModelGateway {
         url: reqwest::Url,
         protocol: crate::routing::Protocol,
         credential: &str,
-    ) -> Result<ChannelProbe, RelayError> {
+    ) -> Result<ChannelProbe, CatalogError> {
         #[cfg(test)]
         let url = if let Some(mapping) = &self.balance_probe_loopback {
             if url.origin().ascii_serialization() != mapping.origin {
-                return Err(RelayError::RouteUnavailable);
+                return Err(CatalogError::InvalidEndpoint);
             }
             let mut endpoint = mapping.endpoint.clone();
             endpoint.set_path(url.path());
@@ -352,7 +412,7 @@ impl ModelGateway {
             .gate
             .clone()
             .try_acquire_owned()
-            .map_err(|_| RelayError::RouteUnavailable)?;
+            .map_err(|_| CatalogError::Busy)?;
         let started = std::time::Instant::now();
         let models = tokio::time::timeout(self.limits.total_timeout, async {
             let mut url = url;
@@ -365,7 +425,13 @@ impl ModelGateway {
                 .native_http
                 .transport
                 .prepare(&url, &self.limits)
-                .await?;
+                .await
+                .map_err(|error| match error {
+                    RelayError::Busy => CatalogError::Busy,
+                    RelayError::Timeout(_) => CatalogError::Timeout,
+                    RelayError::Invalid(_) => CatalogError::InvalidEndpoint,
+                    _ => CatalogError::Connection,
+                })?;
             // A catalogue is returned only after every page succeeds. Keep the
             // existing 10,000-model publication bound across the whole result.
             for _ in 0..1000 {
@@ -382,25 +448,29 @@ impl ModelGateway {
                     }
                     _ => request.bearer_auth(credential),
                 };
-                let response = request
-                    .send()
-                    .await
-                    .map_err(|_| RelayError::RouteUnavailable)?;
+                let response = request.send().await.map_err(|error| {
+                    if error.is_timeout() { CatalogError::Timeout } else { CatalogError::Connection }
+                })?;
                 if !response.status().is_success() {
-                    return Err(RelayError::RouteUnavailable);
+                    return Err(CatalogError::upstream_status(response.status()));
                 }
                 let bytes =
-                    native_http::read_response_bytes(&connection, response, &self.limits).await?;
-                let page = parse_models(&bytes, protocol, credential)?;
+                    native_http::read_catalogue_bytes(&connection, response, &self.limits).await
+                        .map_err(|error| match error {
+                            native_http::BodyReadError::InvalidResponse => CatalogError::InvalidResponse,
+                            native_http::BodyReadError::Timeout => CatalogError::Timeout,
+                            native_http::BodyReadError::Connection => CatalogError::Connection,
+                        })?;
+                let page = parse_models(&bytes, protocol, credential).map_err(|_| CatalogError::InvalidResponse)?;
                 models.extend(page.models);
                 if models.len() > 10_000 {
-                    return Err(RelayError::RouteUnavailable);
+                    return Err(CatalogError::InvalidResponse);
                 }
                 let Some(cursor) = page.next_cursor else {
                     return Ok(models.into_iter().collect());
                 };
                 if !cursors.insert(cursor.clone()) {
-                    return Err(RelayError::RouteUnavailable);
+                    return Err(CatalogError::InvalidResponse);
                 }
                 let parameter = if protocol == crate::routing::Protocol::Gemini {
                     "pageToken"
@@ -411,10 +481,10 @@ impl ModelGateway {
                     .clear()
                     .append_pair(parameter, &cursor);
             }
-            Err(RelayError::RouteUnavailable)
+            Err(CatalogError::InvalidResponse)
         })
         .await
-        .map_err(|_| RelayError::RouteUnavailable)??;
+        .map_err(|_| CatalogError::Timeout)??;
         Ok(ChannelProbe {
             models,
             response_time_ms: started.elapsed().as_millis().try_into().unwrap_or(u64::MAX),
