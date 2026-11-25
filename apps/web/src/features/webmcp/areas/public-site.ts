@@ -108,7 +108,6 @@ function siteOrigin() {
   return typeof window === 'undefined' ? LMM_ISSUER : window.location.origin
 }
 
-
 async function readLegalDocument(
   document: LegalDocumentKey,
   language: string | undefined

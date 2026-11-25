@@ -41,12 +41,8 @@ import {
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Separator } from '@/components/ui/separator'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import {
-  bountyNotificationPresentation,
-} from '@/features/open-source-bounties/notification-target'
-import type {
-  BountyNotification,
-} from '@/features/open-source-bounties/types'
+import { bountyNotificationPresentation } from '@/features/open-source-bounties/notification-target'
+import type { BountyNotification } from '@/features/open-source-bounties/types'
 import { getAnnouncementColorClass } from '@/lib/colors'
 import { formatQuota } from '@/lib/format'
 import { formatDateTimeObject } from '@/lib/time'
@@ -355,7 +351,9 @@ function BountyNotificationsContent({
                       {formatQuota(item.quota)}
                     </span>
                   </p>
-                  <p className='text-muted-foreground text-xs'>{item.project_title}</p>
+                  <p className='text-muted-foreground text-xs'>
+                    {item.project_title}
+                  </p>
                   {presentation.showNoteAndThank && item.note ? (
                     <p className='text-muted-foreground text-sm'>{item.note}</p>
                   ) : null}
