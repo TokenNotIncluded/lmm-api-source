@@ -487,6 +487,7 @@ test('overview review data preserves currency separation and admin-only reads', 
         .getState()
         .auth.setUser({ id: 9001, username: 'review', role })
       const data = await getAdminSiteStatistics()
+      assert.ok(data.recharge, 'expected recharge data in the admin fixture')
       assert.deepEqual(
         data.recharge.currencies.map((row) => row.currency),
         ['CNY', 'USD']
@@ -497,10 +498,9 @@ test('overview review data preserves currency separation and admin-only reads', 
       )
       assert.equal(data.recharge.unconfirmed_orders, 4)
       data.recharge.currencies.length = 0
-      assert.equal(
-        (await getAdminSiteStatistics()).recharge.currencies.length,
-        2
-      )
+      const fresh = await getAdminSiteStatistics()
+      assert.ok(fresh.recharge, 'expected recharge data in the fresh fixture')
+      assert.equal(fresh.recharge.currencies.length, 2)
     }
     assert.equal(
       consolePageFixture(config('/api/finance/site-statistics', 'post')),
