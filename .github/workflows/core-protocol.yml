@@ -14,7 +14,7 @@ defaults:
   run:
     shell: bash
 concurrency:
-  group: microkernel-${{ github.workflow }}-${{ github.ref }}
+  group: microkernel-${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
   cancel-in-progress: true
 jobs:
   protocol:
