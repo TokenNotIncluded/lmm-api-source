@@ -151,12 +151,7 @@ function NativeWalletCheckoutForm({
       .then((data) => {
         if (isCurrent()) {
           setChannels(data.available ? data.channels : [])
-          setPortalAvailable(
-            data.pancake_portal_available &&
-              data.channels.some(
-                (channel) => channel.provider === 'waffo_pancake'
-              )
-          )
+          setPortalAvailable(data.pancake_portal_available)
         }
       })
       .catch(() => {

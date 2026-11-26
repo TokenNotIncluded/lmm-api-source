@@ -143,6 +143,8 @@ export const STATIC_I18N_KEYS = [
 
   // Sidebar views (drill-in workspaces)
   'System Settings',
+  'Core Settings',
+  'Extension Settings',
   'Back to Dashboard',
   'Auto-disable rules',
   'Channel health checks',

@@ -24,6 +24,7 @@ import { ArrowUpRight, ChevronRight, Search } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
+import { getSystemSettingsNavGroups } from '@/components/layout/config/system-settings.config'
 import { Button } from '@/components/ui/button'
 import {
   Command,
@@ -35,6 +36,10 @@ import {
   CommandList,
 } from '@/components/ui/command'
 import { ROLE } from '@/lib/roles'
+import {
+  getSettingsScope,
+  getSettingsTitle,
+} from '@/lib/system-settings-access'
 import { useAuthStore } from '@/stores/auth-store'
 
 import {
@@ -48,22 +53,28 @@ function useSettingsNavigation() {
   const pathname = useLocation({ select: (location) => location.pathname })
   const search = useLocation({ select: (location) => location.searchStr })
   const role = useAuthStore((state) => state.auth.user?.role ?? ROLE.GUEST)
+  const scope = getSettingsScope(pathname)
   const index = useMemo(
-    () => buildSettingsSearchIndex(t, undefined, role),
-    [t, role]
+    () =>
+      buildSettingsSearchIndex(
+        t,
+        getSystemSettingsNavGroups(t, role, scope),
+        role
+      ),
+    [t, role, scope]
   )
   const current = index.find((group) =>
     group.entries.some((entry) => entry.url === `${pathname}${search}`)
   )
-  return { index, current, pathname, search }
+  return { index, current, pathname, search, scope }
 }
 
 export function SettingsBreadcrumb() {
   const { t } = useTranslation()
-  const { current } = useSettingsNavigation()
+  const { current, scope } = useSettingsNavigation()
   return (
     <div className='settings-breadcrumb text-muted-foreground flex items-center gap-2 text-xs'>
-      <span>{t('System Settings')}</span>
+      <span>{t(getSettingsTitle(scope))}</span>
       {current && (
         <>
           <ChevronRight className='size-3' aria-hidden='true' />

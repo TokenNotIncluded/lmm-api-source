@@ -72,23 +72,25 @@ function login(userId = 42, sessionId = 'portal-session') {
     },
   })
 }
-function catalog(available: boolean) {
+function catalog(available: boolean, walletEnabled = true) {
   api.get = (async (url: string) => {
     assert.equal(url, '/api/user/payments/channels')
     return {
       data: {
         success: true,
         data: {
-          available: true,
+          available: walletEnabled,
           pancake_portal_available: available,
-          channels: [
-            {
-              id: '7',
-              provider: 'waffo_pancake',
-              environment: 'test',
-              currency: 'USD',
-            },
-          ],
+          channels: walletEnabled
+            ? [
+                {
+                  id: '7',
+                  provider: 'waffo_pancake',
+                  environment: 'test',
+                  currency: 'USD',
+                },
+              ]
+            : [],
         },
       },
     }
@@ -167,6 +169,24 @@ test('Pancake channels without an available portal do not advertise or request a
     )
     assert.equal(calls, 0)
     assert.equal(view.container.querySelector('a'), null)
+  } finally {
+    await view.close()
+  }
+})
+
+test('a subscription-only store offers its portal without enabling wallet checkout', async () => {
+  catalog(true, false)
+  let posts = 0
+  api.post = (async () => {
+    posts++
+    throw new Error('catalog reads must not start a payment or request a link')
+  }) as typeof api.post
+  const view = await mount()
+  try {
+    assert.equal(view.container.querySelector('#native-payment-channel'), null)
+    assert.match(view.container.textContent ?? '', /Create portal link/)
+    assert.equal(view.container.querySelector('a'), null)
+    assert.equal(posts, 0)
   } finally {
     await view.close()
   }

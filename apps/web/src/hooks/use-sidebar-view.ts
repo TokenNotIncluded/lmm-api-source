@@ -78,6 +78,6 @@ export function useSidebarView(): ResolvedSidebarView {
   const view = resolveSidebarView(pathname)
 
   return view
-    ? { key: view.id, view, navGroups: view.getNavGroups(t) }
+    ? { key: view.id, view, navGroups: view.getNavGroups(t, pathname) }
     : { key: ROOT_VIEW_KEY, view: null, navGroups: rootNavGroups }
 }

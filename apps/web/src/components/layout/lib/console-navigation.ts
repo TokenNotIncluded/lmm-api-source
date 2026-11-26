@@ -30,6 +30,7 @@ const PRIMARY_URLS = [
 const MANAGEMENT_URLS = [
   '/channels',
   '/users',
+  '/system-settings',
   '/system-settings/site',
 ] as const
 

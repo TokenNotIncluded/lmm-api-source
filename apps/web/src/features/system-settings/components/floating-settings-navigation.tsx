@@ -4,6 +4,7 @@ import { ArrowLeft, ChevronDown, Menu, Search } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
+import { getSystemSettingsNavGroups } from '@/components/layout/config/system-settings.config'
 import { Input } from '@/components/ui/input'
 import {
   Sheet,
@@ -14,6 +15,12 @@ import {
 } from '@/components/ui/sheet'
 import { useSidebar } from '@/components/ui/sidebar'
 import { ROLE } from '@/lib/roles'
+import {
+  CORE_SETTINGS_HOME,
+  EXTENSION_SETTINGS_HOME,
+  getSettingsScope,
+  getSettingsTitle,
+} from '@/lib/system-settings-access'
 import { useAuthStore } from '@/stores/auth-store'
 
 import { mountSettingsScrubber } from '../utils/settings-scrubber'
@@ -44,9 +51,17 @@ export function FloatingSettingsNavigation() {
     sidebar.current = { open, setOpen, setOpenMobile }
   }, [open, setOpen, setOpenMobile])
   const role = useAuthStore((state) => state.auth.user?.role ?? ROLE.GUEST)
+  const scope = getSettingsScope(pathname)
+  const title = t(getSettingsTitle(scope))
+  const otherScope = scope === 'core' ? 'extensions' : 'core'
   const index = useMemo(
-    () => buildSettingsSearchIndex(t, undefined, role),
-    [t, role]
+    () =>
+      buildSettingsSearchIndex(
+        t,
+        getSystemSettingsNavGroups(t, role, scope),
+        role
+      ),
+    [t, role, scope]
   )
   const entries = useMemo(
     () => index.flatMap((group) => group.entries),
@@ -73,6 +88,15 @@ export function FloatingSettingsNavigation() {
       else setOpen(value)
     },
     [isMobile, setOpen, setOpenMobile]
+  )
+  const scopeLink = role === ROLE.SUPER_ADMIN && (
+    <Link
+      to={scope === 'core' ? EXTENSION_SETTINGS_HOME : CORE_SETTINGS_HOME}
+      className='settings-desktop-back'
+      onClick={() => setShown(false)}
+    >
+      {t(getSettingsTitle(otherScope))}
+    </Link>
   )
   const select = useCallback(
     (position: number) => {
@@ -157,10 +181,7 @@ export function FloatingSettingsNavigation() {
   )
   return (
     <>
-      <aside
-        className='settings-desktop-navigation'
-        aria-label={t('System Settings')}
-      >
+      <aside className='settings-desktop-navigation' aria-label={title}>
         <Link
           to='/dashboard/$section'
           params={{ section: 'overview' }}
@@ -169,7 +190,7 @@ export function FloatingSettingsNavigation() {
           <ArrowLeft aria-hidden='true' className='size-4' />
           <span>{t('Back to Dashboard')}</span>
         </Link>
-        <h2 className='settings-directory-heading'>{t('System Settings')}</h2>
+        <h2 className='settings-directory-heading'>{title}</h2>
         <div className='settings-directory-search'>
           <Search aria-hidden='true' className='size-4' />
           <Input
@@ -180,8 +201,9 @@ export function FloatingSettingsNavigation() {
           />
         </div>
         {directory}
+        {scopeLink}
       </aside>
-      <aside className='settings-float-rail' aria-label={t('System Settings')}>
+      <aside className='settings-float-rail' aria-label={title}>
         <button
           ref={handle}
           type='button'
@@ -219,7 +241,7 @@ export function FloatingSettingsNavigation() {
           finalFocus={isMobile ? handle : undefined}
         >
           <SheetHeader className='px-6 pt-6 pb-0'>
-            <SheetTitle>{t('System Settings')}</SheetTitle>
+            <SheetTitle>{title}</SheetTitle>
             <SheetDescription>
               {current?.group} · {current?.section}
             </SheetDescription>
@@ -235,6 +257,7 @@ export function FloatingSettingsNavigation() {
           </div>
           {directory}
           <div className='settings-directory-footer'>
+            {scopeLink}
             <Link
               to='/dashboard/$section'
               params={{ section: 'overview' }}

@@ -74,6 +74,10 @@ For commercial licensing, please contact support@quantumnous.com
 import { hasPermission } from '@/lib/admin-permissions'
 import { isConsoleActivated } from '@/lib/console-activation'
 import { ROLE } from '@/lib/roles'
+import {
+  CORE_SETTINGS_HOME,
+  EXTENSION_SETTINGS_HOME,
+} from '@/lib/system-settings-access'
 import { useAuthStore } from '@/stores/auth-store'
 
 /**
@@ -265,9 +269,14 @@ export function useSidebarData(): SidebarData {
             requiredRole: ROLE.SUPER_ADMIN,
           },
           {
-            title: t('System Settings'),
-            url: '/system-settings/site',
-            activeUrls: ['/system-settings'],
+            title: t('Core Settings'),
+            url: CORE_SETTINGS_HOME,
+            icon: Settings,
+            requiredRole: ROLE.SUPER_ADMIN,
+          },
+          {
+            title: t('Extension Settings'),
+            url: EXTENSION_SETTINGS_HOME,
             icon: Settings,
             requiredRole: ROLE.SUPER_ADMIN,
           },

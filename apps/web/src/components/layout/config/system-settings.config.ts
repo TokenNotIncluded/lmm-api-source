@@ -35,7 +35,12 @@ import { getOperationsSectionNavItems } from '@/features/system-settings/operati
 import { getSecuritySectionNavItems } from '@/features/system-settings/security/section-registry.tsx'
 import { getSiteSectionNavItems } from '@/features/system-settings/site/section-registry.tsx'
 import { ROLE } from '@/lib/roles'
-import { canReadSystemSettingsPath } from '@/lib/system-settings-access'
+import {
+  canReadSystemSettingsPath,
+  getSettingsScope,
+  getSettingsTitle,
+  type SettingsScope,
+} from '@/lib/system-settings-access'
 import { useAuthStore } from '@/stores/auth-store'
 
 import type { NavGroup, SidebarView } from '../types'
@@ -49,12 +54,13 @@ import type { NavGroup, SidebarView } from '../types'
  */
 export function getSystemSettingsNavGroups(
   t: TFunction,
-  role: number = ROLE.SUPER_ADMIN
+  role: number = ROLE.SUPER_ADMIN,
+  scope?: SettingsScope
 ): NavGroup[] {
   const groups: NavGroup[] = [
     {
       id: 'system-administration',
-      title: t('System Administration'),
+      title: t(scope ? getSettingsTitle(scope) : 'System Administration'),
       items: [
         {
           title: t('Site & Branding'),
@@ -94,14 +100,17 @@ export function getSystemSettingsNavGroups(
       ],
     },
   ]
-  if (role === ROLE.SUPER_ADMIN) return groups
+  if (role === ROLE.SUPER_ADMIN && !scope) return groups
   return groups
     .map((group) => ({
       ...group,
       items: group.items.flatMap((section) => {
         if (!section.items) return []
         const items = section.items.filter(
-          (entry) => entry.url && canReadSystemSettingsPath(role, entry.url)
+          (entry) =>
+            entry.url &&
+            canReadSystemSettingsPath(role, entry.url) &&
+            (!scope || getSettingsScope(entry.url) === scope)
         )
         return items.length ? [{ ...section, items }] : []
       }),
@@ -123,9 +132,10 @@ export const SYSTEM_SETTINGS_VIEW: SidebarView = {
     to: '/dashboard/overview',
     label: 'Back to Dashboard',
   },
-  getNavGroups: (t) =>
+  getNavGroups: (t, pathname) =>
     getSystemSettingsNavGroups(
       t,
-      useAuthStore.getState().auth.user?.role ?? ROLE.GUEST
+      useAuthStore.getState().auth.user?.role ?? ROLE.GUEST,
+      pathname ? getSettingsScope(pathname) : undefined
     ),
 }
