@@ -52,6 +52,7 @@ pub enum RelayError {
     Draining,
     Busy,
     RateLimited(u64),
+    ModelNotFound,
     RouteUnavailable,
     BillingUnavailable,
     Unauthorized,
@@ -79,6 +80,7 @@ impl RelayError {
             Self::Draining => "relay_draining",
             Self::Busy => "relay_busy",
             Self::RateLimited(_) => "rate_limit_exceeded",
+            Self::ModelNotFound => "model_not_found",
             Self::RouteUnavailable => "route_unavailable",
             Self::BillingUnavailable => "billing_unavailable",
             Self::Unauthorized => "unauthorized",
@@ -95,6 +97,7 @@ impl RelayError {
         match self {
             Self::Unauthorized | Self::RevokedLegacyKey => 401,
             Self::Forbidden => 403,
+            Self::ModelNotFound => 404,
             Self::NoFunds => 402,
             Self::Conflict => 409,
             Self::Invalid(_) | Self::Unsupported(_) => 400,

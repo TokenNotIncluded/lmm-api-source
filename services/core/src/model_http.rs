@@ -451,11 +451,56 @@ impl ModelGateway {
                 .map(|_| ())
         }
     }
+    async fn unavailable_model_error(
+        &self,
+        principal: &ModelIdentity,
+        secret: &str,
+        peer: Option<IpAddr>,
+        model: &str,
+        groups: &[String],
+    ) -> RelayError {
+        let names = match self.bridge.routing.scoped_model_names(model, groups) {
+            Ok(names) if names.is_empty() => return RelayError::RouteUnavailable,
+            Ok(names) => names,
+            Err(error) => return model_route_error(error),
+        };
+        let mut permitted_name = false;
+        for name in names {
+            if let Some(canonical) = name.canonical.as_deref() {
+                match self
+                    .authorize_request(principal, secret, canonical, name.group, peer)
+                    .await
+                {
+                    Ok(()) => return RelayError::RouteUnavailable,
+                    Err(IdentityError::Forbidden) if canonical == name.requested => continue,
+                    Err(IdentityError::Forbidden) => (),
+                    Err(error) => return identity_error(error),
+                }
+            }
+            // Apply the same check to an absent spelling and an alias of an inaccessible model.
+            match self
+                .authorize_request(principal, secret, name.requested, name.group, peer)
+                .await
+            {
+                Ok(()) => permitted_name = true,
+                Err(IdentityError::Forbidden) => (),
+                Err(error) => return identity_error(error),
+            }
+        }
+        if permitted_name {
+            RelayError::ModelNotFound
+        } else {
+            RelayError::Forbidden
+        }
+    }
+
     async fn authorize_model_plans(
         &self,
         principal: &ModelIdentity,
         secret: &str,
         peer: Option<IpAddr>,
+        model: &str,
+        groups: &[String],
         plans: Vec<crate::routing::RoutePlan>,
     ) -> Result<Vec<crate::routing::RoutePlan>, RelayError> {
         let cross_group = if principal.key_id().is_some() {
@@ -467,7 +512,6 @@ impl ModelGateway {
             false
         };
         let mut authorized = Vec::new();
-        let mut authorization_denied = false;
         for plan in plans {
             if authorized
                 .first()
@@ -488,10 +532,7 @@ impl ModelGateway {
                 .await
             {
                 Ok(()) => authorized.push(plan),
-                Err(IdentityError::Forbidden) => {
-                    authorization_denied = true;
-                    continue;
-                }
+                Err(IdentityError::Forbidden) => continue,
                 Err(error) => return Err(identity_error(error)),
             }
             if !cross_group {
@@ -499,11 +540,9 @@ impl ModelGateway {
             }
         }
         if authorized.is_empty() {
-            return Err(if authorization_denied {
-                RelayError::Forbidden
-            } else {
-                RelayError::RouteUnavailable
-            });
+            return Err(self
+                .unavailable_model_error(principal, secret, peer, model, groups)
+                .await);
         }
         Ok(authorized)
     }
@@ -706,6 +745,16 @@ impl ModelGateway {
         }
         self.bridge.refresh_route_health().await?;
         Ok((ModelIdentity::Native(principal), secret.to_owned(), groups))
+    }
+}
+
+fn model_route_error(error: crate::routing::RoutingError) -> RelayError {
+    use crate::routing::RoutingError;
+    match error {
+        RoutingError::InvalidRequest | RoutingError::ConflictingSpeed => {
+            RelayError::Invalid("invalid model identifier or speed")
+        }
+        _ => RelayError::RouteUnavailable,
     }
 }
 
@@ -1043,9 +1092,16 @@ async fn dispatch(
         affinity,
     ) {
         Ok(plans) => plans,
-        Err(_) => return native::error_response(client, RelayError::RouteUnavailable),
+        Err(error) => return native::error_response(client, model_route_error(error)),
     };
-    if plans.iter().any(|plan| {
+    let mut authorized = match gateway
+        .authorize_model_plans(&principal, &secret, peer, &request.model, &groups, plans)
+        .await
+    {
+        Ok(authorized) => authorized,
+        Err(error) => return native::error_response(client, error),
+    };
+    if authorized.iter().any(|plan| {
         gateway
             .audio_rules
             .iter()
@@ -1056,13 +1112,6 @@ async fn dispatch(
             RelayError::Unsupported("audio model cannot use text billing"),
         );
     }
-    let mut authorized = match gateway
-        .authorize_model_plans(&principal, &secret, peer, plans)
-        .await
-    {
-        Ok(authorized) => authorized,
-        Err(error) => return native::error_response(client, error),
-    };
     if let Some(policy) = authorized[0].global_policy() {
         request.has_sse_policy = true;
         request.sse_ping = policy.config.ping_interval_enabled.then(|| {

@@ -120,6 +120,32 @@ struct Group {
     aliases: HashMap<String, String>,
 }
 
+impl Group {
+    fn canonical_name<'a>(
+        &'a self,
+        name: &'a str,
+        policy: Option<&super::model_policy::Compiled>,
+    ) -> &'a str {
+        let name = if policy.is_some_and(|p| !p.preserve_suffix(name))
+            && !self.routes.contains_key(name)
+            && !self.aliases.contains_key(name)
+        {
+            name.strip_suffix("-nothinking")
+                .or_else(|| name.strip_suffix("-thinking"))
+                .unwrap_or(name)
+        } else {
+            name
+        };
+        self.aliases.get(name).map_or(name, String::as_str)
+    }
+}
+
+pub(crate) struct ScopedModelName<'a> {
+    pub(crate) group: &'a str,
+    pub(crate) requested: &'a str,
+    pub(crate) canonical: Option<String>,
+}
+
 struct Snapshot {
     channel_overrides: BTreeMap<u64, super::model_policy::ChannelOverrides>,
     global_model_policy: Option<Arc<super::model_policy::Compiled>>,
@@ -732,20 +758,7 @@ impl Router {
         if !group.enabled {
             return Err(RoutingError::GroupDisabled);
         }
-        let name = if snapshot
-            .global_model_policy
-            .as_ref()
-            .is_some_and(|p| !p.preserve_suffix(name))
-            && !group.routes.contains_key(name)
-            && !group.aliases.contains_key(name)
-        {
-            name.strip_suffix("-nothinking")
-                .or_else(|| name.strip_suffix("-thinking"))
-                .unwrap_or(name)
-        } else {
-            name
-        };
-        let canonical = group.aliases.get(name).map_or(name, String::as_str);
+        let canonical = group.canonical_name(name, snapshot.global_model_policy.as_deref());
         let route = group
             .routes
             .get(canonical)
@@ -1033,6 +1046,33 @@ impl Router {
             .ok_or(RoutingError::NoEligibleUpstream)?;
         upstream.health.enabled.store(enabled, Ordering::Release);
         Ok(())
+    }
+
+    /// Resolve only published names in the caller's groups, independently of upstream health.
+    pub(crate) fn scoped_model_names<'a>(
+        &self,
+        model: &'a str,
+        groups: &'a [String],
+    ) -> Result<Vec<ScopedModelName<'a>>, RoutingError> {
+        let (requested, _) = requested_model(model, None)?;
+        let active = self.snapshot()?;
+        Ok(groups
+            .iter()
+            .filter_map(|group_name| {
+                let group = active.groups.get(group_name).filter(|g| g.enabled)?;
+                let name = group.canonical_name(requested, active.global_model_policy.as_deref());
+                let canonical = group
+                    .routes
+                    .get(name)
+                    .filter(|r| r.config.enabled)
+                    .map(|_| name.to_owned());
+                Some(ScopedModelName {
+                    group: group_name,
+                    requested,
+                    canonical,
+                })
+            })
+            .collect())
     }
 
     /// The only public configuration projection. Contains no endpoints or credentials.

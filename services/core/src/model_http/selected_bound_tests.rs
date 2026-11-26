@@ -2259,6 +2259,9 @@ async fn prepared_contract_resolve_waits_for_original_transaction(pool: PgPool) 
 }
 // @context-fold end prepared-reservation-pg-tests
 
+#[path = "model_visibility_tests.rs"]
+mod model_visibility_tests;
+
 #[path = "prepared_financial_tests.rs"]
 mod prepared_financial_tests;
 #[path = "route_failover_tests.rs"]

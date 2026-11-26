@@ -64,10 +64,10 @@ pub(super) fn error_response(client: ClientProtocol, error: RelayError) -> Respo
     let status = StatusCode::from_u16(error.status()).unwrap_or(StatusCode::SERVICE_UNAVAILABLE);
     let value = match client {
         ClientProtocol::Anthropic => {
-            json!({"type":"error","error":{"type":match status.as_u16() { 400|413 => "invalid_request_error",401 => "authentication_error",403=>"permission_error",429=>"rate_limit_error",503=>"overloaded_error",_=>"api_error"},"message":error.to_string()}})
+            json!({"type":"error","error":{"type":match status.as_u16() { 400|413 => "invalid_request_error",401 => "authentication_error",403=>"permission_error",404=>"not_found_error",429=>"rate_limit_error",503=>"overloaded_error",_=>"api_error"},"message":error.to_string()}})
         }
         ClientProtocol::Gemini => {
-            json!({"error":{"code":status.as_u16(),"message":error.to_string(),"status":match status.as_u16() {400=>"INVALID_ARGUMENT",401=>"UNAUTHENTICATED",403=>"PERMISSION_DENIED",413|429=>"RESOURCE_EXHAUSTED",503=>"UNAVAILABLE",504=>"DEADLINE_EXCEEDED",_=>"FAILED_PRECONDITION"}}})
+            json!({"error":{"code":status.as_u16(),"message":error.to_string(),"status":match status.as_u16() {400=>"INVALID_ARGUMENT",401=>"UNAUTHENTICATED",403=>"PERMISSION_DENIED",404=>"NOT_FOUND",413|429=>"RESOURCE_EXHAUSTED",503=>"UNAVAILABLE",504=>"DEADLINE_EXCEEDED",_=>"FAILED_PRECONDITION"}}})
         }
         _ => return super::public_error(error),
     };

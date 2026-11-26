@@ -275,10 +275,17 @@ async fn prepare_request(
             .bridge
             .routing
             .route_adapted_groups(request.model(), &groups, protocol, None)
-            .map_err(|_| RelayError::RouteUnavailable)?;
+            .map_err(super::model_route_error)?;
         // Respect the original authorization/cross_group_retry cut before seeking capability.
         let authorized = gateway
-            .authorize_model_plans(&caller.principal, &caller.secret, caller.peer, plans)
+            .authorize_model_plans(
+                &caller.principal,
+                &caller.secret,
+                caller.peer,
+                request.model(),
+                &groups,
+                plans,
+            )
             .await?;
         let require_continuity = request.kind() != Kind::ResponsesCompact
             && !request
@@ -331,7 +338,7 @@ async fn prepare_request(
                 gateway.bridge.routing.route(routing_request)
             };
             if let Ok(plan) = routed {
-                gateway
+                match gateway
                     .authorize_request(
                         &caller.principal,
                         &caller.secret,
@@ -340,17 +347,34 @@ async fn prepare_request(
                         caller.peer,
                     )
                     .await
-                    .map_err(identity_error)?;
-                selected = Some((group.clone(), plan));
-                break;
+                {
+                    Ok(()) => {
+                        selected = Some((group.clone(), plan));
+                        break;
+                    }
+                    Err(IdentityError::Forbidden) if parent.is_none() => continue,
+                    Err(error) => return Err(identity_error(error)),
+                }
             }
         }
     }
-    let (group, mut plan) = selected.ok_or(if parent.is_some() {
-        RelayError::Invalid("continuation binding unavailable")
-    } else {
-        RelayError::RouteUnavailable
-    })?;
+    let (group, mut plan) = match selected {
+        Some(selected) => selected,
+        None if parent.is_some() => {
+            return Err(RelayError::Invalid("continuation binding unavailable"));
+        }
+        None => {
+            return Err(gateway
+                .unavailable_model_error(
+                    &caller.principal,
+                    &caller.secret,
+                    caller.peer,
+                    request.model(),
+                    &groups,
+                )
+                .await);
+        }
+    };
     if parent.is_none()
         && let Some((headers, raw)) = affinity_input
     {

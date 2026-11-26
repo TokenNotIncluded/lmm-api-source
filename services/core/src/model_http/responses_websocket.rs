@@ -513,8 +513,11 @@ impl Turn {
                 session_affinity(headers, &principal)?,
                 pinned_target,
             )
-            .map_err(|_| RelayError::RouteUnavailable)?;
-        if plans.iter().any(|plan| {
+            .map_err(super::model_route_error)?;
+        let mut authorized = gateway
+            .authorize_model_plans(&principal, &secret, peer, &request.model, &groups, plans)
+            .await?;
+        if authorized.iter().any(|plan| {
             gateway
                 .audio_rules
                 .iter()
@@ -524,9 +527,6 @@ impl Turn {
                 "audio model cannot use text billing",
             ));
         }
-        let mut authorized = gateway
-            .authorize_model_plans(&principal, &secret, peer, plans)
-            .await?;
         if pinned_target.is_none() {
             super::channel_affinity::prepare(
                 &gateway.bridge,
