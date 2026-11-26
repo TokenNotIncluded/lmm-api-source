@@ -25,6 +25,7 @@ import {
   getAuthenticatedLandingRoute,
   getOnboardingState,
   isConsoleActivated,
+  isRestrictedPublicRoute,
 } from '../console-activation'
 
 const user = (overrides: Partial<AuthUser> = {}): AuthUser => ({
@@ -35,6 +36,14 @@ const user = (overrides: Partial<AuthUser> = {}): AuthUser => ({
 })
 
 describe('signed-in console access', () => {
+  test('leaves rankings to its configured route guard and keeps about restricted', () => {
+    assert.equal(isRestrictedPublicRoute('/rankings'), false)
+    assert.equal(isRestrictedPublicRoute('/rankings/'), false)
+    assert.equal(isRestrictedPublicRoute('/about'), true)
+    assert.equal(isRestrictedPublicRoute('/about/'), true)
+    assert.equal(isRestrictedPublicRoute('/about-us'), false)
+  })
+
   test('opens the console for a regular account without an access grant', () => {
     for (const account of [
       user(),

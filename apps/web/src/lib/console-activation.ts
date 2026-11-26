@@ -171,7 +171,6 @@ export function getAuthenticatedLandingRoute(
 }
 
 export function isRestrictedPublicRoute(pathname: string): boolean {
-  return ['/about', '/rankings'].some(
-    (path) => pathname === path || pathname.startsWith(`${path}/`)
-  )
+  // Rankings enforces the published navigation policy in its own route.
+  return pathname === '/about' || pathname.startsWith('/about/')
 }
