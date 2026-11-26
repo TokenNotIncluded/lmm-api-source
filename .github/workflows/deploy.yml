@@ -11,6 +11,9 @@ on:
         description: Target names from DEPLOY_TARGETS (all or comma-separated names)
         default: all
         type: string
+      source_revision:
+        description: Optional full commit SHA from main history (manual dispatch on main only)
+        type: string
       version:
         description: Optional archive version; otherwise derived from the run
         type: string
@@ -48,9 +51,28 @@ jobs:
           persist-credentials: false
       - name: Require a source revision from main
         id: source
+        env:
+          REQUESTED_REVISION: ${{ inputs.source_revision }}
         run: |
-          git merge-base --is-ancestor HEAD origin/main
-          echo "revision=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          revision=$(git rev-parse HEAD)
+          if [[ -n "$REQUESTED_REVISION" ]]; then
+            if [[ "$GITHUB_EVENT_NAME" != workflow_dispatch || "$GITHUB_REF" != refs/heads/main ]]; then
+              echo "Selecting a source revision requires manual dispatch on main." >&2
+              exit 1
+            fi
+            if [[ ! "$REQUESTED_REVISION" =~ ^[0-9a-fA-F]{40}$ ]]; then
+              echo "The source revision must be a full 40-character commit SHA." >&2
+              exit 1
+            fi
+            revision=${REQUESTED_REVISION,,}
+            if [[ "$(git rev-parse --verify "$revision^{commit}")" != "$revision" ]]; then
+              echo "The requested SHA must identify a commit object." >&2
+              exit 1
+            fi
+          fi
+          git merge-base --is-ancestor "$revision" origin/main
+          git checkout --detach "$revision"
+          echo "revision=$revision" >> "$GITHUB_OUTPUT"
       - name: Select targets and build each component architecture once
         id: plan
         env:
@@ -72,7 +94,11 @@ jobs:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
         with:
           ref: ${{ needs.plan.outputs.revision }}
+          fetch-depth: 0
           persist-credentials: false
+      - name: Use CI admission policy from the dispatching main commit
+        if: inputs.source_revision != ''
+        run: git restore --source="$GITHUB_SHA" -- scripts/verify-deployment-ci.py scripts/test-verify-deployment-ci.py
       - name: Check deployment CI admission
         run: python3 -B scripts/test-verify-deployment-ci.py
       - name: Require successful CI for this source revision

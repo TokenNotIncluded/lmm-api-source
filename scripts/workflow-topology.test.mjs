@@ -141,7 +141,7 @@ test('automatic checks and explicit source-release requests have bounded trigger
       assert.match(block[1], /tags: \['v\*', 'shadow-v\*'\]/);
       assert.doesNotMatch(block[1], /branches:|pull_request|schedule:/);
       assert.match(source, /DEPLOY_TARGETS: \$\{\{ vars\.DEPLOY_TARGETS \}\}/);
-      assert.match(source, /git merge-base --is-ancestor HEAD origin\/main/);
+      assert.match(source, /git merge-base --is-ancestor "\$revision" origin\/main/);
       assert.match(source, /needs: \[plan, ci-gate, build\]/);
       assert.match(source, /cancel-in-progress: false/);
       assert.match(source, /ANSIBLE_HOST_KEY_CHECKING: 'True'/);
@@ -196,6 +196,61 @@ test('automatic checks and explicit source-release requests have bounded trigger
   }
 });
 
+test('deployment selects only commit objects from main and plans from that exact checkout', (t) => {
+  const workflowSource = workflow('deploy');
+  const plan = workflowSource.split('  ci-gate:\n')[0];
+  assert.match(plan, /source_revision:\n\s+description:[^\n]+\n\s+type: string/);
+  assert.match(plan, /fetch-depth: 0/);
+  assert.match(plan, /REQUESTED_REVISION: \$\{\{ inputs\.source_revision \}\}/);
+  assert.match(plan, /revision: \$\{\{ steps\.source\.outputs\.revision \}\}/);
+  const script = plan.match(/id: source\n[\s\S]*?        run: \|\n([\s\S]*?)      - name: Select targets/)[1];
+  const temp = mkdtempSync(join(tmpdir(), 'deployment-source-'));
+  t.after(() => rmSync(temp, { recursive: true, force: true }));
+  const run = (cmd, args, extra = {}) => execFileSync(cmd, args, {
+    cwd: temp, encoding: 'utf8', stdio: 'pipe', env: {
+      ...process.env, GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1',
+      GIT_AUTHOR_NAME: 'Fixture', GIT_COMMITTER_NAME: 'Fixture',
+      GIT_AUTHOR_EMAIL: 'fixture@example.test', GIT_COMMITTER_EMAIL: 'fixture@example.test', ...extra,
+    },
+  }).trim();
+  const git = (...args) => run('git', args);
+  git('init', '-q');
+  git('commit', '--allow-empty', '-qm', 'ancestor');
+  const ancestor = git('rev-parse', 'HEAD');
+  git('commit', '--allow-empty', '-qm', 'latest');
+  const tip = git('rev-parse', 'HEAD');
+  git('update-ref', 'refs/remotes/origin/main', tip);
+  const tree = git('rev-parse', 'HEAD^{tree}');
+  const unrelated = git('commit-tree', tree, '-m', 'outside main history');
+  git('tag', '-a', '-m', 'annotated fixture', 'fixture', ancestor);
+  const tagObject = git('rev-parse', 'refs/tags/fixture');
+  const output = join(temp, 'workflow-output');
+  const select = (revision, event = 'workflow_dispatch', ref = 'refs/heads/main') => {
+    git('checkout', '-q', '--detach', tip);
+    writeFileSync(output, '');
+    run('bash', ['-eo', 'pipefail', '-c', script], {
+      GITHUB_EVENT_NAME: event, GITHUB_REF: ref, GITHUB_OUTPUT: output, REQUESTED_REVISION: revision,
+    });
+    return [git('rev-parse', 'HEAD'), readFileSync(output, 'utf8')];
+  };
+  for (const revision of [ancestor, ancestor.toUpperCase(), tip, '']) {
+    const chosen = revision.toLowerCase() || tip;
+    assert.deepEqual(select(revision), [chosen, 'revision=' + chosen + '\n']);
+  }
+  assert.deepEqual(select('', 'push', 'refs/tags/shadow-v1.2.3'), [tip, 'revision=' + tip + '\n']);
+  for (const args of [
+    [unrelated], [tree], [tagObject], ['0'.repeat(40)], [ancestor.slice(0, 12)], ['main'],
+    ['HEAD~1'], [' ' + ancestor], [ancestor + '\n'], [ancestor, 'push', 'refs/tags/shadow-v1'],
+    [ancestor, 'workflow_dispatch', 'refs/tags/v1'], [ancestor, 'workflow_dispatch', 'refs/heads/other'],
+  ]) {
+    assert.throws(() => select(...args), 'admitted ' + args);
+    assert.equal(readFileSync(output, 'utf8'), '');
+    assert.equal(git('rev-parse', 'HEAD'), tip);
+  }
+  git('update-ref', 'refs/remotes/origin/main', ancestor);
+  assert.throws(() => select('', 'push', 'refs/tags/v1'));
+});
+
 test('configured deployment reads successful CI for the exact planned source before building', () => {
   const source = workflow('deploy');
   const gate = source.split('  ci-gate:\n')[1].split('  build:\n')[0];
@@ -209,6 +264,15 @@ test('configured deployment reads successful CI for the exact planned source bef
   assert.match(gate, /python3 -B scripts\/verify-deployment-ci\.py --revision "\$SOURCE_REVISION"/);
   assert.doesNotMatch(gate, /contents: write|actions: write|continue-on-error|always\(\)|cargo|go test/);
   assert.match(build, /needs: \[plan, ci-gate\]/);
+  assert.match(gate, /if: inputs\.source_revision != ''\n        run: git restore --source="\$GITHUB_SHA" -- scripts\/verify-deployment-ci\.py scripts\/test-verify-deployment-ci\.py/);
+  const deploy = source.split('  deploy:\n')[1];
+  for (const job of [build, deploy]) {
+    assert.match(job, /ref: \$\{\{ needs\.plan\.outputs\.revision \}\}/);
+    assert.doesNotMatch(job, /GITHUB_SHA|github\.sha|inputs\.source_revision/);
+  }
+  assert.match(build, /VITE_REACT_APP_VERSION: \$\{\{ needs\.plan\.outputs\.revision \}\}/);
+  assert.match(build, /--revision "\$SOURCE_REVISION"/);
+  assert.match(deploy, /DEPLOY_REVISION: \$\{\{ needs\.plan\.outputs\.revision \}\}/);
   const boundaries = workflow('core-protocol')
     .match(/name: Workflow and source boundaries\n        run: \|\n([\s\S]*?)(?=      - name:)/)?.[1];
   assert.match(boundaries ?? '', /python3 -B scripts\/test-verify-deployment-ci\.py/);
