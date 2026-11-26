@@ -37,6 +37,85 @@ async fn json_body(response: Response) -> Value {
 }
 
 #[sqlx::test(migrations = false)]
+async fn create_team_persists_the_requested_name_and_preserves_unnamed_creation(pool: PgPool) {
+    let store = IdentityStore::from_pool(pool);
+    store.init_database().await.unwrap();
+    let app = identity_http::router(store.clone());
+    for (uid, input, expected) in [
+        (
+            21,
+            Some(json!({"name":"  Fixture Team A  "})),
+            "Fixture Team A",
+        ),
+        (22, None, "Team"),
+        (23, Some(json!({})), "Team"),
+    ] {
+        let session = store.bootstrap_user(uid, 1).await.unwrap();
+        let credential = Some(session.secret.as_str());
+        let created = call(&app, "POST", "/core/v1/teams", credential, input).await;
+        assert_eq!(created.status(), StatusCode::CREATED);
+        let id = json_body(created).await["id"].as_i64().unwrap();
+        let listed = call(&app, "GET", "/core/v1/teams", credential, None).await;
+        assert_eq!(listed.status(), StatusCode::OK);
+        let listed = json_body(listed).await;
+        let teams = listed.as_array().unwrap();
+        assert_eq!(teams.len(), 1);
+        assert_eq!(teams[0]["id"], id);
+        assert_eq!(teams[0]["name"], expected);
+        assert_eq!(teams[0]["version"], 1);
+    }
+
+    let session = store.bootstrap_user(24, 1).await.unwrap();
+    for name in [" ".to_string(), "a\u{0001}b".to_string(), "界".repeat(101)] {
+        let response = call(
+            &app,
+            "POST",
+            "/core/v1/teams",
+            Some(&session.secret),
+            Some(json!({"name":name})),
+        )
+        .await;
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    }
+    for (media_type, contents, status) in [
+        (
+            "text/plain",
+            r#"{"name":"ignored"}"#.into(),
+            StatusCode::UNSUPPORTED_MEDIA_TYPE,
+        ),
+        ("application/json", "{".into(), StatusCode::BAD_REQUEST),
+        (
+            "application/json",
+            r#"{"name":3}"#.into(),
+            StatusCode::UNPROCESSABLE_ENTITY,
+        ),
+        (
+            "application/json",
+            "x".repeat(16 * 1024 + 1),
+            StatusCode::PAYLOAD_TOO_LARGE,
+        ),
+    ] {
+        let request = Request::post("/core/v1/teams")
+            .header("authorization", format!("Bearer {}", session.secret))
+            .header("content-type", media_type)
+            .body(Body::from(contents))
+            .unwrap();
+        assert_eq!(app.clone().oneshot(request).await.unwrap().status(), status);
+    }
+    let empty = call(&app, "GET", "/core/v1/teams", Some(&session.secret), None).await;
+    assert_eq!(json_body(empty).await, json!([]));
+    let request = Request::post("/core/v1/teams")
+        .header("authorization", format!("Bearer {}", session.secret))
+        .header("content-type", "application/json")
+        .body(Body::empty())
+        .unwrap();
+    assert_eq!(
+        app.oneshot(request).await.unwrap().status(),
+        StatusCode::CREATED
+    );
+}
+
+#[sqlx::test(migrations = false)]
 async fn native_http_flow_keeps_model_traffic_closed(pool: PgPool) {
     let store = IdentityStore::from_pool(pool.clone());
     store.init_database().await.unwrap();

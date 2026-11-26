@@ -8,7 +8,8 @@ use crate::{
 };
 use axum::{
     Json, Router,
-    extract::{DefaultBodyLimit, Path, Query, Request, State},
+    body::{Body, Bytes},
+    extract::{DefaultBodyLimit, FromRequest, Path, Query, Request, State},
     http::{HeaderMap, HeaderValue, StatusCode, header},
     middleware::{self, Next},
     response::{IntoResponse, Response},
@@ -171,11 +172,38 @@ async fn list_teams(
         store.list_teams(bearer(&headers)?, query.after).await?,
     ))
 }
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct CreateTeamRequest {
+    name: Option<String>,
+}
+
 async fn create_team(
     State(store): State<IdentityStore>,
     headers: HeaderMap,
-) -> Result<(StatusCode, Json<Value>)> {
-    let id = store.create_team(bearer(&headers)?).await?;
+    body: Bytes,
+) -> axum::response::Result<(StatusCode, Json<Value>)> {
+    let secret = bearer(&headers)?;
+    // Empty requests predate named teams. Bytes enforces the route's body limit
+    // even when the sender omits Content-Length or Content-Type.
+    let name = if body.is_empty() {
+        None
+    } else {
+        let mut request = Request::new(Body::from(body));
+        if let Some(media_type) = headers.get(header::CONTENT_TYPE) {
+            request
+                .headers_mut()
+                .insert(header::CONTENT_TYPE, media_type.clone());
+        }
+        Json::<CreateTeamRequest>::from_request(request, &())
+            .await?
+            .0
+            .name
+    };
+    let id = match name {
+        Some(name) => store.create_named_team(secret, &name).await?,
+        None => store.create_team(secret).await?,
+    };
     Ok((StatusCode::CREATED, Json(json!({"id":id}))))
 }
 async fn invite(

@@ -21,6 +21,14 @@ pub struct TeamSummary {
     pub can_spend: bool,
 }
 
+pub(super) fn validated_team_name(name: &str) -> Result<&str> {
+    let name = name.trim();
+    if name.is_empty() || name.chars().count() > 100 || name.chars().any(char::is_control) {
+        return Err(IdentityError::Invalid);
+    }
+    Ok(name)
+}
+
 impl IdentityStore {
     pub async fn list_teams(&self, secret: &str, after: i64) -> Result<Vec<TeamSummary>> {
         if after < 0 {
@@ -58,14 +66,20 @@ impl IdentityStore {
         Ok(teams)
     }
     pub async fn create_team(&self, secret: &str) -> Result<i64> {
+        self.create_named_team(secret, "Team").await
+    }
+
+    pub(crate) async fn create_named_team(&self, secret: &str, name: &str) -> Result<i64> {
+        let name = validated_team_name(name)?;
         let mut tx = self.pool.begin().await?;
         let actor = session(&mut tx, secret).await?;
         let account_id = new_account(&mut tx, "team").await?;
         let id: i64 = sqlx::query_scalar(
-            "INSERT INTO core_identity.teams(account_id,owner_user_id,created_by_user_id) VALUES ($1,$2,$2) RETURNING id",
+            "INSERT INTO core_identity.teams(account_id,owner_user_id,created_by_user_id,name) VALUES ($1,$2,$2,$3) RETURNING id",
         )
         .bind(account_id)
         .bind(actor.user_id)
+        .bind(name)
         .fetch_one(&mut *tx)
         .await?;
         audit(

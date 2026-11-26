@@ -185,12 +185,8 @@ impl IdentityStore {
         name: &str,
         expected_version: i64,
     ) -> Result<()> {
-        let name = name.trim();
-        if name.is_empty()
-            || name.chars().count() > 100
-            || name.chars().any(char::is_control)
-            || expected_version <= 0
-        {
+        let name = super::teams::validated_team_name(name)?;
+        if expected_version <= 0 {
             return Err(IdentityError::Invalid);
         }
         let mut tx = self.pool.begin().await?;
