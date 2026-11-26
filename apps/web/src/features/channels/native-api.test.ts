@@ -982,3 +982,15 @@ test('legacy balance writes reject incomplete receipts without replaying', async
   )
   assert.equal(calls, 1)
 })
+
+test('channel sampling overrides retain decimal tokens without admitting fractions as routing IDs', () => {
+  const raw =
+    '{"channel_overrides":{"52":{"parameters":{"temperature":0.15,"top_p":0.95}}}}'
+  assert.equal(stringifyNativeDocument(parseNativeDocument(raw)), raw)
+  assert.throws(() => parseNativeDocument('{"id":0.1}'))
+  assert.throws(() =>
+    parseNativeDocument(
+      '{"channel_overrides":{"52":{"parameters":{"top_p":1.5}}}}'
+    )
+  )
+})

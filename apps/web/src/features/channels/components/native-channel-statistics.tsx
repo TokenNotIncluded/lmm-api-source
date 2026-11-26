@@ -173,6 +173,47 @@ export function NativeChannelStatisticsSummary({
           : `${value.response_time} ms`,
     },
   ]
+  const health = value.routing_health
+  if (health) {
+    const states = {
+      healthy: t('Healthy'),
+      manually_disabled: t('Manually disabled'),
+      auto_disabled: t('Automatically disabled'),
+      degraded: t('Degraded'),
+    }
+    const reasons = {
+      http_status: `HTTP ${health.status_code ?? '—'}`,
+      error_keyword: t('Failure keywords'),
+      slow_response: t('Slow response'),
+      probe_failure: t('Probe failed'),
+    }
+    const time = (seconds: number | null) =>
+      seconds === null ? '—' : new Date(seconds * 1000).toLocaleString()
+    metrics.push(
+      { label: t('Health'), value: states[health.state] },
+      {
+        label: t('Scope'),
+        value: health.disabled_scope
+          ? {
+              manual: t('Manual'),
+              channel: t('Channel'),
+              credential: t('API Key'),
+            }[health.disabled_scope]
+          : '—',
+      },
+      { label: t('Available keys'), value: String(health.available_key_count) },
+      {
+        label: t('Disabled Reason'),
+        value: health.reason ? reasons[health.reason] : '—',
+      },
+      { label: t('Last probe'), value: time(health.last_probe_at) },
+      {
+        label: t('Latency'),
+        value: health.latency_ms === null ? '—' : `${health.latency_ms} ms`,
+      },
+      { label: t('Next recovery check'), value: time(health.next_probe_at) }
+    )
+  }
   return (
     <dl className='grid grid-cols-2 gap-x-6 gap-y-3 text-sm sm:grid-cols-3'>
       {metrics.map((metric) => (

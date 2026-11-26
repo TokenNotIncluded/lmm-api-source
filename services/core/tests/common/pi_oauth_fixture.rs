@@ -62,6 +62,10 @@ fn routes(
     Arc::new(
         lmm_core::routing::Router::new(
             RoutingConfig {
+                channel_overrides: Default::default(),
+                global_model_policy: None,
+                channel_affinity: None,
+                routing_reliability: None,
                 version: 1,
                 groups: vec![ModelGroup {
                     name: "allowed".into(),

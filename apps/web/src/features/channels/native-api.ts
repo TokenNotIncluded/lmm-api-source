@@ -70,6 +70,7 @@ export type NativePrices = {
 export type NativeConfiguration = {
   version: NativeVersion
   channel_id_high_water?: number
+  policy_sections?: string[]
   model_limits?: { total_timeout_ms: number } | null
   routing: {
     version: number
@@ -166,6 +167,23 @@ export function assertNativeIntegers(
   value: unknown,
   path: string[] = []
 ): void {
+  // Model parameters allow bounded decimals. Keep the original token through preview and publish.
+  if (
+    path.at(-4) === 'channel_overrides' &&
+    /^[1-9]\d*$/.test(path.at(-3) ?? '') &&
+    path.at(-2) === 'parameters'
+  ) {
+    const field = path.at(-1)
+    const number = value instanceof LosslessNumber ? Number(value.value) : value
+    if (
+      typeof number === 'number' &&
+      Number.isFinite(number) &&
+      ((field === 'temperature' && number >= 0 && number <= 2) ||
+        (field === 'top_p' && number > 0 && number <= 1))
+    ) {
+      return
+    }
+  }
   const tariffInteger = isTariffInteger(path)
   if (value instanceof LosslessNumber) {
     if (
@@ -207,9 +225,10 @@ function parseNativeJson(text: string): unknown {
 /** Use the same exact codec for transport, the JSON editor and visual edits. */
 export function stringifyNativeDocument(
   value: unknown,
-  space?: number
+  space?: number,
+  path: string[] = []
 ): string {
-  assertNativeIntegers(value)
+  assertNativeIntegers(value, path)
   const document = stringifyLosslessJson(value, undefined, space)
   if (document === undefined) {
     throw new Error('Configuration must be a JSON object.')
@@ -217,12 +236,15 @@ export function stringifyNativeDocument(
   return document
 }
 
-export function parseNativeDocument(text: string): Record<string, unknown> {
+export function parseNativeDocument(
+  text: string,
+  path: string[] = []
+): Record<string, unknown> {
   const value = parseNativeJson(text)
   if (!value || Array.isArray(value) || typeof value !== 'object') {
     throw new Error('Configuration must be a JSON object.')
   }
-  assertNativeIntegers(value)
+  assertNativeIntegers(value, path)
   return value as Record<string, unknown>
 }
 export type NativeRoutingScope = {
@@ -481,6 +503,7 @@ export async function saveNativeLegacyBalance(
 
 const configurationSchema = z.object({
   version: versionSchema,
+  policy_sections: z.array(z.string()).optional(),
   channel_id_high_water: z.number().int().nonnegative().safe().optional(),
   model_limits: z
     .object({ total_timeout_ms: z.number().int().positive().safe() })

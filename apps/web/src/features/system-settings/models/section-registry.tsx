@@ -54,16 +54,6 @@ const ServiceTierSettingsCard = lazyNamedSection(
   'ServiceTierSettingsCard'
 )
 
-function formatJsonForEditor(value: string, fallback: string) {
-  const raw = (value ?? '').toString().trim()
-  if (!raw) return fallback
-  try {
-    return JSON.stringify(JSON.parse(raw), null, 2)
-  } catch {
-    return fallback
-  }
-}
-
 const MODELS_SECTIONS = [
   {
     id: 'service-tier-pricing',
@@ -73,54 +63,12 @@ const MODELS_SECTIONS = [
   {
     id: 'global',
     titleKey: 'Global Model Configuration',
-    build: (settings: ModelSettings) => (
-      <GlobalSettingsCard
-        defaultValues={{
-          global: {
-            pass_through_request_enabled:
-              settings['global.pass_through_request_enabled'],
-            thinking_model_blacklist: formatJsonForEditor(
-              settings['global.thinking_model_blacklist'],
-              '[]'
-            ),
-            chat_completions_to_responses_policy: formatJsonForEditor(
-              settings['global.chat_completions_to_responses_policy'],
-              '{}'
-            ),
-          },
-          general_setting: {
-            ping_interval_enabled:
-              settings['general_setting.ping_interval_enabled'],
-            ping_interval_seconds:
-              settings['general_setting.ping_interval_seconds'],
-          },
-        }}
-      />
-    ),
+    build: () => <GlobalSettingsCard />,
   },
   {
     id: 'routing-reliability',
     titleKey: 'Routing Reliability',
-    build: (settings: ModelSettings) => (
-      <RoutingReliabilitySection
-        defaultValues={{
-          RetryTimes: settings.RetryTimes,
-          ChannelDisableThreshold: settings.ChannelDisableThreshold,
-          AutomaticDisableChannelEnabled:
-            settings.AutomaticDisableChannelEnabled,
-          AutomaticEnableChannelEnabled: settings.AutomaticEnableChannelEnabled,
-          AutomaticDisableKeywords: settings.AutomaticDisableKeywords,
-          AutomaticDisableStatusCodes: settings.AutomaticDisableStatusCodes,
-          AutomaticRetryStatusCodes: settings.AutomaticRetryStatusCodes,
-          'monitor_setting.auto_test_channel_enabled':
-            settings['monitor_setting.auto_test_channel_enabled'],
-          'monitor_setting.auto_test_channel_minutes':
-            settings['monitor_setting.auto_test_channel_minutes'],
-          'monitor_setting.channel_test_mode':
-            settings['monitor_setting.channel_test_mode'],
-        }}
-      />
-    ),
+    build: () => <RoutingReliabilitySection />,
   },
   {
     id: 'gemini',
@@ -183,24 +131,7 @@ const MODELS_SECTIONS = [
   {
     id: 'channel-affinity',
     titleKey: 'Channel Affinity',
-    build: (settings: ModelSettings) => (
-      <ChannelAffinitySection
-        defaultValues={{
-          'channel_affinity_setting.enabled':
-            settings['channel_affinity_setting.enabled'],
-          'channel_affinity_setting.switch_on_success':
-            settings['channel_affinity_setting.switch_on_success'],
-          'channel_affinity_setting.keep_on_channel_disabled':
-            settings['channel_affinity_setting.keep_on_channel_disabled'],
-          'channel_affinity_setting.max_entries':
-            settings['channel_affinity_setting.max_entries'],
-          'channel_affinity_setting.default_ttl_seconds':
-            settings['channel_affinity_setting.default_ttl_seconds'],
-          'channel_affinity_setting.rules':
-            settings['channel_affinity_setting.rules'],
-        }}
-      />
-    ),
+    build: () => <ChannelAffinitySection />,
   },
   {
     id: 'model-deployment',

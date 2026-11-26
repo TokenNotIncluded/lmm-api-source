@@ -66,6 +66,7 @@ import { useChannelOps } from '../use-channel-ops'
 import { NativeBalanceBatchDialog } from './dialogs/native-balance-batch-dialog'
 import { NativeBalanceConfigDialog } from './dialogs/native-balance-config-dialog'
 import { NativeBalanceDialog } from './dialogs/native-balance-dialog'
+import { NativeChannelOverridesDialog } from './dialogs/native-channel-overrides-dialog'
 import { NativeChannelUsageDialog } from './dialogs/native-channel-usage-dialog'
 import { NativeKeyManageDialog } from './dialogs/native-key-manage-dialog'
 import { NativeChannelBatchEditor } from './native-channel-batch-editor'
@@ -214,6 +215,7 @@ function NativeRoutingWorkspace({
   const { t, i18n } = useTranslation()
   const client = useQueryClient()
   const [copyReset, setCopyReset] = useState(true)
+  const [overrideId, setOverrideId] = useState<number | null>(null)
   const [balanceChannel, setBalanceChannel] = useState<NativeUpstream | null>(
     null
   )
@@ -1437,6 +1439,7 @@ function NativeRoutingWorkspace({
           {batchRoutingOpen && (
             <NativeChannelBatchEditor
               key={batchRoutingSnapshot}
+              selectedIds={selectedVisibleIds}
               configuration={configuration}
               enforceMinimum={configuration.routing.upstreams.some(
                 (item) => item.enabled && selectedVisibleIds.includes(item.id)
@@ -1663,6 +1666,19 @@ function NativeRoutingWorkspace({
                           {t('Edit')}
                         </span>
                       </Button>
+                      {configuration.policy_sections?.includes(
+                        'channel_overrides'
+                      ) && (
+                        <Button
+                          variant='ghost'
+                          size='sm'
+                          className='min-h-11 px-2'
+                          disabled={writeDisabled}
+                          onClick={() => setOverrideId(channel.id)}
+                        >
+                          {t('Advanced Settings')}
+                        </Button>
+                      )}
                       <Button
                         type='button'
                         variant='ghost'
@@ -2175,6 +2191,17 @@ function NativeRoutingWorkspace({
           canProbe={configurationWritable && accounting.balanceProbe}
           onClose={() => {
             setBalanceBatchChannels(null)
+            void refresh()
+          }}
+        />
+      )}
+      {overrideId !== null && configurationWritable && (
+        <NativeChannelOverridesDialog
+          key={overrideId}
+          id={overrideId}
+          onClose={() => setOverrideId(null)}
+          onPublished={() => {
+            setOverrideId(null)
             void refresh()
           }}
         />

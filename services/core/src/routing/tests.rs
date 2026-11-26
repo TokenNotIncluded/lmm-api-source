@@ -14,6 +14,10 @@ mod publish_tests;
 fn fixture(version: u64) -> (RoutingConfig, PriceConfig) {
     let speeds = vec![Speed::Standard, Speed::Fast, Speed::Ultrafast];
     let config = RoutingConfig {
+        channel_overrides: Default::default(),
+        global_model_policy: None,
+        channel_affinity: None,
+        routing_reliability: None,
         version,
         groups: vec![ModelGroup {
             name: "default".into(),
@@ -850,16 +854,22 @@ fn replay_after_send_needs_both_permissions_and_rejections_can_retry() {
             .unwrap();
         plan.start().unwrap();
         assert_eq!(
-            plan.allows_failure(Failure {
-                kind: FailureKind::Timeout,
-                delivery: DeliveryState::PossiblyAccepted,
-            }),
+            plan.allows_failure(
+                Failure {
+                    kind: FailureKind::Timeout,
+                    delivery: DeliveryState::PossiblyAccepted,
+                },
+                None
+            ),
             allowed
         );
-        assert!(!plan.allows_failure(Failure {
-            kind: FailureKind::Timeout,
-            delivery: DeliveryState::ResponseStarted,
-        }));
+        assert!(!plan.allows_failure(
+            Failure {
+                kind: FailureKind::Timeout,
+                delivery: DeliveryState::ResponseStarted,
+            },
+            None
+        ));
         assert_eq!(
             plan.retry(Failure {
                 kind: FailureKind::Timeout,
@@ -1760,3 +1770,201 @@ fn legacy_haiku_payload_requires_anthropic_upstream_and_strict_config() {
 
 #[path = "key_pool_tests.rs"]
 mod key_pool_tests;
+
+#[test]
+fn reliability_global_budget_status_and_pinned_key_candidates() {
+    let (mut config, prices) = fixture(1);
+    config.routes[0].targets.truncate(1);
+    let mut policy: RoutingReliability = serde_json::from_value(serde_json::json!({
+        "retry_times":10,"retry_status_codes":"401, 500-505,504-507",
+        "auto_disable":true,"disable_status_codes":"401","disable_keywords":["invalid key"],
+        "disable_threshold_seconds":5,"probe_enabled":true,"probe_mode":"passive_recovery",
+        "probe_interval_seconds":30,"auto_recover":true
+    }))
+    .unwrap();
+    assert_eq!(
+        serde_json::to_value(&policy).unwrap()["retry_status_codes"],
+        "401,500-507"
+    );
+    assert!(serde_json::from_str::<StatusRanges>("\"401-400\"").is_err());
+    let error = Failure {
+        kind: FailureKind::Authentication,
+        delivery: DeliveryState::Rejected,
+    };
+    let primary = config.upstreams[0].credential;
+    let mut keys = vec![primary];
+    keys.extend((1..=12).map(|i| CredentialRef {
+        id: primary.id + i,
+        revision: 1,
+    }));
+    config.routing_reliability = Some(policy.clone());
+    let router = build(config.clone(), prices.clone());
+    router
+        .install_credential_pools(
+            router.version().unwrap(),
+            &std::collections::BTreeMap::from([(1, keys)]),
+        )
+        .unwrap();
+    let mut plan = router.route(request()).unwrap();
+    let mut attempts = vec![plan.start().unwrap()];
+    assert!(!plan.allows_failure(error, Some(403)));
+    assert!(!plan.allows_failure(
+        Failure {
+            delivery: DeliveryState::ResponseStarted,
+            ..error
+        },
+        Some(401)
+    ));
+    for _ in 0..10 {
+        attempts.push(plan.retry_http(error, Some(401)).unwrap());
+    }
+    assert_eq!(
+        attempts
+            .iter()
+            .map(Attempt::route_key)
+            .collect::<std::collections::HashSet<_>>()
+            .len(),
+        11
+    );
+    assert_eq!(
+        attempts
+            .iter()
+            .map(Attempt::credential_ref)
+            .collect::<std::collections::HashSet<_>>()
+            .len(),
+        11
+    );
+    assert!(plan.retry_http(error, Some(401)).is_err());
+    policy.retry_times = 0;
+    config.routing_reliability = Some(policy);
+    let router = build(config, prices);
+    let mut plan = router.route(request()).unwrap();
+    plan.start().unwrap();
+    assert!(plan.retry_http(error, Some(401)).is_err());
+}
+
+#[test]
+fn global_model_policy_preserves_exact_kimi_exceptions_and_channel_override() {
+    let (mut config, prices) = fixture(1);
+    let policy: super::model_policy::GlobalModelPolicy = serde_json::from_value(serde_json::json!({
+        "pass_through_request_enabled":true,
+        "thinking_model_blacklist":["moonshotai/kimi-k2-thinking","kimi-k2-thinking"],
+        "chat_completions_to_responses_policy":{"enabled":true,"all_channels":true,"model_patterns":["^gpt-"],"overrides":{"2":false}},
+        "ping_interval_enabled":false,"ping_interval_seconds":30
+    })).unwrap();
+    let compiled = policy.clone().compile(&config.upstreams).unwrap();
+    assert!(compiled.preserve_suffix("moonshotai/kimi-k2-thinking"));
+    assert!(compiled.preserve_suffix("kimi-k2-thinking"));
+    assert!(!compiled.preserve_suffix("other/kimi-k2-thinking"));
+    assert!(compiled.upgrade_chat(1, "gpt-5"));
+    assert!(!compiled.upgrade_chat(2, "gpt-5"));
+    assert!(!compiled.upgrade_chat(1, "foo-gpt-5"));
+    config.global_model_policy = Some(policy);
+    let router = Router::new(config, Arc::new(PriceSnapshot::compile(prices).unwrap())).unwrap();
+    let plan = router
+        .route(RouteRequest {
+            model: "model-a-thinking",
+            ..request()
+        })
+        .unwrap();
+    assert_eq!(plan.canonical_model(), "model-a");
+    assert_eq!(
+        plan.global_policy().unwrap().config.ping_interval_seconds,
+        30
+    );
+    assert_eq!(
+        router
+            .catalog_document()
+            .unwrap()
+            .routing
+            .global_model_policy
+            .unwrap(),
+        compiled.config
+    );
+}
+
+#[test]
+fn channel_overrides_validate_only_reviewed_request_fields_and_error_codes() {
+    let (mut config, prices) = fixture(1);
+    for (value, allowed) in [
+        (
+            serde_json::json!({"parameters":{"temperature":0.25,"top_p":0.9},"headers":{"x-client-version":"2026.11"},"status_codes":{"401":502}}),
+            true,
+        ),
+        (
+            serde_json::json!({"headers":{"authorization":"secret"}}),
+            false,
+        ),
+        (serde_json::json!({"parameters":{"max_tokens":1}}), false),
+        (serde_json::json!({"parameters":{"stream":1}}), false),
+        (serde_json::json!({"status_codes":{"401":200}}), false),
+    ] {
+        config
+            .channel_overrides
+            .insert(1, serde_json::from_value(value).unwrap());
+        assert_eq!(
+            Router::new(
+                config.clone(),
+                Arc::new(PriceSnapshot::compile(prices.clone()).unwrap())
+            )
+            .is_ok(),
+            allowed
+        );
+    }
+}
+
+#[test]
+fn reliability_manual_stops_and_revision_fenced_key_health() {
+    use std::collections::{BTreeMap, HashMap};
+    let (mut cfg, prices) = fixture(1);
+    cfg.routes[0].targets.truncate(1);
+    cfg.routing_reliability=Some(serde_json::from_value(serde_json::json!({
+        "retry_times":1,"retry_status_codes":"401","auto_disable":true,"disable_status_codes":"401",
+        "disable_keywords":[],"disable_threshold_seconds":5,"probe_enabled":true,"probe_mode":"scheduled_all",
+        "probe_interval_seconds":30,"auto_recover":true
+    })).unwrap());
+    let primary = cfg.upstreams[0].credential;
+    let other = CredentialRef {
+        id: 99,
+        revision: 1,
+    };
+    let router = build(cfg.clone(), prices.clone());
+    let v = router.version().unwrap();
+    let pools = BTreeMap::from([(1, vec![primary, other])]);
+    router.install_credential_pools(v, &pools).unwrap();
+    let failing = HashMap::from([(1, HashMap::from([(primary, false)]))]);
+    router.install_health(v, &failing).unwrap();
+    assert_eq!(
+        router
+            .route(request())
+            .unwrap()
+            .start()
+            .unwrap()
+            .credential_ref(),
+        other
+    );
+    router.set_operational_enabled(v, 1, false).unwrap();
+    router.install_health(v, &HashMap::new()).unwrap();
+    assert!(router.route(request()).is_err());
+    let (_, _, probes) = router.reliability_probes().unwrap().unwrap();
+    assert!(probes.iter().all(|u| u.id != 1));
+    cfg.version += 1;
+    cfg.upstreams[0].credential.revision += 1;
+    let changed = cfg.upstreams[0].credential;
+    router
+        .publish(v, cfg, Arc::new(PriceSnapshot::compile(prices).unwrap()))
+        .unwrap();
+    assert_eq!(
+        router.install_health(v, &failing),
+        Err(RoutingError::VersionConflict)
+    );
+    assert_eq!(
+        router
+            .route(request())
+            .unwrap()
+            .start()
+            .unwrap()
+            .credential_ref(),
+        changed
+    );
+}

@@ -704,7 +704,7 @@ impl PreparedReservation {
                 return Err(Error::Invalid);
             }
         }
-        if f.fallbacks.len() > 7 || (!f.fallbacks.is_empty() && f.mode != "context_max") {
+        if f.fallbacks.len() > 10 || (!f.fallbacks.is_empty() && f.mode != "context_max") {
             return Err(Error::Invalid);
         }
         let mut routes = std::collections::HashSet::from([binding.route_id.as_str()]);

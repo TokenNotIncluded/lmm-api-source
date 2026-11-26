@@ -475,7 +475,7 @@ pub(super) fn final_binding<'a>(
         if event.event_id.starts_with("route-dispatch:") {
             let d: Dispatch = serde_json::from_value(event.detail.clone()).ok()?;
             if d.kind != "model_route_dispatch"
-                || !(1..=8).contains(&d.number)
+                || !(1..=11).contains(&d.number)
                 || event.event_id != format!("route-dispatch:{}", d.number)
                 || proof
                     .dispatched_channel(&d.route_id, &d.wire_sha256)

@@ -276,6 +276,10 @@ async fn retained_snapshot_import_and_runtime_funnel(pool: PgPool) {
             crate::core_schema::upgrade::assistant_weekly_discounts::PROCEDURE,
             include_str!("assistant_weekly_discounts_target.json"),
         ),
+        (
+            crate::core_schema::upgrade::route_runtime::PROCEDURE,
+            include_str!("route_runtime_target.json"),
+        ),
     ];
     assert_eq!(core_schema::component_count(), 78 + stages.len());
     let replay = upgrade_database(upgrade_url.as_str(), request.clone())

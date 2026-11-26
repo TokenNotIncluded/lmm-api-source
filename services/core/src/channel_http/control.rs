@@ -1,6 +1,7 @@
 //! Transactional channel controls. PostgreSQL is the publication authority;
 //! the serving snapshot changes only after its audit and release commit.
 pub(super) mod accounting;
+pub(super) mod affinity;
 pub(super) mod balance;
 pub(super) mod batch;
 pub(super) mod catalog;
@@ -210,6 +211,28 @@ impl ManagedChannels {
             .map(|v| serde_json::from_value(v).map_err(|_| ManagementError::Invalid))
             .transpose()
     }
+    pub(super) fn bind_gateway(self: &Arc<Self>) {
+        if let Some(gateway) = &self.gateway {
+            gateway.bind_channel_management(Arc::downgrade(self));
+        }
+    }
+    pub(crate) async fn synchronize_if_changed(&self) -> Result<(), ManagementError> {
+        let published: Option<i64> = sqlx::query_scalar(
+            "SELECT config_version FROM public.routing_active_release WHERE singleton",
+        )
+        .fetch_one(&self.pool)
+        .await?;
+        let local = self
+            .routing
+            .version()
+            .map_err(|_| ManagementError::Storage)?
+            .routing;
+        if published.is_some_and(|v| v as u64 != local) {
+            self.synchronize().await?;
+        }
+        Ok(())
+    }
+
     pub async fn synchronize(&self) -> Result<(), ManagementError> {
         let _guard = self.publication.lock().await;
         if let Some(document) = self.load_active().await? {
@@ -542,6 +565,39 @@ impl ManagedChannels {
             || document.pricing.version < expected.pricing
         {
             return Err(ManagementError::Conflict.into());
+        }
+        if current.routing.routing_reliability.is_some()
+            && document.routing.routing_reliability.is_some()
+        {
+            // Fence publication against failure observations and probe leases on
+            // both nodes. A new release inherits quarantine only for an unchanged
+            // provider destination; obsolete key revisions never match its pool.
+            sqlx::query("SELECT pg_advisory_xact_lock($1)")
+                .bind(crate::routing::CHANNEL_HEALTH_PUBLICATION_LOCK)
+                .execute(&mut *tx)
+                .await
+                .map_err(ManagementError::from)?;
+            let previous: std::collections::HashMap<_, _> = current
+                .routing
+                .upstreams
+                .iter()
+                .map(|u| (u.id, u))
+                .collect();
+            let ids: Vec<i64> = document
+                .routing
+                .upstreams
+                .iter()
+                .filter(|u| {
+                    previous
+                        .get(&u.id)
+                        .is_some_and(|old| old.same_destination(u))
+                        && current.routing.channel_overrides.get(&u.id)
+                            == document.routing.channel_overrides.get(&u.id)
+                })
+                .map(|u| u.id as i64)
+                .collect();
+            sqlx::query("INSERT INTO core_channels.route_health (routing_version,channel_id,credential_id,credential_revision,disabled_scope,reason,status_code,last_probe_at,latency_ms,next_probe_at,generation) SELECT $2,channel_id,credential_id,credential_revision,disabled_scope,reason,status_code,last_probe_at,latency_ms,greatest(next_probe_at,lease_until),generation+1 FROM core_channels.route_health WHERE routing_version=$1 AND channel_id=ANY($3)")
+                .bind(expected.routing as i64).bind(document.routing.version as i64).bind(ids).execute(&mut *tx).await.map_err(ManagementError::from)?;
         }
         accounting::publish(&mut tx, self, current, &document, &change).await?;
         let routing =

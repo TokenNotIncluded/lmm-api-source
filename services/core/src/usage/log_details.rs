@@ -168,7 +168,7 @@ pub(super) async fn load(
                 {
                     let Some(number) = event.detail["number"]
                         .as_u64()
-                        .filter(|number| (1..=8).contains(number))
+                        .filter(|number| (1..=11).contains(number))
                     else {
                         continue;
                     };

@@ -19,6 +19,7 @@ import { NativeTimeoutHint } from './native-target-timeout-field'
 
 export function NativeChannelBatchEditor({
   configuration,
+  selectedIds,
   enforceMinimum,
   busy,
   writable = true,
@@ -26,6 +27,7 @@ export function NativeChannelBatchEditor({
   onCancel,
 }: {
   configuration: NativeConfiguration
+  selectedIds: number[]
   enforceMinimum: boolean
   busy: boolean
   writable?: boolean
@@ -39,6 +41,7 @@ export function NativeChannelBatchEditor({
     weight: '',
     timeout_ms: '',
   })
+  const [page, setPage] = useState(0)
   const minimumTimeout = enforceMinimum
     ? nativeGlobalTimeoutMs(configuration)
     : null
@@ -66,6 +69,24 @@ export function NativeChannelBatchEditor({
   const canSave = writable && !busy && !invalid && Object.keys(patch).length > 0
   const number = new Intl.NumberFormat(toIntlLocale(i18n.language))
 
+  const selected = new Set(selectedIds)
+  const changes = invalid
+    ? []
+    : configuration.routing.routes.flatMap((route) =>
+        route.targets
+          .filter((target) => selected.has(target.upstream_id))
+          .flatMap((target) => {
+            const modified = fields.filter(
+              ({ key }) =>
+                patch[key] !== undefined && patch[key] !== target[key]
+            )
+            return modified.length ? [{ route, target, modified }] : []
+          })
+      )
+  const visiblePage = Math.min(
+    page,
+    Math.max(0, Math.ceil(changes.length / 15) - 1)
+  )
   return (
     <form
       className='bg-card space-y-4 rounded-xl p-4 sm:p-5'
@@ -140,6 +161,72 @@ export function NativeChannelBatchEditor({
               )
             : t('Enter whole numbers within the allowed ranges.')}
         </p>
+      )}
+      {changes.length > 0 && (
+        <section aria-label={t('Preview changes')} className='space-y-2'>
+          <h4 className='text-sm font-medium'>
+            {t('Preview changes')} · {configuration.version.routing} →{' '}
+            {configuration.version.routing + 1}
+          </h4>
+          <div className='overflow-x-auto'>
+            <table className='w-full text-start text-sm'>
+              <thead>
+                <tr>
+                  {[
+                    t('Channel'),
+                    t('Model'),
+                    t('Group'),
+                    t('Target'),
+                    t('Change'),
+                  ].map((label) => (
+                    <th className='p-2 text-start' key={label}>
+                      {label}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {changes
+                  .slice(15 * visiblePage, 15 * (visiblePage + 1))
+                  .map(({ route, target, modified }) => (
+                    <tr key={`${route.id}-${target.id}`}>
+                      <td className='p-2'>#{target.upstream_id}</td>
+                      <td className='p-2'>{route.model}</td>
+                      <td className='p-2'>{route.group}</td>
+                      <td className='p-2'>#{target.id}</td>
+                      <td className='p-2'>
+                        {modified.map(({ key, label }) => (
+                          <div key={key}>
+                            {label} · {target[key]} → {patch[key]}
+                          </div>
+                        ))}
+                      </td>
+                    </tr>
+                  ))}
+              </tbody>
+            </table>
+          </div>
+          {changes.length > 15 && (
+            <div className='flex gap-2'>
+              <Button
+                type='button'
+                variant='ghost'
+                disabled={!visiblePage}
+                onClick={() => setPage(visiblePage - 1)}
+              >
+                {t('Previous')}
+              </Button>
+              <Button
+                type='button'
+                variant='ghost'
+                disabled={(visiblePage + 1) * 15 >= changes.length}
+                onClick={() => setPage(visiblePage + 1)}
+              >
+                {t('Next')}
+              </Button>
+            </div>
+          )}
+        </section>
       )}
       <div className='flex flex-wrap gap-2'>
         <Button type='submit' className='min-h-11' disabled={!canSave}>

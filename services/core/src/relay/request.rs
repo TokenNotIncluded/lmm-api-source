@@ -91,6 +91,9 @@ pub enum ToolChoice {
 pub struct Request {
     pub client: ClientProtocol,
     pub model: String,
+    pub(crate) original_http_body: Option<axum::body::Bytes>,
+    pub(crate) sse_ping: Option<std::time::Duration>,
+    pub(crate) has_sse_policy: bool,
     pub stream: bool,
     pub max_output_tokens: u32,
     /// The client's validated output limit before the gateway applies its default.
@@ -111,6 +114,8 @@ pub struct Request {
     pub(crate) google_search: bool,
     /// Bounded Responses cache controls; never evidence of actual billed writes.
     pub prompt_cache_options: Option<Value>,
+    prompt_cache_key: Option<String>,
+    pub(super) anthropic_metadata: Option<Value>,
     /// Validated native prompt sections with cache breakpoints. Keep original
     /// block/message boundaries: normalization can change the cached prefix.
     pub(super) anthropic_cached_prompt: Option<Map<String, Value>>,
@@ -781,6 +786,7 @@ impl Request {
                     "n",
                     "reasoning_effort",
                     "store",
+                    "prompt_cache_key",
                     "imageConfig",
                     "modalities",
                     "image_config",
@@ -825,6 +831,7 @@ impl Request {
                     "reasoning",
                     "store",
                     "prompt_cache_options",
+                    "prompt_cache_key",
                     "text",
                 ],
             )?,
@@ -1198,6 +1205,9 @@ impl Request {
             stream,
             max_output_tokens,
             explicit_max_output_tokens,
+            original_http_body: None,
+            sse_ping: None,
+            has_sse_policy: false,
             legacy_precharge_body: matches!(
                 client,
                 ClientProtocol::Chat | ClientProtocol::Responses
@@ -1214,6 +1224,12 @@ impl Request {
             reasoning_effort,
             google_search: false,
             prompt_cache_options,
+            prompt_cache_key: v
+                .get("prompt_cache_key")
+                .filter(|value| !value.is_null())
+                .map(string)
+                .transpose()?,
+            anthropic_metadata: None,
             anthropic_cached_prompt: None,
             image_config,
             openrouter: if client == ClientProtocol::Chat {
@@ -1279,9 +1295,59 @@ impl Request {
         }
     }
 
+    pub(crate) fn passthrough_body(&self, route: &Route) -> Result<&[u8], RelayError> {
+        let same_protocol = matches!(
+            (self.client, route.protocol),
+            (ClientProtocol::Chat, UpstreamProtocol::Chat)
+                | (ClientProtocol::Responses, UpstreamProtocol::Responses)
+                | (ClientProtocol::Anthropic, UpstreamProtocol::Anthropic)
+                | (ClientProtocol::Gemini, UpstreamProtocol::Gemini)
+        );
+        if !same_protocol
+            || self.model != route.model
+            || !self.compatibility.is_empty()
+            || self.explicit_max_output_tokens.is_none()
+            || (self.client == ClientProtocol::Chat && self.stream && !self.include_usage)
+            || route
+                .overrides
+                .as_ref()
+                .is_some_and(|o| !o.parameters.is_empty())
+        {
+            return Err(RelayError::RouteUnavailable);
+        }
+        self.original_http_body
+            .as_deref()
+            .ok_or(RelayError::RouteUnavailable)
+    }
+
     /// Encode only after applying the immutable selected-route payload policy.
     pub(crate) fn upstream_body(&self, route: &Route) -> Result<Vec<u8>, RelayError> {
-        let payload = self.upstream(route)?;
+        if route.payload_policy == crate::routing::PayloadPolicy::Passthrough {
+            return Ok(self.passthrough_body(route)?.to_vec());
+        }
+        let mut payload = self.upstream(route)?;
+        if let Some(overrides) = &route.overrides
+            && !overrides.parameters.is_empty()
+        {
+            if route.protocol == UpstreamProtocol::Gemini {
+                let generation = payload
+                    .as_object_mut()
+                    .ok_or(RelayError::RouteUnavailable)?
+                    .entry("generationConfig")
+                    .or_insert_with(|| json!({}));
+                for (key, value) in &overrides.parameters {
+                    generation[if key == "top_p" {
+                        "topP"
+                    } else {
+                        "temperature"
+                    }] = Value::Number(value.clone());
+                }
+            } else {
+                for (key, value) in &overrides.parameters {
+                    payload[key] = Value::Number(value.clone());
+                }
+            }
+        }
         self.ordered_payload_body(&payload, route.protocol)
     }
 
@@ -1630,6 +1696,9 @@ impl Request {
             UpstreamProtocol::Chat | UpstreamProtocol::Responses
         ) {
             converted["store"] = json!(false);
+            if let Some(key) = &self.prompt_cache_key {
+                converted["prompt_cache_key"] = json!(key);
+            }
         }
         if protocol == UpstreamProtocol::Responses {
             if let Some(format) = &self.response_format {
@@ -1640,6 +1709,9 @@ impl Request {
             }
         }
         if protocol == UpstreamProtocol::Anthropic {
+            if let Some(metadata) = &self.anthropic_metadata {
+                converted["metadata"] = metadata.clone();
+            }
             // No system section is emitted for absence. The native parser
             // rejects an explicitly empty content array; do not invent one.
             if let Some(prompt) = &self.anthropic_cached_prompt {
@@ -2057,6 +2129,46 @@ impl Request {
             v["tools"] = json!([{"googleSearch":{}}]);
         }
         Ok(v)
+    }
+}
+
+#[cfg(test)]
+mod affinity_input_tests {
+    use super::*;
+
+    #[test]
+    fn openai_cache_key_is_preserved_on_openai_wires_only() {
+        let limits = Limits::default();
+        for (client, mut input) in [
+            (
+                ClientProtocol::Chat,
+                json!({"model":"gpt-test","messages":[{"role":"user","content":"hi"}]}),
+            ),
+            (
+                ClientProtocol::Responses,
+                json!({"model":"gpt-test","input":"hi"}),
+            ),
+        ] {
+            input["prompt_cache_key"] = json!("example-context");
+            let body = serde_json::to_vec(&input).unwrap();
+            let request = Request::parse_deferred_openai(client, &body, &limits).unwrap();
+            for protocol in [UpstreamProtocol::Chat, UpstreamProtocol::Responses] {
+                let wire = request.upstream_to(protocol, "upstream").unwrap();
+                assert_eq!(wire["prompt_cache_key"], "example-context");
+            }
+            let wire = request
+                .upstream_to(UpstreamProtocol::Anthropic, "upstream")
+                .unwrap();
+            assert!(wire.get("prompt_cache_key").is_none());
+
+            input["prompt_cache_key"] = Value::Null;
+            let body = serde_json::to_vec(&input).unwrap();
+            let request = Request::parse_deferred_openai(client, &body, &limits).unwrap();
+            assert!(request.prompt_cache_key.is_none());
+            input["prompt_cache_key"] = json!({"value":"example-context"});
+            let body = serde_json::to_vec(&input).unwrap();
+            assert!(Request::parse_deferred_openai(client, &body, &limits).is_err());
+        }
     }
 }
 

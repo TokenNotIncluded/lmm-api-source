@@ -57,9 +57,30 @@ impl CredentialPool {
 }
 
 struct Upstream {
+    reliability: Option<Arc<super::RoutingReliability>>,
+    // Quarantined credentials; true also closes the channel.
+    disabled_keys: Arc<RwLock<HashMap<CredentialRef, bool>>>,
     config: UpstreamConfig,
     health: Arc<RuntimeHealth>,
     credentials: Arc<CredentialPool>,
+}
+
+impl Upstream {
+    fn key_available(&self, key: CredentialRef) -> bool {
+        self.disabled_keys.read().is_ok_and(|entries| {
+            !entries.contains_key(&key) && !entries.values().any(|channel| *channel)
+        })
+    }
+    fn select_key(&self) -> Option<CredentialRef> {
+        if self.disabled_keys.read().is_ok_and(|keys| keys.is_empty()) {
+            return Some(self.credentials.select());
+        }
+        let keys = &self.credentials.references;
+        let first = self.credentials.next.fetch_add(1, Ordering::Relaxed) % keys.len();
+        (0..keys.len())
+            .map(|i| keys[(first + i) % keys.len()])
+            .find(|&key| self.key_available(key))
+    }
 }
 
 struct Target {
@@ -73,6 +94,12 @@ impl Target {
             && self.config.weight > 0
             && self.upstream.config.enabled
             && self.upstream.health.available()
+            && self
+                .upstream
+                .credentials
+                .references
+                .iter()
+                .any(|&key| self.upstream.key_available(key))
     }
 }
 
@@ -88,6 +115,10 @@ struct Group {
 }
 
 struct Snapshot {
+    channel_overrides: BTreeMap<u64, super::model_policy::ChannelOverrides>,
+    global_model_policy: Option<Arc<super::model_policy::Compiled>>,
+    affinity: Arc<super::affinity::Runtime>,
+    reliability: Option<Arc<super::RoutingReliability>>,
     version: ReleaseVersion,
     prices: Arc<PriceSnapshot>,
     upstreams: HashMap<u64, Arc<Upstream>>,
@@ -109,6 +140,22 @@ impl Snapshot {
         {
             return Err(RoutingError::InvalidConfig("routing version or size"));
         }
+        let reliability = config.routing_reliability.map(Arc::new);
+        if let Some(policy) = &reliability {
+            policy.validate()?;
+        }
+        let affinity = super::affinity::Runtime::compile(
+            config.channel_affinity,
+            previous.map(|s| &s.affinity),
+        )?;
+        super::model_policy::validate_channel_overrides(
+            &config.channel_overrides,
+            &config.upstreams,
+        )?;
+        let global_model_policy = config
+            .global_model_policy
+            .map(|p| p.compile(&config.upstreams).map(Arc::new))
+            .transpose()?;
         let mut groups = HashMap::new();
         for group in config.groups {
             if !valid_group(&group.name)
@@ -181,10 +228,20 @@ impl Snapshot {
                         next: AtomicUsize::new(0),
                     })
                 });
+            let disabled_keys = previous
+                .and_then(|old| old.upstreams.get(&upstream.id))
+                .filter(|old| {
+                    old.config.same_destination(&upstream)
+                        && previous.is_some_and(|p| p.version.routing == config.version)
+                })
+                .map(|old| old.disabled_keys.clone())
+                .unwrap_or_default();
             upstreams.insert(
                 upstream.id,
                 Arc::new(Upstream {
                     config: upstream,
+                    reliability: reliability.clone(),
+                    disabled_keys,
                     health,
                     credentials,
                 }),
@@ -301,6 +358,10 @@ impl Snapshot {
             }
         }
         Ok(Self {
+            channel_overrides: config.channel_overrides,
+            global_model_policy,
+            affinity,
+            reliability,
             version: ReleaseVersion {
                 routing: config.version,
                 pricing: prices.version(),
@@ -382,6 +443,13 @@ impl Router {
         Ok(super::store::ReleaseDocument {
             contract_version: super::CONTRACT_VERSION,
             routing: RoutingConfig {
+                channel_overrides: active.channel_overrides.clone(),
+                global_model_policy: active
+                    .global_model_policy
+                    .as_ref()
+                    .map(|p| p.config.clone()),
+                channel_affinity: active.affinity.config.clone(),
+                routing_reliability: active.reliability.as_deref().cloned(),
                 version: active.version.routing,
                 groups,
                 upstreams,
@@ -390,6 +458,10 @@ impl Router {
             },
             pricing: active.prices.config().clone(),
         })
+    }
+
+    pub(crate) fn affinity_config(&self) -> Result<Option<super::affinity::Config>, RoutingError> {
+        Ok(self.snapshot()?.affinity.config.clone())
     }
 
     pub fn version(&self) -> Result<ReleaseVersion, RoutingError> {
@@ -654,6 +726,19 @@ impl Router {
         if !group.enabled {
             return Err(RoutingError::GroupDisabled);
         }
+        let name = if snapshot
+            .global_model_policy
+            .as_ref()
+            .is_some_and(|p| !p.preserve_suffix(name))
+            && !group.routes.contains_key(name)
+            && !group.aliases.contains_key(name)
+        {
+            name.strip_suffix("-nothinking")
+                .or_else(|| name.strip_suffix("-thinking"))
+                .unwrap_or(name)
+        } else {
+            name
+        };
         let canonical = group.aliases.get(name).map_or(name, String::as_str);
         let route = group
             .routes
@@ -711,6 +796,13 @@ impl Router {
                         .config
                         .payload
                         .adapts(request.protocol, target.upstream.config.protocol)
+                        || (matches!(transport, RouteTransport::Http { .. })
+                            && target.config.raw_http_model(
+                                request.protocol,
+                                target.upstream.config.protocol,
+                                snapshot.global_model_policy.as_ref().map(|p| &p.config),
+                                snapshot.channel_overrides.get(&target.upstream.config.id),
+                            ) == Some(request.model))
                         || (matches!(
                             transport,
                             RouteTransport::Http {
@@ -750,14 +842,55 @@ impl Router {
                 | RouteTransport::ResponsesWebSocket {
                     pinned_target: Some(pinned_target),
                 } => pinned_target.1,
-                _ => *credentials
-                    .entry(target.upstream.config.id)
-                    .or_insert_with(|| target.upstream.credentials.select()),
+                _ => match credentials.get(&target.upstream.config.id) {
+                    Some(&key) => key,
+                    None => {
+                        let Some(key) = target.upstream.select_key() else {
+                            continue;
+                        };
+                        credentials.insert(target.upstream.config.id, key);
+                        key
+                    }
+                },
             };
-            candidates.push(Candidate { target, credential });
+            if target.upstream.key_available(credential) {
+                candidates.push(Candidate {
+                    target,
+                    credential,
+                    alternate_key: 0,
+                });
+            }
+        }
+        // Keep the normal weighted order and prefer other eligible destinations
+        // first. A short route may use spare keys from the same target, provided
+        // each key is independently frozen into the original reservation.
+        if let Some(policy) = &snapshot.reliability
+            && matches!(transport, RouteTransport::Http { .. })
+        {
+            let mut extras = Vec::new();
+            let budget = usize::from(policy.retry_times) + 1;
+            for candidate in &candidates {
+                if candidates.len() + extras.len() >= budget {
+                    break;
+                }
+                for &key in &candidate.target.upstream.credentials.references {
+                    if key != candidate.credential && candidate.target.upstream.key_available(key) {
+                        extras.push(Candidate {
+                            target: candidate.target.clone(),
+                            credential: key,
+                            alternate_key: (extras.len() + 1) as u8,
+                        });
+                        if candidates.len() + extras.len() >= budget {
+                            break;
+                        }
+                    }
+                }
+            }
+            candidates.extend(extras);
         }
         let route = Arc::clone(route);
         Ok(RoutePlan {
+            affinity_binding: None,
             snapshot,
             route,
             quote,
@@ -771,6 +904,80 @@ impl Router {
             current: None,
             stopped: false,
         })
+    }
+
+    pub(crate) fn health_key_refs(
+        &self,
+        version: u64,
+    ) -> Result<HashMap<u64, Vec<CredentialRef>>, RoutingError> {
+        let active = self.snapshot()?;
+        if version != active.version.routing {
+            return Err(RoutingError::VersionConflict);
+        }
+        Ok(active
+            .upstreams
+            .iter()
+            .map(|(id, u)| (*id, u.credentials.references.clone()))
+            .collect())
+    }
+    pub(crate) fn reliability_version(&self) -> Result<Option<ReleaseVersion>, RoutingError> {
+        let active = self.snapshot()?;
+        Ok(active.reliability.as_ref().map(|_| active.version))
+    }
+
+    pub(crate) fn reliability_probes(
+        &self,
+    ) -> Result<
+        Option<(
+            ReleaseVersion,
+            Arc<super::RoutingReliability>,
+            Vec<UpstreamConfig>,
+        )>,
+        RoutingError,
+    > {
+        let active = self.snapshot()?;
+        let Some(policy) = active.reliability.as_ref().filter(|p| p.probe_enabled) else {
+            return Ok(None);
+        };
+        let mut probes = Vec::new();
+        for upstream in active.upstreams.values() {
+            if !upstream.config.enabled || !upstream.health.enabled.load(Ordering::Acquire) {
+                continue;
+            }
+            for key in &upstream.credentials.references {
+                let mut config = upstream.config.clone();
+                config.credential = *key;
+                probes.push(config);
+            }
+        }
+        probes.sort_by_key(|u| (u.id, u.credential.id, u.credential.revision));
+        Ok(Some((active.version, policy.clone(), probes)))
+    }
+
+    pub(crate) fn install_health(
+        &self,
+        version: ReleaseVersion,
+        disabled: &HashMap<u64, HashMap<CredentialRef, bool>>,
+    ) -> Result<(), RoutingError> {
+        let active = self.snapshot()?;
+        if version != active.version {
+            return Err(RoutingError::VersionConflict);
+        }
+        for upstream in active.upstreams.values() {
+            let mut entries = upstream
+                .disabled_keys
+                .write()
+                .map_err(|_| RoutingError::LockPoisoned)?;
+            entries.clear();
+            if let Some(keys) = disabled.get(&upstream.config.id) {
+                entries.extend(
+                    keys.iter()
+                        .filter(|(k, _)| upstream.credentials.references.contains(k))
+                        .map(|(k, v)| (*k, *v)),
+                );
+            }
+        }
+        Ok(())
     }
 
     /// Rust health probes use a release lease; stale probes cannot revive new endpoints.
@@ -919,12 +1126,14 @@ pub struct Failure {
 /// A request owns this plan until completion. Do not call Router::route on retry.
 /// Routing version, price, model, group, speed and all allowed candidates are pinned.
 struct Candidate {
+    alternate_key: u8,
     target: Arc<Target>,
     credential: CredentialRef,
 }
 
 /// A request owns this plan until completion. Do not call Router::route on retry.
 pub struct RoutePlan {
+    pub(crate) affinity_binding: Option<super::affinity::Binding>,
     snapshot: Arc<Snapshot>,
     route: Arc<Route>,
     quote: PriceQuote,
@@ -952,6 +1161,19 @@ pub fn route_key(route: u64, target: u64, upstream: u64) -> String {
     format!("r{route}-t{target}-u{upstream}")
 }
 impl RoutePlan {
+    pub(crate) fn affinity_policy(&self) -> &super::affinity::Runtime {
+        &self.snapshot.affinity
+    }
+    pub(crate) fn prefer_channel(&mut self, upstream: u64) {
+        if let Some(index) = self
+            .candidates
+            .iter()
+            .position(|c| c.target.upstream.config.id == upstream)
+        {
+            self.candidates[..=index].rotate_right(1);
+        }
+    }
+
     /// Consume the original plan; preserve its frozen order and random choices.
     pub(crate) fn responses_capability(
         mut self,
@@ -969,6 +1191,20 @@ impl RoutePlan {
         }
         Ok(self)
     }
+    pub(crate) fn retain_dispatches(&mut self, ids: &HashSet<String>) -> Result<(), RoutingError> {
+        if self.current.is_some() || self.attempts != 0 {
+            return Err(RoutingError::InvalidTransition);
+        }
+        let keep: Vec<_> = self
+            .candidate_attempts()
+            .into_iter()
+            .map(|a| ids.contains(&a.route_key()))
+            .collect();
+        let mut keep = keep.into_iter();
+        self.candidates.retain(|_| keep.next() == Some(true));
+        Ok(())
+    }
+
     pub(crate) fn retain_targets(&mut self, targets: &HashSet<u64>) -> Result<(), RoutingError> {
         if self.current.is_some() || self.attempts != 0 {
             return Err(RoutingError::InvalidTransition);
@@ -979,10 +1215,22 @@ impl RoutePlan {
     }
     /// These are the bounded original candidates, before any dispatch. Live
     /// health may remove them but a retry cannot introduce an unpinned target.
+    pub(crate) fn global_attempt_limit(&self) -> Option<u8> {
+        self.snapshot
+            .reliability
+            .as_ref()
+            .map(|p| 1 + p.retry_times)
+    }
+
+    fn attempt_limit(&self) -> u8 {
+        self.global_attempt_limit()
+            .unwrap_or(self.route.config.failover.max_attempts)
+    }
+
     pub(crate) fn planned_attempts(&self) -> Vec<Attempt> {
         self.candidate_attempts()
             .into_iter()
-            .take(usize::from(self.route.config.failover.max_attempts))
+            .take(usize::from(self.attempt_limit()))
             .collect()
     }
     /// Full immutable ordered pool, used only for pre-dispatch capability filtering.
@@ -991,6 +1239,13 @@ impl RoutePlan {
             .iter()
             .enumerate()
             .map(|(index, candidate)| Attempt {
+                alternate_key: candidate.alternate_key,
+                overrides: self
+                    .snapshot
+                    .channel_overrides
+                    .get(&candidate.target.upstream.config.id)
+                    .cloned(),
+                model_policy: self.snapshot.global_model_policy.clone(),
                 target: candidate.target.clone(),
                 credential: candidate.credential,
                 route: self.route.clone(),
@@ -1003,18 +1258,25 @@ impl RoutePlan {
             .collect()
     }
 
-    pub(crate) fn allows_failure(&self, failure: Failure) -> bool {
-        self.validate_retry(failure).is_ok()
+    pub(crate) fn allows_failure(&self, failure: Failure, http_status: Option<u16>) -> bool {
+        self.validate_retry(failure, http_status).is_ok()
     }
 
-    fn validate_retry(&self, failure: Failure) -> Result<(), RoutingError> {
+    fn validate_retry(
+        &self,
+        failure: Failure,
+        http_status: Option<u16>,
+    ) -> Result<(), RoutingError> {
         if failure.delivery == DeliveryState::ResponseStarted {
             return Err(RoutingError::ResponseAlreadyStarted);
         }
-        let permitted = failure
-            .kind
-            .retry_cause()
-            .is_some_and(|cause| self.route.config.failover.retry_on.contains(&cause));
+        let permitted = match (&self.snapshot.reliability, http_status) {
+            (Some(policy), Some(status)) => policy.retry_status_codes.includes(status),
+            _ => failure
+                .kind
+                .retry_cause()
+                .is_some_and(|cause| self.route.config.failover.retry_on.contains(&cause)),
+        };
         if !permitted {
             return Err(RoutingError::RetryDisallowed);
         }
@@ -1038,6 +1300,10 @@ impl RoutePlan {
         &self.route.config.model
     }
 
+    pub(crate) fn global_policy(&self) -> Option<&super::model_policy::Compiled> {
+        self.snapshot.global_model_policy.as_deref()
+    }
+
     pub fn requested_model(&self) -> &str {
         &self.requested_model
     }
@@ -1058,30 +1324,48 @@ impl RoutePlan {
     }
 
     pub fn retry(&mut self, failure: Failure) -> Result<Attempt, RoutingError> {
+        self.retry_http(failure, None)
+    }
+
+    pub(crate) fn retry_http(
+        &mut self,
+        failure: Failure,
+        status: Option<u16>,
+    ) -> Result<Attempt, RoutingError> {
         if self.stopped || self.current.take().is_none() {
             return Err(RoutingError::InvalidTransition);
         }
         // Make every rejection terminal. A second call cannot bypass a denied retry.
         self.stopped = true;
-        self.validate_retry(failure)?;
+        self.validate_retry(failure, status)?;
         self.stopped = false;
         self.dispatch_next()
     }
 
     fn dispatch_next(&mut self) -> Result<Attempt, RoutingError> {
-        while self.next_index < self.candidates.len()
-            && self.attempts < self.route.config.failover.max_attempts
-        {
+        while self.next_index < self.candidates.len() && self.attempts < self.attempt_limit() {
             let index = self.next_index;
             self.next_index += 1;
             let candidate = &self.candidates[index];
             // This can REMOVE a candidate. It can never add or re-resolve a route.
-            if !candidate.target.available() {
+            if !candidate.target.available()
+                || !candidate
+                    .target
+                    .upstream
+                    .key_available(candidate.credential)
+            {
                 continue;
             }
             self.attempts += 1;
             self.current = Some(index);
             return Ok(Attempt {
+                alternate_key: candidate.alternate_key,
+                overrides: self
+                    .snapshot
+                    .channel_overrides
+                    .get(&candidate.target.upstream.config.id)
+                    .cloned(),
+                model_policy: self.snapshot.global_model_policy.clone(),
                 target: Arc::clone(&candidate.target),
                 credential: candidate.credential,
                 route: Arc::clone(&self.route),
@@ -1111,6 +1395,9 @@ impl fmt::Debug for RoutePlan {
 /// Private fields prevent a relay from accidentally rebuilding an unapproved target.
 /// No Serialize implementation: never send this object to a public response or log.
 pub struct Attempt {
+    pub(crate) overrides: Option<super::model_policy::ChannelOverrides>,
+    alternate_key: u8,
+    pub(crate) model_policy: Option<Arc<super::model_policy::Compiled>>,
     target: Arc<Target>,
     credential: CredentialRef,
     route: Arc<Route>,
@@ -1122,6 +1409,15 @@ pub struct Attempt {
 }
 
 impl Attempt {
+    pub(crate) fn raw_http_model(&self, client: Protocol) -> Option<&str> {
+        self.target.config.raw_http_model(
+            client,
+            self.protocol(),
+            self.model_policy.as_ref().map(|p| &p.config),
+            self.overrides.as_ref(),
+        )
+    }
+
     pub fn key(&self) -> AttemptKey {
         AttemptKey {
             route_id: self.route_id(),
@@ -1131,7 +1427,14 @@ impl Attempt {
         }
     }
     pub fn route_key(&self) -> String {
-        route_key(self.route_id(), self.target_id(), self.upstream_id())
+        let base = route_key(self.route_id(), self.target_id(), self.upstream_id());
+        if self.alternate_key != 0 {
+            // Receipts distinguish alternatives by plan ordinal, without placing
+            // a credential ID or revision in an externally displayed route label.
+            format!("{base}-a{}", self.alternate_key)
+        } else {
+            base
+        }
     }
 
     pub(crate) fn calendar(&self) -> Option<&super::FrozenCalendar> {
@@ -1154,6 +1457,17 @@ impl Attempt {
     }
     pub fn target_id(&self) -> u64 {
         self.target.config.id
+    }
+    pub(crate) fn affinity_revision(&self) -> [u8; 32] {
+        let upstream = &self.target.upstream;
+        let bytes = serde_json::to_vec(&(
+            &upstream.config,
+            &upstream.credentials.references,
+            &self.target.config.upstream_model,
+            &self.target.config.payload,
+        ))
+        .expect("validated routing configuration serializes");
+        Sha256::digest(bytes).into()
     }
     pub fn upstream_id(&self) -> u64 {
         self.target.upstream.config.id
@@ -1194,7 +1508,11 @@ impl Attempt {
 
     /// Check again immediately before send; no API can revoke bytes already sent.
     pub fn is_available(&self) -> bool {
-        self.target.available()
+        self.target.available() && self.target.upstream.key_available(self.credential)
+    }
+
+    pub(crate) fn reliability(&self) -> Option<&super::RoutingReliability> {
+        self.target.upstream.reliability.as_deref()
     }
 
     /// Infrastructure failures may close this destination. Reopening requires a Rust probe.

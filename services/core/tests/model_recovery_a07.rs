@@ -36,6 +36,10 @@ struct Fixture {
 fn build_gateway(pool: &PgPool) -> ModelGateway {
     let router = Router::new(
         RoutingConfig {
+            channel_overrides: Default::default(),
+            global_model_policy: None,
+            channel_affinity: None,
+            routing_reliability: None,
             version: 1,
             groups: vec![],
             upstreams: vec![],

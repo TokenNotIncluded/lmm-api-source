@@ -526,9 +526,21 @@ impl Turn {
                 "audio model cannot use text billing",
             ));
         }
-        let authorized = gateway
+        let mut authorized = gateway
             .authorize_model_plans(&principal, &secret, peer, plans)
             .await?;
+        if pinned_target.is_none() {
+            super::channel_affinity::prepare(
+                &gateway.bridge,
+                &mut authorized,
+                &principal,
+                headers,
+                "/v1/responses",
+                &create.request_json,
+                Some(&request),
+            )
+            .await?;
+        }
         let group = authorized[0].group().to_owned();
         let actor = Sha256::digest(secret.as_bytes()).into();
         let id = crate::billing::charging::contract::hex_digest(turn_id(

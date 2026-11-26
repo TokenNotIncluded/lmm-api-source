@@ -827,6 +827,10 @@ async fn run_core() -> Result<(), Box<dyn Error>> {
     } else {
         None
     };
+    let health_task = model_gateway.clone().map(|gateway| {
+        let stop = stopped.clone();
+        tokio::spawn(async move { gateway.run_route_health(stop).await })
+    });
     let recovery_task = model_gateway.clone().map(|gateway| {
         let mut stopped = stopped.clone();
         let healthy = models_healthy.clone();
@@ -978,6 +982,9 @@ async fn run_core() -> Result<(), Box<dyn Error>> {
     lifecycle.wait_idle().await;
     let _ = operations_stop.send(true);
     if let Some(task) = operations_task {
+        let _ = task.await;
+    }
+    if let Some(task) = health_task {
         let _ = task.await;
     }
     if let Some(task) = recovery_task {

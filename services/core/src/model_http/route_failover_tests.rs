@@ -144,6 +144,7 @@ async fn route_dispatch_retry_pg_exhaustion_never_sends(pool: PgPool) {
 
 #[derive(Clone, Copy)]
 enum FailureReply {
+    Unauthorized,
     Rejected,
     ToolEvidence,
     Timeout,
@@ -169,6 +170,7 @@ impl FailedSupplier {
             assert!(!headers.contains_key("x-lmm-session-id"));
             hits.fetch_add(1, Ordering::SeqCst);
             match mode {
+                FailureReply::Unauthorized => (axum::http::StatusCode::UNAUTHORIZED,Json(json!({"error":{"message":"synthetic rejected key"}}))).into_response(),
                 FailureReply::Rejected => (axum::http::StatusCode::SERVICE_UNAVAILABLE, Json(json!({"error":{"message":"synthetic pre-acceptance rejection"}}))).into_response(),
                 FailureReply::ToolEvidence => (axum::http::StatusCode::SERVICE_UNAVAILABLE, Json(json!({"error":{"message":"synthetic failure after work"},"usage":{"prompt_tokens":1},"tool_calls":[{"id":"already-called"}]}))).into_response(),
                 FailureReply::Timeout => { tokio::time::sleep(Duration::from_secs(5)).await; Json(json!({"error":{"message":"late"}})).into_response() },
@@ -241,7 +243,7 @@ fn failover_gateway(
     }
     let policy = if reviewed_rejection {
         let mut context = contexts(GLOBAL_INPUT).remove(0);
-        context.pre_acceptance_rejection_statuses = vec![503];
+        context.pre_acceptance_rejection_statuses = vec![401, 503];
         vec![context]
     } else {
         vec![]
@@ -763,4 +765,133 @@ async fn key_pool_pg_forwarding_and_reservations_use_the_same_revision(pool: PgP
     assert_eq!(requests(&f.pool).await, 3);
     assert_balance(&f, 9_999_994, 0).await;
     supplier.abort();
+}
+
+#[path = "channel_affinity_tests.rs"]
+mod channel_affinity_tests;
+
+#[sqlx::test(migrations = false)]
+async fn reliability_pg_401_quarantines_key_and_survives_restart(pool: PgPool) {
+    let f = fixture(pool, 10_000_000).await;
+    let good = CompatibilityProvider::start().await;
+    let bad = FailedSupplier::start(FailureReply::Unauthorized).await;
+    let gateway = || {
+        let g = failover_gateway(&f, &bad.base, &good.endpoint, true, false, false);
+        let mut d = g.bridge.routing.catalog_document().unwrap();
+        let expected = g.bridge.routing.version().unwrap();
+        d.routing.version += 1;
+        d.routing.routing_reliability=Some(serde_json::from_value(json!({
+           "retry_times":1,"retry_status_codes":"401","auto_disable":true,"disable_status_codes":"401",
+           "disable_keywords":[],"disable_threshold_seconds":5,"probe_enabled":true,"probe_mode":"passive_recovery",
+           "probe_interval_seconds":30,"auto_recover":true
+        })).unwrap());
+        g.bridge
+            .routing
+            .publish(
+                expected,
+                d.routing,
+                Arc::new(crate::routing::PriceSnapshot::compile(d.pricing).unwrap()),
+            )
+            .unwrap();
+        g
+    };
+    let first = gateway();
+    let (status, body, id) = call(&first, &f, "quarantine-one", false, None).await;
+    assert_eq!(status, 200, "{body}");
+    let events = evidence(&f, &id).await;
+    assert_eq!(
+        events
+            .iter()
+            .filter(|e| e["kind"] == "model_route_dispatch")
+            .count(),
+        2
+    );
+    assert_eq!(events.iter().filter(|e| e["kind"] == "final").count(), 1);
+    let state: (String, i16) = sqlx::query_as(
+        "SELECT disabled_scope,status_code FROM core_channels.route_health WHERE channel_id=1",
+    )
+    .fetch_one(&f.pool)
+    .await
+    .unwrap();
+    assert_eq!(state, ("credential".into(), 401));
+    drop(first);
+    let second = gateway();
+    let (status, body, id) = call(&second, &f, "quarantine-two", false, None).await;
+    assert_eq!(status, 200, "{body}");
+    assert_eq!(bad.hits.load(Ordering::SeqCst), 1);
+    assert_eq!(
+        evidence(&f, &id)
+            .await
+            .iter()
+            .filter(|e| e["kind"] == "model_route_dispatch")
+            .count(),
+        1
+    );
+}
+
+#[sqlx::test(migrations = false)]
+async fn reliability_pg_probe_single_owner_and_stale_result(pool: PgPool) {
+    sqlx::raw_sql("CREATE SCHEMA core_channels; CREATE TABLE public.routing_active_release(config_version bigint); INSERT INTO public.routing_active_release VALUES(23)").execute(&pool).await.unwrap();
+    sqlx::raw_sql(include_str!("../../schema/route_health.sql"))
+        .execute(&pool)
+        .await
+        .unwrap();
+    async fn claim(pool: &PgPool, id: i64) -> Option<i64> {
+        use sqlx::Row;
+        sqlx::query(include_str!("channel_health_claim.sql"))
+            .bind(23_i64)
+            .bind(vec![id])
+            .bind(vec![9_i64])
+            .bind(vec![3_i64])
+            .bind(true)
+            .bind(5_f64)
+            .fetch_optional(pool)
+            .await
+            .unwrap()
+            .map(|r| r.get("generation"))
+    }
+    async fn complete(pool: &PgPool, generation: i64) -> u64 {
+        sqlx::query(include_str!("channel_health_complete.sql"))
+            .bind(23_i64)
+            .bind(1_i64)
+            .bind(9_i64)
+            .bind(3_i64)
+            .bind(generation)
+            .bind(50_i64)
+            .bind(30_f64)
+            .bind(true)
+            .bind(None::<String>)
+            .bind(None::<String>)
+            .bind(Some(200_i16))
+            .execute(pool)
+            .await
+            .unwrap()
+            .rows_affected()
+    }
+    let (a, b) = tokio::join!(claim(&pool, 1), claim(&pool, 1));
+    assert_ne!(a.is_some(), b.is_some());
+    let owner = a.or(b).unwrap();
+    sqlx::query(
+        "UPDATE core_channels.route_health SET disabled_scope='credential',generation=generation+1",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+    assert_eq!(complete(&pool, owner).await, 0);
+    sqlx::query("UPDATE core_channels.route_health SET lease_until=NULL")
+        .execute(&pool)
+        .await
+        .unwrap();
+    let current = claim(&pool, 1).await.unwrap();
+    sqlx::query("UPDATE public.routing_active_release SET config_version=24")
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert_eq!(complete(&pool, current).await, 0);
+    assert_eq!(claim(&pool, 1).await, None);
+    let scope: String = sqlx::query_scalar("SELECT disabled_scope FROM core_channels.route_health")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(scope, "credential");
 }

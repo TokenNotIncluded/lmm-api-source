@@ -94,8 +94,8 @@ function parseToken(token: string): StatusCodeRange | null {
     Number.isFinite(code) && code >= 100 && code <= 599
 
   if (cleaned.includes('-')) {
-    const [a, b] = cleaned.split('-')
-    if (!isNumber(a) || !isNumber(b)) return null
+    const [a, b, extra] = cleaned.split('-')
+    if (extra !== undefined || !isNumber(a) || !isNumber(b)) return null
 
     const start = Number.parseInt(a, 10)
     const end = Number.parseInt(b, 10)

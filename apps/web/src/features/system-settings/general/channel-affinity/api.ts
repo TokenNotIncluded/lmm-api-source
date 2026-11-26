@@ -16,18 +16,33 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+import {
+  NATIVE_ROOT,
+  readNativeRoutingScope,
+} from '@/features/channels/native-api'
 import { api } from '@/lib/api'
 
 import type { CacheStats } from './types'
+
+function cacheRequestOptions() {
+  const scope = readNativeRoutingScope()
+  if (!scope) throw new Error('Administrator access required')
+  return {
+    authScope: { userId: scope.userId, sessionId: scope.sessionId },
+    skipAuthRefresh: true,
+    disableDuplicate: true,
+  }
+}
 
 export async function getCacheStats(): Promise<{
   success: boolean
   message?: string
   data?: CacheStats
 }> {
-  const res = await api.get('/api/option/channel_affinity_cache', {
-    disableDuplicate: true,
-  } as Record<string, unknown>)
+  const res = await api.get(
+    `${NATIVE_ROOT}/channel-affinity/cache`,
+    cacheRequestOptions()
+  )
   return res.data
 }
 
@@ -35,7 +50,8 @@ export async function clearAllCache(): Promise<{
   success: boolean
   message?: string
 }> {
-  const res = await api.delete('/api/option/channel_affinity_cache', {
+  const res = await api.delete(`${NATIVE_ROOT}/channel-affinity/cache`, {
+    ...cacheRequestOptions(),
     params: { all: true },
   })
   return res.data
@@ -44,7 +60,8 @@ export async function clearAllCache(): Promise<{
 export async function clearRuleCache(
   ruleName: string
 ): Promise<{ success: boolean; message?: string }> {
-  const res = await api.delete('/api/option/channel_affinity_cache', {
+  const res = await api.delete(`${NATIVE_ROOT}/channel-affinity/cache`, {
+    ...cacheRequestOptions(),
     params: { rule_name: ruleName },
   })
   return res.data

@@ -4,6 +4,12 @@
 
 截至 2026-11-26（台北时间），原生渠道和控制台的整合候选 E 已合入主线，渠道标签草稿和编辑器焦点修复也已合入。生产切流仍缺最终停写快照、资金对账和恢复回执。以下结论基于源码与已有验收记录，目标主机的实际版本以带时间的生产回执为准。[主线 04eb2fce](https://github.com/TokenNotIncluded/lmm-api-source/commit/04eb2fce5fc549e53b5ddd5933ba10db63feb0d7) · [整合 PR #18](https://github.com/TokenNotIncluded/lmm-api-source/pull/18)
 
+### 路由可靠性与渠道亲和
+
+管理员在渠道设置中预览变更，确认后按原版本发布。Core 在同一份路由配置中读取重试、探测、亲和及全局模型策略。一次重试最多产生两次上游尝试。外部服务可能已经接受请求或客户端已收到流数据时，沿用原请求的重放和结算约束。探测显示模型目录的可达性，推理与结算另行验收。
+
+共享 PostgreSQL 保存渠道及凭据的系统停用记录、探测租约和亲和摘要。隔离 PostgreSQL 18.7 验证了两条连接竞争时只有一个租约持有者，过期租约与旧路由版本的回写均为零行。缓存已验证跨连接读取、容量上限、按规则清理、TTL 与数据库重启。Core88 至 Core89 的结构变更须经显式升级。影子节点的生效版本和 17 条渠道的实际推理与结算证据仍按上线记录核对。[Core 路由](../services/core/src/routing.rs) · [升级入口](../services/core/src/core_schema/upgrade/route_runtime.rs)
+
 ### 账号与 Key
 
 固定候选上已有账号密码、OAuth 回调与拒绝、会话刷新、Passkey 和旧 Key 的分项证据。五个 public client 各有独立开关和授权额度。

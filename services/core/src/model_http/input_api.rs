@@ -120,9 +120,10 @@ async fn handle(
         Ok(permit) => permit,
         Err(_) => return public_error(RelayError::Busy),
     };
+    let (parts, body) = request.into_parts();
     let raw = match tokio::time::timeout(
         gateway.limits.read_timeout,
-        to_bytes(request.into_body(), gateway.limits.request_bytes),
+        to_bytes(body, gateway.limits.request_bytes),
     )
     .await
     {
@@ -134,6 +135,7 @@ async fn handle(
         Ok(request) => request,
         Err(error) => return with_request_id(public_error(error), &id),
     };
+    let affinity_input = (kind == Kind::ResponsesContext).then_some((parts.headers, raw));
     if request.streaming() {
         let (sender, receiver) = tokio::sync::mpsc::channel(8);
         let stream_id = id.clone();
@@ -144,7 +146,7 @@ async fn handle(
             if let Err(error) = execute(
                 gateway,
                 caller,
-                request,
+                (request, affinity_input),
                 stream_id,
                 permit,
                 Some(sender.clone()),
@@ -174,7 +176,13 @@ async fn handle(
     // The worker owns its admission slot and settles even if the HTTP client disconnects.
     let worker_id = id.clone();
     let result = tokio::spawn(execute(
-        gateway, caller, request, worker_id, permit, None, None,
+        gateway,
+        caller,
+        (request, affinity_input),
+        worker_id,
+        permit,
+        None,
+        None,
     ))
     .await;
     let response = match result {
@@ -213,6 +221,7 @@ pub(super) fn endpoint(base: &str, protocol: Protocol) -> Result<reqwest::Url, R
 /// Authorized route, exact upstream wire and immutable reservation evidence.
 /// This stage performs no reserve or provider dispatch.
 struct PreparedRequest {
+    affinity: Option<crate::routing::affinity::Binding>,
     parent: Option<super::responses_continuity::Parent>,
     continuity: Option<super::responses_continuity::Policy>,
     client_handle: Option<String>,
@@ -235,6 +244,7 @@ async fn prepare_request(
     gateway: &ModelGateway,
     caller: &native_http::Caller,
     request: &InputRequest,
+    affinity_input: Option<&(HeaderMap, Bytes)>,
     id: &str,
     streaming: bool,
 ) -> Result<PreparedRequest, RelayError> {
@@ -341,6 +351,20 @@ async fn prepare_request(
     } else {
         RelayError::RouteUnavailable
     })?;
+    if parent.is_none()
+        && let Some((headers, raw)) = affinity_input
+    {
+        super::channel_affinity::prepare(
+            &gateway.bridge,
+            std::slice::from_mut(&mut plan),
+            &caller.principal,
+            headers,
+            "/v1/responses",
+            raw,
+            None,
+        )
+        .await?;
+    }
     let attempt = Arc::new(plan.start().map_err(|_| {
         if parent.is_some() {
             RelayError::Invalid("continuation binding unavailable")
@@ -566,6 +590,7 @@ async fn prepare_request(
         .await
         .map_err(routing::admission_error)?;
     Ok(PreparedRequest {
+        affinity: plan.affinity_binding.take(),
         parent,
         continuity,
         client_handle,
@@ -740,14 +765,16 @@ impl TerminalFinalization<'_> {
 async fn execute(
     gateway: ModelGateway,
     caller: native_http::Caller,
-    request: InputRequest,
+    input: (InputRequest, Option<(HeaderMap, Bytes)>),
     id: String,
     _permit: OwnedSemaphorePermit,
     stream: Option<super::responses_native::Sender>,
     ready: Option<Ready>,
 ) -> Result<Bytes, RelayError> {
     let started = tokio::time::Instant::now();
+    let (request, affinity_input) = input;
     let PreparedRequest {
+        affinity,
         parent,
         continuity,
         client_handle,
@@ -765,7 +792,15 @@ async fn execute(
         route_id,
         prepared,
         reserve,
-    } = prepare_request(&gateway, &caller, &request, &id, stream.is_some()).await?;
+    } = prepare_request(
+        &gateway,
+        &caller,
+        &request,
+        affinity_input.as_ref(),
+        &id,
+        stream.is_some(),
+    )
+    .await?;
     {
         let mut active = gateway
             .bridge
@@ -941,6 +976,11 @@ async fn execute(
         .await
     }
     .await;
+    if completed.is_ok()
+        && let Some(binding) = affinity.as_ref()
+    {
+        super::channel_affinity::completed(&gateway.bridge.pool, binding, &attempt).await;
+    }
     if completed.is_err() {
         let _ = billing::retry(|| gateway.bridge.charging.mark_unknown(&id, &worker)).await;
     }

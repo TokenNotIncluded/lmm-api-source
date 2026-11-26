@@ -3,11 +3,16 @@
 //! This module performs no network forwarding, ledger writes, or Go calls.
 //! See README.md for publication, retry, credential, and task 05/06 boundaries.
 
+pub mod affinity;
 mod calendar;
 mod config;
 mod engine;
 mod group_name;
+pub mod model_policy;
 mod pricing;
+mod reliability;
+pub(crate) const CHANNEL_HEALTH_PUBLICATION_LOCK: i64 = i64::from_be_bytes(*b"lmmhlth1");
+pub use reliability::{ProbeMode, RoutingReliability, StatusRanges};
 pub mod store;
 mod tiered;
 

@@ -1048,6 +1048,23 @@ impl Billing for Bridge {
                 }
             }
             .await;
+            if result.is_ok()
+                && report.provider_complete
+                && report.outcome == crate::relay::Outcome::Completed
+            {
+                let binding = self.active.lock().ok().and_then(|active| {
+                    active
+                        .get(&reservation.id)?
+                        .route_plan
+                        .as_ref()?
+                        .affinity_binding()
+                        .cloned()
+                });
+                if let Some(binding) = binding {
+                    super::channel_affinity::completed(&self.pool, &binding, &selected.attempt)
+                        .await;
+                }
+            }
             if let Err(failure) = &result
                 && report.upstream_attempted
             {

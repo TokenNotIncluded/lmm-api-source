@@ -134,6 +134,19 @@ impl RuntimeRole {
                 .await
                 .unwrap();
         }
+        let route_runtime: bool =
+            sqlx::query_scalar("SELECT to_regclass('core_channels.affinity_cache') IS NOT NULL")
+                .fetch_one(owner)
+                .await
+                .unwrap();
+        if route_runtime {
+            let grants = include_str!("../../schema/route_runtime_grants.sql")
+                .replace(":\"runtime_role\"", &name);
+            sqlx::raw_sql(sqlx::AssertSqlSafe::<&str>(&grants))
+                .execute(owner)
+                .await
+                .unwrap();
+        }
         let observations_installed: bool = sqlx::query_scalar(
             "SELECT to_regclass('core_channels.catalog_observations') IS NOT NULL",
         )

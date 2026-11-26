@@ -35,7 +35,6 @@ export interface AffinityRule {
   include_using_group: boolean
   include_model_name: boolean
   include_rule_name: boolean
-  param_override_template?: Record<string, unknown> | null
 }
 
 export interface CacheStats {
@@ -48,10 +47,10 @@ export interface CacheStats {
 }
 
 export interface ChannelAffinitySettings {
-  'channel_affinity_setting.enabled': boolean
-  'channel_affinity_setting.switch_on_success': boolean
-  'channel_affinity_setting.keep_on_channel_disabled': boolean
-  'channel_affinity_setting.max_entries': number
-  'channel_affinity_setting.default_ttl_seconds': number
-  'channel_affinity_setting.rules': string
+  enabled: boolean
+  switch_on_success: boolean
+  keep_on_channel_disabled: boolean
+  max_entries: number
+  default_ttl_seconds: number
+  rules: AffinityRule[]
 }

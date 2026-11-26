@@ -41,7 +41,6 @@ import {
 } from '@/components/ui/select'
 import { Separator } from '@/components/ui/separator'
 import { Textarea } from '@/components/ui/textarea'
-import { SystemJsonCodeEditor } from '@/features/system-settings/components/system-json-code-editor'
 
 import { SettingsSwitchField } from '../../components/settings-form-layout'
 import { RULE_TEMPLATES } from './constants'
@@ -83,7 +82,6 @@ interface RuleFormValues {
   include_using_group: boolean
   include_model_name: boolean
   include_rule_name: boolean
-  param_override_template_json: string
 }
 
 function normalizeStringList(text: string): string[] {
@@ -95,8 +93,8 @@ function normalizeStringList(text: string): string[] {
 
 function normalizeKeySource(src: Partial<KeySource>): KeySource {
   const type = (src?.type || 'gjson') as KeySource['type']
-  if (type === 'gjson') return { type, key: '', path: src?.path || '' }
-  return { type, key: src?.key || '', path: '' }
+  if (type === 'gjson') return { type, path: src?.path || '' }
+  return { type, key: src?.key || '' }
 }
 
 interface Props {
@@ -132,12 +130,10 @@ export function RuleEditorDialog(props: Props) {
       include_using_group: true,
       include_model_name: false,
       include_rule_name: true,
-      param_override_template_json: '',
     },
   })
   const [
     skipRetryOnFailure,
-    paramOverrideTemplate,
     includeUsingGroup,
     includeModelName,
     includeRuleName,
@@ -145,15 +141,11 @@ export function RuleEditorDialog(props: Props) {
     control: form.control,
     name: [
       'skip_retry_on_failure',
-      'param_override_template_json',
       'include_using_group',
       'include_model_name',
       'include_rule_name',
     ],
   })
-  const paramOverrideTemplateField = form.register(
-    'param_override_template_json'
-  )
 
   const resetFromRule = (r: Partial<AffinityRule>) => {
     form.reset({
@@ -167,9 +159,6 @@ export function RuleEditorDialog(props: Props) {
       include_using_group: r.include_using_group ?? true,
       include_model_name: !!r.include_model_name,
       include_rule_name: r.include_rule_name ?? true,
-      param_override_template_json: r.param_override_template
-        ? JSON.stringify(r.param_override_template, null, 2)
-        : '',
     })
     const sources = (r.key_sources || []).map(normalizeKeySource)
     setKeySources(
@@ -177,7 +166,6 @@ export function RuleEditorDialog(props: Props) {
         ? sources.map(createKeySourceRow)
         : [createKeySourceRow()]
     )
-    if (r.param_override_template) setAdvancedOpen(true)
   }
 
   useEffect(() => {
@@ -199,7 +187,6 @@ export function RuleEditorDialog(props: Props) {
         include_using_group: true,
         include_model_name: false,
         include_rule_name: true,
-        param_override_template_json: '',
       })
       setKeySources([createKeySourceRow()])
     }
@@ -221,25 +208,6 @@ export function RuleEditorDialog(props: Props) {
       return
     }
 
-    let paramTemplate: Record<string, unknown> | null = null
-    if (values.param_override_template_json.trim()) {
-      try {
-        const parsed = JSON.parse(values.param_override_template_json)
-        if (
-          typeof parsed !== 'object' ||
-          Array.isArray(parsed) ||
-          parsed === null
-        ) {
-          toast.error(t('Parameter override template must be a JSON object'))
-          return
-        }
-        paramTemplate = parsed
-      } catch {
-        toast.error(t('Invalid JSON in parameter override template'))
-        return
-      }
-    }
-
     const rule: AffinityRule = {
       id: props.rule?.id,
       name: values.name.trim(),
@@ -253,7 +221,6 @@ export function RuleEditorDialog(props: Props) {
       include_using_group: values.include_using_group,
       include_model_name: values.include_model_name,
       include_rule_name: values.include_rule_name,
-      param_override_template: paramTemplate,
     }
 
     props.onSave(rule)
@@ -451,35 +418,6 @@ export function RuleEditorDialog(props: Props) {
                   {...form.register('ttl_seconds')}
                 />
               </div>
-            </div>
-
-            <div className='grid gap-1.5'>
-              <Label htmlFor='channel-affinity-param-override-template'>
-                {t('Parameter Override Template (JSON)')}
-              </Label>
-              <SystemJsonCodeEditor
-                configurationKey='channel_affinity_setting.param_override_template'
-                id='channel-affinity-param-override-template'
-                value={paramOverrideTemplate || ''}
-                onChange={(value) =>
-                  form.setValue('param_override_template_json', value, {
-                    shouldDirty: true,
-                  })
-                }
-                name={paramOverrideTemplateField.name}
-                onBlur={() => {
-                  void paramOverrideTemplateField.onBlur({
-                    target: {
-                      name: paramOverrideTemplateField.name,
-                      value: form.getValues('param_override_template_json'),
-                    },
-                    type: 'blur',
-                  })
-                }}
-                textareaRef={paramOverrideTemplateField.ref}
-                placeholder='{"operations":[...]}'
-                heightClassName='h-40 min-h-40 max-h-40'
-              />
             </div>
 
             <div className='grid gap-3 sm:grid-cols-3'>

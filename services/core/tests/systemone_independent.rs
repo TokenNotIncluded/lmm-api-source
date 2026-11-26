@@ -193,6 +193,10 @@ fn build_gateway(pool: &PgPool, base: &str, key: i64, output_rate: u64) -> Model
         PriceSnapshot::compile(serde_json::from_value(json!({"version":1,"rules":rules})).unwrap())
             .unwrap();
     let config = RoutingConfig {
+        channel_overrides: Default::default(),
+        global_model_policy: None,
+        channel_affinity: None,
+        routing_reliability: None,
         version: 1,
         groups: vec![ModelGroup {
             name: "allowed".into(),

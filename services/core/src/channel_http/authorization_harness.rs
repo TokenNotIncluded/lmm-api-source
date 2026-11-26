@@ -34,6 +34,10 @@ async fn request(app: Router, path: &str, secret: Option<&str>, method: &str) ->
 }
 fn fixture() -> (RoutingConfig, PriceConfig) {
     let config = RoutingConfig {
+        channel_overrides: Default::default(),
+        global_model_policy: None,
+        channel_affinity: None,
+        routing_reliability: None,
         version: 1,
         groups: vec![ModelGroup {
             name: "default".into(),

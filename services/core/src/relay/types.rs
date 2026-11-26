@@ -60,6 +60,7 @@ pub enum RelayError {
     NoFunds,
     Conflict,
     UpstreamStatus(u16),
+    MappedUpstreamStatus(u16),
     UpstreamConnection,
     Truncated,
     SettlementPending,
@@ -85,7 +86,7 @@ impl RelayError {
             Self::Forbidden => "forbidden",
             Self::NoFunds => "insufficient_funds",
             Self::Conflict => "request_conflict",
-            Self::UpstreamStatus(_) => "upstream_error",
+            Self::UpstreamStatus(_) | Self::MappedUpstreamStatus(_) => "upstream_error",
             Self::UpstreamConnection => "upstream_connection_error",
             Self::SettlementPending => "settlement_pending",
         }
@@ -101,6 +102,7 @@ impl RelayError {
             Self::Limit(_) => 413,
             Self::Timeout(_) => 504,
             Self::Cancelled => 499,
+            Self::MappedUpstreamStatus(status) => *status,
             Self::Draining
             | Self::RouteUnavailable
             | Self::BillingUnavailable
@@ -119,7 +121,9 @@ impl fmt::Display for RelayError {
                 write!(f, "{}: {s}", self.code())
             }
             Self::Timeout(p) => write!(f, "relay_timeout: {p:?}"),
-            Self::UpstreamStatus(s) => write!(f, "upstream_error: HTTP {s}"),
+            Self::UpstreamStatus(s) | Self::MappedUpstreamStatus(s) => {
+                write!(f, "upstream_error: HTTP {s}")
+            }
             Self::RevokedLegacyKey => write!(
                 f,
                 "{}: this legacy API key could not be migrated and has been revoked; please create a new API key in the console (该旧版 API Key 无法迁移且已吊销，请在控制台重新创建密钥)",
@@ -268,6 +272,7 @@ impl RequestContext {
 /// HTTPS is required except for explicit numeric loopback test/local upstreams.
 #[derive(Clone)]
 pub struct Route {
+    pub(crate) model_attempt: Option<Arc<crate::routing::Attempt>>,
     pub id: String,
     pub protocol: UpstreamProtocol,
     pub model: String,
@@ -277,6 +282,7 @@ pub struct Route {
     pub(crate) cache_creation_mode: Option<CacheCreationMode>,
     pub(crate) payload_policy: crate::routing::PayloadPolicy,
     availability: Option<Arc<dyn Fn() -> bool + Send + Sync>>,
+    pub(crate) overrides: Option<crate::routing::model_policy::ChannelOverrides>,
     pub(crate) count_plan: super::input_count::CountPlan,
     pub(crate) pre_acceptance_rejection_statuses: Vec<u16>,
 }
@@ -342,6 +348,8 @@ impl Route {
             price_version,
             cache_creation_mode: None,
             payload_policy: crate::routing::PayloadPolicy::Adapt,
+            model_attempt: None,
+            overrides: None,
             availability: None,
             count_plan: super::input_count::CountPlan::ContextMax,
             pre_acceptance_rejection_statuses: Vec::new(),
@@ -397,6 +405,18 @@ pub trait RouteProvider: Send + Sync + 'static {
         _context: &'a RequestContext,
         _route: &'a Route,
         _body: &'a [u8],
+    ) -> RelayFuture<'a, ()> {
+        Box::pin(async { Ok(()) })
+    }
+
+    /// Only receives a stable category and HTTP metadata. The provider error body
+    /// is never persisted or sent to the administrative health API.
+    fn health_failure<'a>(
+        &'a self,
+        _route: &'a Route,
+        _reason: &'static str,
+        _status: Option<u16>,
+        _elapsed_ms: u64,
     ) -> RelayFuture<'a, ()> {
         Box::pin(async { Ok(()) })
     }

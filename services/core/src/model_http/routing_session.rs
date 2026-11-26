@@ -22,6 +22,7 @@ pub(crate) struct Session {
     candidates: BTreeMap<String, Candidate>,
     primary: String,
     number: u8,
+    attempt_limit: u8,
 }
 
 fn binding(
@@ -61,18 +62,33 @@ fn binding(
     })
 }
 
+impl Pending {
+    pub(in crate::model_http) fn affinity_binding(
+        &self,
+    ) -> Option<&crate::routing::affinity::Binding> {
+        match self {
+            Self::Active(session) => session.plans.front()?.affinity_binding.as_ref(),
+            Self::Planned(_) => None,
+        }
+    }
+}
+
 impl Session {
-    fn next(&mut self, failure: crate::routing::Failure) -> Result<Option<String>, RelayError> {
-        if self.number >= 8 {
+    fn next(
+        &mut self,
+        failure: crate::routing::Failure,
+        status: Option<u16>,
+    ) -> Result<Option<String>, RelayError> {
+        if self.number >= self.attempt_limit {
             return Ok(None);
         }
         let Some(current) = self.plans.front_mut() else {
             return Ok(None);
         };
-        if !current.allows_failure(failure) {
+        if !current.allows_failure(failure, status) {
             return Ok(None);
         }
-        let attempt = match current.retry(failure) {
+        let attempt = match current.retry_http(failure, status) {
             Ok(attempt) => Some(attempt),
             Err(RoutingError::AttemptsExhausted) => {
                 self.plans.pop_front();
@@ -140,6 +156,10 @@ impl Bridge {
             ],
         };
         let mut plans: VecDeque<_> = plans.into();
+        let attempt_limit = plans
+            .front()
+            .and_then(RoutePlan::global_attempt_limit)
+            .unwrap_or(8);
         // Request-specific bounds are not part of the routing snapshot. Reject
         // incompatible candidates before consuming any actual dispatch attempts.
         let mut selected_route = None;
@@ -180,7 +200,7 @@ impl Bridge {
             for plan in &plans {
                 let mut remaining = plan.planned_attempts().len();
                 for attempt in plan.candidate_attempts() {
-                    if candidates.len() >= 8 || remaining == 0 {
+                    if candidates.len() >= usize::from(attempt_limit) || remaining == 0 {
                         break;
                     }
                     let id = attempt.route_key();
@@ -221,12 +241,9 @@ impl Bridge {
                 }
             }
         }
-        let targets: HashSet<_> = candidates
-            .values()
-            .map(|candidate| candidate.selected.attempt.target_id())
-            .collect();
+        let admitted: HashSet<_> = candidates.keys().cloned().collect();
         for plan in &mut plans {
-            plan.retain_targets(&targets)
+            plan.retain_dispatches(&admitted)
                 .map_err(|_| RelayError::Conflict)?;
         }
         plans.retain(|plan| !plan.planned_attempts().is_empty());
@@ -251,6 +268,7 @@ impl Bridge {
             candidates,
             primary: route.id.clone(),
             number: 1,
+            attempt_limit,
         }));
         Ok(route)
     }
@@ -419,10 +437,18 @@ impl Bridge {
         let op = active
             .get_mut(&context.request_id)
             .ok_or(RelayError::Forbidden)?;
+        if op
+            .route_plan
+            .as_ref()
+            .and_then(Pending::affinity_binding)
+            .is_some_and(|binding| binding.skip_retry)
+        {
+            return Ok(None);
+        }
         let Some(Pending::Active(session)) = &mut op.route_plan else {
             return Ok(None);
         };
-        let Some(next) = session.next(failure.failure)? else {
+        let Some(next) = session.next(failure.failure, failure.http_status)? else {
             return Ok(None);
         };
         let candidate = session.candidates.get(&next).ok_or(RelayError::Conflict)?;

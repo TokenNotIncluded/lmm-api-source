@@ -48,6 +48,10 @@ async fn database(pool: &PgPool) -> PostgresRoutingStore {
 fn fixture(version: u64) -> (RoutingConfig, PriceConfig) {
     let speeds = vec![Speed::Standard, Speed::Fast, Speed::Ultrafast];
     let config = RoutingConfig {
+        channel_overrides: Default::default(),
+        global_model_policy: None,
+        channel_affinity: None,
+        routing_reliability: None,
         version,
         groups: vec![ModelGroup {
             name: "default".into(),

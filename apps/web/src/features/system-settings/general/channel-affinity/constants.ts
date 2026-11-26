@@ -16,8 +16,6 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { createCliHeaderTemplate } from '@/lib/cli-header-templates'
-
 import type { AffinityRule } from './types'
 
 export type RuleTemplate = Omit<AffinityRule, 'id'>
@@ -26,9 +24,8 @@ export const RULE_TEMPLATES: Record<string, RuleTemplate> = {
   codexCli: {
     name: 'codex cli trace',
     model_regex: ['^gpt-.*$'],
-    path_regex: ['/v1/responses'],
+    path_regex: [],
     key_sources: [{ type: 'gjson', path: 'prompt_cache_key' }],
-    param_override_template: createCliHeaderTemplate('codex'),
     value_regex: '',
     ttl_seconds: 0,
     skip_retry_on_failure: true,
@@ -39,9 +36,8 @@ export const RULE_TEMPLATES: Record<string, RuleTemplate> = {
   claudeCli: {
     name: 'claude cli trace',
     model_regex: ['^claude-.*$'],
-    path_regex: ['/v1/messages'],
+    path_regex: [],
     key_sources: [{ type: 'gjson', path: 'metadata.user_id' }],
-    param_override_template: createCliHeaderTemplate('claude'),
     value_regex: '',
     ttl_seconds: 0,
     skip_retry_on_failure: true,

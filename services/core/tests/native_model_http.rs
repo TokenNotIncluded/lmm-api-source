@@ -166,6 +166,10 @@ async fn server(protocol: Protocol, missing_usage: bool) -> Server {
 fn gateway(pool: &PgPool, server: &Server, protocol: Protocol, key_id: i64) -> ModelGateway {
     let prices=PriceSnapshot::compile(serde_json::from_value(json!({"version":1,"rules":[{"id":1,"model":"native-model","group":"allowed","speed":"standard","rates":{"input":2000000,"output":4000000,"cache_read":500000,"cache_write":0,"request":0},"group_multiplier_ppm":1000000,"speed_multiplier_ppm":1000000}]})).unwrap()).unwrap();
     let routes = RoutingConfig {
+        channel_overrides: Default::default(),
+        global_model_policy: None,
+        channel_affinity: None,
+        routing_reliability: None,
         version: 1,
         groups: vec![ModelGroup {
             name: "allowed".into(),
@@ -405,6 +409,10 @@ async fn dashboard_key_four_protocol_http_lifecycle_and_settlement(pool: PgPool)
     let routing = Arc::new(
         lmm_core::routing::Router::new(
             RoutingConfig {
+                channel_overrides: Default::default(),
+                global_model_policy: None,
+                channel_affinity: None,
+                routing_reliability: None,
                 version: 1,
                 groups: vec![ModelGroup {
                     name: "allowed".into(),

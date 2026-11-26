@@ -1466,3 +1466,27 @@ fn anthropic_merging_preserves_signed_thinking_and_empty_same_role_messages() {
         ]}])
     );
 }
+
+#[test]
+fn native_passthrough_preserves_bytes_with_a_billable_output_limit() {
+    let bytes =
+        br#"{ "model":"real", "messages":[{"role":"user","content":"hi"}], "max_tokens":4 }"#;
+    let mut request =
+        Request::parse_deferred_openai(ClientProtocol::Chat, bytes, &Limits::default()).unwrap();
+    request.original_http_body = Some(axum::body::Bytes::from_static(bytes));
+    let mut route = legacy_route(UpstreamProtocol::Chat, [false; 5])
+        .with_payload_policy(crate::routing::PayloadPolicy::Passthrough);
+    assert_eq!(request.upstream_body(&route).unwrap(), bytes.as_slice());
+    route.model = "other".into();
+    assert!(request.upstream_body(&route).is_err());
+    route.model = "real".into();
+    route.protocol = UpstreamProtocol::Responses;
+    assert!(request.upstream_body(&route).is_err());
+    route.protocol = UpstreamProtocol::Chat;
+    route.payload_policy = crate::routing::PayloadPolicy::Adapt;
+    route.overrides =
+        Some(serde_json::from_value(json!({"parameters":{"temperature":0.25}})).unwrap());
+    let payload: Value = serde_json::from_slice(&request.upstream_body(&route).unwrap()).unwrap();
+    assert_eq!(payload["temperature"], json!(0.25));
+    assert_eq!(payload["model"], "real");
+}

@@ -347,7 +347,7 @@ impl CatalogSurface {
                             total_timeout,
                             quote,
                             provider_policy,
-                            document.routing.version,
+                            &document.routing,
                         )
                         .then_some(label)
                     })
@@ -625,8 +625,9 @@ fn api_supported(
     total_timeout: Duration,
     quote: PriceQuote,
     provider_policy: Option<(&super::ProviderPolicy, i64)>,
-    routing_version: u64,
+    routing: &crate::routing::RoutingConfig,
 ) -> bool {
+    let routing_version = routing.version;
     let tool = ToolKind::from_protocol(client);
     if let Some(kind) = tool {
         if name != kind.model() || !PersistedToolPrice::supports_quote(kind, quote) {
@@ -648,9 +649,16 @@ fn api_supported(
                 && t.speeds.contains(&Speed::Standard)
                 && t.allows_client(client)
                 && (t.payload.adapts(client, u.protocol)
-                    || (u.protocol == client && t.upstream_model == name))
+                    || t.raw_http_model(
+                        client,
+                        u.protocol,
+                        routing.global_model_policy.as_ref(),
+                        routing.channel_overrides.get(&u.id),
+                    ) == Some(name))
         })
         .collect();
+    // Catalog v1 has no way to require an explicit output cap or streamed Chat
+    // usage receipts. Its fixed clients must work with every selectable target.
     !targets.is_empty()
         && targets.into_iter().all(|(t, u)| {
             t.payload.adapts(client, u.protocol)
@@ -847,6 +855,10 @@ mod tests {
     fn fixture(model: &str) -> (RoutingConfig, PriceConfig) {
         (
             RoutingConfig {
+                channel_overrides: Default::default(),
+                global_model_policy: None,
+                channel_affinity: None,
+                routing_reliability: None,
                 version: 1,
                 groups: vec![ModelGroup {
                     name: "synthetic".into(),
@@ -1530,7 +1542,7 @@ mod tests {
     }
     #[test]
     fn https_recoverable_targets_must_all_pass_the_same_constructor_and_contract() {
-        for mode in 0..4 {
+        for mode in 0..5 {
             let (mut r, p) = fixture("model");
             r.upstreams[0].endpoint = "https://synthetic.invalid/v1"
                 .to_owned()
@@ -1546,7 +1558,16 @@ mod tests {
             target.priority = 99;
             match mode {
                 1 => target.timeout_ms = 999,
-                2 => target.payload = PayloadPolicy::Passthrough,
+                2 | 4 => {
+                    target.payload = PayloadPolicy::Passthrough;
+                    r.global_model_policy = Some(crate::routing::model_policy::GlobalModelPolicy {
+                        pass_through_request_enabled: mode == 2,
+                        thinking_model_blacklist: vec![],
+                        chat_completions_to_responses_policy: Default::default(),
+                        ping_interval_enabled: false,
+                        ping_interval_seconds: 10,
+                    });
+                }
                 3 => target.upstream_model = "different-model".into(),
                 _ => {}
             }
@@ -1579,6 +1600,13 @@ mod tests {
                 // retain the first Adapt target's actual Responses surface.
                 assert_eq!(catalog.models.len(), 1);
                 assert_eq!(catalog.models[0].apis, ["openai-responses"]);
+            } else if mode == 4 {
+                // A disabled raw target cannot be selected; the adapted route serves both APIs.
+                assert_eq!(catalog.models.len(), 1);
+                assert_eq!(
+                    catalog.models[0].apis,
+                    ["openai-completions", "openai-responses"]
+                );
             } else {
                 assert!(catalog.models.is_empty(), "mode {mode}");
             }

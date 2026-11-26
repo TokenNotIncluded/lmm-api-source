@@ -57,6 +57,10 @@ pub(super) fn gateway_endpoint_group_input_ceiling(
     let router = Arc::new(
         crate::routing::Router::new(
             RoutingConfig {
+                channel_overrides: Default::default(),
+                global_model_policy: None,
+                channel_affinity: None,
+                routing_reliability: None,
                 version: 1,
                 groups: vec![ModelGroup {
                     name: group.into(),

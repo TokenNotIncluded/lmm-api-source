@@ -422,6 +422,17 @@ GRANT INSERT ON core_channels.opening_baselines TO :"runtime_role";
 -- Component46 display observations: no table-wide or receipt privileges.
 GRANT SELECT(channel_id,credential_id,credential_revision,binding_sha256,scope,result,started_at,observed_at,duration_ms), INSERT(channel_id,credential_id,credential_revision,binding_sha256,scope,result,started_at,observed_at,duration_ms), UPDATE(credential_id,credential_revision,binding_sha256,scope,result,started_at,observed_at,duration_ms) ON core_channels.catalog_observations TO :"runtime_role";
 -- END channel-observations runtime grants
+SELECT to_regclass('core_channels.affinity_cache') IS NOT NULL AS has_route_runtime \gset
+\if :has_route_runtime
+-- BEGIN route-runtime grants
+GRANT SELECT, INSERT, DELETE ON core_channels.affinity_cache TO :"runtime_role";
+GRANT UPDATE(rule_name,channel_id,binding_sha256,expires_at,touched_at)
+    ON core_channels.affinity_cache TO :"runtime_role";
+GRANT SELECT, INSERT ON core_channels.route_health TO :"runtime_role";
+GRANT UPDATE(disabled_scope,reason,status_code,last_probe_at,latency_ms,next_probe_at,lease_until,generation)
+    ON core_channels.route_health TO :"runtime_role";
+-- END route-runtime grants
+\endif
 GRANT EXECUTE ON FUNCTION public.routing_control_read(),
     public.routing_control_publish(jsonb,jsonb,bigint,bigint),
     public.routing_control_publish(jsonb,jsonb,jsonb,bigint,bigint),

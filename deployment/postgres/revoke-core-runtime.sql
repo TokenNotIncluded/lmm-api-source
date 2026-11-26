@@ -190,6 +190,11 @@ REVOKE INSERT(digest,user_id,user_version,proof_kind,expires_at,request_id,creat
 REVOKE ALL PRIVILEGES ON FUNCTION public.routing_control_balance_lock() FROM :"runtime_role";
 REVOKE ALL PRIVILEGES ON SCHEMA core_channels FROM :"runtime_role";
 REVOKE ALL PRIVILEGES ON ALL TABLES IN SCHEMA core_channels FROM :"runtime_role";
+SELECT to_regclass('core_channels.affinity_cache') IS NOT NULL AS has_route_runtime \gset
+\if :has_route_runtime
+REVOKE UPDATE(rule_name,channel_id,binding_sha256,expires_at,touched_at) ON core_channels.affinity_cache FROM :"runtime_role";
+REVOKE UPDATE(disabled_scope,reason,status_code,last_probe_at,latency_ms,next_probe_at,lease_until,generation) ON core_channels.route_health FROM :"runtime_role";
+\endif
 REVOKE ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA core_channels FROM :"runtime_role";
 REVOKE ALL PRIVILEGES ON ALL FUNCTIONS IN SCHEMA core_channels FROM :"runtime_role";
 REVOKE SELECT(id,origin,history_ambiguous,created_at,retired_at) ON core_channels.identities FROM :"runtime_role";

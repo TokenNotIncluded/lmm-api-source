@@ -5,7 +5,7 @@ use crate::billing::{
     image_price, text_request_price,
     tool_price::{PersistedToolPrice, ToolKind},
 };
-use crate::routing::{BillingMode, PayloadPolicy, PriceQuote, PriceSnapshot, Protocol, Speed};
+use crate::routing::{BillingMode, PriceQuote, PriceSnapshot, Protocol, Speed};
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 use serde::Serialize;
 use serde_json::Number;
@@ -147,17 +147,25 @@ impl PricingSurface {
             .is_ok();
             let mut apis = BTreeSet::new();
             let mut upstream_budget_contract_required = false;
-            for target in route.targets.iter().filter(|t| {
-                t.enabled
-                    && t.weight > 0
-                    && t.speeds.contains(&Speed::Standard)
-                    && t.payload != PayloadPolicy::Passthrough
-            }) {
+            for target in route
+                .targets
+                .iter()
+                .filter(|t| t.enabled && t.weight > 0 && t.speeds.contains(&Speed::Standard))
+            {
                 let Some(upstream) = upstreams.get(&target.upstream_id).filter(|u| u.enabled)
                 else {
                     continue;
                 };
-                if !target.payload.adapts(upstream.protocol, upstream.protocol) {
+                let raw_model = target.raw_http_model(
+                    upstream.protocol,
+                    upstream.protocol,
+                    doc.routing.global_model_policy.as_ref(),
+                    doc.routing.channel_overrides.get(&upstream.id),
+                );
+                if !target.allows_client(upstream.protocol)
+                    || (!target.payload.adapts(upstream.protocol, upstream.protocol)
+                        && raw_model.is_none())
+                {
                     continue;
                 }
                 if quote.tiered().is_some_and(|tariff| tariff.revision() == 4)
@@ -248,7 +256,7 @@ impl PricingSurface {
                     // either the text relay or a native tool contract.
                     continue;
                 }
-                apis.insert(match upstream.protocol {
+                let api = match upstream.protocol {
                     Protocol::OpenAiChat => "openai-completions",
                     Protocol::OpenAiResponses => "openai-responses",
                     Protocol::AnthropicMessages => "anthropic-messages",
@@ -258,7 +266,8 @@ impl PricingSurface {
                     Protocol::JinaRerank => "jina-rerank",
                     Protocol::DeepSeekSearch => "deepseek-search",
                     Protocol::DeepSeekFetch => "deepseek-fetch",
-                });
+                };
+                apis.insert((api, raw_model));
             }
             for name in std::iter::once(route.model.as_str()).chain(
                 doc.routing
@@ -267,15 +276,7 @@ impl PricingSurface {
                     .filter(|a| a.group == route.group && a.model == route.model)
                     .map(|a| a.alias.as_str()),
             ) {
-                // Native tool endpoints choose a fixed public route name;
-                // arbitrary route aliases cannot invoke those operations.
-                let apis: Vec<_> = apis
-                    .iter()
-                    .copied()
-                    .filter(|api| {
-                        !matches!(*api, "deepseek-search" | "deepseek-fetch") || name == *api
-                    })
-                    .collect();
+                let apis = apis_for_name(&apis, name);
                 let tool = apis
                     .iter()
                     .any(|api| matches!(*api, "deepseek-search" | "deepseek-fetch"));
@@ -423,6 +424,19 @@ impl PricingSurface {
         Ok(result)
     }
 }
+// Raw bodies keep the requested wire model. Native tool endpoints choose a fixed model.
+fn apis_for_name(apis: &BTreeSet<(&'static str, Option<&str>)>, name: &str) -> Vec<&'static str> {
+    apis.iter()
+        .filter_map(|&(api, raw_model)| {
+            let fixed_tool = matches!(api, "deepseek-search" | "deepseek-fetch");
+            (raw_model.is_none_or(|model| model == name) && (!fixed_tool || name == api))
+                .then_some(api)
+        })
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .collect()
+}
+
 fn add_image(model: &mut PricingModel, variant: ImageVariant) {
     if model.billing_status == "unavailable" {
         model.billing_status = "configured";
@@ -700,6 +714,10 @@ pub(crate) mod tests {
         rate.group_multiplier_ppm = 2_000_000;
         rules.push(rate);
         let routing = RoutingConfig {
+            channel_overrides: Default::default(),
+            global_model_policy: None,
+            channel_affinity: None,
+            routing_reliability: None,
             version: 9,
             groups: vec![
                 ModelGroup {
@@ -846,6 +864,87 @@ pub(crate) mod tests {
         )
         .unwrap()
     }
+    #[tokio::test]
+    async fn pricing_raw_http_matches_wire_name_protocol_and_parameter_policy() {
+        let pool = sqlx::postgres::PgPoolOptions::new()
+            .connect_lazy("postgres://unused:unused@127.0.0.1:9/unused")
+            .unwrap();
+        let gateway = gateway(pool);
+        let router = &gateway.bridge.routing;
+        for (enabled, wire_name, patch_body, allow_chat, canonical_ok, alias_ok) in [
+            (true, "model", false, true, true, false),
+            (true, "friendly", false, true, false, true),
+            (false, "model", false, true, false, false),
+            (true, "model", true, true, false, false),
+            (true, "model", false, false, false, false),
+        ] {
+            let previous = router.version().unwrap();
+            let mut document = router.catalog_document().unwrap();
+            document.routing.version += 1;
+            document.routing.global_model_policy = Some(model_policy::GlobalModelPolicy {
+                pass_through_request_enabled: enabled,
+                thinking_model_blacklist: vec![],
+                chat_completions_to_responses_policy: Default::default(),
+                ping_interval_enabled: false,
+                ping_interval_seconds: 10,
+            });
+            let overrides = document.routing.channel_overrides.entry(1).or_default();
+            overrides
+                .headers
+                .insert("user-agent".into(), "test-client".into());
+            overrides.parameters.clear();
+            if patch_body {
+                overrides.parameters.insert("temperature".into(), 1.into());
+            }
+            for route in document
+                .routing
+                .routes
+                .iter_mut()
+                .filter(|r| r.group == "allowed")
+            {
+                let target = &mut route.targets[0];
+                target.payload = PayloadPolicy::Passthrough;
+                if route.model == "model" {
+                    target.upstream_model = wire_name.into();
+                    target.client_protocols = Some(vec![if allow_chat {
+                        Protocol::OpenAiChat
+                    } else {
+                        Protocol::OpenAiResponses
+                    }]);
+                } else {
+                    target.upstream_model = route.model.clone();
+                }
+            }
+            router
+                .publish(
+                    previous,
+                    document.routing,
+                    Arc::new(PriceSnapshot::compile(document.pricing).unwrap()),
+                )
+                .unwrap();
+            let view = PricingSurface::from_gateway(&gateway)
+                .unwrap()
+                .project(None, None)
+                .unwrap();
+            for (name, label, expected) in [
+                ("model", "openai-completions", canonical_ok),
+                ("friendly", "openai-completions", alias_ok),
+                ("responses", "openai-responses", enabled),
+                ("claude", "anthropic-messages", enabled),
+                ("gemini", "google-generative-ai", enabled),
+                ("jev", "system-one", false),
+            ] {
+                let row = view
+                    .models
+                    .iter()
+                    .find(|m| m.group == "allowed" && m.model == name)
+                    .unwrap();
+                assert_eq!(row.apis.contains(&label), expected, "{name}");
+                assert_eq!(row.billing_status == "configured", expected, "{name}");
+            }
+        }
+    }
+
     #[tokio::test]
     async fn pricing_upstream_cost_descriptor_keeps_external_budget_gate_and_exact_group_basis() {
         let pool = sqlx::postgres::PgPoolOptions::new()

@@ -51,10 +51,12 @@ pub fn router(pool: PgPool, routing: Arc<crate::routing::Router>) -> Router {
 
 /// Enable only after the host has recovered the durable publication.
 pub fn managed_router(pool: PgPool, management: ManagedChannels) -> Router {
+    let management = Arc::new(management);
+    management.bind_gateway();
     routes(ChannelState {
         identity: HistoryStore::new(pool),
         routing: management.routing(),
-        management: Some(Arc::new(management)),
+        management: Some(management),
     })
 }
 
@@ -64,6 +66,14 @@ fn routes(state: ChannelState) -> Router {
         .route("/api/channel/", get(list).put(unsupported))
         .route("/api/channel/search", get(list))
         .route("/api/channel/ops", get(ops))
+        .route(
+            "/core/v1/admin/routing/channel-affinity/cache",
+            get(control::affinity::stats).delete(control::affinity::clear),
+        )
+        .route(
+            "/api/option/channel_affinity_cache",
+            get(control::affinity::stats).delete(control::affinity::clear),
+        )
         .route(
             "/core/v1/admin/routing/pricing-source-snapshot",
             get(pricing_snapshot::read),
@@ -836,6 +846,10 @@ mod tests {
 
     pub(super) fn fixture() -> (RoutingConfig, PriceConfig) {
         let config = RoutingConfig {
+            channel_overrides: Default::default(),
+            global_model_policy: None,
+            channel_affinity: None,
+            routing_reliability: None,
             version: 1,
             groups: vec![ModelGroup {
                 name: "default".into(),

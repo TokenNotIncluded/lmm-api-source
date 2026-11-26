@@ -216,7 +216,7 @@ pub(in crate::channel_http) async fn read(
         .as_ref()
         .map(|gateway| json!({ "total_timeout_ms": gateway.channel_total_timeout_ms() }));
     Ok(Json(
-        json!({"success":true,"data":{"version":Version::of(&document),"routing":document.routing,"prices":document.pricing,"bindings":bindings,"channel_id_high_water":channel_id_high_water,"model_limits":model_limits,"secret_storage_enabled":management.gateway.as_ref().and_then(|g|g.channel_secret_key()).is_some()}}),
+        json!({"success":true,"data":{"version":Version::of(&document),"routing":document.routing,"prices":document.pricing,"bindings":bindings,"policy_sections":["routing_reliability","channel_affinity","global_model_policy","channel_overrides"],"channel_id_high_water":channel_id_high_water,"model_limits":model_limits,"secret_storage_enabled":management.gateway.as_ref().and_then(|g|g.channel_secret_key()).is_some()}}),
     ))
 }
 pub(in crate::channel_http) async fn preview(
@@ -318,48 +318,49 @@ fn attach(
         .map(|t| t.id)
         .max()
         .unwrap_or(0);
-    let mut seen = BTreeSet::new();
-    // Preserve routing policy when a channel edit replaces its targets.
-    let mut previous_target_policy = BTreeMap::new();
-    for route in &mut document.routing.routes {
-        route.targets.retain(|target| {
-            if target.upstream_id != id {
-                return true;
-            }
-            previous_target_policy
-                .insert(route.id, (target.enabled, target.client_protocols.clone()));
-            false
-        });
-    }
+    let mut by_route = BTreeMap::new();
     for attachment in attachments {
-        if !seen.insert(attachment.route_id) {
+        if by_route.insert(attachment.route_id, attachment).is_some() {
             return Err(ManagementError::Invalid);
+        }
+    }
+    for route in &mut document.routing.routes {
+        let Some(attachment) = by_route.remove(&route.id) else {
+            route.targets.retain(|target| target.upstream_id != id);
+            continue;
+        };
+        if let Some(target) = route
+            .targets
+            .iter_mut()
+            .find(|target| target.upstream_id == id)
+        {
+            target.upstream_model = attachment.upstream_model;
+            target.priority = attachment.priority;
+            target.weight = attachment.weight;
+            target.speeds = attachment.speeds;
+            target.payload = attachment.payload;
+            target.timeout_ms = attachment.timeout_ms;
+            continue;
         }
         next = next
             .checked_add(1)
             .filter(|v| *v <= i64::MAX as u64)
             .ok_or(ManagementError::Invalid)?;
-        let route = document
-            .routing
-            .routes
-            .iter_mut()
-            .find(|r| r.id == attachment.route_id)
-            .ok_or(ManagementError::Invalid)?;
-        let (enabled, client_protocols) = previous_target_policy
-            .remove(&route.id)
-            .unwrap_or((true, None));
         route.targets.push(RouteTarget {
             id: next,
             upstream_id: id,
             upstream_model: attachment.upstream_model,
-            enabled,
+            enabled: true,
             priority: attachment.priority,
             weight: attachment.weight,
             speeds: attachment.speeds,
-            client_protocols,
+            client_protocols: None,
             payload: attachment.payload,
             timeout_ms: attachment.timeout_ms,
         });
+    }
+    if !by_route.is_empty() {
+        return Err(ManagementError::Invalid);
     }
     Ok(())
 }
@@ -401,6 +402,7 @@ fn channel_attachment_edit_preserves_target_policy() {
         let [target] = document.routing.routes[0].targets.as_slice() else {
             panic!("expected one replacement target");
         };
+        assert_eq!(target.id, 5);
         assert_eq!(target.enabled, enabled);
         assert_eq!(target.upstream_model, "after");
         assert!(target.allows_client(Protocol::AnthropicMessages));
@@ -421,7 +423,119 @@ fn channel_attachment_edit_preserves_target_policy() {
         .unwrap();
         assert_eq!(document.routing.routes[0].targets[0].enabled, enabled);
         assert!(document.routing.routes[0].targets[1].enabled);
+        let pricing = serde_json::to_value(&document.pricing).unwrap();
+        let mut channel: ChannelInput = serde_json::from_value(json!({
+            "expected_version":{"routing":1,"pricing":1}, "id":52,
+            "name":"channel 52", "endpoint":"https://supplier.example", "protocol":"openai_chat",
+            "enabled":false, "contexts":[{
+                "upstream_id":52,"upstream_model":"model","protocol":"openai_chat",
+                "endpoint":"https://supplier.example/","max_input_tokens":2048,
+                "max_output_tokens":256,"contract_revision":"fixture-v1"
+            }], "attachments":[]
+        }))
+        .unwrap();
+        edit_document(&mut document, &mut Bindings::default(), &mut channel).unwrap();
+        assert_eq!(channel.endpoint.as_str(), "https://supplier.example/");
+        assert_eq!(channel.contexts[0].endpoint, channel.endpoint.as_str());
+        attach(
+            &mut document,
+            2,
+            vec![Attachment {
+                route_id: 1,
+                upstream_model: "edited again".into(),
+                priority: 2,
+                weight: 4,
+                speeds: vec![Speed::Standard],
+                timeout_ms: 6000,
+                payload: PayloadPolicy::Adapt,
+            }],
+        )
+        .unwrap();
+        let ids: Vec<_> = document.routing.routes[0]
+            .targets
+            .iter()
+            .map(|t| t.id)
+            .collect();
+        assert_eq!(ids, [5, 6]);
+        assert_eq!(serde_json::to_value(&document.pricing).unwrap(), pricing);
     }
+}
+
+#[cfg(test)]
+#[test]
+fn channel_52_ordinary_save_keeps_binding_target_order_and_price() {
+    let target = |id: u64, channel: u64, enabled: bool| {
+        json!({
+            "id":id,"upstream_id":channel,"upstream_model":"before","enabled":enabled,
+            "priority":1,"weight":10,"speeds":["standard"],"client_protocols":["openai_chat"],
+            "payload":"adapt","timeout_ms":5000
+        })
+    };
+    let upstream = |id: u64, endpoint: &str| {
+        json!({
+            "id":id,"endpoint":endpoint,"protocol":"openai_chat",
+            "enabled":true,"credential":{"id":id,"revision":2}
+        })
+    };
+    let mut document: ReleaseDocument = serde_json::from_value(json!({
+        "contract_version":1, "routing":{
+            "version":23,"groups":[{"name":"default","enabled":true}],"aliases":[],
+            "upstreams":[upstream(10,"https://first.example/"),upstream(52,"https://supplier.example"),
+                         upstream(14,"https://last.example/")],
+            "routes":[{"id":18,"model":"example","group":"default","enabled":true,"speeds":["standard"],
+                "failover":{"max_attempts":2,"retry_on":["connect"],"allow_replay_after_send":false},
+                "targets":[target(102,10,true),target(510,52,false),target(43,14,true)]}]
+        }, "pricing":{"version":7,"rules":[{
+            "id":29,"model":"example","group":"default","speed":"standard",
+            "rates":{"input":3000000,"output":12000000,"cache_read":300000,"cache_write":3750000,"request":10},
+            "group_multiplier_ppm":1000000,"speed_multiplier_ppm":1000000
+        }]}
+    })).unwrap();
+    let mut input: ChannelInput = serde_json::from_value(json!({
+        "expected_version":{"routing":23,"pricing":7},"id":52,"name":"channel 52 renamed",
+        "endpoint":"https://supplier.example","protocol":"openai_chat","enabled":true,
+        "contexts":[{"upstream_id":52,"upstream_model":"after","protocol":"openai_chat",
+            "endpoint":"https://supplier.example/","max_input_tokens":2048,"max_output_tokens":256,
+            "contract_revision":"fixture-v1"}],
+        "attachments":[{"route_id":18,"upstream_model":"after","priority":0,"weight":25,
+            "speeds":["standard"],"timeout_ms":7500,"payload":"adapt"}]
+    }))
+    .unwrap();
+    let prices = serde_json::to_vec(&document.pricing).unwrap();
+    let neighbors = document.routing.routes[0].targets.clone();
+    let mut bindings = Bindings::default();
+    edit_document(&mut document, &mut bindings, &mut input).unwrap();
+    attach(&mut document, input.id, input.attachments).unwrap();
+
+    assert_eq!(bindings.names[&52], "channel 52 renamed");
+    let saved = &document.routing.upstreams[1];
+    assert_eq!(saved.id, 52);
+    assert_eq!(
+        saved.credential,
+        CredentialRef {
+            id: 52,
+            revision: 2
+        }
+    );
+    assert!(saved.enabled);
+    assert_eq!(saved.endpoint.as_str(), "https://supplier.example/");
+    assert_eq!(bindings.contexts[0].endpoint, saved.endpoint.as_str());
+    let [first, edited, last] = document.routing.routes[0].targets.as_slice() else {
+        panic!("expected all three saved targets");
+    };
+    assert_eq!([first.id, edited.id, last.id], [102, 510, 43]);
+    assert_eq!(first, &neighbors[0]);
+    assert_eq!(last, &neighbors[2]);
+    assert_eq!((edited.upstream_id, edited.enabled), (52, false));
+    assert_eq!(edited.client_protocols, neighbors[1].client_protocols);
+    assert!(edited.allows_client(Protocol::OpenAiChat));
+    assert!(!edited.allows_client(Protocol::AnthropicMessages));
+    assert_eq!(edited.upstream_model, "after");
+    assert_eq!(
+        (edited.priority, edited.weight, edited.timeout_ms),
+        (0, 25, 7500)
+    );
+    assert_eq!(serde_json::to_vec(&document.pricing).unwrap(), prices);
 }
 
 #[derive(Deserialize)]
@@ -443,7 +557,7 @@ pub(in crate::channel_http) struct ChannelInput {
 fn edit_document(
     document: &mut ReleaseDocument,
     bindings: &mut Bindings,
-    input: &ChannelInput,
+    input: &mut ChannelInput,
 ) -> Result<(), ManagementError> {
     if !valid_label(&input.name)
         || input
@@ -457,15 +571,26 @@ fn edit_document(
     {
         return Err(ManagementError::Invalid);
     }
-    crate::relay::honeypot_network::validate_base_url(input.endpoint.as_str(), false)
-        .map_err(|_| ManagementError::Invalid)?;
-    if input.contexts.iter().any(|context| {
-        context.upstream_id != input.id
-            || context.endpoint != input.endpoint.as_str()
+    // The provider binding and upstream must identify the same parsed base URL.
+    // In particular URL serializes an empty root path as "/".
+    let normalized =
+        crate::relay::honeypot_network::validate_base_url(input.endpoint.as_str(), false)
+            .map_err(|_| ManagementError::Invalid)?;
+    for context in &mut input.contexts {
+        if context.upstream_id != input.id
             || context.protocol != input.protocol
-    }) {
-        return Err(ManagementError::Invalid);
+            || crate::relay::honeypot_network::validate_base_url(&context.endpoint, false)
+                .map_err(|_| ManagementError::Invalid)?
+                != normalized
+        {
+            return Err(ManagementError::Invalid);
+        }
+        context.endpoint = normalized.to_string();
     }
+    input.endpoint = normalized
+        .to_string()
+        .try_into()
+        .map_err(|_| ManagementError::Invalid)?;
     bindings.names.insert(input.id, input.name.clone());
     if let Some(tag) = &input.tag {
         if tag.is_empty() {
@@ -540,7 +665,7 @@ pub(in crate::channel_http) async fn create(
         return Err(ManagementError::Conflict.into());
     }
     let mut bindings = management.current_bindings()?;
-    edit_document(&mut document, &mut bindings, &input)?;
+    edit_document(&mut document, &mut bindings, &mut input)?;
     let key = store_secret(
         management,
         &mut tx,
@@ -582,7 +707,7 @@ pub(in crate::channel_http) async fn update(
     State(state): State<ChannelState>,
     headers: HeaderMap,
     Path(id): Path<u64>,
-    Json(input): Json<ChannelInput>,
+    Json(mut input): Json<ChannelInput>,
 ) -> Result<Json<Value>, Failure> {
     super::super::admit(&state, &headers).await?;
     let management = state.management.as_ref().ok_or(Failure::Disabled)?;
@@ -602,7 +727,7 @@ pub(in crate::channel_http) async fn update(
         return Err(Failure::NotFound);
     }
     let mut bindings = management.current_bindings()?;
-    edit_document(&mut document, &mut bindings, &input)?;
+    edit_document(&mut document, &mut bindings, &mut input)?;
     attach(&mut document, id, input.attachments)?;
     let version = management
         .publish_bindings(

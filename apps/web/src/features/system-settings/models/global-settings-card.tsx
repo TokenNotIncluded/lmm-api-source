@@ -17,10 +17,8 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { zodResolver } from '@hookform/resolvers/zod'
-import { useEffect } from 'react'
 import { useForm, useWatch } from 'react-hook-form'
 import { useTranslation } from 'react-i18next'
-import { toast } from 'sonner'
 import * as z from 'zod'
 
 import { StatusBadge } from '@/components/status-badge'
@@ -47,7 +45,10 @@ import {
 } from '../components/settings-form-layout'
 import { SettingsPageFormActions } from '../components/settings-page-context'
 import { SettingsSection } from '../components/settings-section'
-import { useUpdateOption } from '../hooks/use-update-option'
+import {
+  NativePolicySection,
+  type PolicyFormProps,
+} from './native-policy-section'
 
 const thinkingBlacklistExample = JSON.stringify(
   ['moonshotai/kimi-k2-thinking', 'kimi-k2-thinking'],
@@ -70,115 +71,116 @@ const chatToResponsesPolicyAllChannelsExample = JSON.stringify(
   {
     enabled: true,
     all_channels: true,
+    overrides: { '3': false },
     model_patterns: ['^gpt-4o.*$', '^gpt-5.*$'],
   },
   null,
   2
 )
 
-const jsonString = z.string().refine((value) => {
-  const trimmed = value.trim()
-  if (!trimmed) return true
-  try {
-    JSON.parse(trimmed)
-    return true
-  } catch {
-    return false
-  }
-}, 'Invalid JSON format')
+const chatPolicy = z
+  .object({
+    enabled: z.boolean(),
+    all_channels: z.boolean(),
+    channel_ids: z.array(z.number().int().positive().safe()).optional(),
+    model_patterns: z.array(z.string()),
+    overrides: z.record(z.string().regex(/^[1-9]\d*$/), z.boolean()).optional(),
+  })
+  .strict()
+const modelNames = z.array(z.string().min(1))
+
+function jsonField(schema: z.ZodType) {
+  return z.string().refine((text) => {
+    try {
+      return schema.safeParse(JSON.parse(text)).success
+    } catch {
+      return false
+    }
+  }, 'Invalid JSON format')
+}
 
 const schema = z.object({
-  global: z.object({
-    pass_through_request_enabled: z.boolean(),
-    thinking_model_blacklist: jsonString,
-    chat_completions_to_responses_policy: jsonString,
-  }),
-  general_setting: z.object({
-    ping_interval_enabled: z.boolean(),
-    ping_interval_seconds: z.coerce.number().min(1),
-  }),
+  pass_through_request_enabled: z.boolean(),
+  thinking_model_blacklist: jsonField(modelNames),
+  chat_completions_to_responses_policy: jsonField(chatPolicy),
+  ping_interval_enabled: z.boolean(),
+  ping_interval_seconds: z.coerce.number().int().min(1).max(3600),
 })
-
 type GlobalModelSettingsFormValues = z.output<typeof schema>
 type GlobalModelSettingsFormInput = z.input<typeof schema>
-
-type FlatGlobalModelSettings = {
-  'global.pass_through_request_enabled': boolean
-  'global.thinking_model_blacklist': string
-  'global.chat_completions_to_responses_policy': string
-  'general_setting.ping_interval_enabled': boolean
-  'general_setting.ping_interval_seconds': number
+type GlobalPolicy = Omit<
+  GlobalModelSettingsFormValues,
+  'thinking_model_blacklist' | 'chat_completions_to_responses_policy'
+> & {
+  thinking_model_blacklist: string[]
+  chat_completions_to_responses_policy: z.infer<typeof chatPolicy>
+}
+const migrationDraft: GlobalPolicy = {
+  pass_through_request_enabled: false,
+  thinking_model_blacklist: JSON.parse(thinkingBlacklistExample),
+  chat_completions_to_responses_policy: {
+    enabled: false,
+    all_channels: false,
+    channel_ids: [],
+    model_patterns: [],
+    overrides: {},
+  },
+  ping_interval_enabled: false,
+  ping_interval_seconds: 60,
 }
 
-const flattenGlobalValues = (
-  values: GlobalModelSettingsFormValues
-): FlatGlobalModelSettings => ({
-  'global.pass_through_request_enabled':
-    values.global.pass_through_request_enabled,
-  'global.thinking_model_blacklist': normalizeJsonText(
-    values.global.thinking_model_blacklist,
-    '[]'
-  ),
-  'global.chat_completions_to_responses_policy': normalizeJsonText(
-    values.global.chat_completions_to_responses_policy,
-    '{}'
-  ),
-  'general_setting.ping_interval_enabled':
-    values.general_setting.ping_interval_enabled,
-  'general_setting.ping_interval_seconds':
-    values.general_setting.ping_interval_seconds,
-})
-
-function normalizeJsonText(value: string, fallback: string) {
-  const trimmed = (value ?? '').toString().trim()
-  return trimmed ? trimmed : fallback
+export function GlobalSettingsCard() {
+  return (
+    <NativePolicySection
+      name='global_model_policy'
+      draft={migrationDraft}
+      editor={GlobalPolicyForm}
+    />
+  )
 }
 
-type GlobalSettingsCardProps = {
-  defaultValues: GlobalModelSettingsFormValues
-}
-
-export function GlobalSettingsCard({ defaultValues }: GlobalSettingsCardProps) {
+function GlobalPolicyForm({
+  policy,
+  preview,
+  busy,
+}: PolicyFormProps<GlobalPolicy>) {
   const { t } = useTranslation()
-  const updateOption = useUpdateOption()
-
   const form = useForm<
     GlobalModelSettingsFormInput,
     unknown,
     GlobalModelSettingsFormValues
   >({
     resolver: zodResolver(schema),
-    defaultValues: defaultValues as GlobalModelSettingsFormInput,
+    defaultValues: {
+      ...policy,
+      thinking_model_blacklist: JSON.stringify(
+        policy.thinking_model_blacklist,
+        null,
+        2
+      ),
+      chat_completions_to_responses_policy: JSON.stringify(
+        policy.chat_completions_to_responses_policy,
+        null,
+        2
+      ),
+    },
   })
   const pingEnabled = useWatch({
     control: form.control,
-    name: 'general_setting.ping_interval_enabled',
+    name: 'ping_interval_enabled',
   })
 
-  useEffect(() => {
-    form.reset(defaultValues as GlobalModelSettingsFormInput)
-  }, [defaultValues, form])
-
-  const onSubmit = async (values: GlobalModelSettingsFormValues) => {
-    const flattenedDefaults = flattenGlobalValues(defaultValues)
-    const flattenedValues = flattenGlobalValues(values)
-    const updates = Object.entries(flattenedValues).filter(
-      ([key, value]) =>
-        value !== flattenedDefaults[key as keyof FlatGlobalModelSettings]
-    )
-
-    if (updates.length === 0) {
-      toast.info(t('No changes to save'))
-      return
-    }
-
-    for (const [key, value] of updates) {
-      await updateOption.mutateAsync({
-        key,
-        value,
-      })
-    }
-  }
+  const onSubmit = (values: GlobalModelSettingsFormValues) =>
+    preview({
+      ...policy,
+      ...values,
+      thinking_model_blacklist: modelNames.parse(
+        JSON.parse(values.thinking_model_blacklist)
+      ),
+      chat_completions_to_responses_policy: chatPolicy.parse(
+        JSON.parse(values.chat_completions_to_responses_policy)
+      ),
+    })
 
   return (
     <SettingsSection title={t('Global Model Configuration')}>
@@ -186,18 +188,19 @@ export function GlobalSettingsCard({ defaultValues }: GlobalSettingsCardProps) {
         <SettingsForm onSubmit={form.handleSubmit(onSubmit)}>
           <SettingsPageFormActions
             onSave={form.handleSubmit(onSubmit)}
-            isSaving={updateOption.isPending}
+            isSaveDisabled={busy}
+            saveLabel='Preview changes'
           />
           <FormField
             control={form.control}
-            name='global.pass_through_request_enabled'
+            name='pass_through_request_enabled'
             render={({ field }) => (
               <SettingsSwitchItem>
                 <SettingsSwitchContent>
                   <FormLabel>{t('Enable Request Passthrough')}</FormLabel>
                   <FormDescription>
                     {t(
-                      'Forward requests directly to upstream providers without any post-processing.'
+                      'Passthrough requires matching client and upstream protocols and model names.'
                     )}
                   </FormDescription>
                 </SettingsSwitchContent>
@@ -213,7 +216,7 @@ export function GlobalSettingsCard({ defaultValues }: GlobalSettingsCardProps) {
 
           <FormField
             control={form.control}
-            name='global.thinking_model_blacklist'
+            name='thinking_model_blacklist'
             render={({ field }) => (
               <FormItem>
                 <FormLabel>
@@ -266,7 +269,7 @@ export function GlobalSettingsCard({ defaultValues }: GlobalSettingsCardProps) {
 
             <FormField
               control={form.control}
-              name='global.chat_completions_to_responses_policy'
+              name='chat_completions_to_responses_policy'
               render={({ field }) => (
                 <FormItem>
                   <FormLabel>{t('Policy JSON')}</FormLabel>
@@ -282,7 +285,9 @@ export function GlobalSettingsCard({ defaultValues }: GlobalSettingsCardProps) {
                     />
                   </FormControl>
                   <FormDescription>
-                    {t('Empty value will be saved as {}.')}
+                    {t(
+                      'Channel overrides take precedence for matching models. Use a channel ID as the key and true or false as its value.'
+                    )}
                   </FormDescription>
                   <div className='flex flex-wrap gap-2'>
                     <Button
@@ -291,7 +296,7 @@ export function GlobalSettingsCard({ defaultValues }: GlobalSettingsCardProps) {
                       size='sm'
                       onClick={() =>
                         form.setValue(
-                          'global.chat_completions_to_responses_policy',
+                          'chat_completions_to_responses_policy',
                           chatToResponsesPolicyExample,
                           { shouldDirty: true }
                         )
@@ -305,7 +310,7 @@ export function GlobalSettingsCard({ defaultValues }: GlobalSettingsCardProps) {
                       size='sm'
                       onClick={() =>
                         form.setValue(
-                          'global.chat_completions_to_responses_policy',
+                          'chat_completions_to_responses_policy',
                           chatToResponsesPolicyAllChannelsExample,
                           { shouldDirty: true }
                         )
@@ -324,14 +329,14 @@ export function GlobalSettingsCard({ defaultValues }: GlobalSettingsCardProps) {
 
           <FormField
             control={form.control}
-            name='general_setting.ping_interval_enabled'
+            name='ping_interval_enabled'
             render={({ field }) => (
               <SettingsSwitchItem>
                 <SettingsSwitchContent>
                   <FormLabel>{t('Keep-alive Ping')}</FormLabel>
                   <FormDescription>
                     {t(
-                      'Periodically send ping frames to keep streaming connections active.'
+                      'Send SSE comment heartbeats while waiting. WebSocket ping uses a separate transport setting.'
                     )}
                   </FormDescription>
                 </SettingsSwitchContent>
@@ -347,7 +352,7 @@ export function GlobalSettingsCard({ defaultValues }: GlobalSettingsCardProps) {
 
           <FormField
             control={form.control}
-            name='general_setting.ping_interval_seconds'
+            name='ping_interval_seconds'
             render={({ field }) => (
               <FormItem>
                 <FormLabel>{t('Ping Interval (seconds)')}</FormLabel>

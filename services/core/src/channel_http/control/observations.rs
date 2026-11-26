@@ -10,6 +10,8 @@ const SCHEMA: &str = include_str!("../../../schema/channel_observations.sql");
 
 #[derive(Default, Serialize)]
 pub(in crate::channel_http) struct Statistics {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub routing_health: Option<Value>,
     pub lifetime: Lifetime,
     pub observation: Option<Balance>,
     pub catalog_observation: Option<CatalogObservation>,
@@ -213,6 +215,88 @@ pub(in crate::channel_http) async fn batch(
     Ok(result)
 }
 
+async fn routing_health(
+    c: &mut PgConnection,
+    management: &ManagedChannels,
+    routing: &crate::routing::RoutingConfig,
+    stats: &mut BTreeMap<u64, Statistics>,
+) -> Result<(), Failure> {
+    let pools = management
+        .routing()
+        .health_key_refs(routing.version)
+        .map_err(|_| ManagementError::Conflict)?;
+    // Only allowlisted diagnostics, never key IDs, credentials, provider payloads or
+    // caller tokens. Prefer the most recent outstanding disable reason.
+    let rows=sqlx::query("SELECT channel_id,credential_id,credential_revision,disabled_scope,reason,status_code,floor(extract(epoch FROM last_probe_at))::bigint AS last_probe_at,latency_ms,floor(extract(epoch FROM next_probe_at))::bigint AS next_probe_at FROM core_channels.route_health WHERE routing_version=$1 ORDER BY channel_id,(disabled_scope IS NOT NULL) DESC,next_probe_at DESC")
+        .bind(routing.version as i64).fetch_all(c).await.map_err(ManagementError::from)?;
+    let mut by_channel = BTreeMap::new();
+    for row in rows {
+        by_channel
+            .entry(row.get::<i64, _>("channel_id") as u64)
+            .or_insert_with(Vec::new)
+            .push(row);
+    }
+    for u in &routing.upstreams {
+        let Some(keys) = pools.get(&u.id) else {
+            continue;
+        };
+        let current: Vec<_> = by_channel
+            .get(&u.id)
+            .into_iter()
+            .flatten()
+            .filter(|r| {
+                keys.contains(&crate::routing::CredentialRef {
+                    id: r.get::<i64, _>("credential_id") as u64,
+                    revision: r.get::<i64, _>("credential_revision") as u64,
+                })
+            })
+            .collect();
+        let channel_off = current
+            .iter()
+            .any(|r| r.get::<Option<String>, _>("disabled_scope").as_deref() == Some("channel"));
+        let bad_keys = current
+            .iter()
+            .filter(|r| {
+                r.get::<Option<String>, _>("disabled_scope").as_deref() == Some("credential")
+            })
+            .count();
+        let available = if channel_off || !u.enabled {
+            0
+        } else {
+            keys.len().saturating_sub(bad_keys)
+        };
+        let state = if !u.enabled {
+            "manually_disabled"
+        } else if available == 0 {
+            "auto_disabled"
+        } else if bad_keys > 0 {
+            "degraded"
+        } else {
+            "healthy"
+        };
+        let detail = current.first();
+        let last = current
+            .iter()
+            .filter_map(|r| r.get::<Option<i64>, _>("last_probe_at"))
+            .max();
+        let next = current
+            .iter()
+            .filter_map(|r| {
+                let policy = routing.routing_reliability.as_ref()?;
+                (u.enabled
+                    && policy.probe_enabled
+                    && (policy.probe_mode == crate::routing::ProbeMode::ScheduledAll
+                        || r.get::<Option<String>, _>("disabled_scope").is_some()))
+                .then(|| r.get::<i64, _>("next_probe_at"))
+            })
+            .min();
+        stats.entry(u.id).or_default().routing_health = Some(
+            json!({"state":state,"disabled_scope":if !u.enabled {Some("manual")} else if channel_off {Some("channel")} else if bad_keys>0 {Some("credential")} else {None},"probe_scope":"model_catalog","available_key_count":available,"reason":detail.and_then(|r|r.get::<Option<String>,_>("reason")),"status_code":detail.and_then(|r|r.get::<Option<i16>,_>("status_code")),"last_probe_at":last,"latency_ms":detail.and_then(|r|r.get::<Option<i64>,_>("latency_ms")),"next_probe_at":next}),
+        );
+    }
+    Ok(())
+}
+
 async fn snapshot(
     c: &mut PgConnection,
     management: &ManagedChannels,
@@ -277,7 +361,10 @@ pub(in crate::channel_http) async fn list(
         .begin(bearer(headers)?, Action::ChannelRead, ReadView::Snapshot)
         .await?;
     let (document, bindings) = snapshot(&mut tx, management).await?;
-    let stats = batch(&mut tx, &document.routing).await?;
+    let mut stats = batch(&mut tx, &document.routing).await?;
+    if document.routing.routing_reliability.is_some() {
+        routing_health(&mut tx, management, &document.routing, &mut stats).await?;
+    }
     let units: Vec<String> = stats
         .values()
         .filter_map(|s| s.observation.as_ref())

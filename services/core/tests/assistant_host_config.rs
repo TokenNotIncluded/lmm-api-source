@@ -54,6 +54,10 @@ fn gateway_endpoint_group(pool: &PgPool, endpoint: &str, group: &str) -> ModelGa
     let router = Arc::new(
         lmm_core::routing::Router::new(
             RoutingConfig {
+                channel_overrides: Default::default(),
+                global_model_policy: None,
+                channel_affinity: None,
+                routing_reliability: None,
                 version: 1,
                 groups: vec![ModelGroup {
                     name: group.into(),

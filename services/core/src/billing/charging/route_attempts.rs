@@ -55,7 +55,7 @@ impl Charging {
         actual_group: &str,
         wire_sha256: &str,
     ) -> Result<()> {
-        if !(1..=8).contains(&number) {
+        if !(1..=11).contains(&number) {
             return Err(Error::Invalid);
         }
         let detail = json!({"kind":"model_route_dispatch","number":number,
@@ -117,7 +117,7 @@ impl Charging {
         route_id: &str,
         failure: &crate::relay::AttemptFailure,
     ) -> Result<()> {
-        if !(1..=8).contains(&number)
+        if !(1..=11).contains(&number)
             || (failure.failure.delivery == crate::routing::DeliveryState::Rejected
                 && (failure.http_status.is_none() || failure.response_sha256.is_none()))
         {

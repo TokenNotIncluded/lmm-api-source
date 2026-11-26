@@ -48,6 +48,10 @@ fn routing(provider: &Provider, group: &str) -> Arc<Router> {
     Arc::new(
         Router::new(
             RoutingConfig {
+                channel_overrides: Default::default(),
+                global_model_policy: None,
+                channel_affinity: None,
+                routing_reliability: None,
                 version: 1,
                 groups: vec![ModelGroup {
                     name: group.into(),

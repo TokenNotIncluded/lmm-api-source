@@ -305,6 +305,16 @@ impl ModelGateway {
         &self,
         upstream: &crate::routing::UpstreamConfig,
     ) -> Result<ChannelProbe, RelayError> {
+        self.probe_channel_snapshot_health(upstream, &[], &mut false)
+            .await
+    }
+
+    pub(super) async fn probe_channel_snapshot_health(
+        &self,
+        upstream: &crate::routing::UpstreamConfig,
+        keywords: &[String],
+        keyword_match: &mut bool,
+    ) -> Result<ChannelProbe, RelayError> {
         let credential = self
             .bridge
             .credentials
@@ -363,7 +373,19 @@ impl ModelGateway {
                     .await
                     .map_err(|_| RelayError::RouteUnavailable)?;
                 if !response.status().is_success() {
-                    return Err(RelayError::RouteUnavailable);
+                    let status = response.status().as_u16();
+                    if !keywords.is_empty() {
+                        let mut limits = self.limits.clone();
+                        limits.output_bytes = limits.output_bytes.min(65_536);
+                        limits.upstream_bytes = limits.upstream_bytes.min(65_536);
+                        if let Ok(body) =
+                            native_http::read_response_bytes(&connection, response, &limits).await
+                        {
+                            *keyword_match =
+                                crate::routing::RoutingReliability::matches_error(keywords, &body);
+                        }
+                    }
+                    return Err(RelayError::UpstreamStatus(status));
                 }
                 let bytes =
                     native_http::read_response_bytes(&connection, response, &self.limits).await?;

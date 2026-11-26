@@ -495,10 +495,20 @@ impl Worker {
         }
         Ok(())
     }
+    fn sse_interval(&self) -> Option<Duration> {
+        if self.request.has_sse_policy {
+            self.request.sse_ping
+        } else {
+            (self.request.client == ClientProtocol::Anthropic)
+                .then_some(self.inner.limits.ping_interval)
+        }
+    }
     fn arm_anthropic_keepalive(&mut self) {
-        if self.request.stream && self.request.client == ClientProtocol::Anthropic {
+        if self.request.stream
+            && let Some(interval) = self.sse_interval()
+        {
             self.keepalive = Some(keepalive::KeepAlive::spawn(
-                self.inner.limits.ping_interval,
+                interval,
                 self.inner.limits.write_timeout,
                 self.inner.limits.chunk_bytes,
                 self.gate.cancel.clone(),
@@ -529,7 +539,8 @@ impl Worker {
         response: &mut reqwest::Response,
     ) -> Result<Option<Bytes>, RelayError> {
         let read_deadline = Instant::now() + self.inner.limits.read_timeout;
-        let mut next_ping = Instant::now() + self.inner.limits.ping_interval;
+        let interval = self.sse_interval().expect("called for configured SSE");
+        let mut next_ping = Instant::now() + interval;
         let chunk = response.chunk();
         tokio::pin!(chunk);
         loop {
@@ -563,7 +574,7 @@ impl Worker {
                 Wake::Chunk(result) => return result,
                 Wake::Ping => {
                     self.write(keepalive::FRAME).await?;
-                    next_ping = Instant::now() + self.inner.limits.ping_interval;
+                    next_ping = Instant::now() + interval;
                 }
             }
         }
@@ -725,6 +736,12 @@ impl Worker {
                     },
                 )
                 .body(body.clone());
+            let mut request = request;
+            if let Some(overrides) = &route.overrides {
+                for (name, value) in &overrides.headers {
+                    request = request.header(name.as_str(), value.as_str());
+                }
+            }
             let request = match route.protocol {
                 UpstreamProtocol::Chat | UpstreamProtocol::Responses => {
                     request.header(header::AUTHORIZATION, route.credential.clone())
@@ -769,14 +786,45 @@ impl Worker {
             }
         }
     }
+    async fn note_channel_health(
+        &self,
+        route: &Route,
+        reason: &'static str,
+        status: Option<u16>,
+        elapsed: std::time::Duration,
+    ) {
+        // Health metadata cannot cancel delivery of a valid paid response or
+        // prevent recording definitive rejection evidence for the charge.
+        if !matches!(
+            timeout(
+                self.inner.limits.hook_timeout,
+                self.inner
+                    .router
+                    .health_failure(route, reason, status, elapsed.as_millis() as u64)
+            )
+            .await,
+            Ok(Ok(()))
+        ) {
+            eprintln!("channel health observation unavailable");
+        }
+    }
+
     async fn observe_rejection(
         &mut self,
         route: &Route,
         response: &mut reqwest::Response,
-    ) -> Result<(), RelayError> {
+    ) -> Result<bool, RelayError> {
         let status = response.status().as_u16();
-        if !route.pre_acceptance_rejection_statuses.contains(&status) {
-            return Ok(());
+        let rejection_status = route.pre_acceptance_rejection_statuses.contains(&status);
+        let keywords = route
+            .model_attempt
+            .as_ref()
+            .and_then(|a| a.reliability())
+            .filter(|p| p.auto_disable)
+            .map(|p| p.disable_keywords.as_slice())
+            .unwrap_or_default();
+        if !rejection_status && keywords.is_empty() {
+            return Ok(false);
         }
         let limit = self.inner.limits.event_bytes.min(65_536);
         if response
@@ -787,7 +835,7 @@ impl Worker {
                 .get(header::CONTENT_ENCODING)
                 .is_some_and(|value| value.as_bytes() != b"identity")
         {
-            return Ok(());
+            return Ok(false);
         }
         let mut data = Vec::new();
         loop {
@@ -808,16 +856,17 @@ impl Worker {
                 .checked_add(chunk.len())
                 .is_none_or(|size| size > limit)
             {
-                return Ok(());
+                return Ok(false);
             }
             self.count_input(&chunk)?;
             data.extend_from_slice(&chunk);
         }
-        if rejection_envelope(route.protocol, &data) {
+        if rejection_status && rejection_envelope(route.protocol, &data) {
             self.report.delivery = crate::routing::DeliveryState::Rejected;
             self.report.rejection_receipt_sha256 = Some(Sha256::digest(&data).into());
         }
-        Ok(())
+        let matched = crate::routing::RoutingReliability::matches_error(keywords, &data);
+        Ok(matched)
     }
 
     async fn execute(&mut self) -> Result<(), RelayError> {
@@ -885,6 +934,8 @@ impl Worker {
                     self.inner.router.dispatching(&self.context, &route, &body),
                 )
                 .await?;
+            let started = std::time::Instant::now();
+            let mut keyword_match = false;
             let error = match self.open(&route, body.clone()).await {
                 Ok(mut response) => {
                     let status = response.status().as_u16();
@@ -894,17 +945,59 @@ impl Worker {
                             upstream_request_id(response.headers(), credential)
                         });
                     if status == 200 {
+                        if route
+                            .model_attempt
+                            .as_ref()
+                            .and_then(|a| a.reliability())
+                            .is_some_and(|p| p.auto_disable && p.too_slow(started.elapsed()))
+                        {
+                            self.note_channel_health(
+                                &route,
+                                "slow_response",
+                                Some(status),
+                                started.elapsed(),
+                            )
+                            .await;
+                        }
                         break response;
                     }
                     // A reviewed status plus a complete pure error envelope is
                     // positive rejection evidence. Status alone proves nothing.
                     match self.observe_rejection(&route, &mut response).await {
-                        Ok(()) => RelayError::UpstreamStatus(status),
+                        Ok(matched) => {
+                            keyword_match = matched;
+                            RelayError::UpstreamStatus(status)
+                        }
                         Err(error) => error,
                     }
                 }
                 Err(error) => error,
             };
+            if let Some(policy) = route
+                .model_attempt
+                .as_ref()
+                .and_then(|a| a.reliability())
+                .filter(|p| p.auto_disable)
+            {
+                let status = self.report.upstream_status;
+                let reason =
+                    if status.is_some_and(|code| policy.disable_status_codes.includes(code)) {
+                        Some("http_status")
+                    } else if keyword_match {
+                        Some("error_keyword")
+                    } else if status.is_some() && policy.too_slow(started.elapsed()) {
+                        Some("slow_response")
+                    } else {
+                        None
+                    };
+                if let Some(reason) = reason {
+                    self.note_channel_health(&route, reason, status, started.elapsed())
+                        .await;
+                }
+            }
+            // Freeze the downstream boundary before the asynchronous retry decision.
+            // A pending SSE timer must not commit headers while the next charge attempt is selected.
+            self.stop_keepalive().await?;
             if self.report.emitted_bytes > 0
                 || self
                     .head
@@ -948,6 +1041,14 @@ impl Worker {
                 )
                 .await?;
             let Some(next) = next else {
+                if let RelayError::UpstreamStatus(raw) = &error
+                    && let Some(mapped) = route
+                        .overrides
+                        .as_ref()
+                        .and_then(|o| o.status_codes.get(raw))
+                {
+                    return Err(RelayError::MappedUpstreamStatus(*mapped));
+                }
                 return Err(error);
             };
             if !matches!(next.count_plan, input_count::CountPlan::ContextMax) {
@@ -1015,7 +1116,7 @@ impl Worker {
             self.send_head()?;
             let mut parser = sse::Parser::new(self.inner.limits.event_bytes);
             'read: loop {
-                let next = if self.request.client == ClientProtocol::Anthropic {
+                let next = if self.sse_interval().is_some() {
                     self.next_anthropic_chunk(&mut response).await?
                 } else {
                     self.gate

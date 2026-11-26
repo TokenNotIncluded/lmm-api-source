@@ -346,6 +346,10 @@ async fn pricing_pg_empty_public_catalog_is_distinct_from_an_empty_account(pool:
     crate::core_schema::init(&pool).await.unwrap();
     let routing = crate::routing::Router::new(
         RoutingConfig {
+            channel_overrides: Default::default(),
+            global_model_policy: None,
+            channel_affinity: None,
+            routing_reliability: None,
             version: 1,
             groups: vec![],
             upstreams: vec![],

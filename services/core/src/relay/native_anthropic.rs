@@ -265,8 +265,18 @@ pub(crate) fn parse(body: &[u8], limits: &Limits) -> Result<Request, RelayError>
             "tools",
             "tool_choice",
             "stop_sequences",
+            "metadata",
         ],
     )?;
+    if let Some(metadata) = v.get("metadata") {
+        keys(metadata, &["user_id"])?;
+        if metadata
+            .get("user_id")
+            .is_some_and(|value| !value.is_null() && !value.is_string())
+        {
+            return Err(RelayError::Invalid("invalid Anthropic metadata user_id"));
+        }
+    }
     if let Some(s) = v.get("stop_sequences") {
         let sequences = s
             .as_array()
@@ -398,6 +408,7 @@ pub(crate) fn parse(body: &[u8], limits: &Limits) -> Result<Request, RelayError>
     }
     request.messages = messages;
     request.anthropic_cached_prompt = cached_prompt;
+    request.anthropic_metadata = v.get_mut("metadata").map(Value::take);
     Ok(request)
 }
 
@@ -1018,16 +1029,32 @@ mod tests {
     }
 
     #[test]
+    fn native_anthropic_preserves_validated_metadata_only_on_anthropic_wire() {
+        for metadata in [
+            json!({"user_id":"example-user"}),
+            json!({"user_id":null}),
+            json!({}),
+        ] {
+            let body = request(json!({"metadata":metadata}));
+            let parsed = parse(&body, &Limits::default()).unwrap();
+            let wire = parsed
+                .upstream_to(UpstreamProtocol::Anthropic, "claude")
+                .unwrap();
+            assert_eq!(wire["metadata"], metadata);
+            let wire = parsed.upstream_to(UpstreamProtocol::Chat, "chat").unwrap();
+            assert!(wire.get("metadata").is_none());
+        }
+    }
+
+    #[test]
     fn native_anthropic_rejects_nested_duplicates_and_unknown_fields() {
         let b=br#"{"model":"claude","max_tokens":10,"messages":[{"role":"user","content":"a","content":"b"}]}"#;
         assert!(parse(b, &Limits::default()).is_err());
-        assert!(
-            parse(
-                &request(json!({"metadata":{"user_id":"x"}})),
-                &Limits::default()
-            )
-            .is_err()
-        );
+        for metadata in [json!({"unknown":"x"}), json!({"user_id":42}), json!("x")] {
+            assert!(parse(&request(json!({"metadata":metadata})), &Limits::default()).is_err());
+        }
+        let duplicate = br#"{"model":"claude","max_tokens":10,"metadata":{"user_id":"first","user_id":"second"},"messages":[{"role":"user","content":"hi"}]}"#;
+        assert!(parse(duplicate, &Limits::default()).is_err());
         let b=br#"{"model":"claude","max_tokens":10,"messages":[{"role":"assistant","content":[{"type":"tool_use","id":"a","name":"f","input":{"q":1,"q":2}}]}]}"#;
         assert!(parse(b, &Limits::default()).is_err());
     }

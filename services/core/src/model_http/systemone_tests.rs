@@ -215,6 +215,10 @@ fn gateway_with_prices(
     prices: PriceSnapshot,
 ) -> ModelGateway {
     let routes = RoutingConfig {
+        channel_overrides: Default::default(),
+        global_model_policy: None,
+        channel_affinity: None,
+        routing_reliability: None,
         version: 1,
         groups: vec![ModelGroup {
             name: "allowed".into(),

@@ -34,6 +34,34 @@ const time = z.number().int().safe().nonnegative()
 export const channelStatisticsSchema = z
   .object({
     id: z.number().int().positive().safe(),
+    routing_health: z
+      .object({
+        state: z.enum([
+          'healthy',
+          'manually_disabled',
+          'auto_disabled',
+          'degraded',
+        ]),
+        available_key_count: time,
+        disabled_scope: z
+          .enum(['manual', 'channel', 'credential'])
+          .nullable()
+          .optional(),
+        probe_scope: z.literal('model_catalog').optional(),
+        reason: z
+          .enum([
+            'http_status',
+            'error_keyword',
+            'slow_response',
+            'probe_failure',
+          ])
+          .nullable(),
+        status_code: z.number().int().min(100).max(599).nullable(),
+        last_probe_at: time.nullable(),
+        latency_ms: time.nullable(),
+        next_probe_at: time.nullable(),
+      })
+      .optional(),
     lifetime: z
       .object({
         complete: z.boolean(),

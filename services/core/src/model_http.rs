@@ -8,8 +8,10 @@ pub(crate) mod assistant_gift;
 pub mod audio;
 mod billing;
 mod catalog;
+mod channel_health;
 pub(crate) mod channel_operations;
 pub(crate) use channel_operations::BalanceProbeInput;
+mod channel_affinity;
 mod checkpoints;
 mod credential_registry;
 mod honeypot;
@@ -112,6 +114,8 @@ struct Bridge {
     routing: Arc<crate::routing::Router>,
     credentials: credential_registry::CredentialRegistry,
     active: Mutex<BTreeMap<String, Operation>>,
+    channel_manager: std::sync::OnceLock<std::sync::Weak<crate::channel_http::ManagedChannels>>,
+    health_refresh: tokio::sync::Mutex<()>,
     recovery_cursor: tokio::sync::Mutex<Option<String>>,
     activation_recovery_cursor: tokio::sync::Mutex<Option<String>>,
     #[cfg(test)]
@@ -248,6 +252,8 @@ impl ModelGateway {
             routing,
             credentials: credential_registry::CredentialRegistry::new(credentials),
             active: Mutex::new(BTreeMap::new()),
+            channel_manager: std::sync::OnceLock::new(),
+            health_refresh: tokio::sync::Mutex::new(()),
             recovery_cursor: tokio::sync::Mutex::new(None),
             activation_recovery_cursor: tokio::sync::Mutex::new(None),
             #[cfg(test)]
@@ -665,6 +671,7 @@ impl ModelGateway {
             tx.commit()
                 .await
                 .map_err(|_| RelayError::BillingUnavailable)?;
+            self.bridge.refresh_route_health().await?;
             return Ok((ModelIdentity::OAuth(source), secret.to_owned(), groups));
         }
         let principal = self.identity.authorize(secret).await.map_err(|e| match e {
@@ -697,6 +704,7 @@ impl ModelGateway {
         if groups.is_empty() {
             return Err(RelayError::Forbidden);
         }
+        self.bridge.refresh_route_health().await?;
         Ok((ModelIdentity::Native(principal), secret.to_owned(), groups))
     }
 }
@@ -1020,7 +1028,7 @@ async fn dispatch(
     } else {
         relay::Request::parse_deferred_openai(client, &body, &gateway.limits)
     };
-    let request = match parsed {
+    let mut request = match parsed {
         Ok(v) => v,
         Err(e) => return native::error_response(client, e),
     };
@@ -1048,13 +1056,49 @@ async fn dispatch(
             RelayError::Unsupported("audio model cannot use text billing"),
         );
     }
-    let authorized = match gateway
+    let mut authorized = match gateway
         .authorize_model_plans(&principal, &secret, peer, plans)
         .await
     {
         Ok(authorized) => authorized,
         Err(error) => return native::error_response(client, error),
     };
+    if let Some(policy) = authorized[0].global_policy() {
+        request.has_sse_policy = true;
+        request.sse_ping = policy.config.ping_interval_enabled.then(|| {
+            std::time::Duration::from_secs(u64::from(policy.config.ping_interval_seconds))
+        });
+        if policy.config.pass_through_request_enabled {
+            request.original_http_body = Some(body.clone());
+        }
+    }
+    let path = match client {
+        ClientProtocol::Chat => "/v1/chat/completions".to_owned(),
+        ClientProtocol::Responses => "/v1/responses".to_owned(),
+        ClientProtocol::Anthropic => "/v1/messages".to_owned(),
+        ClientProtocol::Gemini => format!(
+            "/v1beta/models/{}:{}",
+            request.model,
+            if request.stream {
+                "streamGenerateContent"
+            } else {
+                "generateContent"
+            }
+        ),
+    };
+    if let Err(error) = channel_affinity::prepare(
+        &gateway.bridge,
+        &mut authorized,
+        &principal,
+        &headers,
+        &path,
+        &body,
+        Some(&request),
+    )
+    .await
+    {
+        return native::error_response(client, error);
+    }
     let initial = &authorized[0];
     let group = initial.group().to_owned();
     if request.stream && !gateway.local_streaming {

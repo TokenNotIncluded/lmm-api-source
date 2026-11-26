@@ -70,6 +70,10 @@ async fn fixture(pool: &PgPool) -> Fixture {
     // Recovery needs no configured supplier, credential or outgoing connection.
     let router = Router::new(
         RoutingConfig {
+            channel_overrides: Default::default(),
+            global_model_policy: None,
+            channel_affinity: None,
+            routing_reliability: None,
             version: 1,
             groups: vec![],
             upstreams: vec![],

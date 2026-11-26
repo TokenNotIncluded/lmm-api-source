@@ -255,6 +255,7 @@ registrations! {
         LEGACY_AFFILIATE_ALIASES => legacy_affiliate_aliases, "LEGACY_AFFILIATE_ALIASES_", |c,r| Box::pin(legacy_affiliate_aliases::grant_runtime(c, &r.roles.runtime)), owner_receipt, SuffixPolicy::DEFAULT;
         ASSISTANT_INVITATION_CONFIRMATION => assistant_invitation_confirmation, "ASSISTANT_INVITATION_CONFIRMATION_", no_grants, owner_receipt, SuffixPolicy::DEFAULT;
         ASSISTANT_WEEKLY_DISCOUNTS => assistant_weekly_discounts, "ASSISTANT_WEEKLY_DISCOUNTS_", |c,r| Box::pin(assistant_weekly_discounts::grant_runtime(c, &r.roles.runtime)), owner_receipt, SuffixPolicy::DEFAULT;
+        ROUTE_RUNTIME => route_runtime, "ROUTE_RUNTIME_", |c,r| Box::pin(route_runtime::grant_runtime(c, &r.roles.runtime)), owner_receipt, SuffixPolicy::DEFAULT;
         CHECKIN_CHALLENGES => checkin_challenges, "CHECKIN_CHALLENGES_", |c,r| Box::pin(checkin_challenges::grant_runtime(c, &r.roles.runtime)), owner_receipt, SuffixPolicy::DEFAULT;
         NETWORK_ACCESS => network_access, "NETWORK_ACCESS_", |c,r| Box::pin(network_access::grant_runtime(c, &r.roles.runtime)), owner_receipt, SuffixPolicy::DEFAULT;
         CONNECTION_HISTORY_IMPORT => connection_history_import, "CONNECTION_HISTORY_IMPORT_", no_grants, owner_receipt, SuffixPolicy::DEFAULT;
@@ -317,6 +318,7 @@ mod tests {
             "core-legacy-affiliate-aliases-v1",
             "core-assistant-invitation-confirmation-v1",
             "core-assistant-weekly-discounts-v1",
+            "core-route-runtime-v1",
         ]
         .into_iter()
         .collect();
@@ -391,6 +393,7 @@ mod tests {
                 assistant_weekly_discounts::PROCEDURE,
                 assistant_weekly_discounts::validate,
             ),
+            (route_runtime::PROCEDURE, route_runtime::validate),
             (
                 connection_history_import::PROCEDURE,
                 connection_history_import::validate,
@@ -477,6 +480,7 @@ mod tests {
                 "core-assistant-weekly-discounts-v1",
                 "ASSISTANT_WEEKLY_DISCOUNTS_",
             ),
+            ("core-route-runtime-v1", "ROUTE_RUNTIME_"),
             ("core-checkin-challenges-v1", "CHECKIN_CHALLENGES_"),
             ("core-network-access-v1", "NETWORK_ACCESS_"),
             (
@@ -610,6 +614,8 @@ mod tests {
                     "core-assistant-invitation-confirmation-v1" =>
                         assistant_invitation_confirmation::authorize_target
                             as fn() -> Result<(), UpgradeError>,
+                    "core-route-runtime-v1" =>
+                        route_runtime::authorize_target as fn() -> Result<(), UpgradeError>,
                     "core-assistant-weekly-discounts-v1" =>
                         assistant_weekly_discounts::authorize_target
                             as fn() -> Result<(), UpgradeError>,
@@ -707,6 +713,7 @@ mod tests {
             "core-assistant-confirmed-actions-v1",
             "core-legacy-affiliate-aliases-v1",
             "core-assistant-weekly-discounts-v1",
+            "core-route-runtime-v1",
         ];
         for entry in ENTRIES
             .iter()

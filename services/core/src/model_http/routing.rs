@@ -400,15 +400,26 @@ impl Bridge {
                     .missing_cache_creation_is_zero(&attempt);
             }
         }
+        let model_policy = attempt.model_policy.as_deref();
+        let passthrough = attempt.raw_http_model(protocol) == Some(request.model.as_str());
         if !attempt.is_available()
-            || !attempt
-                .payload_policy()
-                .adapts(protocol, attempt.protocol())
+            || (!passthrough
+                && !attempt
+                    .payload_policy()
+                    .adapts(protocol, attempt.protocol()))
             || u128::from(attempt.timeout_ms()) < self.total_timeout.as_millis()
         {
             return Err(RelayError::RouteUnavailable);
         }
         let upstream = match attempt.protocol() {
+            Protocol::OpenAiChat
+                if request.client == ClientProtocol::Chat
+                    && attempt.payload_policy() == crate::routing::PayloadPolicy::Adapt
+                    && model_policy
+                        .is_some_and(|p| p.upgrade_chat(attempt.upstream_id(), &request.model)) =>
+            {
+                UpstreamProtocol::Responses
+            }
             Protocol::OpenAiChat => UpstreamProtocol::Chat,
             Protocol::OpenAiResponses => UpstreamProtocol::Responses,
             Protocol::AnthropicMessages => UpstreamProtocol::Anthropic,
@@ -453,7 +464,7 @@ impl Bridge {
         )?;
         let route_id = attempt.route_key();
         let availability = attempt.clone();
-        let route = Route::new(
+        let mut route = Route::new(
             route_id.clone(),
             upstream,
             endpoint.as_str(),
@@ -466,6 +477,21 @@ impl Bridge {
         .with_payload_policy(attempt.payload_policy())
         .with_cache_creation_mode(price.tiered.as_ref().and_then(|t| t.cache_creation_mode))
         .with_availability_guard(Arc::new(move || availability.is_available()));
+        route.overrides = attempt.overrides.clone();
+        if passthrough {
+            request.passthrough_body(&route)?;
+        }
+        if !matches!(
+            route.count_plan,
+            crate::relay::input_count::CountPlan::ContextMax
+        ) && route
+            .overrides
+            .as_ref()
+            .is_some_and(|o| !o.parameters.is_empty())
+        {
+            return Err(RelayError::RouteUnavailable);
+        }
+        route.model_attempt = Some(attempt.clone());
         Ok((
             Selected {
                 attempt,
@@ -504,6 +530,16 @@ impl RouteProvider for Bridge {
     ) -> RelayFuture<'a, ()> {
         Box::pin(self.record_selected_dispatch(context, route, body))
     }
+    fn health_failure<'a>(
+        &'a self,
+        route: &'a Route,
+        reason: &'static str,
+        status: Option<u16>,
+        elapsed_ms: u64,
+    ) -> RelayFuture<'a, ()> {
+        Box::pin(self.disable_observed(route, reason, status, elapsed_ms))
+    }
+
     fn failed<'a>(
         &'a self,
         context: &'a RequestContext,

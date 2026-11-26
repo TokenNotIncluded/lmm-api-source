@@ -264,6 +264,16 @@ const COMPONENTS: &[(&str, &str)] = &[
         "assistant-weekly-discounts",
         include_str!("../schema/assistant_weekly_discounts.sql"),
     ),
+    (
+        "route-runtime",
+        concat!(
+            include_str!("../schema/route_affinity.sql"),
+            "\n",
+            include_str!("../schema/route_health.sql"),
+            "\n",
+            include_str!("../schema/route_runtime_receipt.sql")
+        ),
+    ),
 ];
 
 /// Verify the installed managed contract without installing or repairing it.

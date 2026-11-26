@@ -47,6 +47,14 @@ async fn prefix87(pool: &PgPool) {
 }
 
 async fn exact_upgrade(pool: PgPool, capabilities: u8) {
+    exact_upgrade_through_routing(pool, capabilities, None).await;
+}
+
+async fn exact_upgrade_through_routing(
+    pool: PgPool,
+    capabilities: u8,
+    model_runtime: Option<bool>,
+) {
     authorize_target().unwrap();
     let facts=sqlx::query("SELECT current_database()::text AS name,d.oid::bigint AS oid,current_setting('server_version_num')::bigint AS version,(SELECT system_identifier::text FROM pg_control_system()) AS system,session_user::text AS original FROM pg_database d WHERE datname=current_database()")
         .fetch_one(&pool).await.unwrap();
@@ -153,6 +161,12 @@ async fn exact_upgrade(pool: PgPool, capabilities: u8) {
     }
     sqlx::query("INSERT INTO core_payments.discount_codes(code,name,discount_percent,min_credit_units,max_uses,enabled,starts_at,ends_at,created_by) VALUES('PRIOR-WEEKLY-COUPON','Existing ordinary coupon',5,0,3,TRUE,1,253402300799,79002)")
         .execute(&installer).await.unwrap();
+    if model_runtime == Some(true) {
+        sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
+            "GRANT USAGE ON SCHEMA core_channels TO {runtime}; GRANT SELECT ON core_channels.identities TO {runtime}; GRANT UPDATE(result) ON core_channels.catalog_observations TO {runtime}",
+            runtime = quote(&request.roles.runtime)
+        ))).execute(&installer).await.unwrap();
+    }
     let mut c = installer.acquire().await.unwrap();
     let baseline = EngineBaseline::capture(&mut c).await;
     drop(c);
@@ -308,6 +322,18 @@ async fn exact_upgrade(pool: PgPool, capabilities: u8) {
             .await
             .unwrap();
     assert_eq!(receipts, 1);
+    if let Some(enabled) = model_runtime {
+        inspect.close().await.unwrap();
+        super::super::route_runtime::tests::upgrade_from_core88(url.as_str(), &request).await;
+        inspect = PgConnection::connect_with(&options).await.unwrap();
+        baseline.assert_preserved(&mut inspect).await;
+        super::super::route_runtime::tests::assert_runtime_acl(
+            &mut inspect,
+            &request.roles,
+            enabled,
+        )
+        .await;
+    }
     sqlx::raw_sql(sqlx::AssertSqlSafe(format!("REASSIGN OWNED BY {} TO {}; DROP OWNED BY {},{},{},{} CASCADE; ALTER DATABASE {} OWNER TO {}; DROP ROLE {},{},{},{};", quote(&request.roles.owner),quote(&original),quote(&request.roles.installer),quote(&request.roles.owner),quote(&request.roles.runtime),quote(&request.roles.extensions),quote(&request.database.name),quote(&original),quote(&request.roles.installer),quote(&request.roles.owner),quote(&request.roles.runtime),quote(&request.roles.extensions)))).execute(&mut inspect).await.unwrap();
     inspect.close().await.unwrap();
 }
@@ -344,4 +370,14 @@ async fn weekly88_upgrade_keeps_worker_without_browser_claim_authority(pool: PgP
 #[sqlx::test(migrations = false)]
 async fn weekly88_upgrade_preserves_all_enabled_capabilities_and_replays(pool: PgPool) {
     exact_upgrade(pool, READER | BROWSER | AGENT).await;
+}
+
+#[sqlx::test(migrations = false)]
+async fn route_runtime89_upgrade_preserves_enabled_model_runtime_and_replays(pool: PgPool) {
+    exact_upgrade_through_routing(pool, 0, Some(true)).await;
+}
+
+#[sqlx::test(migrations = false)]
+async fn route_runtime89_upgrade_preserves_disabled_model_runtime_and_replays(pool: PgPool) {
+    exact_upgrade_through_routing(pool, 0, Some(false)).await;
 }

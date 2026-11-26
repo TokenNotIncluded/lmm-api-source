@@ -146,7 +146,7 @@ pub struct UpstreamConfig {
 }
 
 impl UpstreamConfig {
-    pub(super) fn same_destination(&self, other: &Self) -> bool {
+    pub(crate) fn same_destination(&self, other: &Self) -> bool {
         self.id == other.id
             && self.endpoint == other.endpoint
             && self.protocol == other.protocol
@@ -257,6 +257,30 @@ pub struct RouteTarget {
 }
 
 impl RouteTarget {
+    /// Static eligibility for forwarding the original validated HTTP body. The
+    /// request encoder additionally checks output limits and stream receipts.
+    pub(crate) fn raw_http_model(
+        &self,
+        client: Protocol,
+        upstream: Protocol,
+        policy: Option<&super::model_policy::GlobalModelPolicy>,
+        overrides: Option<&super::model_policy::ChannelOverrides>,
+    ) -> Option<&str> {
+        (self.payload == PayloadPolicy::Passthrough
+            && policy.is_some_and(|p| p.pass_through_request_enabled)
+            && client == upstream
+            && matches!(
+                client,
+                Protocol::OpenAiChat
+                    | Protocol::OpenAiResponses
+                    | Protocol::AnthropicMessages
+                    | Protocol::Gemini
+            )
+            && self.allows_client(client)
+            && overrides.is_none_or(|o| o.parameters.is_empty()))
+        .then_some(self.upstream_model.as_str())
+    }
+
     pub(crate) fn allows_client(&self, protocol: Protocol) -> bool {
         self.client_protocols
             .as_ref()
@@ -318,6 +342,14 @@ pub struct ModelAlias {
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct RoutingConfig {
+    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub channel_overrides: std::collections::BTreeMap<u64, super::model_policy::ChannelOverrides>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub global_model_policy: Option<super::model_policy::GlobalModelPolicy>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub channel_affinity: Option<super::affinity::Config>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub routing_reliability: Option<super::RoutingReliability>,
     pub version: u64,
     pub groups: Vec<ModelGroup>,
     pub upstreams: Vec<UpstreamConfig>,

@@ -3229,6 +3229,14 @@ struct ModelUpstream {
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct ModelRouting {
+    #[serde(default)]
+    channel_overrides: BTreeMap<u64, crate::routing::model_policy::ChannelOverrides>,
+    #[serde(default)]
+    global_model_policy: Option<crate::routing::model_policy::GlobalModelPolicy>,
+    #[serde(default)]
+    channel_affinity: Option<crate::routing::affinity::Config>,
+    #[serde(default)]
+    routing_reliability: Option<crate::routing::RoutingReliability>,
     version: u64,
     groups: Vec<crate::routing::ModelGroup>,
     upstreams: Vec<ModelUpstream>,
@@ -3474,6 +3482,10 @@ fn model_gateway_with_origins(
         }
     }
     let routing = crate::routing::RoutingConfig {
+        channel_overrides: config.routing.channel_overrides,
+        global_model_policy: config.routing.global_model_policy,
+        channel_affinity: config.routing.channel_affinity,
+        routing_reliability: config.routing.routing_reliability,
         version: config.routing.version,
         groups: config.routing.groups,
         upstreams,

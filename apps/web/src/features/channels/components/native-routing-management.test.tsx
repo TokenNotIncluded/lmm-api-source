@@ -701,6 +701,12 @@ test('native batch routing submits selected channels once with only valid change
     required(form.querySelector('input[name=timeout_ms]')),
     '120000'
   )
+  const diff = required(
+    form.querySelector('section[aria-label="Preview changes"]')
+  )
+  assert.match(diff.textContent ?? '', /model-a/)
+  assert.match(diff.textContent ?? '', /30000 → 120000/)
+  assert.equal(writes.length, 0)
   assert.equal(button(form, 'Apply').disabled, false)
   await act(async () => {
     button(form, 'Apply').click()
@@ -4049,4 +4055,103 @@ test('read-only configuration leaves browsing available and disables new model, 
     dispose = undefined
     document.body.replaceChildren()
   }
+})
+
+test('channel override preview preserves other channels and prices and confirms the exact version', async () => {
+  const initial = fixture()
+  const otherChannel = {
+    headers: { 'x-client-version': 'other-channel-only' },
+    parameters: {},
+    status_codes: {},
+  }
+  let config = {
+    ...initial,
+    policy_sections: ['channel_overrides'],
+    routing: {
+      ...initial.routing,
+      upstreams: [
+        ...initial.routing.upstreams,
+        { ...initial.routing.upstreams[0], id: 9 },
+      ],
+      channel_overrides: { '9': otherChannel },
+    },
+  }
+  const changes: string[] = []
+  const path = '/core/v1/admin/routing/configuration'
+  api.request = (async (options: {
+    url: string
+    method: string
+    data?: {
+      expected_version: { routing: number; pricing: number }
+      routing: typeof config.routing
+      prices: typeof config.prices
+      confirmation_digest?: string
+    }
+  }) => {
+    if (options.method === 'GET') {
+      return { data: { success: true, data: config } }
+    }
+    const body = required(options.data)
+    changes.push(options.method)
+    assert.deepEqual(body.expected_version, initial.version)
+    assert.deepEqual(body.prices, initial.prices)
+    assert.deepEqual(body.routing.routes, initial.routing.routes)
+    assert.deepEqual(body.routing.channel_overrides[9], otherChannel)
+    assert.equal('global_model_policy' in body.routing, false)
+    const selected = body.routing.channel_overrides as Record<
+      string,
+      { parameters: Record<string, unknown> }
+    >
+    assert.equal(String(selected['1'].parameters.top_p), '0.85')
+    const digest = 'a'.repeat(64)
+    if (options.url === `${path}/preview`) {
+      return {
+        data: {
+          success: true,
+          data: {
+            saved: false,
+            routing: body.routing,
+            expected_version: initial.version,
+            confirmation_digest: digest,
+          },
+        },
+      }
+    }
+    assert.equal(options.url, path)
+    assert.equal(body.confirmation_digest, digest)
+    config = {
+      ...config,
+      routing: body.routing,
+      version: { routing: 2, pricing: 1 },
+    }
+    return { data: { success: true, data: { version: config.version } } }
+  }) as typeof api.request
+  const container = await mount('channels')
+  await until(
+    () => container.textContent?.includes('Advanced Settings') === true
+  )
+  await act(async () => button(container, 'Advanced Settings').click())
+  await until(() => !!document.querySelector('textarea[id$="-Parameters"]'))
+  const params = required(
+    document.querySelector<HTMLTextAreaElement>('textarea[id$="-Parameters"]')
+  )
+  const set = required(
+    Object.getOwnPropertyDescriptor(dom.HTMLTextAreaElement.prototype, 'value')
+      ?.set
+  )
+  await act(async () => {
+    set.call(params, '{"top_p":0.85}')
+    params.dispatchEvent(
+      new dom.Event('input', { bubbles: true }) as unknown as Event
+    )
+  })
+  await act(async () => button(document.body, 'Preview changes').click())
+  await until(
+    () => !!document.body.textContent?.includes('Configuration preview')
+  )
+  assert.deepEqual(changes, ['POST'])
+  assert.ok(!document.body.textContent?.includes('other-channel-only'))
+  await act(async () => button(document.body, 'Confirm').click())
+  await until(() => changes.includes('PUT'))
+  assert.deepEqual(changes, ['POST', 'PUT'])
 })
