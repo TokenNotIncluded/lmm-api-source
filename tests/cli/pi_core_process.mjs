@@ -113,7 +113,7 @@ try {
  await loginPage.getByRole('button',{name:'Sign in to isolated Core'}).click();await loginPage.getByRole('heading',{name:'Signed in to isolated Core'}).waitFor();
  stage='browser-consent';
  await authPage.getByRole('button',{name:'Continue after sign in'}).click();
- await authPage.locator('input[name=budget_credits]').fill('200');
+ assert.equal(await authPage.locator('input[type=hidden][name=budget_credits]').inputValue(),'200');
  const consentText=await authPage.locator('body').innerText();assert.ok(consentText.includes('Allow model calls and usage'));assert.ok(consentText.includes(config.username));
  await authPage.screenshot({path:join(root,'real-core-consent.png')});
  record('browser-consent-page',{origin:config.issuer,text:consentText,budget_credits:200,real_core_product_html:true});

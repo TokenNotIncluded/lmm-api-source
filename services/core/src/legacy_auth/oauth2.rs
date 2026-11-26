@@ -254,26 +254,26 @@ fn page(page: ConsentPage, config: &LegacyAuthConfig, preference: Option<usize>)
     };
     body.push_str(&format!(r#"<form method=post action="{action}" id=authorization><input type=hidden name=csrf value="{}">"#,escape(&page.csrf)));
     if let Some(maximum) = page.maximum_budget_credits.filter(|_| signed_in) {
-        // Ten US cents, or the issuer's smaller lifetime cap. The posted number
-        // stays editable and the issuer validates it again at explicit consent.
-        let suggested = maximum.min(50_000);
-        body.push_str(&format!(r#"<label for=budget>{}</label><input id=budget type=number name=budget_credits list=budget-presets min=1 max={maximum} value={suggested} step=1 aria-describedby=budget-note required><p class=budget-note id=budget-note>{}</p>"#, localized(&copy::BUDGET), localized(&copy::BUDGET_HELP)));
-    }
-    if let Some(maximum) = page.maximum_budget_credits.filter(|_| signed_in) {
-        body.push_str("<datalist id=budget-presets>");
-        for (credits, usd) in [
-            (50_000, "$0.10"),
-            (250_000, "$0.50"),
-            (500_000, "$1.00"),
-            (1_000_000, "$2.00"),
-        ] {
-            if credits <= maximum {
-                body.push_str(&format!(
-                    r#"<option value="{credits}" label="{usd} USD"></option>"#
-                ));
+        if page.client_id == "lmm-pi" {
+            body.push_str(&format!(r#"<input type=hidden name=budget_credits value={maximum}><p class=budget-note>{}: {maximum}. {}</p>"#, localized(&copy::BUDGET), localized(&copy::BUDGET_HELP)));
+        } else {
+            let suggested = maximum.min(50_000);
+            body.push_str(&format!(r#"<label for=budget>{}</label><input id=budget type=number name=budget_credits list=budget-presets min=1 max={maximum} value={suggested} step=1 aria-describedby=budget-note required><p class=budget-note id=budget-note>{}</p>"#, localized(&copy::BUDGET), localized(&copy::BUDGET_HELP)));
+            body.push_str("<datalist id=budget-presets>");
+            for (credits, usd) in [
+                (50_000, "$0.10"),
+                (250_000, "$0.50"),
+                (500_000, "$1.00"),
+                (1_000_000, "$2.00"),
+            ] {
+                if credits <= maximum {
+                    body.push_str(&format!(
+                        r#"<option value="{credits}" label="{usd} USD"></option>"#
+                    ));
+                }
             }
+            body.push_str("</datalist>");
         }
-        body.push_str("</datalist>");
     }
     body.push_str("<div class=actions>");
     if signed_in {
@@ -610,7 +610,10 @@ mod tests {
                     };
                     assert!(html.contains(&format!("<dd>{name}</dd>")));
                     assert!(html.contains("name=ui_locale form=authorization"));
-                    if signed_in && client != "lmm" {
+                    if signed_in && client == "lmm-pi" {
+                        assert!(html.contains("type=hidden name=budget_credits value=100"));
+                        assert!(!html.contains("id=budget"));
+                    } else if signed_in && client != "lmm" {
                         assert!(html.contains("min=1 max=100 value=100"));
                     }
                     assert!(!html.contains(&request.redirect_uri));
