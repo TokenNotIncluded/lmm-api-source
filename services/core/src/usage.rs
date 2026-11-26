@@ -831,6 +831,9 @@ impl UsageStore {
             tx.commit().await?;
             return Ok(ReadOutput::Csv(csv.finish()?));
         }
+        if administrator {
+            log_details::attach_channel_names(&mut tx, &mut items).await?;
+        }
         let result = match projection {
             Projection::Logs | Projection::AdministratorLogs => {
                 json!({"items":items,"total":total,"page":f.page,"page_size":f.size})

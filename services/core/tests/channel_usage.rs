@@ -403,6 +403,11 @@ async fn actual_fallback_refund_and_subscription_are_one_logical_charge(pool: Pg
         assert_eq!(attempts[0]["error_kind"], "connect");
         assert_eq!(attempts[0]["delivery"], "not_sent");
         assert_eq!(attempts[1]["channel_id"], 2);
+        assert_eq!(attempts[1]["upstream_model"], "provider-model");
+        assert_eq!(attempts[1]["protocol"], "chat");
+        let other: Value = serde_json::from_str(item["other"].as_str().unwrap()).unwrap();
+        assert_eq!(other["is_model_mapped"], true);
+        assert_eq!(other["upstream_model_name"], "provider-model");
         assert!(attempts[1]["error_kind"].is_null());
         for attempt in attempts {
             assert!(attempt.get("wire_sha256").is_none());

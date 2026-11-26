@@ -811,3 +811,24 @@ test('catalog metadata preserves per-group original ids, unknown context and eff
   assert.equal(model.catalog_metadata?.premium.original_id, undefined)
   assert.equal(formatPrice(model, 'input', 'M', 'USD', 'standard'), '2 USD')
 })
+
+test('pricing defaults fill the vendor directory from published model IDs', () => {
+  const input = fixture()
+  const base = input.models[0]
+  input.models = [
+    { ...base, model: 'claude-haiku-4-5-20251001' },
+    { ...base, model: 'google/gemma-4-31b-it:free' },
+    { ...base, model: 'recursive/flint-v1.0:free' },
+  ]
+  const pricing = adaptNativePricing(nativePricingSchema.parse(input))
+  const names = new Map(pricing.vendors.map(({ id, name }) => [id, name]))
+  assert.deepEqual(
+    pricing.data.map((model) => [names.get(model.vendor_id ?? 0), model.icon]),
+    [
+      ['Anthropic', 'Claude.Color'],
+      ['Google', 'Gemini.Color'],
+      ['Recursive', undefined],
+    ]
+  )
+  assert.equal(pricing.performance_available, false)
+})

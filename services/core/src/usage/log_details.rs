@@ -11,6 +11,7 @@ pub(super) struct LogDetails {
     pub(super) username: Option<String>,
     pub(super) channel: Option<i64>,
     pub(super) attempts: Vec<Value>,
+    upstream_model: Option<String>,
     pub(super) credential_selection: Option<contract::CredentialSelection>,
 }
 
@@ -61,6 +62,14 @@ impl LogDetails {
             item["channel"] = json!(self.channel);
             item["channel_name"] = Value::Null;
             item["route_attempts"] = json!(self.attempts);
+            if let Some(model) = self
+                .upstream_model
+                .as_ref()
+                .filter(|model| *model != &request.price.model)
+            {
+                other["is_model_mapped"] = json!(true);
+                other["upstream_model_name"] = json!(model);
+            }
             other["admin_info"] = json!({
                 "route_attempts":self.attempts,
                 "key_snapshot_status":if self.credential_selection.is_some() {"recorded"} else {"unknown"},
@@ -71,6 +80,40 @@ impl LogDetails {
         item["other"] = json!(other.to_string());
         item
     }
+}
+
+/// Current labels are presentation metadata. Channel attribution has already
+/// been verified against the immutable request and stays valid without a label.
+pub(super) async fn attach_channel_names(
+    connection: &mut PgConnection,
+    items: &mut [Value],
+) -> Result<(), Error> {
+    if !items.iter().any(|item| item["channel"].is_i64()) {
+        return Ok(());
+    }
+    let available: Option<bool> = sqlx::query_scalar(
+        "SELECT has_function_privilege(to_regprocedure('public.routing_control_read()'),'EXECUTE')
+            AND has_function_privilege(to_regprocedure('public.routing_control_bindings(bigint)'),'EXECUTE')",
+    )
+    .fetch_one(&mut *connection)
+    .await?;
+    if available != Some(true) {
+        return Ok(());
+    }
+    let names: Option<Value> = sqlx::query_scalar(
+        "SELECT public.routing_control_bindings((public.routing_control_read()->'routing'->>'version')::bigint)->'names'",
+    )
+    .fetch_one(connection)
+    .await?;
+    let Some(names) = names else { return Ok(()) };
+    for item in items {
+        if let Some(id) = item["channel"].as_i64()
+            && let Some(name) = names.get(id.to_string()).and_then(Value::as_str)
+        {
+            item["channel_name"] = json!(name);
+        }
+    }
+    Ok(())
 }
 
 pub(super) async fn load(
@@ -148,6 +191,7 @@ pub(super) async fn load(
             } else if let Some(proof) = &proof {
                 let binding = channel_projection::final_binding(proof, &events);
                 details.channel = binding.map(|binding| binding.upstream_id as i64);
+                details.upstream_model = binding.map(|binding| binding.model_snapshot.clone());
                 details.credential_selection =
                     binding.and_then(|binding| binding.credential_selection);
                 let failures: BTreeMap<_, _> = events
@@ -185,6 +229,7 @@ pub(super) async fn load(
                     let failure = failures.get(&number);
                     details.attempts.push(json!({
                         "attempt":number,"channel_id":channel,"route_id":route,
+                        "upstream_model":binding.model_snapshot,"protocol":binding.protocol,
                         "key_snapshot_status":if binding.credential_selection.is_some() {"recorded"} else {"unknown"},
                         "is_multi_key":binding.credential_selection.map(|selection| selection.is_multi_key),
                         "multi_key_index":binding.credential_selection.map(|selection| selection.multi_key_index),

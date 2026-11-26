@@ -1,6 +1,13 @@
 /* Copyright (C) 2026 LIghtJUNction. AGPL-3.0-or-later. */
+import { resolveModelProvider } from '@/lib/model-provider'
+
 import type { NativePricingDocument } from './catalog-contract'
-import type { PricingData, PricingGroupPrices, PricingModel } from './types'
+import type {
+  PricingData,
+  PricingGroupPrices,
+  PricingModel,
+  PricingVendor,
+} from './types'
 
 const endpoints: Record<
   string,
@@ -97,6 +104,7 @@ export function adaptNativePricing(
     grouped.set(row.model, rows)
   }
   const models: PricingModel[] = []
+  const vendors = new Map<string, PricingVendor>()
   const endpointMap: PricingData['supported_endpoint'] = {}
   for (const [name, rows] of grouped) {
     const tokenRows = rows.filter(
@@ -121,11 +129,37 @@ export function adaptNativePricing(
         }
       }
     }
+    // Prefer the published model family. A custom alias can use a vendor
+    // inferred from its upstream IDs only when every visible group agrees.
+    let provider = resolveModelProvider(name)
+    if (!provider) {
+      const upstreamProviders = rows.map((row) =>
+        row.upstream_model ? resolveModelProvider(row.upstream_model) : null
+      )
+      const first = upstreamProviders[0]
+      if (
+        first &&
+        upstreamProviders.every((item) => item?.label === first.label)
+      ) {
+        provider = first
+      }
+    }
+    let vendor = provider ? vendors.get(provider.label) : undefined
+    if (provider && !vendor) {
+      vendor = {
+        id: vendors.size + 1,
+        name: provider.label,
+        icon: provider.icon,
+      }
+      vendors.set(provider.label, vendor)
+    }
     models.push({
       pricing_context: pricingContext,
       id: models.length + 1,
       key: name,
       model_name: name,
+      vendor_id: vendor?.id,
+      icon: vendor?.icon,
       catalog_metadata: Object.fromEntries(
         rows.map((row) => [
           row.group,
@@ -221,7 +255,9 @@ export function adaptNativePricing(
     pricing_currency: 'USD',
     credits_per_usd: document.credits_per_usd,
     data: models,
-    vendors: [],
+    vendors: [...vendors.values()].sort((left, right) =>
+      left.name.localeCompare(right.name)
+    ),
     group_ratio: Object.fromEntries(document.groups.map((group) => [group, 1])),
     usable_group: Object.fromEntries(
       document.groups.map((group) => [group, { desc: group, ratio: 1 }])

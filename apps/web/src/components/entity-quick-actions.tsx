@@ -1,6 +1,7 @@
 /* Copyright (C) 2026 LIghtJUNction. SPDX-License-Identifier: AGPL-3.0-or-later */
 import { Link } from '@tanstack/react-router'
 import { ChevronDown, Copy, ListFilter } from 'lucide-react'
+import type { ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 
@@ -22,12 +23,14 @@ export function EntityQuickActions({
   label = value,
   hidden = false,
   onDetails,
+  leading,
 }: {
   kind: EntityKind
   value: string
   label?: string
   hidden?: boolean
   onDetails?: () => void
+  leading?: ReactNode
 }) {
   const { t } = useTranslation()
   const isAdmin = useAuthStore(
@@ -45,6 +48,7 @@ export function EntityQuickActions({
           />
         }
       >
+        {leading}
         <span className='truncate'>{label}</span>
         <ChevronDown
           className='size-3 shrink-0 opacity-60'

@@ -6,6 +6,7 @@ import { useTranslation } from 'react-i18next'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Input } from '@/components/ui/input'
+import { Switch } from '@/components/ui/switch'
 
 import {
   newNativeContext,
@@ -18,6 +19,13 @@ import type { NativeConfiguration } from '../native-api'
 import { NativeTargetTimeoutField } from './native-target-timeout-field'
 
 const fieldClass = 'block min-w-0 space-y-2 text-sm'
+const passthroughFields = [
+  'service_tier',
+  'inference_geo',
+  'speed',
+  'safety_identifier',
+  'include_obfuscation',
+] as const
 
 function IntegerField({
   label,
@@ -88,6 +96,8 @@ export function NativeChannelModelsFields({
   const draft = readChannelDraft(document)
   if (!draft) return null
   const current = draft
+  const openAi =
+    draft.protocol === 'openai_chat' || draft.protocol === 'openai_responses'
   const put = (next: NativeChannelDraft) =>
     onChange(JSON.stringify(next, null, 2))
   const available = configuration.routing.routes.filter(
@@ -174,6 +184,24 @@ export function NativeChannelModelsFields({
         const route = configuration.routing.routes.find(
           (item) => item.id === attachment.route_id
         )
+        const policy = attachment.payload
+        const flags =
+          typeof policy === 'object' &&
+          policy.legacy_openai &&
+          typeof policy.legacy_openai === 'object'
+            ? (policy.legacy_openai as Record<string, unknown>)
+            : undefined
+        const policyValue = flags
+          ? 'legacy_openai'
+          : typeof policy === 'string'
+            ? policy
+            : ''
+        const policies = [
+          'adapt',
+          'passthrough',
+          ...(openAi || flags ? ['legacy_openai'] : []),
+        ]
+        const metadata = configuration.bindings.models[attachment.route_id]
         const context = draft.contexts.find(
           (item) => item.upstream_model === attachment.upstream_model
         )
@@ -204,7 +232,9 @@ export function NativeChannelModelsFields({
             <summary className='flex min-h-16 min-w-0 cursor-pointer list-none items-center justify-between gap-3 py-4 focus-visible:outline-2 focus-visible:outline-offset-4 [&::-webkit-details-marker]:hidden'>
               <span className='min-w-0 space-y-1'>
                 <span className='block font-mono text-sm font-medium [overflow-wrap:anywhere]'>
-                  {route?.model ?? attachment.upstream_model}
+                  {metadata?.display_name ||
+                    route?.model ||
+                    attachment.upstream_model}
                 </span>
                 <span className='text-muted-foreground flex flex-wrap gap-x-4 gap-y-1 text-xs'>
                   {route && (
@@ -379,6 +409,89 @@ export function NativeChannelModelsFields({
                     />
                   </label>
                 </div>
+              </details>
+              <details>
+                <summary className='cursor-pointer py-2 text-sm font-medium'>
+                  {t('Request forwarding')}
+                </summary>
+                <label className={fieldClass}>
+                  <span>{t('Request forwarding')}</span>
+                  <select
+                    className='bg-muted/65 min-h-11 w-full rounded-lg px-3 text-sm'
+                    value={policyValue}
+                    disabled={disabled}
+                    onChange={(event) => {
+                      const value = event.target.value
+                      put(
+                        updateChannelAttachment(draft, attachment.route_id, {
+                          payload:
+                            value === 'legacy_openai'
+                              ? { legacy_openai: {} }
+                              : value,
+                        })
+                      )
+                    }}
+                  >
+                    {!policies.includes(policyValue) && (
+                      <option value={policyValue}>
+                        {policyValue || t('Custom')}
+                      </option>
+                    )}
+                    <option value='adapt'>
+                      {t('Adapt protocol and model')}
+                    </option>
+                    <option value='passthrough'>
+                      {t('Forward the request body unchanged')}
+                    </option>
+                    {(openAi || flags) && (
+                      <option value='legacy_openai'>
+                        {t('Filter OpenAI request fields')}
+                      </option>
+                    )}
+                  </select>
+                </label>
+                {flags && (
+                  <fieldset className='mt-3 space-y-2'>
+                    <legend className='text-muted-foreground text-sm'>
+                      {t('Fields allowed upstream')}
+                    </legend>
+                    {passthroughFields.map((field) => {
+                      const key = `allow_${field}`
+                      return (
+                        <label
+                          key={field}
+                          className='flex min-h-10 items-center justify-between gap-4 border-b text-sm'
+                        >
+                          <code>
+                            {field === 'include_obfuscation'
+                              ? 'include'
+                              : field}
+                          </code>
+                          <Switch
+                            checked={flags[key] === true}
+                            disabled={disabled}
+                            onCheckedChange={(checked) =>
+                              put(
+                                updateChannelAttachment(
+                                  draft,
+                                  attachment.route_id,
+                                  {
+                                    payload: {
+                                      legacy_openai: {
+                                        ...flags,
+                                        [key]: checked,
+                                      },
+                                    },
+                                  }
+                                )
+                              )
+                            }
+                          />
+                        </label>
+                      )
+                    })}
+                  </fieldset>
+                )}
               </details>
             </fieldset>
           </details>

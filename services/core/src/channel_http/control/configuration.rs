@@ -29,6 +29,10 @@ pub(in crate::channel_http) struct Bindings {
     pub key_pools: BTreeMap<u64, KeyPool>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub tags: BTreeMap<u64, String>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub channel_providers: BTreeMap<u64, String>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub channel_notes: BTreeMap<u64, String>,
     #[serde(default)]
     pub contexts: Vec<ExternalModelContext>,
     #[serde(default)]
@@ -68,6 +72,20 @@ impl Bindings {
             .collect::<BTreeSet<_>>();
         for (id, tag) in &self.tags {
             if !valid_label(tag) || !upstream_ids.contains(id) {
+                return Err(ManagementError::Invalid);
+            }
+        }
+        for (id, note) in &self.channel_notes {
+            if !upstream_ids.contains(id) || !valid_note(note) {
+                return Err(ManagementError::Invalid);
+            }
+        }
+        for (id, provider) in &self.channel_providers {
+            if !upstream_ids.contains(id)
+                || !super::provider_presets::PROVIDERS
+                    .iter()
+                    .any(|preset| preset.id == provider)
+            {
                 return Err(ManagementError::Invalid);
             }
         }
@@ -137,6 +155,13 @@ impl Bindings {
 }
 pub(super) fn valid_label(name: &str) -> bool {
     !name.trim().is_empty() && name.len() <= 128 && !name.chars().any(char::is_control)
+}
+
+fn valid_note(note: &str) -> bool {
+    note.len() <= 4096
+        && !note
+            .chars()
+            .any(|c| c.is_control() && c != '\n' && c != '\t')
 }
 
 #[derive(Deserialize, Serialize)]
@@ -216,7 +241,7 @@ pub(in crate::channel_http) async fn read(
         .as_ref()
         .map(|gateway| json!({ "total_timeout_ms": gateway.channel_total_timeout_ms() }));
     Ok(Json(
-        json!({"success":true,"data":{"version":Version::of(&document),"routing":document.routing,"prices":document.pricing,"bindings":bindings,"policy_sections":["routing_reliability","channel_affinity","global_model_policy","channel_overrides"],"channel_id_high_water":channel_id_high_water,"model_limits":model_limits,"secret_storage_enabled":management.gateway.as_ref().and_then(|g|g.channel_secret_key()).is_some()}}),
+        json!({"success":true,"data":{"version":Version::of(&document),"routing":document.routing,"prices":document.pricing,"bindings":bindings,"provider_presets":super::provider_presets::PROVIDERS,"policy_sections":["routing_reliability","channel_affinity","global_model_policy","channel_overrides"],"channel_id_high_water":channel_id_high_water,"model_limits":model_limits,"secret_storage_enabled":management.gateway.as_ref().and_then(|g|g.channel_secret_key()).is_some()}}),
     ))
 }
 pub(in crate::channel_http) async fn preview(
@@ -546,6 +571,10 @@ pub(in crate::channel_http) struct ChannelInput {
     name: String,
     #[serde(default)]
     tag: Option<String>,
+    #[serde(default)]
+    provider: Option<String>,
+    #[serde(default)]
+    note: Option<String>,
     endpoint: Endpoint,
     protocol: Protocol,
     enabled: bool,
@@ -599,6 +628,25 @@ fn edit_document(
             bindings.tags.insert(input.id, tag.clone());
         }
     }
+    if let Some(note) = &input.note {
+        if !valid_note(note) {
+            return Err(ManagementError::Invalid);
+        }
+        if note.trim().is_empty() {
+            bindings.channel_notes.remove(&input.id);
+        } else {
+            bindings.channel_notes.insert(input.id, note.clone());
+        }
+    }
+    if let Some(provider) = &input.provider {
+        if provider.is_empty() {
+            bindings.channel_providers.remove(&input.id);
+        } else {
+            bindings
+                .channel_providers
+                .insert(input.id, provider.clone());
+        }
+    }
     bindings
         .contexts
         .retain(|context| context.upstream_id != input.id);
@@ -609,6 +657,9 @@ fn edit_document(
         .iter_mut()
         .find(|u| u.id == input.id)
     {
+        if upstream.endpoint != input.endpoint || upstream.protocol != input.protocol {
+            bindings.discoveries.remove(&input.id);
+        }
         upstream.endpoint = input.endpoint.clone();
         upstream.protocol = input.protocol;
         upstream.enabled = input.enabled;

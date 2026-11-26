@@ -25,6 +25,7 @@ import { z } from 'zod'
 // Usage log schema
 export const usageLogSchema = z.object({
   id: z.number(),
+  source_log_id: z.number().int().safe().optional(),
   user_id: z.number(),
   created_at: z.number(),
   type: z.number(),
@@ -63,12 +64,15 @@ export const usageLogSchema = z.object({
   first_token_ms: z.number().finite().nonnegative().nullish(),
   diagnostics_available: z.boolean().optional(),
   status_code: z.number().int().min(100).max(599).nullish(),
+  provider_http_status: z.number().int().min(100).max(599).nullish(),
   route_attempts: z
     .array(
       z.object({
         attempt: z.number().int().nonnegative(),
         channel_id: z.number().int().safe().nonnegative(),
         route_id: z.string(),
+        upstream_model: z.string().optional(),
+        protocol: z.string().optional(),
         status_code: z.number().int().nullable(),
         error_kind: z.string().nullable(),
         delivery: z.string().nullable(),

@@ -62,12 +62,24 @@ export type NativeModelMetadata = {
   display_name: string
   description: string
   vendor_id: number | null
+  tags?: string[]
 }
 export type NativePrices = {
   version: number
   rules: Array<Record<string, unknown>>
 }
+const providerPresetSchema = z.object({
+  id: z.string(),
+  label: z.string(),
+  icon: z.string(),
+  protocol: z.string(),
+  endpoint: z.string(),
+})
+
+export type NativeProviderPreset = z.infer<typeof providerPresetSchema>
+
 export type NativeConfiguration = {
+  provider_presets?: NativeProviderPreset[]
   version: NativeVersion
   channel_id_high_water?: number
   policy_sections?: string[]
@@ -89,6 +101,8 @@ export type NativeConfiguration = {
     >
     names: Record<string, string>
     tags?: Record<string, string>
+    channel_providers?: Record<string, string>
+    channel_notes?: Record<string, string>
     contexts: NativeContext[]
     vendors: Record<string, NativeVendor>
     models: Record<string, NativeModelMetadata>
@@ -502,6 +516,7 @@ export async function saveNativeLegacyBalance(
 }
 
 const configurationSchema = z.object({
+  provider_presets: z.array(providerPresetSchema).optional(),
   version: versionSchema,
   policy_sections: z.array(z.string()).optional(),
   channel_id_high_water: z.number().int().nonnegative().safe().optional(),
@@ -573,6 +588,8 @@ const configurationSchema = z.object({
       .default({}),
     names: z.record(z.string(), z.string()),
     tags: z.record(z.string(), z.string()).optional(),
+    channel_providers: z.record(z.string(), z.string()).optional(),
+    channel_notes: z.record(z.string(), z.string()).optional(),
     contexts: z.array(
       z
         .object({
@@ -594,6 +611,7 @@ const configurationSchema = z.object({
       z.string(),
       z.object({
         display_name: z.string(),
+        tags: z.array(z.string()).optional(),
         description: z.string(),
         vendor_id: z.number().nullable(),
       })

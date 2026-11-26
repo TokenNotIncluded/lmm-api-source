@@ -6,6 +6,13 @@ import { useTranslation } from 'react-i18next'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Input } from '@/components/ui/input'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import { getServerErrorMessage } from '@/lib/server-error-message'
 
 import {
@@ -19,6 +26,10 @@ import {
   type NativeConfiguration,
 } from '../native-api'
 import { NativeChannelModelsFields } from './native-channel-models-fields'
+import {
+  NativeProviderLogo,
+  resolveNativeProvider,
+} from './native-provider-logo'
 
 export function NativeChannelTagField({
   document,
@@ -147,7 +158,29 @@ export function NativeChannelFields({
         [key]: value,
       }))
     }
-    onChange(JSON.stringify(next, null, 2))
+    onChange(stringifyNativeDocument(next, 2))
+  }
+  const presets = configuration.provider_presets ?? []
+  const provider = resolveNativeProvider(
+    configuration,
+    draft.provider,
+    draft.protocol,
+    draft.endpoint
+  )
+  function selectProvider(id: string | null) {
+    const preset = presets.find((item) => item.id === id)
+    if (!preset) return
+    const next = { ...draft, provider: preset.id }
+    if (
+      !configuration.routing.upstreams.some((item) => item.id === draft.id) &&
+      preset.id !== 'custom'
+    ) {
+      Object.assign(next, {
+        protocol: preset.protocol,
+        endpoint: preset.endpoint,
+      })
+    }
+    onChange(stringifyNativeDocument(next, 2))
   }
   return (
     <div className='min-w-0 space-y-4'>
@@ -191,6 +224,51 @@ export function NativeChannelFields({
           />
         </label>
         {credential}
+        {presets.length > 0 && (
+          <>
+            <div className='space-y-2'>
+              <span className='text-sm font-medium'>{t('Provider')}</span>
+              <Select
+                value={provider?.id ?? 'custom'}
+                disabled={disabled}
+                onValueChange={selectProvider}
+              >
+                <SelectTrigger
+                  aria-label={t('Provider')}
+                  className='min-h-11 w-full'
+                >
+                  <SelectValue>
+                    <NativeProviderLogo icon={provider?.icon} />
+                    {provider?.id === 'custom' ? t('Custom') : provider?.label}
+                  </SelectValue>
+                </SelectTrigger>
+                <SelectContent alignItemWithTrigger={false}>
+                  {presets.map((preset) => (
+                    <SelectItem
+                      key={preset.id}
+                      value={preset.id}
+                      label={preset.label}
+                    >
+                      <span className='flex items-center gap-2'>
+                        <NativeProviderLogo icon={preset.icon} />
+                        {preset.id === 'custom' ? t('Custom') : preset.label}
+                      </span>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <label className='block min-w-0 space-y-2'>
+              <span className='text-sm font-medium'>{t('Internal notes')}</span>
+              <Input
+                maxLength={4096}
+                disabled={disabled}
+                value={typeof draft.note === 'string' ? draft.note : ''}
+                onChange={(event) => change('note', event.target.value)}
+              />
+            </label>
+          </>
+        )}
         <label className='flex min-h-11 items-center gap-3 text-sm @min-[40rem]/routing:col-span-2'>
           <Checkbox
             checked={draft.enabled === true}

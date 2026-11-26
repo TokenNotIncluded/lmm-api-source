@@ -19,6 +19,8 @@ pub(in crate::channel_http) struct ModelMetadata {
     pub display_name: String,
     pub description: String,
     pub vendor_id: Option<u64>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub tags: Vec<String>,
 }
 #[derive(Clone, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
@@ -61,6 +63,9 @@ pub(in crate::channel_http) fn validate_metadata(
         if !document.routing.routes.iter().any(|r| r.id == *id)
             || !label(&model.display_name)
             || !description(&model.description)
+            || model.tags.len() > 20
+            || model.tags.iter().any(|tag| !label(tag))
+            || model.tags.iter().collect::<BTreeSet<_>>().len() != model.tags.len()
             || model
                 .vendor_id
                 .is_some_and(|id| !bindings.vendors.contains_key(&id))

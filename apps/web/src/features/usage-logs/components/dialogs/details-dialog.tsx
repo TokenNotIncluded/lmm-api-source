@@ -990,6 +990,20 @@ function DetailsDialogContent(props: DetailsDialogProps) {
                     value={attempt.route_id}
                     mono
                   />
+                  {attempt.upstream_model && (
+                    <DetailRow
+                      label={t('Upstream Model')}
+                      value={attempt.upstream_model}
+                      mono
+                    />
+                  )}
+                  {attempt.protocol && (
+                    <DetailRow
+                      label={t('Protocol')}
+                      value={attempt.protocol}
+                      mono
+                    />
+                  )}
                   {attempt.status_code != null && (
                     <DetailRow
                       label={t('Status Code')}

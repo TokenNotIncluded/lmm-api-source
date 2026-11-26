@@ -130,6 +130,7 @@ export function NativeModelFields({
   onChange: (document: string) => void
 }) {
   const { t } = useTranslation()
+  const [tagText, setTagText] = useState('')
   const draft = readNativeModelDraft(document)
   if (!draft) return null
   const current = draft
@@ -269,6 +270,63 @@ export function NativeModelFields({
             }
           />
         </label>
+        <fieldset className='min-w-0 space-y-2 @min-[40rem]/routing:col-span-2'>
+          <legend className='text-sm'>{t('Tags')}</legend>
+          <div className='flex flex-wrap gap-1.5'>
+            {(draft.metadata.tags ?? []).map((tag) => (
+              <Button
+                key={tag}
+                type='button'
+                variant='secondary'
+                size='sm'
+                title={t('Remove tag')}
+                disabled={disabled}
+                onClick={() =>
+                  put({
+                    ...draft,
+                    metadata: {
+                      ...draft.metadata,
+                      tags: draft.metadata.tags?.filter((item) => item !== tag),
+                    },
+                  })
+                }
+              >
+                {tag} <span aria-hidden='true'>×</span>
+              </Button>
+            ))}
+          </div>
+          <div className='flex items-center gap-2'>
+            <Input
+              aria-label={t('Tag')}
+              maxLength={128}
+              value={tagText}
+              disabled={disabled}
+              onChange={(event) => setTagText(event.target.value)}
+            />
+            <Button
+              type='button'
+              variant='outline'
+              disabled={
+                disabled ||
+                !tagText.trim() ||
+                (draft.metadata.tags?.length ?? 0) >= 20 ||
+                draft.metadata.tags?.includes(tagText.trim())
+              }
+              onClick={() => {
+                put({
+                  ...draft,
+                  metadata: {
+                    ...draft.metadata,
+                    tags: [...(draft.metadata.tags ?? []), tagText.trim()],
+                  },
+                })
+                setTagText('')
+              }}
+            >
+              {t('Add')}
+            </Button>
+          </div>
+        </fieldset>
         <label className='flex min-h-11 items-center gap-3 text-sm'>
           <Checkbox
             checked={draft.route.enabled}

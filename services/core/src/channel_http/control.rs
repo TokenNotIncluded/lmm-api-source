@@ -10,6 +10,7 @@ pub(super) mod copy;
 pub(super) mod observations;
 mod opening;
 pub(super) mod price_drafts;
+mod provider_presets;
 pub(super) mod tags;
 mod vault;
 use super::{ChannelState, auth_error, authorize_action, error_response};
@@ -868,6 +869,8 @@ pub(super) async fn remove(
     let mut bindings = management.current_bindings()?;
     bindings.names.remove(&id);
     bindings.tags.remove(&id);
+    bindings.channel_notes.remove(&id);
+    bindings.channel_providers.remove(&id);
     bindings.key_pools.remove(&id);
     bindings
         .contexts

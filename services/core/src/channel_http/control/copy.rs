@@ -129,6 +129,12 @@ async fn duplicate(
     channel.credential = key.reference;
     document.routing.upstreams.push(channel);
     bindings.names.insert(copied_id, name);
+    if let Some(note) = bindings.channel_notes.get(&id).cloned() {
+        bindings.channel_notes.insert(copied_id, note);
+    }
+    if let Some(provider) = bindings.channel_providers.get(&id).cloned() {
+        bindings.channel_providers.insert(copied_id, provider);
+    }
     if let Some(tag) = bindings.tags.get(&id).cloned() {
         bindings.tags.insert(copied_id, tag);
     }

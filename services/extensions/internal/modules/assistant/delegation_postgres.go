@@ -36,7 +36,7 @@ func NewDelegationPostgresJournal(ctx context.Context, db *sql.DB, expectedDatab
 	if database != expectedDatabase || hasCore {
 		return nil, access.ErrForbidden
 	}
-	if db.QueryRowContext(ctx, `SELECT version FROM lmm_assistant.contract WHERE singleton`).Scan(&historyVersion) != nil || historyVersion != 2 ||
+	if db.QueryRowContext(ctx, `SELECT version FROM lmm_assistant.contract WHERE singleton`).Scan(&historyVersion) != nil || historyVersion != 3 ||
 		db.QueryRowContext(ctx, `SELECT version FROM lmm_assistant.delegation_contract WHERE singleton`).Scan(&delegationVersion) != nil || delegationVersion != 1 {
 		return nil, ErrDelegationUnavailable
 	}

@@ -1,4 +1,3 @@
-/* Copyright (C) 2026 LIghtJUNction. SPDX-License-Identifier: AGPL-3.0-or-later */
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   ChevronDown,
@@ -90,6 +89,12 @@ import {
 } from './native-channel-statistics'
 import { NativeModelFields } from './native-model-fields'
 import { NativePriceRuleList } from './native-price-rule-list'
+/* Copyright (C) 2026 LIghtJUNction. SPDX-License-Identifier: AGPL-3.0-or-later */
+import {
+  NativeProviderLogo,
+  nativeModelLogo,
+  resolveNativeProvider,
+} from './native-provider-logo'
 
 import './native-channel-list.css'
 
@@ -593,6 +598,8 @@ function NativeRoutingWorkspace({
         id,
         name: configuration.bindings.names[id] ?? '',
         tag: configuration.bindings.tags?.[id] ?? '',
+        provider: configuration.bindings.channel_providers?.[id],
+        note: configuration.bindings.channel_notes?.[id],
         endpoint: channel?.endpoint ?? '',
         protocol: channel?.protocol ?? 'openai_chat',
         enabled: channel?.enabled ?? false,
@@ -1619,6 +1626,13 @@ function NativeRoutingWorkspace({
               </div>
             )}
             {visibleChannels.map((channel) => {
+              const provider = resolveNativeProvider(
+                configuration,
+                configuration.bindings.channel_providers?.[channel.id],
+                channel.protocol,
+                channel.endpoint
+              )
+
               const name =
                 configuration.bindings.names[channel.id] ??
                 t('Channel {{id}}', { id: channel.id })
@@ -1705,8 +1719,11 @@ function NativeRoutingWorkspace({
                             .size,
                         })}
                       </p>
-                      <p className='text-muted-foreground break-words'>
-                        {nativeProtocolLabel(channel.protocol, t)}
+                      <p className='text-muted-foreground flex items-center gap-2 break-words'>
+                        <NativeProviderLogo icon={provider?.icon} />
+                        {provider && provider.id !== 'custom'
+                          ? provider.label
+                          : nativeProtocolLabel(channel.protocol, t)}
                       </p>
                     </div>
                     <dl className='native-channel-metrics text-muted-foreground min-w-0 text-xs'>
@@ -2013,12 +2030,24 @@ function NativeRoutingWorkspace({
                 className='flex min-w-0 flex-wrap items-center justify-between gap-4 py-5'
               >
                 <div className='min-w-0'>
-                  <h3 className='font-medium [overflow-wrap:anywhere]'>
+                  <h3 className='flex items-center gap-2 font-medium [overflow-wrap:anywhere]'>
+                    <NativeProviderLogo
+                      icon={nativeModelLogo(
+                        configuration,
+                        configuration.bindings.vendors[
+                          configuration.bindings.models[route.id]?.vendor_id ??
+                            0
+                        ]?.name,
+                        route.model
+                      )}
+                      model
+                    />
                     {configuration.bindings.models[route.id]?.display_name ??
                       route.model}
                   </h3>
                   <p className='text-muted-foreground text-sm [overflow-wrap:anywhere]'>
                     {route.model} · {route.group} ·{' '}
+                    {configuration.bindings.models[route.id]?.tags?.join(' · ')}{' '}
                     {route.enabled ? t('Enabled') : t('Disabled')}
                   </p>
                 </div>

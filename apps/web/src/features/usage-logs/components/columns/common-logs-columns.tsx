@@ -16,13 +16,14 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { GitBranch, Sparkles } from 'lucide-react'
+import { Boxes, GitBranch, Sparkles } from 'lucide-react'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { EntityQuickActions } from '@/components/entity-quick-actions'
 import { GroupBadge } from '@/components/group-badge'
 import { StatusBadge, type StatusBadgeProps } from '@/components/status-badge'
+import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import {
   Popover,
   PopoverContent,
@@ -36,7 +37,10 @@ import {
 } from '@/components/ui/tooltip'
 import { useBillingUSD } from '@/hooks/use-billing-usd'
 import { useHistoricalQuotaMoney } from '@/hooks/use-historical-quota-money'
+import { getUserAvatarFallback, getUserAvatarStyle } from '@/lib/avatar'
 import { formatTimestampToDate } from '@/lib/format'
+import { getLobeIcon } from '@/lib/lobe-icon'
+import { resolveModelProvider } from '@/lib/model-provider'
 import type { ColumnDef } from '@/lib/table'
 import { cn } from '@/lib/utils'
 
@@ -352,7 +356,7 @@ export function useCommonLogsColumns(isAdmin: boolean): ColumnDef<UsageLog>[] {
         return value.includes(String(row.original.type))
       },
       enableHiding: false,
-      size: 180,
+      size: 145,
     },
   ]
 
@@ -360,6 +364,7 @@ export function useCommonLogsColumns(isAdmin: boolean): ColumnDef<UsageLog>[] {
     columns.push(
       {
         id: 'channel',
+        size: 76,
         header: t('Channel'),
         accessorFn: (row) => row.channel,
         cell: function ChannelCell({ row }) {
@@ -375,9 +380,11 @@ export function useCommonLogsColumns(isAdmin: boolean): ColumnDef<UsageLog>[] {
           const other = parseLogOther(log.other)
           const affinity = other?.admin_info?.channel_affinity
           const rawUseChannel = other?.admin_info?.use_channel ?? []
-          const useChannel = Array.isArray(rawUseChannel)
-            ? rawUseChannel.map(String).filter(Boolean)
-            : []
+          const useChannel = log.route_attempts?.length
+            ? log.route_attempts.map((attempt) => String(attempt.channel_id))
+            : Array.isArray(rawUseChannel)
+              ? rawUseChannel.map(String).filter(Boolean)
+              : []
           const hasRetryChain = useChannel.length > 1
           const channelChain = hasRetryChain
             ? useChannel.join(' → ')
@@ -478,7 +485,7 @@ export function useCommonLogsColumns(isAdmin: boolean): ColumnDef<UsageLog>[] {
                     <EntityQuickActions
                       kind='channel'
                       value={String(log.channel)}
-                      label={channelName ?? String(log.channel)}
+                      label={channelName || channelIdDisplay}
                       hidden={!sensitiveVisible}
                     />
                   )}
@@ -523,6 +530,7 @@ export function useCommonLogsColumns(isAdmin: boolean): ColumnDef<UsageLog>[] {
       },
       {
         id: 'user',
+        size: 108,
         header: t('User'),
         accessorFn: (row) => row.username,
         cell: function UserCell({ row }) {
@@ -533,16 +541,30 @@ export function useCommonLogsColumns(isAdmin: boolean): ColumnDef<UsageLog>[] {
           if (!log.username) return null
 
           return (
-            <EntityQuickActions
-              kind='username'
-              value={log.username}
-              label={sensitiveVisible ? log.username : '••••'}
-              hidden={!sensitiveVisible}
-              onDetails={() => {
-                setSelectedUserId(log.user_id)
-                setUserInfoDialogOpen(true)
-              }}
-            />
+            <div className='flex min-w-0 items-center gap-1.5'>
+              <Avatar className='size-6 shrink-0'>
+                <AvatarFallback
+                  className='text-[11px] font-semibold'
+                  style={
+                    sensitiveVisible
+                      ? getUserAvatarStyle(log.username)
+                      : undefined
+                  }
+                >
+                  {sensitiveVisible ? getUserAvatarFallback(log.username) : '•'}
+                </AvatarFallback>
+              </Avatar>
+              <EntityQuickActions
+                kind='username'
+                value={log.username}
+                label={sensitiveVisible ? log.username : '••••'}
+                hidden={!sensitiveVisible}
+                onDetails={() => {
+                  setSelectedUserId(log.user_id)
+                  setUserInfoDialogOpen(true)
+                }}
+              />
+            </div>
           )
         },
       }
@@ -622,17 +644,20 @@ export function useCommonLogsColumns(isAdmin: boolean): ColumnDef<UsageLog>[] {
         </div>
       )
     },
-    size: 160,
+    size: 118,
   })
   columns.push(
     {
       accessorKey: 'model_name',
+      size: 128,
       header: t('Model'),
       cell: function ModelCell({ row }) {
         const log = row.original
         if (!isDisplayableLogType(log.type)) return null
 
+        if (!log.model_name) return null
         const modelInfo = formatModelName(log)
+        const provider = resolveModelProvider(modelInfo.name)
 
         return (
           <div className='flex w-fit max-w-full min-w-0 flex-col gap-0.5'>
@@ -640,12 +665,25 @@ export function useCommonLogsColumns(isAdmin: boolean): ColumnDef<UsageLog>[] {
               kind='model'
               value={log.model_name}
               label={modelInfo.name}
+              leading={
+                <span
+                  className='flex size-4 shrink-0 items-center justify-center'
+                  aria-hidden='true'
+                >
+                  {provider?.icon ? (
+                    getLobeIcon(provider.icon, 15)
+                  ) : (
+                    <Boxes className='size-3.5' />
+                  )}
+                </span>
+              }
             />
             {(modelInfo.actualModel || modelInfo.responseModel) && (
               <ModelBadge
                 modelName={modelInfo.name}
                 actualModel={modelInfo.actualModel}
                 responseModel={modelInfo.responseModel}
+                detailsOnly
               />
             )}
           </div>
@@ -655,6 +693,7 @@ export function useCommonLogsColumns(isAdmin: boolean): ColumnDef<UsageLog>[] {
     },
     {
       accessorKey: 'is_stream',
+      size: 80,
       header: t('Stream'),
       cell: ({ row }) => {
         const log = row.original
@@ -676,6 +715,7 @@ export function useCommonLogsColumns(isAdmin: boolean): ColumnDef<UsageLog>[] {
     },
     {
       accessorKey: 'prompt_tokens',
+      size: 104,
       header: t('Usage'),
       cell: ({ row }) => {
         const log = row.original
@@ -684,12 +724,11 @@ export function useCommonLogsColumns(isAdmin: boolean): ColumnDef<UsageLog>[] {
         const other = parseLogOther(log.other)
 
         const cacheReadTokens = other?.cache_tokens || 0
-        const cacheWrite5m = other?.cache_creation_tokens_5m || 0
-        const cacheWrite1h = other?.cache_creation_tokens_1h || 0
-        const hasSplitCache = cacheWrite5m > 0 || cacheWrite1h > 0
-        const cacheWriteTokens = hasSplitCache
-          ? cacheWrite5m + cacheWrite1h
-          : other?.cache_creation_tokens || 0
+        const cacheWriteTokens =
+          other?.cache_creation_tokens ??
+          (other?.cache_creation_tokens_5m ?? 0) +
+            (other?.cache_creation_tokens_1h ?? 0) +
+            (other?.cache_creation_tokens_12h ?? 0)
 
         return (
           <div className='flex flex-col gap-0.5'>
@@ -716,6 +755,7 @@ export function useCommonLogsColumns(isAdmin: boolean): ColumnDef<UsageLog>[] {
     },
     {
       accessorKey: 'quota',
+      size: 100,
       header: t('Cost'),
       cell: ({ row }) => {
         const log = row.original
@@ -736,6 +776,7 @@ export function useCommonLogsColumns(isAdmin: boolean): ColumnDef<UsageLog>[] {
 
     {
       accessorKey: 'use_time',
+      size: 104,
       header: t('Timing'),
       cell: ({ row }) => {
         const log = row.original
@@ -815,17 +856,31 @@ export function useCommonLogsColumns(isAdmin: boolean): ColumnDef<UsageLog>[] {
           )
         }
 
+        const status =
+          log.status_code ?? log.provider_http_status ?? other?.status_code
+        const failedStatus =
+          typeof status === 'number' && status >= 400 && status <= 599
         return (
           <>
             <button
               type='button'
-              className='group flex min-h-9 max-w-[240px] items-center gap-1.5 text-left text-xs'
+              className='group flex min-h-8 max-w-[240px] items-center gap-1.5 text-left text-xs'
               onClick={() => setDialogOpen(true)}
               title={t('Click to view full details')}
               aria-label={t('View request details')}
             >
-              <span className='text-primary shrink-0'>{t('Details')}</span>
+              {failedStatus && (
+                <span
+                  className='text-destructive shrink-0 font-mono'
+                  title={t('Status Code')}
+                >
+                  {status}
+                </span>
+              )}
               {detailPreview}
+              {!primary && !log.content && !failedStatus && (
+                <span className='text-primary'>{t('Details')}</span>
+              )}
             </button>
             <DetailsDialog
               log={log}
@@ -836,7 +891,7 @@ export function useCommonLogsColumns(isAdmin: boolean): ColumnDef<UsageLog>[] {
           </>
         )
       },
-      size: 180,
+      size: 125,
       maxSize: 200,
     }
   )

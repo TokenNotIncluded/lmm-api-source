@@ -18,6 +18,7 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { Alert02Icon, Route01Icon } from '@hugeicons/core-free-icons'
 import { HugeiconsIcon } from '@hugeicons/react'
+import { Boxes } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 
 import { CopyButton } from '@/components/copy-button'
@@ -28,6 +29,7 @@ import {
   PopoverTrigger,
 } from '@/components/ui/popover'
 import { getLobeIcon } from '@/lib/lobe-icon'
+import { resolveModelProvider } from '@/lib/model-provider'
 import { cn } from '@/lib/utils'
 
 import {
@@ -40,94 +42,7 @@ interface ModelBadgeProps {
   actualModel?: string
   responseModel?: ResponseModelObservation
   className?: string
-}
-
-interface ModelProvider {
-  icon: string
-  label: string
-}
-
-function resolveModelProvider(modelName: string): ModelProvider | null {
-  const model = modelName.toLowerCase()
-  const hasAny = (keywords: string[]) =>
-    keywords.some((keyword) => model.includes(keyword))
-
-  if (
-    hasAny([
-      'gpt-',
-      'chatgpt-',
-      'text-embedding-',
-      'omni-moderation',
-      'dall-e',
-      'whisper',
-      'tts-',
-    ]) ||
-    /\bo[134](?:-|$)/.test(model)
-  ) {
-    return { icon: 'OpenAI.Color', label: 'OpenAI' }
-  }
-  if (hasAny(['claude-', 'anthropic'])) {
-    return { icon: 'Claude.Color', label: 'Claude' }
-  }
-  if (hasAny(['gemini-', 'learnlm-'])) {
-    return { icon: 'Gemini.Color', label: 'Gemini' }
-  }
-  if (hasAny(['grok-', 'xai-'])) {
-    return { icon: 'Grok.Color', label: 'Grok' }
-  }
-  if (hasAny(['deepseek-'])) {
-    return { icon: 'DeepSeek.Color', label: 'DeepSeek' }
-  }
-  if (hasAny(['qwen', 'qwq-'])) {
-    return { icon: 'Qwen.Color', label: 'Qwen' }
-  }
-  if (hasAny(['doubao-', 'volcengine'])) {
-    return { icon: 'Doubao.Color', label: 'Doubao' }
-  }
-  if (hasAny(['moonshot-', 'kimi-'])) {
-    return { icon: 'Moonshot.Color', label: 'Moonshot' }
-  }
-  if (hasAny(['minimax', 'abab'])) {
-    return { icon: 'Minimax.Color', label: 'MiniMax' }
-  }
-  if (hasAny(['glm-', 'chatglm', 'cogview', 'cogvideo'])) {
-    return { icon: 'Zhipu.Color', label: 'Zhipu' }
-  }
-  if (hasAny(['mimo-'])) {
-    return { icon: 'XiaomiMiMo', label: 'MiMo' }
-  }
-  if (hasAny(['ernie'])) {
-    return { icon: 'Wenxin.Color', label: 'Baidu' }
-  }
-  if (hasAny(['spark'])) {
-    return { icon: 'Spark.Color', label: 'iFlyTek' }
-  }
-  if (hasAny(['hunyuan'])) {
-    return { icon: 'Hunyuan.Color', label: 'Tencent' }
-  }
-  if (hasAny(['baichuan'])) {
-    return { icon: 'Baichuan.Color', label: 'Baichuan' }
-  }
-  if (hasAny(['internlm'])) {
-    return { icon: 'InternLM.Color', label: 'InternLM' }
-  }
-  if (hasAny(['step-'])) {
-    return { icon: 'Stepfun.Color', label: 'StepFun' }
-  }
-  if (hasAny(['yi-'])) {
-    return { icon: 'Yi.Color', label: 'Yi' }
-  }
-  if (hasAny(['mistral-', 'mixtral-'])) {
-    return { icon: 'Mistral.Color', label: 'Mistral' }
-  }
-  if (hasAny(['llama-', 'meta-'])) {
-    return { icon: 'Meta.Color', label: 'Meta' }
-  }
-  if (hasAny(['command-', 'cohere-'])) {
-    return { icon: 'Cohere.Color', label: 'Cohere' }
-  }
-
-  return null
+  detailsOnly?: boolean
 }
 
 function ModelBadgeContent(props: ModelBadgeProps & { copyable?: boolean }) {
@@ -138,7 +53,7 @@ function ModelBadgeContent(props: ModelBadgeProps & { copyable?: boolean }) {
       copyText={props.modelName}
       copyable={props.copyable}
       size='sm'
-      showDot={!provider}
+      showDot={false}
       autoColor={provider ? undefined : props.modelName}
       className={cn(
         'border-border/60 bg-muted/30 h-auto min-h-6 max-w-full gap-1.5 rounded-md border px-2 py-0.5 whitespace-normal [font-family:var(--font-body)]',
@@ -147,15 +62,17 @@ function ModelBadgeContent(props: ModelBadgeProps & { copyable?: boolean }) {
       )}
     >
       <span className='flex max-w-full min-w-0 items-center gap-1.5'>
-        {provider && (
-          <span
-            className='flex h-[18px] w-[18px] shrink-0 items-center justify-center'
-            title={provider.label}
-            aria-label={provider.label}
-          >
-            {getLobeIcon(provider.icon, 18)}
-          </span>
-        )}
+        <span
+          className='flex size-[18px] shrink-0 items-center justify-center'
+          title={provider?.label}
+          aria-hidden='true'
+        >
+          {provider?.icon ? (
+            getLobeIcon(provider.icon, 18)
+          ) : (
+            <Boxes className='size-3.5' />
+          )}
+        </span>
         <span className='min-w-0 [overflow-wrap:anywhere]'>
           {props.modelName}
         </span>
@@ -184,7 +101,7 @@ export function ModelBadge(props: ModelBadgeProps) {
     )
 
   if (!hasDetails) {
-    return <ModelBadgeContent {...props} />
+    return props.detailsOnly ? null : <ModelBadgeContent {...props} />
   }
 
   return (
@@ -198,12 +115,19 @@ export function ModelBadge(props: ModelBadgeProps) {
           />
         }
       >
-        <ModelBadgeContent {...props} copyable={false} />
+        {!props.detailsOnly && (
+          <ModelBadgeContent {...props} copyable={false} />
+        )}
         {mismatch && props.responseModel ? (
           <ResponseModelWarning observation={props.responseModel} />
         ) : (
           <span className='text-muted-foreground shrink-0 [&>svg]:size-3'>
             <HugeiconsIcon icon={Route01Icon} aria-hidden='true' />
+          </span>
+        )}
+        {props.detailsOnly && !mismatch && (
+          <span className='text-muted-foreground min-w-0 truncate font-mono text-xs'>
+            {props.actualModel ?? props.responseModel?.upstream_model}
           </span>
         )}
       </PopoverTrigger>

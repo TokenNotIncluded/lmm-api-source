@@ -114,6 +114,7 @@ export const modelDraftSchema = z
     metadata: z
       .object({
         display_name: z.string(),
+        tags: z.array(z.string()).optional(),
         description: z.string(),
         vendor_id: z.number().nullable(),
       })
