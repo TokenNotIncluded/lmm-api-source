@@ -14,12 +14,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
-import {
-  Field,
-  FieldDescription,
-  FieldGroup,
-  FieldLabel,
-} from '@/components/ui/field'
+import { Field, FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
 import { useWalletCurrency } from '@/hooks/use-wallet-currency'
 import { useAuthStore } from '@/stores/auth-store'
@@ -34,35 +29,22 @@ import {
   type MarketConfig,
   type MarketToken,
 } from './api'
-import { marketClientProfiles, type MarketClientProfile } from './client-config'
 import {
   marketConnectionNamespace,
   registerMarketConnectionTranslations,
   type MarketConnectionCopyKey,
 } from './connection-i18n'
 import {
-  buildMarketClientConfig,
   connectionStatus,
-  defaultConnectionPermissions,
   isPersonalMarketClient,
   marketEndpoint,
 } from './connection-utils'
-import {
-  MetaDelegationSettings,
-  MetaDelegationSetupFields,
-} from './meta-delegation'
-import { metaDelegationAPI, metaDelegationQuota } from './meta-delegation-api'
-import { metaDelegationCopy } from './meta-delegation-copy'
-import {
-  configureIssuedMetaDelegation,
-  defaultMetaDelegationSetup,
-} from './meta-delegation-setup'
+import { MetaDelegationSettings } from './meta-delegation'
+import { metaDelegationAPI } from './meta-delegation-api'
 import { useMarketMoneyDraft } from './money'
 import { MarketOAuthConnection } from './oauth-connection'
 import { useMarketTranslation as useTranslation } from './provider-i18n'
-import { MarketNextStep } from './setup-guide'
 
-type IssuedToken = { token: string; record: MarketToken }
 type ClientAccess = {
   tokens: MarketToken[]
   grants: Grant[]
@@ -134,19 +116,6 @@ function ConnectionWorkspace({
     queryFn: ({ signal }) => metaDelegationAPI.oauthClients(signal),
     enabled: metaOAuthEnabled,
   })
-  const [metaSetup, setMetaSetup] = useState(() => ({
-    ...defaultMetaDelegationSetup,
-    enabled: metaSupported && defaultMetaDelegationSetup.enabled,
-  }))
-  const [metaMessage, setMetaMessage] = useState<string>()
-  const [client, setClient] = useState('my-agent')
-  const [profile, setProfile] = useState<MarketClientProfile>('codex')
-  const [permissions, setPermissions] = useState(defaultConnectionPermissions)
-  const metaPermitted = permissions.can_invoke && permissions.can_manage
-  const [issued, setIssued] = useState<IssuedToken | null>(null)
-  const [copyStatus, setCopyStatus] = useState<'copied' | 'copyFailed' | null>(
-    null
-  )
   const [disconnect, setDisconnect] = useState<string | null>(null)
   const [scope, setScope] = useState('account')
   const [scopeID, setScopeID] = useState('')
@@ -156,19 +125,6 @@ function ConnectionWorkspace({
     const timer = window.setInterval(() => setNow(Date.now()), 30000)
     return () => window.clearInterval(timer)
   }, [])
-  useEffect(() => {
-    if (!issued) return
-    const timer = window.setTimeout(() => setIssued(null), 5 * 60 * 1000)
-    return () => window.clearTimeout(timer)
-  }, [issued])
-  useEffect(() => {
-    if (!issued) return
-    const latest = tokens.data?.find((token) => token.id === issued.record.id)
-    if (connectionStatus(latest ?? issued.record, now) !== 'active') {
-      setIssued(null)
-    }
-  }, [issued, tokens.data, now])
-
   const action = useMutation({
     retry: false,
     mutationFn: (operation: () => Promise<void>) => operation(),
@@ -176,38 +132,11 @@ function ConnectionWorkspace({
       await cache.invalidateQueries({ queryKey: ['tool-market', userID] })
     },
   })
-  const copy = async (text: string) => {
-    setCopyStatus(null)
-    try {
-      await navigator.clipboard.writeText(text)
-      setCopyStatus('copied')
-    } catch {
-      setCopyStatus('copyFailed')
-    }
-  }
   let endpoint = ''
   try {
     endpoint = marketEndpoint(window.location.origin, config.mcp_path)
   } catch {
     // No token may be copied into an invalid or cross-origin configuration.
-  }
-  const validClient = isPersonalMarketClient(client.trim())
-  const previewClient = issued?.record.client_id ?? client.trim()
-  const preview =
-    endpoint && isPersonalMarketClient(previewClient)
-      ? buildMarketClientConfig(endpoint, previewClient, undefined, profile)
-      : ''
-  const profileLabels: Record<MarketClientProfile, string> = {
-    codex: 'Codex',
-    'claude-code': 'Claude Code',
-    cursor: 'Cursor',
-    http: m('genericHTTP'),
-  }
-  const profileHelp: Record<MarketClientProfile, MarketConnectionCopyKey> = {
-    codex: 'codexSetup',
-    'claude-code': 'claudeSetup',
-    cursor: 'cursorSetup',
-    http: 'httpSetup',
   }
   const budgetQuota = limit.quota
   const readError =
@@ -335,7 +264,6 @@ function ConnectionWorkspace({
                 onClick={() =>
                   action.mutate(async () => {
                     await marketAPI.removeClient(id)
-                    if (issued?.record.client_id === id) setIssued(null)
                   })
                 }
               >
@@ -404,7 +332,6 @@ function ConnectionWorkspace({
                       } else {
                         await marketAPI.revokeToken(token.id)
                       }
-                      if (issued?.record.id === token.id) setIssued(null)
                     })
                   }
                 >
@@ -534,321 +461,14 @@ function ConnectionWorkspace({
             <h3 className='text-lg font-semibold'>
               {t('Connect your MCP client')}
             </h3>
-            <p className='text-muted-foreground max-w-[70ch] text-sm leading-6'>
-              {m('summary')}
-            </p>
           </div>
-          {oauthEnabled && endpoint && (
+          {oauthEnabled && endpoint ? (
             <MarketOAuthConnection endpoint={endpoint} />
+          ) : (
+            <p role='status' className='text-muted-foreground text-sm'>
+              {t('Unavailable')}
+            </p>
           )}
-          <details open={!oauthEnabled} className='space-y-5'>
-            <summary className='cursor-pointer py-2 text-sm font-medium'>
-              {t('Manual connection token')}
-            </summary>
-            <MarketNextStep>
-              {issued
-                ? t(
-                    'Copy the configuration into your MCP client, then choose tools for this same Client ID.'
-                  )
-                : t(
-                    'Create a connection token, add the configuration to your MCP client, then choose and authorize tools.'
-                  )}
-            </MarketNextStep>
-            <form
-              onSubmit={(event) => {
-                event.preventDefault()
-                const setup = {
-                  ...metaSetup,
-                  enabled: metaSupported && metaSetup.enabled && metaPermitted,
-                }
-                if (
-                  !validClient ||
-                  !endpoint ||
-                  action.isPending ||
-                  (setup.enabled &&
-                    metaDelegationQuota(setup.quota) === undefined)
-                ) {
-                  return
-                }
-                const requestedClient = client.trim()
-                const requestedPermissions = { ...permissions }
-                setIssued(null)
-                setCopyStatus(null)
-                setMetaMessage(undefined)
-                action.mutate(async () => {
-                  const data = await marketAPI.token(
-                    requestedClient,
-                    requestedPermissions
-                  )
-                  if (useAuthStore.getState().auth.user?.id !== userID) return
-                  setIssued(data)
-                  try {
-                    const saved = await configureIssuedMetaDelegation(
-                      { kind: 'personal', id: data.record.id },
-                      setup,
-                      requestedPermissions.can_invoke &&
-                        requestedPermissions.can_manage &&
-                        data.record.can_invoke &&
-                        data.record.can_manage,
-                      data.record.expires_at
-                    )
-                    if (useAuthStore.getState().auth.user?.id !== userID) return
-                    if (saved) {
-                      setMetaMessage(
-                        saved.max_total_quota === Number(setup.quota)
-                          ? t(metaDelegationCopy.saved)
-                          : t(metaDelegationCopy.tighter, {
-                              limit: saved.max_total_quota,
-                            })
-                      )
-                    }
-                  } catch {
-                    if (useAuthStore.getState().auth.user?.id === userID) {
-                      setMetaMessage(t(metaDelegationCopy.failed))
-                    }
-                  }
-                  // Delegation failure retains the once-only token and still refreshes
-                  // records. Never return the bearer secret into the mutation cache.
-                })
-              }}
-            >
-              <FieldGroup className='[&_input:not([type=checkbox])]:min-h-11'>
-                <Field>
-                  <FieldLabel htmlFor='mcp-client-profile'>
-                    {m('clientProfile')}
-                  </FieldLabel>
-                  <select
-                    id='mcp-client-profile'
-                    className='border-input bg-background focus-visible:ring-ring min-h-11 w-full rounded-md border px-3 text-base outline-none focus-visible:ring-2 sm:text-sm'
-                    value={profile}
-                    onChange={(event) => {
-                      setProfile(event.target.value as MarketClientProfile)
-                      setCopyStatus(null)
-                    }}
-                  >
-                    {marketClientProfiles.map((value) => (
-                      <option key={value} value={value}>
-                        {profileLabels[value]}
-                      </option>
-                    ))}
-                  </select>
-                  <FieldDescription>{m(profileHelp[profile])}</FieldDescription>
-                </Field>
-                <Field>
-                  <FieldLabel htmlFor='mcp-client'>{t('Client ID')}</FieldLabel>
-                  <Input
-                    id='mcp-client'
-                    value={client}
-                    maxLength={128}
-                    disabled={action.isPending}
-                    aria-invalid={!validClient}
-                    aria-describedby='mcp-client-help'
-                    onChange={(event) => setClient(event.target.value)}
-                  />
-                  <FieldDescription id='mcp-client-help'>
-                    {validClient
-                      ? t(
-                          'Use this same client ID when loading and authorizing tools.'
-                        )
-                      : m('invalidClient')}
-                  </FieldDescription>
-                </Field>
-                <fieldset className='space-y-3' disabled={action.isPending}>
-                  <legend className='mb-3 text-sm font-medium'>
-                    {m('permissions')}
-                  </legend>
-                  <label className='focus-within:ring-ring flex min-h-11 cursor-pointer items-center gap-3 rounded-md px-2 text-sm focus-within:ring-2'>
-                    <input
-                      type='checkbox'
-                      className='accent-foreground size-4'
-                      checked={permissions.can_invoke}
-                      onChange={(event) =>
-                        setPermissions({
-                          ...permissions,
-                          can_invoke: event.target.checked,
-                        })
-                      }
-                    />
-                    {m('invoke')}
-                  </label>
-                  <label className='focus-within:ring-ring flex min-h-11 cursor-pointer items-center gap-3 rounded-md px-2 text-sm focus-within:ring-2'>
-                    <input
-                      type='checkbox'
-                      className='accent-foreground size-4'
-                      checked={permissions.can_manage}
-                      onChange={(event) =>
-                        setPermissions({
-                          ...permissions,
-                          can_manage: event.target.checked,
-                        })
-                      }
-                    />
-                    {m('manage')}
-                  </label>
-                  {!permissions.can_invoke && !permissions.can_manage && (
-                    <Badge variant='outline'>{m('readOnly')}</Badge>
-                  )}
-                </fieldset>
-                {metaSupported && (
-                  <MetaDelegationSetupFields
-                    value={metaSetup}
-                    onChange={setMetaSetup}
-                    permitted={metaPermitted}
-                    disabled={action.isPending}
-                  />
-                )}
-                <Field>
-                  <FieldLabel htmlFor='mcp-expiry'>{m('expiry')}</FieldLabel>
-                  <select
-                    id='mcp-expiry'
-                    className='border-input bg-background focus-visible:ring-ring min-h-11 w-full rounded-md border px-3 text-base outline-none focus-visible:ring-2 sm:text-sm'
-                    value={permissions.expires_in_days}
-                    disabled={action.isPending}
-                    onChange={(event) =>
-                      setPermissions({
-                        ...permissions,
-                        expires_in_days: Number(event.target.value),
-                      })
-                    }
-                  >
-                    {[1, 7, 30, 90].map((days) => (
-                      <option key={days} value={days}>
-                        {m('days', { count: days })}
-                      </option>
-                    ))}
-                  </select>
-                </Field>
-                {!endpoint && (
-                  <p role='alert' className='text-destructive text-sm'>
-                    {m('invalidEndpoint')}
-                  </p>
-                )}
-                <Button
-                  type='submit'
-                  className='min-h-11'
-                  disabled={
-                    action.isPending ||
-                    !validClient ||
-                    !endpoint ||
-                    (metaSupported &&
-                      metaSetup.enabled &&
-                      metaPermitted &&
-                      metaDelegationQuota(metaSetup.quota) === undefined)
-                  }
-                >
-                  {action.isPending
-                    ? t('Loading…')
-                    : t('Create connection token')}
-                </Button>
-              </FieldGroup>
-            </form>
-            <Field>
-              <FieldLabel htmlFor='mcp-url'>{t('MCP endpoint')}</FieldLabel>
-              <Input
-                id='mcp-url'
-                readOnly
-                value={endpoint}
-                className='min-h-11 font-mono text-sm'
-              />
-            </Field>
-            {metaMessage && (
-              <p role='status' className='text-sm'>
-                {metaMessage}
-              </p>
-            )}
-            {issued && (
-              <div className='bg-muted/40 space-y-3 rounded-lg border p-4'>
-                <Field>
-                  <FieldLabel htmlFor='mcp-secret'>
-                    {t('Connection token — shown once')}
-                  </FieldLabel>
-                  <Input
-                    id='mcp-secret'
-                    type='password'
-                    autoComplete='off'
-                    readOnly
-                    value={issued.token}
-                  />
-                  <FieldDescription>
-                    {m('tokenClient', { client: issued.record.client_id })}
-                  </FieldDescription>
-                  <FieldDescription>
-                    {t(
-                      'Add this as a Bearer token in your client. Do not paste it into an Agent conversation.'
-                    )}
-                  </FieldDescription>
-                </Field>
-                <div className='flex flex-wrap gap-2'>
-                  <Button
-                    variant='outline'
-                    onClick={() => void copy(issued.token)}
-                  >
-                    {t('Copy token')}
-                  </Button>
-                  <Button
-                    variant='outline'
-                    disabled={!endpoint}
-                    onClick={() =>
-                      void copy(
-                        buildMarketClientConfig(
-                          endpoint,
-                          issued.record.client_id,
-                          issued.token,
-                          profile
-                        )
-                      )
-                    }
-                  >
-                    {m('copyConfig')}
-                  </Button>
-                  <Button
-                    variant='ghost'
-                    onClick={() => {
-                      setIssued(null)
-                      setCopyStatus(null)
-                    }}
-                  >
-                    {t('Hide token')}
-                  </Button>
-                </div>
-                {onChooseClient && (
-                  <div className='space-y-2 border-t pt-3'>
-                    <p className='text-muted-foreground text-sm'>
-                      {m('chooseToolsHint')}
-                    </p>
-                    <Button
-                      onClick={() => onChooseClient(issued.record.client_id)}
-                    >
-                      {m('chooseTools')}
-                    </Button>
-                  </div>
-                )}
-              </div>
-            )}
-            {copyStatus && (
-              <p
-                role={copyStatus === 'copyFailed' ? 'alert' : 'status'}
-                className='text-muted-foreground text-sm'
-              >
-                {m(copyStatus)}
-              </p>
-            )}
-            {preview && (
-              <details className='text-sm'>
-                <summary className='focus-visible:ring-ring w-fit cursor-pointer rounded-sm py-2 font-medium outline-none focus-visible:ring-2'>
-                  {m('preview')}
-                </summary>
-                <pre
-                  className='bg-muted mt-3 overflow-x-auto rounded-lg p-4 text-xs leading-5'
-                  tabIndex={0}
-                  aria-label={m('preview')}
-                >
-                  {preview}
-                </pre>
-              </details>
-            )}
-            <p className='text-muted-foreground text-xs'>{m('oauthHelp')}</p>
-          </details>
         </section>
 
         <section className='min-w-0 space-y-4'>
@@ -1060,7 +680,6 @@ function ConnectionWorkspace({
                 const clientID = disconnect
                 action.mutate(async () => {
                   await marketAPI.disconnectClient(clientID)
-                  if (issued?.record.client_id === clientID) setIssued(null)
                   setDisconnect(null)
                 })
               }}

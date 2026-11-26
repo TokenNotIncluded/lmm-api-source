@@ -34,7 +34,7 @@ fn expected_catalog() -> Result<Vec<(credits::Quote, String, String)>> {
     for service in services {
         if !matches!(
             service.key.as_str(),
-            "wallet" | "drawing" | "open_source_bounties"
+            "wallet" | "drawing" | "open_source_bounties" | "ssmcpd"
         ) {
             return Err(Error::Invalid);
         }
@@ -71,7 +71,7 @@ fn expected_catalog() -> Result<Vec<(credits::Quote, String, String)>> {
             expected.push((quote, tool.name, tool.input_schema_digest));
         }
     }
-    if expected.len() != 29 {
+    if expected.is_empty() {
         return Err(Error::Invalid);
     }
     Ok(expected)
@@ -85,11 +85,21 @@ pub async fn check_builtin_registry(pool: &PgPool) -> Result<InstallReceipt> {
 pub async fn check_builtin_registry_in_transaction(
     c: &mut sqlx::PgConnection,
 ) -> Result<InstallReceipt> {
+    check_catalog_subset(c, expected_catalog()?).await
+}
+
+// Reconcile immutable compiled bindings before extending an occupied installation.
+// A missing, revoked or modified old quote requires operator investigation.
+async fn check_catalog_subset(
+    c: &mut sqlx::PgConnection,
+    catalog: Vec<(credits::Quote, String, String)>,
+) -> Result<InstallReceipt> {
     let installed:bool=sqlx::query_scalar("SELECT EXISTS(SELECT FROM core_meta.component_contract WHERE name='tool-market-credit' AND fingerprint=$1)").bind(Sha256::digest(credits::SCHEMA_V2.as_bytes()).to_vec()).fetch_one(&mut *c).await?;
     if !installed {
         return Err(Error::Forbidden);
     }
-    for (quote, kind, schema) in expected_catalog()? {
+    let count = catalog.len();
+    for (quote, kind, schema) in catalog {
         let row=sqlx::query("SELECT q.snapshot,q.seller_user_id,q.seller_account_id,q.approved,q.suspended,q.visibility,q.ceiling_credits,b.kind,b.input_schema_digest FROM core_tool_market.credit_quotes q JOIN core_tool_market.credit_builtin_bindings b ON b.quote_id=q.id WHERE q.id=$1").bind(&quote.id).fetch_optional(&mut *c).await?.ok_or(Error::Missing)?;
         let Json(saved): Json<credits::Quote> = row.try_get("snapshot")?;
         if saved != quote
@@ -108,11 +118,11 @@ pub async fn check_builtin_registry_in_transaction(
         }
     }
     let active:i64=sqlx::query_scalar("SELECT count(*) FROM core_tool_market.credit_builtin_bindings b JOIN core_tool_market.credit_quotes q ON q.id=b.quote_id WHERE q.approved").fetch_one(&mut *c).await?;
-    if active != 29 {
+    if active != count as i64 {
         return Err(Error::Conflict);
     }
     Ok(InstallReceipt {
-        tools: 29,
+        tools: count as u32,
         catalog_digest: crate::hex_codec::encode(Sha256::digest(CATALOG.as_bytes())),
     })
 }
@@ -127,7 +137,22 @@ pub async fn install_compiled_builtins(pool: &PgPool) -> Result<InstallReceipt> 
     }
     let occupied:bool=sqlx::query_scalar("SELECT EXISTS(SELECT FROM core_tool_market.credit_calls) OR EXISTS(SELECT FROM core_tool_market.credit_consents) OR EXISTS(SELECT FROM core_tool_market.credit_services) OR EXISTS(SELECT FROM core_tool_market.credit_quotes WHERE seller_user_id IS NOT NULL)").fetch_one(&mut *tx).await?;
     if occupied {
-        return Err(Error::Conflict);
+        let catalog = expected_catalog()?;
+        let active: i64 = sqlx::query_scalar("SELECT count(*) FROM core_tool_market.credit_builtin_bindings b JOIN core_tool_market.credit_quotes q ON q.id=b.quote_id WHERE q.approved")
+            .fetch_one(&mut *tx).await?;
+        if active == catalog.len() as i64 {
+            let receipt = check_catalog_subset(&mut tx, catalog).await?;
+            tx.commit().await?;
+            return Ok(receipt);
+        }
+        // Only the known preceding catalog may receive this additive update.
+        // In particular an occupied database with no reviewed bindings cannot
+        // use this installer to manufacture a new baseline.
+        let preceding = catalog
+            .into_iter()
+            .filter(|(_, name, _)| !name.starts_with("ssmcpd."))
+            .collect();
+        check_catalog_subset(&mut tx, preceding).await?;
     }
     let ready:bool=sqlx::query_scalar("SELECT EXISTS(SELECT FROM core_meta.component_contract WHERE name='tool-market-credit' AND fingerprint=$1)").bind(Sha256::digest(credits::SCHEMA_V2.as_bytes()).to_vec()).fetch_one(&mut *tx).await?;
     if !ready {
@@ -184,12 +209,37 @@ mod tests {
         assert_eq!(pair.0, role);
         assert_ne!(pair.0, pair.1);
         let receipt = install_compiled_builtins(&installer).await.unwrap();
-        assert_eq!(receipt.tools, 29);
-        assert_eq!(check_builtin_registry(&installer).await.unwrap().tools, 29);
+        assert_eq!(receipt.tools, 31);
+        assert_eq!(check_builtin_registry(&installer).await.unwrap().tools, 31);
         let replay = install_compiled_builtins(&installer).await.unwrap();
         assert_eq!(replay.catalog_digest, receipt.catalog_digest);
         let facts:(i64,i64)=sqlx::query_as("SELECT (SELECT count(*) FROM core_tool_market.credit_builtin_bindings),(SELECT count(*) FROM core_tool_market.credit_quotes WHERE seller_user_id IS NOT NULL OR seller_account_id IS NOT NULL)").fetch_one(&pool).await.unwrap();
-        assert_eq!(facts, (29, 0));
+        assert_eq!(facts, (31, 0));
+        // Keep existing live grants and quotes intact when adding a provider.
+        sqlx::query("WITH a AS (INSERT INTO core_identity.accounts(kind) VALUES ('personal') RETURNING id), u AS (INSERT INTO core_identity.users(personal_account_id) SELECT id FROM a RETURNING id) INSERT INTO core_tool_market.credit_services(service_id,owner_user_id,updated_by,updated_at) SELECT 'existing-service',id,id,1 FROM u")
+            .execute(&pool).await.unwrap();
+        sqlx::query(
+            "DELETE FROM core_tool_market.credit_builtin_bindings WHERE kind LIKE 'ssmcpd.%'",
+        )
+        .execute(&installer)
+        .await
+        .unwrap();
+        sqlx::query("UPDATE core_tool_market.credit_quotes SET suspended=true WHERE id=(SELECT quote_id FROM core_tool_market.credit_builtin_bindings WHERE kind='wallet.balance')")
+            .execute(&installer).await.unwrap();
+        assert!(matches!(
+            install_compiled_builtins(&installer).await,
+            Err(Error::Conflict)
+        ));
+        sqlx::query("UPDATE core_tool_market.credit_quotes SET suspended=false WHERE id=(SELECT quote_id FROM core_tool_market.credit_builtin_bindings WHERE kind='wallet.balance')")
+            .execute(&installer).await.unwrap();
+        assert_eq!(
+            install_compiled_builtins(&installer).await.unwrap().tools,
+            31
+        );
+        assert_eq!(
+            install_compiled_builtins(&installer).await.unwrap().tools,
+            31
+        );
         installer.close().await;
         sqlx::raw_sql(sqlx::AssertSqlSafe(format!("ALTER TABLE core_tool_market.credit_quotes OWNER TO {admin};ALTER TABLE core_tool_market.credit_builtin_bindings OWNER TO {admin};ALTER TABLE core_meta.component_contract OWNER TO {admin};DROP OWNED BY {role};DROP ROLE {role};"))).execute(&pool).await.unwrap();
     }

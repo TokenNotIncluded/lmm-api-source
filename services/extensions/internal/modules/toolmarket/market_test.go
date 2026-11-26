@@ -66,6 +66,8 @@ func (a *testAuthority) AuthorizeHumanConfirmation(ctx context.Context, credenti
 }
 
 type mockMCP struct {
+	registration     bool
+	registrations    atomic.Int32
 	server           *httptest.Server
 	calls            atomic.Int32
 	tokens           atomic.Int32
@@ -128,7 +130,24 @@ func newMockConfigured(t *testing.T, configure func(*mockMCP)) *mockMCP {
 			if mock.tokenOverride != "" {
 				token = mock.tokenOverride
 			}
-			_ = json.NewEncoder(w).Encode(OAuthMeta{Issuer: base + "/tenant", Authorization: base + "/authorize", Token: token, Revocation: base + "/revoke", PKCE: []string{"S256"}, ResponseTypes: []string{"code"}, AuthMethods: []string{"none"}})
+			registration := ""
+			if mock.registration {
+				registration = base + "/register"
+			}
+			_ = json.NewEncoder(w).Encode(OAuthMeta{Registration: registration, Issuer: base + "/tenant", Authorization: base + "/authorize", Token: token, Revocation: base + "/revoke", PKCE: []string{"S256"}, ResponseTypes: []string{"code"}, AuthMethods: []string{"none"}})
+			return
+		case r.URL.Path == "/register" && mock.registration:
+			var in struct {
+				Redirects []string `json:"redirect_uris"`
+				Method    string   `json:"token_endpoint_auth_method"`
+			}
+			if r.Method != "POST" || json.NewDecoder(r.Body).Decode(&in) != nil || len(in.Redirects) != 1 || in.Redirects[0] != "https://app.example/callback" || in.Method != "none" {
+				w.WriteHeader(400)
+				return
+			}
+			mock.registrations.Add(1)
+			w.WriteHeader(http.StatusCreated)
+			_ = json.NewEncoder(w).Encode(map[string]any{"client_id": "client", "redirect_uris": in.Redirects, "token_endpoint_auth_method": "none"})
 			return
 		case r.URL.Path == "/token":
 			count := mock.tokens.Add(1)

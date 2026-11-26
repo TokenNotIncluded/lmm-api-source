@@ -236,6 +236,7 @@ export interface StoreConfig {
   product_purchase_limits_supported?: boolean
   product_link_presets?: StoreLinkPreset[]
   minimum_unit_price_quota?: number
+  relay_price_quota_per_gib?: number
   recipient_id?: number
   linuxdo_units_per_usd?: string
   disclaimer_version: string

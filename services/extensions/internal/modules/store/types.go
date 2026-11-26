@@ -201,6 +201,8 @@ type Repository interface {
 	Within(context.Context, string, func(Tx) error) error
 }
 type Tx interface {
+	MinimumUnitPrice() (int64, error)
+	RelayPricePerGiB() (int64, error)
 	Get(string, string, any) error
 	Put(string, string, any) error
 	List(string, string, int) ([]json.RawMessage, error)

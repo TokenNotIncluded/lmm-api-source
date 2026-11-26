@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"slices"
 
 	"github.com/TokenNotIncluded/lmm-api/extensions/internal/coreclient"
 	"github.com/TokenNotIncluded/lmm-api/extensions/internal/modules/toolmarket"
@@ -116,6 +117,13 @@ func (r *Runtime) composeToolMarket(ctx context.Context, cfg Config, otherCreden
 			return err
 		}
 		r.close = append(r.close, func() error { closeBuiltin(); return nil })
+		builtin = dispatcher
+		r.Builtins = dispatcher
+	} else if slices.Contains(cfg.Selected, "ssmcpd") {
+		dispatcher, err := toolmarket.NewPluginDispatcher(ctx, bridge)
+		if err != nil {
+			return err
+		}
 		builtin = dispatcher
 		r.Builtins = dispatcher
 	}

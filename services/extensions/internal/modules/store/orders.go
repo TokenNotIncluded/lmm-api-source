@@ -88,6 +88,13 @@ func (s *Service) Purchase(ctx context.Context, token string, p Purchase) (Order
 		}
 		if product.Legacy != nil {
 			m := product.Legacy
+			floor, err := tx.MinimumUnitPrice()
+			if err != nil {
+				return err
+			}
+			if !validListingPrice(v.Price.Amount, floor) {
+				return ErrInvalid
+			}
 			if m.EmailPickupLink {
 				if s.pickupMail == nil {
 					return ErrUnavailable

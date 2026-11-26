@@ -21,7 +21,7 @@ func TestStoreTransportActualConfigAdvertisesTermsWithoutAccess(t *testing.T) {
 	if rec.Code != 200 || data["store_terms_supported"] != true || data["store_access_supported"] != false || data["fixed_content_supported"] != true || data["stock_items_supported"] != false {
 		t.Fatalf("terms and fixed-content capabilities must not imply store access or sealed stock: status=%d data=%v", rec.Code, data)
 	}
-	if core.calls != 0 || len(authority.checks) != 0 || repo.readCalls != 0 || repo.writeCalls != 0 || funds.availableCalls != 0 || funds.executeCalls != 0 {
-		t.Fatal("public capability read consulted identity, storage or funds")
+	if core.calls != 0 || len(authority.checks) != 0 || repo.readCalls != 1 || repo.writeCalls != 0 || funds.availableCalls != 0 || funds.executeCalls != 0 {
+		t.Fatal("public config must read the store policy once without consulting identity or funds")
 	}
 }

@@ -1794,8 +1794,13 @@ pub async fn tool_market_server(
     let pool = bounded_database_pool(url, 4).await?;
     let mut app = axum::Router::new();
     if let Some((_, token)) = &tool {
+        let market_profile = market_oauth_profile()?.map(Arc::new);
         app = app.merge(
-            crate::builtins::http::router(crate::builtins::Store::from_pool(pool.clone()), token)
+            crate::builtins::http::router(
+                crate::builtins::Store::from_pool(pool.clone())
+                    .with_market_profile(market_profile.clone()),
+                token,
+            )
                 .map_err(|_| invalid_config("invalid private builtin registry service"))?,
         );
         app = app.merge(
@@ -1811,8 +1816,8 @@ pub async fn tool_market_server(
         {
             credit = credit.with_assistant_runtime(runtime);
         }
-        if let Some(profile) = market_oauth_profile()? {
-            credit = credit.with_market_oauth_profile(Arc::new(profile));
+        if let Some(profile) = market_profile {
+            credit = credit.with_market_oauth_profile(profile);
         }
         if let Some(path) = setting_os("LMM_CORE_TOOL_MARKET_RECEIPT_ADAPTERS_CONFIG_FILE") {
             let document = configuration_file(Path::new(&path), 256 * 1024)?;

@@ -482,6 +482,7 @@ export const storeApi = {
       | 'fee_bps'
       | 'promotion_quota'
       | 'minimum_unit_price_quota'
+      | 'relay_price_quota_per_gib'
       | 'recipient_id'
       | 'linuxdo_units_per_usd'
     >

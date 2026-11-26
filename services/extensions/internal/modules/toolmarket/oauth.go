@@ -14,6 +14,7 @@ import (
 )
 
 type OAuthMeta struct {
+	Registration  string   `json:"registration_endpoint,omitempty"`
 	Issuer        string   `json:"issuer"`
 	Authorization string   `json:"authorization_endpoint"`
 	Token         string   `json:"token_endpoint"`
@@ -27,9 +28,10 @@ type resourceMeta struct {
 	Servers  []string `json:"authorization_servers"`
 }
 type oauthStart struct {
-	URL     string `json:"authorization_url"`
-	State   string `json:"state"`
-	binding string
+	Installation string `json:"installation,omitempty"`
+	URL          string `json:"authorization_url"`
+	State        string `json:"state"`
+	binding      string
 }
 
 func contains(ss []string, s string) bool {
@@ -127,7 +129,11 @@ func (m *Module) oauthMetadata(ctx context.Context, s Server) (OAuthMeta, error)
 		loaded = true
 		break
 	}
-	if !loaded || resource.Resource != s.Endpoint || len(resource.Servers) == 0 || len(resource.Servers) > 10 {
+	// AgentKey advertises its API origin as the protected resource for /v1/mcp.
+	// Its client sends the precise MCP URI in both the authorize and token requests.
+	exact := resource.Resource == s.Endpoint
+	agentKeyOrigin := s.Endpoint == "https://api.agentkey.app/v1/mcp" && resource.Resource == "https://api.agentkey.app" && len(resource.Servers) == 1 && resource.Servers[0] == "https://api.agentkey.app"
+	if !loaded || !exact && !agentKeyOrigin || len(resource.Servers) == 0 || len(resource.Servers) > 10 {
 		return OAuthMeta{}, ErrAuth
 	}
 	issuer := s.Issuer
@@ -162,9 +168,9 @@ func (m *Module) oauthMetadata(ctx context.Context, s Server) (OAuthMeta, error)
 	if !loaded || meta.Issuer != issuer || !contains(meta.PKCE, "S256") || !contains(meta.ResponseTypes, "code") || !contains(meta.AuthMethods, "none") {
 		return OAuthMeta{}, ErrAuth
 	}
-	// This release supports pre-registered public clients. Endpoints are pinned to
+	// Authorization, token and public registration endpoints are pinned to
 	// the discovered issuer origin; cross-origin token endpoints are not accepted.
-	for _, address := range []string{meta.Authorization, meta.Token, meta.Revocation} {
+	for _, address := range []string{meta.Authorization, meta.Token, meta.Revocation, meta.Registration} {
 		if address == "" {
 			continue
 		}
@@ -190,6 +196,18 @@ func (m *Module) startOAuth(ctx context.Context, p Principal, id string) (oauthS
 	if e != nil {
 		return oauthStart{}, e
 	}
+	clientID := r.Server.ClientID
+	if clientID == "" {
+		reg := i.OAuthRegistration
+		if reg != nil && reg.Issuer == meta.Issuer && reg.Redirect == m.callback {
+			clientID = reg.ClientID
+		} else {
+			clientID, e = m.registerOAuthClient(ctx, meta)
+			if e != nil {
+				return oauthStart{}, e
+			}
+		}
+	}
 	state, e := randomID()
 	if e != nil {
 		return oauthStart{}, e
@@ -207,7 +225,7 @@ func (m *Module) startOAuth(ctx context.Context, p Principal, id string) (oauthS
 	u, _ := url.Parse(meta.Authorization)
 	q := u.Query()
 	q.Set("response_type", "code")
-	q.Set("client_id", r.Server.ClientID)
+	q.Set("client_id", clientID)
 	q.Set("redirect_uri", m.callback)
 	q.Set("resource", r.Server.Endpoint)
 	q.Set("state", state)
@@ -235,8 +253,11 @@ func (m *Module) startOAuth(ctx context.Context, p Principal, id string) (oauthS
 		}
 		// A new authorization attempt invalidates older in-flight callbacks.
 		invalidate(d, &current)
+		if r.Server.ClientID == "" {
+			current.OAuthRegistration = &OAuthRegistration{ClientID: clientID, Issuer: meta.Issuer, Redirect: m.callback}
+		}
 		d.Installs[id] = current
-		d.States[digest(state)] = OAuthState{Owner: p, Install: id, Generation: current.Generation, Verifier: verifier, Binding: digest(binding), Expires: m.now().Add(5 * time.Minute).Unix(), Meta: meta}
+		d.States[digest(state)] = OAuthState{ClientID: clientID, Owner: p, Install: id, Generation: current.Generation, Verifier: verifier, Binding: digest(binding), Expires: m.now().Add(5 * time.Minute).Unix(), Meta: meta}
 		d.audit(p, "oauth.start", id, "ok")
 		return nil
 	})
@@ -263,8 +284,12 @@ func (m *Module) tokenRequest(ctx context.Context, endpoint string, form url.Val
 	return Secret{Access: response.Access, Refresh: response.Refresh, Expires: m.now().Unix() + response.Expires}, nil
 }
 func (m *Module) callbackOAuth(ctx context.Context, p Principal, state, binding, code, issuer string) error {
+	_, err := m.exchangeOAuth(ctx, p, state, binding, code, issuer)
+	return err
+}
+func (m *Module) exchangeOAuth(ctx context.Context, p Principal, state, binding, code, issuer string) (string, error) {
 	if len(state) != 43 || len(binding) != 43 || len(code) == 0 || len(code) > 4096 || len(issuer) > 2048 {
-		return ErrInvalid
+		return "", ErrInvalid
 	}
 	var flow OAuthState
 	var srv Server
@@ -290,16 +315,21 @@ func (m *Module) callbackOAuth(ctx context.Context, p Principal, state, binding,
 		return nil
 	})
 	if e != nil {
-		return e
+		return "", e
 	}
 	// Consume state before exchange. A timeout never permits replay of the code.
-	form := url.Values{"grant_type": {"authorization_code"}, "code": {code}, "client_id": {srv.ClientID}, "redirect_uri": {m.callback}, "code_verifier": {flow.Verifier}, "resource": {srv.Endpoint}}
+	clientID := flow.ClientID
+	if clientID == "" {
+		clientID = srv.ClientID
+	}
+	form := url.Values{"grant_type": {"authorization_code"}, "code": {code}, "client_id": {clientID}, "redirect_uri": {m.callback}, "code_verifier": {flow.Verifier}, "resource": {srv.Endpoint}}
 	token, e := m.tokenRequest(ctx, flow.Meta.Token, form)
 	if e != nil {
-		return e
+		return "", e
 	}
 	token.Meta = flow.Meta
-	return m.store.update(func(d *database) error {
+	token.ClientID = clientID
+	e = m.store.update(func(d *database) error {
 		i, _, _, e := selected(*d, p, flow.Install)
 		if e != nil {
 			return e
@@ -313,6 +343,7 @@ func (m *Module) callbackOAuth(ctx context.Context, p Principal, state, binding,
 		d.audit(p, "oauth.callback", i.ID, "ok")
 		return nil
 	})
+	return flow.Install, e
 }
 func (m *Module) refreshOAuth(ctx context.Context, p Principal, id string) error {
 	var saved Secret
@@ -337,12 +368,17 @@ func (m *Module) refreshOAuth(ctx context.Context, p Principal, id string) error
 	if e != nil {
 		return e
 	}
-	form := url.Values{"grant_type": {"refresh_token"}, "refresh_token": {saved.Refresh}, "client_id": {srv.ClientID}, "resource": {srv.Endpoint}}
+	clientID := saved.ClientID
+	if clientID == "" {
+		clientID = srv.ClientID
+	}
+	form := url.Values{"grant_type": {"refresh_token"}, "refresh_token": {saved.Refresh}, "client_id": {clientID}, "resource": {srv.Endpoint}}
 	token, e := m.tokenRequest(ctx, saved.Meta.Token, form)
 	if e != nil {
 		return ErrAuth
 	} // Explicit reauthorization after uncertain refresh; do not reuse a rotating token.
 	token.Meta = saved.Meta
+	token.ClientID = clientID
 	if token.Refresh == "" {
 		token.Refresh = saved.Refresh
 	}
@@ -384,6 +420,10 @@ func (m *Module) revoke(ctx context.Context, p Principal, id string) (any, error
 	if e != nil {
 		return nil, e
 	}
+	clientID := secret.ClientID
+	if clientID == "" {
+		clientID = srv.ClientID
+	}
 	status := "not_supported"
 	if secret.Meta.Revocation != "" {
 		status = "ok"
@@ -391,7 +431,7 @@ func (m *Module) revoke(ctx context.Context, p Principal, id string) (any, error
 			if token == "" {
 				continue
 			}
-			form := url.Values{"token": {token}, "client_id": {srv.ClientID}}
+			form := url.Values{"token": {token}, "client_id": {clientID}}
 			r, e := m.net.request(ctx, "POST", secret.Meta.Revocation, []byte(form.Encode()), http.Header{"Content-Type": []string{"application/x-www-form-urlencoded"}})
 			if e != nil {
 				status = "failed"

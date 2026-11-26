@@ -294,3 +294,31 @@ func TestExtoreConnectionsList(t *testing.T) {
 type roundTripFunc func(*http.Request) (*http.Response, error)
 
 func (fn roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) { return fn(r) }
+
+func TestExtoreHonorsConfiguredListingFloor(t *testing.T) {
+	s, _ := extoreService(t)
+	ctx := context.Background()
+	id := int64(1)
+	conn := seedConnection(t, s, id, time.Now().Unix()+600)
+	fixed := "Synthetic delivery"
+	syncPrice := func(revision string) (*extoreProductRow, error) {
+		return s.syncExtoreListing(ctx, id, conn.ID, listingRaw(t, "synthetic-floor", strings.Repeat(revision, 64), 25, "fixed-content", &fixed, json.RawMessage(`{}`)))
+	}
+	config := func(floor int64) {
+		must(t, s.repo.Within(ctx, pricePolicyScope, func(tx Tx) error { return tx.Put("commands", pricePolicyKey, pricePolicy{Minimum: &floor}) }))
+	}
+	_, err := syncPrice("a")
+	if !errors.Is(err, ErrInvalid) {
+		t.Fatalf("default floor: %v", err)
+	}
+	config(25)
+	_, err = syncPrice("a")
+	must(t, err)
+	config(26)
+	_, err = syncPrice("a")
+	must(t, err)
+	_, err = syncPrice("b")
+	if !errors.Is(err, ErrInvalid) {
+		t.Fatalf("repriced import: %v", err)
+	}
+}

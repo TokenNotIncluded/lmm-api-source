@@ -15,13 +15,16 @@ import (
 // Credential material is private to the encrypted module snapshot. It never
 // enters a public version, digest, audit event, metadata response or tool output.
 type webCredential struct {
-	OwnerID        int64  `json:"owner_id"`
-	ServiceID      string `json:"service_id"`
-	VersionID      string `json:"version_id"`
-	EndpointDigest string `json:"endpoint_digest"`
-	Mode           string `json:"mode"`
-	Secret         string `json:"secret"`
-	UpdatedAt      int64  `json:"updated_at"`
+	// Set only when resolving a live caller-owned OAuth installation.
+	oauthGeneration int64
+	oauthExpires    int64
+	OwnerID         int64  `json:"owner_id"`
+	ServiceID       string `json:"service_id"`
+	VersionID       string `json:"version_id"`
+	EndpointDigest  string `json:"endpoint_digest"`
+	Mode            string `json:"mode"`
+	Secret          string `json:"secret"`
+	UpdatedAt       int64  `json:"updated_at"`
 }
 type WebCredentialMetadata struct {
 	Mode       string `json:"mode"`
@@ -141,20 +144,7 @@ func (m *Module) webConfigureCredential(p Principal, user int64, service string,
 func (m *Module) webRemoteCredential(ctx context.Context, endpoint string, credential webCredential) ([]Tool, error) {
 	ctx, cancel := context.WithTimeout(ctx, m.timeout)
 	defer cancel()
-	server := Server{Endpoint: endpoint, Auth: "none"}
-	secret := Secret{}
-	if credential.Mode != "" && credential.Mode != "none" {
-		if !validWebCredential(credential.Mode, credential.Secret) {
-			return nil, ErrInvalid
-		}
-		server.Auth = "api_key"
-		server.Header = "Authorization"
-		if credential.Mode == "api_key" {
-			server.Header = "X-Api-Key"
-		}
-		secret.Access = credential.Secret
-	}
-	connection, err := m.connectLegacy(ctx, server, secret)
+	connection, err := m.legacyConnect(ctx, endpoint, credential)
 	if err != nil {
 		return nil, webDiscoveryError(err)
 	}

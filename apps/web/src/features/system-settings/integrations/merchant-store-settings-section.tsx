@@ -67,11 +67,16 @@ function StoreRootConfig({
   const minimum = useMarketMoneyDraft(
     config.minimum_unit_price_quota ?? Number.NaN
   )
+  const relay = useMarketMoneyDraft(
+    config.relay_price_quota_per_gib ?? Number.NaN
+  )
+  const hasRelayPrice = config.relay_price_quota_per_gib !== undefined
   const [fee, setFee] = useState(String(config.fee_bps / 100))
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<unknown>(null)
   async function save(event: React.FormEvent) {
     event.preventDefault()
+    if ((useAuthStore.getState().auth.user?.role ?? 0) < 100) return
     setBusy(true)
     setError(null)
     try {
@@ -80,15 +85,19 @@ function StoreRootConfig({
         !/^\d+(\.\d{1,2})?$/.test(fee) ||
         bps < 0 ||
         bps > 10000 ||
-        !promotion.quota ||
+        promotion.quota === undefined ||
         (config.minimum_unit_price_quota !== undefined &&
           minimum.quota === undefined)
       ) {
         throw new Error('Invalid amount')
       }
+      if (hasRelayPrice && (relay.quota === undefined || relay.quota < 1)) {
+        throw new Error('Invalid amount')
+      }
       await storeApi.saveConfig({
         fee_bps: bps,
         promotion_quota: promotion.quota,
+        ...(hasRelayPrice && { relay_price_quota_per_gib: relay.quota }),
         ...(config.minimum_unit_price_quota === undefined
           ? {}
           : {
@@ -114,6 +123,19 @@ function StoreRootConfig({
       <form onSubmit={(event) => void save(event)} className='space-y-4'>
         <StoreError error={error} />
         <div className='grid gap-4 sm:grid-cols-2'>
+          {hasRelayPrice && (
+            <div className='space-y-2'>
+              <Label htmlFor='store-relay-price'>
+                {t('Relay traffic price per GiB')} ({money.label})
+              </Label>
+              <Input
+                id='store-relay-price'
+                inputMode='decimal'
+                value={relay.input}
+                onChange={(event) => relay.setInput(event.target.value)}
+              />
+            </div>
+          )}
           {config.minimum_unit_price_quota !== undefined && (
             <div className='space-y-2'>
               <Label htmlFor='store-minimum-price'>

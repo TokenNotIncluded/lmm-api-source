@@ -127,3 +127,11 @@ func (c ToolMarketBuiltinsConfig) validate(profiles ...GoConfig) error {
 	}
 	return nil
 }
+
+func relayConfigurationKey(key string) bool {
+	switch key {
+	case "ssmcpd", "ssmcpd.base_url", "ssmcpd.token_file", "ssmcpd.seller_kind", "ssmcpd.seller_id":
+		return true
+	}
+	return false
+}

@@ -8,13 +8,12 @@ import { useMarketTranslation as useTranslation } from './provider-i18n'
 
 export function MarketOAuthConnection({ endpoint }: { endpoint: string }) {
   const { t } = useTranslation()
-  const [compact, setCompact] = useState(true)
   const [status, setStatus] = useState<{
     value: string
     failed: boolean
   } | null>(null)
   // The parent supplies a validated, query-free server path.
-  const target = compact ? `${endpoint}?mode=compact` : endpoint
+  const target = endpoint
   const command = marketOAuthCommand(target)
   const copy = async (value: string) => {
     try {
@@ -34,28 +33,6 @@ export function MarketOAuthConnection({ endpoint }: { endpoint: string }) {
           'Add this server URL in an MCP client, choose OAuth, and approve access in your browser. No pasted token is needed.'
         )}
       </p>
-      <div
-        role='group'
-        aria-label={t('MCP tool list')}
-        className='flex flex-wrap gap-2'
-      >
-        <Button
-          variant={compact ? 'default' : 'outline'}
-          aria-pressed={compact}
-          className='min-h-11'
-          onClick={() => setCompact(true)}
-        >
-          {t('Compact: metamcp only')}
-        </Button>
-        <Button
-          variant={!compact ? 'default' : 'outline'}
-          aria-pressed={!compact}
-          className='min-h-11'
-          onClick={() => setCompact(false)}
-        >
-          {t('Full: individual tools too')}
-        </Button>
-      </div>
       <div className='flex min-w-0 flex-col items-start gap-3 sm:flex-row sm:items-center'>
         <code className='bg-muted min-w-0 flex-1 rounded-lg p-3 text-sm break-all'>
           {target}

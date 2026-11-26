@@ -894,54 +894,57 @@ test('root store administration saves only fees and native promotion credits, wi
   await mount(<MerchantStoreSettingsSection />)
   const fee = document.querySelector<HTMLInputElement>('#store-fee')
   assert.ok(fee)
+  assert.equal(document.querySelector('#store-relay-price'), null)
   await input(fee, '2')
   await click(button('Save store settings'))
   assert.deepEqual(saved, { fee_bps: 200, promotion_quota: 500000 })
   assert.equal(document.querySelector('#store-linuxdo-rate'), null)
 })
-test('root can set the configured minimum to zero while preserving fee and promotion credits', async () => {
-  useAuthStore.getState().auth.setUser({ id: 2, role: 100, username: 'root' })
-  useWalletCurrencyPreferenceStore.getState().setPreference('USD')
-  useSystemConfigStore.setState({
-    config: {
-      ...originalConfig,
-      currency: {
-        ...originalConfig.currency,
-        creditsPerUsd: 500000,
-        creditsPerUsdExact: '500000',
-        cnyPerUsd: 7,
-        cnyPerUsdExact: '7',
-        quotaDisplayType: 'USD',
-        currencyUnit: 'credit',
+for (const promotionQuota of [0, 500000]) {
+  test(`root can disable the minimum with promotion credits ${promotionQuota}`, async () => {
+    useAuthStore.getState().auth.setUser({ id: 2, role: 100, username: 'root' })
+    useWalletCurrencyPreferenceStore.getState().setPreference('USD')
+    useSystemConfigStore.setState({
+      config: {
+        ...originalConfig,
+        currency: {
+          ...originalConfig.currency,
+          creditsPerUsd: 500000,
+          creditsPerUsdExact: '500000',
+          cnyPerUsd: 7,
+          cnyPerUsdExact: '7',
+          quotaDisplayType: 'USD',
+          currencyUnit: 'credit',
+        },
       },
-    },
-  })
-  api.get = (async () =>
-    result({
+    })
+    api.get = (async () =>
+      result({
+        fee_bps: 100,
+        promotion_quota: promotionQuota,
+        minimum_unit_price_quota: 750000,
+        platform_payment_methods: [],
+      })) as typeof api.get
+    let saved: unknown
+    api.put = (async (url: string, body: unknown) => {
+      assert.equal(url, '/api/store/config')
+      saved = body
+      return result(null)
+    }) as typeof api.put
+    await mount(<MerchantStoreSettingsSection />)
+    const minimum = document.querySelector<HTMLInputElement>(
+      '#store-minimum-price'
+    )
+    assert.ok(minimum)
+    await input(minimum, '0')
+    await click(button('Save store settings'))
+    assert.deepEqual(saved, {
       fee_bps: 100,
-      promotion_quota: 500000,
-      minimum_unit_price_quota: 750000,
-      platform_payment_methods: [],
-    })) as typeof api.get
-  let saved: unknown
-  api.put = (async (url: string, body: unknown) => {
-    assert.equal(url, '/api/store/config')
-    saved = body
-    return result(null)
-  }) as typeof api.put
-  await mount(<MerchantStoreSettingsSection />)
-  const minimum = document.querySelector<HTMLInputElement>(
-    '#store-minimum-price'
-  )
-  assert.ok(minimum)
-  await input(minimum, '0')
-  await click(button('Save store settings'))
-  assert.deepEqual(saved, {
-    fee_bps: 100,
-    promotion_quota: 500000,
-    minimum_unit_price_quota: 0,
+      promotion_quota: promotionQuota,
+      minimum_unit_price_quota: 0,
+    })
   })
-})
+}
 for (const role of [1, 10]) {
   test(`store fee administration does not load or render for non-root role ${role}`, async () => {
     useAuthStore.getState().auth.setUser({ id: 2, role, username: 'seller' })
@@ -954,6 +957,66 @@ for (const role of [1, 10]) {
     assert.equal(document.querySelector('form'), null)
   })
 }
+test('relay traffic price uses wallet currency, requires positive safe credits and respects role loss', async () => {
+  const rootUser = {
+    id: 2,
+    role: 100,
+    username: 'root',
+    setting: JSON.stringify({ wallet_display_currency: 'CNY' }),
+  }
+  useAuthStore.getState().auth.setUser(rootUser)
+  useSystemConfigStore.setState({
+    config: {
+      ...originalConfig,
+      currency: {
+        ...originalConfig.currency,
+        creditsPerUsd: 500000,
+        creditsPerUsdExact: '500000',
+        cnyPerUsd: 7,
+        cnyPerUsdExact: '7',
+        currencyUnit: 'credit',
+      },
+    },
+  })
+  const config = {
+    fee_bps: 100,
+    promotion_quota: 500000,
+    relay_price_quota_per_gib: 500000,
+  }
+  api.get = (async () => result(config)) as typeof api.get
+  const saves: unknown[] = []
+  api.put = (async (url: string, body: unknown) => {
+    assert.equal(url, '/api/store/config')
+    saves.push(body)
+    return result(null)
+  }) as typeof api.put
+  await mount(<MerchantStoreSettingsSection />)
+  const price = document.querySelector<HTMLInputElement>('#store-relay-price')
+  assert.ok(price)
+  assert.match(
+    document.querySelector('label[for="store-relay-price"]')?.textContent ?? '',
+    /Relay traffic price per GiB \(CNY\)/
+  )
+  assert.equal(Number(price.value), 7)
+  for (const invalid of ['0', '9007199254740992']) {
+    await input(price, invalid)
+    await click(button('Save store settings'))
+    assert.match(document.body.textContent ?? '', /Invalid amount/)
+    assert.equal(saves.length, 0)
+  }
+  await input(price, '14')
+  await click(button('Save store settings'))
+  assert.deepEqual(saves, [{ ...config, relay_price_quota_per_gib: 1000000 }])
+  const form = price.closest('form')
+  assert.ok(form)
+  await act(async () => {
+    useAuthStore.getState().auth.setUser({ ...rootUser, role: 10 })
+    form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))
+  })
+  assert.equal(document.querySelector('#store-relay-price'), null)
+  assert.equal(saves.length, 1)
+})
+
 test('private draft pause survives resume while public drafts remain unpausable', async () => {
   owner(9)
   let privateProduct: StoreProduct = {

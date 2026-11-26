@@ -117,9 +117,6 @@ function element<T extends Element>(container: HTMLElement, selector: string) {
   assert.ok(result, `Missing element: ${selector}`)
   return result
 }
-function previewText(container: HTMLElement) {
-  return element<HTMLPreElement>(container, 'pre').textContent ?? ''
-}
 async function mount(
   onChooseClient: (clientID: string) => void,
   marketConfig: typeof config | Omit<typeof config, 'capabilities'> = config,
@@ -512,47 +509,18 @@ test('editing a one-credit budget preserves raw quota across account currency ch
   assert.deepEqual(payload, { scope: 'account', scope_id: '', limit_quota: 1 })
 })
 
-test('a newly issued token chooses its own client without granting or invoking tools', async () => {
-  const chosen: string[] = []
-  const { container, cache } = await mount((client) => chosen.push(client))
-  await act(async () => {
-    button(container, 'Create connection token').click()
-    await flush()
+test('OAuth-only client setup never offers a personal token form', async () => {
+  const { container } = await mount(() => {}, {
+    ...config,
+    capabilities: { ...config.capabilities, mcp_oauth: true },
   })
-  await waitFor(() => container.querySelector('#mcp-secret') !== null)
-  const clientInput = element<HTMLInputElement>(container, '#mcp-client')
-  const inputSetter = Object.getOwnPropertyDescriptor(
-    dom.HTMLInputElement.prototype,
-    'value'
-  )?.set
-  assert.ok(inputSetter)
-  await act(async () => {
-    inputSetter.call(clientInput, 'another-client')
-    clientInput.dispatchEvent(new Event('input', { bubbles: true }))
-    clientInput.dispatchEvent(new Event('change', { bubbles: true }))
-  })
-  assert.equal(clientInput.value, 'another-client')
-  await act(async () =>
-    button(container, 'Choose tools for this client').click()
-  )
-  assert.deepEqual(chosen, ['my-agent'])
-  const pre = previewText(container)
-  assert.ok(pre.includes('YOUR_CONNECTION_TOKEN'))
-  assert.ok(pre.includes('my-agent'))
-  assert.equal(pre.includes(secret), false)
+  assert.equal(container.querySelector('#mcp-secret'), null)
+  assert.equal(container.querySelector('#mcp-client'), null)
   assert.equal(
-    JSON.stringify(cache.getQueryCache().getAll()).includes(secret),
+    container.textContent?.includes('Create connection token'),
     false
   )
-  assert.equal(
-    JSON.stringify(
-      cache
-        .getMutationCache()
-        .getAll()
-        .map((row) => row.state)
-    ).includes(secret),
-    false
-  )
+  assert.ok(container.textContent?.includes('Browser login'))
 })
 
 test('existing client cards carry exact personal and OAuth IDs to the tool picker', async () => {
@@ -580,272 +548,26 @@ test('existing client cards carry exact personal and OAuth IDs to the tool picke
   assert.deepEqual(chosen, ['cursor-work', 'oauth:lmm-pi'])
 })
 
-test('profile switching updates placeholder preview and copies secrets only after explicit action', async () => {
-  const copies: string[] = []
-  Object.defineProperty(dom.navigator, 'clipboard', {
-    configurable: true,
-    value: {
-      writeText: async (value: string) => {
-        copies.push(value)
-      },
-    },
-  })
-  const { container } = await mount(() => {})
-  const select = element<HTMLSelectElement>(container, '#mcp-client-profile')
-  assert.equal(select.value, 'codex')
-  assert.match(previewText(container), /\[mcp_servers\./)
-  await act(async () => {
-    select.value = 'cursor'
-    select.dispatchEvent(new Event('change', { bubbles: true }))
-  })
-  assert.match(previewText(container), /"mcpServers"/)
-  assert.equal(copies.length, 0)
-  await act(async () => {
-    button(container, 'Create connection token').click()
-    await flush()
-  })
-  await waitFor(() => container.querySelector('#mcp-secret') !== null)
-  assert.equal(copies.length, 0)
-  await act(async () => {
-    button(container, 'Copy configuration').click()
-    await flush()
-  })
-  assert.equal(copies.length, 1)
-  assert.equal(
-    JSON.parse(copies[0]).mcpServers['my-agent'].headers.Authorization,
-    `Bearer ${secret}`
-  )
-  assert.equal(previewText(container).includes(secret), false)
-  await act(async () => {
-    useAuthStore.getState().auth.setUser({ id: 2, username: 'next', role: 1 })
-    await flush()
-  })
-  await waitFor(
-    () => container.textContent?.includes('No connections yet') === true
-  )
-  assert.equal(container.querySelector('#mcp-secret'), null)
-  assert.equal(container.innerHTML.includes(secret), false)
-})
-
-async function enableManage(container: HTMLElement) {
-  const checkbox = [
-    ...container.querySelectorAll<HTMLInputElement>('input[type="checkbox"]'),
-  ].find((item) =>
-    item.parentElement?.textContent?.includes('Allow loading and unloading')
-  )
-  assert.ok(checkbox, 'missing explicit manage permission')
-  await act(async () => {
-    checkbox.click()
-    await flush()
-  })
-}
-
-test('legacy config keeps token creation and revocation usable without any new meta or cleanup request', async () => {
+test('a legacy configuration without OAuth keeps historical revocation available', async () => {
   const { capabilities: _, ...legacy } = config
-  let tokenCalls = 0
-  const { container, cache } = await mount(
-    () => {},
-    legacy,
-    () => {
-      metaDelegationAPI.oauthClients = async () =>
-        assert.fail('Legacy config must not query meta OAuth targets')
-      metaDelegationAPI.get = async () =>
-        assert.fail('Legacy config must not read a meta delegation')
-      metaDelegationAPI.set = async () =>
-        assert.fail('Legacy token creation must not append meta delegation')
-      marketAPI.removeClient = async () =>
-        assert.fail('Legacy config must not delete client history')
-      marketAPI.removeTokenRecord = async () =>
-        assert.fail('Legacy config must not delete token history')
-      marketAPI.removeGrantRecord = async () =>
-        assert.fail('Legacy config must not delete authorization history')
-      marketAPI.token = async (client, permissions) => {
-        tokenCalls++
-        assert.equal(permissions?.can_manage, true)
-        return {
-          token: secret,
-          record: { ...record, client_id: client, can_manage: true },
-        }
-      }
-    }
-  )
-  assert.equal(container.textContent?.includes(metaDelegationCopy.title), false)
-  await enableManage(container)
-  await act(async () => {
-    button(container, 'Create connection token').click()
-    await flush()
-  })
-  await waitFor(
-    () =>
-      container.querySelector<HTMLInputElement>('#mcp-secret')?.value === secret
-  )
-  assert.equal(tokenCalls, 1)
-  const state = {
-    tokens: [{ ...record, can_manage: true }],
-    grants: [accessGrant],
-    installations: [],
-  }
+  const { container, cache } = await mount(() => {}, legacy)
+  const state = { tokens: [record], grants: [], installations: [] }
   await clientRecords(cache, state)
+  assert.equal(
+    container.textContent?.includes('Create connection token'),
+    false
+  )
   let revoked = 0
   marketAPI.revokeToken = async (id) => {
     assert.equal(id, record.id)
     revoked++
-    state.tokens = [{ ...record, can_manage: true, revoked_at: 1 }]
     return null
   }
-  const current = element<HTMLElement>(
-    container,
-    '[data-testid="market-client-list"]'
-  )
   await act(async () => {
-    button(current, 'Revoke').click()
+    button(container, 'Revoke').click()
     await flush()
   })
   await waitFor(() => revoked === 1)
-  state.grants = [{ ...accessGrant, revoked_at: 1 }]
-  await clientRecords(cache, state)
-  const history = element<HTMLDetailsElement>(
-    container,
-    '[data-testid="market-revoked-records"]'
-  )
-  for (const title of [
-    'Delete client',
-    'Delete connection token',
-    'Delete authorization',
-  ]) {
-    assert.equal(history.textContent?.includes(title), false)
-  }
-  assert.equal(history.textContent?.includes('my-agent'), true)
-  assert.equal(container.textContent?.includes(metaDelegationCopy.title), false)
-})
-
-test('real connection creation delegates free AI management only after explicit manage consent', async () => {
-  const { container, cache } = await mount(() => {})
-  let delegation: Parameters<typeof metaDelegationAPI.set> | undefined
-  metaDelegationAPI.set = async (target, input) => {
-    delegation = [target, input]
-    return { ...input, updated_at: 1 }
-  }
-  let tokenCalls = 0
-  marketAPI.token = async (client, permissions) => {
-    tokenCalls++
-    assert.equal(permissions?.can_manage, true)
-    return {
-      token: secret,
-      record: { ...record, client_id: client, can_manage: true },
-    }
-  }
-  await enableManage(container)
-  await act(async () => {
-    button(container, 'Create connection token').click()
-    await flush()
-  })
-  await waitFor(() => delegation !== undefined)
-  assert.deepEqual(delegation, [
-    { kind: 'personal', id: record.id },
-    { enabled: true, max_total_quota: 0, expires_at: record.expires_at },
-  ])
-  assert.equal(tokenCalls, 1)
-  assert.equal(
-    element<HTMLInputElement>(container, '#mcp-secret').value,
-    secret
-  )
-  assert.equal(
-    JSON.stringify(cache.getQueryCache().getAll()).includes(secret),
-    false
-  )
-  assert.equal(
-    JSON.stringify(
-      cache
-        .getMutationCache()
-        .getAll()
-        .map((row) => row.state)
-    ).includes(secret),
-    false
-  )
-})
-
-test('no-manage creation does not silently enable delegation', async () => {
-  const { container } = await mount(() => {})
-  metaDelegationAPI.set = async () =>
-    assert.fail('invoke-only token cannot delegate')
-  await act(async () => {
-    button(container, 'Create connection token').click()
-    await flush()
-  })
-  await waitFor(() => container.querySelector('#mcp-secret') !== null)
-  assert.equal(container.textContent?.includes(metaDelegationCopy.saved), false)
-})
-
-test('failed delegation retains the once-only token and refreshes created records without issuing twice', async () => {
-  const { container, cache } = await mount(() => {})
-  let tokenCalls = 0
-  let recordReads = 0
-  marketAPI.mine = (async () => {
-    recordReads++
-    return []
-  }) as typeof marketAPI.mine
-  marketAPI.token = async (client) => {
-    tokenCalls++
-    return {
-      token: secret,
-      record: { ...record, client_id: client, can_manage: true },
-    }
-  }
-  metaDelegationAPI.set = async () => {
-    throw new Error('fixture unavailable')
-  }
-  await enableManage(container)
-  await act(async () => {
-    button(container, 'Create connection token').click()
-    await flush()
-  })
-  await waitFor(
-    () => container.textContent?.includes(metaDelegationCopy.failed) === true
-  )
-  await waitFor(() => recordReads >= 4)
-  assert.equal(tokenCalls, 1)
-  assert.equal(
-    element<HTMLInputElement>(container, '#mcp-secret').value,
-    secret
-  )
-  assert.equal(container.textContent?.includes(metaDelegationCopy.saved), false)
-  assert.equal(
-    JSON.stringify(
-      cache
-        .getMutationCache()
-        .getAll()
-        .map((row) => row.state)
-    ).includes(secret),
-    false
-  )
-})
-
-test('late token response after account change cannot expose a token or configure old delegation', async () => {
-  const { container } = await mount(() => {})
-  let resolveToken:
-    | ((value: { token: string; record: typeof record }) => void)
-    | undefined
-  marketAPI.token = async () =>
-    new Promise((resolve) => {
-      resolveToken = resolve
-    })
-  metaDelegationAPI.set = async () =>
-    assert.fail('old account response cannot delegate')
-  await enableManage(container)
-  await act(async () => {
-    button(container, 'Create connection token').click()
-    await flush()
-  })
-  await waitFor(() => resolveToken !== undefined)
-  await act(async () => {
-    useAuthStore.getState().auth.setUser({ id: 2, username: 'next', role: 1 })
-    await flush()
-    resolveToken?.({ token: secret, record: { ...record, can_manage: true } })
-    await flush()
-  })
-  assert.equal(container.querySelector('#mcp-secret'), null)
-  assert.equal(container.innerHTML.includes(secret), false)
 })
 
 test('existing token settings remain credential-bound and strictly eligible OAuth clients appear without installed tools', async () => {

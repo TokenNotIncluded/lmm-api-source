@@ -13,6 +13,8 @@ use sqlx::PgPool;
 pub mod http;
 
 const ACTIONS: &[(&str, &str)] = &[
+    ("ssmcpd", "quota"),
+    ("ssmcpd", "purchase"),
     ("drawing", "generate"),
     ("drawing", "list_capabilities"),
     ("wallet", "balance"),
@@ -72,6 +74,7 @@ pub struct Authorization {
 #[derive(Clone)]
 pub struct Store {
     pool: PgPool,
+    market_profile: Option<std::sync::Arc<crate::market_oauth::MarketProfile>>,
 }
 /// Match the existing Go encoding/json fingerprint, including HTML and JS line
 /// separators. This is a payload fingerprint, never a signature or credential.
@@ -95,7 +98,17 @@ fn kind(service: &str, tool: &str) -> Result<BuiltinKind> {
 }
 impl Store {
     pub fn from_pool(pool: PgPool) -> Self {
-        Self { pool }
+        Self {
+            pool,
+            market_profile: None,
+        }
+    }
+    pub fn with_market_profile(
+        mut self,
+        profile: Option<std::sync::Arc<crate::market_oauth::MarketProfile>>,
+    ) -> Self {
+        self.market_profile = profile;
+        self
     }
     pub async fn check_ready(&self) -> Result<crate::tool_market::builtin_install::InstallReceipt> {
         crate::tool_market::builtin_install::check_builtin_registry(&self.pool).await
@@ -121,9 +134,14 @@ impl Store {
         ] {
             sqlx::query(statement).execute(&mut *tx).await?;
         }
-        let actor =
-            CreditStore::validate_builtin_context(&mut tx, session, &request.context, expected)
-                .await?;
+        let actor = CreditStore::validate_registry_context(
+            &mut tx,
+            session,
+            &request.context,
+            expected,
+            self.market_profile.as_deref(),
+        )
+        .await?;
         if actor.input_schema_digest != request.input_schema_digest {
             return Err(Error::Conflict);
         }
@@ -150,6 +168,10 @@ mod tests {
     #[test]
     fn only_code_owned_actions_and_existing_go_fingerprint_are_accepted() {
         assert!(kind("wallet", "wallet.balance").is_ok());
+        assert!(kind("ssmcpd", "ssmcpd.quota").is_ok());
+        assert!(kind("ssmcpd", "ssmcpd.purchase").is_ok());
+        assert!(kind("ssmcpd", "ssmcpd.pay").is_err());
+        assert!(kind("ssmcpd", "wallet.balance").is_err());
         assert!(kind("wallet", "wallet.admin_transfer").is_err());
         assert!(kind("drawing", "wallet.balance").is_err());
         assert!(kind("open_source_bounties", "open_source_bounties.approve").is_ok());

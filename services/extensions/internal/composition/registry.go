@@ -18,6 +18,7 @@ type moduleRegistration struct {
 // module binding all read these registrations; storage and Core authority are
 // still assembled explicitly by New before a module is exposed.
 var moduleRegistrations = []moduleRegistration{
+	{descriptor: modules.Descriptor{Name: "ssmcpd", Version: "1.0.0", Requires: []string{"store", "toolmarket"}}, bind: func(r *Runtime) (modules.Module, error) { return relayTools{r.SSMCPRelay}, nil }},
 	{descriptor: modules.Descriptor{Name: "checkins", Version: "1.0.0"}, bind: func(r *Runtime) (modules.Module, error) { return r.Checkins, nil }},
 	{
 		descriptor: modules.Descriptor{Name: "identity", Version: "1.0.0"},

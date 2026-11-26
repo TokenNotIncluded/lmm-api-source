@@ -350,7 +350,7 @@ func TestA06TeamPurchaseTermsBelongToActorNotAccountID(t *testing.T) {
 				if err := tx.Put("products", productID, Product{ID: productID, Published: true, Legacy: &LegacyProductMetadata{Status: "published", Approved: true}}); err != nil {
 					return err
 				}
-				if err := tx.Put("variants", variantID, Variant{ID: variantID, ProductID: productID, Price: Price{Amount: 50, Unit: "credits"}, Quota: -1, Legacy: &LegacyVariantMetadata{Enabled: true, Template: "fixed-content", FixedContent: "synthetic"}}); err != nil {
+				if err := tx.Put("variants", variantID, Variant{ID: variantID, ProductID: productID, Price: Price{Amount: defaultMinimumUnitPrice, Unit: "credits"}, Quota: -1, Legacy: &LegacyVariantMetadata{Enabled: true, Template: "fixed-content", FixedContent: "synthetic"}}); err != nil {
 					return err
 				}
 				if err := tx.Put("commands", "@web:seller-terms", legacySellerTerms{Version: version, Content: "Synthetic terms", UpdatedAt: 1}); err != nil {

@@ -14,6 +14,7 @@ import {
 import { marketDraftBody } from './draft-body'
 import { marketInvokeBody, marketResumeBody } from './invoke-body'
 import { MarketAPIError, parseMarketCallResponse } from './native-call-response'
+import type { OwnerScope } from './remote-server-api'
 
 export { MarketAPIError, parseMarketCallResponse }
 
@@ -345,7 +346,72 @@ async function unwrap<T>(request: Promise<{ data: Envelope<T> }>): Promise<T> {
     throw error
   }
 }
+const providerID = z.enum(['agentkey', 'treg', 'treg-catalog'])
+export type OAuthProvider = z.infer<typeof providerID>
+const providerStatus = z.object({
+  provider: providerID,
+  connected: z.boolean(),
+  installation: z.string().optional(),
+  tools: z.array(z.string()),
+  fixed_price_tools: z.array(z.string()),
+})
+const runtimeOptions = (authScope: OwnerScope) => ({
+  authScope,
+  skipBusinessError: true,
+  skipErrorHandler: true,
+})
 export const marketAPI = {
+  oauthProviders: async (owner: OwnerScope) =>
+    z
+      .array(providerStatus)
+      .parse(
+        (
+          await api.post(
+            base + '/runtime/oauth/providers',
+            {},
+            runtimeOptions(owner)
+          )
+        ).data
+      ),
+  startProviderOAuth: async (provider: OAuthProvider, owner: OwnerScope) => {
+    const { data } = await api.post(
+      base + '/runtime/oauth/connect',
+      { provider },
+      runtimeOptions(owner)
+    )
+    return z
+      .object({
+        authorization_url: z.string(),
+        state: z.string().min(1).max(80),
+        installation: z.string().min(1).max(80),
+      })
+      .parse(data)
+  },
+  importProviderTool: async (
+    provider: OAuthProvider,
+    name: string,
+    price: number,
+    owner: OwnerScope
+  ) => {
+    const { data } = await api.post(
+      base + '/runtime/oauth/import',
+      { provider, name, price_quota: price },
+      runtimeOptions(owner)
+    )
+    return z.object({ id: z.string().min(1) }).parse(data)
+  },
+  discoverProvider: (installation: string, owner: OwnerScope) =>
+    api.post(
+      base + '/runtime/servers/discover',
+      { installation },
+      runtimeOptions(owner)
+    ),
+  revokeProvider: (installation: string, owner: OwnerScope) =>
+    api.post(
+      base + '/runtime/credentials/revoke',
+      { installation },
+      runtimeOptions(owner)
+    ),
   config: () => unwrap<MarketConfig>(api.get(`${base}/config`)),
   list: (q: string, offset = 0, executionType = '') =>
     unwrap<MarketSummary[]>(

@@ -7,7 +7,7 @@ func TestBuiltinCatalogueOverlayIsImmutableAndVersionBound(t *testing.T) {
 	d := emptyDB()
 	overlayBuiltinCatalog(&d)
 	definitions := CompiledBuiltinDefinitions()
-	if len(definitions) != 3 {
+	if len(definitions) != 4 {
 		t.Fatalf("compiled services: %d", len(definitions))
 	}
 	count := 0
@@ -30,7 +30,7 @@ func TestBuiltinCatalogueOverlayIsImmutableAndVersionBound(t *testing.T) {
 		service.OwnerID = 1
 		d.Web.Services[definition.ServiceID] = service
 	}
-	if count != 18 {
+	if count != 20 {
 		t.Fatalf("compiled tools: %d", count)
 	}
 	overlayBuiltinCatalog(&d)

@@ -228,7 +228,7 @@ func (m *Module) register(p Principal, in RegisterInput) (any, error) {
 		return nil, ErrInvalid
 	}
 	if in.Auth == "oauth" {
-		if in.ClientID == "" || len(in.ClientID) > 512 || len(in.Scopes) > 512 || strings.ContainsAny(in.Scopes+in.ClientID, "\r\n\x00") {
+		if len(in.ClientID) > 512 || len(in.Scopes) > 512 || strings.ContainsAny(in.Scopes+in.ClientID, "\r\n\x00") {
 			return nil, ErrInvalid
 		}
 		if in.Issuer != "" {
@@ -316,6 +316,15 @@ func (m *Module) discover(ctx context.Context, p Principal, id string) (any, err
 	}
 	if r.Server.Owner != p {
 		return nil, ErrDenied
+	}
+	if r.Server.Auth == "oauth" && s.Access != "" && s.Expires <= m.now().Unix() && s.Refresh != "" {
+		if e = m.refreshOAuth(ctx, p, id); e != nil {
+			return nil, e
+		}
+		i, r, s, e = m.snapshot(p, id)
+		if e != nil {
+			return nil, e
+		}
 	}
 	c, e := m.connect(ctx, r.Server, s)
 	if e != nil {

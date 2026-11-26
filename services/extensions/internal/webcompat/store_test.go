@@ -234,9 +234,12 @@ type storeReadOnlyRepoFake struct {
 }
 type storeReadOnlyTxFake struct{ repo *storeReadOnlyRepoFake }
 
+func (*storeReadOnlyTxFake) RelayPricePerGiB() (int64, error) { return 0, store.ErrUnavailable }
+func (*storeReadOnlyTxFake) MinimumUnitPrice() (int64, error) { return 0, store.ErrUnavailable }
+
 func (r *storeReadOnlyRepoFake) Within(_ context.Context, shop string, fn func(store.Tx) error) error {
 	r.readCalls++
-	if shop != "shop-1" {
+	if shop != "shop-1" && shop != "@store-price-policy" {
 		return store.ErrNotFound
 	}
 	return fn(&storeReadOnlyTxFake{r})
@@ -487,6 +490,7 @@ type storeLegacyRouteCase struct {
 
 func storeLegacyRouteCases() []storeLegacyRouteCase {
 	return []storeLegacyRouteCase{
+		{method: "PUT", path: "/api/store/config", action: "set_minimum_price", body: `{"minimum_unit_price_quota":0}`},
 		{method: "GET", path: "/api/store/payments/settings", action: "payment_settings"},
 		{method: "GET", path: "/api/store/cart?offset=2&limit=7", action: "cart", offset: 2, limit: 7},
 		{method: "PUT", path: "/api/store/cart", action: "save_cart", body: `{"product_id":"product-1","variant_id":"variant-1","quantity":5}`},

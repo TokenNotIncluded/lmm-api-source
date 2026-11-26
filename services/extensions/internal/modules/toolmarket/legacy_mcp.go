@@ -11,7 +11,6 @@ import (
 	"net/http"
 	"net/netip"
 	"net/url"
-	"sort"
 	"strconv"
 	"strings"
 
@@ -79,34 +78,25 @@ func legacyMCPRequired(raw []byte) (invoke, manage bool) {
 	} else {
 		calls = []json.RawMessage{raw}
 	}
-	for _, r := range calls {
+	for _, row := range calls {
 		var msg struct {
-			Method string `json:"method"`
+			Method string
 			Params struct {
-				Name      string `json:"name"`
-				Arguments struct {
-					Action string `json:"action"`
-				} `json:"arguments"`
-			} `json:"params"`
+				Name      string
+				Arguments json.RawMessage
+			}
 		}
-		if json.Unmarshal(r, &msg) != nil || msg.Method != "tools/call" {
+		if json.Unmarshal(row, &msg) != nil || msg.Method != "tools/call" || msg.Params.Name != "metamcp" {
 			continue
 		}
-		switch {
-		case strings.HasPrefix(msg.Params.Name, "market_tool_"):
-			invoke = true
-		case msg.Params.Name == "lmm_market_load":
-			manage = true
-		case msg.Params.Name == "metamcp":
-			switch msg.Params.Arguments.Action {
-			case "invoke":
-				invoke = true
-			case "authorize":
-				invoke = true
-				manage = true
-			case "load", "unload", "set_tool_budget", "set_client_budget":
-				manage = true
-			}
+		steps, err := parseMarketCode(msg.Params.Arguments)
+		if err != nil {
+			continue
+		}
+		for _, step := range steps {
+			i, m := marketActionScopes(step.action)
+			invoke = invoke || i
+			manage = manage || m
 		}
 	}
 	return
@@ -140,7 +130,11 @@ func (m *Module) LegacyMarketMCPHandler(opts LegacyMarketMCPOptions) http.Handle
 		if len(values) == 1 && len(values[0]) > 7 && strings.EqualFold(values[0][:7], "Bearer ") {
 			raw = values[0][7:]
 		}
-		p, e := m.LegacyAuthenticateMarket(r.Context(), raw, []string{"market:discover"})
+		var p LegacyMarketPrincipal
+		e := ErrDenied
+		if strings.HasPrefix(raw, "lmm_at_") {
+			p, e = m.LegacyAuthenticateMarket(r.Context(), raw, []string{"market:discover"})
+		}
 		if e != nil {
 			status, code := 401, "invalid_token"
 			if raw == "" {
@@ -157,7 +151,7 @@ func (m *Module) LegacyMarketMCPHandler(opts LegacyMarketMCPOptions) http.Handle
 			http.Error(w, "MCP authorization required", status)
 			return
 		}
-		if p.CredentialKind == "oauth" && (p.Issuer != opts.Issuer || p.Resource != opts.Resource) {
+		if p.CredentialKind != "oauth" || p.Issuer != opts.Issuer || p.Resource != opts.Resource {
 			w.Header().Set("WWW-Authenticate", legacyMCPChallenge(opts, nil, "invalid_token"))
 			http.Error(w, "MCP authorization required", 401)
 			return
@@ -201,199 +195,11 @@ func (m *Module) LegacyMarketMCPHandler(opts LegacyMarketMCPOptions) http.Handle
 			ctx = WithBuiltinPeerIP(ctx, host)
 		}
 		r = r.WithContext(ctx)
-		server, e := m.legacyMCPServer(ctx, raw, p, mode == "compact")
-		if e != nil {
-			http.Error(w, "Tool set temporarily unavailable", 503)
-			return
-		}
+		server := mcp.NewServer(&mcp.Implementation{Name: "lmm-tool-market", Version: "3"}, nil)
+		server.AddTool(LegacyMetaToolDescription(), func(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			return m.runMarketCode(ctx, raw, p, req)
+		})
 		handler := mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server { return server }, &mcp.StreamableHTTPOptions{Stateless: true, JSONResponse: true, DisableLocalhostProtection: true, PropagateRequestCancellation: true})
 		handler.ServeHTTP(w, r)
 	})
-}
-
-func (m *Module) legacyMCPServer(ctx context.Context, raw string, p LegacyMarketPrincipal, compact bool) (*mcp.Server, error) {
-	server := mcp.NewServer(&mcp.Implementation{Name: "lmm-tool-market", Version: "2"}, nil)
-	server.AddTool(LegacyMetaToolDescription(), func(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		in, e := legacyDecodeMCPInput(req.Params.Arguments, m.now().Unix())
-		if e != nil {
-			return legacyMCPOutput(nil, e)
-		}
-		if in.Action == "invoke" {
-			if !p.CanInvoke {
-				return legacyMCPOutput(nil, ErrLegacyMarketScope)
-			}
-			return m.legacyMCPInvoke(ctx, raw, p, in, req)
-		}
-		if req.Params.RequestState != "" || len(req.Params.InputResponses) > 0 {
-			return legacyMCPOutput(nil, ErrInvalid)
-		}
-		value, e := m.legacyMCPMeta(ctx, raw, p, in)
-		if compact && e == nil {
-			if view, ok := value.(map[string]any); ok {
-				if _, exists := view["refresh_tools_list"]; exists {
-					view["refresh_tools_list"] = false
-				}
-			}
-		}
-		return legacyMCPOutput(value, e)
-	})
-	if compact {
-		return server, nil
-	}
-	server.AddTool(&mcp.Tool{Name: "lmm_market_search", Description: "Search service summaries. Use details to read exact tool schemas and prices.", InputSchema: legacyMCPSchema(map[string]any{"query": map[string]any{"type": "string", "maxLength": 120}})}, func(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		var in struct {
-			Query string `json:"query"`
-		}
-		if e := decodeStrict(req.Params.Arguments, &in); e != nil {
-			return legacyMCPOutput(nil, e)
-		}
-		value, e := m.legacyMCPMeta(ctx, raw, p, legacyMCPInput{Action: "search", Query: in.Query, Limit: 5})
-		return legacyMCPOutput(value, e)
-	})
-	for _, entry := range []struct{ name, action, key string }{{"lmm_market_details", "details", "service_id"}, {"lmm_market_call_status", "call_status", "call_id"}} {
-		entry := entry
-		server.AddTool(&mcp.Tool{Name: entry.name, InputSchema: legacyMCPSchema(map[string]any{entry.key: map[string]any{"type": "string", "minLength": 1, "maxLength": 128}}, entry.key)}, func(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-			var obj map[string]json.RawMessage
-			if decodeStrict(req.Params.Arguments, &obj) != nil || len(obj) != 1 {
-				return legacyMCPOutput(nil, ErrInvalid)
-			}
-			obj["action"], _ = json.Marshal(entry.action)
-			b, _ := json.Marshal(obj)
-			in, e := legacyDecodeMCPInput(b, m.now().Unix())
-			if e != nil {
-				return legacyMCPOutput(nil, e)
-			}
-			value, e := m.legacyMCPMeta(ctx, raw, p, in)
-			return legacyMCPOutput(value, e)
-		})
-	}
-	if p.CanManage {
-		server.AddTool(&mcp.Tool{Name: "lmm_market_load", InputSchema: legacyMCPSchema(map[string]any{"tool_id": map[string]any{"type": "string"}, "version_id": map[string]any{"type": "string"}, "loaded": map[string]any{"type": "boolean"}}, "tool_id", "version_id", "loaded")}, func(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-			v, e := payload[struct {
-				ToolID    string `json:"tool_id"`
-				VersionID string `json:"version_id"`
-				Loaded    bool   `json:"loaded"`
-			}](req.Params.Arguments, "tool_id", "version_id", "loaded")
-			if e != nil {
-				return legacyMCPOutput(nil, e)
-			}
-			action := "unload"
-			if v.Loaded {
-				action = "load"
-			}
-			value, e := m.legacyMCPMeta(ctx, raw, p, legacyMCPInput{Action: action, ToolID: v.ToolID, VersionID: v.VersionID})
-			return legacyMCPOutput(value, e)
-		})
-	}
-	if !p.CanInvoke {
-		return server, nil
-	}
-	grants, e := m.legacyMCPGrants(ctx, raw, p)
-	if e != nil {
-		return nil, e
-	}
-	user, _ := strconv.ParseInt(p.UserID, 10, 64)
-	var tools []WebTool
-	e = m.store.view(func(d database) error {
-		for _, i := range webState(&d).Installations {
-			if i.UserID != user || i.ClientID != p.ClientID {
-				continue
-			}
-			if _, ok := legacyMCPGrant(grants, i.ToolID, i.VersionID, m.now().Unix()); !ok {
-				continue
-			}
-			snapshot, exists := webState(&d).Versions[i.VersionID]
-			if !exists || !m.builtinVersionAvailable(snapshot) || snapshot.Version.ExecutionType != "remote" && snapshot.Version.ExecutionType != "builtin" {
-				continue
-			}
-			tool, e := legacyLiveTool(&d, user, i.ToolID, i.VersionID)
-			if e == nil {
-				tools = append(tools, tool)
-			}
-		}
-		return nil
-	})
-	if e != nil {
-		return nil, e
-	}
-	sort.Slice(tools, func(i, j int) bool { return tools[i].ToolID < tools[j].ToolID })
-	seenNames := map[string]bool{}
-	for _, t := range tools {
-		t := t
-		name := "market_tool_" + strings.ReplaceAll(t.ToolID, "-", "")
-		if seenNames[name] {
-			return nil, ErrConflict
-		}
-		seenNames[name] = true
-		schema, e := legacyMCPWrappedSchema(t.InputSchema)
-		if e != nil {
-			return nil, e
-		}
-		definition := &mcp.Tool{Name: name, Title: t.Name, Description: t.Description, InputSchema: schema, Meta: mcp.Meta{"lmm/pricing": legacyMCPPricing(t)}}
-		if len(t.Annotations) > 0 {
-			var hints mcp.ToolAnnotations
-			if json.Unmarshal(t.Annotations, &hints) != nil {
-				return nil, ErrInvalid
-			}
-			definition.Annotations = &hints
-		}
-		if t.OutputSchema != "" {
-			definition.OutputSchema = json.RawMessage(t.OutputSchema)
-		}
-		server.AddTool(definition, func(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-			in, e := payload[struct {
-				RequestID string          `json:"request_id"`
-				Arguments json.RawMessage `json:"arguments"`
-			}](req.Params.Arguments, "request_id", "arguments")
-			if e != nil {
-				return legacyMCPOutput(nil, e)
-			}
-			return m.legacyMCPInvoke(ctx, raw, p, legacyMCPInput{Action: "invoke", ToolID: t.ToolID, VersionID: t.VersionID, RequestID: in.RequestID, Arguments: in.Arguments}, req)
-		})
-	}
-	return server, nil
-}
-func legacyMCPWrappedSchema(raw string) (map[string]any, error) {
-	var original any
-	if decodeStrict([]byte(raw), &original) != nil {
-		return nil, ErrInvalid
-	}
-	var rewrite func(any)
-	rewrite = func(v any) {
-		switch x := v.(type) {
-		case map[string]any:
-			for k, c := range x {
-				if k == "$ref" {
-					if s, ok := c.(string); ok && (s == "#" || strings.HasPrefix(s, "#/")) {
-						x[k] = "#/$defs/arguments" + strings.TrimPrefix(s, "#")
-					}
-				} else {
-					rewrite(c)
-				}
-			}
-		case []any:
-			for _, c := range x {
-				rewrite(c)
-			}
-		}
-	}
-	rewrite(original)
-	out := legacyMCPSchema(map[string]any{"request_id": map[string]any{"type": "string", "minLength": 1, "maxLength": 128}, "arguments": map[string]any{"$ref": "#/$defs/arguments"}}, "request_id", "arguments")
-	out["$defs"] = map[string]any{"arguments": original}
-	return out, nil
-}
-
-func legacyMCPPricing(t WebTool) map[string]any {
-	pricing := map[string]any{"price_quota": t.PriceQuota, "billing_mode": t.BillingMode, "input_token_price_quota": t.InputTokenPriceQuota, "max_input_tokens": t.MaxInputTokens, "billing_rules": t.BillingRules}
-	if t.ProviderPricing != nil {
-		pricing["billing_mode"] = "provider_quote"
-		pricing["provider_pricing"] = t.ProviderPricing
-		pricing["maximum_price_quota"] = t.PriceQuota
-		pricing["price_quota"] = nil
-		pricing["usage_policy"] = "fresh_upstream_usd_quote"
-	}
-	if t.BillingMode != "" {
-		pricing["usage_policy"] = "tool_reported"
-	}
-	return pricing
 }

@@ -78,6 +78,7 @@ func Run() error {
 		Selected: selected, Socket: socket, TokenFile: tokenFile, HostCredential: credential,
 		SupportCustomerSocket: cfg.SupportCustomers.CoreSocket, SupportCustomerTokenFile: cfg.SupportCustomers.CoreTokenFile, SupportNoteKeyFile: cfg.SupportCustomers.NoteKeyFile,
 		LocalHTTP: cfg.Host.LocalHTTP, HostListen: cfg.Host.Listen, HostPublicOrigin: cfg.Host.PublicOrigin,
+		SSMCPRelay:                 cfg.SSMCPRelay,
 		ToolMarketCorePublicOrigin: cfg.ToolMarket.CorePublicOrigin,
 		ToolMarketBuiltins:         cfg.ToolMarket.Builtins.composition(),
 		ToolMarketWitnessSocket:    cfg.ToolMarket.FixedWitnessSocket, ToolMarketWitnessTokenFile: cfg.ToolMarket.FixedWitnessTokenFile,
@@ -135,6 +136,9 @@ func Run() error {
 	if err != nil {
 		return err
 	}
+	if err := runtime.RegisterMarketProviders(pluginManager.IsEnabled); err != nil {
+		return err
+	}
 	var api http.Handler = host
 	var builtinHTTP webcompat.BuiltinHTTP
 	if cfg.Host.WebCompat && runtime.Builtins != nil {
@@ -148,7 +152,7 @@ func Run() error {
 		if runtime.Store == nil && runtime.AssistantHistory == nil && runtime.Operations == nil && runtime.Payments == nil && runtime.ToolMarket == nil && runtime.Community == nil && runtime.Acquisition == nil && runtime.Checkins == nil && runtime.HeroSMS == nil && runtime.MarketReview == nil {
 			return errors.New("Web compatibility requires an assembled Web module")
 		}
-		api = webcompat.Mount(host, auth, runtime.Store, runtime.Support, webcompat.AdditionalServices{Checkins: runtime.Checkins, HeroSMS: runtime.HeroSMS, MarketReview: runtime.MarketReview, Builtins: builtinHTTP, ToolMarket: runtime.ToolMarket, ToolMarketMCP: runtime.ToolMarketMCP, Assistant: runtime.AssistantHistory, AssistantChat: runtime.AssistantChat, AssistantServices: runtime.AssistantServices, Operations: runtime.Operations, Payments: webcompat.NewPaymentStatusReader(runtime.Payments), PaymentCheckout: runtime.Payments, PaymentPortal: runtime.Payments, PancakeAdmin: runtime.PancakeAdmin, EPayAdmin: runtime.EPayAdmin, ProviderGateways: runtime.ProviderGateways, SubscriptionPayments: subscriptionPayments, Plugins: pluginManager, Community: runtime.Community, Acquisition: runtime.Acquisition})
+		api = webcompat.Mount(host, auth, runtime.Store, runtime.Support, webcompat.AdditionalServices{SSMCPRelay: runtime.SSMCPRelay, Checkins: runtime.Checkins, HeroSMS: runtime.HeroSMS, MarketReview: runtime.MarketReview, Builtins: builtinHTTP, ToolMarket: runtime.ToolMarket, ToolMarketMCP: runtime.ToolMarketMCP, Assistant: runtime.AssistantHistory, AssistantChat: runtime.AssistantChat, AssistantServices: runtime.AssistantServices, Operations: runtime.Operations, Payments: webcompat.NewPaymentStatusReader(runtime.Payments), PaymentCheckout: runtime.Payments, PaymentPortal: runtime.Payments, PancakeAdmin: runtime.PancakeAdmin, EPayAdmin: runtime.EPayAdmin, ProviderGateways: runtime.ProviderGateways, SubscriptionPayments: subscriptionPayments, Plugins: pluginManager, Community: runtime.Community, Acquisition: runtime.Acquisition})
 	}
 	handler := listenerHandler(policies, api)
 	if cfg.Payments.CallbacksEnabled {

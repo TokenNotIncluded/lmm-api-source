@@ -88,7 +88,7 @@ func TestLegacyStockCatalogueInventoryAndReplay(t *testing.T) {
 func TestLegacyStockTemplatesAndMissingKeyBeforeMoney(t *testing.T) {
 	for _, template := range []string{"card-key", "text", "custom-text", "redemption-code", "license-key", "download-link", "account-details"} {
 		in := LegacyVariantInput{Name: "Synthetic", PriceQuota: 500000, Template: template, Enabled: true}
-		must(t, validateLegacyVariant(in))
+		must(t, validateLegacyVariant(in, defaultMinimumUnitPrice))
 		v := newLegacyVariant("variant", "product", in, 1)
 		if !v.TrackStock || v.Quota != -1 || v.Legacy.FixedContent != "" {
 			t.Fatal(template)

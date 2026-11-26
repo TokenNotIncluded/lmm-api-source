@@ -8,11 +8,12 @@ import (
 )
 
 type LocatedProduct struct {
-	ShopID   string
-	Owner    Account
-	Product  Product
-	Variants []Variant
-	Stats    *CatalogueStats
+	minimumUnitPrice *int64
+	ShopID           string
+	Owner            Account
+	Product          Product
+	Variants         []Variant
+	Stats            *CatalogueStats
 }
 type CatalogueStats struct {
 	PaidQuantity     int64 `json:"paid_quantity"`

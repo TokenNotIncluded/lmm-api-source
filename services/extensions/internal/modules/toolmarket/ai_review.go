@@ -199,7 +199,7 @@ func (m *Module) reviewTechnical(ctx context.Context, j marketreview.Job) ([]str
 			return ErrConflict
 		}
 		var err error
-		credential, err = webResolveCredential(d, s.OwnerID, s.ID, j.Version, v.Version.Endpoint)
+		credential, err = m.webOwnerCredential(d, s, v.Version)
 		return err
 	}); err != nil {
 		return nil, "", "technical_validation_failed"

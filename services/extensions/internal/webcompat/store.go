@@ -438,6 +438,7 @@ func RegisterStore(mux RouteRegistrar, auth *Authenticator, service StoreService
 		{pattern: "GET /api/store/products/{id}/variants/{child_id}/inventory", action: "stock_list", page: true},
 		{pattern: "POST /api/store/products/{id}/variants/{child_id}/inventory", action: "stock_add", bodyLimit: 4 << 20, requiredBody: true},
 		{pattern: "DELETE /api/store/products/{id}/variants/{child_id}/inventory/{stock_id}", action: "stock_remove", bodyLimit: 4 << 10},
+		{pattern: "PUT /api/store/config", action: "set_minimum_price", bodyLimit: 4 << 10, requiredBody: true},
 		{pattern: "GET /api/store/admin/categories", action: "admin_categories", page: true},
 		{pattern: "POST /api/store/admin/categories", action: "save_category", bodyLimit: 4 << 10, requiredBody: true},
 		{pattern: "PUT /api/store/admin/categories/{id}", action: "save_category", bodyLimit: 4 << 10, requiredBody: true},

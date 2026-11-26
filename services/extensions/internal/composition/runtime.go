@@ -3,6 +3,7 @@ package composition
 import (
 	"context"
 	"errors"
+	"github.com/TokenNotIncluded/lmm-api/extensions/internal/modules/ssmcprelay"
 	"net/http"
 	"slices"
 	"sync"
@@ -29,6 +30,7 @@ import (
 )
 
 type Config struct {
+	SSMCPRelay                    SSMCPRelayConfig
 	Checkins                      StorageConfig
 	CheckinTokenFile              string
 	HeroSMSSocket                 string
@@ -87,6 +89,7 @@ type Config struct {
 }
 
 type Runtime struct {
+	SSMCPRelay                  *ssmcprelay.Service
 	Checkins                    *checkins.Service
 	HeroSMS                     *herosms.Service
 	MarketReview                *marketreview.Engine
@@ -385,6 +388,11 @@ func New(ctx context.Context, cfg Config) (_ *Runtime, resultErr error) {
 			funds, err = rustfunds.New(r.CommerceClient, caps.GetFeatures())
 			if err != nil {
 				return nil, errors.New("commerce core capabilities unavailable")
+			}
+		}
+		if selected["ssmcpd"] {
+			if err := r.composeRelay(cfg.SSMCPRelay, repo, funds, cfg.HostCredential, token, commerceToken, paymentToken, assistantToken, supportCustomerToken, supportNoteKey); err != nil {
+				return nil, err
 			}
 		}
 		r.Store, err = store.New(repo, auth, funds)

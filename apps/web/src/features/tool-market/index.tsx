@@ -67,12 +67,12 @@ import {
   clearRemoteOAuthFragment,
 } from './remote-server-api'
 import { RemoteServers } from './remote-servers'
+import { ProviderOAuthConnections } from './provider-oauth-connections'
 import { MarketReports, ReportCallButton } from './reports'
 import { ServiceEditor } from './service-editor'
 import { parseMarketServiceID } from './service-link'
 import { MarketNextStep, MarketUsageGuide } from './setup-guide'
 import { CallDialog, CallResult, GrantDialog } from './tool-actions'
-import type { TregSurface } from './treg-connection'
 import {
   usagePriceLabel,
   usageQuantityLabel,
@@ -185,7 +185,6 @@ function ToolMarketWorkspace({
   } | null>(null)
   const [editor, setEditor] = useState(false)
   const [editorInitial, setEditorInitial] = useState<MarketDetail>()
-  const [editorTregSurface, setEditorTregSurface] = useState<TregSurface>()
   const [client, setClient] = useState('web-market')
   const [grantTool, setGrantTool] = useState<MarketTool | null>(null)
   const [callTool, setCallTool] = useState<{
@@ -394,7 +393,6 @@ function ToolMarketWorkspace({
     (!client.startsWith('oauth:') ||
       (oauthClients.isSuccess && eligibleOAuthIDs.includes(client)))
   const openPublisher = () => {
-    setEditorTregSurface(undefined)
     setSelected(null)
     setEditorInitial(undefined)
     setEditor(true)
@@ -418,7 +416,6 @@ function ToolMarketWorkspace({
       setSelected({ id: source.service.id, mode: 'draft' })
       return
     }
-    setEditorTregSurface(undefined)
     setEditorInitial(source)
     setEditor(true)
   }
@@ -498,16 +495,10 @@ function ToolMarketWorkspace({
     <SectionPageLayout>
       <SectionPageLayout.Title>{t('Tool market')}</SectionPageLayout.Title>
       <SectionPageLayout.Actions>
-        <Button
-          variant='outline'
-          className='min-h-11'
-          onClick={() => {
-            openPublisher()
-            setEditorTregSurface('team')
-          }}
-        >
-          {t('Connect treg')}
-        </Button>
+        <ProviderOAuthConnections
+          available={marketSupports(config.data, 'provider_mcp_oauth')}
+          redirectURI={config.data?.provider_mcp_oauth_redirect_uri}
+        />
         <Button
           variant='outline'
           className='min-h-11'
@@ -587,9 +578,8 @@ function ToolMarketWorkspace({
           )}
           {editor ? (
             <ServiceEditor
-              key={selected?.id ?? editorTregSurface ?? 'new'}
+              key={selected?.id ?? 'new'}
               initial={editorInitial}
-              initialTregSurface={editorTregSurface}
               feeBps={config.data?.fee_bps}
               onCancel={() => setEditor(false)}
               onSaved={(id) => {

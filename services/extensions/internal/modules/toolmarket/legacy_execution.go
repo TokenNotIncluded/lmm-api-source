@@ -155,7 +155,11 @@ func (m *Module) legacyExecute(ctx context.Context, credential, account string, 
 			return nil
 		}
 		service := d.Web.Services[snapshot.Version.ServiceID]
-		remoteCredential, err = webResolveCredential(d, service.OwnerID, service.ID, in.VersionID, snapshot.Version.Endpoint)
+		if snapshot.Version.OAuthServerID != "" {
+			remoteCredential, err = marketPresetCredential(d, owner, service, snapshot.Version, m.now().Unix())
+		} else {
+			remoteCredential, err = webResolveCredential(d, service.OwnerID, service.ID, in.VersionID, snapshot.Version.Endpoint)
+		}
 		return err
 	})
 	if e != nil {
@@ -321,6 +325,12 @@ func (m *Module) legacyExecute(ctx context.Context, credential, account string, 
 		if !ok || installation.VersionID != in.VersionID || current.Digest != snapshot.Digest || current.RemoteDigests[in.ToolID] != snapshot.RemoteDigests[in.ToolID] {
 			return ErrConflict
 		}
+		if snapshot.Version.OAuthServerID != "" {
+			currentCredential, err := marketPresetCredential(*d, owner, d.Web.Services[current.Version.ServiceID], current.Version, m.now().Unix())
+			if err != nil || currentCredential != remoteCredential {
+				return ErrConsent
+			}
+		}
 		g, ok := legacyAccess(d).Grants[in.GrantID]
 		if !ok || g.RevokedAt != 0 || g.ExpiresAt <= m.now().Unix() {
 			return ErrConsent
@@ -378,7 +388,11 @@ func (m *Module) legacyExecute(ctx context.Context, credential, account string, 
 func (m *Module) legacyConnect(ctx context.Context, endpoint string, c webCredential) (*mcpSession, error) {
 	s := Server{Endpoint: endpoint, Auth: "none"}
 	secret := Secret{}
-	if c.Mode != "" && c.Mode != "none" {
+	if c.Mode == "oauth" {
+		s.Auth = "oauth"
+		secret.Access = c.Secret
+		secret.Expires = c.oauthExpires
+	} else if c.Mode != "" && c.Mode != "none" {
 		if !validWebCredential(c.Mode, c.Secret) {
 			return nil, ErrInvalid
 		}

@@ -22,7 +22,14 @@ type memoryRepo struct {
 	data       map[string]map[string][]byte
 	failCommit atomic.Bool
 }
-type memoryTx struct{ data map[string][]byte }
+type memoryTx struct{ data, pricePolicy map[string][]byte }
+
+func (t *memoryTx) RelayPricePerGiB() (int64, error) {
+	return readRelayPricePerGiB(&memoryTx{data: t.pricePolicy})
+}
+func (t *memoryTx) MinimumUnitPrice() (int64, error) {
+	return readMinimumUnitPrice(&memoryTx{data: t.pricePolicy})
+}
 
 func newRepo() *memoryRepo { return &memoryRepo{data: map[string]map[string][]byte{}} }
 func (m *memoryRepo) Within(ctx context.Context, scope string, fn func(Tx) error) error {
@@ -35,7 +42,7 @@ func (m *memoryRepo) Within(ctx context.Context, scope string, fn func(Tx) error
 	for k, v := range m.data[scope] {
 		image[k] = append([]byte(nil), v...)
 	}
-	if err := fn(&memoryTx{image}); err != nil {
+	if err := fn(&memoryTx{data: image, pricePolicy: m.data[pricePolicyScope]}); err != nil {
 		return err
 	}
 	if m.failCommit.Swap(false) {

@@ -2,6 +2,7 @@
 package webcompat
 
 import (
+	"github.com/TokenNotIncluded/lmm-api/extensions/internal/modules/ssmcprelay"
 	"net/http"
 	"strings"
 
@@ -20,6 +21,7 @@ import (
 // API while sharing its admission/drain lifecycle. It never upgrades the host
 // credential into user authority.
 type AdditionalServices struct {
+	SSMCPRelay           *ssmcprelay.Service
 	Checkins             *checkins.Service
 	HeroSMS              *herosms.Service
 	MarketReview         *marketreview.Engine
@@ -61,6 +63,7 @@ func Mount(host *modules.Host, auth *Authenticator, catalogue StoreService, supp
 		RegisterMarketAIReview(routes.forPlugins("store", "toolmarket"), auth, additional.MarketReview)
 		registerProductAIReviews(routes.forPlugins("store"), auth, catalogue)
 		registerToolAIReviews(routes.forPlugins("toolmarket"), auth, additional.ToolMarket)
+		registerSSMCPRelay(routes.forPlugins("ssmcpd", "toolmarket", "store"), auth, additional.SSMCPRelay)
 		RegisterBuiltinHTTP(routes.forPlugins("toolmarket"), additional.Builtins)
 		if !store.Missing(additional.ToolMarketMCP) {
 			routes.forPlugins("toolmarket").Handle("/mcp/market", additional.ToolMarketMCP)

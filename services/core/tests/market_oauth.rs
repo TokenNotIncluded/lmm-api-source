@@ -706,3 +706,119 @@ async fn dcr_rejects_redirect_and_scope_confusion(pool: PgPool) {
     r.redirect_uris.push("https://example.com/callback".into());
     assert!(matches!(i.register(r).await, Err(Error::Invalid)));
 }
+
+#[sqlx::test]
+async fn relay_builtin_oauth_is_bound_to_the_dispatched_family(pool: PgPool) {
+    use lmm_core::{
+        builtins::{Invocation, Store, input_digest},
+        tool_market::{
+            Owner, builtin_install,
+            credit_access::{ConsentRequest, CreditStore},
+            credit_execution::{BuiltinContext, ReserveRequest},
+        },
+    };
+    use std::sync::Arc;
+    init(&pool).await;
+    builtin_install::install_compiled_builtins(&pool)
+        .await
+        .unwrap();
+    let i = issuer(&pool).await;
+    let cookie = browser(&pool, "relayowner").await;
+    let client = i
+        .register(registration("relay-test"))
+        .await
+        .unwrap()
+        .client_id;
+    let issue = async || {
+        let code = code(&i, &client, &cookie).await;
+        i.token(exchange(&i, &client, &code))
+            .await
+            .unwrap()
+            .access_token
+    };
+    let access = issue().await;
+    let actor = i.validate(&access, &["market:invoke"]).await.unwrap();
+    let session = BrowserAuth::new(IdentityStore::from_pool(pool.clone()), &[44; 32])
+        .unwrap()
+        .login(
+            "relayowner",
+            "password1234",
+            &BrowserSessionMetadata {
+                ip: "203.0.113.32".into(),
+                user_agent: "relay fixture".into(),
+            },
+        )
+        .await
+        .unwrap();
+    let owner = Owner {
+        user: actor.user_id().to_string(),
+        account: actor.user_id().to_string(),
+    };
+    let profile = Arc::new(i.profile().clone());
+    let credit = CreditStore::from_pool(pool.clone()).with_market_oauth_profile(profile.clone());
+    let (tool,version,schema):(String,String,String)=sqlx::query_as("SELECT q.snapshot->>'tool_id',q.snapshot->>'version_id',b.input_schema_digest FROM core_tool_market.credit_builtin_bindings b JOIN core_tool_market.credit_quotes q ON q.id=b.quote_id WHERE b.kind='ssmcpd.purchase' AND q.approved").fetch_one(&pool).await.unwrap();
+    let grant = credit
+        .create_consent(
+            session.data["access_token"].as_str().unwrap(),
+            &ConsentRequest {
+                owner: owner.clone(),
+                operation_id: "allow-relay-preview".into(),
+                client_id: actor.client_id().into(),
+                tool_id: tool.clone(),
+                version_id: version.clone(),
+                max_price_quota: 0,
+                max_total_quota: 0,
+                max_calls: 2,
+                expires_at: actor.expires_at_unix(),
+            },
+        )
+        .await
+        .unwrap();
+    let args = json!({"gib":1});
+    let digest = input_digest(&args).unwrap();
+    let call = credit
+        .reserve(
+            &access,
+            &ReserveRequest {
+                owner,
+                client_id: actor.client_id().into(),
+                request_key: "relay-preview".into(),
+                quote_id: grant.quote_id,
+                grant_id: grant.id.clone(),
+                tool_id: tool.clone(),
+                version_id: version.clone(),
+                input_digest: digest.clone(),
+                resolve_by: actor.expires_at_unix(),
+            },
+        )
+        .await
+        .unwrap();
+    let dispatch = credit.dispatch(&access, &call.call_id).await.unwrap();
+    let request = Invocation {
+        service_key: "ssmcpd".into(),
+        tool_name: "ssmcpd.purchase".into(),
+        input_schema_digest: schema,
+        arguments: args,
+        context: BuiltinContext {
+            call_id: call.call_id,
+            dispatch_id: dispatch.dispatch_id,
+            tool_id: tool,
+            version_id: version,
+            grant_id: grant.id,
+            input_digest: digest,
+        },
+    };
+    let store = Store::from_pool(pool.clone()).with_market_profile(Some(profile));
+    assert_eq!(
+        store.authorize(&access, &request).await.unwrap().owner.user,
+        actor.user_id().to_string()
+    );
+    // A second consent to the same OAuth client and user creates a different
+    // family. Knowing the first family's dispatch does not authorize this one.
+    let other = issue().await;
+    assert!(store.authorize(&other, &request).await.is_err());
+    let mut wrong = request.clone();
+    wrong.service_key = "wallet".into();
+    wrong.tool_name = "wallet.balance".into();
+    assert!(store.authorize(&access, &wrong).await.is_err());
+}

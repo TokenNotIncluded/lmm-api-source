@@ -1589,15 +1589,11 @@ test('metamcp is visible without an installation and opens native OAuth connecti
       container.textContent?.includes('Browser login (recommended)') === true
   )
   assert.ok(
-    container.querySelector('pre')?.textContent?.includes('?mode=compact')
+    container.querySelector('pre')?.textContent?.includes('/mcp/market')
   )
-  await click(button('Full: individual tools too', container))
-  assert.ok(
-    !container.querySelector('pre')?.textContent?.includes('?mode=compact')
-  )
-  await click(button('Compact: metamcp only', container))
-  assert.ok(
-    container.querySelector('pre')?.textContent?.includes('?mode=compact')
+  assert.equal(
+    container.textContent?.includes('Full: individual tools too'),
+    false
   )
 })
 
@@ -1614,22 +1610,36 @@ test('a missing or disabled meta capability never advertises a phantom gateway t
   assert.equal(findButton('Connect MCP client', container), undefined)
 })
 
-test('Connect treg opens the existing service editor at the full team endpoint', async () => {
+test('the provider picker opens OAuth presets without requesting a secret', async () => {
   stubNavigation([])
-  const { container } = await mount()
-  await click(button('Connect treg', container))
-  const endpoint = container.querySelector<HTMLInputElement>('#market-endpoint')
-  assert.ok(endpoint)
-  assert.equal(endpoint.value, 'https://treg.to/mcp/')
-  assert.equal(
-    container.querySelector<HTMLSelectElement>('#market-treg-surface')?.value,
-    'team'
-  )
-  assert.equal(
-    container.querySelector<HTMLInputElement>('#market-secret')?.type,
-    'password'
-  )
-  assert.equal(button('Save draft', container).disabled, true)
+  marketAPI.config = async () => ({
+    ...pausedConfig,
+    capabilities: { ...pausedConfig.capabilities, provider_mcp_oauth: true },
+    provider_mcp_oauth_redirect_uri:
+      window.location.origin + '/api/tool-market/runtime/oauth/callback',
+  })
+  const original = marketAPI.oauthProviders
+  marketAPI.oauthProviders = async () => [
+    {
+      provider: 'agentkey',
+      connected: false,
+      tools: [],
+      fixed_price_tools: [],
+    },
+    { provider: 'treg', connected: false, tools: [], fixed_price_tools: [] },
+  ]
+  try {
+    const { container } = await mount()
+    await waitFor(() => !!findButton('Connect a marketplace', container))
+    await click(button('Connect a marketplace', container))
+    await waitFor(
+      () => document.body.textContent?.includes('AgentKey') === true
+    )
+    assert.ok(document.body.textContent?.includes('treg'))
+    assert.equal(document.body.querySelector('input[type=password]'), null)
+  } finally {
+    marketAPI.oauthProviders = original
+  }
 })
 
 const callbackURI =

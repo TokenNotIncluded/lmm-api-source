@@ -158,7 +158,6 @@ func RegisterToolMarket(mux RouteRegistrar, auth *Authenticator, service ToolMar
 		{"POST /api/tool-market/drawing/invoke", "invoke", true, false},
 		{"DELETE /api/tool-market/grants/{id}", "grant.revoke", false, false},
 		{"DELETE /api/tool-market/grants/{id}/record", "grant.hide", false, false},
-		{"POST /api/tool-market/tokens", "token", true, false},
 		{"DELETE /api/tool-market/tokens/{id}", "token.revoke", false, false},
 		{"DELETE /api/tool-market/tokens/{id}/record", "token.hide", false, false},
 		{"POST /api/tool-market/clients/disconnect", "client.disconnect", true, false},

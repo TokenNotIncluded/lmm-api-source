@@ -35,6 +35,25 @@ sha256("lmm-extension-registration-v1\0" + name + "\0" + version)
 
 设置了 `host.plugin_state_file` 时，从 `host.modules` 移除包之前须先停用其依赖方及该包。若持久状态仍要求启用未装配包，启动明确失败；不会丢弃旧状态或静默扩大配置。
 
+
+## 让插件向工具市场注册工具
+
+工具市场可以作为其他 Go 插件的基础插件。在插件描述的 `Requires` 中声明 `toolmarket` 和所用业务模块。先在编译目录中定义工具名称、输入 schema 和不可变的版本标识，再在宿主装配时调用 `BuiltinDispatcher.RegisterPluginTools` 绑定处理函数及启用状态。Core 核对调用者、授权、工具版本和本次调度。处理函数收到已验证的用户身份。发生超时后，`Observe` 按原调用键读取结果。
+
+### ssmcpd 中继流量
+
+在现有 `[host]` 的 `modules` 中同时选中 `store`、`toolmarket` 和 `ssmcpd`，配置工具市场执行权限和商店 Commerce 权限。在 ssmcpd 的账户计量配置中，将站内用户的数字 ID 绑定到对应中继账户。下列示例中的服务地址和收款账户须替换为实际值。
+
+```toml
+[ssmcpd]
+base_url = "https://relay.example.org"
+token_file = "/etc/lmm/credentials/ssmcpd-accounting"
+seller_kind = "team"
+seller_id = 123
+```
+
+`token_file` 保存两个服务之间使用的私有计量凭据。用户在市场授权 `ssmcpd.quota` 后可以查看本月余量。站点超级管理员可在商城管理后台分别设置商品最低单价和中继每 GiB 的售价。中继默认每 GiB 500,000 credits（1 USD）。调用 `ssmcpd.purchase` 并传入 `{"gib": 3}` 会生成 3 GiB 的订单，保存下单时的单价和总额。默认价格下总额为 3 USD。后续调价适用于新订单。买家打开返回的站内链接，核对流量、账期和冻结的金额，再确认用余额支付。1 GiB 等于 1,073,741,824 字节。通信中断时使用原订单号核对资金和到账状态。
+
 ## 管理 API
 
 这些接口要求一次性的 Core session Bearer 凭据，并且 `platform_level` 为 5 或 6；宿主服务令牌和用户自带的身份头都不具备管理员权限。

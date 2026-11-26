@@ -65,7 +65,7 @@ func TestLegacyMCPHTTPUsesPinnedResourceAndClosedBearer(t *testing.T) {
 func TestLegacyMCPHTTPChallengesMissingActionScopes(t *testing.T) {
 	handler, _ := legacyMCPHTTPFixture(t)
 	for _, action := range []string{"invoke", "authorize", "load", "set_client_budget"} {
-		body := `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"metamcp","arguments":{"action":"` + action + `"}}}`
+		body := `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"metamcp","arguments":{"code":"` + action + `({})"}}}`
 		w := marketMCPRequest(handler, "http://x/mcp/market?mode=compact", body, nil)
 		if w.Code != 403 || !strings.Contains(w.Header().Get("WWW-Authenticate"), "insufficient_scope") {
 			t.Fatal(action, w.Code, w.Body.String())
@@ -89,14 +89,7 @@ func TestLegacyMCPResultPreservesNativeContentsAndExactNumbers(t *testing.T) {
 	if bytes.Contains(out, []byte("9007199254740992")) || bytes.Contains(out, []byte("forged")) || bytes.Count(out, []byte("9007199254740993")) != 4 || len(result.Content) != 5 {
 		t.Fatal(string(out))
 	}
-	schema, e := legacyMCPWrappedSchema(`{"type":"object","properties":{"x":{"$ref":"#/$defs/value"}},"$defs":{"value":{"type":"integer"}}}`)
-	if e != nil {
-		t.Fatal(e)
-	}
-	b, _ := json.Marshal(schema)
-	if !bytes.Contains(b, []byte(`"$ref":"#/$defs/arguments/$defs/value"`)) {
-		t.Fatal(string(b))
-	}
+
 }
 
 func TestLegacyMCPGrantReadRejectsOtherClientAndIgnoresStaleMirror(t *testing.T) {

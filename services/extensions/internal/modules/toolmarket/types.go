@@ -149,16 +149,24 @@ type Release struct {
 	Prices    map[string]Price `json:"prices"`
 	Published bool             `json:"published"`
 }
+type OAuthRegistration struct {
+	ClientID string `json:"client_id"`
+	Issuer   string `json:"issuer"`
+	Redirect string `json:"redirect"`
+}
+
 type Installation struct {
-	ID         string            `json:"id"`
-	Owner      Principal         `json:"owner"`
-	Release    string            `json:"release"`
-	Server     string            `json:"server"`
-	Enabled    bool              `json:"enabled"`
-	Generation int64             `json:"generation"`
-	Loaded     map[string]string `json:"loaded"`
+	OAuthRegistration *OAuthRegistration `json:"oauth_registration,omitempty"`
+	ID                string             `json:"id"`
+	Owner             Principal          `json:"owner"`
+	Release           string             `json:"release"`
+	Server            string             `json:"server"`
+	Enabled           bool               `json:"enabled"`
+	Generation        int64              `json:"generation"`
+	Loaded            map[string]string  `json:"loaded"`
 }
 type Secret struct {
+	ClientID   string    `json:"client_id,omitempty"`
 	Refreshing bool      `json:"refreshing,omitempty"`
 	Access     string    `json:"access"`
 	Refresh    string    `json:"refresh,omitempty"`
@@ -166,6 +174,7 @@ type Secret struct {
 	Meta       OAuthMeta `json:"meta"`
 }
 type OAuthState struct {
+	ClientID   string    `json:"client_id,omitempty"`
 	Owner      Principal `json:"owner"`
 	Install    string    `json:"install"`
 	Generation int64     `json:"generation"`

@@ -21,6 +21,7 @@ type WebServiceRecord struct {
 	UpdatedAt             int64  `json:"updated_at"`
 }
 type WebVersion struct {
+	OAuthServerID string `json:"oauth_server_id,omitempty"`
 	ID            string `json:"id"`
 	ServiceID     string `json:"service_id"`
 	Status        string `json:"status"`

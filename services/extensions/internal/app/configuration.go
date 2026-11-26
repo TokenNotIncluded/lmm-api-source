@@ -3,6 +3,7 @@ package app
 import (
 	"bytes"
 	"errors"
+	"github.com/TokenNotIncluded/lmm-api/extensions/internal/composition"
 	"io"
 	"net"
 	"os"
@@ -20,24 +21,25 @@ import (
 const defaultConfigPath = "/etc/lmm.conf.d/extensions.toml"
 
 type GoConfig struct {
-	Checkins         DatabaseConfig         `toml:"checkins"`
-	HeroSMS          HeroSMSConfig          `toml:"hero_sms"`
-	MarketReview     MarketReviewConfig     `toml:"market_review"`
-	SupportCustomers SupportCustomersConfig `toml:"support_customers"`
-	ToolMarket       ToolMarketConfig       `toml:"toolmarket"`
-	Version          int                    `toml:"version"`
-	Host             HostConfig             `toml:"host"`
-	Core             CoreConfig             `toml:"core"`
-	Store            StoreConfig            `toml:"store"`
-	Support          DatabaseConfig         `toml:"support"`
-	Legal            LegalConfig            `toml:"legal"`
-	Assistant        AssistantConfig        `toml:"assistant"`
-	Operations       DatabaseConfig         `toml:"operations"`
-	Community        DatabaseConfig         `toml:"community"`
-	Acquisition      DatabaseConfig         `toml:"acquisition"`
-	Payments         PaymentsConfig         `toml:"payments"`
-	Scripts          ScriptConfig           `toml:"scripts"`
-	IoNet            IoNetConfig            `toml:"ionet"`
+	SSMCPRelay       composition.SSMCPRelayConfig `toml:"ssmcpd"`
+	Checkins         DatabaseConfig               `toml:"checkins"`
+	HeroSMS          HeroSMSConfig                `toml:"hero_sms"`
+	MarketReview     MarketReviewConfig           `toml:"market_review"`
+	SupportCustomers SupportCustomersConfig       `toml:"support_customers"`
+	ToolMarket       ToolMarketConfig             `toml:"toolmarket"`
+	Version          int                          `toml:"version"`
+	Host             HostConfig                   `toml:"host"`
+	Core             CoreConfig                   `toml:"core"`
+	Store            StoreConfig                  `toml:"store"`
+	Support          DatabaseConfig               `toml:"support"`
+	Legal            LegalConfig                  `toml:"legal"`
+	Assistant        AssistantConfig              `toml:"assistant"`
+	Operations       DatabaseConfig               `toml:"operations"`
+	Community        DatabaseConfig               `toml:"community"`
+	Acquisition      DatabaseConfig               `toml:"acquisition"`
+	Payments         PaymentsConfig               `toml:"payments"`
+	Scripts          ScriptConfig                 `toml:"scripts"`
+	IoNet            IoNetConfig                  `toml:"ionet"`
 }
 type HostConfig struct {
 	LocalHTTP       bool     `toml:"local_http"`
@@ -149,7 +151,7 @@ func LoadConfig(path string) (GoConfig, error) {
 	// names belong to this versioned operator contract.
 	allowed := map[string]bool{"store.pickup_mail": true, "store.pickup_mail.smtp_host": true, "store.pickup_mail.smtp_port": true, "store.pickup_mail.tls_mode": true, "store.pickup_mail.from": true, "store.pickup_mail.username": true, "store.pickup_mail.password_file": true, "store.pickup_mail.ca_file": true, "store.pickup_mail.origin": true, "store.pickup_mail.key_file": true, "version": true, "host": true, "host.listen": true, "host.local_http": true, "host.public_origin": true, "host.token_file": true, "host.plugin_state_file": true, "host.modules": true, "host.web_compat": true, "host.max_in_flight": true, "core": true, "core.socket": true, "core.identity_token_file": true, "core.commerce_token_file": true, "store": true, "store.database_name": true, "store.database_url_file": true, "store.stock_key_file": true, "store.extore_key_file": true, "store.extore_redirect_uri": true, "store.extore_plugin": true, "store.extore_plugin.host_library": true, "store.extore_plugin.plugin_library": true, "store.extore_plugin.ca_file": true, "store.extore_plugin.host_sha256": true, "store.extore_plugin.plugin_sha256": true, "support": true, "support.database_name": true, "support.database_url_file": true, "legal": true, "legal.config_file": true}
 	for _, key := range meta.Keys() {
-		if paymentConfigurationKey(key.String()) || toolMarketConfigurationKey(key.String()) || supportCustomersConfigurationKey(key.String()) {
+		if relayConfigurationKey(key.String()) || paymentConfigurationKey(key.String()) || toolMarketConfigurationKey(key.String()) || supportCustomersConfigurationKey(key.String()) {
 			continue
 		}
 		switch key.String() {

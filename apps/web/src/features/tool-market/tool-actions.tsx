@@ -35,6 +35,7 @@ import {
 import { marketStatus, marketPermissionList } from './copy'
 import { useMarketMoneyDraft } from './money'
 import { marketConfirmationURL } from './native-call-response'
+import { relayOrderLink } from './relay-order'
 import { ReportCallButton } from './reports'
 import {
   drawingResultImages,
@@ -262,6 +263,11 @@ export function CallResult({
   units?: number
 }) {
   const { t } = useTranslation()
+  const checkout = relayOrderLink(
+    response.call.tool_id,
+    response.call.execution_status,
+    response.result
+  )
   const { formatQuota: formatRawQuota } = useWalletCurrency()
   const formatQuota = (quota: number) =>
     formatRawQuota(quota, { digitsLarge: 8, digitsSmall: 8 })
@@ -349,6 +355,11 @@ export function CallResult({
                 : t('The tool returned an invalid or unsuccessful result.')}
           </p>
         )}
+      {checkout && (
+        <a href={checkout} className='text-primary underline'>
+          {t('Pay with account balance')}
+        </a>
+      )}
       {response.result !== undefined && (
         <MCPResultView value={response.result} />
       )}

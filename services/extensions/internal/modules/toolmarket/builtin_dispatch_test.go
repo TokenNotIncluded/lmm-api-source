@@ -52,7 +52,7 @@ func TestCompiledBuiltinCatalogIsImmutableAndSchemasValidate(t *testing.T) {
 			}
 		}
 	}
-	if count != 29 {
+	if count != 31 {
 		t.Fatalf("got %d tools", count)
 	}
 	a := CompiledBuiltinDefinitions()

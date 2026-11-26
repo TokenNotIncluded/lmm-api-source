@@ -67,6 +67,8 @@ type DrawingPort interface {
 	ResumeDrawing(context.Context, string, BuiltinInvocation, string) (BuiltinResult, error)
 }
 type BuiltinDispatcher struct {
+	pluginsOnly      bool
+	providers        map[string]pluginToolsBinding
 	ready            atomic.Bool
 	Gate             BuiltinGate
 	Wallet           *wallet.Service
@@ -173,7 +175,11 @@ func (d *BuiltinDispatcher) InvokeBuiltin(ctx context.Context, session string, i
 		}
 		return d.Drawing.InvokeDrawing(ctx, session, in, key)
 	default:
-		return out, ErrInvalid
+		provider, ok := d.providers[in.ServiceKey]
+		if !ok || !provider.enabled() {
+			return out, ErrUnavailable
+		}
+		value, e = provider.tools.Invoke(ctx, in, key)
 	}
 	if e != nil {
 		return out, e
@@ -337,7 +343,16 @@ func (d *BuiltinDispatcher) QueryBuiltin(ctx context.Context, session string, in
 		out.ResumeReady = out.ExecutionStatus == "confirmed"
 		return out, nil
 	default:
-		return out, ErrInvalid
+		provider, ok := d.providers[in.ServiceKey]
+		if !ok || !provider.enabled() {
+			return out, ErrUnavailable
+		}
+		value, e = provider.tools.Observe(ctx, in, key)
+		if e != nil {
+			return out, e
+		}
+		out.ExecutionStatus = "completed"
+		out.SettlementStatus = "settled"
 	}
 	text, _ := json.Marshal(value)
 	out.Result, e = json.Marshal(map[string]any{"content": []any{map[string]any{"type": "text", "text": string(text)}}, "structuredContent": value, "isError": false})
@@ -392,6 +407,10 @@ func (d *BuiltinDispatcher) CheckReadiness(ctx context.Context) error {
 	if e := gate.ReadyBuiltins(ctx); e != nil {
 		return e
 	}
+	if d.pluginsOnly {
+		d.ready.Store(true)
+		return nil
+	}
 	ports := []any{d.Drawing}
 	if d.Wallet != nil {
 		ports = append(ports, d.Wallet)
@@ -426,6 +445,7 @@ func (d *BuiltinDispatcher) BuiltinServiceAvailable(key string) bool {
 	case "open_source_bounties":
 		return d.Bounties != nil
 	default:
-		return false
+		provider, ok := d.providers[key]
+		return ok && provider.enabled()
 	}
 }

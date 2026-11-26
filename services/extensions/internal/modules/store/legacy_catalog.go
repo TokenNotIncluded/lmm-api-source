@@ -145,8 +145,12 @@ func (s *Service) PublicConfig(ctx context.Context) (map[string]any, error) {
 	if s.ExtoreReady() {
 		redirect = s.extoreRedirect
 	}
+	floor, relay, err := s.currentStorePrices(ctx)
+	if err != nil {
+		return nil, err
+	}
 	_, collectionsSupported := s.repo.(collectionRepository)
-	return map[string]any{"fee_bps": 0, "promotion_quota": 0, "minimum_unit_price_quota": int64(500000), "credits_per_usd": int64(500000), "external_minimum_quota": int64(5000000), "product_test_mode_supported": true, "store_catalogue_supported": true, "store_collections_supported": collectionsSupported, "store_categories_supported": true, "store_likes_supported": true, "store_svg_media_supported": false, "extore_import_supported": s.ExtoreReady(), "extore_redirect_uri": redirect, "store_merchant_home_supported": s.merchantHomeReady(), "store_access_supported": false, "store_visibility_supported": true, "store_self_purchase_supported": s.selfPurchaseAvailable(), "store_terms_supported": true, "product_purchase_limits_supported": true, "fixed_content_supported": true, "stock_items_supported": s.StockReady(), "product_variants_create_supported": true, "product_link_presets": []any{}, "linuxdo_units_per_usd": "0", "disclaimer_version": "merchant-store-v1", "disclaimer_text": legacyDisclaimerText, "platform_payment_methods": []any{}, "platform_payment_catalog": []any{}}, nil
+	return map[string]any{"fee_bps": 0, "promotion_quota": 0, "minimum_unit_price_quota": floor, "relay_price_quota_per_gib": relay, "credits_per_usd": int64(500000), "external_minimum_quota": int64(5000000), "product_test_mode_supported": true, "store_catalogue_supported": true, "store_collections_supported": collectionsSupported, "store_categories_supported": true, "store_likes_supported": true, "store_svg_media_supported": false, "extore_import_supported": s.ExtoreReady(), "extore_redirect_uri": redirect, "store_merchant_home_supported": s.merchantHomeReady(), "store_access_supported": false, "store_visibility_supported": true, "store_self_purchase_supported": s.selfPurchaseAvailable(), "store_terms_supported": true, "product_purchase_limits_supported": true, "fixed_content_supported": true, "stock_items_supported": s.StockReady(), "product_variants_create_supported": true, "product_link_presets": []any{}, "linuxdo_units_per_usd": "0", "disclaimer_version": "merchant-store-v1", "disclaimer_text": legacyDisclaimerText, "platform_payment_methods": []any{}, "platform_payment_catalog": []any{}}, nil
 }
 
 func (s *Service) PublicCatalogueQuery(ctx context.Context, q CatalogueQuery) ([]map[string]any, error) {
@@ -258,6 +262,8 @@ func (s *Service) Legacy(ctx context.Context, token string, actor Account, r Leg
 		return nil, err
 	}
 	switch r.Action {
+	case "set_minimum_price":
+		return nil, s.setMinimumUnitPrice(ctx, token, r.Body)
 	case "payment_settings":
 		return s.paymentSettings(), nil
 	case "my_home", "save_home":
@@ -390,6 +396,9 @@ func (s *Service) Legacy(ctx context.Context, token string, actor Account, r Leg
 			}
 			switch r.Action {
 			case "submit_product":
+				if err := checkSubmittedPrices(tx, p); err != nil {
+					return err
+				}
 				terms, err := readLegacyTerms(tx)
 				if err != nil {
 					return err
@@ -533,8 +542,8 @@ func (s *Service) Legacy(ctx context.Context, token string, actor Account, r Leg
 	return nil, err
 }
 
-func validateLegacyVariant(in LegacyVariantInput) error {
-	if !Text(in.Name, 200) || in.PriceQuota < 500000 || in.PriceQuota > legacySafeInteger {
+func validateLegacyVariant(in LegacyVariantInput, floor int64) error {
+	if !Text(in.Name, 200) || !validListingPrice(in.PriceQuota, floor) {
 		return ErrInvalid
 	}
 	if stockTemplate(in.Template) {
@@ -664,6 +673,10 @@ func (s *Service) saveLegacyProduct(ctx context.Context, token string, actor Acc
 				return ErrNotFound
 			}
 		}
+		floor, err := tx.MinimumUnitPrice()
+		if err != nil {
+			return err
+		}
 		fresh := p.Legacy == nil
 		old := p.Legacy
 		p.AIReview.Invalidate("stale", now)
@@ -708,7 +721,7 @@ func (s *Service) saveLegacyProduct(ctx context.Context, token string, actor Acc
 				inputs = []LegacyVariantInput{{Name: "Default", PriceQuota: in.PriceQuota, Template: in.Template, Enabled: true, FixedContent: in.FixedContent}}
 			}
 			for i, v := range inputs {
-				if err := validateLegacyVariant(v); err != nil {
+				if err := validateLegacyVariant(v, floor); err != nil {
 					return err
 				}
 				id, err := legacyRandomID()
@@ -748,7 +761,7 @@ func (s *Service) saveLegacyProduct(ctx context.Context, token string, actor Acc
 			if in.Template != "" && in.Template != v.Legacy.Template {
 				return ErrInvalid
 			}
-			if in.PriceQuota < 500000 || in.PriceQuota > legacySafeInteger {
+			if !validListingPrice(in.PriceQuota, floor) {
 				return ErrInvalid
 			}
 			v.Price = Price{Amount: in.PriceQuota, Unit: "credits"}
@@ -793,12 +806,16 @@ func (s *Service) saveLegacyVariant(ctx context.Context, actor Account, row Loca
 			return ErrNotFound
 		}
 		now := time.Now().Unix()
+		floor, err := tx.MinimumUnitPrice()
+		if err != nil {
+			return err
+		}
 		if r.Action == "create_variant" {
 			var in LegacyVariantInput
 			if legacyDecode(r.Body, &in) != nil {
 				return ErrInvalid
 			}
-			if err := validateLegacyVariant(in); err != nil {
+			if err := validateLegacyVariant(in, floor); err != nil {
 				return err
 			}
 			id, err := legacyRandomID()
@@ -820,6 +837,9 @@ func (s *Service) saveLegacyVariant(ctx context.Context, actor Account, row Loca
 				if legacyDecode(r.Body, &in) != nil || in.Enabled == nil {
 					return ErrInvalid
 				}
+				if *in.Enabled && !validListingPrice(out.Price.Amount, floor) {
+					return ErrInvalid
+				}
 				out.Legacy.Enabled = *in.Enabled
 			} else {
 				var in LegacyVariantInput
@@ -833,7 +853,7 @@ func (s *Service) saveLegacyVariant(ctx context.Context, actor Account, row Loca
 					fixed := out.Legacy.FixedContent
 					in.FixedContent = &fixed
 				}
-				if err := validateLegacyVariant(in); err != nil {
+				if err := validateLegacyVariant(in, floor); err != nil {
 					return err
 				}
 				out.Title = in.Name
@@ -938,7 +958,7 @@ func legacyProductViewFor(row LocatedProduct, public, ready, stockReady bool, vi
 			return nil, ErrUnavailable
 		}
 		quotaConsumed += v.Claimed
-		view := legacyVariantView(v, m.DefaultVariantID, ready && (!stockTemplate(v.Legacy.Template) || stockReady))
+		view := legacyVariantView(v, m.DefaultVariantID, ready && validListingPrice(v.Price.Amount, row.listingFloor()) && (!stockTemplate(v.Legacy.Template) || stockReady))
 		if v.ID == m.DefaultVariantID {
 			price = v.Price.Amount
 		}

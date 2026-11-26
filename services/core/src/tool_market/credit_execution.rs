@@ -1006,8 +1006,10 @@ pub struct BuiltinKind {
 }
 impl BuiltinKind {
     pub fn code_owned(service: &'static str, tool: &'static str) -> Result<Self> {
-        if !matches!(service, "wallet" | "drawing" | "open_source_bounties")
-            || tool.is_empty()
+        if !matches!(
+            service,
+            "wallet" | "drawing" | "open_source_bounties" | "ssmcpd"
+        ) || tool.is_empty()
             || tool.len() > 128
             || !tool
                 .bytes()
@@ -1041,6 +1043,15 @@ impl CreditStore {
         context: &BuiltinContext,
         kind: BuiltinKind,
     ) -> Result<BuiltinActor> {
+        Self::validate_registry_context(c, secret, context, kind, None).await
+    }
+    pub(crate) async fn validate_registry_context(
+        c: &mut PgConnection,
+        secret: &str,
+        context: &BuiltinContext,
+        kind: BuiltinKind,
+        profile: Option<&crate::market_oauth::MarketProfile>,
+    ) -> Result<BuiltinActor> {
         let serializable: bool =
             sqlx::query_scalar("SELECT current_setting('transaction_isolation')='serializable'")
                 .fetch_one(&mut *c)
@@ -1048,26 +1059,43 @@ impl CreditStore {
         if !serializable {
             return Err(Error::Invalid);
         }
-        let actor = crate::identity::authorize_in_transaction(&mut *c, secret).await?;
-        if actor.credential_kind != CredentialKind::Session
-            || actor.owner.kind != crate::accounts::AccountKind::Personal
-            || actor.owner.id != actor.user_id
+        // Only the relay quota read and purchase preview accept a market OAuth
+        // actor. The browser payment and all other business domains keep their
+        // existing Session checks. A personal market key cannot enter here.
+        if secret.starts_with("lmm_market_")
+            || (secret.starts_with("lmm_at_")
+                && !(kind.service == "ssmcpd"
+                    && matches!(kind.tool, "quota" | "purchase")
+                    && profile.is_some()))
         {
             return Err(Error::Forbidden);
         }
+        let actor = super::credit_actor::authenticate_connection(
+            c,
+            profile,
+            secret,
+            super::credit_actor::MarketAction::Invoke,
+        )
+        .await?;
         sqlx::query("SELECT core_tool_market.lock_builtin_context($1)")
             .bind(&context.call_id)
             .execute(&mut *c)
             .await?;
-        let row=sqlx::query("SELECT c.*,g.request,g.revoked_at,q.approved,b.kind,b.input_schema_digest FROM core_tool_market.credit_calls c JOIN core_tool_market.credit_consents g ON g.id=c.consent_id JOIN core_tool_market.credit_quotes q ON q.id=c.quote_id JOIN core_tool_market.credit_builtin_bindings b ON b.quote_id=q.id WHERE c.id=$1 AND c.actor_user_id=$2").bind(&context.call_id).bind(actor.user_id).fetch_optional(&mut *c).await?.ok_or(Error::Forbidden)?;
+        let row=sqlx::query("SELECT c.*,g.request,g.revoked_at,q.approved,b.kind,b.input_schema_digest FROM core_tool_market.credit_calls c JOIN core_tool_market.credit_consents g ON g.id=c.consent_id JOIN core_tool_market.credit_quotes q ON q.id=c.quote_id JOIN core_tool_market.credit_builtin_bindings b ON b.quote_id=q.id WHERE c.id=$1 AND c.actor_user_id=$2").bind(&context.call_id).bind(actor.user_id()).fetch_optional(&mut *c).await?.ok_or(Error::Forbidden)?;
         let Json(receipt): Json<Receipt> = row.try_get("receipt")?;
         let Json(grant): Json<ConsentRequest> = row.try_get("request")?;
-        let version: i64 = sqlx::query_scalar(
-            "SELECT auth_version FROM core_identity.users WHERE id=$1 FOR SHARE",
-        )
-        .bind(actor.user_id)
-        .fetch_one(&mut *c)
-        .await?;
+        if let super::credit_actor::ActorSource::Oauth { family_id, .. } = actor.source() {
+            actor.assert_client(&receipt.client_id)?;
+            actor.assert_client(&grant.client_id)?;
+            if row
+                .try_get::<Option<String>, _>("market_oauth_family_id")?
+                .as_ref()
+                != Some(family_id)
+                || row.try_get::<i64, _>("payer_account_id")? != actor.payer_account_id()
+            {
+                return Err(Error::Forbidden);
+            }
+        }
         let now: i64 =
             sqlx::query_scalar("SELECT floor(extract(epoch FROM clock_timestamp()))::bigint")
                 .fetch_one(&mut *c)
@@ -1079,7 +1107,7 @@ impl CreditStore {
             || receipt.grant_id != context.grant_id
             || receipt.input_digest != context.input_digest
             || receipt.resolve_by <= now
-            || row.try_get::<i64, _>("auth_version")? != version
+            || row.try_get::<i64, _>("auth_version")? != actor.auth_version()
             || row.try_get::<i64, _>("revoked_at")? != 0
             || grant.expires_at <= now
             || !row.try_get::<bool, _>("approved")?
@@ -1088,8 +1116,8 @@ impl CreditStore {
             return Err(Error::Forbidden);
         }
         Ok(BuiltinActor {
-            user_id: actor.user_id,
-            owner_account_id: actor.owner_account_id,
+            user_id: actor.user_id(),
+            owner_account_id: actor.payer_account_id(),
             call_id: receipt.call_id,
             dispatch_id: receipt.dispatch_id,
             tool_id: receipt.tool_id,

@@ -350,5 +350,38 @@
         "version_id": "d2f44a2b-f4cf-5731-853a-1cffd2984fc8"
       }
     ]
+  },
+  {
+    "key": "ssmcpd",
+    "name": "SSMCP relay",
+    "description": "Relay traffic for your own devices. Review the quoted price and pay from your account balance.",
+    "service_id": "d151be1a-ad2c-52f8-a720-ea21ca5d17b2",
+    "version_id": "76cd0103-9598-5a66-b932-f7e8e0e1b403",
+    "schema_version": "core-authority-v1",
+    "digest": "f0e466432b7b20a75828a44fe9322fe4bece934bf5dc99891a0e64f30777aaef",
+    "tools": [
+      {
+        "tool_id": "80b85241-2ae8-58f8-8d27-80fdf9126a17",
+        "name": "ssmcpd.quota",
+        "description": "Read your current ssmcpd relay traffic quota.",
+        "input_schema": "{\"additionalProperties\":false,\"properties\":{},\"type\":\"object\"}",
+        "output_schema": "{\"type\":\"object\"}",
+        "permissions": "[\"read\"]",
+        "price_quota": 0,
+        "input_schema_digest": "99334726611ccf58a148b0814696bfa6fe08c1b2d027e946beccf5a74331c9aa",
+        "version_id": "76cd0103-9598-5a66-b932-f7e8e0e1b403"
+      },
+      {
+        "tool_id": "1ae22cbb-5d64-5b9d-95b2-d2ac5f934682",
+        "name": "ssmcpd.purchase",
+        "description": "Preview a monthly relay traffic order at the current price per GiB. The account owner reviews the quoted amount before confirming payment in the browser.",
+        "input_schema": "{\"additionalProperties\":false,\"properties\":{\"gib\":{\"maximum\":17179869183,\"minimum\":1,\"type\":\"integer\"}},\"required\":[\"gib\"],\"type\":\"object\"}",
+        "output_schema": "{\"type\":\"object\"}",
+        "permissions": "[\"write\"]",
+        "price_quota": 0,
+        "input_schema_digest": "2037561663a3c8272e26231e2d3dfd60886b2a009d5403f777c48f4674b0cf8c",
+        "version_id": "76cd0103-9598-5a66-b932-f7e8e0e1b403"
+      }
+    ]
   }
 ]

@@ -473,7 +473,7 @@ func (s *Service) syncExtoreListing(ctx context.Context, userID int64, connectio
 		if price <= 0 {
 			return nil, errors.New("Configure the selling price for every variant in Extore before syncing")
 		}
-		if price < 500000 || price > legacySafeInteger {
+		if price > legacySafeInteger {
 			return nil, ErrInvalid
 		}
 		template := variant.Marketplace.Template
@@ -556,6 +556,15 @@ func (s *Service) persistExtoreProduct(ctx context.Context, userID int64, connec
 			source.LastSyncedAt = now
 			source.ConnectionID = connectionID
 			return tx.Put(extoreProductKind, key, source)
+		}
+		floor, err := tx.MinimumUnitPrice()
+		if err != nil {
+			return err
+		}
+		for _, v := range variants {
+			if !validListingPrice(v.Price, floor) {
+				return ErrInvalid
+			}
 		}
 		var p Product
 		first := source.ProductID == ""

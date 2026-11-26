@@ -567,6 +567,9 @@ func (m *Module) LegacyWeb(ctx context.Context, credential, account string, in W
 }
 
 func (m *Module) webSave(p Principal, user int64, id string, in WebDraftInput) (WebServiceRecord, error) {
+	return m.saveWebDraft(p, user, id, in, "")
+}
+func (m *Module) saveWebDraft(p Principal, user int64, id string, in WebDraftInput, importedServer string) (WebServiceRecord, error) {
 	var pricingErr error
 	in, pricingErr = normalizeWebDraftPricing(in)
 	if pricingErr != nil {
@@ -575,7 +578,7 @@ func (m *Module) webSave(p Principal, user int64, id string, in WebDraftInput) (
 	if err := m.validateWebDraft(in); err != nil {
 		return WebServiceRecord{}, err
 	}
-	creating := id == ""
+	creating := id == "" || importedServer != ""
 	versionID, err := randomID()
 	if err != nil {
 		return WebServiceRecord{}, err
@@ -589,12 +592,34 @@ func (m *Module) webSave(p Principal, user int64, id string, in WebDraftInput) (
 	var out WebServiceRecord
 	err = m.store.update(func(d *database) error {
 		w := webState(d)
+		oauthServerID := importedServer
+		if importedServer != "" {
+			source, ok := d.Servers[importedServer]
+			if !ok || source.Owner != p || source.Auth != "oauth" || source.Endpoint != in.Endpoint {
+				return ErrConflict
+			}
+		}
 		s, exists := w.Services[id]
 		if exists {
 			var e error
 			s, e = webOwned(w, user, id)
 			if e != nil {
 				return e
+			}
+			if importedServer != "" {
+				// A repeated import returns the original service; retain any author edits.
+				out = s
+				return nil
+			}
+			previous := s.DraftVersionID
+			if previous == "" {
+				previous = s.LiveVersionID
+			}
+			if v, ok := w.Versions[previous]; ok && v.Version.OAuthServerID != "" {
+				if v.Version.Endpoint != in.Endpoint {
+					return ErrInvalid
+				}
+				oauthServerID = v.Version.OAuthServerID
 			}
 			if prior, ok := w.Versions[s.DraftVersionID]; ok {
 				if prior.Version.Status == "pending" {
@@ -620,6 +645,11 @@ func (m *Module) webSave(p Principal, user int64, id string, in WebDraftInput) (
 			return ErrLimit
 		}
 		v := webSnapshot{Version: WebVersion{ID: versionID, ServiceID: id, Status: "draft", Name: in.Name, Description: in.Description, ExecutionType: in.ExecutionType, Visibility: in.Visibility, Endpoint: in.Endpoint, CreatedAt: m.now().Unix(), Digest: digest(in)}, AllowedUsers: append([]int64{}, in.AllowedUsers...), Digest: digest(in), Tools: []WebTool{}}
+		if oauthServerID != "" {
+			v.Version.OAuthServerID = oauthServerID
+			v.Digest = digest([]any{in, oauthServerID})
+			v.Version.Digest = v.Digest
+		}
 		identities := map[string]string{}
 		for _, prior := range w.Versions {
 			if prior.Version.ServiceID == id {
@@ -730,6 +760,14 @@ func (m *Module) webInspect(ctx context.Context, user int64, raw json.RawMessage
 	} else if v.ServiceID != "" {
 		if err := m.store.view(func(d database) error {
 			var err error
+			if d.Web != nil {
+				service := d.Web.Services[v.ServiceID]
+				version := d.Web.Versions[v.VersionID].Version
+				if version.OAuthServerID != "" && service.OwnerID == user && version.ServiceID == service.ID && version.Endpoint == v.Endpoint {
+					remoteCredential, err = m.webOwnerCredential(d, service, version)
+					return err
+				}
+			}
 			remoteCredential, err = webResolveCredential(d, user, v.ServiceID, v.VersionID, v.Endpoint)
 			return err
 		}); err != nil {
@@ -762,7 +800,6 @@ func sameWebSchema(a, b string) bool {
 func (m *Module) webValidate(ctx context.Context, p Principal, user int64, id, versionID string, review bool, credential, account, permission string) error {
 	var captured webSnapshot
 	var capturedCredential webCredential
-	var publisher int64
 	err := m.store.view(func(d database) error {
 		w := webState(&d)
 		s, ok := w.Services[id]
@@ -780,8 +817,7 @@ func (m *Module) webValidate(ctx context.Context, p Principal, user int64, id, v
 			return ErrConflict
 		}
 		captured = v
-		publisher = s.OwnerID
-		capturedCredential, e = webResolveCredential(d, publisher, id, v.Version.ID, v.Version.Endpoint)
+		capturedCredential, e = m.webOwnerCredential(d, s, v.Version)
 		return e
 	})
 	if err != nil {
@@ -823,7 +859,7 @@ func (m *Module) webValidate(ctx context.Context, p Principal, user int64, id, v
 		if e != nil {
 			return e
 		}
-		currentCredential, credentialErr := webResolveCredential(*d, publisher, id, current.Version.ID, current.Version.Endpoint)
+		currentCredential, credentialErr := m.webOwnerCredential(*d, s, current.Version)
 		if credentialErr != nil {
 			return credentialErr
 		}

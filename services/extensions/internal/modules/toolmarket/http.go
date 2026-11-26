@@ -41,6 +41,10 @@ func apply[T any](raw json.RawMessage, fn func(T) (any, error), required ...stri
 func ok(e error) (any, error) { return map[string]bool{"ok": true}, e }
 func (m *Module) dispatch(ctx context.Context, p Principal, credential, action string, raw json.RawMessage) (any, error) {
 	switch action {
+	case "oauth/import":
+		return apply(raw, func(in oauthImportInput) (any, error) { return m.importOAuthTool(p, in) }, "provider", "name", "price_quota")
+	case "oauth/providers":
+		return apply(raw, func(_ struct{}) (any, error) { return m.oauthProviders(p) })
 	case "servers/register":
 		return apply(raw, func(v RegisterInput) (any, error) { return m.register(p, v) }, "endpoint", "auth")
 	case "servers/discover":
@@ -119,11 +123,11 @@ func (m *Module) dispatch(ctx context.Context, p Principal, credential, action s
 }
 func permission(action string) string {
 	switch action {
-	case "meta/search", "meta/details", "meta/load", "catalog", "installations/list", "executions/status", "grants/status", "mcp":
+	case "oauth/providers", "meta/search", "meta/details", "meta/load", "catalog", "installations/list", "executions/status", "grants/status", "mcp":
 		return "toolmarket.read"
 	case "meta/execute", "executions/cancel":
 		return "toolmarket.execute"
-	case "oauth/start", "oauth/callback", "oauth/refresh", "credentials/key", "credentials/revoke", "grants/preview", "grants/confirm", "grants/revoke":
+	case "oauth/connect", "oauth/start", "oauth/callback", "oauth/refresh", "credentials/key", "credentials/revoke", "grants/preview", "grants/confirm", "grants/revoke":
 		return "toolmarket.authorize"
 	default:
 		return "toolmarket.manage"
@@ -263,14 +267,25 @@ func (m *Module) Handler() http.Handler {
 				m.serveMCP(ctx, p, credential, w, r, raw)
 				return
 			}
-			if action == "oauth/start" {
+			if action == "oauth/start" || action == "oauth/connect" {
 				var v InstallationInput
-				v, e = payload[InstallationInput](raw, "installation")
+				if action == "oauth/connect" {
+					var in oauthProviderInput
+					in, e = payload[oauthProviderInput](raw, "provider")
+					if e == nil {
+						v.Installation, e = m.oauthPresetInstallation(p, in.Provider)
+					}
+				} else {
+					v, e = payload[InstallationInput](raw, "installation")
+				}
 				if e == nil {
 					var start oauthStart
 					start, e = m.startOAuth(ctx, p, v.Installation)
 					if e == nil {
 						http.SetCookie(w, &http.Cookie{Name: cookieName(start.State), Value: start.binding, Path: "/", MaxAge: 300, Secure: true, HttpOnly: true, SameSite: http.SameSiteLaxMode})
+						if action == "oauth/connect" {
+							start.Installation = v.Installation
+						}
 						out = start
 					}
 				}
@@ -364,12 +379,12 @@ func (m *Module) httpCallback(ctx context.Context, p Principal, w http.ResponseW
 	if q.Has("error") || q.Has("error_description") {
 		return nil, ErrInvalid
 	}
-	e = m.callbackOAuth(ctx, p, state, binding, q.Get("code"), q.Get("iss"))
+	installation, e := m.exchangeOAuth(ctx, p, state, binding, q.Get("code"), q.Get("iss"))
 	if e != nil {
 		return nil, e
 	}
 	http.SetCookie(w, &http.Cookie{Name: cookieName(state), Value: "", Path: "/", MaxAge: -1, Secure: true, HttpOnly: true, SameSite: http.SameSiteLaxMode})
-	return map[string]bool{"authorized": true}, nil
+	return map[string]any{"authorized": true, "installation": installation}, nil
 }
 
 func metaTools() []Tool {
