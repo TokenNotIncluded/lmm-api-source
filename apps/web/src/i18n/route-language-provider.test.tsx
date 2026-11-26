@@ -73,6 +73,7 @@ test('homepage footer and route honor the selected language across navigation', 
 test('a new visitor uses English and a saved interface language takes precedence', async () => {
   const detector = appI18n.services.languageDetector
   assert.ok(detector)
-  assert.deepEqual(appI18n.options.detection?.order, ['localStorage'])
+  assert.deepEqual(appI18n.options.detection?.order, ['cookie', 'localStorage'])
+  assert.equal(appI18n.options.detection?.lookupCookie, 'lmm_ui_locale')
   assert.deepEqual(appI18n.options.fallbackLng, ['en'])
 })
