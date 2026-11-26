@@ -41,7 +41,6 @@ import {
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { login } from '@/features/auth/api'
-import { HumanGrantButton } from '@/features/auth/components/humangrant-button'
 import { LegalConsent } from '@/features/auth/components/legal-consent'
 import { OAuthProviders } from '@/features/auth/components/oauth-providers'
 import { loginFormSchema } from '@/features/auth/constants'
@@ -349,27 +348,6 @@ export function UserAuthForm({
 
   const alternativeLoginMethods = (
     <>
-      {/* The configured Google custom OAuth provider is promoted into the
-          familiar branded entry point; all other providers stay secondary. */}
-      <OAuthProviders
-        onVerifiedAccountAppeal={() =>
-          setAppealRefreshKey((value) => value + 1)
-        }
-        status={status}
-        registrationCapabilitiesReady={capabilitiesReady}
-        redirectTo={redirectTo}
-        acceptedLegal={agreedToLegal}
-        disabled={
-          cookieBlocked ||
-          isLoading ||
-          isPasskeyLoading ||
-          (requiresLegalConsent && !agreedToLegal)
-        }
-        onWeChatLogin={hasWeChatLogin ? handleOpenWeChatDialog : undefined}
-        isWeChatLoading={isWeChatSubmitting}
-        featureGoogle
-      />
-
       {passkeyLoginEnabled && (
         <div className='space-y-1'>
           <Button
@@ -418,6 +396,24 @@ export function UserAuthForm({
         className={cn('auth-login-form grid gap-6', className)}
         {...props}
       >
+        <OAuthProviders
+          onVerifiedAccountAppeal={() =>
+            setAppealRefreshKey((value) => value + 1)
+          }
+          status={status}
+          registrationCapabilitiesReady={capabilitiesReady}
+          redirectTo={redirectTo}
+          acceptedLegal={agreedToLegal}
+          disabled={
+            cookieBlocked ||
+            isLoading ||
+            isPasskeyLoading ||
+            (requiresLegalConsent && !agreedToLegal)
+          }
+          onWeChatLogin={hasWeChatLogin ? handleOpenWeChatDialog : undefined}
+          isWeChatLoading={isWeChatSubmitting}
+          featureGoogle
+        />
         {(passwordLoginEnabled || passkeyLoginEnabled) && (
           <>
             {/* Username Field */}
@@ -508,18 +504,6 @@ export function UserAuthForm({
           </Link>
         </div>
 
-        <HumanGrantButton
-          configured={
-            capabilitiesReady
-              ? status?.configured_components?.humangrant
-              : false
-          }
-          disabled={
-            cookieBlocked ||
-            isLoading ||
-            (requiresLegalConsent && !agreedToLegal)
-          }
-        />
         {alternativeLoginMethods}
       </form>
 

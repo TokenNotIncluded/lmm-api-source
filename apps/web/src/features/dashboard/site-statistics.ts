@@ -40,7 +40,10 @@ export async function getAdminSiteStatistics(): Promise<AdminSiteStatistics> {
   const response = await api.get<{
     success: boolean
     data?: unknown
-  }>('/api/finance/site-statistics')
+  }>('/api/finance/site-statistics', {
+    skipBusinessError: true,
+    skipErrorHandler: true,
+  })
   if (!response.data.success) throw new Error('Site statistics unavailable')
   return statisticsSchema.parse(response.data.data)
 }
