@@ -23,19 +23,23 @@ def backend(name):
         def handle_call(self):
             body = self.rfile.read(int(self.headers.get('Content-Length', '0')))
             value = dict(backend=name, method=self.command, path=self.path,
-                         authorization=self.headers.get('Authorization'), body=body.decode())
+                         authorization=self.headers.get('Authorization'), body=body.decode(),
+                         policy_path=self.headers.get('X-Test-Policy-Path'))
+            self.server.calls.append(value)
             raw = json.dumps(value).encode()
             self.send_response(200)
             self.send_header('Content-Type', 'application/json')
             self.send_header('Content-Length', str(len(raw)))
             self.end_headers()
-            self.wfile.write(raw)
+            if self.command != 'HEAD':
+                self.wfile.write(raw)
 
-        do_GET = do_PATCH = do_PUT = do_POST = handle_call
+        do_GET = do_HEAD = do_PATCH = do_PUT = do_POST = handle_call
 
         def log_message(self, *_args):
             pass
     server = http.server.ThreadingHTTPServer(('127.0.0.1', 0), Handler)
+    server.calls = []
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     return server
@@ -62,7 +66,8 @@ class NativeManagementRoutes(unittest.TestCase):
             f'server {{listen 127.0.0.1:{cls.port}; '
             f'root {cls.path}; include {cls.path}/routes.conf; '
             'set $lmm_access_policy_original_uri 0; '
-            f'location @lmm_extensions_backend {{proxy_pass http://127.0.0.1:{cls.go.server_port};}} '
+            'location @lmm_extensions_backend {proxy_set_header X-Test-Policy-Path $lmm_access_policy_original_uri; '
+            f'proxy_pass http://127.0.0.1:{cls.go.server_port};}} '
             'location ^~ /core/ {return 503;} location / {return 418;} } }')
         (cls.path / 'nginx.conf').write_text(config)
         args = [shutil.which('nginx'), '-p', str(cls.path), '-c', str(cls.path / 'nginx.conf')]
@@ -92,10 +97,11 @@ class NativeManagementRoutes(unittest.TestCase):
         cls.directory.cleanup()
 
     @classmethod
-    def request(cls, method, path, body=None):
+    def request(cls, method, path, body=None, *, headers=None):
         connection = http.client.HTTPConnection('127.0.0.1', cls.port, timeout=3)
-        headers = {'Authorization':'Bearer synthetic-native-route-session',
-                   'Content-Type':'application/json'}
+        if headers is None:
+            headers = {'Authorization':'Bearer synthetic-native-route-session',
+                       'Content-Type':'application/json'}
         connection.request(method, path, body=body, headers=headers)
         response = connection.getresponse()
         status, raw = response.status, response.read()
@@ -131,6 +137,30 @@ class NativeManagementRoutes(unittest.TestCase):
                 self.assertEqual(actual['path'], path)
                 self.assertEqual(actual['body'], body or '')
                 self.assertEqual(actual['authorization'], 'Bearer synthetic-native-route-session')
+
+    def test_public_legal_documents_preserve_method_policy_path_and_language(self):
+        for path in ('/api/user-agreement', '/api/privacy-policy'):
+            for method in ('GET', 'HEAD'):
+                for query in ('', '?lang=zh'):
+                    with self.subTest(path=path, method=method, query=query):
+                        before = len(self.go.calls)
+                        status, raw = self.request(method, path + query, headers={})
+                        self.assertEqual(status, 200)
+                        self.assertEqual(len(self.go.calls), before + 1)
+                        call = self.go.calls[-1]
+                        self.assertEqual((call['method'], call['path'], call['policy_path']),
+                                         (method, path + query, path))
+                        self.assertIsNone(call['authorization'])
+                        self.assertEqual(raw, b'' if method == 'HEAD' else json.dumps(call).encode())
+
+            before = len(self.go.calls)
+            for method in ('POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'):
+                with self.subTest(path=path, method=method):
+                    self.assertEqual(self.request(method, path, headers={})[0], 405)
+            for other in (path + '/', path + '/preview', path + '-archive', path[4:]):
+                with self.subTest(path=other):
+                    self.assertEqual(self.request('GET', other, headers={})[0], 418)
+            self.assertEqual(len(self.go.calls), before)
 
     def test_unrelated_methods_ids_and_paths_are_not_forwarded(self):
         for method, path, expected in (
