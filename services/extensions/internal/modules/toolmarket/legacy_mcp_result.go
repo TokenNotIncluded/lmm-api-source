@@ -71,7 +71,7 @@ func legacyMCPExecutionOutput(response LegacyWebExecutionResponse) (*mcp.CallToo
 		legacyMCPRestoreMeta(result.Content, native.Content)
 	} else {
 		result.IsError = true
-		result.Content = []mcp.Content{&mcp.TextContent{Text: "The original call has no final result available. Query metamcp action=call_status instead of starting another request."}}
+		result.Content = []mcp.Content{&mcp.TextContent{Text: "The original call has no final result available. Use metamcp with code call_status({call_id:'CALL_ID'}), replacing CALL_ID with the original ID in _meta.lmm/market.call."}}
 	}
 	if result.Meta == nil {
 		result.Meta = mcp.Meta{}

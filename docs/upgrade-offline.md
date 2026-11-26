@@ -98,6 +98,27 @@ rejects table/column SELECT on those private receipts, as well as mutation or
 owner authority. Adding an administrative table does not create a runtime
 requirement to read it.
 
+## Upgrade the tool catalog from 29 to 31 entries
+
+The Core release that introduces the two SSMCP relay tools expects a 31-entry catalog. Schedule the catalog update whenever you install that Core release, including deployments with the SSMCP relay plugin disabled. Core checks the catalog before serving existing built-ins. The schema upgrade earlier in this guide is a separate operation.
+
+1. Keep traffic on the current deployment. Save a recoverable database backup and the currently deployed Core and Extensions release identifiers. Record the outcome of an authenticated read-only wallet request and of an assistant request that is safe to repeat in your test tenant.
+2. Use the new release’s Core binary and the explicit installer-owner configuration for the target database. The command checks the schema and verifies ownership of the credit quotes, built-in bindings, and component contract tables before it writes. Run it from the operator environment that already has that role.
+
+   ```sh
+   lmm-core --config /absolute/installer-owner.toml install-tool-market-builtins
+   ```
+
+   Substitute your actual configuration path. With the catalog shipped in this release, standard output must contain the following receipt.
+
+   ```json
+   {"tools":31,"catalog_digest":"7ee4a62216ec7c4d6c36e8cb7f2921f8532b7a9ac8ae0e633710541870c18951"}
+   ```
+
+3. Run the same command again with the same configuration. Check that the count and digest are identical. The installer checks the existing 29 definitions and adds the two relay definitions transactionally. Stop the rollout on a predecessor mismatch, ownership failure, or differing receipt. Keep the command output with the release record.
+4. Bring up a candidate Core and Extensions pair from the same release against the upgraded candidate database. Check the authenticated internal built-ins readiness operation at `/internal/builtins/v1/ready` through the deployment’s existing Core bridge. Require success for the compiled count and digest. Re-run the read-only wallet and assistant checks with the same tenant. Record both responses before switching traffic. The 31 catalog entries cover two drawing tools, five wallet tools, 22 open-source bounty tools and two SSMCP relay tools. The assistant has a separate runtime path.
+5. If a check fails, keep serving traffic from the last verified deployment. If restoring the pre-upgrade state becomes necessary, use the matched backup and matching release artifacts under the deployment’s normal recovery procedure. Rehearse the procedure on a restored copy before the production window.
+
 ## Local verification
 
 `scripts/test-upgrade-offline.py --help` describes the disposable process test.

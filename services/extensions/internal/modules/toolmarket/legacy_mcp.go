@@ -71,6 +71,8 @@ func legacyMCPChallenge(opts LegacyMarketMCPOptions, scopes []string, code strin
 	}
 	return strings.Join(parts, ", ")
 }
+const marketOAuthHint = "Connect this MCP client with OAuth for /mcp/market using resource_metadata in WWW-Authenticate."
+
 func legacyMCPRequired(raw []byte) (invoke, manage bool) {
 	var calls []json.RawMessage
 	if bytes.HasPrefix(bytes.TrimSpace(raw), []byte("[")) {
@@ -148,12 +150,16 @@ func (m *Module) LegacyMarketMCPHandler(opts LegacyMarketMCPOptions) http.Handle
 				return
 			}
 			w.Header().Set("WWW-Authenticate", legacyMCPChallenge(opts, []string{"market:discover"}, code))
-			http.Error(w, "MCP authorization required", status)
+			message := marketOAuthHint
+			if status == http.StatusForbidden {
+				message = "Authorize market:discover to access the MCP tool market."
+			}
+			http.Error(w, message, status)
 			return
 		}
 		if p.CredentialKind != "oauth" || p.Issuer != opts.Issuer || p.Resource != opts.Resource {
 			w.Header().Set("WWW-Authenticate", legacyMCPChallenge(opts, nil, "invalid_token"))
-			http.Error(w, "MCP authorization required", 401)
+			http.Error(w, marketOAuthHint, http.StatusUnauthorized)
 			return
 		}
 		q, qe := url.ParseQuery(r.URL.RawQuery)
@@ -165,7 +171,7 @@ func (m *Module) LegacyMarketMCPHandler(opts LegacyMarketMCPOptions) http.Handle
 			}
 		}
 		if qe != nil || len(q) > 1 || len(q) == 1 && len(q["mode"]) != 1 || mode != "" && mode != "full" && mode != "compact" || alternate {
-			http.Error(w, "MCP accepts one bearer and optional full or compact mode", 400)
+			http.Error(w, "Send one OAuth bearer credential for /mcp/market. Remove additional credentials, cookies and unsupported query parameters.", 400)
 			return
 		}
 		r.Body = http.MaxBytesReader(w, r.Body, 256<<10)

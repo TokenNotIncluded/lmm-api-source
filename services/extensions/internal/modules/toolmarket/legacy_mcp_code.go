@@ -60,7 +60,7 @@ func parseMarketCode(raw json.RawMessage) ([]marketCodeStep, error) {
 		Code string `json:"code"`
 	}
 	if decodeStrict(raw, &input) != nil || len(input.Code) == 0 || len(input.Code) > marketCodeBytes {
-		return nil, ErrInvalid
+		return nil, fmt.Errorf("metamcp expects a single code string, for example search({query:'drawing',limit:1}): %w", ErrInvalid)
 	}
 	cfg := conf.CreateNew()
 	cfg.MaxNodes = 256
