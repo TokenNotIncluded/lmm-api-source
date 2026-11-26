@@ -2424,7 +2424,26 @@ test('channel editing exposes common fields and preserves bindings, context meta
     container.querySelector('form[aria-label="Edit Channel"]')
   )
   assert.equal(container.querySelector('input[type=password]'), null)
-  assert.equal(required(form.querySelector('details')).open, false)
+  assert.equal(button(form, 'API Keys').disabled, false)
+  const models = required(
+    form.querySelector<HTMLDetailsElement>('details[aria-label="Models"]')
+  )
+  assert.equal(models.open, false)
+  assert.match(
+    required(models.querySelector('summary')).textContent ?? '',
+    /model-a/
+  )
+  assert.match(
+    required(models.querySelector('summary')).textContent ?? '',
+    /1 selected/
+  )
+  const settings = required(form.querySelector('textarea')?.closest('details'))
+  assert.equal(settings.open, false)
+  assert.ok(
+    [...settings.querySelectorAll('label')].some((label) =>
+      label.textContent?.includes('Tag')
+    )
+  )
   const setter = required(
     Object.getOwnPropertyDescriptor(dom.HTMLInputElement.prototype, 'value')
       ?.set
@@ -2544,6 +2563,11 @@ test('channel bindings add, map and remove models through one reviewed channel d
         .find((item) => item.querySelector('span')?.textContent === label)
         ?.querySelector('input')
     )
+  const models = required(
+    form.querySelector<HTMLDetailsElement>('details[aria-label="Models"]')
+  )
+  await act(async () => required(models.querySelector('summary')).click())
+  assert.equal(models.open, true)
   const picker = required(
     form.querySelector('section[aria-label="Available models"]')
   )
@@ -2559,13 +2583,23 @@ test('channel bindings add, map and remove models through one reviewed channel d
   assert.equal(required(routeFields(2).closest('details')).open, true)
   assert.equal(required(routeFields(1).closest('details')).open, false)
   assert.equal(writes.length, 0)
-  assert.equal(form.checkValidity(), false)
+  const supplier = required(routeFields(2).querySelector('details'))
+  await act(async () => {
+    supplier.open = false
+    models.open = false
+    field(routeFields(2), 'Contract revision').dispatchEvent(
+      new Event('invalid', { cancelable: true })
+    )
+    assert.equal(form.checkValidity(), false)
+  })
+  assert.equal(models.open, true)
+  assert.equal(supplier.open, true)
   await changeInput(field(routeFields(2), 'Upstream model'), 'supplier-b')
   await changeInput(field(routeFields(2), 'Priority'), '2')
   await changeInput(field(routeFields(2), 'Weight'), '')
   assert.ok(routeFields(2))
   assert.equal(JSON.parse(textarea.value).attachments[1].weight, '')
-  assert.equal(form.checkValidity(), false)
+  await act(async () => assert.equal(form.checkValidity(), false))
   await changeInput(field(routeFields(2), 'Weight'), '7')
   await changeInput(field(routeFields(2), 'Timeout (ms)'), '15000')
   await changeInput(field(routeFields(2), 'Maximum input tokens'), '16384')
@@ -2838,6 +2872,27 @@ test('channel drafts survive current-section clicks and require confirmation bef
   dialog = required(document.querySelector('[role=dialog]'))
   await act(async () => button(dialog, 'Leave').click())
   assert.ok(container.querySelector('form[aria-label="Create Channel"]'))
+  const form = required(
+    container.querySelector('form[aria-label="Create Channel"]')
+  )
+  const primary = [...form.querySelectorAll('label')].filter(
+    (label) => !label.closest('details')
+  )
+  assert.deepEqual(
+    primary
+      .slice(0, 4)
+      .map((label) => label.querySelector('span')?.textContent),
+    ['Name', 'Protocol', 'Base URL', 'API key']
+  )
+  assert.ok(
+    form.querySelector<HTMLInputElement>('input[type=password]')?.required
+  )
+  assert.equal(
+    required(
+      form.querySelector<HTMLDetailsElement>('details[aria-label="Models"]')
+    ).open,
+    false
+  )
   const replacementName = required(
     container.querySelector<HTMLInputElement>('form input')
   )

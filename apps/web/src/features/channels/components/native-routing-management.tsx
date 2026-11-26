@@ -69,7 +69,10 @@ import { NativeBalanceDialog } from './dialogs/native-balance-dialog'
 import { NativeChannelUsageDialog } from './dialogs/native-channel-usage-dialog'
 import { NativeKeyManageDialog } from './dialogs/native-key-manage-dialog'
 import { NativeChannelBatchEditor } from './native-channel-batch-editor'
-import { NativeChannelFields } from './native-channel-fields'
+import {
+  NativeChannelFields,
+  NativeChannelTagField,
+} from './native-channel-fields'
 import { NativeChannelFilterFields } from './native-channel-filter-fields'
 import {
   NativeChannelOperationsSummary,
@@ -93,7 +96,7 @@ type Editor = {
   modelEditing?: boolean
   secret?: boolean
   readOnly?: boolean
-  channel?: boolean
+  channelId?: number
   trigger?: HTMLButtonElement
 }
 type EditorDestination =
@@ -317,7 +320,7 @@ function NativeRoutingWorkspace({
   const configuration = query.data
   const editorStale = !!(
     editor &&
-    (editor.channel || editor.modelEditing !== undefined) &&
+    (editor.channelId || editor.modelEditing !== undefined) &&
     configuration &&
     (editor.version.routing !== configuration.version.routing ||
       editor.version.pricing !== configuration.version.pricing)
@@ -569,7 +572,7 @@ function NativeRoutingWorkspace({
       method: channel ? 'PUT' : 'POST',
       path: `${NATIVE_ROOT}/channels${channel ? `/${id}` : ''}`,
       secret: !channel,
-      channel: true,
+      channelId: id,
       trigger,
       document: pretty({
         expected_version: configuration.version,
@@ -713,7 +716,7 @@ function NativeRoutingWorkspace({
   function reloadEditor() {
     if (!editor || !configuration) return
     const id = Number(editor.path.split('/').at(-1))
-    if (editor.channel) {
+    if (editor.channelId) {
       const channel = configuration.routing.upstreams.find(
         (item) => item.id === id
       )
@@ -1010,6 +1013,16 @@ function NativeRoutingWorkspace({
           className='min-w-0 space-y-6 p-5 sm:p-7'
           aria-label={editor.title}
           ref={editorRef}
+          onInvalidCapture={(event) => {
+            if (!editor.channelId || !(event.target instanceof HTMLElement)) {
+              return
+            }
+            let disclosure = event.target.closest('details')
+            while (disclosure && event.currentTarget.contains(disclosure)) {
+              if (!disclosure.open) disclosure.open = true
+              disclosure = disclosure.parentElement?.closest('details') ?? null
+            }
+          }}
           onSubmit={(event) => {
             event.preventDefault()
             if (editor.previewPath && !preview) void previewEditor()
@@ -1037,7 +1050,7 @@ function NativeRoutingWorkspace({
               </AlertDescription>
             </Alert>
           )}
-          {editor.channel && (
+          {editor.channelId && (
             <NativeChannelFields
               key={editor.path}
               document={editor.document}
@@ -1057,7 +1070,25 @@ function NativeRoutingWorkspace({
                       onChange={(event) => setSecret(event.target.value)}
                     />
                   </label>
-                ) : undefined
+                ) : (
+                  <div className='flex min-w-0 items-end'>
+                    <Button
+                      type='button'
+                      variant='outline'
+                      className='min-h-11'
+                      disabled={
+                        writeDisabled ||
+                        editorStale ||
+                        !secretsAllowed ||
+                        !configuration.secret_storage_enabled
+                      }
+                      onClick={() => setKeyChannel(editor.channelId ?? null)}
+                    >
+                      <KeyRound className='size-4' />
+                      {t('API Keys')}
+                    </Button>
+                  </div>
+                )
               }
               onChange={(document) => {
                 setEditor({ ...editor, document })
@@ -1076,10 +1107,21 @@ function NativeRoutingWorkspace({
               }}
             />
           )}
-          <details open={!editor.channel && editor.modelEditing === undefined}>
+          <details
+            open={!editor.channelId && editor.modelEditing === undefined}
+          >
             <summary className='cursor-pointer py-2 text-sm font-medium'>
               {t('Advanced Settings')}
             </summary>
+            {editor.channelId && (
+              <div className='mb-4 max-w-md'>
+                <NativeChannelTagField
+                  document={editor.document}
+                  disabled={busy}
+                  onChange={(document) => setEditor({ ...editor, document })}
+                />
+              </div>
+            )}
             <label className='block space-y-2'>
               <span className='text-sm'>{t('Configuration')}</span>
               <Textarea
