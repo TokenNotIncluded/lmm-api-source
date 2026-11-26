@@ -8,7 +8,10 @@ Core's authorized preview. Review the result, then repeat with --save-draft ID a
 The accepted public pricing shape is described at https://openrouter.ai/docs/guides/overview/models .
 All five native rates must be explicit. Missing request/cache amounts, nonzero
 unrepresented dimensions and conditional overrides leave the whole model unchanged.
-Conversions must be exact; the maximum native rate is 2^63-1. The feed SHA-256
+The ordinary token contract supports input, output, and cache reads. Native text
+request fees require a request-only quote. The report lists incompatible rules
+with their retained prices. Token rates must convert exactly to ledger credits
+after applying the selected rule's multipliers. The maximum native rate is 2^63-1. The feed SHA-256
 identifies the source version in the saved draft name and review report.
 """
 import argparse
@@ -161,6 +164,29 @@ def valid_id(value):
     return type(value) is int and 0 < value <= MAX_INT
 
 
+def charging_issue(rule, rates):
+    # Mirrors Core's credit_price_with_calendar for non-tiered native rules.
+    if rates["request"] and any(rates[k] for k in ("input", "output", "cache_read", "cache_write")):
+        return "request_fee_mixed_with_token_prices"
+    if rates["cache_write"]:
+        return "unsupported_cache_write_price"
+    # 500,000 credits/USD, 1,000,000 micro-USD/USD and two ppm multipliers.
+    denominator = 2_000_000_000_000
+    multiplier = rule["group_multiplier_ppm"] * rule["speed_multiplier_ppm"]
+    if rates["request"]:
+        # TextRequestPrice permits whole-credit ceiling per completed request.
+        if rates["request"] * multiplier > MAX_INT * denominator:
+            return "credit_rate_overflow:request"
+    else:
+        for field in ("input", "output", "cache_read"):
+            credits, remainder = divmod(rates[field] * multiplier, denominator)
+            if remainder:
+                return "fractional_credit_rate:" + field
+            if credits > MAX_INT:
+                return "credit_rate_overflow:" + field
+    return None
+
+
 def prepare(raw, current, requested):
     quotes, skipped = feed_quotes(raw)
     if not isinstance(current, dict):
@@ -186,6 +212,9 @@ def prepare(raw, current, requested):
             skipped_rules.append({"id": rule_id, "model": model, "reason": "no_complete_unique_quote"})
         elif rule["rates"] == quotes[model]:
             unchanged.append(rule_id)
+        elif reason := charging_issue(rule, quotes[model]):
+            skipped_rules.append({"id": rule_id, "model": model, "reason": reason,
+                                  "retained_rates": rule["rates"]})
         else:
             changed.append({"id": rule_id, "model": model, "before": rule["rates"], "after": quotes[model]})
             rule["rates"] = quotes[model]

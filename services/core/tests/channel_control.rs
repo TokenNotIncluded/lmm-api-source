@@ -1769,6 +1769,6 @@ async fn openrouter_feed_reaches_native_draft_confirmation_and_frozen_quotes(poo
             .charge(usage)
             .unwrap()
             .0,
-        2_501_000
+        2_500_000
     );
 }

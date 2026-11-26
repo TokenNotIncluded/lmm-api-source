@@ -21,27 +21,30 @@ spec.loader.exec_module(mod)
 def current():
     def rule(i, name):
         return {"id": i, "model": name, "group": "default", "speed": "standard",
-                "rates": dict.fromkeys(mod.RATES.values(), 1), "group_multiplier_ppm": 1_000_000,
+                "rates": {"input": 2, "output": 4, "cache_read": 0, "cache_write": 0, "request": 0}, "group_multiplier_ppm": 1_000_000,
                 "speed_multiplier_ppm": 1_000_000}
     return {"version": {"routing": 1, "pricing": 1},
-            "prices": {"version": 1, "rules": [rule(1, "model-a"), rule(2, "model-b"), rule(3, "model-c")]}}
+            "prices": {"version": 1, "rules": [rule(1, "model-a"), rule(2, "model-b"), rule(3, "model-c"), rule(4, "model-d")]}}
 
 
 class PriceDraft(unittest.TestCase):
     def test_mixed_feed_preserves_unselected_and_unusable_rules_and_repeats_exactly(self):
         active = current()
         before = copy.deepcopy(active)
-        plan = mod.prepare(FEED.read_bytes(), active, [3, 2, 1])
+        plan = mod.prepare(FEED.read_bytes(), active, [4, 3, 2, 1])
         self.assertEqual(active, before)
-        self.assertEqual(plan, mod.prepare(FEED.read_bytes(), active, [1, 2, 3]))
+        self.assertEqual(plan, mod.prepare(FEED.read_bytes(), active, [1, 2, 3, 4]))
         prices = plan["preview_request"]["prices"]
         self.assertEqual(prices["version"], 2)
         self.assertEqual(prices["rules"][0]["rates"],
                          {"input": 2500000, "output": 10000000, "cache_read": 250000,
-                          "cache_write": 3125000, "request": 1000})
+                          "cache_write": 0, "request": 0})
         self.assertEqual(prices["rules"][1:], active["prices"]["rules"][1:])
         self.assertEqual([row["reason"] for row in plan["skipped_rows"]],
                          ["structured_price:prompt", "missing_price:input_cache_read"])
+        self.assertEqual(plan["skipped_rules"][-1],
+                         {"id": 4, "model": "model-d", "reason": "request_fee_mixed_with_token_prices",
+                          "retained_rates": active["prices"]["rules"][3]["rates"]})
         self.assertEqual(plan["feed_sha256"], mod.sha(FEED.read_bytes()))
         self.assertEqual(plan["preview_request"]["expected_version"], active["version"])
         active.update(prices=prices, version={"routing": 3, "pricing": 2})
@@ -100,9 +103,46 @@ class PriceDraft(unittest.TestCase):
         active["prices"]["rules"].append(other)
         result = mod.prepare(raw, active, [9])
         proposed = result["preview_request"]["prices"]["rules"]
-        self.assertEqual(proposed[:3], active["prices"]["rules"][:3])
-        self.assertEqual(proposed[3], {**other, "rates": dict.fromkeys(mod.RATES.values(), 0)})
+        self.assertEqual(proposed[:-1], active["prices"]["rules"][:-1])
+        self.assertEqual(proposed[-1], {**other, "rates": dict.fromkeys(mod.RATES.values(), 0)})
         self.assertEqual(result["changed"][0]["id"], 9)
+
+    def test_rule_specific_charging_contracts_and_retained_rates(self):
+        def plan(prices, **rule_changes):
+            row = {"id": "model-a", "pricing": {**dict.fromkeys(mod.RATES, "0"), **prices}}
+            active = current()
+            active["prices"]["rules"][0].update(rule_changes)
+            before = copy.deepcopy(active)
+            result = mod.prepare(json.dumps({"data": [row]}).encode(), active, [1])
+            self.assertEqual(active, before)
+            return result
+
+        for prices, changes, reason in [
+            ({"prompt": "1", "request": "0.001"}, {}, "request_fee_mixed_with_token_prices"),
+            ({"input_cache_write": "0.000003125"}, {}, "unsupported_cache_write_price"),
+            ({"completion": "0.000000000002"}, {"group_multiplier_ppm": 500_000},
+             "fractional_credit_rate:output"),
+            ({"input_cache_read": "9223372.036854775806"}, {"speed_multiplier_ppm": 4_000_000},
+             "credit_rate_overflow:cache_read"),
+            ({"request": "9223372036854.775807"}, {"group_multiplier_ppm": 3_000_000},
+             "credit_rate_overflow:request"),
+        ]:
+            with self.subTest(reason=reason):
+                result = plan(prices, **changes)
+                self.assertIsNone(result["preview_request"])
+                self.assertEqual(result["skipped_rules"], [{"id": 1, "model": "model-a", "reason": reason,
+                                 "retained_rates": current()["prices"]["rules"][0]["rates"]}])
+                call = Mock()
+                self.assertEqual(mod.review(result, call, 15, "unused"), {"status": "no_changes"})
+                call.assert_not_called()
+
+        for prices, changes, field, amount in [
+            ({"request": "0.000001"}, {}, "request", 1),
+            ({"completion": "0.000000000001"}, {"speed_multiplier_ppm": 2_000_000}, "output", 1),
+        ]:
+            with self.subTest(field=field):
+                result = plan(prices, **changes)
+                self.assertEqual(result["preview_request"]["prices"]["rules"][0]["rates"][field], amount)
 
     def test_scope_existing_tariffs_and_versions(self):
         for field, value in [("billing_mode","upstream_cost"), ("billing_mode","tiered_decimal"),
@@ -112,7 +152,7 @@ class PriceDraft(unittest.TestCase):
             result = mod.prepare(FEED.read_bytes(), snapshot, [1])
             self.assertIsNone(result["preview_request"])
             self.assertEqual(result["skipped_rules"][0]["reason"], "non_native_token_rule")
-        for ids in [[], [0], [4], [1, 1]]:
+        for ids in [[], [0], [5], [1, 1]]:
             with self.assertRaises(ValueError):
                 mod.prepare(FEED.read_bytes(), current(), ids)
 
