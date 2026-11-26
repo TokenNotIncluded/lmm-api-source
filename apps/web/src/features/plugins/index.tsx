@@ -167,7 +167,12 @@ function PluginInventory({ scope }: { scope: NativeUsersScope }) {
     )
   }
 
-  const visible = registry.filter(
+  // The runtime registry also carries adapters for core services. Keep the
+  // full registry for dependency checks, but only manage extensions here.
+  const extensions = registry.filter(
+    (plugin) => plugin.name !== 'identity' && plugin.name !== 'payments'
+  )
+  const visible = extensions.filter(
     (plugin) =>
       [plugin.name, ...Object.values(pluginPresentation(plugin.name, t))]
         .join(' ')
@@ -232,15 +237,15 @@ function PluginInventory({ scope }: { scope: NativeUsersScope }) {
         {[
           [
             t('Enabled modules'),
-            registry.filter((plugin) => plugin.enabled).length,
+            extensions.filter((plugin) => plugin.enabled).length,
           ],
           [
             t('Installed'),
-            registry.filter((plugin) => plugin.installed).length,
+            extensions.filter((plugin) => plugin.installed).length,
           ],
           [
             t('Available'),
-            registry.filter((plugin) => plugin.available).length,
+            extensions.filter((plugin) => plugin.available).length,
           ],
         ].map(([label, value]) => (
           <div key={label} className='space-y-1'>

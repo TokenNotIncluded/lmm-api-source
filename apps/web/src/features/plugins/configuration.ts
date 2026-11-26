@@ -26,14 +26,6 @@ const configuration: Record<
     href: '/system-settings/operations/scripts',
     fields: ['operations.database_url_file'],
   },
-  payments: {
-    href: '/system-settings/billing/payment',
-    fields: [
-      'core.payment_token_file',
-      'payments.database_url_file',
-      'payments.config_file',
-    ],
-  },
 }
 
 export function pluginConfiguration(name: string) {
