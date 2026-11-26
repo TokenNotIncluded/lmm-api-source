@@ -698,21 +698,31 @@ mod tests {
         let request =
             request::Request::parse_deferred_openai(ClientProtocol::Chat, body, &Limits::default())
                 .unwrap();
-        assert!(
-            request
-                .upstream_body(&route(UpstreamProtocol::Chat))
-                .is_err()
-        );
-        for allowed in [false, true] {
-            let route = route(UpstreamProtocol::Chat).with_payload_policy(
-                crate::routing::PayloadPolicy::LegacyOpenai {
-                    allow_service_tier: allowed,
+        use crate::routing::PayloadPolicy;
+        for (policy, allowed) in [
+            (PayloadPolicy::Adapt, false),
+            (
+                PayloadPolicy::LegacyOpenai {
+                    allow_service_tier: false,
                     allow_inference_geo: false,
                     allow_speed: false,
                     allow_safety_identifier: false,
                     allow_include_obfuscation: false,
                 },
-            );
+                false,
+            ),
+            (
+                PayloadPolicy::LegacyOpenai {
+                    allow_service_tier: true,
+                    allow_inference_geo: false,
+                    allow_speed: false,
+                    allow_safety_identifier: false,
+                    allow_include_obfuscation: false,
+                },
+                true,
+            ),
+        ] {
+            let route = route(UpstreamProtocol::Chat).with_payload_policy(policy);
             let bytes = request.upstream_body(&route).unwrap();
             let value: Value = serde_json::from_slice(&bytes).unwrap();
             assert_eq!(value, request.upstream(&route).unwrap());

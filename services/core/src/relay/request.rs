@@ -713,36 +713,19 @@ impl Request {
                 fields.remove("stream_options");
             }
         }
-        let bytes =
-            serde_json::to_vec(&fields).map_err(|_| RelayError::Invalid("invalid request body"))?;
-        let mut request = Self::parse_mode(
+        let mut request = Self::parse_openai_fields(
             client,
-            &bytes,
+            body,
             limits,
+            Value::Object(fields),
             allow_empty_input,
             allow_previous_tool_result,
         )?;
         request.compatibility = compatibility;
-        if matches!(client, ClientProtocol::Chat | ClientProtocol::Responses) {
-            request.legacy_precharge_body = Some(std::sync::Arc::from(body));
-        }
-        // The compatibility parser re-encodes fields; capture only after its
-        // original duplicate/depth checks, from the original ordered schemas.
-        request.capture_ordered_schemas(client, body);
         Ok(request)
     }
 
     pub fn parse(client: ClientProtocol, body: &[u8], limits: &Limits) -> Result<Self, RelayError> {
-        Self::parse_mode(client, body, limits, false, false)
-    }
-
-    fn parse_mode(
-        client: ClientProtocol,
-        body: &[u8],
-        limits: &Limits,
-        allow_empty_input: bool,
-        allow_previous_tool_result: bool,
-    ) -> Result<Self, RelayError> {
         limits.validate()?;
         if client == ClientProtocol::Anthropic {
             let mut request = super::native_anthropic::parse(body, limits)?;
@@ -757,16 +740,19 @@ impl Request {
         if body.len() > limits.request_bytes {
             return Err(RelayError::Limit("request body"));
         }
-        let client = match client {
-            ClientProtocol::Chat => ClientProtocol::Chat,
-            ClientProtocol::Responses => ClientProtocol::Responses,
-            _ => unreachable!("native request dispatched above"),
-        };
-        let v = Value::Object(
-            serde_json::from_slice::<RequestObject>(body)
-                .map_err(|_| RelayError::Invalid("invalid or ambiguous JSON body"))?
-                .0,
-        );
+        let fields = serde_json::from_slice::<RequestObject>(body)
+            .map_err(|_| RelayError::Invalid("invalid or ambiguous JSON body"))?;
+        Self::parse_openai_fields(client, body, limits, Value::Object(fields.0), false, false)
+    }
+
+    fn parse_openai_fields(
+        client: ClientProtocol,
+        body: &[u8],
+        limits: &Limits,
+        v: Value,
+        allow_empty_input: bool,
+        allow_previous_tool_result: bool,
+    ) -> Result<Self, RelayError> {
         match client {
             ClientProtocol::Chat => keys(
                 &v,
@@ -795,26 +781,9 @@ impl Request {
                     "response_format",
                 ],
             )?,
-            ClientProtocol::Anthropic | ClientProtocol::Gemini => keys(
-                &v,
-                &[
-                    "model",
-                    "messages",
-                    "stream",
-                    "stream_options",
-                    "max_tokens",
-                    "max_completion_tokens",
-                    "temperature",
-                    "top_p",
-                    "stop",
-                    "tools",
-                    "tool_choice",
-                    "parallel_tool_calls",
-                    "n",
-                    "reasoning_effort",
-                    "store",
-                ],
-            )?,
+            ClientProtocol::Anthropic | ClientProtocol::Gemini => {
+                unreachable!("native request dispatched before OpenAI field parsing")
+            }
             ClientProtocol::Responses => keys(
                 &v,
                 &[
@@ -1208,11 +1177,7 @@ impl Request {
             original_http_body: None,
             sse_ping: None,
             has_sse_policy: false,
-            legacy_precharge_body: matches!(
-                client,
-                ClientProtocol::Chat | ClientProtocol::Responses
-            )
-            .then(|| std::sync::Arc::from(body)),
+            legacy_precharge_body: Some(std::sync::Arc::from(body)),
             messages,
             tools,
             stop,
@@ -1430,6 +1395,9 @@ impl Request {
             return Err(RelayError::Unsupported(
                 "OpenRouter fields require its selected route contract",
             ));
+        }
+        if route.payload_policy == PayloadPolicy::Adapt {
+            return self.encode_upstream(route.protocol, &route.model);
         }
         let PayloadPolicy::LegacyOpenai {
             allow_service_tier,

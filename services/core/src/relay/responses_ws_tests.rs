@@ -456,3 +456,18 @@ fn named_pending_limit_duplicate_error_and_finalized_turn_release_are_exact() {
     state.finish(admitted).unwrap();
     assert!(!state.control_records["idle-pending"].pending);
 }
+
+#[test]
+fn event_type_borrows_plain_text_and_accepts_escaped_types() {
+    use std::borrow::Cow;
+    assert!(matches!(
+        event_type(br#"{"input":[{"content":"hello"}],"type":"response.create"}"#),
+        Some(Cow::Borrowed("response.create"))
+    ));
+    assert_eq!(
+        event_type(br#"{"type":"response.\u0063reate"}"#).as_deref(),
+        Some("response.create")
+    );
+    assert!(event_type(br#"{"type":"response.create","type":"response.cancel"}"#).is_none());
+    assert!(event_type(br#"{"type":"response.create","input":["#).is_none());
+}

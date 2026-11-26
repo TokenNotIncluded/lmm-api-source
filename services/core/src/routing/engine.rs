@@ -1225,13 +1225,16 @@ impl RoutePlan {
     }
 
     pub(crate) fn planned_attempts(&self) -> Vec<Attempt> {
-        self.candidate_attempts()
-            .into_iter()
+        self.attempts_iter()
             .take(usize::from(self.attempt_limit()))
             .collect()
     }
     /// Full immutable ordered pool, used only for pre-dispatch capability filtering.
     pub(crate) fn candidate_attempts(&self) -> Vec<Attempt> {
+        self.attempts_iter().collect()
+    }
+
+    fn attempts_iter(&self) -> impl Iterator<Item = Attempt> + '_ {
         self.candidates
             .iter()
             .enumerate()
@@ -1252,7 +1255,6 @@ impl RoutePlan {
                 number: index as u8 + 1,
                 speed: self.speed,
             })
-            .collect()
     }
 
     pub(crate) fn allows_failure(&self, failure: Failure, http_status: Option<u16>) -> bool {

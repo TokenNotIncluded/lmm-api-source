@@ -47,6 +47,18 @@ fn standard_only_openai_rejects_unpriced_tiers_and_speed_before_encoding() {
                         "{client:?} {stream} {field} {tier}"
                     );
                     assert!(request.upstream_body(&route).is_err());
+                    let default = route.clone().with_payload_policy(PayloadPolicy::Adapt);
+                    let baseline = Request::parse(
+                        client,
+                        &serde_json::to_vec(&base).unwrap(),
+                        &Limits::default(),
+                    )
+                    .unwrap();
+                    assert_eq!(
+                        request.upstream_body(&default).unwrap(),
+                        baseline.upstream_body(&default).unwrap(),
+                        "{client:?} {stream} {field} {tier}"
+                    );
                     // OpenRouter never grants legacy OpenAI tier controls.
                     if client == ClientProtocol::Chat {
                         assert!(
@@ -73,6 +85,36 @@ fn standard_only_openai_rejects_unpriced_tiers_and_speed_before_encoding() {
                 assert_eq!(payload["service_tier"], tier);
                 assert_eq!(payload["speed"], "standard");
             }
+        }
+    }
+}
+
+#[test]
+fn native_anthropic_drops_speed_from_cached_and_uncached_requests() {
+    for system in [
+        json!("system"),
+        json!([{"type":"text","text":"system","cache_control":{"type":"ephemeral"}}]),
+    ] {
+        let mut body = json!({
+            "model":"claude",
+            "system":system,
+            "messages":[{"role":"user","content":"hello"}],
+            "max_tokens":16
+        });
+        let encode = |body: &Value| {
+            Request::parse(
+                ClientProtocol::Anthropic,
+                &serde_json::to_vec(body).unwrap(),
+                &Limits::default(),
+            )
+            .unwrap()
+            .upstream_to(UpstreamProtocol::Anthropic, "claude")
+            .unwrap()
+        };
+        let baseline = encode(&body);
+        for speed in ["fast", "ultrafast"] {
+            body["speed"] = speed.into();
+            assert_eq!(encode(&body), baseline);
         }
     }
 }

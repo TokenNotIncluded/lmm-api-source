@@ -8,7 +8,10 @@ use serde::{
 };
 use serde_json::{Value, value::RawValue};
 use sha2::{Digest, Sha256};
-use std::collections::{BTreeMap, BTreeSet};
+use std::{
+    borrow::Cow,
+    collections::{BTreeMap, BTreeSet},
+};
 
 use super::{ClientProtocol, Limits, RelayError, Request, Route, UpstreamProtocol};
 
@@ -65,6 +68,19 @@ fn object(bytes: &[u8], limit: usize) -> Result<Object> {
     serde_json::from_slice(bytes).map_err(|_| ProtocolError("ambiguous WebSocket object"))
 }
 
+/// Classify client frames without materializing the request body. The create
+/// and control parsers still validate the entire envelope before admission.
+pub(crate) fn event_type(bytes: &[u8]) -> Option<Cow<'_, str>> {
+    #[derive(Deserialize)]
+    struct Header<'a> {
+        #[serde(rename = "type", borrow)]
+        kind: Cow<'a, str>,
+    }
+    serde_json::from_slice::<Header<'_>>(bytes)
+        .ok()
+        .map(|header| header.kind)
+}
+
 fn identity(raw: Option<&RawValue>) -> Result<Option<String>> {
     let Some(raw) = raw else { return Ok(None) };
     let value: Value =
@@ -100,6 +116,7 @@ pub(crate) struct Create {
     pub stream_id: Option<String>,
     pub previous_response_id: Option<String>,
     pub generate: Option<bool>,
+    pub(crate) model: Option<String>,
     /// Existing Request parsing/policy checks run on this JSON. Stateful fields
     /// are restored only by prepare(), for the admitted Responses WS route.
     pub request_json: Vec<u8>,
@@ -153,6 +170,9 @@ impl Create {
         for name in ["background", "stream", "stream_options"] {
             fields.remove(name);
         }
+        let model = fields
+            .get("model")
+            .and_then(|value| serde_json::from_str(value.get()).ok());
         let request_json =
             serde_json::to_vec(&fields).map_err(|_| ProtocolError("invalid create"))?;
         Ok(Self {
@@ -160,6 +180,7 @@ impl Create {
             stream_id,
             previous_response_id,
             generate,
+            model,
             request_json,
         })
     }

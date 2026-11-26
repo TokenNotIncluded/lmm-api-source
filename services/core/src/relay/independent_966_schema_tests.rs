@@ -253,10 +253,16 @@ fn independent_966_deferred_parser_retains_order_and_route_authority() {
     let request =
         Request::parse_deferred_openai(ClientProtocol::Chat, body.as_bytes(), &Limits::default())
             .unwrap();
-    let ordinary = route(UpstreamProtocol::Chat);
+    let ordinary = encoded(&request, &route(UpstreamProtocol::Chat));
+    assert_eq!(
+        schema_keys(&ordinary, UpstreamProtocol::Chat, 0),
+        ["zeta", "alpha"]
+    );
     assert!(
-        request.upstream_body(&ordinary).is_err(),
-        "raw body must not bypass route policy"
+        serde_json::from_slice::<Value>(&ordinary)
+            .unwrap()
+            .get("speed")
+            .is_none()
     );
     let allowed = route(UpstreamProtocol::Chat).with_payload_policy(
         crate::routing::PayloadPolicy::LegacyOpenai {

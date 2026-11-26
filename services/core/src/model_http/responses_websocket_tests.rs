@@ -1116,6 +1116,11 @@ async fn ws05_complete_context_rev4_cache_funds_checkpoint_and_live_budget(pool:
     lab.balance(FUNDS - COST, 0).await;
     let mut child = create("new delta", "child-context");
     child["previous_response_id"] = root["response"]["id"].clone();
+    child["service_tier"] = json!("ultrafast");
+    child["speed"] = json!("fast");
+    child["inference_geo"] = json!("synthetic-region");
+    child["safety_identifier"] = json!("synthetic-user");
+    child["stream_options"] = json!({"include_obfuscation":false});
     send(&mut socket, child).await;
     terminal(&mut socket).await;
     let rows = lab.charges().await;
@@ -1127,6 +1132,18 @@ async fn ws05_complete_context_rev4_cache_funds_checkpoint_and_live_budget(pool:
     assert_eq!(body["previous_response_id"], root["response"]["id"]);
     assert_eq!(body["input"][0]["content"][0]["text"], "new delta");
     assert_eq!(body["prompt_cache_options"]["ttl"], "12h");
+    for field in [
+        "service_tier",
+        "speed",
+        "inference_geo",
+        "safety_identifier",
+        "stream_options",
+    ] {
+        assert!(
+            body.get(field).is_none(),
+            "unexpected upstream field {field}"
+        );
+    }
     let captures: i64 = sqlx::query_scalar(
         "SELECT count(*) FROM core_billing.ledger_journals WHERE kind='capture'",
     )

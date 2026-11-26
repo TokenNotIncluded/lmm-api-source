@@ -17,7 +17,7 @@ pub(super) async fn uses_native(gateway: &ModelGateway, headers: &HeaderMap, raw
     };
     if value.get("previous_response_id").is_some()
         || value["store"] == true
-        || super::responses_native::handles(raw)
+        || super::responses_native::handles(&value)
     {
         return true;
     }

@@ -146,6 +146,7 @@ async fn route_dispatch_retry_pg_exhaustion_never_sends(pool: PgPool) {
 enum FailureReply {
     Unauthorized,
     Rejected,
+    RateLimited,
     ToolEvidence,
     Timeout,
     Partial,
@@ -172,6 +173,7 @@ impl FailedSupplier {
             match mode {
                 FailureReply::Unauthorized => (axum::http::StatusCode::UNAUTHORIZED,Json(json!({"error":{"message":"synthetic rejected key"}}))).into_response(),
                 FailureReply::Rejected => (axum::http::StatusCode::SERVICE_UNAVAILABLE, Json(json!({"error":{"message":"synthetic pre-acceptance rejection"}}))).into_response(),
+                FailureReply::RateLimited => (axum::http::StatusCode::TOO_MANY_REQUESTS, Json(json!({"error":{"message":"synthetic pre-acceptance rate limit"}}))).into_response(),
                 FailureReply::ToolEvidence => (axum::http::StatusCode::SERVICE_UNAVAILABLE, Json(json!({"error":{"message":"synthetic failure after work"},"usage":{"prompt_tokens":1},"tool_calls":[{"id":"already-called"}]}))).into_response(),
                 FailureReply::Timeout => { tokio::time::sleep(Duration::from_secs(5)).await; Json(json!({"error":{"message":"late"}})).into_response() },
                 FailureReply::Partial => ([ ("content-type", "text/event-stream") ], "data: {\"id\":\"partial\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"partial content\"},\"finish_reason\":null}]}\n\n").into_response(),
@@ -243,7 +245,7 @@ fn failover_gateway(
     }
     let policy = if reviewed_rejection {
         let mut context = contexts(GLOBAL_INPUT).remove(0);
-        context.pre_acceptance_rejection_statuses = vec![401, 503];
+        context.pre_acceptance_rejection_statuses = vec![401, 429, 503];
         vec![context]
     } else {
         vec![]
@@ -292,7 +294,7 @@ async fn call(
     if let Some(value) = affinity {
         request = request.header("x-lmm-session-id", value);
     }
-    let response = g.router().oneshot(request.body(axum::body::Body::from(json!({"model":"small-model","messages":[{"role":"user","content":"hello"}],"max_tokens":16,"stream":stream}).to_string())).unwrap()).await.unwrap();
+    let response = g.router().oneshot(request.body(axum::body::Body::from(json!({"model":"small-model","messages":[{"role":"user","content":"hello"}],"max_tokens":16,"stream":stream,"service_tier":"ultrafast","speed":"fast"}).to_string())).unwrap()).await.unwrap();
     let status = response.status().as_u16();
     let id = response
         .headers()
@@ -327,9 +329,11 @@ async fn route_failover_pg_safe_failures_keep_one_frozen_bill(pool: PgPool) {
     let f = fixture(pool, 10_000_000).await;
     let good = CompatibilityProvider::start().await;
     let rejection = FailedSupplier::start(FailureReply::Rejected).await;
-    for (index, (first, reviewed, stream)) in [
-        (refused_endpoint().await, false, false),
-        (rejection.base.clone(), true, true),
+    let rate_limit = FailedSupplier::start(FailureReply::RateLimited).await;
+    for (index, (first, reviewed, stream, kind)) in [
+        (refused_endpoint().await, false, false, "connect"),
+        (rejection.base.clone(), true, true, "server_error"),
+        (rate_limit.base.clone(), true, false, "rate_limited"),
     ]
     .into_iter()
     .enumerate()
@@ -353,13 +357,19 @@ async fn route_failover_pg_safe_failures_keep_one_frozen_bill(pool: PgPool) {
                 .count(),
             2
         );
-        assert!(events.iter().any(|e| e["failure"]["failure"]["delivery"]
-            == if reviewed { "rejected" } else { "not_sent" }));
+        assert!(events.iter().any(|e| {
+            e["failure"]["failure"]["delivery"] == if reviewed { "rejected" } else { "not_sent" }
+                && e["failure"]["failure"]["kind"] == kind
+        }));
         assert_eq!(call(&g, &f, &key, stream, None).await.0, 409);
-        assert_eq!(good.bodies.lock().unwrap().len(), index + 1);
+        let bodies = good.bodies.lock().unwrap();
+        assert_eq!(bodies.len(), index + 1);
+        assert!(bodies[index].get("service_tier").is_none());
+        assert!(bodies[index].get("speed").is_none());
     }
     assert_eq!(rejection.hits.load(Ordering::SeqCst), 1);
-    assert_balance(&f, 9_999_996, 0).await;
+    assert_eq!(rate_limit.hits.load(Ordering::SeqCst), 1);
+    assert_balance(&f, 9_999_994, 0).await;
 }
 
 #[sqlx::test(migrations = false)]

@@ -159,7 +159,7 @@ fn legacy_openai_all_flags_preserve_or_remove_exact_payloads() {
                     1,
                 )
                 .unwrap();
-                assert!(request.upstream(&ordinary).is_err());
+                assert_eq!(request.upstream(&ordinary).unwrap(), baseline);
                 let encoded = request.upstream(&legacy_route(upstream, flags));
                 if !stream && flags[4] {
                     assert!(encoded.is_err());
@@ -652,10 +652,12 @@ fn deferred_openai_image_config_survives_reencoding_and_selected_route_checks() 
             Err(RelayError::Unsupported(_))
         ));
     }
-    assert!(matches!(
-        request.upstream(&gemini),
-        Err(RelayError::Unsupported(_))
-    ));
+    let payload = request.upstream(&gemini).unwrap();
+    assert_eq!(
+        payload["generationConfig"]["imageConfig"],
+        body["imageConfig"]
+    );
+    assert!(payload.get("speed").is_none());
 }
 
 #[test]

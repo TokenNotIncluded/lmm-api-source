@@ -5,7 +5,9 @@ use crate::relay::{
     Reservation, ResponsesSession, Route, RouteProvider, UpstreamProtocol,
     provider_network::ResponsesConnection,
     provider_usage_with_cache_creation_mode,
-    responses_ws::{Attribution, Correlation, Create, PreparedCreate, TerminalOutcome, turn_id},
+    responses_ws::{
+        Attribution, Correlation, Create, PreparedCreate, TerminalOutcome, event_type, turn_id,
+    },
 };
 use axum::{
     extract::{
@@ -128,9 +130,7 @@ async fn serve(
             Ok(Some(Ok(Message::Ping(_) | Message::Pong(_)))) => continue,
             _ => break,
         };
-        let kind = serde_json::from_str::<Value>(raw.as_str())
-            .ok()
-            .and_then(|event| event["type"].as_str().map(str::to_owned));
+        let kind = event_type(raw.as_bytes());
         if kind
             .as_deref()
             .is_some_and(|kind| kind != "response.create")
@@ -164,14 +164,13 @@ async fn serve(
         let result = async {
             let create = Create::parse(raw.as_bytes(), gateway.limits.request_bytes)
                 .map_err(|error| RelayError::Invalid(error.0))?;
-            if let Some(model) = &pinned_model {
-                let body: Value = serde_json::from_slice(&create.request_json)
-                    .map_err(|_| RelayError::Invalid("invalid create"))?;
-                if body["model"].as_str() != Some(model.as_str()) {
-                    return Err(RelayError::Invalid(
-                        "Responses WebSocket connection is locked to its model",
-                    ));
-                }
+            if pinned_model
+                .as_ref()
+                .is_some_and(|model| create.model.as_ref() != Some(model))
+            {
+                return Err(RelayError::Invalid(
+                    "Responses WebSocket connection is locked to its model",
+                ));
             }
             let sequence = correlation
                 .begin(&create)
@@ -368,8 +367,7 @@ async fn read_turn(
             message = client.recv(), if *client_open => {
                 match message {
                     Some(Ok(Message::Text(raw))) => {
-                        if serde_json::from_str::<Value>(raw.as_str()).ok()
-                            .is_some_and(|event|event["type"]=="response.create") {
+                        if event_type(raw.as_bytes()).as_deref() == Some("response.create") {
                             *client_open = write(client,limits,event_error(raw.as_bytes(),&RelayError::Conflict)).await.is_ok();
                             continue;
                         }

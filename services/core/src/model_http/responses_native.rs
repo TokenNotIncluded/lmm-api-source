@@ -43,16 +43,12 @@ pub(super) struct Request {
     compact: bool,
 }
 
-pub(super) fn handles(raw: &[u8]) -> bool {
-    serde_json::from_slice::<serde_json::Value>(raw)
-        .ok()
-        .is_some_and(|v| {
-            v["input"].as_array().is_some_and(|items| {
-                items.iter().any(|item| {
-                    item["type"] == "compaction" || item.get("encrypted_content").is_some()
-                })
-            })
-        })
+pub(super) fn handles(value: &serde_json::Value) -> bool {
+    value["input"].as_array().is_some_and(|items| {
+        items
+            .iter()
+            .any(|item| item["type"] == "compaction" || item.get("encrypted_content").is_some())
+    })
 }
 impl Request {
     pub(super) fn parse(kind: Kind, raw: &[u8]) -> Result<Self, RelayError> {

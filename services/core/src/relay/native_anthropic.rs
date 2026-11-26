@@ -251,6 +251,10 @@ pub(crate) fn parse(body: &[u8], limits: &Limits) -> Result<Request, RelayError>
     let mut v = serde_json::from_slice::<Unique>(body)
         .map_err(|_| RelayError::Invalid("invalid or ambiguous JSON"))?
         .0;
+    // Strip the unpriced provider speed before preserving any native cache payload.
+    if let Some(fields) = v.as_object_mut() {
+        fields.remove("speed");
+    }
     let cached_prompt = cached_prompt(&mut v)?;
     keys(
         &v,

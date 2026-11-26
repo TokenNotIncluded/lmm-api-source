@@ -252,9 +252,8 @@ async fn legacy_openai_gateway_forwards_selected_policy_and_settles(pool: PgPool
         };
         let g = compatibility_gateway(&f, &provider.endpoint, protocol);
         for stream in [false, true] {
-            for allowed in [false, true] {
-                let model = if allowed { "compat-1" } else { "compat-0" };
-                let id = format!("compat-success-{chat}-{stream}-{allowed}");
+            for (model, allowed) in [("compat-0", false), ("compat-1", true), ("compat-2", false)] {
+                let id = format!("compat-success-{chat}-{stream}-{model}");
                 let body = compatibility_body(chat, stream, model);
                 let (status, response, request_id) =
                     compatibility_call(&g, &f, chat, &id, body.to_string()).await;
@@ -298,7 +297,7 @@ async fn legacy_openai_gateway_forwards_selected_policy_and_settles(pool: PgPool
             }
         }
     }
-    assert_eq!(completed, 8);
+    assert_eq!(completed, 12);
     assert_eq!(provider.bodies.lock().unwrap().len(), completed);
     assert_eq!(requests(&f.pool).await, completed as i64);
 }
@@ -333,9 +332,8 @@ async fn legacy_openai_gateway_rejects_before_reserve_or_provider(pool: PgPool) 
         cases.push((body.to_string(), 400));
         for model in ["compat-0", "compat-2", "compat-3"] {
             let body = compatibility_body(chat, true, model).to_string();
-            if model != "compat-0" {
-                // The gateway has always refused Passthrough before encoding.
-                cases.push((body.clone(), if model == "compat-3" { 503 } else { 400 }));
+            if model == "compat-3" {
+                cases.push((body.clone(), 503));
             }
             cases.push((
                 body.replace(
