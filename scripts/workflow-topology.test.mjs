@@ -280,7 +280,10 @@ test('configured deployment reads successful CI for the exact planned source bef
     assert.match(job, /ref: \$\{\{ needs\.plan\.outputs\.revision \}\}/);
     assert.doesNotMatch(job, /GITHUB_SHA|github\.sha|inputs\.source_revision/);
   }
-  assert.match(build, /VITE_REACT_APP_VERSION: \$\{\{ needs\.plan\.outputs\.revision \}\}/);
+  assert.match(build, /name: web-\$\{\{ needs\.plan\.outputs\.revision \}\}-\$\{\{ needs\.ci-gate\.outputs\.run-id \}\}/);
+  assert.match(build, /run-id: \$\{\{ needs\.ci-gate\.outputs\.run-id \}\}/);
+  assert.match(build, /github-token: \$\{\{ github\.token \}\}/);
+  assert.doesNotMatch(build, /bun run build:web/);
   assert.match(build, /--revision "\$SOURCE_REVISION"/);
   assert.match(deploy, /DEPLOY_REVISION: \$\{\{ needs\.plan\.outputs\.revision \}\}/);
   const boundaries = workflow('core-protocol')

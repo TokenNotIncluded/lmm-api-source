@@ -101,6 +101,8 @@ jobs:
 
   ci-gate:
     needs: plan
+    outputs:
+      run-id: ${{ steps.admission.outputs.run-id }}
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:
@@ -118,13 +120,20 @@ jobs:
       - name: Check deployment CI admission
         run: python3 -B scripts/test-verify-deployment-ci.py
       - name: Require successful CI for this source revision
+        id: admission
         env:
           GH_TOKEN: ${{ github.token }}
           SOURCE_REVISION: ${{ needs.plan.outputs.revision }}
-        run: python3 -B scripts/verify-deployment-ci.py --revision "$SOURCE_REVISION"
+        run: |
+          receipt=$(python3 -B scripts/verify-deployment-ci.py --revision "$SOURCE_REVISION")
+          run_id=$(jq -er '.run_id | select(type == "number" and . > 0)' <<<"$receipt")
+          echo "run-id=$run_id" >> "$GITHUB_OUTPUT"
 
   build:
     needs: [plan, ci-gate]
+    permissions:
+      contents: read
+      actions: read
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
@@ -194,15 +203,14 @@ jobs:
           node "$RUNNER_TEMP/browser/node_modules/playwright/cli.js" install --with-deps chromium
           PLAYWRIGHT_MODULE="$RUNNER_TEMP/browser/node_modules/playwright/index.mjs" \
             node apps/web/scripts/auth-cookie-reconciliation-browser.mjs
-      - name: Build static Web files
+      - name: Download Web assets verified by the admitted CI run
         if: matrix.component == 'web'
-        env:
-          VITE_REACT_APP_VERSION: ${{ needs.plan.outputs.revision }}
-        run: |
-          bun run build:web
-          bun run --filter @lmm/web bundle:check
-          mkdir -p out/web
-          cp -a apps/web/dist/. out/web/
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: web-${{ needs.plan.outputs.revision }}-${{ needs.ci-gate.outputs.run-id }}
+          run-id: ${{ needs.ci-gate.outputs.run-id }}
+          github-token: ${{ github.token }}
+          path: out/web
       - name: Package and verify the exact component
         run: |
           platform="linux-$ARCH"
