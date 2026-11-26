@@ -1,6 +1,7 @@
 /* Copyright (C) 2026 LIghtJUNction. SPDX-License-Identifier: AGPL-3.0-or-later */
 
 import axios from 'axios'
+import { X } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
@@ -108,6 +109,7 @@ function NativeWalletCheckoutForm({
     null
   )
   const [busy, setBusy] = useState(false)
+  const [checkoutClosed, setCheckoutClosed] = useState(false)
   const running = useRef(false)
   const mounted = useRef(true)
   const lastWalletUpdate = useRef<string | NativeCheckout>('')
@@ -562,7 +564,16 @@ function NativeWalletCheckoutForm({
           </form>
         )
       ) : null}
-      {pending ? (
+      {pending && quote && checkoutClosed ? (
+        <div className='flex flex-wrap items-center justify-between gap-3'>
+          <span className='text-muted-foreground text-sm'>
+            {t('Order ID')}: {quote.order_id}
+          </span>
+          <Button variant='outline' onClick={() => setCheckoutClosed(false)}>
+            {t('Details')}
+          </Button>
+        </div>
+      ) : pending ? (
         <div className='space-y-6'>
           <div className='flex flex-wrap items-center gap-2 text-sm'>
             <span>{channelLabel(pending.channel)}</span>
@@ -570,7 +581,7 @@ function NativeWalletCheckoutForm({
               <Badge variant='outline'>{t('Test payment')}</Badge>
             ) : null}
           </div>
-          <dl className='wallet-checkout-fields bg-muted/50 grid gap-6 rounded-xl p-5 sm:p-6'>
+          <dl className='wallet-checkout-fields wallet-checkout-summary bg-muted/50 grid gap-6 rounded-xl p-5 sm:p-6'>
             {quote || pending.request.amount_minor !== '0' ? (
               <div>
                 <dt className='text-muted-foreground text-sm'>
@@ -660,6 +671,14 @@ function NativeWalletCheckoutForm({
                 <Button variant='ghost' disabled={busy} onClick={startAgain}>
                   {t('Edit payment amount')}
                 </Button>
+                <Button
+                  variant='destructive'
+                  disabled={busy || storageFailed}
+                  onClick={startAgain}
+                >
+                  <X aria-hidden='true' />
+                  {t('Cancel')}
+                </Button>
               </>
             ) : (
               <>
@@ -707,6 +726,16 @@ function NativeWalletCheckoutForm({
                 >
                   {t('Refresh payment status')}
                 </Button>
+                {quote && !finished && !result?.provider_paid ? (
+                  <Button
+                    variant='destructive'
+                    disabled={busy}
+                    onClick={() => setCheckoutClosed(true)}
+                  >
+                    <X aria-hidden='true' />
+                    {t('Close')}
+                  </Button>
+                ) : null}
                 {!result ? (
                   <Button
                     variant='ghost'

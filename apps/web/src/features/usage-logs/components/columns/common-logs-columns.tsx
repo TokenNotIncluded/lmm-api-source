@@ -836,7 +836,7 @@ export function useCommonLogsColumns(isAdmin: boolean): ColumnDef<UsageLog>[] {
           detailPreview = (
             <span
               className={cn(
-                'truncate leading-snug group-hover:underline',
+                'min-w-0 whitespace-normal break-words leading-snug group-hover:underline',
                 primaryTextClass
               )}
             >
@@ -850,7 +850,7 @@ export function useCommonLogsColumns(isAdmin: boolean): ColumnDef<UsageLog>[] {
           )
         } else if (log.content) {
           detailPreview = (
-            <span className='text-muted-foreground truncate group-hover:underline'>
+            <span className='text-muted-foreground min-w-0 break-words whitespace-normal group-hover:underline'>
               {log.content}
             </span>
           )
@@ -864,13 +864,13 @@ export function useCommonLogsColumns(isAdmin: boolean): ColumnDef<UsageLog>[] {
           <>
             <button
               type='button'
-              className='group flex min-h-8 max-w-[240px] items-center gap-1.5 text-left text-xs'
+              className='group flex min-h-8 w-full items-start gap-1.5 text-left text-xs'
               onClick={() => setDialogOpen(true)}
               title={t('Click to view full details')}
               aria-label={t('View request details')}
             >
               <span className='text-primary shrink-0'>{t('Details')}</span>
-              <span className='flex min-w-0 items-center gap-1.5'>
+              <span className='flex min-w-0 items-start gap-1.5'>
                 {failedStatus && (
                   <span
                     className='text-destructive shrink-0 font-mono'
@@ -891,8 +891,8 @@ export function useCommonLogsColumns(isAdmin: boolean): ColumnDef<UsageLog>[] {
           </>
         )
       },
-      size: 125,
-      maxSize: 200,
+      size: 360,
+      maxSize: 640,
     }
   )
 

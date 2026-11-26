@@ -1,7 +1,9 @@
 /* Copyright (C) 2026 LIghtJUNction. SPDX-License-Identifier: AGPL-3.0-or-later */
 import { useTranslation } from 'react-i18next'
 
+import { CopyButton } from '@/components/copy-button'
 import { DataTablePage, useDataTable } from '@/components/data-table'
+import { Badge } from '@/components/ui/badge'
 import { useMediaQuery } from '@/hooks'
 import { useHistoricalQuotaMoney } from '@/hooks/use-historical-quota-money'
 import { formatTimestampToDate } from '@/lib/format'
@@ -14,6 +16,7 @@ import type {
 
 import type { HistoricalLog } from '../lib/history-response'
 import { CommonLogsFilterBar } from './common-logs-filter-bar'
+import { ModelBadge } from './model-badge'
 import { useUsageLogsContext } from './usage-logs-provider'
 
 interface HistoricalLogsTableProps {
@@ -37,11 +40,13 @@ export function HistoricalLogsTable(props: HistoricalLogsTableProps) {
     {
       accessorKey: 'created_at',
       header: t('Time'),
+      size: 168,
       cell: ({ row }) => formatTimestampToDate(row.original.created_at),
     },
     {
       accessorKey: 'source_log_id',
       header: t('ID'),
+      size: 84,
       cell: ({ row }) => String(row.original.source_log_id),
     },
     {
@@ -53,7 +58,13 @@ export function HistoricalLogsTable(props: HistoricalLogsTableProps) {
     {
       accessorKey: 'model_name',
       header: t('Model'),
-      cell: ({ row }) => row.original.model_name || '—',
+      size: 192,
+      cell: ({ row }) =>
+        row.original.model_name ? (
+          <ModelBadge modelName={row.original.model_name} />
+        ) : (
+          '—'
+        ),
     },
     {
       accessorKey: 'quota',
@@ -83,12 +94,33 @@ export function HistoricalLogsTable(props: HistoricalLogsTableProps) {
     {
       accessorKey: 'group',
       header: t('Group'),
-      cell: ({ row }) => row.original.group || '—',
+      size: 116,
+      cell: ({ row }) =>
+        row.original.group ? (
+          <Badge variant='outline' className='text-primary bg-primary/5'>
+            {row.original.group}
+          </Badge>
+        ) : (
+          '—'
+        ),
     },
     {
       accessorKey: 'request_id',
       header: t('Request ID'),
-      cell: ({ row }) => row.original.request_id || '—',
+      size: 240,
+      cell: ({ row }) => {
+        const id = row.original.request_id
+        return id ? (
+          <div className='flex min-w-0 items-center gap-2'>
+            <span className='min-w-0 truncate font-mono' title={id}>
+              {id}
+            </span>
+            <CopyButton value={id} className='size-7 shrink-0' />
+          </div>
+        ) : (
+          '—'
+        )
+      },
     },
   ]
   const { table } = useDataTable({
@@ -111,6 +143,9 @@ export function HistoricalLogsTable(props: HistoricalLogsTableProps) {
       table={table}
       columns={columns}
       isFetching={props.isFetching}
+      applyHeaderSize
+      tableClassName='[&_[data-slot=table]]:table-fixed!'
+      tableHeaderClassName='text-muted-foreground'
       fixedHeight={!isMobile}
       paginationInFooter={!isMobile}
       emptyTitle={t('No Logs Found')}

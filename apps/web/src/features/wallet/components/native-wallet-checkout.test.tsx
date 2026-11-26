@@ -342,6 +342,23 @@ test('native checkout reviews exact Core quote, preserves a lost checkout and re
         ?.submitted,
       true
     )
+    await click('Close')
+    assert.equal(
+      document.body.textContent?.includes('Refresh payment status'),
+      false
+    )
+    assert.equal(
+      readNativeCheckout('[19,"checkout-session"]', dom.sessionStorage)
+        ?.submitted,
+      true
+    )
+    await click('Details')
+    assert.ok(document.body.textContent?.includes('Refresh payment status'))
+    assert.equal(
+      writes.length,
+      2,
+      'closing and reopening must not mutate the order'
+    )
     await act(async () => root.unmount())
     root = createRoot(container)
     await render()
