@@ -41,14 +41,17 @@ export function readRelayOrder(
   userID: number | undefined
 ) {
   const { data } = orderResponse.parse(payload)
-  if (data.order_id !== orderID || data.user_id !== userID)
+  if (data.order_id !== orderID || data.user_id !== userID) {
     throw new Error('Invalid relay order')
+  }
 
   const unit = data.unit_price_quota_per_gib
   const total = data.total_price_quota
   const cents = data.amount_usd_cents
   if (unit === undefined && total === undefined) {
-    if (cents !== data.gib * 100) throw new Error('Invalid relay order')
+    if (cents !== data.gib * 100) {
+      throw new Error('Invalid relay order')
+    }
     return {
       ...data,
       unit_price_quota_per_gib: creditsPerDollar,
@@ -62,8 +65,9 @@ export function readRelayOrder(
     (cents !== undefined &&
       cents > 0 &&
       BigInt(cents) * 5_000n !== BigInt(total))
-  )
+  ) {
     throw new Error('Invalid relay order')
+  }
   return { ...data, unit_price_quota_per_gib: unit, total_price_quota: total }
 }
 
@@ -92,8 +96,9 @@ export function relayOrderLink(
   execution: string,
   result: unknown
 ) {
-  if (toolID !== relayPurchaseTool || execution !== 'succeeded')
+  if (toolID !== relayPurchaseTool || execution !== 'succeeded') {
     return undefined
+  }
   const preview = z
     .object({
       isError: z.literal(false).optional(),
@@ -102,7 +107,9 @@ export function relayOrderLink(
       }),
     })
     .safeParse(result)
-  if (!preview.success) return undefined
+  if (!preview.success) {
+    return undefined
+  }
   return (
     '/tool-market?relay_order=' + preview.data.structuredContent.order.order_id
   )

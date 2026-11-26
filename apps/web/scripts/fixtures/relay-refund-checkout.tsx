@@ -67,15 +67,18 @@ const button = (name: string) =>
 const support = () =>
   document.querySelector<HTMLAnchorElement>('a[href*="/support?"]')
 const requireThat = (condition: unknown, message: string) => {
-  if (!condition) throw new Error(message)
+  if (!condition) {
+    throw new Error(message)
+  }
 }
 async function until(condition: () => unknown, label: string) {
   const deadline = Date.now() + 15000
   while (!condition()) {
-    if (Date.now() > deadline)
+    if (Date.now() > deadline) {
       throw new Error(
         'Timed out: ' + label + ' (' + document.body.textContent + ')'
       )
+    }
     await new Promise((r) => setTimeout(r, 30))
   }
 }

@@ -1175,7 +1175,13 @@ test('a market without OAuth keeps browser tools usable without querying OAuth t
     () => findButton('Run free tool', container)?.disabled === false
   )
   await click(button('Connect MCP', container))
-  await waitFor(() => Boolean(findButton('Create connection token', container)))
+  await waitFor(
+    () =>
+      container.querySelector('[role="tab"][aria-selected="true"]')
+        ?.textContent === 'Connections and limits' &&
+      Boolean(findButton('Choose tools for this client', container))
+  )
+  assert.equal(findButton('Create connection token', container), undefined)
   assert.deepEqual(oauthReads, [])
 })
 

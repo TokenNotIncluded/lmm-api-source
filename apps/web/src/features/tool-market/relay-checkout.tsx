@@ -11,7 +11,11 @@ import { toIntlLocale } from '@/i18n/languages'
 import { api } from '@/lib/api'
 import { useAuthStore } from '@/stores/auth-store'
 
-import { formatRelayUSD, readRelayOrder, relayOrderStates } from './relay-order'
+import {
+  formatRelayUSD,
+  readRelayOrder,
+  type relayOrderStates,
+} from './relay-order'
 
 export function RelayCheckout({ orderID }: { orderID: string }) {
   const { t, i18n } = useTranslation()

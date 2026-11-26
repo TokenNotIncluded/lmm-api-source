@@ -67,8 +67,9 @@ export function ProviderOAuthConnections({
     !available ||
     typeof window === 'undefined' ||
     !remoteOAuthRedirectURI(redirectURI)
-  )
+  ) {
     return null
+  }
   return (
     <>
       <Button
@@ -144,8 +145,9 @@ export function ProviderOAuthConnections({
                           if (
                             current.user?.id === userID &&
                             current.session?.sid === sessionId
-                          )
+                          ) {
                             window.location.assign(url)
+                          }
                         })
                       }
                     >
@@ -195,7 +197,9 @@ export function ProviderOAuthConnections({
                         className='space-y-2 py-2'
                         onSubmit={(event) => {
                           event.preventDefault()
-                          if (price.quota === undefined) return
+                          if (price.quota === undefined) {
+                            return
+                          }
                           const quota = price.quota
                           mutate(async () => {
                             await marketAPI.importProviderTool(

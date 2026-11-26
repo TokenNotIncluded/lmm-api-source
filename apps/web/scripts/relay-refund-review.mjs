@@ -8,8 +8,9 @@ const executable =
   process.env.CHROMIUM_BIN ||
   Bun.which('chromium') ||
   Bun.which('google-chrome')
-if (!executable)
+if (!executable) {
   throw new Error('Set CHROMIUM_BIN to an installed Chromium executable')
+}
 
 const bundle = await Bun.build({
   entrypoints: [
@@ -27,9 +28,13 @@ const bundle = await Bun.build({
     }),
   },
 })
-if (!bundle.success) throw new Error(bundle.logs.join('\n'))
+if (!bundle.success) {
+  throw new Error(bundle.logs.join('\n'))
+}
 const app = bundle.outputs.find((file) => file.path.endsWith('.js'))
-if (!app) throw new Error('Missing browser bundle')
+if (!app) {
+  throw new Error('Missing browser bundle')
+}
 const result = Promise.withResolvers()
 const server = Bun.serve({
   hostname: '127.0.0.1',
@@ -40,11 +45,14 @@ const server = Bun.serve({
       result.resolve(await req.text())
       return new Response('OK')
     }
-    if (url.pathname === '/app.js')
+    if (url.pathname === '/app.js') {
       return new Response(app, {
         headers: { 'Content-Type': 'text/javascript' },
       })
-    if (url.pathname !== '/') return new Response(null, { status: 404 })
+    }
+    if (url.pathname !== '/') {
+      return new Response(null, { status: 404 })
+    }
     return new Response(
       '<!doctype html><meta charset="utf-8"><div id="root"></div><script type="module" src="/app.js"></script>',
       {
@@ -87,7 +95,9 @@ try {
       throw new Error('Chromium exited before the test: ' + code)
     }),
   ])
-  if (outcome !== 'PASS') throw new Error(outcome)
+  if (outcome !== 'PASS') {
+    throw new Error(outcome)
+  }
   console.log(
     'PASS: refund support, pending and refunded states, receipt isolation, one payment request'
   )

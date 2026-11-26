@@ -67,8 +67,9 @@ test('relay checkout honors a frozen configurable rate, including sub-cent total
     { total_price_quota: undefined },
     { total_price_quota: Number.MAX_SAFE_INTEGER + 1 },
     { amount_usd_cents: 150 },
-  ])
+  ]) {
     assert.throws(() => read(change))
+  }
 })
 
 test('only the compiled purchase tool links a successful order to the local checkout', () => {
