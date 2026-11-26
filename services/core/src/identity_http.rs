@@ -182,7 +182,7 @@ async fn create_team(
     State(store): State<IdentityStore>,
     headers: HeaderMap,
     body: Bytes,
-) -> axum::response::Result<(StatusCode, Json<Value>)> {
+) -> Result<Response> {
     let secret = bearer(&headers)?;
     // Empty requests predate named teams. Bytes enforces the route's body limit
     // even when the sender omits Content-Length or Content-Type.
@@ -195,16 +195,16 @@ async fn create_team(
                 .headers_mut()
                 .insert(header::CONTENT_TYPE, media_type.clone());
         }
-        Json::<CreateTeamRequest>::from_request(request, &())
-            .await?
-            .0
-            .name
+        match Json::<CreateTeamRequest>::from_request(request, &()).await {
+            Ok(Json(team)) => team.name,
+            Err(rejection) => return Ok(rejection.into_response()),
+        }
     };
     let id = match name {
         Some(name) => store.create_named_team(secret, &name).await?,
         None => store.create_team(secret).await?,
     };
-    Ok((StatusCode::CREATED, Json(json!({"id":id}))))
+    Ok((StatusCode::CREATED, Json(json!({"id":id}))).into_response())
 }
 async fn invite(
     State(store): State<IdentityStore>,
