@@ -306,6 +306,9 @@ func (r *Runtime) composePayments(ctx context.Context, cfg Config, paymentToken 
 	if err == nil {
 		r.EPayAdmin, err = payments.NewEPayAdministration(r.PaymentClient, r.Payments, stripeAdmission)
 	}
+	if err == nil {
+		r.ProviderGateways = payments.DescribeProviderGateways(adapters, stripeAdmission, cfg.PaymentCallbacksEnabled)
+	}
 	return err
 }
 

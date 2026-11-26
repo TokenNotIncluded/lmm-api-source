@@ -104,6 +104,7 @@ type Runtime struct {
 	PancakeSubscriptionPayments *payments.PancakeSubscriptions
 	PancakeAdmin                *PancakeAdministration
 	EPayAdmin                   *payments.EPayAdministration
+	ProviderGateways            *payments.ProviderGatewayConfiguration
 	CommerceClient              *coreclient.Client
 	Store                       *store.Service
 	Support                     *support.Service

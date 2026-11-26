@@ -967,3 +967,49 @@ test('a missing route stays distinct from a verified empty Pancake configuration
     /No Waffo Pancake channel is configured/
   )
 })
+
+test('owner gateway tabs load their actual provider bindings separately from wallet availability', async () => {
+  const endpoint = '/api/option/payment-gateways/config'
+  const { container, requests } = await mount(
+    (config) => {
+      if (config.url === '/api/user/payments/channels') {
+        return success({ available: false, channels: [] })
+      }
+      assert.equal(config.url, endpoint)
+      return success({
+        contract: 'extensions.provider-gateways.v1',
+        callbacks_enabled: true,
+        bindings: [
+          {
+            channel_id: '37',
+            provider: 'stripe',
+            merchant_id: 'acct_test',
+            environment: 'test',
+            currency: 'USD',
+            wallet_enabled: false,
+            subscription_enabled: true,
+            api_version: '2025-01-01',
+            api_key_configured: true,
+            success_url: 'https://example.test/paid',
+          },
+        ],
+      })
+    },
+    100,
+    NativePaymentGateways
+  )
+  assert.ok(!requests.some((request) => request.url === endpoint))
+  await click('Stripe')
+  await until(() => container.textContent?.includes('acct_test') === true)
+  assert.match(container.textContent ?? '', /Wallet checkoutDisabled/)
+  assert.match(container.textContent ?? '', /Subscription checkoutEnabled/)
+  assert.match(container.textContent ?? '', /API keyConfigured/)
+  await click('Creem')
+  await until(
+    () =>
+      container.textContent?.includes('No payment channel is configured.') ===
+      true
+  )
+  assert.doesNotMatch(container.textContent ?? '', /acct_test/)
+  assert.ok(requests.every((request) => request.method === 'get'))
+})

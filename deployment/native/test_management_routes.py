@@ -104,6 +104,10 @@ class NativeManagementRoutes(unittest.TestCase):
     def test_exact_routes_preserve_method_uri_session_and_body(self):
         for method, path, target in (
             ('GET', '/api/option/epay/config', 'go'),
+            ('GET', '/api/option/payment-gateways/config', 'go'),
+            ('POST', '/api/option/waffo-pancake/catalog', 'go'),
+            ('POST', '/api/option/waffo-pancake/pair', 'go'),
+            ('POST', '/api/option/waffo-pancake/save', 'go'),
             ('GET', '/api/option/waffo-pancake/config', 'go'),
             ('GET', '/api/rankings?period=week', 'go'),
             ('GET', '/api/rankings/users?period=week', 'go'),
@@ -113,7 +117,7 @@ class NativeManagementRoutes(unittest.TestCase):
             ('PUT', '/core/v1/payment-gateways/epay/5004', 'core'),
         ):
             with self.subTest(method=method, path=path):
-                body = '{"expected_revision":"synthetic"}' if method in ('PATCH','PUT') else None
+                body = '{"expected_revision":"synthetic"}' if method in ('PATCH','PUT','POST') else None
                 status, raw = self.request(method, path, body)
                 self.assertEqual(status, 200)
                 actual = json.loads(raw)
@@ -126,10 +130,14 @@ class NativeManagementRoutes(unittest.TestCase):
     def test_unrelated_methods_ids_and_paths_are_not_forwarded(self):
         for method, path, expected in (
             ('PATCH', '/api/option/epay/config', 405),
+            ('PUT', '/api/option/payment-gateways/config', 405),
             ('POST', '/api/rankings', 405),
             ('POST', '/api/rankings/users', 405),
             ('GET', '/api/rankings/other', 418),
             ('GET', '/rankings', 418),
+            ('GET', '/api/option/waffo-pancake/catalog', 405),
+            ('GET', '/api/option/waffo-pancake/pair', 405),
+            ('GET', '/api/option/waffo-pancake/save', 405),
             ('POST', '/api/option/waffo-pancake/config', 405),
             ('GET', '/api/option/waffo-pancake/other', 418),
             ('GET', '/core/v1/admin/user-access', 404),

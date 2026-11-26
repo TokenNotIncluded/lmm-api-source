@@ -12,6 +12,7 @@ import (
 	"github.com/TokenNotIncluded/lmm-api/extensions/internal/modules/herosms"
 	"github.com/TokenNotIncluded/lmm-api/extensions/internal/modules/marketreview"
 	"github.com/TokenNotIncluded/lmm-api/extensions/internal/modules/operations"
+	"github.com/TokenNotIncluded/lmm-api/extensions/internal/modules/payments"
 	"github.com/TokenNotIncluded/lmm-api/extensions/internal/modules/store"
 )
 
@@ -34,6 +35,7 @@ type AdditionalServices struct {
 	PaymentPortal        PaymentPortal
 	PancakeAdmin         PancakeAdmin
 	EPayAdmin            EPayAdmin
+	ProviderGateways     *payments.ProviderGatewayConfiguration
 	SubscriptionPayments http.Handler
 	Plugins              PluginController
 	Community            *community.Service
@@ -71,6 +73,7 @@ func Mount(host *modules.Host, auth *Authenticator, catalogue StoreService, supp
 		RegisterPaymentPortal(routes.forPlugins("payments"), auth, paymentPortal)
 		RegisterPancakeAdmin(routes.forPlugins("payments"), auth, additional.PancakeAdmin)
 		RegisterEPayAdmin(routes.forPlugins("payments"), auth, additional.EPayAdmin)
+		registerProviderGatewayConfiguration(routes.forPlugins("payments"), auth, additional.ProviderGateways)
 		if !store.Missing(additional.SubscriptionPayments) {
 			subscriptions := http.StripPrefix("/api/user/payments/subscriptions", additional.SubscriptionPayments)
 			routes.forPlugins("payments").Handle("/api/user/payments/subscriptions/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

@@ -6,7 +6,10 @@ import { useTranslation } from 'react-i18next'
 import { ErrorState } from '@/components/error-state'
 import { Button } from '@/components/ui/button'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { readNativeUsersScope } from '@/features/native-users/access'
+import {
+  readNativeUsersScope,
+  type NativeUsersScope,
+} from '@/features/native-users/access'
 import type { NativeChannel } from '@/features/wallet/lib/native-checkout'
 import { getNativePaymentChannels } from '@/features/wallet/native-checkout-api'
 import { ROLE } from '@/lib/roles'
@@ -14,9 +17,7 @@ import { useAuthStore } from '@/stores/auth-store'
 
 import { NativeEPaySettings } from './native-epay-settings'
 import { NativePaymentSettings } from './native-payment-settings'
-
-const configExamples =
-  'https://github.com/TokenNotIncluded/lmm-api-source/blob/main/config/'
+import { NativeProviderGatewaySettings } from './native-provider-gateway-settings'
 
 function methodKey(channel: NativeChannel): string {
   if (channel.provider !== 'epay') return channel.provider
@@ -110,32 +111,6 @@ function WalletMethods({ userId, sessionId }: Scope) {
           </div>
         ))}
       </dl>
-      <div className='space-y-2 text-sm'>
-        <h3 className='font-medium'>{t('Host setup')}</h3>
-        <p className='text-muted-foreground'>
-          {t(
-            'For Stripe, Creem, Waffo Global and Coinbase, configure matching channels in Core and Extensions.'
-          )}
-        </p>
-        <div className='flex flex-wrap gap-x-5 gap-y-2'>
-          <a
-            className='underline underline-offset-4'
-            href={`${configExamples}core-payments.example.toml`}
-            target='_blank'
-            rel='noreferrer'
-          >
-            core-payments.example.toml
-          </a>
-          <a
-            className='underline underline-offset-4'
-            href={`${configExamples}extensions-payments.example.toml`}
-            target='_blank'
-            rel='noreferrer'
-          >
-            extensions-payments.example.toml
-          </a>
-        </div>
-      </div>
     </div>
   )
 }
@@ -154,11 +129,19 @@ export function NativePaymentGateways() {
       />
     )
   }
-  return <GatewayPanels key={`${scope.userId}:${scope.sessionId}`} {...scope} />
+  return (
+    <GatewayPanels key={`${scope.userId}:${scope.sessionId}`} scope={scope} />
+  )
 }
 
-function GatewayPanels({ userId, sessionId }: Scope) {
+function GatewayPanels({ scope }: { scope: NativeUsersScope }) {
   const { t } = useTranslation()
+  const providers = [
+    { id: 'stripe', label: t('Stripe') },
+    { id: 'creem', label: t('Creem') },
+    { id: 'waffo', label: t('Waffo Global') },
+    { id: 'coinbase', label: t('Coinbase Business Checkout') },
+  ] as const
   const [opened, setOpened] = useState({ pancake: false, epay: false })
   return (
     <Tabs
@@ -174,9 +157,14 @@ function GatewayPanels({ userId, sessionId }: Scope) {
         <TabsTrigger value='wallet'>{t('Wallet payment methods')}</TabsTrigger>
         <TabsTrigger value='pancake'>{t('Waffo Pancake')}</TabsTrigger>
         <TabsTrigger value='epay'>{t('Epay Gateway')}</TabsTrigger>
+        {providers.map(({ id, label }) => (
+          <TabsTrigger key={id} value={id}>
+            {label}
+          </TabsTrigger>
+        ))}
       </TabsList>
       <TabsContent value='wallet'>
-        <WalletMethods userId={userId} sessionId={sessionId} />
+        <WalletMethods userId={scope.userId} sessionId={scope.sessionId} />
       </TabsContent>
       <TabsContent value='pancake' keepMounted={opened.pancake}>
         <NativePaymentSettings />
@@ -184,6 +172,11 @@ function GatewayPanels({ userId, sessionId }: Scope) {
       <TabsContent value='epay' keepMounted={opened.epay}>
         <NativeEPaySettings />
       </TabsContent>
+      {providers.map(({ id }) => (
+        <TabsContent key={id} value={id}>
+          <NativeProviderGatewaySettings provider={id} scope={scope} />
+        </TabsContent>
+      ))}
     </Tabs>
   )
 }
