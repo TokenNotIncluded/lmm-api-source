@@ -1,5 +1,5 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 /* Copyright (C) 2026 LIghtJUNction. AGPL-3.0-or-later. */
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { ArrowDown, ArrowUp, Plus, Trash2 } from 'lucide-react'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
