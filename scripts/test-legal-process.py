@@ -156,13 +156,14 @@ class LegalProcessTests(unittest.TestCase):
         self.config.update(published=True, template_root=str(profile), variables={})
         self.start()
         captured = {
-            "user-agreement": "106d3b097b518d1d1990e5a095572a9439ca70336124e89965238300e2cdd261",
+            "user-agreement": "32c50ee9160eaf1474c37581c598d4516fd22ba924fd62e6ba749d26c7cefb0c",
             "privacy-policy": "6e3b03ad14122029364776d539c1480ce965ac0e3cd9ceb50c26069d76d78f69",
         }
         for document, digest in captured.items():
             self.assertEqual(hashlib.sha256((profile / "zh-CN" / f"{document}.md").read_bytes()).hexdigest(), digest)
         for language in ("en", "zh-CN", "zh-TW"):
             terms = (profile / language / "user-agreement.md").read_text()
+            self.assertNotIn("@gmail.com", terms.lower())
             section = terms.split("\n## 7. ", 1)[1].split("\n## 8. ", 1)[0].split("\n", 1)[1].strip()
             refund = (profile / language / "refund-policy.md").read_text()
             self.assertEqual(refund.split("\n\n", 2)[2].strip(), section)
