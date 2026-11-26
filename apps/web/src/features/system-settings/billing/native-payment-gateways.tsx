@@ -23,7 +23,7 @@ function methodKey(channel: NativeChannel): string {
   if (channel.payment_type === 'epay' && channel.currency !== 'LDC') {
     return 'epay/custom/epay'
   }
-  return 'epay/' + (channel.payment_type ?? '')
+  return `epay/${channel.payment_type ?? ''}`
 }
 
 type Scope = { userId: number; sessionId: string }
@@ -53,8 +53,9 @@ function WalletMethods({ userId, sessionId }: Scope) {
     ? query.data.channels
     : []) {
     const key = methodKey(channel)
-    if (!labels.has(key))
+    if (!labels.has(key)) {
       labels.set(key, channel.payment_type || t('Epay Gateway'))
+    }
     const group = byMethod.get(key)
     if (group) group.push(channel)
     else byMethod.set(key, [channel])
@@ -119,7 +120,7 @@ function WalletMethods({ userId, sessionId }: Scope) {
         <div className='flex flex-wrap gap-x-5 gap-y-2'>
           <a
             className='underline underline-offset-4'
-            href={configExamples + 'core-payments.example.toml'}
+            href={`${configExamples}core-payments.example.toml`}
             target='_blank'
             rel='noreferrer'
           >
@@ -127,7 +128,7 @@ function WalletMethods({ userId, sessionId }: Scope) {
           </a>
           <a
             className='underline underline-offset-4'
-            href={configExamples + 'extensions-payments.example.toml'}
+            href={`${configExamples}extensions-payments.example.toml`}
             target='_blank'
             rel='noreferrer'
           >
@@ -153,7 +154,7 @@ export function NativePaymentGateways() {
       />
     )
   }
-  return <GatewayPanels key={scope.userId + ':' + scope.sessionId} {...scope} />
+  return <GatewayPanels key={`${scope.userId}:${scope.sessionId}`} {...scope} />
 }
 
 function GatewayPanels({ userId, sessionId }: Scope) {

@@ -43,7 +43,12 @@ export function withPaymentSettingsReviewFixtures(
       return respond({
         available: true,
         channels: [
-          { id: '37', provider: 'stripe', currency: 'USD', environment: 'test' },
+          {
+            id: '37',
+            provider: 'stripe',
+            currency: 'USD',
+            environment: 'test',
+          },
         ],
       })
     }
