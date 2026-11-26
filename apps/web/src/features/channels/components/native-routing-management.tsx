@@ -1,6 +1,7 @@
 /* Copyright (C) 2026 LIghtJUNction. SPDX-License-Identifier: AGPL-3.0-or-later */
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
+  ChevronDown,
   KeyRound,
   LayoutGrid,
   List,
@@ -22,6 +23,12 @@ import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import {
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+} from '@/components/ui/sheet'
 import { Textarea } from '@/components/ui/textarea'
 import { useRuntimeCapabilities } from '@/context/runtime-capabilities-context'
 import { useCapabilityFreshness } from '@/hooks/use-capability-freshness'
@@ -267,13 +274,16 @@ function NativeRoutingWorkspace({
   const [editorDestination, setEditorDestination] =
     useState<EditorDestination | null>(null)
   const editorRef = useRef<HTMLFormElement>(null)
+  const channelEditorTrigger = useRef<HTMLButtonElement | null>(null)
   const discardFocus = useRef<HTMLButtonElement | false | null>(null)
   useEffect(() => {
-    editorRef.current?.scrollIntoView?.({ block: 'start' })
+    if (!editor?.channelId) {
+      editorRef.current?.scrollIntoView?.({ block: 'start' })
+    }
     editorRef.current
       ?.querySelector<HTMLInputElement>('input')
       ?.focus({ preventScroll: true })
-  }, [editor?.path])
+  }, [editor?.path, editor?.channelId])
   const [secret, setSecret] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
@@ -423,10 +433,12 @@ function NativeRoutingWorkspace({
       discardFocus.current = false
     }
     if ('close' in destination && editor?.trigger) {
-      if (editorDestination) discardFocus.current = editor.trigger
-      else editor.trigger.focus()
+      if (editor.channelId) discardFocus.current = false
+      else if (editorDestination) discardFocus.current = editor.trigger
+      else editor.trigger.focus({ preventScroll: true })
     }
     const next = 'editor' in destination ? destination.editor : null
+    if (next?.channelId) channelEditorTrigger.current = next.trigger ?? null
     setEditor(next)
     editorBaseline.current = next?.document ?? ''
     if ('section' in destination) {
@@ -973,6 +985,216 @@ function NativeRoutingWorkspace({
       </Button>
     )
   }
+  const editorConfigurationField = editor && (
+    <label className='block space-y-2'>
+      <span className='text-sm'>{t('Configuration')}</span>
+      <Textarea
+        className='min-h-72 font-mono text-xs'
+        value={editor.document}
+        readOnly={editor.readOnly}
+        disabled={busy}
+        onChange={(event) => {
+          setEditor({ ...editor, document: event.target.value })
+          setPreview(null)
+        }}
+      />
+    </label>
+  )
+  const editorForm = editor && (
+    <form
+      className={
+        editor.channelId
+          ? 'flex min-h-0 min-w-0 flex-1 flex-col'
+          : 'min-w-0 p-5 sm:p-7'
+      }
+      aria-label={editor.title}
+      ref={editorRef}
+      onInvalidCapture={(event) => {
+        if (!editor.channelId || !(event.target instanceof HTMLElement)) {
+          return
+        }
+        let disclosure = event.target.closest('details')
+        while (disclosure && event.currentTarget.contains(disclosure)) {
+          if (!disclosure.open) disclosure.open = true
+          disclosure = disclosure.parentElement?.closest('details') ?? null
+        }
+      }}
+      onSubmit={(event) => {
+        event.preventDefault()
+        if (editor.previewPath && !preview) void previewEditor()
+        else saveEditor()
+      }}
+    >
+      <div
+        className={
+          editor.channelId
+            ? 'min-h-0 flex-1 space-y-6 overflow-y-auto px-5 pb-5 sm:px-7'
+            : 'space-y-6'
+        }
+      >
+        {!editor.channelId && <h3 className='font-medium'>{editor.title}</h3>}
+        {editor.channelId && error && (
+          <Alert variant='destructive' role='alert'>
+            <AlertDescription>{error}</AlertDescription>
+          </Alert>
+        )}
+        {editorStale && (
+          <Alert role='status'>
+            <AlertDescription className='space-y-3'>
+              <p>
+                {t(
+                  'Configuration changed. Your draft is preserved. Reload the editor before saving.'
+                )}
+              </p>
+              <Button
+                type='button'
+                variant='outline'
+                className='min-h-11'
+                disabled={busy}
+                onClick={reloadEditor}
+              >
+                {t('Reload editor')}
+              </Button>
+            </AlertDescription>
+          </Alert>
+        )}
+        {editor.channelId && (
+          <NativeChannelFields
+            key={editor.path}
+            document={editor.document}
+            configuration={configuration}
+            disabled={busy}
+            fetchModels={
+              editor.method === 'PUT' && accounting.observations
+                ? () =>
+                    nativeRequest<string[]>(
+                      'GET',
+                      `/api/channel/fetch_models/${editor.channelId}`
+                    )
+                : undefined
+            }
+            credential={
+              editor.secret ? (
+                <label className='block space-y-2'>
+                  <span className='text-sm font-medium'>{t('API key')}</span>
+                  <Input
+                    type='password'
+                    autoComplete='off'
+                    className='min-h-11'
+                    value={secret}
+                    disabled={busy}
+                    required
+                    onChange={(event) => setSecret(event.target.value)}
+                  />
+                </label>
+              ) : (
+                <div className='flex min-w-0 items-end'>
+                  <Button
+                    type='button'
+                    variant='outline'
+                    className='min-h-11'
+                    disabled={
+                      writeDisabled ||
+                      editorStale ||
+                      !secretsAllowed ||
+                      !configuration.secret_storage_enabled
+                    }
+                    onClick={() => setKeyChannel(editor.channelId ?? null)}
+                  >
+                    <KeyRound className='size-4' />
+                    {t('API Keys')}
+                  </Button>
+                </div>
+              )
+            }
+            onChange={(document) => {
+              setEditor({ ...editor, document })
+              setPreview(null)
+            }}
+          />
+        )}
+        {editor.modelEditing !== undefined && (
+          <NativeModelFields
+            document={editor.document}
+            configuration={configuration}
+            disabled={busy}
+            onChange={(document) => {
+              setEditor({ ...editor, document })
+              setPreview(null)
+            }}
+          />
+        )}
+        {editor.channelId ? (
+          <details className='group/advanced border-t'>
+            <summary className='flex min-h-12 cursor-pointer items-center justify-between gap-3 text-sm font-medium'>
+              {t('Advanced Settings')}
+              <ChevronDown
+                aria-hidden='true'
+                className='text-muted-foreground size-4 shrink-0 group-open/advanced:rotate-180'
+              />
+            </summary>
+            <div className='mb-4 max-w-md'>
+              <NativeChannelTagField
+                document={editor.document}
+                disabled={busy}
+                onChange={(document) => setEditor({ ...editor, document })}
+              />
+            </div>
+            <details className='border-t'>
+              <summary className='min-h-11 cursor-pointer py-3 text-sm'>
+                {t('Raw JSON Configuration')}
+              </summary>
+              {editorConfigurationField}
+            </details>
+          </details>
+        ) : (
+          <details open={editor.modelEditing === undefined}>
+            <summary className='cursor-pointer py-2 text-sm font-medium'>
+              {t('Advanced Settings')}
+            </summary>
+            {editorConfigurationField}
+          </details>
+        )}
+        {preview && !editorStale && (
+          <pre
+            className='max-h-80 overflow-auto border p-3 text-xs'
+            aria-label={t('Preview')}
+          >
+            {pretty(preview)}
+          </pre>
+        )}
+      </div>
+      <div
+        className={
+          editor.channelId
+            ? 'border-border bg-popover flex shrink-0 justify-end gap-2 border-t px-5 py-4 pb-[max(1rem,env(safe-area-inset-bottom))] sm:px-7'
+            : 'mt-6 flex flex-wrap gap-2'
+        }
+      >
+        <Button
+          type='submit'
+          className='min-h-11'
+          disabled={writeDisabled || editorStale}
+        >
+          {editor.previewPath
+            ? preview
+              ? t('Confirm and apply')
+              : t('Preview')
+            : t('Save')}
+        </Button>
+        <Button
+          type='button'
+          variant='outline'
+          className='min-h-11'
+          disabled={busy}
+          onClick={() => requestEditorChange({ close: true })}
+        >
+          {t('Cancel')}
+        </Button>
+      </div>
+    </form>
+  )
+
   return (
     <section
       className='@container/routing min-w-0 space-y-6'
@@ -1010,175 +1232,28 @@ function NativeRoutingWorkspace({
           {t('Refresh')}
         </Button>
       </div>
-      {editor && (
-        <form
-          className='min-w-0 space-y-6 p-5 sm:p-7'
-          aria-label={editor.title}
-          ref={editorRef}
-          onInvalidCapture={(event) => {
-            if (!editor.channelId || !(event.target instanceof HTMLElement)) {
-              return
-            }
-            let disclosure = event.target.closest('details')
-            while (disclosure && event.currentTarget.contains(disclosure)) {
-              if (!disclosure.open) disclosure.open = true
-              disclosure = disclosure.parentElement?.closest('details') ?? null
-            }
-          }}
-          onSubmit={(event) => {
-            event.preventDefault()
-            if (editor.previewPath && !preview) void previewEditor()
-            else saveEditor()
-          }}
+      <Sheet
+        open={Boolean(editor?.channelId)}
+        onOpenChange={(open) => {
+          if (!open && !busy && editor?.channelId) {
+            requestEditorChange({ close: true })
+          }
+        }}
+      >
+        <SheetContent
+          className='@container/routing h-dvh w-full gap-0 sm:max-w-3xl'
+          finalFocus={() => channelEditorTrigger.current ?? false}
+          initialFocus={() =>
+            editorRef.current?.querySelector<HTMLInputElement>('input') ?? false
+          }
         >
-          <h3 className='font-medium'>{editor.title}</h3>
-          {editorStale && (
-            <Alert role='status'>
-              <AlertDescription className='space-y-3'>
-                <p>
-                  {t(
-                    'Configuration changed. Your draft is preserved. Reload the editor before saving.'
-                  )}
-                </p>
-                <Button
-                  type='button'
-                  variant='outline'
-                  className='min-h-11'
-                  disabled={busy}
-                  onClick={reloadEditor}
-                >
-                  {t('Reload editor')}
-                </Button>
-              </AlertDescription>
-            </Alert>
-          )}
-          {editor.channelId && (
-            <NativeChannelFields
-              key={editor.path}
-              document={editor.document}
-              configuration={configuration}
-              disabled={busy}
-              fetchModels={
-                editor.method === 'PUT' && accounting.observations
-                  ? () =>
-                      nativeRequest<string[]>(
-                        'GET',
-                        `/api/channel/fetch_models/${editor.channelId}`
-                      )
-                  : undefined
-              }
-              credential={
-                editor.secret ? (
-                  <label className='block space-y-2'>
-                    <span className='text-sm font-medium'>{t('API key')}</span>
-                    <Input
-                      type='password'
-                      autoComplete='off'
-                      className='min-h-11'
-                      value={secret}
-                      disabled={busy}
-                      required
-                      onChange={(event) => setSecret(event.target.value)}
-                    />
-                  </label>
-                ) : (
-                  <div className='flex min-w-0 items-end'>
-                    <Button
-                      type='button'
-                      variant='outline'
-                      className='min-h-11'
-                      disabled={
-                        writeDisabled ||
-                        editorStale ||
-                        !secretsAllowed ||
-                        !configuration.secret_storage_enabled
-                      }
-                      onClick={() => setKeyChannel(editor.channelId ?? null)}
-                    >
-                      <KeyRound className='size-4' />
-                      {t('API Keys')}
-                    </Button>
-                  </div>
-                )
-              }
-              onChange={(document) => {
-                setEditor({ ...editor, document })
-                setPreview(null)
-              }}
-            />
-          )}
-          {editor.modelEditing !== undefined && (
-            <NativeModelFields
-              document={editor.document}
-              configuration={configuration}
-              disabled={busy}
-              onChange={(document) => {
-                setEditor({ ...editor, document })
-                setPreview(null)
-              }}
-            />
-          )}
-          <details
-            open={!editor.channelId && editor.modelEditing === undefined}
-          >
-            <summary className='cursor-pointer py-2 text-sm font-medium'>
-              {t('Advanced Settings')}
-            </summary>
-            {editor.channelId && (
-              <div className='mb-4 max-w-md'>
-                <NativeChannelTagField
-                  document={editor.document}
-                  disabled={busy}
-                  onChange={(document) => setEditor({ ...editor, document })}
-                />
-              </div>
-            )}
-            <label className='block space-y-2'>
-              <span className='text-sm'>{t('Configuration')}</span>
-              <Textarea
-                className='min-h-72 font-mono text-xs'
-                value={editor.document}
-                readOnly={editor.readOnly}
-                disabled={busy}
-                onChange={(event) => {
-                  setEditor({ ...editor, document: event.target.value })
-                  setPreview(null)
-                }}
-              />
-            </label>
-          </details>
-          {preview && !editorStale && (
-            <pre
-              className='max-h-80 overflow-auto border p-3 text-xs'
-              aria-label={t('Preview')}
-            >
-              {pretty(preview)}
-            </pre>
-          )}
-          <div className='flex flex-wrap gap-2'>
-            <Button
-              type='submit'
-              className='min-h-11'
-              disabled={writeDisabled || editorStale}
-            >
-              {editor.previewPath
-                ? preview
-                  ? t('Confirm and apply')
-                  : t('Preview')
-                : t('Save')}
-            </Button>
-            <Button
-              type='button'
-              variant='outline'
-              className='min-h-11'
-              disabled={busy}
-              onClick={() => requestEditorChange({ close: true })}
-            >
-              {t('Cancel')}
-            </Button>
-          </div>
-        </form>
-      )}
+          <SheetHeader className='shrink-0 pr-14'>
+            <SheetTitle>{editor?.title}</SheetTitle>
+          </SheetHeader>
+          {editor?.channelId && editorForm}
+        </SheetContent>
+      </Sheet>
+      {!editor?.channelId && editorForm}
       <Dialog
         open={editorDestination !== null}
         finalFocus={() => discardFocus.current}
@@ -1273,7 +1348,7 @@ function NativeRoutingWorkspace({
           </>
         )}
       </div>
-      {error && (
+      {error && !editor?.channelId && (
         <Alert variant='destructive' role='alert'>
           <AlertDescription>{error}</AlertDescription>
         </Alert>

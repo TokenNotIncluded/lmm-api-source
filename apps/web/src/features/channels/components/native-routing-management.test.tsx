@@ -261,7 +261,7 @@ async function mount(
     await act(async () => root.unmount())
     client.clear()
   }
-  return container
+  return document.body
 }
 async function until(check: () => boolean) {
   for (let attempt = 0; attempt < 100; attempt++) {
@@ -1223,7 +1223,7 @@ test('native channel card opens confirmed consumption with exact values and expl
   assert.equal(button(container, 'Consumption').disabled, false)
   await act(async () => button(container, 'Consumption').click())
   await until(() => !!document.querySelector('[role=dialog] dl'))
-  const dialog = required(document.querySelector('[role=dialog]'))
+  const dialog = required(document.querySelector('[data-slot=dialog-content]'))
   const text = dialog.textContent ?? ''
   assert.ok(text.includes('Confirmed native consumption'))
   assert.ok(
@@ -1272,7 +1272,9 @@ test('native usage errors and reused channel identities never turn into zero con
     await until(() => !!container.textContent?.includes('Private provider'))
     await act(async () => button(container, 'Consumption').click())
     await until(() => !!document.querySelector('[role=dialog] [role=alert]'))
-    const dialog = required(document.querySelector('[role=dialog]'))
+    const dialog = required(
+      document.querySelector('[data-slot=dialog-content]')
+    )
     const text = dialog.textContent ?? ''
     assert.equal(dialog.querySelector('dl'), null)
     assert.equal(text.includes('internal implementation detail'), false)
@@ -1303,7 +1305,10 @@ test('closing usage or switching sessions aborts the read and discards delayed r
   await act(async () => button(container, 'Consumption').click())
   await until(() => signals.length === 1)
   await act(async () =>
-    button(required(document.querySelector('[role=dialog]')), 'Close').click()
+    button(
+      required(document.querySelector('[data-slot=dialog-content]')),
+      'Close'
+    ).click()
   )
   assert.equal(signals[0]?.aborted, true)
   await act(async () => finish?.())
@@ -1340,7 +1345,7 @@ test('a confirmed zero native window displays zero instead of an unavailable sta
   const container = await mount('channels')
   await until(() => !!container.textContent?.includes('Private provider'))
   await act(async () => button(container, 'Consumption').click())
-  const dialog = required(document.querySelector('[role=dialog]'))
+  const dialog = required(document.querySelector('[data-slot=dialog-content]'))
   await until(() => dialog.querySelectorAll('dd').length === 6)
   for (const value of dialog.querySelectorAll('dd')) {
     assert.match(value.textContent ?? '', /^0(?: Credits)?$/)
@@ -1411,7 +1416,7 @@ test('Sub2API automatic balances refresh individually and in a batch without cle
   await until(() => !!container.textContent?.includes('Quota provider'))
   await act(async () => button(container, 'Provider balance').click())
   await until(() => !!document.querySelector('[role=dialog] dl'))
-  let dialog = required(document.querySelector('[role=dialog]'))
+  let dialog = required(document.querySelector('[data-slot=dialog-content]'))
   assert.equal(button(dialog, 'Update Balance').disabled, false)
   const singleUpdate = button(dialog, 'Update Balance')
   await act(async () => {
@@ -1433,7 +1438,7 @@ test('Sub2API automatic balances refresh individually and in a batch without cle
     container.querySelector('[data-slot=channel-batch-actions]')
   )
   await act(async () => button(toolbar, 'Refresh selected balances').click())
-  dialog = required(document.querySelector('[role=dialog]'))
+  dialog = required(document.querySelector('[data-slot=dialog-content]'))
   await act(async () => button(dialog, 'Update Balance').click())
   await until(
     () =>
@@ -1522,7 +1527,7 @@ test('Sub2API batch late responses do not enter a filtered replacement selection
     container.querySelector('[data-slot=channel-batch-actions]')
   )
   await act(async () => button(toolbar, 'Refresh selected balances').click())
-  let dialog = required(document.querySelector('[role=dialog]'))
+  let dialog = required(document.querySelector('[data-slot=dialog-content]'))
   assert.equal(dialog.querySelectorAll('li').length, 3)
   await act(async () => button(dialog, 'Update Balance').click())
   await until(() => !!finishOld)
@@ -1549,7 +1554,7 @@ test('Sub2API batch late responses do not enter a filtered replacement selection
     container.querySelector('[data-slot=channel-batch-actions]')
   )
   await act(async () => button(toolbar, 'Refresh selected balances').click())
-  dialog = required(document.querySelector('[role=dialog]'))
+  dialog = required(document.querySelector('[data-slot=dialog-content]'))
   await act(async () => button(dialog, 'Update Balance').click())
   await until(() => !!dialog.textContent?.includes('0 USD'))
   await act(async () => required(finishOld)())
@@ -1597,7 +1602,9 @@ test('provider balance is separate from confirmed consumption and preserves unkn
     await until(() => !!container.textContent?.includes('Private provider'))
     await act(async () => button(container, 'Provider balance').click())
     await until(() => !!document.querySelector('[role=dialog] dl'))
-    const dialog = required(document.querySelector('[role=dialog]'))
+    const dialog = required(
+      document.querySelector('[data-slot=dialog-content]')
+    )
     const displayed = required(dialog.querySelector('.text-2xl')).textContent
     assert.equal(
       displayed,
@@ -1670,7 +1677,9 @@ test('a missing probe is disabled and failed explicit refreshes retain unknown r
     await until(() => !!container.textContent?.includes('Private provider'))
     await act(async () => button(container, 'Provider balance').click())
     await until(() => !!document.querySelector('[role=dialog] dl'))
-    const dialog = required(document.querySelector('[role=dialog]'))
+    const dialog = required(
+      document.querySelector('[data-slot=dialog-content]')
+    )
     await act(async () => button(dialog, 'Update Balance').click())
     await until(() => !!dialog.querySelector('[role=alert]'))
     assert.equal(dialog.querySelector('.text-2xl')?.textContent, '-')
@@ -1735,7 +1744,7 @@ test('balance configuration preloads published fields, rejects invalid paths and
   const container = await mount('channels')
   await until(() => !!container.textContent?.includes('Private provider'))
   await act(async () => button(container, 'Configure balance query').click())
-  let dialog = required(document.querySelector('[role=dialog]'))
+  let dialog = required(document.querySelector('[data-slot=dialog-content]'))
   const inputs = [...dialog.querySelectorAll('input')]
   assert.deepEqual(
     inputs.map((input) => input.value),
@@ -1760,7 +1769,7 @@ test('balance configuration preloads published fields, rejects invalid paths and
     },
   ])
   await act(async () => button(container, 'Configure balance query').click())
-  dialog = required(document.querySelector('[role=dialog]'))
+  dialog = required(document.querySelector('[data-slot=dialog-content]'))
   await act(async () => button(dialog, 'Disable').click())
   await until(() => !document.querySelector('[role=dialog]'))
   assert.deepEqual(writes[1], {
@@ -2006,13 +2015,16 @@ test('closing a stored balance read aborts it and session changes discard a dela
   await act(async () => button(container, 'Provider balance').click())
   await until(() => !!readSignal)
   await act(async () =>
-    button(required(document.querySelector('[role=dialog]')), 'Close').click()
+    button(
+      required(document.querySelector('[data-slot=dialog-content]')),
+      'Close'
+    ).click()
   )
   assert.equal(readSignal?.aborted, true)
   await act(async () => finishRead?.())
   assert.equal(document.querySelector('[role=dialog]'), null)
   await act(async () => button(container, 'Configure balance query').click())
-  const dialog = required(document.querySelector('[role=dialog]'))
+  const dialog = required(document.querySelector('[data-slot=dialog-content]'))
   await act(async () => button(dialog, 'Disable').click())
   assert.equal(writes, 1)
   await act(async () => {
@@ -2128,7 +2140,9 @@ test('accounting capabilities gate window reads, display counters and provider r
       ).click()
     )
     await until(() => !!document.querySelector('[role=dialog] dl'))
-    const dialog = required(document.querySelector('[role=dialog]'))
+    const dialog = required(
+      document.querySelector('[data-slot=dialog-content]')
+    )
     if (windowEnabled) {
       assert.equal(
         reads.some((url) => url.endsWith('/counters')),
@@ -2365,7 +2379,7 @@ test('native key manager enables a pooled key and changes polling with release C
   )
   await act(async () => button(container, 'API Keys').click())
   await until(() => !!document.querySelector('[role=dialog]'))
-  const dialog = required(document.querySelector('[role=dialog]'))
+  const dialog = required(document.querySelector('[data-slot=dialog-content]'))
   await until(() => !!dialog.textContent?.includes('Secondary'))
   assert.equal(button(dialog, 'Disable').disabled, true)
   await act(async () => {
@@ -2443,7 +2457,9 @@ test('channel editing exposes common fields and preserves bindings, context meta
     required(models.querySelector('summary')).textContent ?? '',
     /1 selected/
   )
-  const settings = required(form.querySelector('textarea')?.closest('details'))
+  const raw = required(form.querySelector('textarea')?.closest('details'))
+  const settings = required(raw.parentElement?.closest('details'))
+  assert.equal(raw.open, false)
   assert.equal(settings.open, false)
   assert.ok(
     [...settings.querySelectorAll('label')].some((label) =>
@@ -2795,7 +2811,12 @@ test('the channel page exposes editing immediately without a configuration toggl
     1
   )
   await act(async () => button(container, 'Edit').click())
-  assert.ok(container.querySelector('form[aria-label="Edit Channel"]'))
+  const form = required(
+    container.querySelector('form[aria-label="Edit Channel"]')
+  )
+  assert.ok(form.closest('[data-slot="sheet-content"]'))
+  const json = required(form.querySelector('textarea'))
+  assert.equal(json.closest('details')?.open, false)
   assert.equal(container.querySelector('input[type=password]'), null)
 })
 
@@ -2825,7 +2846,7 @@ test('cancelling the channel editor restores its opener and keeps the filtered c
   const form = required(container.querySelector('form'))
   await changeInput(required(form.querySelector('input')), 'Unsaved name')
   await act(async () => button(form, 'Cancel').click())
-  const dialog = required(document.querySelector('[role=dialog]'))
+  const dialog = required(document.querySelector('[data-slot=dialog-content]'))
   await act(async () => button(dialog, 'Leave').click())
   await until(() => document.activeElement === edit)
   assert.equal(container.querySelector('form'), null)
@@ -2854,14 +2875,14 @@ test('channel drafts survive current-section clicks and require confirmation bef
   })
   await act(async () => button(container, 'Channels').click())
   assert.equal(name.value, 'Unpublished provider')
-  assert.equal(document.querySelector('[role=dialog]'), null)
+  assert.equal(document.querySelector('[data-slot=dialog-content]'), null)
   assert.equal(
     button(container, 'Channels').getAttribute('aria-current'),
     'page'
   )
 
   await act(async () => button(container, 'Models').click())
-  let dialog = required(document.querySelector('[role=dialog]'))
+  let dialog = required(document.querySelector('[data-slot=dialog-content]'))
   assert.match(dialog.textContent ?? '', /unsaved changes/)
   await act(async () => button(dialog, 'Stay').click())
   assert.equal(name.value, 'Unpublished provider')
@@ -2875,7 +2896,7 @@ test('channel drafts survive current-section clicks and require confirmation bef
     create.focus()
     create.click()
   })
-  dialog = required(document.querySelector('[role=dialog]'))
+  dialog = required(document.querySelector('[data-slot=dialog-content]'))
   await act(async () => button(dialog, 'Leave').click())
   assert.ok(container.querySelector('form[aria-label="Create Channel"]'))
   const form = required(
@@ -2903,14 +2924,14 @@ test('channel drafts survive current-section clicks and require confirmation bef
     container.querySelector<HTMLInputElement>('form input')
   )
   assert.equal(replacementName.value, '')
-  await until(() => !document.querySelector('[role=dialog]'))
-  assert.ok(document.activeElement === replacementName, 'Focus the new editor')
+  await until(() => !document.querySelector('[data-slot=dialog-content]'))
+  await until(() => document.activeElement === replacementName)
   // An untouched replacement may close without another confirmation.
   await act(async () =>
     button(required(container.querySelector('form')), 'Cancel').click()
   )
   assert.equal(container.querySelector('form'), null)
-  assert.equal(document.querySelector('[role=dialog]'), null)
+  assert.equal(document.querySelector('[data-slot=dialog-content]'), null)
 })
 
 test('invalid advanced drafts and unsaved API keys are protected, and confirmed section changes clear secrets', async () => {
@@ -2933,13 +2954,13 @@ test('invalid advanced drafts and unsaved API keys are protected, and confirmed 
   await act(async () =>
     button(required(container.querySelector('form')), 'Cancel').click()
   )
-  let dialog = required(document.querySelector('[role=dialog]'))
+  let dialog = required(document.querySelector('[data-slot=dialog-content]'))
   await act(async () => button(dialog, 'Stay').click())
   assert.equal(textarea.value, '{unfinished')
   await act(async () =>
     button(required(container.querySelector('form')), 'Cancel').click()
   )
-  dialog = required(document.querySelector('[role=dialog]'))
+  dialog = required(document.querySelector('[data-slot=dialog-content]'))
   await act(async () => button(dialog, 'Leave').click())
   assert.equal(container.querySelector('form'), null)
 
@@ -2956,11 +2977,11 @@ test('invalid advanced drafts and unsaved API keys are protected, and confirmed 
     secret.dispatchEvent(new Event('input', { bubbles: true }))
   })
   await act(async () => button(container, 'Models').click())
-  dialog = required(document.querySelector('[role=dialog]'))
+  dialog = required(document.querySelector('[data-slot=dialog-content]'))
   await act(async () => button(dialog, 'Stay').click())
   assert.equal(secret.value, 'synthetic-unsaved-secret')
   await act(async () => button(container, 'Models').click())
-  dialog = required(document.querySelector('[role=dialog]'))
+  dialog = required(document.querySelector('[data-slot=dialog-content]'))
   await act(async () => button(dialog, 'Leave').click())
   assert.equal(container.querySelector('input[type=password]'), null)
   assert.equal(button(container, 'Models').getAttribute('aria-current'), 'page')
@@ -3227,7 +3248,9 @@ for (const unknown of [false, true]) {
           .querySelector('[role=dialog]')
           ?.textContent?.includes('Primary')
     )
-    const dialog = required(document.querySelector('[role=dialog]'))
+    const dialog = required(
+      document.querySelector('[data-slot=dialog-content]')
+    )
     await act(async () => button(dialog, 'Batch import').click())
     const form = required(dialog.querySelector('form'))
     const name = required(form.querySelector('input'))
@@ -3444,11 +3467,11 @@ test('channel edits preserve stale drafts and require explicit reload after a co
   assert.equal(writes, 0)
 
   await act(async () => button(form, 'Reload editor').click())
-  let dialog = required(document.querySelector('[role=dialog]'))
+  let dialog = required(document.querySelector('[data-slot=dialog-content]'))
   await act(async () => button(dialog, 'Stay').click())
   assert.equal(name.value, 'Unpublished channel')
   await act(async () => button(form, 'Reload editor').click())
-  dialog = required(document.querySelector('[role=dialog]'))
+  dialog = required(document.querySelector('[data-slot=dialog-content]'))
   await act(async () => button(dialog, 'Leave').click())
   assert.equal(name.value, 'Updated provider')
   assert.equal(button(form, 'Save').disabled, false)
@@ -3762,7 +3785,7 @@ test('an open key manager preserves unsubmitted credentials and blocks writes du
   await until(() => !!container.textContent?.includes('Private provider'))
   await act(async () => button(container, 'API Keys').click())
   await until(() => !!document.querySelector('[role=dialog] form'))
-  const dialog = required(document.querySelector('[role=dialog]'))
+  const dialog = required(document.querySelector('[data-slot=dialog-content]'))
   const form = required(dialog.querySelector('form'))
   const name = required(
     form.querySelector<HTMLInputElement>('input:not([type=password])')
@@ -3932,7 +3955,7 @@ test('open balance views preserve observations and configuration drafts while ca
     button(container, i18n.t('channelBalance.title')).click()
   )
   await until(() => !!document.querySelector('[role=dialog] dl'))
-  let dialog = required(document.querySelector('[role=dialog]'))
+  let dialog = required(document.querySelector('[data-slot=dialog-content]'))
   assert.equal(button(dialog, 'Update Balance').disabled, false)
   const evidence = required(client.getQueryData(['channel-ops']))
   await act(async () =>
@@ -3956,7 +3979,7 @@ test('open balance views preserve observations and configuration drafts while ca
   await act(async () =>
     button(container, i18n.t('channelBalance.configure')).click()
   )
-  dialog = required(document.querySelector('[role=dialog]'))
+  dialog = required(document.querySelector('[data-slot=dialog-content]'))
   const form = required(dialog.querySelector('form'))
   const path = required(form.querySelector('input'))
   await changeInput(path, '/account/available')
