@@ -869,18 +869,18 @@ export function useCommonLogsColumns(isAdmin: boolean): ColumnDef<UsageLog>[] {
               title={t('Click to view full details')}
               aria-label={t('View request details')}
             >
-              {failedStatus && (
-                <span
-                  className='text-destructive shrink-0 font-mono'
-                  title={t('Status Code')}
-                >
-                  {status}
-                </span>
-              )}
-              {detailPreview}
-              {!primary && !log.content && !failedStatus && (
-                <span className='text-primary'>{t('Details')}</span>
-              )}
+              <span className='text-primary shrink-0'>{t('Details')}</span>
+              <span className='flex min-w-0 items-center gap-1.5'>
+                {failedStatus && (
+                  <span
+                    className='text-destructive shrink-0 font-mono'
+                    title={t('Status Code')}
+                  >
+                    {status}
+                  </span>
+                )}
+                {detailPreview}
+              </span>
             </button>
             <DetailsDialog
               log={log}

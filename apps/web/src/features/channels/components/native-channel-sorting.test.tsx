@@ -835,17 +835,22 @@ test('an owner switch cancels the old listing and its late response cannot seed 
   await until(() => releaseOld !== undefined)
   assert.equal(button(container, 'Create Channel').disabled, false)
   await act(async () => button(container, 'Create Channel').click())
-  const name = [...container.querySelectorAll('label')]
+  const editor = document.querySelector('[role=dialog]')
+  assert.ok(editor)
+  const name = [...editor.querySelectorAll('label')]
     .find((item) => item.querySelector('span')?.textContent === 'Name')
     ?.querySelector('input')
   assert.ok(name)
-  assert.ok(container.querySelector('input[type=password]'))
+  assert.ok(editor.querySelector('input[type=password]'))
   await act(async () => login('replacement-statistics-owner', 10, 502))
   await until(() => !!container.textContent?.includes('Replacement provider'))
   assert.equal(oldSignal?.aborted, true)
   assert.equal(name.isConnected, false)
-  assert.equal(container.querySelector('textarea'), null)
-  assert.equal(container.querySelector('input[type=password]'), null)
+  assert.equal(document.querySelector('[role=dialog] textarea'), null)
+  assert.equal(
+    document.querySelector('[role=dialog] input[type=password]'),
+    null
+  )
   await act(async () => releaseOld?.())
   assert.equal(container.textContent?.includes('Private provider'), false)
   await act(async () => button(container, 'Next').click())
@@ -912,7 +917,9 @@ test('a cancelled search response cannot replace current units or digest and lis
   await until(() => !!container.textContent?.includes('Private provider'))
   assert.equal(button(container, 'Create Channel').disabled, false)
   await act(async () => button(container, 'Create Channel').click())
-  const name = [...container.querySelectorAll('label')]
+  const editor = document.querySelector('[role=dialog]')
+  assert.ok(editor)
+  const name = [...editor.querySelectorAll('label')]
     .find((item) => item.querySelector('span')?.textContent === 'Name')
     ?.querySelector('input')
   assert.ok(name)
@@ -925,7 +932,7 @@ test('a cancelled search response cannot replace current units or digest and lis
     inputSetter.call(name, 'Unsaved owner draft')
     name.dispatchEvent(new Event('input', { bubbles: true }))
   })
-  const textarea = container.querySelector('textarea')
+  const textarea = editor.querySelector('textarea')
   assert.ok(textarea)
   const draft = textarea.value
   assert.equal(JSON.parse(draft).name, 'Unsaved owner draft')

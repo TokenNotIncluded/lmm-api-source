@@ -3161,7 +3161,11 @@ test('a newly mapped model keeps its supplier contract open while the operator t
   await until(() => !!container.textContent?.includes('model-a'))
   await act(async () => button(container, 'Edit').click())
   const form = required(container.querySelector('form'))
-  const fields = required(form.querySelector('fieldset'))
+  const fields = required(
+    [...form.querySelectorAll('fieldset')].find(
+      (item) => item.querySelector('legend')?.textContent === 'Routing target 1'
+    )
+  )
   const field = (label: string) =>
     required(
       [...fields.querySelectorAll('label')]
