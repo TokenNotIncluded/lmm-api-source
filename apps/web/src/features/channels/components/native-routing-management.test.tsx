@@ -3668,7 +3668,13 @@ test('channel capability expiry and failed refresh preserve the draft and CAS un
   assert.equal(button(container, 'Refresh').disabled, false)
   assert.equal(button(container, 'Refresh capabilities').disabled, false)
   assert.equal(button(form, 'Cancel').disabled, false)
-  for (const label of ['Disable', 'Test', 'Sync', 'Delete', 'API Keys']) {
+  for (const label of [
+    'Disable',
+    'Test',
+    'Sync Upstream Models',
+    'Delete',
+    'API Keys',
+  ]) {
     assert.equal(button(container, label).disabled, true)
   }
   await act(async () =>
