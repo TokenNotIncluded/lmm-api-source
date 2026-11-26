@@ -323,7 +323,7 @@ function PluginInventory({ scope }: { scope: NativeUsersScope }) {
       >
         {t('Showing {{visible}} of {{total}} modules', {
           visible: visible.length,
-          total: registry.length,
+          total: extensions.length,
         })}
       </p>
       <section
