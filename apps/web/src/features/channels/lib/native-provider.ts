@@ -17,8 +17,9 @@ export function presetProtocolEndpoint(
         item.protocol === oldProtocol &&
         item.endpoint === oldEndpoint.replace(/\/+$/, '')
     )
-  )
+  ) {
     return
+  }
   return variants.find((item) => item.protocol === protocol)?.endpoint
 }
 
