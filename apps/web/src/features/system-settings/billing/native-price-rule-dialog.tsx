@@ -125,8 +125,9 @@ export function NativePriceRuleDialog({
           selector.model === candidate.model &&
           selector.group === candidate.group
       )
-    )
+    ) {
       throw new Error(t('Capability unavailable'))
+    }
     return candidate
   }
   async function buildRule() {

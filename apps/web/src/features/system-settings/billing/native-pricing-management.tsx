@@ -219,8 +219,9 @@ function PricingWorkspace({
           newRule?.speed === 'fast' ||
           newRule?.speed === 'ultrafast') &&
         !samePriceRule(oldRule, newRule)
-      )
+      ) {
         throw new Error(t('Capability unavailable'))
+      }
     }
   }
   function updatePrices(next: NativePrices) {

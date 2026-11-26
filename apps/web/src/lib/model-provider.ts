@@ -107,7 +107,8 @@ export function resolveModelProvider(modelName: string): ModelProvider | null {
   }
   if (model.startsWith('recursive/')) return { label: 'Recursive' }
   if (model === 'jev-latest') return { label: 'Jev' }
-  if (model === 'openrouter/free')
+  if (model === 'openrouter/free') {
     return { icon: 'OpenRouter', label: 'OpenRouter' }
+  }
   return null
 }

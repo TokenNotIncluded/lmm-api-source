@@ -38,8 +38,9 @@ export function modelsDevPrices(
       if (!costs) return []
       const rates: CatalogRates = {}
       for (const key of catalogFields) {
-        if (!Object.hasOwn(costs, key) && key !== 'input' && key !== 'output')
+        if (!Object.hasOwn(costs, key) && key !== 'input' && key !== 'output') {
           continue
+        }
         const value = costs[key]
         if (!isLosslessNumber(value)) return []
         const micros = usdToMicros(value.value)
@@ -147,8 +148,9 @@ export async function expressionPriceRule(
     !tariff ||
     rule.rates.request !== 0 ||
     rule.billing_mode === 'upstream_cost'
-  )
+  ) {
     return null
+  }
   const digest = await globalThis.crypto.subtle.digest(
     'SHA-256',
     new TextEncoder().encode(expression.trim())

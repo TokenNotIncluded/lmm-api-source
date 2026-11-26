@@ -19,15 +19,17 @@ export function configuredPriceSpeeds(
   model: string,
   group: string
 ): PriceSelector['speed'][] {
-  if (!routing.groups.some((item) => item.name === group && item.enabled))
+  if (!routing.groups.some((item) => item.name === group && item.enabled)) {
     return []
+  }
   const enabledUpstreams = new Set(
     routing.upstreams.filter((item) => item.enabled).map((item) => item.id)
   )
   const configured: PriceSelector['speed'][] = []
   for (const route of routing.routes) {
-    if (!route.enabled || route.model !== model || route.group !== group)
+    if (!route.enabled || route.model !== model || route.group !== group) {
       continue
+    }
     for (const speed of route.speeds) {
       if (speed !== 'standard') continue
       if (configured.includes(speed)) continue
@@ -38,8 +40,9 @@ export function configuredPriceSpeeds(
             enabledUpstreams.has(target.upstream_id) &&
             target.speeds.includes(speed)
         )
-      )
+      ) {
         configured.push(speed)
+      }
     }
   }
   return configured
@@ -72,8 +75,9 @@ export function configuredRouterSelectors(
       !groups.has(route.group) ||
       !route.speeds.includes('standard') ||
       !ROUTER_MODELS.some((model) => model === route.model)
-    )
+    ) {
       return []
+    }
     const targets = route.targets.filter(
       (target) =>
         target.enabled &&
@@ -85,8 +89,9 @@ export function configuredRouterSelectors(
       !targets.every((target) =>
         isLoopbackEndpoint(upstreams.get(target.upstream_id)?.endpoint ?? '')
       )
-    )
+    ) {
       return []
+    }
     return [{ model: route.model, group: route.group, speed: 'standard' }]
   })
 }

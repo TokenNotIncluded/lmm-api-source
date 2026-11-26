@@ -59,8 +59,9 @@ test('linear expression coefficients stay exact and zero cache terms remain expl
     'tier("standard", p * 1 + c * 2 + max(p, 3))',
     'tier("standard", p * 1 + c * 2 + aux * 3)',
     'p * 1 + c * 2',
-  ])
+  ]) {
     assert.equal(compileLinearExpression(unsupported), null)
+  }
 })
 
 test('expression compilation changes a local rule only and preserves selector and multipliers', async () => {

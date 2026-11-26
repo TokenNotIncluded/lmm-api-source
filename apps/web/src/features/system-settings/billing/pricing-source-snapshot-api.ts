@@ -156,8 +156,9 @@ export function originalGroupDescriptions(
   if (!value) return new Map<string, string>()
   try {
     const parsed: unknown = JSON.parse(value)
-    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed))
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
       return new Map<string, string>()
+    }
     return new Map(
       Object.entries(parsed).filter(
         (entry): entry is [string, string] =>
