@@ -5,13 +5,17 @@ SPDX-License-Identifier: AGPL-3.0-or-later
 import { createFileRoute } from '@tanstack/react-router'
 import { z } from 'zod'
 
-import { RelayCheckout } from '@/features/tool-market/relay-checkout'
 import { ToolMarket } from '@/features/tool-market'
+import { RelayCheckout } from '@/features/tool-market/relay-checkout'
 import { parseMarketServiceID } from '@/features/tool-market/service-link'
 
 export const Route = createFileRoute('/_authenticated/tool-market/')({
   validateSearch: z.object({
-    relay_order: z.string().regex(/^[0-9a-f]{64}$/).catch('').optional(),
+    relay_order: z
+      .string()
+      .regex(/^[0-9a-f]{64}$/)
+      .catch('')
+      .optional(),
     service_id: z.preprocess(parseMarketServiceID, z.string().optional()),
     tab: z.enum(['market', 'connections', 'mine']).catch('market').optional(),
   }),

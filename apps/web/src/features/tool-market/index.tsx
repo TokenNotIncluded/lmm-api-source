@@ -61,13 +61,13 @@ import { MarketConnections } from './connections'
 import { marketStatus, marketPermissionList } from './copy'
 import { MarketMetaToolCard } from './meta-tool-card'
 import { useMarketTranslation as useTranslation } from './provider-i18n'
+import { ProviderOAuthConnections } from './provider-oauth-connections'
 import {
   remoteOAuthRedirectURI,
   readRemoteOAuthCallback,
   clearRemoteOAuthFragment,
 } from './remote-server-api'
 import { RemoteServers } from './remote-servers'
-import { ProviderOAuthConnections } from './provider-oauth-connections'
 import { MarketReports, ReportCallButton } from './reports'
 import { ServiceEditor } from './service-editor'
 import { parseMarketServiceID } from './service-link'
