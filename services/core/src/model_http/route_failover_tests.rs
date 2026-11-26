@@ -831,11 +831,48 @@ async fn reliability_pg_401_quarantines_key_and_survives_restart(pool: PgPool) {
 
 #[sqlx::test(migrations = false)]
 async fn reliability_pg_probe_single_owner_and_stale_result(pool: PgPool) {
-    sqlx::raw_sql("CREATE SCHEMA core_channels; CREATE TABLE public.routing_active_release(config_version bigint); INSERT INTO public.routing_active_release VALUES(23)").execute(&pool).await.unwrap();
+    sqlx::raw_sql(
+        r#"
+        CREATE SCHEMA core_channels;
+        CREATE TABLE public.routing_active_release(config_version bigint);
+        INSERT INTO public.routing_active_release VALUES (23);
+        CREATE FUNCTION public.routing_control_read() RETURNS jsonb
+        LANGUAGE sql STABLE SECURITY DEFINER SET search_path=pg_catalog AS $$
+            SELECT jsonb_build_object('routing',jsonb_build_object('version',config_version))
+            FROM public.routing_active_release
+        $$;
+        REVOKE ALL ON FUNCTION public.routing_control_read() FROM PUBLIC;
+    "#,
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
     sqlx::raw_sql(include_str!("../../schema/route_health.sql"))
         .execute(&pool)
         .await
         .unwrap();
+    let role = format!("lmm_health_{:016x}", rand::random::<u64>());
+    sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
+        "CREATE ROLE {role}; GRANT {role} TO CURRENT_USER; GRANT USAGE ON SCHEMA core_channels TO {role};
+         GRANT SELECT,INSERT,UPDATE ON core_channels.route_health TO {role};
+         GRANT EXECUTE ON FUNCTION public.routing_control_read() TO {role}"
+    ))).execute(&pool).await.unwrap();
+    let limited = PgPool::connect_with(
+        pool.connect_options()
+            .as_ref()
+            .clone()
+            .options([("role", role.as_str())]),
+    )
+    .await
+    .unwrap();
+    assert!(
+        !sqlx::query_scalar::<_, bool>(
+            "SELECT has_table_privilege('public.routing_active_release','SELECT')"
+        )
+        .fetch_one(&limited)
+        .await
+        .unwrap()
+    );
     async fn claim(pool: &PgPool, id: i64) -> Option<i64> {
         use sqlx::Row;
         sqlx::query(include_str!("channel_health_claim.sql"))
@@ -868,7 +905,7 @@ async fn reliability_pg_probe_single_owner_and_stale_result(pool: PgPool) {
             .unwrap()
             .rows_affected()
     }
-    let (a, b) = tokio::join!(claim(&pool, 1), claim(&pool, 1));
+    let (a, b) = tokio::join!(claim(&limited, 1), claim(&limited, 1));
     assert_ne!(a.is_some(), b.is_some());
     let owner = a.or(b).unwrap();
     sqlx::query(
@@ -877,21 +914,28 @@ async fn reliability_pg_probe_single_owner_and_stale_result(pool: PgPool) {
     .execute(&pool)
     .await
     .unwrap();
-    assert_eq!(complete(&pool, owner).await, 0);
+    assert_eq!(complete(&limited, owner).await, 0);
     sqlx::query("UPDATE core_channels.route_health SET lease_until=NULL")
         .execute(&pool)
         .await
         .unwrap();
-    let current = claim(&pool, 1).await.unwrap();
+    let current = claim(&limited, 1).await.unwrap();
     sqlx::query("UPDATE public.routing_active_release SET config_version=24")
         .execute(&pool)
         .await
         .unwrap();
-    assert_eq!(complete(&pool, current).await, 0);
-    assert_eq!(claim(&pool, 1).await, None);
+    assert_eq!(complete(&limited, current).await, 0);
+    assert_eq!(claim(&limited, 1).await, None);
     let scope: String = sqlx::query_scalar("SELECT disabled_scope FROM core_channels.route_health")
         .fetch_one(&pool)
         .await
         .unwrap();
     assert_eq!(scope, "credential");
+    limited.close().await;
+    sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
+        "DROP OWNED BY {role}; DROP ROLE {role}"
+    )))
+    .execute(&pool)
+    .await
+    .unwrap();
 }

@@ -218,7 +218,7 @@ impl ManagedChannels {
     }
     pub(crate) async fn synchronize_if_changed(&self) -> Result<(), ManagementError> {
         let published: Option<i64> = sqlx::query_scalar(
-            "SELECT config_version FROM public.routing_active_release WHERE singleton",
+            "SELECT (public.routing_control_read() #>> '{routing,version}')::bigint",
         )
         .fetch_one(&self.pool)
         .await?;

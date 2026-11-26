@@ -5,4 +5,4 @@ UPDATE core_channels.route_health SET last_probe_at=clock_timestamp(),latency_ms
  status_code=CASE WHEN $8 THEN NULL WHEN $10 IS NOT NULL THEN $11 ELSE status_code END
  WHERE routing_version=$1 AND channel_id=$2 AND credential_id=$3 AND credential_revision=$4
    AND generation=$5 AND lease_until>clock_timestamp()
-   AND EXISTS (SELECT FROM public.routing_active_release WHERE coalesce(config_version,$1)=$1)
+   AND coalesce((public.routing_control_read() #>> '{routing,version}')::bigint,$1)=$1

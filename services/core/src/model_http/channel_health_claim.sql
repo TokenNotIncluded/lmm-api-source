@@ -5,7 +5,7 @@ WITH due AS (
    (h.channel_id,h.credential_id,h.credential_revision)=(c.channel_id,c.credential_id,c.credential_revision)
  WHERE ($5 OR h.disabled_scope IS NOT NULL) AND coalesce(h.next_probe_at,'-infinity')<=now()
    AND coalesce(h.lease_until,'-infinity')<=now()
-   AND EXISTS (SELECT FROM public.routing_active_release WHERE coalesce(config_version,$1)=$1)
+   AND coalesce((public.routing_control_read() #>> '{routing,version}')::bigint,$1)=$1
  ORDER BY h.next_probe_at NULLS FIRST,c.channel_id,c.credential_id,c.credential_revision LIMIT 1
 )
 INSERT INTO core_channels.route_health AS h (routing_version,channel_id,credential_id,credential_revision,lease_until,generation)

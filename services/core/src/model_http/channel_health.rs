@@ -14,10 +14,7 @@ struct ProbeObservation {
 }
 
 impl Bridge {
-    async fn health_writer(
-        &self,
-        version: ReleaseVersion,
-    ) -> Result<Option<sqlx::Transaction<'_, sqlx::Postgres>>, RelayError> {
+    async fn health_writer(&self) -> Result<sqlx::Transaction<'_, sqlx::Postgres>, RelayError> {
         let mut tx = self
             .pool
             .begin()
@@ -28,19 +25,24 @@ impl Bridge {
             .execute(&mut *tx)
             .await
             .map_err(|_| RelayError::RouteUnavailable)?;
-        let active: Option<i64> = sqlx::query_scalar(
-            "SELECT config_version FROM public.routing_active_release WHERE singleton",
-        )
-        .fetch_one(&mut *tx)
-        .await
-        .map_err(|_| RelayError::RouteUnavailable)?;
-        if active.is_some_and(|v| v as u64 != version.routing) {
-            return Ok(None);
-        }
-        Ok(Some(tx))
+        Ok(tx)
     }
 
     pub(super) async fn refresh_route_health(&self) -> Result<(), RelayError> {
+        // Admission on a bootstrap-only gateway needs no health or publication read.
+        // The background reader still discovers the first remote policy.
+        if self
+            .routing
+            .reliability_version()
+            .map_err(|_| RelayError::RouteUnavailable)?
+            .is_none()
+        {
+            return Ok(());
+        }
+        self.synchronize_route_health().await
+    }
+
+    async fn synchronize_route_health(&self) -> Result<(), RelayError> {
         if let Some(manager) = self
             .channel_manager
             .get()
@@ -91,9 +93,7 @@ impl Bridge {
         let Some(policy) = attempt.reliability().filter(|p| p.auto_disable) else {
             return Ok(());
         };
-        let Some(mut tx) = self.health_writer(attempt.version()).await? else {
-            return Ok(());
-        };
+        let mut tx = self.health_writer().await?;
         let key = attempt.credential_ref();
         let scope = if matches!(status, Some(401 | 403)) || reason == "error_keyword" {
             "credential"
@@ -102,7 +102,7 @@ impl Bridge {
         };
         // A real failure invalidates any outstanding success, including a late result
         // from an older probe on the same revision.
-        sqlx::query("INSERT INTO core_channels.route_health AS h (routing_version,channel_id,credential_id,credential_revision,disabled_scope,reason,status_code,latency_ms,next_probe_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,now()+make_interval(secs=>$9)) ON CONFLICT (routing_version,channel_id,credential_id,credential_revision) DO UPDATE SET disabled_scope=CASE WHEN h.disabled_scope='channel' THEN 'channel' ELSE EXCLUDED.disabled_scope END, reason=EXCLUDED.reason,status_code=EXCLUDED.status_code,latency_ms=EXCLUDED.latency_ms,next_probe_at=EXCLUDED.next_probe_at,generation=h.generation+1")
+        sqlx::query("INSERT INTO core_channels.route_health AS h (routing_version,channel_id,credential_id,credential_revision,disabled_scope,reason,status_code,latency_ms,next_probe_at) SELECT $1,$2,$3,$4,$5,$6,$7,$8,now()+make_interval(secs=>$9) WHERE coalesce((public.routing_control_read() #>> '{routing,version}')::bigint,$1)=$1 ON CONFLICT (routing_version,channel_id,credential_id,credential_revision) DO UPDATE SET disabled_scope=CASE WHEN h.disabled_scope='channel' THEN 'channel' ELSE EXCLUDED.disabled_scope END, reason=EXCLUDED.reason,status_code=EXCLUDED.status_code,latency_ms=EXCLUDED.latency_ms,next_probe_at=EXCLUDED.next_probe_at,generation=h.generation+1")
             .bind(attempt.version().routing as i64).bind(attempt.upstream_id() as i64).bind(key.id as i64).bind(key.revision as i64)
             .bind(scope).bind(reason).bind(status.map(|v|v as i16)).bind(elapsed_ms.min(i64::MAX as u64) as i64).bind(f64::from(policy.probe_interval_seconds))
             .execute(&mut *tx).await.map_err(|_|RelayError::RouteUnavailable)?;
@@ -141,7 +141,7 @@ impl ModelGateway {
     }
 
     async fn probe_due_health(&self) -> Result<(), RelayError> {
-        self.bridge.refresh_route_health().await?;
+        self.bridge.synchronize_route_health().await?;
         let Some((version, policy, channels)) = self
             .bridge
             .routing
@@ -162,9 +162,7 @@ impl ModelGateway {
         // Lease expiry is longer than the network timeout. An old owner whose lease
         // expired can never complete another owner's generation.
         let lease_seconds = self.limits.total_timeout.as_secs_f64() + 30.0;
-        let Some(mut tx) = self.bridge.health_writer(version).await? else {
-            return Ok(());
-        };
+        let mut tx = self.bridge.health_writer().await?;
         let row = sqlx::query(include_str!("channel_health_claim.sql"))
             .bind(version.routing as i64)
             .bind(ids)
@@ -245,9 +243,7 @@ impl ModelGateway {
                 "channel"
             }
         });
-        let Some(mut tx) = self.bridge.health_writer(version).await? else {
-            return Ok(());
-        };
+        let mut tx = self.bridge.health_writer().await?;
         sqlx::query(include_str!("channel_health_complete.sql"))
             .bind(version.routing as i64)
             .bind(channel.id as i64)

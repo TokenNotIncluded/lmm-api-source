@@ -10,6 +10,8 @@
 
 共享 PostgreSQL 保存渠道及凭据的系统停用记录、探测租约和亲和摘要。隔离 PostgreSQL 18.7 验证了两条连接竞争时只有一个租约持有者，过期租约与旧路由版本的回写均为零行。缓存已验证跨连接读取、容量上限、按规则清理、TTL 与数据库重启。Core88 至 Core89 的结构变更须经显式升级。影子节点的生效版本和 17 条渠道的实际推理与结算证据仍按上线记录核对。[Core 路由](../services/core/src/routing.rs) · [升级入口](../services/core/src/core_schema/upgrade/route_runtime.rs)
 
+在源码 `87fee2f1` 的 PostgreSQL 测试中，合成上游给亲和渠道返回 401 后，Core 向备用渠道重新派发，账本只记录一次最终结算。第二个节点随即复用了成功渠道；禁止重试的规则只派发一次。#52 形状的普通保存保留了目标编号、顺序和价格。同轮 Web 完整测试及生产构建通过。该次 Core 库测试有一项 WebSocket 握手返回 503，记录保留在原提交的日志中。[Core 测试日志](https://github.com/TokenNotIncluded/lmm-api-source/actions/runs/45820849650/job/139912720900) · [Web 构建](https://github.com/TokenNotIncluded/lmm-api-source/actions/runs/45820849650/job/139912720982)
+
 ### 账号与 Key
 
 固定候选上已有账号密码、OAuth 回调与拒绝、会话刷新、Passkey 和旧 Key 的分项证据。五个 public client 各有独立开关和授权额度。
