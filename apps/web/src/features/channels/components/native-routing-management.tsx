@@ -1742,6 +1742,25 @@ function NativeRoutingWorkspace({
                     <div className='native-channel-actions'>
                       <Button
                         type='button'
+                        variant='ghost'
+                        className='min-h-11 px-2'
+                        title={t('Sync Upstream Models')}
+                        disabled={writeDisabled}
+                        onClick={() =>
+                          void run(() =>
+                            nativeRequest(
+                              'POST',
+                              `${NATIVE_ROOT}/channels/${channel.id}/models/synchronize`,
+                              { expected_version: configuration.version }
+                            )
+                          )
+                        }
+                      >
+                        <RefreshCw className='size-4' />
+                        <span>{t('Sync Upstream Models')}</span>
+                      </Button>
+                      <Button
+                        type='button'
                         variant='secondary'
                         className='min-h-11 px-2'
                         title={t('Edit')}
@@ -1982,23 +2001,6 @@ function NativeRoutingWorkspace({
                           }}
                         >
                           {t('Copy Channel')}
-                        </Button>
-                        <Button
-                          type='button'
-                          variant='outline'
-                          className='min-h-11'
-                          disabled={writeDisabled}
-                          onClick={() =>
-                            void run(() =>
-                              nativeRequest(
-                                'POST',
-                                `${NATIVE_ROOT}/channels/${channel.id}/models/synchronize`,
-                                { expected_version: configuration.version }
-                              )
-                            )
-                          }
-                        >
-                          {t('Sync')}
                         </Button>
                         {deleteButton(`${NATIVE_ROOT}/channels/${channel.id}`)}
                       </div>

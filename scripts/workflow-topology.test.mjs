@@ -343,7 +343,11 @@ test('the CI gate requires full checks unless Web-only coverage was proven', () 
   assert.match(deploy, /echo "SELECT_COMPONENTS=web" >> "\$GITHUB_ENV"/);
   assert.match(deploy, /options\+=\(--web-only\)/);
   const playbook = read('deployment/automation/deploy.yml');
-  assert.ok(playbook.indexOf('verify-web-base.yml') < playbook.indexOf('Atomically select'));
+  assert.ok(playbook.indexOf('verify-web-base.yml') < playbook.indexOf('include_tasks: activate.yml'));
+  assert.match(playbook, /loop: '\{\{ activated_states \| reverse \| list \}\}'/);
+  const activation = read('deployment/automation/activate.yml');
+  assert.ok(activation.indexOf('Atomically select') < activation.indexOf('include_tasks: verify.yml'));
+  assert.match(activation, /when: component\.name != 'web'/);
   const guard = read('deployment/automation/verify-web-base.yml');
   assert.match(guard, /backend_manifest\.revision == deploy_web_base/);
   assert.match(guard, /include_tasks: verify\.yml/);

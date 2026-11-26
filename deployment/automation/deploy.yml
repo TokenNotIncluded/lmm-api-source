@@ -19,6 +19,7 @@
   any_errors_fatal: true
   vars:
     deploy_states: []
+    activated_states: []
     deployment_ok: false
     activation_started: false
     rollback_ok: false
@@ -104,29 +105,8 @@
           loop_control:
             loop_var: component
             label: '{{ component.name }}'
-        - name: Mark the activation boundary
-          ansible.builtin.set_fact:
-            activation_started: true
-        - name: Atomically select the verified component slots
-          ansible.builtin.file:
-            path: '{{ deploy_root }}/{{ item.name }}'
-            src: '{{ item.candidate }}'
-            state: link
-            force: true
-            follow: false
-          loop: '{{ deploy_states }}'
-          loop_control:
-            label: '{{ item.name }}'
-        - name: Restart only selected backend services
-          ansible.builtin.systemd_service:
-            name: '{{ item.service }}'
-            state: restarted
-          when: item.name != 'web'
-          loop: '{{ deploy_states }}'
-          loop_control:
-            label: '{{ item.name }}'
-        - name: Verify the selected runtime and entrypoints
-          ansible.builtin.include_tasks: verify.yml
+        - name: Activate and verify one component at a time
+          ansible.builtin.include_tasks: activate.yml
           loop: '{{ deploy_states }}'
           loop_control:
             loop_var: component
@@ -148,7 +128,7 @@
             force: true
             follow: false
           when: activation_started and (deploy_allow_rollback | default(true) | bool)
-          loop: '{{ deploy_states }}'
+          loop: '{{ activated_states | reverse | list }}'
           loop_control:
             label: '{{ item.name }}'
         - name: Restart the preceding backend programs
@@ -156,7 +136,7 @@
             name: '{{ item.service }}'
             state: restarted
           when: activation_started and (deploy_allow_rollback | default(true) | bool) and item.name != 'web'
-          loop: '{{ deploy_states }}'
+          loop: '{{ activated_states | reverse | list }}'
           loop_control:
             label: '{{ item.name }}'
         - name: Confirm the preceding services recovered
@@ -170,7 +150,7 @@
           retries: 10
           delay: 2
           when: activation_started and (deploy_allow_rollback | default(true) | bool)
-          loop: '{{ deploy_states }}'
+          loop: '{{ activated_states | reverse | list }}'
           loop_control:
             label: '{{ item.name }}'
         - name: Mark the rollback complete

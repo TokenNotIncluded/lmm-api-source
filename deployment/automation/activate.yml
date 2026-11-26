@@ -1,0 +1,19 @@
+---
+- name: Record the component activation boundary
+  ansible.builtin.set_fact:
+    activation_started: true
+    activated_states: '{{ activated_states + [component] }}'
+- name: Atomically select the verified component slot
+  ansible.builtin.file:
+    path: '{{ deploy_root }}/{{ component.name }}'
+    src: '{{ component.candidate }}'
+    state: link
+    force: true
+    follow: false
+- name: Restart the selected backend service
+  ansible.builtin.systemd_service:
+    name: '{{ component.service }}'
+    state: restarted
+  when: component.name != 'web'
+- name: Verify the component before advancing to the next one
+  ansible.builtin.include_tasks: verify.yml
