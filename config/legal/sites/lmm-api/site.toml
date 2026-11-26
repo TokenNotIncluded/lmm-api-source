@@ -1,0 +1,28 @@
+# LMM API site profile. Keep this file alongside en/, zh-CN/ and zh-TW/.
+# The TOML format is version 1. The public policy texts are version 2.1.
+# Enter the actual notice date and an effective date at least 14 calendar days
+# later for this material update, using YYYY-MM-DD. Set published to true
+# when giving notice, and retain version 2.0 for earlier transactions.
+# Validate the configured copy with: python3 validate.py --release site.toml
+version = 1
+published = false
+default_language = "en"
+
+[variables]
+notice_date = ""
+effective_date = ""
+
+[documents.user-agreement]
+en = "en/user-agreement.md"
+zh-CN = "zh-CN/user-agreement.md"
+zh-TW = "zh-TW/user-agreement.md"
+
+[documents.privacy-policy]
+en = "en/privacy-policy.md"
+zh-CN = "zh-CN/privacy-policy.md"
+zh-TW = "zh-TW/privacy-policy.md"
+
+[documents.refund-policy]
+en = "en/refund-policy.md"
+zh-CN = "zh-CN/refund-policy.md"
+zh-TW = "zh-TW/refund-policy.md"

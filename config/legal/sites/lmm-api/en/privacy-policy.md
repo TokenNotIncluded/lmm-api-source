@@ -1,0 +1,88 @@
+# LMM API Privacy Policy
+
+Version 2.1 · Notice date {{notice_date}} · Effective date {{effective_date}}
+
+For existing users, the previous policy applies until the effective date. This update applies prospectively. We give notice of material changes as described in section 10.
+
+## 1. Who is responsible for your information
+
+LMM API, maintained by the TokenNotIncluded team, is responsible for processing personal information as described in this policy. The service is based in the United States and runs on servers in the United States. Access is available only to people using the service from locations outside mainland China, regardless of nationality. Account and request data from other countries is transferred to the United States for processing. You can contact us from any location about an existing account or privacy request. The site opens in English and also offers Simplified and Traditional Chinese.
+
+You can contact us at [support@lmm.best](mailto:support@lmm.best).
+
+## 2. Information we process
+
+Depending on which features you use, we may process the following information:
+
+- **Account details.** Your username, email address and any sign-in identifiers you choose to link.
+- **Authentication and security information.** Password hashes, API keys, sign-in times, IP addresses, and device and browser information. API keys are protected by access controls and masked by default in management screens.
+- **Usage and billing records.** The model used, request time, token or request usage, balance changes, orders and error records.
+- **Request content.** Prompts, files you submit and generated outputs. We process this content only as necessary to forward a request, return its result, troubleshoot a problem, conduct a security audit or meet a legal obligation.
+- **Provider and tool connections you choose.** If a feature lets you connect a private provider using an API key or OAuth authorization, we process the connection details, the key or authorization tokens needed to authenticate with that provider, and the permissions you grant. If you authorize a tool call, we process the authorization, the inputs needed to make the call and the result it returns.
+- **Support communications.** Information you choose to provide in correspondence with our support team.
+
+Do not submit personal information you have no right to process, state secrets or other material the law prohibits you from processing.
+
+## 3. How and why we use information
+
+We use automated systems and, where necessary, human support to create and protect accounts, authenticate access, forward model requests, calculate charges, provide support, investigate faults, prevent fraud and abuse, improve reliability and meet legal obligations. When you choose a provider or tool connection, we use the connection information to authenticate and carry out the actions you authorize.
+
+We do not sell your personal information or use your request content to train models intended for the public.
+
+## 4. How long we keep information
+
+We keep information only as long as needed for the purposes above. We generally keep account details while the account exists. We keep usage, billing and security records for the periods needed for troubleshooting, dispute handling, security audits and legal obligations. We keep support records until we resolve the issue and a reasonable period for related disputes has ended.
+
+After account closure, we delete or anonymize relevant information within a reasonable time. We may retain information that the law requires us to keep or that we need to handle a dispute or security incident.
+
+## 5. Service providers, sharing and international transfers
+
+To complete a model request, we send the necessary request content and technical information to the model or infrastructure provider involved. When you authorize an external tool, the designated server receives the service-specific credentials and inputs needed for the action you selected. We do not send your LMM sign-in token or wallet credentials to the tool provider. We may retain call arguments, status, usage, quotes and results linked to your account and authorization for delivery, troubleshooting, authorization and billing checks. If the provider supports revocation, disconnecting initiates a revocation request. The provider determines when it takes effect. Payment providers may receive the order details needed to process a payment.
+
+If relay data is available and you choose to buy it, we record the account and order IDs, billing period, number of bytes purchased, quoted price, transaction status, and payment or delivery receipts. We use these records to reconcile payment and delivery. The service that grants the allowance receives the account and order IDs, billing period and byte allowance needed to credit the purchase.
+
+External model, infrastructure, identity, tool and payment providers may process information in countries other than the United States or the country from which you access the service. We make transfers only as needed to provide the service you select and require the parties involved to protect information under the applicable rules. Model and billing details are available on the [pricing page](/pricing).
+
+## 6. Cookies and local storage
+
+The website may use cookies or browser local storage to keep you signed in, remember interface preferences, maintain security settings and improve your experience. Disabling necessary storage may prevent sign-in or stop some features from working.
+
+## 7. Your rights
+
+Subject to applicable law, you may ask to access, copy, correct, supplement or delete your personal information. You may also withdraw consent for processing based on consent, request account closure or ask us to explain our processing rules.
+
+Send your request from your registered email address to [support@lmm.best](mailto:support@lmm.best). We may verify your identity to protect your account. We will respond within the period required by applicable law. Do not email a password, complete API key, OAuth token or full payment card number.
+
+## 8. Security
+
+We use access controls, separation of privileges, protections for data in transit, audit logging and system hardening to reduce the risk of unauthorized access, disclosure, alteration or loss.
+
+If a security incident may affect your rights or interests, we will take remedial action and meet the notification or reporting requirements of applicable law.
+
+## 9. Minors
+
+The service is primarily intended for people with full legal capacity to act on their own behalf. Minors should use it with a guardian’s guidance and consent. They should not submit sensitive personal information or make payments on their own.
+
+## 10. Policy changes and contact
+
+We may update this policy when the service or legal requirements change. We publish the new effective date on the website. For material changes affecting existing users, we follow the notice provisions in section 14 of the [Terms of Service](/user-agreement), which generally provide at least 14 days’ advance notice.
+
+For a privacy question, complaint or rights request, contact [support@lmm.best](mailto:support@lmm.best).
+
+## Supplement on content safety review
+
+The built-in AI assistant and API safety audit each have an optional OpenAI Moderation feature. Both are off by default. Administrators can enable them separately and specify the account groups covered. The features stay off for groups that are not configured.
+
+When review is enabled, we minimize the text extracted for that request, redact sensitive details as necessary and send it to OpenAI’s official Moderation API for background classification. For a recognized API protocol, we take only the text of the last user message. For the built-in assistant, we take the current user input and handle the assistant’s reply separately. We exclude the full request JSON, complete conversation history, system prompts, tool definitions and tool results. We skip unrecognized request structures. Even after these steps, the text may contain personal or sensitive information that you submitted. Do not submit personal information or secrets that you have no right to process.
+
+Review covers text only. It excludes images, audio, video and binary files. Long text within the supported limit is reviewed in chunks. We act on a classification only when all chunks have been reviewed successfully. If content exceeds the limit or is not actually reviewed, we do not treat it as having been fully reviewed.
+
+Chats handed over to a human support agent use the existing private support process. They are excluded from OpenAI content review and from this feature’s records of AI inputs and outputs.
+
+We use an internal persistent task queue to run reviews. We keep the necessary classification, task status, notification, balance change and risk statistics records to administer safety, apply published rules and handle requests for review. The retention, access control, international transfer and individual rights provisions of this policy apply to these records.
+
+We process user inputs and model outputs separately. Only user inputs that complete review and are flagged count toward a user’s risk score. Model output does not increase it. The account score takes the higher of the review score under the platform’s administrative thresholds and the existing wallet risk score. The reviewed-request count is simply a count. The score does not measure the probability of unlawful conduct or confidence in the classification. Any applicable deduction is rounded down to the smallest ledger unit and cannot exceed either the configured amount or the available positive balance. An amount below one ledger unit triggers only a warning. No new debt is created.
+
+OpenAI’s handling of submitted information is subject to its applicable terms and [official data controls](https://developers.openai.com/api/docs/guides/your-data). We and third-party providers may retain information where security or legal circumstances require it.
+
+See the [safety review description](/legal/safety-review.html) for the feature’s scope and the [published safety rules](/security) for current group settings and category amounts. To request human review of a review record, risk statistic or balance action, use in-service support or email [support@lmm.best](mailto:support@lmm.best). Do not send passwords or complete API keys.
