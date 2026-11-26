@@ -10,6 +10,7 @@ import type { TFunction } from 'i18next'
 
 import { getSystemSettingsNavGroups } from '@/components/layout/config/system-settings.config'
 import type { NavGroup } from '@/components/layout/types'
+import { legacyPluginPanel } from '@/features/plugins/configuration'
 import { ROLE } from '@/lib/roles'
 import { canReadSystemSettingsPath } from '@/lib/system-settings-access'
 
@@ -158,6 +159,7 @@ export function buildSettingsSearchIndex(
             if (!item.url || !canReadSystemSettingsPath(role, item.url)) {
               return []
             }
+            const panel = legacyPluginPanel(item.url)
             const id = sectionIdFromUrl(item.url)
             const category = item.url.split('/')[2]?.split('?')[0]
             const synonyms =
@@ -166,7 +168,9 @@ export function buildSettingsSearchIndex(
               {
                 group: section.title,
                 section: item.title,
-                url: item.url,
+                url: panel
+                  ? `/extensions/plugins?configure=${panel}`
+                  : item.url,
                 keywords: [section.title, item.title, ...synonyms].map(
                   normalize
                 ),

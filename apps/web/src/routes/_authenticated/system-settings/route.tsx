@@ -18,6 +18,7 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { createFileRoute, redirect } from '@tanstack/react-router'
 
+import { legacyPluginPanel } from '@/features/plugins/configuration'
 import { SystemSettings } from '@/features/system-settings'
 import { canReadSystemSettingsPath } from '@/lib/system-settings-access'
 import { useAuthStore } from '@/stores/auth-store'
@@ -33,6 +34,15 @@ export const Route = createFileRoute('/_authenticated/system-settings')({
     ) {
       throw redirect({
         to: '/403',
+      })
+    }
+    const configure = legacyPluginPanel(location.pathname, location.hash)
+    if (configure) {
+      throw redirect({
+        to: '/extensions/plugins',
+        search: { ...location.search, configure },
+        hash: configure === 'store' ? undefined : location.hash,
+        replace: true,
       })
     }
   },

@@ -12,3 +12,50 @@ const hostFields: Record<string, readonly string[]> = {
 export function pluginHostFields(name: string) {
   return Object.hasOwn(hostFields, name) ? hostFields[name] : undefined
 }
+
+const legacyPanels = new Map([
+  ['/system-settings/content/assistant', 'assistant'],
+  ['/system-settings/billing/checkin', 'checkins'],
+  ['/system-settings/operations/hero-sms', 'hero-sms'],
+  ['/system-settings/operations/scripts', 'operations'],
+  ['/system-settings/site/rss', 'rss'],
+  ['/system-settings/site/ai-directory-ads', 'directory-ads'],
+  ['/system-settings/site/ai-directory', 'community'],
+  ['/system-settings/site/header-navigation', 'header-navigation'],
+  ['/system-settings/models/model-deployment', 'model-deployment'],
+])
+
+export function legacyPluginPanel(path: string, hash = '') {
+  const pathname = path.replace(/\/+$/, '')
+  if (
+    pathname === '/system-settings/billing/payment' &&
+    hash.replace(/^#/, '') === 'merchant-store'
+  ) {
+    return 'store'
+  }
+  return legacyPanels.get(pathname)
+}
+
+export function configurationOwner(panel: string | undefined) {
+  if (panel === 'rss' || panel === 'model-deployment') return 'operations'
+  if (panel === 'directory-ads' || panel === 'header-navigation') {
+    return 'community'
+  }
+  if (panel === 'community' || panel === 'store') return panel
+  return panel && pluginHostFields(panel) ? panel : undefined
+}
+
+export function canOpenConfiguration(
+  panel: unknown,
+  root: boolean
+): panel is string {
+  if (typeof panel !== 'string' || !configurationOwner(panel)) return false
+  const owner = configurationOwner(panel)
+  return (
+    root ||
+    (owner !== 'community' &&
+      owner !== 'store' &&
+      panel !== 'rss' &&
+      panel !== 'model-deployment')
+  )
+}

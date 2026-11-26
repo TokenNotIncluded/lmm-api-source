@@ -73,11 +73,15 @@ const headerNavSchema = z.object({
 type HeaderNavigationSectionProps = {
   config: HeaderNavModulesConfig
   initialSerialized: string
+  onSave?: (value: string) => void
+  saving?: boolean
 }
 
 export function HeaderNavigationSection({
   config,
   initialSerialized,
+  onSave,
+  saving = false,
 }: HeaderNavigationSectionProps) {
   const { t } = useTranslation()
   const updateOption = useUpdateOption()
@@ -102,6 +106,10 @@ export function HeaderNavigationSection({
       return
     }
 
+    if (onSave) {
+      onSave(serialized)
+      return
+    }
     await updateOption.mutateAsync({
       key: 'HeaderNavModules',
       value: serialized,
@@ -199,7 +207,7 @@ export function HeaderNavigationSection({
           <SettingsPageFormActions
             onSave={form.handleSubmit(onSubmit)}
             onReset={resetToDefault}
-            isSaving={updateOption.isPending}
+            isSaving={saving || updateOption.isPending}
             resetLabel='Reset to default'
             saveLabel='Save navigation'
           />

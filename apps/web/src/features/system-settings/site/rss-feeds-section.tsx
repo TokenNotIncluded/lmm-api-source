@@ -1,7 +1,7 @@
 /* Copyright (C) 2026 LIghtJUNction. AGPL-3.0-or-later. */
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { ArrowDown, ArrowUp, Plus, Trash2 } from 'lucide-react'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 
@@ -86,21 +86,25 @@ function RSSFeedsEditor({
     retry: false,
     refetchOnWindowFocus: false,
   })
+  const feedback = useRef<HTMLDivElement>(null)
+  const saveTrigger = useRef<Element | null>(null)
   const initialFeeds = settings.data?.feeds
   const saveSettings = useMutation({
     mutationFn: (next: RSSFeedConfig[]) => {
       if (!settings.data) throw new Error('RSS settings unavailable')
       return saveRSSSettings(
         { revision: settings.data.revision, feeds: next },
-        { authScope: { userId, sessionId } }
+        {
+          authScope: { userId, sessionId },
+          skipBusinessError: true,
+          skipErrorHandler: true,
+        }
       )
     },
     onSuccess: (saved) => {
       queryClient.setQueryData(queryKey, saved)
       void queryClient.invalidateQueries({ queryKey: ['rss'] })
-      toast.success(t('Settings saved'))
     },
-    onError: () => toast.error(t('Save failed')),
   })
   const [feeds, setFeeds] = useState<RSSFeedConfig[]>(initialFeeds ?? [])
   const [activeID, setActiveID] = useState<string | null>(null)
@@ -111,6 +115,18 @@ function RSSFeedsEditor({
     setFeeds(initialFeeds ?? [])
     setErrors({})
   }, [initialFeeds])
+
+  useEffect(() => {
+    if (!saveTrigger.current || !feedback.current) return
+    if (!saveSettings.isError && !(saveSettings.isSuccess && !dirty)) return
+    if (
+      document.activeElement === document.body ||
+      document.activeElement === saveTrigger.current
+    ) {
+      feedback.current.focus({ preventScroll: true })
+    }
+    saveTrigger.current = null
+  }, [saveSettings.isError, saveSettings.isSuccess, dirty])
 
   const updateFeed = (id: string, patch: Partial<RSSFeedConfig>) => {
     setFeeds((current) =>
@@ -157,6 +173,7 @@ function RSSFeedsEditor({
       toast.error(t('Check the highlighted feed.'))
       return
     }
+    saveTrigger.current = document.activeElement
     saveSettings.mutate(next)
   }
 
@@ -188,8 +205,15 @@ function RSSFeedsEditor({
         isResetDisabled={!dirty}
         saveLabel='Save feeds'
       />
+      {saveSettings.isSuccess && !dirty && (
+        <div ref={feedback} role='status' tabIndex={-1} className='text-sm'>
+          {t('Settings saved')}
+        </div>
+      )}
       {saveSettings.isError && (
         <div
+          ref={feedback}
+          tabIndex={-1}
           role='alert'
           className='flex items-center justify-between gap-4 text-sm'
         >
@@ -251,6 +275,7 @@ function RSSFeedsEditor({
                     </span>
                   </button>
                   <Switch
+                    className='after:-inset-x-0.5 after:-inset-y-4'
                     checked={feed.enabled}
                     onCheckedChange={(enabled) =>
                       updateFeed(feed.id, { enabled })

@@ -1,7 +1,7 @@
 /* Copyright (C) 2026 LIghtJUNction. SPDX-License-Identifier: AGPL-3.0-or-later */
 import { useQueryClient } from '@tanstack/react-query'
 import { isAxiosError } from 'axios'
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { ZodError } from 'zod'
 
@@ -19,6 +19,7 @@ import {
   type NativeUsersScope,
 } from '@/features/native-users/access'
 import { useCapabilityFreshness } from '@/hooks/use-capability-freshness'
+import { ROLE } from '@/lib/roles'
 import { getServerErrorMessage } from '@/lib/server-error-message'
 import { useAuthStore } from '@/stores/auth-store'
 
@@ -29,7 +30,11 @@ import {
   type PluginAction,
   type PluginInfo,
 } from './api'
-import { pluginHostFields } from './configuration'
+import {
+  canOpenConfiguration,
+  configurationOwner,
+  pluginHostFields,
+} from './configuration'
 import { PluginConfiguration } from './configuration-panel'
 import {
   canChangePlugin,
@@ -44,7 +49,16 @@ type Selection =
   | { action: PluginAction; plugin: PluginInfo }
 
 // @context-fold begin plugin-inventory
-function PluginInventory({ scope }: { scope: NativeUsersScope }) {
+type ConfigurationProps = {
+  panel?: string
+  onPanelChange?: (panel: string | undefined) => void
+}
+
+function PluginInventory({
+  scope,
+  panel,
+  onPanelChange,
+}: { scope: NativeUsersScope } & ConfigurationProps) {
   const { t } = useTranslation()
   const client = useQueryClient()
   const runtime = useRuntimeCapabilities()
@@ -52,7 +66,36 @@ function PluginInventory({ scope }: { scope: NativeUsersScope }) {
   const query = runtime?.plugins ?? localQuery
   const phase = useCapabilityFreshness(query)
   const [search, setSearch] = useState('')
-  const [configuredPlugin, setConfiguredPlugin] = useState<string | null>(null)
+  const [localPanel, setLocalPanel] = useState<string>()
+  const requested = onPanelChange ? panel : localPanel
+  const root = scope.role === ROLE.SUPER_ADMIN
+  const activePanel = canOpenConfiguration(requested, root)
+    ? requested
+    : undefined
+  const changePanel = onPanelChange ?? setLocalPanel
+  const openingTrigger = useRef<HTMLButtonElement | null>(null)
+  const returnTrigger = useRef<HTMLButtonElement | null>(null)
+  const focusPanel = useCallback((element: HTMLElement | null) => {
+    if (!element) return
+    const trigger =
+      element
+        .closest('article')
+        ?.querySelector<HTMLButtonElement>('[data-configure-plugin]') ?? null
+    returnTrigger.current = trigger
+    // Opening an accordion from its own button keeps that button in the tab order.
+    // A deep link lands directly on the configuration, including on narrow screens.
+    if (openingTrigger.current !== trigger || !trigger) {
+      element.focus({ preventScroll: true })
+      element.scrollIntoView?.({ block: 'start' })
+    }
+    openingTrigger.current = null
+  }, [])
+  useEffect(() => {
+    if (!activePanel && returnTrigger.current) {
+      returnTrigger.current.focus({ preventScroll: true })
+      returnTrigger.current = null
+    }
+  }, [activePanel])
   const [filter, setFilter] = useState('all')
   const [selection, setSelection] = useState<Selection | null>(null)
   const [pending, setPending] = useState(false)
@@ -299,6 +342,11 @@ function PluginInventory({ scope }: { scope: NativeUsersScope }) {
           </AlertDescription>
         </Alert>
       )}
+      {phase === 'fresh' &&
+        activePanel &&
+        !extensions.some(
+          (plugin) => plugin.name === configurationOwner(activePanel)
+        ) && <p role='status'>{t('No results found.')}</p>}
       {notice && (
         <Alert
           role={notice.success ? 'status' : 'alert'}
@@ -450,8 +498,22 @@ function PluginInventory({ scope }: { scope: NativeUsersScope }) {
           const dependents = pluginDependents(plugin, registry)
           const presentation = pluginPresentation(plugin.name, t)
           const hostFields = pluginHostFields(plugin.name)
-          const configOpen = configuredPlugin === plugin.name
+          const configOpen = configurationOwner(activePanel) === plugin.name
           const configId = `plugin-config-${plugin.name}`
+          // Only the installed check-in settings endpoint is host-owned and
+          // remains available when its business module is switched off.
+          const configReady =
+            plugin.enabled || (plugin.name === 'checkins' && plugin.installed)
+          const lifecycleControl = plugin.available && (
+            <Button
+              variant={action === 'disable' ? 'outline' : 'default'}
+              className='min-h-11'
+              disabled={!writable || !canChangePlugin(action, plugin, registry)}
+              onClick={() => setSelection({ action, plugin })}
+            >
+              {actionLabel(action)}
+            </Button>
+          )
           return (
             <article
               key={plugin.name}
@@ -583,28 +645,21 @@ function PluginInventory({ scope }: { scope: NativeUsersScope }) {
                 )}
               </div>
               <div className='flex flex-wrap items-center gap-2'>
-                {plugin.available && (
-                  <Button
-                    variant={action === 'disable' ? 'outline' : 'default'}
-                    className='min-h-11'
-                    disabled={
-                      !writable || !canChangePlugin(action, plugin, registry)
-                    }
-                    onClick={() => setSelection({ action, plugin })}
-                  >
-                    {actionLabel(action)}
-                  </Button>
-                )}
-                {hostFields && (
+                {(!configOpen || configReady) && lifecycleControl}
+                {canOpenConfiguration(plugin.name, root) && (
                   <Button
                     type='button'
                     variant={plugin.available ? 'ghost' : 'outline'}
                     className='min-h-11'
+                    data-configure-plugin={plugin.name}
                     aria-expanded={configOpen}
                     aria-controls={configOpen ? configId : undefined}
-                    onClick={() =>
-                      setConfiguredPlugin(configOpen ? null : plugin.name)
-                    }
+                    onClick={(event) => {
+                      openingTrigger.current = configOpen
+                        ? null
+                        : event.currentTarget
+                      changePanel(configOpen ? undefined : plugin.name)
+                    }}
                   >
                     {t('Configure')}
                   </Button>
@@ -622,13 +677,45 @@ function PluginInventory({ scope }: { scope: NativeUsersScope }) {
                   </Button>
                 )}
               </div>
-              {configOpen && (
+              {configOpen && activePanel && (
                 <section
                   id={configId}
+                  ref={focusPanel}
+                  tabIndex={-1}
                   aria-label={t('Configuration')}
-                  className='min-w-0 border-t pt-4'
+                  className='min-w-0 scroll-mt-16 border-t pt-4 focus-visible:outline-offset-2'
                 >
-                  <PluginConfiguration name={plugin.name} writable={writable} />
+                  {configReady ? (
+                    <PluginConfiguration
+                      name={activePanel}
+                      writable={writable}
+                      onSelect={changePanel}
+                    />
+                  ) : (
+                    <div className='flex flex-wrap items-center gap-3'>
+                      <p
+                        role='status'
+                        className='text-muted-foreground text-sm'
+                      >
+                        {!plugin.available
+                          ? t('Unavailable')
+                          : plugin.installed
+                            ? t('Enable this module and its available routes.')
+                            : t(
+                                'Install this registered module. Enable it separately when you are ready.'
+                              )}
+                      </p>
+                      {lifecycleControl}
+                    </div>
+                  )}
+                  <Button
+                    type='button'
+                    variant='ghost'
+                    className='mt-4 min-h-11'
+                    onClick={() => changePanel(undefined)}
+                  >
+                    {t('Close')}
+                  </Button>
                 </section>
               )}
             </article>
@@ -673,7 +760,7 @@ function PluginInventory({ scope }: { scope: NativeUsersScope }) {
 }
 // @context-fold end plugin-inventory
 
-export function PluginsPage() {
+export function PluginsPage(props: ConfigurationProps = {}) {
   const { t } = useTranslation()
   const auth = useAuthStore((state) => state.auth)
   const scope = readNativeUsersScope(auth)
@@ -687,6 +774,7 @@ export function PluginsPage() {
           <PluginInventory
             key={[scope.userId, scope.sessionId, scope.role].join(':')}
             scope={scope}
+            {...props}
           />
         ) : (
           <Alert role='alert'>

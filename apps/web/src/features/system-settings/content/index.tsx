@@ -16,23 +16,13 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { useQuery } from '@tanstack/react-query'
-import { useParams } from '@tanstack/react-router'
-import { useTranslation } from 'react-i18next'
-
-import { Button } from '@/components/ui/button'
-import { getAssistantStatus } from '@/features/assistant/api'
-import { requestAssistantOpen } from '@/features/assistant/assistant-events'
-import { useAuthStore } from '@/stores/auth-store'
-
-import { SettingsPage, SettingsPageFrame } from '../components/settings-page'
+import { SettingsPage } from '../components/settings-page'
 import {
   normalizeAssistantSearchProvider,
   type ContentSettings,
   type SystemOption,
 } from '../types'
 import { DEFAULT_ASSISTANT_TOOL_POLICY } from './assistant-tool-policy'
-import { ConversationStarterSettings } from './conversation-starter-settings'
 import {
   CONTENT_DEFAULT_SECTION,
   getContentSectionContent,
@@ -136,12 +126,6 @@ function resolveContentSettings(
 }
 
 export function ContentSettings() {
-  const { section } = useParams({
-    from: '/_authenticated/system-settings/content/$section',
-  })
-  if (section === 'assistant') {
-    return <AssistantPluginSettings />
-  }
   return (
     <SettingsPage
       routePath='/_authenticated/system-settings/content/$section'
@@ -152,40 +136,5 @@ export function ContentSettings() {
       loadingMessage='Loading content settings...'
       resolveSettings={resolveContentSettings}
     />
-  )
-}
-
-function AssistantPluginSettings() {
-  const { t } = useTranslation()
-  const { user, session } = useAuthStore((state) => state.auth)
-  const { data } = useQuery({
-    queryKey: ['assistant-status', user?.id, session?.sid],
-    queryFn: getAssistantStatus,
-    enabled: Boolean(user && session),
-    staleTime: 30_000,
-    retry: false,
-  })
-  const modelEnabled = data?.route_available
-  return (
-    <SettingsPageFrame title={t('AI assistant settings')}>
-      <section className='mb-6 space-y-3 rounded-lg border p-4'>
-        <div className='flex flex-wrap items-center justify-between gap-3'>
-          <h2 className='text-sm font-medium'>{t('AI assistant')}</h2>
-          <Button variant='outline' onClick={() => requestAssistantOpen()}>
-            {t('Open AI assistant')}
-          </Button>
-        </div>
-        <p className='text-muted-foreground text-sm' role='status'>
-          {modelEnabled === false
-            ? t(
-                'Assistant model access is disabled on this host. Conversation starter settings are still available.'
-              )
-            : modelEnabled === true
-              ? t('Enabled')
-              : t('Unknown')}
-        </p>
-      </section>
-      <ConversationStarterSettings />
-    </SettingsPageFrame>
   )
 }

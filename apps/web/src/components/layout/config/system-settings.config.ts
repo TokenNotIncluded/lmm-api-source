@@ -27,6 +27,7 @@ import {
   Wrench,
 } from 'lucide-react'
 
+import { legacyPluginPanel } from '@/features/plugins/configuration'
 import { getAuthSectionNavItems } from '@/features/system-settings/auth/section-registry.tsx'
 import { getBillingSectionNavItems } from '@/features/system-settings/billing/section-registry.tsx'
 import { getContentSectionNavItems } from '@/features/system-settings/content/section-registry.tsx'
@@ -48,7 +49,8 @@ import type { NavGroup } from '../types'
 export function getSystemSettingsNavGroups(
   t: TFunction,
   role: number = ROLE.SUPER_ADMIN,
-  scope?: SettingsScope
+  scope?: SettingsScope,
+  includePluginLinks = false
 ): NavGroup[] {
   const groups: NavGroup[] = [
     {
@@ -118,6 +120,7 @@ export function getSystemSettingsNavGroups(
           (entry) =>
             entry.url &&
             canReadSystemSettingsPath(role, entry.url) &&
+            (!scope || includePluginLinks || !legacyPluginPanel(entry.url)) &&
             (!scope || getSettingsScope(entry.url) === scope)
         )
         return items.length ? [{ ...section, items }] : []

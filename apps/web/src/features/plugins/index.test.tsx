@@ -38,13 +38,14 @@ Object.defineProperty(globalThis, 'IS_REACT_ACT_ENVIRONMENT', {
   value: true,
 })
 for (const [name, value] of Object.entries({
+  scrollTo: dom.scrollTo.bind(dom),
   getComputedStyle: dom.getComputedStyle.bind(dom),
   requestAnimationFrame: dom.requestAnimationFrame.bind(dom),
   cancelAnimationFrame: dom.cancelAnimationFrame.bind(dom),
 })) {
   Object.defineProperty(globalThis, name, { configurable: true, value })
 }
-const { act } = await import('react')
+const { act, useState } = await import('react')
 const { createRoot } = await import('react-dom/client')
 const { QueryClient, QueryClientProvider } =
   await import('@tanstack/react-query')
@@ -82,18 +83,36 @@ function login(role: number, sessionId = 'synthetic-session') {
   })
 }
 
-async function mount() {
+async function mount(panel?: string) {
   const container = document.createElement('div')
   document.body.append(container)
   const root = createRoot(container)
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   })
+  const { createMemoryHistory, createRootRoute, createRouter, RouterProvider } =
+    await import('@tanstack/react-router')
+  const routeTree = createRootRoute({
+    component: function TestPluginRoute() {
+      const [active, setActive] = useState(panel)
+      return (
+        <PluginsPage
+          panel={active}
+          onPanelChange={panel ? setActive : undefined}
+        />
+      )
+    },
+  })
+  const router = createRouter({
+    routeTree,
+    history: createMemoryHistory({ initialEntries: ['/'] }),
+  })
+  await router.load()
   await act(async () =>
     root.render(
       <QueryClientProvider client={client}>
         <I18nextProvider i18n={i18n}>
-          <PluginsPage />
+          <RouterProvider router={router} />
         </I18nextProvider>
       </QueryClientProvider>
     )
@@ -172,7 +191,7 @@ test('administrator sees plugin state and refreshes with a scoped read only requ
     [...container.querySelectorAll('button')].map(
       (button) => button.textContent
     ),
-    ['Refresh', 'Reload routes', 'Disable']
+    ['Refresh', 'Reload routes', 'Disable', 'Configure']
   )
   await act(async () => container.querySelector('button')?.click())
   await until(
@@ -592,4 +611,215 @@ test('switching sessions prevents a lifecycle write and discards a previous sess
     /Session changed|Authentication changed/
   )
   assert.equal(calls, 1)
+})
+
+test('RSS deep link reads the saved feeds and writes a revision in the operations card', async (context) => {
+  login(100)
+  const scrolled: string[] = []
+  const original = HTMLElement.prototype.scrollIntoView
+  HTMLElement.prototype.scrollIntoView = function (options) {
+    if (typeof options === 'object' && options.block === 'start') {
+      scrolled.push(this.id)
+    }
+  }
+  context.after(() => {
+    HTMLElement.prototype.scrollIntoView = original
+  })
+  let revision = 7
+  let feeds = [
+    {
+      id: 'sample',
+      name: 'Original feed',
+      url: 'https://example.org/feed',
+      enabled: true,
+    },
+  ]
+  const writes: unknown[] = []
+  api.defaults.adapter = async (config) => {
+    if (config.url === '/api/extensions/plugins') {
+      return response(config, [{ ...plugin, name: 'operations' }])
+    }
+    assert.equal(config.url, '/api/rss/settings')
+    assert.deepEqual(config.authScope, {
+      userId: 901,
+      sessionId: 'synthetic-session',
+    })
+    if (config.method === 'put') {
+      const body = JSON.parse(config.data)
+      writes.push(body)
+      assert.equal(config.skipBusinessError, true)
+      assert.equal(config.skipErrorHandler, true)
+      if (writes.length === 1) {
+        return {
+          ...response(config, {}),
+          data: { success: false, message: 'Fixture save rejected' },
+        }
+      }
+      revision += 1
+      feeds = body.feeds
+    }
+    return response(config, { revision, feeds })
+  }
+  const container = await mount('rss')
+  await until(() => container.textContent?.includes('Original feed') === true)
+  const card = container.querySelector('[data-plugin="operations"]')
+  assert.ok(card)
+  assert.equal(document.activeElement?.id, 'plugin-config-operations')
+  assert.deepEqual(scrolled, ['plugin-config-operations'])
+  assert.equal(button('RSS', card).getAttribute('aria-pressed'), 'true')
+  const toggle = card.querySelector<HTMLElement>('[role="switch"]')
+  assert.ok(toggle)
+  await act(async () => toggle.click())
+  const save = button('Save feeds', card)
+  await until(() => !save.disabled)
+  await act(async () => {
+    save.focus()
+    save.click()
+  })
+  await until(
+    () =>
+      card
+        .querySelector('[role="alert"]')
+        ?.textContent?.includes('Save failed') === true
+  )
+  assert.equal(save.disabled, false)
+  assert.equal(document.activeElement, card.querySelector('[role="alert"]'))
+  await act(async () => {
+    save.focus()
+    save.click()
+  })
+  await until(
+    () =>
+      writes.length === 2 &&
+      save.disabled &&
+      card.querySelector('[role="status"]')?.textContent === 'Settings saved'
+  )
+  assert.equal(card.querySelector('[role="alert"]'), null)
+  assert.equal(document.activeElement, card.querySelector('[role="status"]'))
+  const expected = {
+    revision: 7,
+    feeds: [
+      {
+        id: 'sample',
+        name: 'Original feed',
+        url: 'https://example.org/feed',
+        enabled: false,
+      },
+    ],
+  }
+  assert.deepEqual(writes, [expected, expected])
+  await act(async () => button('Close', card).click())
+  assert.equal(card.querySelector('#plugin-config-operations'), null)
+  assert.equal(document.activeElement, button('Configure', card))
+})
+
+test('a standard administrator cannot mount a root-only configuration from the URL', async () => {
+  login(10)
+  api.defaults.adapter = async (config) => {
+    assert.equal(config.url, '/api/extensions/plugins')
+    return response(config, [{ ...plugin, name: 'store' }])
+  }
+  const container = await mount('store')
+  await until(() => Boolean(container.querySelector('[data-plugin="store"]')))
+  assert.equal(container.querySelector('#plugin-config-store'), null)
+  assert.equal(
+    [...container.querySelectorAll('button')].some(
+      (element) => element.textContent === 'Configure'
+    ),
+    false
+  )
+})
+
+test('community navigation validates the scoped value before acknowledging a write', async () => {
+  login(100)
+  let value = JSON.stringify({ home: true })
+  const methods: string[] = []
+  const proposed: string[] = []
+  let approve = false
+  api.defaults.adapter = async (config) => {
+    if (config.url === '/api/extensions/plugins') {
+      return response(config, [{ ...plugin, name: 'community' }])
+    }
+    assert.deepEqual(config.authScope, {
+      userId: 901,
+      sessionId: 'synthetic-session',
+    })
+    methods.push(config.method ?? '')
+    if (config.url === '/api/site/navigation/validate') {
+      assert.equal(config.method, 'post')
+      proposed.push(JSON.parse(config.data).value)
+      return {
+        ...response(config, {}),
+        data: { success: approve, message: approve ? '' : 'invalid' },
+      }
+    }
+    assert.equal(config.url, '/api/site/navigation')
+    if (config.method === 'put') {
+      assert.equal(approve, true)
+      value = JSON.parse(config.data).value
+    }
+    return {
+      ...response(config, {}),
+      data: { success: true, message: '', data: { value, revision: 1 } },
+    }
+  }
+  const container = await mount('header-navigation')
+  await until(() =>
+    Boolean(container.querySelector('#plugin-config-community [role="switch"]'))
+  )
+  const card = container.querySelector('[data-plugin="community"]')
+  assert.ok(card)
+  const toggle = card.querySelector<HTMLElement>('[role="switch"]')
+  assert.ok(toggle)
+  await act(async () => toggle.click())
+  await act(async () => button('Save navigation', card).click())
+  await until(
+    () => card.querySelector('[role="alert"]')?.textContent === 'Save failed'
+  )
+  assert.deepEqual(methods, ['get', 'post'])
+  approve = true
+  await act(async () => button('Save navigation', card).click())
+  await until(() => methods.includes('put'))
+  assert.deepEqual(
+    methods.filter((x) => x !== 'get'),
+    ['post', 'post', 'put']
+  )
+  assert.equal(proposed[0], proposed[1])
+  assert.equal(proposed[1], value)
+  assert.equal(JSON.parse(value).home, false)
+})
+
+test('opening a disabled operations plugin offers its existing enable action without requesting RSS', async () => {
+  login(100)
+  const reads: string[] = []
+  api.defaults.adapter = async (config) => {
+    reads.push(config.url ?? '')
+    assert.equal(config.method, 'get')
+    return response(config, [{ ...plugin, name: 'operations', enabled: false }])
+  }
+  const container = await mount('rss')
+  await until(() =>
+    Boolean(container.querySelector('#plugin-config-operations'))
+  )
+  const panel = container.querySelector('#plugin-config-operations')
+  assert.ok(panel)
+  assert.match(panel.textContent ?? '', /Enable this module/)
+  await act(async () => button('Enable', panel).click())
+  await until(() => Boolean(document.querySelector('[role="alertdialog"]')))
+  assert.deepEqual(reads, ['/api/extensions/plugins'])
+})
+
+test('an installed disabled check-in plugin still opens its host-owned reward endpoint', async () => {
+  login(100)
+  const reads: string[] = []
+  api.defaults.adapter = async (config) => {
+    reads.push(config.url ?? '')
+    assert.equal(config.method, 'get')
+    return config.url === '/api/extensions/plugins'
+      ? response(config, [{ ...plugin, name: 'checkins', enabled: false }])
+      : response(config, {})
+  }
+  await mount('checkins')
+  await until(() => reads.includes('/api/option/checkin'))
+  assert.deepEqual(reads, ['/api/extensions/plugins', '/api/option/checkin'])
 })

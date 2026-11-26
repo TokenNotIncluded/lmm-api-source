@@ -2,18 +2,22 @@
 import { lazy, Suspense, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
+import { Button } from '@/components/ui/button'
 import { SettingsPageProvider } from '@/features/system-settings/components/settings-page-context'
 import { hasPermission } from '@/lib/admin-permissions'
+import { ROLE } from '@/lib/roles'
 import { useAuthStore } from '@/stores/auth-store'
+
+import { configurationOwner } from './configuration'
 
 const PromotionLinks = lazy(() =>
   import('@/features/acquisition/promotion-links').then((module) => ({
     default: module.PromotionLinks,
   }))
 )
-const ConversationStarterSettings = lazy(() =>
-  import('@/features/system-settings/content/conversation-starter-settings').then(
-    (module) => ({ default: module.ConversationStarterSettings })
+const AssistantPluginSettings = lazy(() =>
+  import('@/features/system-settings/content/assistant-plugin-settings').then(
+    (module) => ({ default: module.AssistantPluginSettings })
   )
 )
 const CheckinSettingsSection = lazy(() =>
@@ -32,45 +36,130 @@ const ScriptsAdminSection = lazy(() =>
   }))
 )
 
+const AIDirectorySection = lazy(() =>
+  import('@/features/system-settings/site/ai-directory-section').then(
+    (module) => ({
+      default: module.AIDirectorySection,
+    })
+  )
+)
+const HeaderNavigationPluginSettings = lazy(() =>
+  import('@/features/system-settings/maintenance/header-navigation-plugin-settings').then(
+    (module) => ({ default: module.HeaderNavigationPluginSettings })
+  )
+)
+const IoNetDeploymentSettingsSection = lazy(() =>
+  import('@/features/system-settings/integrations/ionet-deployment-settings-section').then(
+    (module) => ({ default: module.IoNetDeploymentSettingsSection })
+  )
+)
+const RSSFeedsSection = lazy(() =>
+  import('@/features/system-settings/site/rss-feeds-section').then(
+    (module) => ({
+      default: module.RSSFeedsSection,
+    })
+  )
+)
+const AIDirectoryAdsSection = lazy(() =>
+  import('@/features/system-settings/site/ai-directory-ads-section').then(
+    (module) => ({
+      default: module.AIDirectoryAdsSection,
+    })
+  )
+)
+const MerchantStoreSettingsSection = lazy(() =>
+  import('@/features/system-settings/integrations/merchant-store-settings-section').then(
+    (module) => ({ default: module.MerchantStoreSettingsSection })
+  )
+)
+
 export function PluginConfiguration({
   name,
   writable,
+  onSelect,
 }: {
   name: string
   writable: boolean
+  onSelect: (name: string) => void
 }) {
   const { t } = useTranslation()
   const [actions, setActions] = useState<HTMLDivElement | null>(null)
   const canWriteAcquisition = useAuthStore((state) =>
     hasPermission(state.auth.user, 'acquisition', 'write')
   )
+  const root = useAuthStore(
+    (state) => state.auth.user?.role === ROLE.SUPER_ADMIN
+  )
   const content = {
     acquisition: <PromotionLinks canWrite={canWriteAcquisition && writable} />,
-    assistant: <ConversationStarterSettings embedded />,
+    assistant: <AssistantPluginSettings />,
     checkins: <CheckinSettingsSection />,
     'hero-sms': <HeroSmsSettingsSection />,
     operations: <ScriptsAdminSection />,
+    rss: root && <RSSFeedsSection />,
+    'model-deployment': root && <IoNetDeploymentSettingsSection />,
+    community: root && <AIDirectorySection />,
+    'directory-ads': root && <AIDirectoryAdsSection />,
+    'header-navigation': root && <HeaderNavigationPluginSettings />,
+    store: root && <MerchantStoreSettingsSection />,
   }
   if (!Object.hasOwn(content, name)) return null
 
+  const owner = configurationOwner(name)
+  const panels =
+    owner === 'operations'
+      ? [
+          ['operations', t('Scripts')],
+          ['rss', t('RSS')],
+          ['model-deployment', t('Model Deployment')],
+        ]
+      : owner === 'community'
+        ? [
+            ['community', t('AI directory')],
+            ['header-navigation', t('Header navigation')],
+            ['directory-ads', t('Advertisement moderation')],
+          ]
+        : undefined
   return (
-    <fieldset
-      disabled={!writable}
-      inert={!writable}
-      className='min-w-0 border-0 p-0'
-    >
-      <div
-        ref={setActions}
-        className='mb-4 flex flex-wrap justify-end gap-2 empty:hidden'
-      />
-      <SettingsPageProvider
-        actionsContainer={actions}
-        suppressSectionHeader={false}
+    <>
+      {root && panels && (
+        <div
+          role='group'
+          aria-label={t('Configuration')}
+          className='mb-4 flex flex-wrap gap-2'
+        >
+          {panels.map(([panel, label]) => (
+            <Button
+              key={panel}
+              type='button'
+              variant={panel === name ? 'secondary' : 'ghost'}
+              aria-pressed={panel === name}
+              className='min-h-11'
+              onClick={() => onSelect(panel)}
+            >
+              {label}
+            </Button>
+          ))}
+        </div>
+      )}
+      <fieldset
+        disabled={!writable}
+        inert={!writable}
+        className='min-w-0 border-0 p-0'
       >
-        <Suspense fallback={<p role='status'>{t('Loading settings...')}</p>}>
-          {content[name as keyof typeof content]}
-        </Suspense>
-      </SettingsPageProvider>
-    </fieldset>
+        <div
+          ref={setActions}
+          className='mb-4 flex flex-wrap justify-end gap-2 empty:hidden'
+        />
+        <SettingsPageProvider
+          actionsContainer={actions}
+          suppressSectionHeader={false}
+        >
+          <Suspense fallback={<p role='status'>{t('Loading settings...')}</p>}>
+            {content[name as keyof typeof content]}
+          </Suspense>
+        </SettingsPageProvider>
+      </fieldset>
+    </>
   )
 }

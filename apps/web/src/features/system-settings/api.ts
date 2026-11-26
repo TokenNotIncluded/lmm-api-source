@@ -16,7 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { api } from '@/lib/api'
+import { api, type ApiRequestConfig } from '@/lib/api'
 import { getSiteNavigation, saveSiteNavigation } from '@/lib/site-navigation'
 
 import {
@@ -161,7 +161,10 @@ export async function getUsdExchangeRate(currency: string) {
   return res.data
 }
 
-export async function validateSystemOptions(values: Record<string, string>) {
+export async function validateSystemOptions(
+  values: Record<string, string>,
+  config?: ApiRequestConfig
+) {
   if (
     Object.keys(values).length === 1 &&
     typeof values.HeaderNavModules === 'string'
@@ -170,7 +173,8 @@ export async function validateSystemOptions(values: Record<string, string>) {
       '/api/site/navigation/validate',
       {
         value: values.HeaderNavModules,
-      }
+      },
+      config
     )
     return response.data
   }

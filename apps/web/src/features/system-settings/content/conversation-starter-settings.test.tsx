@@ -77,6 +77,8 @@ const { Route: AuthenticatedRoute } =
   await import('@/routes/_authenticated/route')
 const { Route: SettingsRoute } =
   await import('@/routes/_authenticated/system-settings/route')
+const { Route: PluginsRoute } =
+  await import('@/routes/_authenticated/extensions/plugins/index')
 const { Route: ContentRoute } =
   await import('@/routes/_authenticated/system-settings/content/$section')
 const { useRootSidebarNavigation } = await import('@/hooks/use-sidebar-view')
@@ -142,6 +144,28 @@ beforeEach(() => {
   const adapter: AxiosAdapter = async (config) => {
     const data = config.data ? JSON.parse(String(config.data)) : undefined
     requests.push({ method: config.method ?? '', url: config.url ?? '', data })
+    if (config.url === '/api/extensions/plugins') {
+      return {
+        config,
+        status: 200,
+        statusText: 'OK',
+        headers: {},
+        data: {
+          success: true,
+          data: [
+            {
+              name: 'assistant',
+              version: '1.0.0',
+              api_version: 1,
+              registration_sha256: 'a'.repeat(64),
+              available: true,
+              installed: true,
+              enabled: true,
+            },
+          ],
+        },
+      }
+    }
     if (config.url === '/api/assistant/status') {
       return {
         config,
@@ -288,7 +312,14 @@ async function renderRoute(
   })
   const router = createRouter({
     routeTree: rootRoute.addChildren([
-      authenticated.addChildren([settings.addChildren([content])]),
+      authenticated.addChildren([
+        settings.addChildren([content]),
+        PluginsRoute.update({
+          id: '/extensions/plugins/',
+          path: '/extensions/plugins/',
+          getParentRoute: () => authenticated,
+        } as never),
+      ]),
       createRoute({
         getParentRoute: () => rootRoute,
         path: '/403',
@@ -378,6 +409,16 @@ test('real assistant settings route saves presets independently of partial legac
     await until(
       () => !!page.container.querySelector('input[aria-label="Button label"]'),
       'published editor'
+    )
+    assert.equal(
+      page.router.state.location.pathname.replace(/\/$/, ''),
+      '/extensions/plugins'
+    )
+    assert.equal(
+      new URLSearchParams(page.router.state.location.searchStr).get(
+        'configure'
+      ),
+      'assistant'
     )
     assert.equal(field(page.container).value, 'Published label')
     assert.equal(
@@ -589,7 +630,7 @@ test('L5 discovers only the assistant settings destination while L6 retains acce
       buildSettingsSearchIndex(t, undefined, 10).flatMap((group) =>
         group.entries.map((entry) => entry.url)
       ),
-      [target]
+      ['/extensions/plugins?configure=assistant']
     )
     const full = buildSettingsSearchIndex(t, undefined, 100).flatMap(
       (group) => group.entries

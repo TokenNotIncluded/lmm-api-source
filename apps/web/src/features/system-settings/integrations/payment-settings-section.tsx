@@ -62,7 +62,6 @@ import { AmountDiscountVisualEditor } from './amount-discount-visual-editor'
 import { AmountOptionsVisualEditor } from './amount-options-visual-editor'
 import { CreemProductsVisualEditor } from './creem-products-visual-editor'
 import { LegacyUsdMinimumInput } from './legacy-usd-minimum-input'
-import { MerchantStoreSettingsSection } from './merchant-store-settings-section'
 import {
   createPaymentAmountOptionsSchema,
   createPaymentAmountDiscountSchema,
@@ -1669,7 +1668,6 @@ export function PaymentSettingsSection({
           </Tabs>
         </SettingsForm>
       </Form>
-      <MerchantStoreSettingsSection />
     </SettingsSection>
   )
 }

@@ -73,7 +73,7 @@ function useSettingsNavigation() {
     () =>
       buildSettingsSearchIndex(
         t,
-        getSystemSettingsNavGroups(t, role, scope),
+        getSystemSettingsNavGroups(t, role, scope, true),
         role
       ),
     [t, role, scope]

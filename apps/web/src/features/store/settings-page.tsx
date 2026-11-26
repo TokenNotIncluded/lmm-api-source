@@ -233,7 +233,7 @@ function StorePaymentSettings() {
       {user.role >= 100 && query.data?.read_only !== true && (
         <Button
           variant='outline'
-          render={<a href='/system-settings/billing/payment#merchant-store' />}
+          render={<a href='/extensions/plugins?configure=store' />}
         >
           {t(copy.adminLink)}
         </Button>
