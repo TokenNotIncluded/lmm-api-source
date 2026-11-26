@@ -2911,6 +2911,62 @@ test('invalid advanced drafts and unsaved API keys are protected, and confirmed 
   )
 })
 
+for (const channelCount of [1, 2]) {
+  test(`route target selection reserves and releases each of ${channelCount} configured channels`, async () => {
+    const config = fixture()
+    if (channelCount === 2) {
+      config.routing.upstreams.push({
+        ...config.routing.upstreams[0],
+        id: 8,
+        endpoint: 'https://second.example/v1/',
+      })
+    }
+    api.request = (async (options: { method: string }) => {
+      assert.equal(options.method, 'GET')
+      return { data: { success: true, data: config } }
+    }) as typeof api.request
+    const container = await mount('models')
+    await until(() => !!container.textContent?.includes('model-a'))
+    await act(async () => button(container, 'Edit').click())
+    const section = required(
+      container.querySelector('section[aria-label="Routing targets"]')
+    )
+    const add = button(section, 'Add target')
+    const selections = () =>
+      [...section.querySelectorAll('select')].map((select) => ({
+        current: select.value,
+        available: [...select.options]
+          .filter((option) => !option.disabled)
+          .map((option) => option.value),
+      }))
+
+    assert.deepEqual(selections(), [
+      { current: '1', available: channelCount === 1 ? ['1'] : ['1', '8'] },
+    ])
+    if (channelCount === 2) {
+      assert.equal(add.disabled, false)
+      await act(async () => add.click())
+      assert.deepEqual(selections(), [
+        { current: '1', available: ['1'] },
+        { current: '8', available: ['8'] },
+      ])
+    }
+    assert.equal(add.disabled, true)
+    await act(async () => button(section, 'Remove target').click())
+    assert.equal(add.disabled, false)
+    assert.deepEqual(
+      selections(),
+      channelCount === 1 ? [] : [{ current: '8', available: ['1', '8'] }]
+    )
+    await act(async () => add.click())
+    assert.deepEqual(selections(), [
+      ...(channelCount === 2 ? [{ current: '8', available: ['8'] }] : []),
+      { current: '1', available: ['1'] },
+    ])
+    assert.equal(add.disabled, true)
+  })
+}
+
 test('model fields preserve the CAS draft and require a fresh preview after exact USD price edits', async () => {
   const config: NativeConfiguration = fixture()
   config.bindings.contexts = [

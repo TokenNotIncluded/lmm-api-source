@@ -133,6 +133,12 @@ export function NativeModelFields({
   const draft = readNativeModelDraft(document)
   if (!draft) return null
   const current = draft
+  const usedUpstreams = new Set(
+    draft.route.targets.map((target) => target.upstream_id)
+  )
+  const nextUpstream = configuration.routing.upstreams.find(
+    (upstream) => !usedUpstreams.has(upstream.id)
+  )
   const put = (next: NativeModelDraft) =>
     onChange(stringifyNativeDocument(next, 2))
   function patchTarget(index: number, patch: Partial<NativeTargetDraft>) {
@@ -284,19 +290,20 @@ export function NativeModelFields({
             type='button'
             variant='outline'
             className='min-h-11'
-            disabled={disabled || configuration.routing.upstreams.length === 0}
-            onClick={() =>
+            disabled={disabled || !nextUpstream}
+            onClick={() => {
+              if (!nextUpstream) return
               put(
                 replaceModelTargets(
                   draft,
                   [
                     ...draft.route.targets,
-                    newModelTarget(draft, configuration),
+                    newModelTarget(draft, configuration, nextUpstream.id),
                   ],
                   configuration
                 )
               )
-            }
+            }}
           >
             {t('Add target')}
           </Button>
@@ -352,7 +359,14 @@ export function NativeModelFields({
                     }
                   >
                     {configuration.routing.upstreams.map((upstream) => (
-                      <option key={upstream.id} value={upstream.id}>
+                      <option
+                        key={upstream.id}
+                        value={upstream.id}
+                        disabled={
+                          upstream.id !== target.upstream_id &&
+                          usedUpstreams.has(upstream.id)
+                        }
+                      >
                         {configuration.bindings.names[upstream.id] ||
                           upstream.endpoint}
                       </option>

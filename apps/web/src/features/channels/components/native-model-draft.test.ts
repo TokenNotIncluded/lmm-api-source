@@ -189,7 +189,7 @@ test('target changes require the exact supplier/model contract and retain global
     configuration
   )
   assert.deepEqual(reviewed.contexts, [configuration.bindings.contexts[1]])
-  assert.equal(newModelTarget(draft, configuration).id, 81)
+  assert.equal(newModelTarget(draft, configuration, 2).id, 81)
   assert.deepEqual(replaceModelTargets(draft, [], configuration).contexts, [])
   assert.equal(draft.contexts[0].contract_revision, 'source-contract')
 })
@@ -199,7 +199,7 @@ test('new targets follow the reported global timeout while existing target edits
   for (const timeout of [10_000, 120_000, 300_000]) {
     configuration.model_limits = { total_timeout_ms: timeout }
     assert.equal(
-      newModelTarget(draft, configuration).timeout_ms,
+      newModelTarget(draft, configuration, 2).timeout_ms,
       Math.max(30_000, timeout)
     )
   }
@@ -211,5 +211,5 @@ test('new targets follow the reported global timeout while existing target edits
   assert.equal(edited.route.targets[0].timeout_ms, 30_000)
   assert.equal(draft.route.targets[0].timeout_ms, 30_000)
   configuration.model_limits = null
-  assert.equal(newModelTarget(draft, configuration).timeout_ms, 30_000)
+  assert.equal(newModelTarget(draft, configuration, 2).timeout_ms, 30_000)
 })

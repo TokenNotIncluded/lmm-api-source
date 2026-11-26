@@ -138,7 +138,8 @@ export function replaceModelTargets(
 
 export function newModelTarget(
   draft: NativeModelDraft,
-  configuration: NativeConfiguration
+  configuration: NativeConfiguration,
+  upstreamId: number
 ): NativeTargetDraft {
   return {
     id:
@@ -149,7 +150,7 @@ export function newModelTarget(
         ),
         ...draft.route.targets.map((target) => target.id)
       ) + 1,
-    upstream_id: configuration.routing.upstreams[0].id,
+    upstream_id: upstreamId,
     upstream_model: draft.route.model,
     enabled: true,
     priority: 0,
