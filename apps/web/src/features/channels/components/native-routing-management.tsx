@@ -89,6 +89,11 @@ import {
   NativeChannelStatisticsRow,
   NativeChannelStatisticsSummary,
 } from './native-channel-statistics'
+import {
+  newModelTarget,
+  readNativeModelDraft,
+  replaceModelTargets,
+} from './native-model-draft'
 import { NativeModelFields } from './native-model-fields'
 import { NativePriceRuleList } from './native-price-rule-list'
 import { NativeProviderLogo } from './native-provider-logo'
@@ -598,7 +603,7 @@ function NativeRoutingWorkspace({
         provider: configuration.bindings.channel_providers?.[id],
         note: configuration.bindings.channel_notes?.[id],
         endpoint: channel?.endpoint ?? '',
-        protocol: channel?.protocol ?? 'openai_chat',
+        protocol: channel?.protocol ?? 'openai_responses',
         enabled: channel?.enabled ?? false,
         contexts: configuration.bindings.contexts.filter(
           (context) => context.upstream_id === id
@@ -625,14 +630,18 @@ function NativeRoutingWorkspace({
       }),
     })
   }
-  function modelEditor(route?: NativeModelRoute) {
+  function modelEditor(
+    route?: NativeModelRoute,
+    discoveredModel = '',
+    discoveredChannel?: number
+  ) {
     if (!configuration) return
     const id =
       route?.id ?? nextId(configuration.routing.routes.map((item) => item.id))
     const group =
       route?.group ?? configuration.routing.groups[0]?.name ?? 'default'
-    const model = route?.model ?? ''
-    openEditor({
+    const model = route?.model ?? discoveredModel
+    const next = {
       title: route ? t('Edit') : t('Add Model'),
       method: route ? 'PUT' : 'POST',
       path: `${NATIVE_ROOT}/models${route ? `/${id}` : ''}`,
@@ -690,7 +699,20 @@ function NativeRoutingWorkspace({
           )
         ),
       }),
-    })
+    } satisfies Omit<Editor, 'version'>
+    if (discoveredChannel !== undefined) {
+      const draft = readNativeModelDraft(next.document)
+      if (draft) {
+        next.document = pretty(
+          replaceModelTargets(
+            draft,
+            [newModelTarget(draft, configuration, discoveredChannel)],
+            configuration
+          )
+        )
+      }
+    }
+    openEditor(next)
   }
   function priceEditor() {
     if (!configuration) return
@@ -1076,6 +1098,9 @@ function NativeRoutingWorkspace({
                       `/api/channel/fetch_models/${editor.channelId}`
                     )
                 : undefined
+            }
+            onCreateModel={(model) =>
+              modelEditor(undefined, model, editor.channelId)
             }
             credential={
               editor.secret ? (
@@ -1784,7 +1809,7 @@ function NativeRoutingWorkspace({
                           disabled={writeDisabled}
                           onClick={() => setOverrideId(channel.id)}
                         >
-                          {t('Advanced Settings')}
+                          {t('Override Rules')}
                         </Button>
                       )}
                       <Button

@@ -183,7 +183,9 @@ const accountingCapabilities = {
 async function mount(
   initialSection: 'channels' | 'models' | 'vendors' | 'prices',
   nativeSecrets = true,
-  accounting: Partial<typeof accountingCapabilities> = accountingCapabilities,
+  accounting: Partial<typeof accountingCapabilities> & {
+    native_channel_observations?: boolean
+  } = accountingCapabilities,
   client = new QueryClient({ defaultOptions: { queries: { retry: false } } }),
   channelPage = false,
   configurationWritable = true
@@ -4160,10 +4162,8 @@ test('channel override preview preserves other channels and prices and confirms 
     return { data: { success: true, data: { version: config.version } } }
   }) as typeof api.request
   const container = await mount('channels')
-  await until(
-    () => container.textContent?.includes('Advanced Settings') === true
-  )
-  await act(async () => button(container, 'Advanced Settings').click())
+  await until(() => container.textContent?.includes('Override Rules') === true)
+  await act(async () => button(container, 'Override Rules').click())
   await until(() => !!document.querySelector('textarea[id$="-Parameters"]'))
   const params = required(
     document.querySelector<HTMLTextAreaElement>('textarea[id$="-Parameters"]')
@@ -4187,4 +4187,96 @@ test('channel override preview preserves other channels and prices and confirms 
   await act(async () => button(document.body, 'Confirm').click())
   await until(() => changes.includes('PUT'))
   assert.deepEqual(changes, ['POST', 'PUT'])
+})
+
+test('fetched channels apply selected routes to the editor without publishing', async () => {
+  const config = fixture()
+  config.prices.rules.push({
+    ...config.prices.rules[0],
+    id: 2,
+    model: 'model-b',
+  })
+  config.routing.routes.push({
+    ...config.routing.routes[0],
+    id: 2,
+    model: 'model-b',
+    targets: [],
+  })
+  const page = {
+    items: [
+      {
+        id: 1,
+        lifetime: {
+          complete: false,
+          total_usd: null,
+          exact_usd_numerator: null,
+          exact_usd_denominator: null,
+        },
+        observation: null,
+        response_time: null,
+        test_time: null,
+        catalog_observation: null,
+      },
+    ],
+    total: 1,
+    page: 1,
+    page_size: 25,
+    config_version: 1,
+    pricing_version: 1,
+    statistics_scope: 'channel_display_v1',
+    probe_scope: 'model_catalog',
+    inference_tested: false,
+    snapshot_digest: 'a'.repeat(64),
+    pagination_consistency: 'single_request',
+    statistics_snapshot_at: 1,
+    balance_units: [],
+    sort_unit: null,
+  }
+  let writes = 0
+  api.request = (async (options: { method: string; url: string }) => {
+    if (options.method !== 'GET') writes++
+    return {
+      data: {
+        success: true,
+        data:
+          options.url === '/api/channel/fetch_models/1'
+            ? ['model-a', 'model-b', 'unpublished-model']
+            : options.url.includes('statistics=true')
+              ? page
+              : config,
+      },
+    }
+  }) as typeof api.request
+  const container = await mount('channels', true, {
+    ...accountingCapabilities,
+    native_channel_observations: true,
+  })
+  await until(() =>
+    [...container.querySelectorAll('button')].some(
+      (item) => item.textContent === 'Edit'
+    )
+  )
+  await act(async () => button(container, 'Edit').click())
+  const form = required(
+    container.querySelector('form[aria-label="Edit Channel"]')
+  )
+  await act(async () => button(form, 'Fetch Models').click())
+  await until(() => form.textContent?.includes('unpublished-model') === true)
+  const row = required(
+    [...form.querySelectorAll('li')].find((item) =>
+      item.textContent?.startsWith('model-b')
+    )
+  )
+  const checkbox = required(
+    row.querySelector<HTMLInputElement>('input[type=checkbox]')
+  )
+  await act(async () => checkbox.click())
+  assert.equal(button(form, 'Apply').disabled, false)
+  await act(async () => button(form, 'Apply').click())
+  const models = required(
+    form.querySelector('details[aria-label="Models"] summary')
+  )
+  assert.match(models.textContent ?? '', /model-b/)
+  assert.match(models.textContent ?? '', /2 selected/)
+  assert.equal(writes, 0)
 })

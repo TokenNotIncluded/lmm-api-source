@@ -182,7 +182,7 @@ export function NativeChannelOverridesDialog({
       onOpenChange={(open) => {
         if (!open) onClose()
       }}
-      title={`${t('Advanced Settings')} · #${id}`}
+      title={`${t('Override Rules')} · #${id}`}
     >
       <NativePolicySection
         name='channel_overrides'

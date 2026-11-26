@@ -475,7 +475,8 @@ async fn text_request_pg_permissions_and_funds_prevent_dispatch(pool: PgPool) {
         "messages":[{"role":"user","content":"test"}],"max_tokens":8})
         .to_string(),
     );
-    assert_eq!(call(&g, missing).await.0, StatusCode::SERVICE_UNAVAILABLE);
+    // The key only admits "text"; do not disclose if another model exists.
+    assert_eq!(call(&g, missing).await.0, StatusCode::FORBIDDEN);
     sqlx::query("UPDATE core_identity.api_key_settings SET model_limits=ARRAY['other'] WHERE credential_id=$1").bind(f.key_id).execute(&f.pool).await.unwrap();
     assert_eq!(
         call(&g, request(&f.key, "forbidden", false)).await.0,

@@ -1,6 +1,6 @@
 /* Copyright (C) 2026 LIghtJUNction. SPDX-License-Identifier: AGPL-3.0-or-later */
 import { useMutation } from '@tanstack/react-query'
-import { useState, type ReactNode } from 'react'
+import { useMemo, useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { Button } from '@/components/ui/button'
@@ -23,6 +23,7 @@ import {
   nativeProtocolLabel,
   nativeProtocols,
   readChannelDraft,
+  toggleChannelAttachment,
 } from '../lib/native-routing-form'
 import {
   parseNativeDocument,
@@ -64,15 +65,41 @@ export function NativeChannelTagField({
 function ChannelModelCatalog({
   disabled,
   fetchModels,
+  routes,
+  attachedRouteIds,
+  onApply,
+  onCreate,
 }: {
   disabled: boolean
   fetchModels: () => Promise<string[]>
+  routes: NativeConfiguration['routing']['routes']
+  attachedRouteIds: readonly number[]
+  onApply: (routes: NativeConfiguration['routing']['routes']) => void
+  onCreate?: (model: string) => void
 }) {
   const { t } = useTranslation()
   const [search, setSearch] = useState('')
+  const [selected, setSelected] = useState<number[]>([])
   const catalog = useMutation({ mutationFn: fetchModels })
-  const models = catalog.data ?? []
-  const filtered = models.filter((model) =>
+  const models = new Set(catalog.data ?? [])
+  const routesByModel = useMemo(() => {
+    const index = new Map<string, typeof routes>()
+    for (const route of routes) {
+      const matches = index.get(route.model)
+      if (matches) matches.push(route)
+      else index.set(route.model, [route])
+    }
+    return index
+  }, [routes])
+  const attached = new Set(attachedRouteIds)
+  const selection = new Set(selected)
+  const selectedRoutes = routes.filter(
+    (route) =>
+      selection.has(route.id) &&
+      !attached.has(route.id) &&
+      models.has(route.model)
+  )
+  const filtered = [...models].filter((model) =>
     model.toLowerCase().includes(search.trim().toLowerCase())
   )
 
@@ -83,7 +110,10 @@ function ChannelModelCatalog({
         variant='outline'
         className='min-h-11'
         disabled={disabled || catalog.isPending}
-        onClick={() => catalog.mutate()}
+        onClick={() => {
+          setSelected([])
+          catalog.mutate()
+        }}
       >
         {catalog.isPending ? t('Loading') : t('Fetch Models')}
       </Button>
@@ -95,9 +125,9 @@ function ChannelModelCatalog({
       {catalog.isSuccess && (
         <>
           <p role='status' className='text-muted-foreground text-sm'>
-            {t('Total')}: {models.length}
+            {t('Total')}: {models.size}
           </p>
-          {models.length > 0 && (
+          {models.size > 0 && (
             <Input
               aria-label={t('Search models')}
               placeholder={t('Search models')}
@@ -107,17 +137,61 @@ function ChannelModelCatalog({
           )}
           {filtered.length > 0 ? (
             <ul className='bg-muted/40 max-h-64 overflow-y-auto rounded-md p-3'>
-              {filtered.map((model) => (
-                <li key={model} className='py-1 font-mono text-sm break-all'>
-                  {model}
-                </li>
-              ))}
+              {filtered.map((model) => {
+                const matches = routesByModel.get(model) ?? []
+                return (
+                  <li key={model} className='space-y-1 py-2'>
+                    <span className='font-mono text-sm break-all'>{model}</span>
+                    {matches.map((route) => (
+                      <label
+                        key={route.id}
+                        className='flex min-h-10 items-center gap-2 text-sm'
+                      >
+                        <Checkbox
+                          checked={
+                            attached.has(route.id) || selection.has(route.id)
+                          }
+                          disabled={disabled || attached.has(route.id)}
+                          onCheckedChange={(checked) =>
+                            setSelected((ids) =>
+                              checked
+                                ? [...new Set([...ids, route.id])]
+                                : ids.filter((id) => id !== route.id)
+                            )
+                          }
+                        />
+                        {route.group}
+                      </label>
+                    ))}
+                    {onCreate && matches.length === 0 && (
+                      <Button
+                        type='button'
+                        variant='ghost'
+                        disabled={disabled}
+                        onClick={() => onCreate(model)}
+                      >
+                        {t('Add Model')}
+                      </Button>
+                    )}
+                  </li>
+                )
+              })}
             </ul>
           ) : (
             <p className='text-muted-foreground text-sm'>
               {t('No models found')}
             </p>
           )}
+          <Button
+            type='button'
+            disabled={disabled || selectedRoutes.length === 0}
+            onClick={() => {
+              onApply(selectedRoutes)
+              setSelected([])
+            }}
+          >
+            {t('Apply')}
+          </Button>
         </>
       )}
     </section>
@@ -131,6 +205,7 @@ export function NativeChannelFields({
   disabled,
   credential,
   fetchModels,
+  onCreateModel,
   onChange,
 }: {
   document: string
@@ -138,6 +213,7 @@ export function NativeChannelFields({
   disabled: boolean
   credential?: ReactNode
   fetchModels?: () => Promise<string[]>
+  onCreateModel?: (model: string) => void
   onChange: (document: string) => void
 }) {
   const { t } = useTranslation()
@@ -294,7 +370,31 @@ export function NativeChannelFields({
         </label>
       </div>
       {fetchModels && (
-        <ChannelModelCatalog disabled={disabled} fetchModels={fetchModels} />
+        <ChannelModelCatalog
+          disabled={disabled}
+          fetchModels={fetchModels}
+          routes={configuration.routing.routes}
+          attachedRouteIds={
+            readChannelDraft(document)?.attachments.map(
+              (item) => item.route_id
+            ) ?? []
+          }
+          onCreate={onCreateModel}
+          onApply={(routes) => {
+            const current = readChannelDraft(document)
+            if (!current) return
+            onChange(
+              stringifyNativeDocument(
+                routes.reduce(
+                  (next, route) =>
+                    toggleChannelAttachment(next, route, true, configuration),
+                  current
+                ),
+                2
+              )
+            )
+          }}
+        />
       )}
       <NativeChannelModelsFields
         document={document}

@@ -495,11 +495,23 @@ pub async fn validate_in_transaction(
     required: &[&str],
 ) -> Result<MarketPrincipal> {
     canonical(token, "lmm_at_")?;
-    let needs = scopes(&required.join(" "))?;
+    if required.is_empty()
+        || required.len() > SCOPES.len()
+        || required
+            .iter()
+            .enumerate()
+            .any(|(index, scope)| !SCOPES.contains(scope) || required[..index].contains(scope))
+    {
+        return Err(Error::Invalid);
+    }
     let r=sqlx::query("SELECT f.*,t.scopes AS token_scopes,extract(epoch FROM LEAST(t.expires_at,f.expires_at))::bigint AS expires FROM core_market_oauth.tokens t JOIN core_market_oauth.families f ON f.id=t.family_id JOIN core_market_oauth.clients cl ON cl.id=f.client_id JOIN core_identity.users u ON u.id=f.user_id JOIN core_identity.accounts a ON a.id=f.account_id WHERE t.digest=$1 AND t.kind='access' AND t.expires_at>clock_timestamp() AND f.expires_at>clock_timestamp() AND f.revoked_at IS NULL AND cl.revoked_at IS NULL AND f.issuer=$2 AND cl.issuer=$2 AND f.resource=$3 AND u.active AND a.active AND u.auth_version=f.user_version AND u.personal_account_id=f.account_id FOR SHARE OF f,cl,u,a").bind(hash(token)).bind(&p.issuer).bind(&p.resource).fetch_optional(c).await?.ok_or(Error::Unauthorized)?;
     let scope: Vec<String> = r.try_get("token_scopes")?;
     let grant: Vec<String> = r.try_get("scopes")?;
-    if scope.iter().any(|s| !grant.contains(s)) || needs.iter().any(|s| !scope.contains(s)) {
+    if scope.iter().any(|s| !grant.contains(s))
+        || required
+            .iter()
+            .any(|needed| !scope.iter().any(|s| s == needed))
+    {
         return Err(Error::Forbidden);
     }
     Ok(MarketPrincipal {

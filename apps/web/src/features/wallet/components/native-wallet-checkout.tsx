@@ -52,7 +52,13 @@ const providerNames: Record<NativeChannel['provider'], string> = {
 }
 const paymentCurrency = (channel: NativeChannel) =>
   channel.provider === 'coinbase' ? 'USDC' : channel.currency
-const quickAmounts = ['5.00', '10.00', '25.00', '50.00', '100.00'] as const
+const standardQuickAmounts = [
+  '5.00',
+  '10.00',
+  '25.00',
+  '50.00',
+  '100.00',
+] as const
 
 function restore(owner: string) {
   try {
@@ -138,6 +144,11 @@ function NativeWalletCheckoutForm({
   const minimumCreditUnits = selected?.credit_quantity
     ? selected.min_credit_units
     : undefined
+  const quickAmounts =
+    creditCurrency === 'USD' &&
+    minimumCreditUnits === nativeRequestedCreditUnits('1.00')
+      ? ['1.00', ...standardQuickAmounts]
+      : standardQuickAmounts
   const belowMinimum =
     !pending &&
     requestedCreditUnits !== null &&
