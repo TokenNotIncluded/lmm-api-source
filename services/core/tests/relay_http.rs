@@ -1920,20 +1920,20 @@ async fn event_output_tool_and_raw_body_limits_are_enforced() {
 }
 
 #[tokio::test]
-async fn missing_terminal_invalid_utf8_and_broken_http_fail_without_replay() {
+async fn missing_terminal_invalid_utf8_and_content_type_fail_without_replay() {
     let cases = [
         (Script::sse(first_text("partial")), RelayError::Truncated),
         (
-            Script::sse(b"data: {\"id\":\"unfinished".to_vec()),
+            Script {
+                complete: false,
+                steps: Vec::new(),
+                ..Script::sse(Vec::new())
+            },
             RelayError::Truncated,
         ),
         (
-            Script {
-                complete: false,
-                steps: vec![Step::Data(first_text("partial"))],
-                ..Script::sse(Vec::new())
-            },
-            RelayError::UpstreamConnection,
+            Script::sse(b"data: {\"id\":\"unfinished".to_vec()),
+            RelayError::Truncated,
         ),
         (
             Script::sse(b"data: \xff\n\n".to_vec()),
@@ -1981,6 +1981,47 @@ async fn missing_terminal_invalid_utf8_and_broken_http_fail_without_replay() {
         assert_eq!(finals[0].outcome, Outcome::Failed);
         assert!(!finals[0].provider_complete);
         assert_eq!(finals[0].usage, Usage::default());
+    }
+}
+
+#[tokio::test]
+async fn interrupted_http_body_preserves_stream_usage_and_never_replays() {
+    for client in [ClientProtocol::Chat, ClientProtocol::Anthropic] {
+        let upstream = Upstream::start(Script {
+            complete: false,
+            steps: vec![Step::Data(cat(vec![
+                first_text("partial"),
+                data(json!({"id":"live_1","choices":[],"usage":openai_usage(true)})),
+            ]))],
+            ..Script::sse(Vec::new())
+        })
+        .await;
+        let limits = Limits::default();
+        let money = Arc::new(Money::default());
+        let relay = relay(
+            &upstream,
+            UpstreamProtocol::Chat,
+            limits.clone(),
+            money.clone(),
+        );
+        let (head, body, done) = collect(
+            relay
+                .start(request(client, true, &limits), context())
+                .unwrap(),
+        )
+        .await;
+        assert!(head.is_ok());
+        assert!(body.contains("partial"));
+        assert!(body.contains("upstream_truncated"));
+        assert_eq!(done.error, Some(RelayError::Truncated));
+        assert_eq!(done.report.outcome, Outcome::Failed);
+        assert!(!done.report.provider_complete);
+        assert_eq!(done.report.attempts, 1);
+        assert_eq!(upstream.observed.hits.load(Ordering::SeqCst), 1);
+        let finals = money.finals.lock().unwrap();
+        assert_eq!(finals.len(), 1);
+        assert_eq!(finals[0].usage.input_tokens, Some(10));
+        assert_eq!(finals[0].usage.output_tokens, Some(5));
     }
 }
 

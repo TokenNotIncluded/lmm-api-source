@@ -541,7 +541,7 @@ impl Worker {
         let read_deadline = Instant::now() + self.inner.limits.read_timeout;
         let interval = self.sse_interval().expect("called for configured SSE");
         let mut next_ping = Instant::now() + interval;
-        let chunk = response.chunk();
+        let chunk = sse::read_chunk(response);
         tokio::pin!(chunk);
         loop {
             let end = self.gate.deadline.min(read_deadline);
@@ -555,9 +555,7 @@ impl Worker {
                 biased;
                 _ = self.gate.cancel.cancelled() => Wake::Cancel,
                 _ = tokio::time::sleep_until(end) => Wake::Deadline,
-                result = &mut chunk => Wake::Chunk(
-                    result.map_err(|_| RelayError::UpstreamConnection),
-                ),
+                result = &mut chunk => Wake::Chunk(result),
                 _ = tokio::time::sleep_until(next_ping) => Wake::Ping,
             };
             match wake {
@@ -1120,12 +1118,11 @@ impl Worker {
                     self.next_anthropic_chunk(&mut response).await?
                 } else {
                     self.gate
-                        .run(self.inner.limits.read_timeout, Phase::Read, async {
-                            response
-                                .chunk()
-                                .await
-                                .map_err(|_| RelayError::UpstreamConnection)
-                        })
+                        .run(
+                            self.inner.limits.read_timeout,
+                            Phase::Read,
+                            sse::read_chunk(&mut response),
+                        )
                         .await?
                 };
                 let Some(chunk) = next else {

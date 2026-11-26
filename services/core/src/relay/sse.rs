@@ -1,5 +1,19 @@
 //! Incremental SSE framing. HTTP chunks are not event or UTF-8 boundaries.
-use super::RelayError;
+use super::{Bytes, Phase, RelayError};
+
+/// A response with accepted SSE headers has already connected. An HTTP body
+/// error before the terminal event means that the upstream stream was cut short.
+pub(super) async fn read_chunk(
+    response: &mut reqwest::Response,
+) -> Result<Option<Bytes>, RelayError> {
+    response.chunk().await.map_err(|error| {
+        if error.is_timeout() {
+            RelayError::Timeout(Phase::Read)
+        } else {
+            RelayError::Truncated
+        }
+    })
+}
 
 #[derive(Debug)]
 pub(crate) struct Frame {
@@ -117,6 +131,34 @@ impl Parser {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[tokio::test]
+    async fn read_timeout_after_sse_headers_keeps_the_read_phase() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            let (mut connection, _) = listener.accept().await.unwrap();
+            let mut first_byte = [0; 1];
+            connection.read_exact(&mut first_byte).await.unwrap();
+            connection.write_all(b"HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nTransfer-Encoding: chunked\r\n\r\n").await.unwrap();
+            // Keep the body open until the test cancels the server.
+            std::future::pending::<()>().await;
+        });
+        let mut response = reqwest::Client::builder()
+            .no_proxy()
+            .read_timeout(std::time::Duration::from_secs(1))
+            .build()
+            .unwrap()
+            .get(format!("http://{address}/stream"))
+            .send()
+            .await
+            .unwrap();
+        let result = read_chunk(&mut response).await;
+        server.abort();
+        assert_eq!(result, Err(RelayError::Timeout(Phase::Read)));
+    }
+
     #[test]
     fn split_utf8_crlf_multiline_comments_and_bom() {
         let raw = "\u{feff}: hello\r\nevent: delta\r\ndata: {\"text\":\"鲸鱼\",\r\ndata: \"n\":1}\r\n\r\n";
