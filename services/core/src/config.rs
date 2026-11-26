@@ -1801,7 +1801,7 @@ pub async fn tool_market_server(
                     .with_market_profile(market_profile.clone()),
                 token,
             )
-                .map_err(|_| invalid_config("invalid private builtin registry service"))?,
+            .map_err(|_| invalid_config("invalid private builtin registry service"))?,
         );
         app = app.merge(
             crate::tool_market::http::router(
