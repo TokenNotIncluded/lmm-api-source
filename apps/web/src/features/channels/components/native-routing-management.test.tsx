@@ -2257,7 +2257,7 @@ test('channel creation uses the permanent ID high water without publishing the r
         name: 'New provider',
         tag: 'Launch',
         endpoint: 'https://new-provider.example/v1/',
-        protocol: 'openai_chat',
+        protocol: 'openai_responses',
         enabled: false,
         contexts: [],
         attachments: [],
@@ -2277,6 +2277,7 @@ test('channel creation uses the permanent ID high water without publishing the r
     const textarea = required(container.querySelector('textarea'))
     const draft = parseNativeDocument(textarea.value)
     assert.equal(draft.id, expectedId)
+    assert.equal(draft.protocol, 'openai_responses')
     assert.equal(Object.hasOwn(draft, 'channel_id_high_water'), false)
     assert.equal(draft.tag, '')
     draft.name = 'New provider'
