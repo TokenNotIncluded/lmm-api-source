@@ -71,6 +71,7 @@ func legacyMCPChallenge(opts LegacyMarketMCPOptions, scopes []string, code strin
 	}
 	return strings.Join(parts, ", ")
 }
+
 const marketOAuthHint = "Connect this MCP client with OAuth for /mcp/market using resource_metadata in WWW-Authenticate."
 
 func legacyMCPRequired(raw []byte) (invoke, manage bool) {
