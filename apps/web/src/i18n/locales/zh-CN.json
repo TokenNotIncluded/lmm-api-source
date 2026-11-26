@@ -7927,6 +7927,7 @@
     "parameter.": "参数。",
     "Parameters": "参数",
     "Parsed {{count}} service account file(s)": "已解析 {{count}} 个服务账号文件",
+    "Part of this payment has been refunded.": "这笔付款已部分退款。",
     "Partial coverage: {{sampled}} sampled requests; {{missing}} missing samples. Native relay only; historical imports excluded.": "覆盖不完整：{{sampled}} 个采样请求，{{missing}} 个缺失样本。仅统计原生转发，不含历史导入。",
     "Partial performance coverage": "性能覆盖不完整",
     "Partial Submission": "部分提交确认",

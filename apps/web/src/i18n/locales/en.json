@@ -7927,6 +7927,7 @@
     "parameter.": "parameter.",
     "Parameters": "Parameters",
     "Parsed {{count}} service account file(s)": "Parsed {{count}} service account file(s)",
+    "Part of this payment has been refunded.": "Part of this payment has been refunded.",
     "Partial coverage: {{sampled}} sampled requests; {{missing}} missing samples. Native relay only; historical imports excluded.": "Partial coverage: {{sampled}} sampled requests; {{missing}} missing samples. Native relay only; historical imports excluded.",
     "Partial performance coverage": "Partial performance coverage",
     "Partial Submission": "Partial Submission",

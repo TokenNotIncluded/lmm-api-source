@@ -229,7 +229,8 @@ test('native checkout reviews exact Core quote, preserves a lost checkout and re
   let root = createRoot(container)
   const writes: Array<{ url: string; data: Record<string, string> }> = []
   let coreCredit = false
-  let refunded = false
+  let refundState: 'refund_pending' | 'partially_refunded' | 'refunded' | null =
+    null
   let accountRefreshes = 0
   const order = {
     order_id: 'top_42',
@@ -260,11 +261,8 @@ test('native checkout reviews exact Core quote, preserves a lost checkout and re
             }
           : {
               ...order,
-              state: refunded
-                ? 'refunded'
-                : coreCredit
-                  ? 'credited'
-                  : 'credit_pending',
+              state:
+                refundState ?? (coreCredit ? 'credited' : 'credit_pending'),
               core_credit_confirmed: coreCredit,
             },
     },
@@ -371,14 +369,59 @@ test('native checkout reviews exact Core quote, preserves a lost checkout and re
     assert.equal(accountRefreshes, 1, 'confirmed credit refreshes the balance')
     await click('Refresh payment status')
     assert.equal(accountRefreshes, 1, 'repeated status does not refresh again')
-    refunded = true
+    refundState = 'refund_pending'
+    await click('Refresh payment status')
+    assert.ok(
+      container.textContent?.includes(
+        'A refund is being processed for this order.'
+      )
+    )
+    assert.equal(
+      container.textContent?.includes('Start another payment'),
+      false
+    )
+    assert.equal(accountRefreshes, 1)
+    refundState = 'partially_refunded'
+    await click('Refresh payment status')
+    assert.ok(
+      container.textContent?.includes('Part of this payment has been refunded.')
+    )
+    assert.ok(container.textContent?.includes('Start another payment'))
+    assert.equal(
+      accountRefreshes,
+      2,
+      'committed partial refund refreshes the balance'
+    )
+    await click('Refresh payment status')
+    assert.equal(
+      accountRefreshes,
+      3,
+      'a later partial refund can keep the same state'
+    )
+    await render()
+    assert.equal(
+      accountRefreshes,
+      3,
+      'rendering the same response is not a new read'
+    )
+    refundState = 'refund_pending'
+    await click('Refresh payment status')
+    assert.equal(accountRefreshes, 3)
+    refundState = 'partially_refunded'
+    await click('Refresh payment status')
+    assert.equal(
+      accountRefreshes,
+      4,
+      'completion after another pending refund refreshes the balance'
+    )
+    refundState = 'refunded'
     await click('Refresh payment status')
     assert.ok(
       document.body.textContent?.includes('This payment has been refunded.')
     )
-    assert.equal(accountRefreshes, 2, 'completed refund refreshes the balance')
+    assert.equal(accountRefreshes, 5, 'completed refund refreshes the balance')
     await click('Refresh payment status')
-    assert.equal(accountRefreshes, 2)
+    assert.equal(accountRefreshes, 5)
     assert.equal(writes.length, 2)
     await act(async () => {
       login(20, 'another-session')

@@ -103,7 +103,7 @@ function NativeWalletCheckoutForm({
   const [busy, setBusy] = useState(false)
   const running = useRef(false)
   const mounted = useRef(true)
-  const lastWalletUpdate = useRef('')
+  const lastWalletUpdate = useRef<string | NativeCheckout>('')
   const selected =
     pending?.channel ??
     channels.find((item) => item.id === selectedID) ??
@@ -170,7 +170,12 @@ function NativeWalletCheckoutForm({
 
   useEffect(() => {
     if (!finished || !result || !isCurrent()) return
-    const update = `${result.order_id}:${result.state}`
+    // The public status has no refund total or revision. Each fresh partial
+    // result can reflect another committed refund on the same order.
+    const update =
+      result.state === 'partially_refunded'
+        ? result
+        : `${result.order_id}:${result.state}`
     if (lastWalletUpdate.current === update) return
     lastWalletUpdate.current = update
     onUpdated?.()
@@ -291,10 +296,10 @@ function NativeWalletCheckoutForm({
     if (result?.state === 'review') {
       return t('This order needs review. Keep its order ID for support.')
     }
-    if (
-      result?.state === 'refund_pending' ||
-      result?.state === 'partially_refunded'
-    ) {
+    if (result?.state === 'partially_refunded') {
+      return t('Part of this payment has been refunded.')
+    }
+    if (result?.state === 'refund_pending') {
       return t('A refund is being processed for this order.')
     }
     if (result?.provider_paid && !result.core_credit_confirmed) {
