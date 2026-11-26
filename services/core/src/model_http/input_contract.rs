@@ -268,7 +268,7 @@ impl Request {
                 )
             }
             Body::Rerank(request) => {
-                let response: RerankResponse =
+                let mut response: RerankResponse =
                     serde_json::from_slice(raw).map_err(|_| invalid())?;
                 if response.results.is_empty()
                     || response.results.len()
@@ -283,7 +283,7 @@ impl Request {
                     return Err(invalid());
                 }
                 let mut indices = BTreeSet::new();
-                for result in &response.results {
+                for result in &mut response.results {
                     if result.index >= request.documents.len()
                         || !indices.insert(result.index)
                         || !result.relevance_score.is_finite()
@@ -294,6 +294,9 @@ impl Request {
                             .is_some_and(|doc| doc.text != request.documents[result.index])
                     {
                         return Err(invalid());
+                    }
+                    if request.return_documents == Some(false) {
+                        result.document = None;
                     }
                 }
                 let input = response.usage.total_tokens;
@@ -493,6 +496,42 @@ mod tests {
         };
         assert!(request.response(&make(0.5)).is_ok());
         assert!(request.response(&make(f32::NAN)).is_err());
+    }
+
+    #[test]
+    fn rerank_omits_returned_documents_only_when_explicitly_disabled() {
+        let receipt = json!({
+            "results": [
+                {"index": 1, "relevance_score": 0.9, "document": {"text": "best"}},
+                {"index": 0, "relevance_score": 0.3, "document": {"text": "other"}}
+            ],
+            "usage": {"total_tokens": 25}
+        });
+        let raw = serde_json::to_vec(&receipt).unwrap();
+        for flag in [Some(false), None, Some(true)] {
+            let mut body = json!({"model": "r", "query": "q", "documents": ["other", "best"]});
+            if let Some(flag) = flag {
+                body["return_documents"] = json!(flag);
+            }
+            let request =
+                Request::parse(Kind::Rerank, &serde_json::to_vec(&body).unwrap()).unwrap();
+            let (output, usage) = request.response(&raw).unwrap();
+            assert_eq!(usage.input_tokens, Some(25));
+            if flag == Some(false) {
+                assert_eq!(
+                    output,
+                    json!({
+                        "results": [
+                            {"index": 1, "relevance_score": 0.9},
+                            {"index": 0, "relevance_score": 0.3}
+                        ],
+                        "usage": {"total_tokens": 25}
+                    })
+                );
+            } else {
+                assert_eq!(output, receipt);
+            }
+        }
     }
 
     #[test]
