@@ -13,12 +13,14 @@ export function BackToConsole({ className }: { className?: string }) {
       params={{ section: 'overview' }}
       referrerPolicy='no-referrer'
       className={cn(
-        'text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:ring-ring inline-flex min-h-11 shrink-0 items-center gap-2 rounded-md px-2 text-sm font-medium focus-visible:ring-2 focus-visible:outline-none',
+        'text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:ring-ring inline-flex min-h-11 min-w-0 items-center gap-2 rounded-md px-2 text-sm font-medium focus-visible:ring-2 focus-visible:outline-none',
         className
       )}
     >
-      <ArrowLeft className='size-4' aria-hidden='true' />
-      {t('Back to Dashboard')}
+      <ArrowLeft className='size-4 shrink-0' aria-hidden='true' />
+      <span className='min-w-0 text-start leading-tight [overflow-wrap:anywhere] whitespace-normal'>
+        {t('Back to Dashboard')}
+      </span>
     </Link>
   )
 }

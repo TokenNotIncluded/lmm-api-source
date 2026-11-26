@@ -103,9 +103,32 @@ async function isolate(context, origin, signedIn, errors) {
   })
 }
 
-async function review(signedIn, phone, theme) {
+async function checkCompactHeader(page, width) {
+  const header = page.locator('header nav').first()
+  for (const name of ['切换主题', '主题选项', '个人资料', '切换导航菜单']) {
+    const button = header.getByRole('button', { name, exact: true })
+    const rect = await button.boundingBox()
+    assert.ok(
+      rect &&
+        rect.width >= 44 &&
+        rect.height >= 44 &&
+        rect.x >= 0 &&
+        rect.x + rect.width <= width,
+      `${name} must remain a fully visible 44px target: ${JSON.stringify(rect)}`
+    )
+  }
+  const menu = header.getByRole('button', { name: '切换导航菜单', exact: true })
+  await menu.click()
+  await page.locator('#public-mobile-navigation[aria-hidden="false"]').waitFor()
+  await page.keyboard.press('Escape')
+  await page
+    .locator('#public-mobile-navigation[aria-hidden="true"]')
+    .waitFor({ state: 'attached' })
+}
+
+async function review(signedIn, width, theme) {
   const origin = signedIn ? consoleOrigin : publicOrigin
-  const width = phone ? 390 : 1440
+  const phone = width < 640
   const language = phone ? 'zh-CN' : 'en'
   const label = phone ? '返回控制台' : 'Back to Dashboard'
   const name = [signedIn ? 'member' : 'guest', width, theme].join('-')
@@ -139,7 +162,7 @@ async function review(signedIn, phone, theme) {
       assert.equal(await back.count(), 0, `${name} public homepage`)
       assert.equal(await page.getByTestId('persona-debug-trigger').count(), 0)
     }
-    const pages = ['/developers', '/webmcp']
+    const pages = width === 320 ? ['/developers'] : ['/developers', '/webmcp']
     if (!signedIn && theme === 'light') pages.push('/privacy-policy')
     for (const route of pages) {
       const url = new URL(route, origin)
@@ -190,6 +213,7 @@ async function review(signedIn, phone, theme) {
           animations: 'disabled',
         })
       }
+      if (width === 320) await checkCompactHeader(page, width)
       await back.click()
       if (signedIn) {
         await page.waitForURL((location) => location.pathname === dashboard)
@@ -213,10 +237,11 @@ async function review(signedIn, phone, theme) {
 }
 
 try {
+  await review(true, 320, 'light')
   for (const signedIn of [false, true]) {
     for (const phone of [false, true]) {
       for (const theme of ['light', 'dark']) {
-        await review(signedIn, phone, theme)
+        await review(signedIn, phone ? 390 : 1440, theme)
       }
     }
   }

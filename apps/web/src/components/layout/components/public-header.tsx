@@ -361,9 +361,17 @@ export function PublicHeader(props: PublicHeaderProps) {
           props.className
         )}
       >
-        <div className='pointer-events-auto mx-auto max-w-7xl px-5 pt-0 md:px-10'>
+        <div
+          className={cn(
+            'pointer-events-auto mx-auto max-w-7xl px-5 pt-0 md:px-10',
+            props.leftContent && 'max-sm:px-3'
+          )}
+        >
           <nav
-            className={getPublicNavClassName(editorialHeader)}
+            className={cn(
+              getPublicNavClassName(editorialHeader),
+              props.leftContent && 'max-sm:gap-1'
+            )}
             aria-label={t('Header navigation')}
           >
             {props.leftContent ?? (
@@ -530,7 +538,12 @@ export function PublicHeader(props: PublicHeaderProps) {
             </div>
 
             {/* Mobile: compact actions + hamburger */}
-            <div className='public-header-mobile-actions flex shrink-0 items-center gap-2 min-[1360px]:hidden'>
+            <div
+              className={cn(
+                'public-header-mobile-actions flex shrink-0 items-center gap-2 min-[1360px]:hidden',
+                props.leftContent && 'max-sm:gap-1'
+              )}
+            >
               {showThemeSwitch && <ThemeSwitch />}
               {showAuthButtons && !loading && isAuthenticated && (
                 <ProfileDropdown />
