@@ -1631,3 +1631,257 @@ test('Connect treg opens the existing service editor at the full team endpoint',
   )
   assert.equal(button('Save draft', container).disabled, true)
 })
+
+const callbackURI =
+  'https://console.example.test/api/tool-market/runtime/oauth/callback'
+const externalEndpoint = 'https://provider.example.test/mcp'
+
+function remoteRuntime() {
+  stubNavigation([])
+  marketAPI.config = async () => ({
+    ...pausedConfig,
+    enabled: true,
+    provider_mcp_oauth_redirect_uri: callbackURI,
+    capabilities: {
+      native_runtime: true,
+      provider_mcp_oauth: true,
+      mcp_oauth: false,
+    },
+  })
+  const calls: { path: string; body: Record<string, unknown> }[] = []
+  const rows: {
+    id: string
+    endpoint: string
+    auth: string
+    enabled: boolean
+    release: string
+  }[] = []
+  const adapter = api.defaults.adapter
+  api.defaults.adapter = async (config) => {
+    const prefix = '/api/tool-market/runtime/'
+    if (!config.url?.startsWith(prefix) && typeof adapter === 'function') {
+      return adapter(config)
+    }
+    assert.ok(config.url)
+    const path = config.url.slice(prefix.length)
+    const body = config.data ? JSON.parse(config.data as string) : {}
+    calls.push({ path, body })
+    let data: unknown
+    switch (path) {
+      case 'installations/list':
+        data = { items: [...rows], has_more: false }
+        break
+      case 'servers/register':
+        rows.push({
+          id: 'installation-1',
+          endpoint: body.endpoint,
+          auth: body.auth,
+          enabled: true,
+          release: '',
+        })
+        data = {
+          installation: { id: 'installation-1' },
+          server: { id: 'server-1' },
+        }
+        break
+      case 'credentials/key':
+        data = { ok: true }
+        break
+      case 'oauth/start':
+        data = {
+          state: 'synthetic-state',
+          authorization_url:
+            'https://login.example.test/authorize?state=synthetic-state',
+        }
+        break
+      case 'oauth/callback':
+        assert.equal(config.method, 'get')
+        assert.equal(config.params.get('code'), 'synthetic-code')
+        assert.equal(config.params.get('state'), 'synthetic-state')
+        data = { authorized: true }
+        break
+      case 'servers/discover':
+        data = { server: 'server-1', count: 2 }
+        break
+      default:
+        assert.fail(`Unexpected remote market operation: ${path}`)
+    }
+    return { data, config, headers: {}, status: 200, statusText: 'OK' }
+  }
+  return calls
+}
+
+async function setRemoteInput(
+  container: HTMLElement,
+  selector: string,
+  value: string
+) {
+  const input = container.querySelector<HTMLInputElement>(selector)
+  assert.ok(input)
+  await act(async () => {
+    const setter = Object.getOwnPropertyDescriptor(
+      HTMLInputElement.prototype,
+      'value'
+    )?.set
+    assert.ok(setter)
+    setter.call(input, value)
+    input.dispatchEvent(new Event('input', { bubbles: true }))
+  })
+}
+
+test('the connections tab saves a private remote key and only reads tool definitions on request', async () => {
+  const calls = remoteRuntime()
+  const { container, client } = await mount(1, 2, undefined, 'connections')
+  await waitFor(() => Boolean(container.querySelector('#remote-mcp-auth')))
+  await setRemoteInput(container, '#remote-mcp-url', externalEndpoint)
+  await setRemoteInput(container, '#remote-mcp-secret', 'discard-me')
+  await setRemoteInput(container, '#remote-mcp-url', `${externalEndpoint}/v2`)
+  assert.equal(
+    container.querySelector<HTMLInputElement>('#remote-mcp-secret')?.value,
+    ''
+  )
+  await setRemoteInput(container, '#remote-mcp-secret', 'fixture-private-key')
+  await click(button('Connect', container))
+  await waitFor(
+    () => container.textContent?.includes('Connection saved') === true
+  )
+  assert.deepEqual(
+    calls.filter((call) => call.path !== 'installations/list'),
+    [
+      {
+        path: 'servers/register',
+        body: {
+          endpoint: `${externalEndpoint}/v2`,
+          auth: 'api_key',
+          header: 'Authorization',
+        },
+      },
+      {
+        path: 'credentials/key',
+        body: { installation: 'installation-1', key: 'fixture-private-key' },
+      },
+    ]
+  )
+  assert.equal(
+    container.querySelector<HTMLInputElement>('#remote-mcp-secret')?.value,
+    ''
+  )
+  assert.ok(
+    !JSON.stringify(
+      client
+        .getQueryCache()
+        .getAll()
+        .map((q) => q.state.data)
+    ).includes('fixture-private-key')
+  )
+  assert.ok(
+    !JSON.stringify(window.sessionStorage).includes('fixture-private-key')
+  )
+  await click(button('Read tool definitions', container))
+  await waitFor(
+    () => container.textContent?.includes('Discovered tools: 2') === true
+  )
+  assert.deepEqual(calls.at(-1), {
+    path: 'servers/discover',
+    body: { installation: 'installation-1' },
+  })
+})
+
+test('provider OAuth follows its own capability, binds the browser return, then permits explicit discovery', async () => {
+  const calls = remoteRuntime()
+  const { container } = await mount(1, 2, undefined, 'connections')
+  await waitFor(() => Boolean(container.querySelector('#remote-mcp-auth')))
+  const auth = container.querySelector<HTMLSelectElement>('#remote-mcp-auth')
+  assert.ok(auth)
+  await act(async () => {
+    auth.value = 'oauth'
+    auth.dispatchEvent(new Event('change', { bubbles: true }))
+  })
+  assert.ok(container.textContent?.includes(callbackURI))
+  await setRemoteInput(container, '#remote-mcp-url', externalEndpoint)
+  await setRemoteInput(container, '#remote-mcp-client', 'fixture-client')
+  const assign = window.location.assign.bind(window.location)
+  let externalURL = ''
+  window.location.assign = (url) => {
+    externalURL = String(url)
+  }
+  try {
+    await click(button('Authorize', container))
+    await waitFor(() => !!externalURL)
+    assert.equal(
+      externalURL,
+      'https://login.example.test/authorize?state=synthetic-state'
+    )
+    assert.equal(
+      window.sessionStorage
+        .getItem('tool-market.pending-remote-oauth')
+        ?.includes('synthetic-state'),
+      false
+    )
+    assert.deepEqual(
+      calls
+        .filter((call) => call.path !== 'installations/list')
+        .map((call) => call.path),
+      ['servers/register', 'oauth/start']
+    )
+    const departing = views.pop()
+    assert.ok(departing)
+    await act(async () => departing.root.unmount())
+    departing.client.clear()
+    departing.container.remove()
+    window.history.replaceState(
+      {},
+      '',
+      '/tool-market?tab=connections#mcp-oauth-callback&state=synthetic-state&code=synthetic-code'
+    )
+    const returned = await mount(1, 2, undefined, 'connections')
+    await waitFor(
+      () =>
+        returned.container.textContent?.includes('Connection saved') === true
+    )
+    assert.equal(window.location.hash, '')
+    assert.equal(
+      window.sessionStorage.getItem('tool-market.pending-remote-oauth'),
+      null
+    )
+    assert.equal(
+      calls.filter((call) => call.path === 'oauth/callback').length,
+      1
+    )
+    assert.equal(
+      calls.filter((call) => call.path === 'servers/discover').length,
+      0
+    )
+    await click(button('Read tool definitions', returned.container))
+    assert.equal(
+      calls.filter((call) => call.path === 'servers/discover').length,
+      1
+    )
+  } finally {
+    window.location.assign = assign
+    window.sessionStorage.clear()
+    window.history.replaceState({}, '', '/tool-market')
+  }
+})
+
+test('an unsolicited return is scrubbed without sending a code or touching a remote server', async () => {
+  const calls = remoteRuntime()
+  window.history.replaceState(
+    {},
+    '',
+    '/tool-market?tab=connections#mcp-oauth-callback&state=unexpected&code=other'
+  )
+  try {
+    const { container } = await mount(1, 2, undefined, 'connections')
+    await waitFor(
+      () => container.textContent?.includes('Connection failed') === true
+    )
+    assert.equal(window.location.hash, '')
+    assert.deepEqual(
+      calls.filter((call) => call.path !== 'installations/list'),
+      []
+    )
+  } finally {
+    window.history.replaceState({}, '', '/tool-market')
+  }
+})

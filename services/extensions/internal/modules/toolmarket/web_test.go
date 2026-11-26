@@ -496,3 +496,91 @@ func TestWebStrictDraftRejectsDuplicateJSONAndUnverifiedPricing(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestPublicWebConfigProviderOAuthCallback(t *testing.T) {
+	base, authority, _ := webFixture(t)
+	for _, tc := range []struct {
+		name string
+		cfg  Config
+		want bool
+	}{
+		{"native portal", Config{CallbackURL: "https://portal.example" + ProviderOAuthCallbackPath}, true},
+		{"operator-managed callback", Config{CallbackURL: "https://portal.example/custom/callback"}, false},
+		{"Web-only", Config{WebOnly: true}, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			m, err := New(base.store, authority, tc.cfg)
+			if err != nil {
+				t.Fatal(err)
+			}
+			config, err := m.PublicWebConfig(context.Background())
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := config["capabilities"].(map[string]bool)["provider_mcp_oauth"]; got != tc.want {
+				t.Fatalf("provider OAuth capability = %t, want %t", got, tc.want)
+			}
+			got, present := config["provider_mcp_oauth_redirect_uri"]
+			if present != tc.want || present && got != tc.cfg.CallbackURL {
+				t.Fatal("callback URI did not match capability")
+			}
+		})
+	}
+}
+
+func TestPrivateMCPRegistrationAuthorizesAndDiscoversWithoutExecution(t *testing.T) {
+	for _, mode := range []string{"api_key", "oauth"} {
+		t.Run(mode, func(t *testing.T) {
+			provider := newMock(t)
+			m := testModule(t, provider)
+			register := RegisterInput{Endpoint: provider.server.URL + "/mcp", Auth: mode}
+			if mode == "oauth" {
+				register.ClientID = "client"
+			}
+			input, _ := json.Marshal(register)
+			rec := post(t, m, "/servers/register", "alice", string(input))
+			var created struct{ Installation Installation }
+			if rec.Code != 200 || json.Unmarshal(rec.Body.Bytes(), &created) != nil || created.Installation.ID == "" {
+				t.Fatalf("registration failed (%d)", rec.Code)
+			}
+			installation, _ := json.Marshal(InstallationInput{created.Installation.ID})
+			if mode == "api_key" {
+				key, _ := json.Marshal(KeyInput{Installation: created.Installation.ID, Key: "synthetic-key"})
+				if rec := post(t, m, "/credentials/key", "alice", string(key)); rec.Code != 200 {
+					t.Fatalf("key authorization failed (%d)", rec.Code)
+				}
+			} else {
+				rec = post(t, m, "/oauth/start", "alice", string(installation))
+				var start oauthStart
+				cookies := rec.Result().Cookies()
+				if rec.Code != 200 || json.Unmarshal(rec.Body.Bytes(), &start) != nil || start.State == "" || len(cookies) != 1 {
+					t.Fatalf("OAuth start failed (%d)", rec.Code)
+				}
+				callback := httptest.NewRequest("GET", "/oauth/callback?state="+start.State+"&code=code", nil)
+				callback.AddCookie(cookies[0])
+				handoff, err := BrowserOAuthCallbackParameters(callback)
+				if err != nil || handoff.Get("state") != start.State || provider.tokens.Load() != 0 {
+					t.Fatalf("browser handoff unexpectedly consumed or rejected the flow (%v)", err)
+				}
+				callback.Header.Set("X-LMM-User-Credential", "alice")
+				callback.Header.Set("X-LMM-Account-ID", alice.Account)
+				rec = httptest.NewRecorder()
+				m.Handler().ServeHTTP(rec, callback)
+				if rec.Code != 200 || provider.tokens.Load() != 1 {
+					t.Fatalf("OAuth completion failed (%d)", rec.Code)
+				}
+			}
+			if rec := post(t, m, "/servers/discover", "bob", string(installation)); rec.Code != 404 {
+				t.Fatalf("cross-user discovery returned %d", rec.Code)
+			}
+			rec = post(t, m, "/servers/discover", "alice", string(installation))
+			var discovery struct {
+				Count  int
+				Server string
+			}
+			if rec.Code != 200 || json.Unmarshal(rec.Body.Bytes(), &discovery) != nil || discovery.Count != 1 || discovery.Server != created.Installation.Server || provider.calls.Load() != 0 {
+				t.Fatalf("expected one discovered tool and zero executions (%d)", rec.Code)
+			}
+		})
+	}
+}

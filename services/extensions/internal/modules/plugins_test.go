@@ -123,6 +123,67 @@ func TestPluginDependenciesKeepRoutesAndPersistedStateConsistent(t *testing.T) {
 	}
 }
 
+func TestPluginCatalogRejectsInvalidDependencyGraphBeforeStateOrRoutes(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		catalog []Descriptor
+		detail  string
+	}{
+		{"indirect cycle", []Descriptor{
+			{Name: "first", Version: "1", Requires: []string{"second"}},
+			{Name: "second", Version: "1", Requires: []string{"third"}},
+			{Name: "third", Version: "1", Requires: []string{"first"}},
+		}, "first -> second -> third -> first"},
+		{"self reference", []Descriptor{{Name: "one", Version: "1", Requires: []string{"one"}}}, "one -> one"},
+		{"duplicate dependency", []Descriptor{
+			{Name: "left", Version: "1", Requires: []string{"base", "base"}},
+			{Name: "base", Version: "1"},
+		}, "duplicate dependency"},
+		{"missing dependency", []Descriptor{{Name: "one", Version: "1", Requires: []string{"missing"}}}, "missing"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			if err := os.Chmod(dir, 0700); err != nil {
+				t.Fatal(err)
+			}
+			state := filepath.Join(dir, "plugins.json")
+			host := &pluginTestReloader{}
+			var registered []Module
+			for _, descriptor := range tc.catalog {
+				registered = append(registered, pluginTestModule{descriptor.Name, descriptor.Version})
+			}
+			_, err := NewPluginManager(host, registered, state, tc.catalog...)
+			if !errors.Is(err, ErrPluginManifest) || !strings.Contains(err.Error(), tc.detail) {
+				t.Fatalf("unexpected manifest error: %v", err)
+			}
+			if _, err := os.Stat(state); !os.IsNotExist(err) || host.calls != 0 {
+				t.Fatalf("invalid graph changed state or routes: stat=%v reloads=%d", err, host.calls)
+			}
+		})
+	}
+}
+
+func TestPluginCatalogAllowsSharedTransitiveDependency(t *testing.T) {
+	catalog := []Descriptor{
+		{Name: "top", Version: "release_1", Requires: []string{"left", "right"}},
+		{Name: "left", Version: "2", Requires: []string{"base"}},
+		{Name: "right", Version: "3", Requires: []string{"base"}},
+		{Name: "base", Version: "4"},
+	}
+	var registered []Module
+	for _, descriptor := range catalog {
+		registered = append(registered, pluginTestModule{descriptor.Name, descriptor.Version})
+	}
+	host := &pluginTestReloader{}
+	manager, err := NewPluginManager(host, registered, "", catalog...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !manager.IsEnabled("top") || !reflect.DeepEqual(host.last, []string{"base", "left", "right", "top"}) {
+		t.Fatalf("valid graph lost its routes: %v", host.last)
+	}
+}
+
 func TestPluginCatalogRejectsUndeclaredOrMismatchedRuntimeModule(t *testing.T) {
 	for _, module := range []Module{pluginTestModule{"missing", "1.0.0"}, pluginTestModule{"alpha", "2.0.0"}} {
 		_, err := NewPluginManager(&pluginTestReloader{}, []Module{module}, "", Descriptor{Name: "alpha", Version: "1.0.0"})

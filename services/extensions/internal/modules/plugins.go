@@ -112,14 +112,11 @@ func NewPluginManager(reloader ModuleReloader, registered []Module, stateFile st
 			return nil, errors.New("plugin state file must be an absolute clean path")
 		}
 	}
+	if err := ValidatePluginCatalog(catalog); err != nil {
+		return nil, err
+	}
 	m := &PluginManager{reloader: reloader, stateFile: stateFile, entries: make(map[string]pluginEntry, len(registered)), installed: make(map[string]bool, len(registered)), enabled: make(map[string]bool, len(registered))}
 	for _, descriptor := range catalog {
-		if !validName.MatchString(descriptor.Name) || descriptor.Name == "modules" || !pluginVersionPattern.MatchString(descriptor.Version) {
-			return nil, ErrPluginManifest
-		}
-		if _, exists := m.entries[descriptor.Name]; exists {
-			return nil, ErrPluginManifest
-		}
 		m.entries[descriptor.Name] = pluginEntry{info: descriptor.info()}
 	}
 	for _, module := range registered {
@@ -145,13 +142,6 @@ func NewPluginManager(reloader ModuleReloader, registered []Module, stateFile st
 		}
 		entry.module, entry.info.Available = module, true
 		m.entries[module.Name()] = entry
-	}
-	for name, entry := range m.entries {
-		for _, dependency := range entry.info.Requires {
-			if _, exists := m.entries[dependency]; !exists || dependency == name {
-				return nil, ErrPluginManifest
-			}
-		}
 	}
 	loaded, exists, err := readPluginState(stateFile)
 	if err != nil {

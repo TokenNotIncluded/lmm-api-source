@@ -258,6 +258,23 @@ func RegisterToolMarket(mux RouteRegistrar, auth *Authenticator, service ToolMar
 	// with the freshly verified Web actor before invoking the native handler.
 	if runtime, ok := service.(ToolMarketRuntime); ok && !store.Missing(runtime) {
 		mux.HandleFunc("/api/tool-market/runtime/", func(w http.ResponseWriter, r *http.Request) {
+			// A provider's top-level browser return cannot include the portal's bearer.
+			// The portal clears the fragment and completes the original API call with
+			// the signed-in user and the HttpOnly state-binding cookie.
+			if r.Method == http.MethodGet && r.URL.EscapedPath() == toolmarket.ProviderOAuthCallbackPath &&
+				r.Header.Get("Sec-Fetch-Mode") == "navigate" && r.Header.Get("Sec-Fetch-Dest") == "document" &&
+				len(r.Header.Values("Authorization")) == 0 {
+				w.Header().Set("Cache-Control", "no-store")
+				w.Header().Set("Referrer-Policy", "no-referrer")
+				q, err := toolmarket.BrowserOAuthCallbackParameters(r)
+				if err != nil {
+					toolMarketRespond(w, nil, err)
+					return
+				}
+				w.Header().Set("Location", "/tool-market?tab=connections#mcp-oauth-callback&"+q.Encode())
+				w.WriteHeader(http.StatusSeeOther)
+				return
+			}
 			credential, account, ok := actor(w, r, true)
 			if !ok {
 				return

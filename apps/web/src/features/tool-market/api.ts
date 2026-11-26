@@ -21,6 +21,8 @@ export type MarketCapabilities = {
   service_deletion: boolean
   client_record_cleanup: boolean
   meta_delegation: boolean
+  native_runtime: boolean
+  provider_mcp_oauth: boolean
   mcp_oauth: boolean
   metamcp: boolean
   treg_connection_check: boolean
@@ -43,6 +45,7 @@ export type MarketMetaTool = {
   inputSchema: Record<string, unknown>
 }
 export type MarketConfig = {
+  provider_mcp_oauth_redirect_uri?: string
   meta_tool?: MarketMetaTool
   provider_presets?: ProviderPreset[]
   credits_per_usd?: string

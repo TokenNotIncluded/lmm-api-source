@@ -3,6 +3,7 @@ package composition
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"reflect"
@@ -42,6 +43,20 @@ func TestRegisteredModuleSelection(t *testing.T) {
 	}
 	if got, err := SelectModules(strings.Join(names, ","), nil); err != nil || !reflect.DeepEqual(got, names) {
 		t.Fatalf("compiled catalogue cannot be selected: %v %v", got, err)
+	}
+}
+
+func TestSelectionRejectsCycleEvenWhenModulesAreUnselected(t *testing.T) {
+	original := moduleRegistrations
+	t.Cleanup(func() { moduleRegistrations = original })
+	moduleRegistrations = []moduleRegistration{
+		{descriptor: modules.Descriptor{Name: "alpha", Version: "1", Requires: []string{"beta"}}},
+		{descriptor: modules.Descriptor{Name: "beta", Version: "1", Requires: []string{"alpha"}}},
+	}
+	for _, config := range []string{"none", "alpha,beta"} {
+		if _, err := SelectModules(config, nil); !errors.Is(err, modules.ErrPluginManifest) {
+			t.Fatalf("selection %q accepted invalid compiled catalog: %v", config, err)
+		}
 	}
 }
 

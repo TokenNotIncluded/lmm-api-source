@@ -16,7 +16,7 @@ import {
   Store,
   XCircle,
 } from 'lucide-react'
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 
 import { ConfirmDialog } from '@/components/confirm-dialog'
 import { SectionPageLayout } from '@/components/layout/components/section-page-layout'
@@ -61,6 +61,12 @@ import { MarketConnections } from './connections'
 import { marketStatus, marketPermissionList } from './copy'
 import { MarketMetaToolCard } from './meta-tool-card'
 import { useMarketTranslation as useTranslation } from './provider-i18n'
+import {
+  remoteOAuthRedirectURI,
+  readRemoteOAuthCallback,
+  clearRemoteOAuthFragment,
+} from './remote-server-api'
+import { RemoteServers } from './remote-servers'
 import { MarketReports, ReportCallButton } from './reports'
 import { ServiceEditor } from './service-editor'
 import { parseMarketServiceID } from './service-link'
@@ -160,6 +166,13 @@ function ToolMarketWorkspace({
   const [tab, setTab] = useState<string>(
     initialServiceID ? 'market' : initialTab
   )
+  const [providerCallback, setProviderCallback] = useState(
+    readRemoteOAuthCallback
+  )
+  const clearProviderCallback = useCallback(() => setProviderCallback(null), [])
+  useEffect(() => {
+    if (providerCallback) clearRemoteOAuthFragment()
+  }, [providerCallback])
   const [searchInput, setSearchInput] = useState('')
   const [search, setSearch] = useState('')
   const [offset, setOffset] = useState(0)
@@ -1546,6 +1559,30 @@ function ToolMarketWorkspace({
                     ))}
                   </TabsContent>
                   <TabsContent value='connections' className='pt-4'>
+                    {marketSupports(config.data, 'native_runtime') && user && (
+                      <RemoteServers
+                        key={user.id}
+                        redirectURI={
+                          marketSupports(config.data, 'provider_mcp_oauth')
+                            ? remoteOAuthRedirectURI(
+                                config.data?.provider_mcp_oauth_redirect_uri
+                              )
+                            : undefined
+                        }
+                        callback={providerCallback}
+                        clearCallback={clearProviderCallback}
+                      />
+                    )}
+                    {config.isSuccess &&
+                      !marketSupports(config.data, 'native_runtime') && (
+                        <Button
+                          className='mb-6'
+                          variant='outline'
+                          onClick={openPublisher}
+                        >
+                          {t('Connect a remote MCP server')}
+                        </Button>
+                      )}
                     {config.data && (
                       <MarketConnections
                         config={config.data}

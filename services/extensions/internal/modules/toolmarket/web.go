@@ -5,6 +5,7 @@ package toolmarket
 import (
 	"context"
 	"encoding/json"
+	"net/url"
 	"regexp"
 	"sort"
 	"strconv"
@@ -90,6 +91,14 @@ func (m *Module) PublicWebConfig(ctx context.Context) (map[string]any, error) {
 	ready := m.LegacyCapabilities()
 	out["execution_ready"], out["builtin_enabled"] = ready.ExecutionReady, ready.BuiltinEnabled
 	capabilities := out["capabilities"].(map[string]bool)
+	// Legacy MCP OAuth authorizes external clients to LMM. This capability is the
+	// other direction and requires this release's browser callback on the portal.
+	callback, err := url.Parse(m.callback)
+	providerOAuth := !m.webOnly && err == nil && callback.EscapedPath() == ProviderOAuthCallbackPath
+	capabilities["provider_mcp_oauth"] = providerOAuth
+	if providerOAuth {
+		out["provider_mcp_oauth_redirect_uri"] = m.callback
+	}
 	capabilities["meta_delegation"], capabilities["metamcp"], capabilities["mcp_oauth"] = ready.MetaDelegation, ready.MetaMCP, ready.MCPOAuth
 	if ready.MetaMCP {
 		out["meta_tool"] = LegacyMetaToolDescription()

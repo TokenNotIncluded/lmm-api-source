@@ -83,6 +83,9 @@ func (r *Runtime) ModuleDescriptors() []modules.Descriptor {
 // SelectModules requires dependencies to be explicitly selected. Registering a
 // new package never enables it or grants access to another package's resources.
 func SelectModules(config string, defaults []string) ([]string, error) {
+	if err := modules.ValidatePluginCatalog(ModuleDescriptors()); err != nil {
+		return nil, err
+	}
 	names := make([]string, len(moduleRegistrations))
 	for i, registration := range moduleRegistrations {
 		names[i] = registration.descriptor.Name

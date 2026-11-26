@@ -2,9 +2,14 @@
 package webcompat
 
 import (
+	"crypto/sha256"
+	"encoding/json"
+	"fmt"
 	"github.com/TokenNotIncluded/lmm-api/extensions/internal/modules/toolmarket"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
+	"strings"
 	"testing"
 )
 
@@ -52,5 +57,65 @@ func TestToolMarketRuntimeRejectsMissingSessionAndDeniedActionBeforeReadingBody(
 		if rec.Code != want || len(f.requests) != 0 || body.reads != 0 {
 			t.Fatal(rec.Code, len(f.requests), body.reads)
 		}
+	}
+}
+
+func TestBrowserProviderOAuthReturnCarriesOnlyBoundFieldsToPortal(t *testing.T) {
+	core, runtime := &authCore{}, &marketRuntimeFake{}
+	mux := marketMux(t, core, runtime)
+	state := strings.Repeat("A", 43)
+	encoded, _ := json.Marshal(state)
+	cookie := &http.Cookie{Name: "__Host-lmm-mcp-" + fmt.Sprintf("%x", sha256.Sum256(encoded))[:24], Value: strings.Repeat("B", 43)}
+	for _, tc := range []struct {
+		name, params    string
+		cookies, status int
+	}{
+		{"approved", "code=test%26code&iss=https%3A%2F%2Fissuer.example", 1, http.StatusSeeOther},
+		{"declined", "error=access_denied&error_description=private+provider+detail", 1, http.StatusSeeOther},
+		{"missing binding", "code=test", 0, http.StatusUnauthorized},
+		{"ambiguous binding", "code=test", 2, http.StatusUnauthorized},
+		{"duplicate code", "code=test&code=other", 1, http.StatusUnprocessableEntity},
+		{"unrecognized redirect parameter", "code=test&return_to=https%3A%2F%2Fother.example", 1, http.StatusUnprocessableEntity},
+		{"mixed outcomes", "error=access_denied&code=test", 1, http.StatusUnprocessableEntity},
+		{"oversized code", "code=" + strings.Repeat("x", 4097), 1, http.StatusUnprocessableEntity},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			req := marketHTTP("GET", toolmarket.ProviderOAuthCallbackPath+"?state="+state+"&"+tc.params, "", false)
+			req.Header.Set("Sec-Fetch-Mode", "navigate")
+			req.Header.Set("Sec-Fetch-Dest", "document")
+			for i := 0; i < tc.cookies; i++ {
+				req.AddCookie(cookie)
+			}
+			rec := httptest.NewRecorder()
+			mux.ServeHTTP(rec, req)
+			if rec.Code != tc.status || rec.Header().Get("Referrer-Policy") != "no-referrer" || !strings.Contains(rec.Header().Get("Cache-Control"), "no-store") {
+				t.Fatalf("unusable callback response (%d)", rec.Code)
+			}
+			location := rec.Header().Get("Location")
+			if tc.status != http.StatusSeeOther {
+				if location != "" {
+					t.Fatal("rejected callback redirected")
+				}
+				return
+			}
+			const portal = "/tool-market?tab=connections#mcp-oauth-callback&"
+			if !strings.HasPrefix(location, portal) || strings.Contains(location, "private") || rec.Body.Len() != 0 {
+				t.Fatal("callback escaped the portal or exposed provider text")
+			}
+			values, err := url.ParseQuery(strings.TrimPrefix(location, portal))
+			if err != nil || values.Get("state") != state || values.Get("code") != "test&code" && values.Get("error") != "access_denied" {
+				t.Fatal("callback fields lost")
+			}
+		})
+	}
+	if len(runtime.requests) != 0 || core.calls != 0 {
+		t.Fatal("a document callback entered an authenticated operation")
+	}
+	req := marketHTTP("GET", toolmarket.ProviderOAuthCallbackPath+"?state="+state+"&code=test", "", false)
+	req.AddCookie(cookie)
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusUnauthorized || rec.Header().Get("Location") != "" {
+		t.Fatal("uncredentialed API read accepted")
 	}
 }

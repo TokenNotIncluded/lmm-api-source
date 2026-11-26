@@ -288,27 +288,68 @@ func (m *Module) Handler() http.Handler {
 		respond(w, out, e)
 	})
 }
-func (m *Module) httpCallback(ctx context.Context, p Principal, w http.ResponseWriter, r *http.Request) (any, error) {
+
+// ProviderOAuthCallbackPath is the Web gateway's same-origin provider return URL.
+const ProviderOAuthCallbackPath = "/api/tool-market/runtime/oauth/callback"
+
+func oauthCallbackParameters(r *http.Request) (url.Values, string, error) {
 	q, e := url.ParseQuery(r.URL.RawQuery)
 	if e != nil {
-		return nil, ErrInvalid
+		return nil, "", ErrInvalid
 	}
 	for key, values := range q {
 		if key != "state" && key != "code" && key != "iss" && key != "error" && key != "error_description" || len(values) != 1 {
-			return nil, ErrInvalid
+			return nil, "", ErrInvalid
 		}
 	}
 	state := q.Get("state")
-	cookies := r.Cookies()
-	binding := ""
-	for _, c := range cookies {
-		if c.Name == cookieName(state) {
-			if binding != "" {
-				return nil, ErrAuth
-			}
-			binding = c.Value
-		}
+	cookies := r.CookiesNamed(cookieName(state))
+	if len(cookies) > 1 {
+		return nil, "", ErrAuth
 	}
+	binding := ""
+	if len(cookies) == 1 {
+		binding = cookies[0].Value
+	}
+	return q, binding, nil
+}
+
+// BrowserOAuthCallbackParameters forwards bounded provider fields to the portal.
+// The authenticated callback alone checks the stored binding, owner and generation
+// and exchanges the code. No provider credential is read or exchanged here.
+func BrowserOAuthCallbackParameters(r *http.Request) (url.Values, error) {
+	if len(r.URL.RawQuery) > 24<<10 {
+		return nil, ErrInvalid
+	}
+	q, binding, err := oauthCallbackParameters(r)
+	if err != nil {
+		return nil, err
+	}
+	state := q.Get("state")
+	if len(state) != 43 || !validID.MatchString(state) || len(binding) != 43 || !validID.MatchString(binding) {
+		return nil, ErrAuth
+	}
+	if len(q.Get("iss")) > 2048 {
+		return nil, ErrInvalid
+	}
+	if q.Has("error") {
+		if q.Has("code") || q.Get("error") == "" || len(q.Get("error")) > 128 || len(q.Get("error_description")) > 1024 {
+			return nil, ErrInvalid
+		}
+		// The callback only needs the denial code, not the provider's free-form text.
+		q.Del("error_description")
+	} else if q.Get("code") == "" || len(q.Get("code")) > 4096 || q.Has("error_description") {
+		return nil, ErrInvalid
+	}
+	return q, nil
+}
+
+func (m *Module) httpCallback(ctx context.Context, p Principal, w http.ResponseWriter, r *http.Request) (any, error) {
+	q, binding, e := oauthCallbackParameters(r)
+	if e != nil {
+		return nil, e
+	}
+	state := q.Get("state")
 	if q.Get("error") != "" {
 		if q.Get("code") != "" || len(q.Get("error")) > 128 || len(q.Get("error_description")) > 1024 {
 			return nil, ErrInvalid
