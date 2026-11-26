@@ -111,6 +111,15 @@ def rebind_channel(value, cid=1):
 
 
 class RoutingSemanticsTests(unittest.TestCase):
+    def test_preserves_source_channel_names_for_candidate_upstreams(self):
+        value = fixture()
+        value[0]["channels"][0]["name"] = "旧站渠道"
+        rebind_channel(value)
+        result = run_fixture(value)
+        self.assertEqual(result["blockers"], [])
+        self.assertEqual(result["channel_names"], {"1": "旧站渠道"})
+        self.assertNotIn("channel_names", result["candidate"])
+
     def test_supplier_output_metadata_preserves_separate_runtime_admission_limit(self):
         for supplier_max in (128_000, 8192):
             with self.subTest(supplier_max=supplier_max):

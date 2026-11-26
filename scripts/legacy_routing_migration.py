@@ -1187,6 +1187,10 @@ def plan(tables, identities, bindings, *, runtime=None, providers=None, credenti
               "counts": {"source_users": len(users), "planned_user_groups": len(memberships), "source_abilities": len(seen),
                          "enabled_source_abilities": sum(a["source_enabled"] for a in assessments), "blockers": len(blockers)}}
     if not blockers:
+        result["channel_names"] = {
+            str(cid): channels[cid]["name"] for cid in sorted(upstreams)
+            if channels[cid].get("name")
+        }
         result["candidate"] = {"version": 1, "routing": {"version": 1,
             "groups": [{"name": g, "enabled": True} for g in sorted(
                 {g for g, _ in ability_groups} | {row["group_name"] for row in memberships})],
@@ -1334,6 +1338,8 @@ def main():
             candidate = "\n".join(json.dumps(key) + " = " + toml_value(value) for key, value in result["candidate"].items()) + "\n"
             require(len(candidate.encode()) <= 16 * 1024 * 1024, "candidate_toml_too_large")
             F.IDENTITY.write_private(args.output, "model-candidate.private.toml", candidate)
+            F.IDENTITY.write_private(args.output, "channel-names.private.json",
+                                     F.canonical(result["channel_names"]) + "\n")
         verify_files(hashes); verify_files(tools)
         print(F.canonical(public_summary(result)))
         return 0

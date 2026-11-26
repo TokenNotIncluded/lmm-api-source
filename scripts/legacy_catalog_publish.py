@@ -4,7 +4,8 @@
 Input is catalog-metadata.json from `legacy_extensions_import.py --phase
 catalog`. Core keeps vendors and per-route model metadata in the channel
 release bindings, so this needs an active routing release (normally the first
-one from legacy_routing_migration). Each legacy model is attached to every
+one from legacy_routing_migration). Its private channel-name map can be applied
+with --channel-names. Each legacy model is attached to every
 route whose model name is exactly equal; models without such a route are only
 reported, and a later run (after their routes exist) adds them.
 
@@ -19,6 +20,7 @@ is the default.
 from __future__ import annotations
 
 import argparse
+import unicodedata
 import json
 import urllib.error
 import urllib.request
@@ -47,7 +49,7 @@ def call(args, method: str, path: str, body=None) -> dict:
     return value["data"]
 
 
-def merge(metadata: dict, current: dict) -> tuple[dict, dict]:
+def merge(metadata: dict, current: dict, channel_names: dict) -> tuple[dict, dict]:
     bindings = current["bindings"]
     vendors = bindings.setdefault("vendors", {})
     models = bindings.setdefault("models", {})
@@ -60,6 +62,23 @@ def merge(metadata: dict, current: dict) -> tuple[dict, dict]:
             fail(f"vendor_conflict:{v['id']}")
         report["vendors_unchanged" if have else "vendors_added"] += 1
         vendors[str(v["id"])] = want
+    active_ids = {str(channel["id"]) for channel in current["routing"]["upstreams"]}
+    names = bindings.setdefault("names", {})
+    report["channel_names_added"] = 0
+    report["channel_names_unchanged"] = 0
+    for channel_id, name in channel_names.items():
+        if channel_id not in active_ids:
+            fail(f"channel_name_target_missing:{channel_id}")
+        if (not isinstance(name, str) or not name.strip() or len(name.encode()) > 128
+                or any(unicodedata.category(character) == "Cc" for character in name)):
+            fail(f"channel_name_invalid:{channel_id}")
+        if channel_id in names:
+            if names[channel_id] != name:
+                fail(f"channel_name_conflict:{channel_id}")
+            report["channel_names_unchanged"] += 1
+        else:
+            names[channel_id] = name
+            report["channel_names_added"] += 1
     routes: dict[str, list[int]] = {}
     for route in current["routing"]["routes"]:
         routes.setdefault(route["model"], []).append(route["id"])
@@ -81,20 +100,32 @@ def main() -> None:
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--core-url", required=True, help="Core base URL, e.g. http://127.0.0.1:18171")
     p.add_argument("--session-file", required=True, type=Path, help="superadmin Session secret (0600 file)")
-    p.add_argument("--metadata", required=True, type=Path, help="catalog-metadata.json")
+    p.add_argument("--metadata", type=Path, help="catalog-metadata.json")
+    p.add_argument("--channel-names", type=Path, help="Private map of legacy channel IDs to names")
     p.add_argument("--publish", action="store_true", help="publish after preview (default: preview only)")
     args = p.parse_args()
     if args.session_file.stat().st_mode & 0o077:
         fail("session_file_not_private")
     args.secret = args.session_file.read_text().strip()
-    metadata = json.loads(args.metadata.read_text())
-    if metadata.get("format_version") != 1 or metadata.get("scope") != "legacy-model-catalog-metadata":
-        fail("metadata_scope_invalid")
+    if not args.metadata and not args.channel_names:
+        p.error("provide --metadata or --channel-names")
+    metadata = {"vendors": [], "models": []}
+    if args.metadata:
+        metadata = json.loads(args.metadata.read_text())
+        if metadata.get("format_version") != 1 or metadata.get("scope") != "legacy-model-catalog-metadata":
+            fail("metadata_scope_invalid")
+    channel_names = {}
+    if args.channel_names:
+        if args.channel_names.stat().st_mode & 0o077:
+            fail("channel_names_file_not_private")
+        channel_names = json.loads(args.channel_names.read_text())
+        if not isinstance(channel_names, dict):
+            fail("channel_names_invalid")
     current = call(args, "GET", PATH)
     version = current["version"]
-    bindings, report = merge(metadata, current)
+    bindings, report = merge(metadata, current, channel_names)
     report["expected_version"] = version
-    if not report["vendors_added"] and not report["routes_added"]:
+    if not any(report[key] for key in ("vendors_added", "routes_added", "channel_names_added")):
         print(json.dumps({**report, "status": "unchanged"}, ensure_ascii=False, indent=1))
         return
     routing = {**current["routing"], "version": version["routing"] + 1}
@@ -107,7 +138,8 @@ def main() -> None:
     published = call(args, "PUT", PATH, {**body, "confirmation_digest": preview["confirmation_digest"]})
     after = call(args, "GET", PATH)
     if after["version"] != published["version"] or after["bindings"].get("vendors") != bindings["vendors"] \
-            or after["bindings"].get("models") != bindings["models"]:
+            or after["bindings"].get("models") != bindings["models"] \
+            or after["bindings"].get("names", {}) != bindings["names"]:
         fail("readback_mismatch")
     print(json.dumps({**report, "status": "published", "version": after["version"]}, ensure_ascii=False, indent=1))
 
