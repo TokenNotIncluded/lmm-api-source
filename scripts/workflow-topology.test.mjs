@@ -136,10 +136,14 @@ test('automatic checks and explicit source-release requests have bounded trigger
       assert.match(block[1], /push:\n    branches: \[main\]\n    paths: \[\.github\/source-release-request\.json\]/);
       assert.doesNotMatch(source, /pull_request_target|id-token: write|environment: production/);
     } else if (file === 'deploy.yml') {
-      // Deployment is explicitly authorized for configured environments, with no branch-push or PR trigger.
-      assert.deepEqual(events, ['workflow_dispatch', 'push']);
+      assert.deepEqual(events, ['workflow_dispatch', 'push', 'workflow_run']);
       assert.match(block[1], /tags: \['v\*', 'shadow-v\*'\]/);
-      assert.doesNotMatch(block[1], /branches:|pull_request|schedule:/);
+      assert.match(block[1], /workflow_run:\n    workflows: \[CI\]\n    types: \[completed\]\n    branches: \[main\]/);
+      assert.match(source, /github\.event\.workflow_run\.conclusion == 'success'/);
+      assert.match(source, /github\.event\.workflow_run\.event == 'push'/);
+      assert.match(source, /github\.event\.workflow_run\.head_repository\.full_name == github\.repository/);
+      assert.match(source, /Recheck automatic deployment against current main/);
+      assert.doesNotMatch(block[1], /pull_request|schedule:/);
       assert.match(source, /DEPLOY_TARGETS: \$\{\{ vars\.DEPLOY_TARGETS \}\}/);
       assert.match(source, /git merge-base --is-ancestor "\$revision" origin\/main/);
       assert.match(source, /needs: \[plan, ci-gate, build\]/);
@@ -225,11 +229,11 @@ test('deployment selects only commit objects from main and plans from that exact
   git('tag', '-a', '-m', 'annotated fixture', 'fixture', ancestor);
   const tagObject = git('rev-parse', 'refs/tags/fixture');
   const output = join(temp, 'workflow-output');
-  const select = (revision, event = 'workflow_dispatch', ref = 'refs/heads/main') => {
+  const select = (revision, event = 'workflow_dispatch', ref = 'refs/heads/main', ciRevision = '') => {
     git('checkout', '-q', '--detach', tip);
     writeFileSync(output, '');
     run('bash', ['-eo', 'pipefail', '-c', script], {
-      GITHUB_EVENT_NAME: event, GITHUB_REF: ref, GITHUB_OUTPUT: output, REQUESTED_REVISION: revision,
+      GITHUB_EVENT_NAME: event, GITHUB_REF: ref, GITHUB_OUTPUT: output, REQUESTED_REVISION: revision, CI_REVISION: ciRevision,
     });
     return [git('rev-parse', 'HEAD'), readFileSync(output, 'utf8')];
   };
@@ -238,6 +242,12 @@ test('deployment selects only commit objects from main and plans from that exact
     assert.deepEqual(select(revision), [chosen, 'revision=' + chosen + '\n']);
   }
   assert.deepEqual(select('', 'push', 'refs/tags/shadow-v1.2.3'), [tip, 'revision=' + tip + '\n']);
+  assert.deepEqual(select('', 'workflow_run', 'refs/heads/main', tip), [tip, 'revision=' + tip + '\n']);
+  for (const candidate of [ancestor, unrelated, '']) {
+    assert.throws(() => select('', 'workflow_run', 'refs/heads/main', candidate));
+    assert.equal(readFileSync(output, 'utf8'), '');
+  }
+
   for (const args of [
     [unrelated], [tree], [tagObject], ['0'.repeat(40)], [ancestor.slice(0, 12)], ['main'],
     ['HEAD~1'], [' ' + ancestor], [ancestor + '\n'], [ancestor, 'push', 'refs/tags/shadow-v1'],

@@ -19,6 +19,10 @@ on:
         type: string
   push:
     tags: ['v*', 'shadow-v*']
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
 
 permissions:
   contents: read
@@ -38,6 +42,11 @@ env:
 
 jobs:
   plan:
+    if: >-
+      github.event_name != 'workflow_run' ||
+      (github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'push' &&
+      github.event.workflow_run.head_repository.full_name == github.repository)
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     outputs:
@@ -53,9 +62,16 @@ jobs:
         id: source
         env:
           REQUESTED_REVISION: ${{ inputs.source_revision }}
+          CI_REVISION: ${{ github.event.workflow_run.head_sha }}
         run: |
           revision=$(git rev-parse HEAD)
-          if [[ -n "$REQUESTED_REVISION" ]]; then
+          if [[ "$GITHUB_EVENT_NAME" == workflow_run ]]; then
+            if [[ ! "$CI_REVISION" =~ ^[0-9a-f]{40}$ || "$CI_REVISION" != "$(git rev-parse refs/remotes/origin/main)" ]]; then
+              echo "Automatic deployment requires CI for the current main commit." >&2
+              exit 1
+            fi
+            revision=$CI_REVISION
+          elif [[ -n "$REQUESTED_REVISION" ]]; then
             if [[ "$GITHUB_EVENT_NAME" != workflow_dispatch || "$GITHUB_REF" != refs/heads/main ]]; then
               echo "Selecting a source revision requires manual dispatch on main." >&2
               exit 1
@@ -232,6 +248,16 @@ jobs:
         run: python3 -B scripts/test-deployment-rollback.py
       - name: Verify artifacts and prepare the inventory
         run: python3 scripts/deployment-plan.py inventory --artifacts artifacts --output "$RUNNER_TEMP/inventory.json"
+      - name: Recheck automatic deployment against current main
+        if: github.event_name == 'workflow_run'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          current=$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/main" --jq .object.sha)
+          if [[ "$DEPLOY_REVISION" != "$current" ]]; then
+            echo "Main advanced while the candidate was building." >&2
+            exit 1
+          fi
       - name: Configure ephemeral SSH credentials
         env:
           SSH_PRIVATE_KEY: ${{ secrets.DEPLOY_SSH_PRIVATE_KEY }}
