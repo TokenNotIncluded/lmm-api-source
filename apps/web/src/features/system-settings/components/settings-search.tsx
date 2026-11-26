@@ -19,8 +19,8 @@ For commercial licensing, please contact support@quantumnous.com
 /*
 Copyright (C) 2026 LIghtJUNction
 */
-import { useNavigate, useLocation } from '@tanstack/react-router'
-import { ArrowUpRight, ChevronRight, Search } from 'lucide-react'
+import { Link, useNavigate, useLocation } from '@tanstack/react-router'
+import { ArrowUpRight, ChevronDown, ChevronRight, Search } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
@@ -35,6 +35,12 @@ import {
   CommandItem,
   CommandList,
 } from '@/components/ui/command'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
 import { ROLE } from '@/lib/roles'
 import {
   getSettingsScope,
@@ -46,7 +52,16 @@ import {
   buildSettingsSearchIndex,
   countSettingsEntries,
   searchSettings,
+  type SettingsSearchEntry,
 } from '../utils/settings-search-index'
+
+function settingsDestination(url: string) {
+  const [to, query] = url.split('?')
+  return {
+    to,
+    search: query ? Object.fromEntries(new URLSearchParams(query)) : undefined,
+  }
+}
 
 function useSettingsNavigation() {
   const { t } = useTranslation()
@@ -64,24 +79,81 @@ function useSettingsNavigation() {
     [t, role, scope]
   )
   const current = index.find((group) =>
-    group.entries.some((entry) => entry.url === `${pathname}${search}`)
+    group.entries.some((entry) => {
+      const destination = settingsDestination(entry.url)
+      return (
+        destination.to === pathname &&
+        (!destination.search?.section ||
+          destination.search.section ===
+            new URLSearchParams(search).get('section'))
+      )
+    })
   )
   return { index, current, pathname, search, scope }
 }
 
 export function SettingsBreadcrumb() {
   const { t } = useTranslation()
-  const { current, scope } = useSettingsNavigation()
+  const { index, current, pathname, search, scope } = useSettingsNavigation()
   return (
-    <div className='settings-breadcrumb text-muted-foreground flex items-center gap-2 text-xs'>
-      <span>{t(getSettingsTitle(scope))}</span>
+    <nav
+      aria-label={t(getSettingsTitle(scope))}
+      className='settings-breadcrumb text-muted-foreground flex flex-wrap items-center gap-2 text-xs'
+    >
+      {index.length > 0 ? (
+        <SettingsPathMenu
+          label={t(getSettingsTitle(scope))}
+          entries={index}
+          currentUrl={current?.url}
+          currentKind='location'
+        />
+      ) : (
+        <span>{t(getSettingsTitle(scope))}</span>
+      )}
       {current && (
         <>
           <ChevronRight className='size-3' aria-hidden='true' />
-          <span>{current.section}</span>
+          <SettingsPathMenu
+            label={current.section}
+            entries={current.entries}
+            currentUrl={`${pathname}${search}`}
+          />
         </>
       )}
-    </div>
+    </nav>
+  )
+}
+
+function SettingsPathMenu({
+  label,
+  entries,
+  currentUrl,
+  currentKind = 'page',
+}: {
+  label: string
+  entries: SettingsSearchEntry[]
+  currentUrl?: string
+  currentKind?: 'page' | 'location'
+}) {
+  return (
+    <DropdownMenu modal={false}>
+      <DropdownMenuTrigger className='hover:bg-muted hover:text-foreground focus-visible:ring-ring inline-flex min-h-8 min-w-0 items-center gap-1 rounded-md px-1.5 text-start outline-none focus-visible:ring-2'>
+        {label}
+        <ChevronDown className='size-3 shrink-0' aria-hidden='true' />
+      </DropdownMenuTrigger>
+      <DropdownMenuContent className='w-max max-w-[calc(100vw-2rem)] min-w-44 rounded-xl'>
+        {entries.map((entry) => (
+          <DropdownMenuItem
+            key={entry.url}
+            render={<Link {...settingsDestination(entry.url)} />}
+            aria-current={currentUrl === entry.url ? currentKind : undefined}
+            className='aria-[current]:bg-muted'
+          >
+            {entry.section}
+          </DropdownMenuItem>
+        ))}
+      </DropdownMenuContent>
+    </DropdownMenu>
   )
 }
 
@@ -141,14 +213,7 @@ export function SettingsSearch() {
                     onSelect={() => {
                       setOpen(false)
                       setQuery('')
-                      void navigate({
-                        to: entry.url.split('?')[0],
-                        search: entry.url.includes('?')
-                          ? Object.fromEntries(
-                              new URLSearchParams(entry.url.split('?')[1])
-                            )
-                          : undefined,
-                      })
+                      void navigate(settingsDestination(entry.url))
                     }}
                     className='gap-3 py-3'
                     aria-current={activeUrl === entry.url ? 'page' : undefined}
