@@ -20,7 +20,7 @@ type SSMCPRelayConfig struct {
 	SellerID   int64  `toml:"seller_id"`
 }
 
-func (r *Runtime) composeRelay(cfg SSMCPRelayConfig, repo store.Repository, funds store.Funds, other ...[]byte) error {
+func (r *Runtime) composeRelay(cfg SSMCPRelayConfig, repo store.Repository, authority store.Authority, funds store.Funds, other ...[]byte) error {
 	if r.Builtins == nil {
 		return errors.New("ssmcpd requires tool market builtins")
 	}
@@ -40,7 +40,10 @@ func (r *Runtime) composeRelay(cfg SSMCPRelayConfig, repo store.Repository, fund
 		return err
 	}
 	r.SSMCPRelay, err = ssmcprelay.New(client, repo, f, store.Account{Kind: cfg.SellerKind, ID: cfg.SellerID})
-	return err
+	if err != nil {
+		return err
+	}
+	return r.SSMCPRelay.WithRefundAuthority(authority)
 }
 
 type relayTools struct{ service *ssmcprelay.Service }

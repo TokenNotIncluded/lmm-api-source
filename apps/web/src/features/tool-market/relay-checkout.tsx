@@ -16,13 +16,16 @@ import { formatRelayUSD, readRelayOrder, relayOrderStates } from './relay-order'
 export function RelayCheckout({ orderID }: { orderID: string }) {
   const { t, i18n } = useTranslation()
   const userID = useAuthStore((state) => state.auth.user?.id)
+  const sessionId = useAuthStore((state) => state.auth.session?.sid)
+  const authScope = { userId: userID, sessionId }
   const path = '/api/ssmcpd/orders/' + encodeURIComponent(orderID)
   const order = useQuery({
-    queryKey: ['ssmcpd', userID, 'order', orderID],
+    queryKey: ['ssmcpd', userID, sessionId, 'order', orderID],
     enabled: !!userID,
     queryFn: async ({ signal }) =>
       readRelayOrder(
-        (await api.get(path, { signal, skipErrorHandler: true })).data,
+        (await api.get(path, { signal, authScope, skipErrorHandler: true }))
+          .data,
         orderID,
         userID
       ),
@@ -33,7 +36,7 @@ export function RelayCheckout({ orderID }: { orderID: string }) {
       const { data } = await api.post(
         path + '/confirm',
         { order_id: orderID },
-        { skipErrorHandler: true }
+        { authScope, skipErrorHandler: true }
       )
       return readRelayOrder(data, orderID, userID)
     },
@@ -51,10 +54,27 @@ export function RelayCheckout({ orderID }: { orderID: string }) {
     declined: t('Declined'),
     expired: t('Expired'),
     refund_required: t('Refund required'),
+    refund_pending: t('Refund pending'),
     needs_review: t('Pending review'),
     refunded: t('Refunded'),
   }
-  const value = order.data
+  const value =
+    order.data?.user_id === userID && order.data?.order_id === orderID
+      ? order.data
+      : undefined
+  const refund =
+    value?.state === 'refund_required' ||
+    value?.state === 'refund_pending' ||
+    value?.state === 'refunded'
+  const support = refund || value?.state === 'needs_review'
+  const confirmable =
+    value &&
+    [
+      'preview',
+      'payment_pending',
+      'grant_pending',
+      'settlement_pending',
+    ].includes(value.state)
   const locale = toIntlLocale(i18n.language) ?? 'en-US'
   return (
     <main className='mx-auto max-w-lg space-y-5 p-6'>
@@ -77,12 +97,40 @@ export function RelayCheckout({ orderID }: { orderID: string }) {
           <p>
             {t('Status')} · {labels[value.state]}
           </p>
-          {[
-            'preview',
-            'payment_pending',
-            'grant_pending',
-            'settlement_pending',
-          ].includes(value.state) && (
+          {support && (
+            <div className='space-y-2'>
+              {value.state === 'refund_required' && (
+                <p>
+                  {t(
+                    'Your payment was recorded, but the relay quota was not granted.'
+                  )}
+                </p>
+              )}
+              <p>
+                {t('Order ID')} ·{' '}
+                <code className='break-all'>{value.order_id}</code>
+              </p>
+              {refund && value.refund_ref && (
+                <p>
+                  {t('Refund reference')} ·{' '}
+                  <code className='break-all'>{value.refund_ref}</code>
+                </p>
+              )}
+              <a
+                className='text-primary underline'
+                href={
+                  '/support?' +
+                  new URLSearchParams({
+                    category: refund ? 'refund' : 'billing',
+                    referenceId: value.order_id,
+                  })
+                }
+              >
+                {t('Contact support')}
+              </a>
+            </div>
+          )}
+          {confirmable && (
             <Button
               disabled={confirm.isPending || order.isFetching || order.isError}
               onClick={() => confirm.mutate()}
@@ -94,9 +142,13 @@ export function RelayCheckout({ orderID }: { orderID: string }) {
           )}
         </>
       )}
-      {(order.isError || confirm.isError) && (
+      {(order.isError || (confirmable && confirm.isError)) && (
         <p role='alert'>
-          {t('Could not verify the order. Check its status before retrying.')}
+          {order.isError
+            ? t('Could not load records.')
+            : t(
+                'Could not verify the order. Check its status before retrying.'
+              )}
         </p>
       )}
       <Button

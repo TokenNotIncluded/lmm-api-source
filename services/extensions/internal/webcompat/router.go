@@ -63,7 +63,7 @@ func Mount(host *modules.Host, auth *Authenticator, catalogue StoreService, supp
 		RegisterMarketAIReview(routes.forPlugins("store", "toolmarket"), auth, additional.MarketReview)
 		registerProductAIReviews(routes.forPlugins("store"), auth, catalogue)
 		registerToolAIReviews(routes.forPlugins("toolmarket"), auth, additional.ToolMarket)
-		registerSSMCPRelay(routes.forPlugins("ssmcpd", "toolmarket", "store"), auth, additional.SSMCPRelay)
+		RegisterSSMCPRelay(routes.forPlugins("ssmcpd", "toolmarket", "store"), auth, additional.SSMCPRelay)
 		RegisterBuiltinHTTP(routes.forPlugins("toolmarket"), additional.Builtins)
 		if !store.Missing(additional.ToolMarketMCP) {
 			routes.forPlugins("toolmarket").Handle("/mcp/market", additional.ToolMarketMCP)

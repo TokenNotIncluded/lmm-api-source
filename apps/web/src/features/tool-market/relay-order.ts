@@ -9,6 +9,7 @@ export const relayOrderStates = z.enum([
   'declined',
   'expired',
   'refund_required',
+  'refund_pending',
   'needs_review',
   'refunded',
 ])
@@ -31,6 +32,7 @@ const orderResponse = z.object({
       .optional(),
     period: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/),
     state: relayOrderStates,
+    refund_ref: z.string().optional(),
   }),
 })
 export function readRelayOrder(

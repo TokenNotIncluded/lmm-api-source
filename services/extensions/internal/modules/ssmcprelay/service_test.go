@@ -96,6 +96,23 @@ func (f *testFunds) Query(_ context.Context, _ string, c store.MoneyCommand) (st
 	}
 	return store.Receipt{}, store.ErrPending
 }
+func (f *testFunds) LookupCommerceReceipt(_ context.Context, _ string, c store.MoneyCommand) (store.Receipt, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if r, ok := f.ops[c.Key]; ok {
+		return r, nil
+	}
+	return store.Receipt{}, store.ErrNotFound
+}
+
+type refundTestAuth struct{}
+
+func (refundTestAuth) Check(_ context.Context, token string, a store.Account, p store.Permission) (int64, error) {
+	if token == "merchant" && a == (store.Account{Kind: "team", ID: 7}) && p == store.Manage {
+		return 7, nil
+	}
+	return 0, store.ErrForbidden
+}
 func (f *testFunds) CompleteDelivery(_ context.Context, c store.MoneyCommand, payHash, delivery string) (store.Receipt, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -118,7 +135,13 @@ type testRelay struct {
 }
 
 func (r *testRelay) Quota(_ context.Context, id int64) (Quota, error) {
-	return Quota{UserID: fmt.Sprint(id), Username: "test", Period: "2030-01", ResetAt: 1896134400, FreeBytes: "0", PaidBytes: "0", UsedBytes: "0", LegacyUsedBytes: "0", UploadedBytes: "0", DownloadedBytes: "0"}, nil
+	period := "2030-01"
+	reset := int64(1896134400)
+	if r.expired {
+		period = "2030-02"
+		reset += 28 * 86400
+	}
+	return Quota{UserID: fmt.Sprint(id), Username: "test", Period: period, ResetAt: reset, FreeBytes: "0", PaidBytes: "0", UsedBytes: "0", LegacyUsedBytes: "0", UploadedBytes: "0", DownloadedBytes: "0"}, nil
 }
 func (r *testRelay) Grant(_ context.Context, e Entitlement) error {
 	r.mu.Lock()
@@ -145,6 +168,9 @@ func fixture(t *testing.T) (*Service, *testRelay, *testFunds) {
 	f := &testFunds{ops: map[string]store.Receipt{}}
 	s, err := New(r, &testRepo{data: map[string]map[string][]byte{}}, f, store.Account{Kind: "team", ID: 7})
 	if err != nil {
+		t.Fatal(err)
+	}
+	if err = s.WithRefundAuthority(refundTestAuth{}); err != nil {
 		t.Fatal(err)
 	}
 	s.now = func() time.Time { return time.Unix(1894000000, 0) }
@@ -219,7 +245,7 @@ func TestNoNewChargeAfterExpiryAndExplicitRefund(t *testing.T) {
 	if expired, e := s.Confirm(ctx, 2, "user", later.ID); !errors.Is(e, ErrGrantConflict) || expired.State != "refund_required" {
 		t.Fatal(expired, e)
 	}
-	if _, e = s.RefundExpired(ctx, 2, "user", o.ID); !errors.Is(e, store.ErrConflict) {
+	if _, e = s.RefundExpired(ctx, 2, "merchant", o.ID); !errors.Is(e, store.ErrConflict) {
 		t.Fatal(e)
 	}
 	for i := 0; i < 2; i++ {
@@ -227,6 +253,9 @@ func TestNoNewChargeAfterExpiryAndExplicitRefund(t *testing.T) {
 		if e != nil || refund.State != "refunded" {
 			t.Fatal(refund, e)
 		}
+	}
+	if leaked, err := s.RefundExpired(ctx, 2, "user", later.ID); !errors.Is(err, store.ErrForbidden) || leaked != (Order{}) {
+		t.Fatal("replay leaked a receipt", leaked, err)
 	}
 	if len(f.ops) != 2 || len(r.grants) != 0 {
 		t.Fatal(f.ops, r.grants)

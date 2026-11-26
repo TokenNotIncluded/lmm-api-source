@@ -21,18 +21,28 @@ type Funds interface {
 }
 
 type Service struct {
-	relay  Relay
-	repo   store.Repository
-	funds  Funds
-	seller store.Account
-	now    func() time.Time
+	relay           Relay
+	repo            store.Repository
+	funds           Funds
+	seller          store.Account
+	now             func() time.Time
+	refundAuthority store.Authority
 }
 
 func New(relay Relay, repo store.Repository, funds Funds, seller store.Account) (*Service, error) {
 	if store.Missing(relay) || store.Missing(repo) || store.Missing(funds) || !seller.Valid() {
 		return nil, store.ErrInvalid
 	}
-	return &Service{relay, repo, funds, seller, time.Now}, nil
+	return &Service{relay: relay, repo: repo, funds: funds, seller: seller, now: time.Now}, nil
+}
+
+// WithRefundAuthority configures the live Core seller check during composition.
+func (s *Service) WithRefundAuthority(auth store.Authority) error {
+	if s == nil || store.Missing(auth) {
+		return store.ErrInvalid
+	}
+	s.refundAuthority = auth
+	return nil
 }
 
 // Order contains the immutable quote and the last durably observed business state.
@@ -52,6 +62,7 @@ type Order struct {
 	State                string        `json:"state"`
 	PaymentRef           string        `json:"payment_ref,omitempty"`
 	SettlementRef        string        `json:"settlement_ref,omitempty"`
+	GrantAbsentInPeriod  string        `json:"grant_absent_in_period,omitempty"`
 	RefundRef            string        `json:"refund_ref,omitempty"`
 }
 
@@ -238,7 +249,7 @@ func (s *Service) Confirm(ctx context.Context, user int64, token, id string) (Or
 			return o, store.ErrConflict
 		case "expired":
 			return o, ErrMonth
-		case "refund_required", "needs_review":
+		case "refund_required", "refund_pending", "needs_review":
 			return o, ErrGrantConflict
 		case "preview":
 			if s.now().Unix() >= o.ResetAt {
@@ -305,37 +316,134 @@ func (s *Service) Confirm(ctx context.Context, user int64, token, id string) (Or
 	}
 }
 
-// RefundExpired uses the merchant's own Core authority to release a reservation
-// only after ssmcpd definitively refused an undelivered, expired order.
+// Only an authenticated Core read returning no receipt establishes absence.
+// A timeout, malformed receipt or unavailable reader always leaves the effect unknown.
+type receiptLookup interface {
+	LookupCommerceReceipt(context.Context, string, store.MoneyCommand) (store.Receipt, error)
+}
+
 func (s *Service) RefundExpired(ctx context.Context, user int64, merchantToken, id string) (Order, error) {
 	if merchantToken == "" {
 		return Order{}, store.ErrUnauthorized
 	}
+	if store.Missing(s.refundAuthority) {
+		return Order{}, store.ErrUnavailable
+	}
 	o, err := s.GetOrder(ctx, user, id)
 	if err != nil {
-		return o, err
+		return Order{}, err
 	}
-	if o.State == "refunded" {
-		return o, nil
+	if _, err = s.refundAuthority.Check(ctx, merchantToken, o.Seller, store.Manage); err != nil {
+		return Order{}, err
 	}
-	if o.State != "refund_required" {
-		return o, store.ErrConflict
+	reader, ok := s.funds.(receiptLookup)
+	if !ok {
+		return Order{}, store.ErrUnavailable
 	}
-	c := o.command("refund")
-	r, err := s.funds.Execute(ctx, merchantToken, c)
-	if err != nil || !goodReceipt(c, r) {
-		return o, store.ErrPending
+	for {
+		switch o.State {
+		case "payment_pending", "grant_pending", "refund_required", "refund_pending", "refunded":
+		default:
+			return o, store.ErrConflict
+		}
+		if _, e := time.Parse("2006-01", o.Period); e != nil || o.ResetAt <= 0 || s.now().Unix() < o.ResetAt || o.SettlementRef != "" {
+			return o, store.ErrConflict
+		}
+		pay := o.command("pay")
+		paid, e := reader.LookupCommerceReceipt(ctx, merchantToken, pay)
+		if e == store.ErrUnauthorized || e == store.ErrForbidden {
+			return Order{}, e
+		}
+		if e != nil || !goodReceipt(pay, paid) {
+			return o, store.ErrPending
+		}
+		if paid.Outcome != "succeeded" || (o.PaymentRef != "" && o.PaymentRef != paid.Reference) {
+			return o, store.ErrConflict
+		}
+
+		next := o
+		next.PaymentRef = paid.Reference
+		refund := next.command("refund")
+		if o.State == "refunded" {
+			r, err := reader.LookupCommerceReceipt(ctx, merchantToken, refund)
+			if err == store.ErrUnauthorized || err == store.ErrForbidden {
+				return Order{}, err
+			}
+			if err != nil || !goodReceipt(refund, r) {
+				return o, store.ErrPending
+			}
+			if r.Outcome != "succeeded" || r.Reference != o.RefundRef {
+				return o, store.ErrConflict
+			}
+			return o, nil
+		}
+		if o.State != "refund_pending" {
+			q, err := s.Quota(ctx, user)
+			if err != nil {
+				return o, store.ErrPending
+			}
+			if _, err = time.Parse("2006-01", q.Period); err != nil || q.UserID != strconv.FormatInt(user, 10) || q.ResetAt <= s.now().Unix() {
+				return o, store.ErrPending
+			}
+			if q.Period <= o.Period {
+				return o, store.ErrConflict
+			}
+			// The accounting journal checks the original order before checking the
+			// current month. Replaying a prior month can never issue a new grant.
+			switch err = s.relay.Grant(ctx, o.entitlement()); {
+			case err == nil:
+				next.State = "settlement_pending"
+				saved, err := s.advance(ctx, o, next)
+				if err != nil {
+					return saved, err
+				}
+				return saved, store.ErrConflict
+			case errors.Is(err, ErrMonth):
+				next.State = "refund_pending"
+				next.GrantAbsentInPeriod = q.Period
+			case errors.Is(err, ErrGrantConflict):
+				return o, store.ErrConflict
+			default:
+				return o, store.ErrPending
+			}
+			o, err = s.advance(ctx, o, next)
+			if err != nil {
+				return o, err
+			}
+			continue
+		}
+		if _, err := time.Parse("2006-01", o.GrantAbsentInPeriod); err != nil || o.GrantAbsentInPeriod <= o.Period || o.PaymentRef != paid.Reference {
+			return o, store.ErrConflict
+		}
+		r, err := reader.LookupCommerceReceipt(ctx, merchantToken, refund)
+		if errors.Is(err, store.ErrNotFound) {
+			settle := next.command("settle")
+			_, lookupErr := reader.LookupCommerceReceipt(ctx, merchantToken, settle)
+			switch {
+			case lookupErr == store.ErrUnauthorized || lookupErr == store.ErrForbidden:
+				return Order{}, lookupErr
+			case lookupErr == nil:
+				return o, store.ErrConflict
+			case !errors.Is(lookupErr, store.ErrNotFound):
+				return o, store.ErrPending
+			}
+			// The original exact refund key is absent on Core. No other money
+			// command may be substituted when this call or its reply is lost.
+			r, err = s.funds.Execute(ctx, merchantToken, refund)
+		}
+		if err == store.ErrUnauthorized || err == store.ErrForbidden {
+			return Order{}, err
+		}
+		if err != nil || !goodReceipt(refund, r) {
+			return o, store.ErrPending
+		}
+		if r.Outcome != "succeeded" {
+			return o, store.ErrConflict
+		}
+		next.State, next.RefundRef = "refunded", r.Reference
+		o, err = s.advance(ctx, o, next)
+		if err != nil {
+			return o, err
+		}
 	}
-	next := o
-	if r.Outcome == "rejected" {
-		next.State = "needs_review"
-	} else {
-		next.State = "refunded"
-		next.RefundRef = r.Reference
-	}
-	saved, err := s.advance(ctx, o, next)
-	if err == nil && saved.State != "refunded" {
-		err = ErrGrantConflict
-	}
-	return saved, err
 }

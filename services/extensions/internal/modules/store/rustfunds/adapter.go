@@ -7,7 +7,9 @@ import (
 	"encoding/json"
 	pb "github.com/TokenNotIncluded/lmm-api/extensions/internal/corepb"
 	"github.com/TokenNotIncluded/lmm-api/extensions/internal/modules/store"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
+	"google.golang.org/grpc/status"
 )
 
 type Core interface {
@@ -87,12 +89,31 @@ func (a *Adapter) Execute(ctx context.Context, user string, c store.MoneyCommand
 	return receipt(r, c)
 }
 func (a *Adapter) Query(ctx context.Context, user string, c store.MoneyCommand) (store.Receipt, error) {
+	r, err := a.LookupCommerceReceipt(ctx, user, c)
+	if err == store.ErrNotFound || err == store.ErrForbidden || err == store.ErrUnauthorized {
+		err = store.ErrPending
+	}
+	return r, err
+}
+
+// LookupCommerceReceipt distinguishes a successful empty Core response from
+// unavailable evidence. An RPC error never authorizes a new financial effect.
+func (a *Adapter) LookupCommerceReceipt(ctx context.Context, user string, c store.MoneyCommand) (store.Receipt, error) {
 	if _, err := a.command(c); err != nil {
 		return store.Receipt{}, err
 	}
 	r, err := a.core.QueryCommerce(ctx, user, &pb.QueryCommerceRequest{ProtocolMajor: 1, ShopId: c.ShopID, OrderId: c.OrderID, OperationKey: c.Key})
-	if err != nil || r == nil || r.GetReceipt() == nil {
+	switch status.Code(err) {
+	case codes.PermissionDenied:
+		return store.Receipt{}, store.ErrForbidden
+	case codes.Unauthenticated:
+		return store.Receipt{}, store.ErrUnauthorized
+	}
+	if err != nil || r == nil {
 		return store.Receipt{}, store.ErrPending
+	}
+	if r.GetReceipt() == nil {
+		return store.Receipt{}, store.ErrNotFound
 	}
 	return receipt(r.GetReceipt(), c)
 }
