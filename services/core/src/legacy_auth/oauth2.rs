@@ -97,11 +97,71 @@ fn flow_cookie(
     }
     response
 }
+#[path = "oauth2-copy.rs"]
+mod copy;
 const CONSENT_STYLE: &str = include_str!("oauth2-consent.css");
+// Same folded-ribbon mark rendered by the Web authentication header.
+const BRAND_MARK: &str = r##"<svg class="brand-mark" viewBox="0 -89 448 448" aria-hidden="true" focusable="false"><defs><linearGradient id="ribbon" x1="0" y1="0" x2="1" y2="1"><stop stop-color="currentColor"/><stop offset="1" stop-color="currentColor" stop-opacity=".65"/></linearGradient></defs>
+<path d="M8 67C8 53 12 45 24 38L76 7C79 5 80 7 80 12V125C80 135 85 138 92 134L25 174C15 180 8 174 8 164Z" fill="currentColor"/>
+<path d="M8 163C8 173 16 178 26 172L119 118C132 110 144 110 156 118L169 127C178 133 183 142 183 153V174C183 187 178 194 167 201L119 229C108 236 96 236 85 229L24 193C13 186 8 178 8 163Z" fill="currentColor" opacity=".65"/>
+<path d="M145 98L193 70C207 62 218 62 231 71L294 113C307 122 314 133 314 148V194C314 210 308 220 295 228L244 257C241 259 239 257 239 253V184C239 171 234 161 223 153Z" fill="url(#ribbon)"/>
+<path d="M282 98L330 70C344 62 355 62 368 71L418 105C430 114 437 125 437 140V194C437 210 431 220 418 228L367 257C364 259 362 257 362 253V184C362 171 357 161 346 153Z" fill="url(#ribbon)"/></svg>"##;
+const LANGUAGES: [(&str, &str); 7] = [
+    ("en", "English"),
+    ("zh-CN", "简体中文"),
+    ("zh-TW", "繁體中文"),
+    ("fr", "Français"),
+    ("ja", "日本語"),
+    ("ru", "Русский"),
+    ("vi", "Tiếng Việt"),
+];
 
-fn page(page: ConsentPage, config: &LegacyAuthConfig) -> Response {
+fn preferred_language(value: Option<&str>) -> Option<usize> {
+    LANGUAGES.iter().position(|(tag, _)| Some(*tag) == value)
+}
+fn stored_language(headers: &HeaderMap) -> Option<usize> {
+    headers
+        .get_all(header::COOKIE)
+        .iter()
+        .filter_map(|value| value.to_str().ok())
+        .flat_map(|line| line.split(';'))
+        .filter_map(|pair| pair.trim().strip_prefix("lmm_ui_locale="))
+        .find_map(|value| preferred_language(Some(value)))
+}
+fn remember_language(mut response: Response, language: Option<usize>, secure: bool) -> Response {
+    if let Some(index) = language {
+        let secure = if secure { "; Secure" } else { "" };
+        let value = format!(
+            "lmm_ui_locale={}; Path=/; Max-Age=31536000; SameSite=Lax{secure}",
+            LANGUAGES[index].0
+        );
+        response.headers_mut().append(
+            header::SET_COOKIE,
+            HeaderValue::from_str(&value).expect("fixed locale cookie"),
+        );
+    }
+    response
+}
+fn localized(words: &copy::Labels) -> String {
+    let mut text = String::from("<span class=s-l10n>");
+    for ((tag, _), word) in LANGUAGES.iter().zip(words) {
+        text.push_str(&format!(r#"<span lang="{tag}">{}</span>"#, escape(word)));
+    }
+    text.push_str("</span>");
+    text
+}
+fn detail(body: &mut String, labels: &copy::Labels, value: &str) {
+    body.push_str(&format!(
+        "<dt>{}</dt><dd>{}</dd>",
+        localized(labels),
+        escape(value)
+    ));
+}
+
+fn page(page: ConsentPage, config: &LegacyAuthConfig, preference: Option<usize>) -> Response {
+    let locale = preference.unwrap_or(0);
     let managed = matches!(page.client_id.as_str(), "lmm-cc-switch" | "lmm-magpie");
-    let client_name = escape(match page.client_id.as_str() {
+    let client_name = match page.client_id.as_str() {
         "lmm" => "LMM CLI",
         "lmm-pi" => "LMM Pi",
         "lmm-cc-switch" => "LMM CC Switch",
@@ -110,40 +170,68 @@ fn page(page: ConsentPage, config: &LegacyAuthConfig) -> Response {
             .iter()
             .find_map(|(client, name)| (*client == id).then_some(*name))
             .unwrap_or(id),
-    });
+    };
+    let signed_in = page.account.is_some();
+    let lang = LANGUAGES[locale].0;
     let mut body = format!(
-        "<!doctype html><html lang=en><meta charset=utf-8><meta name=viewport content=\"width=device-width,initial-scale=1\"><title>LMM authorization</title><style>{CONSENT_STYLE}</style><main><header><p>lmm.best</p><h1>Authorize an application</h1></header><dl><dt>Application</dt><dd>{client_name}</dd>"
+        r#"<!doctype html><html lang="{lang}"><head><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1"><title>{}</title><style>{CONSENT_STYLE}</style></head><body><div class=page-shell><header class=masthead><span class=brand>{BRAND_MARK}LMM API</span><div class=locale-picker><label for=language>{}</label><select id=language name=ui_locale form=authorization>"#,
+        escape(copy::TITLE[locale]),
+        localized(&copy::LANGUAGE)
     );
-    if let Some(issuer) = &config.oauth2 {
+    if preference.is_none() {
+        // The Web UI may still have a localStorage-only preference. Preserve it
+        // when the user opens sign-in without explicitly choosing a language.
+        body.push_str("<option value=site selected>English · site default</option>");
+    }
+    for (index, (tag, name)) in LANGUAGES.iter().enumerate() {
+        let selected = if Some(index) == preference {
+            " selected"
+        } else {
+            ""
+        };
         body.push_str(&format!(
-            "<dt>Resource</dt><dd>{}</dd>",
-            escape(issuer.profile().resource())
+            r#"<option lang="{tag}" value="{tag}"{selected}>{name}</option>"#
         ));
+    }
+    let heading = if signed_in {
+        &copy::CONSENT_TITLE
+    } else {
+        &copy::SIGN_IN_TITLE
+    };
+    body.push_str(&format!(
+        "</select></div></header><main><h1>{}</h1><dl class=details>",
+        localized(heading)
+    ));
+    detail(&mut body, &copy::APPLICATION, client_name);
+    if let Some(issuer) = &config.oauth2 {
+        detail(&mut body, &copy::RESOURCE, issuer.profile().resource());
     }
     if let Some(account) = &page.account {
-        body.push_str(&format!("<dt>Account</dt><dd>{}</dd>", escape(account)));
+        detail(&mut body, &copy::ACCOUNT, account);
     }
     if managed && let (Some(id), Some(label)) = (&page.installation_id, &page.display_label) {
-        body.push_str(&format!(
-            "<dt>Installation</dt><dd>{}</dd><dt>Device</dt><dd>{}</dd>",
-            escape(id),
-            escape(label)
-        ));
+        detail(&mut body, &copy::INSTALLATION, id);
+        detail(&mut body, &copy::DEVICE, label);
     }
     body.push_str("</dl>");
-    let action = if page.account.is_some() {
-        body.push_str("<section><h2>Permissions</h2><ul class=permissions><li>Read the model catalog and your personal wallet balance.</li>");
+    let action = if signed_in {
+        body.push_str(&format!(
+            "<section><h2>{}</h2><ul class=permissions><li>{}</li>",
+            localized(&copy::PERMISSIONS),
+            localized(&copy::READ)
+        ));
         if page.openid {
-            body.push_str(
-                "<li>Share your stable account identifier with this client (OpenID Connect).</li>",
-            );
+            body.push_str(&format!("<li>{}</li>", localized(&copy::OPENID)));
         }
         if page.maximum_budget_credits.is_some() {
-            body.push_str("<li>Call models in the listed groups and charge this personal account within your budget.</li>");
+            body.push_str(&format!("<li>{}</li>", localized(&copy::INVOKE)));
         }
         body.push_str("</ul></section>");
         if !page.groups.is_empty() {
-            body.push_str("<section><h2>Approved groups</h2><ul class=groups>");
+            body.push_str(&format!(
+                "<section><h2>{}</h2><ul class=groups>",
+                localized(&copy::GROUPS)
+            ));
             for group in &page.groups {
                 body.push_str(&format!("<li>{}</li>", escape(group)));
             }
@@ -151,31 +239,58 @@ fn page(page: ConsentPage, config: &LegacyAuthConfig) -> Response {
         }
         "/api/user/auth/oauth2/consent"
     } else {
-        body.push_str("<p>Sign in in another tab, then return here to review the permissions.</p><p><a href=\"/sign-in?reauth=1\" target=\"_blank\" rel=\"noopener noreferrer\">Open sign in</a></p>");
+        body.push_str(&format!(
+            "<p class=sign-in-help>{}</p><div class=s-l10n>",
+            localized(&copy::SIGN_IN_HELP)
+        ));
+        if preference.is_none() {
+            body.push_str(r#"<span class=site-sign-in><a class=sign-in-link href="/sign-in?reauth=1" target="_blank" rel="noopener noreferrer">Open sign in</a></span>"#);
+        }
+        for ((tag, _), label) in LANGUAGES.iter().zip(copy::OPEN_SIGN_IN) {
+            body.push_str(&format!(r#"<span lang="{tag}"><a class=sign-in-link href="/sign-in?reauth=1&amp;ui_locale={tag}" target="_blank" rel="noopener noreferrer">{}</a></span>"#, escape(label)));
+        }
+        body.push_str("</div>");
         "/api/user/auth/oauth2/continue"
     };
-    body.push_str(&format!(
-        "<form method=post action=\"{action}\"><input type=hidden name=csrf value=\"{}\">",
-        escape(&page.csrf)
-    ));
-    if let Some(maximum) = page
-        .maximum_budget_credits
-        .filter(|_| page.account.is_some())
-    {
-        body.push_str(&format!("<label>Lifetime budget in credits<input type=number name=budget_credits min=1 max={maximum} step=1 aria-describedby=budget-note required></label><p class=budget-note id=budget-note>500,000 credits per USD, including pending holds.</p>"));
+    body.push_str(&format!(r#"<form method=post action="{action}" id=authorization><input type=hidden name=csrf value="{}">"#,escape(&page.csrf)));
+    if let Some(maximum) = page.maximum_budget_credits.filter(|_| signed_in) {
+        // Ten US cents, or the issuer's smaller lifetime cap. The posted number
+        // stays editable and the issuer validates it again at explicit consent.
+        let suggested = maximum.min(50_000);
+        body.push_str(&format!(r#"<label for=budget>{}</label><input id=budget type=number name=budget_credits list=budget-presets min=1 max={maximum} value={suggested} step=1 aria-describedby=budget-note required><p class=budget-note id=budget-note>{}</p>"#, localized(&copy::BUDGET), localized(&copy::BUDGET_HELP)));
+    }
+    if let Some(maximum) = page.maximum_budget_credits.filter(|_| signed_in) {
+        body.push_str("<datalist id=budget-presets>");
+        for (credits, usd) in [
+            (50_000, "$0.10"),
+            (250_000, "$0.50"),
+            (500_000, "$1.00"),
+            (1_000_000, "$2.00"),
+        ] {
+            if credits <= maximum {
+                body.push_str(&format!(
+                    r#"<option value="{credits}" label="{usd} USD"></option>"#
+                ));
+            }
+        }
+        body.push_str("</datalist>");
     }
     body.push_str("<div class=actions>");
-    if page.account.is_some() {
+    if signed_in {
         let allow = if page.maximum_budget_credits.is_some() {
-            "Allow scoped model access"
+            &copy::ALLOW_INVOKE
         } else {
-            "Allow read-only access"
+            &copy::ALLOW_READ
         };
-        body.push_str(&format!("<button name=decision value=allow>{allow}</button><button name=decision value=deny formnovalidate>Deny</button>"));
+        body.push_str(&format!("<button name=decision value=allow>{}</button><button name=decision value=deny formnovalidate>{}</button>", localized(allow), localized(&copy::DENY)));
     } else {
-        body.push_str("<button>Continue after sign in</button>");
+        body.push_str(&format!("<button>{}</button>", localized(&copy::CONTINUE)));
     }
-    body.push_str("</div></form><footer>You can revoke client access from your account at any time.</footer></main></html>");
+    body.push_str("</div></form></main>");
+    if signed_in {
+        body.push_str(&format!("<footer>{}</footer>", localized(&copy::REVOKE)));
+    }
+    body.push_str("</div></body></html>");
     let mut response = axum::response::Html(body).into_response();
     use base64::Engine as _;
     let style_hash =
@@ -202,6 +317,7 @@ fn page(page: ConsentPage, config: &LegacyAuthConfig) -> Response {
 }
 async fn authorize(
     State(state): State<AuthState>,
+    headers: HeaderMap,
     input: Result<Query<AuthorizationInput>, QueryRejection>,
 ) -> Response {
     let Some(issuer) = &state.config.oauth2 else {
@@ -216,7 +332,7 @@ async fn authorize(
         AuthorizationInput::Managed(input) => issuer.begin_managed(input).await,
     };
     match result {
-        Ok(v) => page(v, &state.config),
+        Ok(v) => page(v, &state.config, stored_language(&headers)),
         Err(e) => auth_failure(e.into()),
     }
 }
@@ -239,7 +355,18 @@ async fn continue_authorization(
     }
     .await;
     let response = match result {
-        Ok(v) => page(v, &state.config),
+        Ok(v) => {
+            let picked = preferred_language(form.ui_locale.as_deref());
+            remember_language(
+                page(
+                    v,
+                    &state.config,
+                    picked.or_else(|| stored_language(&headers)),
+                ),
+                picked,
+                state.config.secure,
+            )
+        }
         Err(e) => auth_failure(e.into()),
     };
     flow_cookie(response, None, &form.csrf, &state.config)
@@ -263,13 +390,26 @@ async fn consent(
         };
         let binding = cookie(&headers, &state.config, &form.csrf)?;
         let refresh = refresh_cookie(&headers).ok().flatten();
+        let budget = if allow {
+            form.budget_credits
+                .as_deref()
+                .map(str::parse::<i64>)
+                .transpose()
+                .map_err(|_| IdentityError::Invalid)?
+        } else {
+            None
+        };
         issuer
-            .consent_with_budget(binding, &form.csrf, refresh, allow, form.budget_credits)
+            .consent_with_budget(binding, &form.csrf, refresh, allow, budget)
             .await
     }
     .await;
     let response = match result {
-        Ok(v) => Redirect::to(&v.uri).into_response(),
+        Ok(v) => remember_language(
+            Redirect::to(&v.uri).into_response(),
+            preferred_language(form.ui_locale.as_deref()),
+            state.config.secure,
+        ),
         Err(e) => auth_failure(e.into()),
     };
     flow_cookie(response, None, &form.csrf, &state.config)
@@ -355,6 +495,17 @@ async fn revoke_client_grants(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn locale_is_an_allowlisted_presentation_preference() {
+        let mut headers = HeaderMap::new();
+        assert_eq!(stored_language(&headers), None);
+        headers.insert(
+            header::COOKIE,
+            HeaderValue::from_static("other=ok; lmm_ui_locale=zh-TW"),
+        );
+        assert_eq!(stored_language(&headers), preferred_language(Some("zh-TW")));
+        assert_eq!(preferred_language(Some("unknown")), None);
+    }
     #[tokio::test]
     async fn consent_csp_allows_only_the_current_validated_callback() {
         use crate::identity::grants::LmmProfile;
@@ -409,6 +560,7 @@ mod tests {
                             groups: vec!["default".into()],
                         },
                         &config,
+                        Some(0),
                     );
                     let policy = response.headers()[header::CONTENT_SECURITY_POLICY]
                         .to_str()
@@ -424,7 +576,7 @@ mod tests {
                         expected.push_str(&request.redirect_uri);
                     }
                     assert_eq!(policy, expected);
-                    let body = axum::body::to_bytes(response.into_body(), 8192)
+                    let body = axum::body::to_bytes(response.into_body(), 65_536)
                         .await
                         .unwrap();
                     let html = std::str::from_utf8(&body).unwrap();
@@ -437,16 +589,30 @@ mod tests {
                     }
                     let action = if signed_in { "consent" } else { "continue" };
                     assert!(html.contains(&format!(
-                        "<form method=post action=\"/api/user/auth/oauth2/{action}\">"
+                        "<form method=post action=\"/api/user/auth/oauth2/{action}\" id=authorization>"
                     )));
                     assert!(html.contains("type=hidden name=csrf"));
-                    assert!(html.contains("<h1>Authorize an application</h1>"));
-                    let name = if client == "lmm-pi" {
-                        "LMM Pi"
+                    let heading = if signed_in {
+                        &copy::CONSENT_TITLE
                     } else {
-                        "LMM CLI"
+                        &copy::SIGN_IN_TITLE
                     };
-                    assert!(html.contains(&format!("<dt>Application</dt><dd>{name}</dd>")));
+                    for label in heading {
+                        assert!(html.contains(label));
+                    }
+                    let name = match client {
+                        "lmm" => "LMM CLI",
+                        "lmm-pi" => "LMM Pi",
+                        id => crate::identity::grants::PROVIDER_CLIENTS
+                            .iter()
+                            .find_map(|(client, name)| (*client == id).then_some(*name))
+                            .unwrap_or(id),
+                    };
+                    assert!(html.contains(&format!("<dd>{name}</dd>")));
+                    assert!(html.contains("name=ui_locale form=authorization"));
+                    if signed_in && client != "lmm" {
+                        assert!(html.contains("min=1 max=100 value=100"));
+                    }
                     assert!(!html.contains(&request.redirect_uri));
                     if signed_in {
                         assert!(html.contains("name=decision value=allow"));

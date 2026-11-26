@@ -102,8 +102,15 @@ i18n
     },
     detection: {
       // Retain an explicit choice across visits. A new visitor starts in English.
-      order: ['localStorage'],
-      caches: ['localStorage'],
+      order: typeof window !== 'undefined' && window.location.pathname === '/sign-in'
+        && new URLSearchParams(window.location.search).get('reauth') === '1'
+        ? ['querystring', 'cookie', 'localStorage']
+        : ['cookie', 'localStorage'],
+      lookupQuerystring: 'ui_locale',
+      lookupCookie: 'lmm_ui_locale',
+      caches: ['localStorage', 'cookie'],
+      cookieMinutes: 365 * 24 * 60,
+      cookieOptions: { path: '/', sameSite: 'lax' },
       convertDetectedLanguage,
     },
   })

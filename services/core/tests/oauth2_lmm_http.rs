@@ -414,7 +414,7 @@ async fn continue_page(f: &HttpFixture, browser_cookie: &str) -> (String, String
         .header(header::ORIGIN, ISSUER)
         .header(header::COOKIE, format!("{binding}; {browser_cookie}"))
         .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
-        .body(form(&[("csrf", &first_csrf)]))
+        .body(form(&[("csrf", &first_csrf), ("ui_locale", "zh-TW")]))
         .send()
         .await
         .unwrap_or_else(|_| panic!("owned HTTP transport failed"));
@@ -426,7 +426,8 @@ async fn continue_page(f: &HttpFixture, browser_cookie: &str) -> (String, String
         "Continue must replace the one-use binding"
     );
     let html = response.text().await.unwrap();
-    assert!(html.contains("Account: alice"));
+    assert!(html.contains(r#"<html lang="zh-TW">"#));
+    assert!(html.contains("<dd>alice</dd>"));
     assert!(html.contains("<li>default</li><li>private</li>"));
     assert!(!html.contains("<li>disabled</li>"));
     assert!(html.contains("/api/user/auth/oauth2/consent"));
@@ -587,7 +588,7 @@ async fn tcp_browser_requires_explicit_bound_ceremony_after_get(pool: PgPool) {
         let html = response.text().await.unwrap();
         let first_csrf = csrf(&html);
         assert!(html.contains("/api/user/auth/oauth2/continue"));
-        assert!(!html.contains("Account: alice"));
+        assert!(!html.contains("<dd>alice</dd>"));
         assert!(!html.contains("name=decision"));
         assert_eq!(counts(&f.owner).await, (0, 0, 0, 0, 0));
         let trusted_identity_rows: i64 = sqlx::query_scalar(
@@ -914,7 +915,15 @@ async fn tcp_parallel_flow_responses_do_not_replace_or_clear_another_tabs_cookie
                 .header(header::ORIGIN, ISSUER)
                 .header(header::COOKIE, &cookies)
                 .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
-                .body(form(&[("csrf", csrf), ("decision", decision)]))
+                .body(if decision == "deny" {
+                    form(&[
+                        ("csrf", csrf),
+                        ("decision", decision),
+                        ("budget_credits", ""),
+                    ])
+                } else {
+                    form(&[("csrf", csrf), ("decision", decision)])
+                })
                 .send()
                 .await
                 .unwrap_or_else(|_| panic!("owned HTTP transport failed"));

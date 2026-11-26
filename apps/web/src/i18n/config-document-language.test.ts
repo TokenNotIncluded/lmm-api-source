@@ -89,3 +89,10 @@ test('switches all supported document languages and falls back for unknown codes
   assert.equal(appI18n.resolvedLanguage, 'en')
   assert.equal(document.documentElement.lang, 'en')
 })
+
+test('shares a chosen locale with server-rendered authorization pages', async () => {
+  await appI18n.changeLanguage('zh-TW')
+  assert.match(browser.document.cookie, /(?:^|; )lmm_ui_locale=zh-TW(?:;|$)/)
+  assert.equal(browser.localStorage.getItem('i18nextLng'), 'zh-TW')
+  await appI18n.changeLanguage('en')
+})

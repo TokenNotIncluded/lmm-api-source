@@ -373,13 +373,15 @@ impl RevokeForm {
 #[serde(deny_unknown_fields)]
 pub struct ContinueForm {
     pub csrf: String,
+    pub ui_locale: Option<String>,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ConsentForm {
     pub csrf: String,
+    pub ui_locale: Option<String>,
     pub decision: String,
-    pub budget_credits: Option<i64>,
+    pub budget_credits: Option<String>,
 }
 
 #[derive(Serialize)]
