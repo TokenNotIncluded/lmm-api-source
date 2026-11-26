@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Exercise the actual Go host on loopback with temporary operator policies."""
+import hashlib
 import http.client
 import json
 import os
@@ -146,6 +147,40 @@ class LegalProcessTests(unittest.TestCase):
         self.assertEqual(self.request("POST", "/api/refund-policy")[0], 405)
         self.assertEqual(self.request("HEAD", "/api/user-agreement"), (200, b""))
         self.assertEqual(self.request("GET", "/api/user-agreement?lang=en&lang=zh")[0], 400)
+
+    def test_lmm_api_july_policies_and_refund_excerpts(self):
+        profile = self.root / "legal/sites/lmm-api-2.0"
+        self.config = tomllib.loads((profile / "site.toml").read_text())
+        self.assertFalse(self.config["published"])
+        self.assertEqual(self.config["default_language"], "en")
+        self.config.update(published=True, template_root=str(profile), variables={})
+        self.start()
+        captured = {
+            "user-agreement": "106d3b097b518d1d1990e5a095572a9439ca70336124e89965238300e2cdd261",
+            "privacy-policy": "6e3b03ad14122029364776d539c1480ce965ac0e3cd9ceb50c26069d76d78f69",
+        }
+        for document, digest in captured.items():
+            self.assertEqual(hashlib.sha256((profile / "zh-CN" / f"{document}.md").read_bytes()).hexdigest(), digest)
+        for language in ("en", "zh-CN", "zh-TW"):
+            terms = (profile / language / "user-agreement.md").read_text()
+            section = terms.split("\n## 7. ", 1)[1].split("\n## 8. ", 1)[0].split("\n", 1)[1].strip()
+            refund = (profile / language / "refund-policy.md").read_text()
+            self.assertEqual(refund.split("\n\n", 2)[2].strip(), section)
+        for document in ("user-agreement", "privacy-policy", "refund-policy"):
+            for query, source in (("", "en"), ("?lang=en-GB", "en"), ("?lang=fr", "en"),
+                                  ("?lang=zh", "zh-CN"), ("?lang=zh-CN", "zh-CN"),
+                                  ("?lang=zh-TW", "zh-TW"), ("?lang=zh-Hant", "zh-TW")):
+                with self.subTest(document=document, query=query):
+                    expected = (profile / source / f"{document}.md").read_bytes()
+                    path = f"/api/{document}{query}"
+                    status, raw = self.request("GET", path)
+                    self.assertEqual(status, 200)
+                    data = json.loads(raw)
+                    self.assertTrue(data["success"])
+                    self.assertEqual(data["language"], source.lower())
+                    self.assertEqual(data["data"].encode(), expected)
+                    self.assertEqual(data["revision"], hashlib.sha256(expected).hexdigest())
+                    self.assertEqual(self.request("HEAD", path), (200, b""))
 
     def test_reviewed_update_and_disable_need_only_extension_restart(self):
         self.start()

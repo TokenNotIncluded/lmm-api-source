@@ -1,0 +1,20 @@
+# LMM API operations profile for the policies effective July 31, 2026.
+# The paths are relative to this file. Enable the operator's reviewed copy.
+version = 1
+published = false
+default_language = "en"
+
+[documents.user-agreement]
+en = "en/user-agreement.md"
+zh-CN = "zh-CN/user-agreement.md"
+zh-TW = "zh-TW/user-agreement.md"
+
+[documents.privacy-policy]
+en = "en/privacy-policy.md"
+zh-CN = "zh-CN/privacy-policy.md"
+zh-TW = "zh-TW/privacy-policy.md"
+
+[documents.refund-policy]
+en = "en/refund-policy.md"
+zh-CN = "zh-CN/refund-policy.md"
+zh-TW = "zh-TW/refund-policy.md"

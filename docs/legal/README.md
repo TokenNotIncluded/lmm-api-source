@@ -26,6 +26,12 @@
 
 所有期限和条件均由运营方填写，不从某个支付渠道推导。模板不声称自动续订、退款、删除数据或同意记录功能已经接通。正式投入使用前，应请熟悉适用地区要求的专业人员审查。
 
+## LMM API 现行 2.0 站点配置
+
+[2.0 站点配置](../../config/legal/sites/lmm-api-2.0/site.toml) 对应 2026 年 7 月 31 日起的现行服务条款与隐私政策。简体中文保留当时发布的两份正文。英语与繁体中文为相同政策的译文。各语种的独立退款页摘录同语种服务条款第 7 节。默认语言为英语。
+
+运营方可将整个 `config/legal/sites/lmm-api-2.0/` 复制到独立的只读发布目录，保留三个语言目录与 `site.toml` 的相对位置。在已审核的站点配置副本中将 `published` 设为 `true`，再将 Extensions 的 `[legal].config_file` 指向该副本的绝对路径并重启 Extensions 进程。归档上一份配置路径即可恢复。独立的 [2.1 政策预告](https://api.lmm.best/announcements/2026-11-27-service-region/) 可从站点公告入口展示。更新语言版本本身不会创建同意记录。
+
 ## 读取与更新
 
 保留前端已有响应结构：`{ "success": true, "data": "Markdown" }`。已发布内容还带 `language` 和内容 SHA-256 `revision`。
