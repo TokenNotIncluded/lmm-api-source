@@ -518,6 +518,12 @@ async fn execute(
         .await
         .map_err(|_| RelayError::SettlementPending)?
         .map_err(|_| RelayError::SettlementPending)?;
+        gateway
+            .note_native_cooldown(
+                &attempt,
+                native_http::cooldown_deadline(&connection, &response),
+            )
+            .await;
         if !connection.matches_peer(response.remote_addr())
             || !response.status().is_success()
             || response.headers().contains_key(header::CONTENT_ENCODING)

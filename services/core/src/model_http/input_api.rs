@@ -927,6 +927,12 @@ async fn execute(
             }
             // This API has no supplier contract proving free non-successful dispatches.
             if !response.status().is_success() {
+                gateway
+                    .note_native_cooldown(
+                        &attempt,
+                        native_http::cooldown_deadline(&connection, &response),
+                    )
+                    .await;
                 return Err(RelayError::SettlementPending);
             }
             if let Some(sender) = &stream {

@@ -227,7 +227,7 @@ async fn routing_health(
         .map_err(|_| ManagementError::Conflict)?;
     // Only allowlisted diagnostics, never key IDs, credentials, provider payloads or
     // caller tokens. Prefer the most recent outstanding disable reason.
-    let rows=sqlx::query("SELECT channel_id,credential_id,credential_revision,disabled_scope,reason,status_code,floor(extract(epoch FROM last_probe_at))::bigint AS last_probe_at,latency_ms,floor(extract(epoch FROM next_probe_at))::bigint AS next_probe_at FROM core_channels.route_health WHERE routing_version=$1 ORDER BY channel_id,(disabled_scope IS NOT NULL) DESC,next_probe_at DESC")
+    let rows=sqlx::query("SELECT channel_id,credential_id,credential_revision,CASE WHEN disabled_scope IS NULL AND reason='http_status' AND status_code=429 AND next_probe_at>statement_timestamp() THEN 'channel' ELSE disabled_scope END AS disabled_scope,(disabled_scope IS NULL AND reason='http_status' AND status_code=429 AND next_probe_at>statement_timestamp()) IS TRUE AS cooling_down,reason,status_code,floor(extract(epoch FROM last_probe_at))::bigint AS last_probe_at,latency_ms,floor(extract(epoch FROM next_probe_at))::bigint AS next_probe_at FROM core_channels.route_health WHERE routing_version=$1 ORDER BY channel_id,(disabled_scope IS NOT NULL) DESC,next_probe_at DESC")
         .bind(routing.version as i64).fetch_all(c).await.map_err(ManagementError::from)?;
     let mut by_channel = BTreeMap::new();
     for row in rows {
@@ -284,9 +284,10 @@ async fn routing_health(
             .filter_map(|r| {
                 let policy = routing.routing_reliability.as_ref()?;
                 (u.enabled
-                    && policy.probe_enabled
-                    && (policy.probe_mode == crate::routing::ProbeMode::ScheduledAll
-                        || r.get::<Option<String>, _>("disabled_scope").is_some()))
+                    && (r.get::<bool, _>("cooling_down")
+                        || (policy.probe_enabled
+                            && (policy.probe_mode == crate::routing::ProbeMode::ScheduledAll
+                                || r.get::<Option<String>, _>("disabled_scope").is_some()))))
                 .then(|| r.get::<i64, _>("next_probe_at"))
             })
             .min();

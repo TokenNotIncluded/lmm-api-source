@@ -314,7 +314,7 @@ impl ModelGateway {
         &self,
         upstream: &crate::routing::UpstreamConfig,
     ) -> Result<ChannelProbe, RelayError> {
-        self.probe_channel_snapshot_health(upstream, &[], &mut false)
+        self.probe_channel_snapshot_health(upstream, &[], &mut false, &mut None)
             .await
     }
 
@@ -323,6 +323,7 @@ impl ModelGateway {
         upstream: &crate::routing::UpstreamConfig,
         keywords: &[String],
         keyword_match: &mut bool,
+        retry_at: &mut Option<std::time::SystemTime>,
     ) -> Result<ChannelProbe, RelayError> {
         let credential = self
             .bridge
@@ -383,6 +384,7 @@ impl ModelGateway {
                     .map_err(|_| RelayError::RouteUnavailable)?;
                 if !response.status().is_success() {
                     let status = response.status().as_u16();
+                    *retry_at = native_http::cooldown_deadline(&connection, &response);
                     if !keywords.is_empty() {
                         let mut limits = self.limits.clone();
                         limits.output_bytes = limits.output_bytes.min(65_536);

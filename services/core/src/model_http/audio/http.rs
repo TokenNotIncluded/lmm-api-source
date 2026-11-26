@@ -569,6 +569,12 @@ async fn execute(
         .map_err(|_| RelayError::SettlementPending)?
         .map_err(|_| RelayError::SettlementPending)?;
         if !upstream.status().is_success() {
+            gateway
+                .note_native_cooldown(
+                    &attempt,
+                    native_http::cooldown_deadline(&connection, &upstream),
+                )
+                .await;
             return Err(RelayError::SettlementPending);
         }
         if request.stream == Some(true) {

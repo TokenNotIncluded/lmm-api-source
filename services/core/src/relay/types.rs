@@ -417,6 +417,7 @@ pub trait RouteProvider: Send + Sync + 'static {
         _reason: &'static str,
         _status: Option<u16>,
         _elapsed_ms: u64,
+        _retry_at: Option<std::time::SystemTime>,
     ) -> RelayFuture<'a, ()> {
         Box::pin(async { Ok(()) })
     }

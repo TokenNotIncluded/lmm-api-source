@@ -160,6 +160,7 @@ impl ProviderTransport {
         &self,
         route: &Route,
         limits: &Limits,
+        retry_at: &mut Option<std::time::SystemTime>,
     ) -> Result<ResponsesConnection, RelayError> {
         use reqwest::header;
         use tokio_tungstenite::tungstenite::{
@@ -228,6 +229,9 @@ impl ProviderTransport {
         // Check the actual connected peer before accepting headers or upgraded IO.
         if !connection.matches_peer(response.remote_addr()) || !route.is_available() {
             return Err(RelayError::UpstreamConnection);
+        }
+        if response.status().as_u16() == 429 {
+            *retry_at = super::cooldown::deadline(response.headers(), std::time::SystemTime::now());
         }
         validate_ws_upgrade(
             response.version(),
@@ -373,6 +377,48 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn websocket_upgrade_records_only_the_pinned_429_without_sending_a_create() {
+        let requests = Arc::new(AtomicUsize::new(0));
+        let count = requests.clone();
+        let app = Router::new().route(
+            "/v1/responses",
+            axum::routing::get(move || async move {
+                count.fetch_add(1, Ordering::SeqCst);
+                (
+                    axum::http::StatusCode::TOO_MANY_REQUESTS,
+                    [("retry-after", "120")],
+                )
+            }),
+        );
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let peer = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+        let route = super::super::Route::new(
+            "r1".into(),
+            super::super::UpstreamProtocol::Responses,
+            &format!("http://{peer}/v1/responses"),
+            "model".into(),
+            "synthetic-ws-only",
+            1,
+        )
+        .unwrap();
+        let mut retry_at = None;
+        let before = std::time::SystemTime::now();
+        assert!(
+            ProviderTransport::new(1)
+                .upgrade_responses(&route, &Limits::default(), &mut retry_at)
+                .await
+                .is_err()
+        );
+        let delay = retry_at.unwrap().duration_since(before).unwrap();
+        assert!(delay >= std::time::Duration::from_secs(120));
+        assert!(
+            retry_at.unwrap() <= std::time::SystemTime::now() + std::time::Duration::from_secs(120)
+        );
+        assert_eq!(requests.load(Ordering::SeqCst), 1);
+        server.abort();
+    }
+    #[tokio::test]
     async fn websocket_upgrade_uses_bound_get_and_keeps_one_real_connection() {
         use crate::relay::{Request, responses_ws::Create};
         use axum::{
@@ -418,7 +464,7 @@ mod tests {
         .unwrap();
         let limits = Limits::default();
         let mut socket = ProviderTransport::new(1)
-            .upgrade_responses(&route, &limits)
+            .upgrade_responses(&route, &limits, &mut None)
             .await
             .unwrap();
         let mut different_credential = route.clone();

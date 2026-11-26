@@ -1870,6 +1870,7 @@ dependencies = [
  "html-escape",
  "http-body",
  "http-body-util",
+ "httpdate",
  "hyper",
  "hyper-util",
  "ipnet",

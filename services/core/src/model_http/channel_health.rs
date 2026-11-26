@@ -11,6 +11,7 @@ struct ProbeObservation {
     elapsed: Duration,
     status: Option<u16>,
     keyword_match: bool,
+    retry_at: Option<std::time::SystemTime>,
 }
 
 impl Bridge {
@@ -62,7 +63,7 @@ impl Bridge {
         };
         // A slower older snapshot must never overwrite a newer refresh on this process.
         let _guard = self.health_refresh.lock().await;
-        let rows = sqlx::query("SELECT channel_id,credential_id,credential_revision,disabled_scope FROM core_channels.route_health WHERE routing_version=$1 AND disabled_scope IS NOT NULL")
+        let rows = sqlx::query("SELECT channel_id,credential_id,credential_revision,coalesce(disabled_scope,'channel') AS disabled_scope FROM core_channels.route_health WHERE routing_version=$1 AND (disabled_scope IS NOT NULL OR (reason='http_status' AND status_code=429 AND next_probe_at>statement_timestamp()))")
             .bind(version.routing as i64).fetch_all(&self.pool).await.map_err(|_| RelayError::RouteUnavailable)?;
         let mut disabled: HashMap<u64, HashMap<CredentialRef, bool>> = HashMap::new();
         for row in rows {
@@ -80,16 +81,74 @@ impl Bridge {
             .map_err(|_| RelayError::RouteUnavailable)
     }
 
+    // Rate-limit observations update every key of a channel. A probe already
+    // owns a row when it updates the other keys. Serialize these rare writers
+    // by channel before taking any of the row locks.
+    async fn lock_cooldown(tx: &mut sqlx::PgConnection, channel: u64) -> Result<(), RelayError> {
+        sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended('lmm:channel-cooldown:' || $1::bigint::text, 0))")
+            .bind(channel as i64).execute(tx).await.map_err(|_| RelayError::RouteUnavailable)?;
+        Ok(())
+    }
+
+    async fn write_cooldown(
+        &self,
+        tx: &mut sqlx::PgConnection,
+        version: ReleaseVersion,
+        channel: u64,
+        until: std::time::SystemTime,
+    ) -> Result<(), RelayError> {
+        let keys = self
+            .routing
+            .channel_health_keys(version, channel)
+            .map_err(|_| RelayError::RouteUnavailable)?;
+        let (ids, revisions): (Vec<i64>, Vec<i64>) = keys
+            .iter()
+            .map(|key| (key.id as i64, key.revision as i64))
+            .unzip();
+        sqlx::query(include_str!("channel_cooldown.sql"))
+            .bind(version.routing as i64)
+            .bind(channel as i64)
+            .bind(ids)
+            .bind(revisions)
+            .bind(chrono::DateTime::<chrono::Utc>::from(until))
+            .execute(tx)
+            .await
+            .map_err(|_| RelayError::RouteUnavailable)?;
+        Ok(())
+    }
+
+    pub(super) async fn observe_cooldown(
+        &self,
+        attempt: &crate::routing::Attempt,
+        until: std::time::SystemTime,
+    ) -> Result<(), RelayError> {
+        if attempt.reliability().is_none() {
+            return Ok(());
+        }
+        let mut tx = self.health_writer().await?;
+        Self::lock_cooldown(&mut tx, attempt.upstream_id()).await?;
+        self.write_cooldown(&mut tx, attempt.version(), attempt.upstream_id(), until)
+            .await?;
+        tx.commit()
+            .await
+            .map_err(|_| RelayError::RouteUnavailable)?;
+        self.refresh_route_health().await
+    }
+
     pub(super) async fn disable_observed(
         &self,
         route: &crate::relay::Route,
         reason: &'static str,
         status: Option<u16>,
         elapsed_ms: u64,
+        retry_at: Option<std::time::SystemTime>,
     ) -> Result<(), RelayError> {
         let Some(attempt) = route.model_attempt.as_ref() else {
             return Ok(());
         };
+        if let Some(until) = retry_at {
+            return self.observe_cooldown(attempt, until).await;
+        }
         let Some(policy) = attempt.reliability().filter(|p| p.auto_disable) else {
             return Ok(());
         };
@@ -102,7 +161,7 @@ impl Bridge {
         };
         // A real failure invalidates any outstanding success, including a late result
         // from an older probe on the same revision.
-        sqlx::query("INSERT INTO core_channels.route_health AS h (routing_version,channel_id,credential_id,credential_revision,disabled_scope,reason,status_code,latency_ms,next_probe_at) SELECT $1,$2,$3,$4,$5,$6,$7,$8,now()+make_interval(secs=>$9) WHERE coalesce((public.routing_control_read() #>> '{routing,version}')::bigint,$1)=$1 ON CONFLICT (routing_version,channel_id,credential_id,credential_revision) DO UPDATE SET disabled_scope=CASE WHEN h.disabled_scope='channel' THEN 'channel' ELSE EXCLUDED.disabled_scope END, reason=EXCLUDED.reason,status_code=EXCLUDED.status_code,latency_ms=EXCLUDED.latency_ms,next_probe_at=EXCLUDED.next_probe_at,generation=h.generation+1")
+        sqlx::query("INSERT INTO core_channels.route_health AS h (routing_version,channel_id,credential_id,credential_revision,disabled_scope,reason,status_code,latency_ms,next_probe_at) SELECT $1,$2,$3,$4,$5,$6,$7,$8,now()+make_interval(secs=>$9) WHERE coalesce((public.routing_control_read() #>> '{routing,version}')::bigint,$1)=$1 ON CONFLICT (routing_version,channel_id,credential_id,credential_revision) DO UPDATE SET disabled_scope=CASE WHEN h.disabled_scope='channel' THEN 'channel' ELSE EXCLUDED.disabled_scope END, reason=EXCLUDED.reason,status_code=EXCLUDED.status_code,latency_ms=EXCLUDED.latency_ms,next_probe_at=CASE WHEN h.disabled_scope IS NOT NULL OR (h.reason='http_status' AND h.status_code=429) THEN greatest(h.next_probe_at,EXCLUDED.next_probe_at) ELSE EXCLUDED.next_probe_at END,generation=h.generation+1")
             .bind(attempt.version().routing as i64).bind(attempt.upstream_id() as i64).bind(key.id as i64).bind(key.revision as i64)
             .bind(scope).bind(reason).bind(status.map(|v|v as i16)).bind(elapsed_ms.min(i64::MAX as u64) as i64).bind(f64::from(policy.probe_interval_seconds))
             .execute(&mut *tx).await.map_err(|_|RelayError::RouteUnavailable)?;
@@ -188,8 +247,14 @@ impl ModelGateway {
             .ok_or(RelayError::RouteUnavailable)?;
         let started = std::time::Instant::now();
         let mut keyword_match = false;
+        let mut retry_at = None;
         let result = self
-            .probe_channel_snapshot_health(upstream, &policy.disable_keywords, &mut keyword_match)
+            .probe_channel_snapshot_health(
+                upstream,
+                &policy.disable_keywords,
+                &mut keyword_match,
+                &mut retry_at,
+            )
             .await;
         let status = match &result {
             Ok(_) => Some(200),
@@ -205,6 +270,7 @@ impl ModelGateway {
                 elapsed: started.elapsed(),
                 status,
                 keyword_match,
+                retry_at,
             },
         )
         .await
@@ -222,10 +288,13 @@ impl ModelGateway {
             elapsed,
             status,
             keyword_match,
+            retry_at,
         } = observation;
         let slow = policy.too_slow(elapsed);
         let recover = status == Some(200) && !slow && policy.auto_recover;
-        let reason = if policy.auto_disable
+        let reason = if retry_at.is_some() {
+            None
+        } else if policy.auto_disable
             && status.is_some_and(|s| s != 200 && policy.disable_status_codes.includes(s))
         {
             Some("http_status")
@@ -244,7 +313,10 @@ impl ModelGateway {
             }
         });
         let mut tx = self.bridge.health_writer().await?;
-        sqlx::query(include_str!("channel_health_complete.sql"))
+        if retry_at.is_some() {
+            Bridge::lock_cooldown(&mut tx, channel.id).await?;
+        }
+        let update = sqlx::query(include_str!("channel_health_complete.sql"))
             .bind(version.routing as i64)
             .bind(channel.id as i64)
             .bind(channel.credential.id as i64)
@@ -259,6 +331,11 @@ impl ModelGateway {
             .execute(&mut *tx)
             .await
             .map_err(|_| RelayError::RouteUnavailable)?;
+        if let Some(until) = retry_at.filter(|_| update.rows_affected() == 1) {
+            self.bridge
+                .write_cooldown(&mut tx, version, channel.id, until)
+                .await?;
+        }
         tx.commit()
             .await
             .map_err(|_| RelayError::RouteUnavailable)?;

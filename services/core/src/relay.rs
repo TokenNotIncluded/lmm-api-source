@@ -2,6 +2,7 @@
 //!
 //! This module does not register public routes or change readiness. Integration
 //! must supply real core routing and durable billing adapters before enabling it.
+pub(crate) mod cooldown;
 mod decode;
 mod encode;
 mod gemini_schema;
@@ -132,6 +133,36 @@ struct Inner {
 pub struct Relay {
     inner: Arc<Inner>,
 }
+impl Inner {
+    async fn note_channel_health(
+        &self,
+        route: &Route,
+        reason: &'static str,
+        status: Option<u16>,
+        elapsed: std::time::Duration,
+        retry_at: Option<std::time::SystemTime>,
+    ) {
+        // Health metadata cannot cancel delivery of a valid paid response or
+        // prevent recording definitive rejection evidence for the charge.
+        if !matches!(
+            timeout(
+                self.limits.hook_timeout,
+                self.router.health_failure(
+                    route,
+                    reason,
+                    status,
+                    elapsed.as_millis() as u64,
+                    retry_at
+                )
+            )
+            .await,
+            Ok(Ok(()))
+        ) {
+            eprintln!("channel health observation unavailable");
+        }
+    }
+}
+
 struct Active {
     inner: Arc<Inner>,
     id: u64,
@@ -164,11 +195,20 @@ impl ResponsesSession {
         &self,
         route: &Route,
     ) -> Result<provider_network::ResponsesConnection, RelayError> {
-        tokio::select! {
+        let inner = &self.active.inner;
+        let started = std::time::Instant::now();
+        let mut retry_at = None;
+        let result = tokio::select! {
             biased;
-            () = self.cancelled() => Err(RelayError::Cancelled),
-            result = self.active.inner.provider_transport.upgrade_responses(route, &self.active.inner.limits) => result,
+            () = self.cancelled() => return Err(RelayError::Cancelled),
+            result = inner.provider_transport.upgrade_responses(route, &inner.limits, &mut retry_at) => result,
+        };
+        if retry_at.is_some() {
+            inner
+                .note_channel_health(route, "http_status", Some(429), started.elapsed(), retry_at)
+                .await;
         }
+        result
     }
 }
 
@@ -784,29 +824,6 @@ impl Worker {
             }
         }
     }
-    async fn note_channel_health(
-        &self,
-        route: &Route,
-        reason: &'static str,
-        status: Option<u16>,
-        elapsed: std::time::Duration,
-    ) {
-        // Health metadata cannot cancel delivery of a valid paid response or
-        // prevent recording definitive rejection evidence for the charge.
-        if !matches!(
-            timeout(
-                self.inner.limits.hook_timeout,
-                self.inner
-                    .router
-                    .health_failure(route, reason, status, elapsed.as_millis() as u64)
-            )
-            .await,
-            Ok(Ok(()))
-        ) {
-            eprintln!("channel health observation unavailable");
-        }
-    }
-
     async fn observe_rejection(
         &mut self,
         route: &Route,
@@ -933,6 +950,7 @@ impl Worker {
                 )
                 .await?;
             let started = std::time::Instant::now();
+            let mut retry_at = None;
             let mut keyword_match = false;
             let error = match self.open(&route, body.clone()).await {
                 Ok(mut response) => {
@@ -942,6 +960,21 @@ impl Worker {
                         route.credential.to_str().ok().and_then(|credential| {
                             upstream_request_id(response.headers(), credential)
                         });
+                    if status == 429 {
+                        retry_at =
+                            cooldown::deadline(response.headers(), std::time::SystemTime::now());
+                        if retry_at.is_some() {
+                            self.inner
+                                .note_channel_health(
+                                    &route,
+                                    "http_status",
+                                    Some(status),
+                                    started.elapsed(),
+                                    retry_at,
+                                )
+                                .await;
+                        }
+                    }
                     if status == 200 {
                         if route
                             .model_attempt
@@ -949,13 +982,15 @@ impl Worker {
                             .and_then(|a| a.reliability())
                             .is_some_and(|p| p.auto_disable && p.too_slow(started.elapsed()))
                         {
-                            self.note_channel_health(
-                                &route,
-                                "slow_response",
-                                Some(status),
-                                started.elapsed(),
-                            )
-                            .await;
+                            self.inner
+                                .note_channel_health(
+                                    &route,
+                                    "slow_response",
+                                    Some(status),
+                                    started.elapsed(),
+                                    None,
+                                )
+                                .await;
                         }
                         break response;
                     }
@@ -975,7 +1010,7 @@ impl Worker {
                 .model_attempt
                 .as_ref()
                 .and_then(|a| a.reliability())
-                .filter(|p| p.auto_disable)
+                .filter(|p| p.auto_disable && retry_at.is_none())
             {
                 let status = self.report.upstream_status;
                 let reason =
@@ -989,7 +1024,8 @@ impl Worker {
                         None
                     };
                 if let Some(reason) = reason {
-                    self.note_channel_health(&route, reason, status, started.elapsed())
+                    self.inner
+                        .note_channel_health(&route, reason, status, started.elapsed(), None)
                         .await;
                 }
             }

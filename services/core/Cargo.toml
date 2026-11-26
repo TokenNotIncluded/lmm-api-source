@@ -51,6 +51,7 @@ tokio-tungstenite = { version = "=0.30.0", default-features = false, features = 
 futures-util = { version = "=0.3.34", default-features = false, features = ["sink", "std"] }
 http-body = "=1.1.0"
 http-body-util = "=0.1.5"
+httpdate = "=1.0.3"
 # Existing locked MIT dependencies; native HTTP parsing and graceful connections.
 hyper = { version = "=1.12.0", features = ["server", "http1", "http2"] }
 hyper-util = { version = "=0.1.21", features = ["server-auto", "server-graceful", "tokio", "service"] }

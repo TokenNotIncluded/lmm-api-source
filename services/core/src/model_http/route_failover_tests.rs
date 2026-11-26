@@ -147,6 +147,7 @@ enum FailureReply {
     Unauthorized,
     Rejected,
     RateLimited,
+    RetryAfter,
     ToolEvidence,
     Timeout,
     Partial,
@@ -174,6 +175,7 @@ impl FailedSupplier {
                 FailureReply::Unauthorized => (axum::http::StatusCode::UNAUTHORIZED,Json(json!({"error":{"message":"synthetic rejected key"}}))).into_response(),
                 FailureReply::Rejected => (axum::http::StatusCode::SERVICE_UNAVAILABLE, Json(json!({"error":{"message":"synthetic pre-acceptance rejection"}}))).into_response(),
                 FailureReply::RateLimited => (axum::http::StatusCode::TOO_MANY_REQUESTS, Json(json!({"error":{"message":"synthetic pre-acceptance rate limit"}}))).into_response(),
+                FailureReply::RetryAfter => (axum::http::StatusCode::TOO_MANY_REQUESTS, [("retry-after", "120")], Json(json!({"error":{"message":"synthetic pre-acceptance rate limit"}}))).into_response(),
                 FailureReply::ToolEvidence => (axum::http::StatusCode::SERVICE_UNAVAILABLE, Json(json!({"error":{"message":"synthetic failure after work"},"usage":{"prompt_tokens":1},"tool_calls":[{"id":"already-called"}]}))).into_response(),
                 FailureReply::Timeout => { tokio::time::sleep(Duration::from_secs(5)).await; Json(json!({"error":{"message":"late"}})).into_response() },
                 FailureReply::Partial => ([ ("content-type", "text/event-stream") ], "data: {\"id\":\"partial\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"partial content\"},\"finish_reason\":null}]}\n\n").into_response(),
@@ -779,6 +781,81 @@ async fn key_pool_pg_forwarding_and_reservations_use_the_same_revision(pool: PgP
 
 #[path = "channel_affinity_tests.rs"]
 mod channel_affinity_tests;
+
+#[sqlx::test(migrations = false)]
+async fn reliability_pg_retry_after_is_shared_and_preserves_the_manual_stop(pool: PgPool) {
+    let f = fixture(pool, 10_000_000).await;
+    let good = CompatibilityProvider::start().await;
+    let bad = FailedSupplier::start(FailureReply::RetryAfter).await;
+    let gateway = || {
+        let g = failover_gateway(&f, &bad.base, &good.endpoint, true, false, false);
+        let mut d = g.bridge.routing.catalog_document().unwrap();
+        let expected = g.bridge.routing.version().unwrap();
+        d.routing.version += 1;
+        d.routing.routing_reliability = Some(serde_json::from_value(json!({
+            "retry_times":1,"retry_status_codes":"429","auto_disable":true,
+            "disable_status_codes":"429","disable_keywords":[],"disable_threshold_seconds":5,
+            "probe_enabled":false,"probe_mode":"passive_recovery","probe_interval_seconds":30,"auto_recover":false
+        })).unwrap());
+        g.bridge
+            .routing
+            .publish(
+                expected,
+                d.routing,
+                Arc::new(crate::routing::PriceSnapshot::compile(d.pricing).unwrap()),
+            )
+            .unwrap();
+        g
+    };
+    let first = gateway();
+    let (status, body, id) = call(&first, &f, "cooldown-first", false, None).await;
+    assert_eq!(status, 200, "{body}");
+    let events = evidence(&f, &id).await;
+    assert_eq!(
+        events
+            .iter()
+            .filter(|e| e["kind"] == "model_route_dispatch")
+            .count(),
+        2
+    );
+    assert_eq!(events.iter().filter(|e| e["kind"] == "final").count(), 1);
+    assert_eq!(call(&first, &f, "cooldown-first", false, None).await.0, 409);
+    let valid: bool = sqlx::query_scalar("SELECT disabled_scope IS NULL AND reason='http_status' AND status_code=429 AND next_probe_at > clock_timestamp() AND next_probe_at <= clock_timestamp()+interval '121 seconds' FROM core_channels.route_health WHERE channel_id=1 AND credential_id=7 AND credential_revision=1").fetch_one(&f.pool).await.unwrap();
+    assert!(
+        valid,
+        "supplier Retry-After must survive as a soft deadline"
+    );
+    drop(first);
+    let second = gateway();
+    let (status, body, id) = call(&second, &f, "cooldown-other-gateway", false, None).await;
+    assert_eq!(status, 200, "{body}");
+    assert_eq!(bad.hits.load(Ordering::SeqCst), 1);
+    assert_eq!(
+        evidence(&f, &id)
+            .await
+            .iter()
+            .filter(|e| e["kind"] == "model_route_dispatch")
+            .count(),
+        1
+    );
+    let expire = || {
+        sqlx::query("UPDATE core_channels.route_health SET next_probe_at=clock_timestamp()-interval '1 second' WHERE channel_id=1 AND reason='http_status' AND disabled_scope IS NULL").execute(&f.pool)
+    };
+    assert_eq!(expire().await.unwrap().rows_affected(), 1);
+    let (status, body, _) = call(&second, &f, "cooldown-expired", false, None).await;
+    assert_eq!(status, 200, "{body}");
+    assert_eq!(bad.hits.load(Ordering::SeqCst), 2);
+    second
+        .bridge
+        .routing
+        .set_operational_enabled(second.bridge.routing.version().unwrap(), 1, false)
+        .unwrap();
+    assert_eq!(expire().await.unwrap().rows_affected(), 1);
+    let (status, body, _) = call(&second, &f, "cooldown-operator-stop", false, None).await;
+    assert_eq!(status, 200, "{body}");
+    assert_eq!(bad.hits.load(Ordering::SeqCst), 2);
+    assert_eq!(good.bodies.lock().unwrap().len(), 4);
+}
 
 #[sqlx::test(migrations = false)]
 async fn reliability_pg_401_quarantines_key_and_survives_restart(pool: PgPool) {

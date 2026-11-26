@@ -121,6 +121,7 @@ impl ModelGateway {
         if max_output == 0 || max_output > 4096 {
             return Err(RelayError::Invalid("assistant output limit"));
         }
+        self.bridge.refresh_route_health().await?;
         let mut plan = self
             .bridge
             .routing
@@ -306,6 +307,11 @@ impl ModelGateway {
             .send()
             .await
             .map_err(|_| RelayError::SettlementPending)?;
+        self.note_native_cooldown(
+            &p.attempt,
+            native_http::cooldown_deadline(&p.connection, &response),
+        )
+        .await;
         if !p.connection.matches_peer(response.remote_addr()) || !response.status().is_success() {
             return Err(RelayError::SettlementPending);
         }

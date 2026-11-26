@@ -912,6 +912,22 @@ impl Router {
         })
     }
 
+    pub(crate) fn channel_health_keys(
+        &self,
+        version: ReleaseVersion,
+        channel: u64,
+    ) -> Result<Vec<CredentialRef>, RoutingError> {
+        let snapshot = self.snapshot()?;
+        if snapshot.version != version {
+            return Err(RoutingError::VersionConflict);
+        }
+        Ok(snapshot
+            .upstreams
+            .get(&channel)
+            .map(|u| u.credentials.references.clone())
+            .unwrap_or_default())
+    }
+
     pub(crate) fn health_key_refs(
         &self,
         version: u64,

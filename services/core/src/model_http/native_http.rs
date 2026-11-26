@@ -60,6 +60,37 @@ impl Drop for Active {
     }
 }
 
+pub(super) fn cooldown_deadline(
+    connection: &ProviderConnection,
+    response: &reqwest::Response,
+) -> Option<std::time::SystemTime> {
+    if response.status().as_u16() == 429 && connection.matches_peer(response.remote_addr()) {
+        return crate::relay::cooldown::deadline(response.headers(), std::time::SystemTime::now());
+    }
+    None
+}
+
+impl ModelGateway {
+    pub(super) async fn note_native_cooldown(
+        &self,
+        attempt: &crate::routing::Attempt,
+        deadline: Option<std::time::SystemTime>,
+    ) {
+        if let Some(until) = deadline
+            && !matches!(
+                tokio::time::timeout(
+                    self.limits.hook_timeout,
+                    self.bridge.observe_cooldown(attempt, until),
+                )
+                .await,
+                Ok(Ok(()))
+            )
+        {
+            eprintln!("channel health observation unavailable");
+        }
+    }
+}
+
 /// The caller classifies the HTTP status using its supplier's billing contract.
 pub(super) async fn read_response_bytes(
     connection: &ProviderConnection,

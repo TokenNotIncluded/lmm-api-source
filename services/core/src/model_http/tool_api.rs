@@ -440,6 +440,7 @@ async fn execute(
     {
         return Err(RelayError::Conflict);
     }
+    let mut retry_at = None;
     let completed = tokio::time::timeout(gateway.limits.total_timeout, async {
         if !attempt.is_available() {
             return Err(RelayError::RouteUnavailable);
@@ -452,6 +453,7 @@ async fn execute(
         .map_err(|_| RelayError::SettlementPending)?
         .map_err(|_| RelayError::SettlementPending)?;
         let status = response.status();
+        retry_at = native_http::cooldown_deadline(&connection, &response);
         let bytes = if status.is_client_error() || status.is_server_error() {
             native_http::read_error_response_bytes(&connection, response, &gateway.limits).await?
         } else {
@@ -516,6 +518,8 @@ async fn execute(
     if completed.is_err() {
         let _ = billing::retry(|| gateway.bridge.charging.mark_unknown(&id, &worker)).await;
     }
+    // Preserve the supplier's existing definitive error receipt before any health I/O.
+    gateway.note_native_cooldown(&attempt, retry_at).await;
     completed
 }
 

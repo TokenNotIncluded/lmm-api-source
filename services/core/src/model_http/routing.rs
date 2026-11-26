@@ -536,8 +536,9 @@ impl RouteProvider for Bridge {
         reason: &'static str,
         status: Option<u16>,
         elapsed_ms: u64,
+        retry_at: Option<std::time::SystemTime>,
     ) -> RelayFuture<'a, ()> {
-        Box::pin(self.disable_observed(route, reason, status, elapsed_ms))
+        Box::pin(self.disable_observed(route, reason, status, elapsed_ms, retry_at))
     }
 
     fn failed<'a>(
