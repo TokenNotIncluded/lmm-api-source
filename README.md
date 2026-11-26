@@ -1,12 +1,14 @@
 <div align="center">
   <img src=".github/assets/lmm-logo.svg" alt="LMM API · Language Model Mesh" width="520" />
   <h1>LMM API</h1>
-  <p>LMM API · 连接模型与工具，让智能自由流动</p>
+  <p>LMM API · 工具市场与 AI 生态</p>
   <p><a href="LICENSE"><img src="https://img.shields.io/badge/license-AGPL--3.0-blue" alt="License: AGPL-3.0" /></a></p>
   <p><a href="README.md">简体中文</a> · <a href="README_EN.md">English</a></p>
 </div>
 
-**LMM（Language Model Mesh）是模型网关与业务扩展平台。** 新架构仍在验收，[进度表](docs/progress.md)记录各项验收结果和待办。[线上服务](https://api.lmm.best)的版本需单独核实。
+**LMM（Language Model Mesh）是面向个人和团队的 AI 工具市场。** 在市场中发现 MCP 工具，为助手授权，设置调用预算，并查看调用记录。AI 助手、命令行客户端和业务插件共用 Core 提供的身份、权限与账户体系。
+
+新架构仍在验收，[进度表](docs/progress.md)记录各项验收结果和待办。[线上服务](https://api.lmm.best)的版本需单独核实。
 
 ## 三个程序
 

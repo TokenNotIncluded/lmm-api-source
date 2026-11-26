@@ -1,12 +1,14 @@
 <div align="center">
   <img src=".github/assets/lmm-logo.svg" alt="LMM API · Language Model Mesh" width="520" />
   <h1>LMM API</h1>
-  <p>LMM API · Connecting models and tools, letting intelligence flow freely</p>
+  <p>LMM API · Tool marketplace and AI ecosystem</p>
   <p><a href="LICENSE"><img src="https://img.shields.io/badge/license-AGPL--3.0-blue" alt="License: AGPL-3.0" /></a></p>
   <p><a href="README.md">简体中文</a> · <a href="README_EN.md">English</a></p>
 </div>
 
-**LMM (Language Model Mesh) is a model gateway and business extension platform.** The new architecture is under evaluation. [Architecture progress](docs/progress.md) tracks acceptance results and remaining work. Verify the version of the [hosted service](https://api.lmm.best) separately.
+**LMM (Language Model Mesh) is an AI tool marketplace for individuals and teams.** Discover MCP tools, authorize an assistant, set a budget for its calls, and review its usage. AI assistants, the CLI, and business plugins share Core’s identity, permissions, and account system.
+
+The new architecture is under evaluation. [Architecture progress](docs/progress.md) tracks acceptance results and remaining work. Verify the version of the [hosted service](https://api.lmm.best) separately.
 
 ## Three programs
 
