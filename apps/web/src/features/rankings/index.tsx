@@ -22,7 +22,6 @@ import { useTranslation } from 'react-i18next'
 
 import { SectionPageLayout } from '@/components/layout'
 import { PageTransition } from '@/components/page-transition'
-import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { EcosystemRouteShell } from '@/features/forge/ecosystem-route-shell'
 
@@ -33,6 +32,7 @@ import {
   RankingsHero,
   UserUsageLeaderboard,
 } from './components'
+import { RankingLoadError } from './components/ranking-load-error'
 import { useRankings } from './hooks/use-rankings'
 import { useUserUsageRankings } from './hooks/use-user-usage-rankings'
 import type { RankingPeriod } from './types'
@@ -43,20 +43,12 @@ export function Rankings() {
   const { t } = useTranslation()
   const search = useSearch({ from: '/rankings/' })
   const navigate = useNavigate()
-  const [userLeaderboardOpen, setUserLeaderboardOpen] = useState(false)
 
   const period: RankingPeriod = VALID_PERIODS.has(
     search.period as RankingPeriod
   )
     ? (search.period as RankingPeriod)
     : 'week'
-
-  const rankingsQuery = useRankings(period)
-  const userUsageRankingsQuery = useUserUsageRankings(
-    period,
-    userLeaderboardOpen
-  )
-  const snapshot = rankingsQuery.data?.data
 
   const handlePeriodChange = (next: RankingPeriod) => {
     navigate({
@@ -65,11 +57,58 @@ export function Rankings() {
     })
   }
 
-  const content = (compact: boolean) => (
+  return (
+    <EcosystemRouteShell
+      console={
+        <SectionPageLayout>
+          <SectionPageLayout.Title>{t('Rankings')}</SectionPageLayout.Title>
+          <SectionPageLayout.Content>
+            <div className='mx-auto w-full max-w-6xl'>
+              <RankingsContent
+                compact
+                period={period}
+                onPeriodChange={handlePeriodChange}
+              />
+            </div>
+          </SectionPageLayout.Content>
+        </SectionPageLayout>
+      }
+      public={
+        <main className='mx-auto w-full max-w-7xl px-5 pt-12 pb-20 md:px-10 md:pt-16'>
+          <RankingsContent
+            compact={false}
+            period={period}
+            onPeriodChange={handlePeriodChange}
+          />
+        </main>
+      }
+    />
+  )
+}
+
+export function RankingsContent({
+  compact,
+  period,
+  onPeriodChange,
+}: {
+  compact: boolean
+  period: RankingPeriod
+  onPeriodChange: (period: RankingPeriod) => void
+}) {
+  const { t } = useTranslation()
+  const [userLeaderboardOpen, setUserLeaderboardOpen] = useState(false)
+  const rankingsQuery = useRankings(period)
+  const userUsageRankingsQuery = useUserUsageRankings(
+    period,
+    userLeaderboardOpen
+  )
+  const snapshot = rankingsQuery.data?.data
+
+  return (
     <PageTransition className={compact ? 'space-y-6' : 'space-y-10'}>
       <RankingsHero
         period={period}
-        onPeriodChange={handlePeriodChange}
+        onPeriodChange={onPeriodChange}
         compact={compact}
       />
 
@@ -77,19 +116,19 @@ export function Rankings() {
         data={userUsageRankingsQuery.data?.data}
         isLoading={userUsageRankingsQuery.isLoading}
         error={userUsageRankingsQuery.error}
+        onRetry={() => void userUsageRankingsQuery.refetch()}
+        retrying={userUsageRankingsQuery.isFetching}
         open={userLeaderboardOpen}
         onOpenChange={setUserLeaderboardOpen}
       />
 
       {rankingsQuery.isLoading ? (
         <RankingsLoading />
-      ) : !snapshot ? (
-        <RankingsError
-          message={
-            rankingsQuery.error instanceof Error
-              ? rankingsQuery.error.message
-              : t('Unable to load rankings data')
-          }
+      ) : rankingsQuery.isError || !snapshot ? (
+        <RankingLoadError
+          title={t('Unable to load rankings')}
+          error={rankingsQuery.error}
+          retrying={rankingsQuery.isFetching}
           onRetry={() => void rankingsQuery.refetch()}
         />
       ) : (
@@ -114,24 +153,6 @@ export function Rankings() {
       )}
     </PageTransition>
   )
-
-  return (
-    <EcosystemRouteShell
-      console={
-        <SectionPageLayout>
-          <SectionPageLayout.Title>{t('Rankings')}</SectionPageLayout.Title>
-          <SectionPageLayout.Content>
-            <div className='mx-auto w-full max-w-6xl'>{content(true)}</div>
-          </SectionPageLayout.Content>
-        </SectionPageLayout>
-      }
-      public={
-        <main className='mx-auto w-full max-w-7xl px-5 pt-12 pb-20 md:px-10 md:pt-16'>
-          {content(false)}
-        </main>
-      }
-    />
-  )
 }
 
 function RankingsLoading() {
@@ -140,23 +161,6 @@ function RankingsLoading() {
       <Skeleton className='h-[420px] w-full rounded-xl' />
       <Skeleton className='h-[360px] w-full rounded-xl' />
       <Skeleton className='h-[180px] w-full rounded-xl' />
-    </div>
-  )
-}
-
-function RankingsError(props: { message: string; onRetry: () => void }) {
-  const { t } = useTranslation()
-  return (
-    <div className='border-foreground/20 border-y px-6 py-12 text-center'>
-      <h2 className='text-foreground text-base font-semibold'>
-        {t('Unable to load rankings')}
-      </h2>
-      <p className='text-muted-foreground mx-auto mt-2 max-w-md text-sm'>
-        {props.message}
-      </p>
-      <Button className='mt-5' variant='outline' onClick={props.onRetry}>
-        {t('Retry')}
-      </Button>
     </div>
   )
 }

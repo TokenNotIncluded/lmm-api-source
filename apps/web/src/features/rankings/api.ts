@@ -24,24 +24,42 @@ import type {
   UserUsageRankingsSnapshot,
 } from './types'
 
-type RankingsResponse = {
+type RankingsResponse<T> = {
   success: boolean
   message?: string
-  data: RankingsSnapshot
+  code?: string
+  error?: { code?: string }
+  data: T
 }
 
-export async function getRankings(
+export class RankingsResponseError extends Error {
+  readonly code?: string
+
+  constructor(code?: string) {
+    super('Unable to load rankings data')
+    this.code = code
+  }
+}
+
+async function readRankings<T>(
+  path: string,
   period: RankingPeriod
-): Promise<RankingsResponse> {
-  const res = await api.get('/api/rankings', { params: { period } })
-  return res.data
+): Promise<RankingsResponse<T>> {
+  const { data } = await api.get<RankingsResponse<T>>(path, {
+    params: { period },
+    skipErrorHandler: true,
+    skipBusinessError: true,
+  })
+  if (data?.success !== true || data.data == null) {
+    throw new RankingsResponseError(data?.code ?? data?.error?.code)
+  }
+  return data
 }
 
-export async function getUserUsageRankings(period: RankingPeriod): Promise<{
-  success: boolean
-  message?: string
-  data: UserUsageRankingsSnapshot
-}> {
-  const res = await api.get('/api/rankings/users', { params: { period } })
-  return res.data
+export function getRankings(period: RankingPeriod) {
+  return readRankings<RankingsSnapshot>('/api/rankings', period)
+}
+
+export function getUserUsageRankings(period: RankingPeriod) {
+  return readRankings<UserUsageRankingsSnapshot>('/api/rankings/users', period)
 }
