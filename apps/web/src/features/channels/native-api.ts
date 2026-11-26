@@ -70,6 +70,9 @@ export type NativePrices = {
 }
 const providerPresetSchema = z.object({
   id: z.string(),
+  protocol_endpoints: z
+    .array(z.object({ protocol: z.string(), endpoint: z.string() }))
+    .optional(),
   label: z.string(),
   icon: z.string(),
   protocol: z.string(),

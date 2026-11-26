@@ -88,27 +88,26 @@ pub(crate) fn validate_publication_prices(
     Ok(())
 }
 fn endpoint(base: &str, protocol: crate::routing::Protocol) -> Result<reqwest::Url, RelayError> {
+    use crate::routing::Protocol::*;
+    let mut url = crate::relay::honeypot_network::validate_base_url(base, true)?;
+    if url.origin().ascii_serialization() == "https://api.modelarts-maas.com"
+        && matches!(
+            (protocol, url.path().trim_end_matches('/')),
+            (OpenAiChat, "/openai/v1")
+                | (AnthropicMessages, "/anthropic/v1")
+                | (OpenAiEmbeddings | JinaRerank, "/v1")
+        )
+    {
+        url.set_path("/v2/models");
+        return Ok(url);
+    }
     if !matches!(
         protocol,
-        crate::routing::Protocol::OpenAiChat
-            | crate::routing::Protocol::OpenAiResponses
-            | crate::routing::Protocol::AnthropicMessages
-            | crate::routing::Protocol::Gemini
-            | crate::routing::Protocol::OpenAiEmbeddings
+        OpenAiChat | OpenAiResponses | AnthropicMessages | Gemini | OpenAiEmbeddings
     ) {
         return Err(RelayError::Unsupported(
             "This provider protocol has no model-catalogue probe",
         ));
-    }
-    let mut url = crate::relay::honeypot_network::validate_base_url(base, true)?;
-    // Huawei's OpenAI-compatible Chat API and its model catalogue use different
-    // base paths. Other origins and operator-defined prefixes retain their own path.
-    if protocol == crate::routing::Protocol::OpenAiChat
-        && url.origin().ascii_serialization() == "https://api.modelarts-maas.com"
-        && matches!(url.path(), "/openai/v1" | "/openai/v1/")
-    {
-        url.set_path("/v2/models");
-        return Ok(url);
     }
     url.path_segments_mut()
         .map_err(|_| RelayError::RouteUnavailable)?
@@ -331,6 +330,13 @@ impl ModelGateway {
             .get(&(upstream.credential.id, upstream.credential.revision))
             .ok_or(RelayError::RouteUnavailable)?;
         let url = endpoint(upstream.endpoint.as_str(), upstream.protocol)?;
+        // Both model catalogues use Bearer and OpenAI list envelopes, even for
+        // channels whose inference requests use the Anthropic wire format.
+        let catalog_protocol = match (url.origin().ascii_serialization().as_str(), url.path()) {
+            ("https://api.modelarts-maas.com", "/v2/models")
+            | ("https://api.stepfun.com", "/v1/models") => crate::routing::Protocol::OpenAiChat,
+            _ => upstream.protocol,
+        };
         #[cfg(test)]
         let url = if let Some(mapping) = &self.balance_probe_loopback {
             if url.origin().ascii_serialization() != mapping.origin {
@@ -369,7 +375,7 @@ impl ModelGateway {
                     .client()
                     .get(url.clone())
                     .header(header::ACCEPT, "application/json");
-                let request = match upstream.protocol {
+                let request = match catalog_protocol {
                     crate::routing::Protocol::AnthropicMessages => request
                         .header("x-api-key", &credential)
                         .header("anthropic-version", "2023-06-01"),
@@ -400,7 +406,7 @@ impl ModelGateway {
                 }
                 let bytes =
                     native_http::read_response_bytes(&connection, response, &self.limits).await?;
-                let page = parse_models(&bytes, upstream.protocol, &credential)?;
+                let page = parse_models(&bytes, catalog_protocol, &credential)?;
                 models.extend(page.models);
                 if models.len() > 10_000 {
                     return Err(RelayError::RouteUnavailable);
@@ -411,7 +417,7 @@ impl ModelGateway {
                 if !cursors.insert(cursor.clone()) {
                     return Err(RelayError::RouteUnavailable);
                 }
-                let parameter = if upstream.protocol == crate::routing::Protocol::Gemini {
+                let parameter = if catalog_protocol == crate::routing::Protocol::Gemini {
                     "pageToken"
                 } else {
                     "after_id"
@@ -486,6 +492,57 @@ mod tests {
                 "https://api.stepfun.com/v1/chat/completions"
             );
         }
+    }
+
+    #[test]
+    fn native_preset_paths_follow_the_configured_wire_protocol() {
+        use crate::relay::UpstreamProtocol;
+        for (base, protocol, path) in [
+            (
+                "https://api.stepfun.com/v1",
+                UpstreamProtocol::Anthropic,
+                "/v1/messages",
+            ),
+            (
+                "https://api.stepfun.com/v1",
+                UpstreamProtocol::Responses,
+                "/v1/responses",
+            ),
+            (
+                "https://api.modelarts-maas.com/anthropic/v1",
+                UpstreamProtocol::Anthropic,
+                "/anthropic/v1/messages",
+            ),
+        ] {
+            for stream in [false, true] {
+                assert_eq!(
+                    crate::model_http::routing::operation_endpoint(
+                        base,
+                        protocol,
+                        "published-model",
+                        stream
+                    )
+                    .unwrap()
+                    .path(),
+                    path
+                );
+            }
+        }
+        for (protocol, path) in [
+            (Protocol::OpenAiEmbeddings, "/v1/embeddings"),
+            (Protocol::JinaRerank, "/v1/rerank"),
+        ] {
+            assert_eq!(
+                crate::model_http::input_api::endpoint(
+                    "https://api.modelarts-maas.com/v1",
+                    protocol
+                )
+                .unwrap()
+                .path(),
+                path
+            );
+        }
+        assert!(endpoint("https://other.example/v1", Protocol::JinaRerank).is_err());
     }
 
     #[test]

@@ -784,9 +784,7 @@ impl Worker {
                 UpstreamProtocol::Chat | UpstreamProtocol::Responses => {
                     request.header(header::AUTHORIZATION, route.credential.clone())
                 }
-                UpstreamProtocol::Anthropic => request
-                    .header("x-api-key", route.credential.clone())
-                    .header("anthropic-version", "2023-06-01"),
+                UpstreamProtocol::Anthropic => route.anthropic_auth(request)?,
                 UpstreamProtocol::Gemini => {
                     request.header("x-goog-api-key", route.credential.clone())
                 }

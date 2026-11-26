@@ -43,9 +43,7 @@ pub(super) fn assistant_request(
         UpstreamProtocol::Chat => {
             Ok(request.header(header::AUTHORIZATION, route.credential.clone()))
         }
-        UpstreamProtocol::Anthropic => Ok(request
-            .header("x-api-key", route.credential.clone())
-            .header("anthropic-version", "2023-06-01")),
+        UpstreamProtocol::Anthropic => route.anthropic_auth(request),
         _ => Err(RelayError::RouteUnavailable),
     }
 }
@@ -105,6 +103,56 @@ mod tests {
             {"role":"system","content":"Only answer onboarding questions."},
             {"role":"user","content":"How do I start?"}
         ],"max_tokens":32,"stream":false})
+    }
+
+    #[test]
+    fn native_messages_uses_bearer_only_on_the_exact_stepfun_api() {
+        for (url, bearer) in [
+            ("https://api.stepfun.com/v1/messages", true),
+            ("https://api.stepfun.com:8443/v1/messages", false),
+            ("https://api.stepfun.com/custom/v1/messages", false),
+            ("https://api.stepfun.com.example/v1/messages", false),
+            (
+                "https://api.modelarts-maas.com/anthropic/v1/messages",
+                false,
+            ),
+        ] {
+            let route = Route::new(
+                "fixture".into(),
+                UpstreamProtocol::Anthropic,
+                url,
+                "published-model".into(),
+                "synthetic-only",
+                1,
+            )
+            .unwrap();
+            let payload = json!({"model":"published-model","max_tokens":32,"messages":[{"role":"user","content":"fixture"}]});
+            let request = assistant_request(&reqwest::Client::new(), &route, &payload)
+                .unwrap()
+                .build()
+                .unwrap();
+            assert_eq!(request.url().as_str(), url);
+            assert_eq!(request.headers()["anthropic-version"], "2023-06-01");
+            assert_eq!(
+                request
+                    .headers()
+                    .get("authorization")
+                    .and_then(|h| h.to_str().ok()),
+                bearer.then_some("Bearer synthetic-only")
+            );
+            assert_eq!(
+                request
+                    .headers()
+                    .get("x-api-key")
+                    .and_then(|h| h.to_str().ok()),
+                (!bearer).then_some("synthetic-only")
+            );
+            assert_eq!(
+                serde_json::from_slice::<Value>(request.body().unwrap().as_bytes().unwrap())
+                    .unwrap(),
+                payload
+            );
+        }
     }
 
     #[test]

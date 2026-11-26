@@ -1,7 +1,26 @@
 /* Copyright (C) 2026 LIghtJUNction. SPDX-License-Identifier: AGPL-3.0-or-later */
 import { resolveModelProvider } from '@/lib/model-provider'
 
-import type { NativeConfiguration } from '../native-api'
+import type { NativeConfiguration, NativeProviderPreset } from '../native-api'
+
+export function presetProtocolEndpoint(
+  preset: NativeProviderPreset | undefined,
+  oldProtocol: unknown,
+  oldEndpoint: unknown,
+  protocol: string
+): string | undefined {
+  if (!preset?.protocol_endpoints || typeof oldEndpoint !== 'string') return
+  const variants = [preset, ...preset.protocol_endpoints]
+  if (
+    !variants.some(
+      (item) =>
+        item.protocol === oldProtocol &&
+        item.endpoint === oldEndpoint.replace(/\/+$/, '')
+    )
+  )
+    return
+  return variants.find((item) => item.protocol === protocol)?.endpoint
+}
 
 export function resolveNativeProvider(
   configuration: NativeConfiguration,
@@ -15,7 +34,11 @@ export function resolveNativeProvider(
   }
   const base = typeof endpoint === 'string' ? endpoint.replace(/\/+$/, '') : ''
   const knownBase = presets.find(
-    (preset) => preset.endpoint && preset.endpoint === base
+    (preset) =>
+      (preset.endpoint && preset.endpoint === base) ||
+      preset.protocol_endpoints?.some(
+        (item) => item.endpoint === base && item.protocol === protocol
+      )
   )
   if (knownBase) return knownBase
   const providerByProtocol: Record<string, string> = {

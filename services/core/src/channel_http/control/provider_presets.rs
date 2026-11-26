@@ -3,8 +3,15 @@ use crate::routing::Protocol;
 use serde::Serialize;
 
 #[derive(Serialize)]
+struct ProtocolEndpoint {
+    protocol: Protocol,
+    endpoint: &'static str,
+}
+#[derive(Serialize)]
 pub(super) struct ProviderPreset {
     pub id: &'static str,
+    #[serde(skip_serializing_if = "<[_]>::is_empty")]
+    protocol_endpoints: &'static [ProtocolEndpoint],
     label: &'static str,
     icon: &'static str,
     protocol: Protocol,
@@ -20,6 +27,7 @@ const fn preset(
 ) -> ProviderPreset {
     ProviderPreset {
         id,
+        protocol_endpoints: &[],
         label,
         icon,
         protocol,
@@ -58,20 +66,48 @@ pub(super) const PROVIDERS: &[ProviderPreset] = &[
         OpenAiChat,
         "https://api.deepseek.com",
     ),
-    preset(
-        "stepfun",
-        "StepFun",
-        "Stepfun",
-        OpenAiChat,
-        "https://api.stepfun.com/v1",
-    ),
-    preset(
-        "huawei_maas",
-        "Huawei MaaS",
-        "HuaweiCloud",
-        OpenAiChat,
-        "https://api.modelarts-maas.com/openai/v1",
-    ),
+    ProviderPreset {
+        protocol_endpoints: &[
+            ProtocolEndpoint {
+                protocol: AnthropicMessages,
+                endpoint: "https://api.stepfun.com/v1",
+            },
+            ProtocolEndpoint {
+                protocol: OpenAiResponses,
+                endpoint: "https://api.stepfun.com/v1",
+            },
+        ],
+        ..preset(
+            "stepfun",
+            "StepFun",
+            "Stepfun",
+            OpenAiChat,
+            "https://api.stepfun.com/v1",
+        )
+    },
+    ProviderPreset {
+        protocol_endpoints: &[
+            ProtocolEndpoint {
+                protocol: AnthropicMessages,
+                endpoint: "https://api.modelarts-maas.com/anthropic/v1",
+            },
+            ProtocolEndpoint {
+                protocol: OpenAiEmbeddings,
+                endpoint: "https://api.modelarts-maas.com/v1",
+            },
+            ProtocolEndpoint {
+                protocol: JinaRerank,
+                endpoint: "https://api.modelarts-maas.com/v1",
+            },
+        ],
+        ..preset(
+            "huawei_maas",
+            "Huawei MaaS",
+            "HuaweiCloud",
+            OpenAiChat,
+            "https://api.modelarts-maas.com/openai/v1",
+        )
+    },
     preset(
         "openrouter",
         "OpenRouter",
@@ -132,13 +168,26 @@ pub(super) const PROVIDERS: &[ProviderPreset] = &[
 mod tests {
     use super::*;
 
-    fn assert_chat_preset(id: &str, label: &str, icon: &str, base: &str) {
+    fn assert_chat_preset(
+        id: &str,
+        label: &str,
+        icon: &str,
+        base: &str,
+        endpoints: &[(&str, &str)],
+    ) {
         let matching: Vec<_> = PROVIDERS.iter().filter(|preset| preset.id == id).collect();
         assert_eq!(matching.len(), 1);
+        let variants: Vec<_> = endpoints
+            .iter()
+            .map(
+                |(protocol, endpoint)| serde_json::json!({"protocol":protocol,"endpoint":endpoint}),
+            )
+            .collect();
         assert_eq!(
             serde_json::to_value(matching[0]).unwrap(),
             serde_json::json!({
                 "id": id, "label": label, "icon": icon, "protocol": "openai_chat", "endpoint": base,
+                "protocol_endpoints": variants,
             })
         );
     }
@@ -150,6 +199,10 @@ mod tests {
             "StepFun",
             "Stepfun",
             "https://api.stepfun.com/v1",
+            &[
+                ("anthropic_messages", "https://api.stepfun.com/v1"),
+                ("openai_responses", "https://api.stepfun.com/v1"),
+            ],
         );
     }
 
@@ -160,6 +213,14 @@ mod tests {
             "Huawei MaaS",
             "HuaweiCloud",
             "https://api.modelarts-maas.com/openai/v1",
+            &[
+                (
+                    "anthropic_messages",
+                    "https://api.modelarts-maas.com/anthropic/v1",
+                ),
+                ("openai_embeddings", "https://api.modelarts-maas.com/v1"),
+                ("jina_rerank", "https://api.modelarts-maas.com/v1"),
+            ],
         );
     }
 }

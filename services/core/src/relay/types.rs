@@ -299,6 +299,24 @@ impl fmt::Debug for Route {
     }
 }
 impl Route {
+    pub(crate) fn anthropic_auth(
+        &self,
+        request: reqwest::RequestBuilder,
+    ) -> Result<reqwest::RequestBuilder, RelayError> {
+        let request = if self.endpoint.origin().ascii_serialization() == "https://api.stepfun.com"
+            && self.endpoint.path() == "/v1/messages"
+        {
+            request.bearer_auth(
+                self.credential
+                    .to_str()
+                    .map_err(|_| RelayError::Invalid("invalid upstream credential"))?,
+            )
+        } else {
+            request.header("x-api-key", self.credential.clone())
+        };
+        Ok(request.header("anthropic-version", "2023-06-01"))
+    }
+
     pub fn new(
         id: String,
         protocol: UpstreamProtocol,

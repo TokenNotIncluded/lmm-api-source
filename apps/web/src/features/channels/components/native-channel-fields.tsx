@@ -15,7 +15,10 @@ import {
 } from '@/components/ui/select'
 import { getServerErrorMessage } from '@/lib/server-error-message'
 
-import { resolveNativeProvider } from '../lib/native-provider'
+import {
+  presetProtocolEndpoint,
+  resolveNativeProvider,
+} from '../lib/native-provider'
 import {
   nativeProtocolLabel,
   nativeProtocols,
@@ -146,14 +149,24 @@ export function NativeChannelFields({
     return null
   }
   function change(key: string, value: string | boolean) {
-    const next = { ...draft, [key]: value }
+    const updates: Record<string, string | boolean> = { [key]: value }
+    if (key === 'protocol' && typeof value === 'string') {
+      const endpoint = presetProtocolEndpoint(
+        provider,
+        draft.protocol,
+        draft.endpoint,
+        value
+      )
+      if (endpoint) updates.endpoint = endpoint
+    }
+    const next = { ...draft, ...updates }
     if (
       (key === 'endpoint' || key === 'protocol') &&
       Array.isArray(draft.contexts)
     ) {
       next.contexts = draft.contexts.map((context) => ({
         ...context,
-        [key]: value,
+        ...updates,
       }))
     }
     onChange(stringifyNativeDocument(next, 2))
@@ -168,15 +181,19 @@ export function NativeChannelFields({
   function selectProvider(id: string | null) {
     const preset = presets.find((item) => item.id === id)
     if (!preset) return
-    const next = { ...draft, provider: preset.id }
+    const next: Record<string, unknown> = { ...draft, provider: preset.id }
     if (
       !configuration.routing.upstreams.some((item) => item.id === draft.id) &&
       preset.id !== 'custom'
     ) {
-      Object.assign(next, {
-        protocol: preset.protocol,
-        endpoint: preset.endpoint,
-      })
+      const defaults = { protocol: preset.protocol, endpoint: preset.endpoint }
+      Object.assign(next, defaults)
+      if (Array.isArray(draft.contexts)) {
+        next.contexts = draft.contexts.map((context) => ({
+          ...context,
+          ...defaults,
+        }))
+      }
     }
     onChange(stringifyNativeDocument(next, 2))
   }

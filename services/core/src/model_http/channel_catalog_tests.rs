@@ -26,6 +26,7 @@ struct ObservedRequest {
     path: String,
     query: BTreeMap<String, String>,
     key: Option<String>,
+    authorization: Option<String>,
     version: Option<String>,
 }
 
@@ -51,6 +52,10 @@ async fn respond(
     requests.push(ObservedRequest {
         path: request.uri().path().to_owned(),
         query: url.query_pairs().into_owned().collect(),
+        authorization: request
+            .headers()
+            .get("authorization")
+            .map(|v| v.to_str().unwrap().to_owned()),
         key: request
             .headers()
             .get(key_header)
@@ -81,6 +86,9 @@ impl Drop for Fixture {
 }
 impl Fixture {
     async fn new(protocol: Protocol, pages: Vec<(StatusCode, Value)>) -> Self {
+        Self::with_base(protocol, pages, "https://catalogue.example/v1/").await
+    }
+    async fn with_base(protocol: Protocol, pages: Vec<(StatusCode, Value)>, base: &str) -> Self {
         let requests = Arc::new(Mutex::new(Vec::new()));
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let endpoint = format!("http://{}/", listener.local_addr().unwrap());
@@ -94,7 +102,7 @@ impl Fixture {
         });
         let config: RoutingConfig = serde_json::from_value(json!({
             "version":1, "groups":[{"name":"default","enabled":true}],
-            "upstreams":[{"id":1,"endpoint":"https://catalogue.example/v1/","protocol":protocol,
+            "upstreams":[{"id":1,"endpoint":base,"protocol":protocol,
             "credential":{"id":1,"revision":1},"enabled":true}], "routes":[], "aliases":[]
         }))
         .unwrap();
@@ -129,7 +137,13 @@ impl Fixture {
         )
         .unwrap()
         .with_local_streaming()
-        .with_balance_probe_loopback("https://catalogue.example", &endpoint)
+        .with_balance_probe_loopback(
+            &reqwest::Url::parse(base)
+                .unwrap()
+                .origin()
+                .ascii_serialization(),
+            &endpoint,
+        )
         .unwrap();
         Self {
             gateway,
@@ -140,6 +154,61 @@ impl Fixture {
     }
     async fn probe(&self) -> Result<ChannelProbe, crate::relay::RelayError> {
         self.gateway.probe_channel_snapshot(&self.upstream).await
+    }
+}
+
+#[tokio::test]
+async fn protocol_presets_fetch_the_vendor_catalogue_with_only_its_bearer_key() {
+    for (base, protocol, expected) in [
+        (
+            "https://api.stepfun.com/v1",
+            Protocol::AnthropicMessages,
+            "/v1/models",
+        ),
+        (
+            "https://api.stepfun.com/v1",
+            Protocol::OpenAiResponses,
+            "/v1/models",
+        ),
+        (
+            "https://api.modelarts-maas.com/anthropic/v1",
+            Protocol::AnthropicMessages,
+            "/v2/models",
+        ),
+        (
+            "https://api.modelarts-maas.com/v1",
+            Protocol::OpenAiEmbeddings,
+            "/v2/models",
+        ),
+        (
+            "https://api.modelarts-maas.com/v1",
+            Protocol::JinaRerank,
+            "/v2/models",
+        ),
+    ] {
+        let fixture = Fixture::with_base(
+            protocol,
+            vec![(
+                StatusCode::OK,
+                json!({"data":[{"id":"synthetic-returned"}]}),
+            )],
+            base,
+        )
+        .await;
+        assert_eq!(
+            fixture.probe().await.unwrap().models,
+            ["synthetic-returned"]
+        );
+        let calls = fixture.requests.lock().unwrap();
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].path, expected);
+        assert_eq!(
+            calls[0].authorization.as_deref(),
+            Some("Bearer synthetic-catalogue-only")
+        );
+        assert_eq!(calls[0].key, None);
+        assert_eq!(calls[0].version, None);
+        assert!(calls[0].query.is_empty());
     }
 }
 
