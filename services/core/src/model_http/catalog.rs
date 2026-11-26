@@ -5,6 +5,7 @@ use crate::billing::{
     text_request_price,
     tool_price::{PersistedToolPrice, ToolKind},
 };
+use crate::relay::Limits;
 use crate::routing::{
     BillingMode, DecimalRate, ModelRoute, PayloadPolicy, PriceQuote, PriceSnapshot, Protocol,
     ReleaseVersion, Router, Speed, TieredTariff, UpstreamConfig,
@@ -102,6 +103,9 @@ pub struct ModelMetadata {
     pub context_window: Option<u32>,
     pub max_input_tokens: Option<u32>,
     pub max_output_tokens: Option<u32>,
+    /// Independent of the upstream model's capability, enforced on gateway input.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub gateway_max_output_tokens: Option<u32>,
     pub input_modalities: Option<Vec<String>>,
     pub output_modalities: Option<Vec<String>>,
     pub reasoning: Option<bool>,
@@ -216,6 +220,7 @@ pub(super) fn model_metadata(
                 .collect(),
         ),
         source: "reviewed_provider_contract",
+        gateway_max_output_tokens: None,
     })
 }
 
@@ -242,7 +247,11 @@ impl CatalogSurface {
         credentials: &BTreeMap<(u64, u64), String>,
         total_timeout: Duration,
     ) -> Self {
-        Self::load(router.clone(), credentials, total_timeout, None).unwrap_or(Self {
+        let limits = Limits {
+            total_timeout,
+            ..Limits::default()
+        };
+        Self::load(router.clone(), credentials, &limits, None).unwrap_or(Self {
             inventory_router: router,
             state: RwLock::new(SurfaceState::Disabled),
         })
@@ -250,14 +259,14 @@ impl CatalogSurface {
     pub(super) fn from_gateway_with_provider_policy(
         router: Arc<Router>,
         credentials: &BTreeMap<(u64, u64), String>,
-        total_timeout: Duration,
+        limits: &Limits,
         policy: &super::ProviderPolicy,
         reserved_input_tokens: i64,
     ) -> Self {
         Self::load(
             router.clone(),
             credentials,
-            total_timeout,
+            limits,
             Some((policy, reserved_input_tokens)),
         )
         .unwrap_or(Self {
@@ -269,7 +278,7 @@ impl CatalogSurface {
     fn load(
         router: Arc<Router>,
         credentials: &BTreeMap<(u64, u64), String>,
-        total_timeout: Duration,
+        limits: &Limits,
         provider_policy: Option<(&super::ProviderPolicy, i64)>,
     ) -> Result<Self, CatalogError> {
         // catalog_document takes one Arc snapshot, so config and prices cannot
@@ -350,7 +359,7 @@ impl CatalogSurface {
                             client,
                             &upstreams,
                             credentials,
-                            total_timeout,
+                            limits.total_timeout,
                             quote,
                             provider_policy,
                             &document.routing,
@@ -367,18 +376,27 @@ impl CatalogSurface {
                     // The fixed client wire contract sends upstream_model as
                     // JSON model. api_supported proves it equals this request
                     // alias for every possible target; do not rewrite aliases.
+                    let mut metadata = model_metadata(
+                        route,
+                        &upstreams,
+                        provider_policy.map(|(policy, _)| policy),
+                        document.routing.version,
+                    )?;
+                    if apis.iter().any(|api| {
+                        matches!(
+                            *api,
+                            "openai-completions" | "openai-responses" | "anthropic-messages"
+                        )
+                    }) {
+                        metadata.gateway_max_output_tokens = Some(limits.max_output_tokens);
+                    }
                     models.push(CatalogModel {
                         id: format!("lmm:{group_id}:{}", URL_SAFE_NO_PAD.encode(name.as_bytes())),
                         group_id: group_id.clone(),
                         group: group.name.clone(),
                         upstream_model: name.to_owned(),
                         name: name.to_owned(),
-                        metadata: model_metadata(
-                            route,
-                            &upstreams,
-                            provider_policy.map(|(policy, _)| policy),
-                            document.routing.version,
-                        )?,
+                        metadata,
                         apis,
                         pricing: pricing(
                             quote,
@@ -531,7 +549,7 @@ impl CatalogSurface {
     pub(super) fn refresh(
         &self,
         credentials: &BTreeMap<(u64, u64), String>,
-        total_timeout: Duration,
+        limits: &Limits,
         policy: &super::ProviderPolicy,
         reserved_input_tokens: i64,
     ) -> Result<(), CatalogError> {
@@ -548,7 +566,7 @@ impl CatalogSurface {
         let next = Self::load(
             self.inventory_router.clone(),
             credentials,
-            total_timeout,
+            limits,
             Some((policy, reserved_input_tokens)),
         )?;
         *self.state.write().map_err(|_| CatalogError::Unavailable)? = next
@@ -1151,6 +1169,29 @@ mod tests {
     }
 
     #[test]
+    fn catalog_reports_the_configured_relay_output_limit() {
+        let (routing, prices) = fixture("model");
+        let (router, _) = surface(routing, prices);
+        let credentials = BTreeMap::from([((1, 1), "synthetic-catalog-key".into())]);
+        let limits = Limits {
+            max_output_tokens: 12_345,
+            ..Limits::default()
+        };
+        let catalog = CatalogSurface::from_gateway_with_provider_policy(
+            router,
+            &credentials,
+            &limits,
+            &super::super::ProviderPolicy::default(),
+            65536,
+        );
+        let result = view(&catalog);
+        assert_eq!(result.models.len(), 1);
+        let metadata = serde_json::to_value(&result.models[0].metadata).unwrap();
+        assert_eq!(metadata["gateway_max_output_tokens"], 12_345);
+        assert!(metadata["max_output_tokens"].is_null());
+    }
+
+    #[test]
     fn metadata_uses_reviewed_release_and_conservative_fallback_bounds() {
         let (mut routing, _) = fixture("new-model");
         routing.upstreams[0].endpoint =
@@ -1341,7 +1382,10 @@ mod tests {
                 let surface = CatalogSurface::from_gateway_with_provider_policy(
                     router,
                     &credentials,
-                    Duration::from_secs(1),
+                    &Limits {
+                        total_timeout: Duration::from_secs(1),
+                        ..Limits::default()
+                    },
                     &super::super::ProviderPolicy::default(),
                     2000,
                 );
@@ -1390,7 +1434,10 @@ mod tests {
             let surface = CatalogSurface::from_gateway_with_provider_policy(
                 router,
                 &credentials,
-                Duration::from_secs(1),
+                &Limits {
+                    total_timeout: Duration::from_secs(1),
+                    ..Limits::default()
+                },
                 &super::super::ProviderPolicy::default(),
                 65536,
             );
@@ -1440,7 +1487,10 @@ mod tests {
                 view(&CatalogSurface::from_gateway_with_provider_policy(
                     router,
                     &credentials,
-                    Duration::from_secs(1),
+                    &Limits {
+                        total_timeout: Duration::from_secs(1),
+                        ..Limits::default()
+                    },
                     &super::super::ProviderPolicy::default(),
                     2000,
                 ))

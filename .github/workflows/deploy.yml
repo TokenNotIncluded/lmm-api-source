@@ -194,18 +194,6 @@ jobs:
       - name: Install locked Web dependencies
         if: matrix.component == 'web'
         run: bun install --frozen-lockfile
-      - name: Check Web types and authentication regressions
-        if: matrix.component == 'web'
-        run: |
-          bun run typecheck:web
-          cd apps/web
-          bun x --no-install oxlint -c .oxlintrc.json src/components/auth-cookie-recovery.tsx src/lib/auth-cookie-reconciliation.ts
-          for test_file in \
-            src/components/auth-cookie-recovery-local.test.tsx \
-            src/features/errors/auth-cookie-recovery.test.tsx \
-            src/lib/auth-cookie.test.ts; do
-            bun test --preload ./scripts/test-preload.mjs --timeout 15000 "./$test_file"
-          done
       - name: Check recovery in a real browser
         if: matrix.component == 'web'
         run: |

@@ -242,7 +242,7 @@ impl ModelGateway {
         let catalog_surface = Arc::new(CatalogSurface::from_gateway_with_provider_policy(
             routing.clone(),
             &credentials,
-            limits.total_timeout,
+            &limits,
             &provider_policy,
             policy.input_token_ceiling,
         ));
@@ -390,7 +390,7 @@ impl ModelGateway {
             .map_err(|_| CatalogError::Unavailable)?;
         self.catalog_surface.refresh(
             &credentials,
-            self.bridge.total_timeout,
+            &self.limits,
             &self.bridge.provider_policy,
             self.bridge.policy.input_token_ceiling,
         )

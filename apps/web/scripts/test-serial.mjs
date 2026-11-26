@@ -20,7 +20,7 @@ For commercial licensing, please contact support@quantumnous.com
 Copyright (C) 2026 LIghtJUNction
 */
 
-import { spawnSync } from 'node:child_process'
+import { spawn } from 'node:child_process'
 import { readdirSync } from 'node:fs'
 import { join, relative, resolve } from 'node:path'
 
@@ -31,6 +31,11 @@ const preload = join(scripts, 'test-preload.mjs')
 const sourceTests = []
 const scriptTests = []
 const failures = []
+const jobs = Number(process.env.LMM_WEB_TEST_JOBS ?? '1')
+
+if (!Number.isSafeInteger(jobs) || jobs < 1 || jobs > 8) {
+  throw new Error('LMM_WEB_TEST_JOBS must be an integer from 1 to 8')
+}
 
 function collect(directory, pattern, target) {
   for (const entry of readdirSync(directory, { withFileTypes: true })) {
@@ -43,14 +48,15 @@ function collect(directory, pattern, target) {
   }
 }
 
-function run(executable, args) {
-  const result = spawnSync(executable, args, {
+async function run(executable, args) {
+  const child = spawn(executable, args, {
     cwd: root,
     stdio: ['ignore', 'inherit', 'inherit'],
   })
-  if (result.error) console.error(result.error)
-  if (result.error || result.status !== 0) {
-    failures.push({ file: args.at(-1), status: result.status ?? 1 })
+  child.on('error', (error) => console.error(error))
+  const status = await new Promise((resolve) => child.once('close', resolve))
+  if (status !== 0) {
+    failures.push({ file: args.at(-1), status: status ?? 1 })
   }
 }
 
@@ -63,20 +69,22 @@ if (sourceTests.length === 0 && scriptTests.length === 0) {
   throw new Error('no web tests found')
 }
 
-for (const test of sourceTests) {
-  run(process.execPath, [
-    'test',
-    '--preload',
-    preload,
-    '--timeout',
-    '15000',
-    test,
-  ])
+const queue = [
+  ...sourceTests.map((test) => [
+    process.execPath,
+    ['test', '--preload', preload, '--timeout', '15000', test],
+  ]),
+  ...scriptTests.map((test) => ['node', ['--test', test]]),
+]
+
+async function runQueue() {
+  let task
+  while ((task = queue.shift()) !== undefined) {
+    await run(...task)
+  }
 }
 
-for (const test of scriptTests) {
-  run('node', ['--test', test])
-}
+await Promise.all(Array.from({ length: jobs }, () => runQueue()))
 
 if (failures.length > 0) {
   console.error('Web test failures:', JSON.stringify(failures, null, 2))
@@ -84,5 +92,5 @@ if (failures.length > 0) {
 }
 
 console.log(
-  `web tests passed serially: ${sourceTests.length} source + ${scriptTests.length} script files`
+  `web tests passed: ${sourceTests.length} source + ${scriptTests.length} script files`
 )
