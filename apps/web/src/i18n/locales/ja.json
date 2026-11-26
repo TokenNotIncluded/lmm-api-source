@@ -8344,6 +8344,7 @@
     "Please wait for the current generation to complete": "現在の生成が完了するまでお待ちください",
     "Plugin details": "プラグインの詳細",
     "Plugin management": "プラグイン管理",
+    "Plugin Settings": "プラグイン設定",
     "Plugin status is not current. Refresh before relying on it.": "プラグインの状態は最新ではありません。判断に使用する前に更新してください。",
     "PNG, JPEG or WebP, up to {{count}} images and {{size}} MB each.": "PNG、JPEG、WebP に対応。最大 {{count}} 枚、1 枚 {{size}} MB まで。",
     "Point your client at this base URL.": "この URL をクライアントに設定してください。",

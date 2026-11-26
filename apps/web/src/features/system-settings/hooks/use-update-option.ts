@@ -45,6 +45,7 @@ import type {
 import { showOptionUpdateToast } from '../utils/option-update-toast'
 import { getSettingsErrorMessage } from '../utils/settings-error-message'
 import { writableOptionKey } from './option-writability'
+import { systemOptionsQueryKey } from './use-system-options'
 
 // Configuration keys that require status refresh
 const STATUS_RELATED_KEYS = new Set([
@@ -204,10 +205,13 @@ function reportSaveFailure(error: unknown) {
   )
 }
 
-function requireCurrentOptions(queryClient: ReturnType<typeof useQueryClient>) {
-  const state = queryClient.getQueryState<SystemOptionsResponse>([
-    'system-options',
-  ])
+function requireCurrentOptions(
+  queryClient: ReturnType<typeof useQueryClient>,
+  includeNavigation = false
+) {
+  const state = queryClient.getQueryState<SystemOptionsResponse>(
+    systemOptionsQueryKey(includeNavigation)
+  )
   if (
     !state?.data ||
     state.isInvalidated ||
@@ -227,7 +231,10 @@ export function useUpdateOption() {
   return useMutation({
     retry: false,
     mutationFn: async (request: UpdateOptionRequest) => {
-      const options = requireCurrentOptions(queryClient)
+      const options = requireCurrentOptions(
+        queryClient,
+        request.key === 'HeaderNavModules'
+      )
       const key = writableOptionKey(options?.capabilities, request.key)
       if (!key) throw new Error(i18next.t('Read only'))
       const allowedRequest = { ...request, key }

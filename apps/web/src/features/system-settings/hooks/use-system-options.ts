@@ -24,14 +24,18 @@ import { useAuthStore } from '@/stores/auth-store'
 
 import { getSystemOptions } from '../api'
 
-export function useSystemOptions(enabled = true) {
+export const systemOptionsQueryKey = (includeNavigation = false) =>
+  includeNavigation ? ['system-options', 'navigation'] : ['system-options']
+
+export function useSystemOptions(enabled = true, includeNavigation = false) {
   const auth = useAuthStore((state) => state.auth)
   const scope = readNativeUsersScope(auth)
   return useQuery({
-    queryKey: ['system-options'],
+    queryKey: systemOptionsQueryKey(includeNavigation),
     queryFn: ({ signal }) =>
       getSystemOptions({
         silent: true,
+        includeNavigation,
         signal,
         authScope: scope
           ? { userId: scope.userId, sessionId: scope.sessionId }

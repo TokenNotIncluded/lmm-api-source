@@ -8344,6 +8344,7 @@
     "Please wait for the current generation to complete": "请等待当前生成完成",
     "Plugin details": "插件详情",
     "Plugin management": "插件管理",
+    "Plugin Settings": "插件设置",
     "Plugin status is not current. Refresh before relying on it.": "插件状态不是最新的。请刷新后再据此操作。",
     "PNG, JPEG or WebP, up to {{count}} images and {{size}} MB each.": "支持 PNG、JPEG 或 WebP，最多 {{count}} 张，每张不超过 {{size}} MB。",
     "Point your client at this base URL.": "将客户端的请求地址设为此 URL。",

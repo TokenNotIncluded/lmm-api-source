@@ -68,24 +68,39 @@ export function getSystemSettingsNavGroups(
           items: getSiteSectionNavItems(t),
         },
         {
-          title: t('Authentication'),
+          title: t(scope === 'core' ? 'Identity' : 'Authentication'),
           icon: Shield,
-          items: getAuthSectionNavItems(t),
+          items: [
+            ...(scope === 'core' ? [{ title: t('Users'), url: '/users' }] : []),
+            ...getAuthSectionNavItems(t),
+          ],
         },
         {
           title: t('Billing & Payment'),
           icon: CreditCard,
-          items: getBillingSectionNavItems(t),
+          items: getBillingSectionNavItems(t).sort(
+            (a, b) =>
+              Number(b.url === '/system-settings/billing/payment') -
+              Number(a.url === '/system-settings/billing/payment')
+          ),
         },
         {
           title: t('Models & Routing'),
           icon: Box,
-          items: getModelsSectionNavItems(t),
+          items: getModelsSectionNavItems(t).filter(
+            (item) =>
+              item.url !== '/system-settings/models/service-tier-pricing'
+          ),
         },
         {
-          title: t('Security & Limits'),
+          title: t(scope === 'core' ? 'API Access' : 'Security & Limits'),
           icon: ShieldAlert,
-          items: getSecuritySectionNavItems(t),
+          items: [
+            ...(scope === 'core'
+              ? [{ title: t('API Keys'), url: '/keys' }]
+              : []),
+            ...getSecuritySectionNavItems(t),
+          ],
         },
         {
           title: t('Console Content'),

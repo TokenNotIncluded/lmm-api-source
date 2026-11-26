@@ -821,6 +821,10 @@ test('native currency capability previews the dated quote and saves only on expl
     () => container.querySelector('input[name="USDExchangeRate"]') !== null,
     'native currency editor renders'
   )
+  assert.equal(
+    requests.some((request) => request.url === '/api/site/navigation'),
+    false
+  )
   const input = container.querySelector<HTMLInputElement>(
     'input[name="USDExchangeRate"]'
   )

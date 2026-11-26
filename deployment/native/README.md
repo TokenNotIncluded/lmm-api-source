@@ -121,6 +121,14 @@ Do not echo secret contents or place URLs/tokens in process arguments.
    include /etc/nginx/lmm/native-management-locations.conf;
    ```
 
+   Native plugin settings also use the dedicated
+   [plugin locations](templates/native-plugin-settings-locations.conf).
+   Include this file only in the native server block. RSS and HeroSMS
+   settings are handled by Extensions. HumanGrant pages require
+   `identity.humangrant_enabled` and the existing Core runtime grants for
+   `core_humangrant`. Keep the same public Web origin and cookie handling.
+
+
    Scope this include to the native console server so the legacy domain keeps its
    existing routes. Preserve its ACL and `@lmm_extensions_backend`; confirm that
    `127.0.0.1:3101` is the selected Core listener. The snippet admits the EPay

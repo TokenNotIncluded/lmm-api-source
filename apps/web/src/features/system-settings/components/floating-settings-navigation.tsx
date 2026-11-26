@@ -200,8 +200,8 @@ export function FloatingSettingsNavigation() {
             aria-label={t('Search settings')}
           />
         </div>
-        {directory}
         {scopeLink}
+        {directory}
       </aside>
       <aside className='settings-float-rail' aria-label={title}>
         <button
@@ -255,9 +255,9 @@ export function FloatingSettingsNavigation() {
               aria-label={t('Search settings')}
             />
           </div>
+          {scopeLink}
           {directory}
           <div className='settings-directory-footer'>
-            {scopeLink}
             <Link
               to='/dashboard/$section'
               params={{ section: 'overview' }}

@@ -493,7 +493,7 @@ function PluginInventory({ scope }: { scope: NativeUsersScope }) {
                     className='min-h-11'
                     render={<a href={configuration.href} />}
                   >
-                    {t('Settings')}
+                    {t('Configure')}
                   </Button>
                 )}
                 {plugin.installed && !plugin.enabled && (

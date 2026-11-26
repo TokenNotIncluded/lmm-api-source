@@ -40,6 +40,7 @@ import type {
 } from './types'
 
 type SettingsRequestOptions = {
+  includeNavigation?: boolean
   silent?: boolean
   signal?: AbortSignal
   authScope?: AssistantSettingsAuthScope
@@ -76,6 +77,8 @@ export async function getSystemOptions(
       }
     )
   }
+  if (!options?.includeNavigation) return res.data
+
   const navigation = await getSiteNavigation(settingsRequestConfig(options))
   return {
     ...res.data,

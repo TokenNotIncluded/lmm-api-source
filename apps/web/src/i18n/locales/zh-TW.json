@@ -8344,6 +8344,7 @@
     "Please wait for the current generation to complete": "請等待目前生成完成",
     "Plugin details": "外掛程式詳細資料",
     "Plugin management": "外掛程式管理",
+    "Plugin Settings": "外掛設定",
     "Plugin status is not current. Refresh before relying on it.": "外掛狀態不是最新的。請重新整理後再據此操作。",
     "PNG, JPEG or WebP, up to {{count}} images and {{size}} MB each.": "支援 PNG、JPEG 或 WebP，最多 {{count}} 張，每張不超過 {{size}} MB。",
     "Point your client at this base URL.": "將用戶端的請求網址設為此 URL。",

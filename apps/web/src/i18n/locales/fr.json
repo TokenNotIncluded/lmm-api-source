@@ -8344,6 +8344,7 @@
     "Please wait for the current generation to complete": "Veuillez attendre la fin de la génération en cours",
     "Plugin details": "Détails du plugin",
     "Plugin management": "Gestion des extensions",
+    "Plugin Settings": "Paramètres des extensions",
     "Plugin status is not current. Refresh before relying on it.": "L’état du plugin n’est pas à jour. Actualisez-le avant de vous y fier.",
     "PNG, JPEG or WebP, up to {{count}} images and {{size}} MB each.": "PNG, JPEG ou WebP, jusqu’à {{count}} images de {{size}} Mo chacune.",
     "Point your client at this base URL.": "Configurez cette URL dans votre client.",

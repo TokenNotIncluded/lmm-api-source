@@ -8344,6 +8344,7 @@
     "Please wait for the current generation to complete": "Дождитесь завершения текущей генерации",
     "Plugin details": "Сведения о плагине",
     "Plugin management": "Управление плагинами",
+    "Plugin Settings": "Настройки плагинов",
     "Plugin status is not current. Refresh before relying on it.": "Состояние плагина устарело. Обновите его, прежде чем полагаться на эти данные.",
     "PNG, JPEG or WebP, up to {{count}} images and {{size}} MB each.": "PNG, JPEG или WebP: до {{count}} изображений, не более {{size}} МБ каждое.",
     "Point your client at this base URL.": "Укажите этот URL в клиенте.",

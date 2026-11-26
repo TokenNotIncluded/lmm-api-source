@@ -18,7 +18,7 @@ export function canReadSystemSettingsPath(
 }
 
 export const CORE_SETTINGS_HOME = '/system-settings'
-export const EXTENSION_SETTINGS_HOME = '/system-settings/site'
+export const EXTENSION_SETTINGS_HOME = '/extensions/settings'
 
 const corePaths = new Set([
   '/system-settings/auth/basic-auth',
@@ -29,9 +29,10 @@ const corePaths = new Set([
   '/system-settings/billing/router-pricing',
   '/system-settings/billing/group-pricing',
   CORE_SETTINGS_HOME,
+  '/users',
+  '/keys',
   '/system-settings/billing/payment',
   '/system-settings/models/global',
-  '/system-settings/models/service-tier-pricing',
   '/system-settings/models/routing-reliability',
   '/system-settings/models/channel-affinity',
   '/system-settings/security/ip-access-routing',
@@ -47,5 +48,5 @@ export function getSettingsScope(url: string): SettingsScope {
 }
 
 export function getSettingsTitle(scope: SettingsScope) {
-  return scope === 'core' ? 'Core Settings' : 'Extension Settings'
+  return scope === 'core' ? 'Core Settings' : 'Plugin Settings'
 }

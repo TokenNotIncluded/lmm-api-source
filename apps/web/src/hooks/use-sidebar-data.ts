@@ -275,7 +275,7 @@ export function useSidebarData(): SidebarData {
             requiredRole: ROLE.SUPER_ADMIN,
           },
           {
-            title: t('Extension Settings'),
+            title: t('Plugin Settings'),
             url: EXTENSION_SETTINGS_HOME,
             icon: Settings,
             requiredRole: ROLE.SUPER_ADMIN,

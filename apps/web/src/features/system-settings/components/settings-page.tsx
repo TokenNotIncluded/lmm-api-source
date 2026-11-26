@@ -460,13 +460,16 @@ function OptionSettingsPage<
   resolveSettings,
 }: SettingsPageProps<TSettings, TSectionId, TExtraArgs>) {
   const { t } = useTranslation()
-  const optionsQuery = useSystemOptions()
-  const { data, isLoading, isError, error, isFetching, refetch } = optionsQuery
-  const phase = useCapabilityFreshness(optionsQuery)
-  const writesBlocked = phase !== 'fresh'
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const params = useParams({ from: routePath as any })
   const activeSection = (params?.section ?? defaultSection) as TSectionId
+  const optionsQuery = useSystemOptions(
+    true,
+    activeSection === 'header-navigation'
+  )
+  const { data, isLoading, isError, error, isFetching, refetch } = optionsQuery
+  const phase = useCapabilityFreshness(optionsQuery)
+  const writesBlocked = phase !== 'fresh'
   const sectionMeta = getSectionMeta(activeSection)
   const readOnly = data?.capabilities?.read_only === true
   const partial = data?.capabilities?.partial === true

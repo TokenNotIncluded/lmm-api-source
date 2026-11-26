@@ -8344,6 +8344,7 @@
     "Please wait for the current generation to complete": "Vui lòng đợi lượt tạo hiện tại hoàn tất",
     "Plugin details": "Chi tiết plugin",
     "Plugin management": "Quản lý phần bổ trợ",
+    "Plugin Settings": "Cài đặt phần bổ trợ",
     "Plugin status is not current. Refresh before relying on it.": "Trạng thái plugin chưa được cập nhật. Hãy làm mới trước khi dựa vào thông tin này.",
     "PNG, JPEG or WebP, up to {{count}} images and {{size}} MB each.": "Hỗ trợ PNG, JPEG hoặc WebP; tối đa {{count}} ảnh, mỗi ảnh {{size}} MB.",
     "Point your client at this base URL.": "Đặt URL này trong ứng dụng.",

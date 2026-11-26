@@ -31,6 +31,7 @@ const MANAGEMENT_URLS = [
   '/channels',
   '/users',
   '/system-settings',
+  '/extensions/settings',
   '/system-settings/site',
 ] as const
 

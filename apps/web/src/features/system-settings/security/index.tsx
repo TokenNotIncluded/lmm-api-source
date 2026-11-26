@@ -73,7 +73,12 @@ export function SecuritySettings() {
     <SettingsPage
       routePath='/_authenticated/system-settings/security/$section'
       defaultSettings={defaultSecuritySettings}
-      independentSections={['market-ai-review', 'advanced-security']}
+      independentSections={[
+        'market-ai-review',
+        'advanced-security',
+        'honeypot',
+        'rate-limit',
+      ]}
       defaultSection={SECURITY_DEFAULT_SECTION}
       getSectionContent={getSecuritySectionContent}
       getSectionMeta={getSecuritySectionMeta}
