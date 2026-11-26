@@ -20,6 +20,8 @@ import {
 } from './contract'
 import { nativeProfileIdSchema } from './profile-contract'
 
+const identityOriginPreference = { Prefer: 'include="identity-origin"' }
+
 function assertScope(scope: NativeUsersScope, signal?: AbortSignal) {
   if (!isCurrentNativeUsersScope(scope) || signal?.aborted) {
     throw new NativeUsersFailure('session_changed')
@@ -42,6 +44,7 @@ export async function readNativeUsers(
   try {
     const response = await api.get<unknown>('/core/v1/admin/users', {
       ...nativeUsersOptions(scope, signal),
+      headers: identityOriginPreference,
       params: requestParams,
     })
     assertScope(scope, signal)
@@ -101,10 +104,10 @@ export async function readNativeUser(
     throw new NativeUsersFailure('invalid_query')
   }
   try {
-    const response = await api.get<unknown>(
-      `/core/v1/admin/users/${userId}`,
-      nativeUsersOptions(scope, signal)
-    )
+    const response = await api.get<unknown>(`/core/v1/admin/users/${userId}`, {
+      ...nativeUsersOptions(scope, signal),
+      headers: identityOriginPreference,
+    })
     assertScope(scope, signal)
     const parsed = nativeUserDetailSchema.safeParse(response.data)
     if (!parsed.success || parsed.data.user.id !== userId) {

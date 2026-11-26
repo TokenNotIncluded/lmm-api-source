@@ -8,6 +8,7 @@ import {
   CircleCheck,
   CircleOff,
   Columns3,
+  History,
 } from 'lucide-react'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -100,6 +101,8 @@ function UserRecord({
   }[user.platform_role]
   const name = user.username || user.id
   const wallet = user.wallet
+  const historyOnly = user.identity_origin === 'history_only'
+  const suspended = !user.active && user.account_active
   const number = (value: string) =>
     new Intl.NumberFormat(toIntlLocale(i18n.language)).format(BigInt(value))
   const detailsId = `native-user-details-${user.id}`
@@ -178,9 +181,14 @@ function UserRecord({
         )}
         <TableCell className='native-user-status'>
           <p
-            className={`flex items-center gap-1.5 text-xs ${user.active ? '' : 'text-destructive'}`}
+            className={`flex items-center gap-1.5 text-xs ${suspended ? 'text-destructive' : ''}`}
           >
-            {user.active ? (
+            {historyOnly ? (
+              <History
+                className='text-muted-foreground size-3.5 shrink-0'
+                aria-hidden='true'
+              />
+            ) : user.active ? (
               <CircleCheck
                 className='text-success size-3.5 shrink-0'
                 aria-hidden='true'
@@ -188,11 +196,19 @@ function UserRecord({
             ) : (
               <CircleOff className='size-3.5 shrink-0' aria-hidden='true' />
             )}
-            {user.active ? t('Active user') : t('Disabled user')}
+            {historyOnly
+              ? t('History only')
+              : user.active
+                ? t('Active user')
+                : suspended
+                  ? t('Disabled user')
+                  : t('Sign-in inactive')}
           </p>
           {!user.account_active && (
             <p className='text-muted-foreground mt-1 text-xs'>
-              {t('Inactive account')}
+              {historyOnly
+                ? t('Login identity not migrated')
+                : t('Inactive account')}
             </p>
           )}
         </TableCell>

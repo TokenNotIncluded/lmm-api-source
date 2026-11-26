@@ -216,6 +216,7 @@ export const nativeUserSchema = z
     active: z.boolean(),
     status: z.union([z.literal(1), z.literal(2)]),
     account_active: z.boolean(),
+    identity_origin: z.literal('history_only').optional(),
     groups,
     core_account_created_at_unix_ms: safeInteger,
     registered_at_unix_ms: safeInteger.nullable(),
@@ -228,6 +229,15 @@ export const nativeUserSchema = z
       context.addIssue({
         code: 'custom',
         message: 'Inconsistent identity projection',
+      })
+    }
+    if (
+      row.identity_origin === 'history_only' &&
+      (row.active || row.account_active || row.platform_role !== 'user')
+    ) {
+      context.addIssue({
+        code: 'custom',
+        message: 'Inconsistent history-only identity',
       })
     }
     if (

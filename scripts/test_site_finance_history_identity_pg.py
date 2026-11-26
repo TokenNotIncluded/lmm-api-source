@@ -22,8 +22,10 @@ class SiteFinanceHistoryIdentityTests(unittest.TestCase):
         cls.pg.sql("CREATE ROLE history_finance_runtime NOLOGIN;", "postgres")
         source = (Path(__file__).resolve().parent.parent /
                   "services/core/src/history_read/site_statistics.rs").read_text()
-        cls.query = re.search(r'r#"(WITH history_identity_receipts AS .*?)"#,',
-                              source, re.DOTALL).group(1)
+        cls.history_only = (Path(__file__).resolve().parent.parent /
+                            "services/core/src/history_read/history_only_identities.sql").read_text()
+        cls.query = cls.history_only + re.search(r'r#"(, users AS .*?)"#,',
+                                                 source, re.DOTALL).group(1)
         cls.query = cls.query.replace(
             "SELECT floor(extract(epoch FROM statement_timestamp()))::bigint AS as_of,",
             "SELECT (SELECT count(*) FROM history_only) AS excluded,"
@@ -105,6 +107,47 @@ GRANT SELECT(migration_id,manifest) ON core_migration.import_runs TO history_fin
         result = self.pg.sql("BEGIN;" + receipt + change + "SET LOCAL ROLE history_finance_runtime;"
                              "SELECT row_to_json(q) FROM (" + self.query + ") q;ROLLBACK;")
         return json.loads(result.stdout)
+
+    def test_admin_origin_is_page_scoped_and_returns_only_attested_ids(self):
+        # Fifteen bound placeholders and one unrelated active user share this list.
+        for user_id in range(74, 88):
+            self.manifest["mapping"].append({"source_user_id": user_id, "target_user_id": user_id,
+                                            "target_personal_account_id": user_id - 71})
+            self.manifest["source_user_facts"].append(
+                {"facts": {"id": user_id}, "source_record_sha256": "d" * 64})
+        self.manifest["mapping_sha256"] = H.sha(self.manifest["mapping"])
+        self.pg.sql("""
+INSERT INTO core_identity.accounts SELECT i-71,'personal',0,false FROM generate_series(74,87) i;
+INSERT INTO core_identity.users SELECT i,i-71,'user',false,1 FROM generate_series(74,87) i;
+INSERT INTO core_identity.user_profiles SELECT i,false,false,false,false,'' FROM generate_series(74,87) i;
+INSERT INTO core_history.scope_receipts
+SELECT 1,i,i-71,NULL,repeat('a',64),repeat('b',64),repeat('c',64),true FROM generate_series(74,87) i;
+""" + "INSERT INTO core_migration.import_runs VALUES('synthetic-history-only',"
+                    "repeat('a',64),repeat('b',64)," + H.jlit(self.manifest) + ");")
+        origin_reader = (Path(__file__).resolve().parent.parent /
+                         "services/core/src/identity/admin_users/identity_origin.rs").read_text()
+        suffix = re.search(r'"( SELECT DISTINCT id::text FROM history_only [^"]+)"', origin_reader).group(1)
+        prepare = ("BEGIN READ ONLY;SET LOCAL ROLE history_finance_runtime;"
+                   "PREPARE listed_history_only(bigint[]) AS " + self.history_only + suffix + ";")
+        for page, expected in [("71", []), ("71,73,99,87", ["73", "87"])]:
+            with self.subTest(page=page):
+                read = prepare + "EXECUTE listed_history_only(ARRAY[" + page + "]::bigint[]);ROLLBACK;"
+                self.assertEqual(sorted(self.pg.sql(read).stdout.split()), expected)
+
+        page = ",".join(map(str, range(73, 88)))
+        explain = (prepare + "EXPLAIN (ANALYZE, FORMAT JSON) EXECUTE listed_history_only(ARRAY[" +
+                   page + "]::bigint[]);ROLLBACK;")
+        plan = json.loads(self.pg.sql(explain).stdout)[0]["Plan"]
+        self.assertEqual(plan["Actual Rows"], 15)
+        nodes = [plan]
+        expansions = []
+        while nodes:
+            node = nodes.pop()
+            nodes.extend(node.get("Plans", []))
+            if node.get("Function Name") == "jsonb_array_elements":
+                expansions.append(node["Actual Loops"])
+        # The attestation digest, mapping and source-fact arrays each expand once per receipt.
+        self.assertEqual(sorted(expansions), [1, 1, 1])
 
     def test_attested_history_identity_preserves_finance_and_runtime_permissions(self):
         unbound = self.read()

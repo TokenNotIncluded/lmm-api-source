@@ -47,6 +47,7 @@ test('user detail reads one exact ID with scoped native options and exact credit
   const seen: string[] = []
   api.defaults.adapter = async (config) => {
     seen.push(`${config.method} ${config.url}`)
+    expect(config.headers.get('Prefer')).toBe('include="identity-origin"')
     expect(config.authScope).toEqual({
       userId: 901,
       sessionId: scope.sessionId,

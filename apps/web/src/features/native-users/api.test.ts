@@ -45,6 +45,7 @@ test('native reads bind only supported literal query values to the current Sessi
   const seen: string[] = []
   api.defaults.adapter = async (config) => {
     seen.push(`${config.method} ${config.url}`)
+    expect(config.headers.get('Prefer')).toBe('include="identity-origin"')
     expect(config.params).toEqual({
       ...DEFAULT_NATIVE_USERS_QUERY,
       keyword: '%_',
@@ -98,6 +99,7 @@ test('legacy filters and unsafe queries fail before any network operation', asyn
 test('group choices have independent exact paging rather than a synthetic full list', async () => {
   login()
   api.defaults.adapter = async (config) => {
+    expect(config.headers.has('Prefer')).toBe(false)
     expect(config.url).toBe('/core/v1/admin/users/groups')
     expect(config.params).toEqual({ page: 2, page_size: 20 })
     return {

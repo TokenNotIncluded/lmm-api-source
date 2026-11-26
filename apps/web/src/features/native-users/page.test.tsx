@@ -207,9 +207,10 @@ test('the actual page renders exact identity, memberships and signed units witho
   expect(seen).toEqual(['get /api/status', 'get /core/v1/admin/users'])
 })
 
-test('collapsed memberships stay compact and opening Manage loads exact usage without enabling an inactive account', async () => {
+test('opening a history-only identity shows its provenance and usage without changing access', async () => {
   login()
   const user = nativeUserFixture({
+    identity_origin: 'history_only',
     active: false,
     status: 2,
     account_active: false,
@@ -274,7 +275,9 @@ test('collapsed memberships stay compact and opening Manage loads exact usage wi
   expect(row.textContent).toContain('9,876,543')
   expect(row.textContent).toContain('250,000 credits')
   expect(row.textContent).toContain('-17')
-  expect(row.textContent).toContain('Disabled user')
+  expect(row.textContent).toContain('History only')
+  expect(row.textContent).toContain('Login identity not migrated')
+  expect(row.textContent).not.toContain('Disabled user')
   expect(row.textContent).toContain(
     'Viewing its history does not enable sign-in or spending.'
   )
@@ -452,11 +455,41 @@ test('known empty profiles and unavailable wallets remain distinct from invented
   const container = await mount()
   const row = container.querySelector('[data-native-user-id]')
   expect(row?.textContent).toContain('Profile unavailable')
-  expect(row?.textContent).toContain('Disabled user')
+  expect(row?.textContent).toContain('Sign-in inactive')
+  expect(row?.textContent).toContain('Inactive account')
+  expect(row?.textContent).not.toContain('History only')
+  expect(row?.textContent).not.toContain('Disabled user')
   expect(row?.textContent).toContain('No explicit group memberships')
   expect(row?.textContent).not.toContain('Empty value')
   expect(row?.textContent).not.toContain('Economic position')
   expect(row?.textContent).not.toContain('synthetic-native@example.invalid')
+})
+
+test('a disabled user with an active personal account retains its disabled status', async () => {
+  login()
+  const user = nativeUserFixture({
+    active: false,
+    status: 2,
+    account_active: true,
+    wallet: { status: 'unavailable', code: 'WALLET_SUBJECT_UNAVAILABLE' },
+  })
+  api.defaults.adapter = async (config) => ({
+    config,
+    data:
+      config.url === '/api/status'
+        ? nativeStatusFixture
+        : nativeListFixture([user]),
+    headers: {},
+    status: 200,
+    statusText: 'OK',
+  })
+  const container = await mount()
+  const status = container.querySelector(
+    '[data-native-user-id] .native-user-status'
+  )
+  expect(status?.textContent).toContain('Disabled user')
+  expect(status?.textContent).not.toContain('History only')
+  expect(status?.textContent).not.toContain('Inactive account')
 })
 
 test('pagination removes previous data immediately, ignores cancelled success and shows failures safely', async () => {
@@ -1166,7 +1199,7 @@ test('status shortcuts apply the current search and keep team, role and sort fil
   )
   assert.ok(status)
   await act(async () => {
-    button(status, 'Disabled user').click()
+    button(status, 'Sign-in inactive').click()
     await pause()
   })
   expect(reads.at(-1)).toMatchObject({
@@ -1178,7 +1211,7 @@ test('status shortcuts apply the current search and keep team, role and sort fil
     status: 'disabled',
     page: 1,
   })
-  expect(button(status, 'Disabled user').getAttribute('aria-pressed')).toBe(
+  expect(button(status, 'Sign-in inactive').getAttribute('aria-pressed')).toBe(
     'true'
   )
   await act(async () => {

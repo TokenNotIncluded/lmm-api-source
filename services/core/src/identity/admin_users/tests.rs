@@ -806,6 +806,121 @@ async fn actual_http_requires_bearer_and_rejects_unknown_duplicate_and_unsupport
     f.role.cleanup().await;
 }
 #[sqlx::test(migrations = false)]
+async fn history_origin_prefers_no_new_privileges_for_admin_reads(pool: PgPool) {
+    async fn request(
+        app: &axum::Router,
+        session: &str,
+        uri: &str,
+        prefer: bool,
+        status: StatusCode,
+    ) -> Value {
+        let mut req = Request::builder()
+            .uri(uri)
+            .header("authorization", format!("Bearer {session}"));
+        if prefer {
+            req = req.header("prefer", r#"include="identity-origin""#);
+        }
+        let response = app
+            .clone()
+            .oneshot(req.body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        assert_eq!(response.status(), status);
+        assert_eq!(response.headers()["cache-control"], "private, no-store");
+        assert_eq!(
+            response.headers()["vary"],
+            if prefer {
+                "Authorization, Prefer"
+            } else {
+                "Authorization"
+            }
+        );
+        serde_json::from_slice(&to_bytes(response.into_body(), 64 * 1024).await.unwrap()).unwrap()
+    }
+
+    let f = fresh(&pool).await;
+    let visitor = person(&f, &pool, 11, 0, "visitor").await;
+    f.role.optional("web_identity").await;
+    // Owner installs the synthetic supplement and its independent history coverage.
+    // The HTTP router always connects as the restricted runtime role.
+    sqlx::raw_sql(r#"
+        WITH fixture AS (
+            SELECT '[{"source_user_id":73,"target_personal_account_id":10074,"target_user_id":10073}]' AS mapping,
+                   '{"id":73}' AS source_facts
+        ), receipt AS (
+            SELECT mapping::jsonb, encode(sha256(convert_to(mapping,'UTF8')),'hex') AS mapping_hash,
+                   source_facts::jsonb, encode(sha256(convert_to(source_facts,'UTF8')),'hex') AS facts_hash
+            FROM fixture
+        )
+        INSERT INTO core_migration.import_runs(migration_id,source_archive_sha256,mapping_sha256,manifest)
+        SELECT 'synthetic-history-only',repeat('a',64),mapping_hash,jsonb_build_object(
+            'format_version',1,'scope','history-only-identity-supplement.v1',
+            'mapping',mapping,'mapping_sha256',mapping_hash,
+            'source_snapshot',jsonb_build_object('sha256',repeat('a',64),'metadata',
+                jsonb_build_object('schema','legacy_source','observed_at',1700000040)),
+            'source_user_facts',jsonb_build_array(jsonb_build_object('facts',source_facts,'source_record_sha256',facts_hash)),
+            'target',jsonb_build_object(
+                'instance',jsonb_build_object('database',current_database(),'database_oid',
+                    (SELECT oid::bigint FROM pg_database WHERE datname=current_database())),
+                'before_identity_state',jsonb_build_object(
+                    'users',jsonb_build_object('max_id',(SELECT max(id) FROM core_identity.users)),
+                    'accounts',jsonb_build_object('max_id',(SELECT max(id) FROM core_identity.accounts)))),
+            'target_policy','{"accounts_active":false,"users_active":false,"platform_role":"user","auth_version":1,
+                              "credentials_imported":false,"wallet_opening_imported":false}'::jsonb)
+        FROM receipt;
+        INSERT INTO core_identity.accounts(id,kind,active) OVERRIDING SYSTEM VALUE VALUES(10074,'personal',false);
+        INSERT INTO core_identity.users(id,personal_account_id,active) VALUES(10073,10074,false);
+        INSERT INTO core_identity.user_profiles(user_id,username,password_login_allowed) VALUES(10073,'history_fixture',false);
+        WITH source AS (
+            INSERT INTO core_history.sources(contract_version,source_archive_sha256,mapping_sha256,source_namespace,observed_at,complete)
+            VALUES('core.history-source.v1',repeat('a',64),repeat('b',64),'legacy.logs:legacy_source',1700000040,true)
+            RETURNING source_id,source_archive_sha256,mapping_sha256
+        )
+        INSERT INTO core_history.scope_receipts(source_id,user_id,owner_account_id,source_archive_sha256,mapping_sha256,source_scope_sha256,complete)
+        SELECT source_id,10073,10074,source_archive_sha256,mapping_sha256,repeat('c',64),true FROM source;
+    "#).execute(&pool).await.unwrap();
+
+    let app = router(f.store.clone());
+    let routes = [
+        ("/core/v1/admin/users?keyword=10073", "/items/0"),
+        ("/core/v1/admin/users/10073", "/user"),
+    ];
+    for (uri, pointer) in routes {
+        let marked = request(&app, &f.admin, uri, true, StatusCode::OK).await;
+        let row = marked.pointer(pointer).unwrap();
+        assert_eq!(row["id"], "10073");
+        assert_eq!(row["identity_origin"], "history_only");
+        assert_eq!(row["active"], false);
+        assert_eq!(row["account_active"], false);
+        assert_eq!(row["auth_version"], "1");
+        let baseline = request(&app, &f.admin, uri, false, StatusCode::OK).await;
+        let mut expected = row.clone();
+        expected.as_object_mut().unwrap().remove("identity_origin");
+        assert_eq!(baseline.pointer(pointer), Some(&expected));
+        let denied = request(&app, &visitor.secret, uri, true, StatusCode::FORBIDDEN).await;
+        assert!(denied.pointer(pointer).is_none());
+    }
+
+    // This is the same attested identity. Losing the optional schema grant must
+    // leave each normal admin route readable, with the original inactive flags.
+    let revoke = format!("REVOKE USAGE ON SCHEMA core_migration FROM {}", f.role.name);
+    sqlx::query(sqlx::AssertSqlSafe(revoke))
+        .execute(&pool)
+        .await
+        .unwrap();
+    for (uri, pointer) in routes {
+        let fallback = request(&app, &f.admin, uri, true, StatusCode::OK).await;
+        let row = fallback.pointer(pointer).unwrap();
+        assert_eq!(row["id"], "10073");
+        assert_eq!(row["active"], false);
+        assert_eq!(row["account_active"], false);
+        assert_eq!(row["auth_version"], "1");
+        assert!(row.get("identity_origin").is_none());
+    }
+    f.role.cleanup().await;
+}
+
+#[sqlx::test(migrations = false)]
 async fn one_snapshot_keeps_total_and_rows_consistent_across_committed_insert(pool: PgPool) {
     let f = fresh(&pool).await;
     let mut tx = f.store.begin().await.unwrap();

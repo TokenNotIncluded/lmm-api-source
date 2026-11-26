@@ -480,7 +480,9 @@ function UsersWorkspace({
           {
             key: 'status' as const,
             label:
-              query.status === 'active' ? t('Active user') : t('Disabled user'),
+              query.status === 'active'
+                ? t('Active user')
+                : t('Sign-in inactive'),
           },
         ]
       : []),
@@ -555,7 +557,7 @@ function UsersWorkspace({
           [
             ['', t('All users')],
             ['active', t('Active user')],
-            ['disabled', t('Disabled user')],
+            ['disabled', t('Sign-in inactive')],
           ] as const
         ).map(([status, label]) => (
           <Button

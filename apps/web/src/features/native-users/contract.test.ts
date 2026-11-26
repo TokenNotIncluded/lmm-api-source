@@ -106,6 +106,30 @@ test('wallet provenance, activity, roles and profile availability are bound to t
   ).toBe(true)
 })
 
+test('accepts a verified history-only origin only for inactive ordinary user and account rows', () => {
+  const inactive = nativeUserFixture({
+    active: false,
+    status: 2,
+    account_active: false,
+    wallet: { status: 'unavailable', code: 'WALLET_SUBJECT_UNAVAILABLE' },
+  })
+  const historical = { ...inactive, identity_origin: 'history_only' }
+  expect(nativeUserSchema.parse(historical)).toEqual(historical)
+  expect(nativeUserSchema.parse(inactive)).toEqual(inactive)
+  for (const change of [
+    { active: true, status: 1 },
+    { account_active: true },
+    { platform_role: 'admin', role: 10 },
+    { identity_origin: 'unverified' },
+    { identity_origin: null },
+    { manifest: {} },
+  ]) {
+    expect(
+      nativeUserSchema.safeParse({ ...historical, ...change }).success
+    ).toBe(false)
+  }
+})
+
 test('zero, negative and extreme safe timestamps are retained, null remains unknown', () => {
   for (const value of [
     0,

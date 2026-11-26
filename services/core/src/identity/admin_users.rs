@@ -10,6 +10,7 @@ pub use appeals::{
     AppealReviewRequest,
 };
 mod http;
+mod identity_origin;
 mod profile_mutation;
 mod security;
 pub use balance_adjustments::{AdjustmentReceipt, AdjustmentRequest};
@@ -229,6 +230,8 @@ pub struct UserRow {
     pub active: bool,
     pub status: i16,
     pub account_active: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub identity_origin: Option<&'static str>,
     pub groups: Vec<String>,
     pub teams: Vec<AdminUserTeam>,
     pub core_account_created_at_unix_ms: i64,
@@ -444,6 +447,15 @@ impl AdminUsersStore {
         Ok(actor)
     }
     pub async fn users(&self, secret: &str, input: &UsersQuery) -> ReadResult<UsersPage> {
+        self.read_users(secret, input, false).await
+    }
+
+    async fn read_users(
+        &self,
+        secret: &str,
+        input: &UsersQuery,
+        include_origin: bool,
+    ) -> ReadResult<UsersPage> {
         let q = input.validate()?;
         let mut tx = self.begin().await?;
         Self::authorize(&mut tx, secret).await?;
@@ -464,6 +476,9 @@ impl AdminUsersStore {
         for r in rows {
             items.push(project_user(&mut tx, r).await?);
         }
+        if include_origin {
+            identity_origin::annotate(&mut tx, &mut items).await?;
+        }
         let result = UsersPage {
             version: 1,
             items,
@@ -477,6 +492,15 @@ impl AdminUsersStore {
     }
 
     pub async fn user(&self, secret: &str, user_id: i64) -> ReadResult<UserDetail> {
+        self.read_user(secret, user_id, false).await
+    }
+
+    async fn read_user(
+        &self,
+        secret: &str,
+        user_id: i64,
+        include_origin: bool,
+    ) -> ReadResult<UserDetail> {
         if user_id <= 0 {
             return Err(AdminUsersError::Invalid);
         }
@@ -497,7 +521,10 @@ impl AdminUsersStore {
         .await?
         .ok_or(AdminUsersError::NotFound)?;
         let account: i64 = row.try_get("personal_account_id")?;
-        let user = project_user(&mut tx, row).await?;
+        let mut user = project_user(&mut tx, row).await?;
+        if include_origin {
+            identity_origin::annotate(&mut tx, std::slice::from_mut(&mut user)).await?;
+        }
         let usage = usage::read(&mut tx, user_id, account).await?;
         let statistics = statistics::read(
             &mut tx,
@@ -551,6 +578,7 @@ async fn project_user(c: &mut PgConnection, r: sqlx::postgres::PgRow) -> ReadRes
         active: r.try_get("active")?,
         status: r.try_get("status_number")?,
         account_active: r.try_get("account_active")?,
+        identity_origin: None,
         groups: r.try_get("groups")?,
         teams: user_teams(c, id).await?,
         core_account_created_at_unix_ms: safe_time(r.try_get("core_created_ms")?)?,

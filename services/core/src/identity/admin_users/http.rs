@@ -9,6 +9,16 @@ use axum::{
     response::{IntoResponse, Response},
     routing::get,
 };
+fn include_identity_origin(headers: &HeaderMap) -> bool {
+    headers.get_all("prefer").iter().any(|value| {
+        value.to_str().is_ok_and(|value| {
+            value
+                .split(',')
+                .any(|item| item.trim() == r#"include="identity-origin""#)
+        })
+    })
+}
+
 pub(super) fn bearer(h: &HeaderMap) -> ReadResult<&str> {
     let mut values = h.get_all(header::AUTHORIZATION).iter();
     let value = values
@@ -62,15 +72,19 @@ pub fn router(store: AdminUsersStore) -> Router {
         .route("/core/v1/admin/system-resources", get(system_resources))
         .layer(axum::middleware::from_fn(
             |request: axum::extract::Request, next: axum::middleware::Next| async move {
+                let vary = if include_identity_origin(request.headers()) {
+                    "Authorization, Prefer"
+                } else {
+                    "Authorization"
+                };
                 let mut response = next.run(request).await;
                 response.headers_mut().insert(
                     header::CACHE_CONTROL,
                     "private, no-store".parse().expect("static header"),
                 );
-                response.headers_mut().insert(
-                    header::VARY,
-                    "Authorization".parse().expect("static header"),
-                );
+                response
+                    .headers_mut()
+                    .insert(header::VARY, vary.parse().expect("static header"));
                 response
             },
         ))
@@ -84,7 +98,11 @@ async fn users(
 ) -> ReadResult<Json<UsersPage>> {
     let secret = bearer(&headers)?;
     let Query(input) = input.map_err(|_| AdminUsersError::Invalid)?;
-    Ok(Json(store.users(secret, &input).await?))
+    Ok(Json(
+        store
+            .read_users(secret, &input, include_identity_origin(&headers))
+            .await?,
+    ))
 }
 async fn user(
     State(store): State<AdminUsersStore>,
@@ -93,7 +111,11 @@ async fn user(
 ) -> ReadResult<Json<UserDetail>> {
     let secret = bearer(&headers)?;
     let Path(user_id) = input.map_err(|_| AdminUsersError::Invalid)?;
-    Ok(Json(store.user(secret, user_id).await?))
+    Ok(Json(
+        store
+            .read_user(secret, user_id, include_identity_origin(&headers))
+            .await?,
+    ))
 }
 async fn groups(
     State(store): State<AdminUsersStore>,
