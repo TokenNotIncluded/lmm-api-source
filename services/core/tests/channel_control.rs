@@ -1688,3 +1688,87 @@ async fn vault_key_import_rejects_invalid_batches_and_rolls_back_audit_failure(p
     assert_eq!(listed["keys"].as_array().unwrap().len(), 1);
     assert_eq!(listed["polling"], false);
 }
+
+#[sqlx::test(migrations = false)]
+async fn openrouter_feed_reaches_native_draft_confirmation_and_frozen_quotes(pool: PgPool) {
+    use std::io::Write;
+    use std::path::Path;
+    use std::process::{Command, Stdio};
+
+    let (app, routing, admin, ordinary, _) = setup(&pool).await;
+    let path = "/core/v1/admin/routing/prices";
+    let prices = success(&app, "GET", path, &admin, Value::Null).await;
+    let scripts = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../scripts");
+    let mut child = Command::new("python3")
+        .arg(scripts.join("prepare-openrouter-price-draft.py"))
+        .arg("--feed")
+        .arg(scripts.join("fixtures/openrouter-prices-mixed.json"))
+        .args(["--prices-file", "-", "--rule-id", "1"])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let input = json!({"success":true,"data":prices}).to_string();
+    child
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(input.as_bytes())
+        .unwrap();
+    let output = child.wait_with_output().unwrap();
+    assert!(output.status.success());
+    let plan: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(plan["skipped_rows"].as_array().unwrap().len(), 2);
+    let proposal = &plan["preview_request"];
+    let preview_path = format!("{path}/preview");
+    assert_eq!(
+        request(
+            app.clone(),
+            "POST",
+            &preview_path,
+            &ordinary,
+            proposal.clone()
+        )
+        .await
+        .0,
+        StatusCode::FORBIDDEN
+    );
+    let validated = success(&app, "POST", &preview_path, &admin, proposal.clone()).await;
+    assert_eq!(validated["after"], proposal["prices"]);
+    let frozen = routing.route(route_request()).unwrap().quote();
+    let draft_path = format!("{path}/drafts/15");
+    let draft = json!({"expected_version":proposal["expected_version"],"prices":proposal["prices"],
+                       "name":format!("OpenRouter {}",plan["feed_sha256"].as_str().unwrap())});
+    let saved = success(&app, "PUT", &draft_path, &admin, draft).await;
+    assert_eq!(saved["published"], false);
+    assert_eq!(
+        routing.route(route_request()).unwrap().quote().rates(),
+        frozen.rates()
+    );
+    let confirmation = success(
+        &app,
+        "POST",
+        &format!("{draft_path}/preview"),
+        &admin,
+        json!({"expected_version":saved["version"]}),
+    )
+    .await;
+    assert_eq!(confirmation["prices"], validated["after"]);
+    success(&app, "POST", &format!("{draft_path}/publish"), &admin,
+        json!({"expected_version":saved["version"],"confirmation_digest":confirmation["confirmation_digest"]})).await;
+    let usage = lmm_core::routing::Usage {
+        input: 1_000_000,
+        ..Default::default()
+    };
+    assert_eq!(frozen.charge(usage).unwrap().0, 2);
+    assert_eq!(
+        routing
+            .route(route_request())
+            .unwrap()
+            .quote()
+            .charge(usage)
+            .unwrap()
+            .0,
+        2_501_000
+    );
+}
