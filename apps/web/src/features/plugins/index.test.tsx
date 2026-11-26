@@ -393,10 +393,10 @@ test('dependencies prevent disabling an active requirement and unconfigured modu
   assert.ok(unconfigured)
   assert.equal(button('Disable', store).disabled, true)
   assert.equal(button('Disable', support).disabled, false)
-  assert.equal(unconfigured.querySelector('button'), null)
+  assert.equal(unconfigured.querySelector('a'), null)
   assert.equal(
-    unconfigured.querySelector('a')?.getAttribute('href'),
-    '/system-settings/operations/hero-sms'
+    button('Configure', unconfigured).getAttribute('aria-expanded'),
+    'false'
   )
   assert.match(unconfigured.textContent ?? '', /Setup required/)
   assert.match(unconfigured.textContent ?? '', /hero_sms.core_token_file/)
@@ -487,11 +487,89 @@ test('plugin search matches its purpose and unavailable filter keeps lifecycle g
   await until(() => container.querySelectorAll('[data-plugin]').length === 1)
   const unconfigured = container.querySelector('[data-plugin="checkins"]')
   assert.ok(unconfigured)
-  assert.equal(unconfigured.querySelector('button'), null)
+  assert.equal(unconfigured.querySelector('a'), null)
   assert.equal(
-    unconfigured.querySelector('a')?.getAttribute('href'),
-    '/system-settings/billing/checkin'
+    button('Configure', unconfigured).getAttribute('aria-expanded'),
+    'false'
   )
+})
+
+test('configuration expands inside the matching plugin card', async () => {
+  login(100)
+  api.defaults.adapter = async (config) =>
+    response(config, [{ ...plugin, name: 'assistant' }])
+  const container = await mount()
+  await until(() =>
+    Boolean(container.querySelector('[data-plugin="assistant"]'))
+  )
+  const card = container.querySelector('[data-plugin="assistant"]')
+  assert.ok(card)
+  const configure = button('Configure', card)
+  assert.equal(configure.tagName, 'BUTTON')
+  await act(async () => configure.click())
+  assert.equal(configure.getAttribute('aria-expanded'), 'true')
+  assert.ok(card.querySelector('#plugin-config-assistant'))
+  await act(async () => configure.click())
+  assert.equal(configure.getAttribute('aria-expanded'), 'false')
+  assert.equal(card.querySelector('#plugin-config-assistant'), null)
+})
+
+test('manual order submits a complete dependency-safe order and auto sort reads it back', async () => {
+  login(100)
+  const details = new Map([
+    ['identity', { ...plugin, name: 'identity' }],
+    ['store', { ...plugin, required_by: ['support'] }],
+    ['support', { ...plugin, name: 'support', requires: ['store'] }],
+    ['operations', { ...plugin, name: 'operations' }],
+  ])
+  let names = ['identity', 'store', 'support', 'operations']
+  const writes: string[] = []
+  api.defaults.adapter = async (config) => {
+    if (config.method === 'put') {
+      assert.equal(config.url, '/api/extensions/plugins/order')
+      names = JSON.parse(config.data).order
+      assert.deepEqual(names, ['identity', 'store', 'operations', 'support'])
+      writes.push('manual')
+    }
+    if (config.method === 'post') {
+      assert.equal(config.url, '/api/extensions/plugins/order/auto')
+      names = ['identity', 'operations', 'store', 'support']
+      writes.push('auto')
+    }
+    return response(
+      config,
+      names.map((name, index) => ({
+        ...details.get(name),
+        load_order: index + 1,
+      }))
+    )
+  }
+  const container = await mount()
+  await until(() => Boolean(container.querySelector('#plugin-load-order')))
+  const controls = (label: string) => {
+    const group = container.querySelector(
+      `[role="group"][aria-label="${label}"]`
+    )
+    assert.ok(group)
+    return group
+  }
+  assert.equal(button('Move up', controls('Support')).disabled, true)
+  await act(async () => button('Move up', controls('Operations')).click())
+  await until(
+    () =>
+      writes.length === 1 && !button('Sort by dependencies', container).disabled
+  )
+  await act(async () => button('Sort by dependencies', container).click())
+  await until(
+    () =>
+      writes.length === 2 && !button('Sort by dependencies', container).disabled
+  )
+  const first = container
+    .querySelector('#plugin-load-order')
+    ?.closest('section')
+    ?.querySelector('li')
+  assert.match(first?.textContent ?? '', /Operations/)
+  assert.deepEqual(writes, ['manual', 'auto'])
 })
 
 test('switching sessions prevents a lifecycle write and discards a previous session response', async () => {

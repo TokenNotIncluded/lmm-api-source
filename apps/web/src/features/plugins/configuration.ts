@@ -1,33 +1,14 @@
 /* Copyright (C) 2026 LIghtJUNction. SPDX-License-Identifier: AGPL-3.0-or-later */
 
-// These are the existing administrative routes and the host's public TOML
-// field names. They describe setup requirements, never live secret values.
-const configuration: Record<
-  string,
-  { href?: string; fields: readonly string[] }
-> = {
-  acquisition: {
-    href: '/system-settings/billing/quota',
-    fields: ['host.public_origin', 'acquisition.database_url_file'],
-  },
-  assistant: {
-    href: '/system-settings/content/assistant',
-    fields: ['core.assistant_token_file', 'assistant.database_url_file'],
-  },
-  checkins: {
-    href: '/system-settings/billing/checkin',
-    fields: ['core.checkin_token_file', 'checkins.database_url_file'],
-  },
-  'hero-sms': {
-    href: '/system-settings/operations/hero-sms',
-    fields: ['hero_sms.core_socket', 'hero_sms.core_token_file'],
-  },
-  operations: {
-    href: '/system-settings/operations/scripts',
-    fields: ['operations.database_url_file'],
-  },
+// Host field names are setup instructions, with no live credential values.
+const hostFields: Record<string, readonly string[]> = {
+  acquisition: ['host.public_origin', 'acquisition.database_url_file'],
+  assistant: ['core.assistant_token_file', 'assistant.database_url_file'],
+  checkins: ['core.checkin_token_file', 'checkins.database_url_file'],
+  'hero-sms': ['hero_sms.core_socket', 'hero_sms.core_token_file'],
+  operations: ['operations.database_url_file'],
 }
 
-export function pluginConfiguration(name: string) {
-  return configuration[name]
+export function pluginHostFields(name: string) {
+  return Object.hasOwn(hostFields, name) ? hostFields[name] : undefined
 }

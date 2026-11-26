@@ -24,11 +24,13 @@ import { useAuthStore } from '@/stores/auth-store'
 
 import {
   changePlugin,
+  changePluginOrder,
   reloadPlugins,
   type PluginAction,
   type PluginInfo,
 } from './api'
-import { pluginConfiguration } from './configuration'
+import { pluginHostFields } from './configuration'
+import { PluginConfiguration } from './configuration-panel'
 import {
   canChangePlugin,
   pluginDependencies,
@@ -50,6 +52,7 @@ function PluginInventory({ scope }: { scope: NativeUsersScope }) {
   const query = runtime?.plugins ?? localQuery
   const phase = useCapabilityFreshness(query)
   const [search, setSearch] = useState('')
+  const [configuredPlugin, setConfiguredPlugin] = useState<string | null>(null)
   const [filter, setFilter] = useState('all')
   const [selection, setSelection] = useState<Selection | null>(null)
   const [pending, setPending] = useState(false)
@@ -93,11 +96,10 @@ function PluginInventory({ scope }: { scope: NativeUsersScope }) {
         selection.plugin.registration_sha256 &&
       canChangePlugin(selection.action, selectedPlugin, registry))
 
-  async function applySelection() {
+  async function applySelection(order?: string[] | null) {
     if (
-      !selection ||
+      (order === undefined && (!selection || !selectionCurrent)) ||
       !writable ||
-      !selectionCurrent ||
       request.current ||
       !isCurrentNativeUsersScope(scope)
     ) {
@@ -108,9 +110,11 @@ function PluginInventory({ scope }: { scope: NativeUsersScope }) {
     setPending(true)
     setNotice(null)
     try {
-      if (selection.action === 'reload') {
+      if (order !== undefined) {
+        await changePluginOrder(scope, order, controller.signal)
+      } else if (selection?.action === 'reload') {
         await reloadPlugins(scope, controller.signal)
-      } else {
+      } else if (selection) {
         await changePlugin(
           scope,
           selection.plugin,
@@ -172,6 +176,35 @@ function PluginInventory({ scope }: { scope: NativeUsersScope }) {
   const extensions = registry.filter(
     (plugin) => plugin.name !== 'identity' && plugin.name !== 'payments'
   )
+  const enabled = registry
+    .filter((plugin) => plugin.enabled)
+    .sort((left, right) => (left.load_order ?? 0) - (right.load_order ?? 0))
+  const orderReady = enabled.every(
+    (plugin, index) => plugin.load_order === index + 1
+  )
+  const orderedExtensions = enabled.filter((plugin) =>
+    extensions.includes(plugin)
+  )
+
+  function movedOrder(position: number, offset: number) {
+    const selected = orderedExtensions[position]
+    const adjacent = orderedExtensions[position + offset]
+    if (!selected || !adjacent) return null
+    const names = enabled.map((plugin) => plugin.name)
+    const from = names.indexOf(selected.name)
+    const to = names.indexOf(adjacent.name)
+    ;[names[from], names[to]] = [names[to], names[from]]
+    const positions = new Map(names.map((name, index) => [name, index]))
+    const valid = enabled.every((plugin) =>
+      (plugin.requires ?? []).every(
+        (dependency) =>
+          (positions.get(dependency) ?? names.length) <
+          (positions.get(plugin.name) ?? -1)
+      )
+    )
+    return valid ? names : null
+  }
+
   const visible = extensions.filter(
     (plugin) =>
       [plugin.name, ...Object.values(pluginPresentation(plugin.name, t))]
@@ -326,6 +359,67 @@ function PluginInventory({ scope }: { scope: NativeUsersScope }) {
           total: extensions.length,
         })}
       </p>
+      {orderReady && orderedExtensions.length > 0 && (
+        <section aria-labelledby='plugin-load-order' className='space-y-3'>
+          <div className='flex flex-wrap items-center justify-between gap-2'>
+            <h2 id='plugin-load-order' className='text-base font-semibold'>
+              {t('Plugin load order')}
+            </h2>
+            <Button
+              variant='outline'
+              className='min-h-11'
+              disabled={!writable}
+              onClick={() => void applySelection(null)}
+            >
+              {t('Sort by dependencies')}
+            </Button>
+          </div>
+          <ol className='divide-border divide-y'>
+            {orderedExtensions.map((plugin, position) => {
+              const up = movedOrder(position, -1)
+              const down = movedOrder(position, 1)
+              const { title } = pluginPresentation(plugin.name, t)
+              return (
+                <li
+                  key={plugin.name}
+                  className='flex flex-wrap items-center justify-between gap-2 py-2'
+                >
+                  <span className='min-w-0 text-sm break-words'>
+                    <span className='text-muted-foreground me-2 tabular-nums'>
+                      {plugin.load_order}.
+                    </span>
+                    {title}
+                  </span>
+                  <div
+                    className='flex flex-wrap gap-1'
+                    role='group'
+                    aria-label={title}
+                  >
+                    <Button
+                      size='sm'
+                      variant='ghost'
+                      className='min-h-11'
+                      disabled={!writable || !up}
+                      onClick={() => up && void applySelection(up)}
+                    >
+                      {t('Move up')}
+                    </Button>
+                    <Button
+                      size='sm'
+                      variant='ghost'
+                      className='min-h-11'
+                      disabled={!writable || !down}
+                      onClick={() => down && void applySelection(down)}
+                    >
+                      {t('Move down')}
+                    </Button>
+                  </div>
+                </li>
+              )
+            })}
+          </ol>
+        </section>
+      )}
       <section
         aria-label={t('Plugin management')}
         className='grid min-w-0 items-start gap-4 @min-[42rem]/plugins:grid-cols-2 @min-[68rem]/plugins:grid-cols-3'
@@ -355,12 +449,14 @@ function PluginInventory({ scope }: { scope: NativeUsersScope }) {
           const dependencies = pluginDependencies(plugin, registry)
           const dependents = pluginDependents(plugin, registry)
           const presentation = pluginPresentation(plugin.name, t)
-          const configuration = pluginConfiguration(plugin.name)
+          const hostFields = pluginHostFields(plugin.name)
+          const configOpen = configuredPlugin === plugin.name
+          const configId = `plugin-config-${plugin.name}`
           return (
             <article
               key={plugin.name}
               data-plugin={plugin.name}
-              className='bg-card grid min-w-0 gap-4 rounded-xl p-5'
+              className={`bg-card grid min-w-0 gap-4 rounded-xl p-5 ${configOpen ? 'col-span-full' : ''}`}
             >
               <div className='min-w-0 space-y-3'>
                 <div className='flex min-w-0 flex-wrap items-center justify-between gap-x-3 gap-y-2'>
@@ -438,6 +534,13 @@ function PluginInventory({ scope }: { scope: NativeUsersScope }) {
                       <dt>{t('Requires')}</dt>
                       <dd>{plugin.requires?.join(', ') || t('None')}</dd>
                     </div>
+                    <div>
+                      <dt>{t('Required by')}</dt>
+                      <dd>
+                        {(plugin.required_by ?? dependents).join(', ') ||
+                          t('None')}
+                      </dd>
+                    </div>
                     <div className='col-span-2'>
                       <dt>{t('Registration fingerprint')}</dt>
                       <dd>
@@ -466,7 +569,7 @@ function PluginInventory({ scope }: { scope: NativeUsersScope }) {
                           'host.web_compat',
                           'core.socket',
                           'core.identity_token_file',
-                          ...(configuration?.fields ?? []),
+                          ...(hostFields ?? []),
                         ].map((field) => (
                           <li key={field}>
                             <code className='[overflow-wrap:anywhere]'>
@@ -492,11 +595,16 @@ function PluginInventory({ scope }: { scope: NativeUsersScope }) {
                     {actionLabel(action)}
                   </Button>
                 )}
-                {configuration?.href && (
+                {hostFields && (
                   <Button
+                    type='button'
                     variant={plugin.available ? 'ghost' : 'outline'}
                     className='min-h-11'
-                    render={<a href={configuration.href} />}
+                    aria-expanded={configOpen}
+                    aria-controls={configOpen ? configId : undefined}
+                    onClick={() =>
+                      setConfiguredPlugin(configOpen ? null : plugin.name)
+                    }
                   >
                     {t('Configure')}
                   </Button>
@@ -514,6 +622,15 @@ function PluginInventory({ scope }: { scope: NativeUsersScope }) {
                   </Button>
                 )}
               </div>
+              {configOpen && (
+                <section
+                  id={configId}
+                  aria-label={t('Configuration')}
+                  className='min-w-0 border-t pt-4'
+                >
+                  <PluginConfiguration name={plugin.name} writable={writable} />
+                </section>
+              )}
             </article>
           )
         })}

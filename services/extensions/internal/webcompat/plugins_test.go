@@ -12,10 +12,12 @@ import (
 )
 
 type pluginControllerFake struct {
-	info     []modules.PluginInfo
-	enabled  map[string]bool
-	installs int
-	reloads  int
+	info      []modules.PluginInfo
+	enabled   map[string]bool
+	installs  int
+	reloads   int
+	order     []string
+	autoSorts int
 }
 
 func (f *pluginControllerFake) List() []modules.PluginInfo {
@@ -66,6 +68,15 @@ func (f *pluginControllerFake) Uninstall(name string) (modules.PluginInfo, error
 }
 func (f *pluginControllerFake) Reload() error { f.reloads++; return nil }
 
+func (f *pluginControllerFake) SetLoadOrder(order []string) ([]modules.PluginInfo, error) {
+	f.order = append([]string(nil), order...)
+	return f.List(), nil
+}
+func (f *pluginControllerFake) AutoSortLoadOrder() ([]modules.PluginInfo, error) {
+	f.autoSorts++
+	return f.List(), nil
+}
+
 func pluginRequest(handler http.Handler, method, path, body, token string) *httptest.ResponseRecorder {
 	r := httptest.NewRequest(method, path, strings.NewReader(body))
 	if token != "" {
@@ -93,6 +104,9 @@ func TestPluginAdminRoutesRequirePlatformAdministratorAndSupportLifecycle(t *tes
 	if response := pluginRequest(handler, http.MethodGet, "/api/extensions/plugins", "", webToken); response.Code != http.StatusForbidden {
 		t.Fatalf("user status=%d body=%s", response.Code, response.Body)
 	}
+	if response := pluginRequest(handler, http.MethodPut, "/api/extensions/plugins/order", `{"order":["alpha"]}`, webToken); response.Code != http.StatusForbidden || manager.order != nil {
+		t.Fatalf("user order status=%d body=%s", response.Code, response.Body)
+	}
 	core.fn = func(_ context.Context, _ string) (*pb.AuthorizeResponse, error) {
 		self := sessionSelf()
 		self.PlatformLevel = 5
@@ -100,6 +114,22 @@ func TestPluginAdminRoutesRequirePlatformAdministratorAndSupportLifecycle(t *tes
 	}
 	if response := pluginRequest(handler, http.MethodGet, "/api/extensions/plugins", "", webToken); response.Code != http.StatusOK {
 		t.Fatalf("admin list status=%d body=%s", response.Code, response.Body)
+	}
+	for _, body := range []string{`{}`, `{"order":null}`, `{"order":["alpha"],"unknown":true}`, `{"order":["alpha"]} {}`} {
+		if response := pluginRequest(handler, http.MethodPut, "/api/extensions/plugins/order", body, webToken); response.Code != http.StatusUnprocessableEntity ||
+			!strings.Contains(response.Body.String(), "PLUGIN_INVALID_ORDER") || manager.order != nil {
+			t.Fatalf("malformed order body=%q status=%d response=%s", body, response.Code, response.Body)
+		}
+	}
+	if response := pluginRequest(handler, http.MethodPut, "/api/extensions/plugins/order", `{"order":["alpha"]}`, webToken); response.Code != http.StatusOK ||
+		len(manager.order) != 1 || manager.order[0] != "alpha" {
+		t.Fatalf("admin order status=%d body=%s order=%v", response.Code, response.Body, manager.order)
+	}
+	if response := pluginRequest(handler, http.MethodPost, "/api/extensions/plugins/order/auto", "{}", webToken); response.Code != http.StatusUnprocessableEntity || manager.autoSorts != 0 {
+		t.Fatalf("malformed auto sort status=%d body=%s", response.Code, response.Body)
+	}
+	if response := pluginRequest(handler, http.MethodPost, "/api/extensions/plugins/order/auto", "", webToken); response.Code != http.StatusOK || manager.autoSorts != 1 {
+		t.Fatalf("admin auto sort status=%d body=%s", response.Code, response.Body)
 	}
 	manifest := `{"name":"alpha","version":"1.0.0","api_version":1,"registration_sha256":"` + modules.RegistrationSHA256("alpha", "1.0.0") + `"}`
 	if response := pluginRequest(handler, http.MethodPost, "/api/extensions/plugins/install", manifest, webToken); response.Code != http.StatusOK || manager.installs != 1 {

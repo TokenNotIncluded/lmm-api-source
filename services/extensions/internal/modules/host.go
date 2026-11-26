@@ -96,8 +96,7 @@ func NewRouter(registered []Module, credential []byte) (*Router, error) {
 }
 
 // Reload replaces the route table for new requests. Names must be a subset of
-// the originally registered modules; ordering is canonicalized for stable
-// inventory output and deterministic state files.
+// the originally registered modules in the manager's resolved activation order.
 func (r *Router) Reload(enabled []string) error {
 	if r == nil {
 		return errors.New("nil extension router")
@@ -109,11 +108,7 @@ func (r *Router) Reload(enabled []string) error {
 		}
 		selected[name] = true
 	}
-	names := make([]string, 0, len(selected))
-	for name := range selected {
-		names = append(names, name)
-	}
-	sort.Strings(names)
+	names := append([]string{}, enabled...)
 	api := http.NewServeMux()
 	for _, name := range names {
 		prefix := "/extensions/v1/" + name

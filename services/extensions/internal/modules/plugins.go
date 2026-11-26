@@ -15,6 +15,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -28,6 +29,7 @@ var (
 	ErrPluginAlreadyEnabled = errors.New("plugin is already enabled")
 	ErrPluginAlreadyOff     = errors.New("plugin is already disabled")
 	ErrPluginManifest       = errors.New("invalid plugin manifest")
+	ErrPluginOrder          = errors.New("invalid plugin load order")
 	ErrPluginState          = errors.New("invalid plugin state")
 )
 
@@ -50,6 +52,8 @@ type PluginInfo struct {
 	Available          bool     `json:"available"`
 	Installed          bool     `json:"installed"`
 	Enabled            bool     `json:"enabled"`
+	LoadOrder          int      `json:"load_order,omitempty"`
+	RequiredBy         []string `json:"required_by,omitempty"`
 	Requires           []string `json:"requires,omitempty"`
 	NavigationPaths    []string `json:"navigation_paths,omitempty"`
 }
@@ -96,6 +100,7 @@ type PluginManager struct {
 	entries   map[string]pluginEntry
 	installed map[string]bool
 	enabled   map[string]bool
+	loadOrder []string
 }
 
 func RegistrationSHA256(name, version string) string {
@@ -143,9 +148,29 @@ func NewPluginManager(reloader ModuleReloader, registered []Module, stateFile st
 		entry.module, entry.info.Available = module, true
 		m.entries[module.Name()] = entry
 	}
+	defaultOrder, err := m.sortedOrder()
+	if err != nil {
+		return nil, err
+	}
+	m.loadOrder = defaultOrder
 	loaded, exists, err := readPluginState(stateFile)
 	if err != nil {
 		return nil, err
+	}
+	if exists {
+		// Format v1 stored plugins alphabetically. Reuse the entry order for
+		// precedence so a rolled-back release can still read the same file.
+		seen := make(map[string]bool, len(loaded))
+		m.loadOrder = make([]string, 0, len(m.entries))
+		for _, state := range loaded {
+			seen[state.Name] = true
+			m.loadOrder = append(m.loadOrder, state.Name)
+		}
+		for _, name := range defaultOrder {
+			if !seen[name] {
+				m.loadOrder = append(m.loadOrder, name)
+			}
+		}
 	}
 	if !exists {
 		for name, entry := range m.entries {
@@ -178,11 +203,21 @@ func NewPluginManager(reloader ModuleReloader, registered []Module, stateFile st
 func (m *PluginManager) List() []PluginInfo {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
+	return m.listLocked()
+}
+
+func (m *PluginManager) listLocked() []PluginInfo {
 	result := make([]PluginInfo, 0, len(m.entries))
-	for name := range m.entries {
-		result = append(result, m.infoLocked(name))
+	for _, name := range m.enabledOrderLocked() {
+		info := m.infoLocked(name)
+		info.LoadOrder = len(result) + 1
+		result = append(result, info)
 	}
-	sort.Slice(result, func(i, j int) bool { return result[i].Name < result[j].Name })
+	for _, name := range m.loadOrder {
+		if !m.enabled[name] {
+			result = append(result, m.infoLocked(name))
+		}
+	}
 	return result
 }
 
@@ -306,14 +341,119 @@ func (m *PluginManager) reloadLocked() error {
 	if err := m.validateEnabledLocked(); err != nil {
 		return err
 	}
-	enabled := make([]string, 0, len(m.enabled))
-	for name, on := range m.enabled {
-		if on {
-			enabled = append(enabled, name)
+	return m.reloader.ReloadModules(m.enabledOrderLocked())
+}
+
+func (m *PluginManager) enabledOrderLocked() []string {
+	order, _ := m.topologicalOrder(m.loadOrder, m.enabled)
+	return order
+}
+
+// SetLoadOrder accepts a complete permutation of enabled modules and rejects
+// requests that would put a dependent ahead of its prerequisite.
+func (m *PluginManager) SetLoadOrder(order []string) ([]PluginInfo, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	current := m.enabledOrderLocked()
+	if len(order) != len(current) {
+		return nil, ErrPluginOrder
+	}
+	seen := make(map[string]bool, len(order))
+	for _, name := range order {
+		if !m.enabled[name] || seen[name] {
+			return nil, ErrPluginOrder
+		}
+		for _, dependency := range m.entries[name].info.Requires {
+			if !seen[dependency] {
+				return nil, ErrPluginOrder
+			}
+		}
+		seen[name] = true
+	}
+	next := slices.Clone(m.loadOrder)
+	index := 0
+	for i, name := range next {
+		if m.enabled[name] {
+			next[i] = order[index]
+			index++
 		}
 	}
-	sort.Strings(enabled)
-	return m.reloader.ReloadModules(enabled)
+	return m.applyLoadOrderLocked(next)
+}
+
+// AutoSortLoadOrder restores deterministic dependency order and uses names to
+// break ties between modules that can load independently.
+func (m *PluginManager) AutoSortLoadOrder() ([]PluginInfo, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	order, err := m.sortedOrder()
+	if err != nil {
+		return nil, err
+	}
+	return m.applyLoadOrderLocked(order)
+}
+
+func (m *PluginManager) applyLoadOrderLocked(order []string) ([]PluginInfo, error) {
+	previous := m.loadOrder
+	m.loadOrder = order
+	if err := m.reloadLocked(); err != nil {
+		m.loadOrder = previous
+		return nil, err
+	}
+	if err := m.persistLocked(); err != nil {
+		m.loadOrder = previous
+		return nil, errors.Join(err, m.reloadLocked())
+	}
+	return m.listLocked(), nil
+}
+
+func (m *PluginManager) sortedOrder() ([]string, error) {
+	names := make([]string, 0, len(m.entries))
+	selected := make(map[string]bool, len(m.entries))
+	for name := range m.entries {
+		names = append(names, name)
+		selected[name] = true
+	}
+	sort.Strings(names)
+	return m.topologicalOrder(names, selected)
+}
+
+func (m *PluginManager) topologicalOrder(preference []string, selected map[string]bool) ([]string, error) {
+	indegree := make(map[string]int, len(selected))
+	dependents := make(map[string][]string, len(selected))
+	for name, enabled := range selected {
+		if !enabled {
+			continue
+		}
+		indegree[name] = len(m.entries[name].info.Requires)
+		seen := make(map[string]bool)
+		for _, dependency := range m.entries[name].info.Requires {
+			if !selected[dependency] || dependency == name || seen[dependency] {
+				return nil, fmt.Errorf("%w: %s requires %s", ErrPluginManifest, name, dependency)
+			}
+			seen[dependency] = true
+			dependents[dependency] = append(dependents[dependency], name)
+		}
+	}
+	order := make([]string, 0, len(indegree))
+	for len(indegree) > 0 {
+		next := ""
+		for _, name := range preference {
+			if degree, ok := indegree[name]; ok && degree == 0 {
+				next = name
+				break
+			}
+		}
+		if next == "" {
+			return nil, fmt.Errorf("%w: plugin dependency cycle", ErrPluginManifest)
+		}
+		order = append(order, next)
+		delete(indegree, next)
+		for _, dependent := range dependents[next] {
+			indegree[dependent]--
+		}
+	}
+	return order, nil
 }
 
 func (m *PluginManager) validateEnabledLocked() error {
@@ -337,6 +477,12 @@ func (m *PluginManager) validateEnabledLocked() error {
 func (m *PluginManager) infoLocked(name string) PluginInfo {
 	info := m.entries[name].info
 	info.Installed, info.Enabled = m.installed[name], m.enabledLocked(name)
+	for dependent, entry := range m.entries {
+		if slices.Contains(entry.info.Requires, name) {
+			info.RequiredBy = append(info.RequiredBy, dependent)
+		}
+	}
+	sort.Strings(info.RequiredBy)
 	info.Requires = append([]string(nil), info.Requires...)
 	info.NavigationPaths = append([]string(nil), info.NavigationPaths...)
 	return info
@@ -354,12 +500,12 @@ func (m *PluginManager) persistLocked() error {
 		return ErrPluginState
 	}
 	state := pluginStateFile{FormatVersion: PluginManifestVersion}
-	for name, entry := range m.entries {
+	for _, name := range m.loadOrder {
+		entry := m.entries[name]
 		state.Plugins = append(state.Plugins, pluginState{Name: name, Version: entry.info.Version,
 			APIVersion: entry.info.APIVersion, RegistrationSHA256: entry.info.RegistrationSHA256,
 			Installed: m.installed[name], Enabled: m.enabled[name]})
 	}
-	sort.Slice(state.Plugins, func(i, j int) bool { return state.Plugins[i].Name < state.Plugins[j].Name })
 	raw, err := json.Marshal(state)
 	if err != nil {
 		return err

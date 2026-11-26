@@ -41,7 +41,6 @@ import {
   RotateCcw,
   Server,
   ServerCog,
-  Settings,
   Ticket,
   User,
   Users,
@@ -74,10 +73,6 @@ For commercial licensing, please contact support@quantumnous.com
 import { hasPermission } from '@/lib/admin-permissions'
 import { isConsoleActivated } from '@/lib/console-activation'
 import { ROLE } from '@/lib/roles'
-import {
-  CORE_SETTINGS_HOME,
-  EXTENSION_SETTINGS_HOME,
-} from '@/lib/system-settings-access'
 import { useAuthStore } from '@/stores/auth-store'
 
 /**
@@ -266,18 +261,6 @@ export function useSidebarData(): SidebarData {
             title: t('System Info'),
             url: '/system-info',
             icon: ServerCog,
-            requiredRole: ROLE.SUPER_ADMIN,
-          },
-          {
-            title: t('Core Settings'),
-            url: CORE_SETTINGS_HOME,
-            icon: Settings,
-            requiredRole: ROLE.SUPER_ADMIN,
-          },
-          {
-            title: t('Plugin Settings'),
-            url: EXTENSION_SETTINGS_HOME,
-            icon: Settings,
             requiredRole: ROLE.SUPER_ADMIN,
           },
           {

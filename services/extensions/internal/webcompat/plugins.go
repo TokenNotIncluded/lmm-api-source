@@ -23,6 +23,8 @@ type PluginController interface {
 	Disable(string) (modules.PluginInfo, error)
 	Uninstall(string) (modules.PluginInfo, error)
 	Reload() error
+	SetLoadOrder([]string) ([]modules.PluginInfo, error)
+	AutoSortLoadOrder() ([]modules.PluginInfo, error)
 }
 
 // RegisterPlugins exposes administrator-only lifecycle operations. Installation
@@ -56,6 +58,25 @@ func RegisterPlugins(mux RouteRegistrar, auth *Authenticator, manager PluginCont
 			return
 		}
 		info, err := manager.Install(request)
+		pluginRespond(w, info, err)
+	}))
+	mux.HandleFunc("PUT /api/extensions/plugins/order", admin(func(w http.ResponseWriter, r *http.Request) {
+		var request struct {
+			Order []string `json:"order"`
+		}
+		if decodePluginBody(r, &request) != nil || request.Order == nil {
+			pluginRespond(w, nil, modules.ErrPluginOrder)
+			return
+		}
+		info, err := manager.SetLoadOrder(request.Order)
+		pluginRespond(w, info, err)
+	}))
+	mux.HandleFunc("POST /api/extensions/plugins/order/auto", admin(func(w http.ResponseWriter, r *http.Request) {
+		if !emptyPluginBody(r) {
+			pluginRespond(w, nil, modules.ErrPluginOrder)
+			return
+		}
+		info, err := manager.AutoSortLoadOrder()
 		pluginRespond(w, info, err)
 	}))
 	mux.HandleFunc("POST /api/extensions/plugins/reload", admin(func(w http.ResponseWriter, r *http.Request) {
@@ -92,30 +113,34 @@ func RegisterPlugins(mux RouteRegistrar, auth *Authenticator, manager PluginCont
 }
 
 func decodePluginInstall(r *http.Request) (modules.PluginInstallRequest, error) {
-	if r == nil || r.Body == nil {
-		return modules.PluginInstallRequest{}, modules.ErrPluginManifest
-	}
-	// Read one byte beyond the limit so trailing whitespace cannot make an
-	// oversized manifest look like a valid, fully consumed JSON document.
-	const maxManifestBytes = 16 << 10
-	payload, err := io.ReadAll(io.LimitReader(r.Body, maxManifestBytes+1))
-	if err != nil || len(payload) > maxManifestBytes {
-		return modules.PluginInstallRequest{}, modules.ErrPluginManifest
-	}
-	decoder := json.NewDecoder(bytes.NewReader(payload))
-	decoder.DisallowUnknownFields()
 	var request modules.PluginInstallRequest
-	if err := decoder.Decode(&request); err != nil {
-		return modules.PluginInstallRequest{}, modules.ErrPluginManifest
-	}
-	var extra any
-	if err := decoder.Decode(&extra); !errors.Is(err, io.EOF) {
-		return modules.PluginInstallRequest{}, modules.ErrPluginManifest
-	}
-	if request.Name == "" || request.Version == "" || request.APIVersion == 0 || request.RegistrationSHA256 == "" {
+	if decodePluginBody(r, &request) != nil || request.Name == "" || request.Version == "" ||
+		request.APIVersion == 0 || request.RegistrationSHA256 == "" {
 		return modules.PluginInstallRequest{}, modules.ErrPluginManifest
 	}
 	return request, nil
+}
+
+func decodePluginBody(r *http.Request, destination any) error {
+	if r == nil || r.Body == nil {
+		return modules.ErrPluginManifest
+	}
+	// Trailing whitespace also counts against the request limit.
+	const maxPluginBodyBytes = 16 << 10
+	payload, err := io.ReadAll(io.LimitReader(r.Body, maxPluginBodyBytes+1))
+	if err != nil || len(payload) > maxPluginBodyBytes {
+		return modules.ErrPluginManifest
+	}
+	decoder := json.NewDecoder(bytes.NewReader(payload))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(destination); err != nil {
+		return modules.ErrPluginManifest
+	}
+	var extra any
+	if err := decoder.Decode(&extra); !errors.Is(err, io.EOF) {
+		return modules.ErrPluginManifest
+	}
+	return nil
 }
 
 func emptyPluginBody(r *http.Request) bool {
@@ -139,6 +164,8 @@ func pluginRespond(w http.ResponseWriter, value any, err error) {
 			code, label, message = http.StatusUnauthorized, "PLUGIN_LOGIN_REQUIRED", "Sign in to manage plugins."
 		case errors.Is(err, store.ErrForbidden):
 			code, label, message = http.StatusForbidden, "PLUGIN_ACCESS_DENIED", "Plugin administration requires a platform administrator."
+		case errors.Is(err, modules.ErrPluginOrder):
+			code, label, message = http.StatusUnprocessableEntity, "PLUGIN_INVALID_ORDER", "List each enabled plugin once and place dependencies first."
 		case errors.Is(err, modules.ErrPluginManifest):
 			code, label, message = http.StatusUnprocessableEntity, "PLUGIN_INVALID_MANIFEST", "The plugin manifest does not match a reviewed registration."
 		case errors.Is(err, modules.ErrPluginNotFound):

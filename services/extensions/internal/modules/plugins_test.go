@@ -2,12 +2,14 @@ package modules
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"reflect"
+	"sort"
 	"strings"
 	"testing"
 )
@@ -237,7 +239,7 @@ func TestPluginManagerLifecyclePersistsAndHotReloads(t *testing.T) {
 	if _, err := manager.Enable("alpha"); !errors.Is(err, ErrPluginNotInstalled) {
 		t.Fatalf("enable uninstalled err=%v", err)
 	}
-	alpha := manager.List()[0]
+	alpha := manager.List()[1]
 	if _, err := manager.Install(PluginInstallRequest{Name: alpha.Name, Version: alpha.Version, APIVersion: alpha.APIVersion, RegistrationSHA256: alpha.RegistrationSHA256}); err != nil {
 		t.Fatal(err)
 	}
@@ -608,4 +610,102 @@ func TestPluginManagerReloadFailurePreservesStateAndCanRetry(t *testing.T) {
 		})
 	}
 	// @context-fold end plugin-reloader-failure-recovery
+}
+
+func TestPluginLoadOrderAppliesToRoutesAndPersists(t *testing.T) {
+	registered := []Module{pluginTestModule{"alpha", "1.0.0"}, pluginTestModule{"beta", "1.0.0"}, pluginTestModule{"zeta", "1.0.0"}}
+	catalog := []Descriptor{{Name: "alpha", Version: "1.0.0", Requires: []string{"zeta"}}, {Name: "beta", Version: "1.0.0"}, {Name: "zeta", Version: "1.0.0"}}
+	token := strings.Repeat("test-order-", 4)
+	host, err := NewHost(registered, []byte(token))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := host.MarkReady(); err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	if err := os.Chmod(dir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	state := filepath.Join(dir, "plugins.json")
+	manager, err := NewPluginManager(host, registered, state, catalog...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	verifyRoutes := func(expected []string) {
+		t.Helper()
+		req := httptest.NewRequest(http.MethodGet, "/extensions/v1/modules", nil)
+		req.Header.Set("Authorization", "Bearer "+token)
+		res := httptest.NewRecorder()
+		host.ServeHTTP(res, req)
+		var body struct {
+			Modules []string `json:"modules"`
+		}
+		if err := json.Unmarshal(res.Body.Bytes(), &body); err != nil ||
+			res.Code != http.StatusOK || !reflect.DeepEqual(body.Modules, expected) {
+			t.Fatalf("route inventory: status=%d body=%s err=%v", res.Code, res.Body, err)
+		}
+	}
+	automatic := []string{"beta", "zeta", "alpha"}
+	manual := []string{"zeta", "alpha", "beta"}
+	verifyRoutes(automatic)
+	info, err := manager.SetLoadOrder(manual)
+	if err != nil || len(info) != 3 || info[0].LoadOrder != 1 ||
+		!reflect.DeepEqual(info[0].RequiredBy, []string{"alpha"}) || info[1].LoadOrder != 2 {
+		t.Fatalf("manual order inventory=%+v err=%v", info, err)
+	}
+	verifyRoutes(manual)
+	before, err := os.ReadFile(state)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, invalid := range [][]string{{"alpha", "zeta", "beta"}, {"zeta", "zeta", "beta"}, {"zeta", "alpha"}} {
+		if _, err := manager.SetLoadOrder(invalid); !errors.Is(err, ErrPluginOrder) {
+			t.Fatalf("order %v err=%v", invalid, err)
+		}
+		verifyRoutes(manual)
+	}
+	after, err := os.ReadFile(state)
+	if err != nil || !bytes.Equal(before, after) {
+		t.Fatalf("invalid order changed persistence: %v", err)
+	}
+	restarted, err := NewPluginManager(host, registered, state, catalog...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	verifyRoutes(manual)
+	if _, err := restarted.AutoSortLoadOrder(); err != nil {
+		t.Fatal(err)
+	}
+	verifyRoutes(automatic)
+
+	var old pluginStateFile
+	if err := json.Unmarshal(before, &old); err != nil {
+		t.Fatal(err)
+	}
+	sort.Slice(old.Plugins, func(i, j int) bool { return old.Plugins[i].Name < old.Plugins[j].Name })
+	raw, err := json.Marshal(old)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(state, raw, 0600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := NewPluginManager(host, registered, state, catalog...); err != nil {
+		t.Fatal(err)
+	}
+	verifyRoutes(automatic)
+}
+
+func TestPluginDependencyGraphRejectsCyclesAndMissingNodes(t *testing.T) {
+	for name, catalog := range map[string][]Descriptor{
+		"cycle":   {{Name: "alpha", Version: "1.0.0", Requires: []string{"beta"}}, {Name: "beta", Version: "1.0.0", Requires: []string{"alpha"}}},
+		"missing": {{Name: "alpha", Version: "1.0.0", Requires: []string{"absent"}}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if _, err := NewPluginManager(&pluginTestReloader{}, nil, "", catalog...); !errors.Is(err, ErrPluginManifest) {
+				t.Fatalf("invalid graph returned %v", err)
+			}
+		})
+	}
 }

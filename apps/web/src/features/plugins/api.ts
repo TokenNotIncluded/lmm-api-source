@@ -17,6 +17,8 @@ const pluginSchema = z.object({
   enabled: z.boolean(),
   registration_sha256: z.string(),
   requires: z.array(z.string()).optional(),
+  required_by: z.array(z.string()).optional(),
+  load_order: z.number().int().positive().optional(),
   navigation_paths: z.array(z.string()).optional(),
 })
 
@@ -96,4 +98,19 @@ export async function reloadPlugins(
   )
   if (!isCurrentNativeUsersScope(scope)) throw new Error('Session changed')
   z.object({ success: z.literal(true), data: z.null() }).parse(response.data)
+}
+
+export async function changePluginOrder(
+  scope: NativeUsersScope,
+  order: string[] | null,
+  signal: AbortSignal
+) {
+  if (!isCurrentNativeUsersScope(scope)) throw new Error('Session changed')
+  const options = nativeUsersOptions(scope, signal)
+  const path = '/api/extensions/plugins/order'
+  const response = order
+    ? await api.put<unknown>(path, { order }, options)
+    : await api.post<unknown>(`${path}/auto`, undefined, options)
+  if (!isCurrentNativeUsersScope(scope)) throw new Error('Session changed')
+  return pluginListSchema.parse(response.data).data
 }
