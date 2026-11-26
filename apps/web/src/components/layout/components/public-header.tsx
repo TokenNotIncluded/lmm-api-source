@@ -544,6 +544,7 @@ export function PublicHeader(props: PublicHeaderProps) {
                 props.leftContent && 'max-sm:gap-1'
               )}
             >
+              {showLanguageSwitcher && <LanguageSwitcher />}
               {showThemeSwitch && <ThemeSwitch />}
               {showAuthButtons && !loading && isAuthenticated && (
                 <ProfileDropdown />

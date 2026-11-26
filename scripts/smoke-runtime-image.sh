@@ -101,7 +101,7 @@ if [[ "$component" == extensions ]]; then
     [[ "$actual" == "$expected" ]]
   done < <(find "$root/config/legal/templates" -type f -name '*.md' -print0)
   docker exec "$cid" /bin/sh -ec '
-    test "$(find /usr/share/lmm/legal/templates -type f -name "*.md" | wc -l)" -eq 6
+    test "$(find /usr/share/lmm/legal/templates -type f -name "*.md" | wc -l)" -eq 9
     test ! -e /usr/share/lmm/legal/site.json
     test ! -e /usr/share/lmm/legal/site.toml
     test ! -e /usr/share/lmm/legal/site.example.json

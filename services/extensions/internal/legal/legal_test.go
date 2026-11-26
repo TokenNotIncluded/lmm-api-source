@@ -286,7 +286,7 @@ func TestShippedTemplatesAreDraftsAndCanBeConfigured(t *testing.T) {
 		t.Fatal("missing shipped document")
 	}
 	for _, translations := range h.documents {
-		if len(translations) != 2 {
+		if translations["en"].text == "" || translations["zh-cn"].text == "" || translations["zh-tw"].text == "" {
 			t.Fatal("missing translation")
 		}
 	}
@@ -420,6 +420,69 @@ func TestOperatorFilesRejectGroupOrOtherWrite(t *testing.T) {
 					t.Fatalf("safe operator file rejected: %v", err)
 				}
 			})
+		}
+	}
+}
+
+func TestTraditionalScriptSelectionAgreesWithPublishedSnapshot(t *testing.T) {
+	root, c := fixture(t)
+	c.DefaultLanguage = "en"
+	translations := c.Documents["user-agreement"]
+	translations["zh-TW"] = "tw.md"
+	translations["fr"] = "fr.md"
+	for name, text := range map[string]string{"tw.md": "繁體條款與隱私權", "fr.md": "Conditions françaises"} {
+		if err := os.WriteFile(filepath.Join(root, name), []byte(text), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	h, err := Load(writeConfig(t, root, c))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct{ requested, source, contains string }{
+		{"", "en", "English"}, {"en-GB", "en", "English"}, {"it", "en", "English"},
+		{"zh", "zh-cn", "Chinese"}, {"zh-Hans-SG", "zh-cn", "Chinese"},
+		{"zh-TW", "zh-tw", "繁體"}, {"zh-Hant", "zh-tw", "繁體"},
+		{"zh_Hant_HK", "zh-tw", "繁體"}, {"zh-HK", "zh-tw", "繁體"},
+		{"zh-MO", "zh-tw", "繁體"}, {"fr-CA", "fr", "françaises"},
+	} {
+		t.Run(tc.requested, func(t *testing.T) {
+			path := "/api/user-agreement"
+			if tc.requested != "" {
+				path += "?lang=" + tc.requested
+			}
+			response := httptest.NewRecorder()
+			h.ServeHTTP(response, httptest.NewRequest(http.MethodGet, path, nil))
+			var body struct{ Language, Data, Revision string }
+			if err := json.Unmarshal(response.Body.Bytes(), &body); err != nil {
+				t.Fatal(err)
+			}
+			if response.Code != 200 || body.Language != tc.source || !strings.Contains(body.Data, tc.contains) {
+				t.Fatalf("unexpected published response: %+v", body)
+			}
+			snapshot, err := h.Snapshot("user-agreement", tc.requested)
+			if err != nil || !snapshot.SourceConfigured || snapshot.SourceLanguage != body.Language || snapshot.Text != body.Data || snapshot.Revision != body.Revision {
+				t.Fatalf("snapshot mismatch for %q: %+v, %v", tc.requested, snapshot, err)
+			}
+		})
+	}
+	delete(translations, "zh-TW")
+	h, err = Load(writeConfig(t, root, c))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if lang, _ := h.selectDocument("user-agreement", "zh-hant"); lang != "en" {
+		t.Fatal("missing Traditional translation should use configured default", lang)
+	}
+	translations["zh-Hant"] = "tw.md"
+	translations["zh-Hant-HK"] = "fr.md"
+	h, err = Load(writeConfig(t, root, c))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct{ request, source string }{{"zh-tw", "zh-hant"}, {"zh-hant-hk", "zh-hant-hk"}} {
+		if selected, _ := h.selectDocument("user-agreement", tc.request); selected != tc.source {
+			t.Fatal(tc.request, selected)
 		}
 	}
 }

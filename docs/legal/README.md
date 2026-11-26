@@ -1,6 +1,6 @@
 # 可配置的协议模板
 
-提供用户协议（含服务条款）、隐私政策、退款政策的中文和英文 Markdown 草稿。模板是起点，不是针对某地区的法律意见。运营方应结合实际服务和适用要求审查；不要照抄不存在的退款承诺、保存期限或安全措施。
+提供用户协议（含服务条款）、隐私政策、退款政策的英文、简体中文和繁体中文 Markdown 草稿。模板是起点，不是针对某地区的法律意见。运营方应结合实际服务和适用要求审查；不要照抄不存在的退款承诺、保存期限或安全措施。
 
 ## 配置一次，独立分发
 
@@ -16,11 +16,11 @@
 
 默认草稿直接维护在模板目录；服务条款包含在用户协议中。这些文件均需运营方填写、审查并发布，不能作为本站已生效的政策。
 
-| 文档 | 中文草稿 | English draft |
-| --- | --- | --- |
-| 用户协议与服务条款 | [中文](../../config/legal/templates/zh-CN/user-agreement.md) | [English](../../config/legal/templates/en/user-agreement.md) |
-| 隐私政策 | [中文](../../config/legal/templates/zh-CN/privacy-policy.md) | [English](../../config/legal/templates/en/privacy-policy.md) |
-| 退款政策 | [中文](../../config/legal/templates/zh-CN/refund-policy.md) | [English](../../config/legal/templates/en/refund-policy.md) |
+| 文档 | English draft | 简体中文草稿 | 繁體中文草稿 |
+| --- | --- | --- | --- |
+| 用户协议与服务条款 | [English](../../config/legal/templates/en/user-agreement.md) | [简体中文](../../config/legal/templates/zh-CN/user-agreement.md) | [繁體中文](../../config/legal/templates/zh-TW/user-agreement.md) |
+| 隐私政策 | [English](../../config/legal/templates/en/privacy-policy.md) | [简体中文](../../config/legal/templates/zh-CN/privacy-policy.md) | [繁體中文](../../config/legal/templates/zh-TW/privacy-policy.md) |
+| 退款政策 | [English](../../config/legal/templates/en/refund-policy.md) | [简体中文](../../config/legal/templates/zh-CN/refund-policy.md) | [繁體中文](../../config/legal/templates/zh-TW/refund-policy.md) |
 
 共同信息包括服务名、主体、地址、生效日期及联系渠道。用户协议还需实际服务范围、使用资格、计价和账户关闭规则。隐私政策需数据种类、用途、处理依据、接收方、处理地点、保存规则、安全措施、Cookie 与权利请求流程。退款政策需资格、例外、申请期限、流程、费用、续订取消和数字交付规则。
 
@@ -36,7 +36,7 @@
 | `/api/privacy-policy?lang=en` | 隐私政策 |
 | `/api/refund-policy?lang=en-US` | 退款政策 |
 
-语言先精确匹配，再尝试基础语言，最后回退到 `default_language`。省略文档即关闭该文档。未配置或 `published=false` 时返回空内容，不公开草稿。POST 等写入方法返回 405。
+首次访问的界面语言与示例站点的默认文档语言均为英语。界面保存读者的语言选择。API 按 `lang` 精确匹配，再按子标签回退。配置 `zh-TW` 后，`zh-Hant`、`zh-Hant-HK` 同样可以读取这份繁体文档。缺少繁体译文时使用站点的 `default_language`。响应的 `language` 字段给出实际文档语言。省略文档即关闭该文档。未配置或 `published=false` 时返回空内容，不公开草稿。POST 等写入方法返回 405。
 
 启动时校验并读取完整快照；请求不会访问文件或核心，更新需要重启扩展。保留之前已发布版本和生效记录，替换配置前先校验。此模块不记录用户同意，不改变退款执行规则，也不提供管理员写入 API。旧控制台 `legal.*` 设置尚未接回新宿主，不能把页面上的保存操作当成本配置已更新。
 

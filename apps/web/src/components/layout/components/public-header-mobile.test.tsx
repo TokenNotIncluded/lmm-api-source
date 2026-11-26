@@ -70,7 +70,7 @@ afterEach(() => {
 })
 after(() => domWindow.close())
 
-async function renderHeader() {
+async function renderHeader(showLanguageSwitcher = false) {
   api.get = (async () => ({
     data: { success: true, data: '' },
   })) as typeof api.get
@@ -83,7 +83,7 @@ async function renderHeader() {
         navLinks={[{ title: 'Home', href: '/' }]}
         useDynamicNavLinks={false}
         showThemeSwitch={false}
-        showLanguageSwitcher={false}
+        showLanguageSwitcher={showLanguageSwitcher}
         showNotifications={false}
         showAuthButtons={false}
         className='forge-public-header'
@@ -197,6 +197,16 @@ test('crossing the desktop breakpoint closes the menu and releases the root lock
     assert.equal(document.documentElement.style.overflow, '')
     await act(async () => domWindow.happyDOM.setWindowSize({ width: 390 }))
     assert.equal(rendered.toggle.getAttribute('aria-expanded'), 'false')
+  } finally {
+    await rendered.cleanup()
+  }
+})
+
+test('the public mobile header exposes the language menu when enabled', async () => {
+  const rendered = await renderHeader(true)
+  try {
+    const actions = rendered.toggle.closest('.public-header-mobile-actions')
+    assert.ok(actions?.querySelector('button[aria-label*="English"]'))
   } finally {
     await rendered.cleanup()
   }

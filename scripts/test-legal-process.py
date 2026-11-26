@@ -129,6 +129,19 @@ class LegalProcessTests(unittest.TestCase):
             self.assertIn("Isolated policy test", body["data"])
             self.assertNotIn("{{", body["data"])
             self.assertEqual(len(body["revision"]), 64)
+            responses = {}
+            for query, source in (("", "en"), ("?lang=zh", "zh-cn"),
+                                  ("?lang=zh-TW", "zh-tw"), ("?lang=zh-Hant", "zh-tw")):
+                with self.subTest(document=name, query=query):
+                    status, raw = self.request("GET", f"/api/{name}{query}")
+                    self.assertEqual(status, 200)
+                    response = json.loads(raw)
+                    self.assertEqual(response["language"], source)
+                    self.assertIn("Isolated policy test", response["data"])
+                    responses[query] = response["revision"]
+            self.assertEqual(responses[""], body["revision"])
+            self.assertEqual(responses["?lang=zh-Hant"], responses["?lang=zh-TW"])
+            self.assertEqual(len(set(responses.values())), 3)
         self.assertEqual(self.request("GET", "/extensions/v1/modules")[0], 401)
         self.assertEqual(self.request("POST", "/api/refund-policy")[0], 405)
         self.assertEqual(self.request("HEAD", "/api/user-agreement"), (200, b""))

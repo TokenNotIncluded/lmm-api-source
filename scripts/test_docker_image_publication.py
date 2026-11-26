@@ -116,7 +116,10 @@ class SourceContracts(unittest.TestCase):
             self.assertNotIn('secrets', dockerfile)
         self.assertIn('COPY config/legal/site.example.toml', extensions)
         self.assertIn('COPY config/legal/templates/', extensions)
-        self.assertEqual(len(list((ROOT / 'config/legal/templates').rglob('*.md'))), 6)
+        root = ROOT / 'config/legal/templates'
+        expected = {f'{language}/{document}.md' for language in ('en', 'zh-CN', 'zh-TW')
+                    for document in ('user-agreement', 'privacy-policy', 'refund-policy')}
+        self.assertEqual({p.relative_to(root).as_posix() for p in root.rglob('*.md')}, expected)
 
     def test_offline_private_smoke_and_scoped_cleanup(self):
         for arg in ('--network none', '--user 65532:65532', '--read-only', '--cap-drop ALL',
@@ -265,7 +268,7 @@ class MockedOrchestration(unittest.TestCase):
         result, calls, record = self.run_mock('extensions')
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(record['component'], 'extensions')
-        self.assertEqual(sum(c[:3] == ['exec', 'only-mocked-owned-container', 'sha256sum'] for c in calls), 10)
+        self.assertEqual(sum(c[:3] == ['exec', 'only-mocked-owned-container', 'sha256sum'] for c in calls), 13)
         self.assertTrue(any(c[0] == 'exec' and '/health/live' in c[-1] and ':8081/' in c[-1] for c in calls))
 
     def test_mock_invalid_image_fails_before_container(self):

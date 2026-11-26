@@ -175,19 +175,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusBadRequest)
 		return
 	}
-	translations := h.documents[name]
-	selected := language
-	d, found := translations[selected]
-	if !found {
-		if base, _, regional := strings.Cut(language, "-"); regional {
-			selected = base
-			d, found = translations[selected]
-		}
-	}
-	if !found {
-		selected = h.defaultLanguage
-		d = translations[selected]
-	}
+	selected, d := h.selectDocument(name, language)
 	body := struct {
 		Success  bool   `json:"success"`
 		Data     string `json:"data"`
@@ -199,6 +187,40 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	_ = json.NewEncoder(w).Encode(body)
+}
+
+// Respect explicitly configured tags before falling back to a script-compatible
+// Chinese translation. A region or script tag can have more than two subtags.
+func (h *Handler) selectDocument(name, language string) (string, document) {
+	translations := h.documents[name]
+	for tag := language; tag != ""; {
+		if d, ok := translations[tag]; ok {
+			return tag, d
+		}
+		var equivalents []string
+		switch tag {
+		case "zh-hant", "zh-tw", "zh-hk", "zh-mo":
+			equivalents = []string{"zh-hant", "zh-tw"}
+		case "zh", "zh-hans", "zh-cn", "zh-sg":
+			equivalents = []string{"zh-hans", "zh-cn"}
+		}
+		for _, equivalent := range equivalents {
+			if d, ok := translations[equivalent]; ok {
+				return equivalent, d
+			}
+		}
+		// A generic Chinese file can be Simplified. Honor the site's declared
+		// fallback when no Traditional translation is available.
+		if tag == "zh-hant" || tag == "zh-tw" || tag == "zh-hk" || tag == "zh-mo" {
+			break
+		}
+		last := strings.LastIndexByte(tag, '-')
+		if last < 0 {
+			break
+		}
+		tag = tag[:last]
+	}
+	return h.defaultLanguage, translations[h.defaultLanguage]
 }
 
 func normalizeLanguage(language string) string {

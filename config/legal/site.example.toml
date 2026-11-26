@@ -1,7 +1,7 @@
 # Draft only. Fill and review all variables before setting published = true.
 version = 1
 published = false
-default_language = "zh-CN"
+default_language = "en"
 template_root = "/usr/share/lmm/legal"
 
 [variables]
@@ -37,11 +37,14 @@ digital_delivery_terms = ""
 [documents.user-agreement]
 zh-CN = "templates/zh-CN/user-agreement.md"
 en = "templates/en/user-agreement.md"
+zh-TW = "templates/zh-TW/user-agreement.md"
 
 [documents.privacy-policy]
 zh-CN = "templates/zh-CN/privacy-policy.md"
 en = "templates/en/privacy-policy.md"
+zh-TW = "templates/zh-TW/privacy-policy.md"
 
 [documents.refund-policy]
 zh-CN = "templates/zh-CN/refund-policy.md"
 en = "templates/en/refund-policy.md"
+zh-TW = "templates/zh-TW/refund-policy.md"

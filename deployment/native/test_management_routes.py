@@ -139,9 +139,9 @@ class NativeManagementRoutes(unittest.TestCase):
                 self.assertEqual(actual['authorization'], 'Bearer synthetic-native-route-session')
 
     def test_public_legal_documents_preserve_method_policy_path_and_language(self):
-        for path in ('/api/user-agreement', '/api/privacy-policy'):
+        for path in ('/api/user-agreement', '/api/privacy-policy', '/api/refund-policy'):
             for method in ('GET', 'HEAD'):
-                for query in ('', '?lang=zh'):
+                for query in ('', '?lang=en', '?lang=zh', '?lang=zh-Hant'):
                     with self.subTest(path=path, method=method, query=query):
                         before = len(self.go.calls)
                         status, raw = self.request(method, path + query, headers={})

@@ -118,3 +118,26 @@ func TestServiceCatalogHasReviewedBindings(t *testing.T) {
 		t.Fatal("schema leaked mutable storage")
 	}
 }
+
+func TestPolicyReadLanguagesAndLegacyEditContract(t *testing.T) {
+	s := &Service{dependencies: Dependencies{Policies: policyFixture{"privacy_policy": {Text: "published", Configured: true}}}}
+	for _, tc := range []struct{ requested, want string }{{"", "en"}, {"en", "en"}, {"zh-CN", "zh-CN"}, {"zh-TW", "zh-TW"}, {"zh-Hant", "zh-Hant"}, {"fr", "fr"}, {"ja", "ja"}, {"ru", "ru"}, {"vi", "vi"}} {
+		args, _ := json.Marshal(map[string]string{"document": "privacy_policy", "language": tc.requested})
+		r, err := policyCall(t, s, "get_site_policy", string(args), 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		v := policyJSON(t, r)
+		if v["language"] != tc.want || v["source_language"] != tc.want || v["content"] != "published" {
+			t.Fatalf("wrong read language %q: %v", tc.requested, v)
+		}
+	}
+	r, err := policyCall(t, s, "search_site_policies", `{"language":"zh-TW","document":"privacy_policy","query":"published"}`, 0)
+	if err != nil || policyJSON(t, r)["total"] != float64(1) {
+		t.Fatal("Traditional search", err)
+	}
+	args := `{"document":"privacy_policy","language":"zh-TW","revision":"` + strings.Repeat("a", 64) + `","content":"new"}`
+	if _, err := policyCall(t, s, "prepare_admin_site_policy_change", args, 6); err != access.ErrInvalid {
+		t.Fatal("read-only variant reached old edit workflow", err)
+	}
+}

@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"github.com/TokenNotIncluded/lmm-api/extensions/internal/legal"
 	"net/url"
+	"slices"
 	"strings"
 	"unicode"
 	"unicode/utf8"
@@ -40,8 +41,10 @@ type policyInput struct {
 
 var policyDocuments = []string{"user_agreement", "privacy_policy", "refund_policy"}
 
+var policyReadLanguages = []string{"en", "zh-CN", "zh-TW", "zh-Hant", "fr", "ja", "ru", "vi"}
+
 func policyIdentity(in policyInput, optional bool) bool {
-	if in.Language != "zh-CN" && in.Language != "en" {
+	if !slices.Contains(policyReadLanguages, in.Language) {
 		return false
 	}
 	if optional && in.Document == "" {
@@ -83,7 +86,7 @@ func (s *Service) policyTool(ctx context.Context, in assistant.AgentInvocation, 
 	}
 	explicitLanguage := input.Language != ""
 	if input.Language == "" {
-		input.Language = "zh-CN"
+		input.Language = "en"
 	}
 	finish := func(value map[string]any) (assistant.AgentToolResult, error) {
 		state := assistant.AgentToolSucceeded
@@ -129,8 +132,14 @@ func (s *Service) policyTool(ctx context.Context, in assistant.AgentInvocation, 
 			format = "external_url"
 		}
 		key := "legal." + input.Document
-		if v.SourceLanguage == "en" {
-			key += "_en"
+		if v.SourceLanguage != "zh-CN" {
+			// Legacy admin setting names exist only for Simplified Chinese and English.
+			// Other variants identify their actual operator-owned TOML entry.
+			if v.SourceLanguage == "en" {
+				key += "_en"
+			} else {
+				key = "documents." + strings.ReplaceAll(v.Document, "_", "-") + "." + v.SourceLanguage
+			}
 		}
 		return finish(map[string]any{"ok": true, "document": v.Document, "language": v.Language, "source_language": v.SourceLanguage, "source_key": key, "language_fallback": v.SourceLanguage != v.Language, "configured": v.Configured, "source_configured": strings.TrimSpace(v.Text) != "", "path": "/" + strings.ReplaceAll(v.Document, "_", "-"), "revision": v.Revision, "content": string(r[offset:end]), "offset": offset, "next_offset": end, "total_characters": len(r), "has_more": end < len(r), "format": format, "external_content_fetched": false, "source_is_untrusted": true})
 	case "search_site_policies":
@@ -197,7 +206,7 @@ func (s *Service) policyTool(ctx context.Context, in assistant.AgentInvocation, 
 		if p.Level < 6 {
 			return assistant.AgentToolResult{}, access.ErrForbidden
 		}
-		if !explicitLanguage || input.Offset != nil || input.Limit != nil || input.Query != nil || input.Revision == nil || len(*input.Revision) != 64 {
+		if !explicitLanguage || (input.Language != "en" && input.Language != "zh-CN") || input.Offset != nil || input.Limit != nil || input.Query != nil || input.Revision == nil || len(*input.Revision) != 64 {
 			return assistant.AgentToolResult{}, access.ErrInvalid
 		}
 		v, e := read(input.Document)
@@ -275,8 +284,11 @@ func (r PublishedLegalReader) PublishedPolicy(ctx context.Context, credential, d
 		return PublishedPolicy{}, access.ErrUnavailable
 	}
 	source := v.SourceLanguage
-	if strings.EqualFold(source, "zh-cn") {
-		source = "zh-CN"
+	for _, supported := range policyReadLanguages {
+		if strings.EqualFold(source, supported) {
+			source = supported
+			break
+		}
 	}
 	if source == "" && !v.SourceConfigured {
 		source = language

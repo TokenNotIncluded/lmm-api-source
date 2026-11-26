@@ -101,7 +101,8 @@ i18n
       escapeValue: false, // not needed for react as it escapes by default
     },
     detection: {
-      order: ['localStorage', 'navigator'],
+      // Retain an explicit choice across visits. A new visitor starts in English.
+      order: ['localStorage'],
       caches: ['localStorage'],
       convertDetectedLanguage,
     },

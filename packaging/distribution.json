@@ -42,6 +42,9 @@
         "config/legal/templates/en/user-agreement.md",
         "config/legal/templates/en/privacy-policy.md",
         "config/legal/templates/en/refund-policy.md",
+        "config/legal/templates/zh-TW/user-agreement.md",
+        "config/legal/templates/zh-TW/privacy-policy.md",
+        "config/legal/templates/zh-TW/refund-policy.md",
         "packaging/extore-plugin.json",
         "docs/extore.md"
       ],

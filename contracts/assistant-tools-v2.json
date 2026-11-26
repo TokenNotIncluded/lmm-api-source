@@ -286,8 +286,8 @@
       "name": "get_site_policy",
       "price_sha256": "5d6fb460c679922a1976e87ef729440d5394187e9b12331f33faf12904a64192",
       "price_version": "builtin-free-v1",
-      "schema_json": "{\"additionalProperties\":false,\"properties\":{\"document\":{\"enum\":[\"user_agreement\",\"privacy_policy\",\"refund_policy\"],\"type\":\"string\"},\"language\":{\"description\":\"Defaults to zh-CN. English reads explicitly report any primary-language fallback.\",\"enum\":[\"zh-CN\",\"en\"],\"type\":\"string\"},\"limit\":{\"maximum\":6000,\"minimum\":1,\"type\":\"integer\"},\"offset\":{\"description\":\"Unicode-character offset, not bytes.\",\"minimum\":0,\"type\":\"integer\"}},\"required\":[\"document\"],\"type\":\"object\"}",
-      "schema_sha256": "2fa3b808dae96248f3401a117f51bc5e3eb805a99796c303738cde18600b432e",
+      "schema_json": "{\"additionalProperties\":false,\"properties\":{\"document\":{\"enum\":[\"user_agreement\",\"privacy_policy\",\"refund_policy\"],\"type\":\"string\"},\"language\":{\"description\":\"Defaults to English. The response identifies the published source language when the requested translation is unavailable.\",\"enum\":[\"en\",\"zh-CN\",\"zh-TW\",\"zh-Hant\",\"fr\",\"ja\",\"ru\",\"vi\"],\"type\":\"string\"},\"limit\":{\"maximum\":6000,\"minimum\":1,\"type\":\"integer\"},\"offset\":{\"description\":\"Unicode-character offset, not bytes.\",\"minimum\":0,\"type\":\"integer\"}},\"required\":[\"document\"],\"type\":\"object\"}",
+      "schema_sha256": "5c5d978f38806c7085c8d4f990cf0d5fcfe545bb0335cdcacc600d39b5346e79",
       "version": "main-3948a0a1"
     },
     {
@@ -336,8 +336,8 @@
       "name": "search_site_policies",
       "price_sha256": "5d6fb460c679922a1976e87ef729440d5394187e9b12331f33faf12904a64192",
       "price_version": "builtin-free-v1",
-      "schema_json": "{\"additionalProperties\":false,\"properties\":{\"document\":{\"enum\":[\"user_agreement\",\"privacy_policy\",\"refund_policy\"],\"type\":\"string\"},\"language\":{\"description\":\"Defaults to zh-CN. English reads explicitly report any primary-language fallback.\",\"enum\":[\"zh-CN\",\"en\"],\"type\":\"string\"},\"limit\":{\"maximum\":20,\"minimum\":1,\"type\":\"integer\"},\"offset\":{\"description\":\"Match offset for pagination.\",\"minimum\":0,\"type\":\"integer\"},\"query\":{\"description\":\"Literal case-insensitive text; not a regular expression.\",\"maxLength\":200,\"minLength\":1,\"type\":\"string\"}},\"required\":[\"query\"],\"type\":\"object\"}",
-      "schema_sha256": "7ae44308144a738708ef84a61cd7ea01340066ecf1010fc6e0536bfaa2a9075f",
+      "schema_json": "{\"additionalProperties\":false,\"properties\":{\"document\":{\"enum\":[\"user_agreement\",\"privacy_policy\",\"refund_policy\"],\"type\":\"string\"},\"language\":{\"description\":\"Defaults to English. The response identifies the published source language when the requested translation is unavailable.\",\"enum\":[\"en\",\"zh-CN\",\"zh-TW\",\"zh-Hant\",\"fr\",\"ja\",\"ru\",\"vi\"],\"type\":\"string\"},\"limit\":{\"maximum\":20,\"minimum\":1,\"type\":\"integer\"},\"offset\":{\"description\":\"Match offset for pagination.\",\"minimum\":0,\"type\":\"integer\"},\"query\":{\"description\":\"Literal case-insensitive text; not a regular expression.\",\"maxLength\":200,\"minLength\":1,\"type\":\"string\"}},\"required\":[\"query\"],\"type\":\"object\"}",
+      "schema_sha256": "b9dcc05e235aab3b57fa6f5426c6f8da22edd1ff56b96c0e3bac8bdb5d85b997",
       "version": "main-3948a0a1"
     },
     {
@@ -610,5 +610,5 @@
       "price_version": "builtin-free-v1",
       "price_sha256": "5d6fb460c679922a1976e87ef729440d5394187e9b12331f33faf12904a64192"
     }
-]
+  ]
 }

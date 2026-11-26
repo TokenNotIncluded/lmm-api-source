@@ -79,13 +79,18 @@ func assistantSitePolicyToolDefinitions() []assistantOpenAIToolDefinition {
 	identity := func() map[string]any {
 		return map[string]any{
 			"document": map[string]any{"type": "string", "enum": policyDocuments},
-			"language": map[string]any{"type": "string", "enum": []string{"zh-CN", "en"}, "description": "Defaults to zh-CN. English reads explicitly report any primary-language fallback."},
+			"language": map[string]any{"type": "string", "enum": []string{"en", "zh-CN"}, "description": "Use the exact language variant from the prior read."},
 		}
 	}
-	read := identity()
+	readIdentity := func() map[string]any {
+		props := identity()
+		props["language"] = map[string]any{"type": "string", "enum": policyReadLanguages, "description": "Defaults to English. The response identifies the published source language when the requested translation is unavailable."}
+		return props
+	}
+	read := readIdentity()
 	read["offset"] = map[string]any{"type": "integer", "minimum": 0, "description": "Unicode-character offset, not bytes."}
 	read["limit"] = map[string]any{"type": "integer", "minimum": 1, "maximum": 6000}
-	search := identity()
+	search := readIdentity()
 	search["query"] = map[string]any{"type": "string", "minLength": 1, "maxLength": 200, "description": "Literal case-insensitive text; not a regular expression."}
 	search["offset"] = map[string]any{"type": "integer", "minimum": 0, "description": "Match offset for pagination."}
 	search["limit"] = map[string]any{"type": "integer", "minimum": 1, "maximum": 20}

@@ -228,7 +228,10 @@ class DistributionTests(unittest.TestCase):
                 self.assertTrue((ROOT / name).is_file(), name)
                 self.assertFalse((ROOT / name).is_symlink(), name)
         resources = spec["components"]["extensions"]["resources"]
-        self.assertEqual(sum(name.startswith("config/legal/templates/") for name in resources), 6)
+        expected = {f"config/legal/templates/{language}/{document}.md"
+                    for language in ("en", "zh-CN", "zh-TW")
+                    for document in ("user-agreement", "privacy-policy", "refund-policy")}
+        self.assertEqual({name for name in resources if name.startswith("config/legal/templates/")}, expected)
 
 
 if __name__ == "__main__":

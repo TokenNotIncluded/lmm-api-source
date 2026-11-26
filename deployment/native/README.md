@@ -122,10 +122,10 @@ Do not echo secret contents or place URLs/tokens in process arguments.
    ```
 
    The same snippet sends public `GET` and `HEAD` requests for
-   `/api/user-agreement` and `/api/privacy-policy` to Extensions. Keep each
+   `/api/user-agreement`, `/api/privacy-policy`, and `/api/refund-policy` to Extensions. Keep each
    exact location once per server. If the site maintains these locations inline,
-   merge the two blocks there when updating the vhost. Check both paths with
-   `?lang=zh` through the public hostname after reload.
+   merge the three blocks there when updating the vhost. Check all three paths with
+   `?lang=zh-Hant` through the public hostname after reload.
 
    Native plugin settings also use the dedicated
    [plugin locations](templates/native-plugin-settings-locations.conf).
