@@ -197,6 +197,15 @@ export function ResetPasswordConfirm() {
             </Form>
           )}
 
+          {(reset.kind === 'invalid' || failed) && (
+            <a
+              href='/forgot-password'
+              className='text-muted-foreground hover:text-foreground flex min-h-11 items-center justify-center rounded-sm text-sm underline underline-offset-4 focus-visible:outline-2 focus-visible:outline-offset-4'
+            >
+              {t('Forgot password?')}
+            </a>
+          )}
+
           <Button
             type='button'
             variant={reset.kind === 'complete' ? 'default' : 'link'}

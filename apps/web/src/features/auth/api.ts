@@ -321,7 +321,12 @@ export async function sendPasswordResetEmail(
   const res = await api.post(
     '/api/identity/email/password-reset/request',
     { email, turnstile },
-    { authMode: 'anonymous', skipAuthRefresh: true }
+    {
+      authMode: 'anonymous',
+      skipAuthRefresh: true,
+      skipBusinessError: true,
+      skipErrorHandler: true,
+    }
   )
   return res.data
 }

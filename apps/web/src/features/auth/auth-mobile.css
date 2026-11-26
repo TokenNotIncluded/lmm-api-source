@@ -119,20 +119,6 @@
   min-width: 2.75rem;
 }
 
-.auth-password-label {
-  flex-wrap: wrap;
-  column-gap: 1rem;
-  row-gap: 0.25rem;
-}
-
-.auth-forgot-password {
-  display: inline-flex;
-  align-items: center;
-  min-height: 2.75rem;
-  margin-block: -0.625rem;
-  font-size: 0.8125rem;
-}
-
 .auth-form-stage .auth-submit {
   min-height: 3.25rem;
   border-radius: var(--radius);

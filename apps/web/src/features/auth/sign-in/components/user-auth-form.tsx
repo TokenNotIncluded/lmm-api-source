@@ -453,15 +453,7 @@ export function UserAuthForm({
               name='password'
               render={({ field }) => (
                 <FormItem>
-                  <div className='auth-password-label flex items-center justify-between gap-4'>
-                    <FormLabel>{t('Password')}</FormLabel>
-                    <Link
-                      to='/forgot-password'
-                      className='auth-forgot-password text-muted-foreground hover:text-foreground rounded-sm text-sm underline-offset-4 hover:underline focus-visible:outline-2 focus-visible:outline-offset-4'
-                    >
-                      {t('Forgot password?')}
-                    </Link>
-                  </div>
+                  <FormLabel>{t('Password')}</FormLabel>
                   <FormControl>
                     <PasswordInput
                       autoComplete='current-password'
@@ -489,17 +481,6 @@ export function UserAuthForm({
           </>
         )}
 
-        {!passwordLoginEnabled && (
-          <div className='flex justify-end'>
-            <Link
-              to='/forgot-password'
-              className='auth-forgot-password text-muted-foreground hover:text-foreground rounded-sm text-sm underline-offset-4 hover:underline focus-visible:outline-2 focus-visible:outline-offset-4'
-            >
-              {t('Forgot password?')}
-            </Link>
-          </div>
-        )}
-
         <LegalConsent
           status={status}
           checked={agreedToLegal}
@@ -517,6 +498,15 @@ export function UserAuthForm({
             {t('Sign in')}
           </Button>
         )}
+
+        <div className='flex justify-end'>
+          <Link
+            to='/forgot-password'
+            className='text-muted-foreground hover:text-foreground inline-flex min-h-11 items-center rounded-sm text-sm underline underline-offset-4 focus-visible:outline-2 focus-visible:outline-offset-4'
+          >
+            {t('Forgot password?')}
+          </Link>
+        </div>
 
         <HumanGrantButton
           configured={

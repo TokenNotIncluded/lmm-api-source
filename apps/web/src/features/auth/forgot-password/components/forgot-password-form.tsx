@@ -21,10 +21,10 @@ import { ArrowRight, Loader2 } from 'lucide-react'
 import { useState } from 'react'
 import { useForm } from 'react-hook-form'
 import { useTranslation } from 'react-i18next'
-import { toast } from 'sonner'
 import type { z } from 'zod'
 
 import { Turnstile } from '@/components/turnstile'
+import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import {
   Form,
@@ -50,6 +50,7 @@ export function ForgotPasswordForm({
 }: React.HTMLAttributes<HTMLFormElement>) {
   const { t } = useTranslation()
   const [isLoading, setIsLoading] = useState(false)
+  const [result, setResult] = useState<'accepted' | 'failed' | null>(null)
   const [turnstileWidgetKey, setTurnstileWidgetKey] = useState(0)
 
   const {
@@ -76,21 +77,18 @@ export function ForgotPasswordForm({
     if (!validateTurnstile()) return
 
     setIsLoading(true)
+    setResult(null)
     try {
       const res = await sendPasswordResetEmail(data.email, turnstileToken)
       if (res?.success) {
         form.reset()
         startCountdown()
-        toast.success(
-          t(
-            'If eligible, an email will be sent. Please check your inbox shortly.'
-          )
-        )
+        setResult('accepted')
       } else {
-        toast.error(res?.message || t('Failed to send reset email'))
+        setResult('failed')
       }
     } catch {
-      // Errors are handled by global interceptor
+      setResult('failed')
     } finally {
       setTurnstileToken('')
       setTurnstileWidgetKey((current) => current + 1)
@@ -134,6 +132,18 @@ export function ForgotPasswordForm({
             : t('Send reset email')}
           {isLoading ? <Loader2 className='animate-spin' /> : <ArrowRight />}
         </Button>
+
+        {result && (
+          <Alert variant={result === 'failed' ? 'destructive' : 'default'}>
+            <AlertDescription>
+              {result === 'accepted'
+                ? t(
+                    'If eligible, an email will be sent. Please check your inbox shortly.'
+                  )
+                : t('Failed to send reset email')}
+            </AlertDescription>
+          </Alert>
+        )}
 
         {isTurnstileEnabled && (
           <div className='mt-2'>
