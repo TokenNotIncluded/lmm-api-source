@@ -1065,7 +1065,7 @@ export interface ModelDetailsContentProps {
 function ModelDetailsPublicShell({ children }: { children: React.ReactNode }) {
   return (
     <ForgePublicShell>
-      <main className='mx-auto w-full max-w-7xl px-5 pt-12 pb-20 md:px-10 md:pt-16'>
+      <main className='mx-auto w-full max-w-7xl px-4 py-8 sm:px-8'>
         {children}
       </main>
     </ForgePublicShell>

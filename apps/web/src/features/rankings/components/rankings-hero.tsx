@@ -46,7 +46,7 @@ export function RankingsHero(props: RankingsHeroProps) {
     <section className='space-y-5'>
       <div className='space-y-2'>
         {!props.compact && (
-          <h1 className='font-serif text-5xl leading-[1.05] font-normal tracking-tight sm:text-6xl'>
+          <h1 className='text-2xl leading-tight font-semibold tracking-tight text-balance sm:text-3xl'>
             {t('Rankings')}
           </h1>
         )}

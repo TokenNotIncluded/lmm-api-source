@@ -156,6 +156,10 @@ test('CLI-only incomplete installation shows operator command without password o
       /Operator initialization required/
     )
     assert.match(view.container.textContent ?? '', /offline database owner/)
+    assert.equal(
+      view.container.querySelector('a[href="/dashboard/overview"]'),
+      null
+    )
     assert.equal(view.container.querySelector('input'), null)
     assert.equal(view.container.querySelector('form'), null)
     assert.equal(
@@ -338,7 +342,14 @@ test('a stale web wizard receiving CLI_ONLY replaces credential controls with op
     await eventually(
       () => view.container.querySelector('.setup-editorial-step-list') !== null
     )
+    const currentStep = () => {
+      const items = view.container.querySelectorAll('li[aria-current="step"]')
+      assert.equal(items.length, 1)
+      return items[0]?.textContent ?? ''
+    }
+    assert.match(currentStep(), /Database check/)
     await act(async () => button(view.container, 'Next').click())
+    assert.match(currentStep(), /Administrator account/)
     const username = view.container.querySelector<HTMLInputElement>(
       'input[autocomplete="username"]'
     )

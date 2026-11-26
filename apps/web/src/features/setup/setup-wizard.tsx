@@ -352,11 +352,10 @@ export function SetupWizard() {
               )}
             </div>
             <div className='space-y-1'>
-              <p className='setup-editorial-kicker'>LMM API / INITIALIZATION</p>
               {systemConfigLoading ? (
                 <Skeleton className='h-8 w-48' />
               ) : (
-                <h1 className='font-serif text-2xl leading-none tracking-tight sm:text-3xl'>
+                <h1 className='text-2xl leading-tight font-semibold tracking-tight sm:text-3xl'>
                   {t('Initialize')} {systemName}
                 </h1>
               )}
@@ -371,17 +370,9 @@ export function SetupWizard() {
           </p>
         </header>
 
-        {!cliOnly && (
-          <div className='setup-editorial-index flex items-center justify-between border-y py-2 text-xs'>
-            <span>SETUP / {String(currentStep + 1).padStart(2, '0')}</span>
-            <span>{String(STEPS.length).padStart(2, '0')} STEPS</span>
-          </div>
-        )}
-
         <Card className='setup-editorial-frame'>
           <CardHeader className='setup-editorial-frame-header space-y-2'>
-            <p className='setup-editorial-kicker'>SYSTEM / SETUP</p>
-            <CardTitle className='font-serif text-2xl font-normal tracking-tight sm:text-3xl'>
+            <CardTitle className='text-2xl font-semibold tracking-tight sm:text-3xl'>
               {t(
                 cliOnly
                   ? 'Operator initialization required'
@@ -418,6 +409,7 @@ export function SetupWizard() {
                         isActive && 'is-active',
                         isCompleted && 'is-complete'
                       )}
+                      aria-current={isActive ? 'step' : undefined}
                       data-state={stepState}
                     >
                       <div className='flex items-start gap-3'>

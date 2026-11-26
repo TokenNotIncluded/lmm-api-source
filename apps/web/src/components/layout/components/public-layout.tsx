@@ -21,6 +21,7 @@ import { useRouterState } from '@tanstack/react-router'
 import { AccessRestrictionNotice } from '@/components/access-restriction-notice'
 import { cn } from '@/lib/utils'
 
+import { BackToConsole } from '../back-to-console'
 import type { TopNavLink } from '../types'
 import {
   MobileScrollChrome,
@@ -57,6 +58,7 @@ export function PublicLayout(props: PublicLayoutProps) {
       >
         <MobileScrollChrome overlay>
           <PublicHeader
+            leftContent={pathname === '/' ? undefined : <BackToConsole />}
             navContent={props.navContent}
             navLinks={props.navLinks}
             showThemeSwitch={props.showThemeSwitch}
@@ -71,7 +73,7 @@ export function PublicLayout(props: PublicLayoutProps) {
         {props.showMainContainer !== false ? (
           <main
             className={cn(
-              'container mx-auto max-w-7xl px-5 pt-28 pb-16 sm:px-8 sm:pt-32 sm:pb-24 lg:px-12',
+              'container mx-auto max-w-7xl px-4 pt-20 pb-12 sm:px-8 sm:pt-24 sm:pb-16',
               props.mainClassName
             )}
           >

@@ -14,6 +14,9 @@ GNU Affero General Public License for more details.
 You should have received a copy of the GNU Affero General Public License
 along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
+import { useMatch } from '@tanstack/react-router'
+
+import { BackToConsole } from '@/components/layout/back-to-console'
 import { LmmBrandMark } from '@/components/lmm-brand-mark'
 import { useSystemConfig } from '@/hooks/use-system-config'
 
@@ -33,13 +36,17 @@ type ErrorPageFrameProps = {
 
 export function ErrorPageFrame(props: ErrorPageFrameProps) {
   const { systemName } = useSystemConfig()
+  const consoleMatch = useMatch({ from: '/_authenticated', shouldThrow: false })
   return (
     <main className='error-editorial min-h-svh' data-status={props.status}>
       <div className='error-editorial-shell'>
-        <a href='/' className='error-editorial-brand'>
-          <LmmBrandMark className='size-7' />
-          <span>{systemName}</span>
-        </a>
+        <div className='flex flex-wrap items-center gap-x-4'>
+          {!consoleMatch && props.showStatus !== false && <BackToConsole />}
+          <a href='/' className='error-editorial-brand'>
+            <LmmBrandMark className='size-7' />
+            <span>{systemName}</span>
+          </a>
+        </div>
         <div className='error-editorial-layout'>
           <section className='error-editorial-copy'>
             {props.showStatus !== false && props.status != null && (

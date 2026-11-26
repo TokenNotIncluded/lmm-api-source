@@ -121,7 +121,7 @@ export function ModerationPolicySection({
         <div className='flex flex-wrap items-center gap-3'>
           <h2
             id='security-moderation-title'
-            className='scroll-mt-24 font-serif text-2xl font-normal tracking-tight sm:text-3xl'
+            className='scroll-mt-24 text-xl font-semibold tracking-tight'
           >
             {t('OpenAI Moderation')}
           </h2>

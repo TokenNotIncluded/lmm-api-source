@@ -1284,53 +1284,21 @@ For commercial licensing, please contact support@quantumnous.com
 }
 
 .setup-editorial {
-  --setup-canvas: var(--forge-paper-light);
-  --setup-panel: color-mix(
-    in oklch,
-    var(--forge-paper-light) 76%,
-    var(--forge-card-light)
-  );
-  --setup-ink: var(--forge-ink-light);
-  --setup-muted: var(--forge-muted-ink-light);
-  --setup-border: color-mix(in oklch, var(--forge-ink-light) 18%, transparent);
-  --setup-accent: var(--forge-clay-light);
-  --setup-accent-foreground: var(--forge-paper-light);
+  --setup-canvas: var(--background);
+  --setup-panel: var(--card);
+  --setup-ink: var(--foreground);
+  --setup-muted: var(--muted-foreground);
+  --setup-border: var(--border);
+  --setup-accent: var(--primary);
+  --setup-accent-foreground: var(--primary-foreground);
   --setup-accent-soft: color-mix(
     in oklch,
-    var(--forge-clay-light) 12%,
-    var(--forge-paper-light)
+    var(--primary) 12%,
+    var(--background)
   );
-  --foreground: var(--forge-ink-light);
-  --console-sage: var(--forge-sage-light);
+  --console-sage: var(--success);
   background: var(--setup-canvas);
   color: var(--setup-ink);
-  color-scheme: light;
-}
-
-.dark .setup-editorial {
-  --setup-canvas: var(--forge-surface-dark);
-  --setup-panel: color-mix(
-    in oklch,
-    var(--forge-surface-dark) 82%,
-    var(--forge-card-dark)
-  );
-  --setup-ink: var(--forge-foreground-dark);
-  --setup-muted: var(--forge-muted-ink-dark);
-  --setup-border: color-mix(
-    in oklch,
-    var(--forge-foreground-dark) 18%,
-    transparent
-  );
-  --setup-accent: var(--forge-clay-dark);
-  --setup-accent-foreground: var(--forge-surface-dark);
-  --setup-accent-soft: color-mix(
-    in oklch,
-    var(--forge-clay-dark) 18%,
-    var(--forge-surface-dark)
-  );
-  --foreground: var(--forge-foreground-dark);
-  --console-sage: var(--forge-sage-dark);
-  color-scheme: dark;
 }
 
 .setup-editorial-masthead {
@@ -1338,26 +1306,9 @@ For commercial licensing, please contact support@quantumnous.com
   padding-bottom: 2rem;
 }
 
-.setup-editorial-kicker {
-  color: var(--setup-accent);
-  font-size: 0.68rem;
-  font-weight: 700;
-  letter-spacing: 0.16em;
-  line-height: 1.2;
-  text-transform: uppercase;
-}
-
 .setup-editorial-lede {
   color: var(--setup-muted);
   line-height: 1.65;
-}
-
-.setup-editorial-index {
-  border-color: var(--setup-border);
-  color: var(--setup-muted);
-  font-size: 0.68rem;
-  font-weight: 600;
-  letter-spacing: 0.14em;
 }
 
 .setup-editorial-frame {
@@ -1534,27 +1485,13 @@ For commercial licensing, please contact support@quantumnous.com
 }
 
 .setup-footer {
-  border-color: color-mix(in oklch, var(--forge-ink-light) 18%, transparent);
-  background: var(--forge-paper-light);
-  color: var(--forge-muted-ink-light);
+  border-color: var(--border);
+  background: var(--background);
+  color: var(--muted-foreground);
 }
 
 .setup-footer a:hover {
-  color: var(--forge-ink-light);
-}
-
-.dark .setup-footer {
-  border-color: color-mix(
-    in oklch,
-    var(--forge-foreground-dark) 18%,
-    transparent
-  );
-  background: var(--forge-surface-dark);
-  color: var(--forge-muted-ink-dark);
-}
-
-.dark .setup-footer a:hover {
-  color: var(--forge-foreground-dark);
+  color: var(--foreground);
 }
 
 @media (max-width: 639px) {

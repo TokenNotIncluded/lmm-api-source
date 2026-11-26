@@ -11,6 +11,7 @@ import { Fragment, useEffect, useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { PublicLayout } from '@/components/layout'
+import { BackToConsole } from '@/components/layout/back-to-console'
 import { Button } from '@/components/ui/button'
 import {
   Tooltip,
@@ -33,8 +34,11 @@ export function StoreShell() {
   const path = useRouterState({ select: (state) => state.location.pathname })
   if (path.startsWith('/store/claim/')) {
     return (
-      <main className='bg-background text-foreground min-h-svh px-4 py-10'>
-        <div className='mx-auto max-w-2xl'>
+      <main className='bg-background text-foreground min-h-svh px-4 py-4 sm:px-8'>
+        <div className='mx-auto max-w-6xl'>
+          <BackToConsole />
+        </div>
+        <div className='mx-auto max-w-2xl py-8'>
           <Outlet />
         </div>
       </main>

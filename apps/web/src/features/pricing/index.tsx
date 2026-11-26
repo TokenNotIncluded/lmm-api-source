@@ -228,7 +228,7 @@ export function Pricing() {
     return (
       <ForgePublicShell>
         <div className='min-h-svh'>
-          <div className='mx-auto w-full max-w-7xl px-5 pt-12 pb-10 md:px-10'>
+          <div className='mx-auto w-full max-w-7xl px-5 py-8 md:px-10'>
             <LoadingSkeleton viewMode={viewMode} />
           </div>
         </div>
@@ -245,10 +245,10 @@ export function Pricing() {
             compareModels.length > 0 ? 'pb-32' : 'pb-20'
           )}
         >
-          <div className='pt-10 pb-8 sm:pt-16 sm:pb-12'>
+          <div className='pt-8 pb-6'>
             <div className='flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between sm:gap-6'>
               <div className='min-w-0'>
-                <h1 className='font-sans text-3xl leading-tight font-semibold tracking-tight text-balance sm:text-4xl lg:text-5xl'>
+                <h1 className='text-2xl leading-tight font-semibold tracking-tight text-balance sm:text-3xl'>
                   {t('Models and pricing')}
                 </h1>
                 {catalogAvailable && (

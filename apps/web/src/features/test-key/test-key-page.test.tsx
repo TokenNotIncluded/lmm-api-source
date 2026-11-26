@@ -272,15 +272,53 @@ describe('test key popup', () => {
   test('does not create on navigation, requires login and preserves the destination', async () => {
     const page = await mount({ anonymous: true })
     assert.equal(page.posts.length, 0)
-    const href = page.container.querySelector('a')?.getAttribute('href') ?? ''
-    assert.match(href, /sign-in/)
-    assert.match(decodeURIComponent(href), /\/test-key/)
+    const signIn = page.container.querySelector<HTMLAnchorElement>(
+      'a[href^="/sign-in"]'
+    )
+    assert.ok(signIn)
+    const destination = new URL(signIn.href)
+    assert.equal(destination.pathname, '/sign-in')
+    assert.equal(destination.searchParams.get('redirect'), '/test-key')
+    assert.ok(page.container.querySelector('a[href="/dashboard/overview"]'))
     assert.equal(page.container.querySelector('form'), null)
     await page.unmount()
+  })
+  test('embedded views offer only a separate test-key window', async () => {
+    const top = Object.getOwnPropertyDescriptor(dom, 'top')
+    assert.ok(top)
+    const embeddingWindow = new Window({ url: 'https://host.example.test/' })
+    Object.defineProperty(dom, 'top', {
+      configurable: true,
+      value: embeddingWindow,
+    })
+    try {
+      for (const options of [
+        { anonymous: true, checking: true },
+        { anonymous: true },
+        {},
+      ]) {
+        const page = await mount(options)
+        try {
+          const links = page.container.querySelectorAll<HTMLAnchorElement>('a')
+          assert.equal(links.length, 1)
+          assert.equal(links[0]?.getAttribute('href'), '/test-key')
+          assert.equal(links[0]?.target, '_blank')
+          assert.equal(links[0]?.rel, 'noopener noreferrer')
+          assert.equal(page.container.querySelector('form'), null)
+          assert.equal(page.posts.length, 0)
+        } finally {
+          await page.unmount()
+        }
+      }
+    } finally {
+      Object.defineProperty(dom, 'top', top)
+      embeddingWindow.close()
+    }
   })
   test('lets an ordinary account create a key despite stale access metadata', async () => {
     const page = await mount({ legacyAccessDenied: true })
     try {
+      assert.ok(page.container.querySelector('a[href="/dashboard/overview"]'))
       assert.equal(page.container.querySelector('a[href="/wallet"]'), null)
       const form = page.container.querySelector('form')
       assert.ok(form)

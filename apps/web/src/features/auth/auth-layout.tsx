@@ -21,9 +21,11 @@ import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { LanguageSwitcher } from '@/components/language-switcher'
+import { BackToConsole } from '@/components/layout/back-to-console'
 import { LmmBrandMark } from '@/components/lmm-brand-mark'
 import { ThemeSwitch } from '@/components/theme-switch'
 import { useSystemConfig } from '@/hooks/use-system-config'
+import { useAuthStore } from '@/stores/auth-store'
 
 import { AuthArcade } from './arcade/arcade'
 
@@ -32,11 +34,19 @@ import './auth-mobile.css'
 type AuthLayoutProps = {
   children: React.ReactNode
   reloadDocument?: boolean
+  allowConsoleReturn?: boolean
 }
 
-export function AuthLayout({ children, reloadDocument }: AuthLayoutProps) {
+export function AuthLayout({
+  children,
+  reloadDocument,
+  allowConsoleReturn = false,
+}: AuthLayoutProps) {
   const { systemName } = useSystemConfig()
   const { t } = useTranslation()
+  const signedIn = useAuthStore(({ auth }) =>
+    Boolean(auth.user && auth.accessToken)
+  )
   const [gameOpen, setGameOpen] = useState(false)
   useEffect(() => {
     const previousTitle = document.title
@@ -49,16 +59,19 @@ export function AuthLayout({ children, reloadDocument }: AuthLayoutProps) {
   return (
     <div className='auth-editorial flex min-h-dvh min-w-0 flex-col'>
       <header className='auth-header flex min-w-0 shrink-0 flex-wrap items-center justify-between'>
-        <Link
-          to='/'
-          reloadDocument={reloadDocument}
-          className='auth-brand flex min-w-0 items-center gap-2.5 transition-opacity hover:opacity-80'
-        >
-          <LmmBrandMark className='size-7 shrink-0' title={systemName} />
-          <h1 className='min-w-0 text-sm font-semibold tracking-tight wrap-anywhere'>
-            {systemName}
-          </h1>
-        </Link>
+        <div className='flex min-w-0 flex-wrap items-center gap-x-4'>
+          {allowConsoleReturn && signedIn && <BackToConsole />}
+          <Link
+            to='/'
+            reloadDocument={reloadDocument}
+            className='auth-brand flex min-w-0 items-center gap-2.5 transition-opacity hover:opacity-80'
+          >
+            <LmmBrandMark className='size-7 shrink-0' title={systemName} />
+            <h1 className='min-w-0 text-sm font-semibold tracking-tight wrap-anywhere'>
+              {systemName}
+            </h1>
+          </Link>
+        </div>
         <div className='auth-preferences text-muted-foreground flex shrink-0 items-center gap-1'>
           <LanguageSwitcher />
           <ThemeSwitch />

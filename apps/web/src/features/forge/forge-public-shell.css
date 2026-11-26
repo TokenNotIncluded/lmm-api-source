@@ -16,9 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-/* The public Forge is an editorial surface, not a recoloured admin console.
- * Keep its three-layer language (paper, ink, one restrained accent) intact
- * even when the application-wide theme preset is blue or purple. */
+/* The public landing page has its own palette. Standalone pages inherit the console theme. */
 
 /* The reference landing page keeps its navigation in normal document flow so
  * the hero begins below it instead of hiding underneath a fixed header. */
@@ -27,7 +25,7 @@ For commercial licensing, please contact support@quantumnous.com
   top: 0;
 }
 
-.forge-surface {
+.forge-surface[data-home='true'] {
   --background: var(--forge-paper-light);
   --foreground: var(--forge-ink-light);
   --card: var(--forge-card-light);
@@ -45,6 +43,9 @@ For commercial licensing, please contact support@quantumnous.com
   --border: color-mix(in oklch, var(--forge-ink-light) 10%, transparent);
   --input: color-mix(in oklch, var(--forge-ink-light) 24%, transparent);
   --ring: var(--forge-ink-light);
+}
+
+.forge-surface {
   --forge-clay: var(--forge-clay-light);
   --forge-cactus: var(--forge-cactus-light);
   --forge-sage: var(--forge-sage-light);
@@ -196,7 +197,7 @@ For commercial licensing, please contact support@quantumnous.com
   color: var(--forge-clay);
 }
 
-.dark .forge-surface {
+.dark .forge-surface[data-home='true'] {
   --background: var(--forge-surface-dark);
   --foreground: var(--forge-foreground-dark);
   --card: var(--forge-card-dark);
@@ -214,6 +215,9 @@ For commercial licensing, please contact support@quantumnous.com
   --border: color-mix(in oklch, var(--forge-foreground-dark) 12%, transparent);
   --input: color-mix(in oklch, var(--forge-foreground-dark) 26%, transparent);
   --ring: var(--forge-foreground-dark);
+}
+
+.dark .forge-surface {
   --forge-clay: var(--forge-clay-dark);
   --forge-cactus: var(--forge-cactus-dark);
   --forge-sage: var(--forge-sage-dark);

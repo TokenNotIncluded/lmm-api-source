@@ -366,35 +366,36 @@ export function PublicHeader(props: PublicHeaderProps) {
             className={getPublicNavClassName(editorialHeader)}
             aria-label={t('Header navigation')}
           >
-            {/* Logo */}
-            <Link
-              to={homeUrl}
-              aria-label={displaySiteName}
-              className={cn(
-                'group focus-visible:ring-ring flex min-h-11 min-w-0 touch-manipulation items-center gap-2.5 focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:outline-none min-[1360px]:shrink-0',
-                showsDefaultWordmark && 'shrink-0'
-              )}
-            >
-              {showsDefaultWordmark && !loading ? (
-                <LmmBrandWordmark
-                  className='h-[18px] w-auto sm:h-[21px]'
-                  aria-hidden='true'
-                />
-              ) : (
-                <>
-                  <div className='flex size-7 shrink-0 items-center justify-center transition-all duration-300 group-hover:scale-105'>
-                    {logoContent}
-                  </div>
-                  <span className='truncate text-sm font-semibold tracking-tight'>
-                    {loading ? (
-                      <Skeleton className='h-4 w-16' />
-                    ) : (
-                      displaySiteName
-                    )}
-                  </span>
-                </>
-              )}
-            </Link>
+            {props.leftContent ?? (
+              <Link
+                to={homeUrl}
+                aria-label={displaySiteName}
+                className={cn(
+                  'group focus-visible:ring-ring flex min-h-11 min-w-0 touch-manipulation items-center gap-2.5 focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:outline-none min-[1360px]:shrink-0',
+                  showsDefaultWordmark && 'shrink-0'
+                )}
+              >
+                {showsDefaultWordmark && !loading ? (
+                  <LmmBrandWordmark
+                    className='h-[18px] w-auto sm:h-[21px]'
+                    aria-hidden='true'
+                  />
+                ) : (
+                  <>
+                    <div className='flex size-7 shrink-0 items-center justify-center transition-all duration-300 group-hover:scale-105'>
+                      {logoContent}
+                    </div>
+                    <span className='truncate text-sm font-semibold tracking-tight'>
+                      {loading ? (
+                        <Skeleton className='h-4 w-16' />
+                      ) : (
+                        displaySiteName
+                      )}
+                    </span>
+                  </>
+                )}
+              </Link>
+            )}
 
             {/* Desktop nav */}
             <div className='hidden items-center gap-0.5 min-[1360px]:flex'>

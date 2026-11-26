@@ -69,11 +69,13 @@ export function ForgePublicShell(props: ForgePublicShellProps) {
       showNotifications={false}
       headerProps={{
         useDynamicNavLinks: false,
-        className: 'forge-public-header',
+        className: isHome
+          ? 'forge-public-header'
+          : 'sticky top-0 border-b bg-background',
       }}
     >
       {/* Keep page controls below the full-screen header navigation. */}
-      <div className='forge-surface relative z-0 min-h-svh'>
+      <div className='forge-surface relative z-0 min-h-svh' data-home={isHome}>
         {isHome && directoryEnabled && <HomeDirectoryLink />}
         {props.children}
       </div>

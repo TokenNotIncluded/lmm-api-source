@@ -24,10 +24,11 @@ License, or (at your option) any later version.
 }
 .legal-layout {
   display: grid;
-  gap: 3.5rem;
+  align-items: start;
+  gap: 2rem;
   margin-inline: auto;
   max-width: 72rem;
-  padding: 6rem 1.25rem 6rem;
+  padding: 2rem 1rem 4rem;
 }
 @media (min-width: 768px) {
   .legal-layout {
@@ -37,7 +38,7 @@ License, or (at your option) any later version.
 @media (min-width: 1024px) {
   .legal-layout {
     grid-template-columns: minmax(0, 1fr) 15rem;
-    gap: 4rem;
+    gap: 3rem;
   }
 }
 .legal-article {
@@ -49,9 +50,9 @@ License, or (at your option) any later version.
 }
 .legal-title {
   margin: 0;
-  font-size: clamp(2rem, 4vw, 3rem);
-  line-height: 1.05;
-  letter-spacing: -0.03em;
+  font-size: clamp(1.5rem, 2.5vw, 2rem);
+  line-height: 1.25;
+  letter-spacing: -0.035em;
   font-weight: 600;
 }
 .legal-meta {
@@ -148,10 +149,6 @@ License, or (at your option) any later version.
   margin-top: 2rem;
 }
 
-.legal-layout {
-  padding-top: 3rem;
-  align-items: start;
-}
 .legal-toc {
   border: 0;
 }
@@ -161,10 +158,6 @@ License, or (at your option) any later version.
 }
 @media (max-width: 1023px) {
   .legal-layout {
-    padding-block: 2.5rem 4rem;
     gap: 1.5rem;
-  }
-  .legal-title {
-    line-height: 1.2;
   }
 }

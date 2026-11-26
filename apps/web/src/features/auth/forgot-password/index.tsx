@@ -25,7 +25,7 @@ import { ForgotPasswordForm } from './components/forgot-password-form'
 export function ForgotPassword() {
   const { t } = useTranslation()
   return (
-    <AuthLayout>
+    <AuthLayout allowConsoleReturn>
       <div className='w-full space-y-8'>
         <div className='space-y-3'>
           <h2 className='text-center text-2xl font-semibold tracking-tight sm:text-left'>

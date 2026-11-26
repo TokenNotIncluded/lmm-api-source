@@ -111,10 +111,10 @@ export function SignalGamePage() {
     }
   }
   return (
-    <main className='mx-auto w-full max-w-7xl px-4 py-10 sm:px-8'>
+    <main className='signal-page mx-auto max-w-7xl min-w-0 px-4 py-8 sm:px-8'>
       <div className='grid items-start gap-8 xl:grid-cols-[minmax(0,1.3fr)_minmax(20rem,1fr)]'>
         <SignalGamePanel />
-        <div className='space-y-8'>
+        <div className='min-w-0 space-y-8'>
           <section aria-labelledby='signal-leaderboard-title'>
             <div className='flex flex-wrap items-center justify-between gap-3'>
               <h2
@@ -400,7 +400,7 @@ export function SignalGamePage() {
             {t('WebMCP documentation')}
           </a>
         </div>
-        <pre className='bg-muted mt-4 rounded-lg p-5 text-sm leading-relaxed break-words whitespace-pre-wrap'>
+        <pre className='bg-muted mt-4 max-w-full overflow-x-auto rounded-lg p-4 text-sm leading-relaxed break-words whitespace-pre-wrap'>
           {prompt}
         </pre>
       </section>

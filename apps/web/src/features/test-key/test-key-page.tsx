@@ -8,6 +8,7 @@ import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { CreditAmountInput } from '@/components/credit-amount-input'
+import { BackToConsole } from '@/components/layout/back-to-console'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -375,8 +376,13 @@ export function TestKeyPage() {
   const { user, session, bootstrapState } = useAuthStore((state) => state.auth)
   const framed = typeof window !== 'undefined' && window.self !== window.top
   return (
-    <main className='bg-muted/30 text-foreground min-h-svh px-4 py-6 sm:px-6'>
-      <div className='bg-card mx-auto w-full max-w-md rounded-2xl border p-5 shadow-sm sm:p-6'>
+    <main className='bg-background text-foreground min-h-svh px-4 py-4 sm:px-8'>
+      {!framed && (
+        <div className='mx-auto max-w-6xl'>
+          <BackToConsole />
+        </div>
+      )}
+      <div className='bg-card mx-auto mt-6 w-full max-w-md rounded-lg border p-5 sm:p-6'>
         <header className='mb-6 border-b pb-5'>
           <div className='mb-4 flex items-center gap-3'>
             <img src='/test-key-mark.svg' width={40} height={40} alt='' />

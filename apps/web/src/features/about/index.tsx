@@ -46,24 +46,24 @@ function EmptyAboutState() {
   const apiVersion = capabilitiesReady ? status?.version?.trim() : undefined
 
   return (
-    <main className='mx-auto max-w-5xl px-5 pt-32 pb-24 md:px-10 md:pt-40'>
+    <main className='mx-auto max-w-5xl px-4 py-8 sm:px-8'>
       <p className='mb-5 flex items-center gap-2 text-xs font-bold uppercase'>
         <span className='bg-foreground size-2 rounded-full' />
         {t('About')} · {systemName}
       </p>
-      <h1 className='max-w-3xl font-serif text-5xl leading-[1.02] font-normal md:text-7xl'>
+      <h1 className='max-w-3xl text-2xl leading-tight font-semibold tracking-tight text-balance sm:text-3xl'>
         {t('One gateway for supported models')}
       </h1>
-      <p className='text-muted-foreground mt-6 max-w-2xl text-base leading-7 md:text-lg'>
+      <p className='text-muted-foreground mt-3 max-w-2xl text-sm leading-6 sm:text-base'>
         {t(
           'Access supported AI models through one API, manage keys and usage, and explore the tool market.'
         )}
       </p>
 
-      <dl className='mt-12 grid gap-8 py-8 sm:grid-cols-3'>
+      <dl className='mt-8 grid gap-5 sm:grid-cols-3'>
         {ABOUT_FACTS.map(([value, label]) => (
           <div key={label}>
-            <dt className='text-3xl font-semibold tracking-tight'>
+            <dt className='text-xl font-semibold tracking-tight sm:text-2xl'>
               {t(value)}
             </dt>
             <dd className='text-muted-foreground mt-2 text-sm leading-6'>
@@ -89,7 +89,7 @@ function EmptyAboutState() {
         </Link>
       </div>
 
-      <div className='border-foreground mt-14 flex items-start gap-3 border-t-2 pt-5 text-sm leading-6'>
+      <div className='border-border mt-8 flex items-start gap-3 border-t pt-5 text-sm leading-6'>
         <CodeXml className='mt-0.5 size-5 shrink-0' aria-hidden='true' />
         <div className='text-muted-foreground flex flex-wrap items-center gap-x-6 gap-y-2'>
           <a
@@ -127,7 +127,7 @@ export function About() {
   if (isLoading) {
     return (
       <ForgePublicShell>
-        <main className='mx-auto flex max-w-4xl flex-col gap-4 px-5 pt-32 pb-24 md:px-10'>
+        <main className='mx-auto flex max-w-4xl flex-col gap-4 px-4 py-8 sm:px-8'>
           <Skeleton className='h-8 w-[45%]' />
           <Skeleton className='h-4 w-full' />
           <Skeleton className='h-4 w-[90%]' />
@@ -140,7 +140,7 @@ export function About() {
   if (isError || data?.success === false) {
     return (
       <ForgePublicShell>
-        <main className='mx-auto max-w-4xl px-5 pt-32 pb-24 md:px-10'>
+        <main className='mx-auto max-w-4xl px-4 py-8 sm:px-8'>
           <ErrorState
             title={t('Failed to load')}
             onRetry={() => void refetch()}
@@ -161,7 +161,7 @@ export function About() {
   if (isBlockedUrl) {
     return (
       <ForgePublicShell>
-        <main className='mx-auto max-w-4xl px-5 pt-32 pb-24 md:px-10'>
+        <main className='mx-auto max-w-4xl px-4 py-8 sm:px-8'>
           <ErrorState title={t('Failed to load')} />
         </main>
       </ForgePublicShell>
@@ -173,7 +173,7 @@ export function About() {
       <ForgePublicShell>
         <iframe
           src={rawContent}
-          className='h-[calc(100svh-4rem)] w-full border-0 pt-16'
+          className='h-[calc(100svh-4rem)] w-full border-0'
           title={t('About')}
           sandbox='allow-forms allow-popups allow-popups-to-escape-sandbox allow-scripts'
         />
@@ -196,7 +196,7 @@ export function About() {
 
   return (
     <ForgePublicShell>
-      <main className='mx-auto max-w-6xl px-5 pt-32 pb-24 md:px-10'>
+      <main className='mx-auto max-w-6xl px-4 py-8 sm:px-8'>
         <RichContent
           mode='markdown'
           collapsible

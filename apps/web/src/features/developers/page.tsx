@@ -187,7 +187,6 @@ export function DevelopersPage() {
     <main className='developers-page'>
       <header className='developers-hero'>
         <div>
-          <p className='dev-eyebrow'>{t('Integration guide')}</p>
           <h1>{t('Developers')}</h1>
           <p className='dev-introduction'>
             {t(

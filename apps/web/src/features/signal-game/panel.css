@@ -27,6 +27,18 @@
   line-height: 1.15;
   letter-spacing: -0.045em;
 }
+.signal-page .signal-game {
+  --signal-color: var(--primary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--card);
+  color: var(--card-foreground);
+}
+.signal-page .signal-game-heading h2 {
+  font-size: clamp(1.5rem, 2.5vw, 2rem);
+  font-weight: 600;
+  letter-spacing: -0.035em;
+}
 .signal-game-heading h2::before {
   content: '';
   width: 0.7rem;

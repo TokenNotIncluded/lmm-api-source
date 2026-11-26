@@ -106,7 +106,7 @@ function RedPacketSeal({
         >
           <Ticket className='size-7' />
         </span>
-        <span className='font-serif text-2xl sm:text-3xl'>
+        <span className='text-xl font-semibold tracking-tight sm:text-2xl'>
           {pending ? t('Drawing...') : label}
         </span>
         {!disabled && (
@@ -246,7 +246,7 @@ function UnwrappedReward({ reward }: { reward: RedPacketReward }) {
       <p className='text-muted-foreground text-xs tracking-wide uppercase'>
         {t('You unwrapped')}
       </p>
-      <p className='mt-2 font-serif text-3xl leading-tight sm:text-4xl'>
+      <p className='mt-2 text-2xl leading-tight font-semibold tracking-tight sm:text-3xl'>
         {headline}
       </p>
       <p className='text-muted-foreground mt-2 text-sm'>
@@ -335,7 +335,7 @@ export function RedPacketPublicPage({ slug }: { slug: string }) {
     return (
       <ForgePublicShell>
         <main className='mx-auto flex min-h-[calc(100svh-4rem)] max-w-5xl flex-col justify-center px-5 py-20 md:px-10'>
-          <h1 className='max-w-2xl font-serif text-5xl leading-[1.05] font-normal tracking-tight sm:text-6xl'>
+          <h1 className='max-w-2xl text-2xl leading-tight font-semibold tracking-tight text-balance sm:text-3xl'>
             {packetQuery.isError
               ? t('Request failed')
               : t('This red packet is unavailable.')}
@@ -380,7 +380,7 @@ export function RedPacketPublicPage({ slug }: { slug: string }) {
 
   return (
     <ForgePublicShell>
-      <main className='mx-auto min-h-svh w-full max-w-5xl px-5 pt-12 pb-20 md:px-10 md:pt-16'>
+      <main className='mx-auto min-h-svh w-full max-w-5xl px-4 py-8 sm:px-8'>
         <div className='mx-auto w-full max-w-3xl'>
           <div className='border-foreground/20 border-y'>
             {packet.cover_image ? (
@@ -398,7 +398,7 @@ export function RedPacketPublicPage({ slug }: { slug: string }) {
             ) : null}
             <div className='py-8'>
               <div>
-                <h1 className='font-serif text-5xl leading-[1.05] font-normal tracking-tight sm:text-6xl'>
+                <h1 className='text-2xl leading-tight font-semibold tracking-tight text-balance sm:text-3xl'>
                   {packet.title}
                 </h1>
                 {packet.description ? (

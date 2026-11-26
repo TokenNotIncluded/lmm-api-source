@@ -276,14 +276,14 @@ export function SecurityContent() {
   const stats = statsQuery.data?.success ? statsQuery.data.data : undefined
 
   return (
-    <main className='mx-auto max-w-7xl px-5 pt-12 pb-20 sm:pt-16 md:px-10'>
-      <div className='space-y-10 sm:space-y-12'>
-        <header className='border-foreground/20 space-y-6 border-b pb-6 sm:pb-8'>
+    <main className='mx-auto max-w-7xl min-w-0 px-4 py-8 sm:px-8'>
+      <div className='space-y-8'>
+        <header className='border-border space-y-4 border-b pb-5'>
           <div className='max-w-4xl space-y-4'>
-            <h1 className='font-serif text-4xl leading-[1.1] font-normal tracking-tight text-balance sm:text-5xl md:text-6xl'>
+            <h1 className='text-2xl leading-tight font-semibold tracking-tight text-balance sm:text-3xl'>
               {t('Security overview')}
             </h1>
-            <p className='text-muted-foreground max-w-3xl text-base leading-7 md:text-lg'>
+            <p className='text-muted-foreground max-w-3xl text-sm leading-6 sm:text-base'>
               {t(
                 'How requests are screened, and what happens when risk is found.'
               )}
@@ -331,7 +331,7 @@ export function SecurityContent() {
               >
                 <h2
                   id='security-audit-loading-title'
-                  className='scroll-mt-24 font-serif text-2xl font-normal tracking-tight sm:text-3xl'
+                  className='scroll-mt-24 text-xl font-semibold tracking-tight'
                 >
                   {t('Security audit details')}
                 </h2>
@@ -349,7 +349,7 @@ export function SecurityContent() {
           <div>
             <h2
               id='security-metrics-title'
-              className='scroll-mt-24 font-serif text-2xl font-normal tracking-tight sm:text-3xl'
+              className='scroll-mt-24 text-xl font-semibold tracking-tight'
             >
               {t('Risk detection overview')}
             </h2>

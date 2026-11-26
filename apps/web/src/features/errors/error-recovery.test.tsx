@@ -22,20 +22,27 @@ import { MaintenanceError } from './maintenance-error'
 import { NotFoundError } from './not-found-error'
 import { UnauthorisedError } from './unauthorized-error'
 
-async function renderError(node: ReactNode) {
+async function renderError(node: ReactNode, inConsole = false) {
   if (!appI18n.isInitialized) {
     await new Promise<void>((resolve) => appI18n.on('initialized', resolve))
   }
   await appI18n.changeLanguage('en')
   useAuthStore.getState().auth.setUser(null)
   const root = createRootRoute({ component: Outlet })
-  const page = createRoute({
+  const authenticated = createRoute({
     getParentRoute: () => root,
+    id: '_authenticated',
+    component: Outlet,
+  })
+  const page = createRoute({
+    getParentRoute: () => (inConsole ? authenticated : root),
     path: '/',
     component: () => node,
   })
   const router = createRouter({
-    routeTree: root.addChildren([page]),
+    routeTree: root.addChildren(
+      inConsole ? [authenticated.addChildren([page])] : [page]
+    ),
     history: createMemoryHistory({ initialEntries: ['/'] }),
     isServer: true,
   })
@@ -52,6 +59,7 @@ test('server errors retain recovery and reporting actions without a game', async
     html,
     /<details class="error-editorial-details"><summary>Troubleshooting<\/summary>/
   )
+  assert.match(html, /href="\/dashboard\/overview"/)
   assert.match(html, />Retry</)
   assert.match(html, />Back to Home</)
   assert.match(html, /issues" target="_blank" rel="noopener noreferrer"/)
@@ -79,6 +87,7 @@ test('other error states retain their normal recovery controls without the share
     const html = await renderError(node)
     assert.ok(html.includes(`aria-label="${status}"`), status)
     assert.ok(html.includes(`>${action}<`), status)
+    assert.match(html, /href="\/dashboard\/overview"/)
     assert.doesNotMatch(
       html,
       /Signal tuner|signal-tuner|error-editorial-play|>Play</
@@ -86,5 +95,12 @@ test('other error states retain their normal recovery controls without the share
   }
   const minimal = await renderError(<GeneralError minimal />)
   assert.match(minimal, /Reload the page to try again/)
+  assert.doesNotMatch(minimal, /href="\/dashboard\/overview"/)
   assert.doesNotMatch(minimal, /aria-label="500"|>Retry<|signal-tuner/)
+})
+
+test('the authenticated console error preview keeps only its existing navigation', async () => {
+  const html = await renderError(<NotFoundError />, true)
+  assert.doesNotMatch(html, /href="\/dashboard\/overview"/)
+  assert.match(html, />Back to Home</)
 })

@@ -34,7 +34,7 @@ export function SignIn() {
   const canRegister = canOfferRegistration(status, capabilitiesReady)
 
   return (
-    <AuthLayout>
+    <AuthLayout allowConsoleReturn>
       <div className='auth-sign-in w-full space-y-8'>
         <div className='auth-sign-in-heading'>
           <h2 className='auth-sign-in-title text-left text-3xl font-semibold tracking-tight'>

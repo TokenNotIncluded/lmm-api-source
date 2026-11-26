@@ -11,9 +11,9 @@ License, or (at your option) any later version.
   min-width: 0;
   overflow-wrap: anywhere;
   width: 100%;
-  max-width: 78rem;
+  max-width: 80rem;
   margin-inline: auto;
-  padding: 3.5rem 2rem 6rem;
+  padding: 2rem clamp(1rem, 3vw, 2rem) 4rem;
   font-family: var(--font-body);
 }
 .developers-hero {
@@ -21,8 +21,8 @@ License, or (at your option) any later version.
   flex-wrap: wrap;
   justify-content: space-between;
   align-items: end;
-  gap: 2rem;
-  padding-bottom: 2.5rem;
+  gap: 1.25rem;
+  padding-bottom: 1.5rem;
   border-bottom: 1px solid var(--border);
 }
 .developers-hero > div {
@@ -43,12 +43,11 @@ License, or (at your option) any later version.
   line-height: 1.5;
 }
 .developers-hero h1 {
-  margin-top: 0.65rem;
   font-family: var(--font-body);
-  font-size: clamp(2.25rem, 4vw, 3.2rem);
+  font-size: clamp(1.5rem, 2.5cqi, 2rem);
   font-weight: 600;
   line-height: 1.12;
-  letter-spacing: -0.045em;
+  letter-spacing: -0.025em;
 }
 .dev-introduction {
   max-width: 40rem;
@@ -64,8 +63,8 @@ License, or (at your option) any later version.
   display: grid;
   grid-template-columns: 10rem minmax(0, 1fr);
   align-items: start;
-  gap: 2.75rem;
-  padding-top: 2.75rem;
+  gap: clamp(1.5rem, 3vw, 2.5rem);
+  padding-top: 2rem;
 }
 .dev-page-nav {
   position: sticky;
@@ -566,7 +565,7 @@ License, or (at your option) any later version.
 }
 @media (max-width: 639px) {
   .developers-page {
-    padding: 1.75rem 1.25rem 4rem;
+    padding: 2rem 1rem 3rem;
   }
   .developers-hero {
     align-items: start;

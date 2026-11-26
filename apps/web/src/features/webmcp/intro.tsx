@@ -117,12 +117,12 @@ export function WebMcpPage() {
   ]
 
   return (
-    <main className='mx-auto w-full max-w-5xl px-5 py-12 sm:px-8 sm:py-16'>
+    <main className='mx-auto w-full max-w-5xl px-4 py-8 sm:px-8'>
       <header>
-        <h1 className='text-4xl font-semibold tracking-tight sm:text-5xl'>
+        <h1 className='text-2xl leading-tight font-semibold tracking-tight text-balance sm:text-3xl'>
           WebMCP
         </h1>
-        <p className='mt-3 max-w-2xl text-lg leading-relaxed'>
+        <p className='text-muted-foreground mt-2 max-w-2xl text-sm leading-6 sm:text-base'>
           {t('Let your browser agent work with LMM.')}
         </p>
         <div className='mt-4 flex flex-wrap items-center gap-x-5 gap-y-2 text-sm'>
@@ -184,7 +184,7 @@ export function WebMcpPage() {
             />
           ))}
         </div>
-        <details className='bg-muted/30 mt-5 rounded-2xl p-4'>
+        <details className='bg-muted/30 mt-5 rounded-lg p-4'>
           <summary className='min-h-11 cursor-pointer text-sm font-medium'>
             {t('Adjust settings with WebMCP')} · {t('Super administrator')}
           </summary>
