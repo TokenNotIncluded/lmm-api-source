@@ -46,6 +46,7 @@ const { I18nextProvider, initReactI18next } = await import('react-i18next')
 const { api } = await import('@/lib/api')
 const { useAuthStore } = await import('@/stores/auth-store')
 const { NativePaymentSettings } = await import('./native-payment-settings')
+const { NativePaymentGateways } = await import('./native-payment-gateways')
 notifyManager.setScheduler(queueMicrotask)
 const i18n = createInstance()
 await i18n
@@ -105,7 +106,8 @@ function rejected(status: number, code = '', data?: unknown): never {
 }
 async function mount(
   handler: (config: ApiRequestConfig) => unknown | Promise<unknown>,
-  role = 100
+  role = 100,
+  Component = NativePaymentSettings
 ) {
   signedIn(role)
   const requests: ApiRequestConfig[] = []
@@ -129,7 +131,7 @@ async function mount(
     root.render(
       <QueryClientProvider client={client}>
         <I18nextProvider i18n={i18n}>
-          <NativePaymentSettings />
+          <Component />
         </I18nextProvider>
       </QueryClientProvider>
     )
@@ -274,7 +276,7 @@ test('unavailable configuration shows truthful host setup and can retry the real
   )
   await until(
     () =>
-      container.textContent?.includes('Payment settings unavailable') === true
+      container.textContent?.includes('Pancake settings unavailable') === true
   )
   assert.equal(container.querySelector('form'), null)
   assert.match(container.textContent ?? '', /payment_token_file/)
@@ -873,4 +875,95 @@ test('Pancake reload keeps unsaved credentials until explicit confirmation and s
     ''
   )
   assert.ok(requests.every((request) => request.method === 'get'))
+})
+
+test('gateway overview lists native protocols and wallet availability independently of the Pancake editor', async () => {
+  const { container, requests } = await mount(
+    (config) => {
+      if (config.url === '/api/user/payments/channels') {
+        return success({
+          available: true,
+          channels: [
+            {
+              id: '37',
+              provider: 'stripe',
+              currency: 'USD',
+              environment: 'test',
+            },
+          ],
+        })
+      }
+      return rejected(404, 'PAYMENT_PANCAKE_NOT_CONFIGURED')
+    },
+    100,
+    NativePaymentGateways
+  )
+  await until(() => container.textContent?.includes('#37') === true)
+  const methods = container.querySelector('dl')!
+  for (const name of [
+    'Epay Alipay',
+    'Epay WeChat Pay',
+    'LINUX DO Credit',
+    'Stripe',
+    'Creem',
+    'Waffo Global',
+    'Waffo Pancake',
+    'Coinbase Business Checkout',
+  ]) {
+    assert.ok(
+      [...methods.querySelectorAll('dt')].some(
+        (term) => term.textContent === name
+      )
+    )
+  }
+  assert.match(methods.textContent ?? '', /Stripe#37 · USD · Test payment/)
+  assert.match(methods.textContent ?? '', /CreemNot offered to this wallet/)
+  assert.deepEqual(
+    requests.map((request) => request.url),
+    ['/api/user/payments/channels']
+  )
+  await click('Waffo Pancake')
+  await until(
+    () =>
+      container.textContent?.includes(
+        'No Waffo Pancake channel is configured.'
+      ) === true
+  )
+  assert.equal(container.querySelector('form'), null)
+  await click('Wallet payment methods')
+  await until(
+    () => container.querySelector('dl')?.textContent?.includes('#37') === true
+  )
+  assert.ok(requests.every((request) => request.method === 'get'))
+})
+
+test('a failed wallet catalogue leaves the supported methods visible and their availability unknown', async () => {
+  const { container } = await mount(
+    () => rejected(503),
+    100,
+    NativePaymentGateways
+  )
+  await until(
+    () =>
+      container
+        .querySelector('dl')
+        ?.textContent?.includes('Availability unknown') === true
+  )
+  const methods = container.querySelector('dl')!
+  assert.match(methods.textContent ?? '', /StripeAvailability unknown/)
+  assert.doesNotMatch(methods.textContent ?? '', /Not offered to this wallet/)
+})
+
+test('a missing route stays distinct from a verified empty Pancake configuration', async () => {
+  const { container } = await mount(() => rejected(404))
+  await until(
+    () =>
+      container.textContent?.includes(
+        'The Pancake settings route is missing.'
+      ) === true
+  )
+  assert.doesNotMatch(
+    container.textContent ?? '',
+    /No Waffo Pancake channel is configured/
+  )
 })

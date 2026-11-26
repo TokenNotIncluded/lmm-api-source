@@ -189,6 +189,7 @@ function fixture() {
     rejectPricing: false,
     announcementStatus: 0,
     requests: [],
+    pancakeReadProblem: null,
     payment: {
       contract: 'extensions.pancake-configuration.v1',
       merchant_id: 'MER_fixture',
@@ -305,8 +306,34 @@ async function install(context, state, theme) {
         }
         result = json({ version: state.configuration.version })
       }
+    } else if (p === '/api/user/payments/channels') {
+      assert.equal(method, 'GET')
+      result = json({
+        available: true,
+        channels: [
+          {
+            id: '37',
+            provider: 'stripe',
+            environment: 'test',
+            currency: 'USD',
+          },
+        ],
+      })
     } else if (p === '/api/option/waffo-pancake/config') {
-      result = json(state.payment)
+      assert.equal(method, 'GET')
+      if (state.pancakeReadProblem === 'route') {
+        status = 404
+        result = { success: false, message: 'Route not found' }
+      } else if (state.pancakeReadProblem === 'unconfigured') {
+        status = 404
+        result = {
+          success: false,
+          code: 'PAYMENT_PANCAKE_NOT_CONFIGURED',
+          message: 'No Pancake channel configured',
+        }
+      } else {
+        result = json(state.payment)
+      }
     } else if (p === '/api/option/waffo-pancake/save') {
       assert.equal(method, 'POST')
       assert.equal(body.private_key ?? '', '')
@@ -605,7 +632,74 @@ try {
           .click()
       })
       await check(`${label}-payment`, async () => {
+        const start = state.requests.length
+        state.pancakeReadProblem = 'route'
         await go('/system-settings/billing/payment')
+        const overview = page.getByRole('tabpanel', {
+          name: t('Wallet payment methods'),
+          exact: true,
+        })
+        const method = (name) =>
+          overview.locator('dl > div').filter({
+            has: page.getByText(t(name), { exact: true }),
+          })
+        await method('Stripe').getByText(/#37/).waitFor()
+        assert.ok((await method('Stripe').innerText()).includes('USD'))
+        assert.ok(
+          (await method('Stripe').innerText()).includes(t('Test payment'))
+        )
+        for (const name of [
+          'Epay Alipay',
+          'Epay WeChat Pay',
+          'LINUX DO Credit',
+          'Creem',
+          'Waffo Global',
+          'Waffo Pancake',
+          'Coinbase Business Checkout',
+        ]) {
+          await method(name)
+            .getByText(t('Not offered to this wallet'), { exact: true })
+            .waitFor()
+        }
+        assert.ok(
+          !state.requests
+            .slice(start)
+            .some(
+              ({ path }) =>
+                path === '/api/option/waffo-pancake/config' ||
+                path === '/api/option/epay/config'
+            )
+        )
+        await capture(page, `${label}-payment-overview`)
+        await page
+          .getByRole('tab', { name: t('Waffo Pancake'), exact: true })
+          .click()
+        const pancake = page.getByRole('tabpanel', {
+          name: t('Waffo Pancake'),
+          exact: true,
+        })
+        await pancake
+          .getByText(
+            t(
+              'The Pancake settings route is missing. Check the Extensions version and Web compatibility settings.'
+            ),
+            { exact: true }
+          )
+          .waitFor()
+        state.pancakeReadProblem = 'unconfigured'
+        await pancake
+          .getByRole('button', { name: t('Retry'), exact: true })
+          .click()
+        await pancake
+          .getByText(t('No Waffo Pancake channel is configured.'), {
+            exact: true,
+          })
+          .waitFor()
+        assert.equal(await pancake.locator('form').count(), 0)
+        state.pancakeReadProblem = null
+        await pancake
+          .getByRole('button', { name: t('Refresh'), exact: true })
+          .click()
         const url = page.locator('#native-payment-return-url')
         await url.waitFor()
         assert.equal(await url.isEnabled(), true)

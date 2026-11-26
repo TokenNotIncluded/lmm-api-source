@@ -21,6 +21,7 @@ export function withPaymentSettingsReviewFixtures(
     const url = new URL(config.url ?? '', window.location.origin)
     const method = (config.method ?? 'get').toUpperCase()
     const paymentPath =
+      url.pathname === '/api/user/payments/channels' ||
       url.pathname.startsWith('/api/option/waffo-pancake/') ||
       url.pathname.startsWith('/api/option/epay/')
     if (
@@ -38,6 +39,14 @@ export function withPaymentSettingsReviewFixtures(
       config,
     })
 
+    if (method === 'GET' && url.pathname === '/api/user/payments/channels') {
+      return respond({
+        available: true,
+        channels: [
+          { id: '37', provider: 'stripe', currency: 'USD', environment: 'test' },
+        ],
+      })
+    }
     if (
       method === 'GET' &&
       url.pathname === '/api/option/waffo-pancake/config'

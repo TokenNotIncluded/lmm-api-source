@@ -333,19 +333,46 @@ function PaymentWorkspace({ scope }: { scope: NativeUsersScope }) {
     )
   }
   if (query.isError || !query.data) {
+    const problem = failure(query.error)
+    if (
+      problem.status === 404 &&
+      problem.code === 'PAYMENT_PANCAKE_NOT_CONFIGURED'
+    ) {
+      return (
+        <div className='space-y-6'>
+          <p role='status'>{t('No Waffo Pancake channel is configured.')}</p>
+          <HostSetup />
+          <Button
+            type='button'
+            variant='outline'
+            onClick={() => void query.refetch()}
+          >
+            {t('Refresh')}
+          </Button>
+        </div>
+      )
+    }
+    let detail = t(
+      'The payment service could not provide its configuration. Check the service and host setup, then retry.'
+    )
+    if (problem.status === 409) {
+      detail = t(
+        'The host payment configuration changed or has multiple distinct bindings. Review the host configuration and reload the service.'
+      )
+    } else if (problem.status === 404) {
+      detail = t(
+        'The Pancake settings route is missing. Check the Extensions version and Web compatibility settings.'
+      )
+    } else if (problem.code === 'INVALID_RESPONSE') {
+      detail = t(
+        'The Pancake settings response has an unexpected format. Check the Web and Extensions versions.'
+      )
+    }
     return (
       <div className='space-y-6'>
         <ErrorState
-          title={t('Payment settings unavailable')}
-          description={
-            failure(query.error).status === 409
-              ? t(
-                  'The host payment configuration changed or has multiple distinct bindings. Review the host configuration and reload the service.'
-                )
-              : t(
-                  'The payment service could not provide its configuration. Check the service and host setup, then retry.'
-                )
-          }
+          title={t('Pancake settings unavailable')}
+          description={detail}
           onRetry={() => {
             void query.refetch()
           }}
