@@ -102,7 +102,8 @@ pub(super) fn disabled_response(
     direct_browser: bool,
 ) -> Response {
     let response = if direct_browser {
-        Redirect::to("/sign-in").into_response()
+        // The fragment asks the sign-in page to read the HttpOnly proof cookie.
+        Redirect::to("/sign-in?reauth=1#account-appeal").into_response()
     } else {
         let mut context = json!(grant.context);
         context["appeal_available"] = json!(true);
@@ -256,7 +257,10 @@ mod tests {
     async fn direct_callback_redirect_has_only_cookie_proof() {
         let response = disabled_response(grant(), &config(), true);
         assert_eq!(response.status(), StatusCode::SEE_OTHER);
-        assert_eq!(response.headers()[header::LOCATION], "/sign-in");
+        assert_eq!(
+            response.headers()[header::LOCATION],
+            "/sign-in?reauth=1#account-appeal"
+        );
         assert!(
             response
                 .headers()

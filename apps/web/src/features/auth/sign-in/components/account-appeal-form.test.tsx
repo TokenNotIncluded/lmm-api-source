@@ -160,6 +160,7 @@ afterEach(async () => {
   refreshes = 0
   notices.length = 0
   setVerifiedAccountAppealHint(false)
+  window.history.replaceState(null, '', '/sign-in')
 })
 after(() => {
   mock.restore()
@@ -225,7 +226,23 @@ test('expired verified-appeal hints keep the server rejection and are cleared', 
   assert.deepEqual(notices, [])
 })
 
-test('OAuth-only identity submits only reason and shows the existing server receipt', async () => {
+test('a direct callback link without a valid proof shows no verified identity', async () => {
+  window.history.replaceState(null, '', '/sign-in?reauth=1#account-appeal')
+  const calls: string[] = []
+  api.defaults.adapter = async (config) => {
+    calls.push(config.method ?? '')
+    return respond(config, {}, 401)
+  }
+  await mount()
+  assert.deepEqual(calls, ['get'])
+  assert.match(document.body.textContent ?? '', /Appeal verification expired/)
+  assert.doesNotMatch(document.body.textContent ?? '', /github-only/)
+  assert.equal(button('Send appeal').disabled, true)
+})
+
+test('direct OAuth callback opens the verified appeal in a fresh tab and submits only the reason', async () => {
+  window.history.replaceState(null, '', '/sign-in?reauth=1#account-appeal')
+  assert.equal(hasVerifiedAccountAppealHint(), false)
   const writes: unknown[] = []
   api.defaults.adapter = async (config) => {
     if (config.method === 'get') {
@@ -240,7 +257,7 @@ test('OAuth-only identity submits only reason and shows the existing server rece
       data: { ...receipt, already_pending: true, admin_note: 'SECRET' },
     })
   }
-  await mount(1)
+  await mount()
   assert.match(document.body.textContent ?? '', /github-only/)
   assert.match(document.body.textContent ?? '', /Published account restriction/)
   assert.equal(document.querySelector('input[type=password]'), null)

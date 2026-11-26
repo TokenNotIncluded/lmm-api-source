@@ -45,7 +45,10 @@ export function AccountAppealForm({ refreshKey = 0 }: { refreshKey?: number }) {
     let active = true
     const identity = { active: true }
     identityRequest.current = identity
-    const shouldLoadContext = refreshKey > 0 || hasVerifiedAccountAppealHint()
+    const shouldLoadContext =
+      refreshKey > 0 ||
+      hasVerifiedAccountAppealHint() ||
+      window.location.hash === '#account-appeal'
     setReason('')
     setPassword('')
     setLoading(shouldLoadContext)

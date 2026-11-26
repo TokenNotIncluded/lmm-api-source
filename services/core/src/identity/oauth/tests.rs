@@ -999,7 +999,7 @@ async fn google_browser_signed_routes_cookie_refresh_replay_policy_and_registrat
         .await;
         if policy == "disabled-user" {
             assert_eq!(status, StatusCode::SEE_OTHER);
-            assert_eq!(headers["location"], "/sign-in");
+            assert_eq!(headers["location"], "/sign-in?reauth=1#account-appeal");
             assert!(body.is_null());
             let proof_cookie = headers
                 .get_all("set-cookie")
