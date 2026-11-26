@@ -5,6 +5,8 @@ import { test } from 'node:test'
 import {
   buildRequestRuleExpr,
   evaluateBillingExpression,
+  requestRuleGroupsFromTrace,
+  splitBillingExprAndRequestRules,
   tryParseRequestRuleExpr,
   type TimeCondition,
 } from './billing-expr'
@@ -130,4 +132,44 @@ test('time ranges retain grouping with another condition and another multiplier 
       ]),
     /invalid hour range/
   )
+})
+
+test('stored time expressions keep their literal meaning when the visual control cannot represent them', () => {
+  const daytimeOr = 'hour("UTC") >= 9 || hour("UTC") < 12'
+  for (let hour = 0; hour < 24; hour++) {
+    assert.equal(valueAt(`(${daytimeOr} ? 2 : 1)`, hour), 2)
+  }
+  const custom = [
+    daytimeOr,
+    `(${daytimeOr}) && header("x-rate") == "special"`,
+    'hour("UTC") >= 21 || hour("UTC") < 6 && header("x-rate") == "special"',
+    'hour("UTC") >= 9 || hour("UTC") < 9',
+    'hour("UTC") >= 24 || hour("UTC") < 6',
+    'hour("UTC") >= 9.5 || hour("UTC") < 6',
+  ]
+  for (const condition of custom) {
+    const rule = `(${condition} ? 2 : 1)`
+    assert.equal(tryParseRequestRuleExpr(rule), null, condition)
+    assert.deepEqual(tryParseRequestRuleExpr(rule, 'display'), [
+      { conditions: [], conditionText: condition, multiplier: '2' },
+    ])
+    assert.deepEqual(splitBillingExprAndRequestRules(`v1:(p) * ${rule}`), {
+      billingExpr: 'v1:p',
+      requestRuleExpr: rule,
+    })
+    const trace = requestRuleGroupsFromTrace([
+      { cond: condition, matched: true, multiplier: 2 },
+    ])[0]
+    assert.deepEqual(trace.conditions, [])
+    assert.equal(trace.conditionText, condition)
+  }
+})
+
+test('a grouped overnight condition remains editable with an additional condition', () => {
+  const group =
+    '(hour("UTC") >= 21 || hour("UTC") < 6) && header("x-rate") == "special"'
+  const rule = `(${group} ? 2 : 1)`
+  const parsed = tryParseRequestRuleExpr(rule)
+  assert.ok(parsed)
+  assert.equal(buildRequestRuleExpr(parsed), rule)
 })

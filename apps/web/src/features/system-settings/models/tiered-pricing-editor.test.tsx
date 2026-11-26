@@ -76,7 +76,8 @@ function fixtureExpr() {
   })
 }
 
-async function setup(initialExpr = fixtureExpr()) {
+async function setup(initialExpr = fixtureExpr(), requestRuleExpr = '') {
+  const ruleChanges: string[] = []
   let currentExpr = initialExpr
   const changes: string[] = []
   function Harness() {
@@ -85,13 +86,13 @@ async function setup(initialExpr = fixtureExpr()) {
       <TieredPricingEditor
         modelName='test-audio-model'
         billingExpr={expr}
-        requestRuleExpr=''
+        requestRuleExpr={requestRuleExpr}
         onBillingExprChange={(next) => {
           currentExpr = next
           changes.push(next)
           setExpr(next)
         }}
-        onRequestRuleExprChange={() => {}}
+        onRequestRuleExprChange={(next) => ruleChanges.push(next)}
       />
     )
   }
@@ -119,6 +120,7 @@ async function setup(initialExpr = fixtureExpr()) {
   return {
     container,
     changes,
+    ruleChanges,
     input,
     expression: () => currentExpr,
     tier: () => required(tryParseVisualConfig(currentExpr)).tiers[0],
@@ -260,6 +262,21 @@ test('estimator prices classified cache counts with a generic cache rate', async
       )
     }
     assert.deepEqual(ctx.changes, [])
+  } finally {
+    await ctx.cleanup()
+  }
+})
+
+test('editing a base tariff preserves the stored all-day OR for raw review', async () => {
+  const rule = '(hour("UTC") >= 9 || hour("UTC") < 12 ? 2 : 1)'
+  const ctx = await setup(fixtureExpr(), rule)
+  try {
+    assert.match(
+      ctx.container.textContent ?? '',
+      /too complex for the visual editor/
+    )
+    await ctx.change('Input price', '5')
+    assert.deepEqual(ctx.ruleChanges, [])
   } finally {
     await ctx.cleanup()
   }

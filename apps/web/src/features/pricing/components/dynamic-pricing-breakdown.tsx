@@ -221,7 +221,7 @@ export function DynamicPricingBreakdown({
     const parsedRules =
       requestRules != null
         ? requestRuleGroupsFromTrace(requestRules)
-        : tryParseRequestRuleExpr(split.requestRuleExpr || '')
+        : tryParseRequestRuleExpr(split.requestRuleExpr || '', 'display')
     return {
       tiers: parsedTiers,
       ruleGroups: parsedRules || [],

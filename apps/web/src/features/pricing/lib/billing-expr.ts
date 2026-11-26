@@ -1348,36 +1348,51 @@ function parseExprLiteral(raw: string): string | null {
   }
 }
 
+const timeBounds: Record<TimeFunc, [number, number]> = {
+  hour: [0, 23],
+  minute: [0, 59],
+  weekday: [0, 6],
+  month: [1, 12],
+  day: [1, 31],
+}
+
+function validTimeEndpoint(timeFunc: TimeFunc, literal: string): boolean {
+  const [min, max] = timeBounds[timeFunc]
+  const value = Number(literal)
+  return (
+    NUMERIC_LITERAL_REGEX.test(literal) &&
+    Number.isInteger(value) &&
+    value >= min &&
+    value <= max
+  )
+}
+
+const timeRangeOr =
+  /^(hour|minute|weekday|month|day)\("([^"]+)"\) >= ([\d.eE+-]+) \|\| \1\("\2"\) < ([\d.eE+-]+)$/
+
 function tryParseTimeCondition(expr: string): RequestCondition | null {
-  let m = expr.match(
-    /^(hour|minute|weekday|month|day)\("([^"]+)"\) >= ([\d.eE+-]+) \|\| \1\("\2"\) < ([\d.eE+-]+)$/
-  )
-  if (m) {
+  const range = unwrapOuterParens(expr).match(timeRangeOr)
+  if (range) {
+    const timeFunc = range[1] as TimeFunc
+    const [, , timezone, start, end] = range
+    if (
+      !validTimeEndpoint(timeFunc, start) ||
+      !validTimeEndpoint(timeFunc, end) ||
+      Number(start) <= Number(end)
+    ) {
+      return null
+    }
     return {
       source: 'time',
-      timeFunc: m[1] as TimeFunc,
-      timezone: m[2],
+      timeFunc,
+      timezone,
       mode: MATCH_RANGE,
       value: '',
-      rangeStart: m[3],
-      rangeEnd: m[4],
+      rangeStart: start,
+      rangeEnd: end,
     }
   }
-  m = expr.match(
-    /^\((hour|minute|weekday|month|day)\("([^"]+)"\) >= ([\d.eE+-]+) \|\| \1\("\2"\) < ([\d.eE+-]+)\)$/
-  )
-  if (m) {
-    return {
-      source: 'time',
-      timeFunc: m[1] as TimeFunc,
-      timezone: m[2],
-      mode: MATCH_RANGE,
-      value: '',
-      rangeStart: m[3],
-      rangeEnd: m[4],
-    }
-  }
-  m = expr.match(
+  const m = expr.match(
     /^(hour|minute|weekday|month|day)\("([^"]+)"\) (==|>=|<) ([\d.eE+-]+)$/
   )
   if (m) {
@@ -1463,19 +1478,41 @@ function tryParseRequestCondition(expr: string): RequestCondition | null {
   return null
 }
 
-function tryParseRuleGroupFactor(part: string): RequestRuleGroup | null {
-  const m = part.match(/^\((.+) \? ([\d.eE+-]+) : 1\)$/s)
+const requestRuleFactor = /^\((.+) \? ([\d.eE+-]+) : 1\)$/s
+
+function tryParseRuleGroupFactor(
+  part: string,
+  mode: 'edit' | 'display'
+): RequestRuleGroup | null {
+  const m = part.match(requestRuleFactor)
   if (!m) return null
 
   const conditions = tryParseRequestConditions(m[1])
-  if (!conditions) return null
-  return { conditions, multiplier: m[2] }
+  if (conditions) return { conditions, multiplier: m[2] }
+  // An older time rule may be valid to evaluate and unsafe to regenerate
+  // with a visual range control. Keep its exact predicate for read-only use.
+  if (
+    mode === 'display' &&
+    splitTopLevelAnd(m[1]).every(
+      (term) =>
+        tryParseRequestCondition(term) !== null ||
+        timeRangeOr.test(unwrapOuterParens(term))
+    )
+  ) {
+    return { conditions: [], conditionText: m[1], multiplier: m[2] }
+  }
+  return null
 }
 
 function tryParseRequestConditions(
   conditionStr: string
 ): RequestCondition[] | null {
   const andParts = splitTopLevelAnd(conditionStr)
+  // A top-level OR next to an AND has different precedence from the
+  // visual editor's conjunction of conditions. Generated ranges are grouped.
+  if (andParts.length > 1 && andParts.some((part) => timeRangeOr.test(part))) {
+    return null
+  }
   const conditions: RequestCondition[] = []
   for (const ap of andParts) {
     const cond = tryParseRequestCondition(ap.trim())
@@ -1500,7 +1537,8 @@ export function requestRuleGroupsFromTrace(
 }
 
 export function tryParseRequestRuleExpr(
-  expr: string
+  expr: string,
+  mode: 'edit' | 'display' = 'edit'
 ): RequestRuleGroup[] | null {
   const trimmed = (expr || '').trim()
   if (!trimmed) return []
@@ -1508,7 +1546,7 @@ export function tryParseRequestRuleExpr(
   const parts = splitTopLevelMultiply(trimmed)
   const groups: RequestRuleGroup[] = []
   for (const part of parts) {
-    const group = tryParseRuleGroupFactor(part)
+    const group = tryParseRuleGroupFactor(part, mode)
     if (!group) return null
     groups.push(group)
   }
@@ -1559,8 +1597,7 @@ export function splitBillingExprAndRequestRules(expr: string): {
   const baseParts: string[] = []
 
   parts.forEach((part) => {
-    const parsed = tryParseRequestRuleExpr(part)
-    if (parsed && parsed.length > 0) {
+    if (tryParseRuleGroupFactor(part, 'display')) {
       ruleParts.push(part)
     } else {
       baseParts.push(part)
@@ -1723,23 +1760,8 @@ function buildTimeConditionExpr(cond: TimeCondition): string {
     const e = normalized.rangeEnd.trim()
     const start = Number(s)
     const end = Number(e)
-    const [min, max] = {
-      hour: [0, 23],
-      minute: [0, 59],
-      weekday: [0, 6],
-      month: [1, 12],
-      day: [1, 31],
-    }[timeFunc]
-    if (
-      !NUMERIC_LITERAL_REGEX.test(s) ||
-      !NUMERIC_LITERAL_REGEX.test(e) ||
-      !Number.isInteger(start) ||
-      !Number.isInteger(end) ||
-      start < min ||
-      start > max ||
-      end < min ||
-      end > max
-    ) {
+    if (!validTimeEndpoint(timeFunc, s) || !validTimeEndpoint(timeFunc, e)) {
+      const [min, max] = timeBounds[timeFunc]
       throw new Error(
         `invalid ${timeFunc} range: expected integer endpoints from ${min} to ${max}`
       )

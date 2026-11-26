@@ -436,3 +436,17 @@ test('legacy expression prices require a positive frozen USD multiplier', async 
   assert.match(absentBasis.textContent ?? '', /Price conversion unavailable/)
   assert.doesNotMatch(absentBasis.textContent ?? '', /\d USD/)
 })
+
+test('public pricing shows the exact stored all-day predicate without a settlement trace', async () => {
+  const condition = 'hour("UTC") >= 9 || hour("UTC") < 12'
+  const pricing = await render(
+    <DynamicPricingBreakdown
+      billingExpr={`(tier("a", p * 28)) * (${condition} ? 2 : 1)`}
+      expressionCurrencyBasis='USD'
+      displayCurrency='USD'
+    />
+  )
+  assert.match(pricing.textContent ?? '', /Conditional multipliers/)
+  assert.ok(pricing.textContent?.includes(condition))
+  assert.doesNotMatch(pricing.textContent ?? '', /9:00~12:00/)
+})

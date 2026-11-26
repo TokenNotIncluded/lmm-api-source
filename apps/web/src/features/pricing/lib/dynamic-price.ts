@@ -127,7 +127,9 @@ export function hasDynamicRequestRules(model: PricingModel): boolean {
   const { requestRuleExpr } = splitBillingExprAndRequestRules(
     model.billing_expr || ''
   )
-  return Boolean(tryParseRequestRuleExpr(requestRuleExpr || '')?.length)
+  return Boolean(
+    tryParseRequestRuleExpr(requestRuleExpr || '', 'display')?.length
+  )
 }
 
 export function getDynamicPriceEntries(
