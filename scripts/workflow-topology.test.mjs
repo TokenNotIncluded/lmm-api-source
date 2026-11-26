@@ -330,9 +330,10 @@ test('the CI gate cannot pass when an implemented component fails or is skipped'
 
 test('continuous CI bounds duplicate work and preserves only checked web assets', () => {
   const source = workflow('ci');
-  assert.match(source, /group: ci-\$\{\{ github\.event_name \}\}-\$\{\{ github\.ref \}\}\n  cancel-in-progress: true/);
+  const revision = "${{ github.event_name == 'workflow_dispatch' && github.sha || github.ref }}";
+  assert.ok(source.includes('group: ci-${{ github.event_name }}-' + revision + '\n  cancel-in-progress: true'));
   const protocol = workflow('core-protocol');
-  assert.ok(protocol.includes('group: microkernel-${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}\n  cancel-in-progress: true'));
+  assert.ok(protocol.includes('group: microkernel-${{ github.workflow }}-${{ github.event_name }}-' + revision + '\n  cancel-in-progress: true'));
   const web = source.split('  web:\n')[1].split('  translations:\n')[0];
   assert.match(web, /timeout-minutes: 20/);
   for (const command of ['format:check', 'copyright:check', 'lint', 'typecheck', 'test', 'build', 'bundle:check']) {
