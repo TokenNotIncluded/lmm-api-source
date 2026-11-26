@@ -280,16 +280,12 @@ export function useSidebarData(): SidebarData {
             icon: Settings,
             requiredRole: ROLE.SUPER_ADMIN,
           },
-          ...(user?.role === ROLE.ADMIN
-            ? [
-                {
-                  title: t('Conversation starter prompts'),
-                  url: '/system-settings/content/assistant',
-                  icon: MessageSquare,
-                  requiredRole: ROLE.ADMIN,
-                },
-              ]
-            : []),
+          {
+            title: t('AI assistant settings'),
+            url: '/system-settings/content/assistant',
+            icon: MessageSquare,
+            requiredRole: ROLE.ADMIN,
+          },
         ],
       },
     ],

@@ -1171,6 +1171,7 @@
     "Assistant input": "Assistant input",
     "Assistant is thinking...": "Assistant is thinking...",
     "Assistant is unavailable. Open the guide to continue.": "Assistant is unavailable. Open the guide to continue.",
+    "Assistant model access is disabled on this host. Conversation starter settings are still available.": "Assistant model access is disabled on this host. Conversation starter settings are still available.",
     "Assistant model ID": "Assistant model ID",
     "Assistant output": "Assistant output",
     "Assistant persona": "Assistant persona",

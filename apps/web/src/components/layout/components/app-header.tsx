@@ -94,7 +94,7 @@ export function AppHeader({
   const isMobile = useIsMobile()
   const user = useAuthStore((state) => state.auth.user)
   const assistantEnabled = status?.assistant?.enabled !== false
-  const mobileAssistantAvailable = showMobileAssistant && user !== null
+  const consoleAssistantAvailable = showMobileAssistant && user !== null
   const railOpen = useAssistantRailOpen()
 
   const handleAssistantClick = () => {
@@ -207,7 +207,7 @@ export function AppHeader({
               <TopNav links={links} aria-label={t('Header navigation')} />
             </div>
           )}
-          {showAssistant && (assistantEnabled || mobileAssistantAvailable) && (
+          {showAssistant && (assistantEnabled || consoleAssistantAvailable) && (
             <Tooltip>
               <TooltipTrigger
                 render={
@@ -217,7 +217,6 @@ export function AppHeader({
                     className={cn(
                       'text-muted-foreground hover:text-foreground relative h-11 w-auto min-w-11 gap-2 rounded-lg px-2.5 transition-colors hover:bg-accent md:h-9',
                       !showMobileAssistant && 'hidden md:inline-flex',
-                      !assistantEnabled && 'md:hidden',
                       railOpen && 'bg-accent text-accent-foreground'
                     )}
                     aria-label={t('Open AI assistant')}

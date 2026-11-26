@@ -1171,6 +1171,7 @@
     "Assistant input": "Entrée de l’assistant",
     "Assistant is thinking...": "L’assistant réfléchit…",
     "Assistant is unavailable. Open the guide to continue.": "L’assistant est indisponible. Consultez le guide.",
+    "Assistant model access is disabled on this host. Conversation starter settings are still available.": "Ce serveur a désactivé l’accès au modèle de l’assistant. Les suggestions de conversation restent configurables.",
     "Assistant model ID": "Identifiant du modèle de l’assistant",
     "Assistant output": "Sortie de l’assistant",
     "Assistant persona": "Rôle de l’assistant",

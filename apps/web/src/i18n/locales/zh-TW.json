@@ -1171,6 +1171,7 @@
     "Assistant input": "助手輸入",
     "Assistant is thinking...": "助手正在思考…",
     "Assistant is unavailable. Open the guide to continue.": "助手暫不可用，可先查看指南。",
+    "Assistant model access is disabled on this host. Conversation starter settings are still available.": "此伺服器未啟用助理推論，仍可設定開場提示詞。",
     "Assistant model ID": "助手模型 ID",
     "Assistant output": "助手輸出",
     "Assistant persona": "助手角色",

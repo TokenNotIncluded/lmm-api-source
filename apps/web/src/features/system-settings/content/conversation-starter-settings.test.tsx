@@ -19,6 +19,7 @@ for (const key of [
   'document',
   'navigator',
   'HTMLElement',
+  'customElements',
   'HTMLInputElement',
   'HTMLTextAreaElement',
   'HTMLButtonElement',
@@ -141,6 +142,18 @@ beforeEach(() => {
   const adapter: AxiosAdapter = async (config) => {
     const data = config.data ? JSON.parse(String(config.data)) : undefined
     requests.push({ method: config.method ?? '', url: config.url ?? '', data })
+    if (config.url === '/api/assistant/status') {
+      return {
+        config,
+        status: 200,
+        statusText: 'OK',
+        headers: {},
+        data: {
+          success: true,
+          data: { enabled: false, route_available: false },
+        },
+      }
+    }
     if (config.url === '/api/status') {
       return {
         config,
@@ -367,7 +380,18 @@ test('real assistant settings route saves presets independently of partial legac
       'published editor'
     )
     assert.equal(field(page.container).value, 'Published label')
-    assert.equal(requests.length, 1)
+    assert.equal(
+      requests.filter(({ url }) => url.endsWith('/pre-conversation-presets'))
+        .length,
+      1
+    )
+    await until(
+      () =>
+        page.container.textContent?.includes(
+          'Assistant model access is disabled on this host.'
+        ) ?? false,
+      'live assistant status'
+    )
     await edit(page.container, 'Saved custom label')
     await click(page.container, 'Save Settings')
     await until(() => remote.revision === 2, 'acknowledged settings write')
@@ -377,7 +401,9 @@ test('real assistant settings route saves presets independently of partial legac
     )
     assert.equal(button(page.container, 'Save Settings').disabled, true)
     assert.deepEqual(
-      requests.map((request) => request.method),
+      requests
+        .filter(({ url }) => url.endsWith('/pre-conversation-presets'))
+        .map((request) => request.method),
       ['get', 'put']
     )
   } finally {
@@ -478,7 +504,9 @@ test('L5 can read the published editor and cannot submit a change', async () => 
     assert.ok(page.container.textContent?.includes('Read only'))
     await click(page.container, 'Save Settings')
     assert.deepEqual(
-      requests.map((request) => request.method),
+      requests
+        .filter(({ url }) => url.endsWith('/pre-conversation-presets'))
+        .map((request) => request.method),
       ['get']
     )
   } finally {

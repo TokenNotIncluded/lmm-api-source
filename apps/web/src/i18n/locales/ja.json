@@ -1171,6 +1171,7 @@
     "Assistant input": "アシスタント入力",
     "Assistant is thinking...": "アシスタントが考えています…",
     "Assistant is unavailable. Open the guide to continue.": "アシスタントは利用できません。ガイドをご覧ください。",
+    "Assistant model access is disabled on this host. Conversation starter settings are still available.": "このサーバーではアシスタントのモデル利用が無効です。会話の開始候補は引き続き設定できます。",
     "Assistant model ID": "アシスタントモデル ID",
     "Assistant output": "アシスタント出力",
     "Assistant persona": "アシスタントの役割",

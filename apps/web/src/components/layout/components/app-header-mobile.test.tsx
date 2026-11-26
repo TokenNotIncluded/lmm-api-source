@@ -235,6 +235,21 @@ test('signed-in mobile users keep the existing launcher entry when the public as
   }
 })
 
+test('the desktop assistant remains visible when live model access is disabled', async () => {
+  const rendered = await renderHeader(1440, true, false)
+  try {
+    const assistant = rendered.container.querySelector<HTMLButtonElement>(
+      '[data-testid="header-assistant-launcher"]'
+    )
+    assert.ok(assistant)
+    assert.ok(!assistant.classList.contains('md:hidden'))
+    await act(async () => assistant.click())
+    assert.equal(isAssistantRailOpen(), true)
+  } finally {
+    await rendered.cleanup()
+  }
+})
+
 test('a header that hides the assistant does not expose the compact entry', async () => {
   const rendered = await renderHeader(390, false)
   try {
