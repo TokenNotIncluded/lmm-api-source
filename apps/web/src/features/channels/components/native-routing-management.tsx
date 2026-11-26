@@ -41,6 +41,7 @@ import {
   setNativeChannelsEnabled,
   setNativeChannelsTag,
 } from '../api'
+import { nativeModelLogo, resolveNativeProvider } from '../lib/native-provider'
 import { nativeProtocolLabel } from '../lib/native-routing-form'
 import {
   assertNativeDraftTimeouts,
@@ -90,11 +91,7 @@ import {
 } from './native-channel-statistics'
 import { NativeModelFields } from './native-model-fields'
 import { NativePriceRuleList } from './native-price-rule-list'
-import {
-  NativeProviderLogo,
-  nativeModelLogo,
-  resolveNativeProvider,
-} from './native-provider-logo'
+import { NativeProviderLogo } from './native-provider-logo'
 
 import './native-channel-list.css'
 

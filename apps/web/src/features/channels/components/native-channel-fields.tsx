@@ -15,6 +15,7 @@ import {
 } from '@/components/ui/select'
 import { getServerErrorMessage } from '@/lib/server-error-message'
 
+import { resolveNativeProvider } from '../lib/native-provider'
 import {
   nativeProtocolLabel,
   nativeProtocols,
@@ -26,10 +27,7 @@ import {
   type NativeConfiguration,
 } from '../native-api'
 import { NativeChannelModelsFields } from './native-channel-models-fields'
-import {
-  NativeProviderLogo,
-  resolveNativeProvider,
-} from './native-provider-logo'
+import { NativeProviderLogo } from './native-provider-logo'
 
 export function NativeChannelTagField({
   document,
