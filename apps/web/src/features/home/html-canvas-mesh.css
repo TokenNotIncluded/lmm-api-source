@@ -1,5 +1,7 @@
 /* Copyright (C) 2026 LIghtJUNction; SPDX-License-Identifier: AGPL-3.0-or-later */
 .lmm-mesh-figure {
+  --mesh-signal: var(--info);
+  --mesh-grid: color-mix(in oklch, var(--mesh-signal) 14%, transparent);
   --mesh-metal: var(--muted-foreground);
   --mesh-line: color-mix(in oklch, var(--foreground) 18%, transparent);
   --mesh-surface: var(--background);
@@ -13,6 +15,7 @@
   position: relative;
   height: clamp(23rem, 36vw, 29rem);
   isolation: isolate;
+  outline: 1px solid var(--mesh-line);
 }
 
 .lmm-mesh-stage > canvas,
@@ -26,7 +29,17 @@
   position: relative;
   overflow: hidden;
   color: var(--foreground);
-  background: var(--mesh-surface);
+  background:
+    radial-gradient(ellipse at center, var(--mesh-grid), transparent 65%),
+    linear-gradient(var(--mesh-grid) 1px, transparent 1px),
+    linear-gradient(90deg, var(--mesh-grid) 1px, transparent 1px),
+    var(--mesh-surface);
+  background-position: center;
+  background-size:
+    auto,
+    1.25rem 1.25rem,
+    1.25rem 1.25rem,
+    auto;
 }
 
 .lmm-mesh-wires {
@@ -51,6 +64,27 @@
   vector-effect: non-scaling-stroke;
 }
 
+.lmm-mesh-wires .lmm-mesh-signal {
+  stroke: var(--mesh-signal);
+  stroke-width: 2;
+  stroke-dasharray: 5 95;
+  stroke-dashoffset: -48;
+}
+
+.lmm-mesh-stage[data-renderer='dom'][data-paused='false'] .lmm-mesh-signal {
+  animation: lmm-mesh-request-flow 3.2s linear infinite;
+}
+
+@keyframes lmm-mesh-request-flow {
+  from {
+    stroke-dashoffset: 0;
+  }
+
+  to {
+    stroke-dashoffset: -100;
+  }
+}
+
 .lmm-mesh-wires circle {
   fill: var(--mesh-metal);
 }
@@ -66,9 +100,9 @@
   padding: 0.8rem;
   transform: translate(-50%, -50%);
   color: var(--foreground);
-  background: var(--muted);
-  border: 1px solid transparent;
-  border-radius: 0.5rem;
+  background: var(--mesh-surface);
+  border: 1px solid var(--mesh-line);
+  border-radius: 0.25rem;
   text-decoration: none;
   font-size: 0.8rem;
   font-weight: 500;
@@ -79,7 +113,7 @@
 .lmm-mesh-node > svg {
   width: 1.15rem;
   height: 1.15rem;
-  color: var(--mesh-metal);
+  color: var(--mesh-signal);
 }
 
 .lmm-mesh-node > span:last-child {
@@ -89,6 +123,7 @@
 .lmm-mesh-node:hover,
 .lmm-mesh-node:focus-visible {
   background: var(--accent);
+  border-color: var(--mesh-signal);
 }
 
 .lmm-mesh-core {
@@ -104,8 +139,11 @@
   justify-content: flex-end;
   gap: 0.45rem;
   padding: 1.15rem 0.7rem;
-  border: 1px solid var(--mesh-line);
-  border-radius: 0.75rem;
+  border: 1px solid var(--mesh-signal);
+  border-radius: 0.25rem;
+  box-shadow:
+    0 0 2rem var(--mesh-grid),
+    inset 0 0 1.5rem var(--mesh-grid);
   color: var(--foreground);
   text-decoration: none;
   background: var(--mesh-surface);
@@ -146,6 +184,7 @@
   justify-content: space-between;
   gap: 1rem;
   min-height: 3rem;
+  font-family: var(--font-mono), monospace;
   color: var(--muted-foreground);
   font-size: 0.75rem;
 }

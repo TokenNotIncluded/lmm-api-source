@@ -305,7 +305,7 @@ export function HomeLanding({
         aria-labelledby='lmm-mesh-title'
       >
         <div className='lmm-mesh-intro'>
-          <h2 id='lmm-mesh-title'>{t('One ecosystem. Many ways in.')}</h2>
+          <h2 id='lmm-mesh-title'>{t('Frontier AI Technology Watch')}</h2>
           <p>
             {t(
               'Chat, reasoning, vision, and audio models behind one endpoint.'

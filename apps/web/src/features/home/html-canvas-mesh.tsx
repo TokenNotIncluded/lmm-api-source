@@ -208,12 +208,15 @@ export function HtmlCanvasMesh({
         preserveAspectRatio='none'
         aria-hidden='true'
       >
-        {NODES.map(({ label, x, y }) => (
-          <path
-            key={label}
-            d={`M500 280 Q${x * 10} 280 ${x * 10} ${y * 5.6}`}
-          />
-        ))}
+        {NODES.map(({ label, x, y }) => {
+          const wire = `M500 280 L${x * 10} ${y * 5.6}`
+          return (
+            <g key={label}>
+              <path d={wire} />
+              <path className='lmm-mesh-signal' d={wire} pathLength='100' />
+            </g>
+          )
+        })}
         <circle cx='500' cy='280' r='4' />
       </svg>
       {NODES.map(({ label, path, x, y }) => {
@@ -271,7 +274,7 @@ export function HtmlCanvasMesh({
         </span>
       </div>
       <figcaption className='lmm-mesh-caption'>
-        <span>{t('API Endpoints')}</span>
+        <span>{t('Multimodal request routing')}</span>
         <button
           type='button'
           onClick={() => setPaused(!paused)}
