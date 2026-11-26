@@ -91,6 +91,9 @@ pub struct ImageQuote {
     tariff: ImagePriceRule,
 }
 impl ImageQuote {
+    pub(crate) fn charges_returned_images(&self) -> bool {
+        matches!(self.tariff.count_basis, ImageCountBasis::ReturnedPayloads)
+    }
     pub(crate) fn usage_contract(&self) -> ImageTokenUsageContract {
         match &self.tariff.count_basis {
             ImageCountBasis::NativeTokens(tariff) => tariff.usage_contract,

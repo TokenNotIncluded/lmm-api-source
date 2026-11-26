@@ -1232,3 +1232,304 @@ async fn image_api_restricted_runtime_role_generates_and_settles_real_funds(pool
     drop(service);
     role.cleanup().await;
 }
+
+mod huawei_edits_http {
+    use super::*;
+    use crate::model_http::{ChargePolicy, ModelGateway};
+    use crate::routing::{PriceConfig, PriceSnapshot, Router as ModelRouter};
+    use axum::http::{Request, StatusCode};
+    use base64::{Engine as _, engine::general_purpose::STANDARD};
+    use std::io::Write as _;
+    use tower::ServiceExt;
+
+    const MODEL: &str = "qwen-image-edit-2509";
+    const SINGLE: &str = "qwen_image_edit";
+    const CANONICAL: &str = "https://api.modelarts-maas.com/v1";
+    const KEY: &str = "synthetic-huawei-image-key";
+    const BOUNDARY: &str = "synthetic-huawei-edit-boundary";
+
+    // Two valid 512-by-512 one-bit grayscale PNGs, independently decodable.
+    fn png(shade: u8) -> Vec<u8> {
+        fn chunk(out: &mut Vec<u8>, tag: &[u8; 4], data: &[u8]) {
+            let mut crc = flate2::Crc::new();
+            crc.update(tag);
+            crc.update(data);
+            out.extend_from_slice(&(data.len() as u32).to_be_bytes());
+            out.extend_from_slice(tag);
+            out.extend_from_slice(data);
+            out.extend_from_slice(&crc.sum().to_be_bytes());
+        }
+        let mut encoder = flate2::write::ZlibEncoder::new(Vec::new(), flate2::Compression::fast());
+        let mut row = [shade; 65];
+        row[0] = 0;
+        for _ in 0..512 {
+            encoder.write_all(&row).unwrap();
+        }
+        let mut out = b"\x89PNG\r\n\x1a\n".to_vec();
+        chunk(&mut out, b"IHDR", &[0, 0, 2, 0, 0, 0, 2, 0, 1, 0, 0, 0, 0]);
+        chunk(&mut out, b"IDAT", &encoder.finish().unwrap());
+        chunk(&mut out, b"IEND", &[]);
+        out
+    }
+
+    async fn edits(
+        app: &Router,
+        secret: &str,
+        id: &str,
+        prompt: &str,
+        images: &[Vec<u8>],
+        model: &str,
+    ) -> (StatusCode, String, Value) {
+        let mut body = Vec::new();
+        for (name, value) in [
+            ("model", model),
+            ("prompt", prompt),
+            ("size", "512x512"),
+            ("n", "1"),
+            ("response_format", "b64_json"),
+        ] {
+            write!(
+                body,
+                "--{BOUNDARY}\r\nContent-Disposition: form-data; name=\"{name}\"\r\n\r\n{value}\r\n"
+            )
+            .unwrap();
+        }
+        for (index, bytes) in images.iter().enumerate() {
+            write!(body, "--{BOUNDARY}\r\nContent-Disposition: form-data; name=\"image[]\"; filename=\"ref-{index}.png\"\r\nContent-Type: image/png\r\n\r\n").unwrap();
+            body.extend_from_slice(bytes);
+            body.extend_from_slice(b"\r\n");
+        }
+        write!(body, "--{BOUNDARY}--\r\n").unwrap();
+        let response = app
+            .clone()
+            .oneshot(
+                Request::post("/v1/images/edits")
+                    .header("authorization", format!("Bearer {secret}"))
+                    .header("idempotency-key", id)
+                    .header(
+                        "content-type",
+                        format!("multipart/form-data; boundary={BOUNDARY}"),
+                    )
+                    .body(Body::from(body))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        let status = response.status();
+        let operation = response.headers()["x-lmm-image-operation-id"]
+            .to_str()
+            .unwrap()
+            .to_owned();
+        let raw = axum::body::to_bytes(response.into_body(), 64 * 1024)
+            .await
+            .unwrap();
+        (status, operation, serde_json::from_slice(&raw).unwrap())
+    }
+
+    #[sqlx::test(migrations = false)]
+    async fn ordinary_huawei_edit_http_bills_one_returned_image_and_keeps_unknown_hold(
+        pool: PgPool,
+    ) {
+        let f = fixture(pool).await;
+        let images = [png(0), png(255)];
+        let encoded = STANDARD.encode(&images[0]);
+        let first = format!("data:image/png;base64,{encoded}");
+        let joined = format!(
+            "{first},data:image/png;base64,{}",
+            STANDARD.encode(&images[1])
+        );
+        let supplied = json!({"model":MODEL,"created":1762134592684_i64,"data":[{"url":null,"b64_json":first}],
+            "usage":{"model_latency":39800,"prompt_tokens":0,"completion_tokens":0,"total_tokens":0,"width":512,"height":512},"error":null});
+        let mut single = supplied.clone();
+        single["model"] = json!(SINGLE);
+        single["usage"] =
+            json!({"model_latency":17509,"prompt_tokens":0,"completion_tokens":0,"total_tokens":0});
+        let single_raw = single.to_string();
+        let raw = format!("  {supplied}\n");
+        let expected_sha: [u8; 32] = Sha256::digest(raw.as_bytes()).into();
+        let hits = Arc::new(AtomicUsize::new(0));
+        let seen = hits.clone();
+        let supplier = Router::new().route(
+            "/v1/images/generations",
+            post(move |headers: HeaderMap, Json(input): Json<Value>| {
+                let (seen, joined, first, raw, single_raw) = (
+                    seen.clone(),
+                    joined.clone(),
+                    first.clone(),
+                    raw.clone(),
+                    single_raw.clone(),
+                );
+                async move {
+                    seen.fetch_add(1, Ordering::SeqCst);
+                    assert_eq!(
+                        headers["authorization"].to_str().unwrap(),
+                        format!("Bearer {KEY}")
+                    );
+                    let prompt = input["prompt"].as_str().unwrap();
+                    let (model, reference, complete) = match input["model"].as_str().unwrap() {
+                        MODEL => (MODEL, joined, raw),
+                        SINGLE => (SINGLE, first, single_raw),
+                        other => panic!("unexpected image model {other}"),
+                    };
+                    assert_eq!(
+                        input,
+                        json!({"model":model,"prompt":prompt,"image":reference,"size":"512x512"})
+                    );
+                    let payload = if prompt == "finish" {
+                        complete
+                    } else {
+                        "{\"data\":[".to_owned()
+                    };
+                    ([("content-type", "application/json")], payload)
+                }
+            }),
+        );
+        let socket = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let base = format!("http://{}/v1", socket.local_addr().unwrap());
+        let http = tokio::spawn(async move { axum::serve(socket, supplier).await.unwrap() });
+        let limits = Limits {
+            total_timeout: Duration::from_secs(3),
+            hook_timeout: Duration::from_secs(2),
+            ..Limits::default()
+        };
+        let rule = ImagePriceRule {
+            upstream_id: 1,
+            vendor: "huawei".into(),
+            billing_group: "allowed".into(),
+            upstream_model: MODEL.into(),
+            semantic_model: MODEL.into(),
+            endpoint: ImageEndpoint::Edits,
+            size: "512x512".into(),
+            quality: String::new(),
+            max_n: 1,
+            usd_micros_per_image: ExactRatio {
+                numerator: 4000,
+                denominator: 1,
+            },
+            group_multiplier: ExactRatio {
+                numerator: 1,
+                denominator: 1,
+            },
+            max_budget: Credits::try_from(10000).unwrap(),
+            count_basis: ImageCountBasis::ReturnedPayloads,
+            source_revision: "synthetic-huawei-image-price".into(),
+        };
+        let mut single_rule = rule.clone();
+        single_rule.semantic_model = SINGLE.into();
+        single_rule.upstream_model = SINGLE.into();
+        let spec = |model: &str| ProviderSpec {
+            upstream_id: 1,
+            vendor: "huawei".into(),
+            upstream_model: model.into(),
+            base_url: base.clone(),
+            secret: KEY.into(),
+            local_http: true,
+        };
+        let mut service = ImageService::new(
+            f.pool.clone(),
+            Charging::new(f.pool.clone(), Arc::new(TransactionalLedger)),
+            ImagePriceConfig {
+                revision: 1,
+                rules: vec![rule, single_rule],
+            },
+            vec![spec(MODEL), spec(SINGLE)],
+            &limits,
+        )
+        .unwrap();
+        for provider in Arc::get_mut(&mut service.providers).unwrap().values_mut() {
+            provider.use_huawei_edit_fixture(CANONICAL).unwrap();
+        }
+        let routing = ModelRouter::new(serde_json::from_value(json!({"version":1,"groups":[{"name":"allowed","enabled":true}],"upstreams":[],"routes":[],"aliases":[]})).unwrap(),
+            Arc::new(PriceSnapshot::compile(PriceConfig {version:1,rules:vec![]}).unwrap())).unwrap();
+        let app = ModelGateway::new(
+            f.pool.clone(),
+            Arc::new(routing),
+            vec![],
+            BTreeMap::from([(f.key_id, "allowed".into())]),
+            limits,
+            ChargePolicy {
+                input_token_ceiling: 100,
+                lease_seconds: 30,
+            },
+        )
+        .unwrap()
+        .with_image_service(service.clone())
+        .router();
+
+        let missing = edits(
+            &app,
+            &f.secret,
+            "no-price",
+            "finish",
+            &images,
+            "unpriced-image",
+        )
+        .await;
+        assert_eq!(missing.0, StatusCode::FORBIDDEN);
+        assert_eq!(hits.load(Ordering::SeqCst), 0);
+        no_charges(&f).await;
+        let ok = edits(&app, &f.secret, "success", "finish", &images, MODEL).await;
+        assert_eq!(ok.0, StatusCode::OK, "{}", ok.2);
+        assert_eq!(ok.2["data"][0]["b64_json"], encoded);
+        let charge = service.charging.resolve(&ok.1).await.unwrap().unwrap();
+        assert_eq!(charge.state, "settled");
+        assert_eq!((charge.reserved, charge.settled), (2000, 2000));
+        assert_eq!(
+            (charge.usage.input, charge.usage.cached, charge.usage.output),
+            (0, 0, 0)
+        );
+        let evidence = charge.usage.image.unwrap();
+        assert_eq!(evidence.output_images, 1);
+        assert_eq!(evidence.provider_receipt_sha256, expected_sha);
+        assert!(evidence.native_tokens.is_none());
+        assert_eq!(
+            edits(&app, &f.secret, "success", "finish", &images, MODEL).await,
+            ok
+        );
+        assert_eq!(
+            edits(&app, &f.secret, "success", "changed", &images, MODEL)
+                .await
+                .0,
+            StatusCode::CONFLICT
+        );
+        assert_eq!(hits.load(Ordering::SeqCst), 1);
+
+        let pending = edits(&app, &f.secret, "pending", "incomplete", &images, MODEL).await;
+        assert_eq!(pending.0, StatusCode::BAD_GATEWAY, "{}", pending.2);
+        assert_eq!(pending.2["error"]["code"], "settlement_pending");
+        assert!(pending.2.get("data").is_none());
+        assert_ne!(pending.1, ok.1);
+        assert_eq!(
+            edits(&app, &f.secret, "pending", "incomplete", &images, MODEL).await,
+            pending
+        );
+        assert_eq!(service.recover_receipts(10).await.unwrap(), 0);
+        let held = service.charging.resolve(&pending.1).await.unwrap().unwrap();
+        assert_eq!(held.state, "reconcile");
+        assert_eq!((held.reserved, held.settled), (2000, 0));
+        assert!(held.usage.image.is_none());
+        let balance = f.ledger.balance(f.account).await.unwrap();
+        assert_eq!(
+            (balance.available_units, balance.reserved_units),
+            (6000, 2000)
+        );
+        let requests: i64 =
+            sqlx::query_scalar("SELECT count(*) FROM core_charging.requests WHERE key_id=$1")
+                .bind(f.key_id)
+                .fetch_one(&f.pool)
+                .await
+                .unwrap();
+        assert_eq!(requests, 2);
+        assert_eq!(hits.load(Ordering::SeqCst), 2);
+        let single = edits(&app, &f.secret, "single", "finish", &images[..1], SINGLE).await;
+        assert_eq!(single.0, StatusCode::OK, "{}", single.2);
+        assert_eq!(single.2["data"][0]["b64_json"], encoded);
+        let charge = service.charging.resolve(&single.1).await.unwrap().unwrap();
+        assert_eq!((charge.reserved, charge.settled), (2000, 2000));
+        let usage = charge.usage.image.unwrap();
+        assert_eq!(usage.output_images, 1);
+        assert!(usage.native_tokens.is_none());
+        assert_eq!(hits.load(Ordering::SeqCst), 3);
+        http.abort();
+    }
+}

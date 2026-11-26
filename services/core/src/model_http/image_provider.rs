@@ -24,6 +24,9 @@ use sha2::{Digest, Sha256};
 use std::collections::BTreeSet;
 use tokio::time::{Instant, timeout, timeout_at};
 
+mod huawei_edit;
+use huawei_edit::HuaweiEditModel;
+
 const IMAGE_BYTES: usize = 32 * 1024 * 1024;
 const WRAPPER_BYTES: usize = 64 * 1024;
 const RESPONSE_BYTES: usize = IMAGE_BYTES + WRAPPER_BYTES;
@@ -35,6 +38,7 @@ pub(crate) struct ImageProvider {
     vendor: String,
     upstream_model: String,
     endpoint: Url,
+    huawei_edit: Option<HuaweiEditModel>,
     authorization: HeaderValue,
     secret: String,
     transport: ProviderTransport,
@@ -48,6 +52,7 @@ pub(crate) struct PreparedImageCall {
     request: reqwest::Request,
     secret: String,
     requested_n: u32,
+    huawei_edit: Option<HuaweiEditModel>,
     #[cfg_attr(not(test), allow(dead_code))]
     // Tests read the frozen quote; dispatch consumes the request.
     quote: ImageQuote,
@@ -157,12 +162,31 @@ impl ImageProvider {
             upstream_id,
             vendor: vendor.into(),
             upstream_model: upstream_model.into(),
+            huawei_edit: HuaweiEditModel::for_endpoint(&endpoint, upstream_model),
             endpoint,
             authorization,
             secret: secret.into(),
             transport: ProviderTransport::new(limits.max_in_flight),
             limits: limits.clone(),
         })
+    }
+    #[cfg(test)]
+    pub(super) fn use_huawei_edit_fixture(
+        &mut self,
+        canonical_base: &str,
+    ) -> Result<(), RelayError> {
+        if canonical_base != "https://api.modelarts-maas.com/v1"
+            || !honeypot_network::literal_ip(&self.endpoint).is_some_and(|ip| ip.is_loopback())
+        {
+            return Err(RelayError::RouteUnavailable);
+        }
+        let canonical = Url::parse(&format!("{canonical_base}/images/generations"))
+            .map_err(|_| RelayError::RouteUnavailable)?;
+        self.huawei_edit = Some(
+            HuaweiEditModel::for_endpoint(&canonical, &self.upstream_model)
+                .ok_or(RelayError::RouteUnavailable)?,
+        );
+        Ok(())
     }
     fn validate_binding(
         &self,
@@ -249,6 +273,26 @@ impl ImageProvider {
         validate_quote_response_format(quote, response_format)?;
         let deadline = Instant::now() + self.limits.total_timeout;
         self.validate_binding(quote, prompt, ImageEndpoint::Edits)?;
+        if let Some(model) = self.huawei_edit {
+            validate_edit_uploads(
+                quote,
+                prompt,
+                &input,
+                &self.secret,
+                self.limits.request_bytes,
+                response_format,
+                Some(model),
+            )?;
+            let body = model.body(quote, prompt, &input, response_format)?;
+            return self
+                .prepare_call(
+                    quote,
+                    self.endpoint.clone(),
+                    PreparedBody::Json(body),
+                    deadline,
+                )
+                .await;
+        }
         let b = quote.binding();
         let form = edits_form_with_response_format(
             quote,
@@ -298,6 +342,7 @@ impl ImageProvider {
             .header(header::AUTHORIZATION, self.authorization.clone())
             .header(header::ACCEPT, "application/json")
             .timeout(self.limits.total_timeout);
+        let is_multipart = matches!(&body, PreparedBody::Multipart(_));
         let builder = match body {
             PreparedBody::Json(body) => builder
                 .header(header::CONTENT_TYPE, "application/json")
@@ -307,7 +352,7 @@ impl ImageProvider {
         let request = builder
             .build()
             .map_err(|_| RelayError::Invalid("invalid image request"))?;
-        if quote.binding().endpoint == ImageEndpoint::Edits {
+        if is_multipart {
             let length = request
                 .headers()
                 .get(header::CONTENT_LENGTH)
@@ -323,6 +368,11 @@ impl ImageProvider {
             request,
             secret: self.secret.clone(),
             requested_n: quote.binding().n,
+            huawei_edit: if quote.binding().endpoint == ImageEndpoint::Edits {
+                self.huawei_edit
+            } else {
+                None
+            },
             quote: quote.clone(),
             limits: self.limits.clone(),
             deadline,
@@ -396,11 +446,13 @@ impl PreparedImageCall {
             }
             raw.extend_from_slice(&chunk);
         }
-        observe_with_contract(
+        observe_wire(
             &raw,
             self.requested_n,
             &self.secret,
             self.quote.usage_contract(),
+            self.huawei_edit
+                .map(|model| (model, self.quote.binding().size.as_str())),
         )
     }
 }
@@ -641,14 +693,15 @@ fn edits_form(
 ) -> Result<Form, RelayError> {
     edits_form_with_response_format(quote, prompt, input, secret, request_cap, "b64_json")
 }
-fn edits_form_with_response_format(
+fn validate_edit_uploads(
     quote: &ImageQuote,
     prompt: &str,
-    input: ImageMultipartInput,
+    input: &ImageMultipartInput,
     secret: &str,
     request_cap: usize,
     response_format: &str,
-) -> Result<Form, RelayError> {
+    huawei: Option<HuaweiEditModel>,
+) -> Result<(), RelayError> {
     validate_response_format(response_format)?;
     if secret.is_empty() {
         return Err(RelayError::Invalid("missing image provider credential"));
@@ -687,6 +740,11 @@ fn edits_form_with_response_format(
             return Err(RelayError::Limit("image edit uploads"));
         }
         let dims = dimensions(upload)?;
+        if huawei.is_some_and(|m| !m.valid_dimensions(dims.0, dims.1)) {
+            return Err(RelayError::Unsupported(
+                "unsupported Huawei reference dimensions",
+            ));
+        }
         if first.is_none() {
             first = Some(dims);
         }
@@ -723,6 +781,26 @@ fn edits_form_with_response_format(
             ));
         }
     }
+    Ok(())
+}
+fn edits_form_with_response_format(
+    quote: &ImageQuote,
+    prompt: &str,
+    input: ImageMultipartInput,
+    secret: &str,
+    request_cap: usize,
+    response_format: &str,
+) -> Result<Form, RelayError> {
+    validate_edit_uploads(
+        quote,
+        prompt,
+        &input,
+        secret,
+        request_cap,
+        response_format,
+        None,
+    )?;
+    let b = quote.binding();
     let mut form = Form::new()
         .text("model", b.upstream_model.clone())
         .text("prompt", prompt.to_owned())
@@ -886,11 +964,21 @@ fn observe(raw: &[u8], requested_n: u32, secret: &str) -> Result<ImageObservatio
     )
 }
 
+#[cfg(test)]
 fn observe_with_contract(
     raw: &[u8],
     requested_n: u32,
     secret: &str,
     usage_contract: ImageTokenUsageContract,
+) -> Result<ImageObservation, RelayError> {
+    observe_wire(raw, requested_n, secret, usage_contract, None)
+}
+fn observe_wire(
+    raw: &[u8],
+    requested_n: u32,
+    secret: &str,
+    usage_contract: ImageTokenUsageContract,
+    huawei_edit: Option<(HuaweiEditModel, &str)>,
 ) -> Result<ImageObservation, RelayError> {
     if raw.len() > RESPONSE_BYTES
         || raw.is_empty()
@@ -904,9 +992,16 @@ fn observe_with_contract(
     if raw_text.contains(secret) {
         return Err(RelayError::SettlementPending);
     }
-    let v = serde_json::from_slice::<Unique>(raw)
+    let mut v = serde_json::from_slice::<Unique>(raw)
         .map_err(|_| RelayError::SettlementPending)?
         .0;
+    let huawei_media = huawei_edit
+        .map(|(model, size)| {
+            model
+                .normalize(&mut v)
+                .map(|media_type| (model, size, media_type))
+        })
+        .transpose()?;
     object(
         &v,
         &[
@@ -959,6 +1054,21 @@ fn observe_with_contract(
                     .any(|w| w == secret.as_bytes())
             {
                 return Err(RelayError::SettlementPending);
+            }
+            if let Some((model, size, output)) = &huawei_media {
+                let (w, h, _) = dimensions(&ImageUpload {
+                    media_type: output.media_type,
+                    bytes: decoded,
+                })
+                .map_err(|_| RelayError::SettlementPending)?;
+                if !model.valid_dimensions(w, h)
+                    || (!size.is_empty() && *size != format!("{w}x{h}"))
+                    || output
+                        .reported_size
+                        .is_some_and(|pair| pair != (u64::from(w), u64::from(h)))
+                {
+                    return Err(RelayError::SettlementPending);
+                }
             }
             out.insert("b64_json".into(), json!(s));
         } else {
