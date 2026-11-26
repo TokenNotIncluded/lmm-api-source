@@ -18,10 +18,11 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 Copyright (C) 2026 LIghtJUNction
 */
 import { Check, Copy } from 'lucide-react'
-import { useEffect, useRef, useState } from 'react'
+import { useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { Button } from '@/components/ui/button'
+import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard'
 
 export function InstallCommand({
   value,
@@ -31,28 +32,27 @@ export function InstallCommand({
   copyLabel: string
 }) {
   const { t } = useTranslation()
-  const [state, setState] = useState<'idle' | 'copied' | 'failed'>('idle')
-  const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
-
-  useEffect(() => () => clearTimeout(timer.current), [])
+  const { copiedText, copyToClipboard } = useCopyToClipboard({ notify: false })
+  const [failedValue, setFailedValue] = useState<string | null>(null)
+  const command = useRef<HTMLElement>(null)
+  const copied = copiedText === value
 
   const copy = async () => {
-    clearTimeout(timer.current)
-    try {
-      await navigator.clipboard.writeText(value)
-      setState('copied')
-      timer.current = setTimeout(() => setState('idle'), 1600)
-    } catch {
-      setState('failed')
+    const success = await copyToClipboard(value)
+    setFailedValue(success ? null : value)
+    if (!success && command.current) {
+      command.current.focus()
+      window.getSelection()?.selectAllChildren(command.current)
     }
   }
 
   return (
     <>
-      <div className='flex min-w-0 flex-col gap-2 sm:flex-row sm:items-center'>
+      <div className='flex min-w-0 flex-wrap items-start gap-2'>
         <code
+          ref={command}
           tabIndex={0}
-          className='bg-muted focus-visible:outline-ring block min-h-11 min-w-0 flex-1 overflow-x-auto rounded-lg px-3 py-3 text-xs leading-6 whitespace-pre select-text focus-visible:outline-2 focus-visible:outline-offset-2'
+          className='bg-muted focus-visible:outline-ring block min-h-11 min-w-0 flex-[1_1_18rem] rounded-lg px-3 py-3 text-xs leading-6 wrap-anywhere whitespace-pre-wrap select-text focus-visible:outline-2 focus-visible:outline-offset-2'
         >
           {value}
         </code>
@@ -62,22 +62,22 @@ export function InstallCommand({
           size='sm'
           onClick={() => void copy()}
           aria-label={copyLabel}
-          className='min-h-11 shrink-0 sm:self-start'
+          className='min-h-11 shrink-0'
         >
-          {state === 'copied' ? (
+          {copied ? (
             <Check data-icon='inline-start' />
           ) : (
             <Copy data-icon='inline-start' />
           )}
-          {state === 'copied' ? t('Copied') : t('Copy')}
+          {copied ? t('Copied') : t('Copy')}
         </Button>
       </div>
       <span role='status' className='sr-only'>
-        {state === 'copied' ? t('Copied') : ''}
+        {copied ? t('Copied') : ''}
       </span>
-      {state === 'failed' && (
+      {failedValue === value && (
         <p role='alert' className='text-destructive text-sm'>
-          {t('Unable to copy command')}
+          {t('Copy failed. The code is selected for manual copying.')}
         </p>
       )}
     </>
