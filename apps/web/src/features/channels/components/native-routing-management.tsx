@@ -1,3 +1,4 @@
+/* Copyright (C) 2026 LIghtJUNction. SPDX-License-Identifier: AGPL-3.0-or-later */
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   ChevronDown,
@@ -89,7 +90,6 @@ import {
 } from './native-channel-statistics'
 import { NativeModelFields } from './native-model-fields'
 import { NativePriceRuleList } from './native-price-rule-list'
-/* Copyright (C) 2026 LIghtJUNction. SPDX-License-Identifier: AGPL-3.0-or-later */
 import {
   NativeProviderLogo,
   nativeModelLogo,
