@@ -18,8 +18,11 @@ import json
 import os
 from pathlib import Path
 import re
+import sqlite3
 import subprocess
 import sys
+import tempfile
+import weakref
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import legacy_financial_preflight as FINANCIAL_PREFLIGHT
@@ -107,6 +110,48 @@ def canonical(value) -> str:
     return json.dumps(exact(value), ensure_ascii=False, sort_keys=True, separators=(",", ":"), allow_nan=False)
 
 
+def json_string_parts(value):
+    """The exact ensure_ascii=False spelling, bounded even for a large text column."""
+    if len(value) <= 16_384:
+        yield json.encoder.encode_basestring(value).encode("utf-8")
+        return
+    yield b'"'
+    for offset in range(0, len(value), 16_384):
+        segment = value[offset:offset + 16_384]
+        yield json.encoder.encode_basestring(segment)[1:-1].encode("utf-8")
+    yield b'"'
+
+
+def display_value(value):
+    """Normalize decimals on read-only preview trees, copying only changed paths."""
+    if isinstance(value, dict):
+        converted = value
+        for key, child in value.items():
+            replacement = display_value(child)
+            if replacement is not child:
+                if converted is value:
+                    converted = value.copy()
+                converted[key] = replacement
+        return converted
+    if isinstance(value, list):
+        converted = value
+        for index, child in enumerate(value):
+            replacement = display_value(child)
+            if replacement is not child:
+                if converted is value:
+                    converted = value.copy()
+                converted[index] = replacement
+        return converted
+    return exact(value)
+
+
+def text_sha256(value):
+    checksum = hashlib.sha256()
+    for offset in range(0, len(value), 16_384):
+        checksum.update(value[offset:offset + 16_384].encode("utf-8"))
+    return checksum.hexdigest()
+
+
 def _typed_canonical_chunks(value):
     """Yield the existing type-tagged canonical UTF-8 bytes without a full tree."""
     def scalar(item):
@@ -124,7 +169,9 @@ def _typed_canonical_chunks(value):
         raise MappingError("binary_float_or_unsupported_hash_type_rejected")
 
     def validate(item):
-        if isinstance(item, list):
+        if isinstance(item, DiskEvidenceArray):
+            return  # Sealed entries were validated individually when encoded.
+        if isinstance(item, (list, FrozenUsageRows)):
             for child in item:
                 validate(child)
         elif isinstance(item, dict):
@@ -136,7 +183,10 @@ def _typed_canonical_chunks(value):
             scalar(item)
 
     def chunks(item):
-        if isinstance(item, list):
+        if isinstance(item, DiskEvidenceArray):
+            yield from item.encoded(True)
+            return
+        if isinstance(item, (list, FrozenUsageRows)):
             yield b'["array",['
             for index, child in enumerate(item):
                 if index:
@@ -155,6 +205,10 @@ def _typed_canonical_chunks(value):
                 yield from chunks(child)
                 yield b']'
             yield b']]'
+        elif type(item) is str and len(item) > 16_384:
+            yield b'["string",'
+            yield from json_string_parts(item)
+            yield b']'
         else:
             yield canonical(scalar(item)).encode()
 
@@ -436,7 +490,7 @@ def reject_known_key_secrets(result, tokens):
             for key, child in value.items():
                 visit(key)
                 visit(child)
-        elif type(value) is list:
+        elif type(value) is list or isinstance(value, (DiskEvidenceArray, FrozenUsageRows)):
             for child in value:
                 visit(child)
 
@@ -643,7 +697,7 @@ def map_refund_lineage(tables: dict[str, list[dict]], identities: dict[int, int]
         # JSONB normalizes object order/whitespace before this snapshot exists.
         # Its declared historical hash is a source fact, not a digest of our
         # canonical encoding. Never claim the unavailable pre-JSONB bytes match.
-        actual = hashlib.sha256(raw.encode()).hexdigest() if isinstance(raw, str) else None
+        actual = text_sha256(raw) if isinstance(raw, str) else None
         users = parsed.get("user_ids", [])
         require(isinstance(users, list), "wallet_rebase_user_ids_invalid")
         affected = {integer(uid, "wallet_rebase_user_id_invalid", minimum=1) for uid in users}
@@ -809,31 +863,39 @@ def primary_keys_from_catalog(constraints: list[dict], columns: dict[str, set[st
 
 def plan_financial(tables: dict[str, list[dict]], identities: dict[int, int], *, source_sha256: str,
                    source_timezone: str | None = None, identity_provenance: dict | None = None,
-                   primary_keys: dict | None = None, column_schema: dict | None = None) -> dict:
+                   primary_keys: dict | None = None, column_schema: dict | None = None, bounded_usage_evidence=False) -> dict:
     require(IDENTITY.HEX.fullmatch(source_sha256) is not None, "source_hash_invalid")
     require(REQUIRED_TABLES <= set(tables), "required_financial_source_table_missing")
     evidence, families = {}, {}
     for table, rows in sorted(tables.items()):
-        require(IDENTITY.IDENTIFIER.fullmatch(table) is not None and isinstance(rows, list), "source_table_shape_invalid")
-        evidence[table] = {"row_count": len(rows), "row_hashes": [digest(row) for row in rows],
+        # The bounty contract requires the small audit-table evidence as a list.
+        disk = (bounded_usage_evidence and table != "wallet_credit_rebases"
+                and isinstance(rows, FrozenUsageRows) and primary_keys is not None)
+        require(IDENTITY.IDENTIFIER.fullmatch(table) is not None and isinstance(rows, (list, FrozenUsageRows)), "source_table_shape_invalid")
+        evidence[table] = {"row_count": len(rows), "row_hashes": None if disk else [digest(row) for row in rows],
                            "families": table_families(table), "unknown_columns_preserved_in_private_raw_export": True,
                            "disposition": "disabled-auxiliary-credential-private-archive" if table in AUXILIARY_CREDENTIAL_TABLES else "typed-financial-fact-or-runtime-contract-pending"}
         if primary_keys is not None:
             fields = primary_keys.get(table)
             require(fields is None or (isinstance(fields, list) and len(fields) > 0), "primary_key_contract_invalid")
-            records, seen_keys = [], set()
-            for ordinal, row in enumerate(rows):
-                require(fields is None or all(field in row and row[field] is not None for field in fields), "source_primary_key_value_missing")
-                key = {field: row[field] for field in fields} if fields else None
-                if key is not None:
-                    require(canonical(key) not in seen_keys, "source_primary_key_value_duplicate")
-                    seen_keys.add(canonical(key))
-                records.append({"source_primary_key": key, "source_export_ordinal": ordinal, "source_row_sha256": digest(row)})
-            evidence[table].update(primary_key_columns=fields, source_records=records,
+            if disk:
+                store = DiskUsageEvidence(rows, fields)
+                evidence[table]["row_hashes"] = DiskEvidenceArray(store, "row_hash")
+                records = DiskEvidenceArray(store, "record")
+            else:
+                records, seen_keys = [], set()
+                for ordinal, (row, row_hash) in enumerate(zip(rows, evidence[table]["row_hashes"])):
+                    require(fields is None or all(field in row and row[field] is not None for field in fields), "source_primary_key_value_missing")
+                    key = exact({field: row[field] for field in fields}) if fields else None
+                    if key is not None:
+                        require(canonical(key) not in seen_keys, "source_primary_key_value_duplicate")
+                        seen_keys.add(canonical(key))
+                    records.append({"source_primary_key": key, "source_export_ordinal": ordinal, "source_row_sha256": row_hash})
+            evidence[table].update(primary_key_columns=exact(fields), source_records=records,
                                    primary_key_missing_no_synthetic_id_created=fields is None)
         if column_schema is not None:
             require(table in column_schema, "source_column_schema_missing")
-            evidence[table]["source_column_schema"] = column_schema[table]
+            evidence[table]["source_column_schema"] = exact(column_schema[table])
     for family, patterns in FAMILIES.items():
         source_tables = [table for table in tables if any(matches(table, pattern) for pattern in patterns)]
         count = sum(len(tables[table]) for table in source_tables)
@@ -871,7 +933,11 @@ def plan_financial(tables: dict[str, list[dict]], identities: dict[int, int], *,
     # Decimal display tags must never be heuristically decoded: literal JSONB
     # objects may use the same spelling. Original types are instead proven by
     # the untouched raw export and each type-tagged source row digest above.
-    data = exact(data)
+    # The per-row evidence is already detached and display-normalized above.
+    # Retain its owned tree while normalizing the smaller business projections.
+    normalize = display_value if bounded_usage_evidence else exact
+    data = {key: value if key == "source_evidence" else normalize(value)
+            for key, value in data.items()}
     data["mapping_sha256"] = digest(data)
     data["public_summary"] = {"status": "financial-typed-dryrun-no-target-writes", "family_count": len(FAMILIES),
                               "source_table_count": len(tables), "source_row_count": sum(len(rows) for rows in tables.values()),
@@ -939,7 +1005,7 @@ def build_full_financial_manifest(plan: dict, tables: dict[str, list[dict]], ide
             "full_manifest_table_coverage_mismatch")
     rows_by_table = {}
     for table, rows in sorted(tables.items()):
-        require(isinstance(rows, list) and all(isinstance(row, dict) for row in rows), "full_manifest_row_shape_invalid")
+        require(isinstance(rows, (list, FrozenUsageRows)) and all(isinstance(row, dict) for row in rows), "full_manifest_row_shape_invalid")
         require(type(counts[table]) is int and counts[table] == len(rows) == evidence[table].get("row_count")
                 and [digest(row) for row in rows] == evidence[table].get("row_hashes"), "full_manifest_source_rows_changed")
         require(evidence[table].get("source_column_schema") == columns[table]
@@ -958,8 +1024,10 @@ def build_full_financial_manifest(plan: dict, tables: dict[str, list[dict]], ide
             seen.add(digest(key))
             require(record == {"source_primary_key": key, "source_export_ordinal": ordinal, "source_row_sha256": digest(row)},
                     "full_manifest_record_identity_changed")
-            retained.append({**record, "raw_fact": exact(row), "economic_authority": "unknown-not-authorized"})
-        rows_by_table[table] = {"primary_key_columns": fields, "columns": columns[table],
+            item = exact(record)
+            item.update(raw_fact=exact(row), economic_authority="unknown-not-authorized")
+            retained.append(item)
+        rows_by_table[table] = {"primary_key_columns": exact(fields), "columns": exact(columns[table]),
                                 "rows": retained, "row_count": len(rows), "source_typed_rows_sha256": digest(rows)}
     result = {"format_version": 1, "scope": "financial-full-source-manifest-v1", "digest_format": DIGEST_FORMAT,
               "source_archive_sha256": plan["source_archive_sha256"], "source_export_sha256": export_hash,
@@ -967,15 +1035,35 @@ def build_full_financial_manifest(plan: dict, tables: dict[str, list[dict]], ide
               "identity_map": [{"source_user_id": uid, "target_user_id": uid, "target_account_id": aid}
                                for uid, aid in sorted(identities.items())],
               "identity_map_sha256": digest(identities), "source_proof_sha256": digest(source_proof),
-              "family_facets": plan["families"], "source_tables": rows_by_table,
+              "family_facets": plan["families"],
               "unknown_economic_tables": plan["unclassified_financial_tables"],
               "new_transaction_unit": UNIT, "new_transaction_credits_per_usd": 500000,
               "historical_unit_conversion_authorized": False, "target_bound": False,
               "runtime_activation_authorized": False, "target_writes": 0,
               "raw_fact_types": "original-type-tagged-row-hash-plus-unmodified-private-export; display-tags-not-type-proof"}
     result = exact(result)
+    # Rows are already detached and display-normalized individually above.
+    result["source_tables"] = rows_by_table
     result["full_manifest_sha256"] = digest(result)
     return result
+
+
+def write_normalized_artifact(directory: Path, name: str, material: dict) -> Path:
+    """Stream the already display-normalized, typed-hash-validated builder output."""
+    path = directory / name
+    fd, private_name = tempfile.mkstemp(prefix=".financial-manifest-", dir=directory)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as stream:
+            json.dump(material, stream, ensure_ascii=False, sort_keys=True,
+                      separators=(",", ":"), allow_nan=False)
+            stream.write("\n")
+            stream.flush()
+            os.fsync(stream.fileno())
+        # Publish only complete files, without overwriting an existing output.
+        os.link(private_name, path)
+    finally:
+        os.unlink(private_name)
+    return path
 
 
 def tool_source_hashes(*, source_rights=False, escrow_candidate=False) -> dict:
@@ -1022,13 +1110,246 @@ def metadata(receipt: dict):
     return columns, counts, {path.name: IDENTITY.sha256_file(path) for path in (catalog[0], baselines[0])}, primary_keys, column_schema
 
 
+def file_blocks(stream, *, size=128 * 1024):
+    """Read a sealed descriptor without moving another iterator's position."""
+    fd, offset, end = stream.fileno(), 0, os.fstat(stream.fileno()).st_size
+    while offset < end:
+        block = os.pread(fd, min(size, end - offset), offset)
+        require(bool(block), "frozen_usage_row_truncated")
+        yield block
+        offset += len(block)
+
+
+class DiskEvidenceArray:
+    """A sealed, ordered projection of one verified usage table's private evidence."""
+
+    def __init__(self, storage, column):
+        self.storage, self.column = storage, column
+
+    def __len__(self):
+        return self.storage.count
+
+    def verify_display_encoding(self):
+        if self.column == "record":
+            for display, typed in self.storage.connection.execute(
+                    "SELECT record, typed_record FROM evidence ORDER BY rowid"):
+                require(b''.join(_typed_canonical_chunks(parse_json(display))) == typed,
+                        "financial_plan_mapping_hash_mismatch")
+
+    def values(self, column):
+        # All column names are fixed by the planner, never taken from a source row.
+        for (value,) in self.storage.connection.execute(
+                f"SELECT {column} FROM evidence ORDER BY rowid"):
+            yield value
+
+    def __iter__(self):
+        return (parse_json(value) for value in self.values("record")) if self.column == "record" else self.values("row_hash")
+
+    def encoded(self, typed):
+        yield b'["array",[' if typed else b'['
+        column = "typed_record" if typed and self.column == "record" else self.column
+        for index, value in enumerate(self.values(column)):
+            if index:
+                yield b','
+            if self.column == "row_hash":
+                require(isinstance(value, str) and IDENTITY.HEX.fullmatch(value), "reconciliation_row_hash_mismatch")
+                raw = value.encode("ascii")
+                yield (b'["string","' + raw + b'"]') if typed else (b'"' + raw + b'"')
+            else:
+                yield value
+        yield b']]' if typed else b']'
+
+
+class DiskUsageEvidence:
+    def __init__(self, rows, fields):
+        self.directory = tempfile.TemporaryDirectory(prefix=".financial-usage-", dir=rows.directory)
+        self.connection = sqlite3.connect(str(Path(self.directory.name) / "evidence.sqlite"))
+        weakref.finalize(self, self.close_storage, self.connection, self.directory)
+        self.connection.execute("PRAGMA cache_size=-1024")
+        self.connection.execute("CREATE TABLE evidence(pk TEXT UNIQUE, row_hash TEXT NOT NULL, record BLOB NOT NULL, typed_record BLOB NOT NULL)")
+        self.count = 0
+        with self.connection:
+            for ordinal, row in enumerate(rows):
+                require(fields is None or all(f in row and row[f] is not None for f in fields),
+                        "source_primary_key_value_missing")
+                key = exact({f: row[f] for f in fields}) if fields else None
+                row_hash = digest(row)
+                record = {"source_primary_key": key, "source_export_ordinal": ordinal, "source_row_sha256": row_hash}
+                try:
+                    self.connection.execute("INSERT INTO evidence VALUES(?,?,?,?)", (
+                        canonical(key) if key is not None else None, row_hash,
+                        canonical(record).encode(), b''.join(_typed_canonical_chunks(record))))
+                except sqlite3.IntegrityError:
+                    raise MappingError("source_primary_key_value_duplicate") from None
+                self.count += 1
+        self.connection.execute("PRAGMA query_only=ON")
+
+    @staticmethod
+    def close_storage(connection, directory):
+        try:
+            connection.close()
+        finally:
+            directory.cleanup()
+
+
+def plan_json_parts(value):
+    if isinstance(value, DiskEvidenceArray):
+        yield from value.encoded(False)
+    elif isinstance(value, dict):
+        yield b'{'
+        for index, key in enumerate(sorted(value)):
+            if index:
+                yield b','
+            # Use the JSON encoder's key spelling as well as its sorting order.
+            name = key if isinstance(key, str) else canonical(key)
+            yield from json_string_parts(name)
+            yield b':'
+            yield from plan_json_parts(value[key])
+        yield b'}'
+    elif isinstance(value, (list, FrozenUsageRows)):
+        yield b'['
+        for index, child in enumerate(value):
+            if index:
+                yield b','
+            yield from plan_json_parts(child)
+        yield b']'
+    elif type(value) is str:
+        yield from json_string_parts(value)
+    else:
+        yield canonical(value).encode()
+
+
+class CheckedPlanFile:
+    """Stage privately. Replay the canonical document against the sealed file before publication."""
+    def __init__(self, directory, plan, tokens):
+        self.stream = tempfile.TemporaryFile(dir=directory)
+        weakref.finalize(self, self.stream.close)
+        for table in plan.get("source_evidence", {}).values():
+            records = table.get("source_records")
+            if isinstance(records, DiskEvidenceArray):
+                records.verify_display_encoding()
+        for part in plan_json_parts(plan):
+            self.stream.write(part)
+        self.stream.write(b'\n')
+        self.stream.flush()
+        self.stream.seek(0)
+        for part in plan_json_parts(plan):
+            require(self.stream.read(len(part)) == part, "source_rights_artifact_copy_hash_mismatch")
+        require(self.stream.read(2) == b'\n', "source_rights_artifact_copy_hash_mismatch")
+        secrets = {row["key"].encode() for row in tokens}
+        overlap = max((len(s) for s in secrets), default=1) - 1
+        tail = b''
+        hash_file = hashlib.sha256()
+        for block in file_blocks(self.stream):
+            hash_file.update(block)
+            combined = tail + block
+            require(not any(secret in combined for secret in secrets), "reconciliation_key_secret_in_output")
+            tail = combined[-overlap:] if overlap else b''
+        self.sha256 = hash_file.hexdigest()
+
+    def publish(self, directory, name):
+        fd, temporary = tempfile.mkstemp(prefix=".financial-plan-", dir=directory)
+        try:
+            with os.fdopen(fd, "wb") as destination:
+                for block in file_blocks(self.stream):
+                    destination.write(block)
+                destination.flush()
+                os.fsync(destination.fileno())
+            require(IDENTITY.sha256_file(Path(temporary)) == self.sha256, "source_rights_artifact_copy_hash_mismatch")
+            os.link(temporary, directory / name)
+        finally:
+            os.unlink(temporary)
+
+
+class FrozenUsageRows:
+    """Keep validated bulky usage rows in a private unnamed file for repeated scans.
+
+    Only the acquisition pass may append. Each subsequent iterator reads the
+    same pinned bytes independently without retaining rows or sharing a cursor.
+    """
+
+    def __init__(self, directory: Path):
+        self.stream = tempfile.TemporaryFile(mode="w+b", dir=directory)
+        self.directory = directory
+        self.count = 0
+        self.sealed = False
+        weakref.finalize(self, self.stream.close)
+
+    def append_line(self, raw: bytes):
+        require(not self.sealed, "frozen_usage_rows_already_sealed")
+        self.stream.write(raw)
+        if not raw.endswith(b"\n"):
+            self.stream.write(b"\n")
+        self.count += 1
+
+    def seal(self):
+        self.stream.flush()
+        self.sealed = True
+
+    def __len__(self):
+        return self.count
+
+    def __iter__(self):
+        require(self.sealed, "frozen_usage_rows_not_sealed")
+        tail = bytearray()
+        for block in self.blocks():
+            parts = block.split(b'\n')
+            if len(parts) == 1:
+                tail.extend(parts[0])
+                continue
+            tail.extend(parts[0])
+            row = parse_json(tail.decode("utf-8"))["row"]
+            tail.clear()
+            yield row
+            del row
+            for part in parts[1:-1]:
+                yield parse_json(part.decode("utf-8"))["row"]
+            tail = bytearray(parts[-1])
+        require(not tail, "frozen_usage_row_truncated")
+
+    def blocks(self):
+        yield from file_blocks(self.stream)
+
+
+class FrozenRightsRecords(FrozenUsageRows):
+    """Private append-only projection; this array contains display-normalized facts."""
+    def __init__(self, directory):
+        super().__init__(directory)
+        self.written = hashlib.sha256()
+
+    def write_part(self, part):
+        self.stream.write(part)
+        self.written.update(part)
+
+    def append(self, record):
+        require(not self.sealed, "frozen_usage_rows_already_sealed")
+        self.write_part(b'{"row":')
+        for part in plan_json_parts(record):
+            self.write_part(part)
+        self.write_part(b'}\n')
+        self.count += 1
+
+    def blocks(self):
+        observed = hashlib.sha256()
+        for part in super().blocks():
+            observed.update(part)
+            yield part
+        require(observed.digest() == self.written.digest(), "source_rights_artifact_copy_hash_mismatch")
+
+
 def read_frozen_export(raw_path: Path, receipt: dict, columns: dict, baseline: dict,
-                       selected: list[str], expected_identity: dict) -> dict:
-    tables = {table: [] for table in selected}
+                       selected: list[str], expected_identity: dict, *, usage_spool_directory: Path | None = None,
+                       spool_refund_plans=False) -> dict:
+    spool_tables = {"logs", "quota_data"}
+    if spool_refund_plans:
+        spool_tables.update(("wallet_credit_rebases", "top_ups", "wallet_topup_credit_rebases",
+                             "subscription_order_credit_rebases"))
+    tables = {table: FrozenUsageRows(usage_spool_directory) if usage_spool_directory is not None and table in spool_tables else []
+              for table in selected}
     identity_count = schema_count = 0
-    with raw_path.open() as stream:
+    with raw_path.open("rb") as stream:
         for line in stream:
-            tagged = parse_json(line)
+            tagged = parse_json(line.decode("utf-8"))
             kind, row = tagged.get("kind"), tagged.get("row")
             if kind == "identity":
                 identity_count += 1
@@ -1041,13 +1362,21 @@ def read_frozen_export(raw_path: Path, receipt: dict, columns: dict, baseline: d
                 table = tagged.get("table")
                 require(kind == "row" and table in tables and isinstance(row, dict), "source_export_row_shape_invalid")
                 require(set(row) == columns[table], "source_column_coverage_mismatch")
-                tables[table].append(row)
+                rows = tables[table]
+                if isinstance(rows, FrozenUsageRows):
+                    rows.append_line(line)
+                else:
+                    rows.append(row)
+            del tagged, row
+    for rows in tables.values():
+        if isinstance(rows, FrozenUsageRows):
+            rows.seal()
     require(identity_count == schema_count == 1, "source_export_identity_framing_invalid")
     require(all(len(rows) == baseline[table] for table, rows in tables.items()), "source_snapshot_row_baseline_mismatch")
     return tables
 
 
-def reuse_frozen_export(receipt: dict, proof_path: Path, output: Path, *, publish_proof=True):
+def reuse_frozen_export(receipt: dict, proof_path: Path, output: Path, *, publish_proof=True, disk_backed_usage=False):
     """Replan a prior, hash-bound private export without querying either DB."""
     require(receipt.get("status") == "snapshot-restored-baseline-verified-frozen-and-classified", "source_receipt_status_invalid")
     proof_path = IDENTITY.private_backup_path(proof_path)
@@ -1064,7 +1393,9 @@ def reuse_frozen_export(receipt: dict, proof_path: Path, output: Path, *, publis
             "source_export_baseline_unproven")
     selected = sorted(table for table in columns if table_families(table) or FINANCIAL_NAME.search(table))
     require(proof.get("selected_table_counts") == {table: baseline[table] for table in selected}, "source_export_table_selection_mismatch")
-    tables = read_frozen_export(raw_path, receipt, columns, baseline, selected, proof["source_instance"])
+    tables = read_frozen_export(raw_path, receipt, columns, baseline, selected, proof["source_instance"],
+                                usage_spool_directory=output if disk_backed_usage else None,
+                                spool_refund_plans=disk_backed_usage and not publish_proof)
     require(IDENTITY.sha256_file(raw_path) == raw_hash and IDENTITY.sha256_file(archive_path) == archive["sha256"],
             "source_artifact_changed_during_replan")
     proof = {**proof, "source_primary_keys": {table: primary_keys.get(table) for table in selected},
@@ -1076,7 +1407,7 @@ def reuse_frozen_export(receipt: dict, proof_path: Path, output: Path, *, publis
     return tables, proof
 
 
-def export_source(receipt: dict, output: Path):
+def export_source(receipt: dict, output: Path, *, disk_backed_usage=False):
     require(receipt.get("status") == "snapshot-restored-baseline-verified-frozen-and-classified", "source_receipt_status_invalid")
     archive = receipt.get("archive", {})
     archive_path = IDENTITY.private_backup_path(Path(archive.get("path", "")))
@@ -1108,7 +1439,8 @@ def export_source(receipt: dict, output: Path):
         result = subprocess.run(["psql", "-X", "--no-password", "-qAt", "-v", "ON_ERROR_STOP=1", "-v", "FETCH_COUNT=100"], input=sql, text=True, stdout=raw, stderr=error, env=environment, timeout=180, check=False)
         raw.flush(); os.fsync(raw.fileno()); error.flush(); os.fsync(error.fileno())
     require(result.returncode == 0, "source_financial_export_failed")
-    tables = read_frozen_export(raw_path, receipt, columns, baseline, selected, identity)
+    tables = read_frozen_export(raw_path, receipt, columns, baseline, selected, identity,
+                                usage_spool_directory=output if disk_backed_usage else None)
     require(IDENTITY.sha256_file(archive_path) == archive["sha256"], "source_archive_changed_during_export")
     proof = {"source_archive_sha256": archive["sha256"], "source_export_sha256": IDENTITY.sha256_file(raw_path),
              "metadata_hashes": metadata_hashes, "selected_table_counts": {table: len(rows) for table, rows in tables.items()},
@@ -1133,6 +1465,8 @@ def main() -> int:
     parser.add_argument("--apply", action="store_true")
     # @mark migration.financial-rights role=cli
     parser.add_argument("--source-rights-preview", action="store_true", help="Audit only a verified frozen export; produce source facts with unknown rights, never opening payloads or approval")
+    parser.add_argument("--disk-backed-usage", action="store_true",
+                        help="Spool verified logs and quota_data privately on the receiver for repeated read-only preview scans")
     parser.add_argument("--target-key-inventory", type=Path, help="Optional private offline Key export for source-rights preview comparison only; never reads or writes a target database")
     parser.add_argument("--target-wallet-inventory", type=Path, help="Optional private offline wallet/debt/affiliate observation for source-rights preview; compares source integers without approving monetary units or reservations")
     parser.add_argument("--escrow-candidate-preview", action="store_true",
@@ -1157,6 +1491,7 @@ def main() -> int:
     try:
         require(not args.apply, "financial_apply_contract_not_frozen")
         opening_mode = args.opening_preview or args.apply_opening or args.reconcile_opening
+        require(not args.disk_backed_usage or not opening_mode, "disk_backed_usage_only_for_source_planning")
         require(not args.include_opening_counters or opening_mode,
                 "opening_counters_require_opening_mode")
         require(args.target_key_inventory is None or args.source_rights_preview,
@@ -1205,21 +1540,29 @@ def main() -> int:
                                                       source_archive_sha256=source.get("archive", {}).get("sha256"))
         identity_records = [parse_json(line) for line in map_path.read_text().splitlines() if line]
         identities = identity_index(identity_records)
+        storage = {"disk_backed_usage": True} if args.disk_backed_usage else {}
         tables, proof = (reuse_frozen_export(source, args.reuse_export_proof, output,
-                                          publish_proof=not args.source_rights_preview) if args.reuse_export_proof
-                         else export_source(source, output))
-        plan = plan_financial(tables, identities, source_sha256=proof["source_archive_sha256"], source_timezone=args.source_timezone,
+                                          publish_proof=not args.source_rights_preview, **storage) if args.reuse_export_proof
+                         else export_source(source, output, **storage))
+        bounded = args.disk_backed_usage and args.source_rights_preview
+        plan = plan_financial(tables, identities, bounded_usage_evidence=bounded, source_sha256=proof["source_archive_sha256"], source_timezone=args.source_timezone,
                               identity_provenance=identity_provenance, primary_keys=proof["source_primary_keys"],
                               column_schema=proof["source_column_schema"])
-        plan_text = canonical(plan) + "\n"
-        if args.source_rights_preview:
+        if bounded:
+            verify_plan_mapping(plan)
+            plan_text = CheckedPlanFile(output, plan, tables["tokens"])
+            plan_file_hash = plan_text.sha256
+        elif args.source_rights_preview:
+            plan_text = canonical(plan) + "\n"
             # No derived files are published until every preview output has
             # passed the known-bearer check, including source plan metadata.
             plan_file_hash = hashlib.sha256(plan_text.encode("utf-8")).hexdigest()
             verify_plan_mapping(parse_json(plan_text))
         else:
-            plan_path = IDENTITY.write_private(output, "financial-plan.private.json", plan_text)
-            verify_plan_mapping(parse_json(plan_path.read_text()))
+            plan_path = write_normalized_artifact(output, "financial-plan.private.json", plan)
+            del plan
+            plan = parse_json(plan_path.read_text(encoding="utf-8"))
+            verify_plan_mapping(plan)
             plan_file_hash = IDENTITY.sha256_file(plan_path)
         verify_tool_source_hashes(tool_hashes)
         manifest = {"format_version": 1, "digest_format": DIGEST_FORMAT, "scope": "financial-typed-planner-only", "migration_id": args.migration_id,
@@ -1238,6 +1581,9 @@ def main() -> int:
             helper_spec.loader.exec_module(helper)
             import types
             financial = types.SimpleNamespace(**globals())
+            if bounded:
+                financial.rights_preview_directory = output
+                financial.exact = display_value
             tokens = tables.get("tokens", [])
             reject_known_key_secrets({"plan": plan, "proof": proof, "manifest": manifest}, tokens)
             artifacts = {"source-export-proof.private.json": canonical(proof) + "\n",
@@ -1306,11 +1652,11 @@ def main() -> int:
                 manifest.update(target_wallet_inventory_file_sha256=hashlib.sha256(wallet_inventory_bytes).hexdigest(),
                     target_wallet_inventory_typed_sha256=digest(wallet_inventory),
                     target_wallet_inventory_provenance_verified=False)
-            rights_text = canonical(rights) + "\n"
+            rights_text = CheckedPlanFile(output, rights, tokens) if bounded else canonical(rights) + "\n"
             artifacts["source-rights-reconciliation.private.json"] = rights_text
             manifest.update(scope="financial-source-rights-preview-only",
                 target_identity_contract_verified=False,
-                source_rights_reconciliation_file_sha256=hashlib.sha256(rights_text.encode("utf-8")).hexdigest(),
+                source_rights_reconciliation_file_sha256=(rights_text.sha256 if bounded else hashlib.sha256(rights_text.encode("utf-8")).hexdigest()),
                 source_rights_reconciliation_typed_sha256=digest(rights), source_queries=0, target_queries=0)
             # The frozen original export remains the source of complete rows.
             # This preview must not duplicate token bearers in a raw-row DTO.
@@ -1323,6 +1669,9 @@ def main() -> int:
             reject_known_key_secrets(artifacts, tokens)
             verify_tool_source_hashes(tool_hashes)
             for name, content in artifacts.items():
+                if isinstance(content, CheckedPlanFile):
+                    content.publish(output, name)
+                    continue
                 path = IDENTITY.write_private(output, name, content)
                 require(IDENTITY.sha256_file(path) == hashlib.sha256(content.encode("utf-8")).hexdigest(),
                         "source_rights_artifact_copy_hash_mismatch")
@@ -1333,7 +1682,7 @@ def main() -> int:
         # Full source facets are private planner materials, not approval.
         full_manifest = build_full_financial_manifest(plan, tables, identities, source_proof=proof,
                                                      source_observation=manifest["source_observation"])
-        full_path = IDENTITY.write_private(output, "financial-full-source-manifest.private.json", canonical(full_manifest) + "\n")
+        full_path = write_normalized_artifact(output, "financial-full-source-manifest.private.json", full_manifest)
         manifest["full_source_manifest_file_sha256"] = IDENTITY.sha256_file(full_path)
         manifest["full_source_manifest_typed_sha256"] = full_manifest["full_manifest_sha256"]
         verify_tool_source_hashes(tool_hashes)
@@ -1358,7 +1707,7 @@ def main() -> int:
             return 0
         print(canonical(plan["public_summary"]))
         return 0
-    except (MappingError, OSError, ValueError, KeyError, TypeError, RecursionError, subprocess.TimeoutExpired) as error:
+    except (MappingError, OSError, sqlite3.Error, ValueError, KeyError, TypeError, RecursionError, subprocess.TimeoutExpired) as error:
         code = str(error) if isinstance(error, MappingError) else type(error).__name__
         attempted = output is not None and (output/"opening-attempt.private.json").is_file()
         unknown = attempted or (args.reconcile_opening and args.opening_attempt is not None) or code == "opening_outcome_unknown_reconcile_original_attempt"

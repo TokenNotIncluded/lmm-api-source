@@ -267,37 +267,60 @@ def build(F, *, tables, identities, plan, proof, identity_map_file_sha256,
     F.require(proof.get("source_queries_this_run") == 0 and type(proof.get("source_queries_this_run")) is int,
               "reconciliation_requires_frozen_export")
     table_evidence = {}
+    referenced_tables = set()
+    for *_, links in SPECS.values():
+        for target in links.values():
+            referenced_tables.update((target,) if isinstance(target, str) else target)
     indexes = {}
     for table, rows in sorted(tables.items()):
         expected = plan["source_evidence"][table]
         F.require(type(expected["row_count"]) is int, "reconciliation_table_count_mismatch")
-        F.require([F.digest(row) for row in rows] == expected["row_hashes"],
-                  "reconciliation_row_hash_mismatch")
+        disk = isinstance(expected["row_hashes"], getattr(F, "DiskEvidenceArray", ()))
+        if not disk:
+            F.require([F.digest(row) for row in rows] == expected["row_hashes"],
+                      "reconciliation_row_hash_mismatch")
         fields = expected["primary_key_columns"]
         F.require(fields is None or (type(fields) is list and bool(fields) and
                   all(type(field) is str for field in fields) and len(set(fields)) == len(fields)),
                   "reconciliation_primary_key_contract_invalid")
         records = expected["source_records"]
-        F.require(type(records) is list and len(records) == len(rows),
+        F.require((type(records) is list or (disk and isinstance(records, F.DiskEvidenceArray))) and len(records) == len(rows),
                   "reconciliation_source_record_mismatch")
-        for ordinal, row in enumerate(rows):
+        if disk:
+            F.require(len(expected["row_hashes"]) == len(rows), "reconciliation_row_hash_mismatch")
+            hashes = iter(expected["row_hashes"])
+            source_rows = hashlib.sha256(b'["array",[')
+        for ordinal, (row, record) in enumerate(zip(rows, records, strict=True)):
             F.require(type(row) is dict and (fields is None or all(field in row and row[field] is not None for field in fields)),
                       "reconciliation_primary_key_value_missing")
-            record = records[ordinal]
+            if disk:
+                if ordinal:
+                    source_rows.update(b',')
+                row_digest = hashlib.sha256()
+                for part in F._typed_canonical_chunks(row):
+                    row_digest.update(part)
+                    source_rows.update(part)
+                row_hash = row_digest.hexdigest()
+                F.require(next(hashes) == row_hash, "reconciliation_row_hash_mismatch")
+            else:
+                row_hash = F.digest(row)
             F.require(type(record) is dict and type(record.get("source_export_ordinal")) is int and
                       F.canonical(record) == F.canonical({"source_primary_key": {field: row[field] for field in fields} if fields else None,
-                          "source_export_ordinal": ordinal, "source_row_sha256": F.digest(row)}),
+                          "source_export_ordinal": ordinal, "source_row_sha256": row_hash}),
                       "reconciliation_source_record_mismatch")
         F.require(type(proof["selected_table_counts"][table]) is int and
                   len(rows) == expected["row_count"] == proof["selected_table_counts"][table],
                   "reconciliation_table_count_mismatch")
-        table_evidence[table] = {"row_count": len(rows), "source_rows_sha256": F.digest(rows),
+        if disk:
+            source_rows.update(b']]')
+        table_evidence[table] = {"row_count": len(rows), "source_rows_sha256": source_rows.hexdigest() if disk else F.digest(rows),
             "source_column_schema_sha256": F.digest(expected["source_column_schema"]),
             "source_records_sha256": F.digest(expected["source_records"]),
             "detail_projection": "explicit-source-facts" if table in SPECS else "not-projected-retained-in-raw-export",
             "opening_holds": "unknown-requires-independent-source-model-review"}
-        if expected["primary_key_columns"] == ["id"]:
-            indexes[table] = {F.digest(row["id"]): row for row in rows}
+        if table in referenced_tables and expected["primary_key_columns"] == ["id"]:
+            # The reference validator only needs existence, never a parent row.
+            indexes[table] = {F.digest(row["id"]) for row in rows}
     wallets = []
     F.require(all(type(row.get("id")) is int and row["id"] > 0 for row in tables["users"]) and
               all(type(key) is int and key > 0 and type(value) is int and value > 0 for key, value in identities.items()),
@@ -332,13 +355,15 @@ def build(F, *, tables, identities, plan, proof, identity_map_file_sha256,
                        "debt_units_signed": debt, "signed_affiliate_units": affiliate})
     F.require(len(wallets) == len(identities) and len({w["source_user_id"] for w in wallets}) == len(identities),
               "reconciliation_wallet_coverage_mismatch")
-    records, reference_counts, grouped = [], Counter(), {}
+    directory = getattr(F, "rights_preview_directory", None)
+    records = F.FrozenRightsRecords(directory) if directory is not None else []
+    reference_counts, grouped = Counter(), {}
     for table, spec in sorted(SPECS.items()):
         if table not in tables:
             continue
         states, credits, other_amounts, owners, links = spec
-        for ordinal, row in enumerate(tables[table]):
-            source = plan["source_evidence"][table]["source_records"][ordinal]
+        source_records = plan["source_evidence"][table]["source_records"]
+        for row, source in zip(tables[table], source_records, strict=True):
             state = {}
             for field in states:
                 if field in row:
@@ -391,6 +416,8 @@ def build(F, *, tables, identities, plan, proof, identity_map_file_sha256,
                 "wallet_debit_already_applied": "unknown-until-source-model-provenance-and-policy-review",
                 "outstanding_right": "unknown-not-derived-from-state-name",
                 "blocking_reason": "source-model-provenance-and-full-economic-review-not-established"})
+    if directory is not None:
+        records.seal()
     keys = key_quota_reconciliation(F, tables=tables, identities=identities, plan=plan,
                                     target_key_inventory=target_key_inventory)
     wallet_comparison = wallet_position_reconciliation(F, tables=tables, identities=identities,

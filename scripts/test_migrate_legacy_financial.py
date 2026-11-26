@@ -89,6 +89,24 @@ def tables(**changes):
 
 
 class ExactValueTests(unittest.TestCase):
+    def test_long_refund_text_matches_raw_and_typed_hashes_across_escapes(self):
+        value = ('x' * 16382 + '\\"\n\x00\t中🌎') * 5
+        reference = json.dumps(["string", value], ensure_ascii=False, separators=(",", ":")).encode()
+        self.assertEqual(MODULE.digest(value), hashlib.sha256(reference).hexdigest())
+        self.assertEqual(MODULE.text_sha256(value), hashlib.sha256(value.encode()).hexdigest())
+        self.assertEqual(b"".join(MODULE.json_string_parts(value)), MODULE.canonical(value).encode())
+        self.assertLess(max(len(part) for part in MODULE.json_string_parts(value)), len(reference))
+
+    def test_read_only_display_normalization_only_copies_decimal_ancestors(self):
+        plain = {"literal": {"$decimal": "0.030"}, "unchanged": ["note"]}
+        tree = {"plan": [plain, {"units": Decimal("0.030")}]}
+        normalized = MODULE.display_value(tree)
+        self.assertEqual(normalized, MODULE.exact(tree))
+        self.assertIs(normalized["plan"][0], plain)
+        self.assertIsInstance(tree["plan"][1]["units"], Decimal)
+        with self.assertRaisesRegex(MODULE.MappingError, "binary_float_rejected"):
+            MODULE.display_value({"plan": [1.2]})
+
     def test_decimal_retains_all_digits_and_scale(self):
         value = MODULE.parse_json('{"money":123456789.123456,"zero":0.000000}')
         self.assertEqual(value["money"], Decimal("123456789.123456"))
@@ -519,6 +537,30 @@ class IdentityProvenanceTests(unittest.TestCase):
 
 
 class SourceEvidenceTests(unittest.TestCase):
+    def test_large_rights_document_replays_and_checks_projected_record_bytes(self):
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory)
+            rows = [{"amount": index, "note": '中🌎"\\\n' * 1600} for index in range(7)]
+            records = MODULE.FrozenRightsRecords(output)
+            for row in rows:
+                records.append(row)
+            records.seal()
+            large_rights = {"observed_rights_records": records, "tag": {"$decimal": "1.00"}}
+            expected = {**large_rights, "observed_rights_records": rows}
+            self.assertEqual(MODULE.digest(large_rights), MODULE.digest(expected))
+            checked = MODULE.CheckedPlanFile(output, large_rights, [])
+            checked.publish(output, "rights.json")
+            self.assertEqual((output / "rights.json").read_bytes(), (MODULE.canonical(expected) + "\n").encode())
+            with self.assertRaisesRegex(MODULE.MappingError, "reconciliation_key_secret_in_output"):
+                MODULE.reject_known_key_secrets(large_rights, [{"key": rows[0]["note"][2:19]}])
+            records.stream.seek(0)
+            data = records.stream.read(28).replace(b'"amount":0', b'"amount":9')
+            records.stream.seek(0)
+            records.stream.write(data)
+            records.stream.flush()
+            with self.assertRaisesRegex(MODULE.MappingError, "source_rights_artifact_copy_hash_mismatch"):
+                list(records)
+
     def test_preview_rejects_invalid_evidence_before_source_read(self):
         with tempfile.TemporaryDirectory() as temp:
             base = Path(temp)
@@ -618,6 +660,121 @@ class SourceEvidenceTests(unittest.TestCase):
                                                      ({"users": {"id", "quota"}}, {"users": 1}, {"changed": "instance"})):
                     with self.assertRaises(MODULE.MappingError):
                         MODULE.read_frozen_export(path, receipt, columns, baseline, ["users"], expected)
+
+    def test_frozen_usage_rows_keep_typed_order_and_snapshot(self):
+        receipt = {"readonly_reader": {}, "source_instance_identity": {"schema_owner": "owner"},
+                   "source": {"schema": "legacy"}}
+        identity = {"synthetic": "instance"}
+        raw = [{"kind": "identity", "row": identity},
+               {"kind": "schema", "row": {"schema": "legacy", "schema_owner": "owner"}}]
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "synthetic.jsonl"
+            prefix = "".join(MODULE.canonical(tag) + "\n" for tag in raw)
+            payload = (prefix + '{"kind":"row","table":"logs","row":{"id":3,"x":1.000}}\n'
+                       + '{"kind":"row","table":"quota_data","row":{"id":2,"x":null}}\n'
+                       + '{"kind":"row","table":"logs","row":{"id":1,"x":{"$decimal":"1.000"}}}\n')
+            path.write_text(payload)
+            names = ["logs", "quota_data"]
+            columns = {name: {"id", "x"} for name in names}
+            with patch.object(MODULE.IDENTITY, "verify_instance"):
+                data = MODULE.read_frozen_export(path, receipt, columns, {"logs": 2, "quota_data": 1}, names, identity, usage_spool_directory=Path(directory))
+                path.write_text(payload.replace('"id":3', '"id":4'))
+                with self.assertRaisesRegex(MODULE.MappingError, "source_snapshot_row_baseline_mismatch"):
+                    MODULE.read_frozen_export(path, receipt, columns, {"logs": 1, "quota_data": 1}, names, identity, usage_spool_directory=Path(directory))
+            expected = [{"id":3,"x":Decimal("1.000")},{"id":1,"x":{"$decimal":"1.000"}}]
+            logs = data["logs"]
+            first = iter(logs)
+            self.assertEqual(next(first), expected[0])
+            self.assertEqual(list(logs), expected)
+            self.assertEqual(next(first), expected[1])
+            self.assertEqual(MODULE.digest(logs), MODULE.digest(expected))
+            self.assertEqual(list(data["quota_data"]), [{"id":2,"x":None}])
+
+    def test_disk_rights_evidence_round_trips_composite_and_missing_keys(self):
+        with tempfile.TemporaryDirectory() as directory:
+            raw = MODULE.FrozenUsageRows(Path(directory))
+            for line in [b'{"row":{"a":3,"b":null,"x":1.200}}',
+                         '{"row":{"a":1,"b":"\\n組","x":{"$decimal":"1.200"}}}'.encode()]:
+                raw.append_line(line)
+            raw.seal()
+            rows = list(raw)
+            for fields in (["a", "x"], None):
+                with self.subTest(fields=fields):
+                    store = MODULE.DiskUsageEvidence(raw, fields)
+                    hashes = MODULE.DiskEvidenceArray(store, "row_hash")
+                    records = MODULE.DiskEvidenceArray(store, "record")
+                    expected = [{"source_primary_key": MODULE.exact({f: row[f] for f in fields}) if fields else None,
+                                 "source_export_ordinal": i, "source_row_sha256": MODULE.digest(row)}
+                                for i, row in enumerate(rows)]
+                    self.assertEqual(list(hashes), [item["source_row_sha256"] for item in expected])
+                    self.assertEqual(list(records), expected)
+                    self.assertEqual(b"".join(records.encoded(False)).decode(), MODULE.canonical(expected))
+                    self.assertEqual(MODULE.digest(records), MODULE.digest(expected))
+                    records.verify_display_encoding()
+            with self.assertRaisesRegex(MODULE.MappingError, "source_primary_key_value_missing"):
+                MODULE.DiskUsageEvidence(raw, ["b"])
+
+    def test_disk_evidence_duplicate_key_and_inconsistent_typed_record_fail_closed(self):
+        with tempfile.TemporaryDirectory() as directory:
+            raw = MODULE.FrozenUsageRows(Path(directory))
+            for line in [b'{"row":{"id":1}}', b'{"row":{"id":1}}']:
+                raw.append_line(line)
+            raw.seal()
+            with self.assertRaisesRegex(MODULE.MappingError, "source_primary_key_value_duplicate"):
+                MODULE.DiskUsageEvidence(raw, ["id"])
+            store = MODULE.DiskUsageEvidence(raw, None)
+            store.connection.execute("PRAGMA query_only=OFF")
+            store.connection.execute("UPDATE evidence SET typed_record=? WHERE rowid=1", (b'["null"]',))
+            records = MODULE.DiskEvidenceArray(store, "record")
+            with self.assertRaisesRegex(MODULE.MappingError, "financial_plan_mapping_hash_mismatch"):
+                MODULE.CheckedPlanFile(Path(directory), {"source_evidence": {"logs": {"source_records": records}}}, [])
+
+    def test_disk_evidence_structured_scan_checks_escaped_keys_before_publication(self):
+        with tempfile.TemporaryDirectory() as directory:
+            directory = Path(directory)
+            raw = MODULE.FrozenUsageRows(directory)
+            secret = 'fixture"key\n值'
+            raw.append_line(MODULE.canonical({"row": {"id": secret}}).encode())
+            raw.seal()
+            store = MODULE.DiskUsageEvidence(raw, ["id"])
+            records = MODULE.DiskEvidenceArray(store, "record")
+            with self.assertRaisesRegex(MODULE.MappingError, "reconciliation_key_secret_in_output"):
+                MODULE.reject_known_key_secrets({"source_records": records}, [{"key": secret}])
+
+    def test_disk_plan_rejects_secret_across_serialized_block_boundary(self):
+        with tempfile.TemporaryDirectory() as directory:
+            # The token occurs across the boundary, including quote and colon
+            # bytes introduced by JSON, and in no single source string.
+            pad = "x" * (128 * 1024 - len('{"a":"') - 4)
+            plan = {"source_evidence": {}, "a": pad + "abcd", "b": "tail"}
+            secret = 'abcd","b":"tail'
+            with self.assertRaisesRegex(MODULE.MappingError, "reconciliation_key_secret_in_output"):
+                MODULE.CheckedPlanFile(Path(directory), plan, [{"key": secret}])
+            self.assertFalse(any(Path(directory).iterdir()))
+
+    def test_disk_plan_private_file_bytes_and_publication_match_standard_writer(self):
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory)
+            raw = MODULE.FrozenUsageRows(output)
+            raw.append_line(b'{"row":{"id":7,"other":"fixture"}}')
+            raw.seal()
+            store = MODULE.DiskUsageEvidence(raw, ["id"])
+            hashes = MODULE.DiskEvidenceArray(store, "row_hash")
+            records = MODULE.DiskEvidenceArray(store, "record")
+            evidence = {"logs": {"row_hashes": hashes, "source_records": records}}
+            plan = {"source_evidence": evidence, "empty": [], "name": '組"'}
+            staged = MODULE.CheckedPlanFile(output, plan, [])
+            staged.publish(output, "financial-plan.private.json")
+            expected = {"source_evidence": {"logs": {"row_hashes": list(hashes), "source_records": list(records)}},
+                        "empty": [], "name": '組"'}
+            data = (MODULE.canonical(expected) + "\n").encode()
+            target = output / "financial-plan.private.json"
+            self.assertEqual(target.read_bytes(), data)
+            self.assertEqual(staged.sha256, hashlib.sha256(data).hexdigest())
+            self.assertEqual(target.stat().st_mode & 0o777, 0o600)
+            with self.assertRaises(FileExistsError):
+                staged.publish(output, target.name)
+            self.assertEqual(target.read_bytes(), data)
 
     def test_replanning_is_hash_bound_and_never_calls_psql(self):
         with tempfile.TemporaryDirectory() as directory:
