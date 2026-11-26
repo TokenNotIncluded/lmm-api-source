@@ -1056,6 +1056,15 @@ function NativeRoutingWorkspace({
               document={editor.document}
               configuration={configuration}
               disabled={busy}
+              fetchModels={
+                editor.method === 'PUT' && accounting.observations
+                  ? () =>
+                      nativeRequest<string[]>(
+                        'GET',
+                        `/api/channel/fetch_models/${editor.channelId}`
+                      )
+                  : undefined
+              }
               credential={
                 editor.secret ? (
                   <label className='block space-y-2'>

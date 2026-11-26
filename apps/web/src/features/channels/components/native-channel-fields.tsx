@@ -1,9 +1,12 @@
+import { useMutation } from '@tanstack/react-query'
 /* Copyright (C) 2026 LIghtJUNction. SPDX-License-Identifier: AGPL-3.0-or-later */
-import type { ReactNode } from 'react'
+import { useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 
+import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Input } from '@/components/ui/input'
+import { getServerErrorMessage } from '@/lib/server-error-message'
 
 import {
   nativeProtocolLabel,
@@ -46,18 +49,83 @@ export function NativeChannelTagField({
   )
 }
 
+function ChannelModelCatalog({
+  disabled,
+  fetchModels,
+}: {
+  disabled: boolean
+  fetchModels: () => Promise<string[]>
+}) {
+  const { t } = useTranslation()
+  const [search, setSearch] = useState('')
+  const catalog = useMutation({ mutationFn: fetchModels })
+  const models = catalog.data ?? []
+  const filtered = models.filter((model) =>
+    model.toLowerCase().includes(search.trim().toLowerCase())
+  )
+
+  return (
+    <section className='min-w-0 space-y-3'>
+      <Button
+        type='button'
+        variant='outline'
+        className='min-h-11'
+        disabled={disabled || catalog.isPending}
+        onClick={() => catalog.mutate()}
+      >
+        {catalog.isPending ? t('Loading') : t('Fetch Models')}
+      </Button>
+      {catalog.isError && (
+        <p role='alert' className='text-destructive text-sm'>
+          {getServerErrorMessage(catalog.error) ?? t('Failed to load data')}
+        </p>
+      )}
+      {catalog.isSuccess && (
+        <>
+          <p role='status' className='text-muted-foreground text-sm'>
+            {t('Total')}: {models.length}
+          </p>
+          {models.length > 0 && (
+            <Input
+              aria-label={t('Search models')}
+              placeholder={t('Search models')}
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+            />
+          )}
+          {filtered.length > 0 ? (
+            <ul className='bg-muted/40 max-h-64 overflow-y-auto rounded-md p-3'>
+              {filtered.map((model) => (
+                <li key={model} className='py-1 font-mono text-sm break-all'>
+                  {model}
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className='text-muted-foreground text-sm'>
+              {t('No models found')}
+            </p>
+          )}
+        </>
+      )}
+    </section>
+  )
+}
+
 /** Common edits share the exact draft and CAS version with the advanced editor. */
 export function NativeChannelFields({
   document,
   configuration,
   disabled,
   credential,
+  fetchModels,
   onChange,
 }: {
   document: string
   configuration: NativeConfiguration
   disabled: boolean
   credential?: ReactNode
+  fetchModels?: () => Promise<string[]>
   onChange: (document: string) => void
 }) {
   const { t } = useTranslation()
@@ -132,6 +200,9 @@ export function NativeChannelFields({
           {t('Enabled')}
         </label>
       </div>
+      {fetchModels && (
+        <ChannelModelCatalog disabled={disabled} fetchModels={fetchModels} />
+      )}
       <NativeChannelModelsFields
         document={document}
         configuration={configuration}
