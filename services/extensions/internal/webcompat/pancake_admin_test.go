@@ -100,6 +100,44 @@ func TestPancakeConfigurationRequiresOwnerSession(t *testing.T) {
 	}
 }
 
+func TestPancakeUnconfiguredReadRequiresOwnerAndKeepsWritesUnmounted(t *testing.T) {
+	for _, tc := range []struct {
+		name, token string
+		level       int32
+		status      int
+	}{
+		{"owner", webToken, 6, http.StatusNotFound},
+		{"admin", webToken, 5, http.StatusForbidden},
+		{"anonymous", "", 6, http.StatusUnauthorized},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			core := &authCore{fn: func(context.Context, string) (*pb.AuthorizeResponse, error) {
+				self := sessionSelf()
+				self.PlatformLevel = tc.level
+				return self, nil
+			}}
+			mux := http.NewServeMux()
+			RegisterPancakeAdmin(mux, newAuth(t, core), nil)
+			w := pluginRequest(mux, "GET", "/api/option/waffo-pancake/config", "", tc.token)
+			var body struct {
+				Code string `json:"code"`
+			}
+			if w.Code != tc.status || json.Unmarshal(w.Body.Bytes(), &body) != nil {
+				t.Fatalf("unexpected configuration response: %d", w.Code)
+			}
+			unconfigured := body.Code == "PAYMENT_PANCAKE_NOT_CONFIGURED"
+			if unconfigured != (tc.name == "owner") || (unconfigured && w.Header().Get("Cache-Control") != "no-store") {
+				t.Fatalf("unexpected configuration disclosure or caching: %d", w.Code)
+			}
+			for _, action := range []string{"catalog", "pair", "save"} {
+				if result := pluginRequest(mux, "POST", "/api/option/waffo-pancake/"+action, "{}", tc.token); result.Code != http.StatusNotFound {
+					t.Fatalf("unconfigured action %s was mounted", action)
+				}
+			}
+		})
+	}
+}
+
 func TestPancakeAdminReportsPolicyConflictAndUncertainPersistence(t *testing.T) {
 	for _, tc := range []struct {
 		err    error

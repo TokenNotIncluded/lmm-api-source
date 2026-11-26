@@ -25,9 +25,6 @@ type PancakeAdmin interface {
 // RegisterPancakeAdmin requires a live personal owner session for every action,
 // including catalogue probes that exercise merchant credentials.
 func RegisterPancakeAdmin(mux RouteRegistrar, auth *Authenticator, admin PancakeAdmin) {
-	if store.Missing(admin) {
-		return
-	}
 	mux.HandleFunc("GET /api/option/waffo-pancake/config", func(w http.ResponseWriter, r *http.Request) {
 		self, err := auth.Verify(r.Context(), r)
 		if err != nil {
@@ -38,9 +35,16 @@ func RegisterPancakeAdmin(mux RouteRegistrar, auth *Authenticator, admin Pancake
 			Respond(w, nil, store.ErrForbidden)
 			return
 		}
+		if store.Missing(admin) {
+			writePayment(w, http.StatusNotFound, "PAYMENT_PANCAKE_NOT_CONFIGURED", "No Waffo Pancake channel is configured on this host.")
+			return
+		}
 		value, err := admin.Configuration(r.Context())
 		respondPancakeAdmin(w, value, err)
 	})
+	if store.Missing(admin) {
+		return
+	}
 	for action, invoke := range map[string]func(context.Context, PancakeAdminRequest) (any, error){
 		"catalog": admin.Catalog, "pair": admin.Pair, "save": admin.Save,
 	} {

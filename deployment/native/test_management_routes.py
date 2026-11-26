@@ -103,6 +103,7 @@ class NativeManagementRoutes(unittest.TestCase):
     def test_exact_routes_preserve_method_uri_session_and_body(self):
         for method, path, target in (
             ('GET', '/api/option/epay/config', 'go'),
+            ('GET', '/api/option/waffo-pancake/config', 'go'),
             ('GET', '/core/v1/admin/user-access/17?view=current', 'core'),
             ('PATCH', '/core/v1/admin/user-access/17', 'core'),
             ('GET', '/core/v1/payment-gateways/epay', 'core'),
@@ -122,6 +123,8 @@ class NativeManagementRoutes(unittest.TestCase):
     def test_unrelated_methods_ids_and_paths_are_not_forwarded(self):
         for method, path, expected in (
             ('PATCH', '/api/option/epay/config', 405),
+            ('POST', '/api/option/waffo-pancake/config', 405),
+            ('GET', '/api/option/waffo-pancake/other', 418),
             ('GET', '/core/v1/admin/user-access', 404),
             ('POST', '/core/v1/admin/user-access/17', 405),
             ('GET', '/core/v1/admin/user-access/0', 404),
