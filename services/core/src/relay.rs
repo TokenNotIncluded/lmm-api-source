@@ -1262,11 +1262,12 @@ impl Worker {
             && failure.status() >= 500
         {
             eprintln!(
-                "core_model_failure code={} upstream_status={} upstream_attempted={} provider_complete={} settlement={settlement:?}",
+                "core_model_failure code={} upstream_status={} upstream_attempted={} provider_complete={} settlement={settlement:?} request_id={}",
                 failure.code(),
                 self.report.upstream_status.unwrap_or(0),
                 self.report.upstream_attempted,
                 self.report.provider_complete,
+                self.report.request_id,
             );
         }
         if let Some(e) = &error {

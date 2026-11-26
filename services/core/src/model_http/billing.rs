@@ -1069,7 +1069,7 @@ impl Billing for Bridge {
                 && report.upstream_attempted
             {
                 eprintln!(
-                    "core_model_finalize_failure code={} upstream_status={} provider_complete={} stage={} usage={:?} input_ceiling={} output_ceiling={}",
+                    "core_model_finalize_failure code={} upstream_status={} provider_complete={} stage={} usage={:?} input_ceiling={} output_ceiling={} request_id={} upstream_id={} configured_protocol={:?} routing_version={} pricing_version={}",
                     failure.code(),
                     report.upstream_status.unwrap_or(0),
                     report.provider_complete,
@@ -1077,6 +1077,11 @@ impl Billing for Bridge {
                     report.usage.clone(),
                     selected.input_token_ceiling,
                     output_ceiling,
+                    reservation.id,
+                    selected.attempt.upstream_id(),
+                    selected.attempt.protocol(),
+                    selected.attempt.version().routing,
+                    selected.attempt.version().pricing,
                 );
             }
             if result.is_err() && report.upstream_attempted {
