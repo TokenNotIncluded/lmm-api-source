@@ -39,6 +39,7 @@ const { I18nextProvider, initReactI18next } = await import('react-i18next')
 const { api } = await import('@/lib/api')
 const { toast } = await import('sonner')
 const { useAuthStore } = await import('@/stores/auth-store')
+const { useSystemConfigStore } = await import('@/stores/system-config-store')
 const { readNativeCheckout } = await import('../lib/native-checkout')
 const { NativeWalletCheckout } = await import('./native-wallet-checkout')
 const i18n = createInstance()
@@ -892,6 +893,13 @@ test('a shared discount link only prefills one valid code and never starts a pay
               currency: 'CNY',
               credit_quantity: true,
             },
+            {
+              id: '8',
+              provider: 'waffo_pancake',
+              environment: 'test',
+              currency: 'USD',
+              credit_quantity: true,
+            },
           ],
         },
       },
@@ -911,6 +919,19 @@ test('a shared discount link only prefills one valid code and never starts a pay
           </I18nextProvider>
         )
         await flush()
+      })
+      assert.match(
+        container.querySelector('label[for="native-payment-amount"]')
+          ?.textContent ?? '',
+        /Wallet credit.*CNY/
+      )
+      const channel = container.querySelector<HTMLSelectElement>(
+        '#native-payment-channel'
+      )
+      assert.ok(channel)
+      await act(async () => {
+        channel.value = '8'
+        channel.dispatchEvent(new Event('change', { bubbles: true }))
       })
       assert.match(
         container.querySelector('label[for="native-payment-amount"]')
@@ -938,11 +959,28 @@ test('a shared discount link only prefills one valid code and never starts a pay
   }
 })
 
-test('credit minimums block a new quote exactly and explain the required USD value', async () => {
-  for (const [min, below, exact] of [
-    ['500001', '1', '1.000002'],
-    ['9007199254740993', '18014398509.481984', '18014398509.481986'],
-  ]) {
+test('credit minimums block a new quote exactly and explain the required selected-currency value', async () => {
+  for (const [currency, min, below, exact, wanted] of [
+    ['USD', '500001', '1', '1.000002', '500001'],
+    [
+      'USD',
+      '9007199254740993',
+      '18014398509.481984',
+      '18014398509.481986',
+      '9007199254740993',
+    ],
+    ['CNY', '500000', '6.99', '7.00', '500000'],
+  ] as const) {
+    const originalConfig = useSystemConfigStore.getState().config
+    useSystemConfigStore.getState().setConfig({
+      currency: {
+        ...originalConfig.currency,
+        currencyUnit: 'credit',
+        creditsPerUsd: 500000,
+        cnyPerUsd: 7,
+        cnyPerUsdExact: '7',
+      },
+    })
     const oldGet = api.get
     const oldPost = api.post
     dom.sessionStorage.clear()
@@ -960,7 +998,7 @@ test('credit minimums block a new quote exactly and explain the required USD val
               id: '7',
               provider: 'waffo_pancake',
               environment: 'test',
-              currency: 'CNY',
+              currency,
               credit_quantity: true,
               min_credit_units: min,
             },
@@ -1005,7 +1043,9 @@ test('credit minimums block a new quote exactly and explain the required USD val
       const hint = container.querySelector('#native-payment-minimum')
       assert.equal(
         hint?.textContent,
-        'Minimum wallet credit is USD ' + exact + '.'
+        currency === 'USD'
+          ? 'Minimum wallet credit is USD ' + exact + '.'
+          : 'Minimum CNY 7'
       )
       assert.equal(input.getAttribute('aria-describedby'), hint?.id)
       await enterAmount(below)
@@ -1030,11 +1070,13 @@ test('credit minimums block a new quote exactly and explain the required USD val
       assert.equal(review.disabled, false)
       await click('Review payment')
       assert.equal(requests.length, 1)
-      assert.equal(requests[0].requested_credit_units, min)
+      assert.equal(requests[0].requested_credit_units, wanted)
+      assert.equal(requests[0].currency, currency)
       assert.equal(requests[0].amount_minor, '0')
     } finally {
       await act(async () => root.unmount())
       container.remove()
+      useSystemConfigStore.setState({ config: originalConfig })
       api.get = oldGet
       api.post = oldPost
       dom.sessionStorage.clear()

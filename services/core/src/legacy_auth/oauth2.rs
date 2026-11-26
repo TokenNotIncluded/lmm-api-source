@@ -97,76 +97,85 @@ fn flow_cookie(
     }
     response
 }
-const CONSENT_STYLE: &str = "*{box-sizing:border-box}html{color-scheme:light dark}body{margin:0;background:#f4f5f7;color:#20242c;font:16px/1.6 system-ui,sans-serif}main{max-width:620px;margin:7vh auto;padding:32px;background:#fff;border:1px solid #dde1e7;border-radius:20px;box-shadow:0 16px 48px #1520350a}header{border-bottom:1px solid #e3e7ed;padding-bottom:20px;margin-bottom:24px}header p{font-size:12px;font-weight:700;letter-spacing:.14em;color:#546277}h1{margin:4px 0;font-size:30px;line-height:1.2}p,li{overflow-wrap:anywhere}ul{display:flex;flex-wrap:wrap;gap:8px;padding:0;list-style:none}li{padding:4px 12px;border-radius:20px;background:#edf1f7;font-size:14px}label{display:block;margin:24px 0;padding:20px;border:1px solid #d9e0ec;border-radius:12px;font-weight:600}input[type=number]{display:block;width:100%;padding:12px;margin-top:12px;border:1px solid #9ba7ba;border-radius:8px;font:inherit;background:transparent;color:inherit}button{padding:12px 18px;margin:8px 8px 0 0;border:1px solid #aab5c5;border-radius:8px;font:600 15px system-ui;cursor:pointer}button[value=allow],button:not([value]){background:#244b8f;color:#fff;border-color:#244b8f}button[value=deny]{background:transparent;color:inherit}a{color:#244b8f}a:focus-visible,button:focus-visible,input:focus-visible{outline:3px solid #6289cc;outline-offset:3px}footer{margin-top:24px;color:#647087;font-size:13px}@media(max-width:640px){main{margin:16px;padding:24px}button{width:100%}}@media(prefers-color-scheme:dark){body{background:#14171c;color:#e5e9f1}main{background:#1c2028;border-color:#343d4c}header{border-color:#343d4c}header p,footer{color:#a8b4c8}li{background:#2c3443}label{border-color:#45516a}a{color:#a9c6ff}}";
+const CONSENT_STYLE: &str = include_str!("oauth2-consent.css");
 
 fn page(page: ConsentPage, config: &LegacyAuthConfig) -> Response {
-    let pi = page.client_id == "lmm-pi";
     let managed = matches!(page.client_id.as_str(), "lmm-cc-switch" | "lmm-magpie");
-    let model = page.maximum_budget_credits.is_some();
-    let client_name = if pi {
-        "LMM Pi"
-    } else if page.client_id == "lmm-magpie" {
-        "LMM Magpie"
-    } else if managed {
-        "LMM CC Switch"
-    } else if let Some((_, name)) = crate::identity::grants::PROVIDER_CLIENTS
-        .iter()
-        .find(|(client, _)| *client == page.client_id)
-    {
-        *name
-    } else {
-        "LMM CLI"
-    };
+    let client_name = escape(match page.client_id.as_str() {
+        "lmm" => "LMM CLI",
+        "lmm-pi" => "LMM Pi",
+        "lmm-cc-switch" => "LMM CC Switch",
+        "lmm-magpie" => "LMM Magpie",
+        id => crate::identity::grants::PROVIDER_CLIENTS
+            .iter()
+            .find_map(|(client, name)| (*client == id).then_some(*name))
+            .unwrap_or(id),
+    });
     let mut body = format!(
-        "<!doctype html><html lang=en><meta charset=utf-8><meta name=viewport content=\"width=device-width,initial-scale=1\"><title>LMM authorization</title><style>{CONSENT_STYLE}</style><main><header><p>LMM · CLIENT AUTHORIZATION</p><h1>{client_name}</h1></header>"
+        "<!doctype html><html lang=en><meta charset=utf-8><meta name=viewport content=\"width=device-width,initial-scale=1\"><title>LMM authorization</title><style>{CONSENT_STYLE}</style><main><header><p>lmm.best</p><h1>Authorize an application</h1></header><dl><dt>Application</dt><dd>{client_name}</dd>"
     );
+    if let Some(issuer) = &config.oauth2 {
+        body.push_str(&format!(
+            "<dt>Resource</dt><dd>{}</dd>",
+            escape(issuer.profile().resource())
+        ));
+    }
+    if let Some(account) = &page.account {
+        body.push_str(&format!("<dt>Account</dt><dd>{}</dd>", escape(account)));
+    }
     if managed && let (Some(id), Some(label)) = (&page.installation_id, &page.display_label) {
         body.push_str(&format!(
-            "<p>Application: {}</p><p>Installation: {}</p><p>Device: {}</p>",
-            if page.client_id == "lmm-magpie" {
-                "Magpie"
-            } else {
-                "CC Switch"
-            },
+            "<dt>Installation</dt><dd>{}</dd><dt>Device</dt><dd>{}</dd>",
             escape(id),
             escape(label)
         ));
     }
-    if page.openid {
-        body.push_str(
-            "<p>Share your stable account identifier with this client (OpenID Connect).</p>",
-        );
-    }
-    let action = if let Some(account) = &page.account {
-        body.push_str(&format!("<p>Account: {}</p><p>Read the model catalog and your personal wallet balance.</p><p>Approved groups:</p><ul>",escape(account)));
-        for group in &page.groups {
-            body.push_str(&format!("<li>{}</li>", escape(group)));
+    body.push_str("</dl>");
+    let action = if page.account.is_some() {
+        body.push_str("<section><h2>Permissions</h2><ul class=permissions><li>Read the model catalog and your personal wallet balance.</li>");
+        if page.openid {
+            body.push_str(
+                "<li>Share your stable account identifier with this client (OpenID Connect).</li>",
+            );
         }
-        body.push_str("</ul>");
-        if model {
-            body.push_str("<p>Allow model calls and usage for this personal account. Optional MCP/remote scopes are unavailable and will not be granted.</p>");
+        if page.maximum_budget_credits.is_some() {
+            body.push_str("<li>Call models in the listed groups and charge this personal account within your budget.</li>");
+        }
+        body.push_str("</ul></section>");
+        if !page.groups.is_empty() {
+            body.push_str("<section><h2>Approved groups</h2><ul class=groups>");
+            for group in &page.groups {
+                body.push_str(&format!("<li>{}</li>", escape(group)));
+            }
+            body.push_str("</ul></section>");
         }
         "/api/user/auth/oauth2/consent"
     } else {
-        body.push_str(&format!(
-            "<p>Sign in, then explicitly continue here. This does not authorize {client_name}.</p><p><a href=\"/sign-in?reauth=1\" target=\"_blank\" rel=\"noopener noreferrer\">Open sign in</a></p>"
-        ));
+        body.push_str("<p>Sign in in another tab, then return here to review the permissions.</p><p><a href=\"/sign-in?reauth=1\" target=\"_blank\" rel=\"noopener noreferrer\">Open sign in</a></p>");
         "/api/user/auth/oauth2/continue"
     };
     body.push_str(&format!(
         "<form method=post action=\"{action}\"><input type=hidden name=csrf value=\"{}\">",
         escape(&page.csrf)
     ));
+    if let Some(maximum) = page
+        .maximum_budget_credits
+        .filter(|_| page.account.is_some())
+    {
+        body.push_str(&format!("<label>Lifetime budget in credits<input type=number name=budget_credits min=1 max={maximum} step=1 aria-describedby=budget-note required></label><p class=budget-note id=budget-note>500,000 credits per USD, including pending holds.</p>"));
+    }
+    body.push_str("<div class=actions>");
     if page.account.is_some() {
-        if let Some(maximum) = page.maximum_budget_credits {
-            body.push_str(&format!("<label>Lifetime budget in credits (500000 credits per USD, including pending holds)<input type=number name=budget_credits min=1 max={maximum} step=1 required></label><button name=decision value=allow>Allow scoped model access</button> <button name=decision value=deny formnovalidate>Deny</button>"));
+        let allow = if page.maximum_budget_credits.is_some() {
+            "Allow scoped model access"
         } else {
-            body.push_str("<button name=decision value=allow>Allow read-only access</button> <button name=decision value=deny>Deny</button>");
-        }
+            "Allow read-only access"
+        };
+        body.push_str(&format!("<button name=decision value=allow>{allow}</button><button name=decision value=deny formnovalidate>Deny</button>"));
     } else {
         body.push_str("<button>Continue after sign in</button>");
     }
-    body.push_str("</form><footer>You can revoke client access from your account at any time.</footer></main></html>");
+    body.push_str("</div></form><footer>You can revoke client access from your account at any time.</footer></main></html>");
     let mut response = axum::response::Html(body).into_response();
     use base64::Engine as _;
     let style_hash =
@@ -431,6 +440,13 @@ mod tests {
                         "<form method=post action=\"/api/user/auth/oauth2/{action}\">"
                     )));
                     assert!(html.contains("type=hidden name=csrf"));
+                    assert!(html.contains("<h1>Authorize an application</h1>"));
+                    let name = if client == "lmm-pi" {
+                        "LMM Pi"
+                    } else {
+                        "LMM CLI"
+                    };
+                    assert!(html.contains(&format!("<dt>Application</dt><dd>{name}</dd>")));
                     assert!(!html.contains(&request.redirect_uri));
                     if signed_in {
                         assert!(html.contains("name=decision value=allow"));

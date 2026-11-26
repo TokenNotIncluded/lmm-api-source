@@ -10,7 +10,13 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select'
 import { refreshAuthentication } from '@/lib/api'
+import {
+  displayAmountToQuota,
+  formatExactQuotaInCurrency,
+  formatMinimumQuotaInCurrency,
+} from '@/lib/currency'
 import { useAuthStore } from '@/stores/auth-store'
+import { useSystemConfigStore } from '@/stores/system-config-store'
 
 import { useCheckoutOwnerKey } from '../hooks/use-checkout-scope'
 import {
@@ -77,6 +83,7 @@ function NativeWalletCheckoutForm({
   onUpdated,
 }: NativeWalletCheckoutProps & { owner: string }) {
   const { t, i18n } = useTranslation()
+  const currencyConfig = useSystemConfigStore((state) => state.config.currency)
   const [restored] = useState(() => restore(owner))
   const [pending, setPending] = useState<PendingNativeCheckout | null>(
     restored.pending
@@ -108,8 +115,23 @@ function NativeWalletCheckoutForm({
     pending?.channel ??
     channels.find((item) => item.id === selectedID) ??
     channels[0]
+  const creditCurrency = selected?.currency === 'CNY' ? 'CNY' : 'USD'
+  const creditRateUnavailable =
+    selected?.credit_quantity &&
+    creditCurrency === 'CNY' &&
+    !Number.isFinite(displayAmountToQuota('1', 'CNY', currencyConfig))
+  const cnyCreditUnits =
+    selected?.credit_quantity &&
+    creditCurrency === 'CNY' &&
+    nativeAmountMinor(amount)
+      ? displayAmountToQuota(amount, 'CNY', currencyConfig)
+      : Number.NaN
   const requestedCreditUnits = selected?.credit_quantity
-    ? nativeRequestedCreditUnits(amount)
+    ? creditCurrency === 'USD'
+      ? nativeRequestedCreditUnits(amount)
+      : Number.isSafeInteger(cnyCreditUnits) && cnyCreditUnits > 0
+        ? String(cnyCreditUnits)
+        : null
     : null
   const minimumCreditUnits = selected?.credit_quantity
     ? selected.min_credit_units
@@ -131,6 +153,14 @@ function NativeWalletCheckoutForm({
     postCheckoutURL.hash = ''
   }
   const quote = pending?.quote
+  const creditAmount = quote
+    ? formatExactQuotaInCurrency(
+        quote.credit_units,
+        creditCurrency,
+        { locale: i18n.resolvedLanguage || i18n.language },
+        currencyConfig
+      )
+    : '-'
   const isCurrent = useCallback(() => {
     const { user, session } = useAuthStore.getState().auth
     return (
@@ -396,7 +426,7 @@ function NativeWalletCheckoutForm({
                 <Label htmlFor='native-payment-amount'>
                   {t(selected?.credit_quantity ? 'Wallet credit' : 'Amount')} ·{' '}
                   {selected?.credit_quantity
-                    ? 'USD'
+                    ? creditCurrency
                     : selected && paymentCurrency(selected)}
                 </Label>
                 <Input
@@ -406,7 +436,9 @@ function NativeWalletCheckoutForm({
                   autoComplete='off'
                   aria-invalid={belowMinimum || undefined}
                   aria-describedby={
-                    minimumCreditUnits ? 'native-payment-minimum' : undefined
+                    minimumCreditUnits && !creditRateUnavailable
+                      ? 'native-payment-minimum'
+                      : undefined
                   }
                   value={
                     selected?.fixed_amount_minor
@@ -417,7 +449,14 @@ function NativeWalletCheckoutForm({
                   disabled={busy}
                   onChange={(event) => setAmount(event.target.value)}
                 />
-                {minimumCreditUnits ? (
+                {creditRateUnavailable ? (
+                  <p className='text-muted-foreground text-sm' role='status'>
+                    {t(
+                      'Current currency rates are unavailable. Refresh after the server currency update.'
+                    )}
+                  </p>
+                ) : null}
+                {minimumCreditUnits && !creditRateUnavailable ? (
                   <p
                     id='native-payment-minimum'
                     role={belowMinimum ? 'alert' : undefined}
@@ -427,9 +466,23 @@ function NativeWalletCheckoutForm({
                         : 'text-muted-foreground text-sm'
                     }
                   >
-                    {t('Minimum wallet credit is USD {{amount}}.', {
-                      amount: nativeCreditUSDDisplay(minimumCreditUnits),
-                    })}
+                    {creditCurrency === 'CNY'
+                      ? t('Minimum {{amount}}', {
+                          amount:
+                            'CNY ' +
+                            formatMinimumQuotaInCurrency(
+                              Number(minimumCreditUnits),
+                              'CNY',
+                              {
+                                showSymbol: false,
+                                locale: i18n.resolvedLanguage || i18n.language,
+                              },
+                              currencyConfig
+                            ),
+                        })
+                      : t('Minimum wallet credit is USD {{amount}}.', {
+                          amount: nativeCreditUSDDisplay(minimumCreditUnits),
+                        })}
                   </p>
                 ) : null}
                 {!selected?.fixed_amount_minor ? (
@@ -500,7 +553,7 @@ function NativeWalletCheckoutForm({
                   nativeDiscountCode(discountCode) === null) ||
                 (!selected.fixed_amount_minor &&
                   !(selected.credit_quantity
-                    ? nativeRequestedCreditUnits(amount)
+                    ? requestedCreditUnits
                     : nativeAmountMinor(amount)))
               }
             >
@@ -547,10 +600,19 @@ function NativeWalletCheckoutForm({
                   {t('Wallet credit')}
                 </dt>
                 <dd className='mt-2 text-2xl font-medium tracking-tight [overflow-wrap:anywhere] tabular-nums'>
-                  {BigInt(quote.credit_units).toLocaleString(
-                    i18n.resolvedLanguage || i18n.language
-                  )}{' '}
-                  {t('Credits')}
+                  {creditAmount !== '-' ? <div>{creditAmount}</div> : null}
+                  <span
+                    className={
+                      creditAmount !== '-'
+                        ? 'text-muted-foreground text-sm'
+                        : undefined
+                    }
+                  >
+                    {BigInt(quote.credit_units).toLocaleString(
+                      i18n.resolvedLanguage || i18n.language
+                    )}{' '}
+                    {t('Credits')}
+                  </span>
                 </dd>
               </div>
             ) : null}
