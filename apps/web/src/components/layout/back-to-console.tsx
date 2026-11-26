@@ -13,7 +13,7 @@ export function BackToConsole({ className }: { className?: string }) {
       params={{ section: 'overview' }}
       referrerPolicy='no-referrer'
       className={cn(
-        'text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:ring-ring inline-flex min-h-11 min-w-0 items-center gap-2 rounded-md px-2 text-sm font-medium focus-visible:ring-2 focus-visible:outline-none',
+        'text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:ring-ring inline-flex min-h-11 min-w-0 items-center gap-2 rounded-md max-sm:gap-1 px-2 text-sm font-medium focus-visible:ring-2 focus-visible:outline-none',
         className
       )}
     >

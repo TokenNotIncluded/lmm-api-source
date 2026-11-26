@@ -105,6 +105,17 @@ async function isolate(context, origin, signedIn, errors) {
 
 async function checkCompactHeader(page, width) {
   const header = page.locator('header nav').first()
+  const label = header.getByText('返回控制台', { exact: true })
+  const lines = await label.evaluate((span) => {
+    const range = document.createRange()
+    range.selectNodeContents(span)
+    return new Set(
+      [...range.getClientRects()]
+        .filter((rect) => rect.width > 0)
+        .map((rect) => rect.top)
+    ).size
+  })
+  assert.equal(lines, 1, 'the Chinese return label fits on one line at 320px')
   for (const name of ['切换主题', '主题选项', '个人资料', '切换导航菜单']) {
     const button = header.getByRole('button', { name, exact: true })
     const rect = await button.boundingBox()
