@@ -108,11 +108,13 @@ jobs:
               test -s /usr/share/licenses/lmm-extensions/purego/LICENSE
               test -s /usr/share/licenses/lmm-extensions/purego/GO-LICENSE
               test -s /usr/share/lmm/legal/site.example.toml
-              test "$(find /usr/share/lmm/legal/templates -name "*.md" | wc -l)" -eq 6
+              test ! -e /usr/share/lmm/legal/sites
               test ! -e /usr/share/lmm/legal/site.json
               test ! -e /usr/share/lmm/legal/site.toml
               test ! -e /usr/share/lmm/legal/site.example.json
             '
+            (cd config/legal && sha256sum site.example.toml templates/*/*.md) |
+              docker run --rm -i --workdir /usr/share/lmm/legal --entrypoint sha256sum lmm-preview-extensions -c -
           fi
       - name: Actual extension policy process checks
         if: matrix.component == 'extensions'

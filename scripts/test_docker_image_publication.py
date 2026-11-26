@@ -153,6 +153,35 @@ class SourceContracts(unittest.TestCase):
         self.assertIn('test ! -e /usr/share/lmm/legal/site.example.json', self.smoke)
         subprocess.run(['bash', '-n', str(SMOKE)], check=True)
 
+    def test_distribution_checks_every_legal_template_from_its_source(self):
+        workflow = (ROOT / '.github/workflows/microservice-distribution.yml').read_text()
+        self.assertIn('test ! -e /usr/share/lmm/legal/sites', workflow)
+        self.assertIn('config/legal/sites/', (ROOT / '.dockerignore').read_text().splitlines())
+        manifest_command, = re.findall(
+            r'\((cd config/legal && sha256sum [^\n]+)\) \|\n'
+            r'\s+docker run --rm -i --workdir /usr/share/lmm/legal --entrypoint sha256sum '
+            r'lmm-preview-extensions -c -', workflow)
+        manifest = subprocess.check_output(['sh', '-ec', manifest_command], cwd=ROOT)
+        source = ROOT / 'config/legal'
+        published = tomllib.loads((source / 'site.example.toml').read_text())['documents']
+        expected = {'site.example.toml'} | {path for table in published.values() for path in table.values()}
+        self.assertEqual({line.split('  ', 1)[1] for line in manifest.decode().splitlines()}, expected)
+        with tempfile.TemporaryDirectory() as directory:
+            stage = Path(directory)
+            for name in expected:
+                target = stage / name
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_bytes((source / name).read_bytes())
+            def check():
+                return subprocess.run(['sha256sum', '-c', '-'], input=manifest, cwd=stage,
+                                      capture_output=True).returncode
+            self.assertEqual(check(), 0)
+            missing = stage / 'templates/zh-TW/privacy-policy.md'
+            missing.unlink()
+            self.assertNotEqual(check(), 0)
+            missing.write_bytes((source / 'templates/zh-CN/privacy-policy.md').read_bytes())
+            self.assertNotEqual(check(), 0)
+
     def test_container_startup_shell_parses(self):
         startup, = re.findall(r"startup='(.*?)'\ncid=", self.smoke.replace(
             '# Capture ownership before start, so even a failed start is cleaned up precisely.\n', ''), re.S)
