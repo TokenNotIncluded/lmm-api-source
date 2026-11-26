@@ -18,7 +18,7 @@ This is a digital service delivered immediately over the internet. Once your pay
 
 Provide accurate, complete and truthful account information. Keep your account, password and API keys secure. You are responsible for activity on your account. You may not rent, lend or sell your account or disclose login credentials to an unauthorized third party.
 
-Report unauthorized use, security incidents or unexpected charges immediately to [lightjunction.me@gmail.com](mailto:lightjunction.me@gmail.com). Never include your password or a complete API key in an email.
+Report unauthorized use, security incidents or unexpected charges immediately to [support@lmm.best](mailto:support@lmm.best). Never include your password or a complete API key in an email.
 
 ## 3. Acceptable use
 

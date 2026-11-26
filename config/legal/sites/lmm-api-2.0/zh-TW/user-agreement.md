@@ -18,7 +18,7 @@ LMM API（運營及維護者：TokenNotIncluded團隊，以下簡稱“我們”
 
 您應提供真實、準確、完整的資訊，妥善保管賬戶、密碼和 API 金鑰，並對賬戶下發生的操作負責。您不得出租、出借、出售賬戶或向未經授權的第三方披露登入憑據。
 
-發現未經授權使用、安全事件或異常扣費時，請立即傳送郵件至 [lightjunction.me@gmail.com](mailto:lightjunction.me@gmail.com)。請勿透過郵件傳送密碼或完整 API 金鑰。
+發現未經授權使用、安全事件或異常扣費時，請立即傳送郵件至 [support@lmm.best](mailto:support@lmm.best)。請勿透過郵件傳送密碼或完整 API 金鑰。
 
 ## 3. 合法與可接受使用
 
