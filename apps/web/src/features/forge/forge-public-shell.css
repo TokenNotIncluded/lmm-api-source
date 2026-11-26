@@ -741,7 +741,7 @@ For commercial licensing, please contact support@quantumnous.com
   transition-property: background-color, border-color, box-shadow, max-width;
 }
 
-body:has(.lmm-home) .forge-public-header {
+body:has(.lmm-home) :is(.forge-public-header, .forge-public-mobile-overlay) {
   --forge-header-ink: var(--forge-paper-light);
   --forge-header-paper: var(--forge-night);
   --forge-header-border: color-mix(
@@ -750,6 +750,9 @@ body:has(.lmm-home) .forge-public-header {
     transparent
   );
   --forge-header-muted: var(--forge-night-muted);
+}
+
+body:has(.lmm-home) .forge-public-header {
   position: absolute;
   background: transparent;
 }
@@ -761,11 +764,6 @@ body:has(.lmm-home) .forge-public-nav {
 body:has(.lmm-home) .forge-public-sign-in {
   background: var(--forge-paper-light);
   color: var(--forge-night);
-}
-
-body:has(.lmm-home) .forge-public-mobile-overlay {
-  background: var(--forge-night);
-  color: var(--forge-paper-light);
 }
 
 body:not(:has(.lmm-home)) .forge-public-header {
