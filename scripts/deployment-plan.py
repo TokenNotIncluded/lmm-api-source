@@ -87,6 +87,21 @@ def inventory(artifacts, output):
     distribution = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(distribution)
     revision = os.environ["DEPLOY_REVISION"]
+    web_base = os.environ.get("DEPLOY_WEB_BASE", "")
+    if web_base and (
+        not re.fullmatch(r"[0-9a-f]{40}", web_base)
+        or os.environ.get("SELECT_COMPONENTS") != "web"
+        or os.environ.get("SELECT_TARGETS", "all") != "all"
+    ):
+        raise ValueError("Web-only deployment requires a verified base and all configured targets")
+    backend_by_target = {
+        target["name"]: [
+            {"name": name, **config} for name, config in target["components"].items()
+            if name != "web"
+        ]
+        for target in json.loads(os.environ["DEPLOY_TARGETS"])
+    } if web_base else {}
+
     archives = {}
     for archive in artifacts.rglob("*.tar.gz"):
         manifest = distribution.verify(archive, revision)
@@ -116,8 +131,14 @@ def inventory(artifacts, output):
             "deploy_root": target["root"], "deploy_components": components,
             "deploy_min_free_bytes": int(target.get("min_free_bytes", 256 * 1024 * 1024)),
             "deploy_revision": revision,
+            "deploy_web_base": web_base,
+            "deploy_web_backends": backend_by_target.get(target["name"], []),
             "deploy_allow_rollback": target.get("allow_rollback", True),
         }
+    if web_base and not any(host["deploy_web_backends"] for host in hosts.values()):
+        raise ValueError("Web-only deployment has no co-located backend to verify")
+    if web_base and set(hosts) != set(backend_by_target):
+        raise ValueError("Web-only deployment cannot omit a configured host")
     output.write_text(json.dumps({"all": {"hosts": hosts}}, indent=2) + "\n")
     print(json.dumps({"inventory": str(output), "targets": list(hosts)}))
 

@@ -53,6 +53,7 @@ jobs:
       matrix: ${{ steps.plan.outputs.matrix }}
       version: ${{ steps.plan.outputs.version }}
       revision: ${{ steps.source.outputs.revision }}
+      web-base: ${{ steps.source.outputs.web-base }}
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
         with:
@@ -63,6 +64,7 @@ jobs:
         env:
           REQUESTED_REVISION: ${{ inputs.source_revision }}
           CI_REVISION: ${{ github.event.workflow_run.head_sha }}
+          WEB_BASE: ${{ vars.DEPLOY_WEB_BASE_REVISION }}
         run: |
           revision=$(git rev-parse HEAD)
           if [[ "$GITHUB_EVENT_NAME" == workflow_run ]]; then
@@ -89,6 +91,11 @@ jobs:
           git merge-base --is-ancestor "$revision" origin/main
           git checkout --detach "$revision"
           echo "revision=$revision" >> "$GITHUB_OUTPUT"
+          if [[ "$GITHUB_EVENT_NAME" == workflow_run ]] &&
+            python3 scripts/is-web-only-update.py --base "$WEB_BASE" --revision "$revision"; then
+            echo "web-base=$WEB_BASE" >> "$GITHUB_OUTPUT"
+            echo "SELECT_COMPONENTS=web" >> "$GITHUB_ENV"
+          fi
       - name: Select targets and build each component architecture once
         id: plan
         env:
@@ -124,8 +131,11 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           SOURCE_REVISION: ${{ needs.plan.outputs.revision }}
+          WEB_BASE: ${{ needs.plan.outputs.web-base }}
         run: |
-          receipt=$(python3 -B scripts/verify-deployment-ci.py --revision "$SOURCE_REVISION")
+          options=()
+          if [[ -n "$WEB_BASE" ]]; then options+=(--web-only); fi
+          receipt=$(python3 -B scripts/verify-deployment-ci.py --revision "$SOURCE_REVISION" "${options[@]}")
           run_id=$(jq -er '.run_id | select(type == "number" and . > 0)' <<<"$receipt")
           echo "run-id=$run_id" >> "$GITHUB_OUTPUT"
 
@@ -235,6 +245,8 @@ jobs:
     environment: ${{ vars.DEPLOY_ENVIRONMENT || 'shadow' }}
     env:
       DEPLOY_REVISION: ${{ needs.plan.outputs.revision }}
+      DEPLOY_WEB_BASE: ${{ needs.plan.outputs.web-base }}
+      SELECT_COMPONENTS: ${{ needs.plan.outputs.web-base != '' && 'web' || inputs.components || 'all' }}
       ANSIBLE_HOST_KEY_CHECKING: 'True'
       ANSIBLE_RETRY_FILES_ENABLED: 'False'
     steps:

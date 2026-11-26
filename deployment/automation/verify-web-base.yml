@@ -1,0 +1,17 @@
+---
+- name: Read the active backend manifest
+  ansible.builtin.slurp:
+    src: '{{ deploy_root }}/{{ backend.name }}/MANIFEST.json'
+  register: backend_slot
+- name: Decode the backend manifest
+  ansible.builtin.set_fact:
+    backend_manifest: '{{ backend_slot.content | b64decode | from_json }}'
+- name: Require the installed backend to match the tested baseline
+  ansible.builtin.assert:
+    that:
+      - backend_manifest.component == backend.name
+      - backend_manifest.revision == deploy_web_base
+- name: Verify the running backend against the installed manifest
+  ansible.builtin.include_tasks: verify.yml
+  vars:
+    component: '{{ backend | combine({"files": backend_manifest.files}) }}'

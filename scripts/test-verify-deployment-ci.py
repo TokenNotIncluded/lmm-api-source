@@ -72,6 +72,20 @@ class DeploymentCITests(unittest.TestCase):
             ],
         )
 
+    def test_web_coverage_cannot_authorize_backend_deployment(self):
+        web_gate = {**self.gate, "steps": [
+            {"name": "Require Web-only checks", "conclusion": "success"},
+            {"name": "Require every implemented component", "conclusion": "skipped"},
+        ]}
+        self.assertEqual(
+            ci.verify(REVISION, self.api(jobs=[web_gate]), web_only=True)["run_id"],
+            self.run["id"],
+        )
+        with self.assertRaisesRegex(ValueError, "component coverage"):
+            ci.verify(REVISION, self.api(jobs=[web_gate]))
+        with self.assertRaisesRegex(ValueError, "component coverage"):
+            ci.verify(REVISION, self.api(), web_only=True)
+
     def test_pending_failed_cancelled_or_skipped_ci_cannot_deploy(self):
         for status, conclusion in [
             ("queued", None),

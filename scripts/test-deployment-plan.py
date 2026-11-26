@@ -54,6 +54,31 @@ class DeploymentPlanTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "JSON boolean"):
                 deploy.selected_targets()
 
+    def test_web_only_inventory_keeps_backend_checks_without_backend_archives(self):
+        revision, base = "a" * 40, "b" * 40
+        origin, edge = target("origin"), target("edge")
+        origin["components"]["core"] = {
+            "health_url": "http://127.0.0.1:3101/health/ready",
+            "service": "lmm-core", "config": "/etc/lmm/core.toml", "user": "lmm-core",
+        }
+        with tempfile.TemporaryDirectory() as temp, patch.dict(os.environ, {
+            "DEPLOY_TARGETS": json.dumps([origin, edge]), "SELECT_TARGETS": "all",
+            "SELECT_COMPONENTS": "web", "DEPLOY_REVISION": revision, "DEPLOY_WEB_BASE": base,
+        }):
+            work = Path(temp)
+            (work / "web").mkdir()
+            (work / "web/index.html").write_text("<!doctype html>Web update")
+            distribution.build(ROOT, "web", "1.2.3", revision, "any", work / "web", work / "artifacts")
+            deploy.inventory(work / "artifacts", work / "inventory.json")
+            hosts = json.loads((work / "inventory.json").read_text())["all"]["hosts"]
+            self.assertEqual(hosts["origin"]["deploy_web_base"], base)
+            self.assertEqual([c["name"] for c in hosts["origin"]["deploy_components"]], ["web"])
+            self.assertEqual([c["name"] for c in hosts["origin"]["deploy_web_backends"]], ["core"])
+            self.assertEqual(hosts["edge"]["deploy_web_backends"], [])
+            os.environ["SELECT_TARGETS"] = "edge"
+            with self.assertRaisesRegex(ValueError, "all configured targets"):
+                deploy.inventory(work / "artifacts", work / "wrong.json")
+
     def test_real_archive_is_checked_before_inventory_is_emitted(self):
         revision = "a" * 40
         with tempfile.TemporaryDirectory() as temp:

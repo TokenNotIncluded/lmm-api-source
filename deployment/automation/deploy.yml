@@ -1,4 +1,17 @@
 ---
+- name: Verify the live backend baseline before changing any Web target
+  hosts: all
+  gather_facts: false
+  any_errors_fatal: true
+  tasks:
+    - name: Check each configured backend for a Web-only deployment
+      ansible.builtin.include_tasks: verify-web-base.yml
+      loop: '{{ deploy_web_backends | default([]) }}'
+      loop_control:
+        loop_var: backend
+        label: '{{ backend.name }}'
+      when: (deploy_web_base | default('') | length) > 0
+
 - name: Update configured application components
   hosts: all
   gather_facts: false

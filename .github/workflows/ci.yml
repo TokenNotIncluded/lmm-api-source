@@ -21,7 +21,31 @@ concurrency:
 env:
   CI: "true"
 jobs:
+  scope:
+    name: Classify deployable source changes
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      web-only: ${{ steps.scope.outputs.web-only }}
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - id: scope
+        env:
+          WEB_BASE: ${{ vars.DEPLOY_WEB_BASE_REVISION }}
+        run: |
+          web_only=false
+          if [[ "$GITHUB_EVENT_NAME" == push && "$GITHUB_REF" == refs/heads/main ]] &&
+            python3 scripts/is-web-only-update.py --base "$WEB_BASE" --revision "$GITHUB_SHA"; then
+            web_only=true
+          fi
+          echo "web-only=$web_only" >> "$GITHUB_OUTPUT"
+
   microkernel:
+    needs: scope
+    if: needs.scope.outputs.web-only != 'true'
     uses: ./.github/workflows/core-protocol.yml
     with:
       split_rust_targets: true
@@ -104,17 +128,32 @@ jobs:
   quality-gate:
     name: Implemented component checks
     if: ${{ always() }}
-    needs: [microkernel, web, translations]
+    needs: [scope, microkernel, web, translations]
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
       - name: Require every implemented component
+        if: needs.scope.outputs.web-only != 'true'
         env:
+          SCOPE_RESULT: ${{ needs.scope.result }}
           KERNEL_RESULT: ${{ needs.microkernel.result }}
           WEB_RESULT: ${{ needs.web.result }}
           TRANSLATION_RESULT: ${{ needs.translations.result }}
         run: |
+          test "$SCOPE_RESULT" = success
           test "$KERNEL_RESULT" = success
           test "$WEB_RESULT" = success
           test "$TRANSLATION_RESULT" = success
           echo 'These checks do not authorize production deployment.'
+      - name: Require Web-only checks
+        if: needs.scope.outputs.web-only == 'true'
+        env:
+          SCOPE_RESULT: ${{ needs.scope.result }}
+          KERNEL_RESULT: ${{ needs.microkernel.result }}
+          WEB_RESULT: ${{ needs.web.result }}
+          TRANSLATION_RESULT: ${{ needs.translations.result }}
+        run: |
+          test "$SCOPE_RESULT" = success
+          test "$KERNEL_RESULT" = skipped
+          test "$WEB_RESULT" = success
+          test "$TRANSLATION_RESULT" = success

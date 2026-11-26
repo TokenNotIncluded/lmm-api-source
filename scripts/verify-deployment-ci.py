@@ -23,7 +23,7 @@ def github_api(path, *, paginate=False):
     return json.loads(subprocess.check_output(command, text=True, timeout=30))
 
 
-def verify(revision, api=github_api):
+def verify(revision, api=github_api, *, web_only=False):
     if not re.fullmatch(r"[0-9a-f]{40}", revision):
         raise ValueError("deployment revision must be a complete commit SHA")
     workflow = api("actions/workflows/ci.yml")
@@ -77,6 +77,9 @@ def verify(revision, api=github_api):
         or gate["conclusion"] != "success"
     ):
         raise ValueError("implemented-component gate did not succeed in the selected CI attempt")
+    fast = [step for step in gate.get("steps", []) if step["name"] == "Require Web-only checks"]
+    if len(fast) > 1 or (len(fast) == 1 and fast[0]["conclusion"] == "success") != web_only:
+        raise ValueError("CI component coverage differs from the requested deployment scope")
     return {
         "repository": REPOSITORY,
         "revision": revision,
@@ -92,6 +95,7 @@ def verify(revision, api=github_api):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--revision", required=True)
+    parser.add_argument("--web-only", action="store_true")
     args = parser.parse_args()
     try:
         if os.environ.get("GITHUB_REPOSITORY") != REPOSITORY:
@@ -99,7 +103,7 @@ def main():
         checked_out = subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()
         if checked_out != args.revision:
             raise ValueError("checked-out source differs from the deployment revision")
-        print(json.dumps(verify(args.revision), sort_keys=True))
+        print(json.dumps(verify(args.revision, web_only=args.web_only), sort_keys=True))
     except (ValueError, KeyError, TypeError, subprocess.SubprocessError) as error:
         print(f"deployment CI qualification failed: {error}", file=sys.stderr)
         return 1

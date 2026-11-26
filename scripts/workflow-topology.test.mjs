@@ -329,13 +329,24 @@ test('CI and manual qualification reuse the exact core and extension verificatio
   assert.doesNotMatch(source, /continue-on-error:|apps\/extensions-go/);
 });
 
-test('the CI gate cannot pass when an implemented component fails or is skipped', () => {
+test('the CI gate requires full checks unless Web-only coverage was proven', () => {
   const source = workflow('ci');
-  assert.match(source, /needs: \[microkernel, web, translations\]/);
+  assert.match(source, /needs: \[scope, microkernel, web, translations\]/);
   assert.match(source, /if: \$\{\{ always\(\) \}\}/);
   for (const name of ['KERNEL_RESULT', 'WEB_RESULT', 'TRANSLATION_RESULT']) {
     assert.ok(source.includes(`test "$${name}" = success`));
   }
+  assert.match(source, /name: Require Web-only checks\n        if: needs\.scope\.outputs\.web-only == 'true'/);
+  assert.match(source, /test "\$KERNEL_RESULT" = skipped/);
+  assert.match(source, /scripts\/is-web-only-update\.py --base "\$WEB_BASE" --revision "\$GITHUB_SHA"/);
+  const deploy = workflow('deploy');
+  assert.match(deploy, /echo "SELECT_COMPONENTS=web" >> "\$GITHUB_ENV"/);
+  assert.match(deploy, /options\+=\(--web-only\)/);
+  const playbook = read('deployment/automation/deploy.yml');
+  assert.ok(playbook.indexOf('verify-web-base.yml') < playbook.indexOf('Atomically select'));
+  const guard = read('deployment/automation/verify-web-base.yml');
+  assert.match(guard, /backend_manifest\.revision == deploy_web_base/);
+  assert.match(guard, /include_tasks: verify\.yml/);
   assert.match(source, /name: Translation regression check/);
   assert.match(source, /bun install --frozen-lockfile/);
   assert.doesNotMatch(source, /continue-on-error:/);
