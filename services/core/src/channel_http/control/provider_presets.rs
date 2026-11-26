@@ -59,6 +59,20 @@ pub(super) const PROVIDERS: &[ProviderPreset] = &[
         "https://api.deepseek.com",
     ),
     preset(
+        "stepfun",
+        "StepFun",
+        "Stepfun",
+        OpenAiChat,
+        "https://api.stepfun.com/v1",
+    ),
+    preset(
+        "huawei_maas",
+        "Huawei MaaS",
+        "HuaweiCloud",
+        OpenAiChat,
+        "https://api.modelarts-maas.com/openai/v1",
+    ),
+    preset(
         "openrouter",
         "OpenRouter",
         "OpenRouter",
@@ -113,3 +127,39 @@ pub(super) const PROVIDERS: &[ProviderPreset] = &[
     preset("system_one", "System One", "", SystemOne, ""),
     preset("custom", "Custom", "", OpenAiChat, ""),
 ];
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn assert_chat_preset(id: &str, label: &str, icon: &str, base: &str) {
+        let matching: Vec<_> = PROVIDERS.iter().filter(|preset| preset.id == id).collect();
+        assert_eq!(matching.len(), 1);
+        assert_eq!(
+            serde_json::to_value(matching[0]).unwrap(),
+            serde_json::json!({
+                "id": id, "label": label, "icon": icon, "protocol": "openai_chat", "endpoint": base,
+            })
+        );
+    }
+
+    #[test]
+    fn stepfun_is_selectable_as_a_chat_preset() {
+        assert_chat_preset(
+            "stepfun",
+            "StepFun",
+            "Stepfun",
+            "https://api.stepfun.com/v1",
+        );
+    }
+
+    #[test]
+    fn huawei_maas_is_selectable_as_a_chat_preset() {
+        assert_chat_preset(
+            "huawei_maas",
+            "Huawei MaaS",
+            "HuaweiCloud",
+            "https://api.modelarts-maas.com/openai/v1",
+        );
+    }
+}

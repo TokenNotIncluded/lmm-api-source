@@ -101,6 +101,15 @@ fn endpoint(base: &str, protocol: crate::routing::Protocol) -> Result<reqwest::U
         ));
     }
     let mut url = crate::relay::honeypot_network::validate_base_url(base, true)?;
+    // Huawei's OpenAI-compatible Chat API and its model catalogue use different
+    // base paths. Other origins and operator-defined prefixes retain their own path.
+    if protocol == crate::routing::Protocol::OpenAiChat
+        && url.origin().ascii_serialization() == "https://api.modelarts-maas.com"
+        && matches!(url.path(), "/openai/v1" | "/openai/v1/")
+    {
+        url.set_path("/v2/models");
+        return Ok(url);
+    }
     url.path_segments_mut()
         .map_err(|_| RelayError::RouteUnavailable)?
         .pop_if_empty()
@@ -453,6 +462,74 @@ mod tests {
         );
         assert!(endpoint("https://127.0.0.2/path?key=secret", Protocol::OpenAiChat).is_err());
         assert!(endpoint("https://api.example/v1", Protocol::DeepSeekFetch).is_err());
+    }
+
+    #[test]
+    fn stepfun_chat_uses_the_native_chat_route_and_dynamic_model_catalogue() {
+        let base = "https://api.stepfun.com/v1";
+        assert_eq!(
+            endpoint(base, Protocol::OpenAiChat).unwrap().as_str(),
+            "https://api.stepfun.com/v1/models"
+        );
+        for stream in [false, true] {
+            assert_eq!(
+                crate::model_http::routing::operation_endpoint(
+                    base,
+                    crate::relay::UpstreamProtocol::Chat,
+                    "fixture-model",
+                    stream,
+                )
+                .unwrap()
+                .as_str(),
+                "https://api.stepfun.com/v1/chat/completions"
+            );
+        }
+    }
+
+    #[test]
+    fn huawei_maas_chat_and_catalogue_use_their_documented_paths() {
+        for base in [
+            "https://api.modelarts-maas.com/openai/v1",
+            "https://api.modelarts-maas.com/openai/v1/",
+        ] {
+            assert_eq!(
+                endpoint(base, Protocol::OpenAiChat).unwrap().as_str(),
+                "https://api.modelarts-maas.com/v2/models"
+            );
+            for stream in [false, true] {
+                assert_eq!(
+                    crate::model_http::routing::operation_endpoint(
+                        base,
+                        crate::relay::UpstreamProtocol::Chat,
+                        "fixture-model",
+                        stream,
+                    )
+                    .unwrap()
+                    .as_str(),
+                    "https://api.modelarts-maas.com/openai/v1/chat/completions"
+                );
+            }
+        }
+        for (base, protocol) in [
+            ("https://proxy.example/openai/v1", Protocol::OpenAiChat),
+            (
+                "https://api.modelarts-maas.com:8443/openai/v1",
+                Protocol::OpenAiChat,
+            ),
+            (
+                "https://api.modelarts-maas.com/custom/v1",
+                Protocol::OpenAiChat,
+            ),
+            (
+                "https://api.modelarts-maas.com/openai/v1",
+                Protocol::OpenAiResponses,
+            ),
+        ] {
+            assert_eq!(
+                endpoint(base, protocol).unwrap().as_str(),
+                format!("{base}/models")
+            );
+        }
     }
 
     #[test]
