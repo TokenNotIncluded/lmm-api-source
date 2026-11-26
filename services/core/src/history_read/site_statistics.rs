@@ -156,9 +156,11 @@ impl HistoryStore {
  SELECT u.id,u.personal_account_id,c.account_id AS opening_account,
    c.used_quota,f.normalized_used_credits,
    EXISTS(SELECT 1 FROM core_billing.opening_imports i WHERE i.account_id=u.personal_account_id) AS imported,
-   EXISTS(SELECT 1 FROM core_identity.audit a WHERE a.actor_user_id=u.id
+   (EXISTS(SELECT 1 FROM core_identity.audit a WHERE a.actor_user_id=u.id
      AND a.action IN ('user.register','user.bootstrap','installation.first-owner')
-     AND a.target->>'user_id'=u.id::text) AS native
+     AND a.target->>'user_id'=u.id::text)
+    OR (EXISTS(SELECT 1 FROM core_abuse.registration_observations o WHERE o.user_id=u.id)
+        AND to_jsonb(u.id) NOT IN (SELECT target_user_id FROM history_identity_mappings))) AS native
  FROM core_identity.users u
  LEFT JOIN core_billing.account_opening_counters c ON c.user_id=u.id AND c.account_id=u.personal_account_id
  LEFT JOIN core_history.finance_users f ON f.user_id=u.id AND f.account_id=u.personal_account_id

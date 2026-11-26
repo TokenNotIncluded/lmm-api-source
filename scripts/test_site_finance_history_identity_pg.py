@@ -50,6 +50,8 @@ CREATE TABLE core_identity.web_sessions(user_id bigint);
 CREATE TABLE core_identity.mfa_factors(user_id bigint);
 CREATE TABLE core_identity.email_addresses(user_id bigint);
 CREATE TABLE core_identity.audit(actor_user_id bigint,action text,target jsonb);
+CREATE SCHEMA core_abuse;
+CREATE TABLE core_abuse.registration_observations(user_id bigint PRIMARY KEY,source_ip inet);
 CREATE SCHEMA core_passkeys;
 CREATE TABLE core_passkeys.credentials(user_id bigint);
 CREATE SCHEMA core_billing;
@@ -80,6 +82,8 @@ VALUES('core.history-source.v1',repeat('a',64),repeat('b',64),'legacy.logs:legac
 INSERT INTO core_history.scope_receipts VALUES(1,73,2,NULL,repeat('a',64),repeat('b',64),repeat('c',64),true);
 GRANT USAGE ON SCHEMA core_identity,core_passkeys,core_billing,core_charging,core_payments,core_history,core_migration TO history_finance_runtime;
 GRANT SELECT ON ALL TABLES IN SCHEMA core_identity,core_passkeys,core_billing,core_charging,core_payments,core_history TO history_finance_runtime;
+GRANT USAGE ON SCHEMA core_abuse TO history_finance_runtime;
+GRANT SELECT(user_id) ON core_abuse.registration_observations TO history_finance_runtime;
 GRANT SELECT(migration_id,manifest) ON core_migration.import_runs TO history_finance_runtime;
 """)
         oid = int(self.pg.sql("SELECT oid FROM pg_database WHERE datname=current_database()").stdout)
@@ -191,6 +195,32 @@ SELECT 1,i,i-71,NULL,repeat('a',64),repeat('b',64),repeat('c',64),true FROM gene
             with self.subTest(change=change):
                 result = self.read(self.manifest, change)
                 self.assertEqual((result["excluded"], result["missing"]), (0, 1))
+
+    def test_native_social_creation_preserves_financial_coverage(self):
+        # First login and later sign-ins share an audit action. Only account
+        # creation writes the immutable per-user registration observation.
+        login = """
+INSERT INTO core_identity.accounts VALUES(3,'personal',0,true);
+INSERT INTO core_identity.users VALUES(74,3,'user',true,1);
+INSERT INTO core_identity.oauth_identities VALUES(74);
+INSERT INTO core_identity.audit VALUES(74,'session.google_browser_login','{"user_id":74}');
+"""
+        observation = "INSERT INTO core_abuse.registration_observations(user_id) VALUES(74);"
+        keyed = self.read(self.manifest, login)
+        self.assertEqual((keyed["excluded"], keyed["missing"]), (1, 1))
+        native = self.read(self.manifest, login + observation)
+        self.assertEqual((native["excluded"], native["missing"], native["used"], native["balance"]),
+                         (1, 0, "35", "95"))
+        imported = self.read(self.manifest, login + observation +
+                             "INSERT INTO core_billing.opening_imports VALUES(3);")
+        self.assertEqual(imported["missing"], 1)
+        contradicted = self.read(self.manifest,
+            "INSERT INTO core_abuse.registration_observations(user_id) VALUES(73);")
+        self.assertEqual((contradicted["excluded"], contradicted["missing"]), (0, 1))
+        self.assertEqual(self.pg.sql(
+            "SELECT has_column_privilege('history_finance_runtime',"
+            "'core_abuse.registration_observations','source_ip','SELECT');"
+        ).stdout.strip(), "f")
 
     def test_two_bound_identities_use_the_exact_mapping_digest(self):
         manifest = copy.deepcopy(self.manifest)

@@ -84,6 +84,7 @@ WITH history_identity_receipts AS MATERIALIZED (
    AND NOT EXISTS(SELECT 1 FROM core_identity.mfa_factors f WHERE f.user_id=u.id)
    AND NOT EXISTS(SELECT 1 FROM core_identity.email_addresses e WHERE e.user_id=u.id)
    AND NOT EXISTS(SELECT 1 FROM core_passkeys.credentials k WHERE k.user_id=u.id)
+   AND NOT EXISTS(SELECT 1 FROM core_abuse.registration_observations o WHERE o.user_id=u.id)
    AND NOT EXISTS(SELECT 1 FROM core_identity.audit e WHERE e.actor_user_id=u.id
      AND e.action IN ('user.register','user.bootstrap','installation.first-owner')
      AND e.target->>'user_id'=u.id::text)
