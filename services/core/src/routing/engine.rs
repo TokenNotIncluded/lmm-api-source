@@ -1075,6 +1075,29 @@ impl Router {
             .collect())
     }
 
+    /// Return a group multiplier only when every enabled model and speed agrees.
+    pub(crate) fn group_price_multiplier(&self, name: &str) -> Result<Option<u32>, RoutingError> {
+        let active = self.snapshot()?;
+        let group = active.groups.get(name).ok_or(RoutingError::UnknownGroup)?;
+        if !group.enabled {
+            return Err(RoutingError::GroupDisabled);
+        }
+        let mut multiplier = None;
+        for route in group.routes.values().filter(|route| route.config.enabled) {
+            for speed in &route.config.speeds {
+                let Some(price) = active.prices.template(&route.config.model, name, *speed) else {
+                    return Ok(None);
+                };
+                let (current, _) = price.multipliers_ppm();
+                if multiplier.is_some_and(|previous| previous != current) {
+                    return Ok(None);
+                }
+                multiplier = Some(current);
+            }
+        }
+        Ok(multiplier)
+    }
+
     /// The only public configuration projection. Contains no endpoints or credentials.
     pub fn catalog(&self, authorized_group: &str) -> Result<Vec<PublicModel>, RoutingError> {
         let active = self.snapshot()?;

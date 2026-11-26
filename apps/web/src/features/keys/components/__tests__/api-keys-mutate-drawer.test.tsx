@@ -398,9 +398,11 @@ describe('API keys mutate drawer Auto group integration', () => {
     )
     assert.deepEqual(
       [
-        ...document.querySelectorAll('[data-slot="global-auto-order-name"]'),
-      ].map((item) => item.textContent),
-      ['vip', 'default']
+        ...document.querySelectorAll(
+          'button[aria-label^="Move "][aria-label$=" up"]'
+        ),
+      ].map((item) => item.getAttribute('aria-label')),
+      ['Move vip up', 'Move default up']
     )
     assert.equal(findButton('Restore global Auto', true).disabled, true)
 
@@ -432,12 +434,24 @@ describe('API keys mutate drawer Auto group integration', () => {
       getControlByLabel<HTMLButtonElement>('Group'),
       'Automatic routing'
     )
-    const autoOrderControl = getControlByLabel<HTMLElement>('Auto group order')
-    const addGroupTrigger = autoOrderControl.querySelector<HTMLButtonElement>(
-      'button[role="combobox"]'
+    const moveDefault = document.querySelector<HTMLButtonElement>(
+      'button[aria-label="Move default up"]'
     )
-    assert.ok(addGroupTrigger)
-    await selectComboboxOption(addGroupTrigger, 'Priority access')
+    assert.ok(moveDefault)
+    await act(async () => moveDefault.click())
+    assert.deepEqual(
+      [
+        ...document.querySelectorAll(
+          'button[aria-label^="Move "][aria-label$=" up"]'
+        ),
+      ].map((item) => item.getAttribute('aria-label')),
+      ['Move default up', 'Move vip up']
+    )
+    const removeDefault = document.querySelector<HTMLButtonElement>(
+      'button[aria-label="Remove default"]'
+    )
+    assert.ok(removeDefault)
+    await act(async () => removeDefault.click())
 
     assert.ok(document.querySelector('button[aria-label="Remove vip"]'))
     assert.equal(

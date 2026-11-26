@@ -63,6 +63,7 @@ type AutoGroupOrderItemProps = {
   group: string
   index: number
   count: number
+  ratio?: ApiKeyGroupOption['ratio']
   onMove: (index: number, direction: 'up' | 'down') => void
   onRemove: (group: string) => void
 }
@@ -107,6 +108,7 @@ function AutoGroupOrderItem(props: AutoGroupOrderItemProps) {
       <span className='min-w-0 flex-1 truncate text-sm font-medium'>
         {props.group}
       </span>
+      <GroupRatioBadge ratio={props.ratio} />
       <div className='flex shrink-0 gap-1'>
         <Button
           type='button'
@@ -159,35 +161,40 @@ export function AutoGroupOrderEditor(props: AutoGroupOrderEditorProps) {
   const maxCount =
     Number.isInteger(props.maxCount) && props.maxCount > 0 ? props.maxCount : 5
   const isInheriting = props.mode === 'inherit'
-  const atLimit = props.value.length >= maxCount
+  const inheritedOrder = useMemo(
+    () => props.globalOptions.map((option) => option.value),
+    [props.globalOptions]
+  )
+  const canEditInherited = isInheriting && inheritedOrder.length <= maxCount
+  const order = canEditInherited ? inheritedOrder : props.value
+  const atLimit = order.length >= maxCount
   const candidates = useMemo(
     () =>
       props.options.filter(
-        (option) =>
-          option.value !== 'auto' && !props.value.includes(option.value)
+        (option) => option.value !== 'auto' && !order.includes(option.value)
       ),
-    [props.options, props.value]
+    [props.options, order]
   )
 
   const handleAdd = (group: string) => {
-    if (atLimit || props.value.includes(group)) return
+    if (atLimit || order.includes(group)) return
     props.onChange({
-      groups: [...props.value, group],
+      groups: [...order, group],
       mode: 'custom',
     })
   }
 
   const handleRemove = (group: string) => {
     props.onChange({
-      groups: props.value.filter((item) => item !== group),
+      groups: order.filter((item) => item !== group),
       mode: 'custom',
     })
   }
 
   const handleMove = (index: number, direction: 'up' | 'down') => {
     const targetIndex = direction === 'up' ? index - 1 : index + 1
-    if (targetIndex < 0 || targetIndex >= props.value.length) return
-    const next = [...props.value]
+    if (targetIndex < 0 || targetIndex >= order.length) return
+    const next = [...order]
     ;[next[index], next[targetIndex]] = [next[targetIndex], next[index]]
     props.onChange({ groups: next, mode: 'custom' })
   }
@@ -251,7 +258,7 @@ export function AutoGroupOrderEditor(props: AutoGroupOrderEditorProps) {
         </Empty>
       )}
 
-      {isInheriting && props.globalOptions.length > 0 && (
+      {isInheriting && !canEditInherited && props.globalOptions.length > 0 && (
         <ol
           data-slot='global-auto-order'
           aria-label={t('Inherit global Auto order')}
@@ -314,19 +321,22 @@ export function AutoGroupOrderEditor(props: AutoGroupOrderEditorProps) {
         </Empty>
       )}
 
-      {!isInheriting && props.value.length > 0 && (
+      {order.length > 0 && (
         <Reorder.Group
           axis='y'
-          values={props.value}
+          values={order}
           onReorder={(groups) => props.onChange({ groups, mode: 'custom' })}
           className='flex flex-col gap-2'
         >
-          {props.value.map((group, index) => (
+          {order.map((group, index) => (
             <AutoGroupOrderItem
               key={group}
               group={group}
               index={index}
-              count={props.value.length}
+              count={order.length}
+              ratio={
+                props.options.find((option) => option.value === group)?.ratio
+              }
               onMove={handleMove}
               onRemove={handleRemove}
             />

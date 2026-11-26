@@ -98,7 +98,7 @@ const options = [
     value: 'auto',
     label: 'auto',
     desc: 'Global automatic routing',
-    ratio: 'model-specific',
+    ratio: '自动',
   },
   { value: 'default', label: 'default', desc: 'User group', ratio: 1 },
   { value: 'vip', label: 'vip', desc: 'Priority group', ratio: 3 },
@@ -173,10 +173,10 @@ describe('API key group combobox Auto effect', () => {
       '[data-auto-group-effect="ratio"]'
     )
     assert.ok(triggerRatio)
-    assert.equal(triggerRatio.textContent, 'Model-specific pricing')
-    assert.equal(triggerRatio.textContent?.includes('Auto'), false)
+    assert.equal(triggerRatio.textContent, 'Auto Ratio')
+    assert.equal(triggerRatio.textContent?.includes('Auto'), true)
     assert.equal(triggerRatio.textContent?.includes('x'), false)
-    assert.equal(trigger.textContent?.includes('model-specific'), false)
+    assert.equal(trigger.textContent?.includes('自动'), false)
     assert.equal(triggerRatio.classList.contains('relative'), true)
     assert.equal(triggerRatio.classList.contains('overflow-visible'), true)
     assert.equal(triggerRatio.classList.contains('rounded-4xl'), true)
@@ -195,7 +195,7 @@ describe('API key group combobox Auto effect', () => {
       '[data-auto-group-effect="ratio"]'
     )
     assert.ok(optionRatio)
-    assert.equal(optionRatio.textContent, 'Model-specific pricing')
+    assert.equal(optionRatio.textContent, 'Auto Ratio')
     assert.ok(optionRatio.querySelector('[data-auto-group-flow-border]'))
 
     const defaultOption = getCommandItem('User group')
@@ -204,10 +204,7 @@ describe('API key group combobox Auto effect', () => {
       defaultOption.querySelector('[data-auto-group-flow-border]'),
       null
     )
-    assert.equal(
-      defaultOption.textContent?.includes('1× price multiplier'),
-      true
-    )
+    assert.equal(defaultOption.textContent?.includes('1x Ratio'), true)
     assert.equal(
       defaultOption.querySelector('[data-auto-group-effect="ratio"]'),
       null

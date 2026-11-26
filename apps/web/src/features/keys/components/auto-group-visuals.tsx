@@ -99,20 +99,13 @@ export function GroupRatioBadge(props: GroupRatioBadgeProps) {
 
   const label =
     typeof props.ratio === 'number'
-      ? t('{{ratio}}× price multiplier', { ratio: props.ratio })
-      : t('Model-specific pricing')
+      ? `${props.ratio}x ${t('Ratio')}`
+      : `${t('Auto')} ${t('Ratio')}`
   const badge = (
     <Badge
       variant='outline'
-      title={
-        typeof props.ratio === 'number'
-          ? undefined
-          : t(
-              'Pricing follows the selected model and route. See Models and pricing for rates.'
-            )
-      }
       className={cn(
-        'max-w-full whitespace-normal text-[10px] sm:text-xs',
+        'max-w-full truncate text-[10px] sm:text-xs',
         getRatioBadgeClassName(props.ratio, props.isAuto === true)
       )}
     >
@@ -121,14 +114,14 @@ export function GroupRatioBadge(props: GroupRatioBadgeProps) {
   )
 
   if (!props.isAuto) {
-    return <span className='max-w-36 shrink-0 sm:max-w-none'>{badge}</span>
+    return <span className='max-w-24 shrink-0 sm:max-w-none'>{badge}</span>
   }
 
   return (
     <AutoGroupFrame
       effect='ratio'
       shouldReduceMotion={props.shouldReduceMotion ?? false}
-      className='max-w-36 sm:max-w-none'
+      className='max-w-24 sm:max-w-none'
     >
       {badge}
     </AutoGroupFrame>

@@ -222,23 +222,7 @@ async fn auto_groups(State(state): State<AuthState>, headers: HeaderMap) -> Resp
     respond(async {Ok(json!({"groups":state.store.dashboard_auto_groups(access(&headers)?).await?,"max_count":16}))}.await)
 }
 async fn groups(State(state): State<AuthState>, headers: HeaderMap) -> Response {
-    respond(
-        async {
-            let groups = state.store.dashboard_groups(access(&headers)?).await?;
-            let mut data = serde_json::Map::new();
-            for group in groups.as_array().ok_or(IdentityError::Storage)? {
-                let name = group.as_str().ok_or(IdentityError::Storage)?;
-                // Pricing multipliers are immutable server price rules and may
-                // differ per model; no fabricated universal discount is exposed.
-                data.insert(
-                    name.to_owned(),
-                    json!({"desc":name,"ratio":"model-specific"}),
-                );
-            }
-            Ok(Value::Object(data))
-        }
-        .await,
-    )
+    respond(async { state.store.dashboard_groups(access(&headers)?).await }.await)
 }
 async fn models(State(state): State<AuthState>, headers: HeaderMap) -> Response {
     respond(

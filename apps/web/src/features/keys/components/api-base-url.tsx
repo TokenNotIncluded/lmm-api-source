@@ -20,20 +20,20 @@ export function ApiBaseUrl() {
     : ''
   return (
     <section
-      className='bg-muted/35 mb-6 min-w-0 space-y-2 rounded-xl px-4 py-3 sm:px-5'
+      className='bg-muted/30 mb-5 min-w-0 space-y-2 rounded-xl border p-4'
       aria-label={t('Base URL')}
     >
       <p className='text-muted-foreground text-xs font-medium'>
         {t('Base URL')}
       </p>
-      <div className='flex min-w-0 flex-wrap items-center gap-x-4 gap-y-2'>
-        <code className='min-w-0 flex-1 basis-48 text-sm font-medium break-all'>
+      <div className='flex min-w-0 flex-col items-stretch gap-2 sm:flex-row sm:items-center'>
+        <code className='min-w-0 text-sm font-medium break-all sm:flex-1'>
           {baseUrl ?? t(loading ? 'Loading...' : 'API address unavailable')}
         </code>
         <Button
           type='button'
           variant='outline'
-          className='min-h-11 shrink-0 sm:w-auto'
+          className='min-h-11 w-full sm:min-h-8 sm:w-auto'
           disabled={!baseUrl}
           onClick={async () => {
             if (!baseUrl) return
@@ -50,8 +50,8 @@ export function ApiBaseUrl() {
           'Includes /v1. Do not append /v1 again in your client. Copy the API key separately.'
         )}
       </p>
-      <details className='text-muted-foreground [&[open]]:text-foreground text-xs'>
-        <summary className='hover:text-foreground w-fit cursor-pointer py-2'>
+      <details className='text-sm'>
+        <summary className='min-h-11 cursor-pointer py-2'>
           {t('Query API key quota (read-only)')}
         </summary>
         <div className='space-y-2'>

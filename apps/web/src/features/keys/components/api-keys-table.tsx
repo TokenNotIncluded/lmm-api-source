@@ -21,6 +21,7 @@ import { getRouteApi } from '@tanstack/react-router'
 import { KeyRound, Plus } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { toast } from 'sonner'
 
 import {
   DISABLED_ROW_DESKTOP,
@@ -29,7 +30,6 @@ import {
   useDebouncedColumnFilter,
   useDataTable,
 } from '@/components/data-table'
-import { ErrorState } from '@/components/error-state'
 import { StatusBadge } from '@/components/status-badge'
 import { Button } from '@/components/ui/button'
 import {
@@ -44,7 +44,6 @@ import { Progress } from '@/components/ui/progress'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useTableUrlState } from '@/hooks/use-table-url-state'
 import { formatQuota } from '@/lib/format'
-import { getServerErrorMessage } from '@/lib/server-error-message'
 import type { Table as TanstackTable } from '@/lib/table'
 import { cn } from '@/lib/utils'
 
@@ -107,14 +106,10 @@ function ApiKeysMobileList({
   table,
   isLoading,
   creationMode,
-  hasFilters,
-  onClearFilters,
 }: {
   table: TanstackTable<ApiKey>
   isLoading: boolean
   creationMode: ApiKeyCreationMode
-  hasFilters: boolean
-  onClearFilters: () => void
 }) {
   const { t } = useTranslation()
   const { setOpen } = useApiKeys()
@@ -132,33 +127,21 @@ function ApiKeysMobileList({
               <KeyRound className='size-6' />
             </EmptyMedia>
             <EmptyTitle>
-              {hasFilters
-                ? t('No results found')
-                : isAutomatic
-                  ? t('No automatically created API keys')
-                  : t('No API Keys Found')}
+              {isAutomatic
+                ? t('No automatically created API keys')
+                : t('No API Keys Found')}
             </EmptyTitle>
             <EmptyDescription>
-              {hasFilters
-                ? t('No API keys match the current filters.')
-                : isAutomatic
-                  ? t(
-                      'Keys created for site features appear here. Keys created with the assistant appear after your confirmation.'
-                    )
-                  : t(
-                      'No API keys available. Create your first API key to get started.'
-                    )}
+              {isAutomatic
+                ? t(
+                    'Keys created for site features appear here. Keys created with the assistant appear after your confirmation.'
+                  )
+                : t(
+                    'No API keys available. Create your first API key to get started.'
+                  )}
             </EmptyDescription>
           </EmptyHeader>
-          {hasFilters ? (
-            <Button
-              variant='outline'
-              className='min-h-11'
-              onClick={onClearFilters}
-            >
-              {t('Clear filters')}
-            </Button>
-          ) : isAutomatic ? null : (
+          {isAutomatic ? null : (
             <Button
               size='sm'
               className='min-h-11'
@@ -321,7 +304,7 @@ export function ApiKeysTable({
 
   // Fetch data with React Query
   // eslint-disable-next-line @tanstack/query/exhaustive-deps
-  const { data, isLoading, isFetching, isError, error, refetch } = useQuery({
+  const { data, isLoading, isFetching } = useQuery({
     queryKey: [
       'keys',
       pagination.pageIndex + 1,
@@ -347,7 +330,7 @@ export function ApiKeysTable({
           })
 
       if (!result.success) {
-        throw new Error(
+        toast.error(
           result.message ||
             t(
               shouldSearch
@@ -355,6 +338,7 @@ export function ApiKeysTable({
                 : ERROR_MESSAGES.LOAD_FAILED
             )
         )
+        return { items: [], total: 0, creationMode }
       }
 
       return {
@@ -363,7 +347,6 @@ export function ApiKeysTable({
         creationMode,
       }
     },
-    retry: false,
     placeholderData: (previousData) =>
       previousData?.creationMode === creationMode ? previousData : undefined,
   })
@@ -389,29 +372,7 @@ export function ApiKeysTable({
 
   // An empty list is only a "you have nothing yet" state when no filter is
   // narrowing it; otherwise the right next step is to clear the filter.
-  const hasFilters =
-    shouldSearch ||
-    columnFilters.some(({ value }) =>
-      Array.isArray(value) ? value.length > 0 : Boolean(value)
-    )
-  const showCreateCta = creationMode === 'manual' && !hasFilters
-  const clearFilters = () => {
-    onGlobalFilterChange?.('')
-    onColumnFiltersChange([])
-    setTokenFilterInput('')
-  }
-
-  if (isError) {
-    return (
-      <div role='alert'>
-        <ErrorState
-          title={t(ERROR_MESSAGES.LOAD_FAILED)}
-          description={getServerErrorMessage(error) ?? t('Failed to load data')}
-          onRetry={() => void refetch()}
-        />
-      </div>
-    )
-  }
+  const showCreateCta = creationMode === 'manual' && !shouldSearch
 
   return (
     <DataTablePage
@@ -420,30 +381,24 @@ export function ApiKeysTable({
       isLoading={isLoading}
       isFetching={isFetching}
       emptyTitle={
-        hasFilters
-          ? t('No results found')
-          : creationMode === 'automatic'
-            ? t('No automatically created API keys')
-            : t('No API Keys Found')
+        creationMode === 'automatic'
+          ? t('No automatically created API keys')
+          : t('No API Keys Found')
       }
       emptyDescription={
-        hasFilters
-          ? t('No API keys match the current filters.')
-          : creationMode === 'automatic'
-            ? t(
-                'Keys created for site features appear here. Keys created with the assistant appear after your confirmation.'
-              )
+        creationMode === 'automatic'
+          ? t(
+              'Keys created for site features appear here. Keys created with the assistant appear after your confirmation.'
+            )
+          : shouldSearch
+            ? t('No API keys match the current filters.')
             : t(
                 'No API keys available. Create your first API key to get started.'
               )
       }
       emptyIcon={creationMode === 'manual' ? <KeyRound /> : undefined}
       emptyAction={
-        hasFilters ? (
-          <Button variant='outline' onClick={clearFilters}>
-            {t('Clear filters')}
-          </Button>
-        ) : showCreateCta ? (
+        showCreateCta ? (
           <Button size='sm' onClick={() => setOpen('create')}>
             <Plus className='h-4 w-4' />
             {t('Create API Key')}
@@ -479,8 +434,6 @@ export function ApiKeysTable({
           table={table}
           isLoading={isLoading}
           creationMode={creationMode}
-          hasFilters={hasFilters}
-          onClearFilters={clearFilters}
         />
       }
       getRowClassName={(row) =>

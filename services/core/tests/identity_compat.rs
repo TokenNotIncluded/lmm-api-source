@@ -724,7 +724,7 @@ async fn fresh_browser_signup_can_use_default_models_and_respects_explicit_group
     // An explicit denial suppresses fallback without creating any new authority.
     sqlx::query("INSERT INTO core_identity.user_routing_groups(user_id,group_name,enabled,source_reference) VALUES($1,'default',FALSE,'synthetic-explicit-denial')")
         .bind(user).execute(&pool).await.unwrap();
-    assert_eq!(store.dashboard_groups(access).await.unwrap(), json!([]));
+    assert_eq!(store.dashboard_groups(access).await.unwrap(), json!({}));
     assert!(store.dashboard_models(access).await.unwrap().is_empty());
     assert!(matches!(
         store.api_key_routing_groups(secret).await,
@@ -760,7 +760,10 @@ async fn fresh_browser_signup_can_use_default_models_and_respects_explicit_group
         .bind(user).execute(&pool).await.unwrap();
     assert_eq!(
         store.dashboard_groups(access).await.unwrap(),
-        json!(["auto", "private"])
+        json!({
+            "auto":{"desc":"auto","ratio":"model-specific"},
+            "private":{"desc":"private","ratio":"model-specific"}
+        })
     );
     assert_eq!(
         store.dashboard_models(access).await.unwrap(),

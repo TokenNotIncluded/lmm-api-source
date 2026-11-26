@@ -769,7 +769,24 @@ impl IdentityStore {
             allowed
         };
         tx.commit().await?;
-        Ok(json!(allowed))
+        let data = allowed
+            .into_iter()
+            .map(|name| {
+                let multiplier = if name == "auto" {
+                    None
+                } else {
+                    self.dashboard_routing
+                        .as_deref()
+                        .and_then(|routing| routing.group_price_multiplier(&name).ok().flatten())
+                };
+                let ratio = multiplier.map_or_else(
+                    || json!("model-specific"),
+                    |ppm| json!(f64::from(ppm) / 1_000_000.0),
+                );
+                (name.clone(), json!({"desc": name, "ratio": ratio}))
+            })
+            .collect::<serde_json::Map<_, _>>();
+        Ok(Value::Object(data))
     }
     pub async fn dashboard_auto_groups(&self, secret: &str) -> Result<Value> {
         let mut tx = self.pool.begin().await?;

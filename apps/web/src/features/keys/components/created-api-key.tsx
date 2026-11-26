@@ -199,7 +199,7 @@ export function CreatedApiKey({
               </Button>
             </div>
             <a
-              href='/developers'
+              href='/guide'
               className='text-primary text-sm underline underline-offset-4'
               onClick={onClose}
             >

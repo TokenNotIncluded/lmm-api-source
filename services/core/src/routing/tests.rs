@@ -107,6 +107,19 @@ fn build(config: RoutingConfig, prices: PriceConfig) -> Router {
 }
 
 #[test]
+fn group_price_multiplier_requires_agreement_and_preserves_zero() {
+    let (config, mut prices) = fixture(1);
+    for rule in &mut prices.rules {
+        rule.group_multiplier_ppm = 0;
+    }
+    let router = build(config.clone(), prices.clone());
+    assert_eq!(router.group_price_multiplier("default").unwrap(), Some(0));
+    prices.rules[0].group_multiplier_ppm = 250_000;
+    let router = build(config, prices);
+    assert_eq!(router.group_price_multiplier("default").unwrap(), None);
+}
+
+#[test]
 fn unicode_group_routes_price_aliases_and_request_keys_are_byte_exact() {
     for group in ["国产", "官key", "国产[Kimi/Deepseek/GLM]", "é", "e\u{301}"] {
         let (mut config, mut prices) = fixture(1);

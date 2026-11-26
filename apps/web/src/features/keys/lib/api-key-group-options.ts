@@ -35,11 +35,13 @@ export function buildApiKeyGroupOptions(
       >
     | undefined
 ): ApiKeyGroupOption[] {
-  return Object.entries(groupsData || {}).map(([key, info]) => ({
+  const options = Object.entries(groupsData || {}).map(([key, info]) => ({
     value: key,
     label: key,
     desc: info.desc || key,
     ratio: info.ratio,
     warning: info.warning,
   }))
+  const auto = options.find((option) => option.value === 'auto')
+  return auto ? [auto, ...options.filter((option) => option !== auto)] : options
 }

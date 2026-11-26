@@ -93,6 +93,7 @@ import {
 } from '../api'
 import { ERROR_MESSAGES, SUCCESS_MESSAGES } from '../constants'
 import {
+  buildApiKeyGroupOptions,
   getApiKeyFormSchema,
   type ApiKeyFormValues,
   getApiKeyFormDefaultValues,
@@ -101,10 +102,7 @@ import {
 } from '../lib'
 import type { ApiKey } from '../types'
 import { ApiBaseUrl } from './api-base-url'
-import {
-  ApiKeyGroupCombobox,
-  type ApiKeyGroupOption,
-} from './api-key-group-combobox'
+import { ApiKeyGroupCombobox } from './api-key-group-combobox'
 import { useApiKeys } from './api-keys-provider'
 import { AutoGroupOrderEditor } from './auto-group-order-editor'
 import { CreatedApiKey, type CreatedApiKeySecret } from './created-api-key'
@@ -219,15 +217,8 @@ function ApiKeysMutateDrawerForm({
   })
 
   const models = modelsData?.data || []
-  const groups = useMemo<ApiKeyGroupOption[]>(
-    () =>
-      Object.entries(groupsData?.data || {}).map(([key, info]) => ({
-        value: key,
-        label: key,
-        desc: info.desc || key,
-        ratio: info.ratio,
-        warning: info.warning,
-      })),
+  const groups = useMemo(
+    () => buildApiKeyGroupOptions(groupsData?.data),
     [groupsData]
   )
   const backendHasAuto = groups.some((g) => g.value === 'auto')
