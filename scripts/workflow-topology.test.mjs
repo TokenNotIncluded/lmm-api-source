@@ -186,13 +186,6 @@ test('automatic checks and explicit source-release requests have bounded trigger
       assert.match(block[1], /services\/extensions\/internal\/modules\/assistant\/\*\*/);
       assert.match(source, /permissions:\n  contents: read/);
       assert.doesNotMatch(source, /secrets\.|contents: write|pull_request_target|environment: production/);
-    } else if (file === 'mk-01-identity.yml') {
-      // MK-01 uses disposable databases for changes to main and its PRs.
-      assert.deepEqual(events, ['push', 'pull_request']);
-      assert.match(block[1], /push:\n    branches: \[main\]\n    paths:/);
-      assert.match(block[1], /pull_request:\n    branches: \[main\]/);
-      assert.match(source, /permissions:\n  contents: read/);
-      assert.doesNotMatch(source, /secrets\.|contents: write|pull_request_target|environment: production/);
     } else {
       assert.deepEqual(events, ['workflow_dispatch'], `${file}: no new automatic publication or deployment`);
     }
@@ -505,9 +498,7 @@ test('native package uploads keep raw Alpine fixture output private', () => {
 
 test('automatic Core checks run both Cargo target groups on independent runners', () => {
   const source = workflow('core-protocol');
-  for (const caller of ['ci', 'mk-01-identity']) {
-    assert.match(workflow(caller), /uses: \.\/\.github\/workflows\/core-protocol\.yml\n    with:\n      split_rust_targets: true/);
-  }
+  assert.match(workflow('ci'), /uses: \.\/\.github\/workflows\/core-protocol\.yml\n    with:\n      split_rust_targets: true/);
   assert.match(source, /split_rust_targets:[\s\S]*?type: boolean\n        default: false/);
   assert.match(source, /fail-fast: false\n      matrix:\n        targets: .*inputs\.split_rust_targets && '\["unit","integration"\]' \|\| '\["all"\]'/);
   assert.ok(source.includes('RUST_TARGET_GROUP: ${{ matrix.targets }}'));

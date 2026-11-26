@@ -427,9 +427,8 @@ DATABASE_URL=postgres://postgres:postgres@127.0.0.1:5432/postgres \
 cargo test --locked --lib upstream_cost:: -- --nocapture
 ```
 
-The dedicated [`Rust routing contract` workflow](../../../../.github/workflows/core-routing.yml)
-runs these component checks only when manually dispatched. It has no production
-or deployment access and does not run the model HTTP/ledger integration suite.
+The shared [Core protocol workflow](../../../../.github/workflows/core-protocol.yml)
+runs these checks with the model HTTP and ledger integration suites.
 
 Revision 4 additionally needs the receipt, pricing, recovery and request-option
 unit tests and the actual PostgreSQL settlement tests. From `services/core`, the

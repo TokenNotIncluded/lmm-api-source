@@ -176,7 +176,7 @@ on PR #675. There is no production deployment or legacy migration in this PR.
 
 ## Reproducible verification
 
-Use `.github/workflows/mk06-protocol-events.yml` or run in a disposable local
+Use `.github/workflows/core-protocol.yml` or run in a disposable local
 PostgreSQL environment with the repository's pinned Rust/Go tools:
 
 ```sh

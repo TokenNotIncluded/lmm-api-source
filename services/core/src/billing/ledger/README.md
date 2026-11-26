@@ -234,8 +234,6 @@ drops them and closes the socket. The retry must return the stored receipt and
 leave the balance debited exactly once. It is not merely a discarded Rust return
 value or a mocked database.
 
-CI is `.github/workflows/core-ledger.yml`; it uses an isolated PostgreSQL service,
-read-only repository permissions and no deployment step. Each run saves source,
-commit identity and formatter/clippy/test logs as an artifact. The task PR records
-the verified run and remaining integration work; do not infer a pass merely from
-this test list.
+The shared `.github/workflows/core-protocol.yml` runs ledger checks against an
+isolated PostgreSQL service with read-only repository permissions. The run
+records the tested revision and retains verification logs.
