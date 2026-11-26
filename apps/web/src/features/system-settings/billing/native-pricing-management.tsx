@@ -43,10 +43,13 @@ import {
   type NativeRoutingScope,
   type NativeVersion,
 } from '@/features/channels/native-api'
+import { readNativeUsersScope } from '@/features/native-users/access'
 import { getServerErrorMessage } from '@/lib/server-error-message'
 import { useAuthStore } from '@/stores/auth-store'
 
 import {
+  configuredRouterSelectors,
+  priceSelectorKey,
   routingPriceCoverage,
   type PriceSelector,
 } from './native-price-coverage'
@@ -61,6 +64,10 @@ import {
   samePriceRule,
   type NativePriceRule,
 } from './native-price-rules'
+import {
+  originalGroupDescriptions,
+  readPricingSourceSnapshot,
+} from './pricing-source-snapshot-api'
 
 type Draft = {
   expected: NativeVersion
@@ -79,8 +86,10 @@ type Preview = {
 
 export function NativePricingManagement({
   initialMode = '',
+  groupWorkspace = false,
 }: {
   initialMode?: string
+  groupWorkspace?: boolean
 }) {
   const { t } = useTranslation()
   const auth = useAuthStore((state) => state.auth)
@@ -99,6 +108,7 @@ export function NativePricingManagement({
       key={`${scope.userId}:${scope.sessionId}:${scope.role}`}
       scope={scope}
       initialMode={initialMode}
+      groupWorkspace={groupWorkspace}
     />
   )
 }
@@ -106,9 +116,11 @@ export function NativePricingManagement({
 function PricingWorkspace({
   scope,
   initialMode,
+  groupWorkspace,
 }: {
   scope: NativeRoutingScope
   initialMode: string
+  groupWorkspace: boolean
 }) {
   const { t } = useTranslation()
   const client = useQueryClient()
@@ -124,14 +136,34 @@ function PricingWorkspace({
     refetchOnWindowFocus: false,
     retry: false,
   })
+  const snapshotScope = readNativeUsersScope()
+  const snapshot = useQuery({
+    queryKey: [
+      'pricing-source-snapshot',
+      scope.userId,
+      scope.sessionId,
+      scope.role,
+    ],
+    queryFn: ({ signal }) => {
+      if (!snapshotScope) throw new Error('Administrator session required')
+      return readPricingSourceSnapshot(snapshotScope, signal)
+    },
+    enabled: groupWorkspace && !!snapshotScope,
+    retry: false,
+    staleTime: 60_000,
+    gcTime: 0,
+    refetchOnWindowFocus: false,
+  })
+  const groupDescriptions = originalGroupDescriptions(snapshot.data)
   const [search, setSearch] = useState('')
-  const [group, setGroup] = useState('')
+  const [groupFilter, setGroup] = useState('')
   const [mode, setMode] = useState(initialMode)
   const [page, setPage] = useState(1)
   const [draft, setDraft] = useState<Draft | null>(null)
   const [editing, setEditing] = useState<{
     rule: NativePriceRule
     previousId?: number
+    openUpstreamSync?: boolean
   } | null>(null)
   const [json, setJson] = useState<string | null>(null)
   const [batchMultiplier, setBatchMultiplier] = useState('1')
@@ -142,6 +174,11 @@ function PricingWorkspace({
   const [deleteDraft, setDeleteDraft] = useState<number | null>(null)
   const pending = useRef(false)
   const configuration = query.data
+  const group =
+    groupFilter ||
+    (groupWorkspace
+      ? configuration?.routing.groups.find((item) => item.enabled)?.name || ''
+      : '')
   const prices = draft?.prices ?? configuration?.prices
   const fail = (cause: unknown) =>
     setError(
@@ -167,9 +204,29 @@ function PricingWorkspace({
     await query.refetch()
     await client.invalidateQueries({ queryKey: ['pricing'] })
   }
+  function requireSupportedTierChanges(
+    before: NativePrices,
+    next: NativePrices
+  ) {
+    const previous = new Map(before.rules.map((rule) => [rule.id, rule]))
+    const changed = new Map(next.rules.map((rule) => [rule.id, rule]))
+    for (const id of new Set([...previous.keys(), ...changed.keys()])) {
+      const oldRule = previous.get(id)
+      const newRule = changed.get(id)
+      if (
+        (oldRule?.speed === 'fast' ||
+          oldRule?.speed === 'ultrafast' ||
+          newRule?.speed === 'fast' ||
+          newRule?.speed === 'ultrafast') &&
+        !samePriceRule(oldRule, newRule)
+      )
+        throw new Error(t('Capability unavailable'))
+    }
+  }
   function updatePrices(next: NativePrices) {
     if (!configuration) return
     readPriceRules(next)
+    requireSupportedTierChanges(configuration.prices, next)
     setDraft({
       expected: draft?.expected ?? configuration.version,
       prices: {
@@ -216,7 +273,7 @@ function PricingWorkspace({
       speed_multiplier_ppm: 1_000_000,
     }
   }
-  function addRule(selector?: PriceSelector) {
+  function addRule(selector?: PriceSelector, openUpstreamSync = false) {
     if (!configuration || !prices) return
     const rule = newRule(
       selector ?? {
@@ -226,10 +283,10 @@ function PricingWorkspace({
       },
       prices
     )
-    if (!selector && mode === 'upstream_cost') {
+    if (!selector && !openUpstreamSync && mode === 'upstream_cost') {
       rule.billing_mode = 'upstream_cost'
     }
-    setEditing({ rule })
+    setEditing({ rule, openUpstreamSync })
   }
   function saveToolFee(
     row: { selector: PriceSelector; rule?: NativePriceRule },
@@ -237,11 +294,26 @@ function PricingWorkspace({
   ) {
     if (!prices) return
     try {
-      const rule = row.rule ?? newRule(row.selector, prices)
-      const next = { ...rule, rates: { ...rule.rates, request: micros } }
+      const stored = readPriceRules(prices).find(
+        (rule) => priceSelectorKey(rule) === priceSelectorKey(row.selector)
+      )
+      const rule = stored ?? newRule(row.selector, prices)
+      const next: NativePriceRule = {
+        ...rule,
+        billing_mode: 'tokens',
+        rates: {
+          input: 0,
+          output: 0,
+          cache_read: 0,
+          cache_write: 0,
+          request: micros,
+        },
+      }
+      delete next.tiered
+      delete next.rounding
       updatePrices({
         ...prices,
-        rules: row.rule
+        rules: stored
           ? prices.rules.map((item) => (item.id === rule.id ? next : item))
           : [...prices.rules, next],
       })
@@ -261,6 +333,7 @@ function PricingWorkspace({
       ? `${NATIVE_ROOT}/prices/drafts/${saved.id}`
       : `${NATIVE_ROOT}/prices`
     await run(async () => {
+      requireSupportedTierChanges(configuration.prices, after)
       const response = await nativeRequest<{ confirmation_digest: string }>(
         scope,
         'POST',
@@ -370,6 +443,14 @@ function PricingWorkspace({
     ]),
   ].sort()
   const coverage = routingPriceCoverage(configuration.routing, rules)
+  const routers = configuredRouterSelectors(configuration.routing)
+  const unpricedRouters = routers.filter(
+    (selector) =>
+      !rules.some(
+        (rule) => priceSelectorKey(rule) === priceSelectorKey(selector)
+      )
+  )
+  const routerWorkspace = initialMode === 'upstream_cost'
   const matching = rules.filter(
     (rule) =>
       (!group || rule.group === group) &&
@@ -407,6 +488,128 @@ function PricingWorkspace({
     anchor.click()
     URL.revokeObjectURL(url)
   }
+  function applyGroupMultiplier() {
+    if (!prices) return
+    const multiplier = usdToMicros(batchMultiplier)
+    if (
+      multiplier === null ||
+      multiplier > 1_000_000_000 ||
+      (multiplier === 0 &&
+        rules.some(
+          (rule) =>
+            rule.group === group && rule.billing_mode === 'upstream_cost'
+        ))
+    ) {
+      setError(
+        t(
+          'Enter a valid multiplier from 0 to 1000. Upstream-cost rules require a value above zero.'
+        )
+      )
+      return
+    }
+    updatePrices({
+      ...prices,
+      rules: rules.map((rule) =>
+        rule.group === group && rule.speed === 'standard'
+          ? { ...rule, group_multiplier_ppm: multiplier }
+          : rule
+      ),
+    })
+  }
+
+  const groupedMultipliers = new Map<string, Set<number>>()
+  for (const rule of rules) {
+    if (rule.speed !== 'standard') continue
+    const values = groupedMultipliers.get(rule.group) ?? new Set<number>()
+    values.add(rule.group_multiplier_ppm)
+    groupedMultipliers.set(rule.group, values)
+  }
+  const groupPrices = (
+    <div className='space-y-5 rounded-lg border p-4'>
+      <Table>
+        <TableHeader>
+          <TableRow>
+            <TableHead>{t('Group')}</TableHead>
+            <TableHead>{t('Original group description')}</TableHead>
+            <TableHead>{t('Group price')}</TableHead>
+            <TableHead className='text-right'>{t('Actions')}</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {groups.map((name) => {
+            const values = groupedMultipliers.get(name)
+            const uniform =
+              values?.size === 1 ? values.values().next().value : undefined
+            return (
+              <TableRow key={name}>
+                <TableCell className='font-medium'>{name}</TableCell>
+                <TableCell className='whitespace-normal'>
+                  {groupDescriptions.get(name) ?? '—'}
+                </TableCell>
+                <TableCell className='tabular-nums'>
+                  {uniform !== undefined
+                    ? `${microsToUsd(uniform)}×`
+                    : values?.size
+                      ? t('Mixed price multipliers')
+                      : t('Unset price')}
+                </TableCell>
+                <TableCell className='text-right'>
+                  <Button
+                    type='button'
+                    variant='ghost'
+                    disabled={busy || stale || query.isError || !values?.size}
+                    onClick={() => {
+                      setGroup(name)
+                      setBatchMultiplier(
+                        uniform === undefined ? '' : microsToUsd(uniform)
+                      )
+                    }}
+                  >
+                    {t('Edit')}
+                  </Button>
+                </TableCell>
+              </TableRow>
+            )
+          })}
+        </TableBody>
+      </Table>
+      {groupFilter && (
+        <div className='space-y-2'>
+          <div className='flex flex-wrap items-end gap-3'>
+            <label className='min-w-0 space-y-2 text-sm'>
+              <span>
+                {groupFilter} · {t('Group multiplier')}
+              </span>
+              <Input
+                className='w-40 tabular-nums'
+                inputMode='decimal'
+                value={batchMultiplier}
+                onChange={(event) => setBatchMultiplier(event.target.value)}
+              />
+            </label>
+            <Button
+              type='button'
+              variant='outline'
+              disabled={
+                busy || stale || query.isError || !batchMultiplier.trim()
+              }
+              onClick={applyGroupMultiplier}
+            >
+              {t('Apply to group')}
+            </Button>
+            <Button type='button' variant='ghost' onClick={() => setGroup('')}>
+              {t('Cancel')}
+            </Button>
+          </div>
+          <p className='text-muted-foreground text-sm'>
+            {t(
+              'Changes stay in your draft until you preview and publish them.'
+            )}
+          </p>
+        </div>
+      )}
+    </div>
+  )
   const modelPrices = (
     <>
       <div className='flex flex-wrap items-start justify-between gap-5'>
@@ -448,9 +651,21 @@ function PricingWorkspace({
           >
             {t('Export JSON')}
           </Button>
-          <Button type='button' disabled={busy} onClick={() => addRule()}>
-            {t('Add price rule')}
-          </Button>
+          {!routerWorkspace && (
+            <Button
+              type='button'
+              variant='outline'
+              disabled={busy}
+              onClick={() => addRule(undefined, true)}
+            >
+              {t('Upstream price sync')}
+            </Button>
+          )}
+          {!routerWorkspace && (
+            <Button type='button' disabled={busy} onClick={() => addRule()}>
+              {t('Add price rule')}
+            </Button>
+          )}
         </div>
       </div>
       <div className='flex min-w-0 flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center'>
@@ -483,6 +698,7 @@ function PricingWorkspace({
         <NativeSelect
           className='w-full sm:w-auto'
           aria-label={t('Billing mode')}
+          disabled={routerWorkspace}
           value={mode}
           onChange={(event) => {
             setMode(event.target.value)
@@ -527,39 +743,12 @@ function PricingWorkspace({
             type='button'
             variant='outline'
             disabled={busy}
-            onClick={() => {
-              const multiplier = usdToMicros(batchMultiplier)
-              if (
-                multiplier === null ||
-                multiplier > 1_000_000_000 ||
-                (multiplier === 0 &&
-                  rules.some(
-                    (rule) =>
-                      rule.group === group &&
-                      rule.billing_mode === 'upstream_cost'
-                  ))
-              ) {
-                setError(
-                  t(
-                    'Enter a valid multiplier from 0 to 1000. Upstream-cost rules require a value above zero.'
-                  )
-                )
-                return
-              }
-              updatePrices({
-                ...prices,
-                rules: rules.map((rule) =>
-                  rule.group === group
-                    ? { ...rule, group_multiplier_ppm: multiplier }
-                    : rule
-                ),
-              })
-            }}
+            onClick={applyGroupMultiplier}
           >
             {t('Apply to group')}
           </Button>
           <span className='text-muted-foreground pb-2 text-sm'>
-            {t('Applies to every price rule in {{group}}.', { group })}
+            {t('Standard')}
           </span>
         </div>
       )}
@@ -596,7 +785,9 @@ function PricingWorkspace({
                 <TableCell>
                   <div>{rule.group}</div>
                   <div className='text-muted-foreground mt-1 text-xs'>
-                    {rule.speed}
+                    {rule.speed === 'standard'
+                      ? rule.speed
+                      : `${rule.speed} · ${t('Read only')}`}
                   </div>
                 </TableCell>
                 {(
@@ -624,7 +815,7 @@ function PricingWorkspace({
                 <TableCell className='bg-background sticky right-0 z-10 w-24 text-right'>
                   <DropdownMenu>
                     <DropdownMenuTrigger
-                      disabled={busy}
+                      disabled={busy || rule.speed !== 'standard'}
                       render={
                         <Button
                           type='button'
@@ -641,7 +832,7 @@ function PricingWorkspace({
                       className='bg-background min-w-40'
                     >
                       <DropdownMenuItem
-                        disabled={busy}
+                        disabled={busy || rule.speed !== 'standard'}
                         onClick={() =>
                           setEditing({ rule, previousId: rule.id })
                         }
@@ -649,7 +840,7 @@ function PricingWorkspace({
                         {t('Edit')}
                       </DropdownMenuItem>
                       <DropdownMenuItem
-                        disabled={busy}
+                        disabled={busy || rule.speed !== 'standard'}
                         onClick={() =>
                           setEditing({
                             rule: {
@@ -663,7 +854,7 @@ function PricingWorkspace({
                         {t('Copy')}
                       </DropdownMenuItem>
                       <DropdownMenuItem
-                        disabled={busy}
+                        disabled={busy || rule.speed !== 'standard'}
                         variant='destructive'
                         onClick={() =>
                           updatePrices({
@@ -730,7 +921,7 @@ function PricingWorkspace({
   return (
     <section
       className='@container/prices min-w-0 space-y-7'
-      aria-label={t('Model Pricing')}
+      aria-label={t(groupWorkspace ? 'Group Pricing' : 'Model Pricing')}
     >
       {error && (
         <Alert variant='destructive' role='alert'>
@@ -753,35 +944,73 @@ function PricingWorkspace({
           </AlertDescription>
         </Alert>
       )}
-      <Tabs defaultValue='models'>
-        {!initialMode && (
-          <TabsList variant='navigation' aria-label={t('Model Pricing')}>
-            <TabsTrigger value='models'>{t('Model prices')}</TabsTrigger>
-            <TabsTrigger value='missing'>{t('Unset price models')}</TabsTrigger>
-            <TabsTrigger value='tools'>{t('Tool prices')}</TabsTrigger>
-          </TabsList>
-        )}
-        <TabsContent value='models' className='space-y-7'>
-          {modelPrices}
-        </TabsContent>
-        <TabsContent value='missing'>
-          <NativePriceCoveragePanel
-            rows={coverage.missing.map((selector) => ({ selector }))}
-            disabled={busy || stale || query.isError}
-            addRule={addRule}
-            saveFee={saveToolFee}
-          />
-        </TabsContent>
-        <TabsContent value='tools'>
-          <NativePriceCoveragePanel
-            rows={coverage.tools}
-            tools
-            disabled={busy || stale || query.isError}
-            addRule={addRule}
-            saveFee={saveToolFee}
-          />
-        </TabsContent>
-      </Tabs>
+      {groupWorkspace ? (
+        groupPrices
+      ) : (
+        <Tabs defaultValue='models'>
+          {!initialMode && (
+            <TabsList variant='navigation' aria-label={t('Model Pricing')}>
+              <TabsTrigger value='models'>{t('Model prices')}</TabsTrigger>
+              <TabsTrigger value='missing'>
+                {t('Unset price models')}
+              </TabsTrigger>
+              <TabsTrigger value='tools'>{t('Tool prices')}</TabsTrigger>
+            </TabsList>
+          )}
+          <TabsContent value='models' className='space-y-7'>
+            {routerWorkspace && (
+              <div className='space-y-3 rounded-lg border p-4'>
+                <h3 className='font-medium'>{t('Router pricing')}</h3>
+                <p className='text-muted-foreground text-sm'>
+                  {t(
+                    'Router rules use actual upstream USD cost. External text calls remain blocked until the supplier guarantees the request budget.'
+                  )}
+                </p>
+                {unpricedRouters.length ? (
+                  <NativePriceCoveragePanel
+                    rows={unpricedRouters.map((selector) => ({ selector }))}
+                    disabled={busy || stale || query.isError}
+                    addRule={(selector) => {
+                      const rule = newRule(selector, prices)
+                      setEditing({
+                        rule: { ...rule, billing_mode: 'upstream_cost' },
+                      })
+                    }}
+                    saveFee={saveToolFee}
+                  />
+                ) : (
+                  <p role='status' className='text-muted-foreground text-sm'>
+                    {t(
+                      'No unpriced router route with a supported budget contract'
+                    )}
+                  </p>
+                )}
+                <a href='/channels' className='text-sm underline'>
+                  {t('Channels')}
+                </a>
+              </div>
+            )}
+            {modelPrices}
+          </TabsContent>
+          <TabsContent value='missing'>
+            <NativePriceCoveragePanel
+              rows={coverage.missing.map((selector) => ({ selector }))}
+              disabled={busy || stale || query.isError}
+              addRule={addRule}
+              saveFee={saveToolFee}
+            />
+          </TabsContent>
+          <TabsContent value='tools'>
+            <NativePriceCoveragePanel
+              rows={coverage.tools}
+              tools
+              disabled={busy || stale || query.isError}
+              addRule={addRule}
+              saveFee={saveToolFee}
+            />
+          </TabsContent>
+        </Tabs>
+      )}
       {draft && (
         <section
           className='bg-muted/50 space-y-4 rounded-xl p-5'
@@ -902,6 +1131,8 @@ function PricingWorkspace({
         <NativePriceRuleDialog
           initial={editing.rule}
           groups={groups}
+          routing={configuration.routing}
+          openUpstreamSync={editing.openUpstreamSync}
           models={[
             ...new Set(
               configuration.routing.routes.map((route) => route.model)

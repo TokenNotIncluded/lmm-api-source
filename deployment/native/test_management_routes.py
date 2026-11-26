@@ -61,6 +61,7 @@ class NativeManagementRoutes(unittest.TestCase):
             f'uwsgi_temp_path {cls.path}/uwsgi; scgi_temp_path {cls.path}/scgi; '
             f'server {{listen 127.0.0.1:{cls.port}; '
             f'root {cls.path}; include {cls.path}/routes.conf; '
+            'set $lmm_access_policy_original_uri 0; '
             f'location @lmm_extensions_backend {{proxy_pass http://127.0.0.1:{cls.go.server_port};}} '
             'location ^~ /core/ {return 503;} location / {return 418;} } }')
         (cls.path / 'nginx.conf').write_text(config)
@@ -104,6 +105,10 @@ class NativeManagementRoutes(unittest.TestCase):
     def test_exact_routes_preserve_method_uri_session_and_body(self):
         for method, path, target in (
             ('GET', '/api/option/epay/config', 'go'),
+            ('GET', '/api/admin/acquisition/report?from=1&to=2', 'go'),
+            ('GET', '/api/admin/acquisition/funnel', 'go'),
+            ('GET', '/api/admin/acquisition/visitors', 'go'),
+            ('GET', '/api/admin/acquisition/links', 'go'),
             ('GET', '/api/option/payment-gateways/config', 'go'),
             ('POST', '/api/option/waffo-pancake/catalog', 'go'),
             ('POST', '/api/option/waffo-pancake/pair', 'go'),

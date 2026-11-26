@@ -75,7 +75,7 @@ afterEach(async () => {
 after(() => dom.close())
 
 function configuration() {
-  return {
+  const config = {
     version: { routing: 3, pricing: 2 },
     secret_storage_enabled: false,
     routing: {
@@ -148,6 +148,33 @@ function configuration() {
       price_drafts: {},
     },
   }
+  const source = config.routing.routes[0]
+  config.routing.upstreams.push({
+    ...config.routing.upstreams[0],
+    id: 9,
+    protocol: 'openai_chat',
+    endpoint: 'http://127.0.0.1:17112',
+  })
+  for (const [index, model] of [
+    'imported-model',
+    'imported-model-copy',
+    'openrouter/auto-beta',
+  ].entries()) {
+    config.routing.routes.push({
+      ...source,
+      id: 20 + index,
+      model,
+      targets: [
+        {
+          ...source.targets[0],
+          id: 50 + index,
+          upstream_id: 9,
+          upstream_model: model,
+        },
+      ],
+    })
+  }
+  return config
 }
 async function mount(
   nativeConfiguration = true,
@@ -213,7 +240,22 @@ async function mount(
         ? { native_configuration: nativeConfiguration, native_secrets: false }
         : config.url === '/core/v1/admin/routing/configuration'
           ? current
-          : assert.fail(`Unexpected request: ${config.url}`)
+          : config.url === '/core/v1/admin/routing/pricing-source-snapshot'
+            ? {
+                contract: 'core.legacy-pricing-snapshot.v1',
+                purpose: 'reference_only',
+                source_sha256: 'b'.repeat(64),
+                observed_at: 1700000000,
+                options: [
+                  {
+                    key: 'UserUsableGroups',
+                    value: '{"default":"Original description"}',
+                  },
+                ],
+                enabled_channels: [],
+                unsupported: [],
+              }
+            : assert.fail(`Unexpected request: ${config.url}`)
     return {
       config,
       headers: {},
@@ -251,7 +293,7 @@ async function until(check: () => boolean) {
   }
   assert.ok(check(), 'Native pricing did not reach the expected state')
 }
-for (const entry of ['model-pricing', 'group-pricing']) {
+for (const entry of ['model-pricing']) {
   test(`${entry} reads published prices instead of partial legacy settings`, async () => {
     section = entry
     const { container, requests } = await mount()
@@ -276,6 +318,72 @@ for (const entry of ['model-pricing', 'group-pricing']) {
     assert.ok(!requests.some((url) => url.startsWith('/api/option')))
   })
 }
+test('group pricing shows one group row with old description and editable multiplier', async () => {
+  section = 'group-pricing'
+  const { container, requests, writes } = await mount()
+  await until(
+    () => container.textContent?.includes('Original description') === true
+  )
+  const row = container.querySelector('tbody tr')
+  assert.ok(row)
+  assert.match(row.textContent ?? '', /default.*Original description.*0\.75×/)
+  assert.doesNotMatch(
+    container.querySelector('table')?.textContent ?? '',
+    /imported-model/
+  )
+  assert.equal(container.querySelector('[role="tab"]'), null)
+  await clickButton('Edit')
+  const field = container.querySelector<HTMLInputElement>(
+    'input[inputmode="decimal"]'
+  )
+  assert.ok(field)
+  assert.equal(field.value, '0.75')
+  const setValue = Object.getOwnPropertyDescriptor(
+    dom.HTMLInputElement.prototype,
+    'value'
+  )?.set
+  assert.ok(setValue)
+  await act(async () => {
+    setValue.call(field, '1.25')
+    field.dispatchEvent(new Event('input', { bubbles: true }))
+  })
+  await clickButton('Apply to group')
+  assert.ok(requests.includes('/core/v1/admin/routing/pricing-source-snapshot'))
+  assert.equal(writes.length, 0)
+  await clickButton('Preview changes')
+  await until(() => writes.length === 1)
+  const after = writes[0].body.prices as ReturnType<
+    typeof configuration
+  >['prices']
+  assert.equal(after.rules[0].group_multiplier_ppm, 1250000)
+})
+
+test('openrouter with native budget-compatible route can stage an upstream-cost rule', async () => {
+  section = 'router-pricing'
+  const { container, writes } = await mount()
+  await until(
+    () => container.textContent?.includes('openrouter/auto-beta') === true
+  )
+  await clickButton('Add price rule')
+  const form = document.querySelector('form#native-price-rule-form')
+  assert.ok(form)
+  await act(async () =>
+    form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))
+  )
+  await until(
+    () => container.textContent?.includes('Pending price changes') === true
+  )
+  assert.equal(writes.length, 0)
+  await clickButton('Preview changes')
+  await until(() => writes.length === 1)
+  const after = writes[0].body.prices as { rules: Record<string, unknown>[] }
+  assert.equal(
+    after.rules.find((rule) => rule.model === 'openrouter/auto-beta')
+      ?.billing_mode,
+    'upstream_cost'
+  )
+})
+
 test('unavailable native configuration does not open a price editor', async () => {
   section = 'model-pricing'
   const { container, requests } = await mount(false)

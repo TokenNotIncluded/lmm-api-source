@@ -140,7 +140,7 @@ export function BillingSettings() {
           section === 'model-pricing' ? 'Model Pricing' : 'Group Pricing'
         )}
       >
-        <NativePricingSection />
+        <NativePricingSection groupWorkspace={section === 'group-pricing'} />
       </SettingsPageFrame>
     )
   }

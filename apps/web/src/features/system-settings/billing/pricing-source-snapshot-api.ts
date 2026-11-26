@@ -145,3 +145,26 @@ export function serializePricingSourceSnapshot(
 ): string {
   return `${JSON.stringify(snapshot, null, 2)}\n`
 }
+
+/** Old deployment's original group names and descriptions, for reference only. */
+export function originalGroupDescriptions(
+  snapshot: PricingSourceSnapshot | null | undefined
+) {
+  const value = snapshot?.options.find(
+    (option) => option.key === 'UserUsableGroups'
+  )?.value
+  if (!value) return new Map<string, string>()
+  try {
+    const parsed: unknown = JSON.parse(value)
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed))
+      return new Map<string, string>()
+    return new Map(
+      Object.entries(parsed).filter(
+        (entry): entry is [string, string] =>
+          typeof entry[1] === 'string' && entry[1].trim() !== ''
+      )
+    )
+  } catch {
+    return new Map<string, string>()
+  }
+}

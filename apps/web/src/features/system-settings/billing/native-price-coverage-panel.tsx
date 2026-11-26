@@ -1,4 +1,5 @@
 /* Copyright (C) 2026 LIghtJUNction. SPDX-License-Identifier: AGPL-3.0-or-later */
+import { Link } from '@tanstack/react-router'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
@@ -9,7 +10,11 @@ import {
   usdToMicros,
 } from '@/features/channels/components/native-model-draft'
 
-import { priceSelectorKey, type PriceSelector } from './native-price-coverage'
+import {
+  priceSelectorKey,
+  toolProtocols,
+  type PriceSelector,
+} from './native-price-coverage'
 import type { NativePriceRule } from './native-price-rules'
 
 type Row = { selector: PriceSelector; rule?: NativePriceRule }
@@ -33,6 +38,26 @@ export function NativePriceCoveragePanel({
   const [editing, setEditing] = useState<{ key: string; usd: string } | null>(
     null
   )
+  if (tools && rows.length === 0) {
+    return (
+      <div className='space-y-3 rounded-lg border p-4 text-sm'>
+        <p role='status'>{t('No active per-request tool routes')}</p>
+        <p className='text-muted-foreground'>
+          {t(
+            'Enable a supported tool route before setting its per-request price.'
+          )}
+        </p>
+        <ul className='flex flex-wrap gap-2 font-mono'>
+          {Object.keys(toolProtocols).map((model) => (
+            <li key={model}>{model}</li>
+          ))}
+        </ul>
+        <Link to='/channels' className='underline'>
+          {t('Channels')}
+        </Link>
+      </div>
+    )
+  }
   const needle = filter.trim().toLowerCase()
   const filtered = rows.filter(({ selector }) =>
     [selector.model, selector.group, selector.speed].some((value) =>
@@ -133,11 +158,7 @@ export function NativePriceCoveragePanel({
       })}
       {filtered.length === 0 && (
         <p role='status' className='text-muted-foreground py-6 text-sm'>
-          {filter
-            ? t('No matching entries')
-            : tools
-              ? t('No models available')
-              : t('No missing models found.')}
+          {filter ? t('No matching entries') : t('No missing models found.')}
         </p>
       )}
       {pages > 1 && (

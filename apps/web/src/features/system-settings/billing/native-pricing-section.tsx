@@ -14,7 +14,13 @@ import { NativePricingManagement } from './native-pricing-management'
 import { PricingSourceSnapshot } from './pricing-source-snapshot'
 
 /** Prices belong to the published routing release, not the legacy options API. */
-function NativePricingEditor({ initialMode }: { initialMode?: string }) {
+function NativePricingEditor({
+  initialMode,
+  groupWorkspace,
+}: {
+  initialMode?: string
+  groupWorkspace?: boolean
+}) {
   const { t } = useTranslation()
   const runtime = useRuntimeCapabilities()
   const localQuery = useChannelOps(!runtime)
@@ -60,17 +66,27 @@ function NativePricingEditor({ initialMode }: { initialMode?: string }) {
       </p>
     )
   }
-  return <NativePricingManagement initialMode={initialMode} />
+  return (
+    <NativePricingManagement
+      initialMode={initialMode}
+      groupWorkspace={groupWorkspace}
+    />
+  )
 }
 
 export function NativePricingSection({
   initialMode,
+  groupWorkspace,
 }: {
   initialMode?: string
+  groupWorkspace?: boolean
 }) {
   return (
     <div className='space-y-8'>
-      <NativePricingEditor initialMode={initialMode} />
+      <NativePricingEditor
+        initialMode={initialMode}
+        groupWorkspace={groupWorkspace}
+      />
       <PricingSourceSnapshot />
     </div>
   )

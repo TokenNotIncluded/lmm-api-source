@@ -14,8 +14,13 @@ import {
 import {
   parseNativeDocument,
   stringifyNativeDocument,
+  type NativeConfiguration,
 } from '@/features/channels/native-api'
 
+import {
+  configuredPriceSpeeds,
+  configuredRouterSelectors,
+} from './native-price-coverage'
 import {
   decimalPriceFraction,
   fractionText,
@@ -23,6 +28,8 @@ import {
   priceRateKeys,
   type NativePriceRule,
 } from './native-price-rules'
+import { expressionPriceRule } from './native-pricing-sources'
+import { NativeUpstreamPriceSync } from './native-upstream-price-sync'
 
 type Tier = {
   up_to_input_tokens: number | null
@@ -41,12 +48,16 @@ export function NativePriceRuleDialog({
   initial,
   groups,
   models,
+  routing,
+  openUpstreamSync = false,
   onClose,
   onSave,
 }: {
   initial: NativePriceRule
   groups: string[]
   models: string[]
+  routing: NativeConfiguration['routing']
+  openUpstreamSync?: boolean
   onClose: () => void
   onSave: (rule: NativePriceRule) => void
 }) {
@@ -82,6 +93,8 @@ export function NativePriceRuleDialog({
         ),
       })) ?? []
   )
+  const [expression, setExpression] = useState<string | null>(null)
+  const [building, setBuilding] = useState(false)
   const [advanced, setAdvanced] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const labels = {
@@ -93,9 +106,34 @@ export function NativePriceRuleDialog({
     cache_write_12h: t('Cache write, 12 hours (USD / 1M tokens)'),
     request: t('Request fee (USD / request)'),
   }
-  function buildRule() {
+  const speeds = configuredPriceSpeeds(routing, rule.model, rule.group)
+  const validSpeed = speeds.includes(rule.speed)
+  function checkSelector(candidate: NativePriceRule) {
+    if (
+      !configuredPriceSpeeds(
+        routing,
+        candidate.model,
+        candidate.group
+      ).includes(candidate.speed)
+    ) {
+      throw new Error(t('Capability unavailable'))
+    }
+    if (
+      candidate.billing_mode === 'upstream_cost' &&
+      !configuredRouterSelectors(routing).some(
+        (selector) =>
+          selector.model === candidate.model &&
+          selector.group === candidate.group
+      )
+    )
+      throw new Error(t('Capability unavailable'))
+    return candidate
+  }
+  async function buildRule() {
     if (advanced !== null) {
-      return nativePriceRuleSchema.parse(parseNativeDocument(advanced))
+      return checkSelector(
+        nativePriceRuleSchema.parse(parseNativeDocument(advanced))
+      )
     }
     const group = usdToMicros(groupMultiplier)
     const speed = usdToMicros(speedMultiplier)
@@ -116,6 +154,23 @@ export function NativePriceRuleDialog({
       ...rule,
       group_multiplier_ppm: group,
       speed_multiplier_ppm: speed,
+    }
+    if (expression !== null) {
+      const price = await expressionPriceRule(
+        {
+          ...next,
+          rates: { ...next.rates, request: usdToMicros(rates.request) ?? -1 },
+        },
+        expression
+      )
+      if (!price) {
+        throw new Error(
+          t(
+            'Use a valid linear token expression on a rule without a request fee.'
+          )
+        )
+      }
+      return checkSelector(nativePriceRuleSchema.parse(price))
     }
     if (!rule.billing_mode || rule.billing_mode === 'tokens') {
       for (const key of priceRateKeys) {
@@ -162,16 +217,20 @@ export function NativePriceRuleDialog({
         )
       }
     }
-    return nativePriceRuleSchema.parse(next)
+    return checkSelector(nativePriceRuleSchema.parse(next))
   }
-  function attempt(action: (value: NativePriceRule) => void) {
+  async function attempt(action: (value: NativePriceRule) => void) {
+    if (building) return
+    setBuilding(true)
     try {
-      action(buildRule())
+      action(await buildRule())
       setError(null)
     } catch (cause) {
       setError(
         cause instanceof Error ? cause.message : t('Invalid configuration')
       )
+    } finally {
+      setBuilding(false)
     }
   }
   return (
@@ -190,7 +249,11 @@ export function NativePriceRuleDialog({
           <Button type='button' variant='ghost' onClick={onClose}>
             {t('Cancel')}
           </Button>
-          <Button type='submit' form='native-price-rule-form'>
+          <Button
+            type='submit'
+            form='native-price-rule-form'
+            disabled={building}
+          >
             {t('Apply to draft')}
           </Button>
         </>
@@ -201,7 +264,7 @@ export function NativePriceRuleDialog({
         className='min-w-0 space-y-6'
         onSubmit={(event) => {
           event.preventDefault()
-          attempt(onSave)
+          void attempt(onSave)
         }}
       >
         {advanced === null ? (
@@ -245,8 +308,10 @@ export function NativePriceRuleDialog({
                 <span>{t('Speed')}</span>
                 <NativeSelect
                   className='w-full'
-                  value={rule.speed}
-                  disabled={rule.billing_mode === 'upstream_cost'}
+                  value={validSpeed ? rule.speed : ''}
+                  disabled={
+                    rule.billing_mode === 'upstream_cost' || !speeds.length
+                  }
                   onChange={(event) =>
                     setRule({
                       ...rule,
@@ -254,7 +319,12 @@ export function NativePriceRuleDialog({
                     })
                   }
                 >
-                  {['standard', 'fast', 'ultrafast'].map((speed) => (
+                  {!validSpeed && (
+                    <NativeSelectOption value=''>
+                      {t('Capability unavailable')}
+                    </NativeSelectOption>
+                  )}
+                  {speeds.map((speed) => (
                     <NativeSelectOption key={speed} value={speed}>
                       {speed}
                     </NativeSelectOption>
@@ -263,22 +333,74 @@ export function NativePriceRuleDialog({
               </label>
             </div>
             {(!rule.billing_mode || rule.billing_mode === 'tokens') && (
-              <div className='grid min-w-0 gap-5 sm:grid-cols-2'>
-                {priceRateKeys.map((key) => (
-                  <label key={key} className='space-y-2 text-sm'>
-                    <span>{labels[key]}</span>
-                    <Input
-                      className='tabular-nums'
-                      inputMode='decimal'
-                      required
-                      value={rates[key]}
-                      onChange={(event) =>
-                        setRates({ ...rates, [key]: event.target.value })
-                      }
-                    />
-                  </label>
-                ))}
+              <div className='space-y-3'>
+                <Button
+                  type='button'
+                  variant='outline'
+                  onClick={() => setExpression(expression === null ? '' : null)}
+                >
+                  {expression === null
+                    ? t('Expression pricing')
+                    : t('Use token prices')}
+                </Button>
+                {expression === null && (
+                  <NativeUpstreamPriceSync
+                    key={rule.model}
+                    model={rule.model}
+                    defaultOpen={openUpstreamSync}
+                    onApply={(incoming) =>
+                      setRates((current) => ({
+                        ...current,
+                        ...Object.fromEntries(
+                          Object.entries(incoming).map(([field, value]) => [
+                            field,
+                            microsToUsd(value),
+                          ])
+                        ),
+                      }))
+                    }
+                  />
+                )}
               </div>
+            )}
+            {expression !== null ? (
+              <label className='block space-y-2 text-sm'>
+                <span>{t('Expression')}</span>
+                <Textarea
+                  className='min-h-24 font-mono'
+                  value={expression}
+                  onChange={(event) => setExpression(event.target.value)}
+                  placeholder={
+                    'tier("standard", p * 1.25 + c * 10 + cr * 0.125)'
+                  }
+                  maxLength={1024}
+                  required
+                />
+                <span className='text-muted-foreground text-xs'>
+                  {t(
+                    'Enter one tier with USD per million token coefficients for p and c. You can also include cr and cc.'
+                  )}
+                </span>
+              </label>
+            ) : (
+              (!rule.billing_mode || rule.billing_mode === 'tokens') && (
+                <div className='grid min-w-0 gap-5 sm:grid-cols-2'>
+                  {priceRateKeys.map((key) => (
+                    <label key={key} className='space-y-2 text-sm'>
+                      <span>{labels[key]}</span>
+                      <Input
+                        className='tabular-nums'
+                        inputMode='decimal'
+                        required
+                        value={rates[key]}
+                        onChange={(event) =>
+                          setRates({ ...rates, [key]: event.target.value })
+                        }
+                      />
+                    </label>
+                  ))}
+                </div>
+              )
             )}
             {rule.billing_mode === 'upstream_cost' && (
               <p className='text-muted-foreground text-sm leading-6'>
@@ -383,7 +505,7 @@ export function NativePriceRuleDialog({
               type='button'
               variant='ghost'
               onClick={() =>
-                attempt((value) =>
+                void attempt((value) =>
                   setAdvanced(stringifyNativeDocument(value, 2))
                 )
               }
