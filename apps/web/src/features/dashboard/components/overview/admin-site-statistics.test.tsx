@@ -318,3 +318,49 @@ test('empty confirmed payments do not invent totals or show an empty warning', a
   assert.equal(container.querySelectorAll('details').length, 1)
   assert.doesNotMatch(container.textContent ?? '', /0\.00 USD|0\.00 CNY/)
 })
+
+test('verified partial results show credit totals and exception counts while payments are unknown', async () => {
+  useAuthStore.getState().auth.setUser(user(10))
+  api.get = (async (_url: string, config?: { params?: { view?: string } }) => {
+    assert.equal(config?.params?.view, 'verified')
+    return {
+      data: {
+        success: true,
+        data: {
+          ...data,
+          recharge: null,
+          order_exceptions: { unconfirmed_orders: 1, invalid_orders: 2 },
+        },
+      },
+    }
+  }) as typeof api.get
+  const container = await mount()
+  await until(() => container.textContent?.includes('4,750,000') === true)
+  const cash = container.querySelector(
+    '[aria-labelledby="site-statistics-cash-title"]'
+  )
+  assert.match(cash?.textContent ?? '', /Unknown/)
+  assert.doesNotMatch(
+    container.textContent ?? '',
+    /暂无已确认的充值付款记录|0\.00 USD/
+  )
+  assert.equal(
+    container.querySelector('.overview-warning-count')?.textContent,
+    '3'
+  )
+})
+
+test('unknown usage does not hide a verified balance or produce a numeric estimate', async () => {
+  useAuthStore.getState().auth.setUser(user(10))
+  api.get = (async () => ({
+    data: { success: true, data: { ...data, total_used_credits: null } },
+  })) as typeof api.get
+  const container = await mount()
+  await until(() => container.textContent?.includes('4,750,000') === true)
+  const used = container.querySelector(
+    '.overview-site-totals > div:first-child'
+  )
+  assert.match(used?.textContent ?? '', /Unknown/)
+  assert.doesNotMatch(used?.textContent ?? '', /9,277|0[.]00/)
+  assert.equal(container.querySelectorAll('.overview-payment-row').length, 3)
+})

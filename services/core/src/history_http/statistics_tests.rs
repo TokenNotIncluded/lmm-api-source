@@ -20,7 +20,13 @@ async fn statistics_require_authentication_before_reporting_source_dependencies(
     let pool = sqlx::postgres::PgPoolOptions::new()
         .connect_lazy("postgres://unused:unused@127.0.0.1:1/unused")
         .unwrap();
-    for path in ["/api/finance/site-statistics", "/api/perf-metrics/summary"] {
+    for path in [
+        "/api/finance/site-statistics",
+        "/api/finance/site-statistics?view=verified",
+        "/api/finance/site-statistics?view=unsupported",
+        "/api/finance/site-statistics?view=verified&view=verified",
+        "/api/perf-metrics/summary",
+    ] {
         let response = request(HistoryStore::new(pool.clone()), path, None).await;
         assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
         assert_eq!(response.headers()[header::CACHE_CONTROL], "no-store");
@@ -82,4 +88,78 @@ async fn empty_native_performance_has_no_invented_measurements(pool: PgPool) {
     assert_eq!(value["data"]["aggregate"]["request_count"], 0);
     assert!(value["data"]["aggregate"]["avg_latency_ms"].is_null());
     assert!(value["data"]["aggregate"]["avg_tps"].is_null());
+}
+
+#[sqlx::test(migrations = false)]
+async fn unverified_payment_evidence_preserves_verified_credit_metrics(pool: PgPool) {
+    crate::core_schema::init(&pool).await.unwrap();
+    let identity = crate::identity::IdentityStore::from_pool(pool.clone());
+    let admin = identity.bootstrap_user(8, 5).await.unwrap();
+    let member = identity.bootstrap_user(7, 1).await.unwrap();
+    // The native payment view rejects a non-unit allocator as an invalid payment seal.
+    sqlx::query("ALTER SEQUENCE core_payments.intents_id_seq INCREMENT BY 2")
+        .execute(&pool)
+        .await
+        .unwrap();
+    let store = HistoryStore::new(pool);
+    let path = "/api/finance/site-statistics?view=verified";
+    assert_eq!(
+        request(store.clone(), path, Some(&member.secret))
+            .await
+            .status(),
+        StatusCode::FORBIDDEN
+    );
+    assert_eq!(
+        request(
+            store.clone(),
+            "/api/finance/site-statistics",
+            Some(&admin.secret)
+        )
+        .await
+        .status(),
+        StatusCode::SERVICE_UNAVAILABLE
+    );
+    let response = request(store, path, Some(&admin.secret)).await;
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(response.headers()[header::CACHE_CONTROL], "no-store");
+    let body: Value =
+        serde_json::from_slice(&to_bytes(response.into_body(), 8192).await.unwrap()).unwrap();
+    assert_eq!(body["data"]["total_used_credits"], "0");
+    assert_eq!(body["data"]["total_balance_credits"], "0");
+    assert_eq!(body["data"].get("recharge"), Some(&Value::Null));
+    assert_eq!(
+        body["data"]["order_exceptions"],
+        json!({"unconfirmed_orders":0,"invalid_orders":0})
+    );
+}
+
+#[sqlx::test(migrations = false)]
+async fn both_views_require_shared_historical_lineage(pool: PgPool) {
+    crate::core_schema::init(&pool).await.unwrap();
+    let identity = crate::identity::IdentityStore::from_pool(pool.clone());
+    let admin = identity.bootstrap_user(8, 5).await.unwrap();
+    // The archived population declares one user, yet supplies no matching row.
+    sqlx::query(
+        r#"INSERT INTO core_history.finance_sources
+        (source_key, contract, source_archive_sha256, mapping_sha256, tables_sha256,
+         normalization_sha256, rows_sha256, observed_at, user_count, topup_count,
+         credits_per_usd, complete, native_request_ids)
+        VALUES (repeat('a', 64), 'core.site-finance-source.v1', repeat('b', 64),
+          repeat('c', 64), repeat('d', 64), repeat('e', 64), repeat('f', 64),
+          1, 1, 0, 500000, true, '{}'::text[])"#,
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+    let store = HistoryStore::new(pool);
+    for path in [
+        "/api/finance/site-statistics",
+        "/api/finance/site-statistics?view=verified",
+    ] {
+        let response = request(store.clone(), path, Some(&admin.secret)).await;
+        assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+        let value: Value =
+            serde_json::from_slice(&to_bytes(response.into_body(), 8192).await.unwrap()).unwrap();
+        assert!(value.get("data").is_none());
+    }
 }

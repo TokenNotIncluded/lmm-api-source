@@ -16,22 +16,31 @@ const paymentRow = z.object({
 const statisticsSchema = z.object({
   as_of: count,
   credits_per_usd: z.literal(500000),
-  total_used_credits: positiveInteger,
-  total_balance_credits: z.string().regex(/^-?\d+$/),
-  recharge: z.object({
-    currencies: z.array(
-      paymentRow.extend({
-        currency: z
-          .string()
-          .regex(/^[A-Z]{3}$/)
-          .refine((currency) => currency !== 'LDC'),
-      })
-    ),
-    virtual_units: z.array(paymentRow.extend({ currency: z.literal('LDC') })),
-    confirmed_orders: count,
-    unconfirmed_orders: count,
-    invalid_orders: count,
-  }),
+  total_used_credits: positiveInteger.nullable(),
+  total_balance_credits: z
+    .string()
+    .regex(/^-?\d+$/)
+    .nullable(),
+  recharge: z
+    .object({
+      currencies: z.array(
+        paymentRow.extend({
+          currency: z
+            .string()
+            .regex(/^[A-Z]{3}$/)
+            .refine((currency) => currency !== 'LDC'),
+        })
+      ),
+      virtual_units: z.array(paymentRow.extend({ currency: z.literal('LDC') })),
+      confirmed_orders: count,
+      unconfirmed_orders: count,
+      invalid_orders: count,
+    })
+    .nullable(),
+  order_exceptions: z
+    .object({ unconfirmed_orders: count, invalid_orders: count })
+    .nullable()
+    .optional(),
 })
 
 export type AdminSiteStatistics = z.infer<typeof statisticsSchema>
@@ -41,6 +50,7 @@ export async function getAdminSiteStatistics(): Promise<AdminSiteStatistics> {
     success: boolean
     data?: unknown
   }>('/api/finance/site-statistics', {
+    params: { view: 'verified' },
     skipBusinessError: true,
     skipErrorHandler: true,
   })

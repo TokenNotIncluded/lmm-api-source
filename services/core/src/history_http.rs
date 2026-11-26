@@ -90,12 +90,41 @@ pub fn router(store: HistoryStore) -> Router {
         .layer(middleware::from_fn(no_store))
 }
 
-async fn site_statistics(State(store): State<HistoryStore>, headers: HeaderMap) -> Response {
+#[derive(Deserialize)]
+#[serde(rename_all = "snake_case")]
+enum SiteStatisticsView {
+    Verified,
+}
+
+#[derive(Deserialize)]
+struct SiteStatisticsQuery {
+    view: Option<SiteStatisticsView>,
+}
+
+async fn site_statistics(
+    State(store): State<HistoryStore>,
+    headers: HeaderMap,
+    query: Result<Query<SiteStatisticsQuery>, QueryRejection>,
+) -> Response {
     let secret = match extract_bearer(&headers) {
         Ok(secret) => secret,
         Err(error) => return error_response(error),
     };
-    match store.site_statistics(secret).await {
+    let Query(query) = match query {
+        Ok(query) => query,
+        Err(_) => return error_response(HistoryError::Invalid),
+    };
+    let result = match query.view {
+        Some(SiteStatisticsView::Verified) => store
+            .verified_site_statistics(secret)
+            .await
+            .map(|statistics| json!(statistics)),
+        None => store
+            .site_statistics(secret)
+            .await
+            .map(|statistics| json!(statistics)),
+    };
+    match result {
         Ok(statistics) => Json(json!({"success":true,"data":statistics})).into_response(),
         Err(HistoryError::Unavailable) => (
             StatusCode::SERVICE_UNAVAILABLE,

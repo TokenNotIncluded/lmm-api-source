@@ -25,6 +25,22 @@ pub struct RechargeStatistics {
 }
 
 #[derive(Debug, Serialize)]
+pub struct VerifiedSiteStatistics {
+    pub as_of: i64,
+    pub credits_per_usd: i64,
+    pub total_used_credits: Option<String>,
+    pub total_balance_credits: Option<String>,
+    pub recharge: Option<RechargeStatistics>,
+    pub order_exceptions: Option<OrderExceptions>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct OrderExceptions {
+    pub unconfirmed_orders: i64,
+    pub invalid_orders: i64,
+}
+
+#[derive(Debug, Serialize)]
 pub struct RechargeCurrency {
     pub currency: String,
     pub gross_amount_micros: String,
@@ -33,10 +49,66 @@ pub struct RechargeCurrency {
     pub orders: i64,
 }
 
+fn sql_failure(stage: &'static str) -> impl FnOnce(sqlx::Error) -> HistoryError {
+    move |error| {
+        let state = error.as_database_error().and_then(|db| db.code());
+        let kind = match &error {
+            sqlx::Error::Database(_) => "database",
+            sqlx::Error::PoolTimedOut => "pool_timeout",
+            sqlx::Error::PoolClosed => "pool_closed",
+            _ => "client",
+        };
+        eprintln!(
+            "site_statistics_unavailable reason=sql stage={stage} kind={kind} sqlstate={}",
+            state
+                .as_deref()
+                .filter(|code| code.len() == 5
+                    && code
+                        .bytes()
+                        .all(|b| b.is_ascii_uppercase() || b.is_ascii_digit()))
+                .unwrap_or("none")
+        );
+        HistoryError::Unavailable
+    }
+}
+
+fn coverage_ok(available: bool, reason: &'static str) -> bool {
+    if !available {
+        eprintln!("site_statistics_unavailable reason={reason}");
+    }
+    available
+}
+
 impl HistoryStore {
     pub async fn site_statistics(&self, secret: &str) -> Result<SiteStatistics, HistoryError> {
-        let mut tx = self.read_snapshot().await?;
-        authorize(&mut tx, secret, ReadRoute::Administrator).await?;
+        let sections = self.verified_site_statistics(secret).await?;
+        Ok(SiteStatistics {
+            as_of: sections.as_of,
+            credits_per_usd: sections.credits_per_usd,
+            total_used_credits: sections
+                .total_used_credits
+                .ok_or(HistoryError::Unavailable)?,
+            total_balance_credits: sections
+                .total_balance_credits
+                .ok_or(HistoryError::Unavailable)?,
+            recharge: sections.recharge.ok_or(HistoryError::Unavailable)?,
+        })
+    }
+
+    pub async fn verified_site_statistics(
+        &self,
+        secret: &str,
+    ) -> Result<VerifiedSiteStatistics, HistoryError> {
+        let mut tx = self.read_snapshot().await.inspect_err(|_| {
+            eprintln!("site_statistics_unavailable reason=snapshot");
+        })?;
+        authorize(&mut tx, secret, ReadRoute::Administrator)
+            .await
+            .inspect_err(|error| {
+                if matches!(error, HistoryError::Unavailable) {
+                    eprintln!("site_statistics_unavailable reason=authorization_store");
+                }
+            })?;
 
         // A source is complete only with all its rows and the very same opening
         // lineage. Neither the global flag nor somebody else's history proves a
@@ -46,7 +118,6 @@ impl HistoryStore {
  SELECT 1 FROM core_history.finance_sources s WHERE NOT s.complete
  OR s.contract<>'core.site-finance-source.v1' OR s.credits_per_usd<>500000
  OR s.user_count<>(SELECT count(*) FROM core_history.finance_users u WHERE u.source_key=s.source_key)
- OR s.topup_count<>(SELECT count(*) FROM core_history.finance_topups t WHERE t.source_key=s.source_key)
 ) OR EXISTS (
  SELECT 1 FROM core_history.finance_users f
  JOIN core_history.finance_sources s USING(source_key)
@@ -70,8 +141,8 @@ impl HistoryStore {
 )"#,
         )
         .fetch_one(&mut *tx)
-        .await?;
-        if invalid_sources {
+        .await.map_err(sql_failure("historical_coverage"))?;
+        if !coverage_ok(!invalid_sources, "historical_coverage") {
             return Err(HistoryError::Unavailable);
         }
 
@@ -117,12 +188,37 @@ SELECT floor(extract(epoch FROM statement_timestamp()))::bigint AS as_of,
             ),
         )
         .fetch_one(&mut *tx)
-        .await?;
-        for field in ["missing", "invalid_wallets", "invalid_usage"] {
-            if credits.try_get::<i64, _>(field)? != 0 {
-                return Err(HistoryError::Unavailable);
-            }
+        .await.map_err(sql_failure("credits"))?;
+        // An absent historical population cannot be treated as a verified empty archive.
+        if !coverage_ok(
+            credits
+                .try_get::<i64, _>("missing")
+                .map_err(sql_failure("decode"))?
+                == 0,
+            "missing",
+        ) {
+            return Err(HistoryError::Unavailable);
         }
+        let used = coverage_ok(
+            credits
+                .try_get::<i64, _>("invalid_usage")
+                .map_err(sql_failure("decode"))?
+                == 0,
+            "invalid_usage",
+        )
+        .then(|| credits.try_get("used"))
+        .transpose()
+        .map_err(sql_failure("decode"))?;
+        let balance = coverage_ok(
+            credits
+                .try_get::<i64, _>("invalid_wallets")
+                .map_err(sql_failure("decode"))?
+                == 0,
+            "invalid_wallets",
+        )
+        .then(|| credits.try_get("balance"))
+        .transpose()
+        .map_err(sql_failure("decode"))?;
 
         // Accepted provider evidence can precede ledger application. Until the
         // exact refund is applied, do not publish an apparently final net payment
@@ -131,13 +227,61 @@ SELECT floor(extract(epoch FROM statement_timestamp()))::bigint AS as_of,
             "SELECT COALESCE(bool_and(complete),FALSE) FROM core_history.finance_native_payments",
         )
         .fetch_one(&mut *tx)
-        .await?;
-        if !payments_complete {
-            return Err(HistoryError::Unavailable);
-        }
+        .await
+        .map_err(sql_failure("payment_proof"))?;
+        let historical_orders_complete: bool = sqlx::query_scalar(
+            "SELECT NOT EXISTS (SELECT 1 FROM core_history.finance_sources s WHERE s.topup_count<>(SELECT count(*) FROM core_history.finance_topups t WHERE t.source_key=s.source_key))",
+        )
+        .fetch_one(&mut *tx)
+        .await.map_err(sql_failure("historical_orders"))?;
 
-        let rows = sqlx::query(
-            r#"WITH payments AS (
+        let counts = sqlx::query(
+            r#"SELECT count(*) FILTER(WHERE classification='unconfirmed')::bigint AS unconfirmed,
+ count(*) FILTER(WHERE classification='invalid')::bigint AS invalid
+ FROM core_history.finance_topups"#,
+        )
+        .fetch_one(&mut *tx)
+        .await
+        .map_err(sql_failure("order_counts"))?;
+        let unconfirmed_orders = counts
+            .try_get::<i64, _>("unconfirmed")
+            .map_err(sql_failure("decode"))?;
+        let invalid_orders = counts
+            .try_get::<i64, _>("invalid")
+            .map_err(sql_failure("decode"))?;
+        let order_exceptions = (coverage_ok(historical_orders_complete, "historical_orders")
+            && coverage_ok(
+                unconfirmed_orders <= MAX_JSON_SAFE_COUNT && invalid_orders <= MAX_JSON_SAFE_COUNT,
+                "order_count_range",
+            ))
+        .then_some(OrderExceptions {
+            unconfirmed_orders,
+            invalid_orders,
+        });
+        let payments_complete = coverage_ok(payments_complete, "payment_proof");
+        let recharge = match &order_exceptions {
+            Some(exceptions) if payments_complete => verified_recharge(&mut tx, exceptions).await?,
+            _ => None,
+        };
+        let result = VerifiedSiteStatistics {
+            as_of: credits.try_get("as_of").map_err(sql_failure("decode"))?,
+            credits_per_usd: 500_000,
+            total_used_credits: used,
+            total_balance_credits: balance,
+            recharge,
+            order_exceptions,
+        };
+        tx.commit().await.map_err(sql_failure("commit"))?;
+        Ok(result)
+    }
+}
+
+async fn verified_recharge(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    exceptions: &OrderExceptions,
+) -> Result<Option<RechargeStatistics>, HistoryError> {
+    let rows = sqlx::query(
+        r#"WITH payments AS (
  SELECT classification,currency,gross_amount_micros::numeric AS gross,
    refunded_amount_micros::numeric AS refunded,1::bigint AS orders
  FROM core_history.finance_topups WHERE classification IN ('cash','virtual')
@@ -149,59 +293,42 @@ SELECT floor(extract(epoch FROM statement_timestamp()))::bigint AS as_of,
 SELECT classification,currency,sum(gross)::text AS gross,sum(refunded)::text AS refunded,
  (sum(gross)-sum(refunded))::text AS net,sum(orders)::bigint AS orders
 FROM payments GROUP BY classification,currency ORDER BY classification,currency COLLATE "C""#,
-        )
-        .fetch_all(&mut *tx)
-        .await?;
-        let counts = sqlx::query(
-            r#"SELECT count(*) FILTER(WHERE classification='unconfirmed')::bigint AS unconfirmed,
- count(*) FILTER(WHERE classification='invalid')::bigint AS invalid
- FROM core_history.finance_topups"#,
-        )
-        .fetch_one(&mut *tx)
-        .await?;
-        let mut recharge = RechargeStatistics {
-            currencies: Vec::new(),
-            virtual_units: Vec::new(),
-            confirmed_orders: 0,
-            unconfirmed_orders: counts.try_get("unconfirmed")?,
-            invalid_orders: counts.try_get("invalid")?,
+    )
+    .fetch_all(&mut **tx)
+    .await
+    .map_err(sql_failure("currency_totals"))?;
+    let mut recharge = RechargeStatistics {
+        currencies: Vec::new(),
+        virtual_units: Vec::new(),
+        confirmed_orders: 0,
+        unconfirmed_orders: exceptions.unconfirmed_orders,
+        invalid_orders: exceptions.invalid_orders,
+    };
+    for row in rows {
+        let metric = RechargeCurrency {
+            currency: row.try_get("currency").map_err(sql_failure("decode"))?,
+            gross_amount_micros: row.try_get("gross").map_err(sql_failure("decode"))?,
+            refunded_amount_micros: row.try_get("refunded").map_err(sql_failure("decode"))?,
+            net_amount_micros: row.try_get("net").map_err(sql_failure("decode"))?,
+            orders: row.try_get("orders").map_err(sql_failure("decode"))?,
         };
-        for row in rows {
-            let metric = RechargeCurrency {
-                currency: row.try_get("currency")?,
-                gross_amount_micros: row.try_get("gross")?,
-                refunded_amount_micros: row.try_get("refunded")?,
-                net_amount_micros: row.try_get("net")?,
-                orders: row.try_get("orders")?,
-            };
-            recharge.confirmed_orders = recharge
-                .confirmed_orders
-                .checked_add(metric.orders)
-                .ok_or(HistoryError::Unavailable)?;
-            if row.try_get::<String, _>("classification")? == "virtual" {
-                recharge.virtual_units.push(metric);
-            } else {
-                recharge.currencies.push(metric);
-            }
+        let Some(total) = recharge.confirmed_orders.checked_add(metric.orders) else {
+            eprintln!("site_statistics_unavailable reason=order_count_overflow");
+            return Ok(None);
+        };
+        if !coverage_ok(total <= MAX_JSON_SAFE_COUNT, "order_count_range") {
+            return Ok(None);
         }
-        if [
-            recharge.confirmed_orders,
-            recharge.unconfirmed_orders,
-            recharge.invalid_orders,
-        ]
-        .into_iter()
-        .any(|count| count > MAX_JSON_SAFE_COUNT)
+        recharge.confirmed_orders = total;
+        if row
+            .try_get::<String, _>("classification")
+            .map_err(sql_failure("decode"))?
+            == "virtual"
         {
-            return Err(HistoryError::Unavailable);
+            recharge.virtual_units.push(metric);
+        } else {
+            recharge.currencies.push(metric);
         }
-        let result = SiteStatistics {
-            as_of: credits.try_get("as_of")?,
-            credits_per_usd: 500_000,
-            total_used_credits: credits.try_get("used")?,
-            total_balance_credits: credits.try_get("balance")?,
-            recharge,
-        };
-        tx.commit().await?;
-        Ok(result)
     }
+    Ok(Some(recharge))
 }

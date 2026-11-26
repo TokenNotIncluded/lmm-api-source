@@ -41,6 +41,7 @@ export function AdminSiteStatisticsPanel() {
   if (!allowed) return null
   const locale = i18n.resolvedLanguage || i18n.language || 'en'
   const data = query.isError ? undefined : query.data
+  const exceptions = data?.order_exceptions ?? data?.recharge
 
   return (
     <section
@@ -103,22 +104,28 @@ export function AdminSiteStatisticsPanel() {
               <div key={label} className='min-w-0'>
                 <dt className='text-muted-foreground text-xs'>{t(label)}</dt>
                 <dd className='overview-site-value'>
-                  {formatExactQuotaInCurrency(
-                    value,
-                    currency,
-                    { showSymbol: false, locale: toIntlLocale(locale) },
-                    {
-                      ...DEFAULT_CURRENCY_CONFIG,
-                      currencyUnit: 'credit',
-                      creditsPerUsd: data.credits_per_usd,
-                      creditsPerUsdExact: data.credits_per_usd.toString(),
-                      cnyPerUsd: walletCurrencyConfig.cnyPerUsd,
-                      cnyPerUsdExact: walletCurrencyConfig.cnyPerUsdExact,
-                    }
-                  )}{' '}
-                  <span className='overview-unit'>{currencyLabel}</span>
+                  {value === null ? (
+                    t('Unknown')
+                  ) : (
+                    <>
+                      {formatExactQuotaInCurrency(
+                        value,
+                        currency,
+                        { showSymbol: false, locale: toIntlLocale(locale) },
+                        {
+                          ...DEFAULT_CURRENCY_CONFIG,
+                          currencyUnit: 'credit',
+                          creditsPerUsd: data.credits_per_usd,
+                          creditsPerUsdExact: data.credits_per_usd.toString(),
+                          cnyPerUsd: walletCurrencyConfig.cnyPerUsd,
+                          cnyPerUsdExact: walletCurrencyConfig.cnyPerUsdExact,
+                        }
+                      )}{' '}
+                      <span className='overview-unit'>{currencyLabel}</span>
+                    </>
+                  )}
                 </dd>
-                {currency !== 'CREDIT' && (
+                {value !== null && currency !== 'CREDIT' && (
                   <dd className='overview-exact-credits'>
                     {formatSiteCredits(value, locale)} {t('credits')}
                   </dd>
@@ -134,7 +141,11 @@ export function AdminSiteStatisticsPanel() {
               >
                 {t('用户充值实际现金付款')}
               </h4>
-              {data.recharge.currencies.length === 0 ? (
+              {data.recharge === null ? (
+                <p className='text-muted-foreground py-5 text-sm'>
+                  {t('Unknown')}
+                </p>
+              ) : data.recharge.currencies.length === 0 ? (
                 <p className='text-muted-foreground py-5 text-sm'>
                   {t('暂无已确认的充值付款记录。')}
                 </p>
@@ -142,7 +153,7 @@ export function AdminSiteStatisticsPanel() {
                 <PaymentRows rows={data.recharge.currencies} locale={locale} />
               )}
             </div>
-            {data.recharge.virtual_units.length > 0 && (
+            {data.recharge && data.recharge.virtual_units.length > 0 && (
               <div aria-labelledby='site-statistics-virtual-title'>
                 <h4
                   id='site-statistics-virtual-title'
@@ -158,36 +169,40 @@ export function AdminSiteStatisticsPanel() {
             )}
           </div>
           <div className='overview-notes'>
-            {(data.recharge.unconfirmed_orders > 0 ||
-              data.recharge.invalid_orders > 0) && (
-              <details className='overview-disclosure overview-disclosure-warning'>
-                <summary>
-                  <span className='overview-warning-dot' aria-hidden='true' />
-                  <span className='min-w-0 flex-1'>
-                    {t('部分充值记录无法确认实付')}
-                  </span>
-                  <span className='overview-warning-count'>
-                    {formatSiteCredits(
-                      (
-                        BigInt(data.recharge.unconfirmed_orders) +
-                        BigInt(data.recharge.invalid_orders)
-                      ).toString(),
-                      locale
+            {exceptions &&
+              (exceptions.unconfirmed_orders > 0 ||
+                exceptions.invalid_orders > 0) && (
+                <details className='overview-disclosure overview-disclosure-warning'>
+                  <summary>
+                    <span className='overview-warning-dot' aria-hidden='true' />
+                    <span className='min-w-0 flex-1'>
+                      {t('部分充值记录无法确认实付')}
+                    </span>
+                    <span className='overview-warning-count'>
+                      {formatSiteCredits(
+                        (
+                          BigInt(exceptions.unconfirmed_orders) +
+                          BigInt(exceptions.invalid_orders)
+                        ).toString(),
+                        locale
+                      )}
+                    </span>
+                    <ChevronDown
+                      className='size-4 shrink-0'
+                      aria-hidden='true'
+                    />
+                  </summary>
+                  <p>
+                    {t(
+                      '缺少可信实付证据：{{unconfirmed}} 笔；金额记录异常：{{invalid}} 笔。以上付款总额未计入这些记录。',
+                      {
+                        unconfirmed: exceptions.unconfirmed_orders,
+                        invalid: exceptions.invalid_orders,
+                      }
                     )}
-                  </span>
-                  <ChevronDown className='size-4 shrink-0' aria-hidden='true' />
-                </summary>
-                <p>
-                  {t(
-                    '缺少可信实付证据：{{unconfirmed}} 笔；金额记录异常：{{invalid}} 笔。以上付款总额未计入这些记录。',
-                    {
-                      unconfirmed: data.recharge.unconfirmed_orders,
-                      invalid: data.recharge.invalid_orders,
-                    }
-                  )}
-                </p>
-              </details>
-            )}
+                  </p>
+                </details>
+              )}
             <details className='overview-disclosure'>
               <summary>
                 <span className='flex-1'>{t('How to read these tables')}</span>
@@ -211,7 +226,7 @@ function PaymentRows({
   rows,
   locale,
 }: {
-  rows: AdminSiteStatistics['recharge']['currencies']
+  rows: NonNullable<AdminSiteStatistics['recharge']>['currencies']
   locale: string
 }) {
   const { t } = useTranslation()
