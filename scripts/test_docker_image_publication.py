@@ -18,6 +18,7 @@ import re
 import subprocess
 import tempfile
 import textwrap
+import tomllib
 import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -103,7 +104,18 @@ class SourceContracts(unittest.TestCase):
     def test_formal_toolchains_and_bounded_core_build(self):
         core = (ROOT / 'deployment/docker/core.Dockerfile').read_text()
         extensions = (ROOT / 'deployment/docker/extensions.Dockerfile').read_text()
-        self.assertRegex(core, r'(?m)^FROM rust:1\.99\.1-bookworm@sha256:[0-9a-f]{64} AS build$')
+        rust = tomllib.loads((ROOT / 'services/core/rust-toolchain.toml').read_text())['toolchain']['channel']
+        self.assertRegex(rust, r'\A[0-9]+\.[0-9]+\.[0-9]+\Z')
+        minimum = tomllib.loads((ROOT / 'services/core/Cargo.toml').read_text())['package']['rust-version']
+        self.assertGreaterEqual(tuple(map(int, rust.split('.'))), tuple(map(int, minimum.split('.'))))
+        for dockerfile, variant, stage in (
+            (core, 'bookworm', 'build'),
+            (extensions, 'bookworm', 'native-source'),
+            (extensions, 'alpine3.22', 'native-musl-build'),
+        ):
+            with self.subTest(variant=variant, stage=stage):
+                tag = re.escape(f'{rust}-{variant}')
+                self.assertRegex(dockerfile, rf'(?m)^FROM rust:{tag}@sha256:[0-9a-f]{{64}} AS {stage}$')
         self.assertIn('cargo build --locked --release --jobs 2 --bin lmm-core', core)
         self.assertIn('COPY deployment/postgres/grant-core-runtime.sql /src/deployment/postgres/grant-core-runtime.sql', core)
         self.assertRegex(extensions, r'(?m)^FROM golang:1\.27\.2-bookworm@sha256:[0-9a-f]{64} AS build$')
