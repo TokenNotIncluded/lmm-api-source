@@ -22,6 +22,12 @@ pub struct ReleaseVersion {
     pub pricing: u64,
 }
 
+type ReliabilityProbes = (
+    ReleaseVersion,
+    Arc<super::RoutingReliability>,
+    Vec<UpstreamConfig>,
+);
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[repr(u8)]
 pub enum HealthStatus {
@@ -925,16 +931,7 @@ impl Router {
         Ok(active.reliability.as_ref().map(|_| active.version))
     }
 
-    pub(crate) fn reliability_probes(
-        &self,
-    ) -> Result<
-        Option<(
-            ReleaseVersion,
-            Arc<super::RoutingReliability>,
-            Vec<UpstreamConfig>,
-        )>,
-        RoutingError,
-    > {
+    pub(crate) fn reliability_probes(&self) -> Result<Option<ReliabilityProbes>, RoutingError> {
         let active = self.snapshot()?;
         let Some(policy) = active.reliability.as_ref().filter(|p| p.probe_enabled) else {
             return Ok(None);

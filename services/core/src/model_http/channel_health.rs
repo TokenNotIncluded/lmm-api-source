@@ -7,6 +7,12 @@ use crate::routing::{
 use sqlx::Row;
 use std::collections::HashMap;
 
+struct ProbeObservation {
+    elapsed: Duration,
+    status: Option<u16>,
+    keyword_match: bool,
+}
+
 impl Bridge {
     async fn health_writer(
         &self,
@@ -197,9 +203,11 @@ impl ModelGateway {
             &policy,
             upstream,
             row.get("generation"),
-            started.elapsed(),
-            status,
-            keyword_match,
+            ProbeObservation {
+                elapsed: started.elapsed(),
+                status,
+                keyword_match,
+            },
         )
         .await
     }
@@ -210,10 +218,13 @@ impl ModelGateway {
         policy: &RoutingReliability,
         channel: &UpstreamConfig,
         generation: i64,
-        elapsed: Duration,
-        status: Option<u16>,
-        keyword_match: bool,
+        observation: ProbeObservation,
     ) -> Result<(), RelayError> {
+        let ProbeObservation {
+            elapsed,
+            status,
+            keyword_match,
+        } = observation;
         let slow = policy.too_slow(elapsed);
         let recover = status == Some(200) && !slow && policy.auto_recover;
         let reason = if policy.auto_disable

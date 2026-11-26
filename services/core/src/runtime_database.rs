@@ -17,6 +17,7 @@ mod managed_applications;
 mod operations;
 mod personal_tokens;
 mod product_features;
+mod route_runtime;
 mod subscription_resets;
 mod telegram;
 mod tool_market_credit;
@@ -373,6 +374,7 @@ pub(crate) async fn check_connection(
     channel_accounting::check(connection, required.models).await?;
     channel_projection::check(connection, required.models).await?;
     channel_observations::check(connection, required.models).await?;
+    route_runtime::check(connection, required.models).await?;
     assistant_agent::check(connection, required.assistant_agent).await?;
     managed_applications::check(connection, required.managed_applications).await?;
 
