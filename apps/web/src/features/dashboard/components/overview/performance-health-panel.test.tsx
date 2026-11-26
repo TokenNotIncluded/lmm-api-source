@@ -24,20 +24,21 @@ import { I18nextProvider, initReactI18next } from 'react-i18next'
 
 import type { PerfSummaryAllData } from '@/features/performance-metrics/types'
 
+import { PerformanceOverview } from '../models/performance-overview'
 import { PerformanceHealthPanel } from './performance-health-panel'
 
 const i18n = createInstance()
 await i18n
   .use(initReactI18next)
   .init({ lng: 'en', resources: { en: { translation: {} } } })
-function render(data: PerfSummaryAllData) {
+function render(data: PerfSummaryAllData, Panel = PerformanceHealthPanel) {
   const client = new QueryClient()
   client.setQueryData(['perf-metrics-summary', 24], data)
   try {
     return renderToStaticMarkup(
       <I18nextProvider i18n={i18n}>
         <QueryClientProvider client={client}>
-          <PerformanceHealthPanel />
+          <Panel />
         </QueryClientProvider>
       </I18nextProvider>
     )
@@ -108,4 +109,45 @@ test('null aggregate metrics stay unknown instead of falling back to model succe
     },
   })
   assert.equal(html.match(/>—</g)?.length, 3)
+})
+
+test('both dashboard panels distinguish nine native samples from a low success rate', () => {
+  assert.ok(data.coverage)
+  const row = {
+    ...data.data.models[0],
+    request_count: 9,
+    success_count: 2,
+    success_rate: (2 / 9) * 100,
+  }
+  const sample: PerfSummaryAllData = {
+    ...data,
+    coverage: {
+      ...data.coverage,
+      counts: 'accepted_logical_requests_with_samples',
+      unreserved_http_requests: false,
+      sampled_requests: 9,
+      missing_samples: 0,
+    },
+    data: { models: [row], aggregate: row },
+  }
+  for (const Panel of [PerformanceHealthPanel, PerformanceOverview]) {
+    const html = render(sample, Panel)
+    assert.match(
+      html,
+      /Native relay samples in this window: 9[.] No missing samples/
+    )
+    assert.match(html, /Historical imports excluded/)
+    assert.match(html, /role="status" class="[^"]*text-muted-foreground/)
+    assert.match(html, /class="[^"]*critical[^"]*">22[.]22%/)
+    assert.doesNotMatch(html, /Partial coverage:/)
+    const gaps = render(
+      {
+        ...sample,
+        coverage: { ...data.coverage, sampled_requests: 9, missing_samples: 2 },
+      },
+      Panel
+    )
+    assert.match(gaps, /role="status" class="[^"]*text-warning/)
+    assert.match(gaps, /9 sampled requests; 2 missing samples/)
+  }
 })

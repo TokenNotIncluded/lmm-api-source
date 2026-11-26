@@ -36,6 +36,8 @@ export type PerformanceStatistics = Partial<PerformanceCounters> & {
 }
 
 export type PerformanceCoverage = {
+  counts?: string
+  unreserved_http_requests?: boolean
   native_shared_relay: boolean
   historical_imports: boolean
   missing_samples: number

@@ -190,18 +190,50 @@ export function isPerformancePartial(
   )
 }
 
+/** The Core projection covers accepted native relay requests in the selected window. */
+export function hasScopedNativeSamples(
+  data: PerformanceAvailability | undefined
+): boolean {
+  const coverage = data?.coverage
+  return (
+    data?.availability === 'partial' &&
+    coverage?.native_shared_relay === true &&
+    coverage.historical_imports === false &&
+    coverage.counts === 'accepted_logical_requests_with_samples' &&
+    coverage.unreserved_http_requests === false &&
+    coverage.missing_samples === 0 &&
+    Number.isSafeInteger(coverage.sampled_requests) &&
+    coverage.sampled_requests >= 0
+  )
+}
+
 export function performanceCoverageNotice(
   data: PerformanceAvailability | undefined,
   t: TFunction
 ): string | null {
   if (!isPerformancePartial(data)) return null
-  if (!data?.coverage) return t('Partial performance coverage')
+  const coverage = data?.coverage
+  if (!coverage) return t('Partial performance coverage')
+  if (hasScopedNativeSamples(data)) {
+    return t(
+      'Native relay samples in this window: {{sampled}}. No missing samples. Historical imports excluded.',
+      { sampled: coverage.sampled_requests }
+    )
+  }
+  if (
+    !Number.isSafeInteger(coverage.sampled_requests) ||
+    coverage.sampled_requests < 0 ||
+    !Number.isSafeInteger(coverage.missing_samples) ||
+    coverage.missing_samples < 0
+  ) {
+    return t('Partial performance coverage')
+  }
   return t(
-    'Partial coverage: {{sampled}} sampled requests; {{missing}} missing samples. Native relay only; historical imports excluded.',
-    {
-      sampled: data.coverage.sampled_requests,
-      missing: data.coverage.missing_samples,
-    }
+    coverage.native_shared_relay === true &&
+      coverage.historical_imports === false
+      ? 'Partial coverage: {{sampled}} sampled requests; {{missing}} missing samples. Native relay only; historical imports excluded.'
+      : 'Partial coverage: {{sampled}} sampled requests; {{missing}} missing samples.',
+    { sampled: coverage.sampled_requests, missing: coverage.missing_samples }
   )
 }
 

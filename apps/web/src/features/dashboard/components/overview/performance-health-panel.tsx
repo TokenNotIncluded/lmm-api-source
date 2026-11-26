@@ -25,6 +25,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { getPerfMetricsSummary } from '@/features/performance-metrics/api'
 import {
   aggregatePerformanceMetric,
+  hasScopedNativeSamples,
   isPerformancePartial,
   performanceCoverageNotice,
   RELAY_TIMING_DESCRIPTION,
@@ -64,8 +65,10 @@ export function PerformanceHealthPanel() {
       successRate: aggregatePerformanceMetric(rows, 'success_rate'),
     }
   }, [models, metricsQuery.data])
-  const partial = isPerformancePartial(metricsQuery.data)
+  const nativeWindow = hasScopedNativeSamples(metricsQuery.data)
+  const partial = isPerformancePartial(metricsQuery.data) && !nativeWindow
   const notice = performanceCoverageNotice(metricsQuery.data, t)
+  const noticeTone = nativeWindow ? 'text-muted-foreground' : 'text-warning'
 
   const hasTraffic =
     models.length > 0 &&
@@ -96,7 +99,7 @@ export function PerformanceHealthPanel() {
         </span>
       </div>
       {!loading && !failed && notice && (
-        <p role='status' className='text-warning mb-4 text-sm'>
+        <p role='status' className={cn('mb-4 text-sm', noticeTone)}>
           {notice}
         </p>
       )}

@@ -7948,6 +7948,8 @@
     "Parameters": "Параметры",
     "Parsed {{count}} service account file(s)": "Проанализировано файлов сервисного аккаунта {{count}}",
     "Part of this payment has been refunded.": "Часть суммы платежа возвращена.",
+    "Native relay samples in this window: {{sampled}}. No missing samples. Historical imports excluded.": "Число запросов в выборке нативного ретранслятора за этот период: {{sampled}}. Пропущенных образцов нет. Импортированные исторические данные исключены.",
+    "Partial coverage: {{sampled}} sampled requests; {{missing}} missing samples.": "Неполное покрытие: запросов в выборке — {{sampled}}, пропущенных образцов — {{missing}}.",
     "Partial coverage: {{sampled}} sampled requests; {{missing}} missing samples. Native relay only; historical imports excluded.": "Неполное покрытие: {{sampled}} запросов с замерами; {{missing}} отсутствующих замеров. Только нативная ретрансляция, без исторического импорта.",
     "Partial performance coverage": "Неполное покрытие метрик",
     "Partial Submission": "Частичная отправка",

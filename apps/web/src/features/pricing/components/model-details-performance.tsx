@@ -29,6 +29,7 @@ import { GroupBadge } from '@/components/group-badge'
 import { getPerfMetrics } from '@/features/performance-metrics/api'
 import {
   aggregatePerformanceMetric,
+  hasScopedNativeSamples,
   isPerformancePartial,
   performanceCoverageNotice,
   RELAY_TIMING_DESCRIPTION,
@@ -98,7 +99,9 @@ export function ModelDetailsPerformance(props: { model: PricingModel }) {
     [metricsQuery.data, props.model.performance_available]
   )
   const performances = groups
-  const partial = isPerformancePartial(metricsQuery.data)
+  const nativeWindow = hasScopedNativeSamples(metricsQuery.data)
+  const partial = isPerformancePartial(metricsQuery.data) && !nativeWindow
+  const noticeTone = nativeWindow ? 'text-muted-foreground' : 'text-warning'
   const notice = performanceCoverageNotice(metricsQuery.data, t)
   const latencySeries = useMemo(() => toLatencySeries(groups), [groups])
   const successRateSeries = useMemo(() => toSuccessRateSeries(groups), [groups])
@@ -116,7 +119,7 @@ export function ModelDetailsPerformance(props: { model: PricingModel }) {
     return (
       <div className='text-muted-foreground rounded-lg border p-6 text-center text-sm'>
         {notice && (
-          <p role='status' className='text-warning mb-2'>
+          <p role='status' className={cn('mb-2', noticeTone)}>
             {notice}
           </p>
         )}
@@ -132,7 +135,7 @@ export function ModelDetailsPerformance(props: { model: PricingModel }) {
   return (
     <div className='flex flex-col gap-4'>
       {notice && (
-        <p role='status' className='text-warning text-sm'>
+        <p role='status' className={cn('text-sm', noticeTone)}>
           {notice}
         </p>
       )}

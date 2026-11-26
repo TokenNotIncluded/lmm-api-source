@@ -29,6 +29,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { getPerfMetricsSummary } from '@/features/performance-metrics/api'
 import {
   aggregatePerformanceMetric,
+  hasScopedNativeSamples,
   isPerformancePartial,
   performanceCoverageNotice,
   formatLatency,
@@ -66,8 +67,11 @@ export function PerformanceOverview() {
       successRate: aggregatePerformanceMetric(rows, 'success_rate'),
     }
   }, [models, metricsQuery.data])
-  const partial = isPerformancePartial(metricsQuery.data)
+  const nativeWindow = hasScopedNativeSamples(metricsQuery.data)
+  const partial = isPerformancePartial(metricsQuery.data) && !nativeWindow
   const notice = performanceCoverageNotice(metricsQuery.data, t)
+  const noticeTone = nativeWindow ? 'text-muted-foreground' : 'text-warning'
+  const healthTone = nativeWindow ? 'neutral' : partial ? 'warning' : 'success'
   const topModels = useMemo(() => models.slice(0, TOP_MODEL_LIMIT), [models])
   const loading = metricsQuery.isLoading
   const hasData = models.length > 0
@@ -77,7 +81,7 @@ export function PerformanceOverview() {
       <Card size='sm'>
         <CardContent className='text-muted-foreground text-center text-xs'>
           {notice && (
-            <p role='status' className='text-warning mb-2'>
+            <p role='status' className={cn('mb-2', noticeTone)}>
               {notice}
             </p>
           )}
@@ -91,7 +95,7 @@ export function PerformanceOverview() {
     <Card size='sm' className='gap-0 py-0'>
       <CardHeader className='flex flex-wrap items-center gap-x-5 gap-y-2.5 border-b px-4 py-3 sm:px-5'>
         <div className='flex items-center gap-1.5'>
-          <IconBadge tone={partial ? 'warning' : 'success'} size='xs'>
+          <IconBadge tone={healthTone} size='xs'>
             <HeartPulse />
           </IconBadge>
           <CardTitle className='text-xs whitespace-nowrap'>
@@ -121,7 +125,7 @@ export function PerformanceOverview() {
                   ? 'text-warning'
                   : getSuccessRateTextClass(summary.successRate)
               }
-              tone={partial ? 'warning' : 'success'}
+              tone={healthTone}
             />
             <InlineMetric
               icon={Timer}
@@ -145,7 +149,7 @@ export function PerformanceOverview() {
 
       <CardContent className='px-4 py-3 sm:px-5'>
         {notice && (
-          <p role='status' className='text-warning mb-2 text-xs'>
+          <p role='status' className={cn('mb-2 text-xs', noticeTone)}>
             {notice}
           </p>
         )}
