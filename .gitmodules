@@ -60,3 +60,6 @@
 [submodule ".agents/skills/update-recipkg-in-project"]
 	path = .agents/skills/update-recipkg-in-project
 	url = https://github.com/recipkg/update-recipkg-in-project.git
+[submodule "packages/lmm-oauth"]
+	path = packages/lmm-oauth
+	url = https://github.com/TokenNotIncluded/lmm-oauth.git
