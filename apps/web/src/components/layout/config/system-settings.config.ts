@@ -41,17 +41,10 @@ import {
   getSettingsTitle,
   type SettingsScope,
 } from '@/lib/system-settings-access'
-import { useAuthStore } from '@/stores/auth-store'
 
-import type { NavGroup, SidebarView } from '../types'
+import type { NavGroup } from '../types'
 
-/**
- * Sidebar nav groups for the System Settings nested view.
- *
- * Kept as a single group because the workspace title in the sidebar
- * header already provides top-level context — the inner group label
- * scopes the items as "administration" actions.
- */
+/** Settings links for the page search and settings landing pages. */
 export function getSystemSettingsNavGroups(
   t: TFunction,
   role: number = ROLE.SUPER_ADMIN,
@@ -131,26 +124,4 @@ export function getSystemSettingsNavGroups(
       }),
     }))
     .filter((group) => group.items.length)
-}
-
-/**
- * Nested sidebar view for `/system-settings/*`.
- *
- * Activates the Vercel / Cloudflare-style drill-in sidebar:
- * the root navigation is replaced by the system administration
- * groups, with a "Back to Dashboard" affordance in the header.
- */
-export const SYSTEM_SETTINGS_VIEW: SidebarView = {
-  id: 'system-settings',
-  pathPattern: /^\/system-settings(\/|$)/,
-  parent: {
-    to: '/dashboard/overview',
-    label: 'Back to Dashboard',
-  },
-  getNavGroups: (t, pathname) =>
-    getSystemSettingsNavGroups(
-      t,
-      useAuthStore.getState().auth.user?.role ?? ROLE.GUEST,
-      pathname ? getSettingsScope(pathname) : undefined
-    ),
 }

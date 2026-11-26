@@ -79,10 +79,10 @@ const { Route: SettingsRoute } =
   await import('@/routes/_authenticated/system-settings/route')
 const { Route: ContentRoute } =
   await import('@/routes/_authenticated/system-settings/content/$section')
-const { useSidebarView } = await import('@/hooks/use-sidebar-view')
+const { useRootSidebarNavigation } = await import('@/hooks/use-sidebar-view')
 const { buildSettingsSearchIndex } =
   await import('../utils/settings-search-index')
-const { getSystemSettingsNavGroups, SYSTEM_SETTINGS_VIEW } =
+const { getSystemSettingsNavGroups } =
   await import('@/components/layout/config/system-settings.config')
 const { api } = await import('@/lib/api')
 const { useAuthStore } = await import('@/stores/auth-store')
@@ -229,11 +229,11 @@ afterEach(() => {
 after(() => dom.close())
 
 function SidebarProbe() {
-  const sidebar = useSidebarView()
+  const navGroups = useRootSidebarNavigation()
   return (
     <output data-testid='sidebar-routes'>
       {JSON.stringify(
-        sidebar.navGroups.flatMap((group) =>
+        navGroups.flatMap((group) =>
           group.items.flatMap((item) => (item.url ? [item.url] : []))
         )
       )}
@@ -563,7 +563,7 @@ test('actual parent guard rejects other L5 settings and revoked sessions', async
   }
 })
 
-test('L5 discovers only the assistant settings destination while L6 retains the full directory', async () => {
+test('L5 discovers only the assistant settings destination while L6 retains access to all searchable settings', async () => {
   useAuthStore.getState().auth.setBundle(bundle(10))
   const page = await renderRoute('/dashboard/overview', true)
   try {
@@ -588,14 +588,6 @@ test('L5 discovers only the assistant settings destination while L6 retains the 
     assert.deepEqual(
       buildSettingsSearchIndex(t, undefined, 10).flatMap((group) =>
         group.entries.map((entry) => entry.url)
-      ),
-      [target]
-    )
-    assert.deepEqual(
-      SYSTEM_SETTINGS_VIEW.getNavGroups(t).flatMap((group) =>
-        group.items.flatMap(
-          (section) => section.items?.map((entry) => entry.url) ?? []
-        )
       ),
       [target]
     )

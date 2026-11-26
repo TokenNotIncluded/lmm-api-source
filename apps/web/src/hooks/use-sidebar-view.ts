@@ -16,12 +16,10 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { useLocation } from '@tanstack/react-router'
 import { useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 
-import { resolveSidebarView } from '@/components/layout/lib/sidebar-view-registry'
-import type { NavGroup, ResolvedSidebarView } from '@/components/layout/types'
+import type { NavGroup } from '@/components/layout/types'
 import { useRuntimeCapabilities } from '@/context/runtime-capabilities-context'
 import { ROLE } from '@/lib/roles'
 import { applyRuntimeNavigation } from '@/lib/runtime-capabilities'
@@ -30,12 +28,8 @@ import { useAuthStore } from '@/stores/auth-store'
 import { useSidebarConfig } from './use-sidebar-config'
 import { useSidebarData } from './use-sidebar-data'
 
-/** Sentinel key used for the root navigation in animation `key=` props */
-const ROOT_VIEW_KEY = '__root'
-
 /**
  * Root navigation filtered by role, sidebar modules and runtime capabilities.
- * Global shortcuts use this even while a nested workspace owns the sidebar.
  * Route-level guards continue to enforce access independently.
  */
 export function useRootSidebarNavigation(): NavGroup[] {
@@ -68,16 +62,4 @@ export function useRootSidebarNavigation(): NavGroup[] {
         : rootNavGroups,
     [rootNavGroups, runtime, t]
   )
-}
-
-/** The active workspace view, sharing the same filtered root navigation. */
-export function useSidebarView(): ResolvedSidebarView {
-  const { t } = useTranslation()
-  const pathname = useLocation({ select: (location) => location.pathname })
-  const rootNavGroups = useRootSidebarNavigation()
-  const view = resolveSidebarView(pathname)
-
-  return view
-    ? { key: view.id, view, navGroups: view.getNavGroups(t, pathname) }
-    : { key: ROOT_VIEW_KEY, view: null, navGroups: rootNavGroups }
 }

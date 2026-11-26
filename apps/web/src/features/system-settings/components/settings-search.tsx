@@ -91,9 +91,12 @@ export function SettingsSearch() {
   const { index, pathname, search } = useSettingsNavigation()
   const [open, setOpen] = useState(false)
   const [query, setQuery] = useState('')
-  const results = useMemo(() => searchSettings(index, query), [index, query])
+  const hasQuery = query.trim().length > 0
+  const results = useMemo(
+    () => (hasQuery ? searchSettings(index, query) : []),
+    [hasQuery, index, query]
+  )
   const activeUrl = `${pathname}${search}`
-  const total = countSettingsEntries(index)
 
   return (
     <>
@@ -128,7 +131,7 @@ export function SettingsSearch() {
             placeholder={t('Search settings')}
           />
           <CommandList className='max-h-[min(65dvh,28rem)]'>
-            <CommandEmpty>{t('No settings found')}</CommandEmpty>
+            {hasQuery && <CommandEmpty>{t('No settings found')}</CommandEmpty>}
             {results.map((group) => (
               <CommandGroup key={group.section} heading={group.group}>
                 {group.entries.map((entry) => (
@@ -163,11 +166,13 @@ export function SettingsSearch() {
               </CommandGroup>
             ))}
           </CommandList>
-          <div className='text-muted-foreground border-border/70 border-t px-3 py-2 text-xs'>
-            {t('{{count}} sections', {
-              count: query.trim() ? countSettingsEntries(results) : total,
-            })}
-          </div>
+          {hasQuery && (
+            <div className='text-muted-foreground border-border/70 border-t px-3 py-2 text-xs'>
+              {t('{{count}} sections', {
+                count: countSettingsEntries(results),
+              })}
+            </div>
+          )}
         </Command>
       </CommandDialog>
     </>

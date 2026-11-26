@@ -5,7 +5,7 @@ import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { useSidebar } from '@/components/ui/sidebar'
-import { useSidebarView } from '@/hooks/use-sidebar-view'
+import { useRootSidebarNavigation } from '@/hooks/use-sidebar-view'
 
 import type { NavGroup } from '../types'
 
@@ -31,7 +31,7 @@ function mobileDestinations(groups: NavGroup[]) {
 export function ConsoleMobileDock() {
   const { t } = useTranslation()
   const { isMobile, setOpenMobile } = useSidebar()
-  const { navGroups, view } = useSidebarView()
+  const navGroups = useRootSidebarNavigation()
   const pathname = useLocation({ select: (location) => location.pathname })
   const [editing, setEditing] = useState(false)
   useEffect(() => {
@@ -52,7 +52,7 @@ export function ConsoleMobileDock() {
       document.removeEventListener('focusout', blur)
     }
   }, [isMobile])
-  if (!isMobile || view || editing) return null
+  if (!isMobile || editing) return null
   return (
     <nav className='console-mobile-dock' aria-label={t('Quick navigation')}>
       {mobileDestinations(navGroups).map(({ url, title, icon: Icon }) => (

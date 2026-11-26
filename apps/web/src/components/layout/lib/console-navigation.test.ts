@@ -26,6 +26,7 @@ import {
   getConsoleSiteLinks,
   organizeConsoleNavigation,
 } from './console-navigation'
+import { checkIsActive } from './url-utils'
 
 const overview: NavLink = { title: 'Overview', url: '/dashboard/overview' }
 const models: NavLink = {
@@ -286,16 +287,41 @@ describe('current location and secondary site links', () => {
   })
 })
 
+test('settings leaves activate the corresponding root entry and location title', () => {
+  const core = { url: '/system-settings', title: 'Core Settings' }
+  const plugins = { url: '/extensions/settings', title: 'Plugin Settings' }
+  const navigation = [{ title: 'Admin', items: [core, plugins] }]
+  for (const [path, active, inactive] of [
+    ['/system-settings/billing/payment?tab=current', core, plugins],
+    ['/system-settings/operations/scripts/', plugins, core],
+    ['/extensions/settings/', plugins, core],
+  ] as const) {
+    assert.equal(getConsolePageTitle(navigation, path), active.title)
+    assert.equal(checkIsActive(path, active), true)
+    assert.equal(checkIsActive(path, inactive), false)
+  }
+  assert.equal(
+    getConsolePageTitle(navigation, '/extensions/plugins'),
+    undefined
+  )
+})
+
 describe('single console navigation contract', () => {
-  test('keeps one shared sidebar shell and only folds it for settings', () => {
+  test('keeps the same sidebar shell and persistence on settings routes', () => {
     const source = readFileSync(
       new URL('../components/authenticated-layout.tsx', import.meta.url),
       'utf8'
     )
     assert.match(source, /showTopNav=\{false\}/)
     assert.match(source, /<AppSidebar \/>/)
-    assert.match(source, /defaultOpen=\{settingsPage \? false : defaultOpen\}/)
-    assert.match(source, /persistState=\{!settingsPage\}/)
+    assert.match(source, /defaultOpen=\{defaultOpen\}/)
+    assert.doesNotMatch(source, /settingsPage|persistState=/)
+    const sidebar = readFileSync(
+      new URL('../components/app-sidebar.tsx', import.meta.url),
+      'utf8'
+    )
+    assert.match(sidebar, /const navGroups = useRootSidebarNavigation\(\)/)
+    assert.doesNotMatch(sidebar, /FloatingSettingsNavigation|SidebarViewHeader/)
     assert.match(source, /showLanguageSwitcher=\{false\}/)
     assert.match(source, /showConfigDrawer=\{false\}/)
     assert.match(source, /consoleActivated && <ConsoleMobileDock \/>/)
@@ -310,7 +336,7 @@ describe('console search matches visible navigation', () => {
   )
 
   test('uses the shared role/module-filtered sidebar view', () => {
-    assert.match(source, /const \{ navGroups \} = useSidebarView\(\)/)
+    assert.match(source, /const navGroups = useRootSidebarNavigation\(\)/)
     assert.doesNotMatch(source, /useSidebarData|getNavGroupsForPath/)
   })
 

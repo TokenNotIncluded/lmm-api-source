@@ -15,6 +15,12 @@ You should have received a copy of the GNU Affero General Public License
 along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 */
+import {
+  CORE_SETTINGS_HOME,
+  EXTENSION_SETTINGS_HOME,
+  getSettingsHomeForPath,
+} from '@/lib/system-settings-access'
+
 import type { NavGroup, NavItem, NavLink, TopNavLink } from '../types'
 
 // Promote only links that have already passed role and sidebar-module filters.
@@ -95,6 +101,7 @@ function leafItems(groups: NavGroup[]) {
 
 export function findConsoleNavItem(groups: NavGroup[], href: string) {
   const pathname = href.split(/[?#]/)[0].replace(/\/+$/, '') || '/'
+  const settingsHome = getSettingsHomeForPath(href)
   let match: NavLink | undefined
   let matchedLength = -1
 
@@ -105,11 +112,12 @@ export function findConsoleNavItem(groups: NavGroup[], href: string) {
         for (const url of [item.url, ...(item.activeUrls ?? [])]) {
           if (typeof url !== 'string') continue
           const base = url.split(/[?#]/)[0].replace(/\/+$/, '') || '/'
-          if (
-            base.length > matchedLength &&
-            (pathname === base ||
-              (base !== '/' && pathname.startsWith(`${base}/`)))
-          ) {
+          const matches =
+            base === CORE_SETTINGS_HOME || base === EXTENSION_SETTINGS_HOME
+              ? base === settingsHome
+              : pathname === base ||
+                (base !== '/' && pathname.startsWith(`${base}/`))
+          if (base.length > matchedLength && matches) {
             match = parent.disabled ? { ...item, disabled: true } : item
             matchedLength = base.length
           }

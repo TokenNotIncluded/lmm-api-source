@@ -55,7 +55,7 @@ import {
   walletProjection,
 } from '@/features/wallet/lib/wallet-projection'
 import { walletReferenceValue } from '@/features/wallet/lib/wallet-reference'
-import { useSidebarView } from '@/hooks/use-sidebar-view'
+import { useRootSidebarNavigation } from '@/hooks/use-sidebar-view'
 import { useTopNavLinks } from '@/hooks/use-top-nav-links'
 import { useWalletCurrency } from '@/hooks/use-wallet-currency'
 import { toIntlLocale } from '@/i18n/languages'
@@ -74,7 +74,7 @@ import { NavGroup } from './nav-group'
 export function ConsoleLocation() {
   const { t } = useTranslation()
   const href = useLocation({ select: (location) => location.href })
-  const { navGroups } = useSidebarView()
+  const navGroups = useRootSidebarNavigation()
   return (
     <span
       className='min-w-0 truncate text-sm font-medium'

@@ -18,6 +18,12 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import type { LinkProps } from '@tanstack/react-router'
 
+import {
+  CORE_SETTINGS_HOME,
+  EXTENSION_SETTINGS_HOME,
+  getSettingsHomeForPath,
+} from '@/lib/system-settings-access'
+
 import type { NavItem, NavCollapsible } from '../types'
 
 /**
@@ -59,6 +65,10 @@ export function checkIsActive(
   item: NavItem,
   mainNav = false
 ): boolean {
+  if (item.url === CORE_SETTINGS_HOME || item.url === EXTENSION_SETTINGS_HOME) {
+    return getSettingsHomeForPath(href) === item.url
+  }
+
   const hrefWithoutQuery = href.split('?')[0]
 
   if (item.activeUrls?.some((url) => urlToString(url) === hrefWithoutQuery)) {

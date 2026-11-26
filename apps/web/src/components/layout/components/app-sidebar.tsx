@@ -17,7 +17,6 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { X } from 'lucide-react'
-import { AnimatePresence, motion, useReducedMotion } from 'motion/react'
 import { useTranslation } from 'react-i18next'
 
 import { Button } from '@/components/ui/button'
@@ -29,10 +28,8 @@ import {
   useSidebar,
 } from '@/components/ui/sidebar'
 import { useLayout } from '@/context/layout-provider'
-import { FloatingSettingsNavigation } from '@/features/system-settings/components/floating-settings-navigation'
 import { useSidebarDensity } from '@/hooks/use-sidebar-config'
-import { useSidebarView } from '@/hooks/use-sidebar-view'
-import { MOTION_TRANSITION, MOTION_VARIANTS } from '@/lib/motion'
+import { useRootSidebarNavigation } from '@/hooks/use-sidebar-view'
 
 import { organizeConsoleNavigation } from '../lib/console-navigation'
 import {
@@ -41,7 +38,6 @@ import {
   ConsoleSidebarFooter,
 } from './console-navigation'
 import { NavGroup } from './nav-group'
-import { SidebarViewHeader } from './sidebar-view-header'
 import { SystemBrand } from './system-brand'
 
 export function AppSidebar() {
@@ -49,13 +45,12 @@ export function AppSidebar() {
   const { collapsible, variant } = useLayout()
   const { setOpenMobile } = useSidebar()
   const density = useSidebarDensity()
-  const { key, view, navGroups } = useSidebarView()
-  const shouldReduce = useReducedMotion()
-  const groups = view
-    ? navGroups
-    : organizeConsoleNavigation(navGroups, t('Console'), t('More admin tools'))
-
-  if (view?.id === 'system-settings') return <FloatingSettingsNavigation />
+  const navGroups = useRootSidebarNavigation()
+  const groups = organizeConsoleNavigation(
+    navGroups,
+    t('Console'),
+    t('More admin tools')
+  )
 
   return (
     <Sidebar
@@ -82,37 +77,22 @@ export function AppSidebar() {
         </div>
         <ConsoleSearch />
       </SidebarHeader>
-      {view && <SidebarViewHeader view={view} />}
       <SidebarContent className='gap-2 py-4 group-data-[collapsible=icon]:overflow-auto'>
         <nav aria-label={t('Sidebar')}>
-          <AnimatePresence mode='wait' initial={false}>
-            <motion.div
-              key={key}
-              initial={
-                shouldReduce ? false : MOTION_VARIANTS.sidebarSlide.initial
-              }
-              animate={MOTION_VARIANTS.sidebarSlide.animate}
-              exit={
-                shouldReduce ? undefined : MOTION_VARIANTS.sidebarSlide.exit
-              }
-              transition={MOTION_TRANSITION.fast}
-              className='flex flex-col gap-2'
-            >
-              {groups.map((group) =>
-                view ||
-                group.id === 'console-primary' ||
-                group.id === 'console-management' ||
-                group.id === 'onboarding' ? (
-                  <NavGroup key={group.id || group.title} {...group} />
-                ) : (
-                  <ConsoleNavSection
-                    key={group.id || group.title}
-                    group={group}
-                  />
-                )
-              )}
-            </motion.div>
-          </AnimatePresence>
+          <div className='flex flex-col gap-2'>
+            {groups.map((group) =>
+              group.id === 'console-primary' ||
+              group.id === 'console-management' ||
+              group.id === 'onboarding' ? (
+                <NavGroup key={group.id || group.title} {...group} />
+              ) : (
+                <ConsoleNavSection
+                  key={group.id || group.title}
+                  group={group}
+                />
+              )
+            )}
+          </div>
         </nav>
       </SidebarContent>
       <ConsoleSidebarFooter groups={navGroups} />

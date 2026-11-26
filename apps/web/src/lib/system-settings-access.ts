@@ -47,6 +47,25 @@ export function getSettingsScope(url: string): SettingsScope {
   return corePaths.has(pathname) ? 'core' : 'extensions'
 }
 
+export function getSettingsHomeForPath(url: string) {
+  const pathname = url.split(/[?#]/)[0].replace(/\/+$/, '')
+  if (
+    pathname === EXTENSION_SETTINGS_HOME ||
+    pathname.startsWith(`${EXTENSION_SETTINGS_HOME}/`)
+  ) {
+    return EXTENSION_SETTINGS_HOME
+  }
+  if (
+    pathname === CORE_SETTINGS_HOME ||
+    pathname.startsWith(`${CORE_SETTINGS_HOME}/`)
+  ) {
+    return getSettingsScope(pathname) === 'core'
+      ? CORE_SETTINGS_HOME
+      : EXTENSION_SETTINGS_HOME
+  }
+  return null
+}
+
 export function getSettingsTitle(scope: SettingsScope) {
   return scope === 'core' ? 'Core Settings' : 'Plugin Settings'
 }

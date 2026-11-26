@@ -42,7 +42,7 @@ import {
 import { useModelPlaza } from '@/context/model-plaza-provider'
 import { useSearch } from '@/context/search-provider'
 import { useTheme } from '@/context/theme-provider'
-import { useSidebarView } from '@/hooks/use-sidebar-view'
+import { useRootSidebarNavigation } from '@/hooks/use-sidebar-view'
 import appI18n from '@/i18n/config'
 import {
   INTERFACE_LANGUAGE_OPTIONS,
@@ -64,7 +64,7 @@ export function CommandMenu() {
   const quickSwitch = useQuickSwitch()
   const signedInUser = useAuthStore((state) => state.auth.user)
   // Search must respect the same role and module filters as the visible sidebar.
-  const { navGroups } = useSidebarView()
+  const navGroups = useRootSidebarNavigation()
   const currentLanguage = normalizeInterfaceLanguage(appI18n.language)
 
   const runCommand = React.useCallback(
