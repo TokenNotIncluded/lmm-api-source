@@ -80,6 +80,7 @@ const config = {
     service_deletion: true,
     client_record_cleanup: true,
     meta_delegation: true,
+    mcp_oauth: false,
   },
 }
 const record = {
@@ -848,7 +849,10 @@ test('late token response after account change cannot expose a token or configur
 })
 
 test('existing token settings remain credential-bound and strictly eligible OAuth clients appear without installed tools', async () => {
-  const { container, cache } = await mount(() => {})
+  const { container, cache } = await mount(() => {}, {
+    ...config,
+    capabilities: { ...config.capabilities, mcp_oauth: true },
+  })
   const targets: string[] = []
   metaDelegationAPI.get = async (target) => {
     targets.push(`${target.kind}:${target.id}`)

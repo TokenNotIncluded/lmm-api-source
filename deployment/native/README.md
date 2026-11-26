@@ -130,6 +130,16 @@ Do not echo secret contents or place URLs/tokens in process arguments.
    Core/Go backends. The isolated source check is
    `python3 -B deployment/native/test_management_routes.py`.
 
+   On the native console vhost, install and include the
+   [public rankings routes](templates/native-rankings-locations.conf) at server
+   scope. They forward `/api/rankings` and `/api/rankings/users` to the existing
+   `@lmm_extensions_backend`. The Web page stays at `/rankings`. The Go host
+   needs the `community` module, Web compatibility, its own database, and the
+   [Core read socket and purpose-specific credential](../../config/extensions.example.toml).
+   After `nginx -t` and reload, request both APIs with `?period=week` through the
+   public hostname and verify HTTP 200 with `success: true` and the respective
+   `data.models` or `data.users` array.
+
    The same native console server needs the
    [assistant browser snippet](templates/native-assistant-browser-locations.conf)
    for owner pages and confirmation links:

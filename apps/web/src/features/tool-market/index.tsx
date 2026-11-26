@@ -295,21 +295,33 @@ function ToolMarketWorkspace({
     queryKey: [...key, 'tokens'],
     queryFn: () => marketAPI.mine<MarketToken>('tokens'),
   })
+  const oauthEnabled = marketSupports(config.data, 'mcp_oauth')
   const oauthClients = useQuery({
     queryKey: [...key, 'oauth-clients'],
     queryFn: () => marketAPI.mine<MarketOAuthClient>('oauth-clients'),
+    enabled: oauthEnabled,
   })
-  const eligibleOAuthIDs = oauthClients.data?.map((row) => row.client_id) ?? []
+  const eligibleOAuthIDs =
+    oauthEnabled && oauthClients.data
+      ? oauthClients.data.map((row) => row.client_id)
+      : []
   useEffect(() => {
     if (
       client.startsWith('oauth:') &&
-      oauthClients.isSuccess &&
-      !oauthClients.data.some((row) => row.client_id === client)
+      ((config.isSuccess && !oauthEnabled) ||
+        (oauthClients.isSuccess &&
+          !oauthClients.data.some((row) => row.client_id === client)))
     ) {
       setClient('web-market')
       setGrantTool(null)
     }
-  }, [client, oauthClients.isSuccess, oauthClients.data])
+  }, [
+    client,
+    config.isSuccess,
+    oauthEnabled,
+    oauthClients.isSuccess,
+    oauthClients.data,
+  ])
   const detail = useQuery({
     queryKey: [...key, 'detail', selected?.id, selected?.mode],
     queryFn: ({ signal }) => {
@@ -942,7 +954,7 @@ function ToolMarketWorkspace({
                       {selected.mode === 'published' &&
                         (installs.isPending ||
                           grants.isPending ||
-                          oauthClients.isPending) && (
+                          (oauthEnabled && oauthClients.isPending)) && (
                           <p
                             role='status'
                             className='text-muted-foreground text-sm'
@@ -953,7 +965,7 @@ function ToolMarketWorkspace({
                       {selected.mode === 'published' &&
                         (installs.isError ||
                           grants.isError ||
-                          oauthClients.isError) && (
+                          (oauthEnabled && oauthClients.isError)) && (
                           <div role='alert' className='space-y-2 text-sm'>
                             <p className='text-destructive'>
                               {t(
@@ -966,7 +978,9 @@ function ToolMarketWorkspace({
                                 void Promise.allSettled([
                                   installs.refetch(),
                                   grants.refetch(),
-                                  oauthClients.refetch(),
+                                  ...(oauthEnabled
+                                    ? [oauthClients.refetch()]
+                                    : []),
                                 ])
                               }
                             >

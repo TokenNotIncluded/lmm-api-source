@@ -232,7 +232,7 @@ test('model and user rankings recover independently; outage responses never appe
       () =>
         !!document
           .querySelector(modelSection)
-          ?.textContent?.includes('Core does not serve this rankings endpoint')
+          ?.textContent?.includes('The service is temporarily unavailable.')
     )
     assert.equal(modelCalls, 3)
     assert.equal(userCalls, 2)

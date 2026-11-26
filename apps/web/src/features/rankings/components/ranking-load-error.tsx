@@ -32,11 +32,10 @@ function reason(t: TFunction, error: unknown) {
       return t('The rankings service is busy. Try again shortly.')
     case 'EXTENSION_NOT_ACCEPTING':
     case 'COMMUNITY_UNAVAILABLE':
+    case 'core_migration_incomplete':
       return t(
         'The service is temporarily unavailable. Please try again later.'
       )
-    case 'core_migration_incomplete':
-      return t('Core does not serve this rankings endpoint.')
     default:
       return response?.status
         ? t('The rankings request failed (HTTP {{status}}).', {

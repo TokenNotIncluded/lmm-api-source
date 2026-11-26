@@ -27,6 +27,56 @@ def compare_rows(source, target, key='id'):
         'extra':len(extra),'different':different,'passed':not(missing or extra or different)}
 
 
+def verified_personal_accounts(source_users, native_rows, receipts, archive):
+    """Reconstruct the original map bytes from native accounts and check the committed hash."""
+    records = sorted(native_rows, key=lambda row: row['user_id'])
+    accounts = {r['user_id']: r['account_id'] for r in records}
+    F.require(len(accounts) == len(records) == len(set(accounts.values()))
+              and len(source_users) == len(accounts) and set(source_users) == set(accounts)
+              and all(type(n) is int and n > 0 for r in records for n in (r['user_id'], r['account_id'])),
+              'identity_account_coverage_mismatch')
+    if receipts:
+        F.require(len(receipts) == 1, 'identity_import_run_ambiguous')
+        receipt = receipts[0]
+        proof = F.PLANNER.bind_identity_provenance(
+            receipt['manifest'], map_file_sha256=F.sha(F.IDENTITY.id_map_bytes(records).encode()),
+            source_archive_sha256=archive)
+        F.require(receipt['source_archive_sha256'] == archive
+                  and receipt['mapping_sha256'] == proof['identity_mapping_sha256'],
+                  'identity_import_run_binding_mismatch')
+    else:
+        # The original rehearsal's direct identity phase used the source ID for both columns.
+        F.require(all(user == account for user, account in accounts.items()),
+                  'identity_import_receipt_required_for_mapped_accounts')
+    return accounts
+
+
+def map_source_accounts(rows, accounts, field):
+    """Resolve the named account column without changing the source user or row identifier."""
+    for row in rows:
+        uid = row.pop('source_account_user_id')
+        F.require(uid in accounts, 'source_account_user_unmapped')
+        row[field] = accounts[uid]
+    return rows
+
+
+def ordinary_account_access(source, target):
+    """Reconcile the two access flags for known ordinary users at the frozen boundary."""
+    enabled = {r['id']: r['status'] == 1 and not r['deleted'] for r in source}
+    F.require(len(enabled) == len(source), 'duplicate_comparison_identifiers')
+    expected = [{'id': uid, 'active': state, 'account_active': state}
+                for uid, state in enabled.items()]
+    actual = [{'id': r['user_id'], 'active': r['active'], 'account_active': r['account_active']}
+              for r in target if r['user_id'] in enabled]
+    result = compare_rows(expected, actual)
+    for flag, name in (('active', 'user'), ('account_active', 'personal_account')):
+        result['source_enabled_target_' + name + '_inactive'] = sum(
+            enabled[r['id']] and not r[flag] for r in actual)
+        result['source_inactive_target_' + name + '_active'] = sum(
+            not enabled[r['id']] and r[flag] for r in actual)
+    return result
+
+
 def normalized_quota(raw, divisor):
     F.require(type(raw) is int and raw>=0 and divisor>0,'invalid_quota_conversion')
     amount=Fraction(raw)/divisor
@@ -175,17 +225,26 @@ def reconcile(args):
     s=query(f"SELECT id,coalesce(quota,0) AS available,coalesce(aff_quota,0) AS affiliate,coalesce(created_at,0) AS registered_at,CASE role WHEN 1 THEN 'user' WHEN 10 THEN 'admin' WHEN 100 THEN 'superadmin' END AS role,(status=1 AND deleted_at IS NULL) AS active FROM {schema}.users",True)
     t=query("SELECT u.id,coalesce(sum(s.balance_units) FILTER(WHERE l.bucket IN('wallet','debt')),0) AS available,coalesce(sum(s.balance_units) FILTER(WHERE l.bucket='affiliate'),0) AS affiliate,floor(extract(epoch FROM a.created_at))::bigint AS registered_at,u.platform_role AS role,u.active FROM core_identity.users u JOIN core_identity.accounts a ON a.id=u.personal_account_id LEFT JOIN core_billing.ledger_accounts l ON l.owner_account_id=a.id LEFT JOIN core_billing.balance_state s ON s.ledger_account_id=l.id GROUP BY u.id,a.created_at")
     compare('account_balances_registration_and_roles',s,t)
-    compare('historical_account_counters',query(f'SELECT id,coalesce(used_quota,0) AS used_quota,coalesce(request_count,0) AS request_count,coalesce(aff_history,0) AS aff_history FROM {schema}.users',True),query('SELECT user_id AS id,used_quota,request_count,aff_history FROM core_billing.account_opening_counters'))
+    native_accounts = query("SELECT u.id AS user_id,u.personal_account_id AS account_id,u.active,a.active AS account_active "
+                            "FROM core_identity.users u JOIN core_identity.accounts a "
+                            "ON a.id=u.personal_account_id AND a.kind='personal'")
+    receipts = query("SELECT source_archive_sha256,mapping_sha256,manifest "
+                     "FROM core_migration.import_runs WHERE manifest->>'scope'='identity-only'")
+    accounts = verified_personal_accounts([r['id'] for r in s], native_accounts, receipts, args.archive_sha256)
+    checks['ordinary_account_access'] = ordinary_account_access(
+        query(f"SELECT id,status,deleted_at IS NOT NULL AS deleted FROM {schema}.users "
+              "WHERE role=1 AND status IN (1,2)", True), native_accounts)
+    compare('historical_account_counters',map_source_accounts(query(f'SELECT id,id AS source_account_user_id,coalesce(used_quota,0) AS used_quota,coalesce(request_count,0) AS request_count,coalesce(aff_history,0) AS aff_history FROM {schema}.users',True),accounts,'account_id'),query('SELECT user_id AS id,account_id,used_quota,request_count,aff_history FROM core_billing.account_opening_counters'))
     # Key quotas and lifecycle metadata are compared without returning raw keys.
     ordinary="(length(t.key) BETWEEN 32 AND 256 AND t.key ~ '^[A-Za-z0-9_]+$' AND lower(t.key) !~ 'lmm_|oauth_managed_' AND lower(t.key) !~ '^lmm[krsifto]_')"
     managed="(coalesce(t.oauth_managed,false) OR coalesce(t.creation_source,'')='assistant_runtime' OR NOT " + ordinary + ")"
-    s=query(f"SELECT t.id,t.user_id,t.user_id AS owner_account_id,greatest(coalesce(u.auth_version,1),1) AS user_version,encode(sha256(convert_to(t.key,'UTF8')),'hex') AS digest,coalesce(t.used_quota,0) AS used,coalesce(t.used_quota,0)+coalesce(t.remain_quota,0) AS displayed_limit,t.unlimited_quota AS unlimited,t.status=1 AS enabled,(t.deleted_at IS NOT NULL OR {managed}) AS revoked,CASE WHEN t.expired_time IS NULL OR t.expired_time=-1 THEN 253402300799 ELSE t.expired_time+1 END AS expires_at FROM {schema}.tokens t JOIN {schema}.users u ON u.id=t.user_id",True)
+    s=query(f"SELECT t.id,t.user_id,t.user_id AS source_account_user_id,greatest(coalesce(u.auth_version,1),1) AS user_version,encode(sha256(convert_to(t.key,'UTF8')),'hex') AS digest,coalesce(t.used_quota,0) AS used,coalesce(t.used_quota,0)+coalesce(t.remain_quota,0) AS displayed_limit,t.unlimited_quota AS unlimited,t.status=1 AS enabled,(t.deleted_at IS NOT NULL OR {managed}) AS revoked,CASE WHEN t.expired_time IS NULL OR t.expired_time=-1 THEN 253402300799 ELSE t.expired_time+1 END AS expires_at FROM {schema}.tokens t JOIN {schema}.users u ON u.id=t.user_id",True)
     t=query("SELECT c.id,c.user_id,c.owner_account_id,c.user_version,encode(c.digest,'hex') AS digest,o.consumed_credits AS used,CASE WHEN q.unlimited THEN q.display_limit_credits ELSE q.limit_credits END AS displayed_limit,q.unlimited,k.enabled,c.revoked_at IS NOT NULL AS revoked,floor(extract(epoch FROM c.expires_at))::bigint AS expires_at FROM core_identity.credentials c JOIN core_identity.api_key_settings k ON k.credential_id=c.id JOIN core_charging.budgets q ON q.key_id=c.id AND q.scope='key' JOIN core_charging.budget_opening_consumption o ON o.key_id=c.id AND o.scope='key' WHERE c.kind='api_key'")
-    compare('api_key_owner_digest_quota_and_lifecycle',s,t)
-    s=query(f"SELECT t.id AS source_key_id,t.id AS target_credential_id,t.user_id AS target_user_id,t.user_id AS target_account_id,greatest(coalesce(u.auth_version,1),1) AS credential_user_version,encode(sha256(convert_to(t.key,'UTF8')),'hex') AS source_secret_sha256,encode(sha256(convert_to('sk-'||t.key,'UTF8')),'hex') AS sk_alias_sha256,{managed} AS revoked_rekey_required FROM {schema}.tokens t JOIN {schema}.users u ON u.id=t.user_id",True)
+    compare('api_key_owner_digest_quota_and_lifecycle',map_source_accounts(s,accounts,'owner_account_id'),t)
+    s=query(f"SELECT t.id AS source_key_id,t.id AS target_credential_id,t.user_id AS target_user_id,t.user_id AS source_account_user_id,greatest(coalesce(u.auth_version,1),1) AS credential_user_version,encode(sha256(convert_to(t.key,'UTF8')),'hex') AS source_secret_sha256,encode(sha256(convert_to('sk-'||t.key,'UTF8')),'hex') AS sk_alias_sha256,{managed} AS revoked_rekey_required FROM {schema}.tokens t JOIN {schema}.users u ON u.id=t.user_id",True)
     fields=('source_key_id','target_credential_id','target_user_id','target_account_id','credential_user_version','source_secret_sha256','sk_alias_sha256')
     t=[{**{k:r[k] for k in fields},'revoked_rekey_required':r.get('revoked_rekey_required',False)} for r in aliases['keys']]
-    compare('raw_and_sk_alias_bindings',s,t,'source_key_id')
+    compare('raw_and_sk_alias_bindings',map_source_accounts(s,accounts,'target_account_id'),t,'source_key_id')
     # Preserve every original check-in, including deleted-user history. This
     # archive is not a native claim and must never replay an already-opened award.
     compare('checkin_original_history',
@@ -209,13 +268,13 @@ def reconcile(args):
     s=query(f"SELECT id,sender_id AS owner_user,CASE WHEN status='claimed' THEN recipient_id END AS recipient_user,quota AS amount,status AS state,created_at,CASE WHEN status='claimed' THEN claimed_at ELSE cancelled_at END AS finished_at FROM {schema}.wallet_transfers WHERE status IN('claimed','cancelled')",True)
     t=query('SELECT id,owner_user,recipient_user,amount,state,created_at,finished_at FROM core_wallet.legacy_transfer_history')
     compare('terminal_wallet_transfer_history',s,t)
-    s=query(f"SELECT id,owner_user_id,payer_account_id,escrow_quota AS escrow_units,status FROM (SELECT p.*,p.owner_user_id AS payer_account_id FROM {schema}.open_source_bounty_projects p) x WHERE escrow_quota>0",True)
+    s=query(f"SELECT id,owner_user_id,owner_user_id AS source_account_user_id,escrow_quota AS escrow_units,status FROM {schema}.open_source_bounty_projects WHERE escrow_quota>0",True)
     t=query('SELECT source_project_id AS id,owner_user_id,payer_account_id,escrow_units,status FROM core_billing.legacy_escrow_projects')
-    compare('bounty_escrow_original_projects',s,t)
+    compare('bounty_escrow_original_projects',map_source_accounts(s,accounts,'payer_account_id'),t)
     observed=args.observed_at
-    s=query(f"SELECT c.id,c.project_id AS source_project_id,c.participant_user_id,c.participant_user_id AS recipient_account_id,c.reward_quota AS source_reward_quota,CASE WHEN c.status='rejected' AND c.rejected_at<={observed}-604800 THEN 'historical_rejection_guard_only' ELSE 'active_future_reward' END AS rights_status,CASE WHEN c.status='rejected' AND c.rejected_at<={observed}-604800 THEN NULL ELSE c.reward_quota END AS payout_units,c.status,c.rejected_at,c.paid_at FROM {schema}.open_source_bounty_challenges c JOIN {schema}.open_source_bounty_projects p ON p.id=c.project_id WHERE p.escrow_quota>0 AND coalesce(c.paid_at,0)=0 AND c.status IN('accepted','submitted','rejected')",True)
+    s=query(f"SELECT c.id,c.project_id AS source_project_id,c.participant_user_id,c.participant_user_id AS source_account_user_id,c.reward_quota AS source_reward_quota,CASE WHEN c.status='rejected' AND c.rejected_at<={observed}-604800 THEN 'historical_rejection_guard_only' ELSE 'active_future_reward' END AS rights_status,CASE WHEN c.status='rejected' AND c.rejected_at<={observed}-604800 THEN NULL ELSE c.reward_quota END AS payout_units,c.status,c.rejected_at,c.paid_at FROM {schema}.open_source_bounty_challenges c JOIN {schema}.open_source_bounty_projects p ON p.id=c.project_id WHERE p.escrow_quota>0 AND coalesce(c.paid_at,0)=0 AND c.status IN('accepted','submitted','rejected')",True)
     t=query('SELECT source_challenge_id AS id,source_project_id,participant_user_id,recipient_account_id,source_reward_quota,rights_status,payout_units,status,rejected_at,paid_at FROM core_billing.legacy_escrow_claims')
-    compare('bounty_claims_rights_and_rejection_guards',s,t)
+    compare('bounty_claims_rights_and_rejection_guards',map_source_accounts(s,accounts,'recipient_account_id'),t)
     compare('bounty_initial_remaining_escrow',query(f'SELECT id,escrow_quota AS remaining_units FROM {schema}.open_source_bounty_projects WHERE escrow_quota>0',True),query('SELECT source_project_id AS id,remaining_units FROM core_billing.legacy_escrow_state'))
     # Redeemability follows the snapshot evaluation time; spent codes remain revoked.
     observed=args.observed_at
@@ -223,29 +282,28 @@ def reconcile(args):
     t=query("SELECT encode(c.digest,'hex') AS id,p.award_units,c.revoked FROM core_promotions.codes c JOIN core_promotions.campaigns p ON p.id=c.campaign_id")
     compare('redemption_amounts_and_revocation',s,t)
     # Source-linked grant shape and consumed units; quote/order linkage is a separate gap.
-    s=query(f"SELECT id,user_id AS account_id,start_time AS anchor,end_time AS ends_at,amount_total AS amount_total,amount_used AS used FROM {schema}.user_subscriptions",True)
+    s=query(f"SELECT id,user_id AS source_account_user_id,start_time AS anchor,end_time AS ends_at,amount_total AS amount_total,amount_used AS used FROM {schema}.user_subscriptions",True)
     t=query("SELECT split_part(s.grant_reference,':',3)::bigint AS id,s.account_id,s.anchor,s.ends_at,CASE WHEN s.unlimited THEN 0 ELSE s.limit_credits END AS amount_total,o.consumed_credits AS used FROM core_charging.subscriptions s JOIN core_charging.subscription_opening_consumption o ON o.subscription_id=s.id WHERE s.grant_reference LIKE 'legacy-sub:%'")
-    compare('subscription_original_grants_and_consumption',s,t)
-    # Compare each mapped historical log across 15 exported fields using the same PG
-    # JSON numeric/text encoding on each side. Extra source-only metadata is excluded.
-    s_fields="l.user_id,l.user_id,CASE WHEN t.user_id=l.user_id THEN l.token_id END,l.created_at,l.type,l.quota,l.prompt_tokens,l.completion_tokens,coalesce(l.username,''),coalesce(l.token_name,''),coalesce(l.model_name,''),coalesce(l.channel_id,0),coalesce(l.\"group\",''),coalesce(l.request_id,''),coalesce(l.upstream_request_id,'')"
-    t_fields="user_id,owner_account_id,token_id,created_at,log_type,quota,prompt_tokens,completion_tokens,username,token_name,model_name,channel_id,group_name,request_id,upstream_request_id"
-    s=query(f"SELECT l.id,encode(sha256(convert_to(jsonb_build_array({s_fields})::text,'UTF8')),'hex') AS projection FROM {schema}.logs l JOIN {schema}.users u ON u.id=l.user_id LEFT JOIN {schema}.tokens t ON t.id=l.token_id",True)
-    t=query(f"SELECT source_log_id AS id,encode(sha256(convert_to(jsonb_build_array({t_fields})::text,'UTF8')),'hex') AS projection FROM core_history.log_records")
-    compare('mapped_log_field_projections',s,t)
+    compare('subscription_original_grants_and_consumption',map_source_accounts(s,accounts,'account_id'),t)
+    # Compare the mapped owner separately from the PG hash of the other 14 log fields.
+    s_fields="l.user_id,CASE WHEN t.user_id=l.user_id THEN l.token_id END,l.created_at,l.type,l.quota,l.prompt_tokens,l.completion_tokens,coalesce(l.username,''),coalesce(l.token_name,''),coalesce(l.model_name,''),coalesce(l.channel_id,0),coalesce(l.\"group\",''),coalesce(l.request_id,''),coalesce(l.upstream_request_id,'')"
+    t_fields="user_id,token_id,created_at,log_type,quota,prompt_tokens,completion_tokens,username,token_name,model_name,channel_id,group_name,request_id,upstream_request_id"
+    s=query(f"SELECT l.id,l.user_id AS source_account_user_id,encode(sha256(convert_to(jsonb_build_array({s_fields})::text,'UTF8')),'hex') AS projection FROM {schema}.logs l JOIN {schema}.users u ON u.id=l.user_id LEFT JOIN {schema}.tokens t ON t.id=l.token_id",True)
+    t=query(f"SELECT source_log_id AS id,owner_account_id,encode(sha256(convert_to(jsonb_build_array({t_fields})::text,'UTF8')),'hex') AS projection FROM core_history.log_records")
+    compare('mapped_log_field_projections',map_source_accounts(s,accounts,'owner_account_id'),t)
     # Quota conversion uses the independently captured rebase divisor and exact
     # rational half-away-from-zero rounding, never an average or guessed unit.
     rebases=query(f"SELECT plan->>'divisor' AS divisor,plan->>'rounding' AS rounding,(plan->>'snapshot_at')::bigint AS snapshot_at,floor(extract(epoch FROM applied_at))::bigint AS applied_at FROM {schema}.wallet_credit_rebases",True)
     F.require(len(rebases)==1 and rebases[0]['rounding']=='half-away-from-zero','unsupported_independent_quota_conversion')
     r=rebases[0];divisor=Fraction(r['divisor'])
-    s=query(f'SELECT q.id,q.user_id,q.user_id AS owner_account_id,coalesce(q.quota,0) AS raw_quota,q.created_at,coalesce(q.count,0) AS request_count,coalesce(q.token_used,0) AS token_used FROM {schema}.quota_data q JOIN {schema}.users u ON u.id=q.user_id',True)
+    s=query(f'SELECT q.id,q.user_id,q.user_id AS source_account_user_id,coalesce(q.quota,0) AS raw_quota,q.created_at,coalesce(q.count,0) AS request_count,coalesce(q.token_used,0) AS token_used FROM {schema}.quota_data q JOIN {schema}.users u ON u.id=q.user_id',True)
     for row in s:
      if row['created_at']>=r['applied_at']:row.update(quota_credits=row['raw_quota'],credits_basis='current_units')
      elif row['created_at']+3600<=r['snapshot_at']:
       row.update(quota_credits=normalized_quota(row['raw_quota'],divisor),credits_basis='rebased_legacy_units')
      else:raise F.Error('unproved_quota_bucket_unit')
     t=query('SELECT source_row_id AS id,user_id,owner_account_id,raw_quota,created_at,request_count,token_used,quota_credits,credits_basis FROM core_history.quota_aggregates')
-    compare('mapped_quota_counts_raw_and_normalized_units',s,t)
+    compare('mapped_quota_counts_raw_and_normalized_units',map_source_accounts(s,accounts,'owner_account_id'),t)
     ledger=query("SELECT (SELECT coalesce(sum(balance_units),0) FROM core_billing.balance_state) AS global_balance_sum,(SELECT count(*) FROM (SELECT journal_id FROM core_billing.ledger_entries GROUP BY journal_id HAVING sum(delta_units)<>0) x) AS unbalanced_journals,(SELECT count(*) FROM core_billing.balance_state s WHERE s.balance_units<>coalesce((SELECT sum(e.delta_units) FROM core_billing.ledger_entries e WHERE e.ledger_account_id=s.ledger_account_id),0)) AS balances_disagree_with_entries,(SELECT count(*) FROM core_billing.balance_state s WHERE s.revision<>coalesce((SELECT max(e.balance_revision) FROM core_billing.ledger_entries e WHERE e.ledger_account_id=s.ledger_account_id),0)) AS revisions_disagree_with_entries,(SELECT count(*) FROM core_billing.ledger_journals j WHERE j.kind<>'opening' AND (coalesce((SELECT sum(e.delta_units) FROM core_billing.ledger_entries e WHERE e.journal_id=j.id AND e.ledger_account_id=j.payer_id),0)<>-j.amount_units OR coalesce((SELECT sum(e.delta_units) FROM core_billing.ledger_entries e WHERE e.journal_id=j.id AND e.ledger_account_id=j.payee_id),0)<>j.amount_units)) AS nonopening_payer_payee_mismatches")[0]
     checks['ledger_invariants']={**ledger,'passed':all(v==0 for v in ledger.values())}
     orders=query(f'SELECT id,user_id,status,reserved_quota,refunded_quota,charge_quota FROM {schema}.hero_sms_sms_orders',True)

@@ -110,6 +110,7 @@ function ConnectionWorkspace({
   const cache = useQueryClient()
   const metaSupported = marketSupports(config, 'meta_delegation')
   const oauthEnabled = marketSupports(config, 'mcp_oauth')
+  const metaOAuthEnabled = metaSupported && oauthEnabled
   const cleanupSupported = marketSupports(config, 'client_record_cleanup')
   const tokens = useQuery({
     queryKey: ['tool-market', userID, 'tokens'],
@@ -131,7 +132,7 @@ function ConnectionWorkspace({
   const metaOAuthClients = useQuery({
     queryKey: ['tool-market', userID, 'meta-oauth-clients'],
     queryFn: ({ signal }) => metaDelegationAPI.oauthClients(signal),
-    enabled: metaSupported,
+    enabled: metaOAuthEnabled,
   })
   const [metaSetup, setMetaSetup] = useState(() => ({
     ...defaultMetaDelegationSetup,
@@ -214,7 +215,7 @@ function ConnectionWorkspace({
     grants.isError ||
     installations.isError ||
     budgets.isError ||
-    (metaSupported && metaOAuthClients.isError)
+    (metaOAuthEnabled && metaOAuthClients.isError)
   const accessReady =
     tokens.isSuccess && grants.isSuccess && installations.isSuccess
   const savedGroups = useMemo(() => {
@@ -232,7 +233,7 @@ function ConnectionWorkspace({
     for (const row of installations.data ?? []) {
       ensure(row.client_id).installations.push(row)
     }
-    if (metaSupported) {
+    if (metaOAuthEnabled) {
       for (const row of metaOAuthClients.data ?? []) ensure(row.client_id)
     }
     return [...rows].sort(([a], [b]) => a.localeCompare(b))
@@ -241,7 +242,7 @@ function ConnectionWorkspace({
     grants.data,
     installations.data,
     metaOAuthClients.data,
-    metaSupported,
+    metaOAuthEnabled,
   ])
   const groups = savedGroups
     .map(([id, group]): [string, ClientAccess] => [
@@ -256,7 +257,7 @@ function ConnectionWorkspace({
       ([id, group]) =>
         group.tokens.length + group.grants.length + group.installations.length >
           0 ||
-        (metaSupported &&
+        (metaOAuthEnabled &&
           metaOAuthClients.data?.some((row) => row.client_id === id))
     )
   const revokedGroups = savedGroups
@@ -342,7 +343,7 @@ function ConnectionWorkspace({
               </Button>
             )}
           </div>
-          {metaSupported &&
+          {metaOAuthEnabled &&
             !history &&
             metaOAuthClients.data?.some((row) => row.client_id === id) && (
               <MetaDelegationSettings
@@ -513,7 +514,7 @@ function ConnectionWorkspace({
                   grants.refetch(),
                   installations.refetch(),
                   budgets.refetch(),
-                  ...(metaSupported ? [metaOAuthClients.refetch()] : []),
+                  ...(metaOAuthEnabled ? [metaOAuthClients.refetch()] : []),
                 ])
               }
             >

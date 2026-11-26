@@ -107,6 +107,7 @@ const pausedConfig: MarketConfig = {
     service_deletion: true,
     client_record_cleanup: true,
     meta_delegation: true,
+    mcp_oauth: true,
   },
 }
 function detail(
@@ -1151,6 +1152,32 @@ for (const clientID of ['oauth:lmm-pi', 'oauth:lmm-dsh']) {
     )
   })
 }
+
+test('a market without OAuth keeps browser tools usable without querying OAuth targets', async () => {
+  const item = detail('768e7947-0652-4c6b-a998-712958765432', 'builtin')
+  stubNavigation([item])
+  marketAPI.config = async () => ({
+    ...pausedConfig,
+    capabilities: { ...pausedConfig.capabilities, mcp_oauth: false },
+  })
+  const mine = marketAPI.mine
+  const oauthReads: string[] = []
+  marketAPI.mine = (async (kind: string) => {
+    if (kind === 'oauth-clients') oauthReads.push(kind)
+    return mine(kind)
+  }) as typeof marketAPI.mine
+  metaDelegationAPI.oauthClients = async () => {
+    oauthReads.push('meta-oauth-clients')
+    return []
+  }
+  const { container } = await mount(1, 2, item.service.id)
+  await waitFor(
+    () => findButton('Run free tool', container)?.disabled === false
+  )
+  await click(button('Connect MCP', container))
+  await waitFor(() => Boolean(findButton('Create connection token', container)))
+  assert.deepEqual(oauthReads, [])
+})
 
 test('historical OAuth rows cannot impersonate eligible clients and revocation resets the selected target', async () => {
   stubNavigation([builtin])

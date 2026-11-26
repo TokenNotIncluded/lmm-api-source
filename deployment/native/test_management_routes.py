@@ -15,6 +15,7 @@ import unittest
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 TEMPLATE = ROOT / 'deployment/native/templates/native-management-locations.conf'
+RANKINGS = ROOT / 'deployment/native/templates/native-rankings-locations.conf'
 
 
 def backend(name):
@@ -51,7 +52,7 @@ class NativeManagementRoutes(unittest.TestCase):
             listener.bind(('127.0.0.1', 0))
             cls.port = listener.getsockname()[1]
         snippet = TEMPLATE.read_text().replace('127.0.0.1:3101', f'127.0.0.1:{cls.core.server_port}')
-        (cls.path / 'routes.conf').write_text(snippet)
+        (cls.path / 'routes.conf').write_text(snippet + '\n' + RANKINGS.read_text())
         config = (
             f'daemon off; master_process off; error_log {cls.path}/error.log notice; '
             f'pid {cls.path}/nginx.pid; events {{worker_connections 64;}} '
@@ -104,6 +105,8 @@ class NativeManagementRoutes(unittest.TestCase):
         for method, path, target in (
             ('GET', '/api/option/epay/config', 'go'),
             ('GET', '/api/option/waffo-pancake/config', 'go'),
+            ('GET', '/api/rankings?period=week', 'go'),
+            ('GET', '/api/rankings/users?period=week', 'go'),
             ('GET', '/core/v1/admin/user-access/17?view=current', 'core'),
             ('PATCH', '/core/v1/admin/user-access/17', 'core'),
             ('GET', '/core/v1/payment-gateways/epay', 'core'),
@@ -123,6 +126,10 @@ class NativeManagementRoutes(unittest.TestCase):
     def test_unrelated_methods_ids_and_paths_are_not_forwarded(self):
         for method, path, expected in (
             ('PATCH', '/api/option/epay/config', 405),
+            ('POST', '/api/rankings', 405),
+            ('POST', '/api/rankings/users', 405),
+            ('GET', '/api/rankings/other', 418),
+            ('GET', '/rankings', 418),
             ('POST', '/api/option/waffo-pancake/config', 405),
             ('GET', '/api/option/waffo-pancake/other', 418),
             ('GET', '/core/v1/admin/user-access', 404),
