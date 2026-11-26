@@ -197,6 +197,7 @@ export function parseDirectoryLinks(value: string): AIDirectoryLink[] | null {
       parsed.some(
         (item) =>
           !item ||
+          Object.keys(item).length !== 7 ||
           typeof item.id !== 'string' ||
           typeof item.name !== 'string' ||
           typeof item.url !== 'string' ||
@@ -215,10 +216,12 @@ export function parseDirectoryLinks(value: string): AIDirectoryLink[] | null {
         !/^[a-zA-Z0-9_-]{1,64}$/.test(item.id) ||
         ids.has(item.id) ||
         !item.name.trim() ||
-        item.name.length > 80 ||
-        item.summary.length > 180 ||
-        item.description.length > 1200 ||
+        [...item.name].length > 80 ||
+        [...item.summary].length > 180 ||
+        [...item.description].length > 1200 ||
         !AI_DIRECTORY_CATEGORIES.includes(item.category) ||
+        /[ \t\r\n]/.test(item.url) ||
+        new TextEncoder().encode(item.url).length > 2048 ||
         !safeDirectoryUrl(item.url)
       ) {
         return null

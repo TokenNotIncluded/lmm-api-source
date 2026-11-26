@@ -5,13 +5,15 @@ type PublicDirectoryPath =
 
 /** Public lists must not inherit console credentials or refresh redirects. */
 export async function getPublicDirectory<T>(
-  path: PublicDirectoryPath
+  path: PublicDirectoryPath,
+  cache?: RequestCache
 ): Promise<{ data: T }> {
   const controller = new AbortController()
   const timeout = setTimeout(() => controller.abort(), 10_000)
   try {
     const response = await fetch(path, {
       method: 'GET',
+      cache,
       credentials: 'omit',
       headers: { Accept: 'application/json' },
       signal: controller.signal,
