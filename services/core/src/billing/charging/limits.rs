@@ -262,14 +262,42 @@ pub async fn external_budgets(c: &mut PgConnection, external_id: &str) -> Result
     Ok(())
 }
 
-async fn key_consumed(c: &mut PgConnection, key: i64) -> Result<i64> {
-    Ok(sqlx::query_scalar(
-        "SELECT ((SELECT coalesce(sum(core_charging.committed_credits(state,reserved,settled,refunded)),0) \
-         FROM core_charging.requests WHERE key_id=$1) \
-         + (SELECT coalesce(sum(amount_credits-refunded),0) FROM core_charging.external_consumption WHERE key_id=$1) \
-         + (SELECT coalesce(sum(consumed_credits),0) FROM core_charging.budget_opening_consumption \
-            WHERE scope='key' AND key_id=$1 AND period='lifetime'))::bigint",
-    ).bind(key).fetch_one(c).await?)
+pub(crate) struct KeyConsumption {
+    pub(crate) settled: i64,
+    pub(crate) pending: i64,
+    pub(crate) opening: i64,
+}
+
+impl KeyConsumption {
+    pub(crate) fn total(&self) -> Result<i64> {
+        self.settled
+            .checked_add(self.pending)
+            .and_then(|used| used.checked_add(self.opening))
+            .ok_or(Error::Invalid)
+    }
+}
+
+async fn key_consumed(c: &mut PgConnection, key: i64) -> Result<KeyConsumption> {
+    let row = sqlx::query(
+        r#"SELECT
+             (coalesce(sum(core_charging.committed_credits(state,reserved,settled,refunded))
+                  FILTER (WHERE state = 'settled'),0)
+              + (SELECT coalesce(sum(amount_credits-refunded),0)
+                 FROM core_charging.external_consumption WHERE key_id=$1))::bigint AS settled,
+             coalesce(sum(reserved) FILTER (WHERE state IN ('reserved','streaming','reconcile')),0)::bigint AS pending,
+             (SELECT coalesce(sum(consumed_credits),0)::bigint
+              FROM core_charging.budget_opening_consumption
+              WHERE scope='key' AND key_id=$1 AND period='lifetime') AS opening
+           FROM core_charging.requests WHERE key_id=$1"#,
+    )
+    .bind(key)
+    .fetch_one(c)
+    .await?;
+    Ok(KeyConsumption {
+        settled: row.try_get("settled")?,
+        pending: row.try_get("pending")?,
+        opening: row.try_get("opening")?,
+    })
 }
 
 fn signed_remaining(basis: Option<i64>, used: i64) -> Result<i64> {
@@ -283,6 +311,14 @@ fn signed_remaining(basis: Option<i64>, used: i64) -> Result<i64> {
 /// is retained even for unlimited policies; admission remains unlimited only
 /// when every lifetime policy is unlimited. Periodic caps remain additional.
 pub async fn key_quota_snapshot(c: &mut PgConnection, key: i64) -> Result<(i64, i64, bool)> {
+    let (usage, remaining, unlimited) = key_quota_breakdown(c, key).await?;
+    Ok((usage.total()?, remaining, unlimited))
+}
+
+pub(crate) async fn key_quota_breakdown(
+    c: &mut PgConnection,
+    key: i64,
+) -> Result<(KeyConsumption, i64, bool)> {
     let row = sqlx::query(
         "SELECT min(coalesce(display_limit_credits,limit_credits)) AS display_basis, \
          coalesce(bool_and(unlimited),true) AS unlimited FROM core_charging.budgets \
@@ -291,12 +327,9 @@ pub async fn key_quota_snapshot(c: &mut PgConnection, key: i64) -> Result<(i64, 
     .bind(key)
     .fetch_one(&mut *c)
     .await?;
-    let used = key_consumed(c, key).await?;
-    Ok((
-        used,
-        signed_remaining(row.try_get("display_basis")?, used)?,
-        row.try_get("unlimited")?,
-    ))
+    let usage = key_consumed(c, key).await?;
+    let remaining = signed_remaining(row.try_get("display_basis")?, usage.total()?)?;
+    Ok((usage, remaining, row.try_get("unlimited")?))
 }
 
 /// An editor must display its issuer's own policy, not another issuer's cap.
@@ -316,7 +349,7 @@ pub async fn key_quota_snapshot_for_issuer(
     .bind(issuer)
     .fetch_optional(&mut *c)
     .await?;
-    let used = key_consumed(c, key).await?;
+    let used = key_consumed(c, key).await?.total()?;
     let Some(row) = row else {
         return Ok((used, 0, true));
     };

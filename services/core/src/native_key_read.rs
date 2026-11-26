@@ -198,10 +198,11 @@ impl Reads {
             .key(&mut tx, secret, peer)
             .await
             .map_err(Failure::for_quota)?;
-        let (used, remaining, unlimited) =
-            crate::billing::charging::key_quota_snapshot(&mut tx, actor.credential_id)
+        let (usage, remaining, unlimited) =
+            crate::billing::charging::key_quota_breakdown(&mut tx, actor.credential_id)
                 .await
                 .map_err(|_| Failure::QuotaUnavailable)?;
+        let used = usage.total().map_err(|_| Failure::QuotaUnavailable)?;
         let now: i64 = sqlx::query_scalar("SELECT extract(epoch FROM clock_timestamp())::bigint")
             .fetch_one(&mut *tx)
             .await
@@ -288,6 +289,7 @@ impl Reads {
             "remaining":(!unlimited).then(|| usd(remaining)),
             "used_today":usd(used_today),"used_total":usd(used),
             "used_quota":used,"normalized_used_quota":used,
+            "settled_quota":usage.settled,"pending_quota":usage.pending,"opening_quota":usage.opening,
             "usage_projection_available":true,"total_quota":total.map(usd),
             "unlimited":unlimited,"updated_at":now,"day_timezone":"UTC",
             "used_today_source":"retained_consumption_logs",

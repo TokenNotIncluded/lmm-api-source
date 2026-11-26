@@ -76,6 +76,9 @@ async fn native_balance_optin_exact_usd_and_readonly_runtime(pool: PgPool) {
     assert_eq!(code, StatusCode::OK, "{usage}");
     assert_eq!(usage["scope"], "token");
     assert_eq!(usage["used_quota"], 0);
+    assert_eq!(usage["pending_quota"], 0);
+    assert_eq!(usage["settled_quota"], 0);
+    assert_eq!(usage["opening_quota"], 0);
     role.cleanup().await;
 }
 
@@ -114,6 +117,9 @@ async fn native_usage_requires_legacy_receipts_and_reports_key_quota_without_wri
     assert_eq!(body["used_total"], 0.5);
     assert_eq!(body["used_today"], 0.5);
     assert_eq!(body["used_quota"], 250_000);
+    assert_eq!(body["opening_quota"], 250_000);
+    assert_eq!(body["pending_quota"], 0);
+    assert_eq!(body["settled_quota"], 0);
     assert_eq!(body["total_quota"], 2.0);
     assert_eq!(body["scope"], "token");
     assert_eq!(
@@ -123,6 +129,95 @@ async fn native_usage_requires_legacy_receipts_and_reports_key_quota_without_wri
         StatusCode::UNAUTHORIZED
     );
     assert_eq!(before, financial_snapshot(&pool).await);
+    role.cleanup().await;
+}
+
+#[sqlx::test(migrations = false)]
+async fn native_usage_separates_holds_from_net_settlement_only_for_presented_key(pool: PgPool) {
+    let (identity, _, session, key, id, account) = model_fixture::fixture(&pool, 0).await;
+    settings(&pool, id, false).await;
+    let other = identity
+        .issue_key(
+            &session,
+            Account {
+                kind: AccountKind::Personal,
+                id: 7,
+            },
+            FundingPolicy::new_personal_key(),
+            3600,
+        )
+        .await
+        .unwrap();
+    settings(&pool, other.id, false).await;
+    let mut tx = pool.begin().await.unwrap();
+    sqlx::query("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE")
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    // Authorized in a prior UTC day: the lifetime pending total must include old holds.
+    sqlx::query(
+        r#"INSERT INTO core_charging.requests
+           (id,actor_user_id,key_id,owner_account_id,payer_account_id,fingerprint,worker_digest,
+            spec_digest,price,authorized_at,lease_until,hard_deadline,state,reserved,settled,refunded,outcome)
+           SELECT 'key-split-' || v.name,7,v.key_id,$3,$3,sha256('f'::bytea),sha256('w'::bytea),
+              sha256('s'::bytea),'{}'::jsonb,1000,1100,1100,v.state,v.reserved,v.settled,v.refunded,
+              CASE WHEN v.state='settled' THEN 'completed' END
+           FROM (VALUES ('a',$1::bigint,'reserved',20,0,0),('b',$1,'streaming',30,0,0),
+              ('c',$1,'reconcile',40,0,0),('d',$1,'released',500,0,0),
+              ('e',$1,'settled',110,100,25),('f',$1,'settled',50,50,50),
+              ('g',$2::bigint,'reconcile',999,0,0)) v(name,key_id,state,reserved,settled,refunded)"#,
+    )
+    .bind(id)
+    .bind(other.id)
+    .bind(account)
+    .execute(&mut *tx)
+    .await
+    .unwrap();
+    sqlx::query(
+        "INSERT INTO core_charging.external_consumption
+         (id,domain,actor_user_id,key_id,payer_account_id,authorized_at,amount_credits,refunded)
+         VALUES ('key-split-ext','commerce',7,$1,$2,1000,30,10)",
+    )
+    .bind(id)
+    .bind(account)
+    .execute(&mut *tx)
+    .await
+    .unwrap();
+    tx.commit().await.unwrap();
+    let role = runtime::RuntimeRole::create(&pool).await;
+    role.optional("core_charging").await;
+    let app = lmm_core::native_key_read::router(role.pool.clone());
+    let before = financial_snapshot(&pool).await;
+    let (code, usage) = query_route(&app, "/v1/usage", &key, "127.0.0.1").await;
+    assert_eq!(code, StatusCode::OK, "{usage}");
+    assert_eq!(usage["pending_quota"], 90);
+    assert_eq!(usage["settled_quota"], 95);
+    assert_eq!(usage["opening_quota"], 0);
+    assert_eq!(usage["used_quota"], 185);
+    assert_eq!(usage["normalized_used_quota"], 185);
+    assert_eq!(usage["used_today"], 0.0);
+    assert_eq!(usage["unlimited"], true);
+    assert!(usage["remaining"].is_null());
+    let (code, other_usage) = query_route(&app, "/v1/usage", &other.secret, "127.0.0.1").await;
+    assert_eq!(code, StatusCode::OK, "{other_usage}");
+    assert_eq!(other_usage["pending_quota"], 999);
+    assert_eq!(other_usage["settled_quota"], 0);
+    assert_eq!(before, financial_snapshot(&pool).await);
+
+    let mut tx = pool.begin().await.unwrap();
+    sqlx::query("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE")
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    sqlx::query("INSERT INTO core_charging.budgets(scope,key_id,issuer_user_id,period,limit_credits,unlimited) VALUES('key',$1,7,'lifetime',100,FALSE)")
+        .bind(id).execute(&mut *tx).await.unwrap();
+    tx.commit().await.unwrap();
+    let (code, finite) = query_route(&app, "/v1/usage", &key, "127.0.0.1").await;
+    assert_eq!(code, StatusCode::OK, "{finite}");
+    assert_eq!(finite["unlimited"], false);
+    assert_eq!(finite["remaining"], -0.00017);
+    assert_eq!(finite["used_quota"], 185);
+    assert_eq!(finite["pending_quota"], 90);
     role.cleanup().await;
 }
 
