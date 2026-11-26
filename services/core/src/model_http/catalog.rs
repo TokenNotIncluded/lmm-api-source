@@ -6,8 +6,8 @@ use crate::billing::{
     tool_price::{PersistedToolPrice, ToolKind},
 };
 use crate::routing::{
-    BillingMode, ModelRoute, PayloadPolicy, PriceQuote, PriceSnapshot, Protocol, ReleaseVersion,
-    Router, Speed, UpstreamConfig,
+    BillingMode, DecimalRate, ModelRoute, PayloadPolicy, PriceQuote, PriceSnapshot, Protocol,
+    ReleaseVersion, Router, Speed, TieredTariff, UpstreamConfig,
 };
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 use serde::Serialize;
@@ -319,6 +319,12 @@ impl CatalogSurface {
                 let quote = prices
                     .template(&route.model, &group.name, Speed::Standard)
                     .ok_or(CatalogError::Unavailable)?;
+                // quote() omits calendar schedules, whose base template cannot
+                // describe a single rate for all admission times.
+                let fixed_tariff = prices
+                    .quote(&route.model, &group.name, Speed::Standard)
+                    .and_then(|price| price.tiered())
+                    .map(|compiled| compiled.tariff());
                 let names = std::iter::once(route.model.as_str()).chain(
                     aliases_by_route
                         .get(&(group.name.as_str(), route.model.as_str()))
@@ -376,6 +382,7 @@ impl CatalogSurface {
                         apis,
                         pricing: pricing(
                             quote,
+                            fixed_tariff.as_ref(),
                             tool || text_request_price::TextRequestPrice::from_quote(quote)
                                 .is_some(),
                         )?,
@@ -790,7 +797,11 @@ fn route_is_constructible(
     .is_ok()
 }
 
-fn pricing(quote: PriceQuote, tool: bool) -> Result<CatalogPricing, CatalogError> {
+fn pricing(
+    quote: PriceQuote,
+    fixed_tariff: Option<&TieredTariff>,
+    tool: bool,
+) -> Result<CatalogPricing, CatalogError> {
     let (group_ppm, speed_ppm) = quote.multipliers_ppm();
     let known = quote.billing_mode() == BillingMode::Tokens;
     let rate = |value: u64| {
@@ -806,7 +817,7 @@ fn pricing(quote: PriceQuote, tool: bool) -> Result<CatalogPricing, CatalogError
         decimal(numerator, 18).map(Some)
     };
     let rates = quote.rates();
-    Ok(CatalogPricing {
+    let mut pricing = CatalogPricing {
         currency: "USD",
         unit: if tool {
             "successful_requests"
@@ -828,7 +839,87 @@ fn pricing(quote: PriceQuote, tool: bool) -> Result<CatalogPricing, CatalogError
         request: if tool { rate(rates.request)? } else { None },
         final_cost_depends_on_usage: true,
         updated_at: 0,
-    })
+    };
+    if !tool
+        && let Some(tariff) = fixed_tariff
+        && let [tier] = tariff.tiers.as_slice()
+        && tier.up_to_input_tokens.is_none()
+    {
+        let rates = tier.rates;
+        let effective = |rate| exact_tier_rate(rate, group_ppm, speed_ppm);
+        pricing.input = effective(rates.input)?;
+        pricing.output = effective(rates.output)?;
+        // An omitted cache dimension can be part of inclusive input.
+        if tariff.uses_cache_read {
+            pricing.cache_read = effective(rates.cache_read)?;
+        }
+        // One generic cache-write field can only carry a common TTL price.
+        // Rev 1 forbids creation. In rev 2 an absent one-hour rate is zero.
+        if tariff.uses_cache_write {
+            let write = effective(rates.cache_write)?;
+            let alternate = match tariff.revision {
+                2 => Some(rates.cache_write_1h.unwrap_or(DecimalRate {
+                    numerator: 0,
+                    denominator: 1,
+                })),
+                3 => rates.cache_write_1h,
+                4 => rates.cache_write_12h,
+                _ => None,
+            };
+            if let Some(alternate) = alternate
+                && write.is_some()
+                && effective(alternate)? == write
+            {
+                pricing.cache_write = write;
+            }
+        }
+        if pricing.input.is_some()
+            || pricing.output.is_some()
+            || pricing.cache_read.is_some()
+            || pricing.cache_write.is_some()
+        {
+            pricing.unit = "million_tokens";
+            pricing.price_basis = "configured_base_rates";
+        }
+    }
+    Ok(pricing)
+}
+
+// The catalog wire carries JSON decimals. Return only a terminating expansion,
+// including cases where a multiplier cancels a recurring source denominator.
+fn exact_tier_rate(
+    rate: DecimalRate,
+    group_ppm: u32,
+    speed_ppm: u32,
+) -> Result<Option<Number>, CatalogError> {
+    let numerator = u128::from(rate.numerator) * u128::from(group_ppm) * u128::from(speed_ppm);
+    if rate.denominator == 0 {
+        return Err(CatalogError::Unavailable);
+    }
+    // The ppm denominator adds only factors of 2 and 5. Every other
+    // prime factor of the source denominator must cancel in the numerator.
+    let mut other = rate.denominator >> rate.denominator.trailing_zeros();
+    while other.is_multiple_of(5) {
+        other /= 5;
+    }
+    if !numerator.is_multiple_of(u128::from(other)) {
+        return Ok(None);
+    }
+    let denominator = u128::from(rate.denominator) * 1_000_000_000_000;
+    let mut remainder = numerator % denominator;
+    let mut text = (numerator / denominator).to_string();
+    if remainder != 0 {
+        text.push('.');
+        while remainder != 0 {
+            // Even ten times the largest u64 denominator scaled by 10^12 fits u128.
+            remainder *= 10;
+            text.push(char::from(b'0' + (remainder / denominator) as u8));
+            remainder %= denominator;
+        }
+    }
+    text.parse()
+        .map(Some)
+        .map_err(|_| CatalogError::Unavailable)
 }
 
 fn decimal(numerator: u128, scale: u32) -> Result<Number, CatalogError> {
@@ -1308,7 +1399,10 @@ mod tests {
                 assert_eq!(result.models.len(), 1);
                 assert_eq!(result.models[0].apis, ["system-one"]);
                 let price = serde_json::to_value(&result.models[0].pricing).unwrap();
-                for field in ["input", "output", "cache_read", "cache_write", "request"] {
+                assert_eq!(price["input"].to_string(), "0.0525");
+                assert_eq!(price["output"], 0);
+                assert!(result.models[0].native_cost.is_none());
+                for field in ["cache_read", "cache_write", "request"] {
                     assert!(price[field].is_null(), "{field}");
                 }
             } else {
@@ -1385,6 +1479,145 @@ mod tests {
             assert!(text.models[0].pricing.request.is_some());
         }
     }
+    #[test]
+    fn tiered_catalog_prices_exact_flat_dimensions_and_preserves_variable_prices() {
+        use serde_json::json;
+        use sha2::{Digest, Sha256};
+
+        let model = |tariff| {
+            let (routing, mut config) = fixture("model");
+            let rule = &mut config.rules[0];
+            rule.billing_mode = BillingMode::TieredDecimal;
+            rule.tiered = Some(serde_json::from_value(tariff).unwrap());
+            rule.rates = TokenRates {
+                input: 0,
+                output: 0,
+                cache_read: 0,
+                cache_write: 0,
+                request: 0,
+            };
+            let (_, catalog) = surface(routing, config);
+            serde_json::to_value(view(&catalog).models.remove(0)).unwrap()
+        };
+        let rate = |n: u64, d: u64| json!({"numerator": n, "denominator": d});
+        let tier = json!({"rates": {
+            "input":rate(2, 5), "output":rate(1, 3), "cache_read":rate(1, 10),
+            "cache_write":rate(1, 2), "cache_write_1h":rate(3, 2)
+        }});
+        let source = "catalog-test";
+        let mut tariff = json!({
+            "revision":3, "source_digest":crate::hex_codec::encode(Sha256::digest(source.as_bytes())),
+            "uses_cache_read":true, "uses_cache_write":true, "uses_cache_write_1h":true,
+            "tiers":[tier]
+        });
+        let row = model(tariff.clone());
+        let price = &row["pricing"];
+        assert_eq!(price["input"].to_string(), "0.5");
+        assert_eq!(price["cache_read"].to_string(), "0.125");
+        assert!(price["output"].is_null()); // 5/12 has no finite JSON decimal.
+        assert!(price["cache_write"].is_null());
+        assert!(row["native_cost"].is_null());
+        tariff["tiers"][0]["rates"]["output"] = rate(3, 1);
+        let row = model(tariff.clone());
+        assert!(row["native_cost"].is_null()); // The two write TTLs alone differ.
+        tariff["tiers"][0]["rates"]["cache_write_1h"] = rate(1, 2);
+        let row = model(tariff.clone());
+        assert_eq!(
+            row["native_cost"],
+            json!({
+                "input":0.5, "output":3.75, "cacheRead":0.125, "cacheWrite":0.625
+            })
+        );
+
+        // Revision 4 has a separate 12h rate and no 1h category.
+        let mut twelve = tariff.clone();
+        twelve["revision"] = json!(4);
+        twelve["uses_cache_write_1h"] = json!(false);
+        twelve["uses_cache_write_12h"] = json!(true);
+        let rates = twelve["tiers"][0]["rates"].as_object_mut().unwrap();
+        rates.remove("cache_write_1h");
+        rates.insert("cache_write_12h".into(), rate(1, 1));
+        let row = model(twelve.clone());
+        assert!(row["pricing"]["cache_write"].is_null());
+        assert!(row["native_cost"].is_null());
+        twelve["tiers"][0]["rates"]["cache_write_12h"] = rate(2, 4);
+        assert_eq!(
+            model(twelve)["native_cost"]["cacheWrite"].to_string(),
+            "0.625"
+        );
+
+        // Revision 2 bills a missing one-hour term at zero.
+        let mut short = tariff.clone();
+        short["revision"] = json!(2);
+        short["uses_cache_write_1h"] = json!(false);
+        short["tiers"][0]["rates"]
+            .as_object_mut()
+            .unwrap()
+            .remove("cache_write_1h");
+        assert!(model(short.clone())["pricing"]["cache_write"].is_null());
+        short["tiers"][0]["rates"]["cache_write"] = rate(0, 1);
+        assert_eq!(model(short)["native_cost"]["cacheWrite"], 0);
+
+        // Independent fixtures for time-varying and length-dependent tariffs.
+        tariff["revision"] = json!(2);
+        let mut peak = tariff["tiers"][0].clone();
+        peak["rates"]["input"] = rate(2, 1);
+        let mut calendar = tariff.clone();
+        calendar["calendar"] = json!({
+            "revision":1, "source_expression":source, "weekday_timezone":"UTC", "weekdays":[1],
+            "hour_timezone":"UTC", "hour_ranges":[{"start":1,"end":4}],
+            "excluded_date_timezone":"Asia/Shanghai", "excluded_dates":[], "match_tiers":[peak]
+        });
+        let mut bounded = tariff["tiers"][0].clone();
+        bounded["up_to_input_tokens"] = json!(100);
+        bounded["rates"]["input"] = rate(2, 1);
+        tariff["tiers"].as_array_mut().unwrap().insert(0, bounded);
+        for variable in [calendar, tariff] {
+            let row = model(variable);
+            assert_eq!(row["pricing"]["price_basis"], "unknown");
+            assert!(row["pricing"]["input"].is_null());
+            assert!(row["native_cost"].is_null());
+        }
+    }
+
+    #[test]
+    fn tiered_catalog_decimal_is_exact_after_both_multipliers() {
+        let price = |n, d, group, speed| {
+            exact_tier_rate(
+                DecimalRate {
+                    numerator: n,
+                    denominator: d,
+                },
+                group,
+                speed,
+            )
+        };
+        assert!(price(1, 0, 1_000_000, 1_000_000).is_err());
+        assert_eq!(
+            price(1, 3, 1_500_000, 1_000_000)
+                .unwrap()
+                .unwrap()
+                .to_string(),
+            "0.5"
+        );
+        assert_eq!(price(1, 3, 1_000_000, 1_000_000).unwrap(), None);
+        assert_eq!(
+            price(1, 1_000_000, 1_000_000, 500_000)
+                .unwrap()
+                .unwrap()
+                .to_string(),
+            "0.0000005"
+        );
+        assert_eq!(
+            price(9_007_199_254_740_993, 10, 1_000_000, 1_000_000)
+                .unwrap()
+                .unwrap()
+                .to_string(),
+            "900719925474099.3"
+        );
+        assert_eq!(price(1, 3, 0, 1_000_000).unwrap().unwrap().to_string(), "0");
+    }
+
     #[test]
     fn upstream_cost_sentinel_is_unknown_and_never_a_free_price() {
         let (r, mut p) = fixture("openrouter/fusion");
