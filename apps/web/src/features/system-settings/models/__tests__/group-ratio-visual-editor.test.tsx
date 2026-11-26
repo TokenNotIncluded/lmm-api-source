@@ -146,6 +146,57 @@ describe('group ratio visual editor', () => {
     }
   })
 
+  test('adding two groups prepends each one and preserves every existing group option', async () => {
+    const saved: Record<string, string> = {
+      GroupRatio: '{"existing":0.5}',
+      UserUsableGroups: '{"existing":"Original label"}',
+      TopupGroupRatio: '{"existing":0.75}',
+      AutoGroups: '["existing"]',
+    }
+    const container = document.createElement('div')
+    document.body.append(container)
+    const root = createRoot(container)
+    try {
+      await act(async () => {
+        root.render(
+          <I18nextProvider i18n={i18n}>
+            <GroupRatioVisualEditor
+              groupRatio={saved.GroupRatio}
+              userUsableGroups={saved.UserUsableGroups}
+              topupGroupRatio={saved.TopupGroupRatio}
+              autoGroups={saved.AutoGroups}
+              groupGroupRatio='{}'
+              groupSpecialUsableGroup='{}'
+              onChange={(field, value) => {
+                saved[field] = value
+              }}
+            />
+          </I18nextProvider>
+        )
+      })
+      const add = [...container.querySelectorAll('button')].find(
+        (button) => button.textContent === 'Add group'
+      )
+      assert.ok(add)
+      await act(async () => add.click())
+      await act(async () => add.click())
+      const names = [...container.querySelectorAll('input')]
+        .map((input) => input.value)
+        .filter((value) => ['existing', 'group_1', 'group_2'].includes(value))
+      assert.deepEqual(names.slice(0, 3), ['group_2', 'group_1', 'existing'])
+      assert.equal(JSON.parse(saved.GroupRatio).existing, 0.5)
+      assert.equal(
+        JSON.parse(saved.UserUsableGroups).existing,
+        'Original label'
+      )
+      assert.equal(JSON.parse(saved.TopupGroupRatio).existing, 0.75)
+      assert.deepEqual(JSON.parse(saved.AutoGroups), ['existing'])
+    } finally {
+      await act(async () => root.unmount())
+      container.remove()
+    }
+  })
+
   test('optimizes registered groups by the base billing ratio on explicit action', async () => {
     const changes: Array<{ field: string; value: string }> = []
     const container = document.createElement('div')
