@@ -115,6 +115,15 @@ export const LOG_TYPE_FILTERS = [
   ),
 ] as const
 
+// The native usage endpoint projects successful and failed model requests.
+export const NATIVE_LOG_TYPE_FILTERS = LOG_TYPE_FILTERS.filter(({ value }) =>
+  [
+    LOG_TYPE_ALL_VALUE,
+    String(LOG_TYPE_ENUM.CONSUME),
+    String(LOG_TYPE_ENUM.ERROR),
+  ].includes(value)
+)
+
 // ============================================================================
 // Drawing Logs (MjProxy) Constants
 // ============================================================================

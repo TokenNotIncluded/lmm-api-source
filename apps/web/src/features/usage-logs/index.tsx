@@ -35,6 +35,7 @@ import {
   useUsageLogsContext,
 } from './components/usage-logs-provider'
 import { UsageLogsTable } from './components/usage-logs-table'
+import { NATIVE_LOG_TYPE_FILTERS } from './constants'
 
 const route = getRouteApi('/_authenticated/usage-logs/$section')
 
@@ -89,6 +90,13 @@ function UsageLogsContent() {
                   scope: viewScope,
                   page: 1,
                   channel: undefined,
+                  type:
+                    value === 'historical' ||
+                    NATIVE_LOG_TYPE_FILTERS.some(
+                      ({ value }) => value === previous.type?.[0]
+                    )
+                      ? previous.type
+                      : undefined,
                   upstreamRequestId: undefined,
                   status: undefined,
                   minDurationMs: undefined,
@@ -154,6 +162,10 @@ function UsageLogsContent() {
 
 export function UsageLogs() {
   const search = route.useSearch()
+  const selectedType = search.type?.[0]
+  const historicalType =
+    selectedType !== undefined &&
+    !NATIVE_LOG_TYPE_FILTERS.some(({ value }) => value === selectedType)
   const auth = useAuthStore((state) => state.auth)
   const accountKey = [auth.user?.id, auth.session?.sid, auth.user?.role].join(
     ':'
@@ -161,7 +173,7 @@ export function UsageLogs() {
   return (
     <UsageLogsProvider
       key={accountKey}
-      source={search.source}
+      source={historicalType ? 'historical' : search.source}
       scope={search.scope}
     >
       <UsageLogsContent />

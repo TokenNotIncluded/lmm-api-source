@@ -65,7 +65,11 @@ import type { RowData, Table } from '@/lib/table'
 import { useAuthStore } from '@/stores/auth-store'
 
 import { exportHistoricalUsage, exportNativeUsage } from '../api'
-import { LOG_TYPE_ALL_VALUE, LOG_TYPE_FILTERS } from '../constants'
+import {
+  LOG_TYPE_ALL_VALUE,
+  LOG_TYPE_FILTERS,
+  NATIVE_LOG_TYPE_FILTERS,
+} from '../constants'
 import { buildSearchParams, validateCommonLogFilters } from '../lib/filter'
 import { readUsageStatisticsScope } from '../lib/statistics'
 import { buildApiParams, getDefaultTimeRange } from '../lib/utils'
@@ -307,7 +311,10 @@ export function CommonLogsFilterBar<TData extends RowData>(
   const activeDraft =
     draft.sourceKey === searchState.sourceKey ? draft : searchState
   const filters = activeDraft.filters
-  const logType = activeDraft.logType
+  const typeFilters = historical ? LOG_TYPE_FILTERS : NATIVE_LOG_TYPE_FILTERS
+  const logType = typeFilters.some(({ value }) => value === activeDraft.logType)
+    ? activeDraft.logType
+    : LOG_TYPE_ALL_VALUE
   const filterError = validateCommonLogFilters(filters, isAdmin, historical)
 
   const handleChange = useCallback(
@@ -429,11 +436,11 @@ export function CommonLogsFilterBar<TData extends RowData>(
   const sensitiveType = sensitiveVisible ? 'text' : 'password'
   const logTypeItems = useMemo(
     () =>
-      LOG_TYPE_FILTERS.map((type) => ({
+      typeFilters.map((type) => ({
         value: type.value,
         label: t(type.label),
       })),
-    [t]
+    [t, typeFilters]
   )
   const logTypeLabel =
     logTypeItems.find((type) => type.value === logType)?.label ?? t('All Types')
@@ -558,7 +565,7 @@ export function CommonLogsFilterBar<TData extends RowData>(
         </SelectTrigger>
         <SelectContent alignItemWithTrigger={false}>
           <SelectGroup>
-            {LOG_TYPE_FILTERS.map((type) => (
+            {typeFilters.map((type) => (
               <SelectItem key={type.value} value={type.value}>
                 {t(type.label)}
               </SelectItem>
