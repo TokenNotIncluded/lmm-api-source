@@ -783,9 +783,7 @@ for (const enabled of [false, true]) {
     )
     assert.equal(document.querySelector('[role="switch"]'), null)
     assert.equal(
-      document.querySelector(
-        'a[href="/system-settings/billing/payment#merchant-store"]'
-      ),
+      document.querySelector('a[href="/extensions/plugins?configure=store"]'),
       null
     )
   })
@@ -860,9 +858,7 @@ for (const role of [1, 10, 100]) {
     }) as typeof api.get
     await mount(<StoreSettingsPage />)
     assert.equal(
-      !!document.querySelector(
-        'a[href="/system-settings/billing/payment#merchant-store"]'
-      ),
+      !!document.querySelector('a[href="/extensions/plugins?configure=store"]'),
       role === 100
     )
     assert.equal(document.querySelector('#store-fee'), null)
