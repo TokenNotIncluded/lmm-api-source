@@ -19,12 +19,12 @@ async function run(page, name, args) {
 }
 
 export async function exerciseTerminal(browser, session, request, { sibling: target, model: incomplete }) {
-  const { page, token } = await session(
+  const { page, identity } = await session(
     browser,
     'browseradmin',
     '/operations/terminal'
   )
-  const read = async () => (await request(page, token, config)).json.data
+  const read = async () => (await request(page, identity, config)).json.data
   const initial = await read()
   assert.equal(initial.routing.upstreams.length, 1)
   const channelId = initial.routing.upstreams[0].id
@@ -91,16 +91,7 @@ export async function exerciseTerminal(browser, session, request, { sibling: tar
   )
 
   const payer = await session(browser, 'browserpayer', '/wallet')
-  const denied = await payer.page.evaluate(
-    async ({ token, path }) => {
-      const response = await fetch(path, {
-        headers: { Authorization: 'Bearer ' + token },
-      })
-      return response.status
-    },
-    { token: payer.token, path: config }
-  )
-  assert.equal(denied, 403)
+  const denied = (await request(payer.page, payer.identity, config, undefined, 'GET', 403)).status
   await payer.page.context().close()
 
   const saved = await run(page, 'changes.confirm', {

@@ -57,20 +57,43 @@ async function session(browser, username, destination) {
   const login = await response.json()
   assert.equal(login.success, true)
   await page.waitForURL(url => url.pathname.replace(/\/$/, '') === destination)
-  return { page, token: login.data.access_token, user: login.data.user.id }
+  const user = login.data.user.id
+  const sid = login.data.session.sid
+  assert.match(sid, /^[a-f0-9]{64}$/)
+  return { page, identity: { sid, user }, user }
 }
 
-async function request(page, token, path, body, method = body === undefined ? 'GET' : 'POST') {
-  // A same-origin fetch from Chromium; keep credentials and complete response bodies out of artifacts.
-  const result = await page.evaluate(async ({ token, path, body, method }) => {
+async function request(page, identity, path, body, method = body === undefined ? 'GET' : 'POST', expectedStatus = 200) {
+  const result = await page.evaluate(async ({ identity, path, body, method }) => {
+    let bearer
+    if (typeof identity === 'string') {
+      if (!path.startsWith('/v1/')) throw new Error('API key used outside the model API')
+      bearer = identity
+    } else {
+      if (!/^\/(?:api|core)\//.test(path)) throw new Error('Invalid dashboard request path')
+      const proof = await fetch('/api/user/auth/reconcile', {
+        method: 'POST', credentials: 'same-origin', mode: 'same-origin', redirect: 'error',
+        cache: 'no-store', headers: { 'X-Auth-Session': identity.sid },
+      })
+      const value = await proof.json()
+      const bundle = value.data?.bundle
+      if (proof.status !== 200 || value.success !== true || value.data?.status !== 'current'
+        || bundle?.session?.current !== true || bundle?.session?.sid !== identity.sid
+        || bundle?.user?.id !== identity.user || bundle?.token_type !== 'Bearer'
+        || typeof bundle.access_token !== 'string') {
+        throw new Error('The current browser session could not be verified')
+      }
+      bearer = bundle.access_token
+    }
     const response = await fetch(path, {
-      method,
-      headers: { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' },
+      method, mode: 'same-origin', credentials: 'same-origin', redirect: 'error',
+      headers: { Authorization: 'Bearer ' + bearer, 'Content-Type': 'application/json',
+        ...(typeof identity === 'string' ? {} : { 'X-LMM-Credit-Unit': '500000' }) },
       ...(body === undefined ? {} : { body: JSON.stringify(body) }),
     })
     return { status: response.status, id: response.headers.get('x-request-id'), json: await response.json() }
-  }, { token, path, body, method })
-  assert.equal(result.status, 200, path)
+  }, { identity, path, body, method })
+  assert.equal(result.status, expectedStatus, path)
   return result
 }
 
@@ -86,9 +109,9 @@ async function clickReceipt(page, button, path, method) {
 }
 
 async function onboard(browser) {
-  const { page, token, user } = await session(browser, 'browseradmin', '/channels')
+  const { page, identity, user } = await session(browser, 'browseradmin', '/channels')
   assert.equal(user, 8)
-  const read = async () => (await request(page, token, config)).json.data
+  const read = async () => (await request(page, identity, config)).json.data
   // Install two fresh enabled groups in this disposable Core via its ordinary CAS.
   const seed = await read()
   assert.ok(!seed.routing.groups.some(g => [group, otherGroup].includes(g.name)))
@@ -98,9 +121,9 @@ async function onboard(browser) {
       groups: [...seed.routing.groups, ...[group, otherGroup].map(name => ({ name, enabled: true }))] },
     prices: { ...seed.prices, version: seed.version.pricing + 1 }, bindings: seed.bindings,
   }
-  const seedPreview = await request(page, token, config + '/preview', proposal)
+  const seedPreview = await request(page, identity, config + '/preview', proposal)
   assert.equal(seedPreview.json.success, true)
-  const seeded = await request(page, token, config,
+  const seeded = await request(page, identity, config,
     { ...proposal, confirmation_digest: seedPreview.json.data.confirmation_digest }, 'PUT')
   assert.equal(seeded.json.success, true)
   await page.reload()
@@ -228,10 +251,10 @@ async function stream(page, key) {
 }
 
 async function settle(browser) {
-  const { page, token, user } = await session(browser, 'browserpayer', '/wallet')
+  const { page, identity, user } = await session(browser, 'browserpayer', '/wallet')
   assert.equal(user, 7)
   const wallet = async () => {
-    const { json: { data } } = await request(page, token, '/api/user/self')
+    const { json: { data } } = await request(page, identity, '/api/user/self')
     assert.equal(data.id, user)
     assert.equal(data.financial_projection_available, true)
     assert.equal(data.wallet_reserved_quota, 0)
@@ -240,7 +263,7 @@ async function settle(browser) {
   const before = await wallet()
   assert.equal(before, 1000)
   await page.locator('#wallet-balance').getByText(/^1,?000\s+Credits$/i).first().waitFor()
-  const created = await request(page, token, '/api/token/', {
+  const created = await request(page, identity, '/api/token/', {
     name: 'Browser settlement proof', remain_quota: 500, unlimited_quota: false,
     expired_time: Math.floor(Date.now() / 1000) + 600, one_time_reveal: true,
     group, model_limits_enabled: true, model_limits: model,
@@ -259,7 +282,7 @@ async function settle(browser) {
   assert.equal(after, before - 50)
   await page.getByRole('button', { name: 'Refresh account status' }).click()
   await page.locator('#wallet-balance').getByText(/^950\s+Credits$/i).first().waitFor()
-  const { json: { data } } = await request(page, token, '/api/log/self?request_id=' + encodeURIComponent(paid.id))
+  const { json: { data } } = await request(page, identity, '/api/log/self?request_id=' + encodeURIComponent(paid.id))
   assert.equal(data.items.length, 1)
   const receipt = data.items[0]
   assert.equal(receipt.request_id, paid.id)
