@@ -558,9 +558,11 @@ jobs:
           bun run typecheck:web
           (
             cd apps/web
+            status=0
             for spec in \
               src/features/channels/components/native-routing-management.test.tsx \
               src/features/system-settings/billing/official-price-editor.test.tsx \
+              src/features/system-settings/billing/official-batch-price-review.test.ts \
               src/features/native-users/access-editor.test.tsx \
               src/features/native-users/adjustments-api.test.ts \
               src/features/native-users/page.test.tsx \
@@ -569,8 +571,9 @@ jobs:
               src/features/usage-logs/lib/receipt-state.test.ts \
               src/features/usage-logs/components/__tests__/details-history-money.test.tsx \
               src/features/system-settings/billing/official-price-toml.test.ts; do
-              bun test --preload ./scripts/test-preload.mjs --timeout 20000 "$spec"
+              bun test --preload ./scripts/test-preload.mjs --timeout 20000 "$spec" || status=$?
             done
+            exit "$status"
           )
           bun run build:web
           npm install --prefix "$RUNNER_TEMP/onboarding-browser" --no-package-lock --ignore-scripts playwright@1.56.1
