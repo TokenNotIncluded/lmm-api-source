@@ -254,8 +254,12 @@ function fixture({ graphics = true, observers = true } = {}) {
       frames.clear()
       for (const callback of pending) callback(now)
     },
-    settle() {
-      for (let index = 0; index < 22; index++) this.tick()
+    advanceToChapter(chapter: number) {
+      for (let frame = 0; frame < 22; frame++) {
+        this.tick()
+        if (inner.dataset.chapter === String(chapter)) return
+      }
+      assert.equal(inner.dataset.chapter, String(chapter))
     },
     scroll(chapter: number) {
       sectionTop = 64 - ((3780 - 836) * chapter) / 4
@@ -401,7 +405,7 @@ test('all five manual chapters are keyboard accessible and native scrolling take
       )!
       button.focus()
       button.click()
-      page.settle()
+      page.advanceToChapter(chapter)
       assert.equal(button.getAttribute('aria-pressed'), 'true')
       assert.equal(page.inner.dataset.chapter, String(chapter))
       assert.deepEqual(
@@ -412,7 +416,7 @@ test('all five manual chapters are keyboard accessible and native scrolling take
     }
     for (const chapter of [1, 2, 3, 4, 0]) {
       page.scroll(chapter)
-      page.settle()
+      page.advanceToChapter(chapter)
       assert.equal(page.inner.dataset.chapter, String(chapter))
     }
   } finally {
