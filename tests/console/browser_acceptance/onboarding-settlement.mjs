@@ -12,6 +12,11 @@ const { chromium } = await import(pathToFileURL(process.env.PLAYWRIGHT_MODULE).h
 const web = 'http://127.0.0.1:41781'
 const core = new URL(process.env.BROWSER_CORE_URL)
 assert.equal(core.hostname, '127.0.0.1')
+const extensions = new URL(process.env.BROWSER_EXTENSIONS_URL)
+assert.equal(extensions.protocol, 'http:')
+assert.equal(extensions.hostname, '127.0.0.1')
+assert.equal(extensions.href, extensions.origin + '/')
+const extensionRoutes = new Set(['/api/site/navigation', '/api/release-notes/latest', '/api/hero-sms/capabilities'])
 const dist = resolve(process.env.BROWSER_WEB_DIST)
 const root = '/core/v1/admin/routing'
 const config = root + '/configuration'
@@ -21,7 +26,8 @@ const mime = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css
 const front = http.createServer(async (req, res) => {
   const url = new URL(req.url, web)
   if (/^\/(api|core|v1|health)(\/|$)/.test(url.pathname)) {
-    const upstream = http.request(new URL(url.pathname + url.search, core), {
+    const owner = extensionRoutes.has(url.pathname) ? extensions : core
+    const upstream = http.request(new URL(url.pathname + url.search, owner), {
       method: req.method, headers: req.headers,
     }, reply => {
       res.writeHead(reply.statusCode, reply.headers)
@@ -270,6 +276,17 @@ async function stream(page, key) {
 async function settle(browser) {
   const { page, identity, user } = await session(browser, 'browserpayer', '/wallet')
   assert.equal(user, 7)
+  const publicNavigation = await fetch(web + '/api/site/navigation')
+  assert.equal(publicNavigation.status, 200)
+  const navigation = await publicNavigation.json()
+  assert.equal(navigation.success, true)
+  assert.ok(Number.isSafeInteger(navigation.data.revision) && navigation.data.revision > 0)
+  const anonymousRelease = await fetch(web + '/api/release-notes/latest')
+  assert.equal(anonymousRelease.status, 401)
+  await anonymousRelease.body?.cancel()
+  const release = await request(page, identity, '/api/release-notes/latest')
+  assert.equal(release.json.success, true)
+  assert.equal(release.json.data, null)
   const wallet = async () => {
     const { json: { data } } = await request(page, identity, '/api/user/self')
     assert.equal(data.id, user)

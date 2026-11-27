@@ -15,7 +15,7 @@ use lmm_core::{
     routing::{Endpoint, PriceSnapshot, Router as ServingRouter},
 };
 use serde_json::{Value, json};
-use sqlx::PgPool;
+use sqlx::{ConnectOptions, PgPool};
 use std::{
     collections::BTreeMap,
     net::SocketAddr,
@@ -217,6 +217,19 @@ async fn browser_onboarding_wallet(pool: PgPool) {
     let paid = Router::new()
         .route("/v1/models", get(dispatch.clone()))
         .route("/v1/chat/completions", post(dispatch));
+    let socket = std::path::PathBuf::from(std::env::var_os("BROWSER_CORE_RPC_SOCKET").unwrap());
+    let token_file =
+        std::path::PathBuf::from(std::env::var_os("BROWSER_CORE_RPC_TOKEN_FILE").unwrap());
+    let service_token = lmm_core::internal_rpc::read_service_token(&token_file).unwrap();
+    let database_url = pool.connect_options().to_url_lossy();
+    let readonly_identity = lmm_core::internal_rpc::readonly_store(database_url.as_str())
+        .await
+        .unwrap();
+    let rpc = lmm_core::internal_rpc::RpcServer::bind(&socket, &service_token, Some(readonly_identity))
+        .unwrap();
+    let (shutdown_rpc, stopped) = tokio::sync::watch::channel(false);
+    let rpc_task = tokio::spawn(rpc.serve(stopped));
+
     let app = configured_router_with_rpc(
         pool.clone(),
         Capabilities {
@@ -263,6 +276,12 @@ async fn browser_onboarding_wallet(pool: PgPool) {
     })
     .await
     .unwrap();
+    shutdown_rpc.send(true).unwrap();
+    tokio::time::timeout(Duration::from_secs(10), rpc_task)
+        .await
+        .unwrap()
+        .unwrap()
+        .unwrap();
     assert!(
         output.status.success(),
         "{}",
