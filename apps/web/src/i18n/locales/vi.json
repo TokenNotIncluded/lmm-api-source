@@ -4822,6 +4822,7 @@
     "Final price": "Giá cuối cùng",
     "Final price multiplier (0.95 = 5% discount": "Hệ số nhân giá cuối cùng (0.95 = giảm giá 5%)",
     "Final quota price": "Hạn mức thanh toán cuối",
+    "Final usage receipt unavailable": "Chưa có biên nhận sử dụng cuối cùng",
     "Final usage.cost includes the router charges. Token and tool fees are not added again. Missing cost stays pending; explicit zero releases the hold.": "usage.cost cuối cùng đã gồm phí bộ định tuyến. Không cộng lại phí token và công cụ. Nếu thiếu chi phí, quyết toán vẫn chờ; chi phí bằng không được trả về rõ ràng sẽ giải phóng điểm dự giữ.",
     "Finance": "Tài chính",
     "Finance export failed": "Xuất dữ liệu tài chính thất bại",

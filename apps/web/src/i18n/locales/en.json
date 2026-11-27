@@ -4822,6 +4822,7 @@
     "Final price": "Final price",
     "Final price multiplier (0.95 = 5% discount": "Final price multiplier (0.95 = 5% discount",
     "Final quota price": "Final quota price",
+    "Final usage receipt unavailable": "Final usage receipt unavailable",
     "Final usage.cost includes the router charges. Token and tool fees are not added again. Missing cost stays pending; explicit zero releases the hold.": "Final usage.cost includes the router charges. Token and tool fees are not added again. Missing cost stays pending; explicit zero releases the hold.",
     "Finance": "Finance",
     "Finance export failed": "Finance export failed",

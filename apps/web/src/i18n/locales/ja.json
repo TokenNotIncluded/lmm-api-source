@@ -4822,6 +4822,7 @@
     "Final price": "最終価格",
     "Final price multiplier (0.95 = 5% discount": "最終価格乗数 (0.95 = 5%割引",
     "Final quota price": "最終消費クォータ",
+    "Final usage receipt unavailable": "最終の利用明細を取得できません",
     "Final usage.cost includes the router charges. Token and tool fees are not added again. Missing cost stays pending; explicit zero releases the hold.": "最終的な usage.cost にはルーターの料金が含まれます。トークンやツールの料金は再加算しません。費用が欠けている場合は精算待ちとなり、明示的にゼロが返された場合は予約分を解放します。",
     "Finance": "金融",
     "Finance export failed": "財務データのエクスポートに失敗しました",

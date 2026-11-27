@@ -42,6 +42,7 @@ export const usageLogSchema = z.object({
   quota_money_basis: z.string().optional(),
   billing_basis: z.string().optional(),
   state: z.string().optional(),
+  outcome: z.string().nullish(),
   gross_settled_credits: z.number().int().safe().nonnegative().nullish(),
   refunded_credits: z.number().int().safe().nonnegative().nullish(),
   net_consumption_credits: z.number().int().safe().nonnegative().nullish(),

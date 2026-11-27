@@ -4822,6 +4822,7 @@
     "Final price": "最终价格",
     "Final price multiplier (0.95 = 5% discount": "最终价格乘数 (0.95 = 5% 折扣",
     "Final quota price": "最终扣费额度",
+    "Final usage receipt unavailable": "尚未收到最终用量回执",
     "Final usage.cost includes the router charges. Token and tool fees are not added again. Missing cost stays pending; explicit zero releases the hold.": "最终 usage.cost 已包含路由费用，不再叠加 Token 和工具费用。费用缺失时保留待结算；上游明确返回零费用时释放预留点数。",
     "Finance": "金融",
     "Finance export failed": "财务数据导出失败",

@@ -92,7 +92,11 @@ import {
   logExpressionCurrency,
   logCostRows,
 } from '../../lib/money'
-import { usageLogStatusCode, usageReceiptState } from '../../lib/receipt-state'
+import {
+  missingFinalUsageReceipt,
+  usageLogStatusCode,
+  usageReceiptState,
+} from '../../lib/receipt-state'
 import { safeLogDiagnostic } from '../../lib/recovery'
 import { readUsageStatisticsScope } from '../../lib/statistics'
 import { formatDurationMs, getLogTiming } from '../../lib/timing'
@@ -627,11 +631,12 @@ function DetailsDialogContent(props: DetailsDialogProps) {
       consumedQuota: raw,
     })
   const { copiedText, copyToClipboard } = useCopyToClipboard({ notify: false })
-  const details =
-    props.log.type === 5
+  const other = parseLogOther(props.log.other)
+  const details = missingFinalUsageReceipt(props.log, other)
+    ? t('Final usage receipt unavailable')
+    : props.log.type === 5
       ? safeLogDiagnostic(props.log.content ?? '')
       : (props.log.content ?? '')
-  const other = parseLogOther(props.log.other)
   const timing = getLogTiming(props.log, other)
   const modelInfo = formatModelName(props.log)
   const typeConfig = getLogTypeConfig(props.log.type)

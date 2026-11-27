@@ -4822,6 +4822,7 @@
     "Final price": "Итоговая цена",
     "Final price multiplier (0.95 = 5% discount": "Конечный множитель цены (0.95 = скидка 5%",
     "Final quota price": "Итоговая стоимость в квоте",
+    "Final usage receipt unavailable": "Итоговый отчёт об использовании недоступен",
     "Final usage.cost includes the router charges. Token and tool fees are not added again. Missing cost stays pending; explicit zero releases the hold.": "Итоговый usage.cost включает расходы маршрутизатора. Плата за токены и инструменты повторно не добавляется. При отсутствии стоимости расчёт остаётся в ожидании; явный ноль освобождает резерв.",
     "Finance": "Финансы",
     "Finance export failed": "Не удалось экспортировать финансовые данные",

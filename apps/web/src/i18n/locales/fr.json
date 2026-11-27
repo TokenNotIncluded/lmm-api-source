@@ -4822,6 +4822,7 @@
     "Final price": "Prix final",
     "Final price multiplier (0.95 = 5% discount": "Multiplicateur de prix final (0.95 = 5% de réduction",
     "Final quota price": "Quota final à débiter",
+    "Final usage receipt unavailable": "Décompte final d’utilisation indisponible",
     "Final usage.cost includes the router charges. Token and tool fees are not added again. Missing cost stays pending; explicit zero releases the hold.": "Le coût final usage.cost inclut les frais du routeur. Les frais de jetons et d’outils ne sont pas ajoutés à nouveau. Un coût absent laisse le règlement en attente ; un zéro explicite libère la réserve.",
     "Finance": "Finance",
     "Finance export failed": "Échec de l'export financier",

@@ -27,6 +27,13 @@ export function usageReceiptState(
     : { status: 'incomplete', label: 'Incomplete', variant: 'warning' }
 }
 
+export function missingFinalUsageReceipt(
+  log: ReceiptStateLog & Pick<UsageLog, 'outcome'>,
+  other: ReceiptStateMetadata | null
+): boolean {
+  return log.outcome === null && usageReceiptState(log, other) !== undefined
+}
+
 export function usageLogStatusCode(
   log: Pick<UsageLog, 'status_code' | 'provider_http_status'>,
   other: Pick<LogOtherData, 'status_code'> | null

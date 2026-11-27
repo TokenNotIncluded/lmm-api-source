@@ -135,6 +135,37 @@ async function mount(log: UsageLog, language = 'en') {
 
 const encode = (expression: string) =>
   Buffer.from(expression).toString('base64')
+
+test('localizes the missing final usage receipt in the table', async () => {
+  const { preview } = await mount(
+    usageLog(
+      { billing_basis: 'incomplete', request_state: 'reconcile' },
+      {
+        type: 5,
+        provider_http_status: 503,
+        outcome: null,
+        content: 'Model request reconcile; no final usage receipt',
+      }
+    ),
+    'zh'
+  )
+  assert.equal(preview.textContent, '尚未收到最终用量回执')
+})
+
+test('preserves the recorded outcome of an unsettled request', async () => {
+  const { preview } = await mount(
+    usageLog(
+      { billing_basis: 'incomplete', request_state: 'reconcile' },
+      {
+        type: 5,
+        outcome: 'upstream_failed',
+        content: 'upstream_failed',
+      }
+    )
+  )
+  assert.equal(preview.textContent, 'upstream_failed')
+})
+
 const nestedExpression = `len <= 272000
   ? (c > 5
     ? tier("standard", p * 2 + c * 10 + cr * 0.1 + cc * 2.5)

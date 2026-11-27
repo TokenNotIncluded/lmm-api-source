@@ -157,6 +157,44 @@ test('opening a native log reads the current authorized receipt and its precise 
   }
 })
 
+test('shows the pending receipt message and confirmed HTTP status', async () => {
+  const adapter = api.defaults.adapter
+  api.defaults.adapter = async (config) => ({
+    config,
+    headers: {},
+    status: 200,
+    statusText: 'OK',
+    data: {
+      success: true,
+      data: {
+        ...currentLog,
+        type: 5,
+        billing_basis: 'incomplete',
+        state: 'reconcile',
+        outcome: null,
+        provider_http_status: 503,
+        content: 'Model request reconcile; no final usage receipt',
+      },
+    },
+  })
+  const cleanup = await mount()
+  try {
+    await settle(
+      () =>
+        document.body.textContent?.includes(
+          'Final usage receipt unavailable'
+        ) === true
+    )
+    const details = document.body.textContent ?? ''
+    assert.match(details, /Reconciling/)
+    assert.match(details, /503/)
+    assert.doesNotMatch(details, /Model request reconcile/)
+  } finally {
+    await cleanup()
+    api.defaults.adapter = adapter
+  }
+})
+
 test('changing accounts aborts an open detail read and discards the old receipt', async () => {
   const adapter = api.defaults.adapter
   let release: (() => void) | undefined

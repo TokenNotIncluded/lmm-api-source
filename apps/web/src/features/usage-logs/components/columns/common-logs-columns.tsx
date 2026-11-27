@@ -59,7 +59,11 @@ import {
   formatLogTokenPrice,
   type LogCurrencyFormatter,
 } from '../../lib/money'
-import { usageLogStatusCode, usageReceiptState } from '../../lib/receipt-state'
+import {
+  missingFinalUsageReceipt,
+  usageLogStatusCode,
+  usageReceiptState,
+} from '../../lib/receipt-state'
 import { getLogTiming } from '../../lib/timing'
 import {
   isDisplayableLogType,
@@ -837,6 +841,9 @@ export function useCommonLogsColumns(isAdmin: boolean): ColumnDef<UsageLog>[] {
         )
         const primary = segments[0]
         const hasMore = segments.length > 1
+        const fallbackDetail = missingFinalUsageReceipt(log, other)
+          ? t('Final usage receipt unavailable')
+          : log.content
         let primaryTextClass = 'text-foreground'
         if (primary?.muted) {
           primaryTextClass = 'text-muted-foreground/60'
@@ -860,10 +867,10 @@ export function useCommonLogsColumns(isAdmin: boolean): ColumnDef<UsageLog>[] {
               )}
             </span>
           )
-        } else if (log.content) {
+        } else if (fallbackDetail) {
           detailPreview = (
             <span className='text-muted-foreground min-w-0 break-words whitespace-normal group-hover:underline'>
-              {log.content}
+              {fallbackDetail}
             </span>
           )
         }
