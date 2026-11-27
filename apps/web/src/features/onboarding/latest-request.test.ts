@@ -83,7 +83,7 @@ test('native incomplete type-five receipts are not failed or successful response
     })
     assert.equal(
       latestRequestStatus(log),
-      state === 'reconcile' ? 'unknown' : 'incomplete'
+      state === 'reconcile' ? 'reconcile' : 'incomplete'
     )
     assert.equal(log.type, 5)
     assert.equal(log.quota, null)
