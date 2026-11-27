@@ -29,6 +29,12 @@ for (const key of [
   'document',
   'navigator',
   'HTMLElement',
+  'HTMLInputElement',
+  'HTMLButtonElement',
+  'SVGSVGElement',
+  'MouseEvent',
+  'FocusEvent',
+  'getComputedStyle',
   'SVGElement',
   'Node',
   'Element',
@@ -53,6 +59,7 @@ const { I18nextProvider, initReactI18next } = await import('react-i18next')
 const { AccountBindingsTab } = await import('./account-bindings-tab')
 const { api } = await import('@/lib/api')
 
+const { useAuthStore } = await import('@/stores/auth-store')
 const originalGet = api.get
 const originalDelete = api.delete
 const reactTestGlobals = globalThis as typeof globalThis & {
@@ -302,3 +309,123 @@ describe('native-only account binding entry', () => {
     })
   }
 })
+
+for (const enabled of [true, false]) {
+  test(`email binding uses the site's ${enabled ? 'enabled' : 'disabled'} human check without presenting the stored address as verified`, async () => {
+    const status = {
+      turnstile_check: enabled,
+      turnstile_site_key: enabled ? 'test-site-key' : '',
+    }
+    const widgetOptions: Array<Record<string, unknown>> = []
+    const originalWidget = window.turnstile
+    window.turnstile = {
+      render: (_element, options) => {
+        widgetOptions.push(options)
+        return widgetOptions.length
+      },
+    }
+    useAuthStore.getState().auth.setBundle({
+      access_token: 'synthetic-email-bind-token',
+      token_type: 'Bearer',
+      access_expires_at: 2000000000,
+      user: { id: profile.id, username: profile.username, role: 1 },
+      session: {
+        sid: 'a'.repeat(64),
+        current: true,
+        login_method: 'password',
+        ip: '',
+        user_agent: '',
+        created_at: 1,
+        last_active_at: 1,
+        expires_at: 2000000000,
+      },
+    })
+    api.get = (async () => ({
+      data: { success: true, data: status },
+    })) as typeof api.get
+    const originalPost = api.post
+    const requests: Array<{ url: string; body: unknown }> = []
+    api.post = (async (url: string, body: unknown) => {
+      requests.push({ url, body })
+      return { data: { success: !enabled || requests.length > 1 } }
+    }) as typeof api.post
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    })
+    client.setQueryData(['status', `user:${profile.id}:docs:0`], status)
+    const { root, container } = await renderBindings(client)
+    try {
+      assert.ok(container.textContent?.includes(profile.email ?? 'missing'))
+      assert.doesNotMatch(container.textContent ?? '', /\bBound\b|Verified/)
+      const [change] = buttonsWithText('Change')
+      assert.ok(change)
+      await act(async () => change.click())
+      const input = document.querySelector<HTMLInputElement>(
+        'input[type="email"]'
+      )
+      assert.equal(input?.value, profile.email)
+      const [send] = buttonsWithText('Send')
+      assert.ok(send)
+      assert.equal(send.disabled, enabled)
+      if (enabled) {
+        assert.equal(widgetOptions.length, 1)
+        await act(async () => send.click())
+        assert.equal(requests.length, 0)
+        const { callback, 'expired-callback': expire } = widgetOptions[0]
+        assert.equal(widgetOptions[0].sitekey, 'test-site-key')
+        assert.ok(
+          typeof callback === 'function' && typeof expire === 'function'
+        )
+        await act(async () => callback('synthetic-expiring-token'))
+        assert.equal(send.disabled, false)
+        await act(async () => expire())
+        assert.equal(send.disabled, true)
+        await act(async () => callback('synthetic-first-token'))
+        await act(async () => send.click())
+        assert.equal(send.disabled, true)
+        assert.equal(widgetOptions.length, 2)
+        const fresh = widgetOptions[1].callback
+        assert.ok(typeof fresh === 'function')
+        await act(async () => fresh('synthetic-second-token'))
+      } else {
+        assert.equal(widgetOptions.length, 0)
+      }
+      await act(async () => send.click())
+      const tokens = enabled
+        ? ['synthetic-first-token', 'synthetic-second-token']
+        : [undefined]
+      assert.deepEqual(
+        requests,
+        tokens.map((turnstile) => ({
+          url: '/api/identity/email/verification/request',
+          body: { email: profile.email, purpose: 'bind', turnstile },
+        }))
+      )
+      assert.equal(buttonsWithText('60s')[0]?.disabled, true)
+      const code = document.querySelector<HTMLInputElement>('#code')
+      assert.ok(code)
+      const setValue = Object.getOwnPropertyDescriptor(
+        HTMLInputElement.prototype,
+        'value'
+      )?.set
+      assert.ok(setValue)
+      await act(async () => {
+        setValue.call(code, '123456')
+        code.dispatchEvent(new Event('input', { bubbles: true }))
+      })
+      const [bind] = buttonsWithText('Bind Email')
+      assert.ok(bind)
+      await act(async () => bind.click())
+      assert.deepEqual(requests.at(-1), {
+        url: '/api/oauth/email/bind',
+        body: { email: profile.email, code: '123456' },
+      })
+    } finally {
+      await act(async () => root.unmount())
+      client.clear()
+      useAuthStore.getState().auth.reset()
+      api.post = originalPost
+      window.turnstile = originalWidget
+    }
+  })
+}

@@ -38,6 +38,7 @@ function EmailAccountBinding({ profile, onUpdate }: Props) {
           label={t('Email')}
           value={profile.email}
           bound={Boolean(profile.email)}
+          showBadge={false}
           icon={<Mail className='h-4 w-4' />}
           action={{
             label: profile.email ? t('Change') : t('Bind'),
@@ -46,6 +47,7 @@ function EmailAccountBinding({ profile, onUpdate }: Props) {
         />
       </div>
       <EmailBindDialog
+        key={profile.email}
         open={open}
         onOpenChange={setOpen}
         currentEmail={profile.email}

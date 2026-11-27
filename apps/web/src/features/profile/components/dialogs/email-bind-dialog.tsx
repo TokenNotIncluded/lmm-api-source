@@ -22,9 +22,11 @@ import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 
 import { Dialog } from '@/components/dialog'
+import { Turnstile } from '@/components/turnstile'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { useTurnstile } from '@/features/auth/hooks/use-turnstile'
 import { useCountdown } from '@/hooks/use-countdown'
 
 import { sendEmailVerification, bindEmail } from '../../api'
@@ -49,8 +51,18 @@ export function EmailBindDialog({
   const { t } = useTranslation()
   const [loading, setLoading] = useState(false)
   const [sendingCode, setSendingCode] = useState(false)
-  const [email, setEmail] = useState('')
+  const [email, setEmail] = useState(currentEmail ?? '')
   const [code, setCode] = useState('')
+  const [widgetKey, setWidgetKey] = useState(0)
+  const {
+    isTurnstileEnabled,
+    turnstileSiteKey,
+    turnstileToken,
+    setTurnstileToken,
+    resetTurnstile,
+    validateTurnstile,
+  } = useTurnstile()
+  const challengeReady = !isTurnstileEnabled || Boolean(turnstileToken)
   const {
     secondsLeft,
     isActive,
@@ -66,9 +78,13 @@ export function EmailBindDialog({
       return
     }
 
+    if (sendingCode || isActive || !validateTurnstile()) return
     try {
       setSendingCode(true)
-      const response = await sendEmailVerification(email)
+      const response = await sendEmailVerification(
+        email,
+        isTurnstileEnabled ? turnstileToken : undefined
+      )
 
       if (response.success) {
         toast.success(
@@ -83,6 +99,8 @@ export function EmailBindDialog({
     } catch {
       toast.error(t('Failed to send verification code'))
     } finally {
+      resetTurnstile()
+      setWidgetKey((value) => value + 1)
       setSendingCode(false)
     }
   }
@@ -102,9 +120,10 @@ export function EmailBindDialog({
         onOpenChange(false)
         onSuccess()
         // Reset form
-        setEmail('')
+        setEmail(currentEmail ?? '')
         setCode('')
         resetCountdown()
+        resetTurnstile()
       } else {
         toast.error(response.message || t('Failed to bind email'))
       }
@@ -120,9 +139,10 @@ export function EmailBindDialog({
       onOpenChange(open)
       if (!open) {
         // Reset form when closing
-        setEmail('')
+        setEmail(currentEmail ?? '')
         setCode('')
         resetCountdown()
+        resetTurnstile()
       }
     }
   }
@@ -132,13 +152,7 @@ export function EmailBindDialog({
       open={open}
       onOpenChange={handleOpenChange}
       title={t('Bind Email')}
-      description={
-        currentEmail
-          ? t('Current email: {{email}}. Enter a new email to change.', {
-              email: currentEmail,
-            })
-          : t('Bind an email address to your account.')
-      }
+      description={t('Bind an email address to your account.')}
       contentClassName='sm:max-w-md'
       contentHeight='auto'
       bodyClassName='space-y-4'
@@ -176,6 +190,14 @@ export function EmailBindDialog({
           />
         </div>
 
+        {open && isTurnstileEnabled && !isActive && (
+          <Turnstile
+            key={widgetKey}
+            siteKey={turnstileSiteKey}
+            onVerify={setTurnstileToken}
+            onExpire={resetTurnstile}
+          />
+        )}
         <div className='space-y-2'>
           <Label htmlFor='code'>{t('Verification Code')}</Label>
           <div className='flex gap-2'>
@@ -191,7 +213,7 @@ export function EmailBindDialog({
               type='button'
               variant='outline'
               onClick={handleSendCode}
-              disabled={sendingCode || isActive || !email}
+              disabled={sendingCode || isActive || !email || !challengeReady}
             >
               {isActive
                 ? `${secondsLeft}s`
