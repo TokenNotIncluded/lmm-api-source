@@ -25,11 +25,7 @@ pub(super) fn stream(request: &Value, replacement: &str) -> Response {
             .into_response();
     };
     if request["stream"] != true {
-        return (
-            StatusCode::BAD_REQUEST,
-            "A streamed completion is required",
-        )
-            .into_response();
+        return (StatusCode::BAD_REQUEST, "A streamed completion is required").into_response();
     }
     let arguments = json!({"replacement_text":replacement}).to_string();
     let split = arguments.find(':').unwrap() + 1;
