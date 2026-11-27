@@ -59,7 +59,7 @@ import {
   formatLogTokenPrice,
   type LogCurrencyFormatter,
 } from '../../lib/money'
-import { usageReceiptState } from '../../lib/receipt-state'
+import { usageLogStatusCode, usageReceiptState } from '../../lib/receipt-state'
 import { getLogTiming } from '../../lib/timing'
 import {
   isDisplayableLogType,
@@ -330,23 +330,35 @@ export function useCommonLogsColumns(isAdmin: boolean): ColumnDef<UsageLog>[] {
         const log = row.original
         const timestamp = row.getValue('created_at') as number
         const config = getLogTypeConfig(log.type)
-        const receipt = usageReceiptState(log, parseLogOther(log.other))
+        const other = parseLogOther(log.other)
+        const receipt = usageReceiptState(log, other)
+        const statusCode = usageLogStatusCode(log, other)
 
         return (
           <div className='flex min-w-0 flex-col gap-0.5'>
             <span className='truncate font-mono text-xs tabular-nums'>
               {formatTimestampToDate(timestamp)}
             </span>
-            <StatusBadge
-              label={t(receipt?.label ?? config.label)}
-              variant={
-                receipt?.variant ??
-                (config.color as StatusBadgeProps['variant'])
-              }
-              size='sm'
-              copyable={false}
-              className='-ml-1.5 !text-xs [&_span]:!text-xs'
-            />
+            <div className='flex flex-wrap items-center gap-x-1'>
+              <StatusBadge
+                label={t(receipt?.label ?? config.label)}
+                variant={
+                  receipt?.variant ??
+                  (config.color as StatusBadgeProps['variant'])
+                }
+                size='sm'
+                copyable={false}
+                className='-ml-1.5 !text-xs [&_span]:!text-xs'
+              />
+              {statusCode !== undefined && statusCode >= 400 && (
+                <span
+                  className='text-destructive font-mono text-xs'
+                  title={t('Status Code')}
+                >
+                  {statusCode}
+                </span>
+              )}
+            </div>
           </div>
         )
       },
@@ -856,10 +868,6 @@ export function useCommonLogsColumns(isAdmin: boolean): ColumnDef<UsageLog>[] {
           )
         }
 
-        const status =
-          log.status_code ?? log.provider_http_status ?? other?.status_code
-        const failedStatus =
-          typeof status === 'number' && status >= 400 && status <= 599
         return (
           <>
             <button
@@ -871,14 +879,6 @@ export function useCommonLogsColumns(isAdmin: boolean): ColumnDef<UsageLog>[] {
             >
               <span className='text-primary shrink-0'>{t('Details')}</span>
               <span className='flex min-w-0 items-start gap-1.5'>
-                {failedStatus && (
-                  <span
-                    className='text-destructive shrink-0 font-mono'
-                    title={t('Status Code')}
-                  >
-                    {status}
-                  </span>
-                )}
                 {detailPreview}
               </span>
             </button>

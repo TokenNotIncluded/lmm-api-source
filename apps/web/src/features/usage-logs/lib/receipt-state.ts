@@ -8,7 +8,7 @@ type ReceiptStateMetadata = Pick<
   'billing_basis' | 'request_state'
 >
 type IncompleteReceiptState =
-  | { status: 'unknown'; label: 'Unknown'; variant: 'warning' }
+  | { status: 'reconcile'; label: 'Reconciling'; variant: 'warning' }
   | { status: 'incomplete'; label: 'Incomplete'; variant: 'warning' }
 
 /** Native incomplete receipts retain their state without changing legacy log types. */
@@ -23,6 +23,20 @@ export function usageReceiptState(
     return undefined
   }
   return (log.state ?? other?.request_state) === 'reconcile'
-    ? { status: 'unknown', label: 'Unknown', variant: 'warning' }
+    ? { status: 'reconcile', label: 'Reconciling', variant: 'warning' }
     : { status: 'incomplete', label: 'Incomplete', variant: 'warning' }
+}
+
+export function usageLogStatusCode(
+  log: Pick<UsageLog, 'status_code' | 'provider_http_status'>,
+  other: Pick<LogOtherData, 'status_code'> | null
+): number | undefined {
+  const status =
+    log.status_code ?? log.provider_http_status ?? other?.status_code
+  return status != null &&
+    Number.isInteger(status) &&
+    status >= 100 &&
+    status <= 599
+    ? status
+    : undefined
 }

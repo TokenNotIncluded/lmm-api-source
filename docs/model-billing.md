@@ -159,6 +159,8 @@ Rerank 接受非空 `query`、最多 2048 个字符串 `documents` 和合法的
 超限、超时或证据损坏明确报错，不产生静默截断的成功文件。
 
 账单区分预留、已结算、退款和净消费；未结算记录的最终用量与消费留空。
+请求错误与计费待核对独立判定。上游明确返回 HTTP 4xx 或 5xx 时，
+尚未结算的请求同时出现在失败和待核对筛选中，预留金额仍按原记录展示。
 工具日志的 `tool_requests` 与 CSV 的 `successful_tool_requests` 表示同一 0/1 计数，
 `outcome/provider_http_status` 区分操作结果与账务状态。Grounding 单列
 `grounded_requests/tool_input_tokens`。缓存统计保留读、写与 5m/1h/12h 写入分项；

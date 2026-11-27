@@ -292,6 +292,64 @@ async fn receipt_stream_validates_past_2048_without_silent_truncation(pool: PgPo
 }
 
 #[sqlx::test(migrations = false)]
+async fn observed_upstream_errors_remain_visible_while_money_is_unsettled(pool: PgPool) {
+    let f = fixture(&pool).await;
+    requests(&f, "provider-", 4, f.now).await;
+    let mut tx = pool.begin().await.unwrap();
+    sqlx::query("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE")
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    for state in ["streaming", "reconcile"] {
+        sqlx::query("UPDATE core_charging.requests SET state=$1,revision=revision+1")
+            .bind(state)
+            .execute(&mut *tx)
+            .await
+            .unwrap();
+    }
+    for (id, status) in [
+        ("provider-000001", 404),
+        ("provider-000002", 503),
+        ("provider-000003", 200),
+    ] {
+        let sample = json!({
+            "schema": "core.performance.v1",
+            "finished_at": f.now,
+            "elapsed_us": 1000,
+            "first_output_us": null,
+            "output_tokens": null,
+            "success": false,
+            "status_code": status,
+        });
+        sqlx::query("INSERT INTO core_charging.usage_events (request_id,event_id,detail) VALUES ($1,'performance-v1',$2)")
+            .bind(id).bind(sample).execute(&mut *tx).await.unwrap();
+    }
+    tx.commit().await.unwrap();
+
+    let (status, body) = endpoint(&f, "/api/log/self/stat", "").await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["data"]["total_count"], 4);
+    assert_eq!(body["data"]["pending_count"], 4);
+    assert_eq!(body["data"]["error_count"], 2);
+    assert_eq!(body["data"]["reserved_credits"], 4);
+
+    let (status, body) = endpoint(&f, "/api/log/self", "status=error").await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let items = body["data"]["items"].as_array().unwrap();
+    assert_eq!(items.len(), 2);
+    assert_eq!(items[0]["status_code"], 503);
+    assert_eq!(items[1]["status_code"], 404);
+    assert!(
+        items
+            .iter()
+            .all(|item| item["billing_basis"] == "incomplete")
+    );
+    let (status, body) = endpoint(&f, "/api/log/self", "status=pending").await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["data"]["total"], 4);
+}
+
+#[sqlx::test(migrations = false)]
 async fn shared_usage_streams_past_100000_without_silent_truncation(pool: PgPool) {
     let f = fixture(&pool).await;
     requests(&f, "selected-", 100000, f.now).await;

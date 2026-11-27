@@ -46,7 +46,7 @@ import { cn } from '@/lib/utils'
 import { LOG_TYPE_ENUM } from '../constants'
 import type { UsageLog } from '../data/schema'
 import { parseLogOther } from '../lib/format'
-import { usageReceiptState } from '../lib/receipt-state'
+import { usageLogStatusCode, usageReceiptState } from '../lib/receipt-state'
 import { getLogTiming } from '../lib/timing'
 import {
   getLogTypeConfig,
@@ -173,9 +173,9 @@ function MobileLogTimeStatus({
   const timestamp = typeof createdAt === 'number' ? createdAt : undefined
   const logType = typeof type === 'number' ? type : undefined
   const config = getLogTypeConfig(logType ?? LOG_TYPE_ENUM.UNKNOWN)
-  const receipt = log
-    ? usageReceiptState(log, parseLogOther(log.other))
-    : undefined
+  const other = log ? parseLogOther(log.other) : null
+  const receipt = log ? usageReceiptState(log, other) : undefined
+  const statusCode = log ? usageLogStatusCode(log, other) : undefined
   const variant = receipt?.variant ?? (config.color as StatusVariant)
 
   return (
@@ -194,6 +194,11 @@ function MobileLogTimeStatus({
           aria-hidden='true'
         />
         <span>{t(receipt?.label ?? config.label)}</span>
+        {statusCode !== undefined && statusCode >= 400 && (
+          <span className='text-destructive font-mono' title={t('Status Code')}>
+            {statusCode}
+          </span>
+        )}
       </div>
     </div>
   )

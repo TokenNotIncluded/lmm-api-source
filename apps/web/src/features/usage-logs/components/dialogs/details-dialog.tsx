@@ -92,7 +92,7 @@ import {
   logExpressionCurrency,
   logCostRows,
 } from '../../lib/money'
-import { usageReceiptState } from '../../lib/receipt-state'
+import { usageLogStatusCode, usageReceiptState } from '../../lib/receipt-state'
 import { safeLogDiagnostic } from '../../lib/recovery'
 import { readUsageStatisticsScope } from '../../lib/statistics'
 import { formatDurationMs, getLogTiming } from '../../lib/timing'
@@ -636,6 +636,7 @@ function DetailsDialogContent(props: DetailsDialogProps) {
   const modelInfo = formatModelName(props.log)
   const typeConfig = getLogTypeConfig(props.log.type)
   const receipt = usageReceiptState(props.log, other)
+  const statusCode = usageLogStatusCode(props.log, other)
 
   const isViolation = isViolationFeeLog(other)
   const isRefund = props.log.type === 6
@@ -920,12 +921,8 @@ function DetailsDialogContent(props: DetailsDialogProps) {
             />
           )}
 
-          {props.log.status_code != null && (
-            <DetailRow
-              label={t('Status Code')}
-              value={props.log.status_code}
-              mono
-            />
+          {statusCode !== undefined && (
+            <DetailRow label={t('Status Code')} value={statusCode} mono />
           )}
         </div>
 

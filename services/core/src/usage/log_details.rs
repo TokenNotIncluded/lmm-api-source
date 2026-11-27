@@ -35,6 +35,13 @@ impl LogDetails {
             .and_then(|sample| sample.upstream_request_id.as_deref())
     }
 
+    pub(super) fn status_code(&self, request: &ValidatedRequest) -> Option<u16> {
+        self.sample
+            .as_ref()
+            .and_then(|sample| sample.status_code)
+            .or_else(|| request.provider_status())
+    }
+
     pub(super) fn project(&self, request: &ValidatedRequest, administrator: bool) -> Value {
         let mut item = request.log();
         let sample = self.sample.as_ref();
@@ -44,11 +51,7 @@ impl LogDetails {
         item["use_time"] = json!(self.duration_ms().map(|ms| ms / 1000.0));
         item["is_stream"] = json!(sample.and_then(|sample| sample.is_stream));
         item["upstream_request_id"] = json!(self.upstream_request_id());
-        item["status_code"] = json!(
-            sample
-                .and_then(|sample| sample.status_code)
-                .or_else(|| request.provider_status())
-        );
+        item["status_code"] = json!(self.status_code(request));
         item["price_version"] = json!(request.price.version);
         let mut other: Value = serde_json::from_str(item["other"].as_str().unwrap()).unwrap();
         other["frt"] = json!(self.first_token_ms());

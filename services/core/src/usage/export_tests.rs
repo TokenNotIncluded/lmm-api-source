@@ -78,8 +78,12 @@ fn csv_preserves_receipts_unknown_values_and_text_safety() {
 #[test]
 fn cache_summary_excludes_unsettled_and_retains_unreported_lifetimes() {
     let mut summary = Summary::default();
-    summary.include(&request("settled"), 1700000001).unwrap();
-    summary.include(&request("reconcile"), 1700000001).unwrap();
+    summary
+        .include(&request("settled"), 1700000001, None)
+        .unwrap();
+    summary
+        .include(&request("reconcile"), 1700000001, None)
+        .unwrap();
     let value = summary.project();
     assert_eq!(value["cache_read_tokens"], 20);
     assert_eq!(value["cache_write_tokens"], 30);
@@ -88,7 +92,7 @@ fn cache_summary_excludes_unsettled_and_retains_unreported_lifetimes() {
     assert_eq!(value["cache_write_12h_tokens"], 25);
     let mut absent = request("settled");
     absent.usage.cache_creation = None;
-    summary.include(&absent, 1700000001).unwrap();
+    summary.include(&absent, 1700000001, None).unwrap();
     assert_eq!(summary.project()["cache_read_tokens"], 40);
     assert!(summary.project()["cache_write_tokens"].is_null());
 }
@@ -161,7 +165,7 @@ fn tool_receipts_export_success_counts_without_synthetic_tokens() {
     tool.amounts = Amounts::default();
     assert_eq!(tool.log()["tool_requests"], 0);
     let mut summary = Summary::default();
-    summary.include(&tool, 1700000001).unwrap();
+    summary.include(&tool, 1700000001, None).unwrap();
     assert_eq!(summary.project()["tool_requests"], 0);
     assert_eq!(summary.project()["net_consumption_credits"], 0);
 }
@@ -250,7 +254,7 @@ fn text_request_receipts_export_quantity_and_keep_unknown_tokens_unavailable() {
             "\"per_completed_request\",\"\",\"\",\"{complete}\",\"\",\"\"\r\n"
         )));
         let mut summary = Summary::default();
-        summary.include(&r, 1700000001).unwrap();
+        summary.include(&r, 1700000001, None).unwrap();
         assert_eq!(summary.project()["completed_requests"], complete);
     }
 }

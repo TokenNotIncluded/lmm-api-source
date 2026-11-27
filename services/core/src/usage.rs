@@ -189,11 +189,8 @@ impl UsageQuery {
 
     fn matches(&self, request: &ValidatedRequest, details: &log_details::LogDetails) -> bool {
         let status = match self.status.as_deref().unwrap_or_default() {
-            "success" => request.settled() && request.outcome.as_deref() == Some("completed"),
-            "error" => {
-                !request.held()
-                    && (!request.settled() || request.outcome.as_deref() != Some("completed"))
-            }
+            "success" => request.succeeded(),
+            "error" => request.failed(details.status_code(request)),
             "pending" => request.held(),
             "refunded" => request.settled() && request.amounts.refunded > 0,
             _ => true,
@@ -333,6 +330,18 @@ impl ValidatedRequest {
             "per_completed_request"
         } else {
             "measured_usage"
+        }
+    }
+    fn succeeded(&self) -> bool {
+        self.settled() && self.outcome.as_deref() == Some("completed")
+    }
+    fn failed(&self, status_code: Option<u16>) -> bool {
+        if self.held() {
+            // An HTTP rejection proves an upstream failure, but does not
+            // provide the evidence needed to settle or release a hold.
+            status_code.is_some_and(|status| (400..=599).contains(&status))
+        } else {
+            !self.succeeded()
         }
     }
     fn provider_status(&self) -> Option<u16> {
@@ -479,13 +488,19 @@ fn recent(at: i64, now: i64) -> bool {
     at > now - 60 && at <= now
 }
 impl Summary {
-    fn include(&mut self, r: &ValidatedRequest, now: i64) -> Result<(), Error> {
+    fn include(
+        &mut self,
+        r: &ValidatedRequest,
+        now: i64,
+        status_code: Option<u16>,
+    ) -> Result<(), Error> {
         add(&mut self.total_count, 1)?;
         if r.held() {
             add(&mut self.pending_count, 1)?;
-        } else if r.settled() && r.outcome.as_deref() == Some("completed") {
+        }
+        if r.succeeded() {
             add(&mut self.success_count, 1)?;
-        } else {
+        } else if r.failed(status_code) {
             add(&mut self.error_count, 1)?;
         }
         if r.settled() && r.amounts.refunded > 0 {
@@ -751,7 +766,7 @@ impl UsageStore {
                     }
                     add(&mut total, 1)?;
                     // Validate every selected request, including the other pages.
-                    summary.include(&r, now)?;
+                    summary.include(&r, now, detail.status_code(&r))?;
                     performance.include(&detail)?;
                     if let Some(csv) = &mut csv {
                         csv.include_with_details(&r, &detail)?;
@@ -1185,7 +1200,9 @@ pub(crate) async fn read_oauth_usage(
             }) {
                 return Err(());
             }
-            summary.include(&request, now).map_err(|_| ())?;
+            summary
+                .include(&request, now, request.provider_status())
+                .map_err(|_| ())?;
             let item = request.log();
             encoded_bytes = oauth_item_bytes(encoded_bytes, &item)?;
             items.push(item);

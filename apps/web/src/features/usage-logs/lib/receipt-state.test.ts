@@ -2,12 +2,12 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 
-import { usageReceiptState } from './receipt-state'
+import { usageLogStatusCode, usageReceiptState } from './receipt-state'
 
-test('incomplete native receipts preserve unknown reconciliation separately', () => {
+test('incomplete native receipts identify reconciliation separately', () => {
   assert.deepEqual(
     usageReceiptState({ billing_basis: 'incomplete', state: 'reconcile' }),
-    { status: 'unknown', label: 'Unknown', variant: 'warning' }
+    { status: 'reconcile', label: 'Reconciling', variant: 'warning' }
   )
   for (const state of ['reserved', 'streaming', 'released', undefined]) {
     assert.deepEqual(
@@ -23,7 +23,7 @@ test('metadata-only incomplete basis uses its captured request state', () => {
       {},
       { billing_basis: 'incomplete', request_state: 'reconcile' }
     )?.status,
-    'unknown'
+    'reconcile'
   )
   assert.equal(
     usageReceiptState(
@@ -45,4 +45,21 @@ test('state names and legacy errors do not invent a native incomplete receipt', 
     ),
     undefined
   )
+})
+
+test('native HTTP status takes priority over historical metadata', () => {
+  assert.equal(
+    usageLogStatusCode(
+      { status_code: 503, provider_http_status: 404 },
+      { status_code: 400 }
+    ),
+    503
+  )
+  assert.equal(
+    usageLogStatusCode({ provider_http_status: 404 }, { status_code: 400 }),
+    404
+  )
+  assert.equal(usageLogStatusCode({}, { status_code: 400 }), 400)
+  assert.equal(usageLogStatusCode({}, null), undefined)
+  assert.equal(usageLogStatusCode({}, { status_code: 999 }), undefined)
 })
