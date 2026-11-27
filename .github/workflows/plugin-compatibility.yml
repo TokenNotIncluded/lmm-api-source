@@ -215,6 +215,7 @@ jobs:
           cargo +1.100.0 test --locked --test cc_switch -- --nocapture | tee "$RUNNER_TEMP/cc-switch-tests"
           grep -Fqx 'test schema_24_inspection_distinguishes_database_selection_from_live_application_and_never_emits_keys ... ok' "$RUNNER_TEMP/cc-switch-tests"
           for gate in \
+            cc_switch::bindings::tests::pinned_migrated_billing_columns_are_preserved_and_unreviewed_layouts_are_rejected \
             cc_switch::bindings::tests::add_is_readonly_until_confirmed_and_commits_an_exact_recoverable_receipt_without_activation \
             cc_switch::bindings::tests::sync_keeps_user_names_extra_fields_native_model_choice_and_other_provider_selection \
             cc_switch::bindings::tests::restore_sync_merges_by_model_identity_preserving_following_user_edits \

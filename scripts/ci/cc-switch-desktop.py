@@ -116,7 +116,7 @@ OUTPUT.mkdir()
 with launch() as desktop:
     before_cards = provider_page(desktop)
 before_selection = snapshot()
-test_run = subprocess.run([TEST, "--ignored", "--exact", GATE], check=True, text=True,
+test_run = subprocess.run([TEST, "--ignored", "--exact", GATE, "--nocapture"], check=True, text=True,
                           stdout=subprocess.PIPE, timeout=30)
 assert f"test {GATE} ... ok" in test_run.stdout.splitlines(), "Exact native add case did not run"
 fixture = json.loads((HOME/"desktop-fixture.json").read_text())
