@@ -1,4 +1,3 @@
-/* Copyright (C) 2026 LIghtJUNction. SPDX-License-Identifier: AGPL-3.0-or-later */
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Check, Copy, RefreshCw, ShieldCheck } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
@@ -18,6 +17,12 @@ import {
   readNativeUsersScope,
   type NativeUsersScope,
 } from '@/features/native-users/access'
+/* Copyright (C) 2026 LIghtJUNction. SPDX-License-Identifier: AGPL-3.0-or-later */
+import {
+  pluginReadTime,
+  settingsReadFailure,
+  useReportPluginSetting,
+} from '@/features/plugins/settings-observations'
 import { useStatus } from '@/hooks/use-status'
 import { api } from '@/lib/api'
 import { ROLE } from '@/lib/roles'
@@ -332,6 +337,15 @@ function PaymentWorkspace({ scope }: { scope: NativeUsersScope }) {
     refetchOnWindowFocus: false,
     refetchOnReconnect: false,
   })
+  useReportPluginSetting(
+    'pancake',
+    query.isError
+      ? settingsReadFailure(query.error)
+      : query.isSuccess
+        ? 'available'
+        : undefined,
+    pluginReadTime(query)
+  )
   const [denied, setDenied] = useState(false)
   if (
     denied ||

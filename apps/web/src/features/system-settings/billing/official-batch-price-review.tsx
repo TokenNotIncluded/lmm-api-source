@@ -22,8 +22,9 @@ import {
 } from './official-models-dev-quote'
 import {
   previewMissingOfficialPrices,
-  publishOfficialPrice,
-  type OfficialPricePreview,
+  publishMissingOfficialPrices,
+  existingPriceModels,
+  type BatchPricePreview,
 } from './official-price-api'
 import {
   completeOfficialPrice,
@@ -111,6 +112,13 @@ export async function batchQuoteRow(
     return { ...row, error: failure(cause) }
   }
 }
+function sourceOf(row: Row) {
+  try {
+    return readOfficialToml(row.model, row.toml).source
+  } catch {
+    return null
+  }
+}
 function issues(
   row: Row,
   configuration: NativeConfiguration,
@@ -171,7 +179,7 @@ function BatchReview({
   const { t } = useTranslation()
   const [rows, setRows] = useState<Row[]>([])
   const [catalog, setCatalog] = useState<unknown>()
-  const [preview, setPreview] = useState<OfficialPricePreview>()
+  const [preview, setPreview] = useState<BatchPricePreview>()
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [published, setPublished] = useState(false)
@@ -180,10 +188,8 @@ function BatchReview({
   const inflight = useRef(false)
   const controller = useRef<AbortController | undefined>(undefined)
   useEffect(() => () => controller.current?.abort(), [])
-  const existing = configuration.bindings.official_prices?.models ?? {}
-  const missingModels = models.filter(
-    (model) => !Object.hasOwn(existing, model)
-  )
+  const existing = existingPriceModels(configuration)
+  const missingModels = models.filter((model) => !existing.has(model))
   const selected = rows.filter((row) => row.selected)
   const rowIssues = new Map(
     rows.map((row) => [row.model, issues(row, configuration, channelId)])
@@ -265,7 +271,7 @@ function BatchReview({
           </label>
           {row.toml && (
             <p className='text-muted-foreground'>
-              {t('Source')}: models.dev / {row.provider} / {row.sourceModel}
+              {t('Source')}: {sourceOf(row) ?? t('Not recorded')}
             </p>
           )}
           {!row.toml && (
@@ -363,8 +369,24 @@ function BatchReview({
                         key={String(price.rates[meter])}
                         onBlur={(e) => {
                           const input = e.target.value.trim()
+                          if (!input) {
+                            const rates = { ...price.rates }
+                            delete rates[meter]
+                            change(row.model, {
+                              toml: writeOfficialToml(row.model, {
+                                ...price,
+                                source:
+                                  'manual (' +
+                                  row.provider +
+                                  ' / ' +
+                                  row.sourceModel +
+                                  ')',
+                                rates,
+                              }),
+                            })
+                            return
+                          }
                           if (
-                            !input ||
                             !/^\d+$/.test(input) ||
                             !Number.isSafeInteger(Number(input))
                           ) {
@@ -457,14 +479,41 @@ function BatchReview({
             {preview.body.expected_version.pricing} → v
             {preview.body.prices.version} · {preview.changes.added.join(', ')}
           </p>
+          {preview.generatedRules.length > 0 && (
+            <div>
+              <p>{t('Prices published on existing routes')}</p>
+              <ul className='max-h-40 overflow-auto'>
+                {preview.generatedRules.map(
+                  ({ model, group, speed, enabled }) => (
+                    <li key={JSON.stringify([model, group, speed])}>
+                      {model} · {group} · {speed} ·{' '}
+                      {t(enabled ? 'Enabled' : 'Disabled')}
+                    </li>
+                  )
+                )}
+              </ul>
+            </div>
+          )}
+          {preview.promoted.length > 0 && (
+            <div>
+              <p>{t('Pending models cleared on publication')}</p>
+              <ul className='max-h-40 overflow-auto'>
+                {preview.promoted.map(({ channel, model }) => (
+                  <li key={JSON.stringify([channel, model])}>
+                    #{channel} · {model}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
           <Button
             type='button'
             disabled={busy}
             onClick={() =>
               void run(async () => {
-                await publishOfficialPrice(scope, preview)
-                setPublished(true)
                 setPreview(undefined)
+                await publishMissingOfficialPrices(scope, preview)
+                setPublished(true)
                 await onPublished()
               })
             }
@@ -473,13 +522,7 @@ function BatchReview({
           </Button>
         </div>
       )}
-      {published && (
-        <p role='status'>
-          {t(
-            'Official prices published. Review group routes before activation.'
-          )}
-        </p>
-      )}
+      {published && <p role='status'>{t('Prices published successfully')}</p>}
       {onClose && (
         <Button type='button' variant='ghost' disabled={busy} onClick={onClose}>
           {t('Close')}

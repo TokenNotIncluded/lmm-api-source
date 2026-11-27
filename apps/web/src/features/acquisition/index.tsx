@@ -37,7 +37,6 @@ import {
   type ActivitySummary,
 } from './activity-panel'
 import { AcquisitionFunnelPanel } from './funnel-panel'
-import { PromotionLinks } from './promotion-links'
 import { customAcquisitionRange, presetAcquisitionRange } from './report-range'
 import { sourceSummaryCSV } from './summary-export'
 import { SourceUsers } from './user-sources'
@@ -325,8 +324,6 @@ export function Acquisition() {
       </SectionPageLayout.Actions>
       <SectionPageLayout.Content>
         <div className='mx-auto max-w-6xl space-y-6 pb-8'>
-          <PromotionLinks canWrite={canWrite} />
-
           {/* The period picker is the one action this page is really about. */}
           <TitledCard
             title={t('Reporting period')}

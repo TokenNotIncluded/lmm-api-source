@@ -1,4 +1,3 @@
-/* Copyright (C) 2026 LIghtJUNction. SPDX-License-Identifier: AGPL-3.0-or-later */
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -16,6 +15,12 @@ import {
   readNativeUsersScope,
   type NativeUsersScope,
 } from '@/features/native-users/access'
+/* Copyright (C) 2026 LIghtJUNction. SPDX-License-Identifier: AGPL-3.0-or-later */
+import {
+  pluginReadTime,
+  settingsReadFailure,
+  useReportPluginSetting,
+} from '@/features/plugins/settings-observations'
 import { api } from '@/lib/api'
 import { ROLE } from '@/lib/roles'
 import { useAuthStore } from '@/stores/auth-store'
@@ -152,6 +157,17 @@ function EPayWorkspace({ scope }: { scope: NativeUsersScope }) {
     refetchOnWindowFocus: false,
     refetchOnReconnect: false,
   })
+  useReportPluginSetting(
+    'epay',
+    query.isError
+      ? settingsReadFailure(query.error)
+      : query.isSuccess
+        ? query.data.bindings.length
+          ? 'configured'
+          : 'needsSetup'
+        : undefined,
+    pluginReadTime(query)
+  )
   if (
     denied ||
     (query.isError && [401, 403].includes(problem(query.error).status))

@@ -16,15 +16,12 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { useLocation, useParams } from '@tanstack/react-router'
+import { useParams } from '@tanstack/react-router'
 import { useTranslation } from 'react-i18next'
 
 import { SettingsPage, SettingsPageFrame } from '../components/settings-page'
-import { CheckinSettingsSection } from '../general/checkin-settings-section'
 import { QuotaSettingsSection } from '../general/quota-settings-section'
 import type { BillingSettings } from '../types'
-import { NativePaymentGateways } from './native-payment-gateways'
-import { NativePricingSection } from './native-pricing-section'
 import {
   BILLING_DEFAULT_SECTION,
   getBillingSectionContent,
@@ -127,53 +124,15 @@ const defaultBillingSettings: BillingSettings = {
   'checkin_setting.max_quota': 10000,
 }
 
-function PaymentGatewaySection() {
-  const hash = useLocation({ select: (location) => location.hash })
-  return <NativePaymentGateways initialHash={hash} />
-}
-
 export function BillingSettings() {
   const { t } = useTranslation()
   const { section } = useParams({
     from: '/_authenticated/system-settings/billing/$section',
   })
-  // Published prices have their own capability and versioned management API.
-  if (section === 'model-pricing' || section === 'group-pricing') {
-    return (
-      <SettingsPageFrame
-        title={t(
-          section === 'model-pricing' ? 'Model Pricing' : 'Group Pricing'
-        )}
-      >
-        <NativePricingSection groupWorkspace={section === 'group-pricing'} />
-      </SettingsPageFrame>
-    )
-  }
-  if (section === 'router-pricing') {
-    return (
-      <SettingsPageFrame title={t('Router pricing')}>
-        <NativePricingSection initialMode='upstream_cost' />
-      </SettingsPageFrame>
-    )
-  }
   if (section === 'quota') {
     return (
       <SettingsPageFrame title={t('Quota Settings')}>
         <QuotaSettingsSection />
-      </SettingsPageFrame>
-    )
-  }
-  if (section === 'checkin') {
-    return (
-      <SettingsPageFrame title={t('Check-in Rewards')}>
-        <CheckinSettingsSection />
-      </SettingsPageFrame>
-    )
-  }
-  if (section === 'payment') {
-    return (
-      <SettingsPageFrame title={t('Payment')}>
-        <PaymentGatewaySection />
       </SettingsPageFrame>
     )
   }

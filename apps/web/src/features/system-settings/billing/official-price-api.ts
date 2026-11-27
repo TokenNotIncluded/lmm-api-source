@@ -10,6 +10,7 @@ import {
 import { samePriceRule } from './native-price-rules'
 import {
   cacheWriteCoverageError,
+  cacheWriteTariffTarget,
   officialPriceDestinations,
 } from './official-cache-write-coverage'
 import {
@@ -19,6 +20,8 @@ import {
 import {
   completeOfficialPrice,
   mergeQuote,
+  missingOfficialRatePaths,
+  type OfficialPrice,
   readOfficialToml,
   writeOfficialToml,
   type OfficialCatalog,
@@ -230,27 +233,82 @@ export async function previewOfficialPriceToml(
   return validatePublication(scope, raw, body, false)
 }
 
+type PreparedPrices = Pick<
+  NativeConfiguration,
+  'routing' | 'prices' | 'bindings'
+>
+export type BatchPricePreview = OfficialPricePreview & {
+  prepared: PreparedPrices
+  generatedRules: Array<{
+    model: string
+    group: string
+    speed: string
+    enabled: boolean
+  }>
+  promoted: Array<{ channel: string; model: string }>
+}
+
+// A rule that currently happens to match an imported price still belongs to
+// its operator. Adding an official base hands future updates to the catalog.
+export function existingPriceModels(configuration: NativeConfiguration) {
+  const models = new Set(Object.keys(catalogOf(configuration)?.models ?? {}))
+  for (const rule of configuration.prices.rules) {
+    if (typeof rule.model === 'string') models.add(rule.model)
+  }
+  return models
+}
+
+// Serde writes the default token mode and omits optional false lifetime flags.
+function comparableBase(price: OfficialPrice) {
+  if (!price.tiered)
+    return { ...price, billing_mode: price.billing_mode ?? 'tokens' }
+  return {
+    ...price,
+    tiered: {
+      ...price.tiered,
+      uses_cache_write_1h: price.tiered.uses_cache_write_1h ?? false,
+      uses_cache_write_12h: price.tiered.uses_cache_write_12h ?? false,
+      calendar: price.tiered.calendar ?? null,
+    },
+  }
+}
+
 export async function previewMissingOfficialPrices(
   scope: NativeRoutingScope,
   configuration: NativeConfiguration,
   drafts: ReadonlyMap<string, string>,
   channelId?: number
-): Promise<OfficialPricePreview> {
+): Promise<BatchPricePreview> {
   if (!drafts.size) throw new Error('Select at least one model')
   const raw = await nativeRequest<NativeConfiguration>(scope, 'GET', configPath)
   if (!samePriceRule(raw.version, configuration.version)) {
     throw new Error('The routing snapshot changed. Reload before continuing.')
+  }
+  const protectedModels = existingPriceModels(raw)
+  if ([...drafts.keys()].some((model) => protectedModels.has(model))) {
+    throw new Error(
+      'An existing group price would change. Review it individually.'
+    )
   }
   const catalog = catalogOf(raw) ?? initializeCatalog(raw)
   const models = { ...catalog.models }
   for (const [model, toml] of drafts) {
     if (Object.hasOwn(models, model))
       throw new Error('Existing official prices are preserved')
-    const price = completeOfficialPrice(readOfficialToml(model, toml))
-    const issue = cacheWriteCoverageError(
-      price,
-      officialPriceDestinations(raw.routing, model, channelId)
+    const draft = readOfficialToml(model, toml)
+    const destinations = officialPriceDestinations(
+      raw.routing,
+      model,
+      channelId
     )
+    const missing = missingOfficialRatePaths(
+      draft,
+      cacheWriteTariffTarget(draft, destinations)
+    )
+    if (missing.length)
+      throw new Error('Missing price fields: ' + missing.join(', '))
+    const price = completeOfficialPrice(draft)
+    const issue = cacheWriteCoverageError(price, destinations)
     if (issue) throw new Error(issue)
     Object.defineProperty(models, model, {
       value: price,
@@ -273,7 +331,108 @@ export async function previewMissingOfficialPrices(
   ) {
     throw new Error('Invalid price publication preview')
   }
-  return preview
+  const prepared = preview.prepared
+  if (
+    !prepared ||
+    !samePriceRule(prepared.routing, body.routing) ||
+    prepared.prices.version !== body.prices.version
+  ) {
+    throw new Error('Invalid price publication preview')
+  }
+  const expectedBook = body.bindings.official_prices
+  const actualBook = prepared.bindings.official_prices
+  if (
+    !actualBook ||
+    !samePriceRule(
+      expectedBook.group_multipliers_ppm,
+      actualBook.group_multipliers_ppm
+    ) ||
+    !samePriceRule(
+      expectedBook.speed_multipliers_ppm,
+      actualBook.speed_multipliers_ppm
+    ) ||
+    [...drafts.keys()].some(
+      (id) =>
+        !actualBook.models[id] ||
+        !samePriceRule(
+          comparableBase(expectedBook.models[id]),
+          comparableBase(actualBook.models[id])
+        )
+    )
+  ) {
+    throw new Error('Invalid price publication preview')
+  }
+  const existingIds = new Set(raw.prices.rules.map((rule) => rule.id))
+  const generatedRules = prepared.prices.rules
+    .filter((rule) => !existingIds.has(rule.id))
+    .map((rule) => {
+      const { model, group, speed } = rule
+      const route = raw.routing.routes.find(
+        (r) =>
+          r.model === model &&
+          r.group === group &&
+          r.speeds.includes(String(speed))
+      )
+      if (
+        typeof model !== 'string' ||
+        typeof group !== 'string' ||
+        typeof speed !== 'string' ||
+        !drafts.has(model) ||
+        !route
+      ) {
+        throw new Error('Invalid price publication preview')
+      }
+      return { model, group, speed, enabled: route.enabled }
+    })
+  // Preparing the control document can promote pending upstream model IDs on
+  // already-configured routes. Reconstitute the original pending sets to check
+  // every other binding together, including fields unknown to this UI.
+  const promoted = []
+  const restored = { ...prepared.bindings.discoveries }
+  for (const [channel, discovery] of Object.entries(raw.bindings.discoveries)) {
+    const reviewed = restored[channel]
+    if (!reviewed) throw new Error('Invalid price publication preview')
+    const pending = new Set(reviewed.pending_models ?? [])
+    const previous = new Set(discovery.pending_models ?? [])
+    if ([...pending].some((model) => !previous.has(model)))
+      throw new Error('Invalid price publication preview')
+    for (const model of previous) {
+      if (pending.has(model)) continue
+      if (
+        !raw.routing.routes.some(
+          (route) =>
+            route.enabled &&
+            drafts.has(route.model) &&
+            route.targets.some(
+              (target) =>
+                target.enabled &&
+                target.upstream_id === Number(channel) &&
+                target.upstream_model === model
+            )
+        )
+      ) {
+        throw new Error('Invalid price publication preview')
+      }
+      promoted.push({ channel, model })
+    }
+    restored[channel] = { ...reviewed }
+    if (discovery.pending_models === undefined)
+      delete restored[channel].pending_models
+    else restored[channel].pending_models = discovery.pending_models
+  }
+  if (
+    !samePriceRule(
+      {
+        ...prepared.bindings,
+        official_prices: expectedBook,
+        discoveries: restored,
+      },
+      body.bindings
+    )
+  ) {
+    throw new Error('Invalid price publication preview')
+  }
+  return { ...preview, prepared, generatedRules, promoted }
 }
 
 async function validatePublication(
@@ -281,13 +440,14 @@ async function validatePublication(
   raw: NativeConfiguration,
   body: Publication,
   preserveRules: boolean
-): Promise<OfficialPricePreview> {
+) {
   const preview = await nativeRequest<{
     saved: boolean
     expected_version: NativeVersion
     confirmation_digest: string
     bindings: Publication['bindings']
     prices?: NativeConfiguration['prices']
+    routing?: NativeConfiguration['routing']
   }>(scope, 'POST', `${configPath}/preview`, body)
   if (
     preview.saved !== false ||
@@ -301,6 +461,8 @@ async function validatePublication(
     if (!Array.isArray(preview.prices?.rules))
       throw new Error('Invalid price publication preview')
     const byId = new Map(preview.prices.rules.map((rule) => [rule.id, rule]))
+    if (byId.size !== preview.prices.rules.length)
+      throw new Error('Invalid price publication preview')
     for (const previous of raw.prices.rules) {
       if (!samePriceRule(previous, byId.get(previous.id))) {
         throw new Error(
@@ -311,6 +473,14 @@ async function validatePublication(
   }
   return {
     body,
+    prepared:
+      preview.routing && preview.prices
+        ? {
+            routing: preview.routing,
+            prices: preview.prices,
+            bindings: preview.bindings,
+          }
+        : undefined,
     digest: preview.confirmation_digest,
     changes: officialModelChanges(
       catalogOf(raw)?.models ?? {},
@@ -326,4 +496,48 @@ export async function publishOfficialPrice(
     ...preview.body,
     confirmation_digest: preview.digest,
   })
+}
+
+/** Submit one digest. A lost or inconsistent acknowledgement only causes a
+ * read of the reviewed revision; the mutation is never replayed. */
+export async function publishMissingOfficialPrices(
+  scope: NativeRoutingScope,
+  preview: BatchPricePreview
+) {
+  const { prepared } = preview
+  const version = {
+    routing: prepared.routing.version,
+    pricing: prepared.prices.version,
+  }
+  try {
+    const receipt = await nativeRequest<{ version: NativeVersion }>(
+      scope,
+      'PUT',
+      configPath,
+      {
+        ...preview.body,
+        confirmation_digest: preview.digest,
+      }
+    )
+    if (samePriceRule(receipt.version, version)) return
+  } catch {
+    // Admission CAS or a lost response are reconciled from the current version.
+  }
+  try {
+    const current = await nativeRequest<NativeConfiguration>(
+      scope,
+      'GET',
+      configPath
+    )
+    if (
+      samePriceRule(current.version, version) &&
+      samePriceRule(current.routing, prepared.routing) &&
+      samePriceRule(current.prices, prepared.prices) &&
+      samePriceRule(current.bindings, prepared.bindings)
+    )
+      return
+  } catch {
+    // The caller must obtain a new authoritative preview before another write.
+  }
+  throw new Error('The save result is unknown. Reload before continuing.')
 }

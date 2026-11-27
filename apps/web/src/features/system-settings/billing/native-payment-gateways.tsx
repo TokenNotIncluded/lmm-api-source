@@ -1,4 +1,3 @@
-/* Copyright (C) 2026 LIghtJUNction. SPDX-License-Identifier: AGPL-3.0-or-later */
 import { useQuery } from '@tanstack/react-query'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -10,6 +9,12 @@ import {
   readNativeUsersScope,
   type NativeUsersScope,
 } from '@/features/native-users/access'
+/* Copyright (C) 2026 LIghtJUNction. SPDX-License-Identifier: AGPL-3.0-or-later */
+import {
+  pluginReadTime,
+  settingsReadFailure,
+  useReportPluginSetting,
+} from '@/features/plugins/settings-observations'
 import type { NativeChannel } from '@/features/wallet/lib/native-checkout'
 import { getNativePaymentChannels } from '@/features/wallet/native-checkout-api'
 import { ROLE } from '@/lib/roles'
@@ -18,7 +23,6 @@ import { useAuthStore } from '@/stores/auth-store'
 import { NativeEPaySettings } from './native-epay-settings'
 import { NativePaymentSettings } from './native-payment-settings'
 import { NativeProviderGatewaySettings } from './native-provider-gateway-settings'
-import { WalletPresetSettings } from './wallet-preset-settings'
 
 const paymentGatewayTabs = [
   'wallet',
@@ -56,6 +60,17 @@ function WalletMethods({ userId, sessionId }: Scope) {
     refetchOnWindowFocus: false,
     refetchOnReconnect: false,
   })
+  useReportPluginSetting(
+    'checkout',
+    query.isError
+      ? settingsReadFailure(query.error)
+      : query.isSuccess
+        ? query.data.checkoutConfigured
+          ? 'configured'
+          : 'needsSetup'
+        : undefined,
+    pluginReadTime(query)
+  )
   const labels = new Map([
     ['epay/alipay', t('Epay Alipay')],
     ['epay/wxpay', t('Epay WeChat Pay')],
@@ -203,7 +218,6 @@ function GatewayPanels({
       </TabsList>
       <TabsContent value='wallet' className='space-y-8'>
         <WalletMethods userId={scope.userId} sessionId={scope.sessionId} />
-        <WalletPresetSettings scope={scope} />
       </TabsContent>
       <TabsContent value='pancake' keepMounted={opened.pancake}>
         <NativePaymentSettings />

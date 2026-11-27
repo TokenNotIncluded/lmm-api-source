@@ -1,7 +1,7 @@
 /* Copyright (C) 2026 LIghtJUNction. SPDX-License-Identifier: AGPL-3.0-or-later */
 import { useQueryClient } from '@tanstack/react-query'
 import { isAxiosError } from 'axios'
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { ZodError } from 'zod'
 
@@ -19,6 +19,7 @@ import {
   type NativeUsersScope,
 } from '@/features/native-users/access'
 import { useCapabilityFreshness } from '@/hooks/use-capability-freshness'
+import { hasPermission } from '@/lib/admin-permissions'
 import { ROLE } from '@/lib/roles'
 import { getServerErrorMessage } from '@/lib/server-error-message'
 import { useAuthStore } from '@/stores/auth-store'
@@ -56,6 +57,7 @@ type Selection =
 // @context-fold begin plugin-inventory
 type ConfigurationProps = {
   panel?: string
+  paymentHash?: string
   onPanelChange?: (panel: string | undefined) => void
 }
 
@@ -63,7 +65,11 @@ function PluginInventory({
   scope,
   panel,
   onPanelChange,
-}: { scope: NativeUsersScope } & ConfigurationProps) {
+}: {
+  scope: NativeUsersScope
+  panel?: string
+  onPanelChange: (panel: string | undefined) => void
+}) {
   const { t } = useTranslation()
   const client = useQueryClient()
   const { observations, report } = usePluginObservations()
@@ -72,13 +78,17 @@ function PluginInventory({
   const query = runtime?.plugins ?? localQuery
   const phase = useCapabilityFreshness(query)
   const [search, setSearch] = useState('')
-  const [localPanel, setLocalPanel] = useState<string>()
-  const requested = onPanelChange ? panel : localPanel
+  const requested = panel
   const root = scope.role === ROLE.SUPER_ADMIN
-  const activePanel = canOpenConfiguration(requested, root)
-    ? requested
-    : undefined
-  const changePanel = onPanelChange ?? setLocalPanel
+  const acquisitionRead = useAuthStore((state) =>
+    hasPermission(state.auth.user, 'acquisition', 'read')
+  )
+  const activePanel =
+    (requested !== 'acquisition' || acquisitionRead) &&
+    canOpenConfiguration(requested, root)
+      ? requested
+      : undefined
+  const changePanel = onPanelChange
   const openingTrigger = useRef<HTMLButtonElement | null>(null)
   const returnTrigger = useRef<HTMLButtonElement | null>(null)
   const focusPanel = useCallback((element: HTMLElement | null) => {
@@ -661,24 +671,25 @@ function PluginInventory({
               </div>
               <div className='flex flex-wrap items-center gap-2'>
                 {(!configOpen || configReady) && lifecycleControl}
-                {canOpenConfiguration(defaultPanel, root) && (
-                  <Button
-                    type='button'
-                    variant={plugin.available ? 'ghost' : 'outline'}
-                    className='min-h-11'
-                    data-configure-plugin={plugin.name}
-                    aria-expanded={configOpen}
-                    aria-controls={configOpen ? configId : undefined}
-                    onClick={(event) => {
-                      openingTrigger.current = configOpen
-                        ? null
-                        : event.currentTarget
-                      changePanel(configOpen ? undefined : defaultPanel)
-                    }}
-                  >
-                    {t('Configure')}
-                  </Button>
-                )}
+                {(defaultPanel !== 'acquisition' || acquisitionRead) &&
+                  canOpenConfiguration(defaultPanel, root) && (
+                    <Button
+                      type='button'
+                      variant={plugin.available ? 'ghost' : 'outline'}
+                      className='min-h-11'
+                      data-configure-plugin={plugin.name}
+                      aria-expanded={configOpen}
+                      aria-controls={configOpen ? configId : undefined}
+                      onClick={(event) => {
+                        openingTrigger.current = configOpen
+                          ? null
+                          : event.currentTarget
+                        changePanel(configOpen ? undefined : defaultPanel)
+                      }}
+                    >
+                      {t('Configure')}
+                    </Button>
+                  )}
                 {plugin.installed && !plugin.enabled && (
                   <Button
                     variant='ghost'
@@ -778,6 +789,68 @@ function PluginInventory({
 }
 // @context-fold end plugin-inventory
 
+const NativePaymentGateways = lazy(() =>
+  import('@/features/system-settings/billing/native-payment-gateways').then(
+    (module) => ({ default: module.NativePaymentGateways })
+  )
+)
+
+function ConfigurationCards({
+  scope,
+  panel,
+  onPanelChange,
+  paymentHash,
+}: ConfigurationProps & { scope: NativeUsersScope }) {
+  const { t } = useTranslation()
+  const [localPanel, setLocalPanel] = useState<string>()
+  const current = onPanelChange ? panel : localPanel
+  const select = onPanelChange ?? setLocalPanel
+  const paymentsOpen = current === 'payments'
+  const { observations, report } = usePluginObservations()
+  return (
+    <div className='space-y-5'>
+      {scope.role === ROLE.SUPER_ADMIN && (
+        <article
+          data-configuration-owner='payments'
+          className='bg-card space-y-3 rounded-xl p-5'
+        >
+          <div className='flex flex-wrap items-center justify-between gap-2'>
+            <h2 className='text-base font-semibold'>{t('Payment gateways')}</h2>
+            <Button
+              type='button'
+              variant='outline'
+              aria-expanded={paymentsOpen}
+              aria-controls='payment-gateway-configuration'
+              onClick={() => select(paymentsOpen ? undefined : 'payments')}
+            >
+              {paymentsOpen ? t('Close') : t('Configure')}
+            </Button>
+          </div>
+          <PluginSettingsObservations
+            name='payments'
+            observations={observations}
+            enabled={true}
+          />
+          {paymentsOpen && (
+            <div id='payment-gateway-configuration'>
+              <PluginObservationContext.Provider value={report}>
+                <Suspense fallback={<p role='status'>{t('Loading...')}</p>}>
+                  <NativePaymentGateways initialHash={paymentHash} />
+                </Suspense>
+              </PluginObservationContext.Provider>
+            </div>
+          )}
+        </article>
+      )}
+      <PluginInventory
+        scope={scope}
+        panel={paymentsOpen ? undefined : current}
+        onPanelChange={select}
+      />
+    </div>
+  )
+}
+
 export function PluginsPage(props: ConfigurationProps = {}) {
   const { t } = useTranslation()
   const auth = useAuthStore((state) => state.auth)
@@ -789,7 +862,7 @@ export function PluginsPage(props: ConfigurationProps = {}) {
       </SectionPageLayout.Title>
       <SectionPageLayout.Content>
         {scope ? (
-          <PluginInventory
+          <ConfigurationCards
             key={[scope.userId, scope.sessionId, scope.role].join(':')}
             scope={scope}
             {...props}

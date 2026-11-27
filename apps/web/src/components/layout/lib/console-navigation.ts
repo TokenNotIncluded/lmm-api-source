@@ -35,6 +35,7 @@ const PRIMARY_URLS = [
 
 const MANAGEMENT_URLS = [
   '/channels',
+  '/admin/pricing',
   '/users',
   '/system-settings',
   '/extensions/settings',

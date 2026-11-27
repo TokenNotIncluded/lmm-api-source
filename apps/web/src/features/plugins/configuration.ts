@@ -41,10 +41,12 @@ export function legacyPluginPanel(path: string, hash = '') {
   ) {
     return 'store'
   }
+  if (pathname === '/system-settings/billing/payment') return 'payments'
   return legacyPanels.get(pathname)
 }
 
 export function configurationOwner(panel: string | undefined) {
+  if (panel === 'payments') return 'payments'
   if (panel === 'rss' || panel === 'model-deployment') return 'operations'
   if (panel === 'directory-ads' || panel === 'header-navigation') {
     return 'community'
@@ -65,6 +67,7 @@ export function canOpenConfiguration(
   return (
     root ||
     (owner !== 'community' &&
+      panel !== 'payments' &&
       panel !== 'checkins' &&
       panel !== 'hero-sms' &&
       panel !== 'store' &&

@@ -1,6 +1,3 @@
-/*
-Copyright (C) 2026 LIghtJUNction
-*/
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { QRCodeSVG } from 'qrcode.react'
 import { type FormEvent, useId, useState } from 'react'
@@ -22,6 +19,14 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select'
 import { Skeleton } from '@/components/ui/skeleton'
+/*
+Copyright (C) 2026 LIghtJUNction
+*/
+import {
+  pluginReadTime,
+  settingsReadFailure,
+  useReportPluginSetting,
+} from '@/features/plugins/settings-observations'
 import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard'
 import { api } from '@/lib/api'
 
@@ -94,6 +99,16 @@ export function PromotionLinks({ canWrite }: { canWrite: boolean }) {
     },
     retry: false,
   })
+
+  useReportPluginSetting(
+    'links',
+    links.isError
+      ? settingsReadFailure(links.error)
+      : links.isSuccess
+        ? 'available'
+        : undefined,
+    pluginReadTime(links)
+  )
 
   const createLink = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()

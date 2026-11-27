@@ -286,6 +286,19 @@ const sections: Readonly<Record<string, SectionPolicy>> = {
   'billing/checkin': plugin,
 }
 
+export function legacyPricingWorkspace(
+  path: string
+): 'models' | 'groups' | 'router' | undefined {
+  switch (path.replace(/\/+$/, '')) {
+    case '/system-settings/billing/model-pricing':
+      return 'models'
+    case '/system-settings/billing/group-pricing':
+      return 'groups'
+    case '/system-settings/billing/router-pricing':
+      return 'router'
+  }
+}
+
 export type SettingsBoundary = {
   owner: string
   canonical: string
@@ -305,8 +318,15 @@ export function getSettingsBoundary(url: string): SettingsBoundary | undefined {
     path === PLUGINS
       ? (new URLSearchParams(query).get('configure') ?? undefined)
       : legacyPluginPanel(path, hash)
-  if (path === PLUGINS && panel === 'payments') {
-    return { owner: 'core', canonical: '/system-settings/billing/payment' }
+  const workspace = legacyPricingWorkspace(path)
+  if (workspace || path === '/admin/pricing') {
+    return {
+      owner: 'pricing',
+      canonical:
+        workspace && workspace !== 'models'
+          ? '/admin/pricing?workspace=' + workspace
+          : '/admin/pricing',
+    }
   }
   if (panel) {
     if (panel === 'toolmarket' || panel === 'store-review') {
@@ -381,10 +401,7 @@ export function canReadSystemSettingsPath(
   }
   if (path === PLUGINS || path === LEGACY_EXTENSION_SETTINGS_HOME) {
     const panel = new URLSearchParams(query).get('configure')
-    return (
-      panel === null ||
-      (panel === 'payments' ? root : canOpenConfiguration(panel, root))
-    )
+    return panel === null || canOpenConfiguration(panel, root)
   }
   if (!root) return false
   if (
@@ -403,7 +420,7 @@ export function getSettingsScope(url: string): SettingsScope | undefined {
   const boundary = getSettingsBoundary(url)
   if (
     !boundary ||
-    ['unavailable', 'personal', 'merchant'].includes(boundary.owner)
+    ['unavailable', 'personal', 'merchant', 'pricing'].includes(boundary.owner)
   ) {
     return undefined
   }

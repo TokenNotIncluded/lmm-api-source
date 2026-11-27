@@ -906,6 +906,11 @@ test('platform payment settings have no marketplace card even when an old host a
   }
   const container = await mount()
   await until(() => Boolean(container.querySelector('[data-plugin="store"]')))
+  const gateway = container.querySelector(
+    '[data-configuration-owner="payments"]'
+  )
+  assert.ok(gateway)
+  assert.equal(gateway.textContent?.includes('Install'), false)
   assert.equal(container.querySelector('[data-plugin="payments"]'), null)
   assert.equal(
     container.querySelector('p[aria-live="polite"]')?.textContent,
@@ -922,6 +927,10 @@ test('a standard administrator cannot discover or mount platform gateway credent
     return response(config, [{ ...plugin, name: 'payments' }, plugin])
   }
   const container = await mount('payments')
+  assert.equal(
+    container.querySelector('[data-configuration-owner="payments"]'),
+    null
+  )
   await until(() => Boolean(container.querySelector('[data-plugin="store"]')))
   assert.equal(
     container.querySelector('p[aria-live="polite"]')?.textContent,

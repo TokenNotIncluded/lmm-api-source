@@ -693,7 +693,7 @@ test('the sidebar exposes plugin management separately and core search lists onl
     )
     assert.ok(!full.some((entry) => entry.url.includes('checkin')))
     assert.ok(
-      full.some((entry) => entry.url === '/system-settings/billing/payment')
+      !full.some((entry) => entry.url === '/system-settings/billing/payment')
     )
     assert.ok(
       full.some((entry) => entry.url === '/system-settings/auth/custom-oauth')
@@ -722,7 +722,6 @@ test('the real settings home keeps personal keys, seller settings and capability
     for (const path of [
       '/users',
       '/system-settings/auth/custom-oauth',
-      '/system-settings/billing/payment',
       '/system-settings/billing/quota',
     ]) {
       assert.ok(links.includes(path), path)
@@ -755,7 +754,7 @@ test('the real settings home keeps personal keys, seller settings and capability
     )
     assert.equal(
       getSettingsBoundary('/system-settings/billing/payment')?.owner,
-      'core'
+      'payments'
     )
     assert.equal(
       getSettingsBoundary('/system-settings/billing/payment#merchant-store')
@@ -837,10 +836,10 @@ test('the core settings search finds core editors and excludes plugin editors', 
     await search('waffo')
     await until(
       () =>
-        [...document.querySelectorAll('[cmdk-item]')].some((item) =>
-          item.textContent?.includes('Payment')
-        ),
-      'core payment editor'
+        document
+          .querySelector('[cmdk-empty]')
+          ?.textContent?.includes('No settings found') === true,
+      'payment gateways are configured on their own card'
     )
     await search('checkin')
     await until(

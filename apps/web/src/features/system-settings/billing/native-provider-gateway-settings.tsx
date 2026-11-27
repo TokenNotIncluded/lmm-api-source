@@ -1,4 +1,3 @@
-/* Copyright (C) 2026 LIghtJUNction. SPDX-License-Identifier: AGPL-3.0-or-later */
 import { useQuery } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
 import { z } from 'zod'
@@ -10,6 +9,12 @@ import {
   nativeUsersOptions,
   type NativeUsersScope,
 } from '@/features/native-users/access'
+/* Copyright (C) 2026 LIghtJUNction. SPDX-License-Identifier: AGPL-3.0-or-later */
+import {
+  pluginReadTime,
+  settingsReadFailure,
+  useReportPluginSetting,
+} from '@/features/plugins/settings-observations'
 import { api } from '@/lib/api'
 
 const providerSchema = z.enum(['stripe', 'creem', 'waffo', 'coinbase'])
@@ -81,6 +86,17 @@ export function NativeProviderGatewaySettings({
     refetchOnWindowFocus: false,
     refetchOnReconnect: false,
   })
+  useReportPluginSetting(
+    provider,
+    query.isError
+      ? settingsReadFailure(query.error)
+      : query.isSuccess
+        ? query.data.bindings.some((binding) => binding.provider === provider)
+          ? 'configured'
+          : 'needsSetup'
+        : undefined,
+    pluginReadTime(query)
+  )
 
   if (query.isPending) {
     return <p role='status'>{t('Loading payment configuration...')}</p>

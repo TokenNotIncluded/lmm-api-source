@@ -20,8 +20,19 @@ import { Link } from '@tanstack/react-router'
 import { useTranslation } from 'react-i18next'
 
 import { Button } from '@/components/ui/button'
+import { readNativeUsersScope } from '@/features/native-users/access'
+import { ROLE } from '@/lib/roles'
+import { useAuthStore } from '@/stores/auth-store'
 
+import { WalletPresetSettings } from '../billing/wallet-preset-settings'
 import { SettingsSection } from '../components/settings-section'
+
+export function CoreWalletPresets() {
+  const scope = readNativeUsersScope(useAuthStore((state) => state.auth))
+  return scope?.role === ROLE.SUPER_ADMIN ? (
+    <WalletPresetSettings scope={scope} />
+  ) : null
+}
 
 export function QuotaSettingsSection() {
   const { t } = useTranslation()
@@ -33,21 +44,6 @@ export function QuotaSettingsSection() {
         'Manage reward campaigns, budgets and redemption codes through the Core promotion service.'
       ),
     },
-    {
-      to: '/operations/sources' as const,
-      title: t('Promotion links'),
-      description: t(
-        'Manage promotion links and review registration, payment and source reports.'
-      ),
-    },
-    {
-      to: '/system-settings/billing/$section' as const,
-      params: { section: 'checkin' },
-      title: t('Check-in Rewards'),
-      description: t(
-        'Set the daily check-in reward range and inspect the Core funding ceiling.'
-      ),
-    },
   ]
   return (
     <SettingsSection title={t('Quota Settings')}>
@@ -57,6 +53,7 @@ export function QuotaSettingsSection() {
             'Reward settings are managed by the services that apply them. Choose a supported workflow below.'
           )}
         </p>
+        <CoreWalletPresets />
         <div className='divide-y'>
           {destinations.map((destination) => (
             <div
@@ -70,9 +67,7 @@ export function QuotaSettingsSection() {
                 </p>
               </div>
               <Button
-                render={
-                  <Link to={destination.to} params={destination.params} />
-                }
+                render={<Link to={destination.to} />}
                 variant='outline'
                 className='shrink-0 self-start sm:self-auto'
               >
@@ -81,11 +76,6 @@ export function QuotaSettingsSection() {
             </div>
           ))}
         </div>
-        <p className='text-muted-foreground text-sm'>
-          {t(
-            'Automatic registration and invitation rewards, referral thresholds and penalties have no online policy implementation in this deployment.'
-          )}
-        </p>
       </div>
     </SettingsSection>
   )

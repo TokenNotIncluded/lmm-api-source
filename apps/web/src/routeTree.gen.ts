@@ -79,6 +79,7 @@ import { Route as AuthenticatedModelsSectionRouteImport } from './routes/_authen
 import { Route as AuthenticatedOpenSourceBountiesIndexRouteImport } from './routes/_authenticated/open-source-bounties/index'
 import { Route as AuthenticatedOperationsReleasesRouteImport } from './routes/_authenticated/operations/releases'
 import { Route as AuthenticatedOperationsTerminalRouteImport } from './routes/_authenticated/operations/terminal'
+import { Route as AuthenticatedAdminPricingRouteImport } from './routes/_authenticated/admin/pricing'
 import { Route as AuthenticatedOperationsSourcesRouteImport } from './routes/_authenticated/operations/sources'
 import { Route as AuthenticatedPlaygroundIndexRouteImport } from './routes/_authenticated/playground/index'
 import { Route as AuthenticatedProfileIndexRouteImport } from './routes/_authenticated/profile/index'
@@ -482,6 +483,12 @@ const AuthenticatedOperationsReleasesRoute =
     path: '/operations/releases',
     getParentRoute: () => AuthenticatedRouteRoute,
   } as any)
+const AuthenticatedAdminPricingRoute =
+  AuthenticatedAdminPricingRouteImport.update({
+    id: '/admin/pricing',
+    path: '/admin/pricing',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
 const AuthenticatedOperationsTerminalRoute =
   AuthenticatedOperationsTerminalRouteImport.update({
     id: '/operations/terminal',
@@ -789,6 +796,7 @@ export interface FileRoutesByFullPath {
   '/models/$section': typeof AuthenticatedModelsSectionRoute
   '/operations/releases': typeof AuthenticatedOperationsReleasesRoute
   '/operations/terminal': typeof AuthenticatedOperationsTerminalRoute
+  '/admin/pricing': typeof AuthenticatedAdminPricingRoute
   '/operations/sources': typeof AuthenticatedOperationsSourcesRoute
   '/profile/share': typeof AuthenticatedProfileShareRoute
   '/subscriptions/reset': typeof AuthenticatedSubscriptionsResetRoute
@@ -899,6 +907,7 @@ export interface FileRoutesByTo {
   '/models/$section': typeof AuthenticatedModelsSectionRoute
   '/operations/releases': typeof AuthenticatedOperationsReleasesRoute
   '/operations/terminal': typeof AuthenticatedOperationsTerminalRoute
+  '/admin/pricing': typeof AuthenticatedAdminPricingRoute
   '/operations/sources': typeof AuthenticatedOperationsSourcesRoute
   '/profile/share': typeof AuthenticatedProfileShareRoute
   '/subscriptions/reset': typeof AuthenticatedSubscriptionsResetRoute
@@ -1014,6 +1023,7 @@ export interface FileRoutesById {
   '/_authenticated/models/$section': typeof AuthenticatedModelsSectionRoute
   '/_authenticated/operations/releases': typeof AuthenticatedOperationsReleasesRoute
   '/_authenticated/operations/terminal': typeof AuthenticatedOperationsTerminalRoute
+  '/_authenticated/admin/pricing': typeof AuthenticatedAdminPricingRoute
   '/_authenticated/operations/sources': typeof AuthenticatedOperationsSourcesRoute
   '/_authenticated/profile/share': typeof AuthenticatedProfileShareRoute
   '/_authenticated/subscriptions/reset': typeof AuthenticatedSubscriptionsResetRoute
@@ -1128,6 +1138,7 @@ export interface FileRouteTypes {
     | '/models/$section'
     | '/operations/releases'
     | '/operations/terminal'
+    | '/admin/pricing'
     | '/operations/sources'
     | '/profile/share'
     | '/subscriptions/reset'
@@ -1238,6 +1249,7 @@ export interface FileRouteTypes {
     | '/models/$section'
     | '/operations/releases'
     | '/operations/terminal'
+    | '/admin/pricing'
     | '/operations/sources'
     | '/profile/share'
     | '/subscriptions/reset'
@@ -1352,6 +1364,7 @@ export interface FileRouteTypes {
     | '/_authenticated/models/$section'
     | '/_authenticated/operations/releases'
     | '/_authenticated/operations/terminal'
+    | '/_authenticated/admin/pricing'
     | '/_authenticated/operations/sources'
     | '/_authenticated/profile/share'
     | '/_authenticated/subscriptions/reset'
@@ -1938,6 +1951,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedOperationsTerminalRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
+    '/_authenticated/admin/pricing': {
+      id: '/_authenticated/admin/pricing'
+      path: '/admin/pricing'
+      fullPath: '/admin/pricing'
+      preLoaderRoute: typeof AuthenticatedAdminPricingRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
     '/_authenticated/operations/sources': {
       id: '/_authenticated/operations/sources'
       path: '/operations/sources'
@@ -2329,6 +2349,7 @@ interface AuthenticatedRouteRouteChildren {
   AuthenticatedModelsSectionRoute: typeof AuthenticatedModelsSectionRoute
   AuthenticatedOperationsReleasesRoute: typeof AuthenticatedOperationsReleasesRoute
   AuthenticatedOperationsTerminalRoute: typeof AuthenticatedOperationsTerminalRoute
+  AuthenticatedAdminPricingRoute: typeof AuthenticatedAdminPricingRoute
   AuthenticatedOperationsSourcesRoute: typeof AuthenticatedOperationsSourcesRoute
   AuthenticatedProfileShareRoute: typeof AuthenticatedProfileShareRoute
   AuthenticatedSubscriptionsResetRoute: typeof AuthenticatedSubscriptionsResetRoute
@@ -2376,6 +2397,7 @@ const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedModelsSectionRoute: AuthenticatedModelsSectionRoute,
   AuthenticatedOperationsReleasesRoute: AuthenticatedOperationsReleasesRoute,
   AuthenticatedOperationsTerminalRoute: AuthenticatedOperationsTerminalRoute,
+  AuthenticatedAdminPricingRoute: AuthenticatedAdminPricingRoute,
   AuthenticatedOperationsSourcesRoute: AuthenticatedOperationsSourcesRoute,
   AuthenticatedProfileShareRoute: AuthenticatedProfileShareRoute,
   AuthenticatedSubscriptionsResetRoute: AuthenticatedSubscriptionsResetRoute,

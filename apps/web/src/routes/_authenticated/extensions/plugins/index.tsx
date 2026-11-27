@@ -1,11 +1,12 @@
 /* Copyright (C) 2026 LIghtJUNction. SPDX-License-Identifier: AGPL-3.0-or-later */
-import { createFileRoute, redirect } from '@tanstack/react-router'
+import { createFileRoute, redirect, useLocation } from '@tanstack/react-router'
 
 import { PluginsPage } from '@/features/plugins'
 import {
   canOpenConfiguration,
   configurationOwner,
 } from '@/features/plugins/configuration'
+import { hasPermission } from '@/lib/admin-permissions'
 import { ROLE } from '@/lib/roles'
 import { useAuthStore } from '@/stores/auth-store'
 
@@ -13,21 +14,20 @@ export const Route = createFileRoute('/_authenticated/extensions/plugins/')({
   validateSearch: (search): { configure?: string } => ({
     configure:
       typeof search.configure === 'string' &&
-      (search.configure === 'payments' || configurationOwner(search.configure))
+      configurationOwner(search.configure)
         ? search.configure
         : undefined,
   }),
-  beforeLoad: ({ search, location }) => {
+  beforeLoad: ({ search }) => {
     const { auth } = useAuthStore.getState()
     if (
       !auth.session ||
       !auth.accessToken ||
       !auth.user ||
       auth.user.role < ROLE.ADMIN ||
-      (search.configure === 'payments' &&
-        auth.user.role !== ROLE.SUPER_ADMIN) ||
+      (search.configure === 'acquisition' &&
+        !hasPermission(auth.user, 'acquisition', 'read')) ||
       (search.configure &&
-        search.configure !== 'payments' &&
         !canOpenConfiguration(
           search.configure,
           auth.user.role === ROLE.SUPER_ADMIN
@@ -35,21 +35,15 @@ export const Route = createFileRoute('/_authenticated/extensions/plugins/')({
     ) {
       throw redirect({ to: '/403' })
     }
-    if (search.configure === 'payments') {
-      throw redirect({
-        to: '/system-settings/billing/$section',
-        params: { section: 'payment' },
-        hash: location.hash,
-        replace: true,
-      })
-    }
   },
   component: function PluginSettingsRoute() {
     const { configure } = Route.useSearch()
     const navigate = Route.useNavigate()
+    const paymentHash = useLocation({ select: (location) => location.hash })
     return (
       <PluginsPage
         panel={configure}
+        paymentHash={paymentHash}
         onPanelChange={(panel) => {
           void navigate({
             search: (previous) => ({ ...previous, configure: panel }),

@@ -13,9 +13,20 @@ import { getServerErrorMessage } from '@/lib/server-error-message'
 
 const features = {
   toolmarket: ['toolReview'],
-  store: ['storeReview'],
+  store: ['storeReview', 'merchantConfig'],
   operations: ['scripts', 'deployment'],
   checkins: ['rewards'],
+  payments: [
+    'checkout',
+    'pancake',
+    'epay',
+    'stripe',
+    'creem',
+    'waffo',
+    'coinbase',
+  ],
+  acquisition: ['links'],
+  assistant: ['assistantRoute'],
   'hero-sms': ['activations'],
 } as const
 type Feature = (typeof features)[keyof typeof features][number]
@@ -105,9 +116,19 @@ export function PluginSettingsObservations({
   const labels: Record<Feature, string> = {
     toolReview: t('Market AI first review'),
     storeReview: t('Market AI first review'),
+    merchantConfig: t('Merchant store'),
     scripts: t('Published scripts'),
     deployment: t('io.net Deployments'),
     rewards: t('Check-in rewards'),
+    checkout: t('Payment gateways'),
+    pancake: t('Waffo Pancake'),
+    epay: t('Epay Gateway'),
+    stripe: 'Stripe',
+    creem: 'Creem',
+    waffo: 'Waffo',
+    coinbase: 'Coinbase',
+    links: t('Promotion links'),
+    assistantRoute: t('AI assistant'),
     activations: t('Temporary activations'),
   }
   const results: Record<Result, string> = {

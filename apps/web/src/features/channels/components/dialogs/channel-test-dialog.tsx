@@ -1317,13 +1317,13 @@ function FailureResultContent({
             className='h-7 w-fit px-2 text-xs'
             onClick={async () => {
               const targetUrl = validatedExternalUrl(
-                '/system-settings/billing/model-pricing',
+                '/admin/pricing',
                 {
                   protocols: [window.location.protocol],
                   origins: [window.location.origin],
                   hosts: [window.location.host],
                   paths: {
-                    exact: ['/system-settings/billing/model-pricing'],
+                    exact: ['/admin/pricing'],
                   },
                 },
                 window.location.origin

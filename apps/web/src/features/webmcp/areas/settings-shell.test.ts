@@ -90,7 +90,7 @@ test('unknown deployment lists dedicated settings and only opens catalog destina
   }
   for (const path of [
     '/system-settings/auth/custom-oauth',
-    '/system-settings/billing/model-pricing',
+    '/admin/pricing',
     '/system-settings/security/honeypot',
   ]) {
     assert.ok(
@@ -233,7 +233,7 @@ test('cancellation prevents navigation and root access is rechecked after a fetc
 
 for (const [keyword, canonical] of [
   ['atom', '/extensions/plugins?configure=rss'],
-  ['coinbase', '/system-settings/billing/payment'],
+  ['coinbase', '/extensions/plugins?configure=payments'],
   ['classifier', '/extensions/plugins?configure=toolmarket'],
 ]) {
   test(`settings discovery opens the canonical ${keyword} editor`, async () => {

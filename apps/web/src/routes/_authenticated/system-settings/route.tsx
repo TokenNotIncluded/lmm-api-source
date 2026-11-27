@@ -20,7 +20,10 @@ import { createFileRoute, redirect } from '@tanstack/react-router'
 
 import { legacyPluginPanel } from '@/features/plugins/configuration'
 import { SystemSettings } from '@/features/system-settings'
-import { canReadSystemSettingsPath } from '@/lib/system-settings-access'
+import {
+  canReadSystemSettingsPath,
+  legacyPricingWorkspace,
+} from '@/lib/system-settings-access'
 import { useAuthStore } from '@/stores/auth-store'
 
 export const Route = createFileRoute('/_authenticated/system-settings')({
@@ -34,6 +37,15 @@ export const Route = createFileRoute('/_authenticated/system-settings')({
     ) {
       throw redirect({
         to: '/403',
+      })
+    }
+    const workspace = legacyPricingWorkspace(location.pathname)
+    if (workspace) {
+      throw redirect({
+        to: '/admin/pricing',
+        search: { workspace },
+        hash: location.hash,
+        replace: true,
       })
     }
     const configure = legacyPluginPanel(location.pathname, location.hash)

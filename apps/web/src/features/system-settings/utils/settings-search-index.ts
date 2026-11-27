@@ -9,9 +9,11 @@ License, or (at your option) any later version.
 import type { TFunction } from 'i18next'
 
 import { getSystemSettingsNavGroups } from '@/components/layout/config/system-settings.config'
-import { legacyPluginPanel } from '@/features/plugins/configuration'
 import { ROLE } from '@/lib/roles'
-import { canReadSystemSettingsPath } from '@/lib/system-settings-access'
+import {
+  canReadSystemSettingsPath,
+  getSettingsBoundary,
+} from '@/lib/system-settings-access'
 
 import type { SystemOptionsResponse } from '../types'
 
@@ -171,7 +173,7 @@ export function buildSettingsSearchIndex(
             if (!item.url || !canReadSystemSettingsPath(role, item.url)) {
               return []
             }
-            const panel = legacyPluginPanel(item.url)
+            const boundary = getSettingsBoundary(item.url)
             const id = sectionIdFromUrl(item.url)
             const category = item.url.split('/')[2]?.split('?')[0]
             const synonyms =
@@ -180,9 +182,7 @@ export function buildSettingsSearchIndex(
               {
                 group: section.title,
                 section: item.title,
-                url: panel
-                  ? `/extensions/plugins?configure=${panel}`
-                  : item.url,
+                url: boundary?.canonical ?? item.url,
                 keywords: [section.title, item.title, ...synonyms].map(
                   normalize
                 ),

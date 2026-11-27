@@ -105,7 +105,16 @@ export function PluginConfiguration({
       <p role='status'>{t('AI first review is disabled')}</p>
     )
   const content = {
-    acquisition: <PromotionLinks canWrite={canWriteAcquisition && writable} />,
+    acquisition: (
+      <>
+        <PromotionLinks canWrite={canWriteAcquisition && writable} />
+        <p className='text-muted-foreground mt-4 text-sm'>
+          {t(
+            'Automatic registration and invitation rewards, referral thresholds and penalties have no online policy implementation in this deployment.'
+          )}
+        </p>
+      </>
+    ),
     assistant: <AssistantPluginSettings />,
     checkins: <CheckinSettingsSection />,
     'hero-sms': <HeroSmsSettingsSection />,

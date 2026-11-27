@@ -46,7 +46,7 @@ describe('plugin configuration links', () => {
     it(`opens payment gateways for payment anchor ${hash}`, () => {
       assert.equal(
         legacyPluginPanel('/system-settings/billing/payment', hash),
-        undefined
+        'payments'
       )
     })
   }
@@ -60,7 +60,7 @@ describe('plugin configuration links', () => {
     assert.equal(canOpenConfiguration('store-review', false), true)
     assert.equal(canOpenConfiguration('toolmarket', false), true)
     assert.equal(canOpenConfiguration('payments', false), false)
-    assert.equal(canOpenConfiguration('payments', true), false)
+    assert.equal(canOpenConfiguration('payments', true), true)
   })
   it('retains the old root-only boundary for new plugin editors', () => {
     for (const panel of [
@@ -93,4 +93,21 @@ describe('plugin configuration links', () => {
       assert.equal(canOpenConfiguration(input, true), false)
     }
   })
+})
+
+it('legacy administrative pricing URLs retain the workspace and owner access', async () => {
+  const { getSettingsBoundary, canReadSystemSettingsPath } =
+    await import('@/lib/system-settings-access')
+  for (const [legacy, target] of [
+    ['model-pricing', '/admin/pricing'],
+    ['router-pricing', '/admin/pricing?workspace=router'],
+    ['group-pricing', '/admin/pricing?workspace=groups'],
+  ]) {
+    assert.equal(
+      getSettingsBoundary('/system-settings/billing/' + legacy)?.canonical,
+      target
+    )
+    assert.equal(canReadSystemSettingsPath(100, target), true)
+    assert.equal(canReadSystemSettingsPath(10, target), false)
+  }
 })

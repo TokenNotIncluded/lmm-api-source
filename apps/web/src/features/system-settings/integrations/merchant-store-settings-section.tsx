@@ -1,4 +1,3 @@
-/* Copyright (C) 2026 LIghtJUNction; SPDX-License-Identifier: AGPL-3.0-or-later */
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -6,6 +5,12 @@ import { useTranslation } from 'react-i18next'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+/* Copyright (C) 2026 LIghtJUNction; SPDX-License-Identifier: AGPL-3.0-or-later */
+import {
+  pluginReadTime,
+  settingsReadFailure,
+  useReportPluginSetting,
+} from '@/features/plugins/settings-observations'
 import { storeApi } from '@/features/store/api'
 import { StoreLinkPresetsSettings } from '@/features/store/link-presets'
 import { StoreAnnouncementSettings } from '@/features/store/merchant-home'
@@ -26,6 +31,15 @@ export function MerchantStoreSettingsSection() {
     retry: false,
     enabled: root,
   })
+  useReportPluginSetting(
+    'merchantConfig',
+    query.isError
+      ? settingsReadFailure(query.error)
+      : query.isSuccess
+        ? 'available'
+        : undefined,
+    pluginReadTime(query)
+  )
   useEffect(() => {
     if (root && query.data && window.location.hash === '#merchant-store') {
       document

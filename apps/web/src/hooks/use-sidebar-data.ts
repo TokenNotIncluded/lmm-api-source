@@ -219,6 +219,12 @@ export function useSidebarData(): SidebarData {
             requiredRole: ROLE.ADMIN,
           },
           {
+            title: t('Pricing management'),
+            url: '/admin/pricing',
+            icon: CreditCard,
+            requiredRole: ROLE.SUPER_ADMIN,
+          },
+          {
             title: t('Core Settings'),
             url: '/system-settings',
             icon: Settings,

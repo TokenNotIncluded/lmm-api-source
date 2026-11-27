@@ -56,7 +56,7 @@ const { createInstance } = await import('i18next')
 const { I18nextProvider, initReactI18next } = await import('react-i18next')
 const { api } = await import('@/lib/api')
 const { useAuthStore } = await import('@/stores/auth-store')
-const { BillingSettings } = await import('./index')
+const { NativePricingSection } = await import('./native-pricing-section')
 notifyManager.setScheduler(queueMicrotask)
 const i18n = createInstance()
 await i18n
@@ -276,7 +276,12 @@ async function mount(
     root.render(
       <QueryClientProvider client={client}>
         <I18nextProvider i18n={i18n}>
-          <BillingSettings />
+          <NativePricingSection
+            groupWorkspace={section === 'group-pricing'}
+            initialMode={
+              section === 'router-pricing' ? 'upstream_cost' : undefined
+            }
+          />
         </I18nextProvider>
       </QueryClientProvider>
     )

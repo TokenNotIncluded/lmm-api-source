@@ -47,6 +47,7 @@ const { I18nextProvider, initReactI18next } = await import('react-i18next')
 const { api } = await import('@/lib/api')
 const { useAuthStore } = await import('@/stores/auth-store')
 const { NativePaymentSettings } = await import('./native-payment-settings')
+const { CoreWalletPresets } = await import('../general/quota-settings-section')
 const { NativePaymentGateways } = await import('./native-payment-gateways')
 notifyManager.setScheduler(queueMicrotask)
 const i18n = createInstance()
@@ -208,12 +209,28 @@ async function paymentRouter(entry: string) {
   const { Route: billing } =
     await import('@/routes/_authenticated/system-settings/billing/$section')
   const { BillingSettings } = await import('./index')
+  const { PluginsPage } = await import('@/features/plugins')
+  const { useLocation } = await import('@tanstack/react-router')
   const root = createRootRoute()
   const auth = createRoute({ getParentRoute: () => root, id: '_authenticated' })
   const plugins = createRoute({
     getParentRoute: () => auth,
     path: 'extensions/plugins',
     validateSearch: marketplace.options.validateSearch,
+    component: () => {
+      const configure = useLocation({
+        select: (location) =>
+          new URLSearchParams(location.searchStr).get('configure') ?? undefined,
+      })
+      const hash = useLocation({ select: (location) => location.hash })
+      return (
+        <PluginsPage
+          panel={configure}
+          onPanelChange={() => {}}
+          paymentHash={hash}
+        />
+      )
+    },
     beforeLoad: (context) => marketplace.options.beforeLoad?.(context as never),
   })
   const core = createRoute({
@@ -241,9 +258,9 @@ async function paymentRouter(entry: string) {
   })
   return { router, Page: () => <RouterProvider router={router} /> }
 }
-test('previous marketplace payment bookmark opens the Core Waffo page, saves there and reads back the update', async () => {
+test('legacy Core payment bookmark opens the owner gateway card, saves Waffo and reads it back', async () => {
   const { router, Page } = await paymentRouter(
-    '/extensions/plugins?configure=payments#waffo-pancake'
+    '/system-settings/billing/payment#waffo-pancake'
   )
   let value = configuration()
   const { container, requests } = await mount(
@@ -251,6 +268,7 @@ test('previous marketplace payment bookmark opens the Core Waffo page, saves the
       if (config.url === '/api/option/' || config.url === '/api/option') {
         return success([])
       }
+      if (config.url === '/api/extensions/plugins') return success([])
       if (config.method === 'get') {
         assert.equal(config.url, '/api/option/waffo-pancake/config')
         return success(value)
@@ -265,14 +283,12 @@ test('previous marketplace payment bookmark opens the Core Waffo page, saves the
   await until(() =>
     Boolean(container.querySelector('#native-payment-return-url'))
   )
-  assert.equal(
-    router.state.location.pathname,
-    '/system-settings/billing/payment'
-  )
+  assert.equal(router.state.location.pathname, '/extensions/plugins')
   assert.equal(router.state.location.hash, 'waffo-pancake')
   assert.equal(
-    container.querySelector('.settings-page-title')?.textContent,
-    'Payment'
+    container.querySelector('[data-configuration-owner="payments"] h2')
+      ?.textContent,
+    'Payment gateways'
   )
   assert.equal(
     container.querySelector('[role="tab"][aria-selected="true"]')?.textContent,
@@ -293,7 +309,10 @@ test('previous marketplace payment bookmark opens the Core Waffo page, saves the
       .map((c) => c.method),
     ['get', 'post', 'get']
   )
-  assert.ok(requests.every((c) => c.url !== '/api/extensions/plugins'))
+  assert.equal(
+    new URLSearchParams(router.state.location.searchStr).get('configure'),
+    'payments'
+  )
 })
 for (const entry of [
   '/extensions/plugins?configure=payments#waffo-pancake',
@@ -1296,7 +1315,7 @@ test('owner edits wallet presets independently in the selected currency', async 
       return success(settings[currency])
     },
     100,
-    NativePaymentGateways
+    CoreWalletPresets
   )
 
   await click('Wallet top-up presets')
