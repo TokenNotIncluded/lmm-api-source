@@ -208,10 +208,13 @@ impl EmailHttp {
     pub(crate) async fn request_reset(&self, body: ResetRequest) -> Result<()> {
         let email = address(&body.email)?;
         self.verify_challenge(body.turnstile.as_deref()).await?;
-        let _ = self
+        let result = self
             .outbox
             .issue(&self.challenges, Request::PasswordReset, &email)
             .await;
+        if let Some(event) = reset_enqueue_failure(result) {
+            eprintln!("{event}");
+        }
         Ok(())
     }
 
@@ -290,6 +293,20 @@ impl EmailHttp {
     }
 }
 
+// Only fixed operational classes reach stderr. Successful and silently suppressed
+// issuance both return Ok(()), and the public reply is identical for every outcome.
+fn reset_enqueue_failure(
+    result: std::result::Result<(), crate::email_delivery::MailError>,
+) -> Option<&'static str> {
+    use crate::email_delivery::MailError;
+    match result {
+        Ok(()) => None,
+        Err(MailError::Invalid) => Some("core_password_reset_enqueue_failed class=invalid"),
+        Err(MailError::Conflict) => Some("core_password_reset_enqueue_failed class=conflict"),
+        Err(MailError::Unavailable) => Some("core_password_reset_enqueue_failed class=unavailable"),
+    }
+}
+
 pub(crate) fn failure(error: Failure) -> Response {
     let (status, code) = match error {
         Failure::Invalid => (StatusCode::BAD_REQUEST, "EMAIL_INVALID_REQUEST"),
@@ -332,4 +349,31 @@ pub(crate) fn accepted(result: Result<()>) -> Response {
         StatusCode::ACCEPTED,
         json!({"status":"accepted_if_eligible"}),
     )
+}
+
+#[cfg(test)]
+mod reset_enqueue_tests {
+    use super::reset_enqueue_failure;
+    use crate::email_delivery::MailError;
+
+    #[test]
+    fn reset_enqueue_logs_only_static_failure_classes() {
+        assert_eq!(reset_enqueue_failure(Ok(())), None);
+        for (error, expected) in [
+            (
+                MailError::Invalid,
+                "core_password_reset_enqueue_failed class=invalid",
+            ),
+            (
+                MailError::Conflict,
+                "core_password_reset_enqueue_failed class=conflict",
+            ),
+            (
+                MailError::Unavailable,
+                "core_password_reset_enqueue_failed class=unavailable",
+            ),
+        ] {
+            assert_eq!(reset_enqueue_failure(Err(error)), Some(expected));
+        }
+    }
 }

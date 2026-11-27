@@ -38,7 +38,7 @@ import { Input } from '@/components/ui/input'
 import { sendPasswordResetEmail } from '@/features/auth/api'
 import {
   forgotPasswordFormSchema,
-  PASSWORD_RESET_COUNTDOWN,
+  PASSWORD_RESET_EMAIL_RESEND_SECONDS,
 } from '@/features/auth/constants'
 import { useTurnstile } from '@/features/auth/hooks/use-turnstile'
 import { useCountdown } from '@/hooks/use-countdown'
@@ -65,7 +65,7 @@ export function ForgotPasswordForm({
     secondsLeft,
     isActive,
     start: startCountdown,
-  } = useCountdown({ initialSeconds: PASSWORD_RESET_COUNTDOWN })
+  } = useCountdown({ initialSeconds: PASSWORD_RESET_EMAIL_RESEND_SECONDS })
 
   const form = useForm<z.infer<typeof forgotPasswordFormSchema>>({
     resolver: zodResolver(forgotPasswordFormSchema),
@@ -74,14 +74,13 @@ export function ForgotPasswordForm({
   const turnstileReady = !isTurnstileEnabled || Boolean(turnstileToken)
 
   async function onSubmit(data: z.infer<typeof forgotPasswordFormSchema>) {
-    if (!validateTurnstile()) return
+    if (isLoading || isActive || !validateTurnstile()) return
 
     setIsLoading(true)
     setResult(null)
     try {
       const res = await sendPasswordResetEmail(data.email, turnstileToken)
       if (res?.success) {
-        form.reset()
         startCountdown()
         setResult('accepted')
       } else {

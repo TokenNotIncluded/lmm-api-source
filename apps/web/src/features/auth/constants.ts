@@ -95,6 +95,8 @@ export const OTP_REGEX = /^\d{6}$/
 // ============================================================================
 
 export const EMAIL_VERIFICATION_COUNTDOWN = 30 // seconds
+// Core allows one issuance per target in a rolling 60-second window.
+export const PASSWORD_RESET_EMAIL_RESEND_SECONDS = 60
 export const PASSWORD_RESET_COUNTDOWN = 30 // seconds
 
 // ============================================================================
