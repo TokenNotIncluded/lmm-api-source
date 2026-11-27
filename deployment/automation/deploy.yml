@@ -131,32 +131,13 @@
           loop: '{{ activated_states | reverse | list }}'
           loop_control:
             label: '{{ item.name }}'
-        - name: Restart the preceding backend programs
-          ansible.builtin.systemd_service:
-            name: '{{ item.service }}'
-            state: restarted
-          when: activation_started and (deploy_allow_rollback | default(true) | bool) and item.name != 'web'
-          loop: '{{ activated_states | reverse | list }}'
-          loop_control:
-            label: '{{ item.name }}'
-        - name: Confirm the preceding services recovered
-          ansible.builtin.uri:
-            url: '{{ item.health_url }}'
-            headers: '{{ item.health_headers | default({}) }}'
-            status_code: 200
-            timeout: 5
-          register: rollback_health
-          until: >-
-            rollback_health.status | default(0) == 200 and
-            (item.name == 'web' or
-            (rollback_health.json.status | default('') == 'ready' and
-             rollback_health.json.service | default('') == 'lmm-' + item.name))
-          retries: 10
-          delay: 2
+        - name: Restart and verify each preceding component in activation order
+          ansible.builtin.include_tasks: rollback.yml
           when: activation_started and (deploy_allow_rollback | default(true) | bool)
-          loop: '{{ activated_states | reverse | list }}'
+          loop: '{{ activated_states }}'
           loop_control:
-            label: '{{ item.name }}'
+            loop_var: component
+            label: '{{ component.name }}'
         - name: Mark the rollback complete
           ansible.builtin.set_fact:
             rollback_ok: true

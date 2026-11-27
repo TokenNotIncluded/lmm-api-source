@@ -21,6 +21,8 @@ func TestBuiltinAndImageReadinessRequireExactLivePurposeACK(t *testing.T) {
 		want bool
 	}{
 		{"registry", fmt.Sprintf(`{"protocol":1,"service":"builtins","ready":true,"tools":%d,"catalog_digest":%q}`, toolCount, market.CompiledBuiltinCatalogDigest()), true, true},
+		{"preceding catalog", fmt.Sprintf(`{"protocol":1,"service":"builtins","ready":true,"tools":29,"catalog_digest":%q}`, preRelayCatalogDigest), true, true},
+		{"preceding digest cannot identify the expanded catalog", fmt.Sprintf(`{"protocol":1,"service":"builtins","ready":true,"tools":%d,"catalog_digest":%q}`, toolCount, preRelayCatalogDigest), true, false},
 		{"registry digest substitution", fmt.Sprintf(`{"protocol":1,"service":"builtins","ready":true,"tools":%d,"catalog_digest":"unrelated"}`, toolCount), true, false},
 		{"registry incomplete", fmt.Sprintf(`{"protocol":1,"service":"builtins","ready":true,"tools":%d,"catalog_digest":%q}`, toolCount-1, market.CompiledBuiltinCatalogDigest()), true, false},
 		{"image", `{"protocol":2,"service":"images","ready":true}`, false, true},
@@ -54,6 +56,12 @@ func TestBuiltinAndImageReadinessRequireExactLivePurposeACK(t *testing.T) {
 			}
 			if (e == nil) != test.want {
 				t.Fatalf("ready=%v want=%v", e, test.want)
+			}
+			if test.gate && test.want {
+				expanded := adapter.bridge.ReadyExpandedBuiltins(context.Background())
+				if (expanded == nil) != (test.name == "registry") {
+					t.Fatalf("expanded registry readiness = %v", expanded)
+				}
 			}
 		})
 	}

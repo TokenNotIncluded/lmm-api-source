@@ -20,9 +20,13 @@ type SSMCPRelayConfig struct {
 	SellerID   int64  `toml:"seller_id"`
 }
 
-func (r *Runtime) composeRelay(cfg SSMCPRelayConfig, repo store.Repository, authority store.Authority, funds store.Funds, other ...[]byte) error {
+func (r *Runtime) composeRelay(ctx context.Context, cfg SSMCPRelayConfig, repo store.Repository, authority store.Authority, funds store.Funds, other ...[]byte) error {
 	if r.Builtins == nil {
 		return errors.New("ssmcpd requires tool market builtins")
+	}
+	gate, ok := r.Builtins.Gate.(interface{ ReadyExpandedBuiltins(context.Context) error })
+	if !ok || gate.ReadyExpandedBuiltins(ctx) != nil {
+		return errors.New("ssmcpd requires its installed Core builtin catalog")
 	}
 	f, ok := funds.(ssmcprelay.Funds)
 	if !ok || !f.Available() {

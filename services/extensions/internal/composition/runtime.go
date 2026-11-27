@@ -391,7 +391,7 @@ func New(ctx context.Context, cfg Config) (_ *Runtime, resultErr error) {
 			}
 		}
 		if selected["ssmcpd"] {
-			if err := r.composeRelay(cfg.SSMCPRelay, repo, auth, funds, cfg.HostCredential, token, commerceToken, paymentToken, assistantToken, supportCustomerToken, supportNoteKey); err != nil {
+			if err := r.composeRelay(ctx, cfg.SSMCPRelay, repo, auth, funds, cfg.HostCredential, token, commerceToken, paymentToken, assistantToken, supportCustomerToken, supportNoteKey); err != nil {
 				return nil, err
 			}
 		}

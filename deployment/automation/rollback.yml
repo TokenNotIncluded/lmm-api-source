@@ -1,0 +1,30 @@
+---
+- name: Clear candidate restart limits before restoring the backend program
+  ansible.builtin.command:
+    argv:
+      - systemctl
+      - reset-failed
+      - '{{ component.service }}'
+  changed_when: false
+  when: component.name != 'web'
+
+- name: Restart the preceding backend program
+  ansible.builtin.systemd_service:
+    name: '{{ component.service }}'
+    state: restarted
+  when: component.name != 'web'
+
+- name: Confirm the preceding component recovered
+  ansible.builtin.uri:
+    url: '{{ component.health_url }}'
+    headers: '{{ component.health_headers | default({}) }}'
+    status_code: 200
+    timeout: 5
+  register: rollback_health
+  until: >-
+    rollback_health.status | default(0) == 200 and
+    (component.name == 'web' or
+    (rollback_health.json.status | default('') == 'ready' and
+     rollback_health.json.service | default('') == 'lmm-' + component.name))
+  retries: 10
+  delay: 2

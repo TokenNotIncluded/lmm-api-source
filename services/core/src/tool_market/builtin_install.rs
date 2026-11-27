@@ -6,6 +6,9 @@ use super::{
 };
 const CATALOG: &str =
     include_str!("../../../extensions/internal/modules/toolmarket/builtin_catalog.json");
+// SHA-256 of the previous compiled catalog, before the optional relay tools.
+const PRE_RELAY_CATALOG_DIGEST: &str =
+    "8df36b1effa55c753d26fe14e4ccea6140d7244271f30610965d21503c1cf519";
 #[derive(Deserialize)]
 struct Service {
     key: String,
@@ -85,7 +88,25 @@ pub async fn check_builtin_registry(pool: &PgPool) -> Result<InstallReceipt> {
 pub async fn check_builtin_registry_in_transaction(
     c: &mut sqlx::PgConnection,
 ) -> Result<InstallReceipt> {
-    check_catalog_subset(c, expected_catalog()?).await
+    let catalog = expected_catalog()?;
+    let relay_installed: bool = sqlx::query_scalar(
+        "SELECT EXISTS (SELECT FROM core_tool_market.credit_builtin_bindings WHERE kind LIKE 'ssmcpd.%')",
+    )
+    .fetch_one(&mut *c)
+    .await?;
+    if relay_installed {
+        return check_catalog_subset(c, catalog).await;
+    }
+    let preceding: Vec<_> = catalog
+        .into_iter()
+        .filter(|(_, name, _)| !name.starts_with("ssmcpd."))
+        .collect();
+    if preceding.len() != 29 {
+        return Err(Error::Conflict);
+    }
+    let mut receipt = check_catalog_subset(c, preceding).await?;
+    receipt.catalog_digest = PRE_RELAY_CATALOG_DIGEST.to_owned();
+    Ok(receipt)
 }
 
 // Reconcile immutable compiled bindings before extending an occupied installation.
@@ -162,7 +183,7 @@ pub async fn install_compiled_builtins(pool: &PgPool) -> Result<InstallReceipt> 
         sqlx::query("INSERT INTO core_tool_market.credit_quotes(id,fee_bps,policy_version,snapshot,approved,ceiling_credits) VALUES($1,0,1,$2,TRUE,0) ON CONFLICT(id) DO NOTHING").bind(&quote.id).bind(Json(&quote)).execute(&mut *tx).await?;
         sqlx::query("INSERT INTO core_tool_market.credit_builtin_bindings(quote_id,kind,input_schema_digest) VALUES($1,$2,$3) ON CONFLICT(quote_id) DO NOTHING").bind(&quote.id).bind(kind).bind(schema).execute(&mut *tx).await?;
     }
-    let out = check_builtin_registry_in_transaction(&mut tx).await?;
+    let out = check_catalog_subset(&mut tx, expected_catalog()?).await?;
     tx.commit().await?;
     Ok(out)
 }
@@ -224,6 +245,9 @@ mod tests {
         .execute(&installer)
         .await
         .unwrap();
+        let preceding = check_builtin_registry(&installer).await.unwrap();
+        assert_eq!(preceding.tools, 29);
+        assert_eq!(preceding.catalog_digest, PRE_RELAY_CATALOG_DIGEST);
         sqlx::query("UPDATE core_tool_market.credit_quotes SET suspended=true WHERE id=(SELECT quote_id FROM core_tool_market.credit_builtin_bindings WHERE kind='wallet.balance')")
             .execute(&installer).await.unwrap();
         assert!(matches!(

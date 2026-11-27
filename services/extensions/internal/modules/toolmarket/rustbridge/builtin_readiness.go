@@ -55,7 +55,19 @@ func exactReadyFields(raw []byte, out any, names ...string) bool {
 	}
 	return true
 }
+
+// This digest identifies the exact catalog before the optional relay tools.
+const preRelayCatalogDigest = "8df36b1effa55c753d26fe14e4ccea6140d7244271f30610965d21503c1cf519"
+
 func (a *Adapter) ReadyBuiltins(ctx context.Context) error {
+	return a.readyBuiltinCatalog(ctx, false)
+}
+
+func (a *Adapter) ReadyExpandedBuiltins(ctx context.Context) error {
+	return a.readyBuiltinCatalog(ctx, true)
+}
+
+func (a *Adapter) readyBuiltinCatalog(ctx context.Context, requireExpanded bool) error {
 	raw, e := a.hostReady(ctx, "/internal/builtins/v1/ready", 1)
 	if e != nil {
 		return e
@@ -71,10 +83,16 @@ func (a *Adapter) ReadyBuiltins(ctx context.Context) error {
 	for _, definition := range market.CompiledBuiltinDefinitions() {
 		count += len(definition.Tools)
 	}
-	if !exactReadyFields(raw, &ack, "protocol", "service", "ready", "tools", "catalog_digest") || ack.Protocol != 1 || ack.Service != "builtins" || !ack.Ready || ack.Tools != count || ack.Catalog != market.CompiledBuiltinCatalogDigest() {
+	if !exactReadyFields(raw, &ack, "protocol", "service", "ready", "tools", "catalog_digest") || ack.Protocol != 1 || ack.Service != "builtins" || !ack.Ready {
 		return market.ErrUnavailable
 	}
-	return nil
+	if ack.Tools == count && ack.Catalog == market.CompiledBuiltinCatalogDigest() {
+		return nil
+	}
+	if !requireExpanded && ack.Tools == 29 && ack.Catalog == preRelayCatalogDigest {
+		return nil
+	}
+	return market.ErrUnavailable
 }
 func (d *DrawingAdapter) Ready(ctx context.Context) error {
 	if d == nil {
