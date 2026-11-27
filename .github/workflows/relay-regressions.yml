@@ -34,6 +34,7 @@ jobs:
         with:
           persist-credentials: false
       - name: Build the Core library test executable
+        id: build_relay
         run: |
           cargo test --locked --lib --no-run --message-format=json-render-diagnostics |
             jq -er 'select(.reason == "compiler-artifact" and .profile.test and .executable != null and (.target.kind | index("lib"))) | .executable' > "$RUNNER_TEMP/relay-test-bin"
@@ -44,6 +45,7 @@ jobs:
           "$binary" --test-threads=1 model_http::catalog::tests:: | tee "$RUNNER_TEMP/relay-catalog.log"
           grep -Fx 'test model_http::catalog::tests::oauth_catalog_admits_portable_text_across_all_eligible_supplier_targets ... ok' "$RUNNER_TEMP/relay-catalog.log"
       - name: Check protocol ordering, streaming delivery, cache affinity and failover
+        if: ${{ !cancelled() && steps.build_relay.outcome == 'success' }}
         run: |
           binary="$(cat "$RUNNER_TEMP/relay-test-bin")"
           "$binary" --list > "$RUNNER_TEMP/relay-test-list"
