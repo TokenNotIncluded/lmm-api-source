@@ -5072,10 +5072,13 @@ async function checkPendingRoute(publicModel: string) {
   await until(() => !button(dialog(), 'Publish route').disabled)
   assert.deepEqual(config.routing.routes, before)
   await click(button(dialog(), 'Publish route'))
-  await until(
-    () =>
-      !!page.querySelector<HTMLInputElement>('input[aria-label="model-b"]')
-        ?.disabled
+  await until(() =>
+    [...dialog().querySelectorAll('li')].some(
+      (row) =>
+        row.querySelector('.font-mono')?.textContent === model &&
+        row.textContent?.includes('Enabled') &&
+        !row.querySelector('input[type="checkbox"]')
+    )
   )
   assert.deepEqual(config.routing.routes[0], before[0])
   assert.deepEqual(mutations, [
@@ -5423,18 +5426,22 @@ for (const [protocol, meter] of [
         setText.call(textarea, text)
         textarea.dispatchEvent(new Event('input', { bubbles: true }))
       })
-      await until(() => !button(editor, 'Preview changes').disabled)
     }
     const draft = `${textarea.value}\n# pending provider confirmation\n`
     await edit(draft)
-    await click(button(editor, 'Preview changes'))
-    await until(
-      () =>
-        editor.querySelector('[role=alert]')?.textContent?.includes(meter) ===
-        true
+    const coverage = () =>
+      required(
+        [...editor.querySelectorAll<HTMLElement>('[role=status] p')].find(
+          (node) => node.textContent?.includes(meter)
+        )
+      )
+    await until(() =>
+      [...editor.querySelectorAll('code')].some(
+        (el) => el.textContent === `tiered.tiers[1].rates.${meter}`
+      )
     )
-    const issue =
-      required(editor.querySelector('[role=alert]')).textContent ?? ''
+    assert.equal(button(editor, 'Preview changes').disabled, true)
+    const issue = coverage().textContent ?? ''
     assert.match(issue, /numerator = 0, denominator = 1/)
     assert.match(issue, /unknown prices in the draft/)
     assert.equal(textarea.value, draft)
@@ -5455,10 +5462,7 @@ for (const [protocol, meter] of [
         await act(async () => {
           await i18n.changeLanguage(locale)
         })
-        assert.equal(
-          required(editor.querySelector('[role=alert]')).textContent,
-          messages.translation[issue]
-        )
+        assert.equal(coverage().textContent, messages.translation[issue])
         assert.equal(
           required(fieldset.querySelector('[role=alert]')).textContent,
           messages.translation[issue]
@@ -5480,6 +5484,7 @@ for (const [protocol, meter] of [
       },
     }
     await edit(writeOfficialToml(model, corrected))
+    await until(() => !button(editor, 'Preview changes').disabled)
     await click(button(editor, 'Preview changes'))
     await until(() => previews.length === 1)
     assert.deepEqual(
