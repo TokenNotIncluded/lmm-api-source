@@ -216,7 +216,7 @@ jobs:
         if: ${{ !cancelled() && (matrix.targets == 'all' || matrix.targets == 'unit') }}
         working-directory: services/core
         run: |
-          cargo clippy --locked --all-targets -- -D warnings 2>&1 | tee "$RUNNER_TEMP/core-clippy.log"
+          cargo clippy --locked --all-targets --keep-going -- -D warnings 2>&1 | tee "$RUNNER_TEMP/core-clippy.log"
       - name: Make Rust lint diagnostics available during database tests
         if: ${{ !cancelled() && steps.rust_lint.outcome == 'failure' }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a

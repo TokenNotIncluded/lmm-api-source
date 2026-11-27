@@ -229,7 +229,7 @@ test('Manual qualification verifies Core and Extensions', () => {
   const triggers = source.match(/^on:\n((?:[ \t]+[^\n]*\n)+)/m)?.[1];
   assert.deepEqual([...triggers.matchAll(/^  ([\w-]+):/gm)].map((match) => match[1]).sort(),
     ['schedule', 'workflow_call', 'workflow_dispatch']);
-  for (const command of ['cargo clippy --locked --all-targets -- -D warnings', 'cargo test --locked --all-targets',
+  for (const command of ['cargo clippy --locked --all-targets --keep-going -- -D warnings', 'cargo test --locked --all-targets',
     'go mod verify', 'go vet ./...', 'go test -race', 'scripts/test-core-rpc-docker.py', 'scripts/test-core-boundaries.py',
     'scripts/test-local-release-tests.py', 'scripts/generate-core-protocol.sh --check',
     'services/extensions/internal/modules/store/pgtest', 'go test -mod=readonly -race',
@@ -427,7 +427,7 @@ test('Core CI freezes the process binary and private root before running all Rus
   const block = source.match(/      - name: Rust checks and real database tests\n([\s\S]*?)(?=      - name:)/)?.[1];
   assert.ok(block, 'the Rust database test step must exist');
   const compileStep = source.indexOf('id: rust_test_compile');
-  const lint = source.indexOf('cargo clippy --locked --all-targets -- -D warnings');
+  const lint = source.indexOf('cargo clippy --locked --all-targets --keep-going -- -D warnings');
   assert.ok(lint >= 0 && lint < compileStep, 'a lint failure must not suppress the build and database tests');
   const compile = source.indexOf('cargo test --locked --all-targets --no-run --message-format=json');
   const upload = source.indexOf('name: Preserve compiled commerce acceptance driver');
