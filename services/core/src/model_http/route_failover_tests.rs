@@ -149,6 +149,7 @@ enum FailureReply {
     RateLimited,
     RetryAfter,
     ToolEvidence,
+    NestedToolEvidence,
     Timeout,
     Partial,
 }
@@ -177,6 +178,7 @@ impl FailedSupplier {
                 FailureReply::RateLimited => (axum::http::StatusCode::TOO_MANY_REQUESTS, Json(json!({"error":{"message":"synthetic pre-acceptance rate limit"}}))).into_response(),
                 FailureReply::RetryAfter => (axum::http::StatusCode::TOO_MANY_REQUESTS, [("retry-after", "120")], Json(json!({"error":{"message":"synthetic pre-acceptance rate limit"}}))).into_response(),
                 FailureReply::ToolEvidence => (axum::http::StatusCode::SERVICE_UNAVAILABLE, Json(json!({"error":{"message":"synthetic failure after work"},"usage":{"prompt_tokens":1},"tool_calls":[{"id":"already-called"}]}))).into_response(),
+                FailureReply::NestedToolEvidence => (axum::http::StatusCode::SERVICE_UNAVAILABLE, Json(json!({"error":{"message":"failed after work","metadata":{"tool_calls":[{"id":"already-called"}]}}}))).into_response(),
                 FailureReply::Timeout => { tokio::time::sleep(Duration::from_secs(5)).await; Json(json!({"error":{"message":"late"}})).into_response() },
                 FailureReply::Partial => ([ ("content-type", "text/event-stream") ], "data: {\"id\":\"partial\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"partial content\"},\"finish_reason\":null}]}\n\n").into_response(),
             }
@@ -568,6 +570,7 @@ async fn route_failover_pg_unknown_and_partial_tool_results_never_replay(pool: P
     for (index, (mode, reviewed, stream)) in [
         (FailureReply::Rejected, false, false),
         (FailureReply::ToolEvidence, true, false),
+        (FailureReply::NestedToolEvidence, true, false),
         (FailureReply::Timeout, true, false),
         (FailureReply::Partial, true, true),
     ]

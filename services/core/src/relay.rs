@@ -424,26 +424,8 @@ struct Worker {
     started: Instant,
 }
 
-fn rejection_envelope(protocol: UpstreamProtocol, bytes: &[u8]) -> bool {
-    let Ok(serde_json::Value::Object(value)) = serde_json::from_slice(bytes) else {
-        return false;
-    };
-    let Some(error) = value.get("error").and_then(serde_json::Value::as_object) else {
-        return false;
-    };
-    if !error
-        .get("message")
-        .is_some_and(serde_json::Value::is_string)
-    {
-        return false;
-    }
-    // Reject successful/partial output, usage, and tool receipts, including
-    // extensions whose metering meaning has not been reviewed for replay.
-    value.keys().all(|key| {
-        matches!(key.as_str(), "error" | "request_id")
-            || (protocol == UpstreamProtocol::Anthropic && key == "type" && value[key] == "error")
-    })
-}
+mod rejection;
+use rejection::rejection_envelope;
 
 pub(crate) fn valid_upstream_request_id(value: &str) -> bool {
     !value.is_empty()
