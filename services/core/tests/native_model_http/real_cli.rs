@@ -57,10 +57,11 @@ fn rejection_summary(body: &[u8]) -> String {
     }
     // Only a digest of the bounded reason is retained. It can be matched against
     // Core's source literals without adding prompts or provider payloads to CI logs.
-    format!(
-        "{code}:reason-sha256:{:x}",
-        Sha256::digest(detail.as_bytes())
-    )
+    let digest = Sha256::digest(detail.as_bytes());
+    let mut hex = [0; 64];
+    zhex::encode_lower(&digest[..], &mut hex).expect("SHA-256 hex output capacity");
+    let hex = std::str::from_utf8(&hex).expect("hexadecimal ASCII");
+    format!("{code}:reason-sha256:{hex}")
 }
 
 async fn client_case(pool: PgPool, protocol: Protocol, client: &'static str) {
