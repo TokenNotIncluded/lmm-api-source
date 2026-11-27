@@ -543,9 +543,10 @@ test('Core CI freezes the process binary and private root before running all Rus
   assert.equal(source.split('cargo test --locked --all-targets --no-run').length - 1, 1);
   const driver = source.match(/      - name: Preserve compiled commerce acceptance driver\n([\s\S]*?)(?=      - name:)/)?.[1];
   assert.ok(driver, 'the compiled acceptance driver must be preserved');
-  for (const guarded of [driver, block]) {
-    assert.match(guarded, /if: \$\{\{ !cancelled\(\) && steps\.rust_test_compile\.outcome == 'success' \}\}/);
-  }
+  assert.match(block, /if: \$\{\{ !cancelled\(\) && steps\.rust_test_compile\.outcome == 'success' \}\}/);
+  assert.match(driver, /if: \$\{\{ !cancelled\(\) && \(matrix\.targets == 'all' \|\| matrix\.targets == 'unit'\) && steps\.rust_test_compile\.outcome == 'success' \}\}/);
+  assert.match(driver, /name: commerce-acceptance-driver-\$\{\{ github\.sha \}\}-\$\{\{ github\.run_id \}\}\n/);
+  assert.match(source, /name: Preserve source before checks\n\s+if: \$\{\{ matrix\.targets == 'all' \|\| matrix\.targets == 'unit' \}\}/);
   const binary = block.indexOf('LMM_MODEL_PROCESS_CORE_BIN="$(realpath target/debug/lmm-core)"');
   const hash = block.indexOf('LMM_MODEL_PROCESS_CORE_SHA256="$(sha256sum "$LMM_MODEL_PROCESS_CORE_BIN"');
   const root = block.indexOf('LMM_MODEL_PROCESS_ROOT="$(mktemp -d "$process_evidence_root/model-XXXXXXXX")"');

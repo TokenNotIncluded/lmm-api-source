@@ -82,14 +82,16 @@ jobs:
       - name: Record exact integration source
         run: |
           git rev-parse HEAD > "$RUNNER_TEMP/core-source-sha.txt"
+          if [[ "$RUST_TARGET_GROUP" != all && "$RUST_TARGET_GROUP" != unit ]]; then exit 0; fi
           git archive --format=tar.gz --output="$RUNNER_TEMP/core-source.tar.gz" HEAD \
             services/core services/extensions contracts deployment/docker deployment/postgres scripts tests/commerce \
             .github/workflows config/legal packaging docs/core-migration.md
           sha256sum "$RUNNER_TEMP/core-source.tar.gz" > "$RUNNER_TEMP/core-source.sha256"
       - name: Preserve source before checks
+        if: ${{ matrix.targets == 'all' || matrix.targets == 'unit' }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
-          name: microkernel-source-${{ github.sha }}-${{ github.run_id }}${{ matrix.targets != 'all' && matrix.targets != 'unit' && format('-{0}', matrix.targets) || '' }}
+          name: microkernel-source-${{ github.sha }}-${{ github.run_id }}
           path: |
             ${{ runner.temp }}/core-source.tar.gz
             ${{ runner.temp }}/core-source-sha.txt
@@ -155,6 +157,7 @@ jobs:
         run: |
           cargo clippy --locked --all-targets -- -D warnings
           cargo test --locked --all-targets --no-run --message-format=json > "$RUNNER_TEMP/core-test-artifacts.jsonl"
+          if [[ "$RUST_TARGET_GROUP" != all && "$RUST_TARGET_GROUP" != unit ]]; then exit 0; fi
           python3 - <<'PY'
           import hashlib, json, os, pathlib, shutil, subprocess
           root = pathlib.Path(os.environ["GITHUB_WORKSPACE"]).resolve()
@@ -195,10 +198,10 @@ jobs:
           (out / "receipt.json").write_text(json.dumps(receipt, sort_keys=True, indent=2) + "\n")
           PY
       - name: Preserve compiled commerce acceptance driver
-        if: ${{ !cancelled() && steps.rust_test_compile.outcome == 'success' }}
+        if: ${{ !cancelled() && (matrix.targets == 'all' || matrix.targets == 'unit') && steps.rust_test_compile.outcome == 'success' }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
-          name: commerce-acceptance-driver-${{ github.sha }}-${{ github.run_id }}${{ matrix.targets != 'all' && matrix.targets != 'unit' && format('-{0}', matrix.targets) || '' }}
+          name: commerce-acceptance-driver-${{ github.sha }}-${{ github.run_id }}
           path: ${{ runner.temp }}/commerce-acceptance-driver
           if-no-files-found: error
           compression-level: 0
