@@ -721,6 +721,74 @@ async fn consent_email_alias_and_policy_changes_are_enforced(pool: PgPool) {
 }
 
 #[sqlx::test(migrations = false)]
+async fn verified_email_login_accepts_original_case_without_guessing_an_owner(pool: PgPool) {
+    let (_, app) = setup(pool.clone()).await;
+    let input = "A.B+Tag@Example.TEST";
+    let email = "a.b+tag@example.test";
+    register(&app, "case-owner").await;
+    let (_, bundle) = login(&app, "case-owner").await;
+    let owner = bundle["user"]["id"].as_i64().unwrap();
+    sqlx::query(
+        "UPDATE core_identity.user_profiles SET email=$2,email_login_allowed=TRUE,email_version=1
+         WHERE user_id=$1",
+    )
+    .bind(owner)
+    .bind(email)
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    let attempt = |name: &str, password: &str| {
+        call(
+            &app,
+            "POST",
+            "/api/user/login",
+            Some(json!({"username":name,"password":password})),
+            &[],
+        )
+    };
+    let assert_denied = |(status, headers, body): (StatusCode, HeaderMap, Value)| {
+        assert_eq!(status, StatusCode::UNAUTHORIZED);
+        assert_eq!(body["code"], "AUTH_UNAUTHORIZED");
+        assert!(headers.get("set-cookie").is_none());
+    };
+    // Legacy permission alone keeps the original exact alias.
+    assert_eq!(login(&app, email).await.1["user"]["id"], owner);
+    assert_denied(attempt(input, "abc12345").await);
+    sqlx::query(
+        "INSERT INTO core_identity.email_addresses(email_key,user_id,state,email_version,verified_at)
+         VALUES ($1,$2,'verified',1,clock_timestamp())",
+    )
+    .bind(email)
+    .bind(owner)
+    .execute(&pool)
+    .await
+    .unwrap();
+    assert_eq!(login(&app, input).await.1["user"]["id"], owner);
+    assert_denied(attempt(input, "incorrect password").await);
+    assert_denied(attempt(&format!("\t{input}"), "abc12345").await);
+
+    sqlx::query(
+        "UPDATE core_identity.user_profiles SET email_login_allowed=FALSE WHERE user_id=$1",
+    )
+    .bind(owner)
+    .execute(&pool)
+    .await
+    .unwrap();
+    assert_denied(attempt(input, "abc12345").await);
+    sqlx::query("UPDATE core_identity.user_profiles SET email_login_allowed=TRUE WHERE user_id=$1")
+        .bind(owner)
+        .execute(&pool)
+        .await
+        .unwrap();
+
+    // A distinct exact username and the verified mailbox now name two owners.
+    register(&app, input).await;
+    assert_denied(attempt(input, "abc12345").await);
+    assert_eq!(login(&app, "case-owner").await.1["user"]["id"], owner);
+}
+
+#[sqlx::test(migrations = false)]
 async fn invalid_cookie_recovers_valid_bearer_logout_and_mutation_races_do_not_deadlock(
     pool: PgPool,
 ) {

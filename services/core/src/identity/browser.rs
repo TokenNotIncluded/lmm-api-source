@@ -223,11 +223,27 @@ impl BrowserAuth {
         username: &str,
         password: &str,
     ) -> Result<(String, (String, Option<String>))> {
-        let username = username.trim();
-        if username.is_empty() || username.len() > 320 {
+        let identifier = username.trim();
+        if identifier.is_empty() || identifier.len() > 320 {
             return Err(IdentityError::Unauthorized);
         }
-        let names:Vec<String>=sqlx::query_scalar("SELECT p.login_name FROM core_identity.password_logins p JOIN core_identity.user_profiles pr ON pr.user_id=p.user_id WHERE pr.username=$1 OR (pr.email_login_allowed AND pr.email<>'' AND pr.email=$1) LIMIT 2").bind(username).fetch_all(&self.store.pool).await?;
+        let email = email::EmailAddress::parse(username).ok();
+        // Keep legacy aliases exact. Only a current, verified binding can add
+        // another spelling, and an exact username from another owner still conflicts.
+        let names: Vec<String> = sqlx::query_scalar(
+            "SELECT p.login_name FROM core_identity.password_logins p
+             JOIN core_identity.user_profiles pr ON pr.user_id=p.user_id
+             WHERE pr.username=$1 OR (pr.email_login_allowed AND pr.email<>'' AND (
+                 pr.email=$1 OR (pr.email=$2 AND EXISTS (
+                     SELECT 1 FROM core_identity.email_addresses e
+                     WHERE e.email_key=pr.email AND e.user_id=pr.user_id
+                       AND e.state='verified' AND e.email_version=pr.email_version))))
+             LIMIT 2",
+        )
+        .bind(identifier)
+        .bind(email.as_ref().map(email::EmailAddress::as_str))
+        .fetch_all(&self.store.pool)
+        .await?;
         // Still perform a bounded dummy hash for unknown and ambiguous identities.
         let canonical = if names.len() == 1 {
             names[0].clone()
