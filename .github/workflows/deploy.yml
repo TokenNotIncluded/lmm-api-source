@@ -73,7 +73,8 @@ jobs:
           python3 -B scripts/test-resolve-deployment-web-base.py
           name=$(python3 -B scripts/resolve-deployment-web-base.py --artifact-name)
           echo "artifact=$name" >> "$GITHUB_OUTPUT"
-          if [[ "$GITHUB_EVENT_NAME" == workflow_run ]]; then
+          if [[ "$GITHUB_EVENT_NAME" == workflow_run ||
+                ( "$GITHUB_EVENT_NAME" == workflow_dispatch && "$SELECT_COMPONENTS" == web ) ]]; then
             revision=$(python3 -B scripts/resolve-deployment-web-base.py)
             echo "revision=$revision" >> "$GITHUB_OUTPUT"
           fi
@@ -109,7 +110,8 @@ jobs:
           git merge-base --is-ancestor "$revision" origin/main
           git checkout --detach "$revision"
           echo "revision=$revision" >> "$GITHUB_OUTPUT"
-          if [[ "$GITHUB_EVENT_NAME" == workflow_run ]] &&
+          if [[ "$GITHUB_EVENT_NAME" == workflow_run ||
+                ( "$GITHUB_EVENT_NAME" == workflow_dispatch && "$SELECT_COMPONENTS" == web ) ]] &&
             python3 scripts/is-web-only-update.py --base "$WEB_BASE" --revision "$revision"; then
             echo "web-base=$WEB_BASE" >> "$GITHUB_OUTPUT"
             echo "SELECT_COMPONENTS=web" >> "$GITHUB_ENV"
@@ -298,6 +300,8 @@ jobs:
       - name: Install the pinned deployment tool
         run: pip install 'ansible-core==2.22.0'
       - name: Exercise deployment and rollback in a disposable HTTP fixture
+        env:
+          DEPLOY_WEB_BASE: ''
         run: |
           python3 -B scripts/test-retain-web-static.py
           python3 -B scripts/test-deployment-rollback.py

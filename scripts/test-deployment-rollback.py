@@ -226,7 +226,7 @@ def main():
                 distribution.build(ROOT, "web", "1.2." + str(number), revision, "any", source, archives)
                 inventory = work / "inventory.json"
                 with patch.dict(os.environ, {"DEPLOY_TARGETS": json.dumps([target]),
-                                            "DEPLOY_REVISION": revision,
+                                            "DEPLOY_REVISION": revision, "DEPLOY_WEB_BASE": "",
                                             "SELECT_TARGETS": "all", "SELECT_COMPONENTS": "web"}):
                     deploy.inventory(archives, inventory)
                 hosts = json.loads(inventory.read_text())

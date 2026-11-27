@@ -671,6 +671,13 @@ test('deployment runs the rollback fixture alongside packaging before production
   assert.match(preflight, /ref: \$\{\{ needs\.plan\.outputs\.revision \}\}/);
   assert.match(preflight, /scripts\/test-retain-web-static\.py/);
   assert.match(preflight, /scripts\/test-deployment-rollback\.py/);
+  assert.match(preflight, /DEPLOY_WEB_BASE: ''/);
+  assert.equal(
+    [...source.matchAll(/"\$GITHUB_EVENT_NAME" == workflow_dispatch && "\$SELECT_COMPONENTS" == web/g)].length,
+    2
+  );
+  assert.match(source, /python3 scripts\/is-web-only-update\.py --base "\$WEB_BASE" --revision "\$revision"/);
+  assert.match(source, /options\+=\(--web-only\)/);
   assert.doesNotMatch(preflight, /environment:|SSH_PRIVATE_KEY|secrets\./);
   assert.match(source, /^  build:\n    needs: \[plan, ci-gate\]/m);
   assert.match(source, /^  deploy:\n    needs: \[plan, ci-gate, build, deploy-preflight\]/m);
