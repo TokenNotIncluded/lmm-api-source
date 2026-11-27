@@ -10,6 +10,7 @@ use std::collections::BTreeMap;
 #[serde(deny_unknown_fields)]
 pub(in crate::channel_http) struct OfficialPrices {
     pub models: BTreeMap<String, OfficialPrice>,
+    #[serde(default)]
     group_multipliers_ppm: BTreeMap<String, u32>,
     speed_multipliers_ppm: SpeedMultipliers,
 }
@@ -334,10 +335,11 @@ impl OfficialPrices {
             }
         }
         let effective = |id, model: &str, group: &str, speed, coverage: &Coverage| {
-            let group_ppm = *self
+            let group_ppm = self
                 .group_multipliers_ppm
                 .get(group)
-                .ok_or(ManagementError::Invalid)?;
+                .copied()
+                .unwrap_or(MULTIPLIER_ONE);
             let base = &self.models[model];
             base.effective_rule(
                 base.rule(
@@ -1104,10 +1106,15 @@ mod tests {
         assert!(book.validate().is_err());
     }
     #[test]
-    fn official_mixed_fees_missing_group_and_id_overflow_fail_closed() {
+    fn official_missing_group_defaults_to_one_and_invalid_prices_fail_closed() {
         let (mut book, routing, prices) = fixture();
         book.group_multipliers_ppm.remove("spare");
-        assert!(book.compile(&routing, &prices).is_err());
+        let compiled = book.compile(&routing, &prices).unwrap();
+        assert!(compiled.rules.iter().any(|rule| {
+            rule.model == "alpha"
+                && rule.group == "spare"
+                && rule.group_multiplier_ppm == MULTIPLIER_ONE
+        }));
         book.group_multipliers_ppm.insert("spare".into(), 0);
         book.models.get_mut("alpha").unwrap().rates.request = 1;
         assert!(book.compile(&routing, &prices).is_err());

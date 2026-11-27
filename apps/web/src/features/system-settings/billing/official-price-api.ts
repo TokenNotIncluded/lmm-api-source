@@ -82,7 +82,7 @@ export async function readOfficialPriceToml(
   )
 }
 type Source =
-  | { kind: 'models.dev'; provider: string }
+  | { kind: 'models.dev'; provider: string; sourceModel?: string }
   | {
       kind: 'channel'
       channelId: number
@@ -97,7 +97,20 @@ export async function syncOfficialPriceToml(
 ) {
   let quote: OfficialSourceQuote | null
   if (source.kind === 'models.dev') {
-    quote = await fetchOfficialModelsDevQuote(model, source.provider)
+    const sourceModel = source.sourceModel || model
+    const fetched = await fetchOfficialModelsDevQuote(
+      sourceModel,
+      source.provider
+    )
+    quote = fetched && {
+      ...fetched,
+      model,
+      source: {
+        kind: 'models_dev',
+        provider: source.provider,
+        ...(sourceModel !== model ? { source_model: sourceModel } : {}),
+      },
+    }
   } else {
     const observed = await nativeRequest<{
       channel_id: number

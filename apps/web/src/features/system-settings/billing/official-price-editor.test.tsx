@@ -129,6 +129,7 @@ test('channel quotes remain editable through separate diff and publish steps; st
     await click('Fetch upstream prices')
     assert.equal(host.querySelector('textarea')?.value, initial)
     assert.ok(host.textContent?.includes('No matching upstream prices'))
+    assert.ok(button('models.dev'))
     found = true
     await click('Fetch upstream prices')
     assert.equal(host.querySelector('textarea')?.value, fetched)

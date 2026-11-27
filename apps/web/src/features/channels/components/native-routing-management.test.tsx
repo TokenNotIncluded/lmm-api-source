@@ -3927,7 +3927,8 @@ test('channel capability expiry and failed refresh preserve the draft and CAS un
     'Disable',
     'Test Connection',
     'Fetch Models',
-    'Delete',
+    'Delete Channel',
+    'Edit routing',
     'API Keys',
   ]) {
     assert.equal(button(container, label).disabled, true)
@@ -4774,6 +4775,28 @@ test('fetching a channel catalog previews editable changes and only Save publish
   assert.equal(previews[0].metadata.display_name, 'catalog-last')
   assert.equal(writes.length, 1)
 })
+test('unpriced models can be found without opening each channel', async () => {
+  const config: NativeConfiguration = fixture()
+  config.bindings.discoveries['1'] = {
+    models: ['catalog-only', 'pending-price'],
+    observed_at: 1,
+    pending_models: ['pending-price'],
+  }
+  api.request = (async () => ({
+    data: { success: true, data: structuredClone(config) },
+  })) as typeof api.request
+  const container = await mount('channels', true, {
+    native_channel_observations: false,
+  })
+  await until(() => !!container.querySelector('nav'))
+  await act(async () => button(container, 'Unpriced models').click())
+  assert.ok(container.textContent?.includes('pending-price'))
+  assert.ok(!container.textContent?.includes('catalog-only'))
+  await act(async () => button(container, 'Model onboarding').click())
+  const dialog = required(container.querySelector('[role="dialog"]'))
+  assert.ok(dialog.textContent?.includes('pending-price'))
+})
+
 test('channel onboarding persists missing-price selections without routing them', async () => {
   const config: NativeConfiguration = fixture()
   config.bindings.discoveries['1'] = {

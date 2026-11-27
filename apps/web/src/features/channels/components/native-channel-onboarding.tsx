@@ -22,23 +22,25 @@ export function NativeChannelOnboarding({
   scope,
   configuration,
   channelId,
+  initialModel,
   onRefresh,
   onClose,
 }: {
   scope: NativeRoutingScope
   configuration: NativeConfiguration
   channelId: number
+  initialModel?: string
   onRefresh: () => Promise<void>
   onClose: () => void
 }) {
   const { t } = useTranslation()
-  const [search, setSearch] = useState('')
+  const [search, setSearch] = useState(initialModel ?? '')
   const [page, setPage] = useState(0)
   const [draft, setDraft] = useState<{
     version: number
     models: string[]
   } | null>(null)
-  const [editing, setEditing] = useState<string | null>(null)
+  const [editing, setEditing] = useState<string | null>(initialModel ?? null)
   const [chosenModel, setChosenModel] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')

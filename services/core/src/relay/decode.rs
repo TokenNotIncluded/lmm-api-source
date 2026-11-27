@@ -652,7 +652,7 @@ impl Decoder {
         match self.protocol {
             UpstreamProtocol::Chat => {
                 if let Some(expected) = self.expected_speed {
-                    super::validate_openai_reported_tier(expected, value.get("service_tier"))?;
+                    super::warn_openai_reported_tier(expected, value.get("service_tier"));
                 }
                 let choices = value["choices"]
                     .as_array()
@@ -692,10 +692,10 @@ impl Decoder {
                 };
                 if let Some(response) = response {
                     if let Some(expected) = self.expected_speed {
-                        super::validate_openai_reported_tier(
+                        super::warn_openai_reported_tier(
                             expected,
                             response.get("service_tier"),
-                        )?;
+                        );
                     }
                     plain_response(response)?;
                     if full

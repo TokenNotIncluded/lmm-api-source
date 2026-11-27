@@ -1,31 +1,28 @@
-//! Verify OpenAI's reported processing grade against the dispatched, priced attempt.
-use super::RelayError;
+//! Report upstream tier metadata without changing the frozen billing speed.
 use crate::routing::Speed;
 use serde_json::Value;
 
-pub(crate) fn validate_openai_reported_tier(
-    expected: Speed,
-    reported: Option<&Value>,
-) -> Result<(), RelayError> {
-    let Some(value) = reported.filter(|value| !value.is_null()) else {
-        return Ok(());
-    };
-    let actual = match value.as_str() {
-        Some("default" | "standard") => Speed::Standard,
-        Some("priority" | "fast") => Speed::Fast,
-        Some("ultrafast") => Speed::Ultrafast,
-        _ => {
-            return Err(RelayError::Protocol(
-                "unrecognized OpenAI service tier receipt",
-            ));
-        }
-    };
-    if actual != expected {
-        return Err(RelayError::Protocol(
-            "OpenAI service tier differs from selected speed",
-        ));
+pub(crate) fn warn_openai_reported_tier(expected: Speed, reported: Option<&Value>) {
+    if let Some(tier) = tier_warning(expected, reported) {
+        eprintln!(
+            "core_model_warning code=openai_service_tier_receipt expected={expected:?} reported={tier}"
+        );
     }
-    Ok(())
+}
+
+fn tier_warning(expected: Speed, reported: Option<&Value>) -> Option<&'static str> {
+    let value = reported.filter(|value| !value.is_null())?;
+    let (label, actual) = match value.as_str() {
+        Some("default" | "standard") => ("standard", Some(Speed::Standard)),
+        Some("priority" | "fast") => ("priority", Some(Speed::Fast)),
+        Some("ultrafast") => ("ultrafast", Some(Speed::Ultrafast)),
+        Some("auto") => ("auto", None),
+        Some("flex") => ("flex", None),
+        Some("scale") => ("scale", None),
+        Some(_) => ("unknown", None),
+        None => ("invalid_type", None),
+    };
+    (actual != Some(expected)).then_some(label)
 }
 
 #[cfg(test)]
@@ -34,72 +31,26 @@ mod tests {
     use serde_json::json;
 
     #[test]
-    fn openai_tier_receipts_match_the_frozen_attempt() {
-        for (tier, actual) in [
-            ("default", Speed::Standard),
-            ("standard", Speed::Standard),
-            ("priority", Speed::Fast),
-            ("fast", Speed::Fast),
-            ("ultrafast", Speed::Ultrafast),
-        ] {
-            for expected in [Speed::Standard, Speed::Fast, Speed::Ultrafast] {
-                assert_eq!(
-                    validate_openai_reported_tier(expected, Some(&json!(tier))).is_ok(),
-                    expected == actual,
-                    "receipt {tier} for {expected:?}"
-                );
-            }
-        }
-        assert!(validate_openai_reported_tier(Speed::Fast, None).is_ok());
-        assert!(validate_openai_reported_tier(Speed::Fast, Some(&Value::Null)).is_ok());
-        for value in [json!("auto"), json!("flex"), json!("unpriced"), json!(1)] {
-            assert!(validate_openai_reported_tier(Speed::Fast, Some(&value)).is_err());
-        }
-    }
-
-    #[test]
-    fn mismatched_json_and_stream_receipts_never_complete_the_openai_decoder() {
-        use crate::relay::{Limits, UpstreamProtocol, decode::Decoder, sse::Frame};
-        let usage = json!({"prompt_tokens": 3, "completion_tokens": 2, "total_tokens": 5});
-        let chat = json!({
-            "id":"one","object":"chat.completion","service_tier":"default",
-            "choices":[{"index":0,"message":{"role":"assistant","content":"hello"},"finish_reason":"stop"}],
-            "usage":usage
-        });
-        let response = json!({
-            "id":"two","object":"response","status":"completed","output":[],"service_tier":"default",
-            "usage":{"input_tokens":3,"output_tokens":2,"total_tokens":5}
-        });
-        for (protocol, json_body, stream_event) in [
-            (
-                UpstreamProtocol::Chat,
-                chat,
-                json!({
-                    "id":"one","object":"chat.completion.chunk","choices":[],"usage":usage,"service_tier":"default"
-                }),
-            ),
-            (
-                UpstreamProtocol::Responses,
-                response.clone(),
-                json!({"type":"response.completed","response":response}),
-            ),
-        ] {
-            let expected_error =
-                RelayError::Protocol("OpenAI service tier differs from selected speed");
-            let mut decoder =
-                Decoder::new(protocol, &Limits::default()).with_expected_speed(Some(Speed::Fast));
-            assert_eq!(decoder.json(&json_body).unwrap_err(), expected_error);
-            assert!(!decoder.is_done());
-            assert_eq!(
-                decoder
-                    .frame(Frame {
-                        event: None,
-                        data: stream_event.to_string(),
-                    })
-                    .unwrap_err(),
-                expected_error
-            );
-            assert!(!decoder.is_done());
-        }
+    fn reports_only_unknown_or_mismatched_tiers() {
+        assert_eq!(tier_warning(Speed::Standard, None), None);
+        assert_eq!(tier_warning(Speed::Standard, Some(&Value::Null)), None);
+        assert_eq!(tier_warning(Speed::Standard, Some(&json!("default"))), None);
+        assert_eq!(tier_warning(Speed::Fast, Some(&json!("priority"))), None);
+        assert_eq!(
+            tier_warning(Speed::Standard, Some(&json!("priority"))),
+            Some("priority")
+        );
+        assert_eq!(
+            tier_warning(Speed::Standard, Some(&json!("auto"))),
+            Some("auto")
+        );
+        assert_eq!(
+            tier_warning(Speed::Standard, Some(&json!("vendor-specific"))),
+            Some("unknown")
+        );
+        assert_eq!(
+            tier_warning(Speed::Standard, Some(&json!(1))),
+            Some("invalid_type")
+        );
     }
 }

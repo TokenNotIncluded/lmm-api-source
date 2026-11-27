@@ -232,7 +232,9 @@ export async function mergeQuote(
   const source =
     quote.source.kind === 'channel'
       ? `channel/${quote.source.channel_id}`
-      : `models.dev/${quote.source.provider}`
+      : ['models.dev', quote.source.provider, quote.source.source_model]
+          .filter(Boolean)
+          .join('/')
   const value: DraftPrice = {
     ...previous,
     rates: { ...previous.rates },

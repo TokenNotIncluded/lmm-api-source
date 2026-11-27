@@ -701,7 +701,7 @@ impl TerminalFinalization<'_> {
         } = self;
         let (mut output, observed) = request.response(&raw)?;
         if request.kind().responses() {
-            relay::validate_openai_reported_tier(attempt.speed(), output.get("service_tier"))?;
+            relay::warn_openai_reported_tier(attempt.speed(), output.get("service_tier"));
         }
         let candidate = if request.kind() == Kind::ResponsesContext {
             if let Some(policy) = &continuity {

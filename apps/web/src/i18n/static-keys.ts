@@ -25,6 +25,7 @@ export const STATIC_I18N_KEYS = [
   'New user',
   'Pay for requests with your account balance.',
   'Group price',
+  'Unpriced models',
   // Appearance controls use configuration-driven labels.
   'preset.ant',
   'Auto',

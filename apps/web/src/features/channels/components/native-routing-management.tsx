@@ -14,6 +14,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 
+import { ConfirmDialog } from '@/components/confirm-dialog'
 import { Dialog } from '@/components/dialog'
 import { EmptyState } from '@/components/empty-state'
 import { ErrorState } from '@/components/error-state'
@@ -112,7 +113,7 @@ import { NativeProviderLogo } from './native-provider-logo'
 
 import './native-channel-list.css'
 
-type Section = 'channels' | 'models' | 'vendors' | 'prices'
+type Section = 'channels' | 'models' | 'vendors' | 'prices' | 'unpriced'
 type Editor = {
   title: string
   version: NativeVersion
@@ -129,14 +130,13 @@ type Editor = {
   trigger?: HTMLButtonElement
 }
 type EditorDestination =
-  | { editor: Editor }
-  | { section: Section }
-  | { close: true }
+  { editor: Editor } | { section: Section } | { close: true }
 const sections: Array<[Section, string]> = [
   ['channels', 'Channels'],
   ['models', 'Models'],
   ['vendors', 'Vendor'],
   ['prices', 'Pricing'],
+  ['unpriced', 'Unpriced models'],
 ]
 const pretty = (value: unknown) => stringifyNativeDocument(value, 2)
 const nextId = (ids: number[]) =>
@@ -257,6 +257,7 @@ function NativeRoutingWorkspace({
   const copyPending = useRef(false)
   const [copyChannel, setCopyChannel] = useState<NativeUpstream | null>(null)
   const [onboardingId, setOnboardingId] = useState<number | null>(null)
+  const [onboardingModel, setOnboardingModel] = useState<string>()
   const [usageChannel, setUsageChannel] = useState<NativeUpstream | null>(null)
   const [copyError, setCopyError] = useState<string | null>(null)
   const [section, setSection] = useState<Section>(initialSection)
@@ -320,6 +321,13 @@ function NativeRoutingWorkspace({
     [key: string]: unknown
   } | null>(null)
   const [confirmation, setConfirmation] = useState<string | null>(null)
+  const [routingChannelId, setRoutingChannelId] = useState<number | null>(null)
+  const [channelToDelete, setChannelToDelete] = useState<{
+    id: number
+    name: string
+    version: NativeVersion
+    routes: string[]
+  } | null>(null)
   const [result, setResult] = useState<unknown>(null)
   const [keyChannel, setKeyChannel] = useState<number | null>(null)
   const queryKey = [
@@ -890,7 +898,9 @@ function NativeRoutingWorkspace({
       return
     }
     void run(() =>
-      nativeRequest('DELETE', path, { expected_version: configuration.version })
+      nativeRequest('DELETE', path, {
+        expected_version: configuration.version,
+      })
     )
   }
   if (query.isLoading) return <LoadingState />
@@ -990,6 +1000,25 @@ function NativeRoutingWorkspace({
       String(price.speed)
     )
   )
+  const unpriced =
+    section === 'unpriced'
+      ? configuration.routing.upstreams
+          .flatMap((channel) => {
+            const name =
+              configuration.bindings.names[channel.id] ??
+              t('Channel {{id}}', { id: channel.id })
+            return (
+              configuration.bindings.discoveries[channel.id]?.pending_models ??
+              []
+            )
+              .filter((model) => matches(model, name, channel.id))
+              .map((model) => ({ channel, name, model }))
+          })
+          .sort(
+            (a, b) =>
+              a.model.localeCompare(b.model) || a.channel.id - b.channel.id
+          )
+      : []
   const total =
     section === 'channels'
       ? serverChannels
@@ -999,7 +1028,9 @@ function NativeRoutingWorkspace({
         ? models.length
         : section === 'vendors'
           ? vendors.length
-          : prices.length
+          : section === 'unpriced'
+            ? unpriced.length
+            : prices.length
   const lastPage = Math.max(1, Math.ceil(total / 25))
   // Local lists can shrink while open; server channel pages are validated by digest.
   const shownPage =
@@ -1815,6 +1846,9 @@ function NativeRoutingWorkspace({
                   (target) => target.upstream_id === channel.id
                 )
               )
+              const groups = [
+                ...new Set(routes.map((route) => route.group)),
+              ].sort()
               const targets = routes.flatMap((route) =>
                 route.targets.filter(
                   (target) => target.upstream_id === channel.id
@@ -1867,6 +1901,23 @@ function NativeRoutingWorkspace({
                         >
                           {channel.endpoint}
                         </p>
+                        <div className='flex flex-wrap items-center gap-1.5 text-xs'>
+                          <span className='text-muted-foreground'>
+                            {t('Groups')}
+                          </span>
+                          {groups.length === 0 ? (
+                            <span>{t('None')}</span>
+                          ) : (
+                            groups.map((group) => (
+                              <span
+                                key={group}
+                                className='bg-muted rounded px-1.5 py-0.5 [overflow-wrap:anywhere]'
+                              >
+                                {group}
+                              </span>
+                            ))
+                          )}
+                        </div>
                         {configuration.bindings.tags?.[channel.id] && (
                           <p
                             className='text-muted-foreground truncate text-xs'
@@ -1917,6 +1968,37 @@ function NativeRoutingWorkspace({
                       ))}
                     </dl>
                     <div className='native-channel-actions'>
+                      <Button
+                        type='button'
+                        variant='outline'
+                        className='min-h-11 px-2'
+                        disabled={writeDisabled || targets.length === 0}
+                        onClick={() =>
+                          setRoutingChannelId(
+                            routingChannelId === channel.id ? null : channel.id
+                          )
+                        }
+                      >
+                        {t('Edit routing')}
+                      </Button>
+                      <Button
+                        type='button'
+                        variant='ghost'
+                        className='text-destructive min-h-11 px-2'
+                        disabled={writeDisabled}
+                        onClick={() =>
+                          setChannelToDelete({
+                            id: channel.id,
+                            name,
+                            version: configuration.version,
+                            routes: routes.map(
+                              (route) => `${route.group} / ${route.model}`
+                            ),
+                          })
+                        }
+                      >
+                        {t('Delete Channel')}
+                      </Button>
                       <Button
                         type='button'
                         variant='outline'
@@ -2029,6 +2111,31 @@ function NativeRoutingWorkspace({
                       </Button>
                     </div>
                   </div>
+                  {routingChannelId === channel.id && (
+                    <NativeChannelBatchEditor
+                      key={`${configuration.version.routing}:${channel.id}`}
+                      selectedIds={[channel.id]}
+                      configuration={configuration}
+                      enforceMinimum={channel.enabled}
+                      busy={busy}
+                      writable={configurationWritable}
+                      onSave={async (patch) => {
+                        if (
+                          await run(() =>
+                            updateNativeChannels(
+                              scope,
+                              configuration.version,
+                              [channel.id],
+                              patch
+                            )
+                          )
+                        ) {
+                          setRoutingChannelId(null)
+                        }
+                      }}
+                      onCancel={() => setRoutingChannelId(null)}
+                    />
+                  )}
                   {serverChannels && (
                     <div>
                       <NativeChannelStatisticsSummary
@@ -2182,7 +2289,6 @@ function NativeRoutingWorkspace({
                         >
                           {t('Copy Channel')}
                         </Button>
-                        {deleteButton(`${NATIVE_ROOT}/channels/${channel.id}`)}
                       </div>
                     </div>
                   </details>
@@ -2191,6 +2297,49 @@ function NativeRoutingWorkspace({
             })}
           </div>
         </>
+      )}
+      {channelToDelete && (
+        <ConfirmDialog
+          open
+          onOpenChange={(open) => {
+            if (!open && !busy) setChannelToDelete(null)
+          }}
+          title={t('Delete Channel')}
+          desc={t(
+            'Are you sure you want to delete channel "{{name}}"? This action cannot be undone.',
+            { name: channelToDelete.name }
+          )}
+          destructive
+          disabled={
+            writeDisabled ||
+            channelToDelete.version.routing !== configuration.version.routing
+          }
+          isLoading={busy}
+          confirmText={t('Confirm delete')}
+          handleConfirm={async () => {
+            const deleted = await run(() =>
+              nativeRequest(
+                'DELETE',
+                `${NATIVE_ROOT}/channels/${channelToDelete.id}`,
+                {
+                  expected_version: channelToDelete.version,
+                }
+              )
+            )
+            if (deleted) setChannelToDelete(null)
+          }}
+        >
+          {channelToDelete.routes.length > 0 && (
+            <div className='max-h-48 space-y-1 overflow-auto text-sm'>
+              <p className='font-medium'>{t('Routes')}</p>
+              <ul>
+                {channelToDelete.routes.map((route, index) => (
+                  <li key={index}>{route}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </ConfirmDialog>
       )}
       {section === 'models' && (
         <>
@@ -2327,6 +2476,48 @@ function NativeRoutingWorkspace({
             />
           </div>
         )}
+      {section === 'unpriced' &&
+        (unpriced.length === 0 ? (
+          <div role='status'>
+            <EmptyState
+              className='min-h-48'
+              title={
+                search.trim() ? t('No results found') : t('No unpriced models')
+              }
+            />
+          </div>
+        ) : (
+          <ul className='divide-y'>
+            {unpriced
+              .slice(start, start + 25)
+              .map(({ channel, name, model }) => (
+                <li
+                  key={JSON.stringify([channel.id, model])}
+                  className='flex flex-wrap items-center justify-between gap-3 py-3'
+                >
+                  <div className='min-w-0'>
+                    <p className='font-medium [overflow-wrap:anywhere]'>
+                      {model}
+                    </p>
+                    <p className='text-muted-foreground text-sm [overflow-wrap:anywhere]'>
+                      {name} #{channel.id}
+                    </p>
+                  </div>
+                  <Button
+                    type='button'
+                    variant='outline'
+                    disabled={writeDisabled}
+                    onClick={() => {
+                      setOnboardingModel(model)
+                      setOnboardingId(channel.id)
+                    }}
+                  >
+                    {t('Model onboarding')}
+                  </Button>
+                </li>
+              ))}
+          </ul>
+        ))}
       {section === 'prices' && (
         <>
           <div className='flex flex-wrap gap-2'>
@@ -2453,11 +2644,15 @@ function NativeRoutingWorkspace({
           scope={scope}
           configuration={configuration}
           channelId={onboardingId}
+          initialModel={onboardingModel}
           onRefresh={async () => {
             const result = await query.refetch({ throwOnError: true })
             if (!result.data) throw new Error(t('Failed to load data'))
           }}
-          onClose={() => setOnboardingId(null)}
+          onClose={() => {
+            setOnboardingId(null)
+            setOnboardingModel(undefined)
+          }}
         />
       )}
       {balanceChannel && (

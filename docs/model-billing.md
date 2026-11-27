@@ -217,3 +217,31 @@ Rerank 接受非空 `query`、最多 2048 个字符串 `documents` 和合法的
 按原文 2026-09 的[Anthropic 拒绝计费规则](https://platform.claude.com/docs/en/build-with-claude/refusals-and-fallback#how-refusals-are-billed)，`stop_details.category` 为 `bio/frontier_llm/reasoning_extraction` 的零输出拒绝仍收费，其他及 null/缺失 category 才可能豁免。这是历史核对时间，不证明供应商规则至今不变。
 
 符合条件时退还 wallet、subscription、API-key quota 的全部预付，跳过倍率、固定价、tiered expression 与工具附加费；请求数增加，quota/token 消费汇总为零。消费日志保留真实 input/cache 诊断计数并标记 `billing_exempt_reason=claude_refusal_no_output`，refusal debug reason 仅在管理员 metadata，客户端 usage 原样。原 native Messages、转 Chat/Responses 共用证据校验；当时 Claude adaptor 接通已有 Responses 转换器，身份、组倍率、价格锁、`/fast`、OAuth 模式或 admin AI 状态都不是豁免依据。
+
+## 官方模型价格目录
+
+价格目录使用 `index.toml` 和 `models/`。索引的 `[models]` 将完整模型 ID
+映射到独立的 TOML 文件。模型文件只保存官方来源、单位、费率和可选的阶梯费率。
+模型基准价为 1×。分组倍率和速度倍率在发布配置中单独维护，未指定的分组倍率默认 1×。
+
+```toml
+version = 1
+
+[models]
+"provider/model" = "models/provider-model.toml"
+```
+
+用管理员权限获取一次 `GET /core/v1/admin/routing/configuration` 的返回值。
+下面两个命令在本地运行，不修改服务器。导出目标须为尚不存在的目录。
+
+```sh
+python3 scripts/model-price-catalog.py export routing.json model-prices
+python3 scripts/model-price-catalog.py preview routing.json model-prices/index.toml > preview.json
+```
+
+维护模型时同时更新索引和该模型的文件。提交 `preview.json` 到
+`POST /core/v1/admin/routing/configuration/preview`，核对生成的路由和价格版本，
+确认后带回预览返回的 `confirmation_digest`，通过同一配置资源的 `PUT`
+发布。每次修改前重新获取当前配置，保留并发版本检查。Core 保存发布快照用于运行和
+账单审计，历史请求继续按原冻结价格结算。目录只存经过确认的官方价格，
+缺失的价格通过未定价模型页处理。

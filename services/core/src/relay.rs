@@ -18,7 +18,7 @@ mod openrouter_tests;
 pub(crate) mod provider_network;
 mod reported_tier;
 mod request;
-pub(crate) use reported_tier::validate_openai_reported_tier;
+pub(crate) use reported_tier::warn_openai_reported_tier;
 #[cfg(test)]
 mod responses_client_tests;
 pub(crate) mod responses_ws;

@@ -426,7 +426,7 @@ async fn read_turn(
             }
             _ => continue,
         }
-        crate::relay::validate_openai_reported_tier(speed, event["response"].get("service_tier"))?;
+        crate::relay::warn_openai_reported_tier(speed, event["response"].get("service_tier"));
         correlation.decorate_active(&mut event);
         let terminal = crate::relay::responses_ws::terminal(&event)
             .map_err(|error| RelayError::Protocol(error.0))?;

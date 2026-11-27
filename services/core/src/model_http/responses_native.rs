@@ -423,7 +423,7 @@ pub(super) async fn read_stream(
                         "native SSE response identity mismatch",
                     ));
                 }
-                relay::validate_openai_reported_tier(speed, event["response"].get("service_tier"))?;
+                relay::warn_openai_reported_tier(speed, event["response"].get("service_tier"));
                 if matches!(name, "response.completed" | "response.incomplete") {
                     if event["response"]["status"]
                         != if name == "response.completed" {

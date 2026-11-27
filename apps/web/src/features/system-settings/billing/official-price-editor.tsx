@@ -61,7 +61,12 @@ function Editor({
   const [preview, setPreview] = useState<OfficialPricePreview | null>(null)
   const [source, setSource] = useState(channelId ? 'channel' : 'models.dev')
   const [channel, setChannel] = useState(channelId ? String(channelId) : '')
-  const [provider, setProvider] = useState('')
+  // DeepSeek's published API ID for the 0813 revision is deepseek-v4-pro.
+  const deepseek0813 = model === 'deepseek-v4-pro-0813'
+  const [provider, setProvider] = useState(deepseek0813 ? 'deepseek' : '')
+  const [sourceModel, setSourceModel] = useState(
+    deepseek0813 ? 'deepseek-v4-pro' : model
+  )
   const [error, setError] = useState('')
   const [notice, setNotice] = useState<'missing' | 'published' | null>(null)
   const [busy, setBusy] = useState(false)
@@ -124,7 +129,11 @@ function Editor({
     setPreview(null)
     const selection =
       source === 'models.dev'
-        ? { kind: 'models.dev' as const, provider: provider.trim() }
+        ? {
+            kind: 'models.dev' as const,
+            provider: provider.trim(),
+            sourceModel: sourceModel.trim(),
+          }
         : {
             kind: 'channel' as const,
             channelId: Number(channel),
@@ -212,11 +221,27 @@ function Editor({
             </NativeSelect>
           </label>
         )}
+        {source === 'models.dev' && (
+          <label className='space-y-1 text-sm'>
+            <span>{t('Model ID')}</span>
+            <Input
+              value={sourceModel}
+              disabled={!editable}
+              onChange={(event) => {
+                setSourceModel(event.target.value)
+                setNotice(null)
+              }}
+            />
+          </label>
+        )}
         <Button
           type='button'
           variant='outline'
           disabled={
-            !editable || (source === 'models.dev' ? !provider.trim() : !channel)
+            !editable ||
+            (source === 'models.dev'
+              ? !provider.trim() || !sourceModel.trim()
+              : !channel)
           }
           onClick={() => void run(sync)}
         >
@@ -224,7 +249,31 @@ function Editor({
         </Button>
       </div>
       {notice === 'missing' && (
-        <p role='status'>{t('No matching upstream prices')}</p>
+        <div role='status' className='flex flex-wrap items-center gap-2'>
+          <p>{t('No matching upstream prices')}</p>
+          {source !== 'models.dev' && (
+            <Button
+              type='button'
+              variant='outline'
+              onClick={() => {
+                setSource('models.dev')
+                setNotice(null)
+              }}
+            >
+              models.dev
+            </Button>
+          )}
+          {deepseek0813 && (
+            <a
+              href='https://api-docs.deepseek.com/quick_start/pricing/'
+              target='_blank'
+              rel='noreferrer'
+              className='underline'
+            >
+              {t('Pricing')}
+            </a>
+          )}
+        </div>
       )}
       {query.isPending && <p role='status'>{t('Loading...')}</p>}
       {query.isError && (

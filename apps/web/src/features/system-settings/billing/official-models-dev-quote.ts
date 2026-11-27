@@ -46,7 +46,7 @@ export async function fetchModelsDevCatalog(
 export type OfficialSourceQuote = {
   model: string
   source:
-    | { kind: 'models_dev'; provider: string }
+    | { kind: 'models_dev'; provider: string; source_model?: string }
     | { kind: 'channel'; channel_id: number; upstream_model?: string }
   currency: 'USD'
   source_token_unit: 'per_million_tokens' | 'per_token'
