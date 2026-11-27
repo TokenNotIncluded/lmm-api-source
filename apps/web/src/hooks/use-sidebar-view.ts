@@ -35,9 +35,13 @@ import { useSidebarData } from './use-sidebar-data'
 export function useRootSidebarNavigation(): NavGroup[] {
   const { t } = useTranslation()
   const userRole = useAuthStore((s) => s.auth.user?.role)
-  const rootSidebarData = useSidebarData()
-  const configFilteredRoot = useSidebarConfig(rootSidebarData.navGroups)
   const runtime = useRuntimeCapabilities()
+  const plugins =
+    runtime?.hasPluginInventoryAccess && runtime.pluginPhase === 'fresh'
+      ? runtime.plugins.data
+      : undefined
+  const rootSidebarData = useSidebarData(plugins)
+  const configFilteredRoot = useSidebarConfig(rootSidebarData.navGroups)
 
   const rootNavGroups = useMemo<NavGroup[]>(() => {
     const role = userRole ?? ROLE.GUEST

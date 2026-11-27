@@ -62,6 +62,7 @@ const { QueryClient, QueryClientProvider } =
   await import('@tanstack/react-query')
 const { createRoot } = await import('react-dom/client')
 const { useAuthStore } = await import('@/stores/auth-store')
+const { useHeroSmsNavigation } = await import('./purchase-capabilities')
 const { HeroSmsPurchaseCapabilityGate } =
   await import('./purchase-capability-gate')
 
@@ -115,14 +116,16 @@ async function textAppears(value: string) {
     ['Expected', value, 'received', document.body.textContent].join(' ')
   )
 }
-async function mount() {
+async function mount(
+  content = (
+    <HeroSmsPurchaseCapabilityGate>
+      <PurchaseProbe />
+    </HeroSmsPurchaseCapabilityGate>
+  )
+) {
   await act(async () => {
     root.render(
-      <QueryClientProvider client={client}>
-        <HeroSmsPurchaseCapabilityGate>
-          <PurchaseProbe />
-        </HeroSmsPurchaseCapabilityGate>
-      </QueryClientProvider>
+      <QueryClientProvider client={client}>{content}</QueryClientProvider>
     )
     await flush()
   })
@@ -262,5 +265,64 @@ test('signing out removes a cached purchase capability without another read', as
   })
   await textAppears('Purchases unavailable')
   assert.equal(unmounted, 1)
+  assert.equal(requests.length, 1)
+})
+
+const registered = {
+  name: 'hero-sms',
+  available: true,
+  installed: true,
+  enabled: true,
+  navigation_paths: ['/temporary-activations'],
+}
+
+function Entry({ plugins }: { plugins?: (typeof registered)[] }) {
+  const visible = useHeroSmsNavigation(true, plugins)
+  return <p>{visible ? 'Entry visible' : 'Entry hidden'}</p>
+}
+
+test('an ordinary user can discover the entry without a global request and open it when enabled', async () => {
+  readResponse = async () => ({
+    success: true,
+    data: { purchases_available: true },
+  })
+  await mount(<Entry />)
+  await textAppears('Entry visible')
+  assert.deepEqual(requests, [])
+  await mount()
+  await textAppears('Purchase child mounted')
+  assert.deepEqual(requests, ['/api/hero-sms/capabilities'])
+  await mount(<Entry />)
+  await textAppears('Entry visible')
+  assert.equal(requests.length, 1)
+})
+
+test('fresh disabled, absent and settings-only modules never cause a sidebar purchase probe', async () => {
+  for (const plugins of [
+    [],
+    [{ ...registered, available: false }],
+    [{ ...registered, installed: false }],
+    [{ ...registered, enabled: false }],
+    [{ ...registered, navigation_paths: [] }],
+  ]) {
+    await mount(<Entry plugins={plugins} />)
+    await textAppears('Entry hidden')
+  }
+  await mount(<Entry plugins={[registered]} />)
+  await textAppears('Entry visible')
+  assert.deepEqual(requests, [])
+})
+
+test('the sidebar observes a direct negative result without polling or leaking it across accounts', async () => {
+  await mount()
+  await textAppears('Purchases unavailable')
+  await mount(<Entry />)
+  await textAppears('Entry hidden')
+  assert.equal(requests.length, 1)
+  await act(async () => {
+    session(18, 'session-b')
+    await flush()
+  })
+  await textAppears('Entry visible')
   assert.equal(requests.length, 1)
 })

@@ -52,7 +52,8 @@ import { useTranslation } from 'react-i18next'
 
 import { StoreIcon } from '@/components/layout/components/store-icon'
 import type { SidebarData } from '@/components/layout/types'
-import { useHeroSmsPurchaseCapability } from '@/features/email-activations/purchase-capabilities'
+import { useHeroSmsNavigation } from '@/features/email-activations/purchase-capabilities'
+import type { PluginInfo } from '@/features/plugins/api'
 import { getTodos } from '@/features/todos/api'
 /*
 Copyright (C) 2023-2026 QuantumNous
@@ -83,12 +84,13 @@ import { useAuthStore } from '@/stores/auth-store'
  * These are shown when the URL does not match any nested sidebar view
  * registered in `layout/lib/sidebar-view-registry.ts`.
  */
-export function useSidebarData(): SidebarData {
+export function useSidebarData(plugins?: PluginInfo[]): SidebarData {
   const { t } = useTranslation()
   const user = useAuthStore((state) => state.auth.user)
   const consoleActivated = isConsoleActivated(user)
-  const heroSmsCapability = useHeroSmsPurchaseCapability(
-    Boolean(user) && consoleActivated
+  const showHeroSms = useHeroSmsNavigation(
+    Boolean(user) && consoleActivated,
+    plugins
   )
   const todosQuery = useQuery({
     queryKey: ['todos', 'all'],
@@ -166,7 +168,7 @@ export function useSidebarData(): SidebarData {
           },
         ],
       },
-      ...(heroSmsCapability.available
+      ...(showHeroSms
         ? [
             {
               id: 'services',
