@@ -40,7 +40,8 @@ const { api } = await import('@/lib/api')
 const { toast } = await import('sonner')
 const { useAuthStore } = await import('@/stores/auth-store')
 const { useSystemConfigStore } = await import('@/stores/system-config-store')
-const { readNativeCheckout } = await import('../lib/native-checkout')
+const { readNativeCheckout, saveNativeCheckout } =
+  await import('../lib/native-checkout')
 const { NativeWalletCheckout } = await import('./native-wallet-checkout')
 const i18n = createInstance()
 await i18n
@@ -218,6 +219,114 @@ test('failed channel reads stay local until explicit retry and are not presented
     await act(async () => root.unmount())
     container.remove()
     api.defaults.adapter = oldAdapter
+  }
+})
+
+test('a transient gateway error resumes the same payment status read automatically', async () => {
+  const oldGet = api.get
+  const oldPost = api.post
+  const originalTimer = globalThis.setTimeout
+  const walletSession = '[39,"checkout-rolling-update"]'
+  dom.sessionStorage.clear()
+  login(39, 'checkout-rolling-update')
+  const request = {
+    channel_id: '1',
+    currency: 'USD',
+    amount_minor: '1000',
+    request_key: '24334364-9ccd-4afe-80eb-834adcf4cf33',
+  } as const
+  const channel = {
+    id: '1',
+    provider: 'stripe',
+    environment: 'test',
+    currency: 'USD',
+  } as const
+  const quote = {
+    ...request,
+    order_id: 'top_53',
+    account_id: '39',
+    provider: channel.provider,
+    environment: channel.environment,
+    credit_units: '5000000',
+    credit_unit: 'credit_500k_usd',
+  } as const
+  saveNativeCheckout(
+    walletSession,
+    { channel, request, quote, submitted: true },
+    dom.sessionStorage
+  )
+  const container = document.body.appendChild(document.createElement('div'))
+  const root = createRoot(container)
+  const statusReads: string[] = []
+  let writes = 0
+  globalThis.setTimeout = ((
+    callback: Parameters<typeof setTimeout>[0],
+    delay?: number,
+    ...args: unknown[]
+  ) =>
+    originalTimer(
+      callback,
+      delay === 3000 ? 0 : delay,
+      ...args
+    )) as typeof setTimeout
+  api.get = (async (url: string, options: { signal?: AbortSignal }) => {
+    if (url.endsWith('/channels')) {
+      return {
+        data: { success: true, data: { available: true, channels: [channel] } },
+      }
+    }
+    assert.equal(options.signal?.aborted, false)
+    statusReads.push(url)
+    if (statusReads.length === 1) {
+      throw Object.assign(new AxiosError('temporary gateway error'), {
+        response: { status: 503 },
+      })
+    }
+    return {
+      data: {
+        success: true,
+        data: {
+          ...quote,
+          state: 'credited',
+          provider_paid: true,
+          core_credit_confirmed: true,
+        },
+      },
+    }
+  }) as typeof api.get
+  api.post = (async () => {
+    writes++
+    throw new Error('Unexpected payment write')
+  }) as typeof api.post
+  try {
+    await act(async () => {
+      root.render(
+        <I18nextProvider i18n={i18n}>
+          <NativeWalletCheckout />
+        </I18nextProvider>
+      )
+    })
+    await act(async () => {
+      const deadline = Date.now() + 1000
+      while (statusReads.length < 2 && Date.now() < deadline) await flush()
+    })
+    assert.match(container.textContent ?? '', /Funds have reached your wallet/)
+    assert.deepEqual(
+      statusReads,
+      Array(2).fill('/api/user/payments/checkout/top_53')
+    )
+    assert.equal(
+      readNativeCheckout(walletSession, dom.sessionStorage)?.request
+        .request_key,
+      request.request_key
+    )
+    assert.equal(writes, 0)
+  } finally {
+    await act(async () => root.unmount())
+    container.remove()
+    api.get = oldGet
+    api.post = oldPost
+    globalThis.setTimeout = originalTimer
   }
 })
 

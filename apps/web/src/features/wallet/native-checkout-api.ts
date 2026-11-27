@@ -66,10 +66,13 @@ export async function checkoutNativePayment(
     pending.quote
   )
 }
-export async function getNativePaymentStatus(quote: NativeQuote) {
+export async function getNativePaymentStatus(
+  quote: NativeQuote,
+  signal?: AbortSignal
+) {
   const result = await api.get(
     `/api/user/payments/checkout/${encodeURIComponent(quote.order_id)}`,
-    config()
+    { ...config(), signal }
   )
   return validateNativeCheckout(
     nativeCheckoutSchema.parse(envelope.parse(result.data).data),

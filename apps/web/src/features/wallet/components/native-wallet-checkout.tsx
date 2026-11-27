@@ -301,25 +301,35 @@ function NativeWalletCheckoutForm({
 
   useEffect(() => {
     if (!pending?.submitted || !quote || finished || busy) return
-    let active = true
+    const controller = new AbortController()
     let attempts = 0
     let timer: ReturnType<typeof setTimeout>
     const poll = async () => {
+      attempts++
       try {
-        const response = await getNativePaymentStatus(quote)
-        if (!active || !isCurrent()) return
+        const response = await getNativePaymentStatus(quote, controller.signal)
+        if (controller.signal.aborted || !isCurrent()) return
         setResult(response)
         setError(null)
-        if (!nativeCheckoutFinished(response) && ++attempts < 40) {
-          timer = setTimeout(poll, 3_000)
-        }
+        if (nativeCheckoutFinished(response)) return
       } catch (failure) {
-        if (active && isCurrent()) fail(failure)
+        if (controller.signal.aborted || !isCurrent()) return
+        const status = axios.isAxiosError(failure)
+          ? (failure.response?.status ?? 0)
+          : null
+        const retryable =
+          status !== null &&
+          (status === 0 || status === 408 || status === 429 || status >= 500)
+        if (!retryable || attempts >= 40) {
+          fail(failure)
+          return
+        }
       }
+      if (attempts < 40) timer = setTimeout(poll, 3_000)
     }
     timer = setTimeout(poll, 3_000)
     return () => {
-      active = false
+      controller.abort()
       clearTimeout(timer)
     }
   }, [pending?.submitted, quote, finished, busy, isCurrent, fail])
