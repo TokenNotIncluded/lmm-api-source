@@ -38,6 +38,23 @@ pub(crate) struct Decoder {
     gemini_grounded_requests: Option<u8>,
     continuation_token: Option<String>,
 }
+// Standard Messages responses can include metadata for features that did
+// not run. Reject positive or unknown metering for unsupported features.
+fn unsupported_anthropic_usage(usage: &Value) -> bool {
+    let present = |key| usage.get(key).filter(|value| !value.is_null());
+    present("inference_geo")
+        .is_some_and(|value| !matches!(value.as_str(), Some("global" | "not_available")))
+        || present("iterations").is_some_and(|value| !value.as_array().is_some_and(Vec::is_empty))
+        || present("server_tool_use").is_some_and(|value| {
+            !value.as_object().is_some_and(|counts| {
+                counts.iter().all(|(name, count)| {
+                    matches!(name.as_str(), "web_search_requests" | "web_fetch_requests")
+                        && count.as_u64() == Some(0)
+                })
+            })
+        })
+}
+
 fn text(v: &Value) -> Result<&str, RelayError> {
     v.as_str()
         .ok_or(RelayError::Protocol("expected upstream string"))
@@ -721,11 +738,7 @@ impl Decoder {
                 {
                     return Err(RelayError::Unsupported("provider-owned usage details"));
                 }
-                if usage.is_some_and(|usage| {
-                    ["server_tool_use", "inference_geo", "iterations"]
-                        .iter()
-                        .any(|key| usage.get(key).is_some())
-                }) {
+                if usage.is_some_and(unsupported_anthropic_usage) {
                     return Err(RelayError::Unsupported("provider-owned usage details"));
                 }
                 let delta = if full { value } else { &value["delta"] };
@@ -884,6 +897,35 @@ mod tests {
             );
             assert!(gemini.check_service_tier_headers(&headers).is_err());
         }
+    }
+
+    #[test]
+    fn anthropic_stream_accepts_inactive_usage_metadata_and_rejects_unpriced_usage() {
+        let start = |usage: Value| {
+            let body = serde_json::json!({
+                "type":"message_start","message":{"id":"msg_test","type":"message","role":"assistant",
+                "content":[],"usage":usage}
+            });
+            Frame {
+                event: Some("message_start".into()),
+                data: body.to_string(),
+            }
+        };
+        let mut usage = serde_json::json!({
+            "input_tokens": 3, "output_tokens": 0, "service_tier": "standard",
+            "inference_geo": "global", "iterations": null,
+            "server_tool_use": {"web_search_requests": 0, "web_fetch_requests": 0}
+        });
+        let decoder = || {
+            Decoder::new(UpstreamProtocol::Anthropic, &Limits::default())
+                .with_expected_speed(Some(Speed::Standard))
+        };
+        decoder().frame(start(usage.clone())).unwrap();
+        usage["server_tool_use"]["web_search_requests"] = 1.into();
+        assert_eq!(
+            decoder().frame(start(usage)).unwrap_err(),
+            RelayError::Unsupported("provider-owned usage details"),
+        );
     }
 
     #[test]
