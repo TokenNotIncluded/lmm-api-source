@@ -238,14 +238,24 @@ SELECT floor(extract(epoch FROM statement_timestamp()))::bigint AS as_of,
         .await.map_err(sql_failure("credits"))?;
         let credit_coverage = CreditCoverage {
             unverified_origins: credits.try_get("missing").map_err(sql_failure("decode"))?,
-            missing_usage_baselines: credits.try_get("missing_usage").map_err(sql_failure("decode"))?,
-            incomplete_wallets: credits.try_get("invalid_wallets").map_err(sql_failure("decode"))?,
-            invalid_settlements: credits.try_get("invalid_usage").map_err(sql_failure("decode"))?,
+            missing_usage_baselines: credits
+                .try_get("missing_usage")
+                .map_err(sql_failure("decode"))?,
+            incomplete_wallets: credits
+                .try_get("invalid_wallets")
+                .map_err(sql_failure("decode"))?,
+            invalid_settlements: credits
+                .try_get("invalid_usage")
+                .map_err(sql_failure("decode"))?,
         };
         let origins_verified = coverage_ok(credit_coverage.unverified_origins == 0, "missing");
-        let usage_verified = coverage_ok(credit_coverage.missing_usage_baselines == 0, "missing_usage")
-            && coverage_ok(credit_coverage.invalid_settlements == 0, "invalid_usage");
-        let wallets_verified = coverage_ok(credit_coverage.incomplete_wallets == 0, "invalid_wallets");
+        let usage_verified =
+            coverage_ok(
+                credit_coverage.missing_usage_baselines == 0,
+                "missing_usage",
+            ) && coverage_ok(credit_coverage.invalid_settlements == 0, "invalid_usage");
+        let wallets_verified =
+            coverage_ok(credit_coverage.incomplete_wallets == 0, "invalid_wallets");
         let used = (origins_verified && usage_verified)
             .then(|| credits.try_get("used"))
             .transpose()
