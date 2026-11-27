@@ -22,6 +22,7 @@ import { useTranslation } from 'react-i18next'
 
 import { AuthCookieRecovery } from '@/components/auth-cookie-recovery'
 import { Button } from '@/components/ui/button'
+import { useFrontendUpdateAvailable } from '@/hooks/use-frontend-update-available'
 import {
   getAuthCookieBlockedState,
   subscribeAuthCookieState,
@@ -93,6 +94,14 @@ function GeneralFailure({ className, minimal, error }: GeneralErrorProps) {
   const [copying, setCopying] = useState(false)
   const status = classifyError(error).http_status
   const isRateLimited = status === 429
+  // Rsbuild reports failed split JavaScript and CSS assets differently.
+  const failedToLoadChunk =
+    error instanceof Error &&
+    (error.name === 'ChunkLoadError' ||
+      ('code' in error && error.code === 'CSS_CHUNK_LOAD_FAILED'))
+  const updateAvailable = useFrontendUpdateAvailable(
+    !minimal && failedToLoadChunk
+  )
   const currentCopyResult =
     copyResult?.incident === diagnostics ? copyResult : null
 
@@ -125,7 +134,11 @@ function GeneralFailure({ className, minimal, error }: GeneralErrorProps) {
         description={
           isRateLimited
             ? t('Please wait a moment before trying again.')
-            : t('Reload the page to try again.')
+            : updateAvailable
+              ? t(
+                  'A newer interface is available. Refresh after finishing any payment.'
+                )
+              : t('Reload the page to try again.')
         }
         note={
           !minimal ? (
@@ -185,7 +198,7 @@ function GeneralFailure({ className, minimal, error }: GeneralErrorProps) {
                 className='error-editorial-action error-editorial-action-primary'
                 onClick={() => window.location.reload()}
               >
-                {t('Retry')}
+                {updateAvailable ? t('Refresh page') : t('Retry')}
               </Button>
               <Button
                 variant='outline'

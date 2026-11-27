@@ -10,6 +10,7 @@ const dom = new Window({
 for (const key of [
   'window',
   'document',
+  'DOMParser',
   'navigator',
   'HTMLElement',
   'HTMLButtonElement',
@@ -221,5 +222,53 @@ test('missing secure entropy disables copying with explicit feedback and no fall
       configurable: true,
       value: original,
     })
+  }
+})
+
+test('a missing frontend chunk only offers a refresh when a new build is served', async () => {
+  const originalFetch = globalThis.fetch
+  const entry = document.createElement('script')
+  entry.src = '/static/js/index.old123.js'
+  document.head.append(entry)
+  let nextEntry = '/static/js/index.old123.js'
+  const requests: string[] = []
+  globalThis.fetch = new Proxy(originalFetch, {
+    apply(_fetch, _self, [url, options]) {
+      assert.equal(options.cache, 'no-store')
+      requests.push(String(url))
+      return Promise.resolve(
+        new Response(`<script src="${nextEntry}"></script>`, {
+          headers: { 'content-type': 'text/html' },
+        })
+      )
+    },
+  })
+  try {
+    const failure = new Error('Loading chunk failed')
+    failure.name = 'ChunkLoadError'
+    const { host, update } = await mount(new Error('Unrelated failure'))
+    assert.deepEqual(requests, [])
+    await update(failure)
+    assert.deepEqual(requests, ['/index.html'])
+    assert.doesNotMatch(
+      host.textContent ?? '',
+      /A newer interface is available/
+    )
+    await update(new Error('Unrelated failure'))
+    nextEntry = '/static/js/index.new456.js'
+    const cssFailure = Object.assign(new Error('Loading CSS chunk failed'), {
+      code: 'CSS_CHUNK_LOAD_FAILED',
+    })
+    await update(cssFailure)
+    assert.deepEqual(requests, ['/index.html', '/index.html'])
+    assert.match(host.textContent ?? '', /A newer interface is available/)
+    assert.ok(
+      [...host.querySelectorAll('button')].some(
+        (button) => button.textContent === 'Refresh page'
+      )
+    )
+  } finally {
+    globalThis.fetch = originalFetch
+    entry.remove()
   }
 })
