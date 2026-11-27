@@ -88,7 +88,7 @@ jobs:
 
       - name: Test web workspace
         env:
-          LMM_WEB_TEST_JOBS: "2"
+          LMM_WEB_TEST_JOBS: "4"
         run: bun run --filter @lmm/web test
 
       - name: Build production web assets
