@@ -191,36 +191,37 @@ SELECT floor(extract(epoch FROM statement_timestamp()))::bigint AS as_of,
         )
         .fetch_one(&mut *tx)
         .await.map_err(sql_failure("credits"))?;
-        // An absent historical population cannot be treated as a verified empty archive.
-        if !coverage_ok(
+        // Without complete credit coverage neither total is authoritative.
+        // Original payment evidence is checked independently below.
+        let credit_sources_complete = coverage_ok(
             credits
                 .try_get::<i64, _>("missing")
                 .map_err(sql_failure("decode"))?
                 == 0,
             "missing",
-        ) {
-            return Err(HistoryError::Unavailable);
-        }
-        let used = coverage_ok(
+        );
+        let valid_usage = coverage_ok(
             credits
                 .try_get::<i64, _>("invalid_usage")
                 .map_err(sql_failure("decode"))?
                 == 0,
             "invalid_usage",
-        )
-        .then(|| credits.try_get("used"))
-        .transpose()
-        .map_err(sql_failure("decode"))?;
-        let balance = coverage_ok(
+        );
+        let used = (credit_sources_complete && valid_usage)
+            .then(|| credits.try_get("used"))
+            .transpose()
+            .map_err(sql_failure("decode"))?;
+        let valid_wallets = coverage_ok(
             credits
                 .try_get::<i64, _>("invalid_wallets")
                 .map_err(sql_failure("decode"))?
                 == 0,
             "invalid_wallets",
-        )
-        .then(|| credits.try_get("balance"))
-        .transpose()
-        .map_err(sql_failure("decode"))?;
+        );
+        let balance = (credit_sources_complete && valid_wallets)
+            .then(|| credits.try_get("balance"))
+            .transpose()
+            .map_err(sql_failure("decode"))?;
 
         // Accepted provider evidence can precede ledger application. Until the
         // exact refund is applied, do not publish an apparently final net payment
