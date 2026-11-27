@@ -1,6 +1,6 @@
 /* Copyright (C) 2026 LIghtJUNction. SPDX-License-Identifier: AGPL-3.0-or-later */
 import { useQuery } from '@tanstack/react-query'
-import { useRef, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { Button } from '@/components/ui/button'
@@ -14,12 +14,21 @@ import type {
 import { getServerErrorMessage } from '@/lib/server-error-message'
 
 import {
+  cacheWriteCoverageError,
+  cacheWriteTariffTarget,
+  officialPriceDestinations,
+} from './official-cache-write-coverage'
+import {
   previewOfficialPriceToml,
   publishOfficialPrice,
   readOfficialPriceToml,
   syncOfficialPriceToml,
   type OfficialPricePreview,
 } from './official-price-api'
+import {
+  missingOfficialRatePaths,
+  readOfficialToml,
+} from './official-price-toml'
 
 type Props = {
   scope: NativeRoutingScope
@@ -87,6 +96,32 @@ function Editor({
     gcTime: 0,
     staleTime: Infinity,
   })
+  const sourceChannel =
+    source !== 'models.dev' && channel ? Number(channel) : undefined
+  const diagnostics = useMemo(() => {
+    if (draft === null) return
+    let price: ReturnType<typeof readOfficialToml>
+    try {
+      price = readOfficialToml(model, draft)
+    } catch {
+      // An unfinished TOML edit can still be checked with Preview.
+      return
+    }
+    const destinations = officialPriceDestinations(
+      base.routing,
+      model,
+      channelId,
+      sourceChannel
+    )
+    return {
+      missing: missingOfficialRatePaths(
+        price,
+        cacheWriteTariffTarget(price, destinations)
+      ),
+      coverage: cacheWriteCoverageError(price, destinations),
+    }
+  }, [base.routing, channelId, draft, model, sourceChannel])
+  const missingRates = diagnostics?.missing ?? []
   const text = draft ?? query.data
   const stale =
     configuration.version.pricing !== base.version.pricing ||
@@ -300,6 +335,26 @@ function Editor({
               onChange={(event) => change(event.target.value)}
             />
           </label>
+          {(missingRates.length > 0 || diagnostics?.coverage) && (
+            <div role='status' className='space-y-1 text-sm'>
+              {missingRates.length > 0 && (
+                <>
+                  <p>{t('Missing price fields')}</p>
+                  <ul className='max-h-48 list-disc overflow-y-auto ps-5'>
+                    {missingRates.slice(0, 64).map((path) => (
+                      <li key={path}>
+                        <code className='break-all'>{path}</code>
+                      </li>
+                    ))}
+                    {missingRates.length > 64 && (
+                      <li>+{missingRates.length - 64}</li>
+                    )}
+                  </ul>
+                </>
+              )}
+              {diagnostics?.coverage && <p>{t(diagnostics.coverage)}</p>}
+            </div>
+          )}
           <div className='flex flex-wrap items-center gap-2'>
             <input
               ref={fileInput}
@@ -342,7 +397,12 @@ function Editor({
             )}
             <Button
               type='button'
-              disabled={!editable || text === query.data}
+              disabled={
+                !editable ||
+                text === query.data ||
+                missingRates.length > 0 ||
+                Boolean(diagnostics?.coverage)
+              }
               onClick={() =>
                 void run(async () => {
                   setPreview(null)
@@ -353,9 +413,7 @@ function Editor({
                       model,
                       text,
                       channelId,
-                      source !== 'models.dev' && channel
-                        ? Number(channel)
-                        : undefined
+                      sourceChannel
                     )
                   )
                 })

@@ -8,6 +8,8 @@ import { Window } from 'happy-dom'
 
 import type { NativeConfiguration } from '@/features/channels/native-api'
 
+import { writeOfficialToml } from './official-price-toml'
+
 const dom = new Window()
 for (const [key, value] of Object.entries({
   window: dom,
@@ -33,7 +35,35 @@ await i18n
 
 const name = 'vendor/model'
 const initial = 'model = "vendor/model"\nsource = "manual"'
-const fetched = 'model = "vendor/model"\nsource = "channel:31"'
+const zero = { numerator: 0, denominator: 1 }
+const partial = writeOfficialToml(name, {
+  source: 'channel/31',
+  source_unit: 'USD/1M tokens',
+  billing_mode: 'tiered_decimal',
+  rates: { input: 0, output: 0, cache_read: 0, cache_write: 0 },
+  tiered: {
+    source_digest: 'a'.repeat(64),
+    revision: 2,
+    uses_cache_read: true,
+    uses_cache_write: true,
+    tiers: [
+      {
+        rates: {
+          input: zero,
+          output: zero,
+          cache_read: zero,
+          cache_write: zero,
+        },
+      },
+    ],
+  },
+})
+const fetched = writeOfficialToml(name, {
+  source: 'channel/31',
+  source_unit: 'USD/1M tokens',
+  rates: { input: 100, output: 200, cache_read: 0, cache_write: 0, request: 0 },
+})
+let imported = partial
 const receipt = {
   changes: { added: [], modified: [name], deleted: [] },
   digest: 'reviewed',
@@ -55,7 +85,7 @@ mock.module('./official-price-api', () => ({
       channelId: 31,
       upstreamModel: 'provider/model',
     })
-    return { found, toml: found ? fetched : '' }
+    return { found, toml: found ? imported : '' }
   },
   previewOfficialPriceToml: async (
     _scope: unknown,
@@ -77,7 +107,10 @@ test('channel quotes remain editable through separate diff and publish steps; st
   const scope = { userId: 2, sessionId: 'admin', role: 100 }
   const config = {
     version: { routing: 2, pricing: 5 },
-    routing: { upstreams: [{ id: 31 }] },
+    routing: {
+      routes: [],
+      upstreams: [{ id: 31, protocol: 'openai_responses' }],
+    },
     bindings: {
       names: { 31: 'Supplier' },
       official_prices: { models: { [name]: {} } },
@@ -132,6 +165,18 @@ test('channel quotes remain editable through separate diff and publish steps; st
     assert.ok(button('models.dev'))
     found = true
     await click('Fetch upstream prices')
+    assert.equal(host.querySelector('textarea')?.value, partial)
+    assert.ok(host.textContent?.includes('Missing price fields'))
+    assert.ok(host.textContent?.includes('Set tiered.revision to 4'))
+    assert.deepEqual(
+      [...host.querySelectorAll('li code')].map((el) => el.textContent),
+      ['rates.request', 'tiered.tiers[0].rates.cache_write_12h']
+    )
+    assert.equal(button('Preview changes')?.disabled, true)
+    assert.deepEqual(proposals, [])
+    imported = fetched
+    await click('Fetch upstream prices')
+    assert.equal(host.textContent?.includes('Missing price fields'), false)
     assert.equal(host.querySelector('textarea')?.value, fetched)
     assert.equal(button('Publish prices'), undefined)
     await click('Preview changes')

@@ -39,10 +39,10 @@ export function officialPriceDestinations(
   return destinations
 }
 
-export function cacheWriteCoverageError(
+export function cacheWriteTariffTarget(
   price: Pick<OfficialPrice, 'tiered'> | undefined,
   destinations: Destination[]
-): string | undefined {
+) {
   const tariff = price?.tiered
   if (!tariff || (tariff.revision === 1 && !tariff.uses_cache_write)) return
   const protocols = new Set(
@@ -59,13 +59,27 @@ export function cacheWriteCoverageError(
   const anthropic = protocols.has('anthropic_messages')
   if (!openai && !legacy && !anthropic) return
   if ((openai && (legacy || anthropic)) || protocols.has('gemini')) {
+    return 'mixed'
+  }
+  if (openai) return 'openai'
+  return legacy ? 'legacy' : 'anthropic'
+}
+
+export function cacheWriteCoverageError(
+  price: Pick<OfficialPrice, 'tiered'> | undefined,
+  destinations: Destination[]
+): string | undefined {
+  const tariff = price?.tiered
+  const target = cacheWriteTariffTarget(price, destinations)
+  if (!tariff || !target) return
+  if (target === 'mixed') {
     return 'The configured protocols cannot share this tiered cache-write tariff. Review the model’s route targets before publishing. Keep the draft until each target can use the same confirmed rates.'
   }
   const bands = [...tariff.tiers, ...(tariff.calendar?.match_tiers ?? [])]
   const hasRate = (name: string) =>
     bands.every((band) => Object.hasOwn(band.rates, name))
   if (
-    openai &&
+    target === 'openai' &&
     (tariff.revision !== 4 ||
       !tariff.uses_cache_read ||
       !tariff.uses_cache_write ||
@@ -76,7 +90,7 @@ export function cacheWriteCoverageError(
     return 'OpenAI uses cache_write for 30-minute writes. Set tiered.revision to 4, enable uses_cache_read, uses_cache_write and uses_cache_write_12h, and disable uses_cache_write_1h. Enter rates.cache_write_12h in every tier, including calendar.match_tiers. Enter { numerator = 0, denominator = 1 } only for a confirmed free 12-hour write. Keep unknown prices in the draft.'
   }
   if (
-    legacy &&
+    target === 'legacy' &&
     (tariff.revision !== 3 ||
       !tariff.uses_cache_write ||
       tariff.uses_cache_write_1h !== true ||
@@ -85,7 +99,7 @@ export function cacheWriteCoverageError(
     return 'Legacy OpenRouter Chat requires revision 3 with one unbounded tier, uses_cache_write_1h enabled, and an explicit rates.cache_write_1h. Enter { numerator = 0, denominator = 1 } only for a confirmed free 1-hour write. Keep unknown prices in the draft.'
   }
   if (
-    anthropic &&
+    target === 'anthropic' &&
     ((tariff.revision !== 2 && tariff.revision !== 3) ||
       !tariff.uses_cache_write ||
       tariff.uses_cache_write_1h !== true ||

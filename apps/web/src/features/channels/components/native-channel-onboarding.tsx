@@ -1,5 +1,5 @@
 /* Copyright (C) 2026 LIghtJUNction. SPDX-License-Identifier: AGPL-3.0-or-later */
-import { useRef, useState } from 'react'
+import { useId, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { Dialog } from '@/components/dialog'
@@ -34,6 +34,7 @@ export function NativeChannelOnboarding({
   onClose: () => void
 }) {
   const { t } = useTranslation()
+  const saveHintId = useId()
   const [search, setSearch] = useState(initialModel ?? '')
   const [page, setPage] = useState(0)
   const [draft, setDraft] = useState<{
@@ -42,6 +43,10 @@ export function NativeChannelOnboarding({
   } | null>(null)
   const [editing, setEditing] = useState<string | null>(initialModel ?? null)
   const [chosenModel, setChosenModel] = useState('')
+  const [lastSync, setLastSync] = useState<{
+    total: number
+    added: Set<string>
+  } | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const lock = useRef(false)
@@ -73,16 +78,24 @@ export function NativeChannelOnboarding({
         channel?.enabled &&
         route.enabled &&
         groups.has(route.group) &&
-        target.enabled
+        target.enabled &&
+        target.weight > 0 &&
+        target.speeds.some((speed) => route.speeds.includes(speed))
       ) {
         live.add(id)
       }
     }
   }
   const publicModels = (id: string) => [...(publicByUpstream.get(id) ?? [id])]
-  const models = [
-    ...new Set([...pending, ...(discovery?.models ?? []), ...live]),
-  ]
+  const knownModels = new Set([
+    ...pending,
+    ...(discovery?.models ?? []),
+    ...live,
+  ])
+  const latestAdded = [...(lastSync?.added ?? [])].filter((id) =>
+    knownModels.has(id)
+  )
+  const models = [...new Set([...latestAdded, ...knownModels])]
   const filtered = models.filter((model) =>
     model.toLowerCase().includes(search.trim().toLowerCase())
   )
@@ -91,6 +104,11 @@ export function NativeChannelOnboarding({
     Math.max(0, Math.ceil(filtered.length / pageSize) - 1)
   )
   const official = configuration.bindings.official_prices?.models ?? {}
+  const missingOfficial = (model: string) =>
+    !publicModels(model).some((id) => Object.hasOwn(official, id))
+  const unpriced = [...pending].filter(
+    (id) => !live.has(id) && missingOfficial(id)
+  )
   const choices = editing ? publicModels(editing) : []
   const priced = choices.filter((name) => Object.hasOwn(official, name))
   const isNewModel = editing !== null && !publicByUpstream.has(editing)
@@ -112,9 +130,19 @@ export function NativeChannelOnboarding({
     try {
       const path = `${NATIVE_ROOT}/channels/${channelId}/models/`
       if (sync) {
-        await nativeRequest(scope, 'POST', `${path}synchronize`, {
-          expected_version: configuration.version,
+        const receipt = await nativeRequest<{ models: string[] }>(
+          scope,
+          'POST',
+          `${path}synchronize`,
+          { expected_version: configuration.version }
+        )
+        const returned = new Set(receipt.models)
+        setLastSync({
+          total: returned.size,
+          added: new Set([...returned].filter((id) => !knownModels.has(id))),
         })
+        setPage(0)
+        setSearch('')
       } else {
         await nativeRequest(scope, 'PUT', `${path}pending`, {
           expected_version: configuration.version,
@@ -166,6 +194,7 @@ export function NativeChannelOnboarding({
             type='button'
             variant='outline'
             disabled={busy || stale || !changed}
+            aria-describedby={!busy && !changed ? saveHintId : undefined}
             onClick={() => void update(false)}
           >
             {t('Save pending models')}
@@ -181,6 +210,11 @@ export function NativeChannelOnboarding({
             </Button>
           )}
         </div>
+        {!busy && !changed && (
+          <p id={saveHintId} className='text-muted-foreground text-sm'>
+            {t('Change the pending selection to save it.')}
+          </p>
+        )}
         {error && (
           <p role='alert' className='text-destructive text-sm'>
             {error}
@@ -193,6 +227,20 @@ export function NativeChannelOnboarding({
             )}
           </p>
         )}
+        {lastSync && (
+          <p role='status' className='text-sm'>
+            {t('Last sync: {{total}} returned, {{added}} newly discovered.', {
+              total: lastSync.total,
+              added: lastSync.added.size,
+            })}
+          </p>
+        )}
+        <p className='text-muted-foreground text-sm'>
+          {t(
+            'Channel models: {{live}} enabled, {{unpriced}} pending without an official base price.',
+            { live: live.size, unpriced: unpriced.length }
+          )}
+        </p>
         <Input
           aria-label={t('Search models')}
           placeholder={t('Search models')}
@@ -210,35 +258,53 @@ export function NativeChannelOnboarding({
                 key={model}
                 className='flex min-h-12 flex-wrap items-center gap-3 py-2'
               >
-                <label className='flex min-w-0 flex-1 items-center gap-2'>
-                  <input
-                    type='checkbox'
-                    aria-label={model}
-                    checked={live.has(model) || selected.has(model)}
-                    disabled={busy || stale || live.has(model)}
-                    onChange={(event) => {
-                      const next = new Set(selected)
-                      if (event.target.checked) next.add(model)
-                      else next.delete(model)
-                      setDraft({
-                        version: configuration.version.routing,
-                        models: [...next],
-                      })
-                    }}
-                  />
-                  <span className='font-mono text-sm break-all'>{model}</span>
-                </label>
+                {live.has(model) ? (
+                  <span className='min-w-0 flex-1 font-mono text-sm break-all'>
+                    {model}
+                  </span>
+                ) : (
+                  <label className='flex min-w-0 flex-1 items-center gap-2'>
+                    <input
+                      type='checkbox'
+                      aria-label={model}
+                      checked={selected.has(model)}
+                      disabled={busy || stale}
+                      onChange={(event) => {
+                        const next = new Set(selected)
+                        if (event.target.checked) next.add(model)
+                        else next.delete(model)
+                        setDraft({
+                          version: configuration.version.routing,
+                          models: [...next],
+                        })
+                      }}
+                    />
+                    <span className='font-mono text-sm break-all'>{model}</span>
+                  </label>
+                )}
+                {lastSync?.added.has(model) && (
+                  <span className='text-primary text-xs'>
+                    {t('Newly discovered')}
+                  </span>
+                )}
                 <span className='text-muted-foreground text-xs'>
                   {live.has(model)
                     ? t('Enabled')
                     : pending.has(model)
-                      ? publicModels(model).some((id) =>
-                          Object.hasOwn(official, id)
-                        )
-                        ? t('Pending activation')
-                        : t('Pending pricing')
-                      : t('Discovered only')}
+                      ? missingOfficial(model)
+                        ? t('Pending pricing')
+                        : t('Pending activation')
+                      : selected.has(model)
+                        ? t('Save pending models')
+                        : t('Select to add to pending models')}
                 </span>
+                {!live.has(model) && missingOfficial(model) && (
+                  <span className='text-muted-foreground text-xs break-all'>
+                    {t('Missing official base price: {{models}}', {
+                      models: publicModels(model).join(', '),
+                    })}
+                  </span>
+                )}
                 {pending.has(model) && !live.has(model) && (
                   <Button
                     type='button'

@@ -11,6 +11,7 @@ import { proposedPublication, officialModelChanges } from './official-price-api'
 import {
   completeOfficialPrice,
   mergeQuote,
+  missingOfficialRatePaths,
   readOfficialToml,
   writeOfficialToml,
   type OfficialPrice,
@@ -360,4 +361,57 @@ test('TTL preflight follows channel payloads and checks calendar tiers without g
   )
   assert.equal(issue({ tiered: { ...hourly, revision: 3 } }, legacy), undefined)
   assert.match(issue(price, [...openai, ...anthropic]) ?? '', /route targets/)
+})
+
+test('import diagnostics enumerate unquoted meters by band and preserve confirmed zero prices', async () => {
+  const blank = readOfficialToml('a/m', writeOfficialToml('a/m'))
+  assert.deepEqual(missingOfficialRatePaths(blank), [
+    'rates.input',
+    'rates.output',
+    'rates.cache_read',
+    'rates.cache_write',
+    'rates.request',
+  ])
+  const quoteText = await mergeQuote('a/m', writeOfficialToml('a/m'), {
+    ...quote,
+    rates: { input: '1', output: '2', cache_read: '0' },
+    context_tiers: [
+      { above_input_tokens: 200000, rates: { cache_write: '3' } },
+    ],
+  })
+  const draft = readOfficialToml('a/m', quoteText)
+  const tariff = draft.tiered
+  assert.ok(tariff)
+  assert.deepEqual(missingOfficialRatePaths(draft, 'openai'), [
+    'rates.request',
+    'tiered.tiers[0].rates.cache_write',
+    'tiered.tiers[0].rates.cache_write_12h',
+    'tiered.tiers[1].rates.cache_write_12h',
+  ])
+  assert.throws(
+    () =>
+      completeOfficialPrice({
+        ...draft,
+        rates: { ...draft.rates, request: 0 },
+      }),
+    /tiered\.tiers\[0\]\.rates\.cache_write/
+  )
+  const zero = { numerator: 0, denominator: 1 }
+  for (const band of tariff.tiers) {
+    band.rates.cache_write ??= zero
+    band.rates.cache_write_12h = zero
+  }
+  draft.rates.request = 0
+  tariff.calendar = { match_tiers: [{ rates: { ...tariff.tiers[1].rates } }] }
+  delete tariff.calendar.match_tiers[0].rates.cache_write_12h
+  assert.deepEqual(missingOfficialRatePaths(draft, 'openai'), [
+    'tiered.calendar.match_tiers[0].rates.cache_write_12h',
+  ])
+  tariff.calendar.match_tiers[0].rates.cache_write_12h = zero
+  assert.deepEqual(missingOfficialRatePaths(draft, 'openai'), [])
+  assert.deepEqual(missingOfficialRatePaths(draft, 'anthropic'), [
+    'tiered.tiers[0].rates.cache_write_1h',
+    'tiered.tiers[1].rates.cache_write_1h',
+    'tiered.calendar.match_tiers[0].rates.cache_write_1h',
+  ])
 })

@@ -19,6 +19,10 @@ For commercial licensing, please contact support@quantumnous.com
 // Static translation keys that don't get picked up by the t('...') regex.
 // These cover dynamic labels (e.g. constants, configs) that are passed into t at runtime.
 export const STATIC_I18N_KEYS = [
+  'The configured protocols cannot share this tiered cache-write tariff. Review the model’s route targets before publishing. Keep the draft until each target can use the same confirmed rates.',
+  'OpenAI uses cache_write for 30-minute writes. Set tiered.revision to 4, enable uses_cache_read, uses_cache_write and uses_cache_write_12h, and disable uses_cache_write_1h. Enter rates.cache_write_12h in every tier, including calendar.match_tiers. Enter { numerator = 0, denominator = 1 } only for a confirmed free 12-hour write. Keep unknown prices in the draft.',
+  'Legacy OpenRouter Chat requires revision 3 with one unbounded tier, uses_cache_write_1h enabled, and an explicit rates.cache_write_1h. Enter { numerator = 0, denominator = 1 } only for a confirmed free 1-hour write. Keep unknown prices in the draft.',
+  'Anthropic uses cache_write for 5-minute writes. For a context tariff, use revision 2, enable uses_cache_write and uses_cache_write_1h, and enter rates.cache_write_1h in every tier, including calendar.match_tiers. Enter { numerator = 0, denominator = 1 } only for a confirmed free 1-hour write. Keep unknown prices in the draft.',
   'Super administrator',
   'Administrator',
   'Returning user',

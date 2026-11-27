@@ -4791,20 +4791,32 @@ test('each channel can save a nonempty subset of existing groups without changin
     assert.equal(options.method, 'PUT')
     assert.match(options.url, /channels\/batch\/configuration$/)
     updates.push(options.data)
-    config.bindings.channel_groups = { '1': required(options.data).patch.groups }
+    config.bindings.channel_groups = {
+      '1': required(options.data).patch.groups,
+    }
     config.version.routing++
     config.routing.version++
     return ok({ version: config.version, updated: 1, target_count: 1 })
   }) as typeof api.request
-  const container = await mount('channels', true, { native_channel_observations: false })
-  await until(() => !!container.querySelector('article button[aria-label="Groups"]'))
-  const trigger = required(container.querySelector<HTMLButtonElement>('article button[aria-label="Groups"]'))
+  const container = await mount('channels', true, {
+    native_channel_observations: false,
+  })
+  await until(
+    () => !!container.querySelector('article button[aria-label="Groups"]')
+  )
+  const trigger = required(
+    container.querySelector<HTMLButtonElement>(
+      'article button[aria-label="Groups"]'
+    )
+  )
   await act(async () => trigger.click())
   const form = required(container.querySelector('form[aria-label="Groups"]'))
-  const check = (name: string) => required(
-    [...form.querySelectorAll<HTMLButtonElement>('[role="checkbox"]')]
-      .find((input) => input.getAttribute('aria-label') === name)
-  )
+  const check = (name: string) =>
+    required(
+      [...form.querySelectorAll<HTMLButtonElement>('[role="checkbox"]')].find(
+        (input) => input.getAttribute('aria-label') === name
+      )
+    )
   assert.equal(check('default').getAttribute('aria-checked'), 'true')
   await act(async () => check('default').click())
   assert.ok(button(form, 'Save').disabled)
@@ -4812,7 +4824,13 @@ test('each channel can save a nonempty subset of existing groups without changin
   await act(async () => check('default').click())
   await act(async () => button(form, 'Save').click())
   await until(() => !container.querySelector('form[aria-label="Groups"]'))
-  assert.deepEqual(updates, [{ expected_version: expectedVersion, ids: [1], patch: { groups: ['review', 'default'] } }])
+  assert.deepEqual(updates, [
+    {
+      expected_version: expectedVersion,
+      ids: [1],
+      patch: { groups: ['review', 'default'] },
+    },
+  ])
   assert.deepEqual(config.routing.routes, originalRoutes)
   assert.ok(container.querySelector('article')?.textContent?.includes('review'))
 })
@@ -4876,7 +4894,11 @@ test('channel onboarding persists missing-price selections without routing them'
     }
     config.version.routing++
     config.routing.version++
-    return ok({ version: { ...config.version }, routes_published: false })
+    return ok({
+      version: { ...config.version },
+      models: config.bindings.discoveries[1].models,
+      routes_published: false,
+    })
   }) as typeof api.request
   const page = await mount('channels', true, {
     native_channel_observations: false,
@@ -4892,14 +4914,53 @@ test('channel onboarding persists missing-price selections without routing them'
   await until(() => page.textContent?.includes('Model onboarding') ?? false)
   await click(button(page, 'Model onboarding'))
   await until(() => box('model-c')?.checked === true)
-  assert.equal(box('model-a')?.disabled, true)
+  assert.equal(box('model-a'), null)
+  assert.ok(
+    [...dialog().querySelectorAll('li')].some(
+      (row) =>
+        row.textContent?.includes('model-a') &&
+        row.textContent.includes('Enabled')
+    )
+  )
+  const save = () => button(dialog(), 'Save pending models')
+  assert.equal(save().disabled, true)
+  const hint = required(save().getAttribute('aria-describedby'))
+  assert.equal(
+    document.getElementById(hint)?.textContent,
+    'Change the pending selection to save it.'
+  )
   await click(button(dialog(), 'Sync models'))
   await until(() => !!box('model-b') && !box('model-b')?.disabled)
+  assert.match(
+    dialog().textContent ?? '',
+    /Last sync: 2 returned, 1 newly discovered\./
+  )
+  assert.match(
+    dialog().textContent ?? '',
+    /Channel models: 1 enabled, 1 pending without an official base price\./
+  )
+  assert.match(
+    dialog().querySelector('li')?.textContent ?? '',
+    /model-b.*Newly discovered/
+  )
+  assert.match(
+    box('model-c')?.closest('li')?.textContent ?? '',
+    /Missing official base price: model-c/
+  )
   assert.equal(box('model-b')?.checked, false)
   assert.equal(box('model-c')?.checked, true)
+  await click(button(dialog(), 'Sync models'))
+  await until(
+    () =>
+      dialog().textContent?.includes('2 returned, 0 newly discovered') ?? false
+  )
+  assert.ok(
+    !dialog().querySelector('li')?.textContent?.includes('Newly discovered')
+  )
   await click(required(box('model-b')))
+  assert.equal(save().disabled, false)
   await click(button(dialog(), 'Save pending models'))
-  await until(() => writes.length === 2 && !button(dialog(), 'Close').disabled)
+  await until(() => writes.length === 3 && !button(dialog(), 'Close').disabled)
   await click(button(dialog(), 'Close'))
   await until(() => !page.querySelector('[role="dialog"]'))
   await click(button(page, 'Model onboarding'))

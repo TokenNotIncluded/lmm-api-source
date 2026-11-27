@@ -170,6 +170,47 @@ function parseFractionStrings(value: unknown, path: string[] = []): unknown {
   }
   return value
 }
+export function missingOfficialRatePaths(
+  value: DraftPrice,
+  target?: 'openai' | 'legacy' | 'anthropic' | 'mixed'
+): string[] {
+  const missing = [...tokenKeys, 'request']
+    .filter((key) => !Object.hasOwn(value.rates, key))
+    .map((key) => `rates.${key}`)
+  const tariff = value.tiered
+  if (!tariff) return missing
+
+  const meters: string[] = [...tokenKeys]
+  if (
+    tariff.uses_cache_write_1h ||
+    target === 'legacy' ||
+    target === 'anthropic'
+  ) {
+    meters.push('cache_write_1h')
+  }
+  if (
+    tariff.uses_cache_write_12h ||
+    tariff.revision === 4 ||
+    target === 'openai'
+  ) {
+    meters.push('cache_write_12h')
+  }
+  const checkBands = (bands: typeof tariff.tiers, path: string) => {
+    bands.forEach((band, index) => {
+      for (const meter of meters) {
+        if (!Object.hasOwn(band.rates, meter)) {
+          missing.push(`${path}[${index}].rates.${meter}`)
+        }
+      }
+    })
+  }
+  checkBands(tariff.tiers, 'tiered.tiers')
+  if (tariff.calendar) {
+    checkBands(tariff.calendar.match_tiers, 'tiered.calendar.match_tiers')
+  }
+  return missing
+}
+
 export function completeOfficialPrice(value: DraftPrice): OfficialPrice {
   const p = price.parse(value)
   if (
@@ -183,14 +224,17 @@ export function completeOfficialPrice(value: DraftPrice): OfficialPrice {
   if ((p.billing_mode === 'tiered_decimal') !== Boolean(p.tiered)) {
     throw new Error('Incomplete context tariff')
   }
-  if (
-    p.tiered &&
-    (Object.values(p.rates).some((rate) => rate !== 0) ||
-      p.tiered.tiers.some((band) =>
-        tokenKeys.some((key) => !Object.hasOwn(band.rates, key))
-      ))
-  ) {
+  if (p.tiered && Object.values(p.rates).some((rate) => rate !== 0)) {
     throw new Error('Incomplete context tariff')
+  }
+  if (
+    p.tiered?.tiers.some((band) =>
+      tokenKeys.some((key) => !Object.hasOwn(band.rates, key))
+    )
+  ) {
+    throw new Error(
+      `Missing price fields: ${missingOfficialRatePaths(p).join(', ')}`
+    )
   }
   return p
 }
