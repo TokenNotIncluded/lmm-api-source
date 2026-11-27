@@ -122,6 +122,69 @@ fn openrouter_stream_images_arrive_before_finish_and_keep_usage_only_tail() {
     assert_eq!(encoder.usage().input_tokens, Some(7));
 }
 #[test]
+fn openrouter_repeated_finish_carries_authoritative_usage_once() {
+    let limits = Limits::default();
+    let first = json!({
+        "id": "generation-1", "provider": "Example",
+        "choices": [{"index": 0, "delta": {"content": "OK"}, "finish_reason": null}]
+    });
+    let finish = json!({
+        "id": "generation-1", "provider": "Example",
+        "choices": [{"index": 0, "delta": {}, "finish_reason": "stop", "native_finish_reason": "stop"}]
+    });
+    let usage = json!({
+        "id": "generation-1", "provider": "Example",
+        "choices": [{"index": 0, "delta": {"content": ""}, "finish_reason": "stop", "native_finish_reason": "stop"}],
+        "usage": {"prompt_tokens": 7, "completion_tokens": 2, "total_tokens": 9, "cost": 0}
+    });
+    assert!(
+        Decoder::new(UpstreamProtocol::Chat, &limits)
+            .frame(frame(first.clone()))
+            .is_err()
+    );
+    let mut decoder = Decoder::new(UpstreamProtocol::Chat, &limits).with_openrouter_stream(true);
+    let mut encoder = Encoder::new(&request(true, json!({})), "openrouter-usage-tail", &limits);
+    let mut visible = Vec::new();
+    for input in [first.clone(), finish.clone(), usage.clone()] {
+        for event in decoder.frame(frame(input)).unwrap() {
+            visible.extend(encoder.consume(event).unwrap());
+        }
+    }
+    assert!(String::from_utf8(visible.concat()).unwrap().contains("OK"));
+    assert!(!decoder.is_done());
+    for event in decoder
+        .frame(Frame {
+            event: None,
+            data: "[DONE]".into(),
+        })
+        .unwrap()
+    {
+        assert!(encoder.consume(event).unwrap().is_empty());
+    }
+    let tail = String::from_utf8(encoder.terminal().unwrap().concat()).unwrap();
+    assert_eq!(tail.matches("\"finish_reason\":\"stop\"").count(), 1);
+    assert_eq!(tail.matches("[DONE]").count(), 1);
+    assert_eq!(encoder.usage().input_tokens, Some(7));
+    assert_eq!(encoder.usage().output_tokens, Some(2));
+    assert_eq!(encoder.usage().upstream_cost_atto_usd, Some(0));
+
+    for (reason, delta) in [
+        ("length", json!({})),
+        ("stop", json!({"content":"unexpected"})),
+        ("stop", json!({"unexpected":null})),
+    ] {
+        let mut decoder =
+            Decoder::new(UpstreamProtocol::Chat, &limits).with_openrouter_stream(true);
+        decoder.frame(frame(first.clone())).unwrap();
+        decoder.frame(frame(finish.clone())).unwrap();
+        let mut invalid = usage.clone();
+        invalid["choices"][0]["finish_reason"] = json!(reason);
+        invalid["choices"][0]["delta"] = delta;
+        assert!(decoder.frame(frame(invalid)).is_err());
+    }
+}
+
+#[test]
 fn openrouter_images_reject_malformed_oversized_and_lossy_output() {
     let limits = Limits::default();
     for images in [

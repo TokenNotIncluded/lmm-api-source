@@ -218,6 +218,66 @@ impl Decoder {
         }
         Ok(())
     }
+    fn project_openrouter_stream(&self, content: &mut Value) -> Result<(), RelayError> {
+        let object = content.as_object_mut().unwrap();
+        // OpenRouter adds provider metadata outside the normalized Chat fields.
+        if object
+            .remove("provider")
+            .is_some_and(|value| !value.is_string() && !value.is_null())
+        {
+            return Err(RelayError::Protocol("invalid OpenRouter provider metadata"));
+        }
+        let has_usage = object.get("usage").is_some_and(Value::is_object);
+        let Some(choices) = object.get_mut("choices").and_then(Value::as_array_mut) else {
+            return Ok(());
+        };
+        let [choice] = choices.as_mut_slice() else {
+            return Ok(());
+        };
+        let Some(choice) = choice.as_object_mut() else {
+            return Ok(());
+        };
+        if choice
+            .remove("native_finish_reason")
+            .is_some_and(|value| !value.is_string() && !value.is_null())
+        {
+            return Err(RelayError::Protocol(
+                "invalid OpenRouter native finish reason",
+            ));
+        }
+        // The documented final usage frame repeats the already observed finish.
+        // Treat that exact content-free choice as usage-only. Contradictions,
+        // content, tool calls, or extra choice fields still reach validation.
+        if has_usage
+            && let Some(previous) = self.finish
+            && choice.get("index").and_then(Value::as_u64) == Some(0)
+            && choice
+                .get("finish_reason")
+                .and_then(Value::as_str)
+                .is_some_and(|reason| {
+                    finish_reason(self.protocol, reason, self.tools()).ok() == Some(previous)
+                })
+            && choice.keys().all(|key| {
+                matches!(
+                    key.as_str(),
+                    "index" | "delta" | "finish_reason" | "logprobs"
+                )
+            })
+            && choice.get("logprobs").is_none_or(Value::is_null)
+            && choice
+                .get("delta")
+                .and_then(Value::as_object)
+                .is_some_and(|delta| {
+                    delta.iter().all(|(key, value)| {
+                        key == "content" && (value.is_null() || value.as_str() == Some(""))
+                    })
+                })
+        {
+            choices.clear();
+        }
+        Ok(())
+    }
+
     pub(super) fn decode_frame(
         &mut self,
         frame: &Frame,
@@ -237,13 +297,17 @@ impl Decoder {
         ) && value
             .pointer(usage_path)
             .is_some_and(|usage| usage.get("cost_details").is_some());
-        let payload = if legacy_receipt || cost_details {
+        let project_openrouter = self.openrouter_stream && value.is_object();
+        let payload = if legacy_receipt || cost_details || project_openrouter {
             let mut content = value.clone();
+            if project_openrouter {
+                self.project_openrouter_stream(&mut content)?;
+            }
             if legacy_receipt {
                 // This owner-selected billing DTO is Core business evidence, not a
                 // second content parser or a fallback after library conversion.
                 content.as_object_mut().unwrap().remove("usage");
-            } else {
+            } else if cost_details {
                 // Only usage.cost is the account charge. Supplemental cost_details
                 // must not block content conversion or become a billing fallback.
                 // receipt() below still reads the untouched authoritative value.

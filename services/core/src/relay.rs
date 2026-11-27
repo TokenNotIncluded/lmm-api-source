@@ -1139,6 +1139,7 @@ impl Worker {
             &self.inner.limits,
             route.cache_creation_mode,
         )
+        .with_openrouter_stream(route.payload_policy.openrouter_chat())
         .with_legacy_openrouter_usage(matches!(
             route.payload_policy,
             crate::routing::PayloadPolicy::LegacyOpenRouterChatUsageV1

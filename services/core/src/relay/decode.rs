@@ -23,6 +23,7 @@ struct Slot {
 pub(crate) struct Decoder {
     protocol: UpstreamProtocol,
     cache_creation_mode: Option<CacheCreationMode>,
+    openrouter_stream: bool,
     legacy_openrouter_usage: bool,
     started: bool,
     source_id: Option<String>,
@@ -366,6 +367,7 @@ impl Decoder {
         Self {
             protocol,
             cache_creation_mode,
+            openrouter_stream: false,
             legacy_openrouter_usage: false,
             started: false,
             source_id: None,
@@ -379,6 +381,11 @@ impl Decoder {
             gemini_grounded_requests: None,
             continuation_token: None,
         }
+    }
+
+    pub(crate) fn with_openrouter_stream(mut self, enabled: bool) -> Self {
+        self.openrouter_stream = enabled && self.protocol == UpstreamProtocol::Chat;
+        self
     }
 
     pub(crate) fn with_legacy_openrouter_usage(mut self, enabled: bool) -> Self {
