@@ -1847,8 +1847,9 @@ function throwAssistantTerminalReceipt(
     payload.code !== 'ASSISTANT_OPERATION_RELEASED' &&
     payload.code !== 'ASSISTANT_OPERATION_REJECTED' &&
     payload.code !== 'ASSISTANT_OPERATION_EXPIRED'
-  )
+  ) {
     return
+  }
   verifyAssistantTurnReply(
     { lmm_assistant_history: parseAssistantTurnIdentity(payload.data) },
     turn

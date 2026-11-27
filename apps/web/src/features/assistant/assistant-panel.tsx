@@ -925,8 +925,9 @@ function AssistantPromptComposer(props: {
 
   const submittedDraft = useRef<string | null>(null)
   useEffect(() => {
-    if (props.pending || props.sending || submittedDraft.current === null)
+    if (props.pending || props.sending || submittedDraft.current === null) {
       return
+    }
     if (value === submittedDraft.current) setInput('')
     submittedDraft.current = null
   }, [props.pending, props.sending, setInput, value])

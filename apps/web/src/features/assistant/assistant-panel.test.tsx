@@ -775,8 +775,9 @@ describe('AssistantPanel', () => {
     globalThis.fetch = async (input, init) => {
       calls.push(`${init?.method} ${String(input)}`)
       assert.equal(init?.body, undefined)
-      if (calls.length === 2)
+      if (calls.length === 2) {
         throw new TypeError('Original status lookup interrupted')
+      }
       if (calls.length === 3) return Response.json(pending(), { status: 202 })
       return Response.json({
         choices: [{ message: { content: 'Original persisted answer' } }],
