@@ -684,10 +684,10 @@ fn api_supported(
 ) -> bool {
     let routing_version = routing.version;
     let tool = ToolKind::from_protocol(client);
-    if let Some(kind) = tool {
-        if name != kind.model() || !PersistedToolPrice::supports_quote(kind, quote) {
-            return false;
-        }
+    if let Some(kind) = tool
+        && (name != kind.model() || !PersistedToolPrice::supports_quote(kind, quote))
+    {
+        return false;
     }
     // Health/operational stops can recover without publishing new config. Check
     // every potentially selectable target, including lower priority targets.

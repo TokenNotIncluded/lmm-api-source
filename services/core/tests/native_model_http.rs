@@ -167,7 +167,13 @@ fn gateway(pool: &PgPool, server: &Server, protocol: Protocol, key_id: i64) -> M
     gateway_with_priority(pool, server, protocol, key_id, false)
 }
 
-fn gateway_with_priority(pool: &PgPool, server: &Server, protocol: Protocol, key_id: i64, priority: bool) -> ModelGateway {
+fn gateway_with_priority(
+    pool: &PgPool,
+    server: &Server,
+    protocol: Protocol,
+    key_id: i64,
+    priority: bool,
+) -> ModelGateway {
     let mut pricing: PriceConfig = serde_json::from_value(json!({"version":1,"rules":[{"id":1,"model":"native-model","group":"allowed","speed":"standard","rates":{"input":2000000,"output":4000000,"cache_read":500000,"cache_write":0,"request":0},"group_multiplier_ppm":1000000,"speed_multiplier_ppm":1000000}]})).unwrap();
     let mut speeds = vec![Speed::Standard];
     let policy = priority.then(|| {
@@ -181,7 +187,8 @@ fn gateway_with_priority(pool: &PgPool, server: &Server, protocol: Protocol, key
             "honor_request_service_tier":true,"pass_through_request_enabled":true,
             "thinking_model_blacklist":[],"chat_completions_to_responses_policy":{},
             "ping_interval_enabled":false,"ping_interval_seconds":30
-        })).unwrap()
+        }))
+        .unwrap()
     });
     let prices = PriceSnapshot::compile(pricing).unwrap();
     let routes = RoutingConfig {

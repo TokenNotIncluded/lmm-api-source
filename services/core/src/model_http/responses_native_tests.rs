@@ -22,8 +22,10 @@ fn codex_client_metadata_is_checked_on_native_continuation() {
     let parse =
         |value: &Value| Request::parse(Kind::ResponsesContext, &serde_json::to_vec(value).unwrap());
     let request = parse(&body).unwrap();
-    let wire: Value =
-        serde_json::from_slice(&request.continuity_wire("supplier").unwrap()).unwrap();
+    let wire = request
+        .provider_wire("supplier", true, routing::Speed::Standard)
+        .unwrap();
+    let wire: Value = serde_json::from_slice(&wire).unwrap();
     assert_eq!(wire["client_metadata"], body["client_metadata"]);
     body["client_metadata"] = json!({"turn_id":["invalid"]});
     assert!(parse(&body).is_err());

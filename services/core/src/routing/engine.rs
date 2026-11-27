@@ -672,6 +672,7 @@ impl Router {
 
     /// Pin every already-authorized group to one immutable release. The caller
     /// decides whether cross-group retry is authorized; this method grants none.
+    #[cfg(test)]
     pub(crate) fn route_adapted_groups(
         &self,
         model: &str,

@@ -24,10 +24,14 @@ async fn capture(
         let mut receipt: Value = serde_json::from_slice(&bytes).unwrap();
         receipt["usageMetadata"]["serviceTier"] = body_tier;
         if stream {
-            return ([
-                ("content-type", "text/event-stream"),
-                ("x-gemini-service-tier", tier_header),
-            ], format!("data: {receipt}\n\n")).into_response();
+            return (
+                [
+                    ("content-type", "text/event-stream"),
+                    ("x-gemini-service-tier", tier_header),
+                ],
+                format!("data: {receipt}\n\n"),
+            )
+                .into_response();
         }
         return ([("x-gemini-service-tier", tier_header)], Json(receipt)).into_response();
     }
@@ -155,27 +159,45 @@ async fn native_gemini_priority_requires_matching_receipt_and_keeps_disputed_hol
         (true, json!("priority"), "confirmed"),
         (false, json!("priority"), "confirmed-downgrade"),
         (false, json!("priority"), "malformed-receipt"),
-    ].into_iter().enumerate() {
+    ]
+    .into_iter()
+    .enumerate()
+    {
         let (path, mut body, header) = input(Protocol::Gemini, stream);
         body["serviceTier"] = tier;
         body["contents"][0]["parts"][0]["text"] = json!(label);
-        let response = gateway.router().oneshot(
-            Request::builder().method("POST").uri(path)
-                .header(header, &key)
-                .header("content-type", "application/json")
-                .header("idempotency-key", format!("gemini-priority-{index}"))
-                .body(Body::from(serde_json::to_vec(&body).unwrap())).unwrap()
-        ).await.unwrap();
+        let response = gateway
+            .router()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri(path)
+                    .header(header, &key)
+                    .header("content-type", "application/json")
+                    .header("idempotency-key", format!("gemini-priority-{index}"))
+                    .body(Body::from(serde_json::to_vec(&body).unwrap()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
         let status = response.status();
-        let id = response.headers().get("x-request-id")
+        let id = response
+            .headers()
+            .get("x-request-id")
             .map(|v| v.to_str().unwrap().to_owned());
         let bytes = to_bytes(response.into_body(), 1_000_000).await.unwrap();
         let sent = std::mem::take(&mut *captures.lock().unwrap());
         if label == "invalid-request" {
-            assert!(status.is_client_error(), "{status}: {}", String::from_utf8_lossy(&bytes));
+            assert!(
+                status.is_client_error(),
+                "{status}: {}",
+                String::from_utf8_lossy(&bytes)
+            );
             assert!(sent.is_empty());
             let n: i64 = sqlx::query_scalar("SELECT count(*) FROM core_charging.requests")
-                .fetch_one(&pool).await.unwrap();
+                .fetch_one(&pool)
+                .await
+                .unwrap();
             assert_eq!(n, 0);
             continue;
         }
@@ -190,16 +212,29 @@ async fn native_gemini_priority_requires_matching_receipt_and_keeps_disputed_hol
             sqlx::query_as("SELECT state,reserved,settled,(price->>'input_per_million')::bigint,(price->>'cached_per_million')::bigint,(price->>'output_per_million')::bigint FROM core_charging.requests WHERE id=$1")
                 .bind(&id).fetch_one(&pool).await.unwrap();
         // Frozen credit rates include both the 2x speed price and the 0.5 conversion.
-        assert_eq!((input_rate, cache_rate, output_rate), (2_000_000, 500_000, 4_000_000));
+        assert_eq!(
+            (input_rate, cache_rate, output_rate),
+            (2_000_000, 500_000, 4_000_000)
+        );
         assert_eq!(reserved, 280);
         if label == "confirmed" {
-            assert_eq!(status, StatusCode::OK, "{}", String::from_utf8_lossy(&bytes));
+            assert_eq!(
+                status,
+                StatusCode::OK,
+                "{}",
+                String::from_utf8_lossy(&bytes)
+            );
             assert!(String::from_utf8_lossy(&bytes).contains("native answer"));
             // 8 ordinary input, 2 cached, 20 output; rounded once after conversion.
             assert_eq!((state.as_str(), charge), ("settled", 97));
             settled += charge;
         } else {
-            assert_eq!(status, StatusCode::BAD_GATEWAY, "{}", String::from_utf8_lossy(&bytes));
+            assert_eq!(
+                status,
+                StatusCode::BAD_GATEWAY,
+                "{}",
+                String::from_utf8_lossy(&bytes)
+            );
             assert_eq!((state.as_str(), charge), ("reconcile", 0));
             held += reserved;
         }
