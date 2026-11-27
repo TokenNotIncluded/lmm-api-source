@@ -2503,6 +2503,111 @@ test('native key manager enables a pooled key and changes polling with release C
   })
 })
 
+test('mixed suppliers only suggest APIs from a concrete operation or exact published model targets', async () => {
+  const { detectUpstreamApi, resolveNativeProvider } =
+    await import('../lib/native-provider')
+  const config: NativeConfiguration = fixture()
+  const endpoint = 'https://openrouter.ai/api/v1'
+  config.provider_presets = [
+    {
+      id: 'openrouter',
+      label: 'OpenRouter',
+      icon: 'OpenRouter',
+      protocol: 'openai_chat',
+      endpoint,
+    },
+    {
+      id: 'custom',
+      label: 'Custom',
+      icon: '',
+      protocol: 'openai_chat',
+      endpoint: '',
+    },
+  ]
+  const detect = (url: string, models: string[] = [], id = 999) =>
+    detectUpstreamApi(config, {
+      endpoint: url,
+      provider: 'openrouter',
+      id,
+      models,
+    })
+  assert.deepEqual(detect(endpoint), { source: 'ambiguous' })
+  assert.deepEqual(detect('https://private.invalid/v1', ['anthropic/claude']), {
+    source: 'unknown',
+  })
+  assert.deepEqual(detect('https://openrouter.ai.example/v1'), {
+    source: 'unknown',
+  })
+  assert.deepEqual(
+    detect('https://private.invalid/v1/messages?token=private'),
+    { source: 'unknown' }
+  )
+  assert.equal(
+    resolveNativeProvider(
+      config,
+      undefined,
+      'anthropic_messages',
+      'https://private.invalid/v1'
+    )?.id,
+    'custom'
+  )
+  assert.deepEqual(detect(endpoint + '/messages'), {
+    source: 'operation',
+    protocol: 'anthropic_messages',
+    endpoint,
+  })
+  assert.deepEqual(detect(endpoint + '/chat/completions'), {
+    source: 'operation',
+    protocol: 'openai_chat',
+    endpoint,
+  })
+  const upstream = config.routing.upstreams[0]
+  const route = config.routing.routes[0]
+  const target = route.targets[0]
+  config.routing.upstreams = [
+    {
+      ...upstream,
+      id: 91,
+      enabled: true,
+      endpoint,
+      protocol: 'openai_responses',
+    },
+  ]
+  config.bindings.channel_providers = { '91': 'openrouter' }
+  config.routing.groups = [{ name: 'group', enabled: true }]
+  config.routing.routes = [
+    {
+      ...route,
+      group: 'group',
+      enabled: true,
+      speeds: ['normal'],
+      targets: [
+        {
+          ...target,
+          upstream_id: 91,
+          upstream_model: 'exact-model',
+          weight: 1,
+          speeds: ['normal'],
+          enabled: true,
+        },
+      ],
+    },
+  ]
+  assert.deepEqual(detect(endpoint, ['exact-model']), {
+    source: 'model',
+    protocol: 'openai_responses',
+    endpoint,
+  })
+  assert.deepEqual(detect(endpoint, ['exact-model'], 91), {
+    source: 'ambiguous',
+  })
+  assert.deepEqual(detect(endpoint, ['exact-model', 'another-model']), {
+    source: 'ambiguous',
+  })
+  config.routing.routes[0].targets[0].enabled = false
+  assert.deepEqual(detect(endpoint, ['exact-model']), { source: 'ambiguous' })
+})
+
 for (const mode of ['Create', 'Edit'] as const) {
   test(`${mode} channel applies provider protocol defaults only to new channels`, async () => {
     const config: NativeConfiguration = fixture()
@@ -2537,10 +2642,10 @@ for (const mode of ['Create', 'Edit'] as const) {
       container.querySelector(`form[aria-label="${mode} Channel"]`)
     )
     const protocol = required(
-      form.querySelector<HTMLSelectElement>('select[aria-label="Protocol"]')
+      form.querySelector<HTMLSelectElement>('select[aria-label="Upstream API"]')
     )
     const provider = required(
-      form.querySelector<HTMLButtonElement>('[aria-label="Provider"]')
+      form.querySelector<HTMLButtonElement>('[aria-label="Upstream supplier"]')
     )
     async function choose(label: string) {
       await act(async () => provider.click())
@@ -2563,6 +2668,30 @@ for (const mode of ['Create', 'Edit'] as const) {
       protocol.value,
       mode === 'Create' ? 'openai_responses' : 'openai_chat'
     )
+    const endpoint = required(
+      form.querySelector<HTMLInputElement>('input[type="url"]')
+    )
+    const setValue = required(
+      Object.getOwnPropertyDescriptor(dom.HTMLInputElement.prototype, 'value')
+        ?.set
+    )
+    await act(async () => {
+      setValue.call(endpoint, 'https://supplier.example/v1/messages')
+      endpoint.dispatchEvent(
+        new dom.Event('input', { bubbles: true }) as unknown as Event
+      )
+    })
+    await act(async () => button(form, 'Use detected API and base URL').click())
+    assert.equal(protocol.value, 'anthropic_messages')
+    assert.equal(endpoint.value, 'https://supplier.example/v1')
+    await act(async () => {
+      protocol.value = 'openai_chat'
+      protocol.dispatchEvent(
+        new dom.Event('change', { bubbles: true }) as unknown as Event
+      )
+    })
+    assert.equal(protocol.value, 'openai_chat')
+    assert.equal(endpoint.value, 'https://supplier.example/v1')
   })
 }
 

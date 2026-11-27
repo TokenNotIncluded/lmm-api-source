@@ -25,6 +25,7 @@ import {
 import { getServerErrorMessage } from '@/lib/server-error-message'
 
 import {
+  detectUpstreamApi,
   presetProtocolEndpoint,
   resolveNativeProvider,
 } from '../lib/native-provider'
@@ -568,6 +569,30 @@ export function NativeChannelFields({
     draft.protocol,
     draft.endpoint
   )
+  const attachmentModels = Array.isArray(draft.attachments)
+    ? draft.attachments
+        .map((target) => target?.upstream_model)
+        .filter(
+          (model): model is string => typeof model === 'string' && !!model
+        )
+    : []
+  const detection = detectUpstreamApi(configuration, {
+    endpoint: draft.endpoint,
+    provider: draft.provider,
+    id: draft.id,
+    models: attachmentModels,
+  })
+  function applyDetection() {
+    if (!('protocol' in detection)) return
+    const fields = {
+      protocol: detection.protocol,
+      endpoint: detection.endpoint,
+    }
+    const contexts = Array.isArray(draft.contexts)
+      ? draft.contexts.map((context) => ({ ...context, ...fields }))
+      : draft.contexts
+    onChange(stringifyNativeDocument({ ...draft, ...fields, contexts }, 2))
+  }
   function selectProvider(id: string | null) {
     const preset = presets.find((item) => item.id === id)
     if (!preset) return
@@ -576,7 +601,15 @@ export function NativeChannelFields({
       !configuration.routing.upstreams.some((item) => item.id === draft.id) &&
       preset.id !== 'custom'
     ) {
-      const defaults = { protocol: preset.protocol, endpoint: preset.endpoint }
+      const detected = detectUpstreamApi(configuration, {
+        endpoint: preset.endpoint,
+        provider: preset.id,
+        models: [],
+      })
+      const defaults = {
+        protocol: detected.source === 'ambiguous' ? '' : preset.protocol,
+        endpoint: preset.endpoint || draft.endpoint,
+      }
       Object.assign(next, defaults)
       if (Array.isArray(draft.contexts)) {
         next.contexts = draft.contexts.map((context) => ({
@@ -600,15 +633,18 @@ export function NativeChannelFields({
   const connectionFields = (
     <>
       <label className='block min-w-0 space-y-2'>
-        <span className='text-sm font-medium'>{t('Protocol')}</span>
+        <span className='text-sm font-medium'>{t('Upstream API')}</span>
         <select
-          aria-label={t('Protocol')}
+          aria-label={t('Upstream API')}
           value={typeof draft.protocol === 'string' ? draft.protocol : ''}
           required
           disabled={disabled}
           className='border-input bg-background block min-h-11 w-full rounded-md border px-3 text-sm'
           onChange={(event) => change('protocol', event.target.value)}
         >
+          <option value='' disabled>
+            {t('Select the upstream API')}
+          </option>
           {nativeProtocols.map((protocol) => (
             <option key={protocol} value={protocol}>
               {nativeProtocolLabel(protocol, t)}
@@ -627,18 +663,65 @@ export function NativeChannelFields({
           onChange={(event) => change('endpoint', event.target.value)}
         />
       </label>
+      <div
+        className='text-muted-foreground space-y-1 text-xs @min-[40rem]/routing:col-span-2'
+        aria-live='polite'
+      >
+        {'protocol' in detection ? (
+          <>
+            <p>
+              {detection.source === 'operation'
+                ? t('API identified from the operation URL: {{api}}.', {
+                    api: nativeProtocolLabel(detection.protocol, t),
+                  })
+                : detection.source === 'model'
+                  ? t(
+                      'Published targets for these models use {{api}} on this endpoint.',
+                      { api: nativeProtocolLabel(detection.protocol, t) }
+                    )
+                  : t('This endpoint’s supplier preset suggests {{api}}.', {
+                      api: nativeProtocolLabel(detection.protocol, t),
+                    })}
+            </p>
+            {(detection.protocol !== draft.protocol ||
+              detection.endpoint !== draft.endpoint) && (
+              <Button
+                type='button'
+                size='sm'
+                variant='outline'
+                disabled={disabled}
+                onClick={applyDetection}
+              >
+                {t('Use detected API and base URL')}
+              </Button>
+            )}
+          </>
+        ) : (
+          <p>
+            {detection.source === 'ambiguous'
+              ? t(
+                  'This endpoint can serve multiple APIs. Choose the API for the models bound to this channel.'
+                )
+              : t(
+                  'The endpoint does not identify an API. Select it from the supplier’s API documentation.'
+                )}
+          </p>
+        )}
+      </div>
       {credential}
       {presets.length > 0 && (
         <>
           <div className='space-y-2'>
-            <span className='text-sm font-medium'>{t('Provider')}</span>
+            <span className='text-sm font-medium'>
+              {t('Upstream supplier')}
+            </span>
             <Select
               value={provider?.id ?? 'custom'}
               disabled={disabled}
               onValueChange={selectProvider}
             >
               <SelectTrigger
-                aria-label={t('Provider')}
+                aria-label={t('Upstream supplier')}
                 className='min-h-11 w-full'
               >
                 <SelectValue>
