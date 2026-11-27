@@ -355,7 +355,7 @@ async fn native_missing_usage_holds_funds_and_ambiguous_credentials_never_dispat
         .router()
         .oneshot(
             request()
-                .header("authorization", format!("Bearer {key}"))
+                .header("authorization", "Bearer different-key")
                 .body(Body::from(serde_json::to_vec(&body).unwrap()))
                 .unwrap(),
         )
