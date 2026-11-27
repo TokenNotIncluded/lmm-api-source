@@ -1212,7 +1212,10 @@ async fn ws06_official_exact_rejects_before_handshake_and_unknown_usage_holds(po
     assert_eq!(lab.peer.supplier.handshakes.load(Ordering::SeqCst), 0);
     drop(socket);
     drop(core);
-    for (index, input) in ["missing", "missing12h", "contradiction"].iter().enumerate() {
+    for (index, input) in ["missing", "missing12h", "contradiction"]
+        .iter()
+        .enumerate()
+    {
         let core = Core::start(&lab, &lab.document(true), None, false, false).await;
         let (mut socket, _) = connect(&core, &lab.fixture.key, None, None).await.unwrap();
         let before: std::collections::BTreeSet<_> =
