@@ -599,6 +599,33 @@ test('externally owned payment live case remains required through its real runne
   assert.doesNotMatch(script, /LMM_LIVE_PROCESS_ROOT|owner.json/);
 });
 
+test('native deployment reuses only artifacts from the admitted RPC fixture', () => {
+  const rpc = workflow('core-protocol').split('  rpc:\n')[1];
+  const exportStep = rpc.split('name: Export the native artifacts verified by the RPC fixture')[1]
+    .split('name: Preserve the verified Core artifact for deployment')[0];
+  assert.match(exportStep, /github.event_name == 'push' && github.ref == 'refs\/heads\/main'/);
+  assert.match(exportStep, /\.result == "PASS"/);
+  assert.match(exportStep, /\.images_retained_for_evidence\[\$component\]/);
+  assert.match(exportStep, /\.runtime_executable_sha256\[\$component\]/);
+  assert.match(exportStep, /docker cp "\$container:\/usr\/bin\/lmm-\$component" "\$output\/lmm-\$component"/);
+  assert.match(exportStep, /sha256sum .* = "\$expected"/);
+  assert.match(exportStep, /docker cp "\$container:\/usr\/lib\/lmm\/extensions\/extore"/);
+  assert.match(exportStep, /docker cp "\$container:\/usr\/share\/licenses\/lmm-extensions\/(extore|purego)"/);
+  assert.match(exportStep, /\.binaries\[\], \.libraries\[\]\?, \.build_resources\[\]\?/);
+  assert.equal([...rpc.matchAll(/name: rpc-(core|extensions)-amd64-\$\{\{ github.sha \}\}-\$\{\{ github.run_id \}\}-\$\{\{ github.run_attempt \}\}/g)].length, 2);
+  const deploy = workflow('deploy');
+  const gate = deploy.split('  ci-gate:\n')[1].split('  build:\n')[0];
+  const build = deploy.split('  build:\n')[1].split('  deploy:\n')[0];
+  assert.match(gate, /run_attempt=.*\.run_attempt/);
+  assert.match(build, /matrix.component != 'web' && matrix.arch == 'amd64'/);
+  assert.match(build, /rpc-\$COMPONENT-\$ARCH-\$SOURCE_REVISION-\$CI_RUN_ID-\$CI_RUN_ATTEMPT/);
+  assert.match(build, /actions\/runs\/\$CI_RUN_ID\/artifacts\?name=\$name/);
+  assert.match(build, /select\(\.revision == \$revision and \.component == \$component and \.platform == "linux-amd64"\)/);
+  assert.match(build, /cmp -- "\$input\/SHA256SUMS" -/);
+  assert.match(build, /name: Build the selected backend on the runner\n        if: matrix.component != 'web' && steps.checked-native.outputs.name == ''/);
+  assert.doesNotMatch(build, /continue-on-error/);
+});
+
 test('financial and RPC acceptance run independently and remain required in Core CI', () => {
   const source = workflow('core-protocol');
   const [rust, remainder] = source.split('\n  financial-import:\n');

@@ -128,6 +128,7 @@ jobs:
     needs: plan
     outputs:
       run-id: ${{ steps.admission.outputs.run-id }}
+      run-attempt: ${{ steps.admission.outputs.run-attempt }}
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:
@@ -156,6 +157,8 @@ jobs:
           receipt=$(python3 -B scripts/verify-deployment-ci.py --revision "$SOURCE_REVISION" "${options[@]}")
           run_id=$(jq -er '.run_id | select(type == "number" and . > 0)' <<<"$receipt")
           echo "run-id=$run_id" >> "$GITHUB_OUTPUT"
+          run_attempt=$(jq -er '.run_attempt | select(type == "number" and . > 0)' <<<"$receipt")
+          echo "run-attempt=$run_attempt" >> "$GITHUB_OUTPUT"
 
   build:
     needs: [plan, ci-gate]
@@ -177,31 +180,67 @@ jobs:
         with:
           ref: ${{ needs.plan.outputs.revision }}
           persist-credentials: false
+      - name: Find the native artifact from the admitted CI attempt
+        if: matrix.component != 'web' && matrix.arch == 'amd64'
+        id: checked-native
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CI_RUN_ID: ${{ needs.ci-gate.outputs.run-id }}
+          CI_RUN_ATTEMPT: ${{ needs.ci-gate.outputs.run-attempt }}
+        run: |
+          name="rpc-$COMPONENT-$ARCH-$SOURCE_REVISION-$CI_RUN_ID-$CI_RUN_ATTEMPT"
+          artifacts=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$CI_RUN_ID/artifacts?name=$name")
+          matches=$(jq -er --arg name "$name" '[.artifacts[] | select(.name == $name and .expired == false)] | length' <<<"$artifacts")
+          case "$matches" in
+            0) echo "No reusable artifact for this component and CI attempt." ;;
+            1) echo "name=$name" >> "$GITHUB_OUTPUT" ;;
+            *) exit 1 ;;
+          esac
+      - name: Download the native artifact verified by the admitted CI run
+        if: steps.checked-native.outputs.name != ''
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: ${{ steps.checked-native.outputs.name }}
+          run-id: ${{ needs.ci-gate.outputs.run-id }}
+          github-token: ${{ github.token }}
+          path: out/${{ matrix.component }}
+      - name: Verify the admitted native artifact identity
+        if: steps.checked-native.outputs.name != ''
+        run: |
+          input="out/$COMPONENT"
+          jq -e --arg revision "$SOURCE_REVISION" --arg component "$COMPONENT" \
+            'select(.revision == $revision and .component == $component and .platform == "linux-amd64")' "$input/receipt.json" >/dev/null
+          files=$(jq -er --arg component "$COMPONENT" \
+            '.components[$component] | .binaries[], .libraries[]?, .build_resources[]?' packaging/distribution.json)
+          mapfile -t paths <<<"$files"
+          actual=$(cd "$input" && sha256sum -- "${paths[@]}")
+          printf '%s\n' "$actual" | cmp -- "$input/SHA256SUMS" -
+          rm -- "$input/receipt.json" "$input/SHA256SUMS"
       - name: Initialize the pinned Extore plugin dependency
-        if: matrix.component == 'extensions'
+        if: matrix.component == 'extensions' && steps.checked-native.outputs.name == ''
         run: |
           git submodule update --init --depth 1 -- packages/extore
           python3 -B scripts/check-extore-plugin-pin.py
       - name: Record the artifact source date
         run: echo "SOURCE_DATE_EPOCH=$(git show -s --format=%ct HEAD)" >> "$GITHUB_ENV"
       - name: Check Core formatting
-        if: matrix.component == 'core'
+        if: matrix.component == 'core' && steps.checked-native.outputs.name == ''
         run: |
           rustup toolchain install 1.100.0 --profile minimal --component rustfmt
           cargo +1.100.0 fmt --manifest-path services/core/Cargo.toml --all --check
       - uses: actions/setup-go@7a3fe6cf4cb3a834922a1244abfce67bcef6a0c5
-        if: matrix.component == 'extensions'
+        if: matrix.component == 'extensions' && steps.checked-native.outputs.name == ''
         with:
           go-version: '1.27.2'
           cache-dependency-path: services/extensions/go.sum
       - name: Check the extension host and policy
-        if: matrix.component == 'extensions'
+        if: matrix.component == 'extensions' && steps.checked-native.outputs.name == ''
         working-directory: services/extensions
         run: |
           bash ../../scripts/check-go-format.sh .
           go test -mod=readonly ./internal/app ./internal/legal
       - name: Build the selected backend on the runner
-        if: matrix.component != 'web'
+        if: matrix.component != 'web' && steps.checked-native.outputs.name == ''
         run: |
           docker buildx build --file "deployment/docker/${COMPONENT}.Dockerfile" \
             --target binaries --output "type=local,dest=out/${COMPONENT}" .

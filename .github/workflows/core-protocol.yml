@@ -365,6 +365,56 @@ jobs:
             exit 1
           fi
           python3 -B scripts/test-core-rpc-docker.py --output-root "$evidence" --build-timeout-seconds 2400 2>&1 | tee "$RUNNER_TEMP/core-rpc-docker.log"
+      - name: Export the native artifacts verified by the RPC fixture
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: |
+          receipt="$RUNNER_TEMP/core-rpc-docker-evidence/result.json"
+          jq -e '.result == "PASS"' "$receipt" >/dev/null
+          for component in core extensions; do
+            (
+              image=$(jq -er --arg component "$component" \
+                '.images_retained_for_evidence[$component] | select(test("^sha256:[a-f0-9]{64}$"))' "$receipt")
+              expected=$(jq -er --arg component "$component" \
+                '.runtime_executable_sha256[$component] | select(test("^[a-f0-9]{64}$"))' "$receipt")
+              test "$(docker image inspect --format '{{.Os}}/{{.Architecture}}' "$image")" = linux/amd64
+              container=$(docker create "$image")
+              trap 'docker rm "$container" >/dev/null' EXIT
+              output="$RUNNER_TEMP/rpc-$component-amd64"
+              mkdir "$output"
+              docker cp "$container:/usr/bin/lmm-$component" "$output/lmm-$component"
+              test "$(sha256sum "$output/lmm-$component" | cut -d ' ' -f1)" = "$expected"
+              if [[ "$component" == extensions ]]; then
+                mkdir "$output/lib" "$output/licenses"
+                docker cp "$container:/usr/lib/lmm/extensions/extore" "$output/lib/"
+                docker cp "$container:/usr/share/licenses/lmm-extensions/extore" "$output/licenses/"
+                docker cp "$container:/usr/share/licenses/lmm-extensions/purego" "$output/licenses/"
+              fi
+              files=$(jq -er --arg component "$component" \
+                '.components[$component] | .binaries[], .libraries[]?, .build_resources[]?' packaging/distribution.json)
+              mapfile -t paths <<<"$files"
+              (cd "$output" && sha256sum -- "${paths[@]}") > "$output/SHA256SUMS"
+              jq -n --arg revision "$GITHUB_SHA" --arg component "$component" \
+                '{revision: $revision, component: $component, platform: "linux-amd64"}' > "$output/receipt.json"
+            )
+          done
+      - name: Preserve the verified Core artifact for deployment
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: rpc-core-amd64-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/rpc-core-amd64
+          compression-level: 0
+          retention-days: 3
+          if-no-files-found: error
+      - name: Preserve the verified Extensions artifact for deployment
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: rpc-extensions-amd64-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/rpc-extensions-amd64
+          compression-level: 0
+          retention-days: 3
+          if-no-files-found: error
       - name: Stage readable core RPC evidence
         if: ${{ !cancelled() }}
         run: |
