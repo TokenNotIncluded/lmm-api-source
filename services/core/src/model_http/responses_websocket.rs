@@ -237,6 +237,7 @@ async fn serve(
                 provider_complete: false,
                 upstream_attempted: false,
                 delivery: crate::routing::DeliveryState::NotSent,
+                stream_frame: None,
                 rejection_receipt_sha256: None,
                 attempts: 1,
                 upstream_status: None,

@@ -36,7 +36,21 @@ export function RequestFailureFacts({
       facts.message ??
         (facts.messageWithheld ? t('Message withheld') : undefined),
     ],
-    [t('Protocol'), facts.protocol],
+    ...(isAdmin
+      ? [
+          [t('Inbound protocol'), facts.inbound],
+          [t('Failure stage'), facts.stage],
+        ]
+      : []),
+    [t('Upstream protocol'), facts.frame?.upstream_protocol ?? facts.protocol],
+    ...(facts.frame
+      ? [
+          [t('Channel ID'), facts.frame.channel_id],
+          [t('SSE frame'), facts.frame.ordinal],
+          [t('SSE event type'), facts.frame.event],
+          [t('zconv error variant'), facts.frame.converter],
+        ]
+      : []),
     [t('Request path'), facts.path],
     [t('Route failure'), facts.failureKind],
     [t('Retry or stop reason'), facts.endReason],

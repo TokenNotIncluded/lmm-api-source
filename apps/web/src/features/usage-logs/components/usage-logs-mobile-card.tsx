@@ -196,7 +196,12 @@ function MobileLogTimeStatus({
         )}
       >
         {states ? (
-          <NativeRequestBadges states={states} />
+          <NativeRequestBadges
+            states={states}
+            conversion={log?.route_attempts?.some(
+              (attempt) => attempt.protocol_path === 'converted'
+            )}
+          />
         ) : (
           <>
             <span

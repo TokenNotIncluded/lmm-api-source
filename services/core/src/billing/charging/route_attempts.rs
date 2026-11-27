@@ -55,11 +55,35 @@ impl Charging {
         actual_group: &str,
         wire_sha256: &str,
     ) -> Result<()> {
+        self.record_observed_dispatch(
+            id,
+            worker,
+            number,
+            route_id,
+            actual_group,
+            (wire_sha256, None),
+        )
+        .await
+    }
+
+    pub(crate) async fn record_observed_dispatch(
+        &self,
+        id: &str,
+        worker: &[u8; 32],
+        number: u8,
+        route_id: &str,
+        actual_group: &str,
+        wire: (&str, Option<crate::relay::ClientProtocol>),
+    ) -> Result<()> {
+        let (wire_sha256, inbound) = wire;
         if !(1..=11).contains(&number) {
             return Err(Error::Invalid);
         }
-        let detail = json!({"kind":"model_route_dispatch","number":number,
+        let mut detail = json!({"kind":"model_route_dispatch","number":number,
             "route_id":route_id,"actual_group":actual_group,"wire_sha256":wire_sha256});
+        if let Some(client) = inbound {
+            detail["inbound_protocol"] = json!(client);
+        }
         let mut tx = self.begin().await?;
         lock(&mut tx, id).await?;
         let stored = load(&mut tx, id).await?;
@@ -78,7 +102,15 @@ impl Charging {
         .bind(&event_id)
         .fetch_optional(&mut *tx)
         .await?;
-        if let Some(previous) = previous {
+        if let Some(mut previous) = previous {
+            // Historical workers did not observe ingress. Keep their immutable receipt.
+            if previous.get("inbound_protocol").is_none() {
+                detail.as_object_mut().unwrap().remove("inbound_protocol");
+            } else if inbound.is_none()
+                && let Some(object) = previous.as_object_mut()
+            {
+                object.remove("inbound_protocol");
+            }
             if previous != detail {
                 return Err(Error::Conflict);
             }

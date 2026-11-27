@@ -20,7 +20,10 @@ fn protocol(p: UpstreamProtocol) -> Protocol {
 }
 fn error(e: zconv::Error) -> RelayError {
     #[cfg(test)]
-    eprintln!("zconv request conversion failed: {e:?}");
+    eprintln!(
+        "zconv request conversion failed: {:?}",
+        super::diagnostics::ConverterError::from(e)
+    );
     match e {
         zconv::Error::InputTooLarge { .. }
         | zconv::Error::WorkspaceTooSmall { .. }

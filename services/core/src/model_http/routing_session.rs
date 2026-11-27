@@ -23,6 +23,7 @@ pub(crate) struct Session {
     primary: String,
     number: u8,
     attempt_limit: u8,
+    inbound_protocol: ClientProtocol,
 }
 
 fn binding(
@@ -297,6 +298,7 @@ impl Bridge {
             primary: route.id.clone(),
             number: 1,
             attempt_limit,
+            inbound_protocol: request.client,
         }));
         Ok(route)
     }
@@ -331,7 +333,7 @@ impl Bridge {
         route: &Route,
         body: &[u8],
     ) -> Result<(), RelayError> {
-        let (worker, number, selected, secret, peer, issuer) = {
+        let (worker, number, inbound, selected, secret, peer, issuer) = {
             let active = self
                 .active
                 .lock()
@@ -339,13 +341,14 @@ impl Bridge {
             let op = active
                 .get(&context.request_id)
                 .ok_or(RelayError::Forbidden)?;
-            let number = match &op.route_plan {
-                Some(Pending::Active(session)) => session.number,
-                _ => 1,
+            let (number, inbound) = match &op.route_plan {
+                Some(Pending::Active(session)) => (session.number, Some(session.inbound_protocol)),
+                _ => (1, None),
             };
             (
                 op.worker,
                 number,
+                inbound,
                 op.selected.clone().ok_or(RelayError::RouteUnavailable)?,
                 op.secret.clone(),
                 op.peer,
@@ -412,13 +415,13 @@ impl Bridge {
         .map_err(super::admission_error)?;
         let wire_sha256 = contract::digest(body);
         super::super::billing::retry(|| {
-            self.charging.record_route_dispatch(
+            self.charging.record_observed_dispatch(
                 &context.request_id,
                 &worker,
                 number,
                 &route.id,
                 selected.attempt.group(),
-                &wire_sha256,
+                (&wire_sha256, inbound),
             )
         })
         .await

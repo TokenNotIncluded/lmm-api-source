@@ -11,7 +11,9 @@ import {
 
 export function NativeRequestBadges({
   states,
+  conversion,
 }: {
+  conversion?: boolean
   states: NonNullable<ReturnType<typeof nativeRequestStates>>
 }) {
   const { t } = useTranslation()
@@ -42,6 +44,11 @@ export function NativeRequestBadges({
           copyable={false}
         />
       </span>
+      {conversion && (
+        <span className='text-muted-foreground'>
+          {t('Cross-protocol conversion')}
+        </span>
+      )}
     </div>
   )
 }

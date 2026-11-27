@@ -8,7 +8,7 @@ use sqlx::{PgPool, Row};
 use tokio_stream::StreamExt;
 
 use super::{HistoryError, HistoryStore, Result, personal_session};
-use crate::relay::{Completion, Outcome, Settlement};
+use crate::relay::{ClientProtocol, Completion, Outcome, Settlement, diagnostics::Observation};
 
 const EVENT: &str = "performance-v1";
 
@@ -74,7 +74,7 @@ mod diagnostics_tests {
 
 /// Best-effort telemetry never retries dispatch, changes money or delays the
 /// existing operation cleanup. Missing observations remain visible on reads.
-pub(crate) async fn record(pool: &PgPool, completion: &Completion) {
+pub(crate) async fn record(pool: &PgPool, client: ClientProtocol, completion: &Completion) {
     let report = &completion.report;
     let (Some(finished_at), Some(elapsed_us)) =
         (report.timings.finished_at, report.timings.elapsed_us)
@@ -95,12 +95,22 @@ pub(crate) async fn record(pool: &PgPool, completion: &Completion) {
             && completion.settlement == Settlement::Confirmed
             && completion.error.is_none(),
     };
-    record_sample(pool, &report.request_id, sample).await;
+    let observation = Observation::completed(client, completion);
+    record_observations(pool, &report.request_id, sample, Some(observation)).await;
 }
 
 /// Also used by native non-stream operations after their original finalization.
 /// The observation is not a receipt and cannot authorize a financial transition.
 pub(crate) async fn record_sample(pool: &PgPool, request_id: &str, sample: Sample) {
+    record_observations(pool, request_id, sample, None).await;
+}
+
+async fn record_observations(
+    pool: &PgPool,
+    request_id: &str,
+    sample: Sample,
+    observation: Option<Observation>,
+) {
     let write = async {
         let mut tx = pool.begin().await?;
         sqlx::query("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE")
@@ -108,12 +118,15 @@ pub(crate) async fn record_sample(pool: &PgPool, request_id: &str, sample: Sampl
             .await?;
         sqlx::query(
             "INSERT INTO core_charging.usage_events(request_id,event_id,detail)
-             SELECT $1,$2,$3 WHERE EXISTS (SELECT FROM core_charging.requests WHERE id=$1)
+             SELECT $1,obs.event_id,obs.detail FROM
+                (VALUES ($2::text,$3::jsonb),('relay-protocol:v1',$4::jsonb)) AS obs(event_id,detail)
+             WHERE obs.detail IS NOT NULL AND EXISTS (SELECT FROM core_charging.requests WHERE id=$1)
              ON CONFLICT (request_id,event_id) DO NOTHING",
         )
         .bind(request_id)
         .bind(EVENT)
         .bind(json!(sample))
+        .bind(observation.map(|value| json!(value)))
         .execute(&mut *tx)
         .await?;
         tx.commit().await?;

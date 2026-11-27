@@ -4,6 +4,7 @@
 //! must supply real core routing and durable billing adapters before enabling it.
 pub(crate) mod cooldown;
 mod decode;
+pub(crate) mod diagnostics;
 mod encode;
 mod gemini_schema;
 pub(crate) mod honeypot;
@@ -493,6 +494,7 @@ impl Worker {
             provider_complete: false,
             upstream_attempted: false,
             delivery: crate::routing::DeliveryState::NotSent,
+            stream_frame: None,
             rejection_receipt_sha256: None,
             attempts: 0,
             upstream_status: None,
@@ -1159,6 +1161,7 @@ impl Worker {
             self.stop_keepalive().await?;
             self.send_head()?;
             let mut parser = sse::Parser::new(self.inner.limits.event_bytes);
+            let mut frame_ordinal = 0u64;
             'read: loop {
                 let next = if self.sse_interval().is_some() {
                     self.next_anthropic_chunk(&mut response).await?
@@ -1179,7 +1182,26 @@ impl Worker {
                 self.count_input(&chunk)?;
                 for byte in chunk {
                     if let Some(frame) = parser.feed(byte)? {
-                        self.events(decoder.frame(frame)?).await?;
+                        frame_ordinal += 1;
+                        let event = diagnostics::safe_event(frame.event.as_deref());
+                        let events = decoder.frame(frame).map_err(|error| {
+                            let channel_id = route.model_attempt.as_ref().map(|a| a.upstream_id());
+                            let converter = decoder.last_converter_error;
+                            eprintln!(
+                                "core_sse_decode_failure request_id={} channel_id={channel_id:?} inbound={:?} outbound={:?} frame={} event={event} zconv={converter:?} code={}",
+                                self.report.request_id, self.request.client, route.protocol,
+                                frame_ordinal, error.code()
+                            );
+                            self.report.stream_frame = Some(diagnostics::StreamFrame {
+                                channel_id,
+                                upstream_protocol: route.protocol,
+                                ordinal: frame_ordinal,
+                                event: event.to_owned(),
+                                converter,
+                            });
+                            error
+                        })?;
+                        self.events(events).await?;
                         if decoder.is_done() {
                             break 'read;
                         }
@@ -1275,13 +1297,12 @@ impl Worker {
                 || (self.report.upstream_attempted && settlement == Settlement::Pending))
         {
             eprintln!(
-                "core_model_failure code={} upstream_status={} upstream_attempted={} provider_complete={} settlement={settlement:?} request_id={} reason={} upstream_bytes={} emitted_bytes={}",
+                "core_model_failure code={} upstream_status={} upstream_attempted={} provider_complete={} settlement={settlement:?} request_id={} upstream_bytes={} emitted_bytes={}",
                 failure.code(),
                 self.report.upstream_status.unwrap_or(0),
                 self.report.upstream_attempted,
                 self.report.provider_complete,
                 self.report.request_id,
-                failure,
                 self.report.upstream_bytes,
                 self.report.emitted_bytes,
             );

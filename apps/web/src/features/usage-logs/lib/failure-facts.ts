@@ -52,7 +52,8 @@ export function failureFacts(
   other: LogOtherData | null,
   isAdmin: boolean
 ) {
-  let code = safeCode(other?.error_code)
+  const observation = isAdmin ? log.relay_diagnostics : undefined
+  let code = safeCode(observation?.error_code) ?? safeCode(other?.error_code)
   let message: string | undefined
   let messageWithheld = false
   if (log.content.length <= 12000) {
@@ -81,6 +82,9 @@ export function failureFacts(
     messageWithheld,
     path: path && publicPaths.has(path) ? path : undefined,
     protocol: attempt?.protocol,
+    inbound: observation?.inbound_protocol ?? attempt?.inbound_protocol,
+    stage: safeCode(observation?.error_stage),
+    frame: observation?.sse_frame,
     failureKind: safeCode(attempt?.error_kind),
     endReason: safeCode(other?.stream_status?.end_reason),
     observedRetry:

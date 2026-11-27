@@ -492,6 +492,8 @@ async fn key_snapshot_failover_admin_uses_last_dispatched_binding(pool: PgPool) 
         .collect();
     assert_eq!(dispatches.len(), 2);
     assert_eq!(dispatches[0]["number"], 1);
+    assert_eq!(dispatches[0]["inbound_protocol"], "chat");
+    assert_eq!(dispatches[1]["inbound_protocol"], "chat");
     assert_eq!(dispatches[0]["route_id"], first["route_id"]);
     assert_eq!(dispatches[0]["wire_sha256"], contract["wire_sha256"]);
     assert_eq!(dispatches[1]["number"], 2);
@@ -535,6 +537,11 @@ async fn key_snapshot_failover_admin_uses_last_dispatched_binding(pool: PgPool) 
     assert_eq!(summary["is_multi_key"], false);
     assert_eq!(summary["multi_key_index"], 0);
     assert_eq!(summary["route_attempts"].as_array().unwrap().len(), 2);
+    for attempt in summary["route_attempts"].as_array().unwrap() {
+        assert_eq!(attempt["inbound_protocol"], "chat");
+        assert_eq!(attempt["protocol"], "chat");
+        assert_eq!(attempt["protocol_path"], "same_protocol");
+    }
     assert_eq!(summary["route_attempts"][0]["is_multi_key"], true);
     assert_eq!(summary["route_attempts"][0]["multi_key_index"], 1);
     assert_eq!(summary["route_attempts"][1]["is_multi_key"], false);

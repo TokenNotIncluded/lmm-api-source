@@ -23,6 +23,7 @@ async fn supplier(Json(request): Json<Value>) -> Response {
     }
     if request["stream"] == true {
         let cancelled = prompt == "cancel";
+        let malformed = prompt == "malformed-frame";
         let (sender, receiver) = mpsc::channel::<Result<Bytes, std::io::Error>>(4);
         tokio::spawn(async move {
             let _ = sender
@@ -35,6 +36,14 @@ async fn supplier(Json(request): Json<Value>) -> Response {
                 "choices":[{"index":0,"delta":{"role":"assistant","content":"measured output"},"finish_reason":null}]})
             );
             if sender.send(Ok(Bytes::from(content))).await.is_err() {
+                return;
+            }
+            if malformed {
+                let _ = sender
+                    .send(Ok(Bytes::from_static(
+                        b"event: synthetic-private-event\ndata: synthetic-private-body\n\n",
+                    )))
+                    .await;
                 return;
             }
             if cancelled {
@@ -223,5 +232,59 @@ async fn diagnostics_cover_success_rejection_disconnect_and_failed_telemetry(poo
     assert_eq!(cancelled["upstream_request_id"], "req_stream");
     assert_unknown_hold(&pool, &id, 140).await;
     balanced(&pool).await;
+    server.abort();
+}
+
+#[sqlx::test(migrations = false)]
+async fn frame_observation_uses_the_real_protocol_pair_and_does_not_retain_supplier_text(
+    pool: PgPool,
+) {
+    let (_, _, _, key, key_id, _) = fixture(&pool, 1000).await;
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let endpoint = format!("http://{}/v1", listener.local_addr().unwrap());
+    let server = tokio::spawn(async move {
+        axum::serve(
+            listener,
+            Router::new().route("/v1/chat/completions", post(supplier)),
+        )
+        .await
+        .unwrap()
+    });
+    let gateway = gateway_with_routes(&pool, routes(&endpoint, 0, 0, PayloadPolicy::Adapt), key_id)
+        .with_local_streaming();
+    let response = stream_response(
+        &gateway,
+        &key,
+        "/v1/responses",
+        "malformed-frame",
+        "frame-observation",
+    )
+    .await;
+    assert_eq!(response.status(), StatusCode::OK);
+    let id = response.headers()["x-request-id"]
+        .to_str()
+        .unwrap()
+        .to_owned();
+    let _ = to_bytes(response.into_body(), 1_000_000).await;
+    sample(&pool, &id).await;
+    let observation: Value = sqlx::query_scalar(
+        "SELECT detail FROM core_charging.usage_events WHERE request_id=$1 AND event_id='relay-protocol:v1'",
+    ).bind(&id).fetch_one(&pool).await.unwrap();
+    assert_eq!(observation["inbound_protocol"], "responses");
+    assert_eq!(observation["error_code"], "invalid_upstream_response");
+    assert_eq!(observation["error_stage"], "sse_decode");
+    assert_eq!(observation["sse_frame"]["ordinal"], 2);
+    assert_eq!(observation["sse_frame"]["event"], "other");
+    assert_eq!(observation["sse_frame"]["channel_id"], 1);
+    assert_eq!(observation["sse_frame"]["upstream_protocol"], "chat");
+    assert!(observation["sse_frame"]["converter"].is_null());
+    for forbidden in [
+        "synthetic-private",
+        "malformed-frame",
+        "measured output",
+        "http://",
+    ] {
+        assert!(!observation.to_string().contains(forbidden));
+    }
     server.abort();
 }

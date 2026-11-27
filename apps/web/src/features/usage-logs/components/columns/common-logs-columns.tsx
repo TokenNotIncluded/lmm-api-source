@@ -348,7 +348,15 @@ export function useCommonLogsColumns(isAdmin: boolean): ColumnDef<UsageLog>[] {
             </span>
             <div className='flex flex-wrap items-center gap-x-1'>
               {states ? (
-                <NativeRequestBadges states={states} />
+                <NativeRequestBadges
+                  states={states}
+                  conversion={
+                    isAdmin &&
+                    log.route_attempts?.some(
+                      (attempt) => attempt.protocol_path === 'converted'
+                    )
+                  }
+                />
               ) : (
                 <StatusBadge
                   label={t(receipt?.label ?? config.label)}

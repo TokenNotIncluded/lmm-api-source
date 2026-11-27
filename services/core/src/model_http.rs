@@ -1359,7 +1359,7 @@ async fn dispatch_authorized(
             warnings.log(&complete_id, channel_id);
         }
         if let Ok(completion) = completion {
-            crate::history_read::performance::record(&bridge.pool, &completion).await;
+            crate::history_read::performance::record(&bridge.pool, client, &completion).await;
         }
     });
     with_request_id(

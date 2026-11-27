@@ -1,5 +1,6 @@
 //! Read-only diagnostic facts. These never change the validated money receipt.
 use super::{Error, ValidatedRequest, add, channel_projection};
+use crate::relay::{ClientProtocol, diagnostics::Observation};
 use crate::{billing::charging::contract, history_read::performance::Sample};
 use serde_json::{Value, json};
 use sqlx::{PgConnection, Row};
@@ -8,6 +9,7 @@ use std::collections::{BTreeMap, HashMap};
 #[derive(Default)]
 pub(super) struct LogDetails {
     pub(super) sample: Option<Sample>,
+    observation: Option<Observation>,
     pub(super) username: Option<String>,
     pub(super) channel: Option<i64>,
     pub(super) attempts: Vec<Value>,
@@ -78,6 +80,7 @@ impl LogDetails {
             item["channel"] = json!(self.channel);
             item["channel_name"] = Value::Null;
             item["route_attempts"] = json!(self.attempts);
+            item["relay_diagnostics"] = json!(self.observation);
             if let Some(model) = self
                 .upstream_model
                 .as_ref()
@@ -147,14 +150,15 @@ pub(super) async fn load(
         .collect();
     let rows = sqlx::query(
         "SELECT r.id,r.fingerprint,r.spec_digest,p.username,performance.detail AS performance,
-         contract.detail AS contract,admission.detail AS admission
+         contract.detail AS contract,admission.detail AS admission,diag.detail AS relay_observation
          FROM core_charging.requests r
          LEFT JOIN core_identity.user_profiles p ON p.user_id=r.actor_user_id
          LEFT JOIN core_charging.usage_events performance ON performance.request_id=r.id AND performance.event_id='performance-v1'
          LEFT JOIN core_charging.usage_events contract ON contract.request_id=r.id AND contract.event_id='reservation-contract:v1'
          LEFT JOIN core_charging.usage_events admission ON admission.request_id=r.id AND admission.event_id='reservation-admission:v1'
+         LEFT JOIN core_charging.usage_events diag ON $2 AND diag.request_id=r.id AND diag.event_id='relay-protocol:v1'
          WHERE r.id=ANY($1)",
-    ).bind(&ids).fetch_all(&mut *connection).await?;
+    ).bind(&ids).bind(administrator).fetch_all(&mut *connection).await?;
     let mut attempts: HashMap<String, Vec<channel_projection::AttemptEvent>> = HashMap::new();
     if administrator {
         for row in sqlx::query("SELECT request_id,event_id,detail FROM core_charging.usage_events WHERE request_id=ANY($1) AND (event_id LIKE 'route-dispatch:%' OR event_id LIKE 'route-failure:%') ORDER BY request_id,event_id")
@@ -185,6 +189,10 @@ pub(super) async fn load(
             ..Default::default()
         };
         if administrator {
+            details.observation = row
+                .try_get::<Option<Value>, _>("relay_observation")?
+                .and_then(|value| serde_json::from_value::<Observation>(value).ok())
+                .filter(Observation::valid);
             let proof = contract::read_attribution(
                 row.try_get("contract")?,
                 row.try_get("admission")?,
@@ -243,9 +251,23 @@ pub(super) async fn load(
                     };
                     let channel = binding.upstream_id;
                     let failure = failures.get(&number);
+                    let inbound = serde_json::from_value::<ClientProtocol>(
+                        event.detail["inbound_protocol"].clone(),
+                    )
+                    .ok()
+                    .or_else(|| details.observation.as_ref().map(|obs| obs.inbound_protocol));
+                    let source = json!(inbound);
+                    let protocol_path = source.as_str().map(|client| {
+                        if client == binding.protocol {
+                            "same_protocol"
+                        } else {
+                            "converted"
+                        }
+                    });
                     details.attempts.push(json!({
                         "attempt":number,"channel_id":channel,"route_id":route,
                         "upstream_model":binding.model_snapshot,"protocol":binding.protocol,
+                        "inbound_protocol":source,"protocol_path":protocol_path,
                         "key_snapshot_status":if binding.credential_selection.is_some() {"recorded"} else {"unknown"},
                         "is_multi_key":binding.credential_selection.map(|selection| selection.is_multi_key),
                         "multi_key_index":binding.credential_selection.map(|selection| selection.multi_key_index),

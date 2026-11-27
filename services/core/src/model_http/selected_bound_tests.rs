@@ -910,6 +910,7 @@ fn terminal(id: &str, route: &Route, usage: relay::Usage) -> relay::Report {
         provider_complete: true,
         upstream_attempted: true,
         delivery: crate::routing::DeliveryState::PossiblyAccepted,
+        stream_frame: None,
         rejection_receipt_sha256: None,
         attempts: 1,
         upstream_status: Some(200),

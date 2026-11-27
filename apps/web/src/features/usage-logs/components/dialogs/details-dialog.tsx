@@ -755,8 +755,8 @@ function DetailsDialogContent(props: DetailsDialogProps) {
       ? other.request_conversion.filter(Boolean)
       : []
   const conversionLabel =
-    conversionChain.length <= 1
-      ? t('Native format')
+    conversionChain.length < 2
+      ? conversionChain[0] || t('Not recorded')
       : conversionChain.join(' -> ')
   const showConversion =
     props.isAdmin &&
@@ -1006,13 +1006,28 @@ function DetailsDialogContent(props: DetailsDialogProps) {
                       mono
                     />
                   )}
+                  <DetailRow
+                    label={t('Inbound protocol')}
+                    value={attempt.inbound_protocol || t('Not recorded')}
+                    mono
+                  />
                   {attempt.protocol && (
                     <DetailRow
-                      label={t('Protocol')}
+                      label={t('Upstream protocol')}
                       value={attempt.protocol}
                       mono
                     />
                   )}
+                  <DetailRow
+                    label={t('Request Conversion')}
+                    value={
+                      attempt.protocol_path === 'converted'
+                        ? t('Cross-protocol conversion')
+                        : attempt.protocol_path === 'same_protocol'
+                          ? t('Same wire protocol')
+                          : t('Not recorded')
+                    }
+                  />
                   {attempt.status_code != null && (
                     <DetailRow
                       label={t('Status Code')}

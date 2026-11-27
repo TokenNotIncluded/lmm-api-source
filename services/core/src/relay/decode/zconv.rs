@@ -444,14 +444,11 @@ impl Decoder {
                 ..Default::default()
             },
         )
-        .map_err(|error| match error {
-            zconv::Error::LimitExceeded { .. } => RelayError::Limit("output block count"),
-            _ => {
-                if project_openrouter {
-                    // The converter error carries static labels and offsets, not frame contents.
-                    eprintln!("core_openrouter_stream_decode_error {error:?}");
-                }
-                RelayError::Protocol("invalid upstream stream event")
+        .map_err(|error| {
+            self.last_converter_error = Some(error.into());
+            match error {
+                zconv::Error::LimitExceeded { .. } => RelayError::Limit("output block count"),
+                _ => RelayError::Protocol("invalid upstream stream event"),
             }
         })?;
         let mut receipt = false;

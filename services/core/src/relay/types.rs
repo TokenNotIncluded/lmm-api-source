@@ -9,7 +9,7 @@ use crate::routing::{CacheCreationMode, CacheCreationPartition};
 
 pub type RelayFuture<'a, T> = Pin<Box<dyn Future<Output = Result<T, RelayError>> + Send + 'a>>;
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, serde::Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ClientProtocol {
     Chat,
@@ -18,7 +18,7 @@ pub enum ClientProtocol {
     Gemini,
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, serde::Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum UpstreamProtocol {
     Chat,
@@ -1334,6 +1334,8 @@ pub struct Report {
     /// definitively not sent or rejected before acceptance.
     pub delivery: crate::routing::DeliveryState,
     pub rejection_receipt_sha256: Option<[u8; 32]>,
+    #[serde(skip)]
+    pub(crate) stream_frame: Option<super::diagnostics::StreamFrame>,
     pub attempts: u8,
     pub upstream_status: Option<u16>,
     /// A bounded identifier from an allowlisted response header of the final

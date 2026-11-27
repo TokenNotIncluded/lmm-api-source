@@ -84,6 +84,27 @@ export const usageLogSchema = z.object({
   diagnostics_available: z.boolean().optional(),
   status_code: z.number().int().min(100).max(599).nullish(),
   provider_http_status: z.number().int().min(100).max(599).nullish(),
+  relay_diagnostics: z
+    .object({
+      inbound_protocol: z.enum(['chat', 'responses', 'anthropic', 'gemini']),
+      error_code: z.string().nullish(),
+      error_stage: z.string().nullish(),
+      sse_frame: z
+        .object({
+          channel_id: z.number().int().safe().positive().nullable(),
+          upstream_protocol: z.enum([
+            'chat',
+            'responses',
+            'anthropic',
+            'gemini',
+          ]),
+          ordinal: z.number().int().safe().positive(),
+          event: z.string(),
+          converter: z.string().nullable(),
+        })
+        .nullish(),
+    })
+    .nullish(),
   route_attempts: z
     .array(
       z.object({
@@ -92,6 +113,10 @@ export const usageLogSchema = z.object({
         route_id: z.string(),
         upstream_model: z.string().optional(),
         protocol: z.string().optional(),
+        inbound_protocol: z
+          .enum(['chat', 'responses', 'anthropic', 'gemini'])
+          .nullish(),
+        protocol_path: z.enum(['same_protocol', 'converted']).nullish(),
         status_code: z.number().int().nullable(),
         error_kind: z.string().nullable(),
         delivery: z.string().nullable(),
