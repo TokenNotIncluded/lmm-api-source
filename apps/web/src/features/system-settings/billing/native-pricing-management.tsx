@@ -64,6 +64,7 @@ import {
   type NativePriceRule,
 } from './native-price-rules'
 import { NativeRouterPrices } from './native-router-prices'
+import { OfficialBatchPriceReview } from './official-batch-price-review'
 import { OfficialPriceEditor } from './official-price-editor'
 import {
   originalGroupDescriptions,
@@ -167,6 +168,7 @@ function PricingWorkspace({
   } | null>(null)
   const officialChoices = useId()
   const [officialModel, setOfficialModel] = useState<string | null>(null)
+  const [batchOpen, setBatchOpen] = useState(false)
   const [modelInput, setModelInput] = useState('')
   const [json, setJson] = useState<string | null>(null)
   const [batchMultiplier, setBatchMultiplier] = useState('1')
@@ -681,6 +683,14 @@ function PricingWorkspace({
           >
             {t('Official base price')}
           </Button>
+          <Button
+            type='button'
+            variant='outline'
+            disabled={busy || !!draft || query.isError}
+            onClick={() => setBatchOpen(true)}
+          >
+            {t('Sync missing prices from models.dev')}
+          </Button>
           <Button type='button' disabled={busy} onClick={() => addRule()}>
             {t('Add price rule')}
           </Button>
@@ -1164,6 +1174,31 @@ function PricingWorkspace({
             })}
           </div>
         </section>
+      )}
+      {batchOpen && (
+        <Dialog
+          open
+          onOpenChange={setBatchOpen}
+          title={t('Sync missing prices from models.dev')}
+        >
+          <OfficialBatchPriceReview
+            scope={scope}
+            configuration={configuration}
+            models={[
+              ...new Set([
+                ...configuration.routing.routes.map((route) => route.model),
+                ...Object.values(configuration.bindings.discoveries).flatMap(
+                  (discovery) => discovery.models
+                ),
+              ]),
+            ]}
+            onPublished={async () => {
+              setBatchOpen(false)
+              await refresh()
+            }}
+            onClose={() => setBatchOpen(false)}
+          />
+        </Dialog>
       )}
       {!groupWorkspace && !routerWorkspace && officialModel !== null && (
         <Dialog

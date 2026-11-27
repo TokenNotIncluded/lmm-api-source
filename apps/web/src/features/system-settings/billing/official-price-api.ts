@@ -227,11 +227,67 @@ export async function previewOfficialPriceToml(
     )
     if (issue) throw new Error(issue)
   }
+  return validatePublication(scope, raw, body, false)
+}
+
+export async function previewMissingOfficialPrices(
+  scope: NativeRoutingScope,
+  configuration: NativeConfiguration,
+  drafts: ReadonlyMap<string, string>,
+  channelId?: number
+): Promise<OfficialPricePreview> {
+  if (!drafts.size) throw new Error('Select at least one model')
+  const raw = await nativeRequest<NativeConfiguration>(scope, 'GET', configPath)
+  if (!samePriceRule(raw.version, configuration.version)) {
+    throw new Error('The routing snapshot changed. Reload before continuing.')
+  }
+  const catalog = catalogOf(raw) ?? initializeCatalog(raw)
+  const models = { ...catalog.models }
+  for (const [model, toml] of drafts) {
+    if (Object.hasOwn(models, model))
+      throw new Error('Existing official prices are preserved')
+    const price = completeOfficialPrice(readOfficialToml(model, toml))
+    const issue = cacheWriteCoverageError(
+      price,
+      officialPriceDestinations(raw.routing, model, channelId)
+    )
+    if (issue) throw new Error(issue)
+    Object.defineProperty(models, model, {
+      value: price,
+      enumerable: true,
+      writable: true,
+      configurable: true,
+    })
+  }
+  const body: Publication = {
+    expected_version: raw.version,
+    routing: { ...raw.routing, version: raw.version.routing + 1 },
+    prices: { ...raw.prices, version: raw.version.pricing + 1 },
+    bindings: { ...raw.bindings, official_prices: { ...catalog, models } },
+  }
+  const preview = await validatePublication(scope, raw, body, true)
+  if (
+    preview.changes.modified.length ||
+    preview.changes.deleted.length ||
+    !samePriceRule(preview.changes.added, [...drafts.keys()].sort())
+  ) {
+    throw new Error('Invalid price publication preview')
+  }
+  return preview
+}
+
+async function validatePublication(
+  scope: NativeRoutingScope,
+  raw: NativeConfiguration,
+  body: Publication,
+  preserveRules: boolean
+): Promise<OfficialPricePreview> {
   const preview = await nativeRequest<{
     saved: boolean
     expected_version: NativeVersion
     confirmation_digest: string
     bindings: Publication['bindings']
+    prices?: NativeConfiguration['prices']
   }>(scope, 'POST', `${configPath}/preview`, body)
   if (
     preview.saved !== false ||
@@ -240,6 +296,18 @@ export async function previewOfficialPriceToml(
     !preview.bindings?.official_prices?.models
   ) {
     throw new Error('Invalid price publication preview')
+  }
+  if (preserveRules) {
+    if (!Array.isArray(preview.prices?.rules))
+      throw new Error('Invalid price publication preview')
+    const byId = new Map(preview.prices.rules.map((rule) => [rule.id, rule]))
+    for (const previous of raw.prices.rules) {
+      if (!samePriceRule(previous, byId.get(previous.id))) {
+        throw new Error(
+          'An existing group price would change. Review it individually.'
+        )
+      }
+    }
   }
   return {
     body,
