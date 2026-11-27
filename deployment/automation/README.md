@@ -179,6 +179,27 @@ changes TOML or secret references needs its own matching configuration recovery;
 switching the executable link alone does not restore those files. A committed
 76-to-77 upgrade must not start a Core76 binary against the upgraded database.
 
+On Linux, separately provisioned systemd sockets can keep the HTTP listeners
+open while Core and Extensions drain and restart. Use `Accept=no` and
+`FlushPending=no`. For Core set `ListenStream` to `[server].listen` and name
+the descriptor `lmm-core-http`. For Extensions use the numeric address in
+`[host].listen` and name the descriptor `lmm-extensions-http`. Verify that
+the current and rollback binaries accept their inherited listeners before the
+production rollout. Service restarts leave the sockets active. Pending
+connections remain subject to socket backlogs and proxy timeouts. By default
+both services open their own listeners.
+
+The first listener handoff is separate from a normal component rollout. Stage
+matching socket units without starting them, using the same unit basename as
+each service. Migrate one service at a time and validate Core before
+Extensions. Stop the direct-binding service, select the compatible slot, start
+the socket, and start the service. Confirm the socket is active and check the
+running executable and proxied readiness before moving to the next service.
+Subsequent updates and rollbacks between compatible binaries restart the
+service with its socket still active. To return to an older direct-binding
+binary, stop the socket first so queued arrivals cannot start the service,
+then stop the service, restore the preceding slot, and restart it directly.
+
 The deployment tool is pinned to `ansible-core==2.22.0` on the GitHub controller.
 Archive extraction and link selection use the standard
 [Ansible unarchive](https://docs.ansible.com/ansible/latest/collections/ansible/builtin/unarchive_module.html)

@@ -9,6 +9,10 @@ zconv 固定版本更新于 2026-11-15；sysinfo、rand、psl 和 jsonwebtoken �
 - 原生用量与历史财务 CSV 编码改用 `csv = 1.4.0`；保留原字段白名单、空值、公式防护、全字段引号、CRLF 和 32 MiB 硬上限。原生导出复用 writer；最终 flush 失败必须返回错误。
 - 删除直接依赖 `fs2 = 0.4.3`，RPC socket 的排他非阻塞文件锁使用当前 Rust 1.100.0 的 `std::fs::File::try_lock`；保留文件句柄生命周期、socket inode 和目录权限规则。
 
+## Linux HTTP 监听交接
+
+- Linux Core 通过固定的 [listenfd 1.0.2](https://crates.io/crates/listenfd/1.0.2) 接收一个由 systemd 管理的 TCP 描述符。该库仅在创建 Tokio 工作线程前消费激活环境。Core 校验进程、描述符数量和名称，使用现有锁定的 [socket2 0.6.5](https://crates.io/crates/socket2/0.6.5) 核对 `SO_ACCEPTCONN`，再验证监听地址与配置一致。
+
 ## 需要单列的结论
 
 - **zconv 是用户开发并指定最高优先级的核心依赖。** 保留固定版本，不以星数、下载量或发布时间作为替换理由；优先验证并修复它的协议转换行为。

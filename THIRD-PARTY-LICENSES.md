@@ -43,6 +43,8 @@ the Go host even when the optional Extore catalog is not enabled.
 | core | production | Rust | `sysinfo` | `0.40.3` | MIT |
 | core | production | Rust | `zclap` | `0.1.4` | MIT |
 | core | production | Rust | `tokio-util` | `0.7.20` | MIT |
+| core | Linux listener activation | Rust | `listenfd` | `1.0.2` | Apache-2.0 |
+| core | Linux listener activation | Rust | `socket2` | `0.6.5` | MIT OR Apache-2.0 |
 | core | production | Rust | `percent-encoding` | `2.3.2` | MIT OR Apache-2.0 |
 | core | production | Rust | `html-escape` | `0.3.1` | MIT |
 | core | production | Rust | `fancy-regex` | `0.20.2` | MIT |

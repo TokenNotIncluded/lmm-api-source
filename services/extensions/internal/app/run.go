@@ -178,7 +178,7 @@ func Run() error {
 	server := newHTTPServer(address, handler)
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	listener, err := net.Listen("tcp", address)
+	listener, err := listenHTTP(address)
 	if err != nil {
 		return fmt.Errorf("bind extension listener: %w", err)
 	}

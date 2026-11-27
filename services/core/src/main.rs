@@ -18,6 +18,7 @@ use std::{
 
 mod admin;
 mod hex_codec;
+mod public_listener_activation;
 
 const USAGE: &str = "Usage: lmm-core [--config /absolute/core.toml] [serve | init-db | upgrade-db | upgrade-history | upgrade-offline | create-first-owner | bootstrap-user | complete-setup | install-tool-market-builtins | install-usage-receipt-index | rebuild-channel-usage | plan-admin-activation | apply-admin-activation | plan-admin-key-continuity | apply-admin-key-continuity | publish-subscription-pancake-price | schema-manifest | check-db]\n\n\
 Commands:\n\
@@ -365,6 +366,11 @@ fn main() -> Result<(), Box<dyn Error>> {
         }
     };
     config::initialize(arguments.config.as_deref())?;
+    let inherited_listener = if operation.is_none() {
+        public_listener_activation::take()?
+    } else {
+        None
+    };
     // One worker and a bounded blocking pool are sufficient for the 1-core
     // profile. Password hashing remains on a separate bounded blocking worker.
     let runtime = tokio::runtime::Builder::new_multi_thread()
@@ -374,12 +380,15 @@ fn main() -> Result<(), Box<dyn Error>> {
         .build()?;
     match operation {
         Some(operation) => runtime.block_on(admin::run(operation)),
-        None => runtime.block_on(run_core()),
+        None => runtime.block_on(run_core(inherited_listener)),
     }
 }
 
-async fn run_core() -> Result<(), Box<dyn Error>> {
+async fn run_core(inherited_listener: Option<std::net::TcpListener>) -> Result<(), Box<dyn Error>> {
     let address = config::listen_address()?;
+    let inherited_listener = inherited_listener
+        .map(|listener| public_listener_activation::into_runtime(listener, address))
+        .transpose()?;
     let drain_timeout = config::drain_timeout()?;
     let database_url = config::database_url()?;
     let lifecycle = Lifecycle::with_capacity(config::max_inflight()?);
@@ -805,7 +814,10 @@ async fn run_core() -> Result<(), Box<dyn Error>> {
         )
         .merge(app);
     }
-    let listener = tokio::net::TcpListener::bind(address).await?;
+    let listener = match inherited_listener {
+        Some(listener) => listener,
+        None => tokio::net::TcpListener::bind(address).await?,
+    };
     let (operations_stop, operations_stopped) = tokio::sync::watch::channel(false);
     let operations_task = if let Some(pool) = &database_pool {
         let reporter = lmm_core::operations::Heartbeat::new(
