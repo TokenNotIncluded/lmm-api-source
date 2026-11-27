@@ -328,7 +328,10 @@ async function settle(browser) {
   await page.goto(web + '/usage-logs/common?requestId=' + encodeURIComponent(paid.id))
   await page.getByRole('button', { name: 'View request details' }).first().click()
   await page.getByRole('dialog').getByText(paid.id, { exact: true }).first().waitFor()
-  return { request_id: paid.id, user, key_id: key.id, before, after, settled: 50, stream_terminal: paid.done }
+  return {
+    request_id: paid.id, user, key_id: key.id, before, after, settled: 50, stream_terminal: paid.done,
+    shell: { navigation_revision: navigation.data.revision, anonymous_release: anonymousRelease.status, signed_in_release: release.status },
+  }
 }
 
 await new Promise((ok, fail) => front.once('error', fail).listen(41781, '127.0.0.1', ok))

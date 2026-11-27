@@ -225,8 +225,9 @@ async fn browser_onboarding_wallet(pool: PgPool) {
     let readonly_identity = lmm_core::internal_rpc::readonly_store(database_url.as_str())
         .await
         .unwrap();
-    let rpc = lmm_core::internal_rpc::RpcServer::bind(&socket, &service_token, Some(readonly_identity))
-        .unwrap();
+    let rpc =
+        lmm_core::internal_rpc::RpcServer::bind(&socket, &service_token, Some(readonly_identity))
+            .unwrap();
     let (shutdown_rpc, stopped) = tokio::sync::watch::channel(false);
     let rpc_task = tokio::spawn(rpc.serve(stopped));
 
