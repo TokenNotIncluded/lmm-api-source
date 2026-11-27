@@ -91,7 +91,9 @@ try {
     PATH: process.env.PATH, HOME: join(root, 'home'), XDG_CONFIG_HOME: join(root, 'config'),
     XDG_DATA_HOME: join(root, 'data'), XDG_STATE_HOME: join(root, 'state'), XDG_CACHE_HOME: join(root, 'cache'),
     MAGPIE_BUN: process.env.MAGPIE_BUN, NODE_EXTRA_CA_CERTS: process.env.FIXTURE_TLS_CERT,
-    DO_NOT_TRACK: '1', MAGPIE_NO_ACCOUNTS: '1', NO_COLOR: '1', BROWSER: '/bin/true',
+    // This private home contains only the fixture's synthetic OAuth account.
+    // Magpie suppresses even signed-in OAuth plugins when account discovery is off.
+    DO_NOT_TRACK: '1', NO_COLOR: '1', BROWSER: '/bin/true',
     MAGPIE_ADDR: '127.0.0.1:' + port,
   };
   tunnel = await openCoreTls({ coreBase, issuer, keyFile: process.env.FIXTURE_TLS_KEY, certFile: process.env.FIXTURE_TLS_CERT });

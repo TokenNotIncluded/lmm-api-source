@@ -114,9 +114,31 @@ fn assert_answer(client: Protocol, stream: bool, body: &str) {
             Protocol::AnthropicMessages => {
                 values.last().is_some_and(|v| v["type"] == "message_stop")
             }
-            Protocol::Gemini => values
-                .last()
-                .is_some_and(|v| v["candidates"][0]["finishReason"] == "STOP"),
+            Protocol::Gemini => {
+                assert_eq!(frames.len(), values.len(), "unexpected Gemini sentinel");
+                let mut answer = String::new();
+                let (last, earlier) = values.split_last().expect("Gemini returned no frames");
+                for frame in &values {
+                    let candidate = &frame["candidates"][0];
+                    assert_eq!(candidate["content"]["role"], "model");
+                    let parts = candidate["content"]["parts"].as_array().unwrap();
+                    assert!(!parts.is_empty());
+                    for part in parts {
+                        let text = part["text"].as_str().unwrap();
+                        assert!(!text.is_empty(), "synthetic padding cannot carry a receipt");
+                        answer.push_str(text);
+                    }
+                }
+                assert_eq!(answer, "native answer");
+                assert!(earlier.iter().all(|frame| {
+                    frame["candidates"][0]["finishReason"].is_null()
+                        && frame["usageMetadata"].is_null()
+                }));
+                assert_eq!(last["candidates"][0]["finishReason"], "STOP");
+                assert_eq!(last["usageMetadata"]["promptTokenCount"], 10);
+                assert_eq!(last["usageMetadata"]["totalTokenCount"], 30);
+                return;
+            }
             _ => unreachable!(),
         };
         assert!(terminal, "{body}");
@@ -257,6 +279,60 @@ async fn public_four_by_four_text_json_and_sse(pool: PgPool) {
     let balance = ledger.balance(account).await.unwrap();
     assert_eq!(balance.available_units, 10_000 - settled);
     assert_eq!(balance.reserved_units, 0);
+}
+
+#[sqlx::test(migrations = false)]
+#[ignore = "requires the checksum-pinned official Google Gen AI SDK"]
+async fn genuine_gemini_chat_keeps_history_after_core_settlement(pool: PgPool) {
+    use std::{
+        io::Write,
+        process::{Command, Stdio},
+    };
+
+    let (_, ledger, _, key, key_id, account) = fixture(&pool, 1000).await;
+    let supplier = server(Protocol::OpenAiChat, false).await;
+    let app = gateway(&pool, &supplier, Protocol::OpenAiChat, key_id).router();
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let origin = format!("http://{}", listener.local_addr().unwrap());
+    let serving = tokio::spawn(async move {
+        axum::serve(
+            listener,
+            app.into_make_service_with_connect_info::<std::net::SocketAddr>(),
+        )
+        .await
+        .unwrap();
+    });
+    let status = tokio::task::spawn_blocking(move || {
+        let driver = std::env::var("LMM_GOOGLE_CHAT_DRIVER").unwrap();
+        let mut node = Command::new("node")
+            .arg(driver)
+            .stdin(Stdio::piped())
+            .spawn()
+            .unwrap();
+        node.stdin
+            .take()
+            .unwrap()
+            .write_all(&serde_json::to_vec(&json!({"origin": origin, "key": key})).unwrap())
+            .unwrap();
+        node.wait().unwrap()
+    })
+    .await
+    .unwrap();
+    serving.abort();
+    assert!(status.success());
+    assert_eq!(supplier.hits.load(Ordering::SeqCst), 1);
+    let rows: Vec<(String, String, i64, i64, i64)> = sqlx::query_as(
+        "SELECT id,state,settled,input_tokens,output_tokens FROM core_charging.requests WHERE key_id=$1",
+    ).bind(key_id).fetch_all(&pool).await.unwrap();
+    assert_eq!(rows.len(), 1);
+    let (id, state, charge, input, output) = &rows[0];
+    assert_eq!(
+        (state.as_str(), *charge, *input, *output),
+        ("settled", 49, 10, 20)
+    );
+    let balance = ledger.balance(account).await.unwrap();
+    assert_eq!((balance.available_units, balance.reserved_units), (951, 0));
+    println!("genuine_gemini_chat request_id={id} curated_response=true settled_credits={charge}");
 }
 
 #[sqlx::test(migrations = false)]

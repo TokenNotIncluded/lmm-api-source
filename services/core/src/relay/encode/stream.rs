@@ -74,6 +74,7 @@ impl Writer {
         config.source = target;
         config.target = target;
         config.allow_partial_usage = true;
+        config.gemini_chat_history = encoder.client == ClientProtocol::Gemini;
         config.json_limits.max_input = encoder.wire_limit();
         Ok(Self {
             state: EventEncoderState::new(config).map_err(library_error)?,

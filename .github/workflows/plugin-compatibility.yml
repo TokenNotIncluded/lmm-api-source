@@ -133,6 +133,21 @@ jobs:
           path: ${{ runner.temp }}/pi-core-receipt.json
           if-no-files-found: error
           retention-days: 7
+      - name: Verify curated chat history with Google's pinned JavaScript SDK
+        working-directory: services/core
+        run: |
+          set -euo pipefail
+          sdk="$RUNNER_TEMP/gemini-chat-sdk"
+          mkdir -p "$sdk"
+          npm pack --pack-destination "$sdk" --ignore-scripts --silent @google/genai@3.6.1
+          archive="$sdk/google-genai-3.6.1.tgz"
+          test "$(openssl dgst -sha512 -binary "$archive" | openssl base64 -A)" = 'DQIkZkl+VoZc+RUSaJ41vRuywjQDpP0t/oUf5/ddQhNW6JsPjVULW2EgHmuJ1mrr6ACtrmUdPlqtNXF1yfKySg=='
+          npm install --prefix "$sdk" --ignore-scripts --no-audit --no-fund "$archive"
+          export LMM_GOOGLE_CHAT_DRIVER="$sdk/gemini-chat.mjs"
+          cp "$GITHUB_WORKSPACE/scripts/ci/gemini-chat.mjs" "$LMM_GOOGLE_CHAT_DRIVER"
+          gate=portable_matrix::genuine_gemini_chat_keeps_history_after_core_settlement
+          cargo +1.100.0 test --locked --test native_model_http "$gate" -- --exact --ignored --nocapture | tee "$RUNNER_TEMP/gemini-chat-result"
+          grep -Fqx "test $gate ... ok" "$RUNNER_TEMP/gemini-chat-result"
   cc-switch-cli:
     name: LMM CLI and native CC Switch configuration
     runs-on: ubuntu-24.04

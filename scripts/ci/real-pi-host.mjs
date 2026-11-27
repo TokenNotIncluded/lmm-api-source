@@ -28,7 +28,7 @@ const env = {
   NODE_EXTRA_CA_CERTS: process.env.FIXTURE_TLS_CERT,
   LMM_MODELS_DEV_CACHE: join(temporary, 'metadata.json'),
 }
-let tunnel, child
+let tunnel, child, terminalMessage
 let stage = 'private fixture setup'
 try {
   await mkdir(agent, { mode: 0o700 })
@@ -61,7 +61,6 @@ try {
   })
   const lines = createInterface({ input: child.stdout })
   const waiting = new Map()
-  let terminalMessage
   lines.on('line', line => {
     let event
     try { event = JSON.parse(line) } catch { return }
@@ -100,10 +99,14 @@ try {
   stage = 'real host prompt and terminal'
   await rpc('prompt', { message: 'Reply briefly.' })
   for (let i = 0; !terminalMessage && i < 200 && child.exitCode === null && child.signalCode === null; i++) await pause(100)
+  stage = 'provider and model identity on assistant result'
   assert.equal(terminalMessage?.provider, selected.provider)
   assert.equal(terminalMessage?.model, selected.id)
+  stage = 'assistant stop reason'
   assert.equal(terminalMessage?.stopReason, 'stop')
+  stage = 'output token receipt'
   assert.equal(terminalMessage.usage.output, 20)
+  stage = 'assistant text integrity'
   assert.equal(terminalMessage.content.filter(c => c.type === 'text').map(c => c.text).join(''), 'local stream answer')
   stage = 'same-request Core response'
   const calls = tunnel.calls.filter(call => call.method === 'POST')
@@ -115,8 +118,13 @@ try {
   assert.ok(call.requestId.length > 0 && call.requestId.length <= 256)
   process.stdout.write(JSON.stringify({ requestId: call.requestId, stopReason: terminalMessage.stopReason }))
 } catch {
-  // Pi and provider errors may contain prompt/tool or authorization material. Record only the failed stage.
-  console.error('Real Pi acceptance failed during ' + stage)
+  const reasons = ['stop', 'length', 'toolUse', 'error', 'aborted']
+  const stop = reasons.includes(terminalMessage?.stopReason) ? terminalMessage.stopReason : 'unavailable'
+  const requests = (tunnel?.calls ?? []).map(({ path, status }) => ({
+    path: ['/v1/chat/completions', '/v1/responses', '/v1/messages'].includes(path) ? path : 'other', status,
+  }))
+  // Only protocol status, never model content, raw error messages or credentials.
+  console.error('Real Pi acceptance failed during ' + stage + ' ' + JSON.stringify({ stop, requests }))
   process.exitCode = 1
 } finally {
   if (child && child.exitCode === null && child.signalCode === null) {
