@@ -85,6 +85,15 @@ input assertion, not proof that the credential exists or works.
 
 ## Assistant model protocol and platform funding
 
+In **Plugin management**, open **Configure** on **AI assistant** to select the
+host model. The picker lists models from the configured personal-text group
+that the active routing release can serve and price under the host policy.
+**Save** checks the displayed routing and pricing versions and asks you to
+reload the configuration if either changed. Selecting the model from
+`[personal_text]` restores the host default. Core uses the saved selection for
+new personal-text grants and agent turns, while existing operations keep their
+original model and price when their receipts are read.
+
 Personal text supports a selected OpenAI Chat or Anthropic Messages route with
 the `adapt` payload policy. Core selects the route, model, credential and frozen
 price; the conversation cannot supply those values. The assistant retains its
