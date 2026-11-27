@@ -427,6 +427,8 @@ test('Core CI freezes the process binary and private root before running all Rus
   const block = source.match(/      - name: Rust checks and real database tests\n([\s\S]*?)(?=      - name:)/)?.[1];
   assert.ok(block, 'the Rust database test step must exist');
   const compileStep = source.indexOf('id: rust_test_compile');
+  const lint = source.indexOf('cargo clippy --locked --all-targets -- -D warnings');
+  assert.ok(lint >= 0 && lint < compileStep, 'a lint failure must not suppress the build and database tests');
   const compile = source.indexOf('cargo test --locked --all-targets --no-run --message-format=json');
   const upload = source.indexOf('name: Preserve compiled commerce acceptance driver');
   const executeStep = source.indexOf('name: Rust checks and real database tests');

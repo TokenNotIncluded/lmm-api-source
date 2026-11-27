@@ -211,6 +211,10 @@ jobs:
                | select(.kind | index("test")) | .name]
               | sort | to_entries[] | select(.key % 4 == $shard)
               | "--test", .value' > "$RUNNER_TEMP/core-integration-targets"
+      - name: Lint all Core Rust targets
+        if: ${{ !cancelled() && (matrix.targets == 'all' || matrix.targets == 'unit') }}
+        working-directory: services/core
+        run: cargo clippy --locked --all-targets -- -D warnings
       - name: Compile Rust tests and preserve the commerce driver
         id: rust_test_compile
         if: ${{ !cancelled() }}
@@ -226,7 +230,6 @@ jobs:
             cargo test --locked --lib --no-run
             exit 0
           fi
-          cargo clippy --locked --all-targets -- -D warnings
           if [[ "$RUST_TARGET_GROUP" == unit ]]; then
             # The integration shards compile their own tests. The unit lane
             # additionally needs the commerce driver for the published receipt.
