@@ -10,6 +10,17 @@ import { createInterface } from 'node:readline'
 import { setTimeout as pause } from 'node:timers/promises'
 import { openCoreTls } from './managed-host-fixture.mjs'
 
+function coreFailureReason({ status, body }) {
+  if (status === 413) {
+    try {
+      const error = JSON.parse(body)?.error
+      if (error?.code === 'relay_limit_exceeded' &&
+          error.message === 'relay_limit_exceeded: local model input budget') return 'local_input_budget'
+    } catch { /* An unrecognized Core response has no safe diagnostic label. */ }
+  }
+  return 'unknown'
+}
+
 const chunks = []
 for await (const chunk of process.stdin) chunks.push(chunk)
 const input = JSON.parse(Buffer.concat(chunks).toString('utf8'))
@@ -120,10 +131,11 @@ try {
 } catch {
   const reasons = ['stop', 'length', 'toolUse', 'error', 'aborted']
   const stop = reasons.includes(terminalMessage?.stopReason) ? terminalMessage.stopReason : 'unavailable'
-  const requests = (tunnel?.calls ?? []).map(({ path, status }) => ({
+  const requests = (tunnel?.calls ?? []).map(({ path, status, body }) => ({
+    reason: coreFailureReason({ status, body }),
     path: ['/v1/chat/completions', '/v1/responses', '/v1/messages'].includes(path) ? path : 'other', status,
   }))
-  // Only protocol status, never model content, raw error messages or credentials.
+  // Report only the allowlisted route, status and diagnostic label.
   console.error('Real Pi acceptance failed during ' + stage + ' ' + JSON.stringify({ stop, requests }))
   process.exitCode = 1
 } finally {

@@ -31,6 +31,11 @@ use tokio::{sync::oneshot, task::JoinHandle};
 const ISSUER: &str = "https://pi-issuer.example.test";
 const VERIFIER: &str = "abcdefghijklmnopqrstuvwxyz0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ-._~";
 const REDIRECT: &str = "http://127.0.0.1:38423/oauth/lmm/callback";
+pub(super) const WALLET_CREDITS: i64 = 1_000;
+const HOST_OUTPUT_TOKENS: u32 = 20;
+const DEFAULT_INPUT_TOKENS: i64 = 100;
+// The frozen fixture quote charges one credit per input token and two per output token.
+const PI_HOST_INPUT_TOKENS: i64 = WALLET_CREDITS - 2 * HOST_OUTPUT_TOKENS as i64;
 fn routes(
     endpoint: &str,
     cache_write: u64,
@@ -142,6 +147,7 @@ fn gateway_with_routes(
         router,
         key,
         Limits::default().max_output_tokens,
+        DEFAULT_INPUT_TOKENS,
         "allowed",
     )
 }
@@ -151,6 +157,7 @@ fn gateway_with_limits(
     router: Arc<lmm_core::routing::Router>,
     key: i64,
     max_output_tokens: u32,
+    input_token_ceiling: i64,
     group: &str,
 ) -> ModelGateway {
     ModelGateway::new(
@@ -168,7 +175,7 @@ fn gateway_with_limits(
             ..Limits::default()
         },
         ChargePolicy {
-            input_token_ceiling: 100,
+            input_token_ceiling,
             lease_seconds: 30,
         },
     )
@@ -237,6 +244,11 @@ impl Fixture {
     async fn new(owner: &PgPool, developer: bool, applications: FixtureApplications<'_>) -> Self {
         let (native, ledger, _native_session, native_key, native_id, _native_account) =
             model_fixture::fixture(owner, 1000).await;
+        let host_input_tokens = if matches!(applications, FixtureApplications::PiHost) {
+            PI_HOST_INPUT_TOKENS
+        } else {
+            DEFAULT_INPUT_TOKENS
+        };
         let cli_host = matches!(
             applications,
             FixtureApplications::PiHost | FixtureApplications::MagpieHost
@@ -308,7 +320,7 @@ impl Fixture {
                 reason: "Synthetic disposable test funds".into(),
                 action: Action::Credit {
                     account_id: account,
-                    amount_units: Credits::try_from(1000).unwrap(),
+                    amount_units: Credits::try_from(WALLET_CREDITS).unwrap(),
                     payment_reference: "synthetic:pi-oauth".into(),
                 },
             })
@@ -318,7 +330,10 @@ impl Fixture {
             funding,
             lmm_core::billing::ledger::Outcome::Posted { .. }
         ));
-        assert_eq!(ledger.balance(account).await.unwrap().available_units, 1000);
+        assert_eq!(
+            ledger.balance(account).await.unwrap().available_units,
+            WALLET_CREDITS
+        );
         let session = browser
             .login(
                 "pi-alice",
@@ -359,7 +374,14 @@ impl Fixture {
         .await
         .unwrap();
         let gateway = if cli_host {
-            gateway_with_limits(&role.pool, router.clone(), native_id, 20, &group)
+            gateway_with_limits(
+                &role.pool,
+                router.clone(),
+                native_id,
+                HOST_OUTPUT_TOKENS,
+                host_input_tokens,
+                &group,
+            )
         } else {
             gateway_with_routes(&role.pool, router.clone(), native_id)
         }
@@ -371,7 +393,7 @@ impl Fixture {
         };
         let mut profile = LmmProfile::new(origin, vec![group])
             .unwrap()
-            .with_pi_budget_limit(1000)
+            .with_pi_budget_limit(WALLET_CREDITS)
             .unwrap();
         if matches!(
             applications,

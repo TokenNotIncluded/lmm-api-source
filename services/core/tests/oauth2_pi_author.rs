@@ -30,7 +30,7 @@ async fn real_pi_host_discovers_prompts_and_settles_one_oauth_request(pool: PgPo
     pi::with_cli_host_fixture(pool, pi::CliHost::Pi, |f| async move {
         use std::{io::Write, process::{Command, Stdio}};
 
-        let token = f.token(1000).await;
+        let token = f.token(pi::WALLET_CREDITS).await;
         let session = f.request();
         let issuer = session.resource.strip_suffix("/api/oauth2").unwrap().to_owned();
         let catalog: serde_json::Value = f.client.get(format!("{}/api/oauth2/catalog", f.base))
