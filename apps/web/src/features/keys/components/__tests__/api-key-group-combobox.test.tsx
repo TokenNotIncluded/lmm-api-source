@@ -71,6 +71,8 @@ const { createRoot } = await import('react-dom/client')
 const { createInstance } = await import('i18next')
 const { I18nextProvider, initReactI18next } = await import('react-i18next')
 const { ApiKeyGroupCombobox } = await import('../api-key-group-combobox')
+const { buildApiKeyGroupOptions } =
+  await import('../../lib/api-key-group-options')
 
 const i18n = createInstance()
 await i18n.use(initReactI18next).init({
@@ -104,13 +106,16 @@ const options = [
   { value: 'vip', label: 'vip', desc: 'Priority group', ratio: 3 },
 ]
 
-function Harness(props: { initialValue: string }) {
+function Harness(props: {
+  initialValue: string
+  groupOptions?: ReturnType<typeof buildApiKeyGroupOptions>
+}) {
   const [value, setValue] = useState(props.initialValue)
 
   return (
     <I18nextProvider i18n={i18n}>
       <ApiKeyGroupCombobox
-        options={options}
+        options={props.groupOptions ?? options}
         value={value}
         onValueChange={setValue}
       />
@@ -266,6 +271,37 @@ describe('API key group combobox Auto effect', () => {
 
     await act(async () => root.unmount())
     container.remove()
+  })
+
+  test('keeps Auto first and shows exact published ratios including zero', async () => {
+    const container = document.createElement('div')
+    document.body.append(container)
+    const root = createRoot(container)
+    const groupOptions = buildApiKeyGroupOptions({
+      'GPT-Pro': { desc: 'Published pro group', ratio: 0.02 },
+      FREE: { desc: 'Published free group', ratio: 0 },
+      auto: { desc: 'Global automatic routing', ratio: 'model-specific' },
+    })
+    try {
+      await act(async () =>
+        root.render(<Harness initialValue='FREE' groupOptions={groupOptions} />)
+      )
+      const trigger = getTrigger(container)
+      assert.match(trigger.textContent ?? '', /0× price multiplier/)
+      await act(async () => trigger.click())
+      assert.ok(
+        document
+          .querySelector('[data-slot="command-item"]')
+          ?.textContent?.includes('Global automatic routing')
+      )
+      assert.match(
+        getCommandItem('Published pro group').textContent ?? '',
+        /0\.02× price multiplier/
+      )
+    } finally {
+      await act(async () => root.unmount())
+      container.remove()
+    }
   })
 
   test('preserves the static Auto treatment but omits moving layers for reduced motion', async () => {
