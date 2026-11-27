@@ -34,12 +34,16 @@ use tokio::{
 };
 use tokio_stream::wrappers::ReceiverStream;
 
+#[path = "zed_tool_supplier.rs"]
+mod zed_tool_supplier;
+
 // Some importers only call `fixture` and never start the loopback provider.
 #[allow(dead_code)]
 pub(super) struct Provider {
     pub(super) endpoint: String,
     pub(super) hits: Arc<AtomicUsize>,
     pub(super) auth: Arc<Mutex<Vec<String>>>,
+    pub(super) rewrite_reply: Arc<Mutex<Option<String>>>,
     #[allow(dead_code)]
     pub(super) socket_produced: Arc<AtomicUsize>,
     #[allow(dead_code)]
@@ -63,6 +67,7 @@ struct ProviderState {
     model: String,
     hits: Arc<AtomicUsize>,
     auth: Arc<Mutex<Vec<String>>>,
+    rewrite_reply: Arc<Mutex<Option<String>>>,
     socket_produced: Arc<AtomicUsize>,
     socket_polled: Arc<AtomicUsize>,
     usage: bool,
@@ -126,6 +131,9 @@ async fn provider(
             .collect(),
         _ => panic!("synthetic provider requires text or content parts"),
     };
+    if let Some(replacement) = state.rewrite_reply.lock().unwrap().as_deref() {
+        return zed_tool_supplier::stream(&request, replacement);
+    }
     if prompt == "pause" {
         tokio::time::sleep(Duration::from_secs(30)).await;
     }
@@ -226,6 +234,7 @@ impl Provider {
         let endpoint = format!("http://{}/custom/v1", listener.local_addr().unwrap());
         let hits = Arc::new(AtomicUsize::new(0));
         let auth = Arc::new(Mutex::new(Vec::new()));
+        let rewrite_reply = Arc::new(Mutex::new(None));
         let stream_gate = Arc::new(Semaphore::new(0));
         let stream_closed = Arc::new(AtomicUsize::new(0));
         let stream_finished = Arc::new(AtomicUsize::new(0));
@@ -237,6 +246,7 @@ impl Provider {
                 model: model.to_owned(),
                 hits: hits.clone(),
                 auth: auth.clone(),
+                rewrite_reply: rewrite_reply.clone(),
                 usage,
                 socket_produced: socket_produced.clone(),
                 socket_polled: socket_polled.clone(),
@@ -251,6 +261,7 @@ impl Provider {
             endpoint,
             hits,
             auth,
+            rewrite_reply,
             task,
             socket_produced,
             socket_polled,

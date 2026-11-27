@@ -15,8 +15,9 @@ import { approveBrowser, openCoreTls } from '../ci/managed-host-fixture.mjs'
 const run = promisify(execFile)
 const input = []
 for await (const part of process.stdin) input.push(part)
-const { coreBase, issuer: configuredIssuer, refresh, cap } = JSON.parse(Buffer.concat(input))
+const { coreBase, issuer: configuredIssuer, refresh, cap, inlineMode } = JSON.parse(Buffer.concat(input))
 const issuer = new URL(configuredIssuer).origin
+assert.ok(['text', 'tools'].includes(inlineMode))
 const root = await mkdtemp(join(tmpdir(), 'lmm-zed-'))
 const config = join(root, 'config', 'zed')
 const state = join(root, 'state')
@@ -93,9 +94,10 @@ try {
   const route = catalog[0]
   assert.ok(route.apis.includes('openai-completions'))
   const model = { provider: 'lmm', model: route.id }
+  const inlineSettings = inlineMode === 'text' ? { inline_assistant_use_streaming_tools: false } : {}
   await writeFile(join(config, 'settings.json'), JSON.stringify({ auto_update: false,
     telemetry: { metrics: false, diagnostics: false }, agent: { default_model: model, inline_assistant_model: model,
-      inline_assistant_use_streaming_tools: false },
+      ...inlineSettings },
     edit_predictions: { disabled_globs: ['**/*'] } }))
   await writeFile(join(config, 'keymap.json'), JSON.stringify([{ context: 'Editor && mode == full',
     bindings: { f8: ['assistant::InlineAssist', { prompt: nativePrompt }] } }]))
@@ -104,7 +106,20 @@ try {
   await once(portServer, 'listening')
   const port = portServer.address().port
   await new Promise(resolve => portServer.close(resolve))
-  bridge = spawn(bridgeBin, [...cliargs('start'),'--port',String(port)], { env, cwd: root,
+  const startArgs = [...cliargs('start'), '--port', String(port)]
+  if (inlineMode === 'tools') {
+    // The isolated supplier implements this tool. Use the bridge's supported
+    // per-model capability override and its catalog-derived token limits.
+    const configured = JSON.parse((await execute(bridgeBin, cliargs('settings'))).stdout)
+    const offered = configured.language_models.openai_compatible.lmm.available_models
+    assert.equal(offered.length, 1)
+    assert.equal(offered[0].name, route.id)
+    const limits = { max_tokens: offered[0].max_tokens, max_output_tokens: offered[0].max_output_tokens }
+    const override = join(root, 'model-override.json')
+    await writeFile(override, JSON.stringify([{ id: route.id, ...limits, capabilities: { tools: true } }]))
+    startArgs.push('--models', override)
+  }
+  bridge = spawn(bridgeBin, startArgs, { env, cwd: root,
     stdio: 'ignore', detached: true })
   await until(async () => {
     const settings = JSON.parse(await readFile(join(config, 'settings.json'), 'utf8'))
@@ -157,9 +172,23 @@ try {
   const frames = call.body.split(/\r?\n/).filter(l => l.startsWith('data:')).map(l => l.slice(5).trim())
   assert.equal(frames.at(-1), '[DONE]')
   const rows = frames.slice(0,-1).map(s => JSON.parse(s))
-  const text = rows.flatMap(r => r.choices ?? []).map(c => c.delta?.content ?? '').join('')
-  assert.ok(text.length > 0 && text !== original)
-  assert.deepEqual(rows.flatMap(r => r.choices ?? []).map(c => c.finish_reason).filter(Boolean), ['stop'])
+  const choices = rows.flatMap(value => value.choices ?? [])
+  const endings = choices.map(choice => choice.finish_reason).filter(Boolean)
+  const toolPieces = choices.flatMap(choice => choice.delta?.tool_calls ?? [])
+  let text
+  if (inlineMode === 'tools') {
+    assert.deepEqual(endings, ['tool_calls'])
+    assert.ok(toolPieces.length >= 2)
+    assert.ok(toolPieces.every(piece => piece.index === 0))
+    assert.equal(toolPieces.map(piece => piece.function?.name ?? '').join(''), 'rewrite_section')
+    const args = toolPieces.map(piece => piece.function?.arguments ?? '').join('')
+    text = JSON.parse(args).replacement_text
+  } else {
+    assert.deepEqual(endings, ['stop'])
+    assert.equal(toolPieces.length, 0)
+    text = choices.map(choice => choice.delta?.content ?? '').join('')
+  }
+  assert.ok(typeof text === 'string' && text.length > 0 && text !== original)
   stage = 'Zed saves the native editor result'
   // Saving a manually edited buffer accepts a completed inline transformation.
   await until(async () => {
@@ -170,7 +199,7 @@ try {
   assert.equal(tunnel.calls.length, 1)
   assert.match(call.requestId, /^[a-f0-9]{64}$/)
   process.stdout.write(JSON.stringify({ host: version, provider: 'lmm-zed', request_id: call.requestId,
-    granted_model: route.id, upstream_calls: 1, native_saved_reply: true, inline_assistant_mode: 'text', stop_count: 1, oauth_consent: true }))
+    granted_model: route.id, upstream_calls: 1, native_saved_reply: true, inline_assistant_mode: inlineMode, finish_reason: endings[0], tool_fragments: toolPieces.length, stop_count: 1, oauth_consent: true }))
 } catch (error) {
   if (win) await windowSnapshot('failure').catch(() => {})
   const safeCode = /^[A-Z_]+$/.test(error?.code ?? '') ? error.code : error?.name

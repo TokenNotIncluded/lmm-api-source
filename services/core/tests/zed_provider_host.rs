@@ -23,9 +23,15 @@ mod runtime;
 async fn zed_inline_assistant_settles_one_ordinary_oauth_request(pool: PgPool) {
     pi::with_cli_host_fixture(pool, pi::CliHost::Zed, |f| async move {
         let before = f.ledger.balance(f.account).await.unwrap();
+        let mode = std::env::var("ZED_INLINE_MODE").unwrap_or_else(|_| "text".into());
+        assert!(matches!(mode.as_str(), "text" | "tools"));
+        if mode == "tools" {
+            *f.provider.rewrite_reply.lock().unwrap() =
+                Some(format!("Native rewrite for fixture account {}", f.account));
+        }
         let profile = json!({
             "coreBase": f.base, "issuer": f.issuer.profile().issuer(),
-            "refresh": f.refresh, "cap": before.available_units,
+            "refresh": f.refresh, "cap": before.available_units, "inlineMode": mode,
         });
         let output = tokio::task::spawn_blocking(move || {
             let script =

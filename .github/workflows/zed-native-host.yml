@@ -1,6 +1,12 @@
 name: Native Zed OAuth and wallet
 on:
   workflow_dispatch:
+    inputs:
+      inline_mode:
+        description: Select the official text setting or the default streamed-tool editor mode.
+        type: choice
+        default: text
+        options: [text, tools]
 permissions:
   contents: read
 jobs:
@@ -17,6 +23,7 @@ jobs:
           --health-cmd="pg_isready -U postgres" --health-interval=5s
           --health-timeout=3s --health-retries=10
     env:
+      ZED_INLINE_MODE: ${{ inputs.inline_mode }}
       DATABASE_URL: postgres://postgres:postgres@127.0.0.1:5432/postgres
       CARGO_BUILD_JOBS: '2'
       CARGO_INCREMENTAL: '0'
@@ -73,14 +80,14 @@ jobs:
           test -s "$ZED_HOST_RECEIPT"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: zed-native-receipt-${{ github.sha }}
+          name: zed-native-receipt-${{ inputs.inline_mode }}-${{ github.sha }}
           path: ${{ runner.temp }}/zed-native-receipt.json
           if-no-files-found: error
           retention-days: 14
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
         with:
-          name: native-zed-window-${{ github.sha }}
+          name: native-zed-window-${{ inputs.inline_mode }}-${{ github.sha }}
           path: ${{ runner.temp }}/zed-native-images/*.png
           if-no-files-found: ignore
           retention-days: 7
