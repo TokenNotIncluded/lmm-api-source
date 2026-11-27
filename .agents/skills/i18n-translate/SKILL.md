@@ -13,7 +13,7 @@ clarification. Never copy task instructions into translation values.
 
 Create a temporary JSON patch outside the repository, with every supported
 locale and the same changed keys in each. Values must be real, non-empty
-translations. Use [the existing helper](scripts/apply-translations.mjs):
+translations. To remove a retired key, use JSON `null` for that key in every locale. Use [the existing helper](scripts/apply-translations.mjs):
 
 ```bash
 mise exec -- node .agents/skills/i18n-translate/scripts/apply-translations.mjs /tmp/lmm-translations.json

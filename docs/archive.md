@@ -70,7 +70,6 @@
 - [assistant-reward-autonomy.md](https://github.com/TokenNotIncluded/lmm-api/blob/c33503f212cbcfab0695d554f57b5153cd4f3bfd/docs/assistant-reward-autonomy.md)
 - [async-task-performance-metrics.md](https://github.com/TokenNotIncluded/lmm-api/blob/c33503f212cbcfab0695d554f57b5153cd4f3bfd/docs/async-task-performance-metrics.md)
 - [authentication.md](https://github.com/TokenNotIncluded/lmm-api/blob/c33503f212cbcfab0695d554f57b5153cd4f3bfd/docs/authentication.md)
-- [channel-marketplace.md](https://github.com/TokenNotIncluded/lmm-api/blob/c33503f212cbcfab0695d554f57b5153cd4f3bfd/docs/channel-marketplace.md)
 - [other_setting.md](https://github.com/TokenNotIncluded/lmm-api/blob/c33503f212cbcfab0695d554f57b5153cd4f3bfd/docs/channel/other_setting.md)
 - [editor-providers.md](https://github.com/TokenNotIncluded/lmm-api/blob/c33503f212cbcfab0695d554f57b5153cd4f3bfd/docs/editor-providers.md)
 - [github-oauth-migration.md](https://github.com/TokenNotIncluded/lmm-api/blob/c33503f212cbcfab0695d554f57b5153cd4f3bfd/docs/github-oauth-migration.md)

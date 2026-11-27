@@ -114,7 +114,6 @@ const URL_TO_CONFIG_MAP: Record<string, { section: string; module: string }> = {
   '/wallet': { section: 'personal', module: 'topup' },
   '/company': { section: 'personal', module: 'company' },
   '/profile': { section: 'personal', module: 'personal' },
-  '/public-relay': { section: 'personal', module: 'personal' },
   '/channels': { section: 'admin', module: 'channel' },
   '/extensions/plugins': { section: 'admin', module: 'setting' },
   '/models': { section: 'admin', module: 'models' },
@@ -127,7 +126,6 @@ const URL_TO_CONFIG_MAP: Record<string, { section: string; module: string }> = {
   '/subscriptions': { section: 'admin', module: 'subscription' },
   '/system-settings': { section: 'admin', module: 'setting' },
   '/system-settings/site': { section: 'admin', module: 'setting' },
-  '/system-settings/content/assistant': { section: 'admin', module: 'setting' },
 }
 
 /**

@@ -48,7 +48,6 @@ const userRoutes = [
   '/usage-logs/common',
   '/usage-logs/task',
   '/open-source-bounties',
-  '/public-relay',
   '/tool-market',
   '/support',
   '/todos',

@@ -118,12 +118,10 @@ test('read tools declare readOnlyHint and never consequentialHint', () => {
       'lmm_workbench_list_deployments',
       'lmm_workbench_list_todos',
       'lmm_workbench_list_tool_market',
-      'lmm_workbench_list_public_relays',
       'lmm_workbench_image_prompt_ideas',
-      'lmm_workbench_public_relay_routing',
     ].includes(tool.name)
   )
-  assert.equal(reads.length, 8)
+  assert.equal(reads.length, 6)
   for (const tool of reads) {
     assert.equal(tool.annotations?.readOnlyHint, true, tool.name)
     assert.equal(tool.annotations?.consequentialHint, undefined, tool.name)
@@ -135,8 +133,6 @@ test('user-generated content tools carry untrustedContentHint', () => {
   for (const name of [
     'lmm_workbench_list_todos',
     'lmm_workbench_list_tool_market',
-    'lmm_workbench_list_public_relays',
-    'lmm_workbench_public_relay_routing',
   ]) {
     assert.equal(
       byName(tools, name).annotations?.untrustedContentHint,
@@ -308,69 +304,11 @@ test('the key list never echoes a full key, only a mask', async () => {
   }
 })
 
-test('relay routing is GET-only and drops contributor emails', async () => {
-  signIn()
+test('retired bounties and channel sharing are absent from workbench discovery', () => {
   const { tools } = buildTools()
-  const email = 'contributor@example.com'
-  const requested: string[] = []
-  const original = api.get
-  api.get = (async (url: string) => {
-    requested.push(url)
-    if (url === '/api/public-relays/routing') {
-      return {
-        data: {
-          success: true,
-          data: {
-            group: 'public',
-            items: [
-              {
-                id: 1,
-                position: 0,
-                disabled: false,
-                name: 'a',
-                contributor_email: email,
-              },
-              {
-                id: 2,
-                position: 1,
-                disabled: true,
-                name: 'b',
-                contributor_email: email,
-              },
-            ],
-          },
-        },
-      }
-    }
-    return {
-      data: {
-        success: true,
-        data: {
-          project: { id: 4, title: 'fix it', reward_quota: 10 },
-          challenges: [{ id: 8, status: 'submitted', github_handle: 'dev' }],
-          ledger: [{ id: 1 }, { id: 2 }],
-        },
-      },
-    }
-  }) as typeof api.get
-  try {
-    const routing = (await byName(
-      tools,
-      'lmm_workbench_public_relay_routing'
-    ).execute({}, { signal: signal() })) as Record<string, unknown>
-    assert.ok(!JSON.stringify(routing).includes(email))
-    assert.equal(routing.count, 2)
-    assert.equal(routing.enabled_count, 1)
-
-    assert.deepEqual(requested, ['/api/public-relays/routing'])
-  } finally {
-    api.get = original
-  }
-})
-
-test('retired bounties are absent from workbench discovery', () => {
-  const { tools } = buildTools()
-  assert.ok(!tools.some((tool) => /bount|open_workspace/.test(tool.name)))
+  assert.ok(
+    !tools.some((tool) => /bount|open_workspace|public_relay/.test(tool.name))
+  )
 })
 
 test('support navigation only forwards a known category and a reference id', async () => {

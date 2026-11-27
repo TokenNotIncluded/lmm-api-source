@@ -50,6 +50,8 @@ for (const [name, mutate] of [
   ['unexpected locale', (p) => { p.unknown = p.en }],
   ['missing translation key', (p) => { p.fr = {} }],
   ['non-string translation', (p) => { p.ja['Hello {{name}}'] = 42 }],
+  ['removal in just one locale', (p) => { p.ja['Hello {{name}}'] = null }],
+  ['English-only removal', (p) => { p.en['Hello {{name}}'] = null }],
   ['blank translation', (p) => { p.ru['Hello {{name}}'] = ' ' }],
   ['changed placeholder', (p) => { p.zh['Hello {{name}}'] = 'Hello {{other}}' }],
   ['placeholder removed in all locales', (p) => { for (const locale of locales) p[locale]['Hello {{name}}'] = 'Hello' }],
@@ -76,4 +78,16 @@ test('semantic keys can use placeholders in the English value', async (t) => {
   const { run } = await fixture(t)
   const updates = Object.fromEntries(locales.map((locale) => [locale, { 'welcome.title': `${locale}: {{name}}` }]))
   assert.equal(await run(updates), 7)
+})
+
+test('remove a retired key in all locales and preserve the remaining entries', async (t) => {
+  const { directory, run } = await fixture(t)
+  await run(makePatch())
+  const removal = Object.fromEntries(locales.map((locale) => [locale, { 'Hello {{name}}': null }]))
+  assert.equal(await run(removal), locales.length)
+  for (const locale of locales) {
+    const result = JSON.parse(await readFile(path.join(directory, `${locale}.json`), 'utf8'))
+    assert.deepEqual(result, { translation: { Existing: locale }, extra: 'keep' })
+  }
+  assert.equal(await run(removal), 0)
 })

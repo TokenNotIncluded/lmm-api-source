@@ -29,13 +29,16 @@ export async function planTranslations(localesDir, updates) {
       throw new Error(`${locale}: patch keys must match en exactly.`)
     }
     for (const [key, value] of Object.entries(values)) {
-      if (!key.trim() || typeof value !== 'string' || !value.trim()) {
-        throw new Error(`${locale}: keys and translations must be non-empty strings.`)
+      if (!key.trim()) throw new Error(`${locale}: translation keys must be non-empty.`)
+      if (value === null && updates.en[key] === null) continue
+      if (updates.en[key] === null || typeof value !== 'string' || !value.trim()) {
+        throw new Error(`${locale}: supply a non-empty translation or remove the key in every locale.`)
       }
     }
   }
   for (const locale of Object.keys(locales)) {
     for (const [key, value] of Object.entries(updates[locale])) {
+      if (value === null) continue
       if (!samePlaceholders(updates.en[key], value) ||
           (placeholders(key).length > 0 && !samePlaceholders(key, value))) {
         throw new Error(`${locale}: interpolation placeholders differ from the source.`)
@@ -50,12 +53,15 @@ export async function planTranslations(localesDir, updates) {
     if (!isObject(document) || !isObject(document.translation)) {
       throw new Error(`${locale}: expected a translation object.`)
     }
-    if (Object.entries(updates[locale]).every(([key, value]) =>
-      Object.hasOwn(document.translation, key) && document.translation[key] === value)) continue
-    document.translation = Object.fromEntries(
-      Object.entries({ ...document.translation, ...updates[locale] })
-        .sort(([a], [b]) => a.localeCompare(b)),
-    )
+    const entries = Object.entries(updates[locale])
+    if (entries.every(([key, value]) => value === null
+      ? !Object.hasOwn(document.translation, key)
+      : Object.hasOwn(document.translation, key) && document.translation[key] === value)) continue
+    const translations = { ...document.translation, ...updates[locale] }
+    for (const [key, value] of entries) {
+      if (value === null) delete translations[key]
+    }
+    document.translation = Object.fromEntries(Object.entries(translations).sort(([a], [b]) => a.localeCompare(b)))
     planned.push({ filename, content: JSON.stringify(document, null, 2) + '\n' })
   }
   return planned

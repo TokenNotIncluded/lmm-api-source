@@ -82,7 +82,6 @@ import { Route as AuthenticatedOperationsSourcesRouteImport } from './routes/_au
 import { Route as AuthenticatedPlaygroundIndexRouteImport } from './routes/_authenticated/playground/index'
 import { Route as AuthenticatedProfileIndexRouteImport } from './routes/_authenticated/profile/index'
 import { Route as AuthenticatedProfileShareRouteImport } from './routes/_authenticated/profile/share'
-import { Route as AuthenticatedPublicRelayIndexRouteImport } from './routes/_authenticated/public-relay/index'
 import { Route as AuthenticatedRedPacketsIndexRouteImport } from './routes/_authenticated/red-packets/index'
 import { Route as AuthenticatedRedemptionCodesIndexRouteImport } from './routes/_authenticated/redemption-codes/index'
 import { Route as AuthenticatedRssIndexRouteImport } from './routes/_authenticated/rss/index'
@@ -506,12 +505,6 @@ const AuthenticatedProfileShareRoute =
     path: '/profile/share',
     getParentRoute: () => AuthenticatedRouteRoute,
   } as any)
-const AuthenticatedPublicRelayIndexRoute =
-  AuthenticatedPublicRelayIndexRouteImport.update({
-    id: '/public-relay/',
-    path: '/public-relay/',
-    getParentRoute: () => AuthenticatedRouteRoute,
-  } as any)
 const AuthenticatedRedPacketsIndexRoute =
   AuthenticatedRedPacketsIndexRouteImport.update({
     id: '/red-packets/',
@@ -810,7 +803,6 @@ export interface FileRoutesByFullPath {
   '/open-source-bounties/': typeof AuthenticatedOpenSourceBountiesIndexRoute
   '/playground/': typeof AuthenticatedPlaygroundIndexRoute
   '/profile/': typeof AuthenticatedProfileIndexRoute
-  '/public-relay/': typeof AuthenticatedPublicRelayIndexRoute
   '/red-packets/': typeof AuthenticatedRedPacketsIndexRoute
   '/redemption-codes/': typeof AuthenticatedRedemptionCodesIndexRoute
   '/rss/': typeof AuthenticatedRssIndexRoute
@@ -920,7 +912,6 @@ export interface FileRoutesByTo {
   '/open-source-bounties': typeof AuthenticatedOpenSourceBountiesIndexRoute
   '/playground': typeof AuthenticatedPlaygroundIndexRoute
   '/profile': typeof AuthenticatedProfileIndexRoute
-  '/public-relay': typeof AuthenticatedPublicRelayIndexRoute
   '/red-packets': typeof AuthenticatedRedPacketsIndexRoute
   '/redemption-codes': typeof AuthenticatedRedemptionCodesIndexRoute
   '/rss': typeof AuthenticatedRssIndexRoute
@@ -1035,7 +1026,6 @@ export interface FileRoutesById {
   '/_authenticated/open-source-bounties/': typeof AuthenticatedOpenSourceBountiesIndexRoute
   '/_authenticated/playground/': typeof AuthenticatedPlaygroundIndexRoute
   '/_authenticated/profile/': typeof AuthenticatedProfileIndexRoute
-  '/_authenticated/public-relay/': typeof AuthenticatedPublicRelayIndexRoute
   '/_authenticated/red-packets/': typeof AuthenticatedRedPacketsIndexRoute
   '/_authenticated/redemption-codes/': typeof AuthenticatedRedemptionCodesIndexRoute
   '/_authenticated/rss/': typeof AuthenticatedRssIndexRoute
@@ -1149,7 +1139,6 @@ export interface FileRouteTypes {
     | '/open-source-bounties/'
     | '/playground/'
     | '/profile/'
-    | '/public-relay/'
     | '/red-packets/'
     | '/redemption-codes/'
     | '/rss/'
@@ -1259,7 +1248,6 @@ export interface FileRouteTypes {
     | '/open-source-bounties'
     | '/playground'
     | '/profile'
-    | '/public-relay'
     | '/red-packets'
     | '/redemption-codes'
     | '/rss'
@@ -1373,7 +1361,6 @@ export interface FileRouteTypes {
     | '/_authenticated/open-source-bounties/'
     | '/_authenticated/playground/'
     | '/_authenticated/profile/'
-    | '/_authenticated/public-relay/'
     | '/_authenticated/red-packets/'
     | '/_authenticated/redemption-codes/'
     | '/_authenticated/rss/'
@@ -1959,13 +1946,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedProfileShareRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
-    '/_authenticated/public-relay/': {
-      id: '/_authenticated/public-relay/'
-      path: '/public-relay'
-      fullPath: '/public-relay/'
-      preLoaderRoute: typeof AuthenticatedPublicRelayIndexRouteImport
-      parentRoute: typeof AuthenticatedRouteRoute
-    }
     '/_authenticated/red-packets/': {
       id: '/_authenticated/red-packets/'
       path: '/red-packets'
@@ -2347,7 +2327,6 @@ interface AuthenticatedRouteRouteChildren {
   AuthenticatedOpenSourceBountiesIndexRoute: typeof AuthenticatedOpenSourceBountiesIndexRoute
   AuthenticatedPlaygroundIndexRoute: typeof AuthenticatedPlaygroundIndexRoute
   AuthenticatedProfileIndexRoute: typeof AuthenticatedProfileIndexRoute
-  AuthenticatedPublicRelayIndexRoute: typeof AuthenticatedPublicRelayIndexRoute
   AuthenticatedRedPacketsIndexRoute: typeof AuthenticatedRedPacketsIndexRoute
   AuthenticatedRedemptionCodesIndexRoute: typeof AuthenticatedRedemptionCodesIndexRoute
   AuthenticatedRssIndexRoute: typeof AuthenticatedRssIndexRoute
@@ -2396,7 +2375,6 @@ const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
     AuthenticatedOpenSourceBountiesIndexRoute,
   AuthenticatedPlaygroundIndexRoute: AuthenticatedPlaygroundIndexRoute,
   AuthenticatedProfileIndexRoute: AuthenticatedProfileIndexRoute,
-  AuthenticatedPublicRelayIndexRoute: AuthenticatedPublicRelayIndexRoute,
   AuthenticatedRedPacketsIndexRoute: AuthenticatedRedPacketsIndexRoute,
   AuthenticatedRedemptionCodesIndexRoute:
     AuthenticatedRedemptionCodesIndexRoute,

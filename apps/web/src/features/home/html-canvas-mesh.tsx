@@ -29,31 +29,31 @@ type MeshProps = {
 }
 
 const NODES = [
-  { label: 'Chat', path: 'M5 5h14v10H9l-4 4V5Z', x: 15, y: 29 },
+  { label: 'Chat', path: 'M5 5h14v10H9l-4 4V5Z', x: 16, y: 20 },
   {
     label: 'Drawing',
     path: 'M4 4h16v16H4zM4 16l6-6 10 10M15 8h.01',
-    x: 15,
-    y: 71,
+    x: 16,
+    y: 50,
   },
   {
     label: 'Audio',
     path: 'M4 10v4m4-8v12m4-15v18m4-15v12m4-8v4',
-    x: 85,
-    y: 29,
+    x: 84,
+    y: 20,
   },
-  { label: 'Code', path: 'm8 6-6 6 6 6m8-12 6 6-6 6m-3-14-2 16', x: 85, y: 71 },
+  { label: 'Code', path: 'm8 6-6 6 6 6m8-12 6 6-6 6m-3-14-2 16', x: 84, y: 80 },
   {
     label: 'Reasoning',
     path: 'M12 3v6m0 0-6 5m6-5 6 5M6 14v7m12-7v7M3 14h6m6 0h6',
-    x: 50,
-    y: 12,
+    x: 16,
+    y: 80,
   },
   {
     label: 'Vision',
     path: 'M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12Zm10-3a3 3 0 1 0 0 6 3 3 0 0 0 0-6Z',
-    x: 50,
-    y: 88,
+    x: 84,
+    y: 50,
   },
 ] as const
 
@@ -204,12 +204,13 @@ export function HtmlCanvasMesh({
     >
       <svg
         className='lmm-mesh-wires'
-        viewBox='0 0 1000 560'
+        viewBox='0 0 100 100'
         preserveAspectRatio='none'
         aria-hidden='true'
       >
         {NODES.map(({ label, x, y }) => {
-          const wire = `M500 280 L${x * 10} ${y * 5.6}`
+          const branch = x < 50 ? 33 : 67
+          const wire = `M50 50 H${branch} V${y} H${x}`
           return (
             <g key={label}>
               <path d={wire} />
@@ -217,7 +218,6 @@ export function HtmlCanvasMesh({
             </g>
           )
         })}
-        <circle cx='500' cy='280' r='4' />
       </svg>
       {NODES.map(({ label, path, x, y }) => {
         const href = label === 'Code' ? guideHref : pricingHref

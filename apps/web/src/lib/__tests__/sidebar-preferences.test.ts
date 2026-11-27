@@ -90,6 +90,20 @@ describe('sidebar preferences', () => {
     )
   })
 
+  test('opens the dashboard for a retired channel marketplace landing preference', () => {
+    const saved = (route: string) =>
+      JSON.stringify({ modules: {}, preferences: { default_route: route } })
+    assert.equal(
+      resolveSidebarDefaultRoute(saved('/public-relay')),
+      '/dashboard'
+    )
+    assert.equal(resolveSidebarDefaultRoute(saved('/channels')), '/channels')
+    assert.equal(
+      resolveSidebarDefaultRoute(saved('/tool-market')),
+      '/tool-market'
+    )
+  })
+
   test('uses explicit false as the only module-layer visibility override', () => {
     assert.equal(
       isSidebarRouteEnabledByModules('/dashboard/overview', {

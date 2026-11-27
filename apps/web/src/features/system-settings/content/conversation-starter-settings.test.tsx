@@ -453,6 +453,8 @@ test('real assistant settings route saves presets independently of partial legac
       ),
       'assistant'
     )
+    const card = page.container.querySelector('[data-plugin="assistant"]')
+    assert.ok(card?.contains(field(page.container)))
     assert.equal(field(page.container).value, 'Published label')
     assert.equal(
       requests.filter(({ url }) => url.endsWith('/pre-conversation-presets'))
@@ -641,13 +643,13 @@ test('L5 discovers its settings home, assistant and shared market review while r
   useAuthStore.getState().auth.setBundle(bundle(10))
   const page = await renderRoute('/dashboard/overview', true)
   try {
-    const target = '/system-settings/content/assistant'
+    const target = '/extensions/plugins'
     await until(
       () =>
         page.container
           .querySelector('[data-testid="sidebar-routes"]')
           ?.textContent?.includes(target) === true,
-      'L5 sidebar starter link'
+      'L5 sidebar plugin manager'
     )
     const routeText = page.container.querySelector(
       '[data-testid="sidebar-routes"]'
@@ -656,8 +658,9 @@ test('L5 discovers its settings home, assistant and shared market review while r
     const rootRoutes = JSON.parse(routeText) as string[]
     assert.deepEqual(
       rootRoutes.filter((route) => route.startsWith('/system-settings')),
-      ['/system-settings', target]
+      ['/system-settings']
     )
+    assert.ok(rootRoutes.includes(target))
     const t = i18n.getFixedT('en')
     assert.deepEqual(
       buildSettingsSearchIndex(t, undefined, 10).flatMap((group) =>

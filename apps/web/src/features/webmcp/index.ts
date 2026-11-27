@@ -120,7 +120,6 @@ export const SITE_PAGES = {
   '/ai-directory': 'AI product directory',
   '/rss': 'RSS and Atom reader',
   '/red-packets': 'Red packets',
-  '/public-relay': 'Public relay',
   '/channels': 'Admin: upstream channels',
   '/users': 'Admin: users',
   '/redemption-codes': 'Admin: redemption codes',

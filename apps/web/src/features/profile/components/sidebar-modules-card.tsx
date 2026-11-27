@@ -84,12 +84,6 @@ function buildSectionDefs(t: (key: string) => string): SectionDef[] {
       description: t('Explore available features'),
       modules: [
         {
-          id: '/public-relay',
-          key: 'public-relay',
-          title: t('Channel marketplace'),
-          description: t('Browse shared channels'),
-        },
-        {
           id: '/todos',
           key: 'todos',
           title: t('To-dos'),
@@ -100,15 +94,9 @@ function buildSectionDefs(t: (key: string) => string): SectionDef[] {
     {
       id: 'forge',
       title: t('Community'),
-      description: t('Channel marketplace'),
+      description: t('Community rankings'),
       requiresConsole: true,
       modules: [
-        {
-          id: '/public-relay',
-          key: 'public-relay',
-          title: t('Channel marketplace'),
-          description: t('Browse shared channels'),
-        },
         {
           id: '/rankings',
           key: 'rankings',
@@ -364,11 +352,6 @@ const DEFAULT_ROUTES: DefaultRouteDef[] = [
   { route: '/drawing', title: 'Drawing studio', requiresConsole: true },
   { route: '/todos', title: 'To-dos', requiresConsole: true },
   { route: '/profile', title: 'Profile', requiresConsole: true },
-  {
-    route: '/public-relay',
-    title: 'Channel marketplace',
-    requiresConsole: true,
-  },
   { route: '/ai-directory', title: 'AI directory', requiresConsole: true },
   { route: '/rss', title: 'RSS', requiresConsole: true },
   { route: '/rankings', title: 'Rankings', requiresConsole: true },

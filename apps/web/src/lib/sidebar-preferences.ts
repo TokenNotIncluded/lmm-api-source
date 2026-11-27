@@ -132,7 +132,6 @@ export function serializeSidebarUserSettings(
 
 /** Routes that may be selected as a post-login landing page. */
 export const SIDEBAR_DEFAULT_ROUTE_ALLOWLIST = new Set([
-  '/public-relay',
   '/rss',
   '/tool-market',
   '/rankings',
@@ -161,7 +160,6 @@ export const SIDEBAR_DEFAULT_ROUTE_ALLOWLIST = new Set([
 ]) as ReadonlySet<string>
 
 export const SIDEBAR_ROUTE_SECTION: Readonly<Record<string, string>> = {
-  '/public-relay': 'forge',
   '/rss': 'forge',
   '/tool-market': 'forge',
   '/store': 'forge',
@@ -207,7 +205,6 @@ export const SIDEBAR_ROUTE_MODULE: Readonly<
   '/wallet': { section: 'personal', module: 'topup' },
   '/company': { section: 'personal', module: 'company' },
   '/profile': { section: 'personal', module: 'personal' },
-  '/public-relay': { section: 'personal', module: 'personal' },
   '/tool-market': { section: 'personal', module: 'personal' },
   '/channels': { section: 'admin', module: 'channel' },
   '/extensions/plugins': { section: 'admin', module: 'setting' },

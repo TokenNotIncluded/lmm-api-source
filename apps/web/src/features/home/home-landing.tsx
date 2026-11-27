@@ -355,10 +355,10 @@ export function HomeLanding({
             {t('Other clients / API key')}
           </Button>
         </div>
-        <div className='lmm-story' data-story>
-          <div className='lmm-story-steps'>
+        <div className='lmm-story' data-story data-method={connectionMethod}>
+          <ol className='lmm-story-steps'>
             {steps.map(([title, description], index) => (
-              <article
+              <li
                 id={`lmm-step-${index + 1}`}
                 className='lmm-story-step'
                 data-story-step
@@ -371,9 +371,9 @@ export function HomeLanding({
                   <h3>{t(title)}</h3>
                   <p>{t(description)}</p>
                 </div>
-              </article>
+              </li>
             ))}
-          </div>
+          </ol>
           {connectionMethod === 'api-key' ? (
             <div className='lmm-story-preview'>
               <nav className='lmm-story-controls' aria-label={t('Guide')}>
@@ -442,7 +442,9 @@ export function HomeLanding({
             </div>
           ) : (
             <div className='lmm-story-preview'>
-              <h3 className='mb-4 text-xl font-semibold'>LMM OAuth</h3>
+              <h3 className='mb-4 text-xl font-semibold'>
+                {t('Install a client')}
+              </h3>
               {oauthClients}
             </div>
           )}

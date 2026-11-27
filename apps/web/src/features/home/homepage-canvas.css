@@ -234,8 +234,88 @@
   transform: none;
 }
 
-.lmm-home-canvas .lmm-pi-command {
-  background: color-mix(in oklch, var(--forge-paper-light) 5%, transparent);
+.lmm-home-canvas .lmm-story[data-method='oauth'] {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: clamp(2rem, 4vw, 3.5rem);
+}
+
+.lmm-story[data-method='oauth'] .lmm-story-steps,
+.lmm-home-canvas .lmm-provider-list {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: clamp(1rem, 2vw, 2rem);
+}
+
+.lmm-story[data-method='oauth'] .lmm-story-step {
+  min-height: 0;
+  padding-block: 1.25rem 0;
+  border-top: 1px solid var(--home-rule);
+  align-content: start;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 0.75rem;
+}
+
+.lmm-story[data-method='oauth'] .lmm-story-step p {
+  margin: 0.45rem 0 0;
+  line-height: 1.6;
+}
+
+.lmm-story[data-method='oauth'] .lmm-story-preview {
+  position: static;
+  padding: 0;
+}
+
+.lmm-home-canvas .lmm-provider-item {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  padding: clamp(1.1rem, 2vw, 1.75rem);
+  background: var(--card);
+  border-radius: var(--radius);
+}
+
+.lmm-home-canvas .lmm-provider-item .lmm-pi-command {
+  display: grid;
+  gap: 0.5rem;
+  margin-block: 1rem;
+  padding: 0.75rem;
+  background: var(--background);
+}
+
+.lmm-home-canvas .lmm-pi-command > code {
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+  line-height: 1.5;
+  padding: 0;
+}
+
+.lmm-home-canvas .lmm-pi-command > button {
+  justify-self: start;
+  min-height: 2.75rem;
+}
+
+.lmm-home-canvas .lmm-provider-item > .lmm-text-link {
+  margin-top: auto;
+  align-self: start;
+}
+
+.lmm-home-canvas .lmm-webmcp-note {
+  grid-column: 1 / -1;
+  margin-top: 0;
+}
+
+@media (max-width: 800px) {
+  .lmm-story[data-method='oauth'] .lmm-story-steps,
+  .lmm-home-canvas .lmm-provider-list {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0.75rem;
+  }
+
+  .lmm-story[data-method='oauth'] .lmm-story-step {
+    padding-block: 1rem 0.25rem;
+  }
 }
 
 .lmm-home-canvas .lmm-assistant-section {
