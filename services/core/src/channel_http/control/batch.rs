@@ -6,6 +6,7 @@ use super::*;
 pub(in crate::channel_http) struct Patch {
     enabled: Option<bool>,
     tag: Option<String>,
+    groups: Option<Vec<String>>,
     priority: Option<u16>,
     weight: Option<u32>,
     timeout_ms: Option<u32>,
@@ -34,7 +35,10 @@ pub(in crate::channel_http) async fn configure(
         || input.ids.len() > 1000
         || ids.len() != input.ids.len()
         || ids.iter().any(|id| *id == 0 || *id > i64::MAX as u64)
-        || (!changes_targets && patch.enabled.is_none() && patch.tag.is_none())
+        || (!changes_targets
+            && patch.enabled.is_none()
+            && patch.tag.is_none()
+            && patch.groups.is_none())
         || patch
             .tag
             .as_deref()
@@ -47,7 +51,10 @@ pub(in crate::channel_http) async fn configure(
     }
     let mut actions = [
         (patch.enabled.is_some(), Action::ChannelOperate),
-        (patch.tag.is_some(), Action::ChannelWrite),
+        (
+            patch.tag.is_some() || patch.groups.is_some(),
+            Action::ChannelWrite,
+        ),
         (changes_targets, Action::ChannelSensitiveWrite),
     ]
     .into_iter()
@@ -62,6 +69,26 @@ pub(in crate::channel_http) async fn configure(
     }
     let mut document = next_document(management, input.expected_version)?;
     let mut bindings = management.current_bindings()?;
+    let assigned_groups = patch
+        .groups
+        .as_ref()
+        .map(|names| {
+            let groups = names.iter().cloned().collect::<BTreeSet<_>>();
+            let available = document
+                .routing
+                .groups
+                .iter()
+                .map(|group| group.name.as_str())
+                .collect::<BTreeSet<_>>();
+            if groups.is_empty()
+                || groups.len() != names.len()
+                || groups.iter().any(|name| !available.contains(name.as_str()))
+            {
+                return Err(ManagementError::Invalid);
+            }
+            Ok(groups)
+        })
+        .transpose()?;
     for id in &ids {
         let upstream = document
             .routing
@@ -71,6 +98,9 @@ pub(in crate::channel_http) async fn configure(
             .ok_or(Failure::NotFound)?;
         if let Some(enabled) = patch.enabled {
             upstream.enabled = enabled;
+        }
+        if let Some(groups) = &assigned_groups {
+            bindings.channel_groups.insert(*id, groups.clone());
         }
         if let Some(tag) = &patch.tag {
             if tag.is_empty() {

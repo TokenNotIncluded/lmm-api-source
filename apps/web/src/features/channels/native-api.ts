@@ -106,6 +106,7 @@ export type NativeConfiguration = {
     >
     names: Record<string, string>
     tags?: Record<string, string>
+    channel_groups?: Record<string, string[]>
     channel_providers?: Record<string, string>
     channel_notes?: Record<string, string>
     contexts: NativeContext[]
@@ -158,6 +159,7 @@ export type NativeKeyOperation =
 export type NativeChannelBatchPatch = {
   enabled?: boolean
   tag?: string
+  groups?: string[]
   priority?: number
   weight?: number
   timeout_ms?: number
@@ -387,6 +389,7 @@ export async function updateNativeChannels(
     .object({
       enabled: z.boolean().optional(),
       tag: z.string().max(128).optional(),
+      groups: z.array(z.string().min(1)).min(1).optional(),
       priority: z.number().int().min(0).max(65_535).optional(),
       weight: z.number().int().min(0).max(4_294_967_295).optional(),
       timeout_ms: z.number().int().min(1).max(3_600_000).optional(),
@@ -597,6 +600,7 @@ const configurationSchema = z.object({
       .default({}),
     names: z.record(z.string(), z.string()),
     tags: z.record(z.string(), z.string()).optional(),
+    channel_groups: z.record(z.string(), z.array(z.string()).min(1)).optional(),
     channel_providers: z.record(z.string(), z.string()).optional(),
     channel_notes: z.record(z.string(), z.string()).optional(),
     contexts: z.array(

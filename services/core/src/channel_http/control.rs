@@ -900,6 +900,7 @@ pub(super) async fn remove(
     let mut bindings = management.current_bindings()?;
     bindings.names.remove(&id);
     bindings.tags.remove(&id);
+    bindings.channel_groups.remove(&id);
     bindings.channel_notes.remove(&id);
     bindings.channel_providers.remove(&id);
     bindings.key_pools.remove(&id);

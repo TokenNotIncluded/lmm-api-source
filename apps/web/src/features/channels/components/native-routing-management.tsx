@@ -322,6 +322,11 @@ function NativeRoutingWorkspace({
   } | null>(null)
   const [confirmation, setConfirmation] = useState<string | null>(null)
   const [routingChannelId, setRoutingChannelId] = useState<number | null>(null)
+  const [groupEditor, setGroupEditor] = useState<{
+    id: number
+    version: NativeVersion
+    groups: string[]
+  } | null>(null)
   const [channelToDelete, setChannelToDelete] = useState<{
     id: number
     name: string
@@ -1849,6 +1854,10 @@ function NativeRoutingWorkspace({
               const groups = [
                 ...new Set(routes.map((route) => route.group)),
               ].sort()
+              const markedGroups =
+                configuration.bindings.channel_groups?.[channel.id]
+              const assignment =
+                groupEditor?.id === channel.id ? groupEditor : null
               const targets = routes.flatMap((route) =>
                 route.targets.filter(
                   (target) => target.upstream_id === channel.id
@@ -1905,10 +1914,36 @@ function NativeRoutingWorkspace({
                           <span className='text-muted-foreground'>
                             {t('Groups')}
                           </span>
-                          {groups.length === 0 ? (
+                          <Button
+                            type='button'
+                            size='icon'
+                            variant='ghost'
+                            className='size-8'
+                            aria-label={t('Groups')}
+                            aria-expanded={assignment !== null}
+                            title={t('Groups')}
+                            disabled={
+                              writeDisabled ||
+                              configuration.routing.groups.length === 0
+                            }
+                            onClick={() =>
+                              setGroupEditor(
+                                assignment
+                                  ? null
+                                  : {
+                                      id: channel.id,
+                                      version: configuration.version,
+                                      groups: [...(markedGroups ?? groups)],
+                                    }
+                              )
+                            }
+                          >
+                            <Pencil className='size-3.5' />
+                          </Button>
+                          {(markedGroups ?? groups).length === 0 ? (
                             <span>{t('None')}</span>
                           ) : (
-                            groups.map((group) => (
+                            (markedGroups ?? groups).map((group) => (
                               <span
                                 key={group}
                                 className='bg-muted rounded px-1.5 py-0.5 [overflow-wrap:anywhere]'
@@ -2111,6 +2146,85 @@ function NativeRoutingWorkspace({
                       </Button>
                     </div>
                   </div>
+                  {assignment && (
+                    <form
+                      className='space-y-3 rounded-lg border p-3'
+                      aria-label={t('Groups')}
+                      onSubmit={async (event) => {
+                        event.preventDefault()
+                        if (
+                          assignment.groups.length === 0 ||
+                          assignment.version.routing !==
+                            configuration.version.routing
+                        )
+                          return
+                        if (
+                          await run(() =>
+                            updateNativeChannels(
+                              scope,
+                              assignment.version,
+                              [channel.id],
+                              { groups: assignment.groups }
+                            )
+                          )
+                        ) {
+                          setGroupEditor(null)
+                        }
+                      }}
+                    >
+                      <fieldset
+                        className='flex flex-wrap gap-3'
+                        disabled={writeDisabled}
+                      >
+                        <legend className='mb-2 text-sm font-medium'>
+                          {t('Groups *')}
+                        </legend>
+                        {configuration.routing.groups.map(({ name: group }) => (
+                          <div
+                            key={group}
+                            className='flex items-center gap-2 text-sm'
+                          >
+                            <Checkbox
+                              aria-label={group}
+                              checked={assignment.groups.includes(group)}
+                              onCheckedChange={(checked) =>
+                                setGroupEditor({
+                                  ...assignment,
+                                  groups: checked
+                                    ? [...assignment.groups, group]
+                                    : assignment.groups.filter(
+                                        (value) => value !== group
+                                      ),
+                                })
+                              }
+                            />
+                            <span>{group}</span>
+                          </div>
+                        ))}
+                      </fieldset>
+                      <div className='flex gap-2'>
+                        <Button
+                          type='submit'
+                          disabled={
+                            writeDisabled ||
+                            assignment.groups.length === 0 ||
+                            assignment.version.routing !==
+                              configuration.version.routing
+                          }
+                        >
+                          {t('Save')}
+                        </Button>
+                        <Button
+                          type='button'
+                          variant='ghost'
+                          disabled={busy}
+                          onClick={() => setGroupEditor(null)}
+                        >
+                          {t('Cancel')}
+                        </Button>
+                      </div>
+                    </form>
+                  )}
                   {routingChannelId === channel.id && (
                     <NativeChannelBatchEditor
                       key={`${configuration.version.routing}:${channel.id}`}

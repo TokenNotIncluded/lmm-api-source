@@ -34,6 +34,8 @@ pub(in crate::channel_http) struct Bindings {
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub tags: BTreeMap<u64, String>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub channel_groups: BTreeMap<u64, BTreeSet<String>>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub channel_providers: BTreeMap<u64, String>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub channel_notes: BTreeMap<u64, String>,
@@ -76,6 +78,22 @@ impl Bindings {
             .iter()
             .map(|upstream| upstream.id)
             .collect::<BTreeSet<_>>();
+        let groups: BTreeSet<_> = _document
+            .routing
+            .groups
+            .iter()
+            .map(|g| g.name.as_str())
+            .collect();
+        for (id, assigned) in &self.channel_groups {
+            if !upstream_ids.contains(id)
+                || assigned.is_empty()
+                || assigned
+                    .iter()
+                    .any(|group| !groups.contains(group.as_str()))
+            {
+                return Err(ManagementError::Invalid);
+            }
+        }
         for (id, tag) in &self.tags {
             if !valid_label(tag) || !upstream_ids.contains(id) {
                 return Err(ManagementError::Invalid);
@@ -192,6 +210,20 @@ impl ConfigurationInput {
             return Err(ManagementError::Invalid);
         }
         let previous = management.current_bindings()?;
+        // Only the versioned channel update edits labels; older full-document
+        // clients must preserve labels for every channel that survives the edit.
+        let upstream_ids: BTreeSet<_> = self
+            .routing
+            .upstreams
+            .iter()
+            .map(|upstream| upstream.id)
+            .collect();
+        self.bindings
+            .channel_groups
+            .clone_from(&previous.channel_groups);
+        self.bindings
+            .channel_groups
+            .retain(|id, _| upstream_ids.contains(id));
         if (self.bindings.assistant_group.is_some()
             && self.bindings.assistant_group != previous.assistant_group)
             || (self.bindings.assistant_model.is_some()

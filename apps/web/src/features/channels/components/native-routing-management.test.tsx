@@ -4775,6 +4775,48 @@ test('fetching a channel catalog previews editable changes and only Save publish
   assert.equal(previews[0].metadata.display_name, 'catalog-last')
   assert.equal(writes.length, 1)
 })
+test('each channel can save a nonempty subset of existing groups without changing routes', async () => {
+  const config: NativeConfiguration = fixture()
+  config.routing.groups.push({ name: 'review', enabled: true })
+  const originalRoutes = structuredClone(config.routing.routes)
+  const expectedVersion = { ...config.version }
+  const updates: unknown[] = []
+  api.request = (async (options: {
+    method: string
+    url: string
+    data?: { patch: { groups: string[] } }
+  }) => {
+    const ok = (data: unknown) => ({ data: { success: true, data } })
+    if (options.method === 'GET') return ok(structuredClone(config))
+    assert.equal(options.method, 'PUT')
+    assert.match(options.url, /channels\/batch\/configuration$/)
+    updates.push(options.data)
+    config.bindings.channel_groups = { '1': required(options.data).patch.groups }
+    config.version.routing++
+    config.routing.version++
+    return ok({ version: config.version, updated: 1, target_count: 1 })
+  }) as typeof api.request
+  const container = await mount('channels', true, { native_channel_observations: false })
+  await until(() => !!container.querySelector('article button[aria-label="Groups"]'))
+  const trigger = required(container.querySelector<HTMLButtonElement>('article button[aria-label="Groups"]'))
+  await act(async () => trigger.click())
+  const form = required(container.querySelector('form[aria-label="Groups"]'))
+  const check = (name: string) => required(
+    [...form.querySelectorAll<HTMLButtonElement>('[role="checkbox"]')]
+      .find((input) => input.getAttribute('aria-label') === name)
+  )
+  assert.equal(check('default').getAttribute('aria-checked'), 'true')
+  await act(async () => check('default').click())
+  assert.ok(button(form, 'Save').disabled)
+  await act(async () => check('review').click())
+  await act(async () => check('default').click())
+  await act(async () => button(form, 'Save').click())
+  await until(() => !container.querySelector('form[aria-label="Groups"]'))
+  assert.deepEqual(updates, [{ expected_version: expectedVersion, ids: [1], patch: { groups: ['review', 'default'] } }])
+  assert.deepEqual(config.routing.routes, originalRoutes)
+  assert.ok(container.querySelector('article')?.textContent?.includes('review'))
+})
+
 test('unpriced models can be found without opening each channel', async () => {
   const config: NativeConfiguration = fixture()
   config.bindings.discoveries['1'] = {
