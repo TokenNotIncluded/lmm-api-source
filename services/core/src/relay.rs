@@ -1268,15 +1268,19 @@ impl Worker {
             }
         }
         if let Some(failure) = &error
-            && failure.status() >= 500
+            && (failure.status() >= 500
+                || (self.report.upstream_attempted && settlement == Settlement::Pending))
         {
             eprintln!(
-                "core_model_failure code={} upstream_status={} upstream_attempted={} provider_complete={} settlement={settlement:?} request_id={}",
+                "core_model_failure code={} upstream_status={} upstream_attempted={} provider_complete={} settlement={settlement:?} request_id={} reason={} upstream_bytes={} emitted_bytes={}",
                 failure.code(),
                 self.report.upstream_status.unwrap_or(0),
                 self.report.upstream_attempted,
                 self.report.provider_complete,
                 self.report.request_id,
+                failure,
+                self.report.upstream_bytes,
+                self.report.emitted_bytes,
             );
         }
         if let Some(e) = &error {
