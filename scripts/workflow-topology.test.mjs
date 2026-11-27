@@ -166,7 +166,9 @@ test('distribution builds use the checked source and shipped TOML resources', ()
 
 test('Manual qualification verifies Core and Extensions', () => {
   const source = workflow('core-protocol');
-  assert.match(source, /^on:\n  workflow_dispatch:\n  workflow_call:/m);
+  const triggers = source.match(/^on:\n((?:[ \t]+[^\n]*\n)+)/m)?.[1];
+  assert.deepEqual([...triggers.matchAll(/^  ([\w-]+):/gm)].map((match) => match[1]),
+    ['workflow_dispatch', 'workflow_call']);
   for (const command of ['cargo clippy --locked --all-targets -- -D warnings', 'cargo test --locked --all-targets',
     'go mod verify', 'go vet ./...', 'go test -race', 'scripts/test-core-rpc-docker.py', 'scripts/test-core-boundaries.py',
     'scripts/test-local-release-tests.py', 'scripts/generate-core-protocol.sh --check',
@@ -444,7 +446,8 @@ test('externally owned payment live case remains required through its real runne
 test('financial and RPC acceptance run independently and remain required in Core CI', () => {
   const source = workflow('core-protocol');
   const [rust, remainder] = source.split('\n  financial-import:\n');
-  const [financial, rpc] = remainder.split('\n  rpc:\n');
+  const [financial, afterFinancial] = remainder.split('\n  rpc:\n');
+  const [rpc] = afterFinancial.split(/\n  [\w-]+:\n/, 1);
   assert.doesNotMatch(rust, /run: .*test-core-rpc-docker/);
   for (const job of [financial, rpc]) {
     assert.match(job, /runs-on: ubuntu-24\.04/);

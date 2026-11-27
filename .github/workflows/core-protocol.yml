@@ -555,6 +555,16 @@ jobs:
       - name: Build the normal web entry and install its isolated browser
         run: |
           bun install --frozen-lockfile
+          bun run typecheck:web
+          (
+            cd apps/web
+            for spec in \
+              src/features/channels/components/native-routing-management.test.tsx \
+              src/features/system-settings/billing/official-price-editor.test.tsx \
+              src/features/system-settings/billing/official-price-toml.test.ts; do
+              bun test --preload ./scripts/test-preload.mjs --timeout 20000 "$spec"
+            done
+          )
           bun run build:web
           npm install --prefix "$RUNNER_TEMP/onboarding-browser" --no-package-lock --ignore-scripts playwright@1.56.1
           node "$RUNNER_TEMP/onboarding-browser/node_modules/playwright/cli.js" install --with-deps chromium
