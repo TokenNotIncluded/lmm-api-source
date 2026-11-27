@@ -41,6 +41,8 @@ jobs:
           git submodule update --init --depth 1 -- packages/zed-lmm-provider
           cd packages/zed-lmm-provider
           npm ci --ignore-scripts
+          npm run typecheck
+          npm test
           npm run build
           tgz="$(npm pack --silent --ignore-scripts --pack-destination "$RUNNER_TEMP")"
           npm install --prefix "$RUNNER_TEMP/lmm-zed" --no-audit --no-fund --ignore-scripts "$RUNNER_TEMP/$tgz"
