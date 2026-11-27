@@ -66,6 +66,8 @@ to 22, `user` to root, `python` to `/usr/bin/python3`, and `min_free_bytes` to
 256 MiB. `allow_rollback` is a JSON boolean and defaults to `true`. Optional
 `health_headers` supplies non-secret HTTP headers. The Web
 probe must return the exact built `index.html`, without HTML rewriting.
+Backend health URLs must return JSON with `status: "ready"` and the expected
+`service` identity (`lmm-core` or `lmm-extensions`).
 
 ## Provision once
 

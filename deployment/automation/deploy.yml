@@ -146,7 +146,11 @@
             status_code: 200
             timeout: 5
           register: rollback_health
-          until: rollback_health.status | default(0) == 200
+          until: >-
+            rollback_health.status | default(0) == 200 and
+            (item.name == 'web' or
+            (rollback_health.json.status | default('') == 'ready' and
+             rollback_health.json.service | default('') == 'lmm-' + item.name))
           retries: 10
           delay: 2
           when: activation_started and (deploy_allow_rollback | default(true) | bool)

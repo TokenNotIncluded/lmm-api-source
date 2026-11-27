@@ -9,6 +9,14 @@
   until: component_health.status | default(0) == 200
   retries: 10
   delay: 2
+- name: Require backend readiness from the expected service
+  ansible.builtin.assert:
+    that:
+      - component_health.json is defined
+      - component_health.json.status | default('') == 'ready'
+      - component_health.json.service | default('') == 'lmm-' + component.name
+    fail_msg: The backend health URL did not return readiness for the selected service.
+  when: component.name != 'web'
 - name: Read the running backend process identity
   ansible.builtin.command:
     argv: [systemctl, show, '{{ component.service }}', --property=MainPID, --value]
