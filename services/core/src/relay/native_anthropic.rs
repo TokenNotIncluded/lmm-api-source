@@ -82,6 +82,19 @@ fn keys(v: &Value, scope: &'static str, allowed: &[&str]) -> Result<(), RelayErr
     }
     Ok(())
 }
+fn output_effort(config: &Value) -> Result<&'static str, RelayError> {
+    keys(config, "output_config", &["effort"])?;
+    let invalid = || RelayError::Invalid("invalid Anthropic output effort");
+    let value = config["effort"].as_str().ok_or_else(invalid)?;
+    let wire = serde_json::to_vec(&json!({"output_config":{"effort":value}}))
+        .map_err(|_| invalid())?;
+    let mut tokens = [zconv::json::Token::EMPTY; 16];
+    let controls = zconv::json::parse(&wire, &mut tokens, zconv::json::Limits::default())
+        .map_err(|_| invalid())?;
+    zconv::protocol::anthropic::messages_effort(controls.root())
+        .map_err(|_| invalid())?
+        .ok_or_else(invalid)
+}
 fn string(v: &Value) -> Result<String, RelayError> {
     v.as_str()
         .map(str::to_owned)
@@ -282,8 +295,10 @@ pub(crate) fn parse(body: &[u8], limits: &Limits) -> Result<Request, RelayError>
             "tool_choice",
             "stop_sequences",
             "metadata",
+            "output_config",
         ],
     )?;
+    let output_effort = v.get("output_config").map(output_effort).transpose()?;
     if let Some(metadata) = v.get("metadata") {
         keys(metadata, "metadata", &["user_id"])?;
         if metadata
@@ -430,6 +445,7 @@ pub(crate) fn parse(body: &[u8], limits: &Limits) -> Result<Request, RelayError>
     request.messages = messages;
     request.anthropic_cached_prompt = cached_prompt;
     request.anthropic_metadata = v.get_mut("metadata").map(Value::take);
+    request.anthropic_output_effort = output_effort;
     Ok(request)
 }
 
@@ -1046,6 +1062,54 @@ mod tests {
             let error = parse(&request(json!({"tools":[tool]})), &Limits::default()).unwrap_err();
             assert!(matches!(error, RelayError::Unsupported(_)));
             assert_eq!(error.code(), "unsupported_feature");
+        }
+    }
+
+    #[test]
+    fn native_anthropic_output_effort_keeps_its_wire_value_and_output_limit() {
+        for effort in ["low", "medium", "high", "xhigh", "max"] {
+            let config = json!({"effort": effort});
+            let body = request(json!({"output_config": config}));
+            let parsed = parse(&body, &Limits::default()).unwrap();
+            let wire = parsed
+                .upstream_body_to(UpstreamProtocol::Anthropic, "selected")
+                .unwrap();
+            let wire: Value = serde_json::from_slice(&wire).unwrap();
+            assert_eq!(wire["output_config"], config);
+            assert_eq!(wire["max_tokens"], 128);
+        }
+        for invalid in [
+            json!({"effort":"unbounded"}),
+            json!({"effort":null}),
+            json!({"effort":1}),
+            Value::Null,
+        ] {
+            let body = request(json!({"output_config": invalid}));
+            assert!(matches!(
+                parse(&body, &Limits::default()),
+                Err(RelayError::Invalid(_))
+            ));
+        }
+        let body = request(json!({"output_config":{
+            "effort":"high", "format":{"type":"json_schema"}
+        }}));
+        assert!(matches!(
+            parse(&body, &Limits::default()),
+            Err(RelayError::UnsupportedField(field)) if field == "output_config.format"
+        ));
+    }
+
+    #[test]
+    fn native_anthropic_output_effort_rejects_lossy_protocol_conversion() {
+        let body = request(json!({"output_config":{"effort":"high"}}));
+        let parsed = parse(&body, &Limits::default()).unwrap();
+        for target in [
+            UpstreamProtocol::Chat,
+            UpstreamProtocol::Responses,
+            UpstreamProtocol::Gemini,
+        ] {
+            let error = parsed.upstream_body_to(target, "selected").unwrap_err();
+            assert!(matches!(error, RelayError::Unsupported(_)));
         }
     }
 

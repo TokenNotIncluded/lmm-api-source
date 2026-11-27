@@ -124,6 +124,7 @@ pub struct Request {
     pub prompt_cache_options: Option<Value>,
     prompt_cache_key: Option<String>,
     pub(super) anthropic_metadata: Option<Value>,
+    pub(super) anthropic_output_effort: Option<&'static str>,
     /// Validated native prompt sections with cache breakpoints. Keep original
     /// block/message boundaries: normalization can change the cached prefix.
     pub(super) anthropic_cached_prompt: Option<Map<String, Value>>,
@@ -778,6 +779,7 @@ impl Request {
             || self.parallel_tool_calls.is_some()
             || self.prompt_cache_options.is_some()
             || self.anthropic_cached_prompt.is_some()
+            || self.anthropic_output_effort.is_some()
             || self.reasoning_effort.is_some()
             || self.responses_summary.is_some()
             || self.requests_encrypted_output
@@ -1501,6 +1503,7 @@ impl Request {
                 .transpose()?,
             responses_client_metadata,
             anthropic_metadata: None,
+            anthropic_output_effort: None,
             anthropic_cached_prompt: None,
             image_config,
             openrouter: if client == ClientProtocol::Chat {
@@ -1911,6 +1914,11 @@ impl Request {
         protocol: UpstreamProtocol,
         model: &str,
     ) -> Result<Value, RelayError> {
+        if self.anthropic_output_effort.is_some() && protocol != UpstreamProtocol::Anthropic {
+            return Err(RelayError::Unsupported(
+                "Anthropic output_config requires an Anthropic route",
+            ));
+        }
         if self.anthropic_cached_prompt.is_some() && protocol != UpstreamProtocol::Anthropic {
             return Err(RelayError::Unsupported(
                 "Anthropic cache_control requires an Anthropic route",
@@ -2125,6 +2133,9 @@ impl Request {
             }
         }
         if protocol == UpstreamProtocol::Anthropic {
+            if let Some(effort) = self.anthropic_output_effort {
+                converted["output_config"] = json!({"effort":effort});
+            }
             if let Some(metadata) = &self.anthropic_metadata {
                 converted["metadata"] = metadata.clone();
             }
