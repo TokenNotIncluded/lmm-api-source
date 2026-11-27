@@ -14,7 +14,7 @@ const workflow = (name) => read(`.github/workflows/${name}.yml`);
 test('preview workflows stay read-only and source publication never grants server access', () => {
   const files = readdirSync(new URL('.github/workflows/', root))
     .filter((name) => /\.ya?ml$/.test(name));
-  for (const name of ['ci.yml', 'core-protocol.yml', 'microservice-distribution.yml', 'server-release-qualification.yml']) {
+  for (const name of ['ci.yml', 'core-protocol.yml', 'microservice-distribution.yml']) {
     assert.ok(files.includes(name), `missing workflow: ${name}`);
   }
   assert.ok(!files.includes('server-ops.yml'));
@@ -34,7 +34,7 @@ test('preview workflows stay read-only and source publication never grants serve
   assert.throws(() => workflow('release-go'), /ENOENT/);
   assert.throws(() => workflow('release-web'), /ENOENT/);
   assert.throws(() => workflow('deploy-web-frontend'), /ENOENT/);
-  assert.match(workflow('server-release-qualification'), /uses: \.\/\.github\/workflows\/core-protocol\.yml/);
+  assert.throws(() => workflow('server-release-qualification'), /ENOENT/);
   assert.throws(() => read('scripts/ci/qualify-go-migration-startup.sh'), /ENOENT/);
 });
 
@@ -300,12 +300,11 @@ test('distribution builds use the checked source and shipped TOML resources', ()
 });
 
 test('CI and manual qualification reuse the exact core and extension verification pipeline', () => {
-  for (const name of ['ci', 'server-release-qualification']) {
-    const source = workflow(name);
-    assert.match(source, /uses: \.\/\.github\/workflows\/core-protocol\.yml/);
-    assert.doesNotMatch(source, /qualify-go-migration-startup|credit-balance-rebase|\.\/model|\.\/relaykit/);
-  }
+  const ci = workflow('ci');
+  assert.match(ci, /uses: \.\/\.github\/workflows\/core-protocol\.yml/);
+  assert.doesNotMatch(ci, /qualify-go-migration-startup|credit-balance-rebase|\.\/model|\.\/relaykit/);
   const source = workflow('core-protocol');
+  assert.match(source, /^on:\n  workflow_dispatch:\n  workflow_call:/m);
   for (const command of ['cargo clippy --locked --all-targets -- -D warnings', 'cargo test --locked --all-targets',
     'go mod verify', 'go vet ./...', 'go test -race', 'scripts/test-core-rpc-docker.py', 'scripts/test-core-boundaries.py',
     'scripts/test-local-release-tests.py', 'scripts/generate-core-protocol.sh --check',

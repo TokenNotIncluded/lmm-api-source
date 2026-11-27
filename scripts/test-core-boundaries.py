@@ -3045,9 +3045,13 @@ class CoreBoundaryTests(unittest.TestCase):
         for component in ("core", "extensions"):
             sample = tomllib.loads((ROOT / f"config/{component}.example.toml").read_text())
             self.assertEqual(sample["version"], 1)
-        for name in ("ci.yml", "server-release-qualification.yml"):
-            body = (ROOT / ".github/workflows" / name).read_text()
-            self.assertIn("uses: ./.github/workflows/core-protocol.yml", body)
+        workflows = ROOT / ".github/workflows"
+        ci = (workflows / "ci.yml").read_text()
+        qualification = (workflows / "core-protocol.yml").read_text()
+        self.assertIn("uses: ./.github/workflows/core-protocol.yml", ci)
+        self.assertIn("on:\n  workflow_dispatch:", qualification)
+        self.assertFalse((workflows / "server-release-qualification.yml").exists())
+        for body in (ci, qualification):
             for retired in ("migrate --", "credit-balance-rebase", "./model", "./relaykit", "apps/extensions-go"):
                 self.assertNotIn(retired, body)
 

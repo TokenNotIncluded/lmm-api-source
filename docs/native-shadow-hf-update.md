@@ -7,16 +7,16 @@
 ## 合同边界
 
 - 自动允许：路径命中的 microkernel / MK 门禁（push/PR）。
-- 影子自动部署：[`deploy.yml`](../.github/workflows/deploy.yml) 接受手动触发及 `v*` / `shadow-v*` tag；服务器、组件、目录和探针由环境变量描述，见[通用部署配置](../deployment/automation/README.md)。普通 main push 不部署，不执行生产切流。
-- 必须手动：`ci.yml`、`linux-packages.yml`、`microservice-distribution.yml`、`microservice-images.yml`、`server-release-qualification.yml`（仅 `workflow_dispatch` / `workflow_call`）。
+- 自动部署：main 的 CI 通过后，[部署工作流](../.github/workflows/deploy.yml) 检查并部署配置的目标。也可以手动触发，或使用 `v*` / `shadow-v*` tag。服务器、组件、目录和探针由部署环境配置，见[通用部署配置](../deployment/automation/README.md)。
+- 手动执行完整 Core 与扩展验证时，直接运行 [`core-protocol.yml`](../.github/workflows/core-protocol.yml)。
 - 禁止：CI 直推生产、工作流硬编码域名、无授权资金动作。
 - 拓扑断言：`node --test scripts/workflow-topology.test.mjs`。
 
 ## 自动更新
 
 配置 `DEPLOY_TARGETS`、`DEPLOY_ENVIRONMENT`、`DEPLOY_KNOWN_HOSTS` 和环境 Secret
-`DEPLOY_SSH_PRIVATE_KEY` 后，手动运行 `deploy.yml`，或推送来源属于 main 的
-版本 tag。工作流构建固定源码的所选组件，验证归档，按目标顺序部署并检查实际运行
+`DEPLOY_SSH_PRIVATE_KEY` 后，推送到 main 即可触发 CI 和后续部署。
+也可手动运行 `deploy.yml`，或推送来源属于 main 的版本 tag。工作流构建固定源码的所选组件，验证归档，按目标顺序部署并检查实际运行
 进程/静态页面。Core 更新前只执行 `check-db`；不自动升级 schema。
 
 运行主机只在事务期间保留当前和候选两个固定槽位；成功立即删除旧槽位和上传包，
