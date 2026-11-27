@@ -277,14 +277,18 @@ impl AssistantModel {
         request_id: &str,
         worker: &[u8; 32],
         observation: crate::model_http::assistant_execution::AssistantObservation,
+        stage: &mut &'static str,
     ) -> Result<(), Error> {
+        *stage = "settlement_begin";
         let mut tx = self.begin().await?;
+        *stage = "settlement_conversation";
         let conversation: String = sqlx::query_scalar("SELECT g.conversation_id FROM core_charging.requests r JOIN core_assistant.grants g ON g.id=r.assistant_grant_id WHERE r.id=$1")
             .bind(request_id).fetch_one(&mut *tx).await?;
         lock_conversation_id(&mut tx, &conversation).await?;
         let answer = match observation.answer {
             crate::model_http::assistant_execution::AssistantAnswer::Text(answer) => answer,
             crate::model_http::assistant_execution::AssistantAnswer::Gift(call) => {
+                *stage = "settlement_gift";
                 let result = gift_execution::execute(&mut tx, session, request_id, &call).await?;
                 let receipt = result
                     .receipt
@@ -295,9 +299,11 @@ impl AssistantModel {
                 result.answer
             }
         };
+        *stage = "settlement_receipt";
         self.charging
             .settle_assistant(&mut tx, request_id, worker, observation.usage, &answer)
             .await?;
+        *stage = "settlement_commit";
         tx.commit().await.map_err(|_| Error::Unavailable)?;
         Ok(())
     }
@@ -647,13 +653,22 @@ impl AssistantModel {
         // retry loop; process death leaves a durable unknown operation.
         let task = tokio::spawn(async move {
             let _permit = permit;
-            let mut settled = false;
-            if let Ok(observation) = service.gateway.execute_assistant(prepared).await {
-                settled = service
-                    .finalize(&original, &request_id, &worker, observation)
-                    .await
-                    .is_ok();
-            }
+            let settled = match service.gateway.execute_assistant(prepared).await {
+                Ok(observation) => {
+                    let mut stage = "settlement_begin";
+                    service.finalize(&original, &request_id, &worker, observation, &mut stage)
+                        .await.inspect_err(|_| eprintln!("core_assistant_personal_text_failure request_id={request_id} stage={stage}"))
+                        .is_ok()
+                }
+                Err(failure) => {
+                    // This ID is Core-generated after authorization. Provider
+                    // error bodies, URLs, prompt text and credentials stay private.
+                    eprintln!(
+                        "core_assistant_personal_text_failure request_id={request_id} {failure}"
+                    );
+                    false
+                }
+            };
             if !settled {
                 let mut tx = service.begin().await?;
                 // The deferred exclusion trigger takes this lock at COMMIT.

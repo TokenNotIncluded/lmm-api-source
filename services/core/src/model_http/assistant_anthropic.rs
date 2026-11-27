@@ -54,16 +54,20 @@ pub(super) fn assistant_response(
     protocol: UpstreamProtocol,
     mode: Option<crate::routing::CacheCreationMode>,
     limits: &Limits,
+    stage: &mut &'static str,
 ) -> Result<Value, RelayError> {
+    *stage = "response_decode";
     if protocol == UpstreamProtocol::Chat {
         return serde_json::from_slice(raw_response).map_err(|_| RelayError::SettlementPending);
     }
     if protocol != UpstreamProtocol::Anthropic {
         return Err(RelayError::RouteUnavailable);
     }
+    *stage = "anthropic_usage_dimensions";
     let projected = assistant_anthropic_decoder_input(
         std::str::from_utf8(raw_response).map_err(|_| RelayError::SettlementPending)?,
     )?;
+    *stage = "response_decode";
     let response: Value =
         serde_json::from_str(&projected).map_err(|_| RelayError::SettlementPending)?;
     let limits = Limits {
@@ -242,6 +246,7 @@ mod tests {
             UpstreamProtocol::Anthropic,
             None,
             &Limits::default(),
+            &mut "",
         )
         .unwrap();
         assert_eq!(
@@ -267,7 +272,8 @@ mod tests {
                     &serde_json::to_vec(&incomplete).unwrap(),
                     UpstreamProtocol::Anthropic,
                     None,
-                    &Limits::default()
+                    &Limits::default(),
+                    &mut "",
                 )
                 .is_err()
             );
@@ -290,9 +296,15 @@ mod tests {
         );
         assert!(generic.json(&response).is_err());
         let raw = serde_json::to_vec(&response).unwrap();
-        let normalized =
-            assistant_response(&payload(), &raw, UpstreamProtocol::Anthropic, None, &limits)
-                .unwrap();
+        let normalized = assistant_response(
+            &payload(),
+            &raw,
+            UpstreamProtocol::Anthropic,
+            None,
+            &limits,
+            &mut "",
+        )
+        .unwrap();
         assert_eq!(normalized["choices"][0]["message"]["content"], "Hello");
         let usage = relay::provider_usage_with_cache_creation_mode(
             UpstreamProtocol::Anthropic,
@@ -328,6 +340,7 @@ mod tests {
             UpstreamProtocol::Anthropic,
             None,
             &Limits::default(),
+            &mut "",
         )
         .unwrap();
         assert_eq!(
@@ -391,7 +404,12 @@ mod tests {
 
     #[tokio::test]
     async fn actual_assistant_http_uses_selected_anthropic_route_and_original_receipt() {
-        use axum::{Json, Router, http::HeaderMap, routing::post};
+        use axum::{
+            Json, Router,
+            http::{HeaderMap, StatusCode},
+            response::IntoResponse,
+            routing::post,
+        };
         use std::sync::Mutex;
         let captured = Arc::new(Mutex::new(Vec::new()));
         let requests = captured.clone();
@@ -406,10 +424,17 @@ mod tests {
                     response["content"] = json!([{"type":"tool_use","id":"toolu_http","name":"get_new_user_gift_status","input":{}}]);
                     response["stop_reason"] = json!("tool_use");
                 }
-                if input["messages"][0]["content"].to_string().contains("missing usage") {
+                let text = input["messages"][0]["content"].to_string();
+                if text.contains("simulate rejection") {
+                    return (StatusCode::UNAUTHORIZED, "internal supplier rejection text").into_response();
+                }
+                if text.contains("missing usage") {
                     response.as_object_mut().unwrap().remove("usage");
                 }
-                Json(response)
+                if text.contains("different tier") {
+                    response["usage"]["service_tier"] = json!("priority");
+                }
+                Json(response).into_response()
             }
         }));
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -470,26 +495,41 @@ mod tests {
                 _ => panic!("wrong assistant observation"),
             }
         }
-        let missing = gateway
-            .prepare_assistant(
-                "internal-alias",
-                "allowed",
-                32,
-                json!([{"role":"user","content":"missing usage"}]),
-                &transport,
-                None,
-                &quote,
-                7,
-            )
-            .await
-            .unwrap();
-        assert!(matches!(
-            gateway.execute_assistant(missing).await,
-            Err(RelayError::SettlementPending)
-        ));
+        for (prompt, expected) in [
+            (
+                "simulate rejection",
+                "stage=provider_http protocol=Anthropic code=settlement_pending http_status=401",
+            ),
+            (
+                "missing usage",
+                "stage=usage_missing protocol=Anthropic code=settlement_pending http_status=200",
+            ),
+            (
+                "different tier",
+                "stage=anthropic_usage_dimensions protocol=Anthropic code=unsupported_feature http_status=200",
+            ),
+        ] {
+            let prepared = gateway
+                .prepare_assistant(
+                    "internal-alias",
+                    "allowed",
+                    32,
+                    json!([{"role":"user","content":prompt}]),
+                    &transport,
+                    None,
+                    &quote,
+                    7,
+                )
+                .await
+                .unwrap();
+            let Err(failure) = gateway.execute_assistant(prepared).await else {
+                panic!("synthetic failure settled");
+            };
+            assert_eq!(failure.to_string(), expected);
+        }
         {
             let captured = captured.lock().unwrap();
-            assert_eq!(captured.len(), 3);
+            assert_eq!(captured.len(), 5);
             for (headers, request) in captured.iter() {
                 assert_eq!(headers["x-api-key"], "synthetic-assistant-key");
                 assert_eq!(headers["anthropic-version"], "2023-06-01");

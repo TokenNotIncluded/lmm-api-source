@@ -36,6 +36,30 @@ pub(crate) struct AssistantObservation {
     pub answer: AssistantAnswer,
     pub usage: crate::billing::charging::Usage,
 }
+/// Private diagnostic for a claimed text turn. Fields are fixed Core labels
+/// and an HTTP status observed only after the selected peer matched.
+#[derive(Debug)]
+pub(crate) struct AssistantFailure {
+    stage: &'static str,
+    protocol: relay::UpstreamProtocol,
+    http_status: Option<u16>,
+    code: &'static str,
+}
+
+impl std::fmt::Display for AssistantFailure {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "stage={} protocol={:?} code={}",
+            self.stage, self.protocol, self.code
+        )?;
+        if let Some(status) = self.http_status {
+            write!(f, " http_status={status}")?;
+        }
+        Ok(())
+    }
+}
+
 impl ModelGateway {
     pub(crate) fn assistant_parallelism(&self) -> usize {
         self.limits.max_in_flight.min(16)
@@ -235,16 +259,34 @@ impl ModelGateway {
     pub(crate) async fn execute_assistant(
         &self,
         p: PreparedAssistant,
-    ) -> Result<AssistantObservation, RelayError> {
-        tokio::time::timeout(self.limits.total_timeout, self.execute_assistant_inner(p))
-            .await
-            .map_err(|_| RelayError::SettlementPending)?
+    ) -> Result<AssistantObservation, AssistantFailure> {
+        let mut failure = AssistantFailure {
+            stage: "route_availability",
+            protocol: p.route.protocol,
+            http_status: None,
+            code: "total_timeout",
+        };
+        match tokio::time::timeout(
+            self.limits.total_timeout,
+            self.execute_assistant_inner(p, &mut failure),
+        )
+        .await
+        {
+            Ok(Ok(observation)) => Ok(observation),
+            Ok(Err(error)) => {
+                failure.code = error.code();
+                Err(failure)
+            }
+            Err(_) => Err(failure),
+        }
     }
     async fn execute_assistant_inner(
         &self,
         p: PreparedAssistant,
+        failure: &mut AssistantFailure,
     ) -> Result<AssistantObservation, RelayError> {
-        let (bytes, value, usage) = self.fetch_assistant_inner(&p).await?;
+        let (bytes, value, usage) = self.fetch_assistant_inner(&p, failure).await?;
+        failure.stage = "gift_contract";
         let gift = if p.gift_tools {
             match p.route.protocol {
                 relay::UpstreamProtocol::Chat => super::assistant_gift::parse(&value, &bytes)?,
@@ -262,7 +304,9 @@ impl ModelGateway {
             p.route.protocol,
             p.price.tiered.as_ref().and_then(|t| t.cache_creation_mode),
             &self.limits,
+            &mut failure.stage,
         )?;
+        failure.stage = "answer_contract";
         let choices = value
             .get("choices")
             .and_then(Value::as_array)
@@ -299,22 +343,34 @@ impl ModelGateway {
     async fn fetch_assistant_inner(
         &self,
         p: &PreparedAssistant,
+        failure: &mut AssistantFailure,
     ) -> Result<(Vec<u8>, Value, crate::billing::charging::Usage), RelayError> {
         if !p.route.is_available() {
             return Err(RelayError::RouteUnavailable);
         }
-        let response = assistant_request(p.connection.client(), &p.route, &p.wire_payload)?
+        failure.stage = "request_build";
+        let request = assistant_request(p.connection.client(), &p.route, &p.wire_payload)?;
+        failure.stage = "provider_send";
+        let response = request
             .send()
             .await
             .map_err(|_| RelayError::SettlementPending)?;
+        failure.stage = "provider_cooldown";
         self.note_native_cooldown(
             &p.attempt,
             native_http::cooldown_deadline(&p.connection, &response),
         )
         .await;
-        if !p.connection.matches_peer(response.remote_addr()) || !response.status().is_success() {
+        failure.stage = "provider_peer";
+        if !p.connection.matches_peer(response.remote_addr()) {
             return Err(RelayError::SettlementPending);
         }
+        failure.stage = "provider_http";
+        failure.http_status = Some(response.status().as_u16());
+        if !response.status().is_success() {
+            return Err(RelayError::SettlementPending);
+        }
+        failure.stage = "response_read";
         let mut bytes = Vec::new();
         let mut stream = response.bytes_stream();
         while let Some(chunk) = stream.next().await {
@@ -328,13 +384,28 @@ impl ModelGateway {
             }
             bytes.extend_from_slice(&chunk);
         }
+        failure.stage = "response_json";
         let value: Value =
             serde_json::from_slice(&bytes).map_err(|_| RelayError::SettlementPending)?;
+        failure.stage = "usage_receipt";
         // Charge the original supplier counters, before protocol projection.
         let observed = assistant_provider_usage(p.route.protocol, &p.price, &value["usage"])?;
+        // A missing receipt can surface only when a later validator needs its
+        // counters. Keep that fact separate from a rejected populated receipt.
+        let missing_usage = value["usage"].is_null();
+        failure.stage = if missing_usage {
+            "usage_missing"
+        } else {
+            "usage_route_policy"
+        };
         self.bridge
             .provider_policy
             .validate_usage(&p.attempt, &observed, false)?;
+        failure.stage = if missing_usage {
+            "usage_missing"
+        } else {
+            "usage_settlement_contract"
+        };
         let usage = assistant_usage(&p.price, p.input_ceiling, p.output_ceiling, observed)?;
         Ok((bytes, value, usage))
     }
