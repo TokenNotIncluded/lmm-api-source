@@ -155,6 +155,8 @@ function NativeWalletCheckoutForm({
     minimumCreditUnits !== undefined &&
     BigInt(requestedCreditUnits) < BigInt(minimumCreditUnits)
   const finished = nativeCheckoutFinished(result)
+  const canCloseCheckout =
+    !finished && !result?.provider_paid && result?.state !== 'review'
   const checkoutURL = nativeCheckoutURL(result?.checkout_url)
   const postCheckoutURL =
     result?.checkout_method === 'POST' && checkoutURL
@@ -362,6 +364,7 @@ function NativeWalletCheckoutForm({
     `${providerNames[channel.provider]}${channel.payment_type ? ` · ${channel.payment_type}` : ''} · ${paymentCurrency(channel)}${channel.environment === 'test' ? ` · ${t('Test payment')}` : ''}`
   const startAgain = () => {
     if (remember(null)) {
+      setCheckoutClosed(false)
       setResult(null)
       setError(null)
     }
@@ -585,7 +588,7 @@ function NativeWalletCheckoutForm({
           </form>
         )
       ) : null}
-      {pending && quote && checkoutClosed ? (
+      {pending && quote && checkoutClosed && canCloseCheckout ? (
         <div className='flex flex-wrap items-center justify-between gap-3'>
           <span className='text-muted-foreground text-sm'>
             {t('Order ID')}: {quote.order_id}
@@ -747,7 +750,7 @@ function NativeWalletCheckoutForm({
                 >
                   {t('Refresh payment status')}
                 </Button>
-                {quote && !finished && !result?.provider_paid ? (
+                {quote && canCloseCheckout ? (
                   <Button
                     variant='destructive'
                     disabled={busy}

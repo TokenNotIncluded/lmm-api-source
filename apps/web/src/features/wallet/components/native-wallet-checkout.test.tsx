@@ -222,7 +222,7 @@ test('failed channel reads stay local until explicit retry and are not presented
   }
 })
 
-test('a transient gateway error resumes the same payment status read automatically', async () => {
+test('a closed checkout resumes after a gateway error and shows credit for the same order', async () => {
   const oldGet = api.get
   const oldPost = api.post
   const originalTimer = globalThis.setTimeout
@@ -258,6 +258,10 @@ test('a transient gateway error resumes the same payment status read automatical
   const container = document.body.appendChild(document.createElement('div'))
   const root = createRoot(container)
   const statusReads: string[] = []
+  let resumeRefresh!: () => void
+  const refreshInterrupted = new Promise<void>((resolve) => {
+    resumeRefresh = resolve
+  })
   let writes = 0
   globalThis.setTimeout = ((
     callback: Parameters<typeof setTimeout>[0],
@@ -277,7 +281,9 @@ test('a transient gateway error resumes the same payment status read automatical
     }
     assert.equal(options.signal?.aborted, false)
     statusReads.push(url)
-    if (statusReads.length === 1) {
+    const awaitingPayment = statusReads.length === 1
+    if (statusReads.length === 2) {
+      await refreshInterrupted
       throw Object.assign(new AxiosError('temporary gateway error'), {
         response: { status: 503 },
       })
@@ -287,9 +293,9 @@ test('a transient gateway error resumes the same payment status read automatical
         success: true,
         data: {
           ...quote,
-          state: 'credited',
-          provider_paid: true,
-          core_credit_confirmed: true,
+          state: awaitingPayment ? 'awaiting_payment' : 'credited',
+          provider_paid: !awaitingPayment,
+          core_credit_confirmed: !awaitingPayment,
         },
       },
     }
@@ -310,18 +316,31 @@ test('a transient gateway error resumes the same payment status read automatical
       const deadline = Date.now() + 1000
       while (statusReads.length < 2 && Date.now() < deadline) await flush()
     })
+    await click('Close')
+    assert.match(container.textContent ?? '', /Details/)
+    assert.doesNotMatch(container.textContent ?? '', /Refresh payment status/)
+    await act(async () => {
+      resumeRefresh()
+      const deadline = Date.now() + 1000
+      while (statusReads.length < 3 && Date.now() < deadline) await flush()
+    })
     assert.match(container.textContent ?? '', /Funds have reached your wallet/)
+    assert.match(container.textContent ?? '', /Start another payment/)
     assert.deepEqual(
       statusReads,
-      Array(2).fill('/api/user/payments/checkout/top_53')
+      Array(3).fill('/api/user/payments/checkout/top_53')
     )
     assert.equal(
       readNativeCheckout(walletSession, dom.sessionStorage)?.request
         .request_key,
       request.request_key
     )
+    await click('Start another payment')
+    assert.match(container.textContent ?? '', /Review payment/)
+    assert.equal(readNativeCheckout(walletSession, dom.sessionStorage), null)
     assert.equal(writes, 0)
   } finally {
+    resumeRefresh()
     await act(async () => root.unmount())
     container.remove()
     api.get = oldGet
