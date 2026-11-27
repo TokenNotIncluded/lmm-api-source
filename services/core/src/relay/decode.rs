@@ -692,10 +692,7 @@ impl Decoder {
                 };
                 if let Some(response) = response {
                     if let Some(expected) = self.expected_speed {
-                        super::warn_openai_reported_tier(
-                            expected,
-                            response.get("service_tier"),
-                        );
+                        super::warn_openai_reported_tier(expected, response.get("service_tier"));
                     }
                     plain_response(response)?;
                     if full
@@ -957,8 +954,12 @@ mod tests {
                 .with_expected_speed(Some(Speed::Standard))
         };
         let events = decoder().frame(start(usage.clone())).unwrap();
-        assert!(events.iter().any(|event| matches!(event, Event::Usage(receipt)
-            if receipt.input_tokens == Some(3) && receipt.output_tokens == Some(0))));
+        assert!(
+            events
+                .iter()
+                .any(|event| matches!(event, Event::Usage(receipt)
+            if receipt.input_tokens == Some(3) && receipt.output_tokens == Some(0)))
+        );
         let mut ungraded = usage.clone();
         ungraded.as_object_mut().unwrap().remove("service_tier");
         ungraded["iterations"] = serde_json::json!([]);

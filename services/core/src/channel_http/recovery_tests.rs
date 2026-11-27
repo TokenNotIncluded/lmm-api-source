@@ -215,8 +215,7 @@ async fn vault_keys_persist_encrypt_rotate_retire_and_recover_into_real_transpor
     let config = success(&app, "GET", config_path, &admin, Value::Null).await;
     let mut routing = config["routing"].clone();
     routing["version"] = json!(config["version"]["routing"].as_u64().unwrap() + 1);
-    routing["aliases"] =
-        json!([{"group":"default","model":"model-a","alias":"supplier-model-a"}]);
+    routing["aliases"] = json!([{"group":"default","model":"model-a","alias":"supplier-model-a"}]);
     let mut change = json!({
         "expected_version":config["version"],"routing":routing,
         "prices":config["prices"],"bindings":config["bindings"]

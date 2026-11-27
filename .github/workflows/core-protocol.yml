@@ -561,6 +561,13 @@ jobs:
             for spec in \
               src/features/channels/components/native-routing-management.test.tsx \
               src/features/system-settings/billing/official-price-editor.test.tsx \
+              src/features/native-users/access-editor.test.tsx \
+              src/features/native-users/adjustments-api.test.ts \
+              src/features/native-users/page.test.tsx \
+              src/features/plugins/index.test.tsx \
+              src/features/usage-logs/lib/history-response.test.ts \
+              src/features/usage-logs/lib/receipt-state.test.ts \
+              src/features/usage-logs/components/__tests__/details-history-money.test.tsx \
               src/features/system-settings/billing/official-price-toml.test.ts; do
               bun test --preload ./scripts/test-preload.mjs --timeout 20000 "$spec"
             done

@@ -19,15 +19,16 @@ const CONFIG: &str = "/core/v1/admin/routing/configuration";
 
 fn service(pool: &PgPool, release: ReleaseDocument, key_id: i64) -> ModelGateway {
     let upstream = &release.routing.upstreams[0];
-    let contexts = if upstream.endpoint.as_str().starts_with("https://") {
-        vec![serde_json::from_value(json!({
+    let contexts =
+        if upstream.endpoint.as_str().starts_with("https://") {
+            vec![serde_json::from_value(json!({
             "upstream_id":1,"upstream_model":"model-a","protocol":"openai_responses",
             "endpoint":upstream.endpoint.as_str(),"max_input_tokens":256,"max_output_tokens":32,
             "contract_revision":"official-wallet-v1"
         })).unwrap()]
-    } else {
-        Vec::new()
-    };
+        } else {
+            Vec::new()
+        };
     let credential = UpstreamCredential {
         reference: upstream.credential,
         secret: "synthetic-wallet-key".into(),
@@ -54,7 +55,12 @@ fn service(pool: &PgPool, release: ReleaseDocument, key_id: i64) -> ModelGateway
     .unwrap()
 }
 
-async fn publish(app: &HttpRouter, admin: &str, pool: &PgPool, output_rate: u64) -> ReleaseDocument {
+async fn publish(
+    app: &HttpRouter,
+    admin: &str,
+    pool: &PgPool,
+    output_rate: u64,
+) -> ReleaseDocument {
     let before = admin_support::success(app, "GET", CONFIG, admin, Value::Null).await;
     let mut proposal = json!({
         "expected_version":before["version"],"routing":before["routing"],
@@ -259,7 +265,12 @@ async fn published_official_tiers_settle_free_writes_and_preserve_wallet_history
     );
     assert_eq!(
         grades.lock().unwrap().as_slice(),
-        [None, Some(json!("priority")), Some(json!("ultrafast")), None]
+        [
+            None,
+            Some(json!("priority")),
+            Some(json!("ultrafast")),
+            None
+        ]
     );
     server.abort();
 }

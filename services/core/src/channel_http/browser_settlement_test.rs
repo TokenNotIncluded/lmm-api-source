@@ -98,7 +98,10 @@ async fn paid_gateway(pool: &PgPool, address: SocketAddr) -> ModelGateway {
     let upstream = &mut release.routing.upstreams[0];
     assert_eq!(upstream.id, 1);
     assert_eq!(upstream.endpoint.as_str(), PUBLIC_ENDPOINT);
-    assert_eq!((upstream.credential.id, upstream.credential.revision), (771, 1));
+    assert_eq!(
+        (upstream.credential.id, upstream.credential.revision),
+        (771, 1)
+    );
     let reference = upstream.credential;
     let local = format!("http://{address}/v1/");
     upstream.endpoint = Endpoint::local_loopback(local.clone()).unwrap();
@@ -137,7 +140,10 @@ async fn paid_gateway(pool: &PgPool, address: SocketAddr) -> ModelGateway {
 async fn browser_onboarding_wallet(pool: PgPool) {
     let (identity, ledger, _, _, _, account) = model_fixture::fixture(&pool, 1000).await;
     identity.bootstrap_user(8, 6).await.unwrap();
-    let hash = identity.hash_installer_password(PASSWORD.into()).await.unwrap();
+    let hash = identity
+        .hash_installer_password(PASSWORD.into())
+        .await
+        .unwrap();
     for (id, name) in [(7_i64, "browserpayer"), (8, "browseradmin")] {
         sqlx::query("UPDATE core_identity.user_profiles SET username=$2,display_name=$2,password_login_allowed=TRUE WHERE user_id=$1")
             .bind(id).bind(name).execute(&pool).await.unwrap();
@@ -168,7 +174,14 @@ async fn browser_onboarding_wallet(pool: PgPool) {
         "/v1/chat/completions",
         post(move |request: Request| {
             let db = db.clone();
-            async move { paid_gateway(&db, provider).await.router().oneshot(request).await.unwrap() }
+            async move {
+                paid_gateway(&db, provider)
+                    .await
+                    .router()
+                    .oneshot(request)
+                    .await
+                    .unwrap()
+            }
         }),
     );
     let app = configured_router_with_rpc(
@@ -192,14 +205,20 @@ async fn browser_onboarding_wallet(pool: PgPool) {
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let core_url = format!("http://{}", listener.local_addr().unwrap());
     tokio::spawn(async move {
-        axum::serve(listener, app.into_make_service_with_connect_info::<SocketAddr>())
-            .await
-            .unwrap()
+        axum::serve(
+            listener,
+            app.into_make_service_with_connect_info::<SocketAddr>(),
+        )
+        .await
+        .unwrap()
     });
 
     let output = tokio::task::spawn_blocking(move || {
         Command::new("node")
-            .arg(concat!(env!("CARGO_MANIFEST_DIR"), "/../../tests/console/browser_acceptance/onboarding-settlement.mjs"))
+            .arg(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/../../tests/console/browser_acceptance/onboarding-settlement.mjs"
+            ))
             .env("BROWSER_CORE_URL", core_url)
             .env("BROWSER_ACCOUNT_PASSWORD", PASSWORD)
             .output()
@@ -207,7 +226,11 @@ async fn browser_onboarding_wallet(pool: PgPool) {
     })
     .await
     .unwrap();
-    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
     let mut proof: Value = serde_json::from_slice(&output.stdout).unwrap();
     let payment = &proof["payment"];
     let id = payment["request_id"].as_str().unwrap();
@@ -217,12 +240,32 @@ async fn browser_onboarding_wallet(pool: PgPool) {
         "SELECT state,actor_user_id,key_id,settled,input_tokens,output_tokens,price FROM core_charging.requests WHERE id=$1",
     )
     .bind(id).fetch_one(&pool).await.unwrap();
-    assert_eq!((settled.0.as_str(), settled.1, settled.2, settled.3, settled.4, settled.5),
-        ("settled", 7, key_id, 50, 10, 20));
+    assert_eq!(
+        (
+            settled.0.as_str(),
+            settled.1,
+            settled.2,
+            settled.3,
+            settled.4,
+            settled.5
+        ),
+        ("settled", 7, key_id, 50, 10, 20)
+    );
     let release = support::active(&pool).await;
-    assert_eq!(proof["publication"]["version"]["routing"], release.routing.version);
-    assert_eq!(proof["publication"]["version"]["pricing"], release.pricing.version);
-    let rule = release.pricing.rules.iter().find(|r| r.model == MODEL && r.group == "default").unwrap();
+    assert_eq!(
+        proof["publication"]["version"]["routing"],
+        release.routing.version
+    );
+    assert_eq!(
+        proof["publication"]["version"]["pricing"],
+        release.pricing.version
+    );
+    let rule = release
+        .pricing
+        .rules
+        .iter()
+        .find(|r| r.model == MODEL && r.group == "default")
+        .unwrap();
     let frozen_version = format!("routing-{}-rule-{}", release.pricing.version, rule.id);
     assert_eq!(settled.6["version"], frozen_version);
     let balance = ledger.balance(account).await.unwrap();
@@ -231,7 +274,10 @@ async fn browser_onboarding_wallet(pool: PgPool) {
         "SELECT reservation_journal_id,capture_journal_id FROM core_charging.ledger_holds
          WHERE request_id=$1 AND closed AND captured=50 AND refunded=0",
     )
-    .bind(id).fetch_one(&pool).await.unwrap();
+    .bind(id)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
     let entries: Vec<(i64, String, Option<i64>, i64)> = sqlx::query_as(
         "SELECT e.journal_id,a.bucket,a.owner_account_id,e.delta_units FROM core_billing.ledger_entries e
          JOIN core_billing.ledger_accounts a ON a.id=e.ledger_account_id
@@ -243,9 +289,11 @@ async fn browser_onboarding_wallet(pool: PgPool) {
         assert!(legs.len() >= 2);
         assert_eq!(legs.iter().map(|entry| entry.3).sum::<i64>(), 0);
     }
-    let wallet_net: i64 = entries.iter()
+    let wallet_net: i64 = entries
+        .iter()
         .filter(|entry| entry.1 == "wallet" && entry.2 == Some(account))
-        .map(|entry| entry.3).sum();
+        .map(|entry| entry.3)
+        .sum();
     assert_eq!(wallet_net, -50);
     proof["database"] = json!({
         "payer_account_id":account, "captured_credits":50, "reserved_after":0,
