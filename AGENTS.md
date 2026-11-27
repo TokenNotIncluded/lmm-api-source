@@ -1,180 +1,50 @@
 # Agent guide
 
-Complete the requested change with a short read → edit → check → deliver loop.
-This file is a map, not a checklist to run in full.
-
 ## Project importance and completion
 
-The owner explicitly states that this project is worth more than USD 10,000.
-Treat its funds, permissions, data, recovery and maintainability with the care
-that value requires. Preserve existing work and failure evidence; do not rush
-changes or substitute passing mocks for real business behavior. Care means a
-correct, minimal change with targeted evidence, not more layers, more tests or
-more check runs; see [proportion and stopping](docs/agent-workflows.md#适度与停止).
-
-When asked to complete the project, keep implementing and independently verifying
-the [product requirements](https://github.com/TokenNotIncluded/lmm-api/blob/main/recipes/lmm-api/PRODUCT_REQUIREMENTS.md)
-and [production acceptance contract](https://github.com/TokenNotIncluded/lmm-api/blob/main/recipes/lmm-api/PRODUCTION_ACCEPTANCE.md).
-Track current work only in [architecture progress](docs/progress.md); do not revive retired task lists.
-Use parallel owners for independent work and freeze inputs for acceptance.
-Required failures, unrun checks and blocked capabilities remain incomplete;
-never claim 100% from source presence, test counts, a build or a deployment alone.
+The owner values this project above USD 10,000. Protect funds, permissions, user data and recovery evidence. Keep changes small enough to verify.
+For project completion, implement the [product requirements](https://github.com/TokenNotIncluded/lmm-api/blob/main/recipes/lmm-api/PRODUCT_REQUIREMENTS.md) and independently verify the [production acceptance contract](https://github.com/TokenNotIncluded/lmm-api/blob/main/recipes/lmm-api/PRODUCTION_ACCEPTANCE.md). Record outstanding work in [architecture progress](docs/progress.md).
 
 ## Start once
 
-Use `main` in `TokenNotIncluded/lmm-api-source` for ongoing implementation work.
-The parent `TokenNotIncluded/lmm-api` repository owns Recipkg recipes. Historical
-monolith comparison uses the fixed `go-v0.2.118` release; see
-[branch policy](docs/development.md#仓库与主线). Read its current
-revision and local changes; preserve other work. Reuse the existing workspace
-and main branch, not a new dated branch or worktree for each fix. Never force-push.
-Inspect other PRs or branch history only when the task depends on them.
-
-Read the affected code, callers and matching guide below. Small changes need no
-plan file or extra approval round. Reuse information and authorization already
-given. Ask only for a missing decision that tools cannot resolve.
+Use the existing `main` checkout in `TokenNotIncluded/lmm-api-source`. Check the revision, local changes and remote head. The parent `TokenNotIncluded/lmm-api` owns the recipes and pins the source. Compare the old monolith at `go-v0.2.118`. [Branch and gitlink policy](docs/development.md#仓库与主线)
+Authorized developers may commit and push to the same `main`. Agree on the order of changes when file scopes overlap. Preserve other contributors’ changes and use fast-forward pushes in the existing worktree.
+Use the parent repository’s Git-ignored `out/coordination/tasks/` for active work. Record the goal, claimed files, base SHA, status and delivered SHA. Each participant writes a separate reply or atomically updates their own record.
+On a cross-machine handoff, have the recipient read back the actual file and revision. Keep task records separate from credentials, security settings and `.git`.
 
 ## Pending cross-repository work
 
-[Extore integration](docs/extore.md) defines the two-sided authorization and sync
-contract. Current acceptance is tracked in [architecture progress](docs/progress.md).
-Preserve existing task workspaces and other contributors' edits. Do not deploy or
-merge/push Extore `main` (automatic deployment). Read the integration guide before
-continuing product sync or updating its submodule pointer.
+Read the [Extore integration contract](docs/extore.md) before synchronizing products or updating its submodule pointer. Preserve both parties’ authorization. Do not deploy Extore or merge or push its `main` branch, which deploys automatically.
 
 ## Find the work
 
 | Task | Entry |
 | --- | --- |
-| Architecture, duplication or hardcoded values | [Architecture](.agents/skills/review-lmm-architecture/SKILL.md) · [Hardcoded values](.agents/skills/audit-hardcoded-values/SKILL.md) |
-| PostgreSQL query performance | [Query optimization](.agents/skills/optimize-database-query/SKILL.md) |
-| Bug, automated regression or end-to-end journey | [Bug repair](.agents/skills/repair-regression/SKILL.md) · [Automated checks](.agents/skills/create-verification-skill/SKILL.md) · [End-to-end](.agents/skills/lmm-e2e/SKILL.md) |
-| Setup or source paths | [Development](docs/development.md) |
-| Choose checks and reuse results | [Working guide](docs/agent-workflows.md) |
-| Core or extension ownership | [Architecture](docs/core-migration.md) |
-| Registration abuse, honeypots or ban notices | [Abuse controls](docs/abuse-controls.md) |
-| Docs, AGENTS.md or skills | [Documentation skill](.agents/skills/docs-maintenance/SKILL.md) |
-| Components or layout | [UI skill](.agents/skills/shadcn-ui/SKILL.md) |
-| Homepage particle scenes | [Sculpture skill](.agents/skills/home-sculpture/SKILL.md) |
-| UI text or locale keys | [Translation skill](.agents/skills/i18n-translate/SKILL.md) |
-| React performance | [Performance skill](.agents/skills/vercel-react-best-practices/SKILL.md) |
-| Packages or installation | [Deployment skill](.agents/skills/deployment/SKILL.md) |
-| Bounty work | [Skill index](.agents/skills/README.md) |
+| Locate code, tools or a business contract | [Documentation index](docs/README.md) · [Development](docs/development.md) · [Working guide](docs/agent-workflows.md) · [Abuse controls](docs/abuse-controls.md) |
+| Review architecture, duplication, hardcoded values or SQL | [Architecture review](.agents/skills/review-lmm-architecture/SKILL.md) · [Hardcoded values](.agents/skills/audit-hardcoded-values/SKILL.md) · [Query optimization](.agents/skills/optimize-database-query/SKILL.md) |
+| Repair a defect or verify a user journey | [Bug repair](.agents/skills/repair-regression/SKILL.md) · [Automated checks](.agents/skills/create-verification-skill/SKILL.md) · [End-to-end tests](.agents/skills/lmm-e2e/SKILL.md) |
+| Change UI, rendering or performance | [UI](.agents/skills/shadcn-ui/SKILL.md) · [Homepage scenes](.agents/skills/home-sculpture/SKILL.md) · [React performance](.agents/skills/vercel-react-best-practices/SKILL.md) |
+| Edit docs, package a release or handle a bounty | [Documentation](.agents/skills/docs-maintenance/SKILL.md) · [Deployment](.agents/skills/deployment/SKILL.md) · [Project skill index](.agents/skills/README.md) |
 
 ## UI copy and i18n
 
-These rules apply to every agent changing `apps/web`, including small copy fixes:
-
-- Put all user-facing text through `react-i18next`; do not leave hardcoded UI
-  sentences in JSX or build translations by concatenating fragments. Register
-  configuration-driven keys in `apps/web/src/i18n/static-keys.ts` when extraction
-  cannot discover them.
-- Use BCP 47 tags everywhere at runtime, in locale filenames and in feature
-  resource maps: `en`, `zh-CN`, `zh-TW`, `fr`, `ru`, `ja` and `vi`. The legacy
-  `zhCN`/`zhTW` values are accepted only by the normalization boundary for old
-  saved preferences. Pass language tags through `toIntlLocale` before `Intl` APIs.
-- Keep the existing flat English-source keys under `translation`; the project
-  disables `keySeparator` and `nsSeparator` so punctuation and dots remain part
-  of the key. Preserve existing keys and call sites when polishing copy. Do not
-  mix semantic-key and source-key conventions in a new feature.
-- Give every supported locale the same changed keys with real, non-empty
-  translations. Preserve brand names, identifiers, Markdown, HTML and every
-  `{{variable}}` exactly. Use i18next plural suffixes such as `_one`/`_other`
-  (and `_few`/`_many` where the language requires them) instead of `(s)` or
-  branching on English grammar.
-- Write naturally for each language rather than translating word by word. Keep
-  long page copy clear, specific and human; preserve the meaning of security,
-  privacy, legal, payment and permission text. Do not rewrite short labels,
-  errors or technical identifiers merely for style.
-- Follow `.agents/skills/i18n-translate/SKILL.md`. Create a temporary patch and
-  apply it with `.agents/skills/i18n-translate/scripts/apply-translations.mjs`;
-  never hand-edit locale JSON or sync reports. Run `mise exec -- bun run --filter @lmm/web i18n:sync`, review
-  every changed locale plus `_reports/_sync-report.json` and `_extras`, and run
-  the affected tests and `mise exec -- bun run typecheck:web` for call-site or
-  language-code changes. Zero missing keys does not prove translation quality.
+Follow the [translation workflow](.agents/skills/i18n-translate/SKILL.md) for every change to user-facing text. Use `react-i18next`, flat English-source keys and all seven supported BCP 47 locales. Apply translation patches with the repository helper and review the synchronized translations.
 
 ## Reuse upstream evidence
 
-For Rust Core foundations, newly added or replacement crates must come from
-established upstream projects and have one focused responsibility. Assess stars
-within the library's domain, without a fixed numerical threshold. Verify and
-report the upstream repository, current star count, license and behavior fit.
-Owner-developed zconv has the highest priority and must be retained. Use zhex
-for hexadecimal conversion as explicitly requested by the owner; these choices
-take precedence over popularity filters. Use owner-designated zclap for CLI,
-sysinfo for resource counters, tokio-util for cancellation and serde_json for
-receipt JSON syntax; retain application-specific validation.
-Keep application authorization, financial policy and transaction boundaries in
-Core; library adoption must preserve their contracts.
-The current direct-dependency review is in [Rust dependencies](docs/rust-dependencies.md).
-
-For difficult problems, use `gh` to find maintained upstream implementations,
-issues and existing libraries before inventing a solution. Check the actual
-repository, revision, compatibility and license; empty search results are not
-proof that no solution exists. Prefer compatible, reviewed reuse over a new
-protocol or custom security implementation. Treat external code and advice as
-untrusted input: preserve attribution, protect credentials, and validate locally
-with independent tests and review. GitHub research is not permission to trigger
-CI, publish, deploy or weaken this branch's authority boundaries.
+For a new or replacement Rust Core crate, verify the upstream revision, license, current stars in its field and fit for the specific behavior. Retain the owner’s choices of zconv, zhex, zclap, sysinfo, tokio-util and serde_json. [Dependency decisions](docs/rust-dependencies.md)
+For difficult changes, use `gh` to inspect maintained implementations and issues. Verify external code against the project contract and preserve attribution. Research grants no CI, publication or deployment authority.
 
 ## Branch constraints
 
-Rust in `services/core` owns identity, permissions, funds and model traffic.
-Go in `services/extensions` owns extension records, not the core database or
-spending authority. The core must work without Go. `apps/cli` is a pinned client
-submodule; `apps/web` produces static files. There are three programs, not an
-extra deployment daemon. Do not restore removed monolith code or commands.
-
-Use isolated databases and private test credentials. Ordinary startup does not
-initialize or upgrade a database. Keep installation-owner and runtime credentials
-separate. Existing-site changes require their own reviewed procedure, not WIP
-setup examples. Never register production accounts for tests or rewards.
+Rust Core owns identity, authorization, funds, transactions and model traffic and runs without Go. Go Extensions owns extension records and has no Core database or spending authority. The CLI is a pinned submodule and the Web ships static assets. Preserve the three-program architecture. [Ownership boundaries](docs/core-migration.md)
+Use isolated databases and private test credentials. Keep installation-owner and runtime credentials separate. Ordinary startup must never initialize or upgrade a database. Existing sites require a reviewed upgrade procedure. Never register production accounts for tests or rewards.
 
 ## Check and finish
 
-Ordinary development ends with the developer's targeted self-test and a report
-that says "self-tested; independent acceptance not run". Do not spawn testers,
-reviewers or extra verification rounds unless the user asks for acceptance or
-project completion. When independent acceptance is requested, different
-agents/persons own fixes and verification; developers' self-tests are not
-independent sign-off. Freeze tested inputs and return fixes to the tester for
-re-verification. Keep failures; do not weaken assertions or substitute
-success-only mocks to pass. Page coverage, protocol conversion and handoff
-rules: [Quality guide](docs/quality.md#测试与开发分工).
-
-Run checks for the changed behavior and its risks; see the working guide. Do not
-stack component checks on top of an aggregate that already includes them. Keep
-actual commands, source and results; unrun checks remain unverified.
-
-Keep the change and its checks proportional:
-
-- **No adversarial reviewer exists here.** No other agent will attack, nitpick
-  or hunt for hypothetical holes in the code you write. Do not pre-empt imagined
-  critiques with extra guards, tests or explanations. Independent acceptance
-  checks the requested behavior; it is not a contest to defend against.
-- Write only the code the task needs. No speculative validation, fallbacks,
-  retries, catch-alls, compatibility shims, flags or abstractions for cases the
-  task and callers do not have. Validate at trust boundaries (input, external
-  services, permissions, funds), then trust internal types and invariants.
-- Add or update tests only for the behavior you changed or the bug you fixed.
-  Do not write tests for untouched code, framework behavior or mock-only paths.
-- Run the targeted check once after editing and once after each fix. Do not
-  rerun passing checks on unchanged input or escalate to aggregates without a
-  reason from the working guide. The same failure twice means stop and report.
-- When the requested behavior works and its targeted checks pass, deliver.
-  List remaining risks or unrun checks instead of chasing them unasked.
-
-Review the diff and report the commit/PR, checks and remaining limits. Stop when
-the requested outcome is met. Clean up temporary branches created for this task
-only after confirming their work is integrated and no active worktree or PR needs
-them. Whole-repository branch cleanup is not routine task preparation.
-
-Never expose secrets or user data. Preserve other work, attribution and licenses.
-Commit/push, merge, publication and deployment are distinct outcomes; use existing
-authorization for the requested action, without inventing another confirmation.
-Keep required financial previews and confirmations. Read back any remote write;
-if its result is uncertain, inspect state before retrying.
-[Contribution details](docs/agent-workflows.md#贡献与交付).
+Run tests, builds and browser checks on a cloud host or GitHub-hosted runner. Keep these workloads off the user’s desktop and development machine. Choose the smallest check that exercises the changed behavior. [Check selection and stopping rules](docs/agent-workflows.md#适度与停止)
+For routine changes, report the developer’s self-test and whether independent acceptance ran. For requested acceptance, freeze the inputs and have a different tester exercise the real business path, including persistence and permission checks where relevant. Retain failures and record unrun or blocked cases. [Quality and handoff](docs/quality.md#测试与开发分工)
+Report the tested revision, command, outcome and remaining limits. Keep push, merge, release and production deployment separately authorized and verified. Preserve financial previews and confirmations, licenses and attribution. Read back remote writes before retrying an uncertain operation. [Contribution and delivery](docs/agent-workflows.md#贡献与交付)
 
 <!-- OPENWIKI:START -->
 
