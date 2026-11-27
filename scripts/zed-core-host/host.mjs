@@ -134,10 +134,13 @@ try {
   let visiblePrompt = false
   for (let openings = 0; openings < 2 && !visiblePrompt; openings++) {
     await key('F8')
-    const untilTime = Date.now() + 4500
+    const untilTime = Date.now() + 6000
     do {
-      const screen = await windowSnapshot()
-      visiblePrompt = screen.includes('short reply') && screen.includes('transform')
+      // Read the native focused text via Zed's normal Copy command. The document
+      // and the prompt have different content, so an unopened input cannot pass.
+      await key('ctrl+a', 'ctrl+c')
+      const selected = await execute('xclip', ['-selection','clipboard','-o']).catch(() => undefined)
+      visiblePrompt = selected?.stdout === nativePrompt
       if (!visiblePrompt) await pause(350)
     } while (!visiblePrompt && Date.now() < untilTime)
   }
