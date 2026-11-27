@@ -22,6 +22,73 @@ mod pi;
 mod runtime;
 use pi::with_fixture;
 
+// The host credential is the bounded result of the real fixture browser's consent and code exchange.
+// The child gets no operator environment credentials. It writes private native Pi auth only under its temporary home.
+#[sqlx::test(migrations = false)]
+#[ignore = "requires the pinned real Pi host and the CI loopback TLS certificate"]
+async fn real_pi_host_discovers_prompts_and_settles_one_oauth_request(pool: PgPool) {
+    pi::with_cli_host_fixture(pool, pi::CliHost::Pi, |f| async move {
+        use std::{io::Write, process::{Command, Stdio}};
+
+        let token = f.token(1000).await;
+        let session = f.request();
+        let issuer = session.resource.strip_suffix("/api/oauth2").unwrap().to_owned();
+        let catalog: serde_json::Value = f.client.get(format!("{}/api/oauth2/catalog", f.base))
+            .bearer_auth(&token.access_token).send().await.unwrap()
+            .error_for_status().unwrap().json().await.unwrap();
+        let entries = catalog["models"].as_array().unwrap();
+        assert_eq!(entries.len(), 1);
+        let admitted = entries[0].clone();
+        let before = f.ledger.balance(f.account).await.unwrap();
+        let bootstrap = json!({
+            "coreBase": f.base, "issuer": issuer, "resource": session.resource,
+            "access": token.access_token, "refresh": token.refresh_token,
+            "scope": token.scope, "lifetime": token.expires_in
+        });
+        let output = tokio::task::spawn_blocking(move || {
+            let mut node = Command::new("node")
+                .arg(concat!(env!("CARGO_MANIFEST_DIR"), "/../../scripts/ci/real-pi-host.mjs"))
+                .stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped())
+                .spawn().unwrap();
+            node.stdin.take().unwrap().write_all(bootstrap.to_string().as_bytes()).unwrap();
+            node.wait_with_output().unwrap()
+        }).await.unwrap();
+        assert!(output.status.success(), "Pi host failed: {}", String::from_utf8_lossy(&output.stderr));
+        let proof: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+        let id = proof["requestId"].as_str().expect("Core response request ID");
+        assert_eq!(proof["stopReason"], "stop");
+        assert_eq!(f.provider.hits.load(Ordering::SeqCst), 1);
+        let rows: Vec<(String, String, i64, i64, Option<i64>, String, i64, i64, serde_json::Value)> = sqlx::query_as(
+            "SELECT id,state,actor_user_id,payer_account_id,key_id,oauth_client_id,settled,output_tokens,price
+             FROM core_charging.requests"
+        ).fetch_all(&f.owner).await.unwrap();
+        assert_eq!(rows.len(), 1);
+        let (charge, state, actor, payer, key, client, amount, tokens, price) = &rows[0];
+        assert_eq!((charge.as_str(), state.as_str(), *actor, *payer), (id, "settled", f.user, f.account));
+        assert_eq!((*key, client.as_str(), *tokens), (None, "lmm-pi", 20));
+        assert_eq!(price["model"], admitted["upstream_model"]);
+        assert_eq!(price["group"], admitted["group"]);
+        let after = f.ledger.balance(f.account).await.unwrap();
+        assert_eq!(before.available_units - after.available_units, *amount);
+        assert!(*amount > 0);
+        assert_eq!(after.reserved_units, 0);
+        let captures: Vec<(bool, i64, Option<i64>)> = sqlx::query_as(
+            "SELECT closed,captured,capture_journal_id FROM core_charging.ledger_holds WHERE request_id=$1"
+        ).bind(id).fetch_all(&f.owner).await.unwrap();
+        assert_eq!(captures.len(), 1);
+        assert!(captures[0].0 && captures[0].2.is_some());
+        assert_eq!(captures[0].1, *amount);
+        let receipt = json!({
+            "request_id": id, "client_id": client, "fixture_user_id": actor, "payer_account_id": payer,
+            "model": price["model"], "group": price["group"], "stop_reason": proof["stopReason"],
+            "captured_credits": amount, "output_tokens": tokens, "capture_journal": captures[0].2,
+            "balance_before": before.available_units, "balance_after": after.available_units,
+        });
+        std::fs::write(std::env::var("PI_HOST_RECEIPT").expect("cloud receipt path"),
+            serde_json::to_vec_pretty(&receipt).unwrap()).unwrap();
+    }).await;
+}
+
 #[sqlx::test(migrations = false)]
 async fn real_pi_browser_consent_is_bounded_without_issuing_native_keys(pool: PgPool) {
     with_fixture(pool, true, |f| async move {

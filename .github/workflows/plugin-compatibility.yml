@@ -72,6 +72,86 @@ jobs:
               npm run test:integration
               ;;
           esac
+  pi-core-wallet:
+    name: Real Pi host and Core OAuth wallet
+    runs-on: ubuntu-24.04
+    timeout-minutes: 75
+    env:
+      DATABASE_URL: postgres://postgres:postgres@127.0.0.1:5432/postgres
+      CARGO_BUILD_JOBS: '2'
+      CARGO_INCREMENTAL: '0'
+      CARGO_PROFILE_TEST_DEBUG: '0'
+    services:
+      postgres:
+        image: postgres:18-alpine@sha256:77f585114c32fbca283dc835b0596f4e52b51b4c6662d7810b2f4084f60a1873
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U postgres" --health-interval 5s
+          --health-timeout 3s --health-retries 10
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '24'
+      - name: Install the pinned real Pi package and isolated runner prerequisites
+        run: |
+          set -euo pipefail
+          git submodule update --init --depth 1 -- packages/pi-lmm-provider
+          npm --prefix packages/pi-lmm-provider ci --ignore-scripts --no-audit --no-fund
+          test -x packages/pi-lmm-provider/node_modules/.bin/pi
+          packages/pi-lmm-provider/node_modules/.bin/pi --version
+          rustup toolchain install 1.100.0 --profile minimal
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends protobuf-compiler
+          printf '127.0.0.1 pi-issuer.example.test\n' | sudo tee -a /etc/hosts >/dev/null
+          sudo sysctl -w net.ipv4.ip_unprivileged_port_start=443
+          umask 077
+          openssl req -x509 -newkey rsa:2048 -sha256 -nodes -days 1 \
+            -subj /CN=pi-issuer.example.test -addext 'subjectAltName=DNS:pi-issuer.example.test' \
+            -keyout "$RUNNER_TEMP/pi-issuer.key" -out "$RUNNER_TEMP/pi-issuer.pem"
+      - name: Reconcile one real Pi prompt with its Core capture
+        working-directory: services/core
+        env:
+          PI_HOST_RECEIPT: ${{ runner.temp }}/pi-core-receipt.json
+          PI_HOST_PACKAGE: ${{ github.workspace }}/packages/pi-lmm-provider
+          PI_HOST_BIN: ${{ github.workspace }}/packages/pi-lmm-provider/node_modules/.bin/pi
+          FIXTURE_TLS_CERT: ${{ runner.temp }}/pi-issuer.pem
+          FIXTURE_TLS_KEY: ${{ runner.temp }}/pi-issuer.key
+        run: |
+          set -euo pipefail
+          gate=real_pi_host_discovers_prompts_and_settles_one_oauth_request
+          cargo test --locked --test oauth2_pi_author "$gate" -- --exact --ignored --nocapture | tee "$RUNNER_TEMP/pi-core-result"
+          grep -Fqx "test $gate ... ok" "$RUNNER_TEMP/pi-core-result"
+          test -s "$PI_HOST_RECEIPT"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: pi-core-wallet-${{ github.sha }}-${{ github.run_id }}
+          path: ${{ runner.temp }}/pi-core-receipt.json
+          if-no-files-found: error
+          retention-days: 7
+  cc-switch-cli:
+    name: LMM CLI and native CC Switch configuration
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          persist-credentials: false
+      - name: Exercise managed-install plan and native SQLite inspection
+        run: |
+          set -euo pipefail
+          git submodule update --init --depth 1 -- apps/cli
+          cd apps/cli
+          rustup toolchain install 1.100.0 --profile minimal
+          cargo +1.100.0 build --locked --bin lmm
+          target/debug/lmm install cc-switch --dry-run --json > "$RUNNER_TEMP/cc-switch-plan.json"
+          test -s "$RUNNER_TEMP/cc-switch-plan.json"
+          cargo +1.100.0 test --locked --test cc_switch -- --nocapture | tee "$RUNNER_TEMP/cc-switch-tests"
+          grep -Fqx 'test schema_24_inspection_distinguishes_database_selection_from_live_application_and_never_emits_keys ... ok' "$RUNNER_TEMP/cc-switch-tests"
   installer:
     runs-on: ubuntu-24.04
     timeout-minutes: 10
@@ -89,3 +169,78 @@ jobs:
           set -euo pipefail
           for script in *.sh; do bash -n "$script"; done
           node --test test-codewhale.mjs test-opencode.mjs test-opencode-entry.mjs
+  magpie:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 65
+    services:
+      postgres:
+        image: postgres:18-alpine@sha256:77f585114c32fbca283dc835b0596f4e52b51b4c6662d7810b2f4084f60a1873
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432/tcp
+        options: >-
+          --health-cmd pg_isready --health-interval 3s --health-timeout 3s --health-retries 30
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          submodules: recursive
+          persist-credentials: false
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          repository: yetone/magpie
+          ref: 7da5b34aa497858bef9b6823a72d499ab375e055 # upstream v0.1.2512
+          path: .magpie-source
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '24'
+      - name: Prepare the genuine pinned headless host
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git -C .magpie-source rev-parse HEAD)" = 7da5b34aa497858bef9b6823a72d499ab375e055
+          (cd .magpie-source && GOTOOLCHAIN=go1.26.8 make cli VERSION=0.1.2512)
+          test "$(.magpie-source/magpie --version)" = 'magpie 0.1.2512'
+          sha256sum .magpie-source/magpie
+          curl --fail --silent --show-error --location --proto '=https' --max-time 120 --retry 2 \
+            https://github.com/oven-sh/bun/releases/download/bun-v1.4.2/bun-linux-x64-baseline.zip -o "$RUNNER_TEMP/bun.zip"
+          echo "c678040f14fe0440eb839d37cbd0ce4c051a32da72806ac97de6a6aab6bf728f  $RUNNER_TEMP/bun.zip" | sha256sum --check
+          unzip -q "$RUNNER_TEMP/bun.zip" -d "$RUNNER_TEMP/magpie-runtime"
+          runtime="$RUNNER_TEMP/magpie-runtime/bun-linux-x64-baseline/bun"
+          test "$("$runtime" --version)" = 1.4.2
+          echo "MAGPIE_BIN=$PWD/.magpie-source/magpie" >> "$GITHUB_ENV"
+          echo "MAGPIE_BUN=$runtime" >> "$GITHUB_ENV"
+      - name: Check the pinned plugin in the signed-out host
+        working-directory: packages/opencode-lmm-auth
+        env:
+          DO_NOT_TRACK: '1'
+          MAGPIE_NO_ACCOUNTS: '1'
+        run: npm run test:magpie
+      - name: Exercise real Magpie JSON and SSE against an ordinary Core account
+        working-directory: services/core
+        env:
+          DATABASE_URL: postgres://postgres:postgres@127.0.0.1:${{ job.services.postgres.ports[5432] }}/postgres
+          CARGO_BUILD_JOBS: '2'
+          CARGO_INCREMENTAL: '0'
+          CARGO_PROFILE_TEST_DEBUG: '0'
+          CARGO_PROFILE_DEV_DEBUG: '0'
+        run: |
+          set -euo pipefail
+          umask 077
+          export FIXTURE_TLS_KEY="$RUNNER_TEMP/magpie-fixture.key"
+          export FIXTURE_TLS_CERT="$RUNNER_TEMP/magpie-fixture.crt" NODE_EXTRA_CA_CERTS="$RUNNER_TEMP/magpie-fixture.crt"
+          trap 'rm -f -- "$FIXTURE_TLS_KEY" "$FIXTURE_TLS_CERT"' EXIT
+          openssl req -x509 -newkey rsa:2048 -nodes -days 1 -subj '/CN=pi-issuer.example.test' \
+            -addext 'subjectAltName=DNS:pi-issuer.example.test' -keyout "$FIXTURE_TLS_KEY" -out "$FIXTURE_TLS_CERT" 2>/dev/null
+          echo '127.0.0.1 pi-issuer.example.test' | sudo tee -a /etc/hosts >/dev/null
+          sudo sysctl -q -w net.ipv4.ip_unprivileged_port_start=443
+          sudo --preserve-env=GITHUB_ACTIONS python3 ../../scripts/prepare-ci-apt.py
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends protobuf-compiler
+          rustup toolchain install 1.100.0 --profile minimal
+          name=real_magpie_gateway_ordinary_account_settles_json_and_sse
+          log="$RUNNER_TEMP/magpie-core-acceptance.log"
+          cargo +1.100.0 test --locked --test oauth2_magpie_budget "$name" -- --ignored --exact --nocapture --color=never 2>&1 | tee "$log"
+          grep -Fx -- "test $name ... ok" "$log"
+          grep -Fx -- "magpie_gateway_budget source=fixture cap_credits=900 consumed_credits=98 reserved_credits=0 external_paid_calls=0" "$log"

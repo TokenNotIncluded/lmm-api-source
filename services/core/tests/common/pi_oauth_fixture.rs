@@ -37,6 +37,24 @@ fn routes(
     request_fee: u64,
     policy: PayloadPolicy,
 ) -> Arc<lmm_core::routing::Router> {
+    routes_for_model(
+        endpoint,
+        cache_write,
+        request_fee,
+        policy,
+        "provider-model",
+        "allowed",
+    )
+}
+
+fn routes_for_model(
+    endpoint: &str,
+    cache_write: u64,
+    request_fee: u64,
+    policy: PayloadPolicy,
+    public_model: &str,
+    group: &str,
+) -> Arc<lmm_core::routing::Router> {
     let prices = PriceSnapshot::compile(PriceConfig {
         version: 1,
         rules: vec![PriceRule {
@@ -44,8 +62,8 @@ fn routes(
             billing_mode: lmm_core::routing::BillingMode::Tokens,
             tiered: None,
             id: 1,
-            model: "provider-model".into(),
-            group: "allowed".into(),
+            model: public_model.into(),
+            group: group.into(),
             speed: Speed::Standard,
             rates: TokenRates {
                 input: 2_000_000,
@@ -68,7 +86,7 @@ fn routes(
                 routing_reliability: None,
                 version: 1,
                 groups: vec![ModelGroup {
-                    name: "allowed".into(),
+                    name: group.into(),
                     enabled: true,
                 }],
                 upstreams: vec![UpstreamConfig {
@@ -84,8 +102,8 @@ fn routes(
                 }],
                 routes: vec![ModelRoute {
                     id: 1,
-                    model: "provider-model".into(),
-                    group: "allowed".into(),
+                    model: public_model.into(),
+                    group: group.into(),
                     enabled: true,
                     speeds: vec![Speed::Standard],
                     targets: vec![RouteTarget {
@@ -119,6 +137,22 @@ fn gateway_with_routes(
     router: Arc<lmm_core::routing::Router>,
     key: i64,
 ) -> ModelGateway {
+    gateway_with_limits(
+        pool,
+        router,
+        key,
+        Limits::default().max_output_tokens,
+        "allowed",
+    )
+}
+
+fn gateway_with_limits(
+    pool: &PgPool,
+    router: Arc<lmm_core::routing::Router>,
+    key: i64,
+    max_output_tokens: u32,
+    group: &str,
+) -> ModelGateway {
     ModelGateway::new(
         pool.clone(),
         router,
@@ -126,8 +160,9 @@ fn gateway_with_routes(
             reference: CredentialRef { id: 7, revision: 1 },
             secret: "synthetic-upstream-key".into(),
         }],
-        BTreeMap::from([(key, "allowed".into())]),
+        BTreeMap::from([(key, group.into())]),
         Limits {
+            max_output_tokens,
             total_timeout: Duration::from_secs(3),
             hook_timeout: Duration::from_secs(2),
             ..Limits::default()
@@ -164,6 +199,8 @@ enum FixtureApplications<'a> {
     PiAndManaged,
     PiAndAllManaged,
     PiAndProviders(&'a str),
+    PiHost,
+    MagpieHost,
 }
 
 pub(super) enum ManagedKeyring {
@@ -201,7 +238,37 @@ impl Fixture {
         let (native, ledger, _native_session, native_key, native_id, _native_account) =
             model_fixture::fixture(owner, 1000).await;
         let provider = Provider::start(true).await;
-        let router = routes(&provider.endpoint, 0, 0, PayloadPolicy::Adapt);
+        let cli_host = matches!(
+            applications,
+            FixtureApplications::PiHost | FixtureApplications::MagpieHost
+        );
+        let applications = match applications {
+            FixtureApplications::PiHost => FixtureApplications::PiOnly,
+            FixtureApplications::MagpieHost => FixtureApplications::PiAndAllManaged,
+            value => value,
+        };
+        let (router, group) = if cli_host {
+            let suffix: String =
+                sqlx::query_scalar("SELECT left(replace(gen_random_uuid()::text,'-',''),16)")
+                    .fetch_one(owner)
+                    .await
+                    .unwrap();
+            let group = format!("group-{suffix}");
+            let router = routes_for_model(
+                &provider.endpoint,
+                0,
+                0,
+                PayloadPolicy::Adapt,
+                &format!("host-{suffix}"),
+                &group,
+            );
+            (router, group)
+        } else {
+            (
+                routes(&provider.endpoint, 0, 0, PayloadPolicy::Adapt),
+                "allowed".to_owned(),
+            )
+        };
         let store = native
             .with_registration_enabled(true)
             .with_dashboard_routing(router.clone());
@@ -229,7 +296,12 @@ impl Fixture {
         if developer {
             sqlx::query("INSERT INTO core_identity.developer_access(user_id,granted,source_reference) VALUES($1,true,'synthetic-pi-owner')").bind(user).execute(owner).await.unwrap();
         }
-        sqlx::query("INSERT INTO core_identity.user_routing_groups(user_id,group_name,source_reference) VALUES($1,'allowed','synthetic-pi-owner')").bind(user).execute(owner).await.unwrap();
+        sqlx::query("INSERT INTO core_identity.user_routing_groups(user_id,group_name,source_reference) VALUES($1,$2,'synthetic-pi-owner')").bind(user).bind(&group).execute(owner).await.unwrap();
+        if cli_host {
+            let developer: bool = sqlx::query_scalar("SELECT EXISTS(SELECT FROM core_identity.developer_access WHERE user_id=$1 AND granted)")
+                .bind(user).fetch_one(owner).await.unwrap();
+            assert!(!developer);
+        }
         // Wallet provisioning and funding are separate real ledger operations.
         ledger.open_wallet(account).await.unwrap();
         let funding = ledger
@@ -290,14 +362,18 @@ impl Fixture {
         )
         .await
         .unwrap();
-        let gateway =
-            gateway_with_routes(&role.pool, router.clone(), native_id).with_local_streaming();
+        let gateway = if cli_host {
+            gateway_with_limits(&role.pool, router.clone(), native_id, 20, &group)
+        } else {
+            gateway_with_routes(&role.pool, router.clone(), native_id)
+        }
+        .with_local_streaming();
         let store = IdentityStore::from_pool(role.pool.clone()).with_dashboard_routing(router);
         let origin = match applications {
             FixtureApplications::PiAndProviders(origin) => origin,
             _ => ISSUER,
         };
-        let mut profile = LmmProfile::new(origin, vec!["allowed".into()])
+        let mut profile = LmmProfile::new(origin, vec![group])
             .unwrap()
             .with_pi_budget_limit(1000)
             .unwrap();
@@ -672,6 +748,23 @@ impl Fixture {
         self.role.cleanup().await;
     }
 }
+pub(super) enum CliHost {
+    Pi,
+    Magpie,
+}
+
+pub(super) async fn with_cli_host_fixture<F, Fut>(pool: PgPool, host: CliHost, case: F)
+where
+    F: FnOnce(Arc<Fixture>) -> Fut + Send + 'static,
+    Fut: Future<Output = ()> + Send + 'static,
+{
+    let applications = match host {
+        CliHost::Pi => FixtureApplications::PiHost,
+        CliHost::Magpie => FixtureApplications::MagpieHost,
+    };
+    with_fixture_applications(pool, false, applications, case).await;
+}
+
 pub(super) async fn with_fixture<F, Fut>(pool: PgPool, developer: bool, case: F)
 where
     F: FnOnce(Arc<Fixture>) -> Fut + Send + 'static,

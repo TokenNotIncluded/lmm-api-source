@@ -430,3 +430,57 @@ async fn magpie_http_model_dispatch_is_metered_by_its_own_family(pool: PgPool) {
         amounts(&budget(&f,&token.access_token).await,49,0,851);
     }).await;
 }
+
+// The manual cloud job provides the real host, a fixture-only TLS certificate and
+// an isolated PostgreSQL instance. Ordinary Core test suites do not install a host.
+#[sqlx::test(migrations = false)]
+#[ignore = "requires pinned Magpie and the cloud loopback TLS fixture"]
+async fn real_magpie_gateway_ordinary_account_settles_json_and_sse(pool: PgPool) {
+    pi::with_cli_host_fixture(pool, pi::CliHost::Magpie, |f| async move {
+        let cap = 900;
+        let origin = reqwest::Url::parse(f.issuer.profile().resource())
+            .unwrap()
+            .origin()
+            .ascii_serialization();
+        let config = json!({"coreBase": f.base, "issuer": origin, "refresh": f.refresh, "cap": cap});
+        let proof: Value = tokio::task::spawn_blocking(move || {
+            use std::io::Write;
+            use std::process::{Command, Stdio};
+            let script = concat!(env!("CARGO_MANIFEST_DIR"), "/../../scripts/ci/magpie-real-host.mjs");
+            let mut cmd = Command::new("node");
+            cmd.arg(script).env_clear();
+            for key in ["PATH", "MAGPIE_BIN", "MAGPIE_BUN", "FIXTURE_TLS_KEY", "FIXTURE_TLS_CERT", "NODE_EXTRA_CA_CERTS"] {
+                cmd.env(key, std::env::var_os(key).expect("missing managed-host fixture environment"));
+            }
+            let mut driver = cmd.stdin(Stdio::piped()).stdout(Stdio::piped()).spawn().unwrap();
+            driver.stdin.take().unwrap().write_all(&serde_json::to_vec(&config).unwrap()).unwrap();
+            let result = driver.wait_with_output().unwrap();
+            assert!(result.status.success(), "private Magpie host driver failed");
+            serde_json::from_slice(&result.stdout).unwrap()
+        })
+        .await
+        .unwrap();
+
+        let family = proof["grant_id"].as_str().unwrap();
+        let cases = proof["cases"].as_array().unwrap();
+        assert_eq!(cases.len(), 2);
+        assert_eq!(f.provider.hits.load(Ordering::SeqCst), 2);
+        assert_eq!(proof["budget"], cap);
+        for (index, case) in cases.iter().enumerate() {
+            assert_eq!(case["stream"], index != 0);
+            let id = case["request_id"].as_str().unwrap();
+            let receipt: (String, i64, i64, i64, bool, bool, i64) = sqlx::query_as(
+                "SELECT r.state,r.settled,r.input_tokens,r.output_tokens,h.closed,\
+                 h.capture_journal_id IS NOT NULL,h.captured FROM core_charging.requests r \
+                 JOIN core_charging.ledger_holds h ON h.request_id=r.id \
+                 WHERE r.id=$1 AND r.oauth_family_id=$2 AND r.actor_user_id=$3 \
+                 AND r.payer_account_id=$4 AND r.oauth_source->>'client_id'='lmm-magpie' AND r.key_id IS NULL",
+            ).bind(id).bind(family).bind(f.user).bind(f.account).fetch_one(&f.owner).await.unwrap();
+            assert_eq!(receipt, ("settled".into(), 49, 10, 20, true, true, 49));
+            println!("magpie_gateway_receipt stream={} request_id={id} settled_credits=49", index != 0);
+        }
+        let balance = f.ledger.balance(f.account).await.unwrap();
+        assert_eq!((balance.available_units, balance.reserved_units), (902, 0));
+        println!("magpie_gateway_budget source=fixture cap_credits={cap} consumed_credits=98 reserved_credits=0 external_paid_calls=0");
+    }).await;
+}
