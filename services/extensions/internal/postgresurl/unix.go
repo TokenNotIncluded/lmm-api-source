@@ -5,15 +5,12 @@ import (
 	"errors"
 	"net/netip"
 	"net/url"
-	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"unicode"
 	"unicode/utf8"
 )
-
-var connectionEnvironment = []string{"PGHOST", "PGHOSTADDR", "PGPORT", "PGDATABASE", "PGUSER", "PGPASSWORD", "PGSERVICE", "PGSERVICEFILE", "PGREALM", "PGOPTIONS", "PGAPPNAME", "PGSSLMODE", "PGSSLCERT", "PGSSLKEY", "PGSSLROOTCERT", "PGSSLSNI", "PGREQUIRESSL", "PGSSLCRL", "PGREQUIREPEER", "PGKRBSRVNAME", "PGGSSLIB", "PGCONNECT_TIMEOUT", "PGCLIENTENCODING", "PGDATESTYLE", "PGTZ", "PGGEQO", "PGSYSCONFDIR", "PGLOCALEDIR", "PGPASSFILE"}
 
 // TCP validates the explicit transport policy for extension PostgreSQL URLs.
 // Numeric loopback is allowed to use plaintext for same-host deployments; every
@@ -33,10 +30,8 @@ func TCP(u *url.URL) (bool, error) {
 	if err != nil {
 		return true, errors.New("invalid TCP PostgreSQL URL")
 	}
-	for _, name := range connectionEnvironment {
-		if _, present := os.LookupEnv(name); present {
-			return true, errors.New("PostgreSQL connection environment is not supported with TCP URLs")
-		}
+	if hasConnectionEnvironment() {
+		return true, errors.New("PostgreSQL connection environment is not supported with TCP URLs")
 	}
 	addr, err := netip.ParseAddr(u.Hostname())
 	if err == nil && addr.IsLoopback() && q.Get("sslmode") == "disable" {
@@ -88,13 +83,8 @@ func Unix(u *url.URL) (bool, error) {
 			return reject()
 		}
 	}
-	// This is the complete environment list consumed by pinned lib/pq v1.10.9
-	// parseEnviron plus PGPASSFILE. Presence is rejected even for empty values:
-	// lib/pq panics on some unsupported variables before parsing the explicit URL.
-	for _, name := range connectionEnvironment {
-		if _, present := os.LookupEnv(name); present {
-			return true, errors.New("PostgreSQL connection environment is not supported with Unix sockets")
-		}
+	if hasConnectionEnvironment() {
+		return true, errors.New("PostgreSQL connection environment is not supported with Unix sockets")
 	}
 	return true, nil
 }

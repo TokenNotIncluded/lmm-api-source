@@ -23,6 +23,15 @@ Install locked dependencies only when needed. Do not use an unreviewed `@latest`
 replace the UI foundation, or reinstall skills to fix a widget. Changed UI copy
 also uses [translations](../i18n-translate/SKILL.md).
 
+For a usability change, follow one task from the actual entry point to its
+outcome. Record the step that costs an extra click, loses input or displays a
+misleading status. Reuse the existing action or recovery path and verify the
+same task again. Remove redundant controls or copy on that path and use the
+existing spacing tokens to group related fields and actions. For a search,
+cover no matches and clearing the filter. For a
+paged list, delay a response and check which rows and counts the operator sees.
+For a save, reopen the item and compare the persisted value.
+
 Check affected interaction, keyboard focus, labels and loading/error states.
 Review relevant light/dark and mobile layouts. For TypeScript changes, run
 related tests and `mise exec -- bun run typecheck:web` from the repository root.

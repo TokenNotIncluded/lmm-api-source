@@ -545,8 +545,18 @@ impl AdminUsersStore {
         let (page, size, offset) = pagination(input.page, input.page_size)?;
         let mut tx = self.begin().await?;
         Self::authorize(&mut tx, secret).await?;
-        let total:i64=sqlx::query_scalar("SELECT count(DISTINCT group_name COLLATE \"C\") FROM core_identity.user_routing_groups WHERE enabled").fetch_one(&mut *tx).await?;
-        let items=sqlx::query_scalar("SELECT DISTINCT group_name COLLATE \"C\" AS name FROM core_identity.user_routing_groups WHERE enabled ORDER BY name ASC LIMIT $1 OFFSET $2").bind(i64::from(size)).bind(offset).fetch_all(&mut *tx).await?;
+        let (total, items): (i64, Vec<String>) = sqlx::query_as(
+            r#"WITH names AS (
+                 SELECT DISTINCT group_name COLLATE "C" AS name
+                 FROM core_identity.user_routing_groups WHERE enabled
+               )
+               SELECT count(*), ARRAY(SELECT name FROM names ORDER BY name LIMIT $1 OFFSET $2)
+               FROM names"#,
+        )
+        .bind(i64::from(size))
+        .bind(offset)
+        .fetch_one(&mut *tx)
+        .await?;
         tx.commit().await?;
         Ok(GroupsPage {
             version: 1,

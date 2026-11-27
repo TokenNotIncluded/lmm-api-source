@@ -7,12 +7,17 @@ UI code with new translations. References are not startup reading.
 
 | Skill | Trigger | Not for |
 | --- | --- | --- |
+| [review-lmm-architecture](review-lmm-architecture/SKILL.md) | Ownership, dependency direction or duplicated decisions | Cosmetic moves without a caller impact |
+| [audit-hardcoded-values](audit-hardcoded-values/SKILL.md) | Configuration ignored by a consumer or user-facing literals | Making fixed protocol values configurable |
+| [optimize-database-query](optimize-database-query/SKILL.md) | Query amplification, scans and pagination in PostgreSQL | Production database maintenance |
+| [repair-regression](repair-regression/SKILL.md) | Reproduce a reported defect and verify the fix with the same input | Broad feature acceptance |
+| [lmm-e2e](lmm-e2e/SKILL.md) | Run a complete user journey with browser, services and isolated data | Treating mocks as proof of persistence |
 | [docs-maintenance](docs-maintenance/SKILL.md) | Docs, AGENTS.md, skill text, links or examples | Every code edit |
-| [create-verification-skill](create-verification-skill/SKILL.md) | Explicit request to create or strengthen executable local verification | CI, production access, paid calls, publication or deployment |
+| [create-verification-skill](create-verification-skill/SKILL.md) | Requested automated test, regression or runner/discovery check | CI, production access, paid calls, publication or deployment |
 | [deployment](deployment/SKILL.md) | WIP packages, isolated installation or recovery planning | Ordinary source edits without packaging |
 | [home-sculpture](home-sculpture/SKILL.md) | Homepage particle scenes, geometry or motion | General UI or static artwork |
 | [i18n-translate](i18n-translate/SKILL.md) | UI copy or locale keys, including one-key fixes | Non-UI prose |
-| [shadcn-ui](shadcn-ui/SKILL.md) | Components, forms, themes or layout | Backend-only work |
+| [shadcn-ui](shadcn-ui/SKILL.md) | Components, visual design, forms or task usability | Backend-only work |
 | [vercel-react-best-practices](vercel-react-best-practices/SKILL.md) | React request, render or bundle performance | Every React edit |
 | [publish-open-source-bounty](publish-open-source-bounty/SKILL.md) | Bounty drafts, prices or publication | Ordinary GitHub issues |
 | [review-open-source-bounty](review-open-source-bounty/SKILL.md) | Bounty delivery review or settlement | Ordinary PR review or merge |

@@ -418,10 +418,11 @@ function RawJsonConfigurationEditor() {
 
   const askAssistant = () => {
     const safeValue = editorValue.slice(0, 12_000)
-    requestAssistantOpen(
-      'service',
-      `请帮我编辑管理员配置 ${selectedKey}。先读取当前服务端配置并解释字段，再提出最小变更预览；未经我确认不要写入。当前编辑器内容如下：\n\n${safeValue}`
+    const prompt = t(
+      'Help me edit the {{key}} admin configuration. Read the current server configuration, explain its fields, and preview the smallest change. Wait for my confirmation before writing. Current editor contents:',
+      { key: selectedKey }
     )
+    requestAssistantOpen('service', `${prompt}\n\n${safeValue}`)
   }
 
   return (

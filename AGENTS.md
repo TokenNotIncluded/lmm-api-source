@@ -46,6 +46,9 @@ continuing product sync or updating its submodule pointer.
 
 | Task | Entry |
 | --- | --- |
+| Architecture, duplication or hardcoded values | [Architecture](.agents/skills/review-lmm-architecture/SKILL.md) · [Hardcoded values](.agents/skills/audit-hardcoded-values/SKILL.md) |
+| PostgreSQL query performance | [Query optimization](.agents/skills/optimize-database-query/SKILL.md) |
+| Bug, automated regression or end-to-end journey | [Bug repair](.agents/skills/repair-regression/SKILL.md) · [Automated checks](.agents/skills/create-verification-skill/SKILL.md) · [End-to-end](.agents/skills/lmm-e2e/SKILL.md) |
 | Setup or source paths | [Development](docs/development.md) |
 | Choose checks and reuse results | [Working guide](docs/agent-workflows.md) |
 | Core or extension ownership | [Architecture](docs/core-migration.md) |

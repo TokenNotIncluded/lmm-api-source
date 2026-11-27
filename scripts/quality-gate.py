@@ -429,11 +429,19 @@ def test_result(kind: str, log: Path) -> str | None:
                 if match:
                     passes += int(match[1])
                     skipped |= int(match[2]) > 0
-            else:
-                match = re.search(r'(?:Ran (\d+) tests?\b|# tests\s+(\d+)\b|^\s*(\d+) pass\b)', line)
+            elif kind == 'unittest':
+                match = re.search(r'^Ran (\d+) tests?\b', line)
                 if match:
-                    passes += int(next(value for value in match.groups() if value is not None))
-                skipped |= bool(re.search(r'(?:# skipped\s+[1-9]|\b[1-9]\d* skip\b|skipped=[1-9])', line))
+                    passes += int(match[1])
+                skipped |= bool(re.search(r'\bskipped=[1-9]', line))
+            elif kind == 'text':
+                # bun --filter prefixes output from the web workspace.
+                summary = line.removeprefix('@lmm/web test:').strip()
+                # Node's spec and TAP reporters list the status before the count.
+                passing = re.fullmatch(r'[#ℹ]\s+pass\s+(\d+)|(\d+)\s+pass', summary)
+                if passing:
+                    passes += int(passing[1] or passing[2])
+                skipped |= bool(re.fullmatch(r'[#ℹ]\s+(?:skipped|todo)\s+[1-9]\d*|[1-9]\d*\s+(?:skip|todo)', summary))
     if skipped:
         return 'test runner reported skipped/ignored tests; independent scope review required'
     if passes == 0:

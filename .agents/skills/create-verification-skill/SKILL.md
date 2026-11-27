@@ -1,6 +1,6 @@
 ---
 name: create-verification-skill
-description: "Creates or strengthens executable local verification for a change when explicitly invoked by the user. Reuses existing regressions and checkers; does not authorize CI, production access, paid calls, publication or deployment."
+description: "Create or strengthen automated regressions for a specific fix, choose a local test runner, or validate test-discovery and result counts when requested. Reuses existing regressions and checkers; does not authorize CI, production access, paid calls, publication or deployment."
 disable-model-invocation: true
 ---
 
@@ -39,6 +39,14 @@ disable-model-invocation: true
   已被聚合检查包含的任务，不顺带构建/验收无关组件。
 - 记录实际命令、cwd、工具版本、输入 SHA、子进程退出码与日志。管道/总控 wrapper
   必须保留 child exit；wrapper exit 0 不能覆盖 child exit 1，也不能等同验收通过。
+
+## 将已有回归接入自动化
+
+选择负责该行为的 runner。Web 单文件在 `apps/web` 运行 `mise exec -- bun test --preload ./scripts/test-preload.mjs ./src/…/example.test.tsx`，把示例路径换成真实文件。Go 在拥有该包的模块运行 `go test -count=1 -run '^TestName$' ./path/to/package`，Rust 在 `services/core` 运行 `cargo test --locked <test-name>`。核对实际匹配到的测试名称与执行数量。
+
+新增用例前先看聚合入口怎样收集它。Web 的 `scripts/test-serial.mjs` 自动收集 `src` 下的 `.test.ts/.test.tsx` 和 `scripts` 下的 `.test.mjs`。同一个文件应只执行一次。需要固定顺序时，在已有 runner 中表达依赖，并保留失败的子进程状态。
+
+修改测试汇总器时，把一次真实通过和一次仅含跳过或待办的输出都交给解析器，核对退出码、实际执行数和报告分类。格式由 runner 或版本决定，保存触发问题的输出样本。对重试、时间和外部请求使用受控夹具，保证失败能重现。
 
 ## 冻结与交回
 

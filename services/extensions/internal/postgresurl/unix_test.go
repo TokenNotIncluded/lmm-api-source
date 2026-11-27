@@ -119,3 +119,16 @@ func TestUnixURLRejectsConnectionEnvironmentWithoutLeakingValues(t *testing.T) {
 		t.Fatal("TCP policy changed")
 	}
 }
+
+func TestTCPRejectsEmptyConnectionEnvironment(t *testing.T) {
+	testkit.ClearPostgresEnv(t)
+	t.Setenv("PGSERVICE", "")
+	u, err := url.Parse("postgres://runtime:synthetic@127.0.0.1/lmm_store?sslmode=disable")
+	if err != nil {
+		t.Fatal(err)
+	}
+	tcp, err := TCP(u)
+	if !tcp || err == nil || err.Error() != "PostgreSQL connection environment is not supported with TCP URLs" {
+		t.Fatalf("TCP returned (%v, %v)", tcp, err)
+	}
+}

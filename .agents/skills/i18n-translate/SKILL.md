@@ -5,11 +5,32 @@ description: "Add or correct UI copy and locale keys in apps/web, including one-
 
 # Frontend translations
 
-Read the changed call site and existing English copy. Locale files are
-`apps/web/src/i18n/locales/*.json`, under `translation`; the helper discovers the
-actual languages. Keep brand names, identifiers and `{{variables}}` intact.
-Use [the glossary](../../../docs/translation-glossary.md) when terminology needs
-clarification. Never copy task instructions into translation values.
+Follow the changed call site to the resource that supplies its text. Preserve the
+flat key, brand names, identifiers and `{{variables}}`. Use [the glossary](../../../docs/translation-glossary.md)
+for terminology. Never copy task instructions into translation values.
+
+### Feature-owned translations
+
+When a feature registers its own resources with `addResourceBundle`, edit the
+existing feature map for each supported language. HeroSMS, for example, registers
+[its translations](../../../apps/web/src/features/email-activations/i18n.ts) when
+the feature loads. The shared JSON helper and sync script only cover the locale
+files. For a HeroSMS change, run its registration test from the source root:
+
+```bash
+(cd apps/web && mise exec -- bun test --preload ./scripts/test-preload.mjs ./src/i18n/feature-translations.test.ts)
+```
+
+This test checks keys and placeholders in all seven languages and looks up the
+registered text in Simplified and Traditional Chinese.
+
+### Shared locale files
+
+Keep shared strings under `translation` in `apps/web/src/i18n/locales/*.json`.
+Register configuration-driven keys passed through variables in
+[`STATIC_I18N_KEYS`](../../../apps/web/src/i18n/static-keys.ts) when the extractor
+cannot see a literal call. Sync compares locale files and cannot detect a new
+key missing from every file.
 
 Create a temporary JSON patch outside the repository, with every supported
 locale and the same changed keys in each. Values must be real, non-empty
@@ -38,7 +59,7 @@ Check affected long-text/mobile layouts when text changes layout. No full Web
 build is needed solely for JSON text. Report missing language/browser checks.
 Only helper-code changes require its `node --test` self-test suite.
 
-Done means complete changed keys across actual locales, preserved variables,
+For shared locale changes, finish with complete keys across locales, preserved variables,
 reviewed sync output and reported checks. Delete only your own temporary patch.
 
 No adversarial reviewer will nitpick these strings; follow [proportion and stopping](../../../docs/agent-workflows.md#适度与停止).

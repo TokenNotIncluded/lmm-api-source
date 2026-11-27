@@ -764,6 +764,7 @@ test('production 10s cache: cached continuation stays hidden until server digest
   )
   await act(async () => button(container, 'Next').click())
   await until(() => !!container.textContent?.includes('Provider 26'))
+  assert.match(container.textContent ?? '', /Page 2 \/ 2/)
   await act(async () => button(container, 'Previous').click())
   await until(
     () =>
@@ -782,11 +783,13 @@ test('production 10s cache: cached continuation stays hidden until server digest
     'a'.repeat(64)
   )
   assert.equal(container.textContent?.includes('Provider 26'), false)
+  assert.doesNotMatch(container.textContent ?? '', /Page \d+ \/ \d+/)
   await act(async () => rejectContinuation?.())
   await until(
     () => !!container.textContent?.includes('channelSorting.snapshotChanged')
   )
   assert.equal(container.textContent?.includes('Provider 26'), false)
+  assert.doesNotMatch(container.textContent ?? '', /Page \d+ \/ \d+/)
 })
 
 test('an owner switch cancels the old listing and its late response cannot seed the new owner continuation or units', async () => {

@@ -5338,6 +5338,7 @@
     "Help me connect an AI app to {{brand}} step by step. Ask which app and device I use, explain the API address and model settings, and show me where to safely import my API key. Do not ask me to paste my key into chat.": "请逐步教我将 AI 软件连接到 {{brand}}。先问我使用的软件和设备，再解释 API 地址和模型设置，并告诉我在哪里安全导入 API 密钥。不要让我将密钥粘贴到聊天中。",
     "Help me connect an AI app to LMM step by step. Ask which app and device I use, explain the API address and model settings, and show me where to safely import my API key. Do not ask me to paste my key into chat.": "请逐步教我将 AI 软件连接到 LMM。先问我使用的软件和设备，再解释 API 地址和模型设置，并告诉我在哪里安全导入 API 密钥。不要让我将密钥粘贴到聊天中。",
     "Help me diagnose this API request.": "帮我排查这次 API 请求。",
+    "Help me edit the {{key}} admin configuration. Read the current server configuration, explain its fields, and preview the smallest change. Wait for my confirmation before writing. Current editor contents:": "请帮我编辑管理员配置 {{key}}。先读取当前服务端配置并解释字段，再预览最小改动。请等我确认后再写入。当前编辑器内容如下：",
     "Help me set up LMM. Ask which device and app I use, then guide me through installation, sign-in, API key creation and my first request.": "请帮我配置 LMM。先询问我使用的设备和应用，再引导我完成安装、登录、创建 API 密钥和第一次请求。",
     "Help me troubleshoot my client connection. Ask for my device, client, and error message, then guide me step by step. Never ask for my API key.": "请帮我排查客户端连接问题。先询问我使用的设备、客户端和错误提示，再逐步指导我操作。不要索取我的 API 密钥。",
     "Helpful onboarding coach, concise technical writer, and honest product guide.": "友好的新手教练、简洁的技术作者、诚实的产品向导。",

@@ -441,6 +441,50 @@ function enabledSwitch(host: HTMLElement) {
 }
 const writes = () => requests.filter((request) => request.method !== 'get')
 
+test('Ask AI to edit uses the interface language and preserves the JSON draft', async () => {
+  const { consumeQueuedAssistantRequest } =
+    await import('@/features/assistant/assistant-events')
+  const french = (await import('@/i18n/locales/fr.json')).default.translation
+  const previousLanguage = i18n.language
+  const draft = '{"comment":"<A&B> {{literal}}"}'
+  await mount(<RawJsonConfigurationSection />)
+  await until(
+    () => editor().value.includes('initial'),
+    'initial source hydration'
+  )
+  await edit(editor(), draft)
+  const ask = button('Ask AI to edit')
+  const prompt = async () => {
+    await click(ask)
+    const request = consumeQueuedAssistantRequest()
+    assert.equal(request?.autoSend, false)
+    assert.ok(request?.message)
+    assert.ok(request.message.endsWith(`\n\n${draft}`))
+    return request.message
+  }
+  try {
+    assert.ok(
+      (await prompt()).startsWith(`Help me edit the ${groupKey} admin configuration.`)
+    )
+    i18n.addResourceBundle('fr', 'translation', french)
+    await act(async () => {
+      await i18n.changeLanguage('fr')
+    })
+    assert.ok(
+      (await prompt()).startsWith(
+        `Aide-moi à modifier la configuration d’administration ${groupKey}.`
+      )
+    )
+    assert.equal(writes().length, 0)
+  } finally {
+    await act(async () => {
+      await i18n.changeLanguage(previousLanguage)
+    })
+    i18n.removeResourceBundle('fr', 'translation')
+    i18n.addResourceBundle('fr', 'translation', {})
+  }
+})
+
 test('raw JSON applies clean server updates, retains dirty source changes/equal refreshes and confirms key replacement', async () => {
   const ui = await mount(<RawJsonConfigurationSection />)
   await until(

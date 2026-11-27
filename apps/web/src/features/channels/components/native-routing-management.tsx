@@ -1038,6 +1038,7 @@ function NativeRoutingWorkspace({
           : section === 'unpriced'
             ? unpriced.length
             : prices.length
+  const paginationKnown = !serverChannels || Boolean(verifiedChannelPage)
   const lastPage = Math.max(1, Math.ceil(total / 25))
   // Local lists can shrink while open; server channel pages are validated by digest.
   const shownPage =
@@ -2553,87 +2554,82 @@ function NativeRoutingWorkspace({
           </div>
         </>
       )}
-      {(section === 'models' ||
-        section === 'vendors' ||
-        section === 'prices') &&
-        total === 0 && (
-          <div role='status'>
-            <EmptyState
-              className='min-h-48'
-              title={search.trim() ? t('No results found') : t('No Data')}
-              description={
-                search.trim()
-                  ? t('Try a different search or clear the current filter.')
-                  : section === 'models'
-                    ? t(
-                        'Add a new model to the system by providing the necessary information.'
-                      )
-                    : section === 'vendors'
-                      ? t('Add a new vendor to the system')
-                      : t(
+      {section !== 'channels' && total === 0 && (
+        <div role='status'>
+          <EmptyState
+            className='min-h-48'
+            title={
+              search.trim()
+                ? t('No results found')
+                : section === 'unpriced'
+                  ? t('No unpriced models')
+                  : t('No Data')
+            }
+            description={
+              search.trim()
+                ? t('Try a different search or clear the current filter.')
+                : section === 'models'
+                  ? t(
+                      'Add a new model to the system by providing the necessary information.'
+                    )
+                  : section === 'vendors'
+                    ? t('Add a new vendor to the system')
+                    : section === 'prices'
+                      ? t(
                           'No price rules yet. Add a model price to get started.'
                         )
-              }
-              action={
-                search.trim() ? (
-                  <Button
-                    type='button'
-                    variant='outline'
-                    className='min-h-11'
-                    onClick={() => {
-                      setSearch('')
-                      setPage(1)
-                    }}
-                  >
-                    {t('Clear filters')}
-                  </Button>
-                ) : undefined
-              }
-            />
-          </div>
-        )}
-      {section === 'unpriced' &&
-        (unpriced.length === 0 ? (
-          <div role='status'>
-            <EmptyState
-              className='min-h-48'
-              title={
-                search.trim() ? t('No results found') : t('No unpriced models')
-              }
-            />
-          </div>
-        ) : (
-          <ul className='divide-y'>
-            {unpriced
-              .slice(start, start + 25)
-              .map(({ channel, name, model }) => (
-                <li
-                  key={JSON.stringify([channel.id, model])}
-                  className='flex flex-wrap items-center justify-between gap-3 py-3'
+                      : undefined
+            }
+            action={
+              search.trim() ? (
+                <Button
+                  type='button'
+                  variant='outline'
+                  className='min-h-11'
+                  onClick={() => {
+                    setSearch('')
+                    setPage(1)
+                  }}
                 >
-                  <div className='min-w-0'>
-                    <p className='font-medium [overflow-wrap:anywhere]'>
-                      {model}
-                    </p>
-                    <p className='text-muted-foreground text-sm [overflow-wrap:anywhere]'>
-                      {name} #{channel.id}
-                    </p>
-                  </div>
-                  <Button
-                    type='button'
-                    variant='outline'
-                    disabled={writeDisabled}
-                    onClick={() => {
-                      setOnboardingModel(model)
-                      setOnboardingId(channel.id)
-                    }}
-                  >
-                    {t('Model onboarding')}
-                  </Button>
-                </li>
-              ))}
-          </ul>
-        ))}
+                  {t('Clear filters')}
+                </Button>
+              ) : undefined
+            }
+          />
+        </div>
+      )}
+      {section === 'unpriced' && unpriced.length > 0 && (
+        <ul className='divide-y'>
+          {unpriced
+            .slice(start, start + 25)
+            .map(({ channel, name, model }) => (
+              <li
+                key={JSON.stringify([channel.id, model])}
+                className='flex flex-wrap items-center justify-between gap-3 py-3'
+              >
+                <div className='min-w-0'>
+                  <p className='font-medium [overflow-wrap:anywhere]'>
+                    {model}
+                  </p>
+                  <p className='text-muted-foreground text-sm [overflow-wrap:anywhere]'>
+                    {name} #{channel.id}
+                  </p>
+                </div>
+                <Button
+                  type='button'
+                  variant='outline'
+                  disabled={writeDisabled}
+                  onClick={() => {
+                    setOnboardingModel(model)
+                    setOnboardingId(channel.id)
+                  }}
+                >
+                  {t('Model onboarding')}
+                </Button>
+              </li>
+            ))}
+        </ul>
+      )}
       {section === 'prices' && (
         <>
           <div className='flex flex-wrap gap-2'>
@@ -2720,9 +2716,11 @@ function NativeRoutingWorkspace({
         </>
       )}
       <div className='flex flex-wrap items-center justify-end gap-3'>
-        <span className='text-sm'>
-          {t('Total')}: {total}
-        </span>
+        {paginationKnown && (
+          <span className='text-sm'>
+            {t('Total')}: {total}
+          </span>
+        )}
         <Button
           type='button'
           variant='outline'
@@ -2736,9 +2734,11 @@ function NativeRoutingWorkspace({
         >
           {t('Previous')}
         </Button>
-        <span className='text-sm'>
-          {t('Page')} {shownPage} / {lastPage}
-        </span>
+        {paginationKnown && (
+          <span className='text-sm'>
+            {t('Page')} {shownPage} / {lastPage}
+          </span>
+        )}
         <Button
           type='button'
           variant='outline'

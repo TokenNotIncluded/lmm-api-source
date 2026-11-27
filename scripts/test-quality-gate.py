@@ -409,6 +409,25 @@ class GateTests(unittest.TestCase):
         log.write_text('# skipped 2\n')
         self.assertIn('skipped', gate.test_result('text', log))
 
+    def test_node_and_bun_use_passing_counts_and_reject_pending_tests(self):
+        log = self.out / 'web.log'
+        for summary, expected in (
+            ('ℹ tests 1\nℹ pass 1\nℹ skipped 0\nℹ todo 0', None),
+            ('# tests 1\n# pass 1\n# skipped 0\n# todo 0', None),
+            ('# tests 1\n# pass 0\n# todo 1', 'skipped'),
+            ('ℹ pass 1\nℹ skipped 1', 'skipped'),
+            ('@lmm/web test:   1 pass\n@lmm/web test:   0 fail', None),
+            ('@lmm/web test:   1 pass\n@lmm/web test:   1 todo', 'skipped'),
+            ('# tests 2\n# pass 0', 'no executed'),
+        ):
+            with self.subTest(summary=summary):
+                log.write_text(summary + '\n')
+                result = gate.test_result('text', log)
+                if expected:
+                    self.assertIn(expected, result)
+                else:
+                    self.assertIsNone(result)
+
     def test_status_aggregation_never_turns_partial_results_green(self):
         for status, expected in [('failed', 1), ('timed-out', 1), ('blocked', 2),
                                  ('not-run', 2), ('interrupted', 2), ('review-required', 3)]:
