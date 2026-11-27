@@ -710,6 +710,14 @@ jobs:
       - name: Stop the isolated Extensions HTTP host
         if: ${{ always() }}
         run: python3 scripts/ci/browser-go-services.py stop
+      - name: Retain observed console page failures
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: browser-console-diagnostics-${{ github.sha }}-${{ github.run_id }}
+          path: ${{ runner.temp }}/onboarding-evidence/console-pages/
+          if-no-files-found: ignore
+          retention-days: 7
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: browser-onboarding-wallet-${{ github.sha }}-${{ github.run_id }}

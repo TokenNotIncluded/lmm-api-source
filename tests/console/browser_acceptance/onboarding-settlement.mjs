@@ -17,7 +17,9 @@ const extensions = new URL(process.env.BROWSER_EXTENSIONS_URL)
 assert.equal(extensions.protocol, 'http:')
 assert.equal(extensions.hostname, '127.0.0.1')
 assert.equal(extensions.href, extensions.origin + '/')
-const extensionRoutes = new Set(['/api/site/navigation', '/api/release-notes/latest', '/api/hero-sms/capabilities'])
+const extensionRoutes = new Set([
+  '/api/site/navigation', '/api/release-notes/latest', '/api/hero-sms/capabilities', '/api/user/payments/channels',
+])
 const dist = resolve(process.env.BROWSER_WEB_DIST)
 const root = '/core/v1/admin/routing'
 const config = root + '/configuration'

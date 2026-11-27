@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import assert from 'node:assert/strict'
-import { mkdir } from 'node:fs/promises'
+import { mkdir, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { assertNoVisibleCredential, observeApiFailures, viewports } from './usage-log-captures.mjs'
 
@@ -27,6 +27,7 @@ export async function captureConsolePages(browser, session, web, payment, public
     },
   ]
   const captures = []
+  const problems = []
   for (const { label, width, height, touch } of viewports) {
     for (const role of roles) {
       const { page, user } = await session(browser, role.username, role.landing, {
@@ -43,14 +44,24 @@ export async function captureConsolePages(browser, session, web, payment, public
             const filename = view.name + '-' + label + '-' + theme + '.png'
             console.error('Checking real console view ' + filename)
             failedRequests.clear()
-            await page.goto(web + view.path)
-            await page.locator('html.' + theme).waitFor()
-            await view.marker(page).waitFor()
-            await page.waitForLoadState('networkidle')
-            await page.evaluate(async () => { await document.fonts.ready })
+            let stage = 'navigation'
+            try {
+              await page.goto(web + view.path)
+              await page.locator('html.' + theme).waitFor()
+              stage = 'published page data'
+              await view.marker(page).waitFor({ timeout: 15_000 })
+              stage = 'settled network'
+              await page.waitForLoadState('networkidle', { timeout: 15_000 })
+              await page.evaluate(async () => { await document.fonts.ready })
+            } catch {
+              problems.push({ file: filename, stage, failedRequests: [...failedRequests] })
+              continue
+            }
             await assertNoVisibleCredential(page)
             const errors = await page.locator('[data-sonner-toast][data-type="error"]:visible').count()
-            assert.deepEqual({ failedRequests: [...failedRequests], errors }, { failedRequests: [], errors: 0 }, filename)
+            if (failedRequests.size || errors) {
+              problems.push({ file: filename, failedRequests: [...failedRequests], visibleErrors: errors })
+            }
             await page.screenshot({ path: join(directory, filename), scale: 'css' })
             captures.push({ page: view.name, file: 'console-pages/' + filename, width, height, theme, touch })
           }
@@ -60,5 +71,7 @@ export async function captureConsolePages(browser, session, web, payment, public
       }
     }
   }
+  await writeFile(join(directory, 'page-checks.json'), JSON.stringify({ captures, problems }, null, 2))
+  assert.deepEqual(problems, [], 'Every console view must load its real data without API failures or visible errors')
   return captures
 }
