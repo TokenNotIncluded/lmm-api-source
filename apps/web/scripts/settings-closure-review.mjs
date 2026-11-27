@@ -116,13 +116,48 @@ const bundle = {
   },
 }
 function configuration() {
+  const selectors = Array.from({ length: 24 }, (_, i) => ({
+    id: i + 1,
+    model: `gpt-test-${String(i + 1).padStart(2, '0')}`,
+    group: i % 2 ? 'team' : 'default',
+  }))
   return {
     version: { routing: 3, pricing: 2 },
     secret_storage_enabled: false,
     routing: {
       version: 3,
-      upstreams: [],
-      routes: [],
+      upstreams: [
+        {
+          id: 1,
+          endpoint: 'https://supplier.example/v1',
+          credential: { id: 1, revision: 1 },
+          protocol: 'openai_chat',
+          enabled: true,
+        },
+      ],
+      routes: selectors.map((selector) => ({
+        ...selector,
+        enabled: true,
+        speeds: ['standard'],
+        targets: [
+          {
+            id: selector.id,
+            upstream_id: 1,
+            upstream_model: selector.model,
+            enabled: true,
+            priority: 0,
+            weight: 1,
+            speeds: ['standard'],
+            payload: 'exact',
+            timeout_ms: 30000,
+          },
+        ],
+        failover: {
+          max_attempts: 1,
+          retry_on: [],
+          allow_replay_after_send: false,
+        },
+      })),
       aliases: [],
       groups: [
         { name: 'default', enabled: true },
@@ -131,10 +166,8 @@ function configuration() {
     },
     prices: {
       version: 2,
-      rules: Array.from({ length: 24 }, (_, i) => ({
-        id: i + 1,
-        model: `gpt-test-${String(i + 1).padStart(2, '0')}`,
-        group: i % 2 ? 'team' : 'default',
+      rules: selectors.map((selector) => ({
+        ...selector,
         speed: 'standard',
         rates: {
           input: 2000000,
@@ -217,6 +250,9 @@ const json = (data, extra = {}) => ({
   ...extra,
 })
 async function install(context, state, theme) {
+  await context.addCookies([
+    { name: 'lmm_ui_locale', value: 'zh-CN', url: origin },
+  ])
   await context.addInitScript(
     ({ theme }) => {
       localStorage.setItem('i18nextLng', 'zh-CN')
