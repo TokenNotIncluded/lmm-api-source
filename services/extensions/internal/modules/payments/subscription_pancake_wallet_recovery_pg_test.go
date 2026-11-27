@@ -160,7 +160,7 @@ func TestPancakeWalletRecoveryPostgres(t *testing.T) {
 			t.Fatalf("rejected evidence incorrectly persisted/retried: %+v", row)
 		}
 	})
-	t.Run("typed_nil_check_failure_rolls_back", func(t *testing.T) {
+	t.Run("non_null_pending_result_check_failure_rolls_back", func(t *testing.T) {
 		reset(t)
 		core := &legacyFake{lookupErr: ErrNotFound, acceptErr: ErrNotFound}
 		_, wallet := pancakeRecoveryService(db, core)
@@ -173,11 +173,11 @@ func TestPancakeWalletRecoveryPostgres(t *testing.T) {
 			t.Fatal(err)
 		}
 		defer tx.Rollback()
-		var typedNil []byte
-		_, err = tx.Exec(`UPDATE payment_pancake_wallet_inbox SET result=$1,attempts=attempts+1`, typedNil)
+		// An explicitly empty bytea is non-NULL regardless of driver nil-slice handling.
+		_, err = tx.Exec(`UPDATE payment_pancake_wallet_inbox SET result=$1,attempts=attempts+1`, []byte{})
 		var pgError *pq.Error
 		if !errors.As(err, &pgError) || pgError.Code != "23514" {
-			t.Fatal("original NULL CHECK must reject typed nil encoded as bytea", err)
+			t.Fatal("pending evidence must reject any non-NULL result", err)
 		}
 		if err := tx.Rollback(); err != nil {
 			t.Fatal(err)

@@ -46,7 +46,7 @@ func (s *PancakeSubscriptions) settleWallet(ctx context.Context, wallet *Service
 	err = wallet.receiveOriginal(ctx, channel, r)
 	state := "pending"
 	code := "retry_original"
-	// A typed nil []byte is encoded as empty bytea by lib/pq, not SQL NULL.
+	// Use an explicit SQL NULL for pending and rejected evidence.
 	var result any
 	if err == nil {
 		state = "accepted"

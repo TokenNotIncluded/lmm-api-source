@@ -265,10 +265,14 @@ jobs:
       - name: Go contract and race tests
         if: ${{ !cancelled() && matrix.targets != 'integration' }}
         working-directory: services/extensions
+        env:
+          PAYMENT_TEST_DSN: postgres://postgres:postgres@127.0.0.1:5432/lmm_payments_test
         run: |
           bash ../../scripts/check-go-format.sh .
           go mod verify
           go vet ./...
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -c 'CREATE DATABASE lmm_payments_test'
+          trap 'psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -c "DROP DATABASE IF EXISTS lmm_payments_test"' EXIT
           go test -race ./... -count=1 -json | tee "$RUNNER_TEMP/extension-tests.jsonl"
           CGO_ENABLED=0 go build -mod=readonly -trimpath -o "$RUNNER_TEMP/lmm-extensions" ./cmd/extensions
       - name: Store and support real PostgreSQL acceptance
