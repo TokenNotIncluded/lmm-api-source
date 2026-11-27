@@ -412,9 +412,8 @@ impl Bridge {
         if let Some(tariff) = &mut price.tiered {
             tariff.input_semantics = if attempt.payload_policy()
                 == crate::routing::PayloadPolicy::LegacyOpenRouterChatUsageV1
+                || attempt.protocol() == Protocol::AnthropicMessages
             {
-                crate::routing::InputSemantics::AnthropicText
-            } else if attempt.protocol() == Protocol::AnthropicMessages {
                 crate::routing::InputSemantics::AnthropicText
             } else {
                 crate::routing::InputSemantics::Inclusive
