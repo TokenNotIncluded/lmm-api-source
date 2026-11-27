@@ -69,6 +69,10 @@ impl CompatibilityProvider {
                 json!({"id":"synthetic-resp","object":"response","status":"completed","output":[{"id":"item1","type":"message","role":"assistant","status":"completed","content":[{"type":"output_text","text":"synthetic answer","annotations":[]}]}],"usage":{"input_tokens":input,"output_tokens":output,"input_tokens_details":{"cached_tokens":cached}}})
             };
             if body["stream"] != true {
+                let mut full = full;
+                if chat && body["model"] == "compat-4" {
+                    full["usage"]["prompt_tokens_details"]["cache_write_tokens"] = json!(0);
+                }
                 return Json(full).into_response();
             }
             if chat && body["model"] == "compat-4" && body["tools"].is_array() {
@@ -86,6 +90,7 @@ impl CompatibilityProvider {
                     "cost_details": {"upstream_inference_cost": null},
                     "prompt_tokens_details": {
                         "cached_tokens": cached,
+                        "cache_write_tokens": 0,
                         "audio_tokens": 0,
                         "video_tokens": 0
                     },
@@ -261,17 +266,28 @@ async fn compatibility_call(
     id: &str,
     body: String,
 ) -> (u16, String, String) {
+    let path = if chat {
+        "/v1/chat/completions"
+    } else {
+        "/v1/responses"
+    };
+    compatibility_call_path(g, f, path, id, body).await
+}
+
+async fn compatibility_call_path(
+    g: &ModelGateway,
+    f: &Fixture,
+    path: &str,
+    id: &str,
+    body: String,
+) -> (u16, String, String) {
     use tower::ServiceExt;
     let response = g
         .router()
         .oneshot(
             axum::http::Request::builder()
                 .method("POST")
-                .uri(if chat {
-                    "/v1/chat/completions"
-                } else {
-                    "/v1/responses"
-                })
+                .uri(path)
                 .header("content-type", "application/json")
                 .header("authorization", format!("Bearer {}", f.key))
                 .header("x-request-id", id)
@@ -357,6 +373,72 @@ async fn openrouter_stream_usage_tail_settles_once_through_chat_gateway(pool: Pg
     ).bind(&request_id).fetch_one(&f.pool).await.unwrap();
     assert!(terminal_usage_matches);
     assert_balance(&f, 9_999_998, 0).await;
+}
+
+#[sqlx::test(migrations = false)]
+async fn openrouter_converts_portable_native_requests_and_settles_once(pool: PgPool) {
+    let f = fixture(pool, 10_000_000).await;
+    let provider = CompatibilityProvider::start_with_usage(2, 3, 1).await;
+    let gateway = compatibility_gateway(&f, &provider.endpoint, Protocol::OpenAiChat);
+    for stream in [false, true] {
+        for client in [
+            ClientProtocol::Responses,
+            ClientProtocol::Anthropic,
+            ClientProtocol::Gemini,
+        ] {
+            let (path, body, terminal) = match client {
+                ClientProtocol::Responses => (
+                    "/v1/responses",
+                    json!({"model":"compat-4","input":"hello","max_output_tokens":16,"stream":stream}),
+                    "response.completed",
+                ),
+                ClientProtocol::Anthropic => (
+                    "/v1/messages",
+                    json!({"model":"compat-4","messages":[{"role":"user","content":"hello"}],"max_tokens":16,"stream":stream}),
+                    "message_stop",
+                ),
+                ClientProtocol::Gemini => (
+                    if stream {
+                        "/v1beta/models/compat-4:streamGenerateContent?alt=sse"
+                    } else {
+                        "/v1beta/models/compat-4:generateContent"
+                    },
+                    json!({"contents":[{"role":"user","parts":[{"text":"hello"}]}],"generationConfig":{"maxOutputTokens":16}}),
+                    "finishReason",
+                ),
+                _ => unreachable!(),
+            };
+            let id = format!("openrouter-convert-{client:?}-{stream}");
+            let (status, response, request_id) =
+                compatibility_call_path(&gateway, &f, path, &id, body.to_string()).await;
+            assert_eq!(status, 200, "{client:?}: {response}");
+            assert!(
+                response.contains("synthetic answer"),
+                "{client:?}: {response}"
+            );
+            if stream {
+                assert!(response.contains(terminal), "{client:?}: {response}");
+            }
+            if client == ClientProtocol::Anthropic {
+                assert!(response.contains("\"input_tokens\":1"), "{response}");
+                assert!(response.contains("\"output_tokens\":3"), "{response}");
+            }
+            let calls = provider.bodies.lock().unwrap();
+            let wire = calls.last().unwrap();
+            assert_eq!(wire["model"], "compat-4");
+            assert_eq!(wire["messages"][0]["role"], "user");
+            assert_eq!(wire["usage"]["include"], true);
+            assert!(wire.get("input").is_none() && wire.get("contents").is_none());
+            drop(calls);
+            let receipt: (String, i64, i64, i64) = sqlx::query_as(
+                "SELECT state,input_tokens,output_tokens,
+                 (SELECT count(*) FROM core_charging.ledger_commands WHERE request_id=r.id AND command->'change'->>'operation'='settle')
+                 FROM core_charging.requests r WHERE id=$1",
+            ).bind(&request_id).fetch_one(&f.pool).await.unwrap();
+            assert_eq!(receipt, ("settled".into(), 2, 3, 1), "{client:?}");
+        }
+    }
+    assert_eq!(provider.bodies.lock().unwrap().len(), 6);
 }
 
 #[sqlx::test(migrations = false)]

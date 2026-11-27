@@ -376,8 +376,8 @@ impl Encoder {
             wire.cache_write_12h = details.ttl_12h_tokens;
         }
         if self.client == ClientProtocol::Anthropic {
-            self.native_usage()?;
-            wire.uncached_input = self.anthropic_input_tokens.or(wire.uncached_input);
+            // The complete and streaming projections use the same verified disjoint count.
+            wire.uncached_input = self.native_usage()?["input_tokens"].as_u64();
             // Native Anthropic has no separate reasoning counter.
             wire.reasoning = None;
         }

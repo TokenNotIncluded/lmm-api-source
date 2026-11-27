@@ -371,10 +371,17 @@ fn openrouter_controls_reject_bad_shapes_and_other_wire_contracts() {
         serde_json::to_value(crate::routing::PayloadPolicy::OpenRouter).unwrap(),
         json!("open_router")
     );
-    assert!(!crate::routing::PayloadPolicy::OpenRouter.adapts(
-        crate::routing::Protocol::OpenAiResponses,
-        crate::routing::Protocol::OpenAiChat
-    ));
+    use crate::routing::{PayloadPolicy, Protocol};
+    for client in [
+        Protocol::OpenAiChat,
+        Protocol::OpenAiResponses,
+        Protocol::AnthropicMessages,
+        Protocol::Gemini,
+    ] {
+        assert!(PayloadPolicy::OpenRouter.adapts(client, Protocol::OpenAiChat));
+        assert!(!PayloadPolicy::OpenRouter.adapts(client, Protocol::OpenAiResponses));
+    }
+    assert!(!PayloadPolicy::OpenRouter.adapts(Protocol::OpenAiEmbeddings, Protocol::OpenAiChat));
     let r = request(false, json!({"modalities":["image"]}));
     assert!(r.upstream_to(UpstreamProtocol::Gemini, "model").is_err());
     // Existing Responses reasoning remains independent of the OpenRouter options.
@@ -388,5 +395,50 @@ fn openrouter_controls_reject_bad_shapes_and_other_wire_contracts() {
     assert_eq!(
         r.upstream_to(UpstreamProtocol::Responses, "m").unwrap()["reasoning"]["effort"],
         "high"
+    );
+}
+
+#[test]
+fn converted_openrouter_tools_remain_portable_and_cache_controls_fail_explicitly() {
+    use crate::routing::PayloadPolicy;
+    let limits = Limits::default();
+    let selected = route(PayloadPolicy::OpenRouter);
+    let mut body = json!({
+        "model":"m","messages":[{"role":"user","content":"hello"}],"max_tokens":16,
+        "tools":[{"name":"lookup","input_schema":{"type":"object","properties":{"id":{"type":"string"}}}}],
+    });
+    let parse = |body: &Value| {
+        Request::parse(
+            ClientProtocol::Anthropic,
+            &serde_json::to_vec(body).unwrap(),
+            &limits,
+        )
+        .unwrap()
+    };
+    let wire = parse(&body).upstream(&selected).unwrap();
+    assert_eq!(wire["tools"][0]["function"]["name"], "lookup");
+    assert_eq!(
+        wire["tools"][0]["function"]["parameters"],
+        body["tools"][0]["input_schema"]
+    );
+    assert_eq!(wire["usage"]["include"], true);
+    body["system"] = json!([{"type":"text","text":"rules","cache_control":{"type":"ephemeral"}}]);
+    assert_eq!(
+        parse(&body).upstream(&selected),
+        Err(super::RelayError::Unsupported(
+            "Anthropic cache_control requires an Anthropic route"
+        ))
+    );
+    let responses = Request::parse_deferred_openai(
+        ClientProtocol::Responses,
+        br#"{"model":"m","input":"hello","safety_identifier":"sample"}"#,
+        &limits,
+    )
+    .unwrap();
+    assert_eq!(
+        responses.upstream(&selected),
+        Err(super::RelayError::Unsupported(
+            "safety_identifier is unsupported by this OpenRouter Chat policy"
+        ))
     );
 }

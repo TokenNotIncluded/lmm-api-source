@@ -1747,13 +1747,31 @@ impl Request {
             return Ok(payload);
         }
         if route.payload_policy.openrouter_chat() {
-            if !self.compatibility.is_empty() {
+            if route.protocol != UpstreamProtocol::Chat {
                 return Err(RelayError::Unsupported(
-                    "legacy OpenAI fields are not OpenRouter controls",
+                    "OpenRouter requires an upstream Chat Completions endpoint",
                 ));
             }
-            if self.client != ClientProtocol::Chat || route.protocol != UpstreamProtocol::Chat {
-                return Err(RelayError::Unsupported("OpenRouter contract requires Chat"));
+            if route.payload_policy == PayloadPolicy::LegacyOpenRouterChatUsageV1
+                && self.client != ClientProtocol::Chat
+            {
+                return Err(RelayError::Unsupported(
+                    "legacy OpenRouter usage requires Chat Completions input",
+                ));
+            }
+            if let Some(field) = self.compatibility.keys().next() {
+                return Err(RelayError::Unsupported(match field.as_str() {
+                    "inference_geo" => {
+                        "inference_geo is unsupported by this OpenRouter Chat policy"
+                    }
+                    "safety_identifier" => {
+                        "safety_identifier is unsupported by this OpenRouter Chat policy"
+                    }
+                    "include_obfuscation" => {
+                        "stream_options.include_obfuscation is unsupported by this OpenRouter Chat policy"
+                    }
+                    _ => "unsupported OpenAI compatibility field for OpenRouter Chat",
+                }));
             }
             let mut payload = self.encode_upstream(route.protocol, &route.model)?;
             let object = payload.as_object_mut().unwrap();

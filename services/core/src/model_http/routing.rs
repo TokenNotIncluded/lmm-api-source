@@ -437,9 +437,9 @@ impl Bridge {
                 ));
             }
         };
-        if request.client == ClientProtocol::Anthropic && upstream != UpstreamProtocol::Anthropic {
+        if request.client == ClientProtocol::Anthropic && upstream == UpstreamProtocol::Gemini {
             return Err(RelayError::Unsupported(
-                "native Anthropic requires an upstream with disjoint cache usage receipts",
+                "Gemini usageMetadata does not report cache creation for Anthropic input_tokens",
             ));
         }
         let reference = attempt.credential_ref();

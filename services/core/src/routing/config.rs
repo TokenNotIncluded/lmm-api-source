@@ -258,7 +258,17 @@ impl PayloadPolicy {
                     && upstream == Protocol::AnthropicMessages
             }
             Self::Passthrough => false,
-            Self::OpenRouter | Self::LegacyOpenRouterChatUsageV1 => {
+            Self::OpenRouter => {
+                upstream == Protocol::OpenAiChat
+                    && matches!(
+                        client,
+                        Protocol::OpenAiChat
+                            | Protocol::OpenAiResponses
+                            | Protocol::AnthropicMessages
+                            | Protocol::Gemini
+                    )
+            }
+            Self::LegacyOpenRouterChatUsageV1 => {
                 client == Protocol::OpenAiChat && upstream == Protocol::OpenAiChat
             }
             Self::LegacyOpenai { .. } => {

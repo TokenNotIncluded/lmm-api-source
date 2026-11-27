@@ -29,6 +29,8 @@ use tower::ServiceExt;
 #[path = "common/model_fixture.rs"]
 mod model_fixture;
 use model_fixture::fixture;
+#[path = "native_model_http/portable_matrix.rs"]
+mod portable_matrix;
 
 #[derive(Clone)]
 struct Supplier {
@@ -53,26 +55,28 @@ async fn supplier(
     if key != "authorization" {
         assert!(!headers.contains_key("authorization"));
     }
-    if state.protocol == Protocol::OpenAiChat {
+    if matches!(
+        state.protocol,
+        Protocol::OpenAiChat | Protocol::OpenAiResponses
+    ) {
         assert_eq!(request["model"], "provider-model");
-        return Json(json!({
-            "id":"synthetic-chat", "choices":[{"index":0,
+        let reply = if state.protocol == Protocol::OpenAiChat {
+            json!({"id":"synthetic-chat","choices":[{"index":0,
                 "message":{"role":"assistant","content":"native answer"},"finish_reason":"stop"}],
-            "usage":{"prompt_tokens":10,"completion_tokens":20,"total_tokens":30,
-                "prompt_tokens_details":{"cached_tokens":2}}
-        }))
-        .into_response();
-    }
-    if state.protocol == Protocol::OpenAiResponses {
-        assert_eq!(request["model"], "provider-model");
-        return Json(json!({
-            "id":"synthetic-response", "status":"completed",
-            "output":[{"id":"synthetic-message","type":"message","role":"assistant",
-                "content":[{"type":"output_text","text":"native answer","annotations":[]}]}],
-            "usage":{"input_tokens":10,"output_tokens":20,"total_tokens":30,
-                "input_tokens_details":{"cached_tokens":2}}
-        }))
-        .into_response();
+                "usage":{"prompt_tokens":10,"completion_tokens":20,"total_tokens":30,
+                    "prompt_tokens_details":{"cached_tokens":2,"cache_write_tokens":0}}})
+        } else {
+            json!({"id":"synthetic-response","status":"completed",
+                "output":[{"id":"synthetic-message","type":"message","status":"completed","role":"assistant",
+                    "content":[{"type":"output_text","text":"native answer","annotations":[]}]}],
+                "usage":{"input_tokens":10,"output_tokens":20,"total_tokens":30,
+                    "input_tokens_details":{"cached_tokens":2,"cache_write_tokens":0}}})
+        };
+        return if request["stream"] == true {
+            portable_matrix::openai_stream(state.protocol, &reply)
+        } else {
+            Json(reply).into_response()
+        };
     }
     if state.protocol == Protocol::AnthropicMessages {
         assert_eq!(request["model"], "provider-model");
@@ -146,21 +150,24 @@ async fn server(protocol: Protocol, missing_usage: bool) -> Server {
     let endpoint = format!("http://{}/v1", listener.local_addr().unwrap());
     let hits = Arc::new(AtomicUsize::new(0));
     let requests = Arc::new(Mutex::new(Vec::new()));
-    let app = Router::new()
-        .route("/v1/chat/completions", post(supplier))
-        .route("/v1/responses", post(supplier))
-        .route("/v1/messages", post(supplier))
-        .route("/v1/models/provider-model:generateContent", post(supplier))
-        .route(
-            "/v1/models/provider-model:streamGenerateContent",
-            post(gemini_stream),
-        )
-        .with_state(Supplier {
-            protocol,
-            hits: hits.clone(),
-            missing_usage,
-            requests: requests.clone(),
-        });
+    let app = match protocol {
+        Protocol::OpenAiChat => Router::new().route("/v1/chat/completions", post(supplier)),
+        Protocol::OpenAiResponses => Router::new().route("/v1/responses", post(supplier)),
+        Protocol::AnthropicMessages => Router::new().route("/v1/messages", post(supplier)),
+        Protocol::Gemini => Router::new()
+            .route("/v1/models/provider-model:generateContent", post(supplier))
+            .route(
+                "/v1/models/provider-model:streamGenerateContent",
+                post(gemini_stream),
+            ),
+        _ => unreachable!(),
+    }
+    .with_state(Supplier {
+        protocol,
+        hits: hits.clone(),
+        missing_usage,
+        requests: requests.clone(),
+    });
     let task = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
     Server {
         endpoint,
@@ -720,24 +727,7 @@ async fn four_protocol_lifecycle(pool: PgPool, publish_official: bool) {
             let observed = supplier.requests.lock().unwrap();
             assert_eq!(observed.len(), 1);
             let request = &observed[0];
-            let text = match protocol {
-                Protocol::OpenAiChat => {
-                    assert_eq!(request["messages"][0]["role"], "user");
-                    let content = &request["messages"][0]["content"];
-                    content
-                        .as_str()
-                        .unwrap_or_else(|| content[0]["text"].as_str().unwrap())
-                }
-                Protocol::OpenAiResponses => {
-                    request["input"][0]["content"][0]["text"].as_str().unwrap()
-                }
-                Protocol::AnthropicMessages => request["messages"][0]["content"][0]["text"]
-                    .as_str()
-                    .unwrap(),
-                Protocol::Gemini => request["contents"][0]["parts"][0]["text"].as_str().unwrap(),
-                _ => unreachable!(),
-            };
-            assert_eq!(text, "hello");
+            portable_matrix::assert_supplier_text(*protocol, request);
         }
         let charge:(String,i64,i64,i64,i64)=sqlx::query_as(
             "SELECT state,key_id,settled,input_tokens,output_tokens FROM core_charging.requests WHERE id=$1"
