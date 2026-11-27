@@ -21,6 +21,37 @@ fn first_turn() -> Value {
 }
 
 #[test]
+fn codex_client_metadata_stays_on_responses_and_keeps_tool_gates() {
+    let mut body = first_turn();
+    body["client_metadata"] = json!({
+        "turn_id":"synthetic-turn", "root_turn_id":"synthetic-root", "session_id":"synthetic-session",
+        "thread_id":"synthetic-thread", "x-codex-window-id":"window",
+        "x-codex-installation-id":"installation", "x-codex-turn-metadata":"{}"
+    });
+    let request = parse(&body).unwrap();
+    let responses = request
+        .upstream_to(UpstreamProtocol::Responses, "m")
+        .unwrap();
+    assert_eq!(responses["client_metadata"], body["client_metadata"]);
+    let chat = request.upstream_to(UpstreamProtocol::Chat, "m").unwrap();
+    assert!(chat.get("client_metadata").is_none());
+    for kind in ["namespace", "web_search"] {
+        let mut unsupported = body.clone();
+        unsupported["tools"] = json!([{"type":kind}]);
+        assert!(parse(&unsupported).is_err());
+    }
+    for bad in [
+        json!({"unknown":"x"}),
+        json!({"turn_id":true}),
+        json!({"turn_id":"x".repeat(4097)}),
+        json!([]),
+    ] {
+        body["client_metadata"] = bad;
+        assert!(parse(&body).is_err());
+    }
+}
+
+#[test]
 fn pi_responses_first_turn_projects_preferences_without_changing_spend_or_tools() {
     for mode in ["auto", "concise", "detailed"] {
         let mut body = first_turn();

@@ -20,6 +20,8 @@ pub(super) struct Request {
     #[serde(skip_serializing_if = "Option::is_none")]
     prompt_cache_key: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    client_metadata: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     instructions: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     max_output_tokens: Option<u32>,
@@ -60,6 +62,7 @@ impl Request {
                 || r.top_p.is_some()
                 || r.prompt_cache_options.is_some()
                 || r.prompt_cache_key.is_some()
+                || r.client_metadata.is_some()
                 || r.max_output_tokens.is_some()
                 || r.store.is_some()
                 || r.stream.is_some()

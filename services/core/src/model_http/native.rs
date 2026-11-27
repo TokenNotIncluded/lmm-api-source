@@ -88,6 +88,20 @@ pub(super) fn error_response(client: ClientProtocol, error: RelayError) -> Respo
     response
 }
 
+fn messages_headers(mut headers: HeaderMap, query: Option<&str>) -> Result<HeaderMap, RelayError> {
+    if query.is_some_and(|query| query != "beta=true")
+        || one_header(&headers, "anthropic-version")?.is_some_and(|v| v != "2023-06-01")
+        || one_header(&headers, "anthropic-beta")?.is_some_and(|v| v != "claude-code-20250219")
+    {
+        return Err(RelayError::Unsupported(
+            "unsupported native Anthropic version, beta or query",
+        ));
+    }
+    // Consume the CLI marker locally before passing headers to the gateway.
+    headers.remove("anthropic-beta");
+    key_headers(headers, ClientProtocol::Anthropic)
+}
+
 pub(super) async fn messages(
     State(gateway): State<ModelGateway>,
     headers: HeaderMap,
@@ -96,17 +110,7 @@ pub(super) async fn messages(
     body: Bytes,
 ) -> Response {
     let client = ClientProtocol::Anthropic;
-    let headers = match (|| {
-        if query.is_some()
-            || one_header(&headers, "anthropic-version")?.is_some_and(|v| v != "2023-06-01")
-            || headers.contains_key("anthropic-beta")
-        {
-            return Err(RelayError::Unsupported(
-                "unsupported native Anthropic version or query",
-            ));
-        }
-        key_headers(headers, client)
-    })() {
+    let headers = match messages_headers(headers, query.as_deref()) {
         Ok(headers) => headers,
         Err(error) => return error_response(client, error),
     };
@@ -216,6 +220,46 @@ mod tests {
             assert!(key_headers(headers, client).is_err());
         }
     }
+    #[test]
+    fn messages_accepts_only_the_cli_marker_and_exact_sdk_query() {
+        let mut headers = HeaderMap::new();
+        headers.insert("anthropic-version", HeaderValue::from_static("2023-06-01"));
+        headers.insert("x-api-key", HeaderValue::from_static("synthetic-key"));
+        let marker = HeaderValue::from_static("claude-code-20250219");
+        for query in [None, Some("beta=true")] {
+            let mut tagged = headers.clone();
+            tagged.insert("anthropic-beta", marker.clone());
+            for candidate in [headers.clone(), tagged] {
+                let admitted = messages_headers(candidate, query).unwrap();
+                assert!(!admitted.contains_key("anthropic-beta"));
+                assert_eq!(admitted[header::AUTHORIZATION], "Bearer synthetic-key");
+            }
+        }
+        for query in [
+            "",
+            "beta=false",
+            "beta=true&beta=true",
+            "beta=true&api_key=synthetic",
+        ] {
+            assert!(messages_headers(headers.clone(), Some(query)).is_err());
+        }
+        for beta in [
+            "interleaved-thinking-2025-05-14",
+            "claude-code-20250219,context-management-2025-06-27",
+            "future-feature",
+        ] {
+            let mut gated = headers.clone();
+            gated.insert("anthropic-beta", HeaderValue::from_static(beta));
+            assert!(messages_headers(gated, Some("beta=true")).is_err());
+        }
+        let mut wrong_version = headers.clone();
+        wrong_version.insert("anthropic-version", HeaderValue::from_static("2099-01-01"));
+        assert!(messages_headers(wrong_version, Some("beta=true")).is_err());
+        headers.append("anthropic-beta", marker.clone());
+        headers.append("anthropic-beta", marker);
+        assert!(messages_headers(headers, Some("beta=true")).is_err());
+    }
+
     #[test]
     fn gemini_path_binds_model_stream_and_rejects_url_credentials_and_unknown_operations() {
         let operation =

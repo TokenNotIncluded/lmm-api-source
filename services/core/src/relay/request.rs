@@ -111,6 +111,7 @@ pub struct Request {
     pub parallel_tool_calls: Option<bool>,
     pub reasoning_effort: Option<String>,
     responses_summary: Option<String>,
+    responses_client_metadata: Option<Value>,
     responses_assistant_phases: Vec<Option<&'static str>>,
     has_display_summary: bool,
     // The stateless decoder cannot return provider-owned ciphertext.
@@ -861,6 +862,7 @@ impl Request {
                     "store",
                     "prompt_cache_options",
                     "prompt_cache_key",
+                    "client_metadata",
                     "text",
                 ],
             )?,
@@ -1315,6 +1317,33 @@ impl Request {
         } else {
             None
         };
+        // Codex sends client diagnostics alongside its Responses input. Keep them
+        // out of model input, route selection and cross-protocol conversions.
+        let responses_client_metadata = v
+            .get("client_metadata")
+            .filter(|value| !value.is_null())
+            .map(|metadata| {
+                keys(
+                    metadata,
+                    &[
+                        "root_turn_id",
+                        "turn_id",
+                        "session_id",
+                        "thread_id",
+                        "x-codex-window-id",
+                        "x-codex-installation-id",
+                        "x-codex-turn-metadata",
+                    ],
+                )?;
+                if object(metadata)?
+                    .values()
+                    .any(|v| !v.as_str().is_some_and(|s| s.len() <= 4096))
+                {
+                    return Err(RelayError::Invalid("invalid Responses client metadata"));
+                }
+                Ok(metadata.clone())
+            })
+            .transpose()?;
         let prompt_cache_options = v
             .get("prompt_cache_options")
             .filter(|value| !value.is_null())
@@ -1367,6 +1396,7 @@ impl Request {
                 .filter(|value| !value.is_null())
                 .map(string)
                 .transpose()?,
+            responses_client_metadata,
             anthropic_metadata: None,
             anthropic_cached_prompt: None,
             image_config,
@@ -1853,6 +1883,9 @@ impl Request {
             }
         }
         if protocol == UpstreamProtocol::Responses {
+            if let Some(metadata) = &self.responses_client_metadata {
+                converted["client_metadata"] = metadata.clone();
+            }
             if let Some(summary) = &self.responses_summary {
                 converted["reasoning"]["summary"] = json!(summary);
             }

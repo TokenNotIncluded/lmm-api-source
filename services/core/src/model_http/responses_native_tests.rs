@@ -15,6 +15,20 @@ use std::sync::{
 use tokio::sync::Notify;
 use tower::ServiceExt;
 
+#[test]
+fn codex_client_metadata_is_checked_on_native_continuation() {
+    let mut body = json!({"model":"m","input":[{"type":"reasoning","encrypted_content":"opaque"}],
+        "client_metadata":{"x-codex-turn-metadata":"{}"}});
+    let parse =
+        |value: &Value| Request::parse(Kind::ResponsesContext, &serde_json::to_vec(value).unwrap());
+    let request = parse(&body).unwrap();
+    let wire: Value =
+        serde_json::from_slice(&request.continuity_wire("supplier").unwrap()).unwrap();
+    assert_eq!(wire["client_metadata"], body["client_metadata"]);
+    body["client_metadata"] = json!({"turn_id":["invalid"]});
+    assert!(parse(&body).is_err());
+}
+
 #[derive(Clone, Copy)]
 enum Reply {
     Valid,
