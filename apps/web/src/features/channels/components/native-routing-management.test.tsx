@@ -3143,6 +3143,71 @@ test('model fields preserve the CAS draft and require a fresh preview after exac
   )
 })
 
+test('adding a model shows and previews the selected group tariff', async () => {
+  const config = fixture()
+  config.routing.groups.push(
+    { name: 'FREE', enabled: true },
+    { name: 'new-group', enabled: true }
+  )
+  config.prices.rules[0].group_multiplier_ppm = 20_000
+  config.prices.rules.push({
+    ...config.prices.rules[0],
+    id: 2,
+    group: 'FREE',
+    group_multiplier_ppm: 0,
+  })
+  const previews: {
+    route: { group: string }
+    prices: typeof config.prices.rules
+  }[] = []
+  api.request = (async (options: {
+    method: string
+    url: string
+    data: { model: (typeof previews)[number] }
+  }) => {
+    if (options.method === 'GET') {
+      return { data: { success: true, data: config } }
+    }
+    assert.equal(options.url, '/core/v1/admin/routing/models/preview')
+    previews.push(options.data.model)
+    return {
+      data: { success: true, data: { confirmation_digest: '1'.repeat(64) } },
+    }
+  }) as typeof api.request
+  const container = await mount('models')
+  await until(() => !!container.textContent?.includes('model-a'))
+  await act(async () => button(container, 'Add Model').click())
+  const form = required(container.querySelector('form'))
+  const control = (name: string, tag: 'input' | 'select') =>
+    required(
+      [...form.querySelectorAll('label')]
+        .find((label) => label.querySelector('span')?.textContent === name)
+        ?.querySelector(tag)
+    )
+  const cost = control('Group multiplier', 'input') as HTMLInputElement
+  const group = control('Group', 'select') as HTMLSelectElement
+  const changeGroup = async (name: string) =>
+    act(async () => {
+      group.value = name
+      group.dispatchEvent(new Event('change', { bubbles: true }))
+    })
+  assert.equal(cost.value, '0.02')
+  await changeGroup('new-group')
+  assert.equal(cost.value, '')
+  assert.equal(cost.checkValidity(), false)
+  await changeGroup('FREE')
+  assert.equal(cost.value, '0')
+  assert.equal(cost.checkValidity(), true)
+  await changeInput(
+    control('Model name', 'input') as HTMLInputElement,
+    'new-model'
+  )
+  await act(async () => button(form, 'Preview').click())
+  await until(() => previews.length === 1)
+  assert.equal(previews[0].route.group, 'FREE')
+  assert.equal(previews[0].prices[0].group_multiplier_ppm, 0)
+})
+
 test('a newly mapped model keeps its supplier contract open while the operator types its revision', async () => {
   const config: NativeConfiguration = fixture()
   config.bindings.contexts = [

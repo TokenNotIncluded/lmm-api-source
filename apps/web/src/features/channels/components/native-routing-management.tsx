@@ -91,6 +91,7 @@ import {
 } from './native-channel-statistics'
 import {
   newModelTarget,
+  publishedGroupMultiplier,
   readNativeModelDraft,
   replaceModelTargets,
 } from './native-model-draft'
@@ -687,7 +688,9 @@ function NativeRoutingWorkspace({
                   cache_write: 0,
                   request: 0,
                 },
-                group_multiplier_ppm: 1_000_000,
+                group_multiplier_ppm:
+                  publishedGroupMultiplier(configuration.prices.rules, group) ??
+                  '',
                 speed_multiplier_ppm: 1_000_000,
               },
             ],

@@ -7,6 +7,7 @@ import {
   microsToUsd,
   modelIdentity,
   newModelTarget,
+  publishedGroupMultiplier,
   readNativeModelDraft,
   replaceModelTargets,
   usdToMicros,
@@ -148,20 +149,48 @@ test('USD edits convert exactly to integer micro-USD and reject precision loss',
   }
 })
 
-test('model identity edits update all price bindings without losing CAS or routing policies', () => {
+test('model identity edits inherit the destination tariff without losing CAS or routing policies', () => {
   const { draft } = fixture()
   const next = modelIdentity(
     modelIdentity(draft, 'model', 'new-public-model'),
     'group',
-    'premium'
+    'premium',
+    [
+      { group: 'premium', group_multiplier_ppm: 20_000 },
+      { group: 'premium', group_multiplier_ppm: 20_000 },
+    ]
   )
   assert.equal(next.route.model, 'new-public-model')
   assert.equal(next.prices[0].model, 'new-public-model')
   assert.equal(next.prices[0].group, 'premium')
+  assert.equal(next.prices[0].group_multiplier_ppm, 20_000)
   assert.deepEqual(next.route.targets, draft.route.targets)
   assert.deepEqual(next.route.failover, draft.route.failover)
   assert.deepEqual(next.contexts, draft.contexts)
   assert.deepEqual(next.expected_version, { routing: 4, pricing: 3 })
+})
+
+test('empty and mixed groups require an explicit multiplier while free groups preserve zero', () => {
+  const { draft } = fixture()
+  const rules = [
+    { group: 'free', group_multiplier_ppm: 0 },
+    { group: 'mixed', group_multiplier_ppm: 20_000 },
+    { group: 'mixed', group_multiplier_ppm: 30_000 },
+  ]
+  assert.equal(publishedGroupMultiplier(rules, 'free'), 0)
+  for (const group of ['mixed', 'empty']) {
+    assert.equal(publishedGroupMultiplier(rules, group), undefined)
+    assert.equal(
+      modelIdentity(draft, 'group', group, rules).prices[0]
+        .group_multiplier_ppm,
+      ''
+    )
+  }
+  assert.equal(
+    modelIdentity(draft, 'model', 'renamed', rules).prices[0]
+      .group_multiplier_ppm,
+    1_000_000
+  )
 })
 
 test('target changes require the exact supplier/model contract and retain globally unique target IDs', () => {

@@ -4,6 +4,7 @@ import { z } from 'zod'
 import { newNativeTargetTimeoutMs } from '../lib/native-target-timeout'
 import { parseNativeDocument, type NativeConfiguration } from '../native-api'
 
+export const maxGroupMultiplierPpm = 1_000_000_000
 const numberDraft = z.union([z.number().int().safe(), z.string()])
 const targetSchema = z
   .object({
@@ -49,6 +50,7 @@ const modelDraftSchema = z
           model: z.string(),
           group: z.string(),
           speed: z.string(),
+          group_multiplier_ppm: numberDraft,
           rates: z
             .object({
               input: numberDraft,
@@ -82,12 +84,38 @@ export function readNativeModelDraft(
 export function modelIdentity(
   draft: NativeModelDraft,
   key: 'model' | 'group',
-  value: string
+  value: string,
+  publishedPrices: NativeConfiguration['prices']['rules'] = []
 ): NativeModelDraft {
+  const multiplier =
+    key === 'group' && value !== draft.route.group
+      ? (publishedGroupMultiplier(publishedPrices, value) ?? '')
+      : undefined
   return {
     ...draft,
     route: { ...draft.route, [key]: value },
-    prices: draft.prices.map((price) => ({ ...price, [key]: value })),
+    prices: draft.prices.map((price) => ({
+      ...price,
+      [key]: value,
+      group_multiplier_ppm: multiplier ?? price.group_multiplier_ppm,
+    })),
+  }
+}
+
+export function publishedGroupMultiplier(
+  prices: NativeConfiguration['prices']['rules'],
+  group: string
+): number | undefined {
+  const rules = prices.filter((price) => price.group === group)
+  const multiplier = rules[0]?.group_multiplier_ppm
+  if (
+    typeof multiplier === 'number' &&
+    Number.isSafeInteger(multiplier) &&
+    multiplier >= 0 &&
+    multiplier <= maxGroupMultiplierPpm &&
+    rules.every((rule) => rule.group_multiplier_ppm === multiplier)
+  ) {
+    return multiplier
   }
 }
 
