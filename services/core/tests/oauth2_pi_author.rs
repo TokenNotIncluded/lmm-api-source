@@ -22,7 +22,17 @@ mod pi;
 mod runtime;
 use pi::with_fixture;
 
-type PiChargeRow = (String, String, i64, i64, Option<i64>, String, i64, i64, serde_json::Value);
+type PiChargeRow = (
+    String,
+    String,
+    i64,
+    i64,
+    Option<i64>,
+    String,
+    i64,
+    i64,
+    serde_json::Value,
+);
 
 // The host credential is the bounded result of the real fixture browser's consent and code exchange.
 // The child gets no operator environment credentials. It writes private native Pi auth only under its temporary home.
