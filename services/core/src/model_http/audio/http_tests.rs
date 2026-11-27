@@ -723,6 +723,7 @@ async fn audio_stream_pg_checkpoints_before_delivery_then_settles_once(pool: PgP
     };
     let reply = gateway.router().oneshot(stream_request()).await.unwrap();
     assert_eq!(reply.status(), StatusCode::OK);
+    assert_eq!(reply.headers()["x-accel-buffering"], "no");
     let mut body = reply.into_body().into_data_stream();
     let first = body.next().await.unwrap().unwrap();
     let detail: Value = sqlx::query_scalar(

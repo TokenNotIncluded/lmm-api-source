@@ -77,15 +77,9 @@ pub(super) fn launch(start: StreamStart) -> Result<Response> {
             .await;
         }
     });
-    let mut response = Response::new(Body::from_stream(ReceiverStream::new(rx)));
-    response.headers_mut().insert(
-        header::CONTENT_TYPE,
-        HeaderValue::from_static("text/event-stream"),
-    );
-    response
-        .headers_mut()
-        .insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
-    Ok(response)
+    Ok(native_http::sse_response(Body::from_stream(
+        ReceiverStream::new(rx),
+    )))
 }
 
 async fn send(

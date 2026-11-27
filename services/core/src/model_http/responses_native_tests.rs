@@ -507,6 +507,7 @@ async fn compact_pg_sse_tools_stream_live_and_terminal_waits_for_real_settlement
         .await
         .unwrap();
     assert_eq!(r.headers()[header::CONTENT_TYPE], "text/event-stream");
+    assert_eq!(r.headers()["x-accel-buffering"], "no");
     let id = r.headers()["x-request-id"].to_str().unwrap().to_owned();
     let mut body = r.into_body().into_data_stream();
     let first = tokio::time::timeout(std::time::Duration::from_secs(5), body.next())
@@ -519,8 +520,16 @@ async fn compact_pg_sse_tools_stream_live_and_terminal_waits_for_real_settlement
     assert_eq!(before.state, "streaming");
     assert_eq!(before.settled, 0);
     assert_eq!(before.reserved, 1200);
-    p.pause.as_ref().unwrap().1.notify_one();
     let mut wire = String::from_utf8(first.to_vec()).unwrap();
+    tokio::time::timeout(std::time::Duration::from_secs(5), async {
+        while !wire.contains("live delta") {
+            let chunk = body.next().await.expect("SSE ended before content").unwrap();
+            wire.push_str(std::str::from_utf8(&chunk).unwrap());
+        }
+    })
+    .await
+    .expect("the content delta must arrive while the upstream terminal is paused");
+    p.pause.as_ref().unwrap().1.notify_one();
     while let Some(chunk) = body.next().await {
         wire.push_str(std::str::from_utf8(&chunk.unwrap()).unwrap());
     }

@@ -1,10 +1,22 @@
-//! Bounded transport and admission shared by non-streaming native model APIs.
+//! Bounded transport and admission shared by native model APIs.
 #[cfg(test)]
 #[path = "native_api_test_support.rs"]
 pub(super) mod test_support;
 
 use super::*;
 use crate::relay::provider_network::ProviderConnection;
+
+pub(super) fn sse_response(body: Body) -> Response {
+    (
+        [
+            ("content-type", "text/event-stream"),
+            ("cache-control", "no-store"),
+            ("x-accel-buffering", "no"),
+        ],
+        body,
+    )
+        .into_response()
+}
 
 pub(super) struct Caller {
     pub(super) principal: ModelIdentity,

@@ -163,14 +163,9 @@ async fn handle(
             Ok(Ok(Err(error))) => return with_request_id(public_error(error), &id),
             _ => return with_request_id(public_error(RelayError::SettlementPending), &id),
         }
-        let response = (
-            [
-                (header::CONTENT_TYPE, "text/event-stream"),
-                (header::CACHE_CONTROL, "no-store"),
-            ],
-            Body::from_stream(tokio_stream::wrappers::ReceiverStream::new(receiver)),
-        )
-            .into_response();
+        let response = native_http::sse_response(Body::from_stream(
+            tokio_stream::wrappers::ReceiverStream::new(receiver),
+        ));
         return with_request_id(response, &id);
     }
     // The worker owns its admission slot and settles even if the HTTP client disconnects.
