@@ -61,7 +61,8 @@ jobs:
             -addext 'subjectAltName=DNS:pi-issuer.example.test' -keyout "$FIXTURE_TLS_KEY" -out "$FIXTURE_TLS_CERT" 2>/dev/null
           echo '127.0.0.1 pi-issuer.example.test' | sudo tee -a /etc/hosts >/dev/null
           sudo sysctl -q -w net.ipv4.ip_unprivileged_port_start=443
-          export XDG_RUNTIME_DIR="$(mktemp -d "$RUNNER_TEMP/zed-runtime-XXXXXXXX")"
+          XDG_RUNTIME_DIR="$(mktemp -d "$RUNNER_TEMP/zed-runtime-XXXXXXXX")"
+          export XDG_RUNTIME_DIR
           xvfb-run -a -s '-screen 0 1280x800x24' dbus-run-session -- bash -euc '
             openbox >/dev/null 2>&1 &
             cargo +1.100.0 test --locked --test zed_provider_host zed_inline_assistant_settles_one_ordinary_oauth_request -- --exact --ignored --nocapture

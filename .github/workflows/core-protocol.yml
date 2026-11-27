@@ -637,7 +637,7 @@ jobs:
           cache-dependency-path: services/extensions/go.sum
       - name: Prepare the production Extensions host and its private databases
         env:
-          BROWSER_EXTENSIONS_PG_PORT: ${{ job.services.extensions_postgres.ports[5432] }}
+          BROWSER_EXTENSIONS_PG_PORT: ${{ job.services.extensions_postgres.ports['5432'] }}
           BROWSER_EXTENSIONS_PG_PASSWORD: browser-extensions-fixture
           GOWORK: 'off'
           CGO_ENABLED: '0'
