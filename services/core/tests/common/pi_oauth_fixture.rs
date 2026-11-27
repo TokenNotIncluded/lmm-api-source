@@ -17,7 +17,7 @@ use lmm_core::{
         },
     },
     legacy_auth::{self, LegacyAuthConfig},
-    model_http::{ChargePolicy, ModelGateway, UpstreamCredential},
+    model_http::{ChargePolicy, ModelGateway, ProviderPolicy, UpstreamCredential},
     oauth2_http,
     relay::Limits,
     routing::*,
@@ -149,6 +149,7 @@ fn gateway_with_routes(
         Limits::default().max_output_tokens,
         DEFAULT_INPUT_TOKENS,
         "allowed",
+        ProviderPolicy::default(),
     )
 }
 
@@ -159,8 +160,9 @@ fn gateway_with_limits(
     max_output_tokens: u32,
     input_token_ceiling: i64,
     group: &str,
+    policy: ProviderPolicy,
 ) -> ModelGateway {
-    ModelGateway::new(
+    ModelGateway::new_with_provider_policy(
         pool.clone(),
         router,
         vec![UpstreamCredential {
@@ -178,6 +180,7 @@ fn gateway_with_limits(
             input_token_ceiling,
             lease_seconds: 30,
         },
+        policy,
     )
     .unwrap()
 }
@@ -188,6 +191,7 @@ pub(super) struct Fixture {
     pub issuer: LmmIssuer,
     pub ledger: Ledger,
     pub charging: Charging,
+    pub gateway: ModelGateway,
     pub provider: Provider,
     pub user: i64,
     pub account: i64,
@@ -206,6 +210,7 @@ enum FixtureApplications<'a> {
     PiAndManaged,
     PiAndAllManaged,
     PiAndProviders(&'a str),
+    VsCodeHost(&'a str),
     PiHost,
     MagpieHost,
     ProviderHost,
@@ -260,7 +265,9 @@ impl Fixture {
                 | FixtureApplications::MagpieHost
                 | FixtureApplications::ProviderHost
         );
+        let vscode = matches!(applications, FixtureApplications::VsCodeHost(_));
         let applications = match applications {
+            FixtureApplications::VsCodeHost(origin) => FixtureApplications::PiAndProviders(origin),
             FixtureApplications::PiHost => FixtureApplications::PiOnly,
             FixtureApplications::MagpieHost => FixtureApplications::PiAndAllManaged,
             FixtureApplications::ProviderHost => FixtureApplications::PiAndProviders(ISSUER),
@@ -381,7 +388,20 @@ impl Fixture {
         )
         .await
         .unwrap();
-        let gateway = if cli_host {
+        let gateway = if cli_host || vscode {
+            let policy = if vscode {
+                // The same reviewed loopback mechanism as the Core rejection recovery gate.
+                let context = serde_json::from_value(serde_json::json!({
+                    "upstream_id":1,"upstream_model":model,"protocol":"openai_chat",
+                    "endpoint":"https://reviewed-vscode.example/v1/","max_input_tokens":host_input_tokens,
+                    "max_output_tokens":HOST_OUTPUT_TOKENS,"contract_revision":"fixture-pre-acceptance-429",
+                    "missing_cached_tokens_is_zero":true,"missing_cache_creation_tokens_is_zero":true,
+                    "pre_acceptance_rejection_statuses":[429]
+                })).unwrap();
+                ProviderPolicy::new(vec![context], host_input_tokens).unwrap()
+            } else {
+                ProviderPolicy::default()
+            };
             gateway_with_limits(
                 &role.pool,
                 router.clone(),
@@ -389,6 +409,7 @@ impl Fixture {
                 HOST_OUTPUT_TOKENS,
                 host_input_tokens,
                 &group,
+                policy,
             )
         } else {
             gateway_with_routes(&role.pool, router.clone(), native_id)
@@ -464,6 +485,7 @@ impl Fixture {
             issuer,
             ledger,
             charging,
+            gateway,
             provider,
             user,
             account,
@@ -814,6 +836,14 @@ where
     Fut: Future<Output = ()> + Send + 'static,
 {
     with_provider_fixture_at_origin(pool, ISSUER, case).await;
+}
+
+pub(super) async fn with_vscode_fixture<F, Fut>(pool: PgPool, origin: &str, case: F)
+where
+    F: FnOnce(Arc<Fixture>) -> Fut + Send + 'static,
+    Fut: Future<Output = ()> + Send + 'static,
+{
+    with_fixture_applications(pool, false, FixtureApplications::VsCodeHost(origin), case).await;
 }
 
 pub(super) async fn with_provider_fixture_at_origin<F, Fut>(pool: PgPool, origin: &str, case: F)

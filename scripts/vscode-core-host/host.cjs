@@ -37,13 +37,15 @@ exports.run = async () => {
       text += chunk;
     }
     assert.equal(text, 'local stream answer');
-    stage('checking the supplier refusal');
-    let errorText = '';
-    await assert.rejects(async () => {
-      const refused = await invoke('rate-limit');
-      for await (const chunk of refused.text) errorText += chunk;
-    }, /HTTP 502/);
-    assert.equal(errorText, '', 'supplier refusal must not produce assistant text');
+    for (const prompt of ['rate-limit', 'confirmed-rate-limit']) {
+      stage('checking ' + prompt);
+      let errorText = '';
+      await assert.rejects(async () => {
+        const refused = await invoke(prompt);
+        for await (const chunk of refused.text) errorText += chunk;
+      }, /HTTP 502/);
+      assert.equal(errorText, '', 'supplier refusal must not produce assistant text');
+    }
     stage('verified terminal text and HTTP error');
     console.log('LMM_AUTHENTICATED_VSIX_CORE_PASS');
   } finally {

@@ -32,6 +32,8 @@ mod dsh_sdk;
 mod opencode_v2;
 #[path = "oauth2_provider_clients/provider_host.rs"]
 mod provider_host;
+#[path = "oauth2_provider_clients/vscode_rejection.rs"]
+mod vscode_rejection;
 
 const ISSUER: &str = "https://pi-issuer.example.test";
 
@@ -332,8 +334,13 @@ async fn vscode_extension_host_streams_real_core_and_settles_once(pool: PgPool) 
 
     let origin = env::var("LMM_VSCODE_TEST_ISSUER").unwrap();
     let client = env::var("LMM_VSCODE_TEST_CLIENT").unwrap();
-    pi::with_provider_fixture_at_origin(pool, &origin, move |f| async move {
-        let token = f.token_for_client(&client, 500).await;
+    pi::with_vscode_fixture(pool, &origin, move |f| async move {
+        // Three genuine client requests share this bounded, disposable wallet.
+        let token = f.token_for_client(&client, pi::WALLET_CREDITS).await;
+        vscode_rejection::interrupt_zero_settlement(&f.owner).await;
+        let receipt_path = std::path::PathBuf::from(env::var("LMM_VSCODE_TEST_RECEIPT").unwrap());
+        let wire_path = receipt_path.with_extension("wire.jsonl");
+        let child_wire_path = wire_path.clone();
         let catalog: Value = f
             .client
             .get(format!("{}/api/oauth2/catalog", f.base))
@@ -375,6 +382,7 @@ async fn vscode_extension_host_streams_real_core_and_settles_once(pool: PgPool) 
                 Path::new(env!("CARGO_MANIFEST_DIR")).join("../../scripts/vscode-core-host/run.sh");
             let mut child = Command::new("bash")
                 .arg(script)
+                .env("LMM_VSCODE_WIRE_RECEIPT", child_wire_path)
                 .stdin(Stdio::piped())
                 .spawn()
                 .unwrap();
@@ -396,31 +404,9 @@ async fn vscode_extension_host_streams_real_core_and_settles_once(pool: PgPool) 
             .await
             .unwrap()
             .unwrap();
-        assert_eq!(f.provider.hits.load(Ordering::SeqCst), 2);
+        assert_eq!(f.provider.hits.load(Ordering::SeqCst), 3);
 
-        let receipts: Vec<(String, i64, i64, i64, i64, i64)> = sqlx::query_as(
-            "SELECT state,input_tokens,cached_tokens,output_tokens,settled,refunded
-             FROM core_charging.requests WHERE oauth_client_id=$1 AND payer_account_id=$2
-             AND key_id IS NULL ORDER BY state",
-        )
-        .bind(&client)
-        .bind(f.account)
-        .fetch_all(&f.owner)
-        .await
-        .unwrap();
-        assert_eq!(
-            receipts,
-            vec![
-                ("reconcile".into(), 0, 0, 0, 0, 0),
-                ("settled".into(), 10, 2, 20, 49, 0),
-            ]
-        );
-        let balance = f.ledger.balance(f.account).await.unwrap();
-        assert!(
-            balance.reserved_units > 0,
-            "supplier refusal preserves its unknown hold"
-        );
-        assert_eq!(balance.available_units + balance.reserved_units, 1000 - 49);
+        let proof = vscode_rejection::recover(&f, &client, &wire_path).await;
         let receipt = json!({
             "commit": env::var("GITHUB_SHA").unwrap(),
             "public_client": client,
@@ -428,16 +414,10 @@ async fn vscode_extension_host_streams_real_core_and_settles_once(pool: PgPool) 
             "text_observed_before_finish": true,
             "stream_completed": true,
             "supplier_refusal_http": 502,
-            "requests": receipts.iter().map(|(state, input, cached, output, charge, refund)| {
-                json!({"state":state, "input":input, "cached":cached, "output":output,
-                       "settled_credits":charge, "refunded_credits":refund})
-            }).collect::<Vec<_>>(),
+            "requests": proof["requests"],
+            "recovery": proof["recovery"],
         });
-        std::fs::write(
-            env::var("LMM_VSCODE_TEST_RECEIPT").unwrap(),
-            serde_json::to_vec_pretty(&receipt).unwrap(),
-        )
-        .unwrap();
+        std::fs::write(receipt_path, serde_json::to_vec_pretty(&receipt).unwrap()).unwrap();
     })
     .await;
 }

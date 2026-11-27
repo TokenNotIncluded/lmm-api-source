@@ -24,7 +24,14 @@ exports.activate = async function activate(context) {
     if (url.href === MODELS_DEV_URL) return Promise.reject(new Error('External metadata offline'));
     assert.equal(url.origin, ISSUER, 'unexpected test network origin');
     assert.ok(routes.has(url.pathname) && !url.search, 'unexpected test request path');
-    return fetch(new URL(url.pathname, base), { ...init, redirect: 'error' });
+    return fetch(new URL(url.pathname, base), { ...init, redirect: 'error' }).then(response => {
+      if (url.pathname === '/v1/chat/completions') {
+        const id = response.headers.get('x-request-id');
+        assert.match(id ?? '', /^[a-f0-9]{64}$/);
+        fs.appendFileSync(process.env.LMM_VSCODE_WIRE_RECEIPT, JSON.stringify([response.status, id]) + '\n', { mode: 0o600 });
+      }
+      return response;
+    });
   };
   await context.secrets.store('lmm.oauth.v1', JSON.stringify(parseToken(fixture.token)));
   return require(manifest.fixtureOriginalMain).activate(context);

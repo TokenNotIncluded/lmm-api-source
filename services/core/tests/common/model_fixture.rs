@@ -140,6 +140,13 @@ async fn provider(
     if prompt == "rate-limit" {
         return (StatusCode::TOO_MANY_REQUESTS, "synthetic supplier refusal").into_response();
     }
+    if prompt == "confirmed-rate-limit" {
+        return (
+            StatusCode::TOO_MANY_REQUESTS,
+            Json(json!({"error":{"type":"rate_limit_error","code":"rate_limit_exceeded","message":"request rejected before generation"}})),
+        )
+            .into_response();
+    }
     if request["stream"] == true {
         let malformed_tool = prompt == "malformed-tool";
         let content = if malformed_tool {
