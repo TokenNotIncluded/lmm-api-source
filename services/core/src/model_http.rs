@@ -882,10 +882,22 @@ async fn models(
     axum::extract::RawQuery(query): axum::extract::RawQuery,
     peer: Result<ConnectInfo<SocketAddr>, ExtensionRejection>,
 ) -> Response {
-    if headers.contains_key("x-api-key") || headers.contains_key("anthropic-version") {
+    if headers.contains_key("anthropic-version")
+        || (headers.contains_key("x-api-key") && !headers.contains_key(header::AUTHORIZATION))
+    {
         return native_models::anthropic(gateway, headers, query, peer.ok().map(|p| p.0.ip()))
             .await;
     }
+    // Some OpenAI-compatible discovery clients send the same key in both
+    // headers. Only an explicit version selects Anthropic for these clients.
+    let headers = if headers.contains_key("x-api-key") {
+        match native::key_headers(headers, ClientProtocol::Anthropic) {
+            Ok(headers) => headers,
+            Err(error) => return public_error(error),
+        }
+    } else {
+        headers
+    };
     if let Some(honeypot) = &gateway.honeypot
         && !oauth_header(&headers)
     {

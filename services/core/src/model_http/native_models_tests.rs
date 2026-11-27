@@ -203,6 +203,35 @@ async fn native_models_pg_anthropic_header_dispatch_preserves_openai_and_checks_
         serde_json::from_slice(&to_bytes(response.into_body(), 1 << 20).await.unwrap()).unwrap();
     assert_eq!(openai["object"], "list");
     assert_eq!(openai["data"][0]["object"], "model");
+    for (api_key, version, expected) in [
+        (f.key.as_str(), None, StatusCode::OK),
+        (f.key.as_str(), Some("2023-06-01"), StatusCode::OK),
+        ("different-key", None, StatusCode::BAD_REQUEST),
+    ] {
+        let mut request = HttpRequest::builder()
+            .uri("/v1/models")
+            .header(header::AUTHORIZATION, format!("Bearer {}", f.key))
+            .header("x-api-key", api_key);
+        if let Some(version) = version {
+            request = request.header("anthropic-version", version);
+        }
+        let response = g
+            .router()
+            .oneshot(request.body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        assert_eq!(response.status(), expected);
+        if expected == StatusCode::OK {
+            let body: Value =
+                serde_json::from_slice(&to_bytes(response.into_body(), 1 << 20).await.unwrap())
+                    .unwrap();
+            if version.is_some() {
+                assert_eq!(body["data"][0]["type"], "model");
+            } else {
+                assert_eq!(body, openai);
+            }
+        }
+    }
     let chat = super::super::text_request_tests::gateway(
         &f.pool,
         "http://127.0.0.1:4999/v1",

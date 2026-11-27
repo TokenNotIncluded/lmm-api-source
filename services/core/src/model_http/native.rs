@@ -33,9 +33,14 @@ pub(super) fn key_headers(
     } else {
         "x-api-key"
     };
-    if headers.contains_key(wrong_name)
-        || headers.contains_key("x-auth-session")
-        || (auth.is_some() && key.is_some())
+    if headers.contains_key(wrong_name) || headers.contains_key("x-auth-session") {
+        return Err(RelayError::Invalid("ambiguous native model credentials"));
+    }
+    if let (Some(auth), Some(key)) = (auth, key)
+        && (client != ClientProtocol::Anthropic
+            || !auth.split_once(' ').is_some_and(|(scheme, token)| {
+                scheme.eq_ignore_ascii_case("Bearer") && token == key
+            }))
     {
         return Err(RelayError::Invalid("ambiguous native model credentials"));
     }
@@ -191,9 +196,23 @@ mod tests {
             assert!(key_headers(headers, client).is_err());
             let mut headers = mapped;
             headers.insert(name, HeaderValue::from_static("synthetic-key"));
+            if client == ClientProtocol::Anthropic {
+                let combined = key_headers(headers.clone(), client).unwrap();
+                assert_eq!(combined[header::AUTHORIZATION], "Bearer synthetic-key");
+                assert!(combined[header::AUTHORIZATION].is_sensitive());
+                assert!(!combined.contains_key(name));
+            } else {
+                assert!(key_headers(headers.clone(), client).is_err());
+            }
+            headers.insert(name, HeaderValue::from_static("different-key"));
             assert!(key_headers(headers, client).is_err());
             let mut headers = HeaderMap::new();
             headers.insert(name, HeaderValue::from_static("lmm_at_synthetic"));
+            assert!(key_headers(headers.clone(), client).is_err());
+            headers.insert(
+                header::AUTHORIZATION,
+                HeaderValue::from_static("Bearer lmm_at_synthetic"),
+            );
             assert!(key_headers(headers, client).is_err());
         }
     }
