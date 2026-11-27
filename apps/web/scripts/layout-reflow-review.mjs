@@ -44,13 +44,15 @@ const targets = [
     path: '/keys',
     persona: 'l1',
     ready: '.console-section-content',
-    filters: true,
+    filterToggle: '.console-toolbar button[aria-controls]',
   },
   {
     path: '/users',
     persona: 'admin',
-    ready: '.console-section-content',
-    filters: true,
+    ready: '.users-page #native-user-keyword',
+    filterToggle:
+      '.users-page form:has(#native-user-keyword) details > summary',
+    expandedFilter: '#native-user-team',
   },
   { path: '/wallet', persona: 'l1', ready: '#wallet-checkout' },
   { path: '/developers', persona: 'l1', ready: '#request-builder-title' },
@@ -706,7 +708,8 @@ try {
               window.dispatchEvent(new PopStateEvent('popstate'))
             }, target.path)
             await page
-              .getByRole('heading', { name: '用户', exact: true })
+              .locator('.users-page')
+              .getByRole('heading', { level: 1 })
               .waitFor()
           }
           await page
@@ -764,16 +767,16 @@ try {
             entry.issues.push('Page displays a runtime failure')
           }
           await capture(page, entry, 'initial')
-          if (target.filters) {
-            const toggle = page
-              .locator('.console-toolbar button[aria-controls]')
-              .first()
-            if (await toggle.count()) {
-              await toggle.click()
+          if (target.filterToggle) {
+            const toggle = page.locator(target.filterToggle).first()
+            await toggle.click()
+            if (target.expandedFilter) {
+              await page.locator(target.expandedFilter).waitFor()
+            } else {
               assert.equal(await toggle.getAttribute('aria-expanded'), 'true')
-              await capture(page, entry, 'filters')
-              await toggle.click()
             }
+            await capture(page, entry, 'filters')
+            await toggle.click()
           }
           await checkReachability(page, entry)
         } catch (error) {

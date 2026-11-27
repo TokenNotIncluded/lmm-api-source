@@ -137,11 +137,31 @@ impl LmmIssuer {
         &self,
         access: &str,
     ) -> std::result::Result<crate::model_http::CatalogV1, ReadError> {
+        self.catalog_for_client(access, None).await
+    }
+
+    pub(crate) async fn codewhale_catalog(
+        &self,
+        access: &str,
+    ) -> std::result::Result<crate::model_http::CatalogV1, ReadError> {
+        self.catalog_for_client(access, Some("lmm-codewhale")).await
+    }
+
+    async fn catalog_for_client(
+        &self,
+        access: &str,
+        client: Option<&str>,
+    ) -> std::result::Result<crate::model_http::CatalogV1, ReadError> {
         let mut tx = transaction(&self.identity.pool).await?;
         sqlx::query("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE")
             .execute(&mut *tx)
             .await?;
         let actor = self.authorize_read(&mut tx, access, "catalog:read").await?;
+        if client.is_some_and(|client| {
+            actor.client_id != client || self.profile.model_budget_limit(client).is_none()
+        }) {
+            return Err(IdentityError::Forbidden.into());
+        }
         let surface = self
             .catalog_surface
             .as_ref()

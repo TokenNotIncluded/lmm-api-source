@@ -241,6 +241,36 @@ pub struct CatalogPricing {
 }
 
 impl CatalogSurface {
+    /// Resolve only an exact ID from the active Chat-capable catalog and a
+    /// currently authorized group. Metadata is not spending authority.
+    pub(super) fn exact_chat_model(
+        &self,
+        id: &str,
+        authorized_groups: &[String],
+    ) -> Result<Option<(String, String, ReleaseVersion)>, CatalogError> {
+        let state = self.state.read().map_err(|_| CatalogError::Unavailable)?;
+        let SurfaceState::Ready {
+            router,
+            version,
+            models,
+            ..
+        } = &*state
+        else {
+            return Err(CatalogError::Unavailable);
+        };
+        if router.version().map_err(|_| CatalogError::Unavailable)? != *version {
+            return Err(CatalogError::Unavailable);
+        }
+        Ok(models
+            .iter()
+            .find(|model| {
+                model.id == id
+                    && model.apis.contains(&"openai-completions")
+                    && authorized_groups.contains(&model.group)
+            })
+            .map(|model| (model.group.clone(), model.upstream_model.clone(), *version)))
+    }
+
     #[cfg_attr(not(test), allow(dead_code))] // Tests build a surface without provider policy.
     pub(super) fn from_gateway(
         router: Arc<Router>,

@@ -35,6 +35,10 @@ pub fn router(issuer: LmmIssuer) -> Router {
         .route("/api/oauth2/token", post(token))
         .route("/api/oauth2/revoke", post(revoke))
         .route("/api/oauth2/catalog", get(catalog))
+        .route(
+            "/api/oauth2/openai/v1/models",
+            get(crate::model_http::codewhale::models),
+        )
         .route("/api/oauth2/application", get(application))
         .route("/api/oauth2/application/budget", get(application_budget))
         .route("/api/oauth2/inventory", get(inventory))
@@ -213,7 +217,7 @@ async fn revoke(
         Err(e) => protocol_error(e),
     }
 }
-fn bearer(headers: &HeaderMap) -> Result<&str, IdentityError> {
+pub(crate) fn bearer(headers: &HeaderMap) -> Result<&str, IdentityError> {
     if ["x-api-key", "x-goog-api-key", "x-auth-session"]
         .iter()
         .any(|name| headers.contains_key(*name))
@@ -237,7 +241,7 @@ fn bearer(headers: &HeaderMap) -> Result<&str, IdentityError> {
     }
     Ok(token)
 }
-fn read_error(error: ReadError) -> Response {
+pub(crate) fn read_error(error: ReadError) -> Response {
     match error {
         ReadError::Unavailable => (
             StatusCode::SERVICE_UNAVAILABLE,

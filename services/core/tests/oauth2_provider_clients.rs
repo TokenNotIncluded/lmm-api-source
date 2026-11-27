@@ -222,3 +222,90 @@ async fn provider_cap_is_shared_across_rotation_and_revocation_survives_disable(
     })
     .await;
 }
+
+#[sqlx::test(migrations = false)]
+async fn codewhale_standard_chat_preserves_exact_group_and_oauth_settlement(pool: PgPool) {
+    pi::with_provider_fixture(pool, |f| async move {
+        let client = "lmm-codewhale";
+        let token = f.token_for_client(client, 500).await;
+        let other = f.token_for_client("lmm-dsh", 500).await;
+        let models = format!("{}/api/oauth2/openai/v1/models", f.base);
+        let chat = format!("{}/api/oauth2/openai/v1/chat/completions", f.base);
+
+        for (access, status) in [
+            (f.native_key.as_str(), 401),
+            (other.access_token.as_str(), 403),
+        ] {
+            let list = f.client.get(&models).bearer_auth(access).send().await.unwrap();
+            assert_eq!(list.status().as_u16(), status);
+            let result = f.client.post(&chat).bearer_auth(access)
+                .json(&json!({"model":"lmm:YWxsb3dlZA:cHJvdmlkZXItbW9kZWw",
+                    "messages":[{"role":"user","content":"hello"}]}))
+                .send().await.unwrap();
+            assert_eq!(result.status().as_u16(), status);
+        }
+
+        let list = f.client.get(&models).bearer_auth(&token.access_token)
+            .send().await.unwrap().error_for_status().unwrap();
+        assert_eq!(list.headers()["cache-control"], "no-store");
+        let list: Value = list.json().await.unwrap();
+        assert_eq!(list["object"], "list");
+        assert_eq!(list["data"].as_array().unwrap().len(), 1);
+        let model_id = "lmm:YWxsb3dlZA:cHJvdmlkZXItbW9kZWw";
+        assert_eq!(list["data"][0]["id"], model_id);
+        assert_eq!(list["data"][0]["name"], "allowed / provider-model");
+        assert_eq!(
+            list["data"][0]["limit"]["output"],
+            lmm_core::relay::Limits::default().max_output_tokens,
+        );
+
+        let invoke = |id: &str| {
+            f.client.post(&chat).bearer_auth(&token.access_token)
+                .json(&json!({"model":id,"max_tokens":20,
+                    "messages":[{"role":"user","content":"hello"}]}))
+        };
+        for (id, status) in [
+            ("provider-model", 400),
+            ("lmm:Zm9yYmlkZGVu:cHJvdmlkZXItbW9kZWw", 403),
+            ("lmm:YWxsb3dlZA:cHJvdmlkZXItbW9kZWw=", 403),
+        ] {
+            assert_eq!(invoke(id).send().await.unwrap().status().as_u16(), status);
+        }
+        assert_eq!(invoke(model_id).header("x-lmm-group", "YWxsb3dlZA")
+            .send().await.unwrap().status().as_u16(), 400);
+        let ambiguous = format!(r#"{{"model":"{model_id}","MODEL":"{model_id}","messages":[]}}"#);
+        let failed = f.client.post(&chat).bearer_auth(&token.access_token)
+            .header("content-type", "application/json").body(ambiguous)
+            .send().await.unwrap();
+        assert_eq!(failed.status().as_u16(), 400);
+        assert_eq!(f.provider.hits.load(Ordering::SeqCst), 0);
+
+        let response = invoke(model_id).header("idempotency-key", "codewhale-json")
+            .send().await.unwrap().error_for_status().unwrap();
+        assert!(response.text().await.unwrap().contains("local synthetic answer"));
+        let response = f.client.post(&chat).bearer_auth(&token.access_token)
+            .header("idempotency-key", "codewhale-sse").json(&json!({
+                "model":model_id, "max_tokens":20, "stream":true,
+                "stream_options":{"include_usage":true},
+                "messages":[{"role":"user","content":"hello"}]
+            })).send().await.unwrap().error_for_status().unwrap();
+        let content_type = response.headers()["content-type"].to_str().unwrap();
+        assert_eq!(content_type.split(';').next(), Some("text/event-stream"));
+        let stream = response.text().await.unwrap();
+        assert!(stream.contains("local stream answer"));
+        assert!(stream.contains("[DONE]"));
+        assert_eq!(f.provider.hits.load(Ordering::SeqCst), 2);
+
+        let receipts: Vec<(Option<i64>, String, i64, i64)> = sqlx::query_as(
+            "SELECT key_id,oauth_source->>'client_id',settled,payer_account_id FROM core_charging.requests",
+        ).fetch_all(&f.owner).await.unwrap();
+        assert_eq!(receipts, vec![(None, client.to_owned(), 49, f.account); 2]);
+        assert_eq!(f.ledger.balance(f.account).await.unwrap().reserved_units, 0);
+
+        f.issuer.revoke_for_client(client, &token.access_token).await.unwrap();
+        assert_eq!(f.client.get(&models).bearer_auth(&token.access_token)
+            .send().await.unwrap().status().as_u16(), 401);
+        assert_eq!(invoke(model_id).send().await.unwrap().status().as_u16(), 401);
+        assert_eq!(f.provider.hits.load(Ordering::SeqCst), 2);
+    }).await;
+}

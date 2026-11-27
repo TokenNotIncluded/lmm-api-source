@@ -10,6 +10,7 @@ mod billing;
 mod catalog;
 mod channel_health;
 pub(crate) mod channel_operations;
+pub(crate) mod codewhale;
 pub(crate) use channel_operations::BalanceProbeInput;
 mod channel_affinity;
 mod checkpoints;
@@ -557,6 +558,10 @@ impl ModelGateway {
         let router = Router::new()
             .route("/v1/models", get(models))
             .route("/v1/chat/completions", post(chat))
+            .route(
+                "/api/oauth2/openai/v1/chat/completions",
+                post(codewhale::chat),
+            )
             .route("/v1/responses", responses)
             .route("/v1/messages", post(native::messages))
             .route("/v1beta/models", get(native_models::gemini_list))
@@ -1061,6 +1066,40 @@ async fn dispatch(
         Ok(v) => v,
         Err(e) => return native::error_response(client, e),
     };
+    dispatch_authorized(
+        gateway,
+        headers,
+        body,
+        (principal, secret, groups),
+        DispatchRequest {
+            client,
+            peer,
+            native_operation,
+            required_release: None,
+        },
+    )
+    .await
+}
+
+struct DispatchRequest {
+    client: ClientProtocol,
+    peer: Option<IpAddr>,
+    native_operation: Option<native::GeminiOperation>,
+    required_release: Option<crate::routing::ReleaseVersion>,
+}
+
+async fn dispatch_authorized(
+    gateway: ModelGateway,
+    headers: HeaderMap,
+    body: Bytes,
+    (principal, secret, groups): (ModelIdentity, String, Vec<String>),
+    DispatchRequest {
+        client,
+        peer,
+        native_operation,
+        required_release,
+    }: DispatchRequest,
+) -> Response {
     if audio::http::handles(&gateway, &body) {
         return native::error_response(
             client,
@@ -1094,6 +1133,9 @@ async fn dispatch(
         Ok(plans) => plans,
         Err(error) => return native::error_response(client, model_route_error(error)),
     };
+    if required_release.is_some_and(|version| plans.iter().any(|plan| plan.version() != version)) {
+        return native::error_response(client, RelayError::RouteUnavailable);
+    }
     let mut authorized = match gateway
         .authorize_model_plans(&principal, &secret, peer, &request.model, &groups, plans)
         .await
