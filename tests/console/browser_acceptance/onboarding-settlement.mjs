@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Invoked by the SQLx fixture. Business requests always go to its real Core listener.
 import assert from 'node:assert/strict'
+import { captureConsolePages } from './core-page-captures.mjs'
 import { capturePaidLogViews } from './usage-log-captures.mjs'
 import { checkTerminalLog, exerciseTerminal } from './terminal-acceptance.mjs'
 import http from 'node:http'
@@ -343,7 +344,8 @@ try {
   const payment = await settle(browser)
   terminal.log = await checkTerminalLog(browser,session,payment.request_id)
   const screenshots = await capturePaidLogViews(browser, session, payment, web)
-  process.stdout.write(JSON.stringify({ publication, payment, terminal, screenshots }))
+  const pages = await captureConsolePages(browser, session, web, payment, publication)
+  process.stdout.write(JSON.stringify({ publication, payment, terminal, screenshots, pages }))
 } finally {
   await browser?.close()
   front.closeAllConnections()
