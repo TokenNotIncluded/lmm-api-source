@@ -131,6 +131,7 @@ pub(crate) struct AgentService {
 #[cfg(test)]
 mod reviewed_usage_policy_tests {
     use super::*;
+    use serde_json::json;
 
     #[test]
     fn issued_agent_model_keeps_every_other_host_and_tool_restriction() {
