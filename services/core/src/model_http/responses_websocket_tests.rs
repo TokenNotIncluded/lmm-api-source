@@ -1224,7 +1224,7 @@ async fn ws06_official_exact_rejects_before_handshake_and_unknown_usage_holds(po
         let e = receive(&mut socket).await.1;
         assert_eq!(e["type"], "response.created");
         let e = receive(&mut socket).await.1;
-        assert_eq!(e["type"], "error");
+        assert_eq!(e["type"], "error", "supplier fixture {input}");
         let row = lab
             .charges()
             .await

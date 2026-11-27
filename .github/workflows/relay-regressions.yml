@@ -49,6 +49,8 @@ jobs:
         run: |
           binary="$(cat "$RUNNER_TEMP/relay-test-bin")"
           "$binary" --list > "$RUNNER_TEMP/relay-test-list"
+          LMM_WS_ARTIFACTS="$(mktemp -d "$RUNNER_TEMP/relay-ws-XXXXXXXX")"
+          export LMM_WS_ARTIFACTS
           cases=(
             native_anthropic_output_effort_keeps_its_wire_value_and_output_limit
             native_anthropic_output_effort_rejects_lossy_protocol_conversion
@@ -58,6 +60,7 @@ jobs:
             ambiguous_errors_never_authorize_redispatch
             route_failover_pg_safe_failures_keep_one_frozen_bill
             route_failover_pg_unknown_and_partial_tool_results_never_replay
+            ws06_official_exact_rejects_before_handshake_and_unknown_usage_holds
             gemini_complete_response_preserves_signed_parts_on_both_sides_of_a_tool
             gemini_stream_separates_signed_parts_and_resumes_the_last_text_across_frames
             compact_pg_sse_tools_stream_live_and_terminal_waits_for_real_settlement
