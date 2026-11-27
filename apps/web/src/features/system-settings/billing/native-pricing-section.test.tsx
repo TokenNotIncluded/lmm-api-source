@@ -300,6 +300,20 @@ async function until(check: () => boolean) {
   }
   assert.ok(check(), 'Native pricing did not reach the expected state')
 }
+function modelRows(container: ParentNode) {
+  return Array.from(container.querySelector('table > tbody')?.children ?? [])
+}
+
+function meterRates(row: Element, label: string) {
+  const meters = row.querySelector('details table')
+  assert.ok(meters)
+  const meter = [...meters.querySelectorAll('tbody tr')].find(
+    (entry) => entry.querySelector('th')?.textContent === label
+  )
+  assert.ok(meter, `Missing price meter: ${label}`)
+  return [...meter.querySelectorAll('td')].map((cell) => cell.textContent)
+}
+
 for (const entry of ['model-pricing']) {
   test(`${entry} reads published prices instead of partial legacy settings`, async () => {
     section = entry
@@ -314,12 +328,11 @@ for (const entry of ['model-pricing']) {
     const table = container.querySelector('table')
     assert.ok(table)
     assert.match(table.textContent ?? '', /0\.75 × 1/)
-    const cells = [...table.querySelectorAll('tbody td')].map(
-      (cell) => cell.textContent
-    )
-    assert.equal(cells[2], '2')
-    assert.equal(cells[3], '6')
-    assert.equal(cells[4], '0.5')
+    const [model] = modelRows(container)
+    assert.ok(model)
+    assert.deepEqual(meterRates(model, 'Input'), ['2', '1.5'])
+    assert.deepEqual(meterRates(model, 'Output'), ['6', '4.5'])
+    assert.deepEqual(meterRates(model, 'Cache read'), ['0.5', '0.375'])
     assert.equal(container.querySelector('pre'), null)
     assert.doesNotMatch(container.textContent ?? '', /Original configuration/)
     assert.ok(
@@ -352,10 +365,13 @@ test('ordinary pricing renders the effective tier columns and opens the model’
   await until(() => !!container.querySelector('tbody tr'))
   const row = container.querySelector('tbody tr')
   assert.ok(row)
-  const displayed = [...row.querySelectorAll('td')]
-    .slice(2, 7)
-    .map((cell) => cell.textContent)
-  assert.deepEqual(displayed, ['0.0000005', '1.5', '0', '—', '—'])
+  assert.deepEqual(meterRates(row, 'Input'), ['0.0000005', '0.000000375'])
+  assert.deepEqual(meterRates(row, 'Output'), ['1.5', '1.125'])
+  assert.deepEqual(meterRates(row, 'Cache read'), ['0', '0'])
+  assert.deepEqual(meterRates(row, 'Cache write'), ['Unknown', 'Unknown'])
+  assert.deepEqual(meterRates(row, 'Request fee · USD/Request'), [
+    'No separate rate',
+  ])
   await clickPriceAction('Official base price', row)
   const editor = () =>
     document.querySelector('section[aria-label="Official base price"]')
@@ -590,17 +606,16 @@ test('row actions copy exact prices and remove only the chosen draft rule', asyn
   await act(async () =>
     form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))
   )
-  await until(() => container.querySelectorAll('tbody tr').length === 2)
-  const copied = [...container.querySelectorAll('tbody tr')].find((row) =>
+  await until(() => modelRows(container).length === 2)
+  const copied = modelRows(container).find((row) =>
     row.textContent?.includes('imported-model-copy')
   )
   assert.ok(copied)
-  const cells = [...copied.querySelectorAll('td')]
-  assert.equal(cells[2].textContent, '2')
-  assert.equal(cells[3].textContent, '6')
-  assert.equal(cells[4].textContent, '0.5')
+  assert.deepEqual(meterRates(copied, 'Input'), ['2', '1.5'])
+  assert.deepEqual(meterRates(copied, 'Output'), ['6', '4.5'])
+  assert.deepEqual(meterRates(copied, 'Cache read'), ['0.5', '0.375'])
   await clickPriceAction('Remove', copied)
-  await until(() => container.querySelectorAll('tbody tr').length === 1)
+  await until(() => modelRows(container).length === 1)
   assert.doesNotMatch(
     container.querySelector('tbody')?.textContent ?? '',
     /imported-model-copy/

@@ -188,17 +188,21 @@ test('administrator sees plugin state and refreshes with a scoped read only requ
     container.textContent ?? '',
     /Registry entries are declarations, not service health checks/
   )
-  assert.deepEqual(
-    [...container.querySelectorAll('button')].map(
-      (button) => button.textContent
-    ),
-    ['Refresh', 'Reload routes', 'Disable', 'Configure']
+  const payment = container.querySelector(
+    '[data-configuration-owner="payments"]'
   )
-  await act(async () => container.querySelector('button')?.click())
-  await until(
-    () => calls === 2 && container.querySelector('dd')?.textContent === '0'
-  )
-  assert.equal(container.querySelector('dd')?.textContent, '0')
+  const store = container.querySelector('[data-configure-plugin="store"]')
+  assert.ok(payment && button('Configure', payment))
+  assert.equal(store?.textContent, 'Configure')
+  assert.ok(button('Disable', container))
+  assert.ok(button('Reload routes', container))
+  const enabledCount = () =>
+    [...container.querySelectorAll('dt')].find(
+      (label) => label.textContent === 'Enabled modules'
+    )?.nextElementSibling?.textContent
+  assert.equal(enabledCount(), '1')
+  await act(async () => button('Refresh', container).click())
+  await until(() => calls === 2 && enabledCount() === '0')
 })
 
 test('non-admin cannot query, and invalid API responses render an error', async () => {
@@ -277,7 +281,7 @@ test('failed refresh retains the last registry as stale and distinguishes an ups
   await until(() => container.textContent?.includes('toolmarket') === true)
   assert.match(container.textContent ?? '', /Registration fingerprint/)
   assert.match(container.textContent ?? '', /Route configuration/)
-  await act(async () => container.querySelector('button')?.click())
+  await act(async () => button('Refresh', container).click())
   await until(
     () =>
       container.textContent?.includes('Plugin status is not current') === true
