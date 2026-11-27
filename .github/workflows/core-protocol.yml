@@ -212,9 +212,19 @@ jobs:
               | sort | to_entries[] | select(.key % 4 == $shard)
               | "--test", .value' > "$RUNNER_TEMP/core-integration-targets"
       - name: Lint all Core Rust targets
+        id: rust_lint
         if: ${{ !cancelled() && (matrix.targets == 'all' || matrix.targets == 'unit') }}
         working-directory: services/core
-        run: cargo clippy --locked --all-targets -- -D warnings
+        run: |
+          cargo clippy --locked --all-targets -- -D warnings 2>&1 | tee "$RUNNER_TEMP/core-clippy.log"
+      - name: Make Rust lint diagnostics available during database tests
+        if: ${{ !cancelled() && steps.rust_lint.outcome == 'failure' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: core-clippy-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.targets }}
+          path: ${{ runner.temp }}/core-clippy.log
+          if-no-files-found: error
+          retention-days: 1
       - name: Compile Rust tests and preserve the commerce driver
         id: rust_test_compile
         if: ${{ !cancelled() }}
