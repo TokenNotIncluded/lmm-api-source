@@ -43,6 +43,7 @@ jobs:
       CHECK_HISTORY: ${{ github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.only_if_unverified && !inputs.browser_only) }}
     outputs:
       needed: ${{ steps.schedule.outputs.needed || steps.explicit.outputs.needed }}
+      scheduled_needed: ${{ steps.schedule.outputs.needed }}
     steps:
       - name: Select explicit qualification
         id: explicit
@@ -73,7 +74,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        targets: ${{ fromJSON(inputs.split_rust_targets && '["unit","model-unit","model-responses","schema-identity","integration-1","integration-2","integration-3","integration-4"]' || '["all"]') }}
+        targets: ${{ fromJSON((inputs.split_rust_targets || needs.cadence.outputs.scheduled_needed == 'true') && '["unit","model-unit","model-responses","schema-identity","integration-1","integration-2","integration-3","integration-4"]' || '["all"]') }}
     runs-on: ubuntu-24.04
     # Budget for cold builds, serial real PostgreSQL tests, and the following
     # payment, Go, and RPC checks while keeping the complete job bounded.

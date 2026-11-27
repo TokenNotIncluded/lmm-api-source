@@ -367,7 +367,8 @@ test('native package uploads keep raw Alpine fixture output private', () => {
 test('automatic Core checks partition every Rust target across independent runners', () => {
   const source = workflow('core-protocol');
   assert.match(source, /split_rust_targets:[\s\S]*?type: boolean\n        default: false/);
-  assert.match(source, /fail-fast: false\n      matrix:\n        targets: .*inputs\.split_rust_targets && '\["unit","model-unit","model-responses","schema-identity","integration-1","integration-2","integration-3","integration-4"\]' \|\| '\["all"\]'/);
+  assert.ok(source.includes('scheduled_needed: ${{ steps.schedule.outputs.needed }}'));
+  assert.match(source, /fail-fast: false\n      matrix:\n        targets: .*\(inputs\.split_rust_targets \|\| needs\.cadence\.outputs\.scheduled_needed == 'true'\) && '\["unit","model-unit","model-responses","schema-identity","integration-1","integration-2","integration-3","integration-4"\]' \|\| '\["all"\]'/);
   assert.ok(source.includes('RUST_TARGET_GROUP: ${{ matrix.targets }}'));
   assert.match(source, /timeout-minutes: 150/);
   assert.doesNotMatch(source, /continue-on-error:/);
