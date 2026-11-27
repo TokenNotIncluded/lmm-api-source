@@ -9,6 +9,7 @@ import subprocess
 import sys
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 
 
@@ -90,12 +91,13 @@ def check_routes(url, pid):
         raise RuntimeError("Extensions navigation did not become ready")
     if navigation.get("success") is not True or not isinstance(navigation["data"]["revision"], int):
         raise RuntimeError("Extensions did not return the persisted community navigation record")
-    try:
-        http.open(url + "/api/release-notes/latest", timeout=2).close()
-    except urllib.error.HTTPError as error:
-        if error.code == 401 and json.load(error).get("success") is False:
-            return
-    raise RuntimeError("Extensions must reject anonymous release-note reads")
+    for path in ("/api/release-notes/latest", "/api/user/payments/channels"):
+        try:
+            http.open(url + path, timeout=2).close()
+        except urllib.error.HTTPError as error:
+            if error.code == 401 and json.load(error).get("success") is False:
+                continue
+        raise RuntimeError(f"Extensions must reject anonymous reads of {path}")
 
 
 def start(directory, binary):
@@ -107,9 +109,11 @@ def start(directory, binary):
         raise ValueError("expected the dedicated disposable PostgreSQL service port")
     components = {name: provision(name, directory, binary, port,
                                   os.environ["BROWSER_EXTENSIONS_PG_PASSWORD"], clean_env)
-                  for name in ("community", "operations")}
+                  for name in ("community", "operations", "payments")}
     credentials = {name: private_file(directory / (name + ".token"), secrets.token_hex(32))
-                   for name in ("host", "identity")}
+                   for name in ("host", "identity", "payment")}
+    # An explicit empty adapter catalog is a supported wallet configuration.
+    providers = private_file(directory / "wallet-providers.toml", "version = 2\nchannels = []\n")
     rpc_socket = directory / "identity.sock"
     if len(os.fsencode(rpc_socket)) > 100:
         raise ValueError("Core identity socket path exceeds its native bound")
@@ -120,14 +124,17 @@ def start(directory, binary):
         url = "http://" + addr
         configuration = [
             "version = 1", "[host]", f'listen = "{addr}"', f'public_origin = "{url}"',
-            "local_http = true", "web_compat = true", 'modules = ["community", "operations"]',
+            "local_http = true", "web_compat = true", 'modules = ["community", "operations", "payments"]',
             "token_file = " + json.dumps(str(credentials["host"])), "[core]",
             "socket = " + json.dumps(str(rpc_socket)),
             "identity_token_file = " + json.dumps(str(credentials["identity"])),
+            "payment_token_file = " + json.dumps(str(credentials["payment"])),
         ]
         for name, (db, runtime_url) in components.items():
             configuration.extend([f"[{name}]", "database_name = " + json.dumps(db),
                                   "database_url_file = " + json.dumps(str(runtime_url))])
+            if name == "payments":
+                configuration.append("config_file = " + json.dumps(str(providers)))
         config = private_file(directory / "extensions.toml", "\n".join(configuration) + "\n")
         pid = start_host(listener, binary, config, directory, clean_env)
     check_routes(url, pid)
@@ -135,7 +142,7 @@ def start(directory, binary):
         print("BROWSER_EXTENSIONS_URL=" + url, file=out)
         print("BROWSER_CORE_RPC_SOCKET=" + str(rpc_socket), file=out)
         print("BROWSER_CORE_RPC_TOKEN_FILE=" + str(credentials["identity"]), file=out)
-    print("Extensions public navigation read returned its PG revision and anonymous release-notes returned 401.")
+    print("Extensions returned the persisted navigation revision and rejected anonymous release-note and wallet channel reads with HTTP 401.")
 
 
 def stop(directory, binary):
@@ -147,6 +154,19 @@ def stop(directory, binary):
                 os.kill(pid, signal.SIGTERM)
         except FileNotFoundError:
             pass
+    if os.environ.get("BROWSER_EXTENSIONS_URL"):
+        # Read back the installed payment schema with its own unprivileged runtime login.
+        dsn = urllib.parse.urlsplit((directory / "payments.runtime").read_text())
+        env = dict(PATH=os.environ["PATH"], PGHOST=dsn.hostname, PGPORT=str(dsn.port),
+                   PGDATABASE=dsn.path.lstrip("/"), PGUSER=dsn.username, PGPASSWORD=dsn.password,
+                   PGSSLMODE="disable", PGCONNECT_TIMEOUT="5", PGOPTIONS="-c default_transaction_read_only=on")
+        counts = subprocess.check_output(
+            ["psql", "-XAtq", "-v", "ON_ERROR_STOP=1", "-c",
+             "SELECT (SELECT count(*) FROM public.payment_orders), (SELECT count(*) FROM public.payment_events)"],
+            text=True, env=env).strip()
+        if counts != "0|0":
+            raise RuntimeError("The browser payment catalog read left payment orders or provider events")
+        print("Isolated payments PostgreSQL readback: payment_orders=0, payment_events=0.")
 
 
 if __name__ == "__main__":
