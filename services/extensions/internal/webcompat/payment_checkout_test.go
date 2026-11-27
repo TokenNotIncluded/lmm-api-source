@@ -56,7 +56,7 @@ func checkoutMux(t *testing.T, p PaymentCheckoutService) *http.ServeMux {
 		t.Fatal(err)
 	}
 	m := http.NewServeMux()
-	RegisterPaymentCheckout(m, a, p, nil)
+	RegisterPaymentCheckout(m, a, p, nil, payments.WalletPresets{})
 	return m
 }
 func checkoutCall(m *http.ServeMux, method, path, token, body string) *httptest.ResponseRecorder {

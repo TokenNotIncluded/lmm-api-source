@@ -10,10 +10,10 @@ func TestMinimumUnitPriceBoundariesAndRepeatedWrites(t *testing.T) {
 	svc := &Service{repo: newRepo()}
 	current := func(want int64) {
 		t.Helper()
-		actual, _, err := svc.currentStorePrices(ctx)
+		config, err := svc.PublicConfig(ctx)
 		must(t, err)
-		if actual != want {
-			t.Fatalf("floor = %d; want %d", actual, want)
+		if actual := config["minimum_unit_price_quota"]; actual != want {
+			t.Fatalf("floor = %v; want %d", actual, want)
 		}
 	}
 	current(defaultMinimumUnitPrice)

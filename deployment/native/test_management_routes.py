@@ -15,6 +15,7 @@ import unittest
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 TEMPLATE = ROOT / 'deployment/native/templates/native-management-locations.conf'
+PLUGINS = ROOT / 'deployment/native/templates/native-plugin-settings-locations.conf'
 RANKINGS = ROOT / 'deployment/native/templates/native-rankings-locations.conf'
 
 
@@ -56,7 +57,7 @@ class NativeManagementRoutes(unittest.TestCase):
             listener.bind(('127.0.0.1', 0))
             cls.port = listener.getsockname()[1]
         snippet = TEMPLATE.read_text().replace('127.0.0.1:3101', f'127.0.0.1:{cls.core.server_port}')
-        (cls.path / 'routes.conf').write_text(snippet + '\n' + RANKINGS.read_text())
+        (cls.path / 'routes.conf').write_text('\n'.join((snippet, RANKINGS.read_text(), PLUGINS.read_text())))
         config = (
             f'daemon off; master_process off; error_log {cls.path}/error.log notice; '
             f'pid {cls.path}/nginx.pid; events {{worker_connections 64;}} '
@@ -140,6 +141,36 @@ class NativeManagementRoutes(unittest.TestCase):
                 self.assertEqual(actual['body'], body or '')
                 self.assertEqual(actual['authorization'], 'Bearer synthetic-native-route-session')
 
+    def test_store_and_assistant_settings_reach_extensions_with_original_identity(self):
+        store = '/api/store/product-link-presets'
+        assistant = '/api/assistant/settings/model-route'
+        for method, path, body in (
+            ('PUT', store, '{"presets":[]}'),
+            ('GET', assistant, None),
+            ('PUT', assistant, '{"group":"default","model":"example","revision":1}'),
+        ):
+            with self.subTest(method=method, path=path):
+                status, raw = self.request(method, path, body)
+                self.assertEqual(status, 200)
+                self.assertEqual(json.loads(raw), {
+                    'backend': 'go', 'method': method, 'path': path,
+                    'authorization': 'Bearer synthetic-native-route-session',
+                    'body': body or '', 'policy_path': path,
+                })
+                status, raw = self.request(method, path, body, headers={})
+                self.assertEqual(status, 200)
+                self.assertIsNone(json.loads(raw)['authorization'])
+        before = len(self.go.calls)
+        for method, path, expected in (
+            ('GET', store, 405), ('HEAD', store, 405), ('POST', store, 405),
+            ('OPTIONS', store, 418), ('PATCH', assistant, 405),
+            ('POST', assistant, 405), ('OPTIONS', assistant, 418),
+            ('PUT', store + '/child', 418), ('GET', assistant + '-archive', 418),
+        ):
+            with self.subTest(method=method, path=path):
+                self.assertEqual(self.request(method, path)[0], expected)
+        self.assertEqual(len(self.go.calls), before)
+
     def test_public_legal_documents_preserve_method_policy_path_and_language(self):
         for path in ('/api/user-agreement', '/api/privacy-policy', '/api/refund-policy'):
             for method in ('GET', 'HEAD'):
@@ -163,6 +194,32 @@ class NativeManagementRoutes(unittest.TestCase):
                 with self.subTest(path=other):
                     self.assertEqual(self.request('GET', other, headers={})[0], 418)
             self.assertEqual(len(self.go.calls), before)
+
+    def test_wallet_presets_preserve_the_user_session_and_policy_path(self):
+        root = '/api/user/payments/presets'
+        routes = [('GET', root, '?view=current', None)]
+        routes += [('PUT', f'{root}/{currency}', '', '{"amounts_minor":["100","500"]}')
+                   for currency in ('USD', 'CNY', 'EUR', 'LDC', 'USDC')]
+        for method, path, query, body in routes:
+            with self.subTest(method=method, path=path):
+                status, raw = self.request(method, path + query, body)
+                self.assertEqual(status, 200)
+                self.assertEqual(json.loads(raw), {
+                    'backend': 'go', 'method': method, 'path': path + query,
+                    'authorization': 'Bearer synthetic-native-route-session',
+                    'body': body or '', 'policy_path': path,
+                })
+        before = len(self.go.calls)
+        for method, path, expected in (
+            ('PUT', root, 405), ('POST', root, 405), ('HEAD', root, 405),
+            ('GET', root + '/USD', 405), ('POST', root + '/USD', 405),
+            ('PUT', root + '/', 404), ('PUT', root + '/GBP', 404),
+            ('PUT', root + '/usd', 404), ('PUT', root + '/USD/history', 404),
+            ('GET', root + '-archive', 418),
+        ):
+            with self.subTest(method=method, path=path):
+                self.assertEqual(self.request(method, path)[0], expected)
+        self.assertEqual(len(self.go.calls), before)
 
     def test_unrelated_methods_ids_and_paths_are_not_forwarded(self):
         for method, path, expected in (

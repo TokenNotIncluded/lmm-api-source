@@ -84,6 +84,7 @@ const { StoreClaimPage } = await import('./claim-page')
 const { StoreClaimItems } = await import('./claim-items')
 const { StoreGatewayEditor } = await import('./settings-page')
 const { StoreSettingsPage } = await import('./settings-page')
+const { StoreReviewPage } = await import('./review-page')
 const { StorePaymentCategoriesForm } = await import('./payment-categories')
 const { MerchantStoreSettingsSection } =
   await import('@/features/system-settings/integrations/merchant-store-settings-section')
@@ -896,6 +897,96 @@ test('root store administration saves only fees and native promotion credits, wi
   assert.deepEqual(saved, { fee_bps: 200, promotion_quota: 500000 })
   assert.equal(document.querySelector('#store-linuxdo-rate'), null)
 })
+test('native store settings save only supported prices', async () => {
+  useWalletCurrencyPreferenceStore.getState().setPreference('USD')
+  useSystemConfigStore.setState({
+    config: {
+      ...originalConfig,
+      currency: {
+        ...originalConfig.currency,
+        creditsPerUsd: 500000,
+        creditsPerUsdExact: '500000',
+        quotaDisplayType: 'USD',
+        currencyUnit: 'credit',
+      },
+    },
+  })
+  useAuthStore.getState().auth.setUser({ id: 2, role: 100, username: 'root' })
+  api.get = (async () =>
+    result({
+      fee_bps: 0,
+      promotion_quota: 0,
+      seller_fee_configurable: false,
+      paid_promotions_supported: false,
+      minimum_unit_price_quota: 750000,
+      relay_price_quota_per_gib: 500000,
+    })) as typeof api.get
+  const saves: unknown[] = []
+  api.put = (async (url: string, body: unknown) => {
+    assert.equal(url, '/api/store/config')
+    saves.push(body)
+    return result(null)
+  }) as typeof api.put
+  await mount(<MerchantStoreSettingsSection />)
+  assert.equal(
+    document.querySelector<HTMLInputElement>('#store-fee')?.readOnly,
+    true
+  )
+  assert.equal(document.querySelector('#store-promotion-price'), null)
+  const minimum = document.querySelector<HTMLInputElement>(
+    '#store-minimum-price'
+  )
+  assert.ok(minimum)
+  await input(minimum, '0')
+  await click(button('Save store settings'))
+  assert.deepEqual(saves, [
+    { minimum_unit_price_quota: 0, relay_price_quota_per_gib: 500000 },
+  ])
+})
+
+for (const paidPromotions of [false, true]) {
+  test(`review and seller actions follow paid promotion support (${paidPromotions})`, async () => {
+    useAuthStore
+      .getState()
+      .auth.setUser({ id: 9, role: 10, username: 'seller' })
+    api.get = (async (url: string) => {
+      if (url === '/api/store/config') {
+        return result({
+          fee_bps: 0,
+          promotion_quota: 0,
+          paid_promotions_supported: paidPromotions,
+        })
+      }
+      if (url === '/api/store/my/products') {
+        return result({ items: [product], has_more: false })
+      }
+      if (url === '/api/store/payments/settings') return result({ items: [] })
+      assert.equal(url, '/api/store/reviews')
+      return result({ items: [], has_more: false })
+    }) as typeof api.get
+    await mount(
+      <>
+        <StoreReviewPage />
+        <StoreSellerPage />
+      </>
+    )
+    assert.ok(button('New product'))
+    assert.ok(
+      document.querySelector('[data-store-product-id="product-fixture"]')
+    )
+    assert.equal(
+      Boolean(document.querySelector('#admin-promotion-price')),
+      paidPromotions
+    )
+    assert.equal(
+      [...document.querySelectorAll('button')].some(
+        (node) => node.textContent?.trim() === 'Promote product'
+      ),
+      paidPromotions
+    )
+  })
+}
+
 for (const promotionQuota of [0, 500000]) {
   test(`root can disable the minimum with promotion credits ${promotionQuota}`, async () => {
     useAuthStore.getState().auth.setUser({ id: 2, role: 100, username: 'root' })

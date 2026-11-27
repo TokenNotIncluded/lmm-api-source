@@ -107,7 +107,7 @@ function StoreReviews({ user }: { user: AuthUser }) {
           </>
         )
       )}
-      {config.data && (
+      {config.data && config.data.paid_promotions_supported !== false && (
         <StorePromotionPrice
           key={config.data.promotion_quota}
           quota={config.data.promotion_quota}

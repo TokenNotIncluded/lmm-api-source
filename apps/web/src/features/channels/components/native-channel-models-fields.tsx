@@ -67,12 +67,14 @@ function IntegerField({
 /** Model bindings edit the same channel draft that the CAS save publishes. */
 export function NativeChannelModelsFields({
   ref,
+  configuredOnly = false,
   document,
   configuration,
   disabled,
   onChange,
 }: {
   ref?: Ref<HTMLDetailsElement>
+  configuredOnly?: boolean
   document: string
   configuration: NativeConfiguration
   disabled: boolean
@@ -162,7 +164,9 @@ export function NativeChannelModelsFields({
       aria-label={t('Models')}
     >
       <summary className='flex min-h-12 cursor-pointer list-none items-center gap-3 py-2 focus-visible:outline-2 [&::-webkit-details-marker]:hidden'>
-        <span className='text-sm font-medium'>{t('Models')}</span>
+        <span className='text-sm font-medium'>
+          {configuredOnly ? t('Configured') : t('Models')}
+        </span>
         <span className='text-muted-foreground min-w-0 flex-1 truncate text-sm'>
           {draft.attachments
             .slice(0, 2)
@@ -508,7 +512,7 @@ export function NativeChannelModelsFields({
           </details>
         )
       })}
-      {available.length > 0 && (
+      {!configuredOnly && available.length > 0 && (
         <section
           className='bg-muted/40 min-w-0 space-y-4 rounded-xl p-4 sm:p-5'
           aria-label={t('Available models')}
@@ -619,7 +623,7 @@ export function NativeChannelModelsFields({
           </div>
         </section>
       )}
-      {configuration.routing.routes.length === 0 && (
+      {!configuredOnly && configuration.routing.routes.length === 0 && (
         <p className='text-muted-foreground text-sm'>
           {t('No models available')}
         </p>

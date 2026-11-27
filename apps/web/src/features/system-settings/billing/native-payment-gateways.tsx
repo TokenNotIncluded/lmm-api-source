@@ -18,6 +18,7 @@ import { useAuthStore } from '@/stores/auth-store'
 import { NativeEPaySettings } from './native-epay-settings'
 import { NativePaymentSettings } from './native-payment-settings'
 import { NativeProviderGatewaySettings } from './native-provider-gateway-settings'
+import { WalletPresetSettings } from './wallet-preset-settings'
 
 const paymentGatewayTabs = [
   'wallet',
@@ -200,8 +201,9 @@ function GatewayPanels({
           </TabsTrigger>
         ))}
       </TabsList>
-      <TabsContent value='wallet'>
+      <TabsContent value='wallet' className='space-y-8'>
         <WalletMethods userId={scope.userId} sessionId={scope.sessionId} />
+        <WalletPresetSettings scope={scope} />
       </TabsContent>
       <TabsContent value='pancake' keepMounted={opened.pancake}>
         <NativePaymentSettings />

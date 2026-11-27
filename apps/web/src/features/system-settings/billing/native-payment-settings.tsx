@@ -18,6 +18,7 @@ import {
   readNativeUsersScope,
   type NativeUsersScope,
 } from '@/features/native-users/access'
+import { useStatus } from '@/hooks/use-status'
 import { api } from '@/lib/api'
 import { ROLE } from '@/lib/roles'
 import { useAuthStore } from '@/stores/auth-store'
@@ -96,6 +97,26 @@ type PaymentBinding = z.infer<typeof bindingSchema>
 type Catalog = z.infer<typeof catalogSchema>
 type Pair = z.infer<typeof pairSchema>
 type Action = 'catalog' | 'pair' | 'save' | 'reload'
+
+function httpsSiteOrigin(address: unknown): string {
+  if (typeof address !== 'string') return ''
+  try {
+    const url = new URL(address)
+    if (
+      url.protocol === 'https:' &&
+      !url.username &&
+      !url.password &&
+      url.pathname === '/' &&
+      !url.search &&
+      !url.hash
+    ) {
+      return url.origin
+    }
+  } catch {
+    // An unconfigured or invalid public address has no usable HTTPS origin.
+  }
+  return ''
+}
 
 function bindingID(binding: PaymentBinding): number {
   return binding.channel_id ?? binding.channels[0].id
@@ -418,8 +439,12 @@ function PaymentEditor({
   const [confirmPair, setConfirmPair] = useState(false)
   const [confirmReload, setConfirmReload] = useState(false)
   const [copiedWebhook, setCopiedWebhook] = useState('')
+  const { status, capabilitiesReady } = useStatus()
   const siteOrigin =
-    window.location.protocol === 'https:' ? window.location.origin : ''
+    httpsSiteOrigin(capabilitiesReady ? status?.server_address : '') ||
+    (current.environment === 'test'
+      ? httpsSiteOrigin(window.location.origin)
+      : '')
   const webhookURL = `${siteOrigin}/api/waffo-pancake/webhook/${current.environment === 'live' ? 'prod' : 'test'}`
   const inFlight = useRef<AbortController | null>(null)
   useEffect(
@@ -431,10 +456,10 @@ function PaymentEditor({
 
   const dirty =
     returnURL.trim() !== current.return_url || privateKey.trim() !== ''
-  const validReturnURL = () => {
-    if (!returnURL.trim()) return true
+  const validReturnURL = (value: string) => {
+    if (!value.trim()) return true
     try {
-      const url = new URL(returnURL.trim())
+      const url = new URL(value.trim())
       return (
         url.protocol === 'https:' &&
         !url.username &&
@@ -492,7 +517,7 @@ function PaymentEditor({
 
   async function run(action: Exclude<Action, 'reload'>) {
     if (inFlight.current || !isCurrentNativeUsersScope(scope)) return
-    if (action !== 'catalog' && !validReturnURL()) {
+    if (action !== 'catalog' && !validReturnURL(returnURL)) {
       setMessage(
         t('Enter an HTTPS return URL without credentials, or leave it empty.')
       )
@@ -836,6 +861,7 @@ function PaymentEditor({
             type='button'
             variant='outline'
             className='shrink-0'
+            disabled={!siteOrigin}
             onClick={async () => {
               try {
                 await navigator.clipboard.writeText(webhookURL)
@@ -899,7 +925,7 @@ function PaymentEditor({
               'Customers return here after checkout. Leave empty to use the provider default.'
             )}
           </p>
-          {siteOrigin && (
+          {siteOrigin && validReturnURL(`${siteOrigin}/wallet`) && (
             <Button
               type='button'
               variant='ghost'

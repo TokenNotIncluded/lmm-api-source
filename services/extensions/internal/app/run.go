@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strings"
 	"syscall"
 	"time"
@@ -152,7 +153,8 @@ func Run() error {
 		if runtime.Store == nil && runtime.AssistantHistory == nil && runtime.Operations == nil && runtime.Payments == nil && runtime.ToolMarket == nil && runtime.Community == nil && runtime.Acquisition == nil && runtime.Checkins == nil && runtime.HeroSMS == nil && runtime.MarketReview == nil {
 			return errors.New("Web compatibility requires an assembled Web module")
 		}
-		api = webcompat.Mount(host, auth, runtime.Store, runtime.Support, webcompat.AdditionalServices{SSMCPRelay: runtime.SSMCPRelay, Checkins: runtime.Checkins, HeroSMS: runtime.HeroSMS, MarketReview: runtime.MarketReview, Builtins: builtinHTTP, ToolMarket: runtime.ToolMarket, ToolMarketMCP: runtime.ToolMarketMCP, Assistant: runtime.AssistantHistory, AssistantChat: runtime.AssistantChat, AssistantServices: runtime.AssistantServices, Operations: runtime.Operations, Payments: webcompat.NewPaymentStatusReader(runtime.Payments), PaymentCheckout: runtime.Payments, PaymentPortal: runtime.Payments, PancakeAdmin: runtime.PancakeAdmin, EPayAdmin: runtime.EPayAdmin, ProviderGateways: runtime.ProviderGateways, SubscriptionPayments: subscriptionPayments, Plugins: pluginManager, Community: runtime.Community, Acquisition: runtime.Acquisition})
+		presetDirectory := walletPresetDirectory(os.Getenv("STATE_DIRECTORY"), cfg.Host.PluginStateFile, cfg.Payments.ConfigFile)
+		api = webcompat.Mount(host, auth, runtime.Store, runtime.Support, webcompat.AdditionalServices{SSMCPRelay: runtime.SSMCPRelay, Checkins: runtime.Checkins, HeroSMS: runtime.HeroSMS, MarketReview: runtime.MarketReview, Builtins: builtinHTTP, ToolMarket: runtime.ToolMarket, ToolMarketMCP: runtime.ToolMarketMCP, Assistant: runtime.AssistantHistory, AssistantChat: runtime.AssistantChat, AssistantServices: runtime.AssistantServices, Operations: runtime.Operations, Payments: webcompat.NewPaymentStatusReader(runtime.Payments), PaymentCheckout: runtime.Payments, WalletPresetDirectory: presetDirectory, PaymentPortal: runtime.Payments, PancakeAdmin: runtime.PancakeAdmin, EPayAdmin: runtime.EPayAdmin, ProviderGateways: runtime.ProviderGateways, SubscriptionPayments: subscriptionPayments, Plugins: pluginManager, Community: runtime.Community, Acquisition: runtime.Acquisition})
 	}
 	handler := listenerHandler(policies, api)
 	if cfg.Payments.CallbacksEnabled {
@@ -267,4 +269,20 @@ func listenerHandler(policies *legal.Handler, api http.Handler) http.Handler {
 
 func readHostCredential(path string) ([]byte, error) {
 	return coreclient.ReadTokenFile(path)
+}
+
+// systemd grants the service user write access to StateDirectory even with
+// ProtectSystem=strict. Standalone hosts can use the plugin state directory.
+func walletPresetDirectory(stateDirectories, pluginState, paymentConfig string) string {
+	for _, dir := range filepath.SplitList(stateDirectories) {
+		if filepath.IsAbs(dir) {
+			return dir
+		}
+	}
+	for _, file := range []string{pluginState, paymentConfig} {
+		if filepath.IsAbs(file) {
+			return filepath.Dir(file)
+		}
+	}
+	return ""
 }

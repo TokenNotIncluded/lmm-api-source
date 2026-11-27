@@ -477,14 +477,16 @@ export const storeApi = {
       )
     ),
   saveConfig: (
-    body: Pick<
-      StoreConfig,
-      | 'fee_bps'
-      | 'promotion_quota'
-      | 'minimum_unit_price_quota'
-      | 'relay_price_quota_per_gib'
-      | 'recipient_id'
-      | 'linuxdo_units_per_usd'
+    body: Partial<
+      Pick<
+        StoreConfig,
+        | 'fee_bps'
+        | 'promotion_quota'
+        | 'minimum_unit_price_quota'
+        | 'relay_price_quota_per_gib'
+        | 'recipient_id'
+        | 'linuxdo_units_per_usd'
+      >
     >
   ) => unwrap<null>(api.put(`${root}/config`, body, options)),
   savePromotionPrice: (promotion_quota: number) =>

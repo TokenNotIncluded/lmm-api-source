@@ -147,8 +147,9 @@ export function AssistantModelSetting({ scope }: { scope: NativeUsersScope }) {
           staged.group !== group ||
           staged.model !== selected ||
           staged.revision <= data.revision
-        )
+        ) {
           throw new Error('Unexpected plugin receipt')
+        }
       }
       if (!isCurrentNativeUsersScope(scope)) return
       projectionEnvelope.parse(
@@ -184,10 +185,13 @@ export function AssistantModelSetting({ scope }: { scope: NativeUsersScope }) {
       })
     } catch (error) {
       if (!isCurrentNativeUsersScope(scope)) return
-      if (denied(error)) setState('forbidden')
-      else if (isAxiosError(error) && error.response?.status === 409)
+      if (denied(error)) {
+        setState('forbidden')
+      } else if (isAxiosError(error) && error.response?.status === 409) {
         setState('conflict')
-      else setState('failed')
+      } else {
+        setState('failed')
+      }
     }
   }
   async function reload() {

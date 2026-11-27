@@ -82,7 +82,8 @@ func checkoutData(w http.ResponseWriter, code int, value any) {
 	_ = json.NewEncoder(w).Encode(map[string]any{"success": true, "data": value})
 }
 
-func RegisterPaymentCheckout(mux RouteRegistrar, auth *Authenticator, service PaymentCheckoutService, portal PaymentPortal) {
+func RegisterPaymentCheckout(mux RouteRegistrar, auth *Authenticator, service PaymentCheckoutService, portal PaymentPortal, presets payments.WalletPresets) {
+	registerWalletPresetSettings(mux, auth, presets)
 	ready := func(w http.ResponseWriter, r *http.Request) (string, int64, bool) {
 		self, err := auth.Verify(r.Context(), r)
 		if err != nil {
@@ -100,15 +101,17 @@ func RegisterPaymentCheckout(mux RouteRegistrar, auth *Authenticator, service Pa
 			return
 		}
 		type channelView struct {
-			CreditQuantity   bool   `json:"credit_quantity,omitempty"`
-			MinCreditUnits   string `json:"min_credit_units,omitempty"`
-			ID               string `json:"id"`
-			Provider         string `json:"provider"`
-			Environment      string `json:"environment"`
-			Currency         string `json:"currency"`
-			PaymentType      string `json:"payment_type,omitempty"`
-			ProductID        string `json:"product_id,omitempty"`
-			FixedAmountMinor string `json:"fixed_amount_minor,omitempty"`
+			CreditQuantity     bool      `json:"credit_quantity,omitempty"`
+			PresetAmountsMinor *[]string `json:"preset_amounts_minor,omitempty"`
+			MinAmountMinor     string    `json:"min_amount_minor,omitempty"`
+			MinCreditUnits     string    `json:"min_credit_units,omitempty"`
+			ID                 string    `json:"id"`
+			Provider           string    `json:"provider"`
+			Environment        string    `json:"environment"`
+			Currency           string    `json:"currency"`
+			PaymentType        string    `json:"payment_type,omitempty"`
+			ProductID          string    `json:"product_id,omitempty"`
+			FixedAmountMinor   string    `json:"fixed_amount_minor,omitempty"`
 		}
 		channels := make([]channelView, 0)
 		catalog, err := service.CheckoutCatalog(r.Context())
@@ -116,10 +119,29 @@ func RegisterPaymentCheckout(mux RouteRegistrar, auth *Authenticator, service Pa
 			writePaymentError(w, err)
 			return
 		}
+		overrides, err := presets.Read()
+		if err != nil {
+			writePaymentError(w, err)
+			return
+		}
 		for _, c := range catalog {
 			view := channelView{CreditQuantity: c.CreditQuantity, ID: strconv.FormatInt(c.ID, 10), Provider: c.Provider, Environment: c.Environment, Currency: c.Currency, PaymentType: c.PaymentType, ProductID: c.ProductID}
+			currency := c.Currency
 			if c.CreditQuantity {
 				view.MinCreditUnits = strconv.FormatInt(c.MinCreditUnits, 10)
+				if currency != "CNY" {
+					currency = "USD"
+				}
+			} else {
+				if c.Provider == "coinbase" {
+					currency = "USDC"
+				}
+				if c.MinAmountMinor > 0 {
+					view.MinAmountMinor = strconv.FormatInt(c.MinAmountMinor, 10)
+				}
+			}
+			if amounts, ok := overrides[currency]; ok && c.FixedAmountMinor == 0 {
+				view.PresetAmountsMinor = &amounts
 			}
 			if c.FixedAmountMinor > 0 {
 				view.FixedAmountMinor = strconv.FormatInt(c.FixedAmountMinor, 10)

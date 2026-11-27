@@ -145,12 +145,28 @@ func (s *Service) PublicConfig(ctx context.Context) (map[string]any, error) {
 	if s.ExtoreReady() {
 		redirect = s.extoreRedirect
 	}
-	floor, relay, err := s.currentStorePrices(ctx)
+	var floor, relay int64
+	var links productLinkPresets
+	err := s.repo.Within(ctx, pricePolicyScope, func(tx Tx) error {
+		var err error
+		if floor, err = readMinimumUnitPrice(tx); err != nil {
+			return err
+		}
+		if relay, err = readRelayPricePerGiB(tx); err != nil {
+			return err
+		}
+		err = tx.Get("commands", productLinkPresetsKey, &links)
+		if errors.Is(err, ErrNotFound) {
+			links.Presets = []productLinkPreset{}
+			return nil
+		}
+		return err
+	})
 	if err != nil {
 		return nil, err
 	}
 	_, collectionsSupported := s.repo.(collectionRepository)
-	return map[string]any{"fee_bps": 0, "promotion_quota": 0, "minimum_unit_price_quota": floor, "relay_price_quota_per_gib": relay, "credits_per_usd": int64(500000), "external_minimum_quota": int64(5000000), "product_test_mode_supported": true, "store_catalogue_supported": true, "store_collections_supported": collectionsSupported, "store_categories_supported": true, "store_likes_supported": true, "store_svg_media_supported": false, "extore_import_supported": s.ExtoreReady(), "extore_redirect_uri": redirect, "store_merchant_home_supported": s.merchantHomeReady(), "store_access_supported": false, "store_visibility_supported": true, "store_self_purchase_supported": s.selfPurchaseAvailable(), "store_terms_supported": true, "product_purchase_limits_supported": true, "fixed_content_supported": true, "stock_items_supported": s.StockReady(), "product_variants_create_supported": true, "product_link_presets": []any{}, "linuxdo_units_per_usd": "0", "disclaimer_version": "merchant-store-v1", "disclaimer_text": legacyDisclaimerText, "platform_payment_methods": []any{}, "platform_payment_catalog": []any{}}, nil
+	return map[string]any{"fee_bps": 0, "seller_fee_configurable": false, "promotion_quota": 0, "paid_promotions_supported": false, "minimum_unit_price_quota": floor, "relay_price_quota_per_gib": relay, "credits_per_usd": int64(500000), "external_minimum_quota": int64(5000000), "product_test_mode_supported": true, "store_catalogue_supported": true, "store_collections_supported": collectionsSupported, "store_categories_supported": true, "store_likes_supported": true, "store_svg_media_supported": false, "extore_import_supported": s.ExtoreReady(), "extore_redirect_uri": redirect, "store_merchant_home_supported": s.merchantHomeReady(), "store_access_supported": false, "store_visibility_supported": true, "store_self_purchase_supported": s.selfPurchaseAvailable(), "store_terms_supported": true, "product_purchase_limits_supported": true, "fixed_content_supported": true, "stock_items_supported": s.StockReady(), "product_variants_create_supported": true, "product_link_presets": links.Presets, "linuxdo_units_per_usd": "0", "disclaimer_version": "merchant-store-v1", "disclaimer_text": legacyDisclaimerText, "platform_payment_methods": []any{}, "platform_payment_catalog": []any{}}, nil
 }
 
 func (s *Service) PublicCatalogueQuery(ctx context.Context, q CatalogueQuery) ([]map[string]any, error) {
@@ -262,6 +278,8 @@ func (s *Service) Legacy(ctx context.Context, token string, actor Account, r Leg
 		return nil, err
 	}
 	switch r.Action {
+	case "save_product_link_presets":
+		return nil, s.saveProductLinkPresets(ctx, token, r.Body)
 	case "set_minimum_price":
 		return nil, s.setMinimumUnitPrice(ctx, token, r.Body)
 	case "payment_settings":

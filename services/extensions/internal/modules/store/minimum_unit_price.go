@@ -63,19 +63,6 @@ func readRelayPricePerGiB(tx Tx) (int64, error) {
 	return price, nil
 }
 
-func (s *Service) currentStorePrices(ctx context.Context) (floor, relay int64, err error) {
-	err = s.repo.Within(ctx, pricePolicyScope, func(tx Tx) error {
-		var e error
-		floor, e = readMinimumUnitPrice(tx)
-		if e != nil {
-			return e
-		}
-		relay, e = readRelayPricePerGiB(tx)
-		return e
-	})
-	return
-}
-
 // Configuration writes take the exclusive version through Repository.Within.
 // The shared lock covers the first write as well as updates to an existing row.
 func (t *postgresTx) lockedStorePrice(read func(Tx) (int64, error)) (int64, error) {

@@ -285,6 +285,103 @@ function button(container: Element, text: string) {
   return value as HTMLButtonElement
 }
 
+test('channel group prices copy only a matching default speed, preview, publish and reload', async () => {
+  const config = fixture()
+  config.routing.routes[0].group = 'vip'
+  config.routing.groups.push({ name: 'vip', enabled: true })
+  const standard = config.prices.rules[0]
+  config.prices.rules.push({
+    ...standard,
+    id: 2,
+    group: 'vip',
+    rates: { ...standard.rates, input: 42 },
+  })
+  config.prices.rules.push({ ...standard, id: 3, speed: 'fast' })
+  const original = structuredClone(config.prices.rules)
+  let writes = 0
+  const digest = 'e'.repeat(64)
+  api.request = (async (options: {
+    url: string
+    method: string
+    data?: Record<string, unknown>
+  }) => {
+    const ok = (data: unknown) => ({ data: { success: true, data } })
+    if (options.method === 'GET') return ok(config)
+    const body = required(options.data)
+    const next = body.prices as typeof config.prices
+    assert.deepEqual(body.expected_version, { routing: 1, pricing: 1 })
+    assert.deepEqual(next.rules[0], original[0])
+    assert.deepEqual(next.rules[2], original[2])
+    assert.equal(next.rules[1].id, 2)
+    assert.equal(next.rules[1].group, 'vip')
+    assert.equal(next.rules[1].rates.input, 2)
+    assert.equal(next.rules[1].group_multiplier_ppm, 1_500_000)
+    if (options.method === 'POST') {
+      assert.equal(options.url, '/core/v1/admin/routing/prices/preview')
+      return ok({
+        before: config.prices,
+        after: next,
+        confirmation_digest: digest,
+      })
+    }
+    assert.equal(options.method, 'PUT')
+    assert.equal(options.url, '/core/v1/admin/routing/prices')
+    assert.equal(body.confirmation_digest, digest)
+    config.prices = next
+    config.version = { routing: 2, pricing: 2 }
+    config.routing.version = 2
+    writes++
+    return ok({ version: config.version })
+  }) as typeof api.request
+  const container = await mount('channels')
+  await until(() =>
+    [...container.querySelectorAll('button')].some(
+      (item) => item.textContent === 'Edit'
+    )
+  )
+  const openGroup = async () => {
+    await act(async () => button(container, 'Edit').click())
+    const form = required(
+      container.querySelector('form[aria-label="Edit Channel"]')
+    )
+    await act(async () => button(form, 'Edit group prices').click())
+    return required(
+      container.querySelector('form[aria-label="Edit group prices"]')
+    )
+  }
+  let form = await openGroup()
+  const multiplier = () =>
+    required(
+      [...form.querySelectorAll('label')]
+        .find((label) => label.textContent === 'Group multiplier')
+        ?.querySelector('input')
+    )
+  await act(async () =>
+    button(form, 'Copy prices from the default group').click()
+  )
+  await changeInput(multiplier(), '1.5')
+  await act(async () => button(form, 'Preview').click())
+  assert.ok(
+    form.textContent?.includes('Confirm and apply'),
+    container.textContent ?? ''
+  )
+  await until(() => !!form.textContent?.includes('Confirm and apply'))
+  assert.equal(writes, 0)
+  assert.match(
+    required(form.querySelector('section[aria-label="Preview"]')).textContent ??
+      '',
+    /0\.000003/
+  )
+  await act(async () => button(form, 'Confirm and apply').click())
+  await until(
+    () =>
+      writes === 1 &&
+      !container.querySelector('form[aria-label="Edit group prices"]')
+  )
+  form = await openGroup()
+  assert.equal(multiplier().value, '1.5')
+})
+
 test('prices require a reviewed preview and editing invalidates the exact confirmation before one CAS publication', async () => {
   let config = { ...fixture(), channel_id_high_water: 17 }
   const writes: Array<{ path: string; body: Record<string, unknown> }> = []
@@ -2601,13 +2698,7 @@ test('channel bindings add, map and remove models through one reviewed channel d
     routeFields(1).textContent ?? '',
     /Disable the channel before removing its last configured model/
   )
-  const choice = required(
-    [...picker.querySelectorAll('label')]
-      .find((item) => item.textContent?.includes('model-b'))
-      ?.querySelector<HTMLInputElement>('input[type=checkbox]')
-  )
-  await act(async () => choice.click())
-  await act(async () => button(form, 'Add selected models').click())
+  await act(async () => button(picker, 'Add · team').click())
   assert.ok(routeFields(2).textContent?.includes('model-b'))
   assert.ok(routeFields(2).closest('details')?.textContent?.includes('team'))
   assert.equal(required(routeFields(2).closest('details')).open, true)
@@ -2725,26 +2816,12 @@ test('channel model multi-selection survives filtering and adds distinct binding
       'input[aria-label="Search models or groups"]'
     )
   )
-  const selectMatches = () =>
-    required(
-      [...picker.querySelectorAll('label')]
-        .find((item) => item.textContent?.includes('Select all matches'))
-        ?.querySelector<HTMLInputElement>('input[type=checkbox]')
-    )
   await changeInput(search, 'model-b')
-  await act(async () => selectMatches().click())
-  assert.ok(picker.textContent?.includes('2 selected'))
+  await act(async () => button(picker, 'Add matching bindings (2)').click())
   await changeInput(search, 'no matching model')
-  assert.ok(picker.textContent?.includes('No results found'))
-  assert.ok(picker.textContent?.includes('2 selected'))
-  assert.equal(button(picker, 'Add selected models').disabled, false)
+  assert.ok(picker.textContent?.includes('No models found'))
   await changeInput(search, 'team')
-  await act(async () => selectMatches().click())
-  assert.ok(picker.textContent?.includes('3 selected'))
-  await act(async () => selectMatches().click())
-  assert.ok(picker.textContent?.includes('1 selected'))
-  await act(async () => selectMatches().click())
-  await act(async () => button(picker, 'Add selected models').click())
+  await act(async () => button(picker, 'Add matching bindings (1)').click())
   const textarea = required(form.querySelector('textarea'))
   const draft = JSON.parse(textarea.value)
   assert.deepEqual(draft.expected_version, { routing: 1, pricing: 1 })
@@ -2785,9 +2862,21 @@ test('channel model multi-selection survives filtering and adds distinct binding
     details.dispatchEvent(new Event('toggle'))
   })
   assert.equal(textarea.value, before)
-  assert.equal(
-    form.querySelector('section[aria-label="Available models"]'),
-    null
+  await act(async () =>
+    button(
+      required(form.querySelector('[data-route-id="2"]')),
+      'Remove'
+    ).click()
+  )
+  const removed = JSON.parse(textarea.value)
+  assert.deepEqual(
+    removed.attachments.map((item: { route_id: number }) => item.route_id),
+    [1, 3, 4]
+  )
+  assert.ok(
+    removed.contexts.some(
+      (item: { upstream_model: string }) => item.upstream_model === 'model-b'
+    )
   )
 })
 
@@ -4292,6 +4381,12 @@ test('channel override preview preserves other channels and prices and confirms 
 
 test('fetching a channel catalog previews editable changes and only Save publishes the final draft', async () => {
   const config: NativeConfiguration = fixture()
+  config.routing.groups.push({ name: 'review', enabled: true })
+  config.prices.rules.push({
+    ...config.prices.rules[0],
+    id: 3,
+    group: 'review',
+  })
   config.bindings.discoveries['1'] = {
     models: ['saved-only-model'],
     observed_at: 1,
@@ -4306,6 +4401,11 @@ test('fetching a channel catalog previews editable changes and only Save publish
     id: 2,
     model: 'model-b',
     targets: [],
+  })
+  config.routing.routes.push({
+    ...config.routing.routes[1],
+    id: 3,
+    group: 'review',
   })
   const page = {
     items: [
@@ -4339,7 +4439,7 @@ test('fetching a channel catalog previews editable changes and only Save publish
   }
   const writes: Array<{ method: string; url: string; data: unknown }> = []
   const previews: Array<{
-    route: { model: string }
+    route: { model: string; group: string }
     metadata: { display_name: string }
   }> = []
   let catalogReads = 0
@@ -4400,66 +4500,74 @@ test('fetching a channel catalog previews editable changes and only Save publish
     container.querySelector<HTMLFormElement>('form[aria-label="Edit Channel"]')
   )
   await until(() => form.textContent?.includes('unpublished-model') === true)
-  assert.match(form.textContent ?? '', /Preview changes/)
-  assert.match(form.textContent ?? '', /New Models \(2\)/)
-  assert.match(form.textContent ?? '', /Existing Models \(1\)/)
+  const picker = required(
+    form.querySelector('section[aria-label="Available models"]')
+  )
+  assert.equal(picker.closest('details')?.open, false)
+  assert.match(
+    picker.closest('details')?.querySelector('summary')?.textContent ?? '',
+    /Available models.*2/
+  )
   assert.equal(writes.length, 0)
   assert.doesNotMatch(form.textContent ?? '', /saved-only-model/)
   assert.equal(catalogReads, 1)
-  const row = required(
-    [...form.querySelectorAll('li')].find((item) =>
-      item.textContent?.startsWith('model-b')
-    )
-  )
-  const checkbox = required(
-    row.querySelector<HTMLInputElement>('input[type=checkbox]')
-  )
-  await act(async () => checkbox.click())
-  assert.equal(button(form, 'Apply').disabled, false)
-  await act(async () => button(form, 'Apply').click())
+  await act(async () => button(picker, 'Add · default').click())
   const models = required(
     form.querySelector('details[aria-label="Models"] summary')
   )
   assert.match(models.textContent ?? '', /model-b/)
   assert.match(models.textContent ?? '', /2 selected/)
-  const removalAvailable = () =>
-    [...form.querySelectorAll('button')].some(
-      (item) => item.textContent === 'Remove from draft'
+  await act(async () => button(picker, 'Add · review').click())
+  assert.match(models.textContent ?? '', /3 selected/)
+  const missingSection = () =>
+    [...form.querySelectorAll('details')].find((item) =>
+      item.firstElementChild?.textContent?.includes(
+        'Models missing from the upstream catalog'
+      )
     )
-
+  const missingRow = (name: string) =>
+    required(
+      [...required(missingSection()).querySelectorAll('li')].find(
+        (row) => row.querySelector('span')?.textContent === name
+      )
+    )
   returnedModels = []
   await act(async () => button(form, 'Fetch Models').click())
-  await until(() => form.textContent?.includes('No models found') === true)
-  assert.equal(removalAvailable(), false)
+  await until(() => form.textContent?.includes('Upstream catalog · 0') === true)
+  assert.equal(missingSection(), undefined)
 
   returnedModels = ['model-a']
   await act(async () => button(form, 'Fetch Models').click())
-  await until(removalAvailable)
-  assert.match(
-    form.textContent ?? '',
-    /Models missing from the upstream catalogmodel-b/
+  await until(() => !!missingSection())
+  assert.equal(
+    button(required(missingSection()), 'Remove from draft (2)').disabled,
+    false
   )
-  const missing = required(
-    [...form.querySelectorAll('label')]
-      .find(
-        (label) =>
-          label.textContent?.trim() === 'model-b' &&
-          label.querySelector('input[type=checkbox]')
-      )
-      ?.querySelector<HTMLInputElement>('input')
+  await act(async () =>
+    button(missingRow('model-b · review'), 'Remove').click()
   )
-  await act(async () => missing.click())
-  assert.equal(button(form, 'Remove from draft').disabled, true)
-  await act(async () => missing.click())
-  await act(async () => button(form, 'Remove from draft').click())
+  const remaining = JSON.parse(required(form.querySelector('textarea')).value)
+  assert.deepEqual(
+    remaining.attachments.map((item: { route_id: number }) => item.route_id),
+    [1, 2]
+  )
+  assert.ok(
+    remaining.contexts.some(
+      (item: { upstream_model: string }) => item.upstream_model === 'model-b'
+    )
+  )
+  assert.equal(required(missingSection()).querySelectorAll('li').length, 1)
+  await act(async () =>
+    button(missingRow('model-b · default'), 'Remove').click()
+  )
   assert.doesNotMatch(models.textContent ?? '', /model-b/)
   assert.match(models.textContent ?? '', /1 selected/)
-  assert.equal(removalAvailable(), false)
+  assert.equal(missingSection(), undefined)
 
   returnedModels = ['unpublished-model']
   await act(async () => button(form, 'Fetch Models').click())
-  await until(removalAvailable)
-  assert.equal(button(form, 'Remove from draft').disabled, true)
+  await until(() => !!missingSection())
+  assert.equal(button(missingRow('model-a · default'), 'Remove').disabled, true)
   assert.match(
     form.textContent ?? '',
     /Disable the channel before removing its last configured model/
@@ -4489,17 +4597,13 @@ test('fetching a channel catalog previews editable changes and only Save publish
   await pick('Upstream model', 'unpublished-model')
   await pick('Model name', 'model-a · default')
   await act(async () => button(mapping, 'Confirm').click())
-  assert.equal(removalAvailable(), false)
+  assert.equal(missingSection(), undefined)
   assert.match(models.textContent ?? '', /model-a/)
   assert.match(models.textContent ?? '', /1 selected/)
-  const mappedRow = required(
-    [...form.querySelectorAll('li')].find(
-      (item) => item.firstElementChild?.textContent === 'unpublished-model'
+  assert.ok(
+    ![...picker.querySelectorAll('li')].some(
+      (row) => row.firstElementChild?.textContent === 'unpublished-model'
     )
-  )
-  assert.equal(
-    mappedRow.querySelector<HTMLInputElement>('input[type=checkbox]')?.checked,
-    true
   )
   returnedModels = [
     'unpublished-model',
@@ -4513,25 +4617,19 @@ test('fetching a channel catalog previews editable changes and only Save publish
   assert.equal(button(form, 'Previous page').disabled, true)
   await act(async () => button(form, 'Next page').click())
   assert.match(form.textContent ?? '', /Page 2 of 2/)
-  assert.equal(form.querySelectorAll('li > span').length, 2)
-  const nextRow = required(
-    [...form.querySelectorAll('li')].find(
-      (item) => item.firstElementChild?.textContent === 'model-b'
-    )
-  )
-  await act(async () =>
-    required(
-      nextRow.querySelector<HTMLInputElement>('input[type=checkbox]')
-    ).click()
-  )
+  assert.equal(picker.querySelectorAll('li > span').length, 1)
   await act(async () => button(form, 'Previous page').click())
   const search = required(
-    form.querySelector<HTMLInputElement>('input[aria-label="Search models"]')
+    picker.querySelector<HTMLInputElement>(
+      'input[aria-label="Search models or groups"]'
+    )
   )
+  await changeInput(search, 'model-b')
+  await act(async () => button(picker, 'Add · default').click())
   await changeInput(search, 'catalog-last')
-  assert.equal(form.querySelectorAll('li > span').length, 1)
-  assert.match(form.textContent ?? '', /catalog-last/)
-  await act(async () => button(form, 'Apply').click())
+  assert.equal(picker.querySelectorAll('li > span').length, 1)
+  await act(async () => button(form, 'Fetch Models').click())
+  await until(() => catalogReads === 6)
   assert.match(models.textContent ?? '', /model-b/)
   assert.equal(models.parentElement?.hasAttribute('open'), true)
   for (const row of form.querySelectorAll('fieldset[data-route-id]')) {
@@ -4548,11 +4646,29 @@ test('fetching a channel catalog previews editable changes and only Save publish
       await changeInput(field('Weight'), '17')
     }
   }
+  const nameField = required(
+    [...form.querySelectorAll('label')]
+      .find((item) => item.querySelector('span')?.textContent === 'Name')
+      ?.querySelector('input')
+  )
+  await changeInput(nameField, 'Renamed channel')
+  assert.equal(button(form, 'Add Model').disabled, true)
+  const groupField = required(
+    picker.querySelector<HTMLSelectElement>('select[aria-label="Group"]')
+  )
+  await act(async () => {
+    groupField.value = 'review'
+    groupField.dispatchEvent(new Event('change', { bubbles: true }))
+  })
   await act(async () => button(form, 'Add Model').click())
-  const discard = required(document.querySelector('[data-slot=dialog-content]'))
-  assert.match(discard.textContent ?? '', /unsaved changes/)
-  await act(async () => button(discard, 'Stay').click())
+  assert.ok(
+    form.textContent?.includes(
+      'Save this channel to continue creating catalog-last in review.'
+    )
+  )
+  assert.equal(container.querySelector('form[aria-label="Add Model"]'), null)
   const draft = JSON.parse(required(form.querySelector('textarea')).value)
+  assert.equal(draft.name, 'Renamed channel')
   assert.deepEqual(draft.expected_version, { routing: 1, pricing: 1 })
   assert.deepEqual(
     draft.attachments.map(
@@ -4573,12 +4689,7 @@ test('fetching a channel catalog previews editable changes and only Save publish
   assert.equal(writes[0].method, 'PUT')
   assert.equal(writes[0].url, '/core/v1/admin/routing/channels/1')
   assert.deepEqual(writes[0].data, draft)
-  await until(() => !container.querySelector('form[aria-label="Edit Channel"]'))
-  await act(async () => button(container, 'Edit').click())
-  const next = required(
-    container.querySelector('form[aria-label="Edit Channel"]')
-  )
-  await act(async () => button(next, 'Add Model').click())
+  await until(() => !!container.querySelector('form[aria-label="Add Model"]'))
   const newModel = required(
     container.querySelector('form[aria-label="Add Model"]')
   )
@@ -4588,14 +4699,15 @@ test('fetching a channel catalog previews editable changes and only Save publish
         .find((item) => item.querySelector('span')?.textContent === label)
         ?.querySelector('input')
     )
-  assert.equal(modelField('Model name').value, 'saved-only-model')
-  assert.equal(modelField('Display name').value, 'saved-only-model')
+  assert.equal(modelField('Model name').value, 'catalog-last')
+  assert.equal(modelField('Display name').value, 'catalog-last')
   await changeInput(modelField('Maximum input tokens'), '16000')
   await changeInput(modelField('Maximum output tokens'), '2000')
   await changeInput(modelField('Contract revision'), 'supplier-v1')
   await act(async () => button(newModel, 'Preview').click())
   await until(() => previews.length === 1)
-  assert.equal(previews[0].route.model, 'saved-only-model')
-  assert.equal(previews[0].metadata.display_name, 'saved-only-model')
+  assert.equal(previews[0].route.model, 'catalog-last')
+  assert.equal(previews[0].route.group, 'review')
+  assert.equal(previews[0].metadata.display_name, 'catalog-last')
   assert.equal(writes.length, 1)
 })

@@ -26,6 +26,8 @@ export const nativeChannelSchema = z
     fixed_amount_minor: integer.optional(),
     credit_quantity: z.boolean().optional(),
     min_credit_units: integer.optional(),
+    min_amount_minor: integer.optional(),
+    preset_amounts_minor: z.array(integer).max(32).optional(),
   })
   .refine(
     (channel) =>

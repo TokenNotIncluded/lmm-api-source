@@ -21,27 +21,28 @@ import (
 // API while sharing its admission/drain lifecycle. It never upgrades the host
 // credential into user authority.
 type AdditionalServices struct {
-	SSMCPRelay           *ssmcprelay.Service
-	Checkins             *checkins.Service
-	HeroSMS              *herosms.Service
-	MarketReview         *marketreview.Engine
-	Builtins             BuiltinHTTP
-	ToolMarketMCP        http.Handler
-	Assistant            AssistantHistory
-	AssistantChat        AssistantChat
-	AssistantServices    http.Handler
-	ToolMarket           ToolMarketService
-	Operations           *operations.Service
-	Payments             PaymentStatusReader
-	PaymentCheckout      PaymentCheckoutService
-	PaymentPortal        PaymentPortal
-	PancakeAdmin         PancakeAdmin
-	EPayAdmin            EPayAdmin
-	ProviderGateways     *payments.ProviderGatewayConfiguration
-	SubscriptionPayments http.Handler
-	Plugins              PluginController
-	Community            *community.Service
-	Acquisition          *acquisition.Service
+	SSMCPRelay            *ssmcprelay.Service
+	Checkins              *checkins.Service
+	HeroSMS               *herosms.Service
+	MarketReview          *marketreview.Engine
+	Builtins              BuiltinHTTP
+	ToolMarketMCP         http.Handler
+	Assistant             AssistantHistory
+	AssistantChat         AssistantChat
+	AssistantServices     http.Handler
+	ToolMarket            ToolMarketService
+	Operations            *operations.Service
+	Payments              PaymentStatusReader
+	WalletPresetDirectory string
+	PaymentCheckout       PaymentCheckoutService
+	PaymentPortal         PaymentPortal
+	PancakeAdmin          PancakeAdmin
+	EPayAdmin             EPayAdmin
+	ProviderGateways      *payments.ProviderGatewayConfiguration
+	SubscriptionPayments  http.Handler
+	Plugins               PluginController
+	Community             *community.Service
+	Acquisition           *acquisition.Service
 }
 
 // @mark extensions.admission role=consumer
@@ -120,7 +121,7 @@ func Mount(host *modules.Host, auth *Authenticator, catalogue StoreService, supp
 	RegisterCheckinSettings(routes.forPlugins(), auth, additional.Checkins, additional.Plugins)
 	RegisterOperations(routes.forPlugins("operations"), auth, operationsService)
 	RegisterPayments(routes.forPlugins("payments"), auth, paymentReader)
-	RegisterPaymentCheckout(routes.forPlugins("payments"), auth, paymentCheckout, paymentPortal)
+	RegisterPaymentCheckout(routes.forPlugins("payments"), auth, paymentCheckout, paymentPortal, payments.WalletPresets{Directory: additional.WalletPresetDirectory})
 	// Forward only the host's own namespaces so its fallback cannot swallow
 	// method-not-allowed responses from registered Web routes.
 	mux.Handle("/extensions/v1/", host)

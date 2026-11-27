@@ -107,18 +107,30 @@ function rejected(status: number, code = '', data?: unknown): never {
 async function mount(
   handler: (config: ApiRequestConfig) => unknown | Promise<unknown>,
   role = 100,
-  Component = NativePaymentSettings
+  Component = NativePaymentSettings,
+  serverAddress?: string | Promise<string>
 ) {
   signedIn(role)
   const requests: ApiRequestConfig[] = []
   api.defaults.adapter = async (config) => {
-    requests.push(config)
+    let data: unknown
+    if (config.method === 'get' && config.url === '/api/status') {
+      data = success({ server_address: await serverAddress })
+    } else if (
+      config.method === 'get' &&
+      config.url === '/api/site/navigation'
+    ) {
+      data = { ...success({ value: '{}', revision: 1 }), message: '' }
+    } else {
+      requests.push(config)
+      data = await handler(config)
+    }
     return {
       config,
       headers: {},
       status: 200,
       statusText: 'OK',
-      data: await handler(config),
+      data,
     }
   }
   const client = new QueryClient({
@@ -769,36 +781,86 @@ test('readback keeps the selected currency when equivalent bindings regroup afte
   )
 })
 
-test('payment callbacks follow the selected environment and current site without saving automatically', async () => {
+test('live payment links wait for the configured public HTTPS origin even when opened through an alias', async () => {
   dom.happyDOM.setURL(
     'https://native.example.test/system-settings/billing/payment'
   )
-  const { container, requests } = await mount(() =>
-    success(bindingsConfiguration())
+  let resolveAddress!: (address: string) => void
+  const serverAddress = new Promise<string>((resolve) => {
+    resolveAddress = resolve
+  })
+  const { container, requests } = await mount(
+    () => success(bindingsConfiguration()),
+    100,
+    NativePaymentSettings,
+    serverAddress
   )
   await until(() => Boolean(container.querySelector('form')))
   const webhook = () =>
     (document.getElementById('native-payment-webhook') as HTMLInputElement)
       .value
+  const returnURL = () =>
+    (document.getElementById('native-payment-return-url') as HTMLInputElement)
+      .value
+  const copyButton = container.querySelector<HTMLButtonElement>(
+    '#native-payment-webhook + button'
+  )
+  assert.ok(copyButton)
+  assert.equal(webhook(), '/api/waffo-pancake/webhook/prod')
+  assert.equal(copyButton.disabled, true)
+  assert.ok(!container.textContent?.includes('Use this site’s wallet URL'))
+  assert.equal(returnURL(), 'https://example.com/live')
+  await act(async () => resolveAddress('https://payments.example.test/'))
+  await until(() => !copyButton.disabled)
   assert.equal(
     webhook(),
-    'https://native.example.test/api/waffo-pancake/webhook/prod'
+    'https://payments.example.test/api/waffo-pancake/webhook/prod'
   )
   await click('Copy webhook URL')
   assert.equal(await navigator.clipboard.readText(), webhook())
+  assert.equal(returnURL(), 'https://example.com/live')
+  await click('Use this site’s wallet URL')
+  assert.equal(returnURL(), 'https://payments.example.test/wallet')
+  await edit('native-payment-return-url', 'https://example.com/live')
   await chooseBinding(52)
   assert.equal(
     webhook(),
-    'https://native.example.test/api/waffo-pancake/webhook/test'
+    'https://payments.example.test/api/waffo-pancake/webhook/test'
   )
   await click('Use this site’s wallet URL')
-  assert.equal(
-    (document.getElementById('native-payment-return-url') as HTMLInputElement)
-      .value,
-    'https://native.example.test/wallet'
-  )
+  assert.equal(returnURL(), 'https://payments.example.test/wallet')
   assert.equal(requests.length, 1)
   assert.ok(requests.every((request) => request.method === 'get'))
+})
+
+test('an HTTP public address leaves live links unavailable and permits an HTTPS test-site preview', async () => {
+  dom.happyDOM.setURL('https://preview.example.test/system-settings')
+  const { container, client } = await mount(
+    () => success(bindingsConfiguration()),
+    100,
+    NativePaymentSettings,
+    'http://insecure.example.test'
+  )
+  await until(
+    () =>
+      client.getQueryState(['status', 'user:501:docs:0'])?.status === 'success'
+  )
+  const webhook = container.querySelector<HTMLInputElement>(
+    '#native-payment-webhook'
+  )
+  const copy = container.querySelector<HTMLButtonElement>(
+    '#native-payment-webhook + button'
+  )
+  assert.ok(webhook && copy)
+  assert.equal(webhook.value, '/api/waffo-pancake/webhook/prod')
+  assert.equal(copy.disabled, true)
+  assert.ok(!container.textContent?.includes('Use this site’s wallet URL'))
+  await chooseBinding(52)
+  assert.equal(
+    webhook.value,
+    'https://preview.example.test/api/waffo-pancake/webhook/test'
+  )
+  assert.equal(copy.disabled, false)
 })
 
 for (const callbacksEnabled of [undefined, false, true]) {
@@ -1079,5 +1141,93 @@ test('gateway links select only known tabs and reload the active panel on naviga
       '/api/option/waffo-pancake/config',
       '/api/user/payments/channels',
     ]
+  )
+})
+
+test('owner edits wallet presets independently in the selected currency', async () => {
+  const endpoint = '/api/user/payments/presets'
+  const settings: Record<string, string[]> = {
+    USD: ['500', '1000'],
+    USDC: ['1250'],
+  }
+  const { container, requests } = await mount(
+    (request) => {
+      if (request.url === '/api/user/payments/channels') {
+        return success({ available: false, channels: [] })
+      }
+      assert.deepEqual(request.authScope, {
+        userId: 501,
+        sessionId: 'payment-session',
+      })
+      if (request.method === 'get') {
+        assert.equal(request.url, endpoint)
+        return success(settings)
+      }
+      assert.equal(request.method, 'put')
+      const currency = request.url?.split('/').at(-1)
+      assert.ok(currency === 'CNY' || currency === 'USDC')
+      assert.equal(request.url, `${endpoint}/${currency}`)
+      settings[currency] = body(request).amounts_minor
+      return success(settings[currency])
+    },
+    100,
+    NativePaymentGateways
+  )
+
+  await click('Wallet top-up presets')
+  const input = () =>
+    container.querySelector<HTMLInputElement>('#wallet-presets-amounts')!
+  await until(() => input()?.value === '5.00, 10.00')
+  const changeCurrency = async (code: string) => {
+    const select = container.querySelector<HTMLSelectElement>(
+      '#wallet-presets-currency'
+    )!
+    await act(async () => {
+      select.value = code
+      select.dispatchEvent(new Event('change', { bubbles: true }))
+    })
+  }
+  await changeCurrency('CNY')
+  assert.equal(input().placeholder, 'Channel defaults')
+  await edit('wallet-presets-amounts', '6.67, 6.670')
+  assert.equal(input().getAttribute('aria-invalid'), 'true')
+  await edit('wallet-presets-amounts', '6.67, 6.67')
+  assert.equal(input().getAttribute('aria-invalid'), 'true')
+  assert.equal(
+    container.querySelector<HTMLButtonElement>('button[type="submit"]')
+      ?.disabled,
+    true
+  )
+  await edit('wallet-presets-amounts', '6.67，35')
+  await changeCurrency('USD')
+  assert.equal(input().value, '5.00, 10.00')
+  await changeCurrency('CNY')
+  assert.equal(input().value, '6.67，35')
+  await click('Save')
+  await until(() => input().value === '6.67, 35.00')
+  assert.deepEqual(settings.CNY, ['667', '3500'])
+  await edit('wallet-presets-amounts', '')
+  await click('Save')
+  await until(() => !input().disabled && settings.CNY.length === 0)
+
+  await changeCurrency('USDC')
+  assert.equal(input().value, '12.50')
+  await edit('wallet-presets-amounts', '8.25, 75')
+  await click('Save')
+  await until(() => input().value === '8.25, 75.00')
+  await changeCurrency('USD')
+  assert.equal(input().value, '5.00, 10.00')
+  await changeCurrency('USDC')
+  assert.equal(input().value, '8.25, 75.00')
+  assert.deepEqual(settings, {
+    USD: ['500', '1000'],
+    CNY: [],
+    USDC: ['825', '7500'],
+  })
+  assert.deepEqual(
+    requests
+      .filter((request) => request.method === 'put')
+      .map((request) => request.url),
+    [`${endpoint}/CNY`, `${endpoint}/CNY`, `${endpoint}/USDC`]
   )
 })

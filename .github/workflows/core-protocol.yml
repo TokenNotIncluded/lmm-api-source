@@ -414,6 +414,17 @@ jobs:
         run: |
           git submodule update --init --depth 1 -- packages/extore
           python3 -B scripts/check-extore-plugin-pin.py
+      - name: Use the Google cache for Docker Hub pulls on this runner
+        run: |
+          umask 077
+          config=/etc/docker/daemon.json
+          staged="$RUNNER_TEMP/rpc-docker-daemon.json"
+          if sudo test -f "$config"; then sudo cat "$config"; else echo '{}'; fi |
+            jq --arg mirror 'https://mirror.gcr.io' \
+              '."registry-mirrors" = ([$mirror] + [."registry-mirrors"[]? | select(rtrimstr("/") != $mirror)])' > "$staged"
+          sudo dockerd --validate --config-file "$staged"
+          sudo install -m 0600 -D "$staged" "$config"
+          sudo systemctl restart docker
       - name: Native protobuf round trips and failure recovery
         run: |
           # Absolute, symlink-free, and absent: the fixture creates a private empty 0700 root.

@@ -70,6 +70,8 @@ function StoreRootConfig({
   const relay = useMarketMoneyDraft(
     config.relay_price_quota_per_gib ?? Number.NaN
   )
+  const feeConfigurable = config.seller_fee_configurable !== false
+  const paidPromotions = config.paid_promotions_supported !== false
   const hasRelayPrice = config.relay_price_quota_per_gib !== undefined
   const [fee, setFee] = useState(String(config.fee_bps / 100))
   const [busy, setBusy] = useState(false)
@@ -82,10 +84,9 @@ function StoreRootConfig({
     try {
       const bps = Math.round(Number(fee) * 100)
       if (
-        !/^\d+(\.\d{1,2})?$/.test(fee) ||
-        bps < 0 ||
-        bps > 10000 ||
-        promotion.quota === undefined ||
+        (feeConfigurable &&
+          (!/^\d+(\.\d{1,2})?$/.test(fee) || bps < 0 || bps > 10000)) ||
+        (paidPromotions && promotion.quota === undefined) ||
         (config.minimum_unit_price_quota !== undefined &&
           minimum.quota === undefined)
       ) {
@@ -95,8 +96,8 @@ function StoreRootConfig({
         throw new Error('Invalid amount')
       }
       await storeApi.saveConfig({
-        fee_bps: bps,
-        promotion_quota: promotion.quota,
+        ...(feeConfigurable && { fee_bps: bps }),
+        ...(paidPromotions && { promotion_quota: promotion.quota }),
         ...(hasRelayPrice && { relay_price_quota_per_gib: relay.quota }),
         ...(config.minimum_unit_price_quota === undefined
           ? {}
@@ -153,28 +154,33 @@ function StoreRootConfig({
             <Label htmlFor='store-fee'>{t('Seller fee')} (%)</Label>
             <Input
               id='store-fee'
+              readOnly={!feeConfigurable}
               inputMode='decimal'
               value={fee}
               onChange={(event) => setFee(event.target.value)}
             />
           </div>
-          <div className='space-y-2'>
-            <Label htmlFor='store-promotion-price'>
-              {t('Monthly promotion price')} ({money.label})
-            </Label>
-            <Input
-              id='store-promotion-price'
-              inputMode='decimal'
-              value={promotion.input}
-              onChange={(event) => promotion.setInput(event.target.value)}
-            />
-          </div>
-        </div>
-        <p className='text-muted-foreground text-xs'>
-          {t(
-            'Fees go to the configured super administrator. Purchases from that account’s own products are exempt from seller fees.'
+          {paidPromotions && (
+            <div className='space-y-2'>
+              <Label htmlFor='store-promotion-price'>
+                {t('Monthly promotion price')} ({money.label})
+              </Label>
+              <Input
+                id='store-promotion-price'
+                inputMode='decimal'
+                value={promotion.input}
+                onChange={(event) => promotion.setInput(event.target.value)}
+              />
+            </div>
           )}
-        </p>
+        </div>
+        {feeConfigurable && (
+          <p className='text-muted-foreground text-xs'>
+            {t(
+              'Fees go to the configured super administrator. Purchases from that account’s own products are exempt from seller fees.'
+            )}
+          </p>
+        )}
         <Button type='submit' disabled={busy}>
           {t(busy ? 'Saving...' : 'Save store settings')}
         </Button>

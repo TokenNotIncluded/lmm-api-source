@@ -35,8 +35,9 @@ interface HeroSmsEnvelope<T> {
 
 async function unwrap<T>(request: Promise<{ data: HeroSmsEnvelope<T> }>) {
   const { data } = await request
-  if (!data.success)
+  if (!data.success) {
     throw new Error(data.message || 'HeroSMS settings request failed')
+  }
   return data.data
 }
 

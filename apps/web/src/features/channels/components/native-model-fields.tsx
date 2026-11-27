@@ -67,7 +67,7 @@ function IntegerField({
   )
 }
 
-function PriceField({
+export function NativePriceField({
   label,
   value,
   disabled,
@@ -592,7 +592,7 @@ export function NativeModelFields({
             <legend className='text-muted-foreground mb-3 text-sm'>
               {price.speed}
             </legend>
-            <PriceField
+            <NativePriceField
               label={t('Group multiplier')}
               value={price.group_multiplier_ppm}
               multiplier
@@ -615,7 +615,7 @@ export function NativeModelFields({
             ) : (
               <div className='grid min-w-0 gap-4 @min-[40rem]/routing:grid-cols-2'>
                 {rates.map(([key, label]) => (
-                  <PriceField
+                  <NativePriceField
                     key={key}
                     label={label}
                     value={price.rates[key]}

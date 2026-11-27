@@ -87,6 +87,13 @@ func TestPostgresConfigurableMinimumUnitPrice(t *testing.T) {
 		return map[string]any{"title": "Price boundary", "description": "Synthetic listing", "price_quota": price, "template": "fixed-content", "fixed_content": "Synthetic delivery", "payment_methods": []string{"balance"}, "pickup_login_required": true}
 	}
 	assertFloor(500000)
+	config, err := svc.PublicConfig(ctx)
+	must(t, err)
+	if config["seller_fee_configurable"] != false || config["paid_promotions_supported"] != false {
+		t.Fatal("native store advertised an unsupported pricing write")
+	}
+	reject("root", "set_minimum_price", "", map[string]any{"fee_bps": 1}, store.ErrUnavailable)
+	reject("root", "set_minimum_price", "", map[string]any{"promotion_quota": 1}, store.ErrUnavailable)
 	reject("seller", "set_minimum_price", "", policy(0), store.ErrForbidden)
 	reject("admin", "set_minimum_price", "", policy(0), store.ErrForbidden)
 	reject("root", "set_minimum_price", "", policy(-1), store.ErrInvalid)

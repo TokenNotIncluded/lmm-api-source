@@ -52,6 +52,10 @@ const providerNames: Record<NativeChannel['provider'], string> = {
 }
 const paymentCurrency = (channel: NativeChannel) =>
   channel.provider === 'coinbase' ? 'USDC' : channel.currency
+function walletInputCurrency(channel: NativeChannel) {
+  if (!channel.credit_quantity) return paymentCurrency(channel)
+  return channel.currency === 'CNY' ? 'CNY' : 'USD'
+}
 const standardQuickAmounts = [
   '5.00',
   '10.00',
@@ -102,7 +106,7 @@ function NativeWalletCheckoutForm({
   const [portalAvailable, setPortalAvailable] = useState(false)
   const [channelVersion, setChannelVersion] = useState(0)
   const [selectedID, setSelectedID] = useState('')
-  const [amount, setAmount] = useState('10.00')
+  const [amountDraft, setAmountDraft] = useState<string | null>(null)
   const [discountCode, setDiscountCode] = useState(() => {
     if (typeof window === 'undefined') return ''
     const codes = new URLSearchParams(window.location.search).getAll(
@@ -116,6 +120,9 @@ function NativeWalletCheckoutForm({
   )
   const [busy, setBusy] = useState(false)
   const [checkoutClosed, setCheckoutClosed] = useState(false)
+  const navigateOrder = useRef<string | null>(null)
+  const checkoutLink = useRef<HTMLAnchorElement>(null)
+  const checkoutForm = useRef<HTMLFormElement>(null)
   const running = useRef(false)
   const mounted = useRef(true)
   const lastWalletUpdate = useRef<string | NativeCheckout>('')
@@ -128,32 +135,47 @@ function NativeWalletCheckoutForm({
     selected?.credit_quantity &&
     creditCurrency === 'CNY' &&
     !Number.isFinite(displayAmountToQuota('1', 'CNY', currencyConfig))
-  const cnyCreditUnits =
-    selected?.credit_quantity &&
-    creditCurrency === 'CNY' &&
-    nativeAmountMinor(amount)
-      ? displayAmountToQuota(amount, 'CNY', currencyConfig)
-      : Number.NaN
-  const requestedCreditUnits = selected?.credit_quantity
-    ? creditCurrency === 'USD'
-      ? nativeRequestedCreditUnits(amount)
-      : Number.isSafeInteger(cnyCreditUnits) && cnyCreditUnits > 0
-        ? String(cnyCreditUnits)
-        : null
-    : null
+  // Credit-quantity channels use the amount entered in wallet-credit units.
+  // Direct-charge channels use the channel's settlement currency.
+  const inputUnits = (value: string) => {
+    if (!selected?.credit_quantity) return nativeAmountMinor(value)
+    if (creditCurrency === 'USD') return nativeRequestedCreditUnits(value)
+    if (!nativeAmountMinor(value)) return null
+    const units = displayAmountToQuota(value, 'CNY', currencyConfig)
+    return Number.isSafeInteger(units) && units > 0 ? String(units) : null
+  }
   const minimumCreditUnits = selected?.credit_quantity
     ? selected.min_credit_units
     : undefined
-  const quickAmounts =
+  const minimum = selected?.credit_quantity
+    ? minimumCreditUnits
+    : selected?.min_amount_minor
+  const fallbackAmounts =
     creditCurrency === 'USD' &&
     minimumCreditUnits === nativeRequestedCreditUnits('1.00')
       ? ['1.00', ...standardQuickAmounts]
       : standardQuickAmounts
+  const quickAmounts = (
+    selected?.preset_amounts_minor?.map(nativeAmountDisplay) ?? fallbackAmounts
+  ).filter((value) => {
+    const units = inputUnits(value)
+    return units !== null && (!minimum || BigInt(units) >= BigInt(minimum))
+  })
+  const initialAmount =
+    !selectedID &&
+    selected?.preset_amounts_minor === undefined &&
+    quickAmounts.includes('10.00')
+      ? '10.00'
+      : (quickAmounts[0] ?? '')
+  const amount = amountDraft ?? initialAmount
+  const units = selected?.fixed_amount_minor ?? inputUnits(amount)
+  const requestedCreditUnits = selected?.credit_quantity ? units : null
   const belowMinimum =
-    !pending &&
-    requestedCreditUnits !== null &&
-    minimumCreditUnits !== undefined &&
-    BigInt(requestedCreditUnits) < BigInt(minimumCreditUnits)
+    !pending && units !== null && !!minimum && BigInt(units) < BigInt(minimum)
+  const showMinimum =
+    !selected?.fixed_amount_minor &&
+    !!minimum &&
+    (selected?.credit_quantity ? !creditRateUnavailable : minimum !== '1')
   const finished = nativeCheckoutFinished(result)
   const canCloseCheckout =
     !finished && !result?.provider_paid && result?.state !== 'review'
@@ -220,6 +242,34 @@ function NativeWalletCheckoutForm({
     lastWalletUpdate.current = update
     onUpdated?.()
   }, [finished, isCurrent, onUpdated, result])
+
+  useEffect(() => {
+    if (!result || navigateOrder.current !== result.order_id || !isCurrent()) {
+      return
+    }
+    if (
+      result.provider_paid ||
+      result.core_credit_confirmed ||
+      !['checkout_pending', 'awaiting_payment'].includes(result.state)
+    ) {
+      navigateOrder.current = null
+      return
+    }
+    if (checkoutClosed || !checkoutURL || result.state !== 'awaiting_payment') {
+      return
+    }
+    // Use only the controls rendered for this validated order. A page reload
+    // restores order recovery, while an explicit confirmation arms navigation.
+    const form = checkoutForm.current
+    const link = checkoutLink.current
+    if (!form && !link) return
+    navigateOrder.current = null
+    if (form) {
+      window.HTMLFormElement.prototype.requestSubmit.call(form)
+    } else {
+      link?.click()
+    }
+  }, [result, checkoutClosed, checkoutURL, isCurrent])
 
   const remember = (value: PendingNativeCheckout | null) => {
     try {
@@ -291,6 +341,7 @@ function NativeWalletCheckoutForm({
       if (!pending?.quote) return
       const next = { ...pending, quote: pending.quote, submitted: true }
       if (!remember(next)) return
+      navigateOrder.current = next.quote.order_id
       const response = await checkoutNativePayment(next)
       if (isCurrent()) setResult(response)
     })
@@ -391,6 +442,7 @@ function NativeWalletCheckoutForm({
     `${providerNames[channel.provider]}${channel.payment_type ? ` · ${channel.payment_type}` : ''} · ${paymentCurrency(channel)}${channel.environment === 'test' ? ` · ${t('Test payment')}` : ''}`
   const startAgain = () => {
     if (remember(null)) {
+      navigateOrder.current = null
       setCheckoutClosed(false)
       setResult(null)
       setError(null)
@@ -463,7 +515,22 @@ function NativeWalletCheckoutForm({
                   className='h-12 w-full'
                   value={selected?.id ?? ''}
                   disabled={busy}
-                  onChange={(event) => setSelectedID(event.target.value)}
+                  onChange={(event) => {
+                    const next = channels.find(
+                      (channel) => channel.id === event.target.value
+                    )
+                    if (
+                      next &&
+                      selected &&
+                      (walletInputCurrency(next) !==
+                        walletInputCurrency(selected) ||
+                        Boolean(next.credit_quantity) !==
+                          Boolean(selected.credit_quantity))
+                    ) {
+                      setAmountDraft(null)
+                    }
+                    setSelectedID(event.target.value)
+                  }}
                 >
                   {channels.map((channel) => (
                     <NativeSelectOption key={channel.id} value={channel.id}>
@@ -478,9 +545,7 @@ function NativeWalletCheckoutForm({
               <div className='space-y-2'>
                 <Label htmlFor='native-payment-amount'>
                   {t(selected?.credit_quantity ? 'Wallet credit' : 'Amount')} ·{' '}
-                  {selected?.credit_quantity
-                    ? creditCurrency
-                    : selected && paymentCurrency(selected)}
+                  {selected && walletInputCurrency(selected)}
                 </Label>
                 <Input
                   id='native-payment-amount'
@@ -489,9 +554,7 @@ function NativeWalletCheckoutForm({
                   autoComplete='off'
                   aria-invalid={belowMinimum || undefined}
                   aria-describedby={
-                    minimumCreditUnits && !creditRateUnavailable
-                      ? 'native-payment-minimum'
-                      : undefined
+                    showMinimum ? 'native-payment-minimum' : undefined
                   }
                   value={
                     selected?.fixed_amount_minor
@@ -500,7 +563,7 @@ function NativeWalletCheckoutForm({
                   }
                   readOnly={Boolean(selected?.fixed_amount_minor)}
                   disabled={busy}
-                  onChange={(event) => setAmount(event.target.value)}
+                  onChange={(event) => setAmountDraft(event.target.value)}
                 />
                 {creditRateUnavailable ? (
                   <p className='text-muted-foreground text-sm' role='status'>
@@ -509,7 +572,7 @@ function NativeWalletCheckoutForm({
                     )}
                   </p>
                 ) : null}
-                {minimumCreditUnits && !creditRateUnavailable ? (
+                {showMinimum && minimum ? (
                   <p
                     id='native-payment-minimum'
                     role={belowMinimum ? 'alert' : undefined}
@@ -519,26 +582,34 @@ function NativeWalletCheckoutForm({
                         : 'text-muted-foreground text-sm'
                     }
                   >
-                    {creditCurrency === 'CNY'
+                    {!minimumCreditUnits && selected
                       ? t('Minimum {{amount}}', {
                           amount:
-                            'CNY ' +
-                            formatMinimumQuotaInCurrency(
-                              Number(minimumCreditUnits),
-                              'CNY',
-                              {
-                                showSymbol: false,
-                                locale: i18n.resolvedLanguage || i18n.language,
-                              },
-                              currencyConfig
-                            ),
+                            paymentCurrency(selected) +
+                            ' ' +
+                            nativeAmountDisplay(minimum),
                         })
-                      : t('Minimum wallet credit is USD {{amount}}.', {
-                          amount: nativeCreditUSDDisplay(minimumCreditUnits),
-                        })}
+                      : creditCurrency === 'CNY'
+                        ? t('Minimum {{amount}}', {
+                            amount:
+                              'CNY ' +
+                              formatMinimumQuotaInCurrency(
+                                Number(minimum),
+                                'CNY',
+                                {
+                                  showSymbol: false,
+                                  locale:
+                                    i18n.resolvedLanguage || i18n.language,
+                                },
+                                currencyConfig
+                              ),
+                          })
+                        : t('Minimum wallet credit is USD {{amount}}.', {
+                            amount: nativeCreditUSDDisplay(minimum),
+                          })}
                   </p>
                 ) : null}
-                {!selected?.fixed_amount_minor ? (
+                {!selected?.fixed_amount_minor && quickAmounts.length > 0 ? (
                   <div
                     role='group'
                     aria-label={t('Amount')}
@@ -550,7 +621,7 @@ function NativeWalletCheckoutForm({
                         type='button'
                         aria-pressed={amount === value}
                         disabled={busy}
-                        onClick={() => setAmount(value)}
+                        onClick={() => setAmountDraft(value)}
                         className='focus-visible:outline-ring bg-background text-muted-foreground hover:text-foreground hover:bg-secondary/65 aria-pressed:bg-foreground aria-pressed:text-background min-h-11 min-w-12 rounded-lg px-3 text-sm font-medium tabular-nums transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 disabled:opacity-50'
                       >
                         {Number(value).toString()}
@@ -739,11 +810,12 @@ function NativeWalletCheckoutForm({
                 result?.state === 'awaiting_payment' ? (
                   postCheckoutURL ? (
                     <form
+                      ref={checkoutForm}
                       method='post'
                       action={postCheckoutURL.href}
                       encType='application/x-www-form-urlencoded'
                       acceptCharset='UTF-8'
-                      target='_blank'
+                      target='_self'
                       rel='noopener noreferrer'
                     >
                       {postCheckoutFields.map(([name, value], index) => (
@@ -760,8 +832,9 @@ function NativeWalletCheckoutForm({
                     <Button
                       render={
                         <a
+                          ref={checkoutLink}
                           href={checkoutURL}
-                          target='_blank'
+                          target='_self'
                           rel='noopener noreferrer'
                         />
                       }
@@ -781,7 +854,10 @@ function NativeWalletCheckoutForm({
                   <Button
                     variant='destructive'
                     disabled={busy}
-                    onClick={() => setCheckoutClosed(true)}
+                    onClick={() => {
+                      navigateOrder.current = null
+                      setCheckoutClosed(true)
+                    }}
                   >
                     <X aria-hidden='true' />
                     {t('Close')}

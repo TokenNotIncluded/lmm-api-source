@@ -224,6 +224,8 @@ export interface StoreConfig {
   stock_items_supported?: boolean
   fee_bps: number
   promotion_quota: number
+  seller_fee_configurable?: boolean
+  paid_promotions_supported?: boolean
   product_test_mode_supported?: boolean
   store_access_supported?: boolean
   store_visibility_supported?: boolean

@@ -42,7 +42,10 @@ import {
   setNativeChannelsTag,
 } from '../api'
 import { nativeModelLogo, resolveNativeProvider } from '../lib/native-provider'
-import { nativeProtocolLabel } from '../lib/native-routing-form'
+import {
+  readChannelDraft,
+  nativeProtocolLabel,
+} from '../lib/native-routing-form'
 import {
   assertNativeDraftTimeouts,
   nativeTimeoutErrorMessage,
@@ -50,6 +53,7 @@ import {
 import {
   copyNativeChannel,
   getNativeConfiguration,
+  type NativeConfiguration,
   nativeRequest as scopedNativeRequest,
   readNativeRoutingScope,
   type NativeRoutingScope,
@@ -60,6 +64,7 @@ import {
   type NativeChannelBatchPatch,
   type NativeModelRoute,
   type NativePriceDraft,
+  type NativePrices,
   type NativeUpstream,
   type NativeVendor,
   type NativeVersion,
@@ -90,6 +95,10 @@ import {
   NativeChannelStatisticsSummary,
 } from './native-channel-statistics'
 import {
+  NativeChannelPriceSection,
+  NativeGroupPrices,
+} from './native-group-prices'
+import {
   defaultModelDisplayName,
   newModelTarget,
   publishedGroupMultiplier,
@@ -110,6 +119,7 @@ type Editor = {
   method: 'POST' | 'PUT'
   document: string
   previewPath?: string
+  priceRoute?: NativeModelRoute
   modelEditing?: boolean
   secret?: boolean
   readOnly?: boolean
@@ -279,6 +289,10 @@ function NativeRoutingWorkspace({
     anchor: { selection: string; digest: string } | null
     balanceUnits: string[]
   }>({ anchor: null, balanceUnits: [] })
+  const [modelAfterSave, setModelAfterSave] = useState<{
+    model: string
+    group: string
+  } | null>(null)
   const [editor, setEditor] = useState<Editor | null>(null)
   const editorBaseline = useRef('')
   const [editorDestination, setEditorDestination] =
@@ -449,6 +463,7 @@ function NativeRoutingWorkspace({
     }
     const next = 'editor' in destination ? destination.editor : null
     if (next?.channelId) channelEditorTrigger.current = next.trigger ?? null
+    setModelAfterSave(null)
     setEditor(next)
     editorBaseline.current = next?.document ?? ''
     if ('section' in destination) {
@@ -638,13 +653,18 @@ function NativeRoutingWorkspace({
   function modelEditor(
     route?: NativeModelRoute,
     discoveredModel = '',
-    discoveredChannel?: number
+    discoveredChannel?: number,
+    source = configuration,
+    requestedGroup?: string,
+    afterChannelSave = false
   ) {
-    if (!configuration) return
-    const id =
-      route?.id ?? nextId(configuration.routing.routes.map((item) => item.id))
+    if (!source) return
+    const id = route?.id ?? nextId(source.routing.routes.map((item) => item.id))
     const group =
-      route?.group ?? configuration.routing.groups[0]?.name ?? 'default'
+      route?.group ??
+      requestedGroup ??
+      source.routing.groups[0]?.name ??
+      'default'
     const model = route?.model ?? discoveredModel
     const next = {
       title: route ? t('Edit') : t('Add Model'),
@@ -653,7 +673,7 @@ function NativeRoutingWorkspace({
       previewPath: `${NATIVE_ROOT}/models/preview`,
       modelEditing: !!route,
       document: pretty({
-        expected_version: configuration.version,
+        expected_version: source.version,
         route: route ?? {
           id,
           model,
@@ -667,20 +687,20 @@ function NativeRoutingWorkspace({
             allow_replay_after_send: false,
           },
         },
-        metadata: configuration.bindings.models[id] ?? {
+        metadata: source.bindings.models[id] ?? {
           display_name: defaultModelDisplayName(model),
           description: '',
           vendor_id: null,
         },
         prices: route
-          ? configuration.prices.rules.filter(
+          ? source.prices.rules.filter(
               (price) =>
                 price.model === route.model && price.group === route.group
             )
           : [
               {
                 id: nextId(
-                  configuration.prices.rules.map((price) => Number(price.id))
+                  source.prices.rules.map((price) => Number(price.id))
                 ),
                 model,
                 group,
@@ -693,12 +713,11 @@ function NativeRoutingWorkspace({
                   request: 0,
                 },
                 group_multiplier_ppm:
-                  publishedGroupMultiplier(configuration.prices.rules, group) ??
-                  '',
+                  publishedGroupMultiplier(source.prices.rules, group) ?? '',
                 speed_multiplier_ppm: 1_000_000,
               },
             ],
-        contexts: configuration.bindings.contexts.filter((context) =>
+        contexts: source.bindings.contexts.filter((context) =>
           route?.targets.some(
             (target) =>
               target.upstream_id === context.upstream_id &&
@@ -713,18 +732,23 @@ function NativeRoutingWorkspace({
         next.document = pretty(
           replaceModelTargets(
             draft,
-            [newModelTarget(draft, configuration, discoveredChannel)],
-            configuration
+            [newModelTarget(draft, source, discoveredChannel)],
+            source
           )
         )
       }
     }
+    if (afterChannelSave) {
+      changeEditor({ editor: { ...next, version: { ...source.version } } })
+      return
+    }
     openEditor(next)
   }
-  function priceEditor() {
+  function priceEditor(priceRoute?: NativeModelRoute) {
     if (!configuration) return
     openEditor({
-      title: t('Pricing'),
+      title: priceRoute ? t('Edit group prices') : t('Pricing'),
+      priceRoute,
       method: 'PUT',
       path: `${NATIVE_ROOT}/prices`,
       previewPath: `${NATIVE_ROOT}/prices/preview`,
@@ -769,6 +793,14 @@ function NativeRoutingWorkspace({
       )
       if (editor.method === 'POST' || channel) {
         channelEditor(channel, editor.trigger)
+        return
+      }
+    } else if (editor.priceRoute) {
+      const route = configuration.routing.routes.find(
+        (item) => item.id === editor.priceRoute?.id
+      )
+      if (route) {
+        priceEditor(route)
         return
       }
     } else if (editor.modelEditing !== undefined) {
@@ -821,7 +853,33 @@ function NativeRoutingWorkspace({
       if (editor.secret) body.secret = secret
       if (preview) body.confirmation_digest = preview.confirmation_digest
       return nativeRequest(editor.method, editor.path, body)
-    }, true)
+    }, true).then((saved) => {
+      if (!saved || !editor.channelId || !modelAfterSave) return
+      const current = client.getQueryState<NativeConfiguration>(queryKey)
+      const latest = current?.status === 'success' ? current.data : undefined
+      if (
+        !latest ||
+        !latest.routing.groups.some(
+          (item) => item.name === modelAfterSave.group
+        )
+      ) {
+        setError(
+          t(
+            'The channel was saved. Reload the model editor to select a current group.'
+          )
+        )
+        setModelAfterSave(null)
+        return
+      }
+      modelEditor(
+        undefined,
+        modelAfterSave.model,
+        editor.channelId,
+        latest,
+        modelAfterSave.group,
+        true
+      )
+    })
   }
   function remove(path: string) {
     if (!configurationWritable || !configuration) return
@@ -1091,6 +1149,27 @@ function NativeRoutingWorkspace({
             </AlertDescription>
           </Alert>
         )}
+        {editor.channelId && modelAfterSave && (
+          <Alert role='status'>
+            <AlertDescription className='flex flex-wrap items-center justify-between gap-2'>
+              <span>
+                {t(
+                  'Save this channel to continue creating {{model}} in {{group}}.',
+                  modelAfterSave
+                )}
+              </span>
+              <Button
+                type='button'
+                variant='ghost'
+                size='sm'
+                disabled={busy}
+                onClick={() => setModelAfterSave(null)}
+              >
+                {t('Clear')}
+              </Button>
+            </AlertDescription>
+          </Alert>
+        )}
         {editor.channelId && (
           <NativeChannelFields
             key={editor.path}
@@ -1107,9 +1186,19 @@ function NativeRoutingWorkspace({
                     )
                 : undefined
             }
-            onCreateModel={(model) =>
-              modelEditor(undefined, model, editor.channelId)
-            }
+            onCreateModel={(model, group) => {
+              if (editor.document !== editorBaseline.current) {
+                setModelAfterSave({ model, group })
+              } else {
+                modelEditor(
+                  undefined,
+                  model,
+                  editor.channelId,
+                  configuration,
+                  group
+                )
+              }
+            }}
             credential={
               editor.secret ? (
                 <label className='block space-y-2'>
@@ -1150,6 +1239,36 @@ function NativeRoutingWorkspace({
             }}
           />
         )}
+        {editor.channelId && (
+          <section className='min-w-0 space-y-4 border-t pt-5'>
+            <h3 className='text-base font-semibold'>
+              {t('Group price rules')}
+            </h3>
+            <NativeChannelPriceSection
+              draft={readChannelDraft(editor.document)}
+              configuration={configuration}
+              disabled={writeDisabled || editorStale}
+              onEditPrices={priceEditor}
+            />
+          </section>
+        )}
+        {editor.priceRoute && (
+          <NativeGroupPrices
+            route={editor.priceRoute}
+            prices={parseNativeDocument(editor.document).prices as NativePrices}
+            disabled={writeDisabled || editorStale}
+            onChange={(prices) => {
+              setEditor({
+                ...editor,
+                document: pretty({
+                  ...parseNativeDocument(editor.document),
+                  prices,
+                }),
+              })
+              setPreview(null)
+            }}
+          />
+        )}
         {editor.modelEditing !== undefined && (
           <NativeModelFields
             document={editor.document}
@@ -1185,14 +1304,37 @@ function NativeRoutingWorkspace({
             </details>
           </details>
         ) : (
-          <details open={editor.modelEditing === undefined}>
-            <summary className='cursor-pointer py-2 text-sm font-medium'>
-              {t('Advanced Settings')}
-            </summary>
-            {editorConfigurationField}
-          </details>
+          !editor.priceRoute && (
+            <details open={editor.modelEditing === undefined}>
+              <summary className='cursor-pointer py-2 text-sm font-medium'>
+                {t('Advanced Settings')}
+              </summary>
+              {editorConfigurationField}
+            </details>
+          )
         )}
-        {preview && !editorStale && (
+        {preview && !editorStale && editor.priceRoute && (
+          <section
+            aria-label={t('Preview')}
+            className='grid gap-4 sm:grid-cols-2'
+          >
+            <div>
+              <h4>{t('Before')}</h4>
+              <NativeGroupPrices
+                route={editor.priceRoute}
+                prices={preview.before as NativePrices}
+              />
+            </div>
+            <div>
+              <h4>{t('After')}</h4>
+              <NativeGroupPrices
+                route={editor.priceRoute}
+                prices={preview.after as NativePrices}
+              />
+            </div>
+          </section>
+        )}
+        {preview && !editorStale && !editor.priceRoute && (
           <pre
             className='max-h-80 overflow-auto border p-3 text-xs'
             aria-label={t('Preview')}
@@ -2181,7 +2323,7 @@ function NativeRoutingWorkspace({
               type='button'
               className='min-h-11'
               disabled={writeDisabled}
-              onClick={priceEditor}
+              onClick={() => priceEditor()}
             >
               {t('Edit')}
             </Button>

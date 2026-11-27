@@ -263,6 +263,13 @@ test('returning from the payment page resumes the same order after a gateway err
   )
   const container = document.body.appendChild(document.createElement('div'))
   const root = createRoot(container)
+  let navigations = 0
+  container.addEventListener('click', (event) => {
+    if ((event.target as HTMLElement).closest('a')) {
+      event.preventDefault()
+      navigations++
+    }
+  })
   const statusReads: string[] = []
   let resumeRefresh!: () => void
   const refreshInterrupted = new Promise<void>((resolve) => {
@@ -300,6 +307,7 @@ test('returning from the payment page resumes the same order after a gateway err
         data: {
           ...quote,
           state: awaitingPayment ? 'awaiting_payment' : 'credited',
+          checkout_url: 'https://pay.example/recovered',
           provider_paid: !awaitingPayment,
           core_credit_confirmed: !awaitingPayment,
         },
@@ -352,6 +360,7 @@ test('returning from the payment page resumes the same order after a gateway err
     await click('Start another payment')
     assert.match(container.textContent ?? '', /Review payment/)
     assert.equal(readNativeCheckout(walletSession, dom.sessionStorage), null)
+    assert.equal(navigations, 0, 'restored orders never auto-navigate')
     assert.equal(writes, 0)
   } finally {
     resumeRefresh()
@@ -685,139 +694,169 @@ test('Creem fixed amount is read-only and a missing quote is recovered with its 
   }
 })
 
-test('checkout uses the explicit method and submits every POST field only after a click', async () => {
-  const oldGet = api.get,
-    oldPost = api.post
-  dom.sessionStorage.clear()
-  login(22, 'epay-session')
-  const container = document.body.appendChild(document.createElement('div'))
-  const root = createRoot(container)
-  const endpoint = 'https://credit.linux.do/epay/pay/submit.php'
-  const fields: Array<[string, string]> = [
-    ['pid', '001'],
-    ['type', 'epay'],
-    ['out_trade_no', 'top_91'],
-    ['name', 'Wallet 充值 & Credits +'],
-    ['money', '10.00'],
-    ['notify_url', 'https://wallet.example/callbacks/2?a=1&b=2'],
-    ['return_url', 'https://wallet.example/wallet?order=top_91'],
-    ['sign', 'a+b/=='],
-    ['sign_type', 'MD5'],
-    ['device', 'pc'],
-    ['device', 'second'],
-    ['optional', ''],
-  ]
-  const checkoutURL = `${endpoint}?${new URLSearchParams(fields)}`
-  let method: 'GET' | 'POST' = 'GET'
-  let submissions = 0
-  let writes = 0
-  container.addEventListener('submit', (event) => {
-    if ((event.target as HTMLFormElement).method === 'post') {
-      event.preventDefault()
-      submissions++
-    }
-  })
-  const order = () => ({
-    order_id: 'top_91',
-    state: 'awaiting_payment',
-    currency: 'LDC',
-    amount_minor: '1000',
-    credit_units: '5000000',
-    credit_unit: 'credit_500k_usd',
-    checkout_url: checkoutURL,
-    checkout_method: method,
-    provider_paid: false,
-    core_credit_confirmed: false,
-  })
-  api.get = (async (url: string) => ({
-    data: {
-      success: true,
-      data:
-        url === '/api/user/payments/channels'
-          ? {
-              available: true,
-              channels: [
-                {
-                  id: '2',
-                  provider: 'epay',
-                  environment: 'live',
-                  currency: 'LDC',
-                  payment_type: 'epay',
-                },
-              ],
-            }
-          : order(),
-    },
-  })) as typeof api.get
-  api.post = (async (url: string, data: Record<string, string>) => {
-    writes++
-    return {
+for (const method of ['GET', 'POST'] as const) {
+  test(`confirmed ${method} checkout navigates once in the current tab and keeps manual recovery`, async () => {
+    const oldGet = api.get,
+      oldPost = api.post
+    dom.sessionStorage.clear()
+    login(22, 'epay-session')
+    const container = document.body.appendChild(document.createElement('div'))
+    const root = createRoot(container)
+    const endpoint = 'https://credit.linux.do/epay/pay/submit.php'
+    const fields: Array<[string, string]> = [
+      ['pid', '001'],
+      ['type', 'epay'],
+      ['out_trade_no', 'top_91'],
+      ['name', 'Wallet 充值 & Credits +'],
+      ['money', '10.00'],
+      ['notify_url', 'https://wallet.example/callbacks/2?a=1&b=2'],
+      ['return_url', 'https://wallet.example/wallet?order=top_91'],
+      ['sign', 'a+b/=='],
+      ['sign_type', 'MD5'],
+      ['device', 'pc'],
+      ['device', 'second'],
+      ['optional', ''],
+      ['requestSubmit', 'provider-data'],
+    ]
+    const checkoutURL = `${endpoint}?${new URLSearchParams(fields)}`
+    let ready = method === 'GET'
+    let navigations = 0
+    container.addEventListener('click', (event) => {
+      if ((event.target as HTMLElement).closest('a')) {
+        event.preventDefault()
+        navigations++
+      }
+    })
+    let submissions = 0
+    let writes = 0
+    container.addEventListener('submit', (event) => {
+      if ((event.target as HTMLFormElement).method === 'post') {
+        event.preventDefault()
+        submissions++
+      }
+    })
+    const order = () => ({
+      order_id: 'top_91',
+      state: ready ? 'awaiting_payment' : 'checkout_pending',
+      currency: 'LDC',
+      amount_minor: '1000',
+      credit_units: '5000000',
+      credit_unit: 'credit_500k_usd',
+      checkout_url: ready ? checkoutURL : undefined,
+      checkout_method: method,
+      provider_paid: false,
+      core_credit_confirmed: false,
+    })
+    api.get = (async (url: string) => ({
       data: {
         success: true,
-        data: url.endsWith('/quote')
-          ? {
-              ...data,
-              order_id: 'top_91',
-              account_id: '22',
-              provider: 'epay',
-              environment: 'live',
-              credit_units: '5000000',
-              credit_unit: 'credit_500k_usd',
-            }
-          : order(),
+        data:
+          url === '/api/user/payments/channels'
+            ? {
+                available: true,
+                channels: [
+                  {
+                    id: '2',
+                    provider: 'epay',
+                    environment: 'live',
+                    currency: 'LDC',
+                    payment_type: 'epay',
+                  },
+                ],
+              }
+            : order(),
       },
+    })) as typeof api.get
+    api.post = (async (url: string, data: Record<string, string>) => {
+      writes++
+      return {
+        data: {
+          success: true,
+          data: url.endsWith('/quote')
+            ? {
+                ...data,
+                order_id: 'top_91',
+                account_id: '22',
+                provider: 'epay',
+                environment: 'live',
+                credit_units: '5000000',
+                credit_unit: 'credit_500k_usd',
+              }
+            : order(),
+        },
+      }
+    }) as typeof api.post
+    try {
+      await act(async () => {
+        root.render(
+          <I18nextProvider i18n={i18n}>
+            <NativeWalletCheckout />
+          </I18nextProvider>
+        )
+        await flush()
+      })
+      await click('Review payment')
+      assert.equal(navigations + submissions, 0)
+      await click('Confirm payment')
+      if (!ready) {
+        assert.equal(navigations + submissions, 0)
+        ready = true
+        await click('Refresh payment status')
+      }
+      assert.equal(navigations + submissions, 1)
+      await click('Refresh payment status')
+      assert.equal(navigations + submissions, 1)
+      if (method === 'GET') {
+        const link = container.querySelector('a')
+        assert.ok(link)
+        assert.equal(link.href, checkoutURL)
+        assert.equal(link.target, '_self')
+        assert.equal(container.querySelector('form'), null)
+        await act(async () => link.click())
+        assert.equal(navigations, 2)
+      } else {
+        const form = container.querySelector<HTMLFormElement>('form')
+        assert.ok(form)
+        assert.equal(container.querySelector('a'), null)
+        assert.equal(form.method, 'post')
+        assert.equal(form.action, endpoint)
+        assert.equal(form.target, '_self')
+        assert.equal(form.getAttribute('rel'), 'noopener noreferrer')
+        assert.equal(form.enctype, 'application/x-www-form-urlencoded')
+        assert.deepEqual(
+          Array.from(
+            form.querySelectorAll<HTMLInputElement>('input[type="hidden"]')
+          ).map((input) => [input.name, input.value]),
+          fields
+        )
+        await click('Open payment page')
+        assert.equal(submissions, 2)
+      }
+      assert.equal(writes, 2)
+    } finally {
+      await act(async () => root.unmount())
+      container.remove()
+      api.get = oldGet
+      api.post = oldPost
     }
-  }) as typeof api.post
-  try {
-    await act(async () => {
-      root.render(
-        <I18nextProvider i18n={i18n}>
-          <NativeWalletCheckout />
-        </I18nextProvider>
-      )
-      await flush()
-    })
-    await click('Review payment')
-    await click('Confirm payment')
-    const link = container.querySelector<HTMLAnchorElement>('a')
-    assert.equal(link?.href, checkoutURL)
-    assert.equal(link?.target, '_blank')
-    assert.equal(container.querySelector('form'), null)
-    method = 'POST'
-    await click('Refresh payment status')
-    const form = container.querySelector<HTMLFormElement>('form')
-    assert.ok(form)
-    assert.equal(container.querySelector('a'), null)
-    assert.equal(form.method, 'post')
-    assert.equal(form.action, endpoint)
-    assert.equal(form.target, '_blank')
-    assert.equal(form.getAttribute('rel'), 'noopener noreferrer')
-    assert.equal(form.enctype, 'application/x-www-form-urlencoded')
-    assert.deepEqual(
-      Array.from(
-        form.querySelectorAll<HTMLInputElement>('input[type="hidden"]')
-      ).map((input) => [input.name, input.value]),
-      fields
-    )
-    assert.equal(submissions, 0)
-    await click('Open payment page')
-    assert.equal(submissions, 1)
-    assert.equal(writes, 2)
-  } finally {
-    await act(async () => root.unmount())
-    container.remove()
-    api.get = oldGet
-    api.post = oldPost
-  }
-})
+  })
+}
 
-test('Coinbase shows the USDC payment before confirming the original USD quote', async () => {
+test('Coinbase switches USDC charge and USD credit presets while both quotes use USD', async () => {
   const oldGet = api.get,
     oldPost = api.post
   dom.sessionStorage.clear()
   login(23, 'coinbase-session')
   const container = document.body.appendChild(document.createElement('div'))
   const root = createRoot(container)
+  const destinations: string[] = []
+  container.addEventListener('click', (event) => {
+    const anchor = (event.target as HTMLElement).closest('a')
+    if (anchor) {
+      event.preventDefault()
+      destinations.push(anchor.href)
+    }
+  })
   const requests: Array<{ url: string; data: Record<string, string> }> = []
   const order = {
     order_id: 'top_98',
@@ -841,6 +880,22 @@ test('Coinbase shows the USDC payment before confirming the original USD quote',
             provider: 'coinbase',
             environment: 'test',
             currency: 'USD',
+            preset_amounts_minor: ['300', '1000'],
+          },
+          {
+            id: '9',
+            provider: 'coinbase',
+            environment: 'test',
+            currency: 'USD',
+            credit_quantity: true,
+            preset_amounts_minor: ['200', '850'],
+          },
+          {
+            id: '10',
+            provider: 'stripe',
+            environment: 'test',
+            currency: 'USD',
+            preset_amounts_minor: ['200', '850'],
           },
         ],
       },
@@ -858,13 +913,35 @@ test('Coinbase shows the USDC payment before confirming the original USD quote',
               account_id: '23',
               provider: 'coinbase',
               environment: 'test',
-              credit_units: order.credit_units,
+              amount_minor: data.requested_credit_units
+                ? '850'
+                : data.amount_minor,
+              credit_units: data.requested_credit_units ?? order.credit_units,
               credit_unit: order.credit_unit,
             }
           : order,
       },
     }
   }) as typeof api.post
+  const chooseChannel = async (id: string) => {
+    const select = container.querySelector<HTMLSelectElement>(
+      '#native-payment-channel'
+    )
+    assert.ok(select)
+    await act(async () => {
+      select.value = id
+      select.dispatchEvent(new Event('change', { bubbles: true }))
+    })
+  }
+  const choices = () =>
+    Array.from(
+      container.querySelectorAll('[role="group"] button'),
+      (button) => button.textContent
+    )
+  const amount = () =>
+    container.querySelector<HTMLInputElement>('#native-payment-amount')?.value
+  const label = () =>
+    container.querySelector('label[for="native-payment-amount"]')?.textContent
   try {
     await act(async () => {
       root.render(
@@ -880,18 +957,45 @@ test('Coinbase shows the USDC payment before confirming the original USD quote',
         'Pay with USDC through Coinbase. This top-up uses 1 USDC = 1 USD.'
       )
     )
+    assert.equal(label(), 'Amount · USDC')
+    assert.deepEqual(choices(), ['3', '10'])
+    await click('10')
+    await chooseChannel('10')
+    assert.equal(label(), 'Amount · USD')
+    assert.equal(amount(), '2.00')
+    await click('8.5')
+    await chooseChannel('8')
+    assert.equal(amount(), '3.00')
+    await click('10')
+    await chooseChannel('9')
+    assert.equal(label(), 'Wallet credit · USD')
+    assert.deepEqual(choices(), ['2', '8.5'])
+    assert.equal(amount(), '2.00')
+    await click('8.5')
     assert.equal(requests.length, 0)
     await click('Review payment')
     assert.equal(requests.length, 1)
     assert.equal(requests[0].data.currency, 'USD')
-    assert.equal(requests[0].data.amount_minor, '1000')
+    assert.equal(requests[0].data.amount_minor, '0')
+    assert.equal(requests[0].data.requested_credit_units, '4250000')
+    await click('Edit payment amount')
+    await chooseChannel('8')
+    assert.equal(label(), 'Amount · USDC')
+    assert.equal(amount(), '3.00')
+    await click('10')
+    await click('Review payment')
+    assert.equal(requests.length, 2)
+    assert.equal(requests[1].data.currency, 'USD')
+    assert.equal(requests[1].data.amount_minor, '1000')
+    assert.equal(requests[1].data.requested_credit_units, undefined)
     assert.ok(container.textContent?.includes('USDC 10.00'))
     assert.ok(container.textContent?.includes('5,000,000 Credits'))
     assert.equal(container.querySelector('a'), null)
     await click('Confirm payment')
-    assert.equal(requests.length, 2)
-    assert.equal(requests[1].data.request_key, requests[0].data.request_key)
-    assert.equal(requests[1].data.expected_credit_units, '5000000')
+    assert.equal(requests.length, 3)
+    assert.equal(requests[2].data.request_key, requests[1].data.request_key)
+    assert.equal(requests[2].data.expected_credit_units, '5000000')
+    assert.deepEqual(destinations, [order.checkout_url])
     assert.equal(container.querySelector('a')?.href, order.checkout_url)
     assert.equal(
       container.textContent?.includes('Funds have reached your wallet.'),
@@ -1119,6 +1223,133 @@ test('a shared discount link only prefills one valid code and never starts a pay
     container.remove()
     dom.location.href = previousURL
     api.defaults.adapter = adapter
+    dom.sessionStorage.clear()
+  }
+})
+
+test('wallet presets follow the entered currency, minimum and explicit empty list', async () => {
+  const { config } = useSystemConfigStore.getState()
+  useSystemConfigStore.getState().setConfig({
+    currency: {
+      ...config.currency,
+      currencyUnit: 'credit',
+      creditsPerUsd: 500000,
+      cnyPerUsd: 7,
+      cnyPerUsdExact: '7',
+    },
+  })
+  const oldGet = api.get,
+    oldPost = api.post
+  dom.sessionStorage.clear()
+  login(9912, 'currency-presets')
+  const container = document.body.appendChild(document.createElement('div'))
+  const root = createRoot(container)
+  const channels = [
+    { id: '1', currency: 'USD', preset_amounts_minor: ['250', '1000'] },
+    {
+      id: '2',
+      currency: 'CNY',
+      credit_quantity: true,
+      min_credit_units: '500000',
+      preset_amounts_minor: ['500', '700', '3500'],
+    },
+    {
+      id: '3',
+      currency: 'EUR',
+      min_amount_minor: '400',
+      preset_amounts_minor: [],
+    },
+  ].map((channel) => ({
+    ...channel,
+    provider: 'waffo_pancake',
+    environment: 'test',
+  }))
+  api.get = (async () => ({
+    data: { success: true, data: { available: true, channels } },
+  })) as typeof api.get
+  const writes: Record<string, string>[] = []
+  api.post = (async (url: string, data: Record<string, string>) => {
+    assert.equal(url, '/api/user/payments/quote')
+    writes.push(data)
+    return {
+      data: {
+        success: true,
+        data: {
+          ...data,
+          order_id: 'top_9912',
+          account_id: '9912',
+          provider: 'waffo_pancake',
+          environment: 'test',
+          credit_unit: 'credit_500k_usd',
+          credit_units: '100000',
+        },
+      },
+    }
+  }) as typeof api.post
+  const select = async (value: string) => {
+    const select = container.querySelector<HTMLSelectElement>(
+      '#native-payment-channel'
+    )
+    assert.ok(select)
+    await act(async () => {
+      select.value = value
+      select.dispatchEvent(new Event('change', { bubbles: true }))
+    })
+  }
+  const choices = () =>
+    Array.from(
+      container.querySelectorAll('[role="group"] button'),
+      (button) => button.textContent
+    )
+  const input = () =>
+    container.querySelector<HTMLInputElement>('#native-payment-amount')?.value
+  try {
+    await act(async () => {
+      root.render(
+        <I18nextProvider i18n={i18n}>
+          <NativeWalletCheckout />
+        </I18nextProvider>
+      )
+      await flush()
+    })
+    assert.deepEqual(choices(), ['2.5', '10'])
+    assert.equal(input(), '2.50')
+    await click('10')
+    await select('2')
+    assert.deepEqual(choices(), ['7', '35'])
+    assert.equal(input(), '7.00')
+    await enterAmount('14.50')
+    assert.equal(input(), '14.50')
+    await act(async () => {
+      useSystemConfigStore.getState().setConfig({
+        currency: {
+          ...useSystemConfigStore.getState().config.currency,
+          cnyPerUsd: 0,
+          cnyPerUsdExact: '',
+        },
+      })
+    })
+    assert.deepEqual(choices(), [])
+    assert.equal(input(), '14.50')
+    await click('Review payment')
+    assert.equal(writes.length, 0)
+    await select('3')
+    assert.deepEqual(choices(), [])
+    assert.equal(input(), '')
+    await enterAmount('3.99')
+    await click('Review payment')
+    assert.equal(writes.length, 0)
+    await enterAmount('4.75')
+    await click('Review payment')
+    assert.equal(writes.length, 1)
+    assert.equal(writes[0].currency, 'EUR')
+    assert.equal(writes[0].amount_minor, '475')
+  } finally {
+    await act(async () => root.unmount())
+    container.remove()
+    api.get = oldGet
+    api.post = oldPost
+    useSystemConfigStore.setState({ config })
     dom.sessionStorage.clear()
   }
 })

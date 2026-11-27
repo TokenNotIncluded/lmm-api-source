@@ -159,6 +159,8 @@ function StoreSellerCenter({ user }: { user: AuthUser }) {
     queryFn: storeApi.paymentSettings,
     retry: false,
   })
+  const paidPromotions =
+    !!config.data && config.data.paid_promotions_supported !== false
   const promotionKeys = useRef(new Map<string, string>())
   const [editing, setEditing] = useState<StoreProduct | 'new' | null>(null)
   const [extoreCallback, setExtoreCallback] = useState(extoreCallbackURL)
@@ -455,7 +457,8 @@ function StoreSellerCenter({ user }: { user: AuthUser }) {
                           )}
                         </Button>
                       )}
-                      {storeVisibility(product) !== 'private' &&
+                      {paidPromotions &&
+                        storeVisibility(product) !== 'private' &&
                         product.status === 'published' && (
                           <Button
                             size='sm'
@@ -834,7 +837,7 @@ function StoreSellerCenter({ user }: { user: AuthUser }) {
         />
       )}
       <Dialog
-        open={!!promoting}
+        open={paidPromotions && !!promoting}
         onOpenChange={(open) => {
           if (!open) setPromoting(null)
         }}
@@ -863,7 +866,7 @@ function StoreSellerCenter({ user }: { user: AuthUser }) {
             </p>
           </div>
           <Button
-            disabled={!config.data || busy !== null || !promoting}
+            disabled={!paidPromotions || busy !== null || !promoting}
             onClick={() =>
               promoting &&
               void action(promoting, () =>

@@ -86,7 +86,7 @@ func TestDiscountCheckoutRealRust(t *testing.T) {
 		t.Fatal(err)
 	}
 	mux := http.NewServeMux()
-	webcompat.RegisterPaymentCheckout(mux, auth, service, nil)
+	webcompat.RegisterPaymentCheckout(mux, auth, service, nil, p.WalletPresets{})
 	server := httptest.NewServer(mux)
 	defer server.Close()
 	client := &http.Client{Timeout: 10 * time.Second}
