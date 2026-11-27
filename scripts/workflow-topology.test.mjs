@@ -9,6 +9,11 @@ const root = new URL('../', import.meta.url);
 const read = (path) => readFileSync(new URL(path, root), 'utf8');
 const workflow = (name) => read(`.github/workflows/${name}.yml`);
 
+// These fixtures create and mutate their own repositories, including submodules.
+const gitFixtureEnvironment = Object.fromEntries(
+  Object.entries(process.env).filter(([key]) => !key.startsWith('GIT_'))
+);
+
 // Source contracts complement actionlint and runtime tests. They do not assert
 // that unimplemented business modules are ready or that release is authorized.
 test('preview workflows stay read-only and source publication never grants server access', () => {
@@ -205,7 +210,7 @@ test('deployment selects only commit objects from main and plans from that exact
   t.after(() => rmSync(temp, { recursive: true, force: true }));
   const run = (cmd, args, extra = {}) => execFileSync(cmd, args, {
     cwd: temp, encoding: 'utf8', stdio: 'pipe', env: {
-      ...process.env, GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1',
+      ...gitFixtureEnvironment, GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1',
       GIT_AUTHOR_NAME: 'Fixture', GIT_COMMITTER_NAME: 'Fixture',
       GIT_AUTHOR_EMAIL: 'fixture@example.test', GIT_COMMITTER_EMAIL: 'fixture@example.test', ...extra,
     },
@@ -407,7 +412,7 @@ test('S11 bundles restore the selected source and pinned CLI after main advances
   const directory = mkdtempSync(join(tmpdir(), 'lmm-snapshot-'));
   t.after(() => rmSync(directory, { recursive: true, force: true }));
   const env = {
-    ...process.env, GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1', GIT_ALLOW_PROTOCOL: 'file',
+    ...gitFixtureEnvironment, GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1', GIT_ALLOW_PROTOCOL: 'file',
     GIT_AUTHOR_NAME: 'Snapshot test', GIT_AUTHOR_EMAIL: 'snapshot@example.test',
     GIT_COMMITTER_NAME: 'Snapshot test', GIT_COMMITTER_EMAIL: 'snapshot@example.test',
   };
