@@ -353,7 +353,19 @@ test('verified partial results show credit totals and exception counts while pay
 test('unknown usage does not hide a verified balance or produce a numeric estimate', async () => {
   useAuthStore.getState().auth.setUser(user(10))
   api.get = (async () => ({
-    data: { success: true, data: { ...data, total_used_credits: null } },
+    data: {
+      success: true,
+      data: {
+        ...data,
+        total_used_credits: null,
+        credit_coverage: {
+          unverified_origins: 0,
+          missing_usage_baselines: 2,
+          incomplete_wallets: 0,
+          invalid_settlements: 0,
+        },
+      },
+    },
   })) as typeof api.get
   const container = await mount()
   await until(() => container.textContent?.includes('4,750,000') === true)
@@ -361,6 +373,8 @@ test('unknown usage does not hide a verified balance or produce a numeric estima
     '.overview-site-totals > div:first-child'
   )
   assert.match(used?.textContent ?? '', /Unknown/)
+  assert.match(container.textContent ?? '', /Accounts missing historical usage2/)
+  assert.doesNotMatch(container.textContent ?? '', /Unverified account origins/)
   assert.doesNotMatch(used?.textContent ?? '', /9,277|0[.]00/)
   assert.equal(container.querySelectorAll('.overview-payment-row').length, 3)
 })

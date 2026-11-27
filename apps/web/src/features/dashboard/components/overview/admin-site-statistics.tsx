@@ -43,6 +43,16 @@ export function AdminSiteStatisticsPanel() {
   const data = query.isError ? undefined : query.data
   const exceptions = data?.order_exceptions ?? data?.recharge
 
+  const coverage = data?.credit_coverage
+  const creditGaps = coverage
+    ? [
+        [t('Unverified account origins'), coverage.unverified_origins],
+        [t('Accounts missing historical usage'), coverage.missing_usage_baselines],
+        [t('Accounts with incomplete wallet balances'), coverage.incomplete_wallets],
+        [t('Settlements with inconsistent refunds'), coverage.invalid_settlements],
+      ] as const
+    : []
+
   return (
     <section
       aria-labelledby='site-statistics-title'
@@ -169,6 +179,16 @@ export function AdminSiteStatisticsPanel() {
             )}
           </div>
           <div className='overview-notes'>
+            {creditGaps.some(([, count]) => count > 0) && (
+              <dl className='text-muted-foreground grid gap-1 text-sm'>
+                {creditGaps.filter(([, count]) => count > 0).map(([label, count]) => (
+                  <div key={label} className='flex flex-wrap items-baseline gap-x-2'>
+                    <dt>{label}</dt>
+                    <dd className='tabular-nums'>{formatSiteCredits(String(count), locale)}</dd>
+                  </div>
+                ))}
+              </dl>
+            )}
             {exceptions &&
               (exceptions.unconfirmed_orders > 0 ||
                 exceptions.invalid_orders > 0) && (

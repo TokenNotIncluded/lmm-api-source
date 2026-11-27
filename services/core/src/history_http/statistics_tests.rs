@@ -182,6 +182,10 @@ async fn missing_credit_sources_preserve_verified_payment_metrics(pool: PgPool) 
     let body: Value =
         serde_json::from_slice(&to_bytes(response.into_body(), 8192).await.unwrap()).unwrap();
     let data = &body["data"];
+    assert_eq!(
+        data["credit_coverage"],
+        json!({"unverified_origins":1,"missing_usage_baselines":0,"incomplete_wallets":0,"invalid_settlements":0})
+    );
     assert_eq!(data.get("total_used_credits"), Some(&Value::Null));
     assert_eq!(data.get("total_balance_credits"), Some(&Value::Null));
     assert_eq!(

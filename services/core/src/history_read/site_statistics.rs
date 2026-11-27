@@ -32,6 +32,15 @@ pub struct VerifiedSiteStatistics {
     pub total_balance_credits: Option<String>,
     pub recharge: Option<RechargeStatistics>,
     pub order_exceptions: Option<OrderExceptions>,
+    pub credit_coverage: CreditCoverage,
+}
+
+#[derive(Debug, Serialize)]
+pub struct CreditCoverage {
+    pub unverified_origins: i64,
+    pub missing_usage_baselines: i64,
+    pub incomplete_wallets: i64,
+    pub invalid_settlements: i64,
 }
 
 #[derive(Debug, Serialize)]
@@ -154,7 +163,10 @@ impl HistoryStore {
                 include_str!("history_only_identities.sql"),
                 r#", users AS (
  SELECT u.id,u.personal_account_id,c.account_id AS opening_account,
-   c.used_quota,f.normalized_used_credits,
+   f.normalized_used_credits,
+   (i.account_id=c.account_id AND i.source_row_sha256=c.source_row_sha256
+    AND r.source_archive_sha256=c.source_archive_sha256 AND r.mapping_sha256=c.mapping_sha256
+    AND r.observed_at=c.observed_at) IS TRUE AS opening_verified,
    EXISTS(SELECT 1 FROM core_billing.opening_imports i WHERE i.account_id=u.personal_account_id) AS imported,
    (EXISTS(SELECT 1 FROM core_identity.audit a WHERE a.actor_user_id=u.id
      AND a.action IN ('user.register','user.bootstrap','installation.first-owner')
@@ -163,6 +175,8 @@ impl HistoryStore {
         AND to_jsonb(u.id) NOT IN (SELECT target_user_id FROM history_identity_mappings))) AS native
  FROM core_identity.users u
  LEFT JOIN core_billing.account_opening_counters c ON c.user_id=u.id AND c.account_id=u.personal_account_id
+ LEFT JOIN core_billing.opening_imports i ON i.migration_id=c.migration_id AND i.source_entity_key=c.source_entity_key
+ LEFT JOIN core_billing.opening_import_runs r ON r.migration_id=c.migration_id
  LEFT JOIN core_history.finance_users f ON f.user_id=u.id AND f.account_id=u.personal_account_id
  WHERE NOT EXISTS(SELECT 1 FROM history_only h WHERE h.id=u.id)
 ), wallets AS (
@@ -179,7 +193,8 @@ impl HistoryStore {
 )
 SELECT floor(extract(epoch FROM statement_timestamp()))::bigint AS as_of,
  (SELECT count(*) FROM users WHERE (opening_account IS NULL AND (imported OR NOT native))
-   OR (opening_account IS NOT NULL AND normalized_used_credits IS NULL)) AS missing,
+   OR (opening_account IS NOT NULL AND NOT opening_verified)) AS missing,
+ (SELECT count(*) FROM users WHERE opening_verified AND normalized_used_credits IS NULL) AS missing_usage,
  (SELECT count(*) FROM wallets w JOIN users u USING(id)
    WHERE (w.buckets=0 AND u.opening_account IS NOT NULL)
       OR (w.buckets<>0 AND (w.buckets<>4 OR w.balances<>4 OR w.distinct_buckets<>4 OR w.known_buckets<>4))) AS invalid_wallets,
@@ -191,34 +206,21 @@ SELECT floor(extract(epoch FROM statement_timestamp()))::bigint AS as_of,
         )
         .fetch_one(&mut *tx)
         .await.map_err(sql_failure("credits"))?;
-        // Without complete credit coverage neither total is authoritative.
-        // Original payment evidence is checked independently below.
-        let credit_sources_complete = coverage_ok(
-            credits
-                .try_get::<i64, _>("missing")
-                .map_err(sql_failure("decode"))?
-                == 0,
-            "missing",
-        );
-        let valid_usage = coverage_ok(
-            credits
-                .try_get::<i64, _>("invalid_usage")
-                .map_err(sql_failure("decode"))?
-                == 0,
-            "invalid_usage",
-        );
-        let used = (credit_sources_complete && valid_usage)
+        let credit_coverage = CreditCoverage {
+            unverified_origins: credits.try_get("missing").map_err(sql_failure("decode"))?,
+            missing_usage_baselines: credits.try_get("missing_usage").map_err(sql_failure("decode"))?,
+            incomplete_wallets: credits.try_get("invalid_wallets").map_err(sql_failure("decode"))?,
+            invalid_settlements: credits.try_get("invalid_usage").map_err(sql_failure("decode"))?,
+        };
+        let origins_verified = coverage_ok(credit_coverage.unverified_origins == 0, "missing");
+        let usage_verified = coverage_ok(credit_coverage.missing_usage_baselines == 0, "missing_usage")
+            && coverage_ok(credit_coverage.invalid_settlements == 0, "invalid_usage");
+        let wallets_verified = coverage_ok(credit_coverage.incomplete_wallets == 0, "invalid_wallets");
+        let used = (origins_verified && usage_verified)
             .then(|| credits.try_get("used"))
             .transpose()
             .map_err(sql_failure("decode"))?;
-        let valid_wallets = coverage_ok(
-            credits
-                .try_get::<i64, _>("invalid_wallets")
-                .map_err(sql_failure("decode"))?
-                == 0,
-            "invalid_wallets",
-        );
-        let balance = (credit_sources_complete && valid_wallets)
+        let balance = (origins_verified && wallets_verified)
             .then(|| credits.try_get("balance"))
             .transpose()
             .map_err(sql_failure("decode"))?;
@@ -273,6 +275,7 @@ SELECT floor(extract(epoch FROM statement_timestamp()))::bigint AS as_of,
             total_balance_credits: balance,
             recharge,
             order_exceptions,
+            credit_coverage,
         };
         tx.commit().await.map_err(sql_failure("commit"))?;
         Ok(result)

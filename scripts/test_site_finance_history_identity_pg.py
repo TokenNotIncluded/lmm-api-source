@@ -55,8 +55,10 @@ CREATE TABLE core_abuse.registration_observations(user_id bigint PRIMARY KEY,sou
 CREATE SCHEMA core_passkeys;
 CREATE TABLE core_passkeys.credentials(user_id bigint);
 CREATE SCHEMA core_billing;
-CREATE TABLE core_billing.account_opening_counters(account_id bigint,user_id bigint,used_quota bigint);
-CREATE TABLE core_billing.opening_imports(account_id bigint);
+CREATE TABLE core_billing.account_opening_counters(account_id bigint,user_id bigint,used_quota bigint,
+  migration_id text,source_entity_key text,source_row_sha256 text,source_archive_sha256 text,mapping_sha256 text,observed_at bigint);
+CREATE TABLE core_billing.opening_imports(account_id bigint,migration_id text,source_entity_key text,source_row_sha256 text);
+CREATE TABLE core_billing.opening_import_runs(migration_id text,source_archive_sha256 text,mapping_sha256 text,observed_at bigint);
 CREATE TABLE core_billing.ledger_accounts(id bigint PRIMARY KEY,owner_account_id bigint,bucket text);
 CREATE TABLE core_billing.balance_state(ledger_account_id bigint,balance_units bigint);
 CREATE SCHEMA core_charging;
@@ -167,6 +169,20 @@ SELECT 1,i,i-71,NULL,repeat('a',64),repeat('b',64),repeat('c',64),true FROM gene
             "has_table_privilege('history_finance_runtime','core_migration.import_runs','INSERT');"
         ).stdout.strip(), "f|f|f")
         self.assertEqual(self.pg.sql("SELECT count(*) FROM core_migration.import_runs").stdout.strip(), "0")
+
+    def test_verified_wallet_without_historical_usage_baseline(self):
+        imported = """
+INSERT INTO core_billing.opening_import_runs VALUES('opening','archive','mapping',42);
+INSERT INTO core_billing.opening_imports VALUES(1,'opening','source','row');
+INSERT INTO core_billing.account_opening_counters VALUES(1,71,22,'opening','source','row','archive','mapping',42);
+"""
+        wallet = self.read(self.manifest, imported)
+        self.assertEqual((wallet["missing"], wallet["missing_usage"], wallet["invalid_wallets"], wallet["balance"]),
+                         (0, 1, 0, "95"))
+        broken = self.read(self.manifest, imported + "UPDATE core_billing.opening_imports SET source_row_sha256='wrong';")
+        self.assertEqual(broken["missing"], 1)
+        incomplete = self.read(self.manifest, imported + "DELETE FROM core_billing.balance_state WHERE ledger_account_id=1;")
+        self.assertEqual(incomplete["invalid_wallets"], 1)
 
     def test_unbound_inactive_identity_and_tampered_receipts_keep_completeness_guard(self):
         mutations = [

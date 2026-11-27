@@ -37,6 +37,14 @@ const statisticsSchema = z.object({
       invalid_orders: count,
     })
     .nullable(),
+  credit_coverage: z
+    .object({
+      unverified_origins: count,
+      missing_usage_baselines: count,
+      incomplete_wallets: count,
+      invalid_settlements: count,
+    })
+    .optional(),
   order_exceptions: z
     .object({ unconfirmed_orders: count, invalid_orders: count })
     .nullable()
