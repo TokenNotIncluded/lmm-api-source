@@ -510,7 +510,7 @@ impl Turn {
             .route_responses_ws_groups(
                 &request.model,
                 &groups,
-                session_affinity(headers, &principal)?,
+                session_affinity(headers, &principal, request.prompt_cache_hint())?,
                 pinned_target,
             )
             .map_err(super::model_route_error)?;

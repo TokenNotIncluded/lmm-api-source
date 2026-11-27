@@ -317,3 +317,146 @@ async fn rule_affinity_pg_unavailable_and_changed_channel_bindings(pool: PgPool)
         .unwrap();
     assert_eq!(row, 1);
 }
+
+#[sqlx::test(migrations = false)]
+async fn prompt_cache_affinity_pg_reuses_the_supplier_without_creating_affinity_rows(pool: PgPool) {
+    let f = fixture(pool, 10_000_000).await;
+    let a = CompatibilityProvider::start().await;
+    let b = CompatibilityProvider::start().await;
+    let g = failover_gateway(&f, &a.endpoint, &b.endpoint, false, false, true);
+    let key = "same-pi-conversation";
+    for turn in 0..4 {
+        let (status, id) = model_call(&g, &f, key, &format!("pi-cache-{turn}")).await;
+        assert_eq!(status, 200);
+        assert_eq!(
+            g.bridge.charging.resolve(&id).await.unwrap().unwrap().state,
+            "settled"
+        );
+        assert!(
+            !serde_json::to_string(&evidence(&f, &id).await)
+                .unwrap()
+                .contains(key)
+        );
+    }
+    let left = a.bodies.lock().unwrap();
+    let right = b.bodies.lock().unwrap();
+    assert_eq!(left.len() + right.len(), 4);
+    assert!(left.is_empty() || right.is_empty());
+    for body in left.iter().chain(right.iter()) {
+        assert_eq!(body["prompt_cache_key"], key);
+    }
+    drop(left);
+    drop(right);
+    let rows: i64 = sqlx::query_scalar("SELECT count(*) FROM core_channels.affinity_cache")
+        .fetch_one(&f.pool)
+        .await
+        .unwrap();
+    assert_eq!(rows, 0);
+}
+
+#[test]
+fn prompt_cache_affinity_separates_users_grants_hint_sources_and_explicit_sessions() {
+    let principal = |user_id, grant: &str| {
+        ModelIdentity::OAuth(crate::identity::grants::OAuthSource {
+            grant_id: grant.to_owned(),
+            access_id: "synthetic".into(),
+            client_id: "pi".into(),
+            issuer: "https://synthetic.invalid".into(),
+            resource: "synthetic".into(),
+            user_id,
+            personal_account_id: user_id,
+            user_version: 1,
+            consent_version: 1,
+            scopes: vec![],
+            expires_at: 1,
+            budget_credits: 1,
+        })
+    };
+    let headers = HeaderMap::new();
+    let seed = |headers: &HeaderMap, user, grant: &str, protocol, body: Value| {
+        let request = relay::Request::parse(
+            protocol,
+            &serde_json::to_vec(&body).unwrap(),
+            &Limits::default(),
+        )
+        .unwrap();
+        session_affinity(
+            headers,
+            &principal(user, grant),
+            request.prompt_cache_hint(),
+        )
+        .unwrap()
+    };
+    let model = "m";
+    let responses = json!({"model":model,"input":"hi","prompt_cache_key":"private"});
+    let chat = json!({"model":model,"messages":[{"role":"user","content":"hi"}],"prompt_cache_key":"private"});
+    let claude = json!({"model":model, "max_tokens":32, "system":"private","messages":[{"role":"user","content":"first"}],
+        "cache_control":{"type":"ephemeral"}});
+    let base = seed(
+        &headers,
+        1,
+        "a",
+        ClientProtocol::Responses,
+        responses.clone(),
+    );
+    assert!(base.is_some());
+    assert_eq!(base, seed(&headers, 1, "a", ClientProtocol::Chat, chat));
+    assert_ne!(
+        base,
+        seed(
+            &headers,
+            2,
+            "a",
+            ClientProtocol::Responses,
+            responses.clone()
+        )
+    );
+    assert_ne!(
+        base,
+        seed(
+            &headers,
+            1,
+            "b",
+            ClientProtocol::Responses,
+            responses.clone()
+        )
+    );
+    let cached = seed(&headers, 1, "a", ClientProtocol::Anthropic, claude.clone());
+    assert!(cached.is_some());
+    assert_ne!(base, cached);
+    let mut next = claude.clone();
+    next["messages"].as_array_mut().unwrap().extend([
+        json!({"role":"assistant","content":"ok"}),
+        json!({"role":"user","content":"next"}),
+    ]);
+    assert_eq!(
+        cached,
+        seed(&headers, 1, "a", ClientProtocol::Anthropic, next.clone())
+    );
+    next["metadata"] = json!({"user_id":"private"});
+    assert_ne!(
+        cached,
+        seed(&headers, 1, "a", ClientProtocol::Anthropic, next.clone())
+    );
+    next.as_object_mut().unwrap().remove("cache_control");
+    assert_eq!(
+        seed(&headers, 1, "a", ClientProtocol::Anthropic, next),
+        None
+    );
+    let mut explicit = HeaderMap::new();
+    explicit.insert("x-lmm-session-id", HeaderValue::from_static("manual"));
+    assert_eq!(
+        seed(&explicit, 1, "a", ClientProtocol::Anthropic, claude),
+        seed(&explicit, 1, "a", ClientProtocol::Responses, responses)
+    );
+    assert_eq!(
+        seed(
+            &headers,
+            1,
+            "a",
+            ClientProtocol::Responses,
+            json!({"model":model,"input":"hi"})
+        ),
+        None
+    );
+}

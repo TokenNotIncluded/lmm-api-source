@@ -2036,3 +2036,57 @@ fn reliability_manual_stops_and_revision_fenced_key_health() {
         changed
     );
 }
+
+#[test]
+fn prompt_cache_affinity_experiment_counts_second_turn_same_supplier_opportunities() {
+    use rand::{SeedableRng, rngs::StdRng};
+    use sha2::{Digest, Sha256};
+
+    let (mut config, prices) = fixture(1);
+    for target in &mut config.routes[0].targets {
+        target.weight = 1;
+    }
+    let router = build(config, prices);
+    let mut baseline = StdRng::seed_from_u64(0x4c4d4d);
+    let groups = vec!["default".to_owned()];
+    let mut before = 0;
+    let mut after = 0;
+    let mut distribution = [0; 2];
+    let conversations = 2048;
+    for conversation in 0_u64..conversations {
+        // Baseline: independent weighted draws for two requests with one
+        // reusable prefix. Only the fixture's RNG is fixed for reproducibility.
+        let mut independent = || {
+            router
+                .route_with_rng(request(), &mut baseline)
+                .unwrap()
+                .start()
+                .unwrap()
+                .upstream_id()
+        };
+        before += u64::from(independent() == independent());
+
+        // Each conversation gets its own synthetic scope and both turns share it.
+        let scope = Sha256::digest(conversation.to_be_bytes()).into();
+        let first_target = || {
+            router
+                .route_adapted_groups("model-a", &groups, Protocol::OpenAiChat, Some(scope))
+                .unwrap()[0]
+                .planned_attempts()[0]
+                .upstream_id()
+        };
+        let first = first_target();
+        distribution[(first - 1) as usize] += 1;
+        after += u64::from(first == first_target());
+    }
+    println!(
+        "same_supplier_on_second_turn before={before}/{conversations} after={after}/{conversations} first_turn_distribution={distribution:?}"
+    );
+    assert!((900..=1150).contains(&before));
+    assert_eq!(after, conversations);
+    assert!(
+        distribution
+            .into_iter()
+            .all(|count| (900..=1150).contains(&count))
+    );
+}

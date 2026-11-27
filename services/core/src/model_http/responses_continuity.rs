@@ -24,13 +24,19 @@ pub(super) async fn uses_native(gateway: &ModelGateway, headers: &HeaderMap, raw
     let Some(model) = value["model"].as_str() else {
         return false;
     };
-    let Ok((_, _, groups)) = gateway.authenticate(headers).await else {
+    let Ok((principal, _, groups)) = gateway.authenticate(headers).await else {
+        return false;
+    };
+    let cache = value["prompt_cache_key"]
+        .as_str()
+        .map(relay::PromptCacheHint::OpenAiKey);
+    let Ok(affinity) = session_affinity(headers, &principal, cache) else {
         return false;
     };
     gateway
         .bridge
         .routing
-        .route_adapted_groups(model, &groups, Protocol::OpenAiResponses, None)
+        .route_adapted_groups(model, &groups, Protocol::OpenAiResponses, affinity)
         .ok()
         .and_then(|plans| plans.into_iter().next())
         .is_some_and(|plan| {

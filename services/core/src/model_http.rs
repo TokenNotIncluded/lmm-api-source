@@ -766,18 +766,37 @@ fn model_route_error(error: crate::routing::RoutingError) -> RelayError {
 fn session_affinity(
     headers: &HeaderMap,
     principal: &ModelIdentity,
+    cache: Option<relay::PromptCacheHint<'_>>,
 ) -> Result<Option<[u8; 32]>, RelayError> {
-    let Some(session) = one_header(headers, "x-lmm-session-id")? else {
-        return Ok(None);
-    };
-    if session.is_empty()
-        || session.len() > 256
-        || !session.bytes().all(|byte| byte.is_ascii_graphic())
-    {
-        return Err(RelayError::Invalid("invalid model session identifier"));
-    }
+    let (domain, value): (&[u8], &[u8]) =
+        if let Some(session) = one_header(headers, "x-lmm-session-id")? {
+            if session.is_empty()
+                || session.len() > 256
+                || !session.bytes().all(|byte| byte.is_ascii_graphic())
+            {
+                return Err(RelayError::Invalid("invalid model session identifier"));
+            }
+            // Keep the existing explicit-session routing assignment byte-for-byte.
+            (b"lmm-model-session-scope-v1\0", session.as_bytes())
+        } else {
+            use relay::PromptCacheHint::*;
+            match cache {
+                Some(OpenAiKey(key)) if !key.is_empty() => {
+                    (b"lmm-openai-cache-route-v1\0", key.as_bytes())
+                }
+                Some(AnthropicUser(user)) => (b"lmm-anthropic-cache-user-v1\0", user.as_bytes()),
+                Some(AnthropicPrefix(prefix)) => {
+                    let bytes = prefix.as_bytes();
+                    (
+                        b"lmm-anthropic-cache-prefix-v1\0",
+                        &bytes[..bytes.len().min(4096)],
+                    )
+                }
+                _ => return Ok(None),
+            }
+        };
     let mut digest = Sha256::new();
-    digest.update(b"lmm-model-session-scope-v1\0");
+    digest.update(domain);
     digest.update(principal.user_id().to_be_bytes());
     if let Some(key) = principal.key_id() {
         digest.update(key.to_be_bytes());
@@ -792,7 +811,7 @@ fn session_affinity(
         );
     }
     digest.update([0]);
-    digest.update(session.as_bytes());
+    digest.update(value);
     Ok(Some(digest.finalize().into()))
 }
 
@@ -1132,7 +1151,7 @@ async fn dispatch_authorized(
         Ok(v) => v,
         Err(e) => return native::error_response(client, e),
     };
-    let affinity = match session_affinity(&headers, &principal) {
+    let affinity = match session_affinity(&headers, &principal, request.prompt_cache_hint()) {
         Ok(value) => value,
         Err(error) => return native::error_response(client, error),
     };

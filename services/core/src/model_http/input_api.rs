@@ -271,10 +271,19 @@ async fn prepare_request(
     #[cfg(test)]
     let mut selected_trace = None;
     if parent.is_none() && request.kind().responses() {
+        let affinity = if let Some((headers, _)) = affinity_input {
+            session_affinity(
+                headers,
+                &caller.principal,
+                request.native().and_then(|r| r.prompt_cache_hint()),
+            )?
+        } else {
+            None
+        };
         let plans = gateway
             .bridge
             .routing
-            .route_adapted_groups(request.model(), &groups, protocol, None)
+            .route_adapted_groups(request.model(), &groups, protocol, affinity)
             .map_err(super::model_route_error)?;
         // Respect the original authorization/cross_group_retry cut before seeking capability.
         let authorized = gateway

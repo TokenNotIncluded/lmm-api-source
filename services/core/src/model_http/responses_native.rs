@@ -143,6 +143,12 @@ impl Request {
                 .any(|item| item["type"] == "compaction" || item.get("encrypted_content").is_some())
         })
     }
+    pub(super) fn prompt_cache_hint(&self) -> Option<relay::PromptCacheHint<'_>> {
+        self.prompt_cache_key
+            .as_deref()
+            .filter(|key| !key.is_empty())
+            .map(relay::PromptCacheHint::OpenAiKey)
+    }
     pub(super) fn previous(&self) -> Option<&str> {
         self.previous_response_id.as_deref()
     }

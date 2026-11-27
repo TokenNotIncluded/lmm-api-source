@@ -40,6 +40,7 @@ pub(crate) use decode::usage_with_cache_creation_mode as native_response_usage;
 pub(crate) use decode::usage_with_cache_creation_mode as provider_usage_with_cache_creation_mode;
 pub(crate) use encode::Encoder as AssistantEncoder;
 pub use input_count::CountObservation;
+pub(crate) use request::PromptCacheHint;
 pub use request::{FunctionTool, InputBlock, Message, Request, Role, ToolChoice};
 pub(crate) use sse::Parser as AssistantSseParser;
 pub use types::*;

@@ -625,7 +625,43 @@ fn text_blocks(
     Ok(out)
 }
 
+/// Ephemeral input to local route selection. It never authorizes cache reads,
+/// changes a provider payload, or establishes billable cache usage.
+pub(crate) enum PromptCacheHint<'a> {
+    OpenAiKey(&'a str),
+    AnthropicUser(&'a str),
+    AnthropicPrefix(&'a str),
+}
+
 impl Request {
+    pub(crate) fn prompt_cache_hint(&self) -> Option<PromptCacheHint<'_>> {
+        if let Some(key) = self
+            .prompt_cache_key
+            .as_deref()
+            .filter(|key| !key.is_empty())
+        {
+            return Some(PromptCacheHint::OpenAiKey(key));
+        }
+        // Only a validated, explicitly cache-enabled native Claude request
+        // supplies a prefix hint. No customer text is persisted or forwarded.
+        self.anthropic_cached_prompt.as_ref()?;
+        if let Some(user) = self
+            .anthropic_metadata
+            .as_ref()
+            .and_then(|m| m["user_id"].as_str())
+            .filter(|u| !u.is_empty())
+        {
+            return Some(PromptCacheHint::AnthropicUser(user));
+        }
+        let first = self.messages.first()?.content.first()?;
+        match first {
+            InputBlock::Text(prefix) if !prefix.is_empty() => {
+                Some(PromptCacheHint::AnthropicPrefix(prefix))
+            }
+            _ => None,
+        }
+    }
+
     /// The first counter contract covers only stateless, nonstreaming text.
     pub(crate) fn validate_exact_input_count(&self) -> Result<(), RelayError> {
         // @context-fold begin exact-count-request-contract
