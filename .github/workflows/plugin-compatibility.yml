@@ -294,7 +294,7 @@ jobs:
       - name: Exercise real Magpie JSON and SSE against an ordinary Core account
         working-directory: services/core
         env:
-          DATABASE_URL: postgres://postgres:postgres@127.0.0.1:${{ job.services.postgres.ports[5432] }}/postgres
+          DATABASE_URL: postgres://postgres:postgres@127.0.0.1:${{ job.services.postgres.ports['5432'] }}/postgres
           CARGO_BUILD_JOBS: '2'
           CARGO_INCREMENTAL: '0'
           CARGO_PROFILE_TEST_DEBUG: '0'
