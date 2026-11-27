@@ -7,7 +7,7 @@ on:
         description: Run unit and integration targets on separate PostgreSQL services.
         type: boolean
         default: false
-# Manual qualification keeps a single runner and the full Cargo target set.
+# Manual qualification runs the full Cargo target set on one Rust runner.
 permissions:
   contents: read
 defaults:
@@ -104,19 +104,7 @@ jobs:
           sudo --preserve-env=GITHUB_ACTIONS python3 scripts/prepare-ci-apt.py
           sudo apt-get update
           sudo apt-get install --no-install-recommends --yes protobuf-compiler curl ca-certificates
-          # Private financial fixtures need host PG18 tools, independent of the service container.
-          sudo install -d /usr/share/postgresql-common/pgdg
-          sudo curl --fail --output /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc https://www.postgresql.org/media/keys/ACCC4CF8.asc
-          printf '%s\n' 'Types: deb' 'URIs: https://apt.postgresql.org/pub/repos/apt' \
-            'Suites: noble-pgdg' "Architectures: $(dpkg --print-architecture)" 'Components: main' \
-            'Signed-By: /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc' \
-            | sudo tee /etc/apt/sources.list.d/pgdg.sources > /dev/null
-          sudo apt-get update
-          sudo apt-get install --no-install-recommends --yes postgresql-common
-          # Each test creates its own cluster; package installation must not create a shared one.
-          echo 'create_main_cluster = false' | sudo tee -a /etc/postgresql-common/createcluster.conf > /dev/null
-          sudo apt-get install --no-install-recommends --yes postgresql-18 postgresql-client-18
-          echo '/usr/lib/postgresql/18/bin' >> "$GITHUB_PATH"
+          bash scripts/install-ci-postgresql18.sh
       - name: Lint workflows
         run: go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.12 -color
       - name: Workflow and source boundaries
@@ -250,7 +238,10 @@ jobs:
             integration) targets=(--test '*') ;;
             *) echo "Unknown Rust target group: $RUST_TARGET_GROUP" >&2; exit 1 ;;
           esac
-          cargo test --locked "${targets[@]}" --no-fail-fast -- --skip synthetic_live_proof_crosses_core_go_processes_and_posts_once --nocapture 2>&1 | tee "$RUNNER_TEMP/core-tests.log"
+          # Dedicated jobs run the financial importer and formal Docker RPC acceptance.
+          cargo test --locked "${targets[@]}" --no-fail-fast -- \
+            --skip synthetic_live_proof_crosses_core_go_processes_and_posts_once \
+            --skip offline_financial_import_contracts_and_postgres --nocapture 2>&1 | tee "$RUNNER_TEMP/core-tests.log"
       - name: Repeat rejected event acknowledgement regression
         if: ${{ !cancelled() && matrix.targets != 'integration' && steps.rust_test_compile.outcome == 'success' }}
         working-directory: services/core
@@ -292,42 +283,6 @@ jobs:
           (cd services/core && cargo build --locked --example protocol-events-fixture)
           (cd contracts/proto/tests/go && go vet -mod=readonly ./... && go build -mod=readonly -o "$RUNNER_TEMP/mk06-go-fixture" .)
           MK06_GO_FIXTURE="$RUNNER_TEMP/mk06-go-fixture" python3 contracts/proto/tests/process_recovery.py 2>&1 | tee "$RUNNER_TEMP/events-process.log"
-      - name: Native protobuf round trips and failure recovery
-        if: ${{ !cancelled() && matrix.targets != 'integration' }}
-        run: |
-          # Absolute, symlink-free, and absent: the fixture creates a private empty 0700 root.
-          evidence="$(realpath -m -- "$RUNNER_TEMP/core-rpc-docker-evidence")"
-          if [[ -e "$evidence" || -L "$evidence" ]]; then
-            echo "RPC evidence root must be absent before the fixture creates it" >&2
-            exit 1
-          fi
-          python3 -B scripts/test-core-rpc-docker.py --output-root "$evidence" --build-timeout-seconds 2400 2>&1 | tee "$RUNNER_TEMP/core-rpc-docker.log"
-      - name: Stage readable core RPC evidence
-        if: ${{ always() && matrix.targets != 'integration' }}
-        run: |
-          # Secret files are chowned to container uid 65532 and mode 0400.
-          # upload-artifact fails the whole zip if any selected file is unreadable.
-          src="$RUNNER_TEMP/core-rpc-docker-evidence"
-          dest="$RUNNER_TEMP/core-rpc-docker-evidence-readable"
-          rm -rf -- "$dest"
-          if [[ ! -d "$src" ]]; then
-            echo "No core RPC evidence directory to stage"
-            exit 0
-          fi
-          mkdir -- "$dest"
-          chmod 0700 -- "$dest"
-          while IFS= read -r -d '' dir; do
-            rel="${dir#"$src"/}"
-            mkdir -p -- "$dest/$rel"
-            chmod 0700 -- "$dest/$rel"
-          done < <(find "$src" -mindepth 1 -type d -print0)
-          while IFS= read -r -d '' file; do
-            rel="${file#"$src"/}"
-            parent="$dest/$(dirname -- "$rel")"
-            mkdir -p -- "$parent"
-            chmod 0700 -- "$parent"
-            cp -p -- "$file" "$dest/$rel"
-          done < <(find "$src" -type f -readable -print0)
       - name: Service boundary contracts
         if: ${{ !cancelled() }}
         run: python3 -B scripts/test-core-boundaries.py
@@ -353,9 +308,96 @@ jobs:
             ${{ runner.temp }}/payment-live-build.log
             ${{ runner.temp }}/payment-live/evidence/result.json
             ${{ runner.temp }}/extension-tests.jsonl
-            ${{ runner.temp }}/core-rpc-docker.log
-            ${{ runner.temp }}/core-rpc-docker-evidence-readable
             ${{ runner.temp }}/store-postgres.jsonl
             ${{ runner.temp }}/events-process.log
+          if-no-files-found: warn
+          retention-days: 7
+
+  financial-import:
+    name: Reviewed financial import and PostgreSQL
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          persist-credentials: false
+      - name: Fetch the sealed historical Core fixture
+        run: git fetch --no-tags --depth=1 origin 8f1b6b837ace7027f2a62f15168843790ce6de28
+      - name: Install PostgreSQL 18 tools for private Unix socket fixtures
+        run: |
+          sudo --preserve-env=GITHUB_ACTIONS python3 scripts/prepare-ci-apt.py
+          bash scripts/install-ci-postgresql18.sh
+      - name: Pull the reviewed PostgreSQL image
+        run: docker pull postgres:18-alpine@sha256:77f585114c32fbca283dc835b0596f4e52b51b4c6662d7810b2f4084f60a1873
+      - name: Run the financial importer against the reviewed Core and private database
+        env:
+          LMM_FINANCIAL_PG_TEST: "1"
+        run: python3 -B scripts/run-reviewed-financial-tests.py --output "$RUNNER_TEMP/reviewed-financial"
+      - name: Preserve reviewed financial test evidence
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: reviewed-financial-${{ github.sha }}-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/reviewed-financial/evidence.json
+            ${{ runner.temp }}/reviewed-financial/unittest.log
+          if-no-files-found: warn
+          retention-days: 7
+
+  rpc:
+    name: Native protobuf container acceptance
+    runs-on: ubuntu-24.04
+    timeout-minutes: 55
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          persist-credentials: false
+      - name: Initialize the pinned Extore plugin for the formal RPC image
+        run: |
+          git submodule update --init --depth 1 -- packages/extore
+          python3 -B scripts/check-extore-plugin-pin.py
+      - name: Native protobuf round trips and failure recovery
+        run: |
+          # Absolute, symlink-free, and absent: the fixture creates a private empty 0700 root.
+          evidence="$(realpath -m -- "$RUNNER_TEMP/core-rpc-docker-evidence")"
+          if [[ -e "$evidence" || -L "$evidence" ]]; then
+            echo "RPC evidence root must be absent before the fixture creates it" >&2
+            exit 1
+          fi
+          python3 -B scripts/test-core-rpc-docker.py --output-root "$evidence" --build-timeout-seconds 2400 2>&1 | tee "$RUNNER_TEMP/core-rpc-docker.log"
+      - name: Stage readable core RPC evidence
+        if: ${{ !cancelled() }}
+        run: |
+          # Secret files are chowned to container uid 65532 and mode 0400.
+          # upload-artifact fails the whole zip if any selected file is unreadable.
+          src="$RUNNER_TEMP/core-rpc-docker-evidence"
+          dest="$RUNNER_TEMP/core-rpc-docker-evidence-readable"
+          rm -rf -- "$dest"
+          if [[ ! -d "$src" ]]; then
+            echo "No core RPC evidence directory to stage"
+            exit 0
+          fi
+          mkdir -- "$dest"
+          chmod 0700 -- "$dest"
+          while IFS= read -r -d '' dir; do
+            rel="${dir#"$src"/}"
+            mkdir -p -- "$dest/$rel"
+            chmod 0700 -- "$dest/$rel"
+          done < <(find "$src" -mindepth 1 -type d -print0)
+          while IFS= read -r -d '' file; do
+            rel="${file#"$src"/}"
+            parent="$dest/$(dirname -- "$rel")"
+            mkdir -p -- "$parent"
+            chmod 0700 -- "$parent"
+            cp -p -- "$file" "$dest/$rel"
+          done < <(find "$src" -type f -readable -print0)
+      - name: Preserve formal RPC test evidence
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: microkernel-rpc-${{ github.sha }}-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/core-rpc-docker.log
+            ${{ runner.temp }}/core-rpc-docker-evidence-readable
           if-no-files-found: warn
           retention-days: 7

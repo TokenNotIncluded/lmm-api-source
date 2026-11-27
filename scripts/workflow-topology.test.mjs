@@ -83,7 +83,7 @@ test('workflows initialize only their required pinned submodules', () => {
     lmm: ['apps/cli'],
     'microservice-distribution': ['apps/cli', 'apps/cli', 'packages/extore'],
     'linux-packages': ['apps/cli', 'packages/extore'],
-    'core-protocol': ['apps/cli', 'packages/extore'],
+    'core-protocol': ['apps/cli', 'packages/extore', 'packages/extore'],
     deploy: ['packages/extore'],
   };
   for (const [name, paths] of Object.entries(dependencies)) {
@@ -542,10 +542,13 @@ test('Core CI freezes the process binary and private root before running all Rus
   const execute = block.indexOf('cargo test --locked "${targets[@]}" --no-fail-fast');
   assert.ok(binary >= 0 && hash > binary && root > hash
     && exported > root && execute > exported, 'freeze inputs after compiling, before executing');
-  // The separately required owning-runner step covers exactly this one case.
-  const routed = ' -- --skip synthetic_live_proof_crosses_core_go_processes_and_posts_once';
-  assert.equal(block.split(routed).length - 1, 1);
-  assert.doesNotMatch(block.replace(routed, ''), /--skip|--exclude|--ignored|continue-on-error|\|\|\s*true/);
+  // Each omitted Cargo invocation still has a required owning runner.
+  assert.deepEqual(
+    [...block.matchAll(/--skip (\w+)/g)].map((match) => match[1]),
+    ['synthetic_live_proof_crosses_core_go_processes_and_posts_once',
+      'offline_financial_import_contracts_and_postgres'],
+  );
+  assert.doesNotMatch(block, /--exclude|--ignored|continue-on-error|\|\|\s*true/);
 });
 
 test('Core CI isolates independent process evidence and cluster-wide role snapshots', () => {
@@ -575,7 +578,7 @@ test('Core CI isolates independent process evidence and cluster-wide role snapsh
 
 test('externally owned payment live case remains required through its real runner', () => {
   const source = workflow('core-protocol');
-  assert.match(source, /--no-fail-fast -- --skip synthetic_live_proof_crosses_core_go_processes_and_posts_once/);
+  assert.match(source, /--skip synthetic_live_proof_crosses_core_go_processes_and_posts_once/);
   assert.match(source, /name: Synthetic payment live process through owning runner\n        if: \$\{\{ !cancelled\(\) \}\}\n        run: python3 -B scripts\/ci-payment-live.py/);
   assert.match(source, /payment-live\/evidence\/result.json/);
   const script = read('scripts/ci-payment-live.py');
@@ -587,4 +590,20 @@ test('externally owned payment live case remains required through its real runne
   assert.match(script, /live.sha\(binary\)/);
   assert.match(script, /return subprocess.run\(command, cwd=ROOT, env=env\).returncode/);
   assert.doesNotMatch(script, /LMM_LIVE_PROCESS_ROOT|owner.json/);
+});
+
+test('financial and RPC acceptance run independently and remain required in Core CI', () => {
+  const source = workflow('core-protocol');
+  const [rust, remainder] = source.split('\n  financial-import:\n');
+  const [financial, rpc] = remainder.split('\n  rpc:\n');
+  assert.doesNotMatch(rust, /run: .*test-core-rpc-docker/);
+  for (const job of [financial, rpc]) {
+    assert.match(job, /runs-on: ubuntu-24\.04/);
+    assert.doesNotMatch(job, /(?:^    (?:if|needs):|continue-on-error:)/m);
+  }
+  assert.match(financial, /bash scripts\/install-ci-postgresql18\.sh/);
+  assert.match(financial, /docker pull postgres:18-alpine@sha256:[0-9a-f]{64}/);
+  assert.match(financial, /LMM_FINANCIAL_PG_TEST: "1"\n        run: python3 -B scripts\/run-reviewed-financial-tests\.py/);
+  assert.match(rpc, /packages\/extore[\s\S]*python3 -B scripts\/check-extore-plugin-pin\.py/);
+  assert.match(rpc, /run: \|[\s\S]*python3 -B scripts\/test-core-rpc-docker\.py/);
 });
