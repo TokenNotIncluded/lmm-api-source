@@ -52,11 +52,35 @@ test('OpenCode fixture runs the pinned child and real host without privileged ev
   assert.doesNotMatch(source, /pull_request_target|secrets\.|contents: write/);
   assert.match(source, /persist-credentials: false/);
   assert.match(source, /git submodule update --init --depth 1 -- packages\/opencode-lmm-auth/);
-  assert.match(source, /host-version: \[\'1\.18\.34\', \'1\.19\.4\'\]/);
-  assert.match(source, /npm install --global --ignore-scripts --no-package-lock --no-audit --no-fund \"opencode-ai@\$HOST_VERSION\"/);
-  assert.match(source, /opencode-ai\/postinstall\.mjs/);
-  assert.match(source, /opencode-ai@\$HOST_VERSION/);
-  assert.match(source, /npm run test:host && npm run test:integration/);
+  assert.match(source, /^    runs-on: ubuntu-24\.04$/m);
+  assert.match(source, /      v2_only:\n(?:        description:[^\n]*\n)?        type: boolean\n        default: false/);
+  const matrix = source.match(/^        host-version: \$\{\{ fromJSON\(inputs\.v2_only && '([^']+)' \|\| '([^']+)'\) \}\}$/m);
+  assert.ok(matrix, 'expected v2_only to select the host matrix');
+  assert.deepEqual(JSON.parse(matrix[1]), ['2.1.4']);
+  assert.deepEqual(JSON.parse(matrix[2]), ['1.18.34', '1.19.4', '2.1.4']);
+
+  const steps = source.split('\n      - ');
+  const stepFor = (line) => {
+    const matching = steps.filter((step) => step.split('\n').some((value) => value.trim() === line));
+    assert.equal(matching.length, 1, line);
+    return matching[0];
+  };
+  const legacyInstall = stepFor('node "$(npm root --global)/opencode-ai/postinstall.mjs"');
+  assert.match(legacyInstall, /^        if: matrix\.host-version != '2\.1\.4'$/m);
+  assert.match(legacyInstall, /^          HOST_VERSION: \$\{\{ matrix\.host-version \}\}$/m);
+  assert.match(legacyInstall, /^          npm install --global --ignore-scripts --no-package-lock --no-audit --no-fund "opencode-ai@\$HOST_VERSION"$/m);
+
+  const legacyVerify = stepFor('run: npm run test:host && npm run test:integration');
+  assert.match(legacyVerify, /^        if: matrix\.host-version != '2\.1\.4'$/m);
+  assert.match(legacyVerify, /^        working-directory: packages\/opencode-lmm-auth$/m);
+
+  const native = stepFor('npm run test:v2');
+  assert.match(native, /^        if: matrix\.host-version == '2\.1\.4'$/m);
+  assert.match(native, /^        working-directory: packages\/opencode-lmm-auth$/m);
+  assert.match(native, /^          host="\$RUNNER_TEMP\/opencode-v2-host"$/m);
+  assert.match(native, /^          npm install --prefix "\$host" --ignore-scripts --no-package-lock --no-audit --no-fund @opencode\/cli@2\.1\.4$/m);
+  assert.match(native, /^          node "\$host\/node_modules\/@opencode\/cli\/postinstall\.mjs"$/m);
+  assert.match(native, /^          export OPENCODE_V2_BIN="\$host\/node_modules\/@opencode\/cli\/bin\/opencode\.exe"$/m);
 });
 
 test('source publication requires the exact qualified main revision and immutable registry lock', () => {
