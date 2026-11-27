@@ -159,11 +159,11 @@ pub(super) struct Fixture {
 
 #[derive(Clone, Copy)]
 #[allow(clippy::enum_variant_names)]
-enum FixtureApplications {
+enum FixtureApplications<'a> {
     PiOnly,
     PiAndManaged,
     PiAndAllManaged,
-    PiAndProviders,
+    PiAndProviders(&'a str),
 }
 
 pub(super) enum ManagedKeyring {
@@ -197,7 +197,7 @@ impl Fixture {
         issuer
     }
 
-    async fn new(owner: &PgPool, developer: bool, applications: FixtureApplications) -> Self {
+    async fn new(owner: &PgPool, developer: bool, applications: FixtureApplications<'_>) -> Self {
         let (native, ledger, _native_session, native_key, native_id, _native_account) =
             model_fixture::fixture(owner, 1000).await;
         let provider = Provider::start(true).await;
@@ -293,7 +293,11 @@ impl Fixture {
         let gateway =
             gateway_with_routes(&role.pool, router.clone(), native_id).with_local_streaming();
         let store = IdentityStore::from_pool(role.pool.clone()).with_dashboard_routing(router);
-        let mut profile = LmmProfile::new(ISSUER, vec!["allowed".into()])
+        let origin = match applications {
+            FixtureApplications::PiAndProviders(origin) => origin,
+            _ => ISSUER,
+        };
+        let mut profile = LmmProfile::new(origin, vec!["allowed".into()])
             .unwrap()
             .with_pi_budget_limit(1000)
             .unwrap();
@@ -306,7 +310,7 @@ impl Fixture {
                 profile = profile.with_magpie_budget_limit(1000).unwrap();
             }
         }
-        if matches!(applications, FixtureApplications::PiAndProviders) {
+        if matches!(applications, FixtureApplications::PiAndProviders(_)) {
             for (client, _) in lmm_core::identity::grants::PROVIDER_CLIENTS {
                 profile = profile.with_provider_budget_limit(client, 1000).unwrap();
             }
@@ -327,7 +331,7 @@ impl Fixture {
             issuer = issuer.with_managed_recovery_keys(keys).await.unwrap();
         }
         let gateway = gateway.with_oauth2_issuer(issuer.clone());
-        let config = LegacyAuthConfig::new(ISSUER, &[43; 32])
+        let config = LegacyAuthConfig::new(origin, &[43; 32])
             .unwrap()
             .with_oauth2_issuer(issuer.clone())
             .unwrap();
@@ -378,7 +382,7 @@ impl Fixture {
             redirect_uri: REDIRECT.into(),
             scope: "catalog:read balance:read usage:read models:invoke mcp:bounties mcp:drawing"
                 .into(),
-            resource: format!("{ISSUER}/api/oauth2"),
+            resource: self.issuer.profile().resource().into(),
             code_challenge: URL_SAFE_NO_PAD.encode(Sha256::digest(VERIFIER)),
             code_challenge_method: "S256".into(),
             state: "synthetic-pi-state".into(),
@@ -390,7 +394,7 @@ impl Fixture {
             client_id: "lmm-cc-switch".into(),
             redirect_uri: REDIRECT.into(),
             scope: "catalog:read balance:read usage:read models:invoke".into(),
-            resource: format!("{ISSUER}/api/oauth2"),
+            resource: self.issuer.profile().resource().into(),
             code_challenge: URL_SAFE_NO_PAD.encode(Sha256::digest(VERIFIER)),
             code_challenge_method: "S256".into(),
             state: "synthetic-managed-state".into(),
@@ -454,7 +458,7 @@ impl Fixture {
         let request = ManagedTokenForm {
             grant_type: "authorization_code".into(),
             client_id: client.into(),
-            resource: format!("{ISSUER}/api/oauth2"),
+            resource: self.issuer.profile().resource().into(),
             installation_id: installation.into(),
             code: Some(code),
             redirect_uri: Some(REDIRECT.into()),
@@ -477,7 +481,7 @@ impl Fixture {
         let request = ManagedTokenForm {
             grant_type: "refresh_token".into(),
             client_id: "lmm-cc-switch".into(),
-            resource: format!("{ISSUER}/api/oauth2"),
+            resource: self.issuer.profile().resource().into(),
             installation_id: installation.into(),
             code: None,
             redirect_uri: None,
@@ -521,7 +525,7 @@ impl Fixture {
         let response = self
             .client
             .post(format!("{}/api/user/auth/oauth2/continue", self.base))
-            .header("origin", ISSUER)
+            .header("origin", self.issuer.profile().issuer())
             .header("cookie", format!("{binding}; {browser}"))
             .header("content-type", "application/x-www-form-urlencoded")
             .body(form(&[("csrf", &csrf)]))
@@ -536,7 +540,7 @@ impl Fixture {
         let response = self
             .client
             .post(format!("{}/api/user/auth/oauth2/consent", self.base))
-            .header("origin", ISSUER)
+            .header("origin", self.issuer.profile().issuer())
             .header("cookie", format!("{binding}; {browser}"))
             .header("content-type", "application/x-www-form-urlencoded")
             .body(form(&[
@@ -563,7 +567,7 @@ impl Fixture {
             .body(form(&[
                 ("grant_type", "authorization_code"),
                 ("client_id", client),
-                ("resource", &format!("{ISSUER}/api/oauth2")),
+                ("resource", self.issuer.profile().resource()),
                 ("code", &code),
                 ("redirect_uri", REDIRECT),
                 ("code_verifier", VERIFIER),
@@ -595,7 +599,7 @@ impl Fixture {
         let form = TokenForm {
             grant_type: "refresh_token".into(),
             client_id: "lmm-pi".into(),
-            resource: format!("{ISSUER}/api/oauth2"),
+            resource: self.issuer.profile().resource().into(),
             code: None,
             redirect_uri: None,
             code_verifier: None,
@@ -681,7 +685,21 @@ where
     F: FnOnce(Arc<Fixture>) -> Fut + Send + 'static,
     Fut: Future<Output = ()> + Send + 'static,
 {
-    with_fixture_applications(pool, false, FixtureApplications::PiAndProviders, case).await;
+    with_provider_fixture_at_origin(pool, ISSUER, case).await;
+}
+
+pub(super) async fn with_provider_fixture_at_origin<F, Fut>(pool: PgPool, origin: &str, case: F)
+where
+    F: FnOnce(Arc<Fixture>) -> Fut + Send + 'static,
+    Fut: Future<Output = ()> + Send + 'static,
+{
+    with_fixture_applications(
+        pool,
+        false,
+        FixtureApplications::PiAndProviders(origin),
+        case,
+    )
+    .await;
 }
 
 pub(super) async fn with_managed_fixture<F, Fut>(pool: PgPool, developer: bool, case: F)
@@ -703,7 +721,7 @@ where
 async fn with_fixture_applications<F, Fut>(
     pool: PgPool,
     developer: bool,
-    applications: FixtureApplications,
+    applications: FixtureApplications<'_>,
     case: F,
 ) where
     F: FnOnce(Arc<Fixture>) -> Fut + Send + 'static,

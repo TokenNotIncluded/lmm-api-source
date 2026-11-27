@@ -596,6 +596,13 @@ jobs:
               src/features/channels/components/native-routing-management.test.tsx \
               src/features/system-settings/billing/official-price-editor.test.tsx \
               src/features/system-settings/billing/official-batch-price-review.test.ts \
+              src/features/system-settings/billing/official-batch-price-api.test.ts \
+              src/features/system-settings/billing/native-price-bands.test.ts \
+              src/features/system-settings/billing/native-rule-prices.test.tsx \
+              src/features/plugins/configuration-links.test.ts \
+              src/features/system-settings/billing/native-payment-settings.test.tsx \
+              src/features/system-settings/billing/native-pricing-section.test.tsx \
+              src/features/webmcp/areas/settings-shell.test.ts \
               src/features/native-users/access-editor.test.tsx \
               src/features/native-users/adjustments-api.test.ts \
               src/features/native-users/page.test.tsx \

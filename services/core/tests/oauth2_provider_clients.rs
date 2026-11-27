@@ -309,3 +309,126 @@ async fn codewhale_standard_chat_preserves_exact_group_and_oauth_settlement(pool
         assert_eq!(f.provider.hits.load(Ordering::SeqCst), 2);
     }).await;
 }
+
+#[sqlx::test(migrations = false)]
+#[ignore = "requires the packaged VSIX and the official Electron host under Xvfb"]
+async fn vscode_extension_host_streams_real_core_and_settles_once(pool: PgPool) {
+    use std::{
+        env,
+        io::Write,
+        path::Path,
+        process::{Command, Stdio},
+        time::Duration,
+    };
+
+    let origin = env::var("LMM_VSCODE_TEST_ISSUER").unwrap();
+    let client = env::var("LMM_VSCODE_TEST_CLIENT").unwrap();
+    pi::with_provider_fixture_at_origin(pool, &origin, move |f| async move {
+        let token = f.token_for_client(&client, 500).await;
+        let catalog: Value = f
+            .client
+            .get(format!("{}/api/oauth2/catalog", f.base))
+            .bearer_auth(&token.access_token)
+            .send()
+            .await
+            .unwrap()
+            .error_for_status()
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+        let routes = catalog["models"].as_array().unwrap();
+        assert_eq!(
+            routes.len(),
+            1,
+            "fixture must publish a single authorized route"
+        );
+
+        // The supplier withholds finish/usage until VS Code has yielded text.
+        let progress = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let profile = json!({
+            "base": f.base,
+            "route": routes[0],
+            "progressPort": progress.local_addr().unwrap().port(),
+            "token": {
+                "access_token": token.access_token, "refresh_token": token.refresh_token,
+                "expires_in": token.expires_in, "scope": token.scope, "token_type": token.token_type
+            }
+        });
+        let gate = f.provider.stream_gate.clone();
+        let release = tokio::spawn(async move {
+            let (_socket, peer) = progress.accept().await.unwrap();
+            assert!(peer.ip().is_loopback());
+            gate.add_permits(1);
+        });
+        let status = tokio::task::spawn_blocking(move || {
+            let script =
+                Path::new(env!("CARGO_MANIFEST_DIR")).join("../../scripts/vscode-core-host/run.sh");
+            let mut child = Command::new("bash")
+                .arg(script)
+                .stdin(Stdio::piped())
+                .spawn()
+                .unwrap();
+            child
+                .stdin
+                .take()
+                .unwrap()
+                .write_all(&serde_json::to_vec(&profile).unwrap())
+                .unwrap();
+            child.wait().unwrap()
+        })
+        .await
+        .unwrap();
+        assert!(
+            status.success(),
+            "official VS Code extension host exited with {status}"
+        );
+        tokio::time::timeout(Duration::from_secs(2), release)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(f.provider.hits.load(Ordering::SeqCst), 2);
+
+        let receipts: Vec<(String, i64, i64, i64, i64, i64)> = sqlx::query_as(
+            "SELECT state,input_tokens,cached_tokens,output_tokens,settled,refunded
+             FROM core_charging.requests WHERE oauth_client_id=$1 AND payer_account_id=$2
+             AND key_id IS NULL ORDER BY state",
+        )
+        .bind(&client)
+        .bind(f.account)
+        .fetch_all(&f.owner)
+        .await
+        .unwrap();
+        assert_eq!(
+            receipts,
+            vec![
+                ("reconcile".into(), 0, 0, 0, 0, 0),
+                ("settled".into(), 10, 2, 20, 49, 0),
+            ]
+        );
+        let balance = f.ledger.balance(f.account).await.unwrap();
+        assert!(
+            balance.reserved_units > 0,
+            "supplier refusal preserves its unknown hold"
+        );
+        assert_eq!(balance.available_units + balance.reserved_units, 1000 - 49);
+        let receipt = json!({
+            "commit": env::var("GITHUB_SHA").unwrap(),
+            "public_client": client,
+            "upstream_calls": f.provider.hits.load(Ordering::SeqCst),
+            "text_observed_before_finish": true,
+            "stream_completed": true,
+            "supplier_refusal_http": 502,
+            "requests": receipts.iter().map(|(state, input, cached, output, charge, refund)| {
+                json!({"state":state, "input":input, "cached":cached, "output":output,
+                       "settled_credits":charge, "refunded_credits":refund})
+            }).collect::<Vec<_>>(),
+        });
+        std::fs::write(
+            env::var("LMM_VSCODE_TEST_RECEIPT").unwrap(),
+            serde_json::to_vec_pretty(&receipt).unwrap(),
+        )
+        .unwrap();
+    })
+    .await;
+}

@@ -14,8 +14,8 @@ assert.equal(core.hostname, '127.0.0.1')
 const dist = resolve(process.env.BROWSER_WEB_DIST)
 const root = '/core/v1/admin/routing'
 const config = root + '/configuration'
-const channel = root + '/channels/1/models'
-const model = 'browser-supplier-new'
+const { model, sibling, group, otherGroup } = JSON.parse(process.env.BROWSER_SCENARIO)
+assert.equal(new Set([model, sibling, group, otherGroup]).size, 4)
 const mime = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.json': 'application/json', '.svg': 'image/svg+xml', '.woff2': 'font/woff2' }
 const front = http.createServer(async (req, res) => {
   const url = new URL(req.url, web)
@@ -60,16 +60,16 @@ async function session(browser, username, destination) {
   return { page, token: login.data.access_token, user: login.data.user.id }
 }
 
-async function request(page, token, path, body) {
+async function request(page, token, path, body, method = body === undefined ? 'GET' : 'POST') {
   // A same-origin fetch from Chromium; keep credentials and complete response bodies out of artifacts.
-  const result = await page.evaluate(async ({ token, path, body }) => {
+  const result = await page.evaluate(async ({ token, path, body, method }) => {
     const response = await fetch(path, {
-      method: body === undefined ? 'GET' : 'POST',
+      method,
       headers: { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' },
       ...(body === undefined ? {} : { body: JSON.stringify(body) }),
     })
     return { status: response.status, id: response.headers.get('x-request-id'), json: await response.json() }
-  }, { token, path, body })
+  }, { token, path, body, method })
   assert.equal(result.status, 200, path)
   return result
 }
@@ -89,7 +89,27 @@ async function onboard(browser) {
   const { page, token, user } = await session(browser, 'browseradmin', '/channels')
   assert.equal(user, 8)
   const read = async () => (await request(page, token, config)).json.data
+  // Install two fresh enabled groups in this disposable Core via its ordinary CAS.
+  const seed = await read()
+  assert.ok(!seed.routing.groups.some(g => [group, otherGroup].includes(g.name)))
+  const proposal = {
+    expected_version: seed.version,
+    routing: { ...seed.routing, version: seed.version.routing + 1,
+      groups: [...seed.routing.groups, ...[group, otherGroup].map(name => ({ name, enabled: true }))] },
+    prices: { ...seed.prices, version: seed.version.pricing + 1 }, bindings: seed.bindings,
+  }
+  const seedPreview = await request(page, token, config + '/preview', proposal)
+  assert.equal(seedPreview.json.success, true)
+  const seeded = await request(page, token, config,
+    { ...proposal, confirmation_digest: seedPreview.json.data.confirmation_digest }, 'PUT')
+  assert.equal(seeded.json.success, true)
+  await page.reload()
   const initial = await read()
+  assert.equal(initial.routing.upstreams.length, 1)
+  const channelId = initial.routing.upstreams[0].id
+  const channel = root + '/channels/' + channelId + '/models'
+  const rules = c => c.prices.rules.filter(r => r.model === model)
+  const routes = c => c.routing.routes.filter(r => r.model === model)
   const active = c => c.routing.routes.some(r => r.enabled && r.model === model)
   assert.equal(active(initial), false)
   assert.equal(initial.bindings.official_prices?.models?.[model], undefined)
@@ -98,15 +118,15 @@ async function onboard(browser) {
   const button = name => dialog.getByRole('button', { name, exact: true })
   const seen = await clickReceipt(page, button('Sync models'), channel + '/synchronize', 'POST')
   assert.ok(seen.data.models.includes(model))
-  assert.ok(seen.data.models.includes('browser-expensive-sibling'))
+  assert.ok(seen.data.models.includes(sibling))
   assert.equal(seen.data.prices_inferred, false)
   await dialog.getByRole('checkbox', { name: model, exact: true }).check()
   const saved = await clickReceipt(page, button('Save pending models'), channel + '/pending', 'PUT')
   assert.equal(saved.data.routes_published, false)
-  const row = dialog.getByRole('listitem').filter({ has: page.getByRole('checkbox', { name: model, exact: true }) })
+  const row = dialog.getByRole('row').filter({ has: page.getByRole('checkbox', { name: 'Review model ' + model, exact: true }) })
   await row.getByText('Pending pricing', { exact: true }).waitFor()
   const pending = await read()
-  assert.deepEqual(pending.bindings.discoveries['1'].pending_models, [model])
+  assert.deepEqual(pending.bindings.discoveries[channelId].pending_models, [model])
   assert.deepEqual(pending.routing.routes, initial.routing.routes)
   assert.deepEqual(pending.prices.rules, initial.prices.rules)
   assert.equal(pending.bindings.official_prices?.models?.[model], undefined)
@@ -114,17 +134,17 @@ async function onboard(browser) {
   const price = dialog.getByRole('region', { name: 'Official base price' })
   await price.getByRole('heading', { name: model, exact: true }).waitFor()
   await price.locator('label:has(> span:text-is("Source")) select').selectOption('openrouter')
-  assert.equal(await price.locator('label:has(> span:text-is("Channel")) select').inputValue(), '1')
+  assert.equal(await price.locator('label:has(> span:text-is("Channel")) select').inputValue(), String(channelId))
   const fetched = await clickReceipt(page, button('Fetch upstream prices'), channel + '/prices/preview', 'POST')
   const quote = fetched.data.quote
-  assert.deepEqual(quote.source, { kind: 'channel', channel_id: 1, upstream_model: model })
+  assert.deepEqual(quote.source, { kind: 'channel', channel_id: channelId, upstream_model: model })
   assert.equal(quote.model, model)
   assert.equal(quote.rates.input, '2')
   assert.equal(quote.rates.output, '4')
   const editor = price.locator('textarea')
-  await page.waitForFunction(() => Array.from(document.querySelectorAll('textarea')).some(t => t.value.includes('channel/1')))
+  await page.waitForFunction(id => Array.from(document.querySelectorAll('textarea')).some(t => t.value.includes('channel/' + id)), channelId)
   const toml = await editor.inputValue()
-  for (const pattern of [/source\s*=\s*["']channel\/1["']/, /source_unit\s*=\s*["']USD\/token["']/, /^input\s*=\s*2000000$/m, /^output\s*=\s*4000000$/m]) assert.match(toml, pattern)
+  for (const pattern of [new RegExp(String.raw`source\s*=\s*["']channel/${channelId}["']`), /source_unit\s*=\s*["']USD\/token["']/, /^input\s*=\s*2000000$/m, /^output\s*=\s*4000000$/m]) assert.match(toml, pattern)
   const preview = await clickReceipt(page, button('Preview changes'), config + '/preview', 'POST')
   assert.equal(preview.data.saved, false)
   const priced = await clickReceipt(page, button('Publish prices'), config, 'PUT')
@@ -133,21 +153,78 @@ async function onboard(browser) {
   const publishedPrice = await read()
   assert.equal(active(publishedPrice), false)
   assert.equal(publishedPrice.bindings.official_prices.models[model].rates.input, 2000000)
+  assert.deepEqual(rules(publishedPrice), [])
+  const enabledGroups = publishedPrice.routing.groups.filter(g => g.enabled).map(g => g.name)
+  await row.getByText('Missing group prices: ' + enabledGroups.join(', '), { exact: true }).waitFor()
+  await row.getByRole('checkbox', { name: 'Review model ' + model, exact: true }).check()
+  await button('Review selected routes').click()
+  const review = dialog.getByRole('region', { name: 'Review selected routes', exact: true })
+  for (const name of enabledGroups) assert.equal(await review.getByRole('checkbox', { name, exact: true }).isChecked(), false)
+  await review.getByRole('checkbox', { name: group, exact: true }).check()
   for (const [name, value] of [['Maximum input tokens', '100'], ['Maximum output tokens', '20'], ['Contract revision', 'browser-v1']]) {
-    await dialog.getByLabel(name, { exact: true }).fill(value)
+    await review.getByLabel(model + ' · ' + name, { exact: true }).fill(value)
   }
-  const route = await clickReceipt(page, button('Preview route'), root + '/models/preview', 'POST')
-  assert.equal(active(await read()), false)
-  const published = await clickReceipt(page, button('Publish route'), root + '/models', 'POST')
-  assert.equal(published.input.confirmation_digest, route.data.confirmation_digest)
+  const route = await clickReceipt(page, button('Preview selected routes'), config + '/preview', 'POST')
+  assert.equal(route.data.saved, false)
+  assert.deepEqual(route.input.expected_version, publishedPrice.version)
+  assert.deepEqual(routes(route.data).map(r => r.group), [group])
+  assert.deepEqual(rules(route.data).map(r => r.group), [group])
+  const beforeConfirm = await read()
+  assert.deepEqual(beforeConfirm.version, publishedPrice.version)
+  assert.deepEqual(routes(beforeConfirm), [])
+  assert.deepEqual(rules(beforeConfirm), [])
+  const published = await clickReceipt(page, button('Publish selected routes'), config, 'PUT')
+  assert.deepEqual(published.input, { ...route.input, confirmation_digest: route.data.confirmation_digest })
   await row.getByText('Enabled', { exact: true }).waitFor()
+  await page.reload()
+  await page.getByRole('button', { name: 'Model onboarding', exact: true }).click()
+  await row.getByText('Enabled', { exact: true }).waitFor()
+  const missing = enabledGroups.filter(name => name !== group)
+  assert.ok(missing.includes(otherGroup))
+  await row.getByText('Missing group prices: ' + missing.join(', '), { exact: true }).waitFor()
   const final = await read()
-  const bound = final.routing.routes.find(r => r.model === model && r.enabled)
+  assert.deepEqual(routes(final), routes(route.data))
+  assert.deepEqual(rules(final), rules(route.data))
+  assert.deepEqual(final.bindings.official_prices.models[model], publishedPrice.bindings.official_prices.models[model])
+  assert.deepEqual(final.routing.routes.filter(r => r.model !== model), publishedPrice.routing.routes)
+  assert.deepEqual(final.prices.rules.filter(r => r.model !== model), publishedPrice.prices.rules)
+  const [bound] = routes(final)
+  assert.equal(bound.enabled, true)
   assert.equal(bound.targets.length, 1)
   assert.equal(bound.targets[0].upstream_model, model)
-  assert.equal(bound.targets[0].upstream_id, 1)
+  assert.equal(bound.targets[0].upstream_id, channelId)
   await page.context().close()
-  return { model, version: final.version, price_digest: preview.data.confirmation_digest, route_digest: route.data.confirmation_digest }
+  return { model, group, other_group: otherGroup, channel_id: channelId, version: final.version,
+    price_digest: preview.data.confirmation_digest, route_digest: route.data.confirmation_digest }
+
+}
+
+async function stream(page, key) {
+  // Consume the full SSE response inside the authenticated browser. Only bounded outcome fields leave it.
+  return page.evaluate(async ({ key, model }) => {
+    const reply = await fetch('/v1/chat/completions', { method: 'POST', signal: AbortSignal.timeout(30000),
+      headers: { Authorization: 'Bearer ' + key, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ model, stream: true, stream_options: { include_usage: true },
+        messages: [{ role: 'user', content: 'browser proof' }], max_tokens: 20 }) })
+    if (!reply.ok || !reply.headers.get('content-type')?.startsWith('text/event-stream')) {
+      throw new Error('Unexpected stream response: HTTP ' + reply.status)
+    }
+    const wire = await reply.text()
+    if (wire.length > 65536) throw new Error('Unexpected stream size')
+    const frames = wire.replaceAll('\r\n', '\n').split('\n\n').flatMap(block => {
+      const data = block.split('\n').filter(line => line.startsWith('data:')).map(line => line.slice(5).trimStart())
+      return data.length ? [data.join('\n')] : []
+    })
+    const terminal = frames.pop()
+    if (terminal !== '[DONE]' || frames.includes('[DONE]')) throw new Error('Missing or duplicate SSE terminal')
+    const events = frames.map(frame => JSON.parse(frame))
+    if (events.some(event => event.error)) throw new Error('Unexpected SSE error event')
+    const choices = events.flatMap(event => event.choices ?? [])
+    return { id: reply.headers.get('x-request-id'), done: true,
+      contentMatches: choices.map(choice => choice.delta?.content ?? '').join('') === 'browser fixture answer',
+      stopCount: choices.filter(choice => choice.finish_reason === 'stop').length,
+      usage: events.filter(event => event.usage).map(event => [event.usage.prompt_tokens, event.usage.completion_tokens]) }
+  }, { key, model })
 }
 
 async function settle(browser) {
@@ -166,15 +243,17 @@ async function settle(browser) {
   const created = await request(page, token, '/api/token/', {
     name: 'Browser settlement proof', remain_quota: 500, unlimited_quota: false,
     expired_time: Math.floor(Date.now() / 1000) + 600, one_time_reveal: true,
-    group: 'default', model_limits_enabled: true, model_limits: model,
+    group, model_limits_enabled: true, model_limits: model,
     auto_groups: [], cross_group_retry: false, allow_ips: '127.0.0.1/32',
   })
   const key = created.json.data
   assert.ok(key.key.startsWith('lmmk_'))
-  const paid = await request(page, key.key, '/v1/chat/completions', {
-    model, messages: [{ role: 'user', content: 'browser proof' }], max_tokens: 20,
-  })
-  assert.equal(paid.json.choices[0].message.content, 'browser fixture answer')
+  const catalog = await request(page, key.key, '/v1/models')
+  assert.deepEqual(catalog.json.data.map(record => record.id), [model])
+  const paid = await stream(page, key.key)
+  assert.equal(paid.contentMatches, true)
+  assert.equal(paid.stopCount, 1)
+  assert.deepEqual(paid.usage, [[10, 20]])
   assert.ok(paid.id)
   const after = await wallet()
   assert.equal(after, before - 50)
@@ -192,7 +271,7 @@ async function settle(browser) {
   await page.goto(web + '/usage-logs/common?requestId=' + encodeURIComponent(paid.id))
   await page.getByRole('button', { name: 'View request details' }).first().click()
   await page.getByRole('dialog').getByText(paid.id, { exact: true }).first().waitFor()
-  return { request_id: paid.id, user, key_id: key.id, before, after, settled: 50 }
+  return { request_id: paid.id, user, key_id: key.id, before, after, settled: 50, stream_terminal: paid.done }
 }
 
 await new Promise((ok, fail) => front.once('error', fail).listen(41781, '127.0.0.1', ok))

@@ -6,8 +6,6 @@ on:
 permissions:
   contents: read
 
-# Only retained client/frontend code is checked here. The old Go business
-# implementation was removed; this does not qualify its future replacement.
 jobs:
   zed:
     runs-on: ubuntu-24.04
@@ -55,7 +53,22 @@ jobs:
 
   vscode:
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    timeout-minutes: 75
+    env:
+      DATABASE_URL: postgres://postgres:postgres@127.0.0.1:5432/postgres
+      CARGO_BUILD_JOBS: '2'
+      CARGO_INCREMENTAL: '0'
+      CARGO_PROFILE_TEST_DEBUG: '0'
+      CARGO_PROFILE_DEV_DEBUG: '0'
+    services:
+      postgres:
+        image: postgres:18-alpine@sha256:77f585114c32fbca283dc835b0596f4e52b51b4c6662d7810b2f4084f60a1873
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U postgres" --health-interval 5s
+          --health-timeout 3s --health-retries 10
     defaults:
       run:
         working-directory: packages/vscode-lmm-provider
@@ -79,7 +92,8 @@ jobs:
           curl --fail --location --silent --show-error https://update.code.visualstudio.com/1.104.0/linux-deb-x64/stable --output "$RUNNER_TEMP/lmm-code.deb"
           printf '%s  %s\n' 'dec5fe2e3a71a3fded60c7924a22967efc7a6ec608ad4f17e751cbc3cbde6c0a' "$RUNNER_TEMP/lmm-code.deb" | sha256sum --check
           sudo apt-get update
-          sudo apt-get install --yes "$RUNNER_TEMP/lmm-code.deb" xvfb ripgrep
+          sudo apt-get install --yes "$RUNNER_TEMP/lmm-code.deb" xvfb ripgrep protobuf-compiler
+          rustup toolchain install 1.100.0 --profile minimal
       - name: Verify activation in the real extension host
         run: xvfb-run -a npm run test:host
       - name: Build installable VSIX
@@ -100,9 +114,27 @@ jobs:
               assert 'extension/' + manifest['icon'] in names
               assert not any('/test/' in name or '/node_modules/' in name for name in names), names
           PY
+      - name: Stream through the packaged VSIX, real Core, and PostgreSQL
+        env:
+          LMM_VSCODE_TEST_RECEIPT: ${{ runner.temp }}/vscode-core-host-receipt.json
+        run: |
+          export LMM_VSCODE_TEST_ISSUER LMM_VSCODE_TEST_CLIENT
+          LMM_VSCODE_TEST_ISSUER="$(node -p "require('./dist/protocol').ISSUER")"
+          LMM_VSCODE_TEST_CLIENT="$(node -p "require('./dist/protocol').CLIENT")"
+          cd "$GITHUB_WORKSPACE/services/core"
+          gate=vscode_extension_host_streams_real_core_and_settles_once
+          xvfb-run -a cargo +1.100.0 test --locked --test oauth2_provider_clients "$gate" -- --exact --ignored --nocapture
+          test -s "$LMM_VSCODE_TEST_RECEIPT"
+          cat "$LMM_VSCODE_TEST_RECEIPT"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: lmm-vscode-vsix
           path: packages/vscode-lmm-provider/*.vsix
+          if-no-files-found: error
+          retention-days: 14
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: vscode-core-receipt-${{ github.sha }}
+          path: ${{ runner.temp }}/vscode-core-host-receipt.json
           if-no-files-found: error
           retention-days: 14
