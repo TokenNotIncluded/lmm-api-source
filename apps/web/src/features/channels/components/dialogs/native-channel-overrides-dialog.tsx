@@ -29,7 +29,8 @@ function checkedOverrides(
   id: number,
   parameterText: string,
   headerText: string,
-  statusText: string
+  statusText: string,
+  anthropic: boolean
 ): ChannelRules[string] {
   const parameters = parseNativeDocument(parameterText, [
     'channel_overrides',
@@ -47,14 +48,23 @@ function checkedOverrides(
         (key === 'top_p' && n > 0 && n <= 1))
     )
   })
-  const validHeaders = Object.entries(headers).every(
-    ([key, value]) =>
-      (key === 'user-agent' || key === 'x-client-version') &&
-      typeof value === 'string' &&
-      value.length >= 1 &&
-      value.length <= 256 &&
-      !/[^ -~]/.test(value)
-  )
+  const validHeaders = Object.entries(headers).every(([key, value]) => {
+    if (
+      typeof value !== 'string' ||
+      !value.length ||
+      value.length > 256 ||
+      /[^ -~]/.test(value)
+    )
+      return false
+    if (anthropic && key === 'anthropic-version')
+      return /^[a-zA-Z0-9_.-]+$/.test(value)
+    if (anthropic && key === 'anthropic-beta') {
+      return value
+        .split(',')
+        .every((part) => /^[a-zA-Z0-9_.-]+$/.test(part.trim()))
+    }
+    return key === 'user-agent' || key === 'x-client-version'
+  })
   const validStatus = Object.entries(statusCodes).every(
     ([key, value]) =>
       /^[45]\d{2}$/.test(key) &&
@@ -78,7 +88,8 @@ function OverrideForm({
   preview,
   busy,
   id,
-}: PolicyFormProps<ChannelRules> & { id: number }) {
+  anthropic,
+}: PolicyFormProps<ChannelRules> & { id: number; anthropic: boolean }) {
   const { t } = useTranslation()
   const current = policy[id] ?? empty
   // Keep fractional tokens on the same exact JSON path as the routing document.
@@ -105,7 +116,9 @@ function OverrideForm({
     },
     {
       label: 'Header Override',
-      hint: 'user-agent · x-client-version',
+      hint: anthropic
+        ? 'user-agent · x-client-version · anthropic-version · anthropic-beta'
+        : 'user-agent · x-client-version',
       value: headers,
       onChange: setHeaders,
     },
@@ -123,7 +136,13 @@ function OverrideForm({
         event.preventDefault()
         try {
           const next = { ...policy }
-          const override = checkedOverrides(id, parameters, headers, codes)
+          const override = checkedOverrides(
+            id,
+            parameters,
+            headers,
+            codes,
+            anthropic
+          )
           if (Object.values(override).some((map) => Object.keys(map).length)) {
             next[id] = override
           } else delete next[id]
@@ -162,19 +181,21 @@ function OverrideForm({
 
 export function NativeChannelOverridesDialog({
   id,
+  anthropic = false,
   onClose,
   onPublished,
 }: {
   id: number
+  anthropic?: boolean
   onClose: () => void
   onPublished: () => void
 }) {
   const { t } = useTranslation()
   const Editor = useMemo(
     () => (props: PolicyFormProps<ChannelRules>) => (
-      <OverrideForm id={id} {...props} />
+      <OverrideForm id={id} anthropic={anthropic} {...props} />
     ),
-    [id]
+    [id, anthropic]
   )
   return (
     <Dialog

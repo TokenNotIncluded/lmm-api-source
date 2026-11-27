@@ -779,7 +779,10 @@ impl Worker {
             let mut request = request;
             if let Some(overrides) = &route.overrides {
                 for (name, value) in &overrides.headers {
-                    request = request.header(name.as_str(), value.as_str());
+                    // Anthropic protocol headers are composed once with the route's speed opt-in.
+                    if !matches!(name.as_str(), "anthropic-version" | "anthropic-beta") {
+                        request = request.header(name.as_str(), value.as_str());
+                    }
                 }
             }
             let request = match route.protocol {

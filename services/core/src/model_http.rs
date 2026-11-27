@@ -1082,7 +1082,7 @@ async fn dispatch(
     body: Bytes,
     client: ClientProtocol,
     peer: Option<IpAddr>,
-    native_operation: Option<native::GeminiOperation>,
+    native_operation: Option<native::NativeOperation>,
 ) -> Response {
     if let Some(honeypot) = &gateway.honeypot
         && !oauth_header(&headers)
@@ -1115,7 +1115,7 @@ async fn dispatch(
 struct DispatchRequest {
     client: ClientProtocol,
     peer: Option<IpAddr>,
-    native_operation: Option<native::GeminiOperation>,
+    native_operation: Option<native::NativeOperation>,
     required_release: Option<crate::routing::ReleaseVersion>,
 }
 
@@ -1137,7 +1137,7 @@ async fn dispatch_authorized(
             RelayError::Unsupported("audio requires its reviewed non-streaming Chat entry"),
         );
     }
-    let parsed = if let Some(operation) = &native_operation {
+    let parsed = if let Some(native::NativeOperation::Gemini(operation)) = &native_operation {
         relay::native_gemini::parse(&operation.model, operation.stream, &body, &gateway.limits).map(
             |mut request| {
                 request.client = ClientProtocol::Gemini;
@@ -1288,7 +1288,7 @@ async fn dispatch_authorized(
     }
     hash.update(group.as_bytes());
     hash.update([client as u8]);
-    if let Some(operation) = &native_operation {
+    if let Some(native::NativeOperation::Gemini(operation)) = &native_operation {
         hash.update(b"native-gemini-operation\0");
         hash.update(operation.model.as_bytes());
         hash.update([0, u8::from(operation.stream)]);
@@ -1346,8 +1346,17 @@ async fn dispatch_authorized(
     // this receiver also bounds and removes process-local credential material.
     tokio::spawn(async move {
         let completion = completion.await;
-        if let Ok(mut active) = bridge.active.lock() {
-            active.remove(&complete_id);
+        let channel = bridge
+            .active
+            .lock()
+            .ok()
+            .and_then(|mut active| active.remove(&complete_id))
+            .and_then(|operation| operation.selected)
+            .map(|selected| selected.attempt.upstream_id());
+        if let Some(native::NativeOperation::Messages(warnings)) = native_operation
+            && let Some(channel_id) = channel
+        {
+            warnings.log(&complete_id, channel_id);
         }
         if let Ok(completion) = completion {
             crate::history_read::performance::record(&bridge.pool, &completion).await;

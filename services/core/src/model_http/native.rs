@@ -12,6 +12,33 @@ use axum::{
 use serde_json::json;
 use std::net::SocketAddr;
 
+pub(super) enum NativeOperation {
+    Gemini(GeminiOperation),
+    Messages(MessagesCompatibility),
+}
+
+/// Retain only bounded reason codes. Raw client markers never reach logs or suppliers.
+#[derive(Debug, Default, PartialEq, Eq)]
+pub(super) struct MessagesCompatibility {
+    version_ignored: bool,
+    beta_ignored: bool,
+}
+
+impl MessagesCompatibility {
+    pub(super) fn log(&self, request_id: &str, channel_id: u64) {
+        for (reason, ignored) in [
+            ("anthropic_version_ignored", self.version_ignored),
+            ("anthropic_beta_ignored", self.beta_ignored),
+        ] {
+            if ignored {
+                eprintln!(
+                    "core_model_compatibility_warning request_id={request_id} channel_id={channel_id} reason={reason} action=used_channel_protocol"
+                );
+            }
+        }
+    }
+}
+
 pub(super) struct GeminiOperation {
     pub(super) model: String,
     pub(super) stream: bool,
@@ -88,18 +115,40 @@ pub(super) fn error_response(client: ClientProtocol, error: RelayError) -> Respo
     response
 }
 
-fn messages_headers(mut headers: HeaderMap, query: Option<&str>) -> Result<HeaderMap, RelayError> {
-    if query.is_some_and(|query| query != "beta=true")
-        || one_header(&headers, "anthropic-version")?.is_some_and(|v| v != "2023-06-01")
-        || one_header(&headers, "anthropic-beta")?.is_some_and(|v| v != "claude-code-20250219")
+fn messages_headers(
+    mut headers: HeaderMap,
+    query: Option<&str>,
+) -> Result<(HeaderMap, MessagesCompatibility), RelayError> {
+    // SDK transport flags do not select credentials or enable body features.
+    if query
+        .unwrap_or_default()
+        .split('&')
+        .any(|part| !matches!(part, "" | "beta=true" | "beta=false"))
     {
         return Err(RelayError::Unsupported(
-            "unsupported native Anthropic version, beta or query",
+            "unsupported Anthropic query parameter",
         ));
     }
-    // Consume the CLI marker locally before passing headers to the gateway.
+    let mut warnings = MessagesCompatibility {
+        version_ignored: one_header(&headers, "anthropic-version")?
+            .is_some_and(|version| version != "2023-06-01"),
+        ..Default::default()
+    };
+    for header in headers.get_all("anthropic-beta").iter() {
+        for beta in header
+            .to_str()
+            .map_err(|_| RelayError::Invalid("invalid anthropic-beta header"))?
+            .split(',')
+            .map(str::trim)
+        {
+            if !matches!(beta, "" | "claude-code-20250219") {
+                warnings.beta_ignored = true;
+            }
+        }
+    }
+    headers.remove("anthropic-version");
     headers.remove("anthropic-beta");
-    key_headers(headers, ClientProtocol::Anthropic)
+    Ok((key_headers(headers, ClientProtocol::Anthropic)?, warnings))
 }
 
 pub(super) async fn messages(
@@ -110,7 +159,7 @@ pub(super) async fn messages(
     body: Bytes,
 ) -> Response {
     let client = ClientProtocol::Anthropic;
-    let headers = match messages_headers(headers, query.as_deref()) {
+    let (headers, warnings) = match messages_headers(headers, query.as_deref()) {
         Ok(headers) => headers,
         Err(error) => return error_response(client, error),
     };
@@ -120,7 +169,7 @@ pub(super) async fn messages(
         body,
         client,
         peer.ok().map(|p| p.0.ip()),
-        None,
+        Some(NativeOperation::Messages(warnings)),
     )
     .await
 }
@@ -175,7 +224,7 @@ pub(super) async fn gemini(
         body,
         client,
         peer.ok().map(|p| p.0.ip()),
-        Some(operation),
+        Some(NativeOperation::Gemini(operation)),
     )
     .await
 }
@@ -221,43 +270,41 @@ mod tests {
         }
     }
     #[test]
-    fn messages_accepts_only_the_cli_marker_and_exact_sdk_query() {
+    fn messages_consumes_sdk_markers_and_classifies_only_protocol_differences() {
         let mut headers = HeaderMap::new();
         headers.insert("anthropic-version", HeaderValue::from_static("2023-06-01"));
         headers.insert("x-api-key", HeaderValue::from_static("synthetic-key"));
-        let marker = HeaderValue::from_static("claude-code-20250219");
-        for query in [None, Some("beta=true")] {
+        headers.insert(
+            "anthropic-beta",
+            HeaderValue::from_static("claude-code-20250219"),
+        );
+        for query in [None, Some(""), Some("beta=true"), Some("beta=false")] {
+            let (admitted, warnings) = messages_headers(headers.clone(), query).unwrap();
+            assert_eq!(warnings, MessagesCompatibility::default());
+            assert!(!admitted.contains_key("anthropic-beta"));
+            assert!(!admitted.contains_key("anthropic-version"));
+            assert_eq!(admitted[header::AUTHORIZATION], "Bearer synthetic-key");
+        }
+        for (beta, expected) in [
+            ("claude-code-20250219", false),
+            ("claude-code-20250219, future-feature", true),
+            ("future-feature", true),
+        ] {
             let mut tagged = headers.clone();
-            tagged.insert("anthropic-beta", marker.clone());
-            for candidate in [headers.clone(), tagged] {
-                let admitted = messages_headers(candidate, query).unwrap();
-                assert!(!admitted.contains_key("anthropic-beta"));
-                assert_eq!(admitted[header::AUTHORIZATION], "Bearer synthetic-key");
-            }
+            tagged.append("anthropic-beta", HeaderValue::from_static(beta));
+            tagged.insert("anthropic-version", HeaderValue::from_static("2099-01-01"));
+            let (_, warnings) = messages_headers(tagged, Some("beta=true")).unwrap();
+            assert_eq!(
+                warnings,
+                MessagesCompatibility {
+                    version_ignored: true,
+                    beta_ignored: expected
+                }
+            );
         }
-        for query in [
-            "",
-            "beta=false",
-            "beta=true&beta=true",
-            "beta=true&api_key=synthetic",
-        ] {
-            assert!(messages_headers(headers.clone(), Some(query)).is_err());
-        }
-        for beta in [
-            "interleaved-thinking-2025-05-14",
-            "claude-code-20250219,context-management-2025-06-27",
-            "future-feature",
-        ] {
-            let mut gated = headers.clone();
-            gated.insert("anthropic-beta", HeaderValue::from_static(beta));
-            assert!(messages_headers(gated, Some("beta=true")).is_err());
-        }
-        let mut wrong_version = headers.clone();
-        wrong_version.insert("anthropic-version", HeaderValue::from_static("2099-01-01"));
-        assert!(messages_headers(wrong_version, Some("beta=true")).is_err());
-        headers.append("anthropic-beta", marker.clone());
-        headers.append("anthropic-beta", marker);
-        assert!(messages_headers(headers, Some("beta=true")).is_err());
+        assert!(messages_headers(headers.clone(), Some("beta=true&api_key=synthetic")).is_err());
+        headers.append("anthropic-version", HeaderValue::from_static("2099-01-01"));
+        assert!(messages_headers(headers, None).is_err());
     }
 
     #[test]

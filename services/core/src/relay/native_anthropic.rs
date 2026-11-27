@@ -62,12 +62,23 @@ impl<'de> Deserialize<'de> for Unique {
         d.deserialize_any(V)
     }
 }
-fn keys(v: &Value, allowed: &[&str]) -> Result<(), RelayError> {
+fn keys(v: &Value, scope: &'static str, allowed: &[&str]) -> Result<(), RelayError> {
     let m = v
         .as_object()
         .ok_or(RelayError::Invalid("expected object"))?;
-    if m.keys().any(|k| !allowed.contains(&k.as_str())) {
-        return Err(RelayError::Unsupported("unsupported Anthropic field"));
+    if let Some(field) = m.keys().find(|k| !allowed.contains(&k.as_str())) {
+        // Return field locations, never field values or arbitrary unbounded text.
+        let location = if !field.is_empty()
+            && field.len() <= 64
+            && field
+                .bytes()
+                .all(|b| b.is_ascii_alphanumeric() || b == b'_')
+        {
+            format!("{scope}.{field}")
+        } else {
+            scope.to_owned()
+        };
+        return Err(RelayError::UnsupportedField(location));
     }
     Ok(())
 }
@@ -99,14 +110,14 @@ fn blocks(v: &Value, role: Role, limits: &Limits) -> Result<Vec<InputBlock>, Rel
     for p in parts {
         out.push(match p["type"].as_str() {
             Some("text") => {
-                keys(p, &["type", "text"])?;
+                keys(p, "content[]", &["type", "text"])?;
                 InputBlock::Text(string(&p["text"])?)
             }
             Some("image") if role == Role::User => {
                 InputBlock::Image(super::ImageInput::anthropic(p)?)
             }
             Some("thinking") if role == Role::Assistant => {
-                keys(p, &["type", "thinking", "signature"])?;
+                keys(p, "content[]", &["type", "thinking", "signature"])?;
                 let s = string(&p["signature"])?;
                 if s.is_empty() {
                     return Err(RelayError::Invalid("empty thinking signature"));
@@ -117,7 +128,7 @@ fn blocks(v: &Value, role: Role, limits: &Limits) -> Result<Vec<InputBlock>, Rel
                 }
             }
             Some("tool_use") if role == Role::Assistant => {
-                keys(p, &["type", "id", "name", "input"])?;
+                keys(p, "content[]", &["type", "id", "name", "input"])?;
                 if !p["input"].is_object() {
                     return Err(RelayError::Invalid("tool input must be object"));
                 }
@@ -133,7 +144,7 @@ fn blocks(v: &Value, role: Role, limits: &Limits) -> Result<Vec<InputBlock>, Rel
                 }
             }
             Some("tool_result") if role == Role::User => {
-                keys(p, &["type", "tool_use_id", "content"])?;
+                keys(p, "content[]", &["type", "tool_use_id", "content"])?;
                 let content = if p["content"].is_string() {
                     string(&p["content"])?
                 } else {
@@ -153,7 +164,7 @@ fn blocks(v: &Value, role: Role, limits: &Limits) -> Result<Vec<InputBlock>, Rel
             }
             _ => {
                 return Err(RelayError::Unsupported(
-                    "unsupported Anthropic content block",
+                    "unsupported Anthropic content[].type",
                 ));
             }
         });
@@ -175,7 +186,7 @@ fn take_cache_control(value: &mut Value) -> Result<bool, RelayError> {
     let Some(control) = object.remove("cache_control") else {
         return Ok(false);
     };
-    keys(&control, &["type", "ttl"])?;
+    keys(&control, "cache_control", &["type", "ttl"])?;
     if control["type"] != "ephemeral"
         || control
             .get("ttl")
@@ -234,7 +245,7 @@ fn cached_prompt(value: &mut Value) -> Result<Option<Map<String, Value>>, RelayE
         for tool in tools {
             if tool.get("type").is_some() {
                 return Err(RelayError::Unsupported(
-                    "Anthropic hosted or typed tools require native execution and result semantics",
+                    "Anthropic tools[].type requires unsupported native execution and result semantics",
                 ));
             }
             found |= take_cache_control(tool)?;
@@ -258,6 +269,7 @@ pub(crate) fn parse(body: &[u8], limits: &Limits) -> Result<Request, RelayError>
     let cached_prompt = cached_prompt(&mut v)?;
     keys(
         &v,
+        "request",
         &[
             "model",
             "messages",
@@ -273,7 +285,7 @@ pub(crate) fn parse(body: &[u8], limits: &Limits) -> Result<Request, RelayError>
         ],
     )?;
     if let Some(metadata) = v.get("metadata") {
-        keys(metadata, &["user_id"])?;
+        keys(metadata, "metadata", &["user_id"])?;
         if metadata
             .get("user_id")
             .is_some_and(|value| !value.is_null() && !value.is_string())
@@ -317,7 +329,7 @@ pub(crate) fn parse(body: &[u8], limits: &Limits) -> Result<Request, RelayError>
             .as_array()
             .ok_or(RelayError::Invalid("invalid tools"))?
         {
-            keys(t, &["name", "description", "input_schema"])?;
+            keys(t, "tools[]", &["name", "description", "input_schema"])?;
             if !t["input_schema"].is_object() {
                 return Err(RelayError::Invalid("tool schema must be object"));
             }
@@ -330,7 +342,11 @@ pub(crate) fn parse(body: &[u8], limits: &Limits) -> Result<Request, RelayError>
         canonical["tools"] = json!(dst);
     }
     if let Some(t) = v.get("tool_choice") {
-        keys(t, &["type", "name", "disable_parallel_tool_use"])?;
+        keys(
+            t,
+            "tool_choice",
+            &["type", "name", "disable_parallel_tool_use"],
+        )?;
         canonical["tool_choice"] = match t["type"].as_str() {
             Some("auto") => json!("auto"),
             Some("none") => json!("none"),
@@ -374,7 +390,7 @@ pub(crate) fn parse(body: &[u8], limits: &Limits) -> Result<Request, RelayError>
         .as_array()
         .ok_or(RelayError::Invalid("messages required"))?
     {
-        keys(m, &["role", "content"])?;
+        keys(m, "messages[]", &["role", "content"])?;
         let role = match m["role"].as_str() {
             Some("user") => Role::User,
             Some("assistant") => Role::Assistant,
@@ -1078,7 +1094,9 @@ mod tests {
             );
         }
         let extra = json!({"thinking":{"type":"enabled","budget_tokens":1024}});
-        assert!(parse(&request(extra), &Limits::default()).is_err());
+        let error = parse(&request(extra), &Limits::default()).unwrap_err();
+        assert_eq!(error.code(), "unsupported_feature");
+        assert!(error.to_string().contains("request.thinking"));
         assert!(parse(&request(json!({"messages":[{"role":"user","content":[{"type":"tool_result","tool_use_id":"orphan","content":"x"}]}]})),&Limits::default()).is_err());
     }
     #[test]

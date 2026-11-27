@@ -96,7 +96,15 @@ pub(super) fn validate_channel_overrides(
     if entries.keys().any(|id| !ids.contains(id)) {
         return Err(RoutingError::InvalidConfig("channel overrides"));
     }
-    for overrides in entries.values() {
+    for (id, overrides) in entries {
+        let anthropic = channels.iter().any(|channel| {
+            channel.id == *id && channel.protocol == super::Protocol::AnthropicMessages
+        });
+        let protocol_token = |s: &str| {
+            !s.is_empty()
+                && s.bytes()
+                    .all(|b| b.is_ascii_alphanumeric() || b"-_.".contains(&b))
+        };
         if overrides.parameters.iter().any(|(name, n)| {
             !n.as_f64().is_some_and(|n| match name.as_str() {
                 "temperature" => (0.0..=2.0).contains(&n),
@@ -104,7 +112,15 @@ pub(super) fn validate_channel_overrides(
                 _ => false,
             })
         }) || overrides.headers.iter().any(|(name, value)| {
-            !matches!(name.as_str(), "user-agent" | "x-client-version")
+            let allowed = match name.as_str() {
+                "user-agent" | "x-client-version" => true,
+                "anthropic-version" if anthropic => protocol_token(value),
+                "anthropic-beta" if anthropic => {
+                    value.split(',').all(|beta| protocol_token(beta.trim()))
+                }
+                _ => false,
+            };
+            !allowed
                 || value.is_empty()
                 || value.len() > 256
                 || !value.bytes().all(|b| b.is_ascii_graphic() || b == b' ')

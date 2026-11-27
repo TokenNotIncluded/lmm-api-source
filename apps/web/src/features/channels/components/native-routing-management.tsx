@@ -130,7 +130,9 @@ type Editor = {
   trigger?: HTMLButtonElement
 }
 type EditorDestination =
-  { editor: Editor } | { section: Section } | { close: true }
+  | { editor: Editor }
+  | { section: Section }
+  | { close: true }
 const sections: Array<[Section, string]> = [
   ['channels', 'Channels'],
   ['models', 'Models'],
@@ -2804,6 +2806,11 @@ function NativeRoutingWorkspace({
         <NativeChannelOverridesDialog
           key={overrideId}
           id={overrideId}
+          anthropic={configuration.routing.upstreams.some(
+            (upstream) =>
+              upstream.id === overrideId &&
+              upstream.protocol === 'anthropic_messages'
+          )}
           onClose={() => setOverrideId(null)}
           onPublished={() => {
             setOverrideId(null)

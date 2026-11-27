@@ -45,6 +45,7 @@ pub enum Phase {
 pub enum RelayError {
     Invalid(&'static str),
     Unsupported(&'static str),
+    UnsupportedField(String),
     Protocol(&'static str),
     Limit(&'static str),
     Timeout(Phase),
@@ -71,7 +72,7 @@ impl RelayError {
     pub fn code(&self) -> &'static str {
         match self {
             Self::Invalid(_) => "invalid_request",
-            Self::Unsupported(_) => "unsupported_feature",
+            Self::Unsupported(_) | Self::UnsupportedField(_) => "unsupported_feature",
             Self::Protocol(_) => "invalid_upstream_response",
             Self::Truncated => "upstream_truncated",
             Self::Limit(_) => "relay_limit_exceeded",
@@ -100,7 +101,7 @@ impl RelayError {
             Self::ModelNotFound => 404,
             Self::NoFunds => 402,
             Self::Conflict => 409,
-            Self::Invalid(_) | Self::Unsupported(_) => 400,
+            Self::Invalid(_) | Self::Unsupported(_) | Self::UnsupportedField(_) => 400,
             Self::Busy | Self::RateLimited(_) => 429,
             Self::Limit(_) => 413,
             Self::Timeout(_) => 504,
@@ -123,6 +124,7 @@ impl fmt::Display for RelayError {
             Self::Invalid(s) | Self::Unsupported(s) | Self::Protocol(s) | Self::Limit(s) => {
                 write!(f, "{}: {s}", self.code())
             }
+            Self::UnsupportedField(path) => write!(f, "{}: unsupported field {path}", self.code()),
             Self::Timeout(p) => write!(f, "relay_timeout: {p:?}"),
             Self::UpstreamStatus(s) | Self::MappedUpstreamStatus(s) => {
                 write!(f, "upstream_error: HTTP {s}")
@@ -314,7 +316,19 @@ impl Route {
         } else {
             request.header("x-api-key", self.credential.clone())
         };
-        let request = request.header("anthropic-version", "2023-06-01");
+        let configured = |name: &str| {
+            self.overrides
+                .as_ref()?
+                .headers
+                .get(name)
+                .map(String::as_str)
+        };
+        let request = request.header(
+            "anthropic-version",
+            configured("anthropic-version").unwrap_or("2023-06-01"),
+        );
+        let beta = configured("anthropic-beta");
+        let fast_beta = "fast-mode-2026-02-01";
         // Claude's preview models require the beta opt-in even with an explicit
         // speed field. GA models use the ordinary Messages endpoint.
         let needs_beta = matches!(self.model.as_str(), "claude-opus-5" | "claude-opus-4-8");
@@ -323,10 +337,17 @@ impl Route {
                 .model_attempt
                 .as_ref()
                 .is_some_and(|attempt| attempt.speed() == crate::routing::Speed::Fast)
+            && !beta.is_some_and(|value| value.split(',').any(|b| b.trim() == fast_beta))
         {
-            return Ok(request.header("anthropic-beta", "fast-mode-2026-02-01"));
+            return Ok(match beta {
+                Some(value) => request.header("anthropic-beta", format!("{value},{fast_beta}")),
+                None => request.header("anthropic-beta", fast_beta),
+            });
         }
-        Ok(request)
+        Ok(match beta {
+            Some(value) => request.header("anthropic-beta", value),
+            None => request,
+        })
     }
 
     pub fn new(

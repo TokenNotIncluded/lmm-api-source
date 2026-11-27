@@ -76,6 +76,12 @@ async fn supplier(
     }
     if state.protocol == Protocol::AnthropicMessages {
         assert_eq!(request["model"], "provider-model");
+        if request["metadata"]["user_id"] == "sdk-envelope-fixture" {
+            assert_eq!(headers.get_all("anthropic-version").iter().count(), 1);
+            assert_eq!(headers["anthropic-version"], "channel-fixture-version");
+            assert_eq!(headers.get_all("anthropic-beta").iter().count(), 1);
+            assert_eq!(headers["anthropic-beta"], "channel-only-2026-01-01");
+        }
         let mut usage = json!({"input_tokens":8,"cache_read_input_tokens":2,"cache_creation_input_tokens":0,"output_tokens":20});
         if state.missing_usage {
             usage = Value::Null;
@@ -193,7 +199,18 @@ fn configured_gateway(
     });
     let prices = PriceSnapshot::compile(pricing).unwrap();
     let routes = RoutingConfig {
-        channel_overrides: Default::default(),
+        channel_overrides: if protocol == Protocol::AnthropicMessages {
+            BTreeMap::from([(
+                1,
+                serde_json::from_value(json!({"headers":{
+                    "anthropic-version":"channel-fixture-version",
+                    "anthropic-beta":"channel-only-2026-01-01"
+                }}))
+                .unwrap(),
+            )])
+        } else {
+            Default::default()
+        },
         global_model_policy: policy,
         channel_affinity: None,
         routing_reliability: None,
@@ -279,16 +296,32 @@ async fn native_anthropic_and_gemini_settle_real_funds_and_stream_checkpoints(po
         let server = server(protocol, false).await;
         let gateway = gateway(&pool, &server, protocol, key_id);
         for stream in [false, true] {
-            let (path, body, header) = input(protocol, stream);
+            let (path, mut body, header) = input(protocol, stream);
+            let mut request = Request::post(path)
+                .header(header, &key)
+                .header("content-type", "application/json")
+                .header("idempotency-key", format!("native-{protocol:?}-{stream}"));
+            if protocol == Protocol::AnthropicMessages {
+                // Synthetic SDK envelope shapes. The supplier must see its own contract.
+                body["metadata"] = json!({"user_id":"sdk-envelope-fixture"});
+                request = request.uri("/v1/messages?beta=true");
+                request = if stream {
+                    request
+                        .header("user-agent", "lmm-cc/fixture")
+                        .header("anthropic-version", "2099-01-01")
+                        .header("anthropic-beta", "claude-code-20250219, future-feature")
+                        .header("anthropic-beta", "interleaved-thinking-2025-05-14")
+                } else {
+                    request
+                        .header("user-agent", "pi/fixture")
+                        .header("anthropic-version", "2023-06-01")
+                        .header("anthropic-beta", "future-feature")
+                };
+            }
             let response = gateway
                 .router()
                 .oneshot(
-                    Request::builder()
-                        .method("POST")
-                        .uri(path)
-                        .header(header, &key)
-                        .header("content-type", "application/json")
-                        .header("idempotency-key", format!("native-{protocol:?}-{stream}"))
+                    request
                         .body(Body::from(serde_json::to_vec(&body).unwrap()))
                         .unwrap(),
                 )
@@ -308,6 +341,10 @@ async fn native_anthropic_and_gemini_settle_real_funds_and_stream_checkpoints(po
             .unwrap();
             assert!(body.contains("native answer"), "{body}");
             if protocol == Protocol::AnthropicMessages {
+                assert_eq!(
+                    server.requests.lock().unwrap().last().unwrap()["metadata"]["user_id"],
+                    "sdk-envelope-fixture"
+                );
                 assert!(body.contains(if stream { "message_stop" } else { "end_turn" }));
             } else {
                 assert!(body.contains("STOP"));
@@ -356,6 +393,31 @@ async fn native_anthropic_and_gemini_settle_real_funds_and_stream_checkpoints(po
                 }
             }
             assert_eq!(prepared, if stream { body.len() } else { 0 });
+        }
+        if protocol == Protocol::AnthropicMessages {
+            let (_, mut body, _) = input(protocol, true);
+            body["context_management"] = json!({"edits":[]});
+            let response = gateway
+                .router()
+                .oneshot(
+                    Request::post("/v1/messages?beta=true")
+                        .header("x-api-key", &key)
+                        .header("anthropic-beta", "context-management-2025-06-27")
+                        .body(Body::from(body.to_string()))
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+            assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+            let body: Value =
+                serde_json::from_slice(&to_bytes(response.into_body(), 4096).await.unwrap())
+                    .unwrap();
+            assert!(
+                body["error"]["message"]
+                    .as_str()
+                    .unwrap()
+                    .contains("request.context_management")
+            );
         }
         assert_eq!(server.hits.load(Ordering::SeqCst), 2);
     }
