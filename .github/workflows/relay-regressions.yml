@@ -1,0 +1,59 @@
+name: Relay regression tests
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: relay-regressions-${{ github.sha }}
+  cancel-in-progress: false
+jobs:
+  relay:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 55
+    defaults:
+      run:
+        working-directory: services/core
+        shell: bash
+    env:
+      DATABASE_URL: postgres://postgres:postgres@127.0.0.1:5432/postgres
+      CARGO_BUILD_JOBS: '2'
+      CARGO_INCREMENTAL: '0'
+      CARGO_PROFILE_DEV_DEBUG: '0'
+      CARGO_PROFILE_TEST_DEBUG: '0'
+    services:
+      postgres:
+        image: postgres:18-alpine@sha256:77f585114c32fbca283dc835b0596f4e52b51b4c6662d7810b2f4084f60a1873
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s --health-timeout 3s --health-retries 10
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          persist-credentials: false
+      - name: Build the Core library test executable
+        run: |
+          cargo test --locked --lib --no-run --message-format=json-render-diagnostics |
+            jq -er 'select(.reason == "compiler-artifact" and .profile.test and .executable != null and (.target.kind | index("lib"))) | .executable' > "$RUNNER_TEMP/relay-test-bin"
+          test "$(wc -l < "$RUNNER_TEMP/relay-test-bin")" -eq 1
+      - name: Check protocol ordering, streaming delivery, cache affinity and failover
+        run: |
+          binary="$(cat "$RUNNER_TEMP/relay-test-bin")"
+          "$binary" --list > "$RUNNER_TEMP/relay-test-list"
+          cases=(
+            pure_provider_errors_remain_eligible_for_configured_failover
+            ambiguous_errors_never_authorize_redispatch
+            route_failover_pg_safe_failures_keep_one_frozen_bill
+            route_failover_pg_unknown_and_partial_tool_results_never_replay
+            gemini_complete_response_preserves_signed_parts_on_both_sides_of_a_tool
+            compact_pg_sse_tools_stream_live_and_terminal_waits_for_real_settlement
+            audio_stream_pg_checkpoints_before_delivery_then_settles_once
+            key_pool_affinity_honors_health_and_preserves_the_round_robin_cursor
+            prompt_cache_affinity_pg_keeps_a_warm_upstream_credential
+          )
+          for name in "${cases[@]}"; do
+            grep -Fq "::${name}: test" "$RUNNER_TEMP/relay-test-list" || { echo "::error::Missing test $name"; exit 1; }
+          done
+          "$binary" --test-threads=1 --nocapture "${cases[@]}"
