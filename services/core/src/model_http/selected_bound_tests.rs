@@ -423,13 +423,14 @@ async fn openrouter_converts_portable_native_requests_and_settles_once(pool: PgP
                 assert!(response.contains("\"input_tokens\":1"), "{response}");
                 assert!(response.contains("\"output_tokens\":3"), "{response}");
             }
-            let calls = provider.bodies.lock().unwrap();
-            let wire = calls.last().unwrap();
-            assert_eq!(wire["model"], "compat-4");
-            assert_eq!(wire["messages"][0]["role"], "user");
-            assert_eq!(wire["usage"]["include"], true);
-            assert!(wire.get("input").is_none() && wire.get("contents").is_none());
-            drop(calls);
+            {
+                let calls = provider.bodies.lock().unwrap();
+                let wire = calls.last().unwrap();
+                assert_eq!(wire["model"], "compat-4");
+                assert_eq!(wire["messages"][0]["role"], "user");
+                assert_eq!(wire["usage"]["include"], true);
+                assert!(wire.get("input").is_none() && wire.get("contents").is_none());
+            }
             let receipt: (String, i64, i64, i64) = sqlx::query_as(
                 "SELECT state,input_tokens,output_tokens,
                  (SELECT count(*) FROM core_charging.ledger_commands WHERE request_id=r.id AND command->'change'->>'operation'='settle')
