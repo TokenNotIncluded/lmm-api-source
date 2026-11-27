@@ -23,8 +23,6 @@ import { useTranslation } from 'react-i18next'
 import { SectionPageLayout } from '@/components/layout'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { CacheStatsDialog } from '@/features/system-settings/general/channel-affinity/cache-stats-dialog'
-import { useMediaQuery } from '@/hooks'
-import { cn } from '@/lib/utils'
 import { useAuthStore } from '@/stores/auth-store'
 
 import { UserInfoDialog } from './components/dialogs/user-info-dialog'
@@ -42,7 +40,6 @@ const route = getRouteApi('/_authenticated/usage-logs/$section')
 function UsageLogsContent() {
   const { t } = useTranslation()
   const navigate = route.useNavigate()
-  const isMobile = useMediaQuery('(max-width: 640px)')
   const {
     selectedUserId,
     userInfoDialogOpen,
@@ -74,7 +71,7 @@ function UsageLogsContent() {
 
   return (
     <>
-      <SectionPageLayout fixedContent={!isMobile}>
+      <SectionPageLayout>
         <SectionPageLayout.Title>{t('Usage Logs')}</SectionPageLayout.Title>
         <SectionPageLayout.Actions>
           <Tabs
@@ -128,9 +125,9 @@ function UsageLogsContent() {
         </SectionPageLayout.Actions>
         <SectionPageLayout.Content>
           <div
-            className={cn('flex min-h-0 flex-col gap-4', !isMobile && 'h-full')}
+            className='flex min-w-0 flex-col gap-4'
           >
-            <div className={cn('min-h-0', !isMobile && 'flex-1')}>
+            <div className='min-w-0'>
               <UsageLogsTable logCategory='common' />
             </div>
           </div>
