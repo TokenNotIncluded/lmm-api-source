@@ -32,7 +32,7 @@ jobs:
         run: |
           set -euo pipefail
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends xvfb xauth dbus-x11 openbox xdotool mesa-vulkan-drivers libvulkan1 libxkbcommon-x11-0 libegl1 fonts-dejavu-core protobuf-compiler
+          sudo apt-get install -y --no-install-recommends xvfb xauth dbus-x11 openbox xdotool imagemagick tesseract-ocr mesa-vulkan-drivers libvulkan1 libxkbcommon-x11-0 libegl1 fonts-dejavu-core protobuf-compiler
           curl -fLsS --retry 3 https://github.com/zed-industries/zed/releases/download/v1.30.2/zed-linux-x86_64.tar.gz -o "$RUNNER_TEMP/zed-linux.tar.gz"
           echo "210e6a08dc5343123254dfa9b9dd7a6e828e6ac2b10f98cd4ed1bd7d68cca2df  $RUNNER_TEMP/zed-linux.tar.gz" | sha256sum -c
           tar -xzf "$RUNNER_TEMP/zed-linux.tar.gz" -C "$RUNNER_TEMP"
@@ -52,6 +52,7 @@ jobs:
           FIXTURE_TLS_KEY: ${{ runner.temp }}/zed-host-key.pem
           NODE_EXTRA_CA_CERTS: ${{ runner.temp }}/zed-host-cert.pem
           ZED_HOST_RECEIPT: ${{ runner.temp }}/zed-native-receipt.json
+          ZED_NATIVE_IMAGES: ${{ runner.temp }}/zed-native-images
         working-directory: services/core
         run: |
           set -euo pipefail
@@ -74,3 +75,10 @@ jobs:
           path: ${{ runner.temp }}/zed-native-receipt.json
           if-no-files-found: error
           retention-days: 14
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: native-zed-window-${{ github.sha }}
+          path: ${{ runner.temp }}/zed-native-images/*.png
+          if-no-files-found: ignore
+          retention-days: 7

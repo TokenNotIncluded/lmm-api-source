@@ -4,7 +4,7 @@ import assert from 'node:assert/strict'
 import { spawn, execFile } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import { once } from 'node:events'
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { copyFile, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import net from 'node:net'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -30,8 +30,22 @@ const execute = (binary, args) => run(binary, args, { env, cwd: root, timeout: 1
 const bridgeBin = process.env.ZED_BRIDGE_BIN
 const cliargs = cmd => [cmd, '--issuer', issuer]
 const key = (...args) => execute('xdotool', ['key', '--clearmodifiers', ...args])
-let tunnel, login, bridge
+let tunnel, login, bridge, win
 let stage = 'private host setup'
+const captureDir = process.env.ZED_NATIVE_IMAGES
+const nativePrompt = 'Write a short reply for this selection'
+
+async function windowSnapshot(name) {
+  const file = join(root, 'window.png')
+  await execute('import', ['-window',win,file])
+  const { stdout } = await execute('tesseract', [file,'stdout','--psm','6'])
+  if (/lmmk_|lmm_[ar]t_|Bearer\\s+[A-Za-z0-9_-]{12,}|[?&](?:code|state)=/i.test(stdout)) throw new Error('Private observation')
+  if (name) {
+    await mkdir(captureDir,{recursive:true})
+    await copyFile(file,join(captureDir,name + '.png'))
+  }
+  return stdout.toLowerCase().replace(/\\s+/g,' ')
+}
 
 async function until(check, timeout = 30000) {
   const end = Date.now() + timeout
@@ -82,6 +96,8 @@ try {
   await writeFile(join(config, 'settings.json'), JSON.stringify({ auto_update: false,
     telemetry: { metrics: false, diagnostics: false }, agent: { default_model: model, inline_assistant_model: model },
     edit_predictions: { disabled_globs: ['**/*'] } }))
+  await writeFile(join(config, 'keymap.json'), JSON.stringify([{ context: 'Editor && mode == full',
+    bindings: { f8: ['assistant::InlineAssist', { prompt: nativePrompt }] } }]))
   const portServer = net.createServer()
   portServer.listen(0, '127.0.0.1')
   await once(portServer, 'listening')
@@ -105,16 +121,29 @@ try {
   const original = 'Initial fixture text'
   await writeFile(file, original)
   await execute('zed', ['--existing',file])
-  const win = await until(async () => {
+  win = await until(async () => {
     for (const id of await windows()) {
       if ((await execute('xdotool',['getwindowname',id])).stdout.includes('lmm-host-document')) return id
     }
   })
   await execute('xdotool', ['windowactivate','--sync',win])
-  stage = 'native Inline Assistant submits selected text'
-  await key('Escape', 'ctrl+a', 'ctrl+Return')
-  await pause(450)
-  await execute('xdotool', ['type','--clearmodifiers','--delay','12','Replace the selection with a short plain text reply.'])
+  stage = 'native file is visible and the editor has focus'
+  await key('Escape', 'ctrl+a')
+  await windowSnapshot('document')
+  stage = 'documented inline action opens its native prompt'
+  let visiblePrompt = false
+  for (let openings = 0; openings < 2 && !visiblePrompt; openings++) {
+    await key('F8')
+    const untilTime = Date.now() + 4500
+    do {
+      const screen = await windowSnapshot()
+      visiblePrompt = screen.includes('short reply')
+      if (!visiblePrompt) await pause(350)
+    } while (!visiblePrompt && Date.now() < untilTime)
+  }
+  assert.ok(visiblePrompt, 'native prompt was not rendered')
+  await windowSnapshot('native-prompt')
+  stage = 'visible native prompt submits to the LMM bridge'
   await key('Return')
   const call = await until(() => tunnel.calls[0]?.body ? tunnel.calls[0] : undefined, 45000)
   assert.equal(call.path, '/v1/chat/completions')
@@ -133,11 +162,13 @@ try {
     await key('ctrl+s')
     return (await readFile(file,'utf8')).trim() === text.trim()
   }, 20000)
+  await windowSnapshot('saved-result')
   assert.equal(tunnel.calls.length, 1)
   assert.match(call.requestId, /^[a-f0-9]{64}$/)
   process.stdout.write(JSON.stringify({ host: version, provider: 'lmm-zed', request_id: call.requestId,
     granted_model: route.id, upstream_calls: 1, native_saved_reply: true, stop_count: 1, oauth_consent: true }))
 } catch (error) {
+  if (win) await windowSnapshot('failure').catch(() => {})
   const safeCode = /^[A-Z_]+$/.test(error?.code ?? '') ? error.code : error?.name
   const reason = error?.message === 'Timed out' ? 'deadline' : safeCode
   const status = tunnel?.calls.map(c => ({ path: c.path, status: c.status }))
