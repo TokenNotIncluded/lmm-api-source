@@ -77,6 +77,12 @@ const { Route: AuthenticatedRoute } =
   await import('@/routes/_authenticated/route')
 const { Route: SettingsRoute } =
   await import('@/routes/_authenticated/system-settings/route')
+const { Route: SettingsHomeRoute } =
+  await import('@/routes/_authenticated/system-settings/index')
+const { Route: LegacyExtensionsHome } =
+  await import('@/routes/_authenticated/extensions/settings/index')
+const { getSettingsBoundary, isSettingsBoundaryVisible } =
+  await import('@/lib/system-settings-access')
 const { Route: PluginsRoute } =
   await import('@/routes/_authenticated/extensions/plugins/index')
 const { Route: ContentRoute } =
@@ -144,6 +150,20 @@ beforeEach(() => {
   const adapter: AxiosAdapter = async (config) => {
     const data = config.data ? JSON.parse(String(config.data)) : undefined
     requests.push({ method: config.method ?? '', url: config.url ?? '', data })
+    if (config.url === '/api/option/') {
+      return {
+        config,
+        status: 200,
+        statusText: 'OK',
+        headers: {},
+        data: {
+          success: true,
+          message: '',
+          data: [{ key: 'Notice', value: 'PRIVATE_NOTICE' }],
+          capabilities: { partial: true, writable_keys: ['Notice'] },
+        },
+      }
+    }
     if (config.url === '/api/extensions/plugins') {
       return {
         config,
@@ -313,7 +333,20 @@ async function renderRoute(
   const router = createRouter({
     routeTree: rootRoute.addChildren([
       authenticated.addChildren([
-        settings.addChildren([content]),
+        settings.addChildren([
+          content,
+          createRoute({
+            getParentRoute: () => settings,
+            path: '/',
+            component: SettingsHomeRoute.options.component,
+          }),
+        ]),
+        createRoute({
+          getParentRoute: () => authenticated,
+          path: '/extensions/settings',
+          beforeLoad: (ctx) =>
+            LegacyExtensionsHome.options.beforeLoad?.(ctx as never),
+        }),
         PluginsRoute.update({
           id: '/extensions/plugins/',
           path: '/extensions/plugins/',
@@ -604,7 +637,7 @@ test('actual parent guard rejects other L5 settings and revoked sessions', async
   }
 })
 
-test('L5 finds assistant and market review settings while L6 retains the full catalog', async () => {
+test('L5 discovers its settings home, assistant and shared market review while root sees authorized settings', async () => {
   useAuthStore.getState().auth.setBundle(bundle(10))
   const page = await renderRoute('/dashboard/overview', true)
   try {
@@ -623,7 +656,7 @@ test('L5 finds assistant and market review settings while L6 retains the full ca
     const rootRoutes = JSON.parse(routeText) as string[]
     assert.deepEqual(
       rootRoutes.filter((route) => route.startsWith('/system-settings')),
-      [target]
+      ['/system-settings', target]
     )
     const t = i18n.getFixedT('en')
     assert.deepEqual(
@@ -638,7 +671,12 @@ test('L5 finds assistant and market review settings while L6 retains the full ca
     const full = buildSettingsSearchIndex(t, undefined, 100).flatMap(
       (group) => group.entries
     )
-    assert.ok(full.length > 20)
+    assert.ok(
+      full.some((entry) => entry.url === '/system-settings/auth/custom-oauth')
+    )
+    assert.ok(
+      !full.some((entry) => entry.url === '/system-settings/operations/email')
+    )
     assert.equal(
       full.length,
       buildSettingsSearchIndex(t, getSystemSettingsNavGroups(t, 100)).flatMap(
@@ -646,6 +684,126 @@ test('L5 finds assistant and market review settings while L6 retains the full ca
       ).length
     )
     assert.equal(buildSettingsSearchIndex(t, undefined, 1).length, 0)
+  } finally {
+    await page.cleanup()
+  }
+})
+
+test('the real settings home keeps personal keys, seller settings and capability values out of the administrative catalog', async () => {
+  const paths = (container: HTMLElement) =>
+    [...container.querySelectorAll('a[href]')].map((a) =>
+      a.getAttribute('href')
+    )
+  const page = await renderRoute('/system-settings')
+  try {
+    await until(
+      () => paths(page.container).includes('/system-settings/site/notice'),
+      'scoped notice capability'
+    )
+    const links = paths(page.container)
+    for (const path of [
+      '/users',
+      '/system-settings/auth/custom-oauth',
+      '/system-settings/billing/quota',
+      '/extensions/plugins',
+    ]) {
+      assert.ok(links.includes(path), path)
+    }
+    for (const path of [
+      '/keys',
+      '/profile',
+      '/profile/share',
+      '/store/settings',
+      '/system-settings/billing/payment',
+      '/system-settings/security/market-ai-review',
+      '/system-settings/operations/email',
+      '/system-settings/site/rss',
+    ]) {
+      assert.ok(!links.includes(path), path)
+    }
+    assert.deepEqual(
+      getSettingsBoundary('/system-settings/security/market-ai-review'),
+      {
+        owner: 'shared',
+        canonical: '/extensions/plugins?configure=toolmarket',
+        pluginOwners: ['store', 'toolmarket'],
+      }
+    )
+    assert.equal(
+      getSettingsBoundary('/extensions/plugins?configure=store-review')?.owner,
+      'shared'
+    )
+    assert.equal(
+      getSettingsBoundary('/system-settings/billing/payment')?.owner,
+      'payments'
+    )
+    assert.equal(
+      getSettingsBoundary('/system-settings/billing/payment#merchant-store')
+        ?.owner,
+      'store'
+    )
+    assert.equal(getSettingsBoundary('/keys')?.owner, 'personal')
+    assert.equal(getSettingsBoundary('/store/settings')?.owner, 'merchant')
+    assert.equal(
+      getSettingsBoundary('/system-settings/site/rss')?.canonical,
+      '/extensions/plugins?configure=rss'
+    )
+    assert.equal(
+      isSettingsBoundaryVisible('/system-settings/operations/email', {
+        success: true,
+        message: '',
+        data: [{ key: 'SMTPServer', value: 'configured' }],
+      }),
+      true
+    )
+    assert.equal(page.container.textContent?.includes('PRIVATE_NOTICE'), false)
+    assert.ok(requests.every((r) => r.method === 'get'))
+  } finally {
+    await page.cleanup()
+  }
+  useAuthStore.getState().auth.setBundle(bundle(10))
+  requests.length = 0
+  const admin = await renderRoute('/system-settings')
+  try {
+    await until(
+      () =>
+        paths(admin.container).includes(
+          '/extensions/plugins?configure=assistant'
+        ),
+      'administrator assistant link'
+    )
+    assert.ok(
+      !paths(admin.container).includes('/system-settings/auth/custom-oauth')
+    )
+    assert.deepEqual(paths(admin.container), [
+      '/extensions/plugins',
+      '/extensions/plugins?configure=assistant',
+      '/extensions/plugins?configure=toolmarket',
+    ])
+    assert.ok(!requests.some((r) => r.url === '/api/option/'))
+  } finally {
+    await admin.cleanup()
+  }
+  useAuthStore.getState().auth.setBundle(bundle(1))
+  const viewer = await renderRoute('/system-settings')
+  try {
+    await until(
+      () => viewer.container.textContent?.includes('Access Forbidden') === true,
+      'personal viewer denied'
+    )
+  } finally {
+    await viewer.cleanup()
+  }
+})
+
+test('the former extension settings home opens the authenticated plugin manager', async () => {
+  const page = await renderRoute('/extensions/settings')
+  try {
+    await until(
+      () => page.router.state.location.pathname === '/extensions/plugins',
+      'legacy landing redirect'
+    )
+    assert.ok(requests.every((r) => r.method === 'get'))
   } finally {
     await page.cleanup()
   }

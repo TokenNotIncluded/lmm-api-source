@@ -8,8 +8,16 @@ License, or (at your option) any later version.
 */
 import { getShellBridge } from '@/components/layout/lib/shell-bridge'
 import { CONSOLE_SHORTCUTS } from '@/components/layout/lib/shortcuts'
+import {
+  isCurrentNativeUsersScope,
+  readNativeUsersScope,
+} from '@/features/native-users/access'
 import { listSystemInstances } from '@/features/system-info/api'
-import { listSystemTasks } from '@/features/system-settings/api'
+import {
+  getSystemOptions,
+  listSystemTasks,
+} from '@/features/system-settings/api'
+import type { SystemOptionsResponse } from '@/features/system-settings/types'
 import {
   inspectSettingsAgentForms,
   stageSettingsAgentForm,
@@ -46,8 +54,35 @@ function requireSettingsAccess() {
   return user
 }
 
-function settingsIndex() {
-  return buildSettingsSearchIndex(appI18n.getFixedT(appI18n.language))
+async function settingsIndex(signal: AbortSignal) {
+  const user = requireSettingsAccess()
+  ensureNotAborted(signal)
+  const scope = readNativeUsersScope()
+  let options: SystemOptionsResponse | undefined
+  if (scope) {
+    try {
+      options = await getSystemOptions({
+        silent: true,
+        signal,
+        authScope: { userId: scope.userId, sessionId: scope.sessionId },
+      })
+    } catch {
+      // Dedicated settings have their own authenticated read contracts.
+    }
+  }
+  ensureNotAborted(signal)
+  if (
+    requireSettingsAccess().id !== user.id ||
+    (scope && !isCurrentNativeUsersScope(scope))
+  ) {
+    throw new Error('The account or session changed; search settings again')
+  }
+  return buildSettingsSearchIndex(
+    appI18n.getFixedT(appI18n.language),
+    undefined,
+    ROLE.SUPER_ADMIN,
+    options
+  )
 }
 
 function finiteNumber(value: unknown) {
@@ -198,7 +233,7 @@ export const settingsShellTools: WebMcpToolFactory = ({ router }) => [
     name: 'lmm_settings_search',
     title: 'Find system settings sections',
     description:
-      'List or search every system settings section by title, keyword, or path. Root administrator only. Returns navigation labels and paths, never option values, secrets, keys, or configuration contents.',
+      'List or search available system settings sections by title, keyword, or path. Root administrator only. Returns navigation labels and paths, never option values, secrets, keys, or configuration contents.',
     inputSchema: {
       type: 'object',
       properties: { query: { type: 'string', maxLength: 120 } },
@@ -210,7 +245,10 @@ export const settingsShellTools: WebMcpToolFactory = ({ router }) => [
       const input = ensureObject(rawInput)
       const query = optionalString(input, 'query', 120) ?? ''
       ensureNotAborted(options.signal)
-      const sections = searchSettings(settingsIndex(), query).flatMap((group) =>
+      const sections = searchSettings(
+        await settingsIndex(options.signal),
+        query
+      ).flatMap((group) =>
         group.entries.map((entry) => ({
           group: entry.group,
           title: entry.section,
@@ -238,7 +276,7 @@ export const settingsShellTools: WebMcpToolFactory = ({ router }) => [
       const path = requiredString(input, 'path', 180)
       const known =
         path === '/system-info' ||
-        settingsIndex().some((group) =>
+        (await settingsIndex(options.signal)).some((group) =>
           group.entries.some((entry) => entry.url === path)
         )
       if (!known) {

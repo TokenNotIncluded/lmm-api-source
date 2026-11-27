@@ -14,6 +14,8 @@ import { legacyPluginPanel } from '@/features/plugins/configuration'
 import { ROLE } from '@/lib/roles'
 import { canReadSystemSettingsPath } from '@/lib/system-settings-access'
 
+import type { SystemOptionsResponse } from '../types'
+
 /**
  * One jumpable destination inside `/system-settings/*`.
  *
@@ -159,9 +161,12 @@ function normalize(value: string) {
 export function buildSettingsSearchIndex(
   t: TFunction,
   groups: NavGroup[] | undefined = undefined,
-  role: number = ROLE.SUPER_ADMIN
+  role: number = ROLE.SUPER_ADMIN,
+  options?: SystemOptionsResponse
 ): SettingsSearchableGroup[] {
-  return (groups ?? getSystemSettingsNavGroups(t, role))
+  return (
+    groups ?? getSystemSettingsNavGroups(t, role, undefined, true, options)
+  )
     .flatMap((group) =>
       group.items.map((section) => {
         const entries: SettingsSearchEntry[] = (section.items ?? []).flatMap(
@@ -247,4 +252,12 @@ export function searchSettings(
 /** Total number of jumpable settings destinations. */
 export function countSettingsEntries(index: SettingsSearchableGroup[]) {
   return index.reduce((total, group) => total + group.entries.length, 0)
+}
+
+export function settingsDestination(url: string) {
+  const [to, query] = url.split('?')
+  return {
+    to,
+    search: query ? Object.fromEntries(new URLSearchParams(query)) : undefined,
+  }
 }

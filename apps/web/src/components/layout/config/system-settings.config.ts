@@ -35,11 +35,14 @@ import { getModelsSectionNavItems } from '@/features/system-settings/models/sect
 import { getOperationsSectionNavItems } from '@/features/system-settings/operations/section-registry.tsx'
 import { getSecuritySectionNavItems } from '@/features/system-settings/security/section-registry.tsx'
 import { getSiteSectionNavItems } from '@/features/system-settings/site/section-registry.tsx'
+import type { SystemOptionsResponse } from '@/features/system-settings/types'
 import { ROLE } from '@/lib/roles'
 import {
   canReadSystemSettingsPath,
+  getSettingsBoundary,
   getSettingsScope,
   getSettingsTitle,
+  isSettingsBoundaryVisible,
   type SettingsScope,
 } from '@/lib/system-settings-access'
 
@@ -50,7 +53,8 @@ export function getSystemSettingsNavGroups(
   t: TFunction,
   role: number = ROLE.SUPER_ADMIN,
   scope?: SettingsScope,
-  includePluginLinks = false
+  includePluginLinks = false,
+  options?: SystemOptionsResponse
 ): NavGroup[] {
   const groups: NavGroup[] = [
     {
@@ -86,12 +90,7 @@ export function getSystemSettingsNavGroups(
         {
           title: t(scope === 'core' ? 'API Access' : 'Security & Limits'),
           icon: ShieldAlert,
-          items: [
-            ...(scope === 'core'
-              ? [{ title: t('API Keys'), url: '/keys' }]
-              : []),
-            ...getSecuritySectionNavItems(t),
-          ],
+          items: getSecuritySectionNavItems(t),
         },
         {
           title: t('Console Content'),
@@ -106,7 +105,6 @@ export function getSystemSettingsNavGroups(
       ],
     },
   ]
-  if (role === ROLE.SUPER_ADMIN && !scope) return groups
   return groups
     .map((group) => ({
       ...group,
@@ -116,8 +114,11 @@ export function getSystemSettingsNavGroups(
           (entry) =>
             entry.url &&
             canReadSystemSettingsPath(role, entry.url) &&
+            isSettingsBoundaryVisible(entry.url, options) &&
             (!scope || includePluginLinks || !legacyPluginPanel(entry.url)) &&
-            (!scope || getSettingsScope(entry.url) === scope)
+            (!scope || getSettingsScope(entry.url) === scope) &&
+            (scope !== 'core' ||
+              getSettingsBoundary(entry.url)?.owner === 'core')
         )
         return items.length ? [{ ...section, items }] : []
       }),

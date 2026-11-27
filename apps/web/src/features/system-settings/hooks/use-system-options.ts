@@ -27,11 +27,24 @@ import { getSystemOptions } from '../api'
 export const systemOptionsQueryKey = (includeNavigation = false) =>
   includeNavigation ? ['system-options', 'navigation'] : ['system-options']
 
-export function useSystemOptions(enabled = true, includeNavigation = false) {
+export function useSystemOptions(
+  enabled = true,
+  includeNavigation = false,
+  cacheScope: 'shared' | 'session' = 'shared'
+) {
   const auth = useAuthStore((state) => state.auth)
   const scope = readNativeUsersScope(auth)
   return useQuery({
-    queryKey: systemOptionsQueryKey(includeNavigation),
+    queryKey:
+      cacheScope === 'session'
+        ? [
+            ...systemOptionsQueryKey(includeNavigation),
+            'session',
+            scope?.userId,
+            scope?.sessionId,
+            scope?.role,
+          ]
+        : systemOptionsQueryKey(includeNavigation),
     queryFn: ({ signal }) =>
       getSystemOptions({
         silent: true,
@@ -41,7 +54,7 @@ export function useSystemOptions(enabled = true, includeNavigation = false) {
           ? { userId: scope.userId, sessionId: scope.sessionId }
           : undefined,
       }),
-    enabled,
+    enabled: enabled && (cacheScope === 'shared' || Boolean(scope)),
     retry: false,
     staleTime: CAPABILITY_REFRESH_MS,
     refetchInterval: CAPABILITY_REFRESH_MS,

@@ -41,6 +41,7 @@ import {
   RotateCcw,
   Server,
   ServerCog,
+  Settings,
   Ticket,
   User,
   Users,
@@ -213,6 +214,12 @@ export function useSidebarData(): SidebarData {
             title: t('Version updates'),
             url: '/operations/releases',
             icon: FileText,
+            requiredRole: ROLE.ADMIN,
+          },
+          {
+            title: t('Core Settings'),
+            url: '/system-settings',
+            icon: Settings,
             requiredRole: ROLE.ADMIN,
           },
           {

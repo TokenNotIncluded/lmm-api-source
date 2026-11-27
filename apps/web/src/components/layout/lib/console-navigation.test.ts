@@ -289,22 +289,20 @@ describe('current location and secondary site links', () => {
 
 test('settings leaves activate the corresponding root entry and location title', () => {
   const core = { url: '/system-settings', title: 'Core Settings' }
-  const plugins = { url: '/extensions/settings', title: 'Plugin Settings' }
+  const plugins = { url: '/extensions/plugins', title: 'Plugin Settings' }
   const navigation = [{ title: 'Admin', items: [core, plugins] }]
   for (const [path, active, inactive] of [
     ['/system-settings/billing/quota', core, plugins],
     ['/system-settings/billing/payment?tab=current', plugins, core],
     ['/system-settings/operations/scripts/', plugins, core],
     ['/extensions/settings/', plugins, core],
+    ['/extensions/plugins?configure=rss', plugins, core],
   ] as const) {
     assert.equal(getConsolePageTitle(navigation, path), active.title)
     assert.equal(checkIsActive(path, active), true)
     assert.equal(checkIsActive(path, inactive), false)
   }
-  assert.equal(
-    getConsolePageTitle(navigation, '/extensions/plugins'),
-    undefined
-  )
+  assert.equal(getConsolePageTitle(navigation, '/keys'), undefined)
 })
 
 describe('single console navigation contract', () => {

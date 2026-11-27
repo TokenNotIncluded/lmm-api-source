@@ -41,42 +41,43 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
+import { useCapabilityFreshness } from '@/hooks/use-capability-freshness'
 import { ROLE } from '@/lib/roles'
 import {
+  CORE_SETTINGS_HOME,
+  getSettingsHomeForPath,
   getSettingsScope,
   getSettingsTitle,
 } from '@/lib/system-settings-access'
 import { useAuthStore } from '@/stores/auth-store'
 
+import { useSystemOptions } from '../hooks/use-system-options'
 import {
   buildSettingsSearchIndex,
   countSettingsEntries,
   searchSettings,
+  settingsDestination,
   type SettingsSearchEntry,
 } from '../utils/settings-search-index'
-
-function settingsDestination(url: string) {
-  const [to, query] = url.split('?')
-  return {
-    to,
-    search: query ? Object.fromEntries(new URLSearchParams(query)) : undefined,
-  }
-}
 
 function useSettingsNavigation() {
   const { t } = useTranslation()
   const pathname = useLocation({ select: (location) => location.pathname })
   const search = useLocation({ select: (location) => location.searchStr })
   const role = useAuthStore((state) => state.auth.user?.role ?? ROLE.GUEST)
-  const scope = getSettingsScope(pathname)
+  const scope = getSettingsScope(pathname) ?? 'core'
+  const options = useSystemOptions(role === ROLE.SUPER_ADMIN, false, 'session')
+  const phase = useCapabilityFreshness(options)
+  const available =
+    role === ROLE.SUPER_ADMIN && phase === 'fresh' ? options.data : undefined
   const index = useMemo(
     () =>
       buildSettingsSearchIndex(
         t,
-        getSystemSettingsNavGroups(t, role, scope, true),
+        getSystemSettingsNavGroups(t, role, undefined, true, available),
         role
       ),
-    [t, role, scope]
+    [t, role, available]
   )
   const current = index.find((group) =>
     group.entries.some((entry) => {
@@ -94,22 +95,19 @@ function useSettingsNavigation() {
 
 export function SettingsBreadcrumb() {
   const { t } = useTranslation()
-  const { index, current, pathname, search, scope } = useSettingsNavigation()
+  const { current, pathname, search, scope } = useSettingsNavigation()
+  const home = getSettingsHomeForPath(pathname) ?? CORE_SETTINGS_HOME
   return (
     <nav
       aria-label={t(getSettingsTitle(scope))}
       className='settings-breadcrumb text-muted-foreground flex flex-wrap items-center gap-2 text-xs'
     >
-      {index.length > 0 ? (
-        <SettingsPathMenu
-          label={t(getSettingsTitle(scope))}
-          entries={index}
-          currentUrl={current?.url}
-          currentKind='location'
-        />
-      ) : (
-        <span>{t(getSettingsTitle(scope))}</span>
-      )}
+      <Link
+        to={home}
+        className='hover:text-foreground inline-flex min-h-9 items-center rounded-sm hover:underline'
+      >
+        {t(getSettingsTitle(scope))}
+      </Link>
       {current && (
         <>
           <ChevronRight className='size-3' aria-hidden='true' />

@@ -34,10 +34,28 @@ function tool(name: string) {
 function signIn(role: number) {
   useAuthStore.getState().auth.setUser({ id: 1, username: 'operator', role })
 }
+function rootSession(sid: string) {
+  useAuthStore.getState().auth.setBundle({
+    user: { id: 1, username: 'operator', role: ROLE.SUPER_ADMIN },
+    access_token: 'test-access',
+    token_type: 'Bearer',
+    access_expires_at: 2200000000,
+    session: {
+      sid,
+      current: true,
+      login_method: 'password',
+      ip: null,
+      user_agent: null,
+      created_at: 1,
+      last_active_at: 1,
+      expires_at: 2200000000,
+    },
+  })
+}
 afterEach(() => {
   api.get = originalGet
   calls.length = 0
-  useAuthStore.getState().auth.setUser(null)
+  useAuthStore.getState().auth.reset()
 })
 
 test('settings and system tools retain root-only access and distinguish draft mutation', async () => {
@@ -62,7 +80,7 @@ test('settings and system tools retain root-only access and distinguish draft mu
   }
 })
 
-test('the settings catalog covers every category and only opens catalog destinations', async () => {
+test('unknown deployment lists dedicated settings and only opens catalog destinations', async () => {
   signIn(ROLE.SUPER_ADMIN)
   const result = (await tool('lmm_settings_search').execute(
     {},
@@ -70,28 +88,31 @@ test('the settings catalog covers every category and only opens catalog destinat
   )) as {
     sections: Array<{ group: string; title: string; path: string }>
   }
-  for (const category of [
-    'site',
-    'auth',
-    'billing',
-    'models',
-    'security',
-    'content',
-    'operations',
+  for (const path of [
+    '/system-settings/auth/custom-oauth',
+    '/system-settings/billing/model-pricing',
+    '/system-settings/security/honeypot',
   ]) {
     assert.ok(
-      result.sections.some((entry) =>
-        entry.path.startsWith(`/system-settings/${category}/`)
-      )
+      result.sections.some((entry) => entry.path === path),
+      path
     )
   }
+  assert.ok(
+    !result.sections.some((entry) => entry.path.endsWith('/operations/email'))
+  )
   const first = result.sections[0]
   assert.notEqual(first.title, first.group)
   await tool('lmm_settings_open').execute(
     { path: first.path },
     { signal: signal() }
   )
-  assert.equal(calls[0].to, first.path)
+  const destination = new URL(first.path, 'https://settings.example')
+  assert.equal(calls[0].to, destination.pathname)
+  assert.deepEqual(
+    calls[0].search ?? {},
+    Object.fromEntries(destination.searchParams)
+  )
   await assert.rejects(
     tool('lmm_settings_open').execute(
       { path: '/api/option/' },
@@ -112,14 +133,14 @@ test('the settings catalog covers every category and only opens catalog destinat
 test('settings synonyms find the specific section', async () => {
   signIn(ROLE.SUPER_ADMIN)
   const result = (await tool('lmm_settings_search').execute(
-    { query: 'smtp' },
+    { query: 'identity provider' },
     { signal: signal() }
   )) as {
     sections: Array<{ path: string }>
   }
   assert.deepEqual(
     result.sections.map((item) => item.path),
-    ['/system-settings/operations/email']
+    ['/system-settings/auth/custom-oauth']
   )
 })
 
@@ -233,3 +254,48 @@ for (const [keyword, panel] of [
     })
   })
 }
+
+test('root discovery binds its scope, returns only navigation and rechecks the session on open', async () => {
+  rootSession('root-one')
+  const reads: unknown[] = []
+  api.get = (async (url, config) => {
+    reads.push([url, (config as { authScope?: unknown })?.authScope])
+    return {
+      data: {
+        success: true,
+        message: '',
+        data: [{ key: 'Notice', value: 'PRIVATE_NOTICE' }],
+        capabilities: { partial: true, writable_keys: ['Notice'] },
+      },
+    }
+  }) as typeof api.get
+  const result = (await tool('lmm_settings_search').execute(
+    { query: 'maintenance notice' },
+    { signal: signal() }
+  )) as { sections: Array<{ path: string }> }
+  assert.deepEqual(reads, [
+    ['/api/option/', { userId: 1, sessionId: 'root-one' }],
+  ])
+  assert.deepEqual(
+    result.sections.map((entry) => entry.path),
+    ['/system-settings/site/notice']
+  )
+  assert.deepEqual(Object.keys(result.sections[0]).sort(), [
+    'group',
+    'path',
+    'title',
+  ])
+  assert.doesNotMatch(JSON.stringify(result), /PRIVATE_NOTICE|writable_keys/)
+  api.get = (async () => {
+    rootSession('root-two')
+    throw new Error('request interrupted')
+  }) as typeof api.get
+  await assert.rejects(
+    tool('lmm_settings_open').execute(
+      { path: '/system-settings/auth/custom-oauth' },
+      { signal: signal() }
+    ),
+    /account or session changed/
+  )
+  assert.equal(calls.length, 0)
+})
