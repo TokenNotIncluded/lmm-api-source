@@ -4,7 +4,7 @@ on:
   workflow_call:
     inputs:
       split_rust_targets:
-        description: Run unit and integration targets on separate PostgreSQL services.
+        description: Run isolated Rust test shards on separate PostgreSQL services.
         type: boolean
         default: false
 # Manual qualification runs the full Cargo target set on one Rust runner.
@@ -18,11 +18,13 @@ concurrency:
   cancel-in-progress: true
 jobs:
   protocol:
-    name: ${{ matrix.targets == 'integration' && 'Rust integration targets' || 'protocol' }}
+    name: ${{ matrix.targets == 'integration' && 'Rust integration targets' ||
+      matrix.targets == 'integration-extra' && 'Rust integration targets (second shard)' ||
+      matrix.targets == 'model-unit' && 'Rust model unit tests' || 'protocol' }}
     strategy:
       fail-fast: false
       matrix:
-        targets: ${{ fromJSON(inputs.split_rust_targets && '["unit","integration"]' || '["all"]') }}
+        targets: ${{ fromJSON(inputs.split_rust_targets && '["unit","model-unit","integration","integration-extra"]' || '["all"]') }}
     runs-on: ubuntu-24.04
     # Budget for cold builds, serial real PostgreSQL tests, and the following
     # payment, Go, and RPC checks while keeping the complete job bounded.
@@ -87,7 +89,7 @@ jobs:
       - name: Preserve source before checks
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
-          name: microkernel-source-${{ github.sha }}-${{ github.run_id }}${{ matrix.targets == 'integration' && '-integration' || '' }}
+          name: microkernel-source-${{ github.sha }}-${{ github.run_id }}${{ matrix.targets != 'all' && matrix.targets != 'unit' && format('-{0}', matrix.targets) || '' }}
           path: |
             ${{ runner.temp }}/core-source.tar.gz
             ${{ runner.temp }}/core-source-sha.txt
@@ -136,7 +138,7 @@ jobs:
         working-directory: services/core
         run: cargo fmt --all --check 2>&1 | tee "$RUNNER_TEMP/core-format.log"
       - name: Build the preserved migration executors
-        if: ${{ !cancelled() && matrix.targets != 'unit' }}
+        if: ${{ !cancelled() && (startsWith(matrix.targets, 'integration') || matrix.targets == 'all') }}
         run: |
           git fetch --no-tags --depth=1 origin 0510c2455dabcb63e33c719ba52ac189d62612bc 2a0c7bd380f58a553dc903d399255821c1a65d0f 8f1b6b837ace7027f2a62f15168843790ce6de28
           rustup toolchain install 1.99.0 --profile minimal
@@ -196,7 +198,7 @@ jobs:
         if: ${{ !cancelled() && steps.rust_test_compile.outcome == 'success' }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
-          name: commerce-acceptance-driver-${{ github.sha }}-${{ github.run_id }}${{ matrix.targets == 'integration' && '-integration' || '' }}
+          name: commerce-acceptance-driver-${{ github.sha }}-${{ github.run_id }}${{ matrix.targets != 'all' && matrix.targets != 'unit' && format('-{0}', matrix.targets) || '' }}
           path: ${{ runner.temp }}/commerce-acceptance-driver
           if-no-files-found: error
           compression-level: 0
@@ -231,19 +233,41 @@ jobs:
           LMM_PAYMENT_BOOTSTRAP_BIN="$(realpath "$RUNNER_TEMP/lmm-payment-bootstrap")"
           LMM_PAYMENT_BOOTSTRAP_SHA256="$(sha256sum "$LMM_PAYMENT_BOOTSTRAP_BIN" | cut -d ' ' -f1)"
           export LMM_PAYMENT_CORE_BIN LMM_PAYMENT_CORE_SHA256 LMM_PAYMENT_GO_BIN LMM_PAYMENT_GO_SHA256 LMM_PAYMENT_BOOTSTRAP_BIN LMM_PAYMENT_BOOTSTRAP_SHA256
-          # Emit panic diagnostics immediately, including when the job times out.
+          # Keep the suite serial within each PostgreSQL cluster. The shards cover
+          # disjoint test names or Cargo targets, including newly added targets.
+          run_tests() {
+            cargo test --locked --no-fail-fast "$@" \
+              --skip synthetic_live_proof_crosses_core_go_processes_and_posts_once \
+              --skip offline_financial_import_contracts_and_postgres --nocapture
+          }
           case "$RUST_TARGET_GROUP" in
-            all) targets=(--all-targets) ;;
-            unit) targets=(--lib --bins --examples --benches) ;;
-            integration) targets=(--test '*') ;;
+            all)
+              run_tests --all-targets -- ;;
+            unit)
+              status=0
+              run_tests --lib -- --skip model_http:: || status=$?
+              run_tests --bins --examples --benches -- || status=$?
+              exit "$status" ;;
+            model-unit)
+              run_tests --lib -- model_http:: ;;
+            integration|integration-extra)
+              shard=0
+              if [[ "$RUST_TARGET_GROUP" == integration-extra ]]; then shard=1; fi
+              selected=$(cargo metadata --locked --no-deps --format-version 1 |
+                jq -er --argjson shard "$shard" '
+                  [.packages[] | select(.name == "lmm-core") | .targets[]
+                   | select(.kind | index("test")) | .name]
+                  | sort | to_entries[] | select(.key % 2 == $shard) | .value')
+              mapfile -t names <<<"$selected"
+              targets=()
+              for target in "${names[@]}"; do
+                targets+=(--test "$target")
+              done
+              run_tests "${targets[@]}" -- ;;
             *) echo "Unknown Rust target group: $RUST_TARGET_GROUP" >&2; exit 1 ;;
-          esac
-          # Dedicated jobs run the financial importer and formal Docker RPC acceptance.
-          cargo test --locked "${targets[@]}" --no-fail-fast -- \
-            --skip synthetic_live_proof_crosses_core_go_processes_and_posts_once \
-            --skip offline_financial_import_contracts_and_postgres --nocapture 2>&1 | tee "$RUNNER_TEMP/core-tests.log"
+          esac 2>&1 | tee "$RUNNER_TEMP/core-tests.log"
       - name: Repeat rejected event acknowledgement regression
-        if: ${{ !cancelled() && matrix.targets != 'integration' && steps.rust_test_compile.outcome == 'success' }}
+        if: ${{ !cancelled() && (matrix.targets == 'unit' || matrix.targets == 'all') && steps.rust_test_compile.outcome == 'success' }}
         working-directory: services/core
         run: |
           for attempt in {1..10}; do
@@ -251,10 +275,10 @@ jobs:
             cargo test --locked --lib events::tests::service_scope_and_consumer_backlog_limit_cannot_be_bypassed -- --exact 2>&1 | tee -a "$RUNNER_TEMP/core-events-repeated.log"
           done
       - name: Synthetic payment live process through owning runner
-        if: ${{ !cancelled() && matrix.targets != 'unit' }}
+        if: ${{ !cancelled() && (matrix.targets == 'integration' || matrix.targets == 'all') }}
         run: python3 -B scripts/ci-payment-live.py --output "$(realpath -m "$RUNNER_TEMP/payment-live")" 2>&1 | tee "$RUNNER_TEMP/payment-live-build.log"
       - name: Go contract and race tests
-        if: ${{ !cancelled() && matrix.targets != 'integration' }}
+        if: ${{ !cancelled() && (matrix.targets == 'unit' || matrix.targets == 'all') }}
         working-directory: services/extensions
         env:
           PAYMENT_TEST_DSN: postgres://postgres:postgres@127.0.0.1:5432/lmm_payments_test
@@ -267,7 +291,7 @@ jobs:
           go test -race ./... -count=1 -json | tee "$RUNNER_TEMP/extension-tests.jsonl"
           CGO_ENABLED=0 go build -mod=readonly -trimpath -o "$RUNNER_TEMP/lmm-extensions" ./cmd/extensions
       - name: Store and support real PostgreSQL acceptance
-        if: ${{ !cancelled() && matrix.targets != 'integration' }}
+        if: ${{ !cancelled() && (matrix.targets == 'unit' || matrix.targets == 'all') }}
         env:
           LMM_STORE_TEST_DSN: postgres://postgres:postgres@127.0.0.1:5432/lmm_store_test?sslmode=disable
         run: |
@@ -278,7 +302,7 @@ jobs:
           go vet -mod=readonly ./...
           go test -mod=readonly -race -count=1 -json ./... | tee "$RUNNER_TEMP/store-postgres.jsonl"
       - name: Durable cross-language event process recovery
-        if: ${{ !cancelled() && matrix.targets != 'integration' }}
+        if: ${{ !cancelled() && (matrix.targets == 'unit' || matrix.targets == 'all') }}
         run: |
           (cd services/core && cargo build --locked --example protocol-events-fixture)
           (cd contracts/proto/tests/go && go vet -mod=readonly ./... && go build -mod=readonly -o "$RUNNER_TEMP/mk06-go-fixture" .)
@@ -290,7 +314,7 @@ jobs:
         if: ${{ always() }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
-          name: microkernel-checks-${{ github.sha }}-${{ github.run_id }}${{ matrix.targets == 'integration' && '-integration' || '' }}
+          name: microkernel-checks-${{ github.sha }}-${{ github.run_id }}${{ matrix.targets != 'all' && matrix.targets != 'unit' && format('-{0}', matrix.targets) || '' }}
           path: |
             ${{ runner.temp }}/core-source-sha.txt
             ${{ runner.temp }}/core-format.log

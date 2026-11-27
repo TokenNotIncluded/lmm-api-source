@@ -496,27 +496,38 @@ test('native package uploads keep raw Alpine fixture output private', () => {
   assert.ok(source.includes('--report "/receipts/$report" > "$staging/fixture.log" 2>&1'));
 });
 
-test('automatic Core checks run both Cargo target groups on independent runners', () => {
+test('automatic Core checks partition every Rust target across independent runners', () => {
   const source = workflow('core-protocol');
   assert.match(workflow('ci'), /uses: \.\/\.github\/workflows\/core-protocol\.yml\n    with:\n      split_rust_targets: true/);
   assert.match(source, /split_rust_targets:[\s\S]*?type: boolean\n        default: false/);
-  assert.match(source, /fail-fast: false\n      matrix:\n        targets: .*inputs\.split_rust_targets && '\["unit","integration"\]' \|\| '\["all"\]'/);
+  assert.match(source, /fail-fast: false\n      matrix:\n        targets: .*inputs\.split_rust_targets && '\["unit","model-unit","integration","integration-extra"\]' \|\| '\["all"\]'/);
   assert.ok(source.includes('RUST_TARGET_GROUP: ${{ matrix.targets }}'));
   assert.match(source, /timeout-minutes: 150/);
   assert.doesNotMatch(source, /continue-on-error:/);
-  const selector = source.match(/case "\$RUST_TARGET_GROUP" in[\s\S]*?\besac\b/)?.[0];
-  assert.ok(selector);
-  function flags(group) {
-    return execFileSync('bash', ['-c', selector + '\nprintf "%s\\n" "${targets[@]}"'], {
-      env: { ...process.env, RUST_TARGET_GROUP: group },
+  const executor = source.match(/run_tests\(\) \{[\s\S]*?case "\$RUST_TARGET_GROUP" in[\s\S]*?\besac\b/)?.[0];
+  assert.ok(executor);
+  const metadata = {packages: [
+    {name: 'lmm-core', targets: [
+      ...['delta', 'alpha', 'gamma', 'beta', 'epsilon'].map(name => ({kind: ['test'], name})),
+      {kind: ['lib'], name: 'lmm_core'},
+    ]},
+    {name: 'another-crate', targets: [{kind: ['test'], name: 'foreign'}]},
+  ]};
+  const stub = 'cargo() { if [[ $1 == metadata ]]; then printf "%s\\n" "$METADATA"; else printf "%s\\n" "$*"; fi; }\n';
+  function calls(group) {
+    return execFileSync('bash', ['-euo', 'pipefail', '-c', stub + executor], {
+      env: { ...process.env, RUST_TARGET_GROUP: group, METADATA: JSON.stringify(metadata) },
       stdio: ['ignore', 'pipe', 'pipe'],
       encoding: 'utf8',
-    }).trim().split('\n');
+    }).trim().split('\n').map(line => line.split(' --skip synthetic_live_proof')[0]);
   }
-  assert.deepEqual(flags('all'), ['--all-targets']);
-  assert.deepEqual(flags('unit'), ['--lib', '--bins', '--examples', '--benches']);
-  assert.deepEqual(flags('integration'), ['--test', '*']);
-  assert.throws(() => flags('unknown'), { status: 1 });
+  const runner = 'test --locked --no-fail-fast ';
+  assert.deepEqual(calls('all'), [runner + '--all-targets --']);
+  assert.deepEqual(calls('unit'), [runner + '--lib -- --skip model_http::', runner + '--bins --examples --benches --']);
+  assert.deepEqual(calls('model-unit'), [runner + '--lib -- model_http::']);
+  assert.deepEqual(calls('integration'), [runner + '--test alpha --test delta --test gamma --']);
+  assert.deepEqual(calls('integration-extra'), [runner + '--test beta --test epsilon --']);
+  assert.throws(() => calls('unknown'), { status: 1 });
 });
 
 test('Core CI freezes the process binary and private root before running all Rust tests', () => {
@@ -539,12 +550,12 @@ test('Core CI freezes the process binary and private root before running all Rus
   const hash = block.indexOf('LMM_MODEL_PROCESS_CORE_SHA256="$(sha256sum "$LMM_MODEL_PROCESS_CORE_BIN"');
   const root = block.indexOf('LMM_MODEL_PROCESS_ROOT="$(mktemp -d "$process_evidence_root/model-XXXXXXXX")"');
   const exported = block.indexOf('export LMM_MODEL_PROCESS_CORE_BIN LMM_MODEL_PROCESS_CORE_SHA256 LMM_MODEL_PROCESS_ROOT');
-  const execute = block.indexOf('cargo test --locked "${targets[@]}" --no-fail-fast');
+  const execute = block.indexOf('cargo test --locked --no-fail-fast "$@"');
   assert.ok(binary >= 0 && hash > binary && root > hash
     && exported > root && execute > exported, 'freeze inputs after compiling, before executing');
   // Each omitted Cargo invocation still has a required owning runner.
   assert.deepEqual(
-    [...block.matchAll(/--skip (\w+)/g)].map((match) => match[1]),
+    [...block.matchAll(/--skip (\w+)(?=\s)/g)].map((match) => match[1]),
     ['synthetic_live_proof_crosses_core_go_processes_and_posts_once',
       'offline_financial_import_contracts_and_postgres'],
   );
@@ -556,7 +567,7 @@ test('Core CI isolates independent process evidence and cluster-wide role snapsh
   assert.match(source, /RUST_TEST_THREADS: "1"/);
   const block = source.match(/      - name: Rust checks and real database tests\n([\s\S]*?)(?=      - name:)/)?.[1];
   assert.ok(block);
-  const execute = block.indexOf('cargo test --locked "${targets[@]}" --no-fail-fast');
+  const execute = block.indexOf('cargo test --locked --no-fail-fast "$@"');
   for (const name of [
     'LMM_CONTINUITY_DEV_ARTIFACTS',
     'COMPACT_INDEPENDENT_ARTIFACTS',
@@ -576,17 +587,17 @@ test('Core CI isolates independent process evidence and cluster-wide role snapsh
   assert.match(source, /\$\{\{ runner.temp \}\}\/core-process-evidence-\*/);
 });
 
-test('preserved migration executors build only with the historical integration tests', () => {
+test('preserved migration executors build only on integration or full test hosts', () => {
   const source = workflow('core-protocol');
-  assert.match(source, /name: Build the preserved migration executors\n        if: \$\{\{ !cancelled\(\) && matrix.targets != 'unit' \}\}/);
-  assert.match(source, /integration\) targets=\(--test '\*'\)/);
-  assert.match(source, /all\) targets=\(--all-targets\)/);
+  assert.match(source, /name: Build the preserved migration executors\n        if: \$\{\{ !cancelled\(\) && \(startsWith\(matrix.targets, 'integration'\) \|\| matrix.targets == 'all'\) \}\}/);
+  assert.match(source, /integration\|integration-extra\)/);
+  assert.match(source, /run_tests --all-targets --/);
 });
 
 test('externally owned payment live case remains required through its real runner', () => {
   const source = workflow('core-protocol');
   assert.match(source, /--skip synthetic_live_proof_crosses_core_go_processes_and_posts_once/);
-  assert.match(source, /name: Synthetic payment live process through owning runner\n        if: \$\{\{ !cancelled\(\) && matrix.targets != 'unit' \}\}\n        run: python3 -B scripts\/ci-payment-live.py/);
+  assert.match(source, /name: Synthetic payment live process through owning runner\n        if: \$\{\{ !cancelled\(\) && \(matrix.targets == 'integration' \|\| matrix.targets == 'all'\) \}\}\n        run: python3 -B scripts\/ci-payment-live.py/);
   assert.match(source, /payment-live\/evidence\/result.json/);
   const script = read('scripts/ci-payment-live.py');
   assert.ok(script.indexOf('frozen = live.v.sources()') < script.indexOf('build = subprocess.run('));
