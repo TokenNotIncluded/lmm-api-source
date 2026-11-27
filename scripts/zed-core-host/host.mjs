@@ -38,7 +38,7 @@ const nativePrompt = 'Write a short reply for this selection'
 async function windowSnapshot(name) {
   const file = join(root, 'window.png')
   await execute('import', ['-window',win,file])
-  const { stdout } = await execute('tesseract', [file,'stdout','--psm','6'])
+  const { stdout } = await execute('tesseract', [file,'stdout','--psm','11'])
   if (/lmmk_|lmm_[ar]t_|Bearer\\s+[A-Za-z0-9_-]{12,}|[?&](?:code|state)=/i.test(stdout)) throw new Error('Private observation')
   if (name) {
     await mkdir(captureDir,{recursive:true})
@@ -137,7 +137,7 @@ try {
     const untilTime = Date.now() + 4500
     do {
       const screen = await windowSnapshot()
-      visiblePrompt = screen.includes('short reply')
+      visiblePrompt = screen.includes('short reply') && screen.includes('transform')
       if (!visiblePrompt) await pause(350)
     } while (!visiblePrompt && Date.now() < untilTime)
   }
@@ -171,7 +171,16 @@ try {
   if (win) await windowSnapshot('failure').catch(() => {})
   const safeCode = /^[A-Z_]+$/.test(error?.code ?? '') ? error.code : error?.name
   const reason = error?.message === 'Timed out' ? 'deadline' : safeCode
-  const status = tunnel?.calls.map(c => ({ path: c.path, status: c.status }))
+  const status = tunnel?.calls.map(c => {
+    let code
+    if (c.status >= 400) {
+      try {
+        const value = JSON.parse(c.body)?.error?.code
+        if (typeof value === 'string' && /^[a-z0-9_.-]{1,80}$/.test(value)) code = value
+      } catch {}
+    }
+    return { path: c.path, status: c.status, code }
+  })
   console.error('Zed native acceptance failed at ' + stage + ' (' + reason + '); model HTTP ' + JSON.stringify(status ?? []))
   process.exitCode = 1
 } finally {
