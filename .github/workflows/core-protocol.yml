@@ -136,7 +136,7 @@ jobs:
         working-directory: services/core
         run: cargo fmt --all --check 2>&1 | tee "$RUNNER_TEMP/core-format.log"
       - name: Build the preserved migration executors
-        if: ${{ !cancelled() }}
+        if: ${{ !cancelled() && matrix.targets != 'unit' }}
         run: |
           git fetch --no-tags --depth=1 origin 0510c2455dabcb63e33c719ba52ac189d62612bc 2a0c7bd380f58a553dc903d399255821c1a65d0f 8f1b6b837ace7027f2a62f15168843790ce6de28
           rustup toolchain install 1.99.0 --profile minimal
@@ -251,7 +251,7 @@ jobs:
             cargo test --locked --lib events::tests::service_scope_and_consumer_backlog_limit_cannot_be_bypassed -- --exact 2>&1 | tee -a "$RUNNER_TEMP/core-events-repeated.log"
           done
       - name: Synthetic payment live process through owning runner
-        if: ${{ !cancelled() }}
+        if: ${{ !cancelled() && matrix.targets != 'unit' }}
         run: python3 -B scripts/ci-payment-live.py --output "$(realpath -m "$RUNNER_TEMP/payment-live")" 2>&1 | tee "$RUNNER_TEMP/payment-live-build.log"
       - name: Go contract and race tests
         if: ${{ !cancelled() && matrix.targets != 'integration' }}

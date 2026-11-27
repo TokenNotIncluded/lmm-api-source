@@ -576,10 +576,17 @@ test('Core CI isolates independent process evidence and cluster-wide role snapsh
   assert.match(source, /\$\{\{ runner.temp \}\}\/core-process-evidence-\*/);
 });
 
+test('preserved migration executors build only with the historical integration tests', () => {
+  const source = workflow('core-protocol');
+  assert.match(source, /name: Build the preserved migration executors\n        if: \$\{\{ !cancelled\(\) && matrix.targets != 'unit' \}\}/);
+  assert.match(source, /integration\) targets=\(--test '\*'\)/);
+  assert.match(source, /all\) targets=\(--all-targets\)/);
+});
+
 test('externally owned payment live case remains required through its real runner', () => {
   const source = workflow('core-protocol');
   assert.match(source, /--skip synthetic_live_proof_crosses_core_go_processes_and_posts_once/);
-  assert.match(source, /name: Synthetic payment live process through owning runner\n        if: \$\{\{ !cancelled\(\) \}\}\n        run: python3 -B scripts\/ci-payment-live.py/);
+  assert.match(source, /name: Synthetic payment live process through owning runner\n        if: \$\{\{ !cancelled\(\) && matrix.targets != 'unit' \}\}\n        run: python3 -B scripts\/ci-payment-live.py/);
   assert.match(source, /payment-live\/evidence\/result.json/);
   const script = read('scripts/ci-payment-live.py');
   assert.ok(script.indexOf('frozen = live.v.sources()') < script.indexOf('build = subprocess.run('));
